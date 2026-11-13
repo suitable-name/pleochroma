@@ -1,5 +1,4 @@
-//! Tests for [`super::diagram`]/[`super::html`]: pure-function coverage with a
-//! plain `Design` fixture and no window, per this group's own module doc comment.
+//! Tests for [`super::diagram`] and [`super::html`] on a plain `Design` fixture, without a window.
 
 use super::{
     SheetDetails, SheetLayout,
@@ -78,11 +77,8 @@ fn custom_garnet(n_d: f32) -> GemMaterial {
     gem
 }
 
-/// A design on a CUSTOM catalogue material must print that material's own
-/// `n_D` in the printed sheet's "RI range" row when `custom` is
-/// supplied -- the bug this module fixes. `&[]` (no catalogue) must still fall
-/// back to the legacy schedule RI, matching the built-ins-only behaviour every
-/// other test in this module already relies on.
+/// A design on a custom catalogue material prints that material's own `n_D` in the "RI range"
+/// row when `custom` is supplied. With `&[]` (no catalogue) the legacy schedule RI is printed.
 #[test]
 fn cutting_sheet_html_prints_a_custom_materials_own_refractive_index() {
     let mut design = round_brilliant_design();
@@ -157,9 +153,8 @@ fn material_label_is_absent_when_nothing_is_close() {
     assert_eq!(material_label(&design, n_d), None);
 }
 
-/// The generated sheet must carry one line per tier, in cutting order, with the code, the
-/// instruction and (in the mast table) the tier's name and formatted mast all present -- a
-/// basic "does the known schedule show up" check before the more targeted tests below.
+/// The sheet carries one line per tier, in cutting order, with the code and instruction, and the
+/// mast table carries the tier's name and mast.
 #[test]
 fn cutting_sheet_html_contains_expected_rows() {
     let design = round_brilliant_design();
@@ -179,13 +174,15 @@ fn cutting_sheet_html_contains_expected_rows() {
         "the table's index column reads Table"
     );
     assert!(html.contains(&code_cell("Culet")));
-    // Computed meets (cut-core `cutting_sheet`): the girdle sets the stone size, later tiers
-    // meet the earlier-cut tiers they touch, the pavilion mains touch none and print their mast.
-    // The template prints the instruction without the tier's name in front.
+    // Computed meets (cut-core `cutting_sheet`, on the stone cut so far): the girdle sets the
+    // stone size and the pavilion mains, cut first, have nothing to meet and print their mast.
+    // The fixture's round masts reach none of the points the tiers cut before them leave, so
+    // every later tier prints its mast too (the editor's Checks, not the sheet, say it has no
+    // meet point). The template prints the instruction without the tier's name in front.
     for instruction in [
         "Set stone size.",
-        "Meet C1, C2",
-        "Meet C1",
+        "Set to mast depth 0.3200",
+        "Set to mast depth 0.5900",
         "Set to mast depth 0.6700",
     ] {
         assert!(
@@ -289,9 +286,9 @@ fn mm_column_appears_only_when_girdle_diameter_is_set() {
     );
 }
 
-/// The section a row is in must come from the solver's own `classify_blocks`, not the sign
-/// of the printed angle -- the mistake this codebase already made once.
-/// `standard_round_brilliant`'s own tiers give a known split: Table/Star/Crown Main/Upper
+/// The section a row is in must come from the solver's `classify_blocks`, not the sign of the
+/// printed angle. The tiers of `standard_round_brilliant` give a known split: Table/Star/Crown
+/// Main/Upper
 /// Girdle are Crown, the 90-degree `Girdle` tier is Girdle (printed in the Pavilion
 /// section), and Pavilion Main/Lower Girdle/Culet (the last at a sign-negative zero angle,
 /// which is the pavilion side) are Pavilion.
@@ -479,8 +476,8 @@ fn html_sections_band_every_other_tier_starting_shaded() {
     }
 }
 
-/// A planar design is no longer printed in its stored order: the fixture is stored top-down
-/// (table first), the sheet lists the pavilion and girdle tiers first (the Pavilion
+/// A planar design prints in cutting order, not in its stored order. The fixture is stored
+/// top-down (table first); the sheet lists the pavilion and girdle tiers first (the Pavilion
 /// section), the crown next and the table last (the Crown section), each line labelled with
 /// its code.
 #[test]

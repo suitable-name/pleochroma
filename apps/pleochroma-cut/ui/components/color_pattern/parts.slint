@@ -1,11 +1,24 @@
 import { Theme } from "../../theme.slint";
-import { Slider } from "std-widgets.slint";
-import { TipBox, FieldCaption } from "../tip_box.slint";
+import { KitButton, KitGlass, KitIconButton, KitSegment, KitSwatch, KitCombo, KitSlider } from "../kit/kit.slint";
 
-// Small controls of the Color Pattern window.
+// Small controls of the Color Pattern window. Every interactive one carries a tooltip (`hint`),
+// an accessible label and a keyboard path (Tab to it, Space or Enter to press it), and draws
+// from `Theme` so high contrast keeps working.
 
-// A color chip; with `split` the left half shows `color_a` and the right half `color_b` (a
-// Two-Color zone: Along and Across).
+// A glass panel floating over the stage picture.
+export component PatternGlass inherits KitGlass { }
+
+// A 12 px secondary caption, vertically centered.
+export component PatternLabel inherits Text {
+    font-size: 12px;
+    color: Theme.text-secondary;
+    vertical-alignment: center;
+    horizontal-stretch: 0;
+}
+
+// A small flat color chip, 20 x 14 px; with `split` the left half shows `color_a` and the right
+// half `color_b`. The Gem Material Editor's Color Pattern section uses it too
+// (`components/material_editor/color_pattern_section.slint`), so its API is shared.
 export component PatternSwatch inherits Rectangle {
     in property <color> color_a: #888888;
     in property <color> color_b: #888888;
@@ -32,37 +45,33 @@ export component PatternSwatch inherits Rectangle {
     }
 }
 
-// A section caption.
-export component PatternTitle inherits Rectangle {
-    in property <string> text;
-    height: 18px;
-    Text {
-        width: parent.width;
-        height: parent.height;
-        text: root.text;
-        font-size: 11px;
-        font-weight: 700;
-        color: Theme.text-muted;
-        vertical-alignment: center;
-        accessible-role: AccessibleRole.text;
-    }
+// A color chip split on the diagonal with `split` (Along top left, Across bottom right): the
+// kit's swatch with the split off by default.
+export component PatternChip inherits KitSwatch {
+    split: false;
 }
 
-// A wrapped note line.
-export component PatternNote inherits Rectangle {
-    in property <string> text;
-    in property <color> text_color: Theme.text-muted;
-    preferred-height: note_text.preferred-height;
-    note_text := Text {
-        width: parent.width;
-        text: root.text;
-        font-size: 10px;
-        color: root.text_color;
-        wrap: word-wrap;
-    }
+// A square icon button; the kit's.
+export component PatternIconButton inherits KitIconButton { }
+
+// A text button, optionally with a leading icon and a trailing chevron; the kit's, with the
+// `primary` and `ghost` flags mapped onto its `kind`.
+export component PatternButton inherits KitButton {
+    in property <bool> primary: false;
+    in property <bool> ghost: false;
+    kind: root.primary ? 1 : (root.ghost ? 2 : 0);
 }
 
-// A caption, a slider and a readout on one line.
+// One segment of a segmented control (inside a glass panel); the kit's.
+export component PatternSegment inherits KitSegment { }
+
+// The standard dropdown pinned to 28 px, with a tooltip; the kit's.
+export component PatternCombo inherits KitCombo { }
+
+// The standard slider pinned to a 28 px row, with a tooltip; the kit's.
+export component PatternSliderBox inherits KitSlider { }
+
+// A caption, a slider and a readout on one 28 px row.
 export component PatternSlider inherits HorizontalLayout {
     in property <string> label;
     in property <string> hint;
@@ -71,39 +80,53 @@ export component PatternSlider inherits HorizontalLayout {
     in property <float> maximum: 1;
     in property <float> step: 0.01;
     in property <bool> enabled: true;
-    in property <length> caption_width: 64px;
-    in property <length> readout_width: 80px;
+    in property <length> label_width: 64px;
+    in property <length> readout_width: 76px;
     in-out property <float> value;
     callback moved(float);
 
-    spacing: 6px;
-    FieldCaption {
-        width: root.caption_width;
-        text: root.label;
-        hint: root.hint;
+    spacing: 10px;
+    height: 28px;
+    Rectangle {
+        width: root.label_width;
+        if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
+        Text {
+            x: 0px;
+            width: parent.width;
+            height: parent.height;
+            text: root.label;
+            font-size: 12px;
+            color: root.enabled ? Theme.text-secondary : Theme.text-muted;
+            vertical-alignment: center;
+            overflow: elide;
+            accessible-role: AccessibleRole.text;
+        }
     }
-    TipBox {
+    PatternSliderBox {
         horizontal-stretch: 1;
         hint: root.hint;
-        Slider {
-            enabled: root.enabled;
-            minimum: root.minimum;
-            maximum: root.maximum;
-            step: root.step;
-            value <=> root.value;
-            accessible-label: root.label;
-            accessible-description: root.hint;
-            changed(v) => { root.moved(v); }
-        }
+        label: root.label;
+        enabled: root.enabled;
+        minimum: root.minimum;
+        maximum: root.maximum;
+        step: root.step;
+        value <=> root.value;
+        moved(v) => { root.moved(v); }
     }
     Text {
         width: root.readout_width;
         text: root.value_text;
-        font-size: 10px;
-        color: root.enabled ? Theme.text-secondary : Theme.text-muted;
+        font-size: 12px;
+        color: root.enabled ? Theme.text-primary : Theme.text-muted;
         vertical-alignment: center;
         horizontal-alignment: right;
         overflow: elide;
         accessible-role: AccessibleRole.text;
     }
+}
+
+// A thin vertical divider for toolbars.
+export component PatternDivider inherits Rectangle {
+    width: 1px;
+    background: Theme.high-contrast ? Theme.border-medium : #ffffff1a;
 }

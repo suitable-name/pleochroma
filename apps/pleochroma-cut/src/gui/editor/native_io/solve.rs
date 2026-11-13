@@ -15,16 +15,12 @@ use std::{
     sync::Arc,
 };
 
-// This module uses a `SolveService` worker -- see `resolve_solved_then`'s own doc
-// comment, below.
 use crate::gui::editor::solve_service::{SolveKind, SolveOutcome, SolveRequest, SolveService};
 
 // =============================================================================
-// Shared infrastructure for write/export/autosave/open paths. Three groups of
-// operations each get one shared entry point below:
-// 1. Group 1: no inline solves (use cached solve or background solve)
-// 2. Group 2: in-window confirmations
-// 3. Group 3: file pickers off the UI thread
+// The write, export, autosave and open paths share three entry points: solves that are
+// never inline (Group 1, below), in-window confirmations (Group 2) and file pickers off the
+// UI thread (Group 3).
 // =============================================================================
 
 // --- Group 1: a matching cached solve, else a background solve, never inline ---
@@ -72,11 +68,9 @@ pub(super) fn classify_solve_result(
 
 /// The FIFO of submitted solve keys plus the single key currently on the worker.
 ///
-/// [`SolveService`]'s mailbox holds one request and overwrites anything the worker has
-/// not picked up yet, so two requests in flight at once strand or displace each other.
-/// This lane hands the worker one request at a time instead: a key starts only after
-/// the previous one finished, so the worker never sees a newer request arrive while
-/// it is still computing an older one.
+/// [`SolveService`]'s mailbox holds one request and overwrites anything not yet picked up,
+/// so two requests in flight would displace each other. The lane therefore starts a key only
+/// after the previous one has finished.
 #[derive(Debug, Default)]
 pub(super) struct SolveLane {
     /// Keys waiting for the worker, oldest first.
@@ -128,14 +122,9 @@ impl SolveLane {
 /// [`cached_solve_matching`] purely so a test can drive it with a plain fixture,
 /// with no `auto_solve` runtime involved.
 ///
-/// This is a conservative PROXY for "describes the design as it is right now," not
-/// a true generation match: an edit that changes a tier's angle/index without
-/// changing the tier COUNT (an ordinary angle nudge, say) leaves a stale-but-
-/// same-shaped cached solve looking usable. Every call site below still treats
-/// "no usable cache" the same as "cache empty": it submits a real, off-UI-thread
-/// solve rather than trusting a possibly-stale one, so the exposure here is
-/// narrower than it sounds -- a false "still matches" only survives until the next
-/// background solve completes for this same tier count.
+/// This is only a proxy for "describes the design as it is now": an edit that changes a
+/// tier's angle but not the tier count still matches. A stale match survives only until the
+/// next background solve of the same tier count completes.
 #[must_use]
 pub(super) fn solve_matches_design(
     cached: Option<&[SolvedTier]>,
@@ -146,23 +135,12 @@ pub(super) fn solve_matches_design(
 }
 
 /// Reads the shared last-completed background solve and returns it only when
-/// [`solve_matches_design`] accepts it against `design`. See that function's own
-/// doc comment for what "matches" does and does not guarantee.
+/// [`solve_matches_design`] accepts it against `design`.
 ///
-/// # The shared cache is tagged, but this reader cannot use the tag
-///
-/// `auto_solve::solid_last_solved`'s cache is an
-/// `Arc<Mutex<Option<(u64, Vec<SolvedTier>)>>>`: every completed background solve
-/// stores the `EditorState::generation` it was solved against next to the masts.
-/// This function has no generation of its own to compare that tag with (its one
-/// caller, `retarget_actions::setup_snapshot_callbacks`, goes through
-/// [`resolve_solved_then`], whose signature carries none), so it drops the tag and
-/// falls back to the tier-count proxy. A Save/Export landing right after an edit can
-/// therefore reuse a cache entry that describes the design one or more edits ago.
-/// [`resolve_solve_at`] is the fix for the write paths: it never reads THIS cache,
-/// only a LOCAL one this module tags with the caller's generation itself (see
-/// [`LOCAL_SOLVE_CACHE`]) and matches exactly -- at the cost of a design's first
-/// save or export in a session always submitting a fresh solve.
+/// The shared cache (`auto_solve::solid_last_solved`) is tagged with the generation it was
+/// solved for, but this reader drops the tag: its callers pass no generation. A save right
+/// after an edit can therefore reuse masts of an earlier design. The write paths use
+/// [`resolve_solve_at`], which reads only the generation-tagged [`LOCAL_SOLVE_CACHE`].
 fn cached_solve_matching(design: &Design) -> Option<Vec<SolvedTier>> {
     let cache = crate::gui::editor::auto_solve::solid_last_solved()?;
     let guard = cache
@@ -172,22 +150,16 @@ fn cached_solve_matching(design: &Design) -> Option<Vec<SolvedTier>> {
 }
 
 thread_local! {
-    /// [`resolve_solve_at`]'s own generation-tagged cache -- see
-    /// [`cached_solve_matching`]'s own doc comment for why this module needs one
-    /// of its own rather than trusting the shared one's tier-count proxy. Written only
-    /// by [`resolve_solve_at`]'s own background-solve completion, tagged with
-    /// the generation that request was submitted for; read only by
-    /// [`local_cache_matching`], which requires an EXACT match against the
-    /// generation it was called with.
+    /// [`resolve_solve_at`]'s generation-tagged cache, which avoids the shared cache's
+    /// tier-count proxy (see [`cached_solve_matching`]). Written only when a background solve
+    /// completes, tagged with the generation it was submitted for, and read by
+    /// [`local_cache_matching`] with an exact generation match.
     static LOCAL_SOLVE_CACHE: RefCell<Option<(u64, Vec<SolvedTier>)>> = const { RefCell::new(None) };
 }
 
-/// [`LOCAL_SOLVE_CACHE`]'s read half: `Some` only when the cache holds a solve
-/// for EXACTLY `generation` and its tier count still matches `design` (the
-/// second check catches the (rare) case where `generation` was somehow reused
-/// against a structurally different design -- cheap, and matches
-/// [`solve_matches_design`]'s own existing discipline of never trusting length
-/// alone as a first-order signal without at least a re-check here).
+/// [`LOCAL_SOLVE_CACHE`]'s read half: `Some` only when the cache holds a solve for exactly
+/// `generation`, and its tier count still matches `design` (a generation reused for a
+/// different design is then rejected).
 fn local_cache_matching(design: &Design, generation: u64) -> Option<Vec<SolvedTier>> {
     LOCAL_SOLVE_CACHE.with(|cell| {
         let cached = cell.borrow();
@@ -218,17 +190,11 @@ struct PendingSolve {
 }
 
 thread_local! {
-    /// This module's own persistent [`SolveService`] worker -- created lazily on
-    /// first use ([`ensure_solve_service`]). `setup_editor_callbacks` does not own
-    /// one to share with this module, and every write/export/autosave site here
-    /// needs the same one worker, so this module owns it directly. One worker for
-    /// the life of the window.
+    /// This module's [`SolveService`] worker, created on first use ([`ensure_solve_service`])
+    /// and kept for the life of the window.
     static SOLVE_SERVICE: RefCell<Option<SolveService>> = const { RefCell::new(None) };
-    /// Submitted solves keyed by the `generation` `SolveRequest`/`SolveResult` echo
-    /// back -- reused purely as an opaque continuation key (see
-    /// `SolveRequest::generation`'s own doc comment: "opaque to this module"), since
-    /// none of this module's callers have a real domain generation counter to compare
-    /// a background solve against (that belongs to `EditorState`).
+    /// Submitted solves, keyed by the `generation` that `SolveRequest` and its result echo
+    /// back. The key is opaque here: it is only a continuation key.
     static PENDING_SOLVES: RefCell<HashMap<u64, PendingSolve>> = RefCell::new(HashMap::new());
     /// Which pending keys wait for the worker and which one is on it.
     static SOLVE_LANE: RefCell<SolveLane> = RefCell::new(SolveLane::default());
@@ -315,9 +281,7 @@ fn ensure_solve_service(ui: &MainWindow) {
         }
         let service = SolveService::new(
             ui.as_weak(),
-            // No progress UI is wired to this module's own write/export/autosave
-            // paths yet -- a future change can render `SolveProgressReport` the
-            // same way `deep_solve`'s own status line does.
+            // These paths show no progress.
             |_ui, _progress| {},
             |ui, result| {
                 let key = result.generation;
@@ -379,16 +343,11 @@ fn submit_full_solve(
     dispatch_next_solve();
 }
 
-/// Group 1's entry point: resolves a design's solve either from cache (synchronous)
-/// or background solve (asynchronous). Uses [`cached_solve_matching`] when it has
-/// an answer (synchronous, no perceptible cost), else [`submit_full_solve`]
-/// (asynchronous -- `then` runs once the background worker reports back). Either
-/// way `then` runs exactly once, with `design` handed back alongside the result
-/// so a caller need not keep its own separate clone around just to reach it from
-/// the continuation.
+/// Resolves a design's solve from the shared cache when it matches, else from a background
+/// solve. `then` runs exactly once, on the UI thread, with `design` handed back alongside the
+/// result. It never runs inline with a background solve.
 ///
-/// Reused by `callbacks::retarget_actions::setup_snapshot_callbacks` for its
-/// cached-or-background resolution -- see that function's own doc comment.
+/// Used by `callbacks::retarget_actions::setup_snapshot_callbacks`.
 pub(in crate::gui::editor) fn resolve_solved_then(
     ui: &MainWindow,
     design: Arc<Design>,

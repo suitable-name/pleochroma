@@ -24,7 +24,7 @@ pub enum EnvError {
     /// relation, or pinned without a hinge to turn about (see
     /// `OptimizerEnvConfig::vary_anchored`).
     NoMovableTiers,
-    /// Legacy compatibility variant. Current constructors do not reject no-light designs.
+    /// Kept for compatibility. No current constructor returns it: no-light designs are valid.
     NoLightReturn,
     /// A configuration value is out of range; the text names it.
     InvalidConfig(&'static str),

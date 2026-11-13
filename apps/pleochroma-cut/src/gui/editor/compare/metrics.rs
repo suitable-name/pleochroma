@@ -1,12 +1,13 @@
 //! The optical figures of the compare window: the data behind its metrics strip.
 //!
+//! The optical figures of the compare window: the data behind its metrics strip.
+//!
 //! Each solved side is measured table up (brilliance, windowing, extinction, fire and
-//! scintillation, [`pleochroma_editor::metric_deltas::measure_table_up_finished`], concave tools
-//! and frosted facets and girdle included) in its own material and under the viewport's
-//! lighting, right after the session is built (about 2
-//! ms a side, on the same worker thread as the solve). The strip can then add the tilt
-//! averages over four axes and 181 tilts: 2 x 724 evaluations, about 3 s, on a worker
-//! thread of their own that the cutter can cancel.
+//! scintillation, [`pleochroma_editor::metric_deltas::measure_table_up_finished`], concave
+//! tools and frosted facets and girdle included) in its own material and under the
+//! viewport's lighting, right after the session is built, on the solve's worker thread.
+//! The strip can then add the tilt averages over four axes and 181 tilts (2 x 724
+//! evaluations) on a worker thread of their own that the cutter can cancel.
 //!
 //! Everything here is Slint-free. [`SessionMetrics`] is the state, with the transitions of
 //! a tilt run ([`SessionMetrics::begin_tilt`], [`SessionMetrics::cancel_tilt`],
@@ -50,8 +51,8 @@ use tilt_run::{TiltOutcome, TiltRequest, TiltSide};
 // What `super::host` names: the reports a tilt thread posts and the call that starts one.
 pub(super) use tilt_run::{TiltEvent, TiltReport, spawn_tilt};
 
-/// The subject of the sentence in the snapshot dialog: the snapshot is "before", the
-/// design on the bench now is the thing that changed.
+/// The subject of the snapshot dialog's sentence: the design on the bench now, compared
+/// against the snapshot.
 const SNAPSHOT_SUBJECT: &str = "The current design";
 
 /// What the snapshot dialog says when one of the two designs has no figures.
@@ -561,7 +562,7 @@ mod tests {
     #[test]
     fn the_frosted_girdle_of_a_side_design_reaches_its_finishes_and_the_tilt_request() {
         let session = session(round_brilliant(), frosted_girdle_brilliant());
-        assert!(session.before.finishes().is_empty());
+        assert_eq!(session.before.finishes(), [] as [FacetFinish; 0]);
         let girdle = session.after.finishes();
         assert!(
             girdle.contains(&FacetFinish::Frosted),
@@ -573,7 +574,7 @@ mod tests {
         );
         let mut metrics = SessionMetrics::measure(&session, lighting());
         let request = metrics.begin_tilt(&session).expect("both sides measured");
-        assert!(request.sides[0].finishes.is_empty());
+        assert_eq!(request.sides[0].finishes, [] as [FacetFinish; 0]);
         assert_eq!(
             request.sides[1].finishes, girdle,
             "the tilt run measures the same finishes as the table-up figures"

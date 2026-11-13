@@ -30,7 +30,7 @@ const fn tap(index: u32) -> (f32, f32) {
     )
 }
 
-/// Shared directly with shader preparation; no per-frame random rotation.
+/// The anti-aliasing taps, shared with shader preparation; not rotated per frame.
 pub(super) const OFFSETS: [(f32, f32); 16] = [
     tap(0),
     tap(1),
@@ -50,7 +50,7 @@ pub(super) const OFFSETS: [(f32, f32); 16] = [
     tap(15),
 ];
 
-/// Absolute tap indices repeat only after the configured, sanitized tap count.
+/// The tap for `sample`, cycling with the sanitized tap count of `RayOptions`.
 #[must_use]
 pub fn aa_offset(taps: u8, sample: u32) -> (f32, f32) {
     let count = RayOptions {

@@ -1,5 +1,5 @@
-//! Photometry for the rough-colour fit (plan 2026-10-09, sections 4.1, 4.2 and 3.3): turning rig
-//! photos into calibrated, masked, working-resolution transmittance data.
+//! Photometry for the rough-colour fit: turning rig photos into calibrated, masked,
+//! working-resolution transmittance data.
 //!
 //! No UI and no I/O beyond reading photo files.
 //!

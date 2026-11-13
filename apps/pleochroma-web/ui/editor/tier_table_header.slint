@@ -18,9 +18,8 @@ component HeaderText inherits Rectangle {
     if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
 }
 
-// The tier table's column header row (the desktop's `tier_table_header.slint`). Same
-// `Columns` widths as `TierTableRow`, so the two cannot drift apart; `TierTable` moves it
-// sideways with the body's horizontal scroll.
+// The tier table's column header row. It uses the same `Columns` widths as `TierTableRow`,
+// so the two cannot drift apart; `TierTable` moves it sideways with the body's scroll.
 export component TierTableHeader inherits Rectangle {
     height: 22px;
     HorizontalLayout {

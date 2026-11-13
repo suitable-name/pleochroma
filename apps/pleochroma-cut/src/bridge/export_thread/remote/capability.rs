@@ -1,19 +1,16 @@
-//! Whether remote compute is even available for this export: probing a worker
-//! ([`probe_remote`]) and checking its advertised limits against the requested export
-//! ([`exceeds_pixel_cap`]). See this group's own `mod.rs` doc comment.
+//! Whether remote compute is available for an export: probing a worker ([`probe_remote`])
+//! and checking its advertised limits against the export ([`exceeds_pixel_cap`]).
 
 use crate::{bridge::remote::remote_render, settings::WorkerSettings};
 use pleochroma_net::messages::{Backend, RenderCapability};
 
-/// Below this many REMAINING samples, dispatching to a remote worker at all (handshake
-/// plus a calibration round trip) costs more than it could ever save -- same reasoning
-/// as `batch::HYBRID_MIN_SPP`, for a link whose round-trip latency is typically far
-/// higher than an in-process dispatch's.
+/// Below this many remaining samples, a remote dispatch (handshake plus calibration round
+/// trip) costs more than it saves. Same reasoning as `batch::HYBRID_MIN_SPP`, with the higher
+/// latency of a network link.
 pub(in crate::bridge::export_thread) const REMOTE_MIN_SPP: u32 = 32;
 
-/// Why remote compute is unavailable for this export -- surfaced to the export dialog
-/// verbatim (via [`RemoteUnavailable::message`]) so a disabled pill always explains
-/// itself.
+/// Why remote compute is unavailable. Shown verbatim in the export dialog via
+/// [`RemoteUnavailable::message`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RemoteUnavailable {
     NoWorkerConfigured,
@@ -45,22 +42,18 @@ impl RemoteUnavailable {
 pub struct RemoteCapability {
     /// Connection settings of the remote worker.
     pub worker: WorkerSettings,
-    /// This worker's advertised `RenderCapability::max_pixels` -- checked against the
-    /// export's `width * height` BEFORE ever dispatching, never assumed to be the
-    /// hardcoded `pleochroma-worker` default. See `run_export`'s pixel-cap fallback.
+    /// The worker's advertised `RenderCapability::max_pixels`. The export size is checked
+    /// against it before dispatch.
     pub max_pixels: u32,
-    /// The remote's `RenderCapability::hdr` (protocol v14): whether it renders scenes lit
-    /// by an HDR map -- `bridge::remote::remote_can_render`'s per-capability input.
+    /// The remote's `RenderCapability::hdr`: whether it can render scenes lit by an HDR map
+    /// (input to `bridge::remote::remote_can_render`).
     pub hdr: bool,
-    /// Whether the remote's `RenderCapability::backend` is [`Backend::Coordinator`]
-    /// rather than one plain worker. A coordinator splits every request over its own
-    /// lane and its joined workers and cuts it into its own shorter chunks, so the
-    /// export sizes its requests by `rate::COORDINATOR_CHUNK_TARGET_SECS` and measures
-    /// a request's rate over the whole request, not from its first progress report.
+    /// Whether the remote is a [`Backend::Coordinator`] rather than one plain worker. A
+    /// coordinator takes larger requests (`rate::COORDINATOR_CHUNK_TARGET_SECS`) and its rate
+    /// is measured over the whole request.
     pub coordinator: bool,
-    /// Whether the remote's `WELCOME` advertised the zoning capability
-    /// (`Welcome::zoning`) -- `bridge::remote::zoned_scene_refusal`'s per-capability input.
-    /// Never set by a coordinator.
+    /// Whether the remote advertised zoning in its `WELCOME` (input to
+    /// `bridge::remote::zoned_scene_refusal`). Always `false` for a coordinator.
     pub zoning: bool,
 }
 
@@ -77,9 +70,7 @@ impl RemoteCapability {
     }
 }
 
-/// Whether an export at `width x height` exceeds `capability`'s advertised
-/// `max_pixels`, checked BEFORE ever dispatching and always against the worker's own
-/// advertised cap rather than a hardcoded constant.
+/// Whether an export at `width x height` exceeds `capability`'s advertised `max_pixels`.
 #[must_use]
 pub(in crate::bridge::export_thread) fn exceeds_pixel_cap(
     width: u32,
@@ -89,9 +80,8 @@ pub(in crate::bridge::export_thread) fn exceeds_pixel_cap(
     u64::from(width) * u64::from(height) > u64::from(capability.max_pixels)
 }
 
-/// Probes the configured remote endpoint (`AppSettings::remote` --
-/// the one remote every feature uses) for render capacity. Blocking (a real TLS
-/// handshake); callers run this off the UI thread.
+/// Probes the configured remote (`AppSettings::remote`) for render capacity. Blocking, since
+/// it performs a TLS handshake; callers run it off the UI thread.
 ///
 /// # Errors
 ///
@@ -140,7 +130,7 @@ mod tests {
             ..WorkerSettings::default()
         };
         let err = probe_remote(Some(&worker)).unwrap_err();
-        assert!(matches!(err, RemoteUnavailable::Unreachable(_))); // nothing listens here
+        assert!(matches!(err, RemoteUnavailable::Unreachable(_)));
     }
 
     fn capability(max_pixels: u32) -> RemoteCapability {

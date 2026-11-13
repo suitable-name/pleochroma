@@ -124,10 +124,10 @@ fn no_hooks<R>(f: impl FnOnce(&SolveHooks<'_>) -> R) -> R {
     })
 }
 
-/// The metrics are `evaluate_gem_optical_metrics_finished` for the frame's pose with the material
-/// the desktop renders (`resolve_material_with_override` + `apply_material_overrides`) and the
-/// scene's facet finishes (the fixture frosts the girdle), on every template and with the
-/// render-time overrides on.
+/// The metrics are `evaluate_gem_optical_metrics_finished` for the frame's pose, with the
+/// material the desktop renders (`resolve_material_with_override` + `apply_material_overrides`)
+/// and the scene's facet finishes (the fixture frosts the girdle). Covers every template, with
+/// the render-time overrides on.
 #[test]
 fn metrics_equal_the_desktop_call_on_every_template() {
     let overrides = MaterialOverridesSpec {
@@ -234,8 +234,8 @@ fn a_polished_scene_is_the_plain_pose_metrics_bit_for_bit() {
 }
 
 /// The request's finishes reach the pose metrics: a frosted stone scores differently from the
-/// polished one, equals the direct finished call, and one Worker cache serves each correctly
-/// across a frosting edit and back (the pose is recomputed, never served stale).
+/// polished one and equals the direct finished call. One cache serves each correctly across a
+/// frosting edit and back, so a pose is never served stale.
 #[test]
 fn a_frosting_edit_changes_the_pose_metrics_and_the_cache_follows_it() {
     let design = template_design(1);
@@ -327,9 +327,8 @@ fn metrics_params_ignore_everything_that_does_not_change_the_numbers() {
         TiltParams::from_scene(&spec),
         TiltParams::from_scene(&overridden)
     );
-    // ...and neither depends on the other's inputs: the camera is not a tilt input. The facet
-    // finishes ARE an input of both (a frosted facet scatters light: tilt since 2026-10-19,
-    // the current-view metrics since protocol 30).
+    // The camera is not a tilt input. The facet finishes are an input of both, since a frosted
+    // facet scatters light.
     let mut polished = spec.clone();
     polished.finishes = FinishSpec::AllPolished;
     assert_ne!(
@@ -350,7 +349,7 @@ fn metrics_params_ignore_everything_that_does_not_change_the_numbers() {
         "so does another finish list"
     );
     // The scene's other changes (exposure, size, bounces, distance, yaw) leave the tilt
-    // request alone, as before.
+    // request alone.
     assert_eq!(
         TiltParams::from_scene(&spec),
         TiltParams::from_scene(&other)
@@ -416,7 +415,7 @@ fn metrics_under_a_held_map_equal_the_desktop_call_under_that_map() {
         &GemMaterial::diamond(),
         0.61,
         0.47,
-        EnvironmentSource::HdrMap(&map),
+        EnvironmentSource::hdr(&map),
     );
     assert_eq!(result_bits(&got), metric_bits(&direct));
 
@@ -540,10 +539,9 @@ fn the_requests_need_no_design() {
     assert!(matches!(response, SolveResponse::Metrics(_)));
 }
 
-/// Review fix (absorption units): the tilt sweep sizes its material by the scene's stone width
-/// exactly like the desktop tilt profile (`material_for_stone(material, stone_width_mm, planes)`),
-/// so web tilt == desktop tilt for a sized stone; the width is a tilt input (it stales the curves)
-/// while the other render-time overrides still are not.
+/// The tilt sweep sizes its material by the scene's stone width exactly as the desktop does
+/// (`material_for_stone(material, stone_width_mm, planes)`). The width is a tilt input, while the
+/// other render-time overrides are not.
 #[test]
 fn the_tilt_material_is_sized_by_the_stone_width_like_the_desktop() {
     let design = template_design(1);
@@ -582,8 +580,8 @@ fn the_tilt_material_is_sized_by_the_stone_width_like_the_desktop() {
     assert_ne!(params, TiltParams::from_scene(&other));
 }
 
-/// The tilt sweep traces the stone in the orientation the scene renders it: the Crystal Axis and the
-/// Second Axis reach the traced material, and a new axis is a new tilt request.
+/// The tilt sweep traces the stone in the orientation the scene renders it: the Crystal Axis and
+/// the Second Axis reach the traced material, and a new axis is a new tilt request.
 #[test]
 fn the_tilt_material_keeps_the_stones_crystal_axes() {
     let design = template_design(1);
@@ -619,8 +617,8 @@ fn the_tilt_material_keeps_the_stones_crystal_axes() {
     assert_ne!(params, TiltParams::from_scene(&turned));
 }
 
-/// The tilt sweep is the desktop dialog's four `evaluate_full_axis_profile_at_azimuth_finished_threaded`
-/// calls, under the bare resolved material and the scene's facet finishes: the request's
+/// The tilt sweep equals the four direct `evaluate_full_axis_profile_at_azimuth_finished_threaded`
+/// calls, under the bare resolved material and the scene's facet finishes. The request's
 /// overrides change nothing.
 #[test]
 fn the_tilt_sweep_equals_the_four_direct_axis_profiles() {
@@ -663,8 +661,7 @@ fn the_tilt_sweep_equals_the_four_direct_axis_profiles() {
 
     let bare = resolve_material_with_override(&GemMaterial::all_materials(), &[], None, "Sapphire")
         .expect("built-in");
-    // The scene's finishes (the fixture frosts the girdle) are part of the stone the sweep
-    // scores, exactly as the desktop dialog's sweep takes them.
+    // The scene's finishes are part of the stone the sweep scores.
     let finishes = resolve_finishes(&spec.finishes, &planes).expect("a girdle list fits");
     assert_eq!(result.axes.len(), PROFILE_AZIMUTHS_DEG.len());
     for (axis, &azimuth) in result.axes.iter().zip(&PROFILE_AZIMUTHS_DEG) {
@@ -711,9 +708,9 @@ fn first_axis_bits(response: SolveResponse) -> Vec<u32> {
         .collect()
 }
 
-/// An all-polished stone is the plain `evaluate_full_axis_profile_at_azimuth` sweep, bit for bit
-/// (an empty finish list changes nothing), and the frosted girdle the fixture's scene carries
-/// moves the curves: the request's finishes reach the sweep.
+/// An all-polished stone is the plain `evaluate_full_axis_profile_at_azimuth` sweep, bit for
+/// bit, since an empty finish list changes nothing. The fixture's frosted girdle moves the
+/// curves, so the request's finishes reach the sweep.
 #[test]
 fn the_tilt_sweep_honours_the_finishes_and_a_polished_stone_is_the_plain_sweep() {
     let design = template_design(1);

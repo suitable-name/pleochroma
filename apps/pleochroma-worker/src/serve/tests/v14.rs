@@ -1,7 +1,9 @@
-//! Protocol v14 end to end through the real connection handler: payload-encoding
-//! negotiation, compressed `FRAME`/`PREVIEW` streams summing bit-identically to raw ones
-//! in the client `Accumulator`, `PING`/`PONG`, and the "not supported by this server"
-//! refusals for a worker-role `HELLO`, `FinalImageRequest` and `TransferMode::DisplayOnly`.
+//! Protocol v14 end to end through the real connection handler.
+//!
+//! Covers payload-encoding negotiation, compressed `FRAME`/`PREVIEW` streams that sum
+//! bit-identically to raw ones in the client `Accumulator`, `PING`/`PONG`, and the "not
+//! supported by this server" refusals for a worker-role `HELLO`, `FinalImageRequest` and
+//! `TransferMode::DisplayOnly`.
 
 use super::fixtures::{
     DuplexHalf, final_only, heavier_scene, read_stream_until_done, test_db, tiny_scene,
@@ -53,10 +55,11 @@ fn bits(values: &[glam::Vec3]) -> Vec<u32> {
         .collect()
 }
 
-/// Streams a real render once per encoding. For each run, the client `Accumulator` fed
-/// the wire events directly must hold exactly (bit for bit) the sum an accumulator gets
-/// from the same deltas re-sent raw; the compressed encodings must actually be used on
-/// the wire; and the result must still match tracing the range directly.
+/// Streams a real render once per encoding and checks the client `Accumulator`.
+///
+/// The sum fed the wire events must equal, bit for bit, the sum of the same deltas re-sent
+/// raw. The compressed encodings must appear on the wire, and the result must match tracing
+/// the range directly.
 #[test]
 fn every_payload_encoding_streams_frames_that_sum_bit_identically_to_raw() {
     let scene = heavier_scene();
@@ -239,9 +242,10 @@ fn final_image_and_display_only_are_refused_and_the_connection_stays_usable() {
     assert!(matches!(events.last().unwrap().0, StreamEvent::Done(d) if d.request_id == 3));
 }
 
-/// v16: a `FinalImageRequest` with `viewer_samples > 0` gets the exact same
-/// `UNSUPPORTED_REQUEST` refusal as one with `viewer_samples == 0` -- a plain worker
-/// refuses every `FinalImageRequest` outright, so it never even inspects the field.
+/// A `FinalImageRequest` with `viewer_samples > 0` is refused like one with `0`.
+///
+/// A plain worker refuses every `FinalImageRequest` with `UNSUPPORTED_REQUEST` before it
+/// reads the field.
 #[test]
 fn a_final_image_with_viewer_samples_is_refused_unsupported_by_a_plain_worker() {
     let mut input = Vec::new();
@@ -270,9 +274,8 @@ fn a_final_image_with_viewer_samples_is_refused_unsupported_by_a_plain_worker() 
     assert!(err.message.contains("FinalImageRequest"), "{}", err.message);
 }
 
-/// v16: a `CONTRIBUTION` nobody asked for (a plain worker never reserves one) is
-/// discarded along with its payload frame, and the connection keeps working -- proven
-/// by a `PING` right after it still getting its `PONG`.
+/// A `CONTRIBUTION` nobody reserved (a plain worker reserves none) is discarded with its
+/// payload frame; a `PING` after it still gets its `PONG`.
 #[test]
 fn a_stray_contribution_is_discarded_between_requests() {
     let mut input = Vec::new();

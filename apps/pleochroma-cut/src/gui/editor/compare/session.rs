@@ -155,10 +155,10 @@ pub(super) fn resolve_metrics_material(design: &Design, custom: &[GemMaterial]) 
     resolved_gem_material(&selection, &EditorMaterialLookup::new(custom))
 }
 
-/// `material` sized for `design`'s own girdle diameter on `planes`: the renderer's size rule
-/// (`render_setup::material_for_stone`), used for both the traced and the measured material of a
-/// compare side and by the snapshot summary, so the figures equal the render. A design without a
-/// girdle diameter is "not set" (0.0).
+/// `material` sized for `design`'s own girdle diameter on `planes`, by the renderer's size
+/// rule (`render_setup::material_for_stone_oriented`). Compare sides and the snapshot summary
+/// both use it, so the figures match the render. A design without a girdle diameter is
+/// "not set" (0.0).
 #[must_use]
 #[expect(
     clippy::cast_possible_truncation,
@@ -234,7 +234,7 @@ pub(super) struct CompareSide {
 
 impl CompareSide {
     /// Solves `input.design` and derives its stone. Runs off the UI thread (see
-    /// `super::wiring::open_compare`): a real design can take seconds to solve.
+    /// `super::wiring::open_session`): a real design can take seconds to solve.
     #[must_use]
     pub(super) fn build(input: SideInput) -> Self {
         let preform_planes = input.design.preform.planes().len();
@@ -249,9 +249,8 @@ impl CompareSide {
                     .get_or_build_geometry(&stone)
                     .map(CachedMesh::bounding_radius);
                 // The figures are scored in the absorption the render shows for the design's
-                // own girdle diameter (`render_setup::apply_material_overrides`' size rule).
-                // The traced material gets the same size step, so the picture and the figures
-                // show one absorption.
+                // own girdle diameter ([`sized_for_design`]). The traced material gets the same
+                // size step, so the picture and the figures show one absorption.
                 let metrics_material =
                     sized_for_design(&input.metrics_material, &input.design, &stone.planes);
                 let material = input
@@ -500,9 +499,9 @@ pub(super) fn status_text(
     parts.join("  ·  ")
 }
 
-/// A traced side that took longer than this many seconds gets fewer samples on the next
-/// frame, when the stone carries concave tools (owner decision D2): the tool-aware
-/// tracer is slower than the planar one, and an orbit that waits for it is a bad orbit.
+/// A traced side slower than this many seconds gets half the samples on the next frame when
+/// the stone carries concave tools: the tool-aware tracer is slower, and an orbit must not
+/// wait on it.
 pub(super) const SLOW_TRACED_SIDE_SECS: f64 = 3.0;
 
 /// The samples per pixel a traced side gets: `full` for a planar stone, and for a stone

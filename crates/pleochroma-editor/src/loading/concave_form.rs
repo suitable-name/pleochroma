@@ -15,12 +15,10 @@ use pleochroma_cut_core::design::{ConcaveTier, ConcaveTierError, ConcaveTool, To
 
 /// A concave tier form's fields, as typed.
 ///
-/// `x`, `y`, `z` and `tool_azimuth_deg` may be left blank to mean `0` (a tool centred
-/// on the facet, axis along the facet's own direction is the natural starting point);
-/// `angle_deg` and `diameter_ratio` have no sensible default and must be given.
-/// `tool_angle_deg` is required for a cone or disc; for any other tool the field is not
-/// offered and whatever it holds is ignored. [`Self::reciprocating`] picks the motion:
-/// stroked back and forth, or plunged.
+/// `x`, `y`, `z` and `tool_azimuth_deg` may be left blank to mean `0` (the tool centred
+/// on the facet); `angle_deg` and `diameter_ratio` must be given. `tool_angle_deg` is
+/// required for a cone or disc and ignored for any other tool. [`Self::reciprocating`]
+/// picks the motion: stroked back and forth, or plunged.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ConcaveTierFormFields {
     /// Facet name, free text.
@@ -97,9 +95,8 @@ pub fn parse_concave_tier_form(
         parse_number("z", "Z", &fields.z, Some(0.0))?,
     ];
     let diameter_ratio = parse_number("diameter", "D/W", &fields.diameter_ratio, None)?;
-    // A tool without an angle never offers the field: the form greys it out but keeps what
-    // was typed (or loaded from an earlier tool), so a leftover value is ignored rather than
-    // refused on a control the cutter cannot edit.
+    // A tool without an angle greys the field out but keeps its text, so a leftover value is
+    // ignored rather than refused on a control the cutter cannot edit.
     let tool_angle_deg = if !tool.takes_angle() || fields.tool_angle_deg.trim().is_empty() {
         None
     } else {

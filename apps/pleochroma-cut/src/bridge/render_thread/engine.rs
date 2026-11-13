@@ -1,4 +1,4 @@
-//! Image-engine dispatch. The spectral path remains the existing implementation.
+//! Image-engine dispatch between the Path-Traced (spectral) and Ray-Traced (Whitted) frames.
 use super::gpu_backend::{BackendFrame, FrameOutputs, HybridPacing, ViewportGpu};
 use crate::settings::model::LocalComputeTarget;
 use pleochroma::{
@@ -30,7 +30,7 @@ pub(super) mod observation;
 #[cfg(feature = "render-bench")]
 use observation::{BenchmarkObservation, PhaseTimer};
 
-/// Cached by content generation and effective preview dimensions, never by chunk.
+/// Cached by content generation, effective dimensions and the active shadow map.
 #[derive(Default)]
 pub(super) struct EngineAccumulator {
     prep: Option<PreparedRay>,
@@ -52,8 +52,36 @@ impl EngineAccumulator {
     }
 }
 
+type RayPrepKey = (
+    u64,
+    u32,
+    u32,
+    Option<pleochroma::optics::raytracer::environment::tray_shadow::TrayShadowKey>,
+);
+
+fn ray_prep_key(generation: u64, frame: &BackendFrame<'_>) -> RayPrepKey {
+    ray_prep_key_for(
+        generation,
+        frame.width,
+        frame.height,
+        frame
+            .environment
+            .tray_shadow()
+            .map(pleochroma::optics::raytracer::environment::TrayShadowMap::key),
+    )
+}
+
+const fn ray_prep_key_for(
+    generation: u64,
+    width: u32,
+    height: u32,
+    shadow: Option<pleochroma::optics::raytracer::environment::tray_shadow::TrayShadowKey>,
+) -> RayPrepKey {
+    (generation, width, height, shadow)
+}
+
 struct PreparedRay {
-    key: (u64, u32, u32),
+    key: RayPrepKey,
     prep: Arc<WhittedPrep<'static>>,
     planes: pleochroma::simd::PlanesSoA32,
     gpu: Option<WhittedGpuPrepared>,
@@ -61,11 +89,10 @@ struct PreparedRay {
     gpu_declined: bool,
 }
 
-/// Protocol 28 workers and coordinators carry both image engines explicitly, so
-/// this is always `true`. It is kept as the documented switch for the plan's D7
-/// decision (remote Ray-Traced waits for the owner's performance check); the
-/// call sites in `context::frame`, the preview wiring and the job conversion
-/// consult it so the switch stays a one-line change.
+/// Remote workers and coordinators carry both image engines explicitly, so this is always `true`.
+///
+/// It is the single switch for allowing remote Ray-Traced. Its call sites consult it so that
+/// changing it is a one-line edit.
 #[must_use]
 pub const fn remote_allowed(_engine: EngineSpec) -> bool {
     true
@@ -99,6 +126,57 @@ pub(super) const fn frame_scene<'a>(frame: &BackendFrame<'a>) -> FrameScene<'a> 
         max_bounces: frame.max_bounces,
         environment: frame.environment,
     }
+}
+
+/// Renders the pixels of `frame` that `covered` leaves out with the Ray-Traced CPU tracer.
+/// The `frame.spp` taps from `frame.sample_offset` are summed into `accum`. A re-shade of the
+/// stone (`reshade_view`) calls this for the background and for any pixel the stored light
+/// paths do not cover.
+///
+/// Prepares the engine's scene for its generation, frame size and effective shadow exactly as
+/// [`accumulate_engine_samples`] does, so the next ordinary Ray-Traced frame of the same scene
+/// reuses it. `Ok(false)` means the frame's cancellation fired.
+///
+/// # Errors
+///
+/// The reason the Ray-Traced engine declines the scene.
+pub(super) fn accumulate_uncovered(
+    cache: &mut EngineAccumulator,
+    engine: EngineSpec,
+    (generation, shared_hdr): (
+        u64,
+        Option<&Arc<pleochroma::renderer::env_map::EnvironmentMap>>,
+    ),
+    frame: &BackendFrame<'_>,
+    (covered, accum): (&[bool], &mut [glam::Vec3]),
+    cancel: &AtomicBool,
+) -> Result<bool, WhittedDecline> {
+    if cancel.load(Ordering::Relaxed) {
+        return Ok(false);
+    }
+    let key = ray_prep_key(generation, frame);
+    if cache.prep.as_ref().is_none_or(|cached| cached.key != key) {
+        let prep = WhittedPrep::new(&frame_scene(frame), frame.fluorescence, engine.ray)?
+            .into_owned_with_hdr(shared_hdr.cloned());
+        cache.prep = Some(PreparedRay {
+            key,
+            prep: Arc::new(prep),
+            planes: pleochroma::optics::raytracer::build_plane_soa(frame.planes),
+            gpu: None,
+            gpu_declined: false,
+        });
+    }
+    let Some(prepared) = cache.prep.as_ref() else {
+        return Ok(false);
+    };
+    Ok(super::whitted_scanline::render_uncovered(
+        frame,
+        &prepared.prep,
+        &prepared.planes,
+        covered,
+        accum,
+        cancel,
+    ))
 }
 
 #[expect(
@@ -149,7 +227,7 @@ pub(super) fn accumulate_engine_samples(
     // upload. The HDR environment buffer is not part of that cost: the prep owns its map
     // as `shared_hdr`, and the GPU renderer keeps the uploaded buffer for that same `Arc`
     // (`WhittedGpuRenderer::prepare`), so an orbit step re-uploads only the small tables.
-    let key = (generation, frame.width, frame.height);
+    let key = ray_prep_key(generation, frame);
     if cache.prep.as_ref().is_none_or(|cached| cached.key != key) {
         #[cfg(feature = "render-bench")]
         let timer = PhaseTimer::start("whitted_prep", false);
@@ -361,4 +439,22 @@ pub(super) fn diagnostic_hit_pixels(frame: &BackendFrame<'_>, cancel: &AtomicBoo
             whitted_primary_hit(&scene, frame.tools, &planes, ray).is_some()
         })
         .count()
+}
+
+#[cfg(test)]
+mod shadow_key_tests {
+    use super::ray_prep_key_for;
+    use pleochroma::optics::raytracer::environment::tray_shadow::TrayShadowKey;
+
+    /// A stone shadow map arriving, or being replaced by another, changes the ray-preparation key,
+    /// so the Ray-Traced engine rebuilds its prepared scene; the same map keeps the key.
+    #[test]
+    fn shadow_arrival_and_replacement_invalidate_ray_preparation() {
+        let before = ray_prep_key_for(7, 24, 16, None);
+        let arrival = ray_prep_key_for(7, 24, 16, Some(TrayShadowKey(1)));
+        let replacement = ray_prep_key_for(7, 24, 16, Some(TrayShadowKey(2)));
+        assert_ne!(before, arrival);
+        assert_ne!(arrival, replacement);
+        assert_eq!(arrival, ray_prep_key_for(7, 24, 16, Some(TrayShadowKey(1))));
+    }
 }

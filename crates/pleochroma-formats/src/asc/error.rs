@@ -3,13 +3,11 @@
 
 use std::fmt;
 
-/// Everything that can go wrong parsing an `.asc` file's cutting instructions with [`super::parse_asc`].
+/// Errors from [`super::parse_asc`].
 ///
-/// Every variant's [`Display`](fmt::Display) reproduces, verbatim, the same
-/// human-readable message a plain `String` would -- callers that only ever
-/// print or match on substrings of that message keep working unchanged; callers
-/// that want to branch on the specific failure (e.g. distinguishing "missing header"
-/// from "bad numeric token") can now match on the variant instead.
+/// Each variant's [`Display`](fmt::Display) gives the human-readable message, so callers
+/// that print it or match on its substrings keep working. Match on the variant to branch
+/// on a specific failure, such as a missing header versus a bad numeric token.
 #[derive(Debug, Clone, PartialEq)]
 pub enum AscParseError {
     /// `content` was empty or contained only whitespace.

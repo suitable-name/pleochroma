@@ -1,7 +1,9 @@
-import { ComboBox, ScrollView } from "std-widgets.slint";
+import { ComboBox, ScrollView, SpinBox } from "std-widgets.slint";
+import { ConfirmActionDialog } from "confirm_action_dialog.slint";
 import { ScrollFade } from "rough_planner/fields.slint";
 import { Theme } from "../theme.slint";
 import { PreferencesModel } from "../models/preferences.slint";
+import { SettingsModel } from "../models/settings.slint";
 import { ManipulateModel } from "../models/manipulate.slint";
 import { UpdateModel } from "../models/update.slint";
 import { RadvWorkaroundModel } from "../models/radv_workaround.slint";
@@ -45,8 +47,7 @@ component SectionHeading inherits Rectangle {
 }
 
 // One radio-style choice card (Simple / Advanced): a title and a line of explanation.
-// Drawn by hand like the rough planner's radio rows: Tab reaches it, Space or Enter
-// picks it.
+// Drawn by hand: Tab reaches it, Space or Enter picks it.
 component ModeChoice inherits Rectangle {
     in property <string> title;
     in property <string> detail;
@@ -141,9 +142,12 @@ component PreferenceSwitch inherits Rectangle {
     // The tooltip: a sentence on what the switch does and when it takes effect.
     in property <string> hint;
     in property <bool> checked;
+    // `false` greys the switch out and ignores clicks and keys; `hint` should say why.
+    in property <bool> enabled: true;
     callback toggled();
 
     height: 40px;
+    opacity: root.enabled ? 1.0 : 0.5;
     border-radius: Theme.radius-sm;
     background: switch_touch.has-hover ? Theme.surface-control-hover : transparent;
     border-width: switch_focus.has-focus ? 2px : 0px;
@@ -152,13 +156,17 @@ component PreferenceSwitch inherits Rectangle {
     accessible-role: AccessibleRole.checkbox;
     accessible-label: root.title + ". " + root.detail;
     accessible-checked: root.checked;
-    accessible-action-default => { root.toggled(); }
+    accessible-action-default => {
+        if root.enabled {
+            root.toggled();
+        }
+    }
 
     if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
 
     switch_focus := FocusScope {
         key-pressed(event) => {
-            if event.text == Key.Space || event.text == Key.Return {
+            if root.enabled && (event.text == Key.Space || event.text == Key.Return) {
                 root.toggled();
                 return accept;
             }
@@ -214,8 +222,12 @@ component PreferenceSwitch inherits Rectangle {
     }
 
     switch_touch := TouchArea {
-        mouse-cursor: pointer;
-        clicked => { root.toggled(); }
+        mouse-cursor: root.enabled ? MouseCursor.pointer : MouseCursor.default;
+        clicked => {
+            if root.enabled {
+                root.toggled();
+            }
+        }
     }
 }
 
@@ -228,6 +240,8 @@ export component PreferencesDialog inherits Rectangle {
 
     // What the last tutorial button did, so the click is not silent.
     property <string> tutorial_feedback: "";
+    // Clearing the path cache deletes files, so it asks first.
+    property <bool> confirm_clear_cache_open: false;
 
     // The backdrop: a click outside the card closes the dialog.
     TouchArea {
@@ -371,6 +385,150 @@ export component PreferencesDialog inherits Rectangle {
                             toggled => {
                                 PreferencesModel.high_contrast = !PreferencesModel.high_contrast;
                                 PreferencesModel.high_contrast_changed(PreferencesModel.high_contrast);
+                            }
+                        }
+                    }
+
+                    // --- Rendering ---------------------------------------------------
+                    VerticalLayout {
+                        spacing: 6px;
+                        SectionHeading { text: "Rendering"; }
+                        // Shown only in a build with the optional adaptive-sampling feature
+                        // (`SettingsModel.adaptive_sampling_build`); the saved value is kept.
+                        if SettingsModel.adaptive_sampling_build : PreferenceSwitch {
+                            title: "Adaptive Sampling in the Viewport";
+                            detail: "Stops refining the parts of the view that are already clean.";
+                            hint: "While the stone stands still, the live viewport stops adding samples to the tiles of the picture that are already clean and spends them on the noisy ones, so the picture cleans up sooner. It applies to the Path-Traced renderer on this computer; moving the stone or changing the design, the lighting or the size starts the picture over, as always.";
+                            checked: PreferencesModel.adaptive_viewport;
+                            toggled => {
+                                PreferencesModel.adaptive_viewport = !PreferencesModel.adaptive_viewport;
+                                PreferencesModel.adaptive_viewport_changed(PreferencesModel.adaptive_viewport);
+                            }
+                        }
+                        PreferenceSwitch {
+                            title: "Speed Up Still Views With a Path Cache";
+                            detail: PreferencesModel.path_cache_available
+                                ? "Reuses the stone's light paths once the view stands still."
+                                : "Off: exit collection, the default estimator, does not use the path cache.";
+                            hint: PreferencesModel.path_cache_available
+                                ? "While the stone stands still, the live viewport builds a path cache for it in memory and shades the stone from it, so the picture cleans up sooner. The cache is never written to disk; moving the stone or changing the design, the material or the size drops it at once. It applies to the Path-Traced renderer."
+                                : "Off: exit collection, the default estimator, does not use the path cache.";
+                            enabled: PreferencesModel.path_cache_available || PreferencesModel.path_cache_viewport;
+                            checked: PreferencesModel.path_cache_viewport;
+                            toggled => {
+                                PreferencesModel.path_cache_viewport = !PreferencesModel.path_cache_viewport;
+                                PreferencesModel.path_cache_viewport_changed(PreferencesModel.path_cache_viewport);
+                            }
+                        }
+                        PreferenceSwitch {
+                            title: "Instant Lighting Changes in the Ray-Traced View";
+                            detail: "Re-lights a still stone instantly from its stored light paths; the stone then follows the path tracer's physics.";
+                            hint: "While the Ray-Traced view stands still, the program keeps the stone's light paths in memory (never on disk). Changing the lighting preset, the light direction or the exposure then re-lights the stone at once instead of tracing it again. The re-lit stone follows the path tracer's physics, so it can differ slightly from the Ray-Traced look. Moving the stone or changing the design, the material or the size drops the paths; the background is still drawn by the Ray-Traced renderer.";
+                            checked: PreferencesModel.instant_lighting;
+                            toggled => {
+                                PreferencesModel.instant_lighting = !PreferencesModel.instant_lighting;
+                                PreferencesModel.instant_lighting_changed(PreferencesModel.instant_lighting);
+                            }
+                        }
+                        if SettingsModel.beam_build : PreferenceSwitch {
+                            title: "Beam Tracing in Still Views";
+                            detail: PreferencesModel.beam_available
+                                ? "Follows the light through a faceted stone once the view stands still."
+                                : "Ray-Traced view only: exit collection, the default estimator, does not use beam tracing.";
+                            hint: !PreferencesModel.beam_available
+                                ? "Exit collection, the default estimator, does not use beam tracing, so the Path-Traced view never beam traces. The switch still lets Instant Lighting Changes With Beams re-light a still Ray-Traced view."
+                                : "Once the Path-Traced view has stood still for a while, an eligible faceted stone is beam traced in the background, tile by tile, and the finished tiles replace the grainy picture while the rest keeps refining. Moving the stone or changing the design, the material, the size or the renderer stops it at once. Stones with rounded edges or tools stay with the ordinary picture. The beams are kept in memory only, never on disk.";
+                            checked: PreferencesModel.beam_viewport;
+                            toggled => {
+                                PreferencesModel.beam_viewport = !PreferencesModel.beam_viewport;
+                                PreferencesModel.beam_viewport_changed(PreferencesModel.beam_viewport);
+                            }
+                        }
+                        if SettingsModel.beam_build : PreferenceSwitch {
+                            title: "Instant Lighting Changes With Beams";
+                            detail: "Re-lights a beam-traced still stone at once when the lighting changes.";
+                            hint: PreferencesModel.beam_viewport
+                                ? "The still view keeps the stone's beams in memory (never on disk). Changing the lighting preset, the light direction or the exposure then re-lights the stone at once instead of tracing it again, and the result matches a fresh beam render under the new lighting."
+                                : "Turn on Beam Tracing in Still Views first: this switch re-lights the beams that switch builds.";
+                            checked: PreferencesModel.beam_instant_lighting;
+                            enabled: PreferencesModel.beam_viewport;
+                            toggled => {
+                                PreferencesModel.beam_instant_lighting = !PreferencesModel.beam_instant_lighting;
+                                PreferencesModel.beam_instant_lighting_changed(PreferencesModel.beam_instant_lighting);
+                            }
+                        }
+                        VerticalLayout {
+                            spacing: 4px;
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            Text {
+                                text: "Path Cache Folder";
+                                font-size: 12px;
+                                font-weight: 600;
+                                color: Theme.text-primary;
+                                accessible-role: AccessibleRole.text;
+                            }
+                            Text {
+                                text: PreferencesModel.path_cache_dir;
+                                font-size: 10px;
+                                color: Theme.text-secondary;
+                                wrap: word-wrap;
+                                accessible-role: AccessibleRole.text;
+                            }
+                        }
+                        HorizontalLayout {
+                            height: 30px;
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            spacing: 12px;
+                            Text {
+                                horizontal-stretch: 1;
+                                text: "Path Cache Disk Limit (GB)";
+                                font-size: 12px;
+                                font-weight: 600;
+                                color: Theme.text-primary;
+                                vertical-alignment: center;
+                                accessible-role: AccessibleRole.text;
+                            }
+                            TipBox {
+                                width: 110px;
+                                hint: "The most disk space kept path caches may use. When it is full, the caches used longest ago are deleted first.";
+                                SpinBox {
+                                    minimum: 1;
+                                    maximum: 100000;
+                                    value <=> PreferencesModel.path_cache_disk_limit_gb;
+                                    accessible-label: "Path Cache Disk Limit in Gigabytes";
+                                    edited(value) => {
+                                        PreferencesModel.path_cache_limit_changed(value);
+                                    }
+                                }
+                            }
+                        }
+                        HorizontalLayout {
+                            height: 32px;
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            spacing: 10px;
+                            alignment: start;
+                            TipButton {
+                                text: "Open Folder";
+                                hint: "Show the path cache folder in your file manager.";
+                                clicked => { PreferencesModel.open_path_cache_folder(); }
+                            }
+                            TipButton {
+                                text: "Clear Path Cache";
+                                hint: "Delete every kept path cache. You are asked to confirm first. Renders build their caches again when they need them.";
+                                clicked => { root.confirm_clear_cache_open = true; }
+                            }
+                        }
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            Text {
+                                text: PreferencesModel.path_cache_status;
+                                font-size: 10px;
+                                color: Theme.success;
+                                visible: PreferencesModel.path_cache_status != "";
+                                accessible-role: AccessibleRole.text;
                             }
                         }
                     }
@@ -552,5 +710,19 @@ export component PreferencesDialog inherits Rectangle {
                 }
             }
         }
+    }
+
+    // The clear confirmation, over the card.
+    if root.confirm_clear_cache_open: ConfirmActionDialog {
+        heading: "Clear Path Cache";
+        message: "Delete every kept path cache? Renders build their caches again when they need them, so nothing is lost but the time it took to build them.";
+        primary_label: "Clear";
+        secondary_label: "";
+        primary_hint: "Delete every kept path cache for good.";
+        primary => {
+            PreferencesModel.clear_path_cache();
+            root.confirm_clear_cache_open = false;
+        }
+        cancel => { root.confirm_clear_cache_open = false; }
     }
 }

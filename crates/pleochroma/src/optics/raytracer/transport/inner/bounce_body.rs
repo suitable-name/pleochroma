@@ -1,10 +1,9 @@
-//! The bounce loop's body, split out of `inner.rs` as a pure extraction.
+//! The bounce loop's body.
 //!
-//! [`trace_spectral_ray_core`] builds a [`PathState`] holding every local the loop used to
-//! carry, then runs [`PathState::run_bounce`] per iteration. Each helper below is one
-//! contiguous block of the former loop, with its floating-point expressions untouched and in
-//! the original evaluation order (the WGSL twin is written against that order). The loop's
-//! `continue`/`break` exits became the [`Flow`] return value.
+//! [`trace_spectral_ray_core`] builds a [`PathState`] holding the loop's locals and runs
+//! [`PathState::run_bounce`] per iteration. Each helper below is one block of an iteration. The
+//! floating-point expressions keep their evaluation order, which the WGSL twin follows. A
+//! `continue` or `break` of the loop is the [`Flow`] return value.
 
 #[cfg(debug_assertions)]
 use super::debug_assert_inside_gem_matches_geometry;
@@ -24,13 +23,14 @@ use crate::{
             camera::{FacetFinish, HitRecord, Ray},
             color::{
                 apply_von_kries_white_balance, integrate_channels_to_xyz,
-                integrate_channels_to_xyz_families,
+                integrate_channels_to_xyz_families, integrate_collected_to_xyz,
             },
             environment::{EnvironmentSource, environment_white_balance},
+            estimator::Estimator,
             intersect_stone::intersect_stone_soa_side,
             refraction::{
                 ExitSplitCtx, RayMaterialContext, RayWavelengthCache,
-                compute_bounce_refraction_geometry,
+                compute_bounce_refraction_geometry, context::ExitCollect,
             },
             sampling::{
                 FLUORESCENCE_DIR_U_STREAM, FLUORESCENCE_DIR_V_STREAM, FLUORESCENCE_DISTANCE_STREAM,
@@ -40,11 +40,16 @@ use crate::{
             surface::EdgeBand,
             transport::{
                 PathTermination,
-                bounce::{apply_russian_roulette, dispatch_bounce},
+                bounce::{apply_collect_roulette, apply_russian_roulette, dispatch_bounce},
                 path_events::PathEvents,
+                reference::{KeptFn, ReferenceSample},
                 wrapped_hero_wavelengths,
             },
         },
+    },
+    renderer::path_cache::{
+        bounce::EventKind,
+        signature::{BRANCH_SIG_SEED, branch_step, pack_sig},
     },
 };
 use glam::Vec3;
@@ -52,6 +57,9 @@ use glam::Vec3;
 mod events_hooks;
 mod miss;
 mod surface_hooks;
+
+#[cfg(test)]
+mod flush_tests;
 
 /// Upper bound on the expected number of fluorescence vertices the free-path sampler
 /// of one segment aims for (`mu_s * segment <= CAP`): the sampling rate is
@@ -75,7 +83,8 @@ fn unit_draw(rng_seed: u32, bounce: u32, stream: u32) -> f32 {
 }
 
 /// Sets every channel's Stokes vector to unpolarized light of `weight` times its
-/// current intensity: the fluorescence emission is isotropic and unpolarized.
+/// current intensity: the fluorescence emission is isotropic and unpolarized, and so is the
+/// light reflected by the glossy tray (with the Fresnel reflectance as the weight).
 fn depolarize_and_scale(stokes: &mut [StokesVector; NUM_CHANNELS], weight: f32) {
     for s in &mut *stokes {
         *s = StokesVector::unpolarized(s.intensity() * weight);
@@ -103,7 +112,7 @@ fn apply_surface_glare(stokes: &mut [StokesVector; NUM_CHANNELS], surface_glare:
 /// Emitters are `PerMm`-only: the pseudo-extinction is in 1/mm and the vertex sampling scales
 /// the segment by `absorption_path_scale`. A `ModelUnit` material's scale is
 /// `(W / 7) / MODEL_UNIT_FACE_UP_PATH`, which would make its emitters fluoresce about 2.5x
-/// (1 / K) too weakly. Today only `PerMm` physics recipes carry emitters. A zoned medium is not
+/// (1 / K) too weakly. Only `PerMm` physics recipes carry emitters. A zoned medium is not
 /// homogeneous either: the vertex sampler (a single exponential clock at one rate) does not
 /// apply to it.
 fn debug_assert_fluorescence_supported(material: &GemMaterial, fluorescent: bool) {
@@ -123,9 +132,9 @@ fn debug_assert_fluorescence_supported(material: &GemMaterial, fluorescent: bool
 enum Flow {
     /// Fall through to the next block of the same iteration.
     Facet,
-    /// The former `continue`: go straight to the next bounce.
+    /// A `continue` of the loop: go straight to the next bounce.
     Next,
-    /// The former `break`: the path is finished.
+    /// A `break` of the loop: the path is finished.
     Stop,
 }
 
@@ -156,6 +165,13 @@ struct PathState<'a> {
     /// Exit-event splitting after the fluorescence override (its companions would all be
     /// the same wavelength, so a fluorescent scene turns it off).
     exit_splitting: bool,
+    /// The exit-collection estimator is on for this trace: it was asked for and nothing rules
+    /// it out (no NEE, no fluorescence, an ideal surface, exit splitting on, and no Tray
+    /// Reflection: `environment.tray_mirror()` is `None`, and a stone without tools).
+    collect_active: bool,
+    /// The collected exit leaves with their spectral-MIS weight applied, integrated by the
+    /// plain comb sum in [`Self::finish_with_mask`]; all zero without exit collection.
+    collected: [f32; NUM_CHANNELS],
     fluorescent: bool,
     /// Corrects the importance-sampled camera wavelength; 1 and unused without fluorescence.
     camera_weight: f32,
@@ -168,11 +184,14 @@ struct PathState<'a> {
     lambdas: [f32; NUM_CHANNELS],
     stokes: [StokesVector; NUM_CHANNELS],
     radiance: [f32; NUM_CHANNELS],
-    /// A Henyey-Greenstein scattering-point NEE deposit is integrated to XYZ immediately,
-    /// using THAT moment's own `path_pdf`/`compat` -- see `try_scatter_step`'s "NEE spectral
-    /// weighting" doc comment for why this must not ride the shared `radiance` array (which
-    /// is later weighted by the FINAL, post-loop `path_pdf`/`compat` instead). Summed
-    /// unconditionally into the final result, regardless of how the path terminates.
+    /// Integrated XYZ of NEE deposits, summed into the result however the path terminates. A
+    /// Henyey-Greenstein scattering-point deposit is integrated at once with that moment's
+    /// `path_pdf`/`compat`, so the final post-loop weights must not apply to it (see
+    /// `scattering::hg`'s "NEE spectral weighting" note).
+    ///
+    /// A Tray Reflection's floor deposits go here too (`flush_radiance_to_nee`), for the same
+    /// reason: the reflected continuation changes the weight of what follows the floor, never of
+    /// what came before it.
     nee_xyz: Vec3,
     /// Per-channel running density of "technique k (channel k as hero) would have generated
     /// this exact realized path". Starts at 1.0 for every channel.
@@ -195,8 +214,9 @@ struct PathState<'a> {
     /// Per-trace context for exit-event spectral splitting, with the staging accumulator
     /// `split_radiance` it borrows.
     exit_split_ctx: ExitSplitCtx<'a>,
-    /// Set where `PathTermination::Escaped` is recorded -- the only point `radiance` is ever
-    /// populated from a real environment sample, so the only case `split_radiance` commits.
+    /// Set when the path escapes to the environment, which commits `split_radiance` at the end
+    /// of the path. A bounce off the glossy tray commits it through
+    /// [`Self::flush_radiance_to_nee`] instead.
     path_escaped: bool,
     nee_ctx: NeeContext<'a>,
     /// The one piece of state that carries from a scatter event to its VERY NEXT loop
@@ -204,6 +224,19 @@ struct PathState<'a> {
     pending_light_mis: Option<(f32, Vec3)>,
     /// The attribution recorder, written by the `record_*` hooks and never read here.
     events: Option<&'a mut PathEvents>,
+    /// The reference tracer's signature accumulator and `kept` callback; `None` (every
+    /// production trace) leaves the whole loop as it was without the field.
+    reference: Option<ReferenceState<'a>>,
+}
+
+/// The reference tracer's per-sample state: the running branch signature of the hero's path, the
+/// number of facet events folded into it and the `kept` callback.
+struct ReferenceState<'a> {
+    sig: [u32; 2],
+    /// Facet events accumulated so far; a path with none (a camera ray that missed the stone)
+    /// is never offered to `kept`.
+    events: u32,
+    kept: Option<&'a KeptFn<'a>>,
 }
 
 /// The optional out-parameters of [`trace_spectral_ray_core`]: primary hit, termination
@@ -224,9 +257,9 @@ pub(super) fn trace_spectral_ray_core(
     outputs: TraceOutputs<'_>,
 ) -> Vec3 {
     let (mut primary_hit_out, mut termination_out, events) = outputs;
-    // Exit-event splitting's own staging accumulator -- see `ExitSplitCtx::split_radiance`'s
-    // doc comment for why a split channel's contribution lands here first, folded into
-    // `radiance` only if the shared/hero path terminates via `PathTermination::Escaped`.
+    // Staging accumulator of exit-event splitting. A split channel's contribution waits here and
+    // joins `radiance` only if the hero path escapes (see `ExitSplitCtx::split_radiance`). A
+    // bounce off the glossy tray flushes it into `nee_xyz` instead.
     let mut split_radiance = [0.0f32; NUM_CHANNELS];
     let mut path = PathState::new(
         *scene,
@@ -244,6 +277,41 @@ pub(super) fn trace_spectral_ray_core(
         }
     }
     path.finish()
+}
+
+/// [`trace_spectral_ray_core`] as the reference tracer: the same loop with the branch signature
+/// accumulated beside each facet event, and the `kept` zeroing before the spectral integration.
+/// The caller sets `exit_splitting = false` and `DirectionMatch::Exact` in `switches`.
+pub(super) fn trace_spectral_ray_core_reference(
+    scene: &TraceScene<'_>,
+    initial_ray: Ray,
+    rng_seed: u32,
+    hero_rand: f32,
+    switches: TraceSwitches,
+    (mut primary_hit_out, kept): (Option<&mut Option<HitRecord>>, Option<&KeptFn<'_>>),
+) -> ReferenceSample {
+    let mut split_radiance = [0.0f32; NUM_CHANNELS];
+    let mut path = PathState::new(
+        *scene,
+        initial_ray,
+        rng_seed,
+        hero_rand,
+        switches,
+        &mut split_radiance,
+    );
+    path.reference = Some(ReferenceState {
+        sig: BRANCH_SIG_SEED,
+        events: 0,
+        kept,
+    });
+    let mut termination_out = None;
+    for bounce in 0..path.scene.max_bounces {
+        let flow = path.run_bounce(bounce, &mut primary_hit_out, &mut termination_out);
+        if matches!(flow, Flow::Stop) {
+            break;
+        }
+    }
+    path.finish_reference()
 }
 
 impl<'a> PathState<'a> {
@@ -269,12 +337,25 @@ impl<'a> PathState<'a> {
             internal_mode_coupling: enable_internal_mode_coupling,
             exit_splitting: enable_exit_splitting,
             nee: enable_nee,
+            direction_match,
+            estimator,
         } = switches;
         let material = scene.material;
         let fluorescence = scene.fluorescence;
         let environment = scene.environment;
         let fluorescent = !fluorescence.is_empty();
         let enable_exit_splitting = enable_exit_splitting && !fluorescent;
+        // The collected leaves are weighted over the exit-splitting families, and their
+        // throughput corrections (a rough polish) are not modelled: both must hold.
+        let collect_active = estimator == Estimator::ExitCollection && !enable_nee;
+        let collect_active = collect_active && enable_exit_splitting && scene.surface.is_ideal();
+        // A leaf of the collected estimator cannot follow a bounce off the glossy tray (it
+        // is a single environment lookup), so a Tray Reflection switches the estimator off.
+        let collect_active = collect_active && environment.tray_mirror().is_none();
+        // A stone with tools (concave cuts) runs the branching estimator on every engine: a
+        // collected leaf could re-enter it, and the GPU declines it too, so a hybrid frame
+        // never mixes the two estimators.
+        let collect_active = collect_active && scene.tools.is_empty();
         let (camera_wavelength, camera_weight) = if fluorescent {
             fluorescence.camera_wavelength(hero_rand)
         } else {
@@ -298,6 +379,7 @@ impl<'a> PathState<'a> {
             HERO_IDX,
             enable_internal_mode_coupling,
             scene.zone_kernels,
+            scene.tables,
         );
         // Built once per trace and shared: the exit-split probes read it through
         // `exit_split_ctx.studio_rig`, and the escape lookup in `accumulate_miss_radiance`
@@ -309,7 +391,7 @@ impl<'a> PathState<'a> {
                 light_pitch,
                 ..
             } => Some(cached_studio_rig(light_yaw, light_pitch)),
-            EnvironmentSource::HdrMap(_) => None,
+            EnvironmentSource::HdrMap { .. } => None,
         };
         let exit_split_ctx = ExitSplitCtx {
             plane_soa: scene.plane_soa,
@@ -324,6 +406,7 @@ impl<'a> PathState<'a> {
             enabled: enable_exit_splitting,
             compat: [u8::MAX; NUM_CHANNELS],
             split_mis_weight: 1.0,
+            direction_match,
         };
         let nee_ctx = NeeContext {
             environment,
@@ -338,6 +421,8 @@ impl<'a> PathState<'a> {
             surface_glare: scene.surface_glare.clamp(0.0, 1.0),
             enable_internal_mode_coupling,
             exit_splitting: enable_exit_splitting,
+            collect_active,
+            collected: [0.0f32; NUM_CHANNELS],
             fluorescent,
             camera_weight,
             camera_lambdas,
@@ -360,6 +445,7 @@ impl<'a> PathState<'a> {
             nee_ctx,
             pending_light_mis: None,
             events: None,
+            reference: None,
         }
     }
 
@@ -392,16 +478,18 @@ impl<'a> PathState<'a> {
         // unambiguously the hero channel's own first hit.
         capture_primary_hit(primary_hit_out, bounce, hit);
         let Some(hit_rec) = hit else {
-            self.handle_miss(bounce, phase_pdf_for_mis_this_check, termination_out);
-            self.record_miss(bounce);
-            return Flow::Stop;
+            let flow = self.handle_miss(bounce, phase_pdf_for_mis_this_check, termination_out);
+            // A bounce off the glossy tray is not the end of the path: nothing is recorded.
+            if matches!(flow, Flow::Stop) {
+                self.record_miss(bounce);
+            }
+            return flow;
         };
-        // Concave stones only: the stretch of ray that ends at this hit is in the material
-        // exactly when the hit is an exit. The toggle in `dispatch_bounce` agrees with that
-        // except when the `1e-4` restart stepped over a second surface within `1e-4` of the
-        // one it crossed (a tool's rim on a facet, the crease of two tools): the
-        // intersection skipped that boundary as the ray's own origin, so the ray is in the
-        // other medium and the intersection's own state is the one to trace by.
+        // Concave stones only: the stretch of ray ending at this hit is in the material exactly
+        // when the hit is an exit. The toggle in `dispatch_bounce` agrees with that, unless a
+        // `1e-4` restart stepped over a second surface within `1e-4` of the one it crossed (a
+        // tool's rim on a facet, the crease of two tools). The intersection's own state is then
+        // the one to trace by.
         if let Some(entering) = entering {
             self.inside_gem = !entering;
         }
@@ -524,8 +612,8 @@ impl<'a> PathState<'a> {
                     scale_stokes(&mut self.stokes, (sampling_rate * s).exp());
                 }
                 // Scattered Stokes vectors are already depolarized, so the previous plane of
-                // incidence is no longer meaningful -- reset it so the next facet hit applies
-                // no spurious frame rotation.
+                // incidence does not apply: reset it, so the next facet hit applies no spurious
+                // frame rotation.
                 self.prev_plane_normal = None;
                 // Consumed by the VERY NEXT iteration's escape check, and only there.
                 self.pending_light_mis = phase_pdf_for_mis;
@@ -600,6 +688,7 @@ impl<'a> PathState<'a> {
             HERO_IDX,
             self.enable_internal_mode_coupling,
             self.scene.zone_kernels,
+            self.scene.tables,
         );
         self.fluorescence_armed = false;
         Flow::Next
@@ -665,9 +754,23 @@ impl<'a> PathState<'a> {
             self.inside_gem,
             self.is_extraordinary,
         );
-        // Girdle finish: `Polished` (default) takes the pre-existing dispatch; `Frosted`
-        // takes `apply_ground_bounce` instead.
+        // A `Frosted` facet takes `apply_ground_bounce` inside `dispatch_bounce`; a polished one
+        // takes the Fresnel dispatch.
         let inside_before = self.inside_gem;
+        // The camera path's first event at a polished facet: the mirror reflection it collects
+        // carries the surface glare (the throughput scaling below never reaches a leaf).
+        let entry_leaf_scale =
+            if bounce == 0 && self.surface_glare < 1.0 && surface.finish != FacetFinish::Frosted {
+                self.surface_glare
+            } else {
+                1.0
+            };
+        let mut collect = ExitCollect {
+            active: self.collect_active,
+            credit: bounce + 1 < scene.max_bounces,
+            entry_leaf_scale,
+            collected: &mut self.collected,
+        };
         self.pending_light_mis = dispatch_bounce(
             &self.mat_ctx,
             &self.wavelength_cache,
@@ -689,9 +792,12 @@ impl<'a> PathState<'a> {
             &self.lambdas,
             &mut self.radiance,
             phase_pdf_for_mis_this_check,
+            &mut collect,
         );
         self.finish_surface(&surface, inside_before);
         self.record_facet(bounce, hit_rec, inside_before);
+        // Fold the event into the reference tracer's branch signature (a no-op otherwise).
+        self.accumulate_signature(hit_rec.facet_idx, inside_before);
         // Surface glare: the camera path's first event at a polished facet left the ray
         // outside the stone, so it was the specular (Fresnel) reflection and the light never
         // entered. Scaling the throughput here scales everything this path later deposits.
@@ -704,49 +810,68 @@ impl<'a> PathState<'a> {
         {
             apply_surface_glare(&mut self.stokes, self.surface_glare);
         }
-        // Reborrowed through `exit_split_ctx.split_radiance` since `exit_split_ctx` already
-        // holds that local borrowed mutably for the whole loop.
-        if bounce > 4
-            && !apply_russian_roulette(
-                bounce,
-                self.rng_seed,
-                &mut self.stokes,
-                self.exit_split_ctx.split_radiance,
-            )
-        {
+        let survives = self.survives_roulette(bounce);
+        if !survives {
             record_termination(termination_out, bounce, PathTermination::RussianRoulette);
             return Flow::Stop;
         }
         Flow::Next
     }
 
-    /// Folds the staged exit-split contributions in, integrates the channels to XYZ and
-    /// applies the Von Kries white balance.
+    /// The Russian roulette that ends a facet event; false ends the path.
     ///
-    /// The split contributions are committed into `radiance` only if the shared/hero path
-    /// itself reached its own environment lookup -- see `ExitSplitCtx::split_radiance`'s doc
-    /// comment for why this all-or-nothing gate is required. `nee_xyz` is already fully
-    /// integrated to XYZ, so it is added in directly rather than run back through the
-    /// integrator. The white balance is skipped entirely for `HdrMap`: the round trip is not
-    /// quite the identity in f32 (the two published Bradford matrices are not exact inverses,
-    /// `max|B*A - I| ~= 5.2e-7`), and the WGSL twin gates the same transform on
-    /// `params.env_mode == 1u` (`Studio`), so skipping it keeps hybrid CPU/GPU HDR frames
-    /// exact rather than merely close. The final `.max(Vec3::ZERO)` is a physical floor on
-    /// `xyz` itself (the Bradford LMS matrices have negative off-diagonal entries), kept
-    /// unconditionally.
+    /// Exit collection: the chain's weights are physical, so the roulette only starts below a
+    /// floor ([`apply_collect_roulette`]). Branching: none for the first five bounces, then
+    /// [`apply_russian_roulette`]. `split_radiance` is reborrowed through `exit_split_ctx`,
+    /// which holds it mutably for the whole loop.
     #[inline]
-    fn finish(mut self) -> Vec3 {
-        // Each channel's MIS family, final after the last interior dispersive event.
-        let compat = self.exit_split_ctx.compat;
-        if self.path_escaped {
-            for k in 0..NUM_CHANNELS {
-                self.radiance[k] += self.exit_split_ctx.split_radiance[k];
-            }
+    fn survives_roulette(&mut self, bounce: u32) -> bool {
+        if self.collect_active {
+            apply_collect_roulette(
+                bounce,
+                self.rng_seed,
+                &mut self.stokes,
+                self.exit_split_ctx.split_radiance,
+            )
+        } else {
+            bounce <= 4
+                || apply_russian_roulette(
+                    bounce,
+                    self.rng_seed,
+                    &mut self.stokes,
+                    self.exit_split_ctx.split_radiance,
+                )
         }
-        let environment = self.scene.environment;
+    }
+
+    /// Folds the staged exit-split contributions in, integrates the channels to XYZ and applies
+    /// the Von Kries white balance (see [`Self::finish_with_mask`]).
+    ///
+    /// The split contributions count only if the hero path reached its own environment lookup
+    /// (`ExitSplitCtx::split_radiance`). `nee_xyz` is already XYZ and is added directly.
+    ///
+    /// The white balance is skipped for `HdrMap`. The round trip is not exact in f32 (the two
+    /// Bradford matrices are not exact inverses, `max|B*A - I| ~= 5.2e-7`), and the WGSL twin
+    /// applies the transform only for the studio rig, so skipping it keeps hybrid CPU/GPU HDR
+    /// frames exact. The final `.max(Vec3::ZERO)` floors `xyz`, since the Bradford LMS matrices
+    /// have negative off-diagonal entries.
+    #[inline]
+    fn finish(self) -> Vec3 {
+        self.finish_with_mask().0
+    }
+
+    /// Integrates the current `radiance` to XYZ with the current `path_pdf` and `compat`: the
+    /// one spectral integration of the bounce loop, shared by [`Self::finish_with_mask`] (the
+    /// end of the path) and [`Self::flush_radiance_to_nee`] (a bounce off the glossy tray).
+    ///
+    /// Each channel's MIS family is final after the last interior dispersive event, so the
+    /// `compat` read here is the one in force at the moment of the call. With splitting
+    /// enabled every channel is weighted over its own family instead of the hero's.
+    #[inline]
+    fn integrate_radiance(&self) -> Vec3 {
+        let compat = self.exit_split_ctx.compat;
         let hero_idx = HERO_IDX;
-        // With splitting enabled every channel is weighted over its own family instead.
-        let xyz = if self.exit_splitting {
+        if self.exit_splitting {
             integrate_channels_to_xyz_families(
                 &self.radiance,
                 &self.camera_lambdas,
@@ -761,19 +886,122 @@ impl<'a> PathState<'a> {
                 &self.path_pdf,
                 hero_idx,
             )
+        }
+    }
+
+    /// Commits everything gathered so far into `nee_xyz` at a bounce off the glossy tray (a
+    /// Tray Reflection). The staged split contributions join `radiance` as in
+    /// [`Self::finish_with_mask`]. The sum is integrated with this moment's `path_pdf`/`compat`
+    /// and both accumulators restart at zero for the reflected continuation. A deposit made
+    /// before the floor must not be weighted by the densities acquired after it. `path_escaped`
+    /// stays false, since the path has not escaped.
+    #[inline]
+    fn flush_radiance_to_nee(&mut self) {
+        self.commit_split_radiance();
+        let xyz = self.integrate_radiance();
+        self.nee_xyz += xyz;
+        self.radiance = [0.0f32; NUM_CHANNELS];
+        *self.exit_split_ctx.split_radiance = [0.0f32; NUM_CHANNELS];
+    }
+
+    /// Adds the staged exit-split contributions to `radiance`: the hero path reached an
+    /// environment lookup (an escape, or the tray), so what its companions gathered counts.
+    #[inline]
+    fn commit_split_radiance(&mut self) {
+        for k in 0..NUM_CHANNELS {
+            self.radiance[k] += self.exit_split_ctx.split_radiance[k];
+        }
+    }
+
+    /// Folds one facet event into the reference tracer's branch signature. A no-op for a
+    /// production trace.
+    ///
+    /// `facet` is the original facet index and `is_ext` the mode after the event (the outgoing
+    /// mode, as the path cache reads it). No variable holds the event kind, so it is derived: a
+    /// transmission toggled the inside flag, anything else is the merged reflect code.
+    #[inline]
+    fn accumulate_signature(&mut self, facet: usize, inside_before: bool) {
+        let (inside_after, is_ext) = (self.inside_gem, self.is_extraordinary);
+        let Some(reference) = self.reference.as_mut() else {
+            return;
         };
+        let kind = if inside_before == inside_after {
+            EventKind::Reflect
+        } else {
+            EventKind::Transmit
+        };
+        let facet = u32::try_from(facet).unwrap_or(u32::MAX);
+        reference.sig = branch_step(reference.sig, facet, kind, is_ext);
+        reference.events += 1;
+    }
+
+    /// [`Self::finish_with_mask`] packaged as the reference tracer's sample.
+    fn finish_reference(self) -> ReferenceSample {
+        let signature = self
+            .reference
+            .as_ref()
+            .map_or(BRANCH_SIG_SEED, |reference| reference.sig);
+        let (xyz, live_mask) = self.finish_with_mask();
+        ReferenceSample {
+            xyz,
+            signature,
+            live_mask,
+        }
+    }
+
+    /// The reference tracer's `kept` zeroing: returns the live mask (bit `k` set when channel
+    /// `k`'s `path_pdf` is positive) and zeroes the radiance of every live channel `kept`
+    /// claims at this path's signature. Returns 0 and touches nothing for a production trace.
+    fn zero_kept_channels(&mut self) -> u8 {
+        let Some(reference) = self.reference.as_ref() else {
+            return 0;
+        };
+        let packed = pack_sig(reference.sig);
+        let offered = reference.events > 0;
+        let kept = reference.kept;
+        let mut live_mask = 0u8;
+        for k in 0..NUM_CHANNELS {
+            if self.path_pdf[k] > 0.0 {
+                live_mask |= 1u8 << k;
+                if offered
+                    && let Some(kept) = kept
+                    && kept(packed, self.camera_lambdas[k])
+                {
+                    self.radiance[k] = 0.0;
+                }
+            }
+        }
+        live_mask
+    }
+
+    /// [`Self::finish`] and the live mask of a reference trace (0 for a production trace).
+    #[inline]
+    fn finish_with_mask(mut self) -> (Vec3, u8) {
+        if self.path_escaped {
+            self.commit_split_radiance();
+        }
+        let live_mask = self.zero_kept_channels();
+        let environment = self.scene.environment;
+        let xyz = self.integrate_radiance();
         let xyz = xyz + self.nee_xyz;
+        // The collected exit leaves are already weighted: they join as a plain comb sum.
+        let xyz = if self.collect_active {
+            xyz + integrate_collected_to_xyz(&self.collected, &self.camera_lambdas)
+        } else {
+            xyz
+        };
         let xyz = if self.fluorescent {
             xyz * self.camera_weight
         } else {
             xyz
         };
-        match environment {
+        let xyz = match environment {
             EnvironmentSource::Studio { .. } => {
                 apply_von_kries_white_balance(xyz, environment_white_balance(environment))
             }
-            EnvironmentSource::HdrMap(_) => xyz,
+            EnvironmentSource::HdrMap { .. } => xyz,
         }
-        .max(Vec3::ZERO)
+        .max(Vec3::ZERO);
+        (xyz, live_mask)
     }
 }

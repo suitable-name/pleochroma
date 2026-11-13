@@ -382,7 +382,10 @@ fn all_metrics_can_be_hidden_and_reenabled_and_invalid_callbacks_are_ignored() {
     for index in 0..i32::try_from(FIGURES.len()).unwrap() {
         assert!(visible.toggle(index));
     }
-    assert!(visible.selected().is_empty());
+    assert_eq!(
+        visible.selected(),
+        [] as [pleochroma_editor::sweep::SweepMetric; 0]
+    );
     assert!(
         metrics::rows(&sample_rows(), visible)
             .iter()

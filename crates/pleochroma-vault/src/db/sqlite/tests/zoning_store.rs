@@ -1,5 +1,7 @@
-//! The rough-colour side tables: creation, round trips, the read-only
-//! behaviour, orphan pruning, and that opening twice keeps what was stored.
+//! The rough-colour, pose, material-zoning and render-job-zoning side tables.
+//!
+//! Covers creation and reopening, round trips, atomic replacement, read-only behaviour and
+//! orphan pruning.
 
 use super::{super::*, fixtures::temp_db_path};
 use crate::model::zoning::{

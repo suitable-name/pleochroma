@@ -10,7 +10,7 @@
 //! The delta is traced in sub-batches of at most [`SUBBATCH`] samples and summed with
 //! `+=`, the way the emitter's pending delta folds the tracer's sub-batches.
 //!
-//! Cases: scenes studio (the GUI default `RingLights`) and light tent; materials
+//! Cases: scenes studio (`RingLights`) and light tent; materials
 //! diamond and sapphire; 1080p and 4K; 8, 64 and 512 samples per delta. A case whose
 //! projected trace time exceeds [`MAX_CAPTURE_SECS`] is skipped and reported. Files that
 //! already exist at full size are kept, so an interrupted run resumes where it stopped.
@@ -44,8 +44,8 @@ use pleochroma_worker::render_core::trace_samples_with_gpu;
 /// Largest sub-batch traced in one call before folding into the delta.
 const SUBBATCH: u32 = 64;
 
-/// Default cap: a capture projected to take longer than this is skipped (a
-/// ~2 min cap). An optional second argument overrides it, in seconds.
+/// Default cap on a capture's projected trace time, in seconds: longer captures are
+/// skipped. The optional second argument overrides it.
 const MAX_CAPTURE_SECS: f64 = 120.0;
 
 /// Per-delta sample counts, ascending so the projection has a measured rate to go on.
@@ -62,6 +62,10 @@ fn scene(preset: LightingPreset, material: &GemMaterial, width: u32, height: u32
         height,
         yaw: 0.60,
         camera_roll: 0.0,
+        stone_shadow: false,
+        tray_reflection: 0.0,
+        hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
+        estimator: pleochroma::optics::raytracer::Estimator::Branching,
         pitch: 0.45,
         distance: 2.4,
         light_yaw: 0.85,
@@ -72,9 +76,7 @@ fn scene(preset: LightingPreset, material: &GemMaterial, width: u32, height: u32
         material: material.clone(),
         planes: StandardGemCuts::standard_round_brilliant(),
         girdle_frosted: false,
-        // Since protocol v29 the field is a tray radiance seen by every escape; the old Grey
-        // card level 0.23 is kept as a literal (a 0.23 tray). The owner regenerates PGO
-        // profiles on the owner's schedule.
+        // Tray radiance seen by every escape (`BACKDROP_GREY`, 0.23).
         backdrop: BACKDROP_GREY,
         environment: pleochroma_net::scene::SceneEnvironment::Studio,
         surface_glare: 1.0,

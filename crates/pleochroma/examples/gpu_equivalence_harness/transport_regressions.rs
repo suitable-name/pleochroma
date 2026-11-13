@@ -1,4 +1,4 @@
-//! Focused transport regressions for the Windows AMD and Linux RADV failures.
+//! Focused transport regression groups, run by `--transport-regressions`.
 //! Every group runs even if an earlier group fails; no tolerance is relaxed.
 
 use pleochroma::renderer::gpu::{GpuContext, estimator_check};

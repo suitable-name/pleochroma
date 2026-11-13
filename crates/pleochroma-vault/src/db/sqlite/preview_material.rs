@@ -61,9 +61,8 @@ impl Database {
     /// and `Ok(true)` comes back. A refractive-index pick, a row without a material and a
     /// design with no row are left alone (`Ok(false)`).
     ///
-    /// For a design whose file no longer names a material (or names one nothing resolves):
-    /// without this, [`Self::ensure_preview_material_by`] would keep returning the name
-    /// the file used to carry.
+    /// Needed for a design whose file no longer names a material (or names one nothing
+    /// resolves): otherwise [`Self::ensure_preview_material_by`] keeps returning the old name.
     ///
     /// # Errors
     ///
@@ -164,14 +163,9 @@ impl Database {
     /// so the render that last used the file recorded its outcome with
     /// [`Self::set_preview_material`], and the fingerprint is compared against that.
     ///
-    /// Replaces the "load every entry's preview images just to test one timestamp"
-    /// scan a startup batch pass used to run (`gui::batch::preview::scan`): that
-    /// pattern loads both 256x256 PNGs for EVERY entry in the catalogue merely to
-    /// check `generated_at.is_none()` -- measured at 4.4s and 447 MB for one pass over
-    /// the real catalogue's 3,299 entries -- when the same test is answered here by a
-    /// `LEFT JOIN` that never selects a blob column at all. The "either view missing"
-    /// test is `preview_front IS NULL OR preview_top IS NULL`, which reads only the
-    /// record header, so the query stays blob-free.
+    /// The query selects no blob column: the stamp and the "either view missing" test
+    /// (`preview_front IS NULL OR preview_top IS NULL`) read only record headers, so a
+    /// startup scan over the whole catalogue loads no preview image.
     ///
     /// # Errors
     ///
@@ -533,7 +527,7 @@ mod tests {
             "another source makes the render outdated"
         );
 
-        // Both scans read the same state: the tilt scan joins `diagram_previews` for it.
+        // Both scans read the same persisted state.
         assert_eq!(
             db.entry_ids_missing_tilt_curves(fingerprint_of).unwrap(),
             vec![entry_id],

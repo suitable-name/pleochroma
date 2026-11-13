@@ -35,17 +35,18 @@
 //! - `UIPROBE_JOBS=serial`: one tutorial at a time; `UIPROBE_FFMPEG`: the ffmpeg executable.
 //!
 //! Per tutorial, in its browser section's folder `<ss>-<section>/` (for example
-//! `05-solving-and-checking/`): `<nn>-<id>.mp4` (1920 x 1080, 30 fps, H.264), `<nn>-<id>.srt`
-//! (one cue group per step) and `<nn>-<id>.chapters.txt` (a `YouTube` chapter list), where `<ss>`
-//! is the section's place and `<nn>` the tutorial's place in the browser order, so the folders
-//! and files sorted by name are the upload order; `playlist.md` (at the top of the output folder)
+//! `05-solving-and-checking/`): `<nn>-<id>.mp4` (1920 x 1080 and 30 fps by default, H.264),
+//! `<nn>-<id>.srt` (one cue group per step) and `<nn>-<id>.chapters.txt` (a `YouTube` chapter
+//! list), where `<ss>` is the section's place and `<nn>` the tutorial's place in the browser
+//! order, so the folders and files sorted by name are the upload order; `playlist.md` (at the top
+//! of the output folder)
 //! lists number, section, title and file. Each is announced as
-//! `tutorial-videos: wrote videos/<ss>-<section>/<nn>-<id>.mp4 (<mm:ss>, <n> frames)`. A tutorial whose run hits a
-//! step the recorder cannot show, a skipped step, a timeout, a panic, an error toast or private
-//! text leaves the previous video untouched and reports a finding `video` in
+//! `tutorial-videos: wrote videos/<ss>-<section>/<nn>-<id>.mp4 (<mm:ss>, <n> frames)`. A tutorial
+//! whose run hits a step the recorder cannot show, a skipped step, a timeout, a panic, an error
+//! toast or private text leaves the previous video untouched and reports a finding `video` in
 //! `target/tutorial-videos/report.md`. Privacy-checked failure screenshots are saved under the
 //! output folder's `failures` directory when the app is open. The video is written as
-//! `<id>.mp4.part` and renamed when it is complete.
+//! `<nn>-<id>.mp4.part` and renamed when it is complete.
 //!
 //! Privacy: no frame may show a path with the user's name; every step's visible labels, values
 //! and placeholders are scanned for the user's name and for profile path fragments, and a hit
@@ -99,6 +100,11 @@ use uiprobe::{
 type SharedApp = Rc<RefCell<HarnessApp>>;
 
 fn main() -> ExitCode {
+    // The app's stone estimator, so the harness renders what the app renders (every process,
+    // the parent and each worker, runs this `main`).
+    pleochroma::optics::raytracer::set_default_estimator(
+        pleochroma::optics::raytracer::Estimator::APP_DEFAULT,
+    );
     // Read before the profile moves the working directory and redirects the user variables.
     let config = Rc::new(Config::from_env());
     if !config.debug

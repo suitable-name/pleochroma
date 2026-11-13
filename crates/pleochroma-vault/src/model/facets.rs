@@ -78,8 +78,7 @@ mod tests {
 
     #[test]
     fn hyphen_separator_is_treated_like_plus() {
-        // Real data has exactly one row like this ("34.007 Seven Pointed Star"): a
-        // scraping-era typo for "78+7", not a subtraction.
+        // A scraped typo for "78+7", not a subtraction.
         assert_eq!(parse_facets_count(Some("78-7")), (Some(78), Some(7)));
     }
 

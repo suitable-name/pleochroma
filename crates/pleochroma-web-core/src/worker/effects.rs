@@ -1,4 +1,4 @@
-//! Per-scene render physics, separate from the stable scene payload (like the engine).
+//! Per-scene render effects, kept apart from the scene payload.
 
 use super::{FromWorker, WorkerHandler, WorkerRole};
 use crate::scene::EffectsSpec;

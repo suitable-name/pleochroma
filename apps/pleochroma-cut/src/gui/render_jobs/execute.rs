@@ -12,11 +12,25 @@
 //!
 //! A video's frame folder carries a marker file naming the job (`FRAME_MARKER_FILE`), so
 //! a resume only trusts frames that this job wrote, and never mixes in another export's.
+//!
+//! # The estimator
+//!
+//! A run renders with the process default estimator (`default_estimator()`, set at start-up by
+//! the app or per run by the command line). [`job_for_estimator`] lays the job out for it before
+//! anything renders:
+//!
+//! - when the estimator differs from the one the job recorded (`scene.estimator`), the job's token
+//!   becomes `changed_token(token, "estimator=<word>")`, so a tilt video never mixes frames made
+//!   with two estimators, and the scene records the new one (a remote worker renders with the
+//!   estimator its scene carries);
+//! - under exit collection the job's own path cache and beams are dropped
+//!   ([`accel_for_estimator`]), each with a note, because both replay coin-flip paths.
 
-use super::convert;
+use super::{convert, headless::changed_token};
 use crate::{
     bridge::export_thread::{
-        ExportOutcome, ExportParams, ExportProgress, RemoteSelection, SceneSnapshot, run_export,
+        ExportOutcome, ExportParams, ExportProgress, RemoteSelection, RenderTaps, SceneSnapshot,
+        run_export_tapped,
     },
     gui::{
         progress_eta::EtaEstimator,
@@ -27,6 +41,14 @@ use crate::{
         },
     },
     settings::{LocalComputeTarget, WorkerSettings},
+};
+use pleochroma::{
+    optics::raytracer::{Estimator, default_estimator},
+    renderer::{
+        accel::{PathCacheSettings, RenderAccel},
+        accel_beam::BeamSettings,
+        adaptive::AdaptiveSettings,
+    },
 };
 use pleochroma_render_jobs::{
     ComputeChoice, FailureKind, JobKind, JobOutcome, JobProgress, JobSink, RenderJobFile, StillJob,
@@ -60,16 +82,28 @@ pub struct ExecContext {
     pub restart_frames: bool,
 }
 
-/// [`execute_job`], with a panic turned into a failed outcome. The outcome is therefore
-/// always delivered, which the queue relies on to release the live viewport.
+/// [`execute_job_tapped`] without taps, with a panic turned into a failed outcome.
+///
+/// The outcome is always delivered, which the queue relies on to release the live viewport.
 pub fn execute_job_catching(
     job: &RenderJobFile,
     ctx: &ExecContext,
     cancel: &AtomicBool,
     sink: &mut dyn JobSink,
 ) -> JobOutcome {
+    execute_job_catching_tapped(job, ctx, &RenderTaps::default(), cancel, sink)
+}
+
+/// [`execute_job_catching`] with the optional [`RenderTaps`] (sample offset, linear-image sink).
+pub fn execute_job_catching_tapped(
+    job: &RenderJobFile,
+    ctx: &ExecContext,
+    taps: &RenderTaps,
+    cancel: &AtomicBool,
+    sink: &mut dyn JobSink,
+) -> JobOutcome {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        execute_job(job, ctx, cancel, sink)
+        execute_job_tapped(job, ctx, taps, cancel, sink)
     }))
     .unwrap_or_else(|payload| {
         let message = payload
@@ -87,20 +121,45 @@ pub fn execute_job_catching(
 
 /// Renders `job` and reports how it ended. Cancelling through `cancel` ends the run as
 /// [`JobOutcome::Stopped`] at the next sample batch (still) or the next frame (video).
+///
+/// The tests' entry point; the app and the CLI go through [`execute_job_catching`] and
+/// [`execute_job_catching_tapped`].
+#[cfg(test)]
 pub fn execute_job(
     job: &RenderJobFile,
     ctx: &ExecContext,
     cancel: &AtomicBool,
     sink: &mut dyn JobSink,
 ) -> JobOutcome {
+    execute_job_tapped(job, ctx, &RenderTaps::default(), cancel, sink)
+}
+
+/// Renders `job` with the optional [`RenderTaps`] and reports how it ended.
+///
+/// Every rendered picture starts at `taps.sample_offset` and publishes its linear image to
+/// `taps.sink`. With [`RenderTaps::default`] the render is the untapped one, byte for byte.
+/// Cancelling through `cancel` ends the run as [`JobOutcome::Stopped`] at the next sample batch
+/// (still) or the next frame (video).
+pub fn execute_job_tapped(
+    job: &RenderJobFile,
+    ctx: &ExecContext,
+    taps: &RenderTaps,
+    cancel: &AtomicBool,
+    sink: &mut dyn JobSink,
+) -> JobOutcome {
     if let Err(e) = job.validate() {
         return failed(FailureKind::Input, e.to_string(), 0);
     }
+    // The estimator rule comes first, so the scene, the token and the accelerations of the whole
+    // run (the local and the remote parts alike) are the ones of the estimator it renders with.
+    let EstimatorJob { job, change, notes } = job_for_estimator(job, default_estimator());
+    let job = &job;
     let env_map = match convert::load_hdr(job, &ctx.base_dir) {
         Ok(env_map) => env_map,
         Err((kind, message)) => return failed(kind, message, 0),
     };
-    let mut scene = convert::snapshot_from_scene(&job.scene, env_map);
+    // The job's color zones ride beside its scene; this puts them back on the material.
+    let mut scene = convert::snapshot_from_job(job, env_map);
     scene.engine = job.engine;
     scene.optical_diagnostics = job
         .optical_diagnostics
@@ -110,10 +169,210 @@ pub fn execute_job(
         return failed(FailureKind::Input, reason.to_string(), 0);
     }
     let remote = remote_selection_for(job, ctx);
+    let taps = &taps_with_job_adaptive(job, taps);
+    announce_notes(job, &notes, sink);
     match &job.kind {
-        JobKind::Still(still) => execute_still(job, still, ctx, &scene, &remote, cancel, sink),
-        JobKind::TiltVideo(video) => execute_video(job, video, ctx, scene, remote, cancel, sink),
+        JobKind::Still(still) => {
+            execute_still(job, still, ctx, &scene, &remote, taps, cancel, sink)
+        }
+        JobKind::TiltVideo(video) => execute_video(
+            job,
+            video,
+            ctx,
+            scene,
+            remote,
+            taps,
+            change.as_ref(),
+            cancel,
+            sink,
+        ),
     }
+}
+
+/// The note shown when exit collection drops the job's own path cache.
+pub(super) const PATH_CACHE_OFF_NOTE: &str =
+    "Path cache off: exit collection, the default estimator, does not use it.";
+
+/// The note shown when exit collection drops the job's own beam tracing.
+#[cfg(feature = "beam")]
+pub(super) const BEAM_OFF_NOTE: &str =
+    "Beam tracing off: exit collection, the default estimator, does not use it.";
+
+/// The accelerations a job renders with under `estimator`, and a note for each one dropped.
+///
+/// Exit collection does not use the path cache or beam tracing, which replay coin-flip paths:
+/// under it the path cache is dropped, and so are the beams in a build with the `beam` feature.
+/// In a build without that feature `beam` stays as it is, so the render's own note "Beam tracing
+/// off: this build has no beam tracer" still says why there are no beams (one beam note, never
+/// two). Under [`Estimator::Branching`] nothing changes. Adaptive sampling is never touched.
+pub(super) fn accel_for_estimator(
+    accel: &RenderAccel,
+    estimator: Estimator,
+) -> (RenderAccel, Vec<&'static str>) {
+    let mut accel = accel.clone();
+    let mut notes = Vec::new();
+    if estimator == Estimator::ExitCollection {
+        if accel.path_cache.take().is_some() {
+            notes.push(PATH_CACHE_OFF_NOTE);
+        }
+        #[cfg(feature = "beam")]
+        if accel.beam.take().is_some() {
+            notes.push(BEAM_OFF_NOTE);
+        }
+    }
+    (accel, notes)
+}
+
+/// A job laid out for one estimator: see [`job_for_estimator`].
+pub(super) struct EstimatorJob {
+    /// The job to render: its token, scene estimator and accelerations follow the estimator.
+    pub(super) job: RenderJobFile,
+    /// What the estimator rule did to the token, when the job file recorded another estimator.
+    pub(super) change: Option<TokenChange>,
+    /// The notes of the accelerations that were dropped ([`accel_for_estimator`]).
+    pub(super) notes: Vec<&'static str>,
+}
+
+/// The estimator rule changed a job's token: the estimator and the token the job file's own
+/// estimator gives its frames.
+pub(super) struct TokenChange {
+    /// The estimator the job file recorded.
+    pub(super) recorded: Estimator,
+    /// The job's token before the rule changed it.
+    pub(super) old_token: String,
+}
+
+/// `job` laid out for a run that renders with `estimator`.
+///
+/// When `estimator` differs from the one the job recorded in `scene.estimator`, the token becomes
+/// `changed_token(token, "estimator=<word>")` (the word is [`Estimator::cli_word`]) and the scene
+/// records `estimator`. A job recorded with the same estimator keeps its token. The job's
+/// accelerations follow [`accel_for_estimator`]; a tilt video also stops keeping its path cache
+/// when the estimator does not use one.
+///
+/// The Ray-Traced engine has no estimator and caches no light paths: its job comes back as it was,
+/// with no token change and no notes.
+pub(super) fn job_for_estimator(job: &RenderJobFile, estimator: Estimator) -> EstimatorJob {
+    let mut job = job.clone();
+    if job.engine.is_ray() {
+        return EstimatorJob {
+            job,
+            change: None,
+            notes: Vec::new(),
+        };
+    }
+    let change = (job.scene.estimator != estimator).then(|| TokenChange {
+        recorded: job.scene.estimator,
+        old_token: job.token.clone(),
+    });
+    if change.is_some() {
+        job.token = changed_token(&job.token, &format!("estimator={}", estimator.cli_word()));
+        job.scene.estimator = estimator;
+    }
+    let notes = match &mut job.kind {
+        JobKind::Still(still) => {
+            let (accel, notes) = accel_for_estimator(&still.accel, estimator);
+            still.accel = accel;
+            notes
+        }
+        JobKind::TiltVideo(video) => {
+            let (accel, notes) = accel_for_estimator(&video.accel, estimator);
+            video.accel = accel;
+            if estimator == Estimator::ExitCollection {
+                video.keep_path_cache = false;
+            }
+            notes
+        }
+    };
+    EstimatorJob { job, change, notes }
+}
+
+/// What a refused frame folder is told when the estimator rule changed the job's token: the folder
+/// may hold frames of the estimator the job file recorded.
+pub(super) fn estimator_change_hint(recorded: Estimator, now: Estimator) -> String {
+    let mut hint = format!(
+        " This run renders with the {} estimator but the job was made with the {} estimator, \
+         which gives the frames a token of their own.",
+        now.cli_word(),
+        recorded.cli_word()
+    );
+    if recorded == Estimator::ExitCollection {
+        hint.push_str(
+            " To continue them, run without --path-cache, --persist-cache and the --beam flags;",
+        );
+    }
+    hint.push_str(" --restart renders them again (in the app, use Restart).");
+    hint
+}
+
+/// Shows each of `notes` (the accelerations the estimator dropped) to `sink` before the render
+/// starts.
+fn announce_notes(job: &RenderJobFile, notes: &[&'static str], sink: &mut dyn JobSink) {
+    let frames_total = match &job.kind {
+        JobKind::Still(_) => 1,
+        JobKind::TiltVideo(video) => video.total_frames,
+    };
+    for note in notes {
+        sink.progress(&JobProgress {
+            frames_done: 0,
+            frames_total,
+            fraction: 0.0,
+            eta_secs: None,
+            note: Some((*note).to_string()),
+            beam_phase: None,
+        });
+    }
+}
+
+/// The adaptive-sampling settings a job asks for, capped at the job's own samples per pixel.
+#[must_use]
+pub fn job_adaptive_settings(job: &RenderJobFile) -> Option<AdaptiveSettings> {
+    let (accel, samples) = match &job.kind {
+        JobKind::Still(still) => (&still.accel, still.samples_per_pixel),
+        JobKind::TiltVideo(video) => (&video.accel, video.samples_per_pixel),
+    };
+    accel.adaptive.map(|settings| AdaptiveSettings {
+        max_spp: samples,
+        ..settings
+    })
+}
+
+/// The path-cache settings a job asks for. A still keeps its `accel.path_cache` as it is; a tilt
+/// video's frame caches reach the disk only when the job says `keep_path_cache`.
+#[must_use]
+pub fn job_path_cache_settings(job: &RenderJobFile) -> Option<PathCacheSettings> {
+    match &job.kind {
+        JobKind::Still(still) => still.accel.path_cache,
+        JobKind::TiltVideo(video) => video.accel.path_cache.map(|cache| PathCacheSettings {
+            persist: video.keep_path_cache,
+            ..cache
+        }),
+    }
+}
+
+/// The beam-tracing settings a job asks for (`accel.beam` of a still or a tilt video).
+#[must_use]
+pub const fn job_beam_settings(job: &RenderJobFile) -> Option<BeamSettings> {
+    match &job.kind {
+        JobKind::Still(still) => still.accel.beam,
+        JobKind::TiltVideo(video) => video.accel.beam,
+    }
+}
+
+/// `taps`, with the job's own adaptive, path-cache and beam settings when the caller (the command
+/// line) set none: flags override the job. A job with none returns `taps` unchanged.
+fn taps_with_job_adaptive(job: &RenderJobFile, taps: &RenderTaps) -> RenderTaps {
+    let mut effective = taps.clone();
+    if effective.adaptive.is_none() {
+        effective.adaptive = job_adaptive_settings(job);
+    }
+    if effective.path_cache.is_none() {
+        effective.path_cache = job_path_cache_settings(job);
+    }
+    if effective.beam.is_none() {
+        effective.beam = job_beam_settings(job);
+    }
+    effective
 }
 
 /// A frame count at the `u32` the job records use; saturates instead of wrapping.
@@ -156,12 +415,17 @@ fn output_of(job: &RenderJobFile, ctx: &ExecContext) -> PathBuf {
 
 // ---- Still ---------------------------------------------------------------------------
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the job, its context and scene, the remote selection, the taps, cancellation and the sink"
+)]
 fn execute_still(
     job: &RenderJobFile,
     still: &StillJob,
     ctx: &ExecContext,
     scene: &SceneSnapshot,
     remote: &RemoteSelection,
+    taps: &RenderTaps,
     cancel: &AtomicBool,
     sink: &mut dyn JobSink,
 ) -> JobOutcome {
@@ -177,23 +441,44 @@ fn execute_still(
         out = reserve_unique_file(&out, &[], &|path| path.exists());
     }
     let mut eta = EtaEstimator::default();
-    let outcome = run_export(
+    let outcome = run_export_tapped(
         scene,
         params,
         convert::color_space_of(still.color_space),
         &out,
         remote,
         ctx.local_compute,
+        taps,
         cancel,
         |progress: ExportProgress| {
             let now = Instant::now();
-            eta.observe(now, f64::from(progress.fraction));
+            #[cfg(feature = "beam")]
+            let eta_secs = {
+                // A render that gave up its beams starts over as an ordinary render: its estimate
+                // must not be fitted through the probe's reports too.
+                eta.observe_stretch(now, f64::from(progress.fraction), progress.beam.is_some());
+                // A beam report carries the renderer's own estimate (per-batch rate plus the batch
+                // in progress). The fraction regression is for the plain render.
+                progress
+                    .beam
+                    .map_or_else(|| eta.eta(now), |beam| beam.eta)
+                    .map(|left| left.as_secs_f64())
+            };
+            #[cfg(not(feature = "beam"))]
+            let eta_secs = {
+                eta.observe(now, f64::from(progress.fraction));
+                eta.eta(now).map(|left| left.as_secs_f64())
+            };
             sink.progress(&JobProgress {
                 frames_done: 0,
                 frames_total: 1,
                 fraction: progress.fraction,
-                eta_secs: eta.eta(now).map(|left| left.as_secs_f64()),
+                eta_secs,
                 note: progress.note,
+                #[cfg(feature = "beam")]
+                beam_phase: progress.beam.map(|beam| beam.phase),
+                #[cfg(not(feature = "beam"))]
+                beam_phase: None,
             });
         },
     );
@@ -215,12 +500,18 @@ fn execute_still(
 
 // ---- Tilt video ----------------------------------------------------------------------
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the job, its context and scene, remote, taps, token change, cancellation, sink"
+)]
 fn execute_video(
     job: &RenderJobFile,
     video: &TiltVideoJob,
     ctx: &ExecContext,
     scene: SceneSnapshot,
     remote: RemoteSelection,
+    taps: &RenderTaps,
+    change: Option<&TokenChange>,
     cancel: &AtomicBool,
     sink: &mut dyn JobSink,
 ) -> JobOutcome {
@@ -241,7 +532,13 @@ fn execute_video(
             0,
         );
     }
-    if let Err(outcome) = prepare_frame_folder(&dir, &job.token, ctx.restart_frames) {
+    let folder_rule = FolderRule {
+        token: &job.token,
+        restart: ctx.restart_frames,
+        change,
+        estimator: job.scene.estimator,
+    };
+    if let Err(outcome) = prepare_frame_folder(&dir, &folder_rule) {
         return outcome;
     }
 
@@ -265,7 +562,7 @@ fn execute_video(
         None,
     );
 
-    match frames::render_frames(&request, true, cancel, &mut reporter) {
+    match frames::render_frames_tapped(&request, true, taps, cancel, &mut reporter) {
         FramesOutcome::Done(paths) => finish_video(video, &dir, &paths, total),
         FramesOutcome::Cancelled { frames_done } => JobOutcome::Stopped {
             frames_done: count_u32(frames_done),
@@ -277,18 +574,60 @@ fn execute_video(
     }
 }
 
+/// What decides whether a tilt video may use its frame folder.
+pub(super) struct FolderRule<'a> {
+    /// The token of this run (the estimator rule already applied).
+    pub(super) token: &'a str,
+    /// A restart was asked for.
+    pub(super) restart: bool,
+    /// What the estimator rule did to the token, if it changed it.
+    pub(super) change: Option<&'a TokenChange>,
+    /// The estimator this run renders with.
+    pub(super) estimator: Estimator,
+}
+
+impl FolderRule<'_> {
+    /// Whether `owner`, the token a folder's marker names, is the job's own token before the
+    /// estimator rule changed it: the folder holds frames of the estimator the job file recorded.
+    fn holds_recorded_estimators_frames(&self, owner: Option<&str>) -> bool {
+        self.change
+            .is_some_and(|change| owner == Some(change.old_token.as_str()))
+    }
+
+    /// Whether the folder of the marker owner `owner` is refused: another job's folder is, except
+    /// that a restart takes over the frames of the job's own file under its recorded estimator.
+    pub(super) fn refuses(&self, owner: Option<&str>) -> bool {
+        let takeover = self.restart && self.holds_recorded_estimators_frames(owner);
+        owner != Some(self.token) && !takeover
+    }
+
+    /// The sentence a refusal adds when the folder holds frames of the recorded estimator.
+    pub(super) fn hint(&self, owner: Option<&str>) -> String {
+        self.change
+            .filter(|_| self.holds_recorded_estimators_frames(owner))
+            .map_or_else(String::new, |change| {
+                estimator_change_hint(change.recorded, self.estimator)
+            })
+    }
+}
+
 /// Checks the frame folder belongs to this job (or is fresh), clears it when a restart was
-/// asked for, removes the leftovers of an interrupted frame and writes the marker.
-fn prepare_frame_folder(dir: &Path, token: &str, restart: bool) -> Result<(), JobOutcome> {
+/// asked for, removes the leftovers of an interrupted frame and writes the marker. A folder of
+/// another job is refused; when it holds the frames of the estimator the job file recorded, the
+/// message names the way out.
+fn prepare_frame_folder(dir: &Path, rule: &FolderRule<'_>) -> Result<(), JobOutcome> {
+    let (token, restart) = (rule.token, rule.restart);
     let marker = dir.join(FRAME_MARKER_FILE);
     if marker.exists() {
-        let owner = std::fs::read_to_string(&marker).ok();
-        if owner.as_deref().and_then(marker_token) != Some(token) {
+        let text = std::fs::read_to_string(&marker).ok();
+        let owner = text.as_deref().and_then(marker_token);
+        if rule.refuses(owner) {
             return Err(failed(
                 FailureKind::Input,
                 format!(
-                    "The folder {} belongs to another render job.",
-                    dir.display()
+                    "The folder {} belongs to another render job.{}",
+                    dir.display(),
+                    rule.hint(owner)
                 ),
                 0,
             ));
@@ -366,6 +705,7 @@ impl SinkReporter<'_> {
             fraction,
             eta_secs,
             note,
+            beam_phase: None,
         });
     }
 }

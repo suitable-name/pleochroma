@@ -1,10 +1,11 @@
-//! Dialog and panel states of the click-through passes that run 6 and `states_more.rs` still left
-//! uncovered (round 6, lane R6B): the material editor's sub-pages, the import form of the preview
-//! batch, the Preferences tutorial buttons, the empty state's recent file, saved lightings, the
-//! live-compute link, the Angle Sweep results and the Guide panel's Back button.
+//! Dialog and panel states that the other click-through states do not reach.
+//!
+//! The material editor's sub-pages, the import form of the preview batch, the Preferences tutorial
+//! buttons, the empty state's recent file, saved lightings, the live-compute link, the Angle Sweep
+//! results and the Guide panel's Back button.
 //!
 //! Every state reaches its page the way a user would: model flags first, then the opener button.
-//! Everything below is an `in` / `in-out` property or a callback of a global in `ui/models/*.slint`.
+//! Everything below is an `in` / `in-out` property or a callback of a global in `ui/models/`.
 //! A page that only exists after a long job (a finished sweep) is prepared here, outside the pass,
 //! with the smallest input that makes it (three angles); the pass itself keeps the long-job
 //! controls (Run Sweep, Full Render, Generate) denied.
@@ -210,7 +211,7 @@ fn lch_editor(a: &HarnessApp) {
 
 /// The physics colour section the way a user meets "Update to Current Data" and "Redo": a saved
 /// material whose recipe was built with older catalogue data is opened (the badge comes from
-/// `ColorMode::data_outdated`, nobody sets it), one edit is made and undone. The edit refreshes the
+/// `ColorMode::data_outdated`, nobody sets it), one edit is made and undone. The edit updates the
 /// recipe to the current data version, so the undo, which restores the stored recipe exactly, is
 /// what brings the badge back; it is also the last action, so Redo stays enabled.
 #[cfg(feature = "physical-color")]

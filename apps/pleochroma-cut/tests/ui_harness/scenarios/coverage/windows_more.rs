@@ -1,16 +1,16 @@
-//! More click-through passes (the part of run 6's uncovered elements that live in the secondary
-//! windows, plus the registration of `states_more.rs`).
+//! Click-through passes of the secondary windows: the Rough Planner, the Rig and Locate windows,
+//! the Compare window and the Rough Colour wizard. It also registers the `states_more.rs` states.
 //!
-//! Proves: in the Rough Planner (a finished plan, saved plans, the question rows, the excluded
-//! list, a mesh-like rough, a block with typed inclusions), the Rig window (Rig and Calibrate tabs with a stored rig), the Locate
-//! window (with a stored rig), the Compare window (split view, reference choice, tilt button) and
-//! the Rough Colour wizard (each of its eight steps) every enabled control is pressed once and
-//! every field touched, without a panic, an unexpected file dialog or an error toast.
+//! Proves: in each state every enabled control of the window is pressed once and every field
+//! touched, without a panic, an unexpected file dialog or an error toast. The Rough Planner
+//! states are a finished plan, saved plans, the question rows, the excluded list, a mesh-like
+//! rough and a block with typed inclusions; the Rig and Locate states a stored rig (the Rig and
+//! Calibrate tabs); the Compare state the split view; the wizard states its eight steps.
 //!
-//! The engine here is the overlay one: `OVERLAY_DENY` instead of the generic smoke list, so the
-//! destructive pills (Delete, Remove, Replace, Discard) are pressed too: the profile is rebuilt
-//! after every visible change. A press that closes the window is the control doing its job
-//! (`scope_may_close`, views named `Window/<state>`).
+//! The engine is the overlay one with `OVERLAY_DENY`, so the destructive pills (Delete, Remove,
+//! Replace, Discard) are pressed too: the profile is rebuilt after every visible change. A press
+//! that closes the window is the control doing its job (`scope_may_close`, views named
+//! `Window/<state>`).
 
 use super::{
     super::{Piece, existing_install},
@@ -25,7 +25,9 @@ use crate::support::{
     smoke::{self, DenyMatch, DenyRule, SmokeHost, pleochroma_smoke},
     sweep_options,
 };
-use pleochroma_cut::{CompareMetricRow, CompareModel, RoughPlanModel, harness_support};
+use pleochroma_cut::{
+    CompareMetricRow, CompareModel, RoughFinding, RoughPlanModel, harness_support,
+};
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use std::time::Duration;
 use uiprobe::{backend::wait_until_labeled, report::Report};
@@ -214,7 +216,7 @@ fn run_window(
 }
 
 /// Presses the first clickable element of `which` labelled `label`, as the engine would.
-fn press_in(which: SecondaryWindow, label: &str) -> bool {
+pub(super) fn press_in(which: SecondaryWindow, label: &str) -> bool {
     let Some(view) = overlays::secondary_view(which) else {
         return false;
     };
@@ -319,9 +321,38 @@ fn save_plan() -> bool {
     model.get_saved_plans().row_count() > 0
 }
 
-/// What `step` of the planner states does after the block is planned.
+/// The first planner step that needs no plan (see [`planner_step`]).
+const PLAN_FREE_FROM: u8 = 10;
+
+/// The name of the first design of layout `result`, which names the design card's menu button
+/// ("Menu of <name>").
+fn first_design_name(model: &RoughPlanModel<'_>, result: usize) -> Option<String> {
+    model
+        .get_results()
+        .row_data(result)
+        .and_then(|layout| layout.groups.row_data(0))
+        .map(|group| group.name.to_string())
+}
+
+/// Presses the "..." menu button of the first saved plan, then the entry `item` of its menu (the
+/// rename row and the delete question open from there).
+fn saved_plan_menu(model: &RoughPlanModel<'_>, item: &str) {
+    if let Some(plan) = model.get_saved_plans().row_data(0) {
+        press_in(
+            SecondaryWindow::RoughPlanner,
+            &format!("Menu of {}", plan.name),
+        );
+        press_in(SecondaryWindow::RoughPlanner, item);
+    }
+}
+
+/// What `step` of the planner states does. Steps before [`PLAN_FREE_FROM`] and the saved-plan
+/// step first plan a block; the others need no plan. Folded parts of the window (a closed step, a
+/// menu) build no controls, so the states open them: a step with `open_step`, a menu with a press
+/// of its button.
 fn planner_step(app: &mut HarnessApp, profile: &Profile, step: u8) {
-    if !planner_ready(app, profile, true) || !plan_block(2) {
+    let needs_plan = step < PLAN_FREE_FROM || step == SAVED_OPEN_STEP;
+    if !planner_ready(app, profile, true) || (needs_plan && !plan_block(2)) {
         return;
     }
     let Some(window) = harness_support::rough_planner_window() else {
@@ -329,13 +360,14 @@ fn planner_step(app: &mut HarnessApp, profile: &Profile, step: u8) {
     };
     let model = window.global::<RoughPlanModel>();
     match step {
-        // The result list with one layout selected (the view toggles, Open in Editor).
+        // The result list with one layout selected (the view toggles, the legend).
         1 => {
             model.invoke_select_result(0);
             model.set_view_mode(1);
         }
-        // Cuts of every kind, one undone so Redo is enabled.
+        // Cuts of every kind, one undone so Redo is enabled; the Shape Cuts step is open.
         2 => {
+            model.set_open_step(2);
             for kind in 0..4 {
                 model.invoke_add_cut(kind);
                 pump(150);
@@ -348,19 +380,102 @@ fn planner_step(app: &mut HarnessApp, profile: &Profile, step: u8) {
         4 => model.invoke_begin_save(false),
         // The replace-saved-plan question.
         5 => overwrite_question(&window),
-        // The saved list, plain / with Rename open / with Delete asking.
+        // The Saved Plans tab, plain / with Rename open / with the Delete question asking.
         6..=8 if save_plan() => {
-            model.set_saved_open(true);
+            model.set_results_tab(1);
             pump(250);
             if step == 7 {
-                press_in(SecondaryWindow::RoughPlanner, "Rename");
+                saved_plan_menu(&model, "Rename");
             } else if step == 8 {
-                press_in(SecondaryWindow::RoughPlanner, "Delete");
+                saved_plan_menu(&model, "Delete");
+            }
+        }
+        // The "..." menu of a design card: the layout is selected and its menu is open.
+        9 => {
+            // With a stored rough color the menu also offers Use Color.
+            window
+                .global::<pleochroma_cut::Zoning>()
+                .set_colour_available(true);
+            model.invoke_select_result(0);
+            pump(300);
+            if let Some(name) = first_design_name(&model, 0) {
+                press_in(SecondaryWindow::RoughPlanner, &format!("Menu of {name}"));
+            }
+        }
+        // The Plan Settings step with a mesh-like rough's "Scan time limit" field shown (set
+        // directly: Rust pushes the flag after a mesh file dialog, which has no file here).
+        10 => {
+            model.set_locate_possible(true);
+            model.set_open_step(3);
+        }
+        // The Crystal Axis step of a sapphire block with its axis set, and the Find the Axis menu.
+        11 => {
+            super::planner_axis::axis_set(&model);
+            model.set_open_step(1);
+            pump(250);
+            press_in(SecondaryWindow::RoughPlanner, "Find the Axis");
+        }
+        // The Shape Cuts step with one edge cut, and the menu of the edge it sits on.
+        12 => {
+            model.set_open_step(2);
+            model.invoke_add_cut(0);
+            pump(300);
+            press_in(SecondaryWindow::RoughPlanner, "Edge of the Cut");
+        }
+        // A scan card with an import report (set directly: the file dialog has no file here),
+        // the layer toggles of the scan and the scan's "..." menu.
+        13 => scan_card(&model),
+        // The Saved Plans tab with the "Open" entry of the first plan's menu pressed (it opens the
+        // plan and brings the Layouts tab back).
+        SAVED_OPEN_STEP if save_plan() => {
+            model.set_results_tab(1);
+            pump(250);
+            saved_plan_menu(&model, "Open");
+        }
+        // A sapphire block planned with its axis set and a design selected: the design card
+        // menu with "Orientation Rule..." enabled, pressed (the design's rule editor opens).
+        DESIGN_RULE_STEP => {
+            if let Some(name) = super::planner_axis::design_selected_with_axis(&model) {
+                press_in(SecondaryWindow::RoughPlanner, &format!("Menu of {name}"));
+                if model.get_design_rule_entry() >= 0 {
+                    press_in(SecondaryWindow::RoughPlanner, "Orientation Rule...");
+                }
             }
         }
         _ => {}
     }
     pump(300);
+}
+
+/// A scan whose convex outline the planner works on, with a repaired hole that has a place, a
+/// problem that has none, the layer toggles of a scan and the card's menu open. Set directly,
+/// because Rust pushes these after a mesh file dialog, which has no file here.
+fn scan_card(model: &RoughPlanModel<'_>) {
+    model.set_base_kind(3);
+    model.set_scan_file("harness_scan.stl".into());
+    model.set_scan_stats("48,212 triangles \u{b7} 1 cavity".into());
+    model.set_scan_size_text("30.1 \u{d7} 58.7 \u{d7} 21.4 mm".into());
+    model.set_scan_verdict(1);
+    model.set_scan_verdict_text("its convex outline".into());
+    model.set_scan_findings(ModelRc::new(VecModel::from(vec![
+        RoughFinding {
+            level: 2,
+            text: "Filled 2 holes".into(),
+            detail: "The planner works on the repaired mesh.".into(),
+            has_place: true,
+        },
+        RoughFinding {
+            level: 3,
+            text: "The scan crosses itself".into(),
+            detail: "The planner uses its convex outline instead.".into(),
+            has_place: false,
+        },
+    ])));
+    model.set_show_outline(true);
+    harness_support::queue_picker_cancel();
+    harness_support::queue_picker_cancel();
+    pump(300);
+    press_in(SecondaryWindow::RoughPlanner, "Scan Menu");
 }
 
 /// Saves a plan, then saves again under the same name until the replace question is open.
@@ -421,10 +536,13 @@ fn planner_block_inclusions(app: &mut HarnessApp, profile: &Profile) {
     model.set_inclusion_rows(strings(&["Inclusion 1: 3.0 x 2.0 x 1.5 mm, 9.4 mm3"]));
     harness_support::queue_picker_cancel();
     pump(300);
+    // The new-inclusion form (its kind box and Position X/Y/Z) folds open from this button.
+    press_in(SecondaryWindow::RoughPlanner, "Add an Inclusion");
 }
 
-/// The planner states that need a finished plan (`planner_step`), by step number.
-const PLANNER_STEP_LABELS: [&str; 9] = [
+/// The planner states (`planner_step`) by step number. Steps from `PLAN_FREE_FROM` on need no
+/// plan, except the saved-plan step.
+const PLANNER_STEP_LABELS: [&str; 16] = [
     "result list",
     "layout selected",
     "cuts of every kind",
@@ -434,7 +552,22 @@ const PLANNER_STEP_LABELS: [&str; 9] = [
     "saved plans",
     "saved plan, rename",
     "saved plan, delete",
+    "design card menu",
+    "plan settings step",
+    "crystal axis step, find menu",
+    "shape cuts step, edge menu",
+    "scan card and report",
+    "saved plan, open entry",
+    "design card menu, orientation rule",
 ];
+
+/// The step of the state that presses the saved plan menu's "Open" (it needs a plan, though it
+/// sits after the plan-free steps).
+const SAVED_OPEN_STEP: u8 = 14;
+
+/// The step of the state that sets the crystal axis, plans and presses a design card menu's
+/// "Orientation Rule..." (it plans by itself, after the axis).
+const DESIGN_RULE_STEP: u8 = 15;
 
 /// The planner state that needs no plan (`planner_mesh`).
 const PLANNER_MESH_LABEL: &str = "mesh-like rough";

@@ -1,52 +1,68 @@
 import { Theme } from "../../theme.slint";
-import { ComboBox } from "std-widgets.slint";
 import { ColorPatternModel } from "../../models/color_pattern.slint";
-import { SegmentPill } from "../pill_button.slint";
-import { RoughRadio } from "../rough_planner/fields.slint";
-import { TipBox, FieldCaption } from "../tip_box.slint";
-import { PatternTitle, PatternNote, PatternSlider } from "parts.slint";
+import { PatternIcons } from "icons.slint";
+import { PatternGlass, PatternSegment, PatternCombo, PatternSliderBox, PatternLabel, PatternIconButton, PatternDivider } from "parts.slint";
 
-// The preview: mode pills, the picture with the zone handles over it, the Slice slider of the
-// Cross-Section and the note about which views show the pattern. The pointer over the picture
-// goes to Rust as fractions of the picture; Rust returns the handles in the same fractions.
-export component PatternPreview inherits VerticalLayout {
-    spacing: 6px;
+// The stage: the pattern picture fills the card, with glass panels floating over it. The view
+// switch (Stone, Slice, Crystal) is top left, the render status top right, the slice rail on the
+// right of the Slice view, the inset (the other main view) bottom right and the pattern toolbar
+// along the bottom. The pointer over the main picture goes to Rust as fractions of the picture;
+// Rust returns the handles in the same fractions. Handles exist only in the Slice view.
+//
+// Keyboard: with the stage focused, Page Up and Page Down move the slice by 5 % (Slice view).
+export component PatternStage inherits Rectangle {
+    // The toolbar is one row; Advanced adds a second for tilt and turn.
+    property <length> toolbar_h: ColorPatternModel.show_advanced ? 80px : 44px;
+    property <length> inset_w: ColorPatternModel.narrow ? 170px : 210px;
+    property <length> inset_h: ColorPatternModel.narrow ? 150px : 180px;
+    // The one-row toolbar needs about 670 px at full size and 520 px compact: it goes compact when
+    // the window is narrow OR the stage itself is (the layers panel takes a fixed share of it).
+    property <bool> compact: ColorPatternModel.narrow || root.width < 700px;
+    // The picker popover floats over the right of the stage: what it covers cannot be used then.
+    property <bool> under_picker: ColorPatternModel.picker_open;
+    property <bool> has_inset: ColorPatternModel.inset_image.width > 0;
+    // The bottom edge of what floats above the toolbar, and the top of the slice rail.
+    property <length> above_toolbar: root.height - root.toolbar_h - 20px;
+    property <length> rail_top: 60px;
+    property <length> rail_bottom: root.has_inset ? root.above_toolbar - root.inset_h - 8px : root.above_toolbar;
+    property <string> selected_name: ColorPatternModel.selected_row >= 0 && ColorPatternModel.selected_row < ColorPatternModel.zone_rows.length ? ColorPatternModel.zone_rows[ColorPatternModel.selected_row].name : "";
+    // The Size menu's index; a menu cannot be bound one-way (a pick would break the binding), so
+    // it is written again whenever Rust changes the pattern's size mode.
+    in-out property <int> size_index: 0;
+    property <bool> scales: ColorPatternModel.scales_with_stone;
 
-    HorizontalLayout {
-        spacing: 6px;
-        PatternTitle { width: 64px; text: "PREVIEW"; }
-        SegmentPill {
-            text: "Crystal";
-            hint: "A rod of the pattern along its axis, drawn from slices.";
-            selected: ColorPatternModel.preview_mode == 0;
-            picked => { ColorPatternModel.preview_mode_changed(0); }
-        }
-        SegmentPill {
-            text: "Current Design";
-            enabled: ColorPatternModel.design_preview_available;
-            hint: "The open design with this pattern, rendered with the Path-Traced renderer. It refreshes a moment after each edit.";
-            selected: ColorPatternModel.preview_mode == 1;
-            picked => { ColorPatternModel.preview_mode_changed(1); }
-        }
-        SegmentPill {
-            text: "Cross-Section";
-            hint: "A flat cut through the stone. Drag the zone handles in it to reshape the zones.";
-            selected: ColorPatternModel.preview_mode == 2;
-            picked => { ColorPatternModel.preview_mode_changed(2); }
-        }
+    border-radius: 14px;
+    background: Theme.bg-input;
+    clip: true;
+    accessible-role: AccessibleRole.image;
+    accessible-label: "Pattern Preview";
+
+    init => { root.size_index = root.scales ? 0 : 1; }
+    changed scales => { root.size_index = root.scales ? 0 : 1; }
+
+    function set_slice(value: float) {
+        ColorPatternModel.slice_pos = value;
+        ColorPatternModel.slice_changed(value);
     }
 
-    Rectangle {
-        vertical-stretch: 1;
-        min-height: 200px;
-        background: Theme.bg-input;
-        border-radius: Theme.radius-md;
-        border-width: 1px;
-        border-color: Theme.border-subtle;
-        clip: true;
-        accessible-role: AccessibleRole.image;
-        accessible-label: "Pattern Preview";
+    stage_keys := FocusScope {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+        key-pressed(event) => {
+            if ColorPatternModel.view == 1 && event.text == Key.PageUp {
+                root.set_slice(Math.clamp(ColorPatternModel.slice_pos - 0.05, 0, 1));
+                return accept;
+            }
+            if ColorPatternModel.view == 1 && event.text == Key.PageDown {
+                root.set_slice(Math.clamp(ColorPatternModel.slice_pos + 0.05, 0, 1));
+                return accept;
+            }
+            return reject;
+        }
 
+        // --- The main picture --------------------------------------------------------------------
         picture := Image {
             x: 0px;
             y: 0px;
@@ -62,152 +78,456 @@ export component PatternPreview inherits VerticalLayout {
             changed height => { ColorPatternModel.preview_area_height = self.height; }
         }
 
-        // The zone handles: small squares (circles for the size handles) over the picture.
-        for h in ColorPatternModel.handle_points: Rectangle {
-            x: h.x * picture.width - self.width / 2;
-            y: h.y * picture.height - self.height / 2;
-            width: h.hovered ? 14px : 10px;
-            height: self.width;
-            border-radius: h.kind == 1 ? self.width / 2 : 2px;
-            background: h.hovered ? Theme.accent-cyan : #ffffff;
-            border-width: 1px;
-            border-color: #000000;
+        TouchArea {
+            x: 0px;
+            y: 0px;
+            width: parent.width;
+            height: parent.height;
+            mouse-cursor: ColorPatternModel.view == 1 ? MouseCursor.crosshair : MouseCursor.default;
+            pointer-event(e) => {
+                if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
+                    stage_keys.focus();
+                }
+                if ColorPatternModel.view == 1 {
+                    if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
+                        ColorPatternModel.viewport_pointer(self.mouse-x / max(self.width, 1px), self.mouse-y / max(self.height, 1px), 0);
+                    } else if e.kind == PointerEventKind.up && e.button == PointerEventButton.left {
+                        ColorPatternModel.viewport_pointer(self.mouse-x / max(self.width, 1px), self.mouse-y / max(self.height, 1px), 2);
+                    } else if e.kind == PointerEventKind.move {
+                        ColorPatternModel.viewport_pointer(self.mouse-x / max(self.width, 1px), self.mouse-y / max(self.height, 1px), 1);
+                    }
+                }
+            }
         }
 
-        if ColorPatternModel.preview_busy: Rectangle {
-            x: 8px;
-            y: 8px;
-            width: busy_text.preferred-width + 16px;
+        // --- Handles (Slice view only): a square moves, a circle sizes; hover shows the label --
+        for h in ColorPatternModel.handle_points: Rectangle {
+            visible: ColorPatternModel.view == 1;
+            x: h.x * picture.width - self.width / 2;
+            y: h.y * picture.height - self.height / 2;
+            width: h.hovered ? 16px : 14px;
+            height: self.width;
+            border-radius: h.kind == 1 || h.kind == 2 ? self.width / 2 : 3px;
+            background: h.kind == 1 ? Theme.accent-cyan : #ffffff;
+            border-width: 2px;
+            border-color: h.kind == 1 ? #ffffff : Theme.accent-cyan;
+            drop-shadow-blur: 3px;
+            drop-shadow-color: #00000080;
+            if h.hovered && h.label != "": PatternGlass {
+                x: h.x > 0.7 ? -self.width - 8px : parent.width + 8px;
+                y: (parent.height - self.height) / 2;
+                width: handle_tip.preferred-width + 16px;
+                height: 24px;
+                border-radius: 6px;
+                handle_tip := Text {
+                    x: 8px;
+                    y: 0px;
+                    height: parent.height;
+                    text: h.label + " \u{2014} drag";
+                    font-size: 11px;
+                    color: Theme.text-primary;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        // The selected layer's name, under its move handle.
+        if ColorPatternModel.view == 1 && ColorPatternModel.selected_label_x >= 0 && ColorPatternModel.selected_label_y >= 0 && root.selected_name != "": PatternGlass {
+            x: ColorPatternModel.selected_label_x * picture.width - self.width / 2;
+            y: ColorPatternModel.selected_label_y * picture.height;
+            width: name_chip.preferred-width + 20px;
             height: 22px;
-            border-radius: 11px;
-            background: #000000b0;
-            busy_text := Text {
-                x: 8px;
-                text: "Updating\u{2026}";
-                font-size: 10px;
-                color: #ffffff;
+            border-radius: 6px;
+            name_chip := Text {
+                x: 10px;
+                y: 0px;
+                height: parent.height;
+                text: root.selected_name;
+                font-size: 11px;
+                font-weight: 600;
+                color: Theme.accent-cyan-hover;
                 vertical-alignment: center;
             }
         }
 
-        TouchArea {
-            mouse-cursor: pointer;
-            pointer-event(e) => {
-                if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
-                    ColorPatternModel.viewport_pointer(self.mouse-x / max(self.width, 1px), self.mouse-y / max(self.height, 1px), 0);
-                } else if e.kind == PointerEventKind.up && e.button == PointerEventButton.left {
-                    ColorPatternModel.viewport_pointer(self.mouse-x / max(self.width, 1px), self.mouse-y / max(self.height, 1px), 2);
-                } else if e.kind == PointerEventKind.move {
-                    ColorPatternModel.viewport_pointer(self.mouse-x / max(self.width, 1px), self.mouse-y / max(self.height, 1px), 1);
+        // --- The slice rail (Slice view): Table at the top, Culet at the bottom ----------------------
+        if ColorPatternModel.view == 1: PatternGlass {
+            x: parent.width - 64px;
+            y: root.rail_top;
+            width: 48px;
+            height: max(96px, root.rail_bottom - root.rail_top);
+            border-color: rail_keys.has-focus ? Theme.accent-cyan-hover : (Theme.high-contrast ? Theme.border-medium : #ffffff14);
+            border-width: rail_keys.has-focus ? 2px : 1px;
+            accessible-role: AccessibleRole.slider;
+            accessible-enabled: !root.under_picker;
+            accessible-label: "Slice position";
+            accessible-description: "Where along the pattern axis the slice cuts the stone, from the table to the culet. Page Up and Page Down move it by 5 percent.";
+            accessible-value: "" + Math.round(ColorPatternModel.slice_pos * 100) + " %";
+            accessible-value-minimum: 0;
+            accessible-value-maximum: 1;
+            accessible-value-step: 0.01;
+            accessible-action-increment => { root.set_slice(Math.clamp(ColorPatternModel.slice_pos + 0.01, 0, 1)); }
+            accessible-action-decrement => { root.set_slice(Math.clamp(ColorPatternModel.slice_pos - 0.01, 0, 1)); }
+
+            Tooltip { text: @markdown("Where along the pattern axis the slice cuts the stone, from the table at the top to the culet at the bottom. Drag, or use Page Up and Page Down."); }
+            rail_keys := FocusScope {
+                key-pressed(event) => {
+                    if event.text == Key.UpArrow || event.text == Key.LeftArrow {
+                        root.set_slice(Math.clamp(ColorPatternModel.slice_pos - (event.modifiers.shift ? 0.05 : 0.01), 0, 1));
+                        return accept;
+                    }
+                    if event.text == Key.DownArrow || event.text == Key.RightArrow {
+                        root.set_slice(Math.clamp(ColorPatternModel.slice_pos + (event.modifiers.shift ? 0.05 : 0.01), 0, 1));
+                        return accept;
+                    }
+                    return reject;
+                }
+            }
+            Text {
+                x: 0px;
+                y: 8px;
+                width: parent.width;
+                text: "Table";
+                font-size: 11px;
+                color: Theme.text-secondary;
+                horizontal-alignment: center;
+            }
+            Text {
+                x: 0px;
+                y: parent.height - 22px;
+                width: parent.width;
+                text: "Culet";
+                font-size: 11px;
+                color: Theme.text-secondary;
+                horizontal-alignment: center;
+            }
+            Rectangle {
+                x: (parent.width - 4px) / 2;
+                y: 28px;
+                width: 4px;
+                height: parent.height - 56px;
+                border-radius: 2px;
+                background: Theme.bg-elevated;
+            }
+            Rectangle {
+                x: (parent.width - 30px) / 2;
+                y: 28px + (parent.height - 56px) * ColorPatternModel.slice_pos - 4px;
+                width: 30px;
+                height: 8px;
+                border-radius: 4px;
+                background: Theme.accent-cyan;
+            }
+            Text {
+                x: 0px;
+                y: 28px + (parent.height - 56px) * ColorPatternModel.slice_pos + 8px;
+                width: parent.width;
+                text: "" + Math.round(ColorPatternModel.slice_pos * 100) + " %";
+                font-size: 11px;
+                color: Theme.text-primary;
+                horizontal-alignment: center;
+            }
+            TouchArea {
+                enabled: !root.under_picker;
+                mouse-cursor: MouseCursor.pointer;
+                pointer-event(e) => {
+                    if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
+                        rail_keys.focus();
+                        root.set_slice(Math.clamp((self.mouse-y - 28px) / max(1px, self.height - 56px), 0, 1));
+                    }
+                }
+                moved => {
+                    if self.pressed {
+                        root.set_slice(Math.clamp((self.mouse-y - 28px) / max(1px, self.height - 56px), 0, 1));
+                    }
                 }
             }
         }
-    }
 
-    if ColorPatternModel.preview_mode == 2: PatternSlider {
-        label: "Slice";
-        hint: "Where along the pattern axis the cross-section cuts the stone.";
-        minimum: 0;
-        maximum: 1;
-        step: 0.01;
-        value <=> ColorPatternModel.slice_pos;
-        value_text: "" + Math.round(ColorPatternModel.slice_pos * 100) + " %";
-        readout_width: 50px;
-        moved(v) => { ColorPatternModel.slice_changed(v); }
-    }
-    PatternNote { text: ColorPatternModel.preview_note; }
-}
+        // --- The view switch, top left -----------------------------------------------------------------
+        PatternGlass {
+            x: 12px;
+            y: 12px;
+            width: views.preferred-width;
+            height: 36px;
+            views := HorizontalLayout {
+                padding: 4px;
+                spacing: 2px;
+                PatternSegment {
+                    text: "Stone";
+                    on: ColorPatternModel.view == 0;
+                    enabled: ColorPatternModel.design_preview_available;
+                    hint: ColorPatternModel.design_preview_available
+                        ? "The open design with this pattern, rendered with the Path-Traced renderer. It refreshes a moment after each edit."
+                        : "Open a design to see the stone. A library material has no stone to render.";
+                    picked => { ColorPatternModel.view_changed(0); }
+                }
+                PatternSegment {
+                    text: "Slice";
+                    on: ColorPatternModel.view == 1;
+                    hint: "A flat cut through the stone. Click a layer or drag its handles to reshape it.";
+                    picked => { ColorPatternModel.view_changed(1); }
+                }
+                PatternSegment {
+                    text: "Crystal";
+                    on: ColorPatternModel.view == 2;
+                    hint: "A rod of the pattern along its axis, drawn from slices.";
+                    picked => { ColorPatternModel.view_changed(2); }
+                }
+            }
+        }
 
-// The pattern-wide row: the axis, the size mode and the boundary softness.
-export component PatternSettingsRow inherits HorizontalLayout {
-    spacing: 16px;
+        // --- The render status, top right ----------------------------------------------------------------
+        if ColorPatternModel.render_state != 0: PatternGlass {
+            x: parent.width - self.width - 12px;
+            y: 12px;
+            width: status.preferred-width;
+            height: 28px;
+            border-radius: 14px;
+            accessible-role: AccessibleRole.text;
+            accessible-label: ColorPatternModel.render_state == 1 ? "Path-Traced, refining" : "Updating";
+            if ColorPatternModel.render_hint != "": Tooltip { text: @markdown("\{ColorPatternModel.render_hint}"); }
+            status := HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 12px;
+                spacing: 7px;
+                VerticalLayout {
+                    alignment: center;
+                    Rectangle {
+                        width: 7px;
+                        height: 7px;
+                        border-radius: 3.5px;
+                        background: ColorPatternModel.render_state == 1 ? Theme.accent-emerald : Theme.accent-amber;
+                    }
+                }
+                Text {
+                    text: ColorPatternModel.render_state == 1 ? "Path-Traced \u{b7} refining" : "Updating\u{2026}";
+                    font-size: 11px;
+                    color: Theme.text-secondary;
+                    vertical-alignment: center;
+                    horizontal-stretch: 0;
+                }
+            }
+        }
 
-    VerticalLayout {
-        spacing: 4px;
-        width: 330px;
-        PatternTitle { text: "PATTERN"; }
-        HorizontalLayout {
-            spacing: 6px;
-            // Centred against the 32 px combo (the caption sits at the top of its cell).
+        // --- The inset: the other main view, bottom right --------------------------------------------------
+        if root.has_inset: Rectangle {
+            x: parent.width - self.width - 12px;
+            y: root.above_toolbar - self.height;
+            width: root.inset_w;
+            height: root.inset_h;
+            border-radius: 10px;
+            clip: true;
+            background: Theme.bg-input;
+            border-width: 1px;
+            border-color: Theme.high-contrast ? Theme.border-medium : #ffffff26;
+            drop-shadow-blur: 16px;
+            drop-shadow-color: #00000090;
+            accessible-role: AccessibleRole.button;
+            accessible-label: "Swap the views";
+            accessible-enabled: !root.under_picker;
+            accessible-description: ColorPatternModel.inset_caption;
+            accessible-action-default => { ColorPatternModel.swap_views(); }
+
+            Tooltip { text: @markdown("The other view, small. Click it to swap it with the large one."); }
+            Image {
+                x: 0px;
+                y: 0px;
+                width: parent.width;
+                height: parent.height;
+                source: ColorPatternModel.inset_image;
+                image-fit: fill;
+                init => {
+                    ColorPatternModel.inset_area_width = self.width;
+                    ColorPatternModel.inset_area_height = self.height;
+                }
+                changed width => { ColorPatternModel.inset_area_width = self.width; }
+                changed height => { ColorPatternModel.inset_area_height = self.height; }
+            }
+            TouchArea {
+                enabled: !root.under_picker;
+                mouse-cursor: MouseCursor.pointer;
+                clicked => { ColorPatternModel.swap_views(); }
+            }
+            PatternGlass {
+                x: 6px;
+                y: 6px;
+                width: inset_caption.preferred-width + 16px;
+                height: 22px;
+                border-radius: 6px;
+                inset_caption := Text {
+                    x: 8px;
+                    y: 0px;
+                    height: parent.height;
+                    text: ColorPatternModel.inset_caption;
+                    font-size: 11px;
+                    color: Theme.text-primary;
+                    vertical-alignment: center;
+                }
+            }
+            PatternIconButton {
+                x: parent.width - self.width - 4px;
+                y: 4px;
+                d: PatternIcons.expand;
+                size: 26px;
+                icon_size: 14px;
+                ink: Theme.text-primary;
+                label: "Swap the views";
+                enabled: !root.under_picker;
+                hint: "Show this view large and the other one small.";
+                clicked => { ColorPatternModel.swap_views(); }
+            }
+        }
+
+        // --- The pattern toolbar, bottom ---------------------------------------------------------------------
+        PatternGlass {
+            x: 12px;
+            y: parent.height - self.height - 12px;
+            width: parent.width - 24px;
+            height: root.toolbar_h;
             VerticalLayout {
-                alignment: center;
-                FieldCaption {
-                    width: 64px;
-                    text: "Axis";
-                    hint: "The direction the pattern runs along. Table Normal runs from the table down to the culet.";
+                HorizontalLayout {
+                    height: 44px;
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    spacing: 10px;
+                    VerticalLayout {
+                        alignment: center;
+                        PatternLabel { text: "Axis"; }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        PatternCombo {
+                            width: root.compact ? 118px : 140px;
+                            model: ColorPatternModel.axis_options;
+                            current_index <=> ColorPatternModel.axis_index;
+                            label: "Pattern Axis";
+                            hint: "The direction the pattern runs along. Table Normal runs from the table down to the culet.";
+                            selected(index) => { ColorPatternModel.axis_changed(index); }
+                        }
+                    }
+                    PatternDivider { }
+                    VerticalLayout {
+                        alignment: center;
+                        PatternLabel { text: "Edges"; }
+                    }
+                    if !root.compact: VerticalLayout {
+                        alignment: center;
+                        PatternLabel {
+                            text: "Sharp";
+                            font-size: 11px;
+                            color: Theme.text-muted;
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        PatternSliderBox {
+                            width: root.compact ? 70px : 110px;
+                            minimum: 0;
+                            maximum: 1;
+                            step: 0.01;
+                            label: "Edge softness";
+                            hint: "How sharply one layer turns into the next. Left is a hard edge, right is a gradual blend.";
+                            value <=> ColorPatternModel.softness;
+                            moved(v) => { ColorPatternModel.softness_changed(v); }
+                        }
+                    }
+                    if !root.compact: VerticalLayout {
+                        alignment: center;
+                        PatternLabel {
+                            text: "Soft";
+                            font-size: 11px;
+                            color: Theme.text-muted;
+                        }
+                    }
+                    PatternDivider { }
+                    VerticalLayout {
+                        alignment: center;
+                        PatternLabel { text: "Size"; }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        PatternCombo {
+                            width: root.compact ? 134px : 156px;
+                            model: ["Scales With Stone", "Fixed in mm"];
+                            current_index <=> root.size_index;
+                            label: "Pattern Size";
+                            hint: "Scales With Stone: the layers grow and shrink with the stone width. Fixed in mm: they keep their size in millimeters whatever the stone width.";
+                            selected(index) => { ColorPatternModel.scale_mode_changed(index == 0); }
+                        }
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                }
+                if ColorPatternModel.show_advanced: HorizontalLayout {
+                    height: 36px;
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    spacing: 10px;
+                    VerticalLayout {
+                        alignment: center;
+                        PatternLabel { text: "Tilt"; }
+                    }
+                    if ColorPatternModel.axis_index == 3: VerticalLayout {
+                        alignment: center;
+                        PatternSliderBox {
+                            width: 90px;
+                            minimum: -90;
+                            maximum: 90;
+                            step: 1;
+                            label: "Axis tilt";
+                            hint: "Tilt the axis away from the table normal.";
+                            value <=> ColorPatternModel.tilt_deg;
+                            moved(v) => { ColorPatternModel.tilt_turn_changed(ColorPatternModel.tilt_deg, ColorPatternModel.turn_deg); }
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        PatternLabel {
+                            width: 40px;
+                            text: "" + Math.round(ColorPatternModel.tilt_deg) + "\u{b0}";
+                            color: Theme.text-primary;
+                            horizontal-alignment: right;
+                        }
+                    }
+                    PatternDivider { }
+                    VerticalLayout {
+                        alignment: center;
+                        PatternLabel { text: "Turn"; }
+                    }
+                    if ColorPatternModel.axis_index == 3: VerticalLayout {
+                        alignment: center;
+                        PatternSliderBox {
+                            width: 90px;
+                            minimum: -180;
+                            maximum: 180;
+                            step: 1;
+                            label: "Axis turn";
+                            hint: "Turn the axis around the table normal.";
+                            value <=> ColorPatternModel.turn_deg;
+                            moved(v) => { ColorPatternModel.tilt_turn_changed(ColorPatternModel.tilt_deg, ColorPatternModel.turn_deg); }
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        PatternLabel {
+                            width: 40px;
+                            text: "" + Math.round(ColorPatternModel.turn_deg) + "\u{b0}";
+                            color: Theme.text-primary;
+                            horizontal-alignment: right;
+                        }
+                    }
+                    if ColorPatternModel.axis_index != 3: VerticalLayout {
+                        alignment: center;
+                        PatternLabel {
+                            text: "Tilt and turn change with the Custom axis.";
+                            font-size: 11px;
+                            color: Theme.text-muted;
+                            horizontal-stretch: 1;
+                            overflow: elide;
+                        }
+                    }
+                    Rectangle { horizontal-stretch: 1; }
                 }
             }
-            TipBox {
-                horizontal-stretch: 1;
-                hint: "The direction the pattern runs along. Table Normal runs from the table down to the culet.";
-                ComboBox {
-                    min-width: 0px;
-                    model: ColorPatternModel.axis_options;
-                    current-index <=> ColorPatternModel.axis_index;
-                    accessible-label: "Pattern Axis";
-                    selected(value) => { ColorPatternModel.axis_changed(ColorPatternModel.axis_index); }
-                }
-            }
-        }
-        if ColorPatternModel.show_advanced: PatternSlider {
-            label: "Tilt";
-            hint: "Tilt the axis away from the table normal. Only the Custom axis can be changed.";
-            enabled: ColorPatternModel.axis_index == 3;
-            minimum: -90;
-            maximum: 90;
-            step: 1;
-            value <=> ColorPatternModel.tilt_deg;
-            value_text: "" + Math.round(ColorPatternModel.tilt_deg) + "\u{b0}";
-            readout_width: 50px;
-            moved(v) => { ColorPatternModel.tilt_turn_changed(ColorPatternModel.tilt_deg, ColorPatternModel.turn_deg); }
-        }
-        if ColorPatternModel.show_advanced: PatternSlider {
-            label: "Turn";
-            hint: "Turn the axis around the table normal. Only the Custom axis can be changed.";
-            enabled: ColorPatternModel.axis_index == 3;
-            minimum: -180;
-            maximum: 180;
-            step: 1;
-            value <=> ColorPatternModel.turn_deg;
-            value_text: "" + Math.round(ColorPatternModel.turn_deg) + "\u{b0}";
-            readout_width: 50px;
-            moved(v) => { ColorPatternModel.tilt_turn_changed(ColorPatternModel.tilt_deg, ColorPatternModel.turn_deg); }
-        }
-    }
-
-    VerticalLayout {
-        spacing: 4px;
-        width: 230px;
-        PatternTitle { text: "SIZE"; }
-        RoughRadio {
-            label: "Scales With Stone Size";
-            hint: "The zones grow and shrink with the stone width.";
-            selected: ColorPatternModel.scales_with_stone;
-            picked => { ColorPatternModel.scale_mode_changed(true); }
-        }
-        RoughRadio {
-            label: "Fixed in mm";
-            hint: "The zones keep their size in millimeters whatever the stone width.";
-            selected: !ColorPatternModel.scales_with_stone;
-            picked => { ColorPatternModel.scale_mode_changed(false); }
-        }
-    }
-
-    VerticalLayout {
-        spacing: 4px;
-        horizontal-stretch: 1;
-        PatternTitle { text: "BOUNDARY"; }
-        PatternSlider {
-            label: "Sharp \u{2013} Soft";
-            hint: "How sharply one zone turns into the next. Left is a hard edge, right is a gradual blend.";
-            minimum: 0;
-            maximum: 1;
-            step: 0.01;
-            caption_width: 80px;
-            readout_width: 40px;
-            value <=> ColorPatternModel.softness;
-            value_text: "" + Math.round(ColorPatternModel.softness * 100) + " %";
-            moved(v) => { ColorPatternModel.softness_changed(v); }
         }
     }
 }

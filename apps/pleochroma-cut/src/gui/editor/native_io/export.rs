@@ -343,12 +343,9 @@ pub(super) fn file_name_for_format(file_name: &str, format: ScheduleFormat) -> S
         .into_owned()
 }
 
-/// "Export Edited .asc" and "Export as Gem Cut Studio (.gcs)...": both write the
-/// edited schedule (never the catalogue's own, unedited one -- see this group's
-/// `mod.rs` doc comment) to a user-chosen path, `.asc` via
-/// `pleochroma_formats::asc::to_asc_string` and `.gcs` via the experimental
-/// `pleochroma_formats::gcs::to_gcs_string` on the SAME `AscSchedule`. File only,
-/// no database write of any kind -- the catalogue stays read-only on this path.
+/// "Export Edited .asc" and "Export as Gem Cut Studio (.gcs)...": write the edited schedule
+/// (never the catalogue's unedited one) to a user-chosen path. Both formats are written from
+/// the same `AscSchedule`. File only: no database write, the catalogue stays read-only.
 /// See [`export_edited_schedule`] for the shared flow.
 pub(in crate::gui::editor) fn setup_export_asc_callback(
     ui: &MainWindow,
@@ -373,18 +370,12 @@ pub(in crate::gui::editor) fn setup_export_asc_callback(
 
 /// The shared body of both export callbacks.
 ///
-/// The "not a closed solid" confirmation goes through [`ask_write_confirm`]
-/// (in-window, never blocking) instead of a native (`rfd` crate) message dialog,
-/// the save-as picker goes through [`pick_file`] (background thread), and the
-/// final `std::fs::write` runs on a background thread. Building `schedule` itself
-/// (`to_asc_schedule_with`, which solves internally) stays synchronous on the UI
-/// thread, unlike the other write paths in this module
-/// ([`confirm_status_before_write`], export cutting sheet, export diagram, the
-/// autosave tick), which resolve their solve off-thread via
-/// [`resolve_solve_at`]: doing the same here would need either a new
-/// `SolveService` request kind that also builds an `AscSchedule` off-thread, or
-/// duplicating `Design::to_asc_schedule_with`'s own schedule-building logic in
-/// this crate.
+/// The "not a closed solid" confirmation uses [`ask_write_confirm`] (in-window, never
+/// blocking), the save-as picker uses [`pick_file`] and the write runs on a background
+/// thread. Building `schedule` (`to_asc_schedule_with`, which solves internally) stays
+/// on the UI thread: the other write paths resolve their solve off-thread via
+/// [`resolve_solve_at`], but doing that here needs a `SolveService` request kind that
+/// also builds an `AscSchedule`.
 fn export_edited_schedule(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -400,11 +391,9 @@ fn export_edited_schedule(
         // export that material's own `n_D`, not the legacy schedule RI
         // `to_asc_schedule` alone would fall back to.
         let custom_materials = snapshot_custom_materials(render_ctx);
-        // `to_asc_schedule_with` is fallible (it solves every tier's mast --
-        // see `Design::to_asc_schedule`'s doc comment): a `MissingAnchor` here
-        // means the same "add a Scale Reference tier" problem the validation
-        // banner already reports, so it is surfaced the same way (a toast)
-        // rather than exporting a schedule with fabricated masts.
+        // `to_asc_schedule_with` solves every tier's mast and can fail. A `MissingAnchor`
+        // is the "add a Scale Reference tier" problem the validation banner already shows,
+        // so it becomes a toast rather than a schedule with fabricated masts.
         let (
             mut schedule,
             default_file_name,
@@ -422,16 +411,13 @@ fn export_edited_schedule(
                     return;
                 }
             };
-            // `.asc`/`.gcs` have no concave record, so the concave tiers ride along as two
-            // footnotes each -- the same ones `Design::to_asc_schedule_for_export` adds.
-            // That method builds from an already-solved list with the legacy RI, so this
-            // path keeps its catalogue-aware `to_asc_schedule_with` and appends the same
-            // footnotes through the public step both share. A no-op for a planar design.
+            // `.asc`/`.gcs` have no concave record, so the concave tiers are carried as
+            // footnotes. This keeps the catalogue-aware `to_asc_schedule_with` and appends
+            // the same footnotes as `Design::to_asc_schedule_for_export`; a no-op for a
+            // planar design.
             st.design.append_concave_footnotes(&mut schedule);
-            // Recorded so a LATER re-import of this exact file can match it
-            // back to its source row instead of creating a second,
-            // same-titled duplicate -- see `stamp_source_entry_footnote`'s
-            // own doc comment.
+            // Lets a later re-import of this file match its source row instead of creating
+            // a duplicate (see `stamp_source_entry_footnote`).
             stamp_source_entry_footnote(&mut schedule.footnotes, st.source_entry_id);
             (
                 schedule,
@@ -443,21 +429,17 @@ fn export_edited_schedule(
                 st.design.gcs_frosting_spec(),
             )
         };
-        // The same marker Save writes, for the plain-export path --
-        // a schedule whose masts were fabricated by the angle-table
-        // reconstruction must say so in the file itself, not only in the app
-        // that wrote it.
+        // The same marker Save writes: a schedule whose masts came from the angle-table
+        // reconstruction says so in the file itself.
         if used_placeholder {
             pleochroma_formats::asc::mark_reconstructed(
                 &mut schedule,
                 "angle-table reconstruction, no attached .asc",
             );
         }
-        // `to_asc_schedule_with` succeeding only means every tier
-        // solved SOME mast, never that those masts actually close a real solid
-        // -- see `decide_write_status`'s own doc comment. This path exports
-        // plain `.asc`/`.gcs` text only (`schedule`, already built above), never
-        // a design file.
+        // `to_asc_schedule_with` only means every tier solved some mast, not that the
+        // masts close a solid (see `decide_write_status`). This path writes only the
+        // `.asc`/`.gcs` text of `schedule`, never a design file.
         resolve_solve_at(
             ui,
             Arc::new(design),
@@ -633,10 +615,8 @@ fn finish_export_schedule(
         },
     };
     pick_file(ui, kind, move |ui, dest_path| {
-        // A dismissed file dialog is the cutter's own deliberate cancel -- no
-        // toast needed to confirm an action they just performed, and showing
-        // one here could silently replace an error toast still waiting to be
-        // read (see `gui::mod`'s own auto-dismiss scheduling).
+        // A dismissed file dialog is the cutter's own cancel. No toast: it could replace
+        // an error toast still waiting to be read.
         let Some(dest_path) = dest_path else {
             return;
         };

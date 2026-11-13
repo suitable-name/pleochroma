@@ -1,16 +1,15 @@
 //! The design color combo's keyed entry list.
 //!
-//! The combo used to be a fixed index contract (0 = the material's own color, 1-9 = the nine
-//! generic presets, last = Custom). A material now has its own color variants, so the list is
-//! keyed: every entry is a [`ColorEntry`] (the material's default, a variant by its key, a preset
-//! by its index, or Custom) with its label, swatch and tooltip ([`ColorEntryItem`]).
+//! Each entry is a [`ColorEntry`] (the material's default, a variant by its key, a generic
+//! preset by its index, or Custom) with its label, swatch and tooltip ([`ColorEntryItem`]).
+//! The list is keyed because a material has its own variants, which a fixed index cannot name.
 //!
 //! Order ([`color_entries`]): Material Default, the material's built-in variants, the cutter's
-//! saved variants for that material, the nine generic presets (ONLY for an isotropic host, where
-//! one color is physically right) and Custom, which is always last. A design that carries a
-//! legacy preset color on a pleochroic host (an old file) still shows it, as a
-//! "Legacy: <label> (No Pleochroism)" entry before Custom ([`color_entries_for_design`]); it keeps
-//! rendering as saved, and "Convert" opens the Custom editor seeded from it.
+//! saved variants for that material, the nine generic presets (only for an isotropic host, where
+//! one color is physically right), then Custom, always last. A design that carries a
+//! legacy preset color on a pleochroic host shows a "Legacy: <label> (No Pleochroism)" entry
+//! before Custom ([`color_entries_for_design`]). It renders as saved, and "Convert" opens the
+//! Custom editor seeded from it.
 //!
 //! A swatch is the ORIENTED face-up color of the entry (`variants::face_up_swatch`: the stone's
 //! default crystal axis through the table, the unpolarised average for a one-color tensor) at the
@@ -141,8 +140,8 @@ fn default_swatch_path(unit: AbsorptionUnit) -> f64 {
 /// The swatch and the tooltip of `tensor` (in `unit`) for a stone `stone_width_mm` wide on `host`,
 /// with `lead` ahead of the tooltip.
 ///
-/// The swatch is the oriented face-up color (`face_up_swatch`); the tooltip names the color of each
-/// direction, read at the same optical path (`face_up_swatch_path`).
+/// The swatch is the oriented face-up color (`face_up_swatch`). The tooltip names the color of
+/// each direction, read at the same optical path (`face_up_swatch_path`).
 fn look_of(
     host: &GemMaterial,
     tensor: &AbsorptionTensor,
@@ -179,9 +178,11 @@ fn default_item(material: &GemMaterial) -> ColorEntryItem {
     }
 }
 
-/// The note of an estimated built-in variant: `"Estimated: <first source line>"`, so the tooltip
-/// names where the numbers come from and says they are not a fit to a measured spectrum. `None`
-/// for a measured built-in, the material's own color and a saved variant.
+/// The note of an estimated built-in variant: `"Estimated: <first source line>"`.
+///
+/// The tooltip thus names where the numbers come from and says they are not a fit to a
+/// measured spectrum. `None` for a measured built-in, the material's own color and a saved
+/// variant.
 #[must_use]
 pub fn estimated_note(provenance: &VariantProvenance) -> Option<String> {
     let VariantProvenance::BuiltIn {
@@ -440,11 +441,11 @@ fn plain(material: MaterialSelection, rgb: Option<[f32; 3]>) -> MaterialSelectio
     material.with_color_pattern(None).with_body_color(rgb)
 }
 
-/// `material` with the design's whole current color kept ("Custom": leave the color as it is) and
-/// its color pattern.
+/// `material` with the design's current color kept ("Custom": leave the color as it is) and its
+/// color pattern.
 ///
-/// A color variant belongs to its material, so it is kept only while the material stays; the
-/// legacy colors carry through a species change as they always did (the combo is authoritative).
+/// A color variant belongs to its material, so it is kept only while the material stays. Legacy
+/// colors carry through a species change, since the combo is authoritative.
 fn keep_current(material: MaterialSelection, current: &MaterialSelection) -> MaterialSelection {
     let pattern = current.color_pattern_override.clone();
     if let Some(choice) = &current.color_variant_override {
@@ -473,10 +474,9 @@ fn has_color_bands(current: &MaterialSelection) -> bool {
 }
 
 /// Whether `entry` is the row `current` already sits on, so an Apply with the combo left alone
-/// changes nothing: the same material and
+/// changes nothing. The material must be the same, and:
 ///
-/// * a variant row whose key is the design's variant (its snapshot, however the library row has
-///   moved since, and a color pattern stay);
+/// * a variant row whose key is the design's variant (the snapshot and the color pattern stay);
 /// * a preset row whose triple is the design's legacy triple (no variant, no N-band form);
 /// * the Material Default row of a design with no color and no color pattern.
 ///

@@ -1,4 +1,4 @@
-//! Lossless-in-structure bounded orbit and constraint-program encoding.
+//! Bounded encoding of facet orbits and angle relations for the policy.
 
 use pleochroma_cut_core::{
     Design,
@@ -34,10 +34,9 @@ pub(super) fn orbit(design: &Design, indices: &[f64], cheater: f64) -> Result<Ve
         .collect()
 }
 
-// Authored binary finish per original orbit slot, before physical-plane alias merging.
-// Together with the complete geometry this retains all inputs to the production finish
-// resolver. Match Design::frosted_planes_from_solved exactly: an implicit index-zero facet
-// is frosted by Tier, but not by Facets([0]) because the authored indices list is empty.
+// Authored frosting flag per orbit slot, before physical-plane alias merging. Mirrors
+// `Design::frosted_planes_from_solved`: an implicit index-zero facet (empty `indices`) is
+// frosted only by `TierFrosting::Tier`, not by `Facets([0])`.
 pub(super) fn frosting(design: &Design, index: usize) -> Vec<f32> {
     let indices = &design.tiers[index].indices;
     let finish = design.tier_frosting(index);
@@ -50,8 +49,8 @@ pub(super) fn frosting(design: &Design, index: usize) -> Vec<f32> {
         .collect()
 }
 
-// Prefix operators have known arity. References are positions, never arbitrary stable IDs;
-// renumbering native IDs therefore cannot alter the policy's meaning.
+// Operators are prefix-ordered. References are tier positions rather than native IDs, so
+// renumbering IDs does not change the encoding.
 pub(super) fn relation(design: &Design, index: usize) -> Result<Vec<[f32; 2]>, String> {
     let Some(relation) = design
         .tier_id_at(index)
@@ -74,8 +73,8 @@ pub(super) fn relation(design: &Design, index: usize) -> Result<Vec<[f32; 2]>, S
                         "tier {index} relation contains a non-finite constant"
                     ));
                 }
-                // Monotone signed log compression retains coefficient/sign information
-                // without feeding billion-degree parser-limit constants to attention.
+                // Signed log compression maps constants up to 1e9 onto [-1, 1], keeping their
+                // order so that large literals do not dominate attention.
                 (
                     1.0,
                     (value.signum() * value.abs().ln_1p() / 1e9_f64.ln_1p()) as f32,

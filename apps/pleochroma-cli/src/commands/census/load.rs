@@ -1,5 +1,5 @@
 //! Where the census gets its designs: the built-in templates and fixtures, design files and the
-//! designs of a library (follow-ups plan 2026-10-19, sections 1.7 and 4.2).
+//! designs of a library.
 //!
 //! The library is read only through the vault's own read-only API
 //! ([`Database::open_read_only`], `matching_entry_ids`, `get_diagram_full`). A record becomes a
@@ -156,7 +156,7 @@ fn template_subject(number: i32) -> Subject {
     }
 }
 
-/// The standard brilliant as a 1.72 stone (the construction of the CLI test fixture).
+/// The standard round brilliant with a refractive index of 1.72.
 fn brilliant_at_172() -> Design {
     let mut design = Design::new(
         PreformSpec::block(2.0, 1.0, 4.0),

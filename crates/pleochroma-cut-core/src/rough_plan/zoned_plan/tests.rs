@@ -185,8 +185,8 @@ fn the_face_up_prediction_splits_the_path_between_the_zones() {
     let stone = cube_stone();
     let layers = layered();
     let up = face_up_prediction(&layers, &stone, &stone.pose);
-    // Table up: the 1 mm above y = 1 ... 3 mm of the 6 mm centre line is zone 1 only from y = 3
-    // to y = 1 (2 mm); each ring line is 3.75 mm long and also has 2 mm there. 18 of 36 mm.
+    // Table up: every line starts at y = 3. Zone 1 (above y = 1) is 2 mm of each. The centre
+    // line is 6 mm long and the ring lines 3.75 mm, so zone 1 is 18 of the 36 mm.
     assert!((up.fractions[1] - 0.5).abs() < EPS, "{:?}", up.fractions);
     assert!((up.fractions[0] - 0.5).abs() < EPS);
     assert!((up.fractions.iter().sum::<f64>() - 1.0).abs() < EPS);

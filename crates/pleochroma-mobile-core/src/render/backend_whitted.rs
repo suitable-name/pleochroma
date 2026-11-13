@@ -1,4 +1,4 @@
-//! The phone's small Ray-Traced GPU kernel. No megakernel/material-class gate.
+//! The phone's small Ray-Traced GPU kernel, with no megakernel or material-class gate.
 use super::{BackendManager, TraceBackend};
 use crate::settings::RenderBackend;
 use glam::Vec3;
@@ -158,11 +158,10 @@ impl BackendManager {
                 .whitted
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner);
-            // A panic inside a GPU call leaves this backend poisoned for good (it never
-            // reuses the state the panic interrupted). The probe is cached for the whole
-            // process, so without this the Ray-Traced GPU would stay off until the app is
-            // restarted: drop the poisoned instance and acquire a fresh one, but not more
-            // often than the cool-down allows.
+            // A panic inside a GPU call poisons this backend for good. The probe is cached per
+            // process, so without a replacement the Ray-Traced GPU would stay off until the app
+            // restarts. A poisoned instance is dropped and a fresh one acquired, at most once per
+            // cool-down.
             if slot
                 .as_ref()
                 .is_some_and(|(backend, _)| backend.is_poisoned())
@@ -269,6 +268,8 @@ mod tests {
                 ),
                 head_shadow_deg: 16.0,
                 surface_glare: 1.0,
+                hdr_yaw_deg: 0.0,
+                hdr_follows_camera: false,
             },
             max_bounces: 12,
             hdr_id: None,

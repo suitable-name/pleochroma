@@ -28,8 +28,8 @@ export global CommandPaletteModel {
     // Bumped every time Rust replaces `rows`, so the view can scroll back to the top even
     // when the highlighted row did not change.
     in property <int> generation: 0;
-    // Bumped when the palette closes, so the main window takes the keyboard focus back
-    // (`app.slint` watches it). A closed palette would otherwise leave no focused item.
+    // Bumped when the palette closes, so the main window takes the keyboard focus back.
+    // A closed palette would otherwise leave no focused item.
     in-out property <int> restore_focus_pulse: 0;
 
     // Fired once the palette has opened, so Rust fills `rows`.
@@ -39,8 +39,8 @@ export global CommandPaletteModel {
     // Run the command shown in row `index` (Enter or a click).
     callback activate(int);
 
-    // Opens the palette with an empty query. Called from the Edit menu and the
-    // Ctrl+K / Ctrl+Shift+P keys in `app.slint`.
+    // Opens the palette with an empty query. Called from the Edit menu and from the
+    // Ctrl+K and Ctrl+Shift+P shortcuts.
     public function open_palette() {
         root.query = "";
         root.selected = 0;

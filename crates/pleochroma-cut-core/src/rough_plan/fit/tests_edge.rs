@@ -232,9 +232,8 @@ fn degenerate_designs_get_no_fit_and_no_panic() {
 
 #[test]
 fn a_width_exactly_at_the_minimum_is_kept() {
-    // A unit cube in a 10 unit cube fills it: k = 10, a stone 10 wide. The search does not
-    // depend on the minimum width, so the same fit comes back every time and the filter is
-    // the only thing that differs: `>=` keeps it at its own width, and drops it for a
+    // A unit cube fills a 10 unit cube: k = 10, width 10. The search ignores the minimum width,
+    // so only the filter differs: `>=` keeps the fit at its own width and drops it for a
     // minimum a part in 10^12 above.
     let hull = make_box_hull(1, 1.0, 1.0, 1.0);
     let region = block_halfspaces(10.0, 10.0, 10.0);

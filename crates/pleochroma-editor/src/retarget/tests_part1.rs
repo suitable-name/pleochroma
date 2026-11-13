@@ -270,8 +270,8 @@ fn index_selection(n_d: f64) -> MaterialSelection {
 }
 
 /// The standard brilliant as a 1.72 stone with every tier pinned (like an imported design) and
-/// the check of its retarget to 1.7681 with a third of the shift on the crown, a case that is
-/// valid by Shift alone (`check::tests::the_owners_sapphire_case_keeps_the_table_on_the_crown_side`).
+/// its retarget to 1.7681 with a third of the shift on the crown. The case is valid by Shift
+/// alone (`check::tests::the_owners_sapphire_case_keeps_the_table_on_the_crown_side`).
 ///
 /// A pinned design cannot take an angle-only proposal -- see
 /// `build_proposal_refuses_a_pinned_design_instead_of_detaching_its_meets` -- so Apply commits

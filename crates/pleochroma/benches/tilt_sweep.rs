@@ -1,10 +1,8 @@
-//! Tilt Performance sweep (BLD-2; findings PERF-1/PERF-2 in
-//! `review_perf_2026-10-12_fable.md`, section 5).
+//! Cost of the tilt-profile sweep over all axes on a standard round brilliant.
 //!
-//! `evaluate_all_axes_profiles_geom` is 724 raytrace evaluations (4 axes x 181 tilts) on a
-//! standard round brilliant. Expected before any fix, 16-core AVX-512 host, release: about
-//! 1.4 s serial (`Some(1)`), the parallel entry a fraction of that scaled by the core count.
-//! The cut app's cost probe (RBC-445 Full objective, 1.2-1.4 s) is dominated by this sweep.
+//! `evaluate_all_axes_profiles_geom` traces every axis at every tilt step. The serial run
+//! (`Some(1)`) is the per-core baseline for the parallel entry, which uses the machine's
+//! parallelism.
 //!
 //! Run: `cargo bench -p pleochroma --bench tilt_sweep`.
 

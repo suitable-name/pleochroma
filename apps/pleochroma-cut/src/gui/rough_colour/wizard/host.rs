@@ -1,9 +1,8 @@
-//! The wizard window: created on the first open, hidden (never destroyed) when closed so its
-//! photos and results survive, like the locate window.
+//! The wizard window: created on the first open and hidden, never destroyed, when closed, so its
+//! photos and results survive.
 //!
-//! One thread-local holds it; callbacks reach
-//! it through [`on_host`]. No `RefCell` borrow is held across a file dialog or a job: handlers read
-//! what they need, drop the borrow, then act.
+//! One thread-local holds it; callbacks reach it through [`on_host`]. No `RefCell` borrow is held
+//! across a file dialog or a job: handlers read what they need, drop the borrow, then act.
 
 use super::{
     actions,

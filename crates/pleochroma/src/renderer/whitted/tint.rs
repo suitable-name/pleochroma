@@ -5,8 +5,7 @@
 //! towards the material's most transparent wavelengths. Three RGB coefficients fitted at one
 //! path length reproduce that length only, and as `exp(-alpha * length)` they can never go
 //! below zero, so a color outside the sRGB gamut (an emerald's green needs a negative red)
-//! was cut back to the gamut edge. Together an emerald came out 10-25 degrees of hue too
-//! yellow and at half its chroma (2026-11-02, against the spectral renderer).
+//! is clipped to the gamut edge.
 //!
 //! [`BinnedAbsorption`] keeps the spectrum instead: forty 10 nm wavelength bins, each with its
 //! own optical depth per model unit and its share of the illuminant's linear-sRGB white (which
@@ -14,16 +13,16 @@
 //! and how much of that ran along the optic axis (`axial`); [`BinnedAbsorption::transmission`]
 //! turns those two numbers into the RGB transmission of the whole path. Against the 5 nm
 //! spectral integral an emerald stays within 0.5 degrees of hue, 1 % of chroma and 0.6 L*
-//! from half to six face-up paths (25 nm bins lost 6-8 % of the chroma). Unpolarized light is
-//! split evenly over the absorption modes (one isotropic, the ordinary and extraordinary
-//! waves of a uniaxial stone, or the three principal waves of a biaxial one), each attenuated
-//! on its own.
+//! over half to six face-up paths. 25 nm bins lost 6-8 % of the chroma, hence 10 nm.
+//! Unpolarized light is split evenly over the absorption modes (one isotropic, the ordinary
+//! and extraordinary waves of a uniaxial stone, or the three principal waves of a biaxial
+//! one), each attenuated on its own.
 
 use glam::Vec3;
 
 use crate::{
     color::{cie1931::cie_1931_cmf, space::ColorSpace},
-    optics::{absorption::AbsorptionBand, raytracer::EnvironmentSource},
+    optics::{absorption::AbsorptionBand, materials::GemMaterial, raytracer::EnvironmentSource},
     render_setup::MODEL_UNIT_FACE_UP_PATH,
     simd::exp_f32x8,
 };
@@ -31,7 +30,7 @@ use crate::{
 /// Wavelength bins of [`BinnedAbsorption`]: 10 nm each over 380-780 nm. A multiple of eight
 /// (the vector exponential's width) and of four (the GPU twin's vec4 slots).
 pub const ABSORPTION_BINS: usize = 40;
-/// 5 nm integration steps per bin.
+/// Integration steps (5 nm each) per bin.
 const STEPS_PER_BIN: u16 = 2;
 /// The most absorption modes a material has (biaxial: three principal waves).
 pub const ABSORPTION_MODES: usize = 3;
@@ -65,7 +64,7 @@ pub(super) fn integrate_rgb(mut spectrum: impl FnMut(f32) -> f32) -> Vec3 {
 pub(super) fn illuminant(environment: EnvironmentSource<'_>, wavelength: f32) -> f32 {
     match environment {
         EnvironmentSource::Studio { preset, .. } => preset.spectral_power(wavelength),
-        EnvironmentSource::HdrMap(_) => {
+        EnvironmentSource::HdrMap { .. } => {
             crate::optics::raytracer::environment::d65_relative_spectral_power(wavelength)
         }
     }
@@ -191,7 +190,7 @@ impl BinnedAbsorption {
 }
 
 /// Each bin's share of `environment`'s illuminant white, per linear-sRGB channel.
-fn bin_weights(environment: EnvironmentSource<'_>) -> [Vec3; ABSORPTION_BINS] {
+pub fn bin_weights(environment: EnvironmentSource<'_>) -> [Vec3; ABSORPTION_BINS] {
     let mut xyz = [Vec3::ZERO; ABSORPTION_BINS];
     for step in 0_u16..=80 {
         let wavelength = f32::from(step).mul_add(5.0, 380.0);
@@ -228,8 +227,9 @@ fn bin_depths(
         let weight = f64::from(illuminant(environment, wavelength) * (cmf[0] + cmf[1] + cmf[2]));
         let coefficient: f32 = bands.iter().map(|band| band.evaluate(wavelength)).sum();
         let depth = f64::from(coefficient.max(0.0) * path_scale * MODEL_UNIT_FACE_UP_PATH);
-        seen[bin_of(step)] += weight;
-        transmitted[bin_of(step)] += weight * (-depth).exp();
+        let bin = bin_of(step);
+        seen[bin] += weight;
+        transmitted[bin] = weight.mul_add((-depth).exp(), transmitted[bin]);
     }
     std::array::from_fn(|bin| {
         if seen[bin] <= 0.0 {
@@ -247,4 +247,42 @@ fn bin_depths(
             (-(transmitted[bin] / seen[bin]).ln() / f64::from(MODEL_UNIT_FACE_UP_PATH)) as f32;
         depth.max(0.0)
     })
+}
+
+/// Resolves the material absorption shared by Ray-Traced paths and shadow photons.
+pub fn binned_absorption_for(
+    material: &GemMaterial,
+    environment: EnvironmentSource<'_>,
+) -> BinnedAbsorption {
+    let bands = &material.absorption;
+    match &bands.beta_ray {
+        // The three principal waves, each isotropic: the biaxial direction dependence is
+        // left to the spectral renderer.
+        Some(beta) => BinnedAbsorption::new(
+            &[&bands.o_ray, beta, &bands.e_ray],
+            None,
+            material.absorption_path_scale,
+            environment,
+        ),
+        None if bands.is_pleochroic => {
+            let normalized = material.c_axis.normalize_or_zero();
+            let axis = if normalized == Vec3::ZERO {
+                Vec3::Y
+            } else {
+                normalized
+            };
+            BinnedAbsorption::new(
+                &[&bands.o_ray, &bands.e_ray],
+                Some(axis),
+                material.absorption_path_scale,
+                environment,
+            )
+        }
+        None => BinnedAbsorption::new(
+            &[&bands.o_ray],
+            None,
+            material.absorption_path_scale,
+            environment,
+        ),
+    }
 }

@@ -1,4 +1,4 @@
-//! The float environment-map asset (v25): an exact, versioned interchange for an HDR map
+//! The float environment-map asset: an exact, versioned interchange for an HDR map
 //! that is not a Radiance `.hdr` file.
 //!
 //! A Radiance file loses nothing a viewer started from, but a viewer that holds only the
@@ -23,10 +23,10 @@
 //! builds the sampler from the texels with `EnvironmentMap::from_rgb` -- the same
 //! constructor the phone used -- so both sides hold the bit-identical map.
 //!
-//! Capability: a v25 render server whose `RenderCapability::hdr` is `true` decodes both
+//! Capability: a render server whose `RenderCapability::hdr` is `true` decodes both
 //! formats. A peer on another protocol version never pairs (see
-//! [`crate::handshake::verify_compatible`]), so `hdr` at v25 is the advertisement that
-//! this asset is understood.
+//! [`crate::handshake::verify_compatible`]), so `hdr` is the advertisement that this
+//! asset is understood.
 //!
 //! Every texel must be finite and non-negative. A header whose declared size does not match
 //! the byte length exactly is refused before any texel is read.

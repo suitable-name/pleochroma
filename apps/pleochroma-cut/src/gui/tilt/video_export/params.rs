@@ -1,16 +1,14 @@
-//! Pure parameter validation and frame-pose enumeration for the tilt performance video
-//! export: the angle sweep (start/end/step), the resolution preset table, and the
-//! zero-padded frame-numbering width. Deliberately free of any Slint/render dependency
-//! so `mod.rs`'s wiring and `render.rs`'s per-frame loop build on the exact same
-//! numbers the dialog itself shows via `TiltVideoExportModel.frame_count`.
+//! Pure parameter validation and frame-pose enumeration for the tilt video export.
+//!
+//! It covers the angle sweep (start/end/step), the resolution preset table, and the
+//! zero-padded frame-numbering width. Free of any Slint or render dependency, so the
+//! wiring in `mod.rs` and the frame loop in `frames.rs` use the same numbers the dialog shows.
 
 use std::collections::{HashMap, hash_map::Entry};
 
-/// Minimum tilt-angle step the dialog must accept, in degrees -- the owner's own
-/// requirement is that any value in `0.01..=1.0` works.
+/// Smallest tilt-angle step the dialog accepts, in degrees.
 pub const MIN_STEP_DEG: f64 = 0.01;
-/// Maximum step accepted at all. Above `1.0` this is only a "quick preview" allowance,
-/// not a hard requirement, but still clamped rather than left unbounded.
+/// Largest step accepted; steps above `1.0` are a quick-preview allowance.
 pub const MAX_STEP_DEG: f64 = 5.0;
 /// Frame count above which the dialog must ask the user to confirm before starting.
 pub const CONFIRM_FRAME_THRESHOLD: usize = 2000;
@@ -68,12 +66,12 @@ pub fn frame_count(start_deg: f64, end_deg: f64, step_deg: f64) -> usize {
     }
 }
 
-/// The exact fractional tilt angle, in degrees, for frame `index` of a `total`-frame
-/// sweep (`total` must equal `frame_count(start_deg, end_deg, step_deg)`). The LAST
-/// frame (`index + 1 == total`) is pinned to exactly `end_deg` rather than
-/// `start_deg + step_deg * index`, so it lands on the end angle within float epsilon
-/// regardless of accumulated step error -- required so the camera pose (and the
-/// overlay's own angle readout) never snaps to the nearest 1° sweep-grid sample.
+/// The exact fractional tilt angle, in degrees, for frame `index` of a `total`-frame sweep (`total`
+/// must equal `frame_count(start_deg, end_deg, step_deg)`).
+///
+/// The last frame is pinned to exactly `end_deg` rather than `start_deg + step_deg * index`, so the
+/// camera pose and the overlay's angle readout reach the end angle, not the last grid step short of
+/// it.
 #[must_use]
 pub const fn frame_angle_deg(
     start_deg: f64,
@@ -113,15 +111,15 @@ pub struct FramePose {
 fn leg_angles(from_deg: f64, to_deg: f64, step_deg: f64) -> Vec<f64> {
     let span = (to_deg - from_deg).abs();
     let count = frame_count(0.0, span, step_deg);
-    let sign = if to_deg < from_deg { -1.0 } else { 1.0 };
+    let sign: f64 = if to_deg < from_deg { -1.0 } else { 1.0 };
     (0..count)
-        .map(|i| from_deg + sign * frame_angle_deg(0.0, span, step_deg, i, count))
+        .map(|i| sign.mul_add(frame_angle_deg(0.0, span, step_deg, i, count), from_deg))
         .collect()
 }
 
 /// Every frame of a video over `axes`, in order.
 ///
-/// One axis is one pass, `start -> end` (the video as it always was). Several axes rock
+/// One axis is one pass, `start -> end`. Several axes rock
 /// through face-up, each `0 -> end -> start -> 0`, one after the other, so every joint is
 /// the table-up pose and the video has no cut (the frame loop turns the image so that pose
 /// looks the same on every axis, see `frames::axis_roll`). A pose shared by two legs, or by
@@ -260,24 +258,17 @@ pub const CUSTOM_RESOLUTION_INDEX: i32 = RESOLUTION_PRESETS.len() as i32;
 const MIN_VIDEO_DIM: i32 = 128;
 const MAX_VIDEO_DIM: i32 = 8192;
 
-/// Rounds `dim` down to the nearest even value -- `encode::mux_mp4`'s libx264 pass
-/// (`-pix_fmt yuv420p`) rejects an odd width or height outright (chroma
-/// subsampling needs an even number of samples per axis), and previously fell back
-/// to GIF with nothing but a `tracing::warn!` no one watching a release build ever
-/// sees (see [`super::encode`]'s own doc comment for the other half of that fix).
-/// Rounds DOWN, never up, so the result never exceeds an already-clamped bound
-/// (every caller here clamps to `[128, 8192]` first, both already even, so rounding
-/// down can never underflow below `MIN_VIDEO_DIM` either).
+/// Rounds `dim` down to the nearest even value. libx264 with `-pix_fmt yuv420p` rejects an odd
+/// width or height (chroma subsampling needs an even size on each axis). Rounds down, never up,
+/// so a value already clamped to a bound stays within it.
 const fn round_down_to_even(dim: i32) -> i32 {
     dim & !1
 }
 
-/// Resolves `preset_index`/`custom_width`/`custom_height` into the actual pixel size to
-/// render. A custom size is clamped to `[128, 8192]` per axis independently -- `128`
-/// (not the still-image export's `16`) since the smallest preset this dialog itself
-/// offers is 128x128 -- and then rounded to even (see [`round_down_to_even`]); every
-/// fixed [`RESOLUTION_PRESETS`] entry is already even, so this only ever changes a
-/// custom size.
+/// Resolves `preset_index`/`custom_width`/`custom_height` into the pixel size to render.
+///
+/// A custom size is clamped to `[128, 8192]` per axis and then rounded to even (see
+/// [`round_down_to_even`]); the fixed [`RESOLUTION_PRESETS`] are already even.
 #[must_use]
 pub fn resolve_resolution(preset_index: i32, custom_width: i32, custom_height: i32) -> (u32, u32) {
     if let Some(&preset) = usize::try_from(preset_index)
@@ -311,14 +302,10 @@ pub const fn resolve_max_bounces(bounce_index: i32) -> u32 {
     crate::settings::model::nearest_bounce_cap(bounce_index)
 }
 
-/// The `done`/`total` frame-count pair (`run::report_progress`'s own inputs) as a
-/// `0.0..=1.0` completion fraction -- the number both `TiltVideoExportModel.
-/// progress` (the dialog's own bar) and the status strip's `ActivityChip` (via
-/// `ActivityModel.invoke_progress_external`) show, so the two can never
-/// disagree. `total.max(1)` guards a
-/// degenerate zero-frame request against a division by zero -- `frame_count`
-/// itself already refuses to start a run at `0`, but this stays total rather than
-/// assuming that guard always ran first.
+/// The `done`/`total` frame counts (`run::report_progress`'s inputs) as a `0.0..=1.0` fraction.
+///
+/// The dialog's progress bar and the status strip's `ActivityChip` both show this value, so they
+/// always agree. `total.max(1)` keeps a zero-frame request from dividing by zero.
 #[must_use]
 pub fn export_progress_fraction(done: usize, total: usize) -> f32 {
     done as f32 / total.max(1) as f32
@@ -512,9 +499,9 @@ mod tests {
 
     #[test]
     fn an_empty_range_gives_no_poses_for_any_axis_count() {
-        assert!(frame_poses(&[0], 10.0, -10.0, 1.0).is_empty());
-        assert!(frame_poses(&[0, 1], 10.0, -10.0, 1.0).is_empty());
-        assert!(frame_poses(&[0, 1], -10.0, 10.0, 0.0).is_empty());
+        assert_eq!(frame_poses(&[0], 10.0, -10.0, 1.0), [] as [FramePose; 0]);
+        assert_eq!(frame_poses(&[0, 1], 10.0, -10.0, 1.0), [] as [FramePose; 0]);
+        assert_eq!(frame_poses(&[0, 1], -10.0, 10.0, 0.0), [] as [FramePose; 0]);
     }
 
     #[test]

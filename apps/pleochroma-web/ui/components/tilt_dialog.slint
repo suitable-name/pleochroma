@@ -299,8 +299,7 @@ export component TiltDialog inherits Rectangle {
                         }
                     }
 
-                    // Optical channels. On a phone-width dialog the caption sits on its own
-                    // line: beside it the three chips ran past the dialog's right edge.
+                    // Optical channels. On a phone-width dialog the caption sits on its own line.
                     if root.narrow: Text {
                         text: "Optical Channels:";
                         font-size: 11px;
@@ -361,9 +360,8 @@ export component TiltDialog inherits Rectangle {
                             vertical-alignment: center;
                         }
                         for label[idx] in root.axis-labels : AxisPill {
-                            // The length / width hints drop on a phone-width dialog: five
-                            // full pills ran past the right edge and hid 135° and All (the
-                            // face-up badges still name the selected axis in full).
+                            // The length / width hints drop on a phone-width dialog so that all
+                            // five pills fit; the face-up badges still name the axis in full.
                             text: root.narrow ? root.axis-short-labels[idx] : label;
                             on: root.selected-axis-index == idx;
                             enabled: root.ready;

@@ -2,20 +2,16 @@
 //! scene snapshot.
 
 use crate::bridge::export_thread::scene_snapshot::SceneSnapshot;
+use pleochroma::optics::raytracer::{Estimator, default_estimator};
 use pleochroma_net::SceneState;
 
-/// Builds the `pleochroma_net::SceneState` a remote worker needs from an export's own
-/// [`SceneSnapshot`] plus its `width x height` -- the export-side equivalent of
-/// `gui::remote::orchestrator::tick::scene_state_from_snapshot`, duplicated since that
-/// function is private to a different module tree.
+/// Builds the remote `SceneState` for an export's [`SceneSnapshot`] at `width x height`.
 ///
-/// `cam_yaw`/`cam_pitch` are threaded in explicitly rather than read off
-/// `snapshot.yaw`/`snapshot.pitch` so a caller sweeping the camera across many renders
-/// of the SAME static snapshot (the tilt performance video, one frame per swept angle)
-/// can pass that frame's own pose -- the still-image export passes `snapshot.yaw`/
-/// `snapshot.pitch` unchanged, reproducing today's behaviour exactly. This is the ONE
-/// place the remote `SceneState`'s pose comes from, so it can never drift from the
-/// `Camera` the local CPU/GPU engines trace with for the same frame.
+/// This is a copy of the GUI-side builder, which is private to another module tree.
+///
+/// The camera pose is passed in, not read from the snapshot, so a sweep of frames over one
+/// snapshot (tilt video) can pose each frame. The pose comes from the same source as the local
+/// engines' `Camera`, so the two cannot drift.
 #[must_use]
 pub(in crate::bridge::export_thread) fn scene_state_from_snapshot(
     snapshot: &SceneSnapshot,
@@ -24,7 +20,21 @@ pub(in crate::bridge::export_thread) fn scene_state_from_snapshot(
     cam_yaw: f32,
     cam_pitch: f32,
 ) -> SceneState {
-    // The girdle toggle and the design's frosted planes, in the form the wire carries them.
+    let estimator = default_estimator();
+    scene_state_from_snapshot_with(snapshot, width, height, cam_yaw, cam_pitch, estimator)
+}
+
+/// [`scene_state_from_snapshot`] with an explicit `estimator` instead of the process default.
+#[must_use]
+pub(in crate::bridge::export_thread) fn scene_state_from_snapshot_with(
+    snapshot: &SceneSnapshot,
+    width: u32,
+    height: u32,
+    cam_yaw: f32,
+    cam_pitch: f32,
+    estimator: Estimator,
+) -> SceneState {
+    // Girdle toggle and frosted planes, in wire form.
     let (girdle_frosted, frosted_planes) =
         pleochroma::geometry::finishes_wire_form(&snapshot.active_planes, &snapshot.facet_finishes);
     SceneState {
@@ -33,6 +43,13 @@ pub(in crate::bridge::export_thread) fn scene_state_from_snapshot(
         height,
         yaw: cam_yaw,
         camera_roll: snapshot.camera_roll,
+        // The shadow and the reflectance only where the lighting can apply them and the stone
+        // is closed; the worker resolves its own plane and refuses a stone that is not closed.
+        stone_shadow: snapshot.remote_stone_shadow(),
+        tray_reflection: snapshot.remote_tray_reflection(),
+        // Map yaw and follow-camera flag. The worker turns the map by this scene's `yaw`.
+        hdr_orientation: snapshot.hdr_orientation,
+        estimator,
         pitch: cam_pitch,
         distance: snapshot.distance,
         light_yaw: snapshot.light_yaw,
@@ -45,17 +62,15 @@ pub(in crate::bridge::export_thread) fn scene_state_from_snapshot(
         girdle_frosted,
         backdrop: snapshot.backdrop,
         surface_glare: snapshot.surface_glare,
-        // The concave tools, so the worker traces the same stone as the local tracer; empty
-        // (and so absent from the wire's meaning) for a planar design.
+        // Concave tools; empty for a planar design.
         tools: snapshot.tools.clone(),
-        // The loaded HDR map by content hash, else the studio rig.
+        // The HDR map by content hash, else the studio rig.
         environment: crate::bridge::remote::hdr_asset::scene_environment(snapshot.env_map.as_ref()),
-        // The material's emitters, so the worker traces the same glow as the local tracer.
+        // Material emitters.
         fluorescence: snapshot.fluorescence.as_ref().clone(),
         head_shadow_deg: snapshot.head_shadow_deg,
         frosted_planes,
-        // The stone's render physics (silk, play-of-color, surface finish, abraded edge) and the
-        // faceting machine, so the worker traces the same stone.
+        // Render physics (silk, play-of-color, surface finish, abraded edge) and faceting.
         effects: snapshot.effects.clone(),
     }
 }
@@ -82,8 +97,7 @@ mod tests {
         assert_eq!(state_for(tools.clone()).tools, tools);
     }
 
-    /// A design's frosted planes travel in the scene as indices, and a design without frosting
-    /// sends the scene it always did.
+    /// Frosted planes travel as indices; a design without frosting sends none.
     #[test]
     fn a_remote_scene_carries_the_designs_frosted_planes_and_a_plain_one_carries_none() {
         let plain = Mutex::new(RenderContext::default());
@@ -111,8 +125,7 @@ mod tests {
         });
         let snapshot = SceneSnapshot::capture(&both).expect("the default material resolves");
         let state = scene_state_from_snapshot(&snapshot, 32, 24, snapshot.yaw, snapshot.pitch);
-        // The girdle band and the authored planes together are not the plain girdle list, so
-        // the wire carries them as the frosted planes; the worker rebuilds the same finishes.
+        // The worker rebuilds the same finishes from the wire form.
         assert_eq!(
             pleochroma::geometry::facet_finishes_with_frosted(
                 &state.planes,
@@ -121,6 +134,100 @@ mod tests {
             ),
             snapshot.facet_finishes
         );
+    }
+
+    /// The Tray Reflection travels as the scene's `tray_reflection`, off for a plain scene.
+    #[test]
+    fn a_remote_scene_carries_the_tray_reflection_and_a_plain_one_carries_none() {
+        let plain = Mutex::new(RenderContext::default());
+        let snapshot = SceneSnapshot::capture(&plain).expect("the default material resolves");
+        let state = scene_state_from_snapshot(&snapshot, 32, 24, snapshot.yaw, snapshot.pitch);
+        assert_eq!(state.tray_reflection.to_bits(), 0);
+
+        let glossy = Mutex::new(RenderContext {
+            tray_reflection: 0.04,
+            ..RenderContext::default()
+        });
+        let snapshot = SceneSnapshot::capture(&glossy).expect("the default material resolves");
+        let state = scene_state_from_snapshot(&snapshot, 32, 24, snapshot.yaw, snapshot.pitch);
+        assert_eq!(state.tray_reflection.to_bits(), 0.04f32.to_bits());
+    }
+
+    /// A stone that is not closed sends no shadow and a zero reflection, so the worker does not
+    /// refuse the scene.
+    #[test]
+    fn a_remote_scene_of_a_stone_that_is_not_closed_carries_no_shadow_and_no_reflection() {
+        let scene_for = |planes: Vec<pleochroma::geometry::plane::GpuFacetPlane>| {
+            let ctx = Mutex::new(RenderContext {
+                stone_shadow: true,
+                tray_reflection: 0.04,
+                active_planes: Arc::new(planes),
+                ..RenderContext::default()
+            });
+            let snapshot = SceneSnapshot::capture(&ctx).expect("the default material resolves");
+            scene_state_from_snapshot(&snapshot, 32, 24, snapshot.yaw, snapshot.pitch)
+        };
+        let degenerate = scene_for(Vec::new());
+        assert!(!degenerate.stone_shadow);
+        assert_eq!(degenerate.tray_reflection.to_bits(), 0);
+
+        let closed =
+            scene_for(pleochroma::geometry::cuts::StandardGemCuts::standard_round_brilliant());
+        assert!(closed.stone_shadow);
+        assert_eq!(closed.tray_reflection.to_bits(), 0.04f32.to_bits());
+    }
+
+    /// A turned HDR map travels as yaw and the follow switch, at the frame's own camera yaw.
+    /// A studio scene sends the default orientation.
+    #[test]
+    fn a_remote_scene_carries_the_hdr_orientation_and_a_studio_one_carries_none() {
+        use pleochroma::renderer::env_map::{EnvironmentMap, HdrOrientation};
+        let capture = |with_map: bool| {
+            let ctx = Mutex::new(RenderContext {
+                env_map: with_map.then(|| Arc::new(EnvironmentMap::uniform(2, 2, [1.0, 1.0, 1.0]))),
+                hdr_yaw: 1.25,
+                hdr_follows_camera: true,
+                ..RenderContext::default()
+            });
+            SceneSnapshot::capture(&ctx).expect("the default material resolves")
+        };
+        let snapshot = capture(true);
+        let state = scene_state_from_snapshot(&snapshot, 32, 24, 0.5, snapshot.pitch);
+        assert_eq!(state.hdr_orientation.yaw.to_bits(), 1.25_f32.to_bits());
+        assert!(state.hdr_orientation.follows_camera);
+        assert_eq!(
+            state.yaw.to_bits(),
+            0.5_f32.to_bits(),
+            "the frame's own camera yaw"
+        );
+        let bytes = postcard::to_allocvec(&state).expect("the scene encodes");
+        let decoded: SceneState = postcard::from_bytes(&bytes).expect("the scene decodes");
+        assert_eq!(decoded.hdr_orientation, state.hdr_orientation);
+
+        let studio = capture(false);
+        let state = scene_state_from_snapshot(&studio, 32, 24, studio.yaw, studio.pitch);
+        assert_eq!(state.hdr_orientation, HdrOrientation::default());
+    }
+
+    /// The scene carries its estimator, so the worker traces with the same one. The plain
+    /// builder uses the process default.
+    #[test]
+    fn a_remote_scene_carries_the_estimator_it_is_built_with() {
+        let ctx = Mutex::new(RenderContext::default());
+        let snapshot = SceneSnapshot::capture(&ctx).expect("the default material resolves");
+        for estimator in [Estimator::Branching, Estimator::ExitCollection] {
+            let state = scene_state_from_snapshot_with(
+                &snapshot,
+                32,
+                24,
+                snapshot.yaw,
+                snapshot.pitch,
+                estimator,
+            );
+            assert_eq!(state.estimator, estimator);
+        }
+        let state = scene_state_from_snapshot(&snapshot, 32, 24, snapshot.yaw, snapshot.pitch);
+        assert_eq!(state.estimator, default_estimator());
     }
 
     #[test]

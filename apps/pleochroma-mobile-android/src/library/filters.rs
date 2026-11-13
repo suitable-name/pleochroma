@@ -112,7 +112,7 @@ impl FilterState {
         *self = Self::default();
     }
 
-    /// Drops the choices that `options` no longer offers (the last design of a shape
+    /// Drops the choices that `options` does not offer (the last design of a shape
     /// was deleted). Returns true when something was dropped.
     pub fn prune(&mut self, options: &FilterOptions) -> bool {
         let drop_shape = self

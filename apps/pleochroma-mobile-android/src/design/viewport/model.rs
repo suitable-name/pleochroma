@@ -14,8 +14,9 @@ use slint::ComponentHandle;
 use super::input;
 use crate::{AppWindow, ViewportModel};
 
-/// Tells the viewport the settings it reads (large handles, snapping, the raster cap:
-/// 1280 px on a phone, 1600 px on a tablet, 960 px in battery saver).
+/// Tells the viewport the settings it reads: large handles, snapping and the raster cap
+/// (1280 px on a phone, 1600 px on a tablet, 960 px in battery saver).
+///
 /// Cheap and idempotent: the options live in a `Cell`.
 pub(super) fn sync_options(state: &AppState) {
     let settings = &state.settings;

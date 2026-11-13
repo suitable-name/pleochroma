@@ -55,11 +55,12 @@ pub fn render_rgba_at_pose_ray(
             exposure: PREVIEW_EXPOSURE,
             light_yaw: PREVIEW_LIGHT_YAW,
             light_pitch: PREVIEW_LIGHT_PITCH,
-            // The resolved tray; Ray-Traced reads it under its own rules until its wave-3
-            // lane (B7) switches the whitted environment to the tray model.
+            // The resolved tray backdrop.
             backdrop: preview_backdrop(),
             surface_glare: PREVIEW_SURFACE_GLARE,
+            tray_shadow: None,
             head_shadow_deg: PREVIEW_HEAD_SHADOW_DEG,
+            tray_mirror: None,
         },
     };
     let prep = WhittedPrep::new(&scene, Fluorescence::none(), ray)?;

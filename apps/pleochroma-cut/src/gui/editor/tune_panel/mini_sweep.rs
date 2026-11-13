@@ -1,7 +1,9 @@
-//! The Tune view's mini sweep: a one-tier coarse sweep of the picked tier's angle, plus minus two
-//! degrees in quarter-degree steps, run in the background by the same engine as the Angle Sweep
-//! dialog (`plan_sweep` and `sweep_tier_angle`) under the Grading tray, so a row here and a row
-//! of the dialog (or a figure of the strip) show the same numbers for the same design.
+//! The Tune view's mini sweep, a one-tier coarse sweep of the picked tier's angle.
+//!
+//! It covers plus or minus two degrees in quarter-degree steps, run in the background by the
+//! same engine as the Angle Sweep dialog (`plan_sweep` and `sweep_tier_angle`) under the Grading
+//! tray, so a row here and a row of the dialog (or a figure of the strip) show the same numbers
+//! for the same design.
 //!
 //! - [`Basis`] says what a drawn sweep is a sweep *of*: the design (every tier's angle but the
 //!   picked tier's own, the material), so a nudge of the picked tier itself keeps the chart valid
@@ -57,7 +59,7 @@ pub(super) struct Basis {
     pub epoch: u64,
     /// The tier swept.
     pub tier: usize,
-    /// The angle of every tier but the swept one, as bit patterns, and the tier count.
+    /// The angle of every tier as bit patterns, `u64::MAX` for the swept one.
     pub others: Vec<u64>,
     /// The design's material, written out.
     pub material: String,
@@ -92,7 +94,7 @@ impl Basis {
 ///
 /// # Errors
 ///
-/// Why the tier cannot be swept (it follows a relation, it is flat or vertical, ...).
+/// Why the tier cannot be swept (for example a tier that follows a relation).
 pub(super) fn plan(design: &Design, tier: usize) -> Result<SweepPlan, SweepError> {
     let magnitude = design
         .tiers

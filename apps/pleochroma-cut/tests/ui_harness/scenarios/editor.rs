@@ -144,7 +144,7 @@ pub(super) fn create_template(app: &HarnessApp, card: Card) -> bool {
 }
 
 /// Selects tier row 0 and adds a tier next to it the way the tier row's Duplicate button and
-/// Ctrl+D do (the command bar has no Duplicate button any more).
+/// Ctrl+D do (the command bar has no Duplicate button).
 pub(super) fn duplicate_first_tier(app: &HarnessApp) {
     let ui = app.ui();
     let editor = ui.global::<EditorModel>();
@@ -449,7 +449,7 @@ fn edit_as_text_round_trip(ctx: &mut Ctx<'_>) {
     let raw = ui.global::<RawTextModel>();
     let signature = tier_signature(&ui);
     raw.invoke_open();
-    // The text is written after a background solve of the design (`native_io::resolve_solved_then`),
+    // The text is written after a background solve (`native_io::resolve_solved_then`),
     // so the dialog is open and busy first. A load error ends the wait too: it is the finding.
     let ready = ctx.wait_for(
         "Edit as Text shows the text",

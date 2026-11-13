@@ -6,6 +6,8 @@
 //! (`pleochroma_render_jobs::state::row_actions`), so a button shows exactly when its command
 //! applies.
 
+#[cfg(feature = "beam")]
+use pleochroma::renderer::accel_beam::BeamPhase;
 use pleochroma_render_jobs::{
     run::{JobProgress, format_eta},
     state::{JobState, row_actions},
@@ -155,6 +157,11 @@ fn progress_of(meta: &RenderJobMeta, state: JobState, live: Option<&JobProgress>
                 (false, Some(_)) => format!("{}%", percent(fraction)),
                 (false, None) => "Starting".to_string(),
             };
+            #[cfg(feature = "beam")]
+            let head = match beam_phase_of(meta, live) {
+                Some(phase) => format!("{head} \u{b7} {}", phase.label()),
+                None => head,
+            };
             (fraction, join(head, eta))
         }
         JobState::Queued => {
@@ -190,6 +197,37 @@ fn progress_of(meta: &RenderJobMeta, state: JobState, live: Option<&JobProgress>
         }
         JobState::Cancelled => (-1.0, "Cancelled".to_string()),
     }
+}
+
+/// The marker the detail line of a job with beam tracing on carries (`convert::beam_detail`).
+#[cfg(feature = "beam")]
+pub(super) const BEAM_DETAIL: &str = " \u{b7} beams";
+
+/// The start of the progress note a beam render sends once its trees are built
+/// (`renderer::beam::beam_note`: "Beams: 142318 leaves, 0.8 % residual").
+#[cfg(feature = "beam")]
+const BEAM_NOTE_PREFIX: &str = "Beams:";
+
+/// The phase of a running job with beam tracing on: the one the export reported with its last
+/// progress, else (a video frame report carries none) [`BeamPhase::Finishing`] once the progress
+/// carries the leaf-count note and [`BeamPhase::Tracing`] before it. `None` for a job without
+/// beams, so the line of an ordinary job is what it was.
+#[cfg(feature = "beam")]
+fn beam_phase_of(meta: &RenderJobMeta, live: Option<&JobProgress>) -> Option<BeamPhase> {
+    if !meta.summary.contains(BEAM_DETAIL) {
+        return None;
+    }
+    if let Some(phase) = live.and_then(|p| p.beam_phase) {
+        return Some(phase);
+    }
+    let finishing = live
+        .and_then(|p| p.note.as_deref())
+        .is_some_and(|note| note.starts_with(BEAM_NOTE_PREFIX));
+    Some(if finishing {
+        BeamPhase::Finishing
+    } else {
+        BeamPhase::Tracing
+    })
 }
 
 /// The file or folder name of what a finished job wrote.

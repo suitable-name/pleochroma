@@ -1,4 +1,4 @@
-//! Tests for the camera spectral module. Written, not run, by the lane that created them.
+//! Tests for the camera spectral module.
 
 use pleochroma::color::{cie1931::cie_1931_cmf, led::LedKind};
 

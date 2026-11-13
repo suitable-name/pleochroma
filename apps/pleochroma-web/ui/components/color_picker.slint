@@ -2,10 +2,9 @@ import { Button } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 
 // A small colour picker: a saturation/value square over the current hue, a hue strip, a swatch
-// of the chosen colour and Apply/Cancel. Port of the desktop's
-// `apps/pleochroma-cut/ui/components/material_editor/color_picker.slint` without the hex field
-// (the desktop formats and parses hex through a Rust callback; the web keeps the picker pure
-// Slint). The caller decides what `applied` does.
+// of the chosen colour and Apply/Cancel. It has no hex field: the desktop's picker parses and
+// formats hex through a Rust callback, while this one stays pure Slint. The caller decides
+// what `applied` does.
 //
 // Keyboard: Tab reaches the square and the strip. On the square the arrow keys change the
 // saturation (left, right) and the brightness (up, down) by 5 %; on the strip left and right

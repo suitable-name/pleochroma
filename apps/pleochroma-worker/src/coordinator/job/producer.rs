@@ -25,7 +25,7 @@ use pleochroma_dispatch::{
 };
 use pleochroma_net::{
     SceneState,
-    messages::{ErrorMsg, error_codes},
+    messages::{ErrorMsg, RequestIntent, error_codes},
 };
 use std::{
     collections::BTreeSet,
@@ -56,15 +56,18 @@ pub struct Job {
     pub scene: SceneState,
     /// The request's sample range.
     pub range: SampleRange,
+    /// The viewer request's intent (a `FinalImageRequest` counts as `Batch`): it picks the
+    /// quality of the Stone Shadow every lane of the job builds, the own lane and the joined
+    /// workers alike, so their samples sum consistently.
+    pub intent: RequestIntent,
     /// Lanes and scheduling.
     pub plan: JobPlan,
     /// The HDR map held for the job: forwarded to joined workers that ask,
     /// and keeping the own lane's decoded map pinned until the job ends.
     pub asset: Option<Arc<HeldAsset>>,
-    /// v16: the viewer's reserved tail of a `FinalImageRequest`, if it asked to
-    /// contribute one. `range` above is the SERVER's own share only; once the pool
-    /// completes it, [`run`] waits on this slot and folds it in (or reclaims it) before
-    /// finishing.
+    /// The viewer's reserved tail of a `FinalImageRequest`, if it asked to contribute
+    /// one. `range` above is the SERVER's own share only; once the pool completes it,
+    /// [`run`] waits on this slot and folds it in (or reclaims it) before finishing.
     pub contribution: Option<Arc<ContributionSlot>>,
     /// Set to the number of lanes the job ran on once they are checked out (`0` while it
     /// has none), for the request's log line.
@@ -121,7 +124,7 @@ impl WorkerLane for SinkLane {
 
 /// Runs `job` to its end and finishes `sink` accordingly.
 ///
-/// # The viewer's FIFO turn is held through the contribution wait (v16)
+/// # The viewer's FIFO turn is held through the contribution wait
 ///
 /// [`finish_complete`] (not this function) drops `admission`: for a job with a reserved
 /// viewer share ([`Job::contribution`]), the picture isn't final the moment the
@@ -393,15 +396,15 @@ fn lost(why: &str) -> ErrorMsg {
     ErrorMsg {
         code: error_codes::ALL_WORKERS_LOST,
         message: format!("the coordinator lost every lane that could finish this request: {why}"),
-        // This helper has no request in scope to stamp; its caller may want to.
+        // No request is in scope here to stamp.
         request_id: None,
     }
 }
 
 /// Builds the pool from `lanes` (rates from the viewer's book), runs it over `range`
 /// with the emitter's cancel flag bridged into the pool's token, and stores the lanes'
-/// rates back. `range` is `job.range` for the server's own share, or (v16) the
-/// viewer's reserved tail when [`reclaim`] re-runs this for it -- either way the
+/// rates back. `range` is `job.range` for the server's own share, or the viewer's
+/// reserved tail when [`reclaim`] re-runs this for it -- either way the
 /// returned [`Merger`] is freshly anchored at `range.first_sample`.
 fn run_pool(
     job: &Job,
@@ -554,9 +557,16 @@ fn log_event(event: PoolEvent) {
 }
 
 /// The coordinator's own lane (`serve --render`), if it has one.
-fn own_lane(coordinator: &Coordinator) -> Option<(LaneKey, Arc<dyn WorkerLane>)> {
+///
+/// It traces with the job's `intent` (the viewer request's), so its Stone Shadow has the
+/// quality the job's joined workers and the viewer's local half use.
+fn own_lane(
+    coordinator: &Coordinator,
+    intent: RequestIntent,
+) -> Option<(LaneKey, Arc<dyn WorkerLane>)> {
     let own = coordinator.own.as_ref()?;
-    let lane = OwnLane::new(Arc::clone(&own.gpu), own.threads, own.compute_mode);
+    let lane =
+        OwnLane::new(Arc::clone(&own.gpu), own.threads, own.compute_mode).with_intent(intent);
     Some((LaneKey::Own, Arc::new(lane)))
 }
 
@@ -578,7 +588,7 @@ pub(super) fn whole_image_lane(
         let lane = JoinedWorkerLane::new(handle, Arc::clone(registry), Arc::clone(shared));
         return Some((key, Arc::new(lane)));
     }
-    let own = own_lane(coordinator)?;
+    let own = own_lane(coordinator, shared.intent())?;
     tracing::debug!(
         "coordinator job: no joined worker is idle; a whole-image job runs on the own lane"
     );
@@ -592,11 +602,10 @@ fn job_lanes(job: &Job) -> Arc<JobLanes> {
         pixels: job.scene.width * job.scene.height,
         hdr: job.scene.hdr().is_some(),
     };
-    Arc::new(JobLanes::new(
-        need,
-        job.asset.clone(),
-        job.coordinator.job_config().lane,
-    ))
+    Arc::new(
+        JobLanes::new(need, job.asset.clone(), job.coordinator.job_config().lane)
+            .with_intent(job.intent),
+    )
 }
 
 /// The job's lanes: the own lane (if planned) and the planned joined workers, checked
@@ -613,7 +622,7 @@ fn acquire_lanes(job: &Job, sink: &ProducerSink, shared: &Arc<JobLanes>) -> Lane
             return vec![lane];
         }
     } else if job.plan.own {
-        lanes.extend(own_lane(&job.coordinator));
+        lanes.extend(own_lane(&job.coordinator, shared.intent()));
     }
     let Some(registry) = job.coordinator.registry.as_ref() else {
         return lanes;

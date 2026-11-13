@@ -43,7 +43,7 @@ const PHOTO_EXTENSIONS: [&str; 17] = [
     "pef", "srw", "3fr", "iiq",
 ];
 
-/// The width of the picture in working pixels at which a brush radius is meant.
+/// The largest edge band in working pixels; a larger typed value is capped to it.
 const MAX_EDGE_BAND_PX: usize = 20;
 
 /// The brush radius used until the typed one parses, working pixels.
@@ -56,10 +56,9 @@ const TRACE_CACHE_FOLDER: &str = "rough_colour_cache";
 /// Cached traces older than this are deleted before the next fit.
 const TRACE_CACHE_MAX_AGE: Duration = Duration::from_hours(14 * 24);
 
-/// The folder of the disk cache of the traces: `rough_colour_cache/` beside the app's settings, in
-/// the per-user data folder, so users do not share (or fill) each other's cache and the operating
-/// system's temp cleaners leave it alone. It sits beside `settings.toml`, which follows the
-/// settings path's own fallback to the working directory.
+/// The folder of the disk cache of the traces, beside the app's `settings.toml` in the per-user
+/// data folder: users do not share it and the operating system's temp cleaners leave it alone.
+/// If the settings path has no parent folder, the working directory is used.
 fn trace_cache_dir() -> PathBuf {
     let settings = crate::settings::store::default_settings_path();
     trace_cache_dir_in(settings.parent().unwrap_or_else(|| Path::new(".")))
@@ -1499,8 +1498,7 @@ fn accept_result(host: &Rc<Host>) {
             );
             return;
         };
-        // The photos of the views the fit used (a view prepared but left out of the fit, or one
-        // that is not prepared any more, is not cached).
+        // Only the views the fit used are cached; a prepared view left out of the fit is not kept.
         let fitted = &output.fit.chosen_fit().view_ids;
         let mut photos: Vec<(u32, ResampledImage)> = Vec::new();
         for p in state.prepared.iter().flatten() {
@@ -1539,7 +1537,7 @@ fn accept_result(host: &Rc<Host>) {
                 host.state.borrow_mut().fit_accepted = true;
                 set_status(host, "Rough color stored with the saved plan.");
                 let _ = host.window.hide();
-                // The planner's previews and "Use colour" pick the new colour up.
+                // The planner's previews and "Use Color" pick the new color up.
                 crate::gui::rough_plan::colour_stored();
             }
             Err(message) => set_error(host, &message),
@@ -1719,9 +1717,9 @@ mod tests {
             restored.views.iter().map(|(v, _)| *v).collect::<Vec<_>>(),
             [0, 3]
         );
-        // The cache stores transmittance and coverage as f16 by design (zoned_plan/photo.rs, owner
-        // decision 7; the fit's own noise model is 1 % or more), so those two compare within the
-        // f16 half-ULP; grid, variance and mask are stored exactly.
+        // Transmittance and coverage are cached as f16 (`zoned_plan/photo.rs`), so those two
+        // compare within the f16 half-ULP (far below the photo noise); grid, variance and mask
+        // are stored exactly.
         let back = &restored.views[0].1;
         assert_eq!(back.grid, image.grid);
         assert_eq!(back.variance, image.variance);
@@ -1738,7 +1736,7 @@ mod tests {
         for (g, w) in back.coverage.iter().zip(&image.coverage) {
             assert!(within_f16(*w, *g), "coverage {g} vs {w}");
         }
-        // 0.5 is exactly representable in f16: it must round-trip bitwise, so a coarser format is caught.
+        // 0.5 is exact in f16, so it must round-trip bitwise: a coarser format fails here.
         assert_eq!(back.values[1][0].to_bits(), 0.5_f32.to_bits());
         assert!(restored.fit.is_none());
         assert_eq!(restored.problems.len(), 1);

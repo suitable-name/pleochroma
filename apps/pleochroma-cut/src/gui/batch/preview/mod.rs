@@ -12,10 +12,8 @@
 //! `Database::save_preview_images` stay written, nothing rolls back.
 //!
 //! Every single-view render ([`engine::render_item_local`]/`_remote`) is wrapped in its
-//! own `catch_unwind`, reusing the same fix `gui::library::local::import` applies to
-//! import (`catch_file_panic`) for the same bug class (a malformed `.asc` angle-settings
-//! row panicking inside `pleochroma`'s reconstruction/tracer) -- one item's panic can't
-//! take down the rest of the batch or even the other view of the same design, matching
+//! own `catch_unwind`, as `catch_file_panic` does for imports. One item's panic cannot take
+//! down the rest of the batch or the other view of the same design, matching
 //! `PreviewImages`'s "one view can fail while the other succeeds" contract. An
 //! unconditional `Drop` guard (the same `BusyGuard` pattern as `spawn_import`) clears
 //! `RenderContext::export_active` and `preview_batch_running` regardless of panics.
@@ -38,12 +36,11 @@
 //! render); `Both` requeues a remote failure for guaranteed local processing instead
 //! (see `batch_queue`'s doc comment for why that's local-only, never back to remote).
 //!
-//! The remote side runs `AppSettings::remote_batch_lanes` dispatchers at once, each
-//! keeping one whole picture in flight on the remote -- one dispatcher waiting on one
-//! round trip left a remote that renders a small picture in a fraction of it idle most of
-//! the time. They all claim from the one queue (`claim_shared` is safe under any number
-//! of claimants), each keeps its own failure backoff, and the batch's "remote lane done"
-//! flag is raised when the LAST one ends (`gui::batch::remote_dispatch`).
+//! The remote side runs `AppSettings::remote_batch_lanes` dispatchers at once, each keeping
+//! one whole picture in flight on the remote. A single dispatcher would wait out every round
+//! trip and leave a fast remote mostly idle. They all claim from the one queue (`claim_shared`
+//! is safe under any number of claimants), each keeps its own failure backoff, and the batch's
+//! "remote lane done" flag is raised when the LAST one ends (`gui::batch::remote_dispatch`).
 //!
 //! [`engine::resolve_design`] resolves per ITEM, not once per design behind a shared
 //! cache: since a design's two views may be claimed by different lanes, there is no

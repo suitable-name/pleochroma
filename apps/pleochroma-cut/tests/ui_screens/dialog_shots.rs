@@ -17,22 +17,23 @@ use pleochroma_cut::{
 use slint::{ComponentHandle, Model};
 use uiprobe::screenshot::Shot;
 
-/// The note of a built-in material's Color Pattern section (Ametrine): the anchor of the section
-/// in the dialog. (The wizard-zone check box shows only for a custom material with Rough Color
-/// zones and no pattern.)
+/// The path cache folder the Preferences shot shows: the app's Linux default, without a user name.
+const NEUTRAL_RENDER_CACHE: &str = "~/.config/pleochroma-cut/render_cache";
+
+/// The built-in pattern note of the Color Pattern section (Ametrine), which marks the section.
 const ZONE_CHECKBOX: &str = "Built-in pattern. Save the material under a new name to change it.";
 /// The heading of the material dialog's Color Pattern section.
 const ZONES_HEADING: &str = "Color Pattern";
-/// The heading right below the zone list.
+/// The heading that ends the zone list.
 const BODY_COLOR_HEADING: &str = "Gem Body Color & Transmission:";
 /// Room above the zone heading in the cropped picture, in logical pixels.
 const ZONES_MARGIN: f32 = 12.0;
-/// The section heading and the swatch strip above the built-in note, in logical pixels (used
-/// when the heading text has no accessible label).
+/// Height from the top of the Color Pattern section to the built-in note, in logical pixels.
 const ZONES_ABOVE_CHECKBOX: f32 = 48.0;
-/// The first body color swatch, right below the zone list's heading of the next block.
+/// Accessible label of the first body color swatch, the end of the zone list when the heading
+/// has no label.
 const FIRST_SWATCH: &str = "Clear";
-/// The body color heading above the swatches, in logical pixels.
+/// Room between the body color heading and the first swatch, in logical pixels.
 const SWATCH_HEADING_ROOM: f32 = 30.0;
 /// How far one wheel step scrolls a dialog, in logical pixels.
 const WHEEL_STEP: f32 = 300.0;
@@ -248,13 +249,18 @@ pub fn material_zones(sc: &mut Sc<'_, '_>) -> Result<Shot, String> {
 
 /// `preferences.png`: the Preferences dialog.
 ///
+/// The path cache folder is set to [`NEUTRAL_RENDER_CACHE`]: the real one lies in the harness's
+/// temp profile, which the private-text scan refuses.
+///
 /// # Errors
 ///
 /// The design is missing, or the dialog does not appear.
 pub fn preferences(sc: &mut Sc<'_, '_>) -> Result<Shot, String> {
     sc.select_design(STUDIO)?;
     let ui = sc.ui();
-    ui.global::<PreferencesModel>().set_dialog_open(true);
+    let prefs = ui.global::<PreferencesModel>();
+    prefs.set_path_cache_dir(NEUTRAL_RENDER_CACHE.into());
+    prefs.set_dialog_open(true);
     wait_component(sc, "PreferencesDialog")?;
     card_shot(sc, "PreferencesDialog")
 }

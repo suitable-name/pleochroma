@@ -101,10 +101,10 @@ pub(super) fn list_saved_with(
     Ok(rows)
 }
 
-/// Lists the stored plans, newest first, with a one-line summary each. The summaries are
-/// stored with the plans, so no payload is read or parsed; only a plan saved before
-/// summaries were stored is read once and gets its summary filled in. Call it off the UI
-/// thread.
+/// Lists the stored plans, newest first, with a one-line summary each.
+///
+/// The summaries are stored with the plans, so no payload is read or parsed; a plan without a
+/// stored summary is read once and gets one. Call it off the UI thread.
 ///
 /// # Errors
 ///

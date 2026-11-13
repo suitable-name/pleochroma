@@ -1,13 +1,13 @@
-//! Applying settings loaded from disk into the render context and the UI's own
-//! mirrored properties at startup ([`apply_loaded_settings`]), and the small
+//! Applies settings loaded from disk at startup ([`apply_loaded_settings`]).
+//!
+//! They go into the render context and the UI's own mirrored properties, with the
 //! settings-value <-> UI-pill-index conversions that go with it (`bounces_index`,
 //! `resolution_index`, `local_preview_scale_index`/`from_index`,
-//! `local_compute_target_index`/`from_index`, `color_space_from_index`,
-//! `find_option_index`), plus the two option-list refreshers
-//! ([`refresh_lighting_preset_options`], [`refresh_material_options`]) and
-//! [`env_map_status_text`]/[`is_c_axis_override_available`], both shared with a
-//! later, user-initiated callback. Moved out of `gui::mod` purely to keep that file
-//! from growing further -- same reasoning as `gui`'s other submodules.
+//! `local_compute_target_index`/`from_index`, `color_space_from_index`, `find_option_index`). It
+//! also holds the option-list refreshers ([`refresh_lighting_preset_options`],
+//! [`refresh_material_options`]) and [`env_map_status_text`]/[`is_c_axis_override_available`],
+//! which a user-initiated callback shares. This lives apart from `gui::mod` to keep that file
+//! small.
 
 use crate::{
     EditorModel, LibraryModel, LightingPresetItem, MainWindow, RemoteWorkerModel, SettingsModel,
@@ -57,11 +57,9 @@ pub(super) fn apply_loaded_settings(
     super::startup_ray::apply(ui, render_ctx, s);
     // The upload compression setting has no UI mirror: the connection layer reads it.
     crate::bridge::remote::remote_render::set_payload_choice(s.payload_encoding);
-    // Parse the persisted lighting-rig label back into its enum at this one
-    // boundary -- gracefully migrating any legacy or unrecognized label (including the
-    // old, mislabelled `"D65 Daylight (5500K)"` string) via `from_label`'s own
-    // fallback, rather than resetting the user's choice. See
-    // `pleochroma::optics::LightingPreset::from_label`.
+    // Parse the persisted lighting-rig label back into its enum here. `from_label` maps legacy
+    // and unrecognized labels itself instead of resetting the user's choice (see
+    // `pleochroma::optics::LightingPreset::from_label`).
     // A stored UV lamp falls back to the default rig in a build without `physical-color`.
     let lighting_preset = crate::gui::optics::offered_lighting::offered_from_label(&s.lighting_rig);
 
@@ -93,18 +91,11 @@ pub(super) fn apply_loaded_settings(
             "info",
         );
     }
-    // Whether the crystal-axis control is interactive at all depends on the
-    // STARTING material -- must be set here too, not just from `on_material_changed`,
-    // or a session restored on an isotropic material (e.g. the "Diamond" default) would
-    // show the slider as enabled until the user touched the material dropdown once.
-    // `effective_material_name` is either the persisted selection (only ever reached
-    // this far when `material_found` already confirmed it's in `material_options`) or
-    // `DEFAULT_MATERIAL_NAME` ("Diamond") -- both should always resolve, but
-    // `resolve_material` is `Option` (no `materials[0]` fallback, see its own doc
-    // comment), so `None` is handled the same defensive way
-    // `material_quality::setup_material_changed_callback` does: Diamond stands in for
-    // these two UI-default computations only, never for anything that reaches the
-    // tracer.
+    // The crystal-axis control's enabled state depends on the STARTING material, so it is set
+    // here too: `on_material_changed` only fires on a later change. `resolve_material` returns
+    // `Option`, so a `None` falls back to Diamond for these two UI defaults only, the same way
+    // `render::material::setup_material_changed_callback` does. Nothing that reaches the
+    // tracer uses that fallback.
     let starting_material = resolve_material(
         &GemMaterial::all_materials(),
         &RenderContext::lock(render_ctx).custom_materials,
@@ -115,15 +106,10 @@ pub(super) fn apply_loaded_settings(
             .as_ref()
             .is_some_and(is_c_axis_override_available),
     );
-    // The RI-tolerance filter default -- same "must be set here too" reasoning as
-    // `c_axis_override_available` immediately above: `on_material_changed` (wired later,
-    // in `material_quality::setup_material_changed_callback`) only fires on a SUBSEQUENT
-    // change, so the STARTING material's RI must be pushed once here or the filter
-    // panel would show a stale `2.417` (this property's `.slint` placeholder default)
-    // for a session restored on any other material. `ri_tolerance_center` is seeded to
-    // the same value -- it is `in-out` (the user can drag it away afterward), but a
-    // freshly opened session should start with the tolerance band centred on whatever
-    // is actually loaded, not on the placeholder.
+    // The RI-tolerance filter default is pushed here for the same reason: without it, a
+    // session restored on any starting material would show the `.slint` placeholder RI
+    // until the material changes. `ri_tolerance_center` is seeded to the same value, so the
+    // tolerance band starts centred on the loaded material.
     let ri_default = starting_material.as_ref().map_or_else(
         || crate::bridge::preview_render::material_ri_at_sodium_d(&GemMaterial::diamond()),
         crate::bridge::preview_render::material_ri_at_sodium_d,
@@ -140,12 +126,9 @@ pub(super) fn apply_loaded_settings(
     ui.global::<LibraryModel>()
         .set_ri_tolerance_center(ri_default_f32);
 
-    // Reload the last-loaded HDR environment map, if any. Mirrors
-    // `on_load_env_map` (in `setup_environment_map_callbacks`) but runs before any
-    // callback is wired up, so a load failure here can only toast, not race a
-    // simultaneous user-initiated load. `s.env_map_path` is left untouched either way
-    // -- a transient failure (file on a currently-unmounted drive, say) shouldn't
-    // silently forget the path the next successful launch could still use.
+    // Reload the last-loaded HDR environment map, if any. This runs before any callback is
+    // wired up, so a failure here only toasts. `s.env_map_path` is kept either way, so a
+    // transient failure (an unmounted drive, say) does not forget the path.
     ui.global::<SettingsModel>()
         .set_env_map_path(s.env_map_path.clone().into());
     if s.env_map_path.is_empty() {
@@ -196,10 +179,9 @@ fn apply_loaded_render_context(
     // which every live-drag path already refuses to do.
     ctx.exposure = s.exposure.clamp(EXPOSURE_RANGE.0, EXPOSURE_RANGE.1);
     // The stone's size and render effects (inclusion haze, crystal axis, frosted girdle, edge
-    // rounding) are the design's own: the render context keeps its built-in defaults here and
-    // the open design sets them. The old app-level values in the settings file are read only
-    // once, by the one-shot migration onto the first design opened
-    // (`AppSettings::legacy_stone_defaults`).
+    // rounding) belong to the open design, so the render context keeps its built-in defaults
+    // here. The settings file's app-level values are read only by
+    // `AppSettings::legacy_stone_defaults`, the one-shot migration onto the first design opened.
     ctx.light_yaw = s.light_yaw_deg.to_radians();
     ctx.light_pitch = s
         .light_pitch_deg
@@ -209,15 +191,8 @@ fn apply_loaded_render_context(
     ctx.yaw = s.camera_yaw;
     ctx.pitch = crate::gui::render::camera_lighting::wrap_pitch(s.camera_pitch);
     ctx.camera_roll = crate::gui::render::camera_lighting::wrap_pitch(s.camera_roll);
-    // Same dynamic zoom clamp as the live orbit camera, not a fixed range.
-    // A saved distance for a larger/smaller design must not get pulled back.
-    //
-    // `DEFAULT_MESH_BOUNDING_RADIUS`, not `main_window`'s live `Arc<Mutex<f64>>`
-    // (unlike `lighting_presets`' live-apply and the export fan-out, which both clamp
-    // against that live figure): this function runs exactly once, at startup, BEFORE
-    // any design has ever loaded/solved and updated the live radius away from its own
-    // default -- the two values are identical at this call site, so reading the
-    // constant directly here is not a shortcut, it is the correct value already.
+    // Clamped with the live orbit camera's bounds. This runs once at startup, before any
+    // design has changed the live bounding radius, so the default radius is the live value.
     let (min_distance, max_distance) = crate::gui::render::camera_lighting::orbit_distance_bounds(
         crate::gui::solid_preview::preview_state::DEFAULT_MESH_BOUNDING_RADIUS,
     );
@@ -226,20 +201,43 @@ fn apply_loaded_render_context(
     ctx.denoise_enabled = s.denoise_enabled;
     ctx.backdrop = s.backdrop;
     ctx.surface_glare = clamp_surface_glare(s.surface_glare);
+    ctx.stone_shadow = s.stone_shadow;
+    ctx.tray_reflection = crate::settings::model::clamp_tray_reflection(s.tray_reflection);
     ctx.head_shadow_deg = clamp_head_shadow_deg(s.head_shadow_deg);
+    // The HDR map's turn: wrapped, and a damaged value reads as the map as loaded.
+    let hdr = pleochroma::renderer::env_map::HdrOrientation {
+        yaw: s.env_map_yaw_deg.to_radians(),
+        follows_camera: s.env_map_follows_camera,
+    }
+    .sanitized();
+    ctx.hdr_yaw = hdr.yaw;
+    ctx.hdr_follows_camera = hdr.follows_camera;
     // The cutter's faceting machine (a per-user preference, never in a design).
     ctx.set_faceting_machine(crate::settings::model::set_current_faceting_machine(
         &s.faceting_machine,
     ));
-    // Local preview-then-settle rendering and the live compute targets --
-    // live-update `RenderContext` at startup exactly like every other setting in
-    // this block, `camera_moving` deliberately left at its
-    // `Default` (`false`): it's re-derived from live camera-pose polling by
-    // `gui::remote::poll_tick` within the first tick after the window opens, never
-    // something a settings FILE has an opinion on.
+    // Local preview and the live compute targets. `camera_moving` keeps its default
+    // (`false`): `gui::remote::poll_tick` derives it from camera polling within the first
+    // tick after the window opens, so a settings file has no say in it.
     ctx.local_preview_scale = s.local_preview_scale;
     ctx.live_compute_target = s.live_compute_target;
     ctx.local_compute_target = s.local_compute_target;
+    // The Preferences switch for adaptive sampling of a still view (off by default).
+    ctx.adaptive_viewport = s.adaptive_viewport;
+    ctx.path_cache_viewport = s.path_cache_viewport;
+    // The Preferences switch for instant lighting changes in the Ray-Traced view (off by default).
+    ctx.instant_lighting = s.instant_lighting;
+    // The beam switches (both off by default); the second counts only with the first. Without
+    // the `beam` feature the keys stay in the settings file but never reach the render context.
+    // A block, because stable Rust takes no `cfg` on an assignment statement.
+    #[cfg(feature = "beam")]
+    {
+        ctx.beam_viewport = s.beam_viewport;
+        ctx.beam_instant_lighting = super::preferences::effective_beam_instant_lighting(
+            s.beam_viewport,
+            s.beam_instant_lighting,
+        );
+    }
     ctx.dirty = true;
 }
 
@@ -252,9 +250,8 @@ fn apply_loaded_ui_mirrors(
     s: &crate::settings::model::AppSettings,
     lighting_preset: LightingPreset,
 ) {
-    // The slider stores an EXPONENT, the settings file stores a COUNT -- see
-    // `gui::sample_scale`'s module doc comment for why, and for this conversion's
-    // inverse (`exponent_to_count`, used when the slider itself changes).
+    // The slider stores an exponent and the settings file a sample count; see
+    // `gui::render::sample_scale` for the conversion and its inverse.
     ui.global::<SettingsModel>()
         .set_target_samples_exponent(count_to_exponent(s.target_samples) as f32);
     ui.global::<SettingsModel>()
@@ -282,6 +279,22 @@ fn apply_loaded_ui_mirrors(
         .set_surface_glare_pct(percent_from_surface_glare(s.surface_glare));
     ui.global::<SettingsModel>()
         .set_head_shadow_deg(clamp_head_shadow_deg(s.head_shadow_deg));
+    ui.global::<SettingsModel>()
+        .set_stone_shadow(s.stone_shadow);
+    ui.global::<SettingsModel>().set_tray_reflection_pct(
+        crate::settings::model::percent_from_tray_reflection(s.tray_reflection),
+    );
+    ui.global::<SettingsModel>().set_env_map_yaw_deg(
+        pleochroma::renderer::env_map::HdrOrientation {
+            yaw: s.env_map_yaw_deg.to_radians(),
+            follows_camera: false,
+        }
+        .sanitized()
+        .yaw
+        .to_degrees(),
+    );
+    ui.global::<SettingsModel>()
+        .set_env_map_follows_camera(s.env_map_follows_camera);
     // (The stone effects and width controls show the open design's values, not the file's.)
     ui.global::<SettingsModel>()
         .set_local_preview_scale_index(local_preview_scale_index(s.local_preview_scale));
@@ -302,12 +315,8 @@ fn apply_loaded_ui_mirrors(
     );
     ui.global::<SettingsModel>()
         .set_light_yaw_deg(s.light_yaw_deg);
-    // Clamped identically to `apply_loaded_render_context`'s own
-    // `ctx.light_pitch` write (same `[0.15, 1.55]` radians bound the live drag
-    // handler uses, `gui::render::camera_lighting`'s `on_light_move`/
-    // `light_pos_changed`) -- otherwise a hand-edited or stale out-of-range
-    // persisted degree value showed the slider at a pitch the render loop was
-    // never actually going to use.
+    // Clamped like `ctx.light_pitch` in `apply_loaded_render_context`, so the slider shows
+    // the pitch the render loop uses (`PITCH_RANGE_RAD`, the live drag's bound).
     ui.global::<SettingsModel>().set_light_pitch_deg(
         s.light_pitch_deg
             .to_radians()
@@ -318,24 +327,26 @@ fn apply_loaded_ui_mirrors(
     ui.global::<LibraryModel>()
         .set_panel_collapsed(s.library_panel_collapsed);
     // The Solid viewport always starts in Solid mode (0), whatever
-    // `AppSettings::solid_view_mode` remembers from the last session (the app
-    // always opens on the solid renderer view). The stored value is left alone
-    // and still follows the user's in-session choice; it is just not applied at
-    // startup. 0 is also the property's default, so this normally fires no
-    // `changed` handler at all.
+    // `AppSettings::solid_view_mode` remembers. The stored value is kept and still follows
+    // the user's in-session choice; it is only not applied at startup. 0 is also the
+    // property's default, so this normally fires no `changed` handler.
     ui.global::<SolidPreviewModel>().set_view_mode(0);
-    // The Live Render tab, where the app opens, always starts in Solid mode (0) too,
-    // whatever `AppSettings::live_view_mode` remembers: the selected design shows as the
-    // solid render first. The stored value is left alone like `solid_view_mode` above, and
-    // nothing is connected to `live_view_mode_changed` yet at this point in startup.
+    // The Live Render tab, where the app opens, also starts in Solid mode (0), whatever
+    // `AppSettings::live_view_mode` remembers. The stored value is kept, as above, and no
+    // `live_view_mode_changed` handler is connected yet at this point in startup.
     ui.global::<ViewportModel>().set_live_view_mode(0);
-    // The "Edit" sub-tab's auto-solve budget (`gui::editor::auto_solve`) -- same
-    // harmless-early-`changed`-fire caveat as `editor_solid_view_mode` above applies
-    // here too.
+    // The "Edit" sub-tab's auto-solve budget (`gui::editor::auto_solve`).
     ui.global::<EditorModel>()
         .set_auto_solve_budget_ms(i32::try_from(s.editor_auto_solve_budget_ms).unwrap_or(i32::MAX));
     ui.global::<ViewportModel>()
         .set_selected_lighting_index(lighting_preset.index());
+    ui.global::<ViewportModel>()
+        .set_lighting_supports_stone_shadow(ModelRc::new(VecModel::from(
+            LightingPreset::ALL
+                .iter()
+                .map(|preset| *preset != LightingPreset::Aset && !preset.is_uv_lamp())
+                .collect::<Vec<bool>>(),
+        )));
     // Which combo entries are Studio rigs (parallel to `LightingPreset::ALL`): the Optimize
     // tab's "measured against this rig's light sources" note keys on it.
     ui.global::<ViewportModel>()
@@ -345,13 +356,10 @@ fn apply_loaded_ui_mirrors(
                 .map(|preset| preset.model() == LightingModel::Studio)
                 .collect::<Vec<bool>>(),
         )));
-    // File > Open Recent (`MainWindow.recent_native_files`, `ui/app.slint`) -- a
-    // root-component property, not an `EditorModel` one. `gui::editor::native_io`'s
-    // `record_recent_native_file` keeps this same property live afterward on every
-    // Save/Open, recording each entry through the `SettingsPersister` whose
-    // snapshot was seeded from this same loaded `s`, so the list on screen and the
-    // list that gets written on exit never diverge; this seeds it once at startup,
-    // before that module's own callbacks are even wired up.
+    // File > Open Recent (`MainWindow.recent_native_files`, a root property of `ui/app.slint`).
+    // `gui::editor::native_io` keeps it current on every Save and Open through the same
+    // `SettingsPersister` snapshot seeded from `s`, so the list on screen matches the list
+    // written on exit. This seeds it once, before those callbacks are wired.
     ui.set_recent_native_files(ModelRc::new(VecModel::from(
         s.recent_native_files
             .iter()
@@ -391,19 +399,12 @@ pub(in crate::gui) fn is_c_axis_override_available(material: &GemMaterial) -> bo
     material.optical_character != OpticalCharacter::Isotropic
 }
 
-/// Reverse of the mapping baked into the Parameters panel's bounce-count pill
-/// selector (4/8/12/24/64/128 at indices 0-5, raised from the old 4/8/12/16/24 ladder
-/// per the `bounce_cost.rs` benchmark -- see that pill block's own doc comment for the
-/// measurements). Exact matches map directly; anything else -- a settings file written
-/// by an older build (e.g. the retired 16-bounce rung) or a hand-edited value -- picks
-/// the *nearest* rung by absolute distance rather than a single hardcoded fallback like
-/// `resolution_index`/`local_preview_scale_index` below use. Those get away with
-/// "assume the default option" because their lists are short and evenly spaced; this
-/// ladder now spans 4..128 unevenly (24 -> 64 is a 40-bounce gap), so a blanket
-/// fallback would misplace a value like 40 or 96 by a wide margin. Never used to
-/// reject or clamp the actual stored/rendered `max_bounces` -- see `on_bounces_changed`
-/// in `material_quality.rs`, which honours the raw persisted value untouched regardless
-/// of which pill this highlights.
+/// Index of the bounce-count pill (4/8/12/24/64/128 at indices 0-5) that `bounces`
+/// highlights. An exact match maps directly. Any other value, such as a hand-edited one,
+/// picks the nearest rung of `settings::model::BOUNCE_LADDER` by absolute distance. The
+/// ladder is uneven (24 to 64 is a 40-bounce gap), so a fixed fallback would misplace
+/// values such as 40 or 96. Only the highlight uses this: the stored `max_bounces` is never
+/// clamped (see `on_bounces_changed` in `render::quality`).
 #[expect(
     clippy::cast_possible_truncation,
     clippy::cast_possible_wrap,
@@ -467,15 +468,10 @@ pub(in crate::gui) fn apply_render_output_settings(
     );
 }
 
-/// Reverse of the mapping baked into the Parameters panel's "Render Resolution"
-/// pill selector (640x480/800x600/1280x720/1920x1080 at indices 0-3) -- a blanket
-/// fixed-list-with-fallback treatment, used only to highlight the closest pill at
-/// startup. Falls back to the 800x600 index (1) for any pair that isn't one of the
-/// four presets (a hand-edited settings file, or one saved before this control existed
-/// -- see `AppSettings::render_width`'s doc comment), matching
-/// `RenderContext::default()`/`DEFAULT_RENDER_WIDTH`/`DEFAULT_RENDER_HEIGHT`. Never
-/// used to reject or clamp the actual stored/rendered value -- `render_width`/
-/// `render_height` themselves pass through untouched regardless of what this returns.
+/// Index of the "Render Resolution" pill (640x480, 800x600, 1280x720, 1920x1080 at indices
+/// 0-3), used only to highlight the closest pill at startup. Any other pair, such as a
+/// hand-edited value, highlights 800x600 (index 1), the default. The stored size is never
+/// clamped by this (see `AppSettings::render_width`).
 const fn resolution_index(width: u32, height: u32) -> i32 {
     match (width, height) {
         (640, 480) => 0,
@@ -498,10 +494,8 @@ const fn local_preview_scale_index(scale: LocalPreviewScale) -> i32 {
 }
 
 /// Inverse of [`local_preview_scale_index`]: what `on_local_preview_scale_changed`
-/// (in `setup_material_and_quality_callbacks`) converts the pill's clicked index back
-/// into. Falls back to `Off` for anything outside `0..=2` (a value the fixed pill
-/// selector itself can never actually send), matching `resolution_index`'s own
-/// unrecognized-value fallback convention.
+/// (in `render::quality`) converts the pill's clicked index back into. Falls back to `Off`
+/// for anything outside `0..=2`, which the pill can never send.
 pub(in crate::gui) const fn local_preview_scale_from_index(index: i32) -> LocalPreviewScale {
     match index {
         1 => LocalPreviewScale::Half,
@@ -522,13 +516,9 @@ const fn local_compute_target_index(target: LocalComputeTarget) -> i32 {
     }
 }
 
-/// Inverse of [`local_compute_target_index`]: what `on_local_compute_target_changed`
-/// (in `material_quality::setup_material_and_quality_callbacks`) converts the pill's
-/// clicked index back into. Falls back to `CpuGpu` for anything outside `0..=2` (a
-/// value the fixed pill selector itself can never actually send), matching
-/// `LocalComputeTarget::default()` -- the same "unset behaves like the default, not
-/// like the first variant" convention `gui::remote::live_compute_target_from_index`
-/// already uses for its own three-way pill.
+/// Inverse of [`local_compute_target_index`]: what `on_local_compute_target_changed` (in
+/// `render::quality`) converts the pill's clicked index back into. Falls back to `CpuGpu`,
+/// matching `LocalComputeTarget::default()`, for anything outside `0..=2`.
 pub(in crate::gui) const fn local_compute_target_from_index(index: i32) -> LocalComputeTarget {
     match index {
         0 => LocalComputeTarget::Cpu,
@@ -537,18 +527,11 @@ pub(in crate::gui) const fn local_compute_target_from_index(index: i32) -> Local
     }
 }
 
-/// Finds `needle`'s index in a Slint `[string]` model for restoring `ComboBox`
-/// selections (material, lighting rig) from persisted names. Returns `None` if the
-/// name isn't present (e.g., deleted custom material or legacy option).
+/// Finds `needle`'s index in a Slint `[string]` model, to restore `ComboBox` selections
+/// (material, lighting rig) from persisted names. Returns `None` when the name is absent,
+/// for example a deleted custom material.
 ///
-/// Case-insensitive, matching every other name lookup this app's material/lighting
-/// names go through (`resolve_material`, `built_in_name_collision`, etc.) -- an exact
-/// `==` here let a persisted or hand-typed name that differs only in case (e.g. a
-/// custom material saved as "my Sapphire" against a combo entry "My Sapphire") report
-/// `None` and silently fail to restore the selection, even though every actual material
-/// resolution for that same name would have matched.
-///
-/// Public to `gui` so other modules can reuse this logic instead of duplicating it.
+/// Case-insensitive, like the other material and lighting name lookups (`resolve_material`).
 #[must_use]
 pub(in crate::gui) fn find_option_index(
     options: &ModelRc<SharedString>,
@@ -585,25 +568,12 @@ pub(in crate::gui) fn refresh_lighting_preset_options(
         .set_lighting_presets(ModelRc::new(VecModel::from(items)));
 }
 
-/// Wires up the high-resolution export flow: validates the request, captures
-/// a `SceneSnapshot` independent of the live viewport's `RenderContext.width`/`height`
-/// and accumulation buffer (see `export_thread`'s module doc comment for why that
-/// separation matters), and spawns it on its own worker thread via
-/// `export_thread::spawn_export`. The returned `ExportHandle` is kept in a
-/// `Rc<RefCell<Option<_>>>` -- plain UI-thread-only state, not `Arc<Mutex<_>>>`, since
-/// both callbacks here only ever run on the Slint event loop -- so `cancel_export` can
-/// reach the in-flight export. Split out of `run_gui` purely to keep that function
-/// under clippy's function-length lint.
-/// Inverse of `export_dialog.slint`'s "color Space" pill selector
-/// (sRGB/Display P3/Rec.2020 at indices 0-2) -- same fixed-list-with-fallback treatment
-/// as `local_preview_scale_from_index` above. Falls back to `ColorSpace::Srgb` (index
-/// 0, the required default -- see `bridge::export_thread`'s module doc comment on why
-/// that space's output must stay byte-identical to before this control existed) for
-/// any value the fixed pill selector itself can never actually send.
+/// Inverse of `export_dialog.slint`'s colour space pill selector (sRGB, Display P3,
+/// Rec.2020 at indices 0-2), with the same fallback as [`local_preview_scale_from_index`].
+/// Falls back to `ColorSpace::Srgb`, index 0, for any value the pill can never send.
 ///
-/// `ColorSpace::AcesCg` has no index here at all -- it is not offered by the picker,
-/// see `export_dialog.slint`'s own doc comment for why a scene-linear space doesn't
-/// belong in an 8-bit PNG export.
+/// `ColorSpace::AcesCg` has no index: the picker does not offer it, because a scene-linear
+/// space does not belong in an 8-bit PNG export (see `bridge::export_thread`).
 pub(in crate::gui) const fn color_space_from_index(index: i32) -> ColorSpace {
     match index {
         1 => ColorSpace::DisplayP3,
@@ -640,16 +610,13 @@ mod tests {
 
     #[test]
     fn bounces_index_picks_the_nearest_rung_for_unknown_values() {
-        // The retired 16-bounce rung from the old ladder: 4 away from 12, 8 away
-        // from 24, so it lands on the same index (2) the old blanket fallback used
-        // to give it -- but via nearest-distance, not a hardcoded default.
+        // 16 is not a rung: 4 away from 12 and 8 away from 24, so the nearest rung is 12.
         assert_eq!(bounces_index(16), 2);
         // Below the lowest rung and above the highest rung both clamp to the nearest
         // end of the ladder rather than falling back to the default (12).
         assert_eq!(bounces_index(1), 0);
         assert_eq!(bounces_index(999), 5);
-        // Roughly equidistant between 24 and 64 (20 either way) -- ties resolve to
-        // whichever rung is checked first in `RUNGS`, i.e. the lower one.
+        // Equidistant between 24 and 64 (20 either way): the tie resolves to the lower rung.
         assert_eq!(bounces_index(44), 3);
     }
 

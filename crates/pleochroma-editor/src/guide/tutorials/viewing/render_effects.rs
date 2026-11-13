@@ -1,12 +1,13 @@
 //! Silk, play-of-color and per-ray curves in the editor: the Stone tab's Inclusions and
-//! Play-of-Color (Schiller) groups, and the Material Editor's Per-Axis Curves (manual chapters
-//! "Inclusions and Silk", "Play-of-Color and Schiller" and "Materials").
+//! Play-of-Color (Schiller) groups, and the Material Editor's Per-Axis Curves.
 //!
-//! Every lesson starts from the Rich Teaching Design and picks its material in an action step, so
-//! the stone is the one the learner sees. What the Stone tab changes is in the design, so the
-//! steps wait for it with a [`check`] on the design (see `effects_common.rs`); the Crystal Axis
-//! and the saved material report their events as in the other lessons. The Material Editor covers
-//! the guide panel while it is open, so its step carries every instruction it needs.
+//! Manual chapters: "Inclusions and Silk", "Play-of-Color and Schiller" and "Materials".
+//!
+//! Every lesson starts from the Rich Teaching Design and sets its material in an action step. The
+//! Stone tab's changes are in the design, so the steps wait for them with a [`check`] (see
+//! `effects_common.rs`); the Crystal Axis and a saved material report UI events instead. The
+//! Material Editor covers the guide panel while it is open, so its step carries every instruction
+//! it needs.
 
 #![allow(
     clippy::too_many_lines,

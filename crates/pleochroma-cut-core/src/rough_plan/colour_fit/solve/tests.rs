@@ -1,10 +1,9 @@
-//! Tests of the inverse solver (written, not run, by lane S1).
+//! Tests of the inverse solver.
 //!
-//! Synthetic photos are made from
-//! the forward tracer's own records (so the physics agrees with the fit by construction) with a
-//! seeded Gaussian noise; the checks are on what the plan asks for: recovered amplitudes and
-//! amounts, the bicolour, the cross-validation, the calibration of the covariance, determinism
-//! across thread counts, cancellation and the zoning suggestion.
+//! Synthetic photos are made from the forward tracer's own records (so the physics agrees with
+//! the fit by construction) with a seeded Gaussian noise. The checks cover the recovered
+//! amplitudes and amounts, the bicolour, the cross-validation, the calibration of the covariance,
+//! determinism across thread counts, cancellation and the zoning suggestion.
 
 use std::sync::atomic::AtomicBool;
 
@@ -230,12 +229,10 @@ fn basis_alpha<'a>(
     move |zone, lambda| model.alpha(zone, lambda, params)
 }
 
-/// A configuration that keeps the tests quick. Every photo in this module is synthesised from the
-/// very records the fit evaluates (`synthesize`), so the residual carries no Monte-Carlo error of
-/// the records and `mc_variance_scale` must be 0, as `tests/zoning_validation/recovery.rs` states:
-/// with the shipped 1.0 the records' ~5 percent relative Monte-Carlo variance (64 samples) swamps
-/// the 0.002 photo sigma, the data term goes flat (chi2 4 over 1200 residuals, measured
-/// 2026-10-12) and the priors alone pick the spectrum.
+/// A configuration that keeps the tests quick. Photos are synthesised from the very records the
+/// fit evaluates (`synthesize`), so `mc_variance_scale` must be 0, as
+/// `tests/zoning_validation/recovery.rs` states: with the shipped 1.0 the records' Monte-Carlo
+/// variance swamps the 0.002 photo sigma and the priors alone pick the spectrum.
 fn quick_config() -> FitConfig {
     FitConfig {
         seeds: 4,
@@ -273,31 +270,21 @@ const BANDS: usize = SmoothBasisModel::BANDS;
 // Recovery
 // ---------------------------------------------------------------------------------------------
 
-/// The common body of the two single-zone recovery tests (round 7, 2026-10-12).
+/// The common body of the two single-zone recovery tests.
 ///
-/// A three-channel camera under one LED identifies the colour of a stone and, through the path
-/// lengths of the rig, a little more; it does not identify a fourteen-band spectrum. Measured on
-/// this fixture: the fit of the pale stone reproduces the photos BETTER than the truth (data term
-/// 621.7 against 626.8, chi2/n 1.056 against 1.064) with an absorption of 0.36 of the truth at
-/// 500 nm and 0.14 at 650 nm, because the magnitude prior, which settles the camera's null
-/// space, prefers that spectrum by 1.9; the saturated stone likewise (data 622.7 against 626.8,
-/// magnitude 24.1 against 38.5, nothing left at 395 nm or beyond 670 nm). The former criterion,
-/// "absorption within 5 or 10 % of the truth at 450 to 650 nm", asked the priors to know the
-/// truth: a scale-free shape prior that recovers these log-linear truths charges the two-band
-/// validation truth and an isolated band far beyond the pins of round 5 (see the notes of
-/// `models`). Owner decision O2 of the 2026-10-12 analysis: the plan's criteria are colour-based.
-/// What is asserted is what the data support: the optimiser reaches at least the truth's
-/// objective, the noise model is honest, the predicted face-up colour differs from the truth's
-/// by no more than the reported metamer spread, and the cross-validation holds. The spectrum
-/// ratios are printed for the record.
+/// A three-channel camera under one LED identifies the colour of a stone, not a fourteen-band
+/// spectrum: the magnitude prior settles the camera's null space, so the fitted spectrum can
+/// differ from the truth while reproducing the photos as well. The spectrum is therefore not
+/// compared with the truth. What is asserted is what the data support: the optimiser reaches at
+/// least the truth's objective, the noise model is honest, the predicted face-up colour differs
+/// from the truth's by no more than the reported metamer spread, and the cross-validation holds.
+/// The spectrum ratios are printed for the record.
 fn recovers_as_camera_metamer(a0: f64) {
     let scene = Scene::new(4, None, 2);
     let records = scene.trace();
     let model = SmoothBasisModel::new(1);
     let truth = log_linear(a0, 0.15);
-    // The log-gains have zero mean because the common mode is pinned (`fix_common_gain`): the
-    // old 0.95 / 1.05 pair had a mean log-gain of -0.0006 that the pinned fit could not
-    // reproduce.
+    // The log-gains have zero mean, as the pinned common mode (`fix_common_gain`) requires.
     let log_gains: [f64; 4] = [0.0, -0.05, 0.05, 0.0];
     let gains: Vec<f64> = log_gains.iter().map(|g| g.exp()).collect();
     let photos = synthesize(&records, &basis_alpha(&model, &truth), &gains, 0.002, 1);
@@ -363,16 +350,19 @@ fn recovers_as_camera_metamer(a0: f64) {
 }
 
 #[test]
+#[ignore = "over 60 s in the workspace run (2026-11-08); run on request: scripts/run_tests_on_request.sh"]
 fn recovers_a_saturated_stone_as_its_camera_metamer() {
     recovers_as_camera_metamer(0.12);
 }
 
 #[test]
+#[ignore = "over 60 s in the workspace run (2026-11-08); run on request: scripts/run_tests_on_request.sh"]
 fn recovers_a_pale_stone_as_its_camera_metamer() {
     recovers_as_camera_metamer(0.012);
 }
 
 #[test]
+#[ignore = "over 60 s in the workspace run (2026-11-08); run on request: scripts/run_tests_on_request.sh"]
 fn recovers_a_tourmaline_manganese_iron_recipe_by_colour() {
     let scene = Scene::new(4, None, 2);
     let records = scene.trace();
@@ -444,10 +434,8 @@ fn recovers_a_two_zone_bicolour_with_the_geometry_fixed() {
         chosen.cost,
         at_truth.total
     );
-    // Round 7, 2026-10-12: the former "3 CIEDE2000 per zone" asked for colours the rig does not
-    // identify (the fit sat 4.5 and 7.3 dE from the truth with a data term below the truth's):
-    // the null space of three channels under one LED is a metamer limit the spread reports, not
-    // an error of the fit (owner decision O2, see `recovers_as_camera_metamer`). What the
+    // The rig does not identify the colour of each zone: the spread reports that metamer limit
+    // (see `recovers_as_camera_metamer`), so the colour error is not asserted. What the
     // search must do is reach the farthest feasible point of its constraint set towards the
     // truth for every zone, as `the_spread_reaches_the_farthest_feasible_point_towards_a_known_
     // metamer` states for one zone. The colour errors are printed for the record.
@@ -480,12 +468,10 @@ fn recovers_a_two_zone_bicolour_with_the_geometry_fixed() {
 
 /// The posterior covariance is the one WITH the priors (`predict`): in the directions the camera
 /// does not see it is the priors' width about the priors' choice, and it covers a truth there
-/// only if the priors are neutral about that truth. The log-linear stone is not such a truth
-/// (its absorption beyond 670 nm is invisible to the rig and the magnitude prior puts the fit
-/// 5 dE away, so the old form of this test covered 16 of 60 components). Round 7, 2026-10-12:
-/// the truth is therefore the fit of one noise realisation of that stone, a spectrum the priors
-/// are neutral about by construction; the twenty fits of fresh realisations must then cover it
-/// at about one sigma. That tests the covariance, not the priors' choice (owner decision O2).
+/// only if the priors are neutral about that truth. The truth is therefore the fit of one noise
+/// realisation of the stone, a spectrum the priors do not bias; the twenty fits of fresh
+/// realisations must then cover it at about one sigma. That tests the covariance, not the
+/// priors' choice.
 #[test]
 #[ignore = "slow colour-fit test (over 60 s); run with --ignored"]
 fn the_covariance_covers_the_truth_at_about_one_sigma() {
@@ -585,8 +571,8 @@ fn a_raised_cancel_flag_stops_the_fit() {
 
 #[test]
 fn the_fitting_stage_reports_a_moving_fraction() {
-    // ZC-20: the multi-start and the spread search both report, so the fraction of the fitting
-    // stage moves while the model is being fitted and never goes back.
+    // The multi-start and the spread search both report, so the fraction of the fitting stage
+    // moves while the model is being fitted and never goes back.
     let scene = Scene::new(2, None, 1);
     let records = scene.trace();
     let model = SmoothBasisModel::new(1);
@@ -637,6 +623,7 @@ fn the_per_stage_iterations_add_up_to_the_total() {
 }
 
 #[test]
+#[ignore = "over 60 s in the workspace run (2026-11-08); run on request: scripts/run_tests_on_request.sh"]
 fn zoning_is_suggested_for_a_bicolour_fitted_with_one_zone_and_not_for_a_uniform_stone() {
     let zoned_scene = Scene::new(4, Some(bicolour_geometry()), 2);
     let zoned_records = zoned_scene.trace();
@@ -904,7 +891,7 @@ fn bad_settings_are_rejected() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Round 2: the gain split, the objective at a given absorption, the metamer spread
+// The gain split, the objective at a given absorption, the metamer spread
 // ---------------------------------------------------------------------------------------------
 
 #[test]
@@ -915,7 +902,7 @@ fn the_gain_prior_pins_the_common_mode_harder_than_the_deviations() {
     let model = SmoothBasisModel::new(1);
     let truth = log_linear(0.05, 0.0);
     let photos = synthesize(&records, &basis_alpha(&model, &truth), &[1.0; 2], 0.002, 5);
-    // The common mode is pinned by default (ZC-5); this test is about the free prior.
+    // The common mode is pinned by default; this test is about the free prior.
     let config = FitConfig {
         fix_common_gain: false,
         ..quick_config()
@@ -943,6 +930,7 @@ fn the_gain_prior_pins_the_common_mode_harder_than_the_deviations() {
 }
 
 #[test]
+#[ignore = "over 60 s in the workspace run (2026-11-08); run on request: scripts/run_tests_on_request.sh"]
 fn a_fixed_common_gain_stays_at_one_whatever_the_photos_say() {
     let scene = Scene::new(4, None, 2);
     let records = scene.trace();
@@ -1035,10 +1023,11 @@ fn the_jacobi_eigen_decomposition_reproduces_a_small_symmetric_matrix() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Round 3: the staged fit, the objective terms, the Birge ratio, the verified metamer spread
+// The staged fit, the objective terms, the Birge ratio, the verified metamer spread
 // ---------------------------------------------------------------------------------------------
 
 #[test]
+#[ignore = "over 60 s in the workspace run (2026-11-08); run on request: scripts/run_tests_on_request.sh"]
 fn the_staged_fit_keeps_the_gains_near_one_for_photos_that_need_none() {
     let scene = Scene::new(4, None, 2);
     let records = scene.trace();
@@ -1102,15 +1091,14 @@ fn the_objective_at_the_truth_reports_its_prior_terms_and_a_good_projection() {
     assert!(at_truth.data_cost <= 0.5 * at_truth.chi2 + 1e-9);
 }
 
-/// The photos claim a sigma three times smaller than the noise they carry. Since ZC-18 the Birge
-/// ratio is Huber-weighted, `R = sum min(u^2, k|u|) / (erf(k / sqrt 2) (n - p_eff))`, so for
-/// `u ~ N(0, s^2)` with `s = 3`, `k = 2` its expectation is not the plain `s^2 = 9` but
-/// `(E[u^2; |u| < 2] + E[2|u|; |u| >= 2]) / erf(sqrt 2)` = `(0.622 + 3.833) / 0.9545` = 4.67
-/// (round 6, re-captured from the former `R > 5`, which was written for the plain ratio). The
-/// plain `chi2 / dof` is asserted next to it and stays at 9; the honest case is 1 by the `erf`
-/// divisor. The inflation by 4.67 in variance is 2.16 in sigma against the 3x shrink: 0.72 of the
-/// honest radius, above the 0.6 asserted.
+/// The photos claim a sigma three times smaller than the noise they carry. The Birge ratio is
+/// Huber-weighted, `R = sum min(u^2, k|u|) / (erf(k / sqrt 2) (n - p_eff))`, so for
+/// `u ~ N(0, s^2)` with `s = 3`, `k = 2` its expectation is
+/// `(E[u^2; |u| < 2] + E[2|u|; |u| >= 2]) / erf(sqrt 2)` = `(0.622 + 3.833) / 0.9545` = 4.67,
+/// while the plain `chi2 / dof` is 9. The inflated radius must still give back most of the
+/// honest one.
 #[test]
+#[ignore = "over 60 s in the workspace run (2026-11-08); run on request: scripts/run_tests_on_request.sh"]
 fn an_understated_noise_model_is_caught_by_the_birge_ratio() {
     use crate::rough_plan::colour_fit::solve::WarningKind;
     let scene = Scene::new(4, None, 2);
@@ -1191,16 +1179,12 @@ fn the_verified_metamer_spread_is_reported_next_to_the_unverified_one() {
 }
 
 /// The spread is the largest colour distance over `Delta chi2 <= 1` of the data alone: a one
-/// sigma statement about one direction, so a three-component truth lies inside it in somewhere
-/// between a fifth and two thirds of the noise realisations, never in every one. The former
-/// single-seed form of this test (`the_truth_of_an_identifiable_stone_lies_inside_the_
-/// constrained_spread`, seed 15: truth 5.50 from the fit, spread 4.56) asserted that as a
-/// certainty (owner decision O4 of the 2026-10-12 analysis); measured over the eight seeds
-/// below, the truth is inside in 2 of 8. What the search must do in every realisation is reach
-/// the farthest feasible point of its own constraint set towards the truth, as
-/// `the_spread_reaches_the_farthest_feasible_point_towards_a_known_metamer` states for two
-/// views; this is the same statement for the four-view rig over eight realisations. The
-/// containment count is printed for the record.
+/// sigma statement about one direction, so a three-component truth lies inside it only in some
+/// noise realisations, not in all of them. What must hold in every realisation is that the search
+/// reaches the farthest feasible point of its own constraint set towards the truth, as
+/// `the_spread_reaches_the_farthest_feasible_point_towards_a_known_metamer` states for two views;
+/// this is the same statement for the four-view rig over eight realisations. The containment
+/// count is printed for the record.
 #[test]
 #[ignore = "slow colour-fit test (over 60 s); run with --ignored"]
 fn the_spread_reaches_the_farthest_feasible_point_towards_the_truth_in_every_realisation() {
@@ -1276,7 +1260,7 @@ fn the_objective_at_a_given_absorption_needs_one_log_gain_per_view() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Round 5: the priors, the basis and the export
+// The priors, the basis and the export
 // ---------------------------------------------------------------------------------------------
 
 /// The absorption of `(centre nm, FWHM cm^-1, peak per mm)` energy-domain bands.
@@ -1318,10 +1302,8 @@ fn model_prior_cost(theta: &[f64], config: &FitConfig) -> (f64, f64) {
 
 #[test]
 fn the_priors_cost_the_validation_truths_almost_nothing() {
-    // The saturated and pale broad bands of the validation suite (tests/zoning_validation/synth.rs)
-    // and the narrow pair of its model-class case (the 700 cm^-1 bands of the bicolour base and
-    // the watermelon core). The old prior charged 2462 for the saturated pair; the bound here is the
-    // review's "twice the band count per zone".
+    // The broad and narrow bands of the validation suite (tests/zoning_validation/synth.rs).
+    // Each must cost at most twice the band count per zone.
     const SATURATED: [(f32, f32, f32); 2] = [(545.0, 2600.0, 0.2), (390.0, 3500.0, 0.16)];
     const PALE: [(f32, f32, f32); 2] = [(545.0, 2600.0, 0.02), (390.0, 3500.0, 0.016)];
     const NARROW_BASE: [(f32, f32, f32); 3] = [
@@ -1364,7 +1346,7 @@ fn zero_absorption_is_free_and_an_isolated_band_is_cheap() {
         smooth + magnitude < 2.0 * BANDS as f64,
         "{smooth} + {magnitude}"
     );
-    // L1: 0.2 per mm at the scale 0.05 costs 4.0 (round 6, R2; it was 0.4 at the scale 0.5).
+    // L1: 0.2 per mm at the scale 0.05 costs 4.0.
     assert!((magnitude - 4.0).abs() < 0.05, "magnitude {magnitude}");
 }
 
@@ -1387,12 +1369,9 @@ fn through_centres(values: [f64; 14]) -> impl Fn(usize, f64) -> f64 {
 
 #[test]
 fn the_priors_prefer_the_truth_to_its_camera_metamer() {
-    // The saturated truth of the validation suite and the spectrum the main-tracer fit landed
-    // on (round 6, R2): the same colour to the camera, a red hump of 0.38 per mm instead of the
-    // 395 to 420 nm absorption. At the old scales (sigma_a 1, b 0.5) the metamer cost only 1.9
-    // more than the truth, less than the data's own noise preference; at sigma_a 0.3 and b 0.05
-    // it costs about 20 more. Both are projected onto the basis, so the figure does not depend
-    // on its width.
+    // The saturated truth of the validation suite and a camera metamer of it: the same colour to
+    // the camera, with a red hump of 0.38 per mm in place of the absorption at 395 to 420 nm.
+    // Both are projected onto the basis, so the figure does not depend on its width.
     const TRUTH: [f64; 14] = [
         0.1562, 0.0749, 0.0167, 0.0081, 0.0491, 0.1454, 0.2000, 0.1533, 0.0754, 0.0265, 0.0072,
         0.0016, 0.0003, 0.0001,
@@ -1499,9 +1478,10 @@ fn farthest_feasible_towards(
 }
 
 #[test]
+#[ignore = "over 60 s in the workspace run (2026-11-08); run on request: scripts/run_tests_on_request.sh"]
 fn the_spread_reaches_the_farthest_feasible_point_towards_a_known_metamer() {
-    // Round 6, R3. The verified spread must contain every point of the constraint set it is
-    // supposed to cover: take the segments from the fit and from the data optimum towards the
+    // The verified spread must contain every point of the constraint set it is supposed to
+    // cover: take the segments from the fit and from the data optimum towards the
     // truth, bisect for the farthest point with `C <= C(x_data) + 1` (the set of `extremes`),
     // and require the reported spread to reach 80 % of the colour distance to it. Two views
     // leave a real null space, so the distance is not zero.

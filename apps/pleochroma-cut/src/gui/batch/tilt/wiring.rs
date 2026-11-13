@@ -1,6 +1,5 @@
-//! Top-level UI wiring for the tilt-curve batch: starting one, the confirm-step
-//! dialog, and the Slint callback registrations -- see this group's own `mod.rs` doc
-//! comment for the batch this drives.
+//! Top-level UI wiring for the tilt-curve batch: starting one, the confirm-step dialog,
+//! and the Slint callback registrations. See `gui::batch::tilt` for the batch itself.
 
 use super::{
     engine::{BatchContext, LaneShared, LiveProgress, Tally, run_batch_lanes},
@@ -32,8 +31,7 @@ use std::{
     thread,
 };
 
-/// Handle returned by [`spawn_tilt_batch`]. Cancelling is cooperative -- see this
-/// group's `mod.rs` doc comment's "Cancellation and panic isolation" section.
+/// Handle returned by [`spawn_tilt_batch`]. Cancelling is cooperative: see `gui::batch::tilt`.
 pub struct TiltBatchHandle {
     cancel: Arc<AtomicBool>,
 }
@@ -55,10 +53,8 @@ pub struct TiltBatchOutcome {
     pub cancelled: bool,
 }
 
-/// [`spawn_tilt_batch`]'s remote/compute-target settings, bundled into one struct
-/// purely to keep that function under clippy's argument-count lint -- the same
-/// reasoning `gui::batch::preview::wiring::PreviewBatchSettings` uses for its own
-/// spawn function.
+/// The remote and compute-target settings of [`spawn_tilt_batch`], bundled to keep that
+/// function under clippy's argument-count lint (as `PreviewBatchSettings` does).
 pub struct TiltBatchSettings {
     /// The remote endpoint's connection (`AppSettings::remote`), if one is configured.
     pub worker: Option<WorkerSettings>,
@@ -69,8 +65,8 @@ pub struct TiltBatchSettings {
     pub remote_batch_lanes: u32,
 }
 
-/// Releases a batch's claim on the render context and clears the dialog's "running" flag
-/// when dropped, whatever ended the batch -- see this group's `mod.rs` doc comment.
+/// Releases the batch's claim on the render context and clears the dialog's "running" flag
+/// when dropped, however the batch ended.
 struct BusyGuard {
     render_ctx: Arc<Mutex<RenderContext>>,
     ui_weak: Weak<MainWindow>,
@@ -78,11 +74,9 @@ struct BusyGuard {
 
 impl Drop for BusyGuard {
     fn drop(&mut self) {
-        // A COUNT, not a bool: the batch preview, the batch tilt sweep and a
-        // hi-res export queue can each be in flight at once, so
-        // this decrements its own claim rather than unconditionally clearing
-        // every job's -- see `RenderContext::export_active_count`'s doc
-        // comment.
+        // A count, not a bool: the preview batch, this batch and a hi-res export
+        // queue can be in flight at once, so this releases only its own claim (see
+        // `RenderContext::export_active_count`).
         RenderContext::lock(&self.render_ctx).export_active_count -= 1;
         let ui_weak = self.ui_weak.clone();
         let _ = ui_weak.upgrade_in_event_loop(move |ui| {
@@ -116,17 +110,16 @@ fn push_summary(ui_weak: &Weak<MainWindow>, outcome: TiltBatchOutcome) {
     });
 }
 
-/// Starts a tilt-profile batch over the requested library designs on a background thread and returns a handle that can cancel it.
+/// Starts a tilt-curve batch over `entry_ids` on a background thread and returns a handle
+/// that cancels it.
 pub fn spawn_tilt_batch(
     ui_weak: Weak<MainWindow>,
     db: Arc<Mutex<Database>>,
     render_ctx: Arc<Mutex<RenderContext>>,
     settings: TiltBatchSettings,
     entry_ids: Vec<i64>,
-    // This batch's own id, plus the shared "most recently started batch" counter --
-    // see `start_batch`'s own doc comment for why the final summary/done push below
-    // compares them before writing anything, rather than trusting this is still the
-    // only batch anyone cares about by the time it finishes.
+    // This batch's id and the shared counter of the most recently started batch. The
+    // final summary is pushed only while they still match (see [`start_batch`]).
     batch_id: u64,
     current_batch_id: Arc<AtomicU64>,
 ) -> TiltBatchHandle {
@@ -164,26 +157,21 @@ pub fn spawn_tilt_batch(
         let tally = Tally::default();
         let progress = Mutex::new(LiveProgress::default());
 
-        // See `gui::batch::batch_queue::LanePlan`'s own doc comment for exactly what
-        // each `LiveComputeTarget` variant runs.
+        // See `gui::batch::batch_queue::LanePlan` for what each `LiveComputeTarget` runs.
         let plan = LanePlan::for_target(live_compute_target, remote_worker.is_some());
-        // Pre-set `true` when no remote lane will ever run at all, so the local lane's
-        // own stop condition (`gui::batch::batch_queue`'s doc comment) is satisfied
-        // the first time it finds nothing left to claim, with no spurious poll wait.
+        // Set `true` up front when no remote lane runs, so the local lane can stop as soon
+        // as the queue is empty (see `gui::batch::batch_queue`).
         let remote_lane_done = AtomicBool::new(!plan.run_remote);
 
-        // See `batch_queue::local_lane_count`'s own doc comment for why one less than
-        // full parallelism, not all of it. Only actually spawned below when
-        // `plan.run_local` -- `RemoteOnly` computes this but never uses it beyond
-        // reporting `0` as `tilt_batch_local_lane_total`.
+        // Local lanes: one less than the parallelism (see `batch_queue::local_lane_count`),
+        // and none unless `plan.run_local`.
         let local_lane_total = if plan.run_local {
             u32::try_from(local_lane_count()).unwrap_or(u32::MAX)
         } else {
             0
         };
-        // One remote dispatcher per design kept in flight on the remote -- see
-        // `batch_queue::remote_lane_count`. `RemoteOnly` and `Both` both use all of
-        // them; `LocalOnly` runs none.
+        // One remote dispatcher per design kept in flight on the remote (see
+        // `batch_queue::remote_lane_count`). `LocalOnly` runs none.
         let remote_lane_total = if plan.run_remote {
             u32::try_from(remote_lane_count(remote_batch_lanes)).unwrap_or(u32::MAX)
         } else {
@@ -201,12 +189,9 @@ pub fn spawn_tilt_batch(
             remote_lane_total,
         };
 
-        // Every lane borrows `shared`/`queue`/`tally`/`progress`/`remote_lane_done` by
-        // plain reference (no `Arc` needed) -- `std::thread::scope` (inside
-        // `run_batch_lanes`) guarantees every spawned thread is joined before that
-        // call returns, so those borrows never need to outlive it. Each lane gets its
-        // OWN cloned `Weak<MainWindow>` (owned, not borrowed) -- see `LaneShared`'s
-        // own doc comment for why.
+        // Lanes borrow `shared`, `queue`, `tally`, `progress` and `remote_lane_done` by
+        // reference: `run_batch_lanes` joins every lane before it returns. Each lane
+        // takes its own `Weak<MainWindow>` clone (see `LaneShared`).
         run_batch_lanes(
             &shared,
             plan,
@@ -222,38 +207,28 @@ pub fn spawn_tilt_batch(
             angle_table: super::super::angle_table_count(&angle_table_entries),
             cancelled: cancel_thread.load(Ordering::Relaxed),
         };
-        // Dropped, not pushed, when a NEWER batch has already started -- `start_batch`
-        // refuses a second batch while `tilt_batch_running` is true, but a batch that
-        // finishes in the same tick a fresh one starts (Close then immediately
-        // re-trigger) could otherwise still land its summary/done on top of the new
-        // batch's own freshly reset dialog state. See `start_batch`'s own doc comment.
+        // Skipped when a newer batch has started, so this batch cannot overwrite the new
+        // batch's dialog state (see [`start_batch`]).
         if current_batch_id.load(Ordering::SeqCst) == batch_id {
             push_summary(&ui_weak, outcome);
         }
-        // `_busy_guard` drops here, clearing `export_active` and `tilt_batch_running`
-        // unconditionally -- see this group's `mod.rs` doc comment.
+        // `_busy_guard` drops here, releasing the render-context claim and clearing
+        // `tilt_batch_running`.
     });
 
     TiltBatchHandle { cancel }
 }
 
-/// Starts a batch for `entry_ids`, reading the configured remote endpoint AND the
-/// persisted `LiveComputeTarget` from `settings_store`'s current snapshot -- the SAME
-/// standing "Live Compute" preference the live viewport uses (the Parameters panel's
-/// pill, `AppSettings::live_compute_target`), not a separate picker of this batch's own.
-/// Mirrors `gui::batch::preview::wiring::start_batch`'s own shape, minus the
-/// preview-size/spp settings this batch has no use for.
+/// Starts a batch for `entry_ids`.
 ///
-/// Refuses (toasts) rather than starting a SECOND batch while one is already
-/// running: every caller (the confirm step, the single-design context-menu
-/// trigger, and the missing-curves scan's own confirm offer) funnels through
-/// here, but nothing previously stopped two of them firing close together --
-/// `handle_slot`'s previous `Some(handle)` would simply be overwritten, orphaning
-/// the FIRST batch's thread with no `TiltBatchHandle` left to cancel it, and
-/// resetting the dialog's progress fields out from under it mid-run.
-/// `current_batch_id` is bumped on every ACCEPTED start and threaded into
-/// [`spawn_tilt_batch`], which compares it before writing its own final
-/// summary/done -- see that function's own comment on the completion push.
+/// It reads the remote endpoint and the persisted `LiveComputeTarget`
+/// (`AppSettings::live_compute_target`, the live viewport's "Live Compute" setting) from
+/// `settings_store`'s current snapshot. It mirrors `gui::batch::preview::wiring::start_batch`,
+/// minus its preview-size settings.
+///
+/// Refuses (with a toast) while another batch runs. The running batch's handle must stay
+/// reachable for cancel, so a second start would orphan it. Every accepted start bumps
+/// `current_batch_id`, which [`spawn_tilt_batch`] compares before its final push.
 fn start_batch(
     ui: &MainWindow,
     db: &Arc<Mutex<Database>>,
@@ -313,24 +288,15 @@ fn start_batch(
     *handle_slot.borrow_mut() = Some(handle);
 }
 
-/// Opens the confirm step (`tilt_batch_dialog.slint`'s "N designs -- Compute?" state)
-/// for `ids` -- mirrors `gui::batch::preview::offer_batch_confirmation` exactly, just
-/// against the `tilt_offer_*`/`tilt_batch_*` property names instead of the preview
-/// batch's own. A no-op for an empty `ids`.
-///
-/// `pub` (re-exported by `super::mod`'s `pub use`): the owner's "regenerate tilt
-/// curves for the filtered set" library action (`gui::library`) opens this exact
-/// same confirm step for the currently-filtered id set, the same way
-/// `gui::batch::preview::offer_batch_confirmation` is already `pub` for its own
-/// "regenerate previews" counterpart.
+/// Opens the confirm step (`tilt_batch_dialog.slint`) for `ids`. The same flow as
+/// `gui::batch::preview::offer_batch_confirmation`, on the `tilt_*` properties. A no-op for
+/// an empty `ids`.
 pub fn offer_batch_confirmation(ui: &MainWindow, ids: &[i64]) {
     if ids.is_empty() {
         return;
     }
-    // Entry ids are SQLite AUTOINCREMENT row ids from a several-thousand-row local
-    // catalogue, nowhere near `i32::MAX`; Slint's `[int]` model type has no i64
-    // element type to use instead -- same cast
-    // `gui::batch::preview::offer_batch_confirmation` makes for the identical reason.
+    // Entry ids are SQLite row ids, far below `i32::MAX`. Slint's `[int]` model has no i64
+    // element type, so they are cast, as `gui::batch::preview` does.
     let ids_i32: Vec<i32> = ids
         .iter()
         .map(|&id| i32::try_from(id).unwrap_or(i32::MAX))
@@ -367,12 +333,12 @@ pub(in crate::gui) fn note_holders(out: &mut Vec<&'static str>) {
     }
 }
 
-/// Opens the confirm step as a REGENERATION of `ids` (the Library menu's whole-catalogue
-/// command, the filter panel's filtered set): the dialog offers "missing or outdated
-/// only" and "all". The missing set is the same scan the filter panel's "Compute missing
-/// tilt curves" runs (`spawn_missing_tilt_curve_scan`), done off the UI thread and
-/// restricted to `ids`; until it lands the pill reads "counting...". A no-op for an
-/// empty `ids`.
+/// Opens the confirm step as a REGENERATION of `ids`.
+///
+/// The dialog offers "missing or outdated only" and "all". The missing set is the same scan
+/// the filter panel's "Compute missing tilt curves" runs (`spawn_missing_tilt_curve_scan`),
+/// done off the UI thread and restricted to `ids`. Until it lands the pill reads "counting...".
+/// A no-op for an empty `ids`.
 pub fn offer_regeneration(ui: &MainWindow, ids: &[i64]) {
     if ids.is_empty() {
         return;
@@ -413,22 +379,14 @@ pub fn offer_regeneration(ui: &MainWindow, ids: &[i64]) {
 ///   Close also leaves single-design mode (`tilt_single`).
 /// - `tilt_batch_dismiss_offer`/`tilt_batch_generate_confirmed` -- the confirm step's
 ///   two buttons.
-/// - `compute_tilt_curves_for_entry` -- the diagram-list context menu's single-design
-///   trigger (`diagram_list.slint`, alongside "Generate Previews"/"Ignore"). Starts
-///   immediately, no confirm step, same treatment
-///   `gui::batch::preview::setup_preview_batch_callbacks`'s own
-///   `generate_previews_for_entry` handler gives its single-design trigger.
-/// - `compute_missing_tilt_curves` -- the filter panel's missing-curves notice button AND the
-///   general "fix the whole catalogue" action (see `filter_panel.slint`'s own
-///   `compute_missing_tilt_curves` callback, surfaced from the excluded-for-missing-
-///   curves notice). Runs [`super::scan::spawn_missing_tilt_curve_scan`] first (this
-///   batch is never pre-scanned automatically -- see that function's own doc comment),
-///   then opens the confirm step for whatever it finds, or toasts "nothing to do" if
-///   the catalogue is already fully covered.
+/// - `compute_tilt_curves_for_entry` -- the single-design "Generate Previews" menu entries
+///   (`diagram_list.slint`, `app.slint`). It starts at once, with no confirm step.
+/// - `compute_missing_tilt_curves` -- the filter panel's "Compute missing tilt curves"
+///   button. It runs [`super::scan::spawn_missing_tilt_curve_scan`] first, then opens the
+///   confirm step for what it finds, or toasts "nothing to do" when all is covered.
 ///
-/// Called once, from `gui::build_main_window`, alongside every other `setup_*` call --
-/// unlike `gui::batch::preview::setup_preview_batch_callbacks`, this does NOT also
-/// kick off a scan at startup; see this group's own `mod.rs` doc comment for why.
+/// Called once at window setup. Unlike `gui::batch::preview::setup_preview_batch_callbacks`,
+/// it starts no scan at startup (see [`super::scan::spawn_missing_tilt_curve_scan`]).
 pub fn setup_tilt_batch_callbacks(
     ui: &MainWindow,
     db: &Arc<Mutex<Database>>,

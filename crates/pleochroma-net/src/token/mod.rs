@@ -6,30 +6,24 @@
 //! claiming a token has no CA file of its own yet, so the fingerprint has to arrive by
 //! the same out-of-band channel as the secret itself.
 //!
-//! Lives in `pleochroma-net`, not `apps/pleochroma-worker`, because [`decode`] is
-//! exactly what a claiming client needs (see [`crate::enroll`]'s module doc comment).
-//! [`encode`] stays `pub` too, even though only `apps/pleochroma-worker` calls it --
-//! same format either direction.
+//! Lives in `pleochroma-net` because a claiming client needs [`decode`] (see
+//! [`crate::enroll`]). `apps/pleochroma-worker` only calls [`encode`]. Both directions
+//! share one format, so both stay `pub` here.
 //!
 //! # Encoding
 //!
 //! [Crockford Base32](https://www.crockford.com/base32.html): 32 symbols
-//! (`0-9`, `A-HJKMNP-TV-Z`), deliberately excluding `I`, `L`, `O`, `U` so a misheard or
-//! mistyped character can't silently produce a *different valid* symbol -- those four
-//! are the ones most often confused with `1`, `1`, `0`, and `V`/`W` respectively when
-//! read aloud or handwritten. Decoding is case-insensitive.
+//! (`0-9`, `A-HJKMNP-TV-Z`). `I`, `L`, `O` and `U` are excluded: `I` and `L` are read as
+//! `1`, `O` as `0`, and `U` is left out to avoid accidental words. Decoding maps those
+//! misreads back and is case-insensitive.
 //!
-//! The payload is exactly [`PAYLOAD_LEN`] (64) bytes -- [`SECRET_LEN`] (32) bytes of
-//! secret followed by [`FINGERPRINT_LEN`] (32) bytes of CA fingerprint -- encoded as
-//! `ceil(64 * 8 / 5)` = 103 Crockford symbols, grouped into hyphenated blocks of 5 for
-//! readability, and prefixed with a fixed `GW1-` tag (a format/version marker, not part
-//! of the encoded payload) so a truncated or wrong-shaped string is recognized
-//! immediately rather than decoding into 64 bytes of garbage.
+//! The payload is exactly [`PAYLOAD_LEN`] (64) bytes: [`SECRET_LEN`] (32) bytes of secret
+//! followed by [`FINGERPRINT_LEN`] (32) bytes of CA fingerprint. It encodes to
+//! `ceil(64 * 8 / 5)` = 103 symbols, grouped in blocks of 5 with hyphens. The `GW1-` tag
+//! is a format and version marker, not part of the payload. It makes a truncated or
+//! wrong-shaped string fail at once instead of decoding to 64 bytes of garbage.
 //!
-//! This is unavoidably long (roughly 130 characters, ~25 groups) since it carries two
-//! full 256-bit values, as the design requires. A real deployment would more likely
-//! copy-paste or scan this than recite it digit by digit; Crockford Base32 degrades
-//! gracefully either way.
+//! The string is long, about 127 characters, because it carries two full 256-bit values.
 
 use zeroize::Zeroizing;
 
@@ -42,9 +36,8 @@ pub const PAYLOAD_LEN: usize = SECRET_LEN + FINGERPRINT_LEN;
 
 /// Fixed prefix identifying this as a `pleochroma-worker` enrollment token, format version 1.
 ///
-/// Not part of the encoded payload -- just a recognizability/versioning tag, checked
-/// (case-insensitively) on decode so a wrong-shaped string is rejected with a clear
-/// message rather than silently decoded into 64 bytes of nonsense.
+/// Not part of the encoded payload. [`decode`] checks it case-insensitively, so a
+/// wrong-shaped string is rejected instead of decoding to 64 bytes of nonsense.
 pub const TOKEN_PREFIX: &str = "GW1";
 
 const ALPHABET: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
@@ -52,9 +45,8 @@ const ALPHABET: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 /// A decoded enrollment token: the bearer secret plus the CA fingerprint it commits to.
 /// See the module doc comment for why both travel together.
 ///
-/// `secret` is wrapped in [`Zeroizing`] so it's overwritten the moment this value is
-/// dropped. `ca_fingerprint` is a public value (it crosses the wire in the clear on
-/// every TLS handshake anyway) and needs no such handling.
+/// `secret` is wrapped in [`Zeroizing`], so it is wiped on drop. `ca_fingerprint` is
+/// public (a hash of the CA certificate that every client receives) and needs no wiping.
 #[derive(Debug)]
 pub struct EnrollToken {
     /// The fresh CSPRNG bearer secret, zeroized on drop.
@@ -66,14 +58,14 @@ pub struct EnrollToken {
 /// Why [`decode`] could not produce an [`EnrollToken`] from a string.
 #[derive(Debug, PartialEq, Eq)]
 pub enum TokenError {
-    /// Missing/wrong `GW1-` prefix -- almost certainly not a `pleochroma-worker` enrollment
-    /// token at all (wrong thing pasted, or truncated).
+    /// Missing or wrong `GW1-` prefix: most likely not a worker enrollment token, or a
+    /// truncated one.
     WrongPrefix,
     /// A character outside the Crockford Base32 alphabet (after case-folding).
     InvalidCharacter(char),
-    /// Decoded to a bit length that isn't [`PAYLOAD_LEN`] bytes' worth, or the padding
-    /// bits in the final symbol weren't all zero (a sign of a corrupted/truncated token
-    /// rather than a well-formed one, so this is rejected rather than silently masked).
+    /// Does not decode to exactly [`PAYLOAD_LEN`] bytes, or the final symbol's padding bits
+    /// are not zero. Either way the token is truncated or corrupted, so it is refused
+    /// rather than masked.
     WrongLength,
 }
 
@@ -121,14 +113,13 @@ pub fn encode(secret: &[u8; SECRET_LEN], ca_fingerprint: &crate::tls::Fingerprin
     out
 }
 
-/// Decodes a string produced by [`encode`] (or transcribed from one -- hyphens and
-/// surrounding whitespace are ignored, and matching is case-insensitive).
+/// Decodes a string produced by [`encode`], or one transcribed from it. Hyphens and
+/// surrounding whitespace are ignored, and matching is case-insensitive.
 ///
 /// # Errors
 ///
-/// A [`TokenError`] naming specifically what's wrong -- see that type's variants -- rather
-/// than a generic "invalid token", since an operator reading this back over the phone
-/// needs to know whether to re-read the whole thing or just fix one character.
+/// A [`TokenError`] naming the specific fault, so a reader knows whether to re-read the
+/// whole token or fix one character.
 pub fn decode(s: &str) -> Result<EnrollToken, TokenError> {
     let trimmed = s.trim();
     let prefix_matches = trimmed
@@ -137,8 +128,7 @@ pub fn decode(s: &str) -> Result<EnrollToken, TokenError> {
     if !prefix_matches {
         return Err(TokenError::WrongPrefix);
     }
-    // Safe: `get(..TOKEN_PREFIX.len())` returning `Some` above already proved this byte
-    // index falls on a char boundary.
+    // `get` returned `Some`, so this byte index is on a char boundary.
     let rest = &trimmed[TOKEN_PREFIX.len()..];
     let rest = rest.strip_prefix('-').unwrap_or(rest);
 
@@ -208,9 +198,8 @@ fn base32_decode(symbols: &str) -> Result<Zeroizing<Vec<u8>>, TokenError> {
         }
     }
 
-    // Whatever's left in `acc` below `acc_bits` must be pure zero padding -- Crockford's
-    // own spec requires this, and it's also the cheapest signal that a token was
-    // truncated or mistyped rather than merely differently-padded.
+    // Bits left in `acc` below `acc_bits` are padding and must be zero. Anything else
+    // means the token was truncated or mistyped.
     if acc_bits > 0 && (acc & ((1 << acc_bits) - 1)) != 0 {
         return Err(TokenError::WrongLength);
     }

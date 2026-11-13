@@ -1,4 +1,6 @@
-//! The replan-on-edit request path of the shared viewport: [`submit_preview_replan`] and its
+//! The replan-on-edit request path of the shared viewport.
+//!
+//! [`submit_preview_replan`] and its
 //! variants hand an edit to the solid preview's worker thread, and [`push_solved_preview`]
 //! pushes the worker's frame back into the tier table, the banner and the yield figures.
 
@@ -31,22 +33,19 @@ use std::{
     sync::{Arc, Mutex, PoisonError, atomic::Ordering as AtomicOrdering},
 };
 
-/// Submits a replan-on-edit request to the Solid preview's worker thread -- the
-/// actual `resolve_dirty`/`Design::solve` call never runs here, on the UI thread.
+/// Submits a replan-on-edit request to the Solid preview's worker thread. The solve
+/// (`resolve_dirty` or `Design::solve`) never runs on the UI thread.
 ///
-/// `dirty` should name exactly the tier(s) the edit touched when known precisely (a
-/// single-tier Save/Remove/detach toggle); leave it empty for an edit that never
-/// moves any tier's mast (material/preform/girdle-diameter). Pass
-/// `force_full_solve: true` for an edit whose blast radius isn't tracked precisely
-/// (Undo/Redo, a gear remap, a symmetry/mirror change): forces a full `solve()`
-/// rather than a possibly-wrong subgraph `resolve_dirty` -- always safe, only
-/// potentially slower.
+/// `dirty` names the tiers the edit touched; leave it empty for an edit that moves no
+/// mast (material, preform, girdle diameter). Pass `force_full_solve: true` for an edit
+/// whose blast radius is not tracked (undo/redo, a gear remap, a symmetry change). A full
+/// `solve()` is always correct, while a subgraph `resolve_dirty` is only correct when
+/// `dirty` is exact.
 ///
-/// Also stamps the request with `state.generation`'s current value and stashes a
-/// matching `Design`/`multi_selected` snapshot via `auto_solve::
-/// stash_current_design` -- see [`push_solved_preview`]/
-/// `auto_solve::take_matching_design` for the consuming half once the worker's
-/// frame lands back in `gui::SlintSolidSink::apply`.
+/// The request carries `state.generation`. A matching `Design` and `multi_selected`
+/// snapshot is stashed by `auto_solve::stash_current_design`, and taken back by
+/// `auto_solve::take_matching_design` when the frame reaches
+/// `gui::solid_sink::SlintSolidSink::apply`.
 pub(in crate::gui::editor) fn submit_preview_replan(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
@@ -71,11 +70,8 @@ pub(in crate::gui::editor) fn submit_preview_replan(
     );
 }
 
-/// [`submit_preview_replan`]'s `design`/`generation`/`multi_selected` inputs,
-/// bundled (rather than three more parameters on [`submit_preview_replan_for`])
-/// purely to keep that function under clippy's argument-count lint -- the same
-/// reasoning `callbacks::tier_actions::LoadedDesignOutcome`/`auto_solve::
-/// PanelInputs` already use for themselves.
+/// The `design`, `generation` and `multi_selected` inputs of a replan, bundled so that
+/// [`submit_preview_replan_for`] stays under clippy's argument-count limit.
 #[derive(Clone, Copy)]
 pub(in crate::gui::editor) struct ReplanSource<'a> {
     pub(in crate::gui::editor) design: &'a Design,
@@ -83,14 +79,9 @@ pub(in crate::gui::editor) struct ReplanSource<'a> {
     pub(in crate::gui::editor) multi_selected: &'a BTreeSet<usize>,
 }
 
-/// [`submit_preview_replan`]'s own body, taking a [`ReplanSource`] SNAPSHOT
-/// rather than a live `&EditorState` -- split out so
-/// `auto_solve::schedule_idle_replan_if_stale` can resubmit a follow-up replan
-/// once the solid-preview worker goes idle after a partial (subgraph) resolve,
-/// without needing the live `Rc<RefCell<EditorState>>` that module deliberately
-/// never holds (see its own doc comment, "Why a `thread_local!`, not a new
-/// `EditorState` field"). [`submit_preview_replan`] itself is the thin,
-/// `EditorState`-shaped wrapper every other caller keeps using.
+/// The body of [`submit_preview_replan`], taking a [`ReplanSource`] snapshot instead of a
+/// live `&EditorState`. `auto_solve::schedule_idle_replan_if_stale` uses it to resubmit a
+/// follow-up replan once the worker is idle, without holding the live state.
 pub(in crate::gui::editor) fn submit_preview_replan_for(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
@@ -109,13 +100,9 @@ pub(in crate::gui::editor) fn submit_preview_replan_for(
             .unwrap_or_else(PoisonError::into_inner)
             .as_ref()
             .and_then(|(cached_generation, masts)| {
-                // only chain the cached masts forward when they
-                // describe THIS generation or the immediately preceding one --
-                // a cache entry more than one edit stale is more likely to be
-                // misaligned with `dirty`'s own tier indices (this edit's own
-                // `resolve_dirty` subgraph) than to still match by
-                // coincidence. `live_update::plan_preview` already falls back
-                // to a full solve whenever the lengths disagree regardless.
+                // Chain cached masts only if they match this generation or the one before.
+                // Older masts are likely misaligned with `dirty`'s tier indices.
+                // `live_update::plan_preview` falls back to a full solve on a length mismatch.
                 (*cached_generation == generation || *cached_generation + 1 == generation)
                     .then(|| masts.clone())
             })
@@ -123,13 +110,11 @@ pub(in crate::gui::editor) fn submit_preview_replan_for(
     submit_preview_replan_chained(ui, render_ctx, preview_state, source, dirty, last_solved);
 }
 
-/// [`submit_preview_replan_for`]'s body with the `last_solved` masts handed in
-/// explicitly instead of read from the shared `solid_last_solved` cache -- for a
-/// replan whose design is NOT the committed one, so the shared cache (which only ever
-/// holds the committed design's masts) is the wrong chain. The Slice tool's
-/// provisional replans pass the masts of their own previous frame with
-/// `dirty = {provisional tier}`, which `live_update::plan_preview` re-solves as a
-/// subgraph instead of a full solve. `None` means a full solve.
+/// [`submit_preview_replan_for`] with the `last_solved` masts passed in, for a design that is
+/// not the committed one: the shared cache only holds the committed design's masts. The
+/// Slice tool's provisional replans pass their previous frame's masts with
+/// `dirty = {provisional tier}`, so `live_update::plan_preview` re-solves a subgraph.
+/// `None` means a full solve.
 pub(in crate::gui::editor) fn submit_preview_replan_chained(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
@@ -167,47 +152,35 @@ pub(in crate::gui::editor) fn submit_preview_replan_chained(
             design.effective_refractive_index_with(&ctx.custom_materials),
         )
     };
-    // A selected CONCAVE row has a table position past the flat tiers
-    // (`design.tiers.len() + concave index`); `FacetMap::overlay_flags` tints that
-    // concave tier's tool facets from it. Anything past the last concave row is stale.
+    // A selected concave row sits past the flat tiers (`design.tiers.len() + concave index`).
+    // `FacetMap::overlay_flags` tints that tier's tool facets from it. Indices past the last
+    // concave row are dropped.
     let selected_tier = usize::try_from(ui.global::<EditorModel>().get_selected_tier_index())
         .ok()
         .filter(|&index| index < design.tiers.len() + design.concave_tiers.len());
     let view_mode = view_mode_index(ui.global::<SolidPreviewModel>().get_view_mode());
-    // See `refresh_viewport`'s identical call, just above,
-    // for why -- this is the post-edit path `contained_request_size`'s own doc
-    // comment names as still needing the same treatment.
+    // Sized like the frame in `refresh_viewport` (see `planned_frame_size`).
     let size = planned_frame_size(ui, view_mode, render_size);
     let show_preform = ui.global::<SolidPreviewModel>().get_show_preform_planes();
     let enlarged_panel = ui
         .global::<SolidPreviewModel>()
         .get_diagram_enlarged_panel();
-    // ONE `Arc<Design>` snapshot per drained edit-intent frame, shared (via
-    // cheap `Arc::clone`, never a second deep clone) between this
-    // stash and the replan request below. `auto_solve::take_matching_design` can
-    // hand this SAME snapshot back to `editor::apply_matching_preview_frame` once
-    // a solid-preview frame lands claiming this exact generation -- see that
-    // function's own doc comment for why this cannot instead be read straight off
-    // `state` from there (`gui::SlintSolidSink::apply` runs off the UI thread it
-    // hops back onto, `Send`-bound, and can never reach this
-    // `Rc<RefCell<EditorState>>`).
+    // One `Arc<Design>` snapshot per edit, shared by the stash below and the replan request.
+    // `auto_solve::take_matching_design` can hand it back to
+    // `editor::apply_matching_preview_frame` when a frame for this generation lands. That
+    // path cannot read `state` directly: the sink runs on a worker thread and cannot reach
+    // the `Rc<RefCell<EditorState>>`.
     //
-    // `ReplanRequest::design` is `Arc<Design>` (`solid_preview::
-    // preview_state`/`live_update`): `Arc::clone` below shares this exact
-    // allocation with `design_snapshot` rather than cloning `design` a second
-    // time (`(*design_snapshot).clone()`) to build a plain, non-`Arc` field.
-    // Sharing the allocation all the way through `PlanJob`/`PlannedFrame` to the
-    // render worker means a burst of coalesced replan requests (an angle-nudge
-    // drag, most commonly) clones the design at most once per generation, not
-    // once per request.
+    // `ReplanRequest::design` is an `Arc<Design>` too, so `Arc::clone` shares this
+    // allocation instead of cloning the design again. A burst of coalesced requests (an
+    // angle-nudge drag, most often) therefore clones the design at most once per generation.
     let design_snapshot = Arc::new(design.clone());
-    // The Slice tool's provisional design (its reserved generation) is NOT the live
-    // design: stashing it would overwrite the committed snapshot the next real frame
-    // consumes (and arm the idle-replan check on the wrong design). The sink never
-    // asks for it either -- see `frame_updates_mast_cache`.
+    // The Slice tool's provisional design (a reserved generation) is not the live design.
+    // Stashing it would overwrite the committed snapshot and arm the idle replan on the
+    // wrong design. `frame_updates_mast_cache` tells the two apart.
     if frame_updates_mast_cache(generation) {
-        // This committed job takes the plan gate's single slot: a provisional replan
-        // still queued there is gone, so the Slice tool must not wait for its frame.
+        // A committed job takes the plan gate's single slot, so a queued provisional replan
+        // is dropped and the Slice tool must not wait for its frame.
         note_committed_replan_submitted();
         auto_solve::stash_current_design(
             generation,
@@ -215,12 +188,10 @@ pub(in crate::gui::editor) fn submit_preview_replan_chained(
             multi_selected.clone(),
         );
     }
-    // Read here rather than cached on `SolidPreviewState` alone, so the slider and the
-    // redraw can never disagree about how much of the cut is being shown: `None` is the
-    // finished design, `Some(0)` the rough. A replan of the committed design also
-    // refreshes the slider's own fields (step count, handle, label) from this design --
-    // the Slice tool's provisional replans do not, their design has one tier too many.
-    // The Diagram always shows the finished design.
+    // Read here, not cached on `SolidPreviewState` alone, so the slider and the redraw agree
+    // on the shown cut (`None` is finished, `Some(0)` the rough). Only a committed replan
+    // refreshes the slider's fields from this design; a provisional Slice design has one
+    // tier too many. The Diagram always shows the finished design.
     let position_steps = if frame_updates_mast_cache(generation) {
         cut_slider::sync_model(ui, design)
     } else {
@@ -245,45 +216,34 @@ pub(in crate::gui::editor) fn submit_preview_replan_chained(
     });
 }
 
-/// Pushes the tier table's rows, the validation banner, the
-/// manufacturability warnings and the yield figures straight from a solid-preview
-/// frame's own already-solved `solved` masts, once `auto_solve::
-/// take_matching_design` has confirmed the frame's own generation still names the
-/// live design -- see that function's own doc comment for the staleness check.
-/// `design`/`multi_selected` are the plain clones that same call handed back.
+/// Pushes the tier table, the validation banner, the manufacturability warnings and the
+/// yield figures from a solid-preview frame's already-solved `solved` masts. It is called
+/// once `auto_solve::take_matching_design` confirms the frame's generation is still the
+/// live one. `design` and `multi_selected` are the clones that call returned.
 ///
-/// Deliberately narrower than [`super::super::panel::refresh_editor_panel`]/
-/// [`super::super::panel_stale::push_stale_content`]: proportions, the cutting
-/// schedule, preform/material scratch fields and Deep Solve/Optimize
-/// availability are all either solve-independent (already current, pushed
-/// synchronously by [`super::super::panel_stale::refresh_editor_panel_stale`] at edit
-/// time) or not pushed by this mechanism -- only the four fields that
-/// [`auto_solve::dispatch_background_solve`]'s OWN completion would otherwise
-/// have been the sole source of.
+/// Narrower than [`super::super::panel::refresh_editor_panel`] and
+/// [`super::super::panel_stale::push_stale_content`]. Proportions, the cutting schedule,
+/// preform and material scratch fields, and Deep Solve/Optimize availability are either
+/// solve-independent (pushed at edit time by
+/// [`super::super::panel_stale::refresh_editor_panel_stale`]) or not pushed here.
+/// Only the fields that the background solve's completion would otherwise be the sole
+/// source of are updated.
 ///
-/// Called from `gui::SlintSolidSink::apply` -- a solid-preview WORKER-thread
-/// callback hopped onto the UI thread via `slint::Weak::upgrade_in_event_loop` --
-/// through `editor::apply_matching_preview_frame`'s thin forwarding wrapper, the
-/// one bridge this group exposes beyond [`super::super::super::setup_editor_callbacks`]
-/// itself (see that module's own doc comment, "Module split").
+/// Called from `gui::solid_sink::SlintSolidSink::apply` through
+/// `editor::apply_matching_preview_frame`, which hops from the solid-preview worker thread onto the
+/// UI thread.
 ///
-/// `custom_materials`: resolves `design`'s
-/// effective refractive index the SAME custom-catalogue-aware way
-/// [`super::super::inspector::refresh_design_settings`]/`auto_solve::panel_inputs`
-/// already do -- the bare accessor would silently fall back to 1.5442 for a
-/// design named after a custom catalogue material, leaving the tier table's
-/// critical-angle margin column disagreeing with the Design Settings panel's
-/// own effective-RI readout for exactly that design.
+/// `custom_materials` resolves the effective refractive index the same custom-catalogue-aware
+/// way as [`super::super::inspector::refresh_design_settings`]. The bare accessor would fall
+/// back to 1.5442 for a design named after a custom material.
 ///
-/// `custom_sg`: the catalogue's custom-material specific-
-/// gravity table, handed to [`yield_report_texts_from_solved`] for the same
-/// reason `auto_solve::panel_inputs`/`super::super::panel::push_yield_and_proportions`
-/// do -- see that function's own doc comment.
+/// `custom_sg` is the catalogue's custom-material specific-gravity table, for
+/// [`yield_report_texts_from_solved`].
 ///
-/// `precomputed_warnings`: the frame's manufacturability pass, run by the plan worker
-/// (`PreviewFrame::warnings`). The rows and the banner only DISPLAY it, so this
-/// UI-thread function never builds the stone's solid for the concave-tool check; `None`
-/// (no pass for this frame's generation) is resolved by the row builders.
+/// `precomputed_warnings`: the manufacturability pass the plan worker ran
+/// (`PreviewFrame::warnings`). The rows and banner only display it, so the UI thread never
+/// builds the stone's solid for the concave-tool check. `None` means no pass exists for this
+/// frame's generation, and the row builders resolve it.
 pub(in crate::gui::editor) fn push_solved_preview(
     ui: &MainWindow,
     design: &Design,
@@ -309,17 +269,14 @@ pub(in crate::gui::editor) fn push_solved_preview(
     ui.global::<EditorModel>().set_status_is_problem(is_problem);
     ui.global::<EditorModel>()
         .set_solve_state(if is_problem { "failed" } else { "solved" }.into());
-    // The facet count belongs to the same solve as the verdict: a stale edit reset it to 0, and
-    // a verdict of "solved" with no facets would be shown otherwise.
+    // Same solve as the verdict: a stale edit reset the count to 0.
     ui.global::<EditorModel>().set_facet_count(
         i32::try_from(crate::gui::editor::view::facet_count_from_solved(
             design, solved,
         ))
         .unwrap_or(i32::MAX),
     );
-    // A third route to "solved" (after `refresh_all` and the background solve's
-    // own completion): let the guide's "Solve and check" step see it, AFTER the
-    // verdict above is in place.
+    // Lets the guide's "Solve and check" step see the verdict set above.
     crate::gui::editor::guide::check_design_progress(ui, design);
 
     push_warning_list(ui, design, solved, precomputed_warnings);
@@ -335,19 +292,15 @@ pub(in crate::gui::editor) fn push_solved_preview(
     ui.global::<EditorModel>()
         .set_preform_fit_warning(fit_text.into());
 
-    // see `panel::push_proportion_verdicts_from_solved`'s own doc
-    // comment -- this solid-preview completion is the other path that used to
-    // leave the chips describing whatever design the last synchronous "Solve"
-    // click left, right next to the fresh numbers this frame just pushed.
+    // The verdict chips must describe this design too; see
+    // `panel::push_proportion_verdicts_from_solved`.
     super::super::panel::push_proportion_verdicts_from_solved(ui, design, Some(solved), n_d);
 }
 
-/// Refreshes the tier table's rows and the warning list with the manufacturability
-/// `findings` of a frame that has already landed. The plan worker submits its frame BEFORE it
-/// runs the costly concave-tool check (check 6), so the first push of the rows used only the
-/// checks that need no solid; this second push brings the full pass in. Everything else the
-/// frame pushed (status, yield figures, verdict chips) does not read the findings and is left
-/// alone.
+/// Refreshes the tier rows and warning list with the full manufacturability `findings` of a
+/// frame that has already landed. The plan worker submits the frame before its costly
+/// concave-tool check, so the first push only had the checks that need no solid. Status,
+/// yield figures and verdict chips do not depend on the findings and are left alone.
 ///
 /// The caller has already checked that `design` is still the editor's design. With
 /// Auto-Solve Off and a design the last edit left "Not solved" nothing is pushed.
@@ -392,10 +345,8 @@ fn push_warning_list(
     solved: &[SolvedTier],
     precomputed_warnings: Option<&[ManufacturabilityWarning]>,
 ) {
-    // The tagged pairs, not `manufacturability_warning_lines_
-    // from_solved`'s flattened text-only list, so the tier index survives to
-    // `manufacturability_warning_tiers` -- `editor_tier_table.slint`'s own row
-    // markers read this to flag the specific row a warning is about.
+    // Tagged pairs rather than plain text, so the tier index survives to
+    // `manufacturability_warning_tiers`, which `editor_tier_table.slint` reads to flag the row.
     let tagged_warnings =
         manufacturability_warnings_tagged_with(design, solved, precomputed_warnings);
     let warning_tiers: Vec<i32> = tagged_warnings

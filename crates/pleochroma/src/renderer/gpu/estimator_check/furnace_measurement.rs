@@ -1,6 +1,7 @@
-//! Measures what the GPU furnace anchors' budgets have to cover, so that they can be set
-//! from measured runs instead of by hand: the method of the CPU anchors' integration
-//! test `furnace_noise_floor`, on this adapter.
+//! Measures what the GPU furnace anchors' budgets have to cover.
+//!
+//! The budgets can then be set from measured runs instead of by hand, with the method of
+//! the CPU anchors' integration test `furnace_noise_floor`.
 //!
 //! Each anchor compares one CPU and one GPU furnace mean (614,400 samples per side) with
 //! the analytic radiance at a relative-error budget. Two things sit inside that budget:
@@ -14,7 +15,7 @@
 //! error at the high cap beyond four standard errors on either side, or on a justified
 //! budget above the one in force. Without a GPU adapter it prints a note and passes.
 //!
-//! Ignored by default (minutes on the adapter). Run it with
+//! Ignored by default: a GPU run of minutes. Run it with
 //!
 //! ```text
 //! cargo test -p pleochroma --features gpu --lib -- furnace_budgets_from_measured_runs --ignored --nocapture

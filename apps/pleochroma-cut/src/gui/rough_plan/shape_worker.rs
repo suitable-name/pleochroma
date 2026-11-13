@@ -166,13 +166,12 @@ fn corner_key(point: DVec3, cell: f64) -> [i64; 3] {
 
 /// The mesh of a non-convex rough clipped by its cuts, with `centre` moved to the origin.
 ///
-/// The rough's own triangles are facet `0` and each cap is `base_facets + cut`, so a cut's
-/// face keeps the id `ModelScene::cut_of_facet` maps back
-/// to the cut. One ring per triangle; `piece_normals` gives each its own normal, and
-/// `edge_visible` draws an edge where two surface triangles meet at more than
-/// `crease_degrees` (the rough itself uses [`CREASE_DEGREES`], the inclusion layer its own,
-/// sharper one) and wherever a cap meets another face, and hides the seams of a flat run of
-/// triangles.
+/// The rough's own triangles are facet `0` and each cap is `base_facets + cut`, so
+/// `ModelScene::cut_of_facet` maps a cut's face back to its cut. One ring per triangle;
+/// `piece_normals` gives each its own normal, and `edge_visible` draws an edge where two
+/// surface triangles meet at more than `crease_degrees` (the rough itself uses
+/// [`CREASE_DEGREES`], the inclusion layer its own, sharper one) and wherever a cap meets
+/// another face, and hides the seams of a flat run of triangles.
 ///
 /// # Errors
 ///
@@ -704,6 +703,7 @@ fn apply_result(host: &Rc<Host>, result: ShapeResult) {
         }
     }
     view::model_changed(host);
+    super::steps::refresh(host);
 }
 
 /// The worker panicked on the request of `revision`: shows the internal-error message
@@ -752,6 +752,7 @@ pub(super) fn show_blank(host: &Rc<Host>) {
         .collect();
     set_row_notes(&model, &notes, &typing_errors);
     view::model_changed(host);
+    super::steps::refresh(host);
 }
 
 mod inclusions;

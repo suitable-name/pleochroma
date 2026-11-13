@@ -421,7 +421,7 @@ mod tests {
         let (c, c_bytes) = blob(3, 100);
         cache.put(&a, &a_bytes).unwrap();
         cache.put(&b, &b_bytes).unwrap();
-        // Touch `a`, so `b` is now the least recently used.
+        // Touching `a` makes `b` the least recently used.
         assert!(cache.get(&a).is_some());
         cache.put(&c, &c_bytes).unwrap();
         assert!(cache.contains(&a) && cache.contains(&c));

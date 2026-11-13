@@ -1,31 +1,24 @@
-//! P07 measurement: what one flat refit probe costs, and what a whole Retarget check costs
-//! (`C:\temp\mcp2\review_briefs_2026-10-26\perf\FABLE_perf_verification.md`, item P07).
+//! Cost of one flat refit probe, of the refit itself, and of a whole Retarget check.
 //!
-//! What this bench times, through public API only:
+//! Benchmarks use the public API only:
 //!
-//! - `probe_*`: the body of the ORIGINAL `refit::area_at` reproduced step for step
+//! - `probe_*`: the body of the original `refit::area_at` reproduced step for step
 //!   (`Design::planes_from_solved` with one mast changed, `build_solid_mesh`, the ring-area
-//!   sum for the flat's plane). One bisection step of the full-mesh refit is exactly one such
-//!   probe.
+//!   sum for the flat's plane). One bisection step of the full-mesh refit is one such probe.
 //! - `refit_full_mesh` / `refit_clipped`: `retarget::refit::refit_flats_by` over a candidate
-//!   whose pinned flats are all 0.7 x lower (bigger) than the design's, against the design's own
-//!   analysis, with `AreaMethod::FullMesh` (a mesh at every probe, the refit as it was) and
-//!   `AreaMethod::Clipped` (one mesh per flat, the other probes cut the flat's facet out of its
-//!   own plane; what `check_retarget` runs now). Their ratio is the gain; `main` also prints that
-//!   both find the same masts.
-//! - `check_*`: the whole public Retarget check (`retarget::check::check_retarget`) with a
-//!   crown policy that does not follow the pavilion, so the flats change size and the refit
-//!   runs. This is the denominator: the share of a Retarget that the refit can take.
+//!   whose pinned flats are all 0.7 x lower (bigger) than the design's, with
+//!   `AreaMethod::FullMesh` (a mesh at every probe) and `AreaMethod::Clipped` (one mesh per
+//!   flat, other probes clip the flat's facet out of its own plane). `main` also prints the
+//!   largest mast difference between the two.
+//! - `check_*`: the whole Retarget check (`retarget::check::check_retarget`) with a fixed
+//!   crown, so the flats change size and the refit runs.
 //!
-//! Probes per refitted flat, from `refit.rs`: 2 bracket probes plus the bisection. The bracket
-//! is `[1e-4, 3.0] * scale`, the loop stops once the bracket is narrower than `1e-10 * scale`:
-//! `log2(3 / 1e-10)` is 34.8, so 35 steps, so 37 probes per flat that gets refitted (a flat
-//! whose bracket does not enclose the target stops after 2). A table plus a culet is at most
-//! 74 probes per refit.
+//! Probes per refitted flat: 2 bracket probes plus 35 bisection steps (the bracket is
+//! `[1e-4, 3.0] * scale` and stops at a width of `1e-10 * scale`), so 37. A flat whose bracket
+//! does not enclose the target stops after 2 probes.
 //!
 //! Estimated refit cost = 37 x `probe_authored` x (number of refitted flats). `main` prints,
-//! per fixture, the plane count, the flat tiers and how many masts the check refitted
-//! (`anchors`), so the estimate can be formed from one run.
+//! per fixture, the plane count, the flat tiers and the number of refitted masts (`anchors`).
 //!
 //! Run: `cargo bench -p pleochroma-editor --bench retarget_refit`.
 
@@ -53,7 +46,7 @@ use pleochroma_editor::{
 /// Probes in one fully bisected refit of one flat (2 bracket probes plus 35 steps).
 const PROBES_PER_FLAT: u32 = 37;
 
-// Template names; the lower-fold templates have the most planes, `main` prints the real counts.
+// Fixture template names; `main` prints the real plane counts.
 const OVAL: &str = "Oval Brilliant";
 const CUSHION: &str = "Cushion Brilliant";
 const EMERALD: &str = "Emerald Step Cut";
@@ -164,7 +157,7 @@ fn target_selection(design: &Design) -> MaterialSelection {
     }
 }
 
-/// One whole check, crown NOT following the pavilion (so the flats change size).
+/// One whole check with the crown fixed, so the flats change size.
 fn run_check(design: &Design) -> (String, pleochroma_editor::retarget::check::RetargetCheck) {
     let selection = target_selection(design);
     let label = selection.name.clone().unwrap_or_default();
@@ -273,13 +266,13 @@ macro_rules! fixture_benches {
                 probe(bencher, $name, Mast::BracketHigh);
             }
 
-            /// The whole flat refit with a mesh at every probe (the refit as it was).
+            /// The whole flat refit with a mesh at every probe.
             #[divan::bench(sample_count = 5, sample_size = 1)]
             fn refit_full_mesh(bencher: divan::Bencher) {
                 refit(bencher, $name, AreaMethod::FullMesh);
             }
 
-            /// The whole flat refit with the clipped probes (the refit as it is).
+            /// The whole flat refit with clipped probes.
             #[divan::bench(sample_count = 20, sample_size = 1)]
             fn refit_clipped(bencher: divan::Bencher) {
                 refit(bencher, $name, AreaMethod::Clipped);

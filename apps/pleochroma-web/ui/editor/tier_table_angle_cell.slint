@@ -3,14 +3,11 @@ import { Theme } from "../components/theme.slint";
 import { AppModel } from "../models/app_model.slint";
 import { GuideModel } from "../models/guide_model.slint";
 
-// One tier row's angle cell, ported from the desktop's `tier_angle_cell.slint`:
-// click-to-edit rather than always a `LineEdit`. A plain `Text` normally (so the row's
-// click-to-select / Ctrl+click behaviour around it is unaffected), with a small
-// `TouchArea` that
-//   - fires `select()` on a single click (clicking the angle selects the row),
-//   - opens an editable `LineEdit` on a DOUBLE click (or `focus-pulse` for F2), and
-//   - nudges the value by 0.1 degrees on a wheel tick while already editing, or with
-//     Ctrl held; otherwise the wheel is left to scroll the table.
+// One tier row's angle cell. It is a plain `Text` until it is edited, so the row's
+// click-to-select and Ctrl+click behaviour around it is unaffected. A single click fires
+// `picked`; a double click (or `focus-pulse` for F2) opens an editable `LineEdit`; a wheel
+// tick nudges the value by 0.1 degrees while editing or with Ctrl held, and otherwise
+// scrolls the table.
 //
 // Commit: Enter (`accepted`) or focus loss both call `commit` with the field's text and
 // close edit mode. Escape closes edit mode WITHOUT committing. `cancelling` stops the
@@ -19,7 +16,7 @@ import { GuideModel } from "../models/guide_model.slint";
 // `FocusScope` can take keyboard focus back. While the field has focus
 // `AppModel.text-focus` is set so the global shortcuts (Ctrl+Z/Y) stay with the field.
 // Up / Down step the field's value in the design by 0.1 degrees (Shift 1, Ctrl 0.01) via
-// `nudge`, like the desktop.
+// `nudge`.
 export component TierAngleCell inherits Rectangle {
     in property <string> value;
     // The angle unrounded: seeds the editor so opening the cell and committing without a

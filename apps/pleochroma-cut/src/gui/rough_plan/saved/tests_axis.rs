@@ -1,7 +1,8 @@
-//! Tests of the Crystal Axis part of a plan file (schema version 5): that a plan without it is
-//! written and stored exactly as it always was, that the rough orientation, the rules and the
-//! stone choices round trip, what the loader refuses, and how the stone choices travel through the
-//! library's side table, an export and an import.
+//! Tests of the Crystal Axis part of a plan file (schema version 5).
+//!
+//! A plan without it is written as a version 1 plan. The rough orientation, the rules and the
+//! stone choices round trip, the loader refuses what it cannot use, and the stone choices travel
+//! through the library's side table, an export and an import.
 
 use super::{
     axis::{
@@ -112,7 +113,7 @@ fn a_plan_without_axis_data_is_written_and_stored_as_it_always_was() {
     for word in ["orientation", "[axis", "axis.", "reason", "locked"] {
         assert!(!text.contains(word), "{word} in {text}");
     }
-    // The default settings write the same bytes as the function without them.
+    // Default settings produce no axis table.
     let dto = document(&text);
     assert_eq!(axis_to_dto(&PlanSettingsOverrides::default()), None);
     assert_eq!(dto.axis, None);
@@ -453,8 +454,7 @@ fn a_reason_edited_after_planning_survives_a_save_and_an_open() {
 }
 
 /// The rules the layouts were planned with travel in `[axis.planned]` only when they differ from
-/// the rules the plan holds, and come back on open; a plan whose rules were not edited after
-/// planning is written exactly as before.
+/// the rules the plan holds, and come back on open.
 #[test]
 fn the_rules_a_plan_was_planned_with_survive_a_save_and_an_open() {
     use super::{

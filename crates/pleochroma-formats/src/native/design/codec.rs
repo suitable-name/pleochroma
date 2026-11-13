@@ -215,8 +215,9 @@ pub fn validate_extras(file: &DesignFile) -> Result<(), DesignFileError> {
 /// # Errors
 ///
 /// [`DesignFileError::InvalidField`], [`DesignFileError::TierMissingGeometry`],
-/// [`DesignFileError::ConcaveTierMissingGeometry`], [`DesignFileError::UnsupportedConcaveFrame`],
-/// [`DesignFileError::DuplicateTierId`] or [`DesignFileError::Attachments`].
+/// [`DesignFileError::ConcaveTierMissingGeometry`],
+/// [`DesignFileError::UnsupportedConcaveFrame`], [`DesignFileError::DuplicateTierId`] or
+/// [`DesignFileError::Attachments`].
 pub fn validate(file: &DesignFile) -> Result<(), DesignFileError> {
     let teeth = file.schedule.gear_teeth.unsigned_abs();
     if teeth == 0 || teeth > AscParseError::MAX_GEAR_TEETH {
@@ -271,7 +272,7 @@ pub fn parse(text: &str) -> Result<DesignFile, DesignFileError> {
     check_header(text)?;
     let mut file: DesignFile = toml::from_str(text).map_err(DesignFileError::Parse)?;
     validate(&file)?;
-    // A file from before the rename is saved back under the current format name.
+    // A legacy `format` name is saved back under the current one.
     file.format = DESIGN_FORMAT.to_string();
     Ok(file)
 }
@@ -293,7 +294,7 @@ pub fn to_string(file: &DesignFile) -> Result<String, DesignFileError> {
 
 /// Tells a design file from anything else by its content.
 ///
-/// Reads only the header: `format = "pleochroma-design"` (or the pre-rename
+/// Reads only the header: `format = "pleochroma-design"` (or the legacy
 /// `"indicatrix-design"`) is a [`FileKind::Design`]; anything else (including bytes that
 /// are not UTF-8 TOML) is [`FileKind::Unknown`].
 #[must_use]

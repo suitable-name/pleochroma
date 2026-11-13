@@ -22,8 +22,8 @@ pub const SHAPED_PIECE_CAP: usize = 2_600_000;
 /// Maximum total piece table entries for a mesh rough: `325,000`.
 ///
 /// An eighth of [`SHAPED_PIECE_CAP`]. Every entry of a mesh rough's clipped table costs
-/// a classification against the whole mesh, so the table is the stage that takes minutes;
-/// an eighth of the entries is 11 cells per axis for a cube instead of 16.
+/// a classification against the whole mesh, so that table dominates the cost; an eighth of
+/// the entries is 11 cells per axis for a cube instead of 16.
 pub const SHAPED_MESH_PIECE_CAP: usize = SHAPED_PIECE_CAP / 8;
 
 /// Maximum estimated DP operations summed over all 6 cut orders (`3.0e9`): the plain
@@ -214,8 +214,8 @@ pub const fn piece_count(cells: [usize; 3]) -> usize {
 
 /// Evaluates the positional DP operation estimate summed over all 6 cut orders.
 ///
-/// Per order: the bars (`p_a * p_b * p_c`, one split per range of every axis), the slabs (`p_a * p_b`)
-/// and the root (`p_a`), `p_x` being the range count of axis `x`.
+/// Per order: the bars (`p_a * p_b * p_c`, one split per range of every axis), the slabs
+/// (`p_a * p_b`) and the root (`p_a`), `p_x` being the range count of axis `x`.
 #[must_use]
 pub fn shaped_op_estimate(cells: [usize; 3]) -> f64 {
     let mut total = 0.0;

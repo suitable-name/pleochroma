@@ -2,23 +2,22 @@
 //!
 //! The library database keeps a design's saved variants, cutting progress and lighting
 //! choice keyed by the design's UUID (`pleochroma_vault::model::design_key`), so every
-//! design open in the editor has one from the moment it opens. The UUID lives in the
-//! design's `[meta].id` ([`super::DesignFileExtras`]), which is also what a Save and an
-//! autosave write into the file: there is no second copy that could drift.
+//! design open in the editor has one from the moment it opens. The UUID is the design's
+//! `[meta].id` ([`super::DesignFileExtras`]), which Save and autosave write into the file,
+//! so there is no second copy that could drift.
 //!
 //! - A `.psdd` file that has an id keeps it.
-//! - A file without one (written by an older version) and an `.asc`/`.gem`/`.gcs` opened
-//!   from disk get a deterministic UUID made from the file's
-//!   own location ([`file_design_url`]), so opening the same file again finds its side
-//!   data again before the first Save writes the id into it. A recovered autosave
-//!   snapshot, a remote design and a new design get a fresh random one instead: none of
-//!   them names a file that stays where it is.
-//! - A design loaded from the local catalogue that carries no id of its own gets the
-//!   catalogue entry's deterministic UUID, so reopening the same entry finds its side
-//!   data again. A catalogue design whose attached file has an id keeps that id.
+//! - A file without one, and an `.asc`/`.gem`/`.gcs` opened from disk, get a deterministic
+//!   UUID made from the file's location ([`file_design_url`]). Opening the same file again
+//!   finds its side data before the first Save writes the id into it. A recovered autosave
+//!   snapshot, a remote design and a new design get a fresh random one: none of them names
+//!   a file that stays where it is.
+//! - A design loaded from the local catalogue with no id of its own gets the catalogue
+//!   entry's deterministic UUID, so reopening the entry finds its side data again. A
+//!   catalogue design whose attached file has an id keeps that id.
 //! - Save As keeps the UUID: the copy is the same design and shares its side data.
 //!
-//! The decision is a pure function ([`resolve_design_uuid`]) so it is tested without a
+//! The decision is a pure function ([`resolve_design_uuid`]), so it is tested without a
 //! window.
 
 use pleochroma_vault::model::design_key::{catalogue_design_uuid, normalize_design_uuid};

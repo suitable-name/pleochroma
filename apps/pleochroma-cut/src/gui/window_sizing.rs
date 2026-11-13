@@ -39,8 +39,9 @@ const SMALL_SCREEN_HEIGHT_THRESHOLD: f32 = 820.0;
 /// still gets reasonable room on a shorter/narrower monitor.
 const SMALL_SCREEN_DOCK_WIDTH: f32 = 600.0;
 
-/// Shrinks the freshly shown main window so it fits its monitor, and (see
-/// [`apply_small_screen_layout_default`]) applies the Edit sub-tab's small-screen
+/// Shrinks the freshly shown main window so it fits its monitor.
+///
+/// It also (see [`apply_small_screen_layout_default`]) applies the Edit sub-tab's small-screen
 /// layout default if this is a small enough screen and the user has never touched the
 /// layout themselves.
 ///
@@ -49,13 +50,9 @@ const SMALL_SCREEN_DOCK_WIDTH: f32 = 600.0;
 /// timer. Enlarging never happens: a window that already fits is left alone, so a
 /// remembered/OS-restored size is not clobbered.
 ///
-/// `editor_layout_touched` is `gui::run_gui`'s own settings-store snapshot of
-/// `AppSettings::editor_layout_touched`, threaded through rather than read from
-/// `EditorModel` here -- by the time this timer fires, `EditorModel.dock_width`/
-/// `inspector_collapsed` already hold whatever `editor_layout::
-/// apply_editor_layout_from_settings` restored, which is exactly what this function is
-/// about to overwrite for a small screen, so the "was it ever touched" question has to
-/// be answered from the settings snapshot, not from the (about to change) UI state.
+/// `editor_layout_touched` is read from the settings snapshot, not from `EditorModel`: by the
+/// time the timer fires, the UI holds the layout that
+/// `editor_layout::apply_editor_layout_from_settings` restored, which this function may overwrite.
 pub fn fit_initial_window_size(ui: &MainWindow, editor_layout_touched: bool) {
     let weak = ui.as_weak();
     slint::Timer::single_shot(std::time::Duration::ZERO, move || {

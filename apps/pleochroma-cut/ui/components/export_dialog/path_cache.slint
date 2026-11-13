@@ -1,0 +1,80 @@
+import { CheckBox } from "std-widgets.slint";
+import { Theme } from "../../theme.slint";
+import { WrappedNote } from "wrapped_note.slint";
+import { SettingsModel } from "../../models/settings.slint";
+
+// The "Path Cache" check box with its "Keep for Re-Renders" box, shared by the still export
+// dialog and the tilt video section; each host binds its own persisted model properties. The
+// tilt video section (`show_video_keep`) shows "Keep Path Cache for This Video" in place of
+// "Keep for Re-Renders": a video's frame caches are written to disk only when asked.
+//
+// With the Ray-Traced renderer the boxes are greyed out, with the reason shown: the cache is for
+// the path tracer. The ticked states are kept, and Rust ignores them for a Ray-Traced run.
+export component PathCacheControls inherits VerticalLayout {
+    in-out property <bool> path_cache: false;
+    in-out property <bool> keep_cache: false;
+    in-out property <bool> keep_video_cache: false;
+    in property <bool> show_video_keep: false;
+    // The host's "Beam Tracing (Faceted Stones)" box is ticked: beams reuse the video keep box, so
+    // it shows for beams too.
+    in property <bool> beam: false;
+    in property <bool> ray_traced: false;
+    in property <bool> enabled: true;
+    // `false` under exit collection, the default estimator, which does not use the path cache:
+    // the boxes are greyed out, with the reason shown.
+    in property <bool> available: true;
+
+    spacing: 6px;
+
+    property <string> box_hint: root.ray_traced
+        ? "The path cache is for the path tracer."
+        : !root.available
+            ? "Off: exit collection, the default estimator, does not use the path cache."
+            : "A preview for re-lighting a kept view: facet edges are approximate. Used only when the cache is kept; uses memory and disk space.";
+
+    // The video keep box's tooltip: beams share it only in a build with the beam feature.
+    property <string> video_keep_hint: SettingsModel.beam_build
+        ? "Save the cache (and the beams, with Beam Tracing) of every frame of this video to disk, so drawing the same video again with other lighting starts from them. Off, the path cache is not used for the video and nothing is left behind."
+        : "Save the cache of every frame of this video to disk, so drawing the same video again with other lighting starts from it. Off, the path cache is not used for the video and nothing is left behind.";
+
+    Rectangle {
+        height: cache_box.preferred-height;
+        Tooltip { text: @markdown("\{root.box_hint}"); }
+        cache_box := CheckBox {
+            text: "Path Cache";
+            checked <=> root.path_cache;
+            enabled: root.enabled && !root.ray_traced && root.available;
+            accessible-description: "A preview for re-lighting a kept view. Facet edges are approximate. Used only when the cache is kept. Uses memory and disk space.";
+        }
+    }
+
+    if (root.path_cache || (root.show_video_keep && root.beam)) && !root.ray_traced && root.available: VerticalLayout {
+        spacing: 4px;
+        if !root.show_video_keep: Rectangle {
+            height: keep_box.preferred-height;
+            Tooltip { text: @markdown("Save the cache to disk, so rendering the same view again starts from it. Without this the path cache is not used: building it for one render takes longer than it saves. The Preferences dialog shows where it lives and lets you clear it."); }
+            keep_box := CheckBox {
+                text: "Keep for Re-Renders";
+                checked <=> root.keep_cache;
+                enabled: root.enabled;
+            }
+        }
+        if root.show_video_keep: Rectangle {
+            height: video_box.preferred-height;
+            Tooltip { text: @markdown("\{root.video_keep_hint}"); }
+            video_box := CheckBox {
+                text: "Keep Path Cache for This Video";
+                checked <=> root.keep_video_cache;
+                enabled: root.enabled;
+            }
+        }
+    }
+
+    WrappedNote {
+        text: root.box_hint;
+        font-size: 11px;
+        color: Theme.text-muted;
+        wrap: word-wrap;
+        accessible-role: AccessibleRole.text;
+    }
+}

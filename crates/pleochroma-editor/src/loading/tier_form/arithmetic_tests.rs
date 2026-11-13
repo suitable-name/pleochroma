@@ -22,7 +22,7 @@ fn the_angle_and_the_scale_reference_take_arithmetic() {
     let tier = parse_tier_form(form("-40 - 1.5", "0.5 + 0.25")).expect("parses");
     assert_eq!(tier.angle_deg, -41.5);
     assert_eq!(tier.constraint, MeetConstraint::ScaleReference(0.75));
-    // Plain numbers come out exactly as before.
+    // Plain numbers come out exactly as parsed.
     let tier = parse_tier_form(form(" -41.0 ", "0.65")).expect("parses");
     assert_eq!(tier.angle_deg.to_bits(), (-41.0_f64).to_bits());
     assert_eq!(tier.constraint, MeetConstraint::ScaleReference(0.65));
@@ -48,7 +48,7 @@ fn a_calculation_that_fails_keeps_the_field_prefix_the_ui_reads() {
     );
     assert_eq!(tier_form_error_field(&message), "constraint");
 
-    // The old range and finiteness checks still apply to a calculated value.
+    // The range check applies to a calculated value too.
     let message = parse_tier_form(form("100 - 5", "1")).unwrap_err();
     assert!(message.contains("exceeds 90"), "{message}");
 }

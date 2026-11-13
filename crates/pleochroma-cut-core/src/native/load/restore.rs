@@ -1,7 +1,7 @@
-//! The helpers that restore per-tier state from a design file's tier tables onto a
-//! freshly built [`Design`]: notes, cheater offsets, ids, targets, relations and concave
-//! tiers. Used by the design file loader ([`crate::native::design_from_file`]). Split
-//! from the parent module so the file stays readable.
+//! Restores per-tier state from a design file's tier tables onto a fresh [`Design`].
+//!
+//! The helpers cover notes, cheater offsets, ids, targets, relations and concave tiers. The
+//! design file loader ([`crate::native::design_from_file`]) uses them.
 
 use super::MaterialResolution;
 use crate::{
@@ -13,15 +13,12 @@ use crate::{
 use pleochroma_formats::native::{ConcaveTierTable, NativeTierTarget, TierTable};
 use std::collections::{BTreeMap, BTreeSet};
 
-/// [`MaterialResolution`]'s own computation -- see that type's doc comment for the
-/// heuristic and its limits.
+/// The [`MaterialResolution`] of `name`, by exact built-in name (see that type for the
+/// heuristic).
 ///
-/// Exact, case-insensitive match only (via
-/// [`crate::material::built_in_material_by_exact_name`]) -- NOT
-/// [`pleochroma::optics::materials::GemMaterial::by_name`]'s own substring
-/// fallback, which would report a name like "My Blue Sapphire" as `Known` (and
-/// silently write Sapphire's own RI to a re-exported `.asc`'s `I` line) just
-/// because it CONTAINS a built-in name.
+/// This does not use [`pleochroma::optics::materials::GemMaterial::by_name`], whose substring
+/// fallback would report "My Blue Sapphire" as `Known`. The `.asc`'s `I` line would then take
+/// Sapphire's refractive index.
 pub(in crate::native) fn material_resolution_of(name: Option<&str>) -> MaterialResolution {
     match name {
         None => MaterialResolution::NoneSelected,
@@ -57,12 +54,9 @@ pub(in crate::native) fn cheater_offsets_from_native(
         .collect()
 }
 
-/// Every tier's saved [`TierTable::tier_id`], in order -- `None` for a tier the
-/// file never assigned one to (a file saved before this field existed, or a
-/// hand-edited one). Non-consuming, like [`tier_notes_from_native`]/
-/// [`cheater_offsets_from_native`], so a caller extracts this BEFORE
-/// `native_tiers` itself is consumed to build the tier list -- see
-/// [`apply_tier_ids_and_targets`], which this feeds.
+/// Every tier's saved [`TierTable::tier_id`], in order. `None` for a tier with no id, such as
+/// one from a file that predates the field. Non-consuming, so a caller extracts this before
+/// `native_tiers` is consumed to build the tier list. [`apply_tier_ids_and_targets`] uses it.
 pub(in crate::native) fn raw_tier_ids_from_native(native_tiers: &[TierTable]) -> Vec<Option<u64>> {
     native_tiers.iter().map(|t| t.tier_id).collect()
 }
@@ -74,40 +68,19 @@ pub(in crate::native) fn raw_tier_targets_from_native(
     native_tiers.iter().map(|t| t.target).collect()
 }
 
-/// Restores `design.tier_ids`/`design.tier_targets` from `raw_ids`/`raw_targets`
-/// (captured via [`raw_tier_ids_from_native`]/[`raw_tier_targets_from_native`]
-/// before the native file's own `tiers` array was consumed) -- without this
-/// restore, the native round trip would drop every
-/// [`crate::design::TierId`]/[`crate::design::TierTarget`]
-/// entirely, so a reopened design's ids/targets would always be freshly (and
-/// arbitrarily) reassigned by whichever constructor (`Design::new`/
-/// `Design::from_asc_schedule`) built it.
+/// Restores `design.tier_ids` and `design.tier_targets` from `raw_ids` and `raw_targets`,
+/// captured before the file's `tiers` array was consumed. Constructors such as
+/// `Design::new` assign fresh ids, so without this the ids and targets would be lost.
 ///
-/// Each `Some(id)` in `raw_ids` is restored verbatim -- EXCEPT a duplicate (the
-/// same id named by more than one position in this file, never produced by this
-/// crate's own save path but not rejected by the file format either), where only
-/// the FIRST occurrence keeps it and every later one gets a fresh id instead, the
-/// same as a tier the file never recorded one for at all -- two tiers sharing a
-/// [`TierId`] would make [`Design::index_of_tier_id`]/`design.tier_targets`
-/// (keyed by id, not position) silently pick the wrong tier. Before any of that,
-/// [`Design::next_tier_id`] is bumped past the highest id this file restores --
-/// `Design::from_asc_schedule`/`Design::new` only ever set it to the fresh
-/// design's own tier count, which is easily behind a restored id (e.g. a design
-/// whose tiers were added and removed many times before this save), and without
-/// this bump [`Design::allocate_tier_id`] could hand out an id a restored tier
-/// already claims the very next time a tier is added.
+/// Each `Some(id)` is restored verbatim, except a duplicate. Only the first holder of an id
+/// keeps it. Later holders get fresh ids, since two tiers sharing a [`TierId`] would make
+/// the id-keyed maps pick the wrong tier. [`Design::next_tier_id`] is first bumped past the
+/// highest restored id, so [`Design::allocate_tier_id`] cannot hand out a claimed id.
 ///
-/// `design.tier_ids` is replaced wholesale (not patched position by position)
-/// since the load's `design.tiers` was itself just rebuilt wholesale from this exact
-/// tier list and may not even be the length whatever constructor built `design`
-/// first assumed.
+/// `design.tier_ids` is replaced wholesale, because the tiers were rebuilt from this same
+/// list. `design.tier_targets` is keyed by the id each tier ended up with.
 ///
-/// `design.tier_targets` is restored from `raw_targets`, each keyed by the id its
-/// tier ended up with.
-///
-/// `raw_ids`/`raw_targets`/`design.tiers` must all be the same length, in the
-/// same order -- the same "tier counts agree" precondition every other
-/// position-keyed overlay field in this module already requires.
+/// `raw_ids`, `raw_targets` and `design.tiers` must have the same length and order.
 pub(in crate::native) fn apply_tier_ids_and_targets(
     design: &mut Design,
     raw_ids: Vec<Option<u64>>,
@@ -149,11 +122,10 @@ pub(in crate::native) fn raw_tier_frosting_from_native(
         .collect()
 }
 
-/// Restores `design.tier_frosting` from `raw` (captured via
-/// [`raw_tier_frosting_from_native`] before the native file's own `tiers` array was
-/// consumed), each entry keyed by the id its tier ended up with. A tier the file does not
-/// mark is polished, which is also what a file saved before frosting existed reads as; a
-/// non-finite facet position is dropped. Must run after [`apply_tier_ids_and_targets`].
+/// Restores `design.tier_frosting` from `raw` (captured via [`raw_tier_frosting_from_native`]
+/// before the `tiers` array was consumed), keyed by each tier's id. A tier the file does not
+/// mark is polished, and a non-finite facet position is dropped. Must run after
+/// [`apply_tier_ids_and_targets`].
 pub(in crate::native) fn apply_tier_frosting(design: &mut Design, raw: &[(bool, Vec<f64>)]) {
     design.tier_frosting.clear();
     for ((frosted, facets), &id) in raw.iter().zip(&design.tier_ids) {
@@ -178,10 +150,9 @@ pub(in crate::native) fn raw_tier_relations_from_native(
         .collect()
 }
 
-/// Restores `design.tier_relations` from `raw` (captured via
-/// [`raw_tier_relations_from_native`] before the native file's own `tiers` array was
-/// consumed), then lets every driven tier's angle follow its relation, so a file whose
-/// stored angle drifted from its relation (a hand edit) opens consistent.
+/// Restores `design.tier_relations` from `raw` (captured via [`raw_tier_relations_from_native`]
+/// before the `tiers` array was consumed). Then every driven tier's angle follows its relation,
+/// so a stored angle that drifted from its relation, through a hand edit, opens consistent.
 ///
 /// Must run after [`apply_tier_ids_and_targets`]: a relation names tiers by id.
 ///
@@ -263,19 +234,16 @@ fn failing_tier_position(design: &Design, error: &RelationError, fallback: usize
         .unwrap_or(fallback)
 }
 
-/// Installs concave tiers read from a file onto `design`: converts each record,
-/// validates the lot against the design's gear and flat tier names, and restores each
-/// tier's stable id (the cutting-mode marks of a concave step hang on it).
+/// Installs concave tiers read from a file onto `design`. Each record is converted and the
+/// set is validated against the design's gear and flat tier names. Each tier keeps its
+/// stable id, since the cutting-mode marks of a concave step hang on it.
 ///
-/// The ids follow the rule [`apply_tier_ids_and_targets`] applies to flat tiers: a
-/// recorded id is kept, [`Design::next_tier_id`] is first bumped past the highest one
-/// (both lists draw from one counter, so a fresh id can never repeat a restored one),
-/// and a tier whose record carries none -- a file saved before the key existed -- gets a
-/// fresh id. An id that repeats within the file, or one a flat tier already holds, is
-/// kept only by its first holder; every other claimant gets a fresh id too.
+/// Ids follow the rule of [`apply_tier_ids_and_targets`]: a recorded id is kept unless an
+/// earlier holder has it, and a missing id gets a fresh one. Both lists draw from one
+/// counter, so [`Design::next_tier_id`] is bumped past the highest restored id first.
 ///
-/// The tiers are only installed when all of them pass, so a design is never left
-/// half-loaded. An empty `tables` is a no-op.
+/// The tiers are installed only when all of them pass, so a design is never half-loaded.
+/// An empty `tables` is a no-op.
 ///
 /// # Errors
 ///

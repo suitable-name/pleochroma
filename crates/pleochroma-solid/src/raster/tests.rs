@@ -11,7 +11,7 @@ use pleochroma::{
 #[cfg(not(target_arch = "wasm32"))]
 use pleochroma::geometry::{cuts::StandardGemCuts, meet_solver, plane::GpuFacetPlane};
 
-/// The `stone_metrics.rs` "plain box" fixture: `x,z in [-1,1]`, `y in [-0.6,0.6]`,
+/// The "plain box" fixture of the `stone_metrics` tests: `x,z in [-1,1]`, `y in [-0.6,0.6]`,
 /// six axis-aligned facets, indices `0..=5` (`+X, -X, +Y, -Y, +Z, -Z`).
 fn unit_box_mesh() -> SolidMesh {
     let planes = vec![
@@ -543,11 +543,9 @@ fn a_big_enough_facet_label_changes_the_rendered_pixels() {
             ..SolidStyle::default()
         },
     );
-    // Label whichever facet actually faces the camera at the frame centre. A
-    // hard-coded id is a trap here: on a box at this pose the top face is
-    // edge-on, its projected span falls below `MIN_LABEL_SPAN`, and
-    // `draw_facet_labels` skips it by design -- so the test would fail for a
-    // reason that has nothing to do with labelling.
+    // Label the facet that covers the frame centre. A fixed id can be edge-on
+    // at this pose, where its span is under `MIN_LABEL_SPAN` and
+    // `draw_facet_labels` skips it by design.
     let visible = plain
         .pick_at(64, 64)
         .expect("the box must paint the frame centre") as usize;
@@ -575,8 +573,8 @@ fn a_big_enough_facet_label_changes_the_rendered_pixels() {
 #[test]
 fn orientation_marker_draws_a_crown_pavilion_label_and_can_be_turned_off() {
     let mesh = unit_box_mesh();
-    // Pitch above the pole: the camera sits above the girdle plane, looking
-    // down onto the crown side.
+    // A positive pitch lifts the camera above the girdle plane, looking down
+    // onto the crown side.
     let camera = Camera::new(0.0, 0.6, 5.0, 42.0);
 
     let mut with_marker = SolidRasterizer::new(64, 64);
@@ -597,14 +595,12 @@ fn orientation_marker_draws_a_crown_pavilion_label_and_can_be_turned_off() {
     );
 }
 
-/// Mirrors `stone_metrics.rs`'s `planes_from_asc_schedule` helper: converts
-/// `GpuFacetPlane`'s `n . x + d <= 0` convention to the `n . x <= m` pairs
-/// `build_solid_mesh` takes.
+/// The standard round brilliant as `build_solid_mesh` input: converts
+/// `GpuFacetPlane`'s `n . x + d <= 0` planes to the `n . x <= m` pairs.
 ///
-/// `#[cfg(not(target_arch = "wasm32"))]`: only the three `#[ignore]`d
-/// perf/smoke tests below call this, and they are themselves gated the same way
-/// (see their own doc comments) -- gating the helper too keeps it from becoming
-/// dead code under `--target wasm32-unknown-unknown`.
+/// `#[cfg(not(target_arch = "wasm32"))]`: only the `#[ignore]`d smoke and timing
+/// tests below call this, and they are gated the same way, so the helper would
+/// otherwise be dead code on `wasm32-unknown-unknown`.
 #[cfg(not(target_arch = "wasm32"))]
 fn rbc_planes() -> Vec<(DVec3, f64)> {
     StandardGemCuts::standard_round_brilliant()
@@ -613,16 +609,15 @@ fn rbc_planes() -> Vec<(DVec3, f64)> {
         .collect()
 }
 
-/// The 103-tier "CrackOtto-Step" design (`pleochroma-cut-core`'s benchmark
-/// fixture, PC 05.115), embedded via `include_str!` so there is exactly one
-/// copy in the workspace. Every tier is genuinely meet-derived, so one
-/// `ScaleReference` bootstrap per block (crown/pavilion/girdle) is added here,
-/// reimplemented over `pleochroma::geometry::meet_solver` so this crate's test
-/// does not need to depend on `pleochroma-cut-core`.
+/// The 103-tier "CrackOtto-Step" design (PC 05.115) from `pleochroma-cut-core`'s
+/// `optimize_cost_probe_crackotto_step.asc`, embedded via `include_str!` so the
+/// workspace keeps one copy. Its tiers are meet-solved, so each block (crown,
+/// pavilion, girdle) without a `ScaleReference` gets one here, reimplemented
+/// over `pleochroma::geometry::meet_solver` so this test does not depend on
+/// `pleochroma-cut-core`.
 ///
-/// `#[cfg(not(target_arch = "wasm32"))]`: same reasoning as [`rbc_planes`] --
-/// its only caller (`timing_crackotto_step_103_tier_800x600`) is gated the same
-/// way.
+/// `#[cfg(not(target_arch = "wasm32"))]`: same reasoning as [`rbc_planes`]; its
+/// only caller (`timing_crackotto_step_103_tier_800x600`) is gated the same way.
 #[cfg(not(target_arch = "wasm32"))]
 fn crackotto_step_planes() -> Vec<(DVec3, f64)> {
     const TEXT: &str =
@@ -655,10 +650,8 @@ fn crackotto_step_planes() -> Vec<(DVec3, f64)> {
         .collect()
 }
 
-/// Writes a PNG to the system temp dir -- `#[cfg(not(target_arch = "wasm32"))]`
-/// (on top of `#[ignore]`) since this crate must contain no `std::fs` use at all,
-/// even in a test that never runs on `wasm32-unknown-unknown` -- see the crate
-/// README.
+/// Writes a PNG to the system temp dir. Gated off on `wasm32` (on top of
+/// `#[ignore]`) because the crate has no filesystem there; see the crate README.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 #[ignore = "writes a PNG to the system temp dir -- a visual smoke test, not a \
@@ -689,10 +682,8 @@ fn renders_the_standard_round_brilliant_without_panicking() {
     println!("wrote {}", path.display());
 }
 
-/// `std::time::Instant`-based perf measurement -- `#[cfg(not(target_arch =
-/// "wasm32"))]` (on top of `#[ignore]`) since this crate must contain no
-/// `Instant::now` at all, even in a test that never runs on
-/// `wasm32-unknown-unknown` -- see the crate README.
+/// Timing with `std::time::Instant`. Gated off on `wasm32` (on top of `#[ignore]`):
+/// `Instant::now` panics there at runtime.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 #[ignore = "timing measurement, not a correctness check -- run with \
@@ -717,8 +708,7 @@ fn timing_rbc_445_800x600() {
     println!("RBC-445 800x600: {per_frame:?} per frame over {iters} iterations (target < 1 ms)");
 }
 
-/// `std::time::Instant`-based perf measurement -- `#[cfg(not(target_arch =
-/// "wasm32"))]` (on top of `#[ignore]`), same reasoning as
+/// Timing with `std::time::Instant`; gated off on `wasm32` like
 /// [`timing_rbc_445_800x600`].
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
@@ -747,9 +737,9 @@ fn timing_crackotto_step_103_tier_800x600() {
     );
 }
 
-/// Two rings of one facet id with opposite per-ring normals, side by side at `z = 0`
-/// (camera at `+z`). The per-facet table (`mesh.normals`) says both face the camera,
-/// as it would if it were read for a facet whose pieces differ.
+/// Two rings of one facet id at `z = 0` with opposite per-ring normals
+/// (`piece_normals`). The per-facet table (`mesh.normals`) says both face the
+/// camera at `+z`, so only the ring normals can cull the far piece.
 fn two_pieces_one_facet_mesh(visible: bool) -> SolidMesh {
     let mut mesh = SolidMesh::default();
     let mut piece_normals = Vec::new();
@@ -796,7 +786,7 @@ fn concave_pieces_are_culled_by_their_own_ring_normal_not_the_facet_table() {
 #[test]
 fn concave_prepared_render_matches_the_direct_render() {
     // The cached path must read the same per-ring normals and edge flags as the
-    // direct one, even though the cache re-indexes rings after simplification.
+    // direct one, although the cache drops collapsed rings and re-indexes the rest.
     let mesh = two_pieces_one_facet_mesh(true);
     let camera = two_quads_camera();
     let style = SolidStyle::default();

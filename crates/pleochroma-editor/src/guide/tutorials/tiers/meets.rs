@@ -56,14 +56,12 @@ fn all_adopted(ctx: &GoalContext<'_>) -> bool {
     has_adopted(ctx) && !has_adoptable(ctx)
 }
 
-/// The stone the Meets lessons that let the solver find a depth start from: the Standard
-/// Round Brilliant (card 1).
+/// The stone the Meets lessons start from: the Standard Round Brilliant (card 1).
 ///
-/// The Rich Teaching Design does not do. It has one tier in its pavilion, so naming a facet for
-/// that tier leaves the pavilion without an exact scale value and the design stops solving. Its
-/// crown has no star facets, so an unspecified vertex sinks the table onto the girdle's top
-/// edge and cuts the crown away. The Standard Round Brilliant keeps an exact scale value in
-/// every block after each step of the lessons, and its table stays near its old height.
+/// The Rich Teaching Design would not do. Its pavilion has one tier, so naming a facet for it
+/// leaves the pavilion without an exact scale value and the design stops solving. Its crown has
+/// no star facets, so an unspecified vertex sinks the table onto the girdle's top edge and cuts
+/// the crown away. The Standard keeps an exact scale value in every block after each step.
 const SOLVER_STONE: usize = 1;
 
 fn meets_named_facets() -> Guide {
@@ -241,7 +239,7 @@ fn meets_in_millimetres() -> Guide {
     .step(
         GuideStep::new(
             "Set the girdle thickness",
-            "Girdle thickness (mm) searches the tier's depth until the girdle band is that thick.",
+            "Girdle thickness (mm) searches the tier's depth until the girdle is that thick at its girdle line.",
         )
         .actions([
             "Click the Girdle row.",

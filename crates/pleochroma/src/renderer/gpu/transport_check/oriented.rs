@@ -52,10 +52,11 @@ pub struct OrientedCase {
 
 const _: () = assert!(size_of::<OrientedCase>() == 432);
 
-/// The budget for every compared value. The chains are long (a `log`/`exp` pair per channel,
-/// the cone's `tan`/`atan`/`sin`/`cos`, up to 64 `exp`s in a random-needle sum), so this sits
-/// well above `SCATTER_ULP_BUDGET`; it is about 1.2e-4 relative. Provisional until the owner's
-/// first harness run reports the measured maximum.
+/// The budget for every compared value.
+///
+/// The chains are long (a `log`/`exp` pair per channel, the cone's `tan`/`atan`/`sin`/`cos`,
+/// up to 64 `exp`s in a random-needle sum), so this sits well above `SCATTER_ULP_BUDGET`,
+/// about 1.2e-4 relative.
 const ORIENTED_ULP_BUDGET: u32 = 2048;
 const ORIENTED_ABS_FLOOR: f32 = 1e-4;
 

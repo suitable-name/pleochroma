@@ -1,4 +1,5 @@
-//! Wires deterministic-view settings through the shared context and persistence.
+//! Wires the Ray-Traced engine's anti-aliasing taps and Fire toggle to the render context and
+//! the persisted `RaySettings`.
 use crate::{
     MainWindow, SettingsModel,
     bridge::render_thread::RenderContext,

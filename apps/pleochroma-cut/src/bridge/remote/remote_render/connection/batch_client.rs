@@ -1,18 +1,17 @@
-//! The persistent batch connection (protocol v24): [`BatchClient`] keeps ONE mutual-TLS
-//! connection to a direct worker for a whole preview run and exchanges
-//! `BatchRenderRequest`s for finished PNGs on it.
+//! A persistent connection for batched preview renders.
 //!
-//! Unlike the one-shot lifecycle (one connection per picture) the caller can send the
-//! NEXT batch while the current one is tracing, so the worker always has queued work.
-//! The caller's dispatcher thread owns the client and alternates [`BatchClient::poll`]
-//! with its own bookkeeping; nothing here spawns a thread, because TLS state cannot be
-//! split across threads (see the parent module's doc comment).
+//! [`BatchClient`] keeps one mutual-TLS connection to a direct worker open for a whole
+//! preview run and exchanges `BatchRenderRequest`s for finished PNGs on it.
 //!
-//! Liveness is enforced here: a worker heartbeats `PROGRESS` at least every 2 s while any
-//! batch is unfinished, so [`BatchClient::poll`] fails with
-//! [`RemoteError::WorkerSilent`] once an outstanding batch has been quiet for the usual
-//! deadlines. Progress and wall-clock deadlines (is the worker advancing, is a batch
-//! taking absurdly long) are the dispatcher's, via [`BatchWatch`].
+//! The caller can queue the next batch while the current one is still tracing, so the
+//! worker never runs out of work. The dispatcher thread owns the client and alternates
+//! [`BatchClient::poll`] with its own bookkeeping. Nothing here spawns a thread: TLS state
+//! cannot be split across threads (see the parent module's docs).
+//!
+//! Silence is detected here: a worker heartbeats `PROGRESS` at least every 2 s while a
+//! batch is unfinished, so [`BatchClient::poll`] fails with [`RemoteError::WorkerSilent`]
+//! once an outstanding batch has been quiet past its deadline. Progress and wall-clock
+//! limits are the dispatcher's, via [`BatchWatch`].
 
 use super::{
     super::types::{RemoteError, RemoteStream},
@@ -126,7 +125,7 @@ fn zoning_payload_for(
     Ok(payload)
 }
 
-/// One persistent batch connection -- see the module doc comment.
+/// One persistent batch connection; see the module docs.
 pub struct BatchClient {
     stream: RemoteStream,
     backend: Backend,
@@ -543,6 +542,10 @@ mod tests {
                     height: 8,
                     yaw: 0.4,
                     camera_roll: 0.0,
+                    stone_shadow: false,
+                    tray_reflection: 0.0,
+                    hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
+                    estimator: pleochroma::optics::raytracer::Estimator::Branching,
                     pitch: 0.3,
                     distance: 3.0,
                     light_yaw: 0.85,

@@ -43,9 +43,8 @@ pub(super) fn user_manual_candidates(exe_dir: &std::path::Path) -> Vec<std::path
 /// order, and returns the first one that exists on disk. `None` if none of them do
 /// (e.g. a build that never bundled the manual at all).
 ///
-/// Runtime-resolved rather than the `CARGO_MANIFEST_DIR` compile-time path this used
-/// to be: that path is baked in at compile time and only ever resolves correctly for a
-/// build run from within this crate's own checkout, never for a distributed binary.
+/// The path is resolved at runtime because a `CARGO_MANIFEST_DIR` path is fixed at compile
+/// time and resolves only in this crate's own checkout, never for a distributed binary.
 fn locate_user_manual() -> Option<std::path::PathBuf> {
     let exe_dir = std::env::current_exe()
         .ok()
@@ -191,13 +190,12 @@ fn launch(target: &OsStr) -> io::Result<()> {
     Ok(())
 }
 
-/// Reveals whatever the Edit tab last saved or exported, by
-/// opening its containing FOLDER (not the file -- opening a `.asc` would launch
-/// whatever text editor is registered for it, which is not what "where did it
-/// go?" is asking). The path itself is pushed by
-/// `gui::editor::native_io::record_last_saved_path`; this is a no-op until the
-/// first save of the session, which is also when the strip segment that invokes
-/// it first appears.
+/// Reveals the folder of the last file the Edit tab saved or exported.
+///
+/// It opens the folder, not the file: opening a `.asc` would launch whatever text editor is
+/// registered for it. The path is recorded by `gui::editor::native_io::record_last_saved_path`.
+/// Until the first save of the session this is a no-op, and so is the strip segment that calls
+/// it.
 pub(super) fn setup_reveal_last_saved_callback(ui: &MainWindow) {
     let ui_weak = ui.as_weak();
     ui.global::<EditorModel>()
@@ -267,9 +265,8 @@ mod tests {
         assert_eq!(candidates.len(), 4);
     }
 
-    /// An `&` is ordinary URL syntax (query strings are full of them) and must reach
-    /// the opener untouched -- the fix is never handing the URL to a shell, not
-    /// rejecting or escaping the character.
+    /// An `&` is ordinary URL syntax and must reach the opener untouched: the URL is never
+    /// handed to a shell, so the character needs no escaping.
     #[test]
     fn an_http_url_with_shell_metacharacters_is_accepted_verbatim() {
         for url in [
@@ -340,9 +337,8 @@ mod tests {
         }
     }
 
-    /// The injection this module exists to prevent: the validated URL, `&` and all,
-    /// travels as the final single argument of a directly spawned opener, and no shell
-    /// is involved.
+    /// The validated URL, `&` included, is the final single argument of a directly spawned
+    /// opener, and no shell is involved.
     #[test]
     fn the_opener_receives_the_url_as_one_argument_and_no_shell_is_involved() {
         let url = validated_url("http://x/?a=1&calc|echo pwned>%TEMP%\\x").unwrap();

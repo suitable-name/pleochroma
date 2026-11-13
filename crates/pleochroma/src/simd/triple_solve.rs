@@ -4,9 +4,7 @@
 
 use glam::DVec3;
 
-// See `feasibility.rs`'s identical split for why `SimdLevel` (named only inside this
-// file's `#[cfg(target_arch = "x86_64")]` match arms) and `simd_level` (called
-// unconditionally by the scalar-fallback `match` itself) need different visibility.
+// `SimdLevel` is named only in the x86_64 match arms; `simd_level()` is called on every target.
 #[cfg(target_arch = "x86_64")]
 use super::SimdLevel;
 use super::simd_level;
@@ -84,8 +82,8 @@ pub struct TripleSolution {
 
 /// One lane of the triple solve, replicating the exact `glam` sequence the
 /// solver's scalar code performs: `DMat3::from_cols(a, b, c).transpose()`,
-/// `.determinant()`, `.inverse() * DVec3::new(ma, mb, mc)`. This IS the
-/// scalar fallback and the reference the vector paths are tested against.
+/// `.determinant()`, `.inverse() * DVec3::new(ma, mb, mc)`. It is the scalar fallback and
+/// the reference the vector paths are tested against.
 fn solve_triple_lane_reference(a: DVec3, b: DVec3, c: DVec3, rhs: DVec3) -> (f64, DVec3) {
     use glam::DMat3;
     let m = DMat3::from_cols(a, b, c).transpose();
@@ -104,10 +102,7 @@ fn solve_triple_lane_reference(a: DVec3, b: DVec3, c: DVec3, rhs: DVec3) -> (f64
 /// components are `res.i = ((tmpI.x*inv_det)*ma + (tmpI.y*inv_det)*mb) +
 /// (tmpI.z*inv_det)*mc`.
 ///
-/// `#[cfg(target_arch = "x86_64")]`: both of this macro's call sites (the AVX2 and
-/// AVX-512 lane kernels below) are themselves gated to that architecture -- there is
-/// no scalar or other-architecture use of it, so on any other target the macro
-/// definition itself would otherwise be a genuinely unused item.
+/// Used only by the `x86_64` AVX2/AVX-512 kernels, so it is gated to that architecture.
 #[cfg(target_arch = "x86_64")]
 macro_rules! triple_lane_program {
     ($t:ty, $mul:expr, $add:expr, $sub:expr, $div1:expr,

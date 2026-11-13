@@ -1,11 +1,11 @@
 //! Attaching to the JVM and calling the Kotlin `MainActivity`.
 //!
 //! Rust holds one global reference to the activity (NativeActivity's Java object *is*
-//! our `MainActivity` instance) and calls its methods by name. Every Kotlin method that
-//! Rust calls follows one convention: it returns a `String?` that is `null` on success
-//! and a sentence for the user on failure (the exceptions are `thermalHeadroom` and
-//! `cacheDirPath`). A Java exception that does escape is caught by the `jni` crate and
-//! turned into the same kind of message here.
+//! our `MainActivity` instance) and calls its methods by name. Most Kotlin service methods
+//! return a `String?`: `null` on success, a sentence for the user on failure. The query
+//! methods (`thermalHeadroom`, `systemPowerSave`, `networkMetered`, `cacheDirPath`) return
+//! their value, and `loadRemoteCredentials` returns the stored bundle. A Java exception
+//! that escapes is turned into the same kind of message by `describe`.
 
 use jni::{
     Env, JValueOwned,

@@ -1,11 +1,10 @@
 //! Counter-based random numbers for the forward tracer.
 //!
-//! Every path owns a generator keyed by `(seed, view, pixel, sample, bin)`; its draws are
-//! numbered (the draw counter is the path depth in effect: the tracer takes a fixed number of
-//! draws per event, in event order). The numbers are `SplitMix64` hashes of the key and the
-//! counter, so a path's randomness depends on nothing else: not the thread, the chunk, the
-//! order in which pixels are processed, or the other paths. That makes the trace bitwise
-//! independent of the number of threads.
+//! Every path owns a generator keyed by `(seed, view, pixel, sample, bin)`; its draws follow from
+//! that key alone, in the order the tracer makes them. The numbers are `SplitMix64` hashes of the
+//! key and a draw counter, so a path's randomness depends on nothing else: not the thread, the
+//! chunk, the order in which pixels are processed, or the other paths. That makes the trace
+//! bitwise independent of the number of threads.
 
 const GAMMA: u64 = 0x9E37_79B9_7F4A_7C15;
 

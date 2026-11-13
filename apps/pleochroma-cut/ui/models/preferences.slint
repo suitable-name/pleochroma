@@ -2,7 +2,9 @@
 // larger drag handles, plus the tutorial reset actions. Rust seeds these from the
 // settings file at start-up and persists every change
 // (`gui::preferences`, `AppSettings::{ui_mode, ui_scale_percent, high_contrast,
-// large_handles, first_run_tour_done, tutorials_completed}`).
+// large_handles, adaptive_viewport, path_cache_viewport, beam_viewport,
+// beam_instant_lighting, path_cache_disk_limit_gb,
+// first_run_tour_done, tutorials_completed}`).
 //
 // Other components read `PreferencesModel.simple_mode` to hide the controls most designs
 // do not need. The Preferences dialog (`components/preferences_dialog.slint`, Edit >
@@ -22,8 +24,36 @@ export global PreferencesModel {
     in-out property <bool> high_contrast: false;
     // Larger drag handles and hit areas on the Solid viewport (touch screens and pens).
     in-out property <bool> large_handles: false;
+    // "Adaptive Sampling in the Viewport": while the view is still, the live viewport stops
+    // refining the tiles that are already clean. Off by default.
+    in-out property <bool> adaptive_viewport: false;
+    // "Speed Up Still Views With a Path Cache": once the view has stood still for a while, the
+    // live viewport builds a memory-only path cache for the stone. Off by default.
+    in-out property <bool> path_cache_viewport: false;
+    // Whether the path cache can be used at all: Rust sets it at start-up, `false` under exit
+    // collection, the app's default estimator. The switch above is then greyed out with a note.
+    in property <bool> path_cache_available: true;
+    // Whether the Path-Traced view may beam trace: Rust sets it at start-up, `false` under exit
+    // collection. "Beam Tracing in Still Views" then says it serves the Ray-Traced view only.
+    in property <bool> beam_available: true;
+    // "Instant Lighting Changes in the Ray-Traced View": a still Ray-Traced view keeps the stone's
+    // light paths in memory and re-lights them at once when the lighting or exposure changes.
+    // Off by default.
+    in-out property <bool> instant_lighting: false;
+    // "Beam Tracing in Still Views": once the Path-Traced view has stood still, an eligible faceted
+    // stone is beam traced in the background. Off by default.
+    in-out property <bool> beam_viewport: false;
+    // "Instant Lighting Changes With Beams": the still view keeps its beams in memory and re-lights
+    // them at once. Off by default; the dialog enables it only while `beam_viewport` is on.
+    in-out property <bool> beam_instant_lighting: false;
+    // The folder kept path caches live in (read-only here; Rust fills it in).
+    in property <string> path_cache_dir: "";
+    // The most disk space kept path caches may use, in GB (`AppSettings::path_cache_disk_limit_gb`).
+    in-out property <int> path_cache_disk_limit_gb: 50;
+    // What "Clear Path Cache" last did, so the click is not silent. Empty before the first.
+    in property <string> path_cache_status: "";
     // `true` while the welcome tour is due to run (a brand-new install, or "Show the
-    // welcome tour again"). The tour itself reads this flag and clears it.
+    // Welcome Tour Again"). The tour itself reads this flag and clears it.
     in-out property <bool> first_run_tour_pending: false;
     // Whether the Preferences dialog is open.
     in-out property <bool> dialog_open: false;
@@ -37,8 +67,28 @@ export global PreferencesModel {
     callback high_contrast_changed(bool);
     // The Larger handles toggle changed (`large_handles` already holds the new value).
     callback large_handles_changed(bool);
-    // "Reset tutorial progress": forget every finished tutorial.
+    // The Adaptive Sampling in the Viewport toggle changed (`adaptive_viewport` already holds
+    // the new value).
+    callback adaptive_viewport_changed(bool);
+    // The Speed Up Still Views With a Path Cache toggle changed (`path_cache_viewport` already
+    // holds the new value).
+    callback path_cache_viewport_changed(bool);
+    // The Instant Lighting Changes in the Ray-Traced View toggle changed (`instant_lighting`
+    // already holds the new value).
+    callback instant_lighting_changed(bool);
+    // The Beam Tracing in Still Views toggle changed (`beam_viewport` already holds the new value).
+    callback beam_viewport_changed(bool);
+    // The Instant Lighting Changes With Beams toggle changed (`beam_instant_lighting` already holds
+    // the new value).
+    callback beam_instant_lighting_changed(bool);
+    // The disk limit field changed (`path_cache_disk_limit_gb` already holds the new value).
+    callback path_cache_limit_changed(int);
+    // "Open Folder": show the path cache folder in the file manager.
+    callback open_path_cache_folder();
+    // "Clear Path Cache", after the confirmation: delete every kept path cache.
+    callback clear_path_cache();
+    // "Reset Tutorial Progress": forget every finished tutorial.
     callback reset_tutorials();
-    // "Show the welcome tour again".
+    // "Show the Welcome Tour Again".
     callback show_tour_again();
 }

@@ -1,6 +1,5 @@
-// The inspector's state, pushed by `src/editor/inspector` and edited by its tabs
-// (modelled on the desktop's `EditorModel` inspector fields). A global is only a Rust
-// type if `app.slint`'s export block names it.
+// The inspector's state, pushed by `src/editor/inspector` and edited by its tabs. A global is
+// only a Rust type if `app.slint`'s export block names it.
 
 // One per-facet chip of the Tier tab (`pleochroma_editor::view_model::IndexChip`).
 export struct ChipRow {
@@ -91,8 +90,7 @@ export global InspectorModel {
     in-out property <string> tier-constraint-text: "";
     in-out property <string> tier-name: "";
     in-out property <string> tier-indices: "";
-    // The values `loaded-*` last seeded / saved; `form-dirty` is a pure comparison
-    // against them (the desktop's rule).
+    // The values `loaded-*` last seeded / saved; `form-dirty` compares against them.
     in property <string> loaded-angle: "0.0";
     in property <int> loaded-constraint-kind: 0;
     in property <string> loaded-constraint-text: "";

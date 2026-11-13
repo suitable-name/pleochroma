@@ -1,5 +1,5 @@
 //! The serde default and clamp hooks of the remote-batch and editor-layout fields, and
-//! `Default for AppSettings`, split out of `app_settings.rs` to keep it under 800 lines.
+//! `Default for AppSettings`.
 
 use super::{
     AppSettings, Backdrop, DEFAULT_C_AXIS_AZIMUTH_DEG, DEFAULT_C_AXIS_OVERRIDE_ENABLED,
@@ -98,6 +98,8 @@ impl Default for AppSettings {
             backdrop: Backdrop::default(),
             surface_glare: DEFAULT_SURFACE_GLARE,
             head_shadow_deg: DEFAULT_HEAD_SHADOW_DEG,
+            stone_shadow: false,
+            tray_reflection: 0.0,
             inclusion_sigma_s: DEFAULT_INCLUSION_SIGMA_S,
             c_axis_override_enabled: DEFAULT_C_AXIS_OVERRIDE_ENABLED,
             c_axis_tilt_deg: DEFAULT_C_AXIS_TILT_DEG,
@@ -117,6 +119,8 @@ impl Default for AppSettings {
             import_preview_choice: super::super::ImportPreviewChoice::Ask,
             payload_encoding: pleochroma_net::messages::adaptive::PayloadChoice::Auto,
             env_map_path: String::new(),
+            env_map_yaw_deg: 0.0,
+            env_map_follows_camera: false,
             preview_size: DEFAULT_PREVIEW_SIZE,
             thumbnail_renderer: pleochroma::renderer::engine::RenderEngine::default(),
             thumbnail_backdrop: Backdrop::Grey,
@@ -146,6 +150,12 @@ impl Default for AppSettings {
             ui_scale_percent: 0,
             high_contrast: false,
             large_handles: false,
+            adaptive_viewport: false,
+            path_cache_viewport: false,
+            instant_lighting: false,
+            beam_viewport: false,
+            beam_instant_lighting: false,
+            path_cache_disk_limit_gb: super::DEFAULT_PATH_CACHE_DISK_LIMIT_GB,
             manipulate_snap_off: false,
             slice_symmetric: true,
             show_crystal_axis: false,

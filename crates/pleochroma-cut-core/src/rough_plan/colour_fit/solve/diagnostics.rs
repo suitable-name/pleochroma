@@ -1,5 +1,5 @@
-//! Validation inside the fit (plan section 6.5): leave-one-view-out cross-validation and the
-//! residual maps with their spatial-structure score.
+//! Validation inside the fit: leave-one-view-out cross-validation and the residual maps with their
+//! spatial-structure score.
 //!
 //! # Cross-validation
 //!
@@ -218,8 +218,8 @@ fn score_maps(mut maps: Vec<ResidualMap>) -> Structure {
     Structure { maps, score, rms }
 }
 
-/// The data term of the fit evaluated at a GIVEN absorption instead of a fitted one (round 2,
-/// C2): what the objective is at the truth.
+/// The data term of the fit evaluated at a GIVEN absorption instead of a fitted one: what the
+/// objective is at the truth.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ObjectiveAt {
     /// `sum u^2` over the whitened residuals, the fit's own `chi2` for the same weights.
@@ -232,7 +232,7 @@ pub struct ObjectiveAt {
     pub rms: f64,
     /// The robust (Huber) data term, the part of the fit's `cost` that the data make.
     pub data_cost: f64,
-    /// The prior terms at the truth (round 3, D1.3), `(name, value)`: the gain prior at the given
+    /// The prior terms at the truth, `(name, value)`: the gain prior at the given
     /// gains, and the smoothness and magnitude priors of model B at the least-squares projection
     /// of the truth onto the basis (the truth is not exactly in the basis, see
     /// `projection_max_error`).
@@ -251,10 +251,10 @@ pub struct ObjectiveAt {
 /// Uses the per-view `log_gains` (one per view in the order of the records, so `gamma_v = ln`
 /// of the exposure factor of the photo) and exactly the weights `config` gives the fit.
 ///
-/// A fit whose `chi2` is not clearly below this value has not reached the noise floor of the
-/// model that made the photos. `chi2 / n_data` near 1 at the truth and well above 1 at the fit
-/// means the optimiser or a degeneracy lost the truth; `chi2 / n_data` far above 1 at the truth
-/// itself means the photos and the records disagree (a generator or tracer mismatch).
+/// A fit whose `chi2` is not clearly below the `chi2` at the truth has not reached the noise
+/// floor of the model that made the photos. `chi2 / n_data` near 1 at the truth and well above 1
+/// at the fit means the optimiser or a degeneracy lost the truth; `chi2 / n_data` far above 1 at
+/// the truth itself means the photos and the records disagree (a generator or tracer mismatch).
 ///
 /// # Errors
 ///

@@ -6,10 +6,8 @@
 //! [`DesignSolveError`], the combined error [`super::Design::solve_with`] and
 //! [`super::Design::resolve_dirty_with`] return.
 //!
-//! Each of the four `panic!`ing methods keeps its own exact signature and
-//! panic message (so no `apps/**` caller needs to change), implemented as a
-//! thin wrapper over a `try_*` sibling that returns [`SolveMismatch`] instead
-//! -- see each method's own doc comment.
+//! Each panicking method above wraps a fallible sibling and panics, with a message built from
+//! the [`SolveMismatch`] counts, where the sibling returns that error.
 
 use super::{MissingAnchor, TargetResolveError};
 use pleochroma::geometry::meet_solver::SolveError;
@@ -59,10 +57,9 @@ pub enum DesignSolveError {
     /// `pleochroma::geometry::meet_solver`'s plane cap -- see
     /// [`pleochroma::geometry::meet_solver::SolveError`].
     Solve(SolveError),
-    /// A [`crate::design::TierTarget`] could not be resolved to a real mast
-    /// before solving -- see [`TargetResolveError`]. Only ever returned when
-    /// [`super::Design::tier_targets`] is non-empty; every existing design (an
-    /// empty map) can never see this variant.
+    /// A [`crate::design::TierTarget`] could not be resolved to a mast before
+    /// solving -- see [`TargetResolveError`]. Only returned when
+    /// [`super::Design::tier_targets`] is non-empty.
     Target(TargetResolveError),
 }
 

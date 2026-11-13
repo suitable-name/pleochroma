@@ -1,4 +1,4 @@
-//! Fundamental traits for Reinforcement Learning Markov Decision Processes (MDPs) in gemstone design.
+//! Traits of the reinforcement learning Markov decision processes for gemstone design.
 //!
 //! # Conventions shared by both environments
 //!
@@ -50,7 +50,7 @@ pub enum StepRejection {
     NoUsableMast,
     /// The tier relations cannot be evaluated, or give a follower an unusable angle.
     RelationsUnsolvable,
-    /// Shared meet-preserving projection could not certify the candidate against the episode baseline.
+    /// Meet-preserving projection could not certify the candidate against the baseline.
     PreservationViolation,
     /// The candidate design does not solve.
     Unsolvable,
@@ -100,18 +100,15 @@ pub struct StepInfo {
     pub episode_step: usize,
     /// Why the proposal did not change the design; `None` when it was accepted.
     pub rejection: Option<StepRejection>,
-    /// The evaluated candidate's own score, whenever it solved, closed and scored finitely,
-    /// WHATEVER the gates and the acceptance decided: a proposal that failed the girdle or
-    /// manufacturability gate, or did not improve, still reports the score it would have had
-    /// (the reward does not credit a gate-failed score, this field does not hide it). `None`
-    /// for a proposal rejected before it was scored (malformed action, unsafe angle,
-    /// unsolvable, open or non-finite candidate). Lets a runner log the proposal quality
-    /// without recomputing it from the reward.
+    /// The candidate's score whenever it solved, closed and scored finitely.
+    ///
+    /// Reported even when a gate or the acceptance rejected the candidate: the reward ignores
+    /// gate-failed scores, this field does not. `None` when the proposal was rejected before
+    /// scoring (malformed action, unsafe angle, unsolvable, open or non-finite candidate).
     pub candidate_score: Option<f32>,
-    /// The reported candidate projects exactly to the current design, whose known valid
-    /// score is reused without rescoring. This describes the accepted candidate or, when
-    /// none improved, the first scale; failed projections and later rejected scales
-    /// do not set it. Normal gates still apply; a passing unchanged candidate is
+    /// The reported candidate projects exactly to the current design, so its known valid
+    /// score is reused without rescoring. Describes the accepted candidate or, when none
+    /// improved, the first scale. Normal gates still apply; a passing unchanged candidate is
     /// rejected as `NotImproved`.
     #[serde(default)]
     pub unchanged: bool,

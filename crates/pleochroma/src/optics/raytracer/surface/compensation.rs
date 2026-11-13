@@ -1,17 +1,17 @@
 //! Energy compensation for the single-scatter GGX interface (Kulla-Conty style).
 //!
-//! A rough dielectric that samples one micro-normal per event loses the light that the
-//! micro-surface shadows or sends to the wrong side of the macro surface; at `α` 0.45 that is
-//! 10 to 15 % of the energy, which a cutter would see as a darker girdle than the old Lambertian
-//! one. The directional albedo `E(α, cosθ, η)` of the whole event (reflection and transmission,
-//! with the exact Fresnel term at each micro-normal) is tabulated once and every event is divided
-//! by it, so a lossless rough interface keeps its energy. The table is indexed by the roughness,
-//! the cosine of the incidence angle and the index ratio `n2 / n1`, which covers both sides of
-//! the interface (a ray entering and a ray leaving the stone); anisotropic lobes use their
-//! geometric-mean width.
+//! A rough dielectric that samples one micro-normal per event loses the light the micro-surface
+//! shadows or sends to the wrong side of the macro surface. At `α` 0.45 that is 10 to 15 % of the
+//! energy, which would darken a rough girdle. The directional albedo `E(α, cosθ, η)` of the whole
+//! event (reflection and transmission, with the exact Fresnel term at each micro-normal) is
+//! tabulated once and every event is divided by it, so a lossless rough interface keeps its
+//! energy. The table is indexed by the roughness, the cosine of the incidence angle and the index
+//! ratio `n2 / n1`, which covers both sides of the interface (a ray entering and a ray leaving the
+//! stone). Anisotropic lobes use their geometric-mean width.
 //!
 //! The table is a deterministic stratified quadrature over the visible-normal sampling square,
-//! built lazily on first use; the WGSL twin reads the same numbers from a constant array.
+//! built lazily on first use. The GPU reads the same values from the `dist_func` buffer (see
+//! `renderer::env_map_gpu`).
 
 use std::sync::OnceLock;
 
@@ -59,8 +59,8 @@ fn node_angle_rad(index: usize) -> f32 {
 /// The directional albedo of one interface event at `alpha`, `cos_i` and `eta_rel`, by quadrature.
 ///
 /// The incidence cosine is `cos_i` and the index ratio `eta_rel = n2 / n1` (`n1 = 1`). The value
-/// is the mean over the visible normals of `F G2/G1` for the reflected samples that stay above the surface plus `(1 − F) G2/G1` for the
-/// refracted ones that end below it.
+/// is the mean over the visible normals of `F G2/G1` for the reflected samples that stay above
+/// the surface, plus `(1 − F) G2/G1` for the refracted samples that end below it.
 #[must_use]
 pub fn albedo_by_quadrature(alpha: f32, cos_i: f32, eta_rel: f32) -> f32 {
     let lobe = GgxLobe::isotropic(alpha);
@@ -97,10 +97,10 @@ pub fn albedo_by_quadrature(alpha: f32, cos_i: f32, eta_rel: f32) -> f32 {
 /// `dist_func` buffer (`GROUND_TABLE_WORDS` in `13_surface_ggx.wgsl`).
 pub const TABLE_LEN: usize = ALPHA_NODES.len() * ANGLE_NODES * ETA_NODES;
 
-/// The table, in the order the WGSL twin indexes it: `((alpha * 16 + angle) * 17 + eta)`.
+/// The table in the order the WGSL twin indexes it: `((alpha * 16 + angle) * 17 + eta)`.
 ///
-/// The roughness nodes of [`ALPHA_NODES`], the angle nodes uniform from 0 to 86 degrees and the index
-/// ratios logarithmic from 1/3 to 3. Built on first use.
+/// Roughness nodes are [`ALPHA_NODES`], angle nodes are uniform from 0 to 86 degrees, and index
+/// ratio nodes are logarithmic from 1/3 to 3. Built on first use.
 #[must_use]
 pub fn table_values() -> &'static [f32] {
     table()

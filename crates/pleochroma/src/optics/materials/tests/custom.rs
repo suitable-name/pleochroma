@@ -6,8 +6,8 @@ use crate::optics::{
     materials::{CrystalSystem, GemMaterial, OpticalCharacter},
 };
 
-/// Review fix: scattering now divides by the path scale, so `with_absorption_path_scale` ignores a
-/// non-finite or non-positive value (the previous scale stays), and takes a positive one.
+/// Scattering divides by the path scale, so `with_absorption_path_scale` ignores a non-finite or
+/// non-positive value (the previous scale stays) and takes a positive one.
 #[test]
 fn the_absorption_path_scale_builder_ignores_degenerate_values() {
     let base = GemMaterial::sapphire().with_absorption_path_scale(1.5);
@@ -24,15 +24,10 @@ fn the_absorption_path_scale_builder_ignores_degenerate_values() {
     );
 }
 
-/// Every built-in material must have its OWN explicit `recommended_scattering` arm,
-/// keyed by its exact `all_materials()` name -- falling through to the generic
-/// default silently, as `"Moissanite"` (rather than the real name `"Synthetic
-/// Moissanite"`) used to, is a bug this test now catches for every current AND
-/// future built-in. See
-/// `GemMaterial::recommended_scattering_arm`'s own doc comment for why this needed a
-/// separate `Option`-returning helper to detect at all: a species whose intended
-/// numbers happen to equal the default would look identical to a truly-forgotten one
-/// if this only checked `recommended_scattering`'s return value.
+/// Every built-in needs its own `recommended_scattering` arm, keyed by its exact
+/// `all_materials()` name. A name without an arm silently falls through to the generic
+/// default. `GemMaterial::recommended_scattering_arm` returns `None` for such a name, so a
+/// species whose numbers equal the default is still detected.
 #[test]
 fn every_builtin_has_an_explicit_scattering_arm() {
     for material in GemMaterial::all_materials() {
@@ -44,12 +39,9 @@ fn every_builtin_has_an_explicit_scattering_arm() {
         );
     }
 }
-/// `new_custom`'s `dispersion_delta` must be interpreted as the Fraunhofer
-/// F-C interval -- i.e. `n(486.1nm) - n(656.3nm)` on the constructed material must
-/// equal the requested `dispersion_delta`, not 66% or 113% of it (the old flat
-/// `0.347` multiplier's actual behaviour). Checked across several representative
-/// deltas, including one large enough
-/// that a wrong conversion factor would be very obvious.
+/// `new_custom`'s `dispersion_delta` is the Fraunhofer F-C interval: `n(486.1nm) - n(656.3nm)`
+/// on the constructed material equals the requested delta. Checked across several deltas,
+/// including a large one where a wrong conversion factor would show clearly.
 #[test]
 fn new_custom_dispersion_delta_measures_exactly_at_f_and_c() {
     for dispersion_delta in [0.005f32, 0.010, 0.02564, 0.05] {

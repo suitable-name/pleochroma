@@ -8,8 +8,6 @@
 //! printing and the rest. No Slint, no JNI: the Android app
 //! (`apps/pleochroma-mobile-android`) and any later iOS app sit on top of it, and the
 //! whole crate is tested natively.
-//!
-//! Plan: `C:/temp/mcp2/android_app_implementation_plan_2026-10-13.md`.
 
 pub mod analysis;
 pub mod app_state;

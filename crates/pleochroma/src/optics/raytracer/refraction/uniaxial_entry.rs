@@ -4,18 +4,20 @@
 //! (uniaxial or biaxial scalar-Fresnel) shares.
 
 use super::{
-    DIRECTION_MATCH_COS_TOL, R_UNPOL_PDF_MAX, R_UNPOL_PDF_MIN, R_UNPOL_SELECT_MAX,
-    R_UNPOL_SELECT_MIN,
+    ExactExtra, R_UNPOL_PDF_MAX, R_UNPOL_PDF_MIN, R_UNPOL_SELECT_MAX, R_UNPOL_SELECT_MIN,
     context::{
-        BounceRay, BounceState, ExitSplitCtx, RngDraw, UniaxialBounceContext, narrow_compat,
+        BounceRay, BounceState, ExitCollect, ExitEvent, ExitSplitCtx, RngDraw,
+        UniaxialBounceContext, narrow_compat,
     },
+    direction_matches,
+    exit_split::{EntryLeaf, deposit_entry_leaf, restore_densities},
 };
 use crate::optics::{
     birefringence::BirefringenceParams,
     polarization::StokesVector,
     raytracer::{
         NUM_CHANNELS,
-        sampling::{BIREFRINGENT_SPLIT_STREAM, FRESNEL_BRANCH_STREAM, hash_u32},
+        sampling::{BIREFRINGENT_SPLIT_STREAM, FRESNEL_BRANCH_STREAM, discrete_draw},
         uniaxial_fresnel,
     },
 };
@@ -47,7 +49,7 @@ use glam::Vec3;
 /// skip this entirely for a biaxial material -- `ordinary_eigen_polarization` is
 /// uniaxial-only -- keeping a biaxial entry at a blanket 50/50 unconditionally.
 #[must_use]
-pub(in crate::optics::raytracer) fn entry_eigenmode_selection(
+pub fn entry_eigenmode_selection(
     c_axis: Vec3,
     current_plane_normal: Vec3,
     k_hat: Vec3,
@@ -73,17 +75,13 @@ pub(in crate::optics::raytracer) fn entry_eigenmode_selection(
     Some((p_o, cos_2psi_o, sin_2psi_o))
 }
 
-/// The entire isotropic-air -> uniaxial-crystal entry bounce, via the closed-form
-/// `uniaxial_fresnel` solver -- replaces a per-mode scalar-Fresnel entry path (a
-/// Malus-law mode split plus isotropic-style `r_s`/`r_p`/`t_s`/`t_p` at a single
-/// "effective index") for `entering_anisotropic && !geo.is_biaxial`. Called as an
-/// early, self-contained branch from `apply_partial_fresnel_bounce`, leaving the
-/// biaxial/isotropic/internal-exit code paths unaffected.
+/// The isotropic-air -> uniaxial-crystal entry bounce, via the closed-form `uniaxial_fresnel`
+/// solver, for `entering_anisotropic && !geo.is_biaxial`. Called from
+/// `apply_partial_fresnel_bounce`.
 ///
-/// Reuses the existing Snell-refraction/extraordinary-walk-off geometry formulas
-/// (`compute_bounce_refraction_geometry`'s `geo.n2`/`geo.n2_ch`/`geo.n_o_hero`
-/// scaffolding) unchanged: only the Fresnel amplitude/polarization physics changes
-/// here, not the direction the transmitted ray travels in.
+/// The transmitted direction comes from the Snell and walk-off geometry of
+/// `compute_bounce_refraction_geometry`; only the Fresnel amplitudes and polarization are
+/// solved here.
 ///
 /// # Reflect vs. transmit, and mode selection
 ///
@@ -101,6 +99,13 @@ pub(in crate::optics::raytracer) fn entry_eigenmode_selection(
 /// p_mode_hero_frac` (standard importance-sampling `target / p_sample`, unbiased for
 /// any valid `p_sample`), polarized along the drawn mode's own eigenaxis (`o_hat`/
 /// `e_hat`, always real -- an entry interface's transmitted side never evanesces).
+///
+/// # Exit collection
+///
+/// With `collect` the event draws no reflect-vs-transmit branch: the mirror reflection is
+/// collected as a leaf at once and the path takes the transmit branch undivided
+/// ([`apply_uniaxial_entry_collect`]). The mode draw stays as it is. `None` is the branching
+/// estimator, bit for bit.
 #[expect(
     clippy::similar_names,
     reason = "n_o/n_e are the established ordinary/extraordinary index names; sol_s_hero/sol_p_hero are the established s/p polarisation solution names; p_o_raw/p_e_raw are the established ordinary/extraordinary mode-power names"
@@ -110,7 +115,8 @@ pub(super) fn apply_uniaxial_entry_bounce(
     ray: BounceRay,
     rng: RngDraw,
     state: &mut BounceState<'_>,
-    exit: &mut ExitSplitCtx<'_>,
+    exit_event: &mut ExitEvent<'_, '_>,
+    collect: Option<&mut ExitCollect<'_>>,
 ) -> (Vec3, Vec3, bool, Option<bool>) {
     let (ctx, geo, frame) = (ubctx.ctx, ubctx.geo, ubctx.frame);
     let BounceRay { k_hat, normal } = ray;
@@ -123,26 +129,14 @@ pub(super) fn apply_uniaxial_entry_bounce(
         .material
         .extraordinary_index_at(ctx.lambdas[hero], n_o_hero);
 
-    // The degenerate case (wave normal parallel to the optic axis, where the
-    // closed-form ordinary D-direction `k x c_axis` vanishes and singularizes the
-    // boundary-match system below) is no longer handled here -- `k_hat` reaching this
-    // function already satisfies `k_hat.cross(c_axis).length_squared() > 1e-6`
-    // (`dispatch::try_dispatch_uniaxial_bounce`'s own entry-branch guard), exactly
-    // mirroring how that same dispatcher already routes a degenerate INTERNAL bounce
-    // around `apply_uniaxial_internal_bounce`. A degenerate entry instead falls through
-    // to `apply_partial_fresnel_bounce`'s general scalar-Fresnel/`resolve_entry_mode_selection`
-    // path -- the SAME path a degenerate entry always took on the GPU (`08_bounce_step.wgsl`'s
-    // `uniaxial_nondegenerate` gate), where it draws a plain 50/50 (or, if `entry_eigenmode_selection`
-    // still returns `Some` from a nonzero `current_plane_normal`, polarization-weighted)
-    // ordinary/extraordinary split at each channel's own (now-equal) `n_o_ch[k]`
-    // rather than this file's own separate hand-rolled isotropic-Fresnel duplicate.
+    // `k_hat` here always satisfies `k_hat.cross(c_axis).length_squared() > 1e-6`: the
+    // dispatcher (`dispatch::try_dispatch_uniaxial_bounce`) sends a wave normal parallel to
+    // the optic axis, where the closed-form system is singular, to the scalar fallback in
+    // `apply_partial_fresnel_bounce`, the same path the GPU takes.
     //
-    // Built once per bounce, shared by the hero's own branch-decision solve below and
-    // every channel's solve in
-    // `apply_uniaxial_entry_reflect_channels`/`apply_uniaxial_entry_transmit_channels`
-    // -- bit-identical to each of those calling `entry_solve_pair` (which rebuilds
-    // this internally) fresh, since `n1 == 1.0` for every channel at an air->crystal
-    // entry -- see `EntryIncidenceFrame`'s own doc comment.
+    // Built once per bounce and shared by the hero's branch-decision solve and every
+    // channel's solve. `n1 == 1.0` at an air->crystal entry, so it is the same for all;
+    // see `EntryIncidenceFrame`.
     let inc_frame = uniaxial_fresnel::entry_incidence_frame(1.0, frame);
     let (sol_s_hero, sol_p_hero) = uniaxial_fresnel::entry_solve_pair_with_incidence(
         &inc_frame, 1.0, n_o_hero, n_e_hero, c_axis, frame,
@@ -176,9 +170,8 @@ pub(super) fn apply_uniaxial_entry_bounce(
     );
     let p_o_hero =
         (p_o_raw / (p_o_raw + p_e_raw).max(1e-12)).clamp(R_UNPOL_SELECT_MIN, R_UNPOL_SELECT_MAX);
-    let mode_split_rand = (hash_u32(rng_seed ^ hash_u32(bounce ^ BIREFRINGENT_SPLIT_STREAM))
-        as f32)
-        / 4_294_967_295.0;
+    let mode_split_rand =
+        (discrete_draw(rng_seed, bounce, BIREFRINGENT_SPLIT_STREAM) as f32) / 4_294_967_295.0;
     let use_extraordinary = mode_split_rand < (1.0 - p_o_hero);
     let p_mode_hero_frac = if use_extraordinary {
         1.0 - p_o_hero
@@ -217,29 +210,100 @@ pub(super) fn apply_uniaxial_entry_bounce(
     // own rotation.
     let p_axis_transmitted = refr_wave_dir.cross(frame.s_axis);
 
+    let mode = EntryTransmitMode {
+        use_extraordinary,
+        final_refr_dir,
+        p_axis_transmitted,
+        p_mode_hero_frac,
+        inc_flux,
+        r_branch,
+    };
+    if let Some(collect) = collect {
+        apply_uniaxial_entry_collect(ubctx, &inc_frame, ray, &mode, state, (exit_event, collect));
+        return (refr_wave_dir, final_refr_dir, true, Some(use_extraordinary));
+    }
+
     let rng_bounce =
-        (hash_u32(rng_seed ^ hash_u32(bounce ^ FRESNEL_BRANCH_STREAM)) as f32) / 4_294_967_295.0;
+        (discrete_draw(rng_seed, bounce, FRESNEL_BRANCH_STREAM) as f32) / 4_294_967_295.0;
 
     if rng_bounce < r_branch {
         apply_uniaxial_entry_reflect_channels(ubctx, &inc_frame, r_branch, state);
         let new_k = k_hat - 2.0 * k_hat.dot(normal) * normal;
         (new_k, new_k, false, None)
     } else {
-        let mode = EntryTransmitMode {
-            use_extraordinary,
-            final_refr_dir,
-            p_axis_transmitted,
-            p_mode_hero_frac,
-            inc_flux,
-            r_branch,
-        };
-        apply_uniaxial_entry_transmit_channels(ubctx, &inc_frame, ray, &mode, state, exit);
+        apply_uniaxial_entry_transmit_channels(
+            ubctx,
+            &inc_frame,
+            ray,
+            &mode,
+            state,
+            exit_event.exit,
+        );
         (refr_wave_dir, final_refr_dir, true, Some(use_extraordinary))
     }
 }
 
-/// The reflect branch's per-channel loop, extracted from [`apply_uniaxial_entry_bounce`]
-/// to keep that function under clippy's function-length lint. `inc_frame` is the
+/// The exit-collection entry event: the mirror reflection becomes a leaf, the transmit branch
+/// continues undivided.
+///
+/// The reflect loop runs on a copy of the Stokes states with `r_branch = 1`, so its result is each
+/// channel's own `R_k`-weighted state with nothing divided out; [`deposit_entry_leaf`] adds that
+/// times the environment along the mirror direction (every technique produces the reflection, so
+/// the MIS weight is the plain family weight). The transmit loop then runs on the real state with
+/// `r_branch = 0`, which is the same loop with `1 / (1 - r_branch) == 1`; the branch factors it
+/// folded into `path_pdf` are undone ([`restore_densities`]) because this estimator follows its
+/// chain with probability one. Collection runs only for a stone without tools, so the mirror leaf
+/// cannot re-enter the stone.
+fn apply_uniaxial_entry_collect(
+    ubctx: &UniaxialBounceContext<'_, '_>,
+    inc_frame: &uniaxial_fresnel::EntryIncidenceFrame,
+    ray: BounceRay,
+    mode: &EntryTransmitMode,
+    state: &mut BounceState<'_>,
+    (exit_event, collect): (&mut ExitEvent<'_, '_>, &mut ExitCollect<'_>),
+) {
+    let ctx = ubctx.ctx;
+    let BounceRay { k_hat, normal } = ray;
+    let mut leaf_stokes = *state.stokes;
+    let mut leaf_pdf = *state.path_pdf;
+    apply_uniaxial_entry_reflect_channels(
+        ubctx,
+        inc_frame,
+        1.0,
+        &mut BounceState {
+            stokes: &mut leaf_stokes,
+            path_pdf: &mut leaf_pdf,
+        },
+    );
+    deposit_entry_leaf(
+        exit_event,
+        collect,
+        &EntryLeaf {
+            dir: k_hat - 2.0 * k_hat.dot(normal) * normal,
+            lambdas: &ctx.lambdas,
+            stokes: &leaf_stokes,
+            path_pdf: state.path_pdf,
+            hero: ctx.hero_idx,
+        },
+    );
+    let saved = *state.path_pdf;
+    let undivided = EntryTransmitMode {
+        r_branch: 0.0,
+        ..*mode
+    };
+    apply_uniaxial_entry_transmit_channels(
+        ubctx,
+        inc_frame,
+        ray,
+        &undivided,
+        state,
+        exit_event.exit,
+    );
+    restore_densities(&saved, state.path_pdf);
+}
+
+/// The reflect branch's per-channel loop, split out of [`apply_uniaxial_entry_bounce`] for
+/// its function-length lint. `inc_frame` is the
 /// caller's already-built [`EntryIncidenceFrame`] -- see that type's own doc comment.
 #[expect(
     clippy::similar_names,
@@ -292,12 +356,10 @@ fn entry_transmit_unpol_density(
     (1.0 - mueller_k.col(0)[0]).clamp(R_UNPOL_PDF_MIN, R_UNPOL_PDF_MAX)
 }
 
-/// The transmit branch's per-channel loop (chromatic-termination geometry check plus
-/// the closed-form mode-power amplitude deposit), extracted from
-/// [`apply_uniaxial_entry_bounce`] for the same reason as
-/// [`apply_uniaxial_entry_reflect_channels`].
-/// [`apply_uniaxial_entry_bounce`]'s own resolved transmit-branch outcome, passed down
-/// to [`apply_uniaxial_entry_transmit_channels`]'s per-channel loop unchanged.
+/// The resolved transmit-branch outcome of [`apply_uniaxial_entry_bounce`], passed to
+/// [`apply_uniaxial_entry_transmit_channels`], whose per-channel loop does the
+/// chromatic-termination geometry check and the closed-form mode-power deposit.
+#[derive(Clone, Copy)]
 struct EntryTransmitMode {
     use_extraordinary: bool,
     final_refr_dir: Vec3,
@@ -366,7 +428,26 @@ fn apply_uniaxial_entry_transmit_channels(
             refr_wave_dir_k
         };
         dirs[k] = Some(final_dir_k);
-        let direction_matches = final_dir_k.dot(final_refr_dir) >= DIRECTION_MATCH_COS_TOL;
+        let hero = ctx.hero_idx;
+        let n2_hero_dir = if use_extraordinary {
+            geo.n2_ch[hero]
+        } else {
+            geo.n_o_ch[hero]
+        };
+        let direction_matches = direction_matches(
+            exit.direction_match,
+            final_dir_k,
+            final_refr_dir,
+            k == hero,
+            [geo.n1, n2k_dir, n_o_k],
+            [geo.n1, n2_hero_dir, geo.n_o_ch[hero]],
+            ExactExtra {
+                material: ctx.material,
+                lambdas: (ctx.lambdas[k], ctx.lambdas[hero]),
+                uniaxial_e: use_extraordinary,
+                biaxial: false,
+            },
+        );
         hero_match[k] = direction_matches;
         if !direction_matches {
             stokes[k] = stokes[k].scale(0.0);

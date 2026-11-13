@@ -1,17 +1,12 @@
 
 // ---------------------------------------------------------------------------------
-// Phase 4: optics::birefringence::BiaxialIndicatrix -- the genuinely biaxial
-// (three-distinct-principal-index) generalization of the uniaxial machinery above.
-// Every function here is a direct, line-for-line port of the corresponding
-// `BiaxialIndicatrix` method or free function, taking the indicatrix's three fields
-// (`n_alpha`, `n_beta`, `n_gamma`, `axes` -- flattened to `ax0`/`ax1`/`ax2`, the three
-// world-space principal-axis columns, alpha/beta/gamma respectively, matching
-// `Mat3::from_cols(a1, a2, g)` in `BiaxialIndicatrix::from_gamma_axis`) as explicit
-// parameters rather than reading a struct binding, mirroring `dispersion_evaluate`'s
-// "one shared body, two different binding shapes" convention above -- the megakernel
-// builds `ax0`/`ax1`/`ax2` once per ray via `biaxial_axes` (since they depend
-// only on `c_axis`, constant across a ray's bounces) and Tier 2's per-case kernels build
-// them once per case the same way.
+// optics::birefringence::BiaxialIndicatrix: the three-distinct-principal-index generalization
+// of the uniaxial functions in `01_prelude_polarization.wgsl`. Each function is a line-for-line
+// port of its CPU method or free function. The indicatrix fields (`n_alpha`, `n_beta`,
+// `n_gamma`, and the axes flattened to `ax0`/`ax1`/`ax2` = alpha, beta, gamma columns, as
+// `Mat3::from_cols(a1, a2, g)` in `from_gamma_axis`) are explicit parameters, not a struct
+// binding, as in `dispersion_evaluate`. The megakernel builds the axes once per ray with
+// `biaxial_axes` (they depend only on `c_axis`), and the standalone kernels once per case.
 // ---------------------------------------------------------------------------------
 
 struct BiaxialAxes {
@@ -147,18 +142,13 @@ fn canonicalize_eigenvector_sign(v: vec3<f32>) -> vec3<f32> {
     return v;
 }
 
-// optics::birefringence::BiaxialIndicatrix::eigenvector_world -- see that Rust
-// function's doc comment for the "transverse impermeability" (Gamma = P.B.P) matrix
-// construction and the sign-aligned row-pair-cross-product null-vector extraction this
-// mirrors op-for-op. This formulation (rather than a cleared-denominator polynomial
-// form, or a largest-of-three-magnitude selection) is used for numerical conditioning:
-// a discrete argmax branch over the three candidate magnitudes is the mechanism that
-// otherwise degrades precision -- see the Rust doc comment for the full derivation.
-//
-// Mirrors optics::birefringence::BiaxialIndicatrix::precise_root_near op-for-op: an
-// algebraically-exact discriminant reformulation that replaces `B^2 - 4C` (a
-// subtraction of two ~1-magnitude sums) with direct, Sterbenz-exact differences of the
-// principal `1/n^2` values -- see the Rust doc comment for the full derivation.
+// Eigenvector and root solves, mirroring optics::birefringence::BiaxialIndicatrix's
+// `eigenvector_world` and `precise_root_near` op for op (see their docs for the derivation).
+// The null vector comes from sign-aligned row-pair cross products of the transverse
+// impermeability matrix (Gamma = P.B.P). A largest-magnitude argmax branch over the candidates
+// is avoided: it degrades precision.
+// The root uses Sterbenz-exact differences of the principal `1/n^2` values instead of
+// `B^2 - 4C`, which subtracts two ~1-magnitude sums.
 fn precise_root_near(local: vec3<f32>, b: vec3<f32>, x: f32) -> f32 {
     let a = local.x * local.x;
     let bb = local.y * local.y;
@@ -252,9 +242,8 @@ fn biaxial_eigen_polarizations(
     return result;
 }
 
-// optics::birefringence::BiaxialIndicatrix::d_to_e_direction -- see quadratic_form3's
-// doc comment above for why the per-axis dot products are spelled out as explicit
-// non-fused scalar sums rather than the `dot()` builtin.
+// optics::birefringence::BiaxialIndicatrix::d_to_e_direction. The per-axis dot products are
+// explicit non-fused sums, not the `dot()` builtin, as in `quadratic_form3`.
 fn biaxial_d_to_e_direction(
     n_alpha: f32, n_beta: f32, n_gamma: f32,
     ax0: vec3<f32>, ax1: vec3<f32>, ax2: vec3<f32>,
@@ -375,29 +364,13 @@ fn biaxial_resolve_entry_mode(
     return result;
 }
 
-// optics::birefringence::AbsorptionTensor3::biaxial + AbsorptionTensor3::quadratic_form
-// -- the three-independent-principal-coefficient generalization of `quadratic_form`
-// above. Reconstructs its axis frame fresh from `c_axis` (never reuses a caller's
-// `ax0`/`ax1`/`ax2`), exactly mirroring how the uniaxial `quadratic_form`/
-// `pleochroic_channel_alpha` pair above independently rebuild theirs -- both
-// constructions are bit-identical to `biaxial_axes` on the same input (see
-// `birefringence::biaxial_reduction_tests::absorption_frame_is_bit_identical_to_index_frame`
-// on the CPU side), so which call site does the rebuilding is a style choice, not a
-// correctness one.
-// See eigenmodes_biaxial.rs's ASSIGNED_MODE_ALPHA_BIAXIAL_ULP_BUDGET doc comment. The
-// three per-axis dot products are spelled out as explicit non-fused scalar sums here,
-// matching optics::birefringence::AbsorptionTensor3::quadratic_form's exact
-// `axes.transpose() * e_hat` accumulation order bit-for-bit (glam's Mat3::mul_vec3
-// SAXPY expansion reduces algebraically to this same left-to-right x+y+z grouping --
-// see that CPU function's doc comment). WGSL's `dot()` builtin is not specified to
-// lower this way (a driver's shader compiler may contract it into an FMA chain), so
-// this avoids relying on that unspecified rounding. This does not by itself close the
-// harness's `assigned_mode_alpha_biaxial` ULP gap between `cpu` and `gpu` bit patterns
-// -- see `eigenmodes_biaxial.rs`'s `ASSIGNED_MODE_ALPHA_BIAXIAL_ULP_BUDGET` doc comment
-// for the full measurement and why the residual traces to hardware `/`/`sqrt`
-// precision in the shared eigenvector solve instead, not this function's op order.
-// Kept anyway: removing the dependency on `dot()`'s unspecified lowering is still
-// worth having.
+// optics::birefringence::AbsorptionTensor3::quadratic_form for the three-coefficient tensor.
+// The three per-axis dot products are explicit non-fused sums, in the CPU's
+// `axes.transpose() * e_hat` accumulation order. A driver may contract the `dot()` builtin into
+// an FMA chain, so this avoids that unspecified rounding. The remaining
+// `assigned_mode_alpha_biaxial` ULP gap against the CPU comes from the shared eigenvector solve,
+// not from this op order. See `transport_check/eigenmodes_biaxial/assigned_mode_alpha.rs`
+// (`ASSIGNED_MODE_ALPHA_BIAXIAL_ULP_BUDGET`).
 fn quadratic_form3(alpha: f32, beta: f32, gamma: f32, a1: vec3<f32>, a2: vec3<f32>, c: vec3<f32>, e_hat: vec3<f32>) -> f32 {
     let l0 = a1.x * e_hat.x + a1.y * e_hat.y + a1.z * e_hat.z;
     let l1 = a2.x * e_hat.x + a2.y * e_hat.y + a2.z * e_hat.z;
@@ -431,17 +404,14 @@ fn pleochroic_channel_alpha_biaxial(
 }
 
 // ---------------------------------------------------------------------------------
-// P1 (assigned-mode absorption): optics::birefringence::{assigned_mode_alpha,
-// assigned_mode_e_field_uniaxial, BiaxialIndicatrix::assigned_mode_e_field}. Replaces
-// pleochroic_channel_alpha(_biaxial) above on the ANISOTROPIC branch of the interior
-// transport path -- see optics::raytracer::absorption::channel_absorption_alphas_assigned's
-// doc comment for the full rationale (a camera-traced path's Stokes vector is importance,
-// not the light's true state, and its azimuth drifts from the assigned mode's own axis
-// after internal reflections; the assigned mode's E-field is exact geometry instead, and
-// these functions read NO Stokes vector at all). The isotropic branch keeps calling
-// pleochroic_channel_alpha(_biaxial) above, unchanged -- see the megakernel call site's
-// own comment for why that is a deliberate, numerically-inert divergence from the CPU
-// side's isotropic branch, which has no Stokes vector available to it there.
+// Assigned-mode absorption: optics::birefringence::{assigned_mode_alpha,
+// assigned_mode_e_field_uniaxial, BiaxialIndicatrix::assigned_mode_e_field}. On the
+// anisotropic branch of the interior transport path these replace
+// `pleochroic_channel_alpha(_biaxial)`. A traced path's Stokes vector is importance, not the
+// light's true state, and its azimuth drifts from the assigned mode's axis after internal
+// reflections. The assigned mode's E-field is exact geometry, so these functions read no Stokes
+// vector. See `optics::raytracer::absorption::channel_absorption_alphas_assigned`. The isotropic
+// branch keeps `pleochroic_channel_alpha(_biaxial)`.
 // ---------------------------------------------------------------------------------
 
 // optics::birefringence::assigned_mode_e_field_uniaxial

@@ -52,9 +52,8 @@ pub struct FacetingDiagramDetail {
     // don't print it, so it usually arrives from a design's own metadata instead. All
     // `None` by default; a missing ratio must stay missing, not fabricated.
     // `apps/pleochroma-cut`'s importer derives several from the design's own geometry;
-    // see `gui::library::apply_measured_metadata`.
-    /// Height/width ratio -- see this field group's own doc comment above for why it's
-    /// the odd one out among the five ratios here.
+    // see `crate::local::apply_measured_metadata`.
+    /// Height/width ratio. The comment above this group says why it is filled differently.
     pub hw_ratio: Option<String>,
     /// Table/width ratio.
     pub tw_ratio: Option<String>,
@@ -69,16 +68,13 @@ pub struct FacetingDiagramDetail {
     /// Whether the sheet additionally declares mirror-image symmetry.
     pub mirror_symmetry: Option<bool>,
 
-    /// The designer alone (e.g. `"Capps, Jerry"`) -- the first half of what
-    /// [`Self::designer_info`] holds as one free-text `"Designer; Publication
-    /// citation"` string. Split out so "every design by X" is a real equality query
-    /// against an indexed column rather than a `LIKE '%X%'` scan.
+    /// The designer alone (e.g. `"Capps, Jerry"`), the first half of [`Self::designer_info`].
     ///
-    /// `designer_info` is deliberately *kept* alongside this and
-    /// [`Self::source_citation`]: it's what `search_diagrams`' free-text `LIKE`
-    /// matches, and what
-    /// `apps/pleochroma-cut` renders -- it stays the display/search convenience, with
-    /// these two as the queryable halves.
+    /// Kept apart so "every design by X" is an equality match, not a `LIKE '%X%'` scan.
+    ///
+    /// `designer_info` is kept alongside this and [`Self::source_citation`]: it is what the
+    /// library's free-text search matches and what `apps/pleochroma-cut` renders. These two
+    /// are the queryable halves.
     pub designer: Option<String>,
     /// The publication citation alone (e.g. `"Lapidary Journal, May 1994, p95"`) --
     /// the second half of [`Self::designer_info`]. See [`Self::designer`].
@@ -88,7 +84,7 @@ pub struct FacetingDiagramDetail {
     // (`/diagram/...`, inline `<svg>` plus a designer/citation `<li>`) and competition
     // entries (`/diagramus/...`, no inline SVG, attachments labelled `PDF:`/`GEM:` in a
     // `div.attachmentPost` list instead). The three fields below come from the second
-    // kind and are `None` on the first -- see `crate::parser::parse_attachment_labels`.
+    // kind and are `None` on the first.
     /// The `PDF:` attachment's file name (e.g. `"2002SSCMasters.pdf"`), the join key
     /// between a competition entry and the PDF corpus in [`Self::attached_files`].
     ///
@@ -101,14 +97,12 @@ pub struct FacetingDiagramDetail {
     /// `""`), which reads back here as `None` rather than an empty string.
     pub gem_file: Option<String>,
     /// The numbered shape-category id from the `Shape:` metadata item, e.g. `5` from
-    /// `"05. Pear"` -- the stable half of that label, whose text half
-    /// ([`Self::shape`]) `crate::util::clean_shape_string` already strips it from.
+    /// `"05. Pear"`. The number is removed from the text half, [`Self::shape`].
     ///
     /// Kept as a decimal string, like [`Self::symmetry_order`], bound straight into an
-    /// INTEGER column. Not derivable from the article's `shape-diagram-NN-name` CSS
-    /// class, which `crate::util::map_shape_class` shows carries *two* conflicting
-    /// numberings for several shapes (`04`/`10` both being Emerald) and so isn't a
-    /// stable id.
+    /// INTEGER column. Not derivable from the page's `shape-diagram-NN-name` CSS class,
+    /// which uses two conflicting numberings for several shapes (`04`/`10` both being
+    /// Emerald), so it is no stable id.
     pub shape_category: Option<String>,
 
     /// How many of the design's tiers are concave (tool-cut); `0` for a planar design.

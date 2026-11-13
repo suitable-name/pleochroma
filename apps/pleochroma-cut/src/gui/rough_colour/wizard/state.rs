@@ -348,8 +348,9 @@ impl State {
 
     /// Takes the saved-plan facts of the planner's live context: the plan was saved while the
     /// window was open (Accept needs the id), or saved under another name. Only for the same
-    /// rough (`mesh_id`); another rough is [`refresh_from_planner`](super::actions::refresh_from_planner)'s
-    /// business. Returns whether anything changed.
+    /// rough (`mesh_id`); another rough is handled by
+    /// [`refresh_from_planner`](super::actions::refresh_from_planner). Returns whether anything
+    /// changed.
     pub fn adopt_plan_id(&mut self, live: &PlannerContext) -> bool {
         match self.context.as_mut() {
             Some(known)
@@ -869,7 +870,7 @@ impl Default for State {
     }
 }
 
-/// An empty mask is the wrong size for nothing; this keeps the type in the imports used.
+/// A mask of the given size with no flags set.
 #[must_use]
 pub fn blank_mask(width: usize, height: usize) -> PixelMask {
     PixelMask::new(width, height)

@@ -1,13 +1,14 @@
 //! One-entry cache of the uploaded HDR environment storage buffer.
 //!
-//! A camera-only change gives the Ray-Traced scene a new generation, which used to repack
-//! and re-upload the whole map (16 bytes per texel, 128 MiB at 4096x2048). The prepared
-//! environment owns its map as an `Arc`, so that `Arc` is the cache identity: the cache
-//! keeps a clone, hence the address cannot be reused by another map while the entry lives.
+//! A camera-only change creates a new scene generation, and the map must not be repacked and
+//! uploaded again for it. A 4096x2048 map is 128 MiB at 16 bytes per texel. The prepared
+//! environment owns its map as an `Arc`, which serves as the cache identity. The cache keeps a
+//! clone, so the address cannot be reused by another map while the entry lives.
 //!
 //! The buffer is created with its contents and never written again, so scenes that still
 //! bind a replaced entry keep it alive through wgpu's own reference count.
 
+use crate::optics::raytracer::environment::tray_shadow::TrayShadowKey;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use crate::renderer::env_map::EnvironmentMap;
@@ -32,9 +33,25 @@ pub(super) fn cache_hit(owner: &Arc<EnvironmentMap>, cached: Option<&Arc<Environ
 #[derive(Default)]
 pub(super) struct EnvironmentCache {
     entry: Mutex<Option<CachedEnvironment>>,
+    shadow: Mutex<Option<(TrayShadowKey, wgpu::Buffer)>>,
 }
 
 impl EnvironmentCache {
+    /// Reuses the RGB tail uploaded for this physical shadow map on this device.
+    pub(super) fn lookup_shadow(&self, key: TrayShadowKey) -> Option<wgpu::Buffer> {
+        self.shadow
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()
+            .filter(|(cached, _)| *cached == key)
+            .map(|(_, buffer)| buffer.clone())
+    }
+
+    /// Retains the completed studio upload through camera moves.
+    pub(super) fn store_shadow(&self, key: TrayShadowKey, buffer: wgpu::Buffer) {
+        *self.shadow.lock().unwrap_or_else(PoisonError::into_inner) = Some((key, buffer));
+    }
+
     /// The buffer and texel dimensions cached for `owner`, if it is the cached map.
     pub(super) fn lookup(&self, owner: &Arc<EnvironmentMap>) -> Option<(wgpu::Buffer, [u32; 2])> {
         let guard = self.entry.lock().unwrap_or_else(PoisonError::into_inner);

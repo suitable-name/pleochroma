@@ -1,7 +1,7 @@
 //! The JSON text a pattern is stored as (the vault's `material_pattern` and
 //! `color_pattern_presets` rows, the design file's `[material.custom.pattern]` table).
 //!
-//! Everything read back is hostile input (a hand-edited file, a newer build's row), so
+//! Everything read back is untrusted input (a hand-edited file, a newer build's row), so
 //! [`decode_pattern`] refuses a newer version and checks the structure it parsed. Colors may be
 //! unsolved in a stored pattern (a draft); geometry is validated when the pattern becomes zones
 //! ([`ColorPattern::to_zoned`]).
@@ -89,8 +89,8 @@ fn check_structure(pattern: &ColorPattern) -> Result<(), PatternCodecError> {
 pub fn encode_pattern(pattern: &ColorPattern) -> Result<String, PatternCodecError> {
     check_structure(pattern)?;
     // A pattern is written with the lowest version that holds it, never below its own: only a
-    // pattern with a variant or a three-color zone is a version 2 file, so an older build still
-    // reads every other pattern.
+    // pattern with a variant or a three-color zone is a version 2 file, so older readers still
+    // accept every other pattern.
     let version = pattern.format_version();
     let text = if version == pattern.version {
         serde_json::to_string(pattern)

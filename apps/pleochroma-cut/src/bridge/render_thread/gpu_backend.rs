@@ -6,6 +6,7 @@
 mod benchmark_observation;
 mod calibration;
 mod dispatch;
+mod live;
 #[path = "owned_backend_frame.rs"]
 pub(super) mod owned_frame;
 mod warmup;
@@ -33,8 +34,8 @@ use pleochroma::{
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 
-/// One frame's scene, as both backends need it. Bundled so [`ViewportGpu::try_accumulate_cancellable`]
-/// and the CPU path take the same description rather than a dozen loose parameters.
+/// One frame's scene, as both backends need it. Bundled so the GPU and CPU paths
+/// (see [`ViewportGpu::try_accumulate_cancellable`]) share one description.
 #[derive(Clone, Copy)]
 pub(super) struct BackendFrame<'a> {
     pub(super) width: u32,
@@ -102,14 +103,12 @@ pub(super) struct FrameOutputs<'a> {
     pub(super) facet_id: &'a mut [i32],
 }
 
-/// The viewport's GPU backend: the shared [`GpuBackend`] plus the guide buffers it
-/// cannot produce.
+/// The viewport's GPU backend: the shared [`GpuBackend`] plus the guide buffers it cannot
+/// produce.
 ///
-/// The megakernel returns radiance only, with no first-hit depth/normal/facet-id, so
-/// the A-Trous denoiser has nothing to key on -- the same gap a remote worker's `FRAME`
-/// payload has, solved the same way: `bridge::frame_cache::guide_pass`'s local
-/// primary-ray prepass, cached on pose plus geometry. When the `gpu` feature is off,
-/// `GpuBackend` always declines and the guide cache is never consulted.
+/// The GPU returns radiance only, with no first-hit depth, normal or facet id for the
+/// A-Trous denoiser. These come from `bridge::frame_cache::guide_pass`, a primary-ray
+/// prepass cached on pose and geometry.
 #[expect(
     clippy::struct_excessive_bools,
     reason = "four independent latches (signature wanted, last request accepted, retired, ray status shown) \
@@ -120,8 +119,8 @@ pub(super) struct ViewportGpu {
     warmup: warmup::PathWarmup,
     shared_hdr: Option<std::sync::Arc<pleochroma::renderer::env_map::EnvironmentMap>>,
     guides: crate::bridge::frame_cache::guide_pass::GuideCache,
-    /// Key of the guide buffers currently copied into the render loop's buffers, so an
-    /// unchanged pose copies nothing rather than memcpying ~10 MB every frame.
+    /// Key of the guide buffers currently copied into the render loop's buffers. An
+    /// unchanged pose copies nothing.
     applied_guide_key: Option<crate::bridge::frame_cache::guide_pass::GuideKey>,
     /// Key of the path signature currently held by the render loop's signature buffer
     /// (`None`: the buffer is zeroed or unset); see [`Self::sync_path_sig`].
@@ -135,23 +134,16 @@ pub(super) struct ViewportGpu {
     /// speculatively, beside the GPU turn, while this holds, so a backend that keeps
     /// declining (lost device, oversized map) never pays a prepass for a CPU frame.
     last_gpu_ok: bool,
-    /// Set once a joined GPU-thread panic is observed (see [`hybrid_frame`])
-    /// and never cleared -- `GpuBackend` itself only recovers from a cleanly-reported
-    /// [`pleochroma::renderer::gpu::GpuFrameError::DeviceLost`], which
-    /// a raw thread panic never reaches (the panic unwinds past the normal return path
-    /// entirely). Without this, a panic observed only through `hybrid_frame`'s joined
-    /// thread left the single-engine path at [`accumulate_frame_samples_cancellable`] free to call
-    /// [`Self::try_accumulate_cancellable`] again next frame, straight back into the wgpu state
-    /// that produced the panic. A reported device loss is deliberately NOT tracked here:
-    /// `GpuBackend` owns that recovery (see [`Self::try_accumulate_cancellable`]).
+    /// Set when a GPU-thread panic is observed through the joined `hybrid_frame` thread,
+    /// and never cleared. `GpuBackend` recovers only from reported device losses, and a raw
+    /// panic bypasses that path. Without this flag the GPU would be called again on the
+    /// wgpu state that panicked. A reported device loss is not tracked here: `GpuBackend`
+    /// owns that recovery (see [`Self::try_accumulate_cancellable`]).
     gpu_retired: bool,
-    /// User-facing status text for the viewport's own status pill
-    /// (`ui/components/gem_viewport.slint`'s `ViewportModel.gpu_status_text`) --
-    /// `None` while healthy or on a CPU-only build (nothing to report), `Some` while
-    /// the device is lost or once [`Self::gpu_retired`] is set. The
-    /// render loop polls [`Self::status_message`] once per frame and only pushes a
-    /// Slint property write when it actually changed -- see `spawn_render_thread`'s
-    /// own `last_gpu_status` local.
+    /// Status text for the viewport's status pill (`ViewportModel.gpu_status_text`). `None`
+    /// while healthy or on a CPU-only build, `Some` while the device is lost or once
+    /// [`Self::gpu_retired`] is set. The render loop pushes a change to Slint only when the
+    /// text differs from `last_gpu_status` in `spawn_render_thread`.
     status_message: Option<String>,
     /// Whether [`Self::status_message`] was last written by the Ray-Traced path
     /// ([`Self::set_ray_status`]), so a switch back to Path-Traced can drop it.
@@ -217,10 +209,9 @@ impl ViewportGpu {
         }
     }
 
-    /// Permanently stops this session's GPU frames after a joined GPU-thread panic --
-    /// mirrors the policy `GpuBackend::try_accumulate_cancellable`
-    /// already applies to its own `lost` flag (`Declined` forever, never retried), just
-    /// tracked here too since a raw thread panic never reaches that code path.
+    /// Permanently stops this session's GPU frames after a joined GPU-thread panic. Like a
+    /// lost device in `GpuBackend`, the GPU declines for good and is never retried. A raw
+    /// thread panic never reaches `GpuBackend`'s own handling, so it is tracked here.
     fn retire(&mut self) {
         self.gpu_retired = true;
         self.status_message = Some("CPU fallback (GPU render thread panicked)".to_string());
@@ -255,20 +246,12 @@ impl ViewportGpu {
         }
     }
 
-    /// Invalidates the cached guide-buffer key so the NEXT GPU frame recopies its guide
-    /// buffers unconditionally, even if the pose/geometry key it would compute matches
-    /// the one last applied.
+    /// Forgets the applied guide key, so the next GPU frame copies its guide buffers even
+    /// when the pose and geometry match the last copy.
     ///
-    /// Must be called whenever something OTHER than [`Self::try_accumulate_cancellable`] has just
-    /// written `depth`/`normal`/`facet_id` -- a CPU scanline frame
-    /// (`render_frame_scanlines`, taking any of [`accumulate_frame_samples_cancellable`]'s non-GPU
-    /// branches) or a resize/dirty reallocation
-    /// (`frame_helpers::update_accumulation_state`, called from the render loop) -- since
-    /// either leaves guide data in the buffers that does NOT match
-    /// `self.applied_guide_key`'s cached pose/geometry association, which
-    /// [`Self::try_accumulate_cancellable`]'s `self.applied_guide_key.as_ref() != Some(&key)` check
-    /// would otherwise treat as already up to date and skip recopying, serving a stale
-    /// depth/normal/facet-id triple to the denoiser on the next GPU frame.
+    /// Call this whenever another writer has changed `depth`, `normal` or `facet_id`: a CPU
+    /// scanline frame, or a reset in `frame_helpers::update_accumulation_state`. Otherwise
+    /// the next GPU frame would skip the copy and feed the denoiser stale guides.
     pub(super) const fn invalidate_guide_cache(&mut self) {
         self.applied_guide_key = None;
     }
@@ -281,15 +264,12 @@ impl ViewportGpu {
     ///
     /// # Lost devices
     ///
-    /// Recovery belongs to [`GpuBackend`] alone: a lost device makes it decline, and at
-    /// the start of each later request it re-acquires a fresh device once its cool-down
-    /// has passed (`GpuBackend::try_recover`, within an hourly attempt budget). This
-    /// wrapper never swaps the backend itself; it only reports. An ORDINARY decline
-    /// (unsupported material/environment, or no adapter at all -- neither sets `lost`)
-    /// falls back to the CPU for this one frame with no status change. A decline caused
-    /// by a genuine loss also runs the frame on the CPU and sets [`Self::status_message`]
-    /// for the viewport's status pill; the message clears the moment a GPU frame
-    /// succeeds again.
+    /// Recovery belongs to [`GpuBackend`] alone. A lost device makes it decline, and at the
+    /// start of a later request it re-acquires a device once its cool-down has passed
+    /// (`GpuBackend::try_recover`). This wrapper only reports. An ordinary decline
+    /// (unsupported material or environment, or no adapter) runs the frame on the CPU with
+    /// no status change. A decline caused by a loss also sets [`Self::status_message`],
+    /// which clears when a GPU frame succeeds again.
     #[cfg(all(test, feature = "gpu"))]
     fn try_accumulate(&mut self, frame: &BackendFrame<'_>, out: &mut FrameOutputs<'_>) -> bool {
         let cancel = AtomicBool::new(false);
@@ -329,10 +309,10 @@ impl ViewportGpu {
             material: frame.material,
             max_bounces: frame.max_bounces,
             environment: frame.environment,
+            estimator: None,
         };
         // The guides do not depend on the GPU's result, so for a changed pose the prepass
-        // runs beside the GPU turn instead of after it (UI-1 b); an unchanged pose has
-        // nothing to compute.
+        // runs beside the GPU turn. An unchanged pose has nothing to compute.
         let key = Self::guide_key(frame, self.guide_n_d(frame));
         let overlap = self.last_gpu_ok && self.applied_guide_key.as_ref() != Some(&key);
         #[cfg(feature = "render-bench")]
@@ -533,14 +513,11 @@ mod concave_routing_tests;
 #[cfg(test)]
 mod status_tests;
 
-/// Hardware tests driving the app's OWN [`ViewportGpu::
-/// try_accumulate`] directly -- `pleochroma`'s own
+/// Hardware tests of [`ViewportGpu::try_accumulate`]. The crate-level test
 /// `renderer::gpu_backend::tests::viewport_frames_with_camera_changes_never_poison_the_backend`
-/// covers the crate-level `GpuBackend` entry point this wraps, but not this wrapper's
-/// own self-healing/guide-buffer logic. Reaches `ViewportGpu`'s private fields
-/// directly, which is why these live here rather than in `pleochroma`'s own test
-/// module. Each test acquires its OWN `ViewportGpu` and prints a note and returns (a
-/// clean skip, not a failure) when no GPU adapter is available.
+/// covers `GpuBackend` itself. These cover this wrapper's self-healing and guide-buffer
+/// logic, and they need its private fields. Each test acquires its own `ViewportGpu` and
+/// returns early, printing a note, when no GPU adapter is available.
 #[cfg(all(test, feature = "gpu"))]
 mod gpu_hardware_tests {
     use super::*;
@@ -549,14 +526,10 @@ mod gpu_hardware_tests {
         renderer::gpu_backend::GpuPipelineKind,
     };
 
-    /// Drives `ViewportGpu::try_accumulate` across 12 simulated viewport frames, each
-    /// with a DIFFERENT camera pose (as `on_camera_orbit` produces on every drag
-    /// `moved` event) and an advancing `sample_offset` (as the render loop's
-    /// `accum_samples` does), for the given pipeline kind. Every call must succeed
-    /// (`true`), and `status_message()` must stay `None` throughout -- any `Some` means
-    /// a turn was declared `DeviceLost` and the self-healing path in
-    /// `ViewportGpu::try_accumulate` had to report a loss, which is
-    /// exactly the poisoning this bug report describes.
+    /// Drives `ViewportGpu::try_accumulate` over 12 frames, each with a different camera pose
+    /// and an advancing `sample_offset`, for the given pipeline kind. Every call must succeed,
+    /// and `status_message()` must stay `None`. Any `Some` means the device was reported
+    /// lost during the run.
     fn assert_twelve_rotated_frames_never_lose_the_device(pipeline_kind: GpuPipelineKind) {
         let mut viewport = ViewportGpu::acquire();
         if viewport.gpu.adapter_label().is_none() {

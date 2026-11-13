@@ -48,16 +48,15 @@ component LchRow inherits HorizontalLayout {
     }
 }
 
-// The path-aware body-colour editor: Tone (L*), Saturation (C*) and Hue (h) sliders, the
-// existing hue/saturation/brightness picker as an alternative input ("Use picker..."), a
-// reachability badge and swatches of the solved colour at 3 mm, 5 mm, 10 mm and the open
-// stone's own path -- the colour of a gem depends on its size, so the same pick is deeper in
-// a larger stone. All state is `BodyColorEditorModel` (solved by Rust on a background thread);
-// `applied` fires after "Apply colour" asked Rust to store the colour, `cancelled` closes the
-// editor without a change. The caller opens it and calls `BodyColorEditorModel.open_requested()`.
+// Body-color editor: Tone (L*), Saturation (C*) and Hue (h) sliders, the hue/saturation/brightness
+// picker as an alternative input, a reachability badge, and swatches of the solved color at 3, 5
+// and 10 mm and at the stone's own path. The color depends on size, so the same pick is deeper
+// in a larger stone. State lives in `BodyColorEditorModel`, which Rust solves on a background
+// thread. `applied` fires after Rust stores the color; `cancelled` closes the editor unchanged.
+// The caller opens it with `BodyColorEditorModel.open_requested()`.
 export component LchEditor inherits Rectangle {
     in property <bool> enabled: true;
-    // The tooltip of "Apply colour": what the colour is applied to depends on the caller.
+    // Tooltip of the Apply Color button; what the color applies to depends on the caller.
     in property <string> apply_hint: "Use this color for the design. It is one step you can undo.";
     callback applied();
     callback cancelled();
@@ -67,8 +66,8 @@ export component LchEditor inherits Rectangle {
     property <bool> naming: false;
     property <string> variant_name: "";
 
-    // Saves the colors under the typed name; the name row closes and the editor is done only when
-    // Rust saved them (otherwise the reason is a toast and the row stays for another name).
+    // Saves the colors under the typed name. The name row closes and the editor is done only when
+    // Rust saved them; otherwise Rust reports why in a toast and the row stays open.
     function save_variant() {
         if (root.variant_name != "" && BodyColorEditorModel.save_variant_requested(root.variant_name)) {
             root.naming = false;
@@ -86,9 +85,9 @@ export component LchEditor inherits Rectangle {
         padding: 8px;
         spacing: 6px;
 
-        // A stone whose color depends on the direction (a two- or three-color crystal) has one
-        // row per direction: its swatch, its name and its coarse color. The sliders below edit the
-        // chosen row, so a pleochroic stone is never made one flat color by accident.
+        // One row per direction for a stone whose color depends on direction (two or three
+        // colors): swatch, name and coarse color. The sliders edit the chosen row, so a
+        // pleochroic stone is not flattened to one color by accident.
         if BodyColorEditorModel.axis_labels.length > 1: VerticalLayout {
             spacing: 4px;
             Text {
@@ -225,9 +224,8 @@ export component LchEditor inherits Rectangle {
             }
         }
 
-        // Two rows of buttons: all four in one row (Use Picker..., Save as Variant..., Cancel and
-        // Apply Color) need about 400 px, more than the Stone tab's column, and the whole panel
-        // then grew past the window's right edge.
+        // Two button rows: all four buttons in one row need about 400 px, more than the Stone
+        // tab's column, and the panel would grow past the window's right edge.
         HorizontalLayout {
             spacing: 6px;
             tip-button-picker-open := TipButton {

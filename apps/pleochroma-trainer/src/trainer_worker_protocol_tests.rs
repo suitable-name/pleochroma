@@ -1,6 +1,7 @@
-//! End-to-end test of the worker protocol: the real worker loop on the built-in fixture data set
-//! (one CPU environment, a tiny rollout), driven through the command channel and observed
-//! through the event channel.
+//! End-to-end test of the worker protocol.
+//!
+//! It runs the real worker loop on the built-in fixture data set (one CPU environment, a tiny
+//! rollout), driven through the command channel and observed through the event channel.
 
 use std::{
     path::Path,

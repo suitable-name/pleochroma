@@ -1,4 +1,4 @@
-//! Tests for the zoning types and path-length kernels (written, not run, by lane K1).
+//! Tests for the zoning types and path-length kernels.
 //!
 //! Property tests use fixed seeds (a splitmix64 generator, no dependency).
 
@@ -110,9 +110,8 @@ fn cube_parts(centre: DVec3, half: f64) -> (Vec<[f64; 3]>, Vec<[u32; 3]>) {
             f64::mul_add(sz, half, centre.z),
         ]);
     }
-    // The vertex order above is (x fastest); the triangle list below is written for the
-    // order v0(-,-,-) v1(+,-,-) v2(+,+,-) v3(-,+,-) v4(-,-,+) v5(+,-,+) v6(+,+,+) v7(-,+,+),
-    // so re-order the vertices to that.
+    // The triangle list below is written for v0(-,-,-) v1(+,-,-) v2(+,+,-) v3(-,+,-)
+    // v4(-,-,+) v5(+,-,+) v6(+,+,+) v7(-,+,+), so reorder the bit-indexed vertices to match.
     let order = [0usize, 1, 3, 2, 4, 5, 7, 6];
     let vertices: Vec<[f64; 3]> = order.iter().map(|&i| vertices[i]).collect();
     let triangles = vec![
@@ -716,8 +715,8 @@ fn watermelon_prism_in_a_bicolour_half_space_has_the_hand_computed_lengths() {
     let l = zone_lengths(&z, DVec3::new(0.0, 0.0, -2.0), DVec3::new(0.0, 0.0, 3.0));
     assert_close("axis", &l, &[0.0, 0.0, 5.0, 0.0, 0.0], 1e-12);
 
-    // Along y at x = 0.5, z = 1: the chord of the triangle is 2 * 1.25 / (sqrt(3) / 2) / 2
-    // = 5 / sqrt(3).
+    // Along y at x = 0.5, z = 1 the prism chord is 5 / sqrt(3): the side normal at 120 degrees
+    // bounds y by (1 + 0.25) / (sqrt(3) / 2), so the chord is twice that.
     let chord = 5.0 / s3;
     let l = zone_lengths(&z, DVec3::new(0.5, -3.0, 1.0), DVec3::new(0.5, 3.0, 1.0));
     assert_close("y line", &l, &[0.0, 6.0 - chord, chord, 0.0, 0.0], 1e-12);
@@ -788,7 +787,7 @@ fn simple_shapes_have_the_hand_computed_lengths() {
     let l = zone_lengths(&z, DVec3::new(-2.0, 1.0, 0.0), DVec3::new(2.0, 1.0, 0.0));
     assert_close("sector", &l, &[2.0, 2.0, 0.0, 0.0, 0.0], 1e-12);
 
-    // Three-quarter sector (everything but the fourth quadrant): wide, a convex complement.
+    // Three-quarter sector (everything but the fourth quadrant), a span above pi.
     let z = one_zone(ZoneShape::Sector {
         axis_point: DVec3::ZERO,
         axis_dir: DVec3::Z,

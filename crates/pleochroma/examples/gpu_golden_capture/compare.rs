@@ -1,6 +1,6 @@
 //! Comparison engine for GPU golden capture files.
 //!
-//! Applies the three-tiered golden rule (§7.2, G-D10):
+//! Applies the three-tiered golden rule (§7.2):
 //! 1. **EXACT:** bitwise equal.
 //! 2. **TOL:** otherwise, per pixel and channel, `|a-b| <= 1e-5 * max(|a|, |b|) + 1e-6 * spp`,
 //!    allowing at most `max(2, (0.001 * total_pixels) as usize)` pixels to fail.

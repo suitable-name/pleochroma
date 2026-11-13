@@ -1,21 +1,37 @@
 //! `Serialize` for [`SceneState`]: every field, in declaration order, except that the default
-//! render-effects record is left out of human-readable output.
+//! render-effects record, a `false` `stone_shadow`, a `0.0` `tray_reflection`, an unturned
+//! `hdr_orientation` and a `Branching` `estimator` are left out of human-readable output.
 //!
 //! The wire form (postcard) is positional: a reader decodes by field count, so every field is
-//! always written there, the default record's 37 bytes included. A JSON job file or a debug dump
-//! has no such need, and a scene without effects (almost every scene) reads better, and stays
-//! byte-identical to a file written before the field existed, without an `"effects"` object. The
-//! decoding side is the derived one: `#[serde(default)]` on the field reads a file without it.
+//! always written there, the default record's bytes, the shadow flag's byte, the
+//! reflection's four bytes, the orientation's five and the estimator's one included. A JSON job
+//! file or a debug dump has no such need, and a scene without effects, a stone shadow, a tray
+//! reflection, a turned HDR map or the exit collection estimator (almost every scene) reads
+//! better, and stays byte-identical to a file written before the fields existed, without an
+//! `"effects"` object or a `"stone_shadow"` / `"tray_reflection"` / `"hdr_orientation"` /
+//! `"estimator"` key. The decoding side is the derived one: `#[serde(default)]` on each
+//! field reads a file without it.
 
 use serde::ser::{Serialize, SerializeStruct, Serializer};
 
 use super::{SceneState, effects::SceneEffects};
+use pleochroma::optics::raytracer::Estimator;
 
 impl Serialize for SceneState {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let skip_effects =
             serializer.is_human_readable() && self.effects == SceneEffects::default();
-        let fields = if skip_effects { 22 } else { 23 };
+        let skip_shadow = serializer.is_human_readable() && !self.stone_shadow;
+        let skip_reflection = serializer.is_human_readable() && self.tray_reflection == 0.0;
+        let skip_orientation = serializer.is_human_readable() && !self.hdr_orientation.is_turned();
+        let skip_estimator =
+            serializer.is_human_readable() && self.estimator == Estimator::Branching;
+        let fields = 27
+            - usize::from(skip_effects)
+            - usize::from(skip_shadow)
+            - usize::from(skip_reflection)
+            - usize::from(skip_orientation)
+            - usize::from(skip_estimator);
         let mut state = serializer.serialize_struct("SceneState", fields)?;
         state.serialize_field("width", &self.width)?;
         state.serialize_field("height", &self.height)?;
@@ -44,6 +60,26 @@ impl Serialize for SceneState {
             state.serialize_field("effects", &self.effects)?;
         }
         state.serialize_field("camera_roll", &self.camera_roll)?;
+        if skip_shadow {
+            state.skip_field("stone_shadow")?;
+        } else {
+            state.serialize_field("stone_shadow", &self.stone_shadow)?;
+        }
+        if skip_reflection {
+            state.skip_field("tray_reflection")?;
+        } else {
+            state.serialize_field("tray_reflection", &self.tray_reflection)?;
+        }
+        if skip_orientation {
+            state.skip_field("hdr_orientation")?;
+        } else {
+            state.serialize_field("hdr_orientation", &self.hdr_orientation)?;
+        }
+        if skip_estimator {
+            state.skip_field("estimator")?;
+        } else {
+            state.serialize_field("estimator", &self.estimator)?;
+        }
         state.end()
     }
 }
@@ -60,6 +96,10 @@ mod tests {
             height: 6,
             yaw: 0.1,
             camera_roll: 0.0,
+            stone_shadow: false,
+            tray_reflection: 0.0,
+            hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
+            estimator: pleochroma::optics::raytracer::Estimator::Branching,
             pitch: 0.2,
             distance: 3.0,
             light_yaw: 0.3,
@@ -104,6 +144,201 @@ mod tests {
         assert!(text.contains("\"effects\""), "{text}");
         let back: SceneState = serde_json::from_str(&text).expect("reads");
         assert_eq!(back, edged);
+    }
+
+    /// The appended bit is mandatory on postcard and omitted only from plain JSON.
+    #[test]
+    fn json_leaves_out_the_default_shadow_and_keeps_a_set_one() {
+        let mut plain = scene(SceneEffects::default());
+        let before = serde_json::to_string(&plain).expect("plain JSON");
+        assert!(!before.contains("stone_shadow"));
+        assert_eq!(
+            serde_json::from_str::<SceneState>(&before).expect("legacy JSON"),
+            plain
+        );
+        let bytes = postcard::to_allocvec(&plain).expect("plain wire");
+        // The shadow byte sits before the reflection's four bytes, the orientation's five
+        // and the estimator's one.
+        assert_eq!(bytes[bytes.len() - 11], 0);
+        plain.stone_shadow = true;
+        let shadowed = serde_json::to_string(&plain).expect("shadow JSON");
+        assert!(shadowed.contains("\"stone_shadow\":true"));
+        assert_eq!(
+            serde_json::from_str::<SceneState>(&shadowed).expect("shadow JSON"),
+            plain
+        );
+        let shadow_bytes = postcard::to_allocvec(&plain).expect("shadow wire");
+        assert_eq!(shadow_bytes[shadow_bytes.len() - 11], 1);
+        assert_eq!(
+            &bytes[..bytes.len() - 11],
+            &shadow_bytes[..shadow_bytes.len() - 11]
+        );
+        assert_eq!(
+            postcard::from_bytes::<SceneState>(&shadow_bytes).expect("shadow wire"),
+            plain
+        );
+    }
+
+    /// The appended reflectance is four mandatory bytes on postcard and omitted only from plain
+    /// JSON at `0.0`.
+    #[test]
+    fn json_leaves_out_the_default_reflection_and_keeps_a_set_one() {
+        let mut plain = scene(SceneEffects::default());
+        let before = serde_json::to_string(&plain).expect("plain JSON");
+        assert!(!before.contains("tray_reflection"));
+        assert_eq!(
+            serde_json::from_str::<SceneState>(&before).expect("legacy JSON"),
+            plain
+        );
+        let bytes = postcard::to_allocvec(&plain).expect("plain wire");
+        assert_eq!(
+            &bytes[bytes.len() - 10..bytes.len() - 6],
+            &0.0_f32.to_le_bytes()
+        );
+        plain.tray_reflection = 0.25;
+        let mirrored = serde_json::to_string(&plain).expect("mirror JSON");
+        assert!(mirrored.contains("\"tray_reflection\":0.25"));
+        assert_eq!(
+            serde_json::from_str::<SceneState>(&mirrored).expect("mirror JSON"),
+            plain
+        );
+        let mirror_bytes = postcard::to_allocvec(&plain).expect("mirror wire");
+        assert_eq!(mirror_bytes.len(), bytes.len(), "same layout");
+        assert_eq!(
+            &mirror_bytes[mirror_bytes.len() - 10..mirror_bytes.len() - 6],
+            &0.25_f32.to_le_bytes()
+        );
+        assert_eq!(
+            &bytes[..bytes.len() - 10],
+            &mirror_bytes[..mirror_bytes.len() - 10]
+        );
+        assert_eq!(
+            postcard::from_bytes::<SceneState>(&mirror_bytes).expect("mirror wire"),
+            plain
+        );
+    }
+
+    /// The appended orientation is five mandatory bytes on postcard (the yaw's four and the
+    /// follow flag, then the estimator's one) and omitted from plain JSON until the map is
+    /// turned.
+    #[test]
+    fn json_leaves_out_the_unturned_orientation_and_keeps_a_turned_one() {
+        use pleochroma::renderer::env_map::HdrOrientation;
+
+        let mut plain = scene(SceneEffects::default());
+        let before = serde_json::to_string(&plain).expect("plain JSON");
+        assert!(!before.contains("hdr_orientation"));
+        assert_eq!(
+            serde_json::from_str::<SceneState>(&before).expect("legacy JSON"),
+            plain
+        );
+        let bytes = postcard::to_allocvec(&plain).expect("plain wire");
+        assert_eq!(&bytes[bytes.len() - 6..bytes.len() - 1], &[0, 0, 0, 0, 0]);
+
+        for orientation in [
+            HdrOrientation {
+                yaw: 1.25,
+                follows_camera: false,
+            },
+            HdrOrientation {
+                yaw: 0.0,
+                follows_camera: true,
+            },
+            HdrOrientation {
+                yaw: 5.5,
+                follows_camera: true,
+            },
+        ] {
+            plain.hdr_orientation = orientation;
+            let turned = serde_json::to_string(&plain).expect("turned JSON");
+            assert!(turned.contains("\"hdr_orientation\""), "{turned}");
+            let back: SceneState = serde_json::from_str(&turned).expect("turned JSON");
+            assert_eq!(back, plain);
+            assert_eq!(
+                back.hdr_orientation.yaw.to_bits(),
+                orientation.yaw.to_bits()
+            );
+
+            let turned_bytes = postcard::to_allocvec(&plain).expect("turned wire");
+            assert_eq!(turned_bytes.len(), bytes.len(), "same layout");
+            let tail = &turned_bytes[turned_bytes.len() - 6..turned_bytes.len() - 1];
+            assert_eq!(&tail[..4], &orientation.yaw.to_le_bytes());
+            assert_eq!(tail[4], u8::from(orientation.follows_camera));
+            assert_eq!(
+                &bytes[..bytes.len() - 6],
+                &turned_bytes[..turned_bytes.len() - 6]
+            );
+            let wire: SceneState = postcard::from_bytes(&turned_bytes).expect("turned wire");
+            assert_eq!(wire, plain);
+            assert_eq!(
+                wire.hdr_orientation.yaw.to_bits(),
+                orientation.yaw.to_bits()
+            );
+        }
+    }
+
+    /// JSON written before the estimator existed has no key and reads as branching.
+    #[test]
+    fn json_without_the_estimator_key_reads_as_branching() {
+        let mut plain = scene(SceneEffects::default());
+        plain.estimator = Estimator::ExitCollection;
+        let mut value = serde_json::to_value(&plain).expect("collect JSON");
+        assert!(
+            value
+                .as_object_mut()
+                .expect("an object")
+                .remove("estimator")
+                .is_some()
+        );
+        let back: SceneState = serde_json::from_value(value).expect("legacy JSON reads");
+        assert_eq!(back.estimator, Estimator::Branching);
+    }
+
+    /// Branching writes no key to JSON, exit collection writes its name, and both read back.
+    #[test]
+    fn json_writes_no_key_for_branching_and_the_name_for_collect() {
+        let mut plain = scene(SceneEffects::default());
+        let branching = serde_json::to_string(&plain).expect("branching JSON");
+        assert!(!branching.contains("estimator"), "{branching}");
+        assert_eq!(
+            serde_json::from_str::<SceneState>(&branching).expect("branching JSON"),
+            plain
+        );
+        plain.estimator = Estimator::ExitCollection;
+        let collect = serde_json::to_string(&plain).expect("collect JSON");
+        assert!(
+            collect.contains("\"estimator\":\"ExitCollection\""),
+            "{collect}"
+        );
+        assert_eq!(
+            serde_json::from_str::<SceneState>(&collect).expect("collect JSON"),
+            plain
+        );
+    }
+
+    /// The estimator is the last wire byte: 0 for branching, 1 for exit collection, and both
+    /// round trip through postcard with the rest of the scene unchanged.
+    #[test]
+    fn postcard_carries_the_estimator_as_the_last_byte() {
+        let mut plain = scene(SceneEffects::default());
+        let branching = postcard::to_allocvec(&plain).expect("branching wire");
+        assert_eq!(branching[branching.len() - 1], 0);
+        assert_eq!(
+            postcard::from_bytes::<SceneState>(&branching).expect("branching wire"),
+            plain
+        );
+        plain.estimator = Estimator::ExitCollection;
+        let collect = postcard::to_allocvec(&plain).expect("collect wire");
+        assert_eq!(collect.len(), branching.len(), "same layout");
+        assert_eq!(collect[collect.len() - 1], 1);
+        assert_eq!(
+            &branching[..branching.len() - 1],
+            &collect[..collect.len() - 1]
+        );
+        assert_eq!(
+            postcard::from_bytes::<SceneState>(&collect).expect("collect wire"),
+            plain
+        );
     }
 
     /// A design's color variant is already resolved into `SceneState::material` (no protocol

@@ -1,10 +1,10 @@
 //! The working resolution: area-averaged resampling of the stone's region.
 //!
 //! The fit does not run on 12 million pixels. The stone's bounding region is cut into a grid of
-//! at most `N` pixels across (default [`DEFAULT_WORKING_PX`]); every working pixel is the
-//! exact box average of the full-resolution pixels under its footprint (fractional overlaps
-//! are weighted by area). The forward model later samples rays over the same footprint, so the
-//! footprint is kept: [`WorkingGrid::footprint`].
+//! at most `max_px` pixels along its longer side (default [`DEFAULT_WORKING_PX`]); every working
+//! pixel is the exact box average of the full-resolution pixels under its footprint (fractional
+//! overlaps are weighted by area). The forward model samples rays over the same footprint, so
+//! the footprint is kept: [`WorkingGrid::footprint`].
 //!
 //! Noise variances are propagated through the averaging for independent pixels:
 //! `var(mean) = sum(w_k^2 var_k) / (sum w_k)^2`.

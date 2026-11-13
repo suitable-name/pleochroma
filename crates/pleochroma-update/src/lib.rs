@@ -224,8 +224,8 @@ pub const NO_UPDATE_CHECK_ENV: &str = "PLEOCHROMA_NO_UPDATE_CHECK";
 
 /// For a command-line tool: removes every [`NO_UPDATE_CHECK_FLAG`] from `args`.
 ///
-/// Says whether the check should run, i.e. neither the flag was given nor `env_value` (the value of
-/// [`NO_UPDATE_CHECK_ENV`], `std::env::var_os`) is set.
+/// Returns whether the check should run: the flag was not given and `env_value` (the value of
+/// [`NO_UPDATE_CHECK_ENV`], from `std::env::var_os`) is unset.
 pub fn take_update_check(args: &mut Vec<String>, env_value: Option<&std::ffi::OsStr>) -> bool {
     let before = args.len();
     args.retain(|arg| arg != NO_UPDATE_CHECK_FLAG);
@@ -234,8 +234,9 @@ pub fn take_update_check(args: &mut Vec<String>, env_value: Option<&std::ffi::Os
 
 /// For a command-line tool: the notice line when a newer release exists.
 ///
-/// Asked with [`CLI_TIMEOUT`]; `None` when up to date or when GitHub cannot be asked (a tool says nothing
-/// then). `app_name` is the tool's name, `current_version` its `CARGO_PKG_VERSION`.
+/// Asks with [`CLI_TIMEOUT`]; `None` when up to date or when GitHub cannot be asked (the
+/// tool then prints nothing). `app_name` is the tool's name, `current_version` its
+/// `CARGO_PKG_VERSION`.
 #[must_use]
 pub fn cli_notice(app_name: &str, current_version: &str) -> Option<String> {
     check(app_name, current_version, CLI_TIMEOUT)

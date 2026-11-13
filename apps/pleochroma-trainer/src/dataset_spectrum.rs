@@ -13,7 +13,7 @@ use std::sync::LazyLock;
 pub struct MineralSpectrumEntry {
     /// Exact preset name, including any variety suffix.
     pub name: &'static str,
-    /// Always present; retained for the GUI's catalogue interface.
+    /// Always `Some`; the GUI list reads it as the has-preset flag.
     pub preset: Option<&'static str>,
     /// Refractive index at the sodium D line.
     pub refractive_index: f32,
@@ -21,7 +21,7 @@ pub struct MineralSpectrumEntry {
     pub critical_angle_deg: f32,
 }
 
-/// All real built-ins, sorted by index then name for deterministic sampling and display.
+/// All built-in materials, sorted by refractive index then name for deterministic sampling.
 pub static MINERAL_SPECTRUM: LazyLock<Vec<MineralSpectrumEntry>> = LazyLock::new(|| {
     let mut entries: Vec<_> = GemMaterial::built_in()
         .iter()

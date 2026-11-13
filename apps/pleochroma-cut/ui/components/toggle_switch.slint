@@ -17,6 +17,9 @@ export component ToggleRow inherits Rectangle {
     in property <string> text;
     // One plain sentence: what the switch does. Shown as the tooltip.
     in property <string> hint;
+    // An optional short remark after the label ("(not used with an HDR map)"), drawn dimmer and
+    // read by a screen reader after the label, like `SettingLabel.note`. Empty draws nothing.
+    in property <string> note;
     in property <bool> checked: false;
     in property <bool> enabled: true;
     // The label's colour; a caller passes a dimmer one while the switch has nothing to act on.
@@ -31,7 +34,7 @@ export component ToggleRow inherits Rectangle {
     border-color: Theme.accent-cyan-hover;
 
     accessible-role: AccessibleRole.checkbox;
-    accessible-label: root.text;
+    accessible-label: root.note == "" ? root.text : root.text + " " + root.note;
     accessible-description: root.hint;
     accessible-checked: root.checked;
     accessible-enabled: root.enabled;
@@ -60,13 +63,22 @@ export component ToggleRow inherits Rectangle {
         padding-right: 2px;
 
         Text {
-            horizontal-stretch: 1;
+            horizontal-stretch: root.note == "" ? 1 : 0;
             text: root.text;
             font-size: 11px;
             font-weight: 600;
             color: root.label_color;
             wrap: word-wrap;
             vertical-alignment: center;
+        }
+
+        if root.note != "": Text {
+            horizontal-stretch: 1;
+            text: root.note;
+            font-size: 10px;
+            color: Theme.text-disabled;
+            vertical-alignment: center;
+            overflow: elide;
         }
 
         VerticalLayout {

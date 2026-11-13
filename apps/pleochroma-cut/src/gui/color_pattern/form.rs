@@ -1,50 +1,13 @@
-//! The color forms of the zone color picker: how many colors a picked zone color has, by the rank
-//! of the stone's material, and which slot a "Pick..." button stands for.
+//! The color forms of a zone: how many colors a picked zone color has, by the rank of the stone's
+//! material, which color tiles the selected layer shows and which slot a tile stands for.
 //!
 //! A cubic or amorphous material shows one color, a uniaxial one an Along and an Across color, a
-//! biaxial one an Alpha, a Beta and a Gamma color. The picker offers the form of the material's
-//! rank; a zone that holds another form keeps it and lists it too, so a stored one-color zone on a
-//! pleochroic material reads "Legacy: No Pleochroism" (owner decision D2) and renders as saved
-//! until the cutter converts it.
+//! biaxial one an Alpha, a Beta and a Gamma color. A zone that holds another form keeps it: a
+//! stored one-color zone on a pleochroic material is a legacy zone. It renders as saved, the
+//! window says so, and "Convert" gives it the material's own form.
 
 use pleochroma::optics::materials::variants::TensorRank;
 use pleochroma_cut_core::material::pattern::{ColorForm, ColorSlot, PatternColor};
-
-/// `ColorPatternModel.color_kind`: one picked color.
-pub(super) const KIND_SINGLE: i32 = 0;
-/// `ColorPatternModel.color_kind`: Along and Across.
-pub(super) const KIND_DICHROIC: i32 = 1;
-/// `ColorPatternModel.color_kind`: Alpha, Beta and Gamma.
-pub(super) const KIND_TRICHROIC: i32 = 2;
-/// `ColorPatternModel.color_kind`: a color variant of the material.
-pub(super) const KIND_VARIANT: i32 = 3;
-
-/// The entry of the form menu for a one-color zone on a pleochroic material.
-pub(super) const LEGACY_LABEL: &str = "Legacy: No Pleochroism";
-
-/// The sentence under the form menu of an isotropic material (the plan's R2 wording): why a zone
-/// has one color only and what to change for two.
-pub(super) const ONE_COLOR_HINT: &str = "Two colors need a birefringent material. In the Gem Material Editor set a birefringence other than 0 and a crystal system other than Cubic (shown in Advanced mode), save the material, then reopen the pattern.";
-
-/// The sentence under the form menu of a uniaxial material.
-const UNIAXIAL_HINT: &str =
-    "A uniaxial crystal shows one color along its axis (Along) and another across it (Across).";
-
-/// The sentence under the form menu of a biaxial material.
-const BIAXIAL_HINT: &str = "A biaxial crystal shows its own color along each of its three principal directions: Alpha, Beta and Gamma.";
-
-/// The sentence under the form menu of a legacy one-color zone.
-const LEGACY_HINT: &str = "This zone has one color, so it looks the same from every direction. It renders as it was saved. Choose the form of this material to give it one color per direction.";
-
-/// `ColorPatternModel.color_kind` of a zone color.
-pub(super) const fn kind_of(color: &PatternColor) -> i32 {
-    match color {
-        PatternColor::Single(_) => KIND_SINGLE,
-        PatternColor::Dichroic { .. } => KIND_DICHROIC,
-        PatternColor::Trichroic { .. } => KIND_TRICHROIC,
-        PatternColor::Variant { .. } => KIND_VARIANT,
-    }
-}
 
 /// The form of a picked color; `None` for a variant.
 pub(super) const fn form_of(color: &PatternColor) -> Option<ColorForm> {
@@ -65,67 +28,26 @@ pub(super) const fn host_form(rank: TensorRank) -> ColorForm {
     }
 }
 
-/// The menu label of `form`.
-const fn form_label(form: ColorForm) -> &'static str {
-    match form {
-        ColorForm::Single => "One Color",
-        ColorForm::Dichroic => "Along and Across",
-        ColorForm::Trichroic => "Alpha, Beta and Gamma",
-    }
+/// Whether `color` is a legacy one-color zone: one picked color on a material that shows more
+/// than one.
+pub(super) fn is_legacy(rank: TensorRank, color: &PatternColor) -> bool {
+    form_of(color) == Some(ColorForm::Single) && rank != TensorRank::Isotropic
 }
 
-/// The entries of the form menu of one zone.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct FormOptions {
-    /// The form of each entry.
-    pub forms: Vec<ColorForm>,
-    /// The label of each entry.
-    pub labels: Vec<&'static str>,
-    /// The entry the zone has.
-    pub index: usize,
-}
-
-/// The form menu for a picked `color` on a material of `rank`: the material's own form first, then
-/// the form the zone has when that is another (the legacy one-color zone of a pleochroic material,
-/// two colors on a biaxial one, any form the material cannot show). `None` for a variant.
-pub(super) fn form_options(rank: TensorRank, color: &PatternColor) -> Option<FormOptions> {
-    let current = form_of(color)?;
-    let own = host_form(rank);
-    let mut forms = vec![own];
-    let mut labels = vec![form_label(own)];
-    let index = usize::from(current != own);
-    if current != own {
-        forms.push(current);
-        labels.push(
-            if current == ColorForm::Single && rank != TensorRank::Isotropic {
-                LEGACY_LABEL
-            } else {
-                form_label(current)
-            },
-        );
-    }
-    Some(FormOptions {
-        forms,
-        labels,
-        index,
-    })
-}
-
-/// The sentence under the form menu for a picked `color` on a material of `rank`.
-pub(super) fn form_hint(rank: TensorRank, color: &PatternColor) -> &'static str {
-    if form_of(color) == Some(ColorForm::Single) && rank != TensorRank::Isotropic {
-        return LEGACY_HINT;
-    }
+/// The note at the right of the Color row: what the material's rank allows.
+pub(super) const fn rank_text(rank: TensorRank) -> &'static str {
     match rank {
-        TensorRank::Isotropic => ONE_COLOR_HINT,
-        TensorRank::Uniaxial => UNIAXIAL_HINT,
-        TensorRank::Biaxial => BIAXIAL_HINT,
+        TensorRank::Isotropic => "One color \u{b7} isotropic",
+        TensorRank::Uniaxial => "Pleochroic \u{b7} uniaxial",
+        TensorRank::Biaxial => "Pleochroic \u{b7} biaxial",
     }
 }
 
-/// The slot the "Pick..." button `which` stands for in a zone holding `color`: 0 the one color,
-/// then in slot order 1 Along or Alpha, 2 Across or Beta, 3 Gamma. `None` for a button the zone's
-/// form does not have (and for a variant, which has nothing to pick).
+/// The slot the color tile `which` stands for in a zone holding `color`.
+///
+/// Slots run 0 for the one color, then 1 Along or Alpha, 2 Across or Beta, 3 Gamma. `None` for
+/// a tile the zone's form does not have, and for a variant (which has no picked color to change
+/// in place).
 pub(super) const fn slot_for(color: &PatternColor, which: i32) -> Option<ColorSlot> {
     match (color, which) {
         (PatternColor::Single(_), 0) => Some(ColorSlot::Single),
@@ -136,6 +58,108 @@ pub(super) const fn slot_for(color: &PatternColor, which: i32) -> Option<ColorSl
         (PatternColor::Trichroic { .. }, 3) => Some(ColorSlot::Gamma),
         _ => None,
     }
+}
+
+/// Which swatch of a zone a color tile paints.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum SwatchPart {
+    /// The zone's overall color (a one-color variant).
+    Blend,
+    /// The color, or the Along (Alpha) color.
+    Primary,
+    /// The Beta color of a three-color zone.
+    Beta,
+    /// The Across (Gamma) color.
+    Across,
+}
+
+/// One color tile of the selected layer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct TileSpec {
+    /// The caption on the tile.
+    pub caption: &'static str,
+    /// The tile's slot (`PatternColorTile.slot`): 0 the one color, 1 Along or Alpha, 2 Across or
+    /// Beta, 3 Gamma.
+    pub slot: i32,
+    /// The swatch the tile shows.
+    pub part: SwatchPart,
+}
+
+/// The two tiles of a uniaxial zone.
+const TWO_TILES: [TileSpec; 2] = [
+    TileSpec {
+        caption: "Along c",
+        slot: 1,
+        part: SwatchPart::Primary,
+    },
+    TileSpec {
+        caption: "Across c",
+        slot: 2,
+        part: SwatchPart::Across,
+    },
+];
+
+/// The three tiles of a biaxial zone.
+const THREE_TILES: [TileSpec; 3] = [
+    TileSpec {
+        caption: "\u{3b1}",
+        slot: 1,
+        part: SwatchPart::Primary,
+    },
+    TileSpec {
+        caption: "\u{3b2}",
+        slot: 2,
+        part: SwatchPart::Beta,
+    },
+    TileSpec {
+        caption: "\u{3b3}",
+        slot: 3,
+        part: SwatchPart::Across,
+    },
+];
+
+/// The tile of a one-color zone, painted with `part`.
+const fn one_tile(part: SwatchPart) -> TileSpec {
+    TileSpec {
+        caption: "Color",
+        slot: 0,
+        part,
+    }
+}
+
+/// The color tiles of a zone holding `color`: one, two or three, by what the color has. A variant
+/// shows the tiles of its own tensor.
+pub(super) fn tile_specs(color: &PatternColor) -> Vec<TileSpec> {
+    match color {
+        PatternColor::Single(_) => vec![one_tile(SwatchPart::Primary)],
+        PatternColor::Dichroic { .. } => TWO_TILES.to_vec(),
+        PatternColor::Trichroic { .. } => THREE_TILES.to_vec(),
+        PatternColor::Variant { absorption, .. } => {
+            if absorption.beta_ray.is_some() {
+                THREE_TILES.to_vec()
+            } else if absorption.pleochroic {
+                TWO_TILES.to_vec()
+            } else {
+                vec![one_tile(SwatchPart::Blend)]
+            }
+        }
+    }
+}
+
+/// The title of the picker opened for tile `which` of a zone holding `color`: the direction the
+/// color is seen along.
+pub(super) fn picker_title(color: &PatternColor, which: i32) -> &'static str {
+    tile_specs(color)
+        .into_iter()
+        .find(|tile| tile.slot == which)
+        .map_or("Color", |tile| match tile.caption {
+            "Along c" => "Along the c-axis",
+            "Across c" => "Across the c-axis",
+            "\u{3b1}" => "Along alpha (\u{3b1})",
+            "\u{3b2}" => "Along beta (\u{3b2})",
+            "\u{3b3}" => "Along gamma (\u{3b3})",
+            _ => "Color",
+        })
 }
 
 #[cfg(test)]
@@ -162,83 +186,68 @@ mod tests {
         }
     }
 
-    fn variant() -> PatternColor {
+    fn variant(pleochroic: bool, beta: bool) -> PatternColor {
         PatternColor::Variant {
             key: "sapphire.test".to_owned(),
             label: "Test".to_owned(),
             absorption: PatternTensorRows {
                 o_ray: Vec::new(),
                 e_ray: Vec::new(),
-                beta_ray: None,
-                pleochroic: true,
+                beta_ray: beta.then(Vec::new),
+                pleochroic,
             },
         }
     }
 
     #[test]
-    fn the_picker_offers_the_form_of_the_rank() {
-        let iso = form_options(TensorRank::Isotropic, &one()).expect("custom");
-        assert_eq!(iso.labels, ["One Color"]);
-        assert_eq!(iso.index, 0);
-        let uni = form_options(TensorRank::Uniaxial, &two()).expect("custom");
-        assert_eq!(uni.labels, ["Along and Across"]);
-        assert_eq!(uni.forms, [ColorForm::Dichroic]);
-        let bi = form_options(TensorRank::Biaxial, &three()).expect("custom");
-        assert_eq!(bi.labels, ["Alpha, Beta and Gamma"]);
+    fn a_one_color_zone_on_a_pleochroic_material_is_legacy() {
+        assert!(is_legacy(TensorRank::Uniaxial, &one()));
+        assert!(is_legacy(TensorRank::Biaxial, &one()));
+        assert!(!is_legacy(TensorRank::Isotropic, &one()));
+        assert!(!is_legacy(TensorRank::Uniaxial, &two()));
+        assert!(!is_legacy(TensorRank::Uniaxial, &variant(false, false)));
     }
 
     #[test]
-    fn a_one_color_zone_on_a_pleochroic_material_is_labelled_legacy() {
-        for (rank, own) in [
-            (TensorRank::Uniaxial, ColorForm::Dichroic),
-            (TensorRank::Biaxial, ColorForm::Trichroic),
-        ] {
-            let options = form_options(rank, &one()).expect("custom");
-            assert_eq!(options.forms, [own, ColorForm::Single]);
-            assert_eq!(options.labels[1], "Legacy: No Pleochroism");
-            assert_eq!(options.index, 1, "the zone has the legacy form");
-            assert_eq!(form_hint(rank, &one()), LEGACY_HINT);
-        }
-        // Not legacy on a material that shows one color.
-        assert_ne!(
-            form_options(TensorRank::Isotropic, &one())
-                .expect("custom")
-                .labels,
-            [LEGACY_LABEL]
+    fn the_tiles_follow_the_colors_a_zone_has() {
+        let captions = |color: &PatternColor| -> Vec<&str> {
+            tile_specs(color).iter().map(|tile| tile.caption).collect()
+        };
+        assert_eq!(captions(&one()), ["Color"]);
+        assert_eq!(captions(&two()), ["Along c", "Across c"]);
+        assert_eq!(captions(&three()), ["\u{3b1}", "\u{3b2}", "\u{3b3}"]);
+        assert_eq!(captions(&variant(false, false)), ["Color"]);
+        assert_eq!(captions(&variant(true, false)), ["Along c", "Across c"]);
+        assert_eq!(captions(&variant(true, true)).len(), 3);
+        assert_eq!(
+            tile_specs(&variant(false, false))[0].part,
+            SwatchPart::Blend
         );
     }
 
     #[test]
-    fn two_colors_on_a_biaxial_material_and_too_many_on_a_simple_one_stay_listed() {
-        let bi = form_options(TensorRank::Biaxial, &two()).expect("custom");
-        assert_eq!(bi.forms, [ColorForm::Trichroic, ColorForm::Dichroic]);
-        assert_eq!(bi.labels[1], "Along and Across");
-        let iso = form_options(TensorRank::Isotropic, &three()).expect("custom");
-        assert_eq!(iso.forms, [ColorForm::Single, ColorForm::Trichroic]);
-        assert_eq!(iso.index, 1);
-    }
-
-    #[test]
-    fn a_variant_has_no_form_and_nothing_to_pick() {
-        assert_eq!(form_options(TensorRank::Uniaxial, &variant()), None);
-        assert_eq!(form_of(&variant()), None);
-        assert_eq!(kind_of(&variant()), KIND_VARIANT);
-        for which in 0..4 {
-            assert_eq!(slot_for(&variant(), which), None);
+    fn a_tile_stands_for_the_slot_it_names() {
+        for color in [one(), two(), three()] {
+            for tile in tile_specs(&color) {
+                assert!(
+                    slot_for(&color, tile.slot).is_some(),
+                    "{} of {color:?}",
+                    tile.caption
+                );
+            }
         }
-    }
-
-    #[test]
-    fn the_pick_buttons_map_to_the_slots_of_the_zone_form() {
-        assert_eq!(slot_for(&one(), 0), Some(ColorSlot::Single));
         assert_eq!(slot_for(&one(), 1), None);
+        assert_eq!(slot_for(&two(), 0), None);
         assert_eq!(slot_for(&two(), 1), Some(ColorSlot::Along));
         assert_eq!(slot_for(&two(), 2), Some(ColorSlot::Across));
-        assert_eq!(slot_for(&two(), 0), None);
         assert_eq!(slot_for(&three(), 1), Some(ColorSlot::Alpha));
         assert_eq!(slot_for(&three(), 2), Some(ColorSlot::Beta));
         assert_eq!(slot_for(&three(), 3), Some(ColorSlot::Gamma));
         assert_eq!(slot_for(&three(), 4), None);
+        // A variant has nothing to change in place: a tile turns it into a picked color first.
+        for which in 0..4 {
+            assert_eq!(slot_for(&variant(true, true), which), None);
+        }
     }
 
     #[test]
@@ -246,9 +255,14 @@ mod tests {
         assert_eq!(host_form(TensorRank::Isotropic), ColorForm::Single);
         assert_eq!(host_form(TensorRank::Uniaxial), ColorForm::Dichroic);
         assert_eq!(host_form(TensorRank::Biaxial), ColorForm::Trichroic);
-        assert_eq!(kind_of(&one()), KIND_SINGLE);
-        assert_eq!(kind_of(&two()), KIND_DICHROIC);
-        assert_eq!(kind_of(&three()), KIND_TRICHROIC);
-        assert_eq!(form_hint(TensorRank::Isotropic, &one()), ONE_COLOR_HINT);
+        assert_eq!(form_of(&variant(true, false)), None);
+    }
+
+    #[test]
+    fn the_picker_names_the_direction() {
+        assert_eq!(picker_title(&two(), 1), "Along the c-axis");
+        assert_eq!(picker_title(&two(), 2), "Across the c-axis");
+        assert_eq!(picker_title(&one(), 0), "Color");
+        assert_eq!(picker_title(&three(), 2), "Along beta (\u{3b2})");
     }
 }

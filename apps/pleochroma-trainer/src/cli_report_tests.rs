@@ -269,7 +269,7 @@ fn the_evaluation_rate_of_a_run_sums_the_rounds() {
     c.update_of_iteration = Some(0);
     let rate = overall_evaluations_per_sec(&[c]).unwrap();
     assert!((rate - 1000.0).abs() < 1e-3, "{rate}");
-    // Points without recorded time or evaluations (old files) give no rate.
+    // Points without recorded time or evaluations give no rate.
     assert_eq!(overall_evaluations_per_sec(&[blank_point()]), None);
 }
 

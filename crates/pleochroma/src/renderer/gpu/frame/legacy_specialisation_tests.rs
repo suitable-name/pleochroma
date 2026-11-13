@@ -1,4 +1,5 @@
-//! Legacy wavefront must cache the same material features as the other transport paths.
+//! Legacy wavefront pipelines are cached per material class: a repeated class reuses its
+//! pipeline and a new class gets its own.
 
 use glam::Vec3;
 
@@ -14,6 +15,7 @@ use crate::{
 use super::{GpuFrameScene, GpuPipelineKind, classify_material};
 
 #[test]
+#[ignore = "over 60 s in the workspace run (2026-11-11); run on request: scripts/run_tests_on_request.sh"]
 fn legacy_wavefront_reuses_only_matching_dispersion_pipelines() {
     let Some(mut renderer) = renderer_or_skip("legacy_wavefront_dispersion_pipelines") else {
         return;

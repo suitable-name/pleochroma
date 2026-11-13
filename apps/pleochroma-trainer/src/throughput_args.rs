@@ -1,4 +1,4 @@
-//! Standalone diagnostic arguments. Defaults match the reported medium-model training run.
+//! Command-line arguments of the throughput probe. Defaults follow the production medium-model run.
 
 use std::{collections::BTreeSet, path::PathBuf};
 
@@ -85,7 +85,7 @@ impl Args {
         cfg.classical_budget = None;
         cfg.imitation = ImitationConfig {
             learning_rate: 3e-4,
-            // Match the reported 300-iteration run, independent of diagnostic length.
+            // A 300-iteration horizon, independent of the diagnostic length.
             lr_schedule: LrSchedule::Linear {
                 total_updates: 300_u64.saturating_mul(self.updates_per_round as u64),
             },

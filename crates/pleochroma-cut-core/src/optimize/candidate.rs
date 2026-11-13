@@ -1,9 +1,9 @@
-//! Per-candidate evaluation: free-tier selection, the closes/manufacturability
-//! gates a candidate must pass before it is even scored, and evaluating a
-//! tier's `+step`/`-step` pair. See the parent module's doc comment ("Never
-//! proposes geometry that fails to close", "Manufacturability must not
-//! regress", "Where the compute runs") for why these gates and this
-//! parallelism shape exist.
+//! Per-candidate evaluation: free-tier selection, the gates a candidate passes before it is
+//! scored, and the `+step`/`-step` pair of a free tier.
+//!
+//! The parent module's "Never proposes geometry that fails to close", "Manufacturability must
+//! not regress" and "Where the compute runs" sections explain these gates and the parallel
+//! shape.
 
 use super::{
     guard::ShapeGuard,
@@ -39,15 +39,11 @@ pub(super) use super::scored_stone::ScoredStone;
 mod warnings;
 pub(super) use warnings::{BaselineWarningCounts, manufacturability_regressed};
 
-/// A candidate's yield loss (`0.0` to `100.0`, LOWER is better), for
-/// [`ObjectiveWeights::score_with_yield`] -- `100.0` minus
-/// [`crate::yield_metrics::volumetric_yield`]'s own percentage. `0.0` (no penalty
-/// at all) whenever either the finished or the preform solid fails to measure,
-/// matching `volumetric_yield`'s own `None` case -- a candidate that already
-/// failed to close was rejected before this is ever called (see
-/// [`evaluate_candidate`]), so `finished` here always measures in practice; the
-/// fallback exists only so this can never itself become a reason to reject a
-/// candidate that DID close.
+/// A candidate's yield loss, `0.0` to `100.0` (LOWER is better).
+///
+/// It is `100.0` minus [`crate::yield_metrics::volumetric_yield`]'s percentage, and `0.0`
+/// when either solid fails to measure. A candidate that does not close is rejected before
+/// this runs, so the fallback never rejects a closed candidate.
 ///
 /// Takes the finished solid already measured (`measure_solid` of the finished planes), so a
 /// caller that also needs the stone's shape figures measures once.
@@ -134,8 +130,9 @@ pub(super) fn shape_penalty_for_planes(
 pub struct FinishedScore {
     /// The optical measurements at the requested fidelity.
     pub after: ObjectiveComponents,
-    /// [`ObjectiveWeights::score_with_yield`] of `after` and `yield_loss_pct`; the internal loss, lower is better
-    /// (shown to a person as [`super::display_score`]).
+    /// The internal loss, lower is better (shown to a person as [`super::display_score`]):
+    /// [`ObjectiveWeights::score_with_tone`] of `after`, the yield loss and the tone loss,
+    /// plus the shape penalty when the request has a target.
     pub score: f32,
     /// The stone's yield loss, `0.0` to `100.0`, lower is better.
     pub yield_loss_pct: f32,
@@ -177,9 +174,10 @@ pub(super) fn measure_with_tone(
     }
 }
 
-/// [`measure_with_tone`] that stops when `cancel` is set: `None` when the `Full` sweep was
-/// cut short (the partial work is dropped, never scored). `None` for `cancel` is
-/// [`measure_with_tone`] bit for bit (and always `Some`); `Fast` is one pose and never stops.
+/// [`measure_with_tone`] that stops when `cancel` is set.
+///
+/// It returns `None` when the `Full` sweep was cut short, and its partial work is dropped.
+/// With no flag it is [`measure_with_tone`] bit for bit. `Fast` is one pose and never stops.
 pub(super) fn measure_with_tone_cancellable(
     stone: FinishedStone<'_>,
     material: &GemMaterial,
@@ -233,18 +231,16 @@ pub struct ScoringSetup<'a> {
     pub lighting: LightingPreset,
 }
 
-/// Scores a design whose planes the caller already has, exactly as the optimizer scores
-/// the end points it reports (`setup.fidelity` [`ObjectiveFidelity::Full`] for those).
+/// Scores a design whose planes the caller already has, as the optimizer scores the end
+/// points it reports (`setup.fidelity` [`ObjectiveFidelity::Full`] for those).
 ///
-/// For a caller that changes a design after the search, for example by re-anchoring tiers
-/// that follow a relation, and wants numbers that describe the design it actually delivers.
-/// `planes` are the design's own ([`Design::planes_from_solved`] of `solved`); the design's
-/// concave tools are cut out of them ([`Design::tools_for_scoring`]), and its frosted facets
-/// and girdle scatter light ([`Design::facet_finishes_from_solved`]), so the figures are those
-/// of the stone as the search measured it. `setup.weights` are the ones the search
-/// ran with, so the score is comparable with the search's. With a
-/// `shape_target` (the one the search ran with) the score carries the same penalty for
-/// drifting from the target's table size and crown-to-pavilion ratio.
+/// For a caller that changes a design after the search (for example by re-anchoring tiers
+/// that follow a relation) and needs the figures of the design it delivers. `planes` are
+/// [`Design::planes_from_solved`] of `solved`. Concave tools are cut out of them
+/// ([`Design::tools_for_scoring`]), and frosted facets and girdle scatter light
+/// ([`Design::facet_finishes_from_solved`]). `setup.weights` must be the search's, so the
+/// score is comparable. With a `shape_target` the score carries the same penalty for drifting
+/// from the target's table size and crown-to-pavilion ratio.
 #[must_use]
 pub fn score_finished_design(
     design: &Design,
@@ -290,14 +286,10 @@ pub fn score_finished_design(
 /// horizontal facet has no angle to optimize, and a step off zero would move the
 /// facet to a side of the girdle it was not authored on.
 ///
-/// **Vertical tiers** matter more than they look. A tier authored at or beyond
-/// [`MAX_SAFE_CANDIDATE_ANGLE_DEG`] -- a real girdle facet at `-90.0`, which most
-/// `.asc` files carry -- is one [`candidate_angle_is_safe`] can never accept any
-/// angle for, in either direction. [`build_free_angle_candidate`] is all-or-nothing
-/// across the whole angle vector, so leaving such a tier in `free` made it reject
-/// every simplex point [`super::polish::run_polish`] proposes, silently disabling
-/// the polish stage for the whole design rather than just for that one facet. A
-/// vertical facet is the girdle by definition, so there was never anything to
+/// **Vertical tiers** (at or beyond [`MAX_SAFE_CANDIDATE_ANGLE_DEG`], such as a girdle
+/// facet at `-90.0`) are never free: [`candidate_angle_is_safe`] rejects every angle for
+/// them. [`build_free_angle_candidate`] is all-or-nothing, so one such tier in `free` would
+/// make every polish point fail. A vertical facet is the girdle, so there is nothing to
 /// optimize there.
 #[must_use]
 pub fn free_tier_indices(design: &Design) -> Vec<usize> {
@@ -333,14 +325,11 @@ pub fn free_tier_indices_with(design: &Design, options: &OptimizeOptions) -> Vec
         .collect()
 }
 
-/// Facet angles at or beyond this magnitude are close enough to vertical to be unsafe.
+/// Facet angles at or beyond this magnitude are too close to vertical to be safe.
 ///
-/// `classify_blocks` (which classifies a tier as crown/pavilion/girdle from the
-/// magnitude of `angle_deg.cos()`, not just its sign) would reclassify the tier
-/// into [`pleochroma::geometry::meet_solver::Block::Girdle`], silently losing
-/// whatever crown/pavilion anchor it had -- the same class of anchor loss
-/// [`candidate_angle_is_safe`]'s zero-crossing check guards against on the
-/// opposite boundary. `89.5` leaves the same half-degree margin there.
+/// `classify_blocks` reads the girdle class from `|angle_deg.cos()|`, so a candidate this
+/// close to vertical risks losing its crown or pavilion anchor. `89.5` leaves a
+/// half-degree margin.
 pub const MAX_SAFE_CANDIDATE_ANGLE_DEG: f64 = 89.5;
 
 /// Angles closer to zero than this are horizontal (the table, the culet): never free.
@@ -356,19 +345,16 @@ pub fn angle_is_variable(angle_deg: f64) -> bool {
     (MIN_VARIABLE_ANGLE_DEG..MAX_SAFE_CANDIDATE_ANGLE_DEG).contains(&angle_deg.abs())
 }
 
-/// Whether nudging a tier's angle from `original_deg` to `candidate_deg` is safe to
-/// even attempt solving. Unsafe in any of three ways: the candidate is not finite or
-/// its magnitude passes [`MAX_SAFE_CANDIDATE_ANGLE_DEG`], the candidate lands exactly
-/// on the girdle plane (`0.0`, either sign), or its sign differs from the original's.
+/// Whether a tier's candidate angle is safe to attempt, given its `original_deg`.
 ///
-/// `Block` classifies a tier as crown/pavilion purely from the SIGN BIT of
-/// `angle_deg` at that boundary (`f64::is_sign_negative`, exactly like
-/// `pleochroma::geometry::meet_solver::blocks`'s own girdle classifier), so crossing
-/// (or landing on) it can silently remove a block's only scale anchor or reassign a
-/// facet to the wrong block. That holds for EVERY tier, a table authored at `+0.0`
-/// included: it stays on the crown side (a candidate must be positive), and a culet
-/// authored at `-0.0` stays on the pavilion side. (Horizontal tiers are never free,
-/// see [`free_tier_indices`], so this matters only to a caller that asks anyway.)
+/// Unsafe when the candidate is not finite or its magnitude passes
+/// [`MAX_SAFE_CANDIDATE_ANGLE_DEG`], when it lands on the girdle plane (`0.0`, either
+/// sign), or when its sign differs from the original's.
+///
+/// The sign bit of `angle_deg` picks a tier's crown or pavilion side. Crossing or landing
+/// on zero can therefore remove a block's scale anchor or move a facet to the other block.
+/// This holds for every tier: a table at `+0.0` stays on the crown side and a culet at
+/// `-0.0` on the pavilion side. Horizontal tiers are never free ([`free_tier_indices`]).
 #[must_use]
 pub(super) fn candidate_angle_is_safe(original_deg: f64, candidate_deg: f64) -> bool {
     if !candidate_deg.is_finite() || candidate_deg.abs() > MAX_SAFE_CANDIDATE_ANGLE_DEG {
@@ -385,13 +371,14 @@ pub(super) enum CandidateOutcome {
     Accepted { score: f32, design: Box<Design> },
 }
 
-/// Solves `design`, checks closure, the shape guard and manufacturability against
-/// `baseline_warnings`, and (only if all pass) scores it at
-/// [`ObjectiveFidelity::Fast`] under `lighting` -- the one function
-/// [`super::optimize_design`]'s search loop calls for every candidate.
+/// Scores `design` at [`ObjectiveFidelity::Fast`] if it passes every gate.
 ///
-/// The candidate's plane list, mesh and solid measurement are built once and shared by the
-/// guard, the manufacturability gate, the score and the shape penalty; `preform_volume` is
+/// It solves `design`, checks closure, the shape guard and manufacturability against
+/// `baseline_warnings`, and scores under `lighting`. Tests use this form; the search goes
+/// through [`evaluate_in_context`].
+///
+/// The plane list, mesh and solid measurement are built once and shared by the guard, the
+/// manufacturability gate, the score and the shape penalty. `preform_volume` is
 /// [`preform_volume`] of `design`, measured once per run by the caller.
 // `cfg(doc)` builds run no clippy, where an unfulfilled `expect` cannot be reported; the
 // lint fires (and the expectation is met) in the `test` build clippy checks.
@@ -515,7 +502,8 @@ pub(super) fn evaluate_candidate_controlled(
     }
 }
 
-/// [`evaluate_candidate`] with every fixed input taken from `ctx`.
+/// [`evaluate_candidate_controlled`] with every fixed input taken from `ctx`. With a
+/// feasible space the design is first projected, and the projection's solve is reused.
 pub(super) fn evaluate_in_context(design: &Design, ctx: &SearchContext) -> CandidateOutcome {
     let projected;
     let presolved;
@@ -574,17 +562,15 @@ pub(super) fn apply_free_angles(
     Some(candidate)
 }
 
-/// Builds a candidate [`Design`] from `base` with every tier index in `free` set to
-/// the correspondingly-positioned angle in `angles` -- [`super::polish::run_polish`]'s
-/// only way to turn one simplex vertex (a plain angle vector, positionally paired
-/// with `free`) into something [`evaluate_candidate`] can score.
+/// Builds a candidate [`Design`] from `base` with the tiers in `free` set to `angles`.
 ///
-/// Every candidate angle is checked against [`candidate_angle_is_safe`] relative to
-/// its own entry in `reference` (the angle vector the polish stage started from, not
-/// necessarily `base`'s own current angle for that tier) and against the tier's angle
-/// bounds BEFORE `base` is ever cloned -- `None` if any one of them is unsafe or out
-/// of bounds, matching the parent module's "Angle bounds" requirement that an
-/// out-of-bounds simplex point is rejected outright, never clamped.
+/// `angles` pairs positionally with `free`. The search's descent and polish stages both use
+/// this to turn an angle vector into a design to score.
+///
+/// Each angle is checked against [`candidate_angle_is_safe`] relative to its entry in
+/// `reference` (the angle vector the stage started from, not necessarily `base`'s own angle)
+/// and against the tier's bounds before `base` is cloned. An unsafe or out-of-bounds point is
+/// rejected, never clamped ([`super::OptimizeOptions::angle_bounds`]).
 #[must_use]
 pub(super) fn build_free_angle_candidate(
     base: &Design,
@@ -627,15 +613,11 @@ pub(super) struct SearchContext<'a> {
     pub(super) preform_volume: Option<f64>,
 }
 
-/// Builds the surviving `original_deg + step_deg` / `original_deg - step_deg`
-/// candidate [`Design`]s -- exactly the directions [`candidate_angle_is_safe`]
-/// allows -- paired with the absolute angle each represents. Split out of
-/// [`evaluate_survivors`] so that "which directions are even worth solving" (cheap:
-/// a clone and a field write, no [`Design::solve`]) is a separate, directly
-/// testable step from "solve the survivors" -- letting
-/// [`evaluate_candidate_pair`] skip `std::thread::scope` entirely when nothing
-/// survives. Order is always `[+step_deg, -step_deg]` with rejected directions
-/// simply absent.
+/// Builds the candidate [`Design`]s for the directions [`candidate_angle_is_safe`] allows.
+///
+/// Each is paired with the absolute angle it represents. This needs no solve (a clone and a
+/// field write), so a pair with no survivor starts no threads in [`evaluate_candidate_pair`].
+/// Order is `[+step_deg, -step_deg]` with rejected directions absent.
 ///
 /// A tier with angle bounds never proposes outside them: a step that overshoots is
 /// clamped to the bound, and dropped when the clamp leaves the tier where it is. If
@@ -669,8 +651,8 @@ pub(super) fn select_candidate_directions(
     survivors
 }
 
-/// Whether two candidate angles are the identical value: the dedup of both directions clamping to
-/// the same bound is meant to be exact.
+/// Whether two candidate angles are the identical value, as when both directions clamp to
+/// one bound.
 #[expect(
     clippy::float_cmp,
     reason = "candidates that clamp to the same bound are bit-identical; near-equal angles are distinct"
@@ -679,16 +661,12 @@ const fn is_same_angle(a_deg: f64, b_deg: f64) -> bool {
     a_deg == b_deg
 }
 
-/// Evaluates both surviving candidates from [`select_candidate_directions`]'s
-/// two-element case, on two OS threads via `std::thread::scope` natively.
+/// Evaluates both surviving candidates from [`select_candidate_directions`], on two OS
+/// threads via `std::thread::scope` natively.
 ///
-/// `wasm32-unknown-unknown` has no OS thread to spawn (`std::thread::Scope::spawn`
-/// panics there), so that target's build gets a separate, sequential definition of
-/// this function below, evaluating `design_a` then `design_b` in the same order --
-/// each candidate is a pure function of its own `Design`, so the result is identical
-/// either way. Two `cfg`-gated definitions, like `renderer::tonemap`'s
-/// `effective_thread_count`, rather than one function with an internal `#[cfg]`
-/// block on the body.
+/// `wasm32` cannot spawn OS threads, so its build has a sequential definition below that
+/// evaluates `design_a` then `design_b`. Each candidate depends only on its own `Design`,
+/// so the result is the same either way.
 #[cfg(not(target_arch = "wasm32"))]
 fn evaluate_two_survivors(
     design_a: &Design,
@@ -723,8 +701,8 @@ fn evaluate_two_survivors(
 
 /// What [`evaluate_survivors`] (and so [`evaluate_candidate_pair`]) found.
 pub(super) struct SurvivorEvaluation {
-    /// `Some((candidate_deg, score))` for the best accepted direction that also beats
-    /// the score it was compared against; `None` if no direction does.
+    /// `Some((design, score))` for the best accepted direction that also beats the score
+    /// it was compared against; `None` if no direction does.
     pub(super) best: Option<(Design, f32)>,
     /// How many directions were actually solved (0, 1 or 2).
     pub(super) evaluations: usize,
@@ -780,22 +758,17 @@ pub(super) fn evaluate_survivors(
     }
 }
 
-/// Evaluates a free tier's two candidate directions (`original_deg + step_deg`,
-/// `original_deg - step_deg`) -- see [`select_candidate_directions`] for how the
-/// unsafe ones are filtered out and [`evaluate_survivors`] for how the survivors
-/// are run (concurrently on two OS threads only when both survive, natively -- see
-/// the module doc comment's "Where the compute runs" section; sequentially, same
-/// order, on `wasm32` -- see [`evaluate_two_survivors`]). `std::thread::scope`
-/// guarantees both spawned threads finish before this function returns, so there
-/// is no lifetime hazard in borrowing `current`/`ctx` from the calling thread's
-/// stack.
+/// Evaluates a free tier's two candidate directions, `original_deg ± step_deg`.
 ///
-/// The returned [`SurvivorEvaluation::best`] is `Some((candidate_deg, score))` for
-/// whichever direction is [`CandidateOutcome::Accepted`] AND scores below
-/// `current_score`, preferring the lower score when both qualify; `None` if neither
-/// does. [`SurvivorEvaluation::evaluations`] counts every direction actually solved
-/// (0, 1, or 2) -- a direction rejected by [`candidate_angle_is_safe`] before ever
-/// calling [`Design::solve`] is not counted.
+/// [`select_candidate_directions`] drops the unsafe ones and [`evaluate_survivors`] solves the
+/// rest: concurrently on two OS threads when both survive, natively (see the module doc
+/// comment's "Where the compute runs" section), and in the same order on `wasm32`.
+///
+/// [`SurvivorEvaluation::best`] is `Some((design, score))` for the accepted direction that
+/// scores below `current_score`, preferring the lower score when both qualify; `None` if
+/// neither does. [`SurvivorEvaluation::evaluations`] counts every direction actually solved
+/// (0, 1 or 2); a direction rejected by [`candidate_angle_is_safe`] before a
+/// [`Design::solve`] is not counted.
 pub(super) fn evaluate_candidate_pair(
     current: &Design,
     tier_index: usize,

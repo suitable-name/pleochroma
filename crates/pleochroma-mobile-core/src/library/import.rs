@@ -50,7 +50,7 @@ enum Stored {
 
 impl LibraryHandle {
     /// Imports the picked files (`.psdd`, `.asc`, `.gem`, `.gcs`).
-    /// See the module docs for what a duplicate is. Blocks for as long as the parsing, measuring and storing take.
+    /// See the module docs for what a duplicate is. Blocks while parsing, measuring and storing.
     #[must_use]
     pub fn import(&self, files: Vec<PickedFile>) -> ImportReport {
         let mut report = ImportReport::default();

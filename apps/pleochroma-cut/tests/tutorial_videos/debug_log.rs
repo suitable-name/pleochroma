@@ -4,9 +4,10 @@
 //! The log lives in a thread-local sink (the UI thread is the only one that films). The sink is a
 //! no-op while debug mode is off: every entry point returns at once when no sink is installed, so
 //! a normal run behaves exactly as before. Pointer, key and text input are recorded where the
-//! director calls the recorder or the plain driver (`debug_rec.rs`), lookups where the target tables are queried
-//! (`targets.rs`), readbacks by [`debug_check`] at the places that compare what the app shows.
-//! Every text goes through the privacy mask (`Config::private_hit`) before it is stored.
+//! director calls the recorder or the plain driver (`debug_rec.rs`), lookups where the target
+//! tables are queried (`targets.rs`), readbacks by [`debug_check`] where the route compares what
+//! the app shows. Every text goes through the privacy mask (`Config::private_hit`) before it is
+//! stored.
 
 use crate::{
     config::{Config, LOGICAL_SIZE, SCALE, first_private},

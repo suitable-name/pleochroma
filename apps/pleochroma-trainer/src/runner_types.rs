@@ -122,7 +122,8 @@ pub struct RolloutStats {
     pub finished: Vec<EpisodeSummary>,
     /// Steps that changed the design.
     pub accepted: usize,
-    /// Steps rejected as unsafe (angle window, mast, invalid action, or meet/constraint preservation).
+    /// Steps rejected as unsafe (angle window, mast, invalid action, or meet/constraint
+    /// preservation).
     pub rej_unsafe: usize,
     /// Steps rejected because the candidate or its relations did not solve.
     pub rej_unsolvable: usize,
@@ -147,8 +148,7 @@ pub struct RolloutStats {
     pub evaluations: usize,
     /// Candidates the labels scored: the probes and the oracle step.
     pub label_evaluations: usize,
-    /// Wall-clock seconds the probe phases of the rollout took.
-    /// Both streaming imitation and batched PPO passes report probe wall-clock time.
+    /// Wall-clock seconds of the rollout's probe phases, for both imitation and PPO.
     pub label_secs: f32,
 }
 
@@ -208,9 +208,8 @@ pub struct IterationReport {
     pub mean_step_reward: f32,
     /// Environment steps of the rollout.
     pub steps: usize,
-    /// A new lowest final score, with the episode that reached it. Dominated by which design
-    /// happened to have the lowest base score (review TQ-19); the logs report
-    /// [`Self::new_best_improvement`] instead.
+    /// A new lowest final score, with the episode that reached it. It depends on which design had
+    /// the lowest base score, so the logs report [`Self::new_best_improvement`] instead.
     pub new_best: Option<EpisodeSummary>,
     /// A new largest score drop (base minus final), with the episode that reached it.
     pub new_best_improvement: Option<EpisodeSummary>,
@@ -525,7 +524,7 @@ pub struct EvalCase {
     /// This case's noise endpoint was restored rather than evaluated in this pass.
     #[serde(default)]
     pub noise_reference_cached: bool,
-    /// Teacher endpoint, evaluated now or restored with `references_cached` set.
+    /// Oracle endpoint, evaluated now or restored with `references_cached` set.
     pub oracle_final_score: Option<f32>,
     /// Scored candidates in probes/search/steps, excluding reset and endpoint rescoring.
     pub oracle_evaluations: Option<usize>,

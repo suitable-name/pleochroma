@@ -72,8 +72,8 @@ pub fn box_mesh(half: DVec3) -> Result<RoughMesh, MeshError> {
 
 /// The corners and triangles of a closed shell around `centre` that contains a sphere.
 ///
-/// The shell is an icosahedron whose faces touch the sphere of radius `radius_mm`. It over-covers the sphere
-/// by a few percent in radius, never under-covers it, which is the safe side for an inclusion.
+/// The shell is an icosahedron whose faces touch the sphere of radius `radius_mm` from outside.
+/// It contains the sphere and never under-covers it, which is the safe side for an inclusion.
 #[must_use]
 pub fn sphere_shell(centre: DVec3, radius_mm: f64) -> (Vec<DVec3>, Vec<[u32; 3]>) {
     let phi = f64::midpoint(1.0, 5.0_f64.sqrt());

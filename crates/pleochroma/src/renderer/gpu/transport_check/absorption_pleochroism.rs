@@ -1,10 +1,8 @@
-//! `spectral_absorption`, `pleochroic_channel_alpha` (uniaxial: `alpha_beta = None`),
-//! `isotropic_channel_alpha` (the isotropic-material eigenmode midpoint), and
-//! P1's `assigned_mode_alpha` (via `assigned_mode_e_field_uniaxial`), the uniaxial
-//! assigned-mode absorption coefficient that replaced `pleochroic_channel_alpha` on the
-//! interior transport path's anisotropic branch. Also P6's `BandShape::GaussianEnergy`,
-//! now folded into [`run_absorption`]'s own case bank rather than a separate check --
-//! see that function's doc comment for why.
+//! Absorption and pleochroism checks.
+//!
+//! Covers `spectral_absorption` (both band shapes), `pleochroic_channel_alpha` (uniaxial:
+//! `alpha_beta = None`), the isotropic eigenmode midpoint (`isotropic_channel_alpha` in
+//! WGSL), and the uniaxial `assigned_mode_alpha` (via `assigned_mode_e_field_uniaxial`).
 
 use crate::{
     optics::{
@@ -26,12 +24,10 @@ use super::{SHADER_SRC, STOKES_SAMPLES, UlpAccumulator, UlpCheckResult};
 // spectral_absorption
 // ---------------------------------------------------------------------------------
 
-/// Absorption band gpu.
-// P6: `shape` selects which domain the band is Gaussian in (0 = GaussianWavelength,
-// 1 = GaussianEnergy) -- mirrors `renderer::buffers::GpuAbsorptionBand` /
-// `renderer/shaders/transport_physics.wgsl`'s production `AbsorptionBand` field-for-
-// field, so this check exercises the SAME struct/kernel real materials upload, not a
-// parallel copy that could silently drift from it.
+/// One absorption band in the GPU layout.
+// `shape` selects the Gaussian domain (0 = wavelength, 1 = energy). It mirrors
+// `renderer::buffers::GpuAbsorptionBand` field for field, so the check runs the same
+// struct and kernel that real materials upload.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct AbsorptionBandGpu {
@@ -59,20 +55,12 @@ pub struct AbsorptionCase {
 const ABSORPTION_ULP_BUDGET: u32 = 24;
 const ABSORPTION_ABS_FLOOR: f32 = 1e-6;
 
-/// Builds the `spectral_absorption` case bank: every real material's o/e-ray band sets
-/// (wavelength-domain, as authored), PLUS the same sets reauthored as
-/// `BandShape::GaussianEnergy` (P6), plus one synthetic set mixing BOTH shapes in the
-/// same band list -- exercises the kernel's per-band `shape` branch inside one sum, not
-/// just one shape per whole case. This is the crate's ONE `spectral_absorption`/
-/// `AbsorptionBand` check: a split into a wavelength-only bank here and a
-/// separate `GaussianEnergy`-only bank/struct/kernel (`run_absorption_shaped`,
-/// `AbsorptionShapedCase`, `absorption_shaped_main`) would prove only that the CPU
-/// formula's f32 op order survives translation to WGSL in a standalone function,
-/// unconnected to the production struct/function -- since
-/// `GpuAbsorptionBand`/`AbsorptionBand`/`spectral_absorption` themselves carry `shape`
-/// (see `renderer::buffers::GpuAbsorptionBand`'s own doc comment), that standalone proof
-/// and the production check would otherwise diverge, so both are covered by this one
-/// case bank against the one production struct/function.
+/// Builds the `spectral_absorption` case bank.
+///
+/// It holds each real material's o- and e-ray band sets as authored, the same sets
+/// reauthored as `BandShape::GaussianEnergy`, and one synthetic set mixing both shapes. The
+/// mixed set exercises the per-band `shape` branch inside one sum. Every case runs the
+/// production struct and kernel, so a standalone copy cannot drift from them.
 fn build_absorption_cases() -> Vec<(
     AbsorptionCase,
     Vec<crate::optics::absorption::AbsorptionBand>,
@@ -323,11 +311,9 @@ fn dispatch_pleochroic(
 
 /// Checks the pleochroic and isotropic channel-alpha kernels against their CPU twins.
 ///
-/// Covers `pleochroic_channel_alpha` (degree-of-polarization blend) and
-/// `isotropic_channel_alpha` (Stokes-independent eigenmode midpoint) over one shared
-/// case bank. The bank includes `alpha_o != alpha_e` tensors,
-/// so the isotropic kernel is exercised on a dichroic tensor where the midpoint and the
-/// polarized blend differ.
+/// Covers `pleochroic_channel_alpha` (degree-of-polarization blend) and the isotropic
+/// eigenmode midpoint (Stokes-independent) over one case bank. The bank includes
+/// `alpha_o != alpha_e` tensors, where the midpoint and the polarized blend differ.
 #[must_use]
 pub fn run_pleochroic(ctx: &crate::renderer::gpu::GpuContext) -> UlpCheckResult<PleochroicCase> {
     let cases = build_pleochroic_cases();
@@ -370,11 +356,10 @@ pub fn run_pleochroic(ctx: &crate::renderer::gpu::GpuContext) -> UlpCheckResult<
 }
 
 // ---------------------------------------------------------------------------------
-// P1: assigned_mode_alpha_uniaxial (optics::birefringence::assigned_mode_alpha combined
-// with assigned_mode_e_field_uniaxial, evaluated against an AbsorptionTensor3::uniaxial
-// tensor -- the interior transport path's replacement for pleochroic_channel_alpha on
-// its anisotropic branch). Keeps `run_pleochroic` above unchanged -- see that check's own
-// doc comment for why it is still exercised.
+// assigned_mode_alpha_uniaxial: optics::birefringence::assigned_mode_alpha with
+// assigned_mode_e_field_uniaxial, evaluated against an AbsorptionTensor3::uniaxial tensor.
+// This is the anisotropic branch of the interior transport path. `run_pleochroic` above
+// stays a separate check.
 // ---------------------------------------------------------------------------------
 
 /// One input case for the assigned mode alpha uniaxial check.

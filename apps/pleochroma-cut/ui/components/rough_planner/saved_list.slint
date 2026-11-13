@@ -1,66 +1,140 @@
 import { Theme } from "../../theme.slint";
 import { ScrollView, LineEdit } from "std-widgets.slint";
 import { RoughPlanModel, SavedRoughPlanRow } from "../../models/rough_plan.slint";
-import { RoughPill, BackChevron, ElidedText, WrapText } from "fields.slint";
-import { TipBox } from "../tip_box.slint";
+import { KitIconButton, KitIcons, KitButton } from "../kit/kit.slint";
+import { RoughUi } from "state.slint";
+import { WrapText } from "fields.slint";
 
-// One saved plan row in the saved plans list
+// One saved plan of the Saved Plans tab: its name, summary and date, and a "..." menu (Open,
+// Rename, Export, Delete, drawn by the window). A double-click opens the plan. Rename and the
+// delete question open inside the card.
 component SavedPlanCard inherits Rectangle {
     in property <SavedRoughPlanRow> plan;
-    property <bool> renaming: false;
-    property <string> new_name: root.plan.name;
-    property <bool> confirming_delete: false;
+    in property <int> index;
 
-    // The rename row closes when the list comes back with the change, not when the
-    // button is pressed: a name Rust refuses leaves the row open beside the error.
-    changed plan => { root.renaming = false; }
+    property <bool> renaming: RoughUi.rename_row == root.index;
+    property <bool> confirming_delete: RoughUi.delete_row == root.index;
+    property <string> new_name: root.plan.name;
+
+    // The rename row opens with the plan's current name selected.
+    changed renaming => {
+        if root.renaming {
+            root.new_name = root.plan.name;
+        }
+    }
+
+    // The rename row closes when the list comes back with the change, not when the button is
+    // pressed: a name Rust refuses leaves the row open beside the error.
+    changed plan => {
+        if RoughUi.rename_row == root.index {
+            RoughUi.rename_row = -1;
+        }
+        if RoughUi.delete_row == root.index {
+            RoughUi.delete_row = -1;
+        }
+    }
 
     background: Theme.bg-card;
-    border-radius: Theme.radius-sm;
-    border-width: 1px;
-    border-color: Theme.border-subtle;
+    border-radius: 9px;
+    min-height: Math.max(58px, saved_lay.preferred-height);
 
-    VerticalLayout {
-        padding: 8px;
+    accessible-role: AccessibleRole.list-item;
+    accessible-label: root.plan.name;
+    accessible-description: root.plan.summary;
+
+    // Declared first: a double-click on the card's body opens the plan.
+    TouchArea {
+        enabled: !RoughPlanModel.running;
+        double-clicked => { RoughPlanModel.saved_menu(root.index, 0); }
+    }
+
+    saved_lay := VerticalLayout {
+        padding-left: 12px;
+        padding-right: 4px;
+        padding-top: 8px;
+        padding-bottom: 8px;
         spacing: 6px;
 
-        // Top line: Name (or rename field) and date
-        // The title and the summary start at the same left edge (`alignment: center` here
-        // had pulled the title and the date together to the middle).
-        if !root.renaming: HorizontalLayout {
-            spacing: 12px;
-
-            Text {
+        if !root.renaming && !root.confirming_delete: HorizontalLayout {
+            spacing: 8px;
+            VerticalLayout {
                 horizontal-stretch: 1;
-                text: root.plan.name;
-                font-size: 12px;
-                font-weight: 700;
-                color: Theme.text-primary;
-                horizontal-alignment: left;
-                vertical-alignment: center;
-                overflow: elide;
-                accessible-role: AccessibleRole.text;
+                min-width: 0px;
+                alignment: center;
+                spacing: 2px;
+                Rectangle {
+                    height: 18px;
+                    Text {
+                        x: 0px;
+                        width: parent.width;
+                        height: parent.height;
+                        text: root.plan.name;
+                        font-size: 13px;
+                        font-weight: 600;
+                        color: Theme.text-primary;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                }
+                Rectangle {
+                    height: 15px;
+                    Tooltip { text: @markdown("\{root.plan.summary}"); }
+                    Text {
+                        x: 0px;
+                        width: parent.width;
+                        height: parent.height;
+                        text: root.plan.summary;
+                        font-size: 11px;
+                        color: Theme.text-secondary;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                }
             }
-
             Text {
                 text: root.plan.date;
-                font-size: 10px;
+                font-size: 11px;
                 color: Theme.text-muted;
                 vertical-alignment: center;
+                horizontal-stretch: 0;
+            }
+            VerticalLayout {
+                alignment: center;
+                KitIconButton {
+                    d: KitIcons.more;
+                    size: 28px;
+                    stroke: 2.6px;
+                    label: "Menu of " + root.plan.name;
+                    hint: "Open, rename, export or delete this saved plan.";
+                    clicked => {
+                        RoughUi.menu_kind = 3;
+                        RoughUi.menu_row = root.index;
+                        RoughUi.menu_group = -1;
+                        RoughUi.menu_right = true;
+                        RoughUi.menu_x = self.absolute-position.x + self.width;
+                        RoughUi.menu_y = self.absolute-position.y + self.height + 4px;
+                    }
+                }
             }
         }
 
         // Inline renaming row
         if root.renaming: HorizontalLayout {
             spacing: 6px;
-
-            TipBox {
+            padding-right: 8px;
+            Rectangle {
                 horizontal-stretch: 1;
-                hint: "The new name of the plan. Enter keeps it.";
+                min-width: 0px;
+                height: 30px;
+                Tooltip { text: @markdown("The new name of the plan. Enter keeps it."); }
                 LineEdit {
-                    min-width: 0px;
+                    x: 0px;
+                    y: 0px;
+                    width: parent.width;
+                    height: parent.height;
+                    font-size: 13px;
                     text <=> root.new_name;
-                    accessible-label: "New Name of "+ root.plan.name;
+                    accessible-label: "New Name of " + root.plan.name;
                     init => {
                         self.focus();
                         self.select-all();
@@ -68,169 +142,59 @@ component SavedPlanCard inherits Rectangle {
                     accepted => { RoughPlanModel.rename_saved(root.plan.id, root.new_name); }
                 }
             }
-
-            RoughPill {
+            KitButton {
                 text: "Save";
+                kind: 1;
+                h: 30px;
                 hint: "Keep the new name. Enter does the same.";
-                active: true;
                 clicked => { RoughPlanModel.rename_saved(root.plan.id, root.new_name); }
             }
-
-            RoughPill {
+            KitButton {
                 text: "Cancel";
+                h: 30px;
                 hint: "Keep the old name.";
                 clicked => {
                     root.new_name = root.plan.name;
-                    root.renaming = false;
+                    RoughUi.rename_row = -1;
                 }
             }
         }
 
-        // Summary line (e.g. "Pebble · Aquamarine · 3 results")
-        ElidedText {
-            text: root.plan.summary;
-            font_size: 11px;
-            text_color: Theme.text-secondary;
-            tip: true;
-        }
-
-        // Actions: Open, Rename, Export, Delete
-        HorizontalLayout {
+        // The delete question: Rust deletes at once when it is answered with Delete.
+        if root.confirming_delete: VerticalLayout {
             spacing: 6px;
-            alignment: end;
-
-            // Opening replaces the model and the results, which a running plan is using.
-            if !root.confirming_delete: RoughPill {
-                text: "Open";
-                hint: RoughPlanModel.running ? "Not while a plan is running. Wait for it to finish, or cancel it."
-                    : "Open this plan: its rough, cuts, settings and layouts replace the ones in the window.";
-                active: true;
-                enabled: !RoughPlanModel.running;
-                clicked => { RoughPlanModel.open_saved(root.plan.id); }
+            padding-right: 8px;
+            WrapText {
+                text: "Delete \"" + root.plan.name + "\"? This cannot be undone.";
+                font_size: 12px;
+                text_color: Theme.danger;
             }
-
-            if !root.confirming_delete && !root.renaming: RoughPill {
-                text: "Rename";
-                hint: "Give this plan another name.";
-                clicked => {
-                    root.new_name = root.plan.name;
-                    root.renaming = true;
+            HorizontalLayout {
+                spacing: 6px;
+                alignment: end;
+                KitButton {
+                    text: "Cancel";
+                    h: 28px;
+                    hint: "Keep this plan.";
+                    clicked => { RoughUi.delete_row = -1; }
                 }
-            }
-
-            if !root.confirming_delete: RoughPill {
-                text: "Export";
-                hint: "Save this plan as a file you can keep, send or import again later.";
-                clicked => { RoughPlanModel.export_saved(root.plan.id); }
-            }
-
-            if !root.confirming_delete: RoughPill {
-                text: "Delete";
-                hint: "Delete this saved plan. You are asked to confirm first.";
-                clicked => { root.confirming_delete = true; }
-            }
-
-            if root.confirming_delete: Text {
-                text: "Delete Plan?";
-                font-size: 10px;
-                color: Theme.danger;
-                vertical-alignment: center;
-            }
-
-            if root.confirming_delete: RoughPill {
-                text: "Yes, Delete";
-                hint: "Delete this saved plan for good.";
-                clicked => {
-                    RoughPlanModel.delete_saved(root.plan.id);
-                    root.confirming_delete = false;
+                KitButton {
+                    text: "Yes, Delete";
+                    h: 28px;
+                    hint: "Delete this saved plan for good.";
+                    clicked => {
+                        RoughUi.delete_row = -1;
+                        RoughPlanModel.saved_menu(root.index, 3);
+                    }
                 }
-            }
-
-            if root.confirming_delete: RoughPill {
-                text: "Cancel";
-                hint: "Keep this plan.";
-                clicked => { root.confirming_delete = false; }
             }
         }
     }
 }
 
-// Side list of saved plans replacing the results column
+// The Saved Plans tab: one card per plan and Import.
 export component SavedList inherits VerticalLayout {
     spacing: 8px;
-
-    // Header: Back button to results, title, and Import button
-    HorizontalLayout {
-        spacing: 8px;
-
-        // Back to the results: a pill-shaped button with a Path chevron
-        Rectangle {
-            width: 72px;
-            height: 20px;
-            border-radius: 10px;
-            border-width: back_focus.has-focus ? 2px : 1px;
-            border-color: back_focus.has-focus ? Theme.accent-cyan-hover : Theme.border-control;
-            background: back_touch.has-hover ? Theme.surface-control-hover : Theme.surface-control;
-
-            accessible-role: AccessibleRole.button;
-            accessible-label: "Back to the Results";
-            accessible-description: "Close the saved plans and show the results again.";
-            accessible-action-default => { RoughPlanModel.saved_open = false; }
-
-            Tooltip { text: @markdown("Close the saved plans and show the results again."); }
-
-            back_focus := FocusScope {
-                key-pressed(event) => {
-                    if event.text == Key.Space || event.text == Key.Return {
-                        RoughPlanModel.saved_open = false;
-                        return accept;
-                    }
-                    return reject;
-                }
-            }
-
-            HorizontalLayout {
-                spacing: 5px;
-                alignment: center;
-
-                VerticalLayout {
-                    alignment: center;
-                    BackChevron {
-                        stroke_color: back_touch.has-hover ? Theme.text-primary : Theme.text-secondary;
-                    }
-                }
-
-                Text {
-                    text: "Results";
-                    font-size: 10px;
-                    color: Theme.text-secondary;
-                    vertical-alignment: center;
-                }
-            }
-
-            back_touch := TouchArea {
-                mouse-cursor: pointer;
-                clicked => { RoughPlanModel.saved_open = false; }
-            }
-        }
-
-        Text {
-            horizontal-stretch: 1;
-            text: "Saved Plans";
-            font-size: 13px;
-            font-weight: 700;
-            color: Theme.text-primary;
-            vertical-alignment: center;
-        }
-
-        RoughPill {
-            text: "Import\u{2026}";
-            hint: RoughPlanModel.running ? "Not while a plan is running. Wait for it to finish, or cancel it."
-                : "Load a plan from a file that Export wrote, and add it to this list.";
-            enabled: !RoughPlanModel.running;
-            clicked => { RoughPlanModel.import_saved(); }
-        }
-    }
 
     // The latest note (a plan opened, renamed, exported) and the latest error
     if RoughPlanModel.status_text != "": WrapText {
@@ -252,13 +216,14 @@ export component SavedList inherits VerticalLayout {
             spacing: 6px;
             Text {
                 text: "No saved plans yet.";
-                font-size: 12px;
-                color: Theme.text-muted;
+                font-size: 14px;
+                font-weight: 600;
+                color: Theme.text-primary;
                 horizontal-alignment: center;
             }
             WrapText {
-                text: "Save plans from the results column to see them here, or click Import to load a file.";
-                font_size: 11px;
+                text: "Save layouts from the Layouts tab to see them here, or click Import to load a file.";
+                font_size: 12px;
                 text_color: Theme.text-secondary;
                 alignment: center;
             }
@@ -267,6 +232,7 @@ export component SavedList inherits VerticalLayout {
 
     if RoughPlanModel.saved_plans.length > 0: ScrollView {
         vertical-stretch: 1;
+        content-width: self.visible-width;
 
         VerticalLayout {
             alignment: start;
@@ -274,9 +240,23 @@ export component SavedList inherits VerticalLayout {
             // The scroll bar is drawn over the right edge: leave it room.
             padding-right: 12px;
 
-            for plan in RoughPlanModel.saved_plans: saved-plan-card-l278 := SavedPlanCard {
+            for plan[i] in RoughPlanModel.saved_plans: SavedPlanCard {
                 plan: plan;
+                index: i;
             }
+        }
+    }
+
+    HorizontalLayout {
+        alignment: start;
+        KitButton {
+            text: "Import\u{2026}";
+            kind: 2;
+            h: 30px;
+            enabled: !RoughPlanModel.running;
+            hint: RoughPlanModel.running ? "Not while a plan is running. Wait for it to finish, or cancel it."
+                : "Load a plan from a file that Export wrote, and add it to this list.";
+            clicked => { RoughPlanModel.import_saved(); }
         }
     }
 }

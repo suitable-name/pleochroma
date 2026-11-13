@@ -1,7 +1,9 @@
-//! The handle/command/error types both connection lifecycles ([`super::connection`])
-//! share: [`RemoteError`], [`RemoteCommand`]/[`RemoteUpdate`], [`RemoteRenderHandle`],
-//! [`RemoteRenderRequest`], and [`RemoteConnectionHandle`] plus its own private
-//! command/request bookkeeping types. See this group's own `mod.rs` doc comment.
+//! Handle, command and error types shared by both connection lifecycles
+//! ([`super::connection`]).
+//!
+//! These are [`RemoteError`], [`RemoteCommand`]/[`RemoteUpdate`], [`RemoteRenderHandle`],
+//! [`RemoteRenderRequest`] and [`RemoteConnectionHandle`], plus the private command and
+//! request types behind the last one. See the parent module's docs.
 
 use crate::settings::WorkerSettings;
 use glam::Vec3;
@@ -22,9 +24,8 @@ use std::{
 /// Buffered TLS stream to a remote worker, closed cleanly when dropped.
 ///
 /// Derefs to the `rustls::StreamOwned` it wraps (`.sock`, `.conn`), and reads and writes
-/// through it. Dropping it says goodbye instead of vanishing (see the `Drop` impl): the
-/// coordinator used to log every finished CLI render and every evicted pooled connection
-/// as "connection reset by peer".
+/// through it. Dropping it closes the connection cleanly (see the `Drop` impl), so the peer
+/// sees an orderly end rather than a reset.
 pub struct RemoteStream(rustls::StreamOwned<rustls::ClientConnection, TcpStream>);
 
 impl RemoteStream {
@@ -73,11 +74,10 @@ impl Write for RemoteStream {
 const CLOSE_DRAIN_LIMIT: usize = 64 * 1024;
 
 impl Drop for RemoteStream {
-    /// Ends the connection cleanly: the TLS `close_notify` alert, then a TCP FIN, so the
-    /// other side reads an orderly end of stream. What the peer already sent and nobody
-    /// read is drained first: closing a socket with unread data makes the operating system
-    /// answer with a reset instead. Never blocks: the socket goes non-blocking first, and
-    /// whatever cannot be written or read at once is given up.
+    /// Sends the TLS `close_notify` alert and a TCP FIN. Unread data from the peer is drained
+    /// first, since closing a socket with unread data makes the OS send a reset. Never blocks:
+    /// the socket is set non-blocking, and anything that cannot be written or read at once is
+    /// given up.
     fn drop(&mut self) {
         let rustls::StreamOwned { conn, sock } = &mut self.0;
         if sock.set_nonblocking(true).is_err() {
@@ -134,11 +134,11 @@ pub enum RemoteError {
     /// connection just stopped saying anything at all, which a bare I/O error would
     /// never distinguish from a worker legitimately taking its time on a slow tick.
     WorkerSilent(Duration),
-    /// Protocol v14: the scene is lit by an HDR map but the remote's `WELCOME` does not
-    /// advertise HDR support (`RenderCapability::hdr`), so the request was not sent.
+    /// The scene is lit by an HDR map but the remote's `WELCOME` does not advertise HDR
+    /// support (`RenderCapability::hdr`), so the request was not sent.
     HdrUnsupported,
-    /// Protocol v14: the remote asked for the scene's HDR map (`NEED_ASSET`) and it could
-    /// not be sent (unknown hash, unreadable or changed file, or the upload failed).
+    /// The remote asked for the scene's HDR map (`NEED_ASSET`) and it could not be sent
+    /// (unknown hash, unreadable or changed file, or the upload failed).
     Asset(String),
     /// A `CANCEL` was written and the worker neither ended the request nor closed the
     /// stream within `super::connection::CANCEL_ACK_TIMEOUT`. Distinct from
@@ -146,9 +146,9 @@ pub enum RemoteError {
     /// silence clock on every `PROGRESS`, so a wedged tracer that ignores the cancel
     /// would otherwise keep this one-shot thread alive for as long as the socket lives.
     CancelUnacknowledged(Duration),
-    /// The scene's material has colour zones but the remote's `WELCOME` does
-    /// not advertise the zoning capability (a worker without its own render lane), so the request
-    /// was not sent -- it would render as its base zone only. The picture renders locally.
+    /// The scene's material has zones but the remote's `WELCOME` does not advertise the zoning
+    /// capability, so the request was not sent: it would render as the base zone only. The
+    /// picture renders locally.
     ZoningUnsupported,
 }
 
@@ -206,26 +206,20 @@ impl From<NetError> for RemoteError {
 /// touching the socket directly.
 pub enum RemoteCommand {
     Cancel,
-    /// v16: the viewer's own float-XYZ sum for a `FinalImageRequest`'s reserved tail,
-    /// ready to upload as one `CONTRIBUTION`. One-shot only -- see
-    /// [`RemoteRenderHandle::contribute`].
+    /// The viewer's own float-XYZ sum for a `FinalImageRequest`'s reserved tail, uploaded as
+    /// one `CONTRIBUTION`. One-shot only; see [`RemoteRenderHandle::contribute`].
     Contribute(Vec<Vec3>),
 }
 
-/// One update surfaced to the caller's `on_update` callback as a remote render
-/// progresses. Deliberately does not carry the accumulated buffer itself -- the caller
-/// already shares the same `Arc<Mutex<Accumulator>>` passed to
-/// [`super::connection::spawn_remote_render`] and reads it directly under its own lock;
-/// this just says when something changed.
+/// One update passed to the caller's `on_update` callback as a remote render progresses.
 ///
-/// Every variant carries `request_id` (see [`Self::request_id`]) so a consumer juggling
-/// more than one request over its lifetime (`gui::remote::orchestrator`'s persistent
-/// connection, which supersedes an in-flight request whenever the camera settles again
-/// before the previous one finished) can tell a stale update apart from one for what's
-/// current now. [`super::connection::route_event`]'s `Accumulator::apply` epoch check
-/// already prevents a stale reply from corrupting the accumulator itself; this is the
-/// analogous guard for `on_update` side effects (toasts, UI state) that `apply` has no
-/// way to gate on its own.
+/// It carries no accumulated data: the caller reads the shared `Arc<Mutex<Accumulator>>` under its
+/// own lock. The update only says that something changed.
+///
+/// Every variant carries `request_id` (see [`Self::request_id`]), so a consumer that
+/// supersedes requests (`gui::remote::orchestrator`) can ignore stale updates. The
+/// accumulator's epoch check already stops stale replies from corrupting it. This field is
+/// the matching guard for side effects in `on_update`, which the accumulator cannot gate.
 #[derive(Debug, Clone)]
 pub enum RemoteUpdate {
     /// The handshake completed; streaming is about to begin. Corresponds to
@@ -257,29 +251,27 @@ pub enum RemoteUpdate {
         request_id: u32,
         message: String,
     },
-    /// v14: the server answered `ERROR { code: UNSUPPORTED_REQUEST }` -- it is a plain
-    /// worker that does not implement what was asked (a `FinalImageRequest`, or a
-    /// `TransferMode::DisplayOnly` render). Terminal for the request, but NOT a broken
-    /// server: callers fall back to full-data transfer instead of treating it as a
-    /// failure.
+    /// The server answered `ERROR { code: UNSUPPORTED_REQUEST }`: a plain worker that does not
+    /// implement what was asked (a `FinalImageRequest`, or a `TransferMode::DisplayOnly`
+    /// render). Terminal for the request, but not a broken server: callers fall back to
+    /// full-data transfer.
     Unsupported {
         request_id: u32,
         message: String,
     },
-    /// v14: a `DISPLAY_FRAME` (a finished, denoised 8-bit picture) replaced the
-    /// accumulator's `last_display_frame`; `samples_done` is what it reflects.
+    /// A `DISPLAY_FRAME` (a finished, denoised 8-bit picture) replaced the accumulator's
+    /// `last_display_frame`; `samples_done` is what it reflects.
     DisplayFrame {
         request_id: u32,
         samples_done: u32,
     },
-    /// v14: the request's `FINAL_IMAGE` is in the accumulator's `final_image`; `Done`
-    /// follows.
+    /// The request's `FINAL_IMAGE` is in the accumulator's `final_image`; `Done` follows.
     FinalImage {
         request_id: u32,
     },
-    /// v14: the server's render capability changed since its `WELCOME` (a coordinator
-    /// gained or lost joined workers). Not tied to the request; carried with the
-    /// current request id only so the usual staleness gate applies.
+    /// The server's render capability changed since its `WELCOME` (a coordinator gained or
+    /// lost workers). Not tied to the request; it carries the current request id only so
+    /// the usual staleness check applies.
     CapabilityChanged {
         request_id: u32,
         render: Option<pleochroma_net::messages::RenderCapability>,
@@ -320,11 +312,11 @@ pub(super) enum HandleKind {
     },
 }
 
-/// Handle returned by [`super::connection::spawn_remote_render`]/
-/// [`RemoteConnectionHandle::render`]. Cancelling is fire-and-forget: send the cancel
-/// command and let the worker thread's own `DONE { cancelled: true }` (surfaced via
-/// `on_update`) confirm it, matching `bridge::export_thread::ExportHandle`'s existing
-/// cooperative-cancellation shape in this same crate.
+/// Handle returned by [`super::connection::spawn_remote_render`] and
+/// [`RemoteConnectionHandle::render`].
+///
+/// Cancelling is fire-and-forget: the worker's own `DONE { cancelled: true }`, reported
+/// through `on_update`, confirms it. This matches `bridge::export_thread::ExportHandle`.
 pub struct RemoteRenderHandle(pub(super) HandleKind);
 
 impl RemoteRenderHandle {
@@ -345,14 +337,11 @@ impl RemoteRenderHandle {
         }
     }
 
-    /// Uploads `sum` (the viewer's own float-XYZ radiance sum) as one `CONTRIBUTION`
-    /// for the in-flight `FinalImageRequest` -- v16, final-picture-only exports with a
-    /// reserved local tail. Returns `true` once the upload is queued for the one-shot
-    /// worker thread to send; `false` on a persistent connection, which never dispatches
-    /// a `FinalImageRequest` with `viewer_samples > 0` in the first place (the live
-    /// viewport's own transfer is a different one entirely -- see
-    /// [`RemoteConnectionHandle`]'s own doc comment on why it stays one-shot-only for
-    /// exports).
+    /// Uploads `sum` (the viewer's own float-XYZ radiance sum) as one `CONTRIBUTION` for the
+    /// in-flight `FinalImageRequest`, for exports whose last samples are rendered locally.
+    /// Returns `true` once the one-shot worker thread has the upload queued. Returns `false`
+    /// on a persistent connection, which never sends a `FinalImageRequest` with
+    /// `viewer_samples > 0`.
     #[must_use]
     pub fn contribute(&self, sum: Vec<Vec3>) -> bool {
         match &self.0 {
@@ -373,11 +362,10 @@ pub(super) fn host_from_address(address: &str) -> &str {
     pleochroma_net::tls::host_for_server_name(address).unwrap_or(address)
 }
 
-/// Everything [`super::connection::spawn_remote_render`] needs to know about the ONE
-/// `RenderRequest` it will send, grouped into a struct purely to keep that function's
-/// (and `run`'s) own parameter list short -- see [`WorkerSettings`]'s own doc comment
-/// for why `width`/`height` travel alongside `worker` here rather than living on
-/// `WorkerSettings` itself (render resolution is session-wide, not per-worker).
+/// Everything [`super::connection::spawn_remote_render`] needs for one `RenderRequest`, grouped to
+/// keep the parameter lists short.
+///
+/// `width` and `height` are the session's render size, not a per-worker setting.
 pub struct RemoteRenderRequest {
     /// Connection settings of the remote worker.
     pub worker: WorkerSettings,
@@ -393,9 +381,9 @@ pub struct RemoteRenderRequest {
     pub width: u32,
     /// Image height in pixels.
     pub height: u32,
-    /// Why the request is made (protocol v14): `Interactive` for the live viewport,
-    /// `Batch` for exports, tilt videos and batch previews. A coordinator uses it to pick
-    /// lanes; a plain worker ignores it.
+    /// Why the request is made: `Interactive` for the live viewport, `Batch` for exports,
+    /// tilt videos and batch previews. A coordinator uses it to pick lanes; a plain worker
+    /// ignores it.
     pub intent: pleochroma_net::messages::RequestIntent,
     /// Final-picture live transfer, live view only: ask for finished, denoised display frames
     /// (`TransferMode::DisplayOnly`, no preview stream) instead of float deltas. Only
@@ -419,18 +407,18 @@ pub struct RemoteFinalImageRequest {
     pub samples: u32,
     /// The color space the remote tone-maps into.
     pub color_space: pleochroma::color::ColorSpace,
-    /// v16: the LAST `viewer_samples` of `[first_sample, first_sample + samples)`,
-    /// reserved for the viewer's own local render -- `0` reproduces today's behaviour
-    /// (the server plans and renders the whole range). See
-    /// `pleochroma_net::messages::FinalImageRequest::viewer_samples`'s own doc comment.
+    /// The last `viewer_samples` of `[first_sample, first_sample + samples)`, reserved for
+    /// the viewer's own local render. `0` makes the server render the whole range. See
+    /// `pleochroma_net::messages::FinalImageRequest::viewer_samples`.
     pub viewer_samples: u32,
 }
 
-/// A handle to one persistent, mutual-TLS connection to a configured remote worker,
-/// reused across many settles of a live viewport session instead of paying a fresh
-/// TCP+TLS+HELLO/WELCOME handshake on every one -- see the module doc comment's "Known
-/// cost" section. Owned by `gui::remote::orchestrator`: exactly one live handle per
-/// worker in use, created lazily by [`super::connection::spawn_remote_connection`] and
+/// A handle to one persistent, mutual-TLS connection to a remote worker.
+///
+/// The connection is reused across the settles of a live viewport session instead of a fresh
+/// TCP+TLS+HELLO/WELCOME handshake each time. Owned by `gui::remote::orchestrator`: exactly
+/// one live handle per worker in use, created lazily by
+/// [`super::connection::spawn_remote_connection`] and
 /// dropped (tearing the connection down) whenever
 /// `gui::remote::orchestrator::connection_is_stale` decides the cached identity no
 /// longer matches what's configured (address/`cert_dir` edited, worker removed, remote
@@ -449,14 +437,10 @@ pub struct RemoteFinalImageRequest {
 ///
 /// # Not used for the design-library protocol or for exports
 ///
-/// `bridge::library::client`'s `LibrarySession` already solves connection reuse for its
-/// own access pattern (many requests in a tight mirror-sync loop) independently --
-/// sharing one connection between a live render stream and an on-demand library
-/// browse/sync would entangle two independently-lifecycled features for no measured
-/// benefit. `bridge::export_thread::remote` keeps using
-/// [`super::connection::spawn_remote_render`]'s one-shot form too: an export's few
-/// dispatches happen once per user action, not repeatedly across a session's many
-/// settles, so the repeated-handshake cost this type avoids is a non-issue there.
+/// The design-library client (`bridge::library::client`, `LibrarySession`) reuses its own
+/// connection, and a shared connection would couple two features with different lifetimes.
+/// Exports (`bridge::export_thread::remote`) use the one-shot form, since they dispatch only a
+/// few requests per user action.
 pub struct RemoteConnectionHandle {
     pub(super) worker: WorkerSettings,
     pub(super) commands: mpsc::Sender<ConnectionCommand>,
@@ -507,12 +491,9 @@ impl RemoteConnectionHandle {
 /// One command sent to a [`super::connection::spawn_remote_connection`] background
 /// thread over its `commands` channel.
 pub(super) enum ConnectionCommand {
-    /// Dispatch a new [`RemoteRenderRequest`], superseding whatever was previously in
-    /// flight -- see [`RemoteConnectionHandle::render`]'s doc comment. Boxed (along
-    /// with its two companion fields, wrapped together purely so all three travel as
-    /// one allocation) to keep this enum's `Cancel` variant from paying for
-    /// `RemoteRenderRequest`'s much larger `SceneState` -- mirrors
-    /// `pleochroma_net::messages::ClientMessage::RenderRequest`'s own identical reasoning.
+    /// Dispatch a new [`RemoteRenderRequest`], superseding whatever was in flight; see
+    /// [`RemoteConnectionHandle::render`]. Boxed so the enum stays small: the request carries
+    /// a large `SceneState`, which `Cancel` should not pay for.
     Render(Box<RenderCommand>),
     /// Cancel `request_id` specifically -- a no-op if the connection's current request
     /// is no longer `request_id` (already superseded or finished), which is exactly

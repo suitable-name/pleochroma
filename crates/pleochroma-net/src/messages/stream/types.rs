@@ -41,7 +41,7 @@ const fn payload_len_u32(len: usize) -> u32 {
 /// `[first_sample, first_sample + samples)` in the request range, never contiguity
 /// between frames (see `crate::client::accumulate`).
 ///
-/// # Encoding (v14)
+/// # Encoding
 ///
 /// `payload_len` is the ON-WIRE size of the payload frame that follows (what
 /// `framing::MAX_FRAME_LEN` bounds); `raw_len` is the decoded size, which must equal
@@ -58,9 +58,9 @@ pub struct FrameHeader {
     pub samples: u32,
     /// Size in bytes of the payload frame that follows, as sent.
     pub payload_len: u32,
-    /// How the payload is encoded (v14).
+    /// How the payload is encoded.
     pub encoding: PayloadEncoding,
-    /// Size in bytes of the payload once decoded (v14).
+    /// Size in bytes of the payload once decoded.
     pub raw_len: u32,
 }
 
@@ -125,9 +125,9 @@ pub struct PreviewHeader {
     pub samples_done: u32,
     /// Size in bytes of the payload frame that follows, as sent.
     pub payload_len: u32,
-    /// How the payload is encoded (v14).
+    /// How the payload is encoded.
     pub encoding: PayloadEncoding,
-    /// Size in bytes of the payload once decoded (v14).
+    /// Size in bytes of the payload once decoded.
     pub raw_len: u32,
 }
 
@@ -176,7 +176,7 @@ impl PreviewHeader {
     }
 }
 
-/// The header half of a `<- DISPLAY_FRAME` (v14, `TransferMode::DisplayOnly`).
+/// The header half of a `<- DISPLAY_FRAME` (`TransferMode::DisplayOnly`).
 ///
 /// A tone-mapped, denoised 8-bit picture of the whole request so far. Like `PREVIEW` it
 /// is CUMULATIVE and REPLACES the previous one; unlike `PREVIEW` it is never merged with
@@ -198,7 +198,7 @@ pub struct DisplayFrameHeader {
     pub payload_len: u32,
 }
 
-/// The header half of a `<- FINAL_IMAGE` (v14, the reply to a `FinalImageRequest`).
+/// The header half of a `<- FINAL_IMAGE` (the reply to a `FinalImageRequest`).
 ///
 /// The finished picture, sent once, followed by `DONE`. The payload follows as a raw
 /// frame; for `FinalOutput::PngRgba8` it is a PNG (`encoding == DisplayEncoding::Png`).
@@ -230,7 +230,7 @@ pub struct Progress {
     pub samples_done: u32,
 }
 
-/// `<- BATCH_ITEM_PROGRESS` (v24): one item of a `BatchRenderRequest` has been traced.
+/// `<- BATCH_ITEM_PROGRESS`: one item of a `BatchRenderRequest` has been traced.
 ///
 /// Sent per item as the worker finishes tracing it (before its PNG is encoded), so a
 /// viewer's progress and stall deadlines move per picture; the batch-wide `PROGRESS`
@@ -245,7 +245,7 @@ pub struct BatchItemProgress {
     pub samples_done: u32,
 }
 
-/// The header half of a `<- BATCH_ITEM_DONE` (v24): one finished picture.
+/// The header half of a `<- BATCH_ITEM_DONE`: one finished picture.
 ///
 /// The payload (`payload_len` bytes) follows as a raw frame: a PNG for
 /// `BatchReply::FinalPng`. Sent exactly once per answered item, never together with a
@@ -262,7 +262,7 @@ pub struct BatchItemDoneHeader {
     pub payload_len: u32,
 }
 
-/// `<- BATCH_ITEM_FAILED` (v24): this item produced no picture; the rest of the batch
+/// `<- BATCH_ITEM_FAILED`: this item produced no picture; the rest of the batch
 /// carries on. `reason` is a human-readable sentence for the viewer's log.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BatchItemFailed {
@@ -274,7 +274,7 @@ pub struct BatchItemFailed {
     pub reason: String,
 }
 
-/// `<- BATCH_DONE` (v24): the terminal message of a `BatchRenderRequest`, exactly once.
+/// `<- BATCH_DONE`: the terminal message of a `BatchRenderRequest`, exactly once.
 ///
 /// Sent after every `BATCH_ITEM_DONE`/`BATCH_ITEM_FAILED` of that batch. `cancelled` is `true`
 /// when a `CANCEL` (or the peer closing) stopped it before every item was answered.
@@ -284,6 +284,63 @@ pub struct BatchDone {
     pub request_id: u32,
     /// Whether it ended because of a `CANCEL`.
     pub cancelled: bool,
+}
+
+/// The header half of a `<- LIVE_PASS`: the reply to a `LivePassRequest`.
+///
+/// The payload (`payload_len = live_pixels * 24` raw bytes) follows as a raw frame -- for each
+/// live pixel the pass total and the odd-sample total, see [`crate::messages::live_pass`]. Sent
+/// exactly once per answered request, instead of an `ERROR` for the same request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LivePassHeader {
+    /// The request this answers.
+    pub request_id: u32,
+    /// The absolute index of the pass's first sample, echoing the request.
+    pub first_sample: u32,
+    /// Samples per pixel the payload sums, echoing the request.
+    pub samples: u32,
+    /// Live pixels in the payload.
+    pub live_pixels: u32,
+    /// Size in bytes of the payload frame that follows.
+    pub payload_len: u32,
+}
+
+/// What a worker's beam tiles cost and kept, as plain counters for the run log.
+///
+/// Every field is a total over all the tiles of one [`BeamTilesHeader`]; all zero for a request
+/// the worker traced without beams.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BeamTileStats {
+    /// Beams the tiles started with.
+    pub beams: u64,
+    /// Leaves (finished beam pieces) the tiles produced.
+    pub leaves: u64,
+    /// Lit fragments the leaves rasterised into.
+    pub fragments: u64,
+    /// Beams dropped to the residual, over all reasons.
+    pub drops: u64,
+    /// Residual path samples traced for the tiles' pixels.
+    pub residual_samples: u64,
+}
+
+/// The header half of a `<- BEAM_TILES`: the reply to a `BeamTileRequest`.
+///
+/// The payload (`payload_len = pixels * 16` raw bytes) follows as a raw frame -- for each pixel of
+/// the requested tiles the finished XYZ and the sample count, see
+/// [`crate::messages::beam_tiles`]. Sent exactly once per answered request, instead of an `ERROR`
+/// for the same request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BeamTilesHeader {
+    /// The request this answers.
+    pub request_id: u32,
+    /// The request's sample offset, echoed.
+    pub sample_offset: u32,
+    /// Pixels in the payload.
+    pub pixels: u32,
+    /// What the tiles cost and kept.
+    pub stats: BeamTileStats,
+    /// Size in bytes of the payload frame that follows.
+    pub payload_len: u32,
 }
 
 /// `-> CANCEL`: asks the worker to stop tracing `request_id` as soon as possible,
@@ -303,7 +360,7 @@ pub struct Cancel {
 ///
 /// See the module doc comment for why variant ORDER here is load-bearing across
 /// differently-`cfg`-feature-flagged builds: every variant after `Library` is
-/// `render`-gated and appended in order (indices 2, 3, 4, 5, 6, 7).
+/// `render`-gated and appended in order (indices 2 to 12).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ClientMessage {
     /// `-> CANCEL` for one request.
@@ -325,7 +382,7 @@ pub enum ClientMessage {
     /// `render`-feature only, appended after `RenderRequest`.
     #[cfg(feature = "render")]
     TiltCurvesRequest(Box<crate::messages::tilt::TiltCurvesRequest>),
-    /// `-> PING` (v14): a liveness probe on an otherwise idle connection (a coordinator
+    /// `-> PING`: a liveness probe on an otherwise idle connection (a coordinator
     /// pings each joined worker). The server answers
     /// [`StreamEvent::Pong`] with the same `nonce` as soon as it reads it -- also while a
     /// request is streaming, interleaved with that stream's events. `render`-feature
@@ -335,23 +392,23 @@ pub enum ClientMessage {
         /// Opaque value echoed in the `PONG`.
         nonce: u64,
     },
-    /// `-> FINAL_IMAGE_REQUEST` (v14): render and tone-map on the server, reply with one
+    /// `-> FINAL_IMAGE_REQUEST`: render and tone-map on the server, reply with one
     /// PNG -- see [`crate::messages::final_image`]. Boxed like `RenderRequest`.
     /// `render`-feature only (index 5).
     #[cfg(feature = "render")]
     FinalImageRequest(Box<crate::messages::final_image::FinalImageRequest>),
-    /// `-> ASSET` (v14): the bytes a server asked for with
+    /// `-> ASSET`: the bytes a server asked for with
     /// [`StreamEvent::NeedAsset`] -- this header, then the raw bytes as one separate frame
     /// of exactly `len` bytes (see [`crate::messages::asset`]). `render`-feature only
     /// (index 6), like every render-side variant.
     #[cfg(feature = "render")]
     Asset(crate::messages::asset::AssetHeader),
-    /// `-> CONTRIBUTION` (v16): the viewer's own share of a `FinalImageRequest`'s
+    /// `-> CONTRIBUTION`: the viewer's own share of a `FinalImageRequest`'s
     /// reserved tail -- this header, then one raw payload frame (see
     /// [`crate::messages::contribution`]). `render`-feature only (index 7).
     #[cfg(feature = "render")]
     Contribution(crate::messages::contribution::ContributionHeader),
-    /// `-> BATCH_RENDER_REQUEST` (v24): several finished pictures in one request -- see
+    /// `-> BATCH_RENDER_REQUEST`: several finished pictures in one request -- see
     /// `crate::messages::batch`. Boxed like `RenderRequest`. `render`-feature only
     /// (index 8). `CANCEL` with the batch's `request_id` cancels it.
     #[cfg(feature = "render")]
@@ -363,19 +420,27 @@ pub enum ClientMessage {
     /// peer without the extension. Boxed like the requests.
     #[cfg(feature = "render")]
     ZoningPayload(Box<crate::messages::zoning::ZoningPayload>),
-    /// `-> JOB` (v25): a durable server job request -- submit, status, fetch, cancel,
+    /// `-> JOB`: a durable server job request -- submit, status, fetch, cancel,
     /// delete, list, or the upload of a job's HDR asset (see [`crate::messages::job`]). The
     /// reply is one [`crate::messages::JobResponse`], never a [`StreamEvent`]. Boxed like
     /// the requests. `render`-feature only (index 10).
     #[cfg(feature = "render")]
     Job(Box<crate::messages::job::JobRequest>),
+    /// `-> LIVE_PASS_REQUEST`: one chunk of an adaptive-sampling pass, the samples of a
+    /// pass for a set of live tiles -- see [`crate::messages::live_pass`]. The reply is one
+    /// [`StreamEvent::LivePass`]. Boxed like the requests. `render`-feature only (index 11).
+    #[cfg(feature = "render")]
+    LivePassRequest(Box<crate::messages::live_pass::LivePassRequest>),
+    /// `-> BEAM_TILE_REQUEST`: whole beam tiles, beams and residual, for a set of tiles of
+    /// the scene's frame -- see [`crate::messages::beam_tiles`]. The reply is one
+    /// [`StreamEvent::BeamTiles`]. Boxed like the requests. `render`-feature only (index 12).
+    #[cfg(feature = "render")]
+    BeamTileRequest(Box<crate::messages::beam_tiles::BeamTileRequest>),
 }
 
 /// Delivery statistics reported on [`Done`].
 ///
-/// Lets a viewer surface something like "requested 250ms, delivering ~1.4s --
-/// link-limited" rather than leaving a user confused about why updates feel slower than
-/// what they asked for.
+/// Lets a viewer show when delivery fell behind the requested cadence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Stats {
     /// Total samples actually traced before this request ended (finished or cancelled).
@@ -388,7 +453,7 @@ pub struct Stats {
     /// couldn't sustain the requested cadence (deltas coalesced under backpressure); `0`
     /// if this request never emitted more than once.
     pub effective_cadence_ms: u32,
-    /// v16: samples of a `FinalImageRequest`'s viewer-reserved range this server
+    /// Samples of a `FinalImageRequest`'s viewer-reserved range this server
     /// rendered ITSELF because the `CONTRIBUTION` did not arrive in time (or was
     /// invalid). `0` otherwise, and for every `RENDER`.
     #[serde(default)]
@@ -413,11 +478,12 @@ pub struct Done {
 /// `<- ERROR`: a worker's rejection of a request (or `HELLO`), with a machine-readable
 /// `code` (see [`crate::messages::error_codes`]) and a human-readable `message`.
 ///
-/// # `request_id` (v15)
+/// # `request_id`
 ///
 /// `Some(id)` when this refusal or failure concerns one specific request -- everything
 /// from `serve::connection::requests`'s `VALIDATION_FAILED`/`TRACE_PANIC` refusals
-/// through the emitter's own `StreamOutcome::Failed` -- so [`crate::client::accumulate::Accumulator::apply`]
+/// through the emitter's own `StreamOutcome::Failed` -- so
+/// [`crate::client::accumulate::Accumulator::apply`]
 /// can drop it exactly like any other stale `FRAME`/`PREVIEW`/`DONE` when it arrives for
 /// an epoch the client has already moved on from (see that module's doc comment: a
 /// `CANCEL` can be in flight past a worker that's already mid-batch). `None` for a
@@ -432,12 +498,9 @@ pub struct ErrorMsg {
     /// Human-readable detail.
     pub message: String,
     /// The request this error concerns, when it concerns exactly one -- see the struct
-    /// doc comment. New in [`crate::messages::PROTOCOL_VERSION`] v15 (this field did not
-    /// exist on the wire before); `#[serde(default)]` is cosmetic here, not a
-    /// cross-version compatibility mechanism -- `postcard` decodes struct fields
-    /// positionally, so a v14 peer's two-field `ErrorMsg` is never handed to a v15
-    /// decoder in the first place: the `HELLO` gate already refuses a
-    /// `protocol_version` mismatch before any message shaped by it crosses the wire.
+    /// doc comment. `#[serde(default)]` is cosmetic here: `postcard` decodes fields
+    /// positionally, and the `HELLO` gate refuses a `protocol_version` mismatch before any
+    /// message shaped by it crosses the wire.
     #[serde(default)]
     pub request_id: Option<u32>,
 }
@@ -446,7 +509,7 @@ pub struct ErrorMsg {
 /// follows.
 ///
 /// That is one `RENDER` request's events from the first one through `Done`/`Error`,
-/// plus the v14 connection-level events (`Pong`, `CapabilityChanged`) and the 8-bit
+/// plus the connection-level events (`Pong`, `CapabilityChanged`) and the 8-bit
 /// picture events.
 ///
 /// `Frame`, `Preview`, `DisplayFrame` and `FinalImage` carry only the small header
@@ -468,22 +531,22 @@ pub enum StreamEvent {
     /// The terminal event of a request, exactly once.
     Done(Done),
     /// A rejection or failure. Epoch-gated exactly like `Frame`/`Preview`/`Done` when it
-    /// carries a `request_id` (v15, see [`ErrorMsg`]); a connection-level refusal with no
+    /// carries a `request_id` (see [`ErrorMsg`]); a connection-level refusal with no
     /// `request_id` (e.g. a `HELLO`-phase refusal) is never gated and always reported.
     Error(ErrorMsg),
-    /// `<- PONG` (v14): the answer to `ClientMessage::Ping`, echoing its `nonce`. Not
+    /// `<- PONG`: the answer to `ClientMessage::Ping`, echoing its `nonce`. Not
     /// tied to any request; never epoch-gated.
     Pong {
         /// The nonce from the `PING` being answered.
         nonce: u64,
     },
-    /// `<- DISPLAY_FRAME` (v14): a tone-mapped 8-bit picture, `TransferMode::DisplayOnly`
+    /// `<- DISPLAY_FRAME`: a tone-mapped 8-bit picture, `TransferMode::DisplayOnly`
     /// only -- see [`DisplayFrameHeader`].
     DisplayFrame(DisplayFrameHeader),
-    /// `<- FINAL_IMAGE` (v14): the reply picture to a `FinalImageRequest` -- see
+    /// `<- FINAL_IMAGE`: the reply picture to a `FinalImageRequest` -- see
     /// [`FinalImageHeader`] and [`crate::messages::final_image`].
     FinalImage(FinalImageHeader),
-    /// `<- CAPABILITY_CHANGED` (v14): the server's render capacity changed since
+    /// `<- CAPABILITY_CHANGED`: the server's render capacity changed since
     /// `WELCOME` (a coordinator gained its first joined worker, or lost its last). Sent
     /// between requests, never inside one. Not epoch-gated. `render` is what
     /// `WELCOME.render` would say now.
@@ -491,7 +554,7 @@ pub enum StreamEvent {
         /// The server's current render capability.
         render: Option<RenderCapability>,
     },
-    /// `<- NEED_ASSET` (v14): the current request's scene names an asset (an HDR
+    /// `<- NEED_ASSET`: the current request's scene names an asset (an HDR
     /// map) this server does not have; the client answers with `ClientMessage::Asset`
     /// carrying exactly those bytes, and the request then proceeds (or ends with
     /// `ERROR(ASSET_FAILED)`). Sent at most once per asset per request, before any other
@@ -501,17 +564,23 @@ pub enum StreamEvent {
         /// SHA-256 of the wanted bytes (see `crate::messages::asset`).
         content_hash: [u8; 32],
     },
-    /// `<- BATCH_ITEM_PROGRESS` (v24): one batch item has been traced -- see
+    /// `<- BATCH_ITEM_PROGRESS`: one batch item has been traced -- see
     /// [`BatchItemProgress`]. Epoch-gated by its batch's `request_id`.
     BatchItemProgress(BatchItemProgress),
-    /// `<- BATCH_ITEM_DONE` (v24): one finished picture, followed by its payload frame --
+    /// `<- BATCH_ITEM_DONE`: one finished picture, followed by its payload frame --
     /// see [`BatchItemDoneHeader`].
     BatchItemDone(BatchItemDoneHeader),
-    /// `<- BATCH_ITEM_FAILED` (v24): one batch item produced no picture -- see
+    /// `<- BATCH_ITEM_FAILED`: one batch item produced no picture -- see
     /// [`BatchItemFailed`].
     BatchItemFailed(BatchItemFailed),
-    /// `<- BATCH_DONE` (v24): the terminal event of a batch -- see [`BatchDone`].
+    /// `<- BATCH_DONE`: the terminal event of a batch -- see [`BatchDone`].
     BatchDone(BatchDone),
+    /// `<- LIVE_PASS`: the traced pass of a `LivePassRequest`, followed by its payload
+    /// frame -- see [`LivePassHeader`].
+    LivePass(LivePassHeader),
+    /// `<- BEAM_TILES`: the finished beam tiles of a `BeamTileRequest`, followed by their
+    /// payload frame -- see [`BeamTilesHeader`].
+    BeamTiles(BeamTilesHeader),
 }
 
 impl StreamEvent {
@@ -525,6 +594,8 @@ impl StreamEvent {
             Self::DisplayFrame(h) => Some(h.payload_len),
             Self::FinalImage(h) => Some(h.payload_len),
             Self::BatchItemDone(h) => Some(h.payload_len),
+            Self::LivePass(h) => Some(h.payload_len),
+            Self::BeamTiles(h) => Some(h.payload_len),
             Self::Progress(_)
             | Self::Done(_)
             | Self::Error(_)
@@ -553,6 +624,8 @@ impl StreamEvent {
             Self::BatchItemDone(h) => Some(h.request_id),
             Self::BatchItemFailed(f) => Some(f.request_id),
             Self::BatchDone(d) => Some(d.request_id),
+            Self::LivePass(h) => Some(h.request_id),
+            Self::BeamTiles(h) => Some(h.request_id),
             Self::Error(e) => e.request_id,
             Self::Pong { .. } | Self::CapabilityChanged { .. } | Self::NeedAsset { .. } => None,
         }

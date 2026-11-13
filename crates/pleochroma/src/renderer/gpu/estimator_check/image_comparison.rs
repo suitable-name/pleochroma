@@ -146,7 +146,8 @@ pub fn run_image_comparison_rutile(
 pub fn run_image_comparison_synthetic_moissanite(
     ctx: &crate::renderer::gpu::GpuContext,
 ) -> ImageComparisonResult {
-    // Bare built-in on purpose (scale 1.0, no `material_for_stone`): this compares CPU against GPU on the same material, so only parity matters, not the render's colour scale.
+    // Bare built-in on purpose (scale 1.0, no `material_for_stone`): this compares CPU
+    // against GPU on the same material, so only parity matters, not the render's colour scale.
     let material = GemMaterial::by_name("Synthetic Moissanite")
         .expect("\"Synthetic Moissanite\" is a built-in material in GemMaterial::all_materials()");
     run_image_comparison_for(ctx, &material, &[], LightingPreset::Daylight)
@@ -176,7 +177,7 @@ pub fn run_image_comparison_tanzanite(
 
 /// Tier 3 statistical image comparison on a scene with a frosted girdle.
 ///
-/// GPU mirror of `tests/raytracer_tests.rs`'s
+/// GPU mirror of `tests/raytracer_tests/material_equivalence_finish.rs`'s
 /// `frosted_girdle_changes_face_up_appearance_measurably`, compared statistically
 /// (variance-scaled z-score, connected-component clustering) rather than against a
 /// polished CPU baseline. Diamond, girdle band bruted via [`bruted_girdle_finishes`].
@@ -195,14 +196,13 @@ pub fn run_image_comparison_frosted_girdle(
     run_image_comparison_for(ctx, &material, &finishes, LightingPreset::Daylight)
 }
 
-/// Tier 3 statistical image comparison on a scene with
-/// Henyey-Greenstein scattering enabled.
+/// Tier 3 statistical image comparison on a scene with Henyey-Greenstein scattering.
 ///
-/// A forward-biased (`g = 0.3`) scattering medium (`sigma_s = 1.5`) layered on built-in
-/// Ruby (chromatic absorption AND scattering both active, exercising the per-channel
-/// `sigma_t_k` differentiation hazard 2 requires) -- the GPU mirror of
-/// `optics::raytracer::scattering_tests::scattering_measurably_changes_face_up_appearance`'s
-/// scene, compared statistically rather than against a clear-stone CPU baseline.
+/// A forward-biased (`g = 0.3`) scattering medium (`sigma_s = 1.5`) on built-in Ruby, whose
+/// chromatic absorption and scattering are both active, so `sigma_t_k` differs per channel.
+/// GPU mirror of the scene of `scattering_measurably_changes_face_up_appearance` in
+/// `optics::raytracer::scattering::tests`, compared statistically rather than against a
+/// clear-stone CPU baseline.
 ///
 /// # Panics
 ///
@@ -217,17 +217,15 @@ pub fn run_image_comparison_scattering(
     run_image_comparison_for(ctx, &material, &[], LightingPreset::Daylight)
 }
 
-/// Tier 3 statistical image comparison covering the inclusion-scattering block's
-/// `is_biaxial` branching.
+/// Tier 3 statistical image comparison of the biaxial inclusion-scattering path.
 ///
-/// `spectral_transport.wgsl`'s scatter block mirrors the absorption block below it: a
-/// biaxial material's scattering alphas come from `biaxial_eigen_polarizations`/
-/// `pleochroic_channel_alpha_biaxial`, not the uniaxial ordinary/extraordinary
-/// approximation `channel_absorption_alphas` would pick. Alexandrite
-/// ([`super::alexandrite_material`], biaxial trichroic with a populated `beta_ray`
-/// absorption band) with scattering enabled -- the same combination
-/// [`run_image_comparison_scattering`] exercises for a uniaxial material (Ruby), but
-/// biaxial so the `is_biaxial && has_beta_ray` path is actually reached.
+/// The scatter block of `spectral_transport.wgsl` mirrors its absorption block: a biaxial
+/// material's scattering alphas come from `biaxial_eigen_polarizations` and
+/// `pleochroic_channel_alpha_biaxial`, not the uniaxial approximation of
+/// `channel_absorption_alphas`. Alexandrite ([`super::alexandrite_material`], biaxial with a
+/// populated `beta_ray` band) with scattering is the biaxial counterpart of
+/// [`run_image_comparison_scattering`]'s uniaxial Ruby, so the `is_biaxial && has_beta_ray`
+/// path is reached.
 #[must_use]
 pub fn run_image_comparison_biaxial_scattering(
     ctx: &crate::renderer::gpu::GpuContext,
@@ -236,13 +234,11 @@ pub fn run_image_comparison_biaxial_scattering(
     run_image_comparison_for(ctx, &material, &[], LightingPreset::Daylight)
 }
 
-/// Tier 3 statistical image comparison on
-/// a scene with a nonzero `edge_rounding_radius`.
+/// Tier 3 statistical image comparison on a scene with a nonzero `edge_rounding_radius`.
 ///
-/// The GPU mirror of
-/// `optics::raytracer::edge_rounding_tests::edge_rounding_measurably_changes_face_up_appearance`'s
-/// scene, but compared statistically against the GPU rather than against a sharp-edge
-/// baseline on the CPU alone.
+/// GPU mirror of the scene of
+/// `intersect::edge_rounding_tests::edge_rounding_measurably_changes_face_up_appearance`,
+/// compared statistically against the CPU tracer rather than against its sharp-edge baseline.
 ///
 /// # Panics
 ///
@@ -364,8 +360,8 @@ pub fn run_image_comparison_daylight_dome(
 
 /// Tier 3 statistical image comparison under the Daylight sky + direct sun model.
 ///
-/// A polished Diamond, where the 0.27 degree disc is met only by exit directions (deterministic facet
-/// flashes, no NEE possible at a specular interface).
+/// A polished Diamond: the 0.27 degree sun disc is met only by exit directions, giving
+/// deterministic facet flashes, since no NEE is possible at a specular interface.
 ///
 /// # Panics
 ///
@@ -432,14 +428,11 @@ pub fn run_image_comparison_aset(ctx: &crate::renderer::gpu::GpuContext) -> Imag
     )
 }
 
-/// Shared Tier 3 statistical image comparison body -- parameterized on `material` so the
-/// isotropic (Spinel, [`run_image_comparison`]) and uniaxial-birefringent (Zircon,
-/// Tourmaline, [`run_image_comparison_zircon`]/[`run_image_comparison_tourmaline`])
-/// instances share one implementation rather than three independent copies. GPU
-/// port added `facet_finishes` (`&[]` for every caller that doesn't need a frosted
-/// finish, exactly equivalent to all-`Polished` -- see
-/// [`super::CpuScene::facet_finishes`]'s doc comment) so
-/// [`run_image_comparison_frosted_girdle`] can reuse this same body too.
+/// Shared Tier 3 statistical image comparison body, parameterized on `material`.
+///
+/// The isotropic and uniaxial checks all go through it. `facet_finishes` is `&[]` for
+/// callers without a frosted finish, which is exactly all-`Polished` (see
+/// [`super::CpuScene::facet_finishes`]); the frosted-girdle check passes its own.
 pub(super) fn run_image_comparison_for(
     ctx: &crate::renderer::gpu::GpuContext,
     material: &GemMaterial,
@@ -486,6 +479,67 @@ fn run_image_comparison_with_backdrop(
     preset: LightingPreset,
     backdrop_and_glare: (f32, f32),
 ) -> ImageComparisonResult {
+    run_image_comparison_with_shadow(
+        ctx,
+        material,
+        facet_finishes,
+        preset,
+        backdrop_and_glare,
+        None,
+        None,
+    )
+}
+
+/// Compares a shadowed tray under the existing statistical frame thresholds.
+#[must_use]
+pub fn run_image_comparison_tray_shadow(
+    ctx: &crate::renderer::gpu::GpuContext,
+    map: &crate::optics::raytracer::environment::TrayShadowMap,
+) -> ImageComparisonResult {
+    run_image_comparison_with_shadow(
+        ctx,
+        &GemMaterial::diamond(),
+        &[],
+        LightingPreset::LightTent,
+        (0.23, 1.0),
+        Some(map),
+        None,
+    )
+}
+
+/// Compares a glossy tray under the existing statistical frame thresholds.
+///
+/// The tray is the Tray Reflection, with or without the Stone Shadow on the same plane; the
+/// CPU path tracer's floor bounce and Rule M are compared against the megakernel's tray
+/// variant.
+#[must_use]
+pub fn run_image_comparison_tray_mirror(
+    ctx: &crate::renderer::gpu::GpuContext,
+    mirror: crate::optics::raytracer::environment::TrayMirror,
+    shadow: Option<&crate::optics::raytracer::environment::TrayShadowMap>,
+) -> ImageComparisonResult {
+    run_image_comparison_with_shadow(
+        ctx,
+        &GemMaterial::diamond(),
+        &[],
+        LightingPreset::LightTent,
+        (0.23, 1.0),
+        shadow,
+        Some(mirror),
+    )
+}
+
+/// Shared frame comparison with an optional map and mirror held throughout both CPU and GPU
+/// sampling.
+fn run_image_comparison_with_shadow(
+    ctx: &crate::renderer::gpu::GpuContext,
+    material: &GemMaterial,
+    facet_finishes: &[FacetFinish],
+    preset: LightingPreset,
+    backdrop_and_glare: (f32, f32),
+    shadow: Option<&crate::optics::raytracer::environment::TrayShadowMap>,
+    mirror: Option<crate::optics::raytracer::environment::TrayMirror>,
+) -> ImageComparisonResult {
     let (backdrop, surface_glare) = backdrop_and_glare;
     let camera = test_camera();
     let (width, height) = (48u32, 48u32);
@@ -498,7 +552,9 @@ fn run_image_comparison_with_backdrop(
     let environment = preset
         .studio(exposure, light_yaw, light_pitch)
         .with_backdrop(backdrop)
-        .with_surface_glare(surface_glare);
+        .with_surface_glare(surface_glare)
+        .with_tray_shadow(shadow)
+        .with_tray_mirror(mirror);
     let wb = environment_white_balance(environment);
 
     let cpu_samples_per_pixel = 500u32;
@@ -556,6 +612,8 @@ fn run_image_comparison_with_backdrop(
             planes: &planes,
             facet_finishes: &gpu_finishes,
             hdr_env: None,
+            tray_shadow: shadow,
+            tray_mirror: mirror,
         },
         total_gpu,
     );
@@ -619,7 +677,7 @@ pub(super) fn run_image_comparison_hdr_for(
     let max_bounces = 10u32;
 
     let env_map = synthetic_image_comparison_hdr_map();
-    let environment = crate::optics::raytracer::EnvironmentSource::HdrMap(&env_map);
+    let environment = crate::optics::raytracer::EnvironmentSource::hdr(&env_map);
     let scene = CpuScene {
         camera: &camera,
         width,
@@ -664,6 +722,8 @@ pub(super) fn run_image_comparison_hdr_for(
             planes: &planes,
             facet_finishes: &gpu_finishes,
             hdr_env: Some(&gpu_hdr),
+            tray_shadow: None,
+            tray_mirror: None,
         },
         total_gpu,
     );
@@ -757,5 +817,120 @@ pub(super) fn compute_image_comparison_result_channel(
             .map(|v| count_non_finite(&v.to_array()))
             .sum::<usize>()
             + count_non_finite(gpu_xyz),
+    }
+}
+
+#[cfg(test)]
+mod tray_shadow_tests {
+    use super::*;
+    use crate::{
+        optics::raytracer::{
+            EnvironmentSource,
+            environment::{TrayMirror, tray_shadow::TrayShadowMap},
+        },
+        renderer::gpu::environment_check::build_tray_shadow_check_map,
+    };
+
+    /// Renders the CPU frame of the comparison scene (a few samples per pixel) with the tray
+    /// feature `attach` adds to the rig (its flag says whether to attach it) and without it, and
+    /// reports whether any pixel differs.
+    fn tray_changes_the_cpu_frame<'t>(
+        attach: impl Fn(EnvironmentSource<'static>, bool) -> EnvironmentSource<'t>,
+    ) -> bool {
+        let camera = test_camera();
+        let (width, height) = (48u32, 48u32);
+        let planes = round_brilliant_planes();
+        let material = GemMaterial::diamond();
+        let scene = CpuScene {
+            camera: &camera,
+            width,
+            height,
+            planes: &planes,
+            facet_finishes: &[],
+            material: &material,
+            max_bounces: 10,
+        };
+        let render = |on: bool| {
+            let rig = LightingPreset::LightTent
+                .studio(1.0, 0.4, 0.35)
+                .with_backdrop(0.23)
+                .with_surface_glare(1.0);
+            let environment = attach(rig, on);
+            cpu_samples(width, height, 8, 0, |pixel, sample| {
+                cpu_sample_xyz(&scene, pixel, sample, environment)
+            })
+        };
+        let attached = render(true);
+        let plain = render(false);
+        attached
+            .iter()
+            .zip(&plain)
+            .any(|(a, b)| a.to_array() != b.to_array())
+    }
+
+    /// Whether the shadow `map` changes any pixel of the CPU frame.
+    fn shadow_changes_the_cpu_frame(map: &TrayShadowMap) -> bool {
+        tray_changes_the_cpu_frame(|rig, on| rig.with_tray_shadow(on.then_some(map)))
+    }
+
+    /// Whether the `mirror` changes any pixel of the CPU frame.
+    fn mirror_changes_the_cpu_frame(mirror: TrayMirror) -> bool {
+        tray_changes_the_cpu_frame(|rig, on| rig.with_tray_mirror(on.then_some(mirror)))
+    }
+
+    #[test]
+    #[ignore = "statistical GPU frame comparison; run with --ignored"]
+    fn a_shadowed_tray_matches_the_cpu_frame() {
+        let Some(ctx) = crate::renderer::gpu::merge_tests::context_or_skip(
+            "a_shadowed_tray_matches_the_cpu_frame",
+        ) else {
+            return;
+        };
+        // The plane sits at the stone's culet, so the shadow is physical and reaches the frame.
+        let map = build_tray_shadow_check_map();
+        assert!(
+            shadow_changes_the_cpu_frame(&map),
+            "the shadow must change at least one CPU pixel, or the twin proves nothing"
+        );
+        let result = run_image_comparison_tray_shadow(&ctx, &map);
+        assert!(result.passed(), "{result:?}");
+    }
+
+    /// The mirror plane of the comparison scene: the shadow check map's plane, at the culet.
+    fn check_plane_y() -> f32 {
+        build_tray_shadow_check_map().plane_y()
+    }
+
+    #[test]
+    #[ignore = "statistical GPU frame comparison; run with --ignored"]
+    fn a_glossy_tray_matches_the_cpu_frame() {
+        let Some(ctx) = crate::renderer::gpu::merge_tests::context_or_skip(
+            "a_glossy_tray_matches_the_cpu_frame",
+        ) else {
+            return;
+        };
+        for r0 in [0.04_f32, 0.5] {
+            let mirror = TrayMirror::new(check_plane_y(), r0).expect("valid mirror");
+            assert!(
+                mirror_changes_the_cpu_frame(mirror),
+                "R0 {r0}: the mirror must change at least one CPU pixel, or the twin proves nothing"
+            );
+            let result = run_image_comparison_tray_mirror(&ctx, mirror, None);
+            assert!(result.passed(), "R0 {r0}: {result:?}");
+        }
+    }
+
+    #[test]
+    #[ignore = "statistical GPU frame comparison; run with --ignored"]
+    fn a_glossy_shadowed_tray_matches_the_cpu_frame() {
+        let Some(ctx) = crate::renderer::gpu::merge_tests::context_or_skip(
+            "a_glossy_shadowed_tray_matches_the_cpu_frame",
+        ) else {
+            return;
+        };
+        let map = build_tray_shadow_check_map();
+        let mirror = TrayMirror::new(map.plane_y(), 0.04).expect("valid mirror");
+        let result = run_image_comparison_tray_mirror(&ctx, mirror, Some(&map));
+        assert!(result.passed(), "{result:?}");
     }
 }

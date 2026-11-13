@@ -12,9 +12,10 @@ pub(in crate::gui::editor::manipulate) struct SelectionHintContext {
     large_handles: bool,
 }
 
-/// Updates a changed selection-hint context when hover, drag, and Slice leave the line free.
-/// Called after handle placement and on hover exit, so a deferred context does not need a
-/// later preview frame to become visible.
+/// Updates a changed selection-hint context when hover, drag and Slice leave the line free.
+///
+/// Called after handle placement and on hover exit, so a deferred context does not need a later
+/// preview frame to become visible.
 pub(super) fn refresh(ui: &MainWindow, ctx: &Shared) {
     if !super::hint_line_is_free(ui) {
         return;

@@ -1,5 +1,5 @@
-//! The identity test (the web app's pipeline entry points reproduce the desktop's
-//! pre-move frame bytes) and the new pure helpers' tests.
+//! Frame-pipeline tests: the web and desktop entry points must produce the same frame
+//! bytes, plus tests of the pure helpers.
 
 use super::{
     CameraPose, FacetOverlay, PlanJob, PreviewPipeline, RedrawRequest, StoneGeometryBuf,
@@ -53,7 +53,7 @@ fn rbc_tier(name: &str, angle_deg: f64, indices: &[f64], mast: f64) -> Constrain
     }
 }
 
-/// The desktop pins' fixture (`preview_state::tests::pins::pin_design`), verbatim.
+/// The fixture the pinned frame hashes below are recorded from.
 fn pin_design() -> Design {
     const GIRDLE: [f64; 16] = [
         0.0, 6.0, 12.0, 18.0, 24.0, 30.0, 36.0, 42.0, 48.0, 54.0, 60.0, 66.0, 72.0, 78.0, 84.0,
@@ -107,22 +107,10 @@ fn pin_overlay() -> FacetOverlay {
     }
 }
 
-// The desktop's pins, recorded from its pipeline BEFORE the move
-// (`apps/pleochroma-cut/src/gui/solid_preview/preview_state/tests/pins.rs`):
-// `[solid image, solid pick, edges image, diagram image, diagram pick, tooth]`.
-//
-// Re-pinned 2026-10-05: slot 3 (the diagram's colour image) of both diagram pins moved,
-// and nothing else did (the solid image, every pick buffer and the tooth buffer are the
-// recorded ones, so the geometry and the layout are unchanged). The cause is the
-// canonical facet labelling of 2026-10-04: a facet's on-diagram label is now its tier
-// code plus its index (`C2 0`, `P1 0`, `Table`), no longer the tier's own name
-// (`Crown Main 0`). Only text pixels differ. See
-// `the_diagram_labels_are_the_canonical_tier_codes`, which pins the label text itself.
-//
-// Re-pinned 2026-10-06 (cutting-order lane): the table's code became `T`, so its diagram
-// label is `T` where it was `Table`; slot 3 (the diagram's colour image) of `PIN_DIAGRAM`
-// moved by the pixels of that one label and nothing else did. `PIN_SINGLE_PANEL` is
-// unchanged: its enlarged panel 1 is the pavilion panel, which never draws the table.
+// Frame hashes of `pin_design`, in the order `[solid image, solid pick, edges image,
+// diagram image, diagram pick, tooth buffer]`. They hold Windows math-library bits (see
+// `web_frames_reproduce_the_desktop_pins`). The diagram slots also depend on the label
+// text, which `the_diagram_labels_are_the_canonical_tier_codes` pins.
 const PIN_SOLID: [u64; 6] = [0x0f10_7ca8_5f93_74bf, 0x5f3d_a2da_7a33_a030, 0, 0, 0, 0];
 const PIN_BOTH: [u64; 6] = [
     0x0f10_7ca8_5f93_74bf,
@@ -149,8 +137,8 @@ const PIN_SINGLE_PANEL: [u64; 6] = [
     0x0f8f_adba_ccdc_0009,
 ];
 
-/// The job exactly as the desktop's `submit_preview_replan_for` builds it for
-/// the pins (`pin_job` there): full solve, tier 2 selected, generation 3.
+/// The job the desktop's `submit_preview_replan_for` builds for the pins: a full
+/// solve, tier 2 selected, generation 3.
 fn desktop_job(view_mode: u8, size: (u32, u32), enlarged_panel: i32) -> PlanJob {
     let design = pin_design();
     let n_d = design.effective_refractive_index();
@@ -343,13 +331,11 @@ fn the_rough_meshes_to_a_closed_solid() {
     );
 }
 
-/// The web and the desktop pipeline entry points produce the same frames, and on
-/// Windows those frames are the pinned ones. The pins hold Windows bits: the
-/// rasteriser's projection (`tan`) and facet angles (`sin`, `cos`) and the diagram
-/// layout's `sin_cos` run through the platform math library, which rounds a few
-/// arguments differently under glibc, so a boundary pixel moves and the hashes differ
-/// on Linux (seen 2026-10-01). Off Windows only the web-versus-desktop equality is
-/// checked, which holds on any platform since both run on the same library.
+/// The web and desktop entry points produce the same frames, and on Windows those frames
+/// are the pinned ones. The rasterizer's `tan`/`sin`/`cos` and the diagram's `sin_cos`
+/// come from the platform math library, which rounds some arguments differently under
+/// glibc, so a boundary pixel moves off Windows. Elsewhere only the web-versus-desktop
+/// equality is checked.
 #[test]
 fn web_frames_reproduce_the_desktop_pins() {
     for (view_mode, size, enlarged, pin) in [
@@ -373,12 +359,10 @@ fn web_frames_reproduce_the_desktop_pins() {
     }
 }
 
-/// The text the diagram draws on a facet is its canonical tier code plus the facet's
-/// index (`C2 0`), or the bare code for a tier of one facet (`T`, `Culet`), never the tier's own
-/// name (`Crown Main 0`). The diagram pins above hash the pixels of these labels, so they
-/// moved when the labels changed (2026-10-04, and again when the table's code became `T`);
-/// this pins the text itself. The codes are numbered in cutting order, which for this
-/// fixture (stored top-down, every block in cutting order) gives the same numbers as before.
+/// The diagram draws each facet's canonical tier code plus its index (`C2 0`), or the
+/// bare code for a tier of one facet (`T`, `Culet`), never the tier's name. The diagram
+/// pins hash these label pixels, so this test pins the text itself. Codes follow the
+/// cutting order.
 #[test]
 fn the_diagram_labels_are_the_canonical_tier_codes() {
     let design = pin_design();
@@ -432,9 +416,9 @@ fn a_reproject_keeps_the_planned_style_and_follows_the_camera() {
     );
 }
 
-/// The desktop's reproject planes are the planned ones round-tripped through a non-idempotent
-/// `normalize()`, so they can differ by an ULP: that must not read as a new design and wipe the
-/// tier highlight; a real plane move still must.
+/// The desktop's reproject planes are the planned ones round-tripped through a
+/// non-idempotent `normalize()`, so they can differ by one ULP. That must not read as a
+/// new design and wipe the tier highlight; a real plane move still must.
 #[test]
 fn a_reproject_with_ulp_noisy_planes_keeps_the_selection() {
     let mut pipeline = PreviewPipeline::new();

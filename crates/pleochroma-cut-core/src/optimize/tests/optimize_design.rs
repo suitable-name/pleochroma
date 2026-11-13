@@ -69,15 +69,9 @@ fn optimize_design_reports_baseline_full_even_with_nothing_free_to_search() {
 /// the objective worse, must stay within a small evaluation budget, must never
 /// touch a pinned (`ScaleReference`) tier's angle, and must leave the design closed.
 ///
-/// `#[ignore]`d for the same reason as `design.rs`'s own
-/// `resolve_dirty_speed_on_a_large_real_design`: this calls
-/// [`optimize_design`], which always measures [`ObjectiveFidelity::Full`] (a real
-/// 724-sample raytraced sweep) twice for its before/after report, on top of up to
-/// `max_evaluations` full [`Design::solve`] calls -- ~4s in `--release`, but well
-/// over a minute unoptimized (this crate's own convention, see
-/// `design.rs`, is that this class of cost belongs behind `--ignored --release`,
-/// not in the default debug test loop `cargo check -p pleochroma-cut-core` iterates against).
-/// Run with `cargo test -p pleochroma-cut-core --release --ignored --nocapture
+/// `#[ignore]`d: each call pays two [`ObjectiveFidelity::Full`] scorings (raytraced sweeps)
+/// plus up to `max_evaluations` [`Design::solve`] calls, too slow for the default debug test
+/// run. Run with `cargo test -p pleochroma-cut-core --release --ignored --nocapture
 /// optimize_design_never_worsens_the_score_and_never_touches_a_pinned_tier`.
 #[test]
 #[ignore = "real-fixture timing cost, see doc comment -- run with --release --ignored"]
@@ -177,19 +171,9 @@ fn optimize_design_never_worsens_the_score_and_never_touches_a_pinned_tier() {
     }
 }
 
-/// The same acceptance-gate invariant as
-/// [`optimize_design_never_worsens_the_score_and_never_touches_a_pinned_tier`]
-/// (never worsens the score, never touches a pinned tier, applying the result
-/// closes and leaves pinned tiers untouched) -- kept fast by cutting
-/// the two knobs that actually drive that test's wall-clock cost: the
-/// coordinate budget (`max_evaluations: 8` instead of `120`) and the polish
-/// stage (disabled outright). What is NOT cut is the two mandatory
-/// [`ObjectiveFidelity::Full`](super::super::ObjectiveFidelity) scorings every
-/// `optimize_design` call pays for regardless (the before/after report, ~1.3s
-/// each on RBC-445 in `--release`, see the parent module's "Cost first" doc
-/// section) -- this run's own wall time is printed with `--nocapture` rather
-/// than asserted against, since that cost is inherent to `Full` fidelity
-/// itself, not to anything this test's own budget controls.
+/// The invariant of [`optimize_design_never_worsens_the_score_and_never_touches_a_pinned_tier`]
+/// with a cheaper run: `max_evaluations: 8` and the polish stage disabled. The two `Full`
+/// scorings every call pays for remain, so the wall time is printed, not asserted.
 #[test]
 fn optimize_design_never_worsens_the_score_and_never_touches_a_pinned_tier_on_a_small_budget() {
     let mut design = rbc_445();
@@ -260,10 +244,10 @@ fn optimize_design_never_worsens_the_score_and_never_touches_a_pinned_tier_on_a_
 
 /// An outcome without provenance is not certified against any original network, so
 /// `apply_optimize_outcome` refuses it before `History` sees it: the design is
-/// untouched and there is nothing to undo. (That a certified outcome goes through
-/// `History` as one undoable [`crate::edit::Edit::Batch`] is covered by
-/// `meet_preservation::tests::stale_identity_and_hand_constructed_damage_fail_before_history_changes`
-/// and `applying_the_result_is_one_exact_undo_step`.)
+/// untouched and there is nothing to undo. (A certified outcome goes through `History` as one
+/// undoable [`crate::edit::Edit::Batch`]: see `applying_the_result_is_one_exact_undo_step`
+/// and `stale_identity_and_hand_constructed_damage_fail_before_history_changes` in
+/// `meet_preservation`'s tests.)
 #[test]
 fn an_uncertified_single_tier_outcome_cannot_enter_history() {
     let design = rbc_445();
@@ -351,9 +335,8 @@ fn an_uncertified_multi_tier_outcome_is_rejected_atomically() {
     assert!(!history.can_undo());
 }
 
-/// An [`AngleChange`] naming a tier index that no longer
-/// exists must leave `design` completely untouched -- no partial application
-/// of the changes that came before it in the batch.
+/// An [`AngleChange`] naming a tier index that does not exist leaves `design` completely
+/// untouched, with no partial application of the changes before it in the batch.
 #[test]
 fn apply_optimize_outcome_rejects_out_of_range_index_without_mutating_design() {
     let design = rbc_445();
@@ -402,14 +385,10 @@ fn apply_optimize_outcome_rejects_out_of_range_index_without_mutating_design() {
     assert!(!history.undo(&mut design).unwrap());
 }
 
-/// An [`AngleChange`] computed against `design`'s OLD tier ordering must
-/// never be silently written to whatever tier a later edit shifted into its
-/// `index` -- caught by comparing that tier's CURRENT angle against
-/// `change.from_deg` bit-for-bit before anything is applied, not just checking
-/// the index is in range. Scenario: a
-/// `MoveTier` shifts tier 9 down into index 7, so an `AngleChange` computed
-/// for the tier that USED to be at index 7 must be rejected rather than
-/// silently applied to tier 9's new occupant.
+/// An [`AngleChange`] must never be written to a tier that an earlier edit moved into its
+/// `index`. The tier's current angle is compared with `change.from_deg` bit for bit before
+/// anything is applied, not just the index range. Here a `MoveTier` shifts tier 9 into
+/// index 7, and a change computed for the old tier 7 must be rejected.
 #[test]
 fn apply_optimize_outcome_rejects_a_stale_change_after_move_tier_without_mutating_design() {
     let mut design = rbc_445();

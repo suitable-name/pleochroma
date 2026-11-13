@@ -1,9 +1,9 @@
-//! The tables of the native design file: plain, `serde`-deriving mirrors of an editor's
-//! own in-memory types (owned by `pleochroma-cut-core`, not this crate; converting to
-//! and from them is that crate's job, since only it can see both sides). The design
-//! file ([`super::design`]) assembles them into the whole document. See the parent
-//! module's doc comment for the format choice and the "Unknown fields" convention
-//! every table here follows.
+//! The tables of the native design file: plain, `serde`-deriving mirrors of an editor's own
+//! in-memory types.
+//!
+//! Those types belong to `pleochroma-cut-core`, which alone can see both sides, so the conversion
+//! is its job. The design file ([`super::design`]) assembles the tables into the whole document.
+//! See the parent module for the format choice and how unknown keys are kept.
 
 pub use super::custom_material::CustomMaterialSnapshot;
 
@@ -30,8 +30,8 @@ pub enum NativeMeetConstraint {
     /// Mirrors the editor's "meet a facet by name" constraint.
     MeetNamed { names: Vec<String> },
     /// Mirrors the editor's "pin this tier's mast to an exact scale reference"
-    /// constraint -- the variant this format exists to make expressible as authored
-    /// intent at all (see the module doc comment's "The gap this closes" section).
+    /// constraint. This is the variant the format exists for: it can be stored as
+    /// authored intent at all (see the parent module's "Why it exists").
     ScaleReference { mast: f64 },
 }
 
@@ -64,9 +64,9 @@ pub enum NativePreformShape {
     Cylinder {
         sides: usize,
     },
-    /// A convex plane set in model units: `planes` holds `[nx, ny, nz, m]` rows of `n . x <= m`
-    /// in the design's own frame; `source` says where it came from (the Rough Planner's planned
-    /// piece) and may be empty. A build older than 2026-10-12 does not know this kind and refuses
+    /// A convex plane set in model units: `planes` holds `[nx, ny, nz, m]` rows of
+    /// `n . x <= m` in the design's own frame. `source` says where it came from (the Rough
+    /// Planner's piece) and may be empty. An older build does not know this kind and refuses
     /// the file.
     Planes {
         planes: Vec<[f64; 4]>,
@@ -94,15 +94,12 @@ pub struct PreformTable {
     pub depth: f64,
     /// How far the preform's own vertical span is shifted from centred, mirroring
     /// `pleochroma_cut_core::design::Design::preform_y_offset` one-to-one.
-    /// `#[serde(default)]` so a file saved before this field existed
-    /// loads as `0.0` -- exactly the always-centred span every such file's preform
-    /// actually had.
+    /// Absent in older files, which load as `0.0`: the always-centred span those
+    /// preforms had.
     #[serde(default)]
     pub y_offset: f64,
-    /// Keys a future build wrote that this build's four named fields above don't
-    /// claim -- see the module doc comment's "Unknown fields" section. Always empty
-    /// when freshly built via [`PreformTable::new`]; only non-empty after parsing a
-    /// newer file.
+    /// Keys this build does not claim, kept so they round-trip. Empty for a table built
+    /// by [`PreformTable::new`]; only non-empty after parsing a newer file.
     #[serde(flatten, default)]
     pub unknown: toml::Table,
 }
@@ -145,8 +142,8 @@ impl PreformTable {
 /// Building one from -- or reading one back into -- an actual material selection is
 /// `pleochroma-cut-core`'s job, same as [`PreformTable`].
 ///
-/// Reading also accepts the British spelling `body_colour_override`, which builds from
-/// 2026-09-28 wrote for [`Self::body_color_override`]; writing always uses `body_color_override`.
+/// Reading also accepts the legacy spelling `body_colour_override` of
+/// [`Self::body_color_override`]; writing always uses the current name.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(from = "MaterialTableWire")]
 pub struct MaterialTable {
@@ -156,21 +153,15 @@ pub struct MaterialTable {
     /// Specific gravity overriding the material default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub specific_gravity_override: Option<f64>,
-    /// `#[serde(default)]` so a file written before this field existed loads with
-    /// `None` rather than an error.
+    /// Absent in older files, which load with `None`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub refractive_index_override: Option<f64>,
-    /// See [`CustomMaterialSnapshot`]'s own doc comment.
-    /// `#[serde(default)]` so a file written before this field existed loads with
-    /// `None` rather than an error -- and so a design on a built-in material never
-    /// grows one at all.
+    /// See [`CustomMaterialSnapshot`]. Absent for a design on a built-in material.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub custom: Option<CustomMaterialSnapshot>,
     /// The design's per-design body color, `body_color_override = [r, g, b]`: the
     /// absorption-RGB triple the editor applies on top of `name`'s own material
-    /// (`None` = the material's own color). `#[serde(default)]` so a file written
-    /// before this field existed loads with `None`, and omitted when unset so a
-    /// design with no override never grows the key at all.
+    /// (`None` = the material's own color). Omitted when unset.
     ///
     /// Stored as `f64` (TOML's only float) even though the editor's triple is `f32`:
     /// `pleochroma-cut-core`'s converter writes each component's shortest
@@ -179,11 +170,10 @@ pub struct MaterialTable {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub body_color_override: Option<[f64; 3]>,
     /// The N-band form of the per-design body color (path-aware L*C*h editor),
-    /// `body_color_bands_override = [[centre_nm, width_nm, amplitude_per_mm], ...]`, written
-    /// NEXT TO the nearest [`Self::body_color_override`] triple so a build that does not know
-    /// the key (it keeps it in [`Self::unknown`] and writes it back) still shows a close
-    /// colour. When present and non-empty the bands win on load. `#[serde(default)]`: a file
-    /// written before this field existed loads with `None`; omitted when unset.
+    /// `body_color_bands_override = [[centre_nm, width_nm, amplitude_per_mm], ...]`. Written
+    /// next to the nearest [`Self::body_color_override`] triple, so a build that keeps the
+    /// unknown key (see [`Self::unknown`]) still shows a close color. When present and
+    /// non-empty the bands win on load. Omitted when unset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub body_color_bands_override: Option<Vec<[f64; 3]>>,
     /// Millimetres per model unit the bands were solved for
@@ -196,14 +186,12 @@ pub struct MaterialTable {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color_pattern_override: Option<String>,
     /// The design's color variant, `[material.color_variant]`: the full per-axis absorption
-    /// tensor the stone was recolored with (see [`ColorVariantTable`]). Written NEXT TO the
-    /// nearest [`Self::body_color_override`] triple, so a build that does not know the table
-    /// (it keeps it in [`Self::unknown`] and writes it back) still shows a close color. When
-    /// present the variant wins on load and the triple is ignored, unless the triple no longer
-    /// equals the [`ColorVariantTable::fallback_rgb`] recorded inside the table (an older build
-    /// changed the color). `#[serde(default)]`: a file written before this field existed loads
-    /// with `None`; omitted when unset, so a design with no variant never grows the table at
-    /// all.
+    /// tensor the stone was recolored with (see [`ColorVariantTable`]). Written next to the
+    /// nearest [`Self::body_color_override`] triple, so a build that keeps the unknown table
+    /// (see [`Self::unknown`]) still shows a close color. When present the variant wins on
+    /// load and the triple is ignored, unless the triple no longer equals the
+    /// [`ColorVariantTable::fallback_rgb`] stored in the table, which means an older build
+    /// changed the color. Omitted when unset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color_variant: Option<ColorVariantTable>,
     /// See [`PreformTable::unknown`]'s doc comment.
@@ -255,20 +243,19 @@ pub struct ColorVariantTable {
     /// The display label, Title Case.
     pub label: String,
     /// [`COLOR_VARIANT_UNIT_PER_MM`] or [`COLOR_VARIANT_UNIT_MODEL_UNIT`]. A name this build does
-    /// not know (a newer build's unit) makes the reader skip the variant and use the legacy
-    /// fields written next to the table.
+    /// not know (a newer build's unit) makes the reader skip the variant and use the
+    /// `body_color_override` triple instead.
     pub unit: String,
-    /// The STONE WIDTH in millimetres the variant's numbers are calibrated for (the key keeps
-    /// its old name; it has never held a light path). The face-up color of the variant is
+    /// The stone width in millimetres the variant's numbers are calibrated for. The name is
+    /// kept for compatibility; the value is a width, not a light path. The face-up color is
     /// evaluated over the face-up path of a stone of this width, `variants::face_up_swatch_path`
     /// of `pleochroma`: 7 for a built-in variant, the width of the stone a Custom Color was
     /// solved on.
     pub reference_path_mm: f64,
-    /// The legacy `body_color_override` triple written next to this table (the nearest triple to
-    /// the variant's face-up color), recorded here too so a reader can tell whether an older
-    /// build changed the color afterwards: when the top-level triple no longer equals this one
-    /// (compared as `f32`), the older build's color wins and the table is dropped. `None` for a
-    /// file written before the field existed (the table then wins, as it always did).
+    /// The `body_color_override` triple written next to this table (the nearest triple to
+    /// the variant's face-up color). A reader compares it with the top-level triple: when the
+    /// top-level triple no longer equals this one (compared as `f32`), the older build's color
+    /// wins and the table is dropped. `None` in files without the field: the table wins.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fallback_rgb: Option<[f64; 3]>,
     /// The ordinary-ray (uniaxial) / alpha-axis (biaxial) bands.
@@ -346,11 +333,10 @@ impl MaterialTable {
     }
 }
 
-/// The key builds from 2026-09-28 wrote for `MaterialTable::body_color_override`, before
-/// the identifier was respelled. Read for old files, never written.
+/// Legacy spelling of the `body_color_override` key. Read, never written.
 const LEGACY_BODY_COLOUR_KEY: &str = "body_colour_override";
 
-/// What [`MaterialTable`] is parsed through: the same keys, plus the old spelling of the
+/// What [`MaterialTable`] is parsed through: the same keys, plus the legacy spelling of the
 /// body-color key as a field of its own.
 ///
 /// A plain `serde(alias)` would fail a file holding both spellings ("duplicate field"), and
@@ -426,15 +412,13 @@ impl From<MaterialTableWire> for MaterialTable {
 /// The `[source]` table: the printed/measured proportions a catalogue row supplied
 /// when this design was loaded, if any.
 ///
-/// Without it, Open would reset `printed_proportions`, disabling Deep
-/// Solve for catalogue designs. Every field mirrors one
+/// Without it, reopening a catalogue design would lose `printed_proportions` and disable
+/// Deep Solve. Every field mirrors one
 /// `pleochroma::geometry::stone_metrics::ExternalProportions` figure one-to-one;
 /// building/reading the actual type is `pleochroma-cut-core`'s job (this crate has no
-/// dependency on `pleochroma` at all -- see the crate doc comment's "only pulls in
-/// what it needs" rule), same split as [`PreformTable`]/[`MaterialTable`]. Entirely
-/// optional at the top level (`DesignFile::source`): a design that was never
-/// loaded from a catalogue row (a brand-new "New Design", or a directly opened
-/// `.asc`) has nothing to record here.
+/// dependency on `pleochroma`), same split as [`PreformTable`]/[`MaterialTable`]. Optional
+/// at the top level (`DesignFile::source`): a design not loaded from a catalogue row has
+/// nothing to record here.
 #[derive(Debug, Clone, Copy, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SourceTable {
     /// Printed `Vol/W^3`.

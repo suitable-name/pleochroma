@@ -5,7 +5,7 @@
 //! A state's `open` function uses the route the app itself uses (a model flag or callback that the
 //! normal route ends in, or the header button for the popups). `scope` is the component the
 //! pass is limited to (the dialog, the panel); when the component is not found the pass falls
-//! back to the whole window and prints a GAP line.
+//! back to the whole window and says so in its output.
 //!
 //! Deny rules: the pass runs in a throw-away profile that is rebuilt after every visible change,
 //! so destroying data is harmless and is NOT denied here (unlike the generic smoke list). Only
@@ -32,7 +32,7 @@ use std::time::Duration;
 pub enum Base {
     /// The freshly started app.
     Startup,
-    /// The four fixture designs in the library, the first one selected.
+    /// The fixture designs in the library, the first row selected.
     Library,
     /// A template design in the editor.
     Design,
@@ -200,8 +200,8 @@ pub(super) fn inspector(app: &HarnessApp, tab: i32) {
     // The stored inspector height is also its maximum: raise it so the tab body (a ScrollView
     // whose scrolled-out controls are not enumerated) shows whole in the tall window.
     editor.set_inspector_height(2400.0);
-    // The design solves after every launch now, and "Optimize" (like Deep Solve) is off while a
-    // solve runs (`busy_action`): a user presses it once the solve is done.
+    // The design solves after every launch; Optimize, like Deep Solve, is off while a solve runs
+    // (`busy_action`), so it is pressed once the solve is done.
     let _ = wait_until(Duration::from_secs(10), || {
         editor.get_busy_action().is_empty() && !editor.get_solve_running()
     });
@@ -239,16 +239,14 @@ pub(super) fn jobs_with_rows(app: &HarnessApp) {
     pump(250);
 }
 
-/// Waits (real time, up to 8 s) until the Retarget dialog's validity check has an answer: the
-/// check runs on a worker thread, and Apply and Compare... stay disabled while it is running.
-/// `validity_state` is 0 ("no verdict") before the check starts as well as in Optimize mode, so
-/// waiting for "not 1" returned at once and the pass saw Apply dimmed: the wait is for a verdict
-/// (2 to 4), an error, or the Optimize mode, which has none until an option is picked.
+/// Waits (real time, up to 8 s) until the Retarget dialog's validity check has an answer. The
+/// check runs on a worker thread, and Apply and Compare... stay disabled while it runs.
+/// `validity_state` is 0 until a verdict (2 to 4) exists. The wait also ends on an error or on
+/// the Optimize mode, which has no verdict until an option is picked.
 pub(super) fn wait_retarget_checked(app: &HarnessApp) {
     let model = app.ui().global::<RetargetModel>();
-    // `proposal_changed` only queues a rebuild (drained on a 16 ms tick), and the check starts
-    // after its 120 ms debounce: without this, the wait below reads the verdict of the request
-    // before and returns at once.
+    // The rebuild is queued and the check starts after a 120 ms debounce; the pump lets both
+    // begin before the wait reads the state.
     pump(250);
     let _ = wait_until(Duration::from_secs(8), || {
         !model.get_is_busy()
@@ -268,6 +266,68 @@ pub(super) fn open_cutting_mode(app: &HarnessApp) {
         !cutting.get_busy() && (cutting.get_step_count() > 0 || !cutting.get_error().is_empty())
     });
     pump(200);
+}
+
+thread_local! {
+    /// The timer of [`keep_two_tier_group`]; replaced by every state that starts one.
+    static GROUP_KEEPER: std::cell::RefCell<Option<slint::Timer>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Every 100 ms, rebuilds the multi-select group of tiers 0 and 1 when it holds fewer than two
+/// tiers although the table has two. A late solve result or solid-preview frame can push the
+/// tier rows with an older count, which drops the "N selected" row. Like `keep_reasons` in
+/// `states_reach.rs` it holds a weak handle: once the window is gone it does nothing until the
+/// next state replaces it.
+fn keep_two_tier_group(a: &HarnessApp) {
+    let ui = a.ui().as_weak();
+    let timer = slint::Timer::default();
+    timer.start(
+        slint::TimerMode::Repeated,
+        Duration::from_millis(100),
+        move || {
+            let Some(ui) = ui.upgrade() else {
+                return;
+            };
+            let editor = ui.global::<EditorModel>();
+            if editor.get_multi_selected_count() < 2 && editor.get_tiers().row_count() >= 2 {
+                editor.invoke_clear_multi_select();
+                editor.invoke_toggle_multi_select(0);
+                editor.invoke_toggle_multi_select(1);
+            }
+        },
+    );
+    GROUP_KEEPER.with(|keeper| *keeper.borrow_mut() = Some(timer));
+}
+
+/// The Edit view with tiers 0 and 1 in the multi-select group and the toolbar's collapsed parts
+/// open.
+fn two_tiers_selected(a: &HarnessApp) {
+    edit_tab(a);
+    let editor = a.ui().global::<EditorModel>();
+    // The base design's own solve must be over first: on a slow machine its result lands late
+    // and rebuilds the table, which drops the group again.
+    let _ = wait_until(Duration::from_secs(10), || !editor.get_solve_running());
+    // The form's Mirror acts on the table's keyboard cursor, which follows a selection made
+    // outside the table (EditorView's selection mirror): select a row (through -1, so the write
+    // is a change) to put the cursor on it. This comes first: a changed selection clears the
+    // multi-select group (the "N selected" Clear / Delete / Adopt Sel. / Offset row shows only
+    // while the group holds two tiers).
+    editor.set_selected_tier_index(-1);
+    pump(100);
+    editor.set_selected_tier_index(0);
+    pump(250);
+    editor.invoke_toggle_multi_select(0);
+    editor.invoke_toggle_multi_select(1);
+    keep_two_tier_group(a);
+    let _ = wait_until(Duration::from_secs(10), || {
+        editor.get_multi_selected_count() > 1
+    });
+    // The toolbar's collapsed parts: the Steps / Mirror form, the tick box column, and the
+    // filter's clear button.
+    editor.set_tier_filter_text("1".into());
+    press(a, "Steps / Mirror", None);
+    press(a, "Select", None);
 }
 
 macro_rules! state {
@@ -692,15 +752,12 @@ fn design_panel_states_rest() -> Vec<State> {
         ),
         state!("Edit view, work running", Design, None, NONE, |a| {
             edit_tab(a);
-            // The Solve button's Abandon Solve label, Cancel Deep Solve, the optimize Cancel
-            // and Redo only show or enable while their work or history exists; the flags are
-            // set directly. Compare
-            // needs a held snapshot, which a flag cannot fake (pressing it then raises the
-            // "No snapshot taken yet" toast); the snapshot states cover it.
+            // The Abandon Solve, Cancel Deep Solve, optimize Cancel and Redo controls show or
+            // enable only while their work or history exists, so the flags are set directly.
+            // Compare needs a held snapshot, which a flag cannot fake; the snapshot
+            // states cover it.
             let editor = a.ui().global::<EditorModel>();
-            // The base design's own first solve must land first: when it does, Rust clears
-            // `solve_running` and the Abandon Solve label reverts to Solve before the pass
-            // reaches it.
+            // The base design's own first solve must finish first; it clears `solve_running`.
             let _ = wait_until(Duration::from_secs(10), || !editor.get_solve_running());
             // Auto-solve off (budget 0, the combo's "Off"), so the pass's own edits start no
             // solve whose end would clear the flag again.
@@ -744,7 +801,7 @@ fn design_panel_states_rest() -> Vec<State> {
         ),
         state!("Edit view, edited design", Edited, None, NONE, |a| {
             edit_tab(a);
-            // A selected tier shows the inspector's tier form; tier 1 can move both ways.
+            // Selects tier 1, so the inspector shows its tier form.
             a.ui().global::<EditorModel>().set_selected_tier_index(1);
             pump(200);
         }),
@@ -754,28 +811,7 @@ fn design_panel_states_rest() -> Vec<State> {
             Edited,
             Some("EditorTierTable"),
             NONE,
-            |a| {
-                edit_tab(a);
-                let editor = a.ui().global::<EditorModel>();
-                // The form's Mirror acts on the table's keyboard cursor, which follows a
-                // selection made outside the table (EditorView's selection mirror): select a
-                // row (through -1, so the write is a change) to put the cursor on it. This
-                // comes first: a changed selection clears the multi-select group (the
-                // "N selected" Clear / Delete / Adopt Sel. / Offset row shows only while the
-                // group holds two tiers).
-                editor.set_selected_tier_index(-1);
-                pump(100);
-                editor.set_selected_tier_index(0);
-                pump(250);
-                editor.invoke_toggle_multi_select(0);
-                editor.invoke_toggle_multi_select(1);
-                pump(150);
-                // The toolbar's collapsed parts: the Steps / Mirror form, the tick box column,
-                // and the filter's clear button.
-                editor.set_tier_filter_text("1".into());
-                press(a, "Steps / Mirror", None);
-                press(a, "Select", None);
-            }
+            two_tiers_selected
         ),
     ]
 }

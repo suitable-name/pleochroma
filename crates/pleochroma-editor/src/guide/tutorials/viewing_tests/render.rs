@@ -175,3 +175,14 @@ fn optical_diagnostics_has_five_explicit_interpretation_checkpoints() {
         vec![read(), read(), read(), read(), read()],
     );
 }
+
+#[test]
+fn the_desktop_lighting_lesson_names_stone_shadow() {
+    let guide = guide_named("viewing-live-render");
+    let dock = guide
+        .steps
+        .iter()
+        .find(|step| step.title == "The Parameters dock")
+        .expect("dock lesson");
+    assert!(dock.actions.join(" ").contains("Stone Shadow"));
+}

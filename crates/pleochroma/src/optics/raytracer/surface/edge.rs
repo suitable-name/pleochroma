@@ -1,13 +1,13 @@
 //! Abraded edges: a band of ground surface along every facet edge.
 //!
-//! Wear rounds and frosts the edges of a stone first. In a band of width `width` (model units)
-//! around every edge the surface is Ground with roughness `alpha`. The band is found with the same
-//! nearest-plane search edge rounding uses: for a convex polyhedron the edges of a facet are
-//! exactly where another half-space boundary comes within reach.
+//! In a band of width `width` (model units) around every edge the surface is Ground with
+//! roughness `alpha`. The band is found with the nearest-plane search that edge rounding uses:
+//! for a convex polyhedron, a facet's edges are exactly where another half-space boundary comes
+//! within reach.
 //!
-//! Wear also dulls the polish next to the band. The optional TIS boost raises the roughness of a
-//! polished (or ideal) facet to `halo_rq_nm` at the band's rim and lets it fall to nothing over one
-//! more band width, so the total integrated scatter of the worn zone grows toward the edge.
+//! The optional TIS boost dulls the polish next to the band. It raises the roughness of a
+//! polished (or ideal) facet to `halo_rq_nm` at the band's rim and lets it fall to nothing over
+//! one more band width, so the total integrated scatter grows toward the edge.
 
 use glam::Vec3;
 
@@ -82,8 +82,7 @@ pub fn edge_distance(planes: &[GpuFacetPlane], point: Vec3, facet_idx: usize) ->
 #[must_use]
 pub fn in_edge_band(planes: &[GpuFacetPlane], point: Vec3, facet_idx: usize, width: f32) -> bool {
     planes.iter().enumerate().any(|(i, plane)| {
-        // The signed distance to plane `i`, negated so that it is zero at a shared edge and
-        // positive inside the stone (the convention of `shading_normal_near_edge`).
+        // Signed distance to plane `i`, negated as in `shading_normal_near_edge`.
         i != facet_idx && -(plane.d + Vec3::from_array(plane.normal).dot(point)) < width
     })
 }

@@ -1,6 +1,7 @@
-//! `sessionStorage`: same-tab reload survival. It holds the autosaved current design
-//! (the fast path of a reload) and is the fallback for the small keys when
-//! `localStorage` is blocked. Gone when the tab closes.
+//! `sessionStorage`: same-tab reload survival.
+//!
+//! It holds the autosaved current design (the reload fast path) and the fallback for small
+//! keys when `localStorage` is blocked. It is cleared when the tab closes.
 //!
 //! Failures are swallowed exactly like [`super::local`]'s.
 

@@ -27,10 +27,8 @@ impl Database {
     /// lifetime: the existing-value check runs first and returns immediately without
     /// calling `random_unit` if found, so a second call is a cheap read, never a second
     /// roll. `ON CONFLICT ... DO UPDATE SET preview_material = COALESCE(...)` makes the
-    /// write itself race-safe (existing value always wins), followed by a read-back of
-    /// whatever actually persisted -- so concurrent callers for the same `entry_id`
-    /// can't disagree or clobber each other, even though this crate's actual
-    /// single-connection usage never triggers that race.
+    /// write race-safe (the existing value wins), and the read-back returns what actually
+    /// persisted, so concurrent callers for one `entry_id` cannot disagree.
     ///
     /// `target_ri` is the design's own refractive index, evaluated by the caller (see
     /// `crate::model::material_match`'s module doc for why evaluating a `GemMaterial`'s
@@ -86,9 +84,7 @@ impl Database {
             )
             .with_context(|| format!("Failed to persist preview_material for entry_id: {entry_id}"))?;
 
-        // Re-read rather than trusting `picked.name`: under the race this method's own
-        // doc comment describes, another call may have won the `COALESCE` and this is
-        // the only way to report what actually ended up persisted.
+        // Re-read rather than trust `picked.name`: a concurrent call may have won the COALESCE.
         self.get_preview_material(entry_id)
     }
 
@@ -233,24 +229,16 @@ impl Database {
     /// Deletes `entry_id`'s entire `diagram_previews` row (images, generation
     /// timestamp, AND the persisted `preview_material` choice), if one exists.
     ///
-    /// `diagram_previews` is a side table keyed by `entry_id` (see
-    /// this module's own doc comment), so re-importing a `.asc` over an existing row
-    /// -- which fully replaces `diagram_details` via
-    /// [`Self::save_diagram_detail`](Database::save_diagram_detail) -- leaves whatever
-    /// preview images were generated from the OLD geometry sitting there unchanged,
-    /// now silently describing a design that no longer exists. Called after a
-    /// re-import collision so the next preview-generation pass has a clean slate to
-    /// regenerate into, rather than a thumbnail that looks plausible but is wrong.
+    /// `diagram_previews` is keyed by `entry_id` and survives a `diagram_details` re-sync,
+    /// so images rendered from the old geometry would otherwise describe a design that no
+    /// longer exists.
     ///
-    /// The design writers (local import, native save, mirror sync) are routed through
-    /// [`Self::save_design`](Database::save_design); that keeps the entry and detail rows
-    /// consistent with each other, but not this table, so whoever replaces a design's
-    /// geometry or renderer-relevant metadata (refractive index, gear, facets) still
-    /// calls this afterwards. A render already in flight is covered separately: its
-    /// [`Self::save_preview_images`] refuses the stale write.
+    /// [`Self::save_design`](Database::save_design) keeps the entry and detail rows in step
+    /// but not this table, so whoever replaces a design's geometry or renderer-relevant
+    /// metadata (refractive index, gear, facets) calls this afterwards. A render in flight is
+    /// covered separately: [`Self::save_preview_images`] refuses its stale write.
     ///
-    /// A missing row is not an error -- deleting nothing (a design that never had
-    /// previews generated) is the ordinary, expected outcome for most re-imports.
+    /// A missing row is not an error.
     ///
     /// # Errors
     ///
@@ -713,12 +701,10 @@ mod tests {
         std::fs::remove_file(&path).ok();
     }
 
-    /// Deleting the owning `diagram_entries` row must cascade to `diagram_previews`
-    /// (its `FOREIGN KEY ... ON DELETE CASCADE`), while a `diagram_details` re-sync
-    /// (delete + reinsert of that unrelated row) must NOT touch it -- the entire reason
-    /// this table is keyed by `entry_id` rather than living as columns on
-    /// `diagram_details` (see `Database::migrate_diagram_previews_table`'s doc
-    /// comment).
+    /// Deleting the owning `diagram_entries` row cascades to `diagram_previews`, while a
+    /// `diagram_details` re-sync leaves it alone (see
+    /// `Database::migrate_diagram_previews_table`'s doc comment for why it is keyed by
+    /// `entry_id`).
     #[test]
     fn preview_row_survives_a_diagram_details_re_sync_but_not_entry_deletion() {
         let (db, entry_id, path) = temp_db_with_one_entry();
@@ -730,12 +716,8 @@ mod tests {
         .unwrap();
         save_current(&db, entry_id, Some(&[1, 2, 3]), Some(&[4, 5, 6]), 42);
 
-        // A "re-sync": save_diagram_detail's own doc comment establishes that a second
-        // call for the same entry_id first DELETEs the existing diagram_details row
-        // (cascading to angle_settings/attached_files) and then reinserts a fresh one
-        // with a new id -- exactly what a real re-scrape does. diagram_previews must
-        // not be affected by that delete at all, since it is keyed by entry_id
-        // (diagram_entries), not by diagram_details' own row id.
+        // A re-sync deletes and reinserts the diagram_details row under a new id. The
+        // preview row is keyed by entry_id, so it must survive that.
         db.save_diagram_detail(
             &crate::model::detail::FacetingDiagramDetail::default(),
             entry_id,

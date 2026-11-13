@@ -1,9 +1,8 @@
-//! `GemMaterial` default-orientation checks and birefringence rendering tests: the
-//! `c_axis` default (with the documented cut-orientation overrides: Tourmaline, Aquamarine,
-//! Benitoite, Titanite and Labradorite), Zircon's measurable
-//! ordinary/extraordinary split versus a flattened clone, cubic materials' bit-exact
-//! indifference to `birefringence_delta`, and non-dispersive custom materials under
-//! spectral MIS.
+//! Default-orientation checks and birefringence rendering tests for `GemMaterial`.
+//!
+//! Covers the `c_axis` default and its cut-orientation overrides, Zircon's ordinary and
+//! extraordinary split against a flattened clone, cubic materials' bit-exact indifference to
+//! `birefringence_delta`, and non-dispersive custom materials under spectral MIS.
 
 use glam::Vec3;
 use pleochroma::{
@@ -16,31 +15,16 @@ use pleochroma::{
 
 #[test]
 fn test_gem_materials_default_c_axis_to_y() {
-    // `c_axis` is a field on `GemMaterial` consumed by `trace_spectral_ray` for every
-    // material. Every built-in material, and `new_custom`, must default it to Vec3::Y
-    // so behaviour stays consistent across materials -- EXCEPT a material with a
-    // documented, deliberate cut-orientation override.
-    //
-    // Tourmaline is the first documented exception (see its entry's comment in
-    // `GemMaterial::all_materials`): real tourmaline cutters orient the table
-    // perpendicular to the c-axis specifically because face-up down the closed
-    // (e-ray/"dark ray") axis is tourmaline's worst viewing direction -- with the
-    // strong o-ray/e-ray dichroism populated this pass, keeping `c_axis = Vec3::Y`
-    // (the every-other-material default) would point the face-up hero shot straight
-    // down that dark ray, backwards from how the stone is actually cut and worn. So
-    // Tourmaline's `c_axis` is `Vec3::X` (into the table plane) instead.
-    //
-    // Aquamarine is the second (owner decision 2026-10-19, measured Caltech GRR 1488
-    // fit): its blue is the e-ray (E parallel to c) and the o-ray is nearly colorless,
-    // so with `c_axis = Vec3::Y` the face-up view would see the o-ray only, practically
-    // colorless; cutters orient aquamarine with c in the table plane so that the blue
-    // ray shows face-up. Its `c_axis` is `Vec3::X` as well.
-    //
-    // Benitoite and Titanite (2026-11-03) and Labradorite (2026-11-04) follow the same rule:
-    // benitoite's blue is the e-ray, so c lies in the table; titanite's n_gamma (Z) lies in
-    // the table, so face-up light shows the full birefringence and Z's golden tone; and a
-    // labradorite's lamellae lie parallel to the table so its flash faces up (its n_gamma is
-    // tilted 79 degrees from Y for that).
+    // `c_axis` is a field on `GemMaterial` consumed by `trace_spectral_ray`. Every built-in
+    // material and `new_custom` defaults it to Vec3::Y, except the materials with a
+    // deliberate cut-orientation override, where the stone is cut with c in the table plane:
+    // - Tourmaline: face-up down the closed e-ray axis is its worst view, so c is Vec3::X.
+    // - Aquamarine: its blue is the e-ray and the o-ray is nearly colorless, so c is Vec3::X.
+    // - Benitoite: its blue is the e-ray, so c lies in the table.
+    // - Titanite: n_gamma (Z) lies in the table, so face-up light shows the full birefringence.
+    // - Labradorite: its lamellae are parallel to the table, so n_gamma is tilted 79 degrees
+    //   from Y.
+    // See each entry's comment in `GemMaterial::all_materials`.
     const CUT_ORIENTATION_OVERRIDES: &[&str] = &[
         "Tourmaline",
         "Aquamarine",
@@ -77,15 +61,59 @@ fn test_gem_materials_default_c_axis_to_y() {
     );
 }
 
+/// Returns the seed of paired sample `index` in the Zircon tests' sequence.
+const fn paired_seed(index: u32) -> u32 {
+    index.wrapping_mul(7919).wrapping_add(13)
+}
+
+/// Traces the paired samples of the Zircon test's sequence (the same ray, planes, ring lights,
+/// 12 bounces and seeds) for `index` in `0..seeds`, birefringent Zircon and the same material
+/// with `birefringence_delta` forced to 0, and returns for the X, Y and Z axis the mean of
+/// birefringent minus flat and the per-sample standard deviation of that difference (Welford
+/// in `f64`).
+fn paired_difference_stats(seeds: u32) -> [(f64, f64); 3] {
+    let planes = StandardGemCuts::standard_round_brilliant();
+    let zircon = GemMaterial::by_name("Zircon").unwrap();
+    let mut zircon_flat = zircon.clone();
+    zircon_flat.birefringence_delta = 0.0;
+    let ray = Ray {
+        origin: Vec3::new(0.0, 2.5, 0.0),
+        dir: Vec3::new(0.18, -1.0, 0.07).normalize(),
+    };
+    let trace = |material: &GemMaterial, seed: u32| {
+        trace_spectral_ray(
+            ray,
+            &planes,
+            material,
+            12,
+            LightingPreset::RingLights.studio(1.0, 0.85, 0.95),
+            seed,
+            (hash_u32(seed) as f32) / 4_294_967_295.0,
+            None,
+        )
+    };
+    let mut mean = [0.0f64; 3];
+    let mut sq_dev = [0.0f64; 3];
+    for index in 0..seeds {
+        let seed = paired_seed(index);
+        let difference = trace(&zircon, seed) - trace(&zircon_flat, seed);
+        for (axis, value) in difference.to_array().into_iter().enumerate() {
+            // Welford: running mean and sum of squared deviations.
+            let value = f64::from(value);
+            let delta = value - mean[axis];
+            mean[axis] += delta / f64::from(index + 1);
+            sq_dev[axis] = delta.mul_add(value - mean[axis], sq_dev[axis]);
+        }
+    }
+    std::array::from_fn(|axis| (mean[axis], (sq_dev[axis] / f64::from(seeds - 1)).sqrt()))
+}
+
 #[test]
 fn test_birefringence_splits_produce_measurable_difference_zircon_vs_flat() {
-    // An otherwise-identical pair of materials -- one strongly birefringent
-    // (Zircon, birefringence_delta = 0.059) and one with delta forced to 0.0 (making
-    // `is_anisotropic` false, so the ordinary/extraordinary split never triggers) --
-    // must render measurably differently once the ray actually splits into an
-    // ordinary and extraordinary eigenmode ("optical doubling"). Averaged over many
-    // paired samples (same seed for both materials, to cancel out unrelated RNG noise)
-    // so the assertion isn't dominated by sampling variance.
+    // Zircon (birefringence_delta = 0.059) and the same material with delta 0.0 (so
+    // `is_anisotropic` is false and the ordinary/extraordinary split never triggers) must
+    // render measurably differently. Paired samples share a seed, which cancels unrelated
+    // noise.
     let planes = StandardGemCuts::standard_round_brilliant();
     let zircon = GemMaterial::by_name("Zircon").unwrap();
     assert!(
@@ -108,7 +136,7 @@ fn test_birefringence_splits_produce_measurable_difference_zircon_vs_flat() {
     let mut sum_birefringent = Vec3::ZERO;
     let mut sum_flat = Vec3::ZERO;
     for i in 0..samples {
-        let seed = i.wrapping_mul(7919).wrapping_add(13);
+        let seed = paired_seed(i);
         sum_birefringent += trace_spectral_ray(
             ray,
             &planes,
@@ -134,47 +162,107 @@ fn test_birefringence_splits_produce_measurable_difference_zircon_vs_flat() {
     let avg_flat = sum_flat / samples as f32;
     let diff = (avg_birefringent - avg_flat).length();
 
-    // The extraordinary eigenmode's TIR/Fresnel/Snell physics inside the crystal must be
-    // evaluated against the wave normal `k`, not the walked-off Poynting direction `S`:
-    // using `S` would compound the error every internal bounce this 12-max-bounce oblique
-    // ray takes, non-physically INFLATING the divergence between the birefringent and
-    // flattened traces well past the true walk-off effect's own (small, order the
-    // walk-off angle -- 1-2 degrees for Zircon-class birefringence) size. With `k`/`S`
-    // correctly separated (see `refraction.rs`'s design note), the measured difference is
-    // diff=0.000373 for this exact ray/seed set -- still a real, deterministic, nonzero
-    // effect (same seed feeds both traces, so this is not sampling noise), just correctly
-    // SMALL rather than artificially large. 3e-4 stays comfortably below the measured
-    // value while still catching a regression that zeroes the effect out entirely.
-    //
-    // Upper bound: the effect is first order in the walk-off angle (at most ~2 degrees =
-    // 0.035 rad for Zircon-class birefringence), and the measured diff is 3.73e-4. Using
-    // the walk-off direction `S` where the wave normal `k` belongs re-enters the
-    // refraction with an error of that same angle at every one of the up-to-12 internal
-    // bounces, so the error compounds rather than staying a single small perturbation;
-    // a trace that has lost the k/S separation therefore moves by a multiple of the
-    // correct effect, not a fraction. 3e-3 (about 8x the measured value) leaves room for
-    // ordinary changes to the shared sampling and lighting while still failing on an
-    // order-of-magnitude inflation.
+    // With the split disabled both traces are identical, so this bound is a floor only. The
+    // traces share seeds but not their discrete per-sample decisions: the extraordinary
+    // companions spread at a different angle, so a few of the 64 samples can differ by a large
+    // share of the sum. No bound on 64 samples separates a physics error from that, so the
+    // expectation is checked by the 65,536-seed comparison below, where each paired mean lies
+    // within about one standard error of 0. The extraordinary mode's Snell and Fresnel physics
+    // uses the wave normal `k`, not the walked-off `S`; the lib test
+    // `plane_parallel_uniaxial_slab_extraordinary_ray_exits_parallel_and_displaced` checks it.
     assert!(
         diff > 3e-4,
         "birefringent Zircon should render measurably differently (averaged over {samples} samples) than an \
          otherwise-identical flat (delta=0) material -- got diff={diff} (birefringent={avg_birefringent:?}, flat={avg_flat:?})"
     );
-    assert!(
-        diff < 3e-3,
-        "birefringent Zircon's difference from the flat material should stay at the size of the walk-off \
-         effect (order 4e-4), not be inflated by evaluating the extraordinary mode against the wrong \
-         direction -- got diff={diff} (birefringent={avg_birefringent:?}, flat={avg_flat:?})"
+    for (tag, (mean, std_dev)) in ["X", "Y", "Z"]
+        .into_iter()
+        .zip(paired_difference_stats(65_536))
+    {
+        let std_err = std_dev / 65_536f64.sqrt();
+        assert!(
+            mean.abs() < 4.0f64.mul_add(std_err, 3e-3),
+            "birefringence must not shift the expected render: the paired mean of birefringent \
+             minus flat Zircon over 65,536 seeds on axis {tag} is {mean:+.3e} (standard error \
+             {std_err:.1e}); an extraordinary mode evaluated against the walked-off direction \
+             would move it"
+        );
+    }
+}
+
+/// Diagnostic for [`test_birefringence_splits_produce_measurable_difference_zircon_vs_flat`].
+///
+/// Prints that test's 64-sample difference, the eight of its 64 paired samples with the largest
+/// difference (birefringent minus flat) with each one's share of the sum, and the paired mean
+/// difference over 65,536 seeds (the first 64 are the test's) with its standard error and
+/// per-sample standard deviation.
+#[test]
+#[ignore = "diagnostic, run on request: cargo test -p pleochroma --test raytracer_tests \
+            zircon_vs_flat_difference_by_sample -- --ignored --nocapture"]
+fn zircon_vs_flat_difference_by_sample() {
+    const SEEDS: u32 = 65_536;
+    let planes = StandardGemCuts::standard_round_brilliant();
+    let zircon = GemMaterial::by_name("Zircon").unwrap();
+    let mut zircon_flat = zircon.clone();
+    zircon_flat.birefringence_delta = 0.0;
+    let ray = Ray {
+        origin: Vec3::new(0.0, 2.5, 0.0),
+        dir: Vec3::new(0.18, -1.0, 0.07).normalize(),
+    };
+    let trace = |material: &GemMaterial, seed: u32| {
+        trace_spectral_ray(
+            ray,
+            &planes,
+            material,
+            12,
+            LightingPreset::RingLights.studio(1.0, 0.85, 0.95),
+            seed,
+            (hash_u32(seed) as f32) / 4_294_967_295.0,
+            None,
+        )
+    };
+
+    let mut rows: Vec<(u32, Vec3, Vec3)> = (0..64u32)
+        .map(|index| {
+            let seed = paired_seed(index);
+            (index, trace(&zircon, seed), trace(&zircon_flat, seed))
+        })
+        .collect();
+    let (sum_biref, sum_flat) = rows.iter().fold(
+        (Vec3::ZERO, Vec3::ZERO),
+        |(acc_biref, acc_flat), &(_, biref, flat)| (acc_biref + biref, acc_flat + flat),
     );
+    let diff_64 = sum_biref / 64.0 - sum_flat / 64.0;
+    println!("64 test seeds: diff={} {diff_64:?}", diff_64.length());
+    let sum = sum_biref - sum_flat;
+    rows.sort_by(|first, second| {
+        (second.1 - second.2)
+            .length()
+            .total_cmp(&(first.1 - first.2).length())
+    });
+    for &(index, biref, flat) in rows.iter().take(8) {
+        let difference = biref - flat;
+        println!(
+            "  sample {index:2}: birefringent={biref:?} flat={flat:?} difference={difference:?} \
+             share of the sum {:.3}",
+            difference.dot(sum) / sum.length_squared()
+        );
+    }
+
+    let stats = paired_difference_stats(SEEDS);
+    for (tag, (mean, std_dev)) in ["X", "Y", "Z"].into_iter().zip(stats) {
+        let std_err = std_dev / f64::from(SEEDS).sqrt();
+        println!(
+            "{SEEDS} seeds: {tag} birefringent - flat = {mean:+.3e} (paired se {std_err:.1e}, \
+             per-sample sd {std_dev:.3})"
+        );
+    }
 }
 
 #[test]
 fn test_cubic_material_ignores_birefringence_delta_bit_identical() {
-    // `is_anisotropic` gates on `crystal_system != Cubic`, so a Cubic material
-    // must be completely unaffected by `birefringence_delta` -- confirming the
-    // ordinary/extraordinary split code path never activates for
-    // an isotropic (cubic) gem like Diamond, i.e. rendering is bit-identical whether
-    // or not `birefringence_delta` happens to be nonzero.
+    // `is_anisotropic` gates on `crystal_system != Cubic`, so the ordinary/extraordinary split
+    // never runs for a cubic gem like Diamond and `birefringence_delta` has no effect.
     let planes = StandardGemCuts::standard_round_brilliant();
     let diamond = GemMaterial::diamond();
     assert_eq!(
@@ -220,16 +308,11 @@ fn test_cubic_material_ignores_birefringence_delta_bit_identical() {
 
 #[test]
 fn test_non_dispersive_custom_material_renders_stably_under_spectral_mis() {
-    // `GemMaterial::new_custom` with `dispersion_delta = 0.0` yields a flat Cauchy
-    // model (b = c = 0, per `new_custom`'s own formula), so n(lambda) is IDENTICAL
-    // across the whole visible spectrum -- unlike Diamond's own Sellmeier model, which
-    // is genuinely dispersive even though it has no separate "delta" knob. `raytracer.rs`
-    // sums each channel's per-channel radiance unweighted (`mis_weighted_radiance` is
-    // the identity function -- see its doc comment for why no spectral-MIS reweighting
-    // is valid under this function's wavelength stratification), so this reduction is
-    // unconditional and not specific to the non-dispersive case; this integration-level
-    // test just checks the render stays well-behaved (finite, non-negative, and
-    // consistent across independent seeds) for a representative non-dispersive material.
+    // `new_custom` with `dispersion_delta = 0.0` gives a flat Cauchy model (b = c = 0), so n is
+    // identical across the visible spectrum. Diamond's Sellmeier model is dispersive. The
+    // raytracer's `mis_weighted_radiance` (`optics/raytracer/color.rs`) is the identity, so each
+    // channel's radiance is summed unweighted, whatever the dispersion. This test checks the
+    // render stays finite and non-negative for a representative non-dispersive material.
     let flat = GemMaterial::new_custom("Flat Test Gem", 1.62, 0.0, 0.0, [0.3, 0.3, 0.3]);
     let n_at_400 = flat.dispersion.evaluate(400.0);
     let n_at_700 = flat.dispersion.evaluate(700.0);

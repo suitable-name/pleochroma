@@ -1,32 +1,19 @@
-//! Schema-versioned weight exports for inference and new-run warm starts.
+//! Schema-versioned weight exports for inference and warm starts of new runs.
 //!
-//! A [`Checkpoint`] wraps the trained [`GemstoneSetAttentionNetwork`] with the metadata needed to detect
-//! mismatches at load time: which training mode and model tier produced it, which observation layout it
-//! was trained against, and how far training had progressed. This weight-only format omits Adam,
-//! replay and episode state. Complete training recovery uses
-//! [`crate::training::BurnTrainer::save_training_state`] plus the trainer app's runner-state bundle;
-//! its model and optimiser records have distinct base names.
+//! A [`Checkpoint`] wraps the trained [`GemstoneSetAttentionNetwork`] with the metadata needed
+//! to detect mismatches at load time: the training mode and model tier, the observation layout
+//! it was trained against, and the training progress. This weight-only format omits Adam,
+//! replay and episode state. Full training recovery uses
+//! [`crate::training::BurnTrainer::save_training_state`] together with the trainer app's
+//! runner-state bundle; its model and optimiser records have distinct base names.
 //!
-//! # Schema history
+//! # Schema
 //!
-//! - 1: per-tier `actor_log_std_head`, no final norm. Refused since version 2 (the policy it holds
-//!   never trained: the head sat on its clamp).
-//! - 2: state-independent `log_std_raw` (crown, pavilion, other) and a `final_norm` before the heads.
-//!   Refused since version 3 (its policy head predicted a tanh mean directly and cannot be composed
-//!   from sensitivities).
-//! - 3: the `actor_mean_head` is replaced by a sensitivity head (`sens_head`, `d_model ->
-//!   N_COMPONENTS`, one prediction per tier) and a `gain_head` (`d_model -> 1`, on the pooled vector
-//!   the critic reads); the policy mean is composed from the sensitivities and objective weights.
-//! - 4: seven objective components, mobility-aware action composition, the shared score-slope floor,
-//!   and observation layout 5. Version-3 weights cannot represent tone or shape targets and are refused.
-//! - 5: a required per-tier residual action head, separate from the physical sensitivity head,
-//!   and corrected gear orientation in observation layout 6. Earlier files are refused explicitly.
-//!
-//! - 6: bounded design context and principal material spectra in observation layout 7.
-//!   Both embedding widths changed, so earlier weights require retraining.
-//!
-//! The file's schema version is read before the network is parsed, so an old file is refused with
-//! [`WeightError::UnsupportedSchema`] rather than a "missing field" JSON error.
+//! Only [`CHECKPOINT_SCHEMA_VERSION`] is accepted. Older files are refused with
+//! [`WeightError::UnsupportedSchema`] before the network is parsed, because their heads and
+//! input embeddings differ from the current network. The network holds per-tier sensitivity and
+//! residual action heads plus a gain head. The policy mean is composed from the sensitivities and
+//! objective weights.
 
 use super::{
     actor_critic::{GemstoneSetAttentionNetwork, ModelTier},
@@ -45,8 +32,8 @@ use std::{
 /// Schema version written by [`Checkpoint::save`] and required by [`Checkpoint::load`].
 pub const CHECKPOINT_SCHEMA_VERSION: u32 = 6;
 
-/// The one field of a checkpoint file that is read before the rest, so a file of another schema is
-/// refused by version and not by whichever field its network happens to be missing.
+/// Read before the rest of the file, so a file of another schema is refused by its version
+/// rather than by a missing network field.
 #[derive(Deserialize)]
 struct SchemaProbe {
     schema_version: u32,
@@ -79,7 +66,7 @@ pub struct Checkpoint {
     pub mode: TrainingMode,
     /// Size tier the network was built from.
     pub tier: ModelTier,
-    /// Observation layout version (`env::observation::OBS_LAYOUT_VERSION`) the network was trained against.
+    /// Observation layout version (`OBS_LAYOUT_VERSION`) the network was trained against.
     pub obs_layout_version: u32,
     /// Number of tier slots the batched training pass was padded to.
     pub max_tiers: usize,
@@ -149,15 +136,15 @@ impl Checkpoint {
         Ok(())
     }
 
-    /// Load a checkpoint, rejecting a wrong schema version (checked before the network is parsed), a
-    /// different observation layout, and any network that fails
-    /// [`GemstoneSetAttentionNetwork::validate`] (which covers all heads, including the action residual),
-    /// cannot carry the objective's weight fractions in its global token, or disagrees with its
-    /// recorded tier.
+    /// Load and validate a checkpoint.
+    ///
+    /// Checks the schema version (before the network is parsed), the observation layout, the
+    /// network ([`GemstoneSetAttentionNetwork::validate`], covering every head), a global token
+    /// wide enough for the weight fractions, and agreement with the recorded tier.
     ///
     /// # Errors
-    /// [`WeightError::UnsupportedSchema`], [`WeightError::ObsLayoutMismatch`], validation errors, or
-    /// IO / JSON errors.
+    /// [`WeightError::UnsupportedSchema`], [`WeightError::ObsLayoutMismatch`], validation errors,
+    /// or IO / JSON errors.
     pub fn load(path: &Path, expected_obs_layout_version: u32) -> Result<Self, WeightError> {
         let bytes = std::fs::read(path)?;
         let probe: SchemaProbe = serde_json::from_slice(&bytes)?;
@@ -184,8 +171,8 @@ impl Checkpoint {
 
         let (d_model, num_heads, num_layers) = checkpoint.tier.config();
         let net = &checkpoint.network;
-        // The composed mean reads the weight fractions from the global token: a network too narrow
-        // to carry them can never run, whatever its layout tag says.
+        // The composed mean reads the weight fractions from the global token: a network too
+        // narrow to carry them can never run, whatever its layout tag says.
         let needed_global = WEIGHT_FRACTION_INDEX + N_COMPONENTS;
         if net.d_global < needed_global {
             return Err(WeightError::Invalid(format!(
@@ -322,8 +309,7 @@ mod tests {
     #[test]
     fn a_version_three_file_is_refused_by_its_schema_version() {
         let path = temp_path("v3.json");
-        // A version-3 network had four objective components and no explicit mobility masking:
-        // rewrite a fresh file that way.
+        // Relabel a fresh file as version 3 so the schema check, not the field parse, refuses it.
         let mut value = serde_json::to_value(small_checkpoint()).unwrap();
         value["schema_version"] = serde_json::Value::from(3u32);
         std::fs::write(&path, value.to_string()).unwrap();

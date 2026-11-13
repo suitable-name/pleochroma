@@ -24,10 +24,12 @@ extension. Every command that takes a design takes several: see [Several designs
 | `optimize` | The Optimize tab's search on the design's own material. Lists ranked candidates; `--out` saves the best. |
 | `retarget` | The Retarget dialog's engine and validity gate, for another material. |
 | `sweep` | Sets one tier to every angle of a range and scores each one. |
-| `export` | Writes `.asc` (GemCAD cutting instructions), `.psdd`, `.gcs` or the cutting sheet as `.html` or `.pdf` (both in the standard cutting-instructions template; the web page adds shaded renderings, the masts and the carat estimate after it). `--format psdd` also takes the older name `pleochroma`. |
+| `snap-meets` | Moves the depth of every tier that reaches no meet point onto the nearest point already on the stone, so the cutter has a point to cut it to. See [Snap meets](#snap-meets). |
+| `export` | Writes `.asc` (GemCAD cutting instructions), `.psdd`, `.gcs` or the cutting sheet as `.html` or `.pdf` (both in the standard cutting-instructions template; the web page adds shaded renderings, the masts and the carat estimate after it). `--format psdd` also accepts the alias `pleochroma`. |
 | `census` | Read-only measurement of the meet-preserving gate over templates, files and a library. See [Census](#census). |
 | `render` | Renders a still picture from a render job file (`*.job.json`) made by the desktop app. See [Render jobs](#render-jobs). |
 | `tilt-video` | Renders a tilt performance video from a render job file, and resumes from the frames already written. |
+| `image-compare` | Compares two `PLRAW1` renders as a viewer sees them (CIEDE2000, glints, samples saved), for the render-acceleration benchmark. See `pleochroma-cli image-compare --help`. |
 
 ### Examples
 
@@ -41,6 +43,8 @@ pleochroma-cli optimize round.psdd --preset brilliance --budget 400 --starts 4 -
 pleochroma-cli retarget round.psdd --material Sapphire --crown-fraction 0.33 --out sapphire.psdd
 pleochroma-cli retarget round.psdd --ri 1.7681 --mode optimize --range 4 --out sapphire.psdd
 pleochroma-cli sweep round.psdd --tier "Pavilion Main" --from 39 --to 43 --step 0.5 --csv sweep.csv
+pleochroma-cli snap-meets better.psdd --dry-run
+pleochroma-cli snap-meets better.psdd --max-move 0.15 --out snapped.psdd
 pleochroma-cli export round.psdd --format html --out sheet.html
 pleochroma-cli export round.psdd --out sheet.pdf
 pleochroma-cli export round.psdd --out round.asc
@@ -69,7 +73,7 @@ same every time.
 ## Several designs
 
 Every command that takes a design (`info`, `solve`, `metrics`, `validate`, `optimize`,
-`retarget`, `sweep` and `export`) takes several, and a shell glob expands as usual. Each design
+`retarget`, `sweep`, `snap-meets` and `export`) takes several, and a shell glob expands as usual. Each design
 runs as the command would run on it alone, in the order given: its report, its notes and its
 output file are the ones the same command gives that file by itself. With one design nothing
 changes, byte for byte. (`render` and `tilt-video` take one job file, not designs.)
@@ -85,7 +89,7 @@ changes, byte for byte. (`render` and `tilt-video` take one job file, not design
 - **Output files.** `--out FILE` (and `--csv FILE` of `sweep`) names one file, so a line with
   several designs and one of them is refused (exit code 1). `--out-dir DIR` writes one file for
   each design instead, named after the design without its extension and given the extension of
-  the output: `DIR/<name>.psdd` for `solve`, `optimize` and `retarget`; `.txt`, `.json` or `.csv`
+  the output: `DIR/<name>.psdd` for `solve`, `optimize`, `retarget` and `snap-meets`; `.txt`, `.json` or `.csv`
   for a report written by `info`, `metrics` and `validate`; `.csv` for `sweep`; the chosen format
   for `export`, which then needs `--format` (`DIR/<name>.asc`, `.psdd`, `.gcs`, `.html` or
   `.pdf`).
@@ -96,7 +100,8 @@ changes, byte for byte. (`render` and `tilt-video` take one job file, not design
 - **Failures.** A design that fails prints its error under its name, and the others still run.
   The files of the designs that worked are written even so (a design that was refused never
   leaves one behind). The exit code is that of the first design that failed (1, 2, 3 or 5);
-  when none failed it is 4 if a `validate` verdict is Problem, else 0.
+  when none failed it is 4 if a `validate` verdict is Problem or `snap-meets` left a tier with
+  no meet point or cut facets away, else 0.
 
 ```
 pleochroma-cli validate stones/*.psdd --json --out-dir reports
@@ -121,8 +126,7 @@ pleochroma-cli retarget round.psdd cushion.psdd --material Sapphire --out-dir sa
 - `--lighting NAME` is the light the score is taken under: `daylight`, `incandescent`, `ring`,
   `spotlight`, `iso` (or `grading`: the grading tray, the default), `tent`, `dome` (sky only, no sun),
   `sun` (sky plus a real 0.27° sun, about 82 % of the light), `tray` (the white tray lit from below, even walls), `shop`, `window`,
-  `illuminant-a` (2856 K) or `aset` (contrast view: green 0-45°, red 45-75°, blue 75-90°, black below the horizon). A build with the `physical-color` feature
-  adds `uv365` and `uv395`. Brilliance under a Studio rig (`daylight`, `incandescent`, `ring`,
+  `illuminant-a` (2856 K) or `aset` (contrast view: green 0-45°, red 45-75°, blue 75-90°, black below the horizon). Brilliance under a Studio rig (`daylight`, `incandescent`, `ring`,
   `spotlight`, `illuminant-a`) is measured against that rig's own lamps; the grading tray gives
   the standard figure.
 
@@ -134,11 +138,12 @@ pleochroma-cli retarget round.psdd cushion.psdd --material Sapphire --out-dir sa
 | 1 | The command line is wrong (unknown command or flag, missing value, bad number). |
 | 2 | The design cannot be used (it does not solve or close), or a result was refused. Nothing is written. |
 | 3 | A file could not be read or written. |
-| 4 | `validate` only: the verdict is Problem. |
+| 4 | The command worked and found something left to do: the `validate` verdict is Problem, or `snap-meets` left a tier with no meet point or cut facets away. |
 | 5 | `render` and `tilt-video` only: the render failed or was stopped. |
 
 A file named by `--out` (or by `--csv` for `sweep`) is written only when the command ends with
-code 0 (or 4 for `validate`). A command that refuses its result never leaves a file behind.
+code 0 (or 4 for `validate` and `snap-meets`). A command that refuses its result never leaves a
+file behind.
 With several designs each design is its own command: see [Several designs](#several-designs).
 Each file that is written is noted on standard error (`wrote FILE`). Reports go to standard
 output; notes and errors go to standard error.
@@ -158,12 +163,41 @@ exists; only then it prints one line to standard error, `info: Pleochroma 0.7.3 
 any other failure prints nothing. `--no-update-check` (anywhere on the command line) or the
 environment variable `PLEOCHROMA_NO_UPDATE_CHECK` (any value) skips the check.
 
+GPU builds on Linux apply the same Mesa RADV workaround as the desktop app and the worker. Mesa's
+RADV driver (the open AMD Vulkan driver) mis-schedules the GPU kernel, so some zoned stones (opal)
+and stones with oriented inclusions render wrong on it; before anything else starts the tool sets
+`ACO_DEBUG=nosched` (about 10 % slower GPU) and gives Mesa's shader cache a folder of its own
+(`pleochroma-cli` in your user cache folder). By default this is on only when the machine has an
+AMD GPU on the `amdgpu` kernel driver, so NVIDIA and Intel machines are left alone.
+`--radv-workaround off` (anywhere on the command line) or the environment variable
+`PLEOCHROMA_RADV_WORKAROUND=off` starts without it, `--radv-workaround on` forces it on, and an
+`ACO_DEBUG` you set yourself is always left alone. Builds without the `gpu` feature accept and
+ignore the option.
+
 `metrics --json` keys: `table_up_brilliance_pct`, `table_up_windowing_pct`,
 `table_up_extinction_pct`, `table_up_fire_index`, `table_up_scintillation_pct`, with `tilt_*`
 keys added by `--tilt`, then `table_pct_of_width`, `crown_pct_of_width`,
-`pavilion_pct_of_width`, `girdle_pct_of_width`, `total_depth_pct_of_width`, `length_to_width`,
-`volume_over_width_cubed`, `yield_pct`, `facets`, `tiers` and `warnings`. `--csv` is one header
-line and one row with the same names.
+`pavilion_pct_of_width`, `girdle_pct_of_width`, `girdle_line_pct_of_width`,
+`total_depth_pct_of_width`, `length_to_width`, `volume_over_width_cubed`, `yield_pct`, `facets`,
+`tiers` and `warnings`. `--csv` is one header line and one row with the same names, in that
+order except that `girdle_line_pct_of_width` is the LAST column (it was added later, so a script
+that reads the columns by position keeps working). The text report prints it under Proportions
+as "Girdle line, of width", after "Girdle thickness, of width".
+
+The two girdle figures read the girdle in two places:
+
+- `girdle_pct_of_width` is the full height of the girdle faces, from their highest corner to
+  their lowest, as a percentage of the width. On a brilliant it includes the small scallops the
+  break facets cut between the girdle corners, so it reads well above the girdle a cutter
+  measures. It is the figure the total depth adds up with (crown + girdle + pavilion), and it is
+  unchanged.
+- `girdle_line_pct_of_width` is the girdle read at its LINE: at the corners where the girdle
+  faces meet and at the ends of level edges, where the editor's proportion verdict, its Preform
+  readouts and the cutting sheet read it. It is the THINNEST thickness there, the one that
+  matters for durability (a girdle that is not level reads a range in the editor; the verdict's
+  "The girdle is not level" check reports it). It is empty in CSV, `null` in JSON and `n/a` in
+  text when the stone has no girdle line: no girdle tier, or no crown or pavilion facet reaching
+  the girdle faces.
 
 ## Optimize
 
@@ -182,7 +216,7 @@ line and one row with the same names.
   on by default when every tier is pinned, as in the tab.
 - Without `--lighting` the search scores under the grading tray (see above).
 - The Score column is 0 (worst) to 100 (best): higher is better. `--json` keeps `score` as the
-  search's own loss (lower is better, as before) in `start` and in every candidate, and adds
+  search's own loss (lower is better) in `start` and in every candidate, and adds
   `display_score`, `100 - score` clamped to 0 to 100, which is the number the table prints.
 
 ## Retarget
@@ -208,8 +242,8 @@ stone, a girdle that survives, a table that stays flat and facets that do not va
   angles would pinch the girdle at its corners, the band is thickened by 5 % and then 10 %
   (never thinner) before the result is refused. The plan view, the table and culet size and the
   crown-to-pavilion ratio are kept exactly; the verdict text says which step was used. It is on
-  in the dialog and off here unless given, so that a command line gives the same result it
-  always did; a result that is refused without it may be valid with it.
+  in the dialog and off here unless given; a result that is refused without it may be valid
+  with it.
 - A refused result prints the report and the reasons, ends with exit code 2 and writes nothing.
 - Only a Valid verdict applies, as in the dialog. A change the check could not judge
   (**Unchecked**: the current design itself does not solve or close, so nothing could be
@@ -218,12 +252,61 @@ stone, a girdle that survives, a table that stays flat and facets that do not va
   let one through, because the dialog has none any more either.
 - The saved design has the target material set.
 
+## Snap meets
+
+```
+pleochroma-cli snap-meets <design>... (--out FILE.psdd | --out-dir DIR | --dry-run)
+                          [--max-move MM | --max-move-fraction F] [--db FILE]
+```
+
+The cutting sheet's meet column names a point that is already on the stone when the tier is
+cut: the stone cut so far, not the finished one. A tier whose facets reach no such point
+"floats", and the sheet gives only its depth (`Cut to depth 2.81 mm.`): the cutter has nothing
+to stop at and has to set the depth by measurement. A design whose depths were set freely (by
+`optimize`, or by hand) often has a few. `snap-meets` fixes what it can:
+
+- It walks the cutting order. Each floating tier that is set by an explicit depth gets the depth
+  that puts its plane through the nearest point of the stone cut so far (with the earlier moves
+  already made), when that point is within the limit. The anchors (the tiers that set the stone
+  size, the centerpoint, the girdle width or the girdle line) never move, and no angle or index
+  changes. Then the design is solved again and the meets are worked out once more.
+- The limit is 2 % of the stone's size by default (0.2 mm on a 10 mm stone).
+  `--max-move-fraction F` sets another share (above 0, at most 1). `--max-move MM` gives it in
+  millimeters, which needs the design's girdle diameter: a design without one refuses it
+  (exit code 1) and the message points to `--max-move-fraction`.
+- The report has one line for each moved tier, then the facets the new depths cut away, then
+  the tiers that still float:
+
+  ```
+  P2  0.7662 -> 0.7598  (moved 0.03 mm, now meets P1, G1)
+  Cut away by the snap: P3 (all 10 facets) and C3 (3 of 10 facets)
+  Still no meet point: T (0.83 mm off)
+  ```
+
+  The numbers are the old and the new mast. Distances are in millimeters when the design has a
+  girdle diameter, else a share of the stone's size (`T (1.2 % of the stone's size off)`).
+- Moving a depth changes the design. The nearest point can be another point than the designer
+  meant (on Pentalume, P2 moves down onto the culet), and the new depths can cut small tiers
+  away (on Pentalume, all of P3 and C3).
+- The snapped design goes through the same rule as the editor's **Snap to Meets** fix
+  (`pleochroma_editor::verdict::judge_snap`): the snap is refused (exit code 2, nothing written)
+  when the stone would no longer solve or close, would lose its girdle or get a much thinner one
+  (overall or at its corners), or would put the table or the culet on the wrong side of the
+  girdle. Facets that are cut away do not refuse it; the rule lists them, tier by tier, and that
+  list is the "Cut away by the snap" line.
+- Exit code 0 when every tier but the anchors meets a point afterwards and nothing was cut away,
+  4 when some tier still floats or the snap cut facets away. The snapped design is written to
+  `--out` either way; `--dry-run` writes nothing, even with `--out`. A design that does not
+  solve and close, before or after the snap, is refused with exit code 2 and nothing is written.
+- Check the optics afterwards (`metrics`, `validate`). `validate` reports the same tiers as "no
+  meet point" and names this command; the editor's verdict offers the same move, with the
+  default limit, as its **Snap to Meets** fix.
+
 ## Census
 
 `census` measures what the meet-preserving gate does to many designs. It is read-only: it
 changes no design, and the library (`--db`) is opened read-only. It is the evidence behind
-the Retarget and Optimize constants and behind the decision whether support bindings are worth
-building (plan `plan_meet_preserving_followups_2026-10-19.md`, parts 4.1 to 4.4).
+the Retarget and Optimize constants.
 
 ```
 pleochroma-cli census --templates --fixtures stone.asc --targets diamond,sapphire,quartz,cz,tourmaline --out census.csv
@@ -306,12 +389,61 @@ PICTURE OPTIONS
                                over-bright colors keep their hue and saturation and are dimmed
                                (keep-color, default) or turn paler (whiten); whiten with a
                                remote worker needs --transfer full
+  --stone-shadow on|off        `render` only: override the job's Stone Shadow; needs a studio light
+                               with a backdrop (Tilt videos do not show it yet)
+  --tray-reflection PERCENT    `render` only: override the job's Tray Reflection, the head-on
+                               reflectance of the surface under the stone, from 0 (off) to 100 (a
+                               mirror); needs a studio light with a backdrop (Tilt videos do not
+                               show the tray reflection yet)
 ```
 
-- `--material`, `--color-pattern`, `--color-variant` and `--highlights whiten` change the picture, so the job gets a token of
-  its own: a tilt video needs its own `--out-dir` (the plain run's folder is another job's), and
-  a later run with the same options resumes its frames. The highlight rule is
-  `pleochroma::color::HighlightRule`, set process-wide while the job runs.
+- `--material`, `--color-pattern`, `--color-variant`, `--highlights whiten`, `--stone-shadow` and
+  `--tray-reflection` change the picture, so the job gets a token of its own: a tilt video needs its own `--out-dir`
+  (the plain run's folder is another job's), and a later run with the same options resumes its
+  frames. The highlight rule is `pleochroma::color::HighlightRule`, set process-wide while the job
+  runs.
+- `--stone-shadow on|off` sets the job's Stone Shadow, and the job's file format follows it
+  (format 3 with the shadow alone, the engine's own format without it and without the Tray
+  Reflection; a reflection above 0 makes it format 4 either way, except that a stone with color
+  zones makes it format 5 and a turned HDR map format 6). The map is computed at Final
+  quality before the first sample; the path cache (and beam tracing, in a `beam` build) cannot
+  serve a stone with the shadow, so it renders without them and a note says why.
+- `--tray-reflection PERCENT` sets the job's Tray Reflection: the surface's head-on reflectance
+  `R0` in percent, from 0 (off) to 100 (a mirror), as on the app's slider; the job stores the
+  fraction (`4` is stored as `0.04`). About 4 looks like black acrylic or glass on the Black
+  backdrop; glancing views reflect more. The job's file format follows it: format 4 when the
+  value is above 0 (format 5 when the stone has color zones, format 6 with a turned HDR map),
+  so an older reader refuses the file. It works together with the Stone
+  Shadow. The path cache and beam tracing (in a build with the `beam` feature) cannot serve it
+  ("Path cache off: the tray reflection needs paths the cache does not keep." and "Beam tracing
+  off: the tray reflection is traced without beams."), and with the Spectral GPU renderer, where
+  the graphics card cannot run it the stone is traced on the processor ("Tray reflection is
+  traced on the CPU on this graphics card."); Ray-Traced GPU rendering always runs it. Without a studio
+  light with a backdrop the message is "Tray reflection needs a studio light with a
+  backdrop."; tilt videos do not show the reflection.
+- A run renders with exit collection, the estimator of the apps. `--path-cache`,
+  `--persist-cache` or any `--beam*` flag make that run render with the branching estimator,
+  which they need, with one note on standard error ("Estimator: branching for this run (the path
+  cache and beam tracing need it)."). A stone with concave cuts or a ground or rough surface
+  renders with branching on every engine. A remote worker renders with the estimator the run
+  sends, so `--remote` is allowed with either. With exit collection, adaptive sampling has a
+  default minimum of 64 samples per pixel (without `--min-spp`).
+- Under exit collection the job's own path cache (and its beams, in a `beam` build) is dropped
+  with the note "Path cache off: exit collection, the default estimator, does not use it." (and,
+  in a `beam` build, "Beam tracing off: exit collection, the default estimator, does not use
+  it.").
+- The estimator is part of the job's token. When the run's estimator differs from the one the
+  job file records, the token changes, so a tilt video folder made with the other estimator is
+  refused with a message that names the change: a folder made with exit collection is resumed by
+  a run without `--path-cache`, `--persist-cache` and the `--beam` flags, and `--restart` starts
+  either folder again.
+- Format 5: the stone's color zones travel in the file. `render` and `tilt-video` use them
+  as written; `--material`, `--color-variant`, `--color-pattern` and
+  `--engine ray` (the Ray-Traced engine renders the base color) drop the file's zones, and the
+  job's format follows.
+- Format 6: the job is lit by a turned HDR map (the map's rotation, or its "Turns with the
+  Camera" switch, is set); the orientation travels in the file and a reader that knows only
+  format 5 refuses it. A job with an unturned map has no orientation key and keeps its format.
 
 - `--out` is for `render` only; `--out-dir` and `--restart` are for `tilt-video` only. Another
   command's flag is exit code 1 and names the command.
@@ -326,6 +458,21 @@ PICTURE OPTIONS
 - `--local gpu` and `--local cpu+gpu` need a build with the `gpu` feature
   (`cargo build -p pleochroma-cli --features gpu`). Without it every choice renders on the
   processor, and a note on standard error says so.
+  A build with the `gpu` feature keeps the graphics card's compiled shaders in the `pleochroma`
+  folder of your user cache folder (the folder the desktop app and the worker use), so only the
+  first GPU render pays for compiling them; the cache only speeds up the start.
+- Beam tracing is retired and stays in the code as an optional build feature:
+  `cargo build -p pleochroma-cli --features beam` adds `--beam`, `--keep-beams` and the
+  `--beam-*` flags (see `render --help` of such a build). Without it those flags are unknown
+  words, and a job whose own beam setting asks for beams renders without them, with a note on
+  standard error.
+- Adaptive sampling is an optional build feature, off by default:
+  `cargo build -p pleochroma-cli --features adaptive-sampling` adds `--adaptive`,
+  `--target-noise`, `--min-spp`, `--noise-metric` and `--gpu-convergence` (see `render --help`
+  of such a build). Without it those flags are unknown words (exit code 1), the help pages name
+  none of them, and a job whose own `accel.adaptive` asks for it renders at the job's samples per
+  pixel, with the note "Adaptive sampling off: this build has no adaptive sampling." on standard
+  error. The `beam` feature includes it.
 - Relative paths in the job (the output, the HDR map) are taken against the folder of the job
   file. A still never overwrites a file: a taken name gets ` (2)`.
 - A video resumes by default. Frames that this job wrote to its folder are kept and only the
@@ -353,16 +500,15 @@ it never opens a window.
 ## Differences from the desktop editor
 
 - `retarget` applies only a Valid result, and so does the dialog: an Invalid or an
-  **Unchecked** change is refused, with the same verdict line. (Earlier versions of the dialog
-  let an Unchecked change through; the meet-preserving gate has no stone to apply then, so it
-  does not.) Two options are the dialog's and differ in their default: the girdle allowance is
+  **Unchecked** change is refused, with the same verdict line. The gate has no stone to
+  apply to an Unchecked change, so the CLI refuses it too. Two options are the dialog's and differ in their default: the girdle allowance is
   on in the dialog and `--girdle-allowance` turns it on here.
 - A design with concave tiers (grooves and dimples) is scored as the stone with its tools, as
   the desktop's Compare window, Optimize, Retarget and Angle Sweep do: `metrics`, `validate`,
   `sweep`, `optimize` and `retarget` see the tools in the optics, and the volume (`metrics`'
   Volume over width cubed and yield, `sweep`'s yield, `optimize`'s yield loss) is the carved
   volume. The widths, heights and the table are the flat stone's. A design without concave tiers
-  is measured exactly as before.
+  is measured as a flat stone, with no tools in the optics.
 - `optimize --out` writes nothing, and still exits 0, when the search found no candidate better
   than the design as it is.
 - `solve --out`, `export` and `metrics` refuse a design that does not close (exit code 2).
@@ -404,3 +550,10 @@ cargo test -p pleochroma-cli
 The tests run the commands in-process on built-in designs and on files in the system's
 temporary folder. They need no GPU and no library file. The render job tests render 16 by 16
 pictures on the processor.
+
+The adaptive sampling tests compile only with `--features adaptive-sampling` (they also run
+with `--all-features`); a build without it has its own tests for the unknown flags, the help
+pages and the note.
+
+The beam tests compile only with `RUSTFLAGS="--cfg beam_tests"` and `--features beam` (not even
+`--all-features` runs them); run them on request with `bash scripts/run_beam_tests.sh` (step 06).

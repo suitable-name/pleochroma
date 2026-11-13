@@ -180,7 +180,7 @@ component Logo inherits Rectangle {
     border-width: 1px;
     border-color: Theme.accent-cyan;
     Text {
-        // (U+25C8 is not in the web build's font; the inverted triangle is a gem's pavilion.)
+        // The web font lacks U+25C8, so the logo uses the inverted triangle (a gem's pavilion).
         text: "\u{25BC}";
         font-size: 12px;
         color: Theme.accent-cyan;
@@ -189,16 +189,13 @@ component Logo inherits Rectangle {
     }
 }
 
-// The toolbar under the menu bar, modelled on the desktop's
-// `components/header.slint`: logo and title, the render material and lighting
-// combos (settings state the renderer renders with) and the
-// Render / Solid / Diagram view tabs. The File menu itself is `app.slint`'s
-// `MenuBar` (a `MenuBar` must be a direct child of the Window).
+// The toolbar under the menu bar: logo and title, the material and lighting combos (the
+// settings the renderer uses) and the Render / Solid / Diagram view tabs. The File menu is
+// `app.slint`'s `MenuBar`, which must be a direct child of the Window.
 //
-// Wide (the default): one 40px row. `compact` (set by `app.slint` below 640px) stacks
-// two rows -- logo, title and the tabs on top, the two combos (sharing the width, their
-// labels dropped) underneath -- so the header's minimum width is that of the tabs plus
-// the logo instead of the whole wide row, and a 360px viewport fits.
+// Wide (the default): one 40px row. `compact` (set by `app.slint` below 640px) stacks two
+// rows: logo, title and tabs on top, the two combos (sharing the width, labels dropped)
+// below. That keeps the minimum width at the tabs plus the logo, so a 360px view fits.
 export component Header inherits Rectangle {
     in property <bool> compact: false;
 

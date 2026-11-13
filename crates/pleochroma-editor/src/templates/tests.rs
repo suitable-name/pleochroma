@@ -50,8 +50,8 @@ fn every_template_gets_a_card_after_empty() {
     );
 }
 
-/// The flat list keeps the numbering the web app and the guide use: the five
-/// templates that existed first keep indices 1 to 5.
+/// The flat list keeps the numbering the web app and the guide use: indices 1 to 5 name
+/// the same templates in the same order.
 #[test]
 fn the_flat_numbering_is_stable() {
     let names: Vec<String> = template_cards().into_iter().map(|card| card.name).collect();
@@ -383,6 +383,65 @@ fn another_material_adapts_or_keeps_the_angles_never_half_way() {
                 assert_ne!(created.adaptation, AngleAdaptation::NotNeeded, "{label}");
             }
             assert!(created.session.history.peek_undo().is_none(), "{label}");
+        }
+    }
+}
+
+/// Created in another material, every template keeps its meet points.
+///
+/// Where the angles were adapted, every tier that met a point was put back through the point of
+/// the same planes, so none floats at the template's own gear. Where they were not adapted, the
+/// template is as authored and floats nowhere either.
+///
+/// The girdle line stays level where the template carries it through girdle corners that any
+/// angle keeps: the round brilliants, the teaching designs, the cushion (its second breaks and
+/// corner mains run level along the rounding and corner faces), the emerald and the princess.
+/// The oval's crown keeps its girdle line level by angle relations (the side and end crown
+/// mains' angles against their girdle distances), which a retarget's common crown scaling
+/// need not keep, so for the oval the spread is printed (run with `--nocapture`), not asserted.
+#[test]
+fn a_template_made_in_another_material_keeps_its_meet_points() {
+    for (position, spec) in TEMPLATES.iter().enumerate() {
+        for material in ["Quartz", "Sapphire", "Diamond", "Emerald"] {
+            let label = format!("{} in {material}", spec.name);
+            let created = create_from_template(&choice(
+                session_index(position),
+                spec.gear_teeth,
+                selection(material),
+            ))
+            .expect("builds");
+            if let AngleAdaptation::Adapted { headline, .. } = &created.adaptation {
+                assert!(!headline.contains(MEETS_NOT_KEPT), "{label}: {headline}");
+            }
+            let design = &created.session.design;
+            let solved = design
+                .solve()
+                .unwrap_or_else(|error| panic!("{label}: does not solve: {error}"));
+            let meets = design
+                .cut_meets(&solved)
+                .unwrap_or_else(|| panic!("{label}: the stone does not close"));
+            let floating = meets.floating(design);
+            assert!(
+                floating.is_empty(),
+                "{label}: tiers with no meet point (tier, miss): {floating:?}"
+            );
+            let level = design
+                .girdle_level(&solved)
+                .unwrap_or_else(|| panic!("{label}: no girdle line"));
+            let spread = 100.0 * (level.top.1 - level.top.0).max(level.bottom.1 - level.bottom.0)
+                / level.width;
+            eprintln!(
+                "{label}: adapted {}, girdle line spread {spread:.3} % of the width, cut in by {:?}",
+                created.adaptation.adapted(),
+                level.cut_in
+            );
+            if spec.family != ShapeFamily::Oval {
+                assert!(
+                    level.is_level(),
+                    "{label}: tiers {:?} cut into the girdle (spread {spread:.3} %)",
+                    level.cut_in
+                );
+            }
         }
     }
 }

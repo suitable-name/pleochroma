@@ -1,29 +1,20 @@
-//! [`SampleCursor`]: the shared claim point every backend contributing to one image
-//! draws disjoint absolute sample sub-ranges from -- the desktop export's local and
-//! remote lanes, the live viewport's epoch (`LiveEpoch` in `pleochroma-cut`), and every
-//! lane of a [`crate::LanePool`].
-//!
-//! Moved here from `pleochroma-cut`'s `bridge::sample_cursor`, which now re-exports it,
-//! so the coordinator can share the exact same claim semantics.
+//! [`SampleCursor`]: the shared claim point from which every backend contributing to one
+//! image draws disjoint absolute sample sub-ranges, including each lane of a
+//! [`crate::LanePool`].
 //!
 //! # Why a shared claim point, not a one-shot split
 //!
-//! A fixed up-front split (measured once, dispatched once) can leave a fast engine's
-//! assigned slice finished early with nothing further to claim while the render keeps
-//! going, sitting idle for the rest of it. `SampleCursor` replaces that with a shared
-//! claim point every engine pulls fresh work from whenever free, for as long as any
-//! remains.
+//! A fixed up-front split can leave a fast engine idle once its slice is finished while
+//! the render keeps going. Every engine instead pulls fresh work from the shared point
+//! whenever it is free, for as long as any remains.
 //!
 //! # Disjointness by construction
 //!
 //! [`claim`](SampleCursor::claim) and [`claim_local`](SampleCursor::claim_local) hand
-//! out fresh ranges via an atomic compare-and-swap, so callers on any number
-//! of threads can never receive overlapping indices, by construction, with no reliance
-//! on callers coordinating access any other way. Disjointness matters because both the
-//! CPU tracer and GPU megakernel derive each sample's pixel-jitter/RNG draws from its
-//! *absolute* index: overlapping ranges would redraw identical samples and silently
-//! bias the average toward whatever indices got traced twice -- wrong, but not
-//! obviously wrong.
+//! out fresh ranges via an atomic compare-and-swap, so callers on any number of threads
+//! never receive overlapping indices. Disjointness matters because the CPU tracer and
+//! GPU megakernel derive each sample's jitter and RNG draws from its *absolute* index:
+//! overlapping ranges would redraw identical samples and silently bias the average.
 //!
 //! # Two retry piles
 //!
@@ -79,11 +70,8 @@ pub struct SampleCursor {
 }
 
 impl SampleCursor {
-    /// Builds a cursor over `[start, end)`. For an export, `start` is wherever a prior
-    /// sequential phase (remote/hybrid calibration) left `samples_done` and `end` is
-    /// the export's total `samples_per_pixel`; for a live epoch it is `[0,
-    /// target_samples)`; for a coordinator job it is the request's
-    /// `[first_sample, first_sample + samples)`.
+    /// Builds a cursor over `[start, end)`. `start` is the first sample still to trace,
+    /// which is not 0 when earlier samples were already traced.
     #[must_use]
     pub const fn new(start: u32, end: u32) -> Self {
         Self {
@@ -117,25 +105,18 @@ impl SampleCursor {
     /// # A CAS that never advances past `end`
     ///
     /// `next` is updated with [`AtomicU32::try_update`], whose closure refuses (`None`)
-    /// once `next >= end`, leaving `next` untouched -- unlike a plain `fetch_add`, which
-    /// unconditionally advances `next` by `want` on EVERY call, including a call that
-    /// finds nothing left to claim. An idle lane polling [`claim_any`](Self::claim_any)
-    /// every tick while another lane's chunk is still in flight (see
-    /// `pleochroma_dispatch::pool::epoch::Epoch::claim`) would otherwise keep advancing
-    /// `next` for as long as it waits, with no work ever handed out -- given enough
-    /// idle polls, `next` (a `u32`) could wrap and hand out a range already traced.
-    /// With the CAS, a call that finds `next >= end` costs nothing and changes nothing,
-    /// however many times it repeats.
+    /// once `next >= end`, leaving `next` untouched. A plain `fetch_add` would advance
+    /// `next` on every call, so an idle lane polling [`claim_any`](Self::claim_any) while
+    /// another lane's chunk is in flight could wrap `next` and hand out a range already
+    /// traced. With the CAS, a call that finds nothing left costs nothing.
     ///
     /// # A concurrent [`set_end`](Self::set_end)
     ///
-    /// `end` is read once, before the CAS, so a claim racing a reduction may still hand out a
-    /// range up to the OLD end. That is the in-flight rule [`set_end`](Self::set_end) states: a
-    /// target is a budget for fresh claims, not a hard stop, and work already assigned (this
-    /// claim counts as assigned from the moment it reads `end`) stays valid and is merged. Every
-    /// caller (`LiveEpoch::set_target_samples`, a quality change) retains finished
-    /// contributions and only needs later claims to stop at the new end, which they do. A hard
-    /// stop would need `next` and `end` packed in one atomic.
+    /// `end` is read once, before the CAS, so a claim racing a reduction may still hand
+    /// out a range up to the old end. This follows the in-flight rule of
+    /// [`set_end`](Self::set_end): a claim counts as assigned from the moment it reads
+    /// `end`, and assigned work stays valid and is merged. A hard stop would need `next`
+    /// and `end` packed in one atomic.
     pub fn claim(&self, want: u32) -> Option<(u32, u32)> {
         if want == 0 {
             return None;
@@ -153,9 +134,8 @@ impl SampleCursor {
     /// Claims for the LOCAL lane only: a previously remote-failed range first (the
     /// whole portion below the current target, regardless of `want`), falling back
     /// to [`claim`](Self::claim) once no retry is eligible. See this module's doc
-    /// comment for why a retried range never goes back to remote. The export's
-    /// local lane batches whatever it gets; the live
-    /// viewport uses [`claim_local_bounded`](Self::claim_local_bounded) instead.
+    /// comment for why a retried range never goes back to remote. Callers that trace one
+    /// short frame per claim use [`claim_local_bounded`](Self::claim_local_bounded).
     pub fn claim_local(&self, want: u32) -> Option<(u32, u32)> {
         let retried = pop_bounded(&self.local_retry, u32::MAX, self.end());
         if retried.is_some() {
@@ -198,9 +178,9 @@ impl SampleCursor {
     }
 
     /// Whether nothing at all is claimable right now: the shared pool is exhausted and
-    /// neither retry pile contains work below the current target. A range currently being traced may still come back
-    /// through [`requeue`](Self::requeue) or [`return_to_local`](Self::return_to_local)
-    /// if its lane fails.
+    /// neither retry pile holds work below the current target. A range being traced may
+    /// still come back through [`requeue`](Self::requeue) or
+    /// [`return_to_local`](Self::return_to_local) if its lane fails.
     #[must_use]
     pub fn fully_claimed(&self) -> bool {
         self.shared_pool_exhausted()

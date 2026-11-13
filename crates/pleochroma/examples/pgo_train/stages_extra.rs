@@ -1,16 +1,15 @@
-//! Extra training stages (BLD-1): the paths the production apps run that the first five
-//! stages in `stages.rs` never reached -- the guide prepass at production frame sizes, the
-//! denoiser's path-signature branch, the full tilt sweep entry points the apps call, and a
-//! real-sized HDR environment map for the importance sampler.
+//! Extra training stages.
 //!
-//! Split from `stages.rs` to keep both files under the house 800-line limit. Every stage
-//! is deterministic (fixed camera, fixed hash-derived noise, no clock or RNG input) and
-//! bounded to a few seconds at `PGO_SCALE=1`.
+//! They cover app paths that the stages in `stages.rs` do not reach: the guide prepass at
+//! production frame sizes, the denoiser's path-signature branch, the tilt sweep entry points
+//! the apps call, and a real-sized HDR environment map.
 //!
-//! Deliberately NOT here (needs another crate, so a `pleochroma` example cannot link it
-//! without a dependency cycle or a new dependency): the `pleochroma-net` payload codecs
-//! (shuffle + zstd/lz4), the `pleochroma-solid` rasterizer and mesh cache, the rough
-//! planner and the vault search.
+//! Every stage is deterministic (fixed camera, hash-derived noise, no clock or RNG input)
+//! and runs in a few seconds at `PGO_SCALE=1`.
+//!
+//! Not here, because each needs another crate that this example cannot link without a
+//! dependency cycle: the `pleochroma-net` payload codecs (shuffle, zstd and lz4), the
+//! `pleochroma-solid` rasterizer and mesh cache, the rough planner, and the vault search.
 
 use glam::Vec3;
 use pleochroma::{
@@ -36,7 +35,7 @@ use std::time::Instant;
 /// the path-signature walk on, which is the branch this training exists to reach.
 pub const TRAINING_N_D: f32 = 1.76;
 
-/// Scales `base` by `scale` like `stages::scaled`, but private to this file's size maths.
+/// Scales `base` by `scale`, as `stages::scaled` does.
 #[expect(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
@@ -49,10 +48,9 @@ fn scaled_dim(base: u32, scale: f32, min: u32) -> u32 {
 /// A deterministic, real-sized equirectangular HDR panorama: sky gradient, dim ground, one
 /// very bright sun disc and two softboxes over a lightly hashed texture.
 ///
-/// A production map has hundreds of thousands of texels with a dynamic range of several
-/// orders of magnitude; the 8x4 gradient this replaces made the importance sampler's CDF
-/// search and the bilinear lookup train on a map where every branch is trivially the same.
-/// Uses only `f32` arithmetic and `hash_u32`, so it is bit-reproducible and needs no file.
+/// A production map has many texels and a dynamic range of several orders of magnitude, so
+/// the importance sampler's CDF search and the bilinear lookup see realistic data. Uses only
+/// `f32` arithmetic and `hash_u32`, so it is bit-reproducible and needs no file.
 pub fn procedural_hdr_map(width: usize, height: usize) -> EnvironmentMap {
     let mut pixels: Vec<[f32; 3]> = Vec::with_capacity(width * height);
     let sun = (width as f32 * 0.3, height as f32 * 0.3);
@@ -101,10 +99,10 @@ fn guide_checksum(g: &GuideBuffers) -> f32 {
     (hits as f32).mul_add(1e-6, depth.mul_add(1e-6, (sig & 0xffff) as f32 * 1e-3))
 }
 
-/// Stage `guide`: the primary-ray guide prepass with the path signature on
-/// (`n_d = TRAINING_N_D`) at 800x600 and 1080p -- the two sizes the apps' display denoiser
-/// and the export path run it at (82 ms at 1080p per `guide_pass.rs`) -- through the
-/// `_geom` entry the apps call.
+/// Stage `guide`: the primary-ray guide prepass with the path signature on.
+///
+/// It uses `n_d = TRAINING_N_D` at 800x600 and 1080p, the sizes the display denoiser and the
+/// export path use. Goes through the `_geom` entry the apps call.
 pub fn train_guide(scale: f32) -> f32 {
     let planes = StandardGemCuts::standard_round_brilliant();
     let camera = Camera::new(0.6, 0.45, 2.4, 42.0);
@@ -128,11 +126,11 @@ pub fn train_guide(scale: f32) -> f32 {
     checksum
 }
 
-/// Stage `denoise_sig`: the A-Trous denoiser with a real path signature (`Some(..)` from
-/// the guide prepass) at 800x600 -- the frame the apps' `frame_denoise` runs, which the
-/// `stages::train_tracer` frames (path signature on every second preset) only reach at
-/// 256x192. Colour is hash-noised per facet so the colour, depth, normal, facet and
-/// signature edge-stops all see both matches and mismatches.
+/// Stage `denoise_sig`: the A-Trous denoiser with a path signature from the guide prepass at
+/// 800x600, the size `frame_denoise` runs at in the apps.
+///
+/// `stages::train_tracer` reaches a signature only at 256x192. Color is hash-noised per facet, so
+/// the color, depth, normal, facet and signature edge-stops see both matches and mismatches.
 pub fn train_denoise_signature(scale: f32) -> f32 {
     let (w, h) = (scaled_dim(800, scale, 64), scaled_dim(600, scale, 48));
     let planes = StandardGemCuts::standard_round_brilliant();

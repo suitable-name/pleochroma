@@ -15,8 +15,8 @@ export component CrownHandlingSection inherits VerticalLayout {
 
     ToggleRow {
         text: "Crown Follows the Pavilion (Keeps the Silhouette)";
-        // The label wraps to two lines below ~380 px; a ToggleRow reports one line, so the
-        // second line would sit on whatever follows. Give the narrow row two lines.
+        // The label wraps to two lines below ~380 px, and a ToggleRow reports one line, so
+        // narrow rows get two.
         min-height: self.width < 380px ? 38px : 24px;
         hint: "Scale every crown tier's slope by the same vertical stretch the pavilion gets, so the whole stone is the original stretched up or down: the plan view, the table size and the crown-to-pavilion proportion stay. Switch it off to use a fraction of the shift instead. Scaling by ratio, below, wins over both.";
         checked: RetargetModel.crown_follows_pavilion;
@@ -31,10 +31,8 @@ export component CrownHandlingSection inherits VerticalLayout {
     HorizontalLayout {
         spacing: 8px;
         Text { text: "Fraction of Shift:"; font-size: 10px; color: Theme.text-muted; vertical-alignment: center; }
-        // A std-widgets `Slider` gets keyboard/drag/click support for
-        // free, and `step` lands on round 5% increments without the
-        // pixel-hunting a hand-rolled mouse-x/width drag bar would need.
-        // The slider shrinks first (min-width) so the % field and its sign stay inside the column.
+        // The std `Slider` brings keyboard, drag and click support; `step` gives round 5 % values.
+        // It shrinks first (min-width) so the % field and its sign stay inside the column.
         TipBox {
             horizontal-stretch: 1;
             min-width: 48px;
@@ -49,8 +47,8 @@ export component CrownHandlingSection inherits VerticalLayout {
                 changed(val) => { RetargetModel.proposal_changed(); }
             }
         }
-        // No fixed width: a TipBox takes its minimum from the LineEdit inside it (about 109 px), and
-        // a 72 px box let the field overflow past the "%" sign and the column's right edge.
+        // No fixed width: the TipBox's minimum comes from its LineEdit (about 109 px); a narrower
+        // box let the field overflow the column.
         TipBox {
             preferred-width: 112px;
             horizontal-stretch: 0;
@@ -59,11 +57,8 @@ export component CrownHandlingSection inherits VerticalLayout {
                 enabled: !RetargetModel.is_busy && !RetargetModel.scale_crown_by_ratio && !RetargetModel.crown_follows_pavilion;
                 horizontal-alignment: center;
                 accessible-label: "Crown Fraction in Percent";
-                // Bare digits, no "%" -- `to-float()` below needs the
-                // whole string to be a number. Reflects the slider/model
-                // whenever this field isn't the one being typed into --
-                // `accepted` is the only path that writes the model, so
-                // there is no binding fight while a cutter is mid-edit.
+                // Bare digits, since `to-float()` needs a plain number. Follows the model except
+                // while typed in: only `accepted` writes the model, so typing is not overwritten.
                 text: Math.round(RetargetModel.crown_fraction * 100);
                 accepted => {
                     RetargetModel.crown_fraction = max(0.0, min(1.0, self.text.to-float() / 100));

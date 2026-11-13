@@ -40,14 +40,12 @@
 //!
 //! # Memory
 //!
-//! A parked chunk holds a full-frame buffer. Parking only happens while an earlier
-//! chunk is still in flight; with chunks sized to similar durations that is at most a
-//! few chunks per lane -- UNLESS the chunk at the frontier is stalled (a wedged tracer
-//! that still heartbeats), in which case every other lane keeps completing
-//! chunks that pile up in `parked` with nothing to bound them. [`Self::with_parked_budget`]
-//! charges each one against an external budget and refuses (rather than parks) once
-//! it is exhausted, so a stalled frontier fails its own chunk's lane instead of
-//! growing memory without limit.
+//! A parked chunk holds a full-frame buffer. Parking only happens while an earlier chunk
+//! is still in flight, so chunks of similar duration keep the parked set to a few per
+//! lane. A stalled frontier chunk (a wedged tracer that still heartbeats) breaks that:
+//! the other lanes keep completing chunks that pile up in `parked`.
+//! [`Self::with_parked_budget`] charges each parked chunk against an external budget and
+//! refuses once it is exhausted, so the lane fails its chunk instead of memory growing.
 
 use glam::Vec3;
 use pleochroma_net::radiance::shuffle::is_valid_sample;
@@ -65,10 +63,8 @@ mod tests;
 
 /// An external byte budget a [`Merger`] charges its parked (full-frame) buffers against.
 ///
-/// Refuses to park a chunk past the budget rather than letting them grow unbounded (see
-/// the module doc's "Memory" section: a stalled lane's straggling frontier
-/// otherwise parks one full-frame buffer per completed-but-unmergeable chunk, with
-/// nothing capping how many pile up). See [`Merger::with_parked_budget`].
+/// Stops parked chunks from growing without bound behind a stalled frontier (see the
+/// module doc's "Memory" section). See [`Merger::with_parked_budget`].
 pub trait ParkedBudget: fmt::Debug + Send + Sync {
     /// Reserves `bytes` for one newly parked chunk; `false` refuses (nothing charged).
     fn reserve(&self, bytes: u64) -> bool;
@@ -251,12 +247,9 @@ impl Merger {
         if overlaps(&state, first_sample, done) {
             return Err(MergeError::Overlap { first_sample, done });
         }
-        // Reserved bytes always equal `parked.len() * chunk_bytes` as an invariant
-        // maintained across calls: `before` is what it was reserved for coming in,
-        // `after` is what it should be reserved for now that this call's insert and
-        // fold have run. A chunk that arrives exactly at the frontier and immediately
-        // folds away (relieving a backlog) never needs budget of its own -- only a
-        // chunk that stays parked when this call returns does.
+        // Invariant: reserved bytes equal `parked.len() * chunk_bytes`. `before` and
+        // `after` are the parked counts around this call's insert and fold. A chunk that
+        // folds away at once needs no budget; only one that stays parked is charged.
         let before = state.parked.len();
         state.parked.insert(first_sample, Parked { done, sum });
         state.parked_count += done;

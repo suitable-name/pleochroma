@@ -1,10 +1,10 @@
 // A bottom sheet with three detents: peek (a 56 px header), half and full. Drag the
-// header up or down to change detent, or tap it to step up. At full height a scrim
-// covers the page; tapping the scrim returns the sheet to half.
+// header up or down to change detent, or tap it to step up (from full, back to half).
+// At full height a scrim covers the page; tapping the scrim returns the sheet to half.
 //
 // Place a `Sheet` as the last child of the area it should cover (it fills its parent);
 // the children of the `Sheet` become the body shown below the header. Bind
-// `detent <=> Shell.sheet-detent` so the Back key can collapse a full sheet.
+// `detent` two-way to `Shell.sheet-detent` so the Back handler can collapse a full sheet.
 import { Theme } from "../theme.slint";
 
 export component Sheet inherits Rectangle {

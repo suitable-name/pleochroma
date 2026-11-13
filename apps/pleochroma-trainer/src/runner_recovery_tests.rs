@@ -377,7 +377,8 @@ fn a_legacy_snapshot_with_unknown_backend_rebuilds_labels_on_cpu() {
     assert_changed_revision_rebuilds_labels(None);
 }
 
-/// Reproduce the old wire format without converting NaN label masks through JSON.
+/// `RunnerState` without the fields added later (revisions, environment arithmetic and the
+/// field-level identities). It serializes through MessagePack, so NaN label masks stay exact.
 struct LegacyRunnerState<'a>(&'a RunnerState);
 
 impl Serialize for LegacyRunnerState<'_> {
@@ -563,7 +564,7 @@ fn a_bundle_whose_legacy_identities_no_longer_match_resumes_by_its_field_identit
     first.save_recovery(directory.path()).unwrap();
     let path = directory.path().join("runner-state.mpk");
     let mut state: RunnerState = read_state(&path).unwrap();
-    // What an older build wrote before a field was added or a skip reason was reworded.
+    // Stale `Debug` strings: the field-level identities must still accept the bundle.
     state.config = state
         .config
         .replacen("RunConfig {", "RunConfig { retired_field: 1,", 1);

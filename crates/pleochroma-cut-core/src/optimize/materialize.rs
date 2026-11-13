@@ -7,7 +7,8 @@ use crate::{
 };
 use pleochroma::geometry::meet_solver::MeetConstraint;
 
-/// Detailed materialization failure. Legacy `EditError` adapters retain their old signature.
+/// A materialization failure with its diagnostic. Callers that need only a tier index
+/// convert it to an [`EditError`].
 #[derive(Debug, Clone)]
 pub enum MaterializeError {
     /// An editable parameter was stale or invalid.
@@ -16,7 +17,7 @@ pub enum MaterializeError {
     Preservation(crate::meet_preservation::PreservationViolation),
 }
 impl MaterializeError {
-    /// Compatibility index for older editors; geometric failures have no single tier.
+    /// The tier index of the failure; a geometric failure has no single tier and gives `0`.
     #[must_use]
     pub const fn index(&self) -> usize {
         match self {
@@ -149,7 +150,8 @@ pub(super) fn materialize_from_source(
     Ok((trial, Edit::Batch(edits), count))
 }
 
-/// Preserve precise parameter diagnostics before checking operation identity.
+/// Checks each change against the design it was made from, with a precise diagnostic, before
+/// any edit is built.
 pub(super) fn preflight(
     design: &Design,
     angles: &[AngleChange],

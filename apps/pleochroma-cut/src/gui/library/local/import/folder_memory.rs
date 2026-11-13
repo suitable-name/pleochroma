@@ -11,11 +11,9 @@ use std::{
     thread,
 };
 
-/// The folder the cutter's most recent native
-/// save/open used (`AppSettings::recent_native_files`'s first, most-recent entry),
-/// non-recursively. `None` when nothing has been saved/opened natively this app knows
-/// of yet, or that file's own path has no parent directory (should not happen for a
-/// real saved file, but never assumed).
+/// The folder of the most recent native save or open, the first entry of
+/// `AppSettings::recent_native_files`. `None` when there is no such entry, or its path has
+/// no parent directory.
 pub(super) fn last_save_folder(settings_store: &Arc<SettingsPersister>) -> Option<PathBuf> {
     settings_store
         .snapshot()
@@ -26,25 +24,12 @@ pub(super) fn last_save_folder(settings_store: &Arc<SettingsPersister>) -> Optio
         .and_then(|p| p.parent().map(Path::to_path_buf))
 }
 
-/// The library never rescans the save folder on its own; once per session, this
-/// quietly checks [`last_save_folder`] for design files not yet in
-/// the local catalogue at all (the `total - collisions` half of
-/// [`count_pending_collisions`]'s own count) and, if it finds any, toasts a pointer at
-/// the existing "Choose folder..." picker rather than importing anything itself.
+/// Checks the last save folder once per session for design files not yet in the catalogue.
 ///
-/// Deliberately informational, not automatic: this app's own precedent for "something
-/// found at startup" (`setup_startup_restore`, `gui::editor::setup`) is an explicit
-/// OFFER, never a silent action, for the same "must not surprise the cutter with an
-/// unasked-for write" reasoning -- an automatic
-/// import here would also have to decide, unasked, what to do about any filename
-/// COLLISION it found, which this module treats as something that must never happen
-/// silently (see `super::confirm::confirm_collisions_then`).
-///
-/// Runs off the UI thread (the folder listing plus one `has_detail_for_entry_url`
-/// point lookup per candidate is cheap, but this still follows
-/// `gui::batch::preview::scan::spawn_missing_preview_scan`'s own "never block startup
-/// on catalogue I/O" convention) and posts its toast back via
-/// `Weak::upgrade_in_event_loop`.
+/// If it finds any, it toasts a pointer to the "Choose folder..." picker. It never imports by
+/// itself, because filename collisions must never be resolved silently (see
+/// `super::confirm::confirm_collisions_then`). It runs off the UI thread, so startup never waits
+/// on catalogue I/O.
 pub(super) fn spawn_save_folder_rescan(
     ui_weak: Weak<MainWindow>,
     db: Arc<Mutex<Database>>,
@@ -73,12 +58,10 @@ pub(super) fn spawn_save_folder_rescan(
     });
 }
 
-/// The folder the last import came from, as a
-/// [`crate::gui::pickers::PickerRequest::starting_dir`] -- `None`
-/// (leaving the OS's own default in place) when nothing has been imported yet,
-/// or the remembered folder has since been moved or deleted (checked here
-/// rather than handed to `rfd` unchecked, since it silently ignores a missing
-/// directory on some platforms and falls back on others).
+/// The folder of the last import, as a picker's starting directory.
+///
+/// `None` when nothing was imported yet or the folder no longer exists. The existence check is
+/// made here, since the file dialog handles a missing directory inconsistently across platforms.
 pub(super) fn last_import_directory(settings_store: &Arc<SettingsPersister>) -> Option<PathBuf> {
     let remembered = settings_store.snapshot().settings.last_import_directory;
     if remembered.is_empty() {
@@ -102,9 +85,8 @@ pub(super) fn remember_import_directory(
     settings_store.update(|s| s.settings.last_import_directory.clone_from(&as_string));
 }
 
-/// Clears the previous import's progress readout before starting a new one -- without
-/// this, `import_done`/`import_total`/`import_progress` would keep showing the last
-/// import's finished state briefly, before this import's first progress callback fires.
+/// Clears the progress readout before a new import, so the last import's finished state
+/// does not show until the first progress callback arrives.
 pub(super) fn reset_import_progress(ui: &MainWindow) {
     ui.global::<LibraryModel>().set_import_done(0);
     ui.global::<LibraryModel>().set_import_total(0);

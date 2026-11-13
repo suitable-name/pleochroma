@@ -402,7 +402,7 @@ impl<W, P, F, R> State<W, P, F, R> {
 /// without an event doubles the next one from [`Self::FIRST`] up to [`Self::LONGEST`]; an event
 /// or a completed ticket resets it. A burst of completions is still seen within tens of
 /// microseconds, while a long optical wait costs each coordinator about a thousand wake-ups per
-/// second instead of twenty thousand.
+/// second.
 struct PollBackoff {
     wait: Duration,
 }

@@ -36,9 +36,8 @@ pub(super) fn compare(old: Design, current: &Design, stop: &dyn Fn() -> bool) ->
             "Schedule metadata (headers, notes, gear, symmetry or index)",
         ),
         (
-            // "Changed at all": the offset is an authored value, so any different stored
-            // value counts, and the same bit pattern (even a NaN) does not. Comparing bits
-            // is deliberate, not an approximate comparison.
+            // Compare bits, not values: a NaN with the same bits is unchanged, and any
+            // other different stored value counts.
             old.preform != current.preform
                 || old.preform_y_offset.to_bits() != current.preform_y_offset.to_bits(),
             "Rough / preform",

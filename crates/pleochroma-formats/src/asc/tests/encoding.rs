@@ -8,8 +8,8 @@ use super::super::{
 };
 use std::borrow::Cow;
 
-/// A header with a Windows-1252 degree sign (`0xB0`), the case 591 real catalogue
-/// files hit: `read_to_string` rejects the whole file, the decoder must not.
+/// A header with a Windows-1252 degree sign (`0xB0`). `read_to_string` rejects such a
+/// file outright, so the decoder must accept it.
 #[test]
 fn windows_1252_degree_sign_in_header_parses() {
     let bytes: &[u8] = b"GemCad 5.0\ng 96 0.0\ny 1 n\nI 1.54\nH Cut at 43\xB0.\n\

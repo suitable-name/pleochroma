@@ -44,8 +44,8 @@ pub mod viewing_events;
 /// Space). Selecting changes no design data, so a step cannot read it from state.
 pub const TIERS_MULTI_SELECTED: &str = "tiers_multi_selected";
 
-/// Every per-function tutorial, in the order their modules register them. The browser order is
-/// the learning path of `guide::curriculum::CURRICULUM`, which `catalog::static_guides` sorts by.
+/// Every per-function tutorial, in the order their modules register them. The browser order
+/// comes from `guide::curriculum::CURRICULUM`, which `catalog::static_guides` sorts by.
 #[must_use]
 pub fn all() -> Vec<Guide> {
     let mut guides = Vec::new();

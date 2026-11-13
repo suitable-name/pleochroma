@@ -1,4 +1,6 @@
-//! Storage for `diagram_solid_extents` -- see `Database::migrate_diagram_solid_extents_table`'s
+//! Storage for `diagram_solid_extents`.
+//!
+//! See `Database::migrate_diagram_solid_extents_table`'s
 //! doc comment (in `super::migrations`) for why this is a side table keyed by `entry_id`
 //! rather than columns on `diagram_details`, and `crate::model::solid_extents` for the
 //! types this module encodes into it and the measuring rule that fills it.
@@ -433,9 +435,8 @@ mod tests {
 
     #[test]
     fn rows_of_the_flat_measuring_rules_are_re_measured_under_version_four() {
-        // Version 2 cached the convex volume, version 3 the carved volume with the flat
-        // extents; version 4 caches the carved stone's hull extents. Each must read as
-        // missing and be measured again.
+        // Versions 2 and 3 stored measurements that version 4 no longer reads; each must
+        // read as missing and be measured again.
         assert_eq!(SOLID_EXTENTS_VERSION, 4);
         let (db, path) = temp_db();
         let a = add_entry(&db, "a");
@@ -698,8 +699,8 @@ mod tests {
         cleanup(db, &path);
     }
 
-    /// Same cascade-vs-re-sync property as `tilt_curves.rs`' own test: keyed by
-    /// `entry_id`, not by `diagram_details`' row id.
+    /// Keyed by `entry_id`: a `diagram_details` re-sync keeps the row, and deleting the
+    /// entry removes it.
     #[test]
     fn extents_row_survives_a_diagram_details_re_sync_but_not_entry_deletion() {
         let (db, path) = temp_db();

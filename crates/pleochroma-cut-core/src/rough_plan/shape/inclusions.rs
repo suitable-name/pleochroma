@@ -309,7 +309,7 @@ struct Cached {
 /// The derived meshes built most recently, oldest first.
 static CACHE: Mutex<VecDeque<Cached>> = Mutex::new(VecDeque::new());
 
-/// The registry, whatever happened to a thread that held it before.
+/// The registry. A poisoned lock is recovered: the entries are rebuildable, so none is lost.
 fn cache() -> MutexGuard<'static, VecDeque<Cached>> {
     CACHE.lock().unwrap_or_else(PoisonError::into_inner)
 }
@@ -365,8 +365,8 @@ fn outer_mesh(base: &RoughBase) -> Result<RoughMesh, ShapeError> {
     })
 }
 
-/// The first shell of `shells` that fails once it is added to `outer` after its
-/// predecessors, for an overlap that the mesh does not number.
+/// The index of the first shell that fails when added to `outer` after its predecessors.
+/// Needed for overlaps, which the mesh error does not number.
 fn first_overlap(outer: &RoughMesh, shells: &[RoughMesh]) -> usize {
     (1..shells.len())
         .find(|&k| RoughMesh::with_inclusions(outer, &shells[..=k]).is_err())
@@ -404,8 +404,8 @@ fn derived_mesh(
     Ok(Some(store(base, set.id(), mesh)))
 }
 
-/// The error of [`RoughModel::with_inclusions_added`] for a rough whose inclusions are
-/// already wrong.
+/// The [`HullError`] that [`RoughModel::with_inclusions_added`] reports for a rough whose
+/// inclusions are already invalid.
 const fn hull_error_of(error: &ShapeError) -> HullError {
     match *error {
         ShapeError::Inclusion { index, reason } => HullError::Inclusion(match reason {
@@ -499,14 +499,13 @@ impl RoughModel {
         // The inclusions the rough has must fit it before another is added.
         self.check_inclusions()
             .map_err(|error| hull_error_of(&error))?;
-        // The plain outer mesh, without the existing shells: a body is checked against the
-        // surface alone, and against every shell (old and new) in the combined build below, so
-        // a body that crosses or wraps an existing inclusion is said to overlap it, not to reach
-        // the surface, and is refused here instead of making the model an error later.
+        // The outer mesh has no shells: each body is checked against the surface alone, and
+        // the combined build below checks it against every shell, so a body that crosses an
+        // existing inclusion is refused here rather than left as an error of the model.
         let outer = outer_mesh(&self.base).map_err(|error| hull_error_of(&error))?;
         let mut grown = Vec::with_capacity(bodies.len());
         for (k, body) in bodies.iter().enumerate() {
-            // As given first, so a body that reaches the surface is said so, not blamed on the
+            // The body as given is checked first, so reaching the surface is not blamed on the
             // margin.
             outer
                 .check_inclusion(body, k)

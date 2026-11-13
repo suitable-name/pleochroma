@@ -11,13 +11,10 @@ import { ToggleRow } from "toggle_switch.slint";
 import { ChipToggle } from "chip_toggle.slint";
 import { TouchButton } from "touch_button.slint";
 
-// One attribute's min/max range control: a label + current "min – max" readout above
-// two stacked sliders (Slint has no built-in dual-handle slider, so two single-handle
-// ones -- following the existing single-value-slider convention from
-// `material_editor_dialog.slint` and the Parameters panel's `SliderRow`). Each slider's own `minimum`/
-// `maximum` is the *data* bound, so its whole travel communicates the real range
-// present in the catalogue rather than an arbitrary fixed scale. Dragging one handle
-// past the other pushes the other along, so `value_min` can never exceed `value_max`.
+// One attribute's min/max range control: a "min – max" readout above two stacked sliders, since
+// Slint has no dual-handle slider. Each slider's `minimum`/`maximum` is the catalogue's data
+// bound, so its travel spans the real range rather than a fixed scale. Dragging one handle past
+// the other pushes it along, so `value_min` never exceeds `value_max`.
 //
 // `hint` says in plain words what the attribute is; it is the label's tooltip. Each slider
 // has its own screen-reader name (the label plus "lowest" or "highest").
@@ -97,15 +94,10 @@ component RangeRow inherits VerticalLayout {
     }
 }
 
-// Floating filter panel. Inherits `PopupWindow`, not `Rectangle`: a `PopupWindow`
-// renders in Slint's dedicated popup layer, always on top of the rest of the window
-// regardless of sibling declaration order, and (like every popup/dialog card in this
-// app) needs an explicit content-driven `height` since plain `Rectangle`s default to
-// filling their parent's size when no height is set. See `header.slint`'s
-// `filter_popup` instantiation for the show()/close() wiring this requires -- a
-// `PopupWindow` cannot be used with an `if condition: FilterPanel { ... }` pattern
-// (that's a compile error: "PopupWindow cannot be directly repeated or
-// conditional").
+// Floating filter panel. It inherits `PopupWindow`, which draws in Slint's popup layer above the
+// window's other content. Like every popup card here it sets an explicit `height`. It is shown
+// and closed through `header.slint`'s `filter_popup`. A `PopupWindow` cannot sit under an
+// `if` condition, so the header keeps it mounted.
 //
 // Keyboard: the panel takes the focus when it opens, Tab walks every control, Escape closes
 // it. The "?" in the header opens the manual page on the filters. The Simple interface leaves
@@ -164,12 +156,8 @@ export component FilterPanel inherits PopupWindow {
             : LibraryModel.matched_count + " design" + (LibraryModel.matched_count == 1 ? "" : "s") + " match";
     }
     width: 360px;
-    // Content-driven height: matches whatever `content` (the padded VerticalLayout
-    // below) actually needs, instead of defaulting to the height of whatever this
-    // popup happens to be anchored to.
-    // Capped to what the window leaves below the header (`panel_max_height`, set by the header):
-    // the panel's body is a `ScrollView`, so a short window scrolls it instead of pushing
-    // the lower controls out of the window.
+    // Content-driven height, capped by `panel_max_height` (set by the header to the room below
+    // it). A short window then scrolls the body instead of pushing controls out of the window.
     in property <length> panel_max_height: 100000px;
     height: min(content.preferred-height, root.panel_max_height);
 
@@ -423,32 +411,17 @@ export component FilterPanel inherits PopupWindow {
         Rectangle { height: 1px; background: Theme.border-dialog; }
 
         // --- TAG CHIP FILTER ---
-        // A flat tag set, deliberately not folders/collections -- see
-        // `pleochroma_vault::db::sqlite::Database::migrate_tag_tables`'s doc comment.
-        // Lives in this panel rather than header.slint because it composes with
-        // every other filter here (range sliders, "My designs", tilt performance)
-        // through the same AND-together `RangeFilter`-adjacent predicate, not with
-        // the header's search/sort/import controls. Clicking the active chip again
-        // clears the restriction (`active_tag_filter_name = ""`); at most one tag
-        // can be the active filter at a time, matching the shape/gear dropdowns'
-        // own "one active choice, or All" convention rather than a multi-select
-        // set. Identified by NAME, not id -- see `gui::library::diagram_list::
-        // sync_tag_vocabulary_to_ui`'s own doc comment for why the Slint side never
-        // handles a tag id directly.
-        // `gui::library::search::refresh_diagram_list_remote` sends the active
-        // chip's name on the wire (`LibraryRequest::Search::tag_filter`) and
-        // `apps/pleochroma-worker::serve::library` resolves and applies it against
-        // its own catalogue, so a remote search honours the chip exactly like a
-        // local one, and this control stays enabled in remote mode.
+        // A flat tag set, not folders (see `migrate_tag_tables`). It ANDs with the other filters
+        // here. At most one tag is active, and clicking it again clears it
+        // (`active_tag_filter_name = ""`). Tags are matched by NAME, so the UI never handles a
+        // tag id (`gui::library::diagram_list::sync_tag_vocabulary_to_ui`). A remote search sends
+        // the name (`LibraryRequest::Search::tag_filter`), so this stays enabled in remote mode.
         VerticalLayout {
             spacing: 6px;
             visible: LibraryModel.all_tags.length > 0;
             Text { text: "Tags"; font-size: 11px; font-weight: 600; color: Theme.text-muted; }
-            // A plain scrollable row, not a wrapping grid -- matches the shape/
-            // Ignored/Mine badge row's own non-wrapping convention in
-            // diagram_list.slint, and this panel is a fixed-width sidebar where a
-            // wrapping chip grid would need a more complex height-negotiating
-            // container than Slint's fixed layouts give for free.
+            // One scrolling row, not a wrapping grid: a wrapping grid would need height
+            // negotiation that Slint's fixed layouts do not provide in this sidebar.
             Flickable {
                 height: 28px;
                 content-width: tag_row.preferred-width;

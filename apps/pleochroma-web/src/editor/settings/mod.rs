@@ -1,9 +1,8 @@
-//! Design settings (the desktop's `editor_design_settings.slint` and
-//! `tier_actions::{materials_symmetry,gear_remap,design_forms,viewport_material}`): the
-//! schedule-wide material, RI override and color (the keyed color combo of the material's
-//! variants and the per-axis Custom editor, see [`colors`] and [`lch`]), index gear, symmetry and mirror, the
-//! title / header / footnote lines, and the printed proportions -- a modal dialog opened
-//! by Design > Design settings...
+//! The Design settings dialog: the schedule-wide material, RI override and color, index gear,
+//! symmetry and mirror, the title / header / footnote lines, and the printed proportions.
+//!
+//! The dialog opens from Design > Design settings...; the color combo and editor are in
+//! [`colors`] and [`lch`].
 //!
 //! Every Apply is one undoable `EditorSession` edit (a gear change is one batch of the
 //! index remap and the schedule change, after a confirmation that previews the remap).

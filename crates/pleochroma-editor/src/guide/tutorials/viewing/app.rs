@@ -16,8 +16,8 @@ use crate::guide::{
     },
 };
 
-/// The event the command palette reports when it opens. It is older than the viewing events and
-/// is named by its own string in `catalog::EVENTS`.
+/// The event the command palette reports when it opens. It is listed in `catalog::EVENTS`
+/// rather than in `viewing_events`.
 const PALETTE_OPENED: &str = "palette_opened";
 
 /// The lessons of this file, in browser order.

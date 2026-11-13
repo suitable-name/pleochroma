@@ -1,7 +1,7 @@
 //! Many poses of one stone, evaluated across threads.
 //!
 //! A tilt sweep is 724 independent pure evaluations (4 axes x 181 poses) of the same
-//! prepared stone ([`PreparedEval`]); measured serially that is ~1.36 s. The functions here
+//! prepared stone ([`PreparedEval`]). The functions here
 //! spread them over `std::thread::scope` workers with a fixed split and write every result
 //! to the slot its pose owns, so the output arrays are bit-identical to the serial loop's
 //! whatever the thread count. Nothing is reduced across threads: the callers' f64 means

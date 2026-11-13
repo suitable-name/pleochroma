@@ -1,179 +1,236 @@
 import { Theme } from "../../theme.slint";
 import { RoughPlanModel } from "../../models/rough_plan.slint";
-import { RoughField, RoughPill, WrapText } from "fields.slint";
+import { KitIcon, KitIcons, KitButton, KitSegmentBar } from "../kit/kit.slint";
+import { RoughUi } from "state.slint";
+import { PlanField, HalfSegment, LinkText } from "parts.slint";
+import { WrapText } from "fields.slint";
 import { RuleEditor } from "rule_editor.slint";
 import { HelpButton } from "../help_button.slint";
 import { HelpTopics } from "../../models/help.slint";
 
-// The Crystal Axis of the rough and the rule the stones are oriented by. Hidden for a material
-// without a crystal axis. The axis is Unknown until you set it (a plan that never sets it is
-// planned as before). Setting it, Align to Face, Align to Edge, Fit to Crystal Length and From
-// Color Zones are each one undo step, like every edit of the rough. A drag on the axis line in
-// the 3D view turns it too.
+// Step 2 of the left column: the Crystal Axis of the rough and the rule the stones are oriented
+// by. Shown for a material with a crystal axis only. The axis is Unknown until you set it (a plan
+// that never sets it is planned as before). Setting it, Align to Face, Align to Edge, Fit to
+// Crystal Length and From Color Zones are each one undo step, like every edit of the rough. A
+// drag on the axis line in the 3D view turns it too.
 export component AxisPanel inherits VerticalLayout {
     property <bool> editable: !RoughPlanModel.running && !RoughPlanModel.mesh_busy;
 
-    spacing: 6px;
+    padding-left: 12px;
+    padding-right: 12px;
+    padding-bottom: 12px;
+    spacing: 10px;
 
-    if RoughPlanModel.axis_available: VerticalLayout {
-        spacing: 6px;
-
-        HorizontalLayout {
-            spacing: 6px;
-            Text {
-                text: "CRYSTAL AXIS";
-                font-size: 11px;
-                font-weight: 700;
-                color: Theme.text-muted;
-                vertical-alignment: center;
-            }
-            Rectangle { horizontal-stretch: 1; }
-            VerticalLayout {
-                alignment: center;
-                HelpButton {
-                    topic: HelpTopics.crystal-axis-rough;
-                    hint: "Open the manual page on the crystal axis of the rough and the orientation rule";
+    HorizontalLayout {
+        spacing: 8px;
+        KitSegmentBar {
+            horizontal-stretch: 1;
+            HorizontalLayout {
+                padding: 2px;
+                spacing: 2px;
+                HalfSegment {
+                    text: "Unknown";
+                    hint: "The direction of the crystal axis in the rough is not known. Stones are not oriented to it.";
+                    on: !RoughPlanModel.axis_set;
+                    enabled: root.editable;
+                    picked => { RoughPlanModel.axis_unknown(); }
                 }
-            }
-        }
-
-        HorizontalLayout {
-            spacing: 4px;
-            alignment: start;
-
-            RoughPill {
-                text: "Unknown";
-                hint: "The direction of the crystal axis in the rough is not known. Stones are not oriented to it.";
-                active: !RoughPlanModel.axis_set;
-                enabled: root.editable;
-                clicked => { RoughPlanModel.axis_unknown(); }
-            }
-            RoughPill {
-                text: "Set";
-                hint: "Give the direction of the crystal axis in the rough. Stones are then oriented to it by the rule below.";
-                active: RoughPlanModel.axis_set;
-                enabled: root.editable;
-                clicked => {
-                    if !RoughPlanModel.axis_set {
-                        RoughPlanModel.axis_make_set();
+                HalfSegment {
+                    text: "Known";
+                    hint: "Give the direction of the crystal axis in the rough. Stones are then oriented to it by the rule below.";
+                    on: RoughPlanModel.axis_set;
+                    enabled: root.editable;
+                    picked => {
+                        if !RoughPlanModel.axis_set {
+                            RoughPlanModel.axis_make_set();
+                        }
                     }
                 }
             }
         }
-
-        if RoughPlanModel.axis_set: VerticalLayout {
-            spacing: 6px;
-
-            HorizontalLayout {
-                spacing: 6px;
-                RoughField {
-                    label: "Tilt (deg)";
-                    hint: "The angle between the crystal axis and the rough's Y axis, 0 to 90 degrees.";
-                    editable: root.editable;
-                    value <=> RoughPlanModel.axis_tilt;
-                    committed => { RoughPlanModel.axis_edit(0, RoughPlanModel.axis_tilt); }
-                }
-                RoughField {
-                    label: "Azimuth (deg)";
-                    hint: "The direction of the crystal axis around the rough's Y axis, from X toward Z, 0 to 360 degrees.";
-                    editable: root.editable;
-                    value <=> RoughPlanModel.axis_azimuth;
-                    committed => { RoughPlanModel.axis_edit(1, RoughPlanModel.axis_azimuth); }
-                }
-                if RoughPlanModel.axis_biaxial: RoughField {
-                    label: "Second Axis (deg)";
-                    hint: "How far the second principal direction is turned about the crystal axis, 0 to 180 degrees. Leave it empty for the material's own.";
-                    placeholder: "own";
-                    editable: root.editable;
-                    value <=> RoughPlanModel.axis_second;
-                    committed => { RoughPlanModel.axis_edit(2, RoughPlanModel.axis_second); }
-                }
-            }
-
-            if RoughPlanModel.axis_sentence != "": WrapText {
-                text: RoughPlanModel.axis_sentence;
-                font_size: 10px;
-                text_color: Theme.text-secondary;
-            }
-        }
-
-        // The ways to find the axis.
         VerticalLayout {
-            spacing: 4px;
+            alignment: center;
+            HelpButton {
+                topic: HelpTopics.crystal-axis-rough;
+                hint: "Open the manual page on the crystal axis of the rough and the orientation rule";
+            }
+        }
+    }
 
-            HorizontalLayout {
-                spacing: 4px;
+    // The state card: the axis in words, or what the view is waiting for while a pick runs.
+    Rectangle {
+        border-radius: 10px;
+        background: Theme.bg-input;
+        min-height: state_lay.preferred-height;
+
+        state_lay := HorizontalLayout {
+            padding: 10px;
+            spacing: 12px;
+            VerticalLayout {
                 alignment: start;
-
-                RoughPill {
-                    text: RoughPlanModel.axis_pick == 1 ? "Click a Face..." : "Align to Face";
-                    hint: RoughPlanModel.axis_pick == 1
-                        ? "Click a face of the rough in the 3D view; the crystal axis is set along its normal. Click here again to cancel."
-                        : "Click a face of the rough in the 3D view to set the crystal axis along that face's normal.";
-                    active: RoughPlanModel.axis_pick == 1;
-                    enabled: root.editable;
-                    clicked => { RoughPlanModel.axis_pick_start(RoughPlanModel.axis_pick == 1 ? 0 : 1); }
-                }
-                RoughPill {
-                    text: RoughPlanModel.axis_pick == 2 ? "Click the First End..."
-                        : (RoughPlanModel.axis_pick == 3 ? "Click the Second End..." : "Align to Edge");
-                    hint: RoughPlanModel.axis_pick >= 2
-                        ? "Click the two ends of an edge or a crystal line on the rough in the 3D view. Click here again to cancel."
-                        : "Click two points on the rough in the 3D view to set the crystal axis along the line between them.";
-                    active: RoughPlanModel.axis_pick >= 2;
-                    enabled: root.editable;
-                    clicked => { RoughPlanModel.axis_pick_start(RoughPlanModel.axis_pick >= 2 ? 0 : 2); }
+                Rectangle {
+                    width: 48px;
+                    height: 48px;
+                    border-radius: 24px;
+                    background: RoughPlanModel.axis_pick != 0 ? Theme.accent-cyan-surface : Theme.bg-elevated;
+                    KitIcon {
+                        x: (parent.width - self.width) / 2;
+                        y: (parent.height - self.height) / 2;
+                        d: KitIcons.axis;
+                        size: 30px;
+                        stroke: 1.8px;
+                        ink: RoughPlanModel.axis_set || RoughPlanModel.axis_pick != 0 ? Theme.accent-cyan : Theme.text-muted;
+                    }
                 }
             }
-            HorizontalLayout {
+            VerticalLayout {
+                horizontal-stretch: 1;
+                min-width: 0px;
+                alignment: center;
                 spacing: 4px;
-                alignment: start;
-
-                RoughPill {
-                    text: "Fit to Crystal Length";
-                    hint: "Set the crystal axis along the longest direction of the rough. A crystal is usually longest along its axis; the note says how clear that direction is.";
-                    enabled: root.editable;
-                    clicked => { RoughPlanModel.axis_fit_length(); }
+                if RoughPlanModel.axis_pick == 0: WrapText {
+                    text: RoughPlanModel.axis_set
+                        ? (RoughPlanModel.axis_sentence != "" ? RoughPlanModel.axis_sentence : "The crystal axis is set.")
+                        : "The crystal axis is not known, so stones are not oriented to it.";
+                    font_size: 12px;
+                    font_weight: 600;
+                    text_color: Theme.text-primary;
                 }
-                RoughPill {
-                    text: "From Color Zones";
-                    hint: RoughPlanModel.axis_zones_possible
-                        ? "Set the crystal axis along the axis of the color zone you accepted in Rough Color."
-                        : "Needs an accepted color zone that runs along the crystal (a cylinder or prism around its axis) in Rough Color.";
-                    enabled: root.editable && RoughPlanModel.axis_zones_possible;
-                    clicked => { RoughPlanModel.axis_from_zones(); }
+                if RoughPlanModel.axis_pick != 0: WrapText {
+                    text: RoughPlanModel.axis_pick == 1 ? "Click a face in the view"
+                        : (RoughPlanModel.axis_pick == 2 ? "Click the first end of an edge in the view" : "Click the second end of the edge");
+                    font_size: 12px;
+                    font_weight: 600;
+                    text_color: Theme.text-primary;
+                }
+                if RoughPlanModel.axis_pick != 0: WrapText {
+                    text: RoughPlanModel.axis_pick == 1
+                        ? "The crystal axis is set along the face's normal."
+                        : "The crystal axis is set along the line between the two points.";
+                    font_size: 11px;
+                    text_color: Theme.text-secondary;
+                }
+                if RoughPlanModel.axis_pick == 0 && RoughPlanModel.axis_note != "": WrapText {
+                    text: RoughPlanModel.axis_note;
+                    font_size: 11px;
+                    text_color: RoughPlanModel.axis_note_level == 3 ? Theme.danger
+                        : (RoughPlanModel.axis_note_level == 2 ? Theme.accent-amber
+                        : (RoughPlanModel.axis_note_level == 1 ? Theme.success : Theme.text-secondary));
+                }
+                if RoughPlanModel.axis_pick != 0: HorizontalLayout {
+                    alignment: start;
+                    KitButton {
+                        text: "Cancel";
+                        h: 28px;
+                        accessible-label: RoughPlanModel.axis_pick == 1 ? "Click a Face..." : "Click the First End...";
+                        hint: "Stop picking in the view. Escape does the same.";
+                        clicked => { RoughPlanModel.axis_pick_start(0); }
+                    }
                 }
             }
         }
+    }
 
-        if RoughPlanModel.axis_note != "": WrapText {
-            text: RoughPlanModel.axis_note;
-            font_size: 10px;
-            text_color: RoughPlanModel.axis_note_level == 3 ? Theme.danger
-                : (RoughPlanModel.axis_note_level == 2 ? Theme.accent-amber
-                : (RoughPlanModel.axis_note_level == 1 ? Theme.success : Theme.text-secondary));
+    if RoughPlanModel.axis_set: HorizontalLayout {
+        spacing: 6px;
+        PlanField {
+            label: "Tilt";
+            alabel: "Tilt (deg)";
+            unit: "\u{00B0}";
+            hint: "The angle between the crystal axis and the rough's Y axis, 0 to 90 degrees.";
+            editable: root.editable;
+            value <=> RoughPlanModel.axis_tilt;
+            committed => { RoughPlanModel.axis_edit(0, RoughPlanModel.axis_tilt); }
         }
+        PlanField {
+            label: "Turn";
+            alabel: "Azimuth (deg)";
+            unit: "\u{00B0}";
+            hint: "The direction of the crystal axis around the rough's Y axis, from X toward Z, 0 to 360 degrees.";
+            editable: root.editable;
+            value <=> RoughPlanModel.axis_azimuth;
+            committed => { RoughPlanModel.axis_edit(1, RoughPlanModel.axis_azimuth); }
+        }
+        if RoughPlanModel.axis_biaxial: PlanField {
+            label: "Second Axis";
+            alabel: "Second Axis (deg)";
+            unit: "\u{00B0}";
+            hint: "How far the second principal direction is turned about the crystal axis, 0 to 180 degrees. Leave it empty for the material's own.";
+            placeholder: "own";
+            editable: root.editable;
+            value <=> RoughPlanModel.axis_second;
+            committed => { RoughPlanModel.axis_edit(2, RoughPlanModel.axis_second); }
+        }
+    }
 
-        // The rule: visible once the axis is set.
-        if RoughPlanModel.axis_set: VerticalLayout {
-            spacing: 4px;
+    // The ways to find the axis: a menu (Align to Face, Align to Edge, Fit to Crystal Length, From
+    // Color Zones), drawn by the window.
+    HorizontalLayout {
+        alignment: start;
+        KitButton {
+            text: "Find the Axis";
+            chevron: true;
+            h: 30px;
+            active: RoughUi.menu_kind == 1;
+            enabled: root.editable;
+            hint: "Find the crystal axis from the rough: click a face or an edge in the view, fit it to the crystal's length, or take it from a color zone.";
+            clicked => {
+                RoughUi.menu_kind = 1;
+                RoughUi.menu_row = -1;
+                RoughUi.menu_group = -1;
+                RoughUi.menu_right = false;
+                RoughUi.menu_x = self.absolute-position.x;
+                RoughUi.menu_y = self.absolute-position.y + self.height + 4px;
+            }
+        }
+    }
 
-            Rectangle {
-                height: 1px;
-                background: Theme.border-subtle;
+    // The rule: visible once the axis is set.
+    if RoughPlanModel.axis_set: Rectangle {
+        border-radius: 8px;
+        background: Theme.tint-cyan;
+        min-height: rule_lay.preferred-height;
+
+        rule_lay := VerticalLayout {
+            padding: 8px;
+            spacing: 6px;
+            HorizontalLayout {
+                spacing: 8px;
+                VerticalLayout {
+                    alignment: start;
+                    KitIcon {
+                        d: KitIcons.info;
+                        size: 15px;
+                        ink: Theme.accent-cyan;
+                    }
+                }
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    min-width: 0px;
+                    spacing: 2px;
+                    Text {
+                        text: "Orientation rule";
+                        font-size: 12px;
+                        font-weight: 600;
+                        color: Theme.text-primary;
+                    }
+                    if RoughPlanModel.rule_line != "": WrapText {
+                        text: RoughPlanModel.rule_line;
+                        font_size: 11px;
+                        text_color: Theme.text-secondary;
+                    }
+                }
+                VerticalLayout {
+                    alignment: start;
+                    LinkText {
+                        text: RoughUi.rule_open ? "Done" : "Change";
+                        accessible-label: "Change the Orientation Rule";
+                        hint: "Choose another rule for how stones sit to the crystal axis.";
+                        clicked => { RoughUi.rule_open = !RoughUi.rule_open; }
+                    }
+                }
             }
-            Text {
-                text: "ORIENTATION RULE";
-                font-size: 11px;
-                font-weight: 700;
-                color: Theme.text-muted;
-            }
-            if RoughPlanModel.rule_line != "": WrapText {
-                text: RoughPlanModel.rule_line;
-                font_size: 10px;
-                text_color: Theme.text-primary;
-            }
-            RuleEditor {
+            if RoughUi.rule_open: RuleEditor {
                 entry: -1;
                 follow_text: "Material Default";
                 follow_hint: "Use the rule this material starts with.";
@@ -188,11 +245,11 @@ export component AxisPanel inherits VerticalLayout {
                 kind_names: RoughPlanModel.rule_kind_names;
                 editable: root.editable;
             }
-            if RoughPlanModel.axis_stale_text != "": WrapText {
-                text: RoughPlanModel.axis_stale_text;
-                font_size: 10px;
-                text_color: Theme.accent-amber;
-            }
         }
+    }
+    if RoughPlanModel.axis_set && RoughPlanModel.axis_stale_text != "": WrapText {
+        text: RoughPlanModel.axis_stale_text;
+        font_size: 11px;
+        text_color: Theme.accent-amber;
     }
 }

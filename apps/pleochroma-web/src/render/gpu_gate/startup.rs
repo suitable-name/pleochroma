@@ -303,7 +303,7 @@ fn release_markers() {
 }
 
 /// Installs the `pagehide` listener once, for the page's lifetime (the closure is leaked
-/// with `forget()`, as the unsaved-changes guard's is): reloading or closing the tab while
+/// with `forget()`): reloading or closing the tab while
 /// the run is still going ends it on purpose, so its markers are released and the next load
 /// tests again instead of reading a lost GPU. A real GPU-process crash fires no such event
 /// from the page, so its markers stay.

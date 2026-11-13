@@ -1,20 +1,13 @@
 //! Rust-side wiring for the Diagram view mode's own hover/click callbacks.
 //!
-//! `app.slint`'s `editor_solid_diagram_facet_hover`/`_click`, forwarded from
-//! `solid_viewport.slint`'s `diagram_facet_hover`/`diagram_facet_click` -- see that
-//! component's own doc comment for why Diagram mode needs separate callbacks from
-//! the Solid rasterizer's `facet_hover`/`facet_click`.
+//! `SolidPreviewModel`'s `diagram_facet_hover`/`diagram_facet_click`, raised by
+//! `solid_viewport.slint` -- see that component's own doc comment for why Diagram mode
+//! needs separate callbacks from the Solid rasterizer's `facet_hover`/`facet_click`.
 //!
-//! Unlike `gui::editor::callbacks::tier_actions`'s `setup_solid_facet_hover_callback`/
-//! `setup_solid_facet_click_callback` (which build a fresh `facet_map::FacetMap`
-//! from `EditorState`'s `Design` on every hover), these callbacks do NOT need
-//! `Design`/`FacetMap` access at all: `preview_state::render_request` already
-//! builds the facet-id-indexed hover-text and tier tables on the WORKER thread
-//! (see [`super::preview_state::PreviewFrame::diagram_hover_text`]'s doc comment
-//! for why) and hands them here as plain `Arc<Mutex<..>>` state, exactly like
-//! `solid_pick`/`solid_last_solved` already work for the Solid view. That is what
-//! lets this module live under `solid_preview/` and be wired from `gui::mod`
-//! directly, with no dependency on `gui::editor`'s `EditorState`.
+//! These callbacks need no `Design` or `FacetMap`: the worker builds the facet-id-indexed
+//! hover text and tier tables ([`super::preview_state::PreviewFrame::diagram_hover_text`])
+//! and hands them over as shared `Arc<Mutex<..>>` state. So this module needs no
+//! dependency on `gui::editor`.
 
 use super::{
     facet_selection::{
@@ -36,20 +29,16 @@ use std::sync::{Arc, Mutex, PoisonError};
 /// Same contract as `gui::mod`'s `solid_pick` for the ordinary Solid view --
 /// written by `SlintSolidSink::apply` from `PreviewFrame::diagram_pick`.
 ///
-/// The index wheel's own tooth-picking buffer (`PreviewFrame::
-/// diagram_tooth_pick`) is threaded through as a SECOND value of this exact
-/// same type -- see [`setup_diagram_hover_and_click_callbacks`]'s `tooth_pick`
-/// parameter.
+/// The index wheel's tooth-picking buffer (`PreviewFrame::diagram_tooth_pick`) has this
+/// same type; see the `tooth_pick` parameter of [`setup_diagram_hover_and_click_callbacks`].
 pub type DiagramPick = Arc<Mutex<Option<PickBuffer>>>;
 /// Facet id -> hover tooltip text, from `PreviewFrame::diagram_hover_text`.
 pub type DiagramHoverText = Arc<Mutex<Option<Vec<String>>>>;
 /// Facet id -> owning flat and concave tier, from `PreviewFrame::diagram_facet_owners`.
 pub type DiagramFacetOwners = Arc<Mutex<Option<FacetOwners>>>;
 
-/// Looks up the index-wheel tooth (if any) at physical pixel `(px, py)` in
-/// `tooth_pick` -- shared by both the hover and click callbacks in
-/// [`setup_diagram_hover_and_click_callbacks`] below, and split out purely to
-/// keep that function under clippy's function-length lint.
+/// Returns the index-wheel tooth at physical pixel `(px, py)` in `tooth_pick`, if any.
+/// Shared by the hover and click callbacks.
 fn tooth_at(tooth_pick: &DiagramPick, px: u32, py: u32) -> Option<u32> {
     tooth_pick
         .lock()
@@ -58,27 +47,17 @@ fn tooth_at(tooth_pick: &DiagramPick, px: u32, py: u32) -> Option<u32> {
         .and_then(|tooth_pick| tooth_pick.facet_at(px, py))
 }
 
-/// Wires `editor_solid_diagram_facet_hover`/`_click`. Call once from
+/// Wires `SolidPreviewModel`'s `diagram_facet_hover`/`diagram_facet_click`. Call once from
 /// `gui::build_main_window`, alongside the ordinary Solid hover/click wiring.
 ///
-/// `preview_state` drives the facet-id-keyed highlight overlay: every id
-/// below already comes from a pick buffer, so no `Design`/`FacetMap` access is
-/// needed. The writes go through `super::facet_selection`, which MERGES them into the
-/// overlay the Solid view shares: a hover sets only the hovered facet (and clears only
-/// it when the pointer leaves), a click sets the clicked facet -- the same
-/// `facet_selection::selected_facet_id` the Solid view's click sets, so the
-/// manipulation handles have an anchor facet -- and neither wipes the other's outline,
-/// the multi-select or the drag followers. The hover highlight clears exactly when
-/// `diagram_hover_text` does, so the highlight and the tooltip always agree.
+/// The writes go through [`super::facet_selection`], which merges them into the overlay
+/// the Solid view shares: a hover sets only the hovered facet, a click sets the clicked
+/// facet as the manipulation handles' anchor, and neither clears the other's outline,
+/// multi-selection or drag followers. The hover highlight clears exactly when
+/// `diagram_hover_text` does.
 ///
-/// `x`/`y` are multiplied by `ui.window().scale_factor()` before indexing `pick`:
-/// `render::camera_lighting::resubmit_at_current_pose` sizes a Diagram-mode
-/// request's pixel buffers to the window's PHYSICAL resolution, but `x`/`y`
-/// arrive from Slint in logical pixels (`solid_viewport.slint`'s
-/// `drag_area.mouse-x`/`mouse-y`) -- see that function's own doc comment for the
-/// matching output-side scaling. `gui::editor::callbacks::tier_actions`'s Solid-view
-/// hover/click callbacks need the identical treatment for the Solid rasterizer's
-/// own `pick`/`x`/`y`.
+/// `x`/`y` arrive from Slint in logical pixels, while the pick buffers are sized to the
+/// window's physical resolution, so they are scaled by `scale_factor()` before indexing.
 pub fn setup_diagram_hover_and_click_callbacks(
     ui: &MainWindow,
     pick: &DiagramPick,
@@ -125,19 +104,10 @@ pub fn setup_diagram_hover_and_click_callbacks(
                 #[cfg(not(feature = "ui-harness"))]
                 let _ = (pick_dimensions, label_count);
                 let Some(facet_id) = facet_id else {
-                    // Nothing under the cursor in facet space -- check the
-                    // SAME `(px, py)` against the index wheel's own tooth buffer
-                    // (`tooth_pick`, a `PickBuffer` reused for tooth ids; see
-                    // `DiagramPick`'s own doc comment) before giving up, so
-                    // hovering a wheel tick reports which tooth instead of
-                    // reading as "nothing here".
+                    // No facet here: report the index-wheel tooth under the cursor, if any.
                     let tooth = tooth_at(&tooth_pick, px, py);
-                    // Neither a facet nor a tooth under the cursor falls back
-                    // to the last CLICKED facet's own label (if any) instead of
-                    // blanking the tooltip outright, so the selection stays
-                    // readable once the pointer leaves it -- mirrors
-                    // `tier_actions::setup_solid_facet_hover_callback`'s own
-                    // miss branch for the Solid view.
+                    // With neither a facet nor a tooth, keep the last clicked facet's label
+                    // so the selection stays readable after the pointer leaves it.
                     let text = tooth.map_or(selected_label, |t| format!("Index {t}"));
                     #[cfg(feature = "ui-harness")]
                     crate::harness_support::record_hover_diagnostic(
@@ -152,8 +122,7 @@ pub fn setup_diagram_hover_and_click_callbacks(
                     );
                     ui.global::<SolidPreviewModel>()
                         .set_diagram_hover_text(text.into());
-                    // Only the hover goes: the clicked facet's outline, the
-                    // multi-select and the drag followers stay lit.
+                    // Only the hover clears; the clicked facet stays lit.
                     set_hovered_facet(&preview_state, None);
                     return;
                 };
@@ -210,12 +179,10 @@ pub fn setup_diagram_hover_and_click_callbacks(
 /// the web app, through `pleochroma_solid::preview::view::toggle_enlarged_panel`.
 ///
 /// `panel_pick` is the last diagram frame's per-pixel panel buffer
-/// (`PreviewFrame::diagram_panel_pick`), read with the same logical-to-physical
-/// scaling as the hover and click callbacks above. Only the property is written
-/// here: `SolidPreviewModel`'s `changed diagram_enlarged_panel` handler raises
-/// `diagram_enlarged_panel_changed`, which `gui::editor` turns into the replan that
-/// redraws the diagram (see `gui::editor::setup::setup_tier_cutoff_callback`), so a pill click, the
-/// Escape key and this double-click all redraw through one path.
+/// (`PreviewFrame::diagram_panel_pick`), read with the same logical-to-physical scaling as
+/// the hover and click callbacks. Only the property is written here; the redraw follows
+/// from its `changed` handler, so a pill click, the Escape key and this double-click share
+/// one redraw path.
 pub fn setup_diagram_double_click_callback(ui: &MainWindow, panel_pick: &DiagramPick) {
     let panel_pick = Arc::clone(panel_pick);
     let ui_weak = ui.as_weak();
@@ -286,56 +253,28 @@ fn handle_diagram_facet_click(
         .as_ref()
         .and_then(|pick| pick.facet_at(px, py))
     else {
-        // A click that misses every facet may still have landed on the
-        // index wheel -- report which tooth (if any) through
-        // `diagram_clicked_tooth` so a caller can act on it (e.g.
-        // highlighting every facet that shares it). This function only
-        // threads the buffer through and reports the id; wiring the
-        // highlight itself lives in `gui::editor::callbacks::
-        // tier_actions`/`EditorState`.
+        // A miss on every facet may still hit a tooth of the index wheel.
         let tooth = tooth_at(tooth_pick, px, py);
         if let Some(tooth) = tooth {
             let tooth = tooth.cast_signed();
             ui.global::<SolidPreviewModel>()
                 .set_diagram_clicked_tooth(tooth);
-            // Also invoked directly, not left to `editor_tier_table.slint`'s
-            // `tracked_clicked_tooth` mirror alone: that mirror's `changed`
-            // handler is QUEUED and only fires when the property's value
-            // actually differs from what it last saw, so clicking the SAME tooth twice
-            // in a row -- a real, common gesture, e.g. re-confirming a
-            // highlight after looking away -- would otherwise silently do
-            // nothing the second time. `EditorModel.invoke_highlight_tooth`
-            // is an ordinary synchronous call, so calling it here as well
-            // costs nothing on the normal (tooth actually changed) path --
-            // that mirror's own call runs again shortly after, redundantly
-            // but harmlessly recomputing the identical highlight.
+            // Invoked directly as well as through the `tracked_clicked_tooth` mirror in
+            // `editor_tier_table.slint`: that mirror fires only on a changed value, so a second
+            // click on the same tooth would otherwise do nothing.
             ui.global::<EditorModel>().invoke_highlight_tooth(tooth);
             return;
         }
-        // A click that misses the silhouette AND the wheel clears the
-        // tier selection instead of doing nothing, giving a way back
-        // to "nothing selected" beyond the inspector's "New" button.
-        // Setting `selected_tier_index` alone is enough: `changed
-        // selected_tier_index` in `models/editor.slint` fires
-        // `selected_tier_changed`, which re-seeds/clears the inspector
-        // form on the Rust side (see
-        // `setup_solid_selected_tier_changed_callback`).
+        // A miss on both the silhouette and the wheel clears the tier selection. Setting
+        // `selected_tier_index` alone is enough: its `changed` handler clears the inspector.
         clear_clicked_facet(preview_state);
         ui.global::<EditorModel>().set_selected_tier_index(-1);
-        // Same direct-invocation reasoning as the tooth-hit branch above,
-        // for the opposite edge: this also resets `diagram_clicked_tooth`
-        // to its own "nothing clicked" default so a LATER re-click on the
-        // very tooth that was highlighted before this miss still raises a
-        // real value change (and so the mirror's own `changed` handler)
-        // instead of silently no-op-ing against a stale, never-reset value.
+        // Reset the clicked tooth too, so a later click on the same tooth still changes the
+        // value and the mirror's `changed` handler fires.
         ui.global::<SolidPreviewModel>()
             .set_diagram_clicked_tooth(-1);
         ui.global::<EditorModel>().invoke_highlight_tooth(-1);
-        // A miss also clears whatever facet was previously identified
-        // -- nothing is selected any more (`clear_clicked_facet` above), so
-        // nothing should keep reading in the tooltip. Mirrors
-        // `tier_actions::setup_solid_facet_click_callback`'s own miss
-        // branch for the Solid view.
+        // Nothing is selected any more, so the tooltip must not keep the old facet's label.
         ui.global::<SolidPreviewModel>()
             .set_diagram_hover_text("".into());
         return;
@@ -362,11 +301,8 @@ fn handle_diagram_facet_click(
         // A tutorial step may wait for a facet of a tier to be picked.
         raise(ui, events::FACET_PICKED);
     }
-    // Identifies the clicked facet itself, not just its owning tier --
-    // reusing the SAME per-facet label the hover callback shows
-    // transiently (`hover_text`). The hover callback's miss branch re-reads it from
-    // the frame on screen for the selected facet (`selected_facet_id`), so it
-    // survives the pointer leaving the facet and follows an angle edited since.
+    // The clicked facet's own label, the same one the hover shows. The hover's miss branch
+    // re-reads it for the selected facet, so it survives the pointer leaving the facet.
     let label = hover_text
         .lock()
         .unwrap_or_else(PoisonError::into_inner)

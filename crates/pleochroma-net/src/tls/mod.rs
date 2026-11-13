@@ -51,8 +51,8 @@ pub type Fingerprint = [u8; 32];
 /// The host part of a `host:port` address, as `rustls::pki_types::ServerName` accepts it.
 ///
 /// Everything before the last `:`, with the square brackets of an IPv6 literal
-/// (`[::1]:7879`) removed; `None` if `addr` has no `:`. The one place this rule lives, so every dialer (enrollment, join, desktop viewer)
-/// handles bracketed IPv6 the same way. Full validation still happens in
+/// (`[::1]:7879`) removed; `None` if `addr` has no `:`. Every dialer (enrollment, join,
+/// desktop viewer) uses this one rule. Full validation still happens in
 /// `ServerName::try_from`.
 #[must_use]
 pub fn host_for_server_name(addr: &str) -> Option<&str> {
@@ -358,20 +358,14 @@ impl Allowlist {
 
 /// Replaces `\r`, `\n`, and `#` in `label` with `_`.
 ///
-/// So it can never inject a second allowlist line (`\r`/`\n`) or terminate the comment
-/// early / start a bogus one (`#`) when written into [`append_to_allowlist`]'s
-/// `"{fingerprint}  # {label}"` line. `label` ultimately comes from an operator-supplied
-/// `--name`/enrollment `name` (loopback-only, `cert issue-client`/`cert issue-token`'s
-/// CLI or the enrollment listener's `Issue` request) rather than an untrusted remote
-/// peer, so this is robustness against a typo or a copy-pasted stray newline, not a
-/// hardened attacker boundary -- but [`Allowlist::load`] treats any malformed line as a
-/// hard parse error (fail-closed), so a single bad label could otherwise corrupt every
-/// OTHER entry's availability, not just its own.
+/// So it can never inject a second allowlist line (`\r`/`\n`) or start a comment early
+/// (`#`) in the `"{fingerprint}  # {label}"` line that [`append_to_allowlist`] writes.
+/// `label` is operator-supplied (a `--name` or an enrollment name), so this guards against
+/// typos and stray newlines rather than a hostile peer. It still matters: [`Allowlist::load`]
+/// rejects the whole file on one malformed line, which would fail every client.
 ///
-/// `pub`, not just used by [`append_to_allowlist`]: `apps/pleochroma-worker`'s
-/// `EnrollRegistry::issue` applies this same sanitization to the enrollment `name`
-/// before it is ever minted into a certificate's Subject Common Name, rather than
-/// re-implementing an equivalent scrub that could drift out of sync with this one.
+/// `pub` so `apps/pleochroma-worker`'s `EnrollRegistry::issue` applies the same scrub to the
+/// enrollment name before it is minted into a certificate's Subject Common Name.
 #[must_use]
 pub fn sanitize_allowlist_label(label: &str) -> String {
     label.replace(['\r', '\n', '#'], "_")
@@ -401,20 +395,13 @@ static ALLOWLIST_APPEND_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 ///    failing every client, not just the new one, since `load` treats one bad line as a
 ///    hard parse error). Detected by reading the file's last byte first and prefixing a
 ///    `\n` onto the new line when it's missing (or the file is empty/new).
-/// 2. **Multiple `write_all` calls from one appender.** The pre-fix code used `writeln!`
-///    on a `File`, whose blanket `io::Write` impl of `write_fmt` performs one
-///    `write_all` per piece of the format string (the fingerprint, the literal
-///    `"  # "`, the label, the newline) rather than one for the whole line --
-///    interleave-able by another thread's write between any of those pieces even within
-///    ONE process. Fixed by building the complete line in a `String` first and writing
-///    it with exactly one `write_all` call.
-/// 3. **Two concurrent claims in DIFFERENT threads of this same process.** Even a
-///    single `write_all` per call doesn't prevent two such calls from interleaving with
-///    each other (two `O_APPEND` writers can still race at the OS level on some
-///    platforms, and nothing serialized the "check trailing newline, then write" pair
-///    above across threads). [`ALLOWLIST_APPEND_LOCK`] holds all of it -- the trailing-
-///    newline read, the write, and the post-write re-validation below -- under one
-///    process-wide mutex.
+/// 2. **Interleaved writes.** The whole line is built in a `String` and written with one
+///    `write_all` call. `writeln!` on a `File` would issue one write per piece of the
+///    format string, which another thread's write could interleave with.
+/// 3. **Concurrent claims in one process.** Two appends can still interleave at the OS
+///    level, and the "check trailing newline, then write" pair must not race across
+///    threads. [`ALLOWLIST_APPEND_LOCK`] holds the trailing-newline read, the write and the
+///    post-write re-validation under one process-wide mutex.
 ///
 /// Re-validates with [`Allowlist::load`] after writing (holding the same lock) so a
 /// write that somehow still produced a malformed file is caught immediately, as an
@@ -426,7 +413,7 @@ static ALLOWLIST_APPEND_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 /// [`TlsError::Io`] if the parent directory can't be created, the existing file can't be
 /// read, or the file can't be opened for appending/written to.
 /// [`TlsError::MalformedAllowlistLine`] if the post-write re-validation finds the file
-/// malformed despite this call's own write (see point 3 above for what that would mean).
+/// malformed despite this call's own write.
 pub fn append_to_allowlist(path: &Path, fp: &Fingerprint, label: &str) -> Result<(), TlsError> {
     use std::io::Write;
 

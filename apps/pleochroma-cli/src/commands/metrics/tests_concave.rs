@@ -1,6 +1,7 @@
-//! `metrics` measures the stone WITH its concave tools (the Compare window's stone): the optics
-//! see the grooves and dimples and the volume is the carved volume. A design without concave
-//! tiers is measured on exactly its planes, bit for bit as before.
+//! `metrics` measures the stone WITH its concave tools (the Compare window's stone): the optics see
+//! the grooves and dimples and the volume is the carved volume.
+//!
+//! A design without concave tiers is measured on exactly its planes, bit for bit.
 
 use super::*;
 use crate::{args::MaterialArg, outcome::EXIT_OK, testing};

@@ -26,7 +26,8 @@
 //! - `import`: importing picked files;
 //! - `store`: reading and writing one entry, tags, marks and delete;
 //! - `thumbs`: thumbnails and their cache on disk;
-//! - `design_source` and `measure`: reading a stored design and measuring it.
+//! - `design_source` and `measure`: reading a stored design and measuring it;
+//! - `variants`: the saved variants of a design.
 
 mod design_source;
 mod handle;

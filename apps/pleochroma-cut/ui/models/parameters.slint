@@ -1,12 +1,11 @@
 import { EditorModel } from "editor.slint";
 
 // The Parameters dock: one right-hand panel with three tabs -- Stone, Lighting & Environment
-// and Render & Output -- reachable from the Live Render view and from the Edit view (it
-// replaces the Live Render view's old "Rendering Settings" card).
+// and Render & Output -- reachable from the Live Render view and from the Edit view.
 //
-// This global holds only the dock's own state. What the tabs edit lives where it always did
-// (`SettingsModel`, `ViewportModel`, `DesignLightingModel`, ...), so a tab's controls keep
-// working through the same properties and callbacks until the tab's own lane rewires them.
+// This global holds only the dock's own state. What the tabs edit lives in the models it
+// always did (`SettingsModel`, `ViewportModel`, `DesignLightingModel`, ...); the tabs bind to
+// those properties and callbacks directly.
 //
 // `open` and `active_tab` persist: Rust (`gui::parameters_dock`) pushes the saved values at
 // start-up and writes them back through `layout_changed`, the same shape as
@@ -63,8 +62,8 @@ export global ParametersModel {
     // `Default` impls behind it), so the panel assigns no literals. Rust re-pushes the tab's
     // controls afterwards (`gui::render::reset_tab`).
     callback reset_tab(int);
-    // Fired by Rust's `reset_tab` handler for the Stone tab (tab 0): the Stone lane applies the
-    // default per-design render effects as ONE undoable edit (`Edit::SetRenderEffects`). The
-    // reset never touches the material or the geometry.
+    // Fired by Rust's `reset_tab` handler for the Stone tab (tab 0). Rust applies the default
+    // per-design render effects as ONE undoable edit (`Edit::SetRenderEffects`). The reset never
+    // touches the material or the geometry.
     callback reset_stone_effects();
 }

@@ -39,9 +39,9 @@
 //!
 //! # Refusal is the only outcome for a KNOWN disagreement
 //!
-//! [`verify_compatible`] returns `Ok(())` for a matching protocol version and an exact
-//! known `build_hash` match, and an [`Incompatible`] error for everything else -- deliberately no "close enough" tier for
-//! anything it CAN compare.
+//! [`verify_compatible`] returns `Ok(())` only for a matching protocol version and an exact,
+//! known `build_hash` match. Everything else is an [`Incompatible`] error: there is
+//! deliberately no "close enough" tier for anything it can compare.
 //!
 //! # Library-only builds
 //!
@@ -132,7 +132,7 @@ pub fn local_hello_zoning() -> Hello {
     }
 }
 
-/// Builds this process's `HELLO` as a render worker joining a coordinator (v14).
+/// Builds this process's `HELLO` as a render worker joining a coordinator.
 ///
 /// Like [`local_hello`] but with role [`crate::messages::PeerRole::Worker`] and the
 /// worker's own `capability`. Only compiled under this crate's `render` feature.
@@ -176,8 +176,8 @@ impl From<crate::messages::NetError> for HelloReadError {
 
 /// Decodes a `HELLO` frame's bytes, version first.
 ///
-/// Every `HELLO` since v12 starts with `protocol_version` (see `messages::hello`'s module
-/// doc comment), so this reads that prefix alone first and refuses a different version
+/// Every `HELLO` starts with `protocol_version` (see `messages::hello`'s module doc
+/// comment), so this reads that prefix alone first and refuses a different version
 /// with [`Incompatible::ProtocolVersionMismatch`] -- a clear, two-version message -- instead
 /// of the postcard error an older or newer `HELLO` layout would otherwise produce.
 ///
@@ -365,16 +365,15 @@ mod tests {
         );
     }
 
-    /// The real current/previous pairing, not the generic `1` vs `2` the test above
-    /// uses: a peer still advertising the previous [`crate::messages::PROTOCOL_VERSION`]
-    /// is refused against this build's, exercising [`verify_compatible`] -- the same
-    /// function [`crate::client::handshake::handshake`] calls -- with the exact values a
-    /// real mismatched deploy would produce.
+    /// The real current/previous pairing, not the generic `1` vs `2` the test above uses: a
+    /// peer still advertising the previous [`crate::messages::PROTOCOL_VERSION`] is refused
+    /// by [`verify_compatible`], the function [`crate::client::handshake::handshake_with_hello`]
+    /// calls, with the exact values a real mismatched deploy would produce.
     #[test]
     fn a_peer_advertising_the_previous_protocol_version_is_refused() {
         let current = crate::messages::PROTOCOL_VERSION;
         assert_eq!(
-            current, 36,
+            current, 42,
             "update this pinned value if PROTOCOL_VERSION moves again"
         );
         let local = hello(current, [1; 8]);
@@ -386,6 +385,49 @@ mod tests {
                 remote: current - 1,
             })
         );
+    }
+
+    /// A peer on protocol v36 is refused with the version-mismatch message, naming both
+    /// versions, whichever side is older.
+    #[test]
+    fn a_v36_peer_is_refused_with_the_version_mismatch_message() {
+        let current = hello(crate::messages::PROTOCOL_VERSION, [1; 8]);
+        let old = hello(36, [1; 8]);
+        for (local, remote) in [(&current, &old), (&old, &current)] {
+            let refusal = verify_compatible(local, remote).unwrap_err();
+            let message = refusal.to_string();
+            assert!(
+                message.starts_with("protocol version mismatch: this side speaks protocol v"),
+                "{message}"
+            );
+            assert!(
+                message.contains("v36") && message.contains("v42"),
+                "{message}"
+            );
+        }
+    }
+
+    /// Each of protocol versions 37 to 41 changes a layout or a meaning that the current build
+    /// relies on, so each is refused with the version-mismatch message, naming both versions,
+    /// whichever side is older.
+    #[test]
+    fn a_v37_to_v41_peer_is_refused_with_the_version_mismatch_message() {
+        let current = hello(crate::messages::PROTOCOL_VERSION, [1; 8]);
+        for version in [37, 38, 39, 40, 41] {
+            let old = hello(version, [1; 8]);
+            for (local, remote) in [(&current, &old), (&old, &current)] {
+                let refusal = verify_compatible(local, remote).unwrap_err();
+                let message = refusal.to_string();
+                assert!(
+                    message.starts_with("protocol version mismatch: this side speaks protocol v"),
+                    "{message}"
+                );
+                assert!(
+                    message.contains(&format!("v{version}")) && message.contains("v42"),
+                    "{message}"
+                );
+            }
+        }
     }
 
     #[test]
@@ -450,7 +492,7 @@ mod tests {
         source_hash: [u8; 8],
     }
 
-    /// A v13 peer's `HELLO` does not decode as a v14 `Hello` at all; `decode_hello` still
+    /// A v13 peer's `HELLO` does not decode as the current `Hello` at all; `decode_hello` still
     /// reports a version mismatch naming both versions, not a postcard error.
     #[test]
     fn decode_hello_reports_a_v13_hello_as_a_clear_version_mismatch() {

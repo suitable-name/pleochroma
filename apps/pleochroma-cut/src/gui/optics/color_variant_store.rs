@@ -15,11 +15,11 @@
 //! ```
 //!
 //! The tensor is [`VariantTensorRows`] (explicit band shape per row, exact round trip).
-//! `reference_path_mm` is the STONE WIDTH in millimetres the numbers are calibrated for (never a
-//! light path, like every `reference_path_mm` of the color variants): every swatch of a saved
-//! variant is evaluated at `variants::face_up_swatch_path(unit, reference_path_mm)`. Built-in
-//! variants live in the shipped data file and are never stored here; a variant read from the vault
-//! always has [`VariantProvenance::User`].
+//! `reference_path_mm` is the stone width in millimetres the numbers are calibrated for, never a
+//! light path: every swatch of a saved variant is evaluated at
+//! `variants::face_up_swatch_path(unit, reference_path_mm)`. Built-in variants live in the shipped
+//! data file and are never stored here; a variant read from the vault always has
+//! [`VariantProvenance::User`].
 //!
 //! A label is unique per material (ASCII case ignored): saving or renaming to a label another
 //! saved variant of the same material already has is refused with a sentence.
@@ -29,7 +29,8 @@
 //! | area | functions |
 //! |---|---|
 //! | read | [`user_color_variants`], [`load_user_color_variant`], [`decode_color_variant`] |
-//! | write | [`save_user_color_variant`], [`rename_user_color_variant`], [`delete_user_color_variant`] |
+//! | write | [`save_user_color_variant`], [`rename_user_color_variant`], |
+//! | | [`delete_user_color_variant`] |
 //! | a material's variants | [`copy_color_variants`], [`remove_color_variants`] |
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -521,10 +522,10 @@ pub fn suggested_label(families: &[&str], taken: &[String]) -> String {
     unique_label(base, taken)
 }
 
-// No startup prune of saved variants (lead decision 2026-10-27): a variant whose material is
-// unknown is kept, not deleted, so a built-in renamed or removed in a later version never takes
-// a cutter's saved colors with it. A deleted custom material removes its variants explicitly
-// (`remove_color_variants`, called by `apply_custom_material_delete`).
+// Saved variants are never pruned at startup: one whose material is unknown is kept, so a
+// built-in renamed or removed in a later version never takes a cutter's saved colors with it.
+// A deleted custom material removes its variants explicitly (`remove_color_variants`, called
+// by `apply_custom_material_delete`).
 
 #[cfg(test)]
 mod tests {
@@ -556,7 +557,7 @@ mod tests {
 
     #[test]
     fn without_a_registered_vault_no_saved_variants_are_listed() {
-        assert!(saved_variants("Sapphire").is_empty());
+        assert_eq!(saved_variants("Sapphire"), [] as [ColorVariant; 0]);
     }
 
     fn add_custom_material(db: &Database, name: &str) {
@@ -787,7 +788,10 @@ mod tests {
             format!("{error:#}").contains("nothing was copied"),
             "{error:#}"
         );
-        assert!(user_color_variants(&db, "Melon Copy").unwrap().is_empty());
+        assert_eq!(
+            user_color_variants(&db, "Melon Copy").unwrap(),
+            [] as [ColorVariant; 0]
+        );
         // A later copy is not skipped as "already has variants".
         assert_eq!(copy_color_variants(&db, "Melon", "Melon Copy").unwrap(), 3);
     }
@@ -819,7 +823,10 @@ mod tests {
         let db = db();
         let variant = variant_of("Sapphire", "Mine", uniaxial_tensor(), AbsorptionUnit::PerMm);
         save_user_color_variant(&db, &variant).unwrap();
-        assert!(user_color_variants(&db, "Ruby").unwrap().is_empty());
+        assert_eq!(
+            user_color_variants(&db, "Ruby").unwrap(),
+            [] as [ColorVariant; 0]
+        );
         assert_eq!(load_user_color_variant(&db, "user.missing").unwrap(), None);
     }
 
@@ -838,7 +845,10 @@ mod tests {
 
         assert!(delete_user_color_variant(&db, &key).unwrap());
         assert!(!delete_user_color_variant(&db, &key).unwrap());
-        assert!(user_color_variants(&db, "Sapphire").unwrap().is_empty());
+        assert_eq!(
+            user_color_variants(&db, "Sapphire").unwrap(),
+            [] as [ColorVariant; 0]
+        );
     }
 
     #[test]
@@ -903,7 +913,10 @@ mod tests {
         let mut nan = ok;
         nan.absorption.o_ray[0].peak = f32::NAN;
         assert!(save_user_color_variant(&db, &nan).is_err());
-        assert!(user_color_variants(&db, "Sapphire").unwrap().is_empty());
+        assert_eq!(
+            user_color_variants(&db, "Sapphire").unwrap(),
+            [] as [ColorVariant; 0]
+        );
     }
 
     #[test]
@@ -936,7 +949,10 @@ mod tests {
         let error = load_user_color_variant(&db, &key).unwrap_err().to_string();
         assert!(error.contains("newer version"), "{error}");
         assert!(error.contains("Future"), "{error}");
-        assert!(user_color_variants(&db, "Sapphire").unwrap().is_empty());
+        assert_eq!(
+            user_color_variants(&db, "Sapphire").unwrap(),
+            [] as [ColorVariant; 0]
+        );
         // The row is still in the vault: an older build never deletes what it cannot read.
         assert!(db.load_color_variant(&key).unwrap().is_some());
     }
@@ -958,7 +974,10 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(error.contains("Broken"), "{error}");
-        assert!(user_color_variants(&db, "Sapphire").unwrap().is_empty());
+        assert_eq!(
+            user_color_variants(&db, "Sapphire").unwrap(),
+            [] as [ColorVariant; 0]
+        );
     }
 
     #[test]
@@ -1006,7 +1025,10 @@ mod tests {
         .unwrap();
         assert_eq!(remove_color_variants(&db, "SAPPHIRE").unwrap(), 1);
         assert_eq!(remove_color_variants(&db, "SAPPHIRE").unwrap(), 0);
-        assert!(user_color_variants(&db, "Sapphire").unwrap().is_empty());
+        assert_eq!(
+            user_color_variants(&db, "Sapphire").unwrap(),
+            [] as [ColorVariant; 0]
+        );
         assert_eq!(user_color_variants(&db, "Ruby").unwrap().len(), 1);
     }
 }

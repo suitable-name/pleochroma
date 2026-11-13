@@ -1,17 +1,66 @@
-//! Stand-in for a build without the `gpu` feature -- see the `gpu`-gated
-//! [`super::backend::GpuBackend`] for what this stands in for and why it exists at all.
+//! Stand-in for builds without the `gpu` feature. It has the same signatures as the
+//! `gpu`-gated [`super::backend::GpuBackend`], so callers need no `#[cfg]`.
 
 use std::sync::atomic::AtomicBool;
 
 use glam::Vec3;
 
-use super::{GpuAccumulate, GpuBatchItem, GpuPipelineKind, GpuSceneRef};
-use crate::{geometry::tool::ToolPrimitive, optics::raytracer::surface::SurfaceScene};
+use super::{GpuAccumulate, GpuBatchItem, GpuPathCache, GpuPipelineKind, GpuSceneRef};
+use crate::{
+    geometry::tool::ToolPrimitive,
+    optics::raytracer::surface::SurfaceScene,
+    renderer::adaptive::{LiveTiles, NoiseMetric, Pass, PendingCheck},
+};
 
-/// Gpu backend.
+/// Always-declining `GpuBackend` for builds without the `gpu` feature.
 pub struct GpuBackend;
 
+/// Stand-in for the `gpu` build's GPU-resident adaptive run: never constructed, because
+/// [`GpuBackend::try_adaptive_resident`] always declines without the `gpu` feature.
+pub struct GpuResidentRun<'a> {
+    never: std::convert::Infallible,
+    marker: std::marker::PhantomData<&'a ()>,
+}
+
+impl GpuResidentRun<'_> {
+    /// Unreachable: no value of this type exists.
+    #[must_use]
+    pub const fn pass(&mut self, _pass: &Pass, _cancel: &AtomicBool) -> GpuAccumulate {
+        let _ = self.marker;
+        GpuAccumulate::Declined
+    }
+
+    /// Unreachable: no value of this type exists.
+    #[must_use]
+    pub const fn tile_errors(
+        &mut self,
+        _check: &PendingCheck,
+        _scale: f32,
+        _metric: NoiseMetric,
+    ) -> Option<Vec<f32>> {
+        None
+    }
+
+    /// Unreachable: no value of this type exists.
+    #[must_use]
+    pub const fn finish(self) -> Option<(Vec<Vec3>, Vec<Vec3>)> {
+        match self.never {}
+    }
+}
+
 impl GpuBackend {
+    /// A build without GPU support sends every shadowed scene to the CPU.
+    #[must_use]
+    pub const fn supports_tray_shadow(&self) -> bool {
+        false
+    }
+
+    /// A build without GPU support sends every mirrored scene to the CPU.
+    #[must_use]
+    pub const fn supports_tray_mirror(&self) -> bool {
+        false
+    }
+
     /// Creates the backend (a no-op stand-in without the `gpu` feature).
     #[must_use]
     pub const fn acquire() -> Self {
@@ -31,9 +80,8 @@ impl GpuBackend {
         None
     }
 
-    /// No-op: with no `gpu` feature there is no renderer to select a kernel on. Ignores
-    /// `_kind` only to stay signature-compatible with the `gpu`-gated
-    /// [`super::backend::GpuBackend::set_pipeline_kind`].
+    /// No-op: there is no renderer to select a kernel on. `_kind` is ignored only to match
+    /// the `gpu`-gated [`super::backend::GpuBackend::set_pipeline_kind`].
     pub const fn set_pipeline_kind(&self, _kind: GpuPipelineKind) {}
 
     /// Always `false`: with no `gpu` feature there is no device to ever lose -- see the
@@ -43,29 +91,25 @@ impl GpuBackend {
         false
     }
 
-    /// Always `true` ("not lost, nothing to recover"): with no `gpu` feature there is no
-    /// device to ever lose -- see the `gpu`-gated [`super::backend::GpuBackend::try_recover`].
+    /// Always `true` ("not lost, nothing to recover"), since there is no device to lose.
+    /// See the `gpu`-gated [`super::backend::GpuBackend::try_recover`].
     #[must_use]
     pub const fn try_recover(&self) -> bool {
         true
     }
 
-    /// Always `None`, for the same reason [`Self::is_lost`] is always `false`.
+    /// Always `None`, since [`Self::is_lost`] is always `false`.
     #[must_use]
     pub const fn last_lost_reason(&self) -> Option<String> {
         None
     }
 
-    /// Always declines, leaving `accum` untouched.
-    ///
-    /// Ignores every argument only to stay signature-compatible with the real
-    /// `try_accumulate` above -- that identical signature is what keeps callers free of
-    /// `#[cfg]`.
+    /// Always reports the GPU as unavailable, leaving `accum` untouched. Ignores every
+    /// argument so the signature matches the `gpu` build.
     #[allow(
         clippy::unused_self,
         reason = "signature must match the `gpu`-gated GpuBackend::try_accumulate"
     )]
-    /// Always reports the GPU as unavailable, matching the `gpu` build's signature.
     pub const fn try_accumulate(
         &self,
         _scene: &GpuSceneRef<'_>,
@@ -76,10 +120,9 @@ impl GpuBackend {
         false
     }
 
-    /// Always declines, leaving `accum` untouched -- see the `gpu`-gated
-    /// [`super::backend::GpuBackend::try_accumulate_cancellable`] for what it stands in
-    /// for. Ignores `cancel` (and every other argument) for the same reason
-    /// [`Self::try_accumulate`] does.
+    /// Always declines, leaving `accum` untouched. Arguments are ignored, as in
+    /// [`Self::try_accumulate`]. See the `gpu`-gated
+    /// [`super::backend::GpuBackend::try_accumulate_cancellable`].
     pub const fn try_accumulate_cancellable(
         &self,
         _scene: &GpuSceneRef<'_>,
@@ -151,12 +194,117 @@ impl GpuBackend {
         GpuAccumulate::Declined
     }
 
+    /// Always declines, leaving `accum` and `half_b` untouched -- see the `gpu`-gated
+    /// [`super::backend::GpuBackend::try_accumulate_geom_surface_live_cancellable`].
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "signature must match the `gpu`-gated GpuBackend::try_accumulate_geom_surface_live_cancellable"
+    )]
+    pub const fn try_accumulate_geom_surface_live_cancellable(
+        &self,
+        _scene: &GpuSceneRef<'_>,
+        _tools: &[ToolPrimitive],
+        _surface: &SurfaceScene<'_>,
+        _sample_offset: u32,
+        _spp: u32,
+        _live: &LiveTiles,
+        _accum: &mut [Vec3],
+        _half_b: &mut [Vec3],
+        _cancel: &AtomicBool,
+    ) -> GpuAccumulate {
+        GpuAccumulate::Declined
+    }
+
+    /// Always declines, leaving `accum` and `half_b` untouched -- see the `gpu`-gated
+    /// [`super::backend::GpuBackend::try_accumulate_cached_live_cancellable`].
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "signature must match the `gpu`-gated GpuBackend::try_accumulate_cached_live_cancellable"
+    )]
+    pub const fn try_accumulate_cached_live_cancellable(
+        &self,
+        _scene: &GpuSceneRef<'_>,
+        _tools: &[ToolPrimitive],
+        _surface: &SurfaceScene<'_>,
+        _sample_offset: u32,
+        _spp: u32,
+        _live: &LiveTiles,
+        _cache: &GpuPathCache<'_, '_, '_>,
+        _accum: &mut [Vec3],
+        _half_b: &mut [Vec3],
+        _cancel: &AtomicBool,
+    ) -> GpuAccumulate {
+        GpuAccumulate::Declined
+    }
+
+    /// No-op: with no `gpu` feature a cache never reaches the GPU -- see the `gpu`-gated
+    /// [`super::backend::GpuBackend::release_path_cache`].
+    pub const fn release_path_cache(&self, _cache: &GpuPathCache<'_, '_, '_>) {}
+
+    /// Always `None`: there is no device to bind a slab on -- see the `gpu`-gated
+    /// [`super::backend::GpuBackend::path_cache_slab_limit`].
+    #[must_use]
+    pub const fn path_cache_slab_limit(&self) -> Option<u64> {
+        None
+    }
+
+    /// Always `None` (take the host path) -- see the `gpu`-gated
+    /// [`super::backend::GpuBackend::try_adaptive_resident`].
+    #[must_use]
+    pub const fn try_adaptive_resident<'a>(
+        &'a self,
+        _scene: &GpuSceneRef<'a>,
+        _tools: &'a [ToolPrimitive],
+        _surface: &SurfaceScene<'_>,
+        _pass_spp: u32,
+    ) -> Option<GpuResidentRun<'a>> {
+        None
+    }
+
     /// Always declines background preparation when the GPU feature is disabled.
     pub const fn prepare_geom_surface_cancellable(
         &self,
         _scene: &GpuSceneRef<'_>,
         _tools: &[ToolPrimitive],
         _surface: &SurfaceScene<'_>,
+        _cancel: &AtomicBool,
+    ) -> GpuAccumulate {
+        GpuAccumulate::Declined
+    }
+
+    /// Always declines, leaving `out` untouched -- see the `gpu`-gated
+    /// [`super::backend::GpuBackend::try_beam_fragments`].
+    #[cfg(feature = "beam")]
+    pub const fn try_beam_fragments(
+        &self,
+        _scene: &GpuSceneRef<'_>,
+        _packed: &crate::renderer::beam::beam::PackedLeaves,
+        _params: super::BeamFragmentParams,
+        _out: &mut [Vec3],
+        _cancel: &AtomicBool,
+    ) -> super::GpuBeamFragments {
+        super::GpuBeamFragments::Declined("built without the gpu feature")
+    }
+
+    /// Always declines, leaving `accum` and `half_b` untouched -- see the `gpu`-gated
+    /// [`super::backend::GpuBackend::try_accumulate_reference_live_cancellable`].
+    #[cfg(feature = "beam")]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "signature must match the `gpu`-gated GpuBackend::try_accumulate_reference_live_cancellable"
+    )]
+    pub const fn try_accumulate_reference_live_cancellable(
+        &self,
+        _scene: &GpuSceneRef<'_>,
+        _tools: &[ToolPrimitive],
+        _surface: &SurfaceScene<'_>,
+        _sample_offset: u32,
+        _spp: u32,
+        _live: &LiveTiles,
+        _kept: &crate::renderer::beam::beam::PackedKept,
+        _n_lambda: u32,
+        _accum: &mut [Vec3],
+        _half_b: &mut [Vec3],
         _cancel: &AtomicBool,
     ) -> GpuAccumulate {
         GpuAccumulate::Declined
@@ -178,5 +326,81 @@ impl GpuBackend {
         for index in 0..items.len() {
             on_done(index, GpuAccumulate::Declined);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::AtomicBool;
+
+    use glam::Vec3;
+
+    use super::{GpuAccumulate, GpuBackend, GpuSceneRef, LiveTiles, SurfaceScene};
+    use crate::{
+        geometry::cuts::StandardGemCuts,
+        optics::{
+            materials::GemMaterial,
+            raytracer::{Camera, LightingPreset},
+        },
+    };
+
+    /// The stand-in declines an adaptive pass and leaves both buffers untouched, exactly like
+    /// the `gpu` build's declines.
+    #[test]
+    fn the_stub_declines_a_live_pass_and_touches_nothing() {
+        let camera = Camera::new(0.35, 0.28, 5.0, 18.0);
+        let planes = StandardGemCuts::standard_round_brilliant();
+        let material = GemMaterial::diamond();
+        let scene = GpuSceneRef {
+            camera: &camera,
+            width: 16,
+            height: 16,
+            planes: &planes,
+            facet_finishes: &[],
+            material: &material,
+            max_bounces: 4,
+            environment: LightingPreset::Daylight.studio(1.0, 0.4, 0.35),
+            estimator: None,
+        };
+        let live = LiveTiles::all(16, 16, 8);
+        let sentinel = Vec3::new(1.5, -2.5, 3.5);
+        let mut accum = vec![sentinel; 256];
+        let mut half_b = vec![sentinel; 256];
+        let never_cancel = AtomicBool::new(false);
+        let outcome = GpuBackend::acquire().try_accumulate_geom_surface_live_cancellable(
+            &scene,
+            &[],
+            &SurfaceScene::IDEAL,
+            0,
+            4,
+            &live,
+            &mut accum,
+            &mut half_b,
+            &never_cancel,
+        );
+        assert_eq!(outcome, GpuAccumulate::Declined);
+        assert!(accum.iter().chain(&half_b).all(|p| *p == sentinel));
+    }
+
+    /// The stand-in never starts a GPU-resident run, so callers take the host path.
+    #[test]
+    fn the_stub_declines_a_resident_run() {
+        let camera = Camera::new(0.35, 0.28, 5.0, 18.0);
+        let planes = StandardGemCuts::standard_round_brilliant();
+        let material = GemMaterial::diamond();
+        let scene = GpuSceneRef {
+            camera: &camera,
+            width: 16,
+            height: 16,
+            planes: &planes,
+            facet_finishes: &[],
+            material: &material,
+            max_bounces: 4,
+            environment: LightingPreset::Daylight.studio(1.0, 0.4, 0.35),
+            estimator: None,
+        };
+        let backend = GpuBackend::acquire();
+        let run = backend.try_adaptive_resident(&scene, &[], &SurfaceScene::IDEAL, 16);
+        assert!(run.is_none());
     }
 }

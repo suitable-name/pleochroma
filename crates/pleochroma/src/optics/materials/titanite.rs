@@ -1,10 +1,9 @@
 //! Built-in material data: Titanite (Sphene).
 //!
 //! Titanite (`CaTiSiO5`) is monoclinic and biaxial positive, with a fire above diamond's and a
-//! birefringence of about 0.12 that doubles every facet edge seen through the stone. It was left
-//! out until 2026-11-03 because that birefringence is far beyond anything the biaxial code had
-//! been checked at (Zircon's 0.059 was the largest); `tests/titanite.rs` now checks the
-//! refraction into it at this magnitude.
+//! birefringence of about 0.12 that doubles every facet edge seen through the stone. That is far
+//! beyond the other biaxial built-ins (Zircon's 0.059 is the next largest), so
+//! `tests/titanite.rs` checks refraction into it at this magnitude.
 
 use super::{AbsorptionUnit, CrystalSystem, GemMaterial, OpticalCharacter};
 use crate::optics::{
@@ -52,7 +51,7 @@ impl GemMaterial {
     ///
     /// COLOR (yellow-green, the commonest gem sphene): Rossman, Caltech Mineral Spectroscopy
     /// Server, Titanite1478 (yellow-green, Madagascar, 3.91 mm, E||b and E||c), a figure only,
-    /// digitised 2026-11-03 (`data/reference_spectra/caltech_titanite_1478_digitized_3p91mm.csv`).
+    /// digitised (`data/reference_spectra/caltech_titanite_1478_digitized_3p91mm.csv`).
     /// Napierian alpha per mm = ln 10 (A - 0.125) / 3.91, 0.125 being the plot's flat level near
     /// 900 nm (reflection loss and scatter); three energy Gaussians fitted per ray, 430/460 to
     /// 780 nm (relative rms 3.4 % / 4.1 %): an ultraviolet edge, the 609 nm band that makes E||b
@@ -64,12 +63,9 @@ impl GemMaterial {
     ///   setting) with X (0.6), which Dana (after Rosenbusch) and the Handbook give as nearly
     ///   colorless, while Z is red-yellow to orange. 0.4 x 2 + 0.6 x 0.3 = 0.98 rebuilds E||c.
     ///
-    /// STRENGTH: 0.7 times the sample's absorption per mm, over the 9.905 mm face-up path of a
-    /// 7 mm stone (model units = per mm x 9.905). Chosen from renders of the Pentalume Sapphire
-    /// design: 0.5 times is a light lemon-chartreuse (Light Tent L* 65 C* 37 h 96-99), 1.0 times a
-    /// deep golden yellow (L* 52 C* 33-36 h 91-95); gem sphene is a medium yellow-green. The same
-    /// day 0.4 times that, 0.28 times the sample, after the dealer photos (see the note at the
-    /// bands).
+    /// STRENGTH: 0.28 times the sample's absorption per mm, over the 9.905 mm face-up path of a
+    /// 7 mm stone (model units = per mm x 9.905). Full strength (1.0) renders a deep golden
+    /// yellow; this strength matches the dealer photos of gem sphene (median hue 108).
     ///
     /// ORIENTATION: the `n_gamma` direction (Z, `c_axis`) lies in the table, so face-up light
     /// travels across the optic plane's acute bisectrix and shows the full birefringence: the
@@ -85,15 +81,9 @@ impl GemMaterial {
             dispersion: titanite_curve(2.414_63),
             // n_gamma - n_alpha at the D line of the two principal curves.
             birefringence_delta: 0.122_618,
-            // 2026-11-03 (owner: "match the pictures of actual gemstones"): every peak x 0.4, i.e.
-            // 0.28 x the sample. Twenty-four dealer photos (GemSelect) have a median hue of 108
-            // (colored pixels); the 0.7 x sample rendered h 94, this h 101 (Light Tent; 0.3 x gave
-            // h 102 and paler, a turned crystal h 97 with no doubling face-up).
-            // 2026-11-04 (owner: "Fix the remaining gaps"): beta's 609 nm band, the yellow-green of
-            // E||b, x 3 (an estimate: gem sphene is greener than the one measured crystal), the
-            // rest as before. Light Tent h 108 (the photos' median 108; x 2 gave 104), chroma as
-            // before. Swatch (the Python replica, not a run): three-ray mean L*88 C*35 h 111,
-            // beta h 136 (with the band x 1 L*89 C*37 h 104, beta h 113).
+            // Every peak is at the strength above (0.28 of the sample). Beta's 609 nm band,
+            // the yellow-green of E||b, is three times that (an estimate: gem sphene is
+            // greener than the one measured crystal).
             absorption: AbsorptionTensor::biaxial(
                 vec![
                     // alpha

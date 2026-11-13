@@ -1,4 +1,4 @@
-//! Restores options without changing the Solid startup renderer.
+//! Applies the saved ray-trace options to the render context and the settings controls at startup.
 use crate::{
     MainWindow, SettingsModel, bridge::render_thread::RenderContext, settings::model::AppSettings,
 };

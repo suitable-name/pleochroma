@@ -30,14 +30,13 @@ use crate::{
     },
 };
 
-// The RI-preservation rule for a plain material pick moved to `pleochroma_editor::loading`
-// (shared with the web design settings); re-exported at its old path, which
-// `super::tests` exercises.
+// The RI rule for a plain material pick lives in `pleochroma_editor::loading`. It is re-exported
+// here for `super::tests`.
 pub(super) use pleochroma_editor::loading::ri_override_for_material_pick;
 
 /// The Symmetry Order field: a positive whole number, or arithmetic that works out to one
 /// (`4*2`). `None` for anything else (text that is no number, a fraction, zero, a negative
-/// number). A plain whole number reads exactly as it always did.
+/// number).
 fn symmetry_order_from_text(text: &str) -> Option<u32> {
     let trimmed = text.trim();
     if let Ok(order) = trimmed.parse::<u32>() {
@@ -57,14 +56,12 @@ fn symmetry_order_from_text(text: &str) -> Option<u32> {
     Some(order)
 }
 
-/// The design settings panel's material combo + RI override field + color combo --
-/// applies [`Edit::SetMaterial`] via [`body_color_combo::material_for_apply`] (the
-/// material parse of `parse_design_material_form`), reading the combo's
-/// current option list from `editor_material_combo_options` (pushed fresh every
-/// refresh, so this always parses against the SAME list the user actually saw). The
-/// color combo is authoritative: its index becomes the selection's
-/// `body_color_override` (`0` = the material's own color; the trailing "Custom" entry,
-/// present only for a triple that matches no preset, keeps the design's own triple).
+/// The design settings panel's material combo, RI override field and color combo. Applies
+/// [`Edit::SetMaterial`] via [`body_color_combo::material_for_apply`], against the option list
+/// the user saw (`EditorModel.material_combo_options`, pushed on every refresh). The color combo
+/// is authoritative: its index becomes the selection's `body_color_override` (`0` = the
+/// material's own color; the trailing "Custom..." entry, present only for a triple that matches no
+/// preset, keeps the design's own triple).
 ///
 /// While the design has a color pattern its color is the pattern's: the combo is greyed beside it,
 /// so its row is not applied (`material_for_apply` keeps the color and the pattern as they are).
@@ -101,12 +98,8 @@ pub(in crate::gui::editor) fn setup_apply_design_material_callback(
                 body_color_index,
             ) {
                 Ok(mut material) => {
-                    // A plain material
-                    // pick (no typed RI override -- that path is left alone, it
-                    // is an explicit choice) must not silently change what the
-                    // exported I line reads, but must also not pin the OUTGOING
-                    // material's RI onto the incoming one. See
-                    // `ri_override_for_material_pick`'s own doc comment.
+                    // A plain pick (no typed RI override) must not silently change the exported
+                    // I line, nor pin the outgoing material's RI onto the incoming one.
                     if material.refractive_index_override.is_none() {
                         material.refractive_index_override = ri_override_for_material_pick(
                             material.name.as_deref(),
@@ -129,13 +122,8 @@ pub(in crate::gui::editor) fn setup_apply_design_material_callback(
                         Ok(()) => {
                             // A material change never moves a tier's own mast.
                             refresh_editor_panel_stale(&ui, &render_ctx, &st, &BTreeSet::new());
-                            // a Load Selected suggestion banner
-                            // ("Set material to X (RI Y)?") left unanswered describes
-                            // the material the design HAD at load time -- an explicit
-                            // material pick through this combo (a different path than
-                            // the banner's own accept/dismiss) must not leave that
-                            // stale offer sitting there to later overwrite this pick
-                            // if clicked.
+                            // A pending Load Selected suggestion describes the material the design
+                            // had at load time, so an explicit pick clears it.
                             ui.global::<EditorModel>()
                                 .set_material_suggestion_name("".into());
                             ui.global::<EditorModel>()
@@ -185,7 +173,7 @@ fn material_pick_edit(design: &Design, material: MaterialSelection) -> Edit {
 }
 
 /// The selection `current` becomes when the material called `name` is chosen by an explicit
-/// action (Save & Apply, the planner's "Use colour"): the new name, the RI rule of a plain
+/// action (Save & Apply, the planner's "Use Color"): the new name, the RI rule of a plain
 /// material pick (`ri_override_for_material_pick`), and no body-colour override, since the
 /// chosen material brings its own colour. The specific-gravity override stays.
 fn named_material(current: &MaterialSelection, legacy_ri: f64, name: &str) -> MaterialSelection {
@@ -420,16 +408,11 @@ fn setup_apply_named_material_callback(
     );
 }
 
-/// "Set material" on an inferred-material guess (the "Inferred material shown as
-/// a guess, never as a fact" principle) -- writes `name` into the design's
-/// [`pleochroma_cut_core::MaterialSelection`]
-/// as an ordinary, undoable `Edit::SetMaterial`, keeping the design's own
-/// current specific-gravity/RI-override fields untouched (only the NAME
-/// changes -- this is "confirm the guess", not "reconfigure the material").
-/// Once a name is set, `view::refresh_design_settings` stops computing a
-/// guess at all (`design.material.name.is_some()`), so the guess label
-/// disappears and the next native save carries the confirmed name through
-/// `design.material`.
+/// "Set material" on an inferred-material guess, which is shown as a guess and never as a fact.
+/// Writes `name` into the design's [`pleochroma_cut_core::MaterialSelection`] as one undoable
+/// `Edit::SetMaterial`. Only the name changes: the specific gravity and RI override are kept.
+/// Once a name is set, `view::inspector::refresh_design_settings` stops guessing, so the guess
+/// label disappears and the next save writes the confirmed name.
 pub(in crate::gui::editor) fn setup_material_guess_set_callback(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -480,19 +463,11 @@ pub(in crate::gui::editor) fn setup_material_guess_set_callback(
         });
 }
 
-/// The design settings panel's Symmetry/Mirror "Apply" -- wholesale
-/// [`Edit::SetSchedule`], keeping the design's CURRENT gear (this control never
-/// changes gear -- that's [`setup_gear_apply_callback`]'s job, since only a gear
-/// change needs the remap confirmation). Also registers
-/// [`EditorModel::on_request_symmetry_preview`]: a live
-/// dry-run preview of the SAME proposed change, computed as the Symmetry Order
-/// field is edited or Mirror is toggled, so switching (say) 8-fold to 6-fold no
-/// longer turns rows amber with no warning and no chance to reconsider before
-/// clicking Apply -- mirroring the gear-remap path's own dry-run preview
-/// (`gear_remap_preview`/[`setup_gear_apply_callback`]). Registered here rather
-/// than as its own `setup_*` function so it can share this function's own
-/// `state` clone instead of this module's registration point (`mod.rs`, a
-/// different lane's file right now) needing a new call site.
+/// The design settings panel's Symmetry/Mirror "Apply": a wholesale [`Edit::SetSchedule`] that
+/// keeps the current gear. Gear changes go through [`setup_gear_apply_callback`], which needs the
+/// remap confirmation. Also registers [`EditorModel::on_request_symmetry_preview`], a dry run of
+/// the same change that counts the tiers which would become incomplete orbits as the Symmetry
+/// Order is typed or Mirror is toggled, before Apply is clicked.
 pub(in crate::gui::editor) fn setup_apply_symmetry_callback(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -504,9 +479,7 @@ pub(in crate::gui::editor) fn setup_apply_symmetry_callback(
     let render_ctx = Arc::clone(render_ctx);
     let preview_state = Arc::clone(preview_state);
     let solid_last_solved = Arc::clone(solid_last_solved);
-    //    // `on_apply_symmetry` below moves the ORIGINAL `state` binding into its
-    // own closure, not after (that closure is `move`, so `state` is gone once
-    // it is constructed).
+    // Cloned before `on_apply_symmetry` below moves the original `state` into its closure.
     let state_preview = Rc::clone(&state);
     let ui_weak = ui.as_weak();
     ui.global::<EditorModel>().on_apply_symmetry(
@@ -554,7 +527,6 @@ pub(in crate::gui::editor) fn setup_apply_symmetry_callback(
         },
     );
 
-    //    // comment above.
     let ui_weak_preview = ui.as_weak();
     ui.global::<EditorModel>().on_request_symmetry_preview(
         move |symmetry_order_text: SharedString, mirror: bool| {
@@ -618,7 +590,7 @@ mod tests {
 
     /// Every way the Stone tab and the explicit actions choose a material is a design edit:
     /// the material combo (every entry) and the named-material path (Save & Apply, Use
-    /// colour). Each changes `design.material` through `apply`, and one `undo` puts the design
+    /// Color). Each changes `design.material` through `apply`, and one `undo` puts the design
     /// back, so nothing ever changes only the picture (a "silent unlink"). The one remaining
     /// non-edit path, "Preview as...", is pinned by the source scan in
     /// `tests/parameter_panels.rs`.

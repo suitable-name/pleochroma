@@ -1,6 +1,7 @@
-//! Tests of the render queue's Slint-free layer: the Jobs window's rows (J4-T1), the
-//! controller's decisions (J4-T2), the script folder (J4-T3) and the "Add to Queue" helpers
-//! (J4-T4). Nothing here needs a window, a database or a renderer.
+//! Tests of the render queue's Slint-free layer: the Jobs window's rows, the controller's
+//! decisions, the script folder and the "Add to Queue" helpers.
+//!
+//! Nothing here needs a window, a database or a renderer.
 
 use super::{
     capture_still::{plan_still_outputs, still_label, still_summary},
@@ -11,6 +12,8 @@ use super::{
     script_export::{BundleOptions, build_bundle, bundle_folder_name, write_bundle},
 };
 use crate::{bridge::export_thread::ExportParams, settings::LocalComputeTarget};
+#[cfg(all(feature = "beam", beam_tests))]
+use pleochroma::renderer::accel_beam::BeamPhase;
 use pleochroma::{
     geometry::cuts::StandardGemCuts,
     optics::{fluorescence::Fluorescence, materials::GemMaterial, raytracer::LightingPreset},
@@ -71,6 +74,7 @@ fn progress(done: u32, total: u32, fraction: f32, eta: Option<f64>) -> JobProgre
         fraction,
         eta_secs: eta,
         note: None,
+        beam_phase: None,
     }
 }
 
@@ -97,7 +101,7 @@ fn single(meta: &RenderJobMeta, live: Option<&JobProgress>) -> super::rows::RowV
     row_view(meta, 0, 1, live)
 }
 
-// ---- J4-T1: rows --------------------------------------------------------------------------
+// ---- Rows --------------------------------------------------------------------------
 
 #[test]
 fn a_waiting_still_row() {
@@ -113,6 +117,51 @@ fn a_waiting_still_row() {
     assert_eq!(row.progress, -1.0);
     assert_eq!(row.error_text, "");
     assert_eq!(buttons(&row), ["run_next", "pause", "cancel", "delete"]);
+}
+
+/// A running job with beam tracing on names its phase; a job without beams is unchanged.
+#[cfg(all(feature = "beam", beam_tests))]
+#[test]
+fn a_running_beam_row_shows_its_phase() {
+    let mut beams = still(1, "running");
+    beams.summary = format!("A summary{}", super::rows::BEAM_DETAIL);
+    let tracing = progress(0, 1, 0.3, None);
+    assert_eq!(
+        single(&beams, Some(&tracing)).progress_text,
+        "30% \u{b7} tracing beams"
+    );
+    // The phase the export reports wins over the note: a stale "Beams:" note from the previous
+    // frame must still read "tracing" while the report says Tracing.
+    let mut stale = progress(0, 1, 0.3, None);
+    stale.note = Some("Beams: 142k leaves, 0.8 % residual".to_string());
+    stale.beam_phase = Some(BeamPhase::Tracing);
+    assert_eq!(
+        single(&beams, Some(&stale)).progress_text,
+        "30% \u{b7} tracing beams"
+    );
+    // The reported Finishing phase shows without any note (the residual runs for most of the job).
+    let mut residual = progress(0, 1, 0.6, None);
+    residual.beam_phase = Some(BeamPhase::Finishing);
+    assert_eq!(
+        single(&beams, Some(&residual)).progress_text,
+        "60% \u{b7} finishing"
+    );
+    // A report that carries no phase (a video frame) falls back to the closing note.
+    let mut finishing = progress(0, 1, 0.8, Some(60.0));
+    finishing.note = Some("Beams: 142k leaves, 0.8 % residual".to_string());
+    assert_eq!(
+        single(&beams, Some(&finishing)).progress_text,
+        "80% \u{b7} finishing \u{b7} about 1 min left"
+    );
+    // Without beams the same progress reads as it always did.
+    assert_eq!(
+        single(&still(1, "running"), Some(&finishing)).progress_text,
+        "80% \u{b7} about 1 min left"
+    );
+    // The phase shows only while the job runs.
+    let mut waiting = still(1, "queued");
+    waiting.summary = beams.summary;
+    assert_eq!(single(&waiting, None).progress_text, "Waiting");
 }
 
 #[test]
@@ -337,7 +386,7 @@ fn a_running_job_gives_the_chip_its_place_and_percent() {
     assert_eq!(view.rows[1].progress_text, "Starting");
 }
 
-// ---- J4-T2: the controller's decisions ---------------------------------------------------
+// ---- The controller's decisions ---------------------------------------------------
 
 fn done_outcome() -> JobOutcome {
     JobOutcome::Done {
@@ -444,7 +493,7 @@ fn the_next_job_is_the_first_waiting_one_and_unknown_states_are_skipped() {
     assert_eq!(next_job(&moved), Some(5));
 }
 
-// ---- J4-T3: the script folder ----------------------------------------------------------
+// ---- The script folder ----------------------------------------------------------
 
 const TOKEN_A: &str = "9f2c4a7d1e0b48c3a65d2f71c8e4b903";
 const TOKEN_B: &str = "1a2b3c4d5e6f47a8b9c0d1e2f3a4b5c6";
@@ -456,6 +505,10 @@ fn scene(hash: Option<[u8; 32]>) -> SceneState {
         height: 48,
         yaw: 0.4,
         camera_roll: 0.0,
+        stone_shadow: false,
+        tray_reflection: 0.0,
+        hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
+        estimator: pleochroma::optics::raytracer::Estimator::Branching,
         pitch: 0.3,
         distance: 3.0,
         light_yaw: 0.85,
@@ -493,6 +546,7 @@ fn file(
     RenderJobFile {
         engine: pleochroma::renderer::engine::EngineSpec::default(),
         optical_diagnostics: None,
+        zoning: None,
         format: 1,
         token: token.to_string(),
         label: label.to_string(),
@@ -519,6 +573,7 @@ fn still_kind() -> JobKind {
         samples_per_pixel: 8,
         color_space: JobColorSpace::Srgb,
         preset_label: String::new(),
+        accel: pleochroma::renderer::accel::RenderAccel::default(),
     })
 }
 
@@ -538,6 +593,8 @@ fn video_kind() -> JobKind {
         more_curves: Vec::new(),
         keep_frames: false,
         video_name: "round".to_string(),
+        accel: pleochroma::renderer::accel::RenderAccel::default(),
+        keep_path_cache: false,
     })
 }
 
@@ -659,3 +716,44 @@ fn diagnostic_presentation_survives_the_job_file() {
 
 #[path = "ui_tests_bundle.rs"]
 mod bundle;
+
+// ---- The estimator in job files ----------------------------------------------------------
+
+/// A job records its estimator in its scene only: a branching job writes no key, an exit
+/// collection job keeps its estimator through the file, and a file without the key reads as
+/// branching, which is what it was rendered with.
+#[test]
+fn a_job_file_keeps_its_scene_estimator_and_a_keyless_one_reads_branching() {
+    use pleochroma::optics::raytracer::Estimator;
+
+    let mut job = file(TOKEN_A, "Estimator", "/renders/gem.png", None, still_kind());
+    assert_eq!(job.scene.estimator, Estimator::Branching);
+    let text = codec::to_text(&job).expect("the job encodes");
+    assert!(!text.contains("\"estimator\""), "{text}");
+    let back = codec::from_text(&text).expect("a job without the key decodes");
+    assert_eq!(back.scene.estimator, Estimator::Branching);
+
+    job.scene.estimator = Estimator::ExitCollection;
+    let text = codec::to_text(&job).expect("the job encodes");
+    assert!(text.contains("\"ExitCollection\""), "{text}");
+    let back = codec::from_text(&text).expect("the job decodes");
+    assert_eq!(back.scene.estimator, Estimator::ExitCollection);
+}
+
+/// The scene the app writes into a job records the estimator it is built with (the plain builder
+/// asks for the process default).
+#[test]
+fn the_scene_the_app_writes_into_a_job_records_the_estimator_it_is_built_with() {
+    use crate::bridge::{export_thread::SceneSnapshot, render_thread::RenderContext};
+    use pleochroma::optics::raytracer::{Estimator, default_estimator};
+    use std::sync::Mutex;
+
+    let ctx = Mutex::new(RenderContext::default());
+    let snapshot = SceneSnapshot::capture(&ctx).expect("the default material resolves");
+    for estimator in [Estimator::Branching, Estimator::ExitCollection] {
+        let scene = super::convert::scene_from_snapshot_with(&snapshot, 32, 24, estimator);
+        assert_eq!(scene.estimator, estimator);
+    }
+    let scene = super::convert::scene_from_snapshot(&snapshot, 32, 24);
+    assert_eq!(scene.estimator, default_estimator());
+}

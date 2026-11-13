@@ -1,4 +1,4 @@
-//! Source-parity definitions only; no CUDA execution was performed while authoring.
+//! Source-parity tests for native lighting counts and tone compaction. They need a CUDA device.
 use super::{
     diagnostics::Counters, fan::FanGeometry, lighting::ExitLighting, postprocess::Postprocess,
     prepare, reduce, tone_cuda::ToneCuda,

@@ -1,10 +1,9 @@
 //! Which commands the palette offers on the page on screen.
 //!
-//! The palette used to list every command everywhere, so the Live Render offered Add Tier,
-//! Solve, the inspector tabs and the Edit view's modes, none of which does anything there.
-//! Each command now belongs to the pages where it makes sense, and the palette lists only the
-//! commands of the page on screen. Within that list a command that cannot run right now (no
-//! tier selected, nothing to undo) still shows, greyed with its reason, as before.
+//! Each command belongs to the pages where it does something (the Live Render's display modes
+//! on the Live Render, the designing commands on the Edit view), and the palette lists only the
+//! commands of the page on screen. A command on that page that cannot run right now (no tier
+//! selected, nothing to undo) still shows, greyed with its reason.
 //!
 //! The rule is [`pages_of`]: a few groups by command id, then the category (every tier and
 //! solve command is a designing command). The guide's own runs of a command
@@ -159,7 +158,7 @@ mod tests {
         }
     }
 
-    /// The owner's report: the Live Render offered the designing commands.
+    /// The Live Render offers none of the designing commands.
     #[test]
     fn the_live_render_offers_no_designing_command() {
         let live = on(Page::LiveRender);

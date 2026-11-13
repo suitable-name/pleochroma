@@ -12,11 +12,11 @@ import { InspectorModel } from "inspector_model.slint";
 //   row 2: + Add Tier (the inspector's Tier tab in Add mode), Quick add (the compact
 //          panel below), Delete
 //   row 3: Complete orbit, Mirror, + Add Concave Tier (the inspector's concave form in Add
-//          mode; `InspectorModel.new-concave()` is wired by the inspector's concave module)
+//          mode)
 // Undo / Redo / Solve act on the whole design; Complete orbit, Mirror (the selected tier's
 // index positions mirrored to the other side of the symmetry axis) and Delete act on the
 // selected tier (Delete also on a Ctrl/Shift multi-selection, and on a selected concave
-// tier; Complete orbit and Mirror say they are for flat tiers when a concave one is selected).
+// tier; Complete orbit and Mirror show a "flat tiers only" message for a concave one).
 //
 // Each button's tooltip is its hint; Undo and Redo name what they would undo or redo. While
 // the guided walkthrough runs, each control ANDs its `GuideModel.allows-*()` group into its
@@ -56,7 +56,7 @@ export component CommandBar inherits VerticalLayout {
             clicked => { TierTableModel.solve(); }
         }
         // After an edit a debounced re-solve runs while this design's own last solve took
-        // less than the budget; Off only marks the design stale (the desktop's five values).
+        // less than the budget; Off only marks the design stale.
         // An explicit width: a ComboBox's preferred width does not come from its model.
         Rectangle {
             width: auto-label.preferred-width + 4px + 84px;

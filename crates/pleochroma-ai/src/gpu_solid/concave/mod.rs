@@ -43,7 +43,7 @@ type Plane = (DVec3, f64);
 
 /// Pieces whose area is below this fraction of `W^2` are dropped after
 /// snapping: at that size the snap noise exceeds the piece and its winding is
-/// meaningless, while the volume it carries is below `1e-10 W^3`.
+/// meaningless.
 const MIN_PIECE_AREA: f64 = 1e-10;
 
 /// Snap grid as a fraction of the stone's bounding-box width `W`.

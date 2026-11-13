@@ -5,9 +5,7 @@
 
 use super::EwError;
 
-/// Copies the first `count` `f32`s out of the mapped staging buffer and unmaps it.
-///
-/// The buffer is unmapped on both the success and the error path.
+/// Copies the first `count` `f32`s out of the mapped staging buffer and unmaps it on every path.
 fn read_mapped(buffer: &wgpu::Buffer, count: usize) -> Result<Vec<f32>, EwError> {
     let result = {
         match buffer.slice(..).get_mapped_range() {
@@ -33,7 +31,8 @@ fn read_mapped(buffer: &wgpu::Buffer, count: usize) -> Result<Vec<f32>, EwError>
 
 /// Reads `count` `f32`s from a mappable staging buffer.
 ///
-/// On native: initiates async mapping and runs a polling loop bounded by `compute::GPU_WAIT_TIMEOUT`.
+/// On native: starts the async mapping and polls until it completes or
+/// `compute::GPU_WAIT_TIMEOUT` elapses.
 /// On wasm32: awaits a `futures_channel::oneshot` channel triggered by the browser `mapAsync`
 /// callback, raced against the chunk deadline set through `clock::set_readback_deadline_ms`.
 ///

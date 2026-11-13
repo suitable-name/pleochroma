@@ -1,6 +1,5 @@
-//! The "Fit" pose against real stones: every vertex of the mesh, projected the way the
-//! rasterizer projects it at the fitted distance, lands inside the image with a margin,
-//! for wide, square and tall images and from any orbit angle.
+//! The Fit pose against real stones: every projected vertex lands inside the image, with
+//! a margin, for wide, square and tall images and from any orbit angle.
 
 use super::{
     RESET_POSE, fit_distance_for_radius, fit_distance_for_view, orbit_distance_bounds,
@@ -133,10 +132,9 @@ fn the_fitted_round_stone_fills_most_of_the_shorter_side() {
     }
 }
 
-/// The web and mobile Fit ([`standard_view`] kind 5) frames like the desktop's on a
-/// picture at least as wide as tall, and those apps never draw a tall one: their Solid
-/// raster (and mobile's Render trace) is widened to at least `SOLID_MIN_ASPECT` (1.6 in
-/// both apps) by [`with_min_aspect`] and letterboxed in a tall view.
+/// The shared Fit ([`standard_view`] kind 5) is the Fit for a picture at least as wide
+/// as tall. The web and mobile apps never draw a tall one: their Solid raster is widened
+/// to at least `SOLID_MIN_ASPECT` (1.6) by [`with_min_aspect`].
 #[test]
 fn the_web_and_mobile_fit_is_inside_their_min_aspect_raster() {
     const SOLID_MIN_ASPECT: f32 = 1.6;
@@ -171,9 +169,8 @@ fn the_web_and_mobile_fit_is_inside_their_min_aspect_raster() {
     }
 }
 
-/// Why the desktop Fit pose no longer uses [`fit_distance_for_radius`]: it fits the
-/// vertical field of view only, so in a tall image the stone runs off the sides (the
-/// desktop draws its viewports at their own aspect, with no minimum).
+/// [`fit_distance_for_radius`] fits only the vertical field of view, so in a tall image
+/// the stone runs off the sides. This is why Fit uses [`fit_distance_for_view`].
 #[test]
 fn the_vertical_only_fit_crops_a_tall_image() {
     let stone = StoneGeometryBuf::planes_only(StandardGemCuts::standard_round_brilliant());

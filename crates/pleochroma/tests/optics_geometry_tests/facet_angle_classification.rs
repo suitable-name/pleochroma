@@ -1,28 +1,23 @@
-//! `StandardGemCuts::from_database_angles` crown/pavilion classification and
-//! angle-parsing robustness tests -- classification must trust explicit evidence
-//! (facet-name prefixes / `index_val` markers actually observed in the scraped
-//! facetdiagrams.org data) over the blind positional guess, and the parser must
-//! tolerate a trailing UTF-8 degree sign, the "N girdle facets" shorthand, and
-//! individually unparseable rows without bailing out on the whole schedule.
+//! Tests for crown/pavilion classification and angle parsing in
+//! `StandardGemCuts::from_database_angles`.
+//!
+//! Classification trusts explicit evidence (facet-name prefixes and `index_val` markers)
+//! over the positional guess. The parser accepts a trailing UTF-8 degree sign, the
+//! "N girdle facets" form, and skips individually unparseable rows.
 
 use glam::Vec3;
 use pleochroma::{FacetSpec, geometry::cuts::StandardGemCuts};
 
 // ---------------------------------------------------------------------------
-// Crown/pavilion classification in from_database_angles should trust
-// explicit evidence (facet-name prefixes / index_val markers actually observed
-// in the scraped facetdiagrams.org data) over the blind positional guess.
+// Crown/pavilion classification in from_database_angles trusts explicit evidence
+// (facet-name prefixes and `index_val` markers) over the positional guess.
 // ---------------------------------------------------------------------------
 #[test]
 fn from_database_angles_classifies_by_facet_name_prefix_not_position() {
-    // 4 rows, so the old fallback heuristic (`tier_idx > angles.len() / 2`) would
-    // classify indices 0-1 as "pavilion" and indices 2-3 as "crown" purely from
-    // position. Place a C-prefixed (crown) facet at index 0 -- where the old
-    // heuristic would wrongly say pavilion -- and a P-prefixed (pavilion) facet
-    // at index 3 -- where the old heuristic would wrongly say crown -- to prove
-    // the classification now comes from the evidenced facet-name marker, not
-    // list position. Indices 1-2 are neutral filler with no C/P/G marker, so
-    // they still fall back to the old positional guess (untested here).
+    // With 4 rows, a purely positional split would call indices 0-1 pavilion and 2-3 crown.
+    // A C-prefixed (crown) facet sits at index 0 and a P-prefixed (pavilion) facet at index 3,
+    // so the test shows the facet name decides. Indices 1-2 are neutral filler with no C, P
+    // or G marker and use the positional guess (not tested here).
     let filler = || FacetSpec {
         facet: "5".into(),
         angle: "45.0".into(),
@@ -50,16 +45,14 @@ fn from_database_angles_classifies_by_facet_name_prefix_not_position() {
     let planes = StandardGemCuts::from_database_angles(&angles, 96);
     assert_eq!(planes.len(), 4);
 
-    // C1 (index 0, "pavilion" by the old positional guess) must be classified
-    // as crown -> positive Y component.
+    // C1 (index 0, which the positional guess calls pavilion) must be crown: positive Y.
     let n0 = Vec3::from(planes[0].normal);
     assert!(
         n0.y > 0.0,
         "C1 facet should be classified as crown (normal.y > 0) despite its early position, got {n0:?}"
     );
 
-    // P1 (index 3, "crown" by the old positional guess) must be classified as
-    // pavilion -> negative Y component.
+    // P1 (index 3, which the positional guess calls crown) must be pavilion: negative Y.
     let n3 = Vec3::from(planes[3].normal);
     assert!(
         n3.y < 0.0,
@@ -74,12 +67,8 @@ fn from_database_angles_classifies_table_and_culet_via_index_val() {
     // with a couple of multi-index filler tiers to stay above that floor while
     // keeping the Table/Culet rows as the ones actually under test.
     //
-    // The angle is written as "0.00°" (a literal trailing degree sign), matching the
-    // real scraped format in facet_diagrams.sqlite, NOT the plain "0.0" that would
-    // already have parsed under the old strict `.parse()` call. Using the real format
-    // here is what actually exercises the degree-sign parsing fix -- with the old
-    // code every one of these angles would have silently become 45 degrees instead
-    // of 0, and this assertion would have failed.
+    // The angles use the stored format, with a trailing degree sign, since that is what the
+    // parser must accept. A plain "0.0" would not exercise it.
     let angles = vec![
         FacetSpec {
             facet: "U".into(),
@@ -124,12 +113,10 @@ fn from_database_angles_classifies_table_and_culet_via_index_val() {
 }
 
 // ---------------------------------------------------------------------------
-// Every row in the real database's `angle_settings.angle` column carries a trailing
-// UTF-8 degree sign (e.g. "44.86°"), which `f32::from_str` rejects outright. A strict
-// `item.angle.parse().unwrap_or(45.0)` would silently fall back to a fabricated 45
-// degrees for every single row in the real database, flattening every reconstructed
-// diagram into the same shape. These tests exercise the lenient parser, the "N girdle
-// facets" index_val expansion, and the bail-out-to-SRB path.
+// Every `angle_settings.angle` value carries a trailing UTF-8 degree sign (e.g. "44.86°"),
+// which `f32::from_str` rejects. The lenient parser must accept it, or each angle would be
+// read wrongly. These tests cover the parser, the "N girdle facets" expansion and the
+// bail-out to the standard cut.
 // ---------------------------------------------------------------------------
 #[test]
 fn from_database_angles_parses_real_degree_sign_format() {
@@ -166,7 +153,7 @@ fn from_database_angles_parses_real_degree_sign_format() {
         "\"10.00°\" should parse as 10 degrees (cos ~= {expected_y}), got normal {n0:?}"
     );
 
-    // Must not have silently fallen back to the old hard-coded 45 degree default.
+    // Must not have fallen back to a 45 degree default.
     let old_buggy_y = 45.0f32.to_radians().cos();
     assert!(
         (n0.y - old_buggy_y).abs() > 0.05,

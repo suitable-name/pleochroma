@@ -167,8 +167,9 @@ fn a_row_with_render_physics_builds_the_curve_and_the_families() {
 
 /// The biaxial curve seed of the Material Editor (`material_editor/axis_curves.slint`,
 /// `seed_index`) reads the dialog's fields as the material stores them: the refractive index is
-/// `n_beta`, `delta` is `n_beta - n_alpha` and the birefringence is `n_gamma - n_alpha`. This pins that
-/// reading to `GemMaterial::biaxial_indicatrix`, so the seed and the optics cannot drift apart.
+/// `n_beta`, `delta` is `n_beta - n_alpha` and the birefringence is `n_gamma - n_alpha`. This
+/// pins that reading to `GemMaterial::biaxial_indicatrix`, so the seed and the optics cannot
+/// drift apart.
 #[test]
 fn the_biaxial_curve_seed_reads_the_dialog_fields_as_the_material_does() {
     let (ri, delta, biref) = (1.60_f32, 0.010_f32, 0.030_f32);

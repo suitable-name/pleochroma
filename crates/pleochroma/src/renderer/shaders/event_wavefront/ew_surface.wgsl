@@ -11,10 +11,10 @@
 //   exactly for the stones with zones; the browser refuses zoned stones, so it never compiles it.
 // * The arm selection reads only the hero channel (index 0): `ew_select_arm` evaluates the
 //   hero-channel expressions of `bounce_index_setup` and nothing of the seven other channels, the
-//   biaxial per-axis tables or the uniaxial entry frames, which only the arm kernels use (and
-//   compute again for themselves, as before).
+//   biaxial per-axis tables or the uniaxial entry frames, which only the arm kernels use (they
+//   compute their own).
 //
-// The megakernel and the old wavefront keep calling `bounce_surface` in 08c unchanged.
+// The megakernel keeps calling `bounce_surface` in 08c unchanged.
 
 // The arm this hit takes, from the hero channel alone. Every expression is the hero-channel
 // (k = 0) one of `bounce_index_setup` (08a), which stays the source of the full per-channel
@@ -205,8 +205,8 @@ fn ew_surface_event(
                 // Zoned stone: `ew_zoned_absorb` applies the per-zone absorption of this segment.
                 zone_absorb_pending = true;
             } else {
-                // P1 (assigned-mode absorption): optics::raytracer::absorption::
-                // channel_absorption_alphas_assigned, evaluated at the current wave normal.
+                // Assigned-mode absorption, as `optics::raytracer::absorption::
+                // channel_absorption_alphas_assigned`, evaluated at the current wave normal.
                 var alphas_interior: array<f32, 8>;
                 for (var k: u32 = 0u; k < NUM_CHANNELS; k = k + 1u) {
                     alphas_interior[k] = 0.0;
@@ -236,8 +236,8 @@ fn ew_surface_event(
                     }
                 }
                 for (var k: u32 = 0u; k < NUM_CHANNELS; k = k + 1u) {
-                    // (absorption path scale): mirrors apply_absorption's own
-                    // `path_len * ctx.material.absorption_path_scale` multiply exactly.
+                    // Same multiply as `apply_absorption`:
+                    // `path_len * ctx.material.absorption_path_scale`.
                     let scaled_hit_t = hit.t * material.absorption_path_scale;
                     // `exp_poly`, not the `exp()` builtin -- `apply_absorption` calls
                     // `crate::simd::exp_f32x8`, not `f32::exp`.

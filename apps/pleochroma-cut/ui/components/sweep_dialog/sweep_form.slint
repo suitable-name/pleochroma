@@ -7,9 +7,9 @@ import { TipBox, FieldCaption } from "../tip_box.slint";
 import { SweepButton } from "sweep_button.slint";
 
 // A number field with its caption above it. It takes arithmetic (`41.5 - 3`).
-// The component IS the vertical layout (no fixed height): its height is the caption plus the
-// 32 px field, exactly like the Tier column beside it, so a Run button aligned to the
-// bottom of the row lines up with the field bottoms (a fixed 54 px box left it 4 px low).
+// The component is the vertical layout itself, with no fixed height: the caption plus the 32 px
+// field, like the Tier column beside it, so a Run button aligned to the row's bottom lines up
+// with the field bottoms.
 export component SweepNumberField inherits VerticalLayout {
     in-out property <string> value;
     in property <string> caption;
@@ -23,8 +23,7 @@ export component SweepNumberField inherits VerticalLayout {
     spacing: 3px;
 
     FieldCaption { text: root.caption; hint: root.hint; }
-    // 32px: the std `LineEdit` is that tall; its own 160px minimum width (hence
-    // `min-width: 0px` below) used to push it over its neighbours.
+    // 32px, the height of the std `LineEdit`. Its 160px minimum width is overridden below.
     Rectangle {
         height: 32px;
         background: Theme.surface-raised;

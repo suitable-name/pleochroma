@@ -1,20 +1,17 @@
 //! The native design file: the self-contained `.psdd` file ([`design`], Pleochroma Suite
 //! Design Document) that carries a whole design.
 //!
-//! # The gap this closes
+//! # Why it exists
 //!
-//! `.asc`'s own schema is whatever `GemCAD` (and this crate's own [`asc`](crate::asc)
-//! module) can express -- angles, mast distances, index-wheel positions, free-text
-//! notes -- and nothing more. An editor built on top of `.asc` naturally wants to
-//! author several things that have nowhere to live in that format at all:
+//! `.asc` can express only what `GemCAD` (and this crate's [`asc`](crate::asc) module)
+//! can: angles, mast distances, index-wheel positions and free-text notes. An editor
+//! also needs data that has no place in that format:
 //!
 //! - A rough blank's own shape and size, independent of any cut facet.
-//! - A tier's authored meet constraint as INTENT, not just a recorded number:
-//!   `.asc`'s `G` field carries only free-text meet notes, and a constraint that pins
-//!   a tier's mast to an exact scale reference has no field to round-trip through at
-//!   all -- naive `.asc` reimport instead re-derives every tier's constraint fresh
-//!   from geometry, silently discarding a deliberate "meet an existing facet" /
-//!   "meet a named facet" choice.
+//! - A tier's meet constraint as intent. `.asc`'s `G` field holds only free-text meet
+//!   notes, and a constraint that pins a tier's mast to a scale reference has no field.
+//!   Reimporting `.asc` re-derives every constraint from geometry and silently drops a
+//!   deliberate "meet an existing facet" or "meet a named facet" choice.
 //! - Which of a tier's symmetry-generated facets are exempt from group propagation.
 //! - A real-world millimeter binding for the design's girdle diameter -- `.asc` is
 //!   unitless.

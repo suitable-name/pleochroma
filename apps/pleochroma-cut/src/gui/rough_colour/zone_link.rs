@@ -32,9 +32,8 @@ pub struct HandleSet {
 
 /// The handles to show now: the wizard is open on the Fit step and a zone is selected.
 ///
-/// `None`
-/// otherwise (the window is hidden, another step shows, no zone is selected, or the selected
-/// zone has no handle left because every parameter is locked).
+/// `None` when the window is hidden, another step shows, no zone is selected, or the selected
+/// zone has no handle left because every parameter is locked.
 #[must_use]
 pub fn current_handles() -> Option<HandleSet> {
     with_host(|host| {

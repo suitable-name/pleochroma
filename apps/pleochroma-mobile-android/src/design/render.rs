@@ -7,13 +7,13 @@
 //!
 //! | Submodule | Job |
 //! |---|---|
-//! | `runtime` | the poll timer (frames out of the engine onto `RenderModel`), the deferred restart, the 10 s governor, the state handle for timers |
+//! | `runtime` | the poll and kick timers, the 10 s governor, the timers' state handle |
 //! | `model` | `RenderModel`'s overlay properties from the state |
 //! | `export` | the export sheet: options, the worker thread, share and save |
 //!
 //! Camera changes reach the trace through `viewport::push` (see [`on_viewport_changed`]);
-//! settings and design changes through `design::refresh` (see [`push`]); a poll every
-//! 100 ms catches the rest and stops the trace when the Design destination is left.
+//! settings and design changes through `design::refresh` (see [`push`]); the poll (see
+//! `runtime`) catches the rest and stops the trace when the Design destination is left.
 
 mod export;
 mod model;

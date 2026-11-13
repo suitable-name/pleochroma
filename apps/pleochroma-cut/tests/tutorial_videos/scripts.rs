@@ -385,8 +385,7 @@ impl Film<'_> {
             ("app-keyboard-shortcuts", 2) => self.press_view_key("1", 0)?,
             ("app-keyboard-shortcuts", 3) => self.swap_tabs_with_keys()?,
             ("app-keyboard-shortcuts", 4) => self.open_shortcuts_with_key()?,
-            // The step says to click a facet of a different tier than the one step 2 picked (Crown
-            // Main), which the event route's Crown Main facet would not be.
+            // The step asks for a facet of another tier; the event route picks a Crown Main facet.
             ("viewing-solid-picking", 1) => self.hover_crown_facet()?,
             ("viewing-solid-picking", 4) => self.pick_other_tier_facet("Crown Main")?,
             // The step says to click a row of the tier list; a click on a facet raises the same

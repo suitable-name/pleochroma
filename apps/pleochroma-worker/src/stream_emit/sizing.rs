@@ -3,15 +3,12 @@
 //!
 //! # Carrying the converged size across jobs
 //!
-//! Every job's ramp restarts at `1` sample and climbs (at most 4x per step) toward
-//! whatever size actually fills [`TARGET_SUBBATCH`] on this machine -- cheap for one job,
-//! but `stream_emit::tracer::run_tracer` runs one job per `RenderRequest`, per
-//! coordinator lane chunk, and per live Direct request, so a long-running stream pays
-//! that ramp-up repeatedly for a size that only depends on this process's own resource
-//! profile. [`seeded_batch_size`]/[`remember_converged_subbatch`] cache the last
-//! converged size per [`crate::render_core::hybrid::JobKey`] (the same key
-//! `render_core::hybrid::calibrate_cached` uses, since both are asking "how fast does
-//! this profile actually go"), so a new job starts near steady-state instead of at `1`.
+//! Each job's ramp starts at `1` sample and grows by at most 4x per step toward the size
+//! that fills [`TARGET_SUBBATCH`] on this machine. Jobs are frequent (one per request, lane
+//! chunk, or live request), and the target size depends only on this process's resource
+//! profile, so [`seeded_batch_size`]/[`remember_converged_subbatch`] keep the last converged
+//! size per [`crate::render_core::hybrid::JobKey`], the key `calibrate_cached` also uses. A
+//! new job then starts near steady state instead of at `1`.
 
 use crate::render_core::hybrid::JobKey;
 use std::{
@@ -20,19 +17,16 @@ use std::{
     time::Duration,
 };
 
-/// The wall-clock duration [`next_batch_size`] adapts sub-batch sizes toward. Bounds
-/// both cancellation latency (the tracer only checks its cancel flag between
-/// sub-batches) and scheduling granularity, on hardware ranging from an A100 on a LAN
-/// to a 2060 over hotel wifi, without hardcoding a sample count wrong for either end.
+/// The wall-clock duration [`next_batch_size`] adapts sub-batch sizes toward. It bounds
+/// cancellation latency (the tracer checks its cancel flag only between sub-batches) on
+/// any hardware, so no fixed sample count is needed.
 pub(super) const TARGET_SUBBATCH: Duration = Duration::from_millis(100);
 
-/// Absolute ceiling on a single sub-batch, regardless of how favorable the timing that
-/// fed [`next_batch_size`] looked. Defense in depth: the relative 4x-per-step clamp
-/// below only bounds growth relative to the PREVIOUS result, so nothing stops many
-/// steps compounding if measurements keep landing well under [`TARGET_SUBBATCH`] (e.g.
-/// dispatch overhead dominating a small sample count on faster hardware). Comfortably
-/// below `crate::validate::MAX_SAMPLES_PER_REQUEST` so it can bind before a single
-/// sub-batch swallows a whole request's remaining range.
+/// Absolute ceiling on a single sub-batch, whatever timing [`next_batch_size`] is given.
+/// The 4x-per-step clamp alone compounds when timings keep landing well under
+/// [`TARGET_SUBBATCH`], for example when dispatch overhead dominates. The cap stays far
+/// below `crate::validate::MAX_SAMPLES_PER_REQUEST`, so it binds before one sub-batch
+/// takes a whole request.
 pub(super) const MAX_SUBBATCH: u32 = 2048;
 
 /// Adapts the next sub-batch's sample count toward [`TARGET_SUBBATCH`], given how long
@@ -108,6 +102,10 @@ mod cache_tests {
             height: 8,
             yaw: 0.4,
             camera_roll: 0.0,
+            stone_shadow: false,
+            tray_reflection: 0.0,
+            hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
+            estimator: pleochroma::optics::raytracer::Estimator::Branching,
             pitch: 0.3,
             distance: 3.0,
             light_yaw: 0.85,

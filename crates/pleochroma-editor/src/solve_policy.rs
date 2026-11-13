@@ -23,20 +23,18 @@ use std::{
 
 /// Solve cost is driven by plane count, not tier count.
 ///
-/// A wide-orbit round-brilliant tier emits many planes at once (the corpus's largest
-/// measured design is 103 tiers but 210 planes), so a small tier count can still be an
-/// expensive, UI-blocking solve.
+/// A wide-orbit round-brilliant tier emits many planes at once (the largest measured
+/// design has 103 tiers but 210 planes), so a small tier count can still be an expensive,
+/// UI-blocking solve.
 ///
-/// A rough estimate, not a re-measurement of the corpus: roughly double a 16-tier
-/// reference point at the corpus's own ~2 planes-per-tier ratio, kept comfortably
-/// under the 210-plane/5.9 s worst case.
+/// The limit is a rough estimate, about double a 16-tier design at two planes per tier,
+/// kept well under the worst measured design (210 planes, 5.9 s).
 pub const SYNC_SOLVE_PLANE_LIMIT: usize = 32;
 
-/// Once a design has a real measured solve time, that measurement is a far better signal
-/// than any plane-count estimate.
+/// A measured solve time is a better signal than a plane-count estimate.
 ///
-/// A design that solved in under this long most recently is still fine to solve again
-/// synchronously, however many planes it has.
+/// A design whose last solve took no longer than this may still solve synchronously,
+/// however many planes it has.
 pub const SYNC_SOLVE_TIME_LIMIT: Duration = Duration::from_millis(500);
 
 /// The most meet-derived tiers (every tier whose mast the solver has to find, as
@@ -52,16 +50,15 @@ pub const SYNC_SOLVE_MEET_TIER_LIMIT: usize = 8;
 /// Debounce delay between an edit landing and an eligible auto-solve actually
 /// dispatching.
 ///
-/// Short enough that a burst of keystrokes (typing an angle, say) only ever triggers the
-/// LAST one, long enough that it reads as "just happened," not "laggy."
+/// Long enough that a burst of keystrokes (typing an angle, say) triggers only its last
+/// edit, short enough to feel immediate.
 pub const AUTO_SOLVE_DEBOUNCE: Duration = Duration::from_millis(150);
 
-/// How long a "one edit behind" (partial) preview frame waits for a FOLLOW-UP edit
-/// before concluding the edit stream went idle and asking for a full replan of its
-/// own.
+/// How long a partial ("one edit behind") preview waits for a follow-up edit before it
+/// asks for a full replan.
 ///
-/// Longer than [`AUTO_SOLVE_DEBOUNCE`]: this waits for the edit stream itself
-/// to quiet down, not just one keystroke's burst.
+/// Longer than [`AUTO_SOLVE_DEBOUNCE`], because it waits for the edit stream to go quiet,
+/// not just for one burst of keystrokes.
 pub const IDLE_REPLAN_DEBOUNCE: Duration = Duration::from_millis(400);
 
 /// How often a running background solve's banner updates its elapsed time.
@@ -71,14 +68,13 @@ pub const SOLVING_TICK_INTERVAL: Duration = Duration::from_millis(250);
 /// synchronously (the New/Load/explicit-Solve fast path) rather than in the
 /// background.
 ///
-/// Prefers this design's own last REAL measured solve time when one
-/// exists, since a real measurement beats any estimate; falls back to
-/// `plane_count` only for a design that has never solved yet.
+/// Uses this design's last measured solve time when there is one, since a measurement
+/// beats an estimate; `plane_count` decides only for a design that has never solved.
 ///
-/// A measurement describes the design as it was when it was taken, so a fast one
-/// can outlive the edits that made the design expensive. The desktop editor's
-/// inline solve on its UI thread therefore asks [`should_solve_synchronously_for`]
-/// instead, where a measurement can only veto an inline solve, never grant one.
+/// A measurement describes the design as it was when it was taken, so a fast one can
+/// outlive the edits that made the design expensive. The desktop's inline solve on its UI
+/// thread therefore asks [`should_solve_synchronously_for`] instead, where a measurement
+/// can only veto an inline solve, never grant one.
 #[must_use]
 pub fn should_solve_synchronously(plane_count: usize, last_solve: Option<Duration>) -> bool {
     last_solve.map_or(plane_count <= SYNC_SOLVE_PLANE_LIMIT, |last| {
@@ -142,13 +138,10 @@ pub fn should_solve_synchronously_for(
 
 /// Whether an edit that just landed should schedule a debounced auto-solve.
 ///
-/// `budget` `0` disables auto-solve outright (stale-marker-only behaviour); otherwise, a
-/// design with no measurement YET (`last_solve: None` -- nothing has solved since the
-/// last New/Load) is scheduled optimistically: a fresh design's schedule starts empty and
-/// solves near-instantly.
-///
-/// Once a real measurement exists,
-/// it alone decides.
+/// `budget` `0` disables auto-solve outright. Otherwise a design with no measurement yet
+/// (`last_solve: None`, nothing solved since New or Load) is scheduled optimistically: a
+/// fresh schedule starts empty and solves near-instantly. Once a measurement exists, it
+/// alone decides.
 #[must_use]
 pub const fn should_schedule_auto_solve(last_solve: Option<Duration>, budget: Duration) -> bool {
     if budget.is_zero() {
@@ -184,9 +177,8 @@ pub fn solving_banner(tier_count: usize, elapsed: Duration) -> String {
 
 /// [`Design::solve`]'s cancellable counterpart for a background solve.
 ///
-/// Same legacy [`SolveError::TooManyPlanes`] fallback [`Design::solve`] documents on
-/// itself (reproduced here, since that method's own `SolveControl::default()` can never
-/// observe a real cancel).
+/// Applies the [`SolveError::TooManyPlanes`] fallback that [`Design::solve`] documents,
+/// since that method's own `SolveControl::default()` can never observe a cancel.
 ///
 /// [`SolveError::Cancelled`] is returned as a real `Err`, not swallowed: the caller
 /// treats it exactly like any other solve error.
@@ -203,7 +195,7 @@ pub fn solve_cancellably(
         Err(DesignSolveError::Solve(SolveError::TooManyPlanes { .. })) => {
             // Threads `cancel` into this fallback too: a cancel observed right as the
             // design turns out to be over `MAX_PLANES` must still return `Cancelled`
-            // rather than silently finishing the (legacy, always-`Ok`) fallback build.
+            // rather than silently finishing the fallback build.
             if cancel.load(Ordering::Relaxed) {
                 return Err(DesignSolveError::Solve(SolveError::Cancelled));
             }
@@ -216,18 +208,13 @@ pub fn solve_cancellably(
     }
 }
 
-/// A CHEAP (no solve) pre-filter for [`too_many_planes_message`].
+/// A cheap pre-filter for [`too_many_planes_message`], with no solve.
 ///
-/// `true` iff `solved` carries the exact tell the solver stamps into every non-anchor
-/// tier's own [`SolvedTier::detail`] for its all-`SolveStrategy::Failed`
-/// over-`MAX_PLANES` fallback ("...
-///
-/// above the N-plane cap for candidate-vertex enumeration").
-/// [`too_many_planes_message`]'s own `solve_with` re-check is the only
-/// AUTHORITATIVE source of the numbers; this only lets a caller skip that re-check
-/// for the overwhelming majority of `Degenerate`/`Unbounded` results that have
-/// nothing to do with the plane cap. A false negative only means an ordinary
-/// (unhelpful but not wrong) message shows instead of the plane-cap one.
+/// `true` when `solved` holds a `SolveStrategy::Failed` tier whose [`SolvedTier::detail`]
+/// names the plane cap, the solver's tell for its fallback on an over-`MAX_PLANES` design.
+/// Only [`too_many_planes_message`] has the numbers. This lets a caller skip its re-solve
+/// for the usual `Degenerate` and `Unbounded` results. A false negative only shows an
+/// ordinary message instead of the plane-cap one.
 #[must_use]
 pub fn likely_hit_plane_cap(solved: &[SolvedTier]) -> bool {
     solved
@@ -235,15 +222,13 @@ pub fn likely_hit_plane_cap(solved: &[SolvedTier]) -> bool {
         .any(|t| matches!(t.strategy, SolveStrategy::Failed) && t.detail.contains("plane cap"))
 }
 
-/// An over-cap design silently renders as an ordinary (misleading)
-/// "Degenerate"/"Unbounded" status.
+/// The cutter-facing message for a design over the plane cap, or `None` when the cap does
+/// not apply.
 ///
-/// Since `Design::solve()`/[`solve_cancellably`] both reproduce the solver's own
-/// all-`Failed` fallback rather than an error.
-///
-/// Runs `Design::solve_with` (which surfaces the real
-/// [`SolveError::TooManyPlanes`]) purely to check for this one condition: `Some`
-/// with a cutter-actionable sentence iff it applies, `None` otherwise.
+/// [`Design::solve`] and [`solve_cancellably`] answer such a design with the solver's
+/// all-`Failed` fallback, which reads as an ordinary "Degenerate" or "Unbounded" result.
+/// This runs `Design::solve_with`, which surfaces [`SolveError::TooManyPlanes`], to tell
+/// that case apart.
 #[must_use]
 pub fn too_many_planes_message(design: &Design) -> Option<String> {
     match design.solve_with(&SolveControl::default()) {

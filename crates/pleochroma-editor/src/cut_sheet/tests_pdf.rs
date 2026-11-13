@@ -83,10 +83,10 @@ fn a_long_sheet_runs_onto_further_pages() {
     layout.details.comments = (0..60).map(|i| format!("Comment line {i}.")).collect();
     let pages = sheet_pages(&layout, &views);
     assert!(pages.len() > 1, "{} pages", pages.len());
-    let bytes: Vec<u8> = pages
-        .into_iter()
-        .flat_map(pdf_writer::Content::finish)
-        .collect();
+    let mut bytes: Vec<u8> = Vec::new();
+    for page in pages {
+        bytes.extend_from_slice(&page.finish());
+    }
     assert!(contains(&bytes, b"(Comment line 59.)"));
     assert!(contains(&bytes, b"(Pavilion"));
     assert!(contains(&bytes, b"(Crown"));

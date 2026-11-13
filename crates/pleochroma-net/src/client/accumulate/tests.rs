@@ -1,5 +1,5 @@
 //! Tests for [`super::Accumulator`]: epoch gating, FRAME/PREVIEW semantics, the
-//! expected-range (containment) check, and the v14 payload encodings and events.
+//! expected-range (containment) check, and the payload encodings and picture events.
 
 use super::*;
 use crate::{
@@ -195,7 +195,7 @@ fn worker_error_with_no_request_id_is_reported_regardless_of_current_epoch() {
     assert_eq!(acc.apply(&event, None).unwrap(), ApplyOutcome::WorkerError);
 }
 
-/// v15: an `ERROR` naming a `request_id` is epoch-gated exactly like `FRAME`/`DONE` -- a
+/// An `ERROR` naming a `request_id` is epoch-gated exactly like `FRAME`/`DONE` -- a
 /// late error for a request the client has already moved on from must not fail the
 /// wrong (current) request.
 #[test]
@@ -386,8 +386,7 @@ fn invalid_radiance_pixels_are_skipped_but_the_samples_still_count() {
     );
 }
 
-/// Without a declared range, any FRAME range is accepted -- the pre-existing
-/// `begin_request` contract is unchanged.
+/// Without a declared range, any FRAME range is accepted, as with plain `begin_request`.
 #[test]
 fn without_a_declared_range_any_frame_range_is_accepted() {
     let mut acc = Accumulator::new(2, 2);
@@ -520,9 +519,9 @@ fn a_compressed_preview_decodes_at_its_own_size() {
     assert_eq!(bits(&acc.last_preview().unwrap().buffer), bits(&preview));
 }
 
-/// Coordinator FRAMEs (B6 semantics): each carries a SET of samples, reports the
-/// request's own `first_sample`, and an exact count. Containment holds for each, so all
-/// are summed and the count is exact.
+/// Coordinator FRAMEs each carry a SET of samples, report the request's own
+/// `first_sample`, and an exact count. Containment holds for each, so all are summed and
+/// the count is exact.
 #[test]
 fn coordinator_style_set_frames_are_accepted_by_containment() {
     let mut acc = Accumulator::new(2, 2);
@@ -629,7 +628,7 @@ fn pong_and_capability_changed_are_never_epoch_gated() {
     );
 }
 
-/// v16: `DONE.stats` is kept for the epoch it belongs to (e.g. so a caller can read
+/// `DONE.stats` is kept for the epoch it belongs to (e.g. so a caller can read
 /// `reclaimed_samples` after the fact), and cleared the moment the next epoch begins --
 /// exactly like `final_image`.
 #[test]

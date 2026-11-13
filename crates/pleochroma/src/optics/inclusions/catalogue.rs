@@ -19,9 +19,9 @@
 //! * Moonstone: a broad platelet family (adularescence). Precious opal and labradorite are
 //!   haze only here: their color is the Bragg domain structure of [`super::bragg`].
 //!
-//! No published "typical `sigma_s`" exists; the strengths are aesthetic starting points anchored
+//! No published typical `sigma_s` exists: the strengths are aesthetic starting points, anchored
 //! on the haze values of `GemMaterial::recommended_scattering` (Sapphire 0.25, Ruby 0.3,
-//! Tourmaline 0.25, Emerald 0.6, Quartz 0.15), as that function's doc comment says of itself.
+//! Tourmaline 0.25, Emerald 0.6, Quartz 0.15).
 
 use super::{CrystalDir, Family, FamilyKind};
 
@@ -99,7 +99,7 @@ static BERYL: [PresetDef; 1] = [preset("Rain", &RAIN, 0.35)];
 static QUARTZ: [PresetDef; 1] = [preset("Rutilated", &RUTILATED, 0.3)];
 static MOONSTONE: [PresetDef; 1] = [preset("Adularescence", &ADULARESCENCE, 0.2)];
 
-/// The materials that have an explicit entry with no preset: haze only, as today.
+/// The materials with an explicit catalogue entry and no preset: haze only.
 const HAZE_ONLY: &[&str] = &[
     "Diamond",
     "Zircon",
@@ -133,10 +133,11 @@ const HAZE_ONLY: &[&str] = &[
     "Labradorite",
 ];
 
-/// One material per catalogue arm that holds presets.
+/// One material per catalogue arm that holds presets, so a caller can walk every preset name
+/// without knowing the arms.
 ///
-/// A caller can walk every preset name without knowing the arms. Kept beside [`catalogue_arm`]; the test
-/// `preset_materials_cover_every_arm_with_presets` fails when an arm is added and not listed.
+/// The test `preset_materials_cover_every_arm_with_presets` fails when an arm is added and not
+/// listed here.
 pub const PRESET_MATERIALS: [&str; 7] = [
     "Sapphire",
     "Chrysoberyl (Yellow)",
@@ -150,8 +151,8 @@ pub const PRESET_MATERIALS: [&str; 7] = [
 /// The explicit catalogue arm of a material: its presets (an empty slice for a material that
 /// is haze only), or `None` for a name with no arm at all.
 ///
-/// The `None` case is what `tests::every_builtin_has_an_explicit_catalogue_arm` pins (the
-/// `recommended_scattering_arm` pattern): a catch-all would hide a built-in that was forgotten.
+/// The `None` case is pinned by `inclusions::tests::every_builtin_has_an_explicit_catalogue_arm`
+/// (the `recommended_scattering_arm` pattern): a catch-all would hide a forgotten built-in.
 #[must_use]
 pub fn catalogue_arm(material_name: &str) -> Option<&'static [PresetDef]> {
     match material_name {

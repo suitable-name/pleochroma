@@ -94,11 +94,9 @@ pub fn draw_index_wheel(
 /// The drawing origin `origin` of a label `extent` pixels long, pulled back inside the
 /// inclusive clip range `lo..=hi` so the whole label fits.
 ///
-/// A label longer than the range (a frame a few pixels wide: its column is narrower than
-/// one two-digit tooth number) cannot fit, and then the range's start wins and the clip
-/// cuts the rest off. This is NOT `f32::clamp`, which panics when its bounds cross: a
-/// column of 6 px and a label of 11 px gave `clamp(0.0, -6.0)`, and that killed the
-/// render worker's frame.
+/// A label longer than the range cannot fit; then the range's start wins and the clip
+/// cuts the rest off. This is not `f32::clamp`, which panics when its bounds cross, as
+/// a column narrower than the label does.
 fn keep_inside(origin: f32, lo: i32, hi: i32, extent: u32) -> f32 {
     origin.min(hi as f32 - extent as f32).max(lo as f32)
 }
@@ -125,15 +123,14 @@ fn symmetry_line_steps(symmetry_order: u32) -> impl Iterator<Item = u32> {
     (0..symmetry_order).step_by(tick_stride(symmetry_order) as usize)
 }
 
-/// Draws `wheel.symmetry_order` evenly spaced radial guide lines (the schedule's own
-/// rotational symmetry, `ScheduleMeta::symmetry_order`; decimated to at most
-/// [`MAX_WHEEL_TICKS`] lines) and,
-/// when `wheel.mirror` is set, the design's mirror axis -- always the vertical
-/// line through the panel centre, since index 0 sits at screen "up" on BOTH
-/// panels regardless of `mirrored` (see the parent module's own doc comment: only
-/// `screen_right` flips between crown and pavilion, never `screen_up`).
-/// Drawn before the index wheel and the facet body so both sit on top of these
-/// as background reference lines, not the other way around.
+/// Draws the wheel's radial guide lines and, when `wheel.mirror` is set, its mirror axis.
+///
+/// The guide lines are `wheel.symmetry_order` evenly spaced radials (decimated to at most
+/// [`MAX_WHEEL_TICKS`] lines). The mirror axis is always
+/// the vertical line through the panel centre, since index 0 is at the top on both
+/// panels. Only the horizontal axis flips for the pavilion (see
+/// [`super::layout::wheel_direction`]). Drawn first, so the wheel and the facets sit
+/// on top of these reference lines.
 pub fn draw_symmetry_and_mirror_lines(
     frame: &mut DiagramFrame,
     layout: &PanelLayout,
@@ -177,9 +174,8 @@ pub fn draw_symmetry_and_mirror_lines(
 /// ever called for a crown/pavilion panel (see `super::render::render_panel`): a
 /// profile panel has no index wheel to point at.
 ///
-/// One radial per highlighted facet, in the SAME highlight color
-/// `super::render::draw_panel_edges` would give that facet's own boundary, at the
-/// same precedence (a more specific highlight wins over a coarser one).
+/// One radial per highlighted facet, in the color `super::render::draw_panel_edges` gives
+/// that facet's boundary, with the same precedence.
 pub fn draw_selected_index_radials(
     frame: &mut DiagramFrame,
     layout: &PanelLayout,

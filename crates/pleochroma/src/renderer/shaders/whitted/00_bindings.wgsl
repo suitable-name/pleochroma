@@ -16,6 +16,8 @@ struct GpuWhittedParams {
     aa: array<vec4<f32>, 16>, ring_dirs: array<vec4<f32>, 16>,
     depth_p: array<vec4<f32>, 30>, depth_q: array<vec4<f32>, 30>,
     bin_weights: array<vec4<f32>, 40>,
+    tray_shadow: vec4<f32>, tray_shadow_layout: vec4<u32>,
+    tray_mirror: vec4<f32>,
 }
 @group(0) @binding(0) var<uniform> wt_camera: WtCamera;
 @group(0) @binding(1) var<uniform> wt: GpuWhittedParams;

@@ -33,9 +33,8 @@ fn set_schedule_then_undo_restores_the_old_gear_symmetry_mirror() {
 
 // --- RemapIndices / RestoreIndices ---
 
-/// The plan's own 96 -> 80 example: a non-integer ratio (5/6), so the forward
-/// remap is genuinely lossy -- undo must restore the ORIGINAL vectors verbatim
-/// rather than attempt (and get wrong) a reverse 80 -> 96 remap.
+/// A 96 -> 80 remap has a non-integer ratio (5/6), so it is lossy: undo must restore the
+/// original vectors verbatim rather than apply a reverse 80 -> 96 remap.
 #[test]
 fn remap_indices_then_undo_restores_original_indices_verbatim_even_when_lossy() {
     let mut design = fresh_design();
@@ -160,11 +159,9 @@ fn remap_indices_ignores_the_sign_of_either_gear() {
     assert_eq!(from_negative.tiers[0].indices, vec![0.0, 12.0, 24.0, 36.0]);
 }
 
-/// An [`Edit::RestoreIndices`] naming the SAME tier twice (latent
-/// today -- `RemapIndices`'s own inverse never repeats an index, but the variant
-/// is public) must undo back to the true original `indices`/`detached`, not an
-/// intermediate value along the way. Same shape as
-/// `retarget_angles_naming_the_same_tier_twice_undoes_exactly`.
+/// An [`Edit::RestoreIndices`] naming the same tier twice must undo back to the original
+/// `indices`/`detached`, not an intermediate value. `RemapIndices`'s own inverse never
+/// repeats a tier, but the variant is public.
 #[test]
 fn restore_indices_naming_the_same_tier_twice_undoes_exactly() {
     let mut design = fresh_design();

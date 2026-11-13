@@ -1,16 +1,14 @@
 //! "Snapshot Design" / "Compare to Snapshot": the toolkit-free rows of the tier-by-tier
 //! comparison between a snapshot taken earlier and the design now.
 //!
-//! Moved from the desktop's `retarget_actions::snapshot`; the desktop maps
-//! [`DiffRowView`] to its Slint row type and the web app to its own. The diff itself is
-//! `pleochroma_cut_core::diff_tiers`.
+//! The desktop maps [`DiffRowView`] to its Slint row type and the web app to its own. The
+//! diff itself is `pleochroma_cut_core::diff_tiers`.
 
 use pleochroma::geometry::meet_solver::SolvedTier;
 use pleochroma_cut_core::{ConcaveTierDelta, Design, TierDelta, diff_concave_tiers, diff_tiers};
 
-/// A tier position where NEITHER the angle, the indices, nor the mast (beyond this
-/// tolerance) moved is shown as "Same" rather than "Changed", so a long, mostly-untouched
-/// schedule reads at a glance.
+/// A mast difference no larger than this is not a change, so a tier whose angle and
+/// indices also hold shows as "Same".
 pub const MAST_DIFF_TOLERANCE: f64 = 1e-4;
 
 /// A design plus its solved masts, captured on demand ("Snapshot Design") and diffed
@@ -28,7 +26,7 @@ pub struct DesignSnapshot {
     pub label: String,
     /// `true` only for the "Before retarget" snapshot a Retarget Apply holds; the Optimize
     /// comparison offers "Original" only for such a snapshot. Never set for a snapshot the
-    /// cutter took themselves, whatever its label says.
+    /// cutter took, whatever its label says.
     pub from_retarget_apply: bool,
 }
 
@@ -58,7 +56,7 @@ pub struct DiffRowView {
 
 /// One [`TierDelta`]'s badge label and RGB color -- chosen HERE, once, so the label and the
 /// color can never drift apart. The RGB values match the desktop theme's
-/// `accent-sky` / `accent-ruby` / `accent-amber` / `accent-emerald`.
+/// `accent-cyan` / `accent-ruby` / `accent-amber` / `accent-emerald`.
 fn diff_status_label_and_rgb(delta: &TierDelta) -> (&'static str, (u8, u8, u8)) {
     if delta.added() {
         ("Added", (0x38, 0xbd, 0xf8))
@@ -144,8 +142,8 @@ pub fn concave_diff_row_view(delta: &ConcaveTierDelta) -> DiffRowView {
 /// flat tier position, in position order, then one per concave tier position that
 /// differs ([`concave_diff_row_view`]).
 ///
-/// The concave rows are what makes a compare between two snapshots that differ only in
-/// a concave tier show that difference instead of "no change".
+/// Concave tiers are compared as well, so a difference in a concave tier alone still shows
+/// as a row.
 #[must_use]
 pub fn compare_rows(
     snapshot: &DesignSnapshot,

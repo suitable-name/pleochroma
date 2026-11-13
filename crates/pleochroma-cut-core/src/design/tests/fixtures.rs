@@ -1,7 +1,8 @@
-//! Shared real `.asc` fixtures for [`super`]'s topic modules, and
-//! [`design_with_real_meet_structure`], the helper that turns one of them into
-//! a real [`Design`] with GENUINE meet-derived structure (as opposed to
-//! [`Design::from_asc_schedule`]'s all-pinned import).
+//! Shared real `.asc` fixtures for [`super`]'s topic modules.
+//!
+//! It also holds [`design_with_real_meet_structure`], which turns one of them into a real
+//! [`Design`] with genuine meet-derived structure (unlike the all-pinned import of
+//! [`Design::from_asc_schedule`]).
 
 use crate::{
     design::{ConstraintTier, Design, ScheduleMeta},
@@ -11,14 +12,12 @@ use pleochroma::geometry::meet_solver::{
     Block, MeetConstraint, classify_blocks, meet_tier_inputs_from_asc,
 };
 
-/// Builds a real `Design` with GENUINE meet-derived structure --
-/// `MeetExisting`/`MeetNamed` tiers exactly as the file's own `G`-field text
-/// classifies them, with one bootstrapped [`MeetConstraint::ScaleReference`] per
-/// crown/pavilion/girdle block (that block's own first tier's real recorded mast,
-/// when the file stated no explicit anchor) -- the same technique
-/// `worst_meet_derived_rel_err` uses, reimplemented here against
-/// `Design`/`ConstraintTier` directly because the tests using this need a real,
-/// edit-and-undo-able [`Design`], not a rederived mast list.
+/// Builds a real `Design` with genuine meet-derived structure.
+///
+/// Its `MeetExisting` and `MeetNamed` tiers are as the file's `G`-field text classifies
+/// them, plus one bootstrapped [`MeetConstraint::ScaleReference`] per crown, pavilion and
+/// girdle block (the same anchoring as `worst_meet_derived_rel_err`). Tests use it when
+/// they need an editable [`Design`], not a rederived mast list.
 ///
 /// This is deliberately NOT what [`Design::from_asc_schedule`] produces (that pins
 /// every tier to a `ScaleReference`): [`crate::resolve::affected_tiers`] treats
@@ -71,21 +70,18 @@ pub(super) fn design_with_real_meet_structure(name: &str, text: &str) -> Design 
     )
 }
 
-/// The five real `.asc` fixtures `discard_resolve_gate::discard_and_resolve_gate_on_real_fixtures`
-/// checks, pulled out of `mod tests` proper so their combined ~90 lines of
-/// embedded source text don't count against that test's own
+/// The five real `.asc` fixtures checked by
+/// `discard_resolve_gate::discard_and_resolve_gate_on_real_fixtures`.
+///
+/// They live here so their embedded text does not count against that test's
 /// `clippy::too_many_lines` budget.
 pub(super) mod real_fixtures {
-    /// Not invented here: the exact bar
-    /// `crates/pleochroma/examples/meet_solver_validation/main.rs` itself reports
-    /// against ("every meet-derived tier within 10%", both in its per-design
-    /// success section and in `print_verified_extras`).
+    /// The bar `crates/pleochroma/examples/meet_solver_validation/main.rs` reports
+    /// against: every meet-derived tier within 10%.
     pub(in crate::design::tests) const TOLERANCE: f64 = 0.10;
 
-    /// (name, source text, expected to pass at [`TOLERANCE`]) -- the
-    /// expectation is exactly what was measured when this test was written;
-    /// see `discard_resolve_gate::discard_and_resolve_gate_on_real_fixtures`'s
-    /// doc comment.
+    /// (name, source text, expected to pass at [`TOLERANCE`]). See
+    /// `discard_resolve_gate::discard_and_resolve_gate_on_real_fixtures`.
     pub(in crate::design::tests) const ALL: [(&str, &str, bool); 5] = [
         ("Octahedron", OCTAHEDRON, true),
         ("Mini Square Barion #4", MINI_SQUARE_BARION, false),
@@ -94,21 +90,16 @@ pub(super) mod real_fixtures {
         ("Briolette of India Replica", BRIOLETTE, true),
     ];
 
-    // "Octahedron" (PC 11.020) -- 2 tiers, the simplest possible non-trivial
-    // shape: crown and pavilion are each a single facet, related by mirror
-    // symmetry, so there is exactly one meet-derived tier per block and no
-    // ambiguity about which vertex it must pass through.
+    // "Octahedron" (PC 11.020): 2 tiers, one per block, related by mirror symmetry.
+    // Each block's tier is its own anchor, so nothing is solved.
     const OCTAHEDRON: &str = "GemCad 4.41\ng 96 48.0\ny 4 n\nI 1.54\n\
          H PC 11.020  Octahedron\n\
          H Steele, Norman W; Seattle F Design, Oct 76\n\
          a 54.74 0.68041 0 72 48 24\n\
          a -54.74 0.68041 0 24 48 72\n";
 
-    // "Mini Square Barion #4" (PC 11.051) -- 8 tiers across crown and
-    // pavilion, no stated scale reference or named meet references at all
-    // (every tier is implicit `MeetExisting`), which is exactly the
-    // corpus's dominant, hardest case (`MeetExisting` tiers carry
-    // the worst median relative error of any `ConstraintKind`).
+    // "Mini Square Barion #4" (PC 11.051): 8 tiers across crown and pavilion, with no
+    // `G` meet text, so every tier is an implicit `MeetExisting`.
     const MINI_SQUARE_BARION: &str = "GemCad 4.41\ng 96 0.0\ny 4 y\nI 1.54\n\
          H PC 11.051  Mini Square Barion #4\n\
          H (Watermeyer) Steele, Norman W; Seattle F Design, Dec 87\n\
@@ -122,8 +113,8 @@ pub(super) mod real_fixtures {
          a 37.00 0.83439 0 24 48 72\n\
          a 0.00 0.62190 0\n";
 
-    // "Six Main Hilite LB" (PC 01.298) -- 9 tiers, negative gear (mirrored
-    // index convention), no stated anchor either.
+    // "Six Main Hilite LB" (PC 01.298): 9 tiers, negative gear (mirrored index
+    // convention), no stated anchor.
     const SIX_MAIN_HILITE: &str = "GemCad 4.51\ng -96 48.0\ny 6 y\nI 1.54\n\
          H PC 01.298 Six Main Hilite LB\n\
          H Long, R.H. & Steele, N.W.: Seattle F Design, Nov 83, p3\n\
@@ -194,11 +185,8 @@ pub(super) mod real_fixtures {
 /// measures against, pulled out on its own so its ~110 embedded lines don't count
 /// against that test's `clippy::too_many_lines` budget.
 pub(super) mod large_fixture {
-    // "PC 05.115 CrackOtto-Step" by Ottorino Invernizzi -- pulled read-only from
-    // the user's own `facet_diagrams.sqlite` catalogue's `attached_files` table
-    // (the real `.asc` file GemCAD would open), embedded below so this test needs
-    // no external file, no database, and no network. The design behind the
-    // 5.9-second full-solve measurement above.
+    // "PC 05.115 CrackOtto-Step" by Ottorino Invernizzi: a real `.asc` file from a design
+    // catalogue, embedded so the test needs no external file, database or network.
     pub(in crate::design::tests) const PC_05_115_CRACKOTTO_STEP: &str = "GemCad 5.0\n\
          g 96 0.0\n\
          y 1 y\n\

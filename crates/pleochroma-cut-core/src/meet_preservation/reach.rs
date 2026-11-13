@@ -77,8 +77,7 @@ fn facet_reach(normal: DVec3, ring: &[usize], points: &[DVec3]) -> Option<f64> {
 /// The travel a request implies, in model units.
 ///
 /// It is the largest `reach_i x turn_i` over the tiers with a positive tangent change,
-/// `fallback` standing in for a tier whose reach could not be read (the owner's fallback:
-/// half the stone's length).
+/// `fallback` standing in for a tier whose reach could not be read (half the stone's length).
 pub(super) fn turn_travel(reaches: &[Option<f64>], fallback: f64, turn: &[f64]) -> f64 {
     reaches
         .iter()

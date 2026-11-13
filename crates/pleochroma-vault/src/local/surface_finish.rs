@@ -3,8 +3,7 @@
 //!
 //! Read from the file's tiers (`surface`, `surface_rq_nm`, `surface_lap_deg`, `surface_aniso`,
 //! `surface_no_sweep`, `ground_alpha`, `surface_facets`) and from its `[render_effects]`
-//! (`edge_abrasion_*`). A file that sets none of them reads as the default, empty finish, so a
-//! design that predates the keys is stored exactly as before.
+//! (`edge_abrasion_*`). A file that sets none of them reads as the default, empty finish.
 
 use crate::model::surface_finish::{
     StoredEdgeAbrasion, StoredSurfaceFinish, StoredSurfaceGrade, StoredTierSurface,
@@ -14,8 +13,8 @@ use pleochroma_formats::native::{
     design::{self, DesignFile},
 };
 
-/// Two index-wheel positions this close are the same facet (the editor's own tolerance for
-/// naming a facet, as for the frosting).
+/// Two index-wheel positions this close are the same facet (the tolerance the frosting
+/// reader uses too).
 const SAME_INDEX_EPSILON: f64 = 1e-6;
 
 /// The grade a tier's own keys state.
@@ -87,8 +86,8 @@ pub fn surface_finish_of(file: &DesignFile) -> StoredSurfaceFinish {
 /// The surface finish a stored design file states, as [`surface_finish_of`] reads it.
 ///
 /// The bytes are a `.psdd` file; empty for bytes that are not a readable
-/// design file. Used to backfill the tables for a library that predates them and to follow a
-/// mirrored design's attached file.
+/// design file. Used to backfill the finish tables and to follow a mirrored design's
+/// attached file.
 #[must_use]
 pub fn surface_finish_of_bytes(bytes: &[u8]) -> StoredSurfaceFinish {
     let Ok(text) = std::str::from_utf8(bytes) else {

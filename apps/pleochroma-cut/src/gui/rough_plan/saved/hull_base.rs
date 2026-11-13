@@ -11,8 +11,8 @@ use pleochroma_cut_core::rough_plan::{
     },
 };
 
-/// The most vertices a saved mesh may list. A closed surface has fewer vertices than
-/// triangles, so a mesh within the triangle limit never needs more than this.
+/// The most vertices a saved mesh may list: three per triangle the limit allows, far more than
+/// a closed surface needs.
 const MAX_MESH_VERTICES: usize = 3 * MAX_MESH_TRIANGLES;
 
 /// The hull base the corners of `dto.hull` describe, or the mesh base `dto.mesh` does, with
@@ -157,7 +157,7 @@ pub(super) fn set_from_dto(dto: &RoughDto) -> Result<InclusionSet, String> {
 }
 
 /// Writes the shells of `set` into `dto.inclusions`, as the model holds them (grown already).
-/// An empty set writes nothing, so a rough without inclusions is written as it always was.
+/// An empty set leaves no inclusion tables in the file.
 pub(super) fn write_set(dto: &mut RoughDto, set: &InclusionSet) {
     dto.inclusions = set
         .to_parts()
@@ -177,7 +177,7 @@ fn unsigned(p: DVec3) -> [f64; 3] {
 
 /// Writes the mesh (or, for a convex hull, the corners) of `base` into `dto`, and the
 /// inclusions of a mesh; false for any other base. The mesh written is the rough's own,
-/// without its inclusions, so a rough without inclusions is written as it always was.
+/// without its inclusions.
 pub(super) fn write_hull(dto: &mut RoughDto, base: &RoughBase) -> bool {
     let RoughBase::Hull { id, .. } = *base else {
         return false;

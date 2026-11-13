@@ -3,7 +3,7 @@
 use super::*;
 use pleochroma::{
     geometry::cuts::StandardGemCuts,
-    optics::raytracer::{DEFAULT_FOV_DEG, LightingPreset},
+    optics::raytracer::{DEFAULT_FOV_DEG, LightingPreset, environment::TrayMirror},
 };
 
 const LOSS: &str = "CPU fallback (GPU lost: test)";
@@ -47,6 +47,27 @@ fn the_workload_key_ignores_the_pass_size_but_not_the_resolution() {
     assert_eq!(key(8, 1), key(8, 2));
     assert_eq!(key(8, 1), key(8, 64));
     assert_ne!(key(8, 1), key(16, 1));
+}
+
+/// A tray mirror changes the path costs (floor bounces), so its plane and reflectance are part
+/// of the workload; a frame without one keeps the key it always had.
+#[test]
+fn the_workload_key_follows_the_tray_mirror_and_keeps_every_old_key_without_one() {
+    let planes = StandardGemCuts::standard_round_brilliant();
+    let material = GemMaterial::diamond();
+    let camera = Camera::new(0.0, 0.0, 5.0, DEFAULT_FOV_DEG);
+    let plain = dispatch::workload_key(&frame(&camera, &planes, &material, 8, 1));
+    let key = |mirror: Option<TrayMirror>| {
+        let mut mirrored = frame(&camera, &planes, &material, 8, 1);
+        mirrored.environment = mirrored.environment.with_tray_mirror(mirror);
+        dispatch::workload_key(&mirrored)
+    };
+    assert_eq!(key(None), plain, "no mirror hashes nothing");
+    let glossy = key(TrayMirror::new(-0.3, 0.04));
+    assert_ne!(glossy, plain);
+    assert_eq!(glossy, key(TrayMirror::new(-0.3, 0.04)));
+    assert_ne!(glossy, key(TrayMirror::new(-0.3, 0.5)));
+    assert_ne!(glossy, key(TrayMirror::new(-0.2, 0.04)));
 }
 
 #[test]

@@ -15,11 +15,7 @@ use crate::{
 };
 use pleochroma::color::metrics::PROFILE_AZIMUTHS_DEG;
 use pleochroma_editor::guide::viewing_events::RENDER_JOB_ADDED;
-use pleochroma_render_jobs::{
-    codec,
-    job::{DesignInfo, format_for_engine},
-    paths::reserve_unique_folder,
-};
+use pleochroma_render_jobs::{codec, job::DesignInfo, paths::reserve_unique_folder};
 use pleochroma_vault::model::render_job::NewRenderJob;
 use slint::ComponentHandle;
 use std::path::PathBuf;
@@ -136,17 +132,7 @@ fn queue_request(ui: &MainWindow, deps: &Deps, mut request: video_export::run::V
         .map(|&index| PROFILE_AZIMUTHS_DEG.get(index).copied().unwrap_or(0.0))
         .collect();
     let label = video_label(&design, &axes_deg);
-    let summary = video_summary(&VideoFacts {
-        start_deg: request.start_deg,
-        end_deg: request.end_deg,
-        step_deg: request.step_deg,
-        frames: request.total_frames,
-        fps: request.fps,
-        width: request.width,
-        height: request.height,
-        samples: request.samples_per_pixel,
-        material: request.scene.material.name.clone(),
-    });
+    let summary = job_summary(&request);
     let now = unix_now();
     let design_info = DesignInfo {
         title: design,
@@ -156,11 +142,15 @@ fn queue_request(ui: &MainWindow, deps: &Deps, mut request: video_export::run::V
         material: request.scene.material.name.clone(),
     };
     let video_name = request.out_name.clone();
-    let text =
+    let built =
         super::convert::build_video_job(&request, label.clone(), design_info, video_name, now)
-            .and_then(|job| codec::to_text(&job).map_err(|e| e.to_string()));
-    let text = match text {
-        Ok(text) => text,
+            .and_then(|job| {
+                codec::to_text(&job)
+                    .map(|text| (job.format, text))
+                    .map_err(|e| e.to_string())
+            });
+    let (format, text) = match built {
+        Ok(built) => built,
         Err(message) => {
             refuse(ui, &message);
             return;
@@ -180,35 +170,53 @@ fn queue_request(ui: &MainWindow, deps: &Deps, mut request: video_export::run::V
                 summary: &summary,
                 frames_total: u32::try_from(request.total_frames).unwrap_or(u32::MAX),
                 output_path: &output,
-                snapshot_version: format_for_engine(request.scene.engine),
+                snapshot_version: format,
                 snapshot: &text,
             },
             now,
         )
     };
-    // A zoned stone's zones travel beside the job (the frozen scene carries none).
-    // If they cannot be stored the job is removed again rather than queued without its colour.
-    let stored = stored.and_then(|job_id| {
-        let db = deps
-            .db
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        crate::gui::rough_colour::store::save_job_zoning(&db, job_id, &request.scene.material)
-            .inspect_err(|_| {
-                let _ = db.delete_render_job(job_id);
-            })
-            .map(|_| job_id)
-    });
+    // A zoned stone's zones are part of the job text (format 5), so the one write queues it whole.
     match stored {
         Ok(_) => {
             super::controller::with_controller(super::controller::JobController::refresh);
-            let message = "Added 1 render job to the queue. Start it from File > Render Jobs...";
-            let model = ui.global::<TiltVideoExportModel>();
-            model.set_has_error(false);
-            model.set_status_message(message.into());
-            crate::gui::show_toast(ui, message, "info");
-            raise(ui, RENDER_JOB_ADDED);
+            announce_added(ui, &request);
         }
         Err(error) => refuse(ui, &format!("The job could not be saved: {error}")),
     }
+}
+
+/// The queue row's summary line for `request`: the video's facts, then its adaptive, path-cache
+/// and beam details.
+fn job_summary(request: &video_export::run::VideoExportRequest) -> String {
+    video_summary(&VideoFacts {
+        start_deg: request.start_deg,
+        end_deg: request.end_deg,
+        step_deg: request.step_deg,
+        frames: request.total_frames,
+        fps: request.fps,
+        width: request.width,
+        height: request.height,
+        samples: request.samples_per_pixel,
+        material: request.scene.material.name.clone(),
+    }) + &super::convert::adaptive_detail(request.adaptive.as_ref())
+        + &super::convert::path_cache_detail(request.path_cache.as_ref())
+        + &super::convert::beam_detail(request.beam.as_ref())
+}
+
+/// Tells the person the job of `request` was queued (and what tilt videos leave out: the stone
+/// shadow and the tray reflection), through the dialog's status line and a toast.
+fn announce_added(ui: &MainWindow, request: &video_export::run::VideoExportRequest) {
+    let mut message =
+        "Added 1 render job to the queue. Start it from File > Render Jobs...".to_owned();
+    if let Some(note) = video_export::run::tilt_views_note(&request.scene) {
+        message.push(' ');
+        message.push_str(&note);
+    }
+    let message = message.as_str();
+    let model = ui.global::<TiltVideoExportModel>();
+    model.set_has_error(false);
+    model.set_status_message(message.into());
+    crate::gui::show_toast(ui, message, "info");
+    raise(ui, RENDER_JOB_ADDED);
 }

@@ -1,5 +1,6 @@
 use super::*;
 use crate::library_record::{ImportPlan, plan_import};
+use pleochroma_cut_core::ConstraintTier;
 use pleochroma_vault::local::{ImportKind, import_bytes};
 
 const SAMPLE_ASC: &str = "GemCad 5.0\n\
@@ -344,14 +345,14 @@ fn an_asc_entry_exports_as_an_psdd_carrying_the_library_metadata() {
     let exported = export_psdd(&entry, &files, NOW).unwrap();
     assert_eq!(exported.file_name, "trichecker.psdd");
     let loaded = design_from_str(&exported.text).unwrap();
-    assert!(!loaded.design.tiers.is_empty());
+    assert_ne!(loaded.design.tiers, [] as [ConstraintTier; 0]);
     assert_eq!(loaded.metadata.id, entry.design_id);
     assert_eq!(loaded.metadata.title, "Round Brilliant");
     assert_eq!(loaded.metadata.designer, "Capps, Jerry");
     assert_eq!(loaded.metadata.tags, ["gift"]);
     assert!(loaded.metadata.ignored);
     assert_eq!(loaded.metadata.modified_at, NOW);
-    assert!(!loaded.metadata.created_at.is_empty());
+    assert_ne!(loaded.metadata.created_at, "");
 }
 
 #[test]

@@ -6,12 +6,12 @@
 // handle positions, so this file holds no layout math. A global is visible to Rust only
 // if `app.slint`'s `export { ... }` names it.
 export global ViewportModel {
-    // ---- shared with the other Design lanes --------------------------------------
+    // ---- view mode and tier pick -------------------------------------------------
     // 0 Solid, 1 Diagram, 2 Render. Rust owns the value; the chips set it first for
     // instant feedback and report the choice through `view-mode-chosen`.
     in-out property <int> view-mode: 0;
-    // A tap picked a tier (-1: it cleared the selection). The tier list follows
-    // `TiersModel.selected-tier`; this is only a nudge to scroll it into view.
+    // Rust raises it when a tap picks a tier (-1: it cleared the selection). The tier list
+    // follows `TiersModel.selected-tier`; no Slint handler uses this callback.
     callback tier-picked(int);
 
     // ---- the picture ---------------------------------------------------------------

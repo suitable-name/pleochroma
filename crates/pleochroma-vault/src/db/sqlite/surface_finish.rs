@@ -58,10 +58,9 @@ impl Database {
     /// before a library design could keep the surface finish its design file states. Adds
     /// nothing to any existing table; naturally idempotent via `CREATE TABLE IF NOT EXISTS`.
     ///
-    /// When the tables are created by this call they are filled once from the design files the
-    /// library already stores ([`Self::backfill_surface_finish`]): a design saved before the
-    /// tables existed with a surface finish would otherwise keep a thumbnail rendered with the
-    /// ideal polish until it was saved again.
+    /// When this call creates the tables, they are filled once from the design files the
+    /// library stores ([`Self::backfill_surface_finish`]), so existing renders show the finish
+    /// their design file states.
     ///
     /// # Errors
     ///
@@ -120,9 +119,8 @@ impl Database {
     /// the design ideal. `finish` is normalised first (one row per tier and slot, ascending), so
     /// the order and repeats of its lists do not matter.
     ///
-    /// Deliberately does NOT bump `diagram_entries.updated_at`, for the reason given on
-    /// [`Self::set_planner_excluded`]: a caller that replaces the design writes this right
-    /// after [`Self::save_design`], which already moved the stamp.
+    /// Does not bump `diagram_entries.updated_at`: the caller replaces the design with
+    /// [`Self::save_design`] first, which already moved the stamp.
     ///
     /// # Errors
     ///

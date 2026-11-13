@@ -11,15 +11,15 @@ export global RenderModel {
     // Why nothing (new) is rendering -- solving, an unresolved material, a design that
     // does not solve -- shown centred over the view; "" when rendering.
     in property <string> overlay-text: "";
-    // A render Worker crashed: the view offers "Restart render workers".
+    // A render Worker crashed: the view offers "Restart Render Workers".
     in property <bool> workers-failed: false;
 
     // -- The settings panel ------------------------------------------------------------
     in-out property <bool> panel-open: false;
     in-out property <float> exposure: 1.0;
     in-out property <float> light-yaw-deg: 48.0;
-    // Mirrors `DEFAULT_LIGHT_PITCH_DEG` (pleochroma-web-core settings.rs); overwritten
-    // from the loaded settings at startup (render/panel.rs).
+    // Mirrors `DEFAULT_LIGHT_PITCH_DEG` (pleochroma-web-core settings.rs); startup
+    // overwrites it with the loaded setting (`render/panel.rs`).
     in-out property <float> light-pitch-deg: 72.0;
     // The viewer's head shadow on the lit presets, degrees (0 off, default 16).
     in-out property <float> head-shadow-deg: 16.0;
@@ -60,6 +60,11 @@ export global RenderModel {
     in-out property <float> edge-rounding: 0.0;
     in-out property <float> stone-width-mm: 0.0;
     in-out property <bool> use-hdr: true;
+    // The HDR map's turn about the vertical axis, degrees (0-360), and whether it also turns
+    // with the camera. Shown while an HDR map lights the scene; pushed and read back by
+    // `src/render/panel.rs`, which keeps the picture when the switch changes.
+    in-out property <float> hdr-yaw-deg: 0.0;
+    in-out property <bool> hdr-follows-camera: false;
     in-out property <bool> gpu-enabled: false;
     in-out property <string> gpu-status-text: "";
     // 0 off, 1 unknown, 2 testing, 3 ok, 4 failed, 5 starting

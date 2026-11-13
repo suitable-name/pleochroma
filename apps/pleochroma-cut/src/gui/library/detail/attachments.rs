@@ -15,9 +15,9 @@ use std::sync::{Arc, Mutex};
 /// Exports one attached file from the LOCAL database, by exact name match, to
 /// `dest_path`. Returns a human-readable status line on success.
 ///
-/// Reads the attachment list as metadata and then ONLY the matching attachment's bytes
-/// (by id) over a read-only connection, instead of every attachment of the design under
-/// the shared lock. Blocking file and database I/O: call it from a worker thread.
+/// Reads the attachment list as metadata, then only the matching attachment's bytes (by
+/// id), over a read-only connection so the shared lock is held briefly. Blocking file and
+/// database I/O: call it from a worker thread.
 pub fn export_diagram_file(
     db_mutex: &Arc<Mutex<Database>>,
     entry_id: i64,
@@ -45,24 +45,15 @@ pub fn export_diagram_file(
     Err(format!("Failed to export file '{file_name}'."))
 }
 
-/// Dispatches "export this attachment" to a LOCAL worker ([`export_diagram_file`], which
-/// reports through `ui.status_message`/a toast) or a background remote fetch,
-/// depending on which library is active.
+/// Exports an attachment from the active library: a local worker or a remote fetch.
 ///
-/// Unlike [`export_diagram_file`] this reports its own result directly onto `ui` rather
-/// than returning one -- the remote path is unavoidably asynchronous (a `FetchAttachment`
-/// round trip), so both branches report the same way for one consistent call
-/// convention at the single call site (`gui::diagram_list::setup_diagram_selection_and_export_callbacks`).
+/// Reports through `ui` (status line and toast) rather than a return value, because the
+/// remote path is asynchronous. The Save As dialog runs first, so one prompt serves both
+/// branches and cancelling writes nothing. The dialog is seeded with `file_name` in
+/// `./exports/` when that directory exists.
 ///
-/// Prompts for a destination with a native Save As dialog, seeded with the
-/// attachment's own `file_name` under the existing `./exports/` default directory (if
-/// it exists yet), BEFORE dispatching to either branch below -- one prompt shared by
-/// both, so cancelling never writes a file either way.
-///
-/// The picker runs off the UI thread via `gui::pickers::pick`; this function reports
-/// through `ui`/a toast rather than a return value, so its one caller,
-/// `gui::diagram_list::setup_diagram_selection_and_export_callbacks`, needs no special
-/// handling for that.
+/// The picker runs off the UI thread via `gui::pickers::pick`. The single caller is
+/// `gui::library::diagram_list::setup_diagram_selection_and_export_callbacks`.
 pub fn export_diagram_file_via_source(
     ui: &MainWindow,
     db_mutex: &Arc<Mutex<Database>>,
@@ -141,14 +132,12 @@ pub fn export_diagram_file_via_source(
     );
 }
 
-/// The remote counterpart of [`export_diagram_file`]. `FetchAttachment` identifies an
-/// attachment by id, not name (see `pleochroma_net::library`'s module doc comment), and
-/// `FileItem` -- what the attachments tab actually displays -- carries only a name, so
-/// this re-fetches the design's metadata first to resolve `file_name` to an attachment
-/// id, then fetches that attachment's bytes: two round trips for an occasional,
-/// user-initiated export, not a cost paid by browsing itself. `dest_path` is already
-/// resolved (the Save As dialog already ran, in [`export_diagram_file_via_source`]) --
-/// this never prompts, it only writes.
+/// The remote counterpart of [`export_diagram_file`].
+///
+/// `FetchAttachment` takes an id, while the attachments tab only knows the name, so this
+/// first fetches the design to resolve the name, then fetches the bytes. Two round trips
+/// are acceptable for a user-initiated export. `dest_path` is already chosen by
+/// [`export_diagram_file_via_source`], so this only writes.
 fn export_diagram_file_remote(
     ui: &MainWindow,
     worker: WorkerSettings,

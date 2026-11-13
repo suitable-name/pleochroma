@@ -1,17 +1,17 @@
-//! The one resolution of "the facet planes of a catalogue record", shared by every
-//! consumer that shows or measures a stored design without opening it in the
-//! editor: the library detail view's 3D preview, the preview batch (local and
-//! remote lanes) and the tilt-curve batch (local and remote lanes).
+//! The one resolution of "the facet planes of a catalogue record", used by every consumer
+//! that shows or measures a stored design without opening it in the editor.
+//!
+//! The library detail view's 3D preview and the preview and tilt-curve batches (each local and
+//! remote) all resolve through it.
 //!
 //! The design file comes first: the attachment `super::design`'s
 //! `design_from_attachment` picks (the first `.asc`, else `.gem`, else `.gcs`,
 //! converted to `.asc` cutting instructions), loaded as a `Design` and solved into
 //! its planes. The angle table is only the fallback, used when the record has no
 //! design file or the file does not read, convert, parse or solve. The fallback
-//! is `gui::library::detail::reconstruct_planes` over the angle-settings rows --
-//! the geometry both batches always built before -- not the zero-mast placeholder
-//! schedule `design_from_full_record` hands the editor, whose facet planes all
-//! pass through the origin.
+//! is `gui::library::detail::reconstruct_planes` over the angle-settings rows, not the
+//! zero-mast placeholder schedule `design_from_full_record` hands the editor (its facet
+//! planes all pass through the origin).
 //!
 //! A design's concave tiers (curved-tool cuts) come with it: the design file keeps
 //! them (the native `.psdd` attachment stores them directly), and
@@ -128,8 +128,8 @@ pub struct CataloguePlanes {
 /// the source used for every record at debug level, and a design file that could
 /// not be used at warn level.
 ///
-/// Blocking: it parses the design file and runs a full meet-point solve (0.01 ms to
-/// 5.9 s), and owns no cancel point. A caller that answers a user action calls it on
+/// Blocking: it parses the design file and runs a full meet-point solve, with no cancel
+/// point. A caller that answers a user action calls it on
 /// a worker thread, as the library detail view does; the batches already run it on
 /// theirs.
 #[must_use]
@@ -176,6 +176,7 @@ pub fn resolve_catalogue_planes_with_frosting(
 }
 
 /// `full`'s planes from its design-file attachment, with the indices of the frosted ones.
+///
 /// `Ok(None)` when it has none; `Err` (a ready message) when it has one that does not read,
 /// convert, parse or solve, or panics doing so.
 fn design_file_planes(
@@ -197,8 +198,7 @@ fn design_file_planes(
                     // `Design::planes` is `solve` then `planes_from_solved`; solving
                     // once here lets the concave tools reuse the masts.
                     let halfspaces = design.planes_from_solved(&solved);
-                    // A planar design skips the resolver entirely, so it plans
-                    // exactly as before.
+                    // Without concave tiers there is nothing to resolve.
                     let (tools, concave_error) = if design.concave_tiers.is_empty() {
                         (Vec::new(), None)
                     } else {
@@ -262,9 +262,9 @@ fn design_file_planes(
 }
 
 /// `full`'s planes rebuilt from its angle-settings rows by
-/// `gui::library::detail::reconstruct_planes`, with the gear tooth count the
-/// detail view has always shown for an angle-table design (96 when the record has
-/// no usable one) and no reference angle.
+/// `gui::library::detail::reconstruct_planes`.
+///
+/// The gear tooth count is 96 when the record has no usable one. There is no reference angle.
 fn angle_table_planes(full: &FullDiagramRecord) -> CataloguePlanes {
     let facet_specs: Vec<FacetSpec> = full
         .angle_settings
@@ -495,9 +495,10 @@ mod tests {
             .collect()
     }
 
-    /// A design file with concave tiers resolves its render tools against the whole
-    /// arrangement, the editor's and the Compare window's rule; the planner's `tools` stay
-    /// on the facet stone and are left as they were.
+    /// A design file with concave tiers resolves its render tools against the whole arrangement.
+    ///
+    /// That is the editor's and the Compare window's rule; the planner's `tools` stay on the
+    /// facet stone and are left as they were.
     ///
     /// The reference is what the editor computes: the design the editor's loader reads from
     /// the attachment, solved in f64, its tools placed on that exact f64 arrangement
@@ -536,8 +537,7 @@ mod tests {
         );
     }
 
-    /// A planar design has no render tools, so the previews draw and measure it exactly as
-    /// before.
+    /// A planar design has no render tools, so the previews draw and measure it as a flat stone.
     #[test]
     fn a_planar_design_has_no_render_tools() {
         let text = design_file_text(MaterialSelection::none(), None, None);
@@ -583,9 +583,10 @@ mod tests {
         );
     }
 
-    /// The frosted planes of a catalogue design are the planes of the frosted tiers: the
-    /// record's stored rows apply to the design read from its design file, a design without
-    /// rows names none, and the angle-table path (no notation for frosting) names none.
+    /// The frosted planes of a catalogue design are the planes of its frosted tiers.
+    ///
+    /// The record's stored rows apply to the design read from its design file. A design without
+    /// rows names none, and neither does the angle-table path (it has no notation for frosting).
     #[test]
     fn the_stored_frosting_names_the_frosted_planes_of_the_stone() {
         use crate::gui::batch::test_records::gem_record;

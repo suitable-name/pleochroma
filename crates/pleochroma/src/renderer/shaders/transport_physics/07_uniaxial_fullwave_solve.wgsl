@@ -1,7 +1,6 @@
-// optics::raytracer::uniaxial_fresnel::EntryIncidenceFrame / entry_incidence_frame --
-// performance (requirement 7): built once per bounce by the caller (`n1 == 1.0` for
-// every channel at an air->crystal entry), shared across every channel's own
-// `entry_solve_pair_with_incidence` call -- see the CPU type's own doc comment.
+// optics::raytracer::uniaxial_fresnel::EntryIncidenceFrame / entry_incidence_frame. Built once
+// per bounce (`n1 == 1.0` at an air->crystal entry, the same for every channel) and shared by
+// each channel's `entry_solve_pair_with_incidence` call.
 struct EntryIncidenceFrameW {
     incident_s: array<Cplx, 4>,
     incident_p: array<Cplx, 4>,
@@ -125,11 +124,9 @@ fn entry_solve_pair_with_incidence(
     return result;
 }
 
-// optics::raytracer::uniaxial_fresnel::entry_solve_pair -- thin wrapper, kept for the
-// Tier 2 check's single-call convenience (bit-identical to calling
-// `entry_incidence_frame` + `entry_solve_pair_with_incidence` directly, which is what
-// every production megakernel call site does instead, sharing one `EntryIncidenceFrameW`
-// across all 8 channels of a bounce -- see this section's own header comment).
+// optics::raytracer::uniaxial_fresnel::entry_solve_pair. A single-call wrapper for the Tier 2
+// check, bit-identical to `entry_incidence_frame` plus `entry_solve_pair_with_incidence`. The
+// production call sites use those two directly and share one frame across the 8 channels.
 fn entry_solve_pair(n1: f32, n_o: f32, n_e: f32, c_axis: vec3<f32>, frame: UniaxialFrameW) -> EntryPairResultW {
     let inc = entry_incidence_frame(n1, frame);
     return entry_solve_pair_with_incidence(inc, n1, n_o, n_e, c_axis, frame);

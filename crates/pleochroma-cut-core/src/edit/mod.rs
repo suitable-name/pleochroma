@@ -1,13 +1,9 @@
 //! Edit operations on a [`crate::design::Design`], with undo/redo.
 //!
-//! Undo is business logic, not UI plumbing -- it needs to be correct and testable
-//! without a window, which is the single biggest reason this crate exists separately
-//! from `apps/pleochroma-cut` rather than living in the editor's own event
-//! handlers. The model here is a classic command/inverse pair: applying an [`Edit`]
-//! to a [`crate::design::Design`] returns the exact [`Edit`] that would undo it, so
-//! [`History`] never needs a second "how do I reverse this" implementation, a
-//! snapshot of the whole design, or any cloning bigger than the one
-//! tier/preform/constraint actually touched.
+//! Undo is business logic, not UI plumbing, so it must be correct and testable without a
+//! window. The model is a command/inverse pair: applying an [`Edit`] to a
+//! [`crate::design::Design`] returns the exact [`Edit`] that undoes it. [`History`] thus
+//! needs no separate reverse logic, and it stores only edits, never the design.
 //!
 //! [`Edit::SetConstraint`] exists alongside `ModifyTier` (which already covers
 //! "replace the whole tier, constraint included") purely as the ergonomic

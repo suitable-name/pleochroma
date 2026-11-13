@@ -1,6 +1,7 @@
 //! Scope, resolution and invalidation of preview-only stone patterns.
 
 use super::*;
+use pleochroma::optics::absorption::AbsorptionBand;
 use pleochroma_cut_core::material::pattern::{
     PatternAxis, PatternColor, TemplateId, ZoneColor, template,
 };
@@ -37,7 +38,7 @@ fn a_preview_pattern_never_changes_the_material_preset() {
     assert_eq!(ctx.material_override, None);
     assert_ne!(ctx.tinted_material_override(), Some(original));
     assert!(ctx.zoned_material());
-    assert!(!ctx.zone_swatch_colors().is_empty());
+    assert_ne!(ctx.zone_swatch_colors(), [] as [[f32; 3]; 0]);
     ctx.set_view_color_pattern(None).expect("reset");
     assert_eq!(ctx.tinted_material_override(), None);
     assert!(
@@ -88,7 +89,7 @@ fn uniform_pattern_wins_over_the_preview_body_color_and_replaces_builtin_zones()
     assert!(!ctx.zoned_material());
     let material = ctx.tinted_material_override().expect("patterned material");
     assert!(material.zoning.is_none());
-    assert!(!material.absorption.o_ray.is_empty());
+    assert_ne!(material.absorption.o_ray, [] as [AbsorptionBand; 0]);
 }
 
 #[test]

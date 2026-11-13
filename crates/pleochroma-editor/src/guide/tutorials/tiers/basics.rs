@@ -21,7 +21,7 @@ pub fn guides() -> Vec<Guide> {
     ]
 }
 
-/// The pavilion main of the Rich Teaching Design, after the Edit lesson renamed it.
+/// The name the Edit a Tier lesson gives the Rich Teaching Design's pavilion main.
 const EDITED_NAME: &str = "P1";
 
 fn add_a_tier() -> Guide {
@@ -320,7 +320,7 @@ fn index_shorthands() -> Guide {
 }
 
 fn facet_chips() -> Guide {
-    /// The Crown Main ring after the chip lesson added the star ring to it.
+    /// The main and star rings of Crown Main together.
     const BOTH_RINGS: [f64; 16] = [
         0.0, 6.0, 12.0, 18.0, 24.0, 30.0, 36.0, 42.0, 48.0, 54.0, 60.0, 66.0, 72.0, 78.0, 84.0,
         90.0,
@@ -509,7 +509,7 @@ fn quick_add() -> Guide {
             "Add the rings around them with + Add Tier.",
         ])
         .why("Every control is unlocked again.")
-        // Folds DESIGN and opens the Tier form, so the form the step talks about is on view.
+        // Opens the Tier form the step talks about, so it is on view.
         .highlight("inspector_tier"),
     )
 }

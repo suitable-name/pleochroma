@@ -4,8 +4,9 @@
 //! [`apply_refract_channel`]'s per-channel exit-splitting-aware chromatic termination.
 
 use super::{
-    DIRECTION_MATCH_COS_TOL, R_UNPOL_PDF_MAX, R_UNPOL_PDF_MIN,
+    ExactExtra, R_UNPOL_PDF_MAX, R_UNPOL_PDF_MIN,
     context::{BounceContext, BounceRay, BounceState, ExitEvent, narrow_compat},
+    direction_matches, exit_leaves_via_floor,
     exit_split::{ChannelTransmissionInputs, compute_channel_transmission, try_split_exit_channel},
     geometry::BounceRefractionGeometry,
     tir::tir_phase_delta,
@@ -14,6 +15,7 @@ use crate::optics::{
     birefringence::BirefringenceParams,
     polarization::{MuellerMatrix, StokesVector},
     raytracer::NUM_CHANNELS,
+    tables::{OpticsTableSet, fresnel_amplitudes, reflection_amplitudes},
 };
 use glam::Vec3;
 
@@ -26,6 +28,9 @@ use glam::Vec3;
 /// hero's, reducing to a plain unweighted result. Reflects the wave normal `k_hat` and
 /// returns the reflected wave normal `k'`; the caller derives `S'` via
 /// [`super::geometry::poynting_dir_for_mode`] and sets `current_ray.origin` itself.
+///
+/// `tables` is the render's optics lookup tables (`None`, the default, computes the reflection
+/// amplitudes by the closed forms, bit for bit as before the tables existed).
 #[expect(
     clippy::similar_names,
     reason = "r_s_k/r_p_k are the established s/p polarisation Fresnel names"
@@ -37,6 +42,7 @@ pub(super) fn apply_partial_reflect_bounce(
     normal: Vec3,
     stokes: &mut [StokesVector; NUM_CHANNELS],
     path_pdf: &mut [f32; NUM_CHANNELS],
+    tables: Option<&OpticsTableSet>,
 ) -> Vec3 {
     for k in 0..NUM_CHANNELS {
         let n1k = geo.n1_ch[k];
@@ -52,10 +58,7 @@ pub(super) fn apply_partial_reflect_bounce(
             MuellerMatrix::tir_retardation(delta_k)
         } else {
             let cos_t_k = (1.0 - geo.sin2_t_ch[k]).max(0.0).sqrt();
-            let r_s_k = f32::mul_add(n2k, -cos_t_k, n1k * geo.cos_i)
-                / f32::mul_add(n2k, cos_t_k, n1k * geo.cos_i);
-            let r_p_k = f32::mul_add(n1k, -cos_t_k, n2k * geo.cos_i)
-                / f32::mul_add(n1k, cos_t_k, n2k * geo.cos_i);
+            let (r_s_k, r_p_k) = reflection_amplitudes(tables, n1k, n2k, geo.cos_i, cos_t_k);
             // Channel k's own probability of choosing reflect here, using k's own
             // unpolarized reflectance (not the hero's r_unpol). Reflection direction
             // never depends on wavelength, so no chromatic-termination check applies
@@ -141,12 +144,9 @@ pub(super) fn apply_refract_bounce(
     // `compute_bounce_refraction_geometry`). Exiting the crystal, and any refraction in
     // an isotropic material, leaves `entering_anisotropic` false.
     let entering_anisotropic = !inside_gem && ctx.is_anisotropic;
-    // Mode selection -- both the coin flip (`entry_eigenmode_selection`'s
-    // polarization-weighted `p_o` in place of a blanket 50/50) and the
-    // reflect-vs-transmit decision that must be consistent with it -- is resolved once
-    // by the caller, `apply_partial_fresnel_bounce`, before it decides whether this
-    // bounce is even a refract event at all. `use_extraordinary` here is that
-    // already-resolved value, not a fresh draw.
+    // Mode selection (the polarization-weighted coin flip from `entry_eigenmode_selection`,
+    // and the reflect-vs-transmit decision consistent with it) is resolved once by
+    // `apply_partial_fresnel_bounce`; `use_extraordinary` is that value, not a new draw.
     //
     // Direction: the ordinary eigenmode's wave normal uses n_o and is never walked
     // off; the extraordinary eigenmode uses n_eff and its energy (Poynting) direction
@@ -255,8 +255,7 @@ struct ChannelRefractionGeometry {
     final_dir_k: Vec3,
 }
 
-/// The direction-independent half of [`apply_refract_channel`]'s per-channel work,
-/// split out purely to keep that function's own body under the workspace line-count
+/// Direction-independent part of [`apply_refract_channel`], split out for its line-count
 /// lint. Returns `None` when channel k cannot physically transmit at this angle even
 /// though the hero-driven path did (`sin2_t_k > 1.0`); the caller zeroes
 /// `stokes[k]`/`path_pdf[k]` for that case itself, since this helper never touches
@@ -352,9 +351,8 @@ struct ChannelTransmitMatchInputs {
     entry_mode_azimuth2: Option<(f32, f32)>,
 }
 
-/// The `direction_matches` branch of [`apply_refract_channel`]'s per-channel work,
-/// split out purely to keep that function's own body under the workspace line-count
-/// lint -- see this crate's doc comments there for the full physical rationale.
+/// The matching-direction branch of [`apply_refract_channel`], split out for its
+/// line-count lint; see [`apply_refract_bounce`] for the physical rationale.
 #[expect(
     clippy::similar_names,
     reason = "s/p polarisation pairs (t_s_k/t_p_k, r_s_k/r_p_k) are the established Fresnel names"
@@ -363,6 +361,7 @@ fn apply_channel_transmission_match(
     inputs: &ChannelTransmitMatchInputs,
     stokes_k: &mut StokesVector,
     path_pdf_k: &mut f32,
+    tables: Option<&OpticsTableSet>,
 ) {
     let &ChannelTransmitMatchInputs {
         n1k,
@@ -374,8 +373,11 @@ fn apply_channel_transmission_match(
         entry_mode_azimuth2,
     } = inputs;
 
-    let t_s_k = (2.0 * n1k * cos_i) / f32::mul_add(n2k, cos_t_k, n1k * cos_i);
-    let t_p_k = (2.0 * n1k * cos_i) / f32::mul_add(n1k, cos_t_k, n2k * cos_i);
+    // The four amplitudes come from the optics lookup tables when they serve this interface,
+    // else from the closed forms this function always used (bit for bit).
+    let amplitudes = fresnel_amplitudes(tables, n1k, n2k, cos_i, cos_t_k);
+    let t_s_k = amplitudes.t_s;
+    let t_p_k = amplitudes.t_p;
     let trans_matrix_k =
         MuellerMatrix::fresnel_transmission(n1k, n2k, cos_i, cos_t_k, t_s_k, t_p_k);
     // Project this channel's incident Stokes state onto the selected eigenmode
@@ -410,8 +412,8 @@ fn apply_channel_transmission_match(
     // ordinary mode is selected instead, `n2k` is genuinely different, so
     // `r_unpol_k` is not `r_unpol` there -- still the physically correct
     // probability for the mode actually selected.
-    let r_s_k = f32::mul_add(n2k, -cos_t_k, n1k * cos_i) / f32::mul_add(n2k, cos_t_k, n1k * cos_i);
-    let r_p_k = f32::mul_add(n1k, -cos_t_k, n2k * cos_i) / f32::mul_add(n1k, cos_t_k, n2k * cos_i);
+    let r_s_k = amplitudes.r_s;
+    let r_p_k = amplitudes.r_p;
     let r_unpol_k =
         (0.5 * r_p_k.mul_add(r_p_k, r_s_k * r_s_k)).clamp(R_UNPOL_PDF_MIN, R_UNPOL_PDF_MAX);
     // `path_pdf`'s role is `spectral_mis_weight`'s per-channel weight,
@@ -435,18 +437,21 @@ struct ChannelMismatchInputs {
     lambda_k: f32,
     refr_wave_dir_k: Vec3,
     original_stokes_k: StokesVector,
+    /// The hero's own outgoing direction at this event (`decision.final_refr_dir`): at an
+    /// exit into air the direction the shared path leaves the stone along, which
+    /// [`super::exit_leaves_via_floor`] tests against the glossy tray beside channel `k`'s own.
+    hero_dir: Vec3,
 }
 
-/// The chromatic-termination (`!direction_matches`) branch of [`apply_refract_channel`]'s
-/// per-channel work, split out purely to keep that function's own body under the
-/// workspace line-count lint -- see this crate's doc comments there for the full
-/// physical rationale.
+/// The chromatic-termination (`!direction_matches`) branch of [`apply_refract_channel`],
+/// split out for its line-count lint; see [`apply_refract_bounce`] for the rationale.
 fn apply_channel_chromatic_termination(
     inputs: &ChannelMismatchInputs,
     k: usize,
     stokes_k: &mut StokesVector,
     path_pdf_k: &mut f32,
     exit_event: &mut ExitEvent<'_, '_>,
+    tables: Option<&OpticsTableSet>,
 ) {
     let &ChannelMismatchInputs {
         n1k,
@@ -460,6 +465,7 @@ fn apply_channel_chromatic_termination(
         lambda_k,
         refr_wave_dir_k,
         original_stokes_k,
+        hero_dir,
     } = inputs;
     // Chromatic termination. Reached by a genuine interior mismatch (an
     // anisotropic entry's eigenmode direction, or -- via the degenerate
@@ -478,25 +484,41 @@ fn apply_channel_chromatic_termination(
     // its own transmitted radiance along its own refracted direction via
     // `try_split_exit_channel`. With splitting disabled this is the plain
     // chromatic termination, bit for bit.
+    //
+    // Tray-floor termination: at an exit event, a channel whose direction -- or the
+    // hero's -- meets the glossy tray is not split either: a probe cannot follow a floor
+    // bounce, so the channel takes the plain chromatic termination (`stokes` and `path_pdf`
+    // both zero, no probe). See `refraction`'s "Exit-event spectral splitting" doc.
     let prefix_path_pdf_k = *path_pdf_k;
     *stokes_k = stokes_k.scale(0.0);
     *path_pdf_k = 0.0;
 
     let (exit, hit_point) = (&mut *exit_event.exit, exit_event.hit_point);
-    if exit.enabled {
-        // Leaving the gem back into air -- never true simultaneously with
-        // `entering_anisotropic` (that flag requires `!inside_gem`).
-        let is_exit_event = inside_gem && !entering_anisotropic;
-        let (transmitted, r_unpol_k) = compute_channel_transmission(&ChannelTransmissionInputs {
-            n1k,
-            n2k,
-            cos_i,
-            cos_t_k,
-            r_unpol,
-            entering_anisotropic,
-            entry_mode_azimuth2,
-            incident_stokes_k: original_stokes_k,
-        });
+    // Leaving the gem back into air -- never true simultaneously with
+    // `entering_anisotropic` (that flag requires `!inside_gem`).
+    let is_exit_event = inside_gem && !entering_anisotropic;
+    let floor_bound = exit.enabled
+        && is_exit_event
+        && exit_leaves_via_floor(
+            exit.environment.tray_mirror(),
+            hit_point,
+            hero_dir,
+            refr_wave_dir_k,
+        );
+    if exit.enabled && !floor_bound {
+        let (transmitted, r_unpol_k) = compute_channel_transmission(
+            &ChannelTransmissionInputs {
+                n1k,
+                n2k,
+                cos_i,
+                cos_t_k,
+                r_unpol,
+                entering_anisotropic,
+                entry_mode_azimuth2,
+                incident_stokes_k: original_stokes_k,
+            },
+            tables,
+        );
         *path_pdf_k = prefix_path_pdf_k * (1.0 - r_unpol_k);
         if is_exit_event && original_stokes_k.intensity() > 0.0 {
             try_split_exit_channel(
@@ -509,6 +531,26 @@ fn apply_channel_chromatic_termination(
             );
         }
     }
+}
+
+/// The hero channel's index slots for [`direction_matches`]'s `Exact` test: the incident
+/// index, the transmitted index as [`compute_channel_refraction_geometry`] selects it, and the
+/// ordinary index. Only read under `DirectionMatch::Exact`.
+const fn exact_hero_indices(
+    geo: &BounceRefractionGeometry,
+    decision: &RefractDecision,
+    hero: usize,
+) -> [f32; 3] {
+    let n2 = if decision.entering_anisotropic && !decision.use_extraordinary {
+        if geo.is_biaxial {
+            geo.n_biax_a_ch[hero]
+        } else {
+            geo.n_o_ch[hero]
+        }
+    } else {
+        geo.n2_ch[hero]
+    };
+    [geo.n1_ch[hero], n2, geo.n_o_ch[hero]]
 }
 
 /// One channel's share of [`apply_refract_bounce`]'s per-channel loop -- see that
@@ -550,7 +592,23 @@ fn apply_refract_channel(
         final_dir_k,
     } = geometry;
 
-    let direction_matches = final_dir_k.dot(final_refr_dir) >= DIRECTION_MATCH_COS_TOL;
+    let hero = ctx.hero_idx;
+    let direction_matches = direction_matches(
+        exit_event.exit.direction_match,
+        final_dir_k,
+        final_refr_dir,
+        k == hero,
+        [n1k, n2k, bctx.geo.n_o_ch[k]],
+        exact_hero_indices(bctx.geo, decision, hero),
+        ExactExtra {
+            material: ctx.material,
+            lambdas: (ctx.lambdas[k], ctx.lambdas[hero]),
+            uniaxial_e: decision.entering_anisotropic
+                && decision.use_extraordinary
+                && !bctx.geo.is_biaxial,
+            biaxial: decision.entering_anisotropic && bctx.geo.is_biaxial,
+        },
+    );
 
     if direction_matches {
         apply_channel_transmission_match(
@@ -565,6 +623,7 @@ fn apply_refract_channel(
             },
             &mut stokes[k],
             &mut path_pdf[k],
+            bctx.cache.tables.as_deref(),
         );
     } else {
         apply_channel_chromatic_termination(
@@ -580,11 +639,13 @@ fn apply_refract_channel(
                 lambda_k: ctx.lambdas[k],
                 refr_wave_dir_k,
                 original_stokes_k,
+                hero_dir: final_refr_dir,
             },
             k,
             &mut stokes[k],
             &mut path_pdf[k],
             exit_event,
+            bctx.cache.tables.as_deref(),
         );
     }
     (Some(final_dir_k), direction_matches)

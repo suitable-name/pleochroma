@@ -46,18 +46,16 @@ pub fn run_phase3_checks(ctx: &GpuContext) -> bool {
         "per_channel_uniaxial_indices",
         &transport_check::run_per_mode_index(ctx),
     );
-    // P1 assigned-mode absorption (uniaxial branch): replaces pleochroic_channel_alpha
-    // on the interior transport path's anisotropic branch -- see
-    // `transport_check::absorption_pleochroism::run_assigned_mode_alpha_uniaxial`'s own
-    // doc comment.
+    // Assigned-mode absorption, uniaxial branch: the interior path's anisotropic branch
+    // uses it in place of `pleochroic_channel_alpha`. See
+    // `transport_check::absorption_pleochroism::run_assigned_mode_alpha_uniaxial`.
     let assigned_mode_alpha_uniaxial_passed = report_transport_ulp_check(
         "assigned_mode_alpha (uniaxial, P1)",
         &transport_check::run_assigned_mode_alpha_uniaxial(ctx),
     );
-    // Full uniaxial Fresnel (Lekner 1991): kernel-level equivalence for the exact
-    // closed-form entry/internal solve itself, independent of the megakernel's own
-    // dispatch wiring below -- see `transport_check::p2_uniaxial_fresnel`'s own doc
-    // comment.
+    // Full uniaxial Fresnel (Lekner 1991): kernel-level equivalence for the closed-form
+    // entry and internal solves, independent of the megakernel dispatch. See
+    // `transport_check::p2_uniaxial_fresnel`.
     let entry_solve_pair_passed = report_transport_ulp_check(
         "entry_solve_pair (P2 full uniaxial Fresnel)",
         &transport_check::run_entry_solve_pair(ctx),
@@ -100,19 +98,15 @@ pub fn run_phase3_checks(ctx: &GpuContext) -> bool {
         "Rutile, delta=+0.2957",
         &estimator_check::run_image_comparison_rutile(ctx),
     );
-    // Final Tier 3 check: a strongly dispersive uniaxial material's refractive
-    // (non-TIR-only) paths, isolating the exit-event mismatch sites the WGSL port
-    // touches -- see `estimator_check::run_image_comparison_synthetic_moissanite`'s own
-    // doc comment.
+    // Tier 3 check of a strongly dispersive uniaxial material's refracting (non-TIR-only)
+    // paths, which isolates the exit-event mismatch sites. See
+    // `estimator_check::run_image_comparison_synthetic_moissanite`.
     let synthetic_moissanite_image_comparison_passed = report_image_comparison_material(
         "Synthetic Moissanite, delta=+0.0415 (P6 exit-event spectral splitting)",
         &estimator_check::run_image_comparison_synthetic_moissanite(ctx),
     );
-    // The pre-existing Diamond frosted-girdle Tier 3 scene (run and gated separately by
-    // `run_task2_frosted_girdle_checks` below) must pass again now that the WGSL side
-    // mirrors the CPU's final estimator -- see `shaders/spectral_transport.wgsl`'s own
-    // header comment; not re-run here to avoid dispatching the same expensive Tier 3
-    // scene twice.
+    // The Diamond frosted-girdle Tier 3 scene runs in `run_task2_frosted_girdle_checks`, so
+    // it is not repeated here.
 
     theta_c_passed
         && walk_off_passed

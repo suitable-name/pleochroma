@@ -34,8 +34,7 @@ const VIOLET: [f64; 3] = [45.0, 45.0, 300.0];
 /// The apothem of a watermelon core, as a fraction of the stone width.
 ///
 /// A triangle's corners lie at twice its apothem, so the core reaches 0.4 of the width from
-/// the axis, inside the girdle at 0.5: the rim shows all round. (It was 0.35, whose corners at
-/// 0.7 ran far past the girdle and left only slivers of rim, so face up the stone was all core.)
+/// the axis, inside the girdle at 0.5. The rim therefore shows all round.
 pub(super) const WATERMELON_CORE_APOTHEM: f64 = 0.2;
 /// The radius of a round core, as a fraction of the stone width.
 const ROUND_CORE_RADIUS: f64 = 0.3;

@@ -29,7 +29,7 @@ pub(super) type Pixels = SharedPixelBuffer<Rgba8Pixel>;
 /// The vertical field of view every viewport of the app uses.
 pub(super) const FIELD_OF_VIEW: f32 = 42.0;
 
-/// The frame background, the theme's input color (`#12141c`).
+/// The frame background: the theme's `bg-input` color (`#12141c`).
 const BACKGROUND: [u8; 4] = [0x12, 0x14, 0x1c, 0xff];
 
 /// The yaw of the reset view.
@@ -45,8 +45,9 @@ pub(super) fn camera_for(pose: CameraPose) -> Camera {
 }
 
 /// How much further out the camera must be for an image of `aspect` (width over height)
-/// than for a square or wide one: the field of view is the vertical one, so a tall image
-/// needs `1 / aspect` times the distance.
+/// than for a square or wide one.
+///
+/// The field of view is the vertical one, so a tall image needs `1 / aspect` times the distance.
 fn widen(aspect: f32) -> f32 {
     if aspect.is_finite() && aspect > 0.0 {
         1.0 / aspect.min(1.0)
@@ -55,9 +56,10 @@ fn widen(aspect: f32) -> f32 {
     }
 }
 
-/// The reset view for an image of `aspect` (width over height): the standard angle at a
-/// distance that frames the unit sphere of a scene, further out for a tall image (the field
-/// of view is the vertical one).
+/// The reset view for an image of `aspect` (width over height).
+///
+/// The standard angle, at a distance that frames the unit sphere of a scene and is further
+/// out for a tall image.
 #[must_use]
 pub(super) fn reset_pose(aspect: f32) -> CameraPose {
     let (near, far) = orbit_distance_bounds(super::scene::SCENE_RADIUS);
@@ -70,9 +72,10 @@ pub(super) fn reset_pose(aspect: f32) -> CameraPose {
     }
 }
 
-/// The camera `distance` after the image changed from `old_aspect` to `new_aspect`: the
-/// zoom the user chose relative to the framing of the scene is kept, so the scene still
-/// fits the narrower side.
+/// The camera `distance` after the image changed from `old_aspect` to `new_aspect`.
+///
+/// The zoom the user chose relative to the framing is kept, so the scene still fits the
+/// narrower side.
 #[must_use]
 pub(super) fn refit_distance(distance: f32, old_aspect: f32, new_aspect: f32) -> f32 {
     let (near, far) = orbit_distance_bounds(super::scene::SCENE_RADIUS);
@@ -142,9 +145,10 @@ pub(super) struct RenderRequest {
     pub(super) options: RenderOptions,
 }
 
-/// The pick buffer of the last frame drawn from a scene, for the UI thread to read. The
-/// buffer is shared, so taking a copy of the snapshot out of the lock costs a reference
-/// count and the render thread never waits for a reader to finish scanning it.
+/// The pick buffer of the last frame drawn from a scene, for the UI thread to read.
+///
+/// The buffer is shared: a reader's copy of the snapshot costs a reference count, and the
+/// render thread never waits for a reader to finish scanning it.
 #[derive(Debug, Default, Clone)]
 pub(super) struct PickSnapshot {
     /// The scene the buffer belongs to.
@@ -194,10 +198,11 @@ struct FrameKey {
 }
 
 impl FrameKey {
-    /// The key of `request`, with the options reduced to what changes the raster of its
-    /// scene: a model scene ignores the layer switches and the outlined design group, a
-    /// fit scene ignores the cut tint, the selected cut and the facet hover, and a box
-    /// hover is only a marker drawn afterwards.
+    /// The key of `request`, with the options reduced to what changes the raster of its scene.
+    ///
+    /// A model scene ignores the layer switches and the outlined design group, a fit scene
+    /// ignores the cut tint, the selected cut and the facet hover, and a box hover is only a
+    /// marker drawn afterwards.
     fn of(request: &RenderRequest) -> Self {
         let options = request.options;
         let options = match request.scene.kind {
@@ -286,14 +291,18 @@ fn draw_box_hover(
     }
 }
 
-/// The render thread's state: four rasterizers (the stones or the model, the rough, the
-/// saw pieces, the inclusion shells), the composed frame and what it was drawn for.
+/// The render thread's state: the composed frame and what it was drawn for.
+///
+/// The rasterizers draw the stones or the model, the rough, the saw pieces and the inclusion
+/// shells.
 pub(super) struct ViewRenderer {
     main: SolidRasterizer,
     rough: SolidRasterizer,
     saw: SolidRasterizer,
-    /// The model's inclusion shells: a pass of its own, so they show through the opaque
-    /// rough, and its pick buffer is only read as coverage, never published.
+    /// The model's inclusion shells, drawn as a pass of their own.
+    ///
+    /// They show through the opaque rough, and their pick buffer is only read as coverage,
+    /// never published.
     inclusions: SolidRasterizer,
     /// The composed frame without the hover marker.
     base: Vec<u8>,
@@ -402,10 +411,11 @@ impl ViewRenderer {
         }
     }
 
-    /// The model's inclusion shells, composed over the opaque rough in `self.base`: their
-    /// own transparent pass (so the rough does not hide them), tinted where they cover and
-    /// edged. Nothing of it reaches the published pick buffer (`self.main.pick`), so Face
-    /// from View, the hover and a click see the rough only.
+    /// Composes the model's inclusion shells over the opaque rough in `self.base`.
+    ///
+    /// The shells have a transparent pass of their own, so the rough does not hide them. They
+    /// are tinted where they cover and edged. Nothing of them reaches the published pick buffer
+    /// (`self.main.pick`), so Face from View, the hover and a click see the rough only.
     fn draw_inclusions(&mut self, model: &ModelScene, camera: &Camera, size: (u32, u32)) {
         if model.inclusions.rings.is_empty() {
             return;

@@ -1,9 +1,9 @@
 //! Tests of the zone suggestion and of the joint refinement against the real forward tracer and
-//! solver (written, not run, by lane G1).
+//! solver.
 //!
-//! The photos are made from the tracer's own records, so
-//! the physics agrees with the fit by construction; the fixture is the one of the solver's tests
-//! (a 10 mm cube, orthographic cameras, polished surface).
+//! The photos are made from the tracer's own records, so the physics agrees with the fit by
+//! construction; the fixture is the one of the solver's tests (a 10 mm cube, orthographic
+//! cameras, polished surface).
 
 use std::sync::atomic::AtomicBool;
 

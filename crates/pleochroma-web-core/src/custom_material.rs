@@ -155,9 +155,10 @@ pub fn build_custom_material(form: &CustomMaterialForm<'_>) -> Result<BuiltCusto
 
 /// The stored default Crystal Axis of the custom material `snapshot` describes.
 ///
-/// `Some` only when both its tilt and azimuth are stored (the Second Axis turn rides along), so a
-/// default of "tilt 0" is told apart from a material with none. The cutting sheet takes it
-/// (`cutting_sheet_document_with_default`), since the axes baked into the material cannot show it.
+/// `Some` only when both its tilt and azimuth are stored (the Second Axis turn rides along),
+/// so a default of "tilt 0" is told apart from no default. The cutting sheet takes it
+/// (`cutting_sheet_document_with_default`), since the axes baked into the material cannot
+/// show it.
 #[must_use]
 pub fn stored_default_orientation(
     snapshot: Option<&CustomMaterialSnapshot>,
@@ -170,11 +171,11 @@ pub fn stored_default_orientation(
     ))
 }
 
-/// Whether the L*C*h body-color editor's Apply has nothing to change.
+/// Whether the L*C*h body-color editor's Apply would change nothing.
 ///
 /// That is: the editor is still on the seed it opened with (`opened`), the solve is that seed
-/// (`solve_lch`) and the design already holds a band color (`has_bands`). An Apply of the untouched seed would only re-solve the stored
-/// color.
+/// (`solve_lch`) and the design already holds a band color (`has_bands`). Re-applying the
+/// untouched seed would only re-solve the stored color.
 #[must_use]
 pub fn lch_apply_is_a_no_op(
     opened: Option<[f64; 3]>,

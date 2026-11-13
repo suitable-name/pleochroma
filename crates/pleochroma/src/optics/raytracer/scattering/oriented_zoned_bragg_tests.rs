@@ -638,8 +638,8 @@ fn total_radiance(material: &GemMaterial) -> Vec3 {
     sum
 }
 
-/// The whole tracer renders a zoned opal: finite everywhere, and the structure shows (before the
-/// zoned Bragg estimator it was inert in a zoned host).
+/// The whole tracer renders a zoned opal finite everywhere, and its Bragg structure changes the
+/// render.
 #[test]
 fn the_tracer_renders_a_zoned_opal_finite_and_different() {
     let structured = zoned_opal(true);

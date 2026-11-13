@@ -1,10 +1,11 @@
-//! Computes the two version fields of the library protocol. `DesignSummary::version` is a
-//! SHA-256 hash over exactly the fields a search row carries, in a fixed order, each
-//! length-prefixed so adjacent fields can never collide, and each `Option` tagged
-//! present/absent before its value. `DesignSummary::design_version` and
-//! `DesignRecord::version` are one revision token ([`revision_token`]) derived from the
-//! design's url and the vault's per-entry revision stamp, so a search row can carry it at
-//! O(1) cost per row. See the `serve::library` module doc comment.
+//! Computes the two version fields of the library protocol.
+//!
+//! `DesignSummary::version` is a SHA-256 hash over exactly the fields a search row carries, in a
+//! fixed order, each length-prefixed so adjacent fields can never collide, and each `Option` tagged
+//! present/absent before its value. `DesignSummary::design_version` and `DesignRecord::version` are
+//! one revision token ([`revision_token`]) derived from the design's url and the vault's per-entry
+//! revision stamp, so a search row can carry it at O(1) cost per row. See the `serve::library`
+//! module doc comment.
 
 use pleochroma_net::library::DesignSummary;
 use pleochroma_vault::db::sqlite::Database;
@@ -25,14 +26,12 @@ fn hash_opt_str(hasher: &mut Sha256, s: Option<&str>) {
     }
 }
 
-/// SHA-256 over every [`DesignSummary`] field (including `concave_tiers`) except [`DesignSummary::version`] itself,
-/// [`DesignSummary::design_version`] and [`DesignSummary::entry_id`].
+/// SHA-256 over every [`DesignSummary`] field (`concave_tiers` included) except
+/// [`DesignSummary::version`], [`DesignSummary::design_version`] and [`DesignSummary::entry_id`].
 ///
-/// `entry_id` is the server database's row number, not part of the design: a mirror
-/// keys designs by `url`, so renumbering the server's database (a rebuilt or
-/// re-imported catalogue) must not make every design look changed and force a full
-/// re-fetch. The price, paid once: the hash of every design differs from what earlier
-/// builds produced, so each existing mirror re-syncs its whole catalogue one time.
+/// `entry_id` is the server database's row number, not part of the design. A mirror keys
+/// designs by `url`, so renumbering the database (a rebuilt or re-imported catalogue) must
+/// not make every design look changed and force a full re-fetch.
 pub(super) fn hash_summary(s: &DesignSummary) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hash_str(&mut hasher, &s.title);
@@ -47,9 +46,7 @@ pub(super) fn hash_summary(s: &DesignSummary) -> [u8; 32] {
     hash_opt_str(&mut hasher, s.volume.as_deref());
     hash_opt_str(&mut hasher, s.competition_diagram.as_deref());
     hasher.update([u8::from(s.ignored)]);
-    // v19: appended last, so the hash of a planar design differs from v18's only by this
-    // one zero word (every design's stamp still changes once -- see the protocol-19
-    // README entry).
+    // Appended last: the field order is part of the hash.
     hasher.update(s.concave_tiers.to_le_bytes());
     hasher.finalize().into()
 }
@@ -134,7 +131,7 @@ mod tests {
 
     /// The summary hash must move when only a concave field moves, or a mirror would
     /// keep a design that gained a concave tier looking unchanged. It must also ignore
-    /// `entry_id` and the two revision fields, as before.
+    /// `entry_id` and the two revision fields.
     #[test]
     fn design_summary_version_hash_changes_when_concave_fields_change() {
         let planar = hash_summary(&summary());

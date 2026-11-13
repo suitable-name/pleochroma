@@ -3,9 +3,9 @@
 //! The slider walks the design's cutting steps in cutting order (see
 //! `pleochroma_web_core::cut_slider`, which holds the mapping and its tests); this module only
 //! reads the stored `SolidModel.tier-cutoff`, decodes it for the design's step count and writes
-//! back what the toolbar shows: the step count, the handle, the label, and a cutoff that no
-//! longer fits (a tier was removed) normalised to the finished stone. Setting a property to the
-//! value it already has changes nothing, so this is cheap to call on every refresh.
+//! back what the toolbar shows: the step count, the handle, the label. A cutoff that does not
+//! fit the design (a tier was removed) is normalised to the finished stone. Setting a property
+//! to the value it already has changes nothing, so this is cheap to call on every refresh.
 
 use crate::{AppWindow, SolidModel};
 use pleochroma_cut_core::Design;

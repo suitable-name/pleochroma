@@ -20,7 +20,7 @@ use crate::{
         session::REMOTE_MESSAGE,
         view,
     },
-    plan_limit::{parse_limit, store_limit_secs, stored_limit_secs},
+    plan_limit::{MAX_LIMIT_SECS, parse_limit, store_limit_secs, stored_limit_secs},
 };
 use pleochroma_cut_core::rough_plan::{PlanSettings, RoughModel};
 use slint::{ComponentHandle, Model, ModelRc, VecModel};
@@ -75,6 +75,43 @@ fn read_time_limit(model: &RoughPlanModel<'_>) -> Result<u32, String> {
     } else {
         Ok(stored_limit_secs())
     }
+}
+
+/// The scan plan time limit after "Plan Again with More Time": twice `secs`, at most
+/// [`MAX_LIMIT_SECS`]. `0` (no limit) stays `0`, so a plan without a limit is never
+/// stopped by one.
+#[must_use]
+const fn doubled_limit(secs: u32) -> u32 {
+    let doubled = secs.saturating_mul(2);
+    if doubled > MAX_LIMIT_SECS {
+        MAX_LIMIT_SECS
+    } else {
+        doubled
+    }
+}
+
+/// `RoughPlanModel.plan_more_time`: doubles the scan plan time limit of the plan that was
+/// stopped by it, stores the new limit as a plan does, and plans again. Does nothing while a
+/// plan runs or when the shown results were not stopped by the limit.
+pub(super) fn plan_more_time(host: &Rc<Host>) {
+    let model = host.window.global::<RoughPlanModel>();
+    if model.get_running() || !model.get_stopped_at_limit() {
+        return;
+    }
+    let current = match read_time_limit(&model) {
+        Ok(secs) => secs,
+        Err(message) => {
+            model.set_error_text(message.into());
+            return;
+        }
+    };
+    let more = doubled_limit(current);
+    model.set_time_limit_secs(more.to_string().into());
+    // The plan reads the field of a rough with a mesh and the stored limit of any other.
+    if stored_limit_secs() != more {
+        store_limit_secs(more);
+    }
+    start_plan(host);
 }
 
 /// Fails when one kerf plus the allowance on both sides of a stone is more than the
@@ -148,6 +185,8 @@ fn clear_outputs(host: &Rc<Host>) {
     model.set_confirm_overwrite_open(false);
     model.set_results_unsaved(false);
     model.set_face_from_view_armed(false);
+    model.set_stopped_at_limit(false);
+    model.set_best_so_far_text("".into());
     model.set_progress_fraction(0.0);
     model.set_stage("Preparing...".into());
     model.set_running(true);
@@ -274,9 +313,9 @@ fn launch(host: &Rc<Host>, prepared: Prepared) {
 
     let cancel = Arc::new(AtomicBool::new(false));
     let screen = Screen::capture(&model);
-    // The stones locked in the selected result stay: the plan cuts the rest of the rough around
-    // them. The rules it is planned with are the session's now; the choices for the stones belong
-    // to the results it replaces.
+    // The stones locked in the selected result stay, and the plan cuts the rest of the rough
+    // around them. The rules come from the session; the stone choices belong to the results
+    // being replaced, so they are dropped.
     let locked = axis::locked_for_plan(host);
     let mut overrides = host.session.borrow().overrides.clone();
     overrides.stones.clear();
@@ -404,6 +443,16 @@ mod tests {
             assert!(check_kerf_and_allowance(&settings, extents).is_err());
         }
         assert_eq!(check_kerf_and_allowance(&settings, [3.0; 3]), Ok(()));
+    }
+
+    #[test]
+    fn more_time_doubles_the_limit_up_to_the_largest_and_keeps_no_limit() {
+        assert_eq!(doubled_limit(120), 240);
+        assert_eq!(doubled_limit(1), 2);
+        assert_eq!(doubled_limit(0), 0, "no limit stays no limit");
+        assert_eq!(doubled_limit(MAX_LIMIT_SECS / 2), MAX_LIMIT_SECS);
+        assert_eq!(doubled_limit(MAX_LIMIT_SECS), MAX_LIMIT_SECS);
+        assert_eq!(doubled_limit(u32::MAX), MAX_LIMIT_SECS);
     }
 
     #[test]

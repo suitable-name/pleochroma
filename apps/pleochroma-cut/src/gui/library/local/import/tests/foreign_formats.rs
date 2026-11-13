@@ -13,9 +13,9 @@ use pleochroma_vault::model::{entry::FullDiagramRecord, frosting::StoredTierFros
 
 // --- .gem / .gcs import ---
 
-/// A real `.gcs` excerpt, copied verbatim from `pleochroma_formats::gcs`'s own
-/// tests (`GCS_OCTABAR_X_EXCERPT`, private to that crate): one pavilion tier with
-/// two facets, `<render>` and a multi-line `<info>`.
+/// A real `.gcs` excerpt, copied from the `pleochroma_formats::gcs` tests.
+///
+/// It has one pavilion tier with two facets, a `<render>` and a multi-line `<info>`.
 const GCS_OCTABAR_X_EXCERPT: &str = r#"<GemCutStudio version="1000">
 <index gear="64" base="0" symmetry="4" mirror="0"/>
 <tier angle="126.38999938964842" depth="0.6664250328253426" name="P1" instructions="" visible="true" guide="false">
@@ -48,9 +48,10 @@ const GCS_OCTABAR_X_EXCERPT: &str = r#"<GemCutStudio version="1000">
 </GemCutStudio>
 "#;
 
-/// A `.gem` goes through the same `.asc` import path: every tier lands in the
-/// angle table, the generated `.asc` and the original `.gem` bytes are both
-/// attached, and the row is keyed by the `.gem`'s own file name.
+/// A `.gem` goes through the same `.asc` import path.
+///
+/// Every tier lands in the angle table, the generated `.asc` and the original `.gem` bytes are
+/// both attached, and the row is keyed by the `.gem`'s file name.
 #[test]
 fn import_path_imports_a_synthetic_gem_through_the_asc_path() {
     let dir = temp_dir_for_test("gem_import");
@@ -182,10 +183,10 @@ fn imported_frosting(
     (stored, full)
 }
 
-/// A `.gcs` that frosts a whole tier and two facets of another keeps both through the
-/// library import (the generated `.asc` cannot): the row stores them, the stone the library
-/// draws names the frosted planes, a polished `.gcs` stores and draws none, and re-importing
-/// the same name as a polished file clears them again.
+/// A `.gcs` keeps its frosting through the import.
+///
+/// The generated `.asc` cannot carry frosting. The row stores it and the library draws the
+/// frosted planes. A polished re-import under the same name clears it.
 #[test]
 fn import_path_stores_the_frosting_a_gcs_states_and_a_reimport_replaces_it() {
     let stated = vec![
@@ -233,8 +234,7 @@ fn import_path_stores_the_frosting_a_gcs_states_and_a_reimport_replaces_it() {
     let _ = std::fs::remove_file(&db_path);
 }
 
-/// A polished `.gcs`, an `.asc` and a `.gem` store no frosting at all: no row in the side
-/// table, and the design rows are what they were.
+/// A polished `.gcs`, an `.asc` and a `.gem` store no frosting: the side table has no rows.
 #[test]
 fn import_path_stores_no_frosting_for_a_design_without_any() {
     let dir = temp_dir_for_test("no_frosting");

@@ -9,12 +9,9 @@ use super::{
 use glam::{DVec3, Vec3};
 use pleochroma::geometry::stone_metrics::{SolidMesh, SolidStatus, build_solid_mesh};
 
-/// "Visible" here means "selected by the panel's own facet-visibility
-/// predicate" (see the parent module's doc comment) -- a cube's front profile face
-/// still fully occludes its back face once rasterized, exactly like
-/// `raster.rs`'s own crown/pavilion visibility test does before its depth
-/// test runs. This is the count the "4 visible side facets in
-/// profile and 1 in crown" describes.
+/// "Visible" means "selected by the panel's own facet-visibility predicate" (see the
+/// parent module's doc comment). The depth test, not the predicate, hides the far face
+/// of a pair.
 #[test]
 fn cube_visibility_predicates_select_one_crown_facet_and_four_profile_facets() {
     let cube_normals = [
@@ -176,12 +173,9 @@ fn an_empty_or_zero_sized_config_never_panics() {
     assert_eq!(frame.pick_at(0, 0), None);
 }
 
-/// A frame of any size draws. The tooth numbers were pulled inside their column with
-/// `f32::clamp`, which panics when its bounds cross: a 16 px frame has 6 px columns, a
-/// two-digit number is 11 px long, `clamp(0.0, -6.0)`. The render worker lost that frame, and
-/// with it the Diagram, whenever a viewport was momentarily this small (a window or dock being
-/// dragged narrow, a view not laid out yet). Sizes on both sides of the large-frame height
-/// and of the column width a number needs.
+/// A frame of any size draws, including frames narrower than a two-digit tooth number:
+/// the numbers are pulled inside their column with `keep_inside`, which must not panic.
+/// Sizes on both sides of the large-frame height and of the column width are covered.
 #[test]
 fn a_tiny_frame_draws_without_panicking() {
     let mesh = box_mesh();
@@ -615,8 +609,8 @@ fn a_large_frame_sets_each_caption_under_its_panel_and_scaled_up() {
             });
         assert!(found, "{:?} caption is drawn in its rows", panel.kind);
     }
-    // Nothing of the wheel color touches the top 7 rows of the frame: the old caption row
-    // (y = 2) is empty, so the viewport border cannot cut a half-hidden caption.
+    // Nothing of the wheel color touches the top 7 rows: the viewport border would cut a
+    // caption drawn there.
     for y in 0..7usize {
         for x in 0..config.width as usize {
             let idx = (y * config.width as usize + x) * 4;
@@ -625,9 +619,8 @@ fn a_large_frame_sets_each_caption_under_its_panel_and_scaled_up() {
     }
 }
 
-/// A stone much deeper below the girdle plane than above it (a steep crown angle moves the
-/// bounding box, not the profile's centre): in a viewport-sized frame the whole profile, down
-/// to the deepest point, stays above the profile caption instead of running through it.
+/// A stone much deeper below the girdle plane than above it: in a viewport-sized frame the
+/// whole profile, down to the deepest point, stays above the profile caption.
 #[test]
 fn a_large_frame_keeps_a_deep_profile_above_its_caption() {
     let mesh = match build_solid_mesh(&[
@@ -659,8 +652,7 @@ fn a_large_frame_keeps_a_deep_profile_above_its_caption() {
     }
 }
 
-/// A small frame (a thumbnail, the pinned test frames) keeps the original layout: caption
-/// text at its glyph size on row 2 and the original tick-ring radius.
+/// A small frame keeps the caption on row 2 at glyph size and the unscaled wheel radius.
 #[test]
 fn a_small_frame_keeps_the_original_caption_row_and_wheel() {
     let frame = render_diagram(&box_mesh(), &box_config(), &DiagramStyle::default());

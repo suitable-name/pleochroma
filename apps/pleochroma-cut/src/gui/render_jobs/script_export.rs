@@ -219,8 +219,18 @@ fn collect_unfinished(deps: &Deps) -> Result<Vec<RenderJobFile>, String> {
             .get_render_job(meta.job_id)
             .map_err(|error| format!("The job \"{}\" could not be read: {error}", meta.label))?
             .ok_or_else(|| format!("The job \"{}\" is gone.", meta.label))?;
-        let job = codec::from_text(&row.snapshot)
+        let mut job = codec::from_text(&row.snapshot)
             .map_err(|error| format!("The job \"{}\" could not be read: {error}", meta.label))?;
+        // A row queued before format 5 kept its color zones in a side table; the script's job
+        // file must carry them, or the command line would render the base color alone.
+        crate::gui::rough_colour::store::complete_job_zoning(&db, meta.job_id, &mut job).map_err(
+            |error| {
+                format!(
+                    "The color zones of the job \"{}\" could not be read: {error:#}",
+                    meta.label
+                )
+            },
+        )?;
         jobs.push(job);
     }
     drop(db);

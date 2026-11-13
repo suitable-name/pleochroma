@@ -1,5 +1,6 @@
-//! B-Rep reconstruction tests (`geometry::brep::GemPolyhedron::from_planes`):
-//! topology checks via Euler's formula and exact counts for a hand-verifiable cube,
+//! B-Rep reconstruction tests (`geometry::brep::GemPolyhedron::from_planes`).
+//!
+//! They cover topology checks via Euler's formula and exact counts for a hand-verifiable cube,
 //! degenerate-input rejection, and the `reconstruct_validated_brep` fallback
 //! behaviour.
 
@@ -18,17 +19,13 @@ use crate::fixtures::assert_euler_formula;
 // ---------------------------------------------------------------------------
 // B-Rep reconstruction (`geometry::brep::GemPolyhedron::from_planes`).
 //
-// `from_planes` used to build the dual-space convex hull (GEMSTONE_RENDERING_BLUEPRINT.md
-// section 1.2) with the `chull` crate. Since 2026-09-28 it enumerates the primal plane
-// arrangement instead (the same deterministic walk `stone_metrics` uses), welds triple
-// solutions where more than 3 planes meet (common in symmetric cuts, e.g.
-// round-brilliant girdle/kite/star junctions) into one vertex, and orders every facet
-// ring canonically, so its output is byte-identical call to call.
+// `from_planes` enumerates the primal plane arrangement (the same deterministic walk
+// `stone_metrics` uses), welds the solutions where more than three planes meet into one
+// vertex, and orders each facet ring canonically, so the output is byte-identical per call.
 //
-// These tests check the result via Euler's formula (the single most valuable
-// topological check), exact counts for a hand-verifiable cube, the degenerate-input
-// handling, and the `reconstruct_validated_brep` fallbacks. The determinism, scale and
-// validation unit tests live next to the code in `src/geometry/brep/tests.rs`.
+// These tests check Euler's formula, exact counts for a cube, degenerate-input rejection
+// and the `reconstruct_validated_brep` fallbacks. Determinism, scale and validation unit
+// tests live in `src/geometry/brep/tests.rs`.
 // ---------------------------------------------------------------------------
 
 /// A cube built from six axis-aligned half-space planes, trivially checkable by hand:
@@ -137,11 +134,9 @@ fn brep_emerald_cut_reconstructs_valid_closed_solid_with_all_planes_touched() {
         hull.volume()
     );
 
-    // Every tier offset in emerald_cut() is now derived from one shared profile
-    // (girdle band, crown/pavilion crease rings, and the unchanged girdle radii)
-    // instead of being hand-picked independently, so each plane's crease line lands
-    // inside the region already bounded by its neighbors: all 34 planes contribute a
-    // facet to the reconstructed hull and none are dominated/redundant.
+    // Each tier offset in emerald_cut() derives from one shared profile (girdle band, crown
+    // and pavilion crease rings, girdle radii), so each crease line lies inside the region
+    // its neighbours bound: every plane contributes a facet and none is redundant.
     let untouched = hull.untouched_planes();
     assert!(
         untouched.is_empty(),
@@ -149,16 +144,10 @@ fn brep_emerald_cut_reconstructs_valid_closed_solid_with_all_planes_touched() {
          untouched: {untouched:?}"
     );
 
-    // A geometrically correct 34-plane emerald/step cut reconstructs to exactly 48
-    // vertices at volume ~1.8307. This pins that shape: `emerald_cut()`'s tier offsets
-    // are computed from a shared profile so planes meant to meet at one point (e.g. a
-    // girdle-adjacent tier and its neighbor on the crease ring, or the facets converging
-    // on a girdle corner) do so to full f32 precision. Before that, the same profile
-    // pasted in as 4-decimal-rounded literals left several such intended-coincident
-    // points ~1.5e-4 apart -- just outside the weld radius (`VERTEX_WELD_EPS_REL`,
-    // 1e-4 of the solid's radius) -- which welded incompletely and reconstructed 60
-    // vertices instead of 48 (same 34/34-touched, same ~1.8307 volume, so neither of
-    // those alone would have caught it).
+    // The correct 34-plane emerald cut has 48 vertices and volume ~1.8307. Planes meant to
+    // meet at one point must do so to full f32 precision: rounded literals leave them
+    // ~1.5e-4 apart, outside the weld radius (`VERTEX_WELD_EPS_REL`, 1e-4 of the solid's
+    // radius), which gives 60 vertices with the same volume.
     assert_eq!(
         hull.vertices.len(),
         48,
@@ -247,18 +236,12 @@ fn brep_rejects_unbounded_region() {
 #[test]
 fn brep_rejects_ill_conditioned_near_parallel_triple() {
     // Add a seventh plane tilted 5e-7 rad off the +Y face about the Z axis, through
-    // the +Y face's centre line x = 0: `5e-7 x + y <= 1`. The solid stays the bounded
-    // unit cube (the new plane shaves at most 5e-7 off the +Y face), and the planes are
-    // not coincident (their dual points differ by 5e-7 relative, above the 1e-7
-    // coincidence threshold). But the new plane meets +Y and +/-Z at (0, 1, +/-1) with
-    // |det| = 5e-7, below the 1e-6 conditioning threshold, and no better-conditioned
-    // triple meets there: the vertex position cannot be trusted, so the
+    // the +Y face's centre line x = 0: `5e-7 x + y <= 1`. The solid stays the bounded unit
+    // cube, and the planes are not coincident (their dual points differ by 5e-7 relative,
+    // above the 1e-7 coincidence threshold). But the new plane meets +Y and +/-Z at
+    // (0, 1, +/-1) with |det| = 5e-7, below the 1e-6 conditioning threshold, and no
+    // better-conditioned triple meets there: the vertex cannot be trusted, so the
     // reconstruction must return a descriptive error rather than a malformed mesh.
-    //
-    // (The earlier version of this test replaced +X with a plane tilted 0.00005 degrees
-    // off +Y. That solid is not "closed comfortably": it is about 2e6 long, and the
-    // arrangement enumeration now reports it as an `UnboundedRegion`, which it is at
-    // the blank box's 64x-the-largest-offset reach.)
     let mut planes = axis_aligned_cube_planes();
     planes.push(GpuFacetPlane::new(Vec3::new(5e-7, 1.0, 0.0), -1.0));
     let err = GemPolyhedron::from_planes(planes).expect_err(
@@ -397,16 +380,9 @@ fn reconstruct_validated_brep_uses_the_real_reconstruction_when_well_formed() {
     // A small, well-formed schedule -- 8 crown facets and 8 pavilion facets, evenly
     // spaced and symmetric enough to converge to a single apex at each end without
     // needing separate table/culet/girdle rows -- forms a valid, closed octagonal
-    // bipyramid on its own. Its plane count (16) is distinct from
-    // standard_round_brilliant()'s (74), so a passing result here proves the gate
-    // returned the actual reconstruction rather than silently falling back.
-    //
-    // (An earlier version of this test also added flat Table/Culet rows, modeled
-    // after a real round-brilliant schedule; that turned out to leave exactly one of
-    // the resulting 18 planes untouched -- a genuinely over-constrained schedule that
-    // `reconstruct_validated_brep` correctly falls back on. That is the gate working
-    // as intended, not a bug, but it meant that particular schedule was the wrong
-    // fixture for a test whose point is to demonstrate the *non*-fallback path.)
+    // bipyramid on its own. Its plane count (16) differs from standard_round_brilliant()'s,
+    // so a pass proves the gate returned the reconstruction rather than falling back. Flat
+    // Table and Culet rows would leave a plane untouched, and the gate correctly falls back.
     let angles = vec![
         FacetSpec {
             facet: "C1".into(),

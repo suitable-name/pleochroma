@@ -6,10 +6,10 @@
 //! run in [`run`], the live model figures in [`shape_worker`], the 3D view in [`view`],
 //! library links in [`library_link`], "Open in Editor" (a stone's design, with its piece of
 //! rough as the preform, in the main window's editor) in [`editor_link`], saved plans in
-//! [`saved`], the designs excluded
-//! from planning in [`exclusions`], the inclusions of a mesh rough in [`inclusions`] and
-//! locating an inclusion from photos on a camera rig (the locate window and the rig window)
-//! in [`locate`].
+//! [`saved`], the designs excluded from planning in [`exclusions`], the inclusions of a mesh
+//! rough in [`inclusions`] and locating an inclusion from photos on a camera rig (the locate
+//! window and the rig window) in [`locate`]. What the left column's four steps and the header
+//! line say lives in [`steps`], the design legend under the view in [`legend`].
 
 mod axis;
 mod base;
@@ -25,6 +25,7 @@ mod format;
 mod host;
 mod inclusions;
 mod inputs;
+mod legend;
 mod library_link;
 mod locate;
 mod mesh_task;
@@ -34,11 +35,21 @@ mod run;
 mod saved;
 mod session;
 mod shape_worker;
+mod steps;
 mod view;
 mod zoning_hooks;
 
 #[cfg(feature = "ui-harness")]
 pub use self::host::harness_window as harness_planner_window;
+
+/// Why the planner's 3D view does not show its final picture yet, or `None` when it does (see
+/// `view::frame_unsettled`). UI harness only.
+#[cfg(feature = "ui-harness")]
+#[must_use]
+pub fn harness_view_unsettled() -> Option<String> {
+    host::with_host(view::frame_unsettled)
+        .unwrap_or_else(|| Some("the planner is not open".to_owned()))
+}
 use self::host::open_planner;
 pub(in crate::gui) use self::host::{
     close_planner_window, planner_work_at_risk, refresh_links_enabled,
@@ -76,11 +87,10 @@ pub(in crate::gui) fn colour_stored() {
 
 /// The placement of design `entry_id` in the planner's caliper frame (the caliper turn and the
 /// centring of its bounding box), its caliper width and its axis-aligned width in model units,
-/// read from the library: what a stone's piece of rough (`stone_preform_planes`) and its colour
-/// (`rough_colour::preview`) need to move into the design's own frame, and the width the editor's
-/// girdle diameter measures. The helpers behind it (`rotate_into_caliper_frame`, `caliper_centre`)
-/// are the planner's own and unchanged; `None` for a design that is gone, unreadable or without a
-/// solid.
+/// read from the library. A stone's piece of rough (`stone_preform_planes`) and its colour
+/// (`rough_colour::preview`) move into the design's own frame with it, and the editor's girdle
+/// diameter is measured from the width. `None` for a design that is gone, unreadable or without
+/// a solid.
 pub(in crate::gui) fn design_info_of(entry_id: i64) -> Option<view::DesignInfo> {
     view::design_info(entry_id)
 }
@@ -93,8 +103,7 @@ pub(in crate::gui) fn exclusions_changed() {
 
 /// Wires the main window's `RoughPlanModel.open` (the Library menu item), which opens
 /// the planner window. Every other callback belongs to the planner window and is
-/// registered when that window is first created. Called once, from
-/// `gui::build_main_window`.
+/// registered when that window is first created. Called once, while the main window is built.
 pub(in crate::gui) fn setup_rough_plan_callbacks(
     ui: &MainWindow,
     db: &Arc<Mutex<Database>>,

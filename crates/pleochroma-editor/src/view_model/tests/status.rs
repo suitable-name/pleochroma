@@ -19,9 +19,8 @@ fn status_text_reports_preform_only_for_a_fresh_tierless_design() {
     assert!(!is_problem);
 }
 
-// `proportions_texts` guards against tierless designs by returning "-" for all
-// fields. `girdle_and_ratio_texts` (`state/mod.rs`'s own `inline_tests` module)
-// has a matching guard; this test verifies `proportions_texts`'s counterpart.
+// `proportions_texts` guards against tierless designs by returning "-" for all fields;
+// `girdle_and_ratio_texts` has a matching guard, which this test checks.
 #[test]
 fn proportions_texts_dashes_out_a_design_with_no_tiers() {
     let design = EditorSession::fresh().design;
@@ -186,7 +185,7 @@ fn the_banner_volume_of_a_concave_design_is_the_carved_volume() {
     assert!(shows(&from_solved, carved.volume), "{from_solved}");
     assert!(!shows(&solving, flat.volume), "{solving}");
 
-    // Without its concave tiers the same design reads the flat volume, as before.
+    // Without its concave tiers the same design reads the flat volume.
     let mut shell = design;
     shell.concave_tiers.clear();
     shell.concave_tier_ids.clear();

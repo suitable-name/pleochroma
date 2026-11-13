@@ -26,12 +26,11 @@ const fn ms(value: u64) -> Duration {
 }
 
 /// The desktop's `identity_pins::scripted_edit_sequence_is_pinned`, driven through
-/// `EditorSession` with explicit timestamps: add three tiers, three coalescing
-/// nudges, undo, redo, mirror, complete orbit. The design file text and the
-/// history depth must come out the way the desktop's pin expects, so the web
-/// app (which edits through this type) produces the desktop's exact design. The
-/// file text is checked for determinism and an exact reopen here; the byte pin of
-/// the `.psdd` text lives in the desktop's `identity_pins`.
+/// `EditorSession` with explicit timestamps: three adds, three coalescing nudges,
+/// undo, redo, mirror and a complete orbit. The design and the history depth must
+/// match the desktop's pin, so the web app, which edits through this type, yields
+/// the same design. This test checks the file text for determinism and an exact
+/// reopen; the byte pin of the `.psdd` text is the desktop's.
 #[test]
 fn the_scripted_sequence_matches_the_desktop_pin() {
     let mut session = EditorSession::fresh();

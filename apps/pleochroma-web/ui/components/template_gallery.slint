@@ -2,17 +2,15 @@ import { ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 import { GalleryModel } from "../models/app_model.slint";
 
-// The New Design dialog's template gallery (the desktop's `components/template_gallery.slint`):
-// the cards in three sections -- Shapes, Round Variants and Teaching Designs, and the Blank
-// design -- each showing its name, shape, one-line description and the material its angles
-// were designed for. There are no rendered thumbnails: a card shows a plain shape glyph.
+// New Design template gallery. Cards sit in three sections (Shapes; Round Variants and
+// Teaching Designs; the Blank design) and show a name, shape, one-line description and the
+// material their angles were designed for. There are no rendered thumbnails.
 //
-// `GalleryModel.templates` holds the cards in section order; the three parallel lists the
-// caller passes in (`NewDesignModel.card-*`) say, per card, which template it creates
-// (`indices`; 0 is Empty), which section it is in (`groups`: 0 Blank, 1 Shapes, 2 Round
-// Variants and Teaching Designs) and its "Designed for ..." line. `selected-index` is the
-// chosen card's TEMPLATE index, not its position. Selecting a card sets `selected-index` and
-// calls `selected()`; a double click also calls `chosen()`.
+// `GalleryModel.templates` holds the cards in section order. The parallel lists from the
+// caller (`NewDesignModel.card-*`) give, per card, its template index (`indices`; 0 is
+// Empty), its section (`groups`: 0 Blank, 1 Shapes, 2 Round Variants and Teaching Designs)
+// and its "Designed for ..." line. `selected-index` is the chosen card's TEMPLATE index, not
+// its position. A click selects and calls `selected()`; a double click also calls `chosen()`.
 export component TemplateGallery inherits Rectangle {
     in-out property <int> selected-index: 1;
     in property <[int]> indices: [];
@@ -21,8 +19,8 @@ export component TemplateGallery inherits Rectangle {
     callback selected();
     callback chosen();
 
-    // A fixed viewport of about four cards (a `ScrollView`'s own preferred height is
-    // zero, so sizing the gallery from it collapsed the list); the cards scroll inside.
+    // Fixed viewport of about four cards: a `ScrollView` reports zero preferred height, so
+    // the gallery cannot size itself from it.
     height: 224px;
 
     content := ScrollView {

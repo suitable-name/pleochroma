@@ -7,7 +7,7 @@
 //! scratches fan out over a range of angles. The renderer draws one angle per sample from that
 //! range (uniform in contact radius), so the image shows the true mix of directions.
 //!
-//! Geometry. The lap centre is the origin; the dop arm lies along a line at perpendicular distance
+//! Geometry. The lap centre is the origin. The dop arm lies along a line at perpendicular distance
 //! `d` (the `mast_distance_mm`, signed: which side of the centre the mast stands on) from the
 //! centre, and the contact point sits on that line at radius `r >= |d|`. The angle between the
 //! radial line through the contact point and the arm is `φ(r) = asin(d / r)`; the scratch is
@@ -185,14 +185,13 @@ pub fn scratch_angle_deg(surface: &FacetSurface, machine: &FacetingMachine, u: f
 /// The direction of the scratches in the plane of a facet with outward normal `normal`, for a
 /// scratch angle `angle_deg` measured from the girdle-parallel direction about the normal.
 ///
-/// The girdle-parallel direction is `normalize(n × Y)` (model `+Y` is up); on a facet that faces
-/// straight up or down, where it vanishes, it is model `+X`, the index-0 convention of the
-/// crystal axis.
+/// The girdle-parallel direction is `normalize(n × Y)` (model `+Y` is up). On a facet that faces
+/// straight up or down, where it vanishes, it falls back to model `+X`.
 #[must_use]
 pub fn scratch_direction(normal: Vec3, angle_deg: f32) -> Vec3 {
     let girdle = normal.cross(Vec3::Y);
     let girdle = if girdle.length_squared() < 1e-8 {
-        // The table: take +X, made perpendicular to the normal.
+        // The normal is parallel to +Y: use +X, made perpendicular to the normal.
         (Vec3::X - normal * normal.dot(Vec3::X)).normalize_or_zero()
     } else {
         girdle.normalize()

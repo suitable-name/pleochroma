@@ -2,21 +2,18 @@
 //!
 //! ULP (not a relative epsilon) is the right unit here: "how many representable `f32`
 //! values apart are these two results" stays meaningful near zero and near large
-//! magnitudes alike, unlike a relative tolerance. Unlike `rng_check`'s private
-//! `ulp_distance`, this version handles sign/negative-zero correctly across the zero
-//! boundary -- see `to_ordered`'s doc comment.
+//! magnitudes alike, unlike a relative tolerance. Sign and negative zero are handled across
+//! the zero boundary; see `to_ordered`.
 
-/// Distance, in ULP (representable `f32` steps), between two floats of any sign,
-/// including a pair that straddles zero. Several Phase-1 quantities this is used on
-/// (ray directions and normal components in `[-1, 1]`) legitimately cross zero, so
-/// sign and negative-zero are handled explicitly via [`to_ordered`] rather than assumed
-/// away.
+/// Distance, in ULP (representable `f32` steps), between two floats of any sign, including a pair
+/// that straddles zero.
+///
+/// Ray directions and normal components in `[-1, 1]` cross zero, so sign and negative zero are
+/// handled explicitly via [`to_ordered`].
 #[must_use]
 pub fn ulp_distance(a: f32, b: f32) -> u32 {
-    // Fast path: bit-pattern equality (not `==`, which disagrees with `to_bits()` on
-    // NaN and +0.0/-0.0). Sound because `to_ordered` below independently maps both
-    // +0.0/-0.0 to the same ordered value, and identical-bits NaNs already fall out
-    // to 0 ULP via `to_ordered` too -- this is just a shortcut, not a behavior change.
+    // Fast path for identical bit patterns, including identical NaNs. `to_ordered` gives the
+    // same 0 for them, so this is only a shortcut.
     if a.to_bits() == b.to_bits() {
         return 0;
     }
@@ -35,27 +32,17 @@ pub fn ulp_distance(a: f32, b: f32) -> u32 {
 /// sides of `0.0` (an absolute difference of ~1e-7 registering as billions of ULP);
 /// and `cie_1931_cmf` deep in a Gaussian tail (~1e-24), where relative precision is
 /// inherently poor but the value is far below anything visibly distinguishable.
-/// `abs_floor` must sit well below the magnitude a real algebra bug would produce (a
-/// deliberately wrong formula measured at 8,552,444 ULP) -- each call site documents
-/// its own choice.
+/// `abs_floor` must stay far below the error a real algebra bug produces. Each call site
+/// documents its own choice.
 #[must_use]
 pub fn within_tolerance(cpu: f32, gpu: f32, budget: u32, abs_floor: f32) -> bool {
     ulp_distance(cpu, gpu) <= budget || (cpu - gpu).abs() < abs_floor
 }
 
-/// Maps an `f32`'s bit pattern to a monotonically-ordered `i64` (standard trick: the raw
-/// bit pattern reinterpreted as signed is already monotonic for non-negative floats;
-/// reflecting through `i32::MIN` restores monotonicity for negative floats). Handles
-/// negative operands and negative zero correctly, unlike a bare `to_bits()` difference.
-///
-/// `+0.0` and `-0.0` map to the *same* ordered value (0 ULP apart, not 1), matching
-/// `a == b`'s treatment of the pair as plain floats.
-///
-/// Bug once here: `i64::from(x.to_bits())` zero-extends a `u32`, so the result is
-/// always `>= 0` as an `i64` regardless of sign -- the intended negative-branch flip
-/// was unreachable dead code, silently degenerating to a raw bit-pattern diff that's
-/// only monotonic within same-sign ranges and breaks across the sign boundary (a
-/// ~2^31 jump from `0x7FFF_FFFF` to `0x8000_0000` unrelated to actual step count).
+/// Maps an `f32`'s bit pattern to a monotonically ordered `i64`. The bits are read as `i32`
+/// before widening, so the sign bit is seen. Negative floats are reflected through `i32::MIN`
+/// to keep the order monotonic across zero. `+0.0` and `-0.0` map to the same value, so they
+/// are 0 ULP apart, matching `==`.
 fn to_ordered(x: f32) -> i64 {
     let bits = x.to_bits().cast_signed();
     let ordered = if bits < 0 {

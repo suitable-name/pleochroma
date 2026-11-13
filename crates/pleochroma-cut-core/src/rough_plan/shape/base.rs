@@ -77,8 +77,7 @@ impl RoughBase {
     /// Returns [`ShapeError::NonPositiveSize`] if any dimension is non-positive or non-finite,
     /// [`ShapeError::TooLarge`] if any dimension exceeds 2000 mm, or
     /// [`ShapeError::NothingLeft`] for a hull whose id is not registered. The registration
-    /// check reads the registry's table only; it never rebuilds a scaled copy that was
-    /// dropped from memory.
+    /// check reads the registry's table only and never builds a scaled copy.
     pub fn validate(&self) -> Result<(), ShapeError> {
         let (lens, count) = match *self {
             Self::Block { x_mm, y_mm, z_mm }
@@ -170,17 +169,16 @@ impl RoughBase {
     /// [`COARSE_PEBBLE_FREQUENCY`] direction set for pebbles; otherwise [`FINE_SIDES`] sides
     /// and the [`FINE_PEBBLE_FREQUENCY`] set.
     ///
-    /// Both resolutions are inscribed in the true curved solid (their vertices lie on it),
-    /// so the coarse polytope is smaller than the fine one: the coarse polygon's apothem is
-    /// `r cos(pi / COARSE_SIDES)` against `r cos(pi / FINE_SIDES)`, a few percent less
-    /// area. Neither contains the other exactly, because a coarse vertex sits on the true
-    /// circle while the fine edge through that direction lies slightly inside it. A fit
-    /// against the coarse region is therefore pessimistic on average, which is acceptable
-    /// for ranking designs in the screening stage but is not a bound on the fine fit.
+    /// Both resolutions have their vertices on the true curved solid, so both lie inside it.
+    /// The coarse one is smaller (its apothem is `r cos(pi / COARSE_SIDES)` against
+    /// `r cos(pi / FINE_SIDES)`, a few percent less area), and neither contains the other.
+    /// A fit against the coarse region is pessimistic on average: a screening bound for
+    /// ranking designs, not a bound on the fine fit.
     ///
     /// # Errors
     ///
-    /// Returns [`ShapeError`] if dimensions are invalid or measuring the circumscribed polytope fails.
+    /// Returns [`ShapeError`] if the dimensions are invalid or the circumscribed polytope cannot
+    /// be measured.
     pub fn to_halfspaces(&self, coarse: bool) -> Result<Vec<(DVec3, f64)>, ShapeError> {
         self.validate()?;
         match *self {
@@ -210,11 +208,9 @@ impl RoughBase {
     ///
     /// They are built analytically, without enumerating plane triples: a block has its 8
     /// corners, a cylinder the `2 * sides` rim points of its two caps (each the meeting
-    /// point of two neighbouring prism planes, at the half-step angle between their
-    /// normals), and a pebble the cached vertices of the unit polytope mapped onto the
-    /// ellipsoid. They differ from a vertex enumeration of the planes by rounding error
-    /// only (a few ULPs), so anything positioned against them (a face cut) may differ from
-    /// an enumeration-based result in the last bits.
+    /// point of two neighbouring prism planes), and a pebble the cached vertices of the unit
+    /// polytope mapped onto the ellipsoid. They differ from a vertex enumeration of the
+    /// planes by a few ULPs at most.
     ///
     /// # Errors
     ///

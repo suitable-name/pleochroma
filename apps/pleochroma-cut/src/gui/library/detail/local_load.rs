@@ -1,25 +1,22 @@
 //! Builds the detail pane and 3D viewport from a design in the LOCAL database.
 //!
-//! Nothing here runs on the UI thread except applying results, and the one thing that must
-//! not wait for them: `LibraryModel.selected_entry_id` is set at the click itself (the
-//! selection is known then; the card highlight, Load Selected and the planner's
-//! open-in-editor read it at once). [`load_diagram_detail`]
-//! numbers the load and hands it to the one long-lived worker of `load_worker`:
-//! one request runs at a time and at most one more waits (a newer click replaces it), so
-//! clicking through many rows never piles up threads. A request has stages, and between
-//! EVERY pair of them it checks [`DETAIL_LOADS`]; a superseded request returns without
-//! posting anything (never as an error, never as a fallback):
+//! Builds the detail pane and 3D viewport for a design in the LOCAL database.
 //!
-//! 1. the detail pane's data (read-only connection, metadata only, no attachment bytes and
-//!    no image BLOB: the pane only needs to know whether an image exists), posted to the
-//!    event loop, which fills the header, angle table, attachment list and shape picker;
-//! 2. the full record, attachment blobs included, because the design file is an attachment;
-//! 3. the plane resolution (parse the design file and run a full solve, 0.01 ms to 5.9 s);
-//! 4. the planes, posted to the event loop, which draws them if still wanted.
+//! `LibraryModel.selected_entry_id` is set at the click, because the card highlight, Load
+//! Selected and the planner's open-in-editor read it straight after.
 //!
-//! The solve of stage 3 has no cancel control (`resolve_catalogue_planes_with_frosting`
-//! takes none), so once it has started it runs to the end and its result is then dropped
-//! if stale. The bound is therefore at most one active solve plus one pending request.
+//! [`load_diagram_detail`] numbers each load and hands it to the single worker of
+//! `load_worker`, so clicking through many rows never starts many threads. Between each
+//! pair of stages a load checks [`DETAIL_LOADS`]. A superseded load posts nothing:
+//!
+//! 1. the pane's data, read-only and metadata only (no attachment or image bytes), posted
+//!    to the event loop;
+//! 2. the full record, attachment blobs included, since the design file is an attachment;
+//! 3. the plane resolution, which parses and solves the design file;
+//! 4. the planes, posted to the event loop.
+//!
+//! Stage 3 cannot be cancelled once started (`resolve_catalogue_planes_with_frosting` takes
+//! no cancel control), so its result is dropped if stale instead.
 
 use super::{
     load_worker::{LoadSequence, Worker, should_continue},
@@ -65,9 +62,8 @@ const fn metadata_still_wanted(is_newest_load: bool, fetched_entry_id: i64, entr
     is_newest_load && fetched_entry_id == entry_id
 }
 
-/// Everything the detail pane reads from the database, fetched in one pass over a
-/// read-only connection on the load worker, so neither the UI thread nor the shared
-/// writer lock is involved and no attachment bytes or image BLOB are read: `meta` carries
+/// Everything the detail pane reads from the database, in one pass over a read-only
+/// connection on the load worker. No attachment or image bytes are read: `meta` carries
 /// each attachment's name and size only.
 struct DetailFetch {
     meta: FullDiagramMeta,
@@ -90,9 +86,7 @@ fn fetch_detail(db: &Database, entry_id: i64) -> anyhow::Result<Option<DetailFet
     let (shape_options, shape_index) =
         crate::gui::library::local::build_shape_picker_options(db, meta.shape.as_deref());
     let cached_curve_material = db.get_preview_material(entry_id).ok().flatten();
-    // `None`/an error both mean "no recorded source" (a design that was never
-    // re-imported, or whose recorded source row was since deleted), matching
-    // `get_derived_from_title`'s own doc comment.
+    // `None` and errors both mean no recorded source.
     let derived_from_title = db
         .get_derived_from_title(entry_id)
         .ok()
@@ -108,34 +102,13 @@ fn fetch_detail(db: &Database, entry_id: i64) -> anyhow::Result<Option<DetailFet
     }))
 }
 
-/// Pushes the shape-picker options/current-index (`detail_header.slint`'s pencil
-/// next to the "Shape:" chip, local designs only -- see
-/// `library::setup_set_shape_callback`'s doc comment; recomputed on every open so
-/// it always reflects this design and the library's present shape vocabulary, not
-/// whatever the last-opened design left behind), the cached-curve-material
-/// readout, and the derived-from note. Split out of [`apply_metadata`] purely to keep that
-/// function under clippy's function-length lint.
+/// Sets the shape picker options and current index, the cached curve material and the
+/// derived-from note. Split out of [`apply_metadata`] to keep that function under clippy's
+/// length lint.
 ///
-/// Closes the stale-cached-curve seam: the Tilt Performance dialog's
-/// "re-render with the current material?" banner
-/// (`gui::tilt_profile::cached_curve_material_is_stale`, wired on
-/// `MainWindow::is_cached_curve_material_stale`) needs to know what material this
-/// design's cached preview/tilt-curve artifacts were actually generated under --
-/// `Database::get_preview_material` is that value (set once, at first preview
-/// generation, via `Database::ensure_preview_material`, and reused forever after --
-/// see that method's own doc comment; a design whose file names a material has the
-/// name written over instead, `Database::set_preview_material`). An empty string ("no
-/// cached material on file yet") is exactly `cached_curve_material_is_stale`'s own
-/// documented "never stale" case, so `unwrap_or_default` here needs no
-/// special-casing.
-///
-/// The derived-from note is a one-line status message rather than a persistent badge: a
-/// proper chip on `detail_header.slint` would need a new `DiagramDetailData` field or
-/// `LibraryModel` property re-exported through `app.slint`'s `export {}` list.
-///
-/// The load worker keeps the cached material itself (as `ResolvedPlanes::preview_material`)
-/// for `apply_catalogue_material`'s persisted-preview-material fast path, ahead of that
-/// function's own refractive-index nearest-match guess -- see its doc comment.
+/// The shape picker is local-only and recomputed on every open, so it matches this design.
+/// The cached material is what `cached_curve_material_is_stale` compares against: an empty
+/// string (none recorded yet) is never stale. The derived-from note is a status message.
 fn push_shape_picker_and_cached_material(
     ui: &MainWindow,
     shape_options: Vec<SharedString>,
@@ -172,9 +145,8 @@ fn detail_data(full: &FullDiagramMeta, has_image: bool) -> DiagramDetailData {
         competition: full.competition_diagram.clone().unwrap_or_default().into(),
         image_name: full.diagram_image_name.clone().unwrap_or_default().into(),
         has_image,
-        // See `pleochroma_vault::local::import_asc`: a locally-imported design's
-        // `url` is a synthetic `local://<file name>` id, not a real web page --
-        // gates "Open on Web"/"Copy Link" in `detail_header.slint`.
+        // A locally imported design's `url` is a synthetic `local://` id, not a web page.
+        // This gates "Open on Web" and "Copy Link" in `detail_header.slint`.
         is_local: full.url.starts_with("local://"),
         hw_ratio: format_optional_proportion(full.hw_ratio.as_deref()).into(),
         cw_ratio: format_optional_proportion(full.cw_ratio.as_deref()).into(),
@@ -184,10 +156,8 @@ fn detail_data(full: &FullDiagramMeta, has_image: bool) -> DiagramDetailData {
     }
 }
 
-/// The angle table's rows for `full`. The sides come from each row's own
-/// facet/angle/index label (see `sides_from_rows`'s own doc comment), computed over
-/// the already order_idx-ordered `full.angle_settings` (`entries.rs`'s own
-/// `ORDER BY order_idx ASC`).
+/// The angle table's rows for `full`, in the order of `full.angle_settings`, which is
+/// sorted by `order_idx`. Sides come from each row's facet, angle and index.
 fn angle_items(full: &FullDiagramMeta) -> Vec<AngleItem> {
     let sides = sides_from_rows(
         full.angle_settings
@@ -222,8 +192,7 @@ fn file_items(full: &FullDiagramMeta) -> Vec<FileItem> {
     full.attached_files
         .iter()
         .map(|f| {
-            // `f.size` is SQL `length(content)`, the byte count the old
-            // `content.len()` gave.
+            // `f.size` is the byte count (SQL `length(content)`).
             let size_kb = f.size as f64 / 1024.0;
             FileItem {
                 name: f.name.clone().into(),
@@ -250,10 +219,9 @@ fn detail_worker() -> &'static Worker<DetailRequest> {
     WORKER.get_or_init(|| Worker::new(run_request))
 }
 
-/// Starts loading one design from the LOCAL database into the detail pane, angle table,
-/// attachments list and (once its planes are resolved) the 3D viewport. Returns at once:
-/// every stage runs on the load worker and is applied from the event loop, unless a later
-/// click superseded it first (see the module doc).
+/// Loads one design from the LOCAL database into the detail pane, angle table, attachment
+/// list and, once resolved, the 3D viewport. Returns at once. The stages run on the load
+/// worker and are applied on the event loop, unless a later click supersedes them.
 pub(super) fn load_diagram_detail(
     ui: &MainWindow,
     db_mutex: &Arc<Mutex<Database>>,
@@ -261,11 +229,9 @@ pub(super) fn load_diagram_detail(
     entry_id: i64,
 ) {
     let sequence = DETAIL_LOADS.begin();
-    // The selection is known at the click, so it is set now, not when stage 1 lands: the
-    // card highlight, Load Selected, the planner's open-in-editor and the guide launch all
-    // read `selected_entry_id` straight after asking for the selection, and none of them can
-    // wait for a worker round trip. A design that then proves unreadable drops the
-    // selection again ([`post_failure`]); the header and tables fill in a moment later.
+    // Set now rather than when stage 1 lands: the card highlight, Load Selected, the
+    // planner's open-in-editor and the guide launch read it straight after the click. A
+    // design that proves unreadable drops the selection again ([`post_failure`]).
     ui.global::<LibraryModel>()
         .set_selected_entry_id(i32::try_from(entry_id).unwrap_or(i32::MAX));
     let request = DetailRequest {
@@ -302,11 +268,11 @@ fn run_request(request: DetailRequest) {
     }
 }
 
-/// Reports that `entry_id` could not be loaded: from the event loop, if `sequence` is still
-/// the newest load, drops the selection [`load_diagram_detail`] made at the click (when it
-/// is still on that row, and clears the pane with it) and shows `message`. So a design
-/// that is gone or unreadable never stays "selected" with nothing behind it, as the
-/// planner's open-in-editor relies on.
+/// Reports that `entry_id` could not be loaded.
+///
+/// On the event loop, and only if `sequence` is still the newest load, it drops the selection
+/// [`load_diagram_detail`] made at the click, clears the pane if the selection is still on
+/// that row, and shows `message`. A design that is gone or unreadable never stays "selected".
 fn post_failure(ui_weak: &slint::Weak<MainWindow>, sequence: u64, entry_id: i64, message: String) {
     let _ = ui_weak.upgrade_in_event_loop(move |ui| {
         if !should_continue(&DETAIL_LOADS, sequence) {
@@ -333,8 +299,8 @@ fn run_stages(request: DetailRequest) {
         return;
     }
 
-    // Stage 1: the detail pane's data, over a read-only connection of its own (the shared
-    // writer lock is only the fallback for `:memory:`), without the image BLOB.
+    // Stage 1: the pane's data, over a read-only connection. The shared writer lock is only
+    // the fallback for `:memory:`.
     let fetched = with_read_db(&db, |db| fetch_detail(db, entry_id));
     if !should_continue(&DETAIL_LOADS, sequence) {
         return;
@@ -374,16 +340,16 @@ fn run_stages(request: DetailRequest) {
         return;
     }
 
-    // Stage 2: the design file is an attachment, so the planes resolution needs the full
-    // record; its blobs are read here, off the UI thread, on a read-only connection.
+    // Stage 2: the design file is an attachment, so the full record is needed. Its blobs
+    // are read here, off the UI thread.
     let full = with_read_db(&db, |db| db.get_diagram_full(entry_id));
     if !should_continue(&DETAIL_LOADS, sequence) {
         return;
     }
 
-    // Stage 3: parse and solve. A design file that merely fails to read or solve is not
-    // an error ([`crate::gui::editor::resolve_catalogue_planes`] falls back to the angle
-    // table for it); only a panic or an unreadable record is. Uncancellable once started.
+    // Stage 3: parse and solve. A design file that fails to read or solve is not an error,
+    // since [`crate::gui::editor::resolve_catalogue_planes`] falls back to the angle table.
+    // Only a panic or an unreadable record is.
     let planes = match full {
         Ok(Some(full)) => crate::gui::library::local::catch_file_panic(AssertUnwindSafe(|| {
             crate::gui::editor::resolve_catalogue_planes_with_frosting(&full)
@@ -436,9 +402,7 @@ fn apply_metadata(ui: &MainWindow, sequence: u64, entry_id: i64, fetched: Detail
     ui.global::<LibraryModel>()
         .set_selected_entry_id(i32::try_from(entry_id).unwrap_or(i32::MAX));
 
-    // Shape picker, cached-curve-material readout and the derived-from note -- split into
-    // a helper purely to keep this function under clippy's function-length lint; see that
-    // helper's own doc comment.
+    // Shape picker, cached material and derived-from note.
     push_shape_picker_and_cached_material(
         ui,
         shape_options,
@@ -457,16 +421,11 @@ struct ResolvedPlanes {
     index_gear: Option<String>,
     refractive_index: Option<String>,
     preview_material: Option<String>,
-    /// The planes, gear teeth and reference angle, with the material and girdle
-    /// diameter the design file records -- or why resolving them panicked. A design file
-    /// that merely fails to read or solve is not an error here:
-    /// [`crate::gui::editor::resolve_catalogue_planes`] falls back to the angle table for
-    /// it, the SAME resolution (design file first) the preview and tilt batches use, so
-    /// this view's stone and a record's cached thumbnails and tilt curves never describe
-    /// different geometry. It parses and solves the design file: it runs on the worker
-    /// thread, never the UI thread. Paired with the ascending indices of the planes the
-    /// design frosts ([`crate::gui::editor::resolve_catalogue_planes_with_frosting`]), so the
-    /// viewport shows the finish the editor, the thumbnail and the Compare window show.
+    /// The planes, gear teeth and reference angle, with the design file's material and
+    /// girdle diameter, or the error message. A design file that fails to read or solve
+    /// falls back to the angle table, the same resolution the preview and tilt batches use,
+    /// so the viewport and the cached thumbnails show the same geometry. Paired with the
+    /// ascending indices of the frosted planes.
     planes: Result<(CataloguePlanes, Vec<u32>), String>,
 }
 
@@ -532,15 +491,12 @@ fn apply_resolved_planes(
     request_live_solid_redraw(ui);
 }
 
-/// Redraws the Live Render tab's solid raster when it is the one showing, now that
-/// the planes behind it have changed.
+/// Redraws the Live Render solid when that tab is showing, since the planes behind it
+/// have changed.
 ///
-/// The selection callback's own redraw
-/// (`gui::library::diagram_list::setup_diagram_selection_and_export_callbacks`) runs
-/// before the planes land, so it draws the previous design. This goes through
-/// `ViewportModel.live_view_mode_changed` because its handler is the one place,
-/// besides that callback, that holds the solid preview state and redraws from
-/// `RenderContext::active_planes`; invoking it with the unchanged mode only repeats
+/// The selection callback's redraw runs before the planes land, so it shows the previous
+/// design. This goes through `ViewportModel.live_view_mode_changed`, whose handler redraws
+/// from `RenderContext::active_planes`. Invoking it with the unchanged mode only repeats
 /// that redraw.
 fn request_live_solid_redraw(ui: &MainWindow) {
     let viewport = ui.global::<ViewportModel>();

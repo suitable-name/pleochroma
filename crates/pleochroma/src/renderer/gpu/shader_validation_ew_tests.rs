@@ -1,5 +1,5 @@
-//! Event wavefront shader checks (plan 7.1): per-kernel storage-buffer tables, struct layouts
-//! against the Rust twins, and text invariants that make "verbatim move" a checkable property.
+//! Event wavefront shader checks: per-kernel storage-buffer tables, struct layouts against the
+//! Rust twins, and text invariants of the shared scatter and surface pieces.
 
 use naga::{
     front::wgsl,
@@ -38,9 +38,8 @@ const EW_UNITS: &[(&str, &str)] = &[
     ew_unit!("ew_finalize"),
 ];
 
-/// The exact storage buffers each kernel reaches (plan 4.3, with the HG NEE split out of
-/// `ew_scatter`). A binding that vanishes from a kernel (the HG NEE block once did) changes
-/// this table and fails the test below; so does a binding that sneaks in.
+/// The exact storage buffers each kernel reaches. The HG NEE is its own kernel, split out of
+/// `ew_scatter`. A binding that appears or disappears fails the test below.
 const EXPECTED_STORAGE: &[(&str, &[&str])] = &[
     ("ew_generate", &["ray_core", "ray_chan"]),
     (
@@ -234,9 +233,8 @@ fn fn_text<'a>(text: &'a str, name: &str) -> &'a str {
     &rest[..end]
 }
 
-/// "Verbatim move" as a checkable property: the HG NEE call exists exactly once in the phase
-/// functions and sits behind the HDR gate in `bounce_scatter`; the deferred exit-split
-/// resolution is the only caller of `try_split_exit_channel`.
+/// The HG NEE call occurs once in the phase functions, behind the HDR gate in `bounce_scatter`,
+/// and the exit-split resolution is the only caller of `try_split_exit_channel`.
 #[test]
 fn bounce_phases_keep_the_hg_nee_and_the_split_resolution_call_sites() {
     let text = bounce_phase_text().replace("\r\n", "\n");
@@ -270,11 +268,11 @@ fn bounce_phases_keep_the_hg_nee_and_the_split_resolution_call_sites() {
     assert_eq!(text.matches("surf_is_ground(").count(), 3);
 }
 
-/// The event kernels split the scatter phase over two dispatches (and, for the plain haze and an
-/// oriented stone, over two kernels); each must use the same pieces, in the same order, as the
-/// megakernel composes: the oriented kernel the shared functions themselves, the plain kernel
-/// their non-oriented tails (`ew_scatter_sample_plain` / `ew_scatter_commit_plain`), which must
-/// stay textually the tails of `bounce_scatter_sample` / `bounce_scatter_commit`.
+/// The event kernels split the scatter phase over separate kernels. Each must use the same
+/// pieces, in the same order, as the megakernel: the oriented kernel the shared functions
+/// themselves, and the plain kernel their non-oriented tails (`ew_scatter_sample_plain` /
+/// `ew_scatter_commit_plain`), which must stay textually the tails of `bounce_scatter_sample` /
+/// `bounce_scatter_commit`.
 #[test]
 fn event_scatter_kernels_use_the_shared_scatter_pieces() {
     let plain = include_str!("../shaders/event_wavefront/ew_scatter.wgsl");
@@ -348,8 +346,8 @@ fn event_scatter_kernels_use_the_shared_scatter_pieces() {
     }
 }
 
-/// The surface kernel no longer reaches the zoned absorption or the per-channel index setup; the
-/// zoned kernel owns the former and the arm kernels the latter.
+/// The surface kernel does not reach the zoned absorption or the per-channel index setup: the
+/// zoned kernel owns the former, the arm kernels the latter.
 #[test]
 fn event_surface_split_moves_the_heavy_pieces_out_of_the_surface_kernel() {
     let surface = include_str!("../shaders/event_wavefront/ew_surface.wgsl");

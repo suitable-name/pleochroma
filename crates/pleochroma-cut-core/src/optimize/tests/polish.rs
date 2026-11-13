@@ -1,21 +1,18 @@
-//! Tests for [`super::super::polish::run_polish`], generic over a plain
-//! synthetic scoring closure -- no [`crate::design::Design`], no `solve`, no
-//! `#[ignore]` needed (see the parent module's own doc comment, "Coordinate
-//! descent stalls on diagonal ridges").
+//! Tests for [`super::super::polish::run_polish`] over plain synthetic scoring closures: no
+//! [`crate::design::Design`] and no `solve`.
+//!
+//! See the parent module's "Coordinate descent stalls on diagonal ridges" section for why the stage
+//! exists.
 
 use super::super::polish;
 
-/// The Nelder-Mead polish stage substantially closes the gap on a diagonal ridge a
-/// pure axis-aligned (coordinate) search stalls on -- see the parent module's
-/// "Coordinate descent stalls on diagonal ridges" section.
+/// The Nelder-Mead polish stage closes most of the gap on a diagonal ridge that a
+/// coordinate search stalls on.
 ///
-/// `f(a, b) = (a - b)^2 + 0.01 * (a + b - c)^2` has its minimum at `a == b == c /
-/// 2`; its Hessian is ill-conditioned (eigenvalues roughly 4.02 and 0.02, a ~200:1
-/// ratio), so a search that only ever moves one of `a`/`b` at a time makes real but
-/// very slow progress along the shallow `a == b` valley -- once its step size
-/// floors out at a fixed minimum, whatever residual remains along that valley is
-/// where it stalls. `(0.0, 6.0)` below stands in for such a stalled point: clearly
-/// not optimal, and not on the ridge line either.
+/// `f(a, b) = (a - b)^2 + 0.01 * (a + b - c)^2` has its minimum at `a == b == c / 2`. Its
+/// Hessian is ill-conditioned (eigenvalues about 4.02 and 0.02), so axis-aligned moves crawl
+/// along the valley. `(0.0, 6.0)` stands in for such a stalled point: not optimal, and not on
+/// the ridge line either.
 #[test]
 #[expect(
     clippy::cast_possible_truncation,
@@ -71,9 +68,8 @@ fn polish_stage_is_deterministic_for_identical_inputs() {
     assert_eq!(a.cancelled, b.cancelled);
 }
 
-/// `is_cancelled` is polled at the very top of the main loop, before the initial
-/// simplex is ever touched further -- only the one evaluation per dimension spent
-/// building that initial simplex should ever run.
+/// `is_cancelled` is polled at the top of the main loop, so a run cancelled from the start
+/// evaluates only the initial simplex, one point per dimension.
 #[test]
 #[expect(
     clippy::cast_possible_truncation,
@@ -87,10 +83,10 @@ fn polish_stage_stops_when_cancelled() {
     assert_eq!(result.evaluations, start.len());
 }
 
-/// `max_evaluations` is a hard cap: a landscape that rejects every point but the start
-/// (infinite scores) forces the contraction and then a shrink that re-scores every vertex
-/// but the best, which used to run the count past the cap by a whole simplex. The cap is
-/// below, at and above the dimension (nine, the free tiers of the multi-start fixture).
+/// `max_evaluations` is a hard cap. A landscape that rejects every point but the start forces
+/// a contraction and then a shrink, which re-scores every vertex but the best; the cap must
+/// hold through those too. The caps tested are below, at and above the dimension (nine, the
+/// free tiers of the multi-start fixture).
 #[test]
 fn polish_stage_never_evaluates_more_often_than_its_cap() {
     let start = [0.0_f64; 9];

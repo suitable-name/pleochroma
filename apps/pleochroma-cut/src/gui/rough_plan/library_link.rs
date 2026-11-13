@@ -2,7 +2,7 @@
 //!
 //! - selecting a design (a design name in a result) opens it in the main window's
 //!   library, and the planner stays open;
-//! - "Show in library" narrows the library to the designs of one result, or of all
+//! - "Show in Library" narrows the library to the designs of one result, or of all
 //!   results, with a banner that says where the narrowing comes from;
 //! - the help button opens the manual chapter on planning a rough.
 //!
@@ -157,8 +157,8 @@ fn other_filters_active(filters: &FilterSnapshot) -> bool {
 }
 
 /// `label` with the note that the library's own search and filters still apply. The
-/// designs are shown through the id restriction AND those filters, so the count in the
-/// banner is an upper bound until the note is gone.
+/// designs are shown through the id restriction and those filters, so the banner's count
+/// is an upper bound while the note shows.
 #[must_use]
 fn narrowed_label(label: &str) -> String {
     format!("{label} \u{b7} within the current search and filters")
@@ -197,8 +197,7 @@ pub fn show_designs_in_library(
     true
 }
 
-/// What the library link buttons need from the session: the shown layouts and how to
-/// call the plan.
+/// The library ids a link shows and the banner that names them.
 struct LinkTarget {
     ids: Vec<i64>,
     label: String,

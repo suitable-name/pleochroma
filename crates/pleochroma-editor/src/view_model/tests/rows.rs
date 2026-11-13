@@ -104,13 +104,11 @@ fn tier_items_stale_reflects_authored_fields_without_solving() {
     assert!(items[0].strategy_is_uncertain);
 }
 
-/// Reproduces the "Solve, Adopt, and it says not solved again" bug: build a design
-/// with a real crown anchor and one imported, not-yet-adopted tier pinned to exactly
-/// the mast its real meet constraint would derive, confirm it already solves, then
-/// apply the exact `Edit::SetConstraint` "Adopt" issues, and confirm the design is
-/// STILL solvable -- never falling back to `MissingAnchor` -- converging to the same
-/// mast. The acceptance criterion for `setup_adopt_meet_callback` calling a real
-/// re-solve rather than showing a fixed "Not solved" banner.
+/// Adopting an imported meet keeps the design solvable and converges to the same mast.
+///
+/// An imported tier is pinned to the mast its meet constraint derives. Applying the
+/// `Edit::SetConstraint` that Adopt issues must leave the design solvable, not fall back to
+/// `MissingAnchor`, with the same mast.
 #[test]
 fn adopting_a_suggested_meet_keeps_the_design_solved_at_the_same_mast() {
     // A proven-solvable crown anchor + `MeetNamed` pair, not a guessed shape.
@@ -194,8 +192,7 @@ fn adopting_a_suggested_meet_keeps_the_design_solved_at_the_same_mast() {
         })
         .expect("adopt must apply");
 
-    // The bug: after Adopt, the design must still solve -- a real "Solve" click must
-    // never report "not solved" against a design that actually does.
+    // After Adopt, the design must still solve, so a Solve click never reports "not solved".
     let (status, is_problem) = status_text_and_is_problem(&state.design);
     assert!(!is_problem, "adopted design must still solve: {status}");
     let items = tier_items(&state.design, state.design.effective_refractive_index());
@@ -236,11 +233,8 @@ fn tier_margin_and_risk_is_not_applicable_for_a_crown_tier_with_no_partner() {
 
 #[test]
 fn tier_margin_and_risk_is_not_applicable_for_a_girdle_tier() {
-    // A girdle tier is classified by BLOCK (magnitude ~90 degrees), not
-    // by `angle == 0.0` -- the old check treated an exact-zero table/culet
-    // tier as girdle and a real +/-90 girdle tier as crown/pavilion, backwards
-    // on both counts. `Block::Girdle` always reads "nothing to show"
-    // regardless of the angle's own value.
+    // A girdle tier is classified by its block (magnitude ~90 degrees), not by the angle's
+    // size, so `Block::Girdle` reads "nothing to show" whatever the angle is.
     assert_eq!(
         tier_margin_and_risk(90.0, Block::Girdle, 2.417, None),
         (String::new(), -1)
@@ -448,7 +442,7 @@ fn unnamed_flat_cutting_rows_are_labelled_by_cutting_position() {
     }
 }
 
-/// A planar design's schedule is in cutting order too, no longer in stored order: the fixture
+/// A planar design's schedule is in cutting order, not stored order: the fixture
 /// is stored top-down (table first), the rows open with the girdle and the pavilion and close
 /// with the table, each row's side the solver's classification of the tier it shows.
 #[test]

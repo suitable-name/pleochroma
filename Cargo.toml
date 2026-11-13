@@ -46,7 +46,7 @@ exclude = ["vendor"]
 # `crates/pleochroma-mobile-core`, its UI-free core (app state, compute threads, platform trait).
 
 [workspace.package]
-version = "0.10.1"
+version = "0.11.0"
 edition = "2024"
 rust-version = "1.95"
 authors = ["Suitable-Name"]
@@ -80,7 +80,7 @@ pollster = { version = "1.0.1" }
 # The cutting sheet's PDF export (`pleochroma-editor`'s `cut_sheet::pdf`): a low-level PDF
 # writer (MIT/Apache-2.0, no font or image stack). The sheet uses the standard 14 fonts
 # (Helvetica, Helvetica-Bold) and vector paths only, so nothing is embedded.
-pdf-writer = "0.12"
+pdf-writer = "0.15.0"
 # Wire-format serializer for pleochroma-net's `SceneState` (sent once per camera change --
 # a few KB, serialisation cost irrelevant, compactness is what matters). NOT used for
 # the per-sample radiance buffer, which goes over the wire as raw `bytemuck` POD bytes
@@ -98,7 +98,7 @@ rcgen = { version = "0.14.10", default-features = false, features = ["ring", "pe
 # non-default `gtk3` feature -- so this stays a no-op for the Windows build (native
 # `IFileDialog`, no extra deps either way) while not silently breaking dialogs on a
 # Linux build of this workspace.
-rfd = "0.17.2"
+rfd = "0.18.0"
 # "functions" (pure `cfg`, `functions = []` in rusqlite's own Cargo.toml -- no new
 # transitive dependency, no Cargo.lock change) is needed by pleochroma-vault's
 # `fold()` SQL scalar function (case-/typography-insensitive title/designer search,
@@ -169,19 +169,19 @@ log = "0.4"
 log-panics = { version = "2", features = ["with-backtrace"] }
 
 # Workspace members
-pleochroma-vault = { path = "crates/pleochroma-vault", version = "0.10.1" }
-pleochroma = { path = "crates/pleochroma", version = "0.10.1" }
-pleochroma-net = { path = "crates/pleochroma-net", version = "0.10.1" }
-pleochroma-dispatch = { path = "crates/pleochroma-dispatch", version = "0.10.1" }
-pleochroma-formats = { path = "crates/pleochroma-formats", version = "0.10.1" }
-pleochroma-cut-core = { path = "crates/pleochroma-cut-core", version = "0.10.1" }
-pleochroma-solid = { path = "crates/pleochroma-solid", version = "0.10.1" }
-pleochroma-editor = { path = "crates/pleochroma-editor", version = "0.10.1" }
-pleochroma-web-core = { path = "crates/pleochroma-web-core", version = "0.10.1" }
-pleochroma-update = { path = "crates/pleochroma-update", version = "0.10.1" }
-pleochroma-render-jobs = { path = "crates/pleochroma-render-jobs", version = "0.10.1" }
-pleochroma-cut = { path = "apps/pleochroma-cut", version = "0.10.1" }
-pleochroma-mobile-core = { path = "crates/pleochroma-mobile-core", version = "0.10.1" }
+pleochroma-vault = { path = "crates/pleochroma-vault", version = "0.11.0" }
+pleochroma = { path = "crates/pleochroma", version = "0.11.0" }
+pleochroma-net = { path = "crates/pleochroma-net", version = "0.11.0" }
+pleochroma-dispatch = { path = "crates/pleochroma-dispatch", version = "0.11.0" }
+pleochroma-formats = { path = "crates/pleochroma-formats", version = "0.11.0" }
+pleochroma-cut-core = { path = "crates/pleochroma-cut-core", version = "0.11.0" }
+pleochroma-solid = { path = "crates/pleochroma-solid", version = "0.11.0" }
+pleochroma-editor = { path = "crates/pleochroma-editor", version = "0.11.0" }
+pleochroma-web-core = { path = "crates/pleochroma-web-core", version = "0.11.0" }
+pleochroma-update = { path = "crates/pleochroma-update", version = "0.11.0" }
+pleochroma-render-jobs = { path = "crates/pleochroma-render-jobs", version = "0.11.0" }
+pleochroma-cut = { path = "apps/pleochroma-cut", version = "0.11.0" }
+pleochroma-mobile-core = { path = "crates/pleochroma-mobile-core", version = "0.11.0" }
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
@@ -196,10 +196,22 @@ cast_precision_loss = { level = "allow" }
 # with an explicit epsilon, never with `==`.
 float_cmp = { level = "allow" }
 
+[workspace.lints.rust]
+# `beam_tests`: the retired beam tracer's tests (and every beam-related test elsewhere) compile only
+# with `RUSTFLAGS="--cfg beam_tests"` (scripts/run_beam_tests.sh), never under `cargo test` or
+# `--all-features`: a cargo feature cannot do that. Declared here so `unexpected_cfgs` stays quiet.
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(beam_tests)'] }
+
+# Thin LTO over 16 codegen units: the release builds are PGO/BOLT builds, and ThinLTO with a
+# profile imports and inlines the hot functions across both crate and codegen-unit boundaries,
+# so fat LTO with one unit buys little more runtime speed while serializing the link onto one
+# thread (twice per PGO build). BOLT on top gains more than a single unit would. The
+# instrumented and the profile-use build must share these settings exactly: a different unit
+# split or LTO mode changes the function hashes and LLVM drops the collected counters.
 [profile.release]
-codegen-units = 1
+codegen-units = 16
 debug = "line-tables-only"
-lto = true
+lto = "thin"
 opt-level = 3
 strip = "symbols"
 
@@ -258,7 +270,7 @@ strip = false
 
 # The browser app's release builds (`trunk build --release`), selected by
 # `data-cargo-profile-release="pleochroma-web-release"` on the page and Worker `<link>`s in
-# `apps/pleochroma-web/index.html`. It is `[profile.release]` (LTO, one codegen unit,
+# `apps/pleochroma-web/index.html`. It is `[profile.release]` (thin LTO, 16 codegen units,
 # symbols stripped) with one change: the page crate, which is mostly Slint-generated UI code,
 # is optimised for size. The hot loops (Slint's renderer, the rasteriser, the meet solver and
 # the Worker's tracer) all live in dependency crates and keep opt-level 3. Native release
@@ -296,19 +308,18 @@ opt-level = 0
 # For the long-running validation harnesses under `crates/pleochroma/examples/` --
 # `gpu_equivalence_harness` and `meet_solver_validation` -- which are rebuilt often
 # while iterating and need release-level speed to finish in reasonable time.
-# `[profile.release]` above sets lto=true, codegen-units=1, the right trade for a real
-# release but painfully slow to rebuild for no runtime benefit that matters here. This
-# keeps release optimization (opt-level=3, no debug-assertions/overflow-checks) while
-# skipping LTO and parallelizing codegen: a little runtime speed traded for much
-# faster rebuilds.
+# `[profile.release]` above sets thin LTO, the right trade for a real release but slower to
+# rebuild for no runtime benefit that matters here. This keeps release optimization
+# (opt-level=3, no debug-assertions/overflow-checks, 16 codegen units) while skipping LTO:
+# a little runtime speed traded for faster rebuilds.
 [profile.probe]
 inherits = "release"
 lto = false
 codegen-units = 16
 
 # The desktop UI harness (`cargo ui-harness`, see `.cargo/config.toml`): release speed for the
-# hundreds of relaunches and solves a full run makes, without the LTO / one-codegen-unit link
-# that dominates a release rebuild. Line tables and no stripping keep file:line in the panic
+# hundreds of relaunches and solves a full run makes, without the LTO link that dominates a
+# release rebuild. Line tables and no stripping keep file:line in the panic
 # backtraces the harness reports. Its own output directory (`target/harness/`); the report still
 # goes to `target/ui-harness/report.md`.
 [profile.harness]

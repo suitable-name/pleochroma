@@ -1,7 +1,8 @@
-//! The core per-design oracle measurement: for every tier, pins every other tier at
-//! its real recorded mast and asks whether the tier's own recorded mast is realized
-//! as a vertex of the arrangement of the other tiers' planes, plus the incremental-
-//! and global-solve ceiling experiments described in this example's crate doc.
+//! The core per-design oracle measurement.
+//!
+//! For every tier, pins every other tier at its recorded mast and asks whether the tier's own
+//! recorded mast is realized as a vertex of the arrangement of the other tiers' planes. Also
+//! runs the incremental and global-solve ceiling experiments, which `main.rs` documents.
 
 use glam::DVec3;
 use pleochroma_formats::asc::{self, MeetInstruction};
@@ -72,9 +73,7 @@ pub fn analyze_one(row: &AscRow) -> DesignResult {
         return out;
     }
 
-    // Which tiers are scale anchors (not meet-derived). Mirrors
-    // meet_tier_inputs_from_asc's classification, plus the validation harness's
-    // tier-0 bootstrap when no stated anchor exists.
+    // Scale anchors (not meet-derived): the classification of `meet_tier_inputs_from_asc`.
     let mut is_anchor: Vec<bool> = schedule
         .tiers
         .iter()
@@ -85,12 +84,10 @@ pub fn analyze_one(row: &AscRow) -> DesignResult {
             )
         })
         .collect();
-    // Per-block anchors: the crown block (normal.y > 0), pavilion block
-    // (normal.y < 0), and girdle block (normal.y ~ 0) each float as a coherent unit
-    // (verified: a uniform y-shift of one block preserves every vertex incidence),
-    // so each block present in the design needs one stated dimension. Bootstrap the
-    // first tier of any block that has no stated anchor -- the exact analog of a
-    // printed diagram's stated C/W, P/W, and girdle-size numbers.
+    // Per-block anchors: the crown (normal.y > 0), pavilion (normal.y < 0) and girdle
+    // (normal.y ~ 0) blocks each float as a unit, since a uniform y-shift of one block keeps
+    // every vertex incidence. Each block present needs one anchor, so the first tier of a
+    // block without a stated anchor is bootstrapped.
     for class_of in [
         |y: f64| y > 1e-6,        // crown
         |y: f64| y < -1e-6,       // pavilion
@@ -147,7 +144,7 @@ pub fn analyze_one(row: &AscRow) -> DesignResult {
             .map(|&n| usable.iter().map(|c| n.dot(c.v)).collect())
             .collect();
 
-        // E3b, instance 0 and worst instance.
+        // Relative error for instance 0 and for the worst instance.
         let err_of = |vals: &[f64]| -> f64 {
             vals.iter()
                 .map(|&d| (d - m).abs() / m)
@@ -167,7 +164,7 @@ pub fn analyze_one(row: &AscRow) -> DesignResult {
         st.rank = true_level;
 
         // Symmetry-intersected rank: keep instance-0 levels that appear (within
-        // LEVEL_TOL + matching tolerance) in every other instance's value list.
+        // 4 * LEVEL_TOL) in every other instance's value list.
         if normals[i].len() > 1 {
             let common: Vec<f64> = levels0
                 .iter()
@@ -228,7 +225,7 @@ pub fn analyze_one(row: &AscRow) -> DesignResult {
             st.deepest_safe_rank = deepest;
         }
 
-        // E4: stated meet names.
+        // Stated meet names, resolved to tier indices.
         let mut resolved_refs: Vec<usize> = Vec::new();
         if let Some(MeetInstruction::Meet(names)) = schedule.tiers[i].meet_instruction() {
             let total = names.len();
@@ -301,9 +298,8 @@ pub fn analyze_one(row: &AscRow) -> DesignResult {
             let rank1_pred = levels0.get(1).or_else(|| levels0.first()).copied();
             st.hit_rank1 = hit(rank1_pred);
 
-            // Named override: min-|delta|... no -- at solve time truth is unknown, so
-            // the named rule must be "shallowest level with a candidate incident to
-            // every resolved ref".
+            // Named rule: the shallowest level with a candidate incident to every resolved
+            // ref, since the true value is unknown at solve time.
             let named_pred: Option<f64> = if resolved_refs.is_empty() {
                 None
             } else {
@@ -327,10 +323,8 @@ pub fn analyze_one(row: &AscRow) -> DesignResult {
             st.hit_named_rank1 = hit(named_pred.or(rank1_pred));
             st.named_rank1_err = named_pred.or(rank1_pred).map(|p| (p - m).abs() / m);
 
-            // Rule "degree": among the first 4 levels, pick the one with the highest
-            // degeneracy degree; ties break toward the shallower level. Skip level 0
-            // only when a deeper level strictly beats it (level 0 with max degree is
-            // legitimate first-touch-at-a-meet-point).
+            // Degree rule: among the first 4 levels, the highest degeneracy degree; ties go to
+            // the shallower level.
             let degree_pred: Option<f64> = {
                 let span = levels0.len().min(4);
                 (0..span)

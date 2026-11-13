@@ -48,31 +48,17 @@ export component GemViewportView inherits Rectangle {
     // Tells Rust when something the crystal axis depends on changed.
     CrystalAxisWatcher { }
 
-    // Slint has no built-in way to report a widget's rendered size back to Rust -- see
-    // `solid_viewport.slint`'s own identical `changed width`/`changed height` doc
-    // comment. Pushed unconditionally (not just while `live_view_mode == 0`): this
-    // component and `SolidViewportView` are mutually exclusive (only the Live Render
-    // OR the Edit sub-tab is ever mounted at once -- see `app.slint`), so there is
-    // never a competing writer, and pushing on every resize (not just a mode switch)
-    // means the size is already correct the moment the user flips into Solid mode,
-    // rather than stale until the next resize.
+    // Slint cannot report a widget's rendered size to Rust, so the size is pushed from here on
+    // every resize, not only in Solid mode. That keeps it correct when the user switches modes.
+    // This component and `SolidViewportView` are never mounted together (see `app.slint`).
     //
-    // `live_viewport_width`/`live_viewport_height`, NOT `SolidPreviewModel.
-    // viewport_width`/`viewport_height`: if this component and `SolidViewportView`
-    // pushed their layout size into the SAME two properties, whichever one
-    // resized last would silently clobber the other's pending redraw size
-    // (resizing the Live Render viewport while the Edit tab was open
-    // would leave ITS next redraw sized to the Live tab's viewport, or vice
-    // versa). See `SolidPreviewModel.live_viewport_width`'s own doc comment.
+    // Uses `live_viewport_width`/`live_viewport_height`, not the `viewport_*` pair that
+    // `SolidViewportView` writes. Sharing one pair would let whichever resized last overwrite the
+    // other's pending redraw size.
     changed width => { OpticalModel.invalidate(); SolidPreviewModel.live_viewport_width = self.width; SolidPreviewModel.live_viewport_resized(); }
     changed height => { OpticalModel.invalidate(); SolidPreviewModel.live_viewport_height = self.height; SolidPreviewModel.live_viewport_resized(); }
-    // Also pushed once on mount, not left to the two `changed` handlers above
-    // alone: those only fire on a REAL size change relative to what this
-    // component's own tracker last saw, but a fresh instance (this component
-    // sits inside a conditional elsewhere -- switching away from and back to
-    // the Live Render tab remounts it) starts with no size pushed at all,
-    // which can leave `SolidPreviewModel.live_viewport_*` reading a stale size
-    // from whatever WAS mounted before, right up until the next real resize.
+    // Also pushed on mount. The `changed` handlers fire only on a real size change, and a
+    // remounted instance would otherwise leave a stale size in place until the next resize.
     init => {
         SolidPreviewModel.live_viewport_width = self.width;
         SolidPreviewModel.live_viewport_height = self.height;
@@ -87,19 +73,12 @@ export component GemViewportView inherits Rectangle {
             if (event.kind == PointerEventKind.down) {
                 root.last_mouse_x = touch_area.mouse-x;
                 root.last_mouse_y = touch_area.mouse-y;
-                // Shift+drag is an ALTERNATIVE to the right button, not a convenience:
-                // on a Windows Precision Touchpad, holding the two-finger right-click
-                // gesture and moving is delivered by the driver as a held *left*
-                // button, so a laptop user physically cannot produce a right-drag no
-                // matter how this is wired. The light would silently orbit the camera
-                // instead. A modifier+left-drag is the standard answer (it is why 3D
-                // applications have one at all), and it costs mouse users nothing --
-                // the right button still works exactly as before.
+                // Shift+drag is an alternative to the right button. A Windows Precision Touchpad
+                // reports its two-finger right-click drag as a held LEFT button, so a laptop
+                // user cannot right-drag at all. Shift+left-drag is the standard substitute.
                 //
-                // Captured once, at `down`, rather than read live during `moved`: the
-                // gesture's meaning is fixed when it starts, so pressing or releasing
-                // Shift mid-drag must not flip the camera into the light halfway
-                // through a movement.
+                // Captured at `down`, so pressing or releasing Shift mid-drag cannot switch the
+                // drag between orbit and light.
                 root.is_right_drag = (event.button == PointerEventButton.right)
                     || event.modifiers.shift;
                 root.is_dragging = true;
@@ -231,11 +210,10 @@ export component GemViewportView inherits Rectangle {
         image-rendering: pixelated;
         image-fit: fill;
     }
-    // Solid Rendered Image -- Solid mode only. `SolidPreviewModel.image` is the SAME
-    // flat-shaded raster the Edit tab's `SolidViewportView` shows, always forced to
-    // `view_mode` 0 here regardless of the Edit tab's own choice -- see
-    // `gui::render::camera_lighting::resubmit_live_solid`'s own doc comment for why
-    // that must never leak across tabs.
+    // Solid Rendered Image, Solid mode only. It is the flat-shaded raster that the Edit tab
+    // also shows, always drawn with `view_mode` 0 here. See
+    // `gui::render::camera_lighting::resubmit_live_solid` for why the Edit tab's choice must
+    // not leak.
     if ViewportModel.live_view_mode == 0 && SolidPreviewModel.has_solid: Image {
         width: 100%;
         height: 100%;
@@ -305,12 +283,9 @@ export component GemViewportView inherits Rectangle {
     }
 
     // --- TOP CONTROLS OVERLAY (Mode Toggle, Material, Lighting, Settings & Metrics) ---
-    // Explicit `x`/`y`/`width`/`height`: this overlay is a stack of fixed-height
-    // rows, and a plain (default-positioned) layout child would hand its small
-    // maximum height and the toolbar's summed width up to the viewport as ITS
-    // constraints, capping the viewport at ~150px tall. An explicitly
-    // positioned child contributes no constraints -- see `app.slint`'s
-    // "Sizing notes".
+    // Explicit `x`/`y`/`width`/`height`. A default-positioned layout child would pass its small
+    // maximum height and the toolbar's summed width up to the viewport and cap it at about 150px
+    // tall. An explicitly positioned child adds no constraints (see `app.slint`'s "Sizing notes").
     VerticalLayout {
         x: 0px;
         y: 0px;
@@ -319,15 +294,12 @@ export component GemViewportView inherits Rectangle {
         padding: 12px;
         spacing: 8px;
 
-        // --- Solid / Path-traced mode toggle -- top-left of the viewport image area,
-        // same pill style as `solid_viewport.slint`'s Edit-tab toggle. Lets a user
-        // browse the library with the fast CPU solid rasterizer and only pay for the
-        // spectral path tracer on the design they actually want to inspect -- see
-        // `gui::render::render_visibility::render_is_visible`'s own doc comment for how
-        // this gates the tracer itself, not just what's displayed.
-        // The pills keep 84/110/110px while the row has room and shrink toward their minimum (the
-        // label elides) in a narrow viewport: at the 720px window it is about 268px wide inside
-        // the padding, and three fixed pills (320px) ran under the Parameters rail.
+        // --- Solid / Path-Traced / Ray-Traced mode toggle, top left of the viewport. It uses
+        // the same pill style as the Edit tab's toggle (`solid_viewport.slint`). Solid is the
+        // fast CPU raster and keeps the tracer off, so browsing stays cheap. The spectral tracer
+        // runs only for the design being inspected. See
+        // `gui::render::render_visibility::render_is_visible` for how the mode gates the tracer.
+        // The pills shrink toward their minimums (the label elides) in a narrow viewport.
         HorizontalLayout {
             spacing: 8px;
 
@@ -372,46 +344,22 @@ export component GemViewportView inherits Rectangle {
             }
         }
 
-        // A layout never shrinks below its children's minimum width; without this
-        // wrapper a toolbar wider than the window inflates the whole render column and
-        // pushes the viewport image off-centre. Overflow is clipped here instead.
-        // The metrics HUD used to share this row and squeezed the actions; it now has
-        // its own row below.
+        // A layout never shrinks below its children's minimum width. Without this wrapper a
+        // toolbar wider than the window would inflate the render column and push the image
+        // off-centre. Overflow is clipped here instead.
         Rectangle {
             min-width: 0px;
             clip: true;
             height: toolbar.preferred-height;
             toolbar := HorizontalLayout {
-                // Material & Lighting Selectors & Action Buttons -- see
-                // `GemViewportToolbarActions`'s own doc comment
-                // (`gem_viewport/toolbar_actions.slint`) for why this is split out.
-                // `compact` drops the labels that only decorate an icon or a toggle.
-                // 1180 px, not 1100: the colour pill added about 80 px to the full-width
-                // row (the least it needs is about 1060 px with a colour readout showing),
-                // and the Parameters dock's three buttons in place of the one gear another
-                // 64 px plus gaps, so the labels drop earlier. This is the VIEWPORT's width,
-                // which the docked Parameters panel narrows by its own.
-                // `wrap`: the row needs about 800px inside the 12px padding (Advanced mode, all
-                // pills showing) -- 824px of viewport -- so from 860px of viewport it is one row;
-                // narrower, pause / Export drop to a second row instead
-                // of being clipped. The left row then needs about 570px, and `app.slint` never
-                // docks the Parameters panel beside a viewport narrower than 700px.
-                //
-                // The amber "Previewing <material>" badge (about 220px compact, 290px full: name +
-                // "Back to design" button) sits in the FIRST row while the row is single, so both
-                // thresholds grow while it shows: `wrap` by 230px (compact single row: 825 + 230 =
-                // 1055px, threshold 1090px) and `compact` by the badge's full 290px (the full row's
-                // 1060px least plus 290px = 1350px against 1180 + 290 = 1470px, keeping the 120px
-                // slack the row has without the badge). Once the tail wraps, the badge moves
-                // to the second row beside the tail, so the left row keeps its 570px need and the
-                // 700px docking minimum. (The "Color data updated" badge only shows in the full row,
-                // whose 1060px figure already counts it.)
-                // The Optical Diagnostics button (Path-Traced only) adds about 170px with its
-                // label and 40px as an icon, so both thresholds include it: 1180 + 180 and
-                // 860 + 40. The Turn 90° button adds 80px (72px plus spacing) in every layout,
-                // so both thresholds include it too: 1360 + 80 and 900 + 80. Once wrapped, the
-                // pose buttons move to a row of their own, so the left row still needs about
-                // 610px, under the 700px docking minimum.
+                // Material and Lighting selectors and the action buttons (see
+                // `gem_viewport/toolbar_actions.slint`). `compact` (below 1440px of viewport)
+                // drops labels that only decorate an icon or a toggle. `wrap` (below 980px)
+                // moves the tail, pause and Export, to a second row instead of clipping it. Both
+                // thresholds grow while the amber "Previewing" badge shows (290px for `compact`,
+                // 230px for `wrap`). The Optical Diagnostics and Turn 90° buttons add their width
+                // to both. Wrapped, the left row needs about 610px, under the 700px docking
+                // minimum.
                 GemViewportToolbarActions {
                     compact: root.width < 1440px + (ViewportModel.previewing ? 290px : 0px);
                     wrap: root.width < 980px + (ViewportModel.previewing ? 230px : 0px);
@@ -419,12 +367,9 @@ export component GemViewportView inherits Rectangle {
             }
         }
 
-        // Real-Time 5-Point Gemological Metrics HUD -- belongs to the tracer:
-        // only shown in Path-traced mode (`live_view_mode == 1`). Solid mode's
-        // flat-shaded raster has no brilliance/fire/scintillation/windowing/
-        // extinction samples to report. Its own row under the actions (it is about
-        // 450px wide), so neither squeezes the other. When it is the whole width and
-        // no wider, it clips.
+        // Real-time five-number metrics HUD (brilliance, fire, scintillation, windowing,
+        // extinction). Only Path-Traced mode has these samples, so only that mode shows it. It
+        // sits in its own row under the actions, so neither squeezes the other.
         if ViewportModel.live_view_mode == 1: HorizontalLayout {
             alignment: start;
 
@@ -507,10 +452,8 @@ export component GemViewportView inherits Rectangle {
             }
         }
 
-        // The Optical Diagnostics popover (the toolbar's "Optical Diagnostics" button toggles it,
-        // `toolbar_actions.slint`), in this column UNDER the metrics strip: placed at a fixed
-        // `y` it covered five of the strip's seven values. The height leaves room for the rows
-        // above and the hint badges below however the toolbar wraps.
+        // The Optical Diagnostics popover, toggled from the toolbar (`toolbar_actions.slint`). It
+        // sits under the metrics strip in this column, so it covers none of the values.
         if ViewportModel.live_view_mode == 1 && OpticalModel.panel_open && !TiltModel.dialog_open && !ExportModel.is_open && !ViewportModel.material_editor_open: HorizontalLayout {
             alignment: start;
             OpticalPanel {
@@ -519,9 +462,7 @@ export component GemViewportView inherits Rectangle {
             }
         }
 
-        // Pushes the hint badges below to the bottom edge -- replaces the outer
-        // VerticalLayout's old `alignment: space-between` (now `spacing: 8px`, to make
-        // room for the mode-toggle row above without shoving it away from the top).
+        // Pushes the hint badges to the bottom edge.
         Rectangle { vertical-stretch: 1; }
 
         // --- BOTTOM INTERACTION HINT BADGES ---
@@ -542,9 +483,8 @@ export component GemViewportView inherits Rectangle {
                         alignment: center;
                         Image { source: @image-url("../icons/mouse.svg"); colorize: Theme.hint-text; width: 10px; height: 10px; }
                     }
-                    // Short labels on a narrow viewport: the long ones need about 470px, which the
-                    // viewport beside the library at the 720px minimum window only has with narrow
-                    // fonts (Segoe UI); with DejaVu/Noto the light badge ran off the window edge.
+                    // Short labels below 640px: the long ones need about 470px and would run off a
+                    // narrow window.
                     Text { text: root.width >= 640px ? "Left Drag: 360° Gem Orbit" : "Drag: Orbit"; font-size: 10px; font-weight: 600; color: Theme.hint-text; vertical-alignment: center; }
                 }
             }
@@ -615,16 +555,10 @@ export component GemViewportView inherits Rectangle {
         width: max(0px, root.width - 16px);
     }
 
-    // The Rendering Settings card that used to open here is the Parameters dock now: beside this
-    // viewport (`app.slint`), with Stone, Lighting & Environment and Render & Output tabs. The
-    // sidebar keeps its own tabs accessible at every viewport width.
-
     // The gem material editor, the tilt-performance chart and the high-resolution export dialog
     // are mounted at window size in `GlobalDialogsOverlay` (`components/app/global_dialogs.slint`),
-    // not here, so the window's modal scrim covers them.
+    // so the window's modal scrim covers them.
 
-    // The Optical Diagnostics popover is mounted in the top controls column above, under the
-    // metrics strip.
     if OpticalModel.enabled && ViewportModel.live_view_mode == 1: Rectangle {
         x: 8px; y: root.height - self.height - 8px; width: root.width - 16px;
         // Grows with its wrapped text instead of clipping the second line in a narrow window.

@@ -165,10 +165,8 @@ impl Film<'_> {
         self.hold(Duration::from_secs(1))
     }
 
-    /// Whether a tooltip popup is open. Slint 1.18 lowers `Tooltip` to a `PopupWindow`, which is
-    /// not part of the main window's element tree, so it is found through the active popups.
-    /// Whether a tooltip is open: Slint shows a `Tooltip` as a popup of kind `ToolTip`, outside
-    /// the window's element tree, so the window's own list of active popups is what tells.
+    /// Whether a tooltip is open. Slint shows a `Tooltip` as a popup of kind `ToolTip`, outside
+    /// the window's element tree, so the window's active popups are checked.
     fn indices_tooltip_open(&self) -> bool {
         use slint::private_unstable_api::re_exports::{WindowInner, WindowKind};
         let open = WindowInner::from_pub(self.ui.window())

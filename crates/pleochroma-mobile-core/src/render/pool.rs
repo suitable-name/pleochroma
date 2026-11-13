@@ -53,8 +53,8 @@ const IDLE_WAIT: Duration = Duration::from_millis(500);
 /// The smoothing of the measured per-thread trace rate.
 const RATE_SMOOTHING: f64 = 0.5;
 
-/// Said when a render thread panicked or the accumulator refused a chunk. The next request
-/// (a light release, a camera move, the driver's own retry) starts a fresh epoch.
+/// Reported when a render thread panicked or the accumulator refused a chunk. The next start
+/// begins a fresh epoch.
 pub(super) const RUN_FAILED: &str = "The render stopped unexpectedly. It starts again by itself.";
 
 /// Locks `mutex`, recovering the data of a poisoned lock: a panicking tracer must not take
@@ -347,7 +347,7 @@ impl Shared {
         self.closed.load(Ordering::Acquire)
     }
 
-    /// Preparation can wait through cooling, but must discard superseded scenes.
+    /// Whether `epoch` is still the one to trace; work for a superseded epoch is discarded.
     pub(super) fn is_current(&self, epoch: u64) -> bool {
         !self.is_closed() && self.current_epoch.load(Ordering::Acquire) == epoch
     }

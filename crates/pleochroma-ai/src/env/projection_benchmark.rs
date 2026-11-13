@@ -1,4 +1,5 @@
 //! Paired projection diagnostics on caller-supplied real designs and fixed actions.
+//!
 //! No search rules are changed; initialization, attempts and validation are timed separately.
 use super::{
     ContinuousTierAction,
@@ -501,7 +502,7 @@ impl ProbeContext<'_> {
 ///
 /// # Errors
 /// Returns setup/configuration errors (including designs with no movable tiers) or fatal
-/// CUDA errors, never disguising them as refusals. This also applies to explicit zero actions.
+/// CUDA errors, never disguising them as refusals.
 pub fn run_projection_probe(
     design: &Design,
     actions: &[ContinuousTierAction],

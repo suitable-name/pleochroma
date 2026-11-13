@@ -1,5 +1,5 @@
-//! Tests of the body-color band rows `GemMaterial::with_body_color_bands` reads (written, not run,
-//! by the band-codec lane): a row needs a positive finite centre, width and amplitude.
+//! Tests of the body-color band rows `GemMaterial::with_body_color_bands` reads: a row needs a
+//! positive finite centre, width and amplitude.
 
 use crate::optics::{
     absorption::{AbsorptionBand, AbsorptionTensor, body_color_bands},
@@ -22,7 +22,7 @@ fn rows_with_a_non_positive_centre_are_dropped() {
     }
     // A set that is only unusable rows is a colourless stone.
     let none = GemMaterial::sapphire().with_body_color_bands(&[[0.0, 2000.0, 0.2]], 1.0);
-    assert!(none.absorption.o_ray.is_empty());
+    assert_eq!(none.absorption.o_ray, [] as [AbsorptionBand; 0]);
 }
 
 #[test]

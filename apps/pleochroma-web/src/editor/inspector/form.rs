@@ -1,8 +1,7 @@
 //! The Tier tab's form: seeding it from the selected tier, the dirty-draft guard, the
 //! live critical-angle bar, and Save / Add Tier.
 //!
-//! Modelled on the desktop's `editor_inspector.slint` (the state machine) and
-//! `callbacks/tier_actions/tier_form.rs` (the save). The form's five text / enum fields
+//! The form's five text / enum fields
 //! and the snapshot of what they held when last seeded live in `InspectorModel`, where
 //! `form-dirty` is a plain comparison; this module decides WHEN to seed:
 //!
@@ -126,8 +125,7 @@ fn push_live_margin(design: &pleochroma_cut_core::Design, n_d: f64, model: &Insp
     }
 }
 
-/// The guarded entry point for a selection change (`load_tier_into_form` and
-/// `request_new` on the desktop).
+/// The guarded entry point for a selection change.
 fn on_selection_changed(pcx: &PushCtx<'_>, model: &InspectorModel<'_>, selected: Option<usize>) {
     let loaded = model.get_loaded_tier_index();
     let dirty = model.get_form_dirty();
@@ -154,8 +152,7 @@ fn on_selection_changed(pcx: &PushCtx<'_>, model: &InspectorModel<'_>, selected:
     }
 }
 
-/// After an edit made elsewhere or an undo / redo that left the selection alone
-/// (`reseed_after_external_change` on the desktop).
+/// After an edit made elsewhere or an undo / redo that left the selection alone.
 fn reseed_after_external_change(pcx: &PushCtx<'_>, model: &InspectorModel<'_>) {
     let loaded = model.get_loaded_tier_index();
     let tier_count_changed = pcx.design.tiers.len() != pcx.previous_tiers;
@@ -203,9 +200,8 @@ pub(super) fn push(pcx: &PushCtx<'_>) {
     model.set_anchor_hint(needs_anchor(pcx));
 }
 
-/// Whether the current solve failed for lack of a scale anchor (`MissingAnchor`'s
-/// "... has no anchor: add a tier with an exact scale value."), which the Tier tab
-/// then explains (the desktop's one-time anchor explainer card).
+/// Whether the current solve failed for lack of a scale anchor (its "... has no anchor"
+/// message), which the Tier tab then explains.
 fn needs_anchor(pcx: &PushCtx<'_>) -> bool {
     matches!(
         &pcx.app.solve,
@@ -281,9 +277,8 @@ fn read_form(model: &InspectorModel<'_>) -> FormValues {
 }
 
 /// Parses the form and applies it as `AddTier` (index < 0, inserted after the selection)
-/// or `ModifyTier`, with the desktop's checks: name collisions, an unresolvable meet
-/// name, the tier's carried-through import data and detached set, the auto-name of a new
-/// unnamed tier.
+/// or `ModifyTier`, with these checks: name collisions, an unresolvable meet name, the
+/// tier's carried-through import data and detached set, the auto-name of a new unnamed tier.
 fn apply_save(
     session: &mut EditorSession,
     form: &FormValues,
@@ -445,9 +440,11 @@ pub(super) fn new_tier(ctx: &Ctx) {
     request_focus(&model, "angle");
 }
 
-/// The tier table's "Add Anchor": selects tier `index`, opens the Tier tab on it with
-/// "Exact scale value" chosen for Meets (the desktop's `suggested_constraint_kind`), and
-/// puts the cursor in the scale value field -- the fix the missing-anchor message asks for.
+/// The tier table's "Add Anchor" action.
+///
+/// It selects tier `index`, opens the Tier tab on it with "Exact scale value" chosen for
+/// Meets, and puts the cursor in the scale value field -- the fix the missing-anchor message
+/// asks for.
 ///
 /// A draft in the form is never overwritten: the tab then shows its Keep / Discard choice
 /// and the cursor stays where it was.
@@ -470,8 +467,8 @@ pub fn open_anchor(ctx: &Ctx, index: usize) {
     if model.get_loaded_tier_index() != wanted || model.get_form_dirty() {
         return;
     }
-    // Set before the snapshot, like the desktop: the form still reads clean, and typing
-    // the scale value is what makes it saveable.
+    // Set before the snapshot: the form still reads clean, and typing the scale value is
+    // what makes it saveable.
     model.set_tier_constraint_kind(2);
     snapshot_form(&model);
     request_focus(&model, "constraint");

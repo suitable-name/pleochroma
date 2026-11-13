@@ -131,11 +131,10 @@ impl CrystalAxis {
         DVec3::new(sin_theta * cos_phi, cos_theta, sin_theta * sin_phi)
     }
 
-    /// The vector the angle sliders of the Parameters panel have always produced, in `f32`
-    /// and *not* canonicalised: any tilt and azimuth are taken as they come, so a slider
-    /// position keeps its exact vector (and the render its exact bits). It is the one
-    /// formula behind the desktop's `angles_to_c_axis` and the web twin
-    /// `c_axis_from_angles`; the line it points along is `CrystalAxis::from_angles(..)`'s.
+    /// The `f32` vector of the angle sliders, *not* canonicalised: any tilt and azimuth are taken
+    /// as they come, so a slider position keeps its exact vector. The web build's
+    /// `c_axis_from_angles` uses the same formula. The line it points along is
+    /// `CrystalAxis::from_angles(..)`'s.
     #[must_use]
     pub fn slider_direction(tilt_deg: f32, azimuth_deg: f32) -> Vec3 {
         let theta = tilt_deg.to_radians();

@@ -1,5 +1,5 @@
-//! The pending-entry registry: mint, hash, constant-time compare, TTL sweep, cap -- see
-//! `crate::enroll`'s module doc comment for the full security rationale.
+//! The pending-entry registry: mint, hash, constant-time compare, TTL sweep and cap. The
+//! security rationale is in the `crate::enroll` module doc.
 
 use crate::pki;
 use pleochroma_net::{messages::PeerRole, tls::Fingerprint, token};
@@ -14,15 +14,11 @@ use zeroize::Zeroizing;
 
 use super::{MAX_PENDING, TOKEN_TTL_SECS};
 
-/// Everything that can go wrong minting and registering a new pending enrollment (see
-/// [`EnrollRegistry::issue`]).
+/// Why issuing a pending enrollment failed (see [`EnrollRegistry::issue`]).
 ///
-/// A typed enum rather than a bare `String` -- the one caller that needs the text
-/// ([`super::connection::handle_enroll_connection`]'s `Issue` arm, which sends it over
-/// the wire as [`pleochroma_net::enroll::EnrollResponse::IssueRefused`]'s `reason`) gets
-/// it via [`Display`](fmt::Display), same text as before; a caller that wants to
-/// distinguish failure kinds instead of pattern-matching substrings out of a message can
-/// match on the variant.
+/// The `Issue` arm of [`super::connection::handle_enroll_connection`] sends the
+/// [`Display`](fmt::Display) text to the peer as the `reason` of
+/// [`pleochroma_net::enroll::EnrollResponse::IssueRefused`]. Other callers match on the variant.
 #[derive(Debug)]
 pub enum EnrollIssueError {
     /// Minting the client-certificate bundle failed -- see
@@ -64,11 +60,10 @@ impl From<pki::PkiError> for EnrollIssueError {
     }
 }
 
-// The enrollment wire protocol lives in `pleochroma_net::enroll`, shared with
-// `apps/pleochroma-cut`'s claiming client; this module imports it unchanged.
+// Wire protocol: `pleochroma_net::enroll`, shared with `apps/pleochroma-cut`.
 
 /// A freshly minted client-certificate bundle held in memory for one pending enrollment.
-/// See the module doc comment on why `client_key_pem` is wrapped in [`Zeroizing`].
+/// `client_key_pem` is wrapped in [`Zeroizing`] so the key bytes are wiped on drop.
 pub(super) struct EnrollBundle {
     pub(super) ca_pem: String,
     pub(super) client_cert_pem: String,
@@ -88,8 +83,7 @@ impl From<pki::InMemoryClientBundle> for EnrollBundle {
 }
 
 pub(super) struct PendingEnrollment {
-    /// `SHA-256(secret)` -- never the secret itself. See the module doc comment's
-    /// point 2.
+    /// `SHA-256(secret)`, never the secret itself.
     secret_hash: Zeroizing<[u8; 32]>,
     expires_at: Instant,
     name: String,
@@ -106,11 +100,8 @@ pub(super) struct ClaimedEnrollment {
 
 /// All unclaimed, unexpired enrollments of one enrollment listener of this `serve`.
 ///
-/// One registry per role (see `super`'s module doc comment), so a token only ever
-/// claims where it was issued.
-///
-/// Lives for exactly the lifetime of one `serve` invocation -- see the module doc
-/// comment on why a restart dropping everything here is intended, not a bug.
+/// One registry per role, so a token only ever claims where it was issued. It lives as long
+/// as one `serve` process: a restart drops every pending token, by design.
 pub struct EnrollRegistry {
     pub(super) pending: Mutex<Vec<PendingEnrollment>>,
     role: PeerRole,
@@ -170,11 +161,10 @@ impl EnrollRegistry {
         self.role
     }
 
-    /// Mints a new client-certificate bundle of this registry's role for `name` (the
-    /// bare label; a worker certificate's Common Name gets the `worker:` prefix) and
-    /// registers it as pending,
-    /// with a fresh 256-bit CSPRNG secret (the same CSPRNG this workspace's TLS/PKI
-    /// stack already uses internally). Returns the encoded token and its TTL.
+    /// Mints a client-certificate bundle of this registry's role for `name` (the bare label;
+    /// a worker certificate's Common Name gets the `worker:` prefix) and registers it as
+    /// pending under a fresh 256-bit CSPRNG secret. Returns the encoded token and its TTL in
+    /// seconds.
     ///
     /// # Errors
     ///
@@ -184,18 +174,13 @@ impl EnrollRegistry {
         self.issue_with_ttl(pki_dir, name, Duration::from_secs(TOKEN_TTL_SECS))
     }
 
-    /// The TTL-parameterized implementation behind [`Self::issue`] -- lets expiry tests
-    /// use a real, short TTL instead of waiting out the full [`TOKEN_TTL_SECS`] (180s).
-    /// Not part of the public API: every real caller is fixed at [`TOKEN_TTL_SECS`].
+    /// The TTL-parameterized implementation behind [`Self::issue`], so tests can use a short
+    /// TTL. Every real caller uses [`TOKEN_TTL_SECS`].
     ///
-    /// `name` is sanitized via [`pleochroma_net::tls::sanitize_allowlist_label`]
-    /// before it is used for anything -- both the certificate's Subject
-    /// Common Name below and, later, the allowlist line
-    /// [`super::connection::handle_enroll_connection`]'s `Claim` arm appends via
-    /// [`pleochroma_net::tls::append_to_allowlist`] -- so a `\r`/`\n`/`#` in an
-    /// operator-supplied `--name` can never inject a stray allowlist line or corrupt a
-    /// later entry's own comment. Sanitizing once, here, keeps the certificate and the
-    /// eventual allowlist entry naming the SAME (sanitized) string.
+    /// `name` is sanitized with [`pleochroma_net::tls::sanitize_allowlist_label`] first. The
+    /// certificate's Common Name and the allowlist line appended on claim then carry the same
+    /// string, and a `\r`, `\n` or `#` in an operator-supplied `--name` cannot inject a stray
+    /// allowlist line.
     pub(super) fn issue_with_ttl(
         &self,
         pki_dir: &Path,
@@ -266,9 +251,7 @@ impl EnrollRegistry {
     }
 }
 
-/// Fills `dest` with cryptographically secure random bytes via
-/// [`ring::rand::SystemRandom`] -- `ring` is already this workspace's `rustls`/`rcgen`
-/// crypto provider, reusing the CSPRNG already trusted for every key pair and TLS nonce.
+/// Fills `dest` with cryptographically secure random bytes via [`ring::rand::SystemRandom`].
 ///
 /// # Errors
 ///

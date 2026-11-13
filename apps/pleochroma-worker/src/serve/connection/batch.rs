@@ -1,15 +1,13 @@
-//! Batched preview requests (protocol v24): [`serve_batches`] answers
+//! Batched preview requests: [`serve_batches`] answers
 //! `ClientMessage::BatchRenderRequest`s on one persistent connection with finished PNGs.
 //!
 //! # Why this exists
 //!
-//! A catalogue-preview run used to ask the worker for one small picture per fresh
-//! connection and take the full float radiance back; the GPU spent most of its time
-//! waiting between pictures. A batch carries up to `MAX_BATCH_ITEMS` pictures, the
-//! viewer keeps the NEXT batch queued while the current one traces, and the worker
-//! returns the finished, tone-mapped PNG of each picture
-//! (`pleochroma::render_setup::encode_preview_png`, the function the viewer's own preview
-//! path calls, so remote and local bytes are identical for the same sum).
+//! One picture per request would leave the GPU idle between pictures, and each would carry
+//! the full float radiance back. A batch carries up to `MAX_BATCH_ITEMS` pictures, the
+//! viewer keeps the NEXT batch queued while the current one traces, and the worker returns
+//! the finished, tone-mapped PNG of each picture (`pleochroma::render_setup::encode_preview_png`,
+//! the function the viewer's own preview path calls, so remote and local bytes match).
 //!
 //! # Threads
 //!
@@ -499,7 +497,7 @@ impl Session {
             ClientMessage::Contribution(header) => {
                 pleochroma_net::messages::discard_contribution_payload(stream, &header)
             }
-            // v25: not served while batches are in flight; a payload frame is consumed.
+            // Not served while batches are in flight; a payload frame is consumed.
             ClientMessage::Job(job) => crate::jobs::ignore_in_flight(stream, &job),
             ClientMessage::RenderRequest(request) => write_error(
                 stream,
@@ -512,6 +510,20 @@ impl Session {
                 stream,
                 error_codes::UNSUPPORTED_REQUEST,
                 "a FinalImageRequest cannot be served while batches are in flight on this connection"
+                    .to_owned(),
+                request.request_id,
+            ),
+            ClientMessage::LivePassRequest(request) => write_error(
+                stream,
+                error_codes::UNSUPPORTED_REQUEST,
+                "a LivePassRequest cannot be served while batches are in flight on this connection"
+                    .to_owned(),
+                request.request_id,
+            ),
+            ClientMessage::BeamTileRequest(request) => write_error(
+                stream,
+                error_codes::UNSUPPORTED_REQUEST,
+                "a BeamTileRequest cannot be served while batches are in flight on this connection"
                     .to_owned(),
                 request.request_id,
             ),

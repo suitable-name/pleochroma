@@ -1,8 +1,7 @@
-//! The mm-per-unit anchor ([`mm_per_unit`]) and the two figures downstream of
-//! it/of geometry alone ([`volume_mm3`], [`volumetric_yield`],
-//! [`carat_weight`]) -- see the parent module's doc comment for why `mast`
-//! needed binding at all, and "Two numbers -- never conflate them" for the
-//! exact/estimate distinction between the last two.
+//! The mm-per-unit anchor ([`mm_per_unit`]) and the figures downstream of it or of geometry alone
+//! ([`volume_mm3`], [`volumetric_yield`], [`carat_weight`]).
+//!
+//! The parent module explains why masts need a unit and which of these figures are exact.
 
 /// A model-unit measurement too small to trust as a real linear extent -- guards
 /// [`mm_per_unit`]/[`super::fit::exceeds_preform`] against dividing by (or comparing
@@ -34,10 +33,9 @@ pub fn mm_per_unit(girdle_diameter_mm: f64, width_axis: f64) -> Option<f64> {
 
 /// Converts a mast-unit volume to mm^3 given a `mm_per_unit` scale factor.
 ///
-/// Volume scales as the **cube** of a linear factor -- this is `volume_units *
-/// mm_per_unit.powi(3)`, never `volume_units * mm_per_unit`. See this crate's
-/// acceptance gate 3 (changing the girdle diameter must scale volume by the cube of
-/// the ratio) for the property this specific exponent exists to satisfy.
+/// Volume scales as the **cube** of a linear factor, so this is `volume_units *
+/// mm_per_unit.powi(3)`, never `volume_units * mm_per_unit`. The exponent is pinned by
+/// `gate_3_changing_girdle_diameter_scales_volume_by_the_cube_of_the_ratio`.
 #[must_use]
 pub fn volume_mm3(volume_units: f64, mm_per_unit: f64) -> f64 {
     volume_units * mm_per_unit.powi(3)
@@ -45,15 +43,11 @@ pub fn volume_mm3(volume_units: f64, mm_per_unit: f64) -> f64 {
 
 /// Volumetric yield: finished solid volume over preform volume.
 ///
-/// **Exact**, and independent of any mm scale or material data at all -- both
-/// volumes live in the SAME model-unit coordinate system `crate::preform`'s own doc
-/// comment describes, so
-/// converting either (or both) to mm^3 would multiply numerator and denominator by
-/// the identical `mm_per_unit^3` factor, which cancels in the ratio. This function
-/// therefore takes plain, consistent-unit volumes (mast-unit^3 or mm^3, it does not
-/// matter which, as long as both arguments use the same one) and never touches
-/// [`mm_per_unit`] or any specific gravity -- see this module's doc comment ("Two
-/// numbers -- never conflate them") and this crate's acceptance gate 2.
+/// **Exact**, and independent of any mm scale or material data. Both volumes are in
+/// the same model-unit system, so converting them to mm^3 multiplies numerator and
+/// denominator by the same `mm_per_unit^3`, which cancels. The arguments may be in
+/// any one consistent unit, and the function never touches [`mm_per_unit`] or specific
+/// gravity. `gate_2_volumetric_yield_is_independent_of_specific_gravity` pins this.
 ///
 /// `None` when `preform_volume` is not positive (nothing to divide by).
 #[must_use]
@@ -67,13 +61,10 @@ pub fn volumetric_yield(finished_volume: f64, preform_volume: f64) -> Option<f64
 /// mm^3), so `mass_g = (volume_mm3 / 1000) * specific_gravity` and `carat_weight =
 /// mass_g / 0.2`, i.e. `volume_mm3 * specific_gravity / 200`.
 ///
-/// **An estimate, never more precise than `specific_gravity` itself** -- see this
-/// module's doc comment and `crate::material`'s own doc comment for how wide a
-/// species' real SG range can be. Kept as a free function taking a plain
-/// `specific_gravity: f64` (not a [`crate::material::MaterialSelection`]) so it stays
-/// obviously independent of *which* material supplied that number -- exactly what
-/// this crate's acceptance gate 2 (volumetric yield must not depend on SG)
-/// needs [`volumetric_yield`] to prove by never calling this function at all.
+/// **An estimate, never more precise than `specific_gravity` itself** (see
+/// `crate::material` for how wide a species' SG range can be). It takes a plain
+/// `specific_gravity: f64`, not a [`crate::material::MaterialSelection`], so it stays
+/// independent of which material supplied the number. [`volumetric_yield`] never calls it.
 #[must_use]
 pub fn carat_weight(volume_mm3: f64, specific_gravity: f64) -> f64 {
     volume_mm3 * specific_gravity / 200.0

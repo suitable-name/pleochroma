@@ -1,32 +1,26 @@
 //! Corpus-wide measurement for `pleochroma_cut_core::manufacturability` checks.
 //!
 //! Reads real `.asc` files directly out of the user's own `facet_diagrams.sqlite`
-//! catalogue (one per design, deduplicated by `detail_id`, exactly the pattern
-//! `crates/pleochroma/examples/meet_solver_validation/main.rs` already uses) and reports how
-//! many designs trip each check. See that example's own doc comment for why this
-//! lives in `examples/` and not the test suite: it needs a real, thousands-of-designs
-//! catalogue this repository does not ship, so a `#[test]` cannot depend on it.
+//! catalogue (one per design, deduplicated by `detail_id`, the same pattern
+//! `crates/pleochroma/examples/meet_solver_validation/main.rs` uses) and reports how many
+//! designs trip each check. It lives in `examples/`, not the test suite, because it needs a
+//! large catalogue this repository does not ship.
 //!
-//! Opened strictly read-only (`OpenFlags::SQLITE_OPEN_READ_ONLY`) -- this is the
-//! user's real, irreplaceable ~3,187-design catalogue, and this probe only ever runs
-//! `SELECT`.
+//! Opened strictly read-only (`OpenFlags::SQLITE_OPEN_READ_ONLY`): the catalogue is the
+//! user's irreplaceable data, and this probe only runs `SELECT`.
 //!
 //! # Two very different costs, measured separately
 //!
-//! Checks 3 (gear quantization) and 4 (cut order) need no solved mast at all (see
-//! `pleochroma_cut_core::manufacturability`'s own module doc comment) -- they read straight off a
-//! parsed `.asc` schedule's `indices`/meet-instruction text, so this probe runs them
-//! over every design in the corpus that has an attached `.asc` file at essentially
-//! zero cost (a parse plus a name-resolution pass, no geometry).
+//! Checks 3 (gear quantization) and 4 (cut order) need no solved mast (see
+//! `pleochroma_cut_core::manufacturability`'s module doc comment). They read straight off a
+//! parsed `.asc` schedule's `indices` and meet-instruction text, so this probe runs them over
+//! every design with an attached `.asc` file at the cost of a parse and a name-resolution pass.
 //!
-//! Checks 1 (vanishing facets) and 2 (undersized facets) need a real solved plane
-//! arrangement. Run over a design imported the normal way a user opens a catalogue
-//! entry (`Design::from_asc_schedule`, which pins every tier to its own real recorded
-//! mast -- see that function's doc comment), the solve is cheap (~90ms, an
-//! all-`ScaleReference` design never enters `meet_solver`'s expensive candidate
-//! search at all), so this probe runs those two over a bounded sample instead of the
-//! whole corpus purely to keep the probe's own wall-clock time short, not because the
-//! per-design cost is high.
+//! Checks 1 (vanishing facets) and 2 (undersized facets) need a real solved plane arrangement.
+//! A design imported with `Design::from_asc_schedule` (which pins every tier to its recorded
+//! mast; see that function's doc comment) solves in about 90 ms, since an all-`ScaleReference`
+//! design never enters `meet_solver`'s candidate search. The probe therefore runs these two over
+//! a bounded sample to keep its wall-clock time short, not because the per-design cost is high.
 //!
 //! Run from `private/`:
 //! ```text
@@ -43,9 +37,8 @@ use pleochroma_cut_core::{
 use rusqlite::{Connection, OpenFlags};
 use std::time::Instant;
 
-/// Bound on how many designs get a real solve (checks 1/2) -- see the module doc
-/// comment: this is a wall-clock bound on the probe itself, not a per-design cost
-/// concern (freshly-imported designs solve in ~90ms each).
+/// Bound on how many designs get a real solve (checks 1 and 2). A wall-clock bound on the
+/// probe itself, not a per-design cost limit (see the module docs).
 const SOLVED_SAMPLE_SIZE: usize = 300;
 
 fn find_db_path() -> String {
@@ -92,8 +85,8 @@ fn load_asc_rows(conn: &Connection) -> Vec<AscRow> {
         })
         .collect();
 
-    // One `.asc` per design (a design can have more than one attached file --
-    // revisions, alternate cuts -- same dedup rule `meet_solver_validation.rs` uses).
+    // One `.asc` per design: a design can have more than one attached file (revisions,
+    // alternate cuts), and the dedup rule is the one `meet_solver_validation` uses.
     let mut seen = std::collections::BTreeSet::new();
     rows.into_iter()
         .filter(|r| seen.insert(r.detail_id))
@@ -133,10 +126,8 @@ fn run_solve_free_checks(rows: &[AscRow]) {
         };
         parsed += 1;
 
-        // Check 3 needs only a `PreformSpec`-free `Design::fresh`-shaped meta/tiers
-        // pair; building it via `from_asc_schedule` is the simplest way to get a real
-        // `pleochroma_cut_core::Design` without inventing a second tier-construction path, and
-        // costs nothing extra (no solve happens here).
+        // Check 3 needs only the tiers and meta. `from_asc_schedule` builds a real `Design`
+        // without a second tier-construction path, and costs nothing extra (no solve here).
         let design = Design::from_asc_schedule(PreformSpec::block(1.0, 1.0, 1.0), &schedule);
         let gear_warnings = check_gear_quantization(&design);
         if !gear_warnings.is_empty() {
@@ -152,12 +143,10 @@ fn run_solve_free_checks(rows: &[AscRow]) {
             .map(|t| t.indices.len())
             .sum::<usize>();
 
-        // Check 4 needs the schedule's OWN genuine meet classification
-        // (`MeetNamed`/`MeetExisting`/`ScaleReference` from real `G`-field text), not
-        // `from_asc_schedule`'s pinned-`ScaleReference`-for-everything import (which
-        // by construction can never trip this check -- see that method's own doc
-        // comment). Building this doesn't call `solve()` either: `check_cut_order`
-        // only reads `design.tiers`/`design.meta`.
+        // Check 4 needs the schedule's own meet classification (`MeetNamed`, `MeetExisting`,
+        // `ScaleReference` from the real `G`-field text), not the pinned import of
+        // `from_asc_schedule`, which can never trip this check (see that method's doc).
+        // `check_cut_order` reads only `design.tiers` and `design.meta`, so no solve runs.
         let genuine = genuine_meet_design(&schedule);
         let has_named = genuine.tiers.iter().any(|t| {
             matches!(
@@ -205,9 +194,7 @@ fn run_solve_free_checks(rows: &[AscRow]) {
     println!();
 }
 
-/// Checks 1 and 2, over a bounded sample of designs imported the ordinary way
-/// (`Design::from_asc_schedule`, pinned -- cheap to solve). See the module doc
-/// comment for why this is bounded and the pinned-import solve is cheap either way.
+/// Checks 1 and 2 over a bounded sample of designs imported with `Design::from_asc_schedule`.
 fn run_solve_dependent_checks(rows: &[AscRow]) {
     let sample: Vec<&AscRow> = rows.iter().take(SOLVED_SAMPLE_SIZE).collect();
     let start = Instant::now();
@@ -226,15 +213,11 @@ fn run_solve_dependent_checks(rows: &[AscRow]) {
         let Ok(schedule) = pleochroma_formats::asc::parse_asc(&row.content) else {
             continue;
         };
-        // A generous CYLINDER preform (not a block): most real designs are round or
-        // near-round, and a rectangular block's flat sides/sharp corners can swallow
-        // or shrink an ordinary girdle-tier facet near a corner that a round rough
-        // never would -- a preform-shape artifact, not a real manufacturability
-        // problem in the schedule. `cylinder_for_schedule` sides the prism to the
-        // schedule's own gear-tooth count, matching a real round rough closely
-        // enough that this probe measures the SCHEDULE's manufacturability, not an
-        // accident of a mismatched preform shape. Sized off the schedule's own
-        // largest mast so the rough itself is never what fails to close.
+        // A generous CYLINDER preform, not a block: most real designs are round or near-round,
+        // and a block's flat sides and sharp corners can swallow a girdle-tier facet that a
+        // round rough keeps. That is a preform artifact, not a schedule problem.
+        // `cylinder_for_schedule` sides the prism to the schedule's gear-tooth count. Sized from
+        // the schedule's largest mast so the rough itself never fails to close.
         let max_mast = schedule
             .tiers
             .iter()
@@ -320,18 +303,14 @@ fn run_solve_dependent_checks(rows: &[AscRow]) {
     }
 }
 
-/// Rebuilds a [`Design`] with the schedule's OWN genuine meet classification
-/// (`meet_tier_inputs_from_asc`'s real `MeetNamed`/`MeetExisting`/`ScaleReference`,
-/// not `Design::from_asc_schedule`'s pinned-`ScaleReference`-for-everything import),
-/// bootstrapping one `ScaleReference` anchor per crown/pavilion/girdle block from
-/// that block's own first tier's real recorded mast when the file states no explicit
-/// anchor -- the exact technique `crates/pleochroma-cut-core/src/design.rs`'s own
-/// `design_with_real_meet_structure` test helper uses (not reused directly since it's
-/// `mod tests`-private; reimplemented here against the same public
-/// `pleochroma::geometry::meet_solver` API, not a second business rule).
+/// Rebuilds a [`Design`] with the schedule's own meet classification (`MeetNamed`,
+/// `MeetExisting`, `ScaleReference` as `meet_tier_inputs_from_asc` reads them), not the
+/// pinned import of `Design::from_asc_schedule`. Each crown, pavilion and girdle block
+/// without a scale anchor gets one, at its first tier's recorded mast. This is the technique
+/// of the `design_with_real_meet_structure` helper in `src/design/tests/fixtures.rs`, which is
+/// private to that test tree, so it is repeated here against the public `meet_solver` API.
 ///
-/// Never calls `solve()` -- `check_cut_order` only reads `design.tiers`/`design.meta`,
-/// so this stays free of the 5-6-second real-meet-structure solve cost entirely.
+/// Never calls `solve()`: `check_cut_order` reads only `design.tiers` and `design.meta`.
 fn genuine_meet_design(schedule: &pleochroma_formats::asc::AscSchedule) -> Design {
     use pleochroma::geometry::meet_solver::{
         Block, MeetConstraint, classify_blocks, meet_tier_inputs_from_asc,

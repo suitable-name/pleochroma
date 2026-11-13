@@ -1,10 +1,10 @@
 //! The part of a retarget that needs a solved stone: re-anchoring, refitting, the validity
 //! gate and the optical numbers.
 //!
-//! [`run_check`] is built to run on a worker thread (the editor crate has none of its own):
-//! it takes everything by reference, reads a `should_stop` flag between its steps so a newer
-//! request can abandon an older one, and lets the caller keep the expensive analysis of the
-//! ORIGINAL stone between requests (it depends on the design, not on the plan).
+//! [`run_check`] runs on a caller-owned worker thread: it takes everything by reference, reads
+//! a `should_stop` flag between its steps so a newer request can abandon an older one, and
+//! lets the caller keep the analysis of the ORIGINAL stone between requests (it depends on the
+//! design, not on the plan).
 //!
 //! # What it does
 //!
@@ -14,7 +14,8 @@
 //! 2. Seeds the candidate with every moving, pinned tier re-anchored to its edge
 //!    ([`anchored_candidate_for`]), PROJECTS that seed against the original network (the
 //!    masts and angles are adjusted until every original junction is met again, within the
-//!    Retarget policy) and judges the projected stone with [`judge`]. A seed that cannot be
+//!    Retarget policy), puts every tier that met a point of the stone cut so far back on it
+//!    ([`keep_meets`]) and judges that stone with [`judge`]. A seed that cannot be
 //!    projected is a refusal, not a silently angle-only candidate. The anchored seed is the
 //!    retarget's REQUEST: the gate's turn allowance is measured on it, not on anything the
 //!    projection repairs ([`Attempt::requested`]).
@@ -37,6 +38,7 @@ use super::{
     anchors::{
         AnchorChange, anchored_candidate_for, anchored_candidate_split, scale_reference_mast,
     },
+    keep_meets::keep_meets,
     metrics::{MetricColumn, RetargetMetrics, measure_analysis_column},
     plan::RetargetPlan,
     refit::refit_flats,
@@ -46,7 +48,7 @@ use super::{
     },
 };
 use pleochroma::{
-    geometry::meet_solver::MeetConstraint,
+    geometry::meet_solver::{MeetConstraint, SolveControl},
     optics::{LightingPreset, materials::GemMaterial},
 };
 use pleochroma_cut_core::{Design, design::RelationError};
@@ -55,8 +57,8 @@ use std::sync::Arc;
 /// What analysing the original stone gave: the analysis, or why there is none.
 pub type AnalysisResult = Result<StoneAnalysis, InvalidReason>;
 
-/// How far a retarget may thicken the girdle band to keep its corners (decision O5): thickness
-/// only, thicker only, in two steps tried only after a girdle-type failure.
+/// How far a retarget may thicken the girdle band to keep its corners: thickness only, in two
+/// steps tried only after a girdle-type failure.
 ///
 /// Thickening translates the crown half up and the pavilion half down by half the change each,
 /// so the plan view, the table and culet size and the crown-to-pavilion ratio are kept exactly.
@@ -111,8 +113,8 @@ pub struct RetargetCheck {
     pub baseline: Option<Arc<pleochroma_cut_core::meet_preservation::MeetPreservationBaseline>>,
     /// The verdict and its reasons.
     pub validity: RetargetValidity,
-    /// The `ScaleReference` masts the retarget changes (re-anchored and refitted). Apply
-    /// them with the angles, in one undo step.
+    /// The `ScaleReference` masts the retarget changes (re-anchored, put back on their meet
+    /// points by [`keep_meets`], and refitted). Apply them with the angles, in one undo step.
     ///
     /// The table and the culet are listed only when their HEIGHT is refitted so they keep
     /// their size ([`refit_flats`]); a flat tier is never a hinge anchor and its angle never
@@ -231,9 +233,9 @@ pub fn retarget_projection_options(
             .filter(|(i, _)| !moves.iter().any(|(moving, _)| moving == i))
             .map(|(i, tier)| (i, (tier.angle_deg, tier.angle_deg)))
             .collect(),
-        // The turn allowance is the REQUEST's (owner decision 2026-10-19): the anchored
-        // candidate's, for this projection and for the refit projected after it, so
-        // neither projection is judged by angles a repair turned further.
+        // The turn allowance comes from the REQUEST (the anchored candidate before projection),
+        // also for the refit projected after it, so neither is judged by angles a repair
+        // turned further.
         turn_request: Some(
             pleochroma_cut_core::meet_preservation::tangent_changes(original_design, requested)
                 .into(),
@@ -257,25 +259,29 @@ impl Attempt {
             requested,
         } = proposal;
         let options = retarget_projection_options(original_design, original, &requested, moves);
+        let control = SolveControl::with_stop(should_stop);
         let projected = pleochroma_cut_core::optimize::project_preserved_design_controlled(
             original_design,
             &design,
             &options,
-            &pleochroma::geometry::meet_solver::SolveControl::with_stop(should_stop),
+            &control,
         );
-        let analysis = match projected {
+        let (analysis, reasons) = match projected {
             Ok(preserved) => {
-                design = preserved;
+                // Every tier that met a point of the original is put back on it, and the
+                // re-anchored stone is what the gate judges, the preview shows and Apply commits
+                // (when the gate refuses it, the projected stone stays as it was).
+                let settled = keep_meets(original_design, original, preserved, &control);
+                design = settled.design;
                 anchors = super::anchors::mast_differences(original_design, &design);
-                super::validity::analyze_controlled(
-                    &design,
-                    false,
-                    &pleochroma::geometry::meet_solver::SolveControl::with_stop(should_stop),
-                )
+                (settled.analysis, settled.reasons)
             }
-            Err(error) => Err(InvalidReason::Preservation(error.to_string())),
+            Err(error) => {
+                let analysis = Err(InvalidReason::Preservation(error.to_string()));
+                let reasons = judge(original_design, original, &analysis);
+                (analysis, reasons)
+            }
         };
-        let reasons = judge(original_design, original, &analysis);
         Self {
             design,
             requested,
@@ -302,9 +308,9 @@ impl Attempt {
 }
 
 /// The refitted attempt built on `base`, if any flat needed refitting. `live` is the live
-/// design the retarget starts from. A failed projection must not prevent repairing a
-/// flat that the raw angle shift swallowed: geometry analysis can seed that repair,
-/// but the repaired proposal must still pass projection and the full validity gate.
+/// design the retarget starts from. A flat the raw angle shift swallowed is still repaired
+/// after a failed projection: geometry analysis seeds the repair, and the repaired proposal
+/// must pass projection and the full validity gate.
 fn refit_attempt(
     live: &Design,
     original: &StoneAnalysis,

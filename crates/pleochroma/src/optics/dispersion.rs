@@ -1,4 +1,4 @@
-/// A refractive-index-vs-wavelength dispersion curve, in one of two closed forms.
+/// A refractive-index dispersion curve: a Sellmeier (one or three terms) or a Cauchy form.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum DispersionModel {
@@ -9,18 +9,12 @@ pub enum DispersionModel {
     /// terms.
     Sellmeier3 { b: [f32; 3], c: [f32; 3] },
     /// A 2- or 3-parameter Cauchy fit, `n(lambda) = a + b/lambda^2 + c/lambda^4`
-    /// (`lambda` in micrometers). Every Cauchy fit in `materials::GemMaterial::
-    /// all_materials` is a VISIBLE-RANGE-ONLY approximation, solved from a mean index
-    /// and a Fraunhofer F-C dispersion figure at/near the sodium D line (589.3nm) --
-    /// see each entry's own sourcing comment. Treat these fits as reliable roughly
-    /// 400-700nm; an extrapolation to this renderer's actual sampled band edges
-    /// (380nm violet / 780nm red) is NOT independently validated against a primary
-    /// source and can overshoot or (for some coefficient combinations) dip below
-    /// physically-impossible `n < 1` there -- see [`Self::evaluate`]'s `.max(1.0)`
-    /// floor below, and `materials::tests::
-    /// every_builtin_dispersion_curve_stays_physical_at_the_sampled_band_edges` for the
-    /// regression pinning `n >= 1.0` and finite at exactly those two edges for every
-    /// built-in material.
+    /// (`lambda` in micrometers). The built-in fits are visible-range approximations, solved
+    /// from a mean index and the Fraunhofer F-C dispersion near the sodium D line. Treat them as
+    /// reliable roughly 400-700 nm only: at the 380 nm and 780 nm band edges they are not
+    /// validated against a primary source, and they can dip below `n = 1`. [`Self::evaluate`]
+    /// floors the index at 1, and [`Self::validate`] refuses such a curve. The built-ins are
+    /// checked at both edges by the `dispersion` tests of `materials`.
     Cauchy { a: f32, b: f32, c: f32 },
 }
 
@@ -131,25 +125,20 @@ impl DispersionModel {
     /// The longest wavelength (nm) of the visible band the renderer samples.
     pub const BAND_MAX_NM: f32 = VISIBLE_MAX_NM;
 
-    /// The shortest wavelength (nm) this model is evaluated at: below it
-    /// [`Self::evaluate`] holds the index at its value there.
+    /// The shortest wavelength (nm) this model is evaluated at: below it [`Self::evaluate`]
+    /// holds the index at its value there.
     ///
-    /// Fluorescence paths evaluate the material at excitation wavelengths down to 300 nm,
-    /// below the 380 nm the built-in curves were fitted and checked for:
-    /// - [`Self::Cauchy`] fits are visible-range-only (see the variant's doc), and their
-    ///   `1/lambda^4` term runs away in the UV, so they clamp at 380 nm.
-    /// - A Sellmeier curve is physical down to its shortest-wavelength resonance
-    ///   (`lambda^2 = c`), where `n` diverges, so it clamps at 300 nm, or 5 % above its
-    ///   nearest UV resonance when that lies above 285 nm (never above 380 nm).
+    /// Fluorescence paths evaluate down to 300 nm, below the 380 nm the built-in curves were
+    /// fitted for:
+    /// - [`Self::Cauchy`] fits are visible-range only, and their `1/lambda^4` term runs away in
+    ///   the UV, so they clamp at 380 nm.
+    /// - A Sellmeier curve is physical down to its shortest resonance (`lambda^2 = c`), where
+    ///   `n` diverges. It clamps at 300 nm, or 5 % above the highest resonance below 380 nm
+    ///   when that lies above 285 nm.
     ///
-    /// The clamp makes `n(lambda)` constant below the limit, a bounded, physical
-    /// approximation of a flat index in the deep UV; it never touches `lambda >= 380`.
-    ///
-    /// This is a NUMERICAL floor, not the source experiment's validity range. Entries record
-    /// their published ranges in their own comments (Rutile ~430 nm, Moissanite 435.8 nm, YAG
-    /// 400 nm, Diamond 760 nm upper, Spinel 350 nm, Cubic Zirconia 361 nm); the renderer
-    /// evaluates outside them and holds Cauchy curves flat below 380 nm; a per-model validity
-    /// field is pending (owner decision).
+    /// The clamp holds `n` constant below the limit, a bounded approximation of a flat index in
+    /// the deep UV. It never touches `lambda >= 380`. This is a numerical floor, not the
+    /// validity range of the source measurement.
     #[must_use]
     pub fn min_valid_nm(&self) -> f32 {
         let uv_pole_floor = |c: &[f32]| {
@@ -204,12 +193,8 @@ impl DispersionModel {
                 c: c_coeff,
             } => {
                 let l4 = l2 * l2;
-                // Floored at 1.0, matching the Sellmeier variants' own `.max(1.0)`
-                // above -- see this variant's doc comment for why an out-of-fit-range
-                // extrapolation (this renderer samples down to 380nm/up to 780nm; most
-                // Cauchy fits here are only solved/verified at/near the sodium D line
-                // and the F/C Fraunhofer lines, 486-656nm) must never be allowed to
-                // produce a physically-impossible n < 1 index.
+                // Floored at 1 like the Sellmeier variants: an extrapolation beyond the
+                // fit range must never give a physically impossible n < 1 (see the variant doc).
                 (a + (b_coeff / l2) + (c_coeff / l4)).max(1.0)
             }
         }

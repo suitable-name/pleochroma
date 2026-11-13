@@ -10,11 +10,8 @@ use pleochroma::geometry::meet_solver::{
     MeetConstraint, SolveControl, SolveError, SolveStrategy, SolvedTier,
 };
 
-/// A small hand-built three-anchor design (one `ScaleReference` tier per
-/// crown/pavilion/girdle block), for the `solve_with`/`resolve_dirty_with`
-/// tests below -- the same shape
-/// `resolve_dirty_touches_only_the_edited_tier_and_non_anchor_tiers` uses,
-/// factored out so those tests don't each repeat the construction.
+/// A small hand-built design for the `solve_with`/`resolve_dirty_with` tests below:
+/// anchors `A` (crown) and `C` (pavilion), with `B` (crown) meeting `A` by name.
 fn three_anchor_design() -> Design {
     let mut design = Design::fresh(PreformSpec::block(1.0, 1.0, 2.0), 96, 4, 1.62);
     design.tiers.push(ConstraintTier {
@@ -94,13 +91,13 @@ fn resolve_dirty_still_panics_on_a_mismatch() {
     let _ = design.resolve_dirty(&bogus_previous, &dirty);
 }
 
-/// A hand-built design has far too few planes to ever hit `MAX_PLANES`; a
-/// synthetic design with one massively-indexed tier does. Above the cap,
-/// `solve_with` must surface `DesignSolveError::Solve(SolveError::TooManyPlanes)`
-/// as a real error, while the legacy `solve` keeps returning its old silent
-/// all-`Failed` result (mirroring `pleochroma::geometry::meet_solver`'s own
-/// `solve_meet_points`/`solve_meet_points_with` split) -- the two entry
-/// points must never disagree about what counts as "too many planes".
+/// Above the plane cap, `solve_with` reports an error.
+///
+/// The hand-built designs stay far below `MAX_PLANES`, so this uses a synthetic design with
+/// one massively indexed tier. `solve_with` returns
+/// `DesignSolveError::Solve(SolveError::TooManyPlanes)`, while the legacy `solve` falls back
+/// to `solve_meet_points` and does not error. Both entry points must agree on what counts as
+/// too many planes.
 #[test]
 fn solve_with_reports_too_many_planes_above_the_cap_while_solve_keeps_the_legacy_fallback() {
     let mut design = Design::fresh(PreformSpec::block(2.0, 1.0, 2.0), 401, 4, 1.62);

@@ -9,12 +9,11 @@ Rewrites the region between the markers
 in `src/renderer/shaders/transport_physics/06_uniaxial_fullwave_complex.wgsl`
 with `solve4_single`, `Solve4TwoRhsResult` and `solve4_two_rhs`.
 
-Why: the rolled originals index the private matrix with a data-dependent row
-(`a[piv][j]`). The AMD DXIL->ISA driver compile of that construct is the dominant
-browser compile cost of the uniaxial kernels (docs: web_gpu_kernel_research_2026-09-28.md
-section 2). Every index below is a compile-time constant.
+Why: the rolled form indexes the private matrix with a data-dependent row
+(`a[piv][j]`). The AMD DXIL->ISA compile of that construct is the dominant browser
+compile cost of the uniaxial kernels. Every index below is a compile-time constant.
 
-Bit-identity by construction (same IEEE operations, same order, as the rolled code):
+Bit-identity by construction (same IEEE operations, same order as the rolled form):
   * pivot search: ascending rows, strict `>` against the running maximum;
   * row swap: at most one conditional swap of whole rows (pure moves, no arithmetic);
   * row `col` is divided by the pivot (a copy taken after the swap) for j in col..3;
@@ -22,10 +21,10 @@ Bit-identity by construction (same IEEE operations, same order, as the rolled co
     `cplx_norm_sqr(factor) == 0.0` (written as `!= 0.0`, so NaN factors still eliminate,
     exactly like the rolled `continue`), for j in col..3, then the right-hand sides.
 
-Usage (run from anywhere):
-    python tools/unroll_solve4.py            # rewrite the WGSL file in place
-    python tools/unroll_solve4.py --check    # exit 1 if the file is out of date
-    python tools/unroll_solve4.py --print    # print the generated text only
+Usage (paths relative to the repository root):
+    python crates/pleochroma/tools/unroll_solve4.py            # rewrite the WGSL file in place
+    python crates/pleochroma/tools/unroll_solve4.py --check    # exit 1 if the file is out of date
+    python crates/pleochroma/tools/unroll_solve4.py --print    # print the generated text only
 """
 
 import pathlib
@@ -43,7 +42,7 @@ WGSL = (
 
 BEGIN = "// BEGIN GENERATED solve4 (tools/unroll_solve4.py)"
 END = "// END GENERATED solve4"
-# First-run anchor: the comment line directly above the original rolled `solve4_single`.
+# Start of the rolled solvers; the first run replaces everything from here to the end.
 LEGACY_START = "// optics::raytracer::uniaxial_fresnel::solve4 -- Gauss-Jordan, single RHS."
 
 
@@ -157,7 +156,7 @@ def splice(text, gen):
         if text[e : e + 1] == "\n":
             e += 1
         return text[:s] + gen + text[e:]
-    # First run: the two rolled functions are the tail of the file.
+    # No BEGIN marker yet: the rolled solvers at the end of the file are replaced.
     s = text.index(LEGACY_START)
     tail = text[s:].rstrip()
     if not tail.endswith("return result;\n}"):

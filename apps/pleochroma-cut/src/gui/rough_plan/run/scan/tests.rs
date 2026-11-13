@@ -166,7 +166,7 @@ fn a_concave_tool_inside_the_outline_lowers_the_volume_and_nothing_else() {
         "removed {removed} vs a hemisphere's {hemisphere}"
     );
     // The dimple sits inside the outline, so width, length and height stay the flat
-    // stone's (the carved hull is measured from the carved mesh, so to rounding noise).
+    // stone's, to rounding noise (the carved hull comes from the carved mesh).
     for (got, want) in [
         (carved.width_caliper, flat.width_caliper),
         (carved.length_caliper, flat.length_caliper),

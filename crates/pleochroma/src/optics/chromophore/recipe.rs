@@ -1,4 +1,4 @@
-//! color recipe and resolved band budget definitions.
+//! Color recipe and resolved band budget definitions.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -17,13 +17,13 @@ pub struct ColorRecipe {
     pub entries: Vec<RecipeEntry>,
     /// Active treatments applied in catalogue order.
     pub treatments: Vec<String>,
-    /// Global absorption multiplier on every item's resulting alpha (default 1.0); must be finite.
+    /// Global multiplier of every item's alpha (1.0 from `new`); must be finite.
     #[serde(deserialize_with = "finite_f64")]
     pub strength: f64,
-    /// Reference stone path thickness in mm for preview swatches and solver (default 5.0); must be finite.
+    /// Reference stone path in mm for swatches and the solver (5.0 from `new`); must be finite.
     #[serde(deserialize_with = "finite_f32")]
     pub reference_path_mm: f32,
-    /// The budgeted, rendered absorption tensor bands (single source of truth for rendering).
+    /// Budgeted absorption bands; rendering reads these, so they are the single source of truth.
     pub resolved_bands: ResolvedBands,
 }
 
@@ -73,12 +73,11 @@ impl ColorRecipe {
         true
     }
 
-    /// Clamps every entry to `[0, conc_max]` of its host under the recipe's treatments
-    /// (`HostData::element_conc_max_split` with the treated valence split), scales down together
-    /// the elements of a multi-element chromophore whose amounts add up to more than its
-    /// `conc_max` (`HostData::cap_summed_amounts`), and drops entries whose id is not selectable
-    /// in the host. Returns the number of changed or dropped entries. A recipe for an unknown host
-    /// is left untouched.
+    /// Clamps every entry to `[0, conc_max]` under the recipe's treatments
+    /// (`HostData::element_conc_max_split`), scales the elements of a multi-element chromophore
+    /// down together where their sum exceeds its `conc_max` (`HostData::cap_summed_amounts`), and
+    /// drops ids that are not selectable in the host. Returns the number of changed or dropped
+    /// entries. A recipe for an unknown host is left untouched.
     pub fn clamp_amounts(&mut self, catalogue: &super::catalogue::ChromophoreCatalogue) -> usize {
         let Some(host) = catalogue.host(&self.host) else {
             return 0;

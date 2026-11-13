@@ -101,9 +101,10 @@ fn push_facet(mesh: &mut SolidMesh, id: usize, normal: DVec3, ring: Vec<DVec3>) 
 }
 
 /// Records which edges of the ring `push_facet` just added to `mesh` are drawn. `drawn` is
-/// `None` for a ring that draws every edge. `mesh.edge_visible` stays `None` until a
-/// ring has something to hide, so a scene of flat designs is exactly what it was; the
-/// rings before the first such one are backfilled as fully drawn.
+/// `None` for a ring that draws every edge.
+///
+/// `mesh.edge_visible` stays `None` until a ring has an edge to hide, so a scene of flat
+/// designs carries no flags; the rings before the first such one are backfilled as fully drawn.
 fn set_drawn_edges(mesh: &mut SolidMesh, drawn: Option<&[bool]>) {
     let Some(last) = mesh.rings.len().checked_sub(1) else {
         return;
@@ -119,9 +120,10 @@ fn set_drawn_edges(mesh: &mut SolidMesh, drawn: Option<&[bool]>) {
     visible.push(drawn.map_or_else(|| vec![true; mesh.rings[last].1.len()], <[bool]>::to_vec));
 }
 
-/// `centred_mm` (a mesh in the centred frame, in mm) scaled to world units, with every
-/// ring reduced to its true corners. A mesh with `piece_normals` (a non-convex rough, one
-/// normal per ring) keeps them, and its `edge_visible` flags follow the corners kept.
+/// Scales `centred_mm` (a mesh in the centred frame, in mm) to world units.
+///
+/// Every ring is reduced to its true corners. A mesh with `piece_normals` (a non-convex rough,
+/// one normal per ring) keeps them, and its `edge_visible` flags follow the corners kept.
 #[must_use]
 fn world_mesh(centred_mm: &SolidMesh, scale: f64) -> SolidMesh {
     let mut normals: BTreeMap<usize, DVec3> = BTreeMap::new();
@@ -233,9 +235,10 @@ pub(super) struct ModelScene {
     /// The rough's faces in world units. Facet `i < base_facets` is base plane `i`; facet
     /// `base_facets + k` is cut `k`.
     pub(super) mesh: SolidMesh,
-    /// The shells of the rough's inclusions in world units (no rings without inclusions): a
-    /// layer of its own, drawn see-through over `mesh` and never picked. Its facet ids mean
-    /// nothing; nothing but the renderer's inclusion pass reads it.
+    /// The shells of the rough's inclusions in world units; no rings without inclusions.
+    ///
+    /// A layer of its own, drawn see-through over `mesh` and never picked. Its facet ids mean
+    /// nothing; only the renderer's inclusion pass reads it.
     pub(super) inclusions: SolidMesh,
     /// How many facet ids belong to the base shape.
     pub(super) base_facets: usize,
@@ -398,9 +401,10 @@ pub(super) enum StoneDraw {
     Deleted,
 }
 
-/// The rough of a plan as a mesh in world units. It is built by the first thread that
-/// asks (a worker, never the UI thread) and then shared by every scene and thumbnail of
-/// the plan.
+/// The rough of a plan as a mesh in world units.
+///
+/// It is built by the first thread that asks (a worker, never the UI thread) and then shared
+/// by every scene and thumbnail of the plan.
 pub(super) struct RoughMesh {
     model: RoughModel,
     mesh: OnceLock<Arc<SolidMesh>>,
@@ -478,10 +482,11 @@ impl FitScene {
         flags
     }
 
-    /// Colours the facets of the stones that have a colour in `colours` (one entry per stone,
-    /// `None` keeps the palette colour). A stone drawn as a grey box because its design is gone or
-    /// unreadable keeps its grey: that colour is the warning. This is how
-    /// the planner shows the colour of a plan that has a rough colour.
+    /// Colours the facets of the stones that have a colour in `colours` (one entry per stone;
+    /// `None` keeps the palette colour).
+    ///
+    /// The grey boxes of stones whose design is gone or unreadable keep their grey, since that
+    /// colour is the warning.
     pub(super) fn apply_stone_colours(&mut self, colours: &[Option<[u8; 3]>]) {
         for (stone, span) in self.stone_starts.windows(2).enumerate() {
             let Some(Some(colour)) = colours.get(stone) else {
@@ -604,9 +609,10 @@ fn recorded_width_mm(stone: &PlacedStone) -> Option<f64> {
     (width.is_finite() && width > 0.0).then_some(width)
 }
 
-/// The pose of `stone` with its scale changed so a design mesh whose caliper width is
-/// `width_units` model units is as wide as the width the plan recorded; the second
-/// value tells whether the scale was changed. A pose or mesh without a usable width
+/// The pose of `stone` rescaled so a design of caliper width `width_units` model units is as
+/// wide as the plan recorded.
+///
+/// The second value tells whether the scale was changed; a pose or mesh without a usable width
 /// keeps the plan's scale. ("Open in Editor" places a changed design the same way.)
 pub(in crate::gui::rough_plan) fn rescaled_pose(
     stone: &PlacedStone,

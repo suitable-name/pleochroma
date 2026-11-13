@@ -7,7 +7,7 @@
 //! of `coverage/setups.rs`, relaunched once per group (and before every `fresh` row).
 //!
 //! Callbacks on the allow list (`coverage_allow.rs`) have no row. The gate itself runs at the
-//! end of the whole run (`coverage::finish`, called from `main`).
+//! end of the whole run (configured in `main.rs`).
 //!
 //! Deviation from `Ctx::check_health`: an error toast after a row is only a note here. Rows
 //! call handlers with empty arguments ("select a design first" toasts are the correct
@@ -61,9 +61,11 @@ mod windows_reach;
 
 use table::{Invoke, Row, Setup};
 
-/// The pieces of this file: the click-through passes inside the overlays and secondary states the
-/// other scenarios never clicked through (`overlays.rs`, one piece per state or window state), then
-/// the direct-invoke chunks (`coverage_invoke:<group>:<n>`), which are `last` pieces.
+/// The pieces of this module.
+///
+/// They are the click-through passes of the overlays and secondary states
+/// (`overlays.rs`, one piece per state or window state), then the direct-invoke chunks
+/// (`coverage_invoke:<group>:<n>`), which are `last` pieces.
 pub fn pieces() -> Vec<Piece> {
     let mut all = Vec::new();
     all.extend(overlays::pieces());
@@ -92,7 +94,8 @@ type Pass = (&'static str, fn(&mut Ctx<'_>));
 
 /// One piece per state of `states`, named `overlay:<group>:<state name>`: the state's click pass
 /// runs in a piece (and so in a worker) of its own. `states` is called again inside the piece (a
-/// `State` is plain data and `fn` pointers, not `Clone`) and the piece runs the entry at its index.
+/// `State` is plain data and `fn` pointers, not `Clone`) and the piece runs the entry at its
+/// index.
 fn state_pieces(
     group: &'static str,
     seed: fn() -> crate::support::SettingsSeed,
@@ -116,8 +119,8 @@ fn state_pieces(
         .collect()
 }
 
-/// Rows per direct-invoke chunk: the editor group (292 rows) and the startup group (99) are cut
-/// into pieces of at most this many rows, so no chunk runs much longer than a minute.
+/// Rows per direct-invoke chunk: a group with more rows is cut into chunks of this size, so no
+/// chunk runs much longer than a minute.
 const CHUNK: usize = 40;
 
 /// The rows of `setup`, in the order the group runs them (shared-state rows first, then the
@@ -146,10 +149,9 @@ fn chunk_todo(setup: Setup, chunk: usize) -> Vec<&'static Row> {
         .collect()
 }
 
-/// The direct-invoke chunks: `coverage_invoke:<group>:<n>`. They are registered as `last` pieces,
-/// so in a parallel run they see the coverage of every worker and invoke only what is left; a
-/// chunk with nothing left skips the relaunch altogether. Every chunk arms the coverage gate (the
-/// gate is armed in the process that reports it: a worker sends its armed flag with every `done`).
+/// The direct-invoke chunks: `coverage_invoke:<group>:<n>`, registered as `last` pieces. In a
+/// parallel run they see the coverage of every worker and invoke only what is left; a chunk with
+/// nothing left skips the relaunch. Each chunk arms the coverage gate in the reporting process.
 fn invoke_pieces() -> Vec<Piece> {
     let rows = all_rows();
     let mut pieces = Vec::new();
@@ -208,7 +210,7 @@ const COPY_ROWS: &[(&str, bool)] = &[
 ];
 
 /// Callbacks that open a URL, folder or file, with whether a row must capture a target. `false`:
-/// the callback needs a finished render job (GAP: no group creates one).
+/// the callback needs a finished render job, which no group creates.
 const OPEN_ROWS: &[(&str, bool)] = &[
     ("LibraryModel.open_diagram_url", true),
     ("HelpModel.open_manual_files", true),
@@ -311,11 +313,10 @@ fn run_row(ctx: &mut Ctx<'_>, row: &Row) {
         }
     }
     let outcome = catch_unwind(AssertUnwindSafe(|| call(row, ui)));
-    // Was `pump(60); settle(60)`: 60 ms of mock time (debounce timers) and 60 ms of REAL time for
-    // whatever worker thread the handler started. Nothing is observable for a row in general (the
-    // copy and opener rows have their own wait in `check_captures`), so the mock time stays and
-    // the real pause drops to 20 ms (events a worker queues meanwhile are drained by the next
-    // row's pumps; a worker panic later than that can be missed, as it could before).
+    // 60 ms of mock time lets the debounce timers run, then 20 ms of real time for a worker
+    // thread the handler may have started. Nothing is observable per row in general (the copy
+    // and opener rows wait in `check_captures`). Events a worker queues later are drained by
+    // the next row's pumps; a worker panic after the pause can be missed.
     pump(60);
     settle(20);
     check_captures(ctx, &key);

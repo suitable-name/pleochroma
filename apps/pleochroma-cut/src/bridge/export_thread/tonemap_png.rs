@@ -1,15 +1,10 @@
 //! Tone-map and PNG/ICC output: turning the finished accumulation buffer into RGBA
 //! bytes (sRGB or wide-gamut) and writing it to disk.
 //!
-//! The tone-mapping itself ([`tonemap_accumulation`]) lives in
-//! `pleochroma::renderer::tonemap` so a server answering a "final picture only"
-//! `FinalImageRequest` runs the SAME code and its PNG is byte-identical to what this
-//! viewer would write from the same float sum; it is re-exported here so every caller in
-//! this crate stays unchanged. The actual PNG+ICC encoding
-//! ([`pleochroma::render_setup::encode_png_with_icc`]) is pure/in-memory and lives in
-//! `pleochroma` too, for the same byte-identical-output reason -- [`save_png`] here
-//! just calls it and writes the result to disk, which is the one part that must stay
-//! viewer-side.
+//! The tone-mapping ([`tonemap_accumulation`]) lives in `pleochroma::renderer::tonemap`, so a
+//! server answering a final-picture request runs the same code and its PNG is byte-identical
+//! to a local export. The PNG+ICC encoding ([`pleochroma::render_setup::encode_png_with_icc`])
+//! is in-memory and also lives in `pleochroma`. [`save_png`] only writes the result to disk.
 
 pub use pleochroma::renderer::tonemap::tonemap_accumulation;
 use pleochroma::{color::ColorSpace, render_setup::encode_png_with_icc};

@@ -25,8 +25,8 @@
 //! - [`manipulate`]: mouse-driven direct manipulation -- the pick-frame projection, the
 //!   angle/depth/index drag handles of the selected facet, the Slice tool's plane
 //!   snapping, the tiers a drag drags along, and the hint and toast wording.
-//! - [`files`]: file kinds by name and content (`.psdd` is the design file),`.gem`/`.gcs` conversion to `.asc` text, and the desktop's default save
-//!   names.
+//! - [`files`]: file kinds by name and content (`.psdd` is the design file), `.gem`/`.gcs`
+//!   conversion to `.asc` text, and the desktop's default save names.
 //! - [`tier_save`]: which `Edit` a parsed tier form becomes (insert after the selection,
 //!   modify in place, the depth / girdle-thickness / table-width target batch).
 //! - [`printed_proportions`]: the design settings' five printed figures (Vol/W^3, L/W,
@@ -56,12 +56,10 @@
 //! - [`stone_orientation`]: the design's own Crystal Axis applied to a material, for every
 //!   scoring scene, tilt profile and swatch that traces a stone outside the live render.
 //!
-//! No GUI toolkit types, no clock and no filesystem anywhere in this crate, and no
-//! threads except the angle sweep's worker threads, which are compiled out of a
-//! `wasm32-unknown-unknown` build (it runs the same loop inline there), so it links
-//! unchanged into that build. Each UI maps
-//! the plain structs to its own row types, and supplies its own clock and threads
-//! (or Workers).
+//! No GUI toolkit types, no clock and no filesystem anywhere in this crate, and no threads
+//! except the angle sweep's worker threads, which are replaced by an inline loop in a
+//! `wasm32-unknown-unknown` build, so it links unchanged into that build. Each UI maps the
+//! plain structs to its own row types, and supplies its own clock and threads (or Workers).
 
 pub mod cut_sheet;
 pub mod cutting_mode;

@@ -12,8 +12,9 @@
 //! 1. `handle_hit_test` / `handle_hover` ([`handles`]): map the logical pointer to the
 //!    raster's pick frame, `manipulate::hit_test` it against the handle layout of the
 //!    last frame, light the handle and word the hint.
-//! 2. `drag_begin` ([`drag`]): snapshots a [`DragStart`](pleochroma_editor::manipulate::DragStart)
-//!    (start angle from the design, start mast from `solid_last_solved`, the layout) and
+//! 2. `drag_begin` ([`drag`]): snapshots a
+//!    [`DragStart`](pleochroma_editor::manipulate::DragStart) (start angle from the design,
+//!    start mast from `solid_last_solved`, the layout) and
 //!    ends any coalescing run so the gesture is its own undo step.
 //! 3. `drag_move`: `manipulate::drag_value` -> `EditIntent::DragTier` posted into an
 //!    [`EditIntentQueue`](super::edit_intent::EditIntentQueue), so a burst of pointer moves
@@ -43,20 +44,21 @@
 //!
 //! [`diagram`] puts the same three handles on the 2D Diagram view's panels. The handle
 //! layout comes from `pleochroma_editor::manipulate::diagram2d` and the panel layout the
-//! diagram frame carried out through [`FrameGeometry`]; the drag itself is the SAME
-//! path (`drag_begin` / `drag_move` through the [`EditIntentQueue`](super::edit_intent::EditIntentQueue),
-//! one undo step, Escape cancels), except that the index handle turns the tier about the
-//! panel centre (`ActiveDrag::rotation`). The pointer coordinates the
-//! view hands over there are UNZOOMED (see `diagram`'s own doc). The Slice tool is not
-//! offered in the Diagram view.
+//! diagram frame carried out through [`FrameGeometry`]. The drag uses the same path
+//! (`drag_begin` / `drag_move` through the
+//! [`EditIntentQueue`](super::edit_intent::EditIntentQueue), one undo step, Escape
+//! cancels), except that the index handle turns the tier about the
+//! panel centre (`ActiveDrag::rotation`). The pointer coordinates the view hands over
+//! there are UNZOOMED (see `diagram`'s own doc). The Slice tool is not offered in the
+//! Diagram view.
 //!
 //! # Staying cheap
 //!
 //! [`on_frame_landed`] runs after EVERY solid-preview frame (an orbit produces dozens a
 //! second). It reads a few `Mutex`es, reuses one cached
 //! [`FacetMap`](crate::gui::solid_preview::facet_map::FacetMap) until the design or the
-//! solved masts change, and projects seven points; nothing else. While a drag is active
-//! the handles are left exactly where the drag started (the pixel-to-value mapping is
+//! solved masts change, and projects only the handle points; nothing else. While a drag is
+//! active the handles are left exactly where the drag started (the pixel-to-value mapping is
 //! fixed for the gesture) and only the "follows your drag" feedback is refreshed.
 
 mod crystal_axis_overlay;
@@ -402,8 +404,8 @@ fn wire_pointer_callbacks(ui: &MainWindow, ctx: &Shared) {
     let snap_ctx = ctx.clone();
     model.on_snap_toggled(move || {
         if let Some(ui) = ui_weak.upgrade() {
-            // Remembered across sessions. The toolbar pill and the Preferences dialog's
-            // switch both end here, so both are saved.
+            // Remembered across sessions; the toolbar pill and the Preferences switch both land
+            // here.
             crate::gui::preferences::persist_snap_off(
                 ui.global::<ManipulateModel>().get_snap_off(),
             );

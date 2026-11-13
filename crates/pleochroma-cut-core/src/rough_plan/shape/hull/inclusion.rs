@@ -12,7 +12,7 @@
 //! A convex rough imported from a mesh file has no mesh of its own (it plans as its hull).
 //! Adding an inclusion to it first builds the mesh of its hull, which is exactly the rough,
 //! and the inclusion then makes it a mesh rough; removing the last inclusion gives the plain
-//! hull back, with its old id.
+//! hull back, under the id of the plain hull.
 
 use std::sync::Arc;
 
@@ -231,7 +231,8 @@ pub fn remove_inclusion(base: &RoughBase, index: usize) -> Result<RoughBase, Hul
     ))
 }
 
-/// The rough of the mesh `points`/`tris` with `inclusions` inside it: what a saved plan reads back.
+/// The rough of the mesh `points`/`tris` with `inclusions` inside it, as a saved plan reads it
+/// back.
 ///
 /// Each inclusion is points and triangles, already grown by whatever margin it was saved
 /// with. The outline and the frame are those of the rough's own mesh, as in

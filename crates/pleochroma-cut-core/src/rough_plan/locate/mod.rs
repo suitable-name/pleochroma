@@ -13,23 +13,23 @@
 //!   point to pixel) and the rigid mesh-to-rig transform ([`Rigid`]).
 //! - [`refract`]: Snell refraction with total internal reflection, and reflection.
 //! - [`trace`]: a camera ray into the stone, up to the first exit or through up to two total
-//!   internal reflections, against the mesh's BVH ([`RoughMesh::first_hit`](crate::rough_plan::shape::RoughMesh::first_hit)).
+//!   internal reflections, against the mesh's BVH (`RoughMesh::first_hit`).
 //! - [`align`]: the mesh-to-rig alignment from the stone's outline in each photo.
 //! - [`triangulate`]: refractive triangulation of a point or a polyline, with the uncertainty
 //!   and a leave-one-out outlier flag per view.
 //! - [`reproject`]: the verification overlay: where the solved point appears in each photo, and
 //!   where its ghost images would.
-//! - [`result`]: the point as a closed shell with its margin, ready for stage A's
-//!   `add_inclusion_points`.
+//! - [`result`]: the point as a closed shell with its margin, ready for
+//!   [`add_inclusion_points`](crate::rough_plan::shape::hull::add_inclusion_points).
 //! - [`calibrate`]: the beam-splitter-cube calibration (outer edges, then the coated diagonal as
 //!   an end-to-end check).
 //!
 //! # Frames and conventions
 //!
 //! All distances are millimetres. Pixels are `u` right, `v` down. The MESH frame is the rough
-//! frame (the bounding box at the origin, see [`import_mesh`](crate::rough_plan::shape::import_mesh));
-//! results (located points) are in it. The RIG frame is the cameras'. [`Rigid`] maps mesh to rig;
-//! rays are brought into the mesh frame, so the mesh itself is never moved.
+//! frame, its bounding box at the origin (see `import_mesh`), and results (located points) are in
+//! it. The RIG frame is the cameras'. [`Rigid`] maps mesh to rig; rays are brought into the mesh
+//! frame, so the mesh itself is never moved.
 //!
 //! For a birefringent stone the profile's stone index is the ordinary index `n_o`, and the user
 //! clicks the ordinary image. In immersion the profile's surrounding index is the liquid's; when

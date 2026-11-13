@@ -1,18 +1,15 @@
 //! Where the Cut slider stands and what it is called, for the desktop and the web alike.
 //!
-//! The slider walks a design's cutting steps (`Design::preview_steps`): position `0`
-//! is the rough (the preform alone, whatever its shape: block, cylinder or a planned
-//! piece), position `k` the stone after the first `k` steps,
-//! and the last position the finished design. Flat and concave tiers each count as one
-//! step, in the order the cutting sheet lists them for every design
-//! (`Design::cutting_order`: the pavilion and girdle tiers, the crown, the table last).
+//! The slider walks a design's cutting steps (`Design::preview_steps`): position `0` is the
+//! rough (the preform alone, whatever its shape), position `k` the stone after the first `k`
+//! steps, and the last position the finished design. Flat and concave tiers each count as one
+//! step, in cutting order (`Design::cutting_order`, which ends with the table).
 //!
 //! The model's `tier_cutoff` is the one source of truth, in these terms:
 //! [`MODEL_FINISHED`] (`-1`) for the finished design, [`MODEL_ROUGH`] (`-2`) for the
-//! rough, and `n >= 0` for the stone after steps `0..=n` -- the first `n + 1` steps of the
-//! cutting order, which the Slice tool reads. [`CutPosition`] decodes it;
-//! everything else here is derived from the position and the design, so the label, the
-//! slider handle, the planner and every full redraw cannot disagree.
+//! rough, and `n >= 0` for the stone after steps `0..=n`, which the Slice tool reads.
+//! [`CutPosition`] decodes it. Everything else here derives from the position and the
+//! design, so the label, the slider handle and every redraw agree.
 //!
 //! Everything here is a pure function of a position and a design: no window, no thread.
 
@@ -51,8 +48,8 @@ impl CutPosition {
     }
 
     /// Decodes the model's `tier_cutoff` for a design with `step_count` steps.
-    /// Anything below [`MODEL_ROUGH`] reads as finished, as does a stale cutoff past the
-    /// last step (a tier was removed since it was set).
+    /// Anything below [`MODEL_ROUGH`] reads as finished, as does a cutoff past the last step
+    /// (its tier was removed).
     #[must_use]
     pub fn from_model(tier_cutoff: i32, step_count: usize) -> Self {
         match tier_cutoff {

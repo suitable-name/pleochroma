@@ -28,7 +28,7 @@ thread_local! {
     static CAMERA: RefCell<Option<CameraHandles>> = const { RefCell::new(None) };
 }
 
-/// Remembers weak handles to the camera context and wiring components for camera reframing and harness accessors.
+/// Remembers weak handles to the camera context and wiring, for reframing and the harness.
 pub fn register_camera(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
@@ -52,7 +52,7 @@ pub fn release_camera() {
     CAMERA.with(|cell| cell.borrow_mut().take());
 }
 
-/// The current camera pose (yaw, pitch in radians, distance) of the active viewport, if registered.
+/// Camera pose (yaw and pitch in radians, distance) of the registered viewport, if any.
 #[cfg(feature = "ui-harness")]
 #[must_use]
 pub fn camera_pose() -> Option<(f32, f32, f32)> {
@@ -78,8 +78,8 @@ pub fn light_pose() -> Option<(f32, f32)> {
     })
 }
 
-/// Sets the camera pose (yaw, pitch in radians, optional distance). If `distance` is `None`,
-/// the current distance is preserved (clamped to mesh bounding bounds).
+/// Sets the camera pose (yaw and pitch in radians). A `None` distance keeps the current one.
+/// Any distance is clamped to the orbit bounds of the mesh's bounding radius.
 pub fn set_camera_pose(yaw: f32, pitch: f32, distance: Option<f32>) -> bool {
     CAMERA.with(|cell| {
         let guard = cell.borrow();

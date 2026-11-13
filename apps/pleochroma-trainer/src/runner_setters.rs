@@ -150,7 +150,7 @@ impl TrainingRunner {
             }
         };
         // Every fallible operation completed against staged objects. Replacing
-        // the live trainers, environments and observer below cannot fail.
+        // the live trainers, environments and progress handle below cannot fail.
         self.updater.commit();
         self.rollout_trainer = rollout_trainer;
         self.rollout_model = self.rollout_trainer.rollout_model();
@@ -220,9 +220,9 @@ impl TrainingRunner {
         })?;
         let authored = item.authored_material.as_ref();
         let target = pick_target(&self.cfg, slot.seed, &item.design, authored)?;
-        // Existing environment APIs attach an accelerator but do not detach
-        // one. Snapshot reconstruction provides an atomic CPU detach while
-        // retaining the exact accepted geometry, step count and optical scores.
+        // Environment APIs attach an accelerator but cannot detach one. Snapshot
+        // reconstruction gives an atomic CPU detach that keeps the exact accepted
+        // geometry, step count and optical scores.
         let env = build_env_from_episode(
             &self.cfg,
             &item.design,

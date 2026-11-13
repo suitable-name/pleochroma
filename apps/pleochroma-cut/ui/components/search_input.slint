@@ -2,8 +2,8 @@ import { Theme } from "../theme.slint";
 
 // The text part of a search box: a frameless single-line input with a placeholder, for a
 // search field that draws its own frame and magnifier (the header's library search, the
-// manual's and the glossary's). The std-widgets `LineEdit` draws a frame of its own and is
-// taller than these 28 px fields, so inside one it showed as a second, offset box.
+// manual's and the glossary's). The std-widgets `LineEdit` draws its own frame and is taller
+// than these 28 px fields, so inside one it would show a second, offset box.
 export component SearchInput inherits Rectangle {
     in-out property <string> text;
     in property <string> placeholder-text;
@@ -19,7 +19,7 @@ export component SearchInput inherits Rectangle {
     min-width: 0px;
     min-height: 20px;
     accessible-role: text-input;
-    // A default only: every use names its field ("Search the Library").
+    // A default only: each use should name its field.
     accessible-label: root.placeholder-text;
     accessible-value: root.text;
     accessible-placeholder-text: root.placeholder-text;
@@ -44,7 +44,7 @@ export component SearchInput inherits Rectangle {
         selection-foreground-color: Theme.text-primary;
         single-line: true;
         vertical-alignment: center;
-        // The typing part is a control of its own for a screen reader and the harness; the
+        // The typing part is a control of its own for a screen reader and the UI tests; the
         // suffix keeps it apart from the box that carries the name.
         accessible-role: text-input;
         accessible-label: root.accessible-label + " Field";

@@ -18,20 +18,15 @@ import { ToggleRow } from "toggle_switch.slint";
 import { AdvancedNote } from "advanced_note.slint";
 import { SettingLabel } from "settings_dialog/setting_label.slint";
 
-// The Edit sub-tab's schedule-wide settings -- material combo (built-ins, custom
-// catalogue materials, then "Custom RI…"), RI override/effective/critical-angle
-// readouts, gear combo, symmetry order and mirror. Rows: 1a material/RI/color/apply,
-// 1b chips/new-edit/linked, then gear/symmetry, then printed details, each ending in a stretch spacer so nothing here stretches
-// to fill the dock's own width. Collapsible as a whole (`SectionHeader`, title
-// "DESIGN") via `EditorModel.settings_collapsed`; the gear-remap confirmation
-// nested inside is separately collapsible (title "GEAR REMAP") via
-// `EditorModel.remap_collapsed`.
+// The Edit sub-tab's design settings: the material (a read-only chip, edited in the Stone tab),
+// index gear, symmetry order and Mirror, the title and details, and the printed proportions.
+// Each row ends in a stretch spacer, so nothing stretches to fill the dock's width. The whole
+// section collapses via `EditorModel.settings_collapsed` (`SectionHeader`, title "DESIGN").
 //
-// The Simple interface (`GuideModel.shows_advanced()` false) keeps what most designs need: the
-// material, the body color, the gear and the title. It leaves out the RI override, the
-// symmetry order and Mirror, the extra header lines, the footnotes, the gear reference angle and
-// the printed proportions. A hidden field keeps its value and still applies, and the note at
-// the bottom says so when one of them is off its default
+// The Simple interface (`GuideModel.shows_advanced()` false) keeps the material, the gear and
+// the title. It hides the symmetry order and Mirror, the extra header lines, the footnotes, the
+// gear reference angle and the printed proportions. A hidden field keeps its value and still
+// applies. The note at the bottom says so when one is off its default
 // (`DesignSettingsModel.advanced_in_use`).
 //
 // Every label has a tooltip, every field and button a screen-reader name, and every control
@@ -46,16 +41,13 @@ export component EditorDesignSettings inherits Rectangle {
     border-width: root.guide_highlighted ? 2px : 1px;
     border-color: root.guide_highlighted ? Theme.accent-cyan : Theme.border-subtle;
     clip: true;
-    // Zero stretch: without this the section is a stretchable cell of the
-    // dock's column (widgets have no maximum height of their own), and spare
-    // dock height inflated the combos, fields and buttons to hundreds of
-    // pixels instead of going to the tier table. NOT `height:
-    // content.preferred-height` -- a layout's preferred height defaults to
-    // 100% of its parent, so that binding is circular and grows unbounded.
+    // Zero stretch, so spare dock height goes to the tier table instead of inflating the fields.
+    // Do not use `height: content.preferred-height`: a layout's preferred height defaults to
+    // 100% of its parent, so that binding is circular.
     vertical-stretch: 0;
 
-    // `false` while the worked-example guide locks this panel (`GuideAllow.
-    // design_settings`): every combo, field, toggle and Apply button below ANDs it
+    // `false` while the worked-example guide locks this panel (`GuideAllow.design_settings`):
+    // every combo, field, toggle and Apply button below ANDs it
     // into its own `enabled:`, and the `GuideLockTip` at the end of this component
     // explains why on hover. The read-only chips stay readable.
     property <bool> unlocked: GuideModel.allows_design_settings();
@@ -72,11 +64,8 @@ export component EditorDesignSettings inherits Rectangle {
             + EditorModel.printed_pw_text + EditorModel.printed_hw_text,
         EditorModel.mirror);
 
-    // Unapplied-edit markers for the Material/Gear/Symmetry Apply buttons -- the
-    // same amber "*" treatment as `editor_inspector.slint`'s `preform_pending`/
-    // `yield_pending`. A background refresh only re-seeds a section's scratch
-    // fields when the underlying DESIGN value actually changed, so it cannot
-    // silently flip `pending` back to `false` by reasserting a just-typed value.
+    // Unapplied-edit markers for the Gear/Symmetry/Details/Printed Apply buttons: an amber "*",
+    // as in `editor_inspector.slint`.
     property <bool> gear_pending: false;
     property <bool> symmetry_pending: false;
     // "Apply Details" pending marker -- same treatment.
@@ -279,14 +268,10 @@ export component EditorDesignSettings inherits Rectangle {
 
         Rectangle { height: 1px; background: Theme.border-subtle; }
 
-        // Row 3: design metadata, committed as an `Edit::SetMeta`
-        // (`crates/pleochroma-cut-core`). `design_title` is the FIRST header line
-        // (this app's "first header is the title" convention, e.g. the catalogue
-        // import fallback and the status strip's `design_label`);
-        // `design_extra_headers`/`design_footnotes` are every further
-        // header/footnote line, joined/split on "; " since this app has no
-        // multi-line text control. The title stays in the Simple interface (a cutter names a
-        // design); the other fields are advanced.
+        // Row 3: design metadata, committed as one `Edit::SetMeta`. `design_title` is the first
+        // .asc header line. `design_extra_headers` and `design_footnotes` hold the further lines,
+        // split on "; " (there is no multi-line text control). The title stays in the Simple
+        // interface; the other fields are advanced.
         // Title and (advanced) the gear reference angle, with Apply Details at the row's end
         // for the Simple interface too; the extra header and footnote lines, which want
         // room, follow on their own row.
@@ -388,12 +373,9 @@ export component EditorDesignSettings inherits Rectangle {
 
         if root.advanced: Rectangle { height: 1px; background: Theme.border-subtle; }
 
-        // Row 4: a cutter's own typed printed proportions (Vol/W^3, L/W, C/W, P/W,
-        // H/W, the figures printed on every GemCad sheet), feeding Deep Solve's
-        // external verification target for a New, remote-loaded or natively-saved
-        // design -- none of which carry a catalogue row's measured columns the way
-        // "Load Selected" does. Without this, Deep Solve is unusable for those.
-        // Advanced: the Simple interface leaves the whole row out.
+        // Row 4: typed printed proportions (Vol/W^3, L/W, C/W, P/W, H/W, as on a GemCad sheet).
+        // Deep Solve checks against them for designs with no measured values, such as a New,
+        // remote-loaded or natively saved design. Advanced only.
         if root.advanced: HorizontalLayout {
             spacing: 10px;
             VerticalLayout {

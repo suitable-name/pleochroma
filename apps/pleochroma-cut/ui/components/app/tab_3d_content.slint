@@ -12,11 +12,11 @@ import { SolidViewportView } from "../solid_viewport.slint";
 import { SplitHandle } from "../split_handle.slint";
 import { EditorViewportOverlay } from "viewport_overlay.slint";
 
-// The 3D Gem tab's body: the Live Render row (viewport + Parameters dock) or the Edit view (the
-// solid viewport, the guide column, the resizable inspector dock, the Parameters dock and the
-// status strip) -- split out of `app.slint` to keep that file under its line budget. The sizing
-// rules in `app.slint`'s "Sizing notes" still apply: this component is mounted inside the
-// detail column's clipping `Rectangle`, so none of its constraints reach `MainWindow`.
+// The 3D Gem tab's body: the Live Render row (viewport and Parameters dock) or the Edit view
+// (solid viewport, guide column, inspector dock, Parameters dock and status strip). Split out of
+// `app.slint` to keep that file under its line budget. The "Sizing notes" in `app.slint` apply:
+// this sits inside the detail column's clipping `Rectangle`, so no constraint reaches the
+// window.
 export component Tab3dContent inherits VerticalLayout {
     spacing: 8px;
 
@@ -34,11 +34,9 @@ export component Tab3dContent inherits VerticalLayout {
     in property <[string]> recent_native_files: [];
     callback open_recent_native_file(string);
 
-    // Re-clamps `EditorModel.dock_width` against `available` (the Edit-mode row's
-    // actual current width), using the exact same bounds the `SplitHandle` drag
-    // handler below computes from an incremental delta -- `600px`/`1000px`/`380px`
-    // must stay in lock-step with that clamp expression. `6px` is `SplitHandle`'s fixed
-    // thickness on this axis.
+    // Re-clamps `EditorModel.dock_width` against `available` (the Edit row's current width),
+    // with the same bounds as the `SplitHandle` drag handler below: the `600px`, `1000px` and
+    // `380px` limits must match that expression. `6px` is `SplitHandle`'s thickness.
     function reclamp_dock_width(available: length) {
         EditorModel.dock_width = clamp(
             EditorModel.dock_width,
@@ -59,52 +57,28 @@ export component Tab3dContent inherits VerticalLayout {
         ParametersDock { rail_only: !root.params_docked_live; }
     }
 
-    // Edit mode: the solid viewport and the resizable edit
-    // dock side by side (full column height), with a single
-    // status strip below spanning both -- see this file's own
-    // doc comment on the Edit-mode layout split
-    // (`editor_view.slint`/`editor_command_bar.slint`/
-    // `editor_design_settings.slint`/`editor_tier_table.slint`/
-    // `editor_inspector.slint`/`editor_status_strip.slint`).
-    // The viewport|dock split is dragged via `SplitHandle`
-    // (`ui/components/split_handle.slint`), bound to
-    // `EditorModel.dock_width` -- neither side carries a
-    // `min-width` (see this file's "Sizing notes" above): the
-    // viewport's own is already 0 (`solid_viewport.slint`),
-    // and the dock's minimum comes from this clamp instead,
-    // not from a layout minimum that could reach the window.
+    // Edit mode: the solid viewport and the resizable inspector dock side by side, with one
+    // status strip below both (see `editor_view.slint` and `editor_status_strip.slint`). The
+    // split is dragged via `SplitHandle` (`ui/components/split_handle.slint`), bound to
+    // `EditorModel.dock_width`. Neither side sets a `min-width`: the viewport's is 0
+    // (`solid_viewport.slint`) and the dock's minimum comes from the clamp below, so no layout
+    // minimum can reach the window.
     if root.render_view_tab == 1 && EditorModel.enabled: VerticalLayout {
         spacing: 8px;
         vertical-stretch: 1;
 
-        // `edit_wide` (above) decides the split from the row budget: window width
-        // less 24px padding and the library column (52px on its rail, 352px
-        // open) must cover the 380px viewport + 6px handle + 24px + the 600px
-        // dock, plus the guide column (272px while docked) and the Parameters
-        // dock with its gap (52px as a rail, 372px open). That is 1138px with
-        // the library and the Parameters dock both on their rails, 1458px with
-        // the Parameters panel open beside the picture, +272px with the guide
-        // and +300px with the library open. Below that, the side-by-side split
-        // always left the dock (Detach/Duplicate/delete, first) silently
-        // clipped with nothing telling the user why, so the viewport stacks
-        // ABOVE the dock instead (further down): `EditorView` then gets the
-        // window's own full, still-narrow width rather than whatever a
-        // side-by-side split would have left it -- the 380px reserved for the
-        // viewport is what was starving it.
+        // Wide enough (`edit_wide`, see `WindowState`), the viewport and the dock sit side by
+        // side. Narrower, the viewport stacks above the dock (further down): a side-by-side
+        // split silently clipped the dock's first actions (Detach, Duplicate, delete) with
+        // nothing saying why.
         if root.edit_wide: edit_row := HorizontalLayout {
             spacing: 12px;
             vertical-stretch: 1;
 
-            // Re-clamps a persisted `EditorModel.dock_width` against
-            // THIS row's actual width -- not only against the delta
-            // the drag handler below sees. Without this, a dock width
-            // saved on a wide monitor is pushed back unclamped on a
-            // narrower one and can leave the
-            // viewport narrower than its 380px guarantee, or the dock
-            // wider than the row itself. `6px` is `SplitHandle`'s own
-            // fixed thickness on this axis (`split_handle.slint`),
-            // matching the literal the drag handler already uses via
-            // `self.width` there.
+            // Re-clamps a persisted `EditorModel.dock_width` against this row's actual width,
+            // not only against the drag delta: a width saved on a wide monitor could otherwise
+            // leave the viewport under its 380px minimum on a narrow one. `6px` is
+            // `SplitHandle`'s fixed thickness on this axis (`split_handle.slint`).
             init => { root.reclamp_dock_width(self.width); }
             changed width => { root.reclamp_dock_width(self.width); }
             // Folding or opening the Parameters dock changes what the
@@ -124,12 +98,9 @@ export component Tab3dContent inherits VerticalLayout {
                     height: 100%;
                 }
 
-                // Drawn OVER `solid_viewport.slint` from the wrapping
-                // `Rectangle` this file owns: the empty-state card grid
-                // until a real design is installed
-                // (`EditorModel.has_design`), then a small non-blocking
-                // "no tiers yet" hint while the design has zero tiers --
-                // see `EditorViewportOverlay`'s own doc comment.
+                // Drawn over `solid_viewport.slint`: the empty-state card grid until a design is
+                // installed (`EditorModel.has_design`), then a small non-blocking "no tiers yet"
+                // hint (see `EditorViewportOverlay`).
                 EditorViewportOverlay {
                     width: 100%;
                     height: 100%;
@@ -138,14 +109,12 @@ export component Tab3dContent inherits VerticalLayout {
                 }
             }
 
-            // Docked guide column: a slot as wide as the card (260px, or the 176px pill
-            // while collapsed) and as tall as the row, so it can never cap this row's height
-            // (see `GuidePanel`'s doc comment). The card inside is sized to its step text
-            // (`natural_height`, at least 120px, at most the slot): a short step leaves no
-            // empty gap above the status chip and Back/Next, a long one scrolls with the
-            // footer pinned. The card is positioned explicitly, so it adds no layout
-            // constraint. While a dialog is up (`guide_parked`) the card is drawn by
-            // `GuideOverlayLayer` above the scrim instead and the slot stays empty.
+            // Docked guide column: as wide as the card (260px, or the 176px pill while
+            // collapsed) and as tall as the row, so it cannot cap the row's height (see
+            // `GuidePanel`). The card is sized to its step text (at least 120px, at most the
+            // slot) and scrolls with its footer pinned. It is positioned explicitly, so it adds
+            // no layout constraint. While a dialog is up (`guide_parked`) the card is drawn by
+            // `GuideOverlayLayer` instead and this slot stays empty.
             if GuideModel.open: Rectangle {
                 width: GuideModel.collapsed ? 176px : 260px;
                 if !root.guide_parked: GuidePanel {
@@ -186,10 +155,8 @@ export component Tab3dContent inherits VerticalLayout {
             ParametersDock { rail_only: !root.params_docked_edit; }
         }
 
-        // The narrow stack (`!edit_wide`: under about 1138px, more with the library open, the
-        // guide docked or the Parameters panel open): no drag handle -- there is
-        // nothing horizontal left to drag -- so a fixed 2:3
-        // (viewport:dock) `vertical-stretch` ratio takes its place.
+        // The narrow stack (`!edit_wide`) has no drag handle, since nothing horizontal is left
+        // to drag, so a fixed 2:3 (viewport:dock) `vertical-stretch` ratio takes its place.
         if !root.edit_wide: HorizontalLayout {
             spacing: 8px;
             vertical-stretch: 1;
@@ -209,10 +176,8 @@ export component Tab3dContent inherits VerticalLayout {
                     height: 100%;
                 }
 
-                // Same overlay as the wide (>=1100px) layout's copy
-                // above. No `GuidePanel` column here -- the narrow
-                // stack has no spare width, so the guide floats
-                // instead (`GuideOverlayLayer`, below).
+                // Same overlay as the wide layout's copy above. The narrow stack has no room
+                // for a docked guide column, so the guide floats instead (`GuideOverlayLayer`).
                 EditorViewportOverlay {
                     width: 100%;
                     height: 100%;

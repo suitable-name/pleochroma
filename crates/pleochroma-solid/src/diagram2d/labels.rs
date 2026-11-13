@@ -4,8 +4,8 @@
 //! The glyph lookup itself (`glyph`/`GLYPH_WIDTH`/`GLYPH_HEIGHT`) lives in
 //! [`crate::pixel_font`], shared with the desktop's `gui::tilt::video_export::
 //! overlay` (`apps/pleochroma-cut`, a different crate, via this crate's
-//! `pixel_font` re-export) -- see that module's own doc comment. Everything in
-//! this file is this panel's own scaling/drawing code, which stays here.
+//! `pixel_font` re-export); see that module's own doc comment. The rest of this file is
+//! the panel's own label scaling and drawing.
 
 use super::{
     DiagramFrame, DiagramStyle, LEADER_LINE_LENGTH, LEADER_LINE_MIN_SPAN, MIN_LABEL_SPAN,
@@ -14,10 +14,11 @@ use super::{
 };
 use crate::pixel_font::{GLYPH_HEIGHT, GLYPH_WIDTH, glyph};
 
-/// The facet-label pass of `render_panel`: only where there's real room, and only
-/// where this facet actually won the depth test at its own centroid (never label an
-/// occluded facet). Split out of `render_panel` purely to keep that function under
-/// clippy's function-length lint.
+/// The facet-label pass of `render_panel`.
+///
+/// A label is drawn only where it fits, and only on a facet that wins the depth test at its
+/// centroid, so an occluded facet is never labeled. Kept apart from `render_panel` to keep it under
+/// clippy's function-length limit.
 pub fn draw_panel_labels(
     frame: &mut DiagramFrame,
     layout: &PanelLayout,
@@ -89,9 +90,8 @@ pub fn draw_panel_labels(
 /// The pixel size `text` occupies at `scale` (1 device pixel per glyph pixel at
 /// `scale == 1`), including inter-character spacing but not a trailing gap.
 ///
-/// `pub(super)` (re-exported from the parent module) -- `raster.rs`'s
-/// orientation-marker/facet-label overlay needs the same measurement to center
-/// its own labels.
+/// Re-exported from the parent module for `raster`'s overlays, which center their labels
+/// with the same measurement.
 pub fn text_size(text: &str, scale: u32) -> (u32, u32) {
     let len = u32::try_from(text.chars().count()).expect("a label's length fits in u32");
     let glyph_height = u32::try_from(GLYPH_HEIGHT).expect("the glyph height fits in u32");
@@ -130,16 +130,11 @@ pub fn draw_text(
     );
 }
 
-/// The buffer-generic sibling of [`draw_text`]: draws `text` straight into a raw
-/// RGBA8 `width x height` buffer rather than a [`DiagramFrame`]. `pub(super)`
-/// (re-exported from the parent module) so `raster.rs`'s orientation-marker/
-/// facet-label overlay can share this module's one bitmap font instead of
-/// carrying a second copy -- see that module's own doc comment for what it draws.
-/// One RGBA8 drawing target for [`draw_text_into_buffer`]: the pixels plus the two
-/// dimensions needed to index them.
+/// One RGBA8 drawing target for [`draw_text_into_buffer`]: the pixels and their dimensions.
 ///
-/// Bundled because the three always travel together and describe one thing, which
-/// also keeps that function's parameter list within the workspace's own limit.
+/// Bundled because the three always travel together, which also keeps that function's
+/// parameter list within the workspace's limit. `raster`'s overlays share this module's
+/// bitmap font through it.
 pub struct TextCanvas<'a> {
     /// RGBA8 pixels, `width * height * 4` bytes long.
     pub color_buf: &'a mut [u8],
@@ -149,7 +144,9 @@ pub struct TextCanvas<'a> {
     pub height: u32,
 }
 
-/// Rasterises a text string onto the given canvas buffer.
+/// Draws `text` onto a raw RGBA8 canvas: the buffer-generic form of [`draw_text`].
+///
+/// Re-exported to the parent module for `raster`'s overlays, which share this bitmap font.
 pub fn draw_text_into_buffer(
     canvas: TextCanvas<'_>,
     x: f32,

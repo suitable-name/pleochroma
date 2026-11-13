@@ -1,7 +1,7 @@
-//! The batch stepper: [`GpuFrameRenderer::batch_step`] and friends, which
-//! `renderer::gpu_backend::GpuBackend::try_accumulate_batch_cancellable` drives to trace a
-//! LIST of pictures back to back without ever letting the GPU queue run dry at a picture
-//! boundary.
+//! The batch stepper, which traces a list of pictures back to back on the GPU.
+//!
+//! [`GpuFrameRenderer::batch_step`] and friends are driven by
+//! `renderer::gpu_backend::GpuBackend::try_accumulate_batch_cancellable`.
 //!
 //! # What "keeping the queue fed" means here
 //!
@@ -277,9 +277,8 @@ impl GpuFrameRenderer {
         let num_pixels = request.scene.width as usize * request.scene.height as usize;
         let trivial = request.spp == 0 || num_pixels == 0;
 
-        // Pictures that never reach the GPU. Decided BEFORE the cancel poll, like the
-        // single path (which returns `Done` for an empty request and `Declined` for an
-        // unsupported material before its chunk loop ever polls `cancel`). A previous
+        // Pictures that never reach the GPU. Decided before the cancel poll, as the single path
+        // does: it returns `Done` or `Declined` before its chunk loop polls `cancel`. A previous
         // picture's last chunk is read back first so events stay in input order.
         if trivial || !request.scene.material.gpu_supported() {
             if state.pending.is_some() {
@@ -315,8 +314,8 @@ impl GpuFrameRenderer {
             return Ok(step);
         }
 
-        // A pipeline-kind change by another thread (it only needs the mutex) could change
-        // the sizing `batch_reserve` assumed; re-size with nothing in flight.
+        // A pipeline-kind change from another thread would invalidate the sizing from
+        // `batch_reserve`, so re-size with nothing in flight.
         if self.pipeline_kind != state.sized_for {
             self.drain_batch_pending(state, scratches, true, &mut step)?;
             state.setup = None;
@@ -342,6 +341,7 @@ impl GpuFrameRenderer {
             num_pixels,
         );
         let pixels_this_chunk = chunk_pixels.min(num_pixels - first_pixel);
+        self.ensure_chunk_engine(&setup.state, pixels_this_chunk);
         let frame_buffers = self
             .scene_buffers
             .as_ref()

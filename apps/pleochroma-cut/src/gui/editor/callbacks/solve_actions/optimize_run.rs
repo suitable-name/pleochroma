@@ -21,7 +21,7 @@ use pleochroma::optics::materials::GemMaterial;
 #[cfg(test)]
 use pleochroma_cut_core::Design;
 use pleochroma_cut_core::{MaterialSelection, OptimizeOutcome};
-// Shared material defaulting and status text; selection is a search-variable mask.
+// Shared material default and status text.
 use pleochroma_editor::optimize_view::{default_optimize_material_ri, optimize_start_status};
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 use std::{
@@ -34,11 +34,11 @@ use std::{
     time::Instant,
 };
 
-/// "Optimize": the explicit, off-thread, cancellable search over the design's tier angles --
-/// see `optimize_solve`'s module doc comment for the threading/cancellation/progress
-/// machinery. Guarded by `editor_optimize_running` (not `EditorState::optimize` being
-/// `Some`), the same non-`Send` completion-handler reasoning
-/// [`super::deep_solve_run::setup_deep_solve_callback`] documents.
+/// "Optimize": the explicit, off-thread, cancellable search over the design's tier angles.
+///
+/// Threading and progress are described in `optimize_solve`'s module doc. The busy check reads
+/// `editor_optimize_running`, since the completion handler cannot clear `EditorState::optimize`
+/// (as in [`super::deep_solve_run::setup_deep_solve_callback`]).
 ///
 /// Unlike Deep Solve, a completed/cancelled run's result is not merely displayed: its
 /// candidates are kept by `optimize_panel` and the picked one is stashed in
@@ -46,24 +46,19 @@ use std::{
 /// [`super::optimize_outcome::setup_optimize_apply_callback`] can commit it later -- this
 /// callback itself never touches `design`/`history`.
 ///
-/// `run_epoch` guards against the same superseded-run race
-/// [`super::deep_solve_run::setup_deep_solve_callback`] documents -- narrower a window here (Optimize's own
-/// cancellation is a real mid-search checkpoint, typically resolving within
-/// [`optimize_solve`]'s own documented "milliseconds to a few seconds"), but a
-/// cancel-then-immediately-restart click is still possible, and its stale `on_done`
-/// would otherwise be free to overwrite a genuinely running new search's live status
-/// or stash the WRONG result into `pending_optimize`.
+/// `run_epoch` guards against the superseded-run race described on
+/// [`super::deep_solve_run::setup_deep_solve_callback`]. A cancel followed at once by a new run
+/// is still possible, and a stale `on_done` must not overwrite the new run's status or stash its
+/// result into `pending_optimize`.
 ///
 /// The five arguments are the weight boxes, the yield slider and the signed tone slider; the
 /// Optimize tab's button passes them, and a preset other than "Custom" ignores them.
 ///
-/// When `design.material` names no preset and carries no RI override (a brand-new
-/// design, or an untouched `.asc` import), this resolves a `refractive_index_override`
-/// from [`pleochroma_cut_core::design::Design::effective_refractive_index`] before
-/// handing the selection to the worker -- otherwise
-/// `MaterialSelection::resolve`/`resolved_gem_material` silently fall back to
-/// diamond (`n_D` 2.42), scoring the search against the wrong RI with nothing on
-/// screen saying so (see the "silently scores against Diamond" finding).
+/// When `design.material` names no preset and has no RI override (a new design, or an untouched
+/// `.asc` import), this sets `refractive_index_override` from
+/// [`pleochroma_cut_core::design::Design::effective_refractive_index`] before the selection goes
+/// to the worker. Otherwise `MaterialSelection::resolve` would silently fall back to diamond
+/// (`n_D` 2.42) and score against the wrong RI.
 pub(in crate::gui::editor) fn setup_optimize_callback(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -135,13 +130,9 @@ fn prepare_optimize_run(
     run_epoch: &Arc<AtomicU64>,
 ) -> OptimizeRunPrep {
     let mut material_selection = st.design.material.clone();
-    // `OptimizeRunRequest::custom_materials` (see `optimize_solve::spawn_optimize_run`)
-    // is a plain `Vec` -- a one-shot worker's own owned copy, not
-    // `RenderContext`'s hot-path per-frame snapshot -- so this is the one actual
-    // deep copy on this path, same as before `RenderContext::custom_materials`
-    // became `Arc`-backed. Fetched before `default_optimize_material_ri` below
-    // (moved up from its own original spot) so that default can resolve a CUSTOM
-    // catalogue material's own RI too, not just a built-in's.
+    // `OptimizeRunRequest::custom_materials` is the worker's own owned `Vec`, so this is the one
+    // deep copy on this path. It is fetched before `default_optimize_material_ri` so that default
+    // can also resolve a custom catalogue material's RI.
     let custom_materials = render_ctx
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -231,8 +222,8 @@ fn begin_tier_optimize_run(
     // table needs the ORIGINAL design's tiers/names to label its rows,
     // regardless of whichever design the search actually ran against below.
     let design_snapshot = st.design.clone();
-    // Keep the original authored design. The worker restricts independent variables
-    // through OptimizeOptions instead of pinning unselected meet-derived depths.
+    // The worker restricts the independent variables through `OptimizeOptions`, rather than
+    // pinning the unselected meet-derived depths.
     let only_selected = ui.global::<EditorModel>().get_optimize_only_selected();
     let design = st.design.clone();
     let only_tiers =
@@ -249,10 +240,9 @@ fn begin_tier_optimize_run(
 
     mark_run_started(ui, &st, defaulted_ri);
 
-    // See `super::deep_solve_run::begin_deep_solve_run`'s matching comment for why this
-    // reaches the shared registry through `auto_solve::activity()` rather than a new
-    // parameter, and why `cancel` reaches back through `state` rather than `handle`
-    // (which does not exist yet at this point).
+    // As in `super::deep_solve_run::begin_deep_solve_run`: the activity comes from
+    // `auto_solve::activity()`, and `cancel` goes through `state`, since `handle` does not
+    // exist yet at this point.
     let activity = auto_solve::activity();
     let activity_id = activity.as_ref().map(|a| {
         a.start(
@@ -291,10 +281,8 @@ fn begin_tier_optimize_run(
                 .set_progress(progress_fraction(&progress));
         },
         move |ui: &MainWindow, outcome: optimize_solve::OptimizeRunOutcome| {
-            // This run is finishing on its own -- see
-            // `super::deep_solve_run::begin_deep_solve_run`'s matching comment for why an
-            // already-finished id is a harmless no-op. Fetched on the UI thread, not
-            // captured -- this closure must be `Send`.
+            // The run finishes on its own. Finishing an already-finished id is a no-op. The
+            // activity is fetched here, not captured, since this closure must be `Send`.
             if let (Some(activity), Some(id)) = (auto_solve::activity(), activity_id) {
                 activity.finish(id);
             }

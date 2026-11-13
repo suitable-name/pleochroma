@@ -141,10 +141,9 @@ fn a_lower_index_material_gives_the_standard_brilliant_a_windowing_reason() {
     assert!(windowing.tier.is_some(), "Show has a tier to select");
 }
 
-/// F5-18: the Standard Round Brilliant's culet is a pin-prick, a facet too small to polish, so
-/// the verdict lesson's stone reads Check from its first solve, never Good, and Opal adds the
-/// windowing reason on top. The lesson's text has to say what the verdict function says at each
-/// of those moments.
+/// The verdict lesson's text must match the verdict at each of its moments. The Standard Round
+/// Brilliant's culet is too small to polish, so the stone reads Check from its first solve,
+/// never Good, and Opal adds a windowing reason on top.
 #[test]
 fn the_verdict_lesson_describes_the_badge_the_stone_really_shows() {
     let guide = guide_named("solving-verdict");

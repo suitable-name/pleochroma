@@ -70,8 +70,9 @@ const fn box_faces(low: [f64; 3], high: [f64; 3]) -> [(DVec3, f64); 6] {
 
 /// The six half-spaces of the sawn piece of `stone` in the rough frame (mm).
 ///
-/// They are `x_i >= origin_i` and `x_i <= origin_i + size_i`, in the order `-x, +x, -y, +y, -z, +z` (so the normals are
-/// `-X, +X, -Y, +Y, -Z, +Z` and the offsets `-origin_x`, `origin_x + size_x`, and so on).
+/// They are `x_i >= origin_i` and `x_i <= origin_i + size_i`, in the order
+/// `-x, +x, -y, +y, -z, +z`: normals `-X, +X, -Y, +Y, -Z, +Z`, offsets `-origin_x`,
+/// `origin_x + size_x`, and so on.
 ///
 /// `None` when a size is not finite and positive (or an origin is not finite).
 #[must_use]
@@ -96,7 +97,7 @@ fn reaches_into_box(normal: DVec3, offset: f64, low: [f64; 3], high: [f64; 3]) -
     furthest - offset > CUT_TOLERANCE * (1.0 + offset.abs())
 }
 
-/// The pieces of the rough-to-design map of one stone, computed once and applied to many planes.
+/// The rough-to-design map of one stone, computed once and applied to many planes.
 struct ToDesign {
     /// `A^T`: rough-frame directions into the caliper frame.
     axes_t: DMat3,
@@ -234,7 +235,7 @@ mod tests {
         }
     }
 
-    /// The box `[-2, -3, -2] .. [2, 3, 2]` of test 1, placed with the identity pose at scale 2.
+    /// The box `[-2, -3, -2] .. [2, 3, 2]`, placed with the identity pose at scale 2.
     fn identity_stone() -> PlacedStone {
         stone([-2.0, -3.0, -2.0], [4.0, 6.0, 4.0], pose_at([0.0; 3], 2.0))
     }

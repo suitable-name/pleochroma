@@ -15,8 +15,8 @@ struct Scores {
     oracle: Option<f32>,
 }
 
-/// A finished design: its scores, the brilliance before (it gains 10 points in the model's
-/// episode) and the model's (evaluations, steps).
+/// A finished design: its scores, the brilliance before, the brilliance after (10 points
+/// higher) and the model's (evaluations, steps).
 #[expect(
     clippy::unnecessary_wraps,
     reason = "builds the Ok entries of the DesignOutcome list that reduce consumes"
@@ -79,7 +79,7 @@ fn evaluation_context_reports_sampled_and_authored_physical_sizes() {
     assert!(!authored.physical_size_augmented);
     assert_eq!(sampled.source_material, authored.source_material);
 
-    // Old case artifacts did not report scale; loading them must not fabricate a width.
+    // Case artifacts without a scale field decode to no width rather than an invented one.
     let mut legacy = serde_json::to_value(&authored).unwrap();
     legacy.as_object_mut().unwrap().remove("physical_size_mm");
     legacy

@@ -2,8 +2,7 @@
 
 use super::*;
 
-/// The three keys are written only when set, round trip, and a snapshot without them writes the
-/// bytes it always did.
+/// The three keys are written only when set and round trip; without them no key is written.
 #[test]
 fn an_unset_default_orientation_writes_no_key_and_the_bytes_do_not_move() {
     let mut native = sample_file();

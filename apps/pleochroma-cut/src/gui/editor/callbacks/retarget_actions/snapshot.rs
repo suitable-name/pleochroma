@@ -1,7 +1,8 @@
-//! "Set Baseline"/"Compare to Baseline" (the ids, callbacks and event keep their "snapshot"
-//! names, which tutorial routes use): the Baseline every later change is read against, and a
-//! separate design-comparison feature that also lives behind this dialog's own shell
-//! (`RetargetModel.compare_open`).
+//! "Set Baseline" and "Compare to Baseline". The ids, callbacks and event keys keep their
+//! "snapshot" names, which tutorial routes use.
+//!
+//! The Baseline is what every later change is read against. The design-comparison feature lives
+//! behind this dialog's own shell (`RetargetModel.compare_open`).
 //!
 //! Two holders live here: [`DESIGN_SNAPSHOT`], the Baseline (`gui::editor::baseline` shows its
 //! figures and decides when it is replaced), and [`RETARGET_ORIGINAL`], the design as it was
@@ -36,24 +37,21 @@ use std::{
 };
 
 thread_local! {
-    /// The Baseline: a design plus its solved masts, set by Set Baseline
-    /// ([`setup_snapshot_callbacks`]'s `snapshot_design` handler), automatically when a design
-    /// opens and after an Optimize or Retarget apply (`gui::editor::baseline`), and read back
-    /// by its `compare_to_snapshot` handler. A module-local
-    /// `thread_local!` for the same reason [`super::RETARGET_ASYNC`] is one --
-    /// rather than a new `EditorState` field, and Slint's single-threaded event
-    /// loop makes this sound.
+    /// The Baseline: a design plus its solved masts. Set by Set Baseline
+    /// ([`setup_snapshot_callbacks`]'s `snapshot_design` handler), when a design opens, and
+    /// after an Optimize or Retarget apply (`gui::editor::baseline`). Read by the
+    /// `compare_to_snapshot` handler. Thread-local because Slint's event loop is single-threaded;
+    /// kept out of `EditorState` like [`super::RETARGET_ASYNC`].
     static DESIGN_SNAPSHOT: RefCell<Option<DesignSnapshot>> = const { RefCell::new(None) };
 
-    /// The design as it was before the last Retarget Apply, with its masts when known, which the
-    /// Optimize compare picker offers as "Original (Before retarget to ...)". Held in memory
-    /// only, never written to the library, and apart from [`DESIGN_SNAPSHOT`]: a Retarget Apply
-    /// replaces the Baseline with the applied design but must not lose this one.
+    /// The design before the last Retarget Apply, with its masts when known. Held in memory only,
+    /// never written to the library. Kept apart from [`DESIGN_SNAPSHOT`], because a Retarget
+    /// Apply replaces the Baseline and must not lose this one.
     static RETARGET_ORIGINAL: RefCell<Option<DesignSnapshot>> = const { RefCell::new(None) };
 }
 
-/// Bumped every time [`DESIGN_SNAPSHOT`] is replaced, so a figure or a background solve that
-/// finishes after a newer Baseline was set can tell its result no longer belongs to the held one.
+/// Bumped whenever [`DESIGN_SNAPSHOT`] is replaced, so a late figure or background solve can
+/// tell that it belongs to an older Baseline.
 static SNAPSHOT_EPOCH: AtomicU64 = AtomicU64::new(0);
 
 /// Bumped every time [`RETARGET_ORIGINAL`] is replaced: the same guard for the background solve
@@ -222,21 +220,14 @@ fn fill_original_masts(epoch: u64, solved: Option<Vec<SolvedTier>>) {
     });
 }
 
-// The pure diff-row view (the status badge, the signed mast delta, the angle texts) moved
-// to `pleochroma_editor::snapshot` (shared with the web snapshot dialog); re-exported at
-// its old path, which `super::tests` exercises.
+// The pure diff-row view lives in `pleochroma_editor::snapshot`, shared with the web snapshot
+// dialog. Re-exported here for `super::tests`.
 pub(super) use pleochroma_editor::snapshot::diff_row_view;
 
-/// `deltas` (`pleochroma_cut_core::diff_tiers`'s own output)
-/// rendered into [`RetargetModel::compare_rows`], reusing this dialog's existing
-/// [`RetargetRowItem`] row shape rather than a second table type (this shape
-/// already fits): `block` is
-/// left blank (a design comparison has no crown/pavilion grouping of its own),
-/// `old_angle`/`new_angle` are this tier's angle in the snapshot vs. now,
-/// `margin` is repurposed to show the signed MAST delta (there is no target
-/// material here to measure a critical-angle margin against), and
-/// `risk_label`/`risk_color` become a plain change-status badge ("Same" /
-/// "Changed" / "Added" / "Removed") instead of a windowing risk.
+/// Maps `deltas` (from `pleochroma_cut_core::diff_tiers`) to [`RetargetModel::compare_rows`]
+/// rows, reusing [`RetargetRowItem`]. `margin` carries the signed mast delta, since there is no
+/// target material to measure a critical-angle margin against. `risk_label` carries the change
+/// status ("Same", "Changed", "Added", "Removed"), and `block` is left blank.
 #[must_use]
 pub(super) fn diff_rows_from_deltas(deltas: &[TierDelta]) -> Vec<RetargetRowItem> {
     deltas
@@ -255,16 +246,13 @@ pub(super) fn diff_rows_from_deltas(deltas: &[TierDelta]) -> Vec<RetargetRowItem
         .collect()
 }
 
-/// [`setup_snapshot_callbacks`]'s `compare_to_snapshot` tail -- diffs `snapshot`
-/// against `design`'s current state via [`pleochroma_cut_core::diff_tiers`] and
-/// opens the Retarget dialog's own shell in its Compare mode
-/// (`RetargetModel.compare_open`) -- see `retarget_dialog.slint`'s `if
-/// compare_open` branch, which mounts `retarget_dialog/baseline_compare.slint`. Shared by that callback's own cache-hit/cache-miss
-/// paths, so the two can never report a comparison differently.
+/// The tail of `compare_to_snapshot`: diffs `snapshot` against `design` with
+/// [`pleochroma_cut_core::diff_tiers`] and opens the dialog's Compare mode
+/// (`RetargetModel.compare_open`, which mounts `retarget_dialog/baseline_compare.slint`).
+/// Both of that callback's cache paths share it, so they report a comparison the same way.
 ///
-/// The label carries a second line, in words, about how the stone differs optically
-/// (`gui::editor::compare::snapshot_summary`): the table-up figures of both designs take a
-/// few milliseconds, under the viewport's lighting.
+/// The label's second line describes the optical difference in words
+/// (`gui::editor::compare::snapshot_summary`), under the viewport's lighting.
 fn show_compare_to_snapshot(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
@@ -309,22 +297,17 @@ fn show_compare_to_snapshot(
     raise(ui, COMPARE_OPENED);
 }
 
-/// "Set Baseline"/"Compare to Baseline": registers both
-/// halves of the design-comparison feature. The command bar
-/// (`editor_command_bar.slint`) and the Baseline strip trigger
-/// `EditorModel.snapshot_design()` and `compare_to_snapshot()`, and `gui::editor` registers
-/// this function at startup.
+/// Registers Set Baseline and Compare to Baseline. The command bar and the Baseline strip
+/// trigger `EditorModel.snapshot_design()` and `compare_to_snapshot()`, and `gui::editor`
+/// registers this function at startup.
 ///
-/// `snapshot_design` captures `state.design` plus its current solved masts (from
-/// `solid_last_solved`'s cache when it is aligned with the design, else a
-/// background solve via `native_io::resolve_solved_then`, so a large,
-/// not-yet-cached design is held without blocking the UI thread with a
-/// synchronous `Design::solve()` right here) as the Baseline
-/// ([`baseline::set_baseline_to`], which fills [`DESIGN_SNAPSHOT`]).
-/// `compare_to_snapshot` diffs that Baseline against the design's CURRENT state
-/// via [`pleochroma_cut_core::diff_tiers`] and opens the Retarget dialog's own
-/// shell in its Compare mode (`RetargetModel.compare_open`) -- see
-/// `retarget_dialog.slint`'s `if compare_open` branch (`retarget_dialog/baseline_compare.slint`).
+/// `snapshot_design` holds `state.design` with its solved masts as the Baseline
+/// ([`baseline::set_baseline_to`], which fills [`DESIGN_SNAPSHOT`]). The masts come from
+/// `solid_last_solved` when it matches the design. Otherwise they come from a background solve
+/// (`native_io::resolve_solved_then`), so the UI thread never runs `Design::solve()` here.
+///
+/// `compare_to_snapshot` diffs the Baseline against the current design
+/// ([`show_compare_to_snapshot`]).
 pub(in crate::gui::editor) fn setup_snapshot_callbacks(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -341,8 +324,7 @@ pub(in crate::gui::editor) fn setup_snapshot_callbacks(
             };
             let (design, label, cached) = {
                 let st = state.borrow();
-                // the shared cache is now generation-tagged -- only the
-                // masts themselves matter here.
+                // The shared cache is generation-tagged; only the masts matter here.
                 let cached = solid_last_solved
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -351,10 +333,8 @@ pub(in crate::gui::editor) fn setup_snapshot_callbacks(
                     .map(|(_, s)| s);
                 (Arc::new(st.design.clone()), design_label(&st), cached)
             };
-            // A cache hit stays synchronous (no perceptible cost); a miss goes
-            // through `native_io::resolve_solved_then`'s SAME cached-or-background
-            // resolution the write/export paths already use, so a large,
-            // not-yet-cached design snapshots without a multi-second freeze.
+            // A cache hit is synchronous (cheap). A miss goes through
+            // `native_io::resolve_solved_then`, so a large uncached design does not freeze the UI.
             if let Some(solved) = cached {
                 baseline::set_baseline_to(&ui, &design, Some(solved), &label);
                 return;
@@ -385,8 +365,7 @@ pub(in crate::gui::editor) fn setup_snapshot_callbacks(
             };
             let (design, current_label, cached) = {
                 let st = state.borrow();
-                // the shared cache is now generation-tagged -- only the
-                // masts themselves matter here.
+                // The shared cache is generation-tagged; only the masts matter here.
                 let cached = solid_last_solved
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner)

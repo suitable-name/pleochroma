@@ -10,8 +10,8 @@ import { ParametersModel } from "../models/parameters.slint";
 // (`gui::render::material`, `gui::editor::callbacks::tier_actions::viewport_material`).
 
 // The material name the picture shows: the design's body-colour variant ("Sapphire (Yellow)")
-// while the view follows the design, the plain material name otherwise.
-// (Repeated as an expression in the three components below; a component cannot export a function.)
+// while the view follows the design, else the plain material name. Repeated as an expression in
+// `MaterialChip` and `MaterialLine`, since a component cannot export a function.
 
 // The "Previewing X: not the design's material" badge. Never shown unless the person asked for a
 // preview (`ViewportModel.previewing`); the caller wraps it in that `if`.
@@ -94,8 +94,7 @@ export component PreviewBadge inherits Rectangle {
 }
 
 // A read-only chip: colour dot, material, and optionally the refractive index. Pressing it opens
-// the Stone tab, where the material is edited. It keeps the toolbar's colour readout fresh
-// (`render_color_refresh`) when it appears; `EditorModel` asks again when the design changes.
+// the Stone tab, where the material is edited.
 export component MaterialChip inherits Rectangle {
     // Drops the refractive index and narrows the name.
     in property <bool> compact: false;
@@ -104,7 +103,8 @@ export component MaterialChip inherits Rectangle {
     // Extra words of the tooltip (where the chip is, and what the press does).
     in property <string> hint: "Press to open the Stone tab and change the material.";
 
-    // Later changes are tracked once, in `EditorModel`; a chip only asks when it appears.
+    // Asks for the colour readout when the chip appears; the editor asks again when the stone
+    // width or material changes.
     init => { ViewportModel.render_color_refresh(); }
 
     property <string> label: (ViewportModel.render_color_targets_design && EditorModel.body_color_readout != "")

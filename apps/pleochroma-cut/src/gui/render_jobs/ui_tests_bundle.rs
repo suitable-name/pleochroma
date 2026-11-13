@@ -180,7 +180,7 @@ fn writing_a_bundle_copies_the_map_checks_its_hash_and_never_reuses_a_folder() {
     let _ = std::fs::remove_dir_all(&base);
 }
 
-// ---- J4-T4: "Add to Queue" helpers ----------------------------------------------------
+// ---- "Add to Queue" helpers ----------------------------------------------------
 
 #[test]
 fn still_outputs_are_reserved_against_the_disk_the_queue_and_each_other() {

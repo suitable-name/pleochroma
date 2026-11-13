@@ -57,17 +57,13 @@ component MeetsCombo inherits ComboBox {
     }
 }
 
-// The Inspector's "Tier" tab --`EditorInspector`'s per-tier add/edit form.
-// The form's own scratch state (`tier_angle`/etc, dirty-tracking, per-field
-// validation, the dirty-draft-vs-selection-moved warning) all still live on
-// `EditorInspector` itself (see that file's own top doc comment on
-// `form_dirty`/`loaded_tier_index`/`show_dirty_warning`): this component only
-// renders that state and reports edits/actions back through two-way
-// properties and callbacks, the same "dumb about the design" split
-// `EditorTierTable`'s own row/header/toolbar components use. The Save/Add
-// Tier button row is pinned outside this tab (and outside the scroll view
-// around it) in `EditorInspector` itself, since it must stay visible even
-// when this tab is shorter than the available height.
+// The Inspector's "Tier" tab: the per-tier add and edit form.
+// The scratch state (`tier_angle` and the other fields, dirty tracking, per-field validation,
+// the draft warnings) lives on `EditorInspector`, see its `form_dirty`, `loaded_tier_index`
+// and `show_dirty_warning`. This component renders that state and reports edits and actions
+// back through two-way properties and callbacks, as `EditorTierTable`'s components do. The
+// Save and Add Tier button row is pinned under the scroll area by `EditorInspector`, so it
+// stays visible when the tab is shorter than the available height.
 //
 // Simple and Advanced (`GuideModel.shows_advanced()`): the Simple interface keeps the Angle,
 // Meets, Name and Indices fields, the facet chips with Add and Mirror, the note and the
@@ -156,7 +152,7 @@ export component TierFormTab inherits VerticalLayout {
             : (root.tier_constraint_kind == 3
                 ? "Cut to depth: this facet's plane offset, in mm, measured the same\nway the MAST column's own mm tooltip is -- converted through the\ndesign's girdle diameter (needs one set in Design Settings)."
                 : (root.tier_constraint_kind == 4
-                    ? "Girdle thickness: this tier's own mast is searched (bisected)\nuntil the solved design's girdle thickness matches this\nvalue in mm -- same girdle-diameter mm conversion as\nDepth, so it costs several solves rather than one."
+                    ? "Girdle thickness: this tier's own mast is searched (bisected)\nuntil the girdle is this many mm thick at its girdle line,\nat the thinnest point there -- same girdle-diameter mm\nconversion as Depth, so it costs several solves rather than one."
                     : "Table width: this tier's own mast is searched (bisected)\nuntil the table facet's measured width matches this\nvalue in mm -- same girdle-diameter mm conversion as\nDepth, so it costs several solves rather than one.")));
     // The accessible name of the constraint value field.
     property <string> constraint_reader_label: root.tier_constraint_kind == 1
@@ -234,26 +230,18 @@ export component TierFormTab inherits VerticalLayout {
         || EditorModel.tier_form_error_field == "indices"
         || (EditorModel.tier_form_error_field == "constraint" && root.tier_constraint_kind != 0);
 
-    // Up and Down step the Angle field by 0.1 degrees, Shift by 1 and Ctrl by 0.01 -- the same
-    // steps the tier table's inline cell uses, but purely as local text here: this form is a
-    // staging area (nothing commits until "Save Tier"/"Add Tier" below), unlike the inline cell,
-    // which nudges an EXISTING tier immediately and undoably. The new text comes from Rust
-    // (`SliderModel.stepped_angle_text`), which gives "" for text that is not a plain number
-    // (arithmetic such as 41.5+0.3, or a relation such as =P1-2): the field then stays as typed.
+    // Up and Down step the Angle text by 0.1 degrees (Shift 1, Ctrl 0.01), as the tier table's
+    // cell does. Here it is local text only: nothing is committed until Save or Add Tier.
+    // `SliderModel.stepped_angle_text` returns "" for text that is not a plain number (such as
+    // 41.5+0.3 or =P1-2), and the field then stays as typed.
     function step_size(shift: bool, ctrl: bool) -> float {
         return shift ? 1.0 : (ctrl ? 0.01 : 0.1);
     }
 
-    // Clears a stale validation-error marker the moment the field it points at is
-    // retyped -- an implicit "let me try again" (a disabled Save button prevents
-    // retrying outright). Rust re-validates on the next save attempt. Used from
-    // every field's own user-edit event (`edited`/`selected`/the angle's Up/Down
-    // `key-pressed`) below, not a `changed <field>` handler on the scratch
-    // property itself -- that would ALSO fire for `EditorInspector.apply_load`'s
-    // own programmatic seeding, and `changed` handlers are QUEUED (see the SLINT
-    // FACTS this task was briefed with) so a `loading`-style guard around that
-    // can never actually distinguish the two in time (see `EditorInspector.
-    // form_dirty`'s own doc comment for the same problem, one level up).
+    // Clears a stale validation-error marker when the field it points at is retyped. Called
+    // from each field's own user-edit event, not from a `changed` handler: `changed` also fires
+    // for the inspector's programmatic seeding, and changed handlers are queued, so they cannot
+    // tell the two apart. Rust re-validates on the next save.
     function clear_field_error(field: string) {
         if EditorModel.tier_form_error_field == field {
             EditorModel.tier_form_error_field = "";
@@ -284,8 +272,7 @@ export component TierFormTab inherits VerticalLayout {
         color: Theme.text-primary;
         accessible-role: AccessibleRole.text;
     }
-    // Shows kept draft when table selection has moved. Stays visible
-    // as long as the mismatch does, not just in a transient popup.
+    // Shown while the table selection has moved away from the draft.
     if root.show_dirty_warning: Rectangle {
         background: Theme.bg-input;
         border-radius: Theme.radius-sm;
@@ -352,13 +339,10 @@ export component TierFormTab inherits VerticalLayout {
             }
         }
     }
-    // Every authored field is ONE row (fixed-width label cell + stretching input) so
-    // title + Angle + Meets + Name + Indices fit in roughly 200px: the tab used to
-    // stack label over input, which pushed Meets/Name/Indices below the inspector's
-    // ScrollView fold (guide step 2 needs all four visible without scrolling). The
-    // label cell has an explicit width and elides, and the live side hint
-    // ("pavilion", "crown", "girdle") sits on a second small line under the label, so
-    // a long label can neither clip nor grow the row. See `FormRow`.
+    // Each authored field is one FormRow (fixed-width label cell, stretching input), so the
+    // four authored rows fit near the top without scrolling. The label cell elides rather than
+    // clipping, and the live side hint ("pavilion", "crown", "girdle") sits on a second line
+    // under the label. See `FormRow`.
     // The red border on an invalid angle lives on the row's wrapper, because
     // `LineEdit` has no border-color of its own.
     FormRow {
@@ -503,11 +487,9 @@ export component TierFormTab inherits VerticalLayout {
             picked => { root.clear_field_error("constraint"); }
         }
     }
-    // The constraint value row. The per-kind explanation that used to be five
-    // word-wrapped paragraphs here now lives in the label cell's tooltip
-    // (`constraint_hint`), so the row costs one input height instead of ~60px.
-    // Red border for Meets constraint validation errors (unresolved
-    // name, empty, or not a number). Same as Angle field above.
+    // The constraint value row. Its per-kind explanation is the label cell's tooltip
+    // (`constraint_hint`), so the row costs one input height.
+    // Red border for a constraint error: an unresolved name, an empty value, or not a number.
     if root.tier_constraint_kind != 0: FormRow {
         label: root.tier_constraint_kind == 1 ? "Facet Names"
             : (root.tier_constraint_kind == 2 ? "Scale Value" : "Value (mm)");
@@ -574,17 +556,9 @@ export component TierFormTab inherits VerticalLayout {
             edited => { root.clear_field_error("indices"); }
         }
     }
-    // The manual's worked example describes a
-    // girdle as a 0-degree tier, which `classify_blocks` (only
-    // `|cos(theta)| <= 1e-6`, i.e. exactly +-90) actually reads as
-    // Crown, silently producing a second table instead of a girdle
-    // band. One click fills in the one angle/constraint pair that
-    // IS a real girdle facet -- 90 degrees (either sign classifies
-    // the same way), pinned to the model's own half-width-1
-    // convention -- rather than expecting a newcomer to know that
-    // convention and type it by hand. Sits AFTER the four authored
-    // rows so they stay inside the fold; the preset only touches
-    // Angle and Meets (not Name/Indices).
+    // Girdle facet preset: `classify_blocks` reads only +-90 degrees as a girdle (0 reads as a
+    // crown), so this fills in 90 degrees with the scale value 1 (the girdle half-width).
+    // Name and Indices are not touched.
     TipButton {
         enabled: root.unlocked;
         text: "Girdle Facet Preset (90\u{b0}, Scale = 1)";
@@ -616,13 +590,9 @@ export component TierFormTab inherits VerticalLayout {
             || EditorModel.tiers[root.loaded_tier_index].is_detached
             || EditorModel.tiers[root.loaded_tier_index].imported_meet_text != ""): AdvancedNote { }
 
-    // A real inline validation message under
-    // the form, alongside the corner toast -- `setup_save_tier_
-    // callback` (`gui::editor::callbacks::tier_actions`) sets
-    // `EditorModel.tier_form_error` from every parse/apply
-    // error branch. An error about the Angle, Meets value, Name or Indices field
-    // shows directly under that field instead (see `error_is_inline`); this
-    // message is for every error no single field owns.
+    // An inline validation message under the form, beside the corner toast. A save error about
+    // the Angle, Meets value, Name or Indices field shows under that field instead (see
+    // `error_is_inline`); this message is for every error no single field owns.
     if EditorModel.tier_form_error != "" && !root.error_is_inline: WrapNote {
         text: EditorModel.tier_form_error;
         font_size: 10px;
@@ -630,23 +600,12 @@ export component TierFormTab inherits VerticalLayout {
         ink: Theme.accent-ruby;
     }
 
-    // --- A read-only "Solved" section, fed
-    // by what `Design::solve`/`Design::facet_meets` actually
-    // produced for the selected tier -- mast, solve strategy,
-    // block, margin/risk, orbit shape, the meet partners the
-    // real name resolver found, and any manufacturability
-    // warning specifically about this tier. Only shown for an
-    // existing tier (not the "Add Tier" draft, which has
-    // nothing solved yet). The Simple interface leaves out the
-    // strategy and orbit lines.
+    // --- Read-only "Solved" section: what Solve produced for this tier (mast, strategy, block,
+    // margin, orbit, meet partners and any warning about this tier). Only for an existing tier.
+    // The Simple interface leaves out the strategy and orbit lines.
     if root.has_loaded_tier: VerticalLayout {
-        // `tier_row`, not `row` -- `row` is a reserved
-        // `GridLayout` cell-placement property every element
-        // inherits, so declaring a same-named custom property
-        // fails with "Cannot override property 'row'". Reads
-        // `root.loaded_tier_index`, not `EditorModel.
-        // selected_tier_index` -- see that property's own doc
-        // comment for why the two can disagree.
+        // `tier_row`, not `row`: `row` is a reserved GridLayout property every element inherits.
+        // Reads `loaded_tier_index`, not `EditorModel.selected_tier_index` (see that doc comment).
         property <EditorTierItem> tier_row: EditorModel.tiers[root.loaded_tier_index];
         spacing: 4px;
         Rectangle { height: 1px; background: Theme.border-subtle; }
@@ -714,7 +673,7 @@ export component TierFormTab inherits VerticalLayout {
             text: tier_row.warning_text;
         }
     }
-    // The Save Tier button is pinned under the scroll area: this room keeps the last row clear of
-    // it when the form is scrolled to the end (a half row used to show above the button).
+    // The Save Tier button is pinned under the scroll area: this spacer keeps the last row clear
+    // of it when the form is scrolled to the end.
     Rectangle { height: 40px; }
 }

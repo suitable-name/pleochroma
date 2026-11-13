@@ -43,9 +43,8 @@ pub struct ViewerContext<'a> {
     pub db: &'a LibraryHandle,
     /// `--only-gpu`/`--only-cpu`/hybrid for the own lane.
     pub compute_mode: ComputeMode,
-    /// This server's payload-encoding preference for the connection (v14): what `WELCOME`
-    /// announces as the connection's encoding (each frame's own header says what it
-    /// carries).
+    /// This server's payload-encoding preference for the connection: what `WELCOME`
+    /// announces as the connection's encoding (each frame's own header says what it carries).
     pub encodings: &'a [PayloadEncoding],
     /// How the connection's frames are compressed (`--payload-encoding`, the peer's
     /// identity and whether it is loopback). `None` pins every frame to the negotiated
@@ -61,11 +60,11 @@ pub struct ViewerContext<'a> {
     /// viewer's identity for the one-active-job-per-viewer FIFO. `None` serves requests
     /// like a plain worker (own lane only; no `DisplayOnly`/`FinalImageRequest`).
     pub coordinator: Option<(&'a Arc<Coordinator>, String)>,
-    /// The HDR asset cache (v14); `None` refuses HDR scenes and advertises
+    /// The HDR asset cache; `None` refuses HDR scenes and advertises
     /// `RenderCapability::hdr = false`. On a coordinator this is the same cache its
     /// [`Coordinator`] holds jobs' maps through (`Coordinator::with_assets`).
     pub assets: Option<&'a AssetCache>,
-    /// The durable job service (v25); `None` refuses job requests (no own render lane).
+    /// The durable job service; `None` refuses job requests (no own render lane).
     pub jobs: Option<&'a Arc<JobService>>,
 }
 
@@ -99,9 +98,8 @@ pub fn handle_connection<S: Read + Write + TimeoutRead + TimeoutWrite>(
 /// Handles one connection end to end as a plain single worker.
 ///
 /// An own render lane, no joined-worker registry, and no certificate role to check
-/// (the caller already authenticated the peer, or this is a test double). Exactly
-/// `serve --render`'s behaviour before coordinator mode -- see
-/// [`handle_viewer_connection`].
+/// (the caller already authenticated the peer, or this is a test double). Behaves as
+/// `serve --render` does without a coordinator; see [`handle_viewer_connection`].
 ///
 /// # Errors
 ///
@@ -218,8 +216,8 @@ pub fn handle_viewer_connection<S: Read + Write + TimeoutRead + TimeoutWrite>(
         None,
         payload_encoding,
     );
-    // Zoned scenes are traced by this machine's own lane or, on a coordinator (v36), by its
-    // own lane and its joined workers, which get the zones ahead of every chunk. A plain
+    // Zoned scenes are traced by this machine's own lane or, on a coordinator, by its own
+    // lane and its joined workers, which get the zones ahead of every chunk. A plain
     // worker without an own lane renders nothing. The bit is only sent back to a viewer that
     // carried it in its own HELLO.
     #[cfg(feature = "worker")]
@@ -425,7 +423,17 @@ fn serve_library_only_connection<S: Read + Write + TimeoutRead>(
                 &StreamEvent::Error(no_render_capacity("render a batch", r.request_id)),
                 None,
             )?,
-            // v25: a library-only pairing keeps no durable jobs; an upload's payload is consumed.
+            ClientMessage::LivePassRequest(r) => pleochroma_net::messages::write_stream_event(
+                stream,
+                &StreamEvent::Error(no_render_capacity("trace a live pass", r.request_id)),
+                None,
+            )?,
+            ClientMessage::BeamTileRequest(r) => pleochroma_net::messages::write_stream_event(
+                stream,
+                &StreamEvent::Error(no_render_capacity("render beam tiles", r.request_id)),
+                None,
+            )?,
+            // A library-only pairing keeps no durable jobs; an upload's payload is consumed.
             ClientMessage::Job(request) => crate::jobs::refuse(
                 stream,
                 &request,

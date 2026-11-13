@@ -271,7 +271,7 @@ and the optimizer's scores still treat every facet as polished. The Stone tab's
 **Frosted Girdle** switch (Chapter 2) is a separate, stone-wide setting for the
 girdle band.
 
-A frosted facet is now a **Ground** facet (roughness 0.45), and the tier table's right-click **Surface Finish** menu offers the finer and coarser grains **Ground (Fine)** and **Ground (Coarse)** next to the polish grades **Mirror**, **Fine**, **Commercial** and **Prepolish** (Chapter 26).
+A frosted facet is a **Ground** facet (roughness 0.45), and the tier table's right-click **Surface Finish** menu offers the finer and coarser grains **Ground (Fine)** and **Ground (Coarse)** next to the polish grades **Mirror**, **Fine**, **Commercial** and **Prepolish** (Chapter 26).
 
 ## Detach and Reattach
 
@@ -353,8 +353,7 @@ override holds one.
   Preform** replaces the piece with the Block or Cylinder chosen in the shape box,
   at the size in the fields, as one undoable edit. From then on the sliders and
   fields describe that replacement. The piece is saved in the design file, so the
-  design opens with it again; a build of the app from before 2026-10-12 cannot
-  open such a file.
+  design opens with it again.
 - **Proportions** — the figures a cutter actually quotes, worked out from
   the last Solve: table size and length-to-width on one line, then Crown
   Height, Pavilion Depth, and Total Depth each on their own line. Every one
@@ -436,8 +435,7 @@ side instead of crossing into the other block.
 The scroll wheel over the tier list's inline angle cell does the same
 ±0.1° step, but **only** while that cell is already open for editing, or
 while you hold **Ctrl**. An ordinary scroll over the angle cell otherwise
-just scrolls the tier list, like scrolling over any other cell — it no
-longer edits the angle by accident.
+just scrolls the tier list, like scrolling over any other cell.
 
 **Inline cell vs. the form field.** A nudge on the tier list's inline
 angle cell applies immediately as a real, undoable edit against that tier
@@ -497,9 +495,8 @@ Click anywhere in the tier list to give it keyboard focus, then:
 | Shift+click a row | Select the whole range from the last-selected row to this one |
 | Tab | Move on to the buttons of the highlighted row, then out of the list |
 
-Unlike an older version of this app, Up/Down/Home/End/Page Up/Page Down all
-select immediately — there is no separate "keyboard cursor" that needs a
-following Enter to actually load the row. The window's other global
+Up/Down/Home/End/Page Up/Page Down select immediately; there is no separate
+"keyboard cursor" that needs Enter to load the row. The window's other global
 shortcuts (Ctrl+Z/Y/S, Ctrl+F, Ctrl+1/2/3, F5, Escape — Appendix B) still
 work while the tier list has keyboard focus.
 
@@ -619,11 +616,16 @@ value — three of the Meets combo's six choices:
   through that measurement, and that mast becomes the tier's real scale
   reference.
 - **Girdle Thickness (mm)** — searches (bisects) this tier's own mast until
-  the *whole design's* measured girdle thickness matches the millimetre
-  figure you typed. You do not have to author this on the actual girdle
-  tier — it resolves the same way regardless of which tier carries it,
-  though ordinarily you would put it there.
-- **Table Width (mm)** — searches (bisects) this tier's own mast until the
+  the *whole design's* girdle is as thick as the millimetre figure you typed,
+  measured at the girdle line: the corners where girdle facets meet and the
+  ends of level edges, the same figure the Preform tab's Girdle Thickness
+  readout shows. On a girdle that is not level it is the thinnest point of
+  the line. The V-shaped scallops that break facets cut into the girdle
+  facets between those corners do not count. A design with no girdle line
+  is measured over the girdle facets' full height, as before. You do not
+  have to author this on the actual girdle tier — it resolves the same way
+  regardless of which tier carries it, though ordinarily you would put it
+  there.- **Table Width (mm)** — searches (bisects) this tier's own mast until the
   table facet's own measured width matches the millimetre figure you typed.
 
 All three need a **Girdle Diameter (mm)** set on the Preform tab's Yield
@@ -689,7 +691,7 @@ worked out once and the tier gets the number 41.8.
 
 Once saved, the tier is marked in three places:
 
-- the Angle field now shows the relation after the `=` (for example
+- the Angle field shows the relation after the `=` (for example
   `=P1 - 2`), so you can edit it there;
 - a small note under the field reads "Follows a relation" and gives the
   angle it works out to now, with a **Remove Relation** button;

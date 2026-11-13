@@ -3,43 +3,39 @@
 //!
 //! **Default role: library server.** Running `serve` with no extra features accepts
 //! `pleochroma-net`'s read-only design-library protocol (see [`serve::library`]) over
-//! mutual TLS -- listing/searching designs, fetching one in full, fetching an
-//! attachment's bytes. This is the default, not an add-on: a future Slint mobile client
-//! talks to exactly this protocol and never has a renderer compiled in.
+//! mutual TLS: listing and searching designs, fetching one in full, fetching an
+//! attachment's bytes. Clients such as the mobile apps speak this protocol and have no
+//! renderer compiled in.
 //!
 //! **`worker` feature (off by default): render capacity.** Gates `RenderRequest`
 //! handling, `stream_emit`, `render_core`, `render_cmd`, the `render` subcommand, and
-//! `Backend` advertisement in `WELCOME` -- see `Cargo.toml` for exactly what that turns
-//! on, and [`serve`]'s module docs for how one connection dispatches between the library
-//! and render protocols once both are compiled in.
+//! `Backend` advertisement in `WELCOME`. See `Cargo.toml` for what it turns on, and
+//! [`serve`]'s module docs for how one connection dispatches between the library and
+//! render protocols.
 //!
 //! - `render` (only meaningful with `worker` on): trace a scene straight to a PNG, no
 //!   networking. See [`render_cmd::run`].
-//! - `serve`: the coordinator. Serves the library protocol to
-//!   viewers (always); under `worker` also accepts `join`ing workers on a separate
-//!   worker port ([`coordinator`]) and, with `--render`, renders `RenderRequest`s with
-//!   its own CPU/GPU. **`serve` no longer renders by default.** See [`serve::run`].
+//! - `serve`: the coordinator. Serves the library protocol to viewers (always); under
+//!   `worker` also accepts `join`ing workers on a separate worker port ([`coordinator`]).
+//!   With `--render` it renders `RenderRequest`s with its own CPU/GPU. See [`serve::run`].
 //! - `join` (`worker`): dial a coordinator's worker port and serve its render requests
 //!   over that outbound connection. See [`join::run`].
 //!
 //! # GPU
 //!
 //! An optional `gpu` feature (off by default, implies `worker`) routes tracing through
-//! `pleochroma`'s GPU megakernel instead of `optics::raytracer::trace_spectral_ray`.
-//! Verified end to end against a real adapter -- see
-//! `crates/pleochroma/examples/gpu_equivalence_harness.rs`.
+//! `pleochroma`'s GPU megakernel instead of `optics::raytracer::trace_spectral_ray`. The
+//! equivalence harness in `crates/pleochroma/examples/gpu_equivalence_harness/` checks it
+//! against a real adapter.
 //!
-//! [`pleochroma::renderer::gpu_backend::GpuBackend`] is the decline/fallback wrapper both
-//! this crate and `apps/pleochroma-cut` drive. It lives in `pleochroma`, not here, since
-//! a duplicated copy of a correctness policy (the HDR-environment decline) can drift
-//! into silently rendering the wrong image.
+//! [`pleochroma::renderer::gpu_backend::GpuBackend`] is the decline and fallback wrapper
+//! this crate and `apps/pleochroma-cut` both drive. It lives in `pleochroma` so that the
+//! correctness policy (the HDR-environment decline) is not duplicated and cannot drift.
 
 // Trait-solver resource limit, not a lint: under `--features gpu`, proving the
-// `thread::spawn` closure in `serve::run`'s accept loop is `Send` requires recursing
-// through `wgpu`'s internal types deeper than the default limit allows. Unconditional
-// (not `cfg_attr`-gated to `gpu`) since a single crate-wide limit is simpler than
-// tracking which feature combination needs it, and it's a no-op when `wgpu` isn't
-// pulled in. Do not remove: the overflow reproduces on every `--features gpu` build.
+// `thread::spawn` closure in `serve`'s accept loop is `Send` recurses through `wgpu`'s
+// internal types deeper than the default limit. Crate-wide, since it is a no-op without
+// `wgpu`. Do not remove: the overflow reproduces on every `--features gpu` build.
 #![recursion_limit = "256"]
 
 #[cfg(feature = "worker")]

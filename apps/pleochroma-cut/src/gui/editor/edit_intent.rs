@@ -1,39 +1,21 @@
-//! Coalesce-at-the-source UI edit queue: batches UI edits into single batches
-//! applied once per frame rather than once per raw UI event.
+//! Coalescing UI edit queue: applies UI edits once per frame instead of once per raw event.
 //!
-//! Before this module, an angle nudge (Up/Down/wheel), a Cut-slider drag tick, and
-//! a Retarget crown-slider drag tick each triggered their own full
-//! apply/refresh/replan cycle -- `history::History::apply_coalescing` already
-//! merges the resulting UNDO steps, but the UI-thread work (cloning `Design`,
-//! rebuilding Slint models, submitting a solid-preview replan) still ran once per
-//! raw event, at whatever rate the widget fired `changed`, not once per rendered
-//! frame.
+//! Angle nudges, Cut-slider drags and Retarget crown-slider drags each post an [`EditIntent`].
+//! Undo steps already merge in `History::apply_coalescing`. This queue also batches the
+//! UI-thread work (cloning `Design`, rebuilding models, replanning the preview), which would
+//! otherwise run at the widget's `changed` rate.
 //!
-//! [`EditIntentQueue`] fixes that: [`EditIntentQueue::post`] coalesces a new
-//! [`EditIntent`] into whatever this queue already has pending (merging when
-//! [`EditIntent::merge`] applies -- e.g. two nudges on the SAME tier sum their
-//! angle deltas -- or replacing it outright otherwise, e.g. a slider step always
-//! keeps only the newest position), and starts a 16 ms (one frame at 60 Hz)
-//! `slint::Timer` the first time the queue goes from empty to non-empty. Each tick
-//! takes whatever is pending (there is at most one, by construction) and hands it
-//! to the `on_drain` closure supplied to [`EditIntentQueue::new`] -- exactly once,
-//! regardless of how many `post` calls landed since the previous tick. Once a tick
-//! finds nothing pending (no `post` since the last drain), the timer stops itself
-//! -- see [`EditIntentQueue::post`]'s own doc comment for why the tick closure
-//! holds only a `Weak` handle back to the queue that owns it, never a strong `Rc`
-//! cycle.
+//! [`EditIntentQueue::post`] merges each [`EditIntent`] into the pending one when
+//! [`EditIntent::merge`] allows (two nudges on the same tier sum their deltas), and replaces it
+//! otherwise (a slider keeps only its newest position). The first post starts a 16 ms
+//! `slint::Timer`, one frame at 60 Hz. Each tick drains the pending intent to `on_drain` once,
+//! and the timer stops when nothing is pending.
 //!
-//! Each of the three call sites this module serves (`callbacks::tier_actions::
-//! setup_nudge_angle_callback`, `gui::editor::setup::setup_tier_cutoff_callback`,
-//! `callbacks::retarget_actions::setup_retarget_proposal_changed_callback`) owns
-//! its OWN [`EditIntentQueue`] instance, built once when that callback is wired up
-//! and captured by the `on_*` closure exactly like every other long-lived
-//! `Rc`/`Arc` handle in this crate. A queue only ever receives ONE [`EditIntent`]
-//! variant in practice (each call site posts only its own kind), so there is no
-//! cross-variant interference to reason about even though [`EditIntent`] is one
-//! shared enum, not three separate types -- sharing the enum (and this engine)
-//! keeps the coalescing behaviour identical across all three instead of three
-//! independently-drifting implementations.
+//! Three call sites use it: `callbacks::tier_actions::setup_nudge_angle_callback`,
+//! `gui::editor::setup::setup_tier_cutoff_callback` and
+//! `callbacks::retarget_actions::setup_retarget_proposal_changed_callback`. Each owns its own
+//! queue and posts only one kind of [`EditIntent`]. The shared enum and queue keep the
+//! coalescing identical across the three.
 
 use slint::{Timer, TimerMode};
 use std::{
@@ -41,30 +23,24 @@ use std::{
     rc::{Rc, Weak},
 };
 
-// The intent enum and its coalescing decision (`EditIntent::merge`) moved to
-// `pleochroma_editor::edit_intent`, shared with the web app; this module keeps the
-// `slint::Timer`-driven queue. `DRAIN_INTERVAL` is one frame at 60 Hz, matching
-// `stall_guard::STALL_THRESHOLD`'s own frame budget.
+// The intent enum and its merge rule live in `pleochroma_editor::edit_intent`, shared with the
+// web app. `DRAIN_INTERVAL` is one frame at 60 Hz, the budget `stall_guard::STALL_THRESHOLD` uses.
 use pleochroma_editor::edit_intent::DRAIN_INTERVAL;
 pub(super) use pleochroma_editor::edit_intent::EditIntent;
 
-/// A single-slot, coalesce-on-post, drain-on-a-16ms-timer queue -- see the module
-/// doc comment. `on_drain` is registered once, at [`EditIntentQueue::new`], and
-/// invoked at most once per [`DRAIN_INTERVAL`] tick, only when something is
-/// actually pending.
+/// A single-slot queue: posts coalesce into one pending intent, drained by a timer tick.
+/// `on_drain` runs at most once per [`DRAIN_INTERVAL`], and only when something is pending.
 pub(super) struct EditIntentQueue {
     pending: RefCell<Option<EditIntent>>,
     on_drain: Box<dyn Fn(EditIntent)>,
     timer: Timer,
-    /// A `Weak` handle to this SAME [`EditIntentQueue`], stashed via
-    /// [`Rc::new_cyclic`] at construction time -- see [`Self::post`]'s own doc
-    /// comment for why the timer's tick closure needs one.
+    /// A `Weak` handle to this queue, set by [`Rc::new_cyclic`]. The timer's tick closure
+    /// needs it; see [`Self::post`].
     self_weak: Weak<Self>,
 }
 
 impl EditIntentQueue {
-    /// Builds a new, empty queue. The drain timer does not start until the first
-    /// [`Self::post`] -- see that method's own doc comment.
+    /// Builds an empty queue. The drain timer starts on the first [`Self::post`].
     pub(super) fn new(on_drain: impl Fn(EditIntent) + 'static) -> Rc<Self> {
         Rc::new_cyclic(|weak_self| Self {
             pending: RefCell::new(None),
@@ -74,24 +50,14 @@ impl EditIntentQueue {
         })
     }
 
-    /// Coalesces `intent` into whatever this queue already has pending (see
-    /// [`EditIntent::merge`]), and starts the 16 ms drain timer if the queue was
-    /// empty (this is the first post of a new burst). Every subsequent post
-    /// inside the same burst is cheap: it only updates `pending` under a short
-    /// `RefCell` borrow, since the already-running timer will pick it up on its
-    /// next tick regardless.
+    /// Coalesces `intent` into the pending one (see [`EditIntent::merge`]) and starts the
+    /// drain timer if the queue was empty. Posts while the timer runs only update `pending`.
     ///
-    /// # Why the timer's tick closure holds a `Weak`, not a strong `Rc`
+    /// # Why the tick closure holds a `Weak`
     ///
-    /// The tick closure needs to reach this SAME [`EditIntentQueue`] again once it
-    /// fires -- but it is registered on `self.timer`, a field `EditIntentQueue`
-    /// itself owns, so a closure capturing a strong `Rc` back to `self` would be a
-    /// permanent reference cycle (this struct would never drop, `Timer` included,
-    /// for the life of the process). Capturing [`Self::self_weak`] instead avoids
-    /// the cycle entirely: `Weak::upgrade` fails harmlessly once every OTHER owner
-    /// (the `on_*` Slint callback closure that built this queue, alive for the
-    /// app's lifetime in practice) has dropped its `Rc`, rather than the queue
-    /// being kept alive by its own timer.
+    /// The timer is a field of this queue, so a strong `Rc` back to the queue in the closure
+    /// would be a reference cycle that keeps the queue, timer included, alive forever. With a
+    /// `Weak`, the upgrade fails once the owning `Rc` (held by the `on_*` callback) is gone.
     pub(super) fn post(&self, intent: EditIntent) {
         let was_empty = {
             let mut pending = self.pending.borrow_mut();

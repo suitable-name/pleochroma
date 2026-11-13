@@ -8,14 +8,13 @@
 //! The default `sqlite` feature adds `db` (and with it `rusqlite`); without it the crate
 //! is pure Rust (`model` and `local`) and builds for `wasm32-unknown-unknown`.
 //!
-//! - `db` (feature `sqlite`): SQLite storage and schema migrations. The schema is deliberately wider
-//!   than this crate itself fills -- columns like `page_url`/`pdf_file` are just
-//!   columns, and an existing `facet_diagrams.sqlite`, however it was populated, keeps
-//!   opening and keeps every value it already holds.
+//! - `db` (feature `sqlite`): SQLite storage and schema migrations. The schema is wider
+//!   than this crate fills: columns such as `page_url` and `pdf_file` are plain columns,
+//!   and an existing `facet_diagrams.sqlite` keeps opening with every value it holds.
 //! - [`model`]: `FacetingDiagramDetail`, `AngleSetting`, `AttachedFile`, search/range
 //!   filters.
-//! - [`local`]: import/export for the user's own `.asc` files (via `pleochroma_formats::asc`),
-//!   independent of any online source.
+//! - [`local`]: import/export of the user's own design files (`.asc`, `.psdd`, and converted
+//!   `.gem`/`.gcs`), independent of any online source.
 
 /// SQLite storage and schema migrations -- see [`db::sqlite::Database`].
 ///
@@ -23,10 +22,10 @@
 /// [`local`], which are pure Rust.
 #[cfg(feature = "sqlite")]
 pub mod db;
-/// Import/export for the user's own `.asc` files, independent of any online source.
+/// Import/export of the user's own design files, independent of any online source.
 ///
 /// See [`local::import_asc`]/[`local::reconstruct_asc_schedule`].
 pub mod local;
-/// Plain data models: `FacetingDiagramDetail`, `AngleSetting`, `AttachedFile`, search/
+/// Plain data models: `FacetingDiagramDetail`, `AngleSetting`, `AttachedFile`, search and
 /// range filters.
 pub mod model;

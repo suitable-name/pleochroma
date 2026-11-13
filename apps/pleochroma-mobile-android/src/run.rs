@@ -21,6 +21,7 @@ mod ui_state;
 
 use std::{cell::RefCell, path::PathBuf, rc::Rc, sync::Arc, time::Duration};
 
+use pleochroma::optics::raytracer::{Estimator, set_default_estimator};
 use pleochroma_mobile_core::{
     app_state::{AppState, Lifecycle},
     layout::Destination,
@@ -38,8 +39,8 @@ pub struct RunOptions {
     pub initial_size: Option<(f32, f32)>,
     /// Opens this destination instead of the remembered one.
     pub destination: Option<Destination>,
-    /// Saves a PNG of the window to this path shortly after start, then quits (the
-    /// lead's and the owner's layout checks without a device).
+    /// Saves a PNG of the window to this path shortly after start, then quits (for layout
+    /// checks without a device).
     pub screenshot: Option<PathBuf>,
     /// Starts on a new design from this template card (0 is the blank design), replacing
     /// whatever the autosave restored.
@@ -85,6 +86,8 @@ pub fn run_with(
     platform: &Arc<dyn Platform>,
     options: &RunOptions,
 ) -> Result<(), slint::PlatformError> {
+    // The app's fixed estimator; must be set before any frame is prepared.
+    set_default_estimator(Estimator::APP_DEFAULT);
     let window = AppWindow::new()?;
     if let Some((width, height)) = options.initial_size {
         window
@@ -137,8 +140,8 @@ pub fn run_with(
     result
 }
 
-/// Applies the options that only select what the Design page shows (the tab and the sheet
-/// detent). Runs after the first push, so every surface is wired.
+/// Applies the preview-only options that select what is shown: the engine, the Design tab,
+/// the sheet detent and the viewport mode. Runs after the first push, so every surface is wired.
 fn apply_view_options(window: &AppWindow, options: &RunOptions) {
     if let Some(engine) = options.engine {
         window
@@ -162,8 +165,8 @@ fn apply_view_options(window: &AppWindow, options: &RunOptions) {
     }
 }
 
-/// Captures the window to `path` as a PNG after [`SCREENSHOT_DELAY`], then quits the
-/// event loop. Failures are logged; the loop quits either way.
+/// Captures the window to `path` as a PNG after `delay`, then quits the event loop.
+/// Failures are logged; the loop quits either way.
 #[cfg(feature = "desktop-preview")]
 fn schedule_screenshot(window: &AppWindow, path: PathBuf, delay: Duration) {
     let weak = window.as_weak();

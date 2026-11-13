@@ -63,7 +63,6 @@ export component AppWindow inherits Window {
 
             AppBar { reset-requested => { dialogs.request_reset(); } }
 
-            // Banners
             VerticalLayout {
                 spacing: 6px;
                 if !TrainingController.worker_alive: Banner {

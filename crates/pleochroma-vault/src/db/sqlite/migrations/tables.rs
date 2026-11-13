@@ -1,8 +1,10 @@
-//! The migrations that create a whole side table (`diagram_previews`, tilt curves, solid
-//! extents and hull, saved rough plans, planner exclusions, per-design variants, cutting
-//! progress and lighting, render jobs, tags) for a database that
-//! predates it, plus the one that prunes the first-draft tilt-curve columns. Each is idempotent and its SQL
-//! text lives in [`super::schema`], shared verbatim with `create_tables_if_not_exist`.
+//! Migrations that create a side table for a database that predates it, and the one that
+//! prunes the old tilt-curve columns.
+//!
+//! The side tables are `diagram_previews`, tilt curves, solid extents and hull, saved rough
+//! plans, planner exclusions, per-design variants, cutting progress and lighting, render jobs
+//! and tags. Each migration is idempotent, and its SQL text lives in [`super::schema`], shared
+//! verbatim with `create_tables_if_not_exist`.
 
 use super::{
     super::Database,
@@ -96,21 +98,19 @@ impl Database {
     ///
     /// Besides the packed curve BLOB, carries 6 derived `REAL` columns (3 metrics x
     /// {global min, global max}), generated from
-    /// [`crate::model::performance::all_global_extreme_columns`] rather than
-    /// hand-listed, so this table's columns and
-    /// `crate::db::sqlite::search::build_search_predicate` can never drift apart via a
-    /// transcription typo.
+    /// [`crate::model::performance::all_global_extreme_columns`] rather than hand-listed, so
+    /// this table's columns and the search predicate cannot drift apart through a typo.
     ///
     /// Naturally idempotent via `CREATE TABLE IF NOT EXISTS` and a column-presence gate
     /// for `params_fingerprint`, which an existing table gets by a rebuild that keeps
     /// the BLOB columns last (see [`Self::migrate_diagram_previews_table`] for why, and
     /// for the `NULL`-means-outdated reading of an old row).
     ///
-    /// A table still in the never-released first-draft 36-column shape (no
-    /// `perf_*_global_*` columns yet) cannot be rebuilt by name here, so it gets a plain
-    /// `ADD COLUMN`; [`Self::migrate_prune_tilt_curve_aggregate_columns`] and
-    /// [`Self::migrate_blob_columns_last`] run after this and rebuild that table into its
-    /// final shape, which carries the column in its place.
+    /// A table in the older wide shape (no `perf_*_global_*` columns yet) gets a plain
+    /// `ADD COLUMN` here, because the rebuild below names the current columns. The prune
+    /// ([`Self::migrate_prune_tilt_curve_aggregate_columns`]) and
+    /// [`Self::migrate_blob_columns_last`] run after this and rebuild that table into its final
+    /// shape.
     ///
     /// # Errors
     ///
@@ -241,17 +241,14 @@ impl Database {
     /// refractive-index source": the fingerprint a scan builds from such a row is exactly
     /// the one it stored before the columns existed.
     ///
-    /// Previews and tilt curves rendered before this change followed the design's
-    /// refractive index alone, so a design whose own file names a material or a girdle
-    /// diameter has a cached result in another stone than the one the editor and the
-    /// exports show. A scan cannot tell which designs those are without opening every
-    /// design file, so on the one run that adds the columns every design that carries a
-    /// native design file (see `DESIGN_FILE_ENTRY_IDS_SQL`) has its stored fingerprint
-    /// cleared, in both cache tables: the next scan lists it as outdated and it is
-    /// rendered once more, now in its own material at its own size. That step is best
-    /// effort and runs ahead of the rebuild (a failure is logged, and the columns are
-    /// added regardless); it only ever clears fingerprints, so repeating it after an
-    /// interrupted rebuild changes nothing it should not.
+    /// A cached result of a design with a native design file follows the material and girdle
+    /// diameter that file names, not the refractive index alone. The cache cannot show which
+    /// rows predate that without opening every design file, so the run that adds the columns
+    /// clears the stored fingerprint of every design with a native design file (see
+    /// `DESIGN_FILE_ENTRY_IDS_SQL`) in both cache tables. Those rows then list as outdated and
+    /// are rendered once more. This step is best effort and runs before the rebuild; a failure
+    /// is logged and the columns are still added. Clearing is idempotent, so a rerun after an
+    /// interrupted rebuild is harmless.
     ///
     /// Idempotent via the column-presence gate. Runs after
     /// [`Self::migrate_diagram_tilt_curves_table`], so both cache tables exist, and before
@@ -373,7 +370,7 @@ impl Database {
     /// Also adds the `summary` column (the one-line list description stored at save time)
     /// to a table that predates it. `ADD COLUMN` appends it after `payload`; that is fine
     /// here because a saved plan's payload is small next to a design's image BLOBs and
-    /// the table holds a few dozen rows. Every existing row keeps a `NULL` summary, which
+    /// the table is small. Every existing row keeps a `NULL` summary, which
     /// readers fill in once from the payload.
     ///
     /// Naturally idempotent via `CREATE TABLE IF NOT EXISTS` and a column-presence gate.
@@ -519,20 +516,14 @@ impl Database {
         Ok(())
     }
 
-    /// Creates `tags`/`diagram_tag_links` for a database created before the catalogue
-    /// had a tagging system -- a flat-tag set (deliberately NOT folders/collections;
-    /// see [`super::super::search::SortOrder`]'s own doc comment for the sort half this
-    /// pairs with).
+    /// Creates `tags`/`diagram_tag_links` for a database created before the catalogue had tags.
+    /// The tags are a flat set, deliberately not folders or collections.
     ///
-    /// A tag is its own row (`tags.name`, unique case-insensitively so "Competition"
-    /// and "competition" can't silently become two different tags) rather than a free
-    /// column on `diagram_entries`, so many-to-many attachment needs its own join
-    /// table (`diagram_tag_links`) -- this mirrors `diagram_previews`/
-    /// `diagram_tilt_curves`'s own "side table keyed by/cascading off `entry_id`"
-    /// convention rather than growing `diagram_entries`' own column set (which two
-    /// tests in this crate's `tests.rs` pin to an exact list). Both `ON DELETE
-    /// CASCADE`s mean deleting a design or a tag never leaves an orphaned link row to
-    /// clean up by hand.
+    /// A tag is its own row (`tags.name`, unique case-insensitively, so "Competition" and
+    /// "competition" are one tag). Many-to-many attachment needs the join table
+    /// `diagram_tag_links`. Like `diagram_previews`, it is a side table keyed by `entry_id`, so
+    /// `diagram_entries` gains no column. Both `ON DELETE CASCADE`s mean that deleting a design
+    /// or a tag never leaves an orphaned link row.
     ///
     /// Naturally idempotent via `CREATE TABLE IF NOT EXISTS`, also created inside
     /// `create_tables_if_not_exist` so a fresh database already has both tables.
@@ -547,21 +538,16 @@ impl Database {
         Ok(())
     }
 
-    /// Prunes `diagram_tilt_curves` down from this crate's first-draft 36 derived
-    /// aggregate columns (3 metrics x 4 fixed tilt radii x {min, max, mean}) to the 6
-    /// that survive (3 metrics x {global min, global max}) -- the tilt radius became
-    /// arbitrary rather than a fixed ladder of four, making the other 30 unanswerable.
-    /// Only does real work against a database from that specific prior iteration; a
-    /// fresh database gets the pruned shape directly from
-    /// [`Self::migrate_diagram_tilt_curves_table`]. Gated on the presence of
-    /// `perf_brilliance_15_min`, one representative column from the dropped 30.
+    /// Prunes `diagram_tilt_curves` from the older wide shape: 36 derived aggregate columns
+    /// (3 metrics x 4 fixed tilt radii x {min, max, mean}) down to the 6 that remain (3 metrics x
+    /// {global min, global max}). The tilt radius is arbitrary, so the per-radius columns cannot
+    /// answer for it. Only a database in the older shape does work here; a fresh database gets
+    /// the pruned shape from [`Self::migrate_diagram_tilt_curves_table`]. Gated on the presence
+    /// of `perf_brilliance_15_min`, one of the 30 dropped columns.
     ///
-    /// Uses `DROP COLUMN` (SQLite 3.35.0+, fine here since every dropped column is a
-    /// plain unconstrained nullable `REAL`) rather than leaving them as dead weight, so
-    /// `PRAGMA table_info` and this crate's migration tests (which assert an exact
-    /// column count) stay honest. The 6 surviving columns are also renamed
-    /// (`perf_<metric>_90_min`/`_max` -> `_global_min`/`_max`), since "radius 90" no
-    /// longer means anything.
+    /// Uses `DROP COLUMN` (SQLite 3.35.0+; every dropped column is a plain nullable `REAL`), so
+    /// `PRAGMA table_info` shows only live columns. The 6 survivors are renamed from
+    /// `perf_<metric>_90_<extreme>` to `..._global_<extreme>`.
     ///
     /// Runs inside one transaction: every `DROP`/`RENAME` succeeds or none are kept.
     ///

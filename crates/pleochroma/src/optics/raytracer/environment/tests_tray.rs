@@ -121,14 +121,13 @@ fn the_tray_is_seen_by_every_bounce() {
             observer,
         );
         // Not "brighter": White Tray's own ground (0.8) is brighter than this 0.5 tray, which
-        // still replaces it. Straight down the horizon blend is exactly 0 (`d.y = -1` is far
-        // below the -0.05 edge) and the observer (dot about -0.95, outside the head-shadow
-        // cone) leaves the visibility at 1, so every arm reduces to `tray * exposure * S(550)`
-        // with S the preset's illuminant power (D65 for ASET, whose tray is a neutral D65 one):
-        // 0.5 * 1.2 * S. Only f32 rounding of two products remains (about 2e-7 relative), so
-        // the tolerance is 1e-5 relative (the same as `the_tray_replaces_the_ground_of_every_
-        // model`), plus an absolute 1e-9 so a UV lamp, whose line is exactly 0 at 550 nm, is
-        // held to 0 as well. A dropped exposure (1.2x) or tray (to the own ground) fails by far.
+        // still replaces it. Straight down the horizon blend is exactly 0 and the observer
+        // leaves the visibility at 1, so every arm reduces to `tray * exposure * S(550)`, with S
+        // the preset's illuminant power (D65 for ASET, whose tray is a neutral D65 one). Only f32
+        // rounding remains, so the tolerance is 1e-5 relative (as in
+        // `the_tray_replaces_the_ground_of_every_model`) plus an absolute 1e-9, which holds a UV
+        // lamp, whose line is exactly 0 at 550 nm, to 0 as well. A dropped exposure or tray fails
+        // by far.
         let s = if preset == LightingPreset::Aset {
             d65_relative_spectral_power(550.0)
         } else {

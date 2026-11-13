@@ -1,8 +1,5 @@
 //! The small, shared value types the frame pipeline is built from: the orbit
 //! camera pose, the facet-overlay update payload, and the per-frame pick buffer.
-//!
-//! Moved verbatim from the desktop's `gui::solid_preview::preview_state::types`,
-//! which re-exports them.
 
 use crate::{diagram2d::DiagramLayout, mesh_cache::fnv1a_64};
 use glam::Vec3;
@@ -154,8 +151,8 @@ impl StoneGeometryBuf {
 
     /// A tool-free stone from the preview's own `n . x <= m` half-spaces.
     ///
-    /// The conversion is bit-exact in both directions (`d = -m`, normals copied),
-    /// which is what keeps a planar frame byte-identical to the pre-concave one.
+    /// The conversion is bit-exact in both directions (`d = -m`, normals copied), so a
+    /// tool-free stone renders byte-identically to its planar arrangement.
     #[must_use]
     pub fn from_halfspaces(planes: &[(Vec3, f32)]) -> Self {
         Self::planes_only(
@@ -191,12 +188,10 @@ impl StoneGeometryBuf {
     /// FNV-1a over the planes' `f32` bits, then over the tools' bytes only when
     /// there are tools.
     ///
-    /// The plane part hashes `(nx, ny, nz, -d)`, i.e. the `n . x <= m` tuple the
-    /// cache has always hashed, so with no tools the key equals the planar one and
-    /// no existing cache behaviour changes. The tool bytes continue the same FNV
-    /// stream (little-endian field order of `ToolPrimitive`, which is `Pod`), so
-    /// two stones that differ only in a tool never collide with each other or
-    /// with the tool-free stone.
+    /// The plane part hashes `(nx, ny, nz, -d)`, the `n . x <= m` tuple that
+    /// [`crate::mesh_cache::MeshCache`] keys on, so with no tools the key equals the
+    /// planar one. The tool bytes continue the same FNV stream in `ToolPrimitive`'s
+    /// little-endian field order, so a stone that differs only in a tool gets its own key.
     #[must_use]
     pub fn cache_key(&self) -> u64 {
         let plane_bytes = self.planes.iter().flat_map(|p| {

@@ -34,9 +34,10 @@ pub(super) struct DesignFacet {
     pub(super) normal: DVec3,
     /// The face polygon's corners, in order.
     pub(super) ring: Vec<DVec3>,
-    /// Whether the edge from `ring[i]` to `ring[i + 1]` (cyclic) is drawn. `None` draws
-    /// every edge, as a flat design does; a concave design hides the seams where one
-    /// facet or tool surface is cut into several pieces.
+    /// Whether the edge from `ring[i]` to `ring[i + 1]` (cyclic) is drawn.
+    ///
+    /// `None` draws every edge, as a flat design does; a concave design hides the seams where
+    /// one facet or tool surface is cut into several pieces.
     pub(super) edge_drawn: Option<Vec<bool>>,
 }
 
@@ -59,10 +60,12 @@ impl DesignFacet {
 pub(super) struct DesignMesh {
     /// The faces that have a polygon.
     pub(super) facets: Vec<DesignFacet>,
-    /// The design's axis-aligned width in its own model frame, in model units
-    /// (`measure_solid(facet planes).width_axis`, for a design with tools that of the convex
-    /// outline of its carved mesh, as `run::scan` measures it): what the editor's girdle
-    /// diameter is a measurement of. `0.0` when it cannot be measured.
+    /// The design's axis-aligned width in its own model frame, in model units; `0.0` when it
+    /// cannot be measured.
+    ///
+    /// This is `measure_solid(facet planes).width_axis`, or for a design with tools the convex
+    /// outline of its carved mesh (as `run::scan` measures it): what the editor's girdle
+    /// diameter is a measurement of.
     pub(super) width_axis_units: f64,
 }
 
@@ -146,11 +149,12 @@ pub(super) fn simplify_ring(ring: &[DVec3]) -> Vec<DVec3> {
     corners
 }
 
-/// The drawn flags of the corners `simplified` kept of `ring`, given the flag of each
-/// original segment `s -> s + 1` (cyclic; a missing flag counts as drawn). A kept edge is
-/// drawn when any original segment it spans is, so a facet boundary stays drawn when
-/// collinear seam points were removed from its middle. [`simplify_ring`] only drops
-/// points, so each kept corner is found again by exact equality; if one is not, every
+/// The drawn flags of the corners `simplified` kept of `ring`.
+///
+/// `visible[s]` is the flag of the original segment `s -> s + 1` (cyclic; a missing flag
+/// counts as drawn). A kept edge is drawn when any segment it spans is, so a facet boundary
+/// stays drawn when collinear seam points were removed from its middle. [`simplify_ring`]
+/// only drops points, so each kept corner is found by exact equality; if one is not, every
 /// edge is drawn rather than losing a boundary.
 pub(super) fn simplified_flags(
     ring: &[DVec3],
@@ -197,20 +201,21 @@ fn caliper_centre(corners: &[[f64; 3]], width_dir: [f64; 2]) -> DVec3 {
     (low + high) * 0.5
 }
 
-/// Builds the mesh of the stone `planes` (`n . p <= m`) bound, minus the concave `tools`,
-/// in the caliper frame. `None` when the planes do not close into a solid or the outline
-/// has no width.
+/// Builds the mesh of the stone bound by `planes` (`n . p <= m`) minus the concave `tools`,
+/// in the caliper frame.
+///
+/// `None` when the planes do not close into a solid or the outline has no width.
 ///
 /// The frame comes from the planner's own hull preparation, applied to the stone's hull
-/// corners rounded to `f32` like the cached hull the planner works on: an outline with
-/// tied caliper widths then picks the same direction as the plan did, and a stone is drawn
-/// turned the way it was planned. Those corners are the ring corners of a planar design and
-/// the convex hull of the CARVED mesh for a design with tools (the hull the plan fitted,
-/// see `run::scan`). The centre is that of the exact corners in that frame.
+/// corners rounded to `f32` like the cached hull the planner works on: tied caliper widths
+/// then pick the same direction as the plan did, so the stone is drawn turned as it was
+/// planned. Those corners are the ring corners of a planar design, and the convex hull of the
+/// carved mesh for a design with tools (the hull the plan fitted, see `run::scan`). The
+/// centre is that of the exact corners in that frame.
 ///
 /// A concave mesh has several polygons per facet and rings that belong to a tool, so each
-/// ring takes its own normal from `piece_normals`, and the seam edges `edge_visible`
-/// hides are not drawn. Without tools this is the planar mesh exactly.
+/// ring takes its own normal from `piece_normals`, and the seam edges `edge_visible` hides
+/// are not drawn. Without tools this is the planar mesh exactly.
 #[must_use]
 pub(super) fn design_mesh_from_planes(
     planes: &[(DVec3, f64)],
@@ -227,9 +232,8 @@ pub(super) fn design_mesh_from_planes(
     };
     let mesh_corners = corners_of(&mesh);
     // The planner measures a design with tools from the convex hull of its carved mesh
-    // (`run::scan`), so the frame and the centre come from the same corners, and so does the
-    // axis-aligned width. Without tools every ring corner is used, exactly as before, and the
-    // width is the flat facet stone's.
+    // (`run::scan`), so the frame, the centre and the axis-aligned width come from the same
+    // corners. Without tools every ring corner is used and the width is the flat facet's.
     let mut carved_width_axis = None;
     let corners = if tools.is_empty() {
         mesh_corners
@@ -296,8 +300,8 @@ pub(super) fn design_mesh_from_planes(
     })
 }
 
-/// What one design's slot holds: nothing until it is loaded, then the mesh (or `None` for
-/// a design that is gone or has no solid).
+/// One design's slot: `None` until it is loaded, then the mesh, or `None` for a design that
+/// is gone or has no solid.
 type Slot = Arc<Mutex<Option<Option<Arc<DesignMesh>>>>>;
 
 /// A cache of design meshes with one slot per design, so a design is loaded once even
@@ -308,9 +312,10 @@ struct MeshCache {
 }
 
 impl MeshCache {
-    /// The mesh of design `id`: the cached one, or what `load` returns (which runs once
-    /// per design; a second asker waits for it). `Err` from `load` is not remembered, and
-    /// the design reads as unreadable this time; `Ok(None)` is remembered as gone.
+    /// The mesh of design `id`: the cached one, or what `load` builds, once per design.
+    ///
+    /// A second asker waits for a running load. An `Err` from `load` is not remembered and
+    /// reads as unreadable this time; `Ok(None)` is remembered as gone.
     fn get_or_load<E>(
         &self,
         id: i64,
@@ -356,9 +361,9 @@ impl MeshCache {
     }
 }
 
-/// The design meshes of the session, built on first use and kept across plans until the
-/// design's library row changes: a design is read from the catalogue and solved once,
-/// whichever thread asks first.
+/// The design meshes of the session, kept across plans until a design's library row changes.
+///
+/// A design is read from the catalogue and solved once, whichever thread asks first.
 pub(super) struct MeshLibrary {
     db: Arc<Mutex<Database>>,
     cache: MeshCache,
@@ -380,9 +385,9 @@ impl MeshLibrary {
         }
     }
 
-    /// Drops the meshes of designs whose library row changed (or is gone) since they were
-    /// read, so the plan of `epoch` draws them as they are in the catalogue now. Runs once
-    /// per epoch: the first thread to ask checks, the others wait for it and return.
+    /// Drops the meshes of designs whose library row changed or vanished since they were read.
+    ///
+    /// Runs once per epoch: the first thread to ask checks, the others wait for it and return.
     pub(super) fn refresh(&self, epoch: u64) {
         let mut checked = self.checked.lock().unwrap_or_else(PoisonError::into_inner);
         if *checked >= epoch {
@@ -416,11 +421,11 @@ impl MeshLibrary {
         }
     }
 
-    /// Reads design `entry_id` and builds its mesh from the facet planes alone (the
-    /// preform's planes come first in a design file's list and are skipped), minus the
-    /// design's concave tools.
-    /// `Ok(None)` means the library has no such design. `Err` means the read failed or the
-    /// planes do not close, so the answer must not be remembered.
+    /// Reads design `entry_id` and builds its mesh from the facet planes minus its concave tools.
+    ///
+    /// The preform's planes come first in a design file's list and are skipped. `Ok(None)`
+    /// means the library has no such design; `Err` means the read failed, the concave tiers
+    /// do not resolve or the planes do not close, so the answer must not be remembered.
     fn load(&self, entry_id: i64) -> Result<Option<DesignMesh>, ()> {
         // The stamp is read in the same locked section as the record it describes.
         let (stamp, full) = {
@@ -465,11 +470,12 @@ impl MeshLibrary {
     }
 }
 
-/// How a design's model frame relates to the planner's caliper frame, for the corners the planner
-/// measures the design from: the caliper turn of their outline and the centre of their bounding
-/// box in the turned frame. These are the same helpers [`design_mesh_from_planes`] applies
-/// (`rotate_into_caliper_frame`, `caliper_centre`), called in the same order on the same
-/// `f32`-rounded corners, so the placement and the mesh agree.
+/// The caliper placement of a design, from the corners the planner measures it by.
+///
+/// The caliper turn of the outline and the centre of its bounding box in the turned frame,
+/// computed by the helpers [`design_mesh_from_planes`] uses (`rotate_into_caliper_frame`,
+/// `caliper_centre`) in the same order on the same `f32`-rounded corners, so the placement
+/// and the mesh agree.
 #[must_use]
 pub(in crate::gui::rough_plan) fn placement_from_corners(
     corners: &[[f64; 3]],
@@ -490,10 +496,11 @@ pub(in crate::gui::rough_plan) fn placement_from_corners(
     })
 }
 
-/// The placement of the stone `planes` bound minus the concave `tools`: the corners are chosen
-/// exactly as [`design_mesh_from_planes`] chooses them (the ring corners of a planar design, the
-/// convex hull of the carved mesh for a design with tools), then [`placement_from_corners`].
-/// `None` when the planes do not close into a solid or the outline has no width.
+/// The placement of the stone bound by `planes` minus the concave `tools`.
+///
+/// The corners are chosen as in [`design_mesh_from_planes`], then passed to
+/// [`placement_from_corners`]. `None` when the planes do not close into a solid or the
+/// outline has no width.
 #[must_use]
 pub(in crate::gui::rough_plan) fn design_placement_from_planes(
     planes: &[(DVec3, f64)],
@@ -523,8 +530,9 @@ pub(in crate::gui::rough_plan) fn design_placement_from_planes(
 }
 
 impl MeshLibrary {
-    /// The placement of design `entry_id` (`None` for a design that is gone, unreadable or has no
-    /// solid). Read from the library each time; the caller asks once per design.
+    /// The placement of design `entry_id`, or `None` when it is gone, unreadable or has no solid.
+    ///
+    /// Read from the library on each call; the caller asks once per design.
     pub(in crate::gui::rough_plan) fn placement(&self, entry_id: i64) -> Option<DesignPlacement> {
         let full = self
             .db

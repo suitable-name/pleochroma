@@ -135,9 +135,10 @@ fn import_done(window: &AppWindow, report: &ImportReport) {
 // Writes on the selection
 // ---------------------------------------------------------------------------------
 
-/// Runs `job` on the queue and finishes on the UI thread: on success the selection ends,
-/// the list reloads and `done_text` is shown; on failure the error is shown and the
-/// selection stays.
+/// Runs `job` on the queue, then finishes on the UI thread.
+///
+/// On success the selection ends, the list reloads and `done_text` is shown. On failure the
+/// error is shown and the selection stays.
 fn run_write(
     window: &AppWindow,
     done_text: String,
@@ -253,9 +254,10 @@ pub(super) fn handle_dialog_result(window: &AppWindow, id: i32, confirmed: bool)
     }
 }
 
-/// Deletes `ids` on the queue. Back on the UI thread the app state forgets the entries that
-/// are gone (their recent items, an autosave of them, the open design's link to them), the
-/// list reloads and the user is told.
+/// Deletes `ids` on the queue, then finishes on the UI thread.
+///
+/// There the app state forgets the entries that are gone (their recent items, an autosave
+/// of them, the open design's link to them), the list reloads and the user is told.
 fn run_delete(window: &AppWindow, ids: Vec<EntryId>) {
     let queued = runtime::with(|rt| {
         let (Some(handle), Some(queue)) = (rt.handle.clone(), rt.queue.as_ref()) else {
@@ -289,7 +291,7 @@ fn delete_done(window: &AppWindow, result: &Result<(), String>, gone: &[EntryId]
         .is_some_and(|shared| forget_deleted(shared, gone));
     write_done(window, result, &deleted_text(gone.len(), detached));
     if let Some(shared) = shared {
-        // The More page's recent items, the Save rows and the Cut page follow the state.
+        // Design surfaces (recent items, the open design) are refreshed from the state.
         crate::design::refresh(window, &shared);
     }
 }

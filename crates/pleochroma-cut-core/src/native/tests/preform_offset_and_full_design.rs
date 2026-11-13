@@ -1,6 +1,6 @@
-//! The preform's vertical-span offset and plane-set shape surviving a design file round
-//! trip, and the whole design (tiers, notes, offsets, targets, schedule header) coming
-//! back from the one file with no `.asc` anywhere -- what an autosave restore relies on.
+//! The preform offset and plane-set shape, and the whole design, through one design file.
+//!
+//! The whole design comes back with no `.asc` anywhere, which an autosave restore relies on.
 
 use super::fixtures::{reopen, simple_design, unsolved_design};
 use crate::{
@@ -142,9 +142,7 @@ fn printed_proportions_and_history_round_trip_through_the_design_file() {
     let text = design_to_string(&design, Some(&props), &extras).expect("must serialize");
 
     let loaded = design_from_str(&text).expect("must load");
-    // `ExternalProportions` derives no `PartialEq` (see
-    // `printed_proportions_round_trip_through_save_and_open`'s own comment) --
-    // each field is checked individually.
+    // `ExternalProportions` has no `PartialEq`, so each field is checked individually.
     let restored = loaded
         .printed_proportions
         .expect("printed proportions must survive the round trip");

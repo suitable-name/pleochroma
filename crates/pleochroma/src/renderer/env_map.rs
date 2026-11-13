@@ -10,19 +10,21 @@
 //! (see [`super::env_map_distribution`]).
 //!
 //! `trace_spectral_ray`'s ray-miss branch takes an `EnvironmentSource<'_>` -- `Studio`
-//! (the analytic rig, still the default) or `HdrMap(&EnvironmentMap)` -- dispatching
+//! (the analytic rig, still the default) or `HdrMap { map, exposure, rotation }` -- dispatching
 //! each spectral channel's lookup to `sample_studio_environment` or
-//! [`EnvironmentMap::radiance_at`] accordingly.
+//! [`EnvironmentMap::radiance_rgb_rotated`] (a world direction, looked up at
+//! `rotation.to_map(dir)`; at the source's exposure, see
+//! `optics::raytracer::environment::hdr_rgb_at_exposure`) accordingly. The map itself is
+//! exposure-free and turn-free: it holds the decoded texels and their importance distribution,
+//! shared by every scene that lights with it, and a scene's turn is applied at each lookup.
 //!
-//! [`EnvironmentMap::sample`]/[`EnvironmentMap::pdf`] back a genuine next-event-estimation
-//! extension:
-//! `optics::raytracer::environment::{sample_environment_for_nee, environment_nee_pdf}`
-//! wrap them for `optics::raytracer::scattering`'s Henyey-Greenstein NEE
-//! (`scattering::nee_contribution_hg_scatter`) and its frosted-facet-exterior
-//! counterpart (`scattering::nee_contribution_frosted_exterior`, which handles a
-//! frosted exit's own diffusely-sampled surface point), drawing a light-sampling
-//! direction/pdf and evaluating an arbitrary direction's density for a Veach-style
-//! balance-heuristic MIS weight, respectively.
+//! [`EnvironmentMap::sample_rotated`]/[`EnvironmentMap::pdf_rotated`] (the unrotated
+//! [`EnvironmentMap::sample`]/[`EnvironmentMap::pdf`] in the map's own frame) back next-event
+//! estimation. `optics::raytracer::environment::{sample_environment_for_nee,
+//! environment_nee_pdf}` wrap them for the Henyey-Greenstein NEE
+//! (`nee_contribution_hg_scatter`) and the frosted-exterior NEE. Both draw a light-sampling
+//! direction and evaluate an arbitrary direction's density for a Veach-style balance-heuristic
+//! MIS weight.
 
 use std::f32::consts::PI;
 
@@ -37,6 +39,9 @@ mod env_map_distribution;
 #[cfg(feature = "hdr")]
 #[path = "env_map_hdr.rs"]
 mod env_map_hdr;
+// The map's yaw about the vertical axis; see that module's doc comment.
+#[path = "env_map_rotation.rs"]
+mod env_map_rotation;
 #[path = "env_map_spectrum.rs"]
 mod env_map_spectrum;
 
@@ -45,20 +50,14 @@ pub use env_map_hdr::{
     HdrHeaderInfo, HdrLimits, environment_from_hdr_bytes, environment_from_hdr_bytes_with_info,
 };
 
-// `Distribution1D` re-exported alongside `Distribution2D` (not just used privately here)
-// so `renderer::env_map_gpu::HdrEnvGpuData::upload` can name the type it
-// gets back from `Distribution2D::marginal`/`conditional` when flattening it into GPU
-// buffers -- see that module's own doc comment. `env_map_distribution` itself stays a
-// private submodule nested here (not a sibling `renderer::env_map_distribution`) so
-// there is exactly one module path for these types; `env_map_gpu.rs` reaches them via
-// this re-export, `crate::renderer::env_map::{Distribution1D, Distribution2D}`.
-// `Distribution1D` itself is named only by that `feature = "gpu"` consumer (and
-// `renderer::gpu::transport_check::nee`, same feature) -- `Distribution2D` is used
-// unconditionally within this module (the `EnvironmentMap::distribution` field type),
-// so only the former needs gating.
+// Re-exported so `renderer::env_map_gpu` can name the types that `Distribution2D::marginal`
+// and `conditional` return. `env_map_distribution` stays a private submodule, so these types
+// have one module path. `Distribution1D` is named only under `feature = "gpu"`; `Distribution2D`
+// is the type of the `distribution` field, so it is always needed.
 #[cfg(feature = "gpu")]
 pub(crate) use env_map_distribution::Distribution1D;
 pub(crate) use env_map_distribution::Distribution2D;
+pub use env_map_rotation::{EnvRotation, HdrOrientation};
 pub use env_map_spectrum::rgb_to_spectral_radiance;
 
 /// Errors constructing an [`EnvironmentMap`].
@@ -193,8 +192,7 @@ impl EnvironmentMap {
     /// [`HdrLimits::DEFAULT`] -- exactly [`environment_from_hdr_bytes`], the one builder
     /// every node shares.
     ///
-    /// Requires the `hdr` feature (pulls in the `image` crate's HDR decoder), kept
-    /// behind a feature so the base `pleochroma` build stays at its four core dependencies.
+    /// Requires the `hdr` feature, which pulls in the `image` crate's HDR decoder.
     ///
     /// # Errors
     ///
@@ -290,11 +288,10 @@ impl EnvironmentMap {
         let v = v.clamp(0.0, 1.0);
         let theta = v * PI;
         let phi = u * 2.0 * PI;
-        // `sin` of the REFLECTED argument, `cos` of the direct one: near the south pole
-        // `sin(v * PI)` is off by percent purely from the rounding of `v * PI` (see
-        // `pdf_uv_to_solid_angle`, "Why `sin(min(v, 1-v) * PI)`"), while `cos` is
-        // well-conditioned there. Keeps this direction's `sin(theta)` bit-consistent
-        // with the pdf [`Self::sample`] reports for it.
+        // `sin` of the reflected argument, `cos` of the direct one: `v * PI` rounds badly near
+        // the south pole, while `cos` is well-conditioned there. This keeps the direction's
+        // `sin(theta)` consistent with the pdf [`Self::sample`] reports for it (see
+        // `pdf_uv_to_solid_angle`).
         let sin_theta = (v.min(1.0 - v) * PI).sin();
         let cos_theta = theta.cos();
         let (sin_phi, cos_phi) = phi.sin_cos();
@@ -352,18 +349,36 @@ impl EnvironmentMap {
     pub fn pdf(&self, dir: Vec3) -> f32 {
         let (u, v) = Self::direction_to_uv(dir);
         let pdf_uv = self.distribution.pdf(u, v);
-        // `sin(theta)` straight off the direction (`|(x, z)|` of the unit vector) rather
-        // than `sin(acos(y))`: `acos` is ill-conditioned at the poles (its slope is
-        // `1/sin(theta)`), and the GPU twin's `acos` is only accurate to about `1e-6`
-        // absolute there -- which, divided by a `sin(theta)` of `1e-2`, was a `6e-4`
-        // relative pdf gap (9062 ULP) at a direction 0.57 degrees off the south pole.
-        // `(x, z)` carry `sin(theta)` to full precision on both sides. `hypot` here
-        // (clippy `imprecise_flops` forbids the hand-rolled `sqrt(x*x + z*z)`) pairs with
-        // `length(vec2(x, z))` in `transport_bounce.wgsl`'s `dist2d_pdf`; on a unit
-        // vector both are the correctly-rounded-to-a-ULP norm of `(x, z)`.
+        // `sin(theta)` is the norm of `(x, z)` rather than `sin(acos(y))`: `acos` is
+        // ill-conditioned at the poles, and the GPU's `acos` is only accurate to about `1e-6`
+        // there. `hypot` (clippy's `imprecise_flops` forbids `sqrt(x*x + z*z)`) matches the
+        // `length(vec2(x, z))` of the WGSL twin.
         let d = dir.normalize_or_zero();
         let sin_theta = d.x.hypot(d.z);
         pdf_uv_to_solid_angle_from_sin(pdf_uv, sin_theta)
+    }
+
+    /// [`Self::radiance_rgb`] for a WORLD direction of a map turned by `rotation`: the lookup
+    /// happens at `rotation.to_map(dir)`. The identity looks `dir` up untouched, bit for bit.
+    #[must_use]
+    pub fn radiance_rgb_rotated(&self, dir: Vec3, rotation: EnvRotation) -> [f32; 3] {
+        self.radiance_rgb(rotation.to_map(dir))
+    }
+
+    /// [`Self::sample`] for a map turned by `rotation`: the direction is returned in the
+    /// WORLD (`rotation.to_world` of the map-frame draw); the RGB and the pdf are exactly the
+    /// unrotated draw's (a rigid turn keeps solid angle).
+    #[must_use]
+    pub fn sample_rotated(&self, u0: f32, u1: f32, rotation: EnvRotation) -> (Vec3, [f32; 3], f32) {
+        let (dir, rgb, pdf) = self.sample(u0, u1);
+        (rotation.to_world(dir), rgb, pdf)
+    }
+
+    /// [`Self::pdf`] for a WORLD direction of a map turned by `rotation`: the density at
+    /// `rotation.to_map(dir)`.
+    #[must_use]
+    pub fn pdf_rotated(&self, dir: Vec3, rotation: EnvRotation) -> f32 {
+        self.pdf(rotation.to_map(dir))
     }
 
     /// Bilinear sample of the texel grid at continuous `(u, v)`, wrapping in `u` and
@@ -435,18 +450,14 @@ impl EnvironmentMap {
 ///
 /// # Why `sin(min(v, 1-v) * PI)` and not `sin(v * PI)`
 ///
-/// The two are the same number mathematically (`sin(PI - x) == sin(x)`), but not in
-/// `f32`: with `v` a few ULPs below `1.0`, `v * PI` rounds to within half an ULP of
-/// `PI` (an absolute error of up to `1.2e-7`) and `sin` of that argument is a value of
-/// order `1e-6` -- so the *rounding of the argument alone* perturbs `sin_theta`, and
-/// hence the returned pdf, by several percent (measured: `v = 0.9999984`
-/// gave a pdf 2.7 % high on the CPU and 3.7 % low on the GPU, whose `sin` reduces the
-/// argument differently). Folding the reflection in first keeps the argument in
-/// `[0, PI/2]`, where `1.0 - v` is exact (Sterbenz) and both `libm` and GPU `sin`
-/// are accurate to a couple of ULPs, so the CPU and the WGSL twin
-/// (`transport_physics.wgsl`'s `pdf_uv_to_solid_angle`) agree near the south pole
-/// exactly as they already did near the north pole. Away from the poles the two forms
-/// differ by at most one rounding of the argument.
+/// The two are equal mathematically (`sin(PI - x) == sin(x)`), but not in `f32`: with `v` a few
+/// ULPs below `1.0`, `v * PI` rounds to within half an ULP of `PI`, and `sin` of that argument
+/// is of order `1e-6`. The rounding of the argument alone then moves `sin_theta`, and the pdf,
+/// by several percent. Folding the reflection in first keeps the argument in `[0, PI/2]`, where
+/// `1.0 - v` is exact (Sterbenz) and both `libm` and GPU `sin` are accurate to a couple of
+/// ULPs. The CPU and the WGSL twin (`pdf_uv_to_solid_angle` in
+/// `transport_physics/05_nee_env_sampling.wgsl`) then agree at the south pole. Away from the
+/// poles the two forms differ by at most one rounding of the argument.
 fn pdf_uv_to_solid_angle(pdf_uv: f32, v: f32) -> f32 {
     let theta = v.min(1.0 - v) * PI;
     pdf_uv_to_solid_angle_from_sin(pdf_uv, theta.sin())
@@ -547,28 +558,14 @@ mod nee_sample_pdf_tests {
     }
 }
 
-/// South/north-pole numerics regression test for `pdf_uv_to_solid_angle`,
-/// `uv_to_direction` and `EnvironmentMap::pdf`'s `sin(min(v, 1-v) * PI)` /
-/// `x.hypot(z)` reformulations.
+/// Pole numerics of `pdf_uv_to_solid_angle`, `uv_to_direction` and `EnvironmentMap::pdf` (the
+/// `sin(min(v, 1 - v) * PI)` and `hypot` forms), checked against an independent `f64` reference.
 ///
-/// See those functions' own doc comments for the
-/// pole-conditioning problem they fix (the WGSL twins in `transport_physics.wgsl` /
-/// `transport_bounce.wgsl` / `transport_functions.wgsl` already match; this module
-/// checks the CPU side against an independent `f64` reference).
-///
-/// The reference distribution below is a closed-form re-derivation of
-/// [`Distribution2D`]/[`Distribution1D`]'s piecewise-constant density, carried
-/// entirely in `f64`: for row-major weighted texel weights `w_i` (the same
-/// `luminance(texel) * sin(theta_row_center)` [`build_distribution`] feeds to
-/// [`Distribution2D::new`]), the two-stage marginal/conditional construction reduces
-/// algebraically to the single closed form `pdf_uv(row, col) = w[row][col] * width *
-/// height / sum(w)` (a piecewise-constant density over the unit square is just each
-/// bucket's weight over the mean weight; the marginal/conditional split's own
-/// normalizations telescope away) -- see `pdf_uv_f64`'s own comment for the algebra.
-/// That closed form is exact (no iteration, no `f32`), so it is a trustworthy
-/// independent ground truth for [`Distribution2D::pdf`]/[`Distribution1D::pdf`]'s own
-/// bucket-lookup formula, which this module's `pole_numerics_tests` doesn't otherwise
-/// duplicate.
+/// The reference is a closed-form re-derivation of [`Distribution2D`]'s density in `f64`. For
+/// row-major weights `w` (the same `luminance(texel) * sin(theta_row_center)` that
+/// [`build_distribution`] feeds in), the two-stage construction reduces to
+/// `pdf_uv(row, col) = w[row][col] * width * height / sum(w)`. That form needs no iteration and
+/// no `f32`, so it is an exact ground truth for the bucket lookup. See `pdf_uv_f64`.
 #[cfg(test)]
 mod pole_numerics_tests {
     use super::*;
@@ -607,14 +604,9 @@ mod pole_numerics_tests {
         )
     }
 
-    /// The `f64` row-major weighted texel array (`luminance64(texel) *
-    /// sin(theta_row_center)`, mirroring [`build_distribution`]'s own `f32` weighting
-    /// exactly but carried in `f64`) plus its total sum, built directly off `map`'s own
-    /// private `pixels`/`width`/`height` fields -- this test module is nested inside
-    /// the same module [`EnvironmentMap`] is defined in, so those private fields are
-    /// visible here (the "crate-private accessor" this module uses, in lieu of the
-    /// `feature = "gpu"`-gated [`Distribution2D::marginal`]/[`Distribution2D::conditional`]
-    /// accessors, which this test binary does not have enabled).
+    /// The `f64` row-major weighted texels (`luminance64(texel) * sin(theta_row_center)`, as
+    /// [`build_distribution`] weights them in `f32`) and their total. Reads `map`'s private
+    /// fields directly, since this module lives in the same module as [`EnvironmentMap`].
     fn weighted_texels_f64(map: &EnvironmentMap) -> (Vec<f64>, f64) {
         let mut weighted = vec![0.0f64; map.width * map.height];
         for y in 0..map.height {

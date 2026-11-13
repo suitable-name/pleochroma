@@ -1,12 +1,8 @@
-//! Guide prepass (depth / normal / facet id / path signature) per camera pose (BLD-2;
-//! `review_perf_2026-10-12_fable.md` section 5, gap "guide prepass with `n_d > 1`").
+//! Guide prepass (depth, normal, facet id and path signature) at two reference indices.
 //!
-//! `n_d = 0.0` is the plain first-hit capture; `n_d = 1.76` also fills the interior path
+//! `n_d = 0.0` is the plain first-hit capture. `n_d = 1.76` also fills the interior path
 //! signature (the `K = 3` TIR walk), the expensive variant the live loop runs on a pose
-//! change. Expected before any fix on a 16-core host, release: the plain pass a few ms at
-//! 800x600 and ~10-20 ms at 1080p; the signature pass several times that (UI-1: the live
-//! loop spends about 82 ms per iteration at 1080p on guide generation plus signature).
-//! The pass uses static row chunks (`guide_pass.rs:405-475`), so thread imbalance shows here.
+//! change. Rows are split into per-thread chunks, so thread imbalance shows in these numbers.
 //!
 //! Run: `cargo bench -p pleochroma --bench guide_pass`.
 

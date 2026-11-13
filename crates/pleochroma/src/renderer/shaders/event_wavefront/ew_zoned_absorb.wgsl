@@ -1,14 +1,12 @@
-// Interior absorption of a zoned stone: the per-zone absorption of the segment the ray just
-// travelled inside the stone, split off `ew_surface` (see its header). It runs between the surface
-// and the arm kernels in the same bounce round, and applies exactly the call `bounce_surface`
-// makes in place (`zoned_interior_absorption`, patched into 08c by build.rs) on the same
-// `stokes` that the surface phase's frame rotation left: the segment is the stored ray
-// (`origin`, `dir`, wave normal `k`), its length `hit.t` the `w` of the hit point. The arm was
-// chosen by the surface kernel and waits in the hit record (`misc.w`), so only that word of
-// `ray_hit` is read.
+// Interior absorption of a zoned stone: applies the per-zone absorption of the segment the ray
+// travelled inside the stone. It is the call `bounce_surface` makes in place, split into its own
+// kernel so that `ew_surface` stays free of zone code. It runs after the surface kernel and
+// before the arm kernels, on the `stokes` the surface phase left. The segment is the stored ray
+// (`origin`, `dir`, wave normal `k`) up to `hit.t`. The arm chosen by the surface kernel waits in
+// the hit record (`misc.w`), so only that word of `ray_hit` is read.
 //
-// In the dispatch list only for a stone with zones (`with_zoned_absorb`); the browser refuses
-// zoned stones, so it never compiles this kernel.
+// Dispatched only for stones with zones (`with_zoned_absorb`). The browser build has no zones
+// and never compiles this kernel.
 @compute @workgroup_size(64)
 fn ew_zoned_absorb(@builtin(global_invocation_id) gid: vec3<u32>) {
     let i = gid.x;

@@ -16,9 +16,9 @@
 //! are printed (the verdict line is the dialog's own, for example `Could not check this change.
 //! The current design has a problem: ...`), and nothing is written. Unchecked means the current
 //! design itself could not be analysed, so nothing could be compared and no candidate stone
-//! exists to apply; the dialog's Apply refuses it with the same verdict line (an unchecked
-//! change was once let through, before the meet-preserving gate: `RetargetValidity::allows_apply`
-//! is Valid only now), so the command line has no option to accept one.
+//! exists to apply. The dialog's Apply refuses it with the same verdict line, and
+//! `RetargetValidity::allows_apply` accepts only Valid, so the command line has no option to
+//! accept one.
 //!
 //! The report is always printed (what was asked, the verdict, and for an accepted change the
 //! tiers that moved and the optical figures). `--out FILE` saves the retargeted design as a
@@ -306,7 +306,7 @@ mod tests {
     use serde_json::Value;
     use std::path::PathBuf;
 
-    /// The owner's sapphire case: crown a third of the shift.
+    /// The sapphire case: crown a third of the shift.
     const SAPPHIRE_CROWN: CrownShift = CrownShift {
         fraction: 0.33,
         scale_by_ratio: false,
@@ -433,8 +433,8 @@ mod tests {
 
     #[test]
     fn a_refused_retarget_exits_2_writes_nothing_and_says_why() {
-        // A refractive index far from the design's can leave the shift with no valid stone; whichever
-        // way each one goes, the exit code and the files must agree with the gate.
+        // A refractive index far from the design's can leave the shift with no valid stone. Either
+        // way, the exit code and the files must agree with the gate.
         for ri in [1.45, 1.55, 1.9, 2.4] {
             let outcome = execute(
                 &loaded(),

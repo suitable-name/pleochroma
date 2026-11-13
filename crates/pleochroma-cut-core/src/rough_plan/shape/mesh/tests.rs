@@ -1060,7 +1060,7 @@ fn an_inclusion_leaves_the_usable_volume_and_keeps_the_gross_volume() {
         "{}",
         mesh.gross_volume()
     );
-    // The mesh without inclusions has no gross volume of its own to speak of.
+    // Without inclusions the gross volume is the plain volume, bit for bit.
     let plain = solid(0.0, 20.0);
     assert_eq!(plain.gross_volume().to_bits(), plain.volume().to_bits());
     assert_eq!(plain.inclusion_count(), 0);

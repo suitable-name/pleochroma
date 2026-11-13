@@ -8,7 +8,7 @@ use crate::scene::SceneState;
 use serde::{Deserialize, Serialize};
 
 /// Whether a `RENDER` request's full-resolution radiance is delivered progressively
-/// (several small `FRAME`s as sampling proceeds) or only once, at the end -- or (v14) not
+/// (several small `FRAME`s as sampling proceeds) or only once, at the end -- or not
 /// as radiance at all.
 ///
 /// Independent of [`StreamConfig::preview`]: a reduced-resolution `PREVIEW` (if
@@ -23,7 +23,7 @@ pub enum TransferMode {
     /// tracing finishes. `PROGRESS` (and `PREVIEW`, if configured) still arrive on the
     /// cadence in the meantime -- see [`StreamConfig`]'s docs.
     FinalOnly,
-    /// v14, "final picture only" for the live view: the server sends
+    /// "Final picture only" for the live view: the server sends
     /// no `FRAME`/`PREVIEW` at all, only tone-mapped, denoised 8-bit
     /// `StreamEvent::DisplayFrame`s at the cadence (plus `PROGRESS` heartbeats and one
     /// `DONE`). 8-bit frames cannot be merged with local samples, so a viewer using this
@@ -32,7 +32,7 @@ pub enum TransferMode {
     DisplayOnly,
 }
 
-/// Why a `RENDER` request is being made, so a coordinator can pick lanes for it (v14).
+/// Why a `RENDER` request is being made, so a coordinator can pick lanes for it.
 /// A plain worker ignores it. Variant order is wire-load-bearing; append only.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RequestIntent {
@@ -57,9 +57,8 @@ pub struct PreviewConfig {
 
 /// Per-request streaming configuration on a [`RenderRequest`].
 ///
-/// So a viewer with an A100 on a LAN and one with a 2060 over hotel wifi can each pick a
-/// cadence (and whether to bother with progressive delivery at all) that suits their own
-/// link and hardware rather than share one hardcoded default.
+/// Lets each viewer pick its own cadence, and whether to deliver progressively at all, for
+/// its own link and hardware.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StreamConfig {
     /// How frames are transferred to the client.
@@ -99,7 +98,7 @@ pub struct RenderRequest {
     pub samples: u32,
     /// How replies are streamed.
     pub stream: StreamConfig,
-    /// Why this request is made (v14) -- see [`RequestIntent`].
+    /// Why this request is made -- see [`RequestIntent`].
     pub intent: RequestIntent,
 }
 
@@ -121,6 +120,10 @@ mod tests {
             height: 4,
             yaw: 0.4,
             camera_roll: 0.0,
+            stone_shadow: false,
+            tray_reflection: 0.0,
+            hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
+            estimator: pleochroma::optics::raytracer::Estimator::Branching,
             pitch: 0.3,
             distance: 3.0,
             light_yaw: 0.85,
@@ -229,7 +232,7 @@ mod tests {
         }
     }
 
-    /// `DisplayOnly` is appended after the two v13 transfer modes.
+    /// `DisplayOnly` is appended after the two original transfer modes.
     #[test]
     fn transfer_mode_and_intent_discriminants_are_pinned() {
         assert_eq!(

@@ -147,11 +147,9 @@ pub fn shapes_match(saved: &DesignShape, current: &DesignShape) -> bool {
         }
 }
 
-/// Whether the saved figures came from the measuring rule the library uses now (or from
-/// one the file does not name, which is taken as the current one). Figures of another
-/// rule cannot be compared: they may differ without the design having changed. (Version 4
-/// measures a concave design on its carved outline, so every plan saved under version 3
-/// is incomparable: it counts as unchanged and gets the note below, never "changed".)
+/// Whether the saved figures came from the measuring rule the library uses now. Version 0, which
+/// the file does not name, counts as the current rule. Figures of another rule may differ without
+/// the design having changed, so they are not compared and count as unchanged.
 const fn comparable(saved: &DesignShape) -> bool {
     saved.extents_version == 0 || saved.extents_version == SOLID_EXTENTS_VERSION
 }
@@ -175,8 +173,8 @@ pub fn status_for_existing(saved: &DesignShape, current: Option<&DesignShape>) -
     }
 }
 
-/// The ids of the candidates whose shape matches the stored one. None at all when the
-/// stored shape cannot confirm a match.
+/// The ids of the candidates whose shape matches the stored one. Empty when the stored shape
+/// cannot confirm a match.
 fn matching_ids(candidates: &[TitleCandidate], saved: &DesignShape) -> Vec<i64> {
     if !usable(saved) {
         return Vec::new();
@@ -331,7 +329,7 @@ fn status_by_id(
 }
 
 /// Looks up the designs titled like the designs the title decides about, with their
-/// cached extents (three queries however many designs there are). `None` when there is
+/// cached extents (two queries however many designs there are). `None` when there is
 /// nothing to look up or the search failed (a line for `notes` then says so).
 fn find_namesakes(
     library: &impl LibraryView,

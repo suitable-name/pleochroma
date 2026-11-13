@@ -1,13 +1,14 @@
 //! A stone's crystal orientation for every consumer outside the live render.
 //!
-//! That is every consumer that traces or scores a stone: the Optimize, Sweep, Tune, Baseline, Trials, Retarget and Verdict scoring
-//! scenes, the tilt profile, Compare, the swatches, the command line and the web app.
+//! Every consumer that traces or scores a stone: the Optimize, Sweep, Tune, Baseline, Trials,
+//! Retarget and Verdict scoring scenes, the tilt profile, Compare, the swatches, the command
+//! line and the web app.
 //!
-//! The rule is the render's (plan section 2): the design's own Crystal Axis (its
-//! `[render_effects]` override) beats the material's default, which beats the built-in's axis.
+//! The rule is the render's: the design's own Crystal Axis (its `[render_effects]`
+//! override) beats the material's default, which beats the built-in's axis.
 //! A custom material's default is baked into the material itself
-//! (`pleochroma_cut_core::material::with_default_orientation`), so the only thing resolved here
-//! is the design's own setting; with the override off every function returns the material
+//! (`pleochroma_cut_core::material::with_default_orientation`), so the only thing resolved
+//! here is the design's own setting. With the override off the material comes back
 //! untouched, which keeps a design that never set an axis byte-identical.
 
 use glam::Vec3;
@@ -25,21 +26,16 @@ use pleochroma_cut_core::{
 /// (gamma) and the optional Second Axis (alpha).
 pub type Orientation = (Vec3, Option<Vec3>);
 
-/// The orientation `effects` gives `material`, or `None` when the stone keeps its own axes.
+/// The orientation `effects` gives `material`, or `None` when the stone keeps the material's
+/// own axes: the override is off, or the material is isotropic (its axis is hidden everywhere).
 ///
-/// That is when the stone keeps the material's
-/// own axes: the design's override is off, or the material is isotropic (its axis is
-/// meaningless, and every consumer hides it).
-///
-/// The Crystal Axis is the vector the angle sliders have always produced
-/// ([`CrystalAxis::slider_direction`]), so a design that already carried an axis renders with
-/// the very bits it had. A Second Axis turn rotates alpha from the material's own completion about
-/// the CANONICAL axis line (`CrystalOrientation::alpha`, the one the planner rows, the hand-off and
-/// the sheet use): alpha is a line, so its sign does not matter, but a turn about the slider vector
-/// at tilt 90 and azimuth 180 or more would run the other way round. A design with an axis but no
-/// turn, on a material that holds a Second Axis of its own (a baked default), gets the material's
-/// own completion again (turn zero) rather than an alpha that belongs to a different Crystal
-/// Axis.
+/// The Crystal Axis is the slider vector ([`CrystalAxis::slider_direction`]), so a design
+/// that already carried an axis renders with the same bits. A Second Axis turn is taken
+/// about the canonical axis line (`CrystalOrientation::alpha`). Alpha is a line, so its sign
+/// does not matter, but a turn about the slider vector would run the other way round at
+/// tilt 90 and azimuth 180 or more. An axis without a turn, on a material with a baked
+/// Second Axis, gets that material's own completion (turn zero), never the alpha of a
+/// different axis.
 #[must_use]
 pub fn orientation_override(
     effects: &StoneRenderEffects,
@@ -69,10 +65,9 @@ pub fn orientation_override(
 
 /// `material` with `orientation` applied under the render's own rules.
 ///
-/// An isotropic material
-/// ignores it, and only a biaxial one takes the Second Axis (the rules of
-/// `pleochroma::render_setup::apply_material_overrides`, without its size step, so a scoring
-/// scene that scores the unsized material keeps its scale).
+/// An isotropic material ignores it, and only a biaxial one takes the Second Axis. These are
+/// the rules of `pleochroma::render_setup::apply_material_overrides` without its size step,
+/// so a scoring scene keeps the unsized material's scale.
 #[must_use]
 pub fn with_orientation(
     mut material: GemMaterial,
@@ -88,9 +83,9 @@ pub fn with_orientation(
             material.alpha_axis = Some(alpha);
         }
     }
-    // A color pattern that follows the Crystal Axis turns with the stone's axis in every scoring
-    // scene too, not only in the live render (the same function the render context uses); it
-    // reads the mode off the zones, so a material without a following pattern is untouched.
+    // A pattern that follows the Crystal Axis turns with the stone's axis in every scoring
+    // scene, as in the live render. The mode is read off the zones, so other materials are
+    // untouched.
     follow_noted_pattern(&mut material);
     material
 }
@@ -196,9 +191,8 @@ mod tests {
         );
     }
 
-    /// Acceptance 4: with no axis set, the size rule through the design is the plain size rule,
-    /// bit for bit (a Tourmaline design without an axis scores as it always did); with an axis
-    /// set, the stone is oriented.
+    /// With no axis set the size rule through the design is the plain one, bit for bit; with
+    /// an axis set the stone is oriented.
     #[test]
     fn the_design_size_rule_is_plain_without_an_axis_and_oriented_with_one() {
         use crate::material_lookup::sized_material_for_optimize;

@@ -1,0 +1,415 @@
+import { Theme } from "../../theme.slint";
+import { LineEdit } from "std-widgets.slint";
+import { KitIcon, KitIcons, KitSegment } from "../kit/kit.slint";
+import { WrapText } from "fields.slint";
+
+// Small parts of the Rough Planner that the kit does not have. Every interactive one
+// carries a tooltip (`hint`), an accessible label and a keyboard path (Tab to it, Space or Enter
+// to press it), and draws from `Theme` so high contrast keeps working.
+
+// A captioned text field, 30 px tall, with an optional unit at the right. `committed` fires on
+// Enter and when the field loses focus after an edit, so its owner reacts once per edit (a typed
+// size must reach Rust before Plan is pressed).
+// The preferred width is 0 so fields side by side share the row equally.
+export component PlanField inherits VerticalLayout {
+    in property <string> label;
+    // The accessible name when it differs from the visible caption; empty: the caption.
+    in property <string> alabel;
+    // One plain sentence: what the number means. The tooltip and the accessible description.
+    in property <string> hint;
+    in property <string> placeholder;
+    in property <string> unit;
+    in property <bool> editable: true;
+    in property <bool> invalid: false;
+    in-out property <string> value;
+    callback committed();
+
+    // Set by a keystroke, cleared by the commit, so Enter followed by the focus loss it causes
+    // reports one edit, not two.
+    property <bool> dirty: false;
+
+    horizontal-stretch: 1;
+    preferred-width: 0px;
+    min-width: 0px;
+    spacing: 4px;
+
+    if root.label != "": Text {
+        text: root.label;
+        font-size: 11px;
+        color: Theme.text-secondary;
+        overflow: elide;
+        accessible-role: AccessibleRole.text;
+    }
+    Rectangle {
+        height: 30px;
+        if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
+        LineEdit {
+            x: 0px;
+            y: 0px;
+            width: parent.width;
+            height: parent.height;
+            font-size: 13px;
+            text <=> root.value;
+            placeholder-text: root.placeholder;
+            enabled: root.editable;
+            accessible-label: root.alabel != "" ? root.alabel : root.label;
+            accessible-description: root.hint;
+            edited(t) => { root.dirty = true; }
+            accepted => {
+                if root.dirty {
+                    root.dirty = false;
+                    root.committed();
+                }
+            }
+            changed has-focus => {
+                if !self.has-focus && root.dirty {
+                    root.dirty = false;
+                    root.committed();
+                }
+            }
+        }
+        if root.unit != "": Text {
+            x: parent.width - self.width - 10px;
+            y: 0px;
+            height: parent.height;
+            text: root.unit;
+            font-size: 11px;
+            color: Theme.text-muted;
+            vertical-alignment: center;
+        }
+        if root.invalid: Rectangle {
+            border-radius: 7px;
+            border-width: 1px;
+            border-color: Theme.danger;
+        }
+    }
+}
+
+// A text-styled action ("Edit", "Show", "Change"): cyan text, no box.
+export component LinkText inherits Rectangle {
+    in property <string> text;
+    in property <string> hint;
+    in property <bool> enabled: true;
+    callback clicked();
+
+    height: 24px;
+    width: link_text.preferred-width + 8px;
+    border-radius: 6px;
+    border-width: fs.has-focus ? 2px : 0px;
+    border-color: Theme.accent-cyan-hover;
+    accessible-role: AccessibleRole.button;
+    accessible-label: root.text;
+    accessible-description: root.hint;
+    accessible-enabled: root.enabled;
+    accessible-action-default => {
+        if root.enabled {
+            root.clicked();
+        }
+    }
+
+    if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
+    fs := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.clicked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    link_text := Text {
+        x: 4px;
+        y: 0px;
+        height: parent.height;
+        text: root.text;
+        font-size: 12px;
+        color: !root.enabled ? Theme.text-disabled : (touch.has-hover ? Theme.accent-cyan : Theme.accent-cyan-hover);
+        vertical-alignment: center;
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+// A 30 px number stepper: a minus button, the value, a plus button. Up and Down arrows step it
+// while it has the keyboard focus; a screen reader reads it as a spin box.
+export component Stepper inherits Rectangle {
+    in property <string> label;
+    in property <string> hint;
+    in property <string> value_text;
+    in property <bool> enabled: true;
+    in property <bool> can_dec: true;
+    in property <bool> can_inc: true;
+    callback decrement();
+    callback increment();
+
+    height: 30px;
+    width: 112px;
+    border-radius: 7px;
+    background: Theme.bg-input;
+    border-width: fs.has-focus ? 2px : 1px;
+    border-color: fs.has-focus ? Theme.accent-cyan-hover : Theme.border-medium;
+    accessible-role: AccessibleRole.spinbox;
+    accessible-label: root.label;
+    accessible-description: root.hint;
+    accessible-value: root.value_text;
+    accessible-enabled: root.enabled;
+    accessible-action-increment => {
+        if root.enabled && root.can_inc {
+            root.increment();
+        }
+    }
+    accessible-action-decrement => {
+        if root.enabled && root.can_dec {
+            root.decrement();
+        }
+    }
+
+    if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
+    fs := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == Key.UpArrow && root.can_inc {
+                root.increment();
+                return accept;
+            }
+            if event.text == Key.DownArrow && root.can_dec {
+                root.decrement();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    HorizontalLayout {
+        Rectangle {
+            width: 30px;
+            border-radius: 7px;
+            background: dec_touch.has-hover && root.enabled && root.can_dec ? Theme.bg-card-hover : transparent;
+            KitIcon {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                d: "M6 12 H18";
+                size: 14px;
+                stroke: 2px;
+                ink: root.enabled && root.can_dec ? Theme.text-secondary : Theme.text-disabled;
+            }
+            dec_touch := TouchArea {
+                enabled: root.enabled && root.can_dec;
+                mouse-cursor: pointer;
+                clicked => { root.decrement(); }
+            }
+        }
+        Text {
+            horizontal-stretch: 1;
+            text: root.value_text;
+            font-size: 13px;
+            color: root.enabled ? Theme.text-primary : Theme.text-disabled;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        Rectangle {
+            width: 30px;
+            border-radius: 7px;
+            background: inc_touch.has-hover && root.enabled && root.can_inc ? Theme.bg-card-hover : transparent;
+            KitIcon {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                d: KitIcons.plus;
+                size: 14px;
+                stroke: 2px;
+                ink: root.enabled && root.can_inc ? Theme.text-secondary : Theme.text-disabled;
+            }
+            inc_touch := TouchArea {
+                enabled: root.enabled && root.can_inc;
+                mouse-cursor: pointer;
+                clicked => { root.increment(); }
+            }
+        }
+    }
+}
+
+// One shape choice of step 1: an icon over a name, as a radio tile.
+export component ShapeTile inherits Rectangle {
+    in property <string> d;
+    in property <string> text;
+    in property <string> alabel;
+    in property <string> hint;
+    in property <bool> on;
+    in property <bool> enabled: true;
+    callback picked();
+
+    height: 58px;
+    horizontal-stretch: 1;
+    preferred-width: 0px;
+    min-width: 0px;
+    border-radius: 9px;
+    background: root.on ? Theme.accent-cyan-surface : (touch.has-hover && root.enabled ? Theme.bg-card-hover : Theme.bg-input);
+    border-width: fs.has-focus ? 2px : 1px;
+    border-color: fs.has-focus ? Theme.accent-cyan-hover : (root.on ? Theme.accent-cyan : Theme.border-subtle);
+    accessible-role: AccessibleRole.radio-button;
+    accessible-label: root.alabel != "" ? root.alabel : root.text;
+    accessible-description: root.hint;
+    accessible-checkable: true;
+    accessible-checked: root.on;
+    accessible-enabled: root.enabled;
+    accessible-action-default => {
+        if root.enabled {
+            root.picked();
+        }
+    }
+
+    if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
+    fs := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.picked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    VerticalLayout {
+        alignment: center;
+        spacing: 4px;
+        HorizontalLayout {
+            alignment: center;
+            KitIcon {
+                d: root.d;
+                size: 22px;
+                ink: !root.enabled ? Theme.text-disabled : (root.on ? Theme.accent-cyan-hover : Theme.text-secondary);
+            }
+        }
+        Text {
+            text: root.text;
+            font-size: 11px;
+            color: !root.enabled ? Theme.text-disabled : (root.on ? Theme.text-primary : Theme.text-secondary);
+            horizontal-alignment: center;
+            overflow: elide;
+        }
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.picked(); }
+    }
+}
+
+// A kit segment filling an equal share of a segment bar's width: the bars of two or three
+// choices fill their track, and the choice's name stays centred in its share.
+export component HalfSegment inherits Rectangle {
+    in property <string> text;
+    // The accessible name when it differs from the visible text; empty: the text.
+    in property <string> alabel;
+    in property <string> hint;
+    in property <bool> on: false;
+    in property <bool> enabled: true;
+    callback picked();
+
+    horizontal-stretch: 1;
+    preferred-width: 0px;
+    min-width: 0px;
+    height: 28px;
+    KitSegment {
+        x: 0px;
+        width: parent.width;
+        text: root.text;
+        accessible-label: root.alabel != "" ? root.alabel : root.text;
+        hint: root.hint;
+        on: root.on;
+        enabled: root.enabled;
+        picked => { root.picked(); }
+    }
+}
+
+// A caption over a value: one cell of a figures grid.
+export component Metric inherits VerticalLayout {
+    in property <string> k;
+    in property <string> v;
+
+    horizontal-stretch: 1;
+    preferred-width: 0px;
+    min-width: 0px;
+    spacing: 1px;
+    Text {
+        text: root.k;
+        font-size: 11px;
+        color: Theme.text-muted;
+        overflow: elide;
+    }
+    Rectangle {
+        height: 18px;
+        if root.v != "": Tooltip { text: @markdown("\{root.v}"); }
+        Text {
+            x: 0px;
+            width: parent.width;
+            height: parent.height;
+            text: root.v;
+            font-size: 13px;
+            color: Theme.text-primary;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+}
+
+// A thin horizontal progress or yield bar: a track and a fill of `fraction` (0..1).
+export component FillBar inherits Rectangle {
+    in property <float> fraction: 0;
+    in property <color> fill: Theme.accent-cyan;
+
+    height: 4px;
+    border-radius: 2px;
+    background: Theme.bg-elevated;
+    clip: true;
+    Rectangle {
+        x: 0px;
+        width: parent.width * Math.max(0.0, Math.min(1.0, root.fraction));
+        border-radius: 2px;
+        background: root.fill;
+        animate width { duration: 150ms; }
+    }
+}
+
+// A short note in a tinted card with a leading level icon (the weight check, an axis note).
+// `level`: 0 neutral, 1 good, 2 warning, 3 bad.
+export component NoteChip inherits Rectangle {
+    in property <string> text;
+    in property <string> hint;
+    in property <int> level: 0;
+
+    property <color> ink: root.level == 1 ? Theme.success : (root.level == 2 ? Theme.accent-amber : (root.level == 3 ? Theme.danger : Theme.text-secondary));
+
+    border-radius: 8px;
+    background: root.level == 1 ? Theme.toast-success-surface
+        : (root.level == 2 ? Theme.surface-warning : (root.level == 3 ? Theme.danger-surface : Theme.bg-input));
+    min-height: chip_lay.preferred-height;
+    if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
+    chip_lay := HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 10px;
+        padding-top: 5px;
+        padding-bottom: 5px;
+        spacing: 6px;
+        VerticalLayout {
+            alignment: start;
+            padding-top: 1px;
+            KitIcon {
+                d: root.level == 1 ? KitIcons.check : (root.level == 0 ? KitIcons.info : KitIcons.close);
+                size: 14px;
+                stroke: 2px;
+                ink: root.ink;
+            }
+        }
+        WrapText {
+            horizontal-stretch: 1;
+            text: root.text;
+            font_size: 12px;
+            text_color: root.level == 0 ? Theme.text-secondary : root.ink;
+        }
+    }
+}

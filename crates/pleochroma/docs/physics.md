@@ -45,7 +45,23 @@ a sentence here that the code no longer satisfies is worse than no sentence.
 - **Output.** Per-channel radiance is integrated against the tabulated CIE 1931
   observer (`color.rs::cie_1931_cmf`, delegating to `color/cie1931.rs`) into XYZ, then
   optionally von-Kries white balanced (section 5.4), then encoded (section 6).
-
+- **Which estimator at a partial Fresnel event.** `Estimator::Branching` draws reflect or
+  transmit with the hero's clamped reflectance; `Estimator::ExitCollection` adds the
+  transmitted leaf at once and continues along the reflection with its physical weight
+  (`optics/raytracer/estimator.rs`). The library's process default stays `Branching`, so
+  every golden, pin, twin and harness keeps its values. The applications
+  and the command line run exit collection, set at start-up (`Estimator::APP_DEFAULT`, applied
+  with `set_default_estimator`); the command line has no estimator flag. The branching
+  transport is the per-frame fallback where collection does not apply, and the command line's
+  `--path-cache`, `--persist-cache` and `--beam*` runs render with it.
+  A scene can name its estimator
+  (`GpuSceneRef::estimator`, `Some(..)` wins over a renderer's choice and over the process
+  default). Where collection does not apply (light sampling by an HDR map or the
+  Daylight + Sun rig, a surface that is not ideal, a Tray Reflection, a stone with tools) the
+  trace runs `Branching`, on the CPU and on every GPU engine alike. The legacy bounce
+  wavefront never collects: a frame that would collect there (by the scene's, the renderer's
+  or the process default's choice), where collection applies, is
+  declined (`GpuFrameError::LegacyWavefrontCollect`) and traced on the CPU.
 ## 2. Interfaces
 
 ### 2.1 Which code path handles which material
@@ -147,7 +163,7 @@ path only. Uniaxial entries are exact (`compute_entry_reflect_probability` switc
 Channels whose own Snell direction differs from the hero's are **not** dropped for the
 whole trace:
 
-- The match test is `dot >= DIRECTION_MATCH_COS_TOL (= 1 - 1e-6)`
+- The match test is `directions_match`: `|a - b|^2 <= DIRECTION_MATCH_DISTANCE_SQ (= 2e-6)`, the cosine tolerance `1 - 1e-6` evaluated as a squared distance
   (`reflect_refract.rs::apply_refract_channel`, `uniaxial_entry.rs::apply_uniaxial_entry_transmit_channels`,
   `uniaxial_internal.rs`, `refraction/context.rs::narrow_compat`).
 - A mismatched channel's **radiance** is zeroed at that event, but its `path_pdf[k]`
@@ -163,13 +179,28 @@ whole trace:
   zero for that path.
 - With splitting disabled (tests only) the same mismatch is plain chromatic termination
   (`path_pdf[k] = 0`).
+- **Rule M (the "Tray Reflection" on).** With a tray mirror attached (section 5.2), a
+  mismatched channel `k` is split at an exit event only if **neither** the hero's outgoing
+  exit direction (from `hit_point + dir · 1e-4`) **nor** channel `k`'s own direction
+  (from `hit_point + dir_k · 1e-4`) meets the floor (`TrayMirror::hit(..).is_some()`).
+  Otherwise the channel takes the splitting-disabled branch: `stokes_k = 0`,
+  `path_pdf_k = 0`, no probe. If the hero did not leave the stone at this event, its
+  direction does not meet the floor. The test is
+  `refraction/mod.rs::exit_leaves_via_floor`. It covers every mismatched exit channel
+  whatever its intensity, a channel with zero intensity too, because `path_pdf[k]` feeds the
+  other techniques' MIS weights; the GPU does the same (see [gpu.md](gpu.md)). Why: a probe cannot follow a floor bounce. Technique
+  `j` produces channel `k`'s exit contribution only when both directions avoid the floor,
+  and in exactly those cases the other heroes' densities stay in `k`'s family. Otherwise
+  they drop out (`path_pdf = 0`) and the `k`-hero path, which follows the floor bounce
+  for real, carries the full weight, so the spectral MIS stays unbiased. With the mirror
+  off, none of this runs.
 
 ## 3. Absorption, pleochroism, inclusions, finishes
 
 Everything in this section beyond absorption is opt-in. With no inclusion preset, no structure, no
 facet surface and no edge abrasion the trace is bit-identical to one without the code
 (`SurfaceScene::IDEAL`, `GemMaterial::inclusions == None`); the one exception is the frosted
-facet, whose Lambertian bounce was replaced (section 11, 2026-10-22).
+facet, whose Lambertian bounce was replaced (section 11).
 
 - **Absorption** is Beer-Lambert with an absorption tensor, evaluated along the path's
   *assigned* eigenmode: `alpha = e_mode . A . e_mode`
@@ -196,7 +227,7 @@ facet, whose Lambertian bounce was replaced (section 11, 2026-10-22).
   own extinction (`scattering/hg.rs::maybe_scatter_or_extinguish`,
   `sample_henyey_greenstein_direction`). A scatter depolarises the Stokes vector and sets
   `k = S`. Russian roulette runs at scatter events too (`hg.rs::try_scatter_step`).
-- **Frosted facets (opt-in per facet, `FacetFinish::Frosted`, now a Ground facet).** The
+- **Frosted facets (opt-in per facet, `FacetFinish::Frosted`, a Ground facet).** The
   polished dispatch is replaced by a GGX rough dielectric
   (`raytracer/surface/ground.rs::apply_ground_bounce`; Walter et al. 2007, visible normals
   of Heitz 2018). One broadband `r_unpol` from the **hero** channel (clamped
@@ -279,7 +310,7 @@ facet, whose Lambertian bounce was replaced (section 11, 2026-10-22).
   mixture of 64 Fibonacci axes, sampled and evaluated alike. Zoned stones use a 48-step
   bisection of the optical depth (`oriented_zoned.rs`) and, like zoned haze, no
   scattering-point NEE. The cone is the physical origin of asterism and chatoyancy; a
-  faceted stone shows fragments of it (a dome primitive is v2).
+  faceted stone shows fragments of it (a dome primitive is not modelled).
 - **Bragg domains (opt-in, `InclusionSet::structure`; opal, labradorite).** A procedural
   domain map (`inclusions/domains.rs`: jittered grid, nearest of 27 cells, integer hashes
   identical on CPU and GPU) carries, per domain, a lattice normal (random for opal, the
@@ -359,7 +390,7 @@ design (the continuation keeps full weight there).
 ### 5.1 Models and presets
 
 `environment/mod.rs::LightingPreset` has more presets than the
-table below lists (the table shows the original nine; the light-tent variants, Incandescent A,
+table below lists (the light-tent variants, Incandescent A,
 DaylightSun and Aset are described in 5.2) over six
 `LightingModel`s. The CPU radiance is `environment/rig.rs::direction_lighting`; the WGSL
 twins live under `renderer/shaders/` (see [gpu.md](gpu.md)).
@@ -437,6 +468,111 @@ rotation sense.
   below the girdle for the grading dome, the ISO convention), bit for bit as before. An
   HDR map ignores the backdrop. The metrics, tilt curves and the optical overlay do not
   read it.
+- **Stone shadow.** The optional "Stone Shadow" uses a horizontal plane touching the
+  culet, at `y_p = y_min − 1e-5 R_b` (`y_min` the lowest vertex, `R_b` the bounding-sphere
+  radius). Its spectral irradiance ratio is `T(p, λ) = E_with(p, λ) / E_open(λ)`,
+  decomposed as `T = 1 − B + C`: `B` is the blocked geometric fraction and `C` is light
+  redirected through the stone by forward photons. Every preset has one illuminant
+  spectrum and the geometry factor `G` does not depend on wavelength, so the spectrum
+  cancels from the ratio. Exposure, paper albedo, observer glare, head shadow and camera
+  position do not affect the map. Ordinary-index refraction, dispersion and directional
+  absorption determine the transmitted color.
+  - **Light tables.** Both tables run over the 32 768 cells of the hemisphere, each of
+    solid angle `ΔΩ = 2π / 32768`. Gathering uses the weight `g_i = G(ω_i) cos θ_i ΔΩ`
+    and photon emission `e_i = G(ω_i) ΔΩ`, without the cosine, so `Σ g = E_open`. The
+    direct sun disc is added analytically to both tables as one more cell, with
+    `g_sun = L_sun Ω_sun max(key_y, 0)` and `e_sun = L_sun Ω_sun`.
+  - **Blocked fraction (gather).** For the center `p` of each texel, lifted by
+    `ε = 1e-4 R_b`, `B(p) = (1/n_B) Σ_k blocked(p, ω_k)` with `ω_k` drawn from the gather
+    table at the stratified points `(k + ξ) / n_B`; `ξ` is a per-texel
+    Cranley–Patterson offset and `blocked` is 1 when the ray hits the bounding sphere and
+    then the stone (tools included), else 0.
+  - **Redirected fraction (photons).** A photon starts on the bounding-sphere disc of
+    radius `R_b` perpendicular to its emission direction and carries
+    `w = Λ π R_b² / N_emit` with `Λ = Σ e`. A photon that misses the stone is dropped (its
+    landing already counts as unblocked in `1 − B`). Each band `b` that leaves heading
+    down lands on the plane and deposits `w τ_b` by a bilinear splat over the four
+    nearest texel centers, so `C(texel, b) = Σ w τ_b / (A_texel E_open)` with
+    `A_texel = (2H / N)²`. Only `C` is filtered (see section 10); `B` never is.
+  - **Transport.** The 20 bands are centered at `λ_b = 390 + 20 b` nm. A segment of
+    length `L` in direction `d` transmits
+    `t_b = 1/(2 m) Σ_modes Σ_{j ∈ {2b, 2b+1}} exp(−(p_j L + q_j (d·axis)² L))`: each band
+    averages two of Ray-Traced's 10 nm absorption bins over the `m` absorption modes,
+    retaining directional pleochroism. The interior path follows a hero band
+    `h = j mod 20` (the index `n_h`), and each band's own direction is resolved only at
+    the final refraction out of the stone. At every surface the reflectances `R_b` of all
+    20 bands are computed and the branch probability is
+    `p_r = clamp(mean_b R_b, 0.02, 0.98)`, or exactly 1 or 0 when every `R_b` is 1 or 0.
+    A reflected path takes `τ_b ← τ_b R_b / p_r`, a transmitted one
+    `τ_b ← τ_b (1 − R_b) / (1 − p_r)`, so every band stays unbiased. From the eighth
+    bounce on, Russian roulette keeps a path with probability `q = min(1, max_b τ_b)` and
+    divides by `q`.
+  - **Map geometry.** The map is centered on the midpoint `(c_x, c_z)` of the vertex
+    ranges with half extent `H = 3 R_xz`, where `R_xz` is the largest horizontal distance
+    of a vertex from the center. It has `N × N` texels (256 for Preview, 512 for Final)
+    and 20 bands. With `u = (x − c_x)/H`, `v = (z − c_z)/H`, the stored value fades to one
+    toward the edge: `T ← 1 + (T − 1)(1 − smoothstep(0.85, 1.0, max(|u|, |v|)))`.
+  - **Lookup (identical on CPU and GPU).** A ray with `dir.y < 0` that starts above the
+    plane hits it at `t = (y_p − origin.y) / dir.y`; if `|u| > 1` or `|v| > 1` there
+    is no shadow. Otherwise `f_x = clamp((u + 1) N/2 − 0.5, 0, N − 1)` (likewise `f_y`),
+    `f_b = clamp((λ − 390)/20, 0, 19)`, and `T` is the bilinear value at the four
+    surrounding texels, interpolated linearly between the two nearest band centers with
+    plain multiplies and adds (no fused multiply-add on either side).
+  - **Applying the factor.** An escaping downward ray intersects the plane and scales
+    only its tray term: `tray = max(backdrop · T, f32::MIN_POSITIVE)`. The positive
+    floor preserves the distinction between a fully dark tray and As Lit.
+  - **Where it applies.** Analytic studio lights with a backdrop, excluding "Contrast
+    view (ASET-style)" and HDR panoramas. Tilt views, metrics, thumbnails and optical
+    overlays omit it. Preview maps serve the live viewport (an interactive render
+    request); every other render (exports, jobs, final images, batches and the passes
+    of an adaptive export) uses a Final map.
+- **Tray reflection.** The optional "Tray Reflection" makes the tray a smooth, glossy
+  surface on the Stone Shadow's plane (`y_p` above, bit for bit; the same operations as
+  the map's frame, shared by `tray_plane.rs`), infinite like the tray itself. Its value is
+  the head-on reflectance `R0`, and the reflectance rises towards 1 at grazing angles by
+  Schlick's approximation, `F = R0 + (1 − R0)(1 − cos θ)^5` with `cos θ = −dir.y`. It is
+  wavelength-independent and unpolarized: the floor depolarizes the Stokes vector
+  (`miss.rs::handle_miss`, `depolarize_and_scale`). About 0.04 is black acrylic or glass (with the Black backdrop,
+  the classic jewelry-photo look); 1 is a mirror. What the surface does not reflect is
+  the matte tray, including the Stone Shadow's factor when that is on:
+  `L = (1 − F) · tray(P) + F · L(P, reflected)`, where the reflected direction is
+  `(dir.x, −dir.y, dir.z)`. The arithmetic of `TrayMirror::hit` is plain multiplies and
+  adds (no explicit `fma`), so the WGSL twins repeat it operation for operation.
+  - **Floor bounce and flush (path tracer).** A ray that escapes downward and meets the
+    plane deposits the tray part with the MIS weight times `(1 − F)` (the shadow
+    included), then **flushes**: the radiance and split radiance so far are integrated
+    with the family integration that finishing a path uses
+    (`bounce_body.rs::flush_radiance_to_nee`), at *that moment's* `path_pdf`
+    and `compat`, and added to the NEE accumulator, and both are zeroed. Deposits made
+    before the floor must not be weighted by the later path. The Stokes vector is
+    depolarized and scaled by `F`, the previous plane normal is forgotten, and the path
+    continues along the reflection from `point + reflected · 1e-4`. No termination and no
+    miss record: the path has not escaped. After a floor bounce the next escape takes the
+    MIS weight 1, since the carried weight was consumed. A floor bounce uses one of
+    `max_bounces` (CPU and GPU), so a path with none left drops the reflected continuation.
+    A ray that does not meet the plane is the matte miss, bit for bit.
+  - **Rule M.** Spectral MIS with exit splitting needs a companion channel's exit to be
+    resolved along its own direction; a probe cannot follow a floor bounce, so a
+    companion is split only when neither the hero's exit direction nor its own meets the
+    floor (section 2.6, `refraction/mod.rs::exit_leaves_via_floor`).
+  - **Exit collection.** The collected-leaf estimator is off while the mirror is on, on
+    CPU and GPU (`bounce_body.rs`, `collect_active`). It is also off for a stone with tools on
+    every engine, so a hybrid frame never mixes estimators.
+  - **Ray-Traced.** Deterministic: both escape sites call `whitted/chain.rs::resolve_escape`
+    (twin `wt_floor_escape`). A ray that meets the floor adds `(1 − F) · leaf` and pushes a
+    reflected branch with factor `F` (starting at `point + reflected · 1e-4`, outside the
+    stone). A leaf leaving a stone with tools is still traced for re-entry; only a convex
+    stone's leaf (or a leaf met when the worklist has no room) resolves directly through the
+    floor split. The reflected child is pushed only while the depth cap allows it and the
+    worklist keeps its reserved last slot; otherwise it resolves as the environment along
+    the reflected direction, without searching the stone, on CPU and GPU. Frosted facets
+    keep their per-facet mean and do not see the floor.
+  - **Where it applies.** As the shadow: analytic studio lights with a backdrop, excluding
+    "Contrast view (ASET-style)" and HDR panoramas. Otherwise the request is declined with
+    "Tray reflection needs a studio light with a backdrop." (or, for a stone that is not
+    closed, "Tray reflection needs a closed, nondegenerate stone."), decided by
+    `render_setup/tray_mirror.rs::tray_mirror_for`. Tilt views, metrics,
+    thumbnails and optical overlays omit it. It works together with the Stone Shadow.
 - **Metered exposure.** The presets give very different amounts of light: `E_rig / pi` is
   about 0.18 for the daylight sky, 0.27 for the window, 0.51 for the light tent, 1 for the
   grading dome and 4 to 9 for the Studio rigs (key plus ring sparks). The apps therefore
@@ -445,7 +581,7 @@ rotation sense.
   white paper under any preset at any light pose gets the radiance the grading dome gives
   it (0.90, an off-white sheet after the ACES curve), and the user's exposure is a
   compensation on top. The dome's own reading is 1, so the grading tray looks as before.
-  The UV lamps and HDR maps are not metered. Render jobs and the wire scene carry the
+  HDR maps are not metered. Render jobs and the wire scene carry the
   metered value, so a worker or the CLI reproduces the picture without knowing about the
   meter. Scores never read it (the metrics classify light against the rig's own ambient).
 
@@ -466,6 +602,21 @@ There is no metamerism, and values above 1.0 scale the bump height instead of ac
 narrow-band. No white balance is applied to an HDR frame (section 5.4). The CPU constants
 and the `mul_add` order are mirrored by the WGSL twins
 (`transport_physics/05_nee_env_sampling.wgsl`, `environment.wgsl`).
+
+The scene's exposure (unmetered, section 5.2) scales the looked-up RGB before the lift
+(`environment::hdr_rgb_at_exposure`, carried as `EnvironmentSource::HdrMap::exposure`):
+every miss lookup, every NEE draw and every Ray-Traced leaf, on the CPU and on the GPU
+(`GpuTransportParams::hdr_exposure`, the Ray-Traced uniform's exposure slot). The importance
+distribution and its pdfs do not depend on it, and exposure 1 skips the multiply, so an
+unexposed map renders as it always did.
+
+A map can be turned. `EnvironmentSource::HdrMap::rotation` (`EnvRotation`) is a yaw about the
+vertical axis, computed once in `f64` and stored as a cosine and a sine. Every lookup turns the
+world direction into the map's frame, and every direction drawn from the map is turned back
+into the world; the texel colors, the pdfs and the importance tables are unchanged. The scene
+carries the turn as `HdrOrientation`: a yaw, and a switch that adds the camera's yaw so the map
+turns with the camera. A map that is not turned (a yaw of exactly zero) returns each direction
+untouched, so it renders bit for bit as before.
 
 ### 5.4 White balance
 
@@ -495,8 +646,8 @@ radial gamut walk toward the white point, `color/gamut.rs::project_to_gamut_boun
 per process with `color::set_highlight_rule`, on the command line `--highlights whiten`)
 keeps the luminance instead, so a bright saturated red, blue or violet turns pale (red to
 pink): those hues carry little luminance for their channel values and reach the ceiling
-first. Keep-color became the default on 2026-11-03 after a three-design comparison: the same
-lightness and hue, and up to 60 % more chroma on a bright sapphire.
+first. KeepColor is the default because it keeps lightness and hue and gives up to 60 % more
+chroma on a bright sapphire than Whiten.
 
 ## 7. The metrics model
 
@@ -508,7 +659,7 @@ tracer and does not describe the rendered image's lighting. It is an analytic fa
   refracted in and followed for at most 10 internal bounces with unpolarised scalar
   Fresnel transmittance (`color/metrics/ray_trace.rs::trace_wavelength`). Scattering inside
   the stone is ignored; frosted facets are not (next bullet).
-- **Frosted facets (2026-10-26).** Every face-up entry point has a `_finished` twin that takes
+- **Frosted facets.** Every face-up entry point has a `_finished` twin that takes
   a `FinishedStone` (planes, tools and a per-facet `FacetFinish` list): the pose metrics, the
   19-point profile, the metrics cache and the tilt sweeps; `OpticalImageRequest::finishes`
   does the same for the diagnostic image. A frosted facet scatters through the shared
@@ -521,11 +672,10 @@ tracer and does not describe the rendered image's lighting. It is an analytic fa
   independently in each temporal sub-pose. Only the Frosted finish is traced; Ground Fine and
   Ground Coarse surface grades stay polished here (the metrics tracer has the single roughness
   0.45).
-- **What the metrics ignore (2026-10-22).** Oriented inclusions, Bragg domains (play-of-color,
+- **What the metrics ignore.** Oriented inclusions, Bragg domains (play-of-color,
   schiller), the polish halo (TIS and scratches) and abraded edges are not in the fan. The
   Checks tooltip, the Verdict and the Compare header say "Figures ignore Inclusions / Surface
-  Finish / Play-of-Color" when one is on (decision D6). A "Polish Haze" figure (the mean over
-  returned rays of `1 - prod(1 - TIS)`) and a "Silk Loss" figure may follow later.
+  Finish / Play-of-Color" when one is on.
   Birefringence curves do reach the metrics: `Modes::for_material` uses
   `extraordinary_index_at` and the principal-curve indicatrix per line.
 - **No lighting preset input.** The signature takes `light_yaw` / `light_pitch` only, so
@@ -559,6 +709,22 @@ plane-only per-scene predicate: it is false for a stone with tools. `scene_route
 of up to `GPU_MAX_TOOL_PRIMITIVES` (128, the CPU's own bound) tools (the megakernel and the event-wavefront kernels trace those, see
 [gpu.md](gpu.md)).
 
+With "Stone Shadow", spectral GPU tracing uses the megakernel with an additional
+storage buffer. Other spectral GPU routes, including browser event wavefront and
+legacy wavefront, or an adapter without spare buffer capacity, render on the CPU.
+Ray-Traced uses the same map on CPU and GPU; its RGB factors occupy the existing
+environment buffer. Beam tracing (in a build with the retired `beam` feature) and the path cache decline the shadow visibly.
+
+With "Tray Reflection", spectral GPU tracing uses the same megakernel tray variant: the
+buffer's header words 10 to 12 carry the mirror (see [gpu.md](gpu.md)), and a mirror-only
+scene uploads a header-only buffer. The event wavefront, the legacy wavefront and devices
+or pipelines that cannot run the variant render on the CPU ("Tray reflection is traced on
+the CPU on this graphics card."); Ray-Traced GPU never declines it, since its row is always
+carried. Ray-Traced GPU gets one more uniform row. Beam tracing (in a build with the retired
+`beam` feature) declines the reflection ("Beam tracing off: the tray reflection is traced
+without beams.") and so does the path cache ("Path cache off: the tray reflection needs paths the cache does
+not keep."), both visibly.
+
 ## 9. Deliberate deviations from physical truth — do not "fix" these
 
 - **The reflect/transmit selection clamp** (section 2.2) — `[0.02, 0.98]`, used for the
@@ -576,11 +742,28 @@ of up to `GPU_MAX_TOOL_PRIMITIVES` (128, the CPU's own bound) tools (the megaker
 - **The direction-match tolerance** (`DIRECTION_MATCH_COS_TOL = 1 - 1e-6`, section 2.6) —
   two evaluations of the same refraction formula at the same index agree to a few ULPs,
   two different indices differ by orders of magnitude more; the tolerance separates those
-  two cases and is not exact float equality.
+  two cases and is not exact float equality. It is tested as a squared distance, because an `f32` cosine cannot resolve `1 - 1e-6` (17 steps below 1).
 - **Luminance-only tone mapping** (section 6) — a per-channel tonemap is a hue-shifting
   operator, exactly wrong for saturated dispersion colors.
 - **Bounded exit-split probe** — one extra intersection test per split channel, with a
   re-entering probe declined rather than recursed (section 2.6).
+
+The stone shadow omits paper–stone interreflection and birefringent doubling of
+caustics. It treats frosted facets and rounded edges as polished, sharp surfaces;
+scattering bodies are opaque, and zoned materials use their base absorption.
+A fixed chunk order makes maps bit-identical across thread counts on one machine;
+small ULP differences between operating systems are accepted.
+
+The tray reflection is deliberately approximate: the floor is unpolarized (a single
+Schlick reflectance for every polarization and wavelength), perfectly smooth (no blur),
+and an infinite plane (no fade); frosted facets in Ray-Traced keep their per-facet mean and
+do not see it; and the shadow map ignores the mirror's own interreflection (light that
+bounces off the floor, through the stone and back to the floor). A floor bounce uses one of
+`max_bounces`, so the last bounce's reflected continuation is dropped, and an overflowing
+Ray-Traced leaf reads the environment without testing the stone. Surface Glare applies at the
+first bounce only, so the stone seen in the tray keeps its full first-surface glare. The
+denoiser has no primary hit for the mirrored stone (only bounce 0 is captured) and passes
+those pixels through unfiltered, so the reflection stays noisier than the direct image.
 
 ## 10. Known simplifications and asymmetries (measured or bounded, not deliberate)
 
@@ -601,15 +784,33 @@ of up to `GPU_MAX_TOOL_PRIMITIVES` (128, the CPU's own bound) tools (the megaker
 - **HDR spectral lift** has no round-trip guarantee for saturated colors (section 5.3).
 - **Metrics** do not model the renderer's lighting, birefringence, absorption or the
   crown rim (section 7).
-- **Render-physics approximations (2026-10-22).** The compensation table divides by the
+- **Render-physics approximations.** The compensation table divides by the
   directional albedo of the whole ground event and uses the geometric-mean width for an
   anisotropic lobe; the directionality of multiple microfacet scattering is not modelled.
   Plates are exact only as `alpha_f -> 0` (documented for `alpha_f <= 0.3`). A Bragg
   reflection and zoned silk take no scattering-point NEE. The halo width interpolates `l_c`
   between the presets. The GPU-versus-CPU Tier 2 ULP budgets of the oriented, Bragg and
-  surface kernels (1024 to 2048) are provisional until the owner's recorded run.
+  surface kernels (1024 to 2048) are provisional until a recorded harness run confirms them.
+
+The stone shadow uses twenty 20 nm bands over 380–780 nm. Preview maps are
+256 × 256 with 256 gathered directions per texel and 1,500,000 emitted photons;
+Final maps are 512 × 512 with 1,024 directions and 12,000,000 photons.
+The map extends three stone radii in the x/z plane and fades smoothly to one over
+its outer 15 %. Only the redirected term is filtered: a separable radius-two
+Gaussian with σ = 0.75 texel. Bilinear filtering uses texel centers, with linear
+interpolation between wavelength-band centers. Outside the map the factor is one.
+The live viewport (an interactive render request) gets Preview maps; exports, jobs,
+final images, batches and the passes of an adaptive export get Final maps.
 
 ## 11. Bit-exact golden tests
+
+"Stone Shadow" defaults off. With no map, the existing tray lookup, spectral
+kernels, output and job formats retain their original paths and values, so the
+tests below pin them unchanged. "Tray Reflection" also defaults off (0): with it off or no
+mirror attached, every pixel, job file, golden test and wire byte to an old peer is unchanged,
+and the megakernel's unshadowed, unmirrored sources stay byte-identical; the Ray-Traced GPU
+kernel's text and parameter block gain the mirror row, whose all-zero value keeps the old
+path.
 
 `tests/raytracer_tests/golden_regression.rs` pins `f32::to_bits()` patterns of
 `trace_spectral_ray` on real materials; `optics/raytracer/environment/tests.rs`
@@ -628,43 +829,34 @@ forced off). Do not rebaseline one of these tests just to make a change pass: an
 unexplained rebaseline defeats the purpose of the test, which is to notice that physics
 drifted when nobody meant it to.
 
-**Re-pin record, 2026-10-22 (render physics).** Two intended batches move pinned values. The
-old values must be kept as comments next to the new ones when the owner re-captures them; this
-list is the set that moves, not the new numbers.
+**Pins for the render physics.** The values pinned by the tests named below are the current
+ones. When a re-capture moves a value, the previous value is kept as a comment next to the new one.
 
-*F4, wavelength-dependent birefringence (decisions D8 and D9).* New curves: the extraordinary
-ray of **Sapphire** and **Ruby** (Malitson and Dodge 1972; `n_e - n_o` is -0.008074 at 589.3 nm,
-the stored -0.0081 is kept) and of **Synthetic Moissanite** (Wang 2013, 6H); the principal
-curves (alpha, gamma) of **Alexandrite** (Walling 1980, total 0.007581) and **Chrysoberyl
-(Yellow)** (the same fit; total birefringence 0.0090 becomes 0.007567 by decision of the
-owner, so the pin in `materials/tests/biaxial.rs` moves); **Benitoite** per-ray Cauchy
-(ordinary B-G 0.039, extraordinary 0.046) with its ordinary curve corrected. The walk-off
-direction uses the true `n_e(lambda)` per channel on both render copies (CPU
-`refraction/geometry.rs`, `uniaxial_entry.rs`, `reflect_refract.rs`; WGSL `08e` and `08d`), which
-moves the Quartz family and Rutile; the metrics tracer already used it. Diamond and every
-material without a curve must not move. Pins that move: `golden_regression.rs` (the sapphire
-column), `pleochroic_biaxial_wiring.rs` (Sapphire, Ruby, Synthetic Moissanite rows; Diamond and
+*Wavelength-dependent birefringence.* The extraordinary ray of **Sapphire** and **Ruby** (Malitson
+and Dodge 1972; `n_e - n_o` is -0.008074 at 589.3 nm, the stored -0.0081 is kept) and of
+**Synthetic Moissanite** (Wang 2013, 6H) has a wavelength curve, as do the principal curves
+(alpha, gamma) of **Alexandrite** (Walling 1980, total 0.007581) and **Chrysoberyl (Yellow)**
+(the same fit, total 0.007567), and **Benitoite**'s per-ray Cauchy fits (ordinary B-G 0.039,
+extraordinary 0.046). The walk-off direction uses the true `n_e(lambda)` per channel on both
+render copies (CPU `refraction/geometry.rs`, `uniaxial_entry.rs`, `reflect_refract.rs`; WGSL
+`08e` and `08d`), which moves the Quartz family and Rutile. Diamond and every material without
+a curve are unchanged. The pins that cover these are `golden_regression.rs` (the sapphire
+column), `pleochroic_biaxial_wiring.rs` (Sapphire, Ruby, Synthetic Moissanite; Diamond and
 Cubic Zirconia are the control), `gpu_golden_capture` (Ruby and Moissanite scenes), the
 walk-off tests of the Quartz family and Rutile, the Alexandrite, Chrysoberyl and Benitoite
-renders and Doubling figures, and CPU-versus-GPU parity for those. The premise of
-`materials/tests/dispersion.rs` ("Sapphire has no e-curve") moved to Zircon.
+renders, and the CPU-versus-GPU parity for those.
 
-*D11, the ground facet (GGX with energy compensation replaces the Lambertian bounce).* Frosted
-renders and tilt sweeps move once. Pins and tests: `pin_tests.rs`
+*Ground facet.* The ground facet (GGX with energy compensation, in place of the Lambertian
+bounce) moves frosted renders and tilt sweeps. The pins and tests that cover it are `pin_tests.rs`
 `cpu_accumulate_zircon_frosted_daylight_pin`; `material_equivalence_finish.rs` (the frosted
-furnace, and the face-up brightness threshold, whose direction compensation may weaken);
-`white_furnace_energy_conservation.rs:190`; `furnace_noise_floor.rs`; `nee_tests.rs:213`;
-`scattering/tests.rs` `frosted_exterior_nee_deposits_the_analytic_sun_value` (the analytic
-BRDF changed); the GPU `estimator_check` furnace and frosted scenes and
-`FROSTED_FURNACE_CONVERGENCE_TOLERANCE`. `a_frosted_event_is_the_render_tracers_frosted_bounce`
-now pins the shared `GroundCtx`. The `frosted` key bytes of a design do not change.
+furnace and the face-up brightness threshold); `white_furnace_energy_conservation.rs:190`;
+`furnace_noise_floor.rs`; `nee_tests.rs:213`; `scattering/tests.rs`
+`frosted_exterior_nee_deposits_the_analytic_sun_value`; and the GPU `estimator_check` furnace and
+frosted scenes with `FROSTED_FURNACE_CONVERGENCE_TOLERANCE`.
+`a_frosted_event_is_the_render_tracers_frosted_bounce` pins the shared `GroundCtx`. The `frosted` key bytes of a design do not change.
 
-*Shaders.* Every new unit changes the generated text, so the shader hashes and the
-event-wavefront `KERNEL_SET_HASH` and `SOURCE_HASH` are re-pinned (and a fresh harness run is
-recorded, see [gpu.md](gpu.md)).
-
-*Wire.* Net protocol 31 to 32 (`SceneState.effects`, `GemMaterial.biaxial_principal_dispersion`)
-and web 26 to 27 (`SetEffects`).
+*Shaders.* Each unit changes the generated text, so the shader hashes and the
+event-wavefront `KERNEL_SET_HASH` and `SOURCE_HASH` are re-pinned (see [gpu.md](gpu.md)).
 
 A default `cargo test -p pleochroma` does not compile the `gpu`-gated pins; run
 `cargo test -p pleochroma --features gpu` after touching anything under `renderer::gpu`
@@ -683,7 +875,7 @@ the old code and stays bit-identical.
 - **Exit split.** `try_split_exit_channel` still drops a channel whose exit probe re-enters
   the stone. On a concave stone that is the largest energy risk, so debug builds count the
   dropped intensity (`exit_split_truncated_energy_take`) and the concave white-furnace test
-  reports it next to its gate. If the measured loss is above the gate, the v2 fix is a
+  reports it next to its gate. If the measured loss is above the gate, the fix is a
   bounded (four-crossing) continuation of the split channel through the re-entry.
 - **Edge rounding.** `shading_normal_near_edge` blends toward the nearest *plane*, so it is
   skipped for a hit on a tool surface and for a plane hit within the rounding radius of a

@@ -1,6 +1,5 @@
 //! The window-free half of "Locate inclusion from photos" and "Calibrate rig": everything the
-//! two windows decide that is not drawing, so that its tests run with the rest of the
-//! workspace (the planner window's own tests are never run).
+//! two windows decide that is not drawing, so that its tests run without a window.
 //!
 //! The numbers come from the core (`pleochroma_cut_core::rough_plan::locate`); this module
 //! turns what the user types and clicks into the core's inputs and the core's results into

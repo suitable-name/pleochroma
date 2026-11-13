@@ -39,8 +39,7 @@ Metrics, tilt sweeps and optical diagnostics retain their separate analytic trac
 
 The small GPU kernel uses four storage buffers and has CPU fallback. Browser GPU admission
 is independent from the spectral event-wavefront records. Remote scenes carry the engine
-(since protocol 28; the current version is 29), so older peers are refused instead of mixing
-different renderers' sums.
+(`SceneState::engine`), so older peers are refused instead of mixing different renderers' sums.
 `--features hdr --example whitted_gallery -- --out DIRECTORY` writes the comparison gallery;
 it must be run by the owner. Device performance and GPU comparisons require validation.
 
@@ -175,7 +174,7 @@ honest about that in its own name.
 - **`geometry::GemPolyhedron`** — a validated boundary representation (vertices,
   facet polygons, triangle indices) built from a plane set by enumerating the plane
   arrangement's feasible triple intersections (the same deterministic walk
-  `stone_metrics` uses; no convex-hull library since 2026-09-28). Its output is
+  `stone_metrics` uses; no convex-hull library). Its output is
   byte-identical for identical input. Vertex welding uses a tolerance relative to the
   solid's size (`VERTEX_WELD_EPS_REL`, 1e-4); designs whose crease points aren't
   computed exactly (as opposed to rounded to a few decimal places) can end up with an
@@ -193,7 +192,8 @@ honest about that in its own name.
 
 ## Feature flags
 
-All of these are **off by default** (color zoning is always built and has no flag) — the base dependency set (`glam`, `bytemuck`,
+All of these are **off by default** (color zoning is always built and has no flag). The base
+dependency set (`glam`, `bytemuck`,
 `tracing`, `pleochroma-formats`) is deliberately small so the crate stays lean and
 publishable standalone (see below).
 
@@ -202,6 +202,11 @@ publishable standalone (see below).
 | `gpu` | `wgpu`, `pollster` | `renderer::gpu`: a verified GPU port of the spectral transport physics (`shaders/spectral_transport.wgsl`'s `transport_main` compute kernel) plus the equivalence harness that checks it against the CPU path — see below. |
 | `hdr` | `image` (default-features off, `hdr` format only) | Radiance `.hdr` equirectangular environment-map *decoding* for `renderer::env_map::EnvironmentMap`. The CPU-side importance-sampling machinery itself (`Distribution2D`, `radiance_at`, `sample`/`pdf`) needs no extra dependency and is always available even without this feature — only file decoding is gated. |
 | `serde` | `serde`, `glam/serde` | `Serialize`/`Deserialize` on the scene-description types `pleochroma-net`'s wire protocol needs: `GemMaterial` and its nested types, `GpuFacetPlane`, `LightingPreset`. |
+| `beam` | nothing | Beam tracing of faceted stones (`renderer::beam`, plus `renderer::gpu::beam` with `gpu`). Retired: the code is kept compiling, and no crate turns it on by default (the apps' own `beam` features enable it). Its settings types in `renderer::accel_beam` compile in every build. |
+
+| `stone-shadow` | nothing | Builds the Stone Shadow map (`optics::raytracer::environment::tray_shadow`'s precompute); the precompute uses `std::thread::scope`, so only `pleochroma-cli`, `pleochroma-cut` and `pleochroma-worker` enable it. The map type and its lookups, `environment::TrayMirror` and `render_setup::tray_mirror_for` compile in every build. |
+
+`renderer::adaptive` has no feature and compiles in every build, because the path cache and the beams use it. Adaptive sampling itself is an optional build feature of the apps (`adaptive-sampling` in `pleochroma-cut`, `pleochroma-cli` and `pleochroma-worker`), not of this crate.
 
 ## Near-zero-dependency policy
 
@@ -230,8 +235,7 @@ enforces (together with the protocol version). `SOURCE_HASH` is the deterministi
 hash (16 lowercase hex chars, 64-bit FNV-1a) of every file under `src/` ending in `.rs`
 **or `.wgsl`**, plus `Cargo.toml`, computed at build time in `build.rs`; it travels in
 the handshake but `verify_compatible` does not compare it, so it is diagnostic only.
-The description below is of `SOURCE_HASH`. Files are visited in sorted, POSIX-normalized relative-path
-order and line endings are normalized (`\r\n` → `\n`) before hashing, so the same
+Files are visited in sorted, POSIX-normalized relative-path order and line endings are normalized (`\r\n` → `\n`) before hashing, so the same
 source produces the same `BUILD_ID` regardless of host OS or checkout line
 endings; the relative path is hashed alongside each file's contents, so a rename
 alone changes the hash.
@@ -244,12 +248,10 @@ byte-identical Rust but divergent WGSL differ in `SOURCE_HASH`.
 viewer and a remote render worker whose protocol version or `BUILD_ID` disagree. Mixing samples
 traced by two different physics implementations produces a silently, plausibly
 wrong image — no crash, no error, just numbers that look like a converged render
-and aren't. `pleochroma`'s physics has changed many times in rapid succession during
-development (the intersection routine, the Fresnel PDF, the CMFs, wavelength
-construction, birefringent splitting, absorption, dispersion, spectral MIS), which
-is exactly the situation a hand-maintained version number can't catch, and this
-repository has no commit history for a `git`-based identity to fall back on
-either. See `pleochroma-net`'s README for the handshake itself.
+and aren't. `pleochroma`'s physics changes often, in ways a hand-maintained version number cannot
+track (the intersection routine, the Fresnel PDF, the CMFs, birefringent splitting, spectral
+MIS), so the identity is derived from the source. See `pleochroma-net`'s README for the
+handshake itself.
 
 ## The GPU port and its equivalence harness
 
@@ -263,8 +265,7 @@ today, checked against the CPU tracer by a tiered equivalence harness (bit-exact
 integer checks, per-function ULP budgets, an analytically-computable furnace
 anchor, and statistical comparison of real rendered images). The harness reports the
 maximum genuine ULP per tier; see the recorded run in `docs/gpu_harness_last_run.json`
-(committed by the owner with each physics change, so absent until the first recorded
-run; see [`docs/gpu.md`](docs/gpu.md)). `gpu` is off by default everywhere, but the
+(committed by the owner with each physics change; see [`docs/gpu.md`](docs/gpu.md)). `gpu` is off by default everywhere, but the
 port itself is complete: isotropic, uniaxial and biaxial materials all render on it, so
 `GemMaterial::gpu_supported()` is unconditionally `true`.
 
@@ -278,8 +279,8 @@ against unintended drift are in [`docs/physics.md`](docs/physics.md).
 ## Dependency policy
 
 Base (no-feature) dependencies: `glam`, `bytemuck`, `tracing`, `pleochroma-formats`
-— four crates (`chull` was dropped on 2026-09-28 when `GemPolyhedron` moved onto the
-deterministic plane-arrangement walk). Adding a fifth, unconditionally, should be treated as a deliberate
+— four crates; `GemPolyhedron` needs no convex-hull library (it uses the deterministic
+plane-arrangement walk). Adding a fifth, unconditionally, should be treated as a deliberate
 decision to be documented in `Cargo.toml`, in keeping with the near-zero-dependency
 policy above; prefer a feature gate if the functionality is not needed by every
 caller.
@@ -291,13 +292,24 @@ cargo test -p pleochroma                    # default feature set
 cargo test -p pleochroma --features gpu     # additionally compiles gpu-feature unit tests
 ```
 
-**`cargo test -p pleochroma` alone does not exercise the `gpu` feature at all** — a
-real bug once hid in exactly that gap for a long time. If you touch anything
+**`cargo test -p pleochroma` alone does not exercise the `gpu` feature at all** — if you touch anything
 under `renderer::gpu` or anything gated `#[cfg(feature = "gpu")]`, you must
 additionally run `cargo test -p pleochroma --features gpu` to know whether it still
 compiles and passes; `cargo test -p pleochroma` will report success while never having
 looked at that code. (See the workspace root README for the same warning at the
 workspace-verification level.)
+
+The retired beam tracer's tests compile only with `--cfg beam_tests` (plus the `beam`
+feature), so not even `--all-features` runs them. Run them on request with
+`bash scripts/run_beam_tests.sh`. By hand:
+
+```
+RUSTFLAGS="-C target-cpu=x86-64-v3 --cfg beam_tests" CARGO_TARGET_DIR=target/beam-tests \
+  cargo test -p pleochroma --lib --features gpu,path-cache-disk,beam,stone-shadow -- renderer::beam::
+```
+
+An explicit `RUSTFLAGS` replaces the flags of `.cargo/config.toml`, so the command restates
+them; the separate target directory keeps the regular build cache.
 
 The `--features gpu` unit tests in `renderer/gpu/furnace_check.rs` and
 `renderer/gpu/ulp.rs` are pure-logic tests of the comparison/tolerance helpers. The unit
@@ -329,6 +341,6 @@ cargo run --profile probe -p pleochroma --example meet_solver_validation
 It reads a database and writes nothing. Don't treat it as an example of this
 crate's public API; it exists to measure, not to demonstrate.
 
-The solver's own logic is covered by 23 unit tests under
+The solver's own logic is covered by unit tests under
 `geometry::meet_solver`, which `cargo test` runs normally. See that module's doc
 comment for the solver's current accuracy rather than relying on this README.

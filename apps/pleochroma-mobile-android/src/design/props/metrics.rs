@@ -3,7 +3,7 @@
 //! The measuring happens on the core's analysis thread (`pleochroma_mobile_core::analysis`);
 //! this module requests it, shows the newest results, and pushes progress. The analysis
 //! thread calls a notifier when something changed; the notifier hops to the UI thread and
-//! re-pushes this tab only (not the whole Design page).
+//! re-pushes the Props tabs (not the whole Design page).
 
 use std::sync::Arc;
 

@@ -17,7 +17,7 @@ use std::{
 };
 
 /// The outline targets the viewing, output, library and app lessons use (see
-/// `guide/tutorials/viewing/`). The older targets (`tier_table`, `design_settings`,
+/// `guide/tutorials/viewing.rs`). The older targets (`tier_table`, `design_settings`,
 /// `inspector_tier`, ...) belong to the lessons that introduced them.
 const VIEWING_TARGETS: &[&str] = &[
     "solid_viewport",

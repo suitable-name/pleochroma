@@ -200,8 +200,9 @@ impl Panel {
     }
 
     /// Rebuilds the rows, the picture keys and the worker's snapshot when `state`'s history
-    /// differs from what they were built from (or the picture size changed). Returns
-    /// whether it did.
+    /// differs from what they were built from, or the picture size changed.
+    ///
+    /// Returns whether it did.
     fn sync(&mut self, state: &EditorState, edge: u32) -> bool {
         let signature = Signature::of(state, edge);
         if self.signature == Some(signature) {
@@ -272,9 +273,11 @@ fn history_tab_showing(ui: &MainWindow) -> bool {
     editor.get_inspector_tab() == HISTORY_TAB && !editor.get_inspector_collapsed()
 }
 
-/// One look at the editor: collects finished pictures and, while the tab shows, rebuilds
-/// the list if the history moved. A no-op when the panel or the state is busy (a callback is
-/// in the middle of using it); the next tick tries again.
+/// One look at the editor: collects finished pictures and, while the tab shows, rebuilds the
+/// list if the history moved.
+///
+/// A no-op when the panel or the state is busy (a callback is in the middle of using it); the
+/// next tick tries again.
 fn refresh(ui: &MainWindow, deps: &Deps) {
     let Ok(mut panel) = deps.panel.try_borrow_mut() else {
         return;

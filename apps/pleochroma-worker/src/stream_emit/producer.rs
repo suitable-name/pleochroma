@@ -25,7 +25,7 @@ pub enum Output {
     /// for `TransferMode::DisplayOnly`; then `DONE`.
     Radiance,
     /// A `FinalImageRequest`: `PROGRESS` heartbeats, then one `FINAL_IMAGE` (always a PNG
-    /// tone-mapped into this color space with the GUI export's own
+    /// tone-mapped into this color space by
     /// `pleochroma::renderer::tonemap::tonemap_accumulation`), then `DONE`.
     FinalImage(pleochroma::color::ColorSpace),
 }
@@ -39,10 +39,9 @@ pub enum ProducerOutcome {
     Complete {
         /// The whole request's summed radiance, `width * height` long.
         final_total: Option<Vec<Vec3>>,
-        /// v16: samples of a `FinalImageRequest`'s viewer-reserved range this producer
-        /// rendered itself because the viewer's contribution didn't arrive in time or
-        /// was invalid. `0` for every `RENDER` and for a `FinalImageRequest` with no
-        /// reserved share.
+        /// Samples of a `FinalImageRequest`'s viewer-reserved range this producer rendered
+        /// itself because the viewer's contribution was late or invalid. `0` for every
+        /// `RENDER` and for a `FinalImageRequest` with no reserved share.
         reclaimed_samples: u32,
     },
     /// Stopped because the cancel flag was raised (the emitter then answers
@@ -90,9 +89,11 @@ impl ProducerSink {
         self.cancel.load(Ordering::Relaxed)
     }
 
-    /// Folds one finished chunk (`done` samples summed into `sum`, `width * height` long)
-    /// into the pending delta and the progress count, and wakes the emitter. A
-    /// wrongly-sized `sum` or an empty chunk is ignored.
+    /// Folds one finished chunk into the pending delta and the progress count, and wakes
+    /// the emitter.
+    ///
+    /// `sum` is `width * height` long and covers `done` samples. A wrongly sized `sum` or an
+    /// empty chunk is ignored.
     pub fn add_chunk(&self, done: u32, sum: &[Vec3]) {
         if done == 0 || sum.len() != self.pixels {
             return;
@@ -121,9 +122,7 @@ impl ProducerSink {
                 guard.failed = Some(ErrorMsg {
                     code: error_codes::TRACE_PANIC,
                     message: "internal error: the request stopped before it completed".to_string(),
-                    // Overwritten with the real request_id by
-                    // `stream_emit::emitter::run_stream_loop` on its way out (the one
-                    // place that knows it) -- see that function's own `StreamOutcome::Failed`.
+                    // Stamped with the request id by `emitter::finished_outcome`.
                     request_id: None,
                 });
             }
@@ -155,6 +154,10 @@ pub fn local_tracer(
         samples: request.samples,
         threads,
         compute_mode,
+        // The map is built once for this request, at the quality its intent picks: the live
+        // viewport (`Interactive`) sums this worker's samples with its own local half, which
+        // uses the Preview map, so both must; a batch/final request takes the Final map.
+        pin: Arc::new(crate::assets::TrayPin::new(Some(request.intent))),
     };
     let gpu = Arc::clone(gpu);
     move |sink| sink.run_tracer(&job, &gpu)

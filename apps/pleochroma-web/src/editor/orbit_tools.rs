@@ -20,8 +20,8 @@ use crate::{
 };
 use pleochroma_cut_core::design::TierRef;
 
-/// The selected row's id -- a flat tier's index, or a selected concave tier's row id (so the
-/// tools refuse it with their message instead of doing nothing) -- -1 for none.
+/// The selected row's id, or -1 for none. A selected concave tier's row id is returned too,
+/// so the tools refuse it with their message instead of doing nothing.
 fn selected_row(ctx: &Ctx) -> i32 {
     let app = ctx.state.borrow();
     if let Some(tier) = app.selected_tier {

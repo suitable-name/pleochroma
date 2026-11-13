@@ -7,7 +7,7 @@
 //! sampler for the distribution of VISIBLE normals (Heitz 2018), which is the micro-normal
 //! source of both the polished halo and the ground surface.
 //!
-//! The WGSL twin (lane RP-G2, `13_surface_ggx.wgsl`) is written against these expressions.
+//! The WGSL twin (`13_surface_ggx.wgsl`) is written against these expressions.
 
 use glam::Vec3;
 use std::f32::consts::{PI, TAU};
@@ -42,7 +42,8 @@ impl GgxLobe {
     }
 
     /// A lobe of geometric-mean width `alpha` whose widths across and along the grooves stand in
-    /// the ratio `ratio` (at least 1): `alpha_x / alpha_y == ratio`, `alpha_x * alpha_y == alpha²`.
+    /// the ratio `ratio` (at least 1): `alpha_x / alpha_y == ratio` and
+    /// `alpha_x * alpha_y == alpha²`.
     #[must_use]
     pub fn anisotropic(alpha: f32, ratio: f32) -> Self {
         let alpha = alpha.max(MIN_ALPHA);

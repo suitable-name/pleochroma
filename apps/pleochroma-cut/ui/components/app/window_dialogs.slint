@@ -11,12 +11,12 @@ import { SweepDialog } from "../sweep_dialog.slint";
 import { TutorialBrowser } from "../tutorial_browser.slint";
 import { WelcomeDialog } from "../welcome_dialog.slint";
 
-// The in-window modal questions and cards `app.slint` mounts over the dialogs' area (the whole
-// window, less the two guide gutters while a guide is lifted above the scrim) -- split out of it to keep that file under its line budget: the glossary, Edit as Text,
-// Angle Sweep, the tutorial browser, the welcome dialog, the "Check for New Versions?" question, the
-// "RADV Shader Workaround" question and the window-close guard. Each is wrapped in a `FocusScope` (or is a `ConfirmActionDialog`, which
-// brings its own) with an explicit `z`, so they draw above `GlobalDialogsOverlay` and the toast;
-// `app.slint` gives this whole component a `z` for the same reason.
+// The in-window modal questions and cards `app.slint` mounts over the dialogs' area (the window
+// less the two guide gutters while a guide is lifted). Split out of `app.slint` to keep that
+// file under its line budget. Covers the glossary, Edit as Text, Angle Sweep, the tutorial
+// browser, the welcome dialog, the new-version question, the RADV workaround question and the
+// window-close guard. Each is a `FocusScope` (or a `ConfirmActionDialog`, which brings its
+// own) with an explicit `z`, so it draws above `GlobalDialogsOverlay` and the toast.
 //
 // Mounted with explicit `x`/`y`/`width`/`height` (the dialogs' area): every child is an
 // `if` branch, which contributes no layout info, so left to itself it would be 0 x 0. A plain
@@ -141,9 +141,9 @@ export component WindowQuestionDialogs inherits Rectangle {
         }
     }
 
-    // The welcome dialog: shown once to a new user and whenever Preferences > "Show the
-    // welcome tour again" asks for it (it waits until Preferences and the start-up
-    // restore question are out of the way). Escape means "Not now", Enter takes the tour.
+    // The welcome dialog: shown to a new user, and when Preferences' "Show the welcome tour
+    // again" asks for it. It waits until Preferences and the start-up restore question are
+    // closed. Escape means "Not now", Enter takes the tour.
     if root.welcome_open: FocusScope {
         x: 0px;
         y: 0px;
@@ -188,11 +188,10 @@ export component WindowQuestionDialogs inherits Rectangle {
         cancel => { UpdateModel.consent_dismissed(); }
     }
 
-    // The one-time "RADV Shader Workaround" question (`radv_prompt_open` above says when it may
-    // show): Mesa's AMD driver renders some stones wrongly, and turning off one optimization of
-    // its shader compiler fixes that after a restart. Closing it without an answer ("Not Now",
-    // the close button, Escape, a click outside) stores nothing: it is asked again on the next
-    // start. Enter takes the restart.
+    // The "RADV Shader Workaround" question (`radv_prompt_open` above says when it may show).
+    // Mesa's AMD driver renders some stones wrongly; turning off one optimization of its shader
+    // compiler fixes that after a restart. Closing it without an answer stores nothing, so it
+    // is asked again on the next start. Enter takes the restart.
     if root.radv_prompt_open: ConfirmActionDialog {
         x: 0px;
         y: 0px;
@@ -211,11 +210,9 @@ export component WindowQuestionDialogs inherits Rectangle {
         cancel => { RadvWorkaroundModel.not_now(); }
     }
 
-    // Window-close unsaved-changes guard -- see `close_confirm_open`'s own doc
-    // comment. Its own Save/Discard buttons call straight into `MainWindow`'s own
-    // callbacks (handled in Rust, `gui::mod::build_main_window`) rather than
-    // `EditorModel`'s, since closing the whole window is this file's own concern,
-    // not the Edit tab's.
+    // Window-close unsaved-changes guard (see `close_confirm_open` in `app.slint`). Save and
+    // Discard call `MainWindow`'s callbacks, handled in Rust (`gui::main_window`), not
+    // `EditorModel`'s: closing the window is not the Edit tab's concern.
     if root.close_confirm_open: ConfirmActionDialog {
         width: 100%;
         height: 100%;

@@ -26,9 +26,8 @@
 //! a legacy color is one color and flattens it, exactly as it was saved. A material that defines
 //! its own color (a physics recipe) is never recolored and the control is greyed out.
 //!
-//! Saved variants ("My Variants") come from the vault through [`DesignColorPort::saved_variants`];
-//! the render context itself holds no vault, so a port that offers none lists the built-in variants
-//! only.
+//! Saved variants ("My Variants") come from the vault through [`DesignColorPort::saved_variants`].
+//! The render context holds no vault, so a port that offers none lists only the built-in variants.
 //!
 //! Everything decided here is a plain function ([`control_view`], [`shown_selection`],
 //! [`color_list`], [`list_view`], [`pick_for_entry`], [`display_rgb_for_stone`]) so it is tested
@@ -133,9 +132,11 @@ impl Pick {
     }
 }
 
-/// The pick a list entry stands for. `variants` are the variants behind the list's rows
-/// ([`ColorList::variants`]). `None` for "Custom" (the editor handles it), for a variant key the
-/// list does not hold and for an out-of-range preset.
+/// The pick a list entry stands for.
+///
+/// `variants` are the variants behind the list's rows ([`ColorList::variants`]). `None` for
+/// "Custom" (the editor handles it), for a variant key the list does not hold and for an
+/// out-of-range preset.
 #[must_use]
 pub fn pick_for_entry(entry: &ColorEntry, variants: &[ColorVariant]) -> Option<Pick> {
     match entry {
@@ -156,13 +157,12 @@ pub fn pick_for_entry(entry: &ColorEntry, variants: &[ColorVariant]) -> Option<P
     }
 }
 
-/// The sRGB color (D65) a stone with this absorption triple shows at `stone_width_mm`
-/// (`0.0` = no size set): the swatch path is
-/// `MODEL_UNIT_FACE_UP_PATH` times the scale the render gives a per-model-unit
-/// color at that size ([`swatch_path_units`], `width / 7 mm`), so the dot is the color the
-/// face-up render shows (the calibration of `render_setup::MODEL_UNIT_FACE_UP_PATH`) and darkens
-/// with the stone like the render does. With no size or 7 mm it is the 1-unit reference. The
-/// toolbar's preset dots call this with the current Stone Size.
+/// The sRGB color (D65) a stone with this absorption triple shows at `stone_width_mm` (`0.0` = no
+/// size set).
+///
+/// The path is `render_setup::MODEL_UNIT_FACE_UP_PATH` scaled by the stone width
+/// ([`swatch_path_units`], `width / 7 mm`), so the dot darkens with the stone as the face-up render
+/// does. With no size or 7 mm it is the 1-unit reference.
 #[must_use]
 pub fn display_rgb_for_stone(absorption: [f32; 3], stone_width_mm: f32) -> [u8; 3] {
     let tensor = AbsorptionTensor::isotropic(legacy_rgb_bands(absorption));
@@ -209,7 +209,9 @@ pub fn shown_swatch(
         .map(|rgb| display_rgb_for_stone(rgb, stone_width_mm))
 }
 
-/// The color the control shows, as the color fields of a selection: the design's while picks go
+/// The color the control shows, as the color fields of a selection.
+///
+/// It is the design's while picks go
 /// to the design, the view color while they go to the view (and the material can be recolored at
 /// all). A view color never applies to a material with its own color (a physics recipe, color
 /// zones): none is shown.
@@ -248,9 +250,10 @@ pub struct ColorList {
     pub host: GemMaterial,
 }
 
-/// The list for `host` (`None`: the stand-in of [`unresolved_host`]) with the cutter's `saved`
-/// variants (listed for their own material only) and the `shown` color (which decides whether the
-/// Legacy row exists).
+/// The keyed list for `host`, with the cutter's `saved` variants and the `shown` color.
+///
+/// `host` is `None` for the stand-in of [`unresolved_host`]. The `saved` variants are listed
+/// for their own material only. The `shown` color decides whether the Legacy row exists.
 #[must_use]
 pub fn color_list(
     host: Option<&GemMaterial>,
@@ -292,10 +295,11 @@ pub struct ListView {
     pub custom: Option<RowView>,
 }
 
-/// Groups `list` for the popup. The dots of Material Default, the presets and the variants follow
-/// `stone_width_mm` ([`variant_swatch`], [`display_rgb_for_stone`]) like the selected dot, so a dot
-/// and the swatch it becomes when picked agree at every Stone Size; the Legacy row keeps its
-/// preset's 7 mm dot.
+/// Groups `list` for the popup.
+///
+/// The dots of Material Default, the presets and the variants follow `stone_width_mm`
+/// ([`variant_swatch`], [`display_rgb_for_stone`]), like the selected dot, so a dot and the swatch
+/// it becomes when picked agree at every Stone Size. The Legacy row keeps its preset's 7 mm dot.
 #[must_use]
 pub fn list_view(list: &ColorList, stone_width_mm: f32) -> ListView {
     let mut view = ListView::default();
@@ -550,16 +554,19 @@ pub struct DesignColorPort {
 }
 
 /// The material whose colors the toolbar offers right now (the traced material without any color
-/// applied): the host of the per-axis editor of the view-only color. `None` when the name
-/// resolves to nothing.
+/// applied): the host of the per-axis editor of the view-only color.
+///
+/// `None` when the name resolves to nothing.
 #[must_use]
 pub fn view_host(render_ctx: &Arc<Mutex<RenderContext>>) -> Option<GemMaterial> {
     RenderContext::lock(render_ctx).color_host()
 }
 
-/// The view-only color as the color fields of a selection (a variant snapshot, else the legacy
-/// triple and band rows; none for the material's own color): what the per-axis editor of the view
-/// seeds its rows from (`lch_color::seed_axis_lch`).
+/// The view-only color as the color fields of a selection.
+///
+/// That is a variant snapshot, else the legacy triple and band rows; none for the material's
+/// own color. The per-axis editor of the view seeds its rows from it
+/// (`lch_color::seed_axis_lch`).
 #[must_use]
 pub fn view_color_selection(render_ctx: &Arc<Mutex<RenderContext>>) -> MaterialSelection {
     RenderContext::lock(render_ctx)
@@ -834,7 +841,9 @@ fn pick_of_view_color(color: ViewColor) -> Pick {
     }
 }
 
-/// Applies a color from the color editor as the view-only color: a variant (the per-axis Custom
+/// Applies a color from the color editor as the view-only color.
+///
+/// A variant (the per-axis Custom
 /// Color, or a picked variant) keeps every direction of a pleochroic stone, a legacy color is the
 /// triple every consumer can show plus the seven-band rows, which win in the render. While the
 /// open design takes the pick instead (the view changed under the popup) it is the design's own
@@ -882,9 +891,10 @@ pub fn apply_view_choice(
     );
 }
 
-/// Wires the toolbar's "Color" control: pushes the list, restores the remembered view
-/// color, and registers the model's callbacks. `port` is the editor's side of the design
-/// color (see [`DesignColorPort`]).
+/// Wires the toolbar's "Color" control: pushes the list, restores the remembered view color, and
+/// registers the model's callbacks.
+///
+/// `port` is the editor's side of the design color (see [`DesignColorPort`]).
 pub fn setup_render_body_color_callbacks(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,

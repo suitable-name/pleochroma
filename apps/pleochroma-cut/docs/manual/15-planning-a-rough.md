@@ -4,13 +4,14 @@
 
 This chapter covers the **Rough Planner**: a separate window in which you
 model a piece of rough (a block, a cylinder or a water-worn pebble, with flat
-cuts taken off it), tell the planner how many stones you are willing to cut and
-from which designs, and get the ten heaviest ways to cut it. You will learn how
-to build the model, how the live weight check works, what the planner does when
-you press **Plan**, how to read the 3D view, the result cards and every metric
-on them, how to jump from a result to the designs in your library and open one in
-the editor with its piece of rough, how to save plans and share them as files, and
-what the planner cannot do.
+cuts taken off it, or a 3D scan), tell the planner how many stones you are willing
+to cut and from which designs, and get the ten heaviest ways to cut it. You will
+learn how to build the model in the four steps on the left, how the live weight
+check works, what the planner does when you press **Plan**, how to read the 3D view,
+the Layouts list and every metric in it, how to import a 3D scan and read its import
+report, how to jump from a layout to the designs in your library and open one in the
+editor with its piece of rough, how to save plans and share them as files, and what
+the planner cannot do.
 
 ## Opening the Rough Planner
 
@@ -35,58 +36,101 @@ in the library, click designs, and move the planner to a second screen.
   selected, the planner shows "Switch to the local library to plan a rough." in
   red, and **Plan** refuses with the same message (Chapter 1 covers switching
   libraries, Chapter 10 the remote ones).
-- The **?** button in the planner's title bar opens this chapter.
+- The help icon at the right of the planner's header opens this chapter.
 
 ## The Window at a Glance
 
-The window has a title bar and three columns. It opens at 1280 x 820 (smaller on
+The window has a header and three columns. It opens at 1280 x 820 (smaller on
 a screen that cannot hold that) and cannot be made smaller than 1040 x 560.
 
 ![The Rough Planner with a rough block and five cuts, before planning.](../../../../assets/rough_planner.png)
 
-- **Title bar** — **New**, **Saved Plans** (it reads **Close Saved** while the
-  saved list is open), **Save Selected (n)** and **?**.
-- **Left column** — the rough and the plan. A scrolling upper part holds the
-  **ROUGH** section (shape, size, material, weighed carat, the live readout) and
-  the **SHAPE** section (Undo, Redo, the cut buttons and the cut list). The
-  **PLAN** section (design and stone limits, candidate designs, losses, the
-  **Plan** button and the progress bar) stays pinned at the bottom.
-- **Centre** — the 3D view, with its buttons above the image and a hint line
-  below it, so no control ever covers the picture.
-- **Right column** — **RESULTS**: the summary line, the result cards, and a
-  footer with **Show All in Library**, **Save Selected (n)** and **Save All**.
-  While the saved list is open it takes the place of the results; switching
-  between the two keeps the scroll position of each. The two questions the
-  planner can ask you (the name row when you save, and "Replace ... Unsaved
-  Layouts?" when you plan again, see below) open at the top of this column,
-  above both lists.
+- **Header** — the window's icon and "Rough Planner", with a subtitle that sums up
+  the rough ("Tourmaline block · 30 × 60 × 20 mm · 94.40 ct · 4 shape cuts"). At
+  the right are **New Rough**, the undo and redo icons and the help icon.
+- **Left column** — the rough and the plan, as four steps (**Rough**, **Crystal
+  Axis**, **Shape Cuts**, **Plan Settings**) with the **Plan** block pinned at
+  the bottom. See "The Four Steps" and "The Plan Block" below.
+- **Centre** — the 3D view, with a **Rough | Layout** switch at the top left, the
+  view buttons at the top right and a bar along the bottom. See "The 3D View".
+- **Right column** — two tabs, **Layouts** and **Saved Plans**. The Layouts tab holds
+  the ranked list of results and the footer with **Show in Library** and the save
+  button; the Saved Plans tab holds your saved plans. See "Reading the Results"
+  and "Saved Plans". The two questions the planner can ask you (the name row when
+  you save, and "Replace ... Unsaved Layouts?" when you plan again, see below) open
+  inside the Layouts tab.
 
-In a window narrower than 1180 pixels the right column gets narrower and the
-small thumbnails on the result cards are hidden; the cards are laid out so that
-their texts are shortened with an ellipsis rather than running out of the column.
+In a window narrower than 1180 pixels the left and right columns get narrower, the
+design legend in the view's bottom bar is hidden (the selected layout's detail
+already names its designs), and the layer toggles in that bar become icons. The
+texts are shortened with an ellipsis rather than running out of a column.
 
 Everything can be reached from the keyboard: Tab moves between the buttons, the
-choices, the fields, the result cards and their tick boxes, and Space or Enter
-presses the one that has the focus (it gets a bright outline). Each control has a
-name for screen readers. The shortcuts are listed at the end of the chapter.
+choices, the fields, the step headers, the layout rows and their stars, and Space
+or Enter presses the one that has the focus (it gets a bright outline). Each control
+has a name for screen readers. The shortcuts are listed at the end of the chapter.
+
+## The Four Steps
+
+The left column is a list of four steps, each a card with a header: a number
+circle, the step's title (with "optional" for **Crystal Axis** and **Shape Cuts**), a
+one-line summary while the step is closed, and a chevron. Only one step is open at a
+time (an accordion): click a header to open that step, which folds the one that was
+open; click the open step's header to fold it away. The column scrolls above the
+**Plan** block, and the step you open scrolls into view.
+
+- **The done check.** The number circle turns into a green check when the step is
+  complete: **Rough** when the model is valid, **Crystal Axis** when the axis is
+  **Known** or when the material has no axis to set, **Shape Cuts** when every cut
+  row is valid. **Plan Settings** is always complete, so it keeps its number.
+- **The summary.** A closed step says what it holds, for example "Block 30 × 60 × 20
+  mm · Tourmaline · 94.40 ct" for **Rough**, "4 cuts" for **Shape
+  Cuts** or "Up to 2 designs · current filter, 321 designs" for **Plan Settings**.
+  On a 3D scan **Shape Cuts** reads "Face cuts only on a scan".
+- **An error in a closed step.** A step whose model has an error shows a red dot
+  and the error line as its summary, so a problem is never hidden behind a folded
+  step. The error texts are the ones this chapter quotes (for example "Dimensions must
+  not exceed 2000 mm.").
+
+**Crystal Axis** is listed only for a material that has a crystal axis.
+
+## The Plan Block
+
+The block pinned at the bottom of the left column holds the **Plan** button and
+shows the state of the plan:
+
+- **Idle** — **Plan**, or **Plan Again** once there are layouts, with "Ctrl+Enter"
+  beside it.
+- **Running** — the block shows the stage line (see "The First Run: Measuring the
+  Designs" for its texts), **Cancel**, and a progress bar. A line under the bar
+  reads like "6 layouts so far · best 29.43 ct" once the cut orders have been
+  tried; until then it stays empty. Layouts appear in the list when the plan has
+  finished, not one by one. On a scan with a time limit the stage line also shows
+  the time left.
+- **Blocked** — the button is greyed out and the reason sits under it: a model
+  with an error, no material with a specific gravity, a scan that is still being
+  read ("waits for the scan"), a remote library ("Switch to the local library to
+  plan a rough.").
 
 ## Modelling the Rough
 
 ### The Starting Shape
 
-The **ROUGH** section starts with four choices, **Block**, **Cylinder**,
-**Pebble** and **Mesh (OBJ/STL/PLY)**; the first three are described here, the mesh under
-"Non-Convex Roughs".
+Step 1, **Rough**, starts with four icon tiles, **Block**, **Cylinder**, **Pebble**
+and **3D Scan**; the first three are described here, the scan under "Non-Convex
+Roughs". The step goes on with the size fields, **Material**, **Carat** with **Fit
+to Weight**, the weight check chip and the **Inclusions** row.
 
-- **Block** and **Pebble** take **Rough X (mm)**, **Rough Y (mm)** and
-  **Rough Z (mm)**: the three sides of the box the rough fits in. A pebble is
+- **Block** and **Pebble** take **Rough X**, **Rough Y** and **Rough Z** fields with the unit (mm)
+  written inside them: the three sides of the box the rough fits in. A pebble is
   the ellipsoid inscribed in that box, so it is smaller than a block of the same
   size (an ellipsoid fills about half of its box).
-- **Cylinder** takes **Diameter (mm)** and **Length (mm)**, and an **Axis**
+- **Cylinder** takes **Diameter** and **Length** fields (mm), and an **Axis**
   choice, **X**, **Y** or **Z** (**Y** by default): the direction the cylinder
   runs along.
-- **Mesh (OBJ/STL/PLY)** imports a Wavefront `.obj`, an `.stl` or a `.ply` file as
-  the rough, a closed non-convex mesh included; see "Non-Convex Roughs" below.
+- **3D Scan** imports a Wavefront `.obj`, an `.stl` or a `.ply` file as the
+  rough, a closed non-convex mesh included. Picking the tile opens the file picker;
+  see "Non-Convex Roughs" below.
 
 Type a number such as `12.0`; a decimal comma also works. Each size must be
 greater than 0 and no more than 2000 mm ("Dimensions must not exceed 2000
@@ -106,13 +150,13 @@ and corner cuts on a round shape.
 ### Non-Convex Roughs
 
 A scanned or modelled rough that has a notch, a hollow or a re-entrant side can be
-imported with **Mesh (OBJ/STL/PLY)**. Pick a Wavefront `.obj`, an `.stl` (ASCII or
+imported with the **3D Scan** tile. Pick a Wavefront `.obj`, an `.stl` (ASCII or
 binary) or a `.ply` (ASCII or binary) file. The numbers in the file are read in
-the unit you chose in **Mesh File Units** (**mm** by default, or **cm**, **m**,
+the unit set in **File units** in the scan card (**mm** by default, or **cm**, **m**,
 **inch** or **µm**) and scaled to millimetres, and **Fit to Weight** rescales the
-whole mesh like any other rough. Choose the unit before you click the mesh
-choice, since the file is read when you pick it; the choice is kept until you
-close the program. An STL file is a list of separate triangles, which the planner
+whole mesh like any other rough. The unit can be changed after the import: the
+planner then reads the same file again in the new unit (see "The Scan Card"). The
+unit you chose is kept until you close the program. An STL file is a list of separate triangles, which the planner
 joins into one surface; a PLY file's normals, colors and other data are ignored
 (only the positions and the faces are used). Faces with more than three corners
 are split into triangles as in an OBJ file. The format is taken from the file
@@ -120,15 +164,17 @@ itself where it can be (a PLY file starts with `ply`, a binary STL has the size
 its triangle count gives) and otherwise from the extension.
 
 The file is read in the background, so the window stays usable while a large scan
-loads. Under the four rough choices the form says "Reading the mesh file..." (or
-"Scaling the mesh..." for **Fit to Weight** on a mesh), and until it is done those
-choices, **Fit to Weight** and **Plan** wait. **New** or opening a saved plan
+loads. The scan card shows "Reading the mesh file..." with a progress bar once the
+triangles can be counted (or "Scaling the mesh..." for **Fit to Weight** on a mesh),
+the view says "Reading the scan...", and until the file is done the shape tiles,
+**Fit to Weight** and **Plan** wait ("waits for the scan"). **New Rough** or opening a saved plan
 drops a mesh that is still loading. A file larger than 64 MB is refused before any
 of it is read: "the file is 120.5 MB, and the planner reads mesh files up to 64 MB".
 A file that is cut short names what is missing (for example that it ends inside the
 `face` element of a PLY file, or that a binary STL's header promises more triangles
 than the file holds), and an ASCII STL facet that is not a triangle is refused.
-A failed import shows its reason in the red line and leaves your earlier rough as
+A failed import shows its reason in the red error line (in the import report, with the
+verdict "refused") and leaves your earlier rough as
 it was. **Fit to Weight** does the same when it cannot scale the mesh ("Fit to
 weight failed: ...", or "The model changed while it was being scaled" if you
 edited the rough meanwhile): the model stays as it was and **Plan** stays
@@ -141,11 +187,12 @@ A mesh whose size is not believable in the chosen unit is refused as well: more
 than 2000 mm across, or less than 1 mm across. The message names the unit that
 would bring the file into range and how large the rough would then be: "The file's
 largest side is 0.034 units; read as metres that is 34 mm. Choose m in the unit box
-next to the mesh choice and import it again." The planner never applies the suggestion
-by itself: choose the unit and import the file again. One mistake cannot be caught:
+next to the mesh choice and import it again." (The unit box is **File units**.) The
+planner never applies the suggestion by itself: choose the unit and import the
+file again. One mistake cannot be caught:
 a file in centimetres whose rough still comes out between 1 mm and 2000 mm when read
 as millimetres (a 5 cm stone read as 5 mm) is accepted, ten times too small. Check
-the size shown under the form, and let the weight check (below) be the backstop.
+the size shown in the scan card, and let the weight check (below) be the backstop.
 
 If the file is a **closed mesh** (a solid surface with no holes), the planner uses
 the mesh itself, not just its convex outline:
@@ -180,8 +227,8 @@ volume is still taken out of the rough.
 
 **Small defects are repaired.** A scan that is almost closed is not thrown away.
 When the mesh is open or its faces are not consistently wound, the import tries
-three repairs, the gentlest first, and says what it did in a note on the status
-line ("The mesh was repaired: ..."):
+three repairs, the gentlest first, and says what it did in a **Repaired** finding of
+the import report ("The mesh was repaired: ..."; see "The Import Report"):
 
 - **Gaps a hair wide** are closed by joining vertices that are a little further apart
   than the usual join allows, up to 0.001 % of the rough's size; the note gives
@@ -201,7 +248,8 @@ plan stores the repaired mesh, so reopening it gives no note. A repair that does
 not leave the mesh closed is dropped, and the mesh is then treated as unusable.
 
 When the file cannot be used as a mesh, the import falls back to the **convex hull
-of its vertices** and says why in a note on the status line:
+of its vertices** and says why in the import report, where the **Planned on** verdict
+reads "its convex outline":
 
 - **No faces**: a file with only `v` lines is a point cloud; its convex hull is the
   rough.
@@ -210,7 +258,7 @@ of its vertices** and says why in a note on the status line:
   winding** that cannot be repaired: the hull is used.
 - **A mesh that crosses itself**: the hull is used, and the note says where, for
   example "the mesh crosses itself in 4 places, the first near x 12.30, y 4.05, z
-  7.80 mm". The position is in the file's own coordinates, in millimetres after
+  7.80 mm" (the finding's **Show** turns the view to that place). The position is in the file's own coordinates, in millimetres after
   the unit you chose. A search stops after 16 places, so a heavily tangled scan is
   reported as "at least 16 places". Surfaces that only touch (two bodies corner to
   corner, a point resting on a face) are not crossing; surfaces that overlap in
@@ -225,17 +273,16 @@ of its vertices** and says why in a note on the status line:
   file is not checked. Decimate the scan in a mesh tool first.
 
 A mesh that turns out to be convex (a cube, a faceted ball) is simply a convex
-rough, with no note, and plans exactly as the hull would.
+rough, with no finding, and plans exactly as the hull would.
 
 Faces may be triangles or polygons (polygons are split into triangles; a polygon that is not convex is split inside its own plane, and if that fails the hull is used) and may
 name their vertices as `v`, `v/vt`, `v//vn`, `v/vt/vn`, with positive or negative
 indices. Texture coordinates and normals are ignored.
 
-**A smooth scan** is one whose convex outline has more than 400 faces. It is no
-longer refused. The planner keeps the scan itself as the rough and uses a slightly
+**A smooth scan** is one whose convex outline has more than 400 faces. The planner keeps the scan itself as the rough and uses a slightly
 larger, simplified outline only to size its grid; every stone is checked against
-the scan, so none leaves real material. After the import the status line says how
-many faces the outline had. If such a scan is open and cannot be repaired, or has
+the scan, so none leaves real material. After the import the report says how
+many faces the outline had (its **Smooth scan** finding). If such a scan is open and cannot be repaired, or has
 too many triangles, it is still refused, because nothing safe can stand in for it:
 repair or reduce it in a mesh tool first. The weight and the yield use the scan's
 own volume, not the outline's.
@@ -247,12 +294,14 @@ the grid), so the time it takes falls with the number of cores.
 
 A scan is planned on a coarser grid than a solid rough (about an eighth of the table
 entries, 11 cells an axis for a cube at 10 stones instead of 16), because every entry
-is checked against the scan. Under **Plan** a rough with a scan shows **Scan Plan Time
-Limit (s)**: 120 seconds by default, 0 for no limit, kept between sessions. When the
-limit is reached the plan stops and shows the best layouts found so far, with the note
-"Stopped at the time limit": the search is partial, and planning again may give
-different layouts. If it stopped before any layout existed, a message says so; raise
-the limit and plan again. Solid and outline roughs ignore the limit. Without the limit
+is checked against the scan. In step 4, **Plan Settings**, a rough with a scan shows
+**Scan Plan Time Limit** (seconds) with the line "Scans plan on a coarser grid and use
+every core.": 120 seconds by default, 0 for no limit, kept between sessions. When the
+limit is reached the plan stops and shows the best layouts found so far, and the
+Layouts tab shows an amber "Stopped at the time limit" badge beside **Plan Again with
+More Time**, which doubles the limit and plans again. The search is partial, and
+planning again may give different layouts. If it stopped before any layout existed, a
+message says so; raise the limit and plan again. Solid and outline roughs ignore the limit. Without the limit
 reached, a scan's plan is the same on any number of cores.
 
 **Self-intersection is detected, not repaired.** Scans often have overlapping
@@ -260,12 +309,88 @@ shells or a surface that passes through itself, and such a file can satisfy the
 closed-mesh checks yet leave the planner unsure which side of the surface is
 material. The import therefore looks for triangles that cross one another (shells
 that cross instead of nesting are the same defect) and, when it finds any, falls
-back to the convex hull with the note described above, so a stone is never planned
+back to the convex hull with the finding described above, so a stone is never planned
 into a notch that does not exist. The check treats two surfaces closer than a
 billionth of the rough's size as touching, and it does not compare triangles that
 share a vertex, so a fold that only shares a corner can slip through. To use the
 scan itself, repair it in a mesh tool (remove internal faces, merge shells) at the
-place the note names, and import it again.
+place the finding names, and import it again.
+
+### The Scan Card
+
+Once a scan is imported, the **Rough** step shows a **scan card** under the shape
+tiles:
+
+- the file name, with the triangles and cavities it holds ("48,212 triangles · 1
+  cavity");
+- the scan's size, the bounding box in millimetres ("30.1 × 58.7 × 21.4 mm");
+- **File units**, the unit the file is read in (**mm**, **cm**, **m**, **inch**
+  or **µm**);
+- a **⋯** menu with **Replace Scan...** and **Re-read**.
+
+**File units** can be changed after the import. The planner remembers the path of
+the file and reads it again in the new unit, so a scan imported in the wrong unit
+is put right with one choice and no new file picker. **Replace Scan...** asks for
+another file (it is the same as picking the **3D Scan** tile again), and **Re-read** reads
+the same file again. While the file is
+read the card shows the progress instead, as described above.
+
+**Carat** and **Fit to Weight** work as for any rough: they scale the scan, and
+the weight check chip compares the scan's own volume with the scale.
+
+### The Import Report
+
+Everything the import learns about the file is listed in the **import report**, a
+card under the scan card.
+
+**Planned on** is a badge that says what the planner works with:
+
+- **the scan itself** (green): the closed mesh is used as it is, with repairs where
+  they were needed;
+- **its convex outline** (amber): the fallback, with the reason in a finding below.
+  This is the case for a point cloud, an open or non-manifold mesh, a mesh that
+  cannot be wound consistently, a mesh that crosses itself, a mesh with no volume
+  and a mesh with too many triangles (see "Non-Convex Roughs");
+- **refused** (red): the file cannot be used, with the reason and what to do in a
+  mesh tool.
+
+Under the badge there is one row for each **finding**, with an icon for its level
+(fine, information, repaired or problem):
+
+- **Repaired** — how many vertices were joined and over what distance, how many
+  faces were turned, how many holes were filled and how wide the widest was. The
+  rough shows in amber in the view.
+- **Crosses itself** — in how many places ("at least 16" when the search stopped),
+  with the first position in the file's coordinates. The rough shows in red in the
+  view.
+- **Smooth scan** — the scan itself is kept and every stone is checked against the
+  scan; the grid outline has so many planes.
+- **Weight** — the model's weight against the scale.
+- **Saved with the plan, repaired on import** — shown when a saved plan with such
+  a scan is reopened, since the plan stores the repaired mesh and nothing is repaired again.
+
+A finding that has a place on the scan has a **Show** link: it turns the view to
+that place and highlights it. The report is replaced by each new import.
+
+### Scans in the View
+
+The view draws the scan's own triangles, shaded. Two layers help to read the
+import report; their toggles are in the view's bottom bar (see "The 3D View"):
+
+- **Problems** — on by default when the report has any finding. It colors the
+  repaired triangles amber and the places where the scan crosses itself red, and
+  puts a marker at each place.
+- **Outline** — draws the outline the planner uses, the convex outline or the
+  grid outline of a smooth scan, as a cyan ghost around the scan, so a fallback is
+  visible and not only mentioned.
+
+The legend in the bar names the three colors ("Repaired", "Crossing", "Outline
+used").
+
+**Cuts on a scan.** Only **Face** cuts apply to a scan. The **+ Edge**
+and **+ Corner** buttons are hidden, not greyed out, and the **Shape Cuts** summary reads "Face cuts only on a
+scan". **Align to Face** and **Align to Edge** in the Crystal Axis step pick the
+scan's own triangles.
 
 ### Inclusions
 
@@ -273,21 +398,25 @@ An inclusion is a flaw inside the rough that you know the place of: a crack, a
 feather, a crystal of another mineral. No stone can be cut through it, but it is
 still stone that you hold and paid for. The planner takes an inclusion as a **closed
 mesh inside the rough**: stones keep clear of it, and the weight and the yield count
-it as material. This works for a rough imported with **Mesh (OBJ/STL/PLY)**, convex
+it as material. This works for a rough imported with **3D Scan**, convex
 or not; a block, a cylinder and a pebble have no mesh to put an inclusion in (see
 "Limitations").
 
-**Adding one.** Once a mesh rough is in place, the form shows **Add Inclusion...**
-with a **Margin (mm)** field under the mesh choices. Press it and pick the
-inclusion's file (an `.obj`, `.stl` or `.ply`, the same formats as the rough). The
-file is read in the unit chosen in **Mesh File Units** and in the same coordinates as
+**Adding one.** Once a 3D scan is in place, the **Inclusions** row at the bottom of
+the **Rough** step shows how many inclusions there are and an **Add** button, which
+opens the inclusion form. Its **Kind** is a mesh file, **Mesh (OBJ, STL, PLY)**, or a shape
+you describe by its size (a diameter, axis or edge lengths in mm) and place with the
+**Position X**, **Y** and **Z** fields. The **Margin** field sets the margin (below). For a
+mesh choose **Add Inclusion...** and pick the inclusion's file (an `.obj`, `.stl` or `.ply`,
+the same formats as the rough); a shape is added with **Add Inclusion**. The
+file is read in the unit set in **File units** and in the same coordinates as
 the rough's own file, so export both from the same scene. The planner moves the
 inclusion exactly as the import moved the rough (the import puts the rough's bounding
 box at the origin) and as **Fit to Weight** has scaled it since. The file is read in
 the background ("Reading the inclusion...", "Adding the inclusion..."), and each added
-or removed inclusion is one undo step. The list under the button shows every inclusion
+or removed inclusion is one undo step. The rows under the button show every inclusion
 with its size and volume ("Inclusion 1: 4.6 x 4.6 x 4.6 mm, 97.3 mm³") and a
-**Remove** button. A file with several separate closed surfaces adds them as one
+**×** to remove it. A file with several separate closed surfaces adds them as one
 inclusion. An inclusion has to be a closed mesh of triangles, like a rough, and the
 rough and its inclusions together must stay within 200,000 triangles; a mesh with small
 defects is repaired as in the sections above.
@@ -344,9 +473,8 @@ A straight line from the camera to the inclusion is wrong, because light from th
 inclusion bends where it leaves the stone. The planner knows the rough's mesh and the
 cameras, follows each of your clicks through the surface (the bending is Snell's law)
 and into the stone, and finds the point all the clicks agree on. This works on a
-**mesh rough** only, because the bending depends on the shape of the surface. Under
-**Add Inclusion...** the form shows **Locate Inclusion from Photos...**, which is
-enabled when the rough has a mesh.
+**mesh rough** only, because the bending depends on the shape of the surface. In the
+**Inclusions** row, **Locate from Photos...** is shown when the rough has a mesh.
 
 **The rig.** The planner assumes cameras that do not move between photos. The default
 layout has eight views: +X, -X, +Y and -Y, each seen from both ends, which the program
@@ -460,14 +588,14 @@ than the green one, you most likely clicked a copy.
 **Adding it.** The photos give a position, so you set the **radius** of the shell that
 stands for the inclusion, in millimetres, to the size of the blob you saw, and the
 **margin**, which starts at the suggested one. **Accept** adds the point as a small
-closed shell through the same route as **Add Inclusion...**, so the same checks apply
+closed shell through the same route as **+ Mesh File**, so the same checks apply
 (an inclusion that reaches the surface is refused) and the addition is one undo step.
 A line or polygon can be located but is not yet added as an inclusion: Accept is
 disabled with the note that feathers and silk can be located but not yet added. The
 marks and the rig of each added inclusion are kept for this session, listed under
 "LOCATED THIS SESSION" with **Re-Open**, so you can solve them again after
 recalibrating the rig; they are not part of a saved plan (a plan keeps the inclusion's
-mesh, as before) and are forgotten when the program closes.
+mesh) and are forgotten when the program closes.
 
 **What this is not.** The photos are used for the inclusion's position and size, not
 for rendering: the planner does not draw the stone with the inclusion in it. The accuracy
@@ -484,13 +612,14 @@ solution. For a birefringent stone only the ordinary ray is traced.
   default is Quartz. The specific gravity turns volume into carats (Chapter 6
   covers materials). If no material has a specific gravity, the planner says so
   and **Plan** is disabled.
-- **Carat (ct)** — the model's own weight: the volume of the modelled rough times
+- **Carat** (ct) — the model's own weight: the volume of the modelled rough times
   the material's specific gravity, rewritten whenever the size, the cuts or the
   material change. Type the weight from your scale over it to compare the two.
 
-Below these fields the planner shows a live readout of the model, for example
-"Model 257 mm³ · 3.40 ct (Quartz, SG 2.65)", and, once you have typed a weighed
-carat over the model's own, a colored **weight check**:
+Below these fields the planner shows the **weight check** as a chip, and, once you
+have typed a weighed carat over the model's own, in a color. Hold the pointer over
+the chip to see the live readout of the model, for example "Model 257 mm³ · 3.40 ct
+(Quartz, SG 2.65)":
 
 | Difference between model and weighed carat | Chip |
 | --- | --- |
@@ -517,40 +646,51 @@ clear the field.
 
 ### The Crystal Axis of the Rough
 
-For a material that has a crystal axis, the **CRYSTAL AXIS** panel between the **ROUGH**
-and **SHAPE** sections tells the planner how the crystal runs in the rough. It starts as
-**Unknown**, and the planner then plans exactly as it always did. **Set** gives a tilt and
-an azimuth in the rough's own frame, which you can type, take from **Align to Face**,
-**Align to Edge**, **Fit to Crystal Length** or **From Color Zones**, or turn by dragging
-the axis line in the 3D view. With the axis set, the material's usual orientation rule is
-switched on and a line says so, for example "Stones are oriented to the crystal axis: Table
-Across (Sapphire default)". The planner then orients the stones to the rule, and the rows
-under the results say how far each stone is from it. The rule can be changed for the whole
+For a material that has a crystal axis, step 2, **Crystal Axis** (listed between
+**Rough** and **Shape Cuts**, optional), tells the planner how the crystal runs in the
+rough. Its switch starts as **Unknown**, and the planner then plans exactly as it always
+did. **Known** gives a tilt and a turn (the azimuth) in the rough's own frame. A state
+card shows the axis gizmo and says in a sentence how the axis runs, with a note under it
+that is colored by its level. You can type **Tilt** and **Turn** (and a **Second Axis**
+for a two-axis material), or take the axis from the **Find the Axis** menu: **Align to
+Face**, **Align to Edge**, **Fit to Crystal Length** or **From Color Zones**. While one of
+these waits for your clicks, the state card says "Click a face in the view" with a
+**Cancel**, and the view shows a cyan "Click a face — Esc cancels" chip at the top. You can
+also turn the axis by dragging the axis line in the 3D view. With the axis known, the
+material's usual orientation rule is switched on and the **rule card** says so, for example "Stones are oriented to the crystal axis: Table
+Across (Sapphire default)"; **Change** opens the rule editor in the card. An amber line
+says when the axis has changed since the layouts on screen were planned. The planner
+then orients the stones to the rule, and the stone rows in a layout say how far each
+stone is from it. The rule can be changed for the whole
 plan, for one design or for one stone, each with a Reason, and a stone can be locked so
 that the next plan cuts the rest of the rough around it. Chapter 25 describes all of it.
 
 ### Cutting the Rough
 
-Real rough is rarely a perfect box. The **SHAPE** section lets you take flat
+Real rough is rarely a perfect box. Step 3, **Shape Cuts** (optional), lets you take flat
 cuts off the starting shape. Every cut removes material with one flat plane, so
 a cut never makes a rough less convex than its starting shape (to model a notch
 or a hollow, import a mesh; see "Non-Convex Roughs"). Each cut is measured against
 the starting shape, not against the cuts before it, so you can edit or delete
 any cut without disturbing the meaning of the others.
 
-There are three kinds of cut, added with **+Edge**, **+Corner** and **+Face**.
-Each appears as a numbered row in the list below the buttons.
+There are three kinds of cut, added with **+ Edge**, **+ Corner** and **+ Face**.
+Each appears as a compact row in the list above the buttons: the kind's icon, the
+cut's name, a line saying how much it removes, its setback fields in the row (a
+face's three fields go on a second line), and a **×**. Below the buttons the step
+says "Or click an edge or a corner in the view".
 
-- **Edge** — takes a wedge off one of the twelve edges of the box. A drop-down
-  chooses the edge by the two faces that meet there (Top-Front, Top-Back,
-  Top-Left, Top-Right, Bottom-Front, ... Back-Right). **Setback A (mm)** and
-  **Setback B (mm)** say how far the cut reaches from the edge across the two
+- **Edge** — takes a wedge off one of the twelve edges of the box. The name of the
+  row ("Edge Top-Front") is a menu: click it to choose the edge by the two faces
+  that meet there (Top-Front, Top-Back,
+  Top-Left, Top-Right, Bottom-Front, ... Back-Right). The two setback fields,
+  **Setback A (mm)** and **Setback B (mm)**, say how far the cut reaches from the edge across the two
   faces: A along the first-named face, B along the second. Neither may be longer
   than the face it is measured along. New edge cuts start on Top-Front.
-- **Corner** — takes a corner off the box. A drop-down chooses one of the eight
+- **Corner** — takes a corner off the box. The row's name menu chooses one of the eight
   corners by its three faces (Top-Front-Left ... Bottom-Back-Right).
-  **Setback A**, **Setback B** and **Setback C** (mm) are how far the cut reaches
-  along the three box edges that meet at the corner, in the order of the three
+  The setback fields **Setback A (mm)**, **Setback B (mm)** and **Setback C (mm)** say how far
+  the cut reaches along the three box edges that meet at the corner, in the order of the three
   faces named: A is measured along the axis that the first-named face is
   perpendicular to. For Top-Front-Right, A is down the vertical edge. New corner
   cuts start on Top-Front-Right.
@@ -562,8 +702,9 @@ Each appears as a numbered row in the list below the buttons.
   direction. New face cuts start facing straight up. Face cuts work on every
   shape.
 
-Edge and corner cuts need a block: **+Edge** and **+Corner** are greyed out for
-a cylinder or a pebble, which show "Edge and corner cuts need a block". If you
+Edge and corner cuts need a block: **+ Edge** and **+ Corner** are greyed out for
+a cylinder or a pebble, which show "Edge and corner cuts need a block", and on a 3D
+scan they are hidden (only face cuts apply there). If you
 switch a shape that already has edge or corner cuts to a cylinder or a pebble,
 the rows stay, and the model reports "Cut 2: edge and corner cuts are only
 supported on block rough." until you delete them or switch back.
@@ -574,11 +715,11 @@ the shortest side of the box for a corner cut), and a face depth of 10 % of the
 rough's extent in the cut's direction. Both are rounded to 0.1 mm and are at least
 0.1 mm.
 
-Click a cut's row to select it. Its face is outlined in the 3D view, and the row
+Click a cut's row to select it (the selected row is outlined in cyan). Its face is outlined in the 3D view, and the row
 shows how much it removes, for example "removes 84 mm³ (1.11 ct)" (84 mm³ of Quartz, SG 2.65, is
 1.11 ct). Clicking into any field of a row selects the row too, and a row you
 have just added scrolls into view with its first field ready to type over. The **×** at
-the right of the row title deletes the cut. While you type in a cut field, the
+the right of the row deletes the cut. While you type in a cut field, the
 picture and the readout follow the number at once. If a value is not allowed, for
 example a setback longer than its face, the row shows the reason in red under
 the fields and the model shows the same message; **Plan** is greyed out until the
@@ -591,13 +732,13 @@ field is measured in: "Azimuth must be a number in degrees." for the two angles,
 You can also make cuts in the view itself, without touching the buttons.
 
 - **Edge or corner.** With a block in the view, move the pointer over an edge or a
-  corner of the block. When it is within 10 pixels of one, the hint line below
-  the image reads "Click to cut edge Top-Front" or "Click to cut corner
+  corner of the block. When it is within 10 pixels of one, a tooltip in the view
+  reads "Click to cut the edge Top-Right" or "Click to cut the corner
   Top-Front-Right", and the edge or corner is marked. A corner wins over an edge
   next to it. Click, and the planner adds that cut with the default setbacks and
   selects its row.
-- **Face from View.** Press **Face from View**. The button lights up and the
-  hint line shows "Face from view: click rough face (Esc to cancel)". Move the
+- **Face from View.** Press **Face from View**. The button lights up and a cyan chip
+  at the top of the view reads "Click a face — Esc cancels". Move the
   pointer over any face of the rough: the face is highlighted and the hint reads
   "Click to cut this face flat". Click, and the planner adds a **Face** cut whose
   direction is that face's, with the default depth. The mode switches itself off
@@ -609,7 +750,7 @@ A single click adds its cut after a moment (the time a double-click takes); a
 double-click on an edge, corner or face adds the cut at once and leaves the camera
 where it is, while a double-click on empty space resets the view (see below). Cuts
 can only be made while the view shows the rough (the **Rough** side of the
-**Rough | Result** switch, see "The 3D View") and no plan is running. The view
+**Rough | Layout** switch, see "The 3D View") and no plan is running. The view
 shows the rough before the first plan and after you change the model. While a plan
 runs it still shows the rough, but the model is locked, so a click in it adds no
 cut. **Face from View** is greyed out while the view shows a result (an armed pick
@@ -620,63 +761,67 @@ can still be switched off with Esc).
 **Undo** and **Redo** step through your model edits, up to 100 steps each way.
 One step is: adding or deleting a cut, changing which edge or corner a cut is on,
 finishing an edit in a field (Enter, or leaving the field), switching the shape,
-opening a saved plan, or **New**. Typing itself is not a step until you finish
+opening a saved plan, or **New Rough**. Typing itself is not a step until you finish
 the edit. **Ctrl+Z** undoes and **Ctrl+Y** (or **Ctrl+Shift+Z**) redoes; while a
 text field has the keyboard focus it keeps these keys for its own typing.
 
-**New** in the title bar replaces the model by an empty block and clears the
+**Undo** and **Redo** are the icons in the header. **New Rough**, also in the header,
+replaces the model by an empty block and clears the
 weighed carat and the selected cut. It is itself one undo step. It does not touch
 the plan settings or the results on screen.
 
-The buttons that change the model (Undo, Redo, +Edge, +Corner, +Face, Face from
-view, the × of a cut row) and every field of the rough, the cuts and the plan are
+The buttons that change the model (Undo, Redo, + Edge, + Corner, + Face, Face from
+View, the × of a cut row) and every field of the rough, the cuts and the plan are
 disabled while a plan is running, so that the model on screen stays the one being
 planned.
 
 ## Planning
 
-The **PLAN** section sets up what the planner may use and how much it must
-leave.
+Step 4, **Plan Settings**, sets up what the planner may use and how much it must
+leave; the **Plan** block below the steps starts the plan.
 
-- **Designs (Up To)** — from 1 to 99: the most *different* designs one layout may
+- **Designs, up to** — a stepper from 1 to 99: the most *different* designs one layout may
   mix. Set it to 1 and every layout uses a single design (as many stones of it as
   fit best, up to the stone limit below); raise it to let the planner combine a
   large stone of one design with smaller stones of others in the space that is
-  left. A plan saved when this setting still limited the stones, not the designs,
-  opens with that number as the design limit.
-- **Stones (Up To)** — from 0 to 99: the most stones one layout may hold in all,
-  whatever their designs. **0**, the default, means no limit ("No Limit" shows
-  beside the box): the planner fits as many stones as yield the most weight, one
+  left.
+- **Stones, up to** — a stepper from 0 to 99: the most stones one layout may hold in all,
+  whatever their designs. **0**, the default, means no limit (the stepper shows ∞ and
+  "no limit" beside it): the planner fits as many stones as yield the most weight, one
   stone or dozens, within the losses and the minimum width below. With a limit,
   the planner looks for the heaviest layouts of at most that many stones. It does
   not simply drop stones from a bigger layout, so with fewer stones the pieces,
   and often the stones, are larger. The two limits apply together:
-  **Designs (Up To)** 2 and **Stones (Up To)** 5 give layouts of at most five
+  **Designs, up to** 2 and **Stones, up to** 5 give layouts of at most five
   stones of at most two designs. A plan saved before this setting existed opens
   with no stone limit.
-- **Candidate Designs** — which designs the planner may use:
-  - **Current Filter (N designs)** — only the designs the library's search and
+- **Candidate designs** — a segmented switch, with the counts in its segments, that
+  says which designs the planner may use:
+  - **Filter · N** (Current Filter for screen readers) — only the designs the library's search and
     filters currently show (Chapter 2). This is the default, and the way to say
     "only round brilliants" or "only designs I can cut on my machine". While a
     "Show in library" filter from the planner is active (see "Library Links"),
     this means exactly those designs.
-  - **Whole Library (N designs)** — every design in the library, except entries
+  - **Library · N** (Whole Library for screen readers) — every design in the library, except
+    entries
     you have flagged as ignored.
-  - **Excluded Designs (N)** — not a third choice, but a list under the two
-    choices that appears as soon as one design is excluded. An excluded design
-    is left out of **Current Filter** and of **Whole Library** alike, before
+  - **N designs excluded**, with a **Show** link — not a third choice, but a line under the
+    switch that appears as soon as one design is excluded. **Show** opens the
+    list of excluded designs inline. An excluded design
+    is left out of **Current filter** and of **Whole library** alike, before
     anything is measured, and neither count includes it. Use it for a design that
     keeps winning but that you do not want to cut, such as a plain cube. The
     design stays in the library, in every search and in the preview and tilt
     batches; only the planner leaves it out, and a small "not planned" note marks
     its card in the library list.
 
-    To exclude a design, press **Exclude** on its row in a result card (the pill
-    then reads **Excluded**), or choose **Exclude from Planner** in the
+    To exclude a design, choose **Exclude from Planner** in the **⋯** menu of its
+    design card in the expanded layout (the card then carries a **Left out of future
+    plans** note), or in the
     right-click menu of its card in the library (Chapter 2). To bring it back,
-    click **Excluded Designs (N)** to unfold the list and press **Restore** next
+    press **Show** on the excluded line to unfold the list and press **Restore** next
     to the design, or **Restore All** for every one; **Include in Planner** in
-    the library menu restores one design too. The pills in the planner are greyed
+    the library menu restores one design too. The menu entries in the planner are greyed
     out while a plan runs. The mark is stored in your library, so, unlike the
     planner's inputs, it survives a restart. Excluding or restoring a design
     never changes the results on screen: a note tells you to plan again. The mark
@@ -693,12 +838,11 @@ leave.
   after a change to the exclusions. **Plan** itself reads the library filter and
   the exclusions afresh when you press it, so a count that is out of date never
   changes what is planned. Counts of a thousand or more are written with
-  separators ("Current Filter (1,234 designs)"), and a count of one reads "1
+  separators ("Current filter · 1,234"), and a count of one reads "1
   design". While the counts are being worked out they read "(counting...)".
 - **Losses** — a one-line summary of the four loss settings ("kerf 0.30,
-  allowance 0.20, skin 0.00, min 1.00 mm"). Click the **Losses** line to unfold
-  the fields and again to fold them away (they fold away by themselves while a
-  plan runs, to leave room for the progress bar):
+  allowance 0.20, min 1.00 mm") with an **Edit** link. **Edit** unfolds
+  the fields inline (kerf, allowance, skin, minimum width) and folds them away again:
   - **Saw Kerf (mm)** — the material lost to the saw blade at every cut.
     Default 0.30 mm. It applies to the sawn layouts; an exact single stone (see
     below) involves no saw cut.
@@ -726,18 +870,19 @@ allowance on both sides of a stone (0.40 mm) need 0.70 mm, more than the rough's
 smallest side (0.50 mm)." Lower the kerf or the allowance, or use a bigger rough.
 
 Press **Plan** (or Ctrl+Enter). **Plan** is greyed out while the model is invalid,
-and a note beside it says so; the red message that explains it is under **ROUGH**
-on the left.
+and the reason sits under it (see "The Plan Block"); the error that explains it shows
+in the summary of the step it belongs to, marked with a red dot.
 
 If the results on screen are a plan you have not saved, the planner asks before it
-throws them away. A question opens at the top of the right column, "Replace 4
+throws them away. A question opens at the top of the Layouts tab, "Replace 4
 Unsaved Layouts?", with **Replace** and **Keep**. **Replace** starts the plan;
 **Keep** (or Esc) leaves the results as they are and starts nothing. Results you
-have saved do not trigger the question, and the word "Unsaved" next to **RESULTS**
-tells you when they are the kind that would.
+have saved do not trigger the question, and the amber **Unsaved** badge in the
+Layouts header tells you when they are the kind that would.
 
-While the plan runs the button reads **Cancel**, the stage line and a
-percentage show the progress, and the result list is emptied. **Cancel** is
+While the plan runs the Plan block shows **Cancel**, the stage line and a
+progress bar, and the layouts found so far appear in the Layouts tab as they come in,
+with placeholder rows for the rest. **Cancel** is
 available at every stage and returns the planner to idle with "Planning
 cancelled."; the stage line reads "Cancelling..." until the plan has stopped. Esc
 also cancels a running plan.
@@ -752,10 +897,10 @@ per design.
 The first time a design is used in a plan, that measuring happens and the result
 is stored in your library database. The progress line reads "Measuring designs
 120 / 3,299" while it works. Every later plan reads the stored figures instead,
-so it starts straight on the planning stage. If the sizes of your designs are
-already stored from an earlier version of the app and only their outlines are
-missing, the line reads "Measuring design outlines 120 / 3,299 (one-time)". On a
-large library the first run over **Whole Library** can take a while; a run over a
+so it starts straight on the planning stage. If only the outlines are missing from a
+design's stored measurement, the line reads
+"Measuring design outlines 120 / 3,299 (one-time)". On a
+large library the first run over **Whole library** can take a while; a run over a
 small filter measures only those designs.
 
 A few things to know about the stored measurements:
@@ -836,31 +981,45 @@ weight.
 
 A mix of different designs can beat any single design when the rough has an
 awkward shape: a broad, shallow stone from one design in one part of the rough
-and a slimmer one in another. **Designs (Up To)** sets how many designs may be
+and a slimmer one in another. **Designs, up to** sets how many designs may be
 mixed; when the best layout would need more, the planner drops the design that
 adds the least weight and plans again until the layout is within the limit.
-**Stones (Up To)** is part of the search itself: every cut order is planned for
+**Stones, up to** is part of the search itself: every cut order is planned for
 its heaviest layout of at most that many stones, rather than a larger layout
 being cut down. A small limit on a large rough can leave a piece much bigger
 than its stone; the rest is shaped away when you preform the stone.
 
 ## The 3D View
 
-The centre column shows the rough being modelled, or, once you select a result,
-that result: the stones inside the rough. The **Rough | Result** switch at the
-left of the button row chooses which; **Result** is greyed out until there is a
-result to show. Three things are drawn only in the result view, and each has its
-own toggle in the button row above the image.
+The centre column shows the rough being modelled, or, once you select a layout, that
+layout: the stones inside the rough. Controls float over the picture as glass
+overlays:
+
+- **Top left** — the **Rough | Layout** switch (the second segment reads "Layout #n"
+  with the number of the selected layout). **Layout** is greyed out until a layout is
+  selected.
+- **Top right** — icon buttons **Front**, **Top**, **Side** and **Reset** (the camera
+  presets). While the view is being drawn a small "Drawing the view..." chip also shows here.
+- **Top center** — a cyan banner chip, "Click a face — Esc cancels", while
+  **Face from View** or an axis pick (**Align to Face**, **Align to Edge**) waits for your click.
+- **Bottom bar** — in Rough mode, the hint text and **Cut Faces**; in Layout mode, the
+  design legend and the layer toggles (see below); on a 3D scan, the **Problems**
+  and **Outline** toggles with their legend (see "Scans in the View").
 
 **Rough being modelled.** The rough is drawn as a solid. Its own faces are pale
 grey and the faces of your cuts are tinted amber while **Cut Faces** is on. The
 selected cut is outlined.
 
-**A selected result.** The stones are drawn as their real designs, each design in
-its own color (eight soft colors that repeat), the same color as the swatch on
-its design row. The rough is drawn around them as a faint glass volume with its
-edges. The saw pieces are drawn as amber outlines. The toggles are **Rough**,
-**Saw** and **Stones**.
+**A selected layout.** The stones are drawn as their real designs, each design in
+its own color (eight soft colors that repeat), the same color as the dot on
+its design card and in the legend. The rough is drawn around them as a faint glass volume with its
+edges. The saw pieces are drawn as amber outlines. The bottom bar holds:
+
+- the **design legend**: one entry for each design, with its color dot, the stone
+  count and its short name ("17 Oval"). Click an entry to select that design's card in
+  the layout's detail and highlight its stones in the view. In a window narrower than 1180 pixels the legend is hidden;
+- the layer toggles **Rough**, **Saw** and **Stones**, drawn as toggle segments (icons
+  in a narrow window).
 
 The view's controls:
 
@@ -870,11 +1029,12 @@ The view's controls:
 | Mouse wheel | Zoom |
 | Double-click on empty space | Reset the view |
 | Double-click an edge, corner or face (rough view only) | Add its cut at once |
-| **Rough \| Result** | Show the rough you are modelling, or the selected result |
+| **Rough \| Layout** | Show the rough you are modelling, or the selected layout |
 | **Front**, **Top**, **Side** | Snap the camera to that view (**Side** looks at the right side) |
 | **Reset** | The starting view, from the front-top-right |
 | **Cut Faces** (rough view only) | Tint the faces of your cuts |
-| **Rough**, **Saw**, **Stones** (result view only) | Show or hide that layer |
+| **Rough**, **Saw**, **Stones** (layout view only) | Show or hide that layer |
+| **Problems**, **Outline** (3D scan only) | Show or hide the problem highlights and the outline ghost |
 
 **While you drag the picture, or while the wheel is turning, the view is drawn at
 half resolution, and at full resolution again as soon as you let go** (after the
@@ -882,94 +1042,120 @@ wheel has been still for about a tenth of a second). That keeps orbiting smooth
 with a lot of stones on screen. A drag that moves less than three pixels before
 you release still counts as a click.
 
-Hovering shows what is under the pointer in the hint line below the image. In the
-rough view, that is the edge, corner or face you could cut (see above). In the
-result view, hovering a stone shows its design, its weight and its place in the
+Hovering shows what is under the pointer in a glass tooltip card next to it. In the
+rough view, that is the edge, corner or face you could cut ("Click to cut the edge
+Top-Right"; see above). In the
+layout view, hovering a stone shows its design, its weight and size, its axis line
+when the rough has a crystal axis, and its place in the
 saw plan as the slab, bar and piece number that the cut plan uses (see "The Cut
 Plan"; an exact single stone is not sawn and has no such place). Clicking a stone
-selects its design row in the result card and outlines all stones of that design;
+selects its design card in the expanded layout and outlines all stones of that design;
 clicking empty space clears the outline.
 
-When a plan finishes, result #1 is selected and shown. Click a result card to
+When a plan finishes, layout #1 is selected and shown. Click a layout row to
 show another one. If you then change the model on the left, the view goes back
-to the rough you are editing; the result cards stay where they are, still
-belonging to the model they were planned for, and clicking a card shows its
-stones again. The **Rough | Result** switch takes you between the two at any time.
+to the rough you are editing; the layout rows stay where they are, still
+belonging to the model they were planned for, and clicking a row shows its
+stones again. The **Rough | Layout** switch takes you between the two at any time.
 
 ## Reading the Results
 
-When the plan finishes, the summary line under **RESULTS** reads like "10 layouts
-from 2,431 designs -- 3.2 s", and up to ten result cards appear below it,
-scrolling inside the column. There are fewer than ten when fewer distinct
+The right column's **Layouts** tab is headed by the summary line, which reads like "10
+layouts from 2,431 designs -- 3.2 s", with the number of layouts in the tab's own
+label ("Layouts · 10"). Next to the summary is an **(i)** icon whose tooltip carries
+the note that the weights and yields are estimates for a rough that is clean except
+for the inclusions you added, after your kerf and allowance, and the line that counts the designs
+that were skipped (see "Which Designs Are Skipped"); an amber **Unsaved** badge shows while the
+results are the kind that the replace question guards. Up to ten layout rows
+appear below, ranked by weight. All ten fit in the column at 1280 x 820, so you can compare them at a glance. There are fewer than ten when fewer distinct
 layouts are possible, and also when the ranking rule that lets at most three
 layouts share one set of designs (see "How the List Is Ranked") leaves fewer. If nothing fits, the column shows "No layout fits: the
 rough is too small for the minimum stone width, or no measured design is small
-enough."
+enough." With no plan yet, the tab shows "No layouts yet" and a sentence that says to describe the rough and press **Plan**.
 
 ![The Rough Planner after Plan, with the best layout selected.](../../../../assets/rough_planner_result.png)
 
-### The Result Card
+When a scan's plan stopped at the time limit, the header also shows the amber
+"Stopped at the time limit" badge and **Plan Again with More Time** (see
+"Non-Convex Roughs").
 
-Each card shows, in its header:
+When you opened a saved plan, a slim card above the list says `Saved plan "..." ·
+2026-09-30` and offers **Re-Plan** (see "Opening a Saved Plan").
 
-- a **checkbox**, for saving (see "Saved Plans"); it is named "Keep Result N for
-  Saving" for screen readers;
+### The Layout Row
+
+Each row is one layout. It shows:
+
+- a **star**, for saving (see "Saved Plans"); it has a name for screen readers. Click
+  it to star the layout; an amber star means the layout is kept for saving;
 - the **rank**, "#1" being the heaviest;
-- the **total weight** in carats, for all the stones in the layout together
-  (volume × specific gravity ÷ 200, the same figure the yield tools use).
-
-The next line gives:
-
-- the **yield**: the finished stones' volume as a percentage of the modelled
+- the **total weight** in carats in bold, for all the stones in the layout together
+  (volume × specific gravity ÷ 200, the same figure the yield tools use), with a
+  **yield bar** under it that is as long as the layout's weight relative to the
+  best layout;
+- the **stone count** ("1 stone", "6 stones") and the **yield**: the finished
+  stones' volume as a percentage of the modelled
   rough's volume, so a cylinder or a cut block is measured against what is really
   there, not against its box;
-- the **stone count** ("1 stone", "6 stones");
-- **Cut Plan**, which folds the sawing instructions in and out (one card at a
-  time).
+- one **dot** for each design used, in the design's color;
+- a purple **badge** with the layout's short label where it has one ("Best
+  orientation", "Balanced"). The full label, including "(Unrefined)", is in the
+  badge's tooltip.
 
-Under that, a line reads "*n* cuts · kerf loss ≤ *x.xx* ct" — the number of
-saw cuts and an upper estimate of the weight the saw turns to dust — and, if you
-entered a weighed carat, "38.9 % of 9.54 ct weighed": the finished stones' weight
-as a share of the weighed rough. The kerf figure costs each cut with the
+Click a row to select it: the view shows that layout, and the row expands in place.
+
+### The Expanded Layout
+
+The selected row opens into a detail card, outlined in cyan, with:
+
+- one **design card** for each design used, most stones first (see "The Design Card");
+- a status line, when the layout has a note (for example about designs that have
+  changed, see "When the Library Has Changed");
+- four **figures** as a two-column grid: the yield, the number of stones, the saw
+  cuts with the kerf loss ("27 cuts · kerf loss ≤ *x.xx* ct": the kerf loss is an upper estimate of the weight
+  the saw turns to dust), and the share of the weighed rough ("31.4 % of 94.40 ct weighed", shown when you
+  entered a weighed carat). **All figures** opens the full table of metrics (see "The Design
+  Card" for the table);
+- **Cut Plan**, which folds the sawing instructions in and out (see "The Cut Plan");
+- **Open in Editor**, for the layout's first design (see "Library Links");
+- with a crystal axis, **Stones**, a fold-open list of the stones inside the card (see
+  Chapter 25), which keeps pose, **Re-Fit**, lock, free orientation and reason;
+- when the plan has a rough color (Chapter 24), **Stone Orientation** as a two-way switch,
+  **Planner Pose** or **Best Color**.
+
+The kerf figure costs each cut with the
 cross-section of the part it saws, taken from the rough's bounding box, so it is
 overstated for a cut or round rough (hence the "≤"). An exact single stone (see
-"What "Fits" Means") is not sawn, so it has no "cuts" line. At the right of these
-lines is the **Result in Library** button (see "Library Links"). Long lines are
-shortened with an ellipsis when the column is narrow.
+"What "Fits" Means") is not sawn, so it has no saw-cuts figure.
 
-Below that sit a small thumbnail of the layout (hidden in a narrow window; it
-shows a grey placeholder until it has been drawn, and all ten are drawn one after
-another, in rank order) and one **design row** for each design used, most stones
-first.
+### The Design Card
 
-### The Design Row
+Each design card shows:
 
-Each design row shows:
-
-- a **color swatch** matching the design's stones in the 3D view, and the
-  design's library preview if it has one;
-- "*count* × *design name*" — the name is a link that selects the design in the
+- the design's **thumbnail** when it has one, otherwise a shape icon in the
+  design's color (the same color as the stones in the 3D view);
+- "*count* × *design name*" — for example "17 × Oval Brilliant 02.1", with the
+  detail line under it: the weight of each stone and, when the stones of one design
+  differ, their weight range and the largest stone's size instead. The size is the box around the stone in the
+  rough's own X x Y x Z. The name is a link that selects the design in the
   library, exactly as if you had clicked its card, while the planner stays open;
 - a short status chip, only on saved plans (see "Saved Plans"), with the full
   wording on the line under the name;
-- an **Exclude** pill at the right end of the same line. Press it to keep the
-  design out of every later plan (see "Candidate Designs"); the pill then reads
-  **Excluded**, and pressing it again brings the design back. The results on
-  screen stay as they are and a note tells you to plan again. The pill is greyed
+- a **⋯** menu with **Open in Editor** (the design opens in the editor with the piece of
+  rough its stone comes from, see "Library Links"; next to **Use Color**, Chapter 24),
+  **Show in Library**, **Exclude from Planner** and the design's own **Orientation Rule...** entry
+  (Chapter 25). **Exclude from Planner** keeps
+  the design out of every later plan (see "Candidate designs" in "Planning"); the card
+  then carries an **Excluded** mark, and choosing the entry again brings the design
+  back. The results on
+  screen stay as they are and a note tells you to plan again. The entry is greyed
   out while a plan runs, for a design that has been deleted from the library, and
-  while a remote library is selected;
-- an **Open in Editor** pill next to **Exclude** (and next to **Use Color**,
-  Chapter 24). It opens the design in the editor with the piece of
-  rough its stone comes from (see "Library Links"), and it is greyed out while a
+  while a remote library is selected, and **Open in Editor** is greyed out while a
   plan runs and while a remote library is selected;
-- a line with the finished size in millimetres and the weight of each stone. When
-  the stones of one design differ, the line gives their weight range and the
-  largest stone's size instead. The size is the box around the stone in the
-  rough's own X x Y x Z;
-- a list of metrics. Clicking anywhere else on the row selects it, which outlines
-  the design's stones in the view; clicking it again clears the outline.
+- the metrics. Clicking anywhere else on the card selects it, which outlines
+  the design's stones in the view.
 
-The metrics, where a group of stones of unlike size shows each figure as a range:
+The metrics shown by **All figures**, where a group of stones of unlike size shows each figure as a range:
 
 | Metric | What it says |
 | --- | --- |
@@ -983,8 +1169,8 @@ The metrics, where a group of stones of unlike size shows each figure as a range
 
 ### The Cut Plan
 
-Click **Cut Plan** on a card to fold out the instructions for sawing that layout;
-click it again to fold them away. The plan is text, for example:
+Click **Cut Plan** in the expanded layout to fold out the instructions for sawing that
+layout; click it again to fold them away. The plan is text, for example:
 
 ```
 Cut order: slabs across X, bars across Y, pieces across Z (each cut loses 0.30 mm)
@@ -1021,27 +1207,27 @@ of designs, so the list stays varied rather than showing "1 x A", "2 x A" and
 "3 x A" one after another. Alongside the best mix of designs, the planner also
 looks for the next-best mixes that avoid the design the best one uses most, so
 more than one mixed layout can appear. Only layouts within both limits
-(**Designs (Up To)** and **Stones (Up To)**) are listed.
+(**Designs, up to** and **Stones, up to**) are listed.
 
 ## Library Links
 
 The planner talks to the library in four ways:
 
-- **Click a design name** in a result. The design is selected in the main window,
+- **Click a design name** in a layout. The design is selected in the main window,
   as if you had clicked its card. The planner stays open.
-- **Result in Library** on a card narrows the library to *all the designs of that
-  result*, and **Show All in Library** in the footer narrows it to the designs of
-  *all* the results. The library list then shows only those designs under a
+- **Show in Library** in the **⋯** menu of a design card narrows the library to *all the designs of that
+  layout*, and **Show in Library** in the footer of the Layouts tab narrows it to the designs of
+  *all* the layouts. The library list then shows only those designs under a
   labelled banner, for example "Rough plan · result #3 (4 designs)" or "Rough plan
-  · all 10 results (17 designs)"; a plan opened from the saved list says `Saved
+  · all 10 results (17 designs)"; a plan opened from the Saved Plans tab says `Saved
   plan "Aqua pebble" · result #2 (3 designs)`. The banner has a **Clear** link that
   restores the full list, and any change to the search box or the filters clears
   it too. Designs that have been deleted from the library are left out, and if
   none is left the planner tells you so.
-- While such a banner is active, **Current Filter** in the planner means exactly
+- While such a banner is active, **Current filter** in the planner means exactly
   those designs, and the count next to it says how many.
-- **Open in Editor**, a pill on every design row next to **Exclude** (and next to
-  **Use Color**), opens that design in the editor and hands it the
+- **Open in Editor**, in the **⋯** menu of every design card (and as a button in the expanded
+  layout, for its first design), opens that design in the editor and hands it the
   piece of rough its stone comes from. The design opens exactly as it does with
   **Load Selected** (Chapter 3): if the open design has unsaved changes, you are
   asked to save, discard or cancel first, and Cancel opens nothing. Once the design
@@ -1052,7 +1238,7 @@ The planner talks to the library in four ways:
   message names what was applied. The next section describes the piece.
 
 With a remote library selected, all of these, **Open in Editor** included, are
-disabled, and the results show "Switch to the local library to open designs from
+disabled, and the Layouts tab shows "Switch to the local library to open designs from
 these results." They work again as soon as you switch back to the local library.
 **Open in Editor** is also greyed out while a plan runs.
 
@@ -1064,15 +1250,15 @@ the allowances, clipped by the rough's own outline wherever that outline reaches
 into the box. An exact single stone is not sawn, so its piece is the stone's
 bounding box in the rough's axes, clipped the same way. The piece is turned and
 moved into the design's own frame and scaled to the design's model units, and it may
-have any number of flat sides, where the editor's preform used to be a Block or a
-Cylinder only. The **Preform** tab (Chapter 4) shows it as its bounding box in the
+have any number of flat sides, while the editor's preform shapes are a Block or a
+Cylinder. The **Preform** tab (Chapter 4) shows it as its bounding box in the
 number fields, with a note under the shape box, for example: "Planned piece from the
 Rough Planner: Saved plan "Aqua pebble", result 3, stone 1 (14 planes). The fields
 show its bounding box; Apply Preform replaces it with the shape above." The stone
 number in the note is that of the first stone of that design in the result, and
 **Apply Preform** replaces the piece with a Block or a Cylinder (**Undo** brings the
 piece back). The piece is saved in the design file, so the design reopens with it,
-but a build from before 2026-10-12 cannot open such a file. Two things do not
+but an older build cannot open such a file. Two things do not
 reach the editor: inclusions, which the planner plans around but the editor neither
 draws nor checks; and the rough's true scanned surface, because a mesh rough enters
 as its convex outline. The stone orientation you chose and the plan's color do reach
@@ -1091,32 +1277,37 @@ the planner does not save anything by itself.
 
 ### Saving
 
-Tick the **checkbox** on the cards you want to keep, then press **Save Selected
-(n)** in the title bar or the footer (it is greyed out until something is ticked),
-or **Save All** in the footer. Ctrl+S does the same as **Save Selected**, and
-saves every result when none is ticked. A name row opens at the top of the right
-column, above both the results and the saved list. Its title says what is about
-to be saved, "Save 3 results" for the ticked ones or "Save all 10 results". It
+Click the **star** on the layouts you want to keep. The primary button in the footer
+of the Layouts tab then reads **Save 2 Starred...** (with the number of stars); with
+nothing starred it reads **Save All...** and saves every layout. Ctrl+S does the same
+as that button. A name row opens inline above the footer. Its title says what is about
+to be saved, "Save 3 starred layouts" for the starred ones or "Save all 10 layouts". It
 suggests a name built from the shape, size and material and the date (UTC), such
 as "Pebble 18x11x10 mm Aquamarine 2026-09-30" or "Cylinder Ø12x30 mm Quartz
 2026-09-30". Edit the name, then press Enter or **Save** (Esc or **Cancel**
-discards). A confirmation reads "Saved 3 results as "..."." It shows under **RESULTS** and at the top of the saved list.
+discards). A confirmation reads "Saved 3 results as "..."." It shows in the Layouts tab and at the top of the Saved
+Plans tab.
+
+The questions the planner can ask you (whether to overwrite a saved plan, and
+"Replace ... Unsaved Layouts?" when you plan again) show as amber
+cards in the Layouts tab.
 
 A saved plan contains the model and the settings *the results were planned for*
 (not whatever is in the left column now), the material and weighed carat, whether
-the plan used the current filter or the whole library, and every ticked layout
+the plan used the current filter or the whole library, and every starred layout
 with its cut plan and the exact place of every stone. It also records each used
 design's title and a fingerprint of its shape. It does not record which designs
 were excluded from planning: that belongs to the library, not to a plan. You
-cannot save while a plan is running: the save buttons are greyed out and
+cannot save while a plan is running: the save button is greyed out and
 Ctrl+S does nothing until it finishes or you cancel it.
 
-### The Saved List
+### The Saved Plans Tab
 
-**Saved Plans** in the title bar (or Ctrl+O) opens the list in place of the
-results; the **Results** button at its top returns. Each entry shows its name,
-date, and a summary such as "Pebble · Aquamarine · 3 results", and has these
-buttons:
+The **Saved Plans · n** tab (or Ctrl+O) opens the list in place of the layouts;
+the **Layouts** tab returns. Switching between the two keeps the scroll position of
+each. Each plan is a card with its name, a summary such as "3 layouts · best 29.65 ct ·
+31.4 %", its date and a **⋯** menu. A double-click on a card opens the plan. The menu
+has:
 
 - **Open** — loads the plan (see below).
 - **Rename** — edit the name in place (the field starts with the current name
@@ -1124,27 +1315,29 @@ buttons:
   refreshed with the new name, so a name the planner refuses stays open beside its
   message.
 - **Export** — write the plan to a file (see below).
-- **Delete** — asks "Delete Plan?" first; **Yes, Delete** confirms.
+- **Delete** — asks `Delete "<name>"? This cannot be undone.` first; **Yes, Delete** confirms.
 
-**Import...** at the top of the list loads a file. Notes and errors from the
+**Import...** at the bottom of the list loads a file. Notes and errors from the
 saved-plan actions (a plan opened or exported, a file refused) appear directly
 under the list's heading; a note about designs that have changed is shown in amber.
 
 ### Opening a Saved Plan
 
 **Open** puts the plan's model, settings (both limits and the losses), weighed
-carat, material and choice of candidate designs (**Current Filter** or **Whole
-Library**; a file without that choice reads as **Current Filter**) back into the
+carat, material and choice of candidate designs (**Current filter** or **Whole
+library**; a file without that choice reads as **Current filter**) back into the
 left column (the model as one undo step, so you can undo your way back), and
 shows the saved
-layouts in the results exactly as they were saved, with a banner above them: `Saved
-plan "..." · 2026-09-30 · Re-Plan uses the current model and settings`. The layouts are shown
-from the file; nothing is recomputed. Select any card and the 3D view shows its
+layouts in the Layouts tab exactly as they were saved, with a slim card above them: `Saved
+plan "..." · 2026-09-30 · Re-Plan uses the current model and settings`, with a **Re-Plan** button. The layouts are shown
+from the file; nothing is recomputed. Select any layout and the 3D view shows its
 stones just as they were saved. A design that is excluded from planning today is
-shown like any other, with all its stones; only its **Excluded** pill tells you.
-A plan saved before **Stones (Up To)** existed opens with no stone limit.
+shown like any other, with all its stones; only its **Excluded** mark tells you.
+A plan whose scan was
+repaired on import shows a **Saved with the plan, repaired on import** finding in the
+import report.
 
-**Re-Plan** in the banner re-plans with the current model and settings, the ones
+**Re-Plan** in the card re-plans with the current model and settings, the ones
 in the left column now (the loaded ones unless you have changed them since), using
 today's library and today's exclusions: a design you excluded after saving is left
 out of the new plan, and one you restored is back in. If the results on screen
@@ -1161,7 +1354,7 @@ finish, or cancel it, first."
 
 A saved plan stores each design's entry number and a fingerprint (its length to
 width, height to width, and volume to width cubed). On opening, every design is
-checked against the library, and a chip on its design row says what was found; the
+checked against the library, and a chip on its design card says what was found; the
 chip is short and the full wording is on the line under the design's name:
 
 - **deleted** ("design deleted", red) — the design is no longer in the library. Its name is
@@ -1192,12 +1385,12 @@ the name in the file, and opens it, with the status check above. A file that is
 not a rough plan, or that a newer version of the app wrote, is refused with a
 message ("This plan was made by a newer Pleochroma ... Update Pleochroma to open
 it."), and a file with an invalid value names the field that is wrong. Keys the app
-does not know are ignored, so a build from before **Stones (Up To)** opens a plan
+does not know are ignored, so an older build opens a plan
 that has a stone limit as one without it.
 
 An exported plan carries the plan's color and the stone orientations when it has them
-(plan file version 4 since 2026-10-12), and an import stores them with the new plan, so
-the planner shows the stones in their color and orientations again. A build from before
+(plan file version 4), and an import stores them with the new plan, so
+the planner shows the stones in their color and orientations again. An older build
 refuses such a file with the "newer Pleochroma" message; a plan without a color and
 without orientations is exported exactly as before, and every older file still imports.
 The rig photos are not in the file: they are only a cache, so fit again if you need
@@ -1212,13 +1405,13 @@ planner's own; they are not part of the main window's list in Appendix B.
 | Shortcut | Action |
 | --- | --- |
 | Ctrl+Enter | Plan (the same as **Plan**, and only when it is available) |
-| Ctrl+S | Save the ticked results (all results when none is ticked); opens the name row. Not while a plan runs |
-| Ctrl+O | Open the saved list |
+| Ctrl+S | Save the starred layouts (all layouts when none is starred); opens the name row. Not while a plan runs |
+| Ctrl+O | Open the Saved Plans tab |
 | Ctrl+Z | Undo the last model edit (a focused text field keeps it for its own typing) |
 | Ctrl+Y, Ctrl+Shift+Z | Redo |
-| Tab, Shift+Tab | Move the focus between buttons, choices, fields and result cards |
-| Space, Enter | Press the button, choice, tick box or card that has the focus. In a size, weight or cut field: apply it. In the name row: save |
-| Space, Enter on a view toggle | Switch the toggle that has the focus (**Cut Faces**, or **Rough**, **Saw**, **Stones** in the result view) on or off; the focused toggle gets a bright outline, like every other control |
+| Tab, Shift+Tab | Move the focus between buttons, choices, fields, step headers and layout rows |
+| Space, Enter | Press the button, choice, star, step header or layout row that has the focus. In a size, weight or cut field: apply it. In the name row: save |
+| Space, Enter on a view toggle | Switch the toggle that has the focus (**Cut Faces**, or **Rough**, **Saw**, **Stones** in the layout view, **Problems**, **Outline** on a scan) on or off; the focused toggle gets a bright outline, like every other control |
 | Esc | Answer "Keep" to the replace question; otherwise close the name row; otherwise leave **Face from View**; otherwise cancel a running plan |
 
 ## Limitations, and How to Read the Numbers
@@ -1233,13 +1426,13 @@ planner's own; they are not part of the main window's list in Appendix B.
   stone always fits. It is smaller only where a tool removes a vertex that sets the
   outline (the manufacturability check warns about exactly that case); a groove or
   dimple inside the outline changes nothing. A design without concave tiers is
-  measured as before. A design whose concave tiers cannot be resolved (an invalid
+  measured from its flat stone. A design whose concave tiers cannot be resolved (an invalid
   tier, too many placements) is skipped and counted in the result's note; it is never
   planned as a flat stone. A design whose tools remove the whole stone cannot be
-  measured and is left out like one that does not close. The measuring rule changed
-  with this, so the library is measured once more the next time you plan, and a plan
-  saved earlier shows a note that its designs were measured under an earlier rule; it
-  is not reported as changed for that reason alone, and its placements stay valid.
+  measured and is left out like one that does not close. When the measuring rule differs
+  from the one a stored measurement was made under, the library is measured again on the
+  next plan. A plan whose designs were measured under the other rule shows a note saying
+  so; it is not reported as changed for that reason alone, and its placements stay valid.
   The shape of the rough itself is covered in the section on non-convex roughs.
   An inclusion or crack can be modelled as a closed mesh inside a mesh rough (see
   "Inclusions"), and stones then keep clear of it. On a block, a cylinder or a
@@ -1291,7 +1484,7 @@ planner's own; they are not part of the main window's list in Appendix B.
   clearly off, treat the weights and yields as an estimate for a rough that is
   clean except for the inclusions you added, after your kerf and allowance (real
   yield also depends on the flaws you did not model and on how closely you follow
-  the plan; the note under the result cards says the same), use the ranking to
+  the plan; the (i) note in the Layouts header says the same), use the ranking to
   compare options and choose where to look first,
   and do the final marking-up on the rough itself.
 
@@ -1308,7 +1501,7 @@ The planner can only use designs it can measure as a closed solid.
   the stone, so it is left out. A design that deliberately uses its preform
   as part of the stone is skipped for the same reason.
 
-The planner does not name the skipped designs; the bottom of the results column
+The planner does not name the skipped designs; the (i) tooltip in the Layouts header
 counts them ("12 designs skipped: no usable design file"). If every chosen design is skipped,
 the summary reads "None of the N selected designs has a usable design file."
 Designs that could not be loaded or measured at all are named in the summary line

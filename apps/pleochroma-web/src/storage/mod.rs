@@ -1,27 +1,27 @@
-//! Storage that outlives the tab: `localStorage` for small keys (settings, guide state,
-//! GPU admission records, cutting marks), `IndexedDB` for the autosaved current design,
-//! and `sessionStorage` for the same-tab reload fast path and as the fallback where the
-//! other two are unavailable.
+//! Storage that outlives the tab.
+//!
+//! `localStorage` holds small keys (settings, guide state, GPU admission records, cutting
+//! marks). `IndexedDB` holds the autosaved current design. `sessionStorage` is the same-tab
+//! reload fast path and the fallback where the other two are unavailable.
 //!
 //! # Layers
 //!
 //! - [`local`] and [`session`]: thin, error-swallowing wrappers over the two
 //!   `Storage` objects.
 //! - [`small_get`] / [`small_set`] / [`small_remove`]: the policy for small keys.
-//!   `localStorage` first; an entry only an earlier build left in `sessionStorage` is
-//!   migrated once on its first read; with `localStorage` blocked everything behaves
-//!   as it did when `sessionStorage` was the only store.
+//!   `localStorage` is tried first. A value found only in `sessionStorage` is migrated
+//!   to `localStorage` on its first read.
 //! - [`idb`]: the autosaved design (bytes plus a meta record), async, and the schema of the
 //!   `pleochroma` database (version 3).
-//! - [`color_variants`]: the saved color variants per material (the `color_variants` store of
-//!   that database; the same JSON as the desktop vault).
+//! - [`color_variants`]: the saved color variants per material (the `color_variants` store
+//!   of that database; the same JSON as the desktop vault).
 //! - [`library`] and [`library_record`]: the design library over `IndexedDB` (entries,
-//!   attachments, thumbnails, variants, cut progress, lighting, quota and persistence); the
-//!   record shapes are `pleochroma_web_core::library_record`, pure and tested natively there.
+//!   attachments, thumbnails, variants, cut progress, lighting, quota and persistence). The
+//!   record shapes are `pleochroma_web_core::library_record`, pure and tested natively.
 //!   Library failures never touch the autosave.
-//! - [`marks`] and [`admission`]: typed-by-the-caller JSON blobs per stone and per GPU
-//!   adapter, over the small-key policy.
-//! - [`keys`]: the pure key builders (native-testable).
+//! - [`marks`] and [`admission`]: caller-typed JSON blobs per stone and per GPU adapter,
+//!   over the small-key policy.
+//! - [`keys`]: the pure key builders.
 //!
 //! Nothing here reports to the user; callers log (`app::diagnostics`) and carry on.
 
@@ -39,7 +39,7 @@ pub mod local;
 pub mod marks;
 pub mod session;
 
-/// The library's pure record shapes, keys and error classes (`library`'s `super::library_record`).
+/// The library's pure record shapes, keys and error classes (see `library_record`).
 pub use pleochroma_web_core::library_record;
 
 /// Reads a small key: `localStorage`, else `sessionStorage`.

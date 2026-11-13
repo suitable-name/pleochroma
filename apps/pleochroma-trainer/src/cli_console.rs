@@ -64,7 +64,7 @@ impl Console {
         let _ = stdout().flush();
     }
 
-    /// Refreshes metrics after an already-scheduled update synchronization.
+    /// Replaces the metrics segment; redirected output gets a line only when the metrics change.
     pub fn metrics(&self, metrics: Vec<String>) {
         let mut state = self.lock();
         if state.metrics == metrics {
@@ -149,8 +149,8 @@ impl ConsoleState {
     }
 }
 
-/// Wraps, rather than drops, information. All dashboard captions and runner task details are
-/// ASCII; sanitize control/non-ASCII characters so a task detail cannot change cursor position.
+/// Wraps rows instead of dropping text. Non-ASCII and control characters become `?`, so a task
+/// detail cannot move the cursor.
 fn wrap_rows<'a>(rows: impl Iterator<Item = &'a String>, width: usize) -> Vec<String> {
     let room = width.saturating_sub(1).max(1);
     let mut result = Vec::new();

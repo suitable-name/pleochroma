@@ -1,6 +1,5 @@
-//! A tier note surviving a full edit-history sequence and a save/load round
-//! trip, and the bounded history trail ([`crate::native::DesignExtras::history_entries`])
-//! round-tripping through the design file.
+//! Tier notes, and the history trail ([`crate::native::DesignExtras::history_entries`]),
+//! through a save and load of the design file.
 
 use super::fixtures::{reopen, simple_design};
 use crate::{
@@ -10,17 +9,11 @@ use crate::{
 };
 use pleochroma::geometry::meet_solver::MeetConstraint;
 
-/// A note surviving a full `Edit::History` add-tier/remove-tier/move-tier
-/// sequence, then a real save/load round trip -- the index-maintenance
-/// contract `crate::edit::tests` already exercises against `History` alone,
-/// checked here end to end through the native file format too.
+/// A note survives a full `Edit::History` add, remove and move sequence, then a save and load
+/// round trip. The index maintenance of `crate::edit` is checked here through the native file.
 ///
-/// Built on [`super::fixtures::unsolved_design`] (a single `MeetExisting` tier, no
-/// scale-reference anchor anywhere) rather than [`super::fixtures::simple_design`]:
-/// a design that can never solve, however its tiers get shuffled, must save and
-/// reopen all the same, while whether `simple_design`'s own `MeetExisting` tier
-/// happens to solve after a reorder is exactly the kind of thing that could flip out
-/// from under this test.
+/// Built on [`super::fixtures::unsolved_design`], which never solves. A solve result after a
+/// reorder then cannot change what the test checks.
 #[test]
 fn tier_notes_survive_add_remove_and_reorder_then_a_save_load_round_trip() {
     let mut design = super::fixtures::unsolved_design();
@@ -73,8 +66,7 @@ fn tier_notes_survive_add_remove_and_reorder_then_a_save_load_round_trip() {
     assert_eq!(loaded.design.tier_note(last), Some("grind slowly"));
 }
 
-/// [`tier_notes_survive_add_remove_and_reorder_then_a_save_load_round_trip`]'s own
-/// helper: a minimal, unnamed-index tier good enough to insert as filler.
+/// A minimal tier with no indices, used as filler by the test above.
 fn tier_named(name: &str) -> ConstraintTier {
     ConstraintTier {
         angle_deg: 0.0,
@@ -119,9 +111,8 @@ fn an_empty_history_writes_no_history_table_at_all() {
     assert_eq!(loaded.history_entries, Vec::<String>::new());
 }
 
-/// [`crate::edit::History::description_log`] itself must accumulate one entry per
-/// applied edit, in order -- the source a save's caller draws
-/// `history_entries` from.
+/// [`crate::edit::History::description_log`] accumulates one entry per applied edit, in
+/// order. A save's `history_entries` are drawn from it.
 #[test]
 fn history_description_log_accumulates_applied_edits_in_order() {
     let mut design = simple_design();

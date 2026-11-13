@@ -4,11 +4,11 @@
 //! invariant sweep, the smoke pass, coverage, key chords, the report) lives in `uiprobe`
 //! and is re-exported here under the paths the scenarios already use.
 //!
-//! Scenario lanes mostly need [`Ctx`] (what a scenario receives), [`query`] (find a control
+//! Scenarios mostly need [`Ctx`] (what a scenario receives), [`query`] (find a control
 //! by label) and [`app::pump`] / [`app::wait_until`].
 //!
-//! `dead_code` and `unused_imports` are allowed module-wide: this is the helper API that scenario files written
-//! later are expected to use, so not every item has a caller in the built-in scenarios.
+//! `dead_code` and `unused_imports` are allowed module-wide: this is a helper API, so not every
+//! item has a caller in the built-in scenarios.
 #![allow(dead_code, unused_imports)]
 
 pub mod app;
@@ -25,7 +25,7 @@ pub mod smoke;
 pub mod coverage {
     pub use uiprobe::coverage::*;
 }
-/// Element queries and key chords of the crate, under the old path.
+/// Element queries and key chords of the crate, under the paths the scenarios use.
 pub use uiprobe::keys;
 pub use uiprobe::{report, view as query};
 
@@ -41,12 +41,14 @@ pub use uiprobe::{
     view::{Control, WindowView},
 };
 
-/// The sweep thresholds of every Pleochroma sweep (the main window, the secondary windows and
-/// every scenario sweep): the crate defaults plus the floating layers the UI draws above the
+/// The sweep thresholds of every Pleochroma sweep.
+///
+/// The sweeps are the main window, the secondary windows and every scenario sweep. The
+/// thresholds are the crate defaults plus the floating layers the UI draws above the
 /// content on purpose. A control inside a layer never overlaps a control outside it or in
 /// another layer; overlaps inside one layer are still reported. The docked `ParametersPanel`
 /// mount shares the type name, so docked controls are exempt against outside controls too
-/// (accepted, as before the migration).
+/// (accepted).
 #[must_use]
 pub fn sweep_options() -> SweepOptions {
     SweepOptions {
@@ -62,10 +64,11 @@ pub fn sweep_options() -> SweepOptions {
     }
 }
 
-/// `find`-style queries return a `Result<ElementHandle, Finding>` in the crate; the old support
-/// code panicked, so a missing control ended the scenario as a `scenario-panic` finding with the
-/// near-label hint. `must` keeps that behaviour (never `?`: that would make the finding
-/// `not-found` and let the scenario go on).
+/// `find`-style queries return a `Result<ElementHandle, Finding>`.
+///
+/// `must` turns a missing control into a panic, which ends the scenario as a finding with the
+/// near-label hint. Never use `?` instead: it would make the finding `not-found` and let the
+/// scenario go on.
 pub trait Must {
     /// The element, or a panic with the finding's detail.
     fn must(self) -> ElementHandle;

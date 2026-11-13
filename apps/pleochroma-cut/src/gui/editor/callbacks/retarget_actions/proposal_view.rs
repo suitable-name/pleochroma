@@ -1,8 +1,7 @@
-//! The `push_*` renderers that turn the Slint-free retarget proposal view model
-//! (`pleochroma_editor::retarget::view`, shared with the web app and re-exported
-//! here at its old paths) into `MainWindow`'s `editor_retarget_*`/`RetargetModel`
-//! properties -- see this group's own `mod.rs` doc comment ("Slint-free view-model
-//! split").
+//! The `push_*` renderers that copy the retarget view model into the Slint window.
+//!
+//! The view model is Slint-free (`pleochroma_editor::retarget::view`, shared with the web app).
+//! The renderers write `MainWindow`'s `editor_retarget_*` and `RetargetModel` properties.
 
 use crate::{MainWindow, RetargetCandidateItem, RetargetModel, RetargetRowItem};
 use pleochroma_cut_core::{MaterialSelection, ResolvedMaterial, optimize::display_score};
@@ -198,11 +197,9 @@ pub(super) fn push_retarget_view(ui: &MainWindow, view: RetargetView) {
         .set_solve_error(view.solve_error.into());
 }
 
-/// Pushes the target material readout -- fixed for the lifetime of one dialog
-/// session, but re-pushed on every rebuild anyway since it costs nothing. Also clears
-/// `RetargetModel.target_material_error` (see [`push_target_error`]): reaching this
-/// function at all means `material::resolve_target_selection` just succeeded, so any
-/// earlier parse error no longer applies.
+/// Pushes the target material readout. Also clears `RetargetModel.target_material_error`
+/// (see [`push_target_error`]): reaching this function means `material::resolve_target_selection`
+/// succeeded, so an earlier parse error is cleared.
 pub(super) fn push_target_readout(
     ui: &MainWindow,
     selection: &MaterialSelection,
@@ -218,17 +215,14 @@ pub(super) fn push_target_readout(
         .set_target_material_error("".into());
 }
 
-/// `ri_override_text` failed to parse -- pushes `message` into
-/// `RetargetModel.target_material_error` (shown above the proposal table,
-/// `retarget_dialog.slint`) and clears `rows`/`notes` so nothing on screen implies a
-/// proposal was actually built against this text. The readout above the error
-/// (`target_material_name`/`_ri`/`_critical_angle`) is deliberately left as-is --
-/// whatever the last valid target was -- rather than reset, matching the error
-/// banner's own "showing the last valid target" wording.
+/// Shows `message` when the RI override text fails to parse. It goes into
+/// `RetargetModel.target_material_error` (shown above the proposal table), and `rows`/`notes`
+/// are cleared so nothing on screen implies a proposal was built against that text. The readout
+/// above the error keeps the last valid target, to match the banner's wording.
 pub(super) fn push_target_error(ui: &MainWindow, message: &str) {
     ui.global::<RetargetModel>()
         .set_target_material_error(message.into());
-    // Nothing on screen describes a proposal any more, so no verdict applies either.
+    // No proposal is shown, so no verdict applies.
     super::check_run::reset_check(ui);
     push_retarget_view(
         ui,

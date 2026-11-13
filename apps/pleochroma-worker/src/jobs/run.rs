@@ -108,6 +108,10 @@ pub fn render_job(
     };
     let mut scene = job.scene.clone();
     scene.engine = job.engine;
+    // The file's color zones ride beside the scene; put them on the material.
+    if scene.material.zoning.is_none() {
+        scene.material.zoning.clone_from(&job.zoning);
+    }
     if scene.engine.is_ray()
         && let Err(note) = crate::validate::validate_request(&scene, 0, still.samples_per_pixel)
     {
@@ -121,6 +125,14 @@ pub fn render_job(
             Ok(map) => Some(map),
             Err(note) => return Outcome::Failed(note),
         },
+    };
+    // The stone shadow and the tray reflection are resolved once and held for every slice: a
+    // job is a finished picture. A shadow or mirror that cannot be built fails the job with
+    // the reason.
+    let tray = match assets::resolve_tray(scene, None, cancel) {
+        Ok(tray) => tray,
+        Err(assets::TrayStop::Cancelled) => return Outcome::Cancelled,
+        Err(assets::TrayStop::Refused(note)) => return Outcome::Failed(note.to_owned()),
     };
     let (width, height) = (scene.width, scene.height);
     let mut sum = vec![Vec3::ZERO; width as usize * height as usize];
@@ -136,6 +148,7 @@ pub fn render_job(
                 let mut out = vec![Vec3::ZERO; width as usize * height as usize];
                 return render_core::whitted::trace(
                     scene,
+                    tray.view(),
                     done,
                     count,
                     lane.threads,
@@ -148,10 +161,10 @@ pub fn render_job(
             render_core::trace_samples_with_gpu_cancellable(
                 &lane.gpu,
                 scene,
-                done,
-                count,
+                (done, count),
                 lane.threads,
                 cancel,
+                tray.view(),
             )
         }));
         match traced {
@@ -244,6 +257,10 @@ mod tests {
             height: 16,
             yaw: 0.4,
             camera_roll: 0.0,
+            stone_shadow: false,
+            tray_reflection: 0.0,
+            hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
+            estimator: pleochroma::optics::raytracer::Estimator::Branching,
             pitch: 0.3,
             distance: 3.0,
             light_yaw: 0.85,
@@ -286,8 +303,10 @@ mod tests {
                 samples_per_pixel: samples,
                 color_space: space,
                 preset_label: String::new(),
+                accel: pleochroma::renderer::accel::RenderAccel::default(),
             }),
             optical_diagnostics: None,
+            zoning: None,
         }
     }
 
@@ -329,7 +348,7 @@ mod tests {
         job.engine.engine = pleochroma::renderer::engine::RenderEngine::RayTraced;
         job.engine.ray.aa_taps = 4;
         job.format = 2;
-        // The scene retains its legacy Path-Traced default on purpose.
+        // The scene copy keeps its default engine; the job's engine is the one that counts.
         let cancel = AtomicBool::new(false);
         let Outcome::Done(png) = render_job(&job, &lane(), None, &cancel, &|_| {}) else {
             panic!("the Ray-Traced job renders");

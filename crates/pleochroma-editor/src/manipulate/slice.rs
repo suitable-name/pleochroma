@@ -180,10 +180,9 @@ pub fn slice_tier(
 
 /// `tier` named after the code the tables will show for it once it is appended to `design`.
 ///
-/// [`slice_tier`] only avoids names already in use, so a slice on a design whose first
-/// pavilion tier is called "Pavilion Main" became "P1" while its table code was "P2" (the
-/// code counts tiers in cutting order). The tier keeps its name when the code is already
-/// that name or the code would clash with a name in use.
+/// [`slice_tier`] only avoids names already in use. The table shows each tier by its code,
+/// which counts tiers in cutting order and can differ from the name (`P2` where the name is
+/// `P1`). The tier takes its code as its name unless the code clashes with a name in use.
 #[must_use]
 pub fn named_like_its_code(design: &Design, mut tier: ConstraintTier) -> ConstraintTier {
     let index = design.tiers.len();

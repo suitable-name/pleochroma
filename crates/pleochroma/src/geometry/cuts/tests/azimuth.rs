@@ -1,7 +1,9 @@
-//! [`StandardGemCuts::index_to_azimuth`] coverage: bit-identical agreement
-//! with the pre-fix plain formula at a zero reference angle, additivity of a
-//! nonzero reference angle, and [`StandardGemCuts::from_asc_schedule`]'s use
-//! of it end to end.
+//! [`StandardGemCuts::index_to_azimuth`] coverage.
+//!
+//! It checks bit-identical agreement
+//! with the plain `2*pi*index/gear_teeth` formula at a zero reference angle,
+//! additivity of a nonzero reference angle, and [`StandardGemCuts::from_asc_schedule`]'s
+//! use of it end to end.
 
 use std::f32::consts::PI;
 
@@ -100,10 +102,8 @@ fn index_to_azimuth_reference_angle_is_additive_on_the_index() {
     }
 }
 
-/// `from_asc_schedule` at `gear_reference_angle == 0.0` reproduces exactly
-/// what the pre-fix `2*pi*index/gear_teeth_abs()` formula produced --
-/// existing scenes reconstructed from schedules that never set a
-/// reference angle must not move a single bit.
+/// At `gear_reference_angle == 0.0`, `from_asc_schedule` maps each index to the plain
+/// `2*pi*index/gear_teeth_abs()` azimuth bit for bit, so existing scenes do not move.
 #[test]
 fn from_asc_schedule_zero_reference_angle_reproduces_the_previous_mapping_bit_for_bit() {
     let gear_teeth = 96.0f32;
@@ -136,7 +136,7 @@ fn from_asc_schedule_zero_reference_angle_reproduces_the_previous_mapping_bit_fo
             clippy::cast_possible_truncation,
             reason = "the pre-fix formula worked in f32; an index is a small whole number"
         )]
-        let phi = 2.0 * PI * (idx as f32) / gear_teeth; // the pre-fix formula, verbatim
+        let phi = 2.0 * PI * (idx as f32) / gear_teeth; // plain index-to-azimuth formula
         let expected = GpuFacetPlane::new(
             Vec3::new(
                 theta.sin() * phi.cos(),
@@ -149,18 +149,14 @@ fn from_asc_schedule_zero_reference_angle_reproduces_the_previous_mapping_bit_fo
     }
 }
 
-/// An asymmetric index set (not symmetric under `i -> gear - i`, so a
-/// mirror-transform bug would be visible) with a nonzero, corpus-typical
-/// reference angle (`gear_teeth / 2`, the most common nonzero value in
-/// the real corpus) maps to exactly the expected azimuths.
+/// An asymmetric index set (so a mirror-transform bug would show) with a nonzero
+/// reference angle of `gear_teeth / 2` maps to the expected azimuths.
 #[test]
 fn from_asc_schedule_asymmetric_indices_map_to_expected_azimuths_with_reference_angle() {
     let gear_teeth = 96.0f32;
-    let reference_angle = 48.0f64; // gear_teeth / 2, the dominant nonzero corpus value
+    let reference_angle = 48.0f64; // gear_teeth / 2, a common real value
     let mast = 0.6f64;
-    // Asymmetric under i -> 96 - i: 96-5=91, 96-20=76, 96-47=49 -- none of
-    // those are in the set, so this is a real corpus-shaped asymmetric tier,
-    // not a rotationally clean one.
+    // Asymmetric under i -> 96 - i: the mirrored indices 91, 76 and 49 are not in the set.
     let indices = vec![5.0, 20.0, 47.0];
     let schedule = AscSchedule {
         gear_teeth: 96,
@@ -199,11 +195,8 @@ fn from_asc_schedule_asymmetric_indices_map_to_expected_azimuths_with_reference_
     }
 }
 
-/// A tier whose indices are spaced evenly around the whole wheel (an
-/// 8-fold symmetric star, `.asc`'s own `clean_fold` shape -- see the
-/// corpus measurement cited in `from_asc_schedule`'s doc comment) has its
-/// entire plane set rotated as one rigid whole by a nonzero reference
-/// angle -- never distorted per-facet.
+/// A tier with indices spaced evenly around the wheel (8-fold symmetric) is rotated
+/// as one rigid set by a nonzero reference angle, never distorted per facet.
 #[test]
 fn from_asc_schedule_symmetric_design_is_globally_rotated_by_reference_angle() {
     let gear_teeth = 96.0f32;

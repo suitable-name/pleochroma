@@ -1,5 +1,5 @@
 //! Visible routes of the Watermelon Tourmaline lesson: a custom material with a color made by
-//! Pick..., then the Color Pattern window with the Watermelon template.
+//! Pick..., then the Color Pattern window with the Watermelon pattern from Start From...
 //!
 //! This file is a child of `event_extras.rs`, so it can use the private helpers of the Material
 //! Editor routes (`extra_click_panel`, `material_scroll_target`). Each route fails with a sentence
@@ -113,7 +113,8 @@ impl Film<'_> {
     }
 
     /// Step "Add the Watermelon pattern": the Material Editor again, Add Pattern..., the
-    /// Watermelon template and Save in the Color Pattern window (a second captured window).
+    /// Watermelon pattern from Start From... and Save to Material in the Color Pattern window (a
+    /// second captured window).
     pub(crate) fn film_pattern_watermelon(&mut self) -> Result<(), String> {
         self.open_pattern_material_editor()?;
         self.click_material_editor("Add Pattern\u{2026}")?;
@@ -146,19 +147,28 @@ impl Film<'_> {
         self.hold(pacing::RESULT_HOLD)?;
 
         let model = window.global::<ColorPatternModel>();
+        // The Watermelon tile of the Start From gallery; picking it closes the gallery.
+        self.click_pattern_control(&window, origin, "Start From\u{2026}")?;
+        if !pacing::wait_real(Duration::from_secs(10), || model.get_gallery_open()) {
+            return Err("Start From... did not open the gallery".into());
+        }
+        self.hold(Duration::from_millis(400))?;
         self.click_pattern_control(&window, origin, "Watermelon")?;
+        if !pacing::wait_real(Duration::from_secs(10), || !model.get_gallery_open()) {
+            return Err("the Watermelon tile did not close the gallery".into());
+        }
         if !pacing::wait_real(Duration::from_secs(60), || {
-            !model.get_solving_colors() && !model.get_preview_busy()
+            !model.get_solving_colors() && model.get_render_state() != 2
         }) {
             return Err("the Watermelon colors did not finish solving".into());
         }
-        self.click_pattern_control(&window, origin, "Cross-Section")?;
+        self.click_pattern_control(&window, origin, "Slice")?;
         self.hold(pacing::RESULT_HOLD)?;
-        self.click_pattern_control(&window, origin, "Save")?;
+        self.click_pattern_control(&window, origin, "Save to Material")?;
         if !pacing::wait_real(pacing::STEP_TIMEOUT, || {
             harness_support::color_pattern_window().is_none()
         }) {
-            return Err("Save did not close the Color Pattern window".into());
+            return Err("Save to Material did not close the Color Pattern window".into());
         }
         self.rec.detach_window();
         self.attached_window = None;

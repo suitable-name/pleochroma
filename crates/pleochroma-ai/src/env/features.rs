@@ -53,7 +53,7 @@ pub(super) fn orbit_harmonics(design: &Design, tier_index: usize) -> (f32, f32, 
     )
 }
 
-/// Reference is in wheel teeth; the additional cheater is in degrees.
+/// `reference` is in wheel teeth and `cheater_deg` in degrees.
 pub(super) fn index_azimuth(
     index: f64,
     gear: i32,

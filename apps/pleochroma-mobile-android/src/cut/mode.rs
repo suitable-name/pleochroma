@@ -283,7 +283,7 @@ fn stop_runtime() {
         runtime.requested = None;
         runtime.queue.take()
     });
-    // Joined outside the borrow: the thread never touches the runtime, but be safe.
+    // Dropped outside the borrow: the worker thread never touches the runtime.
     drop(queue);
 }
 

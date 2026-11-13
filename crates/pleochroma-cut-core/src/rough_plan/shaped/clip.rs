@@ -275,8 +275,8 @@ pub struct BuildClipParams<'a> {
     pub size_table: &'a PieceTable,
     /// Plan settings (allowance, min width).
     pub settings: &'a PlanSettings,
-    /// The rough's non-convex mesh, `None` for a convex rough (which takes exactly the
-    /// path it always did). Its clearance is `skin + allowance` of `settings`.
+    /// The rough's non-convex mesh, `None` for a convex rough. Its clearance is
+    /// `skin + allowance` of `settings`.
     pub mesh: Option<&'a RoughMesh>,
     /// The a0 slice of ranges to process.
     pub slice: Range<usize>,
@@ -579,8 +579,8 @@ pub fn build_clipped_table(
 /// a slice that is not the whole grid, it is [`build_clipped_table`] itself. `None` when
 /// cancelled.
 ///
-/// Prefer [`build_clipped_table_jobs`]: whole `a0` planes are coarse jobs (the first of
-/// three planes holds half of the work), which wastes lanes when one entry is expensive.
+/// Prefer [`build_clipped_table_jobs`]: whole `a0` planes are coarse jobs that waste
+/// lanes when the entries differ much in cost.
 pub fn build_clipped_table_lanes(
     params: &BuildClipParams<'_>,
     lanes: usize,

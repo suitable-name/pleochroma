@@ -63,14 +63,10 @@ export component CollapsedLibraryRail inherits Rectangle {
 
 export component DiagramListView inherits Rectangle {
     property <int> keyboard_focus_index: -1;
-    // Tracks the WHOLE list, not just its length -- a same-length result
-    // set (e.g. switching to a different filter that happens to match the same count)
-    // must also drop stale keyboard focus, not leave the focus ring (and Return) on
-    // whatever card previously sat at this index. `apply_diagram_list_to_ui` replaces
-    // `LibraryModel.diagram_list` with a brand-new model (never mutates one in place)
-    // whenever the fetched rows differ from the shown ones, so this fires on every real
-    // list update; a refresh that returns the very same rows keeps the model, and the
-    // focus ring stays on a card that still sits at this index.
+    // Tracks the whole list, not only its length, so a same-length result also drops the
+    // keyboard focus. `apply_diagram_list_to_ui` replaces `LibraryModel.diagram_list` with a
+    // new model whenever the rows change, so this fires on each real update. An identical
+    // refresh keeps the model and the focus.
     property <[DiagramItem]> tracked_diagram_list: LibraryModel.diagram_list;
     changed tracked_diagram_list => { root.keyboard_focus_index = -1; }
 
@@ -148,23 +144,14 @@ export component DiagramListView inherits Rectangle {
             }
         }
 
-        // While `recent_import_filter` restricts the list to a just-completed
-        // multi-file import, say so explicitly and offer an obvious way back to the
-        // full catalogue -- otherwise a cutter who doesn't immediately notice the
-        // (N of M) count shrank would have no idea why their other designs seem to
-        // have vanished.
+        // While `recent_import_filter` limits the list to a multi-file import, say so and offer a
+        // way back to the full catalogue. The filter is local-only: a remote search never sets it,
+        // and switching the library source clears it (`reset_search_and_filter_ui_inputs`). The
+        // row is still greyed out and its Clear disabled while
+        // `RemoteWorkerModel.library_is_remote`.
         //
-        // This restriction is local-import-only by construction (a remote-sourced
-        // search never populates it, and switching library source clears it -- see
-        // `gui::library::diagram_list::reset_search_and_filter_ui_inputs`), but the
-        // row is greyed out and its "Clear" click disabled while
-        // `RemoteWorkerModel.library_is_remote` too, defensively, rather than relying
-        // solely on that being true today.
-        //
-        // The label can be long ("Rough plan - all 3 results (1 design) - within the current
-        // search and filters"), so it wraps inside the banner and the banner takes the height of
-        // its line count. Slint layouts do not do height-for-width, hence the explicit estimate
-        // from the character count and the width left beside the "Clear" link.
+        // The label can wrap, and Slint has no height-for-width layout, so the banner height is
+        // estimated from the character count and the width left beside the "Clear" link.
         if LibraryModel.recent_import_filter.length > 0: filter_banner := Rectangle {
             property <string> banner_text: LibraryModel.id_filter_label != "" ? LibraryModel.id_filter_label : "Showing " + LibraryModel.recent_import_filter.length + " just-imported design(s).";
             property <length> text_width: max(80px, root.width - 20px - 16px - (clear_txt.preferred-width + 12px));
@@ -278,7 +265,7 @@ export component DiagramListView inherits Rectangle {
                 for item[idx] in LibraryModel.diagram_list: list_row := Rectangle {
                     // The card plus the 6px gap that separates it from the next row
                     // (a ListView has no `spacing`). The row is sized by its content
-                    // (`card_body`), exactly as the card was when it sat in a layout.
+                    // (`card_body`).
                     height: card_body.preferred-height + 6px;
                     // The open "more actions" menu reaches below the card; later rows are
                     // drawn after this one and would cover its lower items, so the row
@@ -324,12 +311,9 @@ export component DiagramListView inherits Rectangle {
                             ? Theme.primary
                             : (item.ignored ? Theme.accent-amber : (LibraryModel.selected_entry_id == item.id ? Theme.accent-cyan : (item_touch.has-hover ? Theme.border-medium : transparent)));
 
-                        // Rendered front/top previews for this row -- looked up once per
-                        // card via the cache-backed callback declared above; see this
-                        // property's own use below for the fixed-size-box-or-placeholder
-                        // rule that keeps a row with no previews yet from ever showing a
-                        // broken/stretched image or shifting this card's layout relative
-                        // to a row that has them.
+                        // Front and top previews for this row, from the cache-backed
+                        // `LibraryModel.get_preview_thumbnails`. Each box has a fixed size, so a
+                        // missing preview never changes the card's layout.
                         property <PreviewThumbnails> preview: LibraryModel.get_preview_thumbnails(item.id, LibraryModel.preview_cache_version);
 
                         // The "Add Tag..." context-menu entry opens this inline text
@@ -344,15 +328,9 @@ export component DiagramListView inherits Rectangle {
                             }
                         }
 
-                        // An unobtrusive per-design "regenerate previews" action -- a
-                        // builtin native context menu (cursor positioning, outside-click
-                        // dismissal, and OS-native rendering all handled by Slint itself --
-                        // see `i-slint-compiler`'s
-                        // `widgets/common/menus.slint`/`internal-components.slint` for the
-                        // `ContextMenuArea`/`Menu`/`MenuItem` this uses directly, no
-                        // hand-rolled equivalent needed). `expands_to_parent_geometry`
-                        // (this element's own default) makes it cover the whole card
-                        // without an explicit width/height.
+                        // Right-click menu of the design: the built-in `ContextMenuArea`, `Menu`
+                        // and `MenuItem`, which position and dismiss themselves. Covers the
+                        // whole card.
                         ContextMenuArea {
                             Menu {
                                 MenuItem {
@@ -405,11 +383,9 @@ export component DiagramListView inherits Rectangle {
                             }
                         }
 
-                        // The three-dots icon is a real button: clicking it opens the same
-                        // actions in a small floating menu, since Slint's
-                        // `ContextMenuArea`/`Menu` (used by the right-click path above)
-                        // has no API in this version to open programmatically from a
-                        // left click.
+                        // The three-dots icon is a real button that opens the same actions in a
+                        // floating menu, because `ContextMenuArea` cannot be opened by a left
+                        // click.
                         property <bool> kebab_open: false;
                         // Also on the selected row and the keyboard-focused one: a button that
                         // shows only under the mouse has no keyboard or screen-reader path.
@@ -717,8 +693,8 @@ export component DiagramListView inherits Rectangle {
                             // as `item_touch` covering the whole card two levels up), not
                             // just its "x" glyph, so the hit target is comfortably larger
                             // than the 9px text. Hidden entirely for a row with no tags
-                            // and the inline entry not open, so an untagged catalogue
-                            // (the common case today) shows no empty row.
+                            // and the inline entry not open, so an untagged catalogue shows no
+                            // empty row.
                             if item.tags.length > 0 || card.adding_tag: HorizontalLayout {
                                 spacing: 4px;
                                 alignment: start;

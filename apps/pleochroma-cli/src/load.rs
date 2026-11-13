@@ -1,10 +1,10 @@
-//! Opening a design file: `.psdd`, `.asc`, `.gem` and `.gcs`,
-//! through the same shared entry points the desktop's Open uses.
+//! Opening a design file (`.psdd`, `.asc`, `.gem` or `.gcs`) through the same shared entry
+//! points the desktop's Open uses.
 //!
 //! | File | Path |
 //! |---|---|
 //! | `.psdd` | `pleochroma_cut_core::native::design_from_str` |
-//! | `.asc` | `pleochroma_formats::asc::decode_asc_bytes`, then `pleochroma_editor::loading::design_from_asc_text` |
+//! | `.asc` | `decode_asc_bytes`, then `design_from_asc_text` |
 //! | `.gem`, `.gcs` | `pleochroma_editor::files::convert_foreign_design`, then the `.asc` path |
 //!
 //! A `.psdd` file carries more than the design: the printed proportions of the catalogue
@@ -60,9 +60,11 @@ pub struct Loaded {
     kept: Kept,
 }
 
-/// The most decimals any facet record (`a` line) of the `.asc` text `asc_text` writes its mast
-/// with: 5 for `GemCad` 4.x, 8 for `GemCad` 5. A five-decimal mast is quantised to `1e-5`, which
-/// opens a designed meet by a few millionths of the stone. `None` when there is no facet record.
+/// The most decimals any facet record of the `.asc` text `asc_text` writes its mast with.
+///
+/// Facet records are the `a` lines: 5 decimals for `GemCad` 4.x, 8 for `GemCad` 5. A five-decimal
+/// mast is quantised to `1e-5`, which opens a designed meet by a few millionths of the stone.
+/// `None` when there is no facet record.
 #[must_use]
 pub fn mast_decimals(asc_text: &str) -> Option<usize> {
     asc_text

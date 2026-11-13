@@ -3,13 +3,14 @@
 //! A [`ColorVariant`] is a complete per-axis spectral absorption tensor for one material
 //! ("Sapphire / Pink"), with its unit and provenance. Applying one to a [`GemMaterial`]
 //! ([`GemMaterial::with_color_variant`]) replaces ONLY the absorption tensor and its unit: the
-//! stone keeps its dispersion, birefringence, axes, scattering and inclusions, and keeps the rank
+//! stone keeps its dispersion, birefringence, axes, scattering and inclusions, and keeps the
+//! rank
 //! of its absorption (a pleochroic host never gets an isotropic color from here, see
 //! [`ColorVariant::validate_for`]).
 //!
 //! * [`rows`]: the explicit stored form of a tensor ([`VariantTensorRows`]), exact round trip.
 //! * [`validate`]: [`TensorRank`], [`VariantProblem`], [`ColorVariant::validate_for`].
-//! * `data`: the built-in entries of `data/color_variants.toml`, parsed once.
+//! * `data`: the built-in entries of the `data/color_variants*` files, parsed once.
 //!
 //! [`built_in_variants`] lists the variants of one built-in material: its Material Default (its
 //! own tensor) first, then the data file's entries in file order.
@@ -18,7 +19,7 @@ mod data;
 pub mod rows;
 #[cfg(test)]
 mod tests;
-// One test file per data group (`data/color_variants/<group>.toml`), owned by its fit lane.
+// One test file per data group (`data/color_variants/<group>.toml`).
 #[cfg(test)]
 mod tests_beryl_topaz_tourmaline_andalusite;
 #[cfg(test)]
@@ -89,8 +90,8 @@ pub struct ColorVariant {
     ///
     /// This is a width, never a light path: every swatch and fallback color of a variant is
     /// evaluated over the path [`face_up_swatch_path`] gives for `(unit, reference_path_mm)`,
-    /// the face-up path the render itself shows a stone of that width. (A saved Custom Color stores the width of the
-    /// stone it was solved on.)
+    /// the face-up path the render shows for a stone of that width. A saved Custom Color
+    /// stores the width of the stone it was solved on.
     pub reference_path_mm: f32,
     /// Where the variant comes from.
     pub provenance: VariantProvenance,
@@ -106,7 +107,8 @@ pub struct ColorVariant {
 ///   per-model-unit color is tuned to, `render_setup::MODEL_UNIT_FACE_UP_PATH`), scaled by
 ///   `width / 7`.
 /// * [`AbsorptionUnit::PerMm`]: the face-up path in millimetres, `MODEL_UNIT_FACE_UP_PATH` model
-///   units of a `REFERENCE_MODEL_WIDTH`-wide stone, i.e. `2.83 x width / 2.0` (9.905 mm at 7 mm).
+///   units of a `REFERENCE_MODEL_WIDTH`-wide stone, i.e. `2.83 x width / 2.0` (9.905 mm at
+///   7 mm).
 ///
 /// A variant's `reference_path_mm` is the stone width its numbers are calibrated for, not this
 /// path: pass it here as `stone_width_mm`.
@@ -226,9 +228,9 @@ pub fn built_in_variants(material_name: &str) -> Vec<ColorVariant> {
 impl GemMaterial {
     /// Replaces ONLY the absorption tensor and its unit; every other field is kept bit-for-bit
     /// (dispersion, birefringence, axes, scattering, edge rounding, inclusions; the path scale
-    /// follows the rule below). Drops `zoning`: a zoned material's color is its zones, and a zoned material
-    /// left as `ModelUnit` would break the zoned tracer's per-millimetre rule. Never builds an
-    /// isotropic tensor from a pleochroic one: the tensor is stored exactly as given.
+    /// follows the rule below). Drops `zoning`: a zoned material's color is its zones, and a
+    /// zoned material left as `ModelUnit` would break the zoned tracer's per-millimetre rule.
+    /// The tensor is stored exactly as given, so a pleochroic one is never made isotropic.
     ///
     /// `absorption_path_scale` stays the host's own, with one exception: a material whose unit
     /// BECOMES [`AbsorptionUnit::PerMm`] gets the scale of a 7 mm stone,

@@ -52,8 +52,8 @@ pub(super) fn wire(window: &AppWindow, state: &Rc<RefCell<AppState>>) {
         }
     });
 
-    // The first `changed width` may have fired before the callback existed (the size
-    // is set right after the window is created), so report the current width once.
+    // The first `changed width` may fire before this callback is wired, so report the
+    // current width once.
     let size = window
         .window()
         .size()

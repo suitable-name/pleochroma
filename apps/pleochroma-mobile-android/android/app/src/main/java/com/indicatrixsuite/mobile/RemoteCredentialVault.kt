@@ -11,8 +11,8 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
-/** Exportable TLS keys are wrapped by an Android Keystore AES key at rest.
- * This does not claim the TLS key itself is hardware backed or non-exportable. */
+/** Wraps the stored remote credentials with an Android Keystore AES key.
+ * The TLS key inside is not claimed to be hardware backed or non-exportable. */
 internal class RemoteCredentialVault(context: Context) {
     private val file = AtomicFile(File(context.noBackupFilesDir, "remote-credentials-v1.bin"))
     private val alias = "pleochroma.remote.credentials.v1"

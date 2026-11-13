@@ -1,8 +1,9 @@
-//! Tier 2 check of the analytic sun's next-event-estimation functions: the WGSL
-//! `daylight_sun_cone_direction`, `daylight_sun_nee_pdf` and `daylight_sun_factor` of
-//! `shaders/environment.wgsl` (textually pinned equal to the megakernel's copies by
-//! `shader_validation_tests`) against the CPU `rig::sun_cone_direction`, `rig::sun_nee_pdf`
-//! and `rig::sun_radiance_factor`, dispatched by [`run_sun_nee`].
+//! Tier 2 check of the analytic sun's next-event-estimation functions.
+//!
+//! It checks the WGSL `daylight_sun_cone_direction`, `daylight_sun_nee_pdf` and
+//! `daylight_sun_factor` of `shaders/environment.wgsl` (textually pinned equal to the megakernel's
+//! copies by `shader_validation_tests`) against the CPU `rig::sun_cone_direction`,
+//! `rig::sun_nee_pdf` and `rig::sun_radiance_factor`, dispatched by [`run_sun_nee`].
 //!
 //! Compared per case: the three components of the drawn direction, the pdf at the draw (the
 //! technique's own density, `1 / solid angle` inside the disc), the pdf at an independent
@@ -39,9 +40,8 @@ const _: () = assert!(size_of::<SunNeeCase>() == 32);
 
 /// ULP budget for the sun NEE draw comparison.
 ///
-/// The draw chains `sin`/`cos` (the azimuth, and the key direction's own pose
-/// trig) and a `sqrt`; the pdfs are a constant or exactly zero. See
-/// [`super::STUDIO_ENV_ULP_BUDGET`]'s doc comment for the calibration philosophy.
+/// The draw chains `sin`/`cos` (the azimuth and the key pose's trig) and a `sqrt`; the pdfs
+/// are a constant or exactly zero.
 pub const SUN_NEE_ULP_BUDGET: u32 = 256;
 
 /// Absolute-difference floor: direction components near zero carry rounding noise of

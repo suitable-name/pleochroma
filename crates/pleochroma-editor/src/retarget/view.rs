@@ -22,13 +22,14 @@ use pleochroma_cut_core::{
 
 /// The risk label of a row whose tier is listed but not changed (the table, the culet).
 ///
-/// `ui/components/retarget_dialog.slint` greys a row by comparing against this exact text.
+/// `apps/pleochroma-cut/ui/components/retarget_dialog/proposal_table.slint` greys a row by
+/// comparing against this exact text, so the two must match.
 pub const NOT_CHANGED_LABEL: &str = "Not changed";
 
 /// The risk label of a row whose angle follows a relation: it is not shifted on its own, it
 /// moves with the tiers it reads.
 ///
-/// `ui/components/retarget_dialog.slint` mutes the cell by comparing against this exact text.
+/// The same `proposal_table.slint` mutes the cell by comparing against this exact text.
 pub const FOLLOWS_LABEL: &str = "Follows";
 
 /// The line added to an invalid Shift verdict: the way out.

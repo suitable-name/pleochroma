@@ -32,7 +32,7 @@ thread_local! {
     static MARKS: RefCell<Option<TutorialMarks>> = const { RefCell::new(None) };
 }
 
-/// The marks as stored, or none when nothing (usable) is stored.
+/// The marks as stored; empty when nothing usable is stored (an unreadable value is discarded).
 fn load_marks() -> TutorialMarks {
     let key = tutorials_key();
     let Some(text) = persist::read(&key) else {

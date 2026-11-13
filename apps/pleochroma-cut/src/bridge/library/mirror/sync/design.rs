@@ -30,36 +30,23 @@ pub(super) enum SyncedDesign {
 
 /// Fetches and saves exactly one design: `FetchDesign`, then every non-oversized
 /// attachment's bytes, then one atomic local `save_design` (entry and detail together)
-/// and `upsert_mirror_state` -- all network I/O happens before the first local write, so a
-/// failure partway through never touches the database (see the mirror module's own doc
-/// comment's "Cancellation" section, which this same all-network-then-all-local
-/// ordering also backs).
+/// and `upsert_mirror_state`. All network I/O happens before the first local write, so a failure
+/// partway through never touches the database.
 ///
 /// # The local-row guard: never overwrite a local row
 ///
-/// A remote design's `url` can collide with a row this database already has that was
-/// NEVER mirrored from any remote -- a worker serving its own `local://` import, or a
-/// hand-imported `.asc` that happens to land on the same synthetic URL. Before saving,
-/// [`is_unmirrored_local_row`] checks whether a local row already exists for
-/// `design.url` and, if so, whether it is actually a previously-mirrored row. A
-/// pre-existing row with no mirror state is left completely untouched --
-/// [`SyncedDesign::SkippedLocalConflict`] -- matching the mirror module's own
-/// "additive/update-only" rule. Only checked when `is_new` is true: when it's `false`,
-/// `super::pass::run_mirror_sync` already found a mirror-state row for this URL itself,
-/// so the row is known-mirrored without a second lookup here. That pass also skips a
-/// tombstoned state (a locally deleted design) before ever calling this function, so an
-/// `!is_new` call is always for a design the user has not deleted.
+/// A remote design's `url` can match a local row that no mirror sync ever wrote, such as a
+/// worker's own `local://` import or a hand-imported `.asc` on the same synthetic URL. Before
+/// saving, [`is_unmirrored_local_row`] checks for such a row. If one exists it is left untouched,
+/// and the result is [`SyncedDesign::SkippedLocalConflict`]. The check runs only when `is_new`:
+/// otherwise `super::pass::run_mirror_sync` already found the mirror state, and it skips
+/// tombstoned designs before calling this function.
 ///
-/// `Err(())` on any failure (fetch, or local save) -- the caller only needs to know
-/// pass/fail to update [`MirrorCounts::failed`]; the specific reason isn't surfaced
-/// per-design (this sync covers up to a thousand designs at once -- see the mirror
-/// module doc comment's protocol-limitation note -- so a per-design error UI would be
-/// noise; a failed design is simply retried on the next sync, same as one skipped for
-/// looking unchanged is not).
+/// `Err(())` on any fetch or save failure. The caller only counts it in [`MirrorCounts::failed`];
+/// the reason is not kept. The design is retried on the next sync.
 ///
-/// `is_new` (from `super::pass::run_mirror_sync`'s own `existing_state.is_none()`)
-/// decides whether an UPDATED design's now-stale cached preview images/tilt curves
-/// are invalidated after the save below -- see that call site's own comment.
+/// `is_new` also decides whether an updated design's cached previews, tilt curves and solid
+/// extents are dropped after the save, since they describe the old geometry.
 pub(super) fn sync_one_design(
     db: &Arc<Mutex<Database>>,
     transport: &impl LibraryTransport,
@@ -134,12 +121,8 @@ pub(super) fn sync_one_design(
             design.url
         );
     }
-    // An UPDATED (not new) design just had its detail row replaced with fresh
-    // geometry/metadata -- any cached preview thumbnail/tilt curves rendered from the
-    // OLD geometry are now stale and must be invalidated, mirroring
-    // `gui::library::local::import`'s own re-import handling (`import/mod.rs`'s
-    // `is_collision` branch) rather than leaving performance filters and thumbnails
-    // silently describing the previous version of the design.
+    // An updated design's detail row was just replaced, so the caches built from its old
+    // geometry are stale and are dropped.
     if !is_new {
         if let Err(e) = db.delete_preview_images(id) {
             warn!(
@@ -163,9 +146,7 @@ pub(super) fn sync_one_design(
             );
         }
     }
-    // Only recorded once the local write above actually succeeded -- a design that
-    // failed to save is never marked as synced, so the next sync retries it rather than
-    // silently treating a failed write as done. See this function's own doc comment.
+    // Recorded only after the local write succeeds, so a failed design is retried next sync.
     let _ = db.upsert_mirror_state(&MirrorState {
         url: design.url.clone(),
         source_id: source_id.to_string(),
@@ -190,11 +171,8 @@ fn attached_surface_finish(detail: &FacetingDiagramDetail) -> StoredSurfaceFinis
         .unwrap_or_default()
 }
 
-/// Fetches every one of `design`'s attachments whose advertised size doesn't exceed
-/// `options.max_attachment_bytes`, tallying skips/fetches/bytes into `counts` as it
-/// goes -- pulled out of [`sync_one_design`] purely to keep that function's length
-/// down; see its own doc comment for the full per-design fetch/save shape this is one
-/// step of.
+/// Fetches each attachment whose size is within `options.max_attachment_bytes`, and tallies
+/// skips, fetches and bytes into `counts`.
 fn fetch_attachments(
     transport: &impl LibraryTransport,
     design: &DesignRecord,
@@ -230,9 +208,7 @@ fn fetch_attachments(
     Ok(attached_files)
 }
 
-/// Builds the [`FacetingDiagramDetail`] `save_diagram_detail` will fully replace the
-/// existing row with (see that method's own doc comment) -- pulled out of
-/// [`sync_one_design`] purely to keep that function's length down.
+/// Builds the [`FacetingDiagramDetail`] that `save_diagram_detail` fully replaces the row with.
 fn build_detail(
     design: &DesignRecord,
     attached_files: Vec<AttachedFile>,
@@ -263,11 +239,8 @@ fn build_detail(
         facets_count: design.facets_count.clone(),
         shape: design.shape.clone(),
         designer_info: design.designer_info.clone(),
-        // `DesignRecord` carries these eight fields as of `PROTOCOL_VERSION` v6 (see
-        // that constant's doc comment). They must be mapped here: `save_diagram_detail`
-        // DELETES and re-inserts the whole detail row (`entries.rs`'s own doc comment),
-        // so leaving one out would blank it on every sync, even for a design that
-        // already had it from a prior local import/edit.
+        // These eight fields must be mapped: `save_diagram_detail` replaces the whole detail
+        // row, so an unmapped field would be blanked on every sync.
         hw_ratio: design.hw_ratio.clone(),
         tw_ratio: design.tw_ratio.clone(),
         uw_ratio: design.uw_ratio.clone(),
@@ -276,9 +249,7 @@ fn build_detail(
         symmetry_order: design.symmetry_order.clone(),
         mirror_symmetry: design.mirror_symmetry,
         designer: design.designer.clone(),
-        // Added to `DesignRecord` under `PROTOCOL_VERSION` v15 -- same "must be mapped
-        // here or a re-sync blanks it" reasoning as the eight fields above. This now
-        // sets every `FacetingDiagramDetail` field there is, so no `..default()` remains.
+        // Same reason as the fields above. Every `FacetingDiagramDetail` field is set here.
         source_citation: design.source_citation.clone(),
         pdf_file: design.pdf_file.clone(),
         gem_file: design.gem_file.clone(),
@@ -288,11 +259,8 @@ fn build_detail(
     }
 }
 
-/// Whether `url` already names a local row that was NEVER put there by a mirror sync
-/// (no `library_mirror_state` entry for it) -- the local-row guard's own predicate, pulled
-/// out so [`sync_one_design`]'s doc comment has one thing to point at. `false` for a
-/// brand-new URL (nothing to conflict with) and `false` for a row `library_mirror_state`
-/// confirms was mirrored before (safe to update).
+/// Whether `url` names a local row that no mirror sync wrote (no `library_mirror_state` entry).
+/// A brand-new URL and a previously mirrored row both return `false`.
 fn is_unmirrored_local_row(db: &Database, url: &str) -> bool {
     let Ok(Some(_)) = db.diagram_entry_id_for_url(url) else {
         return false;

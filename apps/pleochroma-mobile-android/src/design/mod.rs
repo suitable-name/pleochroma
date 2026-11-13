@@ -1,4 +1,4 @@
-//! The Design destination's Rust side: one module per lane surface, tied together here.
+//! The Design destination's Rust side: one module per surface, tied together here.
 //!
 //! Every submodule exposes the same two entry points:
 //! - `wire(window, state)`: connects its Slint callbacks (called once at start);
@@ -66,6 +66,7 @@ pub fn wire(window: &AppWindow, state: &Shared) {
                 DialogOwner::Document => {
                     document::handle_dialog_result(&window, &state, id, confirmed)
                 }
+                DialogOwner::Checks => props::handle_dialog_result(&window, &state, id, confirmed),
             };
             if !claimed {
                 tracing::debug!(id, confirmed, "dialog answer nobody claimed");
@@ -85,26 +86,31 @@ enum DialogOwner {
     Library,
     /// The Remote page (Forget Server).
     Remote,
+    /// The Checks tab (the question before a planned fix is applied).
+    Checks,
 }
 
 /// The owner of dialog `id`: ids below 2000 belong to the document (1001-1003), 2000-2999
-/// to the Cut destination (2001-2002), 3000-3099 to the Library and 4000-4099 to the
-/// Remote page (4001). An id from 2000 up that no range names goes to the Cut destination
-/// as before (which does not claim it, so the shell logs it); a new page's range must be
-/// added here before its dialogs can be answered.
+/// to the Cut destination (2001-2002), 3000-3099 to the Library, 4000-4099 to the
+/// Remote page (4001) and 5000-5099 to the Checks tab (5001). Other ids from 2000 up go to
+/// the Cut destination, which does not claim them, so the shell logs them. A new page's
+/// range must be added here before its dialogs can be answered.
 const fn dialog_owner(id: i32) -> DialogOwner {
     match id {
+        5000..=5099 => DialogOwner::Checks,
         4000..=4099 => DialogOwner::Remote,
         3000..=3099 => DialogOwner::Library,
-        2000..=2999 | 3100..=3999 | 4100.. => DialogOwner::Cut,
+        2000..=2999 | 3100..=3999 | 4100..=4999 | 5100.. => DialogOwner::Cut,
         _ => DialogOwner::Document,
     }
 }
 
-/// Ends the Design surfaces' worker threads (solve, raster) and drops every
-/// thread-local handle on the app state. Call on the UI thread once the event loop has
-/// ended: the state (and its settings writer) must be dropped while their threads still
-/// exist, not by the process's thread-local teardown, where joining aborts on Windows.
+/// Ends the Design surfaces' worker threads (solve, raster) and drops every thread-local handle on
+/// the app state.
+///
+/// Call on the UI thread once the event loop has ended: the state (and its settings writer) must be
+/// dropped while their threads still exist, not by the process's thread-local teardown, where
+/// joining aborts on Windows.
 pub fn shutdown() {
     solve::shutdown();
     history::shutdown();
@@ -175,6 +181,8 @@ mod tests {
             dialog_owner(crate::remote::DIALOG_FORGET),
             DialogOwner::Remote
         );
+        // 5001: the Checks tab's question before a planned fix (the snap to meet points).
+        assert_eq!(dialog_owner(5001), DialogOwner::Checks);
     }
 
     #[test]
@@ -188,5 +196,9 @@ mod tests {
         assert_eq!(dialog_owner(4000), DialogOwner::Remote);
         assert_eq!(dialog_owner(4099), DialogOwner::Remote);
         assert_eq!(dialog_owner(4100), DialogOwner::Cut);
+        assert_eq!(dialog_owner(4999), DialogOwner::Cut);
+        assert_eq!(dialog_owner(5000), DialogOwner::Checks);
+        assert_eq!(dialog_owner(5099), DialogOwner::Checks);
+        assert_eq!(dialog_owner(5100), DialogOwner::Cut);
     }
 }

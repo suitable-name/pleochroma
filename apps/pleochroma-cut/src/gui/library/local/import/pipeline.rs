@@ -1,7 +1,7 @@
-//! The core parse-measure-save pipeline: turns one candidate `.asc` (plus its
-//! optional `.psdd` design file), one `.gem`/`.gcs` design
-//! converted to `.asc`, or one stand-alone `.psdd` design file, into a saved
-//! catalogue row, and drives that over an entire batch of candidates.
+//! The parse-measure-save pipeline for import candidates.
+//!
+//! A candidate is an `.asc` (with its optional `.psdd`), a `.gem`/`.gcs` converted to `.asc`,
+//! or a stand-alone `.psdd`. Each becomes a saved catalogue row. [`import_path`] runs a batch.
 
 use super::{
     measure::{apply_measured_metadata, merge_reimport_metadata},
@@ -15,22 +15,15 @@ use std::{
 };
 use tracing::warn;
 
-/// Runs `f`, converting a panic into an error message instead of letting it unwind
-/// past this call. Wraps the one per-file step (`local::import_asc` +
-/// `apply_measured_metadata`) that reaches into `pleochroma`'s geometry code -- a crate
-/// this module doesn't own and can't guarantee is panic-free on every
-/// malformed-but-parseable `.asc`. Without this, one bad file would kill the whole
-/// worker thread, silently dropping every file after it and leaving `is_busy` stuck
-/// (see [`super::wiring::setup_import_callback`]'s doc comment). With this, it's just
-/// one more `failed` entry and the batch keeps going.
+/// Runs `f`, turning a panic into an error message.
 ///
-/// Public (not `pub(super)`) because `gui::editor::native_io::catalogue::write_back_to_catalogue`
-/// reuses it around the identical `local::import_asc` + `apply_measured_metadata` step
-/// on Save's own background thread -- see that function's own doc comment for
-/// why: it deliberately runs the SAME parse-and-measure path this module's per-file
-/// loop does, and until this reuse, only THIS caller (not that one) turned a panic
-/// there into an error instead of silently killing the save thread mid-write with no
-/// toast and no completion callback ever firing.
+/// Guards the per-file `local::import_bytes` + `apply_measured_metadata` step, which runs
+/// geometry code on malformed-but-parseable input. Without it, one bad file would abort
+/// the rest of the batch (see [`super::wiring::spawn_import`]). With it, the file becomes
+/// one more `failed` entry.
+///
+/// Public because `gui::editor::native_io::catalogue::write_back_to_catalogue` runs the
+/// same parse-and-measure step on Save's thread and needs the same isolation.
 pub fn catch_file_panic<T>(f: impl FnOnce() -> T + std::panic::UnwindSafe) -> Result<T, String> {
     std::panic::catch_unwind(f).map_err(|payload| {
         payload
@@ -41,62 +34,40 @@ pub fn catch_file_panic<T>(f: impl FnOnce() -> T + std::panic::UnwindSafe) -> Re
     })
 }
 
-/// [`import_path`]'s return value: the human-readable summary shown in the toast/status
-/// line, plus the `diagram_entries.id` of every design this call actually saved (fresh
-/// or a filename-collision replacement) -- the post-import preview-generation offer
-/// (`gui::batch::preview::offer_batch_confirmation`, called from
-/// `super::wiring::spawn_import`'s completion closure) needs exactly this list.
+/// [`import_path`]'s return value.
+///
+/// Carries the summary shown in the toast, and the `diagram_entries.id` of every design this
+/// call saved. The preview-generation offer needs that list.
 pub(super) struct ImportOutcome {
     pub(super) summary: String,
     pub(super) imported_ids: Vec<i64>,
-    /// Whether at least one candidate file failed to read, parse
-    /// or save. `spawn_import` derives the completion toast's kind from THIS, not
-    /// from sniffing the summary text -- a message like "Imported 3 file(s); 12
-    /// skipped (...)" would otherwise read as a plain success because it starts with
-    /// "Imported" and isn't "Imported 0", even though 12 of the 15 files failed.
+    /// Whether at least one candidate failed to read, parse or save. `spawn_import` takes
+    /// the toast kind from this, not from the summary text: "Imported 3 file(s); 12 skipped"
+    /// starts with "Imported" and would otherwise read as a success.
     pub(super) had_failures: bool,
-    /// Whether at least one imported file replaced an
-    /// existing catalogue row (filename-only dedup). Together with `had_failures`,
-    /// this drives `LibraryModel.import_should_stay_open`, which keeps the import
-    /// popup open on completion instead of auto-closing.
+    /// Whether at least one imported file replaced an existing catalogue row (filename-only
+    /// match). With `had_failures`, it keeps the import popup open on completion.
     pub(super) had_collision: bool,
-    /// Whether at least one imported `.gem`/`.gcs` file came with reader or
-    /// converter warnings (a preform section that is not converted, a hidden or
-    /// guide tier, a missing refractive index, ...). Listed in `summary`; keeps
-    /// the import popup open the same way `had_collision` does, so the list can
-    /// be read.
+    /// Whether at least one `.gem`/`.gcs` file came with reader or converter warnings. Listed
+    /// in `summary`; keeps the import popup open so the list can be read.
     pub(super) had_notes: bool,
 }
 
-/// Saves one already-parsed [`local::ImportedAsc`] into `db` and reports whether the
-/// save landed on an existing row -- split out of [`import_path`]'s own loop purely
-/// to keep that function under clippy's `too_many_lines` limit.
+/// Saves one parsed candidate into `db` and reports whether it replaced an existing row.
 ///
-/// On a collision, carries the existing row's hand-entered
-/// metadata forward before the full-replace write (see
-/// [`merge_reimport_metadata`]'s own doc comment for the exact rule) and invalidates
-/// its now-stale preview/tilt cache afterwards so a regenerate pass rebuilds from
-/// the new geometry rather than describing the old one. `file_name` is used only for
-/// the cache-invalidation warning logs.
+/// Split out of [`import_path`] for clippy's `too_many_lines` limit.
 ///
-/// A design file's tags, ignored mark and Rough Planner exclusion, and the frosting a
-/// `.gcs` or a design file states, are written with `local::apply_imported_extras` right
-/// after the row, fresh or replaced (a replaced row's frosting is replaced with the new
-/// file's, so a re-import that no longer states any clears it).
+/// A replacement carries the old row's hand-entered metadata forward (see
+/// [`merge_reimport_metadata`]) and invalidates its preview and tilt caches, so a regenerate
+/// pass rebuilds from the new geometry. A fresh row takes `derived_from_entry_id` only when
+/// that source row still exists; a replacement never derives, since it already is that row.
+/// Tags and the ignored and planner marks a design file states are applied afterwards by
+/// `local::apply_imported_extras`.
 ///
-/// On a fresh (non-collision) row, stamps
-/// `diagram_entries.derived_from_entry_id` from `parsed`'s own recovered
-/// [`local::ImportedAsc::derived_from_entry_id`] -- but only once the recorded id is
-/// confirmed to still name a real row (it may have been deleted since the `.asc` was
-/// exported); a stale or missing id is left unstamped rather than pointing the new
-/// row at nothing. Never attempted on a collision: that outcome already IS the
-/// recorded source row (same url, same id), so there is nothing to derive it from.
-///
-/// The entry and detail are written together by `Database::save_design`, one
-/// transaction, so a failure between the two cannot leave a detail-less entry that the
-/// next import would read as "no collision". A failure of the collision check itself
-/// is an error for this file, not silently "no collision": treating it as none would
-/// skip the metadata merge and the cache invalidation for a design that is replaced.
+/// The entry and detail are written by `Database::save_design` in one transaction, so a
+/// failure cannot leave a detail-less entry that the next import would read as "no
+/// collision". A failed collision check is an error for this file: treating it as "no
+/// collision" would skip the merge and the cache invalidation.
 ///
 /// # Errors
 ///
@@ -143,10 +114,10 @@ fn save_imported_design(
     Ok((id, is_collision))
 }
 
-/// Deletes `id`'s cached previews, tilt curves and solid extents after a re-import
-/// replaced its geometry, so a regenerate pass rebuilds them from the new design
-/// rather than describing the old one. Logged, not propagated: the import itself
-/// succeeded.
+/// Deletes `id`'s cached previews, tilt curves and solid extents after a re-import.
+///
+/// A regenerate pass then rebuilds them from the new geometry. Failures are logged, not
+/// propagated, since the import itself succeeded.
 fn invalidate_stale_caches(db: &Database, id: i64, file_name: &str) {
     if let Err(e) = db.delete_preview_images(id) {
         warn!(
@@ -168,12 +139,11 @@ fn invalidate_stale_caches(db: &Database, id: i64, file_name: &str) {
     }
 }
 
-/// Records `id` as derived from `source_id`, the catalogue row a footnote inside the
-/// imported file names -- but only once that row is confirmed to still exist.
+/// Records `id` as derived from `source_id`, the catalogue row named by a footnote in the
+/// imported file, if that row still exists.
 ///
-/// Never a title/filename heuristic: `source_id` came from a footnote
-/// `gui::editor::native_io` itself wrote into this exact file, recording exactly which
-/// catalogue row this design was exported/saved from. A failure is logged, not
+/// The footnote is written by `gui::editor::native_io` into this exact file, so it is
+/// authoritative; titles and file names are never matched. A failure is logged, not
 /// propagated: the import itself succeeded.
 fn record_provenance(db: &Database, id: i64, source_id: i64, file_name: &str) {
     match db.get_diagram_full(source_id) {
@@ -217,26 +187,22 @@ fn warning_line(file_name: &str, warnings: &[String]) -> String {
     }
 }
 
-/// Reads and parses one candidate with the vault's bytes-in importer, [`local::import_bytes`].
+/// Reads and parses one candidate with [`local::import_bytes`].
 ///
 /// A `.gem`/`.gcs` is converted to `.asc` cutting instructions and keeps the original file
-/// beside it, a stand-alone `.psdd` design file imports as it is,
-/// anything else is `.asc` text. A `<stem>.psdd` design file
-/// beside a `.asc`/`.gem`/`.gcs` is attached after it and is what the editor opens. Split out
-/// of [`import_path`] purely to keep that function under clippy's `too_many_lines` limit.
+/// beside it, a stand-alone `.psdd` imports as it is, and anything else is `.asc` text. A
+/// `<stem>.psdd` beside a `.asc`/`.gem`/`.gcs` is attached to it and is what the editor opens.
+/// Split out of [`import_path`] for clippy's `too_many_lines` limit.
 ///
 /// The raw bytes go to the vault, which decodes them for parsing (Windows-1252 and
-/// byte-order marks included) and stores the file exactly as received. A design saved by
-/// this app is a self-contained `.psdd` file, carrying everything the bare `.asc` can't
-/// (authored meet constraints, preform, detached facets, material/RI override -- see
-/// `pleochroma_formats::native`'s module doc comment); importing only the `.asc` would
-/// silently discard all of that. `find_design_file_beside` looks beside the file itself,
-/// independent of what `collect_import_candidates` collected;
-/// `gui::editor::loading::design_from_full_record` prefers the design file.
+/// byte-order marks included) and stores the file exactly as received. The `.psdd` carries
+/// what the bare `.asc` cannot (meet constraints, preform, detached facets, material and RI
+/// override; see `pleochroma_formats::native`), so importing only the `.asc` would discard
+/// it. [`find_design_file_beside`] looks beside the file itself, whatever was collected;
+/// `gui::editor::loading::design_from_full_record` prefers the design file when opening.
 ///
-/// Runs outside the database lock and inside [`catch_file_panic`]: a single malformed file in
-/// a folder import must not take the whole batch down, and the measuring
-/// ([`apply_measured_metadata`]) reaches into geometry code this module doesn't own.
+/// Runs outside the database lock and inside [`catch_file_panic`], so one malformed file
+/// cannot take down a folder import.
 ///
 /// # Errors
 ///
@@ -274,16 +240,14 @@ fn read_and_parse_candidate(
     }
 }
 
-/// Imports every `.asc`, `.gem` and `.gcs` file at `path` (see
-/// [`collect_import_candidates`]), reporting progress via `on_progress(done,
-/// total)` after each file so a caller can keep the UI honest during a long folder
-/// import (always runs off the UI thread -- see `super::wiring::spawn_import`).
+/// Imports every candidate at `path`.
 ///
-/// `db` is locked only around each file's actual database work (the collision check
-/// and the two writes), never around the file I/O, parsing, `.gem`/`.gcs`
-/// conversion, or plane reconstruction/`measure_solid` geometry that happens first
-/// -- so a UI-thread callback that also needs `db` can only ever block for a single
-/// row's write, not the whole import.
+/// Candidates are found by [`collect_import_candidates`]. `on_progress(done, total)` is called
+/// after each file. Always runs off the UI thread (see `super::wiring::spawn_import`).
+///
+/// `db` is locked only around each file's database work (the collision check and the
+/// writes), never around file I/O, parsing, `.gem`/`.gcs` conversion or measuring. A
+/// UI-thread callback that needs `db` therefore waits for one row's write at most.
 pub(super) fn import_path(
     db: &Arc<Mutex<Database>>,
     path: &Path,
@@ -306,13 +270,10 @@ pub(super) fn import_path(
     let total = candidates.len();
     let mut imported_ids: Vec<i64> = Vec::new();
     let mut failed: Vec<String> = Vec::new();
-    // Known limitation, not fixed here: `pleochroma_vault::local::import_asc` dedupes
-    // on the bare filename (`local://<file_name>`), not the source path, and
-    // `diagram_entries.url` is UNIQUE -- so importing `round.asc` from two different
-    // folders silently replaces the first with the second. That key lives in
-    // `pleochroma_vault`, out of scope here, so this loop only detects the collision
-    // (against this batch or a past import) and surfaces it in the summary below
-    // rather than letting it pass silently.
+    // Known limitation: the vault dedupes imports on the bare file name (`local://<file_name>`),
+    // not the source path, and `diagram_entries.url` is UNIQUE. `round.asc` from two folders
+    // therefore replaces the first. The key lives in `pleochroma_vault`; this loop only
+    // detects the collision and reports it in the summary.
     let mut seen_in_batch: HashSet<String> = HashSet::new();
     let mut replaced: Vec<String> = Vec::new();
     let mut noted: Vec<String> = Vec::new();
@@ -361,10 +322,10 @@ pub(super) fn import_path(
     }
 }
 
-/// [`import_path`]'s summary text: how many files were imported, which were
-/// skipped and why, which replaced an existing entry by file name, and which
-/// `.gem`/`.gcs` files came with converter notes -- each list capped by
-/// [`name_preview`], the full lists going to the log.
+/// Builds [`import_path`]'s summary text.
+///
+/// It gives the counts, the skipped files and why, the replaced files, and the converter
+/// notes. Each list is capped by [`name_preview`], and the full lists go to the log.
 fn import_summary(
     path: &Path,
     imported: usize,
@@ -389,17 +350,14 @@ fn import_summary(
         )
     };
     if !replaced.is_empty() {
-        // The full list goes to the log; the popup gets a capped preview (a
-        // 300-file re-import used to produce a 300-name toast).
+        // The full list goes to the log; the popup gets a capped preview.
         tracing::info!(
             "Import from {}: {} replaced by file name: {:?}",
             path.display(),
             replaced.len(),
             replaced
         );
-        // Named right here, since the popup that shows this text
-        // (`import_dialog.slint`'s own `result_text` block) is the only place this
-        // information is ever shown.
+        // The import dialog's `result_text` is the only place this is shown.
         let _ = write!(
             summary,
             " {} design(s) replaced an existing entry with the same file name ({}) -- \
@@ -424,9 +382,10 @@ fn import_summary(
 /// always goes to the log (`warn!`/`info!` next to the two call sites).
 const SUMMARY_NAME_PREVIEW: usize = 8;
 
-/// Joins at most [`SUMMARY_NAME_PREVIEW`] of `names` with `separator`, appending
-/// "and N more" for the rest, so a several-hundred-file batch cannot turn the
-/// summary into a wall of file names.
+/// Joins at most [`SUMMARY_NAME_PREVIEW`] of `names` with `separator`.
+///
+/// The rest are counted as "and N more", so a large batch cannot turn the summary into a wall
+/// of file names.
 fn name_preview(names: &[String], separator: &str) -> String {
     let shown = names
         .iter()

@@ -1,8 +1,7 @@
-//! Report B/D: the production ratio-anchoring path -- anchors each block from the
-//! design's own printed `C/W`/`P/W` proportions instead of bootstrapping from the
-//! file's real tier-0 mast, which is what actually reflects production usability
-//! (most catalogued designs have no `.asc` file, hence no recorded masts to
-//! bootstrap from).
+//! Reports B and D: the production ratio-anchoring path.
+//!
+//! Each block is anchored from the design's printed `C/W` and `P/W` proportions, not from recorded
+//! masts, because most catalogued designs have no `.asc` file and so no recorded masts.
 
 use pleochroma::geometry::{
     meet_solver::{
@@ -18,33 +17,25 @@ use crate::{
     types::{AscRow, ConstraintKind, DesignResult},
 };
 
-/// The production ratio-anchoring path: like [`solve_one`], but anchors each block
-/// from the design's own printed `C/W`/`P/W` proportions
-/// ([`apply_ratio_anchors`]) instead of bootstrapping from the file's real tier-0
-/// mast. This produces the measurement that matters for "is the solver usable in
-/// production": `solve_one`'s tier-0-real-mast bootstrap is a harness-only crutch
-/// (real usage, especially the ~2,700 catalogued designs with no `.asc` file at all,
-/// has no recorded masts to bootstrap from), so a bootstrap-free measurement is the
-/// number that actually reflects production usability.
+/// Report B: the production ratio-anchoring path.
 ///
-/// A block whose ratio is `None` (a partial diagram) or that `apply_ratio_anchors`
-/// otherwise couldn't cover still falls back to its own tier-0 real mast, exactly
-/// like `solve_one`, so every design remains solvable and comparable -- but that
-/// fallback is recorded (`DesignResult::fully_ratio_anchored`) and every anchor
-/// tier, whichever path supplied it, is excluded from scoring below: an anchor is
-/// *given*, not *solved*, so counting it as a free zero-error tier would flatter the
-/// numbers.
+/// Like [`solve_one`], but each block is anchored from the design's printed `C/W` and `P/W`
+/// proportions ([`apply_ratio_anchors`]) instead of its recorded tier-0 mast. Only this path
+/// measures production usability.
+///
+/// A block whose ratio is missing (a partial diagram) falls back to its tier-0 mast, as in
+/// `solve_one`, so every design stays solvable. The fallback is recorded in
+/// `DesignResult::fully_ratio_anchored`. Every anchor tier, whichever path supplied it, is
+/// excluded from scoring: an anchor is given, not solved.
 pub fn solve_one_ratio_anchored(row: &AscRow) -> DesignResult {
     solve_one_ratio_anchored_impl(row, false)
 }
 
-/// Report D: the production path end-to-end -- printed-ratio anchors like
-/// [`solve_one_ratio_anchored`], but solved via [`solve_meet_points_verified`]
-/// with the ratio-derived crown/pavilion anchors marked *adjustable* (the
-/// search calibrates them against the printed figures) and the printed
-/// proportions as the repair/verification targets. Anchoring and scoring
-/// conventions are otherwise identical to Report B, so the two are directly
-/// comparable.
+/// Report D: [`solve_one_ratio_anchored`] solved via [`solve_meet_points_verified`].
+///
+/// The ratio-derived crown and pavilion anchors are *adjustable*, so the search calibrates them
+/// against the printed figures, and the printed proportions are the repair targets. Anchoring and
+/// scoring otherwise match Report B.
 pub fn solve_one_ratio_anchored_verified(row: &AscRow) -> DesignResult {
     solve_one_ratio_anchored_impl(row, true)
 }

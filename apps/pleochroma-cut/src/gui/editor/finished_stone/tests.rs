@@ -120,8 +120,8 @@ fn a_cut_back_stone_is_replaced_by_the_whole_design() {
     }
 }
 
-/// F4-8: a design that does not solve is refused with the solver's sentence. It is never
-/// the render context's half-cut stone in disguise (`Ok(None)`), and never an empty stone.
+/// A design that does not solve is refused with the solver's sentence. It is never the render
+/// context's half-cut stone in disguise (`Ok(None)`), nor an empty stone.
 #[test]
 fn a_design_that_does_not_solve_is_refused_not_exported_half_cut() {
     let job = FinishedStoneJob::when_cut(&unsolvable(), 1, Some(1), Some(empty_cache()))
@@ -232,9 +232,8 @@ fn a_job_reads_the_cache_again_before_it_solves() {
     assert!(job.resolve().is_ok());
 }
 
-/// F4-7: hovers that find the cache cold at the same moment run ONE solve between them;
-/// the others wait for it and read its masts. Without the gate every one of them would
-/// solve the whole design at once.
+/// Hovers that find the cache cold at the same moment run ONE solve between them; the others
+/// wait for it and read its masts. Without the gate each would solve the whole design.
 #[test]
 fn concurrent_jobs_for_one_generation_solve_once() {
     const JOBS: usize = 6;
@@ -355,9 +354,8 @@ fn a_failed_solve_is_unsolvable_only_for_the_current_design() {
     );
 }
 
-/// F4-13: a solve the worker displaced for a newer request, for the design the editor still
-/// has, is `Displaced`: it is not "the design changed", which would be false. Once the
-/// design really has moved on it is `Stale`, as any other result for the old design is.
+/// A solve the worker displaced for a newer request is `Displaced` while the editor still has
+/// the same design: it is not "the design changed". Once the design has moved on it is `Stale`.
 #[test]
 fn a_displaced_solve_is_not_reported_as_the_design_changing() {
     let design = round_brilliant();
@@ -399,7 +397,7 @@ fn a_refused_export_says_why_in_plain_words() {
     let stale = Withheld::Stale.export_message();
     assert!(stale.starts_with("Nothing was exported"), "{stale}");
     assert!(stale.ends_with("Start the export again."), "{stale}");
-    // F4-13: the displaced solve's sentence names the interruption, not a change of design.
+    // The displaced solve's sentence names the interruption, not a change of design.
     let displaced = Withheld::Displaced.export_message();
     assert!(displaced.starts_with("Nothing was exported"), "{displaced}");
     assert!(displaced.contains("interrupted"), "{displaced}");
@@ -446,7 +444,10 @@ fn an_export_scene_carries_the_concave_tools_of_the_finished_stone() {
     let whole = cut_slider::cut_geometry(&design, Some(&solved), None);
     assert_eq!(whole.tools.len(), 12);
     let ctx = context_cut_back(&design, 3);
-    assert!(ctx.lock().unwrap().active_tools.is_empty());
+    assert_eq!(
+        ctx.lock().unwrap().active_tools.as_slice(),
+        [] as [pleochroma::geometry::tool::ToolPrimitive; 0]
+    );
 
     let finished = finished_when_cut(&design, &solved, 3);
     let export = SceneSnapshot::capture_finished(&ctx, finished.as_ref()).expect("resolves");

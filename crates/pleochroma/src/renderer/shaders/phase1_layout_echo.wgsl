@@ -1,17 +1,12 @@
-// Phase 1 GPU struct-layout self-test kernels -- driven by
-// `renderer::gpu::layout_check`'s `run_facet_plane`/`run_camera_params`/`run_ray`/
-// `run_hit_record`, NOT physics kernels.
+// GPU struct-layout self-test kernels, driven by `renderer::gpu::layout_check`'s
+// `run_facet_plane`, `run_camera_params`, `run_ray` and `run_hit_record`. Not physics kernels.
 //
-// Same purpose and mechanism as `layout_echo.wgsl` (see that file's own doc comment for
-// the bug class this is built to catch): echo every named field of a new Phase-1
-// storage/uniform struct straight through to an independent output buffer, so
-// `layout_check` can compare the two buffers' raw bytes (padding included) and prove
-// the hand-written `#[repr(C)]` offsets in `renderer::buffers` actually agree with what
-// WGSL computes -- rather than trusting the offset comments there on their own.
+// Same mechanism as `layout_echo.wgsl`: every named field is echoed to an output buffer, and
+// `layout_check` compares the raw bytes (padding included) with the `#[repr(C)]` offsets in
+// `renderer::buffers`.
 //
-// Four independent structs, four independent bind-group slots and entry points, all in
-// one module (each entry point only touches its own pair of globals, so this needs no
-// per-struct WGSL file).
+// The four structs have their own bind-group slots and entry points in one module. Each entry
+// point touches only its own pair of globals.
 
 struct FacetPlane {
     normal: vec3<f32>,
@@ -85,10 +80,9 @@ fn echo_hit() {
     out_hit.normal = in_hit.normal;
 }
 
-// Frosted girdle finish GPU port: renderer::buffers::facet_finish's
-// `array<u32>` upload -- a runtime-sized array, unlike the four single-instance structs
-// above, so it gets its own workgroup-parallel entry point (one thread per element)
-// rather than reusing the `@workgroup_size(1)` single-instance echo pattern.
+// Frosted girdle finish: the `array<u32>` upload of `renderer::buffers::facet_finish`. It is
+// runtime-sized, so it gets a workgroup-parallel entry point (one thread per element) instead of
+// the `@workgroup_size(1)` single-instance echo.
 @group(0) @binding(8) var<storage, read> in_facet_finishes: array<u32>;
 @group(0) @binding(9) var<storage, read_write> out_facet_finishes: array<u32>;
 

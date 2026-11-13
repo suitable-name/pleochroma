@@ -1,5 +1,5 @@
-//! Per-facet and tier-wide index-wheel editing (#45): gear-tooth highlight,
-//! per-facet Remove/Detach/Add, and tier-wide Rotate/Mirror.
+//! Per-facet and tier-wide index-wheel editing: gear-tooth highlight, per-facet
+//! Remove/Detach/Add, and tier-wide Rotate/Mirror.
 
 use std::{
     cell::RefCell,
@@ -26,33 +26,20 @@ use crate::{
     },
 };
 
-/// A clicked index-wheel tooth
-/// (`solid_preview::diagram_wiring::setup_diagram_hover_and_click_callbacks`'s
-/// own miss branch, which already reports the id through
-/// `SolidPreviewModel.diagram_clicked_tooth` -- see that function's own doc
-/// comment naming this callback as the intended consumer) now highlights every
-/// facet sharing that tooth, using the reverse of the lookup
-/// `setup_toggle_multi_select_callback` already does the forward direction of:
-/// that one turns a set of TIER indices into their member facet ids via
-/// `FacetMap::facets_of_tier`; this one turns one GEAR TOOTH into every facet id
-/// whose own `FacetMap::index_on_gear` matches it, by scanning
-/// `0..FacetMap::facet_count()`, since `facet_map.rs` exposes no dedicated
-/// tooth-to-facets index. Reuses
-/// [`FacetOverlay::multi_selected`] for the tint rather than adding a new overlay
-/// field, which would need a `facet_map.rs`/`preview_state.rs` change.
+/// Highlights every facet on a clicked index-wheel tooth. A negative tooth (nothing hit) clears
+/// the highlight. This is the reverse of the forward lookup in
+/// `setup_toggle_multi_select_callback`, which maps tier indices to facet ids via
+/// `FacetMap::facets_of_tier`. Here one gear tooth maps to every facet whose
+/// `FacetMap::index_on_gear` matches, found by scanning `0..FacetMap::facet_count()`, since
+/// `facet_map.rs` has no tooth-to-facets index. The tint reuses
+/// [`FacetOverlay::multi_selected`], which avoids changing `facet_map.rs` or `preview_state.rs`.
 ///
-/// `tooth < 0` (nothing hit, `SolidPreviewModel.diagram_clicked_tooth`'s own
-/// default) clears the highlight instead of leaving a stale one from a previous
-/// click.
+/// Wired to `EditorModel.highlight_tooth(int)` (declared in `ui/models/editor.slint`). The
+/// `tracked_clicked_tooth` mirror in `editor_tier_table.slint` calls it when
+/// `SolidPreviewModel.diagram_clicked_tooth` changes.
 ///
-/// Wired to `EditorModel.highlight_tooth(int)` (declared in
-/// `ui/models/editor.slint`) -- `editor_tier_table.slint`'s own
-/// `tracked_clicked_tooth` mirror (see that property's doc comment for why a
-/// mirrored property, not a `changed` handler on the global itself, is what calls
-/// it) invokes it whenever `SolidPreviewModel.diagram_clicked_tooth` changes.
-///
-/// `pub(super)` since [`super::tier_crud::setup_toggle_detach_callback`] is the
-/// one call site that registers it.
+/// `pub(super)` since [`super::tier_crud::setup_toggle_detach_callback`] is the one call site
+/// that registers it.
 pub(super) fn setup_highlight_tooth_callback(ui: &MainWindow, state: &Rc<RefCell<EditorState>>) {
     let state = Rc::clone(state);
     ui.global::<EditorModel>()
@@ -77,12 +64,10 @@ pub(super) fn setup_highlight_tooth_callback(ui: &MainWindow, state: &Rc<RefCell
         });
 }
 
-/// The toast for a per-facet Remove/Detach/Reattach that [`Design`] refused to build.
-/// Those builders report a `position` the tier does not hold with the same
-/// [`EditError`] shape as an out-of-range tier, but with an index that IS in range;
-/// shown as is, that read "tier index 0 out of range (schedule has 8 tier(s))". Says
-/// which tier lacks which position instead, and keeps the error's own text for a real
-/// out-of-range tier.
+/// The toast text for a per-facet Remove, Detach or Reattach that [`Design`] refused. A missing
+/// position reports the same [`EditError`] shape as an out-of-range tier, but with an index that
+/// is in range. Shown as is, that would read "tier index 0 out of range", so this names the tier
+/// and the position instead. A real out-of-range tier keeps the error's own text.
 ///
 /// [`Design`]: pleochroma_cut_core::Design
 fn facet_edit_error_text(error: &EditError, position: f64) -> String {
@@ -96,19 +81,14 @@ fn facet_edit_error_text(error: &EditError, position: f64) -> String {
     }
 }
 
-/// Per-facet index editing (#45): "Remove" -- removes one index-wheel occurrence
-/// from a tier via [`Design::remove_orbit_member`]. Removing an occurrence that
-/// belongs to a complete, non-detached orbit unit removes every member of that unit
-/// with it (see that method's own doc comment) -- deleting "one facet" out of a
-/// clean orbit never leaves `symmetry_order` describing a lie about what `indices`
-/// actually holds. Wired up from `setup_toggle_detach_callback`'s own call site
-/// (see that function's doc comment's "wiring point" section for why).
+/// Per-facet "Remove" deletes one index-wheel occurrence from a tier via
+/// [`Design::remove_orbit_member`]. Removing a member of a complete, non-detached orbit also
+/// removes the rest of that orbit, so `symmetry_order` never misdescribes `indices`.
 ///
-/// Wired to `EditorModel.facet_remove(int, float)` (declared in
-/// `ui/models/editor.slint`; tier index, index-wheel position) -- the per-facet
-/// index chips that call it live in `editor_inspector.slint`.
+/// Wired to `EditorModel.facet_remove(int, float)` (declared in `ui/models/editor.slint`; tier
+/// index, index-wheel position). The per-facet chips in `editor_inspector.slint` call it.
 ///
-/// `pub(super)` for the same reason as [`setup_highlight_tooth_callback`] above.
+/// `pub(super)` for the same reason as [`setup_highlight_tooth_callback`].
 pub(super) fn setup_facet_remove_callback(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -161,19 +141,16 @@ pub(super) fn setup_facet_remove_callback(
         });
 }
 
-/// Per-facet index editing (#45): "Detach"/"Reattach" toggle for ONE index-wheel
-/// occurrence -- the per-facet counterpart to `setup_toggle_detach_callback`'s
-/// whole-tier button, via [`Design::detach_orbit_member`]/
-/// [`Design::reattach_orbit_member`]. `position` already being in the tier's own
-/// `detached` list picks the direction, matching `setup_toggle_detach_callback`'s
-/// own "empty vs. non-empty" convention one level down (a single occurrence rather
-/// than the whole tier).
+/// Per-facet "Detach"/"Reattach" toggle for ONE index-wheel occurrence. It is the per-facet
+/// counterpart of `setup_toggle_detach_callback`'s whole-tier button, via
+/// [`Design::detach_orbit_member`] and [`Design::reattach_orbit_member`]. The direction is
+/// picked by whether `position` is already in the tier's `detached` list.
 ///
-/// Wired to `EditorModel.facet_toggle_detach(int, float)` (declared in
-/// `ui/models/editor.slint`) -- called from the same per-facet chips in
-/// `editor_inspector.slint` as [`setup_facet_remove_callback`].
+/// Wired to `EditorModel.facet_toggle_detach(int, float)` (declared in `ui/models/editor.slint`).
+/// The per-facet chips in `editor_inspector.slint` call it, as they call
+/// [`setup_facet_remove_callback`].
 ///
-/// `pub(super)` for the same reason as [`setup_highlight_tooth_callback`] above.
+/// `pub(super)` for the same reason as [`setup_highlight_tooth_callback`].
 pub(super) fn setup_facet_toggle_detach_callback(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -234,14 +211,13 @@ pub(super) fn setup_facet_toggle_detach_callback(
         });
 }
 
-/// Per-facet index editing (#45): "Add" -- adds one index-wheel occurrence to a tier
-/// via [`Design::add_orbit_member`], expanded to its complete symmetry orbit (see
-/// that method's own doc comment): an addition can never leave a half-populated
-/// orbit unit behind.
+/// Per-facet "Add" adds one index-wheel occurrence to a tier via
+/// [`Design::add_orbit_member`]. The addition expands to the full symmetry orbit, so no
+/// half-populated orbit unit is left behind.
 ///
-/// Wired to `EditorModel.facet_add(int, float)` (declared in
-/// `ui/models/editor.slint`) -- called from the same per-facet chips in
-/// `editor_inspector.slint` as [`setup_facet_remove_callback`].
+/// Wired to `EditorModel.facet_add(int, float)` (declared in `ui/models/editor.slint`). The
+/// per-facet chips in `editor_inspector.slint` call it, as they call
+/// [`setup_facet_remove_callback`].
 ///
 /// `pub(super)` for the same reason as [`setup_highlight_tooth_callback`] above.
 pub(super) fn setup_facet_add_callback(
@@ -292,7 +268,7 @@ pub(super) fn setup_facet_add_callback(
         });
 }
 
-/// Tier-wide index editing (#45): "Rotate" -- rotates every index-wheel position in
+/// Tier-wide "Rotate" rotates every index-wheel position in
 /// the tier at `tier_index` (both `indices` and `detached`) by `k_teeth` around the
 /// gear, via [`Design::rotate_indices`].
 ///
@@ -349,7 +325,7 @@ pub(super) fn setup_tier_rotate_indices_callback(
         });
 }
 
-/// Tier-wide index editing (#45): "Mirror" -- mirrors every index-wheel position in
+/// Tier-wide "Mirror" mirrors every index-wheel position in
 /// the tier at `tier_index` (both `indices` and `detached`) to the other side of the
 /// symmetry axis, via [`Design::mirror_indices`].
 ///
@@ -379,8 +355,7 @@ pub(super) fn setup_tier_mirror_indices_callback(
                 return;
             };
             let mut st = state.borrow_mut();
-            // Through the shared session -- see
-            // `pleochroma_editor::EditorSession::mirror_indices`.
+            // Goes through the shared session (`EditorSession::mirror_indices`).
             match st.mirror_indices(tier_index) {
                 Ok(_) => {
                     refresh_editor_panel_stale(

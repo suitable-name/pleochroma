@@ -8,8 +8,10 @@
 
 use super::{
     convert::local_target_of,
-    execute::{ExecContext, execute_job_catching},
+    execute::{ExecContext, execute_job_catching_tapped},
 };
+/// The sample offset and linear-image sink of a render (see [`HeadlessOptions::taps`]).
+pub use crate::bridge::export_thread::{LinearImage, LinearImageKind, RawTapSink, RenderTaps};
 use crate::{
     gui::color_pattern::{own_color, solve_pattern_colors, zone_variants},
     settings::WorkerSettings,
@@ -62,6 +64,9 @@ pub struct HeadlessOptions {
     pub output: Option<PathBuf>,
     /// A tilt video: delete its frames first and start at frame one.
     pub restart_frames: bool,
+    /// The first sample index and the linear-image sink of the benchmark outputs
+    /// (`--sample-offset`, `--raw-out`, `--progress-raw`); the default changes nothing.
+    pub taps: RenderTaps,
 }
 
 /// Renders `job` and reports how it ended.
@@ -95,7 +100,7 @@ pub fn run_job(
         output_override: options.output.clone(),
         restart_frames: options.restart_frames,
     };
-    let outcome = execute_job_catching(job, &ctx, cancel, sink);
+    let outcome = execute_job_catching_tapped(job, &ctx, &options.taps, cancel, sink);
     crate::bridge::remote::remote_render::close_idle_connections();
     outcome
 }
@@ -105,6 +110,34 @@ pub fn run_job(
 #[must_use]
 pub const fn gpu_compiled_in() -> bool {
     cfg!(feature = "gpu")
+}
+
+/// The token of a job that something changed: 32 lowercase hexadecimal characters.
+///
+/// Derived from the job's own `token` and the text `changes` that names the change
+/// (`estimator=collect`, `color-variant=thai`, ...).
+///
+/// A tilt video's frame folder is keyed by the token, so frames rendered without the change are
+/// never reused for it (the folder of the plain run is refused as another job's), and the same
+/// change resumes its own frames. The executor applies it for the estimator; the command line for
+/// its other changes.
+#[must_use]
+pub fn changed_token(token: &str, changes: &str) -> String {
+    // Two FNV-1a passes with different offsets: 128 bits, the length of a job token.
+    let fnv = |offset: u64| {
+        token
+            .bytes()
+            .chain(std::iter::once(0))
+            .chain(changes.bytes())
+            .fold(offset, |hash, byte| {
+                (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
+            })
+    };
+    format!(
+        "{:016x}{:016x}",
+        fnv(0xcbf2_9ce4_8422_2325),
+        fnv(0x6c62_272e_07bb_0142)
+    )
 }
 
 /// The labels of the typical color patterns of the material called `material_name`, in menu
@@ -212,6 +245,26 @@ mod tests {
     };
 
     #[test]
+    fn a_changed_token_is_32_lowercase_hex_digits_and_follows_job_and_change() {
+        let token = "9f2c4a7d1e0b48c3a65d2f71c8e4b903";
+        let collect = changed_token(token, "estimator=collect");
+        assert_eq!(collect.len(), 32);
+        assert!(
+            collect
+                .chars()
+                .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
+            "{collect}"
+        );
+        assert_eq!(collect, changed_token(token, "estimator=collect"));
+        assert_ne!(collect, token);
+        assert_ne!(collect, changed_token(token, "estimator=branching"));
+        assert_ne!(
+            collect,
+            changed_token("0f2c4a7d1e0b48c3a65d2f71c8e4b903", "estimator=collect")
+        );
+    }
+
+    #[test]
     fn a_typical_pattern_zones_the_stone_at_its_width_and_an_unknown_one_names_the_others() {
         let planes = StandardGemCuts::standard_round_brilliant();
         let sapphire = material_for_stone(GemMaterial::sapphire(), 9.0, &planes);
@@ -232,6 +285,6 @@ mod tests {
         let diamond = material_for_stone(GemMaterial::diamond(), 9.0, &planes);
         let error = material_with_typical_pattern(&diamond, &planes, "Split").expect_err("none");
         assert!(error.contains("no typical color patterns"), "{error}");
-        assert!(typical_pattern_labels("Diamond").is_empty());
+        assert_eq!(typical_pattern_labels("Diamond"), [] as [&str; 0]);
     }
 }

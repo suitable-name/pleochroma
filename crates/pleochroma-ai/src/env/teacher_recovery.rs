@@ -126,9 +126,9 @@ fn invalid(detail: &str) -> String {
 
 /// Completed work shared by parallel units, and the newest snapshot the checkpoint has seen.
 ///
-/// A unit records its result under `state` only long enough to update the snapshot; the
-/// checkpoint runs under `published`, outside that lock, on a copy taken while holding it, so a
-/// slow durable write never stalls completions. A unit returns once a snapshot containing its
+/// A unit records its result under `state` only long enough to update the snapshot. The
+/// checkpoint runs under `published`, outside that lock, on a copy taken while holding it, so
+/// a slow durable write never stalls completions. A unit returns once a snapshot containing its
 /// result was handed over. The writer always hands over the newest state, so an older
 /// snapshot never follows a newer one, and results arriving during a write are coalesced into
 /// the next one instead of costing one write each.
@@ -467,7 +467,8 @@ macro_rules! recoverable_teacher {
             /// original canonical order. In-flight work is recomputed after interruption.
             ///
             /// # Errors
-            /// Returns an error for a changed/malformed snapshot, checkpoint I/O or accelerator failure.
+            /// Returns an error for a changed or malformed snapshot, a checkpoint I/O failure or
+            /// an accelerator failure.
             pub fn teacher_label_with_recovery_adaptive(
                 &self,
                 h_deg: f64,

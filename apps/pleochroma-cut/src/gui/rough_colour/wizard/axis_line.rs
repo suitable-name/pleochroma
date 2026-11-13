@@ -16,8 +16,9 @@ pub const AXIS_COLOUR: [u8; 3] = [255, 255, 255];
 
 /// The axis of the rough as a two-point polyline in the working pixels of one view.
 ///
-/// The view is `view` of `rig` (`grid`: the working grid of that view's photo), the mesh moved
-/// into the rig by `alignment`. `None` when the rig has no such view or an end of the line is behind a pinhole camera.
+/// The view is `view` of `rig` (`grid`: the working grid of that view's photo), and the mesh is
+/// moved into the rig by `alignment`. `None` when the rig has no such view or an end of the line
+/// is behind a pinhole camera.
 #[must_use]
 pub fn axis_polyline(
     rig: &RigProfile,

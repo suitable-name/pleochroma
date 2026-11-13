@@ -1,17 +1,17 @@
-//! Zone suggestions from the residual of a fit or from the transmittance images (plan section
-//! 7.3, step 3).
+//! Zone suggestions from the residual of a fit or from the transmittance images.
 //!
-//! Assistance only: the result is a list of candidate shapes with scores, never
-//! applied to anything.
+//! Assistance only: the result is a list of candidate shapes with scores, never applied to
+//! anything.
 //!
 //! # Pipeline (deterministic)
 //!
 //! 1. **Segmentation.** The valid pixels of all views are pooled and clustered by k-means:
 //!    transmittance images in CIELAB (linear camera RGB read as linear sRGB, D65), residual maps
 //!    on the whitened channel vector. The seeds are quantiles of the pixels sorted by `L` (first
-//!    channel); Lloyd iterations run in pixel order. With `k` unset, `k = 2..=4` are tried and the
-//!    smallest `k` is kept that explains all but 5 % of the variance, or after which the inertia
-//!    no longer drops below 70 % of the previous one (an elbow rule). Clusters are numbered by the first channel of their centre, ascending
+//!    channel); Lloyd iterations run in pixel order. With `k` unset, the counts from `k_min` to
+//!    `k_max` are tried. The first count is kept that explains all but 5 % of the variance, or
+//!    whose inertia the next count does not reduce below the `elbow` fraction (else the largest
+//!    count). Clusters are numbered by the first channel of their centre, ascending
 //!    (label 0 is the darkest in Lab).
 //! 2. **Smoothing.** Iterated conditional modes with a Potts prior, a fixed number of raster
 //!    sweeps: each pixel takes the label that minimises `|x - mu|^2 / (2 sigma^2) + beta * (number
@@ -417,7 +417,7 @@ fn kmeans(features: &[[f64; 3]], k: usize, iterations: usize) -> KMeans {
     }
 }
 
-/// Segments the views into 2 to 4 colour clusters (module docs, steps 1 and 2).
+/// Segments the views into colour clusters (module docs, steps 1 and 2).
 ///
 /// # Errors
 ///
@@ -426,8 +426,8 @@ fn kmeans(features: &[[f64; 3]], k: usize, iterations: usize) -> KMeans {
 ///
 /// # Panics
 ///
-/// Never in practice: the cluster count is 2 to 4, so converting a cluster index to a byte label
-/// cannot fail.
+/// Never in practice: the cluster count is at most 8, so converting a cluster index to a byte
+/// label cannot fail.
 pub fn segment_views(
     views: &[SuggestView],
     options: &SuggestOptions,
@@ -463,9 +463,8 @@ pub fn segment_views(
         .copied()
         .zip(runs.iter().map(|r| r.inertia))
         .collect();
-    // The inertia about the single global mean: a count of clusters that already explains all but
-    // `GOOD_ENOUGH` of it is kept without looking at the elbow (splitting noise lowers a tiny
-    // inertia by a large ratio).
+    // A count that already leaves at most `GOOD_ENOUGH` of the variance about the global mean is
+    // kept without the elbow test: past that point a split only fits noise.
     let global_mean = {
         let m = pooled.len() as f64;
         let mut sum = [0.0_f64; 3];

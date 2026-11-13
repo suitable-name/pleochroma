@@ -1,5 +1,5 @@
-//! The render: Live Render and its lighting rigs, the Parameters dock's tabs, the lighting a design
-//! remembers, and custom materials (the two sliders, typed coefficients, and a Color Pattern).
+//! Live Render and its lighting rigs, the Parameters dock's tabs, a design's saved lighting, and
+//! custom materials: the two sliders, typed coefficients and a Color Pattern.
 
 #![allow(
     clippy::too_many_lines,
@@ -91,10 +91,10 @@ fn live_render() -> Guide {
         )
         .actions([
             "The bulb button in the toolbar (or Ctrl+Alt+2) opens the tab; the step has opened it for you.",
-            "It holds the lighting rig, the light direction, the exposure, the HDR map and backdrop, the observer's surface glare and head shadow, your saved lighting and the camera.",
+            "It holds the lighting rig, the light direction, the exposure, the HDR map, backdrop and Stone Shadow, the observer's surface glare and head shadow, your saved lighting and the camera.",
             "The gem button (Ctrl+Alt+1) opens the Stone tab, and the gear button (Ctrl+Alt+3) the Render & Output tab. The same three buttons are in the Edit view.",
         ])
-        .why("A saved lighting stores the whole look at once: the rig, the light direction, the exposure, the glare, the backdrop, the head shadow and the HDR map.")
+        .why("A saved lighting stores the whole look at once: the rig, the light direction, the exposure, the glare, the backdrop, Stone Shadow, the head shadow and the HDR map.")
         .highlight("lighting_tab")
         .allow(VIEWPORT),
     )
@@ -141,7 +141,7 @@ fn design_lighting() -> Guide {
             "Choose the rig you want this design to keep.",
         ])
         .check("A toast names the rig.")
-        .why("Light Direction, exposure, surface glare, head shadow, the backdrop and an environment map belong to the lighting too; the Lighting & Environment tab changes them.")
+        .why("Light Direction, exposure, surface glare, head shadow, the backdrop, Stone Shadow and an environment map belong to the lighting too; the Lighting & Environment tab changes them.")
         .goal(event(LIGHTING_PRESET_CHOSEN), "A lighting rig chosen")
         .highlight("lighting_combo")
         .allow(VIEWPORT),
@@ -346,13 +346,13 @@ fn color_pattern() -> Guide {
         .actions([
             "In the Stone tab click New/Edit Material... again. The editor shows your material and its Color Pattern section.",
             "Click Add Pattern.... The Color Pattern window opens.",
-            "In the row of Templates click Watermelon, and wait for Solving colors... to end.",
-            "Under Preview click Cross-Section: a slice of the stone shows the green Rim around the pink Core.",
-            "In the ZONES list click Core, then move the Size slider to make the core larger or smaller. In the Advanced interface the Shape and its numbers take the place of the Size slider.",
-            "Click Save. The window closes.",
+            "Click Start From... in the header. In the gallery under Templates click Watermelon, and wait for Solving colors... to end.",
+            "Above the stage click Slice in the Stone | Slice | Crystal switch: a slice of the stone shows the green Rim around the pink Core.",
+            "In the Layers panel click the Core card, then move its Size slider to make the core larger or smaller. In the Advanced interface the Shape and its numbers take the place of the Size slider.",
+            "Click Save to Material. The window closes.",
         ])
         .check("A toast says Saved the color pattern of your material, and the Color Pattern section shows a strip of two colors.")
-        .why("Apply stores the pattern and keeps the window open, Save stores it and closes the window, and Cancel closes it and keeps the pattern as it was. Undo and Redo in the window take back single edits.")
+        .why("Save to Material stores the pattern with the material and closes the window, and Cancel closes it and keeps the pattern as it was. Picking a tile in Start From... replaces the layers, and Undo brings them back; Undo and Redo in the window also take back single edits.")
         .goal(
             Goal::All(vec![
                 event(PATTERN_EDITOR_OPENED),
@@ -387,10 +387,10 @@ fn color_pattern() -> Guide {
         )
         .actions([
             "Open New/Edit Material... in the Stone tab and click Edit Pattern... to change the zones. Remove Pattern takes the zones away and keeps the base color.",
-            "Save as Preset... in the Color Pattern window keeps a pattern under a name. The Presets list loads it again for another material.",
-            "Add Zone puts up to four zones on top of the base zone. Later zones cover earlier ones.",
+            "Start From... in the Color Pattern window opens the gallery. Its Save Current... tile keeps a pattern under a name, and the tile then sits under My Presets and loads it again for another material. The x on a preset tile deletes it.",
+            "Add in the Layers panel puts up to four layers on top of the base layer. Upper layers cover lower ones, and the top layer is listed first.",
             "A stone of a species known for its zoning, such as a sapphire or a tourmaline, also offers Typical Zoning in one click: open the Color pill above the picture (or look in the Stone tab under Color Zoning) and pick a pattern. It uses the stone's own color, or the material's color variants where it has them.",
-            "A zone can also take its color from a color variant of the material: set Source to Variant for the zone. The Zone Colors From Variants lesson shows it.",
+            "A zone can also take its color from a color variant of the material: pick one in the From variant list of the layer. The Zone Colors From Variants lesson shows it.",
         ])
         .why("Every control is unlocked again."),
     )

@@ -108,8 +108,8 @@ export global CuttingModeModel {
 
     // The crystal axis picture of the first step, for a stone whose axis is set: the outlines and
     // the axis as SVG path commands in a 380 x 190 box (`pleochroma_editor::cutting_mode::
-    // axis_picture`), and the words for a screen reader. `axis_shown` is false on every other
-    // page and for a stone without an axis.
+    // axis_picture::AxisPicture`), and the words for a screen reader. `axis_shown` is false on
+    // every other page and for a stone without an axis.
     in property <bool> axis_shown: false;
     in property <string> axis_frame: "";
     in property <string> axis_path: "";

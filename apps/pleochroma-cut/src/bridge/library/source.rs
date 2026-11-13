@@ -6,14 +6,12 @@
 //!
 //! There are exactly two sources with genuinely different shapes (a local call is a
 //! synchronous, already-open `rusqlite::Connection`; a remote call is a blocking
-//! network round trip that must never run on the UI thread), and nothing else will
-//! ever implement a third.
+//! network round trip that must never run on the UI thread), so a closed enum fits.
 //!
 //! # Local stays synchronous and unchanged; remote is always backgrounded
 //!
-//! [`LibrarySource::Local`] is a thin marker -- callers keep calling
-//! `pleochroma_vault::db::sqlite::Database` directly, the same synchronous calls as
-//! before this module existed.
+//! [`LibrarySource::Local`] is a thin marker: callers call
+//! `pleochroma_vault::db::sqlite::Database` directly, synchronously.
 //!
 //! [`LibrarySource::Remote`] calls are network I/O and must run off the UI thread.
 //! [`spawn_library_request`] is the one place that does this: it runs the blocking
@@ -27,15 +25,13 @@ use slint::{ComponentHandle, Weak};
 
 /// Where the viewer's library UI is currently reading designs from.
 ///
-/// [`Default`] is [`Self::Local`] -- an app that has never touched this feature (or has
-/// no remote worker configured at all) is always in this state: this module only adds
-/// a remote option, it never changes what "no configuration" means.
+/// [`Default`] is [`Self::Local`]: an app with no remote worker configured is in this state.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum LibrarySource {
     #[default]
     Local,
     /// Browsing `worker`'s design library instead of the local database. Does not imply
-    /// anything has been mirrored locally -- see `bridge::library_mirror` for that
+    /// anything has been mirrored locally -- see `bridge::library::mirror` for that
     /// separate operation.
     Remote(WorkerSettings),
 }
@@ -75,9 +71,7 @@ impl LibrarySource {
 }
 
 /// Runs one [`LibraryRequest`] against `worker` on a background thread and delivers the
-/// result to `on_done` on the Slint event loop -- see the module doc comment's "Local
-/// stays synchronous ... remote is always backgrounded" section for why every remote
-/// library call goes through this rather than a direct blocking call from a callback.
+/// result to `on_done` on the Slint event loop. Remote calls never block a UI callback.
 pub fn spawn_library_request<T, F>(
     ui_weak: Weak<T>,
     worker: WorkerSettings,

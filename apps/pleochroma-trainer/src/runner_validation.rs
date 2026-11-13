@@ -31,8 +31,8 @@ impl TrainingRunner {
     /// drawn from `seed` and the entry, so every pass scores the same stone against the same
     /// target under the same weights.
     ///
-    /// The designs are handed one at a time to a pool of up to `available_parallelism` scoped
-    /// threads. Every outcome lands in the slot of its entry and the reduction runs serially
+    /// The designs are handed one at a time to the persistent CPU pool, at most one thread per
+    /// design. Every outcome lands in the slot of its entry and the reduction runs serially
     /// in entry order afterwards. GPU/CUDA policy requests share one bounded batching worker
     /// on the resolved training backend, initialized once from the last installed network.
     /// CPU evaluation uses the pure-Rust reference. Native CUDA also accelerates attached
@@ -113,7 +113,7 @@ impl TrainingRunner {
     /// Validates on the fixed subset of `count` held-out designs at configured validation fidelity
     /// (callers pass [`RunConfig::validation_designs`]) and remembers the result as
     /// [`RunnerStats::last_validation`]. Each design is played by the model and sampled
-    /// exploration policy. Fast validation also computes a teacher reference once; Full
+    /// exploration policy. Fast validation also computes the oracle reference once; Full
     /// validation omits that expensive reference. The retarget target and the objective
     /// weights of each design are fixed by the run seed, so passes differ only by what the
     /// model learned.
@@ -131,7 +131,7 @@ impl TrainingRunner {
         self.validate_inner(count, None)
     }
 
-    /// Continues validation from its durable case, pass, episode-step and teacher records.
+    /// Continues validation from its durable case, pass, episode-step and oracle records.
     ///
     /// Use an exclusively owned directory for this validation iteration. Its full job identity
     /// must match before any work is reused. Model-independent reference records live beside

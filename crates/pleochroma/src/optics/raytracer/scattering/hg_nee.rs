@@ -2,18 +2,16 @@
 //!
 //! [`nee_contribution_hg_scatter`] draws one light sample, traces the shadow ray to the
 //! stone's exit, and deposits the balance-heuristic-weighted direct light. [`ShadowAlphas`]
-//! is how the shadow ray's own per-channel extinction is evaluated: at the SHADOW
-//! direction for an anisotropic material, since that is what the phase-sampled
-//! continuation in the same direction pays (see its doc comment for the bias the earlier
-//! incoming-direction alphas caused). Split out of `hg.rs`, which keeps the free-path
-//! estimator, the phase function and the bounce-loop wrapper.
+//! evaluates the shadow ray's per-channel extinction at the shadow direction, which is what
+//! the phase-sampled continuation in that direction pays. The free-path estimator, the phase
+//! function and the bounce-loop wrapper are in `hg.rs`.
 
 use super::{
     super::{
         NUM_CHANNELS,
         absorption::channel_absorption_alphas_assigned,
         camera::{FacetFinish, Ray},
-        environment::{EnvironmentSource, sample_environment_for_nee},
+        environment::{EnvironmentSource, hdr_rgb_at_exposure, sample_environment_for_nee},
         intersect_stone::intersect_stone_soa,
         refraction::{RayMaterialContext, RayWavelengthCache},
         sampling::{NEE_ENV_DIR_U_STREAM, NEE_ENV_DIR_V_STREAM, hash_u32},
@@ -38,21 +36,15 @@ const SHADOW_PROBE_OFFSET: f32 = 1e-4;
 /// evaluated at the SHADOW direction.
 ///
 /// A phase-sampled continuation leaving the scattering point in direction `w` pays, on its
-/// next segment, `channel_absorption_alphas_assigned` evaluated at `w` (the bounce loop
-/// recomputes the alphas for every segment from that segment's own wave normal). The
-/// shadow ray in direction `w` is the light-sampling technique's estimate of that same
-/// path, so it must pay the same coefficients. For an anisotropic material the assigned
-/// mode's absorption depends on the wave normal: the extraordinary mode of a uniaxial
+/// next segment, `channel_absorption_alphas_assigned` evaluated at `w`. The shadow ray in
+/// direction `w` estimates that same path, so it must pay the same coefficients. For an
+/// anisotropic material the assigned mode's absorption depends on the wave normal: the
+/// extraordinary mode of a uniaxial
 /// crystal reads `alpha_o cos^2(theta) + alpha_e sin^2(theta)` against the optic axis, so
 /// a ray arriving along the axis (the camera ray through the table of a `c_axis = +Y`
 /// stone) carries the ordinary coefficient while its shadow rays across the axis should
-/// carry the extraordinary one. Feeding the shadow ray the segment's alphas instead
-/// (evaluated at the INCOMING wave normal) made every NEE deposit of such a path pay the
-/// wrong Beer-Lambert factor, a bias the phase-sampled escape could not cancel: measured
-/// on the built-in ruby as NEE-on reading 0.6 % darker in X and 0.45 % darker in Y than
-/// NEE-off (`transport::tests::nee_tests`'s
-/// `ruby_scattering_nee_on_and_off_agree_within_half_a_percent`), concentrated at
-/// 480-510 nm and 590-630 nm where the e-ray/o-ray coefficients differ most.
+/// carry the extraordinary one. Using the incoming direction's coefficients instead biases
+/// the deposit, and the phase-sampled escape cannot cancel that bias.
 ///
 /// [`Self::Fixed`] reuses one array for every direction. That is exact for an isotropic
 /// material (`!RayMaterialContext::is_anisotropic`: `channel_absorption_alphas_assigned`
@@ -118,18 +110,16 @@ impl ShadowAlphas<'_> {
 /// # Simplification: one achromatic exit transmittance
 ///
 /// Like [`maybe_scatter_or_extinguish`](super::hg::maybe_scatter_or_extinguish) itself
-/// (hazard 4: one achromatic direction/distance shared by every channel), this uses ONE
+/// (point 4 of its doc: one achromatic direction/distance shared by every channel), this uses ONE
 /// scalar Fresnel transmittance -- computed from the HERO channel's own dispersion index
 /// (`n_inside_hero`) via the plain isotropic unpolarised Fresnel formula -- shared by
 /// every channel's own spectral radiance at the sampled direction, rather than each
 /// channel's own (dispersion-shifted) exit index, and rather than the assigned mode's own
 /// polarised transmittance the phase-sampled continuation's exit
-/// (`refraction::apply_uniaxial_internal_bounce`) applies. Both differences are
-/// second-order next to the achromatic phase-function/free-path sampling already in
-/// place (the polarised-vs-unpolarised one measured at ~0.04 % of the ruby test's XYZ
-/// means); a future revision could add per-channel, per-mode exit transmittances the way
-/// `compute_channel_transmission` (`refraction/exit_split.rs`) already does for the
-/// polished exit path.
+/// (`apply_uniaxial_internal_bounce`) applies. Both differences are second-order next to
+/// the achromatic sampling already in place. Per-channel, per-mode exit transmittances, as
+/// `compute_channel_transmission` (`refraction/exit_split.rs`) computes for the polished exit
+/// path, would remove them.
 ///
 /// # Medium transmittance
 ///
@@ -259,7 +249,7 @@ fn nee_contribution_scatter(
     // never land on the sun (a biased deposit). A proper sun estimator would have to invert
     // the exit refraction, so a scattering medium under `DaylightSun` gets no NEE here and its
     // phase-sampled continuation keeps full weight (see `phase_pdf_for_mis` below).
-    if !nee.enabled || !matches!(nee.environment, EnvironmentSource::HdrMap(_)) {
+    if !nee.enabled || !matches!(nee.environment, EnvironmentSource::HdrMap { .. }) {
         return;
     }
     let u0 =
@@ -306,10 +296,9 @@ fn nee_contribution_scatter(
         t_unpol,
     } = exit;
 
-    // The competing (phase-function) technique's own density at this SAME
-    // light-sampled direction -- the balance heuristic's other half.
-    // The phase value each channel's deposit uses, and the hero's for the MIS weight (the
-    // hero's mixture is the density a phase-sampled continuation draws this direction with).
+    // The phase-function density at this light-sampled direction (the balance heuristic's
+    // other technique). Each channel's deposit uses its own phase value; the MIS weight uses
+    // the hero's, since its mixture is what a phase-sampled continuation draws with.
     let (phase_hero, phase_ch) = match &medium {
         NeeMedium::Hg { g, .. } => {
             let phase_val = henyey_greenstein_phase(sample.dir.dot(scatter_dir_in), *g);
@@ -332,12 +321,23 @@ fn nee_contribution_scatter(
     let refracted_dir = (n_inside_hero * sample.dir
         - n_inside_hero.mul_add(cos_i, -cos_t) * exit_normal)
         .normalize_or_zero();
-    let EnvironmentSource::HdrMap(env_map) = nee.environment else {
+    let EnvironmentSource::HdrMap {
+        map: env_map,
+        exposure,
+        rotation,
+    } = nee.environment
+    else {
         // `sample` is `Some` only for `HdrMap` (see `sample_environment_for_nee`), so
         // this is unreachable in practice -- a defensive `return`, not a real branch.
         return;
     };
-    let env_rgb = env_map.radiance_rgb(refracted_dir);
+    // At the map's exposure, like every other HDR lookup (WGSL twin: the
+    // `hdr_rgb_at_exposure` around `env_rgb` in `nee_contribution_hg_scatter`).
+    // The refracted direction is a WORLD direction: the lookup rotates it into the map frame.
+    let env_rgb = hdr_rgb_at_exposure(
+        env_map.radiance_rgb_rotated(refracted_dir, rotation),
+        exposure,
+    );
 
     // The medium transmittance a phase-sampled continuation in this same direction would
     // pay on its way to this same boundary -- see this function's own "Medium
@@ -463,7 +463,7 @@ fn single_exit(
 /// entry (a ray that never leaves a closed stone is degenerate geometry).
 ///
 /// The walk keeps the interior direction through the air gaps rather than refracting it
-/// at each interface: v1 bends the direction only once, at the last exit, where the
+/// at each interface: it bends the direction only once, at the last exit, where the
 /// environment is looked up. That matches the single-exit estimator exactly for a stone
 /// with no cavity in the way and is an approximation, noted in `physics.md`, otherwise.
 fn walk_exits(

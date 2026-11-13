@@ -1,19 +1,11 @@
-//! Byte-identity pins for the solid renderer and 2D diagram, taken BEFORE the
-//! `crates/pleochroma-solid` extraction (see the W1-b work-lane brief and
-//! `wasm_web_app_development_plan_2026-09-27.md` §3.1 item 1: `raster`, `diagram2d`,
-//! `facet_map`, `mesh_cache` move out of `apps/pleochroma-cut/src/gui/solid_preview`
-//! into a shared crate, and the desktop re-exports them at their old paths).
+//! Byte-identity pins for the solid renderer and the 2D diagram.
 //!
-//! Every test below hashes (FNV-1a, the same convention `mesh_cache::hash_planes`
-//! already uses internally) the RGBA/depth/pick buffers
-//! `raster::SolidRasterizer::render`/`render_prepared` and
-//! `diagram2d::render_diagram`/`render_diagram_single_panel` produce for fixed
-//! designs/camera poses/sizes/styles, plus `facet_map::FacetMap::from_design`'s
-//! build output (read back through its public accessors, since this is an
-//! integration test crate and cannot reach a `pub(crate)` field). Only PUBLIC API
-//! is used throughout, on purpose: this file's own module path never moves (only
-//! the modules it calls through `pleochroma_cut::gui::solid_preview::*` do), so an
-//! unchanged pass after the move is direct proof the move changed no behaviour.
+//! Every test hashes (FNV-1a, as `mesh_cache::hash_planes` does) the RGBA, depth and pick
+//! buffers that `raster::SolidRasterizer` and `diagram2d::render_diagram` produce for a fixed
+//! design, camera pose, size and style, plus the build output of
+//! `facet_map::FacetMap::from_design`, read back through its public accessors (this crate
+//! cannot reach its `pub(crate)` fields). Only public API is used, so the pins hold whichever
+//! crate the modules live in.
 //!
 //! Three fixed designs:
 //! - **CrackOtto-Step** (`pleochroma-cut-core`'s 103-tier probe fixture): the full
@@ -42,15 +34,13 @@ use pleochroma_cut::gui::solid_preview::{
 };
 use pleochroma_cut_core::{ConstraintTier, Design, PreformSpec, ScheduleMeta};
 
-/// FNV-1a over raw bytes -- the shared `mesh_cache::fnv1a_64` that `hash_planes` uses
-/// internally (bit-pattern hashing, not `std::hash::Hash`, so the pin is exactly as
-/// deterministic as that module's own cache key), applied here to any byte slice.
+/// FNV-1a over raw bytes, the same `mesh_cache::fnv1a_64` that `hash_planes` uses. Bit
+/// patterns are hashed, not `std::hash::Hash`, so the pins are as deterministic as the cache key.
 fn fnv1a(bytes: &[u8]) -> u64 {
     pleochroma_cut::gui::solid_preview::mesh_cache::fnv1a_64(bytes.iter().copied())
 }
 
-/// Folds several already-computed sub-hashes into one combined pin -- keeps this
-/// file to one constant per test rather than one per buffer.
+/// Folds sub-hashes into one pin, so each test has one constant.
 fn combine(hashes: &[u64]) -> u64 {
     let bytes: Vec<u8> = hashes.iter().flat_map(|h| h.to_le_bytes()).collect();
     fnv1a(&bytes)
@@ -78,10 +68,9 @@ fn hash_rasterizer(r: &SolidRasterizer) -> u64 {
     ])
 }
 
-/// A [`diagram2d::DiagramFrame`]'s RGBA + per-pixel pick/panel/tooth readback,
-/// combined into one hash. `pick_at`/`panel_at`/`tooth_at` are the only way an
-/// external crate (this integration test) can read those buffers -- see the
-/// module doc comment.
+/// A [`diagram2d::DiagramFrame`]'s RGBA and per-pixel pick, panel and tooth readback, combined
+/// into one hash. `pick_at`, `panel_at` and `tooth_at` are the only way an external crate reads
+/// those buffers (see the module doc).
 fn hash_diagram_frame(frame: &diagram2d::DiagramFrame) -> u64 {
     let mut pick = Vec::with_capacity((frame.width * frame.height) as usize);
     let mut panel = Vec::with_capacity((frame.width * frame.height) as usize);
@@ -140,10 +129,9 @@ fn box_planes() -> Vec<(Vec3, f32)> {
     ]
 }
 
-/// `pleochroma-cut-core`'s "CrackOtto-Step" fixture (PC 05.115, 103 tiers), built as
-/// a real [`Design`] -- mirrors `solid_preview::live_update`'s own test fixture of
-/// the same name (`crackotto_step_design`), duplicated here rather than shared so
-/// this pin file depends on nothing this campaign is about to move.
+/// `pleochroma-cut-core`'s "CrackOtto-Step" fixture (PC 05.115, 103 tiers), built as a real
+/// [`Design`]. The first tier of each crown, pavilion and girdle block without a scale
+/// reference is given one, so the design solves.
 const CRACKOTTO_STEP_ASC: &str =
     include_str!("../../../crates/pleochroma-cut-core/src/optimize_cost_probe_crackotto_step.asc");
 
@@ -277,27 +265,10 @@ fn solid_identity_pin_crackotto_step_full_pipeline() {
         single_panel_hash,
         facet_map_hash,
     ]);
-    // Components at the last pin (recorded 2026-10-01): plain = prepared = 0xdf86a6f437c16b6a,
-    // three_panel = 0xa3087a86f828adb9, single_panel = 0xf907e8de88732259 (all four unchanged
-    // since), facet_map = 0x5dab528ff64d1b20. Only the facet_map component moved, to
-    // 0xb5933f4403c95b96, because of the canonical facet labelling of 2026-10-04
-    // (`design/labelling.rs`, `FacetMap::from_design`): `facet_label` now reads "C1 95" where
-    // the legacy tier name made it "A 95" (and "P1 95" for "1 95", "Table" unchanged). Both
-    // facet_map values were reproduced offline from the fixture's .asc (211 facets, same tier
-    // ids and gear indices; only the label text differs), so no geometry, pick id or diagram
-    // pixel moved.
-    //
-    // Re-pinned 2026-10-06 (cutting-order lane): the facet_map component moved again, to
-    // 0xa93b9f399890ed06. Codes are now numbered per letter in the order the tiers are cut
-    // (pavilion and girdle first, crown next, the table last) and the table's code is `T`, so
-    // `facet_label` reads `T` where it read `Table` and a tier's number can differ from its
-    // top-down one. Only label text changed: the owner's run showed the other four components
-    // exactly at the values above.
-    //
-    // Re-pinned 2026-10-07 (glam 0.34.1 upgrade, DMat3 determinant/inverse reorder, ~1 ULP
-    // solver drift): plain = prepared moved from 0xdf86a6f437c16b6a to 0x2c7d2de39502c667;
-    // three_panel, single_panel and facet_map are unchanged. Combined hash
-    // 0x689fa4cb6a0ff009 -> 0x1ff8fcba069aa4e1.
+    // Each component is pinned on its own, so a failure names the one that moved. The values
+    // depend on glam's DMat3 determinant and inverse bits (glam is pinned to `=0.34.1`), and
+    // `facet_map` hashes the canonical labels of `design/labelling.rs`: codes are numbered per
+    // letter in cutting order and the table is `T`.
     assert_eq!(
         combined, 0x1ff8_fcba_069a_a4e1,
         "CrackOtto-Step solid/diagram/facet_map pipeline hash changed -- \

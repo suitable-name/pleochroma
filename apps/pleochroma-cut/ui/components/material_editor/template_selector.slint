@@ -3,11 +3,9 @@ import { Theme } from "../../theme.slint";
 import { PhysicscolorModel } from "../../models/physics_color.slint";
 import { TipBox, FieldCaption } from "../tip_box.slint";
 
-// Base Template Selector (a preset picker that fills in every optics field at
-// once) and the Material Name input -- split out of `material_editor_dialog.slint`
-// to keep that file under its line budget. Every field the preset combo's
-// `selected` handler writes is two-way bound back to `MaterialEditorDialog`'s
-// own identically-named property (see that file's own doc comments on each).
+// Base template selector (a preset combo that fills every optics field at once) and the
+// Material Name input. Each field the preset writes is two-way bound to the identically named
+// property of `MaterialEditorDialog`.
 export component MaterialTemplateSelector inherits HorizontalLayout {
     spacing: 10px;
 
@@ -48,18 +46,14 @@ export component MaterialTemplateSelector inherits HorizontalLayout {
                 current-index <=> root.selected_template_idx;
                 accessible-label: "Preset Template";
                 selected(val) => {
-                    // Crystal system indices: 0 Cubic, 1 Tetragonal,
-                    // 2 Hexagonal, 3 Trigonal, 4 Orthorhombic,
-                    // 5 Monoclinic, 6 Triclinic. Optical character
-                    // indices: 0 Isotropic, 1 Uniaxial(+), 2 Uniaxial(-),
-                    // 3 Biaxial(+), 4 Biaxial(-). Both orders match
-                    // `pleochroma::optics::materials::{CrystalSystem,
-                    // OpticalCharacter}`'s own declared variant order --
-                    // see `gui::crystal_optics` on the Rust side. Values
-                    // below are each preset's REAL classification, read
-                    // from its `pleochroma` built-in entry in materials.rs.
-                    // `disp_val` is the Fraunhofer F-C interval (not the wider
-                    // gemological B-G figure), measured from that same entry.
+                    // Crystal system indices: 0 Cubic, 1 Tetragonal, 2 Hexagonal, 3 Trigonal,
+                    // 4 Orthorhombic, 5 Monoclinic, 6 Triclinic. Optical character indices:
+                    // 0 Isotropic, 1 Uniaxial(+), 2 Uniaxial(-), 3 Biaxial(+), 4 Biaxial(-).
+                    // Both follow the variant order of `pleochroma::optics::materials::
+                    // {CrystalSystem, OpticalCharacter}` (see `gui::optics::crystal_optics`).
+                    // Each preset's values are its real classification from its built-in entry
+                    // in `crates/pleochroma/src/optics/materials/`. `disp_val` is the Fraunhofer
+                    // F-C interval, not the wider gemological B-G figure.
                     if (val == "Diamond") {
                         root.mat_name = "Custom Diamond";
                         root.ri_val = 2.417;

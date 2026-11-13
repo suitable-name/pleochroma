@@ -36,6 +36,10 @@ pub(crate) use controller::{stop_for_app_close, work_at_risk};
 pub(crate) use wiring::setup_render_jobs;
 
 #[cfg(test)]
+mod estimator_tests;
+#[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_hdr_exposure;
 #[cfg(test)]
 mod ui_tests;

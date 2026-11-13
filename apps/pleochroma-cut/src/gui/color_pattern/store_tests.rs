@@ -85,7 +85,7 @@ fn a_saved_pattern_round_trips_with_its_zones_and_the_base_color() {
     assert_eq!(zoning.relative_to_stone, pattern.relative_to_stone);
     assert_eq!(zoning.zoning.zones.len(), pattern.zones.len());
 
-    // The material row shows the base color; the recipe and triple no longer take precedence.
+    // The material row carries the base color; its recipe and color triple are cleared.
     let row = db
         .get_custom_materials()
         .unwrap()
@@ -231,6 +231,22 @@ fn presets_save_load_rename_and_delete() {
 }
 
 #[test]
+fn a_saved_preset_can_be_deleted_from_the_gallery() {
+    use super::store::delete_preset;
+    let db = db();
+    save_preset(&db, "Keep", &solved(TemplateId::Bicolor)).unwrap();
+    save_preset(&db, "Drop", &solved(TemplateId::Tricolor)).unwrap();
+    assert!(delete_preset(&db, " Drop ").unwrap());
+    assert!(!delete_preset(&db, "Drop").unwrap());
+    let names: Vec<String> = load_presets(&db)
+        .unwrap()
+        .into_iter()
+        .map(|(name, _)| name)
+        .collect();
+    assert_eq!(names, ["Keep"]);
+}
+
+#[test]
 fn a_preset_that_cannot_be_read_is_skipped() {
     let db = db();
     save_preset(&db, "Good", &solved(TemplateId::Bicolor)).unwrap();
@@ -254,7 +270,7 @@ fn a_pattern_with_a_variant_and_three_colors_is_stored_as_version_two_and_a_plai
     let db = db();
     add_material(&db, "Melon");
 
-    // A pattern of the first release's colors is still a version 1 row.
+    // A pattern without a variant or three-color zone stays a version 1 row.
     save_pattern(&db, "Melon", &solved(TemplateId::Bicolor), WIDTH_MM).unwrap();
     let row = db.load_material_pattern("Melon").unwrap().unwrap();
     assert_eq!(row.version, PATTERN_BASE_FORMAT_VERSION);

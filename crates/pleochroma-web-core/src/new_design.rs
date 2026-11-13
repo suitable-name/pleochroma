@@ -2,7 +2,7 @@
 //!
 //! It covers the material and gear lists a template offers, the line under the material
 //! combo, the stone-width field and the [`NewDesignChoice`] a Create asks
-//! `create_from_template` for (the desktop's `gui/editor/templates.rs`, in the same words).
+//! `create_from_template` for (from `pleochroma-editor`'s `templates.rs`, in the same words).
 //!
 //! Everything here is a plain function of its arguments, so the page's dialog code stays a
 //! thin Slint shell around it and the logic is tested natively.

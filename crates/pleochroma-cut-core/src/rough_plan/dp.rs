@@ -34,7 +34,7 @@ fn arg_byte(value: usize) -> u8 {
     u8::try_from(value).expect("a run is at most 48 cells")
 }
 
-/// Leave-one-out rounds.
+/// The number of leave-one-out alternative rounds.
 pub const ALTERNATIVE_ROUNDS: usize = 3;
 
 /// A solved order: the root values and every argmax.
@@ -249,8 +249,8 @@ pub(super) fn candidate_of_tree(
 /// With one, the free DP runs first and its layout is the answer whenever it already has at
 /// most that many pieces (no layout of at most N pieces is worth more than the free optimum,
 /// so it IS the capped optimum). Otherwise the count DP of the cap runs on the same table (a
-/// second pass, which reports another `gA` events), so the answer is the best layout of at
-/// most that many stones, not a larger one cut down.
+/// second pass with its own `gA` events), so the answer is the best layout of at most that
+/// many stones, not a larger one cut down.
 pub fn plan_rough_for_order(
     grid: &Grid,
     table: &PieceTable,

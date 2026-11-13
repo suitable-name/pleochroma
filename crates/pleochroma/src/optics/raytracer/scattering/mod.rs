@@ -1,27 +1,23 @@
-//! Henyey-Greenstein volumetric scattering and the frosted-facet BSDF.
+//! Volumetric scattering (Henyey-Greenstein and oriented inclusions) and the frosted-facet BSDF.
 //!
-//! [`maybe_scatter_or_extinguish`]'s per-bounce extinction/scatter estimator, the HG
-//! phase function and its importance sampler, and [`apply_frosted_bounce`]'s diffuse
-//! reflect/transmit dispatch.
+//! - [`hg`]: the Henyey-Greenstein per-bounce estimator, its phase function and sampler.
+//! - [`hg_nee`]: the next-event estimate at a scattering point, with its shadow probe.
+//! - [`oriented`]: the same estimator for a medium with oriented inclusions (silk, needles,
+//!   platelets).
+//! - [`frosted`]: the Lambertian frosted-facet BSDF kept as the GPU twin's reference, and its
+//!   exterior-side next-event estimate.
+//! - [`delta_tracking`]: reflection off a Bragg domain structure.
 //!
-//! Split from a single `scattering.rs` into this module tree by seam: [`hg`] holds the
-//! Henyey-Greenstein volumetric estimator, [`hg_nee`] its scattering-point
-//! next-event-estimation contribution (the shadow probe and [`hg_nee::ShadowAlphas`]),
-//! [`frosted`] holds the frosted-facet BSDF and its exterior-side NEE
-//! contribution, [`oriented`] the estimator for a medium with oriented inclusions
-//! (silk, needles, platelets), and this file keeps the shared [`NeeContext`]/[`balance_heuristic`]/
-//! [`frosted_orthonormal_basis`] plumbing the submodules build on. Every path
-//! reachable as `scattering::X` before the split stays reachable at exactly that path
-//! via the re-exports below.
+//! This file holds the state the submodules share ([`NeeContext`], [`balance_heuristic`],
+//! [`frosted_orthonormal_basis`]). Items used across the tree are re-exported below, so their
+//! paths stay `scattering::X`.
 
 use super::environment::EnvironmentSource;
 use glam::Vec3;
 
-// `pub`, not private: a `pub(crate)` item inside a private module is only reachable
-// via this file's re-export, which clippy's `redundant_pub_crate` (nursery) then flags
-// as suspicious -- see `raytracer::mod`'s own identical comment for this exact pattern.
-// Making the submodule `pub` resolves it without widening any item's own effective
-// visibility, still capped at its declared visibility.
+// `pub`, not private: a `pub(crate)` item in a private module is only reachable through this
+// file's re-export, which clippy's `redundant_pub_crate` (nursery) flags. `raytracer`'s `mod.rs`
+// uses the same pattern.
 pub mod delta_tracking;
 #[cfg(test)]
 mod delta_tracking_tests;
@@ -65,26 +61,16 @@ pub(crate) use frosted::{apply_frosted_bounce, cosine_weighted_hemisphere};
 /// back in) per exit, so four covers one cavity plus the final exit.
 pub(crate) const HG_NEE_MAX_CROSSINGS: usize = 4;
 
-/// Bundles the per-trace next-event-estimation inputs
-/// [`nee_contribution_hg_scatter`] and [`nee_contribution_frosted_exterior`] need -- the
-/// environment (only [`EnvironmentSource::HdrMap`] has an importance distribution to
-/// sample; see `sample_environment_for_nee`), the intersection arena a shadow ray from
-/// an interior scattering point probes against (the exterior frosted NEE uses it only for
-/// a concave stone's shadow probe, see that function's doc comment), and whether NEE is switched on for this trace at all.
+/// The per-trace inputs of the next-event estimators, including their on/off switch.
 ///
-/// `enabled = false` (every procedural-rig scene, and any trace that otherwise opts out)
-/// skips every NEE draw entirely -- no RNG consumption, no accumulator touched -- so
-/// those traces stay bit-identical to one traced with NEE support absent altogether.
-/// `Copy`: every field is either a
-/// reference or an `EnvironmentSource` (itself `Copy`), so passing by value is as cheap
-/// as passing `&NeeContext<'_>` and avoids an extra indirection at each of this struct's
-/// several call sites.
+/// The environment (HDR maps and the analytic sun have a light-sampling technique), the arena that
+/// shadow rays probe, the tools, and the ground band of an abraded edge.
 ///
-/// `pub(crate)`, not `pub(super)`: `renderer::gpu::transport_check`'s Tier 2 ULP check
-/// for [`apply_frosted_bounce`] constructs an `enabled: false` instance directly (its
-/// existing base-physics comparison predates NEE and stays that way until a dedicated
-/// NEE harness lands -- see that check's own doc comment), mirroring why
-/// `apply_frosted_bounce` itself is `pub(crate)`.
+/// `enabled = false` skips every NEE draw without consuming RNG or touching an accumulator, so
+/// the trace is bit for bit the one built without NEE. The struct is `Copy`, so passing it by
+/// value costs no more than a reference.
+///
+/// `pub(crate)`: the GPU transport check builds an `enabled: false` instance directly.
 #[derive(Clone, Copy)]
 pub(crate) struct NeeContext<'a> {
     pub(crate) environment: EnvironmentSource<'a>,
@@ -94,14 +80,10 @@ pub(crate) struct NeeContext<'a> {
     /// the shadow probes are real: the exterior NEE must find the sampled direction
     /// unoccluded, and the HG probe walks up to [`HG_NEE_MAX_CROSSINGS`] boundaries.
     pub(crate) tools: &'a [crate::geometry::tool::ToolPrimitive],
-    /// `optics::raytracer::transport::trace_spectral_ray_inner`'s own `enable_nee`
-    /// parameter -- `true` only at every PUBLIC entry point when `environment` is
-    /// `HdrMap` or the analytic `DaylightSun` (`environment_supports_nee`; every other
-    /// `Studio` rig has no light-sampling technique to draw from), or when this crate's
-    /// own tests force it explicitly for an on/off A-B comparison (mirroring
-    /// `ExitSplitCtx::enabled`'s identical precedent). Under the sun only the frosted
-    /// exterior NEE fires: the Henyey-Greenstein estimator is HDR-only (see
-    /// `nee_contribution_hg_scatter`).
+    /// `true` only at the public entry points when `environment` is `HdrMap` or the analytic
+    /// `DaylightSun` (`environment_supports_nee`), or when a test forces it for an on/off
+    /// comparison (as `ExitSplitCtx::enabled` does). Under the sun only the frosted exterior
+    /// NEE fires: the Henyey-Greenstein estimator is HDR-only (see `nee_contribution_hg_scatter`).
     pub(crate) enabled: bool,
     /// The ground band of an abraded-edge scene (`None` for every other trace). A shadow ray
     /// that leaves through the band meets a ground surface, which the Henyey-Greenstein
@@ -122,9 +104,8 @@ pub(super) fn balance_heuristic(pdf_a: f32, pdf_b: f32) -> f32 {
     if denom > 1e-12 { pdf_a / denom } else { 0.0 }
 }
 
-/// A stable orthonormal basis `(t, b)` perpendicular to unit vector `n` -- the same
-/// branch-minimal construction `birefringence::stable_orthonormal_basis` uses, kept as
-/// its own local copy rather than exposing that private helper across modules.
+/// A stable orthonormal basis `(t, b)` perpendicular to unit vector `n`. A local copy of the
+/// branch-minimal construction in `birefringence`'s private helper of the same name.
 pub(in crate::optics::raytracer) fn frosted_orthonormal_basis(n: Vec3) -> (Vec3, Vec3) {
     let a = if n.x.abs() > 0.9 { Vec3::Y } else { Vec3::X };
     let t = (a - n * n.dot(a)).normalize_or_zero();

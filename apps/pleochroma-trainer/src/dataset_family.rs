@@ -7,6 +7,7 @@
 use pleochroma_cut_core::Design;
 use std::collections::{BTreeMap, BTreeSet};
 
+/// Canonical geometry identity, independent of entry id, title, material and tier labels.
 pub(super) fn normalized_geometry_key(design: &Design) -> Vec<u8> {
     let gear = f64::from(design.meta.gear_teeth.unsigned_abs().max(1));
     let driven: BTreeMap<_, _> = design
@@ -36,9 +37,8 @@ pub(super) fn normalized_geometry_key(design: &Design) -> Vec<u8> {
     // Removing duplicates also joins native alias tiers to their single-plane ASC export.
     normals.sort_by(|a, b| a.0.total_cmp(&b.0).then_with(|| a.1.total_cmp(&b.1)));
     normals.dedup();
-    // One rare inclination group supplies all necessary rotation origins. Choosing it by
-    // count then angle is invariant to reorder/reflection/rotation, unlike taking N facets.
-    // Repeated azimuths never trigger duplicate full-key sorts.
+    // The rarest inclination group supplies the candidate rotation origins; choosing it by
+    // count, then angle, keeps the key invariant to reordering, reflection and rotation.
     let mut inclinations = BTreeMap::<u64, BTreeSet<u64>>::new();
     for &(angle, azimuth) in &normals {
         if angle != 0.0 {

@@ -12,9 +12,8 @@ export struct DiffRow {
     status-color: color,
 }
 
-// "Snapshot design" / "Compare to snapshot" (modelled on the desktop's snapshot compare
-// mode of `retarget_dialog.slint`): the snapshot taken earlier against the design now,
-// tier position by tier position. Pushed by `src/editor/snapshot`.
+// The snapshot taken earlier, set against the design now tier position by tier position.
+// Pushed by `src/editor/snapshot`.
 export global SnapshotModel {
     // A snapshot has been taken this session (kept until the page is reloaded).
     in property <bool> has-snapshot: false;

@@ -46,19 +46,14 @@ pub(super) enum RetargetApplyError {
     Edit(EditError),
 }
 
-/// Applies `pending`'s [`RetargetProposal`] through `state` iff its generation still
-/// matches, via exactly one [`EditorState::apply`] call -- the ONLY way this group
-/// mutates `design`. When `material_change` is `Some`, the angle retarget and the
-/// material change are combined into one `Edit::Batch` (see that variant's own doc
-/// comment: it validates both sub-edits before writing anything back, so a stale
-/// tier index can never leave the design half-retargeted), so the whole "Retarget for
-/// material" action is ONE undo step; `None` (the target already matches
-/// `state.design.material`, e.g. a Shift-mode preview the user never actually
-/// retargeted) commits the checked geometry without a material edit.
+/// Applies `pending`'s [`RetargetProposal`] through `state`, if its generation still matches.
+/// This is the only place this group mutates `design`, via one [`EditorState::apply`] call.
 ///
-/// The current successful check supplies the exact accepted angles and masts;
-/// callers cannot substitute unchecked depth changes. Material joins the same
-/// batch. Returns the number of tiers the retarget named on success.
+/// With `material_change` set, the angle retarget and the material change form one
+/// `Edit::Batch`, so the whole action is a single undo step. `None` commits the checked
+/// geometry without a material edit. The accepted angles and masts come from the current
+/// successful check, so unchecked depth changes cannot be substituted. Returns the number
+/// of tiers the retarget named.
 pub(super) fn apply_pending_retarget(
     state: &mut EditorState,
     pending: (RetargetProposal, u64),
@@ -76,8 +71,7 @@ pub(super) fn apply_pending_retarget(
     let applied = proposal.rows.len();
     let edit = match material_change {
         Some(material) => {
-            // Flattened into one batch (angles, masts, material), so the history label
-            // reads "Retarget for <material>" and Undo reverts all of it at once.
+            // One batch (angles, masts, material), so the history label and Undo cover all of it.
             let mut edits = match angle_edit {
                 Edit::Batch(edits) => edits,
                 single => vec![single],
@@ -96,28 +90,15 @@ pub(super) fn apply_pending_retarget(
         .map_err(RetargetApplyError::Edit)
 }
 
-/// "Apply": commits the target material (see below) together with the held
-/// proposal, then re-solves and refreshes the shared viewport via
-/// [`view::refresh_all_now`] -- the same Solve path `tier_actions::setup_solve_callback`
-/// uses, NOT `refresh_editor_panel_stale`: every pavilion/crown angle just moved, so
-/// the design needs a real re-solve shown immediately, not left marked stale.
+/// "Apply": commits the target material together with the held proposal, then re-solves
+/// and refreshes the viewport via [`view::refresh_all_now`]. Every angle moved, so a real
+/// re-solve is shown, not a stale marker.
 ///
-/// # Also commits the target material, as ONE undo step
+/// # Also commits the target material, as one undo step
 ///
-/// Moving every tier's angle without also committing `design.material` would leave
-/// critical-angle-shifted tiers reading as "Windows" against the design's OLD
-/// material -- e.g. Diamond-shifted angles judged against Quartz's own, much
-/// shallower critical angle -- until the cutter separately pressed "Apply" on the
-/// design settings panel's own material combo, so both commit together as one
-/// step instead. The target material is resolved from `RetargetModel`'s own picker fields
-/// BEFORE calling [`apply_pending_retarget`] (its own stale-generation check still
-/// runs first inside that call, against the generation the proposal was actually
-/// built against), then handed to it as `material_change` -- `Some` only when it
-/// actually differs from `state.design.material` (e.g. never for a Shift-mode
-/// preview the cutter didn't retarget). `apply_pending_retarget` combines the angle
-/// retarget and the material change into one `Edit::Batch` (see that variant's own
-/// doc comment), so pressing Undo once fully reverts a retarget that also changed
-/// material, not twice.
+/// The angles are judged against `design.material`, so the material must commit with them.
+/// The target is resolved from `RetargetModel`'s picker before [`apply_pending_retarget`]
+/// runs, and passed in only when it differs from the design's material. Undo reverts both.
 pub(in crate::gui::editor) fn setup_retarget_apply_callback(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -170,11 +151,8 @@ pub(in crate::gui::editor) fn setup_retarget_apply_callback(
             // and refused) either way -- nothing is left to badge as stale.
             stale::clear(ResultKind::Retarget);
 
-            // Resolved BEFORE `apply_pending_retarget` -- see this function's own doc
-            // comment ("Also commits the target material, as ONE undo step"). Reading
-            // `st.design.material` here (rather than after the retarget applies) is safe:
-            // a retarget's own `Edit::RetargetAngles`/`Edit::Batch` never touches
-            // `design.material` itself, only tier angles.
+            // Resolved before `apply_pending_retarget`. Reading `design.material` here is safe,
+            // since a retarget edit changes only tier angles.
             let custom = render_ctx
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -185,10 +163,8 @@ pub(in crate::gui::editor) fn setup_retarget_apply_callback(
             let ri_text = ui.global::<RetargetModel>().get_target_ri_override_text();
             let material_selection =
                 target_material_selection(&st.design, &custom, combo_index, &ri_text);
-            // Named from the `MaterialSelection` the cutter actually picked, not
-            // `pending.0.target.gem.name` (which falls back to Diamond for "(none)"/a
-            // typed custom RI -- see `target_display_name`'s own doc comment), same
-            // as the dialog's own live readout.
+            // Named from the picked `MaterialSelection`, as the dialog's own readout is.
+            // See `target_display_name`.
             let target_name = target_display_name(&material_selection);
             let material_change =
                 (material_selection != st.design.material).then_some(material_selection);
@@ -295,9 +271,6 @@ fn finish_applied_retarget(
     // The applied design is the new Baseline (the design before it stays in the original above).
     // The masts arrive with the solve `refresh_all_now` starts below.
     baseline::install(Origin::Retarget, &st);
-    // `view::refresh_all` now takes `Rc<RefCell<EditorState>>` under the
-    // name `view::refresh_all_now` (see that function's own doc
-    // comment) -- this call site's own logic is otherwise untouched.
     drop(st);
     view::refresh_all_now(
         ui,
@@ -324,11 +297,10 @@ fn finish_applied_retarget(
     );
 }
 
-/// The original design's solve for the "Original" snapshot: the check run's cached solve of
-/// that very design when it matches the tier count, otherwise -- only when `inline_ok`
-/// ([`solves_inline`]) -- a fresh solve of `design`, otherwise `None` (the snapshot then has
-/// no old masts until `snapshot::solve_original_masts_in_background` fills them). The
-/// un-gated solve this replaces froze the window for 0.5-5.9 s on large designs.
+/// The solved masts for the "Original" snapshot. Uses the check run's cached solve of that
+/// design when the tier count matches. Otherwise it solves `design` only when `inline_ok`
+/// ([`solves_inline`]), and returns `None` if neither applies. `None` leaves the snapshot
+/// without masts until `snapshot::solve_original_masts_in_background` fills them.
 pub(super) fn original_solve_for_snapshot(
     cached: Option<Vec<SolvedTier>>,
     design: &pleochroma_cut_core::Design,
@@ -391,14 +363,9 @@ fn release_modal_viewport(ui: &MainWindow, render_ctx: &Arc<Mutex<RenderContext>
     recompute_tab_visible(ui, render_ctx);
 }
 
-/// "Cancel"/the backdrop click: discards whatever proposal was pending and closes
-/// the dialog -- no edit was ever applied, so there is nothing to undo.
-///
-/// `render_ctx`/`preview_state`/`solid_last_solved` (added beyond this function's
-/// original signature): closing the dialog must never leave a candidate's ghost
-/// geometry stuck in the shared viewport, so this always resubmits the real, live
-/// design on the way out, regardless of how `RetargetModel.preview_enabled` was
-/// left.
+/// "Cancel" and the backdrop click: discards the pending proposal and closes the dialog.
+/// No edit was applied, so there is nothing to undo. Always resubmits the live design, so
+/// no candidate ghost stays in the viewport.
 pub(in crate::gui::editor) fn setup_retarget_close_callback(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,

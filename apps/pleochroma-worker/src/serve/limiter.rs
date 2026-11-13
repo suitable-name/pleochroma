@@ -9,20 +9,17 @@ use std::sync::{
 
 /// Caps how many connections this worker handles at once (`--max-connections`, default 64).
 ///
-/// One instance per listener ROLE, owned by [`super::run`]: the viewer listener's is
+/// One instance per listener ROLE, created by [`super::start`]: the viewer listener's is
 /// shared by every accepted viewer connection regardless of transport (TLS or
 /// `--insecure-no-tls`) or build mode (library-only or `worker`); the coordinator's
 /// worker port gets a second, separate instance (separate pools for viewers and
 /// workers), held for as long as a joined worker stays registered.
 ///
 /// `Clone` (cheap: `active` is already an `Arc`) so a listener's own accept loop and its
-/// spawned connection threads can share one counter. The token-based enrollment listener
-/// (`crate::enroll`) builds its OWN separate, dedicated pair of these (F-06b) rather
-/// than being handed a clone of the matching viewer/worker listener's real one -- an
-/// unauthenticated flood of bare TCP connects to the enrollment port (no client
-/// certificate required at all -- see that module's own doc comment) must never be able
-/// to exhaust slots meant for authenticated viewers/workers on a different port
-/// entirely, which sharing one counter across both listeners used to allow.
+/// spawned connection threads can share one counter. The enrollment listener (`crate::enroll`)
+/// builds its own pair instead of sharing the viewer or worker one: an unauthenticated flood
+/// of bare TCP connects to the enrollment port must not exhaust slots meant for
+/// authenticated viewers and workers on other ports.
 #[derive(Debug, Clone)]
 pub struct ConnectionLimiter {
     active: Arc<AtomicUsize>,
@@ -30,9 +27,8 @@ pub struct ConnectionLimiter {
 }
 
 impl ConnectionLimiter {
-    /// `pub(crate)` (not just used by [`super::run`]) so other listeners sharing this cap --
-    /// `crate::enroll`'s own tests build a throwaway one the same way `run` does --
-    /// can construct one without going through a full `serve` startup.
+    /// `pub(crate)` so other listeners' tests (such as `crate::enroll`'s) can build one
+    /// without a full `serve` startup.
     #[must_use]
     pub(crate) fn new(max: usize) -> Self {
         Self {
@@ -46,11 +42,10 @@ impl ConnectionLimiter {
     /// `Ok` hands back a [`ConnectionSlot`] that releases the slot when dropped --
     /// including when the connection thread's `catch_unwind`-wrapped handler panics:
     /// `Drop::drop` still runs while a panic unwinds (just not through an `abort`), and
-    /// nothing in the connection-handling path aborts. `Err` carries the active count
-    /// observed at the moment of refusal (for [`super::connection::refuse_for_capacity`]'s log
-    /// line); the slot this call provisionally reserved to make that observation is
-    /// released again immediately, so a refused connection never itself counts against
-    /// the cap.
+    /// nothing in the connection-handling path aborts. `Err` carries the active count seen
+    /// when the attempt was refused, which [`super::connection::refuse_for_capacity`] reports.
+    /// The slot this call reserved to observe that count is released at once, so a refused
+    /// connection never counts against the cap.
     ///
     /// # Errors
     ///
@@ -70,32 +65,23 @@ impl ConnectionLimiter {
     }
 }
 
-/// How many bare, not-yet-authenticated connections [`super::run`]'s accept loop allows in
-/// flight at once, as a multiple of `--max-connections`: `handshake_limiter` in [`super::run`]
-/// is a second, separate [`ConnectionLimiter`] with this larger cap.
+/// How many bare, not-yet-authenticated connections the accept loop may have in flight, as a
+/// multiple of `--max-connections`.
 ///
-/// The real slot in the REAL `--max-connections` limiter is deliberately reserved only
-/// AFTER `accept_tls` succeeds (see `super::accept::spawn_connection_handler`'s doc comment), not in
-/// the accept loop before `accept_tls` ever runs: reserving it earlier would let 64 bare
-/// TCP connects that never send a `ClientHello` hold every slot for up to
-/// [`super::HANDSHAKE_TIMEOUT`] (20s), locking out every certificate-holding viewer with
-/// `CONNECTION_LIMIT_REACHED_CODE`, while the accept loop keeps spawning threads over the
-/// cap regardless (bounding neither threads nor authenticated work). Even with the real
-/// slot's acquisition deferred to AFTER `accept_tls` succeeds, an unauthenticated peer
-/// can still pin a thread for up to `HANDSHAKE_TIMEOUT` just by connecting, so a second,
-/// wider cap bounds THAT too: 4x headroom is enough that a real burst of
-/// `--max-connections` legitimate viewers reconnecting at once is never refused by this
-/// counter, while still bounding a flood of bare connects to a multiple of the real cap
-/// rather than the entire OS thread budget.
+/// [`super::start`] builds a second, separate [`ConnectionLimiter`] with this larger cap.
+///
+/// The real slot is reserved only after `accept_tls` succeeds, not in the accept loop before
+/// it: reserving earlier would let bare TCP connects that never send a `ClientHello` hold every
+/// slot for up to [`super::HANDSHAKE_TIMEOUT`], locking out authenticated viewers. Such a peer
+/// can still pin a thread until that timeout, so the wider cap bounds those threads. Four times
+/// the real cap leaves room for a burst of viewers reconnecting at once.
 pub const PRE_AUTH_HANDSHAKE_MULTIPLIER: usize = 4;
 
 /// RAII handle for one reserved [`ConnectionLimiter`] slot.
 ///
-/// Held by a connection thread for the lifetime of
-/// the connection handler (moved
-/// into the `thread::spawn` closure alongside everything else that connection needs);
-/// [`Drop::drop`] releases the slot regardless of how that call returns -- normally, via
-/// `?`, or via a caught panic.
+/// Moved into the connection thread with everything else that connection needs, and held
+/// for the connection handler's lifetime. [`Drop::drop`] releases the slot however that call
+/// returns: normally, via `?`, or via a caught panic.
 #[derive(Debug)]
 pub struct ConnectionSlot {
     active: Arc<AtomicUsize>,
@@ -108,13 +94,11 @@ impl Drop for ConnectionSlot {
 }
 
 /// Unit tests for [`ConnectionLimiter`]/[`ConnectionSlot`] and
-/// [`super::connection::refuse_for_capacity`] -- deliberately not gated on `feature = "worker"`
-/// (unlike `mod tests` above/`serve::tests`), since the connection cap applies to a
-/// library-only build exactly as much as a `worker` one (see this module's own doc
-/// comment). No real sockets or threads: [`ConnectionLimiter`] is tested purely as
-/// counter logic, and `refuse_for_capacity` against an in-memory buffer -- see
-/// `serve::tests`/`serve::tests::mtls` (both `worker`-only) for the real-socket,
-/// real-TLS end of the test pyramid this complements.
+/// [`super::connection::refuse_for_capacity`]. Not gated on `feature = "worker"`, since the
+/// connection cap applies to a library-only build too. No real sockets or threads:
+/// [`ConnectionLimiter`] is tested as counter logic and `refuse_for_capacity` against an
+/// in-memory buffer. The real-socket, real-TLS tests are in `serve::tests` and
+/// `serve::tests::mtls`, both `worker`-only.
 #[cfg(test)]
 mod limiter_tests {
     use super::ConnectionLimiter;
@@ -186,9 +170,7 @@ mod limiter_tests {
         assert_eq!(err.code, connection::CONNECTION_LIMIT_REACHED_CODE);
         assert!(err.message.contains("64"), "{}", err.message);
 
-        // The same shape `pleochroma_net::client::handshake` already knows how to fall
-        // back to for a BUILD_MISMATCH_CODE refusal (see `refuse_for_capacity`'s doc
-        // comment) -- confirmed here by decoding as a bare `ErrorMsg` with no `Welcome`
-        // ever written first.
+        // The shape `pleochroma_net::client::handshake` falls back to: an `ErrorMsg` with
+        // no `Welcome` before it (see `refuse_for_capacity`).
     }
 }

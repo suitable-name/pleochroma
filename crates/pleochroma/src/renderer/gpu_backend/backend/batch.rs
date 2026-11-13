@@ -1,5 +1,5 @@
 //! [`GpuBackend::try_accumulate_batch_cancellable`]: many pictures through one renderer turn
-//! stream (split from `backend.rs` to keep it under 800 lines).
+//! stream.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -14,26 +14,21 @@ use crate::{
 };
 
 impl GpuBackend {
-    /// Traces every item of `items`, keeping the GPU queue fed across picture boundaries,
-    /// and calls `on_done(index, outcome)` as soon as each picture finishes -- in input
-    /// order, which is also completion order.
+    /// Traces every item of `items` through one stream of GPU chunks, keeping the queue fed
+    /// across picture boundaries. Calls `on_done(index, outcome)` as each picture finishes,
+    /// in input order.
     ///
     /// Each item's result is bit-identical to [`Self::try_accumulate_cancellable`] on that
-    /// item alone: its samples are summed into a zeroed scratch of its own and added into
-    /// `out` only on [`GpuAccumulate::Done`] (a `Declined` or `Cancelled` item leaves its
-    /// `out` untouched), with the same absolute sample offsets, the same decline rules per
-    /// item (a device loss declines every picture not yet reported; an unsupported
-    /// material or environment declines only its own picture) and the same cancel polling
-    /// (once per chunk). `cancel` firing reports the first unfinished picture and all
-    /// later ones as `Cancelled`; pictures already `Done` stay done. Afterwards the
-    /// renderer is idle and reusable.
+    /// item alone: samples go into a zeroed scratch and are added into `out` only on
+    /// [`GpuAccumulate::Done`]. Declines follow the single-picture rules per item: a device
+    /// loss declines every unreported picture, and an unsupported material or environment
+    /// declines only its own. `cancel` reports the first unfinished picture and all later
+    /// ones as `Cancelled`; finished pictures stay `Done`. Afterwards the renderer is idle
+    /// and reusable.
     ///
-    /// The chunk stream, the scene-upload argument and the memory bound are described in
-    /// the parent module's "Batches" section. Fairness: the batch holds the renderer
-    /// turn while nobody else is queued and yields (draining first) after
-    /// `CHUNKS_PER_TURN` chunks as soon as another request is waiting, then rejoins the
-    /// back of the queue. `on_done` runs while the turn is held, with the next chunk
-    /// already queued, so it should be cheap.
+    /// The chunk stream is described in the parent module's "Batches" section. The batch
+    /// yields the renderer turn after `CHUNKS_PER_TURN` chunks when another request is
+    /// waiting. `on_done` runs while the turn is held, so it should be cheap.
     ///
     /// # Panics
     ///
@@ -58,8 +53,8 @@ impl GpuBackend {
             );
         }
         let count = items.len();
-        // Defence in depth (callers route each picture first): a picture beyond the tool
-        // limit declines the whole batch before any dispatch.
+        // Defence in depth: callers route each picture first. A picture over the tool limit
+        // declines the whole batch before any dispatch.
         if items
             .iter()
             .any(|item| item.tools.len() > GPU_MAX_TOOL_PRIMITIVES)
@@ -112,6 +107,7 @@ impl GpuBackend {
                 cancel: Some(cancel),
                 max_chunks: usize::MAX,
                 surface: surface.as_ref(),
+                estimator: item.scene.estimator,
             })
             .collect();
 

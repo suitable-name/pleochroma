@@ -10,7 +10,7 @@ use super::{
 };
 use crate::{render::handle_trace_chunk, scene::GeometrySceneSpec};
 
-/// A frame big enough for a dimple in the table to change pixels at one sample.
+/// A frame big enough for a dimple in the table to change pixels.
 fn frame() -> SceneSpec {
     SceneSpec {
         width: 24,

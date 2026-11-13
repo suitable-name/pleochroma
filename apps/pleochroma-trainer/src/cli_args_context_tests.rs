@@ -49,7 +49,7 @@ fn the_imitation_gradient_clip_is_range_checked_and_reaches_the_configuration() 
         notes,
         ["--max-grad-norm applies to --algo imitation only and is ignored"]
     );
-    // Runs saved before the flag existed resume with the built-in clip.
+    // A saved run without this field restores the built-in clip.
     let mut saved = serde_json::to_value(&*run_args(&[])).unwrap();
     saved.as_object_mut().unwrap().remove("max_grad_norm");
     let restored: CliArgs = serde_json::from_value(saved).unwrap();

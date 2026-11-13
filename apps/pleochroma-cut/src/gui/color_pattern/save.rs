@@ -59,7 +59,7 @@ pub(super) fn store_pattern(host: &Host, close_after: bool) {
                 .invoke_selected_material_changed_for_editor_prefill();
         }
         let message = if stone_apply.is_some() {
-            "Applied the color pattern to this stone.".to_owned()
+            "Saved the color pattern to this stone.".to_owned()
         } else {
             format!("Saved the color pattern of '{name}'.")
         };

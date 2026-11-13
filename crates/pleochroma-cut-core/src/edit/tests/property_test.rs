@@ -9,12 +9,9 @@ use crate::{
 };
 use pleochroma::geometry::meet_solver::MeetConstraint;
 
-/// A tiny deterministic splitmix64-seeded generator for a handful of synthetic
-/// tiers -- the same generator shape `crate::optimize::search`'s own
-/// `seeded_permutation` uses internally (see that module's "Determinism"
-/// section), reimplemented locally here since that one is private to a
-/// different module and this crate's own rules forbid a non-deterministic
-/// (`HashMap`/`HashSet`/wall-clock-seeded) alternative.
+/// A small deterministic splitmix64-seeded generator of synthetic tiers. It has the same
+/// shape as `crate::optimize::search`'s `seeded_permutation`, copied because that one is
+/// private.
 fn generate_tiers(seed: u64) -> Vec<ConstraintTier> {
     let mut state = seed;
     let mut next = move || {
@@ -40,11 +37,9 @@ fn generate_tiers(seed: u64) -> Vec<ConstraintTier> {
         .collect()
 }
 
-/// Over several generated tier lists (deterministic seeds, no `HashMap`/`HashSet`
-/// anywhere -- see this crate's own determinism contract), `SetSchedule`,
-/// `RemapIndices` (and its `RestoreIndices` inverse) and `RetargetAngles` all apply
-/// and undo back to byte-identical design state, and redo reproduces the
-/// fully-edited state exactly.
+/// Over several generated tier lists (fixed seeds), `SetSchedule`, `RemapIndices` (with its
+/// `RestoreIndices` inverse) and `RetargetAngles` each apply and undo back to the identical
+/// design state, and redo reproduces the fully-edited state.
 #[test]
 fn new_a2_edit_variants_apply_and_invert_exactly_over_generated_tier_lists() {
     for seed in [1u64, 2, 3, 4, 5] {
@@ -55,11 +50,8 @@ fn new_a2_edit_variants_apply_and_invert_exactly_over_generated_tier_lists() {
         let before = design.clone();
 
         let mut history = History::new();
-        // A snapshot after EACH edit (starting with `before` itself), so undo/redo
-        // can be checked one step at a time below -- not just "fully undone
-        // matches the start, fully redone matches the end", which a bug in an
-        // INTERMEDIATE step could satisfy by coincidence (e.g. two wrong undos that
-        // happen to cancel out over the whole sequence).
+        // A snapshot after each edit (starting with `before`), so undo and redo are checked
+        // one step at a time: two wrong steps can cancel out over the whole sequence.
         let mut snapshots = vec![before.clone()];
         history
             .apply(

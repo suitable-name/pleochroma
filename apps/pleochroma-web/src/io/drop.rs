@@ -1,5 +1,6 @@
-//! Drag-and-drop onto the page's `<canvas id="canvas">` (the element Slint renders
-//! into): `dragover` is accepted (`preventDefault`, or the browser navigates to the
+//! Drag-and-drop onto the page's `<canvas id="canvas">`, the element Slint renders into.
+//!
+//! `dragover` is accepted (`preventDefault`, or the browser navigates to the
 //! file instead), and `drop` reads every dropped file with `File.arrayBuffer()` -- after
 //! checking `File.size` against the page's limits, so an oversize file is never copied
 //! into memory -- and hands them to [`open_files`] together, exactly like a multi-file
@@ -50,9 +51,8 @@ fn handle_drop(ctx: &Ctx, event: &web_sys::DragEvent) {
     });
 }
 
-/// Installs the `dragover`/`drop` listeners on `#canvas`. The closures live for
-/// the page's lifetime, so they are leaked with `forget()`. A page without the
-/// canvas (never the case with this app's `index.html`) just has no drop target.
+/// Installs the `dragover`/`drop` listeners on `#canvas`. The closures live for the page's
+/// lifetime, so they are leaked with `forget()`. Without the canvas there is no drop target.
 pub fn install_drop_target(ctx: &Ctx) {
     let Some(canvas) = web_sys::window()
         .and_then(|w| w.document())

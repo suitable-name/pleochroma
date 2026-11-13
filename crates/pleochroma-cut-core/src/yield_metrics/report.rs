@@ -23,20 +23,13 @@ pub struct YieldReport {
     /// otherwise -- and whenever this is `None`, `finished_volume_mm3`/
     /// `carat_weight` below are too (both depend on it).
     ///
-    /// The denominator is `f.width_axis` (below), the FINISHED SOLID's own
-    /// measured width -- not, despite the doc a caller might expect from
-    /// "girdle width", the width at the girdle band specifically. When the
-    /// authored facets don't reach all the way out to the preform's own side
-    /// walls (a stone left smaller than its rough, e.g. only a table cut so
-    /// far), `width_axis` is still the PREFORM's width, because that surviving
-    /// wall is part of the finished-solid measurement too (see
-    /// `gate_1_yield_and_carat_weight_match_a_hand_calculation`'s own worked
-    /// example in `yield_metrics/tests.rs`). `mm_per_unit` -- and therefore
-    /// `finished_volume_mm3`/`carat_weight` -- is anchored to whichever of the
-    /// two is currently wider, understating carat weight by
-    /// `(actual_girdle_width / preform_width)^3` for a stone still inside its
-    /// own block's walls. This is the actual binding, not a bug to fix here --
-    /// see [`Design::girdle_diameter_mm`]'s own doc comment.
+    /// The denominator is `f.width_axis` (below): the FINISHED SOLID's own measured
+    /// width, not the width at the girdle band. A stone that does not reach its
+    /// preform's side walls (only a table cut so far, say) still measures the
+    /// preform's width, because the surviving wall is part of the solid. The scale is
+    /// anchored to that width, so carat weight is understated by
+    /// `(girdle width / preform width)^3` for such a stone. See
+    /// [`Design::girdle_diameter_mm`].
     pub mm_per_unit: Option<f64>,
     /// The finished solid's own volume, converted to real mm^3 via `mm_per_unit`.
     pub finished_volume_mm3: Option<f64>,
@@ -237,10 +230,8 @@ mod yield_report_with_tests {
     /// CUSTOM material by name (one [`BuiltinMaterials`] has never heard of) gets an
     /// empty carat estimate from [`Design::yield_report`], but a real one from
     /// [`Design::yield_report_with`] once a catalogue that knows that material's SG
-    /// is supplied -- exactly `EditorMaterialLookup`'s own shape once it is opted
-    /// into `RenderContext::custom_specific_gravity` (`gui::editor::material_lookup`,
-    /// not reachable from this crate, so mirrored here by a minimal in-test
-    /// `MaterialLookup`).
+    /// is supplied. The catalogue mirrors the app's lookup (`gui::editor::material_lookup`,
+    /// not reachable from this crate), as a minimal in-test `MaterialLookup`.
     #[test]
     fn yield_report_with_resolves_a_custom_materials_sg_that_yield_report_cannot() {
         let design = solvable_design(MaterialSelection {

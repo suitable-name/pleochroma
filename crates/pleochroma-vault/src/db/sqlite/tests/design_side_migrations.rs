@@ -165,8 +165,7 @@ fn re_running_each_migration_keeps_the_rows() {
     let _ = std::fs::remove_file(&path);
 }
 
-/// The tables exist alongside everything else on an in-memory database too, the way the
-/// other crates' tests open it.
+/// An in-memory database gets the same tables, as other crates' tests open one.
 #[test]
 fn an_in_memory_database_has_the_per_design_tables() {
     let db = Database::new(Some(":memory:")).expect("create in-memory db");

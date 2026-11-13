@@ -16,8 +16,8 @@ const TAG_FINALIZE: u32 = 11u;
 const TAG_NEE_HG: u32 = 12u;     // scatter event parked for ew_nee_hg (HDR environments only)
 // The three tags below belong to the kernels split off the heavy ones (browser compile time):
 // each is produced only when its kernel is in the dispatch list (see `kernels_for`).
-const TAG_SCATTER_ORIENTED: u32 = 13u;     // ew_extend -> ew_scatter_oriented (oriented / Bragg stones)
-const TAG_ZONE_ABSORB: u32 = 14u;          // ew_surface -> ew_zoned_absorb (zoned stones, interior leg)
+const TAG_SCATTER_ORIENTED: u32 = 13u;     // ew_extend -> ew_scatter_oriented (oriented, Bragg)
+const TAG_ZONE_ABSORB: u32 = 14u;          // ew_surface -> ew_zoned_absorb (zoned, interior leg)
 const TAG_UNI_ENTRY_TRANSMIT: u32 = 15u;   // ew_arm_uni_entry -> ew_arm_uni_entry_transmit
 
 const RAY_FLAG_INSIDE_GEM: u32 = 1u;
@@ -41,7 +41,7 @@ struct EwRayCore {           // 128 bytes
     pending_mis_dir: vec4<f32>,      // w = pending_light_mis
     nee_xyz: vec4<f32>,              // w unused (0)
     observer: vec4<f32>,             // w unused (0)
-    ray_meta: vec4<u32>,             // x flags, y seed0, z event tag, w tuple index (pixel*spp+sample)
+    ray_meta: vec4<u32>,             // x flags, y seed0, z event tag, w tuple (pixel*spp+sample)
 }
 
 struct EwRayChan {           // 288 bytes
@@ -60,7 +60,7 @@ struct EwHit {               // 240 bytes
     wave_dir_at_bounce: vec4<f32>,
     phase_dir_this_check: vec4<f32>, // w = phase_pdf_this_check
     misc: vec4<u32>,                 // x hit.hit (0/1), y pre_bounce_inside_gem, z finish, w arm
-    split: vec4<u32>,                // x split_mask, y bitcast<u32>(split_mis_weight), z hit.facet_idx, w 0
+    split: vec4<u32>,                // x split_mask, y bits of split_mis_weight, z hit.facet_idx, w 0
     split_dir: array<vec4<f32>, 8>,
 }
 
@@ -72,6 +72,9 @@ struct EwHit {               // 240 bytes
 fn ew_load(i: u32) -> BounceRay {
     var s: BounceRay;
     let core = ray_core[i];
+    // The estimator of this ray (exit collection when bit 2 of `params.write_debug_buffers` is
+    // set).
+    collect_bind(params.write_debug_buffers);
     s.origin = core.origin.xyz;
     s.dir = core.dir.xyz;
     s.k = core.k.xyz;

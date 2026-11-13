@@ -1,11 +1,10 @@
 //! Shaped uniform grid layouts for single designs.
 //!
 //! Evaluates equal-sized cell grids `a * b * c <= UNIFORM_MAX_STONES` (99) across the rough's
-//! bounding box,
-//! clipping individual cells against non-box planes. Every cell stays in the layout's
-//! tree: a cell that cannot hold a stone (an exterior corner of a cylinder, say) is
-//! merged into its neighbour when the layout is built, never deleted, so the remaining
-//! pieces keep the positions their stones were valued at.
+//! bounding box, clipping individual cells against non-box planes. Every cell stays in
+//! the layout's tree: a cell that cannot hold a stone (an exterior corner of a cylinder,
+//! say) is merged into its neighbour when the layout is built, never deleted, so the
+//! remaining pieces keep the positions their stones were valued at.
 //!
 //! The geometry of a grid (each cell's stone box and how the planes cut it) does not
 //! depend on the design, so it is classified once and shared by every design. A grid
@@ -246,11 +245,11 @@ fn third_best(best_per_n: &[Option<(GridScore, usize)>]) -> f64 {
 /// at most [`PER_DESIGN`] of them: `(score, index into geoms)`.
 ///
 /// Only grids with at most `cap` feasible cells compete (the stone cap): a grid past it is
-/// dropped by `score_grid` BEFORE it can take a slot, so the third-best floor that prunes the
-/// other grids only ever sees admitted scores and stays valid. That is exactly the uncapped
-/// pass restricted to counts of at most `cap` (a grid of more cells can still have few
-/// feasible ones), which dropping layouts from the uncapped pass's output would not be: its
-/// best three counts per design would be spent on larger ones.
+/// dropped by `score_grid` before it can take a slot, so the third-best floor that prunes the
+/// other grids only ever sees admitted scores and stays valid. This is the uncapped pass
+/// restricted to counts of at most `cap` (a grid of more cells can still have few feasible
+/// ones). Dropping layouts from the uncapped pass's output would not do the same: its best
+/// three counts per design would go to larger ones.
 ///
 /// `poll` is called before every grid is scored; `None` when it returns `false`.
 fn best_grids(

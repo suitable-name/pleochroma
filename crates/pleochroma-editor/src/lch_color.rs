@@ -1,15 +1,16 @@
 //! The pure half of the path-aware L*C*h body-colour editor.
 //!
-//! The editor lives in Design settings > Body Color > "Custom...": solving a typed Tone /
-//! Saturation / Hue for the design's reference path, the swatches of that colour at other sizes, the reachability badge, seeding the sliders
-//! from a stored colour, and the one edit that stores the result.
+//! The editor lives in Design settings > Body Color > "Custom...": it solves a typed Tone /
+//! Saturation / Hue for the design's reference path, shows the swatches of that colour at other
+//! sizes and the reachability badge, seeds the sliders from a stored colour, and makes the one
+//! edit that stores the result.
 //!
 //! The solve is [`solve_body_color`] (seven-band, optical-density space: the same pick is
 //! deeper in a larger stone). The stored form is the band rows
-//! (`MaterialSelection::body_color_bands_override`, amplitudes per millimetre) NEXT TO the
-//! nearest legacy triple (`body_color_override`), so an older build still shows a close
-//! colour. The path scale is left to the renderer: with the design's girdle diameter set
-//! (`Design::girdle_diameter_mm`) it scales model units to millimetres itself
+//! (`MaterialSelection::body_color_bands_override`, amplitudes per millimetre) next to the
+//! nearest legacy triple (`body_color_override`), so a reader that only knows the triple still
+//! shows a close colour. The path scale is left to the renderer: with the design's girdle
+//! diameter set (`Design::girdle_diameter_mm`) it scales model units to millimetres itself
 //! (`render_setup::apply_material_overrides`).
 //!
 //! A design's color is stored per axis: one L*C*h row for an isotropic host, "Along the Axis" and
@@ -135,11 +136,10 @@ pub fn badge_text(delta_e: f64, reachable: bool) -> String {
     }
 }
 
-/// The reference path as a multiple of the girdle width. A copy of the desktop's
-/// `physics_state::GIRDLE_PATH_FACTOR` (the physics colour editor's convention); a desktop
-/// test pins the two together.
+/// The reference path as a multiple of the girdle width. Kept equal to the desktop's
+/// `physics_state::GIRDLE_PATH_FACTOR` (the physics colour editor's convention).
 pub const GIRDLE_PATH_FACTOR: f64 = 1.5;
-/// The reference path (mm) of a design with no girdle diameter; a copy of the desktop's
+/// The reference path (mm) of a design with no girdle diameter. Kept equal to the desktop's
 /// `physics_state::DEFAULT_PATH_MM`.
 pub const DEFAULT_PATH_MM: f64 = 5.0;
 
@@ -176,14 +176,13 @@ pub fn stone_width_mm(girdle_diameter_mm: Option<f64>) -> f64 {
 
 /// `[L*, C*, h]` the editor opens on for a design's stored colour at `path_mm`.
 ///
-/// From the bands when it has them, else from the triple; `None` for a design with the material's own
-/// colour (the caller then keeps the editor's default).
+/// From the bands when it has them, else from the triple; `None` for a design with the
+/// material's own colour (the caller then keeps the editor's default).
 ///
 /// The bands are decoded with the real codec (`GemMaterial::with_body_color_bands`) and the
 /// color is evaluated from that spectrum, so the seed comes from the stored spectrum itself,
-/// whatever its shape (a historical wavelength-domain row, an off-basis centre, duplicate
-/// rows that add up). The solve that follows is a refit and is stored only on an edit
-/// (desktop/web guards).
+/// whatever its shape (a legacy wavelength-domain row, an off-basis centre, duplicate rows
+/// that add up). The solve that follows is a refit and is stored only on an edit.
 #[must_use]
 pub fn lch_from_material(material: &MaterialSelection, path_mm: f64) -> Option<[f64; 3]> {
     if let Some(rows) = material
@@ -388,13 +387,13 @@ pub fn axis_lch_from_tensor(
 ///
 /// * A color variant (a picked variant or an earlier Custom color): the color of each of its
 ///   directions, read in the variant's own unit ([`axis_lch_from_tensor`]).
-/// * A legacy single color (the nine presets, the old L*C*h editor): that one color on every
-///   row, which is what "Convert" starts from.
+/// * A legacy single color (one of the nine presets, or a plain triple): that one color on
+///   every row, which is what "Convert" starts from.
 /// * Otherwise the host's own tensor, direction by direction in the host's own unit, so a small
 ///   hue change keeps the host's pleochroism and the editor never opens black.
 ///
-/// `stone_width_mm` is the stone's width (`stone_width_mm`, the render's width for the view
-/// target) and `solver_path_mm` the editor's solver path ([`reference_path_mm`]).
+/// `stone_width_mm` is the width the render draws the stone at, and `solver_path_mm` the
+/// editor's solver path ([`reference_path_mm`]).
 #[must_use]
 pub fn seed_axis_lch(
     material: &MaterialSelection,
@@ -674,7 +673,7 @@ mod tests {
         assert!((l - own_l).abs() < 2.0, "L* {l} vs {own_l}");
         assert!(c > 0.0);
 
-        // The old seed: the 0.3 placed on the nearest basis band (620 nm, energy domain).
+        // The comparison spectrum: 0.3 on the nearest basis band (620 nm, energy domain).
         let basis =
             AbsorptionTensor::isotropic(body_color_bands([0.0, 0.0, 0.0, 0.0, 0.0, 0.3, 0.0]));
         let basis_lab = lab_of(&basis, 5.0);
@@ -751,10 +750,10 @@ mod tests {
         assert!(reference_path_mm(None) > 0.0);
     }
 
-    /// Review fix (absorption units): a stored solve resolves to a `PerMm` material, the
-    /// renderer supplies the scale (girdle 5 mm over a model width of 2 = 2.5 mm per model
-    /// unit), and the colour of that material at the reference path (7.5 mm = 3 model units)
-    /// is the swatch the editor showed, within Delta E 2000 of 2.
+    /// A stored solve resolves to a `PerMm` material and the renderer supplies the scale
+    /// (girdle 5 mm over a model width of 2 = 2.5 mm per model unit). The colour of that
+    /// material at the reference path (7.5 mm = 3 model units) matches the editor's swatch
+    /// within Delta E 2000 of 2.
     #[test]
     fn a_stored_solve_renders_as_a_per_mm_material_matching_the_swatch() {
         use crate::material_lookup::{EditorMaterialLookup, resolved_gem_material};
@@ -795,11 +794,9 @@ mod tests {
         assert!(delta_e < 2.0, "rendered vs swatch Delta E {delta_e}");
     }
 
-    /// Review fix (absorption units): a design with `LCh` bands AND an old stored
-    /// `absorption_path_scale_override` (24.5, written by builds that stored the scale) now
-    /// renders at `W / model_width` -- the stored number is ignored for a per-millimetre
-    /// material, the renderer supplies the scale. THIS INTENTIONALLY CHANGES OLD FILES: they
-    /// rendered with the stored 24.5 whatever the stone size.
+    /// A design with `LCh` bands and a stored `absorption_path_scale_override` (24.5) renders
+    /// at `W / model_width`: the stored number is ignored for a per-millimetre material, the
+    /// renderer supplies the scale.
     #[test]
     fn an_old_stored_path_scale_is_ignored_for_a_banded_colour() {
         use crate::material_lookup::{EditorMaterialLookup, resolved_gem_material};
@@ -966,10 +963,9 @@ mod tests {
         );
     }
 
-    /// Review finding 1 (P1): Sapphire's own tensor is per model unit, so the seed reads it at the
-    /// face-up path of the stone (one unit at 7 mm), never at the solver's millimetre path, which
-    /// is 5 to 10 times the optical density the render gives it and opened every built-in host
-    /// black. The seed is the color of each ray at that path, and not dark.
+    /// Sapphire's own tensor is per model unit, so the seed reads it at the stone's face-up
+    /// path (one unit at 7 mm), never at the solver's millimetre path: that path is 5 to 10
+    /// times the optical density the render gives it and would open every built-in host black.
     #[test]
     fn a_built_in_hosts_seed_is_its_face_up_color_not_black() {
         let sapphire = GemMaterial::sapphire();
@@ -1048,8 +1044,8 @@ mod tests {
         );
     }
 
-    /// A per-model-unit variant snapshot (a copy of a Material Default made before copies were
-    /// converted) is read in its own unit too, so it does not open black either.
+    /// A per-model-unit variant (such as a copy of a Material Default) is read in its own unit
+    /// too, so it does not open black either.
     #[test]
     fn the_seed_of_a_model_unit_variant_is_read_in_its_own_unit() {
         let sapphire = GemMaterial::sapphire();

@@ -36,8 +36,8 @@ use std::{
 /// even an incompressible RGBA PNG stays under this.
 const MAX_PNG_BYTES: u32 = 4 * 1024 * 1024 + 64 * 1024;
 
-/// A coordinator's optional thumbnail preview: at most 360 x 360 pixels of 12-byte
-/// radiance, so 2 MiB bounds it with room to spare.
+/// A coordinator's optional thumbnail preview: its long edge is at most 360 pixels, so even
+/// at 12 uncompressed bytes of radiance per pixel 2 MiB bounds it with room to spare.
 const MAX_PREVIEW_BYTES: u32 = 2 * 1024 * 1024;
 
 /// Renders `samples` of `spec` on a coordinator and returns the finished PNG with the ICC

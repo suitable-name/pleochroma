@@ -1,5 +1,6 @@
-//! Browser downloads: a `Blob` over the bytes, an object URL, and a synthetic
-//! `<a download>` click. The anchor is attached for the click (Firefox ignores a
+//! Browser downloads: a `Blob` object URL and a synthetic `<a download>` click.
+//!
+//! The anchor is attached for the click (Firefox ignores a
 //! click on a detached anchor) and removed at once; the object URL is revoked a
 //! little later, once the browser has started reading it.
 
@@ -7,7 +8,7 @@ use pleochroma_formats::native::design::DESIGN_MIME_TYPE;
 use std::time::Duration;
 use wasm_bindgen::{JsCast, JsValue};
 
-/// How long an object URL stays valid after its click.
+/// How long after its click an object URL is kept before it is revoked.
 const REVOKE_AFTER: Duration = Duration::from_secs(30);
 
 /// MIME type of a `.asc` download.

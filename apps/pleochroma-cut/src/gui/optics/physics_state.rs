@@ -37,7 +37,7 @@ use super::crystal_optics::{crystal_system_to_index, optical_character_to_index}
 /// Reference path (mm) when no design with a size is open.
 pub const DEFAULT_PATH_MM: f32 = 5.0;
 /// `reference_path_mm` defaults to this multiple of the open design's girdle diameter, a rough
-/// proxy for the table-to-culet path plus return (spec 7).
+/// proxy for the table-to-culet path plus return.
 pub const GIRDLE_PATH_FACTOR: f32 = 1.5;
 /// An amount of 0 sits at the left end of a log slider; the smallest non-zero amount is
 /// `LOG_SPAN * max` (the solver's own `c_min`).
@@ -48,7 +48,7 @@ pub const STRENGTH_RANGE: (f64, f64) = (0.05, 10.0);
 pub const REACHABLE_DELTA_E: f64 = 1.0;
 /// D65 delta-E above which the mismatch is shown in the warning color.
 pub const WARN_DELTA_E: f64 = 2.0;
-/// color-change label threshold (spec 3.5).
+/// Delta-E above which a color change is labeled.
 pub const COLOR_CHANGE_DELTA_E: f64 = 5.0;
 
 /// Whether this build shows the physics-based color editor: the `physical-color` cargo feature.
@@ -748,12 +748,11 @@ impl PhysicsState {
         None
     }
 
-    /// The fantasy picker's result: the legacy color fitted to the picked one.
+    /// Applies a free fantasy color pick: Fantasy becomes the active mode.
     ///
-    /// A pick is a decision for a fixed color, so Fantasy becomes the active mode (the recipe
-    /// stays parked in the payload). With the physics editor visible the picker only exists in
-    /// Fantasy mode, so there this changes nothing; with it hidden the picker is also offered
-    /// over a stored physics recipe.
+    /// The recipe stays parked in the payload. With the physics editor visible the picker only
+    /// exists in Fantasy mode, so this changes nothing there; with it hidden the picker is also
+    /// offered over a stored physics recipe.
     pub const fn set_fantasy_pick(&mut self, rgb: [f32; 3]) {
         self.mode.fantasy_rgb = rgb;
         self.mode.active = ActiveColor::Fantasy;
@@ -1007,7 +1006,7 @@ impl PhysicsState {
         true
     }
 
-    /// Removes `id` and any treatment that no longer has its required elements (undoable).
+    /// Removes `id` and any treatment left without its required elements (undoable).
     pub fn remove_item(&mut self, id: &str, catalogue: &ChromophoreCatalogue) {
         if self
             .recipe()
@@ -1414,8 +1413,8 @@ fn unit_to_byte(c: f32) -> u8 {
     (c.clamp(0.0, 1.0) * 255.0).round() as u8
 }
 
-/// The fluorescence readout and the two analytic UV glow swatches (fluorescence plan section 5),
-/// from the recipe's emitters (`fluorescence_report`) at its reference path: nothing is traced.
+/// The fluorescence readout and the two analytic UV glow swatches, from the recipe's emitters
+/// (`fluorescence_report`) at its reference path: nothing is traced.
 fn fill_glow(view: &mut PhysicsView, catalogue: &ChromophoreCatalogue, recipe: &ColorRecipe) {
     let report = fluorescence_report(catalogue, recipe);
     let path = recipe.reference_path_mm;
@@ -1617,7 +1616,7 @@ pub struct PhysicsView {
     pub quench_text: String,
     /// The picked color.
     pub target: Option<[u8; 3]>,
-    /// "dE x from your pick ..." text.
+    /// Delta-E readout against the picked color.
     pub match_text: String,
     /// dE above the warning threshold.
     pub match_warn: bool,

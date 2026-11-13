@@ -10,7 +10,7 @@
 //!
 //! - [`tier_hinges`] finds, for every flat crown or pavilion tier, the pivot point on the
 //!   girdle side of the tier's first live facet in the SOLVED stone. The girdle OUTLINE is
-//!   the contract (owner decision, 2026-10-19): for a facet that touches the girdle walls
+//!   the contract: for a facet that touches the girdle walls
 //!   at the ring's maximal radius, the centroid of those outline vertices, so the
 //!   junctions the meet-preservation gate holds stay where they are; for a facet whose
 //!   wall vertices are all inside the maximal radius, its extreme wall vertex (the highest
@@ -197,12 +197,12 @@ fn outline_centroid(ring: &[DVec3], on_wall: &[DVec3], resolution: f64) -> Optio
 
 /// The pivot of a facet ring.
 ///
-/// The girdle OUTLINE is the contract (owner decision, 2026-10-19): the junctions at the
-/// stone's maximal radius, and their height, are what the meet-preservation gate holds, so
-/// the hinge keeps them. A ring with wall vertices at the ring's maximal radius (the outline
-/// corners of its girdle edge) pivots at the centroid of those vertices: a convex
-/// combination, so it lies on the facet plane, and for a symmetric facet it is a horizontal
-/// pair or a single corner, so the turned plane keeps the outline exactly.
+/// The girdle OUTLINE is the contract: the junctions at the stone's maximal radius, and their
+/// height, are what the meet-preservation gate holds, so the hinge keeps them. A ring with wall
+/// vertices at the ring's maximal radius (the outline corners of its girdle edge) pivots at the
+/// centroid of those vertices: a convex combination, so it lies on the facet plane, and for a
+/// symmetric facet it is a horizontal pair or a single corner, so the turned plane keeps the
+/// outline exactly.
 ///
 /// A ring with wall vertices but none at its maximal radius pivots at its extreme wall
 /// vertex: the highest for a crown facet, the lowest for a pavilion facet. A ring that
@@ -484,11 +484,8 @@ mod tests {
 
     #[test]
     fn a_facet_on_a_wall_pivots_at_the_centroid_of_its_outline_vertices() {
-        // The girdle OUTLINE is the contract (owner decision, 2026-10-19). Both wall
-        // vertices of this ring stand at the ring's maximal radius (hypot(1, 0.2)), so
-        // they are the outline and the pivot is their centroid, whatever their heights.
-        // (The old rule pivoted at the highest, (1, 0.03, 0.2) for the crown facet and
-        // the lowest, (1, -0.03, 0.2) for the pavilion facet.)
+        // Both wall vertices of this ring stand at the ring's maximal radius (hypot(1, 0.2)),
+        // so they are the outline and the pivot is their centroid, whatever their heights.
         let wall = [(DVec3::X, 1.0)];
         let crown = [
             DVec3::new(1.0, 0.01, -0.2),
@@ -517,8 +514,8 @@ mod tests {
     #[test]
     fn only_the_wall_vertices_at_the_maximal_radius_are_the_outline() {
         // The wall x = 1 meets the ring at two vertices, but only the one at z = 0.2 is at
-        // the ring's maximal radius: it alone is the outline, and the pivot (a corner kept
-        // exactly), though the other wall vertex is higher.
+        // the ring's maximal radius: it alone is the outline, so the pivot is that corner,
+        // even though the other wall vertex is higher.
         let wall = [(DVec3::X, 1.0)];
         let ring = [
             DVec3::new(1.0, 0.01, 0.2),

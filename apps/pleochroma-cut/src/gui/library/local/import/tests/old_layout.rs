@@ -10,31 +10,17 @@ use crate::gui::library::local::helpers::test_support::{
 
 // --- Always-on: Import against a catalogue migrated from the OLD column layout ---
 //
-// Unlike the manual probes in `perf` (which need a real user catalogue, or are
-// `#[ignore]`d stress runs), the test below builds its own tiny pre-migration-layout
-// SQLite file by hand and always runs: the one CI-visible proof that `Database::new`'s
-// migration chain and `import_path` still cooperate against a catalogue that started
-// in the pre-`migrate_blob_columns_last`/pre-designer-split/pre-proportions shape a
-// real `facet_diagrams.sqlite` predating this crate's own history would have had.
+// Unlike the manual probes in `perf`, which need a real catalogue or are `#[ignore]`d,
+// the tests below build their own small pre-migration SQLite file and always run.
 
-/// The pre-migration schema `Database::new`'s migration chain rebuilds, verbatim from
-/// `pleochroma-vault`'s own `db::sqlite::tests::fixtures::seed_pre_migration_db`
-/// (`diagram_entries`/`diagram_details`/`angle_settings`/`attached_files`/
-/// `custom_gem_materials`) plus that same crate's `db::sqlite::tests::migrations::
-/// seed_blob_columns_last_fixture`, which adds the blob-first `diagram_previews`/
-/// `diagram_tilt_curves` shape `Database::migrate_blob_columns_last` also rebuilds.
-/// Duplicated here rather than reused: both live behind `#[cfg(test)]` in
-/// `pleochroma-vault`, which -- unlike an ordinary `pub` item -- is compiled OUT of the
-/// library this crate links against (`--cfg test` is only set while `pleochroma-vault`
-/// compiles itself as a test binary, never for a dependent crate's own `cargo test`),
-/// so neither fixture is reachable from here. See
-/// `pleochroma_vault::db::sqlite::Connection`'s own doc comment for the one-line
-/// re-export that exists instead, so this file can still open its own raw connection
-/// without `pleochroma-cut` needing a `rusqlite` dependency of its own.
+/// The pre-migration schema that `Database::new`'s migrations rebuild.
 ///
-/// `diagram_details.diagram_image_data` sits at column index 4 (`id`, `entry_id`,
-/// `page_url`, `diagram_image_name`, `diagram_image_data`), exactly where a real
-/// pre-fix `facet_diagrams.sqlite` had it.
+/// It is copied from the `pleochroma-vault` test fixtures `seed_pre_migration_db` and
+/// `seed_blob_columns_last_fixture`, which are `#[cfg(test)]` there. `Connection` is
+/// re-exported from `pleochroma_vault::db::sqlite`, so no `rusqlite` dependency is needed here.
+///
+/// `diagram_details.diagram_image_data` is column index 4, after `id`, `entry_id`,
+/// `page_url` and `diagram_image_name`.
 const OLD_LAYOUT_SCHEMA_SQL: &str = "
     CREATE TABLE diagram_entries (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -109,19 +95,15 @@ const OLD_LAYOUT_SCHEMA_SQL: &str = "
     );
 ";
 
-/// Builds `path` as a fresh SQLite file already in [`OLD_LAYOUT_SCHEMA_SQL`]'s shape,
-/// with three `diagram_entries`/`diagram_details` pairs, each carrying its own
-/// `angle_settings` row:
+/// Builds `path` as a fresh SQLite file in [`OLD_LAYOUT_SCHEMA_SQL`]'s shape, with three
+/// `diagram_entries`/`diagram_details` pairs, each with one `angle_settings` row:
 ///
-/// 1. `index_val` holding a realistic `-`-separated legacy value (`"96-08-16"`).
-/// 2. `designer_info`/`shape`/`refractive_index` all `NULL`.
-/// 3. One `attached_files` row and one `diagram_previews` row (itself seeded in ITS
-///    OWN pre-fix, blob-first column order), so the preview-cache rebuild is
-///    exercised too, not just `diagram_details`'.
+/// 1. `index_val` holds a dash-separated legacy value (`"96-08-16"`).
+/// 2. `designer_info`, `shape` and `refractive_index` are `NULL`.
+/// 3. One `attached_files` row and one `diagram_previews` row in the blob-first column
+///    order, so the preview-cache rebuild is exercised too.
 ///
-/// Returns the three seeded `diagram_entries.id`s, in insertion order -- read back via
-/// `last_insert_rowid` rather than assumed, even though this is always a brand-new
-/// file where they'd be `1..=3` in practice.
+/// Returns the three seeded `diagram_entries.id`s, read back via `last_insert_rowid`.
 fn seed_old_layout_catalogue(path: &std::path::Path) -> [i64; 3] {
     let conn = pleochroma_vault::db::sqlite::Connection::open(path)
         .unwrap_or_else(|e| panic!("open raw pre-migration fixture connection: {e}"));
@@ -206,12 +188,11 @@ fn seed_old_layout_catalogue(path: &std::path::Path) -> [i64; 3] {
     [entry_1, entry_2, entry_3]
 }
 
-/// Writes exactly one real `.asc` + `.psdd` design-file pair into `dir` -- a solved
-/// [`pleochroma_cut_core::design::Design`] from the first entry of
-/// [`pleochroma_cut_core::templates::TEMPLATES`], the `.asc` built via
-/// [`pleochroma_cut_core::native::catalogue_asc`] and the design file via
-/// [`pleochroma_cut_core::native::design_to_string`]. Kept to exactly one pair so this
-/// test's corpus imports exactly 2 files, not 3.
+/// Writes one `.asc` + `.psdd` design-file pair into `dir`.
+///
+/// The design is solved from the first of [`pleochroma_cut_core::templates::TEMPLATES`]. It is
+/// written with [`pleochroma_cut_core::native::catalogue_asc`] and
+/// [`pleochroma_cut_core::native::design_to_string`].
 fn write_single_design_pair(dir: &std::path::Path) {
     let spec = pleochroma_cut_core::templates::TEMPLATES
         .first()
@@ -244,35 +225,24 @@ fn write_single_design_pair(dir: &std::path::Path) {
         .unwrap_or_else(|e| panic!("write old_layout_design.psdd: {e}"));
 }
 
-/// Proves `import_path` works against a catalogue that was created in the OLD
-/// (pre-`migrate_blob_columns_last`/pre-designer-split/pre-proportions) column layout
-/// and migrated in place by `Database::new` -- unlike the `manual_import_*` probes
-/// in `perf`, this needs no external scratch file and always runs.
+/// Proves `import_path` works on a catalogue in the old column layout, migrated in place
+/// by `Database::new`.
 ///
-/// 1. Hand-writes [`OLD_LAYOUT_SCHEMA_SQL`] plus three entries via
-///    [`seed_old_layout_catalogue`], then opens it with [`open_temp_db`] (i.e.
-///    `Database::new`), which runs every migration -- including
-///    `migrate_blob_columns_last` -- against this genuinely pre-fix data.
-/// 2. Imports a directory holding one plain valid `.asc`, one `.asc` +
-///    `.psdd` design-file pair, and one empty (unparsable) `.asc`, via
-///    the same [`super::run_import_catching_panics`] -> `import_path` entry point the
-///    manual probes in `perf` use.
-/// 3. Asserts no panic, the exact "2 imported, 1 skipped" summary shape, and that
-///    every one of the 3 pre-existing rows AND the 2 newly-imported rows reads back
-///    through `get_diagram_full`/`get_diagram_full_meta`/`get_preview_material`/the
-///    library's search query (via [`super::verify_every_imported_id_reads_back`]) -- plus
-///    that entry 3's pre-existing preview row specifically still reads back its
-///    `preview_material`.
-/// 4. Re-imports the same directory and asserts [`count_pending_collisions`] now
-///    reports both real files (not the empty one) as collisions, and that the second
-///    pass completes cleanly too.
+/// 1. Seeds [`OLD_LAYOUT_SCHEMA_SQL`] with three entries via [`seed_old_layout_catalogue`],
+///    then opens it with [`open_temp_db`], which runs every migration.
+/// 2. Imports a directory with one valid `.asc`, one `.asc` + `.psdd` pair and one empty
+///    (unparsable) `.asc`, through [`super::run_import_catching_panics`].
+/// 3. Asserts no panic and the "2 imported, 1 skipped" summary. Every pre-existing and
+///    newly imported row must read back through [`super::verify_every_imported_id_reads_back`],
+///    and entry 3's preview material must survive the migration.
+/// 4. Re-imports the directory: [`count_pending_collisions`] reports the two real files as
+///    collisions, and the second pass completes cleanly.
 #[test]
 fn import_into_a_catalogue_created_in_the_old_column_layout_survives_the_migration_and_reads_back()
 {
     let db_path = temp_db_path_for_test("old_layout_migrated");
     let [entry_1, entry_2, entry_3] = seed_old_layout_catalogue(&db_path);
-    // `Database::new` runs every migration, including `migrate_blob_columns_last`,
-    // against this genuinely pre-fix file.
+    // `Database::new` runs every migration against this pre-migration file.
     let db = open_temp_db(&db_path);
 
     let corpus_dir = temp_dir_for_test("old_layout_migrated_corpus");
@@ -319,10 +289,8 @@ fn import_into_a_catalogue_created_in_the_old_column_layout_survives_the_migrati
     // Every newly-imported row too.
     verify_every_imported_id_reads_back(&db, &outcome.imported_ids);
 
-    // Entry 3's pre-existing diagram_previews row specifically must still be there,
-    // not just error-free -- migrate_blob_columns_last rebuilds this table too. The
-    // lock guard is a chained temporary (not bound to a variable held across the
-    // `assert_eq!` below) so it drops the moment `get_preview_material` returns.
+    // Entry 3's pre-existing preview row must still be there: the blob-column migration
+    // rebuilds this table too. The lock is a temporary, released before the assertion.
     let preview_material = db
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)

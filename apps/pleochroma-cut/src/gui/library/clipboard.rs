@@ -126,33 +126,23 @@ pub(in crate::gui) fn copy_to_clipboard_with_toast(
     });
 }
 
-/// Axis labels for the four full-axis (±90°) rows [`build_curve_data_csv`] appends --
-/// same order and text as `gui::tilt_profile`'s `PROFILE_AZIMUTHS_DEG` and
-/// `performance_graph_dialog.slint`'s `axis_labels`. Axis 0 (the canonical azimuth) is
-/// included here too: `graph_*_extra_axes` holds all four axes' full-range sweeps, not
-/// just the three non-canonical ones -- see that property's doc comment in
-/// `performance_graph_dialog.slint`.
+/// Labels of the four full-axis (±90°) rows [`build_curve_data_csv`] appends, in the order of
+/// `PROFILE_AZIMUTHS_DEG`. Axis 0 is included: the `graph_*_extra_axes` properties hold all
+/// four axes' full-range sweeps.
 const FULL_AXIS_LABELS: [&str; 4] = ["0 (length)", "45", "90 (width)", "135"];
 
 /// Number of samples per full-axis row: -90..=+90 in exact 1° steps -- matches
 /// `pleochroma::color::metrics::TILT_ANGLES_DEG`.
 const FULL_AXIS_SAMPLE_COUNT: usize = 181;
 
-/// Builds the "Copy 181-Point Data Table (4 Axes, ±90°)" CSV: one row per 1°-step
-/// sample, for all four `PROFILE_AZIMUTHS_DEG` axes across their full `-90..=+90°`
-/// range, once `gui::tilt_profile`'s background sweep has landed (it's lazy -- see
-/// that module's doc comment; ~1.36s for all four axes together, so the table is
-/// genuinely not ready immediately after opening the dialog). Split out of
-/// [`setup_copy_callbacks`] purely to keep that function under clippy's
-/// function-length lint. This is the measured-numbers escape hatch the dialog's
-/// honesty caption points to: unlike the chart and hover tooltip, every row here is
-/// one of the 181 actually-raytraced 1°-step samples, not an interpolation.
+/// Builds the performance-curve CSV: one row per 1° sample for each of the tilt axes.
 ///
-/// Falls back to the always-available canonical (azimuth-0) 19-point/5°-step/
-/// `0..=90°` sweep -- the same one the render thread computes every frame,
-/// `graph_brilliance`/etc -- if the full-axis sweep hasn't landed yet, rather than
-/// exporting nothing: the button should never produce an empty table just because the
-/// dialog was opened a moment ago.
+/// Every row is a ray-traced sample over `-90..=+90°`, not an interpolation, which is what the
+/// dialog's honesty caption relies on.
+///
+/// The full-axis sweep runs in the background (see `gui::tilt::tilt_profile`), so it can be
+/// missing right after the dialog opens. Then the canonical azimuth-0 sweep (19 points, 5°
+/// steps over `0..=90°`) is exported instead, so the copy never yields an empty table.
 fn build_curve_data_csv(ui: &MainWindow) -> String {
     let mut csv = String::from("Tilt Angle (°),Axis,Brilliance (%),Windowing (%),Extinction (%)\n");
 
@@ -174,7 +164,7 @@ fn build_curve_data_csv(ui: &MainWindow) -> String {
                 continue;
             };
             for i in 0..FULL_AXIS_SAMPLE_COUNT {
-                let angle = i32::try_from(i).expect("axis sample index fits i32") - 90; // TILT_ANGLES_DEG[i]
+                let angle = i32::try_from(i).expect("axis sample index fits i32") - 90;
                 let b = axis_b.row_data(i).unwrap_or(0.0);
                 let w = axis_w.row_data(i).unwrap_or(0.0);
                 let e = axis_e.row_data(i).unwrap_or(0.0);
@@ -199,10 +189,11 @@ fn build_curve_data_csv(ui: &MainWindow) -> String {
     csv
 }
 
-/// Wires up the clipboard-copy callbacks (metrics, curve data, generic text, cutting
-/// table, single cutting row). Split out of `run_gui` purely to keep that function
-/// under clippy's function-length lint. Every copy runs on a worker thread and toasts
-/// its own outcome -- see [`copy_to_clipboard_with_toast`].
+/// Wires the clipboard-copy callbacks: metrics, curve data, generic text, the cutting table
+/// and a single cutting row.
+///
+/// Each copy runs on a worker thread and toasts its own outcome; see
+/// [`copy_to_clipboard_with_toast`].
 pub(in crate::gui) fn setup_copy_callbacks(ui: &MainWindow) {
     let ui_weak_metrics = ui.as_weak();
     ui.global::<ViewportModel>().on_copy_metrics(move || {
@@ -221,8 +212,7 @@ pub(in crate::gui) fn setup_copy_callbacks(ui: &MainWindow) {
         }
     });
 
-    // Copy Performance Curve Data callback (19-Point Tilt Table, all 4 tilt axes) --
-    // see `build_curve_data_csv`.
+    // Copies the curve data of all four tilt axes; see `build_curve_data_csv`.
     let ui_weak_curve = ui.as_weak();
     ui.global::<TiltModel>().on_copy_curve_data(move || {
         if let Some(ui) = ui_weak_curve.upgrade() {
@@ -306,8 +296,7 @@ mod tests {
     use super::{Command, pipe_text_to};
     use std::{sync::mpsc, time::Duration};
 
-    /// A program that reads stdin until EOF and then exits: the behaviour the
-    /// clipboard tools share, and the one that hung the copy buttons.
+    /// A program that reads stdin until EOF and then exits, as the clipboard tools do.
     #[cfg(target_os = "windows")]
     fn read_until_eof_command() -> Command {
         let mut command = Command::new("cmd");

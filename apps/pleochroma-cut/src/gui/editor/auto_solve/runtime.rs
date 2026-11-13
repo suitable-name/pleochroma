@@ -23,32 +23,17 @@ use std::{
 /// This module's UI-thread-confined state -- see the parent module doc comment for why
 /// this is a `thread_local!` rather than a new `EditorState` field.
 pub(super) struct Runtime {
-    /// Set once by [`init`], from the same `Arc`s `setup_editor_callbacks` already
-    /// holds -- lets a completed background solve push into the shared solid preview
-    /// exactly like [`super::super::view::refresh_viewport`] does, without this group
-    /// needing `EditorState` (or a wider parameter list on
-    /// [`super::super::view::refresh_editor_panel_stale`], which many callbacks this
-    /// group does not own already call with a fixed signature).
+    /// Set by [`init`]. Lets a completed background solve push into the shared solid
+    /// preview, as `view::refresh_viewport` does.
     pub(super) preview_state: Option<Arc<SolidPreviewState>>,
     pub(super) solid_last_solved: Option<SolidLastSolved>,
-    /// The shared [`RenderContext`] handle, stashed by
-    /// [`stash_render_ctx`] -- see that function's own doc comment for why it is
-    /// stashed from an unrelated `setup_*_callback` rather than passed to
-    /// [`init`] directly.
+    /// Set by [`stash_render_ctx`].
     pub(super) render_ctx: Option<Arc<Mutex<RenderContext>>>,
-    /// The editor state handle, stashed by [`stash_editor_state`] from
-    /// `callbacks::solve_actions::setup_deep_solve_callback` -- lets a `Send`
-    /// completion closure (which cannot capture an `Rc`) reach the state back on
-    /// the UI thread through [`editor_state`], the same idiom as [`activity`].
+    /// Set by [`stash_editor_state`]. A `Send` completion closure cannot capture the
+    /// `Rc`, so it reads the state through [`editor_state`] on the UI thread.
     pub(super) editor_state: Option<Rc<RefCell<EditorState>>>,
-    /// The shared [`ActivityRegistry`]
-    /// handle, stashed by [`init`] the same way [`Self::preview_state`]/
-    /// [`Self::solid_last_solved`] are -- lets `dispatch::dispatch_background_solve`/
-    /// `dispatch::apply_background_solve_result`/`dispatch::cancel_in_flight_solve`
-    /// register/finish the background-solve activity without a new parameter on any
-    /// of their own fixed call sites (`gui::editor::setup::setup_solve_cancel_callback`, and
-    /// every `callbacks::*` module that calls `dispatch::dispatch_background_solve`
-    /// indirectly via `super::super::view::refresh_all`).
+    /// Set by [`init`]. Lets the solve dispatch and completion register the
+    /// background-solve activity.
     pub(super) activity: Option<Rc<ActivityRegistry>>,
     /// The most recent REAL measured solve wall time (background or synchronous) for
     /// whichever design is currently loaded -- `None` until the first solve since the
@@ -68,11 +53,9 @@ pub(super) struct Runtime {
     /// be rebuilt from its already-solved masts instead of triggering a second,
     /// redundant `Design::solve()`.
     ///
-    /// `Arc<Design>`, not a plain `Design`: `view::submit_preview_replan_for` builds ONE `Arc<Design>`
-    /// snapshot per drained edit-intent frame and hands THIS field a cheap
-    /// `Arc::clone` of it -- see that function's own doc comment for the one
-    /// remaining deep clone this does not yet eliminate (the solid-preview
-    /// worker's own `ReplanRequest::design`, outside this module's files).
+    /// Shared as an `Arc<Design>`: `view::submit_preview_replan_for` makes one snapshot per
+    /// edit-intent frame and stores a cheap `Arc::clone` here. See that function for the
+    /// remaining deep clone, the solid-preview worker's `ReplanRequest::design`.
     pub(super) current_design: Option<(u64, Arc<Design>, BTreeSet<usize>)>,
     /// True from the moment `dispatch::dispatch_background_solve`
     /// actually spawns a worker thread until that worker's completion is
@@ -83,16 +66,12 @@ pub(super) struct Runtime {
     pub(super) solve_in_flight: bool,
     /// The most recent dispatch request that arrived while [`Runtime::solve_in_flight`]
     /// was `true` -- captured instead of spawning a second concurrent worker.
-    /// `dispatch::apply_background_solve_result` takes and re-dispatches this once the
-    /// in-flight solve's completion is observed, so a burst of edits against a
-    /// slow design collapses to "the one currently running, then the latest
-    /// pending one," never an unbounded pile of worker threads. Only ever holds the LATEST request: a second arrival while one is
-    /// already pending simply overwrites it.
+    /// `dispatch::apply_background_solve_result` re-dispatches this on completion. A burst
+    /// of edits therefore runs as the current solve followed by the latest pending one,
+    /// never as a pile of worker threads. Only the latest request is kept.
     pub(super) pending_dispatch: Option<PendingDispatch>,
-    /// The debounce timer [`super::replan::schedule_idle_replan_if_stale`]
-    /// (re)starts every time a "one edit behind" (partial/subgraph-resolved)
-    /// preview frame lands -- same "replacing this cancels whatever was
-    /// pending" reasoning as [`Runtime::debounce`].
+    /// Debounce timer for [`super::replan::schedule_idle_replan_if_stale`]. Replacing it
+    /// cancels the pending timer, as with [`Runtime::debounce`].
     pub(super) idle_replan: Option<slint::Timer>,
     /// The cancel flag the CURRENTLY RUNNING worker's `SolveControl::with_cancel`
     /// observes -- `Some` only between the moment `dispatch::dispatch_background_solve`
@@ -103,35 +82,15 @@ pub(super) struct Runtime {
     /// is what makes "Abandon Solve" actually stop the worker rather than merely
     /// discard its eventual result -- see that function's own doc comment.
     pub(super) current_cancel: Option<Arc<AtomicBool>>,
-    /// The [`ActivityRegistry`] id of
-    /// the CURRENTLY RUNNING background solve, if any -- same lifetime as
-    /// [`Self::current_cancel`] (set only once a worker is actually spawned, cleared
-    /// in the same `dispatch::free_in_flight_slot` preamble), so
-    /// `dispatch::cancel_in_flight_solve` can finish exactly this activity
-    /// immediately, the same "cancel removes it from the list right away" contract
-    /// `callbacks::solve_actions`'s `DEEP_SOLVE_ACTIVITY_ID` documents for Deep Solve.
+    /// [`ActivityRegistry`] id of the running background solve, if any. Set and cleared
+    /// together with [`Self::current_cancel`]. Lets a cancel finish the activity at once.
     pub(super) activity_id: Option<u64>,
-    /// `true` once
-    /// `dispatch::apply_background_solve_result` has already shown the plane-cap
-    /// warning toast for the CURRENT unbroken run of over-`MAX_PLANES`
-    /// background-solve results, so a design stuck over the cap (every auto-solve
-    /// after the first re-reports the same problem) gets exactly one toast, not one
-    /// per edit -- the status-strip sentence (`state::status_text_and_is_problem*`,
-    /// always current) already says it on every refresh regardless. Reset to `false`
-    /// the moment a result comes back that is NOT over the cap, so the toast fires
-    /// again if the design goes back over it later, and by
-    /// [`EditorState::fresh`]/`replace_wholesale`'s own generation bump indirectly
-    /// (a new design's first over-cap result finds this still `false` from the
-    /// previous design only if that previous design's own last result happened to
-    /// be over-cap too -- a rare double coincidence, not worth a dedicated reset
-    /// hook on a struct this module does not own).
+    /// `true` while the design's over-`MAX_PLANES` warning toast is already shown.
+    /// Stops a design stuck over the cap from toasting on every edit. Reset when a
+    /// result comes back under the cap.
     pub(super) too_many_planes_toasted: bool,
-    /// `true` from [`super::reset_for_new_design`] (a New/Load Selected/Open replaced the
-    /// design wholesale) until the first plane claim of the new design has framed the stone
-    /// in the picture: the inline solve's `view::refresh_viewport` frames it itself and
-    /// clears this, a BACKGROUND solve's `apply::push_viewport_after_background_solve`
-    /// frames it (unless the cutter has zoomed) and clears it after its claim succeeds.
-    /// Later results of the same design (an auto-solve after an edit) never re-frame.
+    /// `true` from [`super::reset_for_new_design`] until the first plane claim of the new
+    /// design has framed the stone. Later results of the same design do not re-frame.
     pub(super) frame_pending: bool,
 }
 
@@ -162,15 +121,9 @@ impl Runtime {
 /// [`Runtime::solve_in_flight`] -- see that field's own doc comment.
 pub(super) struct PendingDispatch {
     pub(super) design: Design,
-    /// the value `generation` held at the MOMENT this dispatch was queued
-    /// (captured once, by the caller, in `dispatch::queue_or_claim_solve_slot`),
-    /// not a value re-read from the live `Arc` later when this gets replayed --
-    /// `generation` is the SAME shared counter `EditorState` keeps bumping, so
-    /// reading it again at replay time would silently pick up every edit that
-    /// landed while this request sat queued and hand `design` back as if it were
-    /// current. `apply::apply_background_solve_result`'s own `generation.load(..)
-    /// != started_generation` check is what this pairs with once the replay's
-    /// own completion arrives.
+    /// The `generation` value when this dispatch was queued. Kept rather than re-read at
+    /// replay, so edits made while queued are detected as stale by
+    /// `apply::apply_background_solve_result`.
     pub(super) started_generation: u64,
     pub(super) generation: Arc<AtomicU64>,
     pub(super) multi_selected: BTreeSet<usize>,
@@ -180,17 +133,13 @@ thread_local! {
     pub(super) static RUNTIME: RefCell<Runtime> = const { RefCell::new(Runtime::new()) };
 }
 
-/// Stashes the shared solid-preview handles this module needs -- called once from
-/// `super::super::setup_editor_callbacks`, before any callback (and therefore any
-/// possible dispatch) is wired up.
+/// Stashes the shared handles this module needs. Called once from
+/// `setup_editor_callbacks`, before any dispatch can happen.
 ///
-/// Every other field starts fresh, as for the first window: the state is per thread, so a
-/// window set up again on the same thread (the UI harness relaunches the app in one process)
-/// would otherwise inherit the previous window's [`Runtime::solve_in_flight`]. A solve still
-/// running when that window closed delivers its result to the closed window, so nothing ever
-/// clears the flag, and every auto-solve of the new window would wait behind it for good. A
-/// worker still running is told to stop, and `current_seq` keeps counting up, so no result of
-/// the previous window can pass `dispatch::is_current`.
+/// All other fields are reset. The state is per thread, so a window set up again on the
+/// same thread would otherwise inherit a stuck [`Runtime::solve_in_flight`]. A worker
+/// still running from the old window is told to stop, and `current_seq` keeps counting
+/// up, so its result cannot pass `dispatch::is_current`.
 pub(in crate::gui::editor) fn init(
     preview_state: &Arc<SolidPreviewState>,
     solid_last_solved: &SolidLastSolved,
@@ -210,11 +159,8 @@ pub(in crate::gui::editor) fn init(
     });
 }
 
-/// Returns the shared solid-preview handle [`init`] stashed, if it has run yet --
-/// lets `callbacks::tier_actions`'s hover/click/selection-changed/multi-select
-/// callbacks resubmit a merged `FacetOverlay` (see that module's own doc comment)
-/// without `gui::editor::mod`'s fixed call sites, which this module does not own,
-/// needing a new parameter threaded through them.
+/// Returns the shared solid-preview handle that [`init`] stashed, if any. Lets the tier
+/// callbacks resubmit the facet overlay without an extra parameter.
 pub(in crate::gui::editor) fn preview_state() -> Option<Arc<SolidPreviewState>> {
     RUNTIME.with(|cell| cell.borrow().preview_state.clone())
 }
@@ -256,15 +202,9 @@ pub(in crate::gui::editor) fn editor_state() -> Option<Rc<RefCell<EditorState>>>
     RUNTIME.with(|cell| cell.borrow().editor_state.clone())
 }
 
-/// Stashes the shared [`RenderContext`] handle for [`render_ctx`] below --
-/// called from `callbacks::tier_actions::
-/// setup_toggle_detach_callback`, one of several `setup_*_callback`s already
-/// given this `Arc` directly by `gui::editor::mod::setup_editor_callbacks`
-/// (a file this module does not own, so it is not the place to add a NEW parameter to). That call runs
-/// synchronously, before `setup_editor_callbacks` returns and the event loop
-/// starts, so [`render_ctx`] is already populated by the time a user can hover
-/// or click anything -- the ordering among `setup_*_callback` calls within that
-/// one function does not matter.
+/// Stashes the shared [`RenderContext`] handle for [`render_ctx`]. Called from
+/// `callbacks::tier_actions::setup_toggle_detach_callback` during setup, before the
+/// event loop starts.
 pub(in crate::gui::editor) fn stash_render_ctx(render_ctx: &Arc<Mutex<RenderContext>>) {
     RUNTIME.with(|cell| {
         cell.borrow_mut().render_ctx = Some(Arc::clone(render_ctx));

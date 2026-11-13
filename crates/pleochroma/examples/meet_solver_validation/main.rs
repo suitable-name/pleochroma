@@ -1,57 +1,43 @@
 //! Corpus-wide validation harness for `pleochroma::geometry::meet_solver`.
 //!
-//! Reads every real `.asc` file directly out of `facet_diagrams.sqlite` (one per
-//! design, deduplicated by `detail_id` keeping the first row seen),
-//! blanks out nothing but the *masts* (angles/indices/gear/meet-text all stay), asks
-//! [`meet_solver::solve_meet_points`] to re-derive them from angles and meets alone,
-//! and compares the result against the file's own real recorded masts -- perfect
-//! ground truth, since every `.asc` file already carries the answer.
+//! Reads every real `.asc` file from `facet_diagrams.sqlite` (one per design, deduplicated
+//! by `detail_id`, keeping the first row). It blanks only the *masts*; angles, indices, gear
+//! and meet text stay. [`meet_solver::solve_meet_points`] then re-derives the masts, and the
+//! result is compared with the file's recorded masts, which serve as ground truth.
 //!
-//! # Why this lives in `examples/` and not in the test suite
+//! # Why this lives in `examples/`
 //!
-//! It needs a real catalogue of thousands of designs to say anything meaningful, and
-//! no such catalogue is shipped with this repository -- `facet_diagrams.sqlite` is the
-//! user's own library. A `#[test]` cannot depend on data that may not exist, so this
-//! stays an example you run deliberately against a catalogue you already have.
+//! It needs a real catalogue of thousands of designs, and `facet_diagrams.sqlite` is the
+//! user's own library, not shipped with the repository. A `#[test]` cannot depend on data
+//! that may be absent. The solver's verify acceptance tolerance is judged against this
+//! harness's full-corpus runs (see `geometry::meet_solver::verify`), so the harness is what
+//! re-checks it.
 //!
-//! This harness is kept because what it measures is not reproducible any other way:
-//! several constants in the shipped solver cite this harness's full-corpus runs as
-//! their provenance (see `geometry::meet_solver::anchors`'s scale-anchor doc comments
-//! and `geometry::meet_solver::verify`'s Report C references). Deleting it would leave
-//! those numbers with no way to re-derive them.
-//!
-//! `geometry::meet_solver`'s own 23 unit tests cover the solver's logic on synthetic
-//! cases and run in the normal suite; this covers the thing they structurally cannot,
-//! which is whether the solver reproduces thousands of real recorded masts.
+//! The solver's unit tests cover synthetic cases. This harness covers whether the solver
+//! reproduces real recorded masts.
 //!
 //! Run from the workspace root:
 //! ```text
 //! cargo run --profile probe -p pleochroma --example meet_solver_validation
 //! ```
 //!
-//! Reports A (real-mast anchors) and B (printed-ratio anchors) always run
-//! (~45 s each on the full corpus). Append `verified` to also run Report C,
-//! the externally-verified repair search (`solve_meet_points_verified`, scored
-//! against each design's printed `Vol/W^3`/`L/W`/`C/W`/`P/W`/`H/W` figures) --
-//! it re-runs the pipeline up to ~120 times per design, so budget ~25-35
-//! minutes for the corpus:
+//! Reports A (recorded-mast anchors) and B (printed-ratio anchors) always run, at about
+//! 45 s each on the full corpus. Append `verified` to also run Reports C and D, which
+//! add the externally verified repair search scored against the printed `Vol/W^3`, `L/W`,
+//! `C/W`, `P/W` and `H/W` figures. Each design runs up to ~120 pipelines, so the full
+//! corpus takes about 25-35 minutes:
 //! ```text
 //! cargo run --profile probe -p pleochroma --example meet_solver_validation -- verified
 //! ```
 //!
 //! # Parallelism
 //!
-//! Each design's solve is fully independent (no shared state, no I/O once the BLOBs
-//! are loaded), so this reads every row on the main thread first -- the sqlite read
-//! is not the bottleneck, the geometry (repeated candidate-vertex enumerations per
-//! tier) is -- then hands rows to `THREADS` `std::thread::scope` workers in
-//! interleaved order (worker `w` solves rows `w`, `w + THREADS`, ...), which keeps
-//! the load balanced when per-design cost varies by orders of magnitude (see
-//! `run_and_report`). Deliberately `std::thread` rather than pulling in `rayon`:
-//! `pleochroma` is kept near-zero-dependency on purpose (see its `Cargo.toml`), and this
-//! probe is temporary. Results are re-slotted by original row index -- so which
-//! thread a design happened to run on never affects the reported
-//! medians/percentiles run to run.
+//! Each design's solve is independent. All rows are read on the main thread first (the
+//! sqlite read is cheap; the candidate-vertex enumeration is the cost), then
+//! `std::thread::scope` workers take rows in interleaved order, which balances load when
+//! per-design cost varies by orders of magnitude. Plain `std::thread` is used rather than
+//! `rayon`, because `pleochroma` is kept near-dependency-free. Results are re-slotted by
+//! original row index, so the reported statistics do not depend on thread scheduling.
 
 use rusqlite::Connection;
 use std::collections::HashSet;
@@ -82,8 +68,8 @@ fn main() {
         rows.len()
     );
 
-    // Dedup by detail_id, keeping the first row seen per design -- sequential, since it's a single cheap
-    // pass and establishes the fixed processing order every run reports against.
+    // Dedup by detail_id, keeping the first row per design. Sequential, so the processing
+    // order is fixed across runs.
     let mut seen_designs: HashSet<i64> = HashSet::new();
     let unique_rows: Vec<AscRow> = rows
         .into_iter()
@@ -128,9 +114,7 @@ fn main() {
         |d| d.parse_ok && !d.fully_ratio_anchored,
     );
 
-    // Report C is opt-in (`-- verified` on the command line): the repair search
-    // runs up to ~120 pipeline configurations per design, so a full-corpus pass
-    // costs ~25-35 minutes instead of Report A's ~45 seconds.
+    // Reports C and D are opt-in (`verified` argument), see the module doc.
     if std::env::args().any(|a| a == "verified") {
         let results = run_and_report(
             "REPORT C -- externally verified: Report A anchoring plus the printed-proportion \

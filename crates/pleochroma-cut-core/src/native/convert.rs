@@ -1,18 +1,13 @@
-//! Conversions between the on-disk mirror types in [`pleochroma_formats::native`] and this
-//! crate's own editor types ([`Design`], [`ConstraintTier`], [`MaterialSelection`],
-//! [`PreformSpec`]) plus `pleochroma`'s own
-//! [`pleochroma::geometry::meet_solver::MeetConstraint`] -- the half of the design-file
-//! story that DOES need editor types in scope, so it lives here rather than in the
-//! dependency-free format crate. See [`pleochroma_formats::native`]'s own module doc comment for
-//! the schema itself, and the parent module's doc comment for why this split exists at
-//! all.
+//! Conversions between the on-disk mirror types of [`pleochroma_formats::native`] and this
+//! crate's editor types.
 //!
-//! Plain free functions, not `From`/`Into` impls: every mirror type here is foreign to
-//! this crate (owned by `pleochroma-formats`) and every editor type it converts with is either
-//! also foreign (`MeetConstraint`, owned by `pleochroma`) or would need the impl's
-//! `Self` type to be foreign too -- Rust's orphan rules don't allow a trait impl
-//! bridging two crates neither of which is this one, so a free function is the only
-//! option (not just the simplest one).
+//! The editor types are [`Design`], [`ConstraintTier`], [`MaterialSelection`] and
+//! [`PreformSpec`]. `pleochroma`'s [`pleochroma::geometry::meet_solver::MeetConstraint`] is
+//! converted too. These need the editor types, so they live here, not in the format crate.
+//!
+//! These are free functions, not `From`/`Into` impls. Most pairs involve two foreign types
+//! (the mirror types and `MeetConstraint`), and the orphan rules do not allow a trait impl
+//! between two types that are both foreign to this crate.
 
 use crate::{
     design::{ConcaveTier, ConcaveTool, ConstraintTier, Design, TierId, TierTarget, ToolMotion},
@@ -63,8 +58,7 @@ pub(super) fn meet_constraint_from_native(constraint: NativeMeetConstraint) -> M
     }
 }
 
-/// Mirrors a [`TierTarget`] into its on-disk [`NativeTierTarget`] -- see that
-/// type's own doc comment. The native round trip preserves every authored target.
+/// Mirrors a [`TierTarget`] into its on-disk [`NativeTierTarget`].
 #[must_use]
 pub(super) const fn native_tier_target_from(target: TierTarget) -> NativeTierTarget {
     match target {
@@ -116,10 +110,8 @@ pub(super) fn preform_shape_from_native(shape: &NativePreformShape) -> PreformSh
     }
 }
 
-/// `y_offset` mirrors [`Design::preform_y_offset`] one-to-one -- a design-level
-/// anchor `PreformSpec` itself does not carry, so it rides alongside rather than
-/// inside the mirrored spec fields; see [`PreformTable::y_offset`]'s own doc
-/// comment.
+/// `y_offset` mirrors [`Design::preform_y_offset`]. It is a design-level anchor that
+/// `PreformSpec` does not carry, so it rides alongside the mirrored spec fields.
 #[must_use]
 pub(super) fn preform_table_from_spec(spec: &PreformSpec, y_offset: f64) -> PreformTable {
     PreformTable::new(
@@ -151,11 +143,10 @@ pub(super) fn material_table_from_selection(selection: &MaterialSelection) -> Ma
         selection.refractive_index_override,
     );
     let mut table = if let Some(choice) = &selection.color_variant_override {
-        // The variant wins on load, so the legacy fields written next to it are only the
-        // fallback an older build shows: the nearest triple of the variant's own color, never
-        // the (possibly stale) triple or bands the selection may also hold. The same triple is
-        // recorded inside the variant table, so a reader can tell when an older build changed
-        // the top-level one afterwards.
+        // The variant wins on load. The legacy fields written next to it are only the fallback
+        // an older build shows: the nearest triple of the variant's own color, not the
+        // selection's possibly stale triple or bands. The triple is also recorded in the
+        // variant table, so a reader can tell when an older build changed the top-level one.
         let fallback = legacy_triple_for_variant(choice, selection.name.as_deref());
         table
             .with_body_color_override(Some(body_color_to_table(fallback)))
@@ -188,17 +179,14 @@ fn f32_to_f64_short(v: f32) -> f64 {
         .unwrap_or_else(|_| f64::from(v))
 }
 
-/// The legacy `body_color_override` triple an older build shows for `choice`: the closest
-/// triple ([`nearest_legacy_rgb`], the same solver the L*C*h editor uses for its fallback) to
-/// the variant's own face-up D65 color.
+/// The legacy `body_color_override` triple an older build shows for `choice`: the nearest
+/// triple ([`nearest_legacy_rgb`]) to the variant's face-up D65 color.
 ///
-/// The color is the one the render shows face-up: the tensor over the path
-/// [`face_up_swatch_path`] gives for `(unit, reference_path_mm)`, the face-up path of a stone as wide as the
-/// variant's `reference_path_mm` (always a stone WIDTH, never a light path), seen through the
-/// default principal frame of the design's built-in host (`host_name`, see [`face_up_swatch`]).
-/// A host that is not a built-in (a custom material, no name) has no frame here, so the
-/// unpolarised color is read instead. A non-positive or non-finite width reads at the default
-/// stone width.
+/// The face-up color is the tensor over [`face_up_swatch_path`] for `(unit, reference_path_mm)`.
+/// That path is a stone as wide as the reference, never a light path. It is seen through the
+/// default principal frame of the built-in host `host_name` (see [`face_up_swatch`]). A host
+/// that is not a built-in has no frame, so the unpolarised color is read. A non-positive or
+/// non-finite width reads at the default stone width.
 fn legacy_triple_for_variant(choice: &VariantChoice, host_name: Option<&str>) -> [f32; 3] {
     let width = if choice.reference_path_mm.is_finite() && choice.reference_path_mm > 0.0 {
         choice.reference_path_mm
@@ -284,11 +272,9 @@ fn unknown_variant_name(table: &ColorVariantTable) -> Option<String> {
     })
 }
 
-/// The inverse of [`color_variant_to_table`]; `None` when the table uses a unit or band shape
-/// this build does not know (a newer build wrote it).
-///
-/// That case is not an error: the legacy triple written next to the table is the color an older
-/// build shows, so the design opens with it (a `warn!` says so) instead of refusing to open.
+/// The inverse of [`color_variant_to_table`]. `None` when the table uses a unit or band shape
+/// this build does not know. The design then opens with the legacy triple written next to the
+/// table (a `warn!` says so), rather than refusing to open.
 ///
 /// # Errors
 ///
@@ -348,8 +334,8 @@ fn variant_rays_from_table(
     bands: &[ColorVariantBandTable],
 ) -> Result<Vec<VariantBandRow>, pleochroma_formats::native::design::DesignFileError> {
     if bands.len() > MAX_VARIANT_BANDS {
-        // The renderer's material buffer holds `MAX_VARIANT_BANDS` per ray and drops the rest, so
-        // the CPU tracer (which would use them all) and the GPU would show different stones.
+        // The GPU buffer holds `MAX_VARIANT_BANDS` per ray and drops the rest, so a longer table
+        // would render differently on the CPU and the GPU.
         return Err(color_variant_file_error(format!(
             "{ray} has {} bands, at most {MAX_VARIANT_BANDS} are allowed",
             bands.len()
@@ -404,13 +390,12 @@ const fn color_variant_file_error(
     }
 }
 
-/// Whether the variant table of `table` is still the color of the file: no fallback triple was
-/// recorded inside it (a file from before the field existed: the variant wins, as it always
-/// did), or the top-level `body_color_override` still equals the recorded one as `f32` bits.
+/// Whether the variant table of `table` still matches the file's color. True when no fallback
+/// triple is recorded in it (a file from before that field existed, where the variant wins), or
+/// when the top-level `body_color_override` still equals the recorded triple as `f32` bits.
 ///
-/// A different (or removed) top-level triple means a build that does not know the variant table
-/// (it keeps the table and writes it back) changed the color afterwards; the cutter's edit then
-/// wins over the variant it could not see.
+/// A different or removed top-level triple means an older build changed the color after the
+/// variant was written. The cutter's edit then wins over the variant.
 fn variant_is_current(table: &MaterialTable) -> bool {
     let Some(recorded) = table
         .color_variant
@@ -462,8 +447,7 @@ pub(super) fn material_selection_from_table(
             }
             current
         });
-    // A variant wins over the legacy fields written next to it (they are only the fallback an
-    // older build shows), so a file with one loads without them.
+    // A variant wins over the legacy fields written next to it, so they are dropped on load.
     let legacy = variant.is_none();
     Ok(MaterialSelection {
         name: table.name.clone(),
@@ -507,12 +491,10 @@ pub(super) const fn narrow(value: f64) -> f32 {
     value as f32
 }
 
-/// `f32` triple -> the `f64` triple `MaterialTable` stores, by way of each
-/// component's SHORTEST round-trip decimal (`f32`'s `Display`): a plain
-/// `f64::from(0.2f32)` would serialise as `0.20000000298023224`, which is what the
-/// on-disk file would then show a cutter for a color they picked as "0.2". The
-/// decimal text uniquely identifies the `f32`, so [`body_color_from_table`]'s cast
-/// back returns the identical bits (asserted by the native round-trip tests).
+/// `f32` triple -> the `f64` triple `MaterialTable` stores, each component through its
+/// shortest round-trip decimal. A plain `f64::from(0.2f32)` would serialise as
+/// `0.20000000298023224`, which a cutter would see for a color picked as "0.2". The decimal
+/// identifies the `f32` uniquely, so [`body_color_from_table`] returns the identical bits.
 fn body_color_to_table(rgb: [f32; 3]) -> [f64; 3] {
     rgb.map(|v| {
         v.to_string()
@@ -527,8 +509,7 @@ fn body_color_from_table(rgb: [f64; 3]) -> [f32; 3] {
     rgb.map(narrow)
 }
 
-/// Mirrors an [`ExternalProportions`] into its on-disk [`SourceTable`] row -- see
-/// that type's own doc comment.
+/// Mirrors an [`ExternalProportions`] into its on-disk [`SourceTable`] row.
 #[must_use]
 pub(super) const fn source_table_from_proportions(props: &ExternalProportions) -> SourceTable {
     SourceTable {
@@ -554,23 +535,16 @@ pub(super) const fn external_proportions_from_source(table: &SourceTable) -> Ext
 
 /// Mirrors one editor tier into its on-disk row.
 ///
-/// The imported meet instruction and the `.asc` file's original `G` note ride along
-/// so a save is self-describing: a reload can restore the cutter's "Adopt Meet"
-/// action and re-export the file's real note text instead of a synthesized "Set stone
-/// size.".
+/// The imported meet and the `.asc` file's original `G` note ride along, so a reload can
+/// restore the "Adopt Meet" action and re-export the file's real note text.
 ///
-/// `note`/`cheater_offset_deg`/`tier_id`/`target` are this tier's own entries (if
-/// any) from [`Design::tier_notes`]/[`Design::cheater_offsets_deg`]/
-/// [`Design::tier_ids`]/[`Design::tier_targets`] -- separate parameters rather
-/// than `ConstraintTier` fields, since all four live on `Design` keyed by
-/// position or by [`TierId`] (see those fields' own doc comments for why); the
-/// caller looks each up by the tier's array position before calling this.
+/// `note`, `cheater_offset_deg`, `tier_id` and `target` are this tier's entries from the
+/// [`Design`] maps. They are keyed by position or by [`TierId`], so the caller looks each up
+/// by the tier's position and passes it in.
 ///
-/// Also carries `tier.indices` verbatim (the design's own AUTHORED, never
-/// shifted, index-wheel positions): the shift
-/// `Design::to_asc_schedule_from_solved_with_cheater_offsets` bakes into an exported
-/// `.asc` (see [`Design::cheater_offsets_deg`]'s own doc comment) must not be
-/// re-interpreted as the tier's own base indices on the next load.
+/// `tier.indices` is written as authored, never shifted. The shift that
+/// `Design::to_asc_schedule_from_solved_with_cheater_offsets` bakes into an exported `.asc`
+/// must not be read back as the tier's base indices on the next load.
 #[must_use]
 pub(super) fn tier_table_from_tier(
     tier: &ConstraintTier,
@@ -593,49 +567,38 @@ pub(super) fn tier_table_from_tier(
     .with_target(target.map(native_tier_target_from))
 }
 
-/// Extra, optional data a caller may attach to a save beyond a bare design.
+/// Optional data a caller may attach to a save beyond a bare design.
 ///
-/// A custom material snapshot, a history trail, plus
-/// [`Self::custom_catalogue`] (the wrong-`I`-line fix). Bundled into its own type,
-/// rather than widening [`super::catalogue_asc`] and [`super::DesignExtras`] with more
-/// positional parameters; [`super::catalogue_asc_extended`] takes it, and
-/// `DesignExtras::from(&extras)` carries the snapshot and history into a design file.
-/// `#[derive(Default)]` gives the "no extras at all" case used internally by
-/// [`super::catalogue_asc`] itself, with [`Self::custom_catalogue`] defaulting to `&[]`
-/// (an empty slice's own `Default`) -- exactly
-/// [`Design::effective_refractive_index`]'s built-ins-only behaviour.
+/// Carries a custom material snapshot, a history trail and [`Self::custom_catalogue`]. It is
+/// one type rather than extra positional parameters on [`super::catalogue_asc`] and
+/// [`super::DesignExtras`]. [`super::catalogue_asc_extended`] takes it, and
+/// `DesignExtras::from(&extras)` carries the snapshot and history into a design file. The
+/// default has an empty `custom_catalogue`, which uses the built-in materials only (see
+/// [`Design::effective_refractive_index`]).
 #[derive(Debug, Clone, Default)]
 pub struct SaveExtras<'a> {
-    /// See [`CustomMaterialSnapshot`]'s own doc comment. `Some` only when
-    /// `design.material.name` names a CUSTOM material (not a built-in
-    /// [`GemMaterial::by_name`] preset) the caller's own catalogue resolved -- this
-    /// crate has no catalogue of its own to check that against, so supplying the
-    /// wrong thing here (e.g. always `Some` regardless of built-in status) is the
-    /// caller's mistake, not this type's to prevent.
+    /// See [`CustomMaterialSnapshot`]. `Some` only when `design.material.name` names a custom
+    /// material (not a built-in [`GemMaterial::by_name`] preset) that the caller's catalogue
+    /// resolved. This crate has no catalogue to check that, so the caller must get it right.
     pub custom_material: Option<&'a CustomMaterialSnapshot>,
-    /// A bounded, human-readable trail of edits made to this design so far --
-    /// [`crate::edit::History::description_log`], oldest first. An empty
-    /// slice writes no `[history]` table at all -- see
-    /// [`pleochroma_formats::native::design::DesignFile::with_history`].
+    /// A bounded, human-readable trail of edits to this design, oldest first (see
+    /// [`crate::edit::History::description_log`]). An empty slice writes no `[history]` table
+    /// (see [`pleochroma_formats::native::design::DesignFile::with_history`]).
     pub history_entries: &'a [String],
-    /// This design's caller-resolved catalogue materials -- e.g.
-    /// `RenderContext::custom_materials` in `apps/pleochroma-cut` -- consulted via
-    /// [`Design::effective_refractive_index_with`] for the exported `.asc`'s `I`
-    /// line whenever `design.material.name` names a CUSTOM entry (not one of the
-    /// built-ins), rather than silently falling back to the legacy schedule RI.
-    /// `&[]` (the `Default`) reproduces the old built-ins-only behaviour exactly --
-    /// this is additive, not a breaking change to any existing caller.
+    /// The caller's resolved custom materials, for example the editor's catalogue. They are
+    /// consulted via [`Design::effective_refractive_index_with`] for the `.asc`'s `I` line when
+    /// `design.material.name` names a custom entry. An empty slice uses the built-ins only.
     pub custom_catalogue: &'a [GemMaterial],
 }
 
-/// How a native snapshot's color reads (spec 6): which payload the file really carries.
+/// How a native snapshot's color reads: which payload the file really carries.
 #[derive(Debug, Clone, PartialEq)]
 pub enum SnapshotColor {
     /// No recipe: the top-level `absorption_rgb` is the color (fantasy, or a file written
     /// before physics color existed).
     Fantasy,
-    /// A recipe whose fallback color still matches the top-level `absorption_rgb`: it was not
-    /// touched since this build (or one like it) wrote it, so the recipe is the color.
+    /// A recipe whose fallback color still matches the top-level `absorption_rgb`, so the
+    /// recipe is the color.
     Physics(ColorMode),
     /// A recipe, but the top-level `absorption_rgb` differs from the fallback the DTO recorded:
     /// an older build edited the color. Treated as fantasy-edited; the caller asks the user
@@ -653,8 +616,8 @@ pub fn snapshot_color(snapshot: &CustomMaterialSnapshot) -> SnapshotColor {
     let Some(mode) = ColorMode::from_json(&dto.recipe_json) else {
         return SnapshotColor::Fantasy;
     };
-    // A fantasy-active material renders from the top-level color; its parked recipe only
-    // matters to the vault row, not to a session-local restore.
+    // A fantasy-active material renders from the top-level color, so the parked recipe is
+    // ignored.
     if !mode.is_physics() {
         return SnapshotColor::Fantasy;
     }
@@ -687,49 +650,37 @@ pub fn color_recipe_dto(mode: &ColorMode) -> ColorRecipeDto {
     }
 }
 
-/// Reconstructs a session-local [`GemMaterial`] from a native file's custom-material
-/// snapshot.
+/// Reconstructs a session-local [`GemMaterial`] from a design file's custom-material snapshot.
 ///
-/// The material a design named that no longer resolves against
-/// any catalogue this build has (see [`CustomMaterialSnapshot`]'s own doc comment).
-/// A caller (the editor) registers the result under the design's own
-/// `material.name` in its own catalogue so the design's real optics survive the
-/// round trip instead of silently resolving to [`GemMaterial::diamond`].
+/// Used for a material name that resolves against no catalogue this build has (see
+/// [`CustomMaterialSnapshot`]). The caller registers the result under the design's
+/// `material.name`, so the real optics survive instead of falling back to
+/// [`GemMaterial::diamond`].
 ///
-/// The body color is the snapshot's [`CustomMaterialSnapshot::absorption_rgb`]
-/// triple; a snapshot written before that field existed (or for a colorless
-/// material) carries none and restores colorless (`[0.0; 3]`). `crystal_system`/
-/// `optical_character` ARE read from the snapshot's own string fields when the name is
-/// recognised (the vault row's `LibraryMaterial::gem_material` does the same), and the
-/// biaxial delta is restored for the two biaxial characters. An empty or unrecognised name
-/// (a file from a build that wrote no names, or the web mirror) keeps what
-/// [`GemMaterial::new_custom`] infers from the sign of `birefringence_delta`, with one
-/// exception: a snapshot that carries a usable [`CustomMaterialSnapshot::biaxial_delta_beta_alpha`]
-/// gets its biaxial character from [`biaxial_character_from_deltas`] (the optic-sign rule on the
-/// delta and `|birefringence_delta|`), because the delta is only ever written for a biaxial
-/// material. A name that parses still wins, a delta that rule rejects (not finite, not positive,
-/// larger than the birefringence) changes nothing, and the crystal system stays whatever the
-/// inference or the name gave.
+/// The body color is [`CustomMaterialSnapshot::absorption_rgb`]. A snapshot with none restores
+/// colorless (`[0.0; 3]`). The crystal system and optical character come from the snapshot's
+/// name strings when recognised, as a library row's do. An empty or unknown name keeps what
+/// [`GemMaterial::new_custom`] infers from the sign of `birefringence_delta`. The exception is a
+/// usable [`CustomMaterialSnapshot::biaxial_delta_beta_alpha`], which sets the biaxial character
+/// by [`biaxial_character_from_deltas`], because the delta is only written for biaxial
+/// materials. A parsed name still wins, and a delta that the rule rejects changes nothing.
 ///
-/// One limitation: a file written before 2026-10-12 for a biaxial material carries its names
-/// but no delta, so it restores with the biaxial character and
-/// `biaxial_delta_beta_alpha = None`, which the renderer treats as uniaxial until the material
-/// is saved again from a library that has the delta.
+/// A biaxial material saved without its delta restores with the biaxial character and no delta.
+/// The biaxial-only physics (per-axis curves, second-axis data) stays off until the material is
+/// saved again from a library row that has the delta.
 ///
-/// A snapshot that carries per-ray rows ([`CustomMaterialSnapshot::absorption_ray_bands_per_mm`])
-/// that fit the material's optical character colors the stone per direction with
-/// [`with_library_ray_bands`], exactly as the library row does, so a pleochroic custom material
-/// stays pleochroic on a machine without the row; the rows win over the isotropic ones.
+/// Per-ray rows ([`CustomMaterialSnapshot::absorption_ray_bands_per_mm`]) that fit the optical
+/// character color the stone per direction with [`with_library_ray_bands`], as a library row
+/// does. They win over the isotropic rows.
 ///
-/// A physics recipe renders from its stored `resolved_bands`, never a re-resolve. A file
-/// whose top-level color was edited by an older build ([`SnapshotColor::EditedElsewhere`])
-/// restores the *edited* color here; use [`gem_material_from_custom_snapshot_keeping_recipe`]
-/// when the user chose to keep the recipe.
+/// A physics recipe renders from its stored `resolved_bands`, never a re-resolve. If an older
+/// build edited the top-level color ([`SnapshotColor::EditedElsewhere`]), this restores the
+/// edited color. Use [`gem_material_from_custom_snapshot_keeping_recipe`] to keep the recipe.
 ///
-/// A snapshot that carries a usable [`CustomMaterialSnapshot::dispersion_model`] rebuilds the
-/// material from that curve (`GemMaterial::new_custom_with_dispersion`); without one, or with
-/// one that fails [`pleochroma::optics::dispersion::DispersionModel::validate`], it is the
-/// Cauchy fit `new_custom` builds from `mean_ri` and `dispersion_delta`, as ever.
+/// A usable [`CustomMaterialSnapshot::dispersion_model`] rebuilds the material from that curve
+/// (`GemMaterial::new_custom_with_dispersion`). Without one, or when
+/// [`pleochroma::optics::dispersion::DispersionModel::validate`] refuses it, the Cauchy fit of
+/// `mean_ri` and `dispersion_delta` is used.
 #[must_use]
 pub fn gem_material_from_custom_snapshot(
     name: &str,
@@ -753,11 +704,9 @@ pub fn gem_material_from_custom_snapshot(
             },
             |model| GemMaterial::new_custom_with_dispersion(name, model, birefringence, color),
         );
-    // The names the file carries win over `new_custom`'s two-variant inference, exactly as a
-    // library row's do (`LibraryMaterial::gem_material`); an empty or unrecognised name keeps
-    // the inference, except that a usable biaxial delta then picks the biaxial character by the
-    // optic-sign rule (the delta is only ever written for a biaxial material). The biaxial
-    // delta only means anything for the two biaxial characters.
+    // Names win over `new_custom`'s inference, as in a library row
+    // (`LibraryMaterial::gem_material`). Without a usable name, a biaxial delta picks the
+    // biaxial character.
     if let Some(system) = crystal_system_from_name(&snapshot.crystal_system) {
         mat.crystal_system = system;
     }
@@ -775,14 +724,9 @@ pub fn gem_material_from_custom_snapshot(
     } else {
         None
     };
-    // The N-band colour (path-aware L*C*h editor) wins over the three-band triple written
-    // next to it; a live physics recipe still wins over both below.
-    // The same constructor the vault row uses, so a banded custom renders identically from a
-    // library row and from a design file's snapshot: per-millimetre bands, whose real scale the
-    // render setup chooses from the stone's size.
-    // A per-ray color (a material whose color depends on the direction) wins over the isotropic
-    // rows, as in a library row, but only when its rays fit the material's optical character: a
-    // table the character no longer fits is ignored, never applied as the wrong number of rays.
+    // Per-ray rows win over the isotropic rows, as in a library row, but only when they fit the
+    // optical character. A table that does not fit is ignored, never applied with the wrong
+    // number of rays. The bands are per millimetre, and the render setup picks the real scale.
     let rays = snapshot
         .absorption_ray_bands_per_mm
         .as_ref()
@@ -796,8 +740,8 @@ pub fn gem_material_from_custom_snapshot(
     if let SnapshotColor::Physics(mode) = snapshot_color(snapshot) {
         mat = mat.with_chromophore_absorption(mode.resolve_tensor());
     }
-    // The material's default crystal axis, when the file carries one (both angles): baked in as
-    // a library row bakes it, so a design file renders the axis on a machine without the row.
+    // The default crystal axis, when the file carries both angles. It is baked in as a library
+    // row bakes it, so the axis renders without the row.
     let (tilt, azimuth, second) = snapshot.default_orientation();
     let orientation = tilt.zip(azimuth).map(|(tilt, azimuth)| {
         crate::crystal_axis::CrystalOrientation::from_angles(
@@ -807,10 +751,9 @@ pub fn gem_material_from_custom_snapshot(
         )
     });
     let mat = crate::material::with_default_orientation(mat, orientation);
-    // The render-physics data last, as a library row applies it: the per-axis curves (the e-ray of
-    // a uniaxial material, the alpha and gamma rays of a biaxial one), the inclusion families in
-    // the material's own frame and a structure that names its kind. A snapshot without them
-    // changes nothing.
+    // The render-physics data is applied last, as a library row applies it: the per-axis curves,
+    // the inclusion families in the material's frame and a named structure. Without them, the
+    // material is unchanged.
     super::axis_curves::with_snapshot_physics(mat, snapshot, orientation)
 }
 

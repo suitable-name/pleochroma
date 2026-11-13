@@ -158,7 +158,7 @@ it again.
 ## The Tutorials, Area by Area
 
 The viewing lessons recognize all six Edit modes: Solid, Path-Traced, Solid + Path-Traced,
-Diagram, Ray-Traced and Solid + Ray-Traced. Keys 1–4 keep their earlier meanings; 5 selects
+Diagram, Ray-Traced and Solid + Ray-Traced. Keys 1–4 keep their meanings; 5 selects
 Ray-Traced, and Solid + Ray-Traced has no key (keep Solid selected and click Ray-Traced).
 Ray-Traced is an image approximation with fixed AA taps; switching to it changes
 neither the solved geometry nor the metrics model. The lesson's highlighted view
@@ -306,7 +306,8 @@ Section **Materials and Color**:
 - **Stone Effects** adds haze, a frosted girdle, rounded edges and a stone width to the
   picture, and shows each one in the Path-Traced view.
 - **Make a Watermelon Tourmaline** gives a custom material a Watermelon Color Pattern in
-  the Color Pattern Editor, picks its colors and saves it (Chapter 29).
+  the Color Pattern Editor (**Start From...**, then Watermelon), picks its colors with
+  **From variant** and saves it with **Save to Material** (Chapter 29).
 - **Look at Ametrine** picks the built-in Ametrine and shows its amethyst and citrine
   halves in the Path-Traced view.
 - **Orient a Sapphire** sets a sapphire's Crystal Axis in the Stone tab with **Set for This
@@ -378,11 +379,11 @@ Section **The Library**:
 Section **Planning from the Rough**:
 
 - **The Rough Planner** opens the planner, models a rough and runs a plan.
-- **Model the Rough Shape** chooses a rough shape, looks at it from every side, cuts it in
+- **Model the Rough Shape** chooses a rough shape tile, looks at it from every side, cuts it in
   the 3D view and takes a cut back.
 - **Read the Planner Results** picks a layout, a design and a Cut Plan, reads the numbers on
-  a card and finds its designs in the library.
-- **Save and Share Plans** saves results as a plan, opens the plan again and exports it as
+  a layout's detail and finds its designs in the library.
+- **Save and Share Plans** stars layouts and saves them as a plan, opens the plan again and exports it as
   a file.
 - **From Plan to Editor** opens a planned stone in the editor with the piece of rough it
   comes from.
@@ -390,7 +391,7 @@ Section **Planning from the Rough**:
   backlit rig and reads how sure the result is.
 - **Use the Rough Color in the Planner** shows stones in the color of the rough, chooses the
   pose that shows the most of the inner zone and takes the color to the editor.
-- **Override a Stone's Orientation** sets the rough's Crystal Axis in the planner, reads the
+- **Override a Stone's Orientation** sets the rough's Crystal Axis in the planner (step 2), reads the
   rule line, overrides one stone with a Reason, locks it, plans again and opens a stone in
   the editor with its axis (Chapter 25).
 

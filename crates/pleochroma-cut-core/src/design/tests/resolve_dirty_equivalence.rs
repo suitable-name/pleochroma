@@ -10,36 +10,25 @@ use crate::{
 };
 use pleochroma::geometry::meet_solver::MeetConstraint;
 
-/// The core acceptance gate: for EVERY tier of EVERY one of the five small real
-/// fixtures ([`super::fixtures::real_fixtures`], 51 edits total: 2+8+9+12+20
-/// tiers), perturbing that tier's angle by a real, non-trivial amount and
-/// re-solving via [`crate::design::Design::resolve_dirty`] must produce EXACTLY
-/// the same masts -- `f64::to_bits()` equality, not a tolerance -- as a full
-/// [`crate::design::Design::solve`] on the identically-edited design, or (if one
-/// errors) the exact same `MissingAnchor`.
+/// The core acceptance gate.
 ///
-/// Checked against designs built with GENUINE `MeetExisting`/`MeetNamed` structure
-/// ([`super::fixtures::design_with_real_meet_structure`]), not pinned import, so
-/// [`crate::resolve::affected_tiers`] is actually exercised against non-
-/// `ScaleReference` tiers -- an all-`ScaleReference` design would pass trivially.
+/// For every tier of each of the five small real fixtures
+/// ([`super::fixtures::real_fixtures`]: 51 tiers in total), perturbing the tier's angle and
+/// re-solving via [`crate::design::Design::resolve_dirty`] must give exactly the masts of a
+/// full [`crate::design::Design::solve`] on the same edited design. The same `MissingAnchor`
+/// counts as agreement.
 ///
-/// Bit-exact equality is not a hopeful tolerance choice: for every tier
-/// `affected_tiers` marks unaffected (necessarily a `ScaleReference`), the
-/// substitution [`crate::design::Design::resolve_dirty`] performs is a literal
-/// no-op, so the substituted input list is bit-for-bit identical to what
-/// [`crate::design::Design::solve`] feeds `solve_meet_points` directly. This test is
-/// what caught an earlier, narrower affected-tiers rule (file-order/named-reference
-/// edges only) failing on three of these five fixtures by up to 3.8% relative --
-/// see `crate::resolve`'s module doc comment ("Rejected: a per-tier dependency
-/// graph").
+/// Equality is by `f64::to_bits()`, not a tolerance. An unaffected tier is a
+/// `ScaleReference`, so the substitution leaves its input bit-identical, and the solver
+/// sees the same list either way.
 ///
-/// Split into two `#[test]`s below by fixture size to keep the default (`cargo
-/// test`, debug/unoptimized) suite fast: `meet_solver`'s candidate-vertex
-/// enumeration is cubic in plane count, and running this check unoptimized for
-/// every tier of the two largest fixtures (12 and 20 tiers) took multiple minutes
-/// of wall time -- see
-/// [`subgraph_resolve_matches_full_solve_on_the_larger_small_fixtures`]'s own doc
-/// comment for why it is `#[ignore]`d rather than trimmed down instead.
+/// The designs keep genuine `MeetExisting`/`MeetNamed` structure
+/// ([`super::fixtures::design_with_real_meet_structure`]), so
+/// [`crate::resolve::affected_tiers`] is exercised on non-`ScaleReference` tiers. An
+/// all-`ScaleReference` design would pass trivially.
+///
+/// The two larger fixtures are checked by an `#[ignore]`d test, see
+/// [`subgraph_resolve_matches_full_solve_on_the_larger_small_fixtures`].
 fn assert_subgraph_resolve_matches_full_solve_for_every_tier(name: &str, text: &str) {
     let design = design_with_real_meet_structure(name, text);
     let baseline = design
@@ -107,17 +96,14 @@ fn subgraph_resolve_matches_full_solve_on_the_smaller_real_fixtures() {
 }
 
 /// The same check as
-/// [`subgraph_resolve_matches_full_solve_on_the_smaller_real_fixtures`], against the
-/// two LARGER real fixtures (RBC-445, 12 tiers; Briolette of India Replica, 20
-/// tiers) -- `#[ignore]`d because exhaustively checking every tier of both
-/// unoptimized takes multiple minutes (`meet_solver`'s candidate-vertex enumeration
-/// is cubic in plane count, and this test forces `2 * (12 + 20) = 64` full/subgraph
-/// solve pairs). Run explicitly with `cargo test -p pleochroma-cut-core --release --
-/// --ignored subgraph_resolve_matches_full_solve_on_the_larger` (finishes in under
-/// 20s in `--release`) whenever [`crate::resolve::affected_tiers`] or
-/// `Design::resolve_dirty` changes -- an earlier, narrower affected-tiers rule was
-/// caught failing here (RBC-445 tier 7 and Briolette tier 11, both by several
-/// percent relative).
+/// [`subgraph_resolve_matches_full_solve_on_the_smaller_real_fixtures`], on the two
+/// larger real fixtures (RBC-445, 12 tiers; Briolette of India Replica, 20 tiers).
+/// `#[ignore]`d because unoptimized it takes minutes: `meet_solver`'s candidate-vertex
+/// enumeration is cubic in plane count, and this runs `2 * (12 + 20)` solve pairs.
+/// Run explicitly with `cargo test -p pleochroma-cut-core --release --
+/// --ignored subgraph_resolve_matches_full_solve_on_the_larger` (under 20 s in
+/// `--release`) whenever [`crate::resolve::affected_tiers`] or `Design::resolve_dirty`
+/// changes.
 #[test]
 #[ignore = "exhaustive over 12+20 tiers; multi-minute in an unoptimized \
             build -- run with --release --ignored, see doc comment"]
@@ -130,14 +116,13 @@ fn subgraph_resolve_matches_full_solve_on_the_larger_small_fixtures() {
     }
 }
 
-/// Minimality, the half [`crate::resolve::affected_tiers`]'s wide rule still
-/// delivers: every [`MeetConstraint::ScaleReference`] tier OTHER than the one being
-/// edited stays completely untouched -- not "close", the same `SolvedTier.mast` bit
-/// pattern -- regardless of how many meet-derived tiers exist elsewhere. A
-/// hand-built three-tier design (an independent crown anchor `A`, `B` which
-/// explicitly names `A` in a `MeetNamed`, and `C`, an unrelated pavilion anchor)
-/// makes this checkable directly: editing `A` must leave `C` exactly as it was,
-/// even though `B` (not a `ScaleReference`) is also re-solved alongside `A`.
+/// Minimality: an edit leaves unrelated anchors untouched.
+///
+/// Every [`MeetConstraint::ScaleReference`] tier other than the edited one keeps the same
+/// `SolvedTier.mast` bits, however many meet-derived tiers exist elsewhere.
+/// In a hand-built three-tier design (anchor `A`, `B` naming `A` in a `MeetNamed`, and an
+/// unrelated pavilion anchor `C`), editing `A` must leave `C` exactly as it was, although
+/// `B` is re-solved alongside `A`.
 #[test]
 fn resolve_dirty_touches_only_the_edited_tier_and_non_anchor_tiers() {
     let mut design = Design::fresh(PreformSpec::block(1.0, 1.0, 2.0), 96, 4, 1.62);

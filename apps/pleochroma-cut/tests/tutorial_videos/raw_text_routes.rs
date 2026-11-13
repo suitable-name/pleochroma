@@ -56,8 +56,10 @@ impl Film<'_> {
         Ok(())
     }
 
-    /// The lesson's own route: Ctrl+K, type `typed`, check that the highlighted (first) row reads
-    /// `row_title`, press Enter, and require the palette closed with Solid view mode `mode`.
+    /// Chooses a view from the command palette.
+    ///
+    /// Ctrl+K, types `typed`, checks that the highlighted (first) row reads `row_title`, presses
+    /// Enter, and requires the palette to close with Solid view mode `mode`.
     pub(super) fn palette_choose_view(
         &mut self,
         typed: &str,
@@ -175,8 +177,8 @@ impl Film<'_> {
         {
             return Err("raw text diff is missing the added/removed Crown_Main lines".into());
         }
-        // The diff's actual production callback raises raw_text_diff_shown. The full
-        // tutorial goal intentionally remains false until Apply updates the design.
+        // The diff view raises `raw_text_diff_shown`. The tutorial goal stays false until Apply
+        // updates the design.
         self.hold(pacing::RESULT_HOLD)?;
         self.dialog_button("Back to the Text")?;
         self.dialog_button("Apply")?;

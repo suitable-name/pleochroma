@@ -19,19 +19,14 @@ import { FormRowMetrics } from "editor_inspector/form_row.slint";
 import { ScrollFade } from "editor_inspector/scroll_fade.slint";
 import { InspectorTabPills } from "editor_inspector/tab_pills.slint";
 
-// The Edit sub-tab's per-tier/preform/optimize/schedule inspector -- a
-// resizable dock panel below the tier table, tabbed instead of the old
-// always-visible right column, since the tier table needed the width and
-// vertical room the old layout gave the toolbar/banners/design settings
-// instead (see `app.slint`'s Edit-mode layout doc comment).
-// `EditorModel.inspector_tab` (0 = Tier, 1 = Preform, 2 = Optimize,
-// 3 = Schedule, 4 = History) tracks which tab is showing. Its own `SectionHeader` (title
-// "INSPECTOR") carries the tab pills in its right-side slot, so switching tabs
-// (which also re-expands the section, per each pill's own `clicked` in `InspectorTabPills`)
-// stays reachable even while collapsed.
+// The Edit sub-tab's inspector: a resizable dock panel below the tier table, with tabs for the
+// tier form, preform, optimize, schedule and history (see `app.slint`'s Edit-mode layout).
+// `EditorModel.inspector_tab` (0 = Tier, 1 = Preform, 2 = Optimize, 3 = Schedule, 4 = History)
+// is the open tab. The `SectionHeader` (title "INSPECTOR") carries the tab pills, so a tab stays
+// reachable while collapsed; picking one also expands the section.
 //
-// The Tier tab's Save/Add Tier row is pinned outside the scrollable body so
-// it stays visible even when the inspector is shorter than the form.
+// The Tier tab's Save/Add Tier row is pinned outside the scrollable body, so it stays visible
+// even when the inspector is shorter than the form.
 export component EditorInspector inherits Rectangle {
     // Header-row-only height while collapsed (the `SectionHeader`'s own 24px
     // plus this component's 8px top/bottom padding) -- see `EditorModel.
@@ -45,11 +40,9 @@ export component EditorInspector inherits Rectangle {
     property <bool> fills_dock: EditorModel.tier_table_collapsed && !EditorModel.inspector_collapsed;
     property <length> fixed_height: EditorModel.inspector_collapsed ? root.header_height : EditorModel.inspector_height;
     vertical-stretch: root.fills_dock ? 1 : 0;
-    // What the open tab needs at the very least: its header, the figures strip, a form area of
-    // `body_min` and, on the Tier tab, the pinned Save/Add Tier row. Below this the form shrank
-    // to a sliver (one field's top edge above the Save Tier button), so this is the floor now; a
-    // dock too short for it scrolls as a whole (`EditorView`'s `dock_scroll`) rather than squeezing
-    // the form.
+    // The least height the open tab needs: its header, the figures strip, a form area of
+    // `body_min` and, on the Tier tab, the pinned Save/Add Tier row. A shorter dock scrolls as a
+    // whole (`EditorView`'s `dock_scroll`) rather than squeezing the form.
     // The Tier form's body is taller (Angle and Meets with their labels need ~130 px).
     property <length> body_min: EditorModel.inspector_tab == 4 ? 150px : (EditorModel.inspector_tab == 0 ? 130px : 96px);
     // 8 px padding twice, the 24 px header row, the 6 px gaps around the strip and the body,
@@ -170,20 +163,10 @@ export component EditorInspector inherits Rectangle {
     // specifically so a guarded, not-yet-confirmed selection change can never
     // make Save Tier write to the wrong row.
     property <int> loaded_tier_index: -1;
-    // Snapshot of the five fields above as `apply_load`/`clear_form`/`save_form`
-    // last set them. `form_dirty` below is a pure comparison against this
-    // snapshot, not a flag toggled by per-field `changed` handlers guarded by a
-    // `loading` flag (the previous design): those handlers are QUEUED (Slint runs them
-    // later) and only run on the next
-    // event-loop turn or tree flush, strictly AFTER `apply_load`'s own
-    // assignments already completed and `loading` was already back to `false` --
-    // so the guard could never actually suppress anything, and every load
-    // (including a same-tier reload, e.g. the tier table's "Add Anchor" action)
-    // marked the form dirty against itself. A plain property-binding compare has
-    // no such ordering to get wrong: both sides are ordinary properties,
-    // re-evaluated together whenever either changes, and both are written by the
-    // exact same call (`apply_load`/`clear_form`/`save_form`), so they can never
-    // observe each other mid-update.
+    // Snapshot of the five fields above as `apply_load`/`clear_form`/`save_form` last set them.
+    // `form_dirty` is a plain comparison against it. Per-field `changed` handlers run after the
+    // load has finished, so they cannot guard it. Both sides are ordinary properties, written by
+    // the same call, so they never disagree mid-update.
     property <string> loaded_angle_snapshot: "0.0";
     property <int> loaded_constraint_kind_snapshot: 0;
     property <string> loaded_constraint_text_snapshot: "";
@@ -406,16 +389,9 @@ export component EditorInspector inherits Rectangle {
     }
 
     function apply_new() {
-        // `clear_form()` first, so `root.loaded_tier_index` is already -1
-        // by the time `EditorModel.selected_tier_index` changes below --
-        // that assignment is what fires `tracked_selection_for_new`'s own
-        // `changed` handler further down, which re-enters THIS function if
-        // it still sees a real (non -1) `loaded_tier_index`. Clearing first
-        // makes that guard see the post-clear state -- `changed` handlers are
-        // QUEUED, so that
-        // handler cannot possibly re-enter before this function itself
-        // returns; ordering the two assignments this way is what guarantees
-        // it sees `loaded_tier_index == -1` once it does run.
+        // Clear the fields first. The `changed` handler of `tracked_selection_for_new` runs
+        // after this function returns and must see `loaded_tier_index == -1`, or it would
+        // re-enter this function.
         root.reset_fields();
         EditorModel.selected_tier_index = -1;
     }
@@ -444,9 +420,8 @@ export component EditorInspector inherits Rectangle {
         root.yield_pending = false;
     }
 
-    // Keeps form in sync when global selection moves to -1 directly (e.g., from
-    // tier table's "+ Add Tier" or Escape shortcut). Guarded by form_dirty.
-    // own row highlight may already have cleared alongside it.
+    // Keeps the form in sync when the selection moves to -1 directly (the tier table's
+    // "+ Add Tier", or Escape). Guarded by `form_dirty`.
     property <int> tracked_selection_for_new: EditorModel.selected_tier_index;
     changed tracked_selection_for_new => {
         if root.tracked_selection_for_new < 0 && root.loaded_tier_index != -1 {
@@ -627,10 +602,9 @@ export component EditorInspector inherits Rectangle {
             spacing: 6px;
             vertical-stretch: 1;
 
-            // The figures of the design now with their change since the Baseline, scored face-up
-            // under the Grading tray and visible whichever inspector tab is open, so a cutter judging
-            // whether an angle change helped does not have to leave the tab. It replaces the strip
-            // that read the Live Render viewport (the HUD in Live Render keeps those numbers).
+            // The figures of the design with their change since the Baseline, visible whichever
+            // inspector tab is open, so a cutter judging an angle change does not have to leave
+            // the tab.
             BaselineStrip {}
 
             // Wrapped so the whole tab body can dim and explain itself while the
@@ -659,9 +633,7 @@ export component EditorInspector inherits Rectangle {
                     spacing: 8px;
                     // No right padding here: every tab root already keeps
                     // `FormRowMetrics.scroll_gutter` clear for this scroll bar.
-                    // A little room under the last row for the fade below. The tier forms end with
-                    // their own 40 px spacer and the notes are measured by `WrapNote`, so the old
-                    // 96 px stop-gap (wrapped notes sized by their first line) is not needed any more.
+                    // Room under the last row for the fade below.
                     padding-bottom: 48px;
 
                 if EditorModel.inspector_tab == 0 && root.concave_loaded: ConcaveFormTab {
@@ -719,21 +691,17 @@ export component EditorInspector inherits Rectangle {
                     yield_pending <=> root.yield_pending;
                 }
 
-                // --- Optimize -- see `optimize_available` above for the
-                // zero-free-tiers case every freshly imported design starts in
-                // (correct, not broken).
+                // --- Optimize. `EditorModel.optimize_available` is false while every tier
+                // is pinned as a scale reference, which is normal for a fresh import.
                 if EditorModel.inspector_tab == 2: OptimizeTab {
                     unlocked: GuideModel.allows_advanced();
                     optimize_preview_checked <=> root.optimize_preview_checked;
                 }
 
-                // --- The design's OWN cut order, not only
-                // ever the catalogue's original schedule -- built from
-                // `Design::to_asc_schedule_from_solved`, the same conversion
-                // "Export Edited .asc" already writes. Read-only: copying a
-                // row/the whole table is not wired here (that lives behind
-                // `LibraryModel`'s clipboard callbacks) -- Export Edited .asc
-                // is the copyable form for now.
+                // --- The design's own cut order, built from its solved state
+                // (`Design::to_asc_schedule_from_solved`, the conversion behind "Export Edited
+                // .asc"). Read-only: the catalogue's copy actions are not wired here, so the
+                // export is the copyable form.
                 if EditorModel.inspector_tab == 3 && root.advanced: ScheduleTab { }
                 }
             }

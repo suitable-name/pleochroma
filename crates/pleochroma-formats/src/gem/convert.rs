@@ -20,8 +20,8 @@ const DEFAULT_SYMMETRY: u32 = 1;
 /// whole tooth; anything further off is a fractional ("cheater") position.
 const WHOLE_TOOTH_EPS: f64 = 1e-3;
 
-/// Two facets of one tier number whose angles (degrees) or distances differ by
-/// more than this are split into separate tiers.
+/// Facets of one tier number whose angles (degrees) or distances differ by more than
+/// this, or whose angle signs differ, are split into separate tiers.
 const SAME_TIER_EPS: f64 = 1e-9;
 
 /// Rounds a raw tooth position for an `.asc` index list: to the nearest whole tooth
@@ -43,10 +43,10 @@ pub fn snap_index(raw: f64, teeth: f64) -> f64 {
 
 /// Converts a decoded `.gem` design into `.asc` cutting instructions.
 ///
-/// Facets are grouped by tier number in order of first appearance, one
-/// [`AscTier`] per tier. A tier number whose facets disagree on angle or distance
-/// (3 of 3,494 corpus tiers) is split into one [`AscTier`] per distinct plane
-/// setting, in file order, so no facet's geometry is lost. Per tier:
+/// Facets are grouped by tier number in order of first appearance, one [`AscTier`]
+/// per tier. A tier number whose facets disagree on angle or distance is split into
+/// one [`AscTier`] per distinct plane setting, in file order, so no facet's geometry
+/// is lost. Per tier:
 ///
 /// - `angle_deg` from [`GemFacet::angle_deg`] (culet: sign-negative zero);
 /// - `mast` = [`GemFacet::distance`];

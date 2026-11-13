@@ -1,12 +1,12 @@
 //! The Crystal Axis in the editor: orienting a sapphire, a tourmaline and a tanzanite with the
-//! Stone tab's presets and Second Axis, and turning the axis with the handle over the stone
-//! (manual chapter "Crystal Axis").
+//! Stone tab's presets and Second Axis, and turning the axis with the handle over the stone.
 //!
-//! Every lesson starts from the Rich Teaching Design and picks its material in the first action
-//! step, so the stone is the one the learner sees. What the steps wait for leaves no trace the
-//! goals could read, except the last lesson's Undo: the Stone tab and the handles report it with
-//! the events of [`crate::guide::tutorials::viewing_events`] (the Crystal Axis group). The lesson
-//! about the rough's axis in the Rough Planner is in `crystal_axis_rough.rs`.
+//! Manual chapter: "Crystal Axis".
+//!
+//! Every lesson starts from the Rich Teaching Design and sets its material in the first action
+//! step. Most steps wait for the `CRYSTAL_*` UI events in
+//! [`crate::guide::tutorials::viewing_events`]; the Undo step of the last lesson reads the design
+//! instead. The rough's axis lesson is in `crystal_axis_rough.rs`.
 
 #![allow(
     clippy::too_many_lines,

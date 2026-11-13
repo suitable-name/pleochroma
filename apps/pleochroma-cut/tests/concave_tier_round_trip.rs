@@ -1,14 +1,11 @@
-//! The desktop's concave-tier path, end to end through public APIs: a tier typed into the
-//! concave form is parsed, turned into an edit and applied to an `EditorSession` exactly
-//! as `gui::editor::callbacks::tier_actions::concave_tier` does; the design is written to
-//! and read back from the native file; and the result is checked where a cutter sees it,
-//! the cutting sheet and the solid preview's pick buffer.
+//! The concave-tier path end to end, through public APIs only.
 //!
-//! The solid frame's FNV is pinned by agreement between independent paths (the session's
-//! design and the one reloaded from the file draw the same bytes, and the tools change the
-//! picture). An absolute golden value would hold the platform math library's bits, so, as
-//! in `pleochroma-solid`'s own concave pins, one is only compared on Windows and is `None`
-//! until recorded there.
+//! A tier typed into the concave form is applied to an `EditorSession`, as its Save does,
+//! written to and read back from the native file, and checked on the cutting sheet and on
+//! the solid preview's pick buffer. The solid frame is pinned by agreement between independent
+//! paths: the session's design and the reloaded one draw the same bytes, and the tools change
+//! the picture. An absolute golden value would hold the platform math library's bits, so the
+//! pick pin is compared on Windows only and is `None` until a Windows value is recorded.
 
 use pleochroma_cut::gui::solid_preview::mesh_cache::fnv1a_64;
 use pleochroma_cut_core::{

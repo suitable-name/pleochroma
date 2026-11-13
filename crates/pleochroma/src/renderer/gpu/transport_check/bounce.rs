@@ -14,9 +14,8 @@ use crate::{
             apply_frosted_bounce,
             build_plane_soa,
             cosine_weighted_hemisphere,
-            // `NeeContext` stays `pub(crate)` inside `scattering` rather than being added
-            // to `raytracer::mod`'s re-export hub (kept out of the hub deliberately) --
-            // reached here via its own module's full path instead.
+            // `NeeContext` is kept out of `raytracer`'s re-export hub, so it is imported
+            // by its module path.
             scattering::NeeContext,
         },
     },
@@ -27,9 +26,8 @@ use glam::Vec3;
 use super::{SHADER_SRC, UlpAccumulator, UlpCheckResult};
 
 // ---------------------------------------------------------------------------------
-// GPU port: optics::raytracer::cosine_weighted_hemisphere -- the frosted-bounce
-// direction sampler (Malley's method). Compared against calling the REAL CPU function
-// directly (now `pub(crate)` -- see that function's own doc comment).
+// GPU port: optics::raytracer::cosine_weighted_hemisphere, the frosted-bounce direction
+// sampler (Malley's method). Compared against the CPU function itself (`pub(crate)`).
 // ---------------------------------------------------------------------------------
 
 /// One input case for the cosine hemisphere check.
@@ -44,10 +42,11 @@ pub struct CosineHemisphereCase {
     _pad2: f32,
 }
 
-/// ULP budget for `cosine_weighted_hemisphere` (one `sqrt`, one `sin_cos` pair, an
-/// orthonormal-basis construction, and a final `normalize_or_zero`) -- comparable
-/// single-function budget to this file's other geometric-construction checks
-/// (`EIGEN_POLARIZATION_ULP_BUDGET`, `SIGNED_PSI_ULP_BUDGET`, both 32).
+/// ULP budget for `cosine_weighted_hemisphere`.
+///
+/// The function is one `sqrt`, one `sin_cos` pair, an orthonormal-basis construction, and a
+/// final `normalize_or_zero`. The budget is set above the 32-ULP budgets of
+/// `EIGEN_POLARIZATION_ULP_BUDGET` and `SIGNED_PSI_ULP_BUDGET`.
 const COSINE_HEMISPHERE_ULP_BUDGET: u32 = 48;
 /// See `crate::renderer::gpu::ulp::within_tolerance`'s doc comment for the general
 /// rationale: a hemisphere direction's individual x/y/z components legitimately cross
@@ -193,11 +192,10 @@ pub fn run_cosine_hemisphere(
 }
 
 // ---------------------------------------------------------------------------------
-// GPU port: optics::raytracer::apply_frosted_bounce -- the full frosted-facet
-// bounce dispatch (TIR-forced / reflect / transmit branch selection, the broadband
-// hero-only r_unpol split, Stokes depolarization, path_pdf scaling). Compared against
-// calling the REAL CPU function directly (now `pub(crate)`), never a reimplementation --
-// see that function's own doc comment for the achromatic-by-design physics this pins.
+// GPU port: optics::raytracer::apply_frosted_bounce, the full frosted-facet bounce
+// dispatch (TIR-forced / reflect / transmit branch selection, the hero-only r_unpol split,
+// Stokes depolarization, path_pdf scaling). Compared against the CPU function directly
+// (`pub(crate)`), never a reimplementation.
 // ---------------------------------------------------------------------------------
 
 /// One input case for the frosted bounce check.
@@ -224,20 +222,19 @@ pub struct FrostedBounceCase {
 
 const _: () = assert!(size_of::<FrostedBounceCase>() == 224);
 
-/// ULP budget for the full `apply_frosted_bounce` dispatch: an `fma`-built Fresnel
-/// `r_s`/`r_p`/`r_unpol` triple (the same shape already exercised, at the same 16-ULP
-/// budget, by `FRESNEL_REFLECTION_ULP_BUDGET`/`FRESNEL_TRANSMISSION_ULP_BUDGET` above),
-/// plus a `cosine_weighted_hemisphere` call (its own budget: `COSINE_HEMISPHERE_ULP_BUDGET`
-/// = 48) and a handful of divisions accumulating into `stokes`/`path_pdf`. Set to the
-/// larger of the two constituent budgets plus headroom for the additional divisions,
-/// matching this file's existing convention of leaving headroom above the constituent
-/// pieces rather than pinning to their sum exactly.
+/// ULP budget for the full `apply_frosted_bounce` dispatch.
+///
+/// It covers an `fma`-built Fresnel `r_s`/`r_p`/`r_unpol` triple (16-ULP budgets in
+/// `fresnel.rs`), a `cosine_weighted_hemisphere` call (`COSINE_HEMISPHERE_ULP_BUDGET`), and a
+/// few divisions into `stokes`/`path_pdf`. The budget is the larger constituent plus headroom
+/// for those divisions.
 const FROSTED_BOUNCE_ULP_BUDGET: u32 = 64;
 const FROSTED_BOUNCE_ABS_FLOOR: f32 = 1e-5;
 
-/// Distinct-per-channel `stokes`/`path_pdf` test data, shared by [`build_frosted_bounce_dense_cases`]
-/// and [`build_frosted_bounce_adversarial_cases`] -- a cross-channel indexing bug (e.g. a
-/// swapped loop index) cannot hide behind every channel carrying the same input.
+/// Distinct-per-channel `stokes`/`path_pdf` test data, shared by
+/// [`build_frosted_bounce_dense_cases`] and [`build_frosted_bounce_adversarial_cases`]. A
+/// cross-channel indexing bug (e.g. a swapped loop index) cannot hide behind every channel
+/// carrying the same input.
 fn frosted_bounce_varied_inputs() -> ([[f32; 4]; 8], [f32; 8]) {
     let varied_stokes: [[f32; 4]; 8] = std::array::from_fn(|k| {
         [
@@ -251,12 +248,11 @@ fn frosted_bounce_varied_inputs() -> ([[f32; 4]; 8], [f32; 8]) {
     (varied_stokes, varied_pdf)
 }
 
-/// Dense sweep: index ratios spanning real gem/air interfaces (both entering and
-/// exiting), incidence angle from grazing to normal, both `inside_gem` states, both
-/// `is_anisotropic` states, both `is_extraordinary` states, and several
-/// (`rng_seed`, `bounce`) pairs so both the reflect and transmit RNG branches are naturally
-/// exercised across the bank. Split out of [`build_frosted_bounce_cases`] purely to keep
-/// that function (and this one) under clippy's function-length lint.
+/// Dense sweep: index ratios spanning real gem/air interfaces (both entering and exiting),
+/// incidence angle from grazing to normal, every `inside_gem`, `is_anisotropic` and
+/// `is_extraordinary` state, and several (`rng_seed`, `bounce`) pairs so both the reflect
+/// and transmit RNG branches are hit. Split out of [`build_frosted_bounce_cases`] to stay
+/// under the function-length lint.
 fn build_frosted_bounce_dense_cases(
     uniform_stokes: [[f32; 4]; 8],
     uniform_pdf: [f32; 8],
@@ -312,11 +308,10 @@ fn build_frosted_bounce_dense_cases(
     cases
 }
 
-/// Adversarial cases: the TIR-forced / partial-transmit boundary (`sin2_t` straddling
-/// exactly 1.0 -- the hemisphere boundary), grazing incidence
-/// (`cos_i` essentially 0), normal incidence (`cos_i` essentially 1), and a
-/// zero-intensity edge case (`StokesVector::intensity()`'s own `.max(0.0)` clamp). Split
-/// out of [`build_frosted_bounce_cases`] for the same function-length reason as
+/// Adversarial cases: the TIR-forced / partial-transmit boundary (`sin2_t` at and around
+/// 1.0), grazing incidence (`cos_i` near 0), normal incidence (`cos_i` near 1), and a
+/// zero-intensity edge case (the `.max(0.0)` clamp in `StokesVector::intensity()`). Split
+/// out of [`build_frosted_bounce_cases`] for the function-length lint, like
 /// [`build_frosted_bounce_dense_cases`].
 fn build_frosted_bounce_adversarial_cases(
     uniform_stokes: [[f32; 4]; 8],
@@ -435,11 +430,9 @@ fn cpu_frosted_bounce(case: &FrostedBounceCase, material: &GemMaterial) -> Frost
     });
     let mut path_pdf = case.path_pdf_in;
     let normal = Vec3::from_array(case.normal);
-    // This check pins `apply_frosted_bounce`'s base reflect/transmit/TIR physics against
-    // the WGSL port. `enabled: false` scopes
-    // this comparison to that base physics alone (no RNG draw, no `radiance` touch; see
-    // `NeeContext::enabled`'s doc comment), leaving a dedicated frosted-NEE Tier 2/3
-    // check as future work once the WGSL side ports that machinery too.
+    // `enabled: false` limits the comparison to the base reflect/transmit/TIR physics (no
+    // RNG draw, no `radiance` change; see `NeeContext::enabled`). The NEE part of the
+    // bounce is not compared here.
     let plane_soa = build_plane_soa(&[]);
     let nee = NeeContext {
         environment: EnvironmentSource::Studio {
@@ -449,7 +442,9 @@ fn cpu_frosted_bounce(case: &FrostedBounceCase, material: &GemMaterial) -> Frost
             light_pitch: 0.0,
             backdrop: 0.0,
             surface_glare: 1.0,
+            tray_shadow: None,
             head_shadow_deg: crate::optics::raytracer::DEFAULT_HEAD_SHADOW_DEG,
+            tray_mirror: None,
         },
         plane_soa: &plane_soa,
         tools: &[],

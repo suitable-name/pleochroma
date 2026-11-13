@@ -162,10 +162,9 @@ fn accumulator_with_final_image(width: u32, height: u32, png: &[u8]) -> Accumula
     acc
 }
 
-/// The server tone-maps with the SAME function and sends a lossless PNG, so the
-/// decoded picture equals the viewer's own tone-mapped bytes, and the file the viewer
-/// writes from it (ICC included) is byte-identical to a local export of that RGBA --
-/// for sRGB and a wide-gamut space alike.
+/// The server tone-maps with the same function and sends a lossless PNG, so the decoded
+/// picture equals the local tone-mapped bytes, and the PNG written from it (ICC included)
+/// is byte-identical to a local export, for sRGB and a wide-gamut space alike.
 #[test]
 fn a_decoded_final_picture_writes_the_same_png_as_a_local_export() {
     let (width, height) = (7_u32, 5_u32);
@@ -199,10 +198,8 @@ fn a_decoded_final_picture_writes_the_same_png_as_a_local_export() {
 
 // ---- on_update: RemoteUpdate::Preview -> a progress preview ----------------------
 
-/// A `RemoteUpdate::Preview` -- the coordinator's forced periodic look at
-/// a `FinalImageRequest` job (`coordinator::job::serve_final_image`) -- must reach
-/// `on_progress` as a tone-mapped thumbnail instead of being silently ignored, which
-/// left the export dialog showing no live preview at all for this transfer.
+/// A `RemoteUpdate::Preview` from the coordinator's periodic look at a `FinalImageRequest`
+/// (`coordinator::job::serve_final_image`) must reach `on_progress` as a tone-mapped image.
 #[test]
 fn a_preview_update_becomes_a_progress_preview() {
     let (width, height) = (4_u32, 3_u32);
@@ -245,7 +242,7 @@ fn a_preview_update_becomes_a_progress_preview() {
     assert_eq!(preview.height(), height);
 }
 
-// ---- v16: viewer contribution -- share sizing, the rate book, and reclaim reporting --
+// ---- Viewer contribution: share sizing, rate book, reclaim reporting ----
 
 #[test]
 fn viewer_share_is_proportional_to_rates_and_capped_at_half() {
@@ -292,8 +289,8 @@ fn split_rates_are_pixel_normalised_and_forgotten_with_refusals() {
     assert!((local.unwrap() - 50.0).abs() < 1e-9);
     assert!((remote.unwrap() - 200.0).abs() < 1e-9);
 
-    // The SAME underlying device throughput reads back scaled at a different
-    // resolution -- the whole point of pixel-normalising before storing.
+    // The same device throughput reads back scaled at another resolution: the point of
+    // pixel-normalising before storing.
     let (local_at_200, remote_at_200) = split_rates(&worker, 200);
     assert!((local_at_200.unwrap() - 25.0).abs() < 1e-9);
     assert!((remote_at_200.unwrap() - 100.0).abs() < 1e-9);

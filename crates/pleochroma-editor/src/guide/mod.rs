@@ -13,9 +13,9 @@
 //! - `catalog`: the built-in guides ([`worked_example_guide`], the welcome tour), the
 //!   [`GuideCatalog`] that also holds guides generated at run time, and the lists of valid
 //!   [`HIGHLIGHT_TARGETS`] and [`EVENTS`].
-//! - `start`: what a [`StartingState`] asks of the editor ([`plan_start`], with the new
-//!   design a lesson is cut from, [`lesson_start_spec`]) and how a UI waits for a design it
-//!   asked for ([`launch_status`]).
+//! - `start`: what a [`StartingState`] asks of the editor ([`plan_start`], with the design a
+//!   lesson is cut from, [`lesson_start_spec`]) and how a UI waits for a design it asked for
+//!   ([`launch_status`]).
 //! - `listing`: the tutorial browser's rows, search and "Done" bookkeeping.
 //! - `build_this_design`: [`build_this_design_guide`], the lesson that rebuilds a library
 //!   design from an empty one (with `build_text`, its wording and number formats, and
@@ -24,9 +24,9 @@
 //!   (the step done for them through the editor's own paths), with the recipes derived from
 //!   a step's goal ([`default_perform`]) and `perform_table`, the recipes listed by guide id
 //!   and step title.
-//! - `web_offer`: which lessons the browser build offers ([`WebFeatures`], [`is_offered_on_web`])
-//!   and the per-lesson overlay of web wording ([`Guide::for_platform`], [`web_view`]). The
-//!   catalogue itself stays one unfiltered, desktop-worded list.
+//! - `web_offer`: which lessons the browser build offers ([`WebFeatures`],
+//!   [`is_offered_on_web`]) and the per-lesson overlay of web wording ([`Guide::for_platform`],
+//!   [`web_view`]). The catalogue itself stays one unfiltered, desktop-worded list.
 //!
 //! A UI owns navigation (start/next/back/close, the short "Done" moment before an
 //! automatic advance) and every control lock, driven by the current step's allowed
@@ -197,9 +197,8 @@ fn has_expected_tier(design: &Design, name: &str) -> bool {
 /// Whether `actual` and `expected` are the same gear positions, `gear` teeth
 /// around (so 96 reads as 0 on a 96-tooth gear).
 ///
-/// An empty `expected` list -- "leave
-/// Indices blank" -- also accepts the single index 0, which is what a blank field
-/// means.
+/// An empty `expected` list (a blank Indices field) also accepts the single index 0, which
+/// is what a blank field means.
 #[must_use]
 pub fn same_index_set(actual: &[f64], expected: &[f64], gear: f64) -> bool {
     let same = |a: f64, b: f64| {

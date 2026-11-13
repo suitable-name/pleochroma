@@ -1,21 +1,20 @@
 //! Storage for the color variants a cutter saved for a material.
 //!
-//! One more side table next to the ones in `pattern_store`, with the same rules: created by
+//! A side table with the same rules as the ones in `pattern_store`: created by
 //! `CREATE TABLE IF NOT EXISTS` in the same migrate step, no foreign keys (an older build never
-//! reads or deletes it, and this build removes the rows whose material is gone with
-//! [`Database::prune_color_variant_orphans`]), and a read-only database of a file this build has
-//! not opened answers "nothing stored".
+//! reads or deletes it; this build removes the rows of a deleted material with
+//! [`Database::prune_color_variant_orphans`]). A read-only database of a file this build has not
+//! opened answers "nothing stored".
 //!
-//! | table | key | content |
-//! |---|---|---|
-//! | `material_color_variants` | `key` (`user.<uuid>`) | the material name, the label, the variant JSON, its format version, two UTC timestamps |
+//! The one table, `material_color_variants`, is keyed by `key` (`user.<uuid>`) and holds the
+//! material name, the label, the variant JSON, its format version and two UTC timestamps.
 //!
 //! The vault never parses the JSON: `pleochroma-cut` owns the format (a tensor of band rows and
-//! its unit). A variant of a built-in material is stored too (its `material_name` is the built-in's
-//! name), so the orphan prune takes the built-in names from the caller.
+//! its unit). A variant of a built-in material is stored too, under the built-in's name, so the
+//! orphan prune takes the built-in names from the caller.
 //!
-//! The table is named `material_color_variants`, not `variants`: the vault already has
-//! `diagram_variants`, which are design-history variants.
+//! The table is named `material_color_variants`, not `variants`: `design_variants` already holds
+//! the design-history variants.
 
 use super::Database;
 use crate::model::zoning::MaterialColorVariantRow;

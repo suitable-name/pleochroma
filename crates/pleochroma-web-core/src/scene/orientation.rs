@@ -14,7 +14,7 @@ use pleochroma::{
 
 /// `overrides` with the Second Axis of turn zero added when the scene sets a Crystal Axis but
 /// no Second Axis, and `base` holds a baked Second Axis. Every other case is returned unchanged,
-/// so a scene without a baked default renders exactly as before.
+/// so a scene without a baked default is traced as it was given.
 #[must_use]
 pub(super) fn with_baked_second_axis(
     mut overrides: MaterialOverrides,
@@ -74,7 +74,7 @@ mod tests {
         // A Second Axis given: it wins.
         let given = with_baked_second_axis(with_axis(Some(Vec3::X), Some(Vec3::Z)), &baked);
         assert_eq!(given.alpha_axis_override, Some(Vec3::Z));
-        // No baked Second Axis: nothing to replace, today's behaviour.
+        // No baked Second Axis: nothing to replace.
         let axis_only = with_baked_second_axis(with_axis(Some(Vec3::X), None), &plain);
         assert_eq!(axis_only.alpha_axis_override, None);
     }

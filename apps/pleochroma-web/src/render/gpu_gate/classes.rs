@@ -84,7 +84,7 @@ pub(super) fn ensure_class(ctx: &Ctx, pool: &WorkerPool, class: u32) {
         return;
     }
     // A class that passed before only compiles again in this Worker; a new one gets the full
-    // test. The isotropic class was always given the full test when it was not qualified.
+    // test, and a failed isotropic class is tested again.
     let compile_only = match state {
         Some(AdmissionState::Ok) => true,
         Some(AdmissionState::Unknown) => false,

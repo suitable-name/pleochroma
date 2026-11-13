@@ -76,10 +76,8 @@ pub const fn hash_u32(mut x: u32) -> u32 {
 // internally would un-stratify it). Mirrored bit-for-bit in
 // `shaders/spectral_transport.wgsl` and `shaders/rng_equivalence.wgsl`.
 //
-// Three different prime bases (2, 3, 5), not one base rotated three ways: one base-2
-// sequence for all three, decorrelated only by rotation, pairs (jx, jy) into a
-// structured 2D point set (samples cluster along lines) -- rejected, 4-7x worse
-// variance on the highest-variance pixels.
+// Three different prime bases (2, 3, 5). One base-2 sequence rotated three ways pairs
+// (jx, jy) into a structured 2D point set whose samples cluster along lines.
 
 /// Stream salts for three independent Cranley-Patterson rotations (one per
 /// stratified quantity: pixel jitter X, pixel jitter Y, hero wavelength).
@@ -215,6 +213,16 @@ pub fn sample_draws(pixel: u32, sample_num: u32, rot: &PixelRotations) -> Sample
         jitter_y,
         hero_rand,
     }
+}
+
+/// The raw `u32` draw of a polished-path stream at `bounce`:
+/// `hash_u32(rng_seed ^ hash_u32(bounce ^ stream))`.
+///
+/// The WGSL prelude's `discrete_draw` is its twin, bit for bit.
+#[must_use]
+#[inline]
+pub(crate) const fn discrete_draw(rng_seed: u32, bounce: u32, stream: u32) -> u32 {
+    hash_u32(rng_seed ^ hash_u32(bounce ^ stream))
 }
 
 /// Adds one traced sample's XYZ radiance into a pixel's running sum under the ONE
@@ -502,5 +510,36 @@ mod rng_decorrelation_tests {
             (mean - 1.0).abs() < 0.02,
             "weighted Russian-roulette survival should be unbiased (E[indicator/q] ~= 1.0), got {mean}"
         );
+    }
+
+    /// `discrete_draw` is the salted hash `hash_u32(seed ^ hash_u32(bounce ^ stream))`, bit for
+    /// bit, on the four polished-path streams and on every other stream.
+    #[test]
+    fn discrete_draw_is_the_salted_hash() {
+        let streams = [
+            FRESNEL_BRANCH_STREAM,
+            BIREFRINGENT_SPLIT_STREAM,
+            MODE_COUPLING_STREAM,
+            RUSSIAN_ROULETTE_STREAM,
+            FROSTED_DIR_U_STREAM,
+            FROSTED_DIR_V_STREAM,
+            DISTANCE_SAMPLE_STREAM,
+            PHASE_DIR_U_STREAM,
+            PHASE_DIR_V_STREAM,
+            NEE_ENV_DIR_U_STREAM,
+            FROSTED_NEE_ENV_DIR_V_STREAM,
+            FLUORESCENCE_DIR_U_STREAM,
+        ];
+        for seed in [0u32, 1, 0xFFFF_FFFF, 123_456_789] {
+            for bounce in 0..40u32 {
+                for stream in streams {
+                    assert_eq!(
+                        discrete_draw(seed, bounce, stream),
+                        hash_u32(seed ^ hash_u32(bounce ^ stream)),
+                        "seed {seed}, bounce {bounce}, stream {stream:#x}"
+                    );
+                }
+            }
+        }
     }
 }

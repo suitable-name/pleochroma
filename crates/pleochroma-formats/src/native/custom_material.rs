@@ -1,30 +1,21 @@
 //! The `[material.custom]` snapshot table of the native document: everything a custom
-//! material needs to be rebuilt on load (see [`CustomMaterialSnapshot`]). Split out of
-//! `schema.rs` by size only; `schema::CustomMaterialSnapshot` re-exports it.
+//! material needs to be rebuilt on load. [`super::schema`] re-exports the type.
 
 /// The `[material.custom]` snapshot for a design's custom catalogue material.
 ///
-/// Everything needed to reconstruct that material if its name does not resolve on
-/// the machine that opens the file -- without it, a native file referencing a
-/// custom material by name only falls back to Diamond elsewhere.
+/// Holds everything needed to rebuild the material on load. Without it, a file naming a
+/// custom material resolves only on the machine that has that library row, and elsewhere
+/// the name would silently fall back to Diamond. Every field is a plain primitive, since
+/// this crate has no dependency on `pleochroma`. Building the snapshot from a
+/// `GemMaterial`, and registering it again when the name fails to resolve, is
+/// `pleochroma-cut-core`'s job.
 ///
-/// Sharing a design file naming a custom material (or simply
-/// reinstalling and losing the local database row) would otherwise silently
-/// resolve that name to Diamond, with no warning. Every field here is a plain
-/// primitive, not
-/// `pleochroma`'s own `GemMaterial` type: this crate has no dependency on
-/// `pleochroma` at all (see the module doc comment's "only pulls in what it
-/// needs" rule), so building this snapshot from a real `GemMaterial` -- and
-/// registering it back as a session-local custom material when the name fails to
-/// resolve -- is `pleochroma-cut-core`'s job, same split as every other table
-/// here. `crystal_system`/`optical_character` are carried as their `Debug`-style
-/// names (e.g. `"Trigonal"`, `"BiaxialPositive"`) and read back by
-/// `pleochroma-cut-core` when the name is recognised (since 2026-10-12); an empty or
-/// unrecognised name leaves what `GemMaterial::new_custom` infers from the sign of
-/// `birefringence_delta`, which is all a file written before that date carried, except that a
-/// usable `biaxial_delta_beta_alpha` makes the reader pick the biaxial character itself
-/// (positive when `2 * delta < |birefringence_delta|`, negative otherwise); and
-/// `specific_gravity` is `None` when the material carried no SG at save time.
+/// `crystal_system` and `optical_character` hold `Debug`-style names (e.g. `"Trigonal"`,
+/// `"BiaxialPositive"`). When a name is empty or unrecognised, `GemMaterial::new_custom`
+/// infers the character from the sign of `birefringence_delta`. A usable
+/// `biaxial_delta_beta_alpha` makes the reader pick the biaxial character itself (positive
+/// when `2 * delta < |birefringence_delta|`, negative otherwise). `specific_gravity` is
+/// `None` when the material carried no SG.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CustomMaterialSnapshot {
     /// Mean refractive index.
@@ -40,43 +31,33 @@ pub struct CustomMaterialSnapshot {
     pub crystal_system: String,
     /// Optical character of the material.
     pub optical_character: String,
-    /// `n_beta - n_alpha` of a biaxial material (`biaxial_delta_beta_alpha = 0.004`): the
-    /// figure a library row stores for the two biaxial optical characters. It is only ever
-    /// written for a biaxial material, so a reader treats a usable value (finite, positive, not
-    /// above `|birefringence_delta|`) as evidence of one even when [`Self::optical_character`]
-    /// is empty or unrecognised. `None` for an isotropic or uniaxial material and for every
-    /// file written before the key existed (`#[serde(default)]`, so the schema version does not
-    /// move; an older build keeps the key in [`Self::unknown`] and writes it back unchanged).
+    /// `n_beta - n_alpha` of a biaxial material (`biaxial_delta_beta_alpha = 0.004`). Written
+    /// only for biaxial materials. A usable value (finite, positive, not above
+    /// `|birefringence_delta|`) marks the material as biaxial even when
+    /// [`Self::optical_character`] is empty or unrecognised. `None` for isotropic and uniaxial
+    /// materials and for files without the key. Missing keys read as `None`, so the schema
+    /// version does not change.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub biaxial_delta_beta_alpha: Option<f64>,
-    /// The material's body color, `absorption_rgb = [r, g, b]`: the isotropic
-    /// absorption triple `GemMaterial::new_custom` takes (`None` = colorless).
-    ///
-    /// Added after this table first shipped: `#[serde(default)]` loads a file written
-    /// before it existed with `None` -- exactly the colorless material such a file
-    /// always described -- so the schema version does not move.
-    /// An older build reading a newer file keeps the key in [`Self::unknown`] and
-    /// writes it back unchanged. Stored as `f64` (TOML's only float) through each
-    /// `f32` component's shortest round-trip decimal -- see [`Self::with_body_color`].
+    /// The material's body color, `absorption_rgb = [r, g, b]`: the isotropic absorption
+    /// triple `GemMaterial::new_custom` takes (`None` = colorless). Stored as `f64` (TOML's
+    /// only float) through each `f32` component's shortest round-trip decimal; see
+    /// [`Self::with_body_color`]. Missing keys read as `None`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub absorption_rgb: Option<[f64; 3]>,
-    /// The N-band body color (path-aware L*C*h editor): `absorption_bands_per_mm =
-    /// [[centre_nm, width_nm, amplitude_per_mm], ...]`, written NEXT TO the fitted
-    /// [`Self::absorption_rgb`] triple (the nearest three-band colour, so a build that does
-    /// not know this key still shows a close colour and writes the key back unchanged).
-    /// When present and non-empty the bands win on load. `#[serde(default)]`: older files
-    /// load with `None`; omitted when unset.
+    /// The N-band body color (path-aware L*C*h editor):
+    /// `absorption_bands_per_mm = [[centre_nm, width_nm, amplitude_per_mm], ...]`. Written next
+    /// to the fitted [`Self::absorption_rgb`] triple, the nearest three-band color, so an older
+    /// build still shows a close color. When present and non-empty the bands win on load.
+    /// Omitted when unset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub absorption_bands_per_mm: Option<Vec<[f64; 3]>>,
-    /// The per-ray N-band body color of a material whose color depends on the direction
-    /// (`[material.custom.absorption_ray_bands_per_mm]`, see [`RayBandsTable`]): the rows of an
-    /// ordinary ray, an extraordinary ray and, for a biaxial material, a beta ray. A library row
-    /// keeps this form in the same column as [`Self::absorption_bands_per_mm`]; without it here a
-    /// design opened on a machine that lacks the row would color the stone isotropic. Written
-    /// next to the triple (an older build keeps the table in [`Self::unknown`] and writes it
-    /// back unchanged); when present and usable for the material's optical character it wins over
-    /// [`Self::absorption_bands_per_mm`] on load. `#[serde(default)]`: older files load with
-    /// `None`; omitted when unset.
+    /// Per-ray N-band body color of a direction-dependent material
+    /// (`[material.custom.absorption_ray_bands_per_mm]`, see [`RayBandsTable`]): the ordinary
+    /// and extraordinary rays and, for a biaxial material, a beta ray. Without it, a design
+    /// opened on a machine that lacks the library row would color the stone isotropic.
+    /// Written next to the triple. When present and usable for the material's optical
+    /// character it wins over [`Self::absorption_bands_per_mm`] on load. Omitted when unset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub absorption_ray_bands_per_mm: Option<RayBandsTable>,
     /// Optional physically based color recipe and fallback tracking.
@@ -86,36 +67,28 @@ pub struct CustomMaterialSnapshot {
     /// when the author typed Sellmeier or Cauchy coefficients instead of a refractive index
     /// and an `n_F - n_C` figure.
     ///
-    /// `None` is the plain path: the material is the Cauchy fit
-    /// `GemMaterial::new_custom` builds from [`Self::mean_ri`] and
-    /// [`Self::dispersion_delta`], which is what every file written before this field
-    /// existed describes (`#[serde(default)]` loads them with `None`, and nothing is written
-    /// while it is `None`, so those files keep their bytes). With a model present, `mean_ri`
-    /// and `dispersion_delta` still hold the model's `n_d` and `n_F - n_C`, so a build that
-    /// does not know the table (it keeps it in [`Self::unknown`] and writes it back
-    /// unchanged) restores a close Cauchy stand-in rather than nothing. A table this build
-    /// cannot read (a model kind from a newer build, or a malformed one) loads as `None` and
-    /// the material takes the plain path.
+    /// `None` is the plain path: the material is the Cauchy fit `GemMaterial::new_custom`
+    /// builds from [`Self::mean_ri`] and [`Self::dispersion_delta`]. Nothing is written while
+    /// it is `None`. With a model present, `mean_ri` and `dispersion_delta` still hold the
+    /// model's `n_d` and `n_F - n_C`, so an older build that keeps the table (see
+    /// [`Self::unknown`]) restores a close Cauchy stand-in. A table this build cannot read (a
+    /// model kind from a newer build, or a malformed one) loads as `None`.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "lenient_dispersion_model"
     )]
     pub dispersion_model: Option<DispersionModelDto>,
-    /// The material's color pattern: the JSON text `pleochroma_cut_core::material::
-    /// encode_pattern` writes (a string, so this crate needs no cut-core type), stored as the
-    /// plain key `pattern = "<json>"`. `None` for a material without a pattern and for every
-    /// file written before the key existed (`#[serde(default)]`, so the schema version does
-    /// not move; an older build keeps the key in [`Self::unknown`] and writes it back
-    /// unchanged).
+    /// The material's color pattern as JSON text, written by
+    /// `pleochroma_cut_core::material::encode_pattern`. Stored as the plain key
+    /// `pattern = "<json>"`. A string, so this crate needs no cut-core type. `None` for a
+    /// material without a pattern.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pattern: Option<String>,
     /// The material's default crystal-axis tilt in degrees (`c_axis_tilt_deg = 30.0`), with
     /// [`Self::c_axis_azimuth_deg`]: the orientation a design takes for this material when it
-    /// does not set its own. `None` for every file written before the key existed and for a
-    /// material without a default (`#[serde(default)]`, so the schema version does not move;
-    /// nothing is written while it is `None`, an older build keeps the key in [`Self::unknown`]
-    /// and writes it back unchanged).
+    /// does not set its own. `None` for a material without a default. Nothing is written
+    /// while it is `None`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub c_axis_tilt_deg: Option<f64>,
     /// The default crystal-axis azimuth in degrees; see [`Self::c_axis_tilt_deg`].
@@ -125,13 +98,11 @@ pub struct CustomMaterialSnapshot {
     /// [`Self::c_axis_tilt_deg`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub c_axis_second_azimuth_deg: Option<f64>,
-    /// The extraordinary-ray curve of a uniaxial material (`[material.custom.dispersion_model_e]`),
-    /// in the same form as [`Self::dispersion_model`] (which is the ordinary ray). `None` for
-    /// every file written before the key existed and for a material whose e-ray follows the
-    /// ordinary curve plus `birefringence_delta` (`#[serde(default)]`, nothing is written while
-    /// it is `None`, so those files keep their bytes; an older build keeps the table in
-    /// [`Self::unknown`] and writes it back unchanged). A table this build cannot read loads as
-    /// `None`, like [`Self::dispersion_model`].
+    /// The extraordinary-ray curve of a uniaxial material
+    /// (`[material.custom.dispersion_model_e]`), in the same form as
+    /// [`Self::dispersion_model`] (the ordinary ray). `None` when the e-ray follows the
+    /// ordinary curve plus `birefringence_delta`. Nothing is written while it is `None`. A
+    /// table this build cannot read loads as `None`, like [`Self::dispersion_model`].
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -155,11 +126,9 @@ pub struct CustomMaterialSnapshot {
         deserialize_with = "lenient_dispersion_model"
     )]
     pub dispersion_model_gamma: Option<DispersionModelDto>,
-    /// The material's inclusion families: the JSON text the vault's `inclusion_families_json`
-    /// column holds (a string, so this crate needs no inclusion type), stored as the plain key
-    /// `inclusions = "<json>"`. `None` for a material without families and for every file
-    /// written before the key existed (nothing is written while it is `None`; an older build
-    /// keeps the key in [`Self::unknown`] and writes it back unchanged).
+    /// The material's inclusion families as JSON text (the vault's `inclusion_families_json`
+    /// column), stored as `inclusions = "<json>"`. A string, so this crate needs no inclusion
+    /// type. `None` for a material without families; nothing is written while it is `None`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inclusions: Option<String>,
     /// The material's play-of-color structure: the JSON text of the vault's `structure_json`
@@ -175,9 +144,10 @@ pub struct CustomMaterialSnapshot {
 ///
 /// One list of `[centre_nm, width_nm, amplitude_per_mm]` rows per ray, in the form of
 /// [`CustomMaterialSnapshot::absorption_bands_per_mm`] (a width above 500 is an energy band, a
-/// sigma in cm^-1; otherwise a wavelength band, a sigma in nm). A uniaxial material has `o` and `e`; a biaxial one also has `beta` (alpha is `o`, gamma is
-/// `e`). Values are `f64` written through each `f32`'s shortest round-trip decimal, like every
-/// other color number of the file.
+/// sigma in cm^-1; otherwise a wavelength band, a sigma in nm). A uniaxial material has `o`
+/// and `e`; a biaxial one also has `beta` (alpha is `o`, gamma is `e`). Values are `f64`
+/// written through each `f32`'s shortest round-trip decimal, like every other color number of
+/// the file.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RayBandsTable {
     /// The ordinary ray (alpha for a biaxial material).

@@ -9,14 +9,11 @@
 //! `optics::birefringence::{BirefringenceParams::ordinary_eigen_polarization,
 //! BirefringenceParams::extraordinary_eigen_polarization, pleochroic_channel_alpha}`.
 //!
-//! Deliberately NOT covered here: a standalone `r_s`/`r_p`/`t_s`/`t_p`-FROM-PHYSICS
-//! check. Those scalar Fresnel-amplitude formulas are inlined at four separate call
-//! sites in `optics::raytracer`, never factored into one shared function, so a
-//! standalone check would have to re-derive the textbook formula independently rather
-//! than call the real CPU code. They ARE exercised, via the real CPU function, by
-//! `estimator_check`'s furnace anchor and Tier 3 image comparison -- a coarser
-//! diagnostic, but not a gap in what gets verified, only in how precisely a failure
-//! localizes.
+//! Not covered here: a standalone `r_s`/`r_p`/`t_s`/`t_p` check from physics. Those
+//! Fresnel-amplitude formulas are inlined at four call sites in `optics::raytracer` rather
+//! than factored into one function, so a standalone check would re-derive the formula
+//! instead of calling the CPU code. `estimator_check`'s furnace anchor and the Tier 3 image
+//! comparison exercise them through the real CPU function, with coarser localization.
 //!
 //! Split into one file per case-bank family; see each submodule's own doc comment for
 //! what it owns. This file keeps only what every submodule shares: the generated shader
@@ -96,25 +93,21 @@ pub use scattering::{
     run_scatter_or_extinguish,
 };
 
-// `transport_functions.wgsl` alone is not valid WGSL any more -- it assumes
-// `shaders/transport_physics.wgsl`'s functions are already in scope. `build.rs`
-// concatenates the two into `$OUT_DIR/transport_functions.generated.wgsl`, which is
-// what gets compiled here; see `transport_physics.wgsl`'s header comment for why (and
-// this module's own header comment for the fault-injection experiment this exists to
-// pass).
+// `transport_functions.wgsl` relies on the functions of `shaders/transport_physics.wgsl`,
+// so `build.rs` concatenates the two into `$OUT_DIR/transport_functions.generated.wgsl`,
+// the source compiled here. See `transport_physics.wgsl`'s header comment.
 const SHADER_SRC: &str = include_str!(concat!(
     env!("OUT_DIR"),
     "/transport_functions.generated.wgsl"
 ));
 
 // ---------------------------------------------------------------------------------
-// Shared accumulator -- a deliberate duplicate of `environment_check`'s private
-// `UlpAccumulator`, not a refactored-out shared version: see `renderer::gpu::ulp`'s doc
-// comment for why this crate prefers duplicating a small self-test helper over touching
-// an already-shipped phase's file.
+// Shared accumulator. A deliberate duplicate of `environment_check`'s private
+// `UlpAccumulator`; see `renderer::gpu::ulp` for why small self-test helpers are
+// duplicated rather than shared.
 // ---------------------------------------------------------------------------------
 
-/// Outcome of the ulp check check.
+/// Outcome of one ULP check.
 #[derive(Debug, Clone)]
 pub struct UlpCheckResult<Case: Clone> {
     /// Short name of the check.
@@ -135,6 +128,9 @@ pub struct UlpCheckResult<Case: Clone> {
     pub exempted_count: usize,
     /// Comparison with the largest ULP distance.
     pub argmax: Option<UlpArgmax<Case>>,
+    /// The first eight over-budget comparisons in record order, so a FAIL names every
+    /// offender and not only the worst one.
+    pub over_budget_samples: Vec<UlpArgmax<Case>>,
 }
 
 /// The comparison with the largest error in the ulp check.
@@ -170,6 +166,7 @@ struct UlpAccumulator<Case: Clone> {
     over_budget: usize,
     exempted: usize,
     argmax: Option<UlpArgmax<Case>>,
+    samples: Vec<UlpArgmax<Case>>,
 }
 
 impl<Case: Clone> UlpAccumulator<Case> {
@@ -184,6 +181,7 @@ impl<Case: Clone> UlpAccumulator<Case> {
             over_budget: 0,
             exempted: 0,
             argmax: None,
+            samples: Vec::new(),
         }
     }
 
@@ -207,11 +205,18 @@ impl<Case: Clone> UlpAccumulator<Case> {
             self.max_raw_ulp = ulp;
         }
         let within = within_tolerance(cpu, gpu, self.budget, abs_floor);
+        if within && ulp > self.budget {
+            // Over the ULP budget, rescued by the absolute floor.
+            self.exempted += 1;
+            return;
+        }
+        // Every non-exempt comparison feeds `max_ulp` (its documented meaning), so a PASS
+        // shows how close the check came to its budget; on a FAIL the argmax is still the
+        // worst over-budget comparison, since that exceeds every within-budget one.
         if !within {
             self.over_budget += 1;
-            if ulp > self.max_ulp {
-                self.max_ulp = ulp;
-                self.argmax = Some(UlpArgmax {
+            if self.samples.len() < 8 {
+                self.samples.push(UlpArgmax {
                     case: case.clone(),
                     component,
                     cpu,
@@ -219,8 +224,16 @@ impl<Case: Clone> UlpAccumulator<Case> {
                     ulp,
                 });
             }
-        } else if ulp > self.budget {
-            self.exempted += 1;
+        }
+        if ulp > self.max_ulp {
+            self.max_ulp = ulp;
+            self.argmax = Some(UlpArgmax {
+                case: case.clone(),
+                component,
+                cpu,
+                gpu,
+                ulp,
+            });
         }
     }
 
@@ -235,6 +248,7 @@ impl<Case: Clone> UlpAccumulator<Case> {
             over_budget_count: self.over_budget,
             exempted_count: self.exempted,
             argmax: self.argmax,
+            over_budget_samples: self.samples,
         }
     }
 }

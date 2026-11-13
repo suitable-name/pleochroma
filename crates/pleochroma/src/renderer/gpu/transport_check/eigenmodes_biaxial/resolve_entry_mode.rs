@@ -32,19 +32,14 @@ pub struct BiaxialResolveEntryModeCase {
     _pad4: f32,
 }
 
-/// Measured: max genuine ULP ~3035 for Alexandrite specifically (`n_alpha=1.740778`,
-/// `n_beta=1.742729` -- a real cited-data gap of 0.00195, ABOVE
-/// `BiaxialIndicatrix::indices_are_degenerate`'s own `sqrt(f32::EPSILON) ~= 3.45e-4`
-/// relative threshold, so the general quadratic solve is legitimately used rather than
-/// the closed-form uniaxial shortcut, per that function's own doc comment -- but still
-/// close enough that its own documented `sqrt(f32::EPSILON)` relative-error bound
-/// applies almost exactly: 3035 ULP at n~1.74 is ~3.6e-4 absolute, i.e. ~2.1e-4
-/// relative, the same order the CPU source itself derives and accepts for this regime.
-/// Unlike the near-optic-axis case `biaxial_test_directions` filters out, this is not
-/// filtered here: it is a genuine material property Alexandrite's real cited index
-/// data has at EVERY air->crystal entry (not a rare direction), and Tier 3's
-/// statistical image comparison on real Alexandrite renders already confirms this
-/// level of per-bounce numerical noise does not observably bias a real render.
+/// Budget for the Alexandrite case, whose index gap is near the degenerate threshold.
+///
+/// Alexandrite's gap (`n_beta - n_alpha` of about 0.002) is just above
+/// `BiaxialIndicatrix::indices_are_degenerate`'s threshold, so the general quadratic
+/// solve runs, and its error reaches the `sqrt(f32::EPSILON)` relative bound. The measured
+/// worst case is about 3000 ULP. The error is inherent to this regime and occurs at every
+/// air-to-crystal entry, so the case is kept and not filtered out. Tier 3 renders show no
+/// visible bias from it.
 const BIAXIAL_RESOLVE_ENTRY_MODE_ULP_BUDGET: u32 = 4096;
 const BIAXIAL_RESOLVE_ENTRY_MODE_ABS_FLOOR: f32 = 1e-5;
 

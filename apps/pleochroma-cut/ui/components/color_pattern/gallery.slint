@@ -1,0 +1,407 @@
+import { LineEdit, ScrollView } from "std-widgets.slint";
+import { Theme } from "../../theme.slint";
+import { ColorPatternModel } from "../../models/color_pattern.slint";
+import { PatternIcon, PatternIcons } from "icons.slint";
+import { PatternButton, PatternIconButton } from "parts.slint";
+
+// One thumbnail of the gallery: the pattern drawn in this stone's own swatches, with its name
+// under it. A preset tile shows a small "x" on hover (or focus) that deletes the preset; with the
+// tile focused the Delete key does the same.
+component PatternTileView inherits Rectangle {
+    in property <image> img;
+    in property <string> text;
+    in property <string> hint;
+    in property <bool> typical: false;
+    in property <bool> deletable: false;
+    in property <length> size: 72px;
+    // Take the keyboard focus when the gallery opens (the first tile).
+    in property <bool> autofocus: false;
+    callback picked();
+    callback deleted();
+
+    property <bool> over: touch.has-hover || del_touch.has-hover || fs.has-focus;
+
+    width: root.size + 8px;
+    height: root.size + 42px;
+    accessible-role: AccessibleRole.button;
+    accessible-label: root.text;
+    accessible-description: root.hint;
+    accessible-action-default => { root.picked(); }
+
+    Tooltip { text: @markdown("\{root.hint}"); }
+    fs := FocusScope {
+        init => {
+            if root.autofocus {
+                self.focus();
+            }
+        }
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.picked();
+                return accept;
+            }
+            if event.text == Key.Delete && root.deletable {
+                root.deleted();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    Rectangle {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: root.size;
+        border-radius: 10px;
+        background: Theme.bg-input;
+        border-width: fs.has-focus || touch.has-hover ? 2px : 1px;
+        border-color: fs.has-focus ? Theme.accent-cyan-hover : (touch.has-hover ? Theme.accent-cyan : (root.typical ? Theme.accent-amber : Theme.border-subtle));
+        clip: true;
+        Image {
+            x: 4px;
+            y: 4px;
+            width: parent.width - 8px;
+            height: parent.height - 8px;
+            source: root.img;
+            image-fit: contain;
+        }
+    }
+    if root.typical: Rectangle {
+        x: parent.width - 22px;
+        y: 5px;
+        width: 16px;
+        height: 16px;
+        border-radius: 8px;
+        background: Theme.badge-amber-bg;
+        PatternIcon {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            d: PatternIcons.star;
+            size: 11px;
+            stroke: 1.6px;
+            ink: Theme.accent-amber;
+        }
+    }
+    Text {
+        x: 0px;
+        y: root.size + 5px;
+        width: parent.width;
+        height: 34px;
+        text: root.text;
+        font-size: 11px;
+        color: Theme.text-secondary;
+        horizontal-alignment: center;
+        vertical-alignment: top;
+        wrap: word-wrap;
+        overflow: elide;
+    }
+    touch := TouchArea {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: root.size;
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { root.picked(); }
+    }
+    // The delete "x" of a preset tile, above the tile's own touch area.
+    Rectangle {
+        x: 5px;
+        y: 5px;
+        width: 18px;
+        height: 18px;
+        border-radius: 9px;
+        opacity: root.deletable && root.over ? 1.0 : 0.0;
+        background: del_touch.has-hover ? Theme.danger-surface-hover : Theme.hud-surface;
+        accessible-role: AccessibleRole.button;
+        accessible-label: "Delete preset " + root.text;
+        // Disabled while the "x" is not shown (it only appears on hover or focus of the tile).
+        accessible-enabled: root.deletable && root.over;
+        accessible-action-default => {
+            if root.deletable {
+                root.deleted();
+            }
+        }
+        PatternIcon {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            d: PatternIcons.close;
+            size: 10px;
+            stroke: 2px;
+            ink: del_touch.has-hover ? Theme.danger : Theme.text-primary;
+        }
+        del_touch := TouchArea {
+            enabled: root.deletable && root.over;
+            mouse-cursor: MouseCursor.pointer;
+            clicked => { root.deleted(); }
+        }
+        if root.deletable && root.over: Tooltip { text: @markdown("Delete this preset. It cannot be undone."); }
+    }
+}
+
+// The "Start From" gallery: the typical zoning of the species (larger tiles, amber star), the
+// templates, and the saved presets with a "Save Current" tile at the end. Picking a tile replaces
+// the layers (Undo brings them back) and closes the gallery. The window dims what is behind it
+// and places it under the header button; `room_height` is the room it has.
+export component PatternGallery inherits Rectangle {
+    in property <length> room_height: 600px;
+
+    property <bool> has_typical: ColorPatternModel.typical_tiles.length > 0;
+    property <bool> has_templates: ColorPatternModel.template_tiles.length > 0;
+    property <length> typical_y: 0px;
+    property <length> typical_h: root.has_typical ? 26px + Math.ceil(ColorPatternModel.typical_tiles.length / 5) * 140px + 8px : 0px;
+    property <length> templates_y: root.typical_y + root.typical_h;
+    property <length> templates_h: root.has_templates ? 26px + Math.ceil(ColorPatternModel.template_tiles.length / 6) * 114px + 8px : 0px;
+    property <length> presets_y: root.templates_y + root.templates_h;
+    property <length> presets_rows_h: Math.ceil((ColorPatternModel.preset_tiles.length + 1) / 6) * 114px;
+    property <length> presets_h: 26px + root.presets_rows_h + (ColorPatternModel.preset_naming ? 48px : 0px) + 8px;
+    property <length> content_h: root.presets_y + root.presets_h;
+
+    width: 600px;
+    height: min(root.room_height, root.content_h + 64px);
+    background: Theme.surface-dialog;
+    border-radius: 14px;
+    border-width: 1px;
+    border-color: Theme.border-dialog;
+    drop-shadow-blur: 30px;
+    drop-shadow-color: Theme.modal-shadow;
+    drop-shadow-offset-y: 10px;
+    accessible-role: AccessibleRole.groupbox;
+    accessible-label: "Start From";
+
+    HorizontalLayout {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: 56px;
+        padding-left: 16px;
+        padding-right: 12px;
+        padding-top: 14px;
+        spacing: 8px;
+        Text {
+            text: "Start From";
+            font-size: 15px;
+            font-weight: 600;
+            color: Theme.text-primary;
+            vertical-alignment: center;
+            horizontal-stretch: 0;
+            accessible-role: AccessibleRole.text;
+        }
+        Text {
+            horizontal-stretch: 1;
+            text: "Replaces the layers \u{2014} Undo brings them back";
+            font-size: 11px;
+            color: Theme.text-muted;
+            vertical-alignment: center;
+            horizontal-alignment: right;
+            overflow: elide;
+            accessible-role: AccessibleRole.text;
+        }
+        VerticalLayout {
+            alignment: start;
+            PatternIconButton {
+                d: PatternIcons.close;
+                size: 28px;
+                icon_size: 14px;
+                label: "Close the gallery";
+                hint: "Close the gallery and keep the layers as they are. Escape does the same.";
+                clicked => { ColorPatternModel.close_gallery(); }
+            }
+        }
+    }
+
+    ScrollView {
+        x: 0px;
+        y: 56px;
+        width: parent.width;
+        height: parent.height - 56px - 8px;
+        Rectangle {
+            width: 584px;
+            height: root.content_h;
+
+            // --- Typical for the species ----------------------------------------------------------
+            if root.has_typical: Rectangle {
+                x: 0px;
+                y: root.typical_y;
+                width: parent.width;
+                height: root.typical_h;
+                HorizontalLayout {
+                    x: 16px;
+                    y: 0px;
+                    height: 20px;
+                    spacing: 6px;
+                    VerticalLayout {
+                        alignment: center;
+                        PatternIcon { d: PatternIcons.star; size: 13px; ink: Theme.accent-amber; }
+                    }
+                    Text {
+                        text: ColorPatternModel.typical_section;
+                        font-size: 12px;
+                        font-weight: 600;
+                        color: Theme.text-secondary;
+                        vertical-alignment: center;
+                        horizontal-stretch: 0;
+                        accessible-role: AccessibleRole.text;
+                    }
+                }
+                for tile[i] in ColorPatternModel.typical_tiles: PatternTileView {
+                    x: 16px + Math.mod(i, 5) * 112px;
+                    y: 26px + Math.floor(i / 5) * 140px;
+                    size: 96px;
+                    autofocus: i == 0;
+                    img: tile.image;
+                    text: tile.label;
+                    typical: true;
+                    hint: "Replace the layers with the typical " + tile.label + " zoning of this stone, in its own color. Undo brings them back.";
+                    picked => { ColorPatternModel.typical_picked(i); }
+                }
+            }
+
+            // --- Templates ---------------------------------------------------------------------------
+            if root.has_templates: Rectangle {
+                x: 0px;
+                y: root.templates_y;
+                width: parent.width;
+                height: root.templates_h;
+                Text {
+                    x: 16px;
+                    y: 0px;
+                    height: 20px;
+                    text: "Templates";
+                    font-size: 12px;
+                    font-weight: 600;
+                    color: Theme.text-secondary;
+                    vertical-alignment: center;
+                    accessible-role: AccessibleRole.text;
+                }
+                for tile[i] in ColorPatternModel.template_tiles: PatternTileView {
+                    x: 16px + Math.mod(i, 6) * 90px;
+                    y: 26px + Math.floor(i / 6) * 114px;
+                    autofocus: !root.has_typical && i == 0;
+                    img: tile.image;
+                    text: tile.label;
+                    hint: "Replace the layers with the " + tile.label + " template, in this stone's own color. Undo brings them back.";
+                    picked => { ColorPatternModel.template_picked(i); }
+                }
+            }
+
+            // --- My presets ------------------------------------------------------------------------------
+            Rectangle {
+                x: 0px;
+                y: root.presets_y;
+                width: parent.width;
+                height: root.presets_h;
+                Text {
+                    x: 16px;
+                    y: 0px;
+                    height: 20px;
+                    text: "My Presets";
+                    font-size: 12px;
+                    font-weight: 600;
+                    color: Theme.text-secondary;
+                    vertical-alignment: center;
+                    accessible-role: AccessibleRole.text;
+                }
+                for tile[i] in ColorPatternModel.preset_tiles: PatternTileView {
+                    x: 16px + Math.mod(i, 6) * 90px;
+                    y: 26px + Math.floor(i / 6) * 114px;
+                    img: tile.image;
+                    text: tile.label;
+                    deletable: true;
+                    autofocus: !root.has_typical && !root.has_templates && i == 0;
+                    hint: "Replace the layers with your preset " + tile.label + ". Undo brings them back. The x deletes the preset.";
+                    picked => { ColorPatternModel.preset_picked(i); }
+                    deleted => { ColorPatternModel.preset_delete(i); }
+                }
+                // The last tile: keep the current layers under a name.
+                Rectangle {
+                    x: 16px + Math.mod(ColorPatternModel.preset_tiles.length, 6) * 90px;
+                    y: 26px + Math.floor(ColorPatternModel.preset_tiles.length / 6) * 114px;
+                    width: 80px;
+                    height: 114px;
+                    accessible-role: AccessibleRole.button;
+                    accessible-label: "Save Current";
+                    accessible-description: "Keep the current layers as a preset, to use again on other materials.";
+                    accessible-action-default => { ColorPatternModel.save_preset(); }
+                    Tooltip { text: @markdown("Keep the current layers under a name, to use again on other materials."); }
+                    save_fs := FocusScope {
+                        key-pressed(event) => {
+                            if event.text == Key.Space || event.text == Key.Return {
+                                ColorPatternModel.save_preset();
+                                return accept;
+                            }
+                            return reject;
+                        }
+                    }
+                    Rectangle {
+                        x: 0px;
+                        y: 0px;
+                        width: parent.width;
+                        height: 72px;
+                        border-radius: 10px;
+                        background: save_touch.has-hover ? Theme.bg-card-hover : transparent;
+                        border-width: save_fs.has-focus || ColorPatternModel.preset_naming ? 2px : 1px;
+                        border-color: save_fs.has-focus ? Theme.accent-cyan-hover : (ColorPatternModel.preset_naming ? Theme.accent-cyan : Theme.border-medium);
+                        PatternIcon {
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                            d: PatternIcons.plus;
+                            size: 22px;
+                            ink: Theme.text-secondary;
+                        }
+                    }
+                    Text {
+                        x: 0px;
+                        y: 77px;
+                        width: parent.width;
+                        height: 34px;
+                        text: "Save Current\u{2026}";
+                        font-size: 11px;
+                        color: Theme.text-secondary;
+                        horizontal-alignment: center;
+                        vertical-alignment: top;
+                        wrap: word-wrap;
+                    }
+                    save_touch := TouchArea {
+                        x: 0px;
+                        y: 0px;
+                        width: parent.width;
+                        height: 72px;
+                        mouse-cursor: MouseCursor.pointer;
+                        clicked => { ColorPatternModel.save_preset(); }
+                    }
+                }
+                // The name field of "Save Current", under the tiles.
+                if ColorPatternModel.preset_naming: HorizontalLayout {
+                    x: 16px;
+                    y: 26px + root.presets_rows_h + 4px;
+                    width: 552px;
+                    height: 32px;
+                    spacing: 8px;
+                    LineEdit {
+                        horizontal-stretch: 1;
+                        text <=> ColorPatternModel.preset_name;
+                        placeholder-text: "Preset Name";
+                        accessible-label: "Preset Name";
+                        init => {
+                            self.focus();
+                            self.select-all();
+                        }
+                        accepted(value) => { ColorPatternModel.preset_name_committed(value); }
+                    }
+                    PatternButton {
+                        text: "Save";
+                        primary: true;
+                        hint: "Keep the current layers under this name.";
+                        clicked => { ColorPatternModel.preset_name_committed(ColorPatternModel.preset_name); }
+                    }
+                    PatternButton {
+                        text: "Cancel";
+                        ghost: true;
+                        hint: "Do not save a preset. Escape does the same.";
+                        clicked => { ColorPatternModel.preset_name_cancelled(); }
+                    }
+                }
+            }
+        }
+    }
+}

@@ -9,10 +9,8 @@ use crate::{
     types::DesignResult,
 };
 
-/// Reports C/D extra accounting: acceptance rate, search cost, score medians
-/// (initial / after anchor calibration / final), and the quality split between
-/// accepted and unaccepted designs (the verifier's precision claim, checked
-/// end-to-end).
+/// Reports C and D extras: acceptance rate, search cost, score medians (initial, after anchor
+/// calibration, final), and the quality split between accepted and unaccepted designs.
 pub fn print_verified_extras(results: &[DesignResult]) {
     const fn report_of(
         d: &DesignResult,
@@ -79,10 +77,10 @@ pub fn print_verified_extras(results: &[DesignResult]) {
     }
 }
 
-/// Counts, among `diagram_details` rows that have no `.asc` attachment at all (the
-/// ~2,700-design population that ratio-anchoring exists to serve), how many have
-/// `cw_ratio`, `pw_ratio`, and both -- a direct coverage number independent of
-/// anything measurable via real masts (there are none for this population).
+/// Counts the `diagram_details` rows with no `.asc` attachment (the population that ratio-anchoring
+/// serves) that have `cw_ratio`, `pw_ratio`, and both.
+///
+/// These designs have no recorded masts, so this is their only coverage measure.
 pub fn count_ratio_coverage_for_designs_without_asc(conn: &Connection) -> (i64, i64, i64, i64) {
     conn.query_row(
         "SELECT COUNT(*), \

@@ -29,8 +29,8 @@ pub(in super::super) fn keep(ui: &MainWindow, ctx: &Shared) {
     .flatten() else {
         return;
     };
-    // A freshly sliced tier sits at the tangency mast: its facet has no area, so
-    // keeping it would add a tier that cuts nothing. Enter and the button both land here.
+    // A tier sliced at the tangency mast has a facet with no area and would cut
+    // nothing. Enter and the button both reach this check.
     if !keep_allowed(surviving) {
         set_hint(ui, NO_DEPTH_HINT);
         show_toast(ui, NO_DEPTH_HINT, "info");

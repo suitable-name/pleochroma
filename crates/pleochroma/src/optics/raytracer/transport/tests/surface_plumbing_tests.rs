@@ -139,7 +139,7 @@ fn a_ground_word_is_a_frosted_finish() {
     let plane_soa = build_plane_soa(&planes);
     let geom = StoneGeometry::planes_only(&planes);
     let env_map = EnvironmentMap::uniform(4, 2, [2.0, 2.0, 2.0]);
-    let hdr = EnvironmentSource::HdrMap(&env_map);
+    let hdr = EnvironmentSource::hdr(&env_map);
     let studio = LightingPreset::RingLights.studio(1.0, 0.85, 0.95);
     let clear = GemMaterial::by_name("Zircon").expect("built-in material");
     let hazy = GemMaterial::new_custom("hazy", 1.5, 0.0, 0.0, [0.0; 3]).with_scattering(1.0, 0.2);
@@ -198,7 +198,7 @@ fn nee_through_an_abraded_edge_converges_to_the_phase_sampled_mean() {
     let material =
         GemMaterial::new_custom("band probe", 1.5, 0.0, 0.0, [0.0; 3]).with_scattering(1.0, 0.2);
     let env_map = EnvironmentMap::uniform(4, 2, [2.0, 2.0, 2.0]);
-    let environment = EnvironmentSource::HdrMap(&env_map);
+    let environment = EnvironmentSource::hdr(&env_map);
     let scene = SurfaceScene {
         facet_surfaces: &[],
         machine: FacetingMachine::DEFAULT,

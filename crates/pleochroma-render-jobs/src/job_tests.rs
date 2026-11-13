@@ -1,7 +1,10 @@
 use super::{
-    test_support::{curves, hdr_scene, still_job, video_job},
+    test_support::{curves, hdr_scene, still_job, turned_hdr_still_job, video_job},
     *,
 };
+#[cfg(beam_tests)]
+use pleochroma::renderer::accel_beam::BeamSettings;
+use pleochroma::renderer::adaptive::AdaptiveSettings;
 
 fn message(job: &RenderJobFile) -> String {
     job.validate().unwrap_err().to_string()
@@ -76,6 +79,7 @@ fn refuses_bad_samples() {
             samples_per_pixel: spp,
             color_space: JobColorSpace::Srgb,
             preset_label: String::new(),
+            accel: RenderAccel::default(),
         });
         assert_eq!(
             message(&job),
@@ -278,7 +282,7 @@ fn scintillation_defaults_off_is_written_only_when_on_and_round_trips() {
         high_contrast: false,
         scintillation: false,
     });
-    // Off: no key at all, so a job written now is byte for byte a job written before.
+    // Off: no key, so the file keeps its existing bytes.
     let value = serde_json::to_value(&job).unwrap();
     let options = value.get("optical_diagnostics").expect("diagnostics");
     assert!(options.get("scintillation").is_none(), "{options}");
@@ -321,9 +325,8 @@ fn diagnostics_serialize_after_the_format_header_and_use_the_supported_model_ver
     );
 }
 
-/// A job file saved before frosted planes existed has no `frosted_planes` key in its scene: it
-/// reads as unfrosted (and keeps its format version), and a job that frosts planes writes and
-/// reads them back, through the job file codec.
+/// A job file without a `frosted_planes` key reads as unfrosted and keeps its format version.
+/// A job that frosts planes round-trips them through the codec.
 #[test]
 fn old_jobs_read_unfrosted_and_frosted_planes_round_trip() {
     let job = super::test_support::still_job();
@@ -357,9 +360,8 @@ fn old_jobs_read_unfrosted_and_frosted_planes_round_trip() {
     assert_eq!(back, frosted);
 }
 
-/// A job freezes the scene's resolved material, so a color variant picked on the design is in
-/// the job file with its whole per-axis tensor and unit (no job format field of its own), two
-/// jobs that differ only in the variant are different files, and the variant reads back.
+/// A color variant on the scene's material is written into the job file with its per-axis
+/// tensor and unit. Jobs that differ only in the variant are different files.
 #[test]
 fn a_color_variant_material_is_written_to_the_job_file_and_reads_back() {
     use pleochroma::optics::{
@@ -389,8 +391,7 @@ fn a_color_variant_material_is_written_to_the_job_file_and_reads_back() {
     assert_eq!(back.validate(), Ok(()));
 }
 
-/// The text of a job as an older version wrote it: no `scene_backdrop_model` key and the
-/// given card level in the scene.
+/// A job's JSON without the `scene_backdrop_model` key, holding the given card level.
 fn legacy_text(card: f32) -> String {
     let mut value = serde_json::to_value(still_job()).unwrap();
     let object = value.as_object_mut().unwrap();
@@ -475,9 +476,163 @@ fn an_unknown_backdrop_model_is_refused() {
     assert_eq!(job.validate(), Ok(()), "the legacy marker is accepted");
 }
 
-/// A job carries the design's render physics (inclusions, play-of-color, facet surfaces, the
-/// faceting machine and the abraded edge) in its scene: they survive the file codec, an old
-/// job without the key reads as "no effects", and a record no sender could produce is refused.
+fn adaptive_on(spp: u32) -> RenderAccel {
+    RenderAccel {
+        adaptive: Some(AdaptiveSettings::provisional(spp)),
+        path_cache: None,
+        beam: None,
+    }
+}
+
+fn still_mut(job: &mut RenderJobFile) -> &mut StillJob {
+    match &mut job.kind {
+        JobKind::Still(still) => still,
+        JobKind::TiltVideo(_) => unreachable!("the test job is a still"),
+    }
+}
+
+/// A job without an `accel` key reads with acceleration off, and a job with everything off
+/// writes no key.
+#[test]
+fn old_jobs_read_with_acceleration_off_and_an_off_job_writes_no_key() {
+    for job in [still_job(), video_job()] {
+        let mut value = serde_json::to_value(&job).unwrap();
+        let kind = value.get_mut("kind").unwrap().as_object_mut().unwrap();
+        assert_eq!(kind.remove("accel"), None, "an off job writes no key");
+        assert_eq!(kind.remove("keep_path_cache"), None);
+        let old: RenderJobFile = serde_json::from_value(value).unwrap();
+        assert_eq!(old, job);
+        let text = crate::codec::to_text(&job).unwrap();
+        assert!(!text.contains("accel"), "{text}");
+        assert!(!text.contains("keep_path_cache"), "{text}");
+    }
+}
+
+#[test]
+fn a_still_with_adaptive_sampling_round_trips_through_the_codec() {
+    let mut job = still_job();
+    let mut accel = adaptive_on(64);
+    if let Some(adaptive) = accel.adaptive.as_mut() {
+        adaptive.target_noise = 0.02;
+    }
+    still_mut(&mut job).accel = accel.clone();
+    let text = crate::codec::to_text(&job).unwrap();
+    assert!(text.contains("accel"), "{text}");
+    let back = crate::codec::from_text(&text).unwrap();
+    assert_eq!(back, job);
+    let JobKind::Still(still) = &back.kind else {
+        unreachable!("a still stays a still")
+    };
+    assert_eq!(still.accel, accel);
+}
+
+#[test]
+fn a_video_with_adaptive_sampling_and_a_kept_cache_round_trips_through_the_codec() {
+    let mut job = video_job();
+    let video = video_mut(&mut job);
+    video.accel = adaptive_on(video.samples_per_pixel);
+    video.keep_path_cache = true;
+    let text = crate::codec::to_text(&job).unwrap();
+    assert!(text.contains("keep_path_cache"), "{text}");
+    let back = crate::codec::from_text(&text).unwrap();
+    assert_eq!(back, job);
+}
+
+/// A hand-edited job with beam settings a worker refuses is refused when it loads.
+#[cfg(beam_tests)]
+#[test]
+fn beam_settings_outside_their_range_are_refused() {
+    let mut job = still_job();
+    still_mut(&mut job).accel.beam = Some(BeamSettings::default());
+    assert_eq!(job.validate(), Ok(()));
+    still_mut(&mut job).accel.beam = Some(BeamSettings {
+        spectral_nodes: 12,
+        ..BeamSettings::default()
+    });
+    assert!(
+        message(&job).starts_with("Beam tracing: "),
+        "{}",
+        message(&job)
+    );
+    let mut video = video_job();
+    video_mut(&mut video).accel.beam = Some(BeamSettings {
+        spectral_nodes: 12,
+        ..BeamSettings::default()
+    });
+    assert!(message(&video).starts_with("Beam tracing: "));
+}
+
+#[test]
+fn adaptive_settings_are_checked_against_the_jobs_own_sample_count() {
+    let mut job = still_job();
+    still_mut(&mut job).accel = adaptive_on(64);
+    assert_eq!(job.validate(), Ok(()));
+    // The stored cap is replaced by the job's samples, so a stale cap is harmless.
+    if let Some(adaptive) = still_mut(&mut job).accel.adaptive.as_mut() {
+        adaptive.max_spp = 9999;
+    }
+    assert_eq!(job.validate(), Ok(()));
+    // A target outside its range is refused with a sentence.
+    if let Some(adaptive) = still_mut(&mut job).accel.adaptive.as_mut() {
+        adaptive.target_noise = 3.0;
+    }
+    assert!(
+        message(&job).starts_with("Adaptive sampling: "),
+        "{}",
+        message(&job)
+    );
+    // A minimum above the job's samples is refused.
+    let mut job = still_job();
+    still_mut(&mut job).accel = adaptive_on(512);
+    assert!(
+        message(&job).starts_with("Adaptive sampling: "),
+        "{}",
+        message(&job)
+    );
+    let mut video = video_job();
+    let spp = video_mut(&mut video).samples_per_pixel;
+    video_mut(&mut video).accel = adaptive_on(spp);
+    assert_eq!(video.validate(), Ok(()));
+    video_mut(&mut video).accel = adaptive_on(512);
+    assert!(message(&video).starts_with("Adaptive sampling: "));
+}
+
+#[test]
+fn adaptive_sampling_is_refused_in_a_ray_traced_job() {
+    use pleochroma::renderer::engine::{EngineSpec, RayOptions, RenderEngine};
+    let mut job = still_job();
+    job.engine = EngineSpec {
+        engine: RenderEngine::RayTraced,
+        ray: RayOptions {
+            aa_taps: 4,
+            fire: false,
+        },
+    };
+    job.scene.engine = job.engine;
+    job.format = 2;
+    let still = still_mut(&mut job);
+    still.samples_per_pixel = 4;
+    assert_eq!(job.validate(), Ok(()));
+    still_mut(&mut job).accel = adaptive_on(4);
+    assert_eq!(
+        message(&job),
+        "Adaptive sampling requires Path-Traced rendering."
+    );
+}
+
+/// An `accel` record with none of its keys reads with acceleration off, since every
+/// `RenderAccel` field defaults.
+#[test]
+fn an_accel_record_without_its_inner_keys_reads_as_off() {
+    let mut value = serde_json::to_value(still_job()).unwrap();
+    value["kind"]["accel"] = serde_json::json!({});
+    let back: RenderJobFile = serde_json::from_value(value).unwrap();
+    assert_eq!(back, still_job());
+}
+
+/// A job carries the scene's render effects (inclusions, facet surfaces, the faceting
+/// machine). They survive the codec, a job without the key reads as no effects, and a record
+/// no sender could produce is refused.
 #[test]
 fn the_scene_effects_round_trip_old_jobs_read_none_and_bad_records_are_refused() {
     use pleochroma::optics::{
@@ -523,5 +678,288 @@ fn the_scene_effects_round_trip_old_jobs_read_none_and_bad_records_are_refused()
         message(&bad).contains("render effects"),
         "{}",
         message(&bad)
+    );
+}
+
+/// Format 3 prevents an old reader from silently losing the shadow option.
+#[test]
+fn a_shadowed_job_requires_format_three_and_a_supported_scene() {
+    let mut job = still_job();
+    job.scene.stone_shadow = true;
+    job.scene.backdrop = 1.0;
+    job.scene.lighting_preset = pleochroma::optics::raytracer::LightingPreset::LightTent;
+    assert_eq!(format_for(&job), 3);
+    assert!(job.validate().is_err());
+    job.format = format_for(&job);
+    assert_eq!(job.validate(), Ok(()));
+    job.scene.backdrop = 0.0;
+    assert!(message(&job).contains("Stone shadow needs a studio light with a backdrop."));
+    // `video_job` is lit by an HDR map, which the studio-light rule would refuse first; give the
+    // video the studio scene so the tilt-video rule is the one that speaks.
+    let mut video = video_job();
+    video.scene = still_job().scene;
+    video.hdr = None;
+    video.scene.stone_shadow = true;
+    video.scene.backdrop = 1.0;
+    video.scene.lighting_preset = pleochroma::optics::raytracer::LightingPreset::LightTent;
+    video.format = format_for(&video);
+    assert!(message(&video).contains("Tilt videos do not show the stone shadow yet."));
+}
+
+/// The HDR and ASET lights have no tray to shadow, so a shadowed job on either is refused.
+#[test]
+fn a_shadowed_job_is_refused_under_an_hdr_map_or_the_aset_light() {
+    let (scene, source) = hdr_scene();
+    let mut job = still_job();
+    job.scene = scene;
+    job.hdr = Some(source);
+    job.scene.stone_shadow = true;
+    job.scene.backdrop = 1.0;
+    job.format = format_for(&job);
+    assert!(message(&job).contains("Stone shadow needs a studio light with a backdrop."));
+
+    let mut aset = still_job();
+    aset.scene.stone_shadow = true;
+    aset.scene.backdrop = 1.0;
+    aset.scene.lighting_preset = pleochroma::optics::raytracer::LightingPreset::Aset;
+    aset.format = format_for(&aset);
+    assert!(message(&aset).contains("Stone shadow needs a studio light with a backdrop."));
+}
+
+/// Format 4 prevents an old reader from silently losing the tray reflection; it wins over the
+/// shadow's format 3 when both are set.
+#[test]
+fn a_reflective_job_requires_format_four_and_a_supported_scene() {
+    let mut job = still_job();
+    job.scene.tray_reflection = 0.04;
+    job.scene.backdrop = 1.0;
+    job.scene.lighting_preset = pleochroma::optics::raytracer::LightingPreset::LightTent;
+    assert_eq!(format_for(&job), 4);
+    assert!(job.validate().is_err());
+    job.format = format_for(&job);
+    assert_eq!(job.validate(), Ok(()));
+    job.scene.stone_shadow = true;
+    assert_eq!(format_for(&job), 4, "the reflection's format wins");
+    job.scene.stone_shadow = false;
+    job.scene.backdrop = 0.0;
+    assert!(message(&job).contains("Tray reflection needs a studio light with a backdrop."));
+    job.scene.backdrop = 1.0;
+    job.scene.tray_reflection = 1.5;
+    assert!(message(&job).contains("Tray reflection must be between 0 and 100 %."));
+    job.scene.tray_reflection = f32::NAN;
+    job.format = format_for(&job);
+    assert!(message(&job).contains("Tray reflection must be between 0 and 100 %."));
+    // As for the shadow, the video gets the studio scene so the tilt-video rule is the one that
+    // speaks.
+    let mut video = video_job();
+    video.scene = still_job().scene;
+    video.hdr = None;
+    video.scene.tray_reflection = 0.04;
+    video.scene.backdrop = 1.0;
+    video.scene.lighting_preset = pleochroma::optics::raytracer::LightingPreset::LightTent;
+    video.format = format_for(&video);
+    assert!(message(&video).contains("Tilt videos do not show the tray reflection yet."));
+}
+
+/// A hand-edited format 4 file with a negative reflectance is told its reflectance is out of
+/// range, not that its format does not match (`format_for` reads a negative reflectance as none).
+#[test]
+fn a_hand_edited_negative_reflectance_is_refused_for_the_reflectance() {
+    let mut job = still_job();
+    job.scene.tray_reflection = 0.04;
+    job.scene.backdrop = 1.0;
+    job.scene.lighting_preset = pleochroma::optics::raytracer::LightingPreset::LightTent;
+    job.format = format_for(&job);
+    assert_eq!(job.format, 4);
+    assert_eq!(job.validate(), Ok(()));
+    job.scene.tray_reflection = -0.5;
+    assert_eq!(job.format, 4, "the file still says format 4");
+    assert!(message(&job).contains("Tray reflection must be between 0 and 100 %."));
+}
+
+/// A job without the reflection writes no `tray_reflection` key.
+#[test]
+fn a_reflection_free_job_writes_no_tray_reflection_key() {
+    let job = still_job();
+    assert!(
+        !crate::codec::to_text(&job)
+            .unwrap()
+            .contains("tray_reflection")
+    );
+    let mut reflective = still_job();
+    reflective.scene.tray_reflection = 0.04;
+    reflective.scene.backdrop = 1.0;
+    reflective.scene.lighting_preset = pleochroma::optics::raytracer::LightingPreset::LightTent;
+    reflective.format = format_for(&reflective);
+    assert!(
+        crate::codec::to_text(&reflective)
+            .unwrap()
+            .contains("tray_reflection")
+    );
+}
+
+/// Zones need format 5 whatever else the job holds; it wins over the reflection's format 4.
+#[test]
+fn a_zoned_job_requires_format_five_and_usable_zones() {
+    let mut job = still_job();
+    assert_eq!(format_for(&job), 1, "no zones, no format 5");
+    job.zoning = Some(pleochroma::optics::materials::ametrine_zoning());
+    job.scene.material.absorption_unit = pleochroma::optics::materials::AbsorptionUnit::PerMm;
+    assert_eq!(format_for(&job), 5);
+    assert!(job.validate().is_err(), "the file still says format 1");
+    job.format = format_for(&job);
+    assert_eq!(job.validate(), Ok(()));
+    job.scene.tray_reflection = 0.04;
+    job.scene.backdrop = 1.0;
+    job.scene.lighting_preset = pleochroma::optics::raytracer::LightingPreset::LightTent;
+    assert_eq!(format_for(&job), 5, "the zones' format wins");
+    job.scene.tray_reflection = 0.0;
+    job.scene.backdrop = 0.0;
+    job.scene.material.absorption_unit = pleochroma::optics::materials::AbsorptionUnit::ModelUnit;
+    assert!(message(&job).contains("per-millimeter"));
+    job.scene.material.absorption_unit = pleochroma::optics::materials::AbsorptionUnit::PerMm;
+    if let Some(zoning) = &mut job.zoning {
+        zoning.boundary_softness_mm = -1.0;
+    }
+    assert!(message(&job).contains("The color zones are not usable"));
+}
+
+/// A turned HDR map needs format 6 whatever else the job holds: it wins over the zones' format 5,
+/// and a file that still says an older format is refused.
+#[test]
+fn a_turned_hdr_job_requires_format_six() {
+    let mut job = turned_hdr_still_job();
+    assert_eq!(format_for(&job), 6);
+    assert_eq!(job.format, 6);
+    assert_eq!(job.validate(), Ok(()));
+    job.format = 1;
+    assert!(message(&job).contains("format 1"));
+    job.format = 5;
+    assert!(message(&job).contains("format 5"));
+
+    job.zoning = Some(pleochroma::optics::materials::ametrine_zoning());
+    job.scene.material.absorption_unit = pleochroma::optics::materials::AbsorptionUnit::PerMm;
+    assert_eq!(
+        format_for(&job),
+        6,
+        "the turned map's format wins over the zones"
+    );
+    job.format = 6;
+    assert_eq!(job.validate(), Ok(()));
+    job.scene.hdr_orientation = pleochroma::renderer::env_map::HdrOrientation::default();
+    assert_eq!(
+        format_for(&job),
+        5,
+        "unturned, the zones' format shows again"
+    );
+}
+
+/// Only a turned map in an HDR scene makes format 6: a yaw or the camera flag alone does. An
+/// unturned map, or a studio scene with a stray orientation, does not, and an unturned job
+/// writes no `hdr_orientation` key.
+#[test]
+fn an_unturned_or_studio_job_keeps_its_format_and_writes_no_orientation_key() {
+    use pleochroma::renderer::env_map::HdrOrientation;
+
+    let (scene, source) = hdr_scene();
+    let mut job = still_job();
+    job.scene = scene;
+    job.hdr = Some(source);
+    assert_eq!(format_for(&job), 1);
+    assert_eq!(job.validate(), Ok(()));
+    assert!(
+        !crate::codec::to_text(&job)
+            .unwrap()
+            .contains("hdr_orientation")
+    );
+
+    job.scene.hdr_orientation = HdrOrientation {
+        yaw: 0.5,
+        follows_camera: false,
+    };
+    assert_eq!(format_for(&job), 6, "a yaw alone turns the map");
+    job.scene.hdr_orientation = HdrOrientation {
+        yaw: 0.0,
+        follows_camera: true,
+    };
+    assert_eq!(
+        format_for(&job),
+        6,
+        "following the camera alone turns the map"
+    );
+    job.format = 6;
+    assert_eq!(job.validate(), Ok(()));
+    assert!(
+        crate::codec::to_text(&job)
+            .unwrap()
+            .contains("hdr_orientation")
+    );
+
+    let mut studio = still_job();
+    studio.scene.hdr_orientation = HdrOrientation {
+        yaw: 0.5,
+        follows_camera: true,
+    };
+    assert_eq!(
+        format_for(&studio),
+        1,
+        "a studio scene ignores the map's turn"
+    );
+    assert_eq!(studio.validate(), Ok(()));
+}
+
+/// The scene's own zones move into the file's field, and a Ray-Traced job drops them.
+#[test]
+fn moving_the_scene_zoning_into_the_file_clears_the_material() {
+    let zoning = pleochroma::optics::materials::ametrine_zoning();
+    let mut job = still_job();
+    job.scene.material.zoning = Some(zoning.clone());
+    job.scene.material.absorption_unit = pleochroma::optics::materials::AbsorptionUnit::PerMm;
+    job.move_scene_zoning_to_file();
+    assert_eq!(job.zoning, Some(zoning.clone()));
+    assert!(job.scene.material.zoning.is_none());
+
+    let mut ray = still_job();
+    ray.engine.engine = pleochroma::renderer::engine::RenderEngine::RayTraced;
+    ray.scene.material.zoning = Some(zoning);
+    ray.move_scene_zoning_to_file();
+    assert!(
+        ray.zoning.is_none(),
+        "the Ray-Traced engine renders the base color"
+    );
+    assert!(ray.scene.material.zoning.is_none());
+
+    // A hand-edited Ray-Traced file that carries zones is refused, not rendered without them.
+    ray.scene.material.absorption_unit = pleochroma::optics::materials::AbsorptionUnit::PerMm;
+    ray.zoning = Some(pleochroma::optics::materials::ametrine_zoning());
+    ray.format = format_for(&ray);
+    assert!(message(&ray).contains("Color zones require Path-Traced rendering."));
+}
+
+/// A job without the shadow writes no `stone_shadow` key.
+#[test]
+fn a_shadow_free_job_writes_no_stone_shadow_key() {
+    let job = still_job();
+    let value = serde_json::to_value(&job).unwrap();
+    let scene = value
+        .get("scene")
+        .and_then(serde_json::Value::as_object)
+        .expect("the job has a scene object");
+    assert!(!scene.contains_key("stone_shadow"));
+    assert!(
+        !crate::codec::to_text(&job)
+            .unwrap()
+            .contains("stone_shadow")
+    );
+
+    let mut shadowed = still_job();
+    shadowed.scene.stone_shadow = true;
+    shadowed.scene.backdrop = 1.0;
+    shadowed.scene.lighting_preset = pleochroma::optics::raytracer::LightingPreset::LightTent;
+    shadowed.format = format_for(&shadowed);
+    assert!(
+        crate::codec::to_text(&shadowed)
+            .unwrap()
+            .contains("stone_shadow")
     );
 }

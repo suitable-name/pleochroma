@@ -134,7 +134,7 @@ impl Film<'_> {
         }
     }
 
-    /// Films opening the New Design dialog, filling the Empty or Template form, and clicking Create.
+    /// Films the New Design dialog: opens it, fills the Empty or Template form and clicks Create.
     #[expect(
         clippy::too_many_lines,
         reason = "one linear route through the New Design dialog"

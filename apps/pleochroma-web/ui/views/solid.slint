@@ -246,7 +246,7 @@ export component SolidView inherits Rectangle {
         toolbar-height: toolbar.top-height;
     }
 
-    // Hidden while dragging or once the pointer leaves (desktop #116).
+    // Hidden while dragging or once the pointer leaves the view.
     if SolidModel.hover-text != "" && touch.has-hover && !root.dragging && !root.handle-dragging && !root.slice-dragging: SolidTooltip {
         x: 10px;
         y: root.height - self.height - 46px;

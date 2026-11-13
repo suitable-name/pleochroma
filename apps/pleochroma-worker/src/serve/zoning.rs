@@ -1,14 +1,14 @@
-//! Zones received over the wire: the per-connection stash of
-//! `ClientMessage::ZoningPayload`s and the step that re-attaches them to the scene they
-//! belong to.
+//! Zones received over the wire: the per-connection stash of `ZoningPayload`s, and the
+//! step that attaches them to their scene.
 //!
 //! A zoned material serialises WITHOUT its zones (`GemMaterial::zoning` is `serde(skip)`), so
 //! the viewer sends them first, as a [`ZoningPayload`] keyed by the request id, and the
-//! request after. A coordinator does the same for every chunk it gives a joined worker (v36),
-//! whose `join` connection runs the same request loop. Wherever this worker reads a `ClientMessage` -- the idle request loop
-//! (`connection::requests`), the streaming emitter's poll, the HDR asset wait, the batch
-//! session, the tilt-curves poll -- a payload is [`stash`]ed here, and the request that
-//! follows [`take`]s it before it is validated and traced.
+//! request after. A coordinator does the same for each chunk it gives a joined worker, whose
+//! `join` connection runs the same request loop. Wherever this worker reads a
+//! `ClientMessage` (the idle request loop in `connection::requests`, the streaming
+//! emitter's poll, the HDR asset wait, the batch session, the tilt-curves poll), a payload
+//! is [`stash`]ed here, and the request that follows [`take`]s it before validation and
+//! tracing.
 //!
 //! # Why a thread-local
 //!
@@ -21,10 +21,11 @@
 //!
 //! # What the worker cannot know
 //!
-//! The scene is unchanged on the wire, so a scene that SHOULD have been zoned but arrives without
-//! its payload cannot be told from an unzoned one: it renders as its base zone. The viewer
-//! guarantees the order (payload immediately before the request, only to a peer that advertised
-//! the capability); the worker enforces what it can -- the payload must validate, the material
+//! The scene is unchanged on the wire, so a scene that SHOULD have been zoned but arrives
+//! without its payload cannot be told from an unzoned one: it renders as its base zone.
+//! The viewer guarantees the order (payload immediately before the request, only to a peer
+//! that advertised the capability); the worker enforces what it can -- the payload must
+//! validate, the material
 //! must be per-millimetre, the scene must not be fluorescent, the payload must name what the
 //! request has.
 
@@ -34,10 +35,11 @@ use pleochroma_net::{
 };
 use std::{cell::RefCell, collections::VecDeque};
 
-/// How many unclaimed payloads one connection may hold; the OLDEST (first stashed) is dropped
-/// first. Request ids wrap on the viewer's side, so the id order says nothing about age.
-/// A payload whose request was cancelled before it was served stays until it is evicted or
-/// the connection ends.
+/// How many unclaimed payloads one connection may hold; the OLDEST (first stashed) is
+/// dropped first.
+///
+/// Request ids wrap on the viewer's side, so the id order says nothing about age. A payload
+/// whose request was cancelled stays until it is evicted or the connection ends.
 pub const MAX_STASHED: usize = 8;
 
 thread_local! {
@@ -174,6 +176,10 @@ mod tests {
             height: 8,
             yaw: 0.4,
             camera_roll: 0.0,
+            stone_shadow: false,
+            tray_reflection: 0.0,
+            hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
+            estimator: pleochroma::optics::raytracer::Estimator::Branching,
             pitch: 0.3,
             distance: 3.0,
             light_yaw: 0.85,

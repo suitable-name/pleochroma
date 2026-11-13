@@ -305,9 +305,8 @@ impl Projection {
                         .counters
                         .probes
                         .fetch_add(rows.len() as u64, Ordering::Relaxed);
-                    // First batch checks each row of its first candidate against an
-                    // independent f64 CPU reference. Absolute contract: 2e-12*(1+|r|),
-                    // one millionth of the preservation tolerance near the solution.
+                    // The first batch with a CPU reference checks its rows against an
+                    // independent f64 CPU reference within 2e-12 * (1 + |r|).
                     let parity = self.parity.get().copied().unwrap_or_else(|| {
                         let reference = planes.iter().zip(&rows).find_map(|(p, probe)| {
                             self.network

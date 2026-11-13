@@ -1,10 +1,6 @@
 //! `WorkerItem` (the Slint-facing struct) <-> `settings::RemoteEndpoint` (the persisted
 //! one) conversions, and pushing the configured endpoint to every UI surface that shows
 //! or defaults from it ([`refresh_remote_ui`]).
-//!
-//! Split out of `gui::remote` purely to keep that module (already sizeable) from
-//! growing further -- same reasoning as `gui::detail`/`gui::search`/`gui::remote`
-//! itself.
 
 use crate::{
     MainWindow, RemoteAvailabilityItem, RemoteWorkerModel, SettingsModel, WorkerItem,
@@ -34,10 +30,10 @@ const fn transfer_mode_from_index(idx: i32) -> TransferMode {
     }
 }
 
-/// The merged live transfer of an endpoint, as the form and the Render & Output tab show it:
-/// `0` progressive full data, `1` full data when finished, `2` finished pictures. The old
-/// "Live stream" (`transfer_mode`) and "Live transfer" (`live_transfer`) settings are this one
-/// number; the final picture wins because the live request then ignores `transfer_mode`.
+/// The merged live transfer of an endpoint, as the form and the Render & Output tab show it.
+///
+/// `0` progressive full data, `1` full data when finished, `2` finished pictures. The final
+/// picture wins over the stream mode (`transfer_mode`), which the live request then ignores.
 const fn merged_live_transfer_index(endpoint: &RemoteEndpoint) -> i32 {
     match endpoint.live_transfer {
         LiveTransfer::FinalPicture => 2,
@@ -169,8 +165,7 @@ mod tests {
     use super::*;
     use crate::settings::LiveTransfer;
 
-    /// The form round-trips every field it shows, and saving it keeps the live
-    /// transfer (set in the Parameters panel, not on the form).
+    /// The form round-trips every field it shows, including the merged live transfer.
     #[test]
     fn a_form_round_trip_keeps_every_field_and_the_live_transfer() {
         let endpoint = RemoteEndpoint {
@@ -200,7 +195,7 @@ mod tests {
         );
     }
 
-    /// The two full-data choices keep the stream mode and the default live transfer.
+    /// The two full-data choices set the stream mode and a full-data live transfer.
     #[test]
     fn the_full_data_choices_set_the_stream_mode() {
         let mut endpoint = RemoteEndpoint::default();

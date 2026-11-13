@@ -39,11 +39,10 @@ pub(super) fn has_axis(gem: &GemMaterial) -> bool {
     gem.optical_character != OpticalCharacter::Isotropic
 }
 
-/// The default orientation the design's material brings.
+/// The default orientation the design's material brings: a custom material's stored tilt and
+/// azimuth (and its Second Axis, when it has one).
 ///
-/// A custom material's stored default
-/// (its tilt and azimuth, and the Second Axis when it has one). `None` for a built-in material,
-/// for a custom one that stores none, and when no material is set.
+/// `None` for a built-in material, for a custom one that stores none, and when no material is set.
 #[must_use]
 pub fn material_default_orientation(state: &AppState) -> Option<CrystalOrientation> {
     let name = state.session.design.material.name.as_deref()?;
@@ -62,11 +61,11 @@ pub fn axis_is_biaxial(state: &AppState) -> bool {
     resolved_gem(state).is_some_and(|gem| gem.biaxial_delta_beta_alpha.is_some())
 }
 
-/// The orientation the stone renders with.
+/// The orientation the stone renders with: the design's own setting when its override is on, else
+/// the material's default.
 ///
-/// The design's own setting when its override is on,
-/// else the material's default. `None` when the stone keeps the material's built-in axis, and
-/// for an isotropic material (it has no axis to describe).
+/// `None` when the stone keeps the material's built-in axis, and for an isotropic material (it has
+/// no axis to describe).
 #[must_use]
 pub fn effective_orientation(state: &AppState) -> Option<CrystalOrientation> {
     if resolved_gem(state).is_some_and(|gem| !has_axis(&gem)) {
@@ -79,14 +78,16 @@ pub fn effective_orientation(state: &AppState) -> Option<CrystalOrientation> {
 }
 
 /// The sentence Cutting Mode shows on its first step: how the crystal axis must run in the
-/// rough. `None` when the stone keeps its material's built-in axis or the material is isotropic.
+/// rough. `None` when the stone keeps its material's built-in axis or the material is
+/// isotropic.
 #[must_use]
 pub fn orientation_line(state: &AppState) -> Option<String> {
     effective_orientation(state).map(|orientation| orientation_sentence(&orientation))
 }
 
 /// The azimuth in `[0, 180)` of the width direction of the solved stone (the rotating-caliper
-/// minimum width of its outline), `None` before the design is solved or when it does not close.
+/// minimum width of its outline), `None` before the design is solved or when it does not
+/// close.
 fn design_width_azimuth_deg(state: &AppState) -> Option<f64> {
     let planes = state
         .solve
@@ -109,12 +110,11 @@ fn design_width_azimuth_deg(state: &AppState) -> Option<f64> {
     width_azimuth_deg(caliper_frame(&outline)?.width_dir)
 }
 
-/// The preset buttons of the design's material.
+/// The preset buttons of the design's material: the three geometry presets, then the color-named
+/// presets of a trichroic material (Tanzanite, Alexandrite, Andalusite).
 ///
-/// The three geometry presets, then the
-/// color-named presets of a trichroic material (Tanzanite, Alexandrite, Andalusite). Empty for an
-/// isotropic material. The color presets are worked out from the material's absorption, so
-/// ask only when the material changed.
+/// Empty for an isotropic material. The color presets are worked out from the material's
+/// absorption, so ask only when the material changed.
 #[must_use]
 pub fn axis_preset_rows(state: &AppState) -> Vec<AxisPresetRow> {
     let Some(gem) = resolved_gem(state).filter(has_axis) else {

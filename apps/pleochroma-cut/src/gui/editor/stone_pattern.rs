@@ -215,8 +215,8 @@ impl Port {
                     "Preview only. Open the design in Edit before editing zones to save them with the design."
                 }.into());
                 typical::push(&zoning, &typical::state_of(&target));
-                // The Stone tab compares the axis tilt itself (the design's, else this one), so the
-                // hint follows the axis controls without another refresh.
+                // The Stone tab compares the axis tilt itself, so the hint follows the axis
+                // controls without another refresh.
                 zoning.set_pattern_layers_across_axis(
                     target.pattern.as_ref().is_some_and(layers_across_axis),
                 );

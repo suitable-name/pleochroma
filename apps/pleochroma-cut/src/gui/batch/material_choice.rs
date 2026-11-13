@@ -3,33 +3,26 @@
 //!
 //! Refractive index only narrows the field: several presets usually sit within the match
 //! tolerance of a design's index and differ in body color, absorption and dispersion.
-//! The one that is kept for the design's lifetime is the one that serves the stone best
-//! across a balanced set of measures, not the one that minimises any single figure.
-//! A stone that windows 0% while most of its light is extinguished is not a good match,
-//! so windowing, extinction and (flipped) brilliance count equally, each averaged over
-//! a table-up and two tilted poses.
+//! The kept material is the one that serves the stone best across a balanced set of
+//! measures, not the one that minimises any single figure: a stone that windows 0% while
+//! most of its light is extinguished is a poor match. Windowing, extinction and (flipped)
+//! brilliance therefore count equally, each averaged over a table-up and two tilted poses.
 //!
 //! # Stone size
 //!
-//! This module only PICKS the material, and it scores the candidates unsized
-//! (`material_for_stone` at width `0.0`, the 7 mm calibration), as it always has: the pick is
-//! persisted write-once, so it must depend on the design's geometry and index alone, never on a
-//! size that can change when the design is edited.
+//! This module only PICKS the material. It scores the candidates unsized
+//! (`material_for_stone` at width `0.0`, the 7 mm calibration), because the pick is
+//! persisted write-once: it must depend on the design's geometry and index alone.
 //!
-//! The picked material is not what the batches draw and sweep as it stands.
-//! `super::catalogue_material::catalogue_material` sizes it by the design's own girdle diameter
-//! (`Design::girdle_diameter_mm` of the design file, carried by
-//! `gui::editor::CataloguePlanes::girdle_diameter_mm`), exactly as the editor's viewport and the
-//! exports size a stone, so a library design shows and is scored at the size the editor shows. A
-//! design whose file names a material is not drawn in this pick at all but in that material (the
-//! editor's own rule, with the file's refractive-index and body-color overrides). A design with
-//! neither -- an angle-table design, an `.asc` alone, a file without a girdle diameter -- keeps
-//! the unsized pick, and with it the same thumbnails, curves and cache fingerprint it had before.
+//! The batches size the picked material by the design's girdle diameter
+//! (`super::catalogue_material::catalogue_material`), as the editor's viewport and the
+//! exports do. A design whose file names a material is drawn in that material instead (the
+//! editor's own rule). A design with neither (an angle-table design, an `.asc` alone, a file
+//! without a girdle diameter) keeps the unsized pick.
 //!
-//! What remains approximate: for a design whose file sets a girdle diameter but names no
-//! material, the pick itself was scored at 7 mm, so a size far from 7 mm can leave a different
-//! candidate of the shortlist the better one at the real size. The pick is not redone per size,
-//! to keep it stable.
+//! Approximation: for a design that sets a girdle diameter but names no material, the pick
+//! was scored at 7 mm, so at a much different size another shortlist candidate could be
+//! better. The pick is not redone per size, so it stays stable.
 
 use crate::bridge::preview_render::{PREVIEW_LIGHT_PITCH, PREVIEW_LIGHT_YAW};
 use pleochroma::{
@@ -42,8 +35,7 @@ use pleochroma_vault::{db::sqlite::Database, model::material_match::RiPresetCand
 /// Camera pitches the candidates are measured at, in degrees: table-up, then two tilts.
 const SCORE_PITCHES_DEG: [f32; 3] = [90.0, 60.0, 30.0];
 
-/// The preset the candidates are lit by -- the one the tilt batch scores under (the ISO
-/// hemisphere, formerly the ring lights).
+/// The lighting preset the candidates are scored under (the ISO hemisphere).
 const SCORE_PRESET: LightingPreset = LightingPreset::IsoHemisphere;
 
 /// `material`'s balanced loss on `planes` (0-100, LOWER is better): the mean over

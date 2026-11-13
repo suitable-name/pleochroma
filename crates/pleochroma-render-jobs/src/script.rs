@@ -86,7 +86,7 @@ pub struct ScriptSettings {
     pub engines: LocalEngines,
     /// The remote worker, or `None` to render on this computer only.
     pub remote: Option<RemoteArgs>,
-    /// A header line such as `Exported 2026-10-06 14:03 by Pleochroma Cut 0.6.2.`.
+    /// A header line, such as the export time and the app version.
     pub header_note: String,
 }
 

@@ -1,4 +1,6 @@
-//! Tests for [`super`], split by topic: shared fixtures, basic per-field
+//! Tests for [`super`], split by topic.
+//!
+//! The topics are shared fixtures, basic per-field
 //! edits, per-tier annotations (cheater offset/note) and their
 //! renumbering/relocation, undo/redo mechanics and validation, index
 //! remapping and `SetSchedule`, angle retargeting, coalesced edits, a

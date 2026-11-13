@@ -14,9 +14,8 @@ use pleochroma_cut_core::{Design, MaterialSelection, PreformSpec};
 
 /// The last-pushed value of every design-derived group a form mirrors.
 ///
-/// Every field
-/// starts unobserved, so the very first refresh after New/Load reports every group
-/// changed (a correct, if slightly redundant, initial push).
+/// Every field starts unobserved, so the first refresh after New or Load reports every group
+/// as changed (a correct, if slightly redundant, initial push).
 #[derive(Default)]
 pub struct PushedScratch {
     material: Option<MaterialSelection>,

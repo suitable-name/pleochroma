@@ -84,7 +84,7 @@ pub struct OpticalPixel {
 }
 impl OpticalPixel {
     /// The number of traces the counts of this pixel are out of: one per hit for an isotropic
-    /// stone (the same float as before the modes existed), two per hit for an anisotropic one.
+    /// stone, two per hit for an anisotropic one.
     fn trace_count(&self) -> f32 {
         self.hits.max(1) as f32 * f32::from(self.modes.max(1))
     }
@@ -115,9 +115,9 @@ pub struct OpticalImage {
 }
 impl OpticalImage {
     /// Bernoulli variance `p (1 - p)` of the fraction `p` of yaw poses at which pixel `i`'s
-    /// centre ray was visibly returned (0, 0.16 or 0.24 for an isotropic stone, which has five
-    /// poses; an anisotropic stone, with ten mode-poses, adds 0.09, 0.21 and 0.25); `None`
-    /// where it was not computed.
+    /// centre ray was visibly returned: 0, 0.16 or 0.24 for an isotropic stone (five poses);
+    /// 0.09, 0.16, 0.21, 0.24 or 0.25 for an anisotropic one (ten mode-poses). `None` where it
+    /// was not computed.
     #[must_use]
     pub fn temporal_variance(&self, pixel: usize) -> Option<f32> {
         let p = self.pixels.get(pixel)?;

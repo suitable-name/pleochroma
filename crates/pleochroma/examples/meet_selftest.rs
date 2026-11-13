@@ -1,5 +1,5 @@
-//! TEMPORARY runner mirroring `meet_solver`'s unit tests, so their scenarios can be
-//! exercised without invoking the workspace test suite. Prints PASS/FAIL per check.
+//! Temporary runner that replays `meet_solver` unit-test scenarios as PASS/FAIL checks,
+//! without the test harness.
 //!
 //! Run: `cargo run --profile probe -p pleochroma --example meet_selftest`
 
@@ -166,8 +166,8 @@ fn main() {
             "results differ",
         );
 
-        // And the solved tiers land near this design's true masts (B and C are
-        // meet-derived here; loose bound, this is a smoke check not a corpus gate).
+        // Solved tiers B and C land near the design's true masts. The 20 % bound is a
+        // smoke check, not a corpus gate.
         let errs: Vec<f64> = (3..5)
             .map(|i| (a[i].mast - schedule.tiers[i].mast.abs()).abs() / schedule.tiers[i].mast)
             .collect();

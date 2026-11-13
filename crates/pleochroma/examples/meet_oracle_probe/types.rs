@@ -63,9 +63,9 @@ pub struct Cand {
     reason = "a probe record of independent per-rule hit flags, printed as columns"
 )]
 pub struct TierStats {
-    /// E3b relative error, instance 0.
+    /// Relative mast error, instance 0.
     pub err0: f64,
-    /// E3b relative error, worst instance.
+    /// Relative mast error, worst instance.
     pub err_worst: f64,
     /// Rank (0-based level index, descending by value) of the true level, instance 0.
     /// `None` when err0 >= MATCH_REL (no matching level).
@@ -79,8 +79,8 @@ pub struct TierStats {
     /// Rank of the deepest level at which every other tier's facet keeps >= 3
     /// corner vertices ("deepest safe cut").
     pub deepest_safe_rank: Option<usize>,
-    /// E4: relative error restricted to candidates incident to every resolved named
-    /// reference. `None` when the tier has no resolved named refs.
+    /// Relative error restricted to candidates incident to every resolved named reference.
+    /// `None` when the tier has no resolved named refs.
     pub e4_err: Option<f64>,
     /// How many of the tier's stated meet names resolved / total stated.
     pub named_resolved: Option<(usize, usize)>,

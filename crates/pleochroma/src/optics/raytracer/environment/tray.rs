@@ -32,7 +32,7 @@ pub const TRAY_ALBEDO_BLACK: f32 = 0.02;
 /// Directions of the irradiance quadrature: a Fibonacci spiral over the upper hemisphere.
 /// 32768 points put at least 60 samples in the smallest smooth lobe (the tent spark,
 /// 0.012 sr), so the tray does not wobble while the light is dragged.
-const IRRADIANCE_SAMPLES: u32 = 32_768;
+pub(super) const IRRADIANCE_SAMPLES: u32 = 32_768;
 
 /// The last `(preset, yaw bits, pitch bits, value)` computed; one entry is enough because the
 /// light pose changes rarely relative to frames.
@@ -40,7 +40,7 @@ static CACHE: Mutex<Option<(LightingPreset, u32, u32, f32)>> = Mutex::new(None);
 
 /// Direction `index` of the upper-hemisphere spiral, `y = (index + 0.5) / N`, `phi = index *
 /// golden angle` (equal-area: every direction carries `2 pi / N` sr).
-fn hemisphere_direction(index: u32) -> (Vec3, f64) {
+pub(super) fn hemisphere_direction(index: u32) -> (Vec3, f64) {
     let y = (f64::from(index) + 0.5) / f64::from(IRRADIANCE_SAMPLES);
     let radius = y.mul_add(-y, 1.0).max(0.0).sqrt();
     let phi = f64::from(index) * (PI * (3.0 - 5.0_f64.sqrt()));
@@ -89,8 +89,9 @@ fn irradiance_over_pi_uncached(preset: LightingPreset, light_yaw: f32, light_pit
 
 /// `E_geom / pi` of `preset` at the light pose (yaw and pitch in radians).
 ///
-/// This is the rig's irradiance on an upward plane at exposure 1, observer off, divided by pi. Cached (one
-/// entry, keyed by the preset and the pose's bits); a pure function of its inputs.
+/// The rig's irradiance on an upward plane at exposure 1, observer off, divided by pi.
+///
+/// Cached (one entry, keyed by the preset and the pose's bits); a pure function of its inputs.
 #[must_use]
 pub fn rig_irradiance_over_pi(preset: LightingPreset, light_yaw: f32, light_pitch: f32) -> f32 {
     let (yaw_bits, pitch_bits) = (light_yaw.to_bits(), light_pitch.to_bits());
@@ -119,8 +120,8 @@ pub fn tray_radiance(albedo: f32, preset: LightingPreset, light_yaw: f32, light_
 /// The radiance [`metered_exposure`] exposes white paper to.
 ///
 /// It is what the grading dome gives it (irradiance over pi of 1), just under the shoulder of
-/// the ACES curve. A white tray shows as an off-white sheet (about 0.89 in sRGB), the stone
-/// keeps its whole tonal range, and the grading tray, the scoring light, looks as it always did.
+/// the ACES curve: a white tray reads as an off-white sheet (about 0.89 in sRGB) and the stone
+/// keeps its tonal range.
 pub const METERED_PAPER_RADIANCE: f32 = TRAY_ALBEDO_WHITE;
 
 /// The exposure an incident-light meter sets for `preset` at the light pose.
@@ -131,10 +132,9 @@ pub const METERED_PAPER_RADIANCE: f32 = TRAY_ALBEDO_WHITE;
 ///
 /// The rigs differ in total light by more than five stops: the daylight sky lights a tray at
 /// about a fifth of the grading dome, a studio key with its ring sparks at four to eight times
-/// the dome. One fixed exposure therefore left the sky and window rigs dark and blew the studio
-/// rigs out on a white tray. The meter reads the light, not the picture, so black velvet stays
-/// black and a grey card grey. No score reads it: the metrics classify light relative to the
-/// rig's own ambient, whatever the exposure.
+/// it, so one fixed exposure cannot serve them all. The meter reads the light, not the picture,
+/// so black velvet stays black and a grey card grey. No score reads it: the metrics classify
+/// light relative to the rig's own ambient, whatever the exposure.
 ///
 /// The UV lamps keep `exposure` unchanged: their light is meant to be invisible, so there is no
 /// visible irradiance to meter.

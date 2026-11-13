@@ -10,16 +10,11 @@ use crate::optics::{
 use glam::Vec3;
 
 /// Per-bounce refractive-index and incidence-angle quantities, computed once at the top
-/// of each bounce iteration before the TIR / partial-reflect / refract branches decide
-/// what to do with them.
+/// of each bounce, before the TIR / partial-reflect / refract branches choose a path.
 ///
-/// `pub(crate)` (struct and every field) plus `#[derive(Clone, Copy, Default)]` so
-/// `renderer::gpu::transport_check`'s Tier 2 ULP check for `apply_frosted_bounce` can
-/// build one directly, overriding just the four fields (`cos_i`/`n1`/`n2`/`sin2_t`)
-/// that function reads, rather than hand-deriving the full biaxial/per-channel
-/// machinery real bounce dispatch would populate. `Default` is derivable regardless of
-/// `BiaxialIndicatrix`'s own `Default`-ness since `Option<T>` always implements
-/// `Default` (`None`).
+/// `pub(crate)` with `Default`, so `renderer::gpu::transport_check` can build one for
+/// `apply_frosted_bounce` by setting only the fields that function reads (`cos_i`, `n1`,
+/// `n2`, `sin2_t`).
 #[derive(Clone, Copy, Default)]
 pub(crate) struct BounceRefractionGeometry {
     pub(crate) cos_i: f32,
@@ -38,13 +33,10 @@ pub(crate) struct BounceRefractionGeometry {
     pub(crate) n1_ch: [f32; NUM_CHANNELS],
     pub(crate) n2_ch: [f32; NUM_CHANNELS],
     pub(crate) sin2_t_ch: [f32; NUM_CHANNELS],
-    /// The shared local frame (`that`/`s_axis`/`zhat` + optic-axis direction cosines)
-    /// `uniaxial_fresnel`'s closed-form solver needs, built once per bounce from this
-    /// bounce's own `k_hat`/`normal`/`c_axis`/`cos_i`/`sin_i` -- see
-    /// `UniaxialFrame::build`'s own doc comment. `Some` only when this material is
-    /// genuinely uniaxial (`is_anisotropic && !is_biaxial`); `None` for an isotropic or
-    /// biaxial material, in which case every `apply_*` function in this file uses its
-    /// scalar-Fresnel/biaxial-indicatrix code path instead.
+    /// The local frame `uniaxial_fresnel`'s closed-form solver needs, built once per bounce
+    /// (see `UniaxialFrame::build`). `Some` only for a genuinely uniaxial material
+    /// (`is_anisotropic && !is_biaxial`); `None` otherwise, and the `apply_*` functions
+    /// take their scalar-Fresnel or biaxial path.
     pub(crate) uniaxial_frame: Option<UniaxialFrame>,
 }
 
@@ -61,7 +53,7 @@ pub(crate) struct BounceRefractionGeometry {
 /// (an isotropic first guess, exactly correct if the path turns out to be the ordinary
 /// eigenmode); `k_hat == S` trivially outside the crystal (isotropic air). While
 /// already inside the crystal, `k_hat` is the caller's own tracked wave normal
-/// (`current_k` in `transport.rs`, carried and re-evaluated across bounces -- see
+/// (`current_k` in `transport`, carried and re-evaluated across bounces -- see
 /// [`poynting_dir_for_mode`]), so the angle is read directly from it.
 ///
 /// Only applies to the uniaxial ordinary/extraordinary approximation -- a biaxial
@@ -86,12 +78,9 @@ pub(crate) fn theta_c_for_bounce(
     let is_anisotropic = ctx.is_anisotropic;
 
     if !inside_gem && is_anisotropic && !is_biaxial {
-        // Uses `extraordinary_index_at` (a genuine independent e-ray dispersion
-        // curve when the material carries one -- Quartz/Amethyst/Citrine/Rutile --
-        // falling back to the constant-offset approximation otherwise), matching
-        // `per_channel_effective_extraordinary_indices`'s own per-channel `n_e_k` lookup
-        // rather than a constant-offset-only `n_o_hero_seed +
-        // material.birefringence_delta`.
+        // `extraordinary_index_at`: the material's own e-ray curve where it has one
+        // (Quartz, Amethyst, Citrine, Rutile), else the constant offset. Matches the
+        // per-channel `n_e_k` lookup in `per_channel_effective_extraordinary_indices`.
         let n_e_hero_seed =
             material.extraordinary_index_at(ctx.lambdas[ctx.hero_idx], n_o_hero_seed);
         let mut n_guess = n_o_hero_seed;
@@ -147,6 +136,13 @@ pub(crate) fn per_channel_uniaxial_indices(
     let is_anisotropic = ctx.is_anisotropic;
     let mut n_o_ch = [0.0f32; NUM_CHANNELS];
     let mut n_eff_ch = [0.0f32; NUM_CHANNELS];
+    // One sin/cos of the shared `theta_c` for all channels, and none for an isotropic stone
+    // (the WGSL twin `bounce_index_setup` guards it the same way).
+    let (sin_t, cos_t) = if is_anisotropic {
+        theta_c.sin_cos()
+    } else {
+        (0.0, 1.0)
+    };
     for k in 0..NUM_CHANNELS {
         let n_o_k = material.dispersion.evaluate(ctx.lambdas[k]);
         // Wavelength-dependent extraordinary index when the material carries one
@@ -157,7 +153,7 @@ pub(crate) fn per_channel_uniaxial_indices(
         n_eff_ch[k] = if is_anisotropic {
             // Evaluated only on the anisotropic path: `n_e_k` has no other reader.
             let n_e_k = material.extraordinary_index_at(ctx.lambdas[k], n_o_k);
-            BirefringenceParams::effective_extraordinary_index(n_o_k, n_e_k, theta_c)
+            BirefringenceParams::effective_extraordinary_index_sc(n_o_k, n_e_k, sin_t, cos_t)
         } else {
             n_o_k
         };
@@ -180,13 +176,20 @@ fn per_channel_effective_extraordinary_indices(
     let material = ctx.material;
     let is_anisotropic = ctx.is_anisotropic;
     let mut n_eff_ch = [0.0f32; NUM_CHANNELS];
+    // One sin/cos of the shared `theta_c` for all channels, and none for an isotropic stone
+    // (the WGSL twin `bounce_index_setup` guards it the same way).
+    let (sin_t, cos_t) = if is_anisotropic {
+        theta_c.sin_cos()
+    } else {
+        (0.0, 1.0)
+    };
     for k in 0..NUM_CHANNELS {
         let n_o_k = n_o_ch[k];
         n_eff_ch[k] = if is_anisotropic {
-            // Evaluated only on the anisotropic path (PERF-9): 8 lookups per isotropic
-            // bounce were discarded.
+            // Evaluated only on the anisotropic path: an isotropic bounce would discard
+            // all eight lookups.
             let n_e_k = material.extraordinary_index_at(ctx.lambdas[k], n_o_k);
-            BirefringenceParams::effective_extraordinary_index(n_o_k, n_e_k, theta_c)
+            BirefringenceParams::effective_extraordinary_index_sc(n_o_k, n_e_k, sin_t, cos_t)
         } else {
             n_o_k
         };
@@ -209,7 +212,7 @@ fn per_channel_effective_extraordinary_indices(
 /// direction depends on the index, which depends on the direction) run once per mode,
 /// since neither mode has a constant index to seed the other from. Already inside the
 /// crystal, `k_hat` is the caller's own tracked wave normal (`current_k` in
-/// `transport.rs`), so both modes share it directly with no iteration -- both biaxial
+/// `transport`), so both modes share it directly with no iteration -- both biaxial
 /// modes walk off (see [`poynting_dir_for_mode`]'s doc comment), so `k_hat` here is
 /// genuinely not the same as `Ray::dir`/`S` while inside the crystal in either mode,
 /// unlike the uniaxial ordinary eigenmode.
@@ -248,8 +251,7 @@ fn hero_biaxial_wave_dirs(
 
 /// Per-channel biaxial mode-A/mode-B indices, each channel's own indicatrix evaluated
 /// at the shared hero wave-normal directions from [`hero_biaxial_wave_dirs`]. Zero
-/// (the array default) for a non-biaxial material or a channel whose indicatrix is
-/// somehow unavailable, matching the pre-extraction code's behaviour exactly.
+/// (the array default) for a non-biaxial material or a channel with no indicatrix.
 #[expect(
     clippy::similar_names,
     reason = "mode A/mode B wave directions and index arrays are the established paired names"
@@ -303,7 +305,7 @@ fn per_channel_medium_indices(
     clippy::similar_names,
     reason = "n_o/n_e are the established ordinary/extraordinary index names; mode A/mode B wave directions are the established paired names; mode A/mode B index arrays are the established paired names; mode A/mode B hero indices are the established paired names"
 )]
-pub(in crate::optics::raytracer) fn compute_bounce_refraction_geometry(
+pub(crate) fn compute_bounce_refraction_geometry(
     ctx: &RayMaterialContext,
     cache: &RayWavelengthCache,
     normal: Vec3,
@@ -322,13 +324,11 @@ pub(in crate::optics::raytracer) fn compute_bounce_refraction_geometry(
     let cos_i = (-k_hat).dot(normal).clamp(0.0, 1.0);
     let sin_i = cos_i.mul_add(-cos_i, 1.0).max(0.0).sqrt();
 
-    // Every channel evaluates the material's dispersion at its OWN wavelength instead
-    // of all eight channels sharing the hero's index. The single traced geometric path
-    // is still driven entirely by the hero channel (one ray per bounce); only the
-    // per-channel Stokes/radiometric bookkeeping is wavelength-correct.
-    // Is this material's anisotropy genuinely biaxial (three distinct principal
-    // indices) rather than the uniaxial ordinary/extraordinary approximation every
-    // other anisotropic built-in uses?
+    // Each channel evaluates the dispersion at its own wavelength. The traced geometric
+    // path is still driven by the hero channel alone; only the per-channel Stokes
+    // bookkeeping is wavelength-correct.
+    // Biaxial (three distinct principal indices), as opposed to the uniaxial
+    // ordinary/extraordinary approximation the other anisotropic materials use.
     let is_biaxial = material.biaxial_delta_beta_alpha.is_some();
 
     let n_o_hero_seed = cache.n_o_ch[hero_idx];
@@ -345,14 +345,10 @@ pub(in crate::optics::raytracer) fn compute_bounce_refraction_geometry(
     let n_o_ch = cache.n_o_ch;
     let n_eff_ch = per_channel_effective_extraordinary_indices(ctx, &n_o_ch, theta_c);
     let n_o_hero = n_o_ch[hero_idx];
-    // The hero's true extraordinary index, `extraordinary_index_at` -- the same value
-    // `theta_c_for_bounce`'s seed above uses -- so the walk-off/direction (Poynting)
-    // approximation (`BirefringenceParams::extraordinary_poynting_dir`) sees the real
-    // n_e(lambda) and the doubled images separate by color. A material with no
-    // e-curve falls back to `n_o + birefringence_delta`, the identical f32 sum the
-    // constant-offset form here used to compute. The metrics tracer
-    // (`color::metrics::birefringent`) already does this; the WGSL `n_e_hero`
-    // (`08a_index_setup.wgsl`) follows in lane RP-G5.
+    // The hero's true extraordinary index, from `extraordinary_index_at` (the same value
+    // `theta_c_for_bounce`'s seed uses), so the walk-off direction
+    // (`BirefringenceParams::extraordinary_poynting_dir`) follows n_e(lambda). A material
+    // with no e-curve falls back to `n_o + birefringence_delta`.
     let n_e_hero = material.extraordinary_index_at(ctx.lambdas[hero_idx], n_o_hero);
 
     let (hero_indicatrix, wave_dir_a_hero, wave_dir_b_hero) = hero_biaxial_wave_dirs(
@@ -529,7 +525,8 @@ mod walk_off_dispersion_tests {
                     .abs();
                 assert!(
                     (measured - expected).abs() <= 2e-4 * expected,
-                    "{name} at {lambda_nm} nm: tan(rho) {measured} vs analytic {expected}                      (f32 cross product of two near-parallel unit vectors, so 2e-4 not 1e-4)"
+                    "{name} at {lambda_nm} nm: tan(rho) {measured} vs analytic {expected} \
+                     (f32 cross product of two near-parallel unit vectors, so 2e-4 not 1e-4)"
                 );
             }
         }

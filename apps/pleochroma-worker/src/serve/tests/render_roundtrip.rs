@@ -10,7 +10,7 @@ use pleochroma_net::{
 use std::{net::TcpListener, thread};
 
 /// A real `RenderRequest` over a real loopback `TcpStream`, driven through
-/// `handle_connection` directly (not `run`'s accept loop): request goes in, a
+/// `handle_connection` directly, without the accept loop: request goes in, a
 /// correctly-sized summed radiance buffer comes back.
 #[test]
 fn serve_round_trip_over_a_loopback_socket_returns_a_correctly_sized_buffer() {
@@ -111,7 +111,7 @@ fn serve_round_trip_result_matches_tracing_the_same_range_directly() {
         pleochroma_net::radiance::decode(payload, scene.width, scene.height).unwrap();
     let direct = render_core::trace_samples(&scene_for_server, 0, 4, 2);
     // Relative tolerance, not bit-exact: the server sub-batches internally
-    // (`stream_emit::run_tracer`) and sums sub-batches, rather than tracing the whole
+    // (`stream_emit::tracer::run_tracer`) and sums sub-batches, rather than tracing the whole
     // range in one call like `direct` does, and float addition isn't associative.
     for (a, b) in over_the_wire.iter().zip(&direct) {
         let diff = (*a - *b).abs();
@@ -206,18 +206,16 @@ fn serve_round_trip_over_gpu_reports_backend_gpu_and_a_correctly_sized_buffer() 
 ///
 /// # Why this test's scene has no dispersion
 ///
-/// The strict per-pixel tolerance only holds when CPU and GPU produce the same
-/// per-sample radiance up to float-addition reordering. On a dispersive material they
-/// occasionally don't: `refraction.rs`'s chromatic-termination decisions compare a dot
-/// product against `DIRECTION_MATCH_COS_TOL = 1 - 1e-6`, so a cosine within a few ULPs
-/// of that threshold can flip between the two engines' independently rounded paths.
-/// Both outcomes are valid, unbiased estimators, but the flipped sample renormalises
-/// over a different MIS family, moving pixel sums by up to several percent run to run
-/// -- a property of the tolerance, not of the split-and-glue logic this test exists to
-/// prove. Hence [`super::fixtures::tiny_scene_without_dispersion`], where no decision
-/// can sit on the threshold. Dispersive CPU/GPU parity is covered statistically instead,
-/// by the GPU equivalence harness's Tier 3 image comparisons
-/// (`examples/gpu_equivalence_harness.rs`).
+/// The strict per-pixel tolerance only holds when CPU and GPU produce the same per-sample
+/// radiance up to float-addition reordering. On a dispersive material they can disagree:
+/// the chromatic-termination test compares two refracted directions with `directions_match`
+/// (1.414 mrad), so a pair within rounding of that threshold can flip between the engines.
+/// Both outcomes are valid, unbiased estimators, but a flipped sample renormalises over a
+/// different MIS family and moves pixel sums by up to several percent. That is a property of
+/// the tolerance, not of the split-and-glue logic this test proves. Hence
+/// [`super::fixtures::tiny_scene_without_dispersion`], where no decision can sit on the
+/// threshold. Dispersive parity is covered statistically by the GPU equivalence harness's
+/// Tier 3 image comparisons (`crates/pleochroma/examples/gpu_equivalence_harness/`).
 #[cfg(feature = "gpu")]
 #[test]
 fn hybrid_gpu_and_cpu_split_sums_to_the_same_result_as_tracing_the_range_directly() {

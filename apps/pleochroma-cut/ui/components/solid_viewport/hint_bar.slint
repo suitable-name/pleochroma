@@ -78,9 +78,9 @@ export component ManipulateHintBar inherits Rectangle {
 
     // The room the text has: the strip's width less its side padding and the buttons.
     property <length> text_width: max(1px, root.width - 20px - 16px - root.buttons_width);
-    // The strip takes a second line for a text that does not fit one (the Slice strip's "...Esc
-    // leaves slice." tail, the only way out, was elided). An estimate: Slint measures a wrapped
-    // Text as one line, and 11 px text runs about 5.6 px a character.
+    // The strip takes a second line for text that does not fit one, so the Slice hint's exit
+    // tip stays visible. An estimate: Slint measures a wrapped Text as one line, and 11 px text
+    // runs about 5.6 px a character.
     property <int> text_lines: Math.min(2, Math.max(1, Math.ceil(ManipulateModel.hint_text.character-count * 5.6px / root.text_width)));
 
     // Sits just under the toolbar's pill rows (10px padding + rows + 10px gap).

@@ -1,36 +1,27 @@
-//! The raw `CREATE TABLE`/`CREATE INDEX` SQL text shared verbatim between a migration
-//! (for an existing database) and `create_tables_if_not_exist` (for a fresh one), plus
-//! the frozen list of columns
-//! [`crate::db::sqlite::Database::migrate_prune_tilt_curve_aggregate_columns`] prunes.
+//! The raw `CREATE TABLE`/`CREATE INDEX` SQL text shared verbatim between a migration and
+//! `create_tables_if_not_exist`.
+//!
+//! Also the frozen list of old columns that
+//! [`crate::db::sqlite::Database::migrate_prune_tilt_curve_aggregate_columns`] drops.
 
 use crate::model::performance::global_extreme_column_name;
 use std::fmt::Write as _;
 
 /// The indexes the library search predicate needs, shared verbatim between
-/// [`crate::db::sqlite::Database::migrate_search_indexes`] and `create_tables_if_not_exist` -- same
-/// convention as [`DIAGRAM_PREVIEWS_TABLE_SQL`].
+/// [`crate::db::sqlite::Database::migrate_search_indexes`] and `create_tables_if_not_exist`,
+/// same convention as [`DIAGRAM_PREVIEWS_TABLE_SQL`].
 ///
-/// SQLite does not index a `FOREIGN KEY` column on its own, and none of these three is
-/// the LEADING column of a primary key, so without this trio every lookup below degrades
-/// to a full table scan *per candidate design*:
+/// SQLite does not index a `FOREIGN KEY` column by itself, and none of these is the leading
+/// column of a primary key, so without them each lookup below scans its table once per
+/// candidate design:
 ///
-/// - `angle_settings (detail_id)` -- serves the `EXISTS (... WHERE a.detail_id
-///   = dd.id AND a.notes LIKE ?)` notes match. This table holds one row per TIER (50,817
-///   rows against 3,299 designs on the owner's catalogue), so the scan is ~168 million
-///   row visits, and `gui::library::search::refresh_diagram_list` issues three such
-///   queries per keystroke on the UI thread. Measured on that catalogue: 16.1 s for
-///   `%portuguese%`, 23.0 s for `%zzz%`; with this index, 0.01 s.
-/// - `diagram_tag_links (tag_id)` -- the tag-chip filter's `SELECT entry_id ... WHERE
-///   tag_id = ?`. `tag_id` is the second column of that table's composite primary key, so
-///   its automatic index cannot serve a lookup that does not also constrain `entry_id`.
-/// - `attached_files (detail_id)` -- serves every "load this design's attachments" fetch
-///   ([`crate::db::sqlite::Database::get_diagram_full`]/`get_diagram_full_meta`), the
-///   detail pane's attachment list, and `pleochroma-worker`'s per-request attachment
-///   fetch, plus the `ON DELETE CASCADE` sweep a `diagram_details` delete/re-sync
-///   triggers. Measured on the real catalogue via `EXPLAIN QUERY PLAN`: `SCAN
-///   attached_files` without this index (11-34 ms per lookup, ~95 s of scanning across a
-///   full mirror re-save while the UI mutex is held); `SEARCH attached_files USING INDEX
-///   idx_attached_files_detail_id (detail_id=?)` with it.
+/// - `angle_settings (detail_id)`: the notes match `EXISTS (... a.detail_id = dd.id AND
+///   a.notes LIKE ?)`. That table holds one row per cutting-instruction line of every design.
+/// - `diagram_tag_links (tag_id)`: the tag-chip filter's `WHERE tag_id = ?`. `tag_id` is the
+///   second column of the composite primary key, so its automatic index cannot serve it.
+/// - `attached_files (detail_id)`: every "load this design's attachments" fetch
+///   ([`crate::db::sqlite::Database::get_diagram_full`] and `get_diagram_full_meta`), and the
+///   `ON DELETE CASCADE` sweep that a `diagram_details` delete or re-sync triggers.
 pub(in crate::db::sqlite) const SEARCH_INDEXES_SQL: &str = "
     CREATE INDEX IF NOT EXISTS idx_angle_settings_detail_id
         ON angle_settings (detail_id);
@@ -46,11 +37,9 @@ pub(in crate::db::sqlite) const SEARCH_INDEXES_SQL: &str = "
 /// [`crate::db::sqlite::Database::migrate_diagram_previews_table`] and
 /// `create_tables_if_not_exist` so the two can never define this table differently.
 ///
-/// `preview_material`/`preview_generated_at`/`params_fingerprint` are declared BEFORE
-/// the two PNG blobs (`preview_front`/`preview_top`) -- see
-/// [`crate::db::sqlite::Database::migrate_blob_columns_last`]'s doc comment for why blob
-/// columns sit last: a fresh database gets this order directly, so that migration only
-/// ever has real work to do against a database created before this file adopted it.
+/// `preview_material`/`preview_generated_at`/`params_fingerprint` are declared BEFORE the two
+/// PNG blobs (`preview_front`/`preview_top`), so a scan that reads them never walks the blob
+/// bytes. See [`crate::db::sqlite::Database::migrate_blob_columns_last`].
 ///
 /// `params_fingerprint` is an opaque caller-built string naming what the stored images
 /// were rendered with (renderer build, image size, sample count, bounce cap, lighting,
@@ -326,11 +315,8 @@ pub(in crate::db::sqlite) const TAG_TABLES_SQL: &str = "
 /// needs iterating `all_global_extreme_columns` at runtime.
 ///
 /// `generated_at`/`params_fingerprint`/the 6 `perf_*` columns are declared BEFORE the two
-/// BLOB columns (`curves`/`curve_image`) -- see
-/// [`crate::db::sqlite::Database::migrate_blob_columns_last`]'s doc comment for why
-/// blob columns sit last: a fresh database gets this order directly, so that migration
-/// only ever has real work to do against a database created before this file adopted
-/// it.
+/// BLOB columns (`curves`/`curve_image`). See
+/// [`crate::db::sqlite::Database::migrate_blob_columns_last`].
 ///
 /// `params_fingerprint` is an opaque caller-built string naming what the stored sweep
 /// was computed with (renderer build, lighting pose, material); `NULL` on a row written
@@ -379,11 +365,9 @@ fn diagram_tilt_curves_table_sql_named(table_name: &str, if_not_exists: bool) ->
     sql
 }
 
-/// The 30 `diagram_tilt_curves` columns this crate's first-draft 36-column schema
-/// created that do not survive into the current 6-column shape -- see
+/// The `diagram_tilt_curves` columns that the current table does not have. They are dropped by
 /// [`crate::db::sqlite::Database::migrate_prune_tilt_curve_aggregate_columns`]. A frozen
-/// literal list: the enum/functions that would generate these names no longer exist in
-/// this crate.
+/// literal list, because the code that once generated these names is gone.
 pub(super) const OBSOLETE_TILT_CURVE_AGGREGATE_COLUMNS: &[&str] = &[
     "perf_brilliance_15_min",
     "perf_brilliance_15_max",

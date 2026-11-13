@@ -1,4 +1,4 @@
-//! Renderer metadata follows scene messages, before any trace assignment.
+//! The render engine and the render physics the pool sends to its Workers, per scene.
 
 use super::{
     handle::WorkerHandle,
@@ -25,8 +25,7 @@ impl Inner {
         })
     }
 
-    /// Sends the design's render physics after the scene; nothing for a design that sets none,
-    /// so an untouched design's messages are what they were.
+    /// Sends the design's render physics after the scene; nothing for a design that sets none.
     pub(super) fn post_effects_to(&self, handle: &WorkerHandle) -> Result<(), String> {
         if self.effects.is_none() {
             return Ok(());

@@ -19,27 +19,16 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
-/// Wires `LibraryModel::regenerate_previews_for_filtered_set`/
-/// `regenerate_tilt_curves_for_filtered_set` -- the owner's "regenerate library
-/// previews/tilt curves for designs already in the catalogue" request,
-/// for the panel's currently active search/filter set rather than a
-/// single design or the whole catalogue.
+/// Wires `LibraryModel::regenerate_previews_for_filtered_set` and
+/// `regenerate_tilt_curves_for_filtered_set`, which regenerate the designs in the panel's
+/// current search and filter set.
 ///
-/// Each callback resolves the filtered set on a worker
-/// ([`resolve_filtered_set_async`]) and hands the result straight to the existing per-batch confirm-step opener
-/// (`gui::batch::preview::offer_batch_confirmation`/`gui::batch::tilt::
-/// offer_batch_confirmation`) -- the same dialog, progress, and cancel machinery
-/// every other trigger of these two batches already uses; this adds no second copy
-/// of either batch's generation logic. Refuses (with a toast) under a
-/// [`LibrarySource::Remote`] session, since [`Database::matching_entry_ids`] only
-/// ever sees the local catalogue -- silently running it there would offer to
-/// regenerate an unrelated, likely empty or wrong, local id set for whatever the
-/// panel is showing from the remote worker.
+/// Each callback resolves the set on a worker ([`resolve_filtered_set_async`]) and passes it
+/// to the batch's existing confirm step, so no batch logic is duplicated. Under a
+/// [`LibrarySource::Remote`] session it refuses with a toast. [`Database::matching_entry_ids`]
+/// sees only the local catalogue, so running there would act on unrelated local ids.
 ///
-/// Also a no-op (with a toast, not a silent nothing) when the filtered set is
-/// empty, since `offer_batch_confirmation`
-/// itself only skips silently -- a cutter who just pressed the button deserves to
-/// know why nothing opened.
+/// An empty set shows a toast as well, since the confirm step skips it silently.
 pub(in crate::gui) fn setup_regenerate_filtered_set_callbacks(
     ui: &MainWindow,
     db: &Arc<Mutex<Database>>,
@@ -111,19 +100,16 @@ const fn admit(in_flight: bool, is_remote: bool) -> Admission {
     }
 }
 
-/// Shared body of both `setup_regenerate_filtered_set_callbacks` handlers: the
-/// remote-source guard, the filtered-set query (on a worker, over a read-only
-/// connection, never under the UI thread), and the "nothing matched"/query-failure
-/// toasts. `on_ready` runs on the UI thread with the resolved, non-empty id list.
+/// The shared body of both regenerate handlers.
 ///
-/// The panel's filter state is captured as a [`FilterSnapshot`] before the worker
-/// starts. When the worker finishes, the source must still be local and a fresh capture
-/// must equal the snapshot; otherwise the ids describe a view the cutter has left, and
-/// the cutter is told to run the action again instead of being shown a dialog for the
-/// wrong set. (There is no shared "current search sequence" getter to compare as well:
-/// the snapshot equality covers every input a search sequence bump follows from.)
-/// At most one resolution runs at a time. The result is uncapped, exactly as
-/// `current_filtered_entry_ids` returned it.
+/// It applies the remote-source guard, runs the query on a worker over a read-only connection,
+/// and shows toasts for an empty result or a failure. `on_ready` runs on the UI thread with the
+/// non-empty id list.
+///
+/// The filter state is captured as a [`FilterSnapshot`] before the worker starts. When the
+/// worker finishes, the result is used only if the source is still local and the filters are
+/// unchanged. Otherwise the cutter is asked to run the action again, so no dialog opens for
+/// the wrong set. Only one resolution runs at a time. The result is not capped.
 pub(in crate::gui) fn resolve_filtered_set_async(
     ui: &MainWindow,
     db: &Arc<Mutex<Database>>,

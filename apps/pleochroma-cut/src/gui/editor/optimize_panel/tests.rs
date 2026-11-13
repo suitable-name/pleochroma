@@ -142,7 +142,7 @@ fn a_patterned_design_gets_the_zones_note_and_a_plain_one_does_not() {
     design.girdle_diameter_mm = Some(6.5);
     assert!(tone_note_for(&design, true).contains("color zones"));
     // No note while the objective is off.
-    assert!(tone_note_for(&design, false).is_empty());
+    assert_eq!(tone_note_for(&design, false), "");
 }
 
 fn outcome_of(candidate: &OptimizeCandidate) -> OptimizeOutcome {

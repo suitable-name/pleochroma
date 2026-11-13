@@ -29,8 +29,8 @@ export global DockModel {
 // The right-hand Design dock, top to bottom: the design's name, the command bar (Undo, Redo,
 // Solve, Add tier, Complete orbit, Mirror, Delete, and the auto-solve toggle), the solve
 // status with its manufacturability warnings, the quick-add panel (when open), the tier
-// table and the inspector. Resizable like the desktop's: drag the left edge for the
-// width, the bar above the inspector for the split. Below 900px the dock does not fit
+// table and the inspector. Drag the left edge for the width, the bar above the inspector for
+// the split. Below 900px the dock does not fit
 // beside the main view, so `app.slint` shows it as an overlay instead (`overlay: true`,
 // no left-edge handle).
 export component DesignDock inherits Rectangle {
@@ -135,7 +135,7 @@ export component DesignDock inherits Rectangle {
                 }
                 Rectangle { horizontal-stretch: 1; }
                 // The schedule-wide settings (material, gear, symmetry, details, printed
-                // proportions) -- also Design > Design settings... in the menu bar.
+                // proportions); also Design > Design Settings... in the menu bar.
                 ToolButton {
                     text: "Design Settings";
                     locked: !GuideModel.allows-design-settings();

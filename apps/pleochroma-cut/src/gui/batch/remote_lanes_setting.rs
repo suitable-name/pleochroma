@@ -1,8 +1,9 @@
-//! The "Remote lanes for batches" spin box in the remote coordinator panel
-//! (`remote_worker_dialog.slint`): how many pictures a preview or tilt batch keeps in
-//! flight on the remote at once, persisted as `AppSettings::remote_batch_lanes`.
+//! The "Remote Lanes for Batches" spin box in the remote coordinator panel.
 //!
-//! The sibling "Pictures per preview request" spin box persists
+//! It sets how many pictures a preview or tilt batch keeps in flight on the remote at once
+//! (`remote_worker_dialog.slint`), persisted as `AppSettings::remote_batch_lanes`.
+//!
+//! The sibling "Pictures per Preview Request" spin box persists
 //! `AppSettings::remote_preview_batch_size` the same way.
 //!
 //! The batches read the setting fresh from the settings snapshot each time one starts

@@ -1,12 +1,14 @@
-//! The angle sweep scores the stone WITH its concave tools (the Compare window's stone):
-//! its table-up figures and its tilt averages are those of the carved stone. A flat
-//! design is scored as before (`tests::the_current_row_matches_a_direct_score_of_the_design`).
+//! The angle sweep scores the stone with its concave tools, as the Compare window draws it.
+//!
+//! Table-up figures and tilt averages come from the carved stone. A flat design is checked
+//! against a direct score in
+//! `tests::the_current_row_matches_a_direct_score_of_the_design`.
 
 use super::*;
 use pleochroma::optics::{materials::GemMaterial, raytracer::LightingPreset};
 use std::f32::consts::FRAC_PI_2;
 
-/// The concave fixture's pavilion tier (-42 degrees, pinned): flat tier 1.
+/// Index of the concave fixture's pavilion tier, pinned at -42 degrees.
 const FIXTURE_PAVILION: usize = 1;
 
 fn environment() -> EnvironmentSource<'static> {

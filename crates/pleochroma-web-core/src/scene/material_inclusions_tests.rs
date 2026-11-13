@@ -2,8 +2,7 @@
 //! (`MaterialSpec::custom_material_inclusions`, protocol v29).
 //!
 //! `GemMaterial::inclusions` is `serde(skip)`, so a postcard round trip of the built custom
-//! material loses them; these tests pin that loss and the record that restores them. Kept beside
-//! `tests.rs` (not in it) to keep both files under the line cap.
+//! material loses them; these tests pin that loss and the record that restores them.
 
 use super::*;
 use glam::Vec3;
@@ -75,7 +74,7 @@ fn a_custom_materials_own_families_reach_the_worker_material() {
         "along the stored c axis"
     );
 
-    // Without the new field the Worker traces a plain stone (the defect).
+    // Without the field the Worker traces a plain stone.
     let without = MaterialSpec {
         custom_material_inclusions: Vec::new(),
         ..received
@@ -150,7 +149,7 @@ fn an_empty_inclusion_list_changes_nothing() {
     let planes = StandardGemCuts::standard_round_brilliant();
     let traced = resolve_scene_material(&back, &planes).expect("resolves");
     assert!(traced.oriented_inclusions().is_none());
-    // The same as a list of explicit "none" entries (the pre-v29 behaviour for this stone).
+    // An explicit list of "none" entries traces the same stone.
     let explicit = MaterialSpec {
         custom_material_inclusions: vec![None],
         ..back

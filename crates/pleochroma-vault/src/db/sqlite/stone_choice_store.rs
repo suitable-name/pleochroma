@@ -1,12 +1,12 @@
 //! The cutter's full choice for a stone of a saved rough plan: pose, free pose, lock, Reason.
 //!
 //! The pose lives in the `stone_pose_choice` table of `zoning_store`. Three NULLABLE columns
-//! extend it, added by a guarded `ALTER TABLE` ([`Database::migrate_stone_choice_columns`], called
-//! by `migrate_zoning_tables`):
+//! extend it, added by a guarded `ALTER TABLE`
+//! ([`Database::migrate_stone_choice_columns`], called by `migrate_zoning_tables`):
 //!
 //! | column | content |
 //! |---|---|
-//! | `free_pose_json` | a free pose (centre, axes, scale) as JSON text the application owns, or NULL |
+//! | `free_pose_json` | a free pose (centre, axes, scale) as application-owned JSON, or NULL |
 //! | `locked` | 1 when the stone is locked, else NULL |
 //! | `reason` | the cutter's Reason, or NULL |
 //!
@@ -87,9 +87,10 @@ impl Database {
         Ok(())
     }
 
-    /// Stores the full choice `row` for a stone of plan `plan_id` (inserts or replaces). A row that
-    /// says nothing ([`StoneChoiceRow::is_default`]) removes the stone's row instead, so an unset
-    /// stone and a default one are the same thing.
+    /// Stores the full choice `row` for a stone of plan `plan_id` (inserts or replaces).
+    ///
+    /// A row that says nothing ([`StoneChoiceRow::is_default`]) removes the stone's row
+    /// instead, so an unset stone and a default one are the same thing.
     ///
     /// # Errors
     ///

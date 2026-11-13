@@ -1,9 +1,9 @@
-//! Synthetic ground truth for the zoning validation (plan 2026-10-09, section 10.1; lane V1).
+//! Synthetic ground truth for the zoning validation.
 //!
-//! Everything here goes through the PUBLIC API of `pleochroma-cut-core`, so the
-//! tests and the benchmark example exercise exactly what the application calls. This file is
-//! shared: `tests/zoning_validation/main.rs` declares it as a module and
-//! `examples/zoning_bench.rs` includes it with `#[path]`.
+//! Everything here goes through the public API of `pleochroma-cut-core`, so the tests and the
+//! benchmark example exercise what the application calls. This file is shared:
+//! `tests/zoning_validation/main.rs` declares it as a module and `examples/zoning_bench.rs`
+//! includes it with `#[path]`.
 //!
 //! # What is generated
 //!
@@ -12,22 +12,21 @@
 //!   two cameras, a cube with a holder in the rig, and the irregular mesh in immersion
 //!   (`surround_n` equal to the stone index).
 //! * **Five colour cases** ([`ColourCase`]): uniform pale, uniform saturated, bicolour, a
-//!   "watermelon" prism core, a sector. The spectra are sums of Gaussian bands of PHYSICAL width
-//!   (round 5, ZC-6): colour-bearing crystal-field absorptions have a FWHM of 2000 to 4000
-//!   cm^-1, a wavelength sigma of 25 to 50 nm, which the 25 nm basis of the fit
-//!   ([`FIT_BASIS_NM`]) can represent. They are still not exactly in the basis, so a recovery
-//!   test also checks the model error, and every failure report prints the projection of the
-//!   truth onto the basis ([`projection_errors`]). One case with 700 cm^-1 lines
-//!   ([`ColourCase::NarrowLineBicolour`], the width of spin-forbidden lines, which carry little
-//!   colour) is kept as an explicit model-class test, judged against its own projection.
-//!   [`ColourCase::Banded`] (base, half space, prism and sector together) exists for the
-//!   benchmark only.
+//!   "watermelon" prism core, a sector. The spectra are sums of Gaussian bands of physical
+//!   width: crystal-field absorptions have a FWHM of 2000 to 4000 cm^-1 (a wavelength sigma of
+//!   25 to 50 nm), which the fit basis ([`FIT_BASIS_NM`], 25 nm spacing) can represent. The
+//!   truths are still not exactly in the basis, so a recovery test also checks the model error:
+//!   every failure report prints the projection of the truth onto the basis
+//!   ([`projection_errors`]). [`ColourCase::NarrowLineBicolour`] (700 cm^-1 lines, the width of
+//!   spin-forbidden lines, which carry little colour) is kept as a model-class test, judged
+//!   against its own projection. [`ColourCase::Banded`] (base, half space, prism and sector
+//!   together) exists for the benchmark only.
 //! * **Rig photos**, two independent ways:
 //!   * from the forward model's own records ([`photos_forward`], with the noise of
 //!     [`NoiseSpec`]) and a JPEG round trip ([`photos_jpeg`], decoded through the photometry
-//!     lane);
+//!     module);
 //!   * from the main CPU tracer ([`render_main`]) for the scenes it can express (a convex cube
-//!     in a uniform white furnace), which is the independent cross-check of section 10.1.
+//!     in a uniform white furnace), the independent cross-check of the forward model.
 //!
 //! # Conventions
 //!
@@ -157,7 +156,7 @@ impl SplitMix {
 // Roughs
 // ---------------------------------------------------------------------------------------------
 
-/// The six rough scenarios of section 10.1.
+/// The six rough scenarios of the validation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RoughKind {
     /// A 10 mm cube, polished.
@@ -175,7 +174,7 @@ pub enum RoughKind {
 }
 
 impl RoughKind {
-    /// Every rough, in the order of the section.
+    /// Every rough, in declaration order.
     pub const ALL: [Self; 6] = [
         Self::Cube,
         Self::Irregular,
@@ -429,7 +428,7 @@ impl Rough {
 // Colour cases and their ground truth
 // ---------------------------------------------------------------------------------------------
 
-/// The five colour cases of section 10.1 (plus [`Self::Banded`] for the benchmark).
+/// The five colour cases (plus [`Self::Banded`] for the benchmark).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ColourCase {
     UniformPale,
@@ -449,7 +448,7 @@ pub enum ColourCase {
 }
 
 impl ColourCase {
-    /// The five cases of the section, in order.
+    /// The five cases, in order.
     pub const ALL: [Self; 5] = [
         Self::UniformPale,
         Self::UniformSaturated,
@@ -743,11 +742,12 @@ pub fn face_up_errors(fit: &ColourFit, truth: &Truth) -> Vec<FaceUpError> {
 // The truth projected onto the fit basis (model class)
 // ---------------------------------------------------------------------------------------------
 
-/// The non-negative amplitudes (per mm) of [`FIT_BASIS_NM`] that best represent the absorption
-/// of `zone` of the truth in the least-squares sense on the 5 nm grid from 400 to 700 nm: the
-/// same grid and norm as the solver's own projection, so this IS the closest spectrum the fit
-/// can reach. Cyclic coordinate descent on the 14 amplitudes (a fixed number of sweeps, so it is
-/// deterministic).
+/// The non-negative amplitudes (per mm) of [`FIT_BASIS_NM`] that best fit `zone`'s absorption.
+///
+/// "Best" is in the least-squares sense on the 5 nm grid from 400 to 700 nm for `zone` of the
+/// truth: the same grid and norm as the solver's own projection, so this is the closest spectrum
+/// the fit can reach. Cyclic coordinate descent on the 14 amplitudes, at most 20 000 sweeps
+/// (deterministic).
 #[must_use]
 pub fn projected_amplitudes(truth: &Truth, zone: usize) -> Vec<f64> {
     let bands = FIT_BASIS_NM.len();
@@ -812,9 +812,11 @@ pub fn projection_max_alpha_error(truth: &Truth, zone: usize) -> f64 {
         .fold(0.0, f64::max)
 }
 
-/// CIEDE2000 between the true face-up colour of every zone at 7 and 12 mm under D65 and A and
-/// the colour of the truth's best representation on [`FIT_BASIS_NM`] (round 5, ZC-6): the error a
-/// PERFECT fit of the model class would still make. Same order as [`face_up_errors`]. A case
+/// The error a perfect fit of the model class would still make, as CIEDE2000.
+///
+/// It is measured between the true face-up colour of every zone at 7 and 12 mm under D65 and A
+/// and the colour of the truth's best representation on [`FIT_BASIS_NM`]. Same order as
+/// [`face_up_errors`]. A case
 /// whose projection error is not far below the criterion tests the model class, not the solver.
 #[must_use]
 pub fn projection_errors(truth: &Truth) -> Vec<FaceUpError> {
@@ -846,7 +848,7 @@ pub fn projection_errors(truth: &Truth) -> Vec<FaceUpError> {
 // Noise and tiers
 // ---------------------------------------------------------------------------------------------
 
-/// The sensor noise model of the photometry lane: `variance = a + b * signal` in linear signal
+/// The sensor noise model of the photometry module: `variance = a + b * signal` in linear signal
 /// units (0 to 1), with a white frame at [`WHITE_LEVEL`].
 #[derive(Debug, Clone, Copy)]
 pub struct NoiseSpec {
@@ -855,8 +857,8 @@ pub struct NoiseSpec {
 }
 
 impl NoiseSpec {
-    /// About 50 000 electrons of full well and a 2 electron read noise: `b = 1/50000`,
-    /// `a = (2/50000)^2` rounded up (a RAW file of a good sensor).
+    /// A RAW file of a good sensor: about 50 000 electrons of full well (`b = 1/50000`) and a
+    /// read-noise floor `a = 4e-6`.
     pub const RAW: Self = Self { a: 4e-6, b: 2e-5 };
     /// Practically noise-free (variance floor only).
     pub const NONE: Self = Self { a: 0.0, b: 0.0 };
@@ -874,14 +876,15 @@ impl NoiseSpec {
     }
 }
 
-/// The relative error the JPEG round trip may leave in a photo beyond the Gaussian noise: the
-/// generator's flat-field tolerance (1.5 codes through the sRGB curve,
-/// `a_flat_field_survives_the_jpeg_round_trip_within_quantisation`) at the brightest level it
-/// checks, 1.5 %, the smallest tolerance over those levels (the darker ones allow more). It is
-/// the JPEG tier's [`Tier::systematic`] figure.
+/// The relative error the JPEG round trip may leave in a photo beyond the Gaussian noise.
+///
+/// It is the flat-field tolerance of
+/// `a_flat_field_survives_the_jpeg_round_trip_within_quantisation`, 1.5 8-bit codes through the
+/// sRGB curve at its brightest level (1.5 %, the smallest of its levels). It is the JPEG tier's
+/// [`Tier::systematic`] figure.
 pub const JPEG_SYSTEMATIC: f64 = 0.015;
 
-/// The two accuracy tiers of section 10.1.
+/// The two accuracy tiers of the validation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tier {
     /// RAW with a measured sensor response: noise only.
@@ -891,9 +894,8 @@ pub enum Tier {
 }
 
 impl Tier {
-    /// The CIEDE2000 figure of plan section 10.1 (1.5 RAW, 3.0 JPEG). Since 2026-10-12
-    /// `recovery.rs` asserts it as the floor of the metamer allowance and counts how often it is
-    /// met on its own.
+    /// The CIEDE2000 limit of the tier's face-up colour (1.5 RAW, 3.0 JPEG). `recovery.rs`
+    /// takes it as the floor of the metamer allowance.
     #[must_use]
     pub const fn face_up_limit(self) -> f64 {
         match self {
@@ -903,10 +905,8 @@ impl Tier {
     }
 
     /// The relative systematic error of the tier's photos beyond the Gaussian noise, which the
-    /// chi-square budget of `recovery.rs` allows the fit to chase: 0 for RAW (its photos are
-    /// computed from the very records the fit evaluates) and [`JPEG_SYSTEMATIC`], 1.5 %, for
-    /// JPEG (the generator's flat-field tolerance of one and a half 8-bit codes through the sRGB
-    /// curve at the brightest level it checks).
+    /// chi-square budget of `recovery.rs` allows the fit to absorb: 0 for RAW (its photos are
+    /// computed from the records the fit evaluates) and [`JPEG_SYSTEMATIC`] for JPEG.
     #[must_use]
     pub const fn systematic(self) -> f64 {
         match self {
@@ -915,8 +915,7 @@ impl Tier {
         }
     }
 
-    /// The limit of the leave-one-view-out median: 2.0 for both tiers, as plan section 10.1 lists
-    /// it without a tier qualifier (round 5, ZC-16; the first version gave the JPEG tier 3.0).
+    /// The limit of the leave-one-view-out median: 2.0 for both tiers.
     #[must_use]
     pub const fn lovo_limit(self) -> f64 {
         match self {
@@ -957,7 +956,7 @@ pub enum Spectrum {
     /// evaluation points (2.5 nm), so that forward and main tracer weigh every wavelength alike.
     /// The midpoint rule's error for a 23 nm sigma band is nil at any spacing used here
     /// (aliasing `2 exp(-2 pi^2 sigma^2 / h^2)`, see `forward/mod.rs` "Spectral quadrature"),
-    /// so a persistent cross-check bias is a transport question, not a quadrature one (ZC-2).
+    /// so a persistent cross-check bias is a transport question, not a quadrature one.
     EnvironmentWhite,
 }
 
@@ -1195,12 +1194,12 @@ impl Setup {
     }
 }
 
-/// The solver settings that keep the tests quick (the bench uses `FitConfig::default()`). The
-/// priors, the host and the common gain are the SHIPPED defaults: model B alone (`host_id`
-/// `None`, owner decision 2; a chromophore model next to it would double the solve time and could
-/// be the one that is reported), the Gaussian-process smoothness and L1 magnitude priors of
-/// round 5, the gain split of round 2 and `fix_common_gain` (the white frames fix the common
-/// exposure, ZC-5). A test must not fit with a setting the application does not use.
+/// The solver settings that keep the tests quick (the bench uses `FitConfig::default()`).
+///
+/// The priors, the host and the common gain are the shipped defaults: model B alone (`host_id`
+/// `None`; a chromophore model next to it would double the solve time), the Gaussian-process
+/// smoothness and L1 magnitude priors, the gain split and `fix_common_gain` (the white frames fix
+/// the common exposure). A test must not fit with a setting the application does not use.
 #[must_use]
 pub fn quick_fit_config(threads: usize) -> FitConfig {
     FitConfig {
@@ -1284,9 +1283,10 @@ fn encode_jpeg(width: usize, height: usize, pixels: &[[f32; 3]], quality: u8) ->
     bytes
 }
 
-/// The JPEG round trip of a linear picture: encoded as an 8-bit sRGB JPEG of `quality` and
-/// decoded through the photometry lane's [`decode_standard_bytes`]. A flat field must come back
-/// within the 8-bit quantisation (the generator's own check).
+/// The JPEG round trip of a linear picture: encoded as an 8-bit sRGB JPEG of `quality` and decoded
+/// through the photometry module's [`decode_standard_bytes`].
+///
+/// A flat field must come back within the 8-bit quantisation (the generator's own check).
 ///
 /// # Panics
 ///
@@ -1302,10 +1302,10 @@ pub fn jpeg_round_trip(
 }
 
 /// Fills the pixels with `valid == false` from their valid neighbours (repeated four-neighbour
-/// averaging, deterministic). The pixels outside the stone carry no information, but a JPEG block
-/// transform spreads a bright background into the stone pixels next to it (ringing and chroma
-/// bleeding), which the real photos have too and the edge masks remove; the synthetic frame is
-/// extended smoothly instead so that the round trip tests the codec, not the background.
+/// averaging, deterministic). A JPEG block transform spreads a bright background into the
+/// stone pixels next to it (ringing, chroma bleeding), which the real photos have too and the
+/// edge masks remove. The synthetic frame is extended smoothly instead, so the round trip
+/// tests the codec, not the background.
 fn extend_into_invalid(width: usize, height: usize, values: &mut [[f64; 3]], valid: &[bool]) {
     let mut known = valid.to_vec();
     for _ in 0..(width + height) {
@@ -1355,21 +1355,21 @@ fn extend_into_invalid(width: usize, height: usize, values: &mut [[f64; 3]], val
     }
 }
 
-/// The JPEG variant of [`photos_forward`], run through the photometry lane's own pipeline (S2).
+/// The JPEG variant of [`photos_forward`], run through the photometry module's own pipeline.
 ///
-/// The JPEG block-DC error is a property of the photo's 8 x 8 block grid, so the photo is built at
-/// [`JPEG_BLOCK`] times the working resolution: every working pixel is one aligned 8 x 8 block of
-/// photo pixels whose cell mean is the prediction (white level times the prediction times the
-/// gain, the pixels outside the stone extended from their neighbours), reconstructed piecewise
+/// The JPEG block-DC error is a property of the photo's 8 x 8 block grid, so the photo is built
+/// at [`JPEG_BLOCK`] times the working resolution. Every working pixel is one aligned block of
+/// photo pixels whose cell mean is the prediction (white level times prediction times gain,
+/// the pixels outside the stone extended from their neighbours), reconstructed piecewise
 /// linearly from the cell-mean slopes so that the photo is smooth like a real one. Each photo
-/// pixel carries the sensor noise of `noise` scaled by `JPEG_BLOCK^2` (so a working pixel keeps
-/// the stated noise after the average). The stone frame and a white frame at [`WHITE_LEVEL`] with
-/// the same sensor noise are encoded as 8-bit sRGB JPEG, decoded through
+/// pixel carries the sensor noise of `noise` scaled by `JPEG_BLOCK^2`, so a working pixel keeps
+/// the stated noise after the average. The stone frame and a white frame at [`WHITE_LEVEL`]
+/// with the same sensor noise are encoded as 8-bit sRGB JPEG and decoded through
 /// [`decode_standard_bytes`], calibrated with `ViewCalibration::transmittance_masked` (outside
-/// pixels masked, the compression terms estimated from the frames: per-pixel and block-DC) and
-/// area-averaged onto the working grid with `TransmittanceImage::to_working`. The stated variance
-/// is the one that pipeline propagates, so it is by construction what the application states for
-/// such a photo.
+/// pixels masked, the per-pixel and block-DC compression terms estimated from the frames) and
+/// area-averaged onto the working grid with `TransmittanceImage::to_working`. The stated
+/// variance is the one that pipeline propagates, so it is what the application states for such
+/// a photo.
 ///
 /// # Panics
 ///
@@ -1448,7 +1448,7 @@ pub fn photos_jpeg(
                     }
                 }
             }
-            // The white frame carries the sensor noise of `noise` as well (ZC-3): a diffuser frame
+            // The white frame carries the sensor noise of `noise` as well: a diffuser frame
             // is nowhere noise-free (shot noise of a 0.7 full-scale frame), and its own
             // stream keeps the stone frame's noise unchanged.
             let mut white_rng = SplitMix::new(
@@ -1474,11 +1474,11 @@ pub fn photos_jpeg(
                 (photo_w, photo_h, photo_w),
                 "the round trip keeps the size"
             );
-            // The photometry lane's own pipeline (ZC-3, S2): the sensor noise per photo pixel is
-            // JPEG_BLOCK^2 times the stated one, the pixels outside the stone are masked for the
-            // compression estimate, and the transmittance is area-averaged onto the working grid
-            // with the per-pixel variance averaged as independent and the block-DC variance as
-            // correlated within a block.
+            // The photometry module's pipeline: the sensor noise per photo pixel is JPEG_BLOCK^2
+            // times the stated one, the pixels outside the stone are masked for the compression
+            // estimate, and the transmittance is area-averaged onto the working grid with the
+            // per-pixel variance averaged as independent and the block-DC variance as correlated
+            // within a block.
             let sensor = NoiseModel {
                 a: [f32_of(photo_gain * noise.a); 3],
                 b: [f32_of(photo_gain * noise.b); 3],
@@ -1546,7 +1546,7 @@ pub fn photos_jpeg(
 // ---------------------------------------------------------------------------------------------
 
 /// Linear sRGB from XYZ (D65), the inverse of the matrix `CameraResponse::from_srgb` is built
-/// on, so that this IS the camera of the forward model.
+/// on, so that this is the camera of the forward model.
 const XYZ_TO_SRGB: [[f64; 3]; 3] = [
     [3.240_454_2, -1.537_138_5, -0.498_531_4],
     [-0.969_266_0, 1.876_010_8, 0.041_556_0],
@@ -1594,9 +1594,10 @@ pub fn camera_furnace_rgb(camera: &CameraResponse) -> [f64; 3] {
     [rgb[0] / integral, rgb[1] / integral, rgb[2] / integral]
 }
 
-/// The bounce limit of the main tracer, and of the forward model when it is compared with it
-/// (round 3, D5): both trace the same number of bounces, so a pale stone, whose trapped light
-/// bounces long, does not lose different shares of its weight at the depth limit.
+/// The bounce limit of the main tracer, and of the forward model when it is compared with it.
+///
+/// Both trace the same number of bounces, so a pale stone, whose trapped light bounces long, does
+/// not lose different shares of its weight at the depth limit.
 pub const MAIN_TRACER_DEPTH: u32 = 64;
 
 /// The six planes of the cube with half edge `half` model units (`n . x + d <= 0` inside).
@@ -1689,8 +1690,8 @@ pub fn render_main(setup: &Setup, spp: u32, salt: u32) -> Vec<MainView> {
     let planes = cube_planes(half_units);
     let material = main_material(&setup.truth);
     let environment = EnvironmentMap::uniform(64, 32, [1.0, 1.0, 1.0]);
-    // The reference is the empty furnace seen through the SAME camera response the forward
-    // model weighs its wavelengths with (round 2, C5), not a separate CMF reconstruction.
+    // The reference is the empty furnace seen through the same camera response the forward
+    // model weighs its wavelengths with, not a separate CMF reconstruction.
     let reference = camera_furnace_rgb(&setup.camera);
     let to_units = f64::from(MM_PER_MODEL_UNIT).recip();
     let mut out = Vec::with_capacity(setup.views.len());
@@ -1704,8 +1705,8 @@ pub fn render_main(setup: &Setup, spp: u32, salt: u32) -> Vec<MainView> {
                 let pixel = y * width + x;
                 // The forward model averages over the whole working-pixel footprint, so the main
                 // tracer must as well: a centre ray alone sees a zone boundary that cuts a pixel
-                // as all-or-nothing (a 1.7 percent bias of the bicolour cross-check). R2
-                // low-discrepancy points with a per-pixel shift, deterministic.
+                // as all-or-nothing (a 1.7 percent bias of the bicolour cross-check). The rays
+                // are low-discrepancy points with a per-pixel shift, deterministic.
                 let [u0, v0, u1, v1] = view.grid.footprint(x, y);
                 let pixel_id = u32_of(slot * width * height + pixel);
                 let shift_x = f64::from(hash_u32(pixel_id ^ 0x9E37_79B9)) / 4_294_967_296.0;
@@ -1728,7 +1729,7 @@ pub fn render_main(setup: &Setup, spp: u32, salt: u32) -> Vec<MainView> {
                         &planes,
                         &material,
                         MAIN_TRACER_DEPTH,
-                        EnvironmentSource::HdrMap(&environment),
+                        EnvironmentSource::hdr(&environment),
                         seed,
                         hero,
                         None,
@@ -1768,12 +1769,10 @@ pub fn render_main(setup: &Setup, spp: u32, salt: u32) -> Vec<MainView> {
 pub struct Agreement {
     pub forward: f64,
     pub main: f64,
-    /// The Monte-Carlo standard error of `forward` (round 5, ZC-15): the records' relative error
-    /// of the clear-stone transmittance (the sum of the weights, which the adaptive sampling
-    /// converges on) times the prediction. The first version used the error at 0.3 per mm, which
-    /// is 5 to 10 times the real figure for a pale stone and made a genuine bias look like noise.
-    /// For an absorbing stone the relative error grows with the optical depth, so this is a
-    /// lower bound: a z-score computed with it can only overstate a bias, never hide one.
+    /// The Monte-Carlo standard error of `forward`: the records' relative error of the
+    /// clear-stone transmittance (the sum of the weights, which adaptive sampling converges on)
+    /// times the prediction. For an absorbing stone the relative error grows with optical depth,
+    /// so this is a lower bound: a z-score with it can only overstate a bias, never hide one.
     pub forward_se: f64,
     /// The Monte-Carlo standard error of `main`: the root of the summed per-pixel variances of
     /// the mean, over the number of pixels.

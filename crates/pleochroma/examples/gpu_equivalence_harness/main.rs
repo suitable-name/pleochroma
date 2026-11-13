@@ -43,9 +43,9 @@
 //! passed, 1 a check failed, 2 no adapter or bad command line, 3 the summary could not be
 //! written.
 //!
-//! `--transport-regressions` runs only the NEE, extraordinary-dispersion, zoned
-//! inclusion and wavefront regression groups. Its JSON identifies this smaller
-//! suite explicitly; a focused pass is not a full renderer qualification.
+//! `--transport-regressions` runs only the focused groups in `transport_regressions.rs`. Its
+//! JSON identifies this smaller suite explicitly; a focused pass is not a full renderer
+//! qualification.
 //!
 //! # Tiers
 //!
@@ -80,9 +80,8 @@
 //!   The measured, unavoidable ULP-scale float divergence this harness already found
 //!   (see `rng_check`'s module doc comment) is exactly why this comparison is
 //!   variance-scaled statistical rather than exact. Also two instances on real
-//!   uniaxial-birefringent built-ins: Zircon (the largest birefringence in the material
-//!   set, `birefringence_delta = +0.0590`) and Tourmaline (strongly negative,
-//!   `-0.0210`).
+//!   uniaxial-birefringent built-ins: Zircon (`birefringence_delta = +0.0590`) and
+//!   Tourmaline (strongly negative, `-0.0210`).
 //!
 //! The isotropic estimator dispatch handles cubic materials only. Uniaxial
 //! birefringence uses the SAME megakernel and dispatch path (not a separate kernel) --

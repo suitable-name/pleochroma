@@ -17,8 +17,8 @@ use pleochroma_cut_core::{
 };
 
 /// Every completion key a step may use: [`MANUAL`], [`NEW_DESIGN_CREATED`] (an
-/// event), and the state goals `progress::goal_reached` evaluates. A typo in a
-/// step's key would otherwise silently mean "never completes".
+/// event), and the state goals [`goal_reached`] evaluates. A typo in a step's key
+/// would otherwise silently mean "never completes".
 const COMPLETION_KEYS: &[&str] = &[
     MANUAL,
     NEW_DESIGN_CREATED,
@@ -146,8 +146,8 @@ pub(super) fn tier(name: &str, angle_deg: f64, indices: &[f64]) -> ConstraintTie
     }
 }
 
-/// A fresh 96-tooth, 8-fold design (`EditorSession::fresh`) with `tiers` added
-/// through `History`, the way the tier form adds them.
+/// A fresh 96-tooth, 8-fold design (`EditorSession::fresh`) with `tiers` added by
+/// `Edit::AddTier`, as the tier form adds them.
 pub(super) fn design_with(tiers: &[ConstraintTier]) -> Design {
     let mut state = EditorSession::fresh();
     for (index, tier) in tiers.iter().enumerate() {
@@ -279,9 +279,8 @@ fn reached_completion_names_the_step_key_only_once_its_goal_holds() {
 }
 
 /// Neither a reading step nor the new-design event can be completed by a design
-/// predicate: the first only advances on Next, the second only through the
-/// explicit `notify` in `do_new_design_create`'s success path, so a rejected form
-/// (which never reaches it) can never advance.
+/// predicate: the first only advances on Next, the second only through the UI's explicit
+/// `notify` once a design is created, so a rejected form can never advance.
 #[test]
 fn manual_and_event_keys_never_complete_from_state() {
     let design = design_with(&[tier("G1", 90.0, &EIGHT_FOLD_INDICES)]);
@@ -408,7 +407,7 @@ fn the_walkthroughs_typed_values_solve_to_a_closed_stone_with_a_girdle_and_a_tab
         "{status}"
     );
 
-    // A girdle band thicker than nothing but thin, and a table.
+    // A girdle band of positive thickness, and a table.
     let proportions = design
         .stone_proportions(&solved)
         .expect("a closed solid has proportions");
@@ -447,9 +446,9 @@ fn the_walkthroughs_typed_values_solve_to_a_closed_stone_with_a_girdle_and_a_tab
     );
 }
 
-/// Why the table states its height too: an Unspecified vertex table on a crown of main facets
-/// alone settles on the next vertex below the point where they meet, which is the girdle's top
-/// edge, so the table would cut the whole crown away.
+/// The table states its height: an Unspecified Vertex table on the crown's main facets alone
+/// settles on the girdle's top edge, the next vertex below where they meet, and cuts the whole
+/// crown away.
 #[test]
 fn an_unspecified_table_would_sink_to_the_girdle_and_cut_the_crown_away() {
     let mut tiers = walkthrough_tiers();
@@ -564,10 +563,10 @@ const fn colour_of(risk: Risk) -> &'static str {
     }
 }
 
-/// What the pavilion step and the material step tell the learner to look for in the P1 row is
-/// what the tier table shows, so the wording cannot drift from the windowing rule again: with
-/// no material the design uses its default index 1.54 (critical angle 40.5 degrees) and a
-/// -40 degree pavilion reads a few tenths of a degree below it, in red; Diamond turns it green.
+/// The pavilion and material steps describe the P1 MARGIN cell the tier table shows, whose
+/// colour follows the windowing rule. With no material the design uses its default index 1.54
+/// (critical angle 40.5 degrees), and a -40 degree pavilion reads a few tenths of a degree
+/// below it, in red; Diamond turns it green.
 #[test]
 fn the_pavilion_and_material_steps_describe_the_margin_the_tier_table_shows() {
     let mut design = design_with(&walkthrough_tiers());

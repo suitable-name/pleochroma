@@ -23,7 +23,8 @@ path = "src/main.rs"
 
 [dependencies]
 # `GemMaterial`, `LightingPreset`, the solid mesh and the optical metrics the commands print.
-pleochroma = { workspace = true }
+# The `hdr` feature is the PNG writer of `image-compare --error-png` (the app already enables it).
+pleochroma = { workspace = true, features = ["hdr", "path-cache-disk", "stone-shadow"] }
 # `Design`, the solver, the optimizer, the native `.psdd` codec, manufacturability checks.
 pleochroma-cut-core = { workspace = true }
 # The GUI-free editor session and view models both front ends share: the retarget engine and
@@ -35,6 +36,10 @@ pleochroma-formats = { workspace = true }
 pleochroma-vault = { workspace = true }
 # `--json` output. Object keys come out sorted, so the text is deterministic.
 serde_json = { workspace = true }
+# `--verbose`: the renderer's `tracing` debug events on standard error (in a `beam` build the beam
+# tracer's per-batch lines too). Without the flag no subscriber is installed.
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 # The new-version notice `main.rs` prints to standard error before a command (skipped with
 # `--no-update-check` or PLEOCHROMA_NO_UPDATE_CHECK).
 pleochroma-update = { workspace = true }
@@ -43,6 +48,8 @@ pleochroma-update = { workspace = true }
 pleochroma-cut = { workspace = true }
 # The render job file, its codec and the progress line format.
 pleochroma-render-jobs = { workspace = true }
+# `Vec3`, the sample type of the renderer's own tone map (`image-compare`).
+glam = { workspace = true }
 
 [dev-dependencies]
 # The scene a test job is built from (`SceneState`); `render` is the feature the app already enables.
@@ -52,9 +59,23 @@ pleochroma-net = { workspace = true, features = ["render"] }
 # No optional features by default: every `--local` choice renders on the processor.
 default = []
 # Render on the graphics card too (`--local gpu` and `--local cpu+gpu`); the app's own GPU backend.
-gpu = ["pleochroma-cut/gpu"]
+gpu = ["pleochroma-cut/gpu", "pleochroma/gpu"]
 # Offer the two UV lamps (`--lighting uv365` and `uv395`), as the desktop app's feature of the same name does.
 physical-color = ["pleochroma-cut/physical-color"]
+# Adaptive sampling (off by default): the `--adaptive`, `--target-noise`, `--min-spp`,
+# `--noise-metric` and `--gpu-convergence` flags of `render` and `tilt-video`, and the adaptive
+# passes themselves
+# (through the app's executor). Without it the flags are unknown words, and a job file whose own
+# `accel.adaptive` asks for it renders at its own samples per pixel with the note "Adaptive sampling
+# off: this build has no adaptive sampling.".
+adaptive-sampling = ["pleochroma-cut/adaptive-sampling"]
+# Beam tracing (off by default): the `--beam`, `--keep-beams` and `--beam-*` flags
+# of `render` and `tilt-video`, and the beam tracer itself (through the app's executor). Without it the
+# flags are unknown words, and a job file whose own `accel.beam` asks for beams renders without them
+# with the note "Beam tracing off: this build has no beam tracer.". Its tests compile only with
+# `RUSTFLAGS="--cfg beam_tests"` (scripts/run_beam_tests.sh). Beam tracing includes adaptive
+# sampling.
+beam = ["adaptive-sampling", "pleochroma/beam", "pleochroma-cut/beam"]
 
 [lints]
 workspace = true

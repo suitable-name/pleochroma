@@ -1,10 +1,7 @@
 // ---------------------------------------------------------------------------------
-// Phase 4 GPU port: optics::birefringence::BiaxialIndicatrix -- standalone per-function
-// checks for the genuinely biaxial machinery, mirroring the uniaxial Phase 3 checks
-// above. Every case carries the indicatrix's three principal indices plus its
-// `gamma_axis` (not the derived `axes` frame directly -- `biaxial_axes` is
-// itself part of what's being checked, exactly as the CPU side's
-// `BiaxialIndicatrix::from_gamma_axis` derives `axes` from `gamma_axis` fresh).
+// optics::birefringence::BiaxialIndicatrix: per-function checks for the biaxial path.
+// Each case carries the three principal indices and `gamma_axis`, not the derived `axes`
+// frame, so `biaxial_axes` is under test too, as in `BiaxialIndicatrix::from_gamma_axis`.
 // ---------------------------------------------------------------------------------
 
 struct BiaxialWaveIndicesCase {
@@ -16,8 +13,8 @@ struct BiaxialWaveIndicesCase {
     _pad1: f32,
     wave_normal: vec3<f32>,
     _pad2: f32,
-    // The framed pin: `.xyz` the requested alpha direction, `.w` 1.0 when set; all zero is
-    // the gamma-only completion every other bank here uses.
+    // Optional alpha-axis pin: `.xyz` the direction, `.w` 1.0 when set. All zero means
+    // gamma-only completion.
     a_axis_and_flag: vec4<f32>,
 }
 
@@ -176,8 +173,7 @@ struct ScatterOrExtinguishCase {
     hit_t: f32,
     rng_seed: u32,
     bounce: u32,
-    // P1 (absorption path scale): reuses what was `_pad0` -- see the Rust-side
-    // `ScatterOrExtinguishCase`'s own doc comment.
+    // Absorption path-length scale. Shares the slot of the Rust struct's former padding.
     path_scale: f32,
     _pad1: u32,
     _pad2: u32,

@@ -2,8 +2,8 @@
 //! posts to the UI thread and the guard that makes sure the end of a run is always reported.
 //!
 //! Slint-free, like `super` (which keeps the measurements and the state of a run). The tilt
-//! average takes about 3 s (2 x 724 evaluations), so it runs on a thread of its own that the
-//! cutter can cancel; `super::host` posts the reports onto the UI thread.
+//! average is 2 x 724 evaluations, so it runs on a thread of its own that the cutter can
+//! cancel; `super::host` posts the reports onto the UI thread.
 
 use super::environment;
 use pleochroma::{
@@ -127,7 +127,7 @@ pub(in crate::gui::editor::compare) fn spawn_tilt(
         .map_err(|error| format!("The tilt average could not start: {error}."))
 }
 
-/// One side's tilt average, reporting progress from `offset` evaluations in; `None` when
+/// One side's tilt average. Progress is reported over both sides' evaluations; `None` when
 /// the run was cancelled.
 fn tilt_side(
     session_id: u64,

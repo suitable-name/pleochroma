@@ -1,6 +1,6 @@
 //! Builds a [`FacetMap`] from a [`Design`] by mirroring `Design::planes_from_solved`'s
-//! own candidate-normal construction and dedup pass -- see this module's parent doc
-//! comment for the full derivation.
+//! candidate-normal construction and dedup pass; see the `facet_map` module docs for
+//! the derivation.
 
 use super::{Candidate, FacetInfo, FacetKind, FacetMap, OFFSET_REL_EPSILON};
 use glam::Vec3;

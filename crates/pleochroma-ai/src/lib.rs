@@ -32,8 +32,9 @@
 //! # The composed policy
 //!
 //! The network predicts per-tier slopes for seven components: windowing, extinction, brilliance
-//! loss, yield loss, lighter-tone loss, deeper-tone loss and shape distance. [`model::compose_mean`]
-//! weights them with observed objective coefficients and composes a direction; the environment's
+//! loss, yield loss, lighter-tone loss, deeper-tone loss and shape distance.
+//! [`model::compose_mean`] weights them with the observed objective coefficients and composes a
+//! direction; the environment's
 //! line search determines the accepted length. A value head supports PPO and a gain head predicts
 //! the oracle score drop.
 //!

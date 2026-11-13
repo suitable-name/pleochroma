@@ -1,25 +1,25 @@
-//! Recovery of the face-up colour (plan section 10.1): the predicted colour of a 7 mm and a 12 mm
-//! stone cut from the rough, under D65 and A, within CIEDE2000 1.5 (RAW tier) or 3.0 (JPEG tier);
-//! the leave-one-view-out median within 2.0 for both tiers (ZC-16: the plan lists it without a
-//! tier qualifier).
+//! Recovery of the face-up colour of stones cut from the rough.
 //!
-//! Everything runs by default: the full matrix (six roughs times five colour cases, the JPEG tier,
-//! and photos rendered by the independent main CPU tracer), plus one explicit model-class case with
-//! 700 cm^-1 lines ([`ColourCase::NarrowLineBicolour`]).
+//! The predicted colour of a 7 mm and a 12 mm stone cut from the
+//! rough, under D65 and A, within CIEDE2000 1.5 (RAW tier) or 3.0 (JPEG tier), and the
+//! leave-one-view-out median within 2.0 for both tiers.
 //!
-//! Since 2026-10-12 the face-up criterion is asserted as `max(plan figure, 1.25 x verified metamer
-//! spread x sqrt(max(delta chi2, 1)))` with `delta chi2 = chi2(truth) - chi2(fit)`. One backlight
-//! and a three-channel camera determine the 14-band spectrum only up to the camera's metamers: a
-//! correct fit beats the truth's data term by about the effective parameter count `k`, which puts
-//! the truth at `delta chi2 ~ chi2_k` from the fit and OUTSIDE the 1 sigma spread (the set
-//! `delta chi2 <= 1`) along most directions when `k` is large. The plan's figure (1.5 / 3.0) stays
-//! in the code as the floor of that limit and is counted and printed for every run. Three health
-//! assertions (the noise floor at the truth; the fit not worse than the truth beyond
+//! The full matrix (six roughs times five colour cases, the JPEG tier, and photos rendered by the
+//! independent main CPU tracer) and the model-class case with 700 cm^-1 lines
+//! ([`ColourCase::NarrowLineBicolour`]) are `#[ignore]`d; run them on request with
+//! `scripts/run_tests_on_request.sh`. The generator and prior checks run by default.
+//!
+//! The face-up criterion is `max(figure, 1.25 x verified metamer spread x sqrt(max(delta chi2,
+//! 1)))`, with `delta chi2 = chi2(truth) - chi2(fit)`. One backlight and a three-channel camera
+//! determine the 14-band spectrum only up to the camera's metamers, so a correct fit beats the
+//! truth's data term by about the effective parameter count `k`. The truth then sits outside the
+//! 1 sigma spread (the set `delta chi2 <= 1`) along most directions when `k` is large. The
+//! figure (1.5 / 3.0) is the floor of that limit and is counted and printed for every run. Three
+//! health assertions (the noise floor at the truth; the fit not worse than the truth beyond
 //! `max(k + 3 sqrt(2 k), 2 k, 10)`, three standard deviations of a `chi2_k`; the fit not better
 //! than the truth beyond that plus the tier's systematic allowance) catch a generator or tracer
-//! mismatch, an optimiser failure or a prior bias. The
-//! measurement behind this is in the module notes of `solve/models.rs` and in section 7.4 of the
-//! chromophore review report (`review_chromophores_2026-10-12.md`).
+//! mismatch, an optimiser failure or a prior bias. The module notes of `solve/models.rs` give the
+//! measurements behind this.
 
 use std::{fmt::Write as _, sync::atomic::AtomicBool};
 
@@ -39,19 +39,17 @@ use crate::synth::{
     truth_log_gains,
 };
 
-/// The limit for photos from the independent main tracer: the RAW-tier criterion (1.5 for the
-/// face-up colour, 2.0 for the leave-one-view-out median) applied to a cross-tracer scene (ZC-16).
-/// It is not a separate figure of the plan: the main-tracer photos are noise-matched to the RAW
-/// tier (the camera, the light spectrum and the wavelength grid are shared on purpose, and 1024
-/// rays per working pixel put their noise at the RAW sensor's), so the transport code is the only
-/// thing that differs from a RAW photo, and the criterion for a RAW photo is the one that applies.
+/// The limit for photos from the independent main tracer: the RAW-tier criterion, applied to a
+/// cross-tracer scene. The photos are noise-matched to the RAW tier (the camera, the light
+/// spectrum and the wavelength grid are shared, and 1024 rays per working pixel give the RAW
+/// sensor's noise), so the transport code is the only difference from a RAW photo.
 ///
-/// The main-tracer runs also get [`MAIN_TRACER_SYSTEMATIC`] in the chi-square budget, since the two
-/// tracers may differ by the plan's 1 % (section 10.1).
+/// The main-tracer runs also get [`MAIN_TRACER_SYSTEMATIC`] in the chi-square budget.
 const MAIN_TRACER_LIMIT: f64 = Tier::Raw.face_up_limit();
 
 /// The slack, in CIEDE2000, that the narrow-line case gets over the projection of its truth onto
-/// the fit basis: the RAW face-up limit. See [`narrow_line_bicolour_is_judged_against_its_projection`].
+/// the fit basis: the RAW face-up limit. See
+/// [`narrow_line_bicolour_is_judged_against_its_projection`].
 const NARROW_LINE_SLACK: f64 = Tier::Raw.face_up_limit();
 
 /// The verified metamer spread is held, by the unit test
@@ -60,34 +58,30 @@ const NARROW_LINE_SLACK: f64 = Tier::Raw.face_up_limit();
 /// truth; the face-up limit allows for the rest (1 / 0.8).
 const SPREAD_COMPLETENESS: f64 = 1.25;
 
-/// The relative systematic difference the plan's cross-check (section 10.1) allows between the
-/// main tracer and the forward model: a mean relative radiance difference of 1 %.
+/// The relative systematic difference allowed between the main tracer and the forward model: a
+/// mean relative radiance difference of 1 %.
 const MAIN_TRACER_SYSTEMATIC: f64 = 0.01;
 
-/// The camera-ray samples per pixel of the forward trace for the main-tracer photos (round 3, D5).
+/// The camera-ray samples per pixel of the forward trace for the main-tracer photos.
 ///
-/// The records' own Monte-Carlo noise is only a small part of the weights of these fits (round 5,
-/// ZC-7: the solver interpolates the records' relative error between the clear stone and an
-/// optical depth of 1, instead of judging it at 0.3 per mm, which overstated a pale stone
-/// ten-fold). What is left of it in the PREDICTION is errors-in-variables: it biases the fitted
-/// gain below 1 by about `var(noise) / var(signal)` (regression dilution; the first runs found
-/// 0.82 for the saturated stone, 0.95 for the pale one, in the order of their relative noise) and
-/// raises chi2/n above 1 by `1 + var(forward noise) / var(photo noise)`. Tracing 32 times more
-/// paths than the photos are made of (4096 against 1024 rays per pixel) puts that excess at a
-/// quarter, and the pixels are few (10 x 10 per view), so it costs seconds.
+/// The records' Monte-Carlo noise enters the prediction as errors-in-variables. It biases the
+/// fitted gain below 1 by about `var(noise) / var(signal)` (regression dilution) and raises
+/// chi2/n by `1 + var(forward noise) / var(photo noise)`. Tracing 32 times more paths than the
+/// photos (4096 against 1024 rays per pixel) reduces that excess to about a quarter, at little
+/// cost since there are few pixels (10 x 10 per view).
 const MAIN_FORWARD_SAMPLES: usize = 4096;
 /// The rays per working pixel of the main tracer's photos.
 const MAIN_TRACER_SPP: u32 = 1024;
 
 /// A fit together with the objective evaluated at the TRUTH (the truth absorption and the truth
-/// gains of the photos, with the very weights the fit used): the diagnostic of round 2, C2.
+/// gains of the photos, with the very weights the fit used), the diagnostic of a failed fit.
 struct Run {
     fit: ColourFit,
     at_truth: ObjectiveAt,
-    /// The median relative Monte-Carlo error of the records and of the photos (round 3, D5).
+    /// The median relative Monte-Carlo error of the records and of the photos.
     noise: NoiseSummary,
     /// The natural logarithm of the gains the photos were made with (zeros for photos that carry
-    /// none), for the report (ZC-19).
+    /// none), for the report.
     truth_gains: Vec<f64>,
 }
 
@@ -101,7 +95,7 @@ fn median(mut values: Vec<f64>) -> f64 {
 }
 
 /// The median relative Monte-Carlo error of the records (clear stone; optical depth 1) and the
-/// median relative noise of the photos' green channel, over the used pixels (round 3, D5).
+/// median relative noise of the photos' green channel, over the used pixels.
 #[derive(Clone, Copy)]
 struct NoiseSummary {
     /// The records' relative Monte-Carlo error at the clear stone.
@@ -115,9 +109,9 @@ struct NoiseSummary {
 
 impl NoiseSummary {
     /// The relative Monte-Carlo error of the forward records, at the clear stone and at an optical
-    /// depth of 1 along the pixel's mean path (round 5, ZC-7), next to the relative noise of the
-    /// photos' green channel, medians over the used pixels. When the first is not clearly below
-    /// the second, the unmodelled noise of the records dilutes the fitted gain (see
+    /// depth of 1 along the pixel's mean path, next to the relative noise of the photos' green
+    /// channel, medians over the used pixels. When the records' error is not clearly below the
+    /// photos' noise, the unmodelled record noise dilutes the fitted gain (see
     /// [`MAIN_FORWARD_SAMPLES`]).
     fn of(records: &ForwardRecords, photos: &[ObservedView]) -> Self {
         let (mut clear, mut unit, mut photo) = (Vec::new(), Vec::new(), Vec::new());
@@ -160,10 +154,8 @@ impl NoiseSummary {
     }
 }
 
-/// The prior term that charges the truth more than the fit (`(name, fit, truth)`): the largest
-/// `truth - fit`. That is the term that drove the fit away from the truth (ZC-10; the first
-/// version took the largest `fit - truth`, which names the term that favours the fit, the
-/// opposite of what the diagnosis needs).
+/// The prior term that charges the truth most against the fit, as `(name, fit, truth)`: the
+/// largest `truth - fit`, the term that drives the fit away from the truth.
 fn prior_term_charging_the_truth(
     fit: &[(String, f64)],
     truth: &[(String, f64)],
@@ -208,7 +200,7 @@ fn terms_line(terms: &[(String, f64)]) -> String {
 }
 
 /// How many predictions have the truth inside their verified metamer spread, out of how many
-/// (ZC-4): the CIEDE2000 from the fit's colour to the truth's against `metamer_spread`.
+/// The CIEDE2000 from the fit's colour to the truth's, against `metamer_spread`.
 fn truth_inside_spread(fit: &ColourFit, setup: &Setup) -> (usize, usize) {
     let (mut inside, mut total) = (0, 0);
     for e in face_up_errors(fit, &setup.truth) {
@@ -246,9 +238,8 @@ struct Judgement {
     n: f64,
     /// How far a correct fit's chi-square may sit from the truth's in either direction by the
     /// parameter count alone: the difference is a `chi2_k` variable (mean `k`, standard deviation
-    /// `sqrt(2 k)`), so the budget is `k + 3 sqrt(2 k)`, at least `2 k` and at least 10. (A plain
-    /// `2 k` is under two standard deviations for `k` below 18 and failed two of thirty RAW runs
-    /// by chance on 2026-10-12.)
+    /// `sqrt(2 k)`), so the budget is `k + 3 sqrt(2 k)`, at least `2 k` and at least 10. A plain
+    /// `2 k` lies within that budget for `k` below 18.
     threshold: f64,
     /// `chi2(truth) - chi2(fit)`, the chi-square level the truth sits at above the fit (negative
     /// when the fit is WORSE than the truth).
@@ -344,8 +335,8 @@ fn not_at_optimum_verdict(run: &Run) -> String {
 ///   ([`Judgement::metamer_limit`]); an error inside it is what the data's own confidence region
 ///   allows.
 /// * the prior cost per term at the fit and at the truth (`name fit/truth`): the truth's cost
-///   should be a few units per zone (ZC-1); a term that charges the truth far more than the fit
-///   is the prior bias.
+///   should be a few units per zone; a term that charges the truth far more than the fit is the
+///   prior bias.
 fn report(run: &Run, setup: &Setup, j: &Judgement) -> String {
     let fit = &run.fit;
     let mut out = String::new();
@@ -384,7 +375,7 @@ fn report(run: &Run, setup: &Setup, j: &Judgement) -> String {
         pleochroma_cut_core::rough_plan::colour_fit::solve::BIRGE_THRESHOLD,
         run.noise.line()
     );
-    // Round 3, D1.3: the TOTAL objective (data plus priors) at the fit and at the truth.
+    // The TOTAL objective (data plus priors) at the fit and at the truth.
     let _ = writeln!(
         out,
         "objective at the fit {:.1} = data {:.1} + priors {:.1} [{}]",
@@ -408,7 +399,7 @@ fn report(run: &Run, setup: &Setup, j: &Judgement) -> String {
         "prior cost per term, fit/truth: {} (the truth's smoothness and magnitude terms are expected at a few units per zone)",
         paired_terms_line(&chosen.prior_terms, &truth.prior_terms)
     );
-    // Round 3, D2: the classification uses the chi2 difference, not the two chi2/n against 1.
+    // The classification uses the chi2 difference, not the two chi2/n against 1.
     let _ = writeln!(
         out,
         "delta chi2 = truth - fit = {:.1} over {:.0} residuals (positive: the fit beats the truth) against the threshold max(k + 3 sqrt(2 k), 2 k, 10) for k = {:.1} effective parameters = {:.1}; chi2/n at truth {:.3} against {:.3}",
@@ -427,10 +418,10 @@ fn report(run: &Run, setup: &Setup, j: &Judgement) -> String {
     } else if j.per_truth > j.floor {
         "the fit is as good as the truth, but both are above the noise floor: the photos and the records disagree (generator, tracer or noise-model mismatch)".to_owned()
     } else {
-        // ZC-24 (rewritten 2026-10-12): the spread is the 1 sigma set, `delta chi2 <= 1`. A
-        // correct fit beats the truth's data term by about its effective parameter count, so the
-        // truth sits at `delta chi2 ~ chi2_k` from the fit and lies outside that set along most
-        // directions when `k` is large. The scaled spread is the set at the truth's level.
+        // The spread is the 1 sigma set, `delta chi2 <= 1`. A correct fit beats the truth's data
+        // term by about its effective parameter count, so the truth sits at `delta chi2 ~ chi2_k`
+        // from the fit and lies outside that set along most directions when `k` is large. The
+        // scaled spread is the set at the truth's level.
         let (inside_scaled, _) = truth_inside_scaled_spread(fit, setup, j);
         format!(
             "identifiability: fit and truth are both at the noise floor and the fit beats the truth by {:.1} chi2 against the {:.1} parameters' expectation: a metamer limit of the camera data (the truth sits at delta chi2 about k from a correct fit, so it lies outside the 1 sigma spread along most directions when k is large; it is within the 1 sigma spread for {inside} of {total} predictions and within {SPREAD_COMPLETENESS} x spread x sqrt(delta chi2) for {inside_scaled} of {total})",
@@ -495,8 +486,8 @@ fn report(run: &Run, setup: &Setup, j: &Judgement) -> String {
                 }
             }
         }
-        // ZC-23: the fit itself is evaluated on the 14 fit centres; the 7-band export (what the
-        // GPU renderer sees) is printed separately, so a refit misfit is visible.
+        // The fit is evaluated on the 14 fit centres; the 7-band export (what the GPU renderer
+        // sees) is printed separately, so a refit misfit is visible.
         let truth_fit_alpha: Vec<String> = FIT_BASIS_NM
             .iter()
             .map(|&(c, _)| format!("{:.4}", setup.truth.alpha(zone, f64::from(c))))
@@ -567,8 +558,9 @@ enum Limit<'a> {
 
 /// The health misses of a run: the three chi-square assertions that catch a defect which the
 /// metamer allowance must not excuse. The photos and the records must agree at the truth (the
-/// noise floor); the fit must not be worse than the truth by more than [`Judgement::threshold`] (an
-/// optimiser failure or a prior bias, see [`not_at_optimum_verdict`]); and it must not beat the
+/// noise floor); the fit must not be worse than the truth by more than
+/// [`Judgement::threshold`] (an optimiser failure or a prior bias, see
+/// [`not_at_optimum_verdict`]); and it must not beat the
 /// truth by more than that plus the tier's systematic allowance (the photos then carry an error
 /// the noise model does not describe).
 fn health_misses(run: &Run, j: &Judgement) -> Vec<String> {
@@ -602,9 +594,9 @@ fn health_misses(run: &Run, j: &Judgement) -> Vec<String> {
     misses
 }
 
-/// The face-up misses of a run, with how many predictions meet the plan's figure on its own
-/// (`met`) out of how many there are (`total`). The limit of a prediction is the larger of that
-/// figure (`limit`) and its metamer allowance ([`Judgement::metamer_limit`]).
+/// The face-up misses of a run, with how many predictions meet the figure on its own (`met`)
+/// out of how many there are (`total`). The limit of a prediction is the larger of that figure
+/// (`limit`) and its metamer allowance ([`Judgement::metamer_limit`]).
 fn colour_misses(
     run: &Run,
     setup: &Setup,
@@ -644,13 +636,13 @@ fn colour_misses(
 /// Checks every zone of the fit against the truth of `setup` and the leave-one-view-out median.
 /// All misses are collected into one message together with [`report`].
 ///
-/// The face-up criterion is the metamer-limited one: the larger of the plan's figure (`limit`)
-/// and the metamer allowance `1.25 x verified metamer spread x sqrt(max(delta chi2, 1))`, where
+/// The face-up criterion is the metamer-limited one: the larger of the figure (`limit`) and the
+/// metamer allowance `1.25 x verified metamer spread x sqrt(max(delta chi2, 1))`, where
 /// `delta chi2` is the truth's data chi-square minus the fit's (see the module documentation and
 /// [`Judgement::metamer_limit`]); a camera that sees the stone through one backlight cannot do
-/// better than its metamers. The plan's figure is never hidden: how many predictions meet it on
-/// their own is counted and printed for every run, and a face-up miss names both figures and
-/// whether the truth lies inside the verified spread. `systematic` is the relative error the
+/// better than its metamers. The figure is never hidden: how many predictions meet it on their
+/// own is counted and printed for every run, and a face-up miss names both figures and whether
+/// the truth lies inside the verified spread. `systematic` is the relative error the
 /// tier's photos may carry beyond the noise (it widens the chi-square budget of the health
 /// assertions, see [`health_misses`]).
 fn check(
@@ -692,15 +684,13 @@ fn check(
 /// Fits the photos and evaluates the objective at the truth.
 ///
 /// `records_noise_in_weights` says whether the records' Monte-Carlo variance is added to the photo
-/// variance (`mc_variance_scale` 1, the shipped default) or not (0). The photos from
-/// `photos_forward` and `photos_jpeg` are computed from the very records the fit evaluates, so
-/// they carry no Monte-Carlo error of the records: for them the term must be 0. The photos of the
-/// independent main tracer carry their own per-pixel variance (the spread of its samples over the
-/// pixel footprint, `MainView::variance_of_mean`) AND are compared with records that carry their
-/// own Monte-Carlo error, which is real model noise there; since round 5 (ZC-7) the records'
-/// relative error is interpolated between the clear stone and an optical depth of 1 instead of
-/// being judged at 0.3 per mm (where a pale stone's error was overstated ten-fold, chi2/dof 0.003
-/// to 0.25 in the first run), so the shipped weight is honest and these fits use it.
+/// variance (`mc_variance_scale` 1, the default) or not (0). The photos from `photos_forward` and
+/// `photos_jpeg` are computed from the very records the fit evaluates, so they carry no
+/// Monte-Carlo error of the records: for them the term must be 0. The main tracer's photos carry
+/// their own per-pixel variance (`MainView::variance_of_mean`) and are compared with records
+/// whose Monte-Carlo error is real model noise, so these fits include it. The records' relative
+/// error is interpolated between the clear stone and an optical depth of 1, since judging it at
+/// 0.3 per mm overstates a pale stone's error ten-fold.
 ///
 /// `truth_gains` are the log-gains of the photos (the nominal exposure factors of the generator;
 /// zeros for photos that carry none), for the objective at the truth.
@@ -875,7 +865,7 @@ pub fn run_main_tracer_recovery(colour: ColourCase) -> ColourFit {
 // The generator's own checks
 // ---------------------------------------------------------------------------------------------
 
-/// Round 2, C4: the JPEG generator must hand back a flat field within the 8-bit quantisation (one
+/// The JPEG generator must hand back a flat field within the 8-bit quantisation (one
 /// and a half codes, propagated through the sRGB curve), or the common gain of the JPEG tier is a
 /// generator defect and not a property of the photometry.
 #[test]
@@ -898,7 +888,7 @@ fn a_flat_field_survives_the_jpeg_round_trip_within_quantisation() {
     }
 }
 
-/// The truths of the matrix are physical (ZC-6): a perfect fit of the model class stays well
+/// The truths of the matrix are physical: a perfect fit of the model class stays well
 /// inside the criterion. A case whose projection onto the fit basis is already near the limit
 /// would test the model class and not the solver, so the generator is checked here, once, and the
 /// figures are printed.
@@ -921,12 +911,10 @@ fn the_physical_truths_are_representable_on_the_fit_basis() {
     }
 }
 
-/// ZC-25: the priors cost the validation truths almost nothing. Mirrors the unit test
-/// `the_priors_cost_the_validation_truths_almost_nothing` (which keeps the narrow pair) for the
-/// physical truths of the matrix (2200 cm^-1 at x1, x1.5 and x2, the saturated and pale pairs):
-/// the smoothness and magnitude priors at the least-squares projection of each truth, summed over
-/// the zones, stay within twice the band count per zone, the review's bound (the old prior
-/// charged 2462 for the saturated pair).
+/// The priors cost the matrix truths almost nothing: the smoothness and magnitude priors at the
+/// least-squares projection of each truth, summed over the zones, stay within twice the band
+/// count per zone. The unit test `the_priors_cost_the_validation_truths_almost_nothing` covers
+/// the narrow pair.
 #[test]
 fn the_priors_cost_the_matrix_truths_almost_nothing() {
     for case in ColourCase::ALL
@@ -976,21 +964,20 @@ fn the_priors_cost_the_matrix_truths_almost_nothing() {
 // ---------------------------------------------------------------------------------------------
 
 #[test]
+#[ignore = "over 60 s in the workspace run (2026-11-08); run on request: scripts/run_tests_on_request.sh"]
 fn a_saturated_cube_recovers_its_face_up_colour_in_the_raw_tier() {
     let fit = run_recovery(RoughKind::Cube, ColourCase::UniformSaturated, Tier::Raw);
     assert_eq!(fit.n_zones, 1);
 }
 
-/// The explicit model-class case (ZC-6): the bicolour with 700 cm^-1 lines (wavelength sigma 9 to
-/// 12 nm, the width of spin-forbidden lines, which carry little colour). A non-negative sum of
-/// 25 nm Gaussians cannot follow them, so the projection of the truth onto the fit basis alone
-/// costs several CIEDE2000. The criterion is therefore NOT the RAW limit but "fit dE2000 at most
-/// the projection dE2000 of the truth onto the fit basis plus 1.5" for each prediction: the fit
-/// may not be worse than the best the model class can do by more than the RAW limit. This replaces
-/// the unphysical 700 cm^-1 truths of the matrix cases; it does not loosen the 1.5 for physical
-/// spectra, which keep the plain RAW criterion. The test prints the projection dE2000 of every
-/// prediction.
+/// The model-class case: the bicolour with 700 cm^-1 lines (wavelength sigma 9 to 12 nm). A
+/// non-negative sum of 25 nm Gaussians cannot follow such narrow lines, so the projection of the
+/// truth onto the fit basis alone costs several CIEDE2000. The criterion for each prediction is
+/// therefore its projection error plus the RAW limit, not the RAW limit itself: the fit may not
+/// be worse than the best the model class can do by more than that. Physical spectra keep the
+/// plain RAW criterion. The test prints the projection error of every prediction.
 #[test]
+#[ignore = "over 60 s in the workspace run (2026-11-08); run on request: scripts/run_tests_on_request.sh"]
 fn narrow_line_bicolour_is_judged_against_its_projection() {
     let fit = recover(
         RoughKind::Cube,
@@ -1009,6 +996,7 @@ macro_rules! matrix {
     ($tier:ident: $($name:ident => ($rough:ident, $colour:ident)),+ $(,)?) => {
         $(
             #[test]
+            #[ignore = "over 60 s in the workspace run (2026-11-08); run on request: scripts/run_tests_on_request.sh"]
             fn $name() {
                 run_recovery(RoughKind::$rough, ColourCase::$colour, Tier::$tier);
             }
@@ -1063,6 +1051,7 @@ macro_rules! main_tracer {
     ($($name:ident => $colour:ident),+ $(,)?) => {
         $(
             #[test]
+            #[ignore = "over 60 s in the workspace run (2026-11-08); run on request: scripts/run_tests_on_request.sh"]
             fn $name() {
                 run_main_tracer_recovery(ColourCase::$colour);
             }

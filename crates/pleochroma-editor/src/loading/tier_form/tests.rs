@@ -340,9 +340,9 @@ fn parse_tier_form_kind_one_rejects_an_empty_name_list() {
 
 #[test]
 fn parse_tier_form_rejects_an_unknown_constraint_kind() {
-    // `3`/`4`/`5` are now the three target kinds (see
-    // `parse_tier_form_kinds_three_to_five_use_a_scale_reference_placeholder`
-    // below) -- `6` is the first kind nothing recognizes.
+    // `3`/`4`/`5` are the target kinds (see
+    // `parse_tier_form_kinds_three_to_five_use_a_scale_reference_placeholder` below), so `6`
+    // is the first unrecognized kind.
     let err = parse_tier_form(tier_form("30.0", 6, "", "C1", "")).unwrap_err();
     assert!(err.contains('6'));
 }

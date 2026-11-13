@@ -28,22 +28,16 @@
 //! # Devices
 //!
 //! The action of every rollout step comes from one batched forward of the rollout copy of the
-//! Burn model on the training device, so rollout numbers are the device's. Validation, the
-//! checkpoints export the pure-Rust twin. Evaluation uses a batched inference service on the
+//! Burn model on the training device, so rollout numbers are the device's. Validation and the
+//! checkpoints use the pure-Rust twin. Evaluation uses a batched inference service on the
 //! resolved training device (and the pure-Rust reference for CPU runs). CUDA runs also use
 //! native environment optical scoring and meet residuals, with explicit fallback counters.
 //!
 //! Conventions: scores are `ObjectiveWeights::score` figures (lower is better); an episode's
 //! "improvement" is `base score - final score` (never negative: the environments are greedy).
 //!
-//! The rest of the runner lives in child modules, which see this module's private items: the
-//! configuration (`runner_config.rs`), the data types (`runner_types.rs`), the environment
-//! wrappers (`runner_env.rs`), the rollout (`runner_rollout.rs`), the update thread
-//! (`runner_update.rs`), the labelled
-//! aggregate (`runner_imitation.rs`), the labelling schedule (`runner_teacher.rs`), the thread
-//! pools (`runner_pool.rs`), the objective sampling (`runner_objective.rs`), the evaluation
-//! machinery (`runner_eval.rs`), the changes to a live run (`runner_setters.rs`), the telemetry
-//! and checkpoints (`runner_export.rs`) and the unit tests (`runner_tests.rs`).
+//! The child modules `runner_*.rs` hold the rest of the runner; they see this module's private
+//! items. Each one's module doc names its part.
 
 // The GUI and the CLI binary both include this file; each uses a different subset of the setters.
 #![allow(dead_code, reason = "shared by two binaries that each use a subset")]
@@ -267,8 +261,8 @@ pub fn checkpoint_file_name(mode: TrainingMode, tier: ModelTier, iteration: usiz
     )
 }
 
-/// Threads [`TrainingRunner::evaluate`] spreads `designs` designs over (0 for no designs): the
-/// core count, but never more than the designs.
+/// Threads [`TrainingRunner::evaluate`] spreads `designs` designs over: the core count, capped
+/// at the design count (0 for no designs).
 #[must_use]
 pub fn evaluation_threads(designs: usize) -> usize {
     pool::pass_threads(designs)
@@ -355,8 +349,8 @@ pub struct TrainingRunner {
     aggregate: LabelledStates,
     /// Rollout passes finished so far; rotates which slots a pass labels.
     label_phase: usize,
-    /// Scale of the discounted return the rewards are divided by (review TQ-15). It persists
-    /// across iterations and is saved by full recovery; weight-only warm starts re-estimate it.
+    /// Scale of the discounted return the rewards are divided by. Persists across iterations
+    /// and is saved by full recovery; weight-only warm starts re-estimate it.
     normalizer: ReturnNormalizer,
     rng: Prng,
     focus_entry: usize,
@@ -716,7 +710,7 @@ impl TrainingRunner {
         self.slots = fresh;
         self.clear_rollout();
         // The in-flight episodes are gone and the next rewards come from other environments (new
-        // task, targets, worker set, model): the scale estimated on them no longer applies.
+        // task, targets, worker set, model), so the scale estimated on the old ones does not apply.
         self.normalizer.reset();
         if let Some(first) = self.slots.first() {
             self.stats.baseline = Some(Optics::from_global(&first.obs.global));

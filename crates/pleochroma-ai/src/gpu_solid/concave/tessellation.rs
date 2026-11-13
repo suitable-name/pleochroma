@@ -1,10 +1,9 @@
 // Adapted from pleochroma geometry/stone_metrics/concave; MIT.
 // Copyright (c) 2026 Niklas Gussek. Full license: LICENSE-MIT.
-//! Tessellating a tool into a convex polytope (and its bounding box).
+//! Tessellating a tool into a convex polytope with a bounding sphere.
 //!
-//! These are the half-space
-//! lists the carved-mesh construction in the parent module clips against. Split from the
-//! parent module so the file stays readable; the functions are unchanged.
+//! The half-space lists here are what the carved-mesh construction in the parent
+//! module clips against.
 
 use super::Plane;
 use glam::DVec3;

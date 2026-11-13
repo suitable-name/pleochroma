@@ -1,6 +1,6 @@
 //! Round-trip and wire-stability tests for the `stream` module: header/message structs,
-//! [`super::ClientMessage`], [`super::StreamEvent`], and the `postcard` discriminants
-//! pinned by the module doc comment's "Variant order" section.
+//! [`super::ClientMessage`], [`super::StreamEvent`], and the `postcard` variant indices
+//! (see the `ClientMessage` docs).
 
 use super::{
     super::codec::{read_message, write_message},
@@ -169,6 +169,10 @@ fn client_message_render_request_round_trips() {
         height: 4,
         yaw: 0.4,
         camera_roll: 0.0,
+        stone_shadow: false,
+        tray_reflection: 0.0,
+        hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
+        estimator: pleochroma::optics::raytracer::Estimator::Branching,
         pitch: 0.3,
         distance: 3.0,
         light_yaw: 0.85,
@@ -221,6 +225,10 @@ fn client_message_tilt_curves_request_round_trips() {
         height: 4,
         yaw: 0.4,
         camera_roll: 0.0,
+        stone_shadow: false,
+        tray_reflection: 0.0,
+        hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
+        estimator: pleochroma::optics::raytracer::Estimator::Branching,
         pitch: 0.3,
         distance: 3.0,
         light_yaw: 0.85,
@@ -254,7 +262,7 @@ fn client_message_tilt_curves_request_round_trips() {
 /// Pins [`ClientMessage::Cancel`]/[`ClientMessage::Library`] at `postcard` variant
 /// indices 0/1 -- the two always-compiled-in variants a library-only build and a
 /// full (`render`-feature) build must agree on regardless of which one either peer
-/// was built with (see the module doc comment's "Variant order" section). `postcard`
+/// was built with (see the `ClientMessage` docs). `postcard`
 /// encodes a variant as a one-byte leading varint for any index below 128, so the
 /// first encoded byte is the declaration index this test pins.
 #[test]
@@ -270,8 +278,8 @@ fn cancel_and_library_keep_postcard_discriminants_0_and_1() {
 
 /// Pins [`ClientMessage::RenderRequest`]/[`ClientMessage::TiltCurvesRequest`] at
 /// `postcard` variant indices 2/3, both after `Cancel`/`Library` and
-/// `TiltCurvesRequest` after `RenderRequest` -- the order the module doc comment
-/// requires. Only meaningful in a `render`-enabled build.
+/// `TiltCurvesRequest` after `RenderRequest` -- the order the `ClientMessage` docs
+/// require. Only meaningful in a `render`-enabled build.
 #[cfg(feature = "render")]
 #[test]
 fn render_gated_variants_are_appended_in_order_after_cancel_and_library() {
@@ -286,6 +294,10 @@ fn render_gated_variants_are_appended_in_order_after_cancel_and_library() {
         height: 1,
         yaw: 0.0,
         camera_roll: 0.0,
+        stone_shadow: false,
+        tray_reflection: 0.0,
+        hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
+        estimator: pleochroma::optics::raytracer::Estimator::Branching,
         pitch: 0.0,
         distance: 1.0,
         light_yaw: 0.0,

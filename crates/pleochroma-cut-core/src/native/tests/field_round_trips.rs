@@ -1,22 +1,18 @@
-//! Per-tier and per-design field round-trips through the design file
-//! (`design_to_string`/`design_from_str`): the meet-intent fields themselves, tier
-//! notes, cheater offsets, and tier ids/targets.
+//! Field round trips through the design file: meet intent, tier notes, cheater offsets, and
+//! tier ids and targets.
 
 use super::fixtures::{design_text, reopen, simple_design};
 use crate::{design::TierTarget, native::design_from_str};
 use pleochroma::geometry::meet_solver::MeetConstraint;
 
-/// A design file must reproduce every field the save captured: preform, girdle
-/// diameter, material, and every tier's authored constraint/detached set -- not just
-/// the ones `.asc` itself would have reconstructed via
-/// [`crate::design::Design::from_asc_schedule`]'s own pinning.
+/// A design file reproduces every saved field: preform, girdle diameter, material, and each
+/// tier's authored constraint and detached set. It does not rely on what an `.asc` import
+/// reconstructs (see [`crate::design::Design::from_asc_schedule`]).
 #[test]
 fn a_design_file_reproduces_every_captured_field() {
     let mut design = simple_design();
-    // Tiers 0 and 2 ALSO get an authored constraint that differs from what a
-    // plain `.asc` import alone would pin them to (their own recorded masts,
-    // 1.0 and 0.55) -- not just tier 1's `MeetExisting` override -- so this test
-    // exercises the whole tier list, not one hand-picked tier.
+    // Tiers 0 and 2 also get a constraint that an `.asc` import would not pin them to, so the
+    // whole tier list is exercised, not only tier 1's `MeetExisting` override.
     design.tiers[0].constraint = MeetConstraint::ScaleReference(0.61);
     design.tiers[2].constraint = MeetConstraint::ScaleReference(0.72);
 
@@ -43,9 +39,7 @@ fn tier_notes_round_trip_through_save_and_load() {
     assert_eq!(loaded.design.tier_note(2), None);
 }
 
-/// A design with no notes at all must round-trip with an empty `tier_notes` --
-/// the "nothing to restore" case `tier_notes_round_trip_through_save_and_load`'s
-/// positive case doesn't cover.
+/// A design with no notes round-trips with an empty `tier_notes`.
 #[test]
 fn a_design_with_no_notes_round_trips_with_no_notes() {
     let loaded = reopen(&simple_design());
@@ -65,9 +59,7 @@ fn cheater_offset_round_trips_through_save_and_load() {
     assert_eq!(loaded.design.cheater_offset_deg(2), None);
 }
 
-/// A design with no cheater offsets at all must round-trip with an empty
-/// `cheater_offsets_deg` -- the "nothing to restore" case
-/// `cheater_offset_round_trips_through_save_and_load`'s positive case doesn't cover.
+/// A design with no cheater offsets round-trips with an empty `cheater_offsets_deg`.
 #[test]
 fn a_design_with_no_cheater_offsets_round_trips_with_no_cheater_offsets() {
     let loaded = reopen(&simple_design());
@@ -95,16 +87,12 @@ fn tier_id_and_target_round_trip_through_save_and_load() {
     assert_eq!(loaded.design.tier_target(2), None);
 }
 
-/// A file saved before `TierTable::tier_id` existed (every tier's `tier_id` key
-/// stripped, simulating an old file) must still load -- with a genuinely fresh,
-/// distinct id assigned to every tier instead of `None`/a panic. See
-/// `apply_tier_ids_and_targets`'s own doc comment ("assign a fresh id only when the
-/// file has none").
+/// A file without any `tier_id` key still loads, and each tier gets a fresh, distinct id (see
+/// `apply_tier_ids_and_targets`).
 #[test]
 fn a_file_with_no_tier_ids_still_loads_and_gets_fresh_distinct_ids() {
     let design = simple_design();
-    // Simulate a pre-this-field file by stripping every tier's freshly written
-    // `tier_id` key.
+    // Simulate an older file by stripping every tier's `tier_id` key.
     let text = design_text(&design)
         .lines()
         .filter(|line| !line.trim_start().starts_with("tier_id"))

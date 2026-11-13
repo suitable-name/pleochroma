@@ -190,8 +190,8 @@ pub fn set_angle_from_text(state: &mut AppState, tier: usize, text: &str) -> Edi
 
 /// Sets tier `tier`'s angle to the magnitude `magnitude_deg`.
 ///
-/// The table shows no sign; the tier keeps its side of zero. Consecutive calls of one slider drag within the history's
-/// coalescing window are ONE undo step.
+/// The table shows no sign: the tier keeps its side of zero. Calls of one slider drag within
+/// the history's coalescing window are one undo step.
 ///
 /// # Errors
 /// The apply error, as text (for example the tier's angle follows a relation).
@@ -222,9 +222,10 @@ pub fn set_angle_value(
 
 /// Nudges tier `tier`'s shown angle by `delta_deg`.
 ///
-/// Positive makes the number bigger on a crown and a pavilion tier alike. When `tier`
-/// belongs to a multi-selection of two or more, the whole group moves. A nudge that would cross 0 degrees stops there and says
-/// so. Nudges within the history's coalescing window are ONE undo step.
+/// Positive makes the number bigger on a crown and a pavilion tier alike. When `tier` belongs
+/// to a multi-selection of two or more, the whole group moves. A nudge that would cross 0
+/// degrees stops there, with a notice. Nudges within the history's coalescing window are one
+/// undo step.
 ///
 /// # Errors
 /// The apply error, as text.

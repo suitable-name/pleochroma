@@ -4,26 +4,25 @@ use serde::{Deserialize, Serialize};
 
 use super::TrainError;
 
-/// Magnitude a scaled reward is clipped to before GAE. With the scale from
-/// [`ReturnNormalizer::scale`] a typical reward is O(1), so 10 only ever cuts a rare outlier (a
-/// step whose reward is ten return-standard-deviations away), and no single step can dominate a
-/// batch.
+/// Magnitude a scaled reward is clipped to before GAE.
+///
+/// With the scale from [`ReturnNormalizer::scale`] a typical reward is O(1), so 10 only ever cuts a
+/// rare outlier (a step whose reward is ten return-standard-deviations away), and no single step
+/// can dominate a batch.
 pub const SCALED_REWARD_CLIP: f32 = 10.0;
 
-/// Running scale of the discounted return: the reward normaliser of the usual PPO implementations
-/// (baselines `VecNormalize`, SB3 `normalize_reward`), review TQ-15.
+/// Running scale of the discounted return, used to normalise rewards before GAE.
 ///
-/// The un-normalised returns of the first two runs sat around -150 (about 40 steps of -4.6 at
-/// gamma 0.99), so the critic's squared error (100 to 2200) outweighed the policy loss by two to
-/// three orders of magnitude. The scale is `1 / std` of the *discounted return* `ret_w = gamma *
-/// ret_w + reward`, accumulated per worker and reset at every episode end; the variance is a
-/// Welford running estimate over every tracked step of the run, so it persists across iterations
-/// and settles instead of jumping with each rollout. Rewards are only divided by it (nothing is
-/// subtracted), which keeps the sign and the ordering of every reward.
+/// Raw returns are O(100) (a -4.6 reward per step over a 40-step episode at gamma
+/// 0.99), which would let the critic's squared error dwarf the policy loss. The scale is
+/// `1 / std` of the *discounted return* `ret_w = gamma * ret_w + reward`, accumulated per
+/// worker and reset at every episode end. The variance is a Welford estimate over all tracked
+/// steps of the run, so it stays stable across iterations. Rewards are only divided by it,
+/// never shifted, so their sign and order are kept.
 ///
-/// Complete recovery checkpoints preserve this running scale and every slot return. Weight-only
-/// warm starts re-estimate it. Until two steps are tracked the scale is 1, which the clip at
-/// [`SCALED_REWARD_CLIP`] keeps safe.
+/// Recovery snapshots keep the running scale and every slot return. Weight-only checkpoints
+/// do not, so a warm start re-estimates it. Until two steps are tracked the scale is 1, which
+/// the clip at [`SCALED_REWARD_CLIP`] keeps safe.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ReturnNormalizer {
     /// Discounted return of each worker's running episode (grown on demand).
@@ -67,7 +66,8 @@ impl ReturnNormalizer {
     }
 
     /// `1 / sqrt(var + 1e-8)` of the tracked discounted returns, or `1.0` until at least two
-    /// steps were tracked. Multiply rewards by it before [`RolloutBuffer::compute_gae_per_worker`].
+    /// steps were tracked. Multiply rewards by it before
+    /// [`RolloutBuffer::compute_gae_per_worker`].
     #[must_use]
     pub fn scale(&self) -> f32 {
         if self.count < 2 {
@@ -117,9 +117,9 @@ pub struct TrajectoryStep {
 
 /// How the episode of a worker continues after a stored step.
 ///
-/// GAE must bootstrap differently for the three cases: a terminated episode has no future value, a
-/// time-limit truncation still has one (`V(s_next)`), and a continuing episode takes the value of the
-/// worker's next stored step (or the rollout-tail value for its last step).
+/// GAE bootstraps differently in each case: a terminated episode has no future value, a
+/// time-limit truncation still has one (`V(s_next)`), and a continuing episode takes the value
+/// of the worker's next stored step (or the rollout-tail value for its last step).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum EpisodeEnd {
     /// The episode continues with the worker's next step.
@@ -192,26 +192,28 @@ impl RolloutBuffer {
         self.returns.clear();
     }
 
-    /// Compute GAE separately for every worker, then standardise the advantages over the whole buffer.
+    /// Compute GAE per worker, then standardise the advantages over the whole buffer.
     ///
-    /// Each worker's steps are walked backwards in their own order, so a step never bootstraps from a
-    /// different worker's value. Per step the stored [`EpisodeEnd`] decides the bootstrap: `Terminated`
-    /// uses zero, `Truncated` uses its `next_value`, `Continue` uses the worker's next stored value (or
-    /// `last_values[worker]` for the worker's final step). The GAE trace is cut at every episode end.
+    /// Each worker's steps are walked backwards in their own order, so a step never bootstraps
+    /// from another worker's value. The stored [`EpisodeEnd`] decides the bootstrap: `Terminated`
+    /// uses zero, `Truncated` its `next_value`, `Continue` the worker's next stored value (or
+    /// `last_values[worker]` for its final step). The GAE trace is cut at every episode end.
     ///
-    /// `last_values[w]` is the critic's value of worker `w`'s current state after its last stored step;
-    /// it is only read when that last step is `Continue`.
+    /// `last_values[w]` is the critic's value of worker `w`'s state after its last stored step.
+    /// It is only read when that step is `Continue`.
     ///
-    /// `reward_scale` (from [`ReturnNormalizer::scale`]; pass `1.0` for raw rewards) multiplies every
-    /// stored reward before the deltas, and the scaled reward is clipped to `+-`[`SCALED_REWARD_CLIP`].
-    /// The critic's values, the bootstrap values and the resulting returns are therefore in scaled
-    /// units, and `returns` is what the critic regresses on. The stored `steps[].reward` stay raw.
+    /// `reward_scale` (from [`ReturnNormalizer::scale`]; `1.0` for raw rewards) multiplies every
+    /// stored reward before the deltas, and the result is clipped to
+    /// `+-`[`SCALED_REWARD_CLIP`]. The values, bootstrap values and returns are therefore in
+    /// scaled units, and `returns` is what the critic regresses on. The stored `steps[].reward`
+    /// stay raw.
     ///
     /// # Errors
     ///
     /// [`TrainError::InvalidConfig`] when `reward_scale` is not finite and positive,
-    /// [`TrainError::ShapeMismatch`] when `last_values` does not cover every worker id in the buffer,
-    /// [`TrainError::NonFinite`] when a stored reward, value or bootstrap value is NaN or infinite.
+    /// [`TrainError::ShapeMismatch`] when `last_values` does not cover every worker id in the
+    /// buffer, [`TrainError::NonFinite`] when a stored reward, value or bootstrap value is NaN or
+    /// infinite.
     pub fn compute_gae_per_worker(
         &mut self,
         last_values: &[f32],
@@ -285,14 +287,14 @@ impl RolloutBuffer {
         Ok(())
     }
 
-    /// Explained variance of the critic over the buffer, `1 - Var(returns - values) / Var(returns)`
-    /// (1 = perfect critic, 0 = no better than predicting the mean return, negative = worse).
+    /// Explained variance of the critic over the buffer:
+    /// `1 - Var(returns - values) / Var(returns)`. It is 1 for a perfect critic, 0 for one no
+    /// better than predicting the mean return, and negative for a worse one.
     ///
     /// Call after [`Self::compute_gae_per_worker`]; the values are the stored `steps[].value`.
     /// `None` with fewer than two steps, when `returns` is not parallel to the steps, or when the
-    /// returns have no variance (the ratio is undefined). The two runs of the review recorded a
-    /// value loss of 100 to 2200 and no way to tell whether the critic learned anything; this is
-    /// the number that answers it (review TQ-15).
+    /// returns have no variance (the ratio is undefined). A value loss alone does not show whether
+    /// the critic learns anything; this does.
     #[must_use]
     pub fn explained_variance(&self) -> Option<f32> {
         let n = self.steps.len();
@@ -407,8 +409,8 @@ mod tests {
         let (a0, r0) = reference(&w0, last[0], gamma, lambda);
         let (a1, r1) = reference(&w1, last[1], gamma, lambda);
 
-        // Returns are not standardised, so they must match exactly; advantages match up to the shared
-        // affine standardisation, so compare the un-standardised quantity via returns - value.
+        // Returns are not standardised, so they must match exactly. Advantages match only up to
+        // the shared affine standardisation, so compare the un-standardised returns - value.
         let mut idx = [0usize, 0usize];
         for (i, &(w, (_, v, _))) in order.iter().enumerate() {
             let k = idx[w];
@@ -601,7 +603,7 @@ mod tests {
         // value == return: the residual is zero.
         let perfect = with_values(returns).explained_variance().unwrap();
         assert!((perfect - 1.0).abs() < 1e-6);
-        // value == mean return (2.5): the residual is return - 2.5, the same variance as the returns.
+        // value == mean return (2.5): the residual is return - 2.5, with the returns' variance.
         let mean_critic = with_values([2.5; 4]).explained_variance().unwrap();
         assert!(mean_critic.abs() < 1e-6);
         // value == -return: the residual 2 * return has four times the variance, so 1 - 4 = -3.

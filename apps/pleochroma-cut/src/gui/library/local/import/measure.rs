@@ -1,6 +1,7 @@
-//! Derives a design's measured proportions and shape from its own reconstructed
-//! facet planes, and merges a re-import's fresh metadata over an existing catalogue
-//! row without discarding hand-entered fields.
+//! Derives a design's measured proportions and shape from its own planes, and merges a
+//! re-import's metadata over an existing row.
+//!
+//! Hand-entered fields are kept by the merge.
 //!
 //! The rule that turns a measured solid into the stored fields, the shape classification
 //! and the merge are `pleochroma_vault::local`'s (shared with the Android core and the
@@ -17,32 +18,25 @@ use pleochroma_vault::{
 
 pub use pleochroma_vault::local::merge_reimport_metadata;
 
-/// Fills in the proportion fields `pleochroma_vault::local::import_asc` always leaves
-/// `None` -- it only reads the `.asc` file's header/tiers, which don't carry these.
-/// Reconstructs the same 3D facet planes the viewport shows ([`reconstruct_planes`],
-/// reused from `gui::detail::load_diagram_detail` rather than re-parsed) and measures
-/// them with `stone_metrics::measure_solid`, measured at ~0.01% median error on L/W and
-/// ~0.09% on Vol/W^3 against the real `.asc` corpus. `measure_solid` returns `None` for
-/// a degenerate/unbounded arrangement, and every field below stays `None` rather than
-/// fabricated when that happens -- never store a number this couldn't measure.
+/// Fills in the proportion fields that the vault's `.asc` import leaves `None`.
 ///
-/// Values are written with plain `f64::to_string()`, matching `local::import_asc`'s own
-/// convention one call site up. The real `facet_diagrams.sqlite`'s ratio/volume columns
-/// are all REAL-affinity, so SQLite normalises whatever numeric text is written here
-/// regardless of decimal-place convention -- it only has to parse as a plain number.
+/// The `.asc` header and tiers do not carry them. The planes are rebuilt as the viewport shows
+/// them ([`reconstruct_planes`]) and measured with `stone_metrics::measure_solid`. A degenerate
+/// solid leaves every field `None`, so no unmeasured number is stored.
+///
+/// Values are written with plain `f64::to_string()`. The ratio and volume columns are
+/// REAL-affinity, so SQLite normalises the text whatever its decimal places.
 pub fn apply_measured_metadata(detail: &mut FacetingDiagramDetail) {
     pleochroma_vault::local::apply_measured_metadata(detail, &mut FlatPlanes::default());
     apply_concave_rows(detail);
 }
 
-/// Records a design file's concave tiers on `detail`: one tool-carrying row per tier
-/// appended to the angle table (facet line in the flat rows' own format, plus the
-/// formatted tool line), and the `concave_tiers` / `concave_facets` counts the
-/// library's `has_concave` filter and the sync stamp read. Read from the `.psdd`
-/// attachment, the design of record, so every writer that attaches one (import, save
-/// write-back) records the same thing. A design without concave tiers is left exactly
-/// as it was (no rows, both counts `0`). Runs after the measurement, which must see
-/// the flat rows only.
+/// Records a design file's concave tiers on `detail`.
+///
+/// Each tier becomes one tool-carrying row in the angle table, and the `concave_tiers` and
+/// `concave_facets` counts are set. The tiers are read from the `.psdd` attachment, the design of
+/// record, so every writer records the same thing. A design without tiers ends with no tool rows
+/// and both counts `0`. This runs after the measurement, which must see only the flat rows.
 pub fn apply_concave_rows(detail: &mut FacetingDiagramDetail) {
     detail.angle_settings_table.retain(|row| row.tool.is_none());
     detail.concave_tiers = 0;
@@ -135,8 +129,8 @@ impl SolidSource for FlatPlanes {
         })
     }
 
-    /// Classified from the SAME planes, so the girdle outline is measured rather than
-    /// inferred from the schedule's fold count.
+    /// Counts the girdle sides from the same planes, so the count is measured rather than
+    /// taken from the schedule.
     fn girdle_sides(&mut self) -> usize {
         girdle::classify_girdle_plane_indices(&self.planes).len()
     }

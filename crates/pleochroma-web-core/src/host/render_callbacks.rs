@@ -50,8 +50,8 @@ pub enum GpuEvent {
     Lost {
         reason: String,
     },
-    /// The GPU Worker answered a pass with "no such scene" (the pool already took care of
-    /// a pass it wanted; the page uses this to end a self-check that cannot finish).
+    /// The GPU Worker answered a pass with "no such scene". The pool has already returned
+    /// that pass to the planner; the page uses this to end a self-check that cannot finish.
     PassDropped {
         scene_id: u64,
     },

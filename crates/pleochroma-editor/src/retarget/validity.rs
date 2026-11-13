@@ -34,11 +34,9 @@ pub const MIN_GIRDLE_FRACTION: f64 = 0.5;
 /// A thinnest point at or below this many percent of the width is a knife edge: the crown-side
 /// and pavilion-side edges of the girdle meet. A backstop only.
 ///
-/// [`analyze`] reads the thinnest point through
-/// [`pleochroma_cut_core::design::girdle_band::corner_resolution`], which snaps every gap at or
-/// under that resolution to exactly zero. So a reading is either `0.0` or larger than the
-/// resolution (1e-5 of the stone's size, a few thousandths of a percent of its width), and the
-/// real floor under which a corner counts as a knife edge is that resolution, not this figure.
+/// [`analyze`] snaps every corner gap within
+/// [`pleochroma_cut_core::design::girdle_band::corner_resolution`] to exactly zero, so a real
+/// knife edge reads `0.0` and this figure never decides it.
 pub const KNIFE_EDGE_PERCENT: f64 = 1e-4;
 
 /// The headline names the thinnest point only when it differs from the girdle figure by more
@@ -109,17 +107,21 @@ pub struct StoneAnalysis {
     pub undersized: BTreeSet<usize>,
     /// The girdle corners (hinge) of every flat crown or pavilion tier (empty unless asked for).
     pub hinges: BTreeMap<usize, TierHinge>,
+    /// For every tier that meets a point of the stone cut so far, the three planes forming that
+    /// point ([`Design::meet_targets`]), so a retarget can put the tier back through the point
+    /// of the same planes after the angles moved (empty unless asked for, like
+    /// [`Self::hinges`]: the ORIGINAL stone's).
+    pub meet_targets: Vec<pleochroma_cut_core::MeetTarget>,
 }
 
 impl StoneAnalysis {
-    /// The concave tools cut out of this stone's [`Self::planes`]: the design this analysis
-    /// measured ([`Self::authored`]) resolves its concave tiers against them
-    /// ([`Design::tools_for_scoring`], the placement the Compare window draws). Empty for a
-    /// design without concave tiers, for tiers that do not resolve, and for an analysis built
+    /// The concave tools cut out of this stone's [`Self::planes`], resolved from the design
+    /// this analysis measured ([`Self::authored`]) by [`Design::tools_for_scoring`]. Empty for
+    /// a design without concave tiers, for tiers that do not resolve, and for an analysis built
     /// without its design.
     ///
-    /// What Retarget measures its optical columns on, so the figures describe the stone with
-    /// its tools and not its flat shell.
+    /// The optical columns are measured on these tools too, so the figures describe the stone
+    /// with its tools and not its flat shell.
     #[must_use]
     pub fn tools(&self) -> Vec<ToolPrimitive> {
         self.authored
@@ -128,14 +130,13 @@ impl StoneAnalysis {
             .unwrap_or_default()
     }
 
-    /// The finish of each of this stone's facets: the design this analysis measured
-    /// ([`Self::authored`]) states which facets are frosted
-    /// ([`Design::facet_finishes_from_solved`] of [`Self::solved`], the frosted girdle
-    /// included), and `finishes[i]` is the finish of `planes[i]`. Empty for a design without a
-    /// frosted facet, and for an analysis built without its design.
+    /// The finish of each of this stone's facets: `finishes[i]` is the finish of `planes[i]`,
+    /// from the design this analysis measured ([`Self::authored`]) via
+    /// [`Design::facet_finishes_from_solved`]. Empty for a design without a frosted facet, and
+    /// for an analysis built without its design.
     ///
-    /// What Retarget measures its optical columns on, with [`Self::tools`], so the figures
-    /// describe the frosted stone the render shows and not a polished one.
+    /// Measured together with [`Self::tools`], so the figures describe the frosted stone and
+    /// not a polished one.
     #[must_use]
     pub fn finishes(&self) -> Vec<FacetFinish> {
         self.authored

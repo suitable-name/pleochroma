@@ -86,7 +86,8 @@ impl Drop for OpticalWork {
     }
 }
 
-/// The same ownership-preserving admission primitive is exercised by the fake service.
+/// Non-blocking admission that returns the request to the caller when the queue is full.
+/// Tests use it through a fake owner.
 #[cfg(any(feature = "cuda", test))]
 pub(super) fn try_admit<T>(
     sender: &std::sync::mpsc::SyncSender<T>,

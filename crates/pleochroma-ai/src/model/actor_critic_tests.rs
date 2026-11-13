@@ -204,7 +204,8 @@ fn tokens(n: usize) -> Vec<Vec<f32>> {
         .collect()
 }
 
-/// A global token of `GLOBAL_DIM` entries whose weight fractions (entries 15 to 18) are `fractions`.
+/// A global token of `GLOBAL_DIM` entries whose weight fractions, from `WEIGHT_FRACTION_INDEX`
+/// on, are `fractions`.
 fn global_token(fractions: [f32; N_COMPONENTS]) -> Vec<f32> {
     let mut token = vec![0.1; GLOBAL_DIM];
     token[WEIGHT_FRACTION_INDEX..WEIGHT_FRACTION_INDEX + N_COMPONENTS].copy_from_slice(&fractions);
@@ -280,8 +281,8 @@ fn the_policy_mean_is_composed_from_the_sensitivities_and_the_weight_fractions()
         BALANCED,
     ] {
         let out = net.forward_full(&toks, &global_token(fractions)).unwrap();
-        // The network composes exactly what `compose_mean` composes, with the fractions read from
-        // entries 15 to 18 of the global token.
+        // The network composes exactly what `compose_mean` composes, with the fractions read
+        // from `WEIGHT_FRACTION_INDEX` of the global token.
         assert_eq!(
             out.policy.mean,
             compose_mean(&out.sensitivities, &fractions)
@@ -457,7 +458,7 @@ fn the_gain_head_reads_the_pooled_vector_the_critic_reads() {
         after.gain
     );
 
-    // A gain head that is a copy of the critic head reads the same vector, so the outputs are equal.
+    // A gain head copied from the critic reads the same vector, so the outputs are equal.
     let mut tied = small_network(9);
     tied.gain_head = tied.critic_head.clone();
     let out = tied.forward_full(&tokens(3), &global).unwrap();
@@ -527,7 +528,7 @@ fn closed_form(d: usize, layers: usize) -> usize {
 fn param_count_follows_the_closed_form_with_the_new_heads() {
     let net = network_with_distinct_log_stds();
     assert_eq!(net.param_count(), closed_form(16, 2));
-    // The appended context changes embeddings; output heads and transformer blocks are unchanged.
+    // Only the embeddings depend on the observation widths; the heads and blocks do not.
     assert_eq!((TierFeature::FEATURE_DIM, GLOBAL_DIM), (384, 3781));
     assert_eq!(
         closed_form(48, 2),
@@ -592,7 +593,7 @@ fn the_heads_start_at_full_xavier_scale_with_their_documented_seeds() {
     assert!(a.sens_head.biases.iter().all(|&v| v == 0.0));
     assert!(a.gain_head.biases.iter().all(|&v| v == 0.0));
 
-    // Gain 1.0: the sensitivity weights span the full Xavier range, no 0.01 head gain any more.
+    // The sensitivity weights span the full Xavier range.
     let bound = (6.0 / (d + N_COMPONENTS) as f32).sqrt();
     let peak = a
         .sens_head

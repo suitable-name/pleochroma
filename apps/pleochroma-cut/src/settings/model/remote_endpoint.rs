@@ -8,15 +8,14 @@ use serde::{Deserialize, Serialize};
 
 /// How a still export or a tilt video gets its result from the remote.
 ///
-/// `FullData` is the behaviour every earlier build had: the remote streams float
-/// radiance, the viewer merges it with its own local lanes and tone-maps. `FinalPicture`
-/// asks the remote for the whole job as one finished 8-bit PNG (`FinalImageRequest`) --
-/// roughly a tenth of the bytes over the home link, but the local CPU/GPU do not take
-/// part. A server that doesn't support it refuses with `UNSUPPORTED_REQUEST` and the
-/// viewer falls back to `FullData` with a note.
+/// `FullData` (the default): the remote streams float radiance, which the viewer merges with
+/// its local lanes and tone-maps. `FinalPicture` asks the remote for the whole job as one
+/// finished 8-bit PNG (`FinalImageRequest`): about a tenth of the bytes over the link, but the
+/// local CPU/GPU take no part. A server that doesn't support it refuses with
+/// `UNSUPPORTED_REQUEST` and the viewer falls back to `FullData` with a note.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum ExportTransfer {
-    /// Float radiance, merged with the local lanes (today's behaviour, the default).
+    /// Float radiance, merged with the local lanes (the default).
     #[default]
     FullData,
     /// One finished PNG per image (per frame for a video); local lanes stay idle.
@@ -53,7 +52,7 @@ pub enum TiltVideoCompute {
     Local,
     /// The remote only: nothing is traced on this computer.
     Remote,
-    /// This computer and the remote together (today's behaviour, the default).
+    /// This computer and the remote together (the default).
     #[default]
     Both,
 }
@@ -82,8 +81,8 @@ impl TiltVideoCompute {
 
 /// How the live view gets remote contributions once the camera settles.
 ///
-/// `FullData` (the default) is today's behaviour: float deltas, combined with local
-/// samples under `LiveComputeTarget::Both`. `FinalPicture` asks for finished, denoised
+/// `FullData` (the default): float deltas, combined with local samples under
+/// `LiveComputeTarget::Both`. `FinalPicture` asks for finished, denoised
 /// 8-bit frames (`TransferMode::DisplayOnly`): less bandwidth, but 8-bit pictures cannot
 /// be merged with local samples, so the settled image is remote-only and local tracing
 /// pauses after the handoff exactly like `LiveComputeTarget::RemoteOnly`.
@@ -156,11 +155,12 @@ pub struct LegacyWorkerMigration {
     pub dropped: Vec<String>,
 }
 
-/// Folds an old multi-worker list into the single-endpoint model: the FIRST entry
-/// becomes `remote` (unless one is already configured) and every other entry is dropped,
-/// logged by address so nothing disappears silently. `None` when there was nothing to
-/// migrate. Every render feature already used only the first entry, so the kept one is
-/// exactly the worker the app was rendering with.
+/// Folds an old multi-worker list into the single-endpoint model.
+///
+/// The FIRST entry becomes
+/// `remote` (unless one is already configured) and every other entry is dropped, logged by
+/// address. `None` when there was nothing to migrate. Only the first entry was ever used for
+/// rendering, so it is the one kept.
 pub fn migrate_legacy_workers(
     legacy: &mut Vec<WorkerSettings>,
     remote: &mut Option<RemoteEndpoint>,

@@ -16,7 +16,8 @@ pub enum ParameterTab {
     /// Stone: the per-design render effects (material and geometry are undoable design
     /// edits and are never touched by a reset).
     Stone,
-    /// Lighting & Environment: rig, light, exposure, backdrop, glare, head shadow, HDR map.
+    /// Lighting & Environment: rig, light, exposure, backdrop, glare, head shadow, stone shadow,
+    /// tray reflection, HDR map.
     Lighting,
     /// Render & Output: live quality, compute, output defaults, thumbnails.
     RenderOutput,
@@ -51,26 +52,26 @@ pub fn default_stone_effects() -> StoneRenderEffects {
     StoneRenderEffects::default()
 }
 
-/// The legacy app-level stone values of a settings file written before the effects moved
-/// into the design. See [`AppSettings::legacy_stone_defaults`].
+/// The app-level stone values an older settings file may carry. See
+/// [`AppSettings::legacy_stone_defaults`].
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LegacyStoneDefaults {
-    /// The old app-level effects, as the design's own type.
+    /// The app-level effects, as the design's own type.
     pub effects: StoneRenderEffects,
-    /// The old app-level stone width in millimetres, `None` when it was off (`0.0`).
+    /// The app-level stone width in millimetres, `None` when off (`0.0`).
     pub stone_width_mm: Option<f64>,
 }
 
 impl AppSettings {
-    /// The old app-level stone effects and width, when they are worth carrying over: the
+    /// The app-level stone effects and width, when there is something to carry over: the
     /// migration has not run yet ([`Self::migrated_stone_effects`] is `false`) and at least
-    /// one of the six legacy values is off its default. `None` otherwise.
+    /// one legacy value is off its default. `None` otherwise.
     ///
     /// The caller applies them ONCE, as the starting values of the first design that is
     /// opened with no `[render_effects]` table and no girdle diameter (an undoable
     /// `Edit::SetRenderEffects` / `Edit::SetGirdleDiameterMm`), then calls
-    /// [`Self::mark_stone_effects_migrated`]. The legacy fields themselves stay in the file
-    /// untouched and are no longer read for rendering.
+    /// [`Self::mark_stone_effects_migrated`]. The legacy fields stay in the file untouched and
+    /// are not read for rendering.
     #[must_use]
     pub fn legacy_stone_defaults(&self) -> Option<LegacyStoneDefaults> {
         if self.migrated_stone_effects {
@@ -125,8 +126,9 @@ impl AppSettings {
     }
 
     /// Resets the Lighting & Environment tab to the built-in defaults: the rig, the light
-    /// direction, exposure, backdrop, surface glare, head shadow and the HDR map (cleared:
-    /// the studio rig comes back). The camera pose is not lighting and is not touched.
+    /// direction, exposure, backdrop, surface glare, head shadow, Stone Shadow, Tray
+    /// Reflection and the HDR map (cleared, so the studio rig comes back). The camera pose
+    /// is not lighting and is not touched.
     pub fn reset_lighting_tab(&mut self) {
         LightingValues::default().write_into(self);
     }
@@ -183,8 +185,8 @@ mod tests {
         assert_eq!(AppSettings::default().legacy_stone_defaults(), None);
     }
 
-    /// A settings file from before the dock, the output defaults and the migration flag: none
-    /// of the new keys is there, and each reads its documented default.
+    /// A settings file without the dock, output or migration keys: each reads its documented
+    /// default.
     #[test]
     fn an_old_file_without_the_dock_output_or_migration_keys_loads_the_defaults() {
         let parsed: SettingsFile =
@@ -326,6 +328,8 @@ mod tests {
             surface_glare: 0.5,
             backdrop: Backdrop::White,
             head_shadow_deg: 0.0,
+            stone_shadow: true,
+            tray_reflection: 0.5,
             env_map_path: "C:/env/a.hdr".to_string(),
             camera_yaw: 0.9,
             target_samples: 8,

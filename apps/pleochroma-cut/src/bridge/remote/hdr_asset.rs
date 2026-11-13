@@ -1,9 +1,9 @@
-//! HDR environment maps as protocol assets (v14), viewer side.
+//! HDR environment maps as protocol assets, viewer side.
 //!
 //! Every HDR map the viewer loads goes through [`load_hdr_file`]: it reads the file,
 //! hashes the exact bytes (SHA-256, `pleochroma_net::messages::content_hash`), decodes
-//! them with the one shared builder (`pleochroma::renderer::env_map::
-//! environment_from_hdr_bytes`, the same function a render worker uses on the bytes it
+//! them with the one shared builder (`environment_from_hdr_bytes` in
+//! `pleochroma::renderer::env_map`, the same function a render worker uses on the bytes it
 //! is sent), and registers an [`HdrAsset`] for the decoded map. From then on:
 //!
 //! - [`scene_environment`] names the map in an outgoing `SceneState` by hash;

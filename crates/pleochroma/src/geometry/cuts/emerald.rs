@@ -7,38 +7,26 @@ use super::StandardGemCuts;
 use crate::geometry::plane::GpuFacetPlane;
 
 impl StandardGemCuts {
-    /// Generates exact 3D half-space planes for an Emerald Cut Gemstone.
+    /// Generates exact 3D half-space planes for an Emerald Cut gemstone.
     ///
-    /// Every tier offset (`d`) below is *computed*, not pasted as a rounded literal, from
-    /// one small shared profile: the girdle band half-height, the crown/pavilion crease
-    /// ring heights, and the girdle radii. Two tiers that are meant to meet at an exact
-    /// point (e.g. a girdle-adjacent tier and its neighbor on the crease ring, or all the
-    /// facets converging on a girdle corner) are placed through that *same computed point*
-    /// to full `f32` precision, rather than each being rounded to four decimals
-    /// independently. That distinction matters here: `GemPolyhedron::from_planes`
-    /// reconstructs vertices as 3-plane meets and welds ones closer than
-    /// `VERTEX_WELD_EPS_REL` (1e-4 of the solid's radius); rounding this profile by
-    /// hand instead can leave several
-    /// such intended-coincident points ~1.5e-4 apart -- just outside the weld radius --
-    /// which produces a dozen extra sliver vertices (60 instead of the true 48) even
-    /// though every plane still contributes a facet and the volume is already correct.
-    /// Deriving from the profile in code makes the coincidence exact by construction
-    /// instead of by luck.
+    /// Every tier offset (`d`) is computed from one shared profile (girdle band half-height,
+    /// crown and pavilion crease heights, girdle radii), not written as a rounded literal.
+    /// Tiers that meet at an exact point are placed through the same computed point at full
+    /// `f32` precision. Rounded literals can leave such points just outside the weld radius of
+    /// `GemPolyhedron::from_planes`, which creates extra sliver vertices.
     #[must_use]
     pub fn emerald_cut() -> Vec<GpuFacetPlane> {
         // -- Shared profile -------------------------------------------------------------
         const TABLE_Y: f32 = 0.30; // crown table height
-        const GIRDLE_HALF_BAND: f32 = 0.03; // girdle band spans y = -GIRDLE_HALF_BAND ..= +GIRDLE_HALF_BAND
+        const GIRDLE_HALF_BAND: f32 = 0.03; // half-height of the girdle band
         const CROWN_CREASE_Y: f32 = 0.15; // crown tiers meet each other on this ring
         const PAVILION_CREASE_MAG: f32 = 0.35; // pavilion tiers meet each other at y = -PAVILION_CREASE_MAG
         const GIRDLE_R_Z: f32 = 0.80;
         const GIRDLE_R_X: f32 = 1.10;
         const GIRDLE_R_DIAG: f32 = 1.00;
-        // Pavilion keel truncation: just above the natural keel line where the two
-        // keel-adjacent tiers (see `tier_d_at_crease` below, at PAVILION_CREASE_MAG) would
-        // otherwise meet each other at x = z = 0 (that natural line sits at y ~= -0.8712),
-        // so this plane slices through them just short of that point and leaves a real
-        // keel flat instead of an untouched plane below the solid's deepest point.
+        // Pavilion keel flat: just above the point where the keel-adjacent tiers would meet
+        // at x = z = 0 (natural y ~= -0.8712). Slicing just short of it keeps a real keel
+        // flat instead of a plane below the solid's deepest point.
         const PAVILION_KEEL_Y: f32 = -0.86;
 
         let diag = std::f32::consts::FRAC_1_SQRT_2;
@@ -71,12 +59,9 @@ impl StandardGemCuts {
         // Pavilion tiers: the 53 deg tier is girdle-adjacent; the 43 deg tier meets it
         // exactly on the pavilion crease ring.
         //
-        // NOTE: the tier angles are intentionally swapped from a naive reading of "step 1
-        // then step 2" -- the shallower/more-horizontal 53 degree tier belongs immediately
-        // below the girdle (its crease lands on the girdle edge), while the steeper/more-
-        // vertical 43 degree tier belongs next to the keel. Assigning 43 degrees to the
-        // girdle-adjacent tier instead would leave that tier's crease
-        // strictly outside the girdle radius, so it would never touch the hull.
+        // The 53 deg tier must be the girdle-adjacent one: its crease lands on the girdle
+        // edge. With 43 deg there, the crease would lie outside the girdle radius and the
+        // tier would never touch the hull.
         let p1 = 53.0f32.to_radians(); // girdle-adjacent (Pavilion Step 1)
         let p2 = 43.0f32.to_radians(); // keel-adjacent, crease-ring-adjacent (Pavilion Step 2)
         push_pavilion_tiers(
@@ -93,9 +78,7 @@ impl StandardGemCuts {
         let pc = 48.0f32.to_radians();
         push_corner_facets(&mut planes, pc, GIRDLE_R_DIAG, GIRDLE_HALF_BAND, diag, -1.0);
 
-        // Keel line base -- just above the natural keel line formed by the pavilion
-        // tiers, so it truncates them into a real keel flat instead of sitting below the
-        // solid's deepest point (which would leave it untouched).
+        // Keel flat truncating the pavilion tiers (see PAVILION_KEEL_Y).
         planes.push(GpuFacetPlane::new(
             Vec3::new(0.0, -1.0, 0.0),
             PAVILION_KEEL_Y,
@@ -105,19 +88,16 @@ impl StandardGemCuts {
     }
 }
 
-/// `d` for a tier plane with normal `(0, +-angle.cos(), +-angle.sin())` that passes
-/// through the girdle edge at radius `r`, `half_band` above (crown) or below
-/// (pavilion) the girdle band -- i.e. whichever tier is girdle-adjacent (crown: the
-/// steeper 45 deg tier; pavilion: the 53 deg tier). Shared by [`push_crown_tiers`]
-/// and [`push_pavilion_tiers`].
+/// `d` for the girdle-adjacent tier, whose plane passes through the girdle edge at
+/// radius `r`, `half_band` above (crown) or below (pavilion) the girdle band.
+/// Shared by [`push_crown_tiers`] and [`push_pavilion_tiers`].
 fn tier_d_at_girdle(angle: f32, r: f32, half_band: f32) -> f32 {
     -angle.sin().mul_add(r, angle.cos() * half_band)
 }
 
-/// `d` for the tier that is NOT girdle-adjacent: it instead meets the girdle-
-/// adjacent tier exactly on the crease ring `y = +-crease_mag`. Solves for the point
-/// where the `girdle_angle` tier's own plane crosses that ring, then places this
-/// tier's plane through that same point, so the two tiers share an exact edge.
+/// `d` for the tier that meets the girdle-adjacent tier on the crease ring
+/// `y = +-crease_mag`. The girdle-adjacent plane is solved for where it crosses that
+/// ring, and this tier's plane passes through the same point, so the two share an exact edge.
 fn tier_d_at_crease(
     girdle_angle: f32,
     crease_angle: f32,

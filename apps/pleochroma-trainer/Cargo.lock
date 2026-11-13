@@ -7242,7 +7242,7 @@ checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
 name = "pleochroma"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "bytemuck",
  "futures-channel",
@@ -7258,7 +7258,7 @@ dependencies = [
 
 [[package]]
 name = "pleochroma-ai"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "burn",
  "cudarc",
@@ -7273,7 +7273,7 @@ dependencies = [
 
 [[package]]
 name = "pleochroma-cut-core"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "glam",
  "image",
@@ -7290,7 +7290,7 @@ dependencies = [
 
 [[package]]
 name = "pleochroma-editor"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "glam",
  "image",
@@ -7303,7 +7303,7 @@ dependencies = [
 
 [[package]]
 name = "pleochroma-formats"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "serde",
  "sha2 0.11.1",
@@ -7312,7 +7312,7 @@ dependencies = [
 
 [[package]]
 name = "pleochroma-solid"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "glam",
  "pleochroma",
@@ -7321,7 +7321,7 @@ dependencies = [
 
 [[package]]
 name = "pleochroma-trainer"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "arboard",
  "pleochroma",
@@ -7343,7 +7343,7 @@ dependencies = [
 
 [[package]]
 name = "pleochroma-update"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "semver",
  "serde",

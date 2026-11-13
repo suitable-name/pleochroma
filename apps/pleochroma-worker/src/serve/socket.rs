@@ -12,22 +12,16 @@ use pleochroma_vault::db::sqlite::Database;
 
 use crate::cli::ServeArgs;
 
-/// A TOTAL deadline across however many logical reads a caller performs through this
-/// wrapper -- unlike the per-read idle timeout [`apply_handshake_timeout`] alone
-/// applies, which resets its own allowance on every call and so never fires against a
-/// peer that keeps a connection alive by trickling data, always inside that idle window
-/// (see [`HANDSHAKE_TIMEOUT`]'s doc comment and F-06a). Checked once per underlying
-/// `read` call -- BEFORE attempting it -- so such a peer is cut off the moment the
-/// whole budget has elapsed, without waiting for any single read to time out on its own.
+/// A TOTAL deadline across however many logical reads a caller performs through this wrapper.
 ///
-/// Generic over any `Read`/`Write` (a `HELLO` read over a connection's own stream type,
-/// generic in turn; an `EnrollRequest` read over an in-memory duplex in this crate's own
-/// tests) rather than requiring the concrete ability to re-arm an OS-level socket
-/// timeout -- see [`DeadlineSocket`] for the complement that DOES re-arm a raw socket,
-/// used where the concrete type is already in hand (a TLS handshake). A single
-/// underlying read that blocks past the deadline (the peer goes fully silent rather than
-/// trickling) is still bounded only by whatever timeout `inner` already carries -- one
-/// more wait shaped like [`HANDSHAKE_TIMEOUT`], worst case, not unbounded.
+/// The per-read idle timeout of [`apply_handshake_timeout`] resets on every read, so it never fires
+/// against a peer that keeps a connection alive by trickling data (see [`HANDSHAKE_TIMEOUT`]). The
+/// deadline is checked before each underlying `read`, so such a peer is cut off once the whole
+/// budget has elapsed.
+///
+/// Generic over any `Read`/`Write`, so it also works on in-memory streams. For a concrete
+/// socket that can re-arm its own read timeout, see [`DeadlineSocket`]. A single underlying
+/// read that blocks past the deadline is still bounded only by the timeout `inner` carries.
 pub struct DeadlineIo<'a, S> {
     inner: &'a mut S,
     deadline: Instant,
@@ -67,16 +61,13 @@ impl<S: Write> Write for DeadlineIo<'_, S> {
     }
 }
 
-/// The complement to [`DeadlineIo`] for the one phase where the concrete socket is
-/// already in hand and re-arming its real OS-level read timeout is possible: re-arms
-/// `sock`'s read timeout to the time remaining before `deadline` before every read,
-/// tightening [`DeadlineIo`]'s bound for a peer that goes fully silent (rather than
-/// trickling) right up against the deadline -- cut off within roughly one read's worth
-/// of slack instead of another whole idle timeout. Used only for
-/// [`super::tls::accept_tls`]'s and `crate::enroll::connection::accept_enroll_tls`'s TLS
-/// handshake, the one call in this crate that owns a concrete [`TcpStream`] across a
-/// `Read`/`Write` call it doesn't otherwise control the internals of
-/// (`rustls::ServerConnection::complete_io`'s own internal read/write loop).
+/// The complement to [`DeadlineIo`] for a concrete socket.
+///
+/// It re-arms `sock`'s read timeout to
+/// the time left before `deadline` before every read, so a peer that goes fully silent is cut
+/// off near the deadline rather than after another whole idle timeout. It is used for the TLS
+/// handshakes of [`super::tls::accept_tls`] and `crate::enroll::connection::accept_enroll_tls`,
+/// whose reads run inside rustls (`complete_io`), so the deadline must act on the socket.
 pub struct DeadlineSocket<'a> {
     sock: &'a TcpStream,
     deadline: Instant,
@@ -154,10 +145,9 @@ pub(super) fn open_library_database(path: &std::path::Path) -> Result<Database, 
 /// connection opens its own [`open_library_database`] handle from, when it first serves
 /// a library request.
 ///
-/// [`super::run`] hands out a path, not an already-open [`Database`]: `rusqlite::Connection`
-/// isn't `Sync`, so it can't be shared via `Arc` the way `GpuBackend` is below. [`super::run`]
-/// still opens (and immediately drops) one at startup, purely to fail fast on a bad
-/// `--db` before binding a socket.
+/// [`super::start`] hands out a path, not an open [`Database`]: `rusqlite::Connection` is not
+/// `Sync`, so it cannot be shared between connections. [`super::start`] still opens and drops
+/// one at startup, to fail fast on a bad `--db` before binding a socket.
 #[must_use]
 pub(super) fn resolve_library_db_path(args: &ServeArgs) -> std::path::PathBuf {
     args.db
@@ -195,49 +185,34 @@ pub fn tune_accepted_socket(stream: &TcpStream, peer: Option<SocketAddr>) {
     }
 }
 
-/// The TOTAL budget for a just-accepted connection's pre-protocol handshake -- the TLS
-/// handshake (see [`super::tls::accept_tls`]) and, separately, the first `HELLO` frame
-/// (or, under `--insecure-no-tls`, just the `HELLO` frame) -- before this worker gives up
-/// on it. Mitigates a slowloris-style client that connects (and, for TLS, maybe
-/// completes the handshake) and then never speaks, OR that never goes idle long enough
-/// to trip a per-read timeout by trickling a byte at a time forever (F-06a): without a
-/// real deadline enforcing this budget, such a client holds a connection thread open for
-/// as long as the OS's own TCP defaults allow -- observed as long as ~86 hours for a
-/// 16 KiB TLS record trickled one byte per 19s.
+/// The time budget for each phase of a just-accepted connection's pre-protocol handshake.
 ///
-/// Two DIFFERENT mechanisms apply this bound, and it's spent independently by each:
-/// - [`apply_handshake_timeout`] sets a fixed, per-read IDLE timeout on the raw
-///   `TcpStream` once, at accept time -- catches a peer that goes silent for the whole
-///   window, but not one that keeps sending SOMETHING, just slowly.
-/// - [`accept_tls`](super::tls::accept_tls)'s TLS handshake and
-///   [`super::handshake::read_and_check_hello`]'s `HELLO` read EACH additionally wrap
-///   their own reads in [`DeadlineSocket`]/[`DeadlineIo`] with a deadline computed as
-///   `Instant::now() + HANDSHAKE_TIMEOUT` at the START of that phase -- a REAL deadline,
-///   re-checked (and, where the concrete socket is in hand, re-armed) before every read,
-///   so a trickling peer is cut off once its own phase's budget elapses regardless of how
-///   many small reads it takes. Because each phase computes its own fresh deadline (nothing
-///   here changes either function's signature to thread one shared instant through both --
-///   see those functions' doc comments), the two phases are bounded independently rather
-///   than sharing one end-to-end budget: a connection that spends up to
-///   `HANDSHAKE_TIMEOUT` in the TLS handshake and then up to another `HANDSHAKE_TIMEOUT`
-///   reading `HELLO` is still finite (worst case ~2x this constant), a large improvement
-///   over the previous unbounded behaviour, if not a single tight `HANDSHAKE_TIMEOUT`-wide
-///   window.
+/// The phases are the TLS handshake (see [`super::tls::accept_tls`]) and then the first `HELLO`
+/// frame (under `--insecure-no-tls`, the `HELLO` alone). A connection that exceeds it is dropped.
+/// This bounds a slowloris client that connects and never speaks, and one that trickles bytes
+/// forever so that no single read goes idle.
 ///
-/// Cleared the moment `HELLO` arrives (see the connection handlers' doc comments), so it
-/// never bounds anything the connection loop itself does afterward -- that loop has its
-/// own, different timeout story (see `stream_emit::TimeoutCache`).
+/// Two mechanisms enforce it, each with its own budget:
+/// - [`apply_handshake_timeout`] sets a per-read idle timeout on the raw `TcpStream` at
+///   accept time. It catches a peer that goes silent, not one that keeps sending slowly.
+/// - [`accept_tls`](super::tls::accept_tls) and [`super::handshake::read_and_check_hello`]
+///   each wrap their reads in [`DeadlineSocket`]/[`DeadlineIo`], with a deadline of
+///   `Instant::now() + HANDSHAKE_TIMEOUT` taken at the start of that phase and checked before
+///   every read. Because the phases are bounded independently, the worst case is about twice
+///   this constant.
 ///
-/// `pub(crate)` so `crate::enroll`'s connection handling can apply the same bound to its
-/// own TLS-handshake-then-one-message exchange -- that listener has no
-/// mutual-TLS authentication step at all (see its own module doc comment), so it needs a
-/// deadline at least as much as this one does.
+/// Cleared once `HELLO` arrives, so it never bounds the connection loop that follows, which
+/// has its own timeouts (see `stream_emit::TimeoutCache`).
+///
+/// `pub(crate)` so `crate::enroll` applies the same bound to its TLS-then-one-message
+/// exchange. That listener has no mutual-TLS authentication step, so it needs a deadline at
+/// least as much.
 pub const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(20);
 
-/// Applies [`HANDSHAKE_TIMEOUT`] to `stream`'s read and write timeouts. Best-effort,
-/// like [`tune_accepted_socket`]: a failure is logged at `debug` and never aborts the
-/// accept loop -- worst case, this one connection goes back to being unbounded, exactly
-/// like every connection was before this deadline existed.
+/// Applies [`HANDSHAKE_TIMEOUT`] to `stream`'s read and write timeouts.
+///
+/// Best-effort, like [`tune_accepted_socket`]: a failure is logged at `debug` and never aborts the
+/// accept loop. Worst case, this one connection stays unbounded.
 pub fn apply_handshake_timeout(stream: &TcpStream, peer: Option<SocketAddr>) {
     if let Err(e) = stream.set_read_timeout(Some(HANDSHAKE_TIMEOUT)) {
         tracing::debug!("connection {peer:?}: failed to set handshake read timeout: {e}");
@@ -263,11 +238,11 @@ pub fn payload_preference_for_choice(
     }
 }
 
-/// The payload-encoding preference (v14) this server uses for a connection from `peer`:
-/// raw only for a loopback peer (memory bandwidth beats every codec), else the measured
-/// default -- zstd level 1, then LZ4, then raw (coordinator guide section 11). The value
-/// handed to the connection handler, which negotiates against the
-/// peer's `HELLO.accept_encodings`; a later CLI setting plugs in here.
+/// The payload-encoding preference this server uses for a connection from `peer`.
+///
+/// It is raw only for a loopback peer (memory bandwidth beats every codec), else zstd level 1,
+/// then LZ4, then raw (coordinator guide section 11). The connection handler negotiates this list
+/// against the peer's `HELLO.accept_encodings`.
 #[cfg(feature = "worker")]
 pub fn payload_preference_for(
     peer: Option<SocketAddr>,
@@ -302,10 +277,9 @@ mod tests {
         }
     }
 
-    /// F-06a: a peer sending one byte every 100 ms is still cut off once a 300 ms TOTAL
-    /// budget elapses -- `DeadlineIo` checks the deadline before every read, so this
-    /// takes effect on roughly the 3rd/4th read rather than needing any single read to
-    /// go idle.
+    /// A peer sending one byte every 100 ms is still cut off once a 300 ms total budget
+    /// elapses. `DeadlineIo` checks the deadline before every read, so this takes effect
+    /// around the 3rd or 4th read, without any single read going idle.
     #[test]
     fn deadline_io_drops_a_trickling_peer_once_the_total_budget_elapses() {
         let mut trickle = Trickle {

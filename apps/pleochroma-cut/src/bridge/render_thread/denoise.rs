@@ -1,12 +1,11 @@
 //! Denoise + tone-map: turning a raw accumulation-buffer running sum into a displayable
 //! RGBA byte buffer, with or without the À-Trous denoiser applied.
 //!
-//! The denoising half ([`denoise_and_tonemap_frame`], [`FirstHitSnapshot`],
-//! [`DenoiseScratch`]) moved unchanged to `pleochroma::renderer::frame_denoise` so a
-//! coordinator can stream the viewer's exact denoised picture; it is re-exported here so
-//! every GUI call site (`display_thread`, `gui::remote::render_merged_frame`) keeps its
-//! `render_thread::...` path. `tests::gui_path_matches_the_pinned_pleochroma_hash` checks
-//! the GUI's own route (its `GuideCache` plus these re-exports) against the same pin.
+//! The denoiser ([`denoise_and_tonemap_frame`], [`FirstHitSnapshot`], [`DenoiseScratch`])
+//! lives in `pleochroma::renderer::frame_denoise`, so a coordinator can stream the same
+//! denoised picture. It is re-exported here for the GUI call sites.
+//! `tests::gui_path_matches_the_pinned_pleochroma_hash` checks the GUI's own route against
+//! the same pinned hash.
 
 use glam::Vec3;
 use pleochroma::renderer::tonemap::tonemap_to_rgba;
@@ -15,14 +14,12 @@ pub use pleochroma::renderer::frame_denoise::{
     DenoiseScratch, FirstHitSnapshot, denoise_and_tonemap_frame,
 };
 
-/// Tone-maps `accum_buffer`'s running average directly, with no denoising -- what the
-/// render loop uses instead of [`denoise_and_tonemap_frame`] when
-/// `RenderContext::denoise_enabled` is off, and what `gui::remote::render_merged_frame`
-/// uses identically for a remote-sourced image (guide buffers for that path are
-/// regenerated locally by `bridge::frame_cache::guide_pass`, so this is purely the
-/// `denoise_enabled == false` path for both backends, not a fallback one is stuck
-/// with). Mirrors `export_thread::tonemap_to_rgba`'s logic (kept separate since that
-/// one is `export_thread`-private with a `total_samples` divisor).
+/// Tone-maps `accum_buffer`'s running average with no denoising.
+///
+/// The render loop uses it instead of [`denoise_and_tonemap_frame`] when
+/// `RenderContext::denoise_enabled` is off, and
+/// `gui::remote::orchestrator::compositing::render_merged_frame` uses it for remote images. Mirrors
+/// the export path's tone-map, which is private to `export_thread`.
 #[must_use]
 pub fn tonemap_running_average(
     width: u32,
@@ -48,14 +45,12 @@ mod tests {
     /// re-exported `denoise_and_tonemap_frame` -- on the fixture of
     /// `pleochroma::renderer::frame_denoise`'s pin test (24x16 round brilliant at pose
     /// `(0.60, 0.45, 2.4)`, 3 samples, the same formula-built sum) must produce that
-    /// test's pinned bytes: the move changed no pixel of the GUI's live view.
+    /// test's pinned bytes.
     #[test]
     fn gui_path_matches_the_pinned_pleochroma_hash() {
-        // The same value as the twin in `pleochroma::renderer::frame_denoise`: pinned with
-        // background pixels passing through the denoiser unfiltered and the sRGB encode's
-        // round-to-nearest quantisation. Re-pinned on 2026-11-04 with its twin: the encode's
-        // default highlight rule became `HighlightRule::KeepColor` on 2026-11-03 (it was
-        // 0x4b0e_fd3c_897e_809c under Whiten).
+        // Same value as the twin in `pleochroma::renderer::frame_denoise`. Background pixels
+        // pass the denoiser unfiltered, and the sRGB encode rounds to nearest. The value
+        // depends on the encode's default highlight rule (`HighlightRule::KeepColor`).
         const PINNED: u64 = 0x50f9_945c_3ecd_b2a7;
         let (width, height, samples) = (24_u32, 16_u32, 3_u32);
         let planes = pleochroma::geometry::cuts::StandardGemCuts::standard_round_brilliant();
@@ -81,8 +76,7 @@ mod tests {
                 first_hit_depth: &guides.depth,
                 first_hit_normal: &guides.normal,
                 first_hit_facet_id: &guides.facet_id,
-                // All zeros here (`ensure` passes no index): a constant signature filters
-                // exactly like none, so `PINNED` stays the old literal.
+                // `ensure` passes no index, so the signature is constant and filters like none.
                 first_hit_path_sig: &guides.path_sig,
             },
             &mut DenoiseScratch {
@@ -98,8 +92,7 @@ mod tests {
     }
 
     /// `tonemap_running_average` must match a direct tone-map of the raw accumulation
-    /// average exactly, at any sample count (not just the high-sample-count identity
-    /// case above).
+    /// average at any sample count.
     #[test]
     fn tonemap_running_average_matches_a_direct_tonemap_at_any_sample_count() {
         let width = 4u32;

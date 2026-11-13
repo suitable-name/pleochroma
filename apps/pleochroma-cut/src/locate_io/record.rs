@@ -2,8 +2,8 @@
 //! the alignment, so that it can be solved again, for example after the rig was calibrated
 //! anew.
 //!
-//! The saved-plan format stores an inclusion's mesh only (G6's version 3), so a record is kept
-//! for the session, in memory, and is plain serde data for the day a plan can carry it.
+//! The saved-plan format stores only an inclusion's mesh, so records live in session memory.
+//! The serde derives keep them plain data.
 
 use pleochroma_cut_core::rough_plan::locate::Rigid;
 use serde::{Deserialize, Serialize};

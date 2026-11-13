@@ -140,8 +140,7 @@ export component OptimizeTab inherits VerticalLayout {
     // `GuideModel.allows_*()` helper as this tab's pill.
     in property <bool> unlocked: true;
 
-    // Local backing state for the optimize preview checkbox. EditorModel.
-    // optimize_preview_toggled is a callback-only, not a two-way property.
+    // Mirror of the Preview checkbox state that `EditorInspector` owns.
     in-out property <bool> optimize_preview_checked: false;
 
     property <bool> advanced: GuideModel.shows_advanced();
@@ -159,8 +158,7 @@ export component OptimizeTab inherits VerticalLayout {
         OptimizeModel.starts_text);
 
     // Latches "Cancel" the moment it is clicked, so a second click cannot re-fire the cancel
-    // while the search finishes its current evaluation. This tab is the one home of Optimize
-    // (the command bar has no Optimize or Cancel Optimize button).
+    // while the search finishes its current evaluation.
     property <bool> cancel_requested: false;
     property <bool> running_mirror: EditorModel.optimize_running;
     changed running_mirror => {
@@ -236,9 +234,7 @@ export component OptimizeTab inherits VerticalLayout {
     // --- Header ---
     Rectangle {
         height: optimize_header_lbl.preferred-height;
-        // `optimize_hint` is never empty (see `view::optimize_hint`'s own doc comment:
-        // even a disabled Optimize gets an explanatory reason) -- shown on hover here
-        // instead of permanently occupying the result box below.
+        // `optimize_hint` is never empty: a disabled Optimize always says why. Shown on hover.
         Tooltip { text: @markdown("\{EditorModel.optimize_hint}"); }
         // Left, like the other tab headings (a lone child of a Rectangle is centred otherwise).
         optimize_header_lbl := Text { x: 0px; y: 0px; text: "Optimize"; font-size: 12px; font-weight: 700; color: Theme.text-primary; vertical-alignment: center; accessible-role: AccessibleRole.text; }
@@ -247,8 +243,8 @@ export component OptimizeTab inherits VerticalLayout {
     // --- Objective ---
     Text { text: "Objective"; font-size: 10px; font-weight: 700; color: Theme.text-secondary; accessible-role: AccessibleRole.text; }
     Rectangle {
-        // Fixed, like every other combo of the inspector: sized from the drop-down while the
-        // drop-down takes its height from here left it 16 px high with its text cut.
+        // Fixed height. Sizing this from the drop-down, which takes its height from here, is a
+        // loop that collapses the combo to 16 px with its text cut.
         height: 32px;
         Tooltip { text: @markdown("What the search should favour. Every preset weighs the same\nmeasurements; they differ in which one counts most. See the glossary."); }
         preset_combo := ComboBox {
@@ -528,8 +524,7 @@ export component OptimizeTab inherits VerticalLayout {
         }
     }
 
-    // --- Status: running progress, or what the last run found. The always-present hint
-    // lives in the tooltips above instead of occupying this box permanently. ---
+    // --- Status: running progress, or what the last run found. ---
     if EditorModel.optimize_running || EditorModel.optimize_status != "": Rectangle {
         background: Theme.bg-input;
         border-radius: Theme.radius-sm;
@@ -614,9 +609,8 @@ export component OptimizeTab inherits VerticalLayout {
             }
         }
 
-        // --- The picked candidate: Preview, Compare and Apply first (the list above and these
-        // three are what a step uses, so they sit together), then its figures and the tiers it
-        // changes ---
+        // --- The picked candidate: Preview, Compare and Apply first, then its figures and the
+        // tiers it changes ---
         if OptimizeModel.selected_candidate >= 0: VerticalLayout {
             spacing: 4px;
             HorizontalLayout {
@@ -713,8 +707,7 @@ export component OptimizeTab inherits VerticalLayout {
                 }
             }
         }
-        // How to read the table above. After the picked candidate's details: the actions come
-        // first, so Apply This Candidate is the first thing under the list.
+        // How to read the table above.
         WrapNote {
             text: "Windowing (Wind.), tilt brilliance (Bril.), extinction (Ext.) and yield loss as percentages. Green beats the starting stone, red is worse. Tone is the face-up lightness L* with its predicted color. Click a row to preview it.";
             font_size: 9px;

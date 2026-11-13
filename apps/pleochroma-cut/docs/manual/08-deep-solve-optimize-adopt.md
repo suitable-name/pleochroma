@@ -15,12 +15,10 @@ When you load a real `.asc` file into the editor (Chapter 3), the app pins
 **every** tier to its exact recorded depth — even a tier whose file
 actually said "meets facets P1, P2." This is deliberate: it reproduces the
 source file's geometry exactly, with no risk of a re-solve drifting from
-the original the moment you open it. Internally, an import measured on the
-app's own reference corpus found that trusting meet-point geometry alone,
-instead of pinning, would have silently moved the geometry of roughly nine
-designs in ten the moment someone clicked Solve — only about 11% of
-designs had every meet-derived tier land within 10% of its real recorded
-mast. Pinning avoids that risk entirely, at the cost that a freshly loaded
+the original the moment you open it. Trusting meet-point geometry alone would move the geometry of roughly nine
+designs in ten on the first Solve (only about 11% of designs have every
+meet-derived tier within 10% of its recorded mast), so pinning avoids that
+risk. The cost is that a freshly loaded
 design has **zero free tiers** — nothing the solver derives, and nothing
 Optimize can move on its own — until you tell the app to trust a tier's
 real geometric meaning instead of its pinned number. That is what Adopt is
@@ -31,10 +29,9 @@ tick **Vary Anchored Tiers**; see "Optimize," below.)
 
 The **Adopt** button in the ACTIONS group at the end of a tier's row
 (Chapter 3) appears whenever
-the source file's own meet instruction is still recoverable — the app
-keeps this instruction (internally, `imported_meet`) alongside the pinned
-value from the moment of import specifically so it can be offered back to
-you later, one tier at a time. Click it to convert that one tier from
+the source file's meet instruction is still recoverable. The app keeps that
+instruction (internally `imported_meet`) next to the pinned value, so it can
+be offered back one tier at a time. Click it to convert that one tier from
 "pinned depth" back to the file's actual geometric intent (for example,
 "meets P1, P2" instead of an exact number). Its tooltip reads: "File says
 this tier ‹meets ...›. Click Adopt to switch to it so the solver and
@@ -330,8 +327,7 @@ Ranges** puts the defaults back.
 
 ### Run
 
-- **Budget** — the evaluation budget, `800` by default (it was `200` before
-  the search learned to use several starting points). A blank field means
+- **Budget** — the evaluation budget, `800` by default. A blank field means
   `800`. It accepts a calculation such as `100 * 4`, and the largest budget
   is `100000`.
 - **Starts** — how many different starting arrangements the search tries,
@@ -417,12 +413,11 @@ canonical camera pose (table-up) — about 2 ms on a small design. The
 report you see before and after the run, by contrast, is always scored at
 full fidelity: the same 4-axis, 181-point tilt sweep the Tilt Performance
 dialog uses (724 sample points total), which takes over a second on its
-own. Measured, on the app's own small reference fixture (12 tiers): about
-7 ms per search evaluation, so a 200-evaluation budget finishes in
-roughly a second and a half, plus the two full-fidelity report
-evaluations bracketing it. (The default budget is now 800, and the
-evaluations of several starts run side by side, so the wall-clock time of a
-default run is a few seconds on that fixture.) On a large, heavily
+own. On a small 12-tier fixture an evaluation takes about 7 ms, so a
+200-evaluation budget finishes in roughly a second and a half, plus the two
+full-fidelity report evaluations bracketing it. With the default budget of
+800, and the evaluations of several starts running side by side, a default
+run takes a few seconds on that fixture. On a large, heavily
 meet-derived design (over a
 hundred tiers), each evaluation re-solves the whole schedule and can cost
 several seconds, so a 200-evaluation budget can take minutes — 200

@@ -4,6 +4,7 @@
 use super::{
     app_settings::Backdrop,
     head_shadow::{default_head_shadow_deg, deserialize_head_shadow_deg},
+    is_zero_reflection,
     lighting_values::LightingValues,
     surface_glare::{default_surface_glare, deserialize_surface_glare},
 };
@@ -22,18 +23,18 @@ use serde::{Deserialize, Serialize};
 ///
 /// # Why the camera fields are `Option`, not plain `f32`
 ///
-/// Data compatibility: a preset saved before these fields existed has no camera data,
+/// Data compatibility: a preset without these fields has no camera data,
 /// and defaulting to `0.0` would fling the stone to yaw=0/pitch=0 on next apply. `None`
-/// means "no pose recorded" (predates the fields, or is a built-in); `Some` means a
+/// means "no pose recorded" (a preset without the fields, or a built-in); `Some` means a
 /// real pose captured by the "Save as preset" viewport button.
-/// `gui::lighting_presets::setup_apply_lighting_preset_callback` restores the camera
+/// `gui::render::lighting_presets::setup_apply_lighting_preset_callback` restores the camera
 /// only when both are `Some`, otherwise leaves the current pose untouched. Radians,
 /// matching `RenderContext::yaw`/`pitch`.
 ///
 /// # `env_map_path`: `None` means "no HDR map"
 ///
 /// `Some(path)` means a map was loaded when this preset was saved; applying it loads
-/// that map. `None` covers both "predates this field" and "no map was active" -- either
+/// that map. `None` covers both an absent field and "no map was active" -- either
 /// way it means no map: a saved lighting is a complete look, so applying one without a
 /// map clears any loaded map and the lighting rig it names comes back, exactly as choosing
 /// a rig does (`gui::render::lighting_presets::apply_environment`). A map that is named but
@@ -44,6 +45,10 @@ use serde::{Deserialize, Serialize};
 /// Marks this preset as offered in the export dialog's preset fan-out list. Off by
 /// default so an existing preset doesn't silently start appearing in every export.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "a saved settings record: each flag is an independent user setting kept in the file"
+)]
 pub struct LightingPreset {
     /// Display name of the preset.
     pub name: String,
@@ -68,7 +73,7 @@ pub struct LightingPreset {
     /// pair (both `Some` or both `None`).
     #[serde(default)]
     pub camera_pitch: Option<f32>,
-    /// Clockwise image-plane roll, radians; an old complete camera pose uses zero.
+    /// Clockwise image-plane roll, radians; a pose without roll reads zero.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub camera_roll: Option<f32>,
     /// Loaded HDR environment map path, if one was active when saved -- see this
@@ -79,24 +84,39 @@ pub struct LightingPreset {
     #[serde(default)]
     pub export_usable: bool,
     /// Scale of the white mirror image of the light, `0.0..=1.0` (see
-    /// `AppSettings::surface_glare`). A preset saved before this field existed reads the
+    /// `AppSettings::surface_glare`). A preset without this field reads the
     /// default `1.0` (the unscaled render).
     #[serde(
         default = "default_surface_glare",
         deserialize_with = "deserialize_surface_glare"
     )]
     pub surface_glare: f32,
-    /// The lit tray the stone lies on. A preset saved before this field existed reads the
-    /// default backdrop (White since 2026-10-20); a preset that stored a choice keeps it.
+    /// The lit tray the stone lies on. A preset without the key reads the default, White; a
+    /// stored choice is kept.
     #[serde(default)]
     pub backdrop: Backdrop,
     /// Head-shadow radius in degrees, `0.0..=30.0` (see `AppSettings::head_shadow_deg`). A
-    /// preset saved before this field existed reads the default `16.0`.
+    /// preset without this field reads the default `16.0`.
     #[serde(
         default = "default_head_shadow_deg",
         deserialize_with = "deserialize_head_shadow_deg"
     )]
     pub head_shadow_deg: f32,
+    /// Whether the stone casts its spectral shadow onto the backdrop paper.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stone_shadow: bool,
+    /// Head-on reflectance of the glossy tray under the stone, `0.0..=1.0` (`0.0` is off).
+    /// A preset without this field reads `0.0`.
+    #[serde(default, skip_serializing_if = "is_zero_reflection")]
+    pub tray_reflection: f32,
+    /// Yaw of the HDR map in degrees, `0.0..360.0` (`0.0` is the map as loaded). A preset
+    /// without this field reads `0.0`.
+    #[serde(default, skip_serializing_if = "is_zero_reflection")]
+    pub env_map_yaw_deg: f32,
+    /// Whether the HDR map turns with the camera. A preset without this field
+    /// reads `false`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub env_map_follows_camera: bool,
 }
 
 impl LightingPreset {
@@ -118,7 +138,11 @@ impl LightingPreset {
             surface_glare: self.surface_glare,
             backdrop: self.backdrop,
             head_shadow_deg: self.head_shadow_deg,
+            stone_shadow: self.stone_shadow,
+            tray_reflection: self.tray_reflection,
             env_map_path: self.env_map_path.clone(),
+            env_map_yaw_deg: self.env_map_yaw_deg,
+            env_map_follows_camera: self.env_map_follows_camera,
             camera_yaw: self.camera_yaw,
             camera_pitch: self.camera_pitch,
             camera_roll: self.camera_roll,
@@ -144,7 +168,11 @@ impl LightingPreset {
         self.surface_glare = values.surface_glare;
         self.backdrop = values.backdrop;
         self.head_shadow_deg = values.head_shadow_deg;
+        self.stone_shadow = values.stone_shadow;
+        self.tray_reflection = values.tray_reflection;
         self.env_map_path.clone_from(&values.env_map_path);
+        self.env_map_yaw_deg = values.env_map_yaw_deg;
+        self.env_map_follows_camera = values.env_map_follows_camera;
         if let (Some(yaw), Some(pitch)) = (values.camera_yaw, values.camera_pitch) {
             self.camera_yaw = Some(yaw);
             self.camera_pitch = Some(pitch);
@@ -155,20 +183,21 @@ impl LightingPreset {
         }
     }
 
-    /// The default name offered for a newly saved lighting: `"<rig> - <date>"`, so it no
-    /// longer collides with a rig's own name. `date` is the caller's `YYYY-MM-DD` text.
+    /// The default name offered for a newly saved lighting: `"<rig> - <date>"`, so it never
+    /// collides with a rig's own name. `date` is the caller's `YYYY-MM-DD` text.
     #[must_use]
     pub fn default_save_name(rig_label: &str, date: &str) -> String {
         format!("{rig_label} \u{2013} {date}")
     }
 }
 
-/// The built-in presets shipped with the app, kept to a small set that cannot be
-/// deleted. Three carry their own tray: "Studio Softbox" a grey card, "Dramatic Spotlight"
-/// (Fable decision 2026-10-20) and "Presentation" black velvet; the others use the default
-/// White. Every built-in but "Presentation" is a viewing setup to judge a stone by;
-/// "Presentation" is the showcase look of a jeweler's photo (2026-11-03). Names double as their stable identity -- `SettingsFile::ensure_built_in_presets`
-/// matches on `name` to decide whether a loaded file already has one.
+/// The built-in presets shipped with the app, a small set that cannot be deleted.
+///
+/// Three carry their own tray: "Studio Softbox" a grey card, "Dramatic Spotlight" and
+/// "Presentation" black velvet; the others use the default White. Every built-in but "Presentation"
+/// is a viewing setup to judge a stone by; "Presentation" is the showcase look of a jeweler's
+/// photo. Names double as stable identity: `SettingsFile::ensure_built_in_presets` matches on
+/// `name`.
 ///
 /// `env_map_path` is `None` and `export_usable` is `false` for every built-in, and
 /// `camera_yaw`/`camera_pitch` are `None` for every built-in except "Grading tray"
@@ -178,9 +207,9 @@ impl LightingPreset {
 ///
 /// `exposure` is the compensation on top of the rig's incident-light meter
 /// (`RenderContext::effective_exposure`): `1.0` shows white paper as every rig shows it,
-/// above is brighter, below darker. Each value was chosen from renders of an emerald and a
-/// sapphire under the rig (2026-11-02). `camera_distance` only matters with a camera pose: the
-/// Grading tray frames the stone on screen (Fit) when it is applied, the moods keep the zoom.
+/// above is brighter, below darker. The values are tuned on renders of an emerald and a
+/// sapphire. `camera_distance` only matters with a camera pose: the Grading tray frames the
+/// stone on screen (Fit) when applied, the moods keep the zoom.
 #[must_use]
 #[allow(
     clippy::too_many_lines,
@@ -205,6 +234,10 @@ pub fn built_in_presets() -> Vec<LightingPreset> {
             // Ring lights on white paper clip; a ring-light product shot sits on a grey card.
             backdrop: crate::settings::model::Backdrop::Grey,
             head_shadow_deg: crate::settings::model::DEFAULT_HEAD_SHADOW_DEG,
+            stone_shadow: false,
+            tray_reflection: 0.0,
+            env_map_yaw_deg: 0.0,
+            env_map_follows_camera: false,
         },
         LightingPreset {
             name: "Daylight Bright".to_string(),
@@ -224,6 +257,10 @@ pub fn built_in_presets() -> Vec<LightingPreset> {
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
             backdrop: crate::settings::model::Backdrop::default(),
             head_shadow_deg: crate::settings::model::DEFAULT_HEAD_SHADOW_DEG,
+            stone_shadow: false,
+            tray_reflection: 0.0,
+            env_map_yaw_deg: 0.0,
+            env_map_follows_camera: false,
         },
         LightingPreset {
             name: "Dramatic Spotlight".to_string(),
@@ -242,6 +279,10 @@ pub fn built_in_presets() -> Vec<LightingPreset> {
             // The dark look needs black velvet; the user can still pick another pill.
             backdrop: crate::settings::model::Backdrop::Black,
             head_shadow_deg: crate::settings::model::DEFAULT_HEAD_SHADOW_DEG,
+            stone_shadow: false,
+            tray_reflection: 0.0,
+            env_map_yaw_deg: 0.0,
+            env_map_follows_camera: false,
         },
         LightingPreset {
             name: "Light Tent".to_string(),
@@ -259,16 +300,17 @@ pub fn built_in_presets() -> Vec<LightingPreset> {
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
             backdrop: crate::settings::model::Backdrop::default(),
             head_shadow_deg: crate::settings::model::DEFAULT_HEAD_SHADOW_DEG,
+            stone_shadow: false,
+            tray_reflection: 0.0,
+            env_map_yaw_deg: 0.0,
+            env_map_follows_camera: false,
         },
-        // The colour-grading view: the D65 hemisphere with the observer's head shadow,
-        // seen face-up. The one built-in that carries a camera pose (yaw and pitch must
-        // both be `Some`; the apply callback clamps pitch to +-1.48, so 1.48 is the
-        // steepest view it can restore). Yaw 0 keeps the stone's length along the picture
-        // (0.35 turned it askew for nothing: the dome looks the same from every azimuth).
-        // The head shadow stays the 16 degree default the optimizer scores with: the HUD
-        // figures are scored with the viewport's shadow, and under this view they must be
-        // the standard figures (a 24 degree shadow drew more face-up pattern, 2026-11-02,
-        // but its HUD figures would no longer match Optimize).
+        // The colour-grading view: the D65 hemisphere seen face-up, the one built-in with a
+        // camera pose (yaw and pitch must both be `Some`). The apply callback clamps pitch to
+        // +-1.48, so 1.48 is the steepest view it can restore. Yaw 0 keeps the stone's length
+        // along the picture; the dome looks the same at every azimuth. The head shadow stays at
+        // the 16 degree default the optimizer scores with: the HUD figures must match Optimize's,
+        // and a deeper shadow would show more face-up pattern but break that match.
         LightingPreset {
             name: "Grading tray".to_string(),
             built_in: true,
@@ -287,6 +329,10 @@ pub fn built_in_presets() -> Vec<LightingPreset> {
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
             backdrop: crate::settings::model::Backdrop::default(),
             head_shadow_deg: crate::settings::model::DEFAULT_HEAD_SHADOW_DEG,
+            stone_shadow: false,
+            tray_reflection: 0.0,
+            env_map_yaw_deg: 0.0,
+            env_map_follows_camera: false,
         },
         // Exposure 1.5: metered for the sunlit paper, the stone (which sees mostly the sky)
         // read dark; half a stop more shows it as a sunlit stone looks, with the paper still
@@ -307,6 +353,10 @@ pub fn built_in_presets() -> Vec<LightingPreset> {
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
             backdrop: crate::settings::model::Backdrop::default(),
             head_shadow_deg: crate::settings::model::DEFAULT_HEAD_SHADOW_DEG,
+            stone_shadow: false,
+            tray_reflection: 0.0,
+            env_map_yaw_deg: 0.0,
+            env_map_follows_camera: false,
         },
         // Window daylight: one broad soft source low in the sky (30 degrees = 0.52 rad, in
         // the 25-35 degree band the preset is designed for), a dim room around it.
@@ -328,15 +378,16 @@ pub fn built_in_presets() -> Vec<LightingPreset> {
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
             backdrop: crate::settings::model::Backdrop::default(),
             head_shadow_deg: crate::settings::model::DEFAULT_HEAD_SHADOW_DEG,
+            stone_shadow: false,
+            tray_reflection: 0.0,
+            env_map_yaw_deg: 0.0,
+            env_map_follows_camera: false,
         },
         // The showcase look of a jeweler's photo, for pictures that show a stone off rather
-        // than judge it: the studio ring lights at their Studio Softbox pose over black
-        // velvet, half a stop above the meter. Chosen 2026-11-03 from renders of an
-        // emerald, a sapphire and a tanzanite: on black the ring lights give the most
-        // saturated color and crisp sparkle (a higher ring flooded the table, a lower one
-        // showed grey windows, shop lights looked flat, the sun rigs were too dark on
-        // velvet), and +0.5 EV lifts a dark stone without clipping a light one. A mood: the
-        // camera stays where it is.
+        // than judge it: the studio ring lights at their Studio Softbox pose over black velvet,
+        // half a stop above the meter. On black the ring lights give the most saturated color
+        // and crisp sparkle, and +0.5 EV lifts a dark stone without clipping a light one.
+        // A mood: the camera stays where it is.
         LightingPreset {
             name: "Presentation".to_string(),
             built_in: true,
@@ -353,6 +404,10 @@ pub fn built_in_presets() -> Vec<LightingPreset> {
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
             backdrop: crate::settings::model::Backdrop::Black,
             head_shadow_deg: crate::settings::model::DEFAULT_HEAD_SHADOW_DEG,
+            stone_shadow: false,
+            tray_reflection: 0.0,
+            env_map_yaw_deg: 0.0,
+            env_map_follows_camera: false,
         },
     ]
 }
@@ -361,8 +416,8 @@ pub fn built_in_presets() -> Vec<LightingPreset> {
 mod tests {
     use super::*;
 
-    /// A settings file serialized before `camera_yaw`/`camera_pitch`/`env_map_path`/
-    /// `export_usable` existed must still deserialize, with every new field defaulted.
+    /// A preset without `camera_yaw`, `camera_pitch`, `env_map_path` or `export_usable` must
+    /// still deserialize, with those fields defaulted.
     #[test]
     fn a_preset_predating_the_view_fields_still_loads_with_them_defaulted() {
         let old_toml = r#"
@@ -382,8 +437,8 @@ mod tests {
         assert!(!preset.export_usable);
     }
 
-    /// A preset saved before glare, backdrop and head shadow joined the saved lighting reads
-    /// the current defaults for all three, and its `values()` carry them.
+    /// A preset without glare, backdrop or head shadow reads their defaults, and its `values()`
+    /// carry them.
     #[test]
     fn a_preset_predating_glare_backdrop_and_head_shadow_reads_their_defaults() {
         let old_toml = r#"
@@ -454,6 +509,8 @@ mod tests {
             surface_glare: 0.25,
             backdrop: Backdrop::White,
             head_shadow_deg: 4.0,
+            stone_shadow: false,
+            tray_reflection: 0.3,
             env_map_path: None,
             camera_yaw: Some(0.1),
             camera_pitch: Some(0.2),
@@ -474,7 +531,7 @@ mod tests {
         assert_ne!(name, "Light tent + black cards");
     }
 
-    /// A preset saved by the new "Save as preset" viewport button round-trips its full
+    /// A preset saved from the "Save as preset" viewport button round-trips its full
     /// captured view -- camera pose and HDR map included -- through serialization.
     #[test]
     fn a_full_view_preset_round_trips_through_toml() {
@@ -494,6 +551,10 @@ mod tests {
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
             backdrop: crate::settings::model::Backdrop::default(),
             head_shadow_deg: crate::settings::model::DEFAULT_HEAD_SHADOW_DEG,
+            stone_shadow: false,
+            tray_reflection: 0.04,
+            env_map_yaw_deg: 125.0,
+            env_map_follows_camera: true,
         };
         let toml_str = toml::to_string_pretty(&preset).expect("must serialize");
         let round_tripped: LightingPreset = toml::from_str(&toml_str).expect("must deserialize");

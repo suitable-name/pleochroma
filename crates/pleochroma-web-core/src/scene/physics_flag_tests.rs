@@ -127,7 +127,7 @@ fn a_physics_recipe_fills_the_scenes_fluorescence() {
     assert!(!glowing.fluorescence().is_empty());
     let plain = OwnedScene::build(&ruby, None).expect("builds");
     assert!(plain.fluorescence().is_empty());
-    // The tool-carrying spec fills it the same way and, without recipes, builds as before.
+    // The tool-carrying spec fills it the same way; without recipes it stays empty.
     let geometry = GeometrySceneSpec {
         scene: ruby,
         tools: Vec::new(),

@@ -1,8 +1,9 @@
-//! Browser build of `pleochroma`: open a faceting design (a self-contained
-//! `.psdd` file, `.asc`, `.gem`,
-//! `.gcs`), keep it in the shared `pleochroma_editor::EditorSession`, and save it
-//! back as a browser download. See `README.md` for what works today and what the
-//! later phases add.
+//! Browser build of `pleochroma`.
+//!
+//! It opens a faceting design (a self-contained `.psdd`
+//! file, `.asc`, `.gem` or `.gcs`), keeps it in the shared
+//! `pleochroma_editor::EditorSession`, and saves it back as a browser download. See
+//! `README.md` for what works in the browser.
 //!
 //! # Modules
 //!

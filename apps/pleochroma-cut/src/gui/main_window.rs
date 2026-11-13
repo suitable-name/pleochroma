@@ -25,9 +25,8 @@ use std::sync::{Arc, Mutex, PoisonError};
 /// connection opens the same file.
 static LIBRARY_PATH: Mutex<Option<String>> = Mutex::new(None);
 
-/// The on-disk design library's path ([`crate::settings::store::default_library_path`],
-/// as opened at startup). Also used for the dedicated read-only connections of background
-/// search and loads, hence `pub(in crate::gui)` (re-exported at `gui::db_path`).
+/// The on-disk design library's path, as opened at startup. Background searches and loads
+/// open their own read-only connections to it, hence `pub(in crate::gui)`.
 pub(in crate::gui) fn db_path() -> String {
     LIBRARY_PATH
         .lock()
@@ -50,7 +49,7 @@ fn resolve_db_path() -> String {
 }
 
 /// Rebuilds the custom-material list (render context and material picker) from the vault. The
-/// planner's "Use colour" calls it after it wrote a new material.
+/// planner's "Use Color" calls it after it wrote a new material.
 pub(in crate::gui) fn reload_custom_materials(
     ui: &MainWindow,
     db: &Arc<Mutex<pleochroma_vault::db::sqlite::Database>>,
@@ -59,44 +58,26 @@ pub(in crate::gui) fn reload_custom_materials(
     apply_custom_materials(ui, db, render_ctx);
 }
 
-/// A fully constructed and wired [`MainWindow`], not yet shown or running. Built by
-/// [`build_main_window`].
+/// A fully constructed and wired [`MainWindow`], not yet shown or running.
 ///
-/// Exists (rather than `run_gui` doing everything and blocking on `ui.run()`) so a
-/// second binary that wants this *same*, already-wired public window -- the private
-/// edition's GUI, which shows this window alongside its own separate sync window --
-/// can call [`build_main_window`], `.show()` both windows, and drive a single shared
-/// event loop itself, without duplicating any of this crate's rendering/settings/
-/// remote-rendering wiring.
+/// Built by [`build_main_window`]. Keeping it separate from `run_gui`'s `ui.run()` lets another
+/// binary show this wired window alongside its own, on one shared event loop.
 ///
-/// `ui` is the only public field. The rest (render context, settings persister,
-/// remote-rendering poll timer) exist purely to be kept alive for the life of the
-/// window -- dropping any of them early would stop the thing it drives (the render
-/// thread, settings autosave, remote-rendering handoff polling) -- so the caller only
-/// needs to keep the whole `MainWindowHandle` alive, never reach into its internals.
+/// `ui` is the only public field. The other fields are RAII guards: dropping one would stop
+/// the render thread, settings autosave or remote-rendering polling, so the caller only keeps
+/// the handle alive.
 pub struct MainWindowHandle {
     pub ui: MainWindow,
-    // `render_ctx`/`remote_rendering_timer` are never read again after construction --
-    // both exist purely so dropping `MainWindowHandle` is what stops the render thread/
-    // remote-rendering handoff polling, not so anything downstream can inspect them.
-    // `#[expect(dead_code)]` rather than removing them: removing a field would drop it
-    // at the end of `build_main_window` instead of at the end of the caller's
-    // `MainWindowHandle`'s lifetime, which is the entire point of holding onto them
-    // here. `settings_store` is the same kind of RAII guard (keeps the debounced
-    // settings writer alive) but is also read once, by `run_gui` right below, hence no
-    // `#[expect(dead_code)]` on it -- see that field's own comment.
+    // Never read after construction. They are kept so that dropping the handle stops the
+    // render thread and remote-rendering polling. Removing them would drop them early.
     #[expect(
         dead_code,
         reason = "RAII guard field -- kept alive, never read; see comment above"
     )]
     render_ctx: Arc<Mutex<RenderContext>>,
-    // Not `#[expect(dead_code)]` like its two siblings above/below: `run_gui` reads
-    // this field directly (`handle.settings_store.snapshot()`) to learn whether the
-    // Edit sub-tab's layout was ever touched, for `window_sizing::
-    // fit_initial_window_size`'s small-screen default. Still exists primarily as the
-    // same kind of RAII guard -- kept alive so the debounced settings writer keeps
-    // running for the life of the window -- but, unlike its siblings, it is also
-    // read directly by `run_gui`, per the paragraph above.
+    // Read by `run_gui` (`handle.settings_store.snapshot()`) to check whether the Edit
+    // sub-tab's layout was touched, for `window_sizing::fit_initial_window_size`. It is also
+    // kept alive so the debounced settings writer runs for the life of the window.
     pub(super) settings_store: Arc<SettingsPersister>,
     #[expect(
         dead_code,
@@ -105,9 +86,9 @@ pub struct MainWindowHandle {
     remote_rendering_timer: slint::Timer,
 }
 
-/// Builds and fully wires a `MainWindow`, up to but not including actually
-/// running the event loop. See [`MainWindowHandle`]'s doc comment for why this
-/// is split out from `super::run_gui`.
+/// Builds and fully wires a `MainWindow`, without running the event loop.
+///
+/// See [`MainWindowHandle`] for why this is split out from `super::run_gui`.
 ///
 /// # Errors
 ///
@@ -117,34 +98,25 @@ pub struct MainWindowHandle {
 /// process -- see the database-open block below). A plain on-disk open failure is
 /// handled internally: it falls back to a throwaway in-memory database and reports
 /// the failure via a persistent error toast rather than propagating it or panicking.
-///
-/// # Panics
-///
-/// Panics if any of this function's several `Mutex::lock().unwrap()` calls (`db`,
-/// `render_ctx`) observes a poisoned lock -- which only happens if some earlier code
-/// already panicked while holding that same lock, so this is a symptom of a prior
-/// panic elsewhere, not a new failure mode this function introduces.
 pub fn build_main_window() -> anyhow::Result<MainWindowHandle> {
-    // A second main window on this thread (the UI harness builds one per scenario) must not
-    // inherit the first one's database, editor state or kept secondary windows. A no-op for the
-    // application's one window.
+    // Clears the state a previous window on this thread left behind (the UI harness builds
+    // one per scenario). A no-op for the application's single window.
     super::window_release::release_window_state();
     let ui = MainWindow::new()?;
 
-    // Local Compute (Feature: a local CPU/CPU+GPU/GPU switch): whether this build was
-    // compiled with the `gpu` feature -- Rust-driven, set once here (Slint has no
-    // `cfg!` of its own), never touched again. the Parameters panel's "Local
-    // Compute" row binds its whole `visible:` to this, so a CPU-only build never
-    // offers a choice it has no GPU path to act on.
+    // Build features, set once here because Slint has no `cfg!`. The "Local Compute" row
+    // shows only in a `gpu` build, so a CPU-only build offers no choice it cannot act on.
     ui.global::<SettingsModel>()
         .set_gpu_build(cfg!(feature = "gpu"));
+    // The "Beam Tracing" controls show only in a `beam` build.
+    ui.global::<SettingsModel>()
+        .set_beam_build(cfg!(feature = "beam"));
+    // The "Adaptive Sampling" controls show only in an `adaptive-sampling` build.
+    ui.global::<SettingsModel>()
+        .set_adaptive_sampling_build(cfg!(feature = "adaptive-sampling"));
 
-    // The editor is not optional (there is no `editor` Cargo feature gating it),
-    // so `EditorModel.enabled` is unconditionally `true` -- kept as a real
-    // property (rather than deleted) because `app.slint`'s "Edit" sub-tab and
-    // several other components still read it as their enablement guard. Slint
-    // markup has no `#[cfg]` of its own, so this flag is how they would detect a
-    // gated build if one ever existed.
+    // The editor is always built, so `EditorModel.enabled` is `true`. The Edit sub-tab and
+    // other components read it as their guard.
     ui.global::<EditorModel>().set_enabled(true);
 
     let db = open_design_library(&ui)?;
@@ -157,14 +129,11 @@ pub fn build_main_window() -> anyhow::Result<MainWindowHandle> {
 
     let solid = create_solid_view(&ui, &render_ctx);
 
-    // Which library (local database, or a remote worker) the viewer is
-    // currently browsing. Starts `LibrarySource::Local` -- see that type's own doc
-    // comment on why every local-only call site keeps behaving as plain local-only
-    // until a user actually switches.
+    // The library being browsed: the local database, or a remote worker. Starts local.
     let library_source: Arc<Mutex<LibrarySource>> = Arc::new(Mutex::new(LibrarySource::default()));
 
     apply_custom_materials(&ui, &db, &render_ctx);
-    // The planner's "Use colour" needs the render context to select the material.
+    // The planner's "Use Color" needs the render context to select the material.
     crate::gui::rough_colour::adopt_link::register_render_context(&render_ctx);
     let settings_store = load_settings(&ui, &render_ctx);
 
@@ -175,13 +144,9 @@ pub fn build_main_window() -> anyhow::Result<MainWindowHandle> {
         &render_ctx,
         &solid.preview_state,
     );
-    // The settings load above (`apply_loaded_settings`/`apply_loaded_ui_mirrors`)
-    // already pushed the restored `ViewportModel.live_view_mode`/`SolidPreviewModel.
-    // view_mode` into the UI, but nothing had recomputed `render_ctx.tab_visible`
-    // against them yet -- it was still sitting at `RenderContext::default()`'s `true`.
-    // Without this, a session restored into Solid mode would keep tracing (wasting
-    // GPU/remote time, the very thing this gate exists to stop) until the user
-    // happened to touch a tab. One-time sync, now that every signal
+    // The settings load has set the restored view modes in the UI, but `render_ctx.tab_visible`
+    // still holds its default `true`. Without this sync, a session restored into Solid mode
+    // would keep tracing until a tab was touched. It runs once, after every signal that
     // `render_visibility::render_is_visible` reads is in place.
     render::render_visibility::recompute_tab_visible(&ui, &render_ctx);
 
@@ -217,13 +182,9 @@ pub fn build_main_window() -> anyhow::Result<MainWindowHandle> {
     // one-time question once the GPU adapter is known, and the restart both end in.
     crate::gui::radv_workaround::setup_radv_workaround(&ui, &settings_store);
 
-    // The app always opens on the 3D tab's Live Render view in Solid mode, never on the
-    // editor (`startup_settings` forces both view modes to Solid): the selected library
-    // design shows as the solid render, and with nothing selected the view stays empty
-    // until a design is picked. Goes through the same path as a user's click on the pill
-    // (set the property, then fire `render_view_tab_changed`), even though Live Render is
-    // the property's default, and runs only now that every handler is connected, so the
-    // visibility gate (`recompute_tab_visible`) sees the real starting view.
+    // The app opens on the 3D tab's Live Render view in Solid mode, never on the editor.
+    // Startup forces both view modes to Solid. It takes the same path as a click on the pill,
+    // and runs after every handler is connected, so the visibility gate sees the real view.
     crate::gui::commands::enter_live_render_view(&ui);
 
     Ok(MainWindowHandle {

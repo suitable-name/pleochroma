@@ -12,7 +12,7 @@
 //! |---|---|
 //! | half space | offset (at the plane's foot point, moves along the normal), normal arrow tip |
 //! | slab | lower and upper offset (along the normal), normal arrow tip |
-//! | cylinder, prism | axis point, axis arrow tip, outer radius (and inner radius when it is not 0) |
+//! | cylinder, prism | axis point, axis arrow tip, outer radius (inner when it is not 0) |
 //! | sector | axis point, axis arrow tip, start angle and end angle |
 //! | mesh shell | none |
 //!

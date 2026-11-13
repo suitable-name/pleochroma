@@ -59,28 +59,28 @@ pub struct AppState {
     pub destination: Destination,
     /// The layout family of the current window width.
     pub window_class: WindowClass,
-    /// Where the design came from and how it is saved (`document`, lane M2-a).
+    /// Where the design came from and how it is saved.
     pub document: DocumentState,
-    /// The last solve of the design (`design_state`, lane M2-c). A solve is current
-    /// when its generation equals `session.current_generation()`.
+    /// The last solve of the design. A solve is current when its generation equals
+    /// `session.current_generation()`.
     pub solve: SolveState,
     /// The tier selected in the tier list and the viewport, `None` for no selection.
     /// Setting it also clears `session.multi_selected` unless Select mode is on (the
     /// desktop's rule); every design surface reads it.
     pub selected_tier: Option<usize>,
-    /// Camera and view state of the design viewport (`viewport`, lane M2-b).
+    /// Camera and view state of the design viewport.
     pub viewport: ViewportState,
-    /// Material and lighting state that is not a setting (`design_props`, lane M2-d).
+    /// Material and lighting state that is not a setting.
     pub props: PropsState,
-    /// Cutting Mode and the done marks (`cutting`, wave M3).
+    /// Cutting Mode and the done marks.
     pub cutting: CuttingState,
-    /// The progressive render and its governor (`render`, lane M4-a).
+    /// The progressive render and its governor.
     pub render: RenderState,
-    /// Metrics and tilt curves (`analysis`, lane M4-c).
+    /// Metrics and tilt curves.
     pub analysis: AnalysisState,
-    /// The imported HDR environment map (`hdr`, lane M4-c).
+    /// The imported HDR environment map.
     pub hdr: HdrState,
-    /// The local library (`library`, lane M5-a).
+    /// The local library.
     pub library: LibraryState,
     /// Cancellation and identity of immutable long-operation inputs.
     pub operations: crate::operations::OperationState,

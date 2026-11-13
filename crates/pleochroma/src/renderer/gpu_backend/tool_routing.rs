@@ -1,12 +1,11 @@
 //! Routing for concave stones (a stone with tools): which scenes the GPU traces with its
 //! tool-aware kernels and why it declines the rest.
 //!
-//! Split from the plane-only [`super::scene_routes_to_gpu`] on purpose. That function (and
-//! every [`super::GpuSceneRef`], which carries planes only) belongs to callers that cannot
-//! hand the GPU a tool list, the mobile backend among them; for them a stone with tools
-//! must keep declining, or the GPU would render it without its concave facets. A caller
-//! that passes tools through [`super::GpuBackend::try_accumulate_geom`] (or the batch's
-//! `GpuBatchItem::tools`) asks [`scene_routes_to_gpu_with_tools`] instead.
+//! Split from the plane-only [`super::scene_routes_to_gpu`] on purpose. That function, and
+//! every [`super::GpuSceneRef`] (planes only), serves callers that cannot pass a tool list.
+//! For them a stone with tools must keep declining, or the GPU would render it without its
+//! concave facets. Callers that pass tools to [`super::GpuBackend::try_accumulate_geom`] (or
+//! `GpuBatchItem::tools`) use [`scene_routes_to_gpu_with_tools`] instead.
 
 use std::fmt;
 
@@ -16,6 +15,11 @@ use crate::geometry::tool::GPU_MAX_TOOL_PRIMITIVES;
 /// Why a scene is not offered to the GPU at all.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GpuRouteDecline {
+    /// This pipeline cannot read the spectral map on the backdrop.
+    StoneShadow,
+    /// This pipeline cannot trace the glossy tray: its floor bounce needs the tray variant of
+    /// the megakernel, which the event wavefront, the legacy wavefront and some devices lack.
+    TrayReflection,
     /// The material has a feature only the CPU supports (`GemMaterial::gpu_supported`).
     Material,
     /// The stone has more concave tools than the GPU kernels trace
@@ -30,9 +34,23 @@ pub enum GpuRouteDecline {
     UvLamp,
 }
 
+impl GpuRouteDecline {
+    /// Shared status sentence when this GPU route cannot preserve the stone shadow.
+    /// A static value lets interfaces recognize and clear only this routing note.
+    pub const STONE_SHADOW_MESSAGE: &'static str =
+        "Stone shadow is traced on the CPU on this graphics card.";
+
+    /// Shared status sentence when this GPU route cannot trace the tray reflection.
+    /// A static value lets interfaces recognize and clear only this routing note.
+    pub const TRAY_REFLECTION_MESSAGE: &'static str =
+        "Tray reflection is traced on the CPU on this graphics card.";
+}
+
 impl fmt::Display for GpuRouteDecline {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::StoneShadow => f.write_str(Self::STONE_SHADOW_MESSAGE),
+            Self::TrayReflection => f.write_str(Self::TRAY_REFLECTION_MESSAGE),
             Self::Material => f.write_str("The material has features only the CPU tracer supports"),
             Self::TooManyTools { tools } => write!(
                 f,
@@ -42,6 +60,37 @@ impl fmt::Display for GpuRouteDecline {
             Self::Fluorescence => f.write_str("Fluorescence is traced on the CPU only"),
             Self::UvLamp => f.write_str("UV lamp lighting is traced on the CPU only"),
         }
+    }
+}
+
+/// Returns the CPU routing reason when this device cannot sample the studio shadow map.
+#[must_use]
+pub const fn scene_decline_with_tray_shadow(
+    environment: crate::optics::raytracer::EnvironmentSource<'_>,
+    backend_supports: bool,
+) -> Option<GpuRouteDecline> {
+    if environment.tray_shadow().is_some() && !backend_supports {
+        Some(GpuRouteDecline::StoneShadow)
+    } else {
+        None
+    }
+}
+
+/// Returns the CPU routing reason when this device cannot trace the glossy tray.
+///
+/// Declines only a scene whose environment carries a mirror that is read (a studio rig with a
+/// backdrop, see [`crate::optics::raytracer::EnvironmentSource::tray_mirror`]) on a backend
+/// that cannot run the tray variant of the megakernel. `backend_supports` is
+/// `GpuBackend::supports_tray_mirror()`.
+#[must_use]
+pub const fn scene_decline_with_tray_mirror(
+    environment: crate::optics::raytracer::EnvironmentSource<'_>,
+    backend_supports: bool,
+) -> Option<GpuRouteDecline> {
+    if environment.tray_mirror().is_some() && !backend_supports {
+        Some(GpuRouteDecline::TrayReflection)
+    } else {
+        None
     }
 }
 
@@ -95,6 +144,7 @@ mod tests {
         optics::{
             absorption::AbsorptionBand,
             fluorescence::{EmissionBand, FluorescentEmitter},
+            raytracer::EnvironmentSource,
         },
     };
     use glam::Vec3;
@@ -120,8 +170,87 @@ mod tests {
         )
     }
 
-    /// Replaces the old "a stone with tools never routes to the GPU" pin: tools within the
-    /// limit route to the GPU, one more than the limit declines with its own reason.
+    /// The stone-shadow decline needs a map that is read (a studio rig with a tray) and a
+    /// device that cannot sample it; every other combination is offered to the GPU.
+    #[test]
+    fn the_stone_shadow_declines_only_a_device_that_cannot_read_the_map() {
+        use crate::{
+            optics::raytracer::environment::{TrayShadowKey, TrayShadowMap},
+            renderer::env_map::EnvironmentMap,
+        };
+        let map = TrayShadowMap::from_parts(
+            -0.9,
+            [0.0; 2],
+            3.0,
+            1,
+            vec![0.5; 20],
+            vec![[0.5; 3]],
+            TrayShadowKey(1),
+        );
+        let tray = LightingPreset::IsoHemisphere
+            .studio(1.0, 0.85, 0.95)
+            .with_backdrop(0.9);
+        let shadowed = tray.with_tray_shadow(Some(&map));
+        assert_eq!(
+            scene_decline_with_tray_shadow(shadowed, false),
+            Some(GpuRouteDecline::StoneShadow)
+        );
+        assert_eq!(scene_decline_with_tray_shadow(shadowed, true), None);
+        // No map attached.
+        assert_eq!(scene_decline_with_tray_shadow(tray, false), None);
+        // A map on a rig without a tray is never read.
+        let as_lit = LightingPreset::IsoHemisphere
+            .studio(1.0, 0.85, 0.95)
+            .with_tray_shadow(Some(&map));
+        assert_eq!(scene_decline_with_tray_shadow(as_lit, false), None);
+        // An HDR map is its own backdrop and drops the shadow.
+        let panorama = EnvironmentMap::uniform(4, 2, [0.5; 3]);
+        let hdr = EnvironmentSource::hdr(&panorama).with_tray_shadow(Some(&map));
+        assert_eq!(scene_decline_with_tray_shadow(hdr, false), None);
+    }
+
+    /// The tray-reflection decline needs a mirror that is read (a studio rig with a tray) and a
+    /// device that cannot run the tray variant; every other combination is offered to the GPU.
+    #[test]
+    fn the_tray_reflection_declines_only_a_device_that_cannot_trace_it() {
+        use crate::{
+            optics::raytracer::environment::TrayMirror, renderer::env_map::EnvironmentMap,
+        };
+        let mirror = TrayMirror::new(-0.9, 0.04);
+        assert!(mirror.is_some());
+        let tray = LightingPreset::IsoHemisphere
+            .studio(1.0, 0.85, 0.95)
+            .with_backdrop(0.9);
+        let mirrored = tray.with_tray_mirror(mirror);
+        assert_eq!(
+            scene_decline_with_tray_mirror(mirrored, false),
+            Some(GpuRouteDecline::TrayReflection)
+        );
+        assert_eq!(scene_decline_with_tray_mirror(mirrored, true), None);
+        // No mirror attached.
+        assert_eq!(scene_decline_with_tray_mirror(tray, false), None);
+        // A mirror on a rig without a tray is never read.
+        let as_lit = LightingPreset::IsoHemisphere
+            .studio(1.0, 0.85, 0.95)
+            .with_tray_mirror(mirror);
+        assert_eq!(scene_decline_with_tray_mirror(as_lit, false), None);
+        // An HDR map is its own backdrop and drops the mirror.
+        let panorama = EnvironmentMap::uniform(4, 2, [0.5; 3]);
+        let hdr = EnvironmentSource::hdr(&panorama).with_tray_mirror(mirror);
+        assert_eq!(scene_decline_with_tray_mirror(hdr, false), None);
+        // The sentence is exact and distinct from the shadow's.
+        assert_eq!(
+            GpuRouteDecline::TrayReflection.to_string(),
+            "Tray reflection is traced on the CPU on this graphics card."
+        );
+        assert_ne!(
+            GpuRouteDecline::TrayReflection.to_string(),
+            GpuRouteDecline::StoneShadow.to_string()
+        );
+    }
+
+    /// Tools within the limit route to the GPU; one more than the limit declines with its own
+    /// reason.
     #[test]
     fn concave_stones_route_to_the_gpu_up_to_the_tool_limit() {
         let planes = StandardGemCuts::standard_round_brilliant();
@@ -203,8 +332,8 @@ mod tests {
         }
     }
 
-    /// For a plane-only stone the two routing functions agree on every preset; the legacy
-    /// one still declines any tools (callers that cannot pass them).
+    /// For a plane-only stone the two routing functions agree on every preset. The plane-only
+    /// one still declines any tools.
     #[test]
     fn the_legacy_routing_agrees_without_tools_and_still_declines_tools() {
         let planes = StandardGemCuts::standard_round_brilliant();

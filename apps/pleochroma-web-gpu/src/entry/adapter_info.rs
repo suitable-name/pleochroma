@@ -1,7 +1,6 @@
 //! What the browser itself says about the GPU (`GPUAdapterInfo`), read once at `Init`.
 //!
-//! Split out of `lib.rs` to keep that file under the 800-line limit; nothing here is shared
-//! with the rest of the worker except `timeout_race`.
+//! Browser adapter queries for `init`; the only item taken from `lib.rs` is `timeout_race`.
 
 use wasm_bindgen::JsCast;
 

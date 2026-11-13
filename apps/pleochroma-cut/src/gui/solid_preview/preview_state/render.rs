@@ -1,8 +1,7 @@
-//! The RENDER worker's own per-request draw call -- [`render_request`], a thin
-//! wrapper over `pleochroma_solid::preview::render_request` (moved there, shared
-//! with the web app) that turns its output into this desktop's Slint pixel
-//! buffers -- and the [`super::SolidPreviewState`] methods that spawn and feed this
-//! worker thread.
+//! The render worker's per-request draw, [`render_request`]: a wrapper over
+//! `pleochroma_solid::preview::render_request` that turns the output into Slint pixel buffers.
+//!
+//! Also the [`super::SolidPreviewState`] methods that spawn and feed this thread.
 
 use super::{
     MeshCache, SolidRasterizer,
@@ -21,24 +20,19 @@ use std::sync::{
     mpsc::{self, Sender},
 };
 
-/// Renders one request against `mesh_cache`/`rasterizer`/`edges_rasterizer`, all
-/// three owned by the worker thread for the process lifetime, plus `memory` --
-/// see `pleochroma_solid::preview::render_request` (the moved body) and
-/// `WorkerMemory`'s doc comment. `memory.solved_masts` matters most: a
-/// `Reproject` request (every camera drag/zoom/pose button, and every
-/// `Both`/`Diagram` redraw that isn't a fresh edit) chains the worker's own
-/// last-known masts forward as its `solved` rather than reporting `None` --
-/// `SlintSolidSink::apply` stores whatever `solved` it is handed with no
-/// `Some`-check, so simply orbiting the stone would otherwise wipe the shared
-/// `last_solved` cache the NEXT edit needs for a cheap subgraph `resolve_dirty`.
+/// Renders one request with the worker-owned `mesh_cache`, rasterizers and `memory`. See
+/// `pleochroma_solid::preview::render_request`.
 ///
-/// Copies the finished solid image (and, in "Both" mode, the edges layer) out of
-/// the rasterizers and the diagram out of its frame into Slint pixel buffers.
+/// A `Reproject` chains the worker's last-known masts forward as its `solved`, rather than
+/// reporting `None`. The sink stores whatever it is handed, so a camera orbit would otherwise
+/// clear the masts the next edit needs for an incremental re-solve.
 ///
-/// Returns `None` if an `UpdateFacetOverlay` arrives before the first real frame
-/// (nothing to redraw, so no frame is returned).
+/// Copies the solid image (and, in "Both" mode, the edges layer) and the diagram into Slint
+/// pixel buffers.
 ///
-/// `planned` records whether the request was a `Planned` one -- see `PreviewFrame::planned`.
+/// Returns `None` if an `UpdateFacetOverlay` arrives before the first real frame.
+///
+/// `planned` records whether the request was a `Planned` one; see `PreviewFrame::planned`.
 pub fn render_request(
     mesh_cache: &mut MeshCache,
     rasterizer: &mut SolidRasterizer,
@@ -121,13 +115,10 @@ pub fn render_request(
 /// Draws a `Planned` request at the view mode the window last reported (`noted`, see
 /// [`SolidPreviewState::note_view_mode`]) instead of the one its job was planned at.
 ///
-/// A plan is made on the plan worker, which can take seconds, with the view mode read when it
-/// was requested. If the user switched to the Diagram meanwhile, the `Reproject` for it was
-/// drawn first and the stale plan then lands last: drawn at its own mode it leaves the
-/// worker's memory (and so every hover and selection redraw after it) at the Solid while the
-/// window shows the Diagram, which has no image to show. Other requests already carry the
-/// current mode; a mode that was never reported (`noted` is `controller::VIEW_MODE_UNNOTED`, past any `u8`)
-/// leaves the request alone.
+/// A plan can take seconds, so it may finish after the user switched views. Drawn at its own
+/// mode it would leave the worker's memory at the old view, which the window cannot show. Other
+/// requests already carry the current mode. A mode never reported (`VIEW_MODE_UNNOTED`, beyond
+/// any `u8`) leaves the request alone.
 fn adopt_noted_view_mode(request: &mut RedrawRequest, noted: u16) {
     if let (RedrawRequest::Planned(planned), Ok(noted)) = (request, u8::try_from(noted)) {
         planned.view_mode = noted;
@@ -157,8 +148,7 @@ impl SolidPreviewState {
     /// cleared `wake` between the check and this read, which never happens.
     pub(super) fn submit(&self, request: RedrawRequest) {
         // Harness-only: counts a `Planned` request still queued when a `Reproject`/overlay
-        // request arrives. The gate now folds the newer request into it (so it still
-        // renders); the counter keeps its "overwritten" name for the FIX4 line.
+        // request arrives. The gate merges the newer request into it, so it still renders.
         #[cfg(feature = "ui-harness")]
         {
             use crate::harness_support::{FrameEvent, record_frame_event};
@@ -181,9 +171,8 @@ impl SolidPreviewState {
                 .clone()
                 .expect("just initialized above if it was empty")
         };
-        // A queued `Planned` request (the only one with a `Design`, so the only one that
-        // fills the facet label tables) must survive a later camera/overlay request: the
-        // gate folds the newer one into it instead of replacing it.
+        // A queued `Planned` request (the only one carrying a `Design`) must survive a later
+        // camera or overlay request, so the gate merges the newer one into it.
         if self
             .gate
             .submit_merging(request, RedrawRequest::coalesce)

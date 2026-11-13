@@ -22,12 +22,13 @@ const PLAN_SECS: u64 = 900;
 const CUT_EDGES: [i32; 5] = [1, 3, 5, 7, 9];
 /// The library shape filter the planner's Current Filter candidates come from.
 const PLANNER_SHAPE: &str = "oval";
+/// How long the planner's 3D view may take to show its final picture, in seconds.
+const VIEW_SECS: u64 = 120;
 
 /// Runs Optimize, picks the best candidate and opens the comparison from the tab.
 ///
-/// The Optimize tab compares inside the main editor viewport (`OptimizerComparePane`, the main
-/// window's own `CompareModel`); it opens no Compare window. Only the Baseline table's Compare
-/// Visually... and the Variants view pop the window out.
+/// The comparison is the pane inside the main editor viewport (`OptimizerComparePane`), not a
+/// separate window.
 fn open_compare(sc: &Sc<'_, '_>) -> Result<(), String> {
     run_optimize(sc)?;
     pick_best_candidate(sc);
@@ -205,6 +206,30 @@ pub fn planner_with_block(sc: &Sc<'_, '_>) -> Result<RoughPlannerWindow, String>
     Ok(window)
 }
 
+/// Waits until the planner's 3D view shows its final picture: the newest frame, at full size,
+/// of a built scene. Frames come from the render thread after `view_busy` clears, so without
+/// this a shot catches an empty view or the previous scene.
+///
+/// # Errors
+///
+/// The view does not settle within [`VIEW_SECS`]; the error says what it still waits for.
+pub fn wait_planner_view() -> Result<(), String> {
+    // Twice: a resize timer or a scene answer may ask for one more frame right after the first
+    // settles.
+    for _ in 0..2 {
+        if !Sc::wait(VIEW_SECS, || {
+            harness_support::rough_planner_view_unsettled().is_none()
+        }) {
+            let reason = harness_support::rough_planner_view_unsettled().unwrap_or_default();
+            return Err(format!(
+                "the planner's 3D view did not settle within {VIEW_SECS} s: {reason}"
+            ));
+        }
+        pump(500);
+    }
+    Ok(())
+}
+
 /// `rough_planner.png`: the planner before planning.
 ///
 /// # Errors
@@ -216,7 +241,7 @@ pub fn rough_planner(sc: &mut Sc<'_, '_>) -> Result<Shot, String> {
     let _ = Sc::wait(60, || {
         !model.get_view_busy() && model.get_filter_count() > 0 && model.get_library_count() > 0
     });
-    pump(2000);
+    wait_planner_view()?;
     sc.snap_window("RoughPlannerWindow", &window)
 }
 
@@ -251,6 +276,6 @@ pub fn rough_planner_result(sc: &mut Sc<'_, '_>) -> Result<Shot, String> {
     let _ = Sc::wait(120, || {
         !model.get_thumbnails_pending() && !model.get_view_busy()
     });
-    pump(1500);
+    wait_planner_view()?;
     sc.snap_window("RoughPlannerWindow", &window)
 }

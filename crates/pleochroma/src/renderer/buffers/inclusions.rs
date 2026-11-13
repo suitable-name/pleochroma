@@ -2,16 +2,16 @@
 //!
 //! [`GpuInclusionBlock`] is the GPU twin of `GemMaterial::inclusions` (the resolved
 //! [`InclusionSet`]): up to four families of oriented scatterers, the plain haze that scatters
-//! alongside them, and room for two later features that only append data to the same block, so
-//! no offset moves again: the domain structure of opal and labradorite (`structure`, with its
-//! seed and flag in `header`) and the abraded-edge band (`edge`).
+//! alongside them, and room for two features that append data to the same block without moving
+//! any offset: the domain structure of opal and labradorite (`structure`, with its seed and flag
+//! in `header`) and the abraded-edge band (`edge`).
 //!
-//! # Layout (224 bytes, appended at offset 2800 of the material)
+//! # Layout (224 bytes, at offset 2800 of the material)
 //!
 //! | Field | Offset | Content |
 //! |---|---|---|
 //! | `header` | 0 | `[family_count, structure_flag, domain_seed, flags]` |
-//! | `fam_dir` | 16 | per family: world needle axis or platelet normal in `.xyz`, the kind in `.w` |
+//! | `fam_dir` | 16 | per family: needle axis or platelet normal in `.xyz`, kind in `.w` |
 //! | `fam_params` | 80 | per family: `[sigma, p, lobe, rho]` |
 //! | `haze` | 144 | `[sigma_HG, g, 0, 0]`: the Henyey-Greenstein haze, set only with inclusions |
 //! | `structure` | 160 | three rows for the domain structure; zero when off |

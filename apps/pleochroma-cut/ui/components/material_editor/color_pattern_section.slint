@@ -6,8 +6,8 @@ import { ActionButton } from "../chip_toggle.slint";
 import { PatternSwatch } from "../color_pattern/parts.slint";
 import { LchEditor } from "lch_editor.slint";
 
-// The Color Pattern section of the Gem Material Editor (plan 2026-10-21, section 5.1): the strip
-// of zone colors, a one-line summary and the buttons that open the Color Pattern window. Its
+// The Color Pattern section of the Gem Material Editor: the strip of zone colors, a one-line
+// summary and the buttons that open the Color Pattern window. Its
 // data is the main window's `Zoning` instance (`pattern_*`); `pattern_state` picks what shows:
 //
 //   0  no pattern: "Add Pattern..."
@@ -16,8 +16,9 @@ import { LchEditor } from "lch_editor.slint";
 //   3  the material's color is not band rows yet: "Pick a color for this material first."
 //   4  not offered: the caller does not mount the section
 //
-// The wizard-zone checkbox (`show_relative_to_stone`) stays here: a stored pattern keeps its size
-// setting in the pattern editor, but zones the wizard made have no other place for it.
+// The stone-relative checkbox (shown when `show_relative_to_stone`) lives here because zones
+// made by the wizard have no other place for that setting. A stored pattern keeps its own
+// setting in the pattern editor.
 export component ColorPatternSection inherits VerticalLayout {
     spacing: 6px;
 

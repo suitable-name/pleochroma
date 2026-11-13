@@ -92,12 +92,11 @@ fn internal_mode_coupling_draw_matches_exact_closed_form_split() {
     );
 }
 
-/// The exact split's real payoff over the old heuristic: at an incidence angle
-/// between the ordinary and extraordinary modes' own critical angles, one mode is
-/// in genuine TIR while the other only partially reflects -- the sharpest
-/// asymmetry `R_o`/`R_e` can produce, which the old heuristic (which never looked
-/// at either mode's reflectance) could not represent. Found by an angle sweep
-/// rather than a hand-derived critical angle.
+/// The exact split matters where the heuristic is wrong. At an incidence angle between the
+/// ordinary and extraordinary modes' own critical angles, one mode is in genuine TIR while the
+/// other only partially reflects. That is the sharpest asymmetry `R_o`/`R_e` can produce, and the
+/// heuristic, which never looks at either reflectance, cannot represent it. The angle is found by
+/// a sweep rather than a hand-derived critical angle.
 #[test]
 fn internal_mode_coupling_draw_is_strongly_biased_near_a_modes_own_critical_angle() {
     let lambdas = [589.3f32; NUM_CHANNELS];
@@ -162,13 +161,9 @@ fn internal_mode_coupling_draw_is_strongly_biased_near_a_modes_own_critical_angl
     );
 }
 
-/// Runs `samples` trials of `trace_spectral_ray_inner` at `ray`/`planes`/
-/// `plane_soa`/`material`/`env`, seeded `seed_base + i`, once with
-/// `enable_internal_mode_coupling` forced on and once forced off (same seed both
-/// times), returning `(sum_with, sum_without)`. Split out of
-/// `internal_mode_coupling_changes_zircon_render` purely to keep that test under
-/// clippy's function-length lint -- both call sites there share this exact A/B
-/// sweep, once for Zircon and once for the Diamond null check.
+/// Sums `samples` traces of `trace_spectral_ray_inner` over seeds `seed_base + i`, once with
+/// `enable_internal_mode_coupling` on and once off, with the same seed both times. Returns
+/// `(sum_with, sum_without)`. Shared by the Zircon test and its Diamond null check.
 fn sum_with_and_without_mode_coupling(
     material: &GemMaterial,
     ray: Ray,

@@ -1,9 +1,9 @@
 // optics::raytracer::intersect_polyhedron
 
-// `HitInfo::side`: which way the ray crossed the surface it hit. `NONE` for a stone without
-// tools (the bounce's own inside/outside toggle is exact there, nothing is computed); with
-// tools, `ENTRY` when the stretch of ray before the hit is air or a cavity and `EXIT` when it
-// is the material. Twin of the `Option<bool>` that `intersect_stone_soa_side` returns.
+// `HitInfo::side`: direction the ray crossed the hit surface. `NONE` for a stone without
+// tools, where the bounce's inside/outside toggle is exact. With tools, `ENTRY` means the
+// ray before the hit is in air or a cavity, `EXIT` means it is in the material. Twin of the
+// `Option<bool>` returned by `intersect_stone_soa_side`.
 const HIT_SIDE_NONE: u32 = 0u;
 const HIT_SIDE_ENTRY: u32 = 1u;
 const HIT_SIDE_EXIT: u32 = 2u;
@@ -12,9 +12,8 @@ struct HitInfo {
     hit: bool,
     t: f32,
     normal: vec3<f32>,
-    // optics::raytracer::HitRecord::facet_idx -- lets the frosted-finish lookup below
-    // index `facet_finishes`. Mirrors `near_facet`/`far_facet`'s `.unwrap_or(0)`
-    // fallback: `0u` whenever a hit is never reported either.
+    // `optics::raytracer::HitRecord::facet_idx`, used to index `facet_finishes`. Matches the
+    // `.unwrap_or(0)` fallback of `near_facet`/`far_facet`: `0u` when there is no hit.
     facet_idx: u32,
     // `HIT_SIDE_*`, see above.
     side: u32,
@@ -163,13 +162,10 @@ fn intersect_ray(origin: vec3<f32>, dir: vec3<f32>) -> HitInfo {
     return result;
 }
 
-// Exit-event spectral splitting: optics::raytracer::refraction::try_split_exit_channel
-// -- the one bounded fan-out primitive every exit-event mismatch site below calls.
-// Reads the `planes` binding (via `intersect_ray`) and `params`/`material` (via
-// `sample_environment_with_rig`), so -- like `intersect_ray`/`shading_normal_near_edge`
-// above -- this stays megakernel-local rather than living in the shared
-// `transport_physics.wgsl` prelude. `split_radiance` is threaded as a pointer to the
-// caller's own local array, like `stokes`/`path_pdf`.
+// Exit-event split of one channel: optics::raytracer::refraction::try_split_exit_channel.
+// Reads the `planes` binding, `params` and `material`, so it stays in the megakernel rather
+// than the shared `transport_physics.wgsl` prelude. `split_radiance` is a pointer to the
+// caller's local array, like `stokes` and `path_pdf`.
 
 fn try_split_exit_channel(
     split_radiance: ptr<function, array<f32, 8>>,
@@ -182,29 +178,27 @@ fn try_split_exit_channel(
     fill_dir: vec3<f32>,
     sin_lp: f32,
     observer: vec3<f32>,
-    // optics::raytracer::refraction::ExitSplitCtx::split_mis_weight -- the balance-
-    // heuristic weight against a live incoming NEE carry from the scatter event that
-    // led into THIS bounce (`1.0` outside that case, reproducing the unweighted
-    // addition exactly). Computed once per bounce by the caller (mirrors
-    // `dispatch_bounce`'s CPU-side `exit.split_mis_weight` assignment), not here --
-    // this function stays a pure per-channel fan-out primitive.
+    // `ExitSplitCtx::split_mis_weight`: balance-heuristic weight against a live NEE carry
+    // from the scatter event that led into this bounce, `1.0` when there is none. Set once
+    // per bounce by the caller.
     split_mis_weight: f32,
 ) {
-    let probe = intersect_ray(hit_point + dir_k * 1e-4, dir_k);
-    if (probe.hit) {
-        // Bounded re-entry: decline to trace further (a pure energy-loss truncation).
-        return;
+    // Exit collection runs only for a stone without tools, on every engine, so a collected leaf
+    // cannot re-enter the stone and skips the probe.
+    if (!collect_on) {
+        let probe = intersect_ray(hit_point + dir_k * 1e-4, dir_k);
+        if (probe.hit) {
+            // Bounded re-entry: decline to trace further (a pure energy-loss truncation).
+            return;
+        }
     }
     let env_spectral = sample_environment_with_rig(dir_k, lambda_k, key_dir, fill_dir, sin_lp, observer);
     (*split_radiance)[k] = fma(max(transmitted_intensity, 0.0) * split_mis_weight, env_spectral, (*split_radiance)[k]);
 }
 
-// optics::raytracer::shading_normal_near_edge -- reads the `planes` storage binding
-// directly (like `intersect_ray` above), so stays megakernel-local rather than living
-// in the shared `transport_physics.wgsl` prelude. `shaders/shading_normal.wgsl` has its
-// own standalone copy with its own `planes` binding for
-// `renderer::gpu::transport_check::run_shading_normal_near_edge`'s Tier 2 self-test;
-// both are unmodified line-for-line translations of the same CPU function.
+// optics::raytracer::shading_normal_near_edge. Reads the `planes` binding directly, so it
+// stays in the megakernel. `shaders/shading_normal.wgsl` holds a standalone copy with its
+// own `planes` binding for its Tier 2 self-test.
 
 fn shading_normal_near_edge(hit_point: vec3<f32>, hit_facet_idx: u32, hit_normal: vec3<f32>, rounding_radius: f32) -> vec3<f32> {
     if (rounding_radius <= 0.0) {
@@ -246,11 +240,10 @@ fn scene_any_tool_contains(plane_count: u32, p: vec3<f32>) -> bool {
 }
 
 // optics::raytracer::transport::inner::shading_normal_for_hit: the edge-rounded shading
-// normal of a hit on a (possibly concave) stone. A planar stone, or no rounding, is
-// `shading_normal_near_edge` unchanged. With tools, rounding is skipped (v1) for a hit on a
-// tool surface, and for a plane hit within `rounding_radius` of a tool:
-// `shading_normal_near_edge` blends toward the nearest plane normal, which would be the wrong
-// neighbour there. The tool-proximity test probes the four in-plane points one radius away.
+// normal of a hit on a (possibly concave) stone. A planar stone, or no rounding, gives
+// `shading_normal_near_edge` unchanged. With tools, rounding is skipped for a hit on a tool
+// surface, and for a plane hit within `rounding_radius` of a tool, because the blend would
+// pick the wrong neighbour. Tool proximity is tested at four in-plane points one radius away.
 fn shading_normal_for_hit(hit_point: vec3<f32>, hit_facet_idx: u32, hit_normal: vec3<f32>, rounding_radius: f32) -> vec3<f32> {
     if (params.num_tools == 0u || rounding_radius <= 0.0) {
         return shading_normal_near_edge(hit_point, hit_facet_idx, hit_normal, rounding_radius);

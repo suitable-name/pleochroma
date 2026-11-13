@@ -1,7 +1,7 @@
 //! Canonical facet and tier labelling according to international faceting standards.
 //!
-//! Replaces the legacy 123-ABC labelling system (digits 1, 2, 3... for pavilion,
-//! letters A, B, C... for crown) with the global standard PF-P-G-C tier labelling:
+//! The PF-P-G-C tier labelling, which replaces the legacy 123-ABC system (digits for
+//! pavilion, letters for crown):
 //! - `PF`: Pavilion Foundation / Preform (`PF1`, `PF2`, ...); only a tier whose own name
 //!   starts with "PF" or says "preform" or "foundation" gets one
 //! - `P`: Pavilion (`P1`, `P2`, `P3`, ...)
@@ -232,9 +232,8 @@ fn label_flat_tiers(
 /// Computes canonical PF-P-G-C labels for all tiers in `tiers`, numbered per letter in the
 /// order the tiers are cut ([`flat_cutting_order`]), one entry per tier in stored order.
 ///
-/// A concave tier would continue the count after the flat ones; this function takes a plain
-/// tier list and knows no concave tiers, so use [`Design::tier_codes`] when the design
-/// has any.
+/// Takes a plain tier list, with no concave tiers. For a design that has them, whose codes
+/// continue the count, use [`Design::tier_codes`].
 #[must_use]
 pub fn compute_tier_labels(tiers: &[ConstraintTier]) -> Vec<TierLabelInfo> {
     label_flat_tiers(tiers, flat_cutting_order(tiers)).0

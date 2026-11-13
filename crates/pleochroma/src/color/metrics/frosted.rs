@@ -2,8 +2,8 @@
 //!
 //! The metrics fan ([`super::ray_trace`]) is its own single-ray tracer, not the render tracer, so
 //! a facet finish has to be taught to it separately. A [`FacetFinish::Frosted`] facet scatters
-//! the way [`apply_ground_bounce`] scatters it in the render tracer (decision D11: the GGX ground
-//! lobe, `alpha` 0.45, replaced the Lambertian bounce):
+//! the way [`apply_ground_bounce`] scatters it in the render tracer (the GGX ground lobe,
+//! `alpha` 0.45):
 //!
 //! - one broadband unpolarized Fresnel reflect probability `r_unpol` (the polished interface's
 //!   sharp per-wavelength structure is averaged away), clamped to the polished dispatch's

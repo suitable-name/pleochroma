@@ -1,11 +1,9 @@
-//! "Snapshot design" / "Compare to snapshot" (the desktop's
-//! `retarget_actions::snapshot`): remembers the design and its solved masts, and later
-//! shows, tier position by tier position, what the angles, indices and masts have become.
-//! The rows are `pleochroma_editor::snapshot`'s (the diff itself is
-//! `pleochroma_cut_core::diff_tiers`).
+//! "Snapshot design" and "Compare to snapshot": remembers the design and its solved masts,
+//! then shows, tier position by tier position, what has changed.
 //!
-//! The snapshot lives for the page's lifetime only; the desktop's visual before/after
-//! compare window has no web counterpart.
+//! The rows come from `pleochroma_editor::snapshot`.
+//!
+//! The snapshot lives for the page's lifetime only, and there is no visual before/after window.
 
 use crate::{
     AppWindow, DiffRow, SnapshotModel,
@@ -71,7 +69,7 @@ fn take(ctx: &Ctx) {
             MessageKind::Success,
             &format!("Snapshot taken: \"{label}\"."),
         );
-        // The lessons' "take a snapshot" step (the desktop's "Baseline set").
+        // Reports the snapshot to a running lesson.
         crate::editor::guide::raise(ctx, SNAPSHOT_TAKEN);
     });
 }
@@ -138,7 +136,7 @@ fn compare(ctx: &Ctx) {
                 .collect::<Vec<_>>(),
         )));
         model.set_compare_open(true);
-        // The lessons' "open the comparison" step; the table is on screen now.
+        // Reports the open comparison to a running lesson; the table is on screen now.
         crate::editor::guide::raise(ctx, COMPARE_OPENED);
     });
 }

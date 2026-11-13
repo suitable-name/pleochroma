@@ -1,16 +1,14 @@
 //! Single-design layouts: `n` equal cells of one design in an `a x b x c` grid.
 //!
-//! Every grid with `1 <= a*b*c <= UNIFORM_MAX_STONES` (99) is enumerated on all three axis
-//! assignments (each ordered triple of counts), fully filled: `n = a*b*c`
-//! stones and no waste cells. Continuous, no unit-grid error. The best layout
-//! per `(design, n)` is kept, then only the best three per design, so no
-//! single design can flood the ranking.
+//! Every ordered grid `a x b x c` with `1 <= a*b*c <= UNIFORM_MAX_STONES` is enumerated and
+//! filled completely (`n = a*b*c` stones, no waste cells), each cell taking the best of the six
+//! assignments of the design. The best layout per `(design, n)` is kept, then only the best
+//! three per design, so no single design can flood the ranking. The cells are continuous, so
+//! there is no unit-grid error.
 //!
 //! A stone cap (`PlanSettings::max_stones`) shortens the enumeration to the grids of at most
-//! that many cells. That is exactly the uncapped pass restricted to `n <= cap` (the grids of
-//! at most `k` cells are a subsequence of those of at most 99 in the same order, and every
-//! `(design, n)` slot is independent of the others), which filtering the uncapped pass's
-//! output would NOT be: its best three per design would be spent on larger counts.
+//! that many cells. This is the uncapped pass restricted to `n <= cap`, not a filter of its
+//! output: the best three per design of the uncapped pass would be spent on larger counts.
 
 use super::{
     pareto::sanitize,
@@ -22,18 +20,17 @@ use super::{
 
 /// Layouts kept per design.
 pub const PER_DESIGN: usize = 3;
-/// The most cells of a uniform grid. The stone count of the mixed DPs is free unless the
-/// stone cap limits it (the cap is at most this, 99); this pass only adds the exact equal-cell
-/// layouts on top of them, and grids beyond 99 cells (the largest stone count the planner
-/// allowed when the count was capped) would multiply its cost (the shaped pass classifies
-/// every cell of every grid against the rough) for layouts the DPs already reach.
+/// The most cells of a uniform grid, also the largest stone cap a `PlanSettings` can set.
+///
+/// Larger grids would multiply the cost of the shaped pass (which classifies every cell of
+/// every grid against the rough) for layouts the mixed DPs already reach.
 pub const UNIFORM_MAX_STONES: usize = 99;
 /// Designs scanned between two progress reports (and cancel checks).
 const POLL_EVERY: usize = 256;
 /// Chunks of designs per lane in the threaded scan; more chunks than lanes let a lane that
 /// draws the cheap designs take more of them.
 const CHUNKS_PER_LANE: usize = 4;
-/// Layouts returned in all (a pool for the refinement, well beyond the top 10).
+/// Layouts kept as the refinement pool, well beyond the final top 10.
 const KEEP: usize = 200;
 
 /// One candidate: a design filled into a grid.

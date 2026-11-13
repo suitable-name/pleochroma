@@ -171,9 +171,7 @@ private key. A private key ideally never leaves the machine it belongs to.
 
 The stronger design is a CSR flow: the client generates its own keypair and sends a
 signing request; the worker returns only the signed certificate, and no private key ever
-crosses the wire. That is a deliberate follow-up rather than an oversight — it requires
-the client side (`apps/pleochroma-cut`) to generate keypairs, so it could not land with the
-worker-side change alone.
+crosses the wire. It needs the client side (`apps/pleochroma-cut`) to generate keypairs.
 
 Until then, treat the enrollment connection as carrying key material: it is TLS-protected
 and server-verified, but a compromise of the worker at that moment is a compromise of

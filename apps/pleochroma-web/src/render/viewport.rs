@@ -80,8 +80,8 @@ pub struct ViewState {
 }
 
 impl ViewState {
-    /// The camera from `settings`, and the desktop's 800 x 600 until the render
-    /// view reports its real size.
+    /// The camera from `settings`, and 800 x 600 until the render view reports its
+    /// real size.
     #[must_use]
     pub const fn from_settings(settings: &RenderSettings) -> Self {
         Self {

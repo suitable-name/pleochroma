@@ -1,6 +1,5 @@
-//! The inspector (Tier / Preform / Optimize / Schedule tabs), the panels beside it and
-//! their refresh: modelled on the desktop's `gui/editor/view/{inspector,panel}.rs` and
-//! `callbacks/tier_actions/{tier_form,facet_editing,design_forms}.rs`.
+//! The inspector (Tier / Preform / Optimize / Schedule / History tabs), the panels beside it
+//! and their refresh.
 //!
 //! # State and refresh
 //!
@@ -15,8 +14,8 @@
 //! # The tier form
 //!
 //! The form's five fields are scratch state seeded from the selected tier and committed
-//! only by Save / Add Tier (`form`): the desktop's rule that a selection change never
-//! silently discards a typed draft, and that undo / redo re-seed a clean form.
+//! only by Save / Add Tier (`form`). A selection change never silently discards a typed
+//! draft, and undo / redo re-seed a clean form.
 //!
 //! # The concave form
 //!
@@ -96,7 +95,7 @@ pub struct PushCtx<'a> {
     pub previous_generation: Option<u64>,
     /// The tier count of the last push.
     pub previous_tiers: usize,
-    /// The inspector tab showing (0 Tier .. 3 Schedule).
+    /// The inspector tab showing (`InspectorModel.tab`: 0 Tier .. 4 History).
     pub tab: i32,
     /// Whether the inspector is collapsed.
     pub collapsed: bool,

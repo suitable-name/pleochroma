@@ -1,6 +1,6 @@
-//! Report A/C: the baseline solving path, bootstrapped from each design's own real
-//! recorded tier-0 mast -- a harness-only crutch, but the measurement `solve_meet_points`
-//! and `solve_meet_points_verified` were originally validated against.
+//! Reports A and C: solving with each block's scale anchor bootstrapped from the design's
+//! own recorded mast. This is a harness-only crutch; a design without an `.asc` file has no
+//! recorded mast.
 
 use pleochroma::geometry::{
     meet_solver::{
@@ -84,21 +84,14 @@ fn solve_one_impl(
     out.has_meet_existing = original_kinds.contains(&ConstraintKind::MeetExisting);
     out.has_scale_reference = original_kinds.contains(&ConstraintKind::ScaleReference);
 
-    // Per-block scale anchors. A design's arrangement has continuous degrees of
-    // freedom that preserve every vertex incidence (the crown block translating
-    // vertically along the girdle wall, likewise the pavilion, and the girdle's own
-    // radial scale -- see meet_solver's module docs), so each block (crown /
-    // pavilion / girdle, classified by facet-normal y-sign) needs one stated
-    // dimension. Real schedules state some of these ("Set girdle thickness", "Set
-    // stone size"); for each block with no stated anchor, bootstrap the block's
-    // first tier with its own real mast -- standing in for exactly the dimensions a
-    // printed GemCAD diagram states outright (C/W, P/W, girdle size). Bootstrapped
-    // tiers are excluded from scoring below, same as stated scale references.
+    // Per-block scale anchors. Each block (crown, pavilion, girdle; classified by facet-normal
+    // y-sign) has a continuous freedom that preserves every vertex incidence, so each block
+    // needs one stated dimension. A block without one gets its first tier bootstrapped from
+    // that tier's recorded mast. Bootstrapped tiers are excluded from scoring.
     let mut bootstrapped: Vec<bool> = vec![false; tiers.len()];
     {
-        // Side per tier (crown = +1, pavilion = -1, girdle = 0), mirroring the
-        // solver's normal-y classification (the shared sign-of-angle rule, where a
-        // sign-negative zero is the culet).
+        // Side per tier (crown = +1, pavilion = -1, girdle = 0), as the solver classifies
+        // it. A negative zero angle is the culet.
         let side: Vec<i8> = tiers
             .iter()
             .map(|t| {
@@ -131,10 +124,8 @@ fn solve_one_impl(
         }
     }
 
-    // Computed against `tiers` in exactly the state `solve_meet_points` itself will
-    // receive them (i.e. *after* the scale-reference bootstrap above), since that's
-    // the same `name_to_tier`/`girdle_tier` state the solver's own internal
-    // resolution will use -- see `classify_named_resolution`'s doc comment.
+    // Resolved against `tiers` in the state `solve_meet_points` receives (after the bootstrap
+    // above), so the result matches the solver's own resolution. See `classify_named_resolution`.
     let named_resolution = classify_named_resolution(&tiers, &original_named_names);
 
     let (solved, verify_report) = solve(schedule.gear_teeth_abs(), &tiers);

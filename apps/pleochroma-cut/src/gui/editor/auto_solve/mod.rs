@@ -1,61 +1,40 @@
-//! Background solving for the "Edit" sub-tab: moves `Design::solve` off the UI thread
-//! for the explicit "Solve" action (button and F5, via [`super::view::refresh_all`]'s
-//! large-design path) and, when the design is cheap enough, schedules the SAME
-//! machinery automatically after an edit ("auto-solve") so small/medium designs get a
-//! fresh path-traced view and masts without a click. See `mod.rs`'s "Never block the
-//! UI thread with a solve" section for the rule this exists to uphold.
+//! Background solving for the "Edit" sub-tab.
+//!
+//! The explicit "Solve" action (button and F5, via [`super::view::refresh_all`]'s large-design
+//! path) and the auto-solve after an edit both run `Design::solve` off the UI thread. See the
+//! "Never block the UI thread with a solve" section of `gui/editor/mod.rs`.
 //!
 //! # Why a `thread_local!`, not a new `EditorState` field
 //!
-//! `deep_solve`/`optimize`'s in-flight handles live directly on `EditorState`
-//! (`state/mod.rs`), which is NOT this group's file to edit. Everything this module
-//! needs beyond `EditorState::design`/`generation` (both already readable through a
-//! plain `&EditorState`) -- the debounce timer, the running request counter, the last
-//! measured solve time, and the shared solid-preview handles a completed background
-//! solve pushes into -- lives instead in [`runtime::Runtime`], a `thread_local!`
-//! singleton. That is sound for the identical reason `EditorState` itself gets away
-//! with a plain `Rc<RefCell<..>>` rather than `Arc<Mutex<..>>` (see that struct's own
-//! doc comment): every function in this group that touches `Runtime` runs on the
-//! UI/event-loop thread, either directly from a Slint callback or from inside a
-//! `Weak::upgrade_in_event_loop` closure. The worker threads this group spawns never
-//! touch `Runtime` themselves -- they only compute pure `Design` -> data conversions
-//! and hand the result back across the event-loop boundary.
+//! The state this module needs (debounce timer, request counter, last solve time,
+//! shared preview handles) lives in [`runtime::Runtime`], a `thread_local!`
+//! singleton. Only UI/event-loop code touches it, the same thread-confinement that
+//! lets `EditorState` use `Rc<RefCell<..>>`. Worker threads compute pure `Design`
+//! to data conversions and return the result across the event-loop boundary.
 //!
 //! # Two kinds of "stale" a completed background solve must detect
 //!
-//! A background solve is dispatched against a snapshot: a cloned [`Design`] plus the
-//! [`EditorState::generation`] counter's value at that moment. By the time it
-//! completes, either or both of the following can have happened, and
-//! [`apply::apply_background_solve_result`] must not let either corrupt the
-//! display:
+//! A solve runs on a snapshot: a cloned [`Design`] plus the [`EditorState::generation`]
+//! value at dispatch. On completion, [`apply::apply_background_solve_result`] checks
+//! for two kinds of staleness:
 //!
-//! 1. **A newer background solve was dispatched** (the user clicked Solve again, or
-//!    another auto-solve fired) before this one returned. [`runtime::Runtime::current_seq`]
-//!    is bumped on every dispatch; a completion only touches the UI at all while its
-//!    own sequence number still matches -- an older one simply has nothing left to
-//!    do, since the newer dispatch already owns the "Solving..." banner and will
-//!    apply its own result in turn.
-//! 2. **The design changed without a new dispatch** -- possible when auto-solve is
-//!    disabled (or this design's own measured cost exceeds the budget) and an edit
-//!    lands while an explicit Solve from BEFORE that edit is still running. Here this
-//!    result's own sequence number is still current (nothing superseded it), but
-//!    `generation` has moved past what was captured at dispatch time. The edit's own
-//!    [`super::view::refresh_editor_panel_stale`] call already repainted the banner
-//!    correctly at edit time, so this arm only needs to clear `editor_solve_running`
-//!    (nothing else will) and otherwise touch nothing.
+//! 1. **A newer dispatch exists.** [`runtime::Runtime::current_seq`] is bumped on every
+//!    dispatch. A completion whose sequence differs touches nothing; the
+//!    newer dispatch owns the "Solving..." banner.
+//! 2. **The design changed without a new dispatch.** This happens when auto-solve is
+//!    off or over budget and an edit lands during an explicit Solve. The sequence is
+//!    still current, but `generation` has moved on. Only the running flag is cleared,
+//!    since the edit already refreshed the banner.
 //!
-//! Both checks are cheap `u64` comparisons; nothing here ever tries to reinterpret a
-//! stale result's tier indices against a design it no longer describes.
+//! Both checks are `u64` comparisons. A stale result is never applied to a design it
+//! does not describe.
 //!
 //! # Layout of this group
 //!
-//! [`runtime`] holds the `thread_local!` state and the handles [`init`] stashes into
-//! it. [`scheduling`] decides whether/when a solve should run synchronously or be
-//! debounced into an auto-solve. [`dispatch`] spawns the background solve and ticks
-//! its banner; [`apply`] applies the completed result back onto the UI. [`replan`]
-//! is the solid-preview replan handshake: converting an already-solved mast list to
-//! viewport planes, stashing the design snapshot a matching preview frame consumes,
-//! and the idle-replan follow-up for a partial frame. [`tests`] covers all five.
+//! [`runtime`] holds the thread-local state. [`scheduling`] decides when a solve runs
+//! synchronously or is debounced into an auto-solve. [`dispatch`] spawns the solve and
+//! ticks its banner. [`apply`] applies the result to the UI. [`replan`] is the
+//! solid-preview replan handshake. [`tests`] covers all of these.
 
 mod apply;
 mod dispatch;

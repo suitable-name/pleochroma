@@ -76,7 +76,7 @@ fn every_cell_is_a_nonempty_list_ending_in_raw_without_repeats() {
 
 /// Higher tiers never lead with a slower-compressing codec than lower tiers of the same
 /// class: a faster link has less transfer time to win back, so the codec cost may only
-/// shrink. The owner measurements satisfy this; a regeneration that does not should be
+/// shrink. The measured tables satisfy this; a regeneration that does not should be
 /// inspected (noise between near-tied cells) before it is accepted.
 #[test]
 fn faster_tiers_never_lead_with_a_slower_codec() {

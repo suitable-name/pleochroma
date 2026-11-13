@@ -17,29 +17,18 @@
 use super::plane::GpuFacetPlane;
 use crate::optics::raytracer::FacetFinish;
 
-/// How close a (unit, `f32`) plane normal's `y`-component must be to zero to
-/// count as girdle (perpendicular to the stone's `+Y` axis).
+/// Largest `|y|` of a unit `f32` plane normal that still counts as girdle, i.e.
+/// perpendicular to the stone's `+Y` axis.
 ///
-/// `classify_blocks` uses `y.abs() <= 1e-6` on an exact `f64` schedule angle;
-/// here `y` is an `f32` normal that passed through angle -> `sin`/`cos` ->
-/// `normalize`, leaving rounding noise even for an intended-exact 90 degree
-/// facet (~5e-8 measured). `1e-3` clears that noise floor with margin below
-/// the shallowest real non-girdle facet in either built-in cut (SRB
-/// `|y| ~= 0.737`; `emerald_cut` `|y| ~= 0.602`).
+/// `classify_blocks` uses `1e-6` on the exact `f64` schedule angle. Here `y` has passed
+/// through `sin`/`cos`/`normalize` in `f32`, leaving rounding noise (about 5e-8) even
+/// for an exact 90 degree facet. `1e-3` clears that noise, and stays well below the
+/// shallowest real non-girdle facet of either built-in cut (`|y|` of 0.737 for SRB,
+/// 0.602 for the emerald).
 ///
-/// Purpose: classify `f32` plane normals (as carried by [`GpuFacetPlane`]), which
-/// is why it is 1000x looser than `classify_blocks`' exact-angle test, and why it
-/// is unrelated to the 85 degree girdle-tier pick in `meet_solver::names` (a
-/// naming heuristic over schedule angles).
-///
-/// Also backs [`super::stone_metrics::measure_solid`]'s own girdle-thickness
-/// threshold -- that function's planes come from the SAME `GpuFacetPlane` f32
-/// normals (widened to `f64` via [`super::plane::GpuFacetPlane::to_halfspace_f64`],
-/// which does not add precision, only represent the existing rounding noise in a
-/// wider type), so a second, independently-tuned threshold there could
-/// disagree with this one on a facet in the gap between the two -- `is_girdle_plane`
-/// would classify it as girdle (frosted) while `measure_solid` excluded it from the
-/// girdle-thickness band. One shared constant makes that impossible by construction.
+/// [`super::stone_metrics::measure_solid`] uses this same constant for its girdle-thickness
+/// band. Its planes carry the same `f32` normals, so a separate threshold could classify a
+/// facet differently in the two places.
 pub(super) const GIRDLE_NORMAL_Y_EPSILON: f32 = 1e-3;
 
 /// True iff `plane`'s normal is close enough to horizontal (perpendicular to the
@@ -93,10 +82,8 @@ pub fn girdle_facet_finishes(planes: &[GpuFacetPlane]) -> Vec<FacetFinish> {
 /// when `girdle_frosted` is on (see [`girdle_facet_finishes`]). An index past the end of
 /// `planes` is ignored.
 ///
-/// Returns an EMPTY list when no facet ends up frosted, which is
-/// `trace_spectral_ray_with_finish`'s documented equivalent of the all-polished path: a stone
-/// without any frosting keeps exactly the data (and so the bytes) it had before frosting
-/// could be authored.
+/// Returns an empty list when no facet is frosted. `trace_spectral_ray_with_finish` treats
+/// that as all-polished, so a stone without frosting keeps its existing data and bytes.
 #[must_use]
 pub fn facet_finishes_with_frosted(
     planes: &[GpuFacetPlane],
@@ -133,8 +120,8 @@ pub fn facet_finishes_with_frosted(
 /// carries.
 ///
 /// An empty list is `(false, [])`. A list that is exactly the girdle band
-/// ([`girdle_facet_finishes`]) is `(true, [])`, the form a scene without authored frosting has
-/// always had. Anything else is `(false, every frosted plane)`.
+/// ([`girdle_facet_finishes`]) is `(true, [])`, the compact form for girdle-only frosting.
+/// Anything else is `(false, every frosted plane)`.
 #[must_use]
 pub fn finishes_wire_form(planes: &[GpuFacetPlane], finishes: &[FacetFinish]) -> (bool, Vec<u32>) {
     if finishes.is_empty() {
@@ -159,7 +146,7 @@ mod tests {
     use glam::Vec3;
 
     /// The wire form of a finish list rebuilds that list: no frosting stays empty, the plain
-    /// girdle band keeps its old `(true, [])` form, and authored frosting is listed by plane.
+    /// girdle band gives `(true, [])`, and authored frosting is listed by plane.
     #[test]
     fn finishes_wire_form_round_trips_through_facet_finishes_with_frosted() {
         let planes = StandardGemCuts::standard_round_brilliant();
@@ -209,8 +196,8 @@ mod tests {
         );
     }
 
-    /// Cross-check against the hand-verified [`STANDARD_ROUND_BRILLIANT_GIRDLE_FACETS`]
-    /// constant (`33..49`); if this disagrees, the classifier is wrong, not the constant.
+    /// Cross-check against [`STANDARD_ROUND_BRILLIANT_GIRDLE_FACETS`] (`33..49`). If this
+    /// disagrees, the classifier is wrong.
     #[test]
     fn matches_standard_round_brilliant_girdle_constant() {
         let planes = StandardGemCuts::standard_round_brilliant();

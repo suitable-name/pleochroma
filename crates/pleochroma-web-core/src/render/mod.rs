@@ -52,11 +52,10 @@ use crate::scene::OwnedScene;
 /// It returns one SUMMED radiance per owned pixel, in that pixel order.
 ///
 /// A thin call into `renderer::cpu_frame::trace_pixels_interleaved_surface`, the same
-/// thread-free core the desktop's `hybrid::cpu_trace_range` runs per thread, with the scene's
-/// fluorescence and surface finish beside it (empty fluorescence and no effects record, which
-/// then is `trace_pixels_interleaved` bit for bit). `plane_soa`
-/// is normally [`OwnedScene::plane_soa`]; it is a parameter so a caller can reuse its
-/// own arena.
+/// thread-free core the desktop's `hybrid::cpu_trace_range` runs per thread. With an empty
+/// fluorescence and no effects record it is `trace_pixels_interleaved` bit for bit.
+/// `plane_soa` is normally [`OwnedScene::plane_soa`]; it is a parameter so a caller can
+/// reuse its own arena.
 #[must_use]
 pub fn handle_trace_chunk(
     scene: &OwnedScene,

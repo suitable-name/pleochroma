@@ -12,7 +12,8 @@ automatically and comes back the next time you start the app.
 ## Opening Preferences
 
 Choose **Edit → Preferences...**, or press **Ctrl+,** (Ctrl and the comma key). The
-dialog has five sections: Interface, Appearance, Direct Manipulation, Updates and Tutorials.
+dialog has these sections: Interface, Appearance, Rendering, Direct Manipulation, Faceting
+Machine, Updates, Graphics Driver (Linux only) and Tutorials.
 Press **Escape**, click **Done**, click the × in the corner, or click outside the
 dialog to close it. The shortcut does nothing while you are typing in a text field,
 so a comma in a name stays a comma.
@@ -38,8 +39,8 @@ badge, and the two choices at the top of the Preferences dialog. Hover the pill 
 see a reminder. You can change it at any time; switching hides or shows controls and
 nothing else, so your designs, your settings and your files are never affected.
 
-A brand-new installation starts in **Simple**. If you already used the app before
-this switch existed, you stay in **Advanced** and see exactly what you saw before.
+A brand-new installation starts in **Simple**. An installation that already has saved
+settings starts in **Advanced**, with every control shown.
 
 In the two viewports and their dialogs, Simple mode hides the **Tilt Curve** and
 **Save Lighting** buttons; in the Parameters dock's Render & Output tab, Library
@@ -120,8 +121,7 @@ saved with your settings like the choices above (`denoise_enabled` in
 ## Interface Scale
 
 **Interface Scale** makes everything in the windows larger or smaller. The choices
-are **Automatic** (follow your operating system's display scaling, which is what the
-app always did before), 75 %, 90 %, 100 %, 110 %, 125 %, 150 %, 175 % and 200 %.
+are **Automatic** (follow your operating system's display scaling), 75 %, 90 %, 100 %, 110 %, 125 %, 150 %, 175 % and 200 %.
 
 The scale is applied when the app starts, so a change **takes effect after a
 restart**. Close and reopen the app to see it. Picking and dragging in the viewport
@@ -159,6 +159,96 @@ A few colors keep their own value on purpose, because they stand for something:
 
 The backgrounds and labels around these colors do follow the switch.
 
+## Adaptive Sampling in the Viewport
+
+**Adaptive Sampling in the Viewport** (Rendering, off by default; shown only in a build with
+the optional `adaptive-sampling` feature, Chapter 9) stops refining the
+parts of the live picture that are already clean. While the stone stands still, the
+picture normally gives every pixel the same number of samples until it reaches the
+sample count of the Render & Output tab. With the switch on, the viewport checks the
+picture in small tiles from 32 samples on, stops the tiles whose noise is below the
+Standard target (the same one the export dialog's Target Noise offers), and spends the
+samples on the noisy tiles instead, so the picture cleans up sooner. The progress bar
+shows the samples the still-active tiles have, and reads Complete when every tile has
+stopped. It applies to the Path-Traced renderer on this computer, with a sample count
+of 64 or more; a remote worker, the Ray-Traced renderer and the reduced-resolution
+picture while you move the stone are not affected. Any change of the stone, the
+lighting or the size starts the picture over, as it always did, and switching the
+setting off gives back the usual picture exactly. The standard build does not show the
+switch and does not use it; it keeps the saved choice unchanged.
+
+## The Path Cache
+
+The Rendering section also holds the path cache's settings (Chapter 9 explains the cache
+itself).
+
+**Speed Up Still Views With a Path Cache** (off by default) lets the live viewport reuse
+the stone's light paths. Once the stone has stood still for a while, the viewport works
+out the paths of the current view, keeps them in memory only, and shades the stone from
+them for the rest of the refinement, so the picture cleans up sooner. Moving the stone, or
+changing the design, the material or the size, drops the cache at once. It is never written
+to disk, and it applies to the Path-Traced renderer. It combines with Adaptive Sampling in
+the Viewport. While the app renders with exit collection (Chapter 9) the box is greyed out
+and a note says that exit collection does not use the path cache; the saved choice stays as it
+is.
+
+**Instant Lighting Changes in the Ray-Traced View** (off by default) re-lights a still
+stone instantly from its stored light paths. Once a Ray-Traced view has stood still and
+finished, the viewport keeps the stone's light paths in memory only (never on disk, and
+within the same 4 GB limit as the cache above). Changing the lighting preset, the light
+direction, the exposure, the backdrop or the HDR map then shows the re-lit stone at once,
+without the small preview picture and without tracing again. Moving the stone, or changing
+the design, the material or the size, drops the paths and the view is drawn as usual. The
+re-lit stone follows the path tracer's physics, so it can differ slightly from the
+Ray-Traced look; the background and a stone that cannot use the paths (see Chapter 9) are
+still drawn by the Ray-Traced renderer. Switching the setting off gives back the usual
+Ray-Traced view exactly.
+
+**Beam Tracing in Still Views** (off by default; shown only in a build with the `beam` feature) lets the live viewport use beams (Chapter 9)
+for a faceted stone. While the app renders with exit collection the Path-Traced view does not
+beam trace, and the switch's line says so; it still feeds Instant Lighting Changes With Beams
+in the Ray-Traced view. Once the Path-Traced view has stood still for a while, the viewport
+follows the light through the stone as beams in the background, tile by tile. The finished
+tiles show the beam picture, finished with a small share of ordinary samples, and the rest of
+the view keeps refining as usual, so a faceted stone settles much sooner. Moving the stone,
+or changing the design, the material, the size or the renderer, stops the work at once and
+the view goes back to the ordinary refinement. A stone that cannot use beams (rounded edges,
+tools, frosted facets, a hazy body; Chapter 9 lists them) stays with the ordinary picture.
+The beams are kept in memory only, never on disk, within the same 4 GB limit as the
+caches above, and the work shares the processor with the live view, so the view stays
+responsive. It applies to the Path-Traced renderer, on this computer. It combines with
+Adaptive Sampling in the Viewport, and where beams apply they win over the path cache.
+Switching the setting off gives back the usual picture exactly.
+
+**Instant Lighting Changes With Beams** (off by default) works only while Beam Tracing in
+Still Views is on; until then the switch is greyed out and its hint says so. The still view
+then keeps the stone's beams in memory, and changing the lighting preset, the light
+direction, the exposure or the head shadow re-lights the stone at once, without tracing the
+beams again. The re-lit stone equals a fresh beam picture under the new lighting. Moving
+the stone, or changing the design, the material or the size, drops the beams. The name
+differs from the Ray-Traced switch above on purpose: that one is for the Ray-Traced view and
+its stored light paths, this one is for the beams. In the Ray-Traced view the same switch makes
+a still stone come from beams as well (Chapter 9): the stone is drawn from the beams without
+noise, and the background and outline stay with the Ray-Traced renderer. Your choice is
+kept when you turn Beam Tracing in Still Views off, and takes effect again when you turn it
+back on.
+
+Beam tracing is retired, and the two beam switches above are shown only in a build with the
+`beam` feature (`cargo build -p pleochroma-cut --features beam`). The standard build does not
+show them. It still keeps your saved beam choices: it reads them and writes them back
+unchanged, but never uses them.
+
+**Path Cache Folder** shows where kept caches live (in a build with the `beam` feature, kept
+beams too), and **Open Folder** shows it in your file manager. The standard build never reads
+kept beams. They share this folder and its disk limit, so the standard build's limit and
+**Clear Path Cache** can delete them. **Path Cache Disk Limit (GB)** is the most space kept
+caches may use; it starts at 50. When the folder grows past it, the caches used longest ago
+are deleted first. Lowering the limit deletes the extra caches right away.
+
+**Clear Path Cache** deletes every kept cache. It asks first, and a line under the buttons
+tells how many it cleared. Nothing is lost but the time they took to build: the next render
+that needs a cache builds it again. Your designs, pictures and settings are not touched.
+
 ## Direct Manipulation
 
 **Larger Handles** makes the angle, depth and index handles on the Solid viewport
@@ -190,7 +280,7 @@ The **Faceting Machine** section describes how your machine moves the stone over
 
 ## Updates
 
-The first time the app is idle after this feature arrived, it asks once whether it may
+The first time the app is idle, it asks once whether it may
 check for new versions. If you choose **Check Daily**, the app asks GitHub's public release
 list at most once a day, when it starts, whether a newer release than yours exists. The
 only thing sent is the request itself (it names the app and its version, as every web
@@ -201,6 +291,15 @@ GitHub cannot be reached, the daily check says nothing. **Don't Check** never co
 GitHub. Preferences has a **Check for New Versions** switch to change your mind and a
 **Check Now** button that checks at once and tells you the result, including "up to date" or
 why it failed.
+
+## Graphics Driver
+
+On Linux, where Mesa's AMD driver (RADV) can be used, the **Graphics Driver** section holds
+the **RADV Shader Workaround** switch. It turns off one optimization of the AMD shader
+compiler, which renders some stones with color zones, play-of-color structure or oriented
+inclusions correctly, at about 10 % less GPU speed. Other graphics drivers are not
+affected. The choice takes effect after a restart; **Restart Now** restarts the program,
+asking first about unsaved changes. The section is hidden where the driver cannot be used.
 
 ## Tutorials
 

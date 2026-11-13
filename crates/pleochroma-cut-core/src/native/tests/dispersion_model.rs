@@ -1,7 +1,7 @@
-//! A custom material's coefficient-based dispersion curve through the design file: written
-//! as `[material.custom.dispersion_model]`, read back, and rebuilt into the same curve (not
-//! flattened to the Cauchy fit the plain refractive-index path builds); a snapshot without a
-//! model, or with a model that cannot render, still takes the plain path.
+//! A custom material's coefficient-based dispersion curve through the design file.
+//!
+//! The curve is written as `[material.custom.dispersion_model]` and rebuilt as the same curve,
+//! not flattened to the plain Cauchy fit. A snapshot without a usable model takes the plain path.
 
 use super::fixtures::simple_design;
 use pleochroma::optics::{dispersion::DispersionModel, materials::GemMaterial};
@@ -81,7 +81,7 @@ fn a_dispersion_model_survives_a_save_and_open() {
     assert_ne!(rebuilt.dispersion, plain.dispersion);
 }
 
-/// A file written before the field existed (no table) rebuilds exactly as it always did.
+/// A file without the table rebuilds from the plain numbers, as the Cauchy fit.
 #[test]
 fn a_snapshot_without_a_model_builds_the_cauchy_fit_as_before() {
     let snapshot =

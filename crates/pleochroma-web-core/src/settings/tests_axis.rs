@@ -1,6 +1,7 @@
-//! The Crystal Axis and Second Axis of a web render: the linked design's own effects win over the
-//! per-user setting, the per-user setting applies to an unlinked render, and a render with no
-//! Second Axis is exactly what it was before the Second Axis existed.
+//! Tests of the Crystal Axis and Second Axis of a web render.
+//!
+//! The linked design's own effects win over the per-user setting, the per-user setting applies to
+//! an unlinked render, and a render with no Second Axis gets the Crystal Axis alone.
 
 use super::*;
 use glam::Vec3;
@@ -115,7 +116,7 @@ fn an_unlinked_render_uses_the_per_user_axis_and_second_axis() {
 
 #[test]
 fn the_per_user_second_axis_needs_its_switch_and_an_axis() {
-    // Switch off: no Second Axis, byte-identical to a build before it existed.
+    // Switch off: no Second Axis.
     let off = RenderSettings {
         c_axis_second_on: false,
         ..user_axis()

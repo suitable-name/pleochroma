@@ -1,6 +1,6 @@
-//! The Variants list as plain data: the rows, the words on them, the default name of a new
-//! variant and what the two compare boxes offer. No Slint types, so the tests cover it
-//! directly.
+//! The Variants list as plain data: rows, labels, default names and compare-box entries.
+//!
+//! No Slint types, so the tests cover it directly.
 
 use crate::bridge::export_thread::filename_template::civil_from_unix_seconds;
 use pleochroma_vault::model::design_variant::VariantSummary;

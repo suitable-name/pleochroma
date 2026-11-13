@@ -8,11 +8,11 @@ import { SolidTooltip } from "../components/solid_tooltip.slint";
 // The Diagram tab: the desktop's `solid_viewport.slint` in its Diagram view mode
 // (the GemCAD-style crown/pavilion/profile diagram, `pleochroma_solid::diagram2d`).
 // `src/views/` renders it into `SolidModel.diagram-frame` at this view's size.
-// Zoom and pan are presentational, as on the desktop (#29): the wheel zooms
-// (1x..6x), a drag pans (clamped so the diagram never leaves the view), and
-// hover/click positions are mapped back to the un-zoomed view before they reach
-// Rust. A click picks a facet (and selects its tier) or an index-wheel tooth; a
-// double click on a panel enlarges it (again: back to three panels).
+// Zoom and pan are presentational only: the wheel zooms (1x..6x), a drag pans (clamped so
+// the diagram never leaves the view), and hover/click positions are mapped back to the
+// un-zoomed view before they reach Rust. A click picks a facet (and selects its tier) or an
+// index-wheel tooth; a double click on a panel enlarges it, and on the enlarged one restores
+// all three.
 export component DiagramView inherits Rectangle {
     // Kept for `main_area.slint`, which mounts this view with no bindings.
     in property <image> frame: SolidModel.diagram-frame;

@@ -15,8 +15,8 @@ const ENERGY_WIDTH_THRESHOLD: f32 = 500.0;
 
 /// The key of the [`PatternColor::Variant`] that keeps a color the row form cannot carry.
 ///
-/// See `pattern_color`. It is not a variant of any material's list, so the color picker shows it with
-/// the "kept in pattern" note.
+/// See `pattern_color`. It is not in any material's variant list, so the color picker shows it
+/// with the "kept in pattern" note.
 pub const EXACT_COLOR_KEY: &str = "zone.exact";
 
 /// The label of that variant.
@@ -33,14 +33,13 @@ fn usable(row: &[f32; 3]) -> bool {
 ///
 /// The same rule as `GemMaterial::with_body_color_bands`: a row with a width above 500 is an
 /// energy band (the width is the wavenumber sigma, restored exactly), any other row is a
-/// Gaussian in wavelength; non-positive or non-finite amplitude, width OR CENTRE rows are
-/// dropped. A test keeps the two in lock-step.
+/// Gaussian in wavelength. Rows with a non-positive or non-finite amplitude, width or centre
+/// are dropped. A test keeps the two in lock-step.
 ///
-/// The width threshold is a LEGACY ENCODING: the row has no shape tag, so an energy band whose
-/// sigma is at most 500 cm^-1 reads back as a wavelength Gaussian of that many nm, and a
-/// wavelength band whose sigma exceeds 500 nm reads back as an energy band. A versioned band
-/// representation is pending (owner decision D5); until then [`rows_from_bands`] refuses to write
-/// a band that would change shape.
+/// The width threshold is a legacy encoding. The row has no shape tag, so an energy band whose
+/// sigma is at most 500 cm^-1 reads back as a wavelength Gaussian, and a wavelength band whose
+/// sigma exceeds 500 nm reads back as an energy band. [`rows_from_bands`] therefore refuses to
+/// write a band that would change shape.
 #[must_use]
 pub fn bands_from_rows(rows: &[[f32; 3]]) -> Vec<AbsorptionBand> {
     rows.iter()
@@ -80,9 +79,9 @@ pub fn rows_carry_bands(bands: &[AbsorptionBand]) -> bool {
 
 /// Whether the row form carries every band set of `tensor` ([`rows_carry_bands`]).
 ///
-/// A tensor it does not carry (a measured energy band narrower than 500 cm^-1 sigma, say) becomes a
-/// [`PatternColor::Variant`] of exact rows when a pattern is made of it, never a picked color
-/// with bands left out.
+/// A tensor the rows cannot carry (a measured energy band narrower than 500 cm^-1 sigma, say)
+/// becomes a [`PatternColor::Variant`] of exact rows when a pattern is made of it. It never
+/// becomes a picked color with bands left out.
 #[must_use]
 pub fn rows_carry_tensor(tensor: &AbsorptionTensor) -> bool {
     [&tensor.o_ray, &tensor.e_ray]
@@ -93,8 +92,8 @@ pub fn rows_carry_tensor(tensor: &AbsorptionTensor) -> bool {
 
 /// Whether a pattern can hold `tensor` without changing it.
 ///
-/// As a picked color ([`rows_carry_tensor`]), else as a color variant of exact, shape-tagged rows (what
-/// [`PatternColor::Variant`] stores; the rows must pass [`PatternTensorRows::is_usable`]).
+/// Either as a picked color ([`rows_carry_tensor`]), or as a [`PatternColor::Variant`] of exact,
+/// shape-tagged rows that pass [`PatternTensorRows::is_usable`].
 #[must_use]
 pub fn pattern_holds_tensor(tensor: &AbsorptionTensor) -> bool {
     rows_carry_tensor(tensor) || PatternTensorRows::from_tensor(tensor).is_usable()
@@ -248,22 +247,21 @@ impl ColorPattern {
         Ok(Some(zoned))
     }
 
-    /// A pattern that renders exactly like `zoned` (the Rough Color wizard's zones): each
-    /// tensor's `o_ray` rows are the zone's band rows (the color fit uses the body-color basis,
-    /// so they import exactly); a pleochroic tensor imports as a two-color zone, `o_ray` as the
-    /// Along color and `e_ray` as the Across color; a tensor with a third (`beta_ray`) set as a
-    /// three-color zone ([`PatternColor::Trichroic`]). The frame is kept bit for bit
-    /// ([`PatternAxis::from_frame`]). `relative` says whether the geometry is for a unit-wide
-    /// stone. `lch_of` seeds each color's sliders from its band rows.
+    /// A pattern that renders exactly like `zoned` (the Rough Color wizard's zones). Each
+    /// tensor's `o_ray` rows are the zone's band rows, so they import exactly. A pleochroic
+    /// tensor imports as a two-color zone (`o_ray` as Along, `e_ray` as Across). A tensor with a
+    /// third (`beta_ray`) set imports as a three-color zone ([`PatternColor::Trichroic`]). The
+    /// frame is kept bit for bit ([`PatternAxis::from_frame`]). `relative` says whether the
+    /// geometry is for a unit-wide stone. `lch_of` seeds each color's sliders from its band rows.
     ///
-    /// The zones are named "Zone 1", "Zone 2" and so on, the base "Base Zone"; the pattern has
+    /// The zones are named "Zone 1", "Zone 2" and so on, the base "Base Zone". The pattern has
     /// no template. Its version is [`PATTERN_BASE_FORMAT_VERSION`], or the newer one when a zone
     /// has three colors ([`ColorPattern::required_format_version`]).
     ///
     /// A pattern seeded from a biaxial material (a tensor with a `beta_ray` set) is therefore a
-    /// version 2 pattern: a build older than the three-color zones refuses that design's pattern
-    /// with its "newer version" sentence, where it used to open it with the beta set dropped. This
-    /// is by design; say so in the release note. A uniaxial or isotropic seed stays version 1.
+    /// version 2 pattern. A build older than the three-color zones reports a newer version for
+    /// it rather than opening it without the beta set. A uniaxial or isotropic seed stays
+    /// version 1.
     #[must_use]
     pub fn from_zoned(
         zoned: &ZonedAbsorption,

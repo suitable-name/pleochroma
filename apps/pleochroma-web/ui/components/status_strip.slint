@@ -1,10 +1,9 @@
 import { Theme } from "theme.slint";
 import { AppModel } from "../models/app_model.slint";
 
-// The one-line status strip along the bottom, modelled on the desktop's
-// `components/editor_status_strip.slint`: a state dot, the design name with its
-// unsaved marker, the solve status, the last message (red for an error), and the
-// backend/performance slot the renderer writes into.
+// One-line status strip along the bottom: a state dot, the design name with its unsaved
+// marker, the solve status, the last message (red for an error) and the backend slot the
+// renderer writes (`AppModel.backend-text`).
 export component StatusStrip inherits Rectangle {
     height: 26px;
     background: Theme.bg-card;

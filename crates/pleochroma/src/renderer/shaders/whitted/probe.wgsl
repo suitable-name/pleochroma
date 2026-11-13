@@ -1,4 +1,4 @@
-// Adapter tests append this to the exact production shader; no copied physics.
+// Appended to the production Whitted source by its validation test; no physics is copied.
 @compute @workgroup_size(64)
 fn whitted_probe(@builtin(global_invocation_id) id: vec3<u32>) {
     if (id.x >= wt.range.y) { return; }

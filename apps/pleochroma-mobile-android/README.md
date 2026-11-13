@@ -5,7 +5,7 @@ The phone and tablet app: a touch-first [Slint](https://slint.dev) UI over
 Kotlin `NativeActivity` shim. The same UI also runs in a desktop window for development
 (the desktop preview, below).
 
-**Status.** Version 0.9.0 (versionCode 3). There is an internal testing track on Google Play,
+**Status.** Version 0.11.0 (versionCode 6). There is an internal testing track on Google Play,
 but no public Google Play listing yet. Anyone can build the app and install it on their own
 Android phone or tablet: a debug APK from Android Studio or from `gradlew assembleDebug` plus
 `adb install` (see "Build and run"). The same UI also runs in a desktop window with the
@@ -50,13 +50,13 @@ apps/pleochroma-mobile-android/
   android/                    the Gradle project (Kotlin side, manifest, cargo-ndk task)
 ```
 
-Package and application id: `com.indicatrixsuite.mobile`. versionName 0.9.0, versionCode 3,
+Package and application id: `com.indicatrixsuite.mobile`. versionName 0.11.0, versionCode 6,
 minSdk 28, targetSdk 37, compileSdk 37, ABI `arm64-v8a`.
 
 ## One-time setup (Windows)
 
 1. **Android Studio** (current stable) with, from the SDK Manager: Android SDK Platform 37
-   (the `compileSdk`; the app targets API 36),
+   (the `compileSdk` and `targetSdk`),
    Build-Tools (current), and **NDK r30** (side by side). The Gradle daemon asks for a
    JetBrains JDK 21 (`gradle/gradle-daemon-jvm.properties`; the foojay resolver downloads it
    when none is installed, and the JDK bundled with Android Studio, `<Android Studio>\jbr`,
@@ -193,7 +193,7 @@ Progress and the actual backend remain visible in the normal-size preview.
   no denoising. Its device GPU route supports every material class with a
   1,048,576-pixel limit and at least four storage bindings; Path-Traced retains
   its 262,144-pixel GPU limit. Unsupported device workloads use the processor.
-  Remote Ray-Traced requires matching protocol-v29 peers. Device image quality,
+  Remote Ray-Traced needs peers on the same protocol version. Device image quality,
   driver behavior, thermal behavior and timing still require owner validation;
   no measured speedup is claimed here.
 
@@ -208,14 +208,12 @@ Progress and the actual backend remain visible in the normal-size preview.
   variants. A "Custom Color" saved in the design is listed (it stays as it is)
   but there is no color editor on the phone and no way to save a variant: edit and save
   variants in the desktop or the browser app. This is not the history "variants" of a
-  design (the saved alternative versions). Written and read, not compiled or run.
+  design (the saved alternative versions).
 - **No TalkBack.** Slint exposes no accessibility tree on Android.
-- **Feature expansion validation.** History, saved variants, concave editing, Deep
-  Solve, Retarget, Optimize and device GPU routing have source implementations awaiting
-  owner-run validation. Release builds include Optimize and Retarget through the
-  default feature `validated-design-search`. See the
-  [implementation status](../../docs/android-feature-expansion-implementation-status.md)
-  for scope, review corrections and validation commands.
+- **Device validation.** Deep Solve, session history with saved variants, concave editing,
+  Optimize, Retarget and on-device GPU rendering need owner-run validation on a phone or
+  tablet. Optimize and Retarget are in the default feature `validated-design-search`, and
+  the on-device GPU route in the default feature `device-gpu`.
 - **Remote rendering.** Authenticated sessions support coordinator DisplayOnly and
   explicit FullData, with analytic lighting or the device's effective HDR map (sent once
   as an exact versioned float asset to endpoints that advertise HDR). PNG export works in
@@ -227,8 +225,8 @@ Progress and the actual backend remain visible in the normal-size preview.
   it. On a metered network, sessions that move many megabytes are refused unless Allow
   Metered Networks is on (the permission `ACCESS_NETWORK_STATE` reads the network
   state). Server jobs refuse color-zoned materials, and a worker renders them on its CPU
-  lane. Automatic rendering stays on-device. This code has been written and read, not
-  compiled or run; see the implementation status for the validation list.
+  lane. Automatic rendering stays on-device. Remote paths need validation against a
+  real coordinator and worker.
 - **External mouse wheel.** The Android adapter of Slint 1.18.1 has a `todo!()` for scroll
   events (mouse wheel, trackpad scroll). The vendored copy of
   `i-slint-backend-android-activity` (`[patch.crates-io]`) reports such an event as

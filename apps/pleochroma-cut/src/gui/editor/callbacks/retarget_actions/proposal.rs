@@ -1,7 +1,8 @@
-//! Opening the dialog, and rebuilding the proposal when the mode/crown/target
-//! controls change -- Shift mode's own synchronous rebuild with its validity check, and
-//! Optimize mode's list of the Shift angles the search starts from. The search itself, its
-//! options and the pick of one are [`super::optimize_run`]'s.
+//! Opening the dialog and rebuilding its proposal when the mode, crown or target changes.
+//!
+//! Shift mode rebuilds synchronously and starts the validity check. Optimize mode lists the
+//! Shift angles the search starts from. The search, its options and the pick of one are in
+//! [`super::optimize_run`].
 
 use super::{
     RETARGET_ASYNC, apply_ghost_preview_or_revert,
@@ -63,17 +64,14 @@ fn resolve_plan(
     super::shift_seed::clear();
     let combo_index = ui.global::<RetargetModel>().get_target_material_index();
     let ri_text = ui.global::<RetargetModel>().get_target_ri_override_text();
-    // Cloned out of the lock alongside the resolution below, rather than re-locking
-    // for the proposal: `retarget_view` needs the same catalogue the target was
-    // resolved against, and re-locking could observe a different
-    // one if a custom material were saved in between.
+    // Cloned under the same lock as the resolution: `retarget_view` needs the catalogue the
+    // target was resolved against, and a second lock could see a material saved in between.
     let (selection, target, custom_materials) = {
         let ctx = render_ctx
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        // Checked with the Result-returning resolver FIRST, so an
-        // unparseable override is reported instead of silently resolved against
-        // `design.material` -- see `push_target_error`'s own doc comment.
+        // The Result-returning resolver is used, so an unparseable override is reported
+        // rather than silently resolved against `design.material` (see `push_target_error`).
         match resolve_target_selection(design, &ctx.custom_materials, combo_index, &ri_text) {
             Ok(selection) => {
                 // The new material is scored in the orientation the design already has.
@@ -153,13 +151,11 @@ fn rebuild_seed(
     begin_check(ui, design, plan, &custom, generation);
 }
 
-/// "Retarget for material...": opens the dialog and builds the first proposal
-/// (Shift mode, default crown settings -- reset here even if a previous session left
-/// the dialog's `in-out` properties on Optimize/a nonzero crown fraction). Also
-/// seeds the target picker (see this group's own `mod.rs` doc comment, "Where the
-/// target material comes from") from `design`'s own current material, fills the Optimize
-/// tab's option lists, and drops whatever a previous session's search left in
-/// [`super::RETARGET_ASYNC`].
+/// "Retarget for material...": opens the dialog and builds the first proposal in Shift mode
+/// with default crown settings. The dialog's `in-out` properties can carry over from an earlier
+/// session, so every default is set here. Also seeds the target picker from `design`'s own
+/// material (see "Where the target material comes from" in `mod.rs`), fills the Optimize tab's
+/// option lists, and drops any search result left in [`super::RETARGET_ASYNC`].
 pub(in crate::gui::editor) fn setup_retarget_open_callback(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -243,29 +239,23 @@ pub(in crate::gui::editor) fn setup_retarget_open_callback(
     });
 }
 
-/// The mode/crown/target controls changed: rebuilds the proposal from their current
-/// values. Shift mode rebuilds the plan and starts its validity check; Optimize mode lists
-/// the Shift angles a search would start from and waits for the Search button.
+/// Wires the dialog's proposal callbacks.
 ///
-/// Also registers the Optimize tab's callbacks -- `cancel_optimize`, `search`,
-/// `select_candidate` and `settings_changed`: all are wired from this one `setup_*` function
-/// (rather than separate ones) so this group's async run tracking stays entirely inside this
-/// file's and [`super::optimize_run`]'s closures, with no new `setup_retarget_*` call site
-/// needed in `gui::editor::mod` (owned elsewhere) to wire them up.
+/// The mode, crown and target controls rebuild the proposal from their current values. Shift mode
+/// rebuilds the plan and starts its validity check. Optimize mode lists the Shift angles a search
+/// would start from and waits for Search.
 ///
-/// `preview_state`/`solid_last_solved` (added beyond this function's original
-/// signature): every Shift rebuild here also shows or reverts the live ghost preview via
-/// [`apply_ghost_preview_or_revert`], matching `RetargetModel.preview_enabled`'s
-/// current value.
+/// Also registers the Optimize tab's callbacks (`cancel_optimize`, `search`, `select_candidate`,
+/// `settings_changed`). They are all wired here so the async run tracking stays in this file and
+/// [`super::optimize_run`].
 ///
-/// `retarget_dialog.slint`'s crown
-/// slider fires its `changed(value)` interaction callback on every pixel of drag
-/// (`ui/components/retarget_dialog/crown_section.slint`'s `crown_slider`), so calling
-/// `RetargetModel.proposal_changed()` straight into a synchronous `rebuild_and_push`
-/// plus ghost-preview/replan resubmit on every tick would rebuild the WHOLE
-/// proposal once per pixel dragged. Both modes instead post an [`EditIntent::RetargetCrown`]
-/// into a queue this function builds once, draining at most once per 16ms tick -- see
-/// [`EditIntentQueue`]'s own doc comment.
+/// Every Shift rebuild also shows or reverts the live ghost preview
+/// ([`apply_ghost_preview_or_revert`]) to match `RetargetModel.preview_enabled`.
+///
+/// The crown slider fires `changed` on every pixel of a drag (`crown_section.slint`). A
+/// synchronous rebuild per tick would redo the whole proposal per pixel, so both modes post an
+/// [`EditIntent::RetargetCrown`] into a queue built once here. It drains at most once per 16 ms
+/// tick (see [`EditIntentQueue`]).
 pub(in crate::gui::editor) fn setup_retarget_proposal_changed_callback(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -359,16 +349,12 @@ pub(in crate::gui::editor) fn setup_retarget_proposal_changed_callback(
     }
 }
 
-/// [`setup_retarget_proposal_changed_callback`]'s body, run once per drained
-/// [`EditIntent::RetargetCrown`] instead of once per crown-slider tick -- see that function's
-/// own doc comment. Reads `RetargetModel.crown_fraction`/`scale_crown_by_ratio`/
-/// `crown_follows_pavilion` fresh, so a
-/// coalesced burst always rebuilds against the LATEST slider position, not whatever it was
-/// when the first tick of the burst posted.
+/// The crown handling of [`setup_retarget_proposal_changed_callback`], run once per drained
+/// [`EditIntent::RetargetCrown`]. It reads the crown controls when it runs, so a coalesced
+/// burst rebuilds against the latest slider position.
 ///
-/// Never solves: the ghost overlay's candidate is queued on the ghost preview's
-/// background worker ([`view::submit_design_ghost_preview`]), so a slider drag stays
-/// responsive however slow the candidate is to solve.
+/// Never solves: the ghost candidate is queued on the ghost preview's background worker
+/// ([`view::submit_design_ghost_preview`]), so a drag stays responsive however slow a solve is.
 fn apply_retarget_intent(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,

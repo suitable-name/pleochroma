@@ -10,14 +10,11 @@ use pleochroma::geometry::{
 };
 
 impl Design {
-    /// This design's proportion readouts -- table size as a percentage of
-    /// width, crown height, pavilion depth, girdle thickness, total depth,
-    /// and the length/crown/pavilion/girdle-to-width ratios -- computed from
-    /// `solved`, an already-
-    /// [`Self::solve`]'d (or [`Self::resolve_dirty`]'d) mast list, rather
-    /// than solving again. `None` when the design isn't currently a closed
-    /// solid (the same condition [`Self::status`] reports as anything other
-    /// than [`SolidStatus::Closed`]).
+    /// This design's proportion readouts (table size as a percentage of width, crown
+    /// height, pavilion depth, girdle thickness, total depth, and the width ratios),
+    /// computed from `solved`, an already-[`Self::solve`]'d (or [`Self::resolve_dirty`]'d)
+    /// mast list, rather than solving again. `None` when the design is not a closed solid
+    /// (the condition [`Self::status`] reports as other than [`SolidStatus::Closed`]).
     ///
     /// See [`StoneProportions`]'s own doc comment for the unit convention
     /// (mast units; multiply by [`super::mm_per_unit`] or call
@@ -80,11 +77,8 @@ mod tests {
         assert!(proportions.girdle_to_width_percent.expect("girdle present") > 0.0);
     }
 
-    /// An empty design (no tiers, just the preform) never closes on its own
-    /// facets alone in a way that has a meaningful table -- but here it's
-    /// the preform box itself that closes, which trivially reports a 100%
-    /// table (its own flat top). The real behavior under test is that
-    /// `stone_proportions` never panics on a solved-but-tierless design.
+    /// A design with no tiers solves to its preform box alone, and
+    /// `stone_proportions` must not panic on it.
     #[test]
     fn stone_proportions_handles_a_tierless_design() {
         let design = Design::new(

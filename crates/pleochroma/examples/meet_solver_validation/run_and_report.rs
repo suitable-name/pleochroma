@@ -7,17 +7,16 @@ use crate::{
     types::{AscRow, DesignResult, THREADS, TierResult},
 };
 
-/// Runs `solve_fn` across every design in `rows` (split across [`THREADS`] scoped
-/// worker threads; results are re-slotted by original row index so the reported
-/// medians/percentiles never depend on thread scheduling) and prints the full
-/// report under the given header.
+/// Runs `solve_fn` across every design in `rows` on [`THREADS`] scoped worker threads and prints
+/// the aggregate report under the given header.
 ///
-/// Workers take rows interleaved (worker `w` solves rows `w`, `w + THREADS`,
-/// ...) rather than in contiguous chunks: per-design cost varies by orders of
-/// magnitude (candidate-vertex enumeration is cubic in plane count, and Report
-/// C's repair search multiplies that by up to ~120 pipeline runs), so a
-/// contiguous chunk of heavy designs would strand one thread while the rest
-/// idle.
+/// Results are re-slotted by original row index, so the reported statistics never depend on thread
+/// scheduling.
+///
+/// Workers take rows interleaved (worker `w` solves rows `w`, `w + THREADS`, ...) rather
+/// than in contiguous chunks. Per-design cost varies by orders of magnitude (the verified
+/// repair search runs up to ~120 pipeline runs), so a contiguous chunk of heavy designs
+/// would leave one thread busy while the others idle.
 pub fn run_and_report(
     header: &str,
     rows: &[AscRow],

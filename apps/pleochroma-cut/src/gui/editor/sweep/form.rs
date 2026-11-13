@@ -128,8 +128,8 @@ pub(super) fn default_fields(angle_deg: f64) -> Fields {
     }
 }
 
-/// The hint under the form about tiers the combo leaves out because their angles follow a
-/// relation (a table, a culet and a girdle are plain to see); empty when there are none.
+/// The hint under the form naming the tiers the combo leaves out, because their angles
+/// follow a relation; empty when there are none.
 pub(super) fn left_out_notice(design: &Design) -> String {
     let driven: Vec<String> = (0..design.tiers.len())
         .filter(|&tier| design.is_tier_driven(tier))

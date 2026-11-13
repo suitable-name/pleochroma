@@ -123,8 +123,8 @@ impl IndexWheel {
     }
 }
 
-/// How far apart the major ticks are, in teeth: the gear split into up to 16 equal arcs, or
-/// about a dozen when the tooth count has no such divisor.
+/// How far apart the major ticks are, in teeth: the gear split into the most arcs of 16, 12, 10,
+/// 8, 6, 4 or 2 that divide its tooth count evenly, else into twelfths.
 #[must_use]
 pub fn major_step(gear_teeth: u32) -> u32 {
     [16, 12, 10, 8, 6, 4, 2]

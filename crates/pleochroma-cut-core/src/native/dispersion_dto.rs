@@ -1,20 +1,17 @@
-//! A custom material's dispersion curve, converted between `pleochroma`'s
-//! [`DispersionModel`] and the plain-number [`DispersionModelDto`] the native design file
-//! (and the desktop's material database, as JSON) stores.
+//! Converts a custom material's dispersion curve between [`DispersionModel`] and the plain
+//! number [`DispersionModelDto`] that the design file and the material database store.
 //!
-//! The format crate has no dependency on `pleochroma`, so the conversion lives here with the
-//! other half of the native-file story. A table that does not describe a model the renderer
-//! can use ([`DispersionModel::validate`]) reads as `None`, and the caller falls back to the
-//! refractive index and `n_F - n_C` pair every custom material also carries.
+//! The format crate does not depend on `pleochroma`, so the conversion lives here. A table the
+//! renderer cannot use ([`DispersionModel::validate`]) reads as `None`, and the caller falls
+//! back to the refractive index and `n_F - n_C` pair that every custom material carries.
 
 use super::convert::narrow;
 use pleochroma::optics::dispersion::DispersionModel;
 use pleochroma_formats::native::DispersionModelDto;
 
 /// `value` as an `f64` through its shortest round-trip decimal, so a file reads `1.0396122`
-/// rather than `1.0396122051239014` (the same rule `CustomMaterialSnapshot::with_body_color`
-/// follows). The decimal text identifies the `f32` uniquely, so [`dispersion_model_from_dto`]
-/// gets the identical bits back.
+/// rather than `1.0396122051239014`. The decimal identifies the `f32` uniquely, so
+/// [`dispersion_model_from_dto`] gets the identical bits back.
 fn widen(value: f32) -> f64 {
     value
         .to_string()
@@ -42,11 +39,10 @@ pub fn dispersion_model_dto(model: &DispersionModel) -> DispersionModelDto {
     }
 }
 
-/// The model `dto` describes, or `None` when it is not one the renderer can use.
+/// The model `dto` describes, or `None` when [`DispersionModel::validate`] refuses it.
 ///
-/// (A
-/// coefficient that is not finite, a resonance inside the visible band, an index at or
-/// below 1: see [`DispersionModel::validate`]).
+/// Refused: a coefficient that is not finite, a resonance inside the visible band, or an
+/// index at or below 1.
 #[must_use]
 pub fn dispersion_model_from_dto(dto: &DispersionModelDto) -> Option<DispersionModel> {
     let model = match *dto {
@@ -67,22 +63,16 @@ pub fn dispersion_model_from_dto(dto: &DispersionModelDto) -> Option<DispersionM
     model.validate().is_ok().then_some(model)
 }
 
-/// `model` as the JSON text the desktop's material database stores.
-///
-/// That is the `dispersion_model_json` column of a custom material: the same table the design
-/// file holds, for example `{"kind":"cauchy","a":1.7,"b":0.006,"c":0.0}`.
+/// `model` as the JSON text of a material row's `dispersion_model_json` column, the same
+/// table the design file holds, for example `{"kind":"cauchy","a":1.7,"b":0.006,"c":0.0}`.
 #[must_use]
 pub fn dispersion_model_to_json(model: &DispersionModel) -> String {
-    // A plain enum of numbers and arrays always serialises; the empty string would read back
-    // as `None`, the plain path, if that ever stopped being true.
+    // Plain numbers always serialise; the empty fallback would read back as no model.
     serde_json::to_string(&dispersion_model_dto(model)).unwrap_or_default()
 }
 
-/// The file form of the model stored as `json`.
-///
-/// That is what a design file carries when the database row holds a model. `None` for blank
-/// text, text that is not a dispersion table, or a table [`dispersion_model_from_dto`]
-/// refuses.
+/// The file form of the model stored as `json`. `None` for blank text, text that is not a
+/// dispersion table, or a table [`dispersion_model_from_dto`] refuses.
 #[must_use]
 pub fn dispersion_dto_from_json(json: &str) -> Option<DispersionModelDto> {
     let trimmed = json.trim();
@@ -93,7 +83,7 @@ pub fn dispersion_dto_from_json(json: &str) -> Option<DispersionModelDto> {
     dispersion_model_from_dto(&dto).map(|_| dto)
 }
 
-/// The model stored as `json`, or `None` in every case [`dispersion_dto_from_json`] is.
+/// The model stored as `json`, or `None` wherever [`dispersion_dto_from_json`] gives `None`.
 #[must_use]
 pub fn dispersion_model_from_json(json: &str) -> Option<DispersionModel> {
     dispersion_dto_from_json(json).and_then(|dto| dispersion_model_from_dto(&dto))

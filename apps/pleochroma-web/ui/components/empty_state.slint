@@ -2,10 +2,8 @@ import { Theme } from "theme.slint";
 import { AppModel, GalleryModel } from "../models/app_model.slint";
 import { GuideModel } from "../models/guide_model.slint";
 
-// Shown in the main area until a design is loaded -- modelled on the desktop's
-// `components/empty_state.slint` card grid, reduced to the two ways in the browser
-// has: a New Design from the template gallery, or an opened/dropped file. A link below
-// them starts the guided walkthrough.
+// Main-area card grid shown until a design is loaded: a New Design from the template
+// gallery, or an opened or dropped file. The link below starts the guided walkthrough.
 component Card inherits Rectangle {
     in property <string> title;
     in property <string> body;
@@ -16,8 +14,7 @@ component Card inherits Rectangle {
     in property <bool> highlighted: false;
     callback clicked();
 
-    // 190px where there is room; the two cards share a phone-width view instead of the
-    // second running off its edge.
+    // Cards are 190px wide and shrink to 110px so both fit a phone-width view.
     preferred-width: 190px;
     min-width: 110px;
     max-width: 190px;

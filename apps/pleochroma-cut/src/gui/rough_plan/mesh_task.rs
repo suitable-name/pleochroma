@@ -1,11 +1,11 @@
-//! Background work on a mesh rough: reading and building an imported OBJ file, and scaling
+//! Background work on a mesh rough: reading and building an imported mesh file, and scaling
 //! a mesh rough to a weighed carat.
 //!
-//! Both rebuild a mesh (the hull, the watertight check, the search tree of up to 50,000
-//! triangles), which takes seconds for a real scan, so they run on a thread of their own
-//! ([`spawn`]) and only their result is applied on the UI thread, in the same way as the
-//! saved-plan tasks (`saved::spawn_task`). While one runs the window shows what is going
-//! on and locks the base picker, Fit to weight and Plan.
+//! Both rebuild a mesh (the hull, the watertight check and the search tree of up to
+//! `MAX_MESH_TRIANGLES` triangles), which takes seconds for a real scan. They run on a thread
+//! of their own ([`spawn`]) and only the result is applied on the UI thread, as the saved-plan
+//! tasks are (`saved::spawn_task`). While one runs the window shows what is going on and
+//! locks the base picker, Fit to weight and Plan.
 //!
 //! Every job has a ticket. A result is applied only when its ticket is the one the window
 //! is still waiting for: a newer job, a reset ([`cancel`]), the opening of a saved plan
@@ -24,8 +24,8 @@ use std::{
 };
 use tracing::warn;
 
-/// The next ticket. Process-wide, so a result that outlives its window (the planner window
-/// is created anew after it was closed) can never match a ticket of the new one.
+/// The next ticket. Process-wide, so a result of a closed planner window never matches a
+/// ticket of a new one.
 static NEXT_TICKET: AtomicU64 = AtomicU64::new(1);
 
 /// Shown when something that needs the finished mesh is asked for while a mesh job runs.
@@ -92,6 +92,9 @@ fn show_busy(host: &Host, text: Option<&str>) {
     let model = host.window.global::<RoughPlanModel>();
     model.set_mesh_busy_text(text.unwrap_or_default().into());
     model.set_mesh_busy(text.is_some());
+    // A job starts without a count and ends without one; a read that counts its triangles
+    // reports the fraction in between (see `view::scan_read_started`).
+    model.set_scan_progress(-1.0);
 }
 
 /// Gives up the mesh job that is running, if any: its result will be dropped and the window

@@ -10,16 +10,16 @@
 //!   The final mean is unbounded; `log_std` is state-independent (three learnable raw values, one
 //!   per block). The standard deviation is `exp(log_std)` everywhere (rollout sampler,
 //!   log-probability, entropy).
-//! - The entropy is the **mean** over a sample's free tiers (matching `GaussianPolicy::entropy_masked`),
+//! - The entropy is the **mean** over a sample's free tiers (as `GaussianPolicy::entropy_masked`),
 //!   not the sum.
-//! - The action is the raw (pre-squash) Gaussian sample; the environment applies `tanh` and the step
-//!   limit afterwards.
+//! - The action is the raw (pre-squash) Gaussian sample; the environment applies `tanh` and
+//!   the step limit afterwards.
 //!
 //! # Loss
 //!
-//! `total = policy_loss + value_loss_coeff * value_loss - entropy_coeff * entropy`. The earlier
-//! `h^2` penalty on the pre-`tanh` head output and the teacher regression term are gone. The action
-//! remains bounded by the environment's `tanh`; per-tier supervision is the job of imitation.
+//! `total = policy_loss + value_loss_coeff * value_loss - entropy_coeff * entropy`. There is no
+//! penalty on the pre-`tanh` output and no teacher regression term. The action stays bounded by the
+//! environment's `tanh`; per-tier supervision is the job of imitation.
 //! The gain head has no PPO loss, while sensitivity and residual action heads receive policy
 //! gradients through the combined mean.
 //!
@@ -29,15 +29,16 @@
 //! `max(max_mobile_abs_slope, SLOPE_NORM_FLOOR)`. The floor is 0.05 score points per degree:
 //! below it, the sensitivity-to-mean amplification is bounded by `MEAN_BOUND / floor`; above it,
 //! the scale-free direction is unchanged. A separately learned residual is added after this
-//! normalization. This is a deliberate stabilization hyperparameter, not
-//! an empirically optimal value. The shared trunk still couples value and policy gradients, so PPO
-//! remains the secondary algorithm while imitation directly regresses the component sensitivities.
+//! normalization. The floor is a stabilisation hyperparameter, not a tuned optimum. The shared
+//! trunk still couples value and policy gradients, so PPO remains the secondary algorithm while
+//! imitation directly regresses the component sensitivities.
 //!
 //! # Gradient clipping
 //!
 //! The global L2 norm over **all** parameters is clipped to `max_grad_norm` (see
-//! `clip_global_grad_norm`). Burn's built-in `GradientClippingConfig::Norm` clips each parameter tensor
-//! on its own, which rescales the large critic gradients tensor by tensor while the small policy
+//! `clip_global_grad_norm`). Burn's built-in `GradientClippingConfig::Norm` clips each
+//! parameter tensor on its own, which rescales the large critic gradients tensor by tensor while
+//! the small policy
 //! gradients pass untouched; it is not used.
 //!
 //! # Batch layout
@@ -50,15 +51,18 @@
 //! # Free-tier mask (action objective)
 //!
 //! Tiers whose sampled action the environment will not use (pinned, flat, or outside their angle
-//! envelope so the projection overrides them, see `GemstoneObservation::free_tier_mask`) are
-//! real tiers and stay visible to attention and the value head, but their action dimension is excluded
-//! from the log-probability, the entropy and the action sample: `TrainBatch::free_tiers` carries one
-//! `bool` per real tier of each sample, and the action mask is `real AND free`. The training
-//! objective therefore only fits and rewards the dimensions that reach the environment.
+//! envelope so the projection overrides them; see `GemstoneObservation::free_tier_mask`) are real
+//! tiers and stay visible to attention and the value head. Their action dimension is excluded from
+//! the log-probability, the entropy and the action sample. `TrainBatch::free_tiers` carries one
+//! `bool` per real tier of each sample, and the action mask is `real AND free`, so the objective
+//! only fits and rewards dimensions that reach the environment.
 
 use burn::{
     module::{ModuleVisitor, Param},
-    optim::{AdamConfig, GradientsParams, ModuleOptimizer},
+    optim::{
+        AdamConfig, GradientsParams, ModuleOptimizer,
+        decay::WeightDecayConfig,
+    },
     prelude::*,
     tensor::TensorData,
 };
@@ -83,18 +87,20 @@ pub const MAX_TIERS_LIMIT: usize = 128;
 const KL_STOP_FACTOR: f32 = 1.5;
 /// Added to the gradient norm in the clipping scale `max_norm / (norm + EPS)`.
 const CLIP_NORM_EPS: f32 = 1.0e-6;
-/// A rollout whose critic targets have a larger standard deviation was not normalised (the buffer
-/// scales rewards, TQ-15); the value loss would then drown the policy gradient.
+/// Largest standard deviation accepted for the critic targets. Larger targets mean the rewards were
+/// not normalised, and the value loss would drown the policy gradient.
 const MAX_RETURNS_STD: f64 = 100.0;
 
 /// Per-sample masked log-probability and entropy of a diagonal Gaussian over the tier dimensions.
 ///
-/// `actions`, `mean`, `log_std` and `mask` are `[batch, max_tiers]`; masked dimensions (`mask == 0`:
-/// padding, and real tiers the environment will not move) contribute nothing. Returns `(log_prob, entropy)`,
-/// both `[batch, 1]`: the log-probability is the **sum** over the unmasked dimensions, the entropy their
-/// **mean** (`Σ(mask·(log_std + ½ln2πe)) / clamp(Σmask, 1, ∞)`, so `0.0` for a row with nothing free).
-/// The standard deviation is `exp(log_std)` with no second clamp (the forward pass already bounded
-/// `log_std`).
+/// `actions`, `mean`, `log_std` and `mask` are `[batch, max_tiers]`. Masked dimensions
+/// (`mask == 0`: padding, and real tiers the environment will not move) contribute nothing.
+///
+/// Returns `(log_prob, entropy)`, both `[batch, 1]`. The log-probability is the **sum** over the
+/// unmasked dimensions; the entropy is their **mean**
+/// (`Σ(mask·(log_std + ½ln2πe)) / clamp(Σmask, 1, ∞)`, so `0.0` for a row with nothing free).
+/// The standard deviation is `exp(log_std)` with no second clamp, as the forward pass already
+/// bounds `log_std`.
 pub(crate) fn masked_log_prob_and_entropy(
     actions: Tensor<2>,
     mean: Tensor<2>,
@@ -192,14 +198,15 @@ fn global_grad_norm(grads: &GradientsParams, model: &BurnSetAttention) -> Result
     }
 }
 
-/// Scales every gradient so the global L2 norm is at most `max_norm`; returns the norm before clipping.
+/// Scales every gradient so the global L2 norm is at most `max_norm`.
 ///
-/// Burn's own `GradientClippingConfig::Norm` clips each parameter tensor on its own, which distorts
-/// the update direction when one tensor (the critic's trunk) has a far larger gradient than the rest.
+/// Returns the norm before clipping. Burn's `GradientClippingConfig::Norm` clips each parameter
+/// tensor on its own, which distorts the update direction when one tensor (the critic's trunk)
+/// has a far larger gradient than the rest.
 ///
 /// # Errors
 ///
-/// [`TrainError::NonFinite`] when the norm is NaN or infinite (the caller skips the optimizer step),
+/// [`TrainError::NonFinite`] when the norm is NaN or infinite (the caller then skips the step),
 /// [`TrainError::Tensor`] when the norm cannot be read back.
 pub(crate) fn clip_global_grad_norm(
     mut grads: GradientsParams,
@@ -233,14 +240,15 @@ pub struct TrainBatch<'a> {
     pub old_log_probs: &'a [f32],
     /// Standardised advantages.
     pub advantages: &'a [f32],
-    /// Critic regression targets. They must be on an O(1) scale (the buffer divides the rewards by a
-    /// running return deviation): a batch whose standard deviation exceeds 100 is rejected.
+    /// Critic regression targets. They must stay on an O(1) scale, as the buffer normalises the
+    /// rewards; a batch whose standard deviation exceeds 100 is rejected.
     pub returns: &'a [f32],
     /// Number of real (unpadded) tiers of each sample, at least 1 and at most `max_tiers`.
     pub n_tiers: &'a [usize],
-    /// Free-tier mask of each sample: `free_tiers[i][k]` is `true` when the sampled action of real tier `k`
-    /// reaches the environment (`GemstoneObservation::free_tier_mask`). Length exactly `n_tiers[i]`; the trainer pads
-    /// it with `false` up to `max_tiers`. Non-free tiers are excluded from log-prob, entropy and sampling.
+    /// Free-tier mask of each sample: `free_tiers[i][k]` is `true` when the sampled action of real
+    /// tier `k` reaches the environment (`GemstoneObservation::free_tier_mask`). Its length is
+    /// exactly `n_tiers[i]`; the trainer pads it with `false` up to `max_tiers`. Non-free tiers are
+    /// excluded from log-prob, entropy and sampling.
     pub free_tiers: &'a [Vec<bool>],
 }
 
@@ -396,10 +404,23 @@ pub struct BurnTrainer {
 }
 
 impl BurnTrainer {
-    /// Plain Adam. Gradient clipping is **not** configured here: Burn's built-in clipping works per
-    /// parameter tensor, so the global norm is clipped by `clip_global_grad_norm` before the step.
-    fn build_optimizer() -> ModuleOptimizer {
-        AdamConfig::new().init()
+    /// Adam over every parameter, optionally with coupled L2 weight decay.
+    ///
+    /// Gradient clipping is **not** configured here: Burn's built-in clipping works per parameter
+    /// tensor, so the global norm is clipped by `clip_global_grad_norm` before the step. Weight
+    /// decay is Burn's `WeightDecay` gradient transform: it adds `penalty * tensor` to the
+    /// gradient and leaves the optimizer state (two Adam moments per parameter) unchanged, so a
+    /// recovery snapshot written under one decay value restores cleanly. The penalty is part of
+    /// [`PpoConfig`] and of the trainer's recovery identity, so a resumed run cannot silently
+    /// change it.
+    fn build_optimizer(weight_decay: f32) -> ModuleOptimizer {
+        let config = AdamConfig::new();
+        let config = if weight_decay > 0.0 {
+            config.with_weight_decay(Some(WeightDecayConfig::new(weight_decay)))
+        } else {
+            config
+        };
+        config.init()
     }
 
     /// Initialize trainer targeting `device`.
@@ -425,7 +446,7 @@ impl BurnTrainer {
             shape.num_layers,
             &autodiff_device,
         )?;
-        let optimizer = Self::build_optimizer();
+        let optimizer = Self::build_optimizer(config.weight_decay);
         Ok(Self {
             model,
             optimizer,
@@ -451,8 +472,8 @@ impl BurnTrainer {
     ///
     /// # Errors
     ///
-    /// [`TrainError::ShapeMismatch`] when the network's dimensions differ from this trainer's model or
-    /// its arrays are inconsistent; the current model is left untouched.
+    /// [`TrainError::ShapeMismatch`] when the network's dimensions differ from this trainer's
+    /// model or its arrays are inconsistent; the current model is left untouched.
     pub fn load_weights(&mut self, net: &GemstoneSetAttentionNetwork) -> Result<(), TrainError> {
         if net.d_tier != self.model.d_tier
             || net.d_global != self.model.d_global
@@ -476,7 +497,7 @@ impl BurnTrainer {
             )));
         }
         self.model = BurnSetAttention::from_set_attention(net, &self.device)?;
-        self.optimizer = Self::build_optimizer();
+        self.optimizer = Self::build_optimizer(self.config.weight_decay);
         Ok(())
     }
 
@@ -496,18 +517,18 @@ impl BurnTrainer {
     /// ([`BurnSetAttention::forward_host`]).
     ///
     /// The copy holds the same weights on the same device without the autodiff association
-    /// (`Module::valid()`): its forward passes track no gradient, and it shares the parameter
-    /// data with the trainer's model instead of duplicating it. It is a snapshot. An optimizer
-    /// step builds new parameter tensors for the trainer and leaves the copy at the weights of
-    /// the moment it was taken, so it must be refreshed (call this again) after every update
-    /// that the next rollout should see; the runner does so after each round. Taking the copy
-    /// is cheap (a re-wrap of every parameter handle, no data transfer).
+    /// (`Module::valid()`), so its forward passes track no gradient. It shares the parameter data
+    /// with the trainer's model instead of duplicating it.
+    ///
+    /// It is a snapshot: an optimizer step builds new parameter tensors for the trainer and leaves
+    /// the copy at the weights it had when taken. Call this again after every update that the next
+    /// rollout should see. Taking the copy is cheap (a re-wrap of each parameter handle).
     #[must_use]
     pub fn rollout_model(&self) -> BurnSetAttention {
         self.model.valid()
     }
 
-    /// Copy the samples `idx` of `batch` into device tensors (padding actions and tiers with zeros).
+    /// Copy the samples `idx` of `batch` into device tensors, padding actions and tiers with zeros.
     ///
     /// The states (global tokens, tier tokens, real-tier mask) are packed by the helper the
     /// batched rollout forward shares (`pack_states`); the PPO-only columns (actions, action
@@ -564,9 +585,9 @@ impl BurnTrainer {
 
     /// One PPO step over the samples `idx` of an already validated batch.
     ///
-    /// Loss: `policy_loss + value_loss_coeff * value_loss - entropy_coeff * entropy` (see the module
-    /// docs). The gradient is clipped to the global `max_grad_norm` before the Adam step; a non-finite
-    /// loss or gradient norm skips the step with [`TrainError::NonFinite`].
+    /// Loss: `policy_loss + value_loss_coeff * value_loss - entropy_coeff * entropy`, see the
+    /// module docs. The gradient is clipped to the global `max_grad_norm` before the Adam step. A
+    /// non-finite loss or gradient norm skips the step with [`TrainError::NonFinite`].
     fn train_indices(
         &mut self,
         batch: &TrainBatch<'_>,
@@ -593,7 +614,7 @@ impl BurnTrainer {
             + value_loss.clone().mul_scalar(self.config.value_loss_coeff)
             - entropy.clone().mul_scalar(self.config.entropy_coeff);
 
-        // One read-back for losses and the device-reduced KL/clip metrics, before any optimizer step.
+        // One read-back for the losses and the device-reduced KL and clip metrics, before any step.
         let stats = host_vec(Tensor::cat(
             vec![policy_loss, value_loss, entropy, approx_kl, clip_fraction],
             0,
@@ -641,8 +662,8 @@ impl BurnTrainer {
     ///
     /// # Errors
     ///
-    /// [`TrainError::ShapeMismatch`] / [`TrainError::NonFinite`] for malformed input (nothing is padded
-    /// or guessed), [`TrainError::NonFinite`] for a diverged loss (the step is skipped).
+    /// [`TrainError::ShapeMismatch`] / [`TrainError::NonFinite`] for malformed input (nothing is
+    /// padded or guessed), [`TrainError::NonFinite`] for a diverged loss (the step is skipped).
     pub fn train_batch(&mut self, batch: &TrainBatch<'_>) -> Result<TrainingMetrics, TrainError> {
         if batch.is_empty() {
             return Ok(TrainingMetrics::default());
@@ -654,12 +675,14 @@ impl BurnTrainer {
 
     /// Multi-epoch mini-batch PPO training over a rollout buffer.
     ///
-    /// Uses `config.epochs_per_batch` and `config.mini_batch_size`; the sample order is reshuffled every
-    /// epoch (Fisher-Yates via [`Prng::shuffle`], seeded by [`Self::with_seed`]). After **every**
-    /// mini-batch its approximate KL is compared with `1.5 * config.target_kl`; the first one that
-    /// exceeds it ends the call (the rest of the epoch and all remaining epochs are skipped) and sets
-    /// [`TrainingMetrics::early_stopped`], so a bad epoch cannot run to its end. The returned metrics
-    /// are means over all updates taken (`grad_norm` is the mean pre-clip global norm).
+    /// Uses `config.epochs_per_batch` and `config.mini_batch_size`. The sample order is reshuffled
+    /// every epoch (Fisher-Yates via [`Prng::shuffle`], seeded by [`Self::with_seed`]).
+    ///
+    /// After **every** mini-batch its approximate KL is compared with
+    /// `1.5 * config.target_kl`. The first one that exceeds it ends the call, skipping the rest of
+    /// the epoch and all remaining epochs, and sets [`TrainingMetrics::early_stopped`]. The
+    /// returned metrics are means over all updates taken (`grad_norm` is the mean pre-clip global
+    /// norm).
     ///
     /// # Errors
     ///

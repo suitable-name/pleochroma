@@ -1,8 +1,8 @@
 //! Cutting Mode's model: the steps of the solved design, the current step, and what the
 //! full-screen page shows for it.
 //!
-//! [`open`] builds the plan ([`pleochroma_editor::cutting_mode::build_plan`]) from the
-//! current solve and starts at a given step, else at the first step not done yet.
+//! [`open`] takes the steps of the current solve's plan ([`super::plan`]) and starts at a
+//! given step, else at the first step not done yet.
 //! [`next`], [`previous`], [`jump`] and [`toggle_done`] move and mark; the marks live in
 //! the progress store of [`CuttingState`](super::CuttingState) (`state.cutting.progress`),
 //! so they outlive the screen and the app. [`view`] gives the page's texts.
@@ -233,9 +233,9 @@ pub fn view(state: &AppState) -> Option<ModeView> {
 
 /// The small top and side picture of the crystal axis for the first step.
 ///
-/// It uses the geometry of the printed cutting sheet's diagram. `None` on every other step, for a
-/// stone that keeps its material's own axis, and for an isotropic material. It goes with the
-/// orientation sentence ([`ModeView::notes`]).
+/// It uses the geometry of the printed cutting sheet's diagram. `None` on every other step,
+/// for a stone that keeps its material's own axis, and for an isotropic material. It goes
+/// with the orientation sentence ([`ModeView::notes`]).
 #[must_use]
 pub fn axis_picture(state: &AppState) -> Option<AxisPicture> {
     if state

@@ -35,7 +35,7 @@ pub fn split_text() -> String {
 }
 
 /// The refractive-index range of the material spectrum (every built-in material), e.g.
-/// `n 1.43 – 2.90, 31 species`.
+/// `n 1.43 – 2.90, N species`.
 #[must_use]
 pub fn spectrum_text() -> String {
     let (min, max) = MINERAL_SPECTRUM
@@ -101,8 +101,9 @@ pub struct DatasetInfo {
 }
 
 /// The picker rows for `records`: each record's split, or `Skipped` when it was not loaded.
-/// A design listed in several splits (the smoke-test fixture) counts as the first of
-/// train, validation, test.
+///
+/// A design listed in several splits (the smoke-test fixture) counts as the first of train,
+/// validation, test.
 #[must_use]
 pub fn design_infos(records: &[DbDesignRecord], split: &DatasetSplit) -> Vec<DesignInfo> {
     records
@@ -326,7 +327,7 @@ pub enum WorkerEvent {
     HyperparamsApplied,
     /// A `TrainerCommand::SetHyperparams` was refused; the text is the reason. Nothing changed.
     HyperparamsRefused(String),
-    /// Result of `TrainerCommand::LoadWeights`: `Ok(path)` that was loaded, or `Err(reason)`.
+    /// Result of `TrainerCommand::LoadWeights`: `Ok(path)` of the loaded file, or `Err(reason)`.
     WeightsLoaded(Result<String, String>),
     /// The worker thread has ended abnormally (error or panic); the text says why.
     Died(String),

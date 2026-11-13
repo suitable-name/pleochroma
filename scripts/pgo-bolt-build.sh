@@ -9,8 +9,7 @@
 # crate's mangled-symbol hash (`-C metadata`), same as the package set and feature list
 # (see the parity note below), so training under one triple and building for another
 # silently produces a profile that does not apply, even though `llvm-profdata merge`
-# reports success (this script used to train on $HOST_TARGET unconditionally and cross-
-# compile the optimised build to `x86_64-pc-windows-gnu`, which is exactly that bug).
+# reports success.
 # `--os` accepts `linux|windows`; the default, `auto`, resolves to this host's own OS.
 # Three cases:
 #   - Native (`--os` = host OS): PGO as described below.
@@ -25,9 +24,8 @@
 #     `scripts/pgo-build.ps1` natively on Windows to get it warm.
 #   - Cross WITHOUT a runner: a PLAIN optimised release build (`-C target-cpu` only, same
 #     packages/features/output names), labelled "NO PGO" at the start of each such
-#     combination and again in the final summary. This is what the old script silently
-#     produced anyway: its Linux-trained profile never matched the windows-gnu symbol
-#     hashes. `--collect-only` and `--skip-train` are refused in this case (nothing can
+#     combination and again in the final summary. `--collect-only` and `--skip-train` are
+#     refused in this case (nothing can
 #     be trained, and no on-disk profile is known to match windows-gnu -- the
 #     `windows-*.profdata` files scripts/pgo-build.ps1 writes to the same `pgo-profile/`
 #     paths are x86_64-pc-windows-msvc profiles). A cross build only ever reuses a
@@ -45,13 +43,10 @@
 # build `pleochroma` (which owns the `pgo_train` example) together with whichever of
 # `pleochroma-cut` (plus `pleochroma-cut-core`, trained by `--example pgo_train_cutcore`)
 # or `pleochroma-worker` `--target` selects, with `--bins --example pgo_train` and the
-# SAME `--features` string, in one `cargo build` each. Previously the
-# instrumented step selected only `-p pleochroma --example pgo_train` while the optimised
-# step selected only `-p pleochroma-worker`/`-p pleochroma-cut` -- a different package
-# set changes every downstream crate's feature-unification result (e.g. `glam` gaining
-# `bytemuck` only through the app build), which changes that crate's `-C metadata` hash,
-# which changes its mangled symbol names, so `-C profile-use` found nothing to match and
-# every previously "PGO'd" binary was in fact built as if untrained.
+# SAME `--features` string, in one `cargo build` each. A different package set changes
+# every downstream crate's feature unification (e.g. `glam` gaining `bytemuck` only through
+# the app build), which changes that crate's `-C metadata` hash and so its mangled symbol
+# names: `-C profile-use` then finds nothing to match and the binary is built as if untrained.
 #
 # `pleochroma`'s `hdr` and `serde` features are always both enabled regardless of
 # `--target`: `pleochroma-cut` depends on `pleochroma` with `features = ["hdr"]`
@@ -76,7 +71,7 @@
 # tier list when unsupported (avx2 + scalar is the documented default pair), and an
 # explicit `--isa avx512` on such a host refuses immediately instead of crashing mid-run.
 #
-# Up to three instrumented training binaries feed each combination's merged profile:
+# Up to four instrumented training binaries feed each combination's merged profile:
 #   1. `pleochroma`'s `pgo_train` example -- the CPU spectral tracer (every material
 #      optical character, dispersive/non-dispersive, plain/frosted-girdle, both the
 #      float HDR buffer and the 8-bit tonemapped output), every lighting model plus a
@@ -98,9 +93,9 @@
 #      dependency graph and `pleochroma-cut-core`'s `-C metadata` (hence every mangled
 #      symbol) matches. The example carries a distinct name because two examples named
 #      `pgo_train` collide on Cargo's name-keyed "pretty path" uplift
-#      (`target/<profile>/examples/<name>`) in one invocation. An earlier separate
-#      invocation gave cut-core a different dependency graph and its profile never
-#      applied (proven 2026-10-06). The worker target does not link cut-core and skips
+#      (`target/<profile>/examples/<name>`) in one invocation. A separate invocation would
+#      give cut-core a different dependency graph, and its profile would never apply. The
+#      worker target does not link cut-core and skips
 #      this step. The workload runs from `examples/pgo_train_cutcore` right after the
 #      main one, with its own `cutcore-*.profraw` naming.
 #   3. `pleochroma-net`'s `scene_roundtrip` integration test, run under the same
@@ -134,7 +129,7 @@
 # applied to those crates, not how much of them the training covers.
 #
 # Environment knobs `pgo_train` honours:
-#   PLEOCHROMA_SIMD=scalar|avx2|avx512   caps runtime SIMD dispatch during training (unset for native)
+#   PLEOCHROMA_SIMD=scalar|avx2|avx512   caps SIMD dispatch in training (unset for native)
 #   PLEOCHROMA_SAMPLES=<n>               overrides the tracer's samples-per-pixel directly
 #   PGO_SCALE=<factor>               scales every stage's frame size/iteration count (default 1.0)
 #   PGO_TRAIN_SKIP_GPU=1             skips the GPU chunk-orchestration training stage
@@ -194,17 +189,17 @@ WITH_NATIVE=0
 QUICK=0
 # "no profile data available" fires in bulk, and expectedly, for pleochroma-cut/
 # pleochroma-worker's own GUI/server/CLI code that pgo_train never exercises. Measured
-# on 2026-09-28 (Linux host, windows-gnu target, Wine-trained, crate-hash check OK):
+# on a Linux host with a windows-gnu target and a Wine-trained profile (crate-hash check OK):
 # pleochroma-cut ~66,150-66,170 per combination, pleochroma-worker well under 50,000.
 # This count is therefore only a FALLBACK gate, used when test_profile_hash_applied
 # could not verify the profile (a parsing miss); once the crate-hash check has proven
 # the profile applied, the count is reported and never fatal -- see
 # test_profile_warnings.
 #
-# Since 2026-10-06 the fallback gate is the trained LIBRARY crates' count
+# The fallback gate is the trained LIBRARY crates' count
 # (MAX_LIBRARY_MISSING_FUNCTION_WARNINGS; everything except pleochroma_cut/
-# pleochroma_worker's own code): pleochroma-cut's own count grows with every GUI feature
-# (~161,000 that day with the profile applied) and proves nothing. The overall count is
+# pleochroma_worker's own code): the app's own count grows with every GUI feature and
+# proves nothing (about 161,000 for pleochroma-cut with the profile applied). The overall count is
 # kept only as a generous ceiling against a runaway.
 MAX_MISSING_FUNCTION_WARNINGS=400000
 MAX_LIBRARY_MISSING_FUNCTION_WARNINGS=15000
@@ -260,8 +255,7 @@ case "$ISA_ARG" in
 esac
 
 # --native builds ONLY the host-CPU tier (-C target-cpu=native), replacing whatever
-# --isa selected (it used to be appended on top of the generic tiers, which meant a
-# quick "build for this machine" run paid for avx2 + scalar as well).
+# --isa selected, so a quick "build for this machine" run builds that tier alone.
 if [ "$WITH_NATIVE" -eq 1 ]; then
     ISA_LIST=(native)
 fi
@@ -441,6 +435,11 @@ if [ "$QUICK" -eq 0 ] && [[ " ${ISA_LIST[*]} " =~ " avx512 " ]] && ! avx512_supp
 fi
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Sources that differ from the last run's get the current time, so cargo rebuilds what changed
+# even when the copied files keep older times (scripts/fresh_sources.sh). In a subshell: this
+# script's working directory stays as it is.
+. "$ROOT/scripts/fresh_sources.sh"
+(cd "$ROOT" && fresh_sources)
 [ -n "$OUT_DIR" ] || OUT_DIR="$ROOT/bin"
 PGO_PROFILE_DIR="$ROOT/pgo-profile"
 # Unit separator: how CARGO_ENCODED_RUSTFLAGS joins individual rustc arguments, used
@@ -451,8 +450,8 @@ US=$'\x1f'
 SYSROOT="$(rustc --print sysroot)"
 
 # llvm-profdata and llvm-nm must be the SAME LLVM major.minor as rustc. The llvm-tools
-# in a sysroot are installed separately from rustc and are not updated with it: on
-# 2026-10-06, rustc was on LLVM 22.1.8 but the sysroot's llvm-nm was still LLVM 21.1.5.
+# in a sysroot are installed separately from rustc and are not updated with it: rustc may be
+# on LLVM 22.1 while the sysroot's llvm-nm is still on LLVM 21.1.
 # Such a stale llvm-nm cannot read the bitcode inside an LTO build's rlibs ("Unknown
 # attribute kind"). The crate-hash check then fails to verify every combination, and
 # an older llvm-profdata writes the merged profile.
@@ -576,10 +575,10 @@ test_profile_warnings() {
     fi
     # The fallback gate counts only the TRAINED library crates' warnings. The app's own
     # crate (GUI/server/CLI, never trained) grows with every feature: pleochroma-cut alone
-    # was ~66,000 on 2026-09-28 and ~161,000 on 2026-10-06 with a fully applied profile,
-    # which says nothing about whether the profile applied. A profile that silently stopped
-    # applying shows up as the libraries' counts jumping instead: measured 2026-10-06 with
-    # the profile applied, pleochroma under 103 and every library together about 5,500.
+    # was ~66,000 and ~161,000 with a fully applied profile, which says nothing about whether
+    # the profile applied. A profile that silently stopped applying shows up as the libraries'
+    # counts jumping instead: with the profile applied, pleochroma stays under 103 and every
+    # library together is about 5,500.
     local library_count
     library_count="$(grep 'no profile data available' "$logfile" \
         | grep -vcE '^warning: (pleochroma_cut|pleochroma_worker)\.' || true)"
@@ -627,7 +626,7 @@ test_crate_hash_token() {
     # crate-hash tokens: a profile merged from several runs may hold copies of one
     # function under different metadata. The profile applies when ANY
     # copy carries the optimised rlib's token, so collect every token, not just the first
-    # match. Taking only the first match reported a false "did NOT apply" on 2026-10-06,
+    # match. Taking only the first match reported a false "did NOT apply",
     # while the per-crate warning counts showed `pleochroma` fully profiled.
     local prof_lines
     prof_lines="$("$PROFDATA" show --all-functions "$profdata" 2>&1 | grep "$func" || true)"
@@ -687,7 +686,7 @@ no_pgo_notice() {
         "$target" "$combo" "$HOST_TARGET"
 }
 
-# The `PLEOCHROMA_SIMD` values `pgo_train` is run with for one tier build (BLD-1), one per
+# The `PLEOCHROMA_SIMD` values `pgo_train` is run with for one tier build, one per
 # output line (an empty line = variable unset). The shipped binary runs with the variable
 # UNSET and dispatches at run time to the host's best kernels (`simd::simd_level`), so a
 # tier build trained only under its own cap leaves the higher tier's kernels (the AVX-512
@@ -895,7 +894,7 @@ build_combination() {
         # bare file name resolves against the (Wine-mapped) working directory either
         # way. Native and cross runs share this one code path. Executable paths stay
         # absolute; `${arr[@]+"${arr[@]}"}` keeps empty arrays safe under `set -u`.
-        # Two-run tier training (BLD-1): see simd_training_caps. The shipped binary runs
+        # Two-run tier training: see simd_training_caps. The shipped binary runs
         # with PLEOCHROMA_SIMD unset, so when the host's native tier outranks this
         # build's cap, train once unset (host kernels) AND once capped; both runs'
         # `.profraw` files land in $rawdir and merge into the tier's one profile.

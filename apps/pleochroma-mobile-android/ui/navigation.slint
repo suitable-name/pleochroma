@@ -1,5 +1,5 @@
-// Side-effect-free Back target query plus a single version-checked commit.
-// The pinned backend opt-out leaves one app-owned native callback on API 33+.
+// Side-effect-free Back target query plus one version-checked commit. On API 33+ the
+// Android `BackNavigationController` owns the single back callback and drives both.
 import { RemoteModel } from "pages/remote.slint";
 import { Shell } from "models.slint";
 import { DocumentModel } from "design/document_model.slint";

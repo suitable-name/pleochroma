@@ -1,9 +1,9 @@
 //! The render and view settings, persisted as JSON under
-//! `sessionStorage["pleochroma.settings.v1"]` (see [`super::persist`]).
+//! `localStorage["pleochroma.settings.v1"]` (see [`super::persist`]).
 //!
 //! The payload, its defaults, clamping and the settings-to-scene conversion live in
 //! `pleochroma_web_core::settings`, where they are tested natively; this module
-//! re-exports them under the path the app has always used.
+//! re-exports them.
 
 pub use pleochroma_web_core::settings::{
     RenderSettings, SessionPayload, lighting_options, material_options,

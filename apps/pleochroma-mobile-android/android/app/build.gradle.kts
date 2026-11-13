@@ -12,16 +12,15 @@ val rustAbis: List<String> =
 
 android {
     namespace = "com.indicatrixsuite.mobile"
-    // The installed SDK platform (android-37.0). The target stays at 36, the level Play
-    // requires: targeting 37 would opt into API 37 behavior changes nobody has tested.
+    // Compile against the installed SDK platform (android-37.0).
     compileSdk = 37
 
     defaultConfig {
         applicationId = "com.indicatrixsuite.mobile"
         minSdk = 28
         targetSdk = 37
-        versionCode = 5
-        versionName = "0.5.0"
+        versionCode = 6
+        versionName = "0.11.0"
 
         ndk {
             abiFilters += rustAbis
@@ -62,19 +61,17 @@ dependencies {
 
 // ---------------------------------------------------------------------------------------
 // Rust. `cargo ndk` builds libpleochroma_mobile_android.so for every ABI in `rustAbis`
-// into src/main/jniLibs/<abi>/, and the JNI-libs merge tasks wait for it, so every
-// assemble rebuilds (cargo itself is incremental) and the APK can never carry a stale
-// library. The first build compiles Skia from source and takes a long time.
+// into src/main/jniLibs/<abi>/. The JNI-libs merge tasks wait for it, so the APK never
+// carries a stale library (cargo itself stays incremental). The first build compiles
+// Skia from source and is slow.
 // ---------------------------------------------------------------------------------------
 
 // android/ -> pleochroma-mobile-android/ -> apps/ -> the workspace root (the Cargo workspace).
 val cargoWorkspace: File = rootProject.projectDir.resolve("../../..").canonicalFile
 val jniLibsDir: File = projectDir.resolve("src/main/jniLibs")
 
-// Slint's Android backend compiles a small Java helper in its build script and looks for
-// `android.jar` itself; it does not find platform folders named like `android-37.0` (and
-// cargo-ndk's own API level points it at a platform that is not installed). Hand it the
-// compile platform's jar explicitly.
+// Slint's Android backend looks for `android.jar` itself and does not find `android-37.0`
+// folders, so the compile platform's jar is passed explicitly.
 val sdkDirectory: Provider<Directory> = androidComponents.sdkComponents.sdkDirectory
 val compileSdkLevel: Int = checkNotNull(android.compileSdk) { "compileSdk is not set" }
 

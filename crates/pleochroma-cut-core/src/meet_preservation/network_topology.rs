@@ -16,7 +16,7 @@
 //! tolerance and that slack. There is no band of refused near-misses between the two:
 //! a plane beyond `identify` is no member of the meet and is protected by its own
 //! junction, and the input's own quantisation (5-decimal `GemCad` 4.x masts) and the
-//! `f32` production planes were measured at no more than `2e-5` of the stone.
+//! `f32` production planes are at most `2e-5` of the stone.
 #[cfg(test)]
 use super::vertices;
 use super::{Junction, Plane, PreservationViolation, polygon_area};
@@ -305,9 +305,9 @@ pub(super) fn supports_face(junctions: &[Junction], cycle: &[usize], surface: us
 }
 
 // ---------------------------------------------------------------------------
-// Mesh-sample reference implementation. It has no production caller since the
-// junctions moved to the arrangement (see the module docs); its rules for repeated,
-// infeasible and nearby samples stay pinned by `network_topology_tests.rs`.
+// Mesh-sample reference implementation, test-only: production takes its junctions from
+// the arrangement (see the module docs). Its rules for repeated, infeasible and nearby
+// samples are pinned by `network_topology_tests.rs`.
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
@@ -392,8 +392,8 @@ fn cycles(
                 .iter()
                 .position(|j| j.point.distance(*point) <= tolerance)
                 .ok_or_else(|| invalid("unmapped cycle vertex"))?;
-            // EPS_FACE admits points merely near this face. They belong to other
-            // faces; their junctions remain protected in the global network.
+            // Samples merely near this face belong to other faces; their junctions
+            // remain protected in the global network.
             if junctions[index].support.contains(&surface) {
                 if !supported_samples.contains(point) {
                     supported_samples.push(*point);
@@ -403,9 +403,9 @@ fn cycles(
                 }
             }
         }
-        // EPS_FACE can draw a ring on an inactive/tangent plane. It has no
-        // positive-area boundary at our accuracy; it was never a live facet.
-        // A formerly live candidate face is still caught by the live-face gate.
+        // A ring on an inactive or tangent plane has no positive-area boundary at our
+        // accuracy; it was never a live facet. A formerly live candidate face is still
+        // caught by the live-face gate.
         if supported_samples.len() < 3 {
             continue;
         }

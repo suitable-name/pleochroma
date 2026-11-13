@@ -1,11 +1,11 @@
-//! Quick-add: authoring a new tier from the dock's quick-add panel -- the desktop's three
-//! starting-anchor presets (Table, Girdle, Culet) and a small tier form.
+//! Quick-add: authoring a new tier from the dock's quick-add panel, either from a small tier
+//! form or from one of three starting-anchor presets (Table, Girdle, Culet).
 //!
-//! The form is parsed with `pleochroma_editor::loading::parse_tier_form`, the code behind
-//! the desktop's Tier tab, so angle limits, the index shorthand (`6 x8`, `0:12:96`) and the
-//! name-collision check behave identically; the edit is `tier_save::tier_save_edit` (a new
-//! tier goes in right after the selected row, else at the end). A blank name is filled
-//! in with the next free block name (`C1`, `P1`, ...) like the desktop's Save Tier does.
+//! The form is parsed with `pleochroma_editor::loading::parse_tier_form`, the parser of the
+//! Tier tab, so angle limits, the index shorthand (`6 x8`, `0:12:96`) and the name-collision
+//! check behave identically; the edit is `tier_save::tier_save_edit` (a new tier goes in
+//! right after the selected row, else at the end). A blank name is filled in with the next
+//! free block name (`C1`, `P1`, ...), as Save Tier does.
 
 use super::edit::{Dirty, finish_edit, set_selection, with_app};
 use crate::{
@@ -25,7 +25,7 @@ use pleochroma_editor::{
 };
 use slint::ComponentHandle;
 
-/// The desktop's quick-add presets: `(angle, meets kind, meets text, name)`. Each pins the
+/// The quick-add presets: `(angle, meets kind, meets text, name)`. Each pins the
 /// tier to an exact scale value (kind 2), so a first-time cutter has something solvable to
 /// adjust.
 const PRESETS: [(&str, i32, &str, &str); 3] = [
@@ -100,7 +100,7 @@ fn add_tier_to(
 }
 
 /// Adds the tier `form` describes; on failure the message is shown under the form and as
-/// a toast (the desktop's Tier tab does both).
+/// a toast.
 fn add_tier(ctx: &Ctx, form: &QuickTier<'_>) {
     let result = with_app(ctx, |app| {
         let selected = app.selected_tier;

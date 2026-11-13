@@ -1,12 +1,13 @@
-//! Tests of the `data/color_variants/garnet_peridot_zircon_benitoite_tanzanite.toml` entries: each entry's face-up color and
-//! per-direction colors against the numbers recorded in its fit record
-//! (`docs/color_variants/fit_records/garnet_peridot_zircon_benitoite_tanzanite.md`).
+//! Tests of the `data/color_variants/garnet_peridot_zircon_benitoite_tanzanite.toml` entries.
+//!
+//! Each entry's face-up color and per-direction colors against the numbers recorded in its fit
+//! record (`docs/color_variants/fit_records/garnet_peridot_zircon_benitoite_tanzanite.md`).
 //!
 //! The colors are computed the way the app does for a 7 mm stone: `body_colors` of the variant's
 //! tensor at `face_up_swatch_path(unit, 7.0)` (9.905 mm for a per-millimetre tensor: 2.83 model
-//! units of face-up path times 3.5 mm per model unit), D65. The pinned numbers come from the fit
-//! lane's Python replica of that pipeline (checked against the Spessartine, Tsavorite, Peridot and
-//! Demantoid swatches of `docs/chromophores/calibration-records.md`).
+//! units of face-up path times 3.5 mm per model unit), D65. The pinned numbers come from a Python
+//! replica of that pipeline, checked against the Spessartine, Tsavorite, Peridot and Demantoid
+//! swatches of `docs/chromophores/calibration-records.md`.
 
 use super::{TensorRank, VariantProvenance, built_in_variants, face_up_swatch_path, tensor_rank};
 use crate::{
@@ -20,9 +21,10 @@ use crate::{
 /// Largest accepted color difference between the app's color and the recorded one.
 const TOLERANCE_DE2000: f64 = 1.0;
 
-/// `(material, key, face-up Lab, direction Labs)`, D65, 7 mm stone. The face-up Lab is the ORIENTED color the
-/// renderer shows (host's default principal frame: o alone for Zircon and Benitoite, alpha and beta for Peridot and
-/// Tanzanite). Directions are in the order o (alpha), e (gamma), then beta; empty for the cubic garnets (one band set).
+/// `(material, key, face-up Lab, direction Labs)`, D65, 7 mm stone. The face-up Lab is the
+/// ORIENTED color the renderer shows (the host's default principal frame: o alone for Zircon and
+/// Benitoite, alpha and beta for Peridot and Tanzanite). Directions are in the order o (alpha),
+/// e (gamma), then beta; empty for the cubic garnets (one band set).
 type Entry = (&'static str, &'static str, [f64; 3], &'static [[f64; 3]]);
 
 const ENTRIES: [Entry; 21] = [
@@ -59,7 +61,7 @@ const ENTRIES: [Entry; 21] = [
     (
         "Grossular Garnet (Tsavorite)",
         "grossular_garnet__tsavorite_.mint",
-        // half the default since 2026-11-04 (it was [79.289, -45.937, 42.995], the default's color)
+        // half the default's strength, so it stays a different stone from the default
         [89.0, -28.396, 29.938],
         &[],
     ),
@@ -139,9 +141,8 @@ const ENTRIES: [Entry; 21] = [
         [100.000, 0.000, 0.000],
         &[[100.000, 0.000, 0.000], [100.000, 0.000, 0.000]],
     ),
-    // Face-up oriented by the host stone: since 2026-11-03 Benitoite's c axis lies in the table,
-    // so face up shows the blue e-ray beside the near-colorless o-ray (with c through the table
-    // it was the o-ray alone, [99.598, 0.069, -0.415]). The direction colors are unchanged.
+    // Face-up oriented by the host stone: Benitoite's c axis lies in the table, so face up shows
+    // the blue e-ray beside the near-colorless o-ray.
     (
         "Benitoite",
         "benitoite.light_blue",
@@ -195,12 +196,10 @@ const INCANDESCENT: [(&str, &str, [f64; 3]); 4] = [
     ),
 ];
 
-/// The face-up color the renderer shows for `variant` on its host (D-G of the 2026-10-27 fix round): the
-/// two eigenmodes of the host's own default principal frame at the wave normal `k = -Y`, so c along the
-/// view shows the o-ray alone, c in the table plane the mean of o and e, and a biaxial host with gamma
-/// along the view the mean of alpha and beta; an isotropic or non-pleochroic tensor shows its single
-/// color. The fit records state the unpolarised mean as the fit target and this color as the reached
-/// face-up color.
+/// The face-up color the renderer shows for `variant` on its host: the two eigenmodes of the
+/// host's default principal frame at the wave normal `k = -Y`. With c along the view this is the
+/// o-ray alone; with c in the table plane, the mean of o and e; a biaxial host with gamma along
+/// the view gives the mean of alpha and beta. An isotropic tensor shows its single color.
 fn face_up_oriented(variant: &super::ColorVariant, illuminant: Illuminant) -> [f64; 3] {
     let host = GemMaterial::built_in()
         .iter()
@@ -301,8 +300,8 @@ fn estimated_flags_are_as_recorded() {
         else {
             panic!("{key} is not a built-in entry");
         };
-        // Owner rule O3: a strength chosen for the look (or an unmeasured shape) is an estimate; every entry of
-        // this group is one (the measured spectra are scaled to a typical face-up color).
+        // A strength chosen for the look, or an unmeasured shape, is an estimate. Every entry of
+        // this group is one: the measured spectra are scaled to a typical face-up color.
         assert!(estimated, "{key}");
         assert!(!sources.is_empty(), "{key}");
         assert!(fit_record.is_some(), "{key}");
@@ -376,16 +375,15 @@ fn scaled_copies_show_the_default_scaled_at_the_seven_mm_swatch() {
             "spessartine_garnet.pale_golden_orange",
             0.4_f32,
         ),
-        // Mint is half the default since 2026-11-04 (0.0875 x the GRR 229 vanadium): the default
-        // went to 0.175 x that day (the photos' saturation), where the earlier Mint (0.18 x) sat,
-        // so Mint was made paler to stay a different stone (dE2000 about 9 from the default).
+        // Mint is half the default's peaks (0.0875 x the GRR 229 vanadium), which keeps it a
+        // different stone (dE2000 about 9 from the default).
         (
             "Grossular Garnet (Tsavorite)",
             "grossular_garnet__tsavorite_.mint",
             0.5,
         ),
-        // Deep Green is 1.4 x the San Carlos crystal; the default is x 0.6 of it since 2026-11-04
-        // (the photos' saturation), so Deep Green is 1.4 / 0.6 of the default.
+        // Deep Green is 1.4 x the San Carlos crystal and the default is 0.6 x it, so Deep Green
+        // is 1.4 / 0.6 of the default.
         ("Peridot", "peridot.deep_green", 1.4 / 0.6),
     ] {
         let default = built_in_variants(material).remove(0);

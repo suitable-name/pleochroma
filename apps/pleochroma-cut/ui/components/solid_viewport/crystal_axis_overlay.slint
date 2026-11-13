@@ -8,7 +8,7 @@ import { ManipulateModel } from "../../models/manipulate.slint";
 
 // The marker at the end of an axis line: a circle with the axis's letter beside it. The marker
 // the pointer is over or is dragging is drawn larger and brighter. Purely presentational: the
-// pointer events all reach `SolidViewportView`'s `drag_area` underneath, like `ManipulateOverlay`.
+// pointer events reach `SolidViewportView`'s `drag_area`, as with `ManipulateOverlay`.
 // Everything scales with `ManipulateModel.handle_scale` (the "Larger handles" preference), which
 // the Rust hit test multiplies its radius by too.
 component AxisMarker inherits Rectangle {
@@ -154,11 +154,11 @@ export component CrystalAxisOverlay inherits Rectangle {
     }
 }
 
-// Tells Rust when anything the Crystal Axis depends on changed (the design's axis controls, the
-// material, the toolbar toggle, the view), so it recomputes the Stone tab's section, the readouts
-// and the overlay. A global's own property cannot get a `changed` handler outside the file that
-// declares it, so each input is mirrored into a plain local property here. Zero-sized and
-// invisible; mounted once in each viewport (the Edit tab's and the Live Render tab's).
+// Tells Rust when anything the Crystal Axis depends on changed (the design's axis controls,
+// the material, the toolbar toggle, the view), so it recomputes the Stone tab's section, the
+// readouts and the overlay. A global's property cannot get a `changed` handler outside its own
+// file, so each input is mirrored into a local property here. Zero-sized and invisible; mounted
+// once in each viewport (the Edit tab's and the Live Render tab's).
 export component CrystalAxisWatcher inherits Rectangle {
     x: 0px;
     y: 0px;

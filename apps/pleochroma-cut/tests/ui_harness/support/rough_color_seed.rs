@@ -1,9 +1,9 @@
-//! The saved plan with a stored rough color that the Rough Color tutorial videos open.
+//! The saved plan with a stored rough color that the Rough Color lessons start from.
 //!
 //! The wizard restores a stored fit and photos from a saved plan, and the planner offers Stone
-//! Orientation and Use Color only for one, but a color comes from photos of a rough on a camera rig
-//! that no video can film. So before the app launches for a `library-rough-color-*` lesson, this
-//! writes the plan the planner's Save and the wizard's Accept would have written, from numbers
+//! Orientation and Use Color only for one. A color comes from photos on a camera rig, which no
+//! harness run can take, so before the app launches for a `library-rough-color-*` lesson this
+//! writes the plan that the planner's Save and the wizard's Accept would write, with numbers
 //! generated in code (`harness_support::seed_rough_color_plan`). Other lessons get nothing.
 
 use super::profile::Profile;

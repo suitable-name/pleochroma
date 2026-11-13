@@ -1,19 +1,17 @@
-//! The Crystal Axis in the planner's 3D view: the axis drawn through the rough, picking a face or
-//! an edge of the rough for it, turning it by dragging its tip, and turning a stone by hand
-//! (Free Orientation).
+//! The Crystal Axis in the planner's 3D view: drawing it, picking it on the rough and turning it.
 //!
-//! - **Drawing.** With the model shown, the rough's Crystal Axis is a line through the rough with a
-//!   handle at its tip. With a result shown, a short line through every stone of the result shows
-//!   the axis the stones were planned with. Both are drawn into every frame ([`draw_overlay`]).
+//! - **Drawing.** With the model shown, the axis is a line through the rough with a handle at its
+//!   tip. With a result shown, a short line through every stone of the result shows the axis the
+//!   stones were planned with. Both are drawn into every frame ([`draw_overlay`]).
 //! - **Picking.** While Align to Face or Align to Edge waits for a click ([`PickMode`]), a click
 //!   on the rough finds the face or the point under it (a ray against the rough's planes) and sets
 //!   the axis ([`click`]). The click is used up: it does not add a cut.
 //! - **Turning.** A drag that starts on the tip turns the axis, live, and counts as one undo step
-//!   when the button goes up ([`drag_begin`], [`drag_move`], [`drag_end`]). While a stone is being
-//!   turned by hand, a drag in the result view turns the stone instead of the camera.
+//!   when the button goes up ([`drag_begin`], [`drag_move`], [`drag_end`]). A stone turned by hand
+//!   (Free Orientation) is turned by a drag in the result view instead of the camera.
 //!
-//! The logic of the orientation is in `gui::rough_plan::axis` and the core; this file holds the
-//! view's geometry (rays and planes, the screen position of the tip) and its tests.
+//! The orientation logic is in `gui::rough_plan::axis` and the core; this file holds the view's
+//! geometry (rays and planes, the screen position of the tip) and its tests.
 
 use super::{
     Hover, axis_view,
@@ -51,7 +49,7 @@ const AXIS_COLOUR: [u8; 3] = [56, 189, 248];
 /// The color of the axis through the stones of a result: amber.
 const STONE_AXIS_COLOUR: [u8; 3] = [245, 158, 11];
 
-/// How much longer than the rough's half diagonal the axis line runs on each side of the centre.
+/// How far the axis line runs on each side of the centre, as a fraction of the rough's diagonal.
 const AXIS_HALF_LENGTH: f64 = 0.6;
 
 /// How long the line through a stone is, as a multiple of the stone's longest side (half on each
@@ -142,8 +140,8 @@ fn view_data(host: &Host) -> Option<(View, RoughBase, Option<CrystalOrientation>
     ))
 }
 
-/// The line the axis is drawn along in the rough frame: through the rough's centre, as long as the
-/// rough, for the orientation `orientation`: its two ends, the upper one first.
+/// The axis line of `orientation` in the rough frame, through the rough's centre and reaching
+/// past its corners at both ends. Returns the two ends, the upper one first.
 #[must_use]
 fn axis_ends(base: &RoughBase, orientation: &CrystalOrientation) -> (DVec3, DVec3) {
     let half = DVec3::from_array(base.bounding_box_extents()).length() * AXIS_HALF_LENGTH;
@@ -152,8 +150,8 @@ fn axis_ends(base: &RoughBase, orientation: &CrystalOrientation) -> (DVec3, DVec
     (centre + direction * half, centre - direction * half)
 }
 
-/// The axis direction after the tip, which was at `tip`, was dragged: from the centre `centre` to
-/// the tip's new place, `None` when the map is degenerate or the tip lands on the centre.
+/// The axis direction from the centre `centre` to the tip's new place, after the tip at `tip`
+/// was dragged. `None` when the map is degenerate or the tip lands on the centre.
 #[must_use]
 fn dragged_direction(
     map: &ViewMap<'_>,
@@ -178,8 +176,8 @@ fn dragged_direction(
 }
 
 /// Where a ray `origin + t * dir` first enters the convex solid `n . p <= d` of `planes`, and the
-/// outward normal of the plane it enters through. `None` when the ray misses the solid or leaves it
-/// behind the origin.
+/// outward normal of the plane it enters through. `None` when the ray misses the solid or
+/// leaves it behind the origin.
 #[must_use]
 fn first_hit(planes: &[(DVec3, f64)], origin: DVec3, dir: DVec3) -> Option<(f64, DVec3)> {
     let mut enter = f64::NEG_INFINITY;
@@ -351,8 +349,8 @@ pub(in crate::gui::rough_plan) fn click(host: &Rc<Host>, x: f32, y: f32) -> bool
     true
 }
 
-/// The pointer went down on the image: a drag that starts on the axis tip turns the axis, and while
-/// a stone is being turned by hand a drag in the result view turns the stone.
+/// The pointer went down on the image: a drag that starts on the axis tip turns the axis. While
+/// a stone is turned by hand, a drag in the result view turns the stone.
 pub(in crate::gui::rough_plan) fn drag_begin(host: &Rc<Host>) {
     let pointer = host.session.borrow().view.pointer;
     let start = pointer
@@ -562,7 +560,7 @@ mod tests {
         let centre = base.bounding_box_centre();
         assert!(((tip + tail) / 2.0 - centre).length() < 1e-9);
         assert!((tip - tail).normalize().dot(DVec3::X).abs() > 1.0 - 1e-9);
-        // 0.6 of the half diagonal each side.
+        // 0.6 of the full diagonal each side.
         let diagonal = DVec3::new(10.0, 6.0, 8.0).length();
         assert!(diagonal.mul_add(-1.2, (tip - tail).length()).abs() < 1e-9);
     }

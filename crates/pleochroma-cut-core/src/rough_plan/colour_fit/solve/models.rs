@@ -1,4 +1,4 @@
-//! The spectral models of the fit (plan section 6.2), as [`SpectralModel`]s for the forward
+//! The spectral models of the fit, as [`SpectralModel`]s for the forward
 //! evaluator plus what the solver needs on top (bounds, seeds, priors).
 //!
 //! * [`ChromophoreModel`] (A): per zone, the log-amounts of the selectable elements of a catalogue
@@ -15,17 +15,15 @@
 //!
 //! Parameters are zone-major: zone `z` owns `params[z * per_zone .. (z + 1) * per_zone]`.
 //!
-//! # The priors of model B (round 5, ZC-1)
+//! # The priors of model B
 //!
 //! The camera sees three numbers per pixel and path length, so a fourteen-band spectrum has a
 //! large null space: the priors only have to bound it, and must never decide the answer. Two
-//! rules follow, and the first version of this model broke both:
+//! rules follow:
 //!
 //! 1. **The prior acts on the linear amplitudes `a_k = exp(theta_k)`, not on their logarithms.**
-//!    A second difference of `theta` charges a band that sits next to an empty neighbour (the
-//!    log of an empty band is `-13.8`) about 1800 per band at sigma 0.5, four times the data term
-//!    of a saturated two-band stone, so the optimiser escaped into a wavelength-flat floor and
-//!    paid for it with the common gain (the +12 % of the round-4 run).
+//!    A prior on the logarithms charges an empty band (log `-13.8`) so heavily that the
+//!    optimiser prefers a wavelength-flat floor.
 //! 2. **"Zero absorption" must be free.** A physical stone is transparent over most of the
 //!    visible, so the magnitude prior is an exponential (L1) prior on `a_k`, whose cost vanishes
 //!    at zero, not a Gaussian centred on 0.1 per mm.
@@ -33,46 +31,21 @@
 //! The smoothness prior is a Gaussian-process prior on the amplitude vector,
 //! `cost = 1/2 a^T K^-1 a`, with the covariance `K_kl = sigma_a^2 k(|c_k - c_l| / ell)` over the
 //! basis centres `c` (nm). The kernel is the **Matern 5/2** kernel
-//! `k(r) = (1 + sqrt5 r + 5 r^2 / 3) exp(-sqrt5 r)`, not the squared exponential the review
-//! proposed. Both were measured on the thirteen centres 420 to 720 nm (25 nm apart, `ell = 60 nm`,
-//! projected truth spectra of the validation suite, non-negative least squares); the 395 nm band
-//! added later extends the same grid by one point and was not re-measured:
+//! `k(r) = (1 + sqrt5 r + 5 r^2 / 3) exp(-sqrt5 r)`. The squared exponential is avoided: it
+//! forbids, by construction, features narrower than `ell / sqrt2` (42 nm), and its `K` is
+//! badly conditioned. Matern 5/2 is twice differentiable, keeps `K` well conditioned, and
+//! still keeps the null space bounded.
 //!
-//! | kernel | condition of `K` | cost, saturated truth | cost, one band of 0.2 per mm |
-//! |---|---|---|---|
-//! | squared exponential | 8.7e7 | 9.5e3 | 7.8e4 |
-//! | Matern 5/2 (`sigma_a` 1 per mm, measured) | 7.5e2 | 0.15 | 0.80 |
-//! | Matern 5/2 (`sigma_a` 0.3 per mm, scaled by 1/0.09) | 7.5e2 | 1.7 | 8.9 |
+//! The scales matter as much as the kernel. `sigma_a` is the prior standard deviation of an
+//! amplitude, and body-colour amplitudes are 0.01 to 0.3 per mm, so a wide `sigma_a` bounds
+//! nothing and the camera's null directions are set by noise. With `sigma_a = 0.3` per mm and
+//! the L1 scale `b = 0.05` per mm, a saturated two-band truth costs about 9 and a camera
+//! metamer with a red hump of 0.38 per mm about 29, so the data decides between them.
 //!
-//! The scales matter as much as the kernel (round 6, R2). `sigma_a` is the prior standard
-//! deviation of an amplitude and body-colour amplitudes are 0.01 to 0.3 per mm, so the first
-//! `sigma_a = 1` bounded nothing: the whole prior budget (1 to 3) was below the 25 the data term
-//! fluctuates by, and the 11 null directions of the camera per zone were set by noise. With
-//! `sigma_a = 0.3` per mm and the L1 scale `b = 0.05` per mm the saturated truth costs 1.7 + 7.5
-//! = 9.2, one isolated 0.2 per mm band 8.9 + 4.0 = 12.9 (both under the bound of `2 BANDS`
-//! = 28), and a camera metamer with a red hump of 0.38 per mm costs 29, about 20 more than the
-//! truth, against the 2 the data can offer for it. The bias of a measured band is
-//! `(1/b) / curvature = 20 / 7e7` per mm: nothing.
-//!
-//! A third, scale-free "shape" prior was tried on 2026-10-12 (a Matern 5/2 process on the
-//! detrended softened log-amplitudes `ln(a_k + eps)`, so that a log-linear spectrum, any overall
-//! scale and the clear stone cost nothing) and taken out again. The camera leaves the spectrum
-//! free along about eleven directions per zone, and along them the magnitude prior picks the
-//! spectrum with the least absorption: one broad hump with dead edges (for a log-linear truth of
-//! 0.12 per mm the fit has 0 at 395 nm and 0.06 instead of 0.20 at 670 nm, a data term 4 BELOW
-//! the truth's, and a magnitude cost 12.5 below it). To pull such a fit back onto the truth a
-//! shape prior must charge the hump more than those 12.5 + 4, and no smoothness measure does
-//! that without charging the two-band saturated validation truth or an isolated band far more
-//! (measured: every setting that beats the hump costs the isolated band 75 to 6000 and the
-//! projected saturated truth 25 to 400 against the budget of 28). A hump is smoother than a
-//! two-band stone by any measure; the null space is a metamer statement, which the spread
-//! reports (see `predict`), not something a prior can settle.
-//!
-//! The squared exponential forbids, by construction, every feature narrower than `ell / sqrt2`
-//! (42 nm), and a Gaussian band of 33 nm (the 2600 cm^-1 bands of the validation truths) is one
-//! of them: its cost is finite on the grid points only because the matrix is regularised by
-//! rounding. Matern 5/2 is twice differentiable, keeps `K` well conditioned, and still keeps
-//! the null space bounded.
+//! A scale-free "shape" prior was rejected: along the directions the camera leaves free, the
+//! magnitude prior then picks one broad hump with dead edges, and no smoothness measure pulls
+//! that back without charging the validation truths far more than their budget. The null
+//! space is a metamer statement, which the spread reports (see `predict`).
 //!
 //! With `L L^T = K^-1` (Cholesky) the cost is `1/2 |L^T a|^2`, so the prior rows are
 //! `r_i = sum_{k >= i} L_ki a_k` with `dr_i / dtheta_k = L_ki a_k`. The exponential prior
@@ -108,32 +81,24 @@ const SEED_LOG_LEVEL: f64 = -std::f64::consts::LN_10;
 /// The largest amplitude of the amplitude-space view of model B, per mm (`exp(BASIS_LOG_MAX)`).
 const AMPLITUDE_MAX: f64 = 30.0;
 
-/// The basis of the smooth-basis fit (round 5, ZC-6): `(centre nm, width nm)` of fourteen
-/// Gaussians.
+/// The basis of the smooth-basis fit: `(centre nm, width nm)` of fourteen Gaussians.
 ///
 /// The Gaussians are 25 nm apart from 395 to 720 nm, each with a standard deviation of 15 nm
-/// (FWHM 35 nm). The band at 395 nm was added after the first thirteen-band version (420 to
-/// 720 nm) could not follow the 390 nm absorber tail of the saturated validation truth (0.09
-/// per mm short at the 400 nm edge). The width is the wavelength-domain standard deviation, converted to the
-/// wavenumber standard deviation `width * 1e7 / centre^2` of an energy-domain band exactly as
+/// (FWHM 35 nm). The 395 nm band follows the 390 nm absorber tail of the saturated validation
+/// truth. The width is the wavelength-domain standard deviation, converted to the wavenumber
+/// standard deviation `width * 1e7 / centre^2` of an energy-domain band exactly as
 /// `body_color_bands` does for the body-colour basis.
 ///
-/// The width is narrower than the spacing on purpose (ZC-6 round 6, R1). With 25 nm the 395 nm
-/// band had a wavenumber sigma of 1602 cm^-1, wider than the 1486 cm^-1 of the 3500 cm^-1
-/// wide 390 nm absorber of the saturated validation truth, and a non-negative sum of Gaussians
-/// cannot follow a feature narrower than its widest member: the projection overshot the
-/// 400 to 470 nm wing (1.75 to 2.96 dE2000 lost to the basis alone). At 15 nm the 395 nm band is
-/// 961 cm^-1 wide (720 nm: 289 cm^-1). The price is the ripple of a flat non-negative sum at
-/// the spacing `h = 25 nm`: `2 exp(-2 pi^2 (15 / 25)^2) = 0.17 %`. At 12.5 nm it would be
-/// 1.5 %, so 15 nm is the widest value under 0.2 % that resolves the absorber.
+/// The width is narrower than the spacing on purpose: a non-negative sum of Gaussians cannot
+/// follow a feature narrower than its widest member, and at 25 nm the 395 nm band is wider than
+/// the 390 nm absorber it has to follow. At 15 nm the ripple of a flat non-negative sum at the
+/// spacing `h = 25 nm` is `2 exp(-2 pi^2 (15 / 25)^2) = 0.17 %`, the widest width under 0.2 %
+/// that still resolves the absorber.
 ///
-/// The fit needs its own table: the seven bands of `BODY_COLOR_BASIS_NM` (40 nm apart, 45 to
-/// 55 nm wide) belong to the body-colour slider and the GPU (at most eight bands per material),
-/// and a non-negative sum of 45 nm Gaussians cannot be narrower than 45 nm, which costs 2 to 3
-/// L* on a crystal-field band of 25 to 35 nm. The GPU export (`project_onto` the seven bands)
-/// refits a narrower spectrum less well; the `ExportRefit` warning (0.5 dE and more) reports it.
-/// Fourteen bands times four zones plus eight gains is 64 parameters, just over the plan's
-/// budget of 60 (section 6.3); the priors bound the null space.
+/// The fit needs its own table: the seven bands of `BODY_COLOR_BASIS_NM` belong to the
+/// body-colour slider and the GPU, and are too wide to follow a crystal-field band of 25 to
+/// 35 nm. The GPU export refits onto them, see [`SmoothBasisModel`]; the `ExportRefit` warning
+/// reports a noticeable change.
 pub const FIT_BASIS_NM: [(f32, f32); 14] = [
     (395.0, 15.0),
     (420.0, 15.0),
@@ -188,7 +153,7 @@ pub(super) fn smoothness_factor(sigma_a: f64, ell_nm: f64) -> Option<Vec<f64>> {
     cholesky(&precision, n)
 }
 
-/// Which prior a [`PriorRow`] belongs to (round 3, D1.3: the report names the dominant term).
+/// Which prior a [`PriorRow`] belongs to (the report names the dominant term).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum PriorTag {
     /// The Gaussian-process smoothness of the amplitudes of model B.
@@ -214,11 +179,11 @@ pub(super) struct PriorContext<'a> {
     pub config: &'a FitConfig,
     /// The reweighted L1 weights (one per parameter; only the chromophore model reads them).
     pub l1_weights: &'a [f64],
-    /// Pin the common mode of the log-gains (stage 2 of the staged fit, round 3, D1).
+    /// Pin the common mode of the log-gains (stage 2 of the staged fit).
     pub pin_common_gain: bool,
     /// Whether the model's own priors (smoothness, magnitude, L1, zone pull) are in the
     /// objective. `false` leaves the data term and the gain prior alone: the data-only optimum
-    /// of the constrained colour search (round 5, ZC-4).
+    /// of the constrained colour search.
     pub model_priors: bool,
 }
 
@@ -254,13 +219,13 @@ pub(super) trait FitModel: SpectralModel {
     /// An independent copy (its own caches; the smooth model shares its configuration-keyed
     /// factor cache on purpose), for use on another thread.
     fn duplicate(&self) -> Box<dyn FitModel>;
-    /// Extra deterministic starts derived from a fitted parameter vector (round 3, D1.2), each a
-    /// full model parameter vector. Empty for a model that has none.
+    /// Extra deterministic starts derived from a fitted parameter vector, each a full model
+    /// parameter vector. Empty for a model that has none.
     fn structured_starts(&self, _params: &[f64]) -> Vec<Vec<f64>> {
         Vec::new()
     }
     /// A parametrisation of the same absorption in which the data term is much closer to a
-    /// quadratic, for the constrained colour search (round 5, ZC-4); `None` when the model's own
+    /// quadratic, for the constrained colour search; `None` when the model's own
     /// parameters are already the right ones. The returned model has the same zones and no
     /// priors, and `to_search_space`/`from_search_space` convert parameter vectors (without
     /// gains) between the two.
@@ -539,7 +504,7 @@ impl FitModel for SmoothBasisModel {
         Box::new(self.clone())
     }
 
-    /// Round 3, D1.2. Two starts from a fitted vector:
+    /// Two starts from a fitted vector:
     ///
     /// * (a) the wavelength-flat component of every zone's absorption removed: the absorption at
     ///   the basis centres minus its minimum over the centres, floored at [`START_FLOOR`];
@@ -702,8 +667,8 @@ impl SmoothBasisModel {
     /// The log-amplitudes of the fit basis ([`FIT_BASIS_NM`]) that best represent the absorption
     /// `alpha(zone, lambda)` (per mm) in the least-squares sense on a 5 nm grid from 400 to
     /// 700 nm, and the largest absolute misfit on that grid (per mm). The truth of a synthetic
-    /// photo is not exactly in the basis, so the priors "at the truth" (round 3, D1.3) are those
-    /// of this projection.
+    /// photo is not exactly in the basis, so the priors "at the truth" are those of this
+    /// projection.
     pub(super) fn project(zones: usize, alpha: &dyn Fn(usize, f64) -> f64) -> (Vec<f64>, f64) {
         project_onto(&FIT_BASIS_NM, zones, alpha)
     }

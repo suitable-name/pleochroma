@@ -1,44 +1,34 @@
-//! Owner timing run for the rough mesh at scale: how the cost of a scan grows with its
-//! triangle count, to set `MAX_MESH_TRIANGLES`. Run it on a release build, never in the
-//! normal test run:
+//! Timing run of the rough mesh at scale: how the cost of a scan grows with its triangle
+//! count, to set `MAX_MESH_TRIANGLES`. It is ignored by default; run it on a release build:
 //!
 //! ```text
 //! cargo test -p pleochroma-cut-core --release -- --ignored mesh_scaling_timings --nocapture
 //! ```
 //!
-//! Per fixture the run prints, in this order:
+//! Per fixture the run prints, in order:
 //!
 //! - `triangles`, `vertices`: the input as given.
-//! - The import phases. `RoughMesh::new` split into the weld and closed check, the
-//!   self-intersection check and the orientation plus BVH; the exact hull of the mesh's
-//!   welded vertices (`hull_triangles`, the step the quick hull speeds up above 4,096
-//!   points); the simplification to the outline (`simplified_outer_planes`, at
-//!   `OUTLINE_PLANES` = 64 planes); then `import_mesh` as the total, with the outline's
-//!   plane count and its note.
+//! - The import phases: `RoughMesh::new` split into the weld and closed check, the
+//!   self-intersection check and the orientation plus BVH; the exact hull of the welded
+//!   vertices (`hull_triangles`, which the quick hull speeds up above 4,096 points); the
+//!   simplification to the outline (`simplified_outer_planes`, at `OUTLINE_PLANES` = 64
+//!   planes); then `import_mesh` as the total, with the outline's plane count and note.
 //! - `ShapedCtx::new`, and the classification sweep over the default grid.
-//! - The small grid (3 x 3 x 3) for K = 1 and K = 10: the serial clipped table, the same
-//!   table from `build_clipped_table_jobs` on all available lanes (asserted equal to the
-//!   serial one bit for bit), the share of PARTIAL entries, the dynamic programs over all
-//!   cut orders and the layout count. Every row that imported must plan at least one
-//!   layout: "0 layouts" is a product bug, and the test fails on it.
-//! - The default-grid projection for K = 10 (the grid the app really uses, about two
-//!   million range entries): a deterministic sample of a-range jobs is built, its PARTIAL
-//!   entries are counted, and `entries x partial share x mean partial cost` is printed as
-//!   serial seconds and as seconds over the lanes. The projection ignores the lane
-//!   scheduling tail and the DP, so read it as a floor.
+//! - The 3 x 3 x 3 grid for K = 1 and K = 10: the serial clipped table, the same table from
+//!   `build_clipped_table_jobs` on all lanes (asserted equal bit for bit), the share of
+//!   PARTIAL entries, the dynamic programs over all cut orders and the layout count. A row
+//!   that imported must plan at least one layout, or the test fails.
+//! - The default-grid projection for K = 10 (about two million range entries): a
+//!   deterministic sample of a-range jobs is built, its PARTIAL entries are counted, and
+//!   `entries x partial share x mean partial cost` is printed as serial seconds and as
+//!   seconds over the lanes. It ignores the lane scheduling tail and the DP, so it is a floor.
 //!
-//! Reading the verdicts. `>> ... small-grid plan` is the decision-D5 line: import plus
-//! context plus the serial K = 10 small-grid table plus the DP, against
-//! [`TARGET_SECONDS`]. `>> default grid projected` is the app's reality: how long one plan
-//! of this scan takes on the default grid. "The new cap" is the largest triangle count
-//! whose rows are all UNDER on the small-grid line and whose projected default-grid time on
-//! the owner's lane count is acceptable; the lead sets `MAX_MESH_TRIANGLES` from those two.
-//!
-//! The mesh builder refuses more than `MAX_MESH_TRIANGLES` triangles, so a fixture above the
-//! cap prints "over the cap" and its row stops. To measure above it, raise the constant in
-//! `shape/mesh.rs` for the run (for example to `500_000`) and put it back afterwards. The
-//! largest fixtures are 327,680 (pebble, level 7) and 458,752 (noisy C, level 7) triangles;
-//! with the quick hull their imports take seconds.
+//! The `>>` verdict lines compare the small-grid total (import, context, serial K = 10
+//! table and DP) with [`TARGET_SECONDS`]; the default-grid line is the time of one plan on
+//! the grid the app uses. The mesh builder refuses more than `MAX_MESH_TRIANGLES` triangles,
+//! and the row then stops with "over the cap". To measure above it, raise the constant in
+//! `shape/mesh.rs` for the run and restore it afterwards. The largest fixtures are 327,680
+//! (pebble, level 7) and 458,752 (noisy C, level 7) triangles.
 
 use std::time::{Duration, Instant};
 
@@ -438,7 +428,7 @@ fn mesh_scaling_timings() {
     }
     // The smooth pebble scan, a convex-ish ellipsoid whose outline is simplified:
     // 20 * 4^levels triangles (5,120 at 4, 20,480 at 5, 81,920 at 6, 327,680 at 7). Level 7
-    // is seconds with the quick hull; above the mesh cap it needs the raised constant.
+    // is above `MAX_MESH_TRIANGLES`, so it needs the raised constant (see the module docs).
     for levels in 4..=7 {
         let (points, tris) = pebble_scan(levels, 1);
         measure(

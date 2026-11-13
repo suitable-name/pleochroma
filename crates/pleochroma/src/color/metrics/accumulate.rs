@@ -13,28 +13,16 @@ use super::{
     types::GemOpticalMetrics,
 };
 
-/// Degrees-of-angular-separation -> display-scale multiplier for `fire_index`.
+/// Converts the energy-weighted mean F/C exit separation, in degrees (typically 0.4 to 10,
+/// depending on material, cut and angle), into the display range of `fire_index`.
 ///
-/// The measured quantity is the mean angle (degrees) between a ray's F-line and C-line
-/// exit directions, over rays that exit upward through the crown and pass the same
-/// illumination test as `brilliance_pct`. That mean separation typically lands in the
-/// 0.4-10 deg range depending on material/cut/angle (multiple TIR bounces each add
-/// their own chromatic walk-off) -- physically real, but not yet a legible UI number.
-/// This constant rescales it into a range comparable to the old closed-form `fire_index`
-/// values (which topped out around 80 for diamond); it is a *display* scale, not a fit.
-///
-/// Chosen at 275 so a Diamond standard round brilliant at yaw 0.0/pitch 0.45 (weighted-mean
-/// separation ~0.0716 deg after the F/C bifurcation gate) read `fire_index` ~= 19.7, under
-/// the earlier cone-based illumination test and a fixed 0.8-unit fan. It has not been
-/// re-derived for the radiance-based illumination test and girdle-scaled fan described in
-/// the module docs, so absolute values are comparable between stones measured by the
-/// same build, not with older readings. For the emerald-cut Fire ordering this scale was
-/// chosen with, see `evaluate_gem_optical_metrics`'s doc comment.
+/// This is a display scale, not a fit: values are comparable only between stones measured by
+/// the same build. The emerald-cut ordering it was chosen against is documented on
+/// `evaluate_gem_optical_metrics`.
 const FIRE_DEGREES_TO_DISPLAY_SCALE: f32 = 275.0;
 
-/// Aggregate accumulators threaded through the grid pass of `evaluate_pose`, bundled into
-/// one `#[derive(Default)]` struct to keep the functions under clippy's line-count budget
-/// without losing per-field rationale, which lives on the fields below.
+/// Accumulators of the grid pass in `evaluate_pose`, bundled in one struct to keep the pass
+/// functions under clippy's line-count limit. The rationale of each field is on the field.
 #[derive(Default)]
 pub(super) struct MetricsAccumulators {
     pub(super) total_rays: u32,
@@ -160,13 +148,11 @@ fn fire_and_scintillation(
     n_total: f32,
     diag_material: Option<&str>,
 ) -> (f32, f32) {
-    // Fire: energy-weighted F-line/C-line angular separation, normalized by TOTAL
-    // incident rays (n_total), not the count of rays that happened to qualify -- the
-    // same convention as brilliance_pct/windowing_pct/extinction_pct above, closing the
-    // loophole where a shrinking denominator lets a few wide-angle survivors from a
-    // badly-leaking cut inflate the average. See
-    // `MetricsAccumulators::fire_energy_weighted_sum_deg`'s doc. Naturally floors at 0.1
-    // when the weighted sum is zero -- no separate branch needed.
+    // Fire: energy-weighted F/C angular separation, normalized by TOTAL incident rays
+    // (n_total), like brilliance, windowing and extinction. A shrinking denominator would
+    // let a few wide-angle survivors of a leaky cut inflate the mean. See
+    // `MetricsAccumulators::fire_energy_weighted_sum_deg`. The `max(0.1)` floor covers a
+    // zero sum.
     let fire_index =
         (acc.fire_energy_weighted_sum_deg / n_total * FIRE_DEGREES_TO_DISPLAY_SCALE).max(0.1);
     if let Some(material_name) = diag_material {

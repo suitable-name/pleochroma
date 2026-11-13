@@ -1,10 +1,9 @@
 //! From a located point to an inclusion of the rough.
 //!
 //! A located point becomes a small closed shell of a given radius in mm, in the rough's frame,
-//! ready for [`add_inclusion_points`](crate::rough_plan::shape::hull::add_inclusion_points)
-//! (stage A of the inclusion work). The margin that goes with it is the larger of the fixed
-//! default and twice the measured uncertainty, so a poorly located inclusion keeps stones further
-//! away.
+//! ready for [`add_inclusion_points`](crate::rough_plan::shape::hull::add_inclusion_points). The
+//! margin that goes with it is the larger of the fixed default and twice the measured uncertainty,
+//! so a poorly located inclusion keeps stones further away.
 
 use glam::DVec3;
 

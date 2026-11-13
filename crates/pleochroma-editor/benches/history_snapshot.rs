@@ -1,23 +1,18 @@
-//! P14 measurement: what the History tab's refresh copies per edit
-//! (`FABLE_perf_verification.md`, item P14).
+//! Cost of the History tab refresh's session-side copies, per edit.
 //!
-//! `history_panel::sync` (apps/pleochroma-cut/src/gui/editor/history_panel/mod.rs:205-225)
-//! runs on every edit, undo and redo while the tab is visible. It calls
-//! `EditorSession::history_entries`, then `EditorSession::history_snapshot` (a deep clone of
-//! the design AND the whole history), then `RenderSnapshot::new`, which walks the snapshot's
-//! entries once more (worker.rs:47-57). `RenderSnapshot` lives in the app crate and cannot be
-//! reached from a bench, so `sync_work` below reproduces its public-API part: entries plus
-//! snapshot plus the revision list.
+//! The app's history panel `sync` runs on every edit, undo and redo while the tab is visible.
+//! It reads `EditorSession::history_entries`, takes `EditorSession::history_snapshot` (a deep
+//! clone of the design and the whole history) and builds the render revision list. The render
+//! snapshot type lives in the app crate, so `sync_work` reproduces its public-API part.
 //!
-//! Fixtures: a session on the Emerald Step Cut template (a multi-tier step cut; `main`
-//! prints its tier count), then 200 history steps.
+//! Fixtures: a session on the Emerald Step Cut template, then 200 history steps.
 //!
 //! - `small_edits`: 200 `Edit::ModifyTier` steps (a small payload each).
 //! - `with_replace_schedule`: the same 200 steps, but every 25th is an
 //!   `Edit::ReplaceSchedule` (a boxed whole-schedule payload, 8 of them).
 //!
-//! `main` prints the step counts actually recorded. The history clone is O(steps); the
-//! interesting question is how much the big `ReplaceSchedule` payloads add on top.
+//! The history clone is O(steps); the question is how much the large `ReplaceSchedule`
+//! payloads add on top.
 //!
 //! Run: `cargo bench -p pleochroma-editor --bench history_snapshot`.
 

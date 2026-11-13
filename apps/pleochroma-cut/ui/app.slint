@@ -70,7 +70,7 @@ import { CuttingTableModel } from "models/cutting_table.slint";
 import { RawTextModel, RawTextDiffRow } from "models/raw_text.slint";
 import { HelpModel, HelpNavItem, HelpBlock, HelpSearchHit, GlossaryRow } from "models/help.slint";
 import { HelpWindow } from "components/help_window.slint";
-import { RoughPlanModel, RoughPlanResult, RoughPlanStoneGroup, RoughMetric, RoughCutRow, SavedRoughPlanRow, RoughStoneRow } from "models/rough_plan.slint";
+import { RoughPlanModel, RoughPlanResult, RoughPlanStoneGroup, RoughMetric, RoughCutRow, SavedRoughPlanRow, RoughStoneRow, RoughFinding } from "models/rough_plan.slint";
 import { SweepModel, SweepCellItem, SweepRowItem, SweepColumnItem, SweepPathItem, SweepLegendItem } from "models/sweep.slint";
 import { BaselineModel, BaselineCell } from "models/baseline.slint";
 import { TrialsModel, TrialRow, TrialCellItem } from "models/trials.slint";
@@ -81,7 +81,7 @@ import { RenderJobsModel, RenderJobRow } from "models/render_jobs.slint";
 import { ExportRunModel } from "models/export_run.slint";
 import { Zoning, MaterialZoneRow } from "models/zoning.slint";
 import { ColorPatternWindow } from "color_pattern_window.slint";
-import { ColorPatternModel, PatternZoneRow, PatternParamRow, PatternHandle } from "models/color_pattern.slint";
+import { ColorPatternModel, PatternZoneRow, PatternParamRow, PatternHandle, PatternColorTile, PatternVariantChip, PatternTile } from "models/color_pattern.slint";
 import { UpdateModel } from "models/update.slint";
 import { RadvWorkaroundModel } from "models/radv_workaround.slint";
 import { UpdateBanner } from "components/update_banner.slint";
@@ -139,7 +139,7 @@ export {
     // The visual compare window and its model -- see ui/models/compare.slint.
     CompareWindow, CompareModel, CompareMetricRow,
     // The Rough Planner window, global and its row structs -- see ui/rough_planner_window.slint.
-    RoughPlannerWindow, RoughPlanModel, RoughPlanResult, RoughPlanStoneGroup, RoughMetric, RoughCutRow, SavedRoughPlanRow, RoughStoneRow,
+    RoughPlannerWindow, RoughPlanModel, RoughPlanResult, RoughPlanStoneGroup, RoughMetric, RoughCutRow, SavedRoughPlanRow, RoughStoneRow, RoughFinding,
     // The photo-locating windows and their row structs -- see ui/locate_window.slint, ui/rig_window.slint.
     LocateWindow, RigWindow, RigViewRow, CanvasMarker, CanvasPath, PhotoSlot, ReportRow,
     // The Rough colour wizard window and its row structs -- see ui/rough_colour_window.slint.
@@ -171,6 +171,7 @@ export {
     Zoning, MaterialZoneRow,
     // The Color Pattern Editor window, its global and its row structs -- see ui/color_pattern_window.slint.
     ColorPatternWindow, ColorPatternModel, PatternZoneRow, PatternParamRow, PatternHandle,
+    PatternColorTile, PatternVariantChip, PatternTile,
     // The new-version check's state and callbacks -- see ui/models/update.slint.
     UpdateModel,
     // The RADV shader workaround's question, switch and restart -- see ui/models/radv_workaround.slint.
@@ -183,16 +184,13 @@ export {
 // --- Sizing notes -----------------------------------------------------------
 // 1. No layout constraint computed in this file (or anything it pulls in) may reach
 //    `MainWindow` itself: the OS window's minimum AND maximum size derive from its content
-//    tree's constraints. A stray `min-height` deep in a child once forced the window bigger,
-//    and a component whose root is a plain `Rectangle` over fixed-size children inherits that
-//    layout's small MAXIMUM, so the window ended up with max-height == min-height, not
-//    resizable in height (`CollapsedLibraryRail`, 38px). The fix: the window's whole content
-//    is wrapped in a `Rectangle` positioned with explicit `x`/`y` (see `global_shortcuts`
-//    below) -- an explicitly positioned child is excluded from its parent's constraint
-//    computation -- and content that would overflow clips instead. Inside that wrapper the
-//    same rule applies to rows and columns: an overlay layout of fixed-size rows must not be a
-//    plain child of a viewport (`gem_viewport.slint`/`solid_viewport.slint` position theirs
-//    with `x`/`y`), and a stack of fixed-size children should use `alignment: start`.
+//    tree's constraints. A plain `Rectangle` over fixed-size children inherits their layout's
+//    maximum, which can pin the window's height. The window's whole content is therefore
+//    wrapped in a `Rectangle` with explicit `x`/`y` (see `global_shortcuts` below): an
+//    explicitly positioned child is excluded from its parent's constraint computation, and
+//    content that would overflow clips. Inside that wrapper, an overlay of fixed-size rows must
+//    not be a plain child of a viewport (`gem_viewport.slint`/`solid_viewport.slint` position
+//    theirs with `x`/`y`), and a stack of fixed-size children uses `alignment: start`.
 // 2. Resizable sections (the Edit sub-tab's viewport|dock split and its tier-table|inspector
 //    split) are sized by `SplitHandle` drags whose clamping lives in plain Slint expressions
 //    (`components/app/tab_3d_content.slint`, `editor_view.slint`); the result lands in
@@ -231,18 +229,17 @@ export component MainWindow inherits Window {
     callback open_user_manual();
 
     // File > Open Recent: up to ten design-file paths, seeded at startup from
-    // `AppSettings.recent_native_files` and kept live by
-    // `gui::editor::native_io::record_recent_native_file` (never written back from Slint).
+    // `AppSettings.recent_native_files` and kept live by Rust (never written back from Slint).
     // `open_recent_native_file` fires with the clicked entry's own path text.
     in property <[string]> recent_native_files: [];
     callback open_recent_native_file(string);
 
-    // The window-close unsaved-changes guard: `gui::mod::build_main_window`'s `on_close_requested`
-    // sets this instead of closing outright when `EditorModel.is_dirty` is true; its own
-    // `close_confirm_save`/`close_confirm_discard` handlers do the actual close. Cancel only
-    // resets this property (`WindowQuestionDialogs`). The guard also stops a close that would
-    // only lose Rough Planner work: `close_confirm_message` then says what would be lost and
-    // `close_confirm_can_save` is false, so the dialog hides its Save button.
+    // The window-close unsaved-changes guard: `gui::main_window`'s `on_close_requested` sets this
+    // instead of closing when `EditorModel.is_dirty` is true; `close_confirm_save` and
+    // `close_confirm_discard` then close. Cancel only resets this property
+    // (`WindowQuestionDialogs`).
+    // A close that would only lose Rough Planner work sets `close_confirm_message` to say so and
+    // `close_confirm_can_save` to false, which hides the Save button.
     in-out property <bool> close_confirm_open: false;
     in-out property <string> close_confirm_message: "Closing the window will discard the current design's unsaved changes.";
     in-out property <bool> close_confirm_can_save: true;
@@ -280,10 +277,9 @@ export component MainWindow inherits Window {
 
     changed render_view_tab => {
         if root.render_view_tab == 1 { root.edit_view_entered(); }
-        // Hand focus to this persistent ancestor before the outgoing view subtree disappears.
-        // Slint only clears focus on removal when that item is still focused, so the old child
-        // cannot clear this scope afterward. Do this synchronously so later user focus (for
-        // example, Ctrl+F opening a filter or clicking a form field) is never stolen by a timer.
+        // Focus moves to this persistent ancestor before the outgoing view is removed. Slint
+        // clears focus on removal only for the removed item itself, so the old child could leave
+        // no focus behind. Done synchronously, so a timer never takes focus the user has moved.
         if !win_state.other_overlay_open && !CommandPaletteModel.open && !EditorModel.write_confirm_open {
             global_shortcuts.focus();
         }
@@ -556,17 +552,11 @@ export component MainWindow inherits Window {
             focus_main => { global_shortcuts.focus(); }
         }
 
-        // Wraps the whole window body -- see this file's "Sizing notes"
-        // comment above (rule 1). The explicit `x`/`y` are load-bearing: the
-        // Slint compiler only folds a child's layout constraints (minimum AND
-        // maximum) into its parent when the child has no `x`/`y` binding
-        // (`passes/default_geometry.rs`, `gen_layout_info_prop`). A child
-        // that is positioned explicitly contributes nothing, so no minimum
-        // or maximum computed anywhere below can reach `MainWindow`; the
-        // window is left with only its own `min-*`/`preferred-*` above.
-        // `clip: true` is what makes that safe: content that would have
-        // overflowed at a size below its natural minimum clips instead of
-        // spilling out or forcing the window bigger.
+        // Wraps the whole window body (see "Sizing notes", rule 1). The explicit `x`/`y` are
+        // load-bearing: the Slint compiler folds a child's layout constraints (minimum AND
+        // maximum) into its parent only when the child has no `x`/`y` binding
+        // (`passes/default_geometry.rs`). Nothing below can therefore reach `MainWindow`, which
+        // keeps its own `min-*`/`preferred-*`. `clip: true` makes that safe: overflow clips.
         Rectangle {
             x: 0px;
             y: 0px;
@@ -582,8 +572,8 @@ export component MainWindow inherits Window {
             spacing: 6px;
 
             // 1. TOP BAR
-            // 1160px, not the 1100px stacking threshold below: the Simple | Advanced pill
-            // widens the logo cluster by ~130px, and the one-row header needs about 1140px.
+            // The Simple | Advanced pill widens the logo cluster by ~130px, and the one-row
+            // header needs about 1140px, hence the 1160px `compact` threshold.
             header_toolbar := HeaderToolbar {
                 compact: root.width < 1160px;
                 window_height: root.height;
@@ -615,12 +605,9 @@ export component MainWindow inherits Window {
                 if !LibraryModel.panel_collapsed: DiagramListView {}
                 if LibraryModel.panel_collapsed: CollapsedLibraryRail {}
 
-                // Right: Detail Area (Header + Tab/View-Pill Row + Tab Content).
-                // Wrapped in a clipping Rectangle with `min-width: 0px` and a
-                // explicitly sized (so unconstrained) column: a detail tab whose
-                // content wants more than the room left beside the library (the
-                // 720px minimum window) clips instead of widening the column past
-                // the window edge.
+                // Right: Detail Area (Header + Tab/View-Pill Row + Tab Content). The clipping
+                // Rectangle with `min-width: 0px` stops a tab whose content is wider than the room
+                // beside the library from widening the column past the window edge.
                 Rectangle {
                 horizontal-stretch: 1;
                 min-width: 0px;
@@ -695,11 +682,11 @@ export component MainWindow inherits Window {
             right_reserve: win_state.guide_float_reserve;
         }
 
-        // The Parameters panel where it has no room beside the viewport (a window too narrow to keep
-        // the viewport 700px wide in Live Render or 380px in the Edit view, see `params_docked_live`): a card over the right
-        // edge of the window, non-modal, closed by its own button or Esc. Its rail remains
-        // available beside the content. Explicit `x`/`y`, so it contributes no layout constraint to
-        // the window -- see "Sizing notes" above. Under the dialogs, so they cover it.
+        // The Parameters panel where the window is too narrow to keep the viewport its minimum
+        // width beside it (see `WindowState.params_docked_live`/`params_docked_edit`): a non-modal
+        // card over the window's right edge, closed by its own button or Esc. Its rail stays beside
+        // the content. Explicit `x`/`y`, so it adds no layout constraint (see "Sizing notes").
+        // Under the dialogs, so they cover it.
         if win_state.params_floating: ParametersPanel {
             floating: true;
             width: min(ParametersDockMetrics.open_width, root.width - 24px);
@@ -708,13 +695,12 @@ export component MainWindow inherits Window {
             y: 12px;
         }
 
-        // Cutting mode (Edit > Cutting Mode..., the command bar's Cut Mode, the palette): the
-        // cutting steps one page at a time over the whole window -- see
-        // `models/cutting_mode.slint`. At the default z and before the dialogs below, so the
-        // palette, the confirm questions and the glossary still draw above it. The wrapping
-        // `FocusScope` takes the keyboard on opening and swallows every key, Tab included, so
-        // no shortcut can fire on the design underneath; `CuttingModeModel.handle_key` decides
-        // what the keys mean (Esc leaves). A key with Ctrl, Alt or Meta held does nothing there.
+        // Cutting mode (Edit > Cutting Mode..., the command bar, the palette) covers the whole
+        // window (`models/cutting_mode.slint`). It sits before the dialogs, so the palette, the
+        // confirm questions and the glossary still draw above it. The wrapping `FocusScope`
+        // swallows every key, Tab included, so no shortcut reaches the design underneath;
+        // `CuttingModeModel.handle_key` decides what keys mean (Esc leaves). A key with Ctrl,
+        // Alt or Meta held does nothing there.
         if CuttingModeModel.open: FocusScope {
             x: 0px;
             y: 0px;
@@ -733,9 +719,8 @@ export component MainWindow inherits Window {
         }
 
         // The two gutters of the modal scrim: while the guide is lifted (`WindowState.guide_lifted`)
-        // each dialog dims only its own area, between two gutters of the guide card's width.
-        // These dim the gutters with the same backdrop and block clicks into them, so the only
-        // lit thing in the window is the guide card (`GuideOverlayLayer`, above everything).
+        // the dialogs dim only the area between them, so the guide card (`GuideOverlayLayer`) is
+        // the only lit thing in the window.
         if win_state.guide_lifted: Rectangle {
             x: 0px;
             y: 0px;
@@ -753,14 +738,10 @@ export component MainWindow inherits Window {
             TouchArea { }
         }
 
-        // Every dialog driven only by a global model -- see `GlobalDialogsOverlay`'s own doc
-        // comment (`components/app/global_dialogs.slint`) for the full list and why this is split
-        // out. That list includes `MaterialEditorDialog`, `PerformanceGraphDialog` and
-        // `ExportDialog` (window-level, so the modal scrim and its backdrop cover the whole window).
-        // The size is explicit (and `x`/`y` too, so it adds no constraints to the window): the
-        // overlay's children are all `if` branches, so left to itself it would be 0 x 0 and every
-        // dialog would draw nothing. It is the whole window, or the window less the two guide
-        // gutters while the guide is lifted: each dialog centres its card in it.
+        // Every dialog driven only by a global model (see `components/app/global_dialogs.slint`).
+        // The size is explicit, with `x`/`y`, so the overlay adds no constraints to the window:
+        // its children are all `if` branches, so left alone it would be 0 x 0. It covers the
+        // whole window, or the window less the two guide gutters while the guide is lifted.
         GlobalDialogsOverlay {
             x: win_state.dialog_area_x;
             y: 0px;

@@ -3,10 +3,10 @@
 //! Adapter/device acquisition, a minimal compute-pipeline harness, buffer
 //! upload/readback helpers, and the struct-layout/RNG/self-determinism
 //! self-tests any physics port must pass before its output can be trusted --
-//! plus [`frame`], a REAL, production GPU port of
+//! plus [`frame`], the production GPU port of
 //! `optics::raytracer::trace_spectral_ray` (the `transport_main` megakernel
 //! and the `Wavefront` pipeline alternative) that
-//! `renderer::gpu_backend::GpuBackend` dispatches scenes through today.
+//! `renderer::gpu_backend::GpuBackend` dispatches scenes through.
 //!
 //! # Modules
 //!
@@ -16,7 +16,7 @@
 //! - [`rng_check`]: RNG/integer bit-exactness test against the CPU.
 //! - [`determinism_check`]: GPU self-determinism test.
 //!
-//! `examples/gpu_equivalence_harness.rs` (gated on `gpu`, needs a real
+//! `examples/gpu_equivalence_harness/` (gated on `gpu`, needs a real
 //! adapter so it isn't a `cargo test` target) runs every self-test in this
 //! module and its siblings (`camera_check`/`environment_check`/`furnace_check`/
 //! `polyhedron_check`/`estimator_check`/`transport_check`/`shading_normal_check`,
@@ -39,9 +39,8 @@ pub mod furnace_check;
 pub mod polyhedron_check;
 pub(crate) mod ulp;
 
-// Full isotropic spectral estimator self-test (Fresnel/TIR, Stokes-Mueller
-// transport, pleochroic Beer-Lambert absorption, Russian roulette, spectral
-// MIS) -- cubic materials only; birefringence not covered here.
+// Spectral estimator self-tests: Fresnel/TIR, Stokes-Mueller transport, pleochroic
+// Beer-Lambert absorption, Russian roulette, spectral MIS.
 pub mod estimator_check;
 pub mod transport_check;
 
@@ -50,7 +49,7 @@ pub mod transport_check;
 pub mod z_stats;
 
 // Self-test for `shading_normal_near_edge`; kept separate (own `planes`
-// binding) from `transport_check`/`transport_functions.wgsl`.
+// binding) from `transport_check`.
 pub mod shading_normal_check;
 
 // Concave-stone (tool) self-tests: the megakernel's tool carve against the CPU reference,
@@ -61,15 +60,28 @@ pub mod tool_check;
 // module above verifies, via the dispatch routine `estimator_check` uses.
 pub mod event_wavefront;
 pub mod frame;
+// Path cache phase B on the GPU: the kernel source and the slab streaming (a child of `frame`).
+pub mod path_cache;
+// Beam tracing on the GPU: leaf and kept buffers, fragment kernels, the reference variant.
+#[cfg(feature = "beam")]
+pub mod beam;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 pub(crate) mod test_support;
+// One creation or teardown of an instance and device at a time, process-wide.
+#[cfg(not(target_arch = "wasm32"))]
+mod lifecycle;
+// The stall reproduction of `scripts/retest.sh`: ignored tests that each create and drop a
+// device of their own.
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod lifecycle_repro_tests;
+// Thread exits the lifecycle turn does not order.
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod lifecycle_exit_repro_tests;
 pub mod whitted;
 // The zoned stones the GPU checks render.
 pub mod zoned_cases;
-// `shader_validation_tests` used to live here, but that put it behind this module's
-// own `#[cfg(feature = "gpu")]` gate even though it needs no GPU adapter (`naga` is an
-// unconditional dev-dependency) -- see `renderer::shader_validation_tests`, declared
-// in `renderer/mod.rs` outside the gate, with `#[path]` pointing back at the same file.
+// `shader_validation_tests` is declared in `renderer/mod.rs`, outside this module's `gpu`
+// feature gate, because it needs no GPU adapter.
 
 // CPU+GPU hybrid rendering: GPU and every CPU core trace disjoint sample
 // ranges of one frame concurrently, merging into one image.
@@ -86,8 +98,7 @@ pub mod hybrid;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod merge_tests;
 
-// Before/after identity pin on `hybrid::cpu_accumulate` -- see the module's
-// own doc comment for why it exists and what it guards.
+// Identity pin on `hybrid::cpu_accumulate`; see the module's own doc comment for what it guards.
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod pin_tests;
 

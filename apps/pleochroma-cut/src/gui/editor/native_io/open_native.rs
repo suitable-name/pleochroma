@@ -1,7 +1,7 @@
-//! "Open": loads a `.psdd` design file, a bare `.asc` or a `.gem`/`.gcs`, replacing the whole editor state the
-//! same way "New"/"Load Selected" do. [`setup_open_native_callback`]/
-//! [`open_recent_native_path`] are this group's entry points; [`do_open_native`]
-//! dispatches a picked file to [`super::open_commit`]'s replace-state paths.
+//! The "Open" command: loads a `.psdd` design file, a bare `.asc` or a `.gem`/`.gcs`.
+//!
+//! [`setup_open_native_callback`] and [`open_recent_native_path`] are the entry points.
+//! [`do_open_native`] hands a picked file to the replace-state paths in [`super::open_commit`].
 
 use super::{
     open_commit::{
@@ -28,28 +28,18 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-/// "Open": loads a `.psdd` design file, a `.asc` or a
-/// `.gem`/`.gcs`. Replaces the
-/// whole editor state the same way "New"/"Load Selected" do (fresh `History`, no
-/// printed proportions unless the file carries them -- a locally opened file has no
-/// catalogue row to verify Deep Solve against, exactly like a brand-new design).
+/// Wires the "Open" command and File > Open Recent.
 ///
-/// Checks [`EditorState::is_dirty`] BEFORE doing anything else -- including before
-/// showing the file picker -- exactly like `setup_new_design_create_callback`/
-/// `setup_load_selected_callback` do for New/Load Selected: asking "keep unsaved
-/// changes?" only after making the user pick a file would be backwards. A dirty
-/// design stashes [`PendingUnsavedAction::OpenNative`] and opens the guard dialog
-/// instead of proceeding; [`setup_unsaved_guard_dispatch`]
-/// (`gui::editor::callbacks::tier_actions`) resumes by calling [`do_open_native`]
-/// again once Save/Discard is chosen, which re-shows the picker from scratch. The
-/// picker and the file read are asynchronous and the editor stays interactive, so
-/// [`do_open_native`] re-checks for edits made since that decision
-/// ([`ReplaceGuard`]) when the pick lands, before anything is replaced.
+/// Open replaces the whole editor state the way "New" and "Load Selected" do: a fresh
+/// `History`, and no printed proportions unless the file carries them, since a locally
+/// opened file has no catalogue row to verify Deep Solve against.
 ///
-/// Also registers File > Open Recent's callback -- bundled in here rather than a
-/// separate `setup_*` for the same reason [`setup_dirty_tracking`] is bundled into
-/// [`setup_save_native_callback`]: this is the one `setup_*` entry point Open's own
-/// wiring has to answer to.
+/// The dirty check runs before the file picker opens, as in New and Load Selected: a dirty
+/// design stashes [`PendingUnsavedAction::OpenNative`] and shows the guard dialog.
+/// `setup_unsaved_guard_dispatch` (in `gui::editor::callbacks::tier_actions::lifecycle`)
+/// resumes by calling [`do_open_native`] once Save or Discard is chosen. The picker and the
+/// file read are asynchronous and the editor stays interactive, so [`do_open_native`]
+/// re-checks for edits made meanwhile ([`ReplaceGuard`]) before anything is replaced.
 pub(in crate::gui::editor) fn setup_open_native_callback(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -58,7 +48,7 @@ pub(in crate::gui::editor) fn setup_open_native_callback(
     preview_state: &Arc<SolidPreviewState>,
     solid_last_solved: &crate::gui::editor::view::SolidLastSolved,
 ) {
-    // A design file's color pattern is restored into the vault on open.
+    // The vault a design file's color pattern is restored into.
     register_vault(db);
     let state_open = Rc::clone(state);
     let render_ctx_open = Arc::clone(render_ctx);
@@ -89,14 +79,9 @@ pub(in crate::gui::editor) fn setup_open_native_callback(
         });
     });
 
-    // File > Open Recent (`ui/app.slint`'s `MainWindow.open_recent_native_file`) --
-    // a root-component callback rather than an `EditorModel` one, since
-    // `recent_native_files`/`open_recent_native_file` are declared directly on
-    // `MainWindow` (`ui/app.slint`) rather than on
-    // `EditorModel` (`ui/models/editor.slint`, owned elsewhere). Opening an entry
-    // re-records it via [`record_recent_native_file`] (inside
-    // [`open_design_file`], which this path shares with the ordinary picker),
-    // so using a recent file also bumps it back to the front.
+    // File > Open Recent (`MainWindow.open_recent_native_file` in `ui/app.slint`). It is a
+    // root-component callback because the recent list lives on `MainWindow`. Opening an
+    // entry moves it to the front of the list (see `open_design_file`).
     let state_recent = Rc::clone(state);
     let render_ctx_recent = Arc::clone(render_ctx);
     let preview_state_recent = Arc::clone(preview_state);
@@ -119,24 +104,14 @@ pub(in crate::gui::editor) fn setup_open_native_callback(
     });
 }
 
-/// File > Open Recent's own click handler -- loads `native_path` directly (no file
-/// picker) via the exact same [`read_picked_path_then`]/[`dispatch_picked`] path
-/// [`do_open_native`] uses for a picked file, so it takes a `.psdd` design file, a `.asc`
-/// or a `.gem`/`.gcs` alike. Guards on
-/// [`EditorState::is_dirty`] like every other destructive replace-the-design entry
-/// point in this module, but -- unlike [`setup_open_native_callback`]'s own picker
-/// path -- does not yet resume through the Save/Discard/Cancel dialog on a dirty
-/// design: `PendingUnsavedAction` has no variant carrying a specific path to resume
-/// at (only `OpenNative`, which re-shows the picker from scratch), and that enum is
-/// owned by `state/mod.rs`. Refusing with a toast instead is safe (nothing is lost)
-/// though less smooth; a future change could close this gap by adding a
-/// `PendingUnsavedAction` variant that carries a specific path to resume at.
+/// File > Open Recent's click handler, and the startup path for "reopen last design", the
+/// leftover-autosave offer and a design given on the command line. Loads `native_path`
+/// without a file picker, through the same read as [`do_open_native`] (a `.psdd`, `.asc`
+/// or `.gem`/`.gcs`).
 ///
-/// `pub(super)` (rather than private) so `gui::editor::mod`'s startup sequence can
-/// reuse it for "reopen last design", the leftover-autosave offer and a design given
-/// on the command line -- `AppSettings::recent_native_files` already carries the
-/// most-recently-used path first; this is the same load path "File > Open Recent"
-/// itself uses to open it.
+/// A dirty design is refused with a toast. Unlike [`setup_open_native_callback`], this does
+/// not resume through the Save/Discard dialog: [`PendingUnsavedAction`] has no variant that
+/// carries a path to resume at. Refusing loses nothing.
 pub(in crate::gui::editor) fn open_recent_native_path(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -223,12 +198,9 @@ fn dispatch_picked(
     }
 }
 
-/// The actual "Open" work -- see [`setup_open_native_callback`]'s own doc
-/// comment for why the unsaved-changes guard runs before this is ever called, not
-/// inside it. Reads whichever file the cutter picked via [`pick_design_then`],
-/// then dispatches (see [`dispatch_picked`]) to [`open_design_file`] (a `.psdd` design
-/// file), [`open_plain_asc`] (a bare `.asc`) or
-/// [`open_converted_design`] (a `.gem`/`.gcs` file).
+/// Shows the Open picker and dispatches the file the cutter picks (see [`dispatch_picked`]) to
+/// [`open_design_file`], [`open_plain_asc`] or [`open_converted_design`]. The unsaved-changes
+/// guard runs before this, not inside it (see [`setup_open_native_callback`]).
 pub(in crate::gui::editor) fn do_open_native(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -236,9 +208,8 @@ pub(in crate::gui::editor) fn do_open_native(
     preview_state: &Arc<SolidPreviewState>,
     solid_last_solved: &crate::gui::editor::view::SolidLastSolved,
 ) {
-    // Captured now -- the dirty check (or the Save/Discard answer that resumed this
-    // call) just happened; the picker below is asynchronous and the editor stays
-    // interactive while it is up.
+    // Captured now, after the dirty check (or the Save/Discard answer that resumed this call).
+    // The picker is asynchronous and the editor stays interactive while it is open.
     let guard = ReplaceGuard::capture(&state.borrow(), true);
     let state = Rc::clone(state);
     let render_ctx = Arc::clone(render_ctx);

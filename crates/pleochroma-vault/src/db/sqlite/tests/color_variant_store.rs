@@ -47,10 +47,9 @@ fn custom_material(name: &str) -> CustomMaterialParams<'_> {
 fn a_variant_can_be_created_read_updated_and_deleted() {
     let db = in_memory_db();
     assert_eq!(db.load_color_variant("user.a").unwrap(), None);
-    assert!(
-        db.load_color_variants_of_material("Sapphire")
-            .unwrap()
-            .is_empty()
+    assert_eq!(
+        db.load_color_variants_of_material("Sapphire").unwrap(),
+        [] as [MaterialColorVariantRow; 0]
     );
 
     db.save_color_variant(&variant("user.a", "Sapphire", "Teal", "one"))
@@ -127,10 +126,9 @@ fn renaming_a_material_moves_its_variants() {
             .unwrap(),
         2
     );
-    assert!(
-        db.load_color_variants_of_material("Old Name")
-            .unwrap()
-            .is_empty()
+    assert_eq!(
+        db.load_color_variants_of_material("Old Name").unwrap(),
+        [] as [MaterialColorVariantRow; 0]
     );
     assert_eq!(
         db.load_color_variants_of_material("New Name")
@@ -213,7 +211,10 @@ fn a_read_only_connection_reads_nothing_and_refuses_writes() {
     }
     let ro = Database::open_read_only(path_text).expect("open read-only");
     assert_eq!(ro.load_color_variant("user.ro").unwrap(), None);
-    assert!(ro.load_color_variants_of_material("Ro").unwrap().is_empty());
+    assert_eq!(
+        ro.load_color_variants_of_material("Ro").unwrap(),
+        [] as [MaterialColorVariantRow; 0]
+    );
     assert_eq!(ro.delete_color_variant("user.ro").unwrap(), 0);
     assert_eq!(ro.delete_color_variants_of_material("Ro").unwrap(), 0);
     assert_eq!(ro.rename_color_variant_label("user.ro", "B").unwrap(), 0);

@@ -2,10 +2,9 @@
 
 use super::*;
 
-/// The `OnceLock`-per-preset cache must not change the visible value: asserts the
-/// cached value for every preset matches the expectation derived from the preset's
-/// illuminant: the identity wherever the preset has no white balance
-/// (`!uses_white_balance`: D65 presets and UV lamps), otherwise a fresh, uncached Bradford adaptation of the blackbody.
+/// The per-preset cache must return the same value as a direct computation for every preset:
+/// the identity where the preset has no white balance (`!uses_white_balance`: D65 presets and
+/// UV lamps), otherwise an uncached Bradford adaptation of the blackbody.
 #[test]
 fn illuminant_white_balance_matches_direct_computation_for_all_presets() {
     for preset in LightingPreset::ALL {

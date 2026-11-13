@@ -1,4 +1,4 @@
-//! Tests for `ZoneKernel::zone_index_at` and its f32 twin (written, not run, by lane CP-C1).
+//! Tests for `ZoneKernel::zone_index_at` and its f32 twin.
 //!
 //! Property tests use a fixed seed (a splitmix64 generator, no dependency).
 
@@ -298,7 +298,7 @@ fn every_shape_kind_has_hand_checked_points() {
     assert_eq!(prism.zone_index_at(at(0.0, 0.0, 3.0)), 1);
     assert_eq!(prism.zone_index_at(at(0.9, 0.0, 0.0)), 1);
     assert_eq!(prism.zone_index_at(at(1.1, 0.0, 0.0)), 0);
-    // The corner side: a point at radius 1.1 towards a corner (angle 180 degrees) is inside.
+    // Towards a corner (180 degrees) the prism reaches radius 2, so a point at 1.5 is inside.
     assert_eq!(prism.zone_index_at(at(-1.5, 0.0, 0.0)), 1);
 
     // A quarter wedge about Z from the reference direction (+X) towards +Y.
@@ -363,7 +363,7 @@ fn soft_boundaries_pick_the_larger_blended_weight() {
     assert_eq!(k.zone_index_at(DVec3::new(0.01, 0.0, 0.0)), 1);
     assert_eq!(k.zone_index_at(DVec3::new(-0.01, 0.0, 0.0)), 0);
 
-    // Over a short segment the zone with the most length is the index, unless two zones tie.
+    // Over a short segment the index is the zone with the most length, when it leads by 5 %.
     for (name, shapes) in analytic_shapes() {
         let z = build(shapes, test_frame(), 0.3);
         let kernel = ZoneKernel::new(&z);

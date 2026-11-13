@@ -55,7 +55,8 @@ fn hdr_within_limit(map: &EnvironmentMap, storage_limit: u64) -> Result<(), Whit
 ///
 /// # Errors
 ///
-/// Returns [`WhittedGpuError::Declined`] when an HDR map would exceed `storage_limit` bytes.
+/// Returns [`WhittedGpuError::Declined`] when the HDR map or the stone-shadow upload would
+/// exceed `storage_limit` bytes.
 #[cfg_attr(
     not(test),
     expect(
@@ -70,7 +71,23 @@ fn environment_upload(
     #[cfg(test)]
     super::env_cache::note_upload();
     Ok(match *env {
-        WhittedGpuEnv::Hdr(map) => {
+        WhittedGpuEnv::Studio {
+            tray_shadow: Some(map),
+            ..
+        } => {
+            let texels = u64::from(map.resolution())
+                .saturating_mul(u64::from(map.resolution()))
+                .saturating_add(1);
+            if texels.saturating_mul(16) > storage_limit {
+                return Err(WhittedGpuError::Declined(
+                    "Stone shadow exceeds Ray-Traced GPU storage limit".into(),
+                ));
+            }
+            let mut data = vec![[0.0; 4]];
+            data.extend(crate::optics::raytracer::environment::tray_shadow::pack_whitted_rgb(map));
+            (data, [1, 1, 0, 0])
+        }
+        WhittedGpuEnv::Hdr { map, .. } => {
             hdr_within_limit(map, storage_limit)?;
             let data: Vec<[f32; 4]> = map
                 .pixels()
@@ -128,6 +145,28 @@ impl WhittedGpuRenderer {
         prep: &WhittedPrep<'_>,
         storage_limit: u64,
     ) -> Result<(wgpu::Buffer, [u32; 2]), WhittedGpuError> {
+        let data = prep.env.gpu_data();
+        let shadow = match &data {
+            WhittedGpuEnv::Studio {
+                tray_shadow: Some(map),
+                ..
+            } => Some(*map),
+            _ => None,
+        };
+        if let Some(map) = shadow {
+            let bytes = (u64::from(map.resolution())
+                .saturating_mul(u64::from(map.resolution()))
+                .saturating_add(1))
+            .saturating_mul(16);
+            if bytes > storage_limit {
+                return Err(WhittedGpuError::Declined(
+                    "Stone shadow exceeds Ray-Traced GPU storage limit".into(),
+                ));
+            }
+            if let Some(buffer) = self.environment_cache.lookup_shadow(map.key()) {
+                return Ok((buffer, [1, 1]));
+            }
+        }
         let shared = prep.env.shared_hdr();
         if let Some(map) = shared {
             // The decline rule applies to a cache hit exactly as to a fresh upload.
@@ -136,7 +175,7 @@ impl WhittedGpuRenderer {
                 return Ok(hit);
             }
         }
-        let (texels, dims) = environment_upload(&prep.env.gpu_data(), storage_limit)?;
+        let (texels, dims) = environment_upload(&data, storage_limit)?;
         let buffer = self
             .ctx
             .device
@@ -153,6 +192,10 @@ impl WhittedGpuRenderer {
                 texel_dims,
                 bytes: hdr_bytes(map),
             });
+        }
+        if let Some(map) = shadow {
+            self.environment_cache
+                .store_shadow(map.key(), buffer.clone());
         }
         Ok((buffer, texel_dims))
     }
@@ -271,4 +314,55 @@ fn next_upload_id() -> u64 {
     use std::sync::atomic::{AtomicU64, Ordering};
     static NEXT_UPLOAD: AtomicU64 = AtomicU64::new(1);
     NEXT_UPLOAD.fetch_add(1, Ordering::Relaxed)
+}
+
+#[cfg(test)]
+mod shadow_upload_tests {
+    use super::*;
+    use crate::optics::{
+        raytracer::environment::{
+            LightingPreset,
+            tray_shadow::{TRAY_SHADOW_BANDS, TrayShadowKey, TrayShadowMap},
+        },
+        studio_rig::StudioRig,
+    };
+
+    #[test]
+    fn shadow_upload_obeys_storage_limit_and_preserves_texel_order() {
+        let map = TrayShadowMap::from_parts(
+            -1.0,
+            [0.0, 0.0],
+            2.0,
+            2,
+            vec![1.0; 4 * TRAY_SHADOW_BANDS],
+            vec![[0.2, 0.4, 0.6]; 4],
+            TrayShadowKey(42),
+        );
+        let rig = StudioRig::new(0.0, 0.5);
+        let env = WhittedGpuEnv::Studio {
+            preset: LightingPreset::LightTent,
+            exposure: 1.0,
+            rig: &rig,
+            shadow: [0.0; 2],
+            rgb: glam::Vec3::ONE,
+            backdrop: 0.5,
+            tray_shadow: Some(&map),
+            tray_mirror: None,
+        };
+        assert!(matches!(
+            environment_upload(&env, 79),
+            Err(WhittedGpuError::Declined(_))
+        ));
+        let (texels, _) = environment_upload(&env, 80).expect("fits exactly");
+        assert_eq!(
+            texels,
+            vec![
+                [0.0; 4],
+                [0.2, 0.4, 0.6, 0.0],
+                [0.2, 0.4, 0.6, 0.0],
+                [0.2, 0.4, 0.6, 0.0],
+                [0.2, 0.4, 0.6, 0.0]
+            ]
+        );
+    }
 }

@@ -50,22 +50,15 @@
 //! dispatch level. Two calls with the same planes produce byte-identical vertices,
 //! polygons, triangles, volume and areas, within one process or across processes.
 //!
-//! # Why `chull` was removed (2026-09-28)
+//! # Why not a convex hull
 //!
-//! This module used to build the convex hull of the dual points `n / -d` with the
-//! `chull` crate (0.2.4). `chull` iterates randomly seeded `HashSet`s while it builds
-//! the hull, so its facet order and its triangulation of coplanar dual faces changed
-//! on every call: vertex order, the positions of vertices where more than three
-//! planes meet (up to ~3e-6 apart), polygons, triangles, volume and areas all varied
-//! between calls and between runs. It also rejected valid solids whose origin sat
-//! close to one facet (its degeneracy thresholds are absolute), and for dense inputs
-//! (about 500 planes or more) it returned non-convex hulls and flipped between `Ok`
-//! and `Err`. The primal enumeration here has none of these failure modes. Its cost
-//! is `O(P^3)` in the plane count in the worst case, cut down by a conservative
-//! pair prune in the walk (release build: about 0.7 ms for the round brilliant,
-//! 7 ms for the 205-plane crackotto fixture, 0.7 s for a 1000-plane sphere). That is
-//! acceptable because nothing calls `from_planes` on a hot path: the tracer
-//! intersects raw planes and the CAD preview uses `stone_metrics::build_solid_mesh`.
+//! Hulling the dual points `n / -d` with a library hull was rejected: its facet order and
+//! triangulation of coplanar faces vary between runs, so vertex order and the positions of
+//! near-coincident vertices are not reproducible, and its absolute degeneracy thresholds
+//! reject valid solids whose origin sits close to a facet. The primal enumeration here has
+//! neither problem. Its worst case is `O(P^3)` in the plane count, cut down by a conservative
+//! pair prune; nothing calls `from_planes` on a hot path (the tracer intersects raw planes and
+//! the CAD preview uses `stone_metrics::build_solid_mesh`).
 
 mod helpers;
 
@@ -274,8 +267,7 @@ const UNIT_NORMAL_TOLERANCE: f64 = 1e-4;
 /// Relative distance below which two planes' polar dual points `q = n / m` count as
 /// the same half-space: `|q_i - q_j| < COINCIDENT_PLANE_EPS * max(|q_i|, |q_j|)`.
 /// Purely relative, with no absolute floor, so the verdict does not depend on the
-/// design's scale (the old `max(1.0)` floor called opposite faces of a
-/// cube at scale `1e12` coincident).
+/// design's scale.
 ///
 /// A parallel plane farther out than this is well above [`INCIDENCE_EPS`], so it
 /// never touches a vertex and is reported by [`GemPolyhedron::untouched_planes`].
@@ -286,17 +278,12 @@ const COINCIDENT_PLANE_EPS: f64 = 1e-7;
 /// more than this, in the normalised frame, plus its own solve-residual bound
 /// (`SOLVE_RESIDUAL_BOUND / |det|`, see [`SOLVE_RESIDUAL_BOUND`]).
 ///
-/// Much tighter than the arrangement walk's `1e-5` feasibility slack on purpose.
-/// That slack is harmless for `stone_metrics`, which only needs positions, but as an
-/// *incidence* test it smears: two nearly parallel planes (angle `a`) both lie within
-/// `1e-5` of each other along a band `1e-5 / a` wide, so a vertex anywhere in that
-/// band "touches" both. On the Shah replica fixture the crown pair 6/7 (0.0064 rad
-/// apart) claimed a vertex 1.1e-3 away on plane 7's side, putting it into plane 6's
-/// ring and breaking manifoldness. Planes stored as `f32` are exact in `f64`, so the
-/// true polytope's vertices solve to about `1e-15`; `1e-9` keeps a wide margin over
-/// that while staying far below any real facet size. Vertices a design means to be
-/// one point but that rounding split apart are all genuine at this tolerance, and
-/// the weld ([`VERTEX_WELD_EPS_REL`]) merges them.
+/// Much tighter than the arrangement walk's `1e-5` feasibility slack, which is harmless for
+/// positions but smears as an *incidence* test: two nearly parallel planes (angle `a`) both
+/// lie within `1e-5` of each other along a band `1e-5 / a` wide, so a vertex in that band
+/// "touches" both. Planes stored as `f32` are exact in `f64`, so true vertices solve to about
+/// `1e-15`; `1e-9` keeps a wide margin over that. Vertices that rounding splits apart are
+/// merged by the weld ([`VERTEX_WELD_EPS_REL`]).
 const INCIDENCE_EPS: f64 = 1e-9;
 
 /// Bound on `|residual| * |det|` for one triple solve (about `4e-13` for unit
@@ -323,10 +310,9 @@ const ENUMERATION_DET_FLOOR: f64 = 1e-8;
 /// dedup (`VERTEX_DEDUP`, `1e-6` per axis): facets that a design means to meet at
 /// one point but whose offsets were rounded (hand-authored `.asc` masts carry 4-8
 /// digits) produce several solutions a few `1e-5` apart, and they must weld into one
-/// vertex or the mesh grows sliver facets. The consequence is that a genuine edge
-/// shorter than this collapses (the B-rep then has fewer vertices than
-/// `stone_metrics` counts: 215 against 236 on the 205-plane crackotto fixture), and
-/// a facet whose every vertex welds into one or two points is reported by
+/// vertex or the mesh grows sliver facets. The consequence is that a genuine edge shorter
+/// than this collapses, so the B-rep can have fewer vertices than `stone_metrics` counts.
+/// A facet whose every vertex welds into one or two points is reported by
 /// [`GemPolyhedron::untouched_planes`].
 const VERTEX_WELD_EPS_REL: f64 = 1e-4;
 

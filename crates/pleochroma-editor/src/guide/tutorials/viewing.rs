@@ -1,6 +1,4 @@
-//! The viewing, output, library and app tutorials: one guided lesson for each function that
-//! looks at a design, gets it out of the program, finds one in the library or sets the program
-//! up.
+//! Guided lessons for viewing, exporting and finding designs, and for setting up the program.
 //!
 //! - `solid`: picking facets in the Solid view, the drag handles, Slice, the Diagram view and the
 //!   Cut slider.
@@ -14,6 +12,9 @@
 //!   scratches, silk, play-of-color and per-ray curves (helpers and goals in `effects_common`).
 //! - `color_variants`: picking, making and saving a color variant, and coloring the zones of a
 //!   color pattern from variants.
+//! - `stone_effects`, `optical`, `render_jobs`, `crystal_axis`, `crystal_axis_rough` and
+//!   `rough_color`: the Stone tab's effects, optical diagnostics, render jobs, the crystal axis
+//!   in the editor and in the Rough Planner, and rough color.
 //! - `app`: the Simple | Advanced switch, high contrast, the interface scale, larger handles,
 //!   the command palette, the keyboard, the manual and the glossary.
 //!
@@ -58,9 +59,9 @@ const GIRDLE: [f64; 16] = [
     0.0, 6.0, 12.0, 18.0, 24.0, 30.0, 36.0, 42.0, 48.0, 54.0, 60.0, 66.0, 72.0, 78.0, 84.0, 90.0,
 ];
 
-/// A tier of the Rich Teaching Design (card 5 of the New Design dialog) as the lessons start it:
-/// its name, angle in degrees, mast and index positions. The viewport lessons start from it, so
-/// "has the learner moved something" is a comparison with these numbers.
+/// A tier of the Rich Teaching Design (card 5 of the New Design dialog) as the lessons start it.
+///
+/// The viewport lessons detect a move as a difference from these numbers.
 struct Original {
     name: &'static str,
     angle_deg: f64,
@@ -96,8 +97,8 @@ const RICH: [Original; 4] = [
     },
 ];
 
-/// How far an angle may sit from its starting value and still count as untouched. The drag
-/// handles snap to a tenth of a degree, so a real drag is always further than this.
+/// How far an angle may sit from its starting value and still count as untouched: the drag
+/// handles snap to a tenth of a degree by default, so a real drag goes further.
 const ANGLE_SLACK_DEG: f64 = 0.05;
 
 /// How far a mast may sit from its starting value and still count as untouched (the handles
@@ -152,9 +153,10 @@ fn event(name: &str) -> Goal {
     Goal::Event(name.to_owned())
 }
 
-/// The Path-Traced picture shows, alone (view mode 1) or with the Solid layer (mode 2). The
-/// pills are toggles: from Solid, one click on Path-Traced gives Solid + Path-Traced, not Path-Traced
-/// alone, so a step that says "Click Path-Traced" must accept both.
+/// The Path-Traced picture shows alone (view mode 1) or with the Solid layer (mode 2).
+///
+/// The view pills are toggles: from Solid, one click on Path-Traced gives both layers, so a
+/// step that says "Click Path-Traced" must accept both modes.
 fn path_traced_view() -> Goal {
     Goal::Any(vec![Goal::ViewMode(1), Goal::ViewMode(2)])
 }

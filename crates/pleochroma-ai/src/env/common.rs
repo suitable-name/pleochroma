@@ -1,16 +1,13 @@
-//! The machinery both environments share: scoring a design, the greedy episode core and its
-//! description as an observation.
+//! Machinery shared by both environments: scoring a design, the greedy episode core and its
+//! observation.
 //!
-//! The optimizer environment scores a design in its own material; the retarget environment
-//! scores it in a target material. Everything else is identical, so both wrap one
-//! [`EnvCore`] and only differ in the gem they score with and in how they describe the
-//! materials in the observation.
+//! The optimizer and retarget environments both wrap one [`EnvCore`]. They differ only in
+//! the gem they score with and in how the observation describes the materials.
 //!
-//! The core is spread over five modules that share its crate-visible fields: this one (the
-//! state and scoring), [`super::observe`] (the observation of the current state),
-//! [`super::moves`] (the movable set and how an action becomes a candidate),
-//! [`super::stepping`] (the greedy step and its line search) and [`super::teacher`] (the
-//! finite-difference labels).
+//! The core's state is spread over five modules that share its crate-visible fields: this
+//! one (state and scoring), [`super::observe`] (observation), [`super::moves`] (movable set
+//! and action-to-candidate), [`super::stepping`] (greedy step and line search) and
+//! [`super::teacher`] (finite-difference labels).
 
 #![allow(
     clippy::redundant_pub_crate,
@@ -38,14 +35,14 @@ use std::sync::Arc;
 pub(crate) use super::evaluation::evaluate_design;
 pub(crate) use super::moves::{MoveSpace, apply_action};
 
-/// Default score below which an episode counts as solved: `0.0`, so ordinary positive-score
-/// episodes end at the step limit. (A threshold of 5 ended the episodes of designs
-/// whose base score was already below it after their first step, producing one-step
-/// episodes that taught nothing.)
+/// Default score below which an episode counts as solved.
+///
+/// `0.0` lets positive-score episodes run to the step limit. A threshold above a design's
+/// base score would end its episode after one step.
 pub(crate) const DEFAULT_TERMINAL_SCORE: f32 = 0.0;
 
-/// Default fraction of the base design's thinnest girdle band a candidate must keep (the
-/// value the cut-core optimizer documents for "at least half the girdle thickness").
+/// Default fraction of the base design's thinnest girdle band a candidate must keep (half,
+/// as the cut-core optimizer documents).
 pub(crate) const DEFAULT_MIN_GIRDLE_RATIO: f32 = 0.5;
 
 /// The solved facet planes in the GPU plane convention, shared by the environments and the
@@ -61,9 +58,9 @@ pub(crate) fn to_gpu_planes(planes: &[(DVec3, f64)]) -> Vec<GpuFacetPlane> {
 /// The material a design was authored for, as the editor and the optimizer see it.
 ///
 /// The built-in preset named by the selection (diamond when there is none), then the
-/// selection's refractive-index and colour overrides; with no recognised preset and no
-/// override, the design's effective refractive index ([`Design::effective_refractive_index`],
-/// so an `.asc` `I` line) as a flat index.
+/// selection's overrides. With no recognised preset and no index override, the design's
+/// effective refractive index ([`Design::effective_refractive_index`], which reads an `.asc`
+/// `I` line) is used as a flat index.
 #[must_use]
 pub fn design_source_material(design: &Design) -> ResolvedMaterial {
     let mut selection: MaterialSelection = design.material.clone();
@@ -146,9 +143,8 @@ pub(crate) struct LiveTierGeometry {
 
 /// The volume of `design`'s preform, `None` when it does not measure.
 ///
-/// A pure function of `design.preform`, which neither environment ever writes (they move
-/// only `angle_deg` and `constraint`), so [`EnvCore`] measures it once and hands it to
-/// every [`evaluate_design`] call instead of re-measuring per step.
+/// Depends only on `design.preform`, which the environments never change, so [`EnvCore`]
+/// measures it once and passes it to every [`evaluate_design`] call.
 pub(crate) fn preform_volume(design: &Design) -> Option<f64> {
     measure_solid(&design.preform.planes()).map(|metrics| metrics.volume)
 }
@@ -313,8 +309,8 @@ pub(crate) struct EnvCore {
     pub(crate) gem: GemMaterial,
     pub(crate) reward: RewardEvaluator,
     pub(crate) base_design: Design,
-    /// [`preform_volume`] of the base design, measured once: the base design is fixed for
-    /// the core's life (a new design is a new core), so it never goes stale.
+    /// [`preform_volume`] of the base design. The base is fixed for the core's life, so it
+    /// is measured once.
     pub(crate) preform_volume: Option<f64>,
     pub(crate) current_design: Design,
     pub(crate) space: MoveSpace,
@@ -332,8 +328,7 @@ impl EnvCore {
     ///
     /// [`EnvError::InvalidConfig`] for an out-of-range setting; [`EnvError::Unsolvable`],
     /// [`EnvError::NotClosed`] or [`EnvError::NonFiniteScore`] when the base design cannot be
-    /// scored; [`EnvError::NoMovableTiers`]
-    /// when no tier can move.
+    /// scored; [`EnvError::NoMovableTiers`] when no tier can move.
     pub(crate) fn new(
         design: Design,
         gem: GemMaterial,

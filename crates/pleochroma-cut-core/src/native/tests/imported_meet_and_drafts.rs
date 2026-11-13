@@ -1,7 +1,7 @@
-//! `imported_meet`/`original_notes` round-tripping through the design file, and the
-//! draft path: a design that cannot currently solve (or has zero tiers) still yields a
-//! placeholder catalogue `.asc` (never an error), its design file still holds every
-//! tier in full, and a tier without geometry is refused rather than silently invented.
+//! `imported_meet` and `original_notes` through the design file, and the draft path.
+//!
+//! A design that cannot solve, or has no tiers, still yields a placeholder `.asc`, and its
+//! design file keeps every tier. A tier without geometry is refused, not invented.
 
 use super::fixtures::{design_text, reopen, simple_design, unsolved_design};
 use crate::{
@@ -17,10 +17,9 @@ use pleochroma::geometry::meet_solver::MeetConstraint;
 #[test]
 fn imported_meet_and_original_notes_are_read_back_from_the_file_when_present() {
     let mut design = simple_design();
-    // Tier 1 is `MeetExisting` in `simple_design`, so `.asc` import alone left it
-    // with no `imported_meet`/`original_notes` (see `ConstraintTier::imported_meet`'s
-    // own doc comment) -- set both explicitly so this test actually exercises the
-    // "read back when present" path, not "already there from import".
+    // Tier 1 is `MeetExisting` in `simple_design`, so an `.asc` import leaves it without
+    // `imported_meet` and `original_notes`. Both are set here, so the test covers reading them
+    // back rather than keeping what the import produced.
     design.tiers[1].imported_meet = Some(MeetConstraint::MeetNamed(vec!["Girdle".to_string()]));
     design.tiers[1].original_notes = Some("Meet Girdle".to_string());
 
@@ -94,11 +93,8 @@ fn a_design_that_solves_yields_no_draft_reason() {
     assert!(saved.draft_reason.is_none());
 }
 
-/// A brand-new design with zero tiers must still produce a catalogue `.asc` that
-/// actually parses back (`pleochroma_formats::asc::parse_asc` rejects any file with no
-/// `a` facet records at all -- the defect this closes), and whose design file carries
-/// the tier-less truth directly so the reopened design has an empty tier list rather
-/// than ever trusting the placeholder facet record.
+/// A design with zero tiers produces a catalogue `.asc` that parses back. The design file
+/// holds the empty tier list, so the reopened design never trusts the placeholder facet.
 #[test]
 fn a_tier_less_design_saves_as_a_reopenable_draft() {
     let design = crate::design::Design::fresh(PreformSpec::block(2.0, 1.0, 2.0), 96, 4, 1.62);

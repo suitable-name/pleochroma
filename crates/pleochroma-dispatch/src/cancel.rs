@@ -30,8 +30,7 @@ impl CancelToken {
         self.0.load(Ordering::Acquire)
     }
 
-    /// The underlying flag, for code that takes a plain `&AtomicBool` (the export's
-    /// existing dispatch helpers, the tracer's cancellable entry points).
+    /// The underlying flag, for callers that take a plain `&AtomicBool`.
     #[must_use]
     pub fn as_flag(&self) -> &AtomicBool {
         &self.0

@@ -1,9 +1,8 @@
 //! The alternatives of a Preferred rule: best yield, best orientation, and the balance between.
 //!
 //! A Preferred rule trades yield against orientation, so one plan cannot show both ends. The
-//! piece table stores ONE argmax per piece, so a different weight is a different table: the three
-//! layouts are three table builds and three DPs of ONE cut order (the best layout's, the
-//! `plan_alternatives_lanes` pattern), not three full plans.
+//! piece table keeps ONE argmax per piece, so each weight needs its own table: the three layouts
+//! are three table builds and three DPs of the best layout's cut order, not three full plans.
 //!
 //! - **Best Yield**: the rule's weight is zero (no design carries a rule); the plan the rule
 //!   would give if it did not exist.
@@ -11,9 +10,8 @@
 //!   stone is within the tolerance (a Required rule or a design without a rule stays as it is).
 //! - **Balanced**: the plan's own weight (the knee between the two).
 //!
-//! Cost: about 60 to 100 percent of the block stage again with a Preferred rule; nothing with no
-//! rule or only Required rules (the function then returns no alternatives: the plan itself is the
-//! only layout of its kind). The owner measures.
+//! Without a Preferred rule there is no trade to show, and no alternatives are returned: the plan
+//! itself is the only layout of its kind.
 //!
 //! The result is deterministic: the same inputs give the same layouts, whatever the lane count
 //! (`lanes` only spreads the table builds over threads).

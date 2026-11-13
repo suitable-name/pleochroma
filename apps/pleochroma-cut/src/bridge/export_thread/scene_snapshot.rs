@@ -1,8 +1,5 @@
-//! [`SceneSnapshot`]: a read-only capture of everything a render needs, taken out of
-//! the live `RenderContext` under one short lock.
-//!
-//! Split out of `bridge::export_thread` purely to keep that module (already sizeable)
-//! from growing further.
+//! [`SceneSnapshot`]: a read-only capture of everything a render needs, taken out of the
+//! live `RenderContext` under one short lock.
 
 use crate::bridge::{
     frame_cache::stone_width::StoneWidthCache,
@@ -13,18 +10,20 @@ use crate::bridge::{
 };
 use pleochroma::{
     geometry::{
-        facet_finishes_with_frosted, girdle_facet_finishes, plane::GpuFacetPlane,
-        tool::ToolPrimitive,
+        facet_finishes_with_frosted, girdle_facet_finishes,
+        plane::GpuFacetPlane,
+        tool::{StoneGeometry, ToolPrimitive},
     },
     optics::{
         fluorescence::Fluorescence,
         materials::GemMaterial,
         raytracer::{
-            FacetFinish, LightingPreset,
+            EnvironmentSource, FacetFinish, LightingPreset,
+            environment::tray_plane_y,
             surface::{FacetSurface, SurfaceScene},
         },
     },
-    renderer::env_map::EnvironmentMap,
+    renderer::env_map::{EnvironmentMap, HdrOrientation},
 };
 use pleochroma_net::scene::{
     effects::{MachineSpec, SceneEffects},
@@ -36,16 +35,15 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-/// A read-only snapshot of everything a render needs, captured out of the live
-/// `RenderContext` under one short lock. Deliberately excludes `width`/`height` and
-/// the accumulation buffer -- those belong solely to the interactive viewport; the
-/// export worker sizes its own buffer from the user's requested export dimensions.
+/// A read-only snapshot of everything a render needs, captured out of the live `RenderContext`
+/// under one short lock.
 ///
-/// `Clone`: a preset-fan-out export clones the current-view capture once per selected
-/// preset and overlays that preset's own light/camera/env-map fields on top
-/// (`gui::render_export::apply_preset_to_scene`) rather than re-capturing the live
-/// viewport per render -- every fanned-out render must share the exact same material,
-/// geometry, and bounce cap, which only holds if they all descend from ONE capture.
+/// It excludes `width`/`height` and the accumulation buffer: the export worker sizes its own buffer
+/// from the requested export dimensions.
+///
+/// `Clone`: a preset fan-out clones one capture and overlays each preset's light, camera and
+/// env-map fields (`gui::render_export::apply_preset_to_scene`). All fanned-out renders then
+/// share one material, geometry and bounce cap.
 #[derive(Clone)]
 pub struct SceneSnapshot {
     /// Frozen renderer and its deterministic options.
@@ -71,7 +69,7 @@ pub struct SceneSnapshot {
     /// Maximum number of ray bounces per path.
     pub max_bounces: u32,
     /// Exposure multiplier the renderer applies: `RenderContext::effective_exposure`, the
-    /// cutter's exposure on top of the rig's metered reading.
+    /// cutter's exposure on top of the rig's metered reading; an HDR map is lit at the plain one.
     pub exposure: f32,
     /// Tray radiance at exposure 1 (`0.0` = As Lit) -- `RenderContext::backdrop` resolved
     /// through `Backdrop::resolve` at this snapshot's own lighting preset and light pose.
@@ -85,6 +83,21 @@ pub struct SceneSnapshot {
     /// Head-shadow radius in degrees (`RenderContext::head_shadow_deg`, `0.0` = off): exports
     /// follow the viewport's value. Lit analytic presets only; an HDR map ignores it.
     pub head_shadow_deg: f32,
+    /// Whether the stone casts its spectral shadow onto the backdrop paper.
+    pub stone_shadow: bool,
+    /// Head-on reflectance of the glossy tray under the stone (`RenderContext::tray_reflection`,
+    /// `0.0..=1.0`, `0.0` = off): exports follow the viewport's value. Studio lights with a
+    /// backdrop only; see [`Self::effective_tray_reflection`].
+    pub tray_reflection: f32,
+    /// Whether the stone is a closed, nondegenerate solid, so the tray plane under it exists.
+    /// Resolved once at capture (and once per job scene) from [`Self::active_planes`] and
+    /// [`Self::tools`], and only when the shadow or the reflection is asked for; `true`
+    /// otherwise. A stone that is not closed renders its local part matte, and the scenes
+    /// handed to a remote worker, a joined worker or a job carry the shadow off and the
+    /// reflection `0` (see [`Self::remote_stone_shadow`]). Because it is resolved lazily, a
+    /// writer of the shadow or the reflection after capture must re-resolve it: the saved
+    /// lighting overlay (`apply_preset_to_scene`) is the second one.
+    pub stone_closed: bool,
     /// Facet planes of the active design.
     pub active_planes: Vec<GpuFacetPlane>,
     /// The concave tools cut out of `active_planes` (`RenderContext::active_tools`);
@@ -107,19 +120,18 @@ pub struct SceneSnapshot {
     /// `pleochroma::geometry::finishes_wire_form` splits it back into the pieces a remote
     /// `SceneState` carries.
     pub facet_finishes: Vec<FacetFinish>,
-    /// A loaded HDR environment map, captured from `RenderContext::env_map` exactly
-    /// like the live viewport reads it. `None` means the export uses the analytic
-    /// studio rig. `run_export`'s `environment`
-    /// binding reads this via the same `as_deref().map_or_else(studio,
-    /// EnvironmentSource::HdrMap)` `render_thread::mod` uses, so an export renders an
-    /// HDR map exactly like the live viewport does: the GPU megakernel has its own
-    /// `env_mode` for `HdrMap` and renders it directly, falling back to
-    /// the CPU tracer only on the same generic per-frame decline every other scene
-    /// gets, not an HDR-specific one.
+    /// A loaded HDR environment map, captured from `RenderContext::env_map` as the live
+    /// viewport reads it. `None` means the analytic studio rig. The map is lit at
+    /// [`Self::exposure`], as in `render_thread`, and the GPU traces it like any environment.
     ///
-    /// `Arc`, not a bare `EnvironmentMap`: a decoded panorama can be tens of
-    /// megabytes, and this snapshot is cloned once per fanned-out preset render.
+    /// `Arc`, not a bare `EnvironmentMap`: a decoded panorama can be tens of megabytes, and
+    /// this snapshot is cloned once per fanned-out preset render.
     pub env_map: Option<Arc<EnvironmentMap>>,
+    /// How [`Self::env_map`] is turned (`RenderContext::hdr_orientation`): its yaw and whether it
+    /// turns with the camera. Captured only with a map and the default (unturned) otherwise, so a
+    /// studio scene never carries a stale value. Every export, remote scene, job file and tilt
+    /// frame reads it through [`Self::environment_at`], the way the live view does.
+    pub hdr_orientation: HdrOrientation,
     /// The design's render physics (inclusions, play-of-color, facet surface finish, abraded
     /// edge) with the capturing user's faceting machine; the default record when the design
     /// sets none, which renders exactly as before. Local tracers take [`Self::traced_material`]
@@ -130,6 +142,99 @@ pub struct SceneSnapshot {
 }
 
 impl SceneSnapshot {
+    /// The frozen lighting with the backdrop resolved at the captured light pose, for the
+    /// scene's own camera yaw ([`Self::environment_at`] at [`Self::yaw`]).
+    pub(super) fn environment(&self) -> EnvironmentSource<'_> {
+        self.environment_at(self.yaw)
+    }
+
+    /// The frozen lighting for a render seen from `cam_yaw`: an HDR map is turned by
+    /// [`Self::hdr_orientation`] (its yaw, plus `cam_yaw` when it turns with the camera), so a
+    /// tilt frame or an axis that orbits the stone gets its own rotation.
+    pub(super) fn environment_at(&self, cam_yaw: f32) -> EnvironmentSource<'_> {
+        self.env_map.as_deref().map_or_else(
+            || {
+                self.lighting_preset
+                    .studio(self.exposure, self.light_yaw, self.light_pitch)
+                    .with_backdrop(self.backdrop)
+                    .with_surface_glare(self.surface_glare)
+                    .with_head_shadow(self.head_shadow_deg)
+            },
+            |map| {
+                EnvironmentSource::hdr_at(map, self.exposure)
+                    .with_hdr_rotation(self.hdr_orientation.rotation_for(cam_yaw))
+            },
+        )
+    }
+
+    /// Whether this lighting can apply its saved Stone Shadow preference to the paper.
+    #[must_use]
+    pub fn stone_shadow_enabled(&self) -> bool {
+        self.stone_shadow
+            && self.env_map.is_none()
+            && self.backdrop > 0.0
+            && self.lighting_preset != LightingPreset::Aset
+            && !self.lighting_preset.is_uv_lamp()
+    }
+
+    /// The tray reflectance this lighting can apply: [`Self::tray_reflection`] on a studio light
+    /// with a backdrop (not As Lit, an HDR map, ASET or an ultraviolet lamp), otherwise `0.0`.
+    /// [`Self::remote_tray_reflection`] is what the remote scenes carry.
+    #[must_use]
+    pub fn effective_tray_reflection(&self) -> f32 {
+        if self.tray_reflection > 0.0
+            && self.env_map.is_none()
+            && self.backdrop > 0.0
+            && self.lighting_preset != LightingPreset::Aset
+            && !self.lighting_preset.is_uv_lamp()
+        {
+            self.tray_reflection
+        } else {
+            0.0
+        }
+    }
+
+    /// Whether this lighting applies a tray reflection at all
+    /// ([`Self::effective_tray_reflection`] above zero).
+    #[must_use]
+    pub fn tray_reflection_applies(&self) -> bool {
+        self.effective_tray_reflection() > 0.0
+    }
+
+    /// The Stone Shadow flag every scene that leaves the program carries (remote worker,
+    /// coordinator, joined worker, job file): [`Self::stone_shadow_enabled`] for a closed stone,
+    /// off for a stone that is not closed, which the worker would refuse.
+    #[must_use]
+    pub fn remote_stone_shadow(&self) -> bool {
+        self.stone_closed && self.stone_shadow_enabled()
+    }
+
+    /// The tray reflectance every scene that leaves the program carries:
+    /// [`Self::effective_tray_reflection`] for a closed stone, `0.0` for a stone that is not
+    /// closed, which the worker would refuse.
+    #[must_use]
+    pub fn remote_tray_reflection(&self) -> f32 {
+        if self.stone_closed {
+            self.effective_tray_reflection()
+        } else {
+            0.0
+        }
+    }
+
+    /// Whether the stone bounds a closed solid, resolved once per scene. Only a scene that asks
+    /// for the Stone Shadow or a Tray Reflection looks: the tray plane is the one both build on,
+    /// so a stone without it has neither. Any other scene reports `true`.
+    #[must_use]
+    pub fn stone_closed_for(
+        stone_shadow: bool,
+        tray_reflection: f32,
+        planes: &[GpuFacetPlane],
+        tools: &[ToolPrimitive],
+    ) -> bool {
+        let asked = stone_shadow || tray_reflection > 0.0;
+        !asked || tray_plane_y(StoneGeometry { planes, tools }).is_some()
+    }
+
     /// The material the tracer traces: [`Self::material`] with the design's inclusions and
     /// play-of-color applied (borrowed and untouched without them).
     #[must_use]
@@ -180,6 +285,33 @@ impl SceneSnapshot {
         ctx: &Mutex<RenderContext>,
         finished: Option<&StoneGeometryBuf>,
     ) -> Result<Self, String> {
+        Self::capture_with_engine(ctx, finished, None)
+    }
+
+    /// [`Self::capture_finished`] for a scene that will be rendered with `engine`, which can
+    /// differ from the engine the view shows: the render physics (inclusions, silk,
+    /// play-of-color, facet surfaces, abraded edge, machine) are captured when `engine` reads
+    /// them (Path-Traced) and left out when it does not (Ray-Traced), whatever the view uses.
+    /// The snapshot carries `engine`.
+    ///
+    /// # Errors
+    ///
+    /// The same refusals as [`Self::capture`].
+    pub fn capture_finished_for_engine(
+        ctx: &Mutex<RenderContext>,
+        finished: Option<&StoneGeometryBuf>,
+        engine: pleochroma::renderer::engine::EngineSpec,
+    ) -> Result<Self, String> {
+        Self::capture_with_engine(ctx, finished, Some(engine))
+    }
+
+    /// The capture behind [`Self::capture_finished`] (`engine` is `None`: the view's) and
+    /// [`Self::capture_finished_for_engine`].
+    fn capture_with_engine(
+        ctx: &Mutex<RenderContext>,
+        finished: Option<&StoneGeometryBuf>,
+        engine: Option<pleochroma::renderer::engine::EngineSpec>,
+    ) -> Result<Self, String> {
         let finished = finished.filter(|stone| !stone.planes.is_empty());
         let guard = ctx
             .lock()
@@ -187,14 +319,12 @@ impl SceneSnapshot {
         if let Some(reason) = &guard.material_unresolved {
             return Err(reason.clone());
         }
+        let engine = engine.unwrap_or(guard.engine);
         let materials = GemMaterial::all_materials();
-        // A high-resolution export must honour the same RI/custom
-        // material override the live viewport, tilt sweep and hover preview already
-        // resolve through -- otherwise the export silently reverts to the by-name
-        // lookup for the one surface that matters most (the delivered image).
-        // The override carries the Live Render toolbar's view-only colour too (a plain
-        // clone while none is in force), so an export, a tilt video and a remote worker
-        // all render the colour the cutter chose.
+        // The export uses the same RI/custom material override as the live viewport, so it
+        // does not fall back to the by-name lookup. The override also carries the Live Render
+        // toolbar's view-only color, so the export, tilt video and remote workers match the
+        // cutter's choice.
         let material_override = guard.tinted_material_override();
         let Some(material) = resolve_material_with_override(
             &materials,
@@ -208,38 +338,14 @@ impl SceneSnapshot {
                 guard.material_name
             ));
         };
-        // Every one of these sliders/toggles is a property of what the user is looking
-        // at, so an export has to carry it or the file silently differs from the
-        // viewport. Applied here (not inside `resolve_material`, which `render_thread`
-        // shares) via the same `MaterialOverrides`/`apply_material_overrides` path, so
-        // an export with nothing dialled in stays bit-identical to a plain by-name
-        // resolve. A fresh `StoneWidthCache` since this runs once per export,
-        // not once per frame like the live loop's persistent cache.
+        // The sliders and toggles are part of what the user sees, so the export carries them.
+        // They are applied here, not in the shared `resolve_material`, so an export with
+        // nothing dialled in stays identical to a plain by-name resolve. A fresh
+        // `StoneWidthCache` is used because this runs once per export.
         //
-        // `active_planes`/`tools` are the stone the scene draws: the finished one when the
-        // caller passed it, else the context's own. Taken before the overrides, which
-        // measure the planes.
-        //
-        // `active_planes` is a plain `Vec` (a one-shot export capture, not
-        // `RenderContext`'s hot-path per-frame snapshot), so this is the one actual deep
-        // copy `capture` makes -- `.to_vec()` off the `Arc<Vec<..>>` (via its
-        // `Deref<Target = [GpuFacetPlane]>`).
-        let (active_planes, tools, frosted) = finished.map_or_else(
-            || {
-                (
-                    guard.active_planes.to_vec(),
-                    guard.active_tools.to_vec(),
-                    guard.active_frosted.to_vec(),
-                )
-            },
-            |stone| {
-                (
-                    stone.planes.clone(),
-                    stone.tools.clone(),
-                    stone.frosted.clone(),
-                )
-            },
-        );
+        // `active_planes`/`tools` are the stone the scene draws, taken before the overrides
+        // that measure the planes. The copy here is the one deep copy `capture` makes.
+        let (active_planes, tools, frosted) = stone_drawn(&guard, finished);
         let material = apply_material_overrides(
             material,
             &MaterialOverrides {
@@ -252,42 +358,20 @@ impl SceneSnapshot {
             &active_planes,
             &mut StoneWidthCache::new(),
         );
-        // Frosted girdle: an empty `Vec` at the off position is
-        // `trace_spectral_ray_with_finish`'s documented equivalent of
-        // `trace_spectral_ray` (every facet reads `FacetFinish::default() == Polished`).
-        let facet_finishes = if !frosted.is_empty() {
-            facet_finishes_with_frosted(&active_planes, guard.girdle_frosted, &frosted)
-        } else if guard.girdle_frosted {
-            girdle_facet_finishes(&active_planes)
-        } else {
-            Vec::new()
-        };
-        // The render physics. A substituted stone (the finished one, while the Cut slider shows
-        // a cut) has its own planes, so its facet words come from the whole-stone table. The
-        // machine rides along only while a surface finish reads it. The plain Ray-Traced image
-        // engine ignores all of it.
-        //
-        // The material's own inclusions (a custom material's stored silk and play-of-color, in
-        // the frame the overrides above left them in) are not part of the material's serde bytes,
-        // so they ride in the record; a set the wire cannot represent is left out, and the remote
-        // guard (`bridge::remote::inclusions_refusal`) then keeps the render local.
-        let effects = if guard.engine.is_ray() {
-            SceneEffects::default()
-        } else {
-            let mut effects = guard.scene_effects.clone();
-            if finished.is_some() {
-                effects.facet_surfaces = words_for_planes(&guard.surface_table, &active_planes);
-            }
-            effects.machine = if effects.has_surface() {
-                MachineSpec::from_machine(&guard.faceting_machine)
-            } else {
-                MachineSpec::default()
-            };
-            effects.material_inclusions = MaterialInclusions::of_material(&material);
-            effects
-        };
-        Ok(Self {
-            engine: guard.engine,
+        let facet_finishes = facet_finishes_for(&active_planes, &frosted, guard.girdle_frosted);
+        // The render physics follow the engine the scene is rendered with, not the view's.
+        // The material's own inclusions are not in its serde bytes, so they ride in the record.
+        // A set the wire cannot represent is left out, and the remote guard keeps the render
+        // local.
+        let effects = effects_for(
+            &guard,
+            engine,
+            finished.is_some(),
+            &active_planes,
+            &material,
+        );
+        let mut snapshot = Self {
+            engine,
             optical_diagnostics: None,
             yaw: guard.yaw,
             pitch: guard.pitch,
@@ -308,14 +392,99 @@ impl SceneSnapshot {
             ),
             surface_glare: guard.surface_glare,
             head_shadow_deg: guard.head_shadow_deg,
+            stone_shadow: guard.stone_shadow,
+            tray_reflection: guard.tray_reflection,
+            // Resolved below, once the context's lock is released.
+            stone_closed: true,
             active_planes,
             tools,
             fluorescence: guard.active_fluorescence().unwrap_or_default(),
             facet_finishes,
             // `Arc::clone`, not a deep copy of the decoded panorama.
             env_map: guard.env_map.clone(),
+            // Only a loaded map is turned; a studio scene carries the default.
+            hdr_orientation: if guard.env_map.is_some() {
+                guard.hdr_orientation()
+            } else {
+                HdrOrientation::default()
+            },
             effects,
-        })
+        };
+        drop(guard);
+        // The B-rep is built outside the lock: every live dispatch and hover preview captures.
+        snapshot.stone_closed = Self::stone_closed_for(
+            snapshot.stone_shadow,
+            snapshot.tray_reflection,
+            &snapshot.active_planes,
+            &snapshot.tools,
+        );
+        Ok(snapshot)
+    }
+}
+
+/// The planes, concave tools and frosted plane indices the scene draws: the finished stone's
+/// when the caller passed one, else the context's own.
+fn stone_drawn(
+    ctx: &RenderContext,
+    finished: Option<&StoneGeometryBuf>,
+) -> (Vec<GpuFacetPlane>, Vec<ToolPrimitive>, Vec<u32>) {
+    finished.map_or_else(
+        || {
+            (
+                ctx.active_planes.to_vec(),
+                ctx.active_tools.to_vec(),
+                ctx.active_frosted.to_vec(),
+            )
+        },
+        |stone| {
+            (
+                stone.planes.clone(),
+                stone.tools.clone(),
+                stone.frosted.clone(),
+            )
+        },
+    )
+}
+
+/// The finish of every facet. An empty `Vec` is the off position: `trace_spectral_ray_with_finish`
+/// treats it as `trace_spectral_ray`, since every facet reads `FacetFinish::default()`.
+fn facet_finishes_for(
+    active_planes: &[GpuFacetPlane],
+    frosted: &[u32],
+    girdle_frosted: bool,
+) -> Vec<FacetFinish> {
+    if !frosted.is_empty() {
+        facet_finishes_with_frosted(active_planes, girdle_frosted, frosted)
+    } else if girdle_frosted {
+        girdle_facet_finishes(active_planes)
+    } else {
+        Vec::new()
+    }
+}
+
+/// The render physics for a scene rendered with `engine`; `substituted` is whether the stone is
+/// the finished one, whose planes have their own facet words from the whole-stone table.
+fn effects_for(
+    ctx: &RenderContext,
+    engine: pleochroma::renderer::engine::EngineSpec,
+    substituted: bool,
+    active_planes: &[GpuFacetPlane],
+    material: &GemMaterial,
+) -> SceneEffects {
+    if engine.is_ray() {
+        SceneEffects::default()
+    } else {
+        let mut effects = ctx.scene_effects.clone();
+        if substituted {
+            effects.facet_surfaces = words_for_planes(&ctx.surface_table, active_planes);
+        }
+        effects.machine = if effects.has_surface() {
+            MachineSpec::from_machine(&ctx.faceting_machine)
+        } else {
+            MachineSpec::default()
+        };
+        effects.material_inclusions = MaterialInclusions::of_material(material);
+        effects
     }
 }
 
@@ -323,12 +492,58 @@ impl SceneSnapshot {
 mod tests {
     use super::*;
     use glam::Vec3;
+    use pleochroma::renderer::env_map::EnvRotation;
 
-    /// A high-resolution export must resolve the design's real
-    /// effective material (RI override / unlisted custom material) exactly as the
-    /// live viewport, tilt sweep and hover preview do, rather than falling back to
-    /// a plain by-name lookup that cannot represent an override. Guards
-    /// `SceneSnapshot::capture` against regressing to a bare `resolve_material` call.
+    /// The captured orientation turns the HDR environment: the map's yaw alone while it is
+    /// fixed in the world, plus the camera yaw of each call while it turns with the camera,
+    /// and an unturned or studio scene stays on the identity rotation.
+    #[test]
+    fn environment_at_turns_an_hdr_map_by_its_orientation_and_the_camera_yaw() {
+        let map = Arc::new(EnvironmentMap::uniform(2, 2, [1.0, 1.0, 1.0]));
+        let capture = |yaw: f32, follows: bool, with_map: bool| {
+            SceneSnapshot::capture(&Mutex::new(RenderContext {
+                env_map: with_map.then(|| Arc::clone(&map)),
+                hdr_yaw: yaw,
+                hdr_follows_camera: follows,
+                ..Default::default()
+            }))
+            .expect("the default material resolves")
+        };
+
+        let fixed = capture(0.7, false, true);
+        assert_eq!(fixed.hdr_orientation.yaw.to_bits(), 0.7_f32.to_bits());
+        for cam_yaw in [0.0, 0.4, 2.5] {
+            assert_eq!(
+                fixed.environment_at(cam_yaw).hdr_rotation(),
+                EnvRotation::from_yaw(0.7),
+                "a map fixed in the world ignores the camera yaw ({cam_yaw})"
+            );
+        }
+
+        let follows = capture(0.7, true, true);
+        assert!(follows.hdr_orientation.follows_camera);
+        for cam_yaw in [0.0, 0.4, 2.5] {
+            assert_eq!(
+                follows.environment_at(cam_yaw).hdr_rotation(),
+                EnvRotation::from_yaw(0.7 + cam_yaw),
+                "a map that turns with the camera adds each call's yaw ({cam_yaw})"
+            );
+        }
+        assert_ne!(
+            follows.environment_at(0.4).hdr_rotation(),
+            follows.environment_at(1.4).hdr_rotation(),
+            "two axes get two rotations"
+        );
+
+        let unturned = capture(0.0, false, true);
+        assert!(unturned.environment_at(1.0).hdr_rotation().is_identity());
+        let studio = capture(0.7, true, false);
+        assert_eq!(studio.hdr_orientation, HdrOrientation::default());
+        assert!(studio.environment_at(1.0).hdr_rotation().is_identity());
+    }
+
+    /// The export resolves the effective material (RI override or unlisted custom material)
+    /// as the live viewport does, not by a plain name lookup that cannot hold an override.
     #[test]
     fn capture_prefers_the_material_override_over_the_by_name_lookup() {
         let override_dispersion = pleochroma::optics::dispersion::DispersionModel::Cauchy {
@@ -365,9 +580,8 @@ mod tests {
         );
     }
 
-    /// The inclusion slider is a property of what the user is looking at, so an
-    /// export must carry it. Guards `SceneSnapshot::capture`'s override against the
-    /// regression of "simplifying" it back into a bare `resolve_material` call.
+    /// The inclusion slider must reach the exported scene. Guards the override in
+    /// `SceneSnapshot::capture` against a bare `resolve_material` call.
     #[test]
     fn capture_carries_the_inclusion_setting_into_the_exported_scene() {
         let off = SceneSnapshot::capture(&Mutex::new(RenderContext {
@@ -572,6 +786,76 @@ mod tests {
         }
     }
 
+    /// The Stone Shadow toggle reaches the export snapshot, and `stone_shadow_enabled` drops it
+    /// when the backdrop is As Lit.
+    #[test]
+    fn capture_carries_the_stone_shadow_to_the_export() {
+        let ctx = Mutex::new(RenderContext::default());
+        let capture = || SceneSnapshot::capture(&ctx).expect("the default stone resolves");
+        assert!(!capture().stone_shadow_enabled());
+        ctx.lock().expect("context").stone_shadow = true;
+        assert!(capture().stone_shadow_enabled());
+        ctx.lock().expect("context").backdrop = crate::settings::model::Backdrop::AsLit;
+        assert!(!capture().stone_shadow_enabled());
+    }
+
+    /// The Tray Reflection reaches the export snapshot, and `effective_tray_reflection` drops it
+    /// when the backdrop is As Lit.
+    #[test]
+    fn capture_carries_the_tray_reflection_to_the_export() {
+        let ctx = Mutex::new(RenderContext::default());
+        let capture = || SceneSnapshot::capture(&ctx).expect("the default stone resolves");
+        assert_eq!(capture().effective_tray_reflection().to_bits(), 0);
+        assert!(!capture().tray_reflection_applies());
+        ctx.lock().expect("context").tray_reflection = 0.04;
+        let on = capture();
+        assert_eq!(on.tray_reflection.to_bits(), 0.04f32.to_bits());
+        assert_eq!(on.effective_tray_reflection().to_bits(), 0.04f32.to_bits());
+        assert!(on.tray_reflection_applies());
+        ctx.lock().expect("context").backdrop = crate::settings::model::Backdrop::AsLit;
+        assert_eq!(capture().effective_tray_reflection().to_bits(), 0);
+        assert!(!capture().tray_reflection_applies());
+    }
+
+    /// A stone that is not closed keeps the toggles for the local matte fallback, but the scenes
+    /// that leave the program carry the shadow off and the reflection `0`.
+    #[test]
+    fn a_stone_that_is_not_closed_sends_no_shadow_and_no_reflection() {
+        let degenerate = Mutex::new(RenderContext {
+            stone_shadow: true,
+            tray_reflection: 0.04,
+            active_planes: Arc::new(Vec::new()),
+            ..Default::default()
+        });
+        let open = SceneSnapshot::capture(&degenerate).expect("the default material resolves");
+        assert!(!open.stone_closed);
+        assert!(open.stone_shadow_enabled(), "the local fallback still asks");
+        assert!(
+            open.tray_reflection_applies(),
+            "the local fallback still asks"
+        );
+        assert!(!open.remote_stone_shadow());
+        assert_eq!(open.remote_tray_reflection().to_bits(), 0);
+
+        let closed = Mutex::new(RenderContext {
+            stone_shadow: true,
+            tray_reflection: 0.04,
+            ..Default::default()
+        });
+        let closed = SceneSnapshot::capture(&closed).expect("the default material resolves");
+        assert!(closed.stone_closed);
+        assert!(closed.remote_stone_shadow());
+        assert_eq!(closed.remote_tray_reflection().to_bits(), 0.04f32.to_bits());
+
+        // Nothing asked for, nothing looked at: the flag stays `true`.
+        let plain = Mutex::new(RenderContext {
+            active_planes: Arc::new(Vec::new()),
+            ..Default::default()
+        });
+        let plain = SceneSnapshot::capture(&plain).expect("the default material resolves");
+        assert!(plain.stone_closed);
+    }
+
     /// The viewport's surface glare reaches the export snapshot, and the default
     /// (`1.0`) is what an untouched context captures.
     #[test]
@@ -588,7 +872,7 @@ mod tests {
         assert_eq!(dimmed.surface_glare.to_bits(), 0.25f32.to_bits());
     }
 
-    /// The viewport's head-shadow radius reaches the export snapshot; the default is 16.
+    /// The viewport's head-shadow radius reaches the export snapshot. The default is 16.
     #[test]
     fn capture_carries_the_head_shadow_into_the_exported_scene() {
         let default = SceneSnapshot::capture(&Mutex::new(RenderContext::default()))
@@ -667,6 +951,59 @@ mod tests {
         assert_eq!(plain.active_planes, own);
     }
 
+    /// The render physics follow the engine the scene is rendered with, not the one the view
+    /// shows: a Path-Traced capture taken while the view is Ray-Traced keeps them, a Ray-Traced
+    /// capture carries none, and the plain capture still follows the view.
+    #[test]
+    fn capture_keys_the_render_effects_to_the_exports_engine() {
+        use pleochroma::renderer::engine::{EngineSpec, RayOptions, RenderEngine};
+        let ray = EngineSpec {
+            engine: RenderEngine::RayTraced,
+            ray: RayOptions {
+                aa_taps: 1,
+                fire: false,
+            },
+        };
+        let path = EngineSpec::default();
+        let effects = SceneEffects {
+            facet_surfaces: vec![1],
+            ..SceneEffects::default()
+        };
+        let context = |view: EngineSpec| {
+            Mutex::new(RenderContext {
+                engine: view,
+                scene_effects: effects.clone(),
+                ..Default::default()
+            })
+        };
+
+        let kept = SceneSnapshot::capture_finished_for_engine(&context(ray), None, path)
+            .expect("resolves");
+        assert_eq!(kept.engine, path);
+        assert_eq!(
+            kept.effects.facet_surfaces,
+            vec![1],
+            "a Ray-Traced view loses nothing"
+        );
+
+        let dropped = SceneSnapshot::capture_finished_for_engine(&context(path), None, ray)
+            .expect("resolves");
+        assert_eq!(dropped.engine, ray);
+        assert!(
+            dropped.effects.is_none(),
+            "a Ray-Traced capture carries none"
+        );
+
+        let followed = SceneSnapshot::capture_finished(&context(ray), None).expect("resolves");
+        assert_eq!(followed.engine, ray);
+        assert!(
+            followed.effects.is_none(),
+            "the plain capture follows the view"
+        );
+        let unchanged = SceneSnapshot::capture_finished(&context(path), None).expect("resolves");
+        assert_eq!(unchanged.effects.facet_surfaces, vec![1]);
+    }
+
     /// The design's frosted planes reach the export as `Frosted` finishes on exactly those
     /// planes -- the live viewport's list for the context's own stone, the finished stone's
     /// own for a substitute -- and a design without frosting still carries none.
@@ -709,10 +1046,9 @@ mod tests {
         );
     }
 
-    /// A design's color variant is already resolved into the context's `material_override`
-    /// (the species stays, the absorption tensor is the variant's), so the export, the tilt
-    /// video and the remote workers, which all start from this capture, receive the variant's
-    /// whole per-axis tensor and unit, and the host's pleochroism rank.
+    /// A design's color variant is resolved into the context's `material_override`: the species
+    /// stays and the absorption tensor is the variant's. The export receives the whole per-axis
+    /// tensor and unit from this capture.
     #[test]
     fn capture_carries_a_design_color_variant_into_the_exported_scene() {
         use pleochroma::optics::{
@@ -751,9 +1087,8 @@ mod tests {
         );
     }
 
-    /// The Live Render toolbar's view-only colour must reach the export (and so the tilt
-    /// video and the remote workers, which all start from this capture), and must stay
-    /// out of it while the linked open design supplies the colour itself.
+    /// The Live Render toolbar's view-only color must reach the export, and the tilt video and
+    /// remote workers with it. It stays out while the linked open design supplies the color.
     #[test]
     fn capture_carries_the_view_only_colour_into_the_exported_scene() {
         use crate::bridge::render_thread::{PlanesOwner, ViewColor};

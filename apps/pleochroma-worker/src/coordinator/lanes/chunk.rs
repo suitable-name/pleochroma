@@ -65,11 +65,10 @@ pub(in crate::coordinator) const WRITE_TIMEOUT: Duration = Duration::from_secs(1
 /// [`LaneTimeouts::liveness`].
 const WORKER_CADENCE_MS: u32 = 1000;
 
-/// How long a worker's `Progress.samples_done` may sit unchanged -- while the connection
-/// otherwise stays alive with regular heartbeats -- before the chunk is failed as stalled
-/// (about [`WORKER_CADENCE_MS`] * 60: "N cadences"). A wedged tracer that keeps
-/// heartbeating without advancing would otherwise pass [`LaneTimeouts::liveness`]
-/// forever, since any received byte (heartbeats included) resets that deadline.
+/// How long a worker's `Progress.samples_done` may sit unchanged, while the connection
+/// stays alive with heartbeats, before the chunk is failed as stalled (60 cadences of
+/// [`WORKER_CADENCE_MS`]). A wedged tracer that keeps heartbeating without advancing would
+/// otherwise pass [`LaneTimeouts::liveness`] forever, since any received byte resets it.
 const PROGRESS_STALL: Duration = Duration::from_secs(60);
 
 /// The largest piece of an `ASSET` payload handed to the connection in one `write`
@@ -325,12 +324,13 @@ impl Reply {
 
 /// The per-chunk `RenderRequest` a joined worker gets: the job's scene byte for byte, a
 /// coordinator-local `request_id`, `FinalOnly` with no preview (the coordinator makes its
-/// own), `Batch` intent.
+/// own), and the job's `intent` (a worker builds its Stone Shadow at the quality the intent
+/// picks, which must be the one the rest of the job and the viewer's local half use).
 pub(super) fn worker_request(
     request_id: u32,
     scene: &SceneState,
-    first_sample: u32,
-    samples: u32,
+    (first_sample, samples): (u32, u32),
+    intent: RequestIntent,
 ) -> RenderRequest {
     RenderRequest {
         request_id,
@@ -342,7 +342,7 @@ pub(super) fn worker_request(
             cadence_ms: WORKER_CADENCE_MS,
             preview: None,
         },
-        intent: RequestIntent::Batch,
+        intent,
     }
 }
 
@@ -667,9 +667,8 @@ fn finish_done(
     }
     if reply.done == samples {
         reply.rate = rate_from_progress(first_progress, last_progress, samples);
-        // A chunk that still finished fully overrides any earlier soft warning (e.g. a
-        // since-resolved `NeedAsset` miss) -- `reply.broken` is never set on this path,
-        // so there is nothing here that a genuinely broken connection needs preserved.
+        // A chunk that finished fully overrides an earlier soft error (such as a `NeedAsset`
+        // miss). `reply.broken` is never set on this path, so no connection failure is lost.
         reply.error = None;
     } else if !cancelled {
         reply.error = Some(format!(
@@ -711,7 +710,7 @@ mod tests {
                         pleochroma::optics::absorption::AbsorptionTensor::isotropic(vec![]),
                     ),
                 ));
-        let request = worker_request(77, &zoned, 0, 4);
+        let request = worker_request(77, &zoned, (0, 4), RequestIntent::Batch);
         assert!(
             request.scene.material.zoning.is_some(),
             "the chunk's scene keeps its zones in memory"
@@ -725,10 +724,15 @@ mod tests {
         };
         assert_eq!(Some(*payload), ZoningPayload::for_scene(77, &zoned));
 
-        let plain = worker_request(78, &crate::serve::tests::fixtures::tiny_scene(), 0, 4);
+        let plain = worker_request(
+            78,
+            &crate::serve::tests::fixtures::tiny_scene(),
+            (0, 4),
+            RequestIntent::Batch,
+        );
         let mut none = Vec::new();
         write_zones(&mut none, &plain).unwrap();
-        assert!(none.is_empty());
+        assert_eq!(none, Vec::<u8>::new());
     }
 
     /// A heartbeat-only `Progress` (the same `samples_done` repeated) must not push back

@@ -1,4 +1,6 @@
-//! Tests of the batched rollout forward: agreement with the pure-Rust twin on full and padded
+//! Tests of the batched rollout forward.
+//!
+//! They cover agreement with the pure-Rust twin on full and padded
 //! samples, independence of the rows, the shape errors, the gradient-free view of a tracked
 //! model, the rollout copy of a trainer and the state packing.
 

@@ -1,23 +1,19 @@
-//! [`solve`](super::solve)'s incremental candidate-vertex cache for phase 1's
-//! constructive pass: as tiers settle one at a time, this keeps the
-//! candidate-vertex set updated incrementally instead of re-running
-//! `enumerate_candidate_vertices` from scratch on every settle attempt. Kept
-//! as its own unit because the soundness and ordering argument below is
-//! self-contained and only phase 1 (never phase 3) can use it.
+//! [`solve`](super::solve)'s incremental candidate-vertex cache for phase 1's constructive pass.
+//!
+//! As tiers settle one at a time, the candidate-vertex set is updated incrementally instead of
+//! re-enumerated from scratch. The soundness and ordering argument lives here, since only phase 1
+//! can use the cache.
 
 // ====================================================================
 // Phase 1 incremental candidate-vertex cache
 // ====================================================================
 //
-// Without this cache, phase 1's constructive pass would need to rebuild the
-// settled-tier plane list and call `enumerate_candidate_vertices` (cubic in
-// plane count) at every settle attempt of every tier. This is sound to cache because a phase-1
-// tier's mast never changes once settled, so the candidate-vertex set for
-// "blanks + every settled tier's planes" only ever *grows* -- a candidate
-// already classified feasible-or-single-violator stays that way and only
-// needs checking against what's new. Phase 3 cannot reuse this: its sweeps
-// change every tier's mast every sweep, so it has no stable prefix to cache
-// against.
+// Without this cache, each settle attempt would re-enumerate every triple of the
+// settled planes (cubic in plane count). This is sound because a phase-1 tier's mast
+// never changes once settled. The candidate set for "blanks + every settled tier's
+// planes" therefore only grows: a candidate already feasible or single-violator stays
+// that way and only needs checking against what is new. Phase 3 cannot reuse this,
+// since its sweeps change every mast on each sweep.
 //
 // # Ordering
 //
@@ -260,12 +256,10 @@ fn push_triple(
     }
 }
 
-/// Phase 3's candidate-flush twin for the incremental cache: same
-/// determinant threshold, bounding-box guard and feasibility
-/// classification (against the arrangement's *full* current `soa`, so a new
-/// triple is checked against every settled tier, not just the ones it
-/// touches), but tags each survivor with its canonical key instead of its
-/// plane owners.
+/// Like `flush_candidate_batch` in `candidates`, but for the incremental cache: the same
+/// determinant, bounding-box and feasibility tests, checked against the full current
+/// `soa` (so a new triple is checked against every settled tier). Each survivor is
+/// tagged with its canonical key instead of its plane owners.
 fn flush_keyed(
     batch: &crate::simd::TripleBatch,
     soa: &crate::simd::PlanesSoA64,

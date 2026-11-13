@@ -1,14 +1,12 @@
 //! Typical zoning of the stone's species, applied in one step from the Color popup and the Stone
 //! tab (`Zoning.apply_typical_pattern`).
 //!
-//! The pattern is built on the color the stone has without a pattern
-//! ([`Target::own_material`]), its colors are solved on a background thread (the Color Pattern
-//! editor's solver, `color_pattern::solve_pattern_colors`) and the result goes through the same
-//! guarded [`Port::apply`] as an edit in the editor: the open design takes it as one undo step, a
-//! preview keeps it for the view only. A stone or material that changed while the colors were
-//! matched is refused, never recolored. A Watermelon or Reverse Watermelon then also turns the
-//! Crystal Axis through the table (the Through the Table preset, a step of its own), the way
-//! watermelons are cut.
+//! The pattern is built on the stone's color without a pattern ([`Target::own_material`]).
+//! Its colors are matched on a background thread (`color_pattern::solve_pattern_colors`),
+//! then applied through the guarded [`Port::apply`]: an open design takes it as one undo
+//! step, a preview keeps it for the view only. A stone or material that changed meanwhile
+//! is refused, never recolored. A Watermelon or Reverse Watermelon also turns the Crystal
+//! Axis through the table, as watermelons are cut.
 
 use std::{
     cell::RefCell,
@@ -184,9 +182,8 @@ fn finish(ui: &MainWindow, ticket: u64, solved: Option<ColorPattern>) {
         None => Err("The colors of this zoning could not be matched.".to_owned()),
     };
     match result {
-        // A watermelon is cut as a slice across c: its rings show face up only with the Crystal
-        // Axis through the table (with a tourmaline's own axis in the table plane, pink and green
-        // blend to orange). The same step as the Through the Table preset, after the pattern.
+        // A watermelon is cut across c, so its rings show face up only with the Crystal Axis
+        // through the table. Same step as the Through the Table preset, after the pattern.
         Ok(true) => ui
             .global::<CrystalAxisModel>()
             .invoke_geometry_preset_chosen(0),
@@ -204,7 +201,7 @@ mod tests {
     use pleochroma::optics::materials::GemMaterial;
     use pleochroma_cut_core::{
         MaterialSelection,
-        material::pattern::{TemplateId, apply_color_pattern},
+        material::pattern::{ColorRef, TemplateId, apply_color_pattern},
     };
 
     fn target(name: &str, pattern: Option<ColorPattern>) -> Target {
@@ -240,7 +237,7 @@ mod tests {
         let entry = typical_patterns("Sapphire")[1];
         assert_eq!(entry.template, TemplateId::PartiColor);
         let pattern = entry.for_stone([40.0, 45.0, 265.0], &variants);
-        // The rim takes the Golden Yellow first (2026-11-03; the Yellow is its fallback).
+        // The rim takes the Golden Yellow first; the Yellow is its fallback.
         assert_eq!(
             pattern.base.color.variant_key(),
             Some("sapphire.golden_yellow")
@@ -250,7 +247,7 @@ mod tests {
             pattern.zones[0].color.variant_key(),
             Some("sapphire.default")
         );
-        assert!(pattern.unsolved_colors().is_empty());
+        assert_eq!(pattern.unsolved_colors(), [] as [ColorRef; 0]);
     }
 
     #[test]

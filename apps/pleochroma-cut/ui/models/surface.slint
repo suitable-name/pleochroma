@@ -1,8 +1,8 @@
 // Surface finish authoring in the desktop editor: how well each tier and facet is polished, or how
 // coarsely it is ground. The design stores it per tier (`Design::tier_surfaces`, changed only by
-// the undoable `Edit::SetTierSurface`); this global carries what the tier table's context menu, the
-// inspector's Surface Finish section and the Show Surface Finish overlay need. The Rust side is
-// `gui::editor::callbacks::tier_actions::surface` (the edits and the inspector state) and
+// the undoable `Edit::SetTierSurface`); this global carries what the tier table's context menu,
+// the inspector's Surface Finish section and the Show Surface Finish overlay need. The Rust side
+// is `gui::editor::callbacks::tier_actions::surface` (the edits and the inspector state) and
 // `gui::editor::manipulate::surface_overlay` (the overlay).
 //
 // The scratch directions come from the user's Faceting Machine preference

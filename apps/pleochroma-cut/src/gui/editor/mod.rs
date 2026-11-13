@@ -11,12 +11,10 @@
 //! `History`'s back, and silently swallowing it would hide real corruption, so the
 //! callers in [`callbacks`] surface the error (a toast) instead of unwrapping it. For
 //! the same reason nothing in this group may call `Design::apply_edit` directly: every
-//! edit of `design` goes through the shared `pleochroma_editor::EditorSession`,
-//! reached via [`state::EditorState`]'s entry points (`apply`, `undo`, `redo`,
-//! `nudge_angles`, `set_tier_angle`, `pin_tier_mast`, `rotate_tier_indices`, and
-//! `apply_optimize_outcome` through `Deref`), all of which route through `History`.
-//! `EditorState::apply_coalescing` exists only for tests; the production nudge path
-//! is `nudge_angles`.
+//! edit of `design` goes through [`state::EditorState`]'s entry points (`apply`,
+//! `apply_coalescing`, `undo`, `redo`, `nudge_angles`, `set_tier_angle`,
+//! `pin_tier_mast`, `rotate_tier_indices`, and `apply_optimize_outcome` through
+//! `Deref`), which all route through `History`.
 //!
 //! # Feeding the viewport
 //!
@@ -36,11 +34,8 @@
 //!
 //! # Solve on explicit action, not on every edit
 //!
-//! Re-solving on every callback was measured unsafe to generalize: real `.asc`
-//! fixtures take hundreds of milliseconds to multiple seconds to solve (a real
-//! 103-tier/210-plane design: 5.9s), because `meet_solver`'s refinement sweep is cubic
-//! in plane count. Solving after every keystroke would freeze the UI on designs
-//! nowhere near the solver's own plane cap.
+//! Solving after every edit would freeze the UI: a 103-tier, 210-plane design takes about
+//! 5.9 s, because `meet_solver`'s refinement sweep is cubic in plane count.
 //!
 //! So this group solves only on the explicit "Solve" button
 //! ([`callbacks::setup_solve_callback`]) -- OR, for a design cheap enough to measure
@@ -54,41 +49,35 @@
 //! design (see below), since loading is the one point where showing the real solved
 //! state right away is worth a possible wait.
 //!
-//! A later, subgraph-only resolve path was built and measured, and does not change
-//! this: `meet_solver`'s refinement sweep rebuilds its candidate-vertex arrangement
-//! from every tier's plane regardless of which are pinned, so a subgraph resolve costs
-//! the same as a full solve on any design with a non-trivial meet-derived remainder.
+//! A subgraph-only resolve does not change this: `meet_solver`'s refinement sweep
+//! rebuilds its candidate-vertex arrangement from every tier's plane, pinned or not, so
+//! it costs about the same as a full solve on a design with meet-derived tiers left.
 //!
 //! # Never block the UI thread with a solve
 //!
 //! Every one of this group's `Design::solve` call sites (directly, or via
-//! [`state::tier_items`]/[`state::status_text_and_is_problem`]/
-//! [`state::yield_report_texts`]/[`state::design_to_gpu_planes`], which each
-//! solve internally) must run OFF the UI thread, following `deep_solve.rs`'s own
-//! `thread::spawn` + `Weak::upgrade_in_event_loop` convention -- see [`auto_solve`]'s
-//! module doc comment for the full epoch/sequence-number mechanism a completed
-//! background solve is checked against before it is allowed to touch the display. A
-//! call site that solves on the UI thread is a defect (a solve costs from a fraction
-//! of a millisecond to several seconds); the exception below is the only sanctioned one.
+//! [`state::tier_items`], [`state::status_text_and_is_problem`],
+//! [`state::yield_report_texts`] and [`state::design_to_gpu_planes`], which each solve
+//! internally) must run OFF the UI thread, following `deep_solve.rs`'s `thread::spawn` +
+//! `Weak::upgrade_in_event_loop` convention. [`auto_solve`]'s module doc describes the
+//! epoch/sequence check a finished background solve must pass before it touches the
+//! display. A solve on the UI thread is a defect (a solve takes from a fraction of a
+//! millisecond to several seconds), except for the one sanctioned case below.
 //!
-//! The one exception: [`view::refresh_all`] (New/Load Selected/Adopt/the explicit
-//! "Solve" action) still solves synchronously for a design at or under
-//! `pleochroma_editor::solve_policy::should_solve_synchronously_for` (few planes, few
-//! meet-derived tiers, no tier targets, and a last measured solve that was fast), both
-//! because that is fast enough in practice not to matter and because "New" specifically
-//! promises an immediately solved, unstale design. Above that cost, [`view::refresh_all`] pushes the
-//! same stale content [`view::refresh_editor_panel_stale`] does after any other edit,
-//! then immediately dispatches a background solve -- see [`view::refresh_all`]'s own
-//! doc comment.
+//! The one exception: [`view::refresh_all`] (New/Load Selected/Adopt/the explicit "Solve"
+//! action) still solves synchronously for a design that
+//! `pleochroma_editor::solve_policy::should_solve_synchronously_for` admits (few planes,
+//! few meet-derived tiers, no tier targets, and a fast last solve), because that is quick
+//! in practice and "New" promises an immediately solved design. Above that cost,
+//! [`view::refresh_all`] pushes the stale content [`view::refresh_editor_panel_stale`]
+//! pushes after any other edit, then dispatches a background solve (see its own doc).
 //!
-//! On top of that, [`view::refresh_editor_panel_stale`] -- called by every OTHER edit
-//! callback already -- ends with [`auto_solve::on_edit`]: when this design's last
-//! measured solve is cheap enough (under a user-adjustable, persisted budget,
-//! `editor_auto_solve_budget_ms`; `0` disables), a debounced background solve is
-//! scheduled automatically, so small/medium designs get a fresh path-traced view and
-//! masts without ever pressing Solve. Above the budget, today's plain stale-marker
-//! behaviour is unchanged, with a banner note explaining why auto-solve is off for
-//! this particular design.
+//! [`view::refresh_editor_panel_stale`], which every other edit callback calls, ends with
+//! [`auto_solve::on_edit`]: when this design's last measured solve is under the persisted
+//! budget (`editor_auto_solve_budget_ms`; `0` disables), a debounced background solve is
+//! scheduled, so small and medium designs refresh without pressing Solve. Above the
+//! budget only the stale marker shows, with a banner note saying auto-solve is off for
+//! this design.
 //!
 //! # Module split
 //!
@@ -102,7 +91,7 @@
 //! [`setup_editor_callbacks`] as this group's main public entry point.
 //!
 //! [`apply_matching_preview_frame`] is the one other public item: a narrow bridge
-//! `gui::SlintSolidSink::apply` (a solid-preview WORKER-thread callback, hopped
+//! `gui::solid_sink::SlintSolidSink::apply` (a solid-preview WORKER-thread callback, hopped
 //! onto the UI thread via `slint::Weak::upgrade_in_event_loop`, `Send`-bound) calls
 //! to reach this group's UI-thread-confined `auto_solve::Runtime` -- it cannot
 //! reach `EditorState`'s `Rc<RefCell<..>>` at all (see that `impl`'s own doc
@@ -170,8 +159,7 @@ mod optimize_solve;
 // "Edit as Text": the cutting instructions as editable `.asc` text with a live check, an
 // undoable Apply and a line comparison -- see that module's own doc comment.
 mod raw_text;
-// "Retarget for material" moved to `pleochroma-editor` unchanged; re-exported at
-// its old path.
+// "Retarget for material" lives in `pleochroma-editor`; re-exported here.
 pub use pleochroma_editor::retarget;
 // Tier relations (a tier's angle follows other tiers, `P2 = P1 - 2`): what a Tier form
 // save becomes, the refusal wording and the follower refresh -- see that module's own doc
@@ -203,8 +191,8 @@ mod tier_table_model;
 // The History tab's Trials view: designs kept this session with their figures, to compare or
 // restore -- see that module's own doc comment.
 mod trials;
-// The Optimize tab's Tune view: the tiers tuned by hand, one at a time, with a mini sweep each --
-// see that module's own doc comment.
+// The Optimize tab's Tune view: tiers tuned by hand, one at a time, each with a mini
+// sweep -- see that module's own doc comment.
 mod tune_panel;
 // The History tab's Variants view: named copies of the design kept in the library by the
 // design's UUID, with open and compare -- see that module's own doc comment.
@@ -219,8 +207,8 @@ pub(in crate::gui) use compare::close_compare_window;
 // Saved color variants take their `user.<uuid>` keys from the design id generator.
 pub(in crate::gui) use state::fresh_design_uuid;
 
-/// Lets go of the handles (database, editor state, compare window) the editor's thread-locals kept
-/// for a previous main window. See `gui::window_release`.
+/// Releases the handles (database, editor state, compare window) the editor's thread-locals
+/// hold for a previous main window. See `gui::window_release`.
 pub(in crate::gui) fn release_window_state() {
     variants::release_window_state();
     cutting_mode::release_window_state();
@@ -342,7 +330,7 @@ pub fn setup_editor_callbacks(
     solid_last_solved: &SolidLastSolved,
     // The Solid viewport's shared pick-buffer/hover-text/facet-tier state -- read
     // by its hover/click callbacks instead of rebuilding a `FacetMap` per mouse
-    // event. Written by `gui::SlintSolidSink::apply` as each frame lands -- see
+    // event. Written by `gui::solid_sink::SlintSolidSink::apply` as each frame lands -- see
     // `callbacks::setup_solid_facet_hover_callback` and [`SolidPickState`]'s own
     // doc comment.
     solid_pick_state: &SolidPickState,
@@ -621,11 +609,8 @@ fn setup_editor_tertiary_callbacks(
         preview_state,
         solid_last_solved,
     );
-    // `EditorModel.tier_cutoff_replan` and its callback were deleted here.
-    // The "Cut: N/M" slider's `changed` handler (`setup_tier_cutoff_callback`,
-    // registered earlier in this function) already replans on every genuine drag
-    // (the Slider uses an interaction callback instead of a property-change
-    // handler); a second callback would only duplicate that work.
+    // The "Cut: N/M" slider's `changed` handler (`setup_tier_cutoff_callback`) replans on
+    // every genuine drag, so no second replan callback is wired here.
     callbacks::setup_tier_filter_callback(ui);
     // Live critical-angle guidance in the Tier form, the one-time anchor
     // explainer card, and "Set material" on an inferred-material guess.
@@ -666,8 +651,9 @@ fn setup_editor_tertiary_callbacks(
     verdict::setup_verdict(ui, state, render_ctx, preview_state, solid_last_solved);
 }
 
-/// Called from `gui::SlintSolidSink::apply` once a solid-preview
-/// frame lands, naming `generation` (that frame's own
+/// Called from `gui::solid_sink::SlintSolidSink::apply` once a solid-preview frame lands.
+///
+/// It names `generation` (that frame's own
 /// `solid_preview::preview_state::PreviewFrame::generation`) and `solved` (its
 /// masts). A no-op when `generation` no longer names the live design -- see
 /// [`auto_solve::take_matching_design`]'s own doc comment for the exact

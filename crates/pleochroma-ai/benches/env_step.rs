@@ -1,16 +1,13 @@
-//! One RL environment step (BLD-2; finding AI-1 in `review_perf_2026-10-12_fable.md`,
-//! section 5, table row 10: trainer steps/s at Fast fidelity, about 100-140 before,
-//! 500-1 000 after AI-1).
+//! Benchmarks one RL environment step, the unit the trainer's throughput depends on.
 //!
 //! A step is a full candidate evaluation: apply the angle deltas, solve, build the mesh,
 //! manufacturability gate, girdle gate, then the objective at the configured fidelity
-//! (`Fast`: one pose, about 1-3 ms; `Full`: the 724-pose tilt sweep, about a second), plus
-//! building the observation. The fixture is the concave test design (`Design::concave_fixture`,
-//! a closed stone with four movable tiers). The environment is `reset` before each timed
-//! step so every sample starts from the same state.
+//! (`Fast`: one pose; `Full`: the 724-pose tilt sweep), plus building the observation.
+//! The fixture is the concave test design (`Design::concave_fixture`, a closed stone with
+//! four movable tiers). The environment is `reset` before each timed step so every sample
+//! starts from the same state.
 //!
-//! Standalone workspace: run from `crates/pleochroma-ai` with
-//! `cargo bench --bench env_step`.
+//! Run from `crates/pleochroma-ai` with `cargo bench --bench env_step`.
 
 use divan::black_box;
 use pleochroma_ai::env::{ContinuousTierAction, GemstoneRlEnv, OptimizerEnv, OptimizerEnvConfig};

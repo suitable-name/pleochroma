@@ -294,11 +294,11 @@ component CmSchedule inherits Rectangle {
     }
 }
 
-// The stone after this step, as big as the room allows. The render follows the size shown: the
-// picture the Cut slider draws is made for `SolidPreviewModel.viewport_width/height`, which the
-// editor's own viewport keeps at its size, so while this picture is up it writes its own size
-// there (debounced by the timer, then the same `viewport_resized` the editor viewport raises).
-// Rust puts the editor's size back when the screen closes (`cutting_mode/viewport.rs`).
+// The stone after this step, as large as the room allows. The render uses the size shown:
+// `SolidPreviewModel.viewport_width/height` is the size the solid picture is rendered at. While
+// this picture is up it writes its own size there (debounced by the timer, then
+// `viewport_resized`). Rust restores the editor's size when the screen closes
+// (`cutting_mode/viewport.rs`).
 component CmStonePicture inherits Rectangle {
     background: Theme.viewport-bg;
     border-radius: Theme.radius-md;
@@ -389,10 +389,9 @@ component CmStoneCard inherits CmCard {
 // Cutting mode: the cutting instructions one step per page, filling the window. See
 // `CuttingModeModel` (`models/cutting_mode.slint`) for what each property is and who writes it.
 //
-// Every block is placed by hand from the window's size instead of through stretch factors: a
-// Rectangle in a layout takes a share of the free room by default, which is what squashed the old
-// page into a band at the top and blew the buttons up. The window's own minimum size comes from
-// the main window, not from this screen.
+// Blocks are placed by hand from the window's size, not through stretch factors: a Rectangle in a
+// layout takes a share of the free room by default. The window's minimum size comes from the main
+// window, not from this screen.
 //
 // From the top: the header (title, state, help, close), the step strip (one segment per step,
 // done / current / to do, a click jumps there), the body, and the footer (Previous, Mark step
@@ -758,8 +757,8 @@ export component CuttingModeScreen inherits Rectangle {
                 min-width: 0px;
 
                 if !CuttingModeModel.confirm_reset: CmButton {
-                    // Its own width (a child of a plain Rectangle fills it otherwise: 704 px),
-                    // at the right end of the row.
+                    // Its own width (a child of a plain Rectangle would fill it), at the right
+                    // end of the row.
                     width: self.preferred-width;
                     x: parent.width - self.width;
                     y: 0px;

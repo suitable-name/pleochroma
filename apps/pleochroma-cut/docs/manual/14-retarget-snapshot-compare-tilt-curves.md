@@ -63,8 +63,7 @@ is normally ready at once.
 session: closing the design or the app loses it. It is not written to the `.psdd`
 file, and it is not the same thing as Deep Solve's comparison against the catalogue's
 printed proportions (Chapter 8): the Baseline only ever compares the current design
-against your own earlier state, never against catalogue data. (This was called the
-snapshot, with **Snapshot Design** and **Compare to Snapshot**, in earlier versions.)
+against your own earlier state, never against catalogue data.
 
 **What counts as a change.** The strip and the tables color a change green, red or
 grey by the noise threshold of each figure; the thresholds are listed under "The
@@ -86,7 +85,7 @@ and choosing another candidate updates the comparison. **Preview** itself uses
 the ordinary main renderer. Neither optimizer opens a separate Compare popup.
 
 **Compare Visually…** in the Compare to Baseline table still opens a separate
-window for that independent snapshot comparison. Both sides are solved when a
+window for that independent Baseline comparison. Both sides are solved when a
 comparison opens, so a large design may read "Solving both sides…" for a moment.
 
 ![The Optimize comparison in the editor viewport, in Overlay mode with Solid shading.](../../../../assets/optimizer__compare_1.png)
@@ -299,10 +298,51 @@ the angles, the axes or the resolution, so you can see which way a negative or a
 positive angle tips the stone before rendering anything. They show the stone the
 viewport holds; the video itself always draws the finished gem.
 
+**Adaptive Sampling.** In a build with the optional `adaptive-sampling` feature (Chapter 9;
+the standard build does not show the box and keeps the saved choice), under the samples slider the section has the same **Adaptive
+Sampling** check box and **Target Noise** list as the export dialog (Fine, Standard, Draft;
+Chapter 9). Adaptive sampling stops each part of a frame once it is clean enough; the
+samples setting becomes the most any part gets. Every frame decides this for itself, so a
+frame with a calm background and a sparkling stone saves most of its time on the
+background. Frames that repeat an earlier pose are still copies. The box is greyed out for
+the Ray-Traced renderer, and a video drawn this way renders on this computer only for
+now, so choose **Local Only** under Compute.
+
+**Path Cache.** Below it the section has the **Path Cache** check box of the export dialog
+(Chapter 9), a preview that reuses the stone's light paths. For a video it is used only
+together with **Keep Path Cache for This Video**, which writes the cache of every frame to
+disk, so that drawing the same video again with other lighting starts from them; the first
+run takes longer than a video without the cache. With **Path Cache** ticked alone the video
+is drawn as without it and a line says so. Kept caches take disk space: the cache folder and
+its size limit are in **Preferences** (Chapter 17). The boxes are greyed out for the
+Ray-Traced renderer, and while the app renders with exit collection (Chapter 9, "Exit
+Collection"), which does not use the path cache; a note under them says so.
+
+**Beam Tracing (Faceted Stones).** The section also has the **Beam Tracing (Faceted
+Stones)** check box of the export dialog (Chapter 9). It follows the light through each
+frame's stone as beams instead of single rays, so a faceted stone settles much faster, and
+the frames equal the path-traced ones within noise. It applies to a convex stone with
+flat, polished facets and sharp edges; for any other stone, for example one whose material
+rounds its edges, the frame is drawn as it would be without the box and a note names the
+reason. Every frame is a new pose of the stone, so every frame builds its own beams and
+nothing is reused between frames; resuming a video works per frame as always. With Beam
+Tracing ticked, **Keep Path Cache for This Video** also appears, and it keeps the beams of
+every frame on disk as well (there is no separate box for beams here). The box is greyed
+out for the Ray-Traced renderer. Remote workers draw the beam tiles of the frames too
+(Chapter 9), except for frames whose beams are being kept, which are drawn on this computer
+("Keeping the beams renders on this computer."); every worker must run the same version as
+the app (Chapter 10).
+
+Beam tracing is retired. This box exists only in a build with the `beam` feature
+(`cargo build -p pleochroma-cut --features beam`); the standard build does not show it, so
+**Keep Path Cache for This Video** appears there only with **Path Cache** ticked, and a remembered
+Beam Tracing choice has no effect. The beam note above, the beams kept per frame and the
+remote beam tiles all apply to a build with the feature only (Chapter 9).
+
 The section opens with the settings you left it with, also after the program was
 closed: the axes, Turn Stone 90°, the angle range and step, the frame rate, resolution,
-samples, bounces, color space, transfer, the folder-name template, the performance values
-on the frames and Keep PNG Frames. Starting a video, adding it to the queue or closing
+samples, Adaptive Sampling and its Target Noise (in a build with the `adaptive-sampling` feature), Path Cache and Keep Path Cache for This Video, Beam Tracing (in a build with the `beam` feature), bounces, color space, transfer, the
+folder-name template, the performance values on the frames and Keep PNG Frames. Starting a video, adding it to the queue or closing
 the dialog remembers them (the tilt video's *output defaults*, Chapter 2). The video is
 saved in the same export folder as still pictures; **Change...** next to it picks
 another one, and a folder chosen here is remembered for both. A line in the section
@@ -395,8 +435,8 @@ The tilt curves also follow the stone's frosting: frosted facets (the Frosted Gi
 
 Enable **Optical Diagnostics at Hovered Pose** to classify the preview at the same angle. **Inspect This Angle** opens the larger 360-pixel view; close it to return to the chart layout. Moving across the chart never changes the main camera. Each image and map are produced together by one cancellable latest-request worker. Status distinguishes an updating, ready draft or unavailable preview; outdated thumbnails are hidden.
 
-The signed tilt convention is unchanged: positive and negative tilt look at the stone from opposite sides of the sweep axis, at 90 degrees minus the absolute tilt above the girdle plane. The camera moves over table-up in one continuous arc, so a video that sweeps through face-up shows one fluid motion without the picture turning. All four axes and fractional video angles use the same camera helper. The preview is labelled as a draft analytical model; its Fire overlay does not add Fire tracing to every curve point.
+Positive and negative tilt look at the stone from opposite sides of the sweep axis, at 90 degrees minus the absolute tilt above the girdle plane. The camera moves over table-up in one continuous arc, so a video that sweeps through face-up shows one fluid motion without the picture turning. All four axes and fractional video angles use the same camera helper. The preview is labelled as a draft analytical model; its Fire overlay does not add Fire tracing to every curve point.
 
-Tilt-video export has its own **Include Optical Diagnostics and Model Caption (4 Samples/Pixel)** checkbox. Direct and queued videos freeze this option and presentation with the finished scene. Every frame traces its exact pose at output resolution, using the same fixed Fire transfer range. A bottom caption identifies optical diagnostics model 1 and Fire as dispersion potential. One `optical.txt` file in the frame folder records the model, material, lighting, selection and the sweep (axis, start, end, step); the pose of each frame follows from the sweep. Existing performance-value rows remain at the top. Normal videos keep their previous appearance with the checkbox clear. Within a frame, the beauty render fills the first half of the progress and the diagnostic pass the second half. Cancellation is checked during the diagnostic tiles as well as the frame pipeline.
+Tilt-video export has its own **Include Optical Diagnostics and Model Caption (4 Samples/Pixel)** checkbox. Direct and queued videos freeze this option and presentation with the finished scene. Every frame traces its exact pose at output resolution, using the same fixed Fire transfer range. A bottom caption identifies optical diagnostics model 1 and Fire as dispersion potential. One `optical.txt` file in the frame folder records the model, material, lighting, selection and the sweep (axis, start, end, step); the pose of each frame follows from the sweep. Existing performance-value rows remain at the top. With the checkbox clear, a video has no caption and no diagnostic layer. Within a frame, the beauty render fills the first half of the progress and the diagnostic pass the second half. Cancellation is checked during the diagnostic tiles as well as the frame pipeline.
 
 A paused or interrupted diagnostic video resumes only when its `optical.txt` is unchanged. If the diagnostic settings (or the sweep) changed since the frames on disk were rendered, or the frames were rendered without diagnostics, the resume stops with a message; restart the video to render every frame again. A video that is restarted without diagnostics removes the old `optical.txt`.

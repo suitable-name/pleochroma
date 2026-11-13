@@ -6,6 +6,10 @@
 //! it only when a material is known: the design names one, or `--material` or `--ri` does.
 //! A design that does not solve or close is not an error here: it is a Problem verdict.
 //!
+//! `validate` applies no fix. A reason's text line names the editor's fix, and for the one
+//! reason this program can fix itself (tiers with no meet point) also the command that does
+//! (`snap-meets`).
+//!
 //! The exit code is 4 when the verdict is Problem, 0 otherwise.
 
 use super::{deliver, key_values, list_block, open};
@@ -24,10 +28,17 @@ use pleochroma_editor::{
         plan::tier_display_names,
     },
     solve_policy::design_to_gpu_planes_from_solved,
-    verdict::{FixAction, Level, Reason, Verdict, evaluate, gather},
+    verdict::{FixAction, Level, Reason, ReasonKind, Verdict, evaluate, gather},
 };
 use serde_json::{Value, json};
 use std::fmt::Write as _;
+
+/// What the text line of a reason this program fixes itself adds: the command that fixes it.
+/// `None` for every other reason (their fix is the editor's only).
+fn command_line_fix(reason: &Reason) -> Option<&'static str> {
+    (reason.kind == ReasonKind::NoMeetPoint)
+        .then_some("From the command line: pleochroma-cli snap-meets.")
+}
 
 /// The verdict of a design with what it was judged on.
 struct Report {
@@ -127,6 +138,10 @@ fn reason_line(design: &Design, reason: &Reason) -> String {
     }
     if let Some(fix) = &reason.fix {
         let _ = write!(line, " Fix in the editor: {}.", fix.label());
+    }
+    if let Some(command) = command_line_fix(reason) {
+        line.push(' ');
+        line.push_str(command);
     }
     line
 }
@@ -262,10 +277,7 @@ mod tests {
     use pleochroma_cut_core::{
         CANONICAL_LIGHTING_PRESET, ConstraintTier, Edit, PreformSpec, ScheduleMeta, TierFrosting,
     };
-    use pleochroma_editor::{
-        retarget::metrics::{measure_column, measure_column_with_tools},
-        verdict::ReasonKind,
-    };
+    use pleochroma_editor::retarget::metrics::{measure_column, measure_column_with_tools};
     use std::path::PathBuf;
 
     fn args(material: Option<MaterialArg>, json: bool) -> ValidateArgs {
@@ -407,6 +419,40 @@ mod tests {
         assert!(
             line.ends_with("Fix in the editor: Snap to Teeth."),
             "{line}"
+        );
+    }
+
+    /// `validate` cannot apply a fix, so a reason with no meet point also names the command
+    /// that can; no other reason does.
+    #[test]
+    fn a_reason_with_no_meet_point_names_the_command_that_snaps_it() {
+        let design = testing::template();
+        let reason = Reason {
+            kind: ReasonKind::NoMeetPoint,
+            level: Level::Check,
+            text: "1 tier has no meet point: P2 (0.12 mm off). A cutter has to set its depth by \
+                   measurement."
+                .to_string(),
+            tier: Some(2),
+            fix: None,
+            confirm: None,
+        };
+        let line = reason_line(&design, &reason);
+        assert!(
+            line.starts_with("[Check] 1 tier has no meet point: P2 (0.12 mm off)."),
+            "{line}"
+        );
+        assert!(
+            line.ends_with(" From the command line: pleochroma-cli snap-meets."),
+            "{line}"
+        );
+        let gear = Reason {
+            kind: ReasonKind::OffGear,
+            ..reason
+        };
+        assert!(
+            !reason_line(&design, &gear).contains("pleochroma-cli"),
+            "only the meet reason names a command"
         );
     }
 

@@ -1,11 +1,10 @@
 //! The in-app help: the user manual in a window of its own, a glossary dialog, and the
 //! topic ids a panel's "?" button opens.
 //!
-//! Help > User Manual used to hand `README.md` to the operating system, which often meant a
-//! text editor, found nothing in an installed build and could not point at a section. Now
-//! the manual is compiled into the program ([`manual`]) and shown by the help window
-//! ([`open_topic`]), which has a chapter list, search, Back and Forward and scrolls to any
-//! section.
+//! The manual is compiled into the program ([`manual`]) and shown by the help window
+//! ([`open_topic`]), which has a chapter list, search, Back and Forward, and scrolls to any
+//! section. It is not handed to the operating system: that often opens a text editor, and an
+//! installed build may not have the plain files at all.
 //!
 //! # Pointing at the manual from a panel
 //!

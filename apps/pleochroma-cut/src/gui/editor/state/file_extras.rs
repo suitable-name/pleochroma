@@ -8,8 +8,8 @@ use std::path::Path;
 
 /// The `[meta]` table and attachments the open design came with.
 ///
-/// Empty for a design that never had either (a new design, a bare `.asc`, an older
-/// paired file) apart from the design's UUID, which every open design has (see
+/// Empty for a design that has neither (a new design, a bare `.asc`), apart from the
+/// design's UUID, which every open design has (see
 /// [`Self::with_design_uuid_assigned`]). A Save starts from these, overlays what the
 /// design's library row says (see `native_io::design_meta`), and writes the result.
 #[derive(Debug, Clone, Default)]

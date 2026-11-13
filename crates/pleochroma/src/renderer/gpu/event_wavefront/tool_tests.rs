@@ -5,9 +5,10 @@
 //! records out of every kernel's binding table. Hardware tests (skipped without an adapter,
 //! failing instead with `PLEOCHROMA_REQUIRE_GPU=1`): per tool primitive (cylinder, cone, ball,
 //! disc; plunge and both reciprocating sweeps; one mixed scene) the event-wavefront picture
-//! equals the megakernel's under the §7.2 tolerance, and the CPU tracer's tool effect is
-//! reproduced end to end. The megakernel itself is held to the CPU per primitive by
-//! `renderer::gpu::tool_check`, so the two checks together tie every primitive to the CPU.
+//! equals the megakernel's under the twin rule (`compare::FrameDiff::twin_passed`), and the CPU
+//! tracer's tool effect is reproduced end to end. The megakernel itself is held to the CPU per
+//! primitive by `renderer::gpu::tool_check`, so the two checks together tie every primitive to
+//! the CPU.
 
 use glam::Vec3;
 
@@ -197,7 +198,7 @@ fn diamond() -> GemMaterial {
 }
 
 /// Per tool primitive and sweep, and for a mixed scene, the event-wavefront picture of the
-/// concave stone equals the megakernel's (same samples, §7.2 tolerance), and the tools
+/// concave stone equals the megakernel's (same samples, twin rule), and the tools
 /// really change it (the flat stone's picture differs).
 #[test]
 fn ew_traces_every_tool_primitive_like_the_megakernel() {
@@ -230,7 +231,8 @@ fn ew_traces_every_tool_primitive_like_the_megakernel() {
             .unwrap_or_else(|e| panic!("[{scenario}] megakernel: {e:?}"));
 
         let diff = compare_frames(&from_mega, &from_ew, spp);
-        if !diff.tol_passed(pixels) {
+        println!("[{scenario}] {:?}, {diff:?}", diff.twin_tier(pixels));
+        if !diff.twin_passed(pixels) {
             failures.push(format!("[{scenario}] {diff:?}"));
         }
         if from_ew == flat {
@@ -277,10 +279,9 @@ fn ew_concave_image_reproduces_the_cpu_tool_effect() {
         max_bounces: 8,
         environment: LightingPreset::LightTent
             .studio(1.0, 0.4, 0.35)
-            // As Lit, explicitly: this scene measures the TOOLS' effect on the light that
-            // leaks through the pavilion, which must meet the Light tent's own dark ground.
-            // A lit tray (the default backdrop since 2026-10-20) replaces that ground with a
-            // grey close to the stone's own mean radiance and washes the effect out.
+            // The tool effect is measured on the light leaking through the pavilion, which needs
+            // the Light tent's dark ground: a lit tray backdrop is a grey close to the stone's own
+            // mean radiance and washes the effect out.
             .with_backdrop(0.0),
     };
     let soa = build_plane_soa(&planes);

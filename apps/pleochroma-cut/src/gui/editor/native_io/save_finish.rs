@@ -43,13 +43,10 @@ pub(super) fn record_last_saved_path(ui: &MainWindow, path: &Path) {
     model.set_last_saved_label(label.into());
 }
 
-/// [`write_native_save`]'s background-thread result, once both the file write and
-/// the catalogue write-back (Group 4: "files first then catalogue") have already
-/// run -- everything [`finish_save_native_success`] needs to finish on the UI
-/// thread. `catalogue` is its own `Result`, independent of the outer one this is
-/// wrapped in by [`write_native_save`]: a catalogue failure never means the save
-/// itself failed (see [`write_back_to_catalogue`]'s own doc comment), so it is
-/// reported on its own rather than folded into a single combined error.
+/// [`write_native_save`]'s background-thread result, after the file write and the catalogue
+/// write-back: everything [`finish_save_native_success`] needs on the UI thread. `catalogue`
+/// is its own `Result`: a catalogue failure does not mean the save failed (see
+/// [`write_back_to_catalogue`]), so it is reported on its own.
 pub(super) struct WriteNativeOutcome {
     /// The `.psdd` file that was written.
     pub(super) native_path: PathBuf,
@@ -57,24 +54,18 @@ pub(super) struct WriteNativeOutcome {
     /// The catalogue row's cutting instructions and the draft verdict.
     pub(super) asc: pleochroma_cut_core::native::CatalogueAsc,
     pub(super) catalogue: Result<(i64, CatalogueWriteBack), String>,
-    /// `EditorState::generation`'s value at the moment `design` was cloned out
-    /// of `state`, well before this write ever started (`NativeSaveContext::
-    /// snapshot_generation`'s own doc comment) -- what
-    /// [`finish_save_native_success`] actually marks the design clean AT,
-    /// instead of whatever `generation` reads once this outcome lands (which
-    /// may already include post-click edits this save never saw).
+    /// `EditorState::generation` when `design` was cloned out of `state`, before the write
+    /// started. The design is marked clean at this value, not at the live generation, which
+    /// may already include edits this save never saw.
     pub(super) snapshot_generation: u64,
 }
 
-/// [`write_native_save`]'s success tail, run back on the UI thread once its
-/// background thread reports in -- split out purely to keep that function under
-/// clippy's line-count lint. Drops any in-progress autosave (now strictly older
-/// than what's actually on disk), records `native_path` as the most recent Open
-/// Recent entry and this state's own file (see [`remember_design_location`]'s doc
-/// comment), updates `EditorState`'s own saved-generation bookkeeping, and toasts
-/// the outcome -- a draft note when
-/// [`pleochroma_cut_core::native::CatalogueAsc::draft_reason`] is `Some`, an ordinary
-/// success note otherwise -- then reports `outcome.catalogue`'s own result.
+/// [`write_native_save`]'s success tail, run on the UI thread once its background thread
+/// reports in. Split out to keep that function under clippy's line-count limit. It drops the
+/// autosave (now older than the file on disk), records the file as the recent entry and the
+/// design's location, updates the saved generation, toasts the outcome (a draft warning when
+/// [`pleochroma_cut_core::native::CatalogueAsc::draft_reason`] is `Some`), and reports the
+/// catalogue result.
 pub(super) fn finish_save_native_success(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -89,14 +80,11 @@ pub(super) fn finish_save_native_success(
         catalogue,
         snapshot_generation,
     } = outcome;
-    // The real save just landed -- any in-progress autosave is now strictly
-    // older than what's on disk, so drop it rather than leaving a stale
-    // recovery file behind (it never outlives the real save it stood in for).
+    // The autosave is older than the file just written, so it is dropped.
     delete_autosaves_for(Some(asc_filename.as_str()));
     record_recent_native_file(ui, &native_path.display().to_string());
     remember_design_location(Some(native_path.clone()), None);
-    // Names the window title (`MainWindow.loaded_design_name`) after the file
-    // that was just saved.
+    // The window title names the file just saved.
     let file_label = native_path.file_name().map_or_else(
         || asc_filename.clone(),
         |name| name.to_string_lossy().into_owned(),
@@ -109,38 +97,22 @@ pub(super) fn finish_save_native_success(
         let mut st = state.borrow_mut();
         st.asc_filename = Some(asc_filename);
         st.original_asc_text = Some(asc.asc_text);
-        // A draft save is still a real, successful save -- `design` not
-        // currently solving does not fail `catalogue_asc` at all (see
-        // `CatalogueAsc::draft_reason`'s own doc comment) -- so this is unconditional,
-        // not only on the ordinary branch below.
-        //
-        // `snapshot_generation` (the generation `design` was cloned out of
-        // `state` at, before this write even started), never the LIVE
-        // `st.generation` read here -- see `WriteNativeOutcome::
-        // snapshot_generation`'s own doc comment. Reading the live
-        // counter instead let edits made while this save was still
-        // resolving/writing read as clean the moment the (already stale) save
-        // completed, so the close guard never prompted for them and they were
-        // silently lost.
+        // A draft is a successful save too, so this runs for drafts as well. Marks clean at
+        // `snapshot_generation`, not the live counter: edits made while the save was in flight
+        // are still unsaved, and the close guard must still prompt for them.
         st.saved_generation = snapshot_generation;
     }
-    // The title names the file just saved from now on, not only after the next edit or Solve.
+    // The title names the saved file now, not only after the next edit or solve.
     ui.global::<EditorModel>()
         .set_design_label(design_label(&state.borrow()).into());
     ui.global::<EditorModel>()
         .set_is_dirty(state.borrow().is_dirty());
 
-    // `draft_reason` is `Some` iff `design` did not currently solve, or had no
-    // tiers at all, and this save fell back to a placeholder-mast `.asc` (see
-    // `catalogue_asc`'s own doc comment and `pleochroma_cut_core::native::DraftReason`)
-    // -- worded so the cutter knows the file IS on disk but is not yet a real cut
-    // instruction, rather than seeing a "Cannot save" error. `DraftReason`'s own
-    // `Display` already names which of the two happened, so it is not repeated
-    // here.
+    // `draft_reason` is `Some` when the design does not solve (or has no tiers) and the `.asc`
+    // holds placeholder masts. The file is on disk but is not a real cut instruction, so the
+    // toast says so instead of reporting an error. `DraftReason`'s `Display` names the cause.
     if let Some(reason) = &asc.draft_reason {
-        // This is a critical outcome -- the cutter's `.asc` is a placeholder, not
-        // a real cut instruction -- so it gets the persistent "warning" class,
-        // not an "info" flash that can vanish before it is read.
+        // A persistent warning, so the placeholder state is not missed.
         show_toast(
             ui,
             &format!(
@@ -160,20 +132,13 @@ pub(super) fn finish_save_native_success(
     // A tutorial step may wait for the design to be saved (a draft counts: the file is there).
     raise(ui, events::DESIGN_SAVED);
 
-    // Registers (or updates) this design's own catalogue
-    // row -- see `write_back_to_catalogue`'s own doc comment for exactly what gets
-    // overwritten versus preserved. Already run, on a background thread, by
-    // `write_native_save` (Group 4: "files first then catalogue, results back via
-    // the event loop") -- this only reports `catalogue`'s own outcome. Never runs
-    // after "Export .asc" (`setup_export_asc_callback`), which keeps its own
-    // documented "file only, no database write of any kind" rule.
+    // The catalogue row was written on a background thread by `write_native_save`
+    // (see `write_back_to_catalogue`); this reports its outcome. Export Edited .asc never
+    // writes a row.
     report_catalogue_write_back(ui, state, db, source, Path::new(&schedule_name), catalogue);
 
-    // the save this guard's own Save resolution triggered just actually
-    // landed -- see `AfterSave`'s own doc comment. Runs last, after this
-    // function's own bookkeeping/toasts above, so a listener that hides the
-    // window (the close-confirm guard) does so only once every other effect
-    // of a successful save has already happened.
+    // Runs last, so a listener that hides the window (the close-confirm guard) does so only
+    // after the rest of a successful save.
     super::notify_save_completed(ui, state);
 }
 
@@ -190,9 +155,8 @@ fn report_catalogue_write_back(
     catalogue: Result<(i64, CatalogueWriteBack), String>,
 ) {
     match catalogue {
-        // Another catalogue design already owns this file name, so the catalogue was
-        // left untouched. The id is that design's: adopting it as `source_entry_id`
-        // would make the next save overwrite it, so it is deliberately not adopted.
+        // Another design already owns this file name, so the catalogue is left untouched. The
+        // id is that design's, and adopting it would make the next save overwrite it.
         Ok((_, CatalogueWriteBack::UrlCollision { existing_id, title })) => {
             let file = dest_path.file_name().map_or_else(
                 || dest_path.display().to_string(),
@@ -209,10 +173,8 @@ fn report_catalogue_write_back(
             );
         }
         Ok((id, catalogue_outcome)) => {
-            // Every save after this one for a previously row-less (or
-            // now-row-less, see `CatalogueWriteBack::SourceRowGoneNewRowCreated`)
-            // design must update THIS row, never insert a second -- see
-            // `EditorState::source_entry_id`'s own doc comment.
+            // Later saves update this row and never insert another (see
+            // `EditorState::source_entry_id`).
             state.borrow_mut().source_entry_id = Some(id);
             crate::gui::library::local::refresh_after_library_change(ui, db, source);
             match catalogue_outcome {
@@ -224,11 +186,8 @@ fn report_catalogue_write_back(
                         "info",
                     );
                 }
-                // The design itself saved fine (this whole function only runs after
-                // `write_file_atomically` already succeeded) -- only the library's
-                // cached previews/tilt curves for this row could not be cleared, so
-                // the cutter needs to know not to trust them at a glance rather than
-                // this failing silently into `tracing::warn!` alone.
+                // The design saved; only the library's cached previews and tilt curves
+                // could not be cleared. The cutter is told, not only logged.
                 CatalogueWriteBack::UpdatedExisting {
                     stale_cache_invalidation_failed: true,
                 } => {

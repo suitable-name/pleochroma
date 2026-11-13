@@ -1,8 +1,8 @@
 //! Extended stream-event and batch wire-layout tests.
 use super::*;
 
-/// Every v14 event round-trips through `write_stream_event`/`read_stream_event`, the
-/// payload-carrying ones together with their raw payload frame.
+/// The connection and picture events round-trip through `write_stream_event`/
+/// `read_stream_event`, the payload-carrying ones together with their raw payload frame.
 #[test]
 fn v14_stream_events_round_trip_with_and_without_payloads() {
     use crate::messages::{DisplayEncoding, PayloadEncoding, RenderCapability};
@@ -85,8 +85,8 @@ fn v14_stream_events_round_trip_with_and_without_payloads() {
     }
 }
 
-/// Pins the `StreamEvent` discriminants: the five v13 variants keep 0..=4 and the v14
-/// ones are appended in order.
+/// Pins the `StreamEvent` discriminants: each variant keeps its index, and new ones are
+/// appended.
 #[test]
 fn stream_event_discriminants_are_append_only() {
     let first_byte = |e: &StreamEvent| postcard::to_allocvec(e).unwrap()[0];
@@ -132,8 +132,8 @@ fn stream_event_discriminants_are_append_only() {
     );
 }
 
-/// `Asset` (HDR maps) is appended after `FinalImageRequest` (index 6), and the v14
-/// scene environment keeps `Studio` at 0 with `Hdr` appended at 1.
+/// `Asset` (HDR maps) is appended after `FinalImageRequest` (index 5), at index 6, and the
+/// scene environment keeps `Studio` at 0 with `Hdr` at 1.
 #[cfg(feature = "render")]
 #[test]
 fn asset_and_scene_environment_discriminants_are_pinned() {
@@ -188,6 +188,10 @@ fn ping_and_final_image_request_round_trip_at_discriminants_4_and_5() {
         height: 2,
         yaw: 0.0,
         camera_roll: 0.0,
+        stone_shadow: false,
+        tray_reflection: 0.0,
+        hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
+        estimator: pleochroma::optics::raytracer::Estimator::Branching,
         pitch: 0.0,
         distance: 1.0,
         light_yaw: 0.0,
@@ -229,7 +233,7 @@ fn ping_and_final_image_request_round_trip_at_discriminants_4_and_5() {
     assert_eq!(decoded, request);
 }
 
-/// v16: `Contribution` is appended after `Asset` (index 6), at discriminant 7, and
+/// `Contribution` is appended after `Asset` (index 6), at discriminant 7, and
 /// round-trips through the tagged `ClientMessage` envelope.
 #[cfg(feature = "render")]
 #[test]
@@ -256,7 +260,7 @@ fn contribution_is_appended_at_discriminant_7_and_round_trips() {
     assert_eq!(decoded, contribution);
 }
 
-/// v24: the batch events are appended after `NeedAsset` (indices 10 to 13), carry their
+/// The batch events are appended after `NeedAsset` (indices 10 to 13), carry their
 /// batch's `request_id`, and only `BatchItemDone` has a payload frame (the PNG).
 #[test]
 fn v24_batch_events_are_appended_and_round_trip() {
@@ -313,7 +317,7 @@ fn v24_batch_events_are_appended_and_round_trip() {
     assert_eq!(buf, [] as [u8; 0]);
 }
 
-/// v24: `BatchRenderRequest` is appended after `Contribution` (index 7), at discriminant
+/// `BatchRenderRequest` is appended after `Contribution` (index 7), at discriminant
 /// 8, and round-trips through the tagged `ClientMessage` envelope.
 #[cfg(feature = "render")]
 #[test]
@@ -330,6 +334,10 @@ fn batch_render_request_is_appended_at_discriminant_8_and_round_trips() {
         height: 2,
         yaw: 0.0,
         camera_roll: 0.0,
+        stone_shadow: false,
+        tray_reflection: 0.0,
+        hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
+        estimator: pleochroma::optics::raytracer::Estimator::Branching,
         pitch: 0.0,
         distance: 1.0,
         light_yaw: 0.0,
@@ -372,7 +380,7 @@ fn batch_render_request_is_appended_at_discriminant_8_and_round_trips() {
     assert_eq!(decoded, request);
 }
 
-/// v16: `Stats.reclaimed_samples` round-trips through `DONE` for a nonzero value (a
+/// `Stats.reclaimed_samples` round-trips through `DONE` for a nonzero value (a
 /// zero one is already covered by `done_round_trips_both_cancelled_states`).
 #[test]
 fn done_stats_round_trip_with_reclaimed_samples() {

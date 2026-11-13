@@ -31,7 +31,7 @@ A grade is a named finish. The tier table's right-click menu offers them in a **
 
 | Grade | Typical lap | Roughness | What it shows |
 |---|---|---|---|
-| **Ideal** | none | 0 | A perfect polish: no halo. The default, and exactly what older builds rendered. |
+| **Ideal** | none | 0 | A perfect polish: no halo. The default. |
 | **Mirror** | 50k to 100k diamond or alumina | Rq 1 nm | About 0.05 % of the light in the halo at normal incidence; a faint halo, round. |
 | **Fine** | 14k diamond | Rq 2.5 nm | About 0.3 %; a faint halo, slightly stretched. |
 | **Commercial** | 8k diamond | Rq 6 nm | About 2 %; a visible halo, clearly stretched. |
@@ -46,9 +46,9 @@ The percentages are for light arriving straight on, at a wavelength of 550 nm, f
 
 ### Frosting Is Ground
 
-The old **Frosted** tick box of the Tier tab (Chapter 4, "Frosting a Tier") and the snowflake button of a facet chip still work, and a frosted tier is now a **Ground** tier of roughness 0.45. That roughness is a glass-like rough surface, not a flat grey: a ground girdle shows the soft forward glow of the light that passes through it. **Ground (Fine)** and **Ground (Coarse)** are the same finish with a finer and a coarser grain. The program restores the energy a rough surface would otherwise lose, so a ground facet does not render darker than a polished one for that reason alone.
+The **Frosted** tick box of the Tier tab (Chapter 4, "Frosting a Tier") and the snowflake button of a facet chip make a **Ground** tier of roughness 0.45. That roughness is a glass-like rough surface, not a flat grey: a ground girdle shows the soft forward glow of the light that passes through it. **Ground (Fine)** and **Ground (Coarse)** are the same finish with a finer and a coarser grain. The program restores the energy a rough surface would otherwise lose, so a ground facet does not render darker than a polished one for that reason alone.
 
-A design saved with a frosted tier opens as before, and its pictures look different once, on purpose: the matte, flat Lambertian look of the older frosting is replaced by the ground finish described here. Frosted renders and tilt curves are therefore a little different from those of earlier builds.
+A frosted tier is drawn with the ground finish described here, not with the matte, flat Lambertian look of plain frosting.
 
 ## Setting a Finish
 
@@ -142,8 +142,7 @@ The band is a ground finish along every edge, found in the same way as **Edge Ro
 
 - **Path-Traced, Solid + Path-Traced, exports, render jobs, remote workers, the web viewer and the command-line tool** draw the finish. A scene with a finish goes to the graphics card when there is one, as any other scene does.
 - **Ray-Traced** ignores Surface Finish and Abraded Edges, because that view has no scatter model. The Stone tab says so next to the group.
-- **The figures ignore it.** The Checks numbers, the Verdict, Compare, Optimize, the sweeps, Tune and the tilt curves still treat every facet as perfectly polished. When a finish is on, the Checks tooltip, the Verdict and the Compare header add the line "Figures ignore Surface Finish" (or "Inclusions", "Play-of-Color" and so on, naming only what is on). A figure for polish haze may follow in a later version.
-- The catalogue thumbnails and the tilt-curve staleness check include the finish, so changing it redraws the thumbnail of the design.
+- **The figures ignore it.** The Checks numbers, the Verdict, Compare, Optimize, the sweeps, Tune and the tilt curves still treat every facet as perfectly polished. When a finish is on, the Checks tooltip, the Verdict and the Compare header add the line "Figures ignore Surface Finish" (or "Inclusions", "Play-of-Color" and so on, naming only what is on).- The catalogue thumbnails and the tilt-curve staleness check include the finish, so changing it redraws the thumbnail of the design.
 
 ## Files
 

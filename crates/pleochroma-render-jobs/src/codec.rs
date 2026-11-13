@@ -72,6 +72,11 @@ pub fn to_text(job: &RenderJobFile) -> Result<String, JobFileError> {
 /// [`JobFileError::NotAJobFile`], [`JobFileError::NewerFormat`],
 /// [`JobFileError::Malformed`] or [`JobFileError::Invalid`], in that order of checking.
 pub fn from_text(text: &str) -> Result<RenderJobFile, JobFileError> {
+    read_supported_format(text, JOB_FORMAT_VERSION)
+}
+
+/// Checks the reader's format ceiling before deserializing the scene.
+fn read_supported_format(text: &str, supported: u32) -> Result<RenderJobFile, JobFileError> {
     #[derive(Deserialize)]
     struct Probe {
         format: Option<u32>,
@@ -87,16 +92,13 @@ pub fn from_text(text: &str) -> Result<RenderJobFile, JobFileError> {
     let Some(found) = probe.format else {
         return Err(JobFileError::NotAJobFile);
     };
-    if found > JOB_FORMAT_VERSION {
-        return Err(JobFileError::NewerFormat {
-            found,
-            supported: JOB_FORMAT_VERSION,
-        });
+    if found > supported {
+        return Err(JobFileError::NewerFormat { found, supported });
     }
     let mut job: RenderJobFile = serde_json::from_value(value)
         .map_err(|error| JobFileError::Malformed(error.to_string()))?;
-    // A file written before the lit tray holds a card level; convert it once, under the
-    // file's own preset and light pose, so every reader sees a tray radiance.
+    // A legacy file holds a card level, not the tray radiance: convert it once, under the
+    // file's own preset and light pose.
     job.upgrade_backdrop_model();
     job.validate()?;
     Ok(job)
@@ -200,19 +202,134 @@ mod tests {
     }
 
     #[test]
+    fn a_format_two_reader_refuses_a_shadowed_job() {
+        let mut job = still_job();
+        job.scene.stone_shadow = true;
+        job.scene.lighting_preset = pleochroma::optics::raytracer::LightingPreset::LightTent;
+        job.scene.backdrop = 0.9;
+        job.format = crate::job::format_for(&job);
+        let text = to_text(&job).expect("encode shadowed job");
+        assert_eq!(
+            read_supported_format(&text, 2),
+            Err(JobFileError::NewerFormat {
+                found: 3,
+                supported: 2
+            })
+        );
+        assert_eq!(from_text(&text).expect("read format 3"), job);
+    }
+
+    #[test]
     fn a_newer_format_is_refused_with_the_exact_sentence() {
-        let error = from_text(r#"{"format": 3}"#).unwrap_err();
+        let error = from_text(r#"{"format": 7}"#).unwrap_err();
         assert_eq!(
             error,
             JobFileError::NewerFormat {
-                found: 3,
-                supported: 2
+                found: 7,
+                supported: 6
             }
         );
         assert_eq!(
             error.to_string(),
-            "This job file was made by a newer version of Pleochroma (format 3); this version reads format 2."
+            "This job file was made by a newer version of Pleochroma (format 7); \
+             this version reads format 6."
         );
+    }
+
+    /// A zoned job survives the text: its zones come back equal, the scene's material stays
+    /// unzoned (the material's serde skips them), and a format-4 reader refuses the file.
+    #[test]
+    fn a_zoned_job_round_trips_and_a_format_four_reader_refuses_it() {
+        use crate::job::test_support::zoned_still_job;
+        let job = zoned_still_job();
+        assert_eq!(job.format, 5);
+        let text = to_text(&job).expect("encode zoned job");
+        let value: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(value["format"], 5);
+        assert!(value.get("zoning").is_some());
+        assert!(value["scene"]["material"].get("zoning").is_none());
+        assert_eq!(
+            read_supported_format(&text, 4),
+            Err(JobFileError::NewerFormat {
+                found: 5,
+                supported: 4
+            })
+        );
+        let back = from_text(&text).expect("read format 5");
+        assert_eq!(back, job);
+        assert_eq!(back.zoning, job.zoning);
+        assert!(back.scene.material.zoning.is_none());
+    }
+
+    /// A job lit by a turned HDR map survives the text bit for bit, and a format-5 reader refuses
+    /// the file instead of lighting the map unturned.
+    #[test]
+    fn a_turned_hdr_job_round_trips_and_a_format_five_reader_refuses_it() {
+        use crate::job::test_support::turned_hdr_still_job;
+        let job = turned_hdr_still_job();
+        assert_eq!(job.format, 6);
+        let text = to_text(&job).expect("encode turned job");
+        let value: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(value["format"], 6);
+        assert!(value["scene"].get("hdr_orientation").is_some());
+        assert_eq!(
+            read_supported_format(&text, 5),
+            Err(JobFileError::NewerFormat {
+                found: 6,
+                supported: 5
+            })
+        );
+        let back = from_text(&text).expect("read format 6");
+        assert_eq!(back, job);
+        assert_eq!(
+            back.scene.hdr_orientation.yaw.to_bits(),
+            job.scene.hdr_orientation.yaw.to_bits()
+        );
+        assert!(back.scene.hdr_orientation.follows_camera);
+    }
+
+    /// Zones with a turned frame, a soft boundary and no axis following come back bit for bit:
+    /// the omitted `follows_axis` reads as false and the frame's quaternion is not disturbed.
+    #[test]
+    fn rotated_soft_zones_without_axis_following_round_trip() {
+        use crate::job::test_support::zoned_still_job;
+        use pleochroma::optics::zoning::ZoneFrame;
+        let mut job = zoned_still_job();
+        let zoning = job.zoning.as_mut().expect("the job is zoned");
+        zoning.frame = ZoneFrame::from_rotation_vector([0.3, 0.2, 0.1], [0.1, 0.0, 0.2]);
+        zoning.boundary_softness_mm = 0.25;
+        zoning.follows_axis = false;
+        let back = round_trip(&job);
+        assert_eq!(back, job);
+        assert_eq!(back.zoning, job.zoning);
+    }
+
+    /// A job without zones writes no `zoning` key, so unzoned files keep the bytes they had
+    /// before format 5.
+    #[test]
+    fn an_unzoned_job_writes_no_zoning_key() {
+        let text = to_text(&still_job()).unwrap();
+        assert!(!text.contains("zoning"));
+        let value: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(value["format"], 1);
+    }
+
+    #[test]
+    fn a_format_three_reader_refuses_a_tray_reflection_job() {
+        let mut job = still_job();
+        job.scene.tray_reflection = 0.04;
+        job.scene.lighting_preset = pleochroma::optics::raytracer::LightingPreset::LightTent;
+        job.scene.backdrop = 0.9;
+        job.format = crate::job::format_for(&job);
+        let text = to_text(&job).expect("encode reflective job");
+        assert_eq!(
+            read_supported_format(&text, 3),
+            Err(JobFileError::NewerFormat {
+                found: 4,
+                supported: 3
+            })
+        );
+        assert_eq!(from_text(&text).expect("read format 4"), job);
     }
 
     #[test]

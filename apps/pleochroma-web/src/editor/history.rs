@@ -1,6 +1,4 @@
-//! The History tab: the undo steps of the design as a list, with a jump to any of them
-//! (the desktop's `editor_inspector/history_tab.slint` and `history_panel`, without the
-//! pictures).
+//! The History tab: the undo steps of the design as a list, with a jump to any of them.
 //!
 //! The list is read from the shared `EditorSession` ([`history_entries`] and
 //! [`history_position`]) and pushed by the inspector's refresh ([`push`], called from

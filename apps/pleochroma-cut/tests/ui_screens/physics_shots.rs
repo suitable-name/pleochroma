@@ -1,12 +1,12 @@
 //! The shots of the Render Physics controls: the Stone tab's Inclusions, Abraded Edges and
-//! Play-of-Color / Schiller groups, the Tier tab's Surface Finish section, the Show Surface Finish
-//! overlay, the Preferences dialog's Faceting Machine section and the Gem Material Editor's
-//! Per-Axis Curves, Inclusion Families and Play-of-Color sections. Each drives the real app through
-//! the model calls its controls make.
+//! Play-of-Color / Schiller groups, the Tier tab's Surface Finish section, the Show Surface
+//! Finish overlay, the Preferences dialog's Faceting Machine section and the Gem Material
+//! Editor's Per-Axis Curves, Inclusion Families and Play-of-Color sections. Each drives the real
+//! app through the model calls its controls make.
 //!
-//! Not here: the tier table's right-click Surface Finish menu. The harness has no pointer API for a
-//! right click, and the menu entries are native menu items, not elements of the window; the menu's
-//! callbacks are driven by `coverage/rows_physics.rs` in the UI harness.
+//! Not here: the tier table's right-click Surface Finish menu. The harness cannot right-click,
+//! and the menu items are native, not window elements; the UI harness's
+//! `scenarios/coverage/rows_physics.rs` drives its callbacks instead.
 
 use crate::{
     axis_shots::section_into_view,
@@ -26,7 +26,7 @@ use uiprobe::screenshot::Shot;
 const WHEEL_STEP: f32 = 300.0;
 /// The edge band these shots set, in model units, and its wear.
 const SHOWN_EDGE: (f32, f32) = (0.05, 0.4);
-/// The grade the surface shots give tier 0: an index of the grade names (2 is Fine).
+/// The grade index the surface shots give the selected tier (2 is Fine).
 const SHOWN_GRADE: i32 = 2;
 
 // ---------------------------------------------------------------------------------------------
@@ -280,9 +280,9 @@ fn press(sc: &Sc<'_, '_>, label: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// What a host choice proposes to the open Gem Material Editor for a sapphire, as the physics state
-/// pushes it (`PhysicscolorModel.prefill_*`): the editor starts on the Cubic / Isotropic defaults
-/// for a built-in material, and its Per-Axis Curves section belongs to a doubly refracting one.
+/// Sets the prefill of `PhysicscolorModel` for a sapphire, a doubly refracting material. A
+/// built-in material otherwise opens with the Cubic / Isotropic defaults, which hide the
+/// Per-Axis Curves section.
 fn propose_sapphire_optics(sc: &Sc<'_, '_>) {
     let ui = sc.ui();
     let physics = ui.global::<PhysicscolorModel>();

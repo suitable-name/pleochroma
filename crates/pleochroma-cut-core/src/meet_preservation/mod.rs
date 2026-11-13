@@ -12,7 +12,7 @@
 //! compares `concave_tiers` as part of the design), so no optimizer or
 //! retarget run can edit a tool. The tools are carving outside the network: they are
 //! placed on each candidate's own shell when it is scored (`Design::tools_for_scoring`,
-//! `optimize::ScoredStone`), so they follow the stone's frame, but they neither add
+//! `ScoredStone` in `optimize`), so they follow the stone's frame, but they neither add
 //! nor remove a planar surface and cannot detach a planar meet. Scoring and the yield
 //! therefore stay on the carved stone, while the meet gate judges the shell the tools
 //! are cut from. A meet that a tool happens to carve away is still a meet of the
@@ -35,7 +35,7 @@ use pleochroma::geometry::meet_solver::{SolveControl, SolveStrategy, SolvedTier}
 /// A hard geometric failure, independent of optical quality.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PreservationViolation {
-    /// The owner cancelled before geometry validation completed.
+    /// The caller cancelled before geometry validation completed.
     Cancelled,
     /// A geometry failure annotated with the original authored support names.
     AtSurfaces {
@@ -50,11 +50,11 @@ pub enum PreservationViolation {
     /// The candidate's own facet boundaries could not be resolved at the preservation
     /// accuracy (a degenerate or vanished face); the original is not at fault.
     CandidateTopology(String),
-    /// The authored design no longer corresponds to the captured network.
+    /// The authored design does not match the captured network.
     StaleCandidate,
-    /// A complete original support set no longer meets at one boundary point.
+    /// A complete original support set does not meet at one boundary point.
     DetachedJunction(usize),
-    /// A previously live authored surface disappeared.
+    /// An authored surface that was live at capture is gone.
     LostFacet(usize),
     /// An original edge collapsed or left its face boundary.
     CollapsedEdge(usize),
@@ -191,13 +191,12 @@ pub struct PreservationPolicy {
     /// A Retarget's angle changes are the request itself, and with the girdle outline held
     /// ([`Self::lock_girdle_gauge`]) a facet turned from slope `t` to `t'` about the outline
     /// carries every point it reaches, `l` inward from the outline, by `l (tan t' - tan t)`
-    /// up or down. A brilliant's pavilion mains reach from the outline almost to the axis: a
-    /// ten-degree pavilion shift (diamond to sapphire) deepens the stone by 0.17 width units
-    /// and moves the culet's junctions by as much, against constant bounds of 0.08. The gate
+    /// up or down. A brilliant's pavilion mains reach from the outline almost to the axis, so
+    /// a ten-degree pavilion shift deepens the stone by 0.17 width units and moves the culet's
+    /// junctions by as much, against constant bounds of 0.08. The gate
     /// therefore grants such a candidate ([`Self::for_turn`]) the largest per-tier product
     /// `reach_i x |d tan_i|` on top of `max_depth_change`, `max_girdle_change` and
-    /// `max_junction_displacement` (owner decision 2026-10-19, tightened from one
-    /// half-length times the largest tangent change):
+    /// `max_junction_displacement`:
     ///
     /// - `d tan_i` is read from the requested angles ([`tangent_changes`]: the caller's
     ///   request or the projection's seed, or the finished state a caller judges), never from
@@ -236,12 +235,11 @@ impl PreservationPolicy {
     };
     /// The Retarget bound.
     ///
-    /// The constants bound what the projection's repair may add to the requested turn (a
-    /// conservative initial choice; corpus calibration is still required), and the depth,
-    /// girdle and junction bounds follow the turn itself ([`Self::bounds_follow_turn`]),
-    /// because a shift between refractive indices turns the pavilion by the critical-angle
-    /// difference, many degrees between distant materials, and no constant can both hold a
-    /// one-degree shift tight and admit a ten-degree one.
+    /// The constants bound what the projection's repair may add to the requested turn. The
+    /// depth, girdle and junction bounds follow the turn itself ([`Self::bounds_follow_turn`]):
+    /// a shift between refractive indices turns the pavilion by the critical-angle difference,
+    /// many degrees between distant materials, and no constant can both hold a one-degree
+    /// shift tight and admit a ten-degree one.
     pub const RETARGET: Self = Self {
         max_junction_displacement: 0.08,
         max_aspect_change: 0.1,
@@ -252,9 +250,9 @@ impl PreservationPolicy {
         lock_girdle_gauge: true,
         bounds_follow_turn: true,
     };
-    /// The wide policy the census measures raw deltas under (follow-ups plan 2026-10-19,
-    /// section 4.3). No stone reaches these limits, so a candidate is refused only for the
-    /// topology and gauge reasons. Never a product default: nothing but the census uses it.
+    /// The wide policy the census measures raw deltas under. No stone reaches these limits,
+    /// so a candidate is refused only for the topology and gauge reasons. Never a product
+    /// default: nothing but the census uses it.
     pub const CENSUS: Self = Self {
         max_junction_displacement: 10.0,
         max_aspect_change: 10.0,
@@ -300,13 +298,11 @@ impl PreservationPolicy {
 /// its value when a turn's travel is measured.
 ///
 /// The hinge model behind [`PreservationPolicy::bounds_follow_turn`] carries a point by
-/// `l (tan t' - tan t)`, and the tangent grows without bound toward 90 degrees (its slope is
-/// 15 per radian at 75 degrees and 130 at 85) while a steep facet's real inward reach shrinks
-/// to its height over the tangent; the linear model no longer describes the travel there, and
-/// a near-wall request would otherwise buy an unbounded allowance (owner decision
-/// 2026-10-19). With the cap a tier turned past 75 degrees contributes at most its reach times
-/// `tan 75 - tan t` (3.73 minus its old tangent), and one that starts beyond 75 degrees
-/// contributes nothing.
+/// `l (tan t' - tan t)`, which stops describing the travel as the tangent grows toward 90
+/// degrees: a steep facet's inward reach shrinks to its height over the tangent, so an
+/// uncapped near-wall request would buy an unbounded allowance. With the cap a tier turned
+/// past 75 degrees contributes at most its reach times `tan 75 - tan t`, and one that starts
+/// beyond 75 degrees contributes nothing.
 pub const TURN_TANGENT_CAP_DEG: f64 = 75.0;
 
 /// `tan |t|` with `|t|` capped at [`TURN_TANGENT_CAP_DEG`].

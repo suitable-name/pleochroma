@@ -73,7 +73,7 @@ fn dist2d_sample(u0: f32, u1: f32) -> Dist2dSample {
     let u = s_u.sample;
     let pdf_u = s_u.pdf;
 
-    let dir = hdr_uv_to_direction(u, v);
+    let dir = hdr_map_to_world(hdr_uv_to_direction(u, v), hdr_rot());
     let rgb = hdr_env_sample_bilinear(u, v);
     let pdf = pdf_uv_to_solid_angle(pdf_u * pdf_v, v);
 
@@ -100,21 +100,21 @@ fn dist2d_pdf_uv(u: f32, v: f32) -> f32 {
     return pdf_u * pdf_v;
 }
 
-// renderer::env_map::EnvironmentMap::pdf -- `sin(theta)` off the unit direction
-// (`length(vec2(x, z))`, the CPU's `x.hypot(z)`), never `sin(acos(y))`; see that
-// function's own comment.
+// Matches `renderer::env_map::EnvironmentMap::pdf`. `sin(theta)` is `length(vec2(x, z))`
+// (the CPU's `x.hypot(z)`), not `sin(acos(y))`.
 fn dist2d_pdf(dir: vec3<f32>) -> f32 {
-    let uv = hdr_direction_to_uv(dir);
+    let m = hdr_world_to_map(dir, hdr_rot());
+    let uv = hdr_direction_to_uv(m);
     let pdf_uv = dist2d_pdf_uv(uv.x, uv.y);
-    let d = normalize(dir);
+    let d = normalize(m);
     let sin_theta = length(vec2<f32>(d.x, d.z));
     return pdf_uv_to_solid_angle_from_sin(pdf_uv, sin_theta);
 }
 
 // ---- concave-stone shadow probe of the Henyey-Greenstein NEE ----
-// optics::raytracer::scattering::hg_nee::{exit_transmittance, walk_exits}. Only reached when
-// `params.num_tools > 0`; a convex stone has exactly one crossing and keeps the original
-// single-exit code in `nee_contribution_hg_scatter`.
+// optics::raytracer::scattering::hg_nee::{exit_transmittance, walk_exits}. Only used when
+// `params.num_tools > 0`. A convex stone has one crossing and takes the single-exit path in
+// `nee_contribution_hg_scatter`.
 
 // The most boundaries the probe crosses before it gives the sample up
 // (`HG_NEE_MAX_CROSSINGS`).
@@ -144,15 +144,13 @@ fn hg_exit_transmittance(n_inside: f32, cos_i: f32) -> vec2<f32> {
     return vec2<f32>(1.0 - r_unpol, cos_t);
 }
 
-// The concave-stone probe: follows the sample direction through up to
-// `HG_NEE_MAX_CROSSINGS` boundaries, multiplying in the Fresnel transmittance at each exit
-// and at each re-entry through a cavity's far wall, and summing the length of every
-// in-material segment for the Beer-Lambert term (each measured from the scattering point
-// or the re-entry wall itself: every in-material segment starts `HG_SHADOW_PROBE_OFFSET`
-// inside the material, so the offset is added back). Drops the sample above the cap, on
-// TIR or a frosted exit at any crossing, and when the walk ends on an entry. The walk
-// keeps the interior direction through the air gaps; only the last exit bends it (see the
-// CPU twin).
+// Concave-stone probe. Follows the sample direction through up to `HG_NEE_MAX_CROSSINGS`
+// boundaries, multiplying in the Fresnel transmittance at each exit and each cavity re-entry.
+// It also sums the in-material segment lengths for the Beer-Lambert term. Each segment
+// starts `HG_SHADOW_PROBE_OFFSET` inside the material, so that offset is added back. Drops
+// the sample above the crossing cap, on TIR or a frosted exit, and when the walk ends on an
+// entry. Between exits the direction stays the interior one; only the last exit bends it
+// (see the CPU twin).
 fn hg_walk_exits(probe_origin: vec3<f32>, dir: vec3<f32>, first: HitInfo, n_inside: f32) -> HgExit {
     var out: HgExit;
     out.ok = false;
@@ -223,25 +221,17 @@ fn hg_walk_exits(probe_origin: vec3<f32>, dir: vec3<f32>, first: HitInfo, n_insi
     return out;
 }
 
-// optics::raytracer::scattering::hg_nee::nee_contribution_hg_scatter. `alphas` is the
-// segment's own per-channel array (`bounce_scatter_alphas`, evaluated at the direction the
-// ray ARRIVED along): used as it is for an isotropic material, whose coefficients do not
-// depend on direction (the CPU's `ShadowAlphas::Fixed` arm); for an anisotropic material
-// (`rc.is_anisotropic`, the `ShadowAlphas::AssignedMode` arm) the shadow ray's coefficients
-// are re-evaluated per channel at the SHADOW direction below, since that is what the
-// phase-sampled continuation in that direction pays -- see the CPU `ShadowAlphas` doc
-// comment for the NEE-on-darker bias the incoming-direction alphas caused on the ruby.
-// `sigma_s`/`absorption_path_scale` and `facet_finishes` are read directly off the global
-// `material`/`facet_finishes` bindings instead, exactly as the megakernel's own scatter
-// call site above (`transport_bounce_step`) already does for the SAME quantities.
-// This deposit is a complete, self-contained direct-lighting sample -- it must
-// be combined into XYZ using `path_pdf`/`compat` AS THEY STAND RIGHT NOW (this
-// scattering event's own per-channel technique densities), never the FINAL
-// `path_pdf`/`compat` the rest of the path happens to end up with (unrelated further
-// bounces this same light sample has no bearing on). The inputs are immutable snapshots;
-// the incremental XYZ contribution is returned for the caller to add to its running total.
-// This keeps the contribution separate from the continuation's mutable state, mirroring
-// `optics::raytracer::scattering::try_scatter_step`'s event-local integration.
+// optics::raytracer::scattering::hg_nee::nee_contribution_hg_scatter: direct light at a
+// scattering point. `alphas` are the segment's per-channel coefficients at the arrival
+// direction. An isotropic material uses them as they are (the CPU's `ShadowAlphas::Fixed`
+// arm). An anisotropic material (`ShadowAlphas::AssignedMode`) re-evaluates them per channel
+// at the shadow direction, which is what the continuation in that direction pays.
+// `sigma_s`, `absorption_path_scale` and `facet_finishes` are read from the global bindings,
+// as the scatter call in `transport_bounce_step` does.
+// The deposit is a self-contained sample. It is combined into XYZ with the `path_pdf` and
+// `compat` as they stand at this event, not the final ones. The inputs are immutable
+// snapshots and the XYZ increment is returned, as in the event-local integration of
+// `optics::raytracer::scattering::try_scatter_step`.
 fn nee_contribution_hg_scatter(
     lambdas: array<f32, 8>,
     n_inside_hero: f32,
@@ -270,26 +260,23 @@ fn nee_contribution_hg_scatter(
         return vec3<f32>(0.0, 0.0, 0.0);
     }
 
-    // The exit the shadow ray finally leaves through. A convex stone has exactly one
-    // crossing (`hit`); a concave one may cross out into a cavity and back in first, so
-    // the probe walks its boundaries (`hg_walk_exits`, the twin of `walk_exits`). The
-    // in-material length is measured from the scattering point itself: the probe's origin
-    // sits `HG_SHADOW_PROBE_OFFSET` inside the material, so `hit.t` alone is that much short.
+    // The exit the shadow ray finally leaves through. A convex stone has one crossing (`hit`).
+    // A concave stone can cross into a cavity and back, so the probe walks its boundaries
+    // (`hg_walk_exits`). The in-material length counts from the scattering point. The probe
+    // origin is `HG_SHADOW_PROBE_OFFSET` inside the material, so `hit.t` alone is short by that.
     var exit_normal = hit.normal;
     var exit_t = hit.t + HG_SHADOW_PROBE_OFFSET;
     var cos_i: f32 = 0.0;
     var cos_t: f32 = 0.0;
     var t_unpol: f32 = 0.0;
     if (params.num_tools == 0u) {
-        // A frosted exit facet has no well-defined specular Fresnel/refraction
-        // for this shadow ray to use -- `nee_contribution_frosted_exterior` already handles
-        // NEE for a frosted exit's own diffusely-sampled surface point.
+        // A ground (frosted) exit has no specular Fresnel term for this ray.
+        // `nee_contribution_frosted_exterior` covers that surface point instead.
         if (hit.facet_idx < arrayLength(&facet_finishes) && surf_is_ground(facet_finishes[hit.facet_idx])) {
             return vec3<f32>(0.0, 0.0, 0.0);
         }
-        // An exit through an abraded-edge band meets a ground surface: dropped like a frosted
-        // exit, because the bounce loop treats that event as a ground bounce too (the twin of
-        // `NeeContext::edge_band` in `nee_contribution_scatter`).
+        // An exit inside an abraded edge band is a ground event, so it is dropped like a
+        // frosted exit (the twin of `NeeContext::edge_band`).
         let nee_edge = material.inclusions.edge;
         if (nee_edge.x > 0.0 && nee_edge.y > 0.0
             && surface_in_edge_band(probe_origin + hit.t * sample.dir, hit.facet_idx, nee_edge.x)) {
@@ -320,10 +307,9 @@ fn nee_contribution_hg_scatter(
 
     let phase_cos = dot(sample.dir, scatter_dir_in);
     var phase_val = henyey_greenstein_phase(phase_cos, g);
-    // A medium with oriented inclusions has a mixture phase that differs per channel (each
-    // wavelength's own weights): `phase_ch` is every channel's, `phase_val` the hero's (the density
-    // a phase-sampled continuation draws this direction with). For the plain haze they are all
-    // the one Henyey-Greenstein value.
+    // Oriented inclusions give each channel its own mixture phase. `phase_ch` holds every
+    // channel's value and `phase_val` the hero's, the density a phase-sampled continuation
+    // uses. Plain haze gives one Henyey-Greenstein value for all channels.
     var phase_ch: array<f32, 8>;
     for (var k: u32 = 0u; k < 8u; k = k + 1u) {
         phase_ch[k] = phase_val;
@@ -338,35 +324,29 @@ fn nee_contribution_hg_scatter(
         return vec3<f32>(0.0, 0.0, 0.0);
     }
 
-    // The exterior direction this light sample actually leaves along --
-    // Snell's law at the exit facet, mirroring `refraction.wgsl`'s own
-    // `eta*k_hat + (eta*cos_i - cos_t)*normal` vector form with `sample.dir` playing
-    // the incident-direction role and (the inward-flipped) `-hit.normal` the surface
-    // normal. `sample.pdf` itself stays in the INTERIOR (pre-refraction) measure
-    // `dist2d_sample` sampled in -- only the radiance LOOKUP moves to the refracted
+    // Exterior direction of the light sample: Snell's law at the exit facet, in the vector
+    // form `eta*k_hat + (eta*cos_i - cos_t)*normal`. `sample.pdf` stays in the interior
+    // measure that `dist2d_sample` drew from. Only the radiance lookup uses the refracted
     // direction.
     let refracted_dir = normalize(n_inside_hero * sample.dir - fma(n_inside_hero, cos_i, -cos_t) * exit_normal);
-    let refracted_uv = hdr_direction_to_uv(refracted_dir);
-    let env_rgb = hdr_env_sample_bilinear(refracted_uv.x, refracted_uv.y);
+    let refracted_uv = hdr_direction_to_uv(hdr_world_to_map(refracted_dir, hdr_rot()));
+    // At the map's exposure, as every HDR lookup (CPU twin: `hdr_rgb_at_exposure` in
+    // `nee_contribution_scatter`).
+    let env_rgb = hdr_rgb_at_exposure(hdr_env_sample_bilinear(refracted_uv.x, refracted_uv.y));
 
-    // The medium transmittance a phase-sampled continuation in this same direction would
-    // pay on its way to this same boundary -- the same per-channel
-    // `exp_poly(-(alpha_k+sigma_s)*d*path_scale)` `maybe_scatter_or_extinguish`'s survive
-    // branch applies (`exp_poly`, not the `exp()` builtin -- see that function's own doc
-    // comment, `transport_physics.wgsl`), with `alpha_k` the assigned mode's coefficient AT
-    // the shadow direction (see the header comment) and `d` the full distance from the
-    // scattering point.
+    // Medium transmittance to the same boundary, as a phase-sampled continuation would pay it:
+    // per channel `exp_poly(-(alpha_k + sigma_s) * d * path_scale)`, the same term as the
+    // survive branch of `maybe_scatter_or_extinguish`. `exp_poly` is used, not `exp()` (see
+    // `transport_physics.wgsl`). `alpha_k` is taken at the shadow direction, and `d` is the
+    // full distance from the scattering point.
     let hit_t_scaled = exit_t * material.absorption_path_scale;
-    // `scattering_sigma_s` is per model unit (size-independent): converted to absorption-length
-    // units exactly as the CPU twin does (`sigma_s / absorption_path_scale`).
+    // `scattering_sigma_s` is per model unit; convert to absorption-length units.
     let sigma_s_abs = material.scattering_sigma_s / material.absorption_path_scale;
 
     var nee_deposit: array<f32, 8>;
     for (var k: u32 = 0u; k < 8u; k = k + 1u) {
-        // The shadow ray's own extinction coefficient: the segment's `alphas[k]` for an
-        // isotropic material (direction-independent), the assigned mode's coefficient at
-        // the shadow direction for an anisotropic one (`scatter_alpha_anisotropic`, the same
-        // evaluation `bounce_scatter_alphas` makes for the ray's own segments).
+        // Shadow-ray extinction. Isotropic: the segment's `alphas[k]`. Anisotropic: the
+        // assigned mode's coefficient at the shadow direction (`scatter_alpha_anisotropic`).
         var alpha_k: f32 = alphas[k];
         if (rc.is_anisotropic) {
             alpha_k = scatter_alpha_anisotropic(rc, k, sample.dir, is_extraordinary);
@@ -384,14 +364,13 @@ fn nee_contribution_hg_scatter(
     return integrate_channels_to_xyz_family(nee_deposit, lambdas, path_pdf, compat);
 }
 
-// Deliberately still deposits straight into the caller's shared `radiance` (weighted,
-// like every other channel's contribution, by the FINAL post-loop `path_pdf` at
-// `transport_finalize_ray`), unlike `nee_contribution_hg_scatter` above -- see
-// `optics::raytracer::scattering::apply_frosted_bounce`'s "Why the exterior NEE deposit
-// needs no separate `nee_xyz` accumulator" doc comment for why that is exact,
-// not an oversight: both call sites below are convex-polyhedron surface points sampled
-// into their own true-outward half-space, so the very next bounce is guaranteed to
-// escape directly with no intervening `path_pdf` update.
+// Deposits into the shared `radiance`, weighted by the final post-loop `path_pdf` at
+// `transport_finalize_ray`, unlike `nee_contribution_hg_scatter` above. No separate `nee_xyz`
+// is needed: a deposit is made only for a direction in the outward half-space that the
+// concave-stone probe did not hit, so the next bounce escapes directly with no `path_pdf`
+// update in between. See the "Why the exterior NEE
+// deposit needs no separate `nee_xyz` accumulator" section of
+// `optics::raytracer::scattering::frosted`.
 //
 // Two light-sampling techniques share this body, mirroring `sample_environment_for_nee`:
 // the HDR map's importance distribution (`env_mode == 2u`) and the analytic sun of
@@ -422,7 +401,8 @@ fn nee_contribution_frosted_exterior(
         let sample = dist2d_sample(u0, u1);
         light_dir = sample.dir;
         light_pdf = sample.pdf;
-        hdr_rgb = sample.rgb;
+        // `sample_environment_for_nee`: the texel at the map's exposure.
+        hdr_rgb = hdr_rgb_at_exposure(sample.rgb);
     }
     if (light_pdf <= 0.0) {
         return;
@@ -433,13 +413,11 @@ fn nee_contribution_frosted_exterior(
         return;
     }
 
-    // Concave stone: the sampled direction may run into the far side of a cavity (a point
-    // on a groove wall moving along its outward normal can meet the opposite wall), so cast
-    // a real shadow probe and deposit only on a miss. Any hit, even one past a cavity, is an
-    // occluder: the escaping BSDF-sampled continuation sees the same visibility, so the two
-    // MIS techniques stay consistent. The probe runs after the RNG draws, so the stream
-    // consumption equals the convex stone's. Optics twin:
-    // `nee_contribution_frosted_exterior`'s "Concave stones" section.
+    // Concave stone: the sampled direction can run into the opposite wall of a cavity, so
+    // cast a shadow probe and deposit only on a miss. Any hit is an occluder, which keeps the
+    // two MIS techniques consistent. The probe runs after the RNG draws, so the stream use
+    // matches the convex case. See the "Concave stones" section of
+    // `optics::raytracer::scattering::frosted`.
     if (params.num_tools != 0u) {
         if (intersect_ray(origin + light_dir * 1e-4, light_dir).hit) {
             return;
@@ -464,16 +442,14 @@ fn nee_contribution_frosted_exterior(
     }
 }
 
-// optics::raytracer::surface::ground::nee_contribution_ground -- next-event estimation for the
-// two ground outcomes whose direction lands on the EXTERIOR side of the gem (a reflection
-// while outside, a transmission while inside), replacing the Lambertian
-// `nee_contribution_frosted_exterior` at a ground facet (D11). The light direction is drawn
-// as there (the HDR map's distribution, or the analytic sun cone); the ground lobe is
-// evaluated at it (`ground_eval`: the throughput factor `w` and the branch-conditional
-// density `p`), and the deposit is `intensity * w * p / p_light * MIS`, the MIS weight being
-// the balance heuristic of the light density against `p`. A concave stone casts a shadow
-// probe, as before. Deposits straight into the caller's shared `radiance`, like its
-// predecessor (see the comment above `nee_contribution_frosted_exterior`).
+// optics::raytracer::surface::ground::nee_contribution_ground: next-event estimation for the
+// two ground outcomes that land on the exterior side of the gem (a reflection while outside,
+// a transmission while inside). It replaces `nee_contribution_frosted_exterior` at a ground
+// facet. The light direction is drawn as there (HDR distribution or sun cone). The ground
+// lobe is evaluated at it (`ground_eval`: throughput `w` and branch density `p`), and the
+// deposit is `intensity * w * p / p_light * MIS`, with the balance heuristic of the light
+// density against `p`. A concave stone casts a shadow probe. Deposits into the shared
+// `radiance`, as the frosted exterior NEE does.
 fn nee_contribution_ground(
     ground: GroundCtx,
     is_refl: bool,
@@ -498,7 +474,8 @@ fn nee_contribution_ground(
         let sample = dist2d_sample(u0, u1);
         light_dir = sample.dir;
         light_pdf = sample.pdf;
-        hdr_rgb = sample.rgb;
+        // `sample_environment_for_nee`: the texel at the map's exposure.
+        hdr_rgb = hdr_rgb_at_exposure(sample.rgb);
     }
     if (light_pdf <= 0.0) {
         return;
@@ -534,10 +511,10 @@ fn nee_contribution_ground(
     }
 }
 
-// Whether this scene offers a light-sampling technique at all: an HDR map, or the analytic
-// sun (`environment_supports_nee` on the CPU). Gates the frosted-exterior NEE and the
-// MIS weight of a frosted continuation's escape. The Henyey-Greenstein scattering NEE stays
-// HDR-only (`params.env_mode == 2u`), see `nee_contribution_hg_scatter`'s CPU twin.
+// Whether the scene offers a light-sampling technique: an HDR map, or the analytic sun
+// (`environment_supports_nee` on the CPU). Gates the frosted-exterior NEE and the MIS weight
+// of a frosted continuation's escape. Henyey-Greenstein scattering NEE is HDR-only
+// (`params.env_mode == 2u`).
 fn nee_light_available() -> bool {
     return params.env_mode == 2u || (params.env_mode == 1u && params.studio_model == 5u);
 }

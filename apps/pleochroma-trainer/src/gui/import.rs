@@ -24,7 +24,7 @@ fn apply_import(c: &TrainingController<'_>, run: &TrainingRunStats) {
     c.set_episode(clamp_i32(run.total_episodes));
     c.set_total_steps(clamp_i32(run.total_steps));
     c.set_mean_return(run.final_return);
-    // "None yet" is a missing value in the file, never a zero: the flags follow the options.
+    // A missing value in the file means none yet, never zero; the has-flags carry that.
     c.set_has_best(run.best_score.is_some());
     c.set_best_score(run.best_score.unwrap_or_default());
     c.set_has_validation(run.val_score.is_some());

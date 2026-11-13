@@ -1,4 +1,4 @@
-//! The forward path tracer of the rig (plan 2026-10-09, sections 3 and 5).
+//! The forward path tracer of the rig.
 //!
 //! For every working pixel of every view it traces paths through the scanned mesh once and
 //! stores them as absorption-free records, so any candidate absorption is evaluated afterwards
@@ -9,8 +9,8 @@
 //! 1. [`trace_rig`] takes a [`ForwardInput`]: the mesh and its alignment in the rig, the
 //!    [`ColourRig`](super::ColourRig) (cameras, indices, [`RigLighting`]), the [`SurfaceMap`]
 //!    (polished or frosted per triangle), the [`StoneIndex`], optional zones, inclusion shells,
-//!    the camera response and backlight spectrum (lane P2), and per view a [`ViewTraceInput`]
-//!    (the working grid of lane P1 and its pixel mask).
+//!    the camera response and backlight spectrum, and per view a [`ViewTraceInput`] (its working
+//!    grid and pixel mask).
 //! 2. Per pixel, `samples` camera rays over the pixel's footprint x `bins` wavelength bins are
 //!    traced (low-discrepancy positions, counter-based random numbers, see `rng`). Adaptive
 //!    passes add samples to pixels whose Monte-Carlo error exceeds the target.
@@ -21,7 +21,7 @@
 //!
 //! - The mesh frame is millimetres, as in `locate`; zone geometry is in the mesh frame.
 //! - A pixel's prediction is the camera RGB of the stone **relative to the empty backlit rig**
-//!   (the transmittance images of lane P1): the light at an exit is the white-frame level there
+//!   (the transmittance images): the light at an exit is the white-frame level there
 //!   divided by the level at the pixel the camera ray started from.
 //! - Paths whose throughput is lost (depth limit, invalid microfacet sample, damaged mesh) are
 //!   not renormalised; their share is in [`PixelLoss`]. Paths removed because they pass an
@@ -34,25 +34,26 @@
 //! Per view: `pixels * (1 + 2 + 4 * 4 + 16 + 4 * traced_bins)` bytes of per-pixel data plus
 //! `4 * (n_zones + 1)` bytes per record (the lengths of the zones in use and the weight, stored
 //! flat: 8 bytes for a uniform stone, 12 for a bicolour one, 24 for four shaped zones), plus
-//! 3 bytes per record of colour codes when the panel is not grey (see "Light model"; a view with a
-//! grey light stores none). The number
-//! of records is at most `pixels * traced_bins * max_records`; polished pixels need 1 to 3
+//! 3 bytes per record of colour codes when the panel is not grey (see "Light model"; a view with
+//! a grey light stores none). The number of records is at most
+//! `pixels * traced_bins * max_records`; polished pixels need 1 to 3
 //! records per bin, frosted ones use the budget. Dispersion is **not** traced by default
 //! ([`ForwardOptions::trace_dispersion`]): corundum's index changes by 0.018 over the visible,
 //! which moves a 10 mm leg by 0.02 mm, far below the compression tolerance, so one bin at the
 //! d-line index is the right default and divides records and trace time by `bins`. For 8 views
 //! of 60 000 pixels, 16 records and a uniform stone, one bin, that is at most 61 MB of records
 //! with a grey light and 84 MB with a coloured one (11 bytes per record);
-//! tracing 8 bins with four zones is the 1.5 GB worst case (1.7 GB coloured). The assembly of a view holds the
-//! views' chunk outputs and the view's record store at the same time (about twice the view's
-//! records at the peak), views being assembled one after the other. Records are kept per view, so
-//! a caller short of memory traces a subset of views per call and keeps what it needs.
+//! tracing 8 bins with four zones is the 1.5 GB worst case (1.7 GB coloured). The assembly of a
+//! view holds the views' chunk outputs and the view's record store at the same time (about twice
+//! the view's records at the peak), views being assembled one after the other. Records are kept
+//! per view, so a caller short of memory traces a subset of views per call and keeps what it
+//! needs.
 //!
 //! # Spectral quadrature
 //!
 //! The spectral integral is a composite midpoint rule over `bins * spectral_sub` evaluation
-//! points, `h` nm apart (ZC-2, ZC-21). Its error has two parts, neither of which is the
-//! `h^2 * integral |f''|` of the textbook bound:
+//! points, `h` nm apart. Its error has two parts, neither being the `h^2 * integral |f''|`
+//! of the textbook bound:
 //!
 //! - the Euler-Maclaurin end term `(h^2 / 24) [f'(b) - f'(a)]`, which depends on the slope of the
 //!   integrand at the two ends of the range only. It vanishes for a band that lies inside the
@@ -61,21 +62,18 @@
 //!   there is 0.0063 per nm, gives `(h^2 / 24) * 0.0063 / 300` = 0.009 percent at `h` = 10 nm;
 //! - the aliasing of the integrand's spectrum, `2 exp(-2 pi^2 sigma_nm^2 / h^2)` times the depth
 //!   of the dip, for a Gaussian band of width `sigma_nm`. It falls off faster than any power of
-//!   `h`: a 10 nm band at 18.75 nm spacing (the old 2 points per bin) is 0.7 percent of a dip
-//!   that is itself about 6 percent of the camera value, i.e. 0.04 percent of it; at 10 nm
-//!   spacing a 23 nm band is `2 e^-104` and at the default 4.7 nm spacing a 10 nm band is
-//!   `2 e^-90`: nil.
+//!   `h`: at the default 4.7 nm spacing a 10 nm band is `2 e^-90`, and at 10 nm spacing a 23 nm
+//!   band is `2 e^-104`: nil.
 //!
-//! So any smooth absorption band is integrated exactly at the default 8 points per bin, and the
-//! earlier figures (3 percent at 18.75 nm, 1.3 percent at 10 nm) were far too pessimistic. The
+//! So any smooth absorption band is integrated exactly at the default 8 points per bin. The
 //! default stays at 8 because the camera and backlight curves are not band-limited and the
 //! records are shared by all evaluation points of a traced bin, so a finer quadrature costs
-//! nothing in the trace (4 times in `evaluate`). The quadrature is **not** a candidate for
-//! a bias seen between the tracer and a second implementation; look at the transport instead.
+//! nothing in the trace (4 times in `evaluate`). The quadrature does not explain a bias between
+//! the tracer and another implementation.
 //!
 //! # Light model
 //!
-//! The exit-light ratio is kept per colour channel (ZC-13): the white frame stores three levels
+//! The exit-light ratio is kept per colour channel: the white frame stores three levels
 //! per cell ([`WhiteFrame::from_corrected`] divides channel by channel), and an exit ray's light
 //! is `level_c(exit point) / level_c(own pixel)` for each channel `c`, as the transmittance images
 //! divide. An edge-lit LED panel is bluer at its edges, which a grey ratio would turn into a
@@ -98,8 +96,8 @@
 //!   weight-averaged factors of its members.
 //! - A view whose codes are all 127 (a grey panel, the uniform surround, a frame whose colour
 //!   varies by less than the quantisation) stores none and evaluates with exactly the arithmetic
-//!   of the grey model: a grey panel costs nothing and gives the results it gave before. A
-//!   coloured one costs 3 bytes per record, 8 to 11 for a uniform stone (ZC-8 budget above).
+//!   of the grey model, so a grey panel costs nothing extra. A coloured one costs 3 bytes per
+//!   record, 8 to 11 bytes for a uniform stone.
 //!
 //! The Monte-Carlo statistics (`mc_mean`, `mc_mean_clear` and their variances) and the
 //! convergence test are about the scalar weight, i.e. the channel mean of the light: for a
@@ -219,7 +217,7 @@ pub enum StoneIndex {
     /// The rig profile's stone index at every wavelength (no dispersion): the paths do not
     /// depend on the wavelength, so one set of records serves all bins.
     Rig,
-    /// This constant index (the `n_d` option, for previews).
+    /// This constant index, for previews.
     Constant(f64),
     /// A dispersion curve: the rough's chosen host material (see [`StoneIndex::from_material`]).
     /// The ordinary index of a birefringent host. Traced at the d-line index in one shared bin,
@@ -390,7 +388,7 @@ impl ForwardOptions {
 pub struct ViewTraceInput<'a> {
     /// The index of the view in the rig profile.
     pub view: usize,
-    /// The working grid (lane P1's `WorkingGrid::fit`).
+    /// The working grid (see `WorkingGrid::fit`).
     pub grid: WorkingGrid,
     /// The pixel mask on the working grid; pixels with any of
     /// [`ForwardOptions::skip_flags`] are not traced.
@@ -425,7 +423,7 @@ impl<'a> ViewTraceInput<'a> {
 pub struct ForwardInput<'a> {
     /// The scanned rough, in its own frame (mm).
     pub mesh: &'a RoughMesh,
-    /// The transform from the mesh frame to the rig frame (lane locate's alignment).
+    /// The transform from the mesh frame to the rig frame.
     pub alignment: Rigid,
     /// The cameras, indices and light model.
     pub rig: &'a ColourRig,
@@ -651,7 +649,7 @@ fn trace_chunk(ctx: &TraceCtx<'_>, view: &ViewTraceInput<'_>, pixels: &[u32]) ->
 /// Assembles the task outputs in view, then pixel order: the records of every view, the total
 /// sample count and the largest cluster range. Every view's store is allocated once at its final
 /// size, each chunk's buffer is freed as soon as it is moved, and the CSR invariants of the result
-/// are checked before it is returned (ZC-9).
+/// are checked before it is returned.
 fn assemble_views(
     input: &ForwardInput<'_>,
     chunks: &[Chunk],

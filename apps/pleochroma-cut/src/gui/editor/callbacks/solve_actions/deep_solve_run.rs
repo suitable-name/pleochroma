@@ -27,32 +27,24 @@ use std::{
     },
 };
 
-/// "Deep Solve": the explicit, off-thread, cancellable verified-solve action -- see
-/// `deep_solve`'s module doc comment for why it needs its own thread and why it's a
-/// read-only diagnostic that never mutates `design`. Guarded by the
-/// `editor_deep_solve_running` property rather than `EditorState::deep_solve` being
-/// `Some`, since the completion handler can't clear that field itself.
+/// "Deep Solve": the explicit, off-thread, cancellable verified-solve action.
 ///
-/// `run_epoch` is a counter local to this callback (captured once, shared by every
-/// invocation and by each run's own completion handler) that tells a superseded
-/// run's eventual completion from the current one: cancelling and immediately
-/// starting a fresh run races the OLD run's own `on_done` -- even though
-/// `deep_solve::DeepSolveHandle::cancel` stops the search at its next
-/// checkpoint within single-digit milliseconds (see `deep_solve`'s module doc
-/// comment), that is not instantaneous, so the old run's `on_done` could still
-/// arrive after the new run has already started and clobber its live status with
-/// a stale one. Bumped only when a new run actually starts -- cancel itself needs
-/// no such guard, see [`super::deep_solve_pin::setup_deep_solve_cancel_callback`].
+/// It is a read-only diagnostic and never mutates `design` (see `deep_solve`'s module doc). The
+/// busy check reads the `editor_deep_solve_running` property, since the completion handler cannot
+/// clear `EditorState::deep_solve`.
+///
+/// `run_epoch` numbers the runs. Cancelling and starting a new run at once races the old run's
+/// `on_done`, which can arrive after the new run has begun and overwrite its live status. A
+/// superseded completion is therefore ignored. The counter moves only when a run starts; cancel
+/// needs no guard (see [`super::deep_solve_pin::setup_deep_solve_cancel_callback`]).
 pub(in crate::gui::editor) fn setup_deep_solve_callback(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
 ) {
     let state = Rc::clone(state);
-    // The completion closure below must be `Send` (it crosses the worker thread
-    // as a value before `upgrade_in_event_loop` runs it on the UI thread), so it
-    // cannot capture this `Rc` -- it fetches it back on the UI thread through
-    // `auto_solve::editor_state()` instead, the same stash idiom as
-    // `auto_solve::activity()`.
+    // The completion closure must be `Send`, so it cannot capture this `Rc`. It fetches the
+    // state on the UI thread through `auto_solve::editor_state()` (the same stash as
+    // `auto_solve::activity()`).
     auto_solve::stash_editor_state(&state);
     let ui_weak = ui.as_weak();
     let run_epoch = Arc::new(AtomicU64::new(0));
@@ -66,60 +58,41 @@ pub(in crate::gui::editor) fn setup_deep_solve_callback(
     });
 }
 
-/// Everything [`begin_deep_solve_run`] needs to capture from `state` BEFORE
-/// dispatching the worker -- pulled into its own struct/function purely to keep
-/// that function under clippy's function-length lint. See each field's own
-/// former inline comment (now on this struct) for why it is captured up front
-/// rather than re-read from `state` once the run completes.
+/// What [`begin_deep_solve_run`] captures from `state` before dispatching the worker, so the
+/// completion handler never re-reads the live state. A struct keeps that function under clippy's
+/// function-length lint.
 struct DeepSolveRunPrep {
     /// The design this run solves -- `deep_solve::spawn_deep_solve` derives
     /// `gear_teeth_abs`/`meet_tier_inputs` from it internally.
     design_for_run: Design,
-    /// The design's own plain solve, read from the already-rendered
-    /// `solid_last_solved` cache (via `auto_solve::solid_last_solved`, the escape
-    /// hatch that avoids threading a new parameter through `gui::editor::mod`'s
-    /// fixed call site -- same pattern `retarget_actions::setup_snapshot_callbacks`
-    /// uses) when that cache is already aligned with this design's tier count. So
-    /// the completion handler can show which tiers Deep Solve's verified repair
-    /// actually disagreed with -- see `deep_solve::tier_mast_deltas`.
+    /// The design's plain solve, read from the rendered `solid_last_solved` cache (via
+    /// `auto_solve::solid_last_solved`) when it matches this design's tier count. The completion
+    /// handler uses it to show which tiers the verified repair disagreed with (see
+    /// `deep_solve::tier_mast_deltas`).
     ///
-    /// `None` when the cache is missing or misaligned (a tier was just
-    /// added/removed and the background solve has not caught up yet) -- NEVER
-    /// filled in by a fresh `Design::solve` here, since that is a full synchronous
-    /// meet solve and this runs on the UI thread. [`needs_background_baseline`]
-    /// is `true` exactly when this is `None`, and drives
-    /// `SolveKind::Verified::compute_baseline` so the worker computes the same
-    /// baseline off-thread instead -- see
-    /// [`deep_solve::DeepSolveOutcome::Completed::baseline`]'s own doc comment for
-    /// how `apply_deep_solve_outcome` reconciles the two possible sources.
+    /// `None` when the cache is missing or misaligned (a tier was just added or removed). It is
+    /// never filled by a `Design::solve` here, since that would block the UI thread.
+    /// [`needs_background_baseline`] is `true` exactly then, and the worker computes the baseline
+    /// via `SolveKind::Verified::compute_baseline`. See
+    /// [`deep_solve::DeepSolveOutcome::Completed::baseline`] for how both sources are merged.
     current_masts: Option<Vec<SolvedTier>>,
     design_snapshot: Design,
-    /// Whether at least one edit has landed since this
-    /// design was loaded/created/replaced -- `targets` was captured once at
-    /// catalogue-load time and never re-derived from edits since, so a
-    /// verdict against it is honestly a verdict against the design AS
-    /// PRINTED, not necessarily the one on screen right now. See
-    /// `deep_solve::edited_since_load_caveat`'s own doc comment for why this
+    /// Whether an edit has landed since the design was loaded, created or replaced. `targets` is
+    /// captured once at load and never re-derived, so a verdict describes the design as printed,
+    /// not necessarily the one on screen. See `deep_solve::edited_since_load_caveat` for why this
     /// reads `History::can_undo` rather than `EditorState::is_dirty`.
     edited_since_load: bool,
-    /// The design's own file name, so a verdict against
-    /// `targets` can say WHERE those printed figures were recorded rather
-    /// than leaving the cutter to guess.
+    /// The design's file name, so a verdict can say where its printed figures were recorded.
     source_label: Option<String>,
     provenance: RunProvenance,
     this_run: u64,
     run_epoch_done: Arc<AtomicU64>,
 }
 
-/// Whether [`capture_deep_solve_run_prep`]'s cache read left `current_masts`
-/// usable as-is (`false`), or whether the worker must compute a baseline plain
-/// solve of its own before the completion handler has anything to show a
-/// per-tier delta table against (`true`). Pulled out into its own pure function
-/// -- the one genuinely testable decision in a prelude that otherwise needs a
-/// real `Design`/`EditorState` -- so a test can call it directly without
-/// spinning up either. `cache` is the same `Option<&[SolvedTier]>` the caller
-/// already has; `tier_count` is `Design::tiers.len()` for the design this run
-/// solves.
+/// Whether [`capture_deep_solve_run_prep`]'s cache read left `current_masts` usable as-is
+/// (`false`), or whether the worker must compute a plain baseline solve first (`true`).
+/// A pure function, so a test can call it without a real `Design` or `EditorState`. `cache` is
+/// the caller's `Option<&[SolvedTier]>`, and `tier_count` is `Design::tiers.len()`.
 #[must_use]
 fn needs_background_baseline(cache: Option<&[SolvedTier]>, tier_count: usize) -> bool {
     cache.is_none_or(|solved| solved.len() != tier_count)
@@ -136,8 +109,7 @@ fn capture_deep_solve_run_prep(st: &EditorState, run_epoch: &Arc<AtomicU64>) -> 
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone()
     });
-    // the shared cache is now generation-tagged (`(u64, Vec<SolvedTier>)`)
-    // -- only the masts themselves matter here.
+    // The cache is generation-tagged (`(u64, Vec<SolvedTier>)`); only the masts matter here.
     let current_masts = cached.and_then(|(_, solved)| {
         (!needs_background_baseline(Some(solved.as_slice()), st.design.tiers.len()))
             .then_some(solved)
@@ -155,20 +127,16 @@ fn capture_deep_solve_run_prep(st: &EditorState, run_epoch: &Arc<AtomicU64>) -> 
     }
 }
 
-/// The `on_deep_solve` handler's actual body, pulled out of
-/// [`setup_deep_solve_callback`] purely to keep that function under clippy's
-/// function-length lint -- see that function's own doc comment for `run_epoch`'s
-/// meaning and every other design note below.
+/// The `on_deep_solve` handler's body, split out of [`setup_deep_solve_callback`] to keep that
+/// function under clippy's function-length lint. See that function for `run_epoch`.
 fn begin_deep_solve_run(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
     run_epoch: &Arc<AtomicU64>,
 ) {
-    // Also guards against Solve or Optimize already
-    // running, not only a re-entrant Deep Solve click -- see
-    // `tier_actions::setup_solve_callback`'s own doc comment for why all
-    // three sites read the three `*_running` flags directly rather than
-    // the derived `EditorModel.busy_action`.
+    // Also rejects a Solve or Optimize already running. All three read the `*_running` flags
+    // directly, not the derived `EditorModel.busy_action`
+    // (see `tier_actions::setup_solve_callback`).
     let model = ui.global::<EditorModel>();
     if model.get_deep_solve_running() || model.get_solve_running() || model.get_optimize_running() {
         return;
@@ -192,15 +160,11 @@ fn begin_deep_solve_run(
         this_run,
         run_epoch_done,
     } = capture_deep_solve_run_prep(&st, run_epoch);
-    // `current_masts` is only `None` when the cache was missing/misaligned --
-    // see `DeepSolveRunPrep::current_masts`'s own doc comment. Never re-solved
-    // here: that would be the very UI-thread solve this run prep exists to
-    // avoid. The worker computes it instead, off-thread, alongside the
-    // verified search (`SolveKind::Verified::compute_baseline`).
+    // `current_masts` is `None` only when the cache was missing or misaligned. It is never
+    // re-solved here, since that would be a UI-thread solve. The worker computes it instead.
     let need_baseline = current_masts.is_none();
-    // A fresh run's eventual result must never be offered for pinning against
-    // whatever the PREVIOUS run's deltas named -- see
-    // `LAST_DEEP_SOLVE_DELTAS`'s own doc comment.
+    // A new run's result must not be pinned against the previous run's deltas (see
+    // `LAST_DEEP_SOLVE_DELTAS`).
     LAST_DEEP_SOLVE_DELTAS.with(|cell| cell.borrow_mut().clear());
 
     ui.global::<EditorModel>().set_deep_solve_running(true);
@@ -210,20 +174,10 @@ fn begin_deep_solve_run(
         .set_deep_solve_status_is_problem(false);
     raise(ui, DEEP_SOLVE_STARTED);
 
-    // Activity registered before the
-    // worker even spawns, so the status strip's activity list shows it from
-    // the very first frame. `auto_solve::activity()` is the same
-    // stashed-handle escape hatch `auto_solve::solid_last_solved`/
-    // `preview_state` already use to reach a handle `gui::editor::mod`'s
-    // fixed `setup_editor_callbacks` call site hands to `auto_solve::init`,
-    // without adding a new parameter to this (or `mod.rs`'s) signature --
-    // `None` only if this callback somehow fired before `init` ran, which
-    // cannot happen in practice (see that function's own doc comment), so
-    // this degrades to "no activity tracking for this one run" rather than
-    // panicking. The cancel closure reaches back through `state` (not the
-    // `handle` below directly, which does not exist yet at this point) so it
-    // always calls the CURRENT `EditorState::deep_solve`, even if this
-    // closure were somehow invoked after `st.deep_solve` is reassigned.
+    // Registered before the worker spawns, so the status strip lists it from the first frame.
+    // `auto_solve::activity()` is `None` only if this fires before `auto_solve::init`, which
+    // cannot happen in practice; the run then simply has no activity entry. The cancel closure
+    // goes through `state`, so it always cancels the current `EditorState::deep_solve`.
     let activity = auto_solve::activity();
     let activity_id = activity.as_ref().map(|a| {
         a.start(
@@ -280,33 +234,18 @@ fn begin_deep_solve_run(
             if run_epoch_done.load(AtomicOrdering::Relaxed) != this_run {
                 return;
             }
-            // The design was REPLACED (New / Load Selected / Open)
-            // while this run was still in flight: checked here, before
-            // touching EITHER the busy flag or the result panel, because by
-            // the time this abandoned run's completion arrives the cutter may
-            // already have started (and even finished) a FRESH Deep Solve
-            // against the new design -- unconditionally resetting
-            // `deep_solve_running`/repainting the panel below would then
-            // clobber that fresh run's own live state with this stale one's,
-            // exactly the "stale completion wipes the new design's results"
-            // failure mode. `clear_analysis_results` already ran once, from
-            // `EditorState::replace_wholesale`'s own call site, at the moment
-            // of replacement -- see `apply_deep_solve_outcome`'s own doc
-            // comment for why this must NOT call it again.
+            // The design was replaced (New / Load Selected / Open) while this run was in flight.
+            // Return before touching the busy flag or the panel: a fresh Deep Solve may already
+            // be running on the new design, and this stale completion would overwrite its state.
+            // `clear_analysis_results` already ran at replacement; see `apply_deep_solve_outcome`.
             if provenance.design_replaced() {
                 return;
             }
-            // Always cleared, on every path below: `deep_solve_status` doubles
-            // as the live "Deep solving... X.Xs elapsed" readout, and
-            // `deep_solve_running` gates the command bar's own Deep Solve
-            // button, so a handler that returns without touching either leaves
-            // the strip frozen on a stale elapsed time with no way to start a
-            // new run.
+            // Cleared on every path below. The status is the live elapsed readout and the flag
+            // gates the Deep Solve button, so skipping either would freeze the strip.
             ui.global::<EditorModel>().set_deep_solve_running(false);
-            // Same `Send` reasoning as the activity handle above: the editor
-            // state `Rc` is fetched back on the UI thread, not captured. It
-            // is stashed by this very `setup_*` call, so `None` is unreachable
-            // from a real callback; it is still handled rather than unwrapped.
+            // Fetched on the UI thread, not captured, because the closure must be `Send`.
+            // It is stashed by this `setup_*` call, so `None` is unreachable; it is still handled.
             let Some(state_for_done) = auto_solve::editor_state() else {
                 tracing::warn!("deep solve finished before the editor state was stashed");
                 return;
@@ -329,11 +268,8 @@ fn begin_deep_solve_run(
     st.deep_solve = Some(handle);
 }
 
-/// What [`apply_deep_solve_outcome`] needs beyond `ui` and the `outcome` itself --
-/// bundled into one struct (clippy's `too_many_arguments`) rather than as separate
-/// parameters. Every field is exactly what `setup_deep_solve_callback`'s closure
-/// captured at dispatch time; see that call site's own comments for what each one
-/// means.
+/// What [`apply_deep_solve_outcome`] needs beyond `ui` and `outcome`, bundled to satisfy clippy's
+/// `too_many_arguments`. Each field is what the dispatch closure captured.
 #[derive(Clone, Copy)]
 struct DeepSolveRunContext<'a> {
     provenance: &'a RunProvenance,
@@ -342,19 +278,14 @@ struct DeepSolveRunContext<'a> {
     edited_since_load: bool,
     current_masts: Option<&'a [SolvedTier]>,
     design_snapshot: &'a Design,
-    /// Lets the `Completed` arm
-    /// stamp [`EditorState::deep_solve_result_generation`] -- a SEPARATE
-    /// `Rc::clone` from the one `setup_deep_solve_callback`'s own dispatch body
-    /// still holds borrowed at the moment this context is built, see that call
-    /// site's own comment.
+    /// Lets the `Completed` arm stamp [`EditorState::deep_solve_result_generation`]. This is a
+    /// separate `Rc` clone from the one the dispatch body still borrows when this is built.
     state: &'a Rc<RefCell<EditorState>>,
 }
 
-/// The Deep Solve run's completion handler -- split out of the closure
-/// `setup_deep_solve_callback` passes to [`deep_solve::spawn_deep_solve`] purely to
-/// keep that function under clippy's function-length lint. `outcome` is the
-/// low-level result; `ctx` is everything else the closure captured at dispatch
-/// time -- see [`DeepSolveRunContext`]'s own doc comment.
+/// The Deep Solve completion handler, split out of the closure passed to
+/// [`deep_solve::spawn_deep_solve`] to keep that function under clippy's function-length lint.
+/// `ctx` holds what the closure captured at dispatch.
 fn apply_deep_solve_outcome(
     ui: &MainWindow,
     outcome: deep_solve::DeepSolveOutcome,
@@ -369,12 +300,8 @@ fn apply_deep_solve_outcome(
         design_snapshot,
         state,
     } = *ctx;
-    // The design-replaced case (New / Load Selected / Open swapped in a
-    // different stone while this run was still in flight) is already filtered
-    // out by this function's one caller, in `setup_deep_solve_callback`'s own
-    // completion closure -- see that closure's own comment for why it
-    // must return before EITHER of this function's own effects, not merely
-    // before `clear_analysis_results` a second time.
+    // The caller filters out a replaced design before this point, so this function has no
+    // effect on one.
     debug_assert!(
         !provenance.design_replaced(),
         "the caller must filter out a replaced design before calling this"
@@ -391,33 +318,20 @@ fn apply_deep_solve_outcome(
             report,
             baseline,
         } => {
-            // Reachable only for an EDIT, never a replacement (that
-            // returned above) -- so the caveat this adds is the honest
-            // one: same design, a few edits on.
+            // Reached only for an edit, so the caveat is that a few edits have landed since.
             let mut status =
                 format_deep_solve_report(&report, provenance.is_stale(), design_snapshot);
-            // Names WHICH printed figures this
-            // verdict verified against and WHERE they came from, and
-            // warns when the design has its own edits since load that
-            // those figures do not reflect -- see
-            // `deep_solve::format_verification_targets`/
-            // `edited_since_load_caveat`'s own doc comments.
+            // Names which printed figures the verdict used and where they came from, and warns
+            // when edits since load are not reflected in them.
             status.push_str(&deep_solve::format_verification_targets(
                 &targets,
                 source_label,
             ));
             status.push_str(deep_solve::edited_since_load_caveat(edited_since_load));
-            // The per-tier breakdown behind the aggregate verdict above -- see
-            // `deep_solve::tier_mast_deltas`'s own doc comment for why this status
-            // text is the minimal consumer for that data; the Log popup's row
-            // model just below is the fuller one. `current_masts` (the UI
-            // thread's own cache read at dispatch time) and `baseline` (the
-            // worker's own off-thread solve, only ever computed when that cache
-            // was unusable -- see `DeepSolveRunPrep::current_masts`'s own doc
-            // comment) are mutually exclusive: exactly one is `Some` for any run
-            // that reaches here with `report.accepted` meaningful. Neither being
-            // available (an unsolvable design) simply omits the table, same as
-            // today -- never blocks waiting for anything.
+            // The per-tier breakdown behind the verdict. The Log popup's row model below is the
+            // fuller view. `current_masts` (the cache read at dispatch) and `baseline` (the
+            // worker's solve, computed only when that cache was unusable) are mutually exclusive.
+            // If neither is available (an unsolvable design) the table is omitted.
             let current_masts = current_masts.map(<[SolvedTier]>::to_vec).or(baseline);
             if let Some(current) = current_masts.as_deref() {
                 let deltas = deep_solve::tier_mast_deltas(current, &solved);
@@ -429,27 +343,17 @@ fn apply_deep_solve_outcome(
                         &deltas,
                         design_snapshot,
                     ))));
-                // The deltas are
-                // remembered here so `setup_deep_solve_pin_callback`
-                // (below) can look a row's mast back up by tier index
-                // without this crate's Deep Solve report growing a
-                // reference to `EditorState` of its own.
+                // Kept so `setup_deep_solve_pin_callback` can look a row's mast up by tier index
+                // without the report holding an `EditorState` reference.
                 LAST_DEEP_SOLVE_DELTAS.with(|cell| cell.borrow_mut().clone_from(&deltas));
             }
             ui.global::<EditorModel>()
                 .set_deep_solve_status(status.into());
             ui.global::<EditorModel>()
                 .set_deep_solve_status_is_problem(!report.accepted);
-            // Stamps the generation
-            // this verdict describes (`started_generation`, not whatever the live
-            // counter reads NOW) -- `view::push_stale_content` compares this
-            // against the live generation on every later edit
-            // (`state::result_is_stale`) to keep `EditorModel.deep_solve_stale`
-            // current. Set immediately here too (`provenance.is_stale()`, the
-            // identical comparison at THIS instant) so a run that was already
-            // stale by the time it completed (edits landed mid-search) badges
-            // itself right away, instead of waiting for the NEXT edit's own
-            // `push_stale_content` to notice.
+            // Stamps the generation this verdict describes (`started_generation`, not the live
+            // counter), so later edits can mark it stale (`state::result_is_stale`). The stale
+            // flag is also set now, so a run that went stale mid-search shows it immediately.
             state.borrow_mut().deep_solve_result_generation = Some(provenance.started_generation);
             ui.global::<EditorModel>()
                 .set_deep_solve_stale(provenance.is_stale());
@@ -462,13 +366,11 @@ fn apply_deep_solve_outcome(
 mod tests {
     use super::*;
 
-    // --- needs_background_baseline: the Deep Solve UI-thread-solve guard ---
+    // --- needs_background_baseline: the UI-thread solve guard ---
     //
-    // These are the pure decision `capture_deep_solve_run_prep` makes about
-    // whether it has a usable cached plain solve -- the fix for Deep Solve
-    // freezing the UI thread on a large design relies on this NEVER falling back
-    // to a synchronous `Design::solve()` here; the worker computes a missing
-    // baseline off-thread instead (`SolveKind::Verified::compute_baseline`).
+    // The pure decision in `capture_deep_solve_run_prep`: is the cached plain solve usable?
+    // It must never fall back to a synchronous `Design::solve()` on the UI thread. The worker
+    // computes a missing baseline instead (`SolveKind::Verified::compute_baseline`).
 
     fn dummy_solved_tier(mast: f64) -> pleochroma::geometry::meet_solver::SolvedTier {
         pleochroma::geometry::meet_solver::SolvedTier {
@@ -491,9 +393,7 @@ mod tests {
 
     #[test]
     fn needs_background_baseline_is_true_when_the_cache_is_the_wrong_tier_count() {
-        // A tier was just added/removed and the background auto-solve has not
-        // caught up yet -- the exact case that used to fall back to a
-        // synchronous `Design::solve()` on the UI thread.
+        // A tier was just added or removed and the background solve has not caught up yet.
         let cache = vec![dummy_solved_tier(1.0)];
         assert!(needs_background_baseline(Some(&cache), 2));
     }

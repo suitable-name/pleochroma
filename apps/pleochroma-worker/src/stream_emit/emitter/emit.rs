@@ -274,9 +274,7 @@ pub(super) fn emit_final<S: Write>(
             return Ok(StreamOutcome::Failed(ErrorMsg {
                 code: error_codes::TRACE_PANIC,
                 message,
-                // Left unstamped here; `request.request_id` is available above if a
-                // future change wants to stamp it (the forwarding in
-                // `stream_emit/emitter/mod.rs` already does for `StreamOutcome::Failed`).
+                // Not stamped with the request id; `finished_outcome` stamps producer errors only.
                 request_id: None,
             }));
         }

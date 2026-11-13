@@ -1,6 +1,6 @@
 # Appendix C: Built-in Render Materials
 
-This table lists every one of the app's 38 built-in render materials (Ametrine is the zoned one), as
+This table lists every one of the app's 39 built-in render materials (Ametrine is the zoned one), as
 used by the spectral renderer (Chapter 2) and the Material Editor's
 templates. n_D is the refractive index at the sodium D line (589.3nm).
 Birefringence (Δn) is the difference between a material's fast and slow
@@ -9,14 +9,14 @@ given as the Abbe number V_d where the underlying data provides one (lower
 V_d means more dispersive, i.e. more "fire"); a few entries only have a
 directly stated Δn(F–C) instead, shown as such.
 
-All 38 are reachable from the Stone tab's **Material** and **Preview As...** combos
-(Chapter 2), listed alphabetically. The entries marked with `*` were the
-only ones offered by older versions of the drop-down.
+All 39 are reachable from the Stone tab's **Material** and **Preview As...** combos
+(Chapter 2), listed alphabetically. The entries marked with `*` are also the
+Material Editor's base templates.
 
 | Material | Optical character | n_D | Birefringence (Δn) | Dispersion | Color |
 |---|---|---|---|---|---|
 | Diamond* | Isotropic | 2.417 | — | Abbe V_d ≈ 55.3 | colorless |
-| Sapphire* | Uniaxial (−) | 1.768 | −0.0081 | Abbe V_d ≈ 72.3 | Royal blue (Fe²⁺–Ti⁴⁺ charge transfer, GIA cross sections, 12.5 ppma·cm); a 7 mm stone face-up is a vivid, slightly violetish medium-dark blue, the o-ray darker than the greenish e-ray. The former, lighter default is the Medium Blue variant |
+| Sapphire* | Uniaxial (−) | 1.768 | −0.0081 | Abbe V_d ≈ 72.3 | Royal blue (Fe²⁺–Ti⁴⁺ charge transfer, GIA cross sections, 12.5 ppma·cm); a 7 mm stone face-up is a vivid, slightly violetish medium-dark blue, the o-ray darker than the greenish e-ray. The lighter Medium Blue is a Color Variant |
 | Ruby* | Uniaxial (−) | 1.768 | −0.0081 | Abbe V_d ≈ 72.3 | Red (Cr³⁺ and Fe³⁺, GIA cross sections at about 400 and 1000 ppma·cm, a typical Mozambique-type ruby); a 7 mm stone is a dark red, the o-ray absorbs more than the e-ray |
 | Emerald* | Uniaxial (−) | 1.579 | −0.0060 | Abbe V_d ≈ 70.9 | Green (Cr³⁺/V³⁺), narrow green transmission window |
 | Zircon* | Uniaxial (+) | 1.925 | +0.0590 | Abbe V_d ≈ 41.0 | Colorless (trace U⁴⁺ lines, as in a low-uranium gem zircon) |
@@ -72,11 +72,10 @@ only ones offered by older versions of the drop-down.
   and the GPU kernels evaluate the curves (Chapter 29, "Curves for the
   Extraordinary Ray").
 - Chrysoberyl (Yellow) takes the published curves of Alexandrite, which gives
-  it a total birefringence of 0.0076; older versions showed 0.0090.
+  it a total birefringence of 0.0076.
 - Titanite (Sphene) and Rutile carry birefringence and dispersion far beyond
-  the other built-ins; both were added only after the anisotropic optics had
-  been checked at their magnitudes (Titanite with measured indices, Rutile
-  with its Fresnel solve — see the `built_in_material_rutile` doc comment in
+  the other built-ins: Titanite uses measured indices and Rutile a Fresnel
+  solve (see the `built_in_material_rutile` doc comment in
   `crates/pleochroma/src/optics/materials/rutile.rs`).
 - The body-color strengths follow photographs of cut stones of the kind sold
   today. Aquamarine, Morganite, Topaz, Tanzanite, Peridot, Tsavorite, Demantoid,

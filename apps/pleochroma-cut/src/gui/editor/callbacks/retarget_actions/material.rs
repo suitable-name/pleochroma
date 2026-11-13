@@ -1,7 +1,5 @@
-//! Resolves and displays the retarget dialog's own TARGET material -- see this
-//! group's own `mod.rs` doc comment ("Where the target material comes from"). The
-//! logic moved unchanged to `pleochroma_editor::retarget::view` (shared with the web
-//! app); re-exported here at its old paths.
+//! Resolves and displays the retarget dialog's own target material. The logic lives in
+//! `pleochroma_editor::retarget::view`, shared with the web app, and is re-exported here.
 
 pub(super) use pleochroma_editor::retarget::view::{
     initial_target_index, resolve_target_selection, resolved_material_from_selection_for_design,

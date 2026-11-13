@@ -146,6 +146,7 @@ fn the_distance_is_zero_on_the_original_and_grows_with_drift() {
 }
 
 #[test]
+#[ignore = "over 60 s in the workspace run (2026-11-08); run on request: scripts/run_tests_on_request.sh"]
 fn a_heavy_shape_weight_keeps_the_table_and_ratio_near_the_start() {
     let design = imported_rbc();
     let start = figures_of(&design);

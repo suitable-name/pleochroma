@@ -51,9 +51,11 @@ impl Default for ThumbRenderer {
 }
 
 impl ThumbRenderer {
-    /// Draws the solid the half-spaces `planes` (`n . x <= m`, the rough's own
-    /// `preform_planes` first) bound, framed to fill an `edge` by `edge` picture. `None`
-    /// when the planes do not close into a solid.
+    /// Draws the solid the half-spaces `planes` (`n . x <= m`) bound, framed to fill an `edge`
+    /// by `edge` picture.
+    ///
+    /// The rough's own `preform_planes` come first. `None` when the planes do not close into a
+    /// solid.
     #[cfg(test)]
     pub(super) fn render_planes(
         &mut self,
@@ -68,9 +70,11 @@ impl ThumbRenderer {
         )
     }
 
-    /// Draws `stone` (its planes, the rough's own `preform_planes` first, and the concave
-    /// tools cut into them), framed to fill an `edge` by `edge` picture. `None` when the
-    /// stone does not close into a solid.
+    /// Draws `stone` (its planes and the concave tools cut into them), framed to fill an `edge`
+    /// by `edge` picture.
+    ///
+    /// The rough's own `preform_planes` come first. `None` when the stone does not close into a
+    /// solid.
     pub(super) fn render_stone(
         &mut self,
         stone: &StoneGeometryBuf,
@@ -92,8 +96,10 @@ impl ThumbRenderer {
 }
 
 /// The picture of the design at step `position` of `session`: replays the steps between,
-/// solves, and draws. `None` when any of that cannot be done -- the step is out of range,
-/// the design does not solve, or its facets do not close into a solid.
+/// solves, and draws.
+///
+/// `None` when any of that cannot be done: the step is out of range, the design does not
+/// solve, or its facets do not close into a solid.
 pub(super) fn render_step(
     renderer: &mut ThumbRenderer,
     session: &HistorySnapshot,
@@ -103,8 +109,8 @@ pub(super) fn render_step(
     let design = session.design_at(position).ok()?;
     let preform_planes = design.preform.planes().len();
     let solved = design.solve().ok()?;
-    // The finished stone with its concave tools; without concave tiers its planes are
-    // exactly `design_to_gpu_planes_from_solved`'s, so a planar picture is unchanged.
+    // The finished stone with its concave tools. Without concave tiers its planes equal
+    // `design_to_gpu_planes_from_solved`'s.
     let stone = cut_geometry(&design, Some(&solved), None);
     renderer.render_stone(&stone, preform_planes, edge)
 }

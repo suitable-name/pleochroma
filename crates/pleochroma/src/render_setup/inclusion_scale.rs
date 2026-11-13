@@ -1,23 +1,19 @@
 //! Slider position <-> inclusion coefficient conversion for an "Inclusion Haze" slider.
 //!
-//! The stored and persisted value is the physical coefficient itself
-//! (`GemMaterial::scattering_sigma_s`, per model unit, independent of the stone's size), so
-//! saved settings keep their haze. The SLIDER drags a position `t` in `0 ..= 1` and the
-//! coefficient is `SLIDER_MAX_SIGMA_S * t^2`: haze is perceived roughly in optical depth, most
-//! of the interesting range sits near the clean end (a coefficient of `0.05` is barely
-//! visible, `0.1` a light silk, `1.0` already strongly clouded), and a linear control spent
-//! nearly all of its travel above that. With the square, a quarter of the travel is a light
-//! silk (about `0.12`) and the top is milky.
+//! The persisted value is the physical coefficient (`GemMaterial::scattering_sigma_s`, per
+//! model unit, independent of the stone's size), so saved settings keep their haze. The
+//! slider position `t` in `0 ..= 1` maps to `SLIDER_MAX_SIGMA_S * t^2`: haze is perceived
+//! roughly in optical depth, so the square gives the clean end the fine steps (a quarter of
+//! the travel is a light silk, about `0.12`).
 //!
-//! No dependency on any UI toolkit: the desktop's settings dialog and the browser app's panel
-//! both call these, so the two sliders mean the same thing.
+//! No dependency on any UI toolkit: the desktop and browser sliders both call these, so they
+//! mean the same thing.
 
-/// The coefficient at the top of the slider: milky. A stone about 2.5 model units of face-up path
-/// (`MODEL_UNIT_FACE_UP_PATH`) deep then scatters nearly everything it returns.
+/// The coefficient at the top of the slider: milky. A stone about 2.5 model units of
+/// face-up path (`MODEL_UNIT_FACE_UP_PATH`) deep scatters nearly everything it returns.
 pub const SLIDER_MAX_SIGMA_S: f32 = 2.0;
 
-/// The largest coefficient a stored value may have (the persisted range since the control
-/// existed).
+/// The largest coefficient a stored value may have.
 ///
 /// A stored value above [`SLIDER_MAX_SIGMA_S`] is kept as it is until the slider is
 /// moved; the slider itself sits at its top for it.
@@ -82,8 +78,7 @@ mod tests {
             assert!(sigma >= previous, "step {step}: {sigma} < {previous}");
             previous = sigma;
         }
-        // The first tenth of the travel changes the haze by less than 1 % of the top; the last
-        // tenth by 19 %.
+        // The first tenth changes the haze by 1 % of the top; the last tenth by 19 %.
         let first = position_to_sigma_s(0.1) - position_to_sigma_s(0.0);
         let last = position_to_sigma_s(1.0) - position_to_sigma_s(0.9);
         assert!(first < SLIDER_MAX_SIGMA_S * 0.011, "{first}");

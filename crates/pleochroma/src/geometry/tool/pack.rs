@@ -45,9 +45,8 @@ pub const TOOL_RECORD_VECS: usize = 5;
 /// closed-form piece intervals; the carve repeats the scan once per tool interval the ray
 /// passes before it settles (at most `tools + 1` times). Nothing in the GPU layout depends
 /// on the figure: the records ride in the `planes` buffer and the kernels loop over
-/// `params.num_tools`. It was 64 until 2026-10-20; the cost of a 128-tool stone on the
-/// desktop GPU, a phone and the browser is the owner's measurement. The routing that
-/// declines a longer list (`GpuRouteDecline::TooManyTools`) stays as a guard.
+/// `params.num_tools`. The routing that declines a longer list (`GpuRouteDecline::TooManyTools`)
+/// remains as a guard.
 pub const GPU_MAX_TOOL_PRIMITIVES: usize = super::MAX_TOOL_PRIMITIVES;
 
 /// Entry 0 of a tool record: the two discriminants as exact floats.

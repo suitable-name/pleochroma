@@ -1,6 +1,7 @@
-//! GPU backend tests of zoned stones (`gpu` feature). Like the tests next door
-//! they skip with a printed note when no adapter is present (`PLEOCHROMA_REQUIRE_GPU=1` turns
-//! the skip into a failure).
+//! GPU backend tests of zoned stones (`gpu` feature).
+//!
+//! Like the other hardware tests in this module they skip with a printed note when no adapter is
+//! present (`PLEOCHROMA_REQUIRE_GPU=1` turns the skip into a failure).
 
 use std::sync::atomic::AtomicBool;
 
@@ -66,6 +67,7 @@ fn render_gpu(
         material,
         max_bounces: MAX_BOUNCES,
         environment: LightingPreset::Daylight.studio(1.0, 0.4, 0.35),
+        estimator: None,
     };
     let mut accum = vec![Vec3::ZERO; (width * height) as usize];
     let never_cancel = AtomicBool::new(false);
@@ -146,17 +148,12 @@ const KERNEL_SEGMENTS: usize = 256;
 /// per operation.
 const KERNEL_TWIN_ULPS: f32 = 4.0;
 
-/// The same, for the prism fixtures, whose polygon edges call `sin`/`cos`: the GPU's
-/// trigonometry is not the CPU's libm (WGSL only promises a loose absolute bound), so a
-/// few-ulp difference in an edge direction reaches the cut points through a division by the
-/// direction's projection. Relative to the segment length, about 170 ulp. This is an
-/// estimate, not a measured budget, to be replaced by the printed worst case. The grazing-
-/// segment arithmetic: an edge-normal error `e` (about 2^-21 for hardware `sin`) moves the cut
-/// parameter by `e |q0| / |m_d|`, i.e. `e * 3.5 / (1.19e-7 * |m_d|)` ulp of the segment: 14 ulp
-/// at `|m_d| = 1`, 140 at 0.1, 280 at 0.05. A legitimately grazing chord can therefore exceed
-/// 170 on a given GPU; the test prints the worst ulp per fixture together with that segment's
-/// `|m_d|` proxy so a twin bug (large ulp at large `|m_d|`) can be told from a grazing
-/// segment (large ulp only at small `|m_d|`).
+/// The same, for the prism fixtures, whose polygon edges call `sin`/`cos`. The GPU's
+/// trigonometry differs from the CPU's libm (WGSL promises only a loose bound), and a few-ulp
+/// edge-direction error reaches the cut points through a division by the direction's
+/// projection. Grazing chords amplify this, so the 170 ulp limit is an estimate. The test
+/// prints the worst ulp per fixture with its `|m_d|` proxy. Large ulp at large `|m_d|` points
+/// to a twin bug. Large ulp only at small `|m_d|` is a grazing segment.
 const KERNEL_TWIN_ULPS_TRIG: f32 = 170.0;
 
 /// A deterministic xorshift stream, so the segment set is the same on every run.
@@ -291,6 +288,7 @@ fn the_gpu_zone_kernel_matches_the_f32_kernel_per_segment() {
 /// channel totals agree within [`ZONED_GPU_VS_CPU_MEAN_REL_TOL`], for sharp and soft zones of
 /// every shape family.
 #[test]
+#[ignore = "over 60 s in retest step 02d (2026-11-11); run on request: scripts/run_tests_on_request.sh"]
 fn zoned_stones_render_on_the_gpu_like_on_the_cpu() {
     let Some(backend) = acquire_or_skip("zoned_stones_render_on_the_gpu_like_on_the_cpu") else {
         return;
@@ -381,10 +379,10 @@ fn a_bicolour_renders_the_same_whichever_half_is_the_base() {
 
 /// A zoned host that also holds a Bragg domain structure (the bicolour opal) renders on the GPU
 /// like on the CPU, whole image and each half (`bounce_scatter_sample_zoned_bragg` against
-/// `maybe_scatter_oriented_zoned_bragg`), and the structure shows: the structured stone differs
-/// from the same stone without its structure on the CPU (before the zoned Bragg estimator the
-/// structure was inert in a zoned host).
+/// `maybe_scatter_oriented_zoned_bragg`). The structure must show: the structured stone differs
+/// from the same stone without it on the CPU.
 #[test]
+#[ignore = "over 60 s in retest step 02d (2026-11-11); run on request: scripts/run_tests_on_request.sh"]
 fn a_zoned_opal_renders_on_the_gpu_like_on_the_cpu() {
     let Some(backend) = acquire_or_skip("a_zoned_opal_renders_on_the_gpu_like_on_the_cpu") else {
         return;
@@ -486,6 +484,7 @@ fn an_unzoned_opal_renders_on_the_gpu_like_on_the_cpu() {
 /// null weight exactly 1, without any reflection. Together with the two tests above it says
 /// which half of the zoned Bragg route a GPU-vs-CPU gap sits in.
 #[test]
+#[ignore = "over 60 s in retest step 02d (2026-11-11); run on request: scripts/run_tests_on_request.sh"]
 fn a_zoned_opal_without_reflections_renders_on_the_gpu_like_on_the_cpu() {
     let Some(backend) =
         acquire_or_skip("a_zoned_opal_without_reflections_renders_on_the_gpu_like_on_the_cpu")
@@ -531,12 +530,11 @@ fn a_zoned_opal_without_reflections_renders_on_the_gpu_like_on_the_cpu() {
 /// 24 and at 96 samples per pixel and their ratio, then the within-side ratios B/A, C/D and
 /// A/plain per device. It asserts nothing and changes no tolerance.
 ///
-/// Reading the table: a ratio that moves between 24 and 96 spp is sampling noise; coverage 0
-/// switches the reflections off (every tentative collision is a null collision, so only the
-/// tracking loop and the zoned estimator run): a ratio near 1 there and far from 1 at coverage
-/// 0.8 puts the gap in the reflection (weights, direction); a gap at coverage 0 too puts it in
-/// the zoned estimator or the routing; a gap in the unzoned rows puts it in the Bragg
-/// estimator itself, which the Tier 3 comparison covers only under the HDR map.
+/// Reading the table: a ratio that moves between 24 and 96 spp is sampling noise. Coverage 0
+/// switches the reflections off, so only the tracking loop and the zoned estimator run. A
+/// ratio near 1 at coverage 0 and far from 1 at coverage 0.8 puts the gap in the reflection.
+/// A gap at coverage 0 too puts it in the zoned estimator or the routing. A gap in the
+/// unzoned rows puts it in the Bragg estimator.
 #[test]
 #[ignore = "diagnostic: prints a GPU/CPU table for six opals, asserts nothing"]
 fn zoned_opal_gap_diagnosis() {
@@ -672,8 +670,8 @@ fn a_zone_covering_the_whole_stone_renders_bitwise_like_the_unzoned_stone() {
 
 /// How far the totals of a stone whose half-space zone carries the base's own bands may differ
 /// from the unzoned stone, relative, on one device. The zone lengths partition the segment and
-/// both alpha paths agree, so only float-order noise remains: measured 1e-9 on the GPU and on
-/// the CPU (2026-10-12); the limit leaves three orders of magnitude of room.
+/// both alpha paths agree, so only float-order noise remains. That noise is about 1e-9 on
+/// either device, and the limit leaves three orders of magnitude of room.
 const EQUAL_BANDS_REL_TOL: f64 = 1.0e-6;
 
 /// A half-space whose zone carries the SAME bands as the base renders like the unzoned stone,
@@ -681,8 +679,8 @@ const EQUAL_BANDS_REL_TOL: f64 = 1.0e-6;
 /// lengths must sum to the whole segment and the zoned absorption must agree with the
 /// homogeneous one, while any error in WHERE the plane cuts cancels (both sides absorb alike).
 /// Together with `a_single_half_space_zone_renders_on_the_gpu_like_on_the_cpu_on_either_side`,
-/// which proves the split itself, and the per-segment kernel echo, it is what found the
-/// uninitialised-array defect of 2026-10-12 (see `zone_fractions_sharp` in `02_zone_kernel.wgsl`).
+/// which proves the split itself, and the per-segment kernel echo, it guards the zone
+/// partition on both devices.
 #[test]
 fn a_zone_carrying_the_base_bands_renders_like_the_unzoned_stone() {
     let Some(backend) =
@@ -750,8 +748,7 @@ fn a_zone_carrying_the_base_bands_renders_like_the_unzoned_stone() {
 /// +X side and on the -X side of the plane separately: whole-image and per-half channel
 /// totals agree within [`ZONED_GPU_VS_CPU_MEAN_REL_TOL`]. It proves the split itself on each
 /// side (a wrong side or a wrong cut moves the absorbed light between the halves), which the
-/// equal-bands test above cancels by construction. With that test and the per-segment kernel
-/// echo it is what found the uninitialised-array defect of 2026-10-12.
+/// equal-bands test above cancels by construction.
 #[test]
 fn a_single_half_space_zone_renders_on_the_gpu_like_on_the_cpu_on_either_side() {
     let test = "a_single_half_space_zone_renders_on_the_gpu_like_on_the_cpu_on_either_side";

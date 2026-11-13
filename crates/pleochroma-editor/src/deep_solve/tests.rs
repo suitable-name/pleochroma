@@ -2,6 +2,8 @@
 
 use super::*;
 use crate::EditorSession;
+use pleochroma::geometry::ToolPrimitive;
+use pleochroma_cut_core::design::ConcaveTier;
 use std::time::Duration;
 
 const FLAT_HINT: &str = "Slow: runs locally off the UI thread and can be cancelled. \
@@ -114,7 +116,7 @@ fn a_flat_design_with_a_meet_tier_is_available_with_the_unchanged_hint() {
 #[test]
 fn a_concave_design_is_available_and_says_it_verifies_the_flat_stone() {
     let design = concave_with_a_meet_tier();
-    assert!(!design.concave_tiers.is_empty());
+    assert_ne!(design.concave_tiers, [] as [ConcaveTier; 0]);
     let (available, hint) = availability(&design, Some(&printed()));
     assert!(available, "{hint}");
     assert!(hint.starts_with(FLAT_HINT), "{hint}");
@@ -203,7 +205,10 @@ fn row_text_has_one_row_per_delta_with_the_shared_number_formats() {
 #[test]
 fn row_text_is_empty_for_no_deltas_and_blank_for_a_vanished_tier() {
     let design = flat_with_a_meet_tier();
-    assert!(deep_solve_row_texts(&[], &design).is_empty());
+    assert_eq!(
+        deep_solve_row_texts(&[], &design),
+        [] as [DeepSolveRowText; 0]
+    );
     let rows = deep_solve_row_texts(&[delta(99, 1.0, 1.1)], &design);
     assert_eq!(rows[0].name, "");
     assert_eq!(rows[0].tier_number, "#100");
@@ -226,7 +231,7 @@ fn pinning_a_flat_mast_of_a_concave_design_recomputes_its_tools() {
         .design
         .concave_tools_from_solved(&solved)
         .expect("the tools resolve");
-    assert!(!before.is_empty());
+    assert_ne!(before, [] as [ToolPrimitive; 0]);
 
     let pinned = session
         .pin_tier_mast(tier, solved[tier].mast * 0.95, Duration::ZERO)

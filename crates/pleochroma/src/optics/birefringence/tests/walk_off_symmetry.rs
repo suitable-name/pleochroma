@@ -46,12 +46,9 @@ mod walk_off_symmetry_tests {
         }
     }
 
-    /// Pins the exact measured regression: a wave normal at 45
-    /// degrees from the optic axis in a calcite-like negative uniaxial material
-    /// (`n_o`=1.658, `n_e`=1.486) must walk off to 51.23 degrees from the axis -- not 38.77
-    /// degrees (the pre-fix answer on the `wave_normal.dot(c_axis) > 0` branch, off by
-    /// exactly `2*delta` -- and this must hold whichever of `c_axis`/`-c_axis` is passed
-    /// in, since both must agree per the symmetry test above.
+    /// A wave normal 45 degrees from the optic axis in a calcite-like negative uniaxial
+    /// material (`n_o`=1.658, `n_e`=1.486) must walk off to 51.23 degrees from the axis, for
+    /// either `c_axis` or `-c_axis` (see the symmetry test above).
     #[test]
     fn extraordinary_poynting_dir_matches_analytic_walk_off_both_hemispheres() {
         let n_o = 1.658f32;

@@ -16,8 +16,8 @@ use crate::{
     settings::{Backdrop, LightingSettings},
 };
 
-/// The light-elevation slider's range in degrees (inside the renderer's own clamp, which
-/// is 8.6 to 88.8 degrees).
+/// The light-elevation slider's range in degrees, inside the renderer's own clamp (8.6 to
+/// 88.8 degrees), so the slider never asks for an elevation the renderer would change.
 pub const ELEVATION_RANGE_DEG: (f32, f32) = (9.0, 88.0);
 
 /// The surface glare moves in steps of this many percent.
@@ -146,7 +146,8 @@ pub fn set_lighting(state: &mut AppState, name: &str) -> Result<(), String> {
 pub struct LightValues {
     /// Exposure multiplier ([`EXPOSURE_RANGE`]).
     pub exposure: f32,
-    /// Light direction around the stone in degrees (`0.0..=360.0`).
+    /// Light direction around the stone in degrees (`0.0..=360.0`). While the HDR map is the
+    /// chosen lighting it is the map's rotation instead (the map has no key light).
     pub azimuth_deg: f32,
     /// Light height above the stone in degrees ([`ELEVATION_RANGE_DEG`]).
     pub elevation_deg: f32,
@@ -165,13 +166,19 @@ const fn clamped(value: f32, range: (f32, f32), fallback: f32) -> f32 {
     }
 }
 
-/// Stores the light values in the settings (clamped to their ranges; the azimuth wraps; the
-/// glare snaps to 5 percent).
+/// Stores the light values in the settings.
+///
+/// The values are clamped to their ranges, the azimuth wraps and the glare snaps to 5 percent.
+/// While the HDR map is the chosen lighting the azimuth turns the map and the light keeps its
+/// direction for the rigs.
 pub fn set_light_values(state: &mut AppState, values: LightValues) {
     let defaults = LightingSettings::default();
     let exposure = clamped(values.exposure, EXPOSURE_RANGE, defaults.exposure);
+    let hdr = state.hdr.is_selected();
     let azimuth = if values.azimuth_deg.is_finite() {
         values.azimuth_deg.rem_euclid(360.0)
+    } else if hdr {
+        defaults.hdr_yaw_deg
     } else {
         defaults.azimuth_deg
     };
@@ -193,7 +200,11 @@ pub fn set_light_values(state: &mut AppState, values: LightValues) {
     let glare = (glare / GLARE_STEP_PCT).round() * GLARE_STEP_PCT;
     state.update_settings(|settings| {
         settings.lighting.exposure = exposure;
-        settings.lighting.azimuth_deg = azimuth;
+        if hdr {
+            settings.lighting.hdr_yaw_deg = azimuth;
+        } else {
+            settings.lighting.azimuth_deg = azimuth;
+        }
         settings.lighting.elevation_deg = elevation;
         settings.lighting.head_shadow_deg = head_shadow;
         settings.lighting.surface_glare_pct = glare;
@@ -203,6 +214,37 @@ pub fn set_light_values(state: &mut AppState, values: LightValues) {
 /// Chooses what the camera sees behind the stone.
 pub fn set_backdrop(state: &mut AppState, backdrop: Backdrop) {
     state.update_settings(|settings| settings.lighting.backdrop = backdrop);
+}
+
+/// Switches "Turns with the Camera" for the HDR map, keeping the picture.
+///
+/// Switching it on takes the viewport camera's yaw off the map's own turn (the map adds it
+/// back as the camera orbits), switching it off adds it to the turn. A call that does not
+/// change the switch changes nothing.
+pub fn set_hdr_follows_camera(state: &mut AppState, on: bool) {
+    let yaw = state.viewport.camera.yaw;
+    let camera_deg = if yaw.is_finite() {
+        yaw.to_degrees()
+    } else {
+        0.0
+    };
+    state.update_settings(|settings| {
+        let lighting = &mut settings.lighting;
+        if lighting.hdr_follows_camera != on {
+            let turn = if lighting.hdr_yaw_deg.is_finite() {
+                lighting.hdr_yaw_deg
+            } else {
+                0.0
+            };
+            let turned = if on {
+                turn - camera_deg
+            } else {
+                turn + camera_deg
+            };
+            lighting.hdr_yaw_deg = turned.rem_euclid(360.0);
+            lighting.hdr_follows_camera = on;
+        }
+    });
 }
 
 /// Everything the Light tab shows, read from the settings.
@@ -222,6 +264,8 @@ pub struct LightingView {
     pub uses_head_shadow: bool,
     /// The imported HDR map and whether it is the chosen lighting (then no rig is).
     pub hdr: HdrView,
+    /// Whether the HDR map also turns with the camera ("Turns with the Camera").
+    pub hdr_follows_camera: bool,
 }
 
 /// The index of `backdrop` in the Light tab's segmented control.
@@ -252,11 +296,17 @@ pub const fn backdrop_from_index(index: i32) -> Backdrop {
 pub fn lighting_view(state: &AppState) -> LightingView {
     let lighting = &state.settings.lighting;
     let preset = preset_of(lighting);
+    // While the HDR map is the chosen lighting the azimuth slider is the map's rotation.
+    let azimuth_deg = if state.hdr.is_selected() {
+        lighting.hdr_yaw_deg
+    } else {
+        lighting.azimuth_deg
+    };
     LightingView {
         preset_name: preset.label().to_owned(),
         values: LightValues {
             exposure: lighting.exposure,
-            azimuth_deg: lighting.azimuth_deg,
+            azimuth_deg,
             elevation_deg: lighting.elevation_deg,
             head_shadow_deg: lighting.head_shadow_deg,
             surface_glare_pct: lighting.surface_glare_pct,
@@ -265,14 +315,15 @@ pub fn lighting_view(state: &AppState) -> LightingView {
         uses_light_direction: preset != LightingPreset::IsoHemisphere,
         uses_head_shadow: preset.model() != LightingModel::Studio,
         hdr: state.hdr.view(),
+        hdr_follows_camera: lighting.hdr_follows_camera,
     }
 }
 
 /// The renderer's scene settings for the app as it stands.
 ///
-/// The lighting comes from the settings, the stone effects and width from the design, the bounce count and sample target from
-/// the render preferences (`window_is_compact` picks the phone or the large-window
-/// sample count).
+/// The lighting comes from the settings, the stone effects and width from the design, and
+/// the bounce count and sample target from the render preferences (`window_is_compact` picks
+/// the compact or the large-window sample count).
 #[must_use]
 pub fn render_settings(state: &AppState, window_is_compact: bool) -> RenderSettings {
     let lighting = &state.settings.lighting;
@@ -303,6 +354,8 @@ pub fn render_settings(state: &AppState, window_is_compact: bool) -> RenderSetti
         inclusion_sigma_s: narrow(effects.inclusion_sigma_s),
         edge_rounding_radius: narrow(effects.edge_rounding_radius),
         stone_width_mm: narrow(state.session.design.girdle_diameter_mm.unwrap_or(0.0)),
+        hdr_yaw_deg: lighting.hdr_yaw_deg,
+        hdr_follows_camera: lighting.hdr_follows_camera,
         ..RenderSettings::default()
     }
     .sanitized()

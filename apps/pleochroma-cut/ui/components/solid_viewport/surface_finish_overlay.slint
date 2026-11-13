@@ -3,11 +3,11 @@ import { SurfaceModel } from "../../models/surface.slint";
 import { SolidPreviewModel } from "../../models/solid_preview.slint";
 import { ManipulateModel } from "../../models/manipulate.slint";
 
-// The Show Surface Finish overlay: a dot on every facet that has a surface finish, tinted by its
-// grade, and for a polished facet a short tick along the direction of its scratches (from the
-// Faceting Machine preference). Positions come from `SurfaceModel.ticks` in the viewport's logical
-// coordinates (`gui::editor::manipulate::surface_overlay`). Pointer input is never handled here:
-// the viewport's `drag_area` stays the only TouchArea.
+// The Show Surface Finish overlay: a dot on every facet with a surface finish, tinted by its
+// grade, and for a polished facet a short tick along its scratches (from the Faceting Machine
+// preference). Positions come from `SurfaceModel.ticks` in the viewport's logical coordinates
+// (`gui::editor::manipulate::surface_overlay`). Pointer input is never handled here: the
+// viewport's `drag_area` stays the only TouchArea.
 export component SurfaceFinishOverlay inherits Rectangle {
     // Explicit geometry, like `CrystalAxisOverlay`: an overlay positioned by default would
     // propagate its constraints to the viewport.
@@ -57,9 +57,9 @@ export component SurfaceFinishOverlay inherits Rectangle {
 }
 
 // Tells Rust when anything the overlay depends on changed (the switch, the view, an edit of a
-// surface finish), so it recomputes the marks. A global's own property cannot get a `changed`
-// handler outside the file that declares it, so each input is mirrored into a plain local property
-// here. Zero-sized and invisible; mounted once in each viewport.
+// surface finish), so it recomputes the marks. A global's property cannot get a `changed`
+// handler outside its own file, so each input is mirrored into a local property here.
+// Zero-sized and invisible; mounted once in each viewport.
 export component SurfaceFinishWatcher inherits Rectangle {
     x: 0px;
     y: 0px;

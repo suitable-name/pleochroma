@@ -5,7 +5,7 @@
 //! modal overlay is open, and steal plain digits from a text field.
 //!
 //! GAP: Ctrl+Meta variants (the same arms test `event.modifiers.meta`) are not repeated, and the
-//! cutting-mode key table (`CuttingModeModel.handle_key`) is left to the cutting-mode lane.
+//! cutting-mode key table (`CuttingModeModel.handle_key`) is not covered here.
 
 use super::{Scenario, dialogs, existing_install};
 use crate::support::{
@@ -93,6 +93,28 @@ fn picker_cancel(_: &mut Ctx<'_>) -> bool {
 
 fn after_edit(ctx: &mut Ctx<'_>) -> bool {
     dialogs::edit_design(ctx)
+}
+
+/// An edit that leaves the design stale: the design's first solve ends first (an edit that
+/// lands while it runs would be solved by it), auto-solve goes off so nothing solves the edit,
+/// and the setup waits until the design reads stale. This turns auto-solve off for the
+/// remaining cases, which do not depend on it.
+fn after_edit_stale(ctx: &mut Ctx<'_>) -> bool {
+    let ui = ctx.app.ui().clone_strong();
+    let editor = ui.global::<EditorModel>();
+    if !ctx.wait_for("the design's solve ends", SOLVE_BOUND, || {
+        !editor.get_solve_running()
+    }) {
+        return false;
+    }
+    editor.set_auto_solve_budget_ms(0);
+    pump(100);
+    if !dialogs::edit_design(ctx) {
+        return false;
+    }
+    ctx.wait_for("the edit leaves the design stale", SOLVE_BOUND, || {
+        solve_rank(&ui) != 2 && !editor.get_solve_running()
+    })
 }
 
 /// An edit, then one undo: the state in which a redo applies.
@@ -289,7 +311,7 @@ const CASES: &[Case] = &[
         expect: |before, after| before == 1 && after == 0,
     },
     // Ctrl+O is not in the table: with an unsaved design it asks "discard the changes?" first
-    // (`native_io::open_native`), and only Discard reaches the picker -- see `ctrl_o_opens_picker`.
+    // (`native_io::open_native`); only Discard reaches the picker, see `ctrl_o_opens_picker`.
     Case {
         chord: "Ctrl+Z",
         effect: "undoes the last edit (the design changes)",
@@ -318,7 +340,7 @@ const CASES: &[Case] = &[
         chord: "F5",
         effect: "solves the design (stale -> solved)",
         record: Some("EditorModel.solve"),
-        setup: after_edit,
+        setup: after_edit_stale,
         probe: solve_rank,
         expect: |before, after| before != 2 && after == 2,
     },
@@ -417,6 +439,18 @@ fn reset(ctx: &Ctx<'_>) {
     pump(150);
 }
 
+/// Time bound for a solve, including on a slow machine.
+const SOLVE_BOUND: Duration = Duration::from_secs(30);
+
+/// How long a chord's effect may take to show: a solve gets [`SOLVE_BOUND`].
+fn effect_bound(case: &Case) -> Duration {
+    if case.record == Some("EditorModel.solve") {
+        SOLVE_BOUND
+    } else {
+        Duration::from_secs(3)
+    }
+}
+
 fn run_case(ctx: &mut Ctx<'_>, case: &Case) {
     reset(ctx);
     if !(case.setup)(ctx) {
@@ -426,7 +460,7 @@ fn run_case(ctx: &mut Ctx<'_>, case: &Case) {
     let ui = ctx.app.ui().clone_strong();
     let before = (case.probe)(&ui);
     ctx.press(case.chord);
-    let held = wait_until(Duration::from_secs(3), || {
+    let held = wait_until(effect_bound(case), || {
         (case.expect)(before, (case.probe)(&ui))
     });
     let after = (case.probe)(&ui);

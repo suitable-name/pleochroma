@@ -9,10 +9,10 @@ use crate::gui::library::local::helpers::test_support::{
     VALID_ASC, open_temp_db, temp_db_path_for_test, temp_dir_for_test,
 };
 
-/// Re-importing a `.asc` over an existing row (a filename collision) must not
-/// silently wipe hand-entered metadata `local::import_asc` never produces
-/// (`designer_info`, here), and must invalidate the stale preview image describing
-/// the old geometry. Both are asserted here.
+/// Re-importing over a filename collision keeps hand-entered metadata.
+///
+/// The import never produces `designer_info`, and the preview of the old geometry is
+/// invalidated.
 #[test]
 fn import_path_merges_hand_entered_metadata_and_invalidates_stale_preview_on_collision() {
     let dir = temp_dir_for_test("reimport_merge");
@@ -123,10 +123,9 @@ fn count_pending_collisions_flags_a_filename_already_in_the_catalogue() {
     let db_path = temp_db_path_for_test("collisions_some");
     let db = open_temp_db(&db_path);
 
-    // Seed the catalogue with a row already named `existing.asc`, via the exact
-    // machinery a real import uses -- from a DIFFERENT folder, since the collision
-    // test is filename-only, not path-based (see `save_imported_design`'s own doc
-    // comment).
+    // Seed the catalogue with a row named `existing.asc` through a real import from a
+    // different folder: collisions match on the file name only (see the known-limitation
+    // note in `import_path`).
     let seed_dir = temp_dir_for_test("collisions_some_seed");
     std::fs::write(seed_dir.join("existing.asc"), VALID_ASC).expect("write seed existing.asc");
     let seeded = import_path(&db, &seed_dir, false, |_, _| {});

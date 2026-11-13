@@ -21,7 +21,7 @@ const KEPT_SUFFIX: &str = "(Kept In Pattern)";
 /// if it passes `ColorVariant::validate_for` for `host` (the rank rule of the design color).
 ///
 /// A custom material has no built-in variants; its list is the cutter's saved ones. `db` is the
-/// vault the saved ones are read from; `None` (no vault, as in a test) lists the built-in ones only.
+/// vault they are read from; `None` (no vault, as in a test) lists the built-in ones only.
 pub fn zone_variants(host: &GemMaterial, db: Option<&Mutex<Database>>) -> Vec<ColorVariant> {
     let mut variants = built_in_variants(&host.name);
     variants.extend(db.map_or_else(Vec::new, |db| user_variants(db, &host.name)));
@@ -120,7 +120,7 @@ mod tests {
     fn a_custom_material_has_no_built_in_variants() {
         let mut host = GemMaterial::sapphire();
         host.name = "My Own Corundum".to_owned();
-        assert!(zone_variants(&host, None).is_empty());
+        assert_eq!(zone_variants(&host, None), [] as [ColorVariant; 0]);
     }
 
     #[test]

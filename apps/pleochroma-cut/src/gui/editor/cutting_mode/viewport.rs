@@ -26,7 +26,7 @@ use slint::{ComponentHandle, Model};
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct Saved {
     /// `SolidPreviewModel.viewport_width` and `viewport_height`: the editor viewport's size. The
-    /// cutting mode screen sizes the render to its own, larger picture while it is open.
+    /// cutting mode screen sizes the render to its own picture while it is open.
     pub(super) viewport_size: (f32, f32),
     /// `SolidPreviewModel.tier_cutoff`: the Cut slider.
     pub(super) tier_cutoff: i32,
@@ -66,8 +66,8 @@ pub(super) fn cutoff_after(position: usize, step_count: usize) -> i32 {
     CutPosition::from_steps(position.saturating_add(1), step_count).to_model()
 }
 
-/// The distance from the centre to the farthest corner of the rough, `None` when its planes close
-/// no solid. No step draws a stone bigger than this one.
+/// The distance from the centre to the farthest corner of the rough, or `None` when its planes
+/// close no solid. No step draws a stone bigger than this one.
 pub(super) fn rough_radius(preform: &PreformSpec) -> Option<f64> {
     match build_solid_mesh(&preform.planes()) {
         SolidStatus::Closed(mesh) => Some(
@@ -82,10 +82,9 @@ pub(super) fn rough_radius(preform: &PreformSpec) -> Option<f64> {
 
 /// Fits the camera to the rough, so the stone after every step is whole in the picture.
 ///
-/// The picture shows the stone after the step, which is bigger than the finished stone Fit
-/// measures, and the screen has no Fit button of its own: the step pictures used to arrive zoomed
-/// in and cut by the frame. Goes through the same Fit the pose pills use, with the rough's radius
-/// as its floor ([`fit_view::set_radius_floor`]), so the picture is redrawn at the new distance.
+/// A step's stone can be bigger than the finished stone that Fit frames, and the screen has no
+/// Fit button of its own. The rough's radius becomes the Fit floor
+/// ([`fit_view::set_radius_floor`]), and Fit runs through `ViewportModel.set_view`.
 pub(super) fn fit_to_rough(ui: &MainWindow, radius: f64) {
     fit_view::set_radius_floor(radius);
     ui.global::<ViewportModel>().invoke_set_view(FIT_VIEW);

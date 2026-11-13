@@ -1,25 +1,17 @@
 //! Cached model-space girdle width for the "Stone size" absorption-scale control.
 //!
-//! `apply_material_overrides` needs the design's real girdle width in model units
-//! every time `stone_width_mm` (see `RenderContext::stone_width_mm`) is dialled in, so
-//! it can turn a physical millimetre width into `GemMaterial::absorption_path_scale`.
-//! The measurement itself now lives in `pleochroma::render_setup::measure_model_width`
-//! (see that function's own doc comment) so the browser app measures a design's girdle
-//! width exactly the same way; it is not free (it enumerates every feasible
-//! plane-triple intersection of the active design), and the render loop calls
-//! `apply_material_overrides` every frame, so [`StoneWidthCache`] -- which stays
-//! desktop-side, since it is plain per-call state rather than render physics --
-//! recomputes only when `render_thread::hash_planes`'s key actually differs from the
-//! last call, the exact same cheap `Pod`-bytes identity scheme `GirdleFinishCache`
-//! (see that module's doc comment) already uses for the identical reason.
+//! `apply_material_overrides` turns the `stone_width_mm` setting into
+//! `GemMaterial::absorption_path_scale`, which needs the design's girdle width in model units.
+//! The measurement is `pleochroma::render_setup::measure_model_width`, shared with the browser
+//! app. It is not free: it enumerates every feasible plane-triple intersection of the design.
+//! The render loop calls `apply_material_overrides` every frame, so [`StoneWidthCache`]
+//! recomputes only when `render_thread::hash_planes`'s key differs from the last call. The cache
+//! lives here, not in the renderer, because it is per-call state rather than render physics.
 
 use crate::bridge::render_thread::hash_planes;
 use pleochroma::{geometry::plane::GpuFacetPlane, render_setup::measure_model_width};
 
-/// `key` starts `None`, so the very first [`Self::ensure`] call always sees a "stale"
-/// key and measures before anything reads `width` -- same never-empty-but-still-
-/// correct shape `GirdleFinishCache` uses for the identical reason (see that type's
-/// doc comment).
+/// `key` starts `None`, so the first [`Self::ensure`] call measures before anything reads `width`.
 #[derive(Debug, Default)]
 pub struct StoneWidthCache {
     key: Option<u64>,
@@ -40,9 +32,8 @@ impl StoneWidthCache {
     /// of the solid bounded by `planes`), or `None` when the plane arrangement doesn't
     /// bound a measurable solid (e.g. an in-progress custom design missing its closing
     /// planes) -- `apply_material_overrides` treats `None` the same as the control
-    /// being off, leaving the material's `absorption_path_scale` untouched. Reclassifies
-    /// only when `planes`'s hash differs from the last call, matching
-    /// `GirdleFinishCache::ensure`.
+    /// being off, leaving the material's `absorption_path_scale` untouched. Measures again
+    /// only when `planes`'s hash differs from the last call.
     pub fn ensure(&mut self, planes: &[GpuFacetPlane]) -> Option<f64> {
         let key = hash_planes(planes);
         if self.key != Some(key) {
@@ -66,10 +57,7 @@ mod tests {
         assert!(width > 0.0, "width {width}");
     }
 
-    /// A second `ensure` call with the SAME planes must not remeasure -- verified
-    /// indirectly (no observable generation counter, same treatment
-    /// `GirdleFinishCache`'s own repeat-call test gives this) by confirming the result
-    /// is unchanged and still correct after a repeat call.
+    /// A repeat call with the same planes returns the same width.
     #[test]
     fn ensure_is_stable_across_repeated_calls_with_unchanged_planes() {
         let planes = StandardGemCuts::standard_round_brilliant();

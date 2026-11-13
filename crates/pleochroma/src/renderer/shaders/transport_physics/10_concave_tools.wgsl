@@ -16,14 +16,14 @@
 //     "inside the stone" state past `CT_T_FLOOR`; only an exact tie between two
 //     boundaries (measure zero) can resolve differently.
 //
-// Everything here is pure (no bindings). The scene records live in the `planes` storage
-// binding after the planes (see `02_scene_bindings.wgsl`), five `vec4`s per tool:
+// Everything here is pure (no bindings). The tool records live in the `planes` storage binding
+// after the planes (see `transport_bounce/02_scene_bindings.wgsl`), five `vec4`s per tool:
 //   v0 = (kind, sweep_kind, 0, 0)   as exact small floats, not bit-cast integers
 //   v1 = (origin.xyz, rim radius)
 //   v2 = (axis.xyz, half length)
 //   v3 = (r_neg, r_pos, half stroke, 0)
 //   v4 = (sweep_dir.xyz, 0)
-// `renderer::gpu::frame::tools::pack_tools` is the Rust producer.
+// The Rust side packs these records.
 // ---------------------------------------------------------------------------------
 
 const CT_RECORD_VECS: u32 = 5u;
@@ -94,11 +94,9 @@ struct CtCarve {
     start_k: u32,
     hit_t: f32,
     hit_k: u32,
-    // Valid in a `CT_STATE_HIT_*` state: true when the hit is an entry into the material
-    // (the stretch of ray before it is in air or in a cavity), false when it is an exit. It
-    // is the `now_inside` the CPU `carve` returns with its hit, the state the intersection
-    // itself walked to, which the bounce adopts instead of toggling `inside_gem` (see
-    // `bounce_extend`).
+    // Valid in a `CT_STATE_HIT_*` state: true for an entry into the material, false for an exit.
+    // The CPU `carve` returns the same `now_inside` with its hit. The bounce adopts it rather
+    // than toggling `inside_gem` (see `bounce_extend`, `transport_bounce/08b_extend_scatter.wgsl`).
     entering: bool,
 }
 

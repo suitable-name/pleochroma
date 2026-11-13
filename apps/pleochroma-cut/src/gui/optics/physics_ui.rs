@@ -400,7 +400,7 @@ fn pick_solve(ctrl: &Ctrl, c: slint::Color) {
     });
 }
 
-/// The fantasy picker: fits the three legacy bands on a thread, then selects the result.
+/// The fantasy picker: finds the nearest fantasy triple on a worker thread, then selects it.
 fn fantasy_pick(ctrl: &Ctrl, c: slint::Color) {
     let generation = lock(&ctrl.state).generation;
     let lab = pleochroma::color::body_color::srgb_to_lab([
@@ -433,9 +433,9 @@ fn fantasy_pick(ctrl: &Ctrl, c: slint::Color) {
     });
 }
 
-/// The L*C*h editor's "Apply colour" in the material editor dialog: the solved colour's nearest
-/// legacy triple becomes the fantasy colour, exactly like a finished [`fantasy_pick`] (the
-/// seven-band rows are held by `dialog_color` until "Save"). Runs on the UI thread.
+/// The L*C*h editor's "Apply colour" in the material editor dialog: the solved color's nearest
+/// fantasy triple becomes the fantasy color, as a finished [`fantasy_pick`] does (the seven-band
+/// rows are held by `dialog_color` until "Save"). Runs on the UI thread.
 fn fixed_color_picked(ctrl: &Ctrl, rgb: [f32; 3]) {
     let Some(ui) = ctrl.ui.upgrade() else {
         return;

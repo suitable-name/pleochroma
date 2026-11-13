@@ -47,10 +47,10 @@ component TabPill inherits Rectangle {
     }
 }
 
-// The per-tier / preform / optimize / schedule inspector (modelled on the desktop's
-// `editor_inspector.slint`): a header row with the tab pills, the selected tab's body in a
-// scroll view, and, on the Tier tab, the Save / New Tier buttons pinned below it. All
-// state is `InspectorModel` / `OptimizeModel`; the Design dock places this component.
+// The tier / preform / optimize / schedule / history inspector: a header row with the tab
+// pills, the selected tab's body in a scroll view, and the Tier tab's Save and New buttons
+// (flat or concave) pinned below it. Its state is in `InspectorModel` and `OptimizeModel`;
+// the Design dock places this component.
 export component Inspector inherits Rectangle {
     // Switching tabs or collapsing removes the focused field without a `has-focus`
     // change, which would leave `AppModel.text-focus` stuck on and Ctrl+Z dead.

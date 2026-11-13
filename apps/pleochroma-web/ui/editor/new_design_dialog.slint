@@ -4,9 +4,9 @@ import { AppModel, GalleryModel } from "../models/app_model.slint";
 import { GuideModel } from "../models/guide_model.slint";
 import { TemplateGallery } from "../components/template_gallery.slint";
 
-// The New Design dialog's fields (modelled on the desktop's `EditorModel.new_*`); the
-// dialog is open while `GalleryModel.open` is true and `GalleryModel.selected-index` is the
-// chosen "Start from" card (0 is Empty). Consumed by `src/editor/new_design`.
+// The New Design dialog's fields. The dialog is open while `GalleryModel.open` is true;
+// `GalleryModel.selected-index` is the chosen "Start from" card (0 is Empty). Consumed by
+// `src/editor/new_design`.
 export global NewDesignModel {
     in-out property <int> preform-shape-index: 1;
     in-out property <string> preform-half-width: "1.50";
@@ -62,8 +62,8 @@ component Rule inherits Rectangle {
     background: Theme.border-subtle;
 }
 
-// New Design: preform, gear, symmetry, mirror and starting material named up front, or a
-// template from the gallery (which locks gear, symmetry and mirror to its own tier table).
+// New Design: the full form (preform, gear, symmetry, mirror, starting material) for Empty, or
+// the short form for a gallery template, which fixes its own preform, symmetry and mirror.
 // Mounted by `app.slint` while `GalleryModel.open`.
 export component NewDesignDialog inherits Rectangle {
     // A template card (any template index >= 1; 0 is Empty) is built from the template's
@@ -228,8 +228,8 @@ export component NewDesignDialog inherits Rectangle {
                             spacing: 2px;
                             Lbl { text: "Half-Width"; }
                             LineEdit {
-                                // (The style's LineEdit is 160px wide at minimum: two side by
-                                // side overflowed the dialog on a phone-width window.)
+                                // The style's LineEdit is 160px wide at minimum, too wide for two
+                                // fields side by side.
                                 min-width: 0px;
                                 text <=> NewDesignModel.preform-half-width;
                                 changed has-focus => { AppModel.text-focus = self.has-focus; }

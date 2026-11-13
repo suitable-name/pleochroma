@@ -1,6 +1,5 @@
 //! Closed-form entry and exit parameters of a ray inside the convex pieces of a tool
-//! (ball, cone frustum, wedge). Split from the parent module so the file stays readable;
-//! the arithmetic is unchanged.
+//! (ball, cone frustum, wedge), split out of the parent module for readability.
 
 use crate::optics::raytracer::camera::Ray;
 use glam::Vec3;

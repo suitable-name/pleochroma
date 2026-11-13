@@ -115,7 +115,7 @@ pub struct EpisodeSnapshot {
     last_components: Option<[f32; 3]>,
     source_features: MaterialFeatures,
     target_features: MaterialFeatures,
-    /// Field-level identity of the inputs; absent in snapshots written before it existed.
+    /// Field-level identity of the inputs; `None` in snapshots that do not carry one.
     #[serde(default)]
     semantic_identity: Option<EpisodeIdentity>,
 }
@@ -551,7 +551,7 @@ mod tests {
         let rebuild = |saved: &EpisodeSnapshot, config| {
             RetargetEnv::from_episode(original.base_design().clone(), config, saved)
         };
-        // An older build's legacy text no longer matches, the field-level identity still does.
+        // A changed legacy text fails the legacy check; the field-level identity still matches.
         let mut saved = original.snapshot_episode().unwrap();
         saved.identity.push_str("\nfield added by a later build");
         let Ok(restored) = rebuild(&saved, original.config().clone()) else {

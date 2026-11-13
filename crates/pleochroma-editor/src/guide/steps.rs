@@ -1,6 +1,8 @@
-//! The worked-example walkthrough's content: ten [`Step`]s, in display order,
-//! written against `docs/manual/07-new-design-worked-example.md` (keep the two in
-//! step -- same numbers, same control names).
+//! The worked-example walkthrough's content.
+//!
+//! It is ten [`Step`]s, in display order, written
+//! against `apps/pleochroma-cut/docs/manual/07-new-design-worked-example.md` (keep the two
+//! in step: same numbers, same control names).
 //!
 //! Plain `const` data rather than `GuideStepData` literals, since a
 //! Slint-generated struct has no `const fn` constructor; the desktop's `setup_guide`
@@ -50,15 +52,14 @@ pub const ALL_GROUPS: &[Group] = &[
 
 /// The controls a tier-authoring step leaves usable: the tier form, the tier table's own
 /// toolbar (to fix a mistake) and Undo/Redo. Shared with the generated "Build this design"
-/// lesson, so the Simple-mode rule below lives in one place.
+/// lesson.
 pub(super) const TIER_STEP: &[Group] = &[Group::TierForm, Group::TierTable, Group::History];
 
 /// [`TIER_STEP`] with the Advanced controls, for a step that asks for "Meets: Exact scale
-/// value". The Simple interface leaves that entry out of the Meets list for a new tier, and a
-/// step that unlocks the Advanced group shows the full list (the same way the tier tutorials
-/// unlock it for the entries Simple hides). The Simple | Advanced switch is unlocked too, so
-/// the learner can also switch by hand. The Girdle Facet Preset fills the entry in as well,
-/// but a learner who types the girdle by hand needs the full list too.
+/// value". The Simple interface leaves that entry out of the Meets list for a new tier; the
+/// Advanced group shows the full list, and the Simple | Advanced switch stays unlocked. The
+/// Girdle Facet Preset fills the entry in too, but a learner who types the girdle by hand
+/// needs the full list as well.
 pub(super) const TIER_STEP_EXACT: &[Group] = &[
     Group::TierForm,
     Group::TierTable,
@@ -85,7 +86,7 @@ pub struct Step {
     /// the targets `guide/tests.rs` lists as recognized.
     pub highlight_target: &'static str,
     /// The completion key reported through `GuideModel.notify` (see
-    /// `progress::goal_reached`), or [`super::MANUAL`] for a reading step.
+    /// [`super::goal_reached`]), or [`super::MANUAL`] for a reading step.
     pub completion: &'static str,
     /// The groups of controls that stay usable; every other group is locked.
     pub allow: &'static [Group],

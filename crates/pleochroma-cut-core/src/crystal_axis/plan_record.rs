@@ -2,9 +2,9 @@
 //!
 //! The Rough Planner's hand-off writes it ([`CrystalAxisPlan`], the file's optional
 //! `[crystal_axis_plan]` table): the rule the stone was cut under, where that rule came from and
-//! the Reason of an override. The cutting sheet reads it back, so the sheet says "Table Across
-//! (plan, within 15 deg)" and prints the Reason instead of quoting the material's default. A
-//! design without the record keeps today's behavior, and its file stays byte for byte as it was.
+//! the Reason of an override. The cutting sheet reads it back, so the sheet names the plan's rule
+//! (for example "Table Across (plan, within 15 deg)") and prints the Reason in place of the
+//! material's default rule. A design without the record writes no such table.
 
 use pleochroma_formats::native::design::CrystalAxisPlanTable;
 

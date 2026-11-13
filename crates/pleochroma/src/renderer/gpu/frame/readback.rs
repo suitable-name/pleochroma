@@ -1,8 +1,11 @@
-//! GPU-side sample reduction and CPU readback: [`GpuReduceParams`]/`reduce_xyz_main`'s
-//! dispatch (the "why a second dispatch" story in [`super::GpuFrameRenderer::dispatch_chunk`]'s
-//! doc comment), the persistent [`StagingSlot`]/[`PixelXyzOutput`] buffers it reads
-//! into and out of, and [`super::GpuFrameRenderer::drain_pending_chunk`], which blocks on
-//! one chunk's readback and sums it into the caller's accumulation buffer.
+//! GPU-side sample reduction and CPU readback.
+//!
+//! This is the `reduce_xyz_main` dispatch that sums a
+//! chunk's samples per pixel ([`GpuReduceParams`]; see
+//! [`super::GpuFrameRenderer::dispatch_chunk`]), the persistent [`StagingSlot`]/[`PixelXyzOutput`]
+//! buffers it reads into and out of, and
+//! [`super::GpuFrameRenderer::drain_pending_chunk`], which blocks on one chunk's readback and
+//! sums it into the caller's accumulation buffer.
 
 use crate::renderer::gpu::{
     compute,
@@ -16,10 +19,11 @@ use super::{
     scene_buffers::TransportOutputs,
 };
 
-/// `reduce_xyz.wgsl`'s uniform param struct (binding 0 there). `_pad0`/`_pad1` reproduce
-/// WGSL's implicit padding of a two-`u32` uniform struct up to a 16-byte block, mirroring
-/// `renderer::buffers`' own layout convention (see that module's doc comment) rather than
-/// relying on `wgpu`'s own struct-size rounding for a uniform buffer.
+/// `reduce_xyz.wgsl`'s uniform param struct (binding 0 there).
+///
+/// `_pad0`/`_pad1` reproduce WGSL's implicit padding of a two-`u32` uniform struct up to a 16-byte
+/// block, mirroring `renderer::buffers`' own layout convention (see that module's doc comment)
+/// rather than relying on `wgpu`'s own struct-size rounding for a uniform buffer.
 ///
 /// `pub(crate)` (not private): `layout_check::run_reduce_params` builds a
 /// sample instance to echo through `phase2_layout_echo.wgsl`, from outside this module
@@ -33,9 +37,10 @@ pub struct GpuReduceParams {
     pub(crate) _pad1: u32,
 }
 
-/// One double-buffered slot's GPU-reduced per-pixel XYZ output -- `reduce_xyz_main`'s
-/// destination buffer (see `reduce_xyz.wgsl`'s header comment). Alternated
-/// in lockstep with [`TransportOutputs`]/[`StagingSlot`] by
+/// One double-buffered slot's GPU-reduced per-pixel XYZ output -- `reduce_xyz_main`'s destination
+/// buffer (see `reduce_xyz.wgsl`'s header comment).
+///
+/// Alternated in lockstep with [`TransportOutputs`]/[`StagingSlot`] by
 /// [`GpuFrameRenderer::dispatch_chunk`]: `reduce_xyz_main` sums a chunk's `out_xyz`
 /// (`pixels * spp * 3` floats) down to `pixels * 3` floats here, and THIS buffer -- not
 /// `out_xyz` -- is what the chunk's readback copy actually reads from.
@@ -63,19 +68,17 @@ impl PixelXyzOutput {
     }
 }
 
-/// One persistent staging buffer backing one of [`GpuFrameRenderer::staging`]'s two
-/// double-buffered slots -- reused across every chunk of every frame, and reallocated
-/// only when a chunk needs more capacity than it currently has (see
+/// One persistent staging buffer backing one of [`GpuFrameRenderer::staging`]'s two slots.
+///
+/// The slots are double-buffered; a buffer is reused across every chunk of every frame, and
+/// reallocated only when a chunk needs more capacity than it currently has (see
 /// [`GpuFrameRenderer::ensure_staging_capacity`]), mirroring how [`TransportOutputs`] is
 /// grown-never-shrunk across frames rather than reallocated per chunk.
 pub struct StagingSlot {
     pub(super) buffer: wgpu::Buffer,
-    /// Capacity in PIXELS, not (pixel, sample) tuples -- `capacity * FLOATS_PER_TUPLE` is
-    /// the buffer's actual float count. [`GpuFrameRenderer::dispatch_chunk`]'s
-    /// readback copy reads from [`PixelXyzOutput`] (already GPU-reduced to one XYZ
-    /// triple per pixel) rather than [`TransportOutputs::xyz`], so this is a
-    /// pixel-scale quantity -- matching [`PixelXyzOutput::capacity`]'s own convention,
-    /// not [`TransportOutputs`]'s tuple-scale `capacity`.
+    /// Capacity in PIXELS, matching [`PixelXyzOutput::capacity`]: the readback copy reads the
+    /// GPU-reduced [`PixelXyzOutput`] (one XYZ per pixel), not the tuple-scale
+    /// [`TransportOutputs::xyz`]. `capacity * FLOATS_PER_TUPLE` is the float count.
     pub(super) capacity: usize,
 }
 
@@ -134,11 +137,11 @@ pub fn copy_to_existing_staging<T: bytemuck::Pod>(
 }
 
 impl GpuFrameRenderer {
-    /// Submits `reduce_xyz_main`'s dispatch for one chunk -- the second half of
-    /// `Self::dispatch_chunk`'s "Why a second dispatch" doc comment, split into its own
-    /// method purely to keep `dispatch_chunk` under clippy's function-length limit. Sums
-    /// `outputs.xyz()`'s `pixels_this_chunk * num_samples` triples down into
-    /// `pixel_output.buffer`'s `pixels_this_chunk` triples.
+    /// Submits `reduce_xyz_main`'s dispatch for one chunk, summing `outputs.xyz()`'s
+    /// `pixels_this_chunk * num_samples` triples into `pixel_output.buffer`'s
+    /// `pixels_this_chunk` triples. The reason for the second dispatch is in
+    /// `Self::dispatch_chunk`'s "Why a second dispatch" section; this method is separate only
+    /// to keep `dispatch_chunk` under clippy's function-length limit.
     pub(super) fn dispatch_reduce(
         &self,
         num_samples: u32,
@@ -190,13 +193,13 @@ impl GpuFrameRenderer {
 
     /// Blocks until `chunk`'s readback copy has completed, reads its XYZ, updates the
     /// per-tuple timing EMA (see [`GpuFrameRenderer::ns_per_tuple_ema`]), and -- when
-    /// `accum` is `Some` -- sums each pixel's `spp` samples into it. Split out of
-    /// `Self::accumulate_via_pipeline` so its dispatch loop stays readable.
+    /// `accum` is `Some` -- sums each pixel's `spp` samples into it. Kept out of
+    /// `Self::accumulate_via_pipeline` to keep its dispatch loop short.
     ///
-    /// `accum: None` is `AccumulateOutcome::Cancelled`'s drain-then-discard path: the
-    /// chunk is still waited on and read back (so no dangling GPU/mapping state leaks
-    /// into the next call), but its result is thrown away rather than summed. The EMA is
-    /// still updated either way -- a cancelled chunk's timing is a real measurement too.
+    /// `accum: None` is `AccumulateOutcome::Cancelled`'s path: the chunk is still waited on
+    /// and read back (so no mapping state leaks into the next call), but its result is
+    /// discarded. The EMA is still updated, since a cancelled chunk's timing is a real
+    /// measurement.
     ///
     /// # Errors
     ///
@@ -214,13 +217,9 @@ impl GpuFrameRenderer {
             .as_ref()
             .expect("dispatch_chunk populated this staging slot")
             .buffer;
-        // Reads into self.xyz_scratch (reused across every chunk of every frame) rather
-        // than allocating a fresh Vec here -- see that field's own doc comment.
-        // staging_buffer/self.xyz_scratch/self.ctx.device are three disjoint
-        // fields of `self`, so borrowing them independently here is fine even though
-        // this function takes `&mut self`.
-        // Only the chunk's live prefix is copied: `xyz_scratch.len()` now equals
-        // `chunk.pixels_this_chunk * 3`, not the (grown-never-shrunk) staging capacity.
+        // Reads into self.xyz_scratch (reused across chunks, see its field doc). The staging
+        // buffer, xyz_scratch and ctx.device are disjoint fields, so these borrows coexist
+        // under `&mut self`. Only the chunk's live prefix is copied, not the staging capacity.
         compute::finish_map_read_into(
             &self.ctx.device,
             staging_buffer,
@@ -244,9 +243,8 @@ impl GpuFrameRenderer {
                 }));
         }
 
-        // self.xyz_scratch already holds `reduce_xyz_main`'s GPU-summed per-pixel
-        // triples (see dispatch_chunk's "Why a second dispatch" doc comment) -- added
-        // directly, no CPU-side per-sample summation loop needed any more.
+        // self.xyz_scratch holds `reduce_xyz_main`'s per-pixel sums (see dispatch_chunk's
+        // "Why a second dispatch"), so each pixel is added directly.
         let mut accumulate = timing::Mark::now();
         if let Some(accum) = accum {
             let xyz = &self.xyz_scratch;

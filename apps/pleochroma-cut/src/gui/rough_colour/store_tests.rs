@@ -220,7 +220,7 @@ fn the_pose_choice_is_stored_per_stone_and_read_back() {
     assert_eq!(kept, vec![0, 0]);
     assert!(load_pose_choices(&db, 8).unwrap().is_empty());
 
-    // "Best colour" for the core turns both stones over.
+    // "Best Color" for the core turns both stones over.
     let chosen = choose_and_save_poses(&db, 8, 1, &two, &zoned, PoseGoal::MostOfZone(1)).unwrap();
     assert_eq!(chosen, vec![1, 1]);
     let stored = load_pose_choices(&db, 8).unwrap();
@@ -556,6 +556,10 @@ fn scene(material: GemMaterial) -> SceneState {
         height: 48,
         yaw: 0.4,
         camera_roll: 0.0,
+        stone_shadow: false,
+        tray_reflection: 0.0,
+        hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
+        estimator: pleochroma::optics::raytracer::Estimator::Branching,
         pitch: 0.3,
         distance: 3.0,
         light_yaw: 0.85,

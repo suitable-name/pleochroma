@@ -4,8 +4,8 @@ import { SegmentPill } from "../pill_button.slint";
 import { SettingLabel } from "setting_label.slint";
 
 // Motion Preview Resolution, off by default. Same segmented-pill idiom as
-// Render Resolution; a discrete choice rather than a slider since there's no
-// meaningful continuum between "half" and "0.47". Advanced: Simple mode hides it
+// Render Resolution. A discrete choice, not a slider: only these three scales matter.
+// Advanced: Simple mode hides it
 // (the Parameters panel).
 export component MotionPreviewPicker inherits VerticalLayout {
     spacing: 6px;

@@ -320,7 +320,7 @@ pub fn stage_label(stage: Stage, adapter: Option<&str>) -> String {
 /// The text next to the progress bar while the kernels of a material `class` compile.
 ///
 /// The isotropic class is the plain [`stage_label`] text; any other class names itself, so
-/// the first anisotropic stone's lazy compile is not mistaken for the start-up one.
+/// its lazy compile is not mistaken for the start-up one.
 #[must_use]
 pub fn compile_stage_label(done: usize, total: usize, class: u32) -> String {
     if class == ISOTROPIC_CLASS {

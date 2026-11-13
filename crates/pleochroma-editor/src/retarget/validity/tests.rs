@@ -77,6 +77,7 @@ fn good_analysis() -> StoneAnalysis {
         girdle_band: Some((-0.01, 0.02)),
         undersized: BTreeSet::new(),
         hinges: BTreeMap::new(),
+        meet_targets: Vec::new(),
     }
 }
 
@@ -299,7 +300,7 @@ fn the_headline_closes_with_the_depth_clause_only_when_both_depth_figures_are_kn
         "Valid: girdle 5.9 % (was 5.9 %), thinnest point 0.40 % (was 0.25 %), table 56 % (was 56 %), depth 61 % (was 58 %)"
     );
 
-    // One missing figure drops the clause and leaves the old headline exactly.
+    // One missing figure drops the clause and leaves the headline unchanged.
     figures.depth_now = None;
     assert_eq!(
         valid(figures).headline(),
@@ -543,7 +544,7 @@ fn an_unanchored_steep_crown_is_judged_invalid_and_the_untouched_design_valid() 
     assert_eq!(judge(&design, &original, &same), Vec::new());
 
     // A crown main tilted to 60 degrees with its mast left where it was cuts into the
-    // girdle band: the old behaviour of the dialog.
+    // girdle band, so the gate refuses it.
     let mut steep = design.clone();
     let main = steep
         .tiers
@@ -648,8 +649,8 @@ fn split_at_girdle_shifts_a_near_vertical_plane_by_its_tiers_side_not_its_lean()
         .expect("the brilliant has a pavilion hinge");
     let side = hinge.side;
     let plane = original.ranges[index].start;
-    // A pavilion plane whose normal leans a hair UP (above the old 1e-9 threshold): the old
-    // rule moved it with the crown half, the hinge moves with the pavilion half.
+    // A pavilion plane whose normal leans a hair UP (above `MIN_VERTICAL_NORMAL`) moves with
+    // its hinge, the pavilion half, not with the crown half.
     let lean = 1e-8;
     original.planes[plane].0 = glam::DVec3::new(0.0, lean, 1.0).normalize();
     let normal_y = original.planes[plane].0.y;

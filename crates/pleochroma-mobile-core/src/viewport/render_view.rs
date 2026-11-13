@@ -49,10 +49,9 @@ pub const SPP_PRESETS: [u32; 3] = [64, 128, 256];
 
 /// The trace raster for a viewport of `view` logical px.
 ///
-/// The view's aspect with the long
-/// edge capped (see the constants), never narrower than the Solid raster's minimum aspect
-/// (the camera's field of view is vertical, so a narrower raster would crop the stone's
-/// sides; the picture is letterboxed instead).
+/// The view's aspect with the long edge capped (see the constants), and never narrower than
+/// the Solid raster's minimum aspect: the camera's field of view is vertical, so a narrower
+/// raster would crop the stone's sides.
 #[must_use]
 #[expect(
     clippy::cast_possible_truncation,
@@ -407,7 +406,7 @@ pub fn wants(state: &AppState) -> bool {
 /// picture.
 ///
 /// That is the case when the camera moved and the traced picture of the new pose has not
-/// landed yet. Needs a solve (without one the raster has nothing to draw and the status text shows).
+/// landed yet. It needs a solve: without one the status text is shown instead.
 #[must_use]
 pub fn live_solid(state: &AppState) -> bool {
     let generation = state.session.current_generation();
@@ -416,12 +415,11 @@ pub fn live_solid(state: &AppState) -> bool {
         && state.solve.current_tiers(generation).is_some()
 }
 
-/// Whether the traced picture shows a light that has since moved.
+/// Whether the traced picture shows a light that has since moved, so it is dimmed.
 ///
-/// The Light chip is on and a light drag owes a trace that has not started, or whose first
-/// pass has not merged yet. The
-/// picture is dimmed meanwhile (the dial shows where the light is); the Solid raster, when
-/// it is on show for a camera move, is not dimmed.
+/// That is the case while the Light chip is on and a light drag owes a trace that has not
+/// started, or whose first pass has not merged yet. The dial shows where the light is. The
+/// Solid raster shown for a camera move is never dimmed.
 #[must_use]
 pub fn light_picture_stale(state: &AppState) -> bool {
     let live = &state.viewport.render_live;
@@ -550,10 +548,11 @@ pub const fn quality_label(quality: RenderQuality) -> &'static str {
     }
 }
 
-/// Whether the chosen lighting rig has a light whose direction a drag can move.
+/// Whether a drag has something to move: the chosen lighting rig has a light whose
+/// direction it moves, or an HDR map is the chosen lighting and the drag turns the map.
 #[must_use]
 pub fn light_drag_available(state: &AppState) -> bool {
-    lighting_view(state).uses_light_direction
+    state.hdr.is_selected() || lighting_view(state).uses_light_direction
 }
 
 /// One finger moving the light: the Light chip turns it on, and the pointer events then go
@@ -600,10 +599,16 @@ pub fn light_after_drag(values: LightValues, dx: f32, dy: f32) -> LightValues {
     }
 }
 
-/// Moves the light by a drag of `(dx, dy)` logical px and stores the result in the
-/// settings.
+/// Moves the light by a drag of `(dx, dy)` logical px and stores the result in the settings.
+///
+/// While an HDR map is the chosen lighting the drag turns the map by `dx` and leaves the
+/// light's elevation alone, as the desktop does (it ignores `dy` with a map).
 pub fn drag_light(state: &mut AppState, dx: f32, dy: f32) {
-    let values = light_after_drag(lighting_view(state).values, dx, dy);
+    let current = lighting_view(state).values;
+    let mut values = light_after_drag(current, dx, dy);
+    if state.hdr.is_selected() {
+        values.elevation_deg = current.elevation_deg;
+    }
     set_light_values(state, values);
     state.viewport.render_live.light_moved();
 }

@@ -1,10 +1,11 @@
 //! The one driver workaround of the GPU renderer.
 //!
-//! Mesa's RADV (the open AMD Vulkan driver) mis-schedules the megakernel, so zoned stones with a domain structure (opal) or oriented
-//! inclusions render wrong (GPU totals about 15 % above the CPU, NaN in the all-features
-//! generic kernel). The fault is in the driver's shader compiler (ACO) instruction
-//! scheduler: `ACO_DEBUG=nosched` makes the same shaders correct, the stock driver and
-//! `ACO_DEBUG=noopt` fail. There is no Mesa fix at the time of writing.
+//! Mesa's RADV (the open AMD Vulkan driver) mis-schedules the megakernel. Zoned stones with
+//! a domain structure (opal) or oriented inclusions then render wrong: GPU totals run about
+//! 15 % high, and the all-features kernel yields NaN. The fault is in the shader compiler's
+//! (ACO) instruction scheduler. `ACO_DEBUG=nosched` makes the shaders correct, while the
+//! stock driver and `ACO_DEBUG=noopt` fail. The workaround stays on for every RADV driver
+//! until a Mesa release with a fixed scheduler is confirmed.
 //!
 //! This module holds everything the desktop app and the headless worker share about it, and
 //! none of it needs a GPU or the `gpu` feature (it compiles everywhere; only
@@ -52,8 +53,8 @@ pub fn shader_cache_folder() -> String {
 
 /// The name of the app's own GPU pipeline-cache folder.
 ///
-/// `pipeline_cache`, or `pipeline_cache-<value>` while the workaround is in force (a pipeline
-/// cached from a stock compile must not be served to a workaround run, and the other way round).
+/// `pipeline_cache`, or `pipeline_cache-<value>` while the workaround is in force, so that
+/// stock and workaround runs never share cached pipelines.
 #[must_use]
 pub fn pipeline_cache_folder(workaround_active: bool) -> String {
     if workaround_active {
@@ -93,9 +94,8 @@ pub fn amdgpu_among<'a>(devices: impl IntoIterator<Item = (&'a str, Option<&'a s
 /// Whether this machine has a GPU Mesa's RADV can drive.
 ///
 /// Some `/sys/class/drm/card<N>` device has AMD's PCI vendor id and the `amdgpu` kernel driver.
-/// Reads sysfs only (no Vulkan, no
-/// thread), so it can decide the headless worker's default before the GPU is touched. Always
-/// `false` off Linux.
+/// Reads sysfs only, so it can decide the headless worker's default before the GPU is touched.
+/// Always `false` off Linux.
 ///
 /// A machine with an AMD GPU next to another one (an AMD iGPU beside an NVIDIA card) counts:
 /// which adapter wgpu picks is not known before Vulkan starts, and the variables
@@ -347,10 +347,8 @@ pub fn apply(requested: bool, cache_root: Option<&Path>) -> WorkaroundStatus {
             previous_cache_dir: std::env::var_os(SHADER_CACHE_DIR_ENV),
             previous_cache_disable: std::env::var_os(SHADER_CACHE_DISABLE_ENV),
         };
-        // SAFETY: the caller runs this first thing in `main`, before the tracing subscriber,
-        // the panic hook, the window or any thread exists, so nothing else can be reading or
-        // writing the process environment while it changes (the same argument as the saved
-        // UI scale's `SLINT_SCALE_FACTOR` in the desktop app's `main`).
+        // SAFETY: `apply` runs first thing in `main`, before any thread, window or subscriber
+        // exists, so nothing else reads or writes the process environment meanwhile.
         unsafe {
             std::env::set_var(ACO_DEBUG_ENV, RADV_ACO_DEBUG);
             match cache {
@@ -366,10 +364,9 @@ pub fn apply(requested: bool, cache_root: Option<&Path>) -> WorkaroundStatus {
 /// The environment edits a restarted child process needs to start from the user's own
 /// environment again.
 ///
-/// `(variable, value)` pairs where `None` means "remove it". Empty when
-/// [`apply`] changed nothing (the variables the user set themselves are inherited as they
-/// are). Without this, a child of a run WITH the workaround would find `ACO_DEBUG` set,
-/// take it for the user's own and could never switch the workaround off.
+/// `(variable, value)` pairs where `None` means "remove it". Empty when [`apply`] changed
+/// nothing; user-set variables are inherited as they are. Without these edits a child of a
+/// run with the workaround would take the inherited `ACO_DEBUG` for the user's own.
 #[must_use]
 pub fn restart_env_edits() -> Vec<(&'static str, Option<OsString>)> {
     APPLIED.get().map_or_else(Vec::new, |record| {
@@ -452,7 +449,7 @@ mod tests {
         ]));
         assert!(!amdgpu_among([("0x10de\n", Some("nvidia"))]));
         assert!(!amdgpu_among([("0x8086\n", Some("i915"))]));
-        // The old `radeon` kernel driver, or no driver bound: RADV does not run there.
+        // The `radeon` kernel driver, or no driver bound: RADV does not run there.
         assert!(!amdgpu_among([("0x1002\n", Some("radeon"))]));
         assert!(!amdgpu_among([("0x1002\n", None)]));
         assert!(!amdgpu_among(std::iter::empty()));

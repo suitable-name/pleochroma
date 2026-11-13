@@ -1,6 +1,7 @@
-//! Discovers which files a import request should read: walking a folder for
-//! `.asc`, `.gem`, `.gcs` and stand-alone `.psdd` candidates (with an optional, guarded
-//! recursive descent) and finding the design file that sits beside a design.
+//! Finds the files an import reads.
+//!
+//! Walks a folder for `.asc`, `.gem`, `.gcs` and stand-alone `.psdd` candidates, with an
+//! optional guarded recursive descent. It also finds the design file beside a design.
 
 use super::foreign::ForeignFormat;
 use pleochroma_formats::native::design::{DESIGN_EXTENSION, FileKind, detect_kind, is_design_path};
@@ -10,21 +11,21 @@ use std::{
 };
 use tracing::warn;
 
-/// Backstop against a pathological filesystem when [`super::wiring::setup_import_callback`]'s
-/// optional subfolder recursion is enabled -- a symlink/junction loop is already caught by
-/// [`collect_design_files_recursive`]'s `visited` set regardless of depth, so this only
-/// guards an absurdly deep (but non-cyclic) real tree.
+/// Depth cap for the optional subfolder recursion.
+///
+/// Symlink and junction loops are caught by the `visited` set in
+/// [`collect_design_files_recursive`]. This only guards an absurdly deep tree without a cycle.
 pub(super) const MAX_RECURSE_DEPTH: usize = 32;
 
-/// The file kinds a design file (`.psdd`) attaches to when one sits beside it (same
-/// folder and stem), in the order the library reads them: `.asc` first, then `.gem`,
-/// then `.gcs`. Both letter cases are tried so the match also works on a
-/// case-sensitive file system.
+/// The kinds a `.psdd` design file attaches to, in the order the library reads them.
+///
+/// `.asc` comes first, then `.gem` and `.gcs`. Both letter cases are tried, so the match also
+/// works on a case-sensitive file system.
 const SCHEDULE_EXTENSIONS: [&str; 6] = ["asc", "ASC", "gem", "GEM", "gcs", "GCS"];
 
-/// The `.asc`/`.gem`/`.gcs` file beside the design file at `design_path` (same folder
-/// and stem), if one exists. A design file with such a sibling is imported attached to
-/// it, not as a design of its own.
+/// The `.asc`/`.gem`/`.gcs` file beside the design file at `design_path`, if one exists.
+///
+/// A design file with such a sibling is imported attached to it, not as a design of its own.
 #[must_use]
 fn schedule_sibling(design_path: &Path) -> Option<PathBuf> {
     SCHEDULE_EXTENSIONS
@@ -33,12 +34,12 @@ fn schedule_sibling(design_path: &Path) -> Option<PathBuf> {
         .find(|candidate| candidate.is_file())
 }
 
-/// `true` for a file Import reads as a design of its own: `.asc` cutting instructions, a
-/// `GemCAD` `.gem` save file, a Gem Cut Studio `.gcs` file (extension compared
-/// case-insensitively), or a stand-alone `.psdd` design file. The `.gem`/`.gcs`
-/// are converted to `.asc` on import -- see [`super::foreign`]. A design file
-/// with one of those beside it is not stand-alone: it is attached to that design
-/// ([`find_design_file_beside`]) and so is not a candidate itself.
+/// `true` for a file that Import reads as a design of its own.
+///
+/// These are `.asc` files, `GemCAD` `.gem` files, Gem Cut Studio `.gcs` files (extension
+/// compared case-insensitively) and stand-alone `.psdd` files. The `.gem`/`.gcs` files are
+/// converted on import (see [`super::foreign`]). A `.psdd` with one of those beside it is
+/// attached to that design instead ([`find_design_file_beside`]).
 #[must_use]
 fn is_importable_design(path: &Path) -> bool {
     if is_design_path(path) {
@@ -50,15 +51,13 @@ fn is_importable_design(path: &Path) -> bool {
 }
 
 /// Walks one directory for importable design files ([`is_importable_design`]),
-/// descending into subdirectories when `recurse` is true. `visited` records the
-/// canonicalized (symlink-resolved) path of every directory already entered this
-/// call tree -- a symlink or junction looping back to an ancestor canonicalizes to
-/// a path already in that set, so the second visit is skipped rather than
-/// recursing forever (comparing raw paths wouldn't catch this, since a symlink's
-/// own path text never repeats even though its target does). `depth` is capped at
-/// [`MAX_RECURSE_DEPTH`] as a second, independent backstop. Both guards fail open
-/// (skip and log via `warn!`) -- one bad subfolder shouldn't stop design files
-/// elsewhere in the tree from being found.
+/// descending into subdirectories when `recurse` is true.
+///
+/// `visited` holds the canonicalized (symlink-resolved) path of every directory already
+/// entered. Comparing canonical paths catches a symlink or junction that loops back to an
+/// ancestor, which raw path text would miss. `depth` is capped at `max_depth` as a second,
+/// independent guard. Both guards skip the directory and log via `warn!`, so one bad
+/// subfolder does not hide design files elsewhere in the tree.
 pub(super) fn collect_design_files_recursive(
     dir: &Path,
     recurse: bool,
@@ -96,18 +95,17 @@ pub(super) fn collect_design_files_recursive(
     }
 }
 
-/// Resolves what [`super::pipeline::import_path`] should actually import: the single
-/// file `path` names, or every `.asc`/`.gem`/`.gcs`/stand-alone `.psdd` file directly inside it (plus, when `recurse`, its subfolders; see
-/// [`collect_design_files_recursive`] for the symlink-loop/depth guards).
+/// Resolves what [`super::pipeline::import_path`] imports.
 ///
-/// A directly picked design file with a `.asc`/`.gem`/`.gcs` beside it stands
-/// for that design (the design file is attached to it); without one it is imported
-/// as a design of its own.
+/// That is the single file `path` names, or every design file in a folder, plus its
+/// subfolders when `recurse` (see [`collect_design_files_recursive`]).
 ///
-/// `Err` carries the user-facing message `import_path` returns verbatim -- an
-/// unreadable folder, a path that is neither file nor folder, or a folder with no
-/// design file in it. Split out purely so
-/// `import_path` stays under clippy's `too_many_lines` limit.
+/// A picked design file with a `.asc`/`.gem`/`.gcs` beside it stands for that design, so
+/// the design file is attached to it; without one it is imported as a design of its own.
+///
+/// `Err` carries the user-facing message `import_path` returns verbatim: an unreadable
+/// folder, a path that is neither file nor folder, or a folder with no design file. Split
+/// out of `import_path` for clippy's `too_many_lines` limit.
 pub(super) fn collect_import_candidates(
     path: &Path,
     recurse: bool,
@@ -116,9 +114,8 @@ pub(super) fn collect_import_candidates(
     if path.is_dir() {
         match std::fs::read_dir(path) {
             Ok(entries) => {
-                // The top-level folder the user picked isn't itself loop-guarded (it
-                // can't be reached via a symlink pointing back to itself before this
-                // point) -- only directories walked below it are, via `visited`.
+                // The picked folder itself is not put in `visited`; only directories
+                // walked below it are guarded.
                 let mut visited: HashSet<PathBuf> = HashSet::new();
                 for entry in entries.flatten() {
                     let p = entry.path();
@@ -164,13 +161,11 @@ fn read_attachment(path: &Path) -> Option<(String, Vec<u8>)> {
     Some((name, bytes))
 }
 
-/// Looks for the self-contained design file sitting beside `path` (a `.asc`, `.gem` or
-/// `.gcs`) and reads it when it is one: `<stem>.psdd`. `None` when there is no such file,
-/// or the file of that name is not a design file -- attaching something the editor cannot
-/// open as a design would only hide the `.asc` behind it.
+/// Reads the `<stem>.psdd` design file beside `path`, a `.asc`, `.gem` or `.gcs`.
 ///
-/// The editor prefers this file over the schedule it is attached to: it carries the
-/// whole design, including everything the `.asc` has no field for.
+/// Returns `None` when there is no such file, or it is not a design file. Attaching something
+/// the editor cannot open would only hide the `.asc` behind it. The editor prefers this file
+/// over the schedule it is attached to, since it carries the whole design.
 pub(super) fn find_design_file_beside(path: &Path) -> Option<(String, Vec<u8>)> {
     let (name, bytes) = read_attachment(&path.with_extension(DESIGN_EXTENSION))?;
     (detect_kind(&bytes) == FileKind::Design).then_some((name, bytes))

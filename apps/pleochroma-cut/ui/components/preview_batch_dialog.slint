@@ -9,35 +9,21 @@ import { SegmentPill } from "pill_button.slint";
 import { SettingsModel } from "../models/settings.slint";
 import { SliderRow } from "parameters_panel/parts.slint";
 
-// Batch design-preview generation (Task: rendered design previews, batch generation
-// with two-level progress). One component, two states:
+// Batch design-preview generation: one component with two states, chosen by `confirming`.
 //
-// - `confirming: true` -- the "N designs -- Generate previews now?" confirm step
-//   opened by `gui::batch::preview::offer_batch_confirmation` for BOTH triggers #1
-//   (post-import) and #2 (missing-previews library scan); see that function's own doc
-//   comment for why both share this one code path.
-// - `confirming: false` -- the running/done progress view: two progress bars (overall
-//   design `i`/`N`, and within-design image `j`/2 -- front then top), a Cancel button
-//   while `running`, and a summary + Close button once `done`.
+// - `confirming: true`: the "N designs -- Generate previews now?" step, opened by
+//   `gui::batch::preview::offer_batch_confirmation` for both the post-import and the
+//   missing-previews triggers.
+// - `confirming: false`: the progress view, with a Cancel button while `running` and a
+//   summary and Close button once `done`.
 //
-// Follows this app's existing full-viewport-backdrop modal convention
-// (`metadata_editor_dialog.slint`/`material_editor_dialog.slint`), content-sized rather
-// than a fixed height (same "wrap the card around whatever state is showing" idiom
-// those two already use) -- EXCEPT it deliberately has no backdrop-click-to-dismiss:
-// this dialog can represent an ACTIVE background batch job, and losing that state to a
-// stray click outside it would be a worse mistake than the minor inconvenience of
-// requiring an explicit button.
-// `LiveComputeTarget::Both` runs `batch_queue::local_lane_count` local lanes plus a
-// remote dispatcher concurrently (`gui::batch::preview`'s module doc comment, "Local +
-// remote" section), pulling ONE-VIEW items off one shared queue -- so `design_index` is
-// a COMPLETED count, not a current-item cursor. With N local lanes each possibly
-// mid-item at once, no single title/image-index pair can describe "the" local lane's
-// progress any more, so `local_active`/`local_lane_total` report a plain busy-count
-// instead (see `gui::batch::preview`'s module doc comment's "Progress with N local lanes
-// (plus remote) in flight" section). `remote_active`/`remote_in_flight`/`remote_title`
-// describe the REMOTE side: `remote_batch_lanes` dispatchers each keep one item in
-// flight, so the row shows how many items are on the remote right now and the item a
-// dispatcher started most recently (same module's own doc comment).
+// Content-sized modal, like the metadata and material editor dialogs. Unlike them it has no
+// backdrop-click dismissal: a stray click must not lose the state of a running batch.
+// With `LiveComputeTarget::Both`, the local lanes (`batch_queue::local_lane_count`) and the
+// remote dispatchers run at once and pull items from one shared queue. So `design_index` counts
+// completed designs, not a current item: no single design or image is "the" current one.
+// `local_active` / `local_lane_total` are therefore a busy count, and `remote_*` describe the
+// items in flight on the remote. See `gui::batch::preview` for the progress model.
 export component PreviewBatchDialog inherits Rectangle {
     in property <bool> confirming: BatchModel.preview_confirming;
     in property <int> offer_count: BatchModel.preview_offer_count;
@@ -97,23 +83,9 @@ export component PreviewBatchDialog inherits Rectangle {
 
     background: Theme.overlay-backdrop;
 
-    // The card is wrapped in centering layouts rather than being a bare child with an
-    // explicit `height`. That is load-bearing, not cosmetic:
-    //
-    // A child of a plain `Rectangle` is not laid out -- it defaults to filling its
-    // parent -- so the card previously carried `height: card.preferred-height` to size
-    // itself to its content. That silently under-measures: the card's `Text` elements
-    // use `wrap: word-wrap`, and a wrapped text's preferred height is only meaningful
-    // once its WIDTH is known. Queried that way it resolved against an unconstrained
-    // width (as if each paragraph were one long line), so the card came out far shorter
-    // than its content, and `clip: true` cut the overflow away -- taking the buttons at
-    // the bottom with it. The dialog rendered as truncated text with nothing clickable.
-    //
-    // Centring alone did NOT fix it, though -- that was the first attempt. Slint
-    // measures a wrapped Text's preferred height as one unwrapped line whether it is
-    // asked directly or via a layout, so the card stayed too short either way. The
-    // actual fix is on the card itself: a stated height plus a scrollable body between
-    // a fixed title and fixed buttons. See the `height` binding below.
+    // The card has a stated height and a scrollable body between a fixed title and fixed buttons.
+    // A content-derived height is too short: Slint measures a word-wrapped Text as one unwrapped
+    // line, so `clip: true` would cut off the buttons. See the `height` binding below.
     //
     // The keyboard stays inside the card: Tab moves between its buttons, Enter takes the
     // main button, Escape declines the offer (or closes the finished summary), and every
@@ -160,20 +132,10 @@ export component PreviewBatchDialog inherits Rectangle {
                 // The import offer holds four buttons (Skip, two Quick draws, Full Render), so
                 // its card is wide enough to keep them in ONE row instead of two uneven ones.
                 width: root.confirming && root.from_import ? 480px : 380px;
-                // Explicit, and deliberately NOT derived from the content -- see
-                // `tilt_batch_dialog.slint`'s identical comment for the full reasoning.
-                // Short version: Slint measures a `wrap: word-wrap` Text's preferred
-                // height as one unwrapped line, so any content-derived height
-                // under-measures and `clip: true` then cuts the buttons off. Stating the
-                // height and scrolling the body between a fixed title and fixed buttons
-                // makes them structurally impossible to clip.
-                // The confirm step holds the fixed "Picture Quality" block (heading,
-                // renderer and backdrop pills, two sliders, a two-line note) between the scrolling body
-                // and the buttons. Its height follows what the offer shows: the plain
-                // offer, plus the scope pills and warning of a regenerate offer, plus the
-                // note, checkbox and quick buttons of an import offer. A flat 680px left the
-                // plain offer's two short paragraphs stretched apart; a body that needs
-                // more than its share still scrolls, so the buttons can never be clipped.
+                // Stated, not content-derived (see the card comment above). The confirm step
+                // grows with what its offer shows: a regenerate offer adds the scope pills and
+                // warning, an import offer the note, checkbox and quick buttons. A body that
+                // needs more than its share scrolls, so the buttons cannot be clipped.
                 height: root.confirming
                     ? Math.min(
                         root.height - 96px,
@@ -273,12 +235,9 @@ export component PreviewBatchDialog inherits Rectangle {
                             }
                         }
 
-                        // The two settings that decide how the pictures look, shown for every trigger in
-                        // both interfaces: the same sliders, ranges, steps and callbacks as the Render &
-                        // Output tab's "Library Thumbnails" group, so a change persists exactly as there. A
-                        // change re-counts the offer (`gui::batch::preview::offer_quality`). Fixed, outside
-                        // the scroll body, so it is always reachable. The note has a stated height for the
-                        // same wrapped-Text reason as the card's.
+                        // Picture quality, shared with Render & Output > Library Thumbnails, so a
+                        // change persists there too. A change re-counts the offer
+                        // (`gui::batch::preview::offer_quality`). Fixed outside the scroll body.
                         VerticalLayout {
                             spacing: 6px;
                             Text {
@@ -400,12 +359,8 @@ export component PreviewBatchDialog inherits Rectangle {
                             vertical-stretch: 0;
                             spacing: 10px;
 
-                            // Local runs `local_lane_total` lanes concurrently (Task:
-                            // saturate cores, not pin one) -- with N lanes each possibly
-                            // mid-item at once, no single title is meaningful any more,
-                            // so this reports a plain busy-count instead. Hidden
-                            // entirely under `RemoteOnly`, where no local lane runs at
-                            // all.
+                            // Busy count of the local lanes; several lanes have no single title.
+                            // Hidden under `RemoteOnly`, which runs no local lane.
                             if root.local_lane_total > 0: Text {
                                 text: "Local: " + root.local_active + " / " + root.local_lane_total + " lane(s) busy";
                                 font-size: 12px;
@@ -413,12 +368,8 @@ export component PreviewBatchDialog inherits Rectangle {
                                 overflow: elide;
                             }
 
-                            // The remote dispatchers' in-flight count and the item one
-                            // of them started most recently -- only shown at
-                            // all while remote dispatchers are running (`LocalOnly`
-                            // never sets `remote_active`, and `RemoteOnly` shows only
-                            // this row, no "Local:" row above, since no local lane
-                            // runs in that mode).
+                            // Items in flight on the remote, and the latest one started.
+                            // Shown only while remote dispatchers run (`LocalOnly` never sets it).
                             if root.remote_active: Text {
                                 text: "Remote: " + (root.remote_in_flight > 0
                                 ? root.remote_in_flight + " on remote"
@@ -429,10 +380,8 @@ export component PreviewBatchDialog inherits Rectangle {
                                 overflow: elide;
                             }
 
-                            // Overall progress: designs completed so far, out of `N` --
-                            // NOT a current-item cursor (see this component's own doc
-                            // comment): with local and remote both possibly in flight,
-                            // there is no single "current" design left to point at.
+                            // Designs completed out of the total; see the header for why
+                            // there is no current item.
                             VerticalLayout {
                                 spacing: 4px;
                                 HorizontalLayout {
@@ -471,11 +420,8 @@ export component PreviewBatchDialog inherits Rectangle {
                                 }
                             }
 
-                            // How busy the local lane pool is right now (not a within-
-                            // design fraction any more -- see this component's own doc
-                            // comment for why that stopped being meaningful with N local
-                            // lanes). Hidden under `RemoteOnly`, same as the "Local:"
-                            // row above.
+                            // Busy local lanes, not a fraction of one design. Hidden under
+                            // `RemoteOnly`, like the "Local:" row above.
                             if root.local_lane_total > 0: VerticalLayout {
                                 spacing: 4px;
                                 HorizontalLayout {

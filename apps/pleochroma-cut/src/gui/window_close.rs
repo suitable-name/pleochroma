@@ -6,34 +6,25 @@ use crate::{
 use slint::ComponentHandle;
 use std::sync::{Arc, Mutex};
 
-/// `MainWindow.close_confirm_save`/`close_confirm_discard` -- the window-close
-/// unsaved-changes guard's two ways past itself (`close_confirm_open`'s own doc
-/// comment in `app.slint`; Cancel needs no Rust handler at all, see that same
-/// comment). Both finish with the same `render_ctx.running = false` +
-/// `settings_store.flush()` + hide sequence that `on_close_requested` runs
-/// directly when the design is already clean (not dirty).
+/// The Save and Discard callbacks of the window-close unsaved-changes guard
+/// (`MainWindow.close_confirm_save` and `close_confirm_discard`). Cancel needs no Rust
+/// handler (see `close_confirm_open` in `app.slint`). Both finish with the sequence that
+/// `on_close_requested` runs for a clean design: `running = false`, `settings_store.flush()`
+/// and hide.
 ///
-/// "Save" invokes `EditorModel.save_native` and only actually closes once that save
-/// really lands -- via the [`crate::gui::editor::native_io::AfterSave::CloseWindow`]
-/// listener registered below, not a synchronous `is_dirty` check run right after
-/// `invoke_save_native` returns: Save is asynchronous end to end (the
-/// design is resolved and the file written on a spawned thread), so that check used
-/// to read the state from BEFORE the save even started, closing the window out from
-/// under whatever the save was still writing, or leaving it open with no message when
-/// the save had, in fact, already succeeded. A cancelled or failed save (already
-/// toasted by `save_native` itself, and always clearing `after_save` -- see that
-/// enum's own doc comment) simply never fires the listener, leaving the window open.
+/// Save is asynchronous (the design is resolved and written on a spawned thread), so the
+/// window closes only when the save lands: the
+/// [`crate::gui::editor::native_io::AfterSave::CloseWindow`] listener below does it. A
+/// cancelled or failed save clears `after_save` without firing the listener, and the
+/// window stays open.
 pub(super) fn setup_close_confirm_callbacks(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
     settings_store: &Arc<SettingsPersister>,
 ) {
-    // Runs once the save this guard's own "Save" triggered actually completes --
-    // see [`crate::gui::editor::native_io::AfterSave::CloseWindow`]'s own doc
-    // comment. A listener that finds `after_save` holding the OTHER guard's own
-    // `Resume(..)` (or `None`) must leave it untouched -- see
-    // `crate::gui::editor::native_io::on_save_completed`'s own doc comment; only
-    // one listener may ever actually consume a given value.
+    // Runs when the save this guard's "Save" started completes. A value that is not
+    // `CloseWindow` belongs to another listener and is put back untouched (see
+    // `crate::gui::editor::native_io::on_save_completed`).
     let render_ctx_listener = render_ctx.clone();
     let settings_store_listener = settings_store.clone();
     crate::gui::editor::native_io::on_save_completed(move |ui, state| {
@@ -41,9 +32,7 @@ pub(super) fn setup_close_confirm_callbacks(
             let mut st = state.borrow_mut();
             match st.after_save.take() {
                 Some(crate::gui::editor::native_io::AfterSave::CloseWindow) => {}
-                // Not this guard's own save (or none pending) -- put it back
-                // exactly as found; see this function's own doc comment for
-                // why only one listener may ever consume a given value.
+                // Not this guard's save (or none pending): put it back as found.
                 other => {
                     st.after_save = other;
                     return;
@@ -67,8 +56,7 @@ pub(super) fn setup_close_confirm_callbacks(
             return;
         };
         ui.set_close_confirm_open(false);
-        // Marks `after_save` so the listener above runs the actual close once
-        // this save really lands -- see this function's own doc comment.
+        // Marks `after_save` so the listener above closes the window once this save lands.
         crate::gui::editor::native_io::request_save_then_close();
         ui.global::<EditorModel>().invoke_save_native();
     });

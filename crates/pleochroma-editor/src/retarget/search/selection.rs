@@ -1,4 +1,4 @@
-//! Conservative optical claims and a small, deterministic optics/shape frontier.
+//! Picks the candidates the search offers: a small, deterministic optics/shape frontier.
 use super::{CandidateKind, CandidateRole, SearchCandidate};
 use pleochroma_cut_core::meet_preservation::{MeetPreservationBaseline, PreservationPolicy};
 

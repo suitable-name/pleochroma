@@ -1,5 +1,5 @@
-//! Shared device budget. Live tracing and exports compete for the same permits.
-//! A permit is released at a bounded chunk boundary, including while cooling.
+//! Shared device budget for the compute jobs (renders, exports, analysis and solves).
+//! A job holds one permit while it runs; capacity 0 pauses all.
 
 use std::{
     sync::{Condvar, Mutex, PoisonError},

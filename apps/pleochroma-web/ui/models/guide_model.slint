@@ -40,9 +40,8 @@ export struct GuideAllow {
     // Undo / Redo and Ctrl+Z / Ctrl+Y.
     history: bool,
     // Concave tiers: "+ Add Concave Tier", the concave form's Save, and a concave row's
-    // duplicate / move / delete. Derived in `editor::guide::guide_allow` as open only when the
-    // step leaves both the tier form and the tier table open (a step that blocks nothing),
-    // like the desktop's flag of the same name.
+    // duplicate / move / delete. Open only when the step leaves both the tier form and the
+    // tier table open (`pleochroma_web_core::guide_runner::concave_tier_allowed`).
     concave-tier: bool,
 }
 
@@ -98,9 +97,8 @@ export global GuideModel {
     /// (`notify`) and the automatic move to the next step, driven by the timer in
     /// `GuideOverlayLayer` (`components/guide_panel.slint`).
     in-out property <bool> step-done: false;
-    /// `true` after Back, until the user moves forward again: the step is being re-read, so a
-    /// goal that is already met shows "Done" and waits for Next instead of moving on by itself
-    /// after the short "Done" moment (which would make Back bounce straight forward again).
+    /// `true` after Back, until the user moves forward again. A goal that is already met then
+    /// waits for Next instead of advancing on its own, which would bounce Back straight forward.
     in-out property <bool> revisiting: false;
     /// Where the user dragged the FLOATING panel to (`GuideOverlayLayer`), valid once
     /// `float-placed` is `true`; until then the panel sits at its default bottom-right

@@ -1,7 +1,8 @@
-//! The full crystal frame of a biaxial material (`GemMaterial::alpha_axis`): the second
-//! direction changes nothing while it is unset, nothing for a uniaxial material, and
-//! nothing when it states the arbitrary completion itself (turn zero); a turned frame
-//! reads different absorption at a fixed wave normal and renders differently.
+//! Tests the full crystal frame of a biaxial material (`GemMaterial::alpha_axis`).
+//!
+//! The second direction changes nothing when unset, for a uniaxial material, or when it
+//! states the arbitrary completion (turn zero). A turned frame reads different absorption at
+//! a fixed wave normal and renders differently.
 
 use glam::Vec3;
 use pleochroma::{

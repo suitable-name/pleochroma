@@ -1,6 +1,7 @@
-//! Harness operations on the secondary windows (compare, planner, locate, rig, rough color,
-//! help, color pattern) and on key chords sent to the main window: more `impl Ctx` blocks, kept apart from
-//! `ctx.rs` for size.
+//! Harness operations on the secondary windows (compare, planner, locate, rig, rough color, help,
+//! color pattern) and on key chords sent to the main window.
+//!
+//! These are more `impl Ctx` blocks, kept apart from `ctx.rs` for size.
 
 use super::{
     Control, SweepOptions,

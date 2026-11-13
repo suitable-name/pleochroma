@@ -43,8 +43,7 @@ pub fn project_preserved_design_controlled(
     project_traced(original, proposed, options, control, &mut Trace::default())
 }
 
-/// A projection together with what the plain entry points drop (follow-up plan 2026-10-19,
-/// section 4.3).
+/// A projection together with the diagnostics the plain entry points drop.
 #[derive(Debug, Clone)]
 pub struct ProjectionReport {
     /// Exactly what [`project_preserved_design_controlled`] returns for the same inputs.
@@ -131,7 +130,7 @@ fn project_traced(
 }
 
 /// Depth freedom is independent of angle freedom: flat tiers and relation followers
-/// can need coordinated depths, but explicit dimensional targets and unselected rows
+/// can need coordinated depths, but explicit dimensional targets and unselected tiers
 /// remain locked. Vertical girdle depths keep the authored outline fixed.
 pub(super) fn movable_masts(
     design: &Design,
@@ -228,11 +227,10 @@ impl FeasibleSpace {
         })
     }
 
-    /// The turn the request asks for: the caller's (`OptimizeOptions::turn_request`, the
-    /// anchored candidate of a Retarget, which also covers the refit projected after it)
-    /// or, without one, read once from the seed. A policy that follows the turn is
-    /// widened by this and only this, so no probe is judged by an allowance its own
-    /// repair enlarged (`PreservationPolicy::bounds_follow_turn`).
+    /// The turn the request asks for: [`super::options::OptimizeOptions::turn_request`] when
+    /// set, otherwise read from the seed. A policy that follows the turn
+    /// (`PreservationPolicy::bounds_follow_turn`) is widened by this only, so no probe is
+    /// judged by an allowance its own repair enlarged.
     fn requested_turn(&self, proposed: &Design) -> std::borrow::Cow<'_, [f64]> {
         self.turn_request
             .as_deref()

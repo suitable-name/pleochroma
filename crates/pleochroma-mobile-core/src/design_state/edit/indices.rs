@@ -14,8 +14,9 @@ use crate::app_state::AppState;
 
 /// Renames tier `tier`.
 ///
-/// Names must be unique (facet names resolve meet constraints), and a tier that others meet by name cannot be left unnamed; tiers that meet it by name
-/// follow the rename in the same undo step.
+/// Names must be unique, because facet names resolve meet constraints. A tier that others meet
+/// by name cannot be left unnamed. Tiers that meet it by name follow the rename in the same
+/// undo step.
 ///
 /// # Errors
 /// The collision or unnaming message, or the apply error.

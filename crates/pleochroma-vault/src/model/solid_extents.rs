@@ -22,7 +22,7 @@
 //!   it every run.
 //! - A design with no design file at all falls back to the synthetic angle-table
 //!   geometry and is stored with [`SolidExtentsSource::AngleTable`]; those extents are
-//!   fabricated, so the planner excludes them by default.
+//!   fabricated, so the planner skips them.
 //!
 //! All lengths are in model ("mast") units, so only ratios are meaningful until a scale
 //! is chosen.
@@ -33,20 +33,9 @@
 /// `extents_version` differs from this is treated as missing by
 /// `Database::solid_extents_for`, so the scan re-measures it.
 ///
-/// Version 2: the caliper sweep no longer calls the platform `hypot` (edge length is
-/// `sqrt(fma(ez, ez, ex*ex))`), ties between equal widths go to the smaller edge angle, and
-/// the power-of-two scale normalisation uses exponent extraction instead of
-/// `log2`/`powi`. Extents measured under version 1 differ in the last bits.
-///
-/// Version 3: `volume` is the concave-carved volume (the facet stone minus the design's
-/// concave tools); widths, lengths and height are still the flat facet stone's. A cached
-/// version-2 volume is the convex one, so it is re-measured.
-///
-/// Version 4: a design with concave tools is measured from its CARVED stone: `width_*`,
-/// `length_*` and `height` are those of the convex hull of the carved mesh (smaller than the
-/// flat stone's when a tool removes a vertex setting the outline), where version 3 kept the
-/// flat stone's. A design without tools is unchanged. A cached version-3 row of a concave
-/// design holds the flat extents, so it is re-measured.
+/// A design with concave tools is measured from its carved stone: `width_*`, `length_*`
+/// and `height` are those of the convex hull of the carved mesh, and `volume` is the
+/// carved volume. A design without tools is measured from its flat facet stone.
 pub const SOLID_EXTENTS_VERSION: u32 = 4;
 
 /// One finished stone's bounding dimensions and volume, in model units.
@@ -92,7 +81,7 @@ mod tests {
 /// Where a design's cached [`SolidExtents`] geometry came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum SolidExtentsSource {
-    /// Measured from the design file's facet planes (the only trustworthy source).
+    /// Measured from the design file's facet planes.
     DesignFile,
     /// Measured from the synthetic angle-table fallback geometry; fabricated, not
     /// recorded masts.

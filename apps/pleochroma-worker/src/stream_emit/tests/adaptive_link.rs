@@ -1,7 +1,8 @@
-//! Per-connection adaptive compression through the real emitter: one [`PeerLink`] shared
-//! by consecutive requests on a "connection" whose writes are throttled (or not). A slow
-//! peer must push the sender to the slow-link codec from the next frame on; a fast peer
-//! must stay on its tier; a pinned link must not move at all.
+//! Per-connection adaptive compression through the real emitter: one [`PeerLink`] shared by
+//! consecutive requests on a "connection" whose writes are throttled (or not).
+//!
+//! A slow peer must push the sender to the slow-link codec from the next frame on; a fast peer must
+//! stay on its tier; a pinned link must not move at all.
 
 use super::fixtures::tiny_scene;
 use crate::stream_emit::{

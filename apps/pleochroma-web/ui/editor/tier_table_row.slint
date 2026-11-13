@@ -66,12 +66,11 @@ component CellButton inherits Rectangle {
     if root.hint != "" || !root.enabled: Tooltip { text: root.enabled ? @markdown("\{root.hint}") : @markdown("\{GuideModel.locked-hint}"); }
 }
 
-// One row of the tier table, modelled on the desktop's `tier_table_row.slint`: multi-select
-// check / row number, manufacturability badge, block letter (a click flips a 0-degree
-// facet's side), the inline-editable angle, name, indices, what the tier meets, the solved
-// mast, the solve-strategy badge, the critical-angle margin, the orbit badge ("Complete
-// orbit" when amber), Adopt / Pin / Detach / Add Anchor chips and the row's move,
-// duplicate and delete buttons.
+// One row of the tier table: the multi-select check or row number, the warning badge, the
+// code (a click flips a 0-degree facet's side), the inline-editable angle, name, indices,
+// the constraint, the solved mast, the solve strategy, the critical-angle margin, the orbit
+// badge and the Adopt / Pin / Detach / Add Anchor chips with the move, duplicate and
+// delete buttons.
 //
 // Problem tints: ruby for a tier the solver could not place (no anchor yet / blocked /
 // a failed strategy), amber for a tier with a manufacturability warning. Both sit under
@@ -124,8 +123,7 @@ export component TierTableRow inherits Rectangle {
         }
         clicked => {
             root.request-focus-return();
-            // Shift+click range-selects; it is checked before Ctrl+click so Shift+Ctrl
-            // resolves to one clear behaviour.
+            // Shift is checked first, so Shift+Ctrl also range-selects.
             if root.shift-down {
                 TierTableModel.select-range(root.item.index);
             } else if root.ctrl-down {
@@ -181,7 +179,7 @@ export component TierTableRow inherits Rectangle {
         // The tier's code in cutting order (P1, G1, C1, T, Culet; a concave tier's P4, ...),
         // the label the cutting sheet prints; a row with no code shows its block's one
         // letter. At exactly 0 degrees the side cannot be seen from the angle, so a click
-        // flips it (sends "0" or "-0"); never for a concave row.
+        // flips it; never for a concave row.
         Rectangle {
             property <bool> zero-angle: !root.item.is-concave && (root.item.angle-deg == "0.00" || root.item.angle-deg == "-0.00");
             property <string> code-text: root.item.code != "" ? root.item.code

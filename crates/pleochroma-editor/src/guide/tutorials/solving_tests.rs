@@ -61,15 +61,15 @@ const IDS: [&str; 19] = [
     "optimizing-tune-by-hand",
 ];
 
-/// How many of [`IDS`] are listed under Solving; then come the lessons of Improving a Design
-/// (up to `HISTORY_START`), and the rest are listed under History.
+/// How many of [`IDS`] are listed under Solving. The later lessons fall under Improving a Design,
+/// except those from `HISTORY_START` to `TUNING_START`, which fall under History.
 const SOLVING_COUNT: usize = 7;
 
 /// The position in [`IDS`] where the History, variants and comparing lessons start.
 const HISTORY_START: usize = 12;
 
-/// The position in [`IDS`] where the lessons that sit under Improving a Design again start (the
-/// two-tier sweep, trials and tuning, registered after the comparing lessons).
+/// The position in [`IDS`] where the lessons under Improving a Design again start: the two-tier
+/// sweep, trials and tuning, registered after the comparing lessons.
 const TUNING_START: usize = 16;
 
 /// The editor as a learner has it: the session, the UI events reported during the current step,
@@ -356,10 +356,10 @@ fn the_lessons_use_only_plain_characters() {
     }
 }
 
-/// The Stone tab's Material list writes the design's material at once, with no Apply button. So
-/// a step that waits for a material must send the learner to the Stone tab (and say so in the
-/// look-for line), keep the controls that tab is gated by usable, outline and open the tab, and
-/// be met by the pick itself. None of the old Design Settings wording may remain.
+/// The Stone tab's Material list writes the material at once, with no Apply button. So a step
+/// that waits for a material sends the learner to the Stone tab (in its actions and look-for
+/// line), keeps that tab's controls usable, outlines and opens the tab, and is met by the pick
+/// itself. Its text must not mention the Apply Material or Design Settings wording.
 #[test]
 fn a_material_step_sends_the_learner_to_the_stone_tab() {
     let mut checked = 0;

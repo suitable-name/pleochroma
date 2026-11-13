@@ -1,9 +1,8 @@
-//! P08 (guide-copy part) measurement: the per-pass copy of the guide buffers
-//! (`FABLE_perf_verification.md`, item P08).
+//! Cost of the per-pass guide-buffer copies and of the radiance accumulate.
 //!
-//! `PassBudget::commit` (apps/pleochroma-cut/src/bridge/render_thread/interactive.rs:98-104)
-//! adds the pass radiance into the running total and then copies three guide buffers with
-//! `copy_from_slice` on every committed pass:
+//! `PassBudget::commit` in the cut app (`bridge/render_thread/interactive.rs`) adds the pass
+//! radiance into the running total, then copies three guide buffers with `copy_from_slice`
+//! on every committed pass:
 //!
 //! ```text
 //! for (total, contribution) in outputs.accum.iter_mut().zip(&self.radiance) { *total += *contribution; }
@@ -12,11 +11,10 @@
 //! outputs.facet_id.copy_from_slice(&self.facet);   // Vec<i32>   4 B / pixel
 //! ```
 //!
-//! That is 20 B/pixel of guide copy, about 41 MB per pass at 1920x1080. `PassBudget` is private
-//! to the app crate, so this bench reproduces the same pattern on same-typed buffers
-//! (`glam::Vec3` is the type the app uses). The radiance accumulate (12 B/pixel read plus
-//! 12 B/pixel read-modify-write) is timed too, as the yardstick the guide copy is judged
-//! against: both run once per committed pass.
+//! That is 20 B/pixel, about 41 MB per pass at 1920x1080. `PassBudget` is private to the app
+//! crate, so this bench repeats the pattern on same-typed buffers. The radiance accumulate
+//! (12 B/pixel read, 12 B/pixel read-modify-write) is timed as the yardstick for the copy,
+//! since both run once per committed pass.
 //!
 //! Run: `cargo bench -p pleochroma --bench guide_copy`.
 

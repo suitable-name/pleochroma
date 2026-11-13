@@ -1,11 +1,10 @@
 //! The result thumbnails: each layout of a finished plan drawn small, in rank order, on a
 //! thread of its own.
 //!
-//! Unlike the view's mailbox this queue must not drop work: all ten thumbnails are drawn,
-//! one after the other, and each is handed to the UI thread as soon as it is ready. The only
-//! thing that stops a batch is the next batch (or a cancel), noticed between two thumbnails.
-//! A thumbnail that fails to draw is replaced by a neutral placeholder and the batch goes
-//! on with the next one.
+//! Unlike the view's mailbox, this queue must not drop work: every thumbnail of a batch is
+//! drawn and handed to the UI thread as soon as it is ready. Only the next batch or a cancel
+//! stops a batch, checked between two thumbnails. A thumbnail that fails to draw is replaced
+//! by a placeholder and the batch goes on.
 
 use super::{
     design_mesh::MeshLibrary,

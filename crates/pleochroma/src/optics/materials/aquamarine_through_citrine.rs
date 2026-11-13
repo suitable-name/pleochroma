@@ -8,45 +8,24 @@ use crate::optics::{
 use glam::Vec3;
 
 impl GemMaterial {
-    /// First of four new-species quarters: Aquamarine, Morganite (both beryl, sharing
-    /// Emerald's host-mineral optics), Chrysoberyl (Yellow) (sharing Alexandrite's
-    /// host-mineral indicatrix), Amethyst and Citrine (both quartz, sharing the
-    /// colorless Quartz entry's exact Ghosh 1999 o/e Sellmeier pair above).
+    /// Aquamarine, Morganite and Chrysoberyl (Yellow): beryl and chrysoberyl entries, sharing
+    /// the host-mineral optics of Emerald and Alexandrite.
     ///
-    /// # Dispersion-figure convention note (applies to every entry in this file)
+    /// # Dispersion convention
     ///
-    /// The stored convention is the Fraunhofer F-C interval (486.1-656.3 nm). Every
-    /// gemological "dispersion" target below is the standard Fraunhofer B-G
-    /// table value (e.g. Andradite/demantoid's famous "0.057," higher than diamond's
-    /// own 0.044) and is converted B-G -> F-C by multiplying with the physically-derived
-    /// 0.579 ratio (range 0.569-0.587) the Emerald/Zircon/Topaz/Tourmaline/Tanzanite
-    /// entries above use, rather than taken at face value as F-C. The exception is entries with a genuine named
-    /// primary dispersion source (Chrysoberyl/Aquamarine/Morganite, which reuse an
-    /// already-F-C-fitted host-mineral curve directly; YAG, whose real Zelmon 1998
-    /// Sellmeier is used as-is per this file's primary-source-wins rule; and the two
-    /// optical glasses, whose Schott catalogue Abbe numbers are already true F-C).
+    /// The stored convention is the Fraunhofer F-C interval (486.1-656.3 nm). Gemological
+    /// "dispersion" figures are B-G and are converted to F-C with the 0.579 ratio (range
+    /// 0.569-0.587). Entries with a named primary dispersion source use that curve directly.
     ///
-    /// # Not in this list: Sphene
-    ///
-    /// Sphene (titanite) needs a `birefringence_delta` of about 0.12, beyond what this
-    /// file's biaxial/uniaxial machinery had been verified against (Zircon's +0.059), so it
-    /// was left out until it had measured indices and a check at that magnitude: it is
-    /// [`Self::built_in_material_titanite`] since 2026-11-03.
-    ///
-    /// Rutile needs the full anisotropic (uniaxial, extremely high birefringence
-    /// +0.2957) Fresnel treatment, compounded by rutile's very strong dispersion, so
-    /// it gets its own dedicated entry -- see [`Self::built_in_material_rutile`].
+    /// Sphene and rutile are not in this function: they have their own entries
+    /// ([`Self::built_in_material_titanite`], [`Self::built_in_material_rutile`]), because their
+    /// birefringence is beyond what the biaxial and uniaxial machinery was checked against.
     #[expect(clippy::too_many_lines, reason = "a data table of built-in materials")]
     pub(super) fn built_in_materials_aquamarine_through_citrine() -> Vec<Self> {
         vec![
-            // Aquamarine (Beryl, Be3Al2(SiO3)6:Fe2+) -- same host mineral as Emerald
-            // above, so it reuses Emerald's exact Cauchy dispersion shape (the `b`
-            // coefficient, i.e. the same Delta n(F-C) curvature) with only the leading
-            // constant `a` retargeted to this variety's own n_d -- beryl's dispersion
-            // is a host-lattice property essentially independent of which trace ion
-            // tints it. a = 1.577 - 0.004273/0.5893^2 = 1.564698. Verified: n_d =
-            // 1.577000 (exact by construction), Delta n(F-C) = 0.00816 (identical to
-            // Emerald's), Abbe V_d = 70.71.
+            // Aquamarine (Beryl, Be3Al2(SiO3)6:Fe2+). Beryl's dispersion is set by the host
+            // lattice, so it keeps Emerald's Cauchy `b` and retargets only the constant `a`:
+            // a = 1.577 - 0.004273/0.5893^2 = 1.564698 gives n_d 1.577.
             Self {
                 name: "Aquamarine".to_string(),
                 crystal_system: CrystalSystem::Hexagonal,
@@ -60,32 +39,18 @@ impl GemMaterial {
                 // Chromophore: Fe2+-Fe3+ intervalence band at ~600-680 nm polarised
                 // along c (e-ray, the blue), Fe2+ at ~830 nm (strong in the o-ray,
                 // where only its 650-780 nm tail is visible), weak Fe3+ at 428 nm and
-                // a near-UV edge in both rays. FITTED 2026-10-19 by bounded
-                // least-squares energy-Gaussian fits (log residual, 380-780 nm; the
-                // NIR band centres sit on their bounds, only their tails matter) to
-                // the two polarised Caltech Mineral Spectroscopy Server spectra of
-                // aquamarine GRR 1488 (Lajes Pintada, Brazil; 5.531 mm; per-ray
-                // baselines 0.683 / 0.866 removed), `data/reference_spectra/
-                // caltech_aquamarine_grr1488_{eperpc,eparc}_5p531mm.csv`, at the
-                // crystal's own iron content over the 8.8 mm face-up path of a 7 mm
-                // stone. Swatch (7 mm, D65, (2o + e)/3): L*85 C*16 h=247 (o-ray
-                // L*97 C*13: near-colorless; e-ray L*44 C*88 h 287: deep
-                // violet-blue); p = 2: h 227. The face-up wave normal is the view
-                // axis and `c_axis` is `Vec3::X` (c in the table plane, as for
-                // Tourmaline, the way aquamarine is cut), so the face-up view mixes
-                // the o- and e-ray and reads blue; with c along the view axis it
-                // would see the near-colorless o-ray only.
+                // a near-UV edge in both rays. Energy-Gaussian fits (the NIR band centres sit
+                // on their bounds, only their tails matter) to the two polarised Caltech
+                // spectra of aquamarine GRR 1488 (5.531 mm), `data/reference_spectra/
+                // caltech_aquamarine_grr1488_{eperpc,eparc}_5p531mm.csv`, at the crystal's
+                // own iron content over the 8.8 mm face-up path of a 7 mm
+                // stone. The face-up view mixes the o- and e-ray and reads blue: `c_axis` is
+                // in the table plane, so the blue e-ray shows face up.
+                // Mix: 0.6 x GRR 1488 plus 0.4 x the Greenish variant (estimated Fe3+), which
+                // matches the dealer photos' median hue (241). Strength: `.scaled(0.3)` for the
+                // colored-pixel saturation of the dealer photos (s_uv 0.30).
+                // Swatch L*92 C*10 h 233.
                 // Calibration record: docs/chromophores/calibration-records.md#aquamarine
-                // 2026-11-03 (owner: "match the pictures of actual gemstones"): REPLACED GRR 1488
-                // alone by 0.6 x it plus 0.4 x the Greenish variant (its estimated Fe3+), refitted.
-                // Twenty dealer photos (GemSelect) have a median hue of 241 (colored pixels); GRR
-                // 1488 alone rendered h 252, this mix h 240 (Light Tent). Swatch L*84 C*15 h 235
-                // (it was L*85 C*16 h 247); o-ray L*94 C*12.
-                // 2026-11-04 (owner: "The render seems to err toward saturated"): x 0.3 of that mix.
-                // Colored-pixel saturation (CIELUV s_uv of the mean colored pixel, which exposure
-                // and the photo set-up's dark reflections leave unchanged): the faceted dealer
-                // photos 0.30, the Commons photos 0.15 and 0.31, the x 1 render 0.57; x 0.25 renders
-                // 0.30 at h 233. Swatch L*92 C*10 h 233; o-ray L*98 C*4, e-ray L*78 C*35 h 245.
                 // Calibration record: docs/chromophores/calibration-records.md#saturation-round-2026-11-04
                 absorption: AbsorptionTensor::uniaxial(
                     vec![
@@ -110,13 +75,9 @@ impl GemMaterial {
                     ],
                 )
                 .scaled(0.3),
-                // c_axis set INTO the table plane (Vec3::X) rather than the Vec3::Y
-                // every other built-in defaults to, exactly as Tourmaline does -- a
-                // deliberate override, not an oversight. Aquamarine's color sits in
-                // the e-ray (E parallel to c): with c_axis=Y the face-up wave normal
-                // is parallel to c, where both eigenmodes are the o-ray (L*97, almost
-                // colorless), backwards from how aquamarine is cut and worn (c in the
-                // table plane, so the blue ray shows face-up). See the test
+                // c in the table plane (Vec3::X), not the Vec3::Y default, as for Tourmaline.
+                // With c along the view axis both rays are the near-colorless o-ray, so the
+                // blue e-ray would never show. Test:
                 // `aquamarine_face_up_sees_the_blue_ray_with_c_axis_in_table_plane`
                 // in `tests/raytracer_tests/pleochroic_orientation.rs`.
                 c_axis: Vec3::X,
@@ -146,39 +107,18 @@ impl GemMaterial {
                 },
                 birefringence_delta: -0.0060,
                 // Chromophore: Mn3+ on the Al site of beryl, a single broad band in the
-                // green (the standard attribution for morganite's pink; GIA G&G Fall
-                // 2024 puts it near 567nm, the Caltech GRR 2536b page text at ~560nm),
-                // leaving red and violet transmitted. Pleochroism weak: "light red to
-                // light violet" (the beryl reference).
+                // green (GIA G&G Fall 2024 places it near 567 nm), leaving red and violet
+                // transmitted. Pleochroism is weak: light red to light violet.
                 //
-                // PER-AXIS since 2026-10-27 (owner decision: a built-in on an anisotropic
-                // host never carries an isotropic tensor; the old one-band 540nm
-                // wavelength Gaussian, sigma 45nm, peak 1.0, was a tuned stand-in).
-                // No digital morganite spectrum exists (GRR 508 and 2536b are figures,
-                // and none was digitised), so the SHAPE is borrowed from the same ion on
-                // the same site in the same host: the Caltech GRR 602 red beryl (Wah Wah
-                // Mts., Utah, 1.559 mm; per-ray constants removed), the free energy-Gaussian
-                // fit of both rays that the `emerald.red_beryl` variant carries (o: UV edge
-                // 313nm, 440, 496 and 555nm bands; e: UV edge 320nm, 440 and 544nm bands).
-                // Strength: ONE factor 0.202 x the red beryl's per-mm absorption over every
-                // band, the edge included (per mm x 0.202 x 9.905 mm, the face-up path of a
-                // 7 mm stone). A first version kept one band per ray and could not hold the
-                // 440 / 496 / 555nm structure of the donor: it came out violet (h 311)
-                // where the donor at the same strength is pink. Swatch (7 mm, D65): with c
-                // along the view the stone shows the o-ray, L*81 C*33 h 347 (a light
-                // pink); unpolarised L*79 C*32 h 342; e-ray L*75 C*31 h 332, the documented
-                // "light red to light violet" pleochroism (o pinker than e).
+                // Per-axis tensor. No digitised morganite spectrum exists, so the shape is
+                // borrowed from the same ion on the same site: the Caltech red beryl GRR 602
+                // (Utah) fit that the `emerald.red_beryl` variant carries, scaled by 0.202
+                // over the 9.905 mm face-up path. It is folded with the Peach variant's Fe3+
+                // (GRR 309) at 0.35 / 0.65: the pink set alone rendered h 348, where the dealer
+                // photos' salmon pink has hue 24. Strength: `.scaled(0.6)` for the
+                // colored-pixel saturation of the dealer photos (s_uv 0.28).
+                // Swatch L*89 C*12 h 18.
                 // Calibration record: docs/chromophores/calibration-records.md#morganite
-                // 2026-11-03 (owner: "match the pictures of actual gemstones"): REPLACED the pink
-                // set alone by 0.35 x it plus 0.65 x the Peach variant (the same red beryl bands
-                // plus measured Fe3+, GRR 309); bands that both carry are folded together. Sixteen
-                // dealer photos of pink morganite (GemSelect) have a median hue of 24 (colored
-                // pixels), a salmon pink; the pink set rendered h 348, this mix h 20 (Light Tent).
-                // Swatch L*83 C*20 h 15 (it was L*79 C*32 h 342); o-ray h 2, e-ray h 54.
-                // 2026-11-04 (owner: "The render seems to err toward saturated"): x 0.6 of that mix.
-                // Colored-pixel saturation s_uv: the faceted dealer photos 0.28, the x 1 render 0.45
-                // (x 0.25: 0.26 at h 31); the factor takes half the gap in log terms, since a dealer's
-                // commercial morganite is paler than a typical one. Swatch L*89 C*12 h 18.
                 // Calibration record: docs/chromophores/calibration-records.md#saturation-round-2026-11-04
                 absorption: AbsorptionTensor::uniaxial(
                     vec![
@@ -214,10 +154,9 @@ impl GemMaterial {
                 uniaxial_extraordinary_dispersion: None,
                 biaxial_principal_dispersion: None,
             },
-            // Chrysoberyl (Yellow, BeAl2O4:Fe3+) -- same host mineral as Alexandrite
-            // above (a Cr3+-free, Fe3+-bearing chrysoberyl), sharing its indicatrix.
-            // Reuses Alexandrite's exact Sellmeier3 dispersion shape (both
-            // non-constant poles unchanged) with only the leading constant pole
+            // Chrysoberyl (Yellow, BeAl2O4:Fe3+), sharing Alexandrite's indicatrix.
+            // Reuses Alexandrite's Sellmeier3 shape (both non-constant poles unchanged) with
+            // only the leading constant pole
             // (`b[0]`, a c=0 pole contributing a wavelength-independent additive
             // constant to n^2-1) retargeted from Alexandrite's 0.78522 to 0.796473 so
             // n_d hits this variety's own 1.746 target. A constant added to n^2 scales
@@ -233,56 +172,29 @@ impl GemMaterial {
                     b: [0.796_473, 1.212_02, 16.81],
                     c: [0.0, 0.012_62, 1000.0],
                 },
-                // n_gamma - n_alpha at the D line of the two principal curves below
-                // (owner decision 2026-10-22: the published Walling spreads win over the
-                // earlier gem figure 0.0090).
+                // n_gamma - n_alpha at the D line of the principal curves below (the published
+                // Walling spreads, not the gem figure 0.0090).
                 birefringence_delta: 0.007_567,
-                // Chromophore: Fe3+ substitution (rather than Alexandrite's Cr3+), on the
-                // Al mirror site: sharp spin-forbidden bands at 440, 385, 378, 368 and
-                // 355nm plus very broad weak ones near 500 and 615nm (Farrell & Newnham,
-                // Am. Mineral. 50, 1972 (1965)), leaving yellow-red transmitted -- the
-                // standard attribution for ordinary (non-color-change) yellow/green
-                // chrysoberyl.
+                // Chromophore: Fe3+ on the Al mirror site: sharp spin-forbidden bands at 440,
+                // 385, 378, 368 and 355 nm plus very broad weak ones near 500 and 615 nm
+                // (Farrell & Newnham, Am. Mineral. 50, 1972), leaving yellow-red transmitted.
                 //
-                // PER-AXIS since 2026-10-27 (owner decision: a built-in on an anisotropic
-                // host never carries an isotropic tensor; the old one-band 440nm
-                // wavelength Gaussian, sigma 35nm, peak 1.4, was a tuned stand-in).
-                // AXIS MAPPING as for Alexandrite above: alpha = crystal c (`o_ray`),
-                // beta = crystal a (`beta_ray`), gamma = crystal b (`e_ray`, along
-                // `c_axis`). Beta (E par a) and gamma (E par b) are the measured
-                // room-temperature Caltech spectra of GRR 171 (greenish-yellow, Minas
-                // Gerais, 1.193 mm; baselines A 0.255 / 0.16 removed): five energy
-                // Gaussians each (a UV edge near 340nm, 369-378nm, the 436-441nm band,
-                // a broad one at 490nm), non-linear least squares over 330-800nm, rms
-                // 0.018 / 0.034 per mm; the gamma 441nm band is ~3.5 x the beta one,
-                // which contradicts F&N's "little or no pleochroism" at 77 K, so the
-                // pleochroism is kept but is unconfirmed. The slot assignment follows the
-                // Pnma cell the CSV headers give (a 9.40, b 5.48, c 4.43 A; Caltech
-                // "E||a = beta", "E||b = gamma", and the GRR 874 beta ray vibrates along
-                // the 9.40 A axis): beta is the a axis and gamma the b axis, as in the
-                // Walling sort of Alexandrite above. Alpha (E par c) was never measured
-                // (no file on the server): ESTIMATED as the mean of the beta and gamma
-                // spectra, refitted with the same five bands (rms 0.026).
-                // Strength (owner decision 2026-10-27, a golden yellow): ONE factor 0.7 x
-                // GRR 171's per-mm absorption over every band (per mm x 0.7 x 9.905 mm, the
-                // face-up path of a 7 mm stone); the earlier 0.25 x was a pale greenish
-                // yellow that duplicated the `greenish_yellow` variant. Swatch (7 mm, D65):
-                // with gamma along the view the stone shows alpha and beta, L*74 C*48 h 88;
-                // unpolarised mean L*72 C*53 h 83 (alpha L*72 C*56, beta L*76 C*42, gamma
-                // L*69 C*67), against the old tuned L*97 C*56 h 103.
+                // Per-axis tensor. Axis mapping as for Alexandrite: alpha = crystal c
+                // (`o_ray`), beta = crystal a (`beta_ray`), gamma = crystal b (`e_ray`, along
+                // `c_axis`). Beta and gamma come from the Caltech spectra of GRR 171 (Minas
+                // Gerais, 1.193 mm). The gamma 441 nm band is
+                // about 3.5 x the beta one, which contradicts the literature's "little or no
+                // pleochroism", so the pleochroism is kept but unconfirmed. Alpha was never
+                // measured and is estimated as the mean of the beta and gamma spectra.
+                // The tensor is 0.5 x the Greenish Yellow variant (GRR 171 beta and gamma,
+                // estimated alpha) plus 0.15 x the Alexandrite Cr3+ (GRR 874; a greenish-yellow
+                // chrysoberyl carries traces of Cr and V), refitted to energy Gaussians (eight
+                // for alpha and beta, seven for gamma). The mix matches the dealer photos' median
+                // hue (109) at L* 64; more Cr greens it further but greys it, since Cr3+ absorbs at
+                // 580 nm, the brightest part of the yellow. The gamma ray turns green (swatch h
+                // 149), a trace of the alexandrite change. Swatch L*82 C*26 h 118. A golden yellow
+                // is the Golden variant.
                 // Calibration record: docs/chromophores/calibration-records.md#chrysoberyl-yellow
-                // 2026-11-03 (owner: "match the pictures of actual gemstones"; this supersedes the
-                // 2026-10-27 golden yellow): 0.5 x the former Greenish Yellow variant's tensor (GRR
-                // 171 beta and gamma, estimated alpha) plus 0.15 x the Alexandrite built-in's Cr3+
-                // (GRR 874; a greenish-yellow chrysoberyl carries traces of Cr and V), refitted to
-                // eight energy Gaussians a ray (dE2000 below 0.1). Twenty-three dealer photos
-                // (GemSelect) have a median hue of 109 (colored pixels) and L* 64; the golden 0.7 x
-                // GRR 171 rendered h 76, the Greenish Yellow tensor alone h 93, a pale cream (a
-                // lower strength only paled it), this mix h 111 at L*64 (Light Tent). More Cr
-                // greens it further but greys it (0.6 x + 0.25 x: h 113 at L*57, a khaki): Cr3+
-                // absorbs at 580 nm, the brightest part of the yellow. The gamma ray turns green
-                // (swatch h 149), a trace of the alexandrite change. Swatch L*82 C*26 h 118. The
-                // former golden default is the Golden variant.
                 absorption: AbsorptionTensor::biaxial(
                     vec![
                         // alpha
@@ -331,13 +243,10 @@ impl GemMaterial {
                 zoning: None,
                 inclusions: None,
                 uniaxial_extraordinary_dispersion: None,
-                // F4: Alexandrite's n_alpha and n_gamma Walling 1980 curves (see that
-                // entry), each with the same +0.011253 shift of n^2-1 that retargets
-                // `dispersion` above (b[0] 0.78522 -> 0.796473). A constant added to n^2
-                // scales every index difference by n_old/n_new (0.9997 here), so the
-                // spreads are preserved to about 1e-5, not exactly: 0.007581
-                // (Alexandrite) becomes 0.007567 (n_gamma - n_alpha at D). The three
-                // curves never cross between 380 and 780 nm.
+                // Alexandrite's n_alpha and n_gamma Walling 1980 curves, each with the same
+                // +0.011253 shift of n^2-1 that retargets `dispersion` above. The shift scales
+                // every index difference by about 0.9997, so the spreads stay within 1e-5 of
+                // Alexandrite's. The three curves never cross between 380 and 780 nm.
                 biaxial_principal_dispersion: Some([
                     DispersionModel::Sellmeier3 {
                         b: [0.718_153, 1.28477, 17.6],

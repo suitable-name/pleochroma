@@ -243,11 +243,11 @@ pub const TUTORIALS_NAME: &str = "tutorials";
 pub const TUTORIALS_VERSION: u32 = 1;
 /// The `<name>` of the running lesson's place (`editor::guide`).
 pub const GUIDE_PLACE_NAME: &str = "guide";
-/// The format version of the running lesson's place. Version 1 was the ten-step walkthrough's
-/// place ([`crate::guide::GuideProgress`]); [`GuidePlace::from_legacy`] reads it once.
+/// The format version of the running lesson's place. Version 1 entries are converted by
+/// [`GuidePlace::from_legacy`].
 pub const GUIDE_PLACE_VERSION: u32 = 2;
-/// The most finished lessons one browser remembers. The built-in learning path has fewer than
-/// a hundred; the rest of the room is for the lessons built from library designs.
+/// The most finished lessons one browser remembers. Far above the built-in lesson count; the
+/// rest is room for lessons built from library designs.
 pub const MAX_TUTORIAL_MARKS: usize = 512;
 
 /// `pleochroma.tutorials.v1`: the lessons the reader has finished.
@@ -341,7 +341,7 @@ pub struct GuidePlace {
     pub guide: String,
     /// The panel is showing (and its locks are in force).
     pub open: bool,
-    /// The current step, 0-based into the lesson's web view.
+    /// The current step, 0-based index into the lesson's steps.
     pub step: usize,
     /// The panel is collapsed to its "Guide - Step N of M" pill.
     pub collapsed: bool,
@@ -388,7 +388,7 @@ impl GuidePlace {
         serde_json::to_string(self).map_err(|e| e.to_string())
     }
 
-    /// The place version 1 stored (the ten-step walkthrough), as a place in that lesson.
+    /// Converts a version 1 place (the old ten-step walkthrough) into a place in that lesson.
     #[must_use]
     pub fn from_legacy(legacy: &crate::guide::GuideProgress) -> Self {
         Self {
@@ -547,7 +547,7 @@ mod tests {
             primary: UNREADABLE_TEXT_KEY.to_owned(),
             legacy: None,
         };
-        assert!(unreadable.into_stems().is_empty());
+        assert_eq!(unreadable.into_stems(), [] as [String; 0]);
     }
 
     #[test]

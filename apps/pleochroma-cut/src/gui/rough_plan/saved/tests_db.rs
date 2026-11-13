@@ -1,6 +1,5 @@
-//! Tests of the stored plans against an in-memory library: the whole path from a planned
-//! layout to the table and back, renaming, export and import, the saved list, and
-//! opening a plan made in another library.
+//! Tests of the stored plans against an in-memory library: save, list, load, rename, export,
+//! import, and opening a plan made in another library.
 
 use super::{
     convert::CandidateSource,
@@ -64,9 +63,8 @@ pub(super) fn bits(layout: &RoughLayout) -> Vec<u64> {
     out
 }
 
-/// A real plan run: a 10 mm cube with one corner edge cut away (the shaped planner's
-/// path), two candidate designs, three results wanted, no stone cap. Returns what the run
-/// used and the layouts it found.
+/// A real plan run: a 10 mm cube with one corner edge cut away, two candidate designs, three
+/// results wanted, no stone cap. Returns the model, settings, candidates and layouts found.
 fn planned_rough() -> (
     RoughModel,
     PlanSettings,

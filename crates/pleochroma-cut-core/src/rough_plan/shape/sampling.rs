@@ -126,7 +126,7 @@ fn rederive_point(j: usize, table: &[(f64, f64)], steps: usize) -> (f64, f64) {
 /// Directions are normalized integer triples `(i, j, k)` satisfying `|i| + |j| + |k| = level`,
 /// returned in ascending lexicographical order (`i`, then `j`, then `k`).
 ///
-/// Level 3 produces 38 directions; level 4 produces 66; level 6 produces 146; level 8 produces 258.
+/// Level 3 produces 38 directions, level 4 66, level 6 146 and level 8 258.
 /// The octahedral lattice is far denser near the octahedron's vertices than near its face
 /// centres; [`pebble_directions`] gives the more even set a polytope approximating a ball
 /// wants.

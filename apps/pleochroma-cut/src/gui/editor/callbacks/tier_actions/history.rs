@@ -76,9 +76,9 @@ fn selected_row_after(selected: i32, moved: &HistoryMove) -> i32 {
 }
 
 /// Makes the selected row follow its tier through `moved`, the way
-/// `misc::adjust_selection_after_remove` does for a removal: a moved row is rewritten (which raises `changed` and re-seeds the form from
-/// the right tier), and a selection whose tier is gone is cleared with the form reset
-/// pulse, since clearing an already-cleared selection raises nothing.
+/// `misc::adjust_selection_after_remove` does for a removal. A moved row is rewritten, which
+/// raises `changed` and re-seeds the form from the right tier. A selection whose tier is gone is
+/// cleared with the form reset pulse, since clearing a cleared selection raises nothing.
 fn follow_selection(ui: &MainWindow, moved: &HistoryMove) {
     let model = ui.global::<EditorModel>();
     let selected = model.get_selected_tier_index();
@@ -188,10 +188,8 @@ pub(in crate::gui::editor) fn setup_undo_callback(
                 );
             }
             Ok(None) => {}
-            // The recorded inverse edit failed to replay -- the design/history stack
-            // are left as `EditorState::undo` found them (the failed edit stays on the
-            // undo stack, see `History::undo`'s doc comment), so this is safe to just
-            // report rather than panic.
+            // A failed replay is reported, not panicked on: `EditorState::undo` leaves the
+            // design and history as it found them.
             Err(e) => show_toast(&ui, &format!("Undo failed: {e}"), "error"),
         }
     });
@@ -218,9 +216,8 @@ pub(in crate::gui::editor) fn setup_redo_callback(
         let mut st = state.borrow_mut();
         match st.redo_mapped() {
             Ok(Some((change, renumbering))) => {
-                // Same "blast radius unknown, trust nothing cached" reasoning as
-                // `setup_undo_callback`'s matching arm, and the same selected-row
-                // renumbering.
+                // As in `setup_undo_callback`: the blast radius is unknown, and the row follows
+                // its tier.
                 refresh_after_renumbering_move(
                     &ui,
                     &render_ctx,
@@ -231,8 +228,7 @@ pub(in crate::gui::editor) fn setup_redo_callback(
                 );
             }
             Ok(None) => {}
-            // See `setup_undo_callback`'s matching arm -- same recovery guarantee,
-            // symmetrically for the redo stack.
+            // Same recovery as in `setup_undo_callback`.
             Err(e) => show_toast(&ui, &format!("Redo failed: {e}"), "error"),
         }
     });
@@ -274,8 +270,8 @@ mod tests {
         &state.design.tiers[usize::try_from(row).expect("a row")].name
     }
 
-    /// The reviewer's failure: P3 selected, a tier added above it, then Undo. Clamping alone
-    /// left the row at 4, which is P4 once the undo has removed the added tier.
+    /// P3 selected, a tier added above it, then Undo. Clamping alone would leave the row at 4,
+    /// which names P4 once the undo has removed the added tier.
     #[test]
     fn undo_moves_the_selected_row_with_its_tier_and_agrees_with_the_session() {
         let mut state = state_with_five_tiers();
@@ -417,9 +413,8 @@ mod tests {
         assert_eq!(selected_row_after(-1, &moved), -1);
     }
 
-    /// The verdict's fix applies its edit through the session: a fix that removes a tier
-    /// must move the selected row with its tier, where clamping alone left the row on the
-    /// tier next to it.
+    /// A fix that removes a tier applies its edit through the session and must move the
+    /// selected row with its tier. Clamping alone would leave the row on the neighbour.
     #[test]
     fn a_fix_that_removes_a_tier_moves_the_selected_row_with_its_tier() {
         let mut state = state_with_five_tiers();

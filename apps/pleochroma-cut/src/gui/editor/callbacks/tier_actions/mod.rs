@@ -1,16 +1,20 @@
-//! The Solve/New/Load-Selected/Undo/Redo/tier/preform/yield-input edit callbacks --
-//! one `setup_*` function per Slint callback. See this group's `mod.rs` doc comment
-//! for the "`History` is the only thing that mutates `Design`" rule every callback
-//! here upholds via `EditorState::apply`.
+//! The Solve/New/Load-Selected/Undo/Redo/tier/preform/yield-input edit callbacks -- one `setup_*`
+//! function per Slint callback.
+//!
+//! Every edit to the open design goes through `EditorState::apply`, so `History` is the only thing
+//! that mutates it.
 //!
 //! Split into one file per user-facing concern: design lifecycle
 //! ([`lifecycle`]/[`new_design`]/[`material_suggestion`]), undo/redo ([`history`]), design-wide
 //! forms ([`design_forms`]), the Save Tier form ([`tier_form`]), angle nudging
 //! ([`nudge`]), tier CRUD ([`tier_crud`]), generated tier series
 //! ([`tier_generation`]), multi-select ([`selection`]), Adopt/Pin ([`adopt`]),
-//! concave tiers ([`concave_tier`]), per-facet index editing ([`facet_editing`]), material/symmetry settings
+//! concave tiers ([`concave_tier`]), per-facet index editing ([`facet_editing`]),
+//! material/symmetry settings
 //! ([`materials_symmetry`]), gear remap ([`gear_remap`]), viewport material linking
-//! ([`viewport_material`]), solid-view facet picking ([`solid_picking`]), and small
+//! ([`viewport_material`]), solid-view facet picking ([`solid_picking`]), frosting
+//! ([`frosting`]), surface finish ([`surface`]), the Rough Planner's stones
+//! ([`planned_stone`]), and small
 //! shared helpers ([`misc`]) -- plus the shared facet-overlay state
 //! ([`facet_overlay`]) every selection/picking path resubmits through.
 
@@ -41,12 +45,8 @@ mod tier_form;
 mod tier_generation;
 mod viewport_material;
 
-// The remaining `pub(super)` items in this group's own files (e.g. every
-// `setup_*_callback` piggybacked from `tier_crud::setup_toggle_detach_callback`
-// or `selection::setup_toggle_multi_select_callback`) are reached directly via
-// `super::<module>::<item>` from their one call site and never need to be named
-// here -- only the callbacks `callbacks::mod`'s own hub imports are re-exported
-// below.
+// Items that only these files share are reached as `super::<module>::<item>` and need no
+// re-export. Only the callbacks that `callbacks::mod`'s hub imports are re-exported below.
 pub(in crate::gui::editor) use design_forms::{
     setup_apply_cheater_offset_callback, setup_apply_design_meta_callback,
     setup_apply_preform_callback, setup_apply_preform_y_offset_callback,
@@ -97,17 +97,10 @@ pub(in crate::gui::editor) use viewport_material::{
     setup_printed_proportions_callback, setup_stone_tab_callbacks,
 };
 
-/// A cylindrical preform's side count, fixed and independent of the design's
-/// index gear. The preform is a piece of rough, not a machine setting. Switching
-/// gear after Apply Preform leaves the original rough's side count behind if it
-/// derived from the old gear; a preform applied under one gear stays shaped by it
-/// if switched. 96 is high enough that the rough reads as smooth in the viewport
-/// at every zoom level -- the same figure
-/// `pleochroma_cut_core::PreformSpec::cylinder_for_schedule`'s own doc uses for
-/// the "reconstructed once from an already-authored schedule" case in
-/// `loading::default_preform_for_schedule`, which this constant deliberately does
-/// not touch.
+/// The side count of a cylindrical preform. It is fixed, not tied to the index gear: the preform
+/// is a piece of rough, so a count derived from the gear would be left behind by a gear change.
+/// 96 keeps the rough smooth-looking at every zoom level. `loading::default_preform_for_schedule`
+/// does not use this constant.
 ///
-/// `pub(in crate::gui::editor)` (and re-exported by `callbacks` for tests) so the guide's
-/// launch test builds the New Design form's design with THIS figure, not a copy of it.
+/// `pub(in crate::gui::editor)`, so the New Design form and the design forms share one value.
 pub(in crate::gui::editor) const FIXED_CYLINDER_PREFORM_SIDES: usize = 96;

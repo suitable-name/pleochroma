@@ -57,6 +57,8 @@ pub(super) fn push_panel(ui: &AppWindow, app: &WebApp) {
     model.set_edge_rounding(settings.edge_rounding_radius);
     model.set_stone_width_mm(settings.stone_width_mm);
     model.set_use_hdr(settings.use_hdr);
+    model.set_hdr_yaw_deg(settings.hdr_yaw_deg);
+    model.set_hdr_follows_camera(settings.hdr_follows_camera);
     model.set_gpu_enabled(settings.gpu_enabled);
 }
 
@@ -99,9 +101,12 @@ fn read_panel(ui: &AppWindow, settings: &RenderSettings) -> RenderSettings {
         edge_rounding_radius: model.get_edge_rounding(),
         stone_width_mm: model.get_stone_width_mm(),
         use_hdr: model.get_use_hdr(),
+        hdr_yaw_deg: model.get_hdr_yaw_deg(),
         gpu_enabled: model.get_gpu_enabled(),
         ..settings.clone()
     }
+    // The switch last: turning it on or off keeps the picture (it re-bases the map's yaw).
+    .with_hdr_follow(model.get_hdr_follows_camera())
     .sanitized()
 }
 

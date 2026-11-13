@@ -4,8 +4,11 @@
 //!   more than one topic below.
 //! - [`migrations`]: column-retype/add migrations against `diagram_entries`/
 //!   `diagram_details` (numeric retype, `source_id`, designer/attachment columns).
+//! - [`migrations_blob_order`]: the blob-columns-last rebuilds of `diagram_details`,
+//!   `diagram_previews` and `diagram_tilt_curves`.
 //! - [`schema_migrations`]: table/index/vocabulary-level migrations (shape vocabulary,
-//!   `ignored` plus its side tables, tilt-curve aggregate pruning, `sql_identifier`).
+//!   `ignored` plus its side tables, tilt-curve aggregate pruning, the solid-extent,
+//!   solid-hull, rough-plan and planner-exclusion tables, `sql_identifier`).
 //! - [`materials`]: `custom_gem_materials` column migrations and the
 //!   `save_custom_material` round trip.
 //! - [`materials_inclusions`]: the same for the default crystal-axis columns, the per-axis
@@ -30,6 +33,10 @@
 //!   `diagram_edge_abrasion`) -- round trip, replacing, cascade, migration and backfill.
 //! - [`provenance_migration`]: the `diagram_previews` material size and source columns,
 //!   and the one-off marking of design-file designs' cached results as outdated.
+//! - [`pattern_store`]: the color pattern side tables (material pattern, zoning, presets).
+//! - [`color_variant_store`]: the color variant table.
+//! - [`stone_choice_store`]: the stone choice table (`stone_pose_choice`).
+//! - [`zoning_store`]: the rough-colour and material-zoning side tables.
 
 mod color_variant_store;
 mod connection;

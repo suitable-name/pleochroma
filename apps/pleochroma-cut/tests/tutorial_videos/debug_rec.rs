@@ -3,9 +3,9 @@
 //! `DebugRec` has two modes. `Recording` is uiprobe's `Recorder`, called exactly as before (a
 //! normal run). `Plain` is the [`PlainDriver`] of a debug run: the same events and mock time, no
 //! frames, no ffmpeg. Every call the video code makes exists here with the recorder's own
-//! signature; the five input calls that move the pointer or press keys record the action in the
-//! debug log (a no-op while debug mode is off) before they forward. No route needs to know about
-//! the log or the mode.
+//! signature. The input calls that move the pointer, click, scroll, type or press keys first
+//! record the action in the debug log (a no-op while debug mode is off). No route needs to know
+//! about the log or the mode.
 
 use crate::{debug_driver::PlainDriver, debug_log};
 use std::time::Duration;

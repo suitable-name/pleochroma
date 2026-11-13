@@ -5,10 +5,9 @@
 //! catalogue or the desktop's lessons:
 //!
 //! - **The offer.** [`WEB_LESSONS`] classifies every lesson of the learning path
-//!   ([`super::CURRICULUM`]) once, from the lesson audit of the limitations campaign:
-//!   `A` runs as it is, `D` runs once reworded, `B` needs a web feature that the campaign builds
-//!   (a [`WebFeature`], passed in as [`WebFeatures`]), `C` is not offered. [`is_offered_on_web`]
-//!   is the one predicate.
+//!   ([`super::CURRICULUM`]) once: `A` runs as it is, `D` runs once reworded, `B` needs a web
+//!   feature (a [`WebFeature`], passed in as [`WebFeatures`]), `C` is not offered.
+//!   [`is_offered_on_web`] is the one predicate.
 //! - **The wording.** `overlay` holds, per lesson and step, the web's replacement lines, omitted
 //!   steps, replaced goals, highlight aliases and lock-group fixes. [`Guide::for_platform`] with
 //!   [`Platform::Web`] applies it; with [`Platform::Desktop`] it returns the guide unchanged.
@@ -31,7 +30,7 @@ pub use overlay::{
 
 use super::{BUILD_ID_PREFIX, Guide, GuideCatalog, Platform};
 
-/// A web feature that the limitations campaign builds, and that some lessons wait for.
+/// A web feature that some lessons wait for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum WebFeature {
     /// The web library: lessons about importing, searching, filtering, loading, variants and a
@@ -41,11 +40,11 @@ pub enum WebFeature {
     ConcaveEdit,
     /// The Deep Solve button and its report.
     DeepSolve,
-    /// Cutting mode, and the Cut slider rework that goes with it.
+    /// Cutting mode, and the Cut slider that goes with it.
     CuttingMode,
 }
 
-/// Which [`WebFeature`]s the running browser build has. The web passes this in; the offer follows it.
+/// The [`WebFeature`]s the running browser build has; the offer follows them.
 #[expect(
     clippy::struct_excessive_bools,
     reason = "four independent feature switches, which the tests build with struct-update syntax"
@@ -63,7 +62,7 @@ pub struct WebFeatures {
 }
 
 impl WebFeatures {
-    /// The build as it is before any of the four features lands.
+    /// A build with none of the four features.
     pub const NONE: Self = Self {
         library: false,
         concave_edit: false,
@@ -71,7 +70,7 @@ impl WebFeatures {
         cutting_mode: false,
     };
 
-    /// The build once all four features have landed.
+    /// A build with all four features.
     pub const ALL: Self = Self {
         library: true,
         concave_edit: true,
@@ -91,14 +90,14 @@ impl WebFeatures {
     }
 }
 
-/// How a lesson stands against the browser build (the classes of the lesson audit).
+/// How a lesson stands against the browser build.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum WebClass {
     /// Runs as written: its text is neutral and every control it names exists on the web.
     A,
-    /// Needs a [`WebFeature`] that the campaign builds, and is offered once the web has it.
+    /// Needs a [`WebFeature`], and is offered once the web build has it.
     B,
-    /// Blocked by something the web does not have and no lane builds: never offered.
+    /// Blocked by something the web build does not have: never offered.
     C,
     /// Runs on the web's existing controls once the overlay rewords it.
     D,
@@ -109,7 +108,7 @@ pub enum WebClass {
 pub struct WebLesson {
     /// The lesson id, as in [`super::CURRICULUM`].
     pub id: &'static str,
-    /// The audit class.
+    /// The class of the lesson on the web.
     pub class: WebClass,
     /// The feature the lesson waits for. Every class `B` lesson has one; a class `D` lesson may
     /// have one too (it is reworded, but only makes sense once the feature exists).
@@ -158,12 +157,10 @@ const fn reworded_after(id: &'static str, needs: WebFeature) -> WebLesson {
 
 /// Every lesson of the learning path, once, in browser order, with its place on the web.
 ///
-/// The classes come from the lesson audit (`T0_lesson_audit.md`): 11 `A`, 9 `B`, 40 `C`, 36 `D`,
-/// and the two color variant lessons (2026-10-27), which are desktop-only: 42 `C` in all.
-/// The variants lesson and a design's own lighting moved from `B` to `C` (2026-10-26): the browser
-/// stores both but has no screen for them. One `D` lesson, adopting imported meets, needs a design
-/// to adopt from; with no library to load one from it is offered only once the library exists, so
-/// no features offers 46 lessons and all four offers 56.
+/// The class counts are 11 `A`, 9 `B`, 42 `C` (including the two desktop-only color variant
+/// lessons) and 36 `D`; `tests.rs` pins them. The variants lesson and a design's own lighting
+/// are `C` because the browser stores both but has no screen for them. The one `D` lesson that
+/// needs an imported design (adopting imported meets) is offered only once the library exists.
 pub const WEB_LESSONS: &[WebLesson] = &[
     // Getting Started
     reworded("welcome-tour"),
@@ -224,7 +221,7 @@ pub const WEB_LESSONS: &[WebLesson] = &[
     blocked("viewing-material-coefficients"),
     reworded("viewing-stone-effects"),
     // The browser has the Body Color list and the Custom editor, but no Material Editor with a
-    // Color Variants section and no Color Pattern window: both color variant lessons end there.
+    // Color Variants section and no Color Pattern window: the color variant lessons stop there.
     blocked("materials-color-variants"),
     blocked("viewing-color-pattern"),
     blocked("materials-zone-colors-from-variants"),

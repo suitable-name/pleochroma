@@ -1,7 +1,7 @@
-//! Sapphire/Ruby o-ray-only bit-identity, and facet-finish (bruted/frosted girdle)
-//! tests: an all-`Polished` finish must be bit-identical to `trace_spectral_ray`,
-//! a bruted girdle must still satisfy white-furnace energy conservation, and it
-//! must change face-up appearance measurably.
+//! Sapphire/Ruby o-ray-only bit identity and facet-finish (bruted girdle) tests.
+//!
+//! An all-`Polished` finish matches `trace_spectral_ray` bit for bit. A bruted girdle still
+//! conserves energy under the white furnace and changes face-up appearance measurably.
 
 use glam::Vec3;
 use pleochroma::{
@@ -18,18 +18,11 @@ use pleochroma::{
 
 use crate::fixtures::{bruted_girdle_finishes, furnace_mean_xyz, uniform_furnace_target};
 
-/// Regression (pleochroism data): Sapphire's and Ruby's face-up render must stay
-/// UNAFFECTED by the newly-populated `e_ray` absorption data -- with `c_axis` = `Vec3::Y` and this exact straight-down ray (propagation
-/// exactly parallel to `c_axis`), the polarization quadratic form degenerates to pure
-/// `alpha_o` for every bounce whose propagation direction stays exactly on-axis (see the
-/// hue-shift test's doc comment above for the same degeneracy argument). Verified here
-/// to be exactly BIT-IDENTICAL (not merely within a small tolerance) to an
-/// otherwise-identical material with its absorption forced to
-/// `AbsorptionTensor::isotropic(o_ray)` -- i.e. exactly what these entries are
-/// equivalent to with no `e_ray` data populated -- across 500 independent seeds on
-/// the full Standard Round Brilliant cut. This is a stronger guarantee than a small
-/// tolerance would give, made possible because this specific ray's
-/// on-axis symmetry is exact, not approximate.
+/// Sapphire's and Ruby's face-up render does not depend on their `e_ray` absorption data.
+/// With `c_axis` = `Vec3::Y` and this straight-down ray (parallel to `c_axis`), the
+/// polarization quadratic form reduces to `alpha_o` at every bounce. The render must
+/// therefore match bit for bit a clone with absorption `AbsorptionTensor::isotropic(o_ray)`,
+/// across 500 seeds on the full Standard Round Brilliant cut.
 #[test]
 fn sapphire_and_ruby_face_up_render_is_bit_identical_to_o_ray_only_material() {
     let planes = StandardGemCuts::standard_round_brilliant();
@@ -80,12 +73,10 @@ fn sapphire_and_ruby_face_up_render_is_bit_identical_to_o_ray_only_material() {
 // Girdle finish (bruted/frosted facets).
 // ---------------------------------------------------------------------------------
 
-/// `trace_spectral_ray_with_finish` with an all-`Polished` `facet_finishes` slice (the
-/// same length as `planes`, every entry the default) must be bit-identical to
-/// `trace_spectral_ray` -- the "existing cuts keep polished girdles unless a finish is
-/// explicitly set" requirement, pinned as an exact `f32::to_bits()` regression, not a
-/// tolerance-based one. Covers several materials (isotropic AND uniaxial, so
-/// mode-coupling machinery is also exercised on this code path) and rays.
+/// `trace_spectral_ray_with_finish` with an all-`Polished` `facet_finishes` slice (the same
+/// length as `planes`) must match `trace_spectral_ray` bit for bit. Existing cuts keep polished
+/// girdles unless a finish is set. Covers isotropic and uniaxial materials, so the
+/// mode-coupling path is exercised too.
 #[test]
 fn frosted_finish_all_polished_is_bit_identical_to_trace_spectral_ray() {
     let planes = StandardGemCuts::standard_round_brilliant();
@@ -141,32 +132,25 @@ fn frosted_finish_all_polished_is_bit_identical_to_trace_spectral_ray() {
     }
 }
 
-/// The existing white-furnace energy-conservation invariant (a colorless,
-/// non-dispersive gem immersed in a spatially UNIFORM environment must render at exactly
-/// that environment's own radiance, regardless of its internal optics -- reflectance and
-/// transmittance always sum to 1 at every interface, so a lossless system can neither
-/// gain nor lose energy no matter how many bounces or which directions they go) must
-/// still hold with a BRUTED girdle. This is the concrete check that
-/// `apply_frosted_bounce`'s reflect/transmit split (`r_unpol` / `1 - r_unpol`, the SAME
-/// total energy budget as the polished formula, just redirected diffusely) and its
-/// cosine-weighted-hemisphere direction sampling (whose pdf exactly cancels the assumed
-/// Lambertian `albedo = 1.0` BRDF/BTDF -- see that function's doc comment) are actually
-/// energy-conserving, not merely "doesn't crash".
+/// White-furnace energy conservation with a BRUTED girdle. A colorless, non-dispersive gem in a
+/// spatially uniform environment must render at that environment's radiance, since reflectance
+/// and transmittance sum to 1 at every interface. This checks that `apply_frosted_bounce`'s
+/// reflect/transmit split (the same energy budget as the polished formula, sent diffusely) and
+/// its cosine-weighted direction sampling (whose pdf cancels the Lambertian `albedo = 1.0`; see
+/// that function's doc comment) conserve energy.
 #[test]
 fn frosted_girdle_white_furnace_energy_conservation_still_holds() {
     const L0: f32 = 2.5;
     const SAMPLES_PER_PIXEL: u32 = 96;
-    // Measured on 2026-10-01 by `furnace_noise_floor` at this sample budget: 1.35
-    // percent truncation loss at cap 12 (paths still inside the gem at the cap are
-    // dropped; nothing is lost at cap 256) plus about 0.15 percent noise; five standard
-    // deviations of headroom. A branch mis-weighted by a few percent fails this.
+    // Measured by `furnace_noise_floor` at this budget: about 1.35 % truncation loss at cap 12
+    // (paths still inside the gem at the cap are dropped; nothing is lost at cap 256) plus
+    // about 0.15 % noise. A branch mis-weighted by a few percent fails this.
     const TOLERANCE: f32 = 0.025;
 
     let planes = StandardGemCuts::standard_round_brilliant();
     let finishes = bruted_girdle_finishes(planes.len());
-    // colorless, non-dispersive, cubic -- matches
-    // `renderer::gpu::estimator_check::furnace_material`'s own construction (not
-    // reusable directly: that function is behind the `gpu` feature).
+    // Same construction as `renderer::gpu::estimator_check::furnace_material`, which is
+    // behind the `gpu` feature and so not reused directly.
     let material = GemMaterial::new_custom("CPU furnace probe", 1.5, 0.0, 0.0, [0.0, 0.0, 0.0]);
     let env_map = EnvironmentMap::uniform(1, 1, [L0, L0, L0]);
 
@@ -177,7 +161,7 @@ fn frosted_girdle_white_furnace_energy_conservation_still_holds() {
             &finishes,
             &material,
             12,
-            EnvironmentSource::HdrMap(&env_map),
+            EnvironmentSource::hdr(&env_map),
             seed,
             hero,
             None,
@@ -204,24 +188,15 @@ fn frosted_girdle_white_furnace_energy_conservation_still_holds() {
     );
 }
 
-/// The decisive measurement: a bruted girdle must change the gem's face-up
-/// appearance, not merely run without crashing.
+/// A bruted girdle must change the face-up appearance, not merely run without crashing.
 ///
-/// The specific claim is that the girdle "feeds a soft bright ring into
-/// the pavilion" -- extra light-gathering paths a purely specular mirror girdle can only
-/// reach through a single, much narrower, delta direction (outside light scattering
-/// diffusely IN through the girdle; internally-trapped light scattering back OUT through
-/// it). That is a REDISTRIBUTION of energy (the furnace test above confirms total energy
-/// is still conserved), not a claim that every possible viewing angle gets strictly
-/// brighter: probing several camera framings while developing this test found some
-/// (steep near-vertical pitches that look almost straight down the table) where mean
-/// face-up brightness measurably DECREASES with a frosted girdle -- physically sensible,
-/// since replacing a crisp specular glint with a diffuse spread can starve a viewing
-/// direction that sits exactly in that glint's narrow cone, even while other
-/// directions gain. For the standard face-up studio framing this crate already uses
-/// elsewhere as its reference camera (`renderer::gpu::estimator_check::test_camera`:
-/// `Camera::new(0.35, 0.28, 5.0, 18.0)`), the effect is a strong, clean INCREASE,
-/// matching that "soft bright ring" framing -- that is the camera used below.
+/// The effect is a redistribution of light: the girdle feeds a soft bright ring into the
+/// pavilion, where a specular girdle reaches only a narrow delta direction. Total energy is
+/// still conserved (see the furnace test above). Not every viewing angle gets brighter: a
+/// steep near-vertical pose can darken, since a diffuse spread can starve a view that sits in
+/// a specular glint's narrow cone. The standard face-up framing,
+/// `renderer::gpu::estimator_check::test_camera` (`Camera::new(0.35, 0.28, 5.0, 18.0)`),
+/// shows a clear increase, so it is the camera used below.
 ///
 /// Averages luminance (Y) over a small grid of pixels and many samples per pixel, for the
 /// SAME material/seeds with only the girdle's finish differing.

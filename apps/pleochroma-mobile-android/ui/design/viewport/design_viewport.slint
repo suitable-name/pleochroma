@@ -12,7 +12,7 @@
 //                  the fingers' centre pans
 //   desktop preview  left drag = one finger, wheel = pinch, right drag = two-finger pan
 //
-// The third view mode, Render, swaps the picture for the progressive ray-traced frame
+// The third view mode, Render, swaps the picture for the progressive rendered frame
 // (`ui/design/render`) and adds its progress bar, status line and chips along the foot.
 // The camera gestures are the same; the raster, picks and handles belong to Solid and
 // Diagram only.
@@ -132,7 +132,6 @@ export component DesignViewport inherits Rectangle {
         ViewportModel.view-resized(root.width, root.height);
     }
 
-    // The picture.
     Image {
         visible: ViewportModel.has-frame && (ViewportModel.view-mode != 2 || ViewportModel.live-solid);
         x: ViewportModel.image-x;
@@ -244,7 +243,6 @@ export component DesignViewport inherits Rectangle {
         }
     }
 
-    // The Slice line being drawn.
     if ViewportModel.line-visible: Stem {
         x0: ViewportModel.line-x;
         y0: ViewportModel.line-y;
@@ -254,7 +252,6 @@ export component DesignViewport inherits Rectangle {
         thickness: 3px;
     }
 
-    // The hint line.
     if ViewportModel.hint-text != "": Rectangle {
         x: Theme.space-sm;
         y: root.height - self.height - Theme.space-sm;
@@ -274,7 +271,6 @@ export component DesignViewport inherits Rectangle {
         }
     }
 
-    // The long-press card.
     if ViewportModel.info-visible: Rectangle {
         x: Theme.space-sm;
         y: (ViewportModel.slice-mode ? 96px : 48px) + Theme.space-sm;
@@ -539,7 +535,8 @@ export component DesignViewport inherits Rectangle {
         }
     }
 
-    // A small render bar; Settings expands the editor preview before opening its tray.
+    // A small render bar; Settings first collapses the page sheet to its peek so the
+    // preview grows, then opens its tray.
     if ViewportModel.view-mode == 2: RenderControls {
         y: root.height - self.height;
         width: root.width;
@@ -551,7 +548,6 @@ export component DesignViewport inherits Rectangle {
         }
     }
 
-    // A picture is being drawn.
     if ViewportModel.busy && ViewportModel.view-mode != 2: Rectangle {
         y: 0px;
         width: root.width;

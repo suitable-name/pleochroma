@@ -1,9 +1,10 @@
 //! Burn twin of the pure-Rust set-attention network (`crate::model::GemstoneSetAttentionNetwork`).
 //!
 //! The twin exists for training: the same architecture on Burn tensors with automatic
-//! differentiation, convertible to and from the pure network ([`BurnSetAttention::from_set_attention`],
-//! [`BurnSetAttention::export_to_set_attention`]). Both trainers (`BurnTrainer` in `burn_ppo`, the
-//! imitation loss in `imitation`) drive this model.
+//! differentiation. It converts to and from the pure network with
+//! [`BurnSetAttention::from_set_attention`] and [`BurnSetAttention::export_to_set_attention`].
+//! Both trainers (`BurnTrainer` in `burn_ppo`, the imitation loss in `imitation`) drive this
+//! model.
 //!
 //! # Conventions shared with the pure-Rust twin
 //!
@@ -18,22 +19,25 @@
 //! - The sensitivity part of the policy `mean` uses the objective's weight fractions
 //!   (global-token entries `WEIGHT_FRACTION_INDEX..+N_COMPONENTS`):
 //!   `g_k = sum_c frac[c] * sens[k][c]`, `g_max = max over real mobile tiers of |g_k|`,
-//!   `direction_k = -MEAN_BOUND * (g_k / max(g_max, SLOPE_NORM_FLOOR))`, in pre-squash units. The pure twin
-//!   accumulates `g_k` with `mul_add`, the tensor version with a broadcast product and a sum over the
-//!   seven entries in index order, so the two may differ in the last ulp (tests compare them to `1e-5`).
+//!   `direction_k = -MEAN_BOUND * (g_k / max(g_max, SLOPE_NORM_FLOOR))`, in pre-squash units.
+//!   The pure twin accumulates `g_k` with `mul_add`; the tensor version uses a broadcast
+//!   product and a sum over the seven entries in index order. The two may differ in the last
+//!   ulp (tests compare them to `1e-5`).
 //! - A zero-initialized scalar **action residual head** reads each normalized tier token and adds
 //!   to this direction on real mobile tiers only. The combined mean is unbounded; `tanh` still
 //!   bounds the environment's step. Residual actions need not invent nonzero sensitivity labels.
 //! - `log_std` is **state-independent**: three learnable raw values (crown, pavilion, other),
 //!   selected per tier by the block feature (input token entry 3) and squashed by
-//!   `LOG_STD_MIN + (LOG_STD_MAX - LOG_STD_MIN) * sigmoid(raw)` (the pure twin's `bounded_log_std`).
-//! - The action is the raw (pre-squash) Gaussian sample; the environment applies `tanh` and the step
-//!   limit afterwards.
+//!   `LOG_STD_MIN + (LOG_STD_MAX - LOG_STD_MIN) * sigmoid(raw)` (the pure twin's
+//!   `bounded_log_std`).
+//! - The action is the raw (pre-squash) Gaussian sample; the environment applies `tanh` and
+//!   the step limit afterwards.
 //!
 //! # Padding
 //!
-//! Tiers beyond a design's real tier count are padding: they are masked out of attention (keys), of
-//! the pooled input of the value and gain heads and of the largest-slope normalisation of the mean.
+//! Tiers beyond a design's real tier count are padding: they are masked out of attention (keys),
+//! of the pooled input of the value and gain heads, and of the largest-slope normalisation of the
+//! mean.
 //! Outputs at padded positions are meaningless and must be masked by the caller.
 //!
 //! # Batched rollout forward
@@ -120,15 +124,16 @@ pub struct BurnSetAttention {
     pub final_eps: f32,
     /// Critic head predicting scalar baseline value V(s) from the pooled vector.
     pub critic_head: Linear,
-    /// Sensitivity head (`d_model -> N_COMPONENTS`): per tier, the predicted slope of each objective
-    /// component per degree of that tier.
+    /// Sensitivity head (`d_model -> N_COMPONENTS`): per tier, the predicted slope of each
+    /// objective component per degree of that tier.
     pub sens_head: Linear,
     /// Per-tier pre-squash action residual, zero-initialized and masked by tier mobility.
     pub action_head: Linear,
-    /// Gain head (`d_model -> 1`) on the pooled vector the critic reads: the predicted score drop of
-    /// the oracle step at the state, in points.
+    /// Gain head (`d_model -> 1`) on the pooled vector the critic reads: the predicted score
+    /// drop of the oracle step at the state, in points.
     pub gain_head: Linear,
-    /// Raw state-independent log standard deviation per block (crown, pavilion, other), shape `[3]`;
+    /// Raw state-independent log standard deviation per block (crown, pavilion, other), shape
+    /// `[3]`;
     /// the policy uses `LOG_STD_MIN + (LOG_STD_MAX - LOG_STD_MIN) * sigmoid(raw)`.
     pub log_std_raw: Param<Tensor<1>>,
     /// Model hidden dimension.
@@ -185,7 +190,8 @@ fn log_std_param(values: [f32; LOG_STD_SLOTS], device: &Device) -> Param<Tensor<
     ))
 }
 
-/// Convert a pure-Rust linear layer (`[out, in]` row-major weights) into a Burn layer (`[in, out]`).
+/// Convert a pure-Rust linear layer (`[out, in]` row-major weights) into a Burn layer
+/// (`[in, out]`).
 fn burn_linear(
     l: &crate::model::Linear,
     what: &str,
@@ -261,9 +267,9 @@ fn expect_head(
 
 /// The policy mean on tensors: the twin of [`crate::model::compose_mean`].
 ///
-/// `sensitivities` is `[batch, n_tiers, N_COMPONENTS]`, `fractions` the weight fractions reshaped to
-/// `[batch, 1, N_COMPONENTS]`, `tier_mask` the real-tier mask `[batch, n_tiers]` (padded tiers
-/// contribute `0` to the largest slope). Returns `[batch, n_tiers]`.
+/// `sensitivities` is `[batch, n_tiers, N_COMPONENTS]`, `fractions` the weight fractions
+/// reshaped to `[batch, 1, N_COMPONENTS]`, `tier_mask` the real-tier mask `[batch, n_tiers]`
+/// (padded tiers contribute `0` to the largest slope). Returns `[batch, n_tiers]`.
 fn composed_mean(
     sensitivities: Tensor<3>,
     fractions: Tensor<3>,
@@ -291,10 +297,10 @@ impl BurnSetAttention {
     ///
     /// # Errors
     ///
-    /// [`TrainError::InvalidConfig`] when a dimension is zero, `d_tier` is too small to carry the block
-    /// feature (entry [`BLOCK_TYPE_INDEX`]), `d_global` is too small to carry the objective's weight
-    /// fractions (entries `WEIGHT_FRACTION_INDEX..+N_COMPONENTS`) or `d_model` is not divisible by
-    /// `num_heads`.
+    /// [`TrainError::InvalidConfig`] when a dimension is zero, `d_tier` is too small to carry the
+    /// block feature (entry [`BLOCK_TYPE_INDEX`]), `d_global` is too small to carry the objective's
+    /// weight fractions (entries `WEIGHT_FRACTION_INDEX..+N_COMPONENTS`) or `d_model` is not
+    /// divisible by `num_heads`.
     pub fn new(
         d_tier: usize,
         d_global: usize,
@@ -403,16 +409,18 @@ impl BurnSetAttention {
         Ok(())
     }
 
-    /// Build a Burn model holding exactly the weights of a pure-Rust network (inverse of
-    /// [`Self::export_to_set_attention`]); used to resume training and to move a model between devices.
+    /// Build a Burn model holding exactly the weights of a pure-Rust network, the inverse of
+    /// [`Self::export_to_set_attention`]. Used to resume training and to move a model between
+    /// devices.
     ///
     /// # Errors
     ///
-    /// [`TrainError::ShapeMismatch`] when the network's layer lists or weight arrays are inconsistent
-    /// or a head has the wrong shape (critic, gain and action residual `d_model -> 1`, sensitivities
-    /// `d_model -> N_COMPONENTS`), [`TrainError::InvalidConfig`] when `d_model` is not divisible by
-    /// `num_heads`, `d_tier` is too small to carry the block feature or `d_global` is too small to
-    /// carry the weight fractions (see [`Self::new`]).
+    /// [`TrainError::ShapeMismatch`] when the network's layer lists or weight arrays are
+    /// inconsistent or a head has the wrong shape (critic, gain and action residual
+    /// `d_model -> 1`, sensitivities `d_model -> N_COMPONENTS`),
+    /// [`TrainError::InvalidConfig`] when `d_model` is not divisible by `num_heads`, `d_tier` is
+    /// too small to carry the block feature or `d_global` is too small to carry the weight
+    /// fractions (see [`Self::new`]).
     pub fn from_set_attention(
         net: &GemstoneSetAttentionNetwork,
         device: &Device,
@@ -479,10 +487,10 @@ impl BurnSetAttention {
     /// - `tier_inputs`: `[batch, n_tiers, d_tier]` (padded to the longest design in the batch)
     /// - `global_inputs`: `[batch, d_global]`; its entries from `WEIGHT_FRACTION_INDEX` on are the
     ///   objective's weight fractions
-    /// - `tier_mask`: `[batch, n_tiers]`, `1.0` for a real tier and `0.0` for padding; `n_tiers` must be
-    ///   at least 1. Padded tiers are excluded as attention keys, from the pooled input of the value
-    ///   and gain heads and from the largest-slope normalisation of the mean; a row with no real tier
-    ///   pools to the context token alone.
+    /// - `tier_mask`: `[batch, n_tiers]`, `1.0` for a real tier and `0.0` for padding; `n_tiers`
+    ///   must be at least 1. Padded tiers are excluded as attention keys, from the pooled input of
+    ///   the value and gain heads, and from the largest-slope normalisation of the mean. A row with
+    ///   no real tier pools to the context token alone.
     ///
     /// Returns a [`BurnForward`]; see its fields for shapes. Outputs at padded positions are
     /// meaningless and must be masked by the caller.
@@ -618,11 +626,12 @@ impl BurnSetAttention {
         tokens
     }
 
-    /// State-independent per-tier `log_std` `[batch, n_tiers]`, built on the device from the block
-    /// feature (`tier_inputs[.., .., BLOCK_TYPE_INDEX]`): crown (`> 0.5`) takes the first raw value,
-    /// pavilion (`< -0.5`) the second, anything else the third, each squashed by
+    /// State-independent per-tier `log_std` `[batch, n_tiers]`, built on the device from the
+    /// block feature (`tier_inputs[.., .., BLOCK_TYPE_INDEX]`): crown (`> 0.5`) takes the first
+    /// raw value, pavilion (`< -0.5`) the second, anything else the third, each squashed by
     /// `LOG_STD_MIN + (LOG_STD_MAX - LOG_STD_MIN) * sigmoid(raw)`. Twin of the pure network's
-    /// `block_slot` + `bounded_log_std`; the gradient reaches the three raw values through the masks.
+    /// `block_slot` + `bounded_log_std`. The gradient reaches the three raw values through the
+    /// masks.
     fn block_log_std(&self, tier_inputs: Tensor<3>) -> Tensor<2> {
         let [batch, n_tiers, _] = tier_inputs.dims();
         let block = tier_inputs

@@ -1,15 +1,12 @@
-//! The live-viewport rendering/lighting/material stack: camera and lighting callback
-//! wiring ([`camera_lighting`]) and its pose pills' Fit distance (`fit_view`), saved lighting presets ([`lighting_presets`]), the
-//! lighting a design remembers for itself ([`design_lighting`]),
-//! material selection ([`material`]) and render-quality controls ([`quality`]), the toolbar's
-//! quick colour change ([`render_body_color`]), the
-//! tab/view-mode logic deciding whether the tracer runs ([`render_visibility`]), the
-//! target-samples slider's exponent<->count mapping ([`sample_scale`]), and the
-//! high-resolution export flow ([`render_export`]).
+//! The live-viewport render, lighting and material modules.
 //!
-//! Groups the render/lighting/material domain into one module tree, with
-//! `render_export.rs` (the largest, well over this codebase's ~700-line split
-//! threshold) further split into its own [`render_export`] submodule folder.
+//! Camera and lighting wiring ([`camera_lighting`]), the Fit distance of the pose pills
+//! ([`fit_view`]), saved lighting presets ([`lighting_presets`]), the lighting a design
+//! remembers ([`design_lighting`]), material selection ([`material`]) and render-quality
+//! controls ([`quality`]), the toolbar's quick color change ([`render_body_color`]), the tab and
+//! view-mode logic deciding whether the tracer runs ([`render_visibility`]), the target-samples
+//! slider's exponent-to-count mapping ([`sample_scale`]), and the high-resolution export flow
+//! ([`render_export`], split into the `queue` and `wiring` submodules).
 
 pub mod advanced_in_use;
 pub mod camera_handles;

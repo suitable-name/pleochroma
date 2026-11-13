@@ -1,13 +1,15 @@
-//! Pipeline compilation and bind-group construction: the megakernel's own bind group
-//! ([`build_bind_group`]/[`build_chunk_bind_group`]) plus the five wavefront-pipeline
-//! pipelines ([`WavefrontPipelines`]) and their four per-round bind groups
-//! ([`WavefrontRoundBindGroups`]). See the parent module's doc comment's "Wavefront
-//! pipeline" section for the kernel shape these bindings serve.
+//! Pipeline compilation and bind-group construction.
+//!
+//! This covers the megakernel's own bind group
+//! ([`build_bind_group`]/[`build_chunk_bind_group`]) plus the five wavefront pipelines
+//! ([`WavefrontPipelines`]) and their four per-round bind groups
+//! ([`WavefrontRoundBindGroups`]).
 
 use wgpu::BufferUsages;
 
 use crate::{
     geometry::GpuFacetPlane,
+    optics::tables::OPTICS_TABLES_BINDING,
     renderer::{
         buffers::{GpuCameraParams, GpuGemMaterial, GpuTransportParams},
         env_map_gpu::HdrEnvGpuData,
@@ -20,13 +22,12 @@ use super::{
     scene_buffers::{FrameSceneBuffers, TransportOutputs, WavefrontRayBuffers},
 };
 
-/// Bundles the material/scene/output-buffer inputs shared by [`build_bind_group`] and
-/// [`super::encode_and_dispatch`] (and, on wasm32, [`super::GpuFrameRenderer::accumulate_async`]'s
-/// inlined dispatch) -- purely to keep argument counts within clippy's
-/// `too_many_arguments` limit. `total_tuples` stays its own parameter on the two dispatch
-/// functions rather than joining this struct: it drives the workgroup count and the
-/// output-capacity assert, and differs from `outputs.capacity` whenever a chunk is
-/// smaller than its buffers' full capacity.
+/// The material, scene and output inputs shared by [`build_bind_group`] and its dispatch callers
+/// ([`super::encode_and_dispatch`], and the wasm32 async dispatch).
+///
+/// A struct only to stay under clippy's `too_many_arguments` limit. `total_tuples` stays a separate
+/// parameter of the dispatch functions: it sets the workgroup count and can be smaller than
+/// `outputs.capacity` for a partial chunk.
 pub struct TransportDispatchArgs<'a> {
     pub(crate) ctx: &'a GpuContext,
     pub(crate) pipeline: &'a wgpu::ComputePipeline,
@@ -36,23 +37,22 @@ pub struct TransportDispatchArgs<'a> {
     pub(crate) planes: &'a [GpuFacetPlane],
     pub(crate) facet_finishes: &'a [u32],
     pub(crate) outputs: &'a TransportOutputs,
-    /// Bindings 10-14 (`hdr_texels`/`hdr_env_dims`/`dist_func`/`dist_cdf`/`dist_dims`) -- ALWAYS bound, even for
-    /// a non-HDR dispatch (pass [`HdrEnvGpuData::dummy`]); see that type's own doc comment
-    /// for why the megakernel's bind group layout always includes these two.
+    /// Bindings 10-14 (`texels`, `dims`, `dist_func`, `dist_cdf`, `dist_dims`) are always
+    /// bound, even for a non-HDR dispatch (pass [`HdrEnvGpuData::dummy`]), because the
+    /// megakernel's bind group layout always includes them.
     pub(crate) hdr_env: &'a HdrEnvGpuData,
+    /// Optional tray buffer (the spectral tray map and the mirror words), present only for the
+    /// tray variant.
+    pub(crate) tray_shadow: Option<&'a wgpu::Buffer>,
 }
 
-/// Uploads the scene inputs and binds all eight buffers, WITHOUT dispatching.
+/// Uploads the scene inputs and binds every buffer, WITHOUT dispatching.
 ///
-/// Shared by every self-test's blocking path ([`super::encode_and_dispatch`]) and wasm32's
-/// [`super::GpuFrameRenderer::accumulate_async`] inlined dispatch. Native's pipelined
-/// production path (`GpuFrameRenderer::dispatch_chunk`) does NOT call this -- it would
-/// re-upload all five buffers every chunk, which [`FrameSceneBuffers`]/
-/// [`build_chunk_bind_group`] avoid; see the parent module's doc comment's "Per-frame
-/// uploads, persistent staging" section. The local upload buffers are safely dropped when
-/// this function returns even before the GPU has consumed them: `wgpu` keeps a resource
-/// alive internally as long as any submitted (but not completed) command buffer
-/// references it.
+/// Used by the self-test path ([`super::encode_and_dispatch`]) and by the wasm32 async
+/// dispatch. Native's pipelined production path (`GpuFrameRenderer::dispatch_chunk`) does not
+/// call this, since it would re-upload the scene every chunk; [`FrameSceneBuffers`] and
+/// [`build_chunk_bind_group`] avoid that. The local upload buffers may be dropped on return:
+/// `wgpu` keeps a resource alive while any unfinished submission references it.
 pub fn build_bind_group(args: &TransportDispatchArgs<'_>) -> wgpu::BindGroup {
     let camera_buf = compute::upload(
         &args.ctx.device,
@@ -88,41 +88,54 @@ pub fn build_bind_group(args: &TransportDispatchArgs<'_>) -> wgpu::BindGroup {
         BufferUsages::STORAGE,
     );
 
+    let mut entries = vec![
+        (0, &camera_buf),
+        (1, &params_buf),
+        (2, &material_buf),
+        (3, &planes_buf),
+        (4, args.outputs.xyz()),
+        (5, args.outputs.radiance()),
+        (6, args.outputs.lambdas()),
+        (7, args.outputs.path_pdf()),
+        (8, &facet_finishes_buf),
+        (9, args.outputs.compat()),
+        (10, &args.hdr_env.texels),
+        (11, &args.hdr_env.dims),
+        (12, &args.hdr_env.dist_func),
+        (13, &args.hdr_env.dist_cdf),
+        (14, &args.hdr_env.dist_dims),
+    ];
+    if let Some(buffer) = args.tray_shadow {
+        entries.push((
+            crate::optics::raytracer::environment::tray_shadow::TRAY_SHADOW_BINDING,
+            buffer,
+        ));
+    }
     compute::bind_buffers(
         &args.ctx.device,
         "transport bind group",
         args.pipeline,
-        &[
-            (0, &camera_buf),
-            (1, &params_buf),
-            (2, &material_buf),
-            (3, &planes_buf),
-            (4, args.outputs.xyz()),
-            (5, args.outputs.radiance()),
-            (6, args.outputs.lambdas()),
-            (7, args.outputs.path_pdf()),
-            (8, &facet_finishes_buf),
-            (9, args.outputs.compat()),
-            (10, &args.hdr_env.texels),
-            (11, &args.hdr_env.dims),
-            (12, &args.hdr_env.dist_func),
-            (13, &args.hdr_env.dist_cdf),
-            (14, &args.hdr_env.dist_dims),
-        ],
+        &entries,
     )
 }
 
-/// Like [`build_bind_group`], but for [`super::GpuFrameRenderer::dispatch_chunk`]'s
-/// pipelined per-chunk dispatch: `frame_buffers`' four scene buffers and `params_buf` are
-/// all PERSISTENT (see [`FrameSceneBuffers`] and [`super::GpuFrameRenderer::params_buffers`])
-/// and already written by the caller -- this function only builds the bind group,
-/// uploading nothing itself. `planes_len` is `state.scene.planes.len()` for the CURRENT
-/// scene, which can be smaller than `frame_buffers.planes`'s allocated capacity
-/// (grown-never-shrunk across frames), so `planes`/`facet_finishes` bind an explicit byte
-/// range via [`compute::bind_buffers_sized`] rather than [`compute::bind_buffers`]'s
-/// whole-buffer `as_entire_binding` -- otherwise the shader's `arrayLength(&planes)`
-/// would see the buffer's stale larger capacity instead of this frame's true plane count.
-/// See the parent module's doc comment's "Per-frame uploads, persistent staging" section.
+/// Like [`build_bind_group`], for [`super::GpuFrameRenderer::dispatch_chunk`]'s pipelined path.
+///
+/// The four scene buffers and `params_buf` are persistent (see [`FrameSceneBuffers`] and
+/// [`super::GpuFrameRenderer::params_buffers`]) and already written by the caller, so this
+/// function only builds the bind group.
+///
+/// `planes_len` is the current scene's plane count, which can be smaller than the allocated
+/// capacity of `frame_buffers.planes`. `planes` and `facet_finishes` therefore bind an explicit
+/// byte range via [`compute::bind_buffers_sized`]. Otherwise `arrayLength(&planes)` in the
+/// shader would see the stale larger size.
+///
+/// `tables` is the optics lookup table buffer, bound at `OPTICS_TABLES_BINDING` for a pipeline
+/// built from the table variant (`None` for the shipped kernel, whose bind group is then exactly
+/// the fifteen scene and output bindings). `shadow` is the Stone Shadow lookup buffer, bound at
+/// `TRAY_SHADOW_BINDING` for a pipeline built from the tray variant (`None` otherwise). A Tray
+/// Reflection without a shadow binds the same buffer, header words only. Both optional buffers
+/// travel as one `(tables, shadow)` tuple.
 pub fn build_chunk_bind_group(
     ctx: &GpuContext,
     pipeline: &wgpu::ComputePipeline,
@@ -130,36 +143,47 @@ pub fn build_chunk_bind_group(
     params_buf: &wgpu::Buffer,
     planes_len: usize,
     outputs: &TransportOutputs,
+    (tables, shadow): (Option<&wgpu::Buffer>, Option<&wgpu::Buffer>),
 ) -> wgpu::BindGroup {
     let planes_bytes = (planes_len * size_of::<GpuFacetPlane>()) as wgpu::BufferAddress;
     let finishes_bytes = (planes_len * size_of::<u32>()) as wgpu::BufferAddress;
+    let mut entries = vec![
+        (0, &frame_buffers.camera, None),
+        (1, params_buf, None),
+        (2, &frame_buffers.material, None),
+        (3, &frame_buffers.planes, Some(planes_bytes)),
+        (4, outputs.xyz(), None),
+        (5, outputs.radiance(), None),
+        (6, outputs.lambdas(), None),
+        (7, outputs.path_pdf(), None),
+        (8, &frame_buffers.facet_finishes, Some(finishes_bytes)),
+        (9, outputs.compat(), None),
+        (10, &frame_buffers.hdr_env.texels, None),
+        (11, &frame_buffers.hdr_env.dims, None),
+        (12, &frame_buffers.hdr_env.dist_func, None),
+        (13, &frame_buffers.hdr_env.dist_cdf, None),
+        (14, &frame_buffers.hdr_env.dist_dims, None),
+    ];
+    if let Some(table_buffer) = tables {
+        entries.push((OPTICS_TABLES_BINDING, table_buffer, None));
+    }
+    if let Some(buffer) = shadow {
+        entries.push((
+            crate::optics::raytracer::environment::tray_shadow::TRAY_SHADOW_BINDING,
+            buffer,
+            None,
+        ));
+    }
     compute::bind_buffers_sized(
         &ctx.device,
         "transport bind group (pipelined production)",
         pipeline,
-        &[
-            (0, &frame_buffers.camera, None),
-            (1, params_buf, None),
-            (2, &frame_buffers.material, None),
-            (3, &frame_buffers.planes, Some(planes_bytes)),
-            (4, outputs.xyz(), None),
-            (5, outputs.radiance(), None),
-            (6, outputs.lambdas(), None),
-            (7, outputs.path_pdf(), None),
-            (8, &frame_buffers.facet_finishes, Some(finishes_bytes)),
-            (9, outputs.compat(), None),
-            (10, &frame_buffers.hdr_env.texels, None),
-            (11, &frame_buffers.hdr_env.dims, None),
-            (12, &frame_buffers.hdr_env.dist_func, None),
-            (13, &frame_buffers.hdr_env.dist_cdf, None),
-            (14, &frame_buffers.hdr_env.dist_dims, None),
-        ],
+        &entries,
     )
 }
 
-/// The five `wavefront_transport.wgsl` entry points -- see that
-/// file's own header comment for the kernel sequence and
-/// [`super::GpuFrameRenderer::dispatch_chunk_wavefront`] for how they're driven.
+/// The five `wavefront_transport.wgsl` entry points. See
+/// [`super::GpuFrameRenderer::dispatch_chunk_wavefront`] for how they are driven.
 pub struct WavefrontPipelines {
     pub(super) generate: wgpu::ComputePipeline,
     pub(super) bounce: wgpu::ComputePipeline,
@@ -190,34 +214,22 @@ impl WavefrontPipelines {
     }
 }
 
-/// Bytes per (pixel, sample) tuple of [`WavefrontRayBuffers::stokes`], its widest field
-/// -- `tuples * 8` elements of `[f32; 4]` (an 8-channel Stokes vector per ray).
-/// [`super::GpuFrameRenderer::cap_byte_budget_for_wavefront`] caps a wavefront chunk's
-/// tuple count against this so `stokes`'s own buffer request never exceeds the device's
-/// `max_storage_buffer_binding_size` -- the same `max_storage_buffer_binding_size` is a
-/// PER-BINDING limit (`compute::create_buffer`'s validation is against one buffer at a
-/// time), so this constant only needs to track the single widest per-ray field, not a
-/// sum over all of them. `WavefrontRayBuffers::pending_light_mis_dir` (binding 34,
-/// `wavefront_transport.wgsl`'s light-MIS interior-direction hand-off), added alongside
-/// `pending_light_mis`, is `tuples` elements of `[f32; 4]` -- 16 bytes/tuple, well under
-/// this constant -- so it does not change the cap. `WavefrontRayBuffers::nee_xyz`
-/// (binding 35, the running Henyey-Greenstein scattering-point NEE total), added
-/// alongside it, is the same shape -- another 16 bytes/tuple, still well under this
-/// constant.
+/// Bytes per (pixel, sample) tuple of [`WavefrontRayBuffers::stokes`], the widest per-ray field:
+/// `tuples * 8` elements of `[f32; 4]`, an 8-channel Stokes vector per ray.
+///
+/// [`super::GpuFrameRenderer::cap_byte_budget_for_wavefront`] caps a chunk's tuple count with it so
+/// that `stokes` stays within `max_storage_buffer_binding_size`. That limit applies per binding, so
+/// tracking the widest field is enough. Fields of 16 bytes per tuple, such as
+/// `pending_light_mis_dir` (binding 34) and `nee_xyz` (binding 35), stay well under this constant.
 pub const WAVEFRONT_STOKES_BYTES_PER_TUPLE: usize = 8 * 16;
 
-/// The pure arithmetic [`super::GpuFrameRenderer::cap_byte_budget_for_wavefront`]
-/// wraps -- pulled out into a standalone function (taking the device's
-/// `max_storage_buffer_binding_size` as a plain `usize` rather than reading
-/// `self.ctx.device.limits()`) so `renderer::gpu::frame`'s adapter-free `#[cfg(test)]`
-/// module can exercise it with a FAKE limit, no real GPU device required. Caps
-/// `byte_budget_pixels` (already the megakernel-sized ceiling) down to however many
-/// pixels' worth of `spp` samples fit [`WavefrontRayBuffers::stokes`] (this module's
-/// widest per-tuple wavefront buffer, [`WAVEFRONT_STOKES_BYTES_PER_TUPLE`] bytes/tuple)
-/// within one storage-buffer binding -- see that function's own doc comment for why
-/// only `stokes` needs tracking. `.max(1)` at both intermediate steps: a pathologically
-/// tiny `max_binding_bytes` (or `spp == 0`) must still return a usable (if degenerate)
-/// cap rather than `0`, which would make every later chunk-sizing division by it panic.
+/// The pure arithmetic behind [`super::GpuFrameRenderer::cap_byte_budget_for_wavefront`].
+///
+/// Takes the storage binding limit as a plain `usize`, so the adapter-free tests in
+/// `renderer::gpu::frame` can pass a fake limit. Caps `byte_budget_pixels` to the pixels whose
+/// `spp` samples fit [`WavefrontRayBuffers::stokes`] (at [`WAVEFRONT_STOKES_BYTES_PER_TUPLE`]
+/// bytes per tuple) within one binding. The `.max(1)` steps keep a tiny limit or `spp == 0`
+/// from returning 0, which would make a later chunk-sizing division panic.
 #[must_use]
 pub fn wavefront_pixel_cap(max_binding_bytes: usize, spp: u32, byte_budget_pixels: usize) -> usize {
     let tuple_cap = (max_binding_bytes / WAVEFRONT_STOKES_BYTES_PER_TUPLE).max(1);
@@ -284,11 +296,10 @@ pub struct WavefrontRoundBindGroups {
     pub(super) finalize: wgpu::BindGroup,
 }
 
-/// Builds [`WavefrontRoundBindGroups`] -- split out of
-/// [`super::GpuFrameRenderer::dispatch_chunk_wavefront`] purely to keep that function under
-/// clippy's function-length limit (mirrors [`build_chunk_bind_group`]'s own reason for
-/// being a free function rather than inlined into its one call site), and split again
-/// into one function per bind group (below) for the same reason.
+/// Builds [`WavefrontRoundBindGroups`] for one chunk.
+///
+/// Split out of [`super::GpuFrameRenderer::dispatch_chunk_wavefront`] to keep that function
+/// under clippy's function-length limit, and split again into one function per bind group.
 #[expect(
     clippy::too_many_arguments,
     reason = "one parameter per distinct buffer source this chunk's four bind groups draw \
@@ -298,7 +309,6 @@ pub struct WavefrontRoundBindGroups {
               same reasoning ChunkFrameState/TransportDispatchArgs/TurnSetup already \
               document elsewhere in this module tree"
 )]
-/// Builds the wavefront round bind groups for the check.
 pub fn build_wavefront_round_bind_groups(
     device: &wgpu::Device,
     pipelines: &WavefrontPipelines,
@@ -338,21 +348,13 @@ pub fn build_wavefront_round_bind_groups(
     }
 }
 
-/// `wavefront_bounce`'s bind group -- everything `transport_bounce_step`/
-/// `transport_finalize_ray` can reach, plus this pipeline's own per-round state.
+/// `wavefront_bounce`'s bind group: everything `transport_bounce_step` and
+/// `transport_finalize_ray` can reach, plus this pipeline's per-round state.
 ///
-/// Includes `camera` (binding 0): `wavefront_bounce` recomputes this ray's
-/// `observer = -transport_generate_ray(ray_idx).dir` fresh every bounce round (mirroring
-/// `transport_main`'s own `observer = -gen.dir`, see `wavefront_transport.wgsl`'s
-/// `wavefront_bounce`), and `transport_generate_ray` reads `camera` (via
-/// `generate_camera_ray`) and `params` (`camera.num_samples`/`params.pixel_offset`/
-/// `params.sample_offset`) to reconstruct the ray's pixel/sample indices. Omitting it
-/// made the auto-derived pipeline layout (which naga computes from what the entry
-/// point's call graph actually reaches, not from this list) require a binding this bind
-/// group never provided -- a `wgpu` validation error on every `Wavefront`-pipeline
-/// dispatch (the wgpu-side symptom `examples/gpu_equivalence_harness.rs`'s
-/// `run_pipeline_equivalence` hit as `DeviceLost`, before `GpuContext::
-/// last_uncaptured_error` existed to surface the actual wgpu message).
+/// Includes `camera` (binding 0). `wavefront_bounce` recomputes each ray's observer direction
+/// through `transport_generate_ray`, which reads `camera` and `params` to rebuild the ray's
+/// pixel and sample indices. The auto-derived pipeline layout requires every binding the entry
+/// point's call graph reaches, so omitting `camera` fails wgpu validation on every dispatch.
 #[expect(
     clippy::too_many_arguments,
     reason = "see build_wavefront_round_bind_groups' own #[expect] just above"
@@ -456,17 +458,13 @@ fn wavefront_compact_scatter_bind_group(
     )
 }
 
-/// `wavefront_finalize_survivors`'s bind group -- reaches `params`/the four output
-/// buffers (via `transport_finalize_ray`) plus its own per-ray scratch, but none of
-/// `camera`/`material`/`planes`/`facet_finishes`/HDR environment (a survivor's own
-/// physics already ran inside `wavefront_bounce`; finalizing just integrates and
-/// writes out what it already accumulated). Includes `rays.nee_xyz` (binding 35):
-/// unlike `rays.pending_light_mis_dir` (binding 34, an interior-only hand-off this
-/// entry point never reads), `wavefront_finalize_survivors` reads `ray_nee_xyz`
-/// directly to fold a surviving ray's accumulated NEE total into its final output
-/// (`wavefront_transport.wgsl`'s own `nee_xyz` local there) -- so it must be bound
-/// here too, or the implicit pipeline layout `wgpu` derives for this entry point
-/// leaves this bind group short one entry.
+/// `wavefront_finalize_survivors`'s bind group: the params and output buffers that
+/// `transport_finalize_ray` writes, plus its per-ray scratch. It binds no scene buffers,
+/// because a survivor's physics already ran in `wavefront_bounce`.
+///
+/// It binds `rays.nee_xyz` (35). This entry point reads a surviving ray's accumulated NEE
+/// total, and the implicit pipeline layout `wgpu` derives needs every binding it reaches.
+/// `pending_light_mis_dir` (34) is not bound because this entry point never reads it.
 fn wavefront_finalize_bind_group(
     device: &wgpu::Device,
     pipelines: &WavefrontPipelines,

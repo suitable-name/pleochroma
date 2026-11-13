@@ -136,11 +136,11 @@ pub struct RenderSetup {
     pub registry: Option<Arc<crate::coordinator::Registry>>,
     /// Request execution over the own lane and joined workers.
     pub coordinator: Arc<crate::coordinator::Coordinator>,
-    /// The HDR asset cache (v14): opened with `--render` or a worker port (the
-    /// coordinator holds HDR jobs' maps through it), `None` otherwise (and when
-    /// it cannot be opened), in which case HDR scenes are refused.
+    /// The HDR asset cache: opened with `--render` or a worker port (the coordinator holds
+    /// HDR jobs' maps through it), `None` otherwise (and when it cannot be opened), in which
+    /// case HDR scenes are refused.
     pub assets: Option<Arc<crate::assets::AssetCache>>,
-    /// The durable job service (v25): opened with `--render` (jobs render on the own lane),
+    /// The durable job service: opened with `--render` (jobs render on the own lane),
     /// `None` otherwise (and when its directory cannot be opened), in which case job requests
     /// are refused.
     pub jobs: Option<Arc<crate::jobs::JobService>>,
@@ -230,22 +230,15 @@ pub fn run_accept_loop(listener: &TcpListener, shared: &Arc<ViewerListener>) {
 /// Dispatches one just-accepted `stream` on the listener's transport and spawns its own
 /// thread running the viewer handler.
 ///
-/// `pre_auth` (the per-address and global pre-authentication counts) is held until the
-/// peer has authenticated and then released, so an authenticated connection counts only
-/// against the real `--max-connections` cap for the rest of its life; a connection that
-/// never authenticates releases it when its thread ends. `pre_acquired_slot` is
-/// the REAL cap's verdict, decided in the accept loop -- but only for
-/// `Transport::Insecure` (`Some`). For `Transport::Tls` (`None` here), the real cap is
-/// acquired INSIDE the thread, only after [`accept_tls`] itself has succeeded (handshake
-/// AND allowlist): reserving it any earlier would let a burst of bare TCP connects hold
-/// every real slot for up to `HANDSHAKE_TIMEOUT`, locking out certificate-holding
-/// viewers. `Err(active)` goes to [`connection::refuse_for_capacity`] instead.
+/// `pre_auth` is released once the peer has authenticated, so an authenticated connection
+/// counts only against `--max-connections`. `pre_acquired_slot` holds the real cap's verdict
+/// for `Transport::Insecure` (`Some`). For TLS it is `None`: the real slot is acquired inside
+/// the thread, after [`accept_tls`] succeeds. Reserving it earlier would let bare TCP connects
+/// hold every real slot for up to `HANDSHAKE_TIMEOUT`, locking out certificate-holding
+/// viewers. `Err(active)` goes to [`connection::refuse_for_capacity`].
 ///
-/// Authentication is complete when [`accept_tls`] returns (the certificate chain, its
-/// role and the allowlist are all checked there); the `HELLO` that follows only gates
-/// protocol and build compatibility, and runs on a connection that already holds its
-/// real slot. `Transport::Insecure` has no authentication, so its pre-authentication
-/// counts are released as soon as its real slot is granted.
+/// Authentication is complete when [`accept_tls`] returns; the `HELLO` that follows runs on a
+/// connection that already holds its real slot.
 fn spawn_connection_handler(
     stream: TcpStream,
     peer: Option<SocketAddr>,

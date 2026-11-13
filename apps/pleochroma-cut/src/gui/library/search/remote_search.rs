@@ -26,22 +26,16 @@ use pleochroma_vault::{
 use slint::{ComponentHandle, ModelRc, VecModel};
 use tracing::error;
 
-/// The remote counterpart of `super::dispatch::refresh_diagram_list`: one
-/// `LibraryRequest::Search` against `worker`, off the UI thread. Shares the same
-/// 1000-result cap as the local query -- both are ultimately backed by
-/// `Database::search_diagrams`. `pub(in crate::gui)`, not private: also called directly from
-/// `gui::library::remote` right after a source switch succeeds, when the caller already
-/// has the `WorkerSettings` in hand and can skip
-/// `super::refresh_diagram_list_via_source`'s `LibrarySource` re-check.
+/// The remote counterpart of `super::dispatch::refresh_diagram_list`.
 ///
-/// Captures [`bump_search_seq`] BEFORE the request is even built (matching
-/// `super::dispatch::refresh_diagram_list`'s own "bump unconditionally, before the
-/// async work starts" rule) and checks [`is_current_search`] inside the reply closure
-/// before any model write. Without this, a slow remote reply could land after a newer
-/// keystroke (or after the cutter switched back to the local library entirely -- see
-/// `remote::setup_library_source_callbacks`'s own bump on every source switch) and
-/// overwrite the current list with stale REMOTE entry ids that a local-source guard
-/// would then happily act on (`toggle_ignored`/`delete_diagram` in `local::organize`).
+/// It sends one `LibraryRequest::Search` to `worker`, off the UI thread. The result is capped
+/// like the local query. `pub(in crate::gui)` because `gui::library::remote` calls it directly
+/// after a source switch, when it already has the `WorkerSettings`.
+///
+/// The sequence is bumped before the request is built, and the reply is checked with
+/// [`is_current_search`] before any model write. Otherwise a slow reply could overwrite a
+/// newer list, or the list of a library the cutter has since left. Stale remote entry ids
+/// there could be acted on by the local-only actions in `local::organize`.
 pub(in crate::gui) fn refresh_diagram_list_remote(
     ui: &MainWindow,
     worker: WorkerSettings,
@@ -61,10 +55,8 @@ pub(in crate::gui) fn refresh_diagram_list_remote(
         gear_filter.to_string()
     };
     let range = to_range_wire(&read_range_filter(ui));
-    // `apps/pleochroma-worker`'s `serve::library` applies both the sort order and the
-    // tag chip (see `LibraryRequest::Search`'s own doc comment), so a remote search
-    // honours them exactly like `refresh_diagram_list`'s local counterpart does via
-    // `Database::search_diagrams_display`.
+    // The worker applies the sort order and the tag chip (see `LibraryRequest::Search`), so
+    // a remote search honours them like the local one.
     let request = LibraryRequest::Search {
         query: search.to_string(),
         shape_filter: clean_shape,
@@ -90,22 +82,14 @@ pub(in crate::gui) fn refresh_diagram_list_remote(
                     .set_diagram_list(ModelRc::new(VecModel::from(slint_items)));
                 ui.global::<LibraryModel>()
                     .set_total_count(slint_count(total));
-                // No server-side "real match count" exists yet for a remote source --
-                // `LibraryResponse::SearchResults` carries only the capped item list
-                // (see `pleochroma_net::library`'s wire types), not a separate
-                // `COUNT(*)` the way `Database::count_matching_diagrams` provides
-                // locally. Setting it to this same capped `total`
-                // keeps the property populated with a truthful lower bound rather than
-                // stale/zero, matching this path's pre-existing `total_count` behaviour
-                // -- a real fix needs a new field on that wire response, out of scope
-                // for this crate alone (`pleochroma-net`/`pleochroma-worker`).
+                // The reply carries only the capped list, not a match count. The capped
+                // `total` is shown as a lower bound. An exact count needs a new wire field
+                // in `pleochroma-net`.
                 ui.global::<LibraryModel>()
                     .set_matched_count(slint_count(total));
-                // `DesignSummary::ignored` and this reply's `excluded_for_missing_curves`
-                // let a remote-sourced list drive the same ignored-row styling and
-                // missing-curves notice the local path (`refresh_diagram_list` below)
-                // already does. The count is `SEARCH_RESULT_CAP`-bounded, so the
-                // `cast_signed` never wraps.
+                // `DesignSummary::ignored` and the missing-curves count give a remote list the
+                // same styling and notice as a local one. The count is capped, so
+                // `cast_signed` cannot wrap.
                 ui.global::<LibraryModel>()
                     .set_performance_excluded_count(excluded_for_missing_curves.cast_signed());
             }
@@ -122,10 +106,10 @@ pub(in crate::gui) fn refresh_diagram_list_remote(
     });
 }
 
-/// Maps a local [`RangeFilter`] onto the wire [`RangeFilterWire`] a remote
-/// [`LibraryRequest::Search`]/`SearchPage` carries; `apps/pleochroma-worker`'s
-/// `serve::library::from_range_wire` is the other half of this pair. Not `const`:
-/// mapping `performance` element-wise needs an allocation.
+/// Maps a local [`RangeFilter`] onto the wire [`RangeFilterWire`] of a remote search.
+///
+/// The worker's `serve::library::from_range_wire` reverses it. This is not `const`, since
+/// mapping `performance` needs an allocation.
 fn to_range_wire(range: &RangeFilter) -> RangeFilterWire {
     RangeFilterWire {
         ri_min: range.ri_min,
@@ -146,11 +130,9 @@ fn to_range_wire(range: &RangeFilter) -> RangeFilterWire {
     }
 }
 
-/// Maps a local [`SortOrder`] (as `super::filters::read_sort_order` reads it off the
-/// header toolbar's sort selector) onto the wire [`SortOrderWire`] a remote
-/// [`LibraryRequest::Search`] carries -- `apps/pleochroma-worker`'s
-/// `serve::library` is the other half of this pair, mirroring `to_range_wire`'s own
-/// local/wire split just above.
+/// Maps a local [`SortOrder`] onto the wire [`SortOrderWire`] of a remote search.
+///
+/// The worker maps it back to a `SortOrder`.
 const fn to_sort_order_wire(order: SortOrder) -> SortOrderWire {
     match order {
         SortOrder::CatalogueOrder => SortOrderWire::CatalogueOrder,

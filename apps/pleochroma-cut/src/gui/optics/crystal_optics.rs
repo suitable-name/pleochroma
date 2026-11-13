@@ -1,17 +1,15 @@
-//! Crystal-classification <-> persistence conversions for the custom-material editor
-//! (letting a user set `crystal_system`/`optical_character`/
-//! `biaxial_delta_beta_alpha` explicitly instead of only ever getting
-//! `GemMaterial::new_custom`'s two-variant inference).
+//! Crystal-classification <-> persistence conversions for the custom-material editor.
 //!
-//! `pleochroma-vault`'s `CustomMaterialRow` deliberately does not depend on `pleochroma`
-//! (see that struct's own doc comment), so it stores `crystal_system`/
-//! `optical_character` as plain `Option<String>` -- a `pleochroma` enum variant's `Debug`
-//! name, e.g. `"Trigonal"`. This module is where the Slint-combo-index <-> enum
-//! conversions live; the string <-> enum ones (and the library row -> `GemMaterial`
-//! build, shared with the command line) are in `pleochroma_cut_core::material`. No
-//! dependency on Slint itself -- pure data, exercised directly by the unit tests,
-//! matching this app's `gui::optics::c_axis`/`gui::render::sample_scale` precedent for
-//! where such a helper lives.
+//! The editor sets `crystal_system`, `optical_character` and `biaxial_delta_beta_alpha`
+//! explicitly. Without explicit values, `GemMaterial::new_custom` infers them from the
+//! birefringence.
+//!
+//! `pleochroma-vault`'s `CustomMaterialRow` does not depend on `pleochroma`, so it stores
+//! `crystal_system` and `optical_character` as plain `Option<String>`: a `pleochroma` enum
+//! variant's `Debug` name, e.g. `"Trigonal"`. This module holds the Slint combo-index <-> enum
+//! conversions. The string <-> enum ones and the library row -> `GemMaterial` build live in
+//! `pleochroma_cut_core::material`, shared with the command line. No Slint dependency: pure
+//! data, exercised directly by the unit tests.
 
 use pleochroma::optics::{
     chromophore::ChromophoreCatalogue,
@@ -110,26 +108,19 @@ pub const fn is_biaxial(oc: OpticalCharacter) -> bool {
     )
 }
 
-/// Builds a `GemMaterial` from a persisted `CustomMaterialRow`, applying
-/// `GemMaterial::new_custom`'s own two-variant inference (Cubic/Trigonal crystal
-/// system, Isotropic/Uniaxial+-/- optical character from the sign of
-/// `birefringence`) for any crystal-optics field the row doesn't have stored.
+/// Builds a `GemMaterial` from a persisted `CustomMaterialRow`.
 ///
-/// This is what keeps a custom material saved before these fields existed rendering
-/// bit-identically: such a row's `crystal_system`/`optical_character`/
-/// `biaxial_delta_beta_alpha` are all `None` (the column didn't exist yet, so the
-/// migration left them `NULL` -- see `Database::migrate_crystal_optics_columns`), so
-/// every one of those three fields on the returned `GemMaterial` stays exactly what
-/// `new_custom` already infers, unchanged.
+/// A crystal-optics field the row stores as `NULL` (the columns added by
+/// `Database::migrate_crystal_optics_columns`) keeps what `GemMaterial::new_custom` infers from
+/// `birefringence`, so an older row renders unchanged.
 ///
-/// A row whose `dispersion_model_json` holds a usable Sellmeier or Cauchy model builds its
-/// curve with `GemMaterial::new_custom_with_dispersion`; a row without one (every row saved
-/// before the column existed, and every refractive-index-and-dispersion row) or with one
-/// that fails `DispersionModel::validate` takes the `new_custom` path from `refractive_index`
-/// and `dispersion`, exactly as before.
+/// A row whose `dispersion_model_json` holds a usable Sellmeier or Cauchy model builds its curve
+/// with `GemMaterial::new_custom_with_dispersion`. Without one, or when the model fails
+/// `DispersionModel::validate`, the curve is `new_custom`'s fit of `refractive_index` and
+/// `dispersion`.
 ///
-/// The work is `pleochroma_cut_core::material::LibraryMaterial::gem_material`, which the
-/// command line shares; this function only copies the row's fields into it.
+/// The work is `pleochroma_cut_core::material::LibraryMaterial::gem_material`, shared with the
+/// command line; this function only copies the row's fields into it.
 #[must_use]
 pub fn gem_material_from_row(row: &CustomMaterialRow) -> GemMaterial {
     library_material(row).gem_material()
@@ -192,29 +183,21 @@ pub fn stored_default_orientation_of(
     stored_default_orientation(&rows, name)
 }
 
-/// Saves `material`'s crystal-optics fields (name, RI, dispersion, birefringence,
-/// absorption, plus the three crystal-optics fields) via [`Database::save_custom_material`],
-/// converting `crystal_system`/`optical_character` to their persisted string form and
-/// passing `biaxial_delta_beta_alpha` through as-is (already `None` for every
-/// non-biaxial material).
+/// Test-only form of [`save_gem_material_fields`] without a dispersion model or render-physics
+/// columns.
 ///
-/// `ri`/`dispersion`/`birefringence`/`absorption_rgb` are NOT redundant with `material`
-/// itself, so this stays four loose scalars alongside `&GemMaterial` rather than reading
-/// them back off it: the caller's dialog builds `material` FROM these exact scalars via
-/// `GemMaterial::new_custom`, which expands each into a richer, non-invertible
-/// representation (`dispersion` a full `DispersionModel` curve, `absorption_rgb` an
-/// `AbsorptionTensor`) -- there is no `material.dispersion_scalar`/`material.absorption_rgb`
-/// to read these back from, only the curve/tensor they were expanded into. Persisting the
-/// original edit-buffer values (rather than, say, sampling the curve back down to one
-/// number) is what lets a later load reconstruct the identical `GemMaterial` via the same
-/// `new_custom` constructor.
+/// Saves `material`'s name and crystal-optics fields via [`Database::save_custom_material`],
+/// with `crystal_system` and `optical_character` as their stored names.
+/// `biaxial_delta_beta_alpha` is stored as given (`None` for every non-biaxial material).
+///
+/// `ri`, `dispersion`, `birefringence` and `absorption_rgb` are passed loose because
+/// `GemMaterial::new_custom` expands each into a curve or tensor that cannot be inverted. The
+/// edit-buffer values are persisted as typed, so a later load rebuilds the identical material
+/// through the same constructor.
 ///
 /// # Errors
 ///
 /// Returns whatever [`Database::save_custom_material`] returns.
-///
-/// The editor saves through [`save_gem_material_fields`] (which also carries the dispersion
-/// model); this loose-scalar form is what the tests that predate the model still call.
 #[cfg(test)]
 #[expect(
     clippy::too_many_arguments,
@@ -272,8 +255,8 @@ pub struct MaterialSaveFields<'a> {
     /// The dispersion model as the JSON `dispersion_model_to_json` writes, or `None` for
     /// the plain refractive-index-and-dispersion path.
     pub dispersion_model_json: Option<&'a str>,
-    /// The seven-band body colour as the JSON `absorption_bands_to_json` writes, or `None` for "no
-    /// bands" (the triple colours the material).
+    /// The body colour bands as the JSON `absorption_bands_to_json` writes; `None` means no bands,
+    /// and the triple colours the material.
     pub absorption_bands_json: Option<&'a str>,
     /// The default crystal-axis tilt in degrees, or `None` for the material's built-in axis.
     pub c_axis_tilt_deg: Option<f32>,
@@ -303,8 +286,8 @@ fn carried<'a>(new: Option<&'a str>, stored: Option<&'a str>) -> Option<&'a str>
     }
 }
 
-/// [`save_gem_material`] with the dispersion model: the same row, plus the
-/// `dispersion_model_json` column.
+/// Saves `material` with the editor's values ([`MaterialSaveFields`]), including the dispersion
+/// model and the render-physics columns.
 ///
 /// # Errors
 ///
@@ -392,21 +375,12 @@ pub fn custom_material_fluorescence_from_rows(
         .collect()
 }
 
-/// Builds `RenderContext::custom_material_specific_gravity`'s value from a set of
-/// custom-material database rows: every row that has a recorded
-/// [`CustomMaterialRow::specific_gravity`], paired with its name.
+/// The entries of `RenderContext::custom_material_specific_gravity` from custom-material rows:
+/// every row with a recorded [`CustomMaterialRow::specific_gravity`], paired with its name.
 ///
-/// The read-side half of getting a custom material's specific gravity from the
-/// database into the carat-weight estimate -- see `RenderContext::
-/// custom_material_specific_gravity`'s own doc comment for the full picture and why
-/// this is a parallel side channel rather than a field on [`GemMaterial`] itself.
-/// Called by `gui::optics::custom_materials`'s save/delete callbacks, so the side
-/// channel never drifts out of sync with `custom_materials` itself, AND by
-/// `gui::mod`'s startup load (`build_main_window`), from the exact same row read
-/// that builds `initial_custom_mats` -- so `RenderContext::
-/// custom_material_specific_gravity` is populated from the very first frame,
-/// rather than starting empty until this session's own save/delete callback runs
-/// at least once.
+/// Specific gravity is a side channel beside [`GemMaterial`], read by the carat-weight estimate.
+/// It is rebuilt from the rows on every save, delete and startup load, so it never drifts from
+/// the library.
 #[must_use]
 pub fn custom_material_specific_gravity_from_rows(
     rows: &[CustomMaterialRow],
@@ -507,12 +481,8 @@ mod tests {
         assert!(!is_biaxial(OpticalCharacter::UniaxialNegative));
     }
 
-    /// The load-time regression this whole module exists to guarantee: an existing
-    /// custom material has no stored crystal system; when one is absent, fall back to
-    /// exactly what `new_custom` infers today, so nothing a user already saved changes
-    /// appearance. A row with all three crystal-optics fields `None` -- exactly what
-    /// every such row looks like after the migration -- must produce a `GemMaterial`
-    /// identical to calling `new_custom` directly.
+    /// A row whose three crystal-optics fields are `None` must produce the same `GemMaterial`
+    /// as calling `new_custom` directly, so its appearance does not change.
     #[test]
     fn row_with_no_stored_crystal_optics_falls_back_to_new_custom_inference() {
         let row = CustomMaterialRow {
@@ -549,7 +519,7 @@ mod tests {
             from_row.biaxial_delta_beta_alpha,
             inferred.biaxial_delta_beta_alpha
         );
-        // Sanity: this legacy row's negative birefringence must have inferred
+        // Sanity: this row's negative birefringence must have inferred
         // Trigonal/UniaxialNegative, not silently fallen back to isotropic Cubic.
         assert_eq!(from_row.crystal_system, CrystalSystem::Trigonal);
         assert_eq!(
@@ -558,16 +528,11 @@ mod tests {
         );
     }
 
-    /// A row WITH stored crystal-optics fields must override `new_custom`'s inference
-    /// -- the whole point of this feature -- including reaching a `BiaxialPositive`/
-    /// `Some(delta)` combination `new_custom` itself can never produce on its own.
+    /// Stored crystal-optics fields override `new_custom`'s inference, including a
+    /// `BiaxialPositive` with `Some(delta)`, which `new_custom` never produces on its own.
     ///
-    /// The final assertion reflects that `gpu_supported()` supports biaxial materials
-    /// (see `pleochroma::optics::materials::GemMaterial::gpu_supported`'s own
-    /// doc comment for the eigenvector-conditioning fix that makes this safe), so a
-    /// row with
-    /// `biaxial_delta_beta_alpha = Some(_)` is GPU-supported like every other material,
-    /// not excluded from it.
+    /// The final assertion: a biaxial character alone does not decline the GPU path (only band
+    /// count and zoning do, see `gpu_material_decline`).
     #[test]
     fn row_with_stored_crystal_optics_overrides_new_custom_inference() {
         let row = CustomMaterialRow {
@@ -625,9 +590,8 @@ mod tests {
         }
     }
 
-    /// Only rows with a recorded SG contribute an entry -- a row with `None` (the
-    /// state every save through this app produces today, per `save_gem_material`'s
-    /// own doc comment) is skipped rather than showing up as a spurious `Some(0.0)`.
+    /// Only rows with a recorded SG contribute an entry: a row with `None` (no gravity typed)
+    /// is skipped rather than shown as a spurious `Some(0.0)`.
     #[test]
     fn only_rows_with_a_recorded_sg_produce_an_entry() {
         let rows = [
@@ -761,7 +725,7 @@ mod tests {
         assert!((rows[0].refractive_index - model.n_d()).abs() < 1e-6);
         assert!((rows[0].dispersion - model.delta_f_c()).abs() < 1e-6);
 
-        // Back to the plain path: the legacy saver writes no model.
+        // Back to the plain path: the plain save writes no model.
         save_gem_material(&db, &material, 1.5168, 0.008, 0.0, [0.0; 3], None, None)
             .expect("save plain");
         let rows = db.get_custom_materials().expect("read again");

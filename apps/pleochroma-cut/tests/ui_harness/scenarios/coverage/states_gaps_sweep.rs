@@ -1,12 +1,12 @@
-//! The Angle Sweep dialog's Two Tiers mode for the elements run 8 left uncovered (lane H5 of the
-//! 2026-10-28 findings): the Across and Down tier combos, the heat map's focus, the Figure combo,
-//! "Outline the Best Cells", "Use These Angles" and "Refine Around This", and the tilt question's
-//! "Run Anyway" and "Cancel".
+//! The Angle Sweep dialog's Two Tiers mode.
 //!
-//! Why they were unreached: the one-tier states of `states_dialogs.rs` never leave One Tier, the
-//! `dialogs_sweep_two_tiers` scenario switches the mode but runs no sweep (so there was no heat
-//! map, no figure choice and nothing to use or refine), and the tilt question only appears for a
-//! sweep of more than 100 angle pairs with the tilt averages on, which no state asked for.
+//! Covers the controls that no other state reaches: the Across and Down tier combos, the heat
+//! map's focus, the Figure combo, "Outline the Best Cells", "Use These Angles" and
+//! "Refine Around This", and the tilt question's "Run Anyway" and "Cancel".
+//!
+//! Why they were unreached: the one-tier states of `states_dialogs.rs` never leave One Tier, and
+//! the heat map, the figure choice and the use or refine buttons need a finished sweep. The tilt
+//! question appears only for a long sweep with the tilt averages on, which no state asked for.
 //!
 //! The two click-through states below open the dialog in Two Tiers with the smallest grid the form
 //! accepts (the design's own angles and the step below them: two angles per tier, four pairs), so

@@ -169,9 +169,9 @@ fn coordinator_count(slot_count: usize, rollout_size: usize, cpu_width: usize) -
 
 /// Whether step `local_step` of `slot` is labelled. `label_phase` counts the passes of earlier
 /// rollouts (it advances by the longest quota), so `label_phase + local_step` is the global pass
-/// of the step and [`labels_pass`] spreads the labels evenly over the slots and over each slot's
-/// steps whatever the slot count; the slot count must not enter, or with 27 slots and period 2
-/// the same slots would label every step of every rollout.
+/// of the step. [`labels_pass`] spreads the labels evenly over the slots and over each slot's
+/// steps. The slot count must not enter the phase: with 27 slots and period 2 the same slots
+/// would label every step of every rollout.
 const fn stream_labelled(every: usize, label_phase: usize, slot: usize, local_step: usize) -> bool {
     labels_pass(every, label_phase.wrapping_add(local_step), slot)
 }
@@ -330,8 +330,8 @@ fn commit_records(
         }
     }
     if cancelled {
-        // Cancellation keeps exact labels for states already evaluated, matching the legacy
-        // partial-rollout behavior, but leaves report counters and PPO state untouched.
+        // A cancelled rollout keeps the exact labels of the states it evaluated, and their count,
+        // but not the rollout's report counters or PPO state.
         runner.stats.labelled_samples = runner.aggregate.len();
     }
 }
@@ -994,7 +994,7 @@ mod tests {
     #[test]
     fn the_label_phase_continues_each_full_slots_stride_across_rollouts() {
         // 27 slots and 256 steps: slots 0..13 take 10 steps, so the phase advances by 10 per
-        // rollout. The old sample-index schedule labelled slots 0, 2, .., 26 on every step.
+        // rollout, and every slot keeps its own stride across rollouts.
         let quotas = fixed_quotas(256, 27);
         let passes = quotas.iter().copied().max().unwrap_or(0);
         for every in 1..=4 {
@@ -1040,8 +1040,8 @@ mod tests {
 
     #[test]
     fn a_slow_slot_does_not_block_an_unrelated_ready_slot() {
-        // Slots 0 and 27 previously shared a lane. While slot 0 is in flight,
-        // any freed coordinator must be able to take slot 27.
+        // Slots 0 and 27 are unrelated: while slot 0 is in flight, a free coordinator
+        // must still take slot 27.
         let mut ready: VecDeque<_> = (0..54).collect();
         assert_eq!(
             take_ready_batch(&mut ready, 27),

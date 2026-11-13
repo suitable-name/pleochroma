@@ -102,9 +102,8 @@ impl PendingDelta {
     /// contents on the way in are never inspected, since [`Self::add`]'s first call
     /// after this always overwrites the whole buffer via `copy_from_slice`.
     ///
-    /// The O(1) alternative to a take-then-clone: [`EmitterAccum`] is the one caller,
-    /// and this is what keeps `emit_tick`'s only work under the shared `Mutex` to the
-    /// swap plus reading `samples_done`.
+    /// The only caller is [`EmitterAccum::swap_and_fold`]. The swap keeps the shared
+    /// `Mutex` held for O(1) work, not a copy.
     pub(in crate::stream_emit) fn swap_with(
         &mut self,
         spare: &mut Vec<Vec3>,
@@ -152,7 +151,7 @@ pub(in crate::stream_emit) struct EmitterAccum {
 }
 
 impl EmitterAccum {
-    /// Test-only: an accumulator whose payloads go out raw (the pre-v14 behaviour).
+    /// Test-only: an accumulator whose payloads go out raw, with no compression.
     #[cfg(test)]
     pub(in crate::stream_emit) fn new(pixel_count: usize) -> Self {
         Self::with_link(

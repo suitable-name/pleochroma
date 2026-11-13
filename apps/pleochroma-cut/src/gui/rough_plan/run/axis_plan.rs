@@ -3,8 +3,8 @@
 //! asks for.
 //!
 //! A plan whose rough has no orientation, or whose rules are all the default, goes through none of
-//! this beyond the checks that find there is nothing to do: its layouts are exactly what they were
-//! before the axis existed.
+//! this beyond the checks that find there is nothing to do, so its layouts are those of a plan
+//! without an axis.
 
 use super::{
     PlanJob, candidates_from,
@@ -56,9 +56,9 @@ pub(super) fn plan_base(job: &PlanJob) -> Result<PlanBase, String> {
 }
 
 /// Gives every design the rule it is cut under (the plan's rule, or its own), so the search sees
-/// it. Nothing changes while the rough's orientation is Unknown, the axis is ignored, or the
-/// material has no rule. The material is the built-in one of the job's name or the library's (a
-/// custom material has a rule of its own), and a design is placed by its own caliper turn and
+/// it. Nothing changes while the rough has no orientation, or when the material has no rule.
+/// The material is the built-in one of the job's name or the library's (a custom material has
+/// a rule of its own), and a design is placed by its own caliper turn and
 /// centre (`design_placements`), so a rule with an azimuth target is read in the design's own
 /// frame, on top of the four box poses of the stone.
 pub(super) fn resolve_designs(
@@ -97,7 +97,7 @@ pub(super) fn rules_by_design(designs: &[CandidateDesign]) -> BTreeMap<i64, Reso
 }
 
 /// The alternatives of a Preferred rule (Best Yield, Best Orientation, Balanced), for the cut
-/// order of the plan's best layout. None for a plan without a Preferred rule. `None` when the
+/// order of the plan's best layout. Empty for a plan without a Preferred rule; `None` when the
 /// plan was stopped.
 pub(super) fn alternatives(
     input: &PlanInput<'_>,

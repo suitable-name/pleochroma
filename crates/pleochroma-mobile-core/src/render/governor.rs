@@ -1,5 +1,5 @@
 //! The performance and battery governor: a pure function from the device's condition to
-//! how many render threads may run and whether tracing runs at all (plan section 4.10).
+//! how many render threads may run and whether tracing runs at all.
 //!
 //! Rules, in priority order:
 //! 1. In the background everything is paused.
@@ -8,7 +8,7 @@
 //! 3. Headroom of 0.95 or more leaves one worker; 0.85 or more halves the workers.
 //! 4. Battery saver caps the workers at two and asks for Draft quality.
 //!
-//! Solve, metrics and tilt threads are exempt: they are short and user-initiated.
+//! Only the render threads are governed; the solve, analysis and settings-writer threads are not.
 
 use super::PauseReason;
 
@@ -34,7 +34,7 @@ pub struct GovernorInputs {
     /// The device's CPU core count.
     pub cores: usize,
     /// The device's thermal headroom forecast (0.0 cool, 1.0 at the throttling threshold);
-    /// `None` when the device does not report it. NaN counts as `None`.
+    /// `None` when the device does not report it. NaN and infinite values count as `None`.
     pub thermal_headroom: Option<f32>,
     /// Whether the app is in the foreground.
     pub foreground: bool,

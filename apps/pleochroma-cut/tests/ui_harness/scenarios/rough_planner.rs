@@ -5,15 +5,15 @@
 //! `export_saved`, `import_saved` -- the callbacks its buttons call -- and the results are read
 //! back from the same model. File pickers get their answers queued first.
 //!
-//! The export/import suffixes are the app's own (`gui::rough_plan::saved::naming`), re-exported
+//! The export suffix comes from the app (`gui::rough_plan::saved::naming`) and is re-exported
 //! by `harness_support`.
 //! Saving under a name a saved plan already has asks "Replace Saved Plan?"
-//! (`confirm_overwrite_open`); `planner_save_and_reopen` answers Cancel and then Replace. The other
+//! (`confirm_overwrite_open`); `planner_save_and_reopen` answers Cancel, then Replace. The other
 //! replace question is "Plan again over results that were not saved" (`confirm_replace_open`).
 
 use super::{Piece, Scenario, dialogs, existing_install};
 use crate::support::{
-    Ctx, HarnessApp, Profile, SecondaryWindow,
+    Ctx, HarnessApp, Profile, SecondaryWindow, WindowView,
     app::{pump, wait_until},
     coverage, sample_designs, seed_library,
 };
@@ -25,12 +25,11 @@ use std::{fs, time::Duration};
 use uiprobe::backend::wait_until_labeled;
 
 use harness_support::ROUGH_PLAN_EXPORT_SUFFIX as EXPORT_SUFFIX;
-/// The first line of every plan file's header.
+/// The header line that marks a plan file; it is looked for in the first eight lines.
 const PLAN_FORMAT_LINE: &str = "format = \"pleochroma-rough-plan\"";
 
-/// How many pieces the planner click-everything pass (207 s in one piece, mostly relaunches with a
-/// plan) is cut into: each piece presses the controls whose key hashes into its part
-/// (`support::part`).
+/// Number of pieces the planner click-everything pass is split into, so each stays short. Each
+/// piece presses only the controls whose key hashes into its part (`support::part`).
 const CLICK_PARTS: usize = 3;
 
 /// The pieces of this file.
@@ -70,6 +69,24 @@ pub fn pieces() -> Vec<Piece> {
             name: "planner_open_in_editor",
             seed: existing_install,
             run: planner_open_in_editor,
+        }
+        .into(),
+        Scenario {
+            name: "planner_steps_summary",
+            seed: existing_install,
+            run: planner_steps_summary,
+        }
+        .into(),
+        Scenario {
+            name: "planner_tabs_menus_legend",
+            seed: existing_install,
+            run: planner_tabs_menus_legend,
+        }
+        .into(),
+        Scenario {
+            name: "planner_scan_report",
+            seed: existing_install,
+            run: planner_scan_report,
         }
         .into(),
     ];
@@ -423,8 +440,9 @@ fn planner_stone_cap(ctx: &mut Ctx<'_>) {
 }
 
 /// Plan again over results that were not saved asks to replace them (Keep leaves them
-/// untouched); Save All lists the plan; a second save under the same name asks to replace it (Cancel keeps the row, Replace leaves one plan);
-/// opening the saved plan brings back the same layouts and stone count.
+/// untouched); Save All lists the plan; a second save under the same name asks to replace it
+/// (Cancel keeps the row, Replace leaves one plan); opening the saved plan brings back the same
+/// layouts and stone count.
 fn planner_save_and_reopen(ctx: &mut Ctx<'_>) {
     if !ctx.relaunch_with_library(&sample_designs()) {
         return;
@@ -535,7 +553,7 @@ fn overwrite_question(ctx: &mut Ctx<'_>, window: &RoughPlannerWindow) -> bool {
         same_name == 1 && model.get_saved_plans().row_count() == before,
         "overwrite-one-plan",
         format!(
-            "after Replace {same_name} saved plan(s) are named {taken:?} and the list has {}              (was {before})",
+            "after Replace {same_name} saved plan(s) are named {taken:?} and the list has {} (was {before})",
             model.get_saved_plans().row_count()
         ),
     );
@@ -696,6 +714,559 @@ fn planner_open_in_editor(ctx: &mut Ctx<'_>) {
         );
     }
     ctx.check_health("planner open in editor");
+}
+
+// ---------------------------------------------------------------------------------------------
+// The redesigned window: steps, tabs, menus, legend and the scan report
+// ---------------------------------------------------------------------------------------------
+
+/// The folded line of step `step` (0 Rough, 1 Crystal Axis, 2 Shape Cuts, 3 Plan Settings).
+fn step_summary(model: &RoughPlanModel<'_>, step: usize) -> String {
+    model
+        .get_step_summary()
+        .row_data(step)
+        .map(|text| text.to_string())
+        .unwrap_or_default()
+}
+
+/// Whether step `step` is complete (its number shows a check).
+fn step_done(model: &RoughPlanModel<'_>, step: usize) -> bool {
+    model.get_step_done().row_data(step).unwrap_or(false)
+}
+
+/// Presses the header of the step called `title` the way a click does (its default accessible
+/// action), whatever number the window gives it (the numbers shift when the material has no
+/// crystal axis); `false` when no such header is on screen.
+fn press_step_header(window: &RoughPlannerWindow, title: &str) -> bool {
+    let view = WindowView::of("RoughPlannerWindow", window);
+    let header = (1..=4).find_map(|number| {
+        view.by_label(&format!("Step {number}: {title}"))
+            .into_iter()
+            .next()
+    });
+    header.is_some_and(|element| {
+        element.invoke_accessible_default_action();
+        pump(250);
+        true
+    })
+}
+
+/// Whether a control with this accessible label is in the planner's tree (a closed step builds no
+/// body, so the controls of a closed step are not).
+fn on_screen(window: &RoughPlannerWindow, label: &str) -> bool {
+    !WindowView::of("RoughPlannerWindow", window)
+        .by_label(label)
+        .is_empty()
+}
+
+/// The steps of the left column: their summary lines and check marks follow the model (a typed
+/// block, a cut, the plan settings, a size that is no number), the header line follows the rough,
+/// a click on a header opens that step and closes the others, and a closed step builds no
+/// controls.
+fn planner_steps_summary(ctx: &mut Ctx<'_>) {
+    if !ctx.relaunch_with_library(&sample_designs()) {
+        return;
+    }
+    let Some(window) = open_planner(ctx) else {
+        return;
+    };
+    let model = window.global::<RoughPlanModel>();
+    ctx.expect(
+        model.get_open_step() == 0
+            && model.get_step_done().row_count() == 4
+            && model.get_step_summary().row_count() == 4
+            && model.get_step_error().row_count() == 4,
+        "steps-start",
+        format!(
+            "a fresh planner should open step 0 with four entries per step list, not step {} / {} done / {} summaries / {} errors",
+            model.get_open_step(),
+            model.get_step_done().row_count(),
+            model.get_step_summary().row_count(),
+            model.get_step_error().row_count()
+        ),
+    );
+    ctx.wait_for(
+        "the Rough step asks for a shape and a size",
+        Duration::from_secs(5),
+        || !step_done(&model, 0) && step_summary(&model, 0).starts_with("Pick a shape"),
+    );
+
+    // A typed block: the Rough step is done and sums the block up, the header line names it.
+    model.invoke_set_base(0);
+    model.set_rough_x("40".into());
+    model.set_rough_y("30".into());
+    model.set_rough_z("25".into());
+    model.invoke_base_field_committed();
+    let sized = ctx.wait_for(
+        "the Rough step sums up the block",
+        Duration::from_secs(10),
+        || step_done(&model, 0) && step_summary(&model, 0).starts_with("Block "),
+    );
+    if sized {
+        ctx.expect(
+            model.get_rough_subtitle().contains("block"),
+            "steps-subtitle",
+            format!(
+                "the header line {:?} does not name the block",
+                model.get_rough_subtitle()
+            ),
+        );
+    }
+
+    // A size that is no number takes the check back; the block comes back with the number.
+    model.set_rough_x("abc".into());
+    model.invoke_base_field_committed();
+    ctx.wait_for(
+        "the Rough step loses its check for a size that is no number",
+        Duration::from_secs(10),
+        || !step_done(&model, 0),
+    );
+    model.set_rough_x("40".into());
+    model.invoke_base_field_committed();
+    ctx.wait_for(
+        "the Rough step is done again",
+        Duration::from_secs(10),
+        || step_done(&model, 0),
+    );
+
+    // Shape cuts: the count follows the model.
+    model.invoke_add_cut(0);
+    ctx.wait_for(
+        "the Shape Cuts step counts the cut",
+        Duration::from_secs(5),
+        || step_summary(&model, 2) == "1 cut",
+    );
+    model.invoke_remove_cut(0);
+    ctx.wait_for(
+        "the Shape Cuts step has no cut again",
+        Duration::from_secs(5),
+        || step_summary(&model, 2) == "No cuts yet",
+    );
+
+    // Plan settings: the caps and the candidate set, and the step is never open to complaint.
+    model.set_max_designs(2);
+    model.set_max_stones(0);
+    model.set_use_filter(false);
+    ctx.wait_for(
+        "the Plan Settings step names the caps and the whole library",
+        Duration::from_secs(5),
+        || {
+            let line = step_summary(&model, 3);
+            line.starts_with("Up to 2 designs") && line.contains("whole library")
+        },
+    );
+    ctx.expect(
+        step_done(&model, 3),
+        "steps-settings-done",
+        "the Plan Settings step is not done",
+    );
+
+    step_headers(ctx, &window, &model);
+    ctx.check_health("planner steps");
+}
+
+/// Touches the text fields called `labels` (each set to the value it holds) so the coverage pass
+/// counts them: the fields of a step exist only while its step is open.
+fn touch_fields(window: &RoughPlannerWindow, labels: &[&str]) {
+    let view = WindowView::of("RoughPlannerWindow", window);
+    for label in labels {
+        for field in view.by_label(label) {
+            let current = field.accessible_value().unwrap_or_default();
+            field.set_accessible_value(current);
+            coverage::record_touch(&field);
+            coverage::record_wrappers(&view.root, &field, true);
+        }
+    }
+    pump(100);
+}
+
+/// The headers: Plan Settings opens (its controls exist now, the Rough step's do not), the same
+/// header closes it, and the Rough header opens the first step again.
+fn step_headers(ctx: &mut Ctx<'_>, window: &RoughPlannerWindow, model: &RoughPlanModel<'_>) {
+    ctx.expect(
+        on_screen(window, "Rough X (mm)") && !on_screen(window, "Most Designs per Layout"),
+        "steps-body-of-open-step",
+        "step 0 should build its fields and the closed Plan Settings step none",
+    );
+    touch_fields(
+        window,
+        &["Rough X (mm)", "Rough Y (mm)", "Rough Z (mm)", "Carat (ct)"],
+    );
+    ctx.expect(
+        press_step_header(window, "Plan Settings") && model.get_open_step() == 3,
+        "steps-open-by-header",
+        format!(
+            "a press on the Plan Settings header left step {} open",
+            model.get_open_step()
+        ),
+    );
+    ctx.expect(
+        on_screen(window, "Most Designs per Layout") && !on_screen(window, "Rough X (mm)"),
+        "steps-body-follows-open-step",
+        "the opened Plan Settings step should build its controls and the closed Rough step none",
+    );
+    // The four losses fields sit behind the Losses "Edit" link.
+    model.set_losses_open(true);
+    pump(200);
+    touch_fields(
+        window,
+        &[
+            "Saw Kerf (mm)",
+            "Allowance / Side (mm)",
+            "Rough Skin (mm)",
+            "Min Stone Width (mm)",
+        ],
+    );
+    ctx.sweep_secondary(SecondaryWindow::RoughPlanner, "plan settings step open");
+    ctx.expect(
+        press_step_header(window, "Plan Settings") && model.get_open_step() == -1,
+        "steps-close-by-header",
+        format!(
+            "a second press on the open step's header left step {} open",
+            model.get_open_step()
+        ),
+    );
+    ctx.expect(
+        press_step_header(window, "Rough") && model.get_open_step() == 0,
+        "steps-reopen-rough",
+        format!(
+            "a press on the Rough header left step {} open",
+            model.get_open_step()
+        ),
+    );
+    ctx.sweep_secondary(SecondaryWindow::RoughPlanner, "rough step open");
+}
+
+/// A planned and saved block: the legend picks a design and picking it again clears it, the
+/// saved plan's menu exports (2), leaves rename to the window (1), opens (0, which also brings the
+/// Layouts tab back) and deletes (3), and Plan Again with More Time doubles the time limit.
+fn planner_tabs_menus_legend(ctx: &mut Ctx<'_>) {
+    if !ctx.relaunch_with_library(&sample_designs()) {
+        return;
+    }
+    let Some(window) = open_planner(ctx) else {
+        return;
+    };
+    if !plan_block(ctx, &window) {
+        return;
+    }
+    let model = window.global::<RoughPlanModel>();
+
+    // The legend: a pick lights a design, the same pick clears it.
+    model.invoke_select_result(0);
+    pump(400);
+    let before = model.get_legend_selected();
+    model.invoke_legend_picked(0);
+    let picked = ctx.wait_for("the legend picks a design", Duration::from_secs(5), || {
+        model.get_legend_selected() != before
+    });
+    if picked {
+        coverage::record_callback("RoughPlanModel.legend_picked");
+        ctx.expect(
+            model.get_legend_selected() == model.get_selected_group(),
+            "legend-matches-design-row",
+            format!(
+                "the legend shows design {} but the design row {}",
+                model.get_legend_selected(),
+                model.get_selected_group()
+            ),
+        );
+        model.invoke_legend_picked(0);
+        ctx.wait_for(
+            "the second legend pick puts it back",
+            Duration::from_secs(5),
+            || model.get_legend_selected() == before,
+        );
+    }
+
+    // The tabs and the saved plan's menu.
+    if !save_all(ctx, &window) {
+        return;
+    }
+    model.set_results_tab(1);
+    pump(250);
+    let plans = model.get_saved_plans().row_count();
+    model.invoke_saved_menu(0, 1);
+    pump(250);
+    ctx.expect(
+        model.get_saved_plans().row_count() == plans && model.get_error_text().is_empty(),
+        "saved-menu-rename",
+        "the Rename entry is the window's own inline rename: Rust should do nothing for action 1",
+    );
+    let path = ctx.scratch_file(&format!("menu{EXPORT_SUFFIX}"));
+    harness_support::queue_picker_path(&path);
+    model.invoke_saved_menu(0, 2);
+    let written = ctx.wait_for(
+        "the menu's Export writes the plan file",
+        Duration::from_secs(15),
+        || path.exists(),
+    );
+    if written {
+        coverage::record_callback("RoughPlanModel.saved_menu");
+        let text = fs::read_to_string(&path).unwrap_or_default();
+        ctx.expect(
+            text.lines()
+                .take(8)
+                .any(|line| line.trim() == PLAN_FORMAT_LINE),
+            "saved-menu-export-header",
+            format!("the file written by the menu has no {PLAN_FORMAT_LINE} header line"),
+        );
+    }
+    model.invoke_saved_menu(0, 0);
+    let opened = ctx.wait_for(
+        "the menu's Open opens the plan",
+        Duration::from_secs(15),
+        || !model.get_loaded_banner().is_empty(),
+    );
+    if opened {
+        ctx.expect(
+            model.get_results_tab() == 0,
+            "saved-menu-open-shows-layouts",
+            format!(
+                "an opened plan should bring the Layouts tab back, the window shows tab {}",
+                model.get_results_tab()
+            ),
+        );
+    }
+    model.set_results_tab(1);
+    pump(250);
+    let before_delete = model.get_saved_plans().row_count();
+    model.invoke_saved_menu(0, 3);
+    ctx.wait_for(
+        "the menu's Delete drops the plan",
+        Duration::from_secs(15),
+        || model.get_saved_plans().row_count() < before_delete,
+    );
+    ctx.sweep_secondary(SecondaryWindow::RoughPlanner, "saved plans tab");
+
+    cancel_a_running_plan(ctx, &window);
+    plan_again_with_more_time(ctx, &window);
+    ctx.check_health("planner tabs, menus and legend");
+}
+
+/// Presses the button called `label` the way a click does and records the press for the coverage
+/// pass; `false` when no such button is on screen.
+fn press_button(window: &RoughPlannerWindow, label: &str) -> bool {
+    let view = WindowView::of("RoughPlannerWindow", window);
+    let Some(button) = view.by_label(label).into_iter().next() else {
+        return false;
+    };
+    coverage::record_activation(&button);
+    coverage::record_wrappers(&view.root, &button, false);
+    button.invoke_accessible_default_action();
+    pump(250);
+    true
+}
+
+/// Starts a plan and presses "Cancel the Plan" while it runs: the run ends without an error and
+/// the layouts of the plan before stay. Does nothing when the plan finishes before the button is
+/// there (a plan of a small block is quick).
+fn cancel_a_running_plan(ctx: &mut Ctx<'_>, window: &RoughPlannerWindow) {
+    let model = window.global::<RoughPlanModel>();
+    model.invoke_plan();
+    pump(50);
+    if model.get_confirm_replace_open() {
+        model.invoke_confirm_replace(true);
+    }
+    let running = wait_until(Duration::from_secs(3), || model.get_running());
+    if running && press_button(window, "Cancel the Plan") {
+        ctx.wait_for(
+            "Cancel the Plan ends the run",
+            Duration::from_secs(30),
+            || !model.get_running(),
+        );
+    }
+    let _ = wait_until(Duration::from_secs(60), || !model.get_running());
+}
+
+/// Plan Again with More Time: the limit doubles and the plan runs again. A block rough hides the
+/// limit field, so the button doubles the stored limit; the scenario reads that limit first and
+/// expects twice it.
+fn plan_again_with_more_time(ctx: &mut Ctx<'_>, window: &RoughPlannerWindow) {
+    let model = window.global::<RoughPlanModel>();
+    model.set_results_tab(0);
+    model.set_stopped_at_limit(true);
+    let current: u32 = model.get_time_limit_secs().trim().parse().unwrap_or(120);
+    let expected = current.saturating_mul(2).min(86_400).to_string();
+    pump(250);
+    // The button element itself; the callback when the results column has no such button now.
+    if !press_button(window, "Plan Again with More Time") {
+        model.invoke_plan_more_time();
+    }
+    let doubled = ctx.wait_for(
+        "Plan Again with More Time doubles the scan time limit",
+        Duration::from_secs(15),
+        || model.get_time_limit_secs().as_str() == expected,
+    );
+    if doubled {
+        coverage::record_callback("RoughPlanModel.plan_more_time");
+        let _ = wait_until(Duration::from_secs(3), || model.get_confirm_replace_open());
+        if model.get_confirm_replace_open() {
+            model.invoke_confirm_replace(true);
+        }
+        let _ = wait_until(Duration::from_secs(60), || {
+            !model.get_running() && !model.get_stopped_at_limit()
+        });
+        ctx.expect(
+            !model.get_running() && !model.get_stopped_at_limit(),
+            "plan-more-time-replans",
+            "the plan started by Plan Again with More Time did not finish or kept the limit mark",
+        );
+    }
+}
+
+/// The OBJ of [`planner_scan_report`]: a cube of 10 units with one of its twelve triangles left
+/// out, a hole the import repairs and reports.
+const CUBE_WITH_HOLE_OBJ: &str = "\
+v 0 0 0
+v 10 0 0
+v 10 10 0
+v 0 10 0
+v 0 0 10
+v 10 0 10
+v 10 10 10
+v 0 10 10
+f 1 3 2
+f 1 4 3
+f 5 6 7
+f 5 7 8
+f 1 2 6
+f 1 6 5
+f 4 8 7
+f 4 7 3
+f 1 5 8
+f 1 8 4
+f 2 3 7
+";
+
+/// Presses the scan card's own "Choose File…" button before any scan is read; the picker is
+/// cancelled.
+///
+/// The card shows for base kind 3 only. `set_base` cannot give that kind (only the import
+/// does), so the kind is set on the model directly.
+fn scan_card_choose_file(
+    ctx: &mut Ctx<'_>,
+    window: &RoughPlannerWindow,
+    model: &RoughPlanModel<'_>,
+) {
+    model.set_base_kind(3);
+    // The scan card sits in the Rough step: a closed step builds no controls.
+    model.set_open_step(0);
+    pump(300);
+    let card_shown = on_screen(window, "Choose File\u{2026}");
+    ctx.expect(
+        card_shown,
+        "scan-choose-file",
+        "the scan card shows no Choose File\u{2026} button before a scan is read",
+    );
+    if card_shown {
+        harness_support::queue_picker_cancel();
+        press_button(window, "Choose File\u{2026}");
+        let _ = wait_until(Duration::from_secs(2), || {
+            harness_support::pending_picker_answers() == 0
+        });
+    }
+}
+
+/// A scan: importing a cube with a hole fills the scan card (file, size, verdict and an import
+/// report), the Rough step sums it up, Show turns the view to a finding that has a place, the
+/// layer switches redraw, and re-reading the file in another unit changes its size.
+fn planner_scan_report(ctx: &mut Ctx<'_>) {
+    if !ctx.relaunch_with_library(&sample_designs()) {
+        return;
+    }
+    let Some(window) = open_planner(ctx) else {
+        return;
+    };
+    let model = window.global::<RoughPlanModel>();
+    let path = ctx.scratch_file("cube_hole.obj");
+    if fs::write(&path, CUBE_WITH_HOLE_OBJ).is_err() {
+        ctx.expect(false, "scan-file", "the scratch OBJ could not be written");
+        return;
+    }
+    scan_card_choose_file(ctx, &window, &model);
+    harness_support::queue_picker_path(&path);
+    model.invoke_import_obj();
+    let read = ctx.wait_for("the scan is read", Duration::from_secs(30), || {
+        !model.get_mesh_busy() && model.get_scan_verdict() >= 0
+    });
+    if !read {
+        return;
+    }
+    ctx.expect(
+        model.get_base_kind() == 3 && model.get_scan_file().as_str() == "cube_hole.obj",
+        "scan-card",
+        format!(
+            "the scan card should show cube_hole.obj on base kind 3, not {:?} on {}",
+            model.get_scan_file(),
+            model.get_base_kind()
+        ),
+    );
+    ctx.expect(
+        model.get_scan_verdict() != 2 && !model.get_scan_size_text().is_empty(),
+        "scan-verdict",
+        format!(
+            "the scan was refused or has no size: verdict {} ({:?})",
+            model.get_scan_verdict(),
+            model.get_scan_verdict_text()
+        ),
+    );
+    ctx.expect(
+        model.get_scan_findings().row_count() > 0,
+        "scan-findings",
+        "a cube with a hole should come with an import report that names the repair",
+    );
+    ctx.wait_for(
+        "the Rough step sums up the scan",
+        Duration::from_secs(5),
+        || step_summary(&model, 0).starts_with("Scan cube_hole.obj"),
+    );
+    ctx.sweep_secondary(SecondaryWindow::RoughPlanner, "scan report");
+
+    // Show on a finding that has a place turns the view to it, with the problems layer on.
+    let placed = (0..model.get_scan_findings().row_count())
+        .find(|&at| {
+            model
+                .get_scan_findings()
+                .row_data(at)
+                .is_some_and(|finding| finding.has_place)
+        })
+        .and_then(|at| i32::try_from(at).ok());
+    if let Some(index) = placed {
+        model.set_show_problems(false);
+        model.invoke_finding_show(index);
+        pump(400);
+        coverage::record_callback("RoughPlanModel.finding_show");
+        ctx.expect(
+            model.get_show_problems() && model.get_view_mode() == 0,
+            "scan-finding-show",
+            "Show on a finding should switch the problems layer on in the rough view",
+        );
+    }
+
+    // The layer switches redraw the view without trouble.
+    model.set_show_outline(true);
+    model.invoke_view_toggles_changed();
+    pump(300);
+    model.set_show_problems(false);
+    model.set_show_outline(false);
+    model.invoke_view_toggles_changed();
+    pump(300);
+    coverage::record_callback("RoughPlanModel.view_toggles_changed");
+
+    // The same file in centimetres is ten times as large.
+    let before = model.get_scan_size_text().to_string();
+    model.invoke_rescan_units(1);
+    let reread = ctx.wait_for(
+        "re-reading the file in centimetres changes the size",
+        Duration::from_secs(30),
+        || !model.get_mesh_busy() && model.get_scan_size_text().as_str() != before,
+    );
+    if reread {
+        coverage::record_callback("RoughPlanModel.rescan_units");
+    }
+    ctx.sweep_secondary(SecondaryWindow::RoughPlanner, "scan re-read in centimetres");
+    ctx.check_health("planner scan report");
 }
 
 /// Click-everything over the planner in its result state (block rough, a finished plan). The

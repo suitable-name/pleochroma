@@ -4,12 +4,9 @@
 //! field through to an independent output buffer, and compares the two buffers' raw
 //! bytes.
 //!
-//! See `renderer::buffers`' module doc comment for why this exists: a hand-derived
-//! `#[repr(C)]` offset can look right and still disagree with what WGSL actually
-//! computes (this is exactly the bug [`DispersionParams`](crate::renderer::buffers::DispersionParams)
-//! had). This test is the mechanical, permanent guard against that bug class -- it does
-//! not trust the `offset_of!` comments in `renderer::buffers`, it proves them against
-//! the GPU itself.
+//! A hand-derived `#[repr(C)]` offset can look right and still disagree with what WGSL
+//! computes. These tests do not trust the `offset_of!` comments in `renderer::buffers`; they
+//! prove the layouts against the GPU itself.
 
 use crate::{
     geometry::GpuFacetPlane,
@@ -109,8 +106,7 @@ pub fn sample_material() -> GpuGemMaterial {
             shape: small((i + 1) % 2),
         };
     }
-    // Distinct, non-zero, non-symmetric values for the new
-    // scattering fields, same rationale as every other field here.
+    // Distinct, non-zero, non-symmetric values for the scattering fields.
     m.scattering_sigma_s = 0.734;
     m.scattering_g = 0.417;
     m.edge_rounding_radius = 0.0512;
@@ -236,10 +232,8 @@ pub fn run(ctx: &crate::renderer::gpu::GpuContext) -> LayoutCheckResult {
     }
 }
 
-/// Shared byte-diff step for every echo test in this module (the original
-/// [`GpuGemMaterial`] one and the four Phase-1 ones below): first 32 mismatching byte
-/// offsets, capped so a total layout mismatch doesn't dump hundreds of individual
-/// diagnostics.
+/// Shared byte-diff step for every echo test in this module: the first 32 mismatching byte
+/// offsets, capped so a total layout mismatch doesn't dump hundreds of individual diagnostics.
 fn diff_bytes(input_bytes: &[u8], output_bytes: &[u8]) -> Vec<ByteMismatch> {
     input_bytes
         .iter()
@@ -363,18 +357,12 @@ pub fn run_hit_record(ctx: &crate::renderer::gpu::GpuContext) -> LayoutCheckResu
     run_echo(ctx, "echo_hit", 6, 7, sample)
 }
 
-/// GPU port (frosted girdle finish): the Tier 1 struct-layout echo test for
-/// `renderer::buffers::facet_finish`'s `array<u32>` upload.
+/// Tier 1 struct-layout echo test for `renderer::buffers::facet_finish`'s `array<u32>` upload.
 ///
-/// Uses `echo_facet_finishes` (bindings 8/9 of `PHASE1_SHADER_SRC`) -- see that
-/// module's own doc comment for why a separate storage buffer, parallel to `planes`,
-/// was chosen over widening `GpuFacetPlane`. A bare `u32` has no vec3/vec4 alignment
-/// pitfall of its own (see this module's doc comment), but this still proves what the
-/// GPU actually did with the uploaded bytes -- including that a MULTI-element
-/// `array<u32>` storage buffer round-trips index-for-index, not just that a single
-/// scalar does -- rather than trusting that by inspection alone. This is the exact kind
-/// of self-test the `DispersionParams` bug this module's doc comment describes shows is
-/// never safe to skip, even for a type this simple.
+/// Uses `echo_facet_finishes` (bindings 8/9 of `PHASE1_SHADER_SRC`). The finishes live in a
+/// separate storage buffer parallel to `planes`, rather than widening `GpuFacetPlane`. The
+/// test checks what the GPU does with the bytes, including that a multi-element
+/// `array<u32>` round-trips index for index.
 ///
 /// # Panics
 ///
@@ -464,7 +452,11 @@ pub fn run_transport_params(ctx: &crate::renderer::gpu::GpuContext) -> LayoutChe
         spark: 0.93,
         ground: 0.74,
         flat: 0.55,
-    });
+    })
+    // A distinct, non-default HDR exposure (offset 92), same rationale.
+    .with_hdr_exposure(1.75)
+    // A distinct, non-identity HDR map yaw (offsets 112 and 116), same rationale.
+    .with_hdr_rotation(crate::renderer::env_map::EnvRotation::from_yaw(0.7));
     let input_bytes = bytemuck::bytes_of(&sample).to_vec();
 
     let pipeline = compute::create_compute_pipeline(
@@ -685,7 +677,7 @@ const _: () = {
     assert!(size_of::<GpuZoneShape>() == 112);
     assert!(size_of::<GpuZoneAbsorption>() == 400);
     assert!(size_of::<GpuZoneTable>() == 80 + 4 * 112 + 4 * 400);
-    // The table is a trailing field of the material: its offset is the old material size.
+    // The zone table and the blocks after it start where the earlier fields end (byte 592).
     assert!(core::mem::offset_of!(GpuGemMaterial, zones) == 592);
     assert!(
         core::mem::offset_of!(GpuGemMaterial, biaxial_curves) == 592 + size_of::<GpuZoneTable>()
@@ -851,9 +843,9 @@ pub fn sample_zone_table() -> crate::renderer::buffers::GpuZoneTable {
 /// The zone table's struct-echo self-test.
 ///
 /// Uploads [`sample_zone_table`], has `shaders/zoning/zone_table_echo.wgsl` copy every named
-/// field, and diffs the raw bytes (the mechanism of [`run`]). The table's offsets inside `GpuGemMaterial` (592 on) are
-/// asserted at compile time above; this proves the table's INTERNAL layout against what WGSL
-/// computes.
+/// field, and diffs the raw bytes (the mechanism of [`run`]). The table's offsets inside
+/// `GpuGemMaterial` (592 on) are asserted at compile time above; this proves the table's
+/// internal layout against what WGSL computes.
 ///
 /// # Panics
 ///

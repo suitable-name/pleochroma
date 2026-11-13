@@ -14,7 +14,7 @@
 // `04_scattering.wgsl`: the megakernel, both wavefronts and Tier 2's standalone kernels call the
 // SAME function objects. Nothing in this file reads `material`: the medium is passed in.
 //
-// WGSL shape rules (see the lane rules): no function returns an array, no loop-indexed local
+// WGSL shape rules: no function returns an array, no loop-indexed local
 // array carries data (the four families are four named vec4 pairs picked by `ori_dir` /
 // `ori_par`), every function-scope `var` is initialised explicitly.
 // ---------------------------------------------------------------------------------
@@ -89,7 +89,7 @@ fn ori_par(m: OrientedMedium, i: u32) -> vec4<f32> {
     return m.par3;
 }
 
-// `x` rounded into [0, 1) for use as a remapped random: `unit`.
+// Clamps `x` into [0, 1) for use as a remapped random (`unit`).
 fn ori_unit(x: f32) -> f32 {
     return clamp(x, 0.0, 1.0 - 1e-6);
 }
@@ -302,7 +302,7 @@ fn ori_platelet_pdf(w_i: vec3<f32>, m: vec3<f32>, alpha: f32, w_o: vec3<f32>) ->
     return ori_ggx_d(cos_m, alpha) * cos_m / (4.0 * facing);
 }
 
-// ---- random needles (oriented::RANDOM_AXES, random_needle_phase / _sample) ----
+// ---- random needles (oriented::RANDOM_NEEDLE_AXES, random_needle_phase / _sample) ----
 
 // Axis `j` of the Fibonacci spiral over the upper hemisphere: z = (j + 0.5) / 64, azimuth
 // j * golden angle. The azimuth is range-reduced to [-pi, pi] first (the GPU's sin and cos are

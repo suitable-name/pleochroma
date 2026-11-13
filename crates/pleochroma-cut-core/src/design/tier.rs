@@ -30,37 +30,28 @@ pub struct ConstraintTier {
     /// What determines this tier's mast: meet an unspecified vertex, meet named
     /// facets, or an authored scale dimension. See the module docs.
     pub constraint: MeetConstraint,
-    /// The meet instruction a real `.asc` file's `G` field actually stated for
-    /// this tier at import time ([`pleochroma::geometry::meet_solver::meet_tier_inputs_from_asc`]'s
-    /// classification, [`MeetConstraint::MeetExisting`] or [`MeetConstraint::MeetNamed`] only --
-    /// see [`super::Design::from_asc_schedule`]'s doc comment for why import now pins
-    /// every tier's `constraint` to a [`MeetConstraint::ScaleReference`]
-    /// regardless of what the file said there).
+    /// The meet that a real `.asc` file's `G` field stated for this tier at import.
     ///
-    /// This is display/adoption data, never authoritative: [`super::Design::solve`]
-    /// and [`super::Design::to_asc_schedule`] read `constraint` alone. It exists so the
-    /// editor can show what the file *claims* this facet meets and let the user
-    /// adopt it with one click (`Edit::SetConstraint`), without losing that
-    /// information the moment import pins the tier's real mast in `constraint`.
-    /// `None` for a tier the file gave an explicit scale-reference instruction
-    /// for (nothing to adopt -- `constraint` already reflects it), and for any
-    /// tier not built by [`super::Design::from_asc_schedule`] at all (a brand-new tier
-    /// the user adds in the editor, or the result of applying an `Edit`).
+    /// Classified by `meet_tier_inputs_from_asc`: [`MeetConstraint::MeetExisting`] or
+    /// [`MeetConstraint::MeetNamed`] only. Import pins `constraint` to a
+    /// [`MeetConstraint::ScaleReference`] whatever the file said.
+    ///
+    /// Display and adoption data only: [`super::Design::solve`] and
+    /// [`super::Design::to_asc_schedule`] read `constraint` alone. The editor offers it for
+    /// one-click adoption (`Edit::SetConstraint`). `None` when the file gave an explicit
+    /// scale instruction (nothing to adopt), and for any tier not built by
+    /// [`super::Design::from_asc_schedule`].
     pub imported_meet: Option<MeetConstraint>,
-    /// The raw `.asc` `G`-field text this tier's own [`pleochroma_formats::asc::AscTier::notes`]
-    /// actually carried at import time, verbatim (including an empty string when the
-    /// file left the tier unnoted) -- see [`super::Design::from_asc_schedule`]'s doc
-    /// comment for why this exists: synthesizing a tier's exported `G` text from
-    /// [`Self::constraint`] alone loses real phrasings like `"Cut to TCP"`/`"GMP"`/
-    /// `"Cut to mast depth X."` the moment `constraint` gets pinned to
-    /// [`MeetConstraint::ScaleReference`] on import. `super::export`'s notes-writing
-    /// step reads this back verbatim for as long as `constraint` stays the pinned
-    /// value import produced; once the cutter adopts a different constraint
-    /// (`Edit::SetConstraint`), export falls back to synthesizing fresh text instead,
-    /// since this recorded text no longer describes what the tier now does.
+    /// The `G`-field text of [`pleochroma_formats::asc::AscTier::notes`] as the file gave it
+    /// at import, verbatim (an empty string when the tier had none).
     ///
-    /// `None` for a tier not built by [`super::Design::from_asc_schedule`] at all --
-    /// the same convention [`Self::imported_meet`] follows.
+    /// Synthesizing `G` text from [`Self::constraint`] would lose phrasings such as
+    /// `"Cut to TCP"` or `"GMP"` once import pins the constraint. `super::export` writes this
+    /// text back while `constraint` is still the pinned value. Once the cutter adopts another
+    /// constraint (`Edit::SetConstraint`), export synthesizes fresh text instead.
+    ///
+    /// `None` for a tier not built by [`super::Design::from_asc_schedule`], like
+    /// [`Self::imported_meet`].
     pub original_notes: Option<String>,
     /// Index-wheel positions in `indices` that are exempted from
     /// [`crate::orbit`]'s orbit-wide propagation -- see that module's docs
@@ -87,28 +78,16 @@ impl ConstraintTier {
         }
     }
 
-    /// Which other tiers (as indices into the `tiers` slice `self` came from)
-    /// this tier's own constraint names as a meet target -- the read-only
-    /// half of "which facets does this facet meet", for a cut sheet or an
-    /// inspector to show without re-deriving the resolution the solver does
-    /// internally.
+    /// The indices into `tiers` of the tiers this tier's [`MeetConstraint::MeetNamed`] names.
     ///
-    /// Only [`MeetConstraint::MeetNamed`] has named targets at all:
-    /// [`MeetConstraint::MeetExisting`] means "whatever vertex the solver
-    /// finds", with no name to resolve, and [`MeetConstraint::ScaleReference`]
-    /// means "this tier's own authored dimension", not a meet at all -- both
-    /// return an empty list. A named token resolves against `tiers`' own
-    /// [`Self::names`] by first exact match, then ASCII-case-insensitive
-    /// match, same precedence
-    /// [`pleochroma::geometry::meet_solver::MeetNameResolver`] uses for a
-    /// plain (non-compound, non-girdle/culet/table-fallback) name; an
-    /// unresolved token is skipped rather than erroring, since this is a
-    /// display helper, not a validator. A caller that needs the solver's
-    /// full fallback rules (girdle/culet/table synonyms, side-prefix and
-    /// plural stripping, compound `"1-2-G1"` vertex specs) should build a
-    /// [`pleochroma::geometry::meet_solver::MeetNameResolver`] directly
-    /// instead -- see [`super::Design::facet_meets`], which does exactly
-    /// that.
+    /// For a cut sheet or inspector to show. Empty for any other constraint: `MeetExisting`
+    /// has no name to resolve, and `ScaleReference` is not a meet.
+    ///
+    /// A name matches a tier's [`Self::names`] exactly first, then ASCII-case-insensitively,
+    /// the same precedence `pleochroma::geometry::meet_solver::MeetNameResolver` uses for a
+    /// plain name. An unresolved name is skipped, since this is a display helper and not a
+    /// validator. For the full rules (girdle, culet and table synonyms, compound `"1-2-G1"`
+    /// specs) see [`super::Design::facet_meets`].
     #[must_use]
     pub fn meet_target_indices(&self, tiers: &[Self]) -> Vec<usize> {
         let MeetConstraint::MeetNamed(names) = &self.constraint else {
@@ -133,26 +112,22 @@ impl ConstraintTier {
     /// cut down to this, so no caller can ask for millions of tiers by accident.
     pub const MAX_STEP_SERIES: usize = 64;
 
-    /// Builds `count` tiers (at most [`Self::MAX_STEP_SERIES`]) forming a step-cut
-    /// ladder: angle stepping by
-    /// `angle_step_deg` from `start_angle_deg`, all sharing `indices`, each
-    /// named `"<name_prefix><n>"` (1-based). The first tier's constraint is
-    /// `first_constraint` (typically a [`MeetConstraint::ScaleReference`]
-    /// anchor or a [`MeetConstraint::MeetNamed`] reference into the rest of
-    /// the design, since a ladder's own first rung has nothing above it to
-    /// meet); every later tier meets the one immediately above it via
-    /// [`MeetConstraint::MeetExisting`], the plain nested-nudge case a real
-    /// step-cut schedule authors under.
+    /// Builds a step-cut ladder of up to `count` tiers (at most [`Self::MAX_STEP_SERIES`]).
     ///
-    /// The names are only unique among themselves: this constructor sees no
-    /// design, so a caller appending the tiers to one renames any that collide
-    /// with a tier already there.
+    /// Angles step by `angle_step_deg` from `start_angle_deg`, all share `indices`, and tiers
+    /// are named `"<name_prefix><n>"` from 1.
     ///
-    /// Returns bare [`ConstraintTier`]s, not [`crate::edit::Edit`]s -- an
-    /// editor turns them into one batched sequence of
-    /// `crate::edit::Edit::AddTier` and applies it through
-    /// `crate::edit::History` like any other edit, same as this crate's other
-    /// pure constructors (e.g. [`Self::standard_round_brilliant`]).
+    /// The first tier takes `first_constraint`, typically an anchor or a
+    /// [`MeetConstraint::MeetNamed`] into the rest of the design, since a ladder's first rung
+    /// has nothing above it. Each later tier meets the one above via
+    /// [`MeetConstraint::MeetExisting`].
+    ///
+    /// Names are unique only among the new tiers, since this sees no design. A caller
+    /// appending them to one must rename any clash.
+    ///
+    /// Returns bare [`ConstraintTier`]s, not [`crate::edit::Edit`]s. An editor wraps them in
+    /// `crate::edit::Edit::AddTier` and applies them through `crate::edit::History`, like the
+    /// other constructors here (e.g. [`Self::standard_round_brilliant`]).
     #[must_use]
     pub fn step_series(
         name_prefix: &str,
@@ -183,20 +158,13 @@ impl ConstraintTier {
             .collect()
     }
 
-    /// A single girdle-band facet tier, pinned via [`MeetConstraint::ScaleReference`]
-    /// to `half_width` (the plane's own distance from the vertical axis, exactly
-    /// the "Exact scale value = half-width" convention a girdle-authoring UI
-    /// control should emit).
+    /// A girdle-band facet tier, pinned to `half_width` (the plane's distance from the
+    /// vertical axis) via [`MeetConstraint::ScaleReference`].
     ///
-    /// Deliberately fixed at exactly `90.0` degrees:
-    /// `pleochroma::geometry::meet_solver::blocks::classify_blocks` only assigns
-    /// [`pleochroma::geometry::meet_solver::Block::Girdle`] when a tier's angle
-    /// is at (or within `1e-6` of) 90 degrees, so a 0-degree "girdle" -- the
-    /// manual's own worked-example mistake this constructor exists to make hard
-    /// to repeat -- classifies as a second table instead
-    /// (see [`super::Design::from_asc_schedule`]'s doc comment for the module
-    /// this crate treats as authoritative on that point) and never produces a
-    /// live girdle band at all.
+    /// The angle is fixed at exactly `90.0` degrees. `classify_blocks` in
+    /// `pleochroma::geometry::meet_solver::blocks` assigns
+    /// [`pleochroma::geometry::meet_solver::Block::Girdle`] only at 90 degrees, within `1e-6`.
+    /// A 0-degree girdle would classify as a crown and produce no girdle band.
     #[must_use]
     pub fn girdle(name: &str, half_width: f64, indices: &[f64]) -> Self {
         Self {
@@ -238,10 +206,8 @@ impl ConstraintTier {
     /// table's `indices` assume; re-deriving `indices` for a different gear
     /// tooth count is `crate::orbit`'s job, not this constructor's.
     ///
-    /// Ported verbatim (same angles/indices/masts) from the test fixture
-    /// `apps/pleochroma-cut/src/gui/solid_preview/facet_map.rs`'s
-    /// `standard_round_brilliant_design`, so a "New Design -> Standard Round
-    /// Brilliant" template and that test's fixture describe the same stone.
+    /// Uses the same angles, indices and masts as the `standard_round_brilliant_design` test
+    /// fixture of the solid preview, so both describe the same stone.
     #[must_use]
     pub fn standard_round_brilliant() -> Vec<Self> {
         const GIRDLE_INDICES: [f64; 16] = [
@@ -280,13 +246,13 @@ impl ConstraintTier {
     }
 }
 
-/// Every non-tier field of a `.asc` schedule ([`pleochroma_formats::asc::AscSchedule`]'s own fields minus
-/// `tiers`): index gear, symmetry, refractive index, and free-text header/
+/// Every non-tier field of a `.asc` schedule ([`pleochroma_formats::asc::AscSchedule`]
+/// minus `tiers`): index gear, symmetry, refractive index, and free-text header and
 /// footnote lines.
 ///
-/// Split out from [`pleochroma_formats::asc::AscSchedule`] itself because a [`super::Design`]'s tiers are
-/// [`ConstraintTier`]s (authored constraints), not [`pleochroma_formats::asc::AscTier`]s
-/// (recorded masts) -- see the module docs.
+/// Split out because a [`super::Design`]'s tiers are [`ConstraintTier`]s (authored
+/// constraints), not [`pleochroma_formats::asc::AscTier`]s (recorded masts). See the
+/// module docs.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ScheduleMeta {
     /// `GemCad` version string from the schedule header.
@@ -299,24 +265,17 @@ pub struct ScheduleMeta {
     pub symmetry_order: u32,
     /// Whether the schedule carries mirror symmetry.
     pub mirror: bool,
-    /// The legacy `.asc` `I` line's refractive index, as last imported or
-    /// exported. [`super::Design::effective_refractive_index`] is the value
-    /// everything else in this crate actually scores/exports/critical-angles
-    /// against (override, then a recognized material name, then this field only
-    /// as the final fallback); this field is read directly only when neither of
-    /// those apply.
+    /// The legacy `.asc` `I` line's refractive index.
     ///
-    /// **Overwritten on an export/re-import round trip** (a known, unfixed
-    /// data-loss path): `Design::to_asc_schedule[_from_solved]` writes
-    /// `effective_refractive_index()` -- not this field -- as the exported `I`
-    /// line, and `Design::from_asc_schedule` then reads that same freshly
-    /// exported line straight back into this field on the next import. So
-    /// picking a recognized material (even without an explicit override) and
-    /// then saving-and-reopening through `.asc` permanently replaces whatever
-    /// this field held with the material's own resolved `n_D` -- there is no way
-    /// to recover the original legacy value afterward, though in practice this
-    /// rarely matters since `effective_refractive_index` would already have
-    /// preferred the material/override over this field anyway.
+    /// [`super::Design::effective_refractive_index`] is what the crate uses for scoring,
+    /// export and critical angles: the override, then a recognized material, then this field
+    /// as the last fallback.
+    ///
+    /// Known limitation: `.asc` export writes the effective index to the `I` line, and import
+    /// reads that line back into this field. So saving and reopening a design with a
+    /// recognized material replaces this value with the material's own index, and the
+    /// original cannot be recovered. This rarely matters, since the material or override
+    /// already took precedence over this field.
     pub refractive_index: f64,
     /// Free-text header lines of the schedule.
     pub headers: Vec<String>,
@@ -339,10 +298,7 @@ impl ScheduleMeta {
     #[must_use]
     pub fn standard_round_brilliant() -> Self {
         Self {
-            // Just the version number: `pleochroma_formats::asc::to_asc_string`
-            // already writes the literal `"GemCad "` prefix itself
-            // (`writeln!(out, "GemCad {}", schedule.gemcad_version)`), so storing
-            // the prefix here too doubled it on export ("GemCad GemCad 5.0").
+            // Version number only: `to_asc_string` writes the `GemCad ` prefix itself.
             gemcad_version: "5.0".to_string(),
             gear_teeth: 96,
             gear_reference_angle: 0.0,
@@ -393,10 +349,9 @@ mod tests {
         assert_eq!(tiers[0].meet_target_indices(&tiers), Vec::<usize>::new());
     }
 
-    /// `girdle` must build an exactly-90-degree tier pinned to `half_width`,
-    /// and -- the whole point of this constructor -- `classify_blocks` must
-    /// actually classify it as `Block::Girdle`, unlike the manual's own
-    /// 0-degree worked-example mistake, which classifies as `Block::Crown`.
+    /// `girdle` builds an exactly 90-degree tier pinned to `half_width`, which
+    /// `classify_blocks` reads as `Block::Girdle`. The same tier at 0 degrees reads as
+    /// `Block::Crown`.
     #[test]
     fn girdle_builds_a_90_degree_tier_that_classifies_as_girdle() {
         use pleochroma::geometry::meet_solver::{Block, MeetTierInput, classify_blocks};
@@ -414,8 +369,7 @@ mod tests {
             constraint: tier.constraint.clone(),
             names: vec![tier.name.clone()],
         };
-        // The manual's own worked-example mistake: the
-        // same tier authored at 0 degrees instead of 90.
+        // The same tier authored at 0 degrees instead of 90.
         let zero_degree_mistake = MeetTierInput {
             angle_deg: 0.0,
             ..as_input(&girdle)

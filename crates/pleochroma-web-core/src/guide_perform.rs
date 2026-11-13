@@ -118,9 +118,9 @@ impl Command {
 
     /// Whether the page can carry it out from Rust.
     ///
-    /// The user guide is a Slint dialog whose `open` flag only Slint reaches today
-    /// (`UserGuideModel` is not in `app.slint`'s export block); name it there and this turns
-    /// `true`. The shortcuts list (`ShortcutsModel`) is exported.
+    /// The user guide is a Slint dialog whose `open` flag Rust cannot reach: `UserGuideModel`
+    /// is not in `app.slint`'s export block, unlike `ShortcutsModel` of the shortcuts list.
+    /// Only `Manual` is out of reach.
     #[must_use]
     pub const fn in_reach(self) -> bool {
         !matches!(self, Self::Manual)
@@ -547,7 +547,7 @@ mod tests {
         ));
         assert_eq!(plain.tool_index, 0);
         assert!(plain.fields.reciprocating);
-        assert!(plain.fields.tool_angle_deg.is_empty());
+        assert_eq!(plain.fields.tool_angle_deg, "");
     }
 
     #[test]

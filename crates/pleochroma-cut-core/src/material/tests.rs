@@ -34,7 +34,7 @@ fn known_preset_names_resolve() {
     }
 }
 
-/// There is no "Garnet" preset (or any other name outside the thirteen above).
+/// Names with no built-in preset, such as "Garnet", resolve to none.
 #[test]
 fn unknown_names_including_garnet_resolve_to_none() {
     assert_eq!(built_in_specific_gravity("Garnet"), None);
@@ -321,7 +321,7 @@ fn effective_specific_gravity_with_resolves_a_custom_material_the_built_in_table
 
 /// Every one of `GemMaterial::all_materials()`'s built-ins must appear, in that
 /// function's own order -- the whole point of this type: a species available on
-/// the render side can no longer be missing from a picker built off this
+/// the render side cannot be missing from a picker built off this
 /// catalogue.
 #[test]
 fn catalogue_lists_every_builtin_in_all_materials_order() {

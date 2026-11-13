@@ -119,13 +119,11 @@ component ReadoutLine inherits Rectangle {
     }
 }
 
-// The Inspector's "Preform" tab: starting rough shape/size, the read-only
-// proportions readout, and real-unit yield inputs/results. Almost everything
-// here reads/writes `EditorModel` directly (the actual field values); only
-// the two "has this section been typed/changed since Apply" dirty flags are
-// local UI state, and those still live on `EditorInspector` itself (mirrored
-// here two-way) since `EditorInspector`'s own `form_reset_pulse` watcher
-// clears them on New/Load Selected/Open.
+// The Inspector's "Preform" tab: the starting rough's shape and size, the read-only
+// proportions readout, and the real-unit yield inputs and results. The field values are
+// `EditorModel` properties. The two "not applied yet" flags (`preform_pending`,
+// `yield_pending`) live on `EditorInspector`, which clears them on every form reset
+// (`EditorModel.form_reset_pulse`); this tab mirrors them two-way.
 //
 // Every input and both Apply buttons follow `unlocked` (bound by `EditorInspector`
 // to `GuideModel.allows_preform_tab()`) while the worked-example guide runs.
@@ -147,9 +145,9 @@ export component PreformTab inherits VerticalLayout {
 
     property <bool> advanced: GuideModel.shows_advanced();
 
-    // Commits the Girdle Diameter field to the design (the Stone tab's commit): when the text
-    // already is the design's value Rust does nothing. The "not applied yet" star belongs to
-    // the specific gravity too, so it is cleared only while that field is empty.
+    // Commits the Girdle Diameter field to the design, as the Stone tab does. Rust does nothing
+    // when the text already is the design's value. The yield star is also the specific
+    // gravity's, so it clears only while that field is empty.
     function commit_width() {
         if root.unlocked && EditorModel.girdle_diameter_mm != EditorModel.design_girdle_diameter_text {
             EditorModel.apply_stone_width(EditorModel.girdle_diameter_mm);
@@ -202,14 +200,9 @@ export component PreformTab inherits VerticalLayout {
         wrap: word-wrap;
         accessible-role: AccessibleRole.text;
     }
-    // Half-Width/Depth are in the design's
-    // own model units (girdle half-width = 1), never
-    // millimetres -- otherwise a typed 0.5 could
-    // read as "half the girdle width" or as some absolute unit.
-    // The mm-equivalent line below each field is read-only and
-    // ADDITIVE (never replaces the editable model-unit value) --
-    // see `state::preform_mm_texts`'s own doc comment for when
-    // it has something to show.
+    // Half-Width and Depth are in the design's model units (girdle half-width = 1), never
+    // millimetres, so a typed 0.5 cannot be read as an absolute length. The mm line under each
+    // is read-only and additive; see the `preform_mm_texts` doc comment.
     PreformField {
         label: "Half-Width (Model Units, Girdle Half-Width = 1)";
         tooltip: "Half the rough's width, in the design's own units: the\nstone's girdle half-width is 1, so the rough has to be\nwider than 1. You can type arithmetic, for example 1.2+0.1.";
@@ -264,13 +257,9 @@ export component PreformTab inherits VerticalLayout {
             accessible-role: AccessibleRole.text;
         }
     }
-    // Unlike Half-Width/Depth above, this is
-    // typed directly in MILLIMETRES -- the rough's own girdle
-    // plane offset from centre is what a cutter actually
-    // measures on the stone, never a model-unit fraction.
-    // `apply_preform_y_offset`'s Rust handler converts through
-    // the design's own mm-per-unit factor (see that callback's
-    // own doc comment on `ui/models/editor.slint`). Advanced only.
+    // Unlike Half-Width and Depth, the Girdle Y-Offset is typed in millimetres: the girdle
+    // plane's offset from centre is what a cutter measures on the stone. `apply_preform_y_offset`
+    // converts it through the design's mm-per-unit factor. Advanced only.
     if root.advanced: PreformField {
         label: "Girdle Y-Offset (mm)";
         tooltip: "How far the rough's girdle plane sits from centre, in millimetres --\npositive moves it toward the crown. Needs a Girdle Diameter and\na solve to convert; otherwise Apply reports an error instead of\nguessing. You can type arithmetic, for example 0.5+0.25.";
@@ -287,11 +276,7 @@ export component PreformTab inherits VerticalLayout {
     }
     tip-button-preform-pending := TipButton {
         enabled: root.unlocked;
-        // `primary` (the same accent-emphasis
-        // property `editor_command_bar.slint`'s own Solve button
-        // already keys off "stale") flags this button amber-cyan
-        // while a typed/changed field here has not been applied
-        // yet, so forgetting to click Apply doesn't revert silently.
+        // Primary while a typed field is not applied yet, so a forgotten Apply is noticed.
         text: root.preform_pending ? "Apply Preform *" : "Apply Preform";
         reader_label: root.preform_pending ? "Apply Preform, changes not applied yet" : "Apply Preform";
         hint: "Make the shape and sizes above the design's rough. The\nstone's tiers stay as they are. A star on the button\nmeans you have typed something that is not applied yet.";
@@ -308,28 +293,18 @@ export component PreformTab inherits VerticalLayout {
 
     Rectangle { height: 1px; background: Theme.border-subtle; }
 
-    // --- The proportions every faceter
-    // checks first -- table %, crown
-    // height, pavilion depth, total depth and length-to-width,
-    // from `Design::stone_proportions`. "-" (never a
-    // misleading 0) whenever the design does not currently
-    // solve/close, or has no live girdle plane to measure a
-    // crown/pavilion depth from.
+    // --- Proportions: table %, crown height, pavilion depth, total depth and length-to-width,
+    // from `Design::stone_proportions`. "-" (never a misleading 0) when the design does not
+    // solve or has no live girdle plane to measure from.
     Rectangle {
         height: proportions_lbl.preferred-height;
         Tooltip { text: @markdown("Table size, crown height, pavilion depth, total depth and\nlength-to-width, from the last Solve. In millimetres once a\nGirdle Diameter is set, otherwise the design's own model units."); }
         proportions_lbl := Text { x: 0px; text: "Proportions"; font-size: 12px; font-weight: 700; color: Theme.text-primary; accessible-role: AccessibleRole.text; }
     }
-    // Each raw
-    // number below is paired with a "within/near/outside"
-    // verdict chip (invisible while there is nothing to judge
-    // yet -- see `VerdictChip`'s own doc comment) judged
-    // against `pleochroma_cut_core::proportions_windows`'s
-    // reference table. Table %/crown angle/pavilion angle/
-    // total depth %/girdle % are the five metrics that table
-    // covers; crown height/pavilion depth/L-W below have no
-    // chip of their own (this table has no window for an
-    // absolute length or a ratio, only percentages/angles).
+    // Each number below with a within/near/outside verdict chip (hidden while there is nothing
+    // to judge; see `VerdictChip`) is judged against `pleochroma_cut_core::proportions_windows`.
+    // That table covers table %, crown angle, pavilion angle, total depth % and girdle %. Crown
+    // height, pavilion depth and L/W have no window: it holds only percentages and angles.
     HorizontalLayout {
         spacing: 6px;
         ReadoutLine {
@@ -374,11 +349,10 @@ export component PreformTab inherits VerticalLayout {
         }
         VerdictChip { level: EditorModel.proportion_verdict_total_depth_level; reason: EditorModel.proportion_verdict_total_depth_reason; }
     }
-    // Girdle thickness and the printed C/W%,
-    // P/W% and G/W% ratios every faceting diagram prints.
+    // Girdle thickness, and the C/W, P/W and G/W ratios a faceting diagram prints.
     ReadoutLine {
         text: "Girdle Thickness: " + EditorModel.girdle_thickness_text;
-        tooltip: "How thick the girdle band is. See the glossary.";
+        tooltip: "How thick the girdle is at the girdle line, where the girdle facets\nmeet (a range when it is not level). See the glossary.";
     }
     HorizontalLayout {
         spacing: 6px;
@@ -399,14 +373,9 @@ export component PreformTab inherits VerticalLayout {
         yield_lbl := Text { x: 0px; text: "Yield"; font-size: 12px; font-weight: 700; color: Theme.text-primary; accessible-role: AccessibleRole.text; }
     }
 
-    // Which refractive index the critical
-    // angle/MARGIN column/render/export actually use, and where it
-    // came from -- `editor_design_settings.slint` shows the bare
-    // "Eff. RI" number with no source, which is exactly what could
-    // let a selected custom material's RI go silently unused.
-    // `ri_source_text` mirrors `Design::
-    // effective_refractive_index_with`'s own precedence so it can
-    // never disagree with `effective_ri_text`. Advanced only.
+    // The refractive index that the critical angle, margin, render and export use, and its
+    // source. `ri_source_text` follows `Design::effective_refractive_index_with`, so it cannot
+    // disagree with `effective_ri_text`. Advanced only.
     if root.advanced: ReadoutLine {
         text: "Eff. RI " + (EditorModel.effective_ri_text == "" ? "-" : EditorModel.effective_ri_text) + ": " + EditorModel.ri_source_text;
         tooltip: "What the Eff. RI chip in Design Settings is actually reading -- a\ntyped override, a custom catalogue material, a built-in preset,\nor this design's legacy imported value. See the glossary.";
@@ -425,13 +394,7 @@ export component PreformTab inherits VerticalLayout {
         accepted => { root.commit_width(); }
         blurred => { root.commit_width(); }
     }
-    // The "Yield Material" combo that used to sit here was removed --
-    // its selected index was never actually read (`state::parse_yield_form`'s
-    // own `_material_index` parameter stayed unused, see that function's own
-    // doc comment), so it looked like a working material picker but silently
-    // discarded whatever the cutter chose on "Apply Yield Inputs". The Design
-    // Settings panel's own material combo (`EditorModel.material_combo_index`)
-    // is the one that actually names/changes the design's material.
+    // The design's material is chosen in Design Settings (`EditorModel.material_combo_index`).
     if root.advanced: PreformField {
         label: "Specific Gravity Override";
         tooltip: "Specific gravity for the carat estimate. Does not affect\nthe render. You can type arithmetic, for example 3.5+0.1.";
@@ -442,17 +405,13 @@ export component PreformTab inherits VerticalLayout {
     }
     tip-button-yield-pending := TipButton {
         enabled: root.unlocked;
-        // See the matching "Apply Preform"
-        // comment above -- identical amber-on-unapplied treatment.
+        // Same treatment as Apply Preform: primary while not applied yet.
         text: root.yield_pending ? "Apply Yield Inputs *" : "Apply Yield Inputs";
         reader_label: root.yield_pending ? "Apply Yield Inputs, changes not applied yet" : "Apply Yield Inputs";
         hint: "Use the girdle diameter and specific gravity above\nfor the carat estimate. A star on the button means\nyou have typed something that is not applied yet.";
         primary: root.yield_pending;
         clicked => {
-            // The second argument used to be the (now-removed) Yield Material
-            // combo's own index -- `state::parse_yield_form` never read it
-            // (see the comment on this combo's former location above), so a
-            // literal `0` changes nothing about what this click applies.
+            // The second argument is a material index that `parse_yield_form` ignores, so it is 0.
             EditorModel.apply_yield_inputs(EditorModel.girdle_diameter_mm, 0, EditorModel.specific_gravity_override);
             root.yield_pending = false;
         }

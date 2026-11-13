@@ -1,11 +1,9 @@
-//! The concave-tool check (check 6) against the straightforward version it replaced.
+//! The concave-tool check (check 6) against a straightforward reference without pruning.
 //!
-//! The reference below is the implementation as it was before the bounding-box pruning:
-//! every mesh is built from ALL the stone planes and ALL the tool planes, and a pair of
-//! tools is pre-tested with two bounding spheres. The pruned check must give the same
-//! warnings, so the tests compare the two on the fixtures and on a set of hand-made stones
-//! covering every kind of warning. The only difference allowed is the new
-//! `ToolEnclosed`, which the reference never reports.
+//! The reference builds every mesh from all the stone planes and all the tool planes, and
+//! pre-tests each pair of tools with two bounding spheres. The pruned check must give the
+//! same warnings on the fixtures and on hand-made stones covering every kind of warning.
+//! The reference never reports `ToolEnclosed`, so that warning is left out of the comparison.
 
 use super::*;
 use crate::{
@@ -30,7 +28,7 @@ fn reference_bounding_sphere(tool: &ToolPrimitive) -> (DVec3, f64) {
     (centre, f64::from(radius + tool.axis[3] + tool.profile[2]))
 }
 
-/// The check as it was: full plane lists, bounding-sphere pair pre-test, no `ToolEnclosed`.
+/// The reference: full plane lists, a bounding-sphere pair pre-test, and no `ToolEnclosed`.
 fn reference_warnings(
     planes: &[(DVec3, f64)],
     preform_len: usize,
@@ -153,7 +151,7 @@ fn unit_cube() -> Vec<(DVec3, f64)> {
     ]
 }
 
-/// The pruned check's warnings without the new `ToolEnclosed`, which the reference lacks.
+/// The pruned check's warnings, without `ToolEnclosed`.
 fn pruned_without_enclosed(
     planes: &[(DVec3, f64)],
     preform_len: usize,
@@ -334,7 +332,7 @@ fn the_pruned_check_gives_the_reference_warnings_on_the_concave_fixture_and_its_
     }
 }
 
-/// F3-5: a tool that removes volume but never reaches a flat facet is an internal void.
+/// A tool that removes volume but never reaches a flat facet is an internal void.
 #[test]
 fn a_tool_wholly_inside_the_stone_warns_it_is_enclosed() {
     let planes = unit_cube();
@@ -405,14 +403,14 @@ fn displacement_to(design: &Design, solved: &[SolvedTier], tier: usize, target: 
     [offset.dot(u), offset.dot(v), -offset.dot(n)]
 }
 
-/// F3-5 through the design API: an enclosed dimple is reported against its tier, per placement.
+/// An enclosed dimple is reported against its tier, once per placement, through the design API.
 ///
 /// The position is computed, not scanned. A dop-frame tool starts at the stone's contact point
-/// for its facet normal and moves `Z * W` along `-n`. On the fixture that contact point is the
-/// knife-edge girdle corner (about `(0.877, -0.018, -0.032)`), where `-n` already points out
-/// through the pavilion facet: the ball's centre is outside the stone at every depth from `0.04`
-/// to `0.6` (the stone is `1.11` deep along `n`, `W` is `1.754`), so no `Z` alone ever gives an
-/// enclosed dimple. `X` and `Y` carry the tool into the body; `displacement_to` solves for them.
+/// for its facet normal and moves along `-n`. On the fixture that contact point is a
+/// knife-edge girdle corner, where `-n` points out through the pavilion facet: the ball's
+/// centre is outside the stone at every depth from `0.04` to `0.6`, so `Z` alone cannot give
+/// an enclosed dimple. `X` and `Y` carry the tool into the body, and `displacement_to` solves
+/// for them.
 #[test]
 fn an_enclosed_concave_tier_is_reported_by_the_design_check() {
     let fixture = Design::concave_fixture();

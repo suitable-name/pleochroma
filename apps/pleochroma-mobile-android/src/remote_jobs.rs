@@ -1,11 +1,10 @@
 //! Server jobs on the Remote page: list this phone's jobs on the endpoint, save a finished
 //! picture, cancel or delete a job.
 //!
-//! The endpoint owns the jobs (it stores them durably and answers only the certificate
-//! that submitted them), so nothing here is persisted on the phone: the list is always
-//! asked for, which is what makes a job survive the phone going offline, the app being
-//! killed or the activity being recreated. One request runs at a time on a worker of its
-//! own; a result whose request was replaced or interrupted (leaving the page) is dropped.
+//! The endpoint owns the jobs and answers only the certificate that submitted them, so
+//! nothing is persisted on the phone: the list is always asked for, and a job survives the
+//! phone going offline or the app being killed. One request runs at a time on its own
+//! worker; a result whose request was replaced or interrupted is dropped.
 
 use crate::{AppWindow, JobRow, RemoteModel, push::toast};
 use pleochroma_mobile_core::{
@@ -253,8 +252,8 @@ pub fn interrupt() {
     }
 }
 
-/// Stops a running request and drops the rows' cache (Forget Server): the endpoint's jobs
-/// are no longer this phone's to show. The caller empties the page's rows.
+/// Stops a running request and drops the cached rows (Forget Server), so no job of the
+/// erased pairing stays visible. The caller empties the page's rows.
 pub fn clear() {
     interrupt();
     RUNTIME.with(|value| {

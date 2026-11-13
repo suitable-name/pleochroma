@@ -1,17 +1,16 @@
-//! Denoised `DISPLAY_FRAME`s: a coordinator streams tone-mapped, DENOISED
-//! 8-bit frames, with the denoiser's guides from its own primary-ray prepass.
+//! Denoised `DISPLAY_FRAME` pictures: tone-mapped 8-bit frames, denoised with guides from
+//! a primary-ray prepass.
 //!
 //! # One denoiser thread per `DisplayOnly` request
 //!
 //! [`DisplayDenoiser::spawn`] starts a thread that first computes the request's guide
-//! buffers ([`generate_guide_buffers_cancellable`]) from the request's `SceneState` --
-//! pose (`yaw`/`pitch`/`distance`, the viewer's fixed 42° field of view) and planes
-//! only, so they are computed ONCE per request and reused for every frame of it -- and
-//! then turns each submitted merged sum into a picture with the viewer's own pipeline
-//! (`denoise_and_tonemap_frame_with_params_into_cancellable` with the default filter
-//! parameters, the same bytes as `denoise_and_tonemap_frame`). Invariant 5 holds by
-//! construction: the denoise runs once, on the merged sum (the emitter's running total,
-//! or the job's deterministic merge for the final frame), never per lane.
+//! buffers ([`generate_guide_buffers_cancellable_geom_with_index`]) from the scene's pose
+//! (`yaw`/`pitch`/`distance`/roll, at the viewer's fixed field of view), planes, tools and
+//! reference index. They are computed once per request and reused for every frame. The
+//! thread then turns each submitted merged sum into a picture with the viewer's pipeline
+//! (`denoise_and_tonemap_frame_with_params_into_cancellable` with default filter
+//! parameters, the same bytes as `denoise_and_tonemap_frame`). The denoise runs once per
+//! merged sum, never per lane.
 //!
 //! # Never faster than it can denoise
 //!
@@ -25,11 +24,10 @@
 //!
 //! # CPU, never the GPU
 //!
-//! The guide prepass (`intersect_polyhedron`) and the À-Trous denoiser are both CPU
-//! code (`std::thread::scope` loops); neither submits a GPU program, so the
-//! one-GPU-program-at-a-time `GpuBackend` FIFO is untouched and a GPU own lane keeps
-//! tracing while a frame denoises. The cost is CPU time beside the own lane's CPU tracer
-//! threads (the viewer's own live view makes the same trade).
+//! The guide prepass and the À-Trous denoiser are both CPU code (`std::thread::scope`
+//! loops). Neither submits a GPU program, so the one-GPU-program-at-a-time `GpuBackend`
+//! FIFO is untouched and a GPU own lane keeps tracing while a frame denoises. The cost is
+//! CPU time alongside the CPU tracer threads.
 //!
 //! # Cancellation
 //!
@@ -42,13 +40,10 @@
 //!
 //! # Buffers
 //!
-//! The merged sum handed to the thread is a copy (the emitter keeps merging into its own
-//! total), but the copy's allocation is recycled: the picture carries the job's `Vec`
-//! back, [`DisplayDenoiser`] keeps it as `spare_sum` and the next submission refills it
-//! (`clear` + `extend_from_slice`) instead of allocating a fresh one per tick. The RGBA
-//! bytes are allocated per picture: the emitter owns the picture once it is handed out
-//! and drops it after writing the frame, so a return path for them would need a change
-//! in the emitter, which this module does not own.
+//! The merged sum is copied into the thread (the emitter keeps merging into its own
+//! total), but the copy's allocation is recycled: the picture returns the job's `Vec`, and
+//! [`DisplayDenoiser`] refills it on the next submission. RGBA bytes are allocated per
+//! picture, since the emitter owns each picture after it is handed out.
 //!
 //! If the thread cannot be started or dies, [`DisplayUpdate::Plain`] asks the emitter for
 //! the plain tone-mapped running average instead -- a display frame is never withheld.
@@ -397,6 +392,10 @@ mod tests {
             height: 9,
             yaw: 0.4,
             camera_roll: 0.0,
+            stone_shadow: false,
+            tray_reflection: 0.0,
+            hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
+            estimator: pleochroma::optics::raytracer::Estimator::Branching,
             pitch: 0.3,
             distance: 3.0,
             light_yaw: 0.85,
@@ -424,8 +423,8 @@ mod tests {
             .collect()
     }
 
-    /// The viewer's own pipeline on the same scene: `generate_guide_buffers` at the
-    /// viewer's fov, then `denoise_and_tonemap_frame`.
+    /// The viewer's own pipeline on the same scene: `generate_guide_buffers_with_index` at
+    /// the viewer's fov, then `denoise_and_tonemap_frame`.
     fn reference(scene: &SceneState, samples: u32, total: &[Vec3]) -> Vec<u8> {
         let camera = Camera::new(scene.yaw, scene.pitch, scene.distance, DEFAULT_FOV_DEG)
             .with_roll(scene.camera_roll);

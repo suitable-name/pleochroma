@@ -27,19 +27,13 @@ pub struct BiaxialEigenPolarizationCase {
 }
 
 const BIAXIAL_EIGEN_POLARIZATION_ULP_BUDGET: u32 = 48;
-/// Absolute floor after the `BiaxialIndicatrix` eigenvector conditioning fix (see
-/// `optics::birefringence::BiaxialIndicatrix::eigenvector_world`'s and
-/// `precise_root_near`'s doc comments): every remaining comparison sits within
-/// `[1.0e-5, 3.5e-5]` absolute difference on a component of modest (0.02-0.9) magnitude
-/// -- genuine last-few-ULP f32 cross-platform rounding noise on an eigenvector component
-/// that is itself small or near a direction-dependent zero-crossing (worst case:
-/// `wave_normal = (0,0,1)`, where CPU computes a component EXACTLY `0.0` by symmetry and
-/// the GPU's independently-rounded arithmetic lands a few ULP off zero instead), not a
-/// residual algorithmic defect (the dedicated residual/orthonormality tests in
-/// `birefringence.rs` and this file's own Tier-3 image comparisons for all three biaxial
-/// built-ins pass cleanly). `5e-5` sits ~1.4x above the measured `3.5e-5` worst case:
-/// headroom without weakening the check for a genuine bug, which would show up as a
-/// large FRACTION of a unit vector's own magnitude, not a few times `1e-5`.
+/// Absolute floor of the check.
+///
+/// The remaining differences are last-few-ULP f32 rounding on eigenvector components that
+/// are small or cross zero. The worst case is `wave_normal = (0, 0, 1)`,
+/// where the CPU gives an exact `0.0` by symmetry and the GPU lands a few ULP off zero.
+/// The measured worst case is `3.5e-5`, so `5e-5` leaves headroom. A real bug shows up as a
+/// large fraction of a unit vector's magnitude, not a few times `1e-5`.
 const BIAXIAL_EIGEN_POLARIZATION_ABS_FLOOR: f32 = 5e-5;
 
 fn build_biaxial_eigen_polarization_cases() -> Vec<BiaxialEigenPolarizationCase> {

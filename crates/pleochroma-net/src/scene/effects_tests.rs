@@ -1,7 +1,7 @@
 use super::*;
 use pleochroma::optics::{
     inclusions::{
-        CrystalDir, CrystalFrame, Family, FamilyKind, InclusionSet,
+        CrystalDir, CrystalFrame, Family, FamilyKind, InclusionSet, ResolvedFamily,
         bragg::{DEFAULT_SEED, StructureKind, StructurePattern},
     },
     raytracer::surface::PolishPreset,
@@ -282,5 +282,5 @@ fn a_set_that_scatters_nothing_is_not_carried() {
     broken.families[0].sigma = f32::NAN;
     assert!(broken.validate().is_err());
     // Rebuilding never panics and never lets an unusable family reach the tracer.
-    assert!(broken.to_set().families().is_empty());
+    assert_eq!(broken.to_set().families(), [] as [ResolvedFamily; 0]);
 }

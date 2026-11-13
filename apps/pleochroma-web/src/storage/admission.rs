@@ -1,13 +1,13 @@
-//! GPU admission records (the GPU track): a small record per adapter key under
-//! `pleochroma.admission.<adapter>.v1` -- "this adapter compiled the kernel and may be
-//! used" or "this adapter failed and must not be probed again". Stored in
-//! `localStorage` (remembered in this browser, per graphics card, browser version and
-//! shader build) with the `sessionStorage` fallback of [`super::small_set`].
+//! GPU admission records, one per adapter.
+//!
+//! Each record lives under `pleochroma.admission.<adapter>.v1` and says whether the adapter
+//! may be used or must not be probed again. It is stored through the small-key policy
+//! ([`super::small_set`]).
 //!
 //! The typed record and the crash-marker scan are pure and live in
-//! `pleochroma_web_core::gpu_admission` (native tests); this module reads and writes them
-//! through the small-key policy and scans the two storages for crash markers left behind
-//! in the [`AdmissionState::Probing`] state.
+//! `pleochroma_web_core::gpu_admission` (native tests). This module reads and writes them
+//! and scans both storages for keys left in the [`AdmissionState::Probing`] state, which
+//! mark a probe that never finished (a browser or GPU process crash).
 
 use serde::{Serialize, de::DeserializeOwned};
 
@@ -16,8 +16,8 @@ pub use pleochroma_web_core::gpu_admission::{AdmissionRecord, AdmissionState};
 
 use super::{keys, small_get, small_remove, small_set};
 
-/// Normalizes `adapter_or_key` into a full storage key (`keys::resolve_admission_key`: a value
-/// that already begins with the app prefix is kept, anything else is an adapter name).
+/// Normalizes `adapter_or_key` into a full storage key. A value that already has the
+/// admission key prefix is kept; anything else is treated as an adapter name.
 #[must_use]
 pub fn resolve_key(adapter_or_key: &str) -> String {
     keys::resolve_admission_key(adapter_or_key)
@@ -66,9 +66,8 @@ pub fn forget(adapter_or_key: &str) {
     remove(adapter_or_key);
 }
 
-/// Every admission key (in either storage) whose record is in the
-/// [`AdmissionState::Probing`] state: crash markers left behind if the browser or GPU
-/// process crashed during a test or a compile.
+/// Every admission key, in either storage, whose record is in the
+/// [`AdmissionState::Probing`] state.
 #[must_use]
 pub fn all_probing() -> Vec<String> {
     let mut found = Vec::new();

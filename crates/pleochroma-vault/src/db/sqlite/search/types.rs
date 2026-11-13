@@ -6,9 +6,8 @@
 /// library panel's sort selector (the tag/collection half is deliberately out of scope
 /// here).
 ///
-/// `#[default]` is [`Self::CatalogueOrder`], the same `de.id ASC` every other search in
-/// this module has always used, so a caller that never sets a sort preference sees no
-/// change in behaviour.
+/// `#[default]` is [`Self::CatalogueOrder`], the `de.id ASC` order every other search in
+/// this module uses.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SortOrder {
     /// `de.id ASC` -- insertion order, this module's long-standing default.
@@ -51,19 +50,15 @@ pub struct DisplayFilters<'a> {
     pub order: SortOrder,
     /// "My designs" restriction.
     pub local_only: bool,
-    /// Tag chip restriction, `None` for no
-    /// restriction.
+    /// Tag chip restriction, `None` for no restriction.
     pub tag_filter: Option<i64>,
-    /// "Show these N" restriction to an explicit id set (the batch
-    /// case), `None`/empty for no restriction.
+    /// "Show these N" restriction to an explicit id set, `None`/empty for no restriction.
     pub id_filter: Option<&'a [i64]>,
 }
 
-/// Bundles [`crate::db::sqlite::Database::search_diagrams_page_raw_ordered`]'s
-/// order/restriction/paging parameters into one value, purely to keep that function
-/// under clippy's `too_many_arguments` lint -- each field is independent, not a
-/// cohesive value in its own right, so this has no behaviour of its own beyond grouping
-/// them.
+/// Bundles [`crate::db::sqlite::Database::search_diagrams_page_raw_ordered`]'s order,
+/// restriction and paging parameters, to keep that function under clippy's
+/// `too_many_arguments` lint.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct DisplayPage<'a> {
     pub(super) order: SortOrder,

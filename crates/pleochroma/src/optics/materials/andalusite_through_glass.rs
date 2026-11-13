@@ -34,10 +34,10 @@ impl GemMaterial {
                 birefringence_delta: 0.010,
                 // PLEOCHROISM: andalusite is a classic TRICHROIC teaching example,
                 // commonly described as red/reddish-brown along one axis, yellow-green
-                // along a second and olive along the third. REFITTED 2026-10-27 to a
-                // measured crystal: the earlier entry was a QUALITATIVE, tuned pattern
-                // (alpha 500nm 1.0, beta 480nm 1.8, gamma 580nm 1.4, wavelength
-                // Gaussians) that put the strongest absorption on BETA. The Caltech
+                // along a second and olive along the third. Fitted to a measured crystal,
+                // not a tuned pattern: a qualitative pattern (alpha 500nm 1.0, beta 480nm
+                // 1.8, gamma 580nm 1.4, wavelength Gaussians) puts the strongest
+                // absorption on BETA, which the measurement contradicts. The Caltech
                 // spectra (M. N. Taran, colour-zoned Fe-Ti andalusite, Brazil, FeO 0.35
                 // wt% and a trace of Ti, light zone, normalised to 1 cm from 0.79 mm;
                 // per-ray baselines A 0.19 / 0.08 / 0.13 per cm removed) show that
@@ -76,8 +76,8 @@ impl GemMaterial {
                 // Fe3+, Mn3+ (viridine) and V3+ / Cr3+, which are colour variants, not
                 // this Fe-Ti default.
                 // Calibration record: docs/chromophores/calibration-records.md#andalusite
-                // 2026-11-03 (owner: "match the pictures of actual gemstones"): REPLACED the Fe-Ti
-                // crystal alone by 0.65 x it plus 0.35 x the Greener variant (the same crystal with
+                // To match photos of real stones, the tensor is 0.65 x the Fe-Ti crystal plus
+                // 0.35 x the Greener variant (the same crystal with
                 // an estimated Mn3+ part), refitted to at most eight bands a ray. Twenty-three
                 // dealer photos (GemSelect) have a median hue of 71 and six faceted stones on white
                 // (Commons, W.carter) 64; the crystal alone rendered h 51, this mix h 75 (Light

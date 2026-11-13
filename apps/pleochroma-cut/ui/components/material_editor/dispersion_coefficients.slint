@@ -38,10 +38,9 @@ component CoefficientField inherits VerticalLayout {
 // warnings. All numbers come from Rust (`DispersionEditorModel.evaluate`); this component owns
 // the typed texts and the mode.
 //
-// Simple and Advanced (`GuideModel.shows_advanced()`): the Simple interface hides the whole switch
-// and keeps the plain refractive-index and dispersion sliders. A material that already has
-// coefficients (`mode == 1`) keeps the switch and its editor in every interface, so it is never
-// left without a way to see or leave them.
+// The Simple interface (`GuideModel.shows_advanced()` is false) hides the switch and keeps the
+// plain refractive-index and dispersion sliders. A material that already has coefficients
+// (`mode == 1`) keeps the switch and its editor in every interface, so it can always be left.
 //
 // `ri_val` / `disp_val` are the dialog's own Simple-mode numbers, two-way bound: leaving the
 // Coefficients mode copies the model's n_d and n_F - n_C into them, and entering it with empty
@@ -384,7 +383,7 @@ export component MaterialDispersionCoefficients inherits VerticalLayout {
             }
         }
 
-        // Odd but usable curves.
+        // Warnings about a curve that is still usable.
         for note in root.view.warnings : WarningLine {
             text: note;
             font_size: 9px;

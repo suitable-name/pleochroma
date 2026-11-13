@@ -1,4 +1,4 @@
-//! Ordered reductions copied from metrics/{evaluate,doubling,accumulate,tone}.rs.
+//! Ordered reductions that mirror metrics/{evaluate,doubling,accumulate,tone}.rs.
 use super::{OpticalError, lighting::ExitLighting, tone::ToneAccumulator};
 use glam::Vec3;
 use pleochroma::{color::metrics::GemOpticalMetrics, optics::materials::GemMaterial};

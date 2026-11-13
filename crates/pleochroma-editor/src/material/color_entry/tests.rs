@@ -515,9 +515,9 @@ fn a_legacy_n_band_color_on_a_pleochroic_host_is_custom_with_the_legacy_note() {
     );
 }
 
-/// Review finding 2 (scenario A): an Apply of the material row with the combo on the design's own
-/// variant row keeps the design's snapshot, even when the library row moved since ("Variant
-/// Changed: Update" is the way to refresh it).
+/// An Apply of the material row with the combo on the design's own variant row keeps the
+/// design's snapshot, even when the library row has moved since ("Variant Changed: Update"
+/// refreshes it).
 #[test]
 fn an_untouched_variant_row_keeps_the_snapshot_not_the_library_copy() {
     let held = user_variant("Sapphire", "user.1", "Mine");
@@ -538,8 +538,8 @@ fn an_untouched_variant_row_keeps_the_snapshot_not_the_library_copy() {
     );
 }
 
-/// Review finding 2 (scenario B): a design with a variant AND a color pattern keeps the pattern
-/// when the combo is left on the variant row (and on a preset row of an isotropic host).
+/// A design with a variant and a color pattern keeps the pattern when the combo is left on the
+/// variant row, and on a preset row of an isotropic host.
 #[test]
 fn an_untouched_row_keeps_the_color_pattern() {
     use pleochroma_cut_core::material::pattern::{PatternAxis, TemplateId, template};
@@ -605,8 +605,8 @@ fn another_row_or_another_material_is_still_a_pick() {
     assert_eq!(switched, named("Ruby"));
 }
 
-/// Review finding web 5: a variant pick on a design with no material name is the plain color
-/// (the host of a nameless design is only a refractive-index guess).
+/// A variant pick on a design with no material name is the plain color: the host of a nameless
+/// design is only a refractive-index guess.
 #[test]
 fn a_variant_pick_on_a_nameless_design_falls_back_to_the_plain_color() {
     let variant = user_variant("Sapphire", "user.1", "Mine");

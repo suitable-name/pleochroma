@@ -1,10 +1,10 @@
-//! Zone boundary error (plan section 10.1): within 0.1 mm for boundaries found from marks, within
-//! 0.2 mm for boundaries suggested from the residual.
+//! Zone boundary error: within 0.1 mm for boundaries found from marks, within 0.2 mm for
+//! boundaries suggested from the residual.
 //!
-//! The mark-based tests need no tracing: the user's marks are made by projecting known points of
-//! the true boundary on the stone's SURFACE through the orthographic cameras (a marker line drawn
-//! on the stone), adding sub-pixel click noise, and locating them with `locate_polyline` exactly
-//! as the application does. The suggestion test traces the rig.
+//! The mark-based tests need no tracing. The marks are points of the true boundary on the
+//! stone's surface, projected through orthographic cameras with sub-pixel click noise, and
+//! located with `BoundaryPoints::locate` as the application does. The suggestion test traces
+//! the rig.
 
 use std::f64::consts::TAU;
 
@@ -144,9 +144,9 @@ fn marks_find_a_prism_boundary_within_0_1_mm() {
     );
 }
 
-/// The residual-suggested boundary (section 10.1: within 0.2 mm). The three cameras look along
-/// directions inside the boundary plane x = 0, the case the suggestion's back-projection is
-/// exact for (see the docs of `zones::suggest`: an oblique view biases the boundary).
+/// The residual-suggested boundary is within 0.2 mm. The three cameras look along directions
+/// inside the boundary plane x = 0, the case the suggestion's back-projection is exact for (an
+/// oblique view biases the boundary; see `zones::suggest`).
 #[test]
 fn suggested_boundary_is_within_0_2_mm() {
     let spec = SetupSpec {

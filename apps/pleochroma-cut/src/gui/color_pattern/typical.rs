@@ -45,7 +45,9 @@ pub fn solve_pattern_colors(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pleochroma_cut_core::material::pattern::{OwnColor, PatternColor, typical_patterns};
+    use pleochroma_cut_core::material::pattern::{
+        ColorRef, OwnColor, PatternColor, typical_patterns,
+    };
 
     /// A deterministic stand-in for the solver's rows.
     fn rows() -> Vec<[f32; 3]> {
@@ -58,14 +60,14 @@ mod tests {
         // A sapphire's Along and Across colors: every zone has two colors, never one.
         let own = OwnColor::per_axis(&[[33.0, 34.0, 289.0], [54.0, 21.0, 276.0]], None);
         let pattern = entry.for_stone_on(&own, &[]);
-        assert!(!pattern.unsolved_colors().is_empty());
+        assert_ne!(pattern.unsolved_colors(), [] as [ColorRef; 0]);
         let mut asked = Vec::new();
         let solved = solve_colors_with(pattern, |lch| {
             asked.push(lch);
             Some(rows())
         })
         .expect("solves");
-        assert!(solved.unsolved_colors().is_empty());
+        assert_eq!(solved.unsolved_colors(), [] as [ColorRef; 0]);
         // The pale body and the stronger shade of the three growth zones, in two directions: four
         // distinct colors.
         assert_eq!(asked.len(), 4, "{asked:?}");
@@ -86,14 +88,14 @@ mod tests {
         // Fluorite is cubic: one color per zone, the stronger shade repeated in every band.
         let entry = &typical_patterns("Fluorite")[0];
         let pattern = entry.for_stone([40.0, 45.0, 265.0], &[]);
-        assert!(!pattern.unsolved_colors().is_empty());
+        assert_ne!(pattern.unsolved_colors(), [] as [ColorRef; 0]);
         let mut asked = Vec::new();
         let solved = solve_colors_with(pattern, |lch| {
             asked.push(lch);
             Some(rows())
         })
         .expect("solves");
-        assert!(solved.unsolved_colors().is_empty());
+        assert_eq!(solved.unsolved_colors(), [] as [ColorRef; 0]);
         assert_eq!(asked.len(), 2, "{asked:?}");
         solved.to_zoned().expect("valid").expect("zones");
         for zone in std::iter::once(&solved.base).chain(&solved.zones) {
@@ -125,7 +127,7 @@ mod tests {
         assert!(asked.is_empty(), "{asked:?}");
         assert_eq!(solved.base.color, rim);
         assert_eq!(solved.zones[0].color, core);
-        assert!(solved.unsolved_colors().is_empty());
+        assert_eq!(solved.unsolved_colors(), [] as [ColorRef; 0]);
         solved.to_zoned().expect("valid").expect("zones");
     }
 

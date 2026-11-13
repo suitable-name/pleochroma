@@ -83,7 +83,7 @@ fn the_bounded_mode_is_reproducible_and_seed_dependent() {
 
 #[test]
 fn zero_updates_per_round_is_the_old_epoch_loop() {
-    // The epoch path must equal the pre-change loop written out by hand on a twin trainer.
+    // The epoch path must equal the loop written out by hand on a twin trainer.
     let fx = Fixture::from_teacher(10, MAX_TIERS, 11);
     let config = ImitationConfig {
         mini_batch_size: 4,

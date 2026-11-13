@@ -1,16 +1,17 @@
-//! Tests of the `data/color_variants/corundum_spinel_chrysoberyl.toml` entries: each entry's face-up color and
-//! per-direction colors against the numbers its fit record
+//! Tests of the `data/color_variants/corundum_spinel_chrysoberyl.toml` entries: each entry's
+//! face-up color and per-direction colors against the numbers its fit record
 //! (`docs/color_variants/fit_records/corundum_spinel_chrysoberyl.md`) states.
 //!
-//! The colors are the app's own `color::body_color::body_colors` at the face-up path of a 7 mm stone
-//! ([`face_up_swatch_path`]: 2.83 x 7 / 2.0 = 9.905 mm for a per-millimetre tensor), CIELAB, relative to
-//! the illuminant's own white. Per direction: `o_ray` is the ordinary ray / alpha (E||c for biaxial),
-//! `beta_ray` beta (E||a), `e_ray` the extraordinary ray / gamma (E||b). The pinned face-up color is the
-//! ORIENTED one the renderer shows (`color::principal_axes::face_up_body_color` with the host's own
-//! default principal frame: the o-ray alone for Sapphire and Ruby, whose c axis is the view, alpha and
-//! beta for Alexandrite and Chrysoberyl, whose gamma axis is the view; the single color of cubic
-//! Spinel); the unpolarised mean is the fit target the record also states. The reference spectra are
-//! not read here: the pinned numbers are the fit record's.
+//! The colors are the app's own `color::body_color::body_colors` at the face-up path of a 7 mm
+//! stone ([`face_up_swatch_path`]: 2.83 x 7 / 2.0 = 9.905 mm for a per-millimetre tensor), CIELAB,
+//! relative to the illuminant's own white. Per direction: `o_ray` is the ordinary ray / alpha
+//! (E||c for biaxial), `beta_ray` beta (E||a), `e_ray` the extraordinary ray / gamma (E||b). The
+//! pinned face-up color is the ORIENTED one the renderer shows
+//! (`color::principal_axes::face_up_body_color` with the host's default principal frame: the
+//! o-ray alone for Sapphire and Ruby, whose c axis is the view, alpha and beta for Alexandrite
+//! and Chrysoberyl, whose gamma axis is the view; the single color of cubic Spinel). The
+//! unpolarised mean is the fit target the record also states. The reference spectra are not
+//! read here: the pinned numbers are the fit record's.
 
 use std::collections::BTreeSet;
 
@@ -267,12 +268,10 @@ fn colors(variant: &ColorVariant, illuminant: Illuminant) -> BodyColors {
     body_colors(&variant.absorption, path, illuminant)
 }
 
-/// The face-up color the renderer shows for `variant` on its host (D-G of the 2026-10-27 fix round): the
-/// two eigenmodes of the host's own default principal frame at the wave normal `k = -Y`, so c along the
-/// view shows the o-ray alone, c in the table plane the mean of o and e, and a biaxial host with gamma
-/// along the view the mean of alpha and beta; an isotropic or non-pleochroic tensor shows its single
-/// color. The fit records state the unpolarised mean as the fit target and this color as the reached
-/// face-up color.
+/// The face-up color the renderer shows for `variant` on its host: the two eigenmodes of the
+/// host's default principal frame at the wave normal `k = -Y`. With c along the view this is the
+/// o-ray alone; with c in the table plane, the mean of o and e; a biaxial host with gamma along
+/// the view gives the mean of alpha and beta. An isotropic tensor shows its single color.
 fn face_up_oriented(variant: &ColorVariant, illuminant: Illuminant) -> [f64; 3] {
     let host = GemMaterial::built_in()
         .iter()
@@ -315,10 +314,9 @@ fn the_pinned_keys_are_exactly_the_entries_of_the_group() {
         .collect();
     let pinned: BTreeSet<String> = PINNED.iter().map(|p| p.key.to_string()).collect();
     assert_eq!(listed, pinned);
-    // Dropped by owner decision 2026-10-27: Spinel Grey and Chrysoberyl Honey have no usable data,
-    // and the Yellow chrysoberyl variant became the Chrysoberyl (Yellow) Material Default (owner
-    // decision O1). Strong Change became the Alexandrite Material Default on 2026-11-03, and Greenish
-    // Yellow the Chrysoberyl (Yellow) one the same day (the dealer photos), the former default now Golden.
+    // Retired keys, which must not come back: Spinel Grey and Chrysoberyl Honey lack usable data,
+    // Chrysoberyl Yellow is the Chrysoberyl (Yellow) Material Default, Alexandrite Strong Change
+    // is the Alexandrite Material Default, and Greenish Yellow the Chrysoberyl (Yellow) one.
     for dropped in [
         "spinel.grey",
         "chrysoberyl__yellow_.yellow",
@@ -425,8 +423,7 @@ fn the_sapphire_blue_family_brackets_the_default_swatch() {
     )
     .unpolarised
     .lab;
-    // The built-in Sapphire swatch the Fe2+-Ti4+ density of 12.5 ppma*cm gives (7 mm, D65:
-    // L* 50), the royal blue default since 2026-11-03.
+    // The Sapphire default (Fe2+-Ti4+ density 12.5 ppma*cm): L* about 50 at 7 mm, D65.
     assert!((swatch[0] - 49.9).abs() < 1.0, "{swatch:?}");
     let cornflower = colors(&variant("sapphire.cornflower"), Illuminant::D65)
         .unpolarised
@@ -437,8 +434,9 @@ fn the_sapphire_blue_family_brackets_the_default_swatch() {
     let deep = colors(&variant("sapphire.deep_blue"), Illuminant::D65)
         .unpolarised
         .lab;
-    // Lightest to darkest: Cornflower (6), Medium Blue (10), the default (12.5), Deep Blue (15
-    // ppma*cm), each step at least 5 L* below the last but the last (about 6).
+    // Lightest to darkest: Cornflower (6 ppma*cm), Medium Blue (10), the default (12.5), Deep
+    // Blue (15). Cornflower and Medium Blue are at least 5 L* lighter than the next; Deep Blue
+    // is at least 3 L* darker than the default.
     assert!(
         cornflower[0] > medium[0] + 5.0,
         "{cornflower:?} vs {medium:?}"
@@ -526,9 +524,8 @@ fn the_golden_chrysoberyl_is_three_ray_and_darker_and_more_golden_than_the_defau
     // Yellow stones: the gamma (E||b) ray is the strongest absorber in the blue.
     let beta = g.beta_ray.as_ref().expect("a beta ray");
     assert!(chroma(g.e_ray.lab) > chroma(beta.lab));
-    // The default is the greenish yellow of the dealer photos since 2026-11-03 (the former Greenish
-    // Yellow variant, 0.3 x GRR 171); Golden is the former 0.7 x default: darker, and less green (a
-    // smaller hue angle).
+    // The default is the greenish yellow of the dealer photos (0.3 x GRR 171). Golden is 0.7 x
+    // the default's strength: darker, and less green (a smaller hue angle).
     let default = built_in_variants("Chrysoberyl (Yellow)").remove(0);
     let d = colors(&default, Illuminant::D65).unpolarised.lab;
     assert!(g.unpolarised.lab[0] < d[0], "{d:?}");
@@ -572,7 +569,7 @@ fn the_alexandrite_variants_change_color_between_daylight_and_incandescent_light
         let lamp = colors(&v, Illuminant::Planckian(3200.0)).unpolarised.lab;
         (day, lamp, delta_e_2000(day, lamp))
     };
-    // The Material Default is the strong change (the former Strong Change variant, 2026-11-03).
+    // The Material Default is the strong change.
     let (strong_day, strong_lamp, strong) = change("alexandrite.default");
     let (brazil_day, brazil_lamp, brazilian) = change("alexandrite.brazilian");
     let (_, _, sri_lankan) = change("alexandrite.sri_lankan");

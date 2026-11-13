@@ -68,6 +68,7 @@ impl Film<'_> {
         let model = rough.global::<RoughPlanModel>();
         let window = rough.window();
 
+        self.open_rough_step(0)?;
         let block = self.rough_control(
             window,
             origin,
@@ -209,6 +210,8 @@ impl Film<'_> {
         }
         self.hold(pacing::RESULT_HOLD)?;
 
+        // The cut buttons are in the Shape Cuts step.
+        self.open_rough_step(2)?;
         for (kind, label) in [(0, "+Edge"), (1, "+Corner"), (2, "+Face")] {
             let before = model.get_cuts().row_count();
             let button =
@@ -233,7 +236,117 @@ impl Film<'_> {
         Ok(())
     }
 
-    /// Reacquires a rough form/cut control after scrolling the actual left-column viewport.
+    /// Opens step `step` of the left column (0 Rough, 1 Crystal Axis, 2 Shape Cuts, 3 Plan
+    /// Settings) with a click on its header, unless it is open already. A closed step builds no
+    /// body, so the controls of a step exist in the tree only after this. The header numbers
+    /// shift down by one when the material has no crystal axis.
+    pub(crate) fn open_rough_step(&mut self, step: usize) -> Result<(), String> {
+        let rough =
+            harness_support::rough_planner_window().ok_or("Rough Planner window is missing")?;
+        let origin = self
+            .rec
+            .attached_origin()
+            .ok_or("Rough Planner is not attached to the video")?;
+        let model = rough.global::<RoughPlanModel>();
+        let wanted = i32::try_from(step).map_err(|e| format!("step {step}: {e}"))?;
+        if model.get_open_step() == wanted {
+            return Ok(());
+        }
+        let axis = model.get_axis_available();
+        let (number, title) = match step {
+            0 => (1, "Rough"),
+            1 => (2, "Crystal Axis"),
+            2 => (if axis { 3 } else { 2 }, "Shape Cuts"),
+            _ => (if axis { 4 } else { 3 }, "Plan Settings"),
+        };
+        let label = format!("Step {number}: {title}");
+        let header = self.rough_control(
+            rough.window(),
+            origin,
+            &label,
+            uiprobe::AccessibleRole::Button,
+        )?;
+        self.click_secondary(rough.window(), origin, &header)?;
+        if !pacing::wait_real(pacing::STEP_TIMEOUT, || model.get_open_step() == wanted) {
+            return Err(format!(
+                "the header {label:?} did not open the step: open step={}",
+                model.get_open_step()
+            ));
+        }
+        self.hold(Duration::from_millis(180))
+    }
+
+    /// Sets Designs (Up To) to `wanted` with clicks on the minus and plus of its stepper (a spin
+    /// box made of two buttons and a value, not a text field), and requires the model to read it
+    /// back. Opens the Plan Settings step first.
+    pub(crate) fn set_rough_designs_up_to(&mut self, wanted: i32) -> Result<(), String> {
+        self.open_rough_step(3)?;
+        let rough =
+            harness_support::rough_planner_window().ok_or("Rough Planner window is missing")?;
+        let origin = self
+            .rec
+            .attached_origin()
+            .ok_or("Rough Planner is not attached to the video")?;
+        let model = rough.global::<RoughPlanModel>();
+        let have = model.get_max_designs();
+        if have != wanted {
+            let stepper = self.rough_control(
+                rough.window(),
+                origin,
+                "Most Designs per Layout",
+                uiprobe::AccessibleRole::Spinbox,
+            )?;
+            // The minus button is the stepper's left 30 px, the plus button its right 30 px.
+            let x = if wanted < have {
+                stepper.x + 15.0
+            } else {
+                stepper.x + stepper.w - 15.0
+            };
+            let point = (x, stepper.y + stepper.h / 2.0);
+            for _ in 0..(have - wanted).abs().min(98) {
+                self.rec.click_at(rough.window(), point, origin)?;
+                pump(20);
+            }
+            self.hold(Duration::from_millis(180))?;
+        }
+        if !pacing::wait_real(Duration::from_secs(2), || model.get_max_designs() == wanted) {
+            return Err(format!(
+                "Designs (Up To) did not read back as {wanted}: {}",
+                model.get_max_designs()
+            ));
+        }
+        Ok(())
+    }
+
+    /// Picks the Current Filter candidate designs unless the planner uses them already. The
+    /// segment's label carries the count, so it is found by its start and the exact `RadioButton`
+    /// role. Opens the Plan Settings step first.
+    pub(crate) fn choose_rough_current_filter(&mut self) -> Result<(), String> {
+        self.open_rough_step(3)?;
+        let rough =
+            harness_support::rough_planner_window().ok_or("Rough Planner window is missing")?;
+        let origin = self
+            .rec
+            .attached_origin()
+            .ok_or("Rough Planner is not attached to the video")?;
+        let model = rough.global::<RoughPlanModel>();
+        if model.get_use_filter() {
+            return Ok(());
+        }
+        let choice = self.rough_control_start(
+            rough.window(),
+            origin,
+            "Current Filter",
+            uiprobe::AccessibleRole::RadioButton,
+        )?;
+        self.click_secondary(rough.window(), origin, &choice)?;
+        if !pacing::wait_real(Duration::from_secs(2), || model.get_use_filter()) {
+            return Err("Rough Planner Current Filter choice did not select the filter".into());
+        }
+        Ok(())
+    }
+
+    /// Reacquires a rough form/cut control after scrolling the left-column viewport.
     pub(crate) fn rough_control(
         &mut self,
         window: &slint::Window,
@@ -241,7 +354,35 @@ impl Film<'_> {
         label: &str,
         role: uiprobe::AccessibleRole,
     ) -> Result<targets::Spot, String> {
-        // Every call starts from the top of the actual RoughForm/CutList viewport. This makes
+        self.rough_find(window, origin, label, &|view| {
+            targets::role_label(view, label, role, None)
+        })
+    }
+
+    /// Like [`Self::rough_control`] for a control whose label starts with `prefix` (a label that
+    /// ends in a count the app appends).
+    pub(crate) fn rough_control_start(
+        &mut self,
+        window: &slint::Window,
+        origin: (f32, f32),
+        prefix: &str,
+        role: uiprobe::AccessibleRole,
+    ) -> Result<targets::Spot, String> {
+        self.rough_find(window, origin, prefix, &|view| {
+            targets::role_label_start(view, prefix, role, None)
+        })
+    }
+
+    /// Scrolls the left column until `find` shows its control inside the viewport, and returns the
+    /// part of the control that is inside.
+    fn rough_find(
+        &mut self,
+        window: &slint::Window,
+        origin: (f32, f32),
+        label: &str,
+        find: &dyn Fn(&WindowView) -> Option<targets::Spot>,
+    ) -> Result<targets::Spot, String> {
+        // Every call starts from the top of the `left_scroll` viewport. This makes
         // the bounded downward reveal deterministic even when a preceding control left the
         // scroll position near the bottom (where an offscreen role has no accessible bounds).
         let view = WindowView::of(
@@ -266,7 +407,7 @@ impl Film<'_> {
                 &crate::targets::Query::Id("RoughPlannerWindow::left_scroll"),
             )
             .ok_or("Rough Planner rough/shape scroll viewport is missing")?;
-            let control = targets::role_label(&view, label, role, None);
+            let control = find(&view);
             if let Some(clipped) = control
                 .as_ref()
                 .and_then(|spot| spot.clipped_to(&viewport, view.size))
@@ -373,7 +514,6 @@ impl Film<'_> {
         self.hold(Duration::from_millis(220))
     }
 
-    #[expect(clippy::too_many_lines, reason = "one filmed route step by step")]
     pub(crate) fn film_rough_finish(&mut self) -> Result<(), String> {
         let rough =
             harness_support::rough_planner_window().ok_or("Rough Planner window is missing")?;
@@ -382,62 +522,11 @@ impl Film<'_> {
             .attached_origin()
             .ok_or("Rough Planner is not attached to video")?;
         let model = rough.global::<RoughPlanModel>();
-        // These are PlanForm controls pinned below left_scroll. Set them in this planning step,
-        // after the filmed library-search prerequisite and after rough modeling is complete.
-        let view = WindowView::of("RoughPlannerWindow", &rough);
-        let designs = targets::role_label(
-            &view,
-            "Most Designs per Layout",
-            uiprobe::AccessibleRole::Spinbox,
-            None,
-        )
-        .ok_or("Rough Planner Designs (Up To) spin box is missing")?;
-        let window_viewport = targets::Spot {
-            x: 0.0,
-            y: 0.0,
-            w: view.size.0,
-            h: view.size.1,
-            handle: None,
-        };
-        let designs_point = designs
-            .visible_point_in(&window_viewport, view.size)
-            .ok_or("Rough Planner Designs (Up To) spin box is outside the visible PlanForm")?;
-        self.rec.click_at(rough.window(), designs_point, origin)?;
-        self.rec
-            .press_keys(rough.window(), "Ctrl+A")
-            .map_err(|e| format!("Designs (Up To) Ctrl+A: {e:?}"))?;
-        self.rec
-            .press_keys(rough.window(), "Backspace")
-            .map_err(|e| format!("Designs (Up To) Backspace: {e:?}"))?;
-        self.rec
-            .type_text(rough.window(), "1", Duration::from_millis(55))?;
-        self.rec
-            .press_keys(rough.window(), "Return")
-            .map_err(|e| format!("Designs (Up To) Return: {e:?}"))?;
-        self.hold(Duration::from_millis(180))?;
+        // These are controls of the Plan Settings step. Set them in this planning step, after the
+        // filmed library-search prerequisite and after rough modeling is complete.
+        self.set_rough_designs_up_to(1)?;
         debug_check("Designs (Up To)", &1, &model.get_max_designs());
-        if model.get_max_designs() != 1 {
-            return Err(format!(
-                "Designs (Up To) did not read back as 1: {}",
-                model.get_max_designs()
-            ));
-        }
-        if !model.get_use_filter() {
-            // The count is appended dynamically; target the label prefix and the exact
-            // RadioButton role so its adjacent caption cannot receive the activation.
-            let filter_choice = targets::role_label_start(
-                &view,
-                "Current Filter",
-                uiprobe::AccessibleRole::RadioButton,
-                None,
-            )
-            .ok_or("Rough Planner Current Filter radio choice is missing")?;
-            let point = filter_choice
-                .visible_point_in(&window_viewport, view.size)
-                .ok_or("Rough Planner Current Filter choice is outside the visible PlanForm")?;
-            self.rec.click_at(rough.window(), point, origin)?;
-            self.hold(Duration::from_millis(180))?;
-        }
+        self.choose_rough_current_filter()?;
         if model.get_max_designs() != 1 || !model.get_use_filter() || model.get_filter_count() <= 0
         {
             return Err(format!(
@@ -478,6 +567,8 @@ impl Film<'_> {
                     .into(),
             );
         }
+        // The sticky Plan block below the steps.
+        let view = WindowView::of("RoughPlannerWindow", &rough);
         let plan = targets::role_label(&view, "Plan", uiprobe::AccessibleRole::Button, None)
             .ok_or("Rough Planner Plan button is missing")?;
         let window_viewport = targets::Spot {

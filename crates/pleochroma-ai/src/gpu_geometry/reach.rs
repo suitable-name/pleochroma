@@ -1,5 +1,6 @@
-//! Adapted from cut-core meet_preservation/{reach,network_topology}. The exact
-//! original face cycles decide which facets have a measurable inward reach.
+//! Adapted from cut-core meet_preservation/{reach,network_topology}.
+//!
+//! The exact original face cycles decide which facets have a measurable inward reach.
 use super::network::{Junction, Plane};
 use glam::DVec3;
 

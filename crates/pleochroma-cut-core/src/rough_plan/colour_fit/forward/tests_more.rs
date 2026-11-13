@@ -1,5 +1,5 @@
-//! More tests of the forward tracer (written, not run, by lane F1): the disk cache, record
-//! compression, the white furnace, the Jacobian, the light model and small utilities.
+//! More tests of the forward tracer: the disk cache, record compression, the white furnace, the
+//! Jacobian, the light model and small utilities.
 
 use std::sync::atomic::AtomicBool;
 
@@ -170,7 +170,7 @@ fn compression_preserves_the_moments_and_bounds_the_transmittance_error() {
             .sum::<f64>()
     };
     assert!((weight(&out) / weight(&raw) - 1.0).abs() < 1e-5);
-    // The weight of every colour channel is preserved as well (ZC-13).
+    // The weight of every colour channel is preserved as well.
     let channel = |records: &[PathRecord], c: usize| {
         records
             .iter()
@@ -424,7 +424,7 @@ fn graded_frame(level: impl Fn(usize, f64, f64) -> f32) -> WhiteFrame {
 
 /// The exit ratio is taken per channel: with a panel that is redder on the right and bluer on the
 /// left, the ratio of each channel is that channel's own level at the exit point over its level at
-/// the camera ray's pixel (ZC-13). The photo point `(u, v)` of the panel is the pixel the camera
+/// the camera ray's pixel. The photo point `(u, v)` of the panel is the pixel the camera
 /// ray started from, and the exit ray through it reaches the panel at pixel `(u + 20, v)`.
 #[test]
 fn the_exit_ratio_follows_each_channel_of_the_white_frame() {
@@ -610,7 +610,7 @@ fn bad_input_is_refused() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Spectral quadrature (ZC-2)
+// Spectral quadrature
 // ---------------------------------------------------------------------------------------------
 
 /// Records of a 64-pixel view whose pixel 0 holds one base-zone record of `length_mm` and weight
@@ -657,7 +657,7 @@ fn gaussian_dip(lambda_nm: f64, centre_nm: f64, sigma_nm: f64, tau: f64) -> f64 
 /// The midpoint rule's error for a narrow band falls off faster than any power of the point
 /// spacing `h`: for a Gaussian band inside the range it is the aliasing term
 /// `2 exp(-2 pi^2 sigma^2 / h^2)` of the dip, for a band cut by the range edge the end term
-/// `(h^2 / 24)` times the slope of the transmittance there (ZC-21; the module notes have the
+/// `(h^2 / 24)` times the slope of the transmittance there (the module notes have the
 /// numbers). The default grid (8 points per bin, 4.7 nm) integrates a sigma = 10 nm band of
 /// optical depth 1 to better than 0.2 percent of the camera value, an interior band and one cut by
 /// the range edge, and a coarser grid is worse.
@@ -717,7 +717,7 @@ fn the_default_spectral_quadrature_resolves_a_ten_nanometre_band() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// The record store (ZC-8, ZC-9)
+// The record store
 // ---------------------------------------------------------------------------------------------
 
 /// Three views of a 10 x 10 grid with scattered masked pixels, frosted and zoned: whatever the
@@ -835,7 +835,7 @@ fn dispersion_is_traced_in_one_bin_by_default() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Monte-Carlo statistics (ZC-7)
+// Monte-Carlo statistics
 // ---------------------------------------------------------------------------------------------
 
 /// A polished slab: the clear-stone mean is `(1 - R) / (1 + R)`, the mean at the pixel's reference
@@ -915,7 +915,7 @@ fn convergence_is_judged_on_the_clear_stone_transmittance() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Per-channel white levels (ZC-13)
+// Per-channel white levels
 // ---------------------------------------------------------------------------------------------
 
 /// The chroma codes are log-spaced, exact at 1, monotone, saturate at the ends and keep the stated
@@ -1006,8 +1006,8 @@ fn channel_differences(a: &ForwardRecords, b: &ForwardRecords, alpha: f64, c: us
 
 /// A coloured panel gradient is reproduced per channel: channel `c` of a trace under the coloured
 /// frame equals channel `c` of a trace under the grey frame that holds only channel `c`'s levels,
-/// to the quantisation of the chroma codes, with and without absorption. The old grey reduction
-/// (the mean of the channels) is several percent off in the red channel, so the test would fail
+/// to the quantisation of the chroma codes, with and without absorption. A grey reduction (the
+/// mean of the channels) is more than a percent off in the red channel, so the test would fail
 /// under it. The result is bitwise the same for any thread count, and survives the cache.
 #[test]
 fn a_coloured_panel_gradient_is_reproduced_per_channel() {
@@ -1037,8 +1037,8 @@ fn a_coloured_panel_gradient_is_reproduced_per_channel() {
         }
     }
 
-    // The grey model of the earlier version (the mean of the channels) misses the red channel by
-    // percent, so the coloured frame is really tested.
+    // The grey reduction (the mean of the channels) misses the red channel by more than a percent,
+    // so the coloured frame is really tested.
     let grey_mean = oblique_with(
         graded_frame(|_, x, y| {
             (coloured_panel(0, x, y) + coloured_panel(1, x, y) + coloured_panel(2, x, y)) / 3.0

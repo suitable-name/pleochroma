@@ -4,8 +4,9 @@
 //! the rough as a transparent volume (its edges, plus a coverage mask), the saw pieces as
 //! edges. [`compose`] lays the rough and the saw pass over the stones; the outline and the
 //! hover marks are drawn last. The model view uses the same passes for its inclusion shells:
-//! the opaque rough first, then the shells as a see-through layer. Everything here is a pure function of buffers, like the
-//! compare overlay, so it is tested on tiny images.
+//! the opaque rough first, then the shells as a see-through layer.
+//!
+//! Everything here is a pure function of buffers, so it is tested on tiny images.
 
 /// The tint of the glass the rough is drawn as.
 pub(super) const ROUGH_TINT: [u8; 3] = [150, 170, 200];

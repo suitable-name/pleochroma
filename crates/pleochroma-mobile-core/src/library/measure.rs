@@ -45,7 +45,7 @@ impl SolidSource for SolvedPlanes {
         self.solid.measure(detail)
     }
 
-    /// Classified from the SAME planes, so the girdle outline is measured.
+    /// Classified from the same planes, so the girdle outline is measured.
     fn girdle_sides(&mut self) -> usize {
         self.solid.girdle_sides()
     }

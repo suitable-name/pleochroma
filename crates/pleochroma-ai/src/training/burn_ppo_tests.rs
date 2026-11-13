@@ -375,15 +375,12 @@ fn draw_actions_from_the_policy(tr: &BurnTrainer, d: &mut Data, seed: u64) {
 
 #[test]
 fn positive_advantages_raise_the_log_prob_of_taken_actions() {
-    // The composed policy mean is a normalised direction (`g / g_max`): while the sensitivities
-    // are small, as at initialisation, a parameter change moves a tier's mean by a multiple of
-    // the policy's std (measured: one Adam step at 1e-3 shifts the means by about 0.3 pre-squash
-    // units, 60 % of the initial std, and lowers the log-probabilities by nats). The property
-    // that must hold is the sign of the surrogate at a learning rate the composition tolerates:
-    // for actions the policy itself drew, a positive advantage raises their log-probability on
-    // the update. Replaying the same batch further is not asserted: the value loss keeps moving
-    // the shared trunk, and through the normalisation that moves the means too (see the module
-    // docs of `burn_ppo` on why imitation is the primary algorithm).
+    // The composed mean is a normalised direction (`g / g_max`), so while the sensitivities are
+    // small a parameter step moves the means by a large share of the std (about 0.3 pre-squash
+    // units per Adam step at 1e-3). The property tested is the sign of the surrogate at such a
+    // learning rate: for actions the policy drew, a positive advantage raises their log-prob.
+    // Replaying the batch further is not asserted: the value loss moves the shared trunk and,
+    // through the normalisation, the means too.
     let config = PpoConfig {
         learning_rate: 1e-4,
         ..PpoConfig::default()
@@ -569,8 +566,7 @@ fn epoch_loop_stops_early_when_kl_exceeds_target() {
     let old = shifted(&tight);
     let m = tight.train_rollout_epochs(&d.batch(&old)).unwrap();
     assert!(m.early_stopped);
-    // The check runs after every mini-batch: the very first update already stops the call
-    // (the old per-epoch check would have run the epoch's 2 updates).
+    // The check runs after every mini-batch, so the first update already stops the call.
     assert_eq!(tight.update_count(), 1);
     assert!(
         (m.approx_kl - 0.0408).abs() < 2e-3,

@@ -1,5 +1,5 @@
-//! Native CUDA source-parity fixtures. Defined for the user's later GPU verification;
-//! these are deliberately ignored by default and have not been executed in this change.
+//! Native CUDA source-parity fixtures against the CPU objective. They are ignored by default
+//! because they need a CUDA device and NVRTC.
 use super::{CudaOpticalScorer, OpticalError};
 use glam::Vec3;
 use pleochroma::{

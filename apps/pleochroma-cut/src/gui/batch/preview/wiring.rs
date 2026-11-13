@@ -1,6 +1,7 @@
-//! Top-level UI wiring for the preview batch: starting one, the confirm-step dialog
-//! shared by every trigger, and the Slint callback registrations -- see this group's
-//! own `mod.rs` doc comment for the batch this drives.
+//! Top-level UI wiring for the preview batch: starting one, the confirm-step dialog shared by every
+//! trigger, and the Slint callback registrations.
+//!
+//! The batch itself is described in `gui::batch::preview`'s module doc.
 
 use super::{
     engine::{
@@ -54,9 +55,8 @@ pub enum PreviewMode {
     Ray,
 }
 
-/// Handle returned by [`spawn_preview_batch`]. Cancelling is cooperative -- see this
-/// group's `mod.rs` doc comment's "Cancellation leaves completed work in place"
-/// section.
+/// Handle returned by [`spawn_preview_batch`]. Cancelling is cooperative: the batch stops
+/// before it claims another item, and finished pictures stay.
 pub struct PreviewBatchHandle {
     cancel: Arc<AtomicBool>,
 }
@@ -107,7 +107,7 @@ pub struct PreviewBatchSettings {
 }
 
 /// Releases a batch's claim on the render context and clears the dialog's "running" flag
-/// when dropped, whatever ended the batch -- see this group's `mod.rs` doc comment.
+/// when dropped, whatever ended the batch.
 struct BusyGuard {
     render_ctx: Arc<Mutex<RenderContext>>,
     ui_weak: Weak<MainWindow>,
@@ -115,11 +115,8 @@ struct BusyGuard {
 
 impl Drop for BusyGuard {
     fn drop(&mut self) {
-        // A COUNT, not a bool: the batch preview, the batch tilt
-        // sweep and a hi-res export queue can each be in flight at once, so
-        // this decrements its own claim rather than unconditionally clearing
-        // every job's -- see `RenderContext::export_active_count`'s doc
-        // comment.
+        // A count, not a bool: the preview batch, the tilt batch and a hi-res export can be
+        // in flight together, so this releases only its own claim.
         RenderContext::lock(&self.render_ctx).export_active_count -= 1;
         let ui_weak = self.ui_weak.clone();
         let _ = ui_weak.upgrade_in_event_loop(move |ui| {
@@ -154,7 +151,8 @@ fn push_summary(ui_weak: &Weak<MainWindow>, outcome: PreviewBatchOutcome, solid:
     });
 }
 
-/// Starts a preview-image batch over the requested library entries on a background thread and returns a handle that can cancel it.
+/// Starts a preview batch over the requested library entries on a background thread. The
+/// returned handle cancels it.
 #[expect(
     clippy::too_many_lines,
     reason = "one straight-line batch setup: freeze context, spawn worker, wire callbacks"
@@ -165,10 +163,8 @@ pub fn spawn_preview_batch(
     render_ctx: Arc<Mutex<RenderContext>>,
     settings: PreviewBatchSettings,
     entry_ids: Vec<i64>,
-    // This batch's own id, plus the shared "most recently started batch" counter --
-    // see `start_batch`'s own doc comment for why the final summary/done push below
-    // compares them before writing anything, rather than trusting this is still the
-    // only batch anyone cares about by the time it finishes.
+    // This batch's id and the shared newest-batch counter; the final push compares them
+    // (see `start_batch`).
     batch_id: u64,
     current_batch_id: Arc<AtomicU64>,
 ) -> PreviewBatchHandle {
@@ -216,8 +212,7 @@ pub fn spawn_preview_batch(
         // batch, not just the lane it happened on -- see `engine::catch_local_render`'s
         // own doc comment.
         let gpu_retired = AtomicBool::new(false);
-        // The one remote endpoint -- see this group's `mod.rs` doc
-        // comment's "Local + remote" section.
+        // The one remote endpoint, if one is configured.
         // Solid pictures are cheap enough that shipping scenes to a remote would cost
         // more than drawing them, so that mode never uses it.
         let remote_worker = if local_only { None } else { settings.worker };
@@ -322,17 +317,12 @@ pub fn spawn_preview_batch(
             angle_table: super::super::angle_table_count(&angle_table_entries),
             cancelled: cancel_thread.load(Ordering::Relaxed),
         };
-        // Dropped, not pushed, when a NEWER batch has already started -- `start_batch`
-        // refuses a second batch while `preview_batch_running` is true, but a batch
-        // that finishes in the same tick a fresh one starts (Close then immediately
-        // re-trigger) could otherwise still land its summary/done on top of the new
-        // batch's own freshly reset dialog state. See `start_batch`'s own doc comment.
+        // Not pushed when a newer batch has started: it would land on the new batch's freshly
+        // reset dialog (see `start_batch`).
         if current_batch_id.load(Ordering::SeqCst) == batch_id {
             push_summary(&ui_weak, outcome, solid);
         }
-        // `_busy_guard` drops here, clearing `export_active` and
-        // `preview_batch_running` unconditionally -- see this group's `mod.rs` doc
-        // comment.
+        // `_busy_guard` drops here and clears the running state.
     });
 
     PreviewBatchHandle { cancel }
@@ -348,25 +338,15 @@ struct BatchSlots {
     thumbnail_cache: PreviewThumbnailCache,
 }
 
-/// Starts a batch for `entry_ids`, reading `preview_size`/`preview_spp`/the configured
-/// remote endpoint AND the persisted `LiveComputeTarget` from `settings_store`'s current
-/// snapshot -- the SAME standing "Live Compute" preference the live viewport uses
-/// (the Parameters panel's pill, `AppSettings::live_compute_target`), not a separate
-/// picker of this batch's own. The one place every trigger (`setup_preview_batch_callbacks`'s
-/// context-menu and confirmed-offer handlers, and its own `spawn_missing_preview_scan`
-/// result handler) funnels through, so all three read settings the same way and none of
-/// them can drift.
-/// Refuses (toasts) rather than starting a SECOND batch while one is already
-/// running: every caller (the confirm step, the single-design context-menu
-/// trigger, and the missing-previews scan's own confirm offer, plus the library's
-/// own post-import "generate previews for what was just imported" offer) funnels
-/// through here, but nothing previously stopped two of them firing close together
-/// -- `handle_slot`'s previous `Some(handle)` would simply be overwritten,
-/// orphaning the FIRST batch's thread with no `PreviewBatchHandle` left to cancel
-/// it, and resetting the dialog's progress fields out from under it mid-run.
-/// `current_batch_id` is bumped on every ACCEPTED start and threaded into
-/// [`spawn_preview_batch`], which compares it before writing its own final
-/// summary/done -- see that function's own comment on the completion push.
+/// Starts a batch for `entry_ids`. The preview size, samples, remote endpoint and
+/// `LiveComputeTarget` come from `settings_store`'s current snapshot: the same "Live Compute"
+/// preference the live viewport uses (`AppSettings::live_compute_target`), not a picker of
+/// this batch's own. Every trigger in `setup_preview_batch_callbacks` funnels through here.
+/// Refuses (with a toast) to start a second batch while one is running. Every caller
+/// funnels through here. A second start would overwrite the first batch's handle, orphaning
+/// its thread, and reset the dialog's progress under it. `current_batch_id` is bumped on every
+/// accepted start and passed to [`spawn_preview_batch`], which compares it before writing its
+/// final summary.
 fn start_batch(
     ui: &MainWindow,
     db: &Arc<Mutex<Database>>,
@@ -474,21 +454,16 @@ fn confirm_offer(ui: &MainWindow, env: &ConfirmEnv, mode: PreviewMode) {
     );
 }
 
-/// Opens the confirm step (`preview_batch_dialog.slint`'s "N designs -- Generate?"
-/// state) for `ids` -- that component derives its own explanatory text from
-/// `preview_offer_count` (singular/plural wording), so there is no separate message
-/// string to pass here. `ids` travels through the Slint-side `preview_offer_ids`
-/// property (an `[int]` model), NOT a Rust-side
-/// `Rc<RefCell<...>>`, precisely so a caller OUTSIDE this module -- `gui::library`'s
-/// post-import completion handler (trigger #1: "ask the user whether to generate
-/// previews for what was just imported") -- can open this exact same confirm step
-/// without this module having to expose any of its internal callback-closure state to
-/// it. `setup_preview_batch_callbacks`'s own `spawn_missing_preview_scan` result
-/// handler (trigger #2) is the other caller, so both triggers share one dialog and one
-/// code path -- there is exactly one way this app ever asks "generate previews for
-/// these N designs?", not two that could drift apart.
+/// Opens the confirm step (`preview_batch_dialog.slint`'s "N designs -- Generate?" state) for
+/// `ids`.
 ///
-/// A no-op for an empty `ids` -- nothing to offer.
+/// The dialog words its text from `preview_offer_count`, so no message is passed. `ids` travels
+/// through the Slint-side `preview_offer_ids` model rather than Rust-side closure state, so a
+/// caller outside this module (the library's post-import handler) can open the same step. The
+/// missing-previews scan opens it too, so there is one dialog and one code path for "generate
+/// previews for these N designs?".
+///
+/// A no-op for an empty `ids`.
 pub fn offer_batch_confirmation(ui: &MainWindow, ids: &[i64]) {
     open_offer(ui, ids, false);
 }
@@ -635,13 +610,12 @@ pub fn setup_preview_batch_callbacks(
     // it.
     let current_batch_id: Arc<AtomicU64> = Arc::new(AtomicU64::new(0));
 
-    // Preview render size/spp sliders are exposed as settings: plain settings-file writes, no `RenderContext`/live-viewport
-    // involvement at all, since these only ever affect the NEXT batch dispatch's
-    // `PreviewJob`, never anything already on screen.
+    // The preview size and samples are plain settings writes. They affect only the next
+    // batch's `PreviewJob`, never the live viewport.
     //
     // The same two callbacks serve the confirm step's "Picture Quality" sliders
-    // (`preview_batch_dialog.slint`); after storing the value they ask the open offer, if
-    // any, to count again (`offer_quality`).
+    // (`preview_batch_dialog.slint`); after storing a value they ask an open offer to count
+    // again (`offer_quality`).
     let recount = OfferRecount::new(ui, db, settings_store);
     let settings_store_size = Arc::clone(settings_store);
     let recount_size = Rc::clone(&recount);
@@ -680,8 +654,8 @@ pub fn setup_preview_batch_callbacks(
             settings_store_spp.update(|s| s.settings.preview_spp = spp.max(1).cast_unsigned());
             recount.quality_changed();
         });
-    // The remote coordinator panel's "Remote lanes for batches" spin box -- the lane
-    // count both batches read when they start. Registered here, beside the other
+    // The remote coordinator panel's "Remote Lanes for Batches" spin box -- the lane
+    // count both batches read when they start. Registered beside the other
     // batch-setting callbacks, rather than with the rest of the remote panel.
     setup_remote_batch_lanes(ui, settings_store);
 
@@ -787,7 +761,8 @@ pub fn setup_preview_batch_callbacks(
     );
 }
 
-/// Persistent thumbnails use eight deterministic taps with Fire; path sample settings remain independent.
+/// The engine for the persistent thumbnails: the thumbnail renderer with the default ray
+/// settings (8 AA taps, Fire on). The path sample settings do not apply.
 pub(super) fn thumbnail_engine(
     settings: &crate::settings::model::AppSettings,
 ) -> pleochroma::renderer::engine::EngineSpec {

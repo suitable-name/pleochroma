@@ -1,10 +1,9 @@
 //! "Frosted" on a tier and on a single facet: [`Edit::SetTierFrosting`], one undo step each.
 //!
-//! Frosting changes no geometry, so -- like the cheater offset and the tier note -- it needs
-//! no solid-preview replan. What it does need is the path tracer: the frosted planes live in
-//! `RenderContext::active_frosted`, so each edit here recomputes them for the stone the
-//! viewport shows and claims them under the same lock, so the render restarts at once instead of
-//! waiting for the next background solve (which claims them too).
+//! Frosting changes no geometry, so, like the cheater offset and the tier note, it needs no
+//! solid-preview replan. The path tracer does need it: the frosted planes live in
+//! `RenderContext::active_frosted`. Each edit recomputes them for the stone the viewport shows
+//! and claims them under the same lock, so the render restarts at once.
 
 use std::{
     cell::RefCell,
@@ -50,10 +49,10 @@ pub(super) fn facet_position(state: &EditorState, tier_index: usize, position: f
         .find(|&stored| (stored as f32).to_bits() == position.to_bits())
 }
 
-/// Hands the path tracer the frosted planes of the stone it shows after a frosting edit, when
-/// the editor owns the render context's planes and the last solve fits the design (the planes,
-/// and so which of them are frosted, only depend on the tiers and their masts, which the edit
-/// did not touch). Otherwise does nothing: the background solve the edit schedules claims them.
+/// Hands the path tracer the frosted planes of the stone shown after a frosting edit. The planes
+/// depend only on the tiers and their masts, which a frosting edit leaves alone, so the last
+/// solve's masts are enough. Does nothing unless the editor owns the render context's planes and
+/// the last solve fits the design; the background solve the edit schedules then claims them.
 pub(super) fn push_frosted_planes(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,

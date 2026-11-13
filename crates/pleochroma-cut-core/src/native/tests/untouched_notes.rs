@@ -3,11 +3,10 @@
 
 use crate::{design::Design, preform::PreformSpec};
 
-/// `attached_files` id 4210 ("pc46019.asc") -- "PC 46.019 For Fun" by Michiko
-/// Huyhn. Its real notes (`"Cut to mast depth X."`, `"Set girdle width."`) survive
-/// a round trip through the native file format. Copied here from
-/// `pleochroma_formats::asc`'s own (private, `#[cfg(test)]`-only) fixture of the
-/// same name -- that fixture cannot be reused across the crate boundary.
+/// "PC 46.019 For Fun" (`pc46019.asc`) by Michiko Huyhn. Its G-field notes
+/// (`"Cut to mast depth X."`, `"Set girdle width."`) must survive an import, solve and
+/// export unchanged. Copied from the `pleochroma_formats::asc` test fixture of the same
+/// name, which is private to that crate's tests.
 const ASC_FOR_FUN: &str = "GemCad 5.0\n\
 g 96 0.0\n\
 y 1 y\n\
@@ -20,10 +19,9 @@ a 54.575729 0.70935195 12 n C1 84 G Set girdle width.\n\
 a 0.000000 0.44755829 96 n U\n\
 F Also USFG Newsletter Sep 2013, Facets Jan 2014\n";
 
-/// `attached_files` id 4430 ("pc42060.asc") -- "PC 42.060 Large Texas Star" by
-/// Charles `McCoy`. Same reuse rationale as [`ASC_FOR_FUN`]; exercises the bare
-/// `"TCP"` instruction and a note this crate doesn't classify at all (`"Make table
-/// large enough to show all of the star"`).
+/// "PC 42.060 Large Texas Star" (`pc42060.asc`) by Charles `McCoy`. Copied for the same
+/// reason as [`ASC_FOR_FUN`]. It covers the bare `"TCP"` instruction and a note this crate
+/// does not classify (`"Make table large enough to show all of the star"`).
 const ASC_LARGE_TEXAS_STAR: &str = "GemCad 5.0\n\
 g 80 0.0\n\
 y 5 y\n\

@@ -22,8 +22,8 @@ pub struct WhittedGpuPrepared {
     inner: crate::renderer::gpu::whitted::WhittedGpuScene,
 }
 
-/// Browser consumers await the low-level renderer directly; builds without GPU
-/// support retain exactly the same native facade signatures and cleanly decline.
+/// Stand-in with the native facade's signatures, for builds without GPU support and for
+/// wasm32 (where the browser calls the low-level renderer). Calls decline or report cancel.
 #[cfg(any(not(feature = "gpu"), target_arch = "wasm32"))]
 pub struct WhittedGpuBackend;
 

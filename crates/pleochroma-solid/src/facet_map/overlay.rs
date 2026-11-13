@@ -47,11 +47,8 @@ impl FacetMap {
     /// `n_d` is the design's effective refractive index the margin is computed
     /// against.
     ///
-    /// The margin clause is only printed for a pavilion facet:
-    /// `optics_hints::tier_margin_and_risk` (the table's own path, `state/mod.rs`)
-    /// only has a real windowing answer for `Block::Pavilion` -- a crown or girdle
-    /// facet cannot window, so a margin figure there would mean nothing and would
-    /// undermine the reading of the pavilion facets' real margins.
+    /// The margin clause is only printed for a pavilion facet: `optics_hints` computes a
+    /// margin for any angle, but only the pavilion's light return depends on it.
     #[must_use]
     pub fn hover_text(&self, facet_id: usize, n_d: f64) -> String {
         let Some(info) = self.facets.get(facet_id) else {
@@ -102,10 +99,8 @@ impl FacetMap {
     /// Windowing risk applies only to pavilion tiers (`angle_deg < 0.0`), per
     /// `optics_hints`'s own module doc comment.
     ///
-    /// `pending_tiers` marks EVERY tier index it contains, not just one: a batch
-    /// nudge/offset dirties several tiers at once, and a cutter watching a
-    /// multi-tier edit needs every one of the changed facets outlined as pending,
-    /// not just the first.
+    /// `pending_tiers` marks every tier index it contains: a batch edit dirties
+    /// several tiers at once, and each of their facets must read as pending.
     #[must_use]
     pub fn overlay_flags(
         &self,

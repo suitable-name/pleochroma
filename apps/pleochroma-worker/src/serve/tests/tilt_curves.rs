@@ -5,14 +5,12 @@ use crate::serve::handle_connection;
 use pleochroma_net::{handshake, messages::ClientMessage};
 use std::net::TcpListener;
 
-/// `serve::tilt::handle_tilt_curves_request` must restore the short read timeout
-/// `poll_for_cancel` applies to the socket
-/// (`CANCEL_POLL_TIMEOUT`/`crate::stream_emit::FRAME_REMAINDER_TIMEOUT`) before
-/// returning -- otherwise this connection's next `read_message` call fails unless the
-/// next frame happens to already be sitting in the socket buffer. Driven over a REAL
-/// loopback `TcpStream` (unlike this folder's `DuplexHalf`-based tests, which can never
-/// actually time out a read) with the second message written only after the first reply
-/// comes back -- exactly the case a leftover short timeout would break.
+/// `serve::tilt::handle_tilt_curves_request` restores the blocking read timeout that
+/// `poll_for_cancel` leaves on the socket.
+///
+/// Otherwise the connection's next `read_message` fails unless its frame is already
+/// buffered. Runs over a real loopback `TcpStream`, because the `DuplexHalf` doubles cannot
+/// time out a read, and sends the second message only after the first reply.
 #[test]
 fn tilt_curves_request_then_library_request_both_get_replies_over_a_real_socket() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -48,9 +46,8 @@ fn tilt_curves_request_then_library_request_both_get_replies_over_a_real_socket(
         "{tilt_response:?}"
     );
 
-    // Sent only now -- not already buffered when the TILT_CURVES reply above went out
-    // -- so this proves the read timeout the emitter left on the socket was actually
-    // restored to blocking, not that a lucky pre-buffered read papered over the bug.
+    // Sent only after the TILT_CURVES reply, so it cannot already be buffered: this proves
+    // the socket was restored to blocking reads.
     pleochroma_net::messages::write_message(
         &mut client,
         &ClientMessage::Library(Box::new(

@@ -1,8 +1,10 @@
 //! A PNG gallery of the lighting presets, for judging the look by eye rather than by
-//! assertion: the standard round brilliant in Diamond, Rutile and Sapphire, face-up
-//! and tilted, under the studio ring lights (the old look, as a reference) and the
-//! three lit models, plus the light tent's free parameters (exposure, key-light
-//! elevation). Every image has `GemRay`'s grey backdrop card behind the stone.
+//! assertion.
+//!
+//! The standard round brilliant in Diamond, Rutile and Sapphire, face-up and tilted,
+//! under the studio ring lights (the reference look) and the three lit models, plus the
+//! light tent's free parameters (exposure, key-light elevation). Every image has the
+//! app's grey backdrop card behind the stone.
 //!
 //! The gallery renders on the GPU through the production frame renderer, at full
 //! size and a high sample count, so it is ignored by default and takes hours:
@@ -95,8 +97,8 @@ impl Shot {
     }
 
     fn material(&self) -> GemMaterial {
-        // Through the render's size rule (no stone size set = the 7 mm look), so the hand-judged
-        // gallery shows coloured built-ins as the app renders them (all `ModelUnit`: no planes read).
+        // Through the render's size rule (no stone size set is the 7 mm look), so the gallery
+        // shows built-in materials as the app renders them.
         pleochroma::render_setup::material_for_stone(
             GemMaterial::by_name(self.material)
                 .unwrap_or_else(|| panic!("{} is a built-in material", self.material)),
@@ -114,8 +116,8 @@ impl Shot {
         )
     }
 
-    /// The scene's environment, with `GemRay`'s grey card behind the stone so the
-    /// gallery compares like for like with `GemRay`'s own pictures.
+    /// The scene's environment, with the grey card behind the stone as in the app's own
+    /// pictures.
     const fn environment(&self) -> EnvironmentSource<'static> {
         self.preset
             .studio(
@@ -399,8 +401,8 @@ the two controls the editor exposes.
         shots
     }
 
-    /// Renders `shot` through the production GPU frame renderer -- the same megakernel
-    /// the editor's Live Render tab and the worker use.
+    /// Renders `shot` through the production GPU frame renderer -- the same default engine
+    /// (the staged megakernel) the editor's Live Render tab and the worker use.
     fn render_gpu(
         renderer: &mut GpuFrameRenderer,
         shot: &Shot,
@@ -451,7 +453,7 @@ the two controls the editor exposes.
     }
 
     /// [`render_gpu`], starting the image over on a fresh device after a lost one. The
-    /// old renderer is dropped before the new one is opened so the lost device is
+    /// lost renderer is dropped before the new one is opened so the lost device is
     /// released first; the partial accumulation is discarded, since nothing says which
     /// batch the loss interrupted.
     fn render_gpu_resilient(

@@ -225,7 +225,7 @@ fn shells_of(tris: &[[u32; 3]]) -> Vec<Vec<usize>> {
 
 /// Whether `p` is inside the closed surface made of the triangles of `shell`: the majority
 /// of three ray parities, like [`RoughMesh::contains_point`](super::RoughMesh::contains_point)
-/// but over one shell and without the BVH, which does not exist yet.
+/// but over one shell, without a BVH (the mesh builds its BVH after orientation).
 fn shell_contains(verts: &[DVec3], tris: &[[u32; 3]], shell: &[usize], p: DVec3) -> bool {
     let odd = RAY_DIRECTIONS
         .iter()
@@ -243,12 +243,9 @@ fn shell_contains(verts: &[DVec3], tris: &[[u32; 3]], shell: &[usize], p: DVec3)
 /// A point strictly inside a face of `shell`, to ask which other shells enclose it: the
 /// centroid of its largest triangle (the first of equals).
 ///
-/// A vertex of the shell is a poor probe. Two closed shells can touch at a vertex (two
-/// bodies corner to corner, a cavity touching the outer surface at a point) or one shell's
-/// vertex can rest on a face of another, and a point ON a surface has no defined ray parity
-/// there. The centroid of the largest triangle lies well inside a face, away from the
-/// vertices and edges of its shell, so it lies on another shell only where the two surfaces
-/// overlap, which stays the documented limitation.
+/// A vertex is a poor probe: shells may touch at a vertex or rest on one, and a point on a
+/// surface has no defined ray parity. The centroid lies away from the vertices and edges, so
+/// it is on another shell only where the two surfaces overlap, a known limitation.
 fn probe_point(verts: &[DVec3], tris: &[[u32; 3]], shell: &[usize]) -> DVec3 {
     let corners = |t: usize| tris[t].map(|v| verts[v as usize]);
     let area = |t: usize| {
@@ -274,15 +271,13 @@ fn probe_point(verts: &[DVec3], tris: &[[u32; 3]], shell: &[usize]) -> DVec3 {
 /// signed volume then adds the bodies and subtracts the cavities, whichever way the file
 /// wound them, and a cavity's planes face the right way for the planner's cutting rows.
 ///
-/// Containment is decided with one point inside a face of the shell ([`probe_point`]), so
-/// shells that cross each other (a self-intersecting scan) have no defined depth; that stays
-/// the documented limitation. Shells that merely touch, at a vertex or with a vertex on a
-/// face, do not cross, and each keeps its own depth.
+/// Containment is decided with one point inside a face of the shell ([`probe_point`]).
+/// Shells that cross each other have no defined depth, but [`RoughMesh::new`] rejects such
+/// a mesh first. Shells that merely touch keep their own depth.
 ///
-/// The work is the number of shells times the triangles of the shells whose bounding box
-/// holds the probe, three rays each, without the BVH (it needs the oriented mesh). The
-/// triangle cap bounds it, so a scan with very many tiny internal shells is slow to
-/// import, not stuck.
+/// The cost is the number of shells times the triangles of the shells whose bounding box
+/// holds the probe, three rays each; the triangle cap bounds it. No BVH is used, since the
+/// mesh needs its orientation first.
 pub(super) fn orient_shells(verts: &[DVec3], tris: &mut [[u32; 3]], origin: DVec3) {
     let shells = shells_of(tris);
     if let [only] = shells.as_slice() {

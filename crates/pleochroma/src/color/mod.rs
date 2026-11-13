@@ -15,8 +15,6 @@ pub mod metrics;
 ///
 /// The weights say which share of an unpolarised path each absorption axis takes.
 pub mod principal_axes;
-/// RGB color-space definitions (primaries, white points, transfer functions) and
-/// tone-mapping operators.
 pub mod space;
 
 pub use body_color::{

@@ -1,9 +1,8 @@
 //! The generic framed-message codec every other `messages` submodule builds on:
 //! [`NetError`], [`write_message`], [`read_message`].
 //!
-//! Split out of the original single `messages.rs` (see `super`'s module doc comment for
-//! why) because these three items are the one part every other submodule -- `hello`,
-//! `render`, `stream` -- depends on, none of them depend on each other.
+//! These three items are the part every other submodule (`hello`, `render`, `stream`)
+//! depends on; none of them depends on another submodule.
 
 use crate::framing::{self, FramingError};
 use serde::{Serialize, de::DeserializeOwned};

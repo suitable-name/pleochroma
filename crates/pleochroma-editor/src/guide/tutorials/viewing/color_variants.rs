@@ -1,7 +1,7 @@
-//! Color variants: picking a named color of a material for a design, setting the color of each
-//! direction by hand and keeping it as a variant of your own, and taking the color of a zone of a
-//! color pattern from a variant (manual chapters "Materials" and "Custom Materials and Color
-//! Patterns").
+//! Color variants: picking a named color of a material, setting the color of each direction by
+//! hand and keeping it as a variant, and taking a pattern zone's color from a variant.
+//!
+//! Manual chapters: "Materials" and "Custom Materials and Color Patterns".
 //!
 //! Both lessons are desktop-only: the web build has the Body Color list and the Custom editor,
 //! but no Material Editor with a Color Variants section and no Color Pattern window (the offer
@@ -240,8 +240,8 @@ fn zone_colors_from_variants() -> Guide {
             "In the Stone tab find Color Zoning.",
             "Click Color Pattern.... The Color Pattern window opens.",
         ])
-        .check("A window called Color Pattern opens with a list of ZONES, a Preview and the controls of the selected zone.")
-        .why("Apply stores the pattern with this stone and keeps the window open, Done stores it and closes the window, and Cancel closes it and keeps the pattern as it was.")
+        .check("A window called Color Pattern opens with the stone on a stage, a Layers panel at the right and Start From..., Cancel and Done in its frame.")
+        .why("Done stores the pattern with this stone and closes the window, and Cancel closes it and keeps the pattern as it was.")
         .goal(event(PATTERN_EDITOR_OPENED), "The Color Pattern window opened")
         .highlight("stone_tab")
         .allow(EFFECTS),
@@ -252,32 +252,33 @@ fn zone_colors_from_variants() -> Guide {
             "A template gives the stone its zones, and the variants then color them.",
         )
         .actions([
-            "In the row of Templates click Watermelon, and wait for Solving colors... to end.",
+            "Click Start From... in the header of the window. A gallery opens with Typical for Tourmaline, Templates and My Presets.",
+            "Under Typical for Tourmaline click Watermelon, and wait for Solving colors... to end. It is built from the stone's own colors and variants.",
         ])
-        .check("The ZONES list shows a Rim and a Core.")
-        .why("The template's zones start with one picked color each. The next step changes where their colors come from.")
+        .check("The Layers panel lists a Rim and a Core, top layer first.")
+        .why("Picking a tile of the gallery replaces the layers, and Undo brings them back. The next step changes where the colors of the layers come from.")
         .goal(event(PATTERN_TEMPLATE_PICKED), "The Watermelon template chosen")
         .allow(EFFECTS),
     )
     .step(
         GuideStep::new(
             "Take the zone colors from variants",
-            "Source says where the color of the selected zone comes from: Custom, a color you pick, or Variant, a color variant of the material.",
+            "From variant says where the color of the selected layer comes from: Custom color, a color you pick, or a color variant of the material.",
         )
         .actions([
-            "In ZONES click Core. Under Color, set Source to Variant.",
-            "In the Variant list pick Rubellite. A split swatch beside the list shows its color along and across the axis. If the list has no Rubellite, pick any other variant of it.",
-            "Click Rim, set Source to Variant and pick Verdelite.",
-            "Click Apply.",
+            "In the Layers panel click the Core card. Open its From variant list.",
+            "Pick Rubellite. The card now reads From Rubellite. If the list has no Rubellite, pick any other variant of it.",
+            "Click the Rim card, open From variant and pick Verdelite.",
+            "Click Done.",
         ])
-        .check("A toast says Applied the color pattern to this stone, and the stone shows a green rim around a pink core.")
-        .why("The Variant list holds the material's own color first, then its variants, then the variants you saved. Setting Source back to Custom turns the zone into a color you pick, starting from the variant's colors.")
+        .check("The window closes, and the stone shows a green rim around a pink core.")
+        .why("The From variant list holds Custom color first, then the variants of the material. Picking Custom color again turns the layer into a color you pick, starting from the variant's colors. Done stores the pattern with this stone.")
         .goal(
             Goal::All(vec![
                 event(PATTERN_SAVED),
                 check("a zone colored from a variant", zone_takes_variant),
             ]),
-            "A zone colored from a variant, applied",
+            "A layer colored from a variant, saved with Done",
         )
         .allow(EFFECTS),
     )
@@ -286,12 +287,12 @@ fn zone_colors_from_variants() -> Guide {
     ))
     .step(
         GuideStep::new(
-            "Colors, Source and typical zoning",
-            "A zone you color with Custom has a Colors menu next to its Source, and a stone offers typical patterns that use variants.",
+            "Color tiles, From variant and typical zoning",
+            "The selected layer shows Color tiles, one for each direction of the crystal, and a stone offers typical patterns that use variants.",
         )
         .actions([
             "Click Done in the Color Pattern window if it is still open.",
-            "Colors says how many colors a zone you pick has: One Color, Along and Across for a crystal with two directions, or Alpha, Beta and Gamma for three. A one-color zone on such a crystal reads Legacy: No Pleochroism and shows the same color in every direction.",
+            "The Color tiles say how many colors a layer you pick has: one Color tile, Along c and Across c for a crystal with two directions, or the three tiles α, β and γ for three. Click a tile to open the color picker, and Use Color keeps the color. A layer with a single color on such a crystal shows an amber notice with Convert, which gives it a color for each direction.",
             "In the Stone tab, Typical Zoning for Tourmaline now colors its watermelon patterns with the Rubellite and Verdelite variants, when the material has them.",
         ])
         .why("Every control is unlocked again."),

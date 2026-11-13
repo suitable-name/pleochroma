@@ -139,10 +139,8 @@ pub fn relaunch_with_database_seeded(
 ) -> Result<PathBuf, String> {
     ctx.app.shutdown();
     ctx.profile.wipe_app_data();
-    // Only now: when an earlier launch still holds the old database, `wipe_app_data` moves the
-    // run to a fresh working directory, and the copy must land where the next launch looks. (A
-    // target taken before the wipe put the copy into the locked directory, and the app opened
-    // an empty library in the fresh one.)
+    // Taken after the wipe: `wipe_app_data` may move the run to a fresh working directory, and
+    // the copy must land where the next launch looks.
     let target = harness_support::database_path();
     if !ctx.profile.contains(&target) {
         return Err(format!(

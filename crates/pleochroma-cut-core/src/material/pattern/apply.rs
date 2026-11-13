@@ -10,16 +10,15 @@ use pleochroma::optics::{
     zoning::ZonedAbsorption,
 };
 
-/// Applies a solved color pattern at the stone's physical width in millimetres.
+/// Applies a solved color pattern at the stone's physical width in millimeters.
 ///
-/// An unset or invalid width uses the render's 7 mm default. Uniform patterns replace
-/// the base absorption and remove zoning; a nonuniform pattern replaces both. No
-/// other optical property is changed, and the material's own preset is never mutated.
+/// An unset or invalid width uses the render's 7 mm default. The base absorption is replaced
+/// and the zoning is set from the pattern (none for a uniform pattern). No other optical
+/// property is changed, and the material's own preset is never mutated.
 ///
-/// A pattern of any format version from the first release up to [`PATTERN_FORMAT_VERSION`] is
-/// accepted, so stored version 1 patterns keep loading. A zone color's rank is not checked
-/// against `material` (a stored one-color zone on a pleochroic host keeps rendering as saved; the
-/// editor labels it): the zone tensors are applied as stored.
+/// Every format version from 1 up to [`PATTERN_FORMAT_VERSION`] is accepted. A zone color's
+/// rank is not checked against `material`: a one-color zone on a pleochroic host renders as
+/// saved, and the editor labels it. The zone tensors are applied as stored.
 ///
 /// # Errors
 ///

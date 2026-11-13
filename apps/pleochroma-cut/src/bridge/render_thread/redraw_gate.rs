@@ -1,16 +1,14 @@
-//! [`RedrawGate`]: coalesces a burst of "please redraw" requests that would otherwise
-//! each queue their own closure on the Slint UI event loop
-//! (`Weak::upgrade_in_event_loop` queues rather than runs immediately) into at most one
-//! pending closure, which always acts on the LATEST submitted payload.
+//! [`RedrawGate`]: coalesces "please redraw" requests into at most one pending closure on
+//! the Slint UI event loop, and that closure always acts on the latest submitted payload.
 //!
-//! Without this, every incoming redraw-worthy event queued its own closure
-//! unconditionally, so a burst arriving faster than Slint could drain its event queue
-//! let that queue -- and the full-buffer clone + tonemap cost each entry carried --
-//! grow without bound. Used by both the local render path (via
-//! `frame_helpers::push_frame_to_ui`) and the remote path
-//! (`orchestrator::tick::update::handle_remote_update`), whose payload type `T` differs:
-//! a ready-to-display pixel buffer for local, `()` for remote (which re-derives its
-//! redraw from the live, already-shared accumulator instead).
+//! `Weak::upgrade_in_event_loop` queues rather than runs. Without a gate, each redraw event
+//! would queue its own closure, each carrying a full-buffer clone and tone-map cost, so a
+//! burst could grow Slint's queue without bound.
+//!
+//! Used by the local path (`frame_helpers::push_frame_to_ui`) and the remote path
+//! (`orchestrator::tick::update::handle_remote_update`). The payload type `T` differs: a
+//! ready-to-display pixel buffer for local, `()` for remote, which re-derives its redraw
+//! from the live, already-shared accumulator.
 //!
 //! No Slint type anywhere in this module, so it is directly unit-testable.
 //!
@@ -18,12 +16,12 @@
 //!
 //! - `pending`: an `AtomicBool` set by whichever [`RedrawGate::submit`] call wins the
 //!   compare-exchange; cleared by [`RedrawGate::take`], called from inside the enqueued
-//!   closure right before it does real work. Every OTHER `submit` in between returns
-//!   `None` and must NOT enqueue a second closure, since the pending one will read the
+//!   closure right before it does real work. Every other `submit` in between returns
+//!   `None` and must not enqueue a second closure, since the pending one will read the
 //!   latest slot value once it runs anyway.
 //! - `generation`: an `AtomicU64` bumped on every `submit` (whether or not it won
-//!   `pending`), exposed via [`RedrawGate::current_generation`] so a caller can confirm
-//!   a burst was actually coalesced.
+//!   `pending`). Tests read it through `current_generation` to confirm a burst was
+//!   coalesced.
 use std::sync::{
     Mutex, PoisonError,
     atomic::{AtomicBool, AtomicU64, Ordering},
@@ -216,8 +214,8 @@ mod tests {
         assert_eq!(gate.take(), None);
     }
 
-    /// F3-17: a worker that has just finished a job can see whether a newer one is queued,
-    /// without taking it from the queue.
+    /// A worker that has just finished a job can see whether a newer one is queued, without
+    /// taking it from the queue.
     #[test]
     fn peek_shows_the_queued_payload_and_leaves_it_there() {
         let gate: RedrawGate<u32> = RedrawGate::new();

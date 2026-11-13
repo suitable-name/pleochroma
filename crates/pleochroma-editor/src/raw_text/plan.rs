@@ -302,7 +302,7 @@ impl Findings {
     }
 }
 
-/// Whether the material, not the legacy `I` line, decides the design's refractive index.
+/// Whether the material, rather than the `I` line, decides the design's refractive index.
 fn material_decides_index(design: &Design, custom: &[GemMaterial]) -> bool {
     design.material.refractive_index_override.is_some()
         || design.material.name.as_deref().is_some_and(|name| {
@@ -615,8 +615,9 @@ fn stale_problem() -> TextProblem {
     )
 }
 
-/// Compares `edited_text` with `base_text` (the text [`generate_text`](super::generate_text) wrote for `design`)
-/// and builds the plan that turns the design into what the edited text says.
+/// Compares `edited_text` with `base_text`, the text [`generate_text`](super::generate_text)
+/// wrote for `design`, and builds the plan that turns the design into what the edited text
+/// says.
 ///
 /// A line that was not touched keeps everything the design holds behind it. A tier the
 /// text changes keeps its id, note, cheater offset, target and relation unless the change

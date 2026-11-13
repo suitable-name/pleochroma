@@ -1,5 +1,4 @@
-//! Pushing the Retarget dialog's readouts (the desktop's
-//! `retarget_actions::proposal_view`): the proposal rows and notes, the errors that stand
+//! Pushes the Retarget dialog's readouts: the proposal rows and notes, the errors that stand
 //! in for them, and the target line.
 
 use crate::{RetargetModel, RetargetRow};

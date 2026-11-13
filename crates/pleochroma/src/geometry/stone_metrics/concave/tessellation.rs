@@ -1,8 +1,7 @@
 //! Tessellating a tool into a convex polytope (and its bounding box).
 //!
-//! These are the half-space
-//! lists the carved-mesh construction in the parent module clips against. Split from the
-//! parent module so the file stays readable; the functions are unchanged.
+//! The half-space lists the carved-mesh construction in the parent module clips
+//! against. Split out of the parent module for readability.
 
 use super::Plane;
 use crate::geometry::{

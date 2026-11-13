@@ -4,7 +4,7 @@
 //! An inclusion behaves like a cavity for placement. The rough's mesh already treats a second
 //! closed shell inside the outer one as a hollow: its triangles block placements and give
 //! the fit its rows, and its volume is left out of [`RoughMesh::volume`]. What differs is the
-//! weight. A hollow is air; an inclusion is stone, so the weighed carat, Fit to weight and the
+//! weight. A hollow is air; an inclusion is stone, so the carat weight, Fit to weight and the
 //! yield read the GROSS volume ([`RoughMesh::gross_volume`]), the rough as bought.
 //!
 //! The mesh keeps each inclusion as a solid of its own beside the combined shells, so the
@@ -246,7 +246,8 @@ impl RoughMesh {
     }
 
     /// The mesh without inclusion `index` (0-based, in the order added); `None` when there is
-    /// no such inclusion. Removing the last one gives back exactly the mesh it was added to.
+    /// no such inclusion or the rest does not build. Removing the last one gives back the
+    /// outer mesh.
     #[must_use]
     pub fn without_inclusion(&self, index: usize) -> Option<Self> {
         if index >= self.inclusions.len() {

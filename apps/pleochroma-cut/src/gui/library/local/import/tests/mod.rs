@@ -1,6 +1,5 @@
-//! Tests of the import pipeline: the batch loop and its per-file panic guard, design-file
-//! pairing (in `design_files`), the recursive folder scan and the remembered save folder. The topic-specific
-//! groups live in the submodules.
+//! Tests of the import pipeline: the batch loop and its per-file panic guard, the recursive
+//! folder scan and the remembered save folder. Topic-specific groups live in the submodules.
 
 mod collisions;
 mod design_files;
@@ -29,10 +28,8 @@ use std::{
     },
 };
 
-/// The exact mechanism [`import_path`] leans on to keep one bad file from taking
-/// the whole worker thread down -- proven directly, independent
-/// of `pleochroma`'s actual geometry code (which this module doesn't own and can't
-/// force to panic on demand for a test).
+/// The mechanism [`import_path`] uses to keep one bad file from taking down the batch,
+/// tested directly, since the geometry code that panics cannot be forced to panic on demand.
 #[test]
 fn catch_file_panic_converts_a_panic_into_an_error_message_instead_of_unwinding() {
     // The panic is deliberate and caught -- suppress the default hook's stderr
@@ -54,11 +51,8 @@ fn catch_file_panic_returns_ok_when_the_closure_does_not_panic() {
     );
 }
 
-/// A batch with one good file and one file that fails to parse must still import
-/// the good one, record the bad one in `failed` rather than abort, and report
-/// progress for both -- not silently stop partway, which a whole-loop `db.lock()`
-/// plus an uncaught panic anywhere downstream would risk turning into a wedged
-/// `is_busy`.
+/// A batch with one good and one unparseable file imports the good one, records the bad
+/// one as a failure, and reports progress for both.
 #[test]
 fn import_path_continues_after_one_file_fails_to_parse() {
     let dir = temp_dir_for_test("parse_fail");
@@ -151,13 +145,11 @@ fn collect_design_files_recursive_stops_at_max_depth() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// The symlink-loop backstop in [`collect_design_files_recursive`]: a directory
-/// symlink pointing back to an ancestor must not be followed forever, and must
-/// not make `real.asc` (reachable both directly and through the loop) show up
-/// more than once. Best-effort -- creating a directory symlink/junction on
-/// Windows normally needs Developer Mode or an elevated process, so this skips
-/// itself (rather than failing) wherever that isn't available, same tolerance
-/// this crate's own real-catalogue perf probe gives a missing prerequisite.
+/// The symlink-loop guard in [`collect_design_files_recursive`].
+///
+/// A directory symlink back to an ancestor must not be followed forever, nor make `real.asc`
+/// show up twice. The test skips itself when the platform refuses to create the symlink (on
+/// Windows that needs Developer Mode or an elevated process).
 #[test]
 fn collect_design_files_recursive_guards_against_a_symlink_loop() {
     let root = temp_dir_for_test("symlink_loop");
@@ -235,10 +227,10 @@ fn last_save_folder_returns_the_most_recent_entrys_parent_directory() {
     let _ = std::fs::remove_dir_all(&saved_dir);
 }
 
-/// Runs [`import_path`] recursively over `dir` on its own thread, wrapped in
-/// `catch_unwind` around the WHOLE call -- the manual crash-hunt probe itself, as
-/// opposed to `pipeline::catch_file_panic`'s narrower per-file guard this is checking
-/// up on. `Err` carries the panic's message; `Ok` is the ordinary [`ImportOutcome`].
+/// Runs [`import_path`] recursively over `dir` on its own thread, catching a panic.
+///
+/// Unlike [`catch_file_panic`], which guards one file, this covers the whole batch. `Err`
+/// carries the panic message.
 fn run_import_catching_panics(
     db: &Arc<Mutex<Database>>,
     dir: &std::path::Path,
@@ -262,13 +254,12 @@ fn run_import_catching_panics(
         })
 }
 
-/// Reads every one of `ids` back through [`Database::get_diagram_full`],
-/// [`Database::get_diagram_full_meta`], [`Database::get_preview_material`] and a
-/// keyset [`Database::search_diagrams_page`] lookup landing exactly on that id
-/// (unlike an unfiltered [`Database::search_diagrams`], which is capped and would
-/// otherwise let a newly-imported high id slip past the assertion silently) -- the
-/// full "does this row actually come back the way the library reads it" check that the
-/// crash-hunt probes rely on.
+/// Reads each of `ids` back the way the library does.
+///
+/// It uses [`Database::get_diagram_full`], [`Database::get_diagram_full_meta`],
+/// [`Database::get_preview_material`] and a keyset [`Database::search_diagrams_page`] lookup
+/// that must land on that id. An unfiltered [`Database::search_diagrams`] is capped and could
+/// hide a high id, so it is not used.
 fn verify_every_imported_id_reads_back(db: &Arc<Mutex<Database>>, ids: &[i64]) {
     let conn = db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     for &id in ids {
@@ -297,9 +288,7 @@ fn verify_every_imported_id_reads_back(db: &Arc<Mutex<Database>>, ids: &[i64]) {
             "the library search/list query must find imported id {id} immediately after id - 1"
         );
     }
-    // Also exercise the exact unfiltered query `gui::library::local::helpers`'s own
-    // `refresh_after_library_change` runs after every import, purely to prove it
-    // still runs without error/panic against this now-larger catalogue.
+    // The unfiltered query that `refresh_after_library_change` runs after every import.
     conn.search_diagrams("", "All", "All", &RangeFilter::default())
         .expect("the library's own unfiltered search_diagrams must still succeed");
 }

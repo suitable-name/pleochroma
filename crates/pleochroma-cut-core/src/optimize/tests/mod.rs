@@ -1,4 +1,6 @@
-//! Tests for [`super`], split by topic: shared fixtures, the objective score,
+//! Tests for [`super`], split by topic.
+//!
+//! The topics are shared fixtures, the objective score,
 //! which tiers/angles are free to move, per-candidate search machinery, the
 //! coordinate/polish search stages themselves, the anchored-tier geometry and angle
 //! bounds, the girdle guard and candidate pool, the named presets, the extended

@@ -1,6 +1,8 @@
-//! Concave (tool-cut) tiers in the tier table and the inspector: the concave form's
-//! Save/Add, the "+ Add Concave Tier" entry, the form's read-back at full precision, and
-//! the row actions (duplicate, remove, move) a concave row shares with a flat one.
+//! Concave (tool-cut) tiers in the tier table and the inspector.
+//!
+//! Covers the concave form's Save/Add, the "+ Add Concave Tier" entry, the form's read-back
+//! at full precision, and the row actions (duplicate, remove, move) a concave row shares
+//! with a flat one.
 //!
 //! A concave row's `EditorTierItem.index` is its table POSITION: the flat tiers come
 //! first, so concave tier `c` sits at `design.tiers.len() + c` (see
@@ -86,10 +88,9 @@ fn data_from_fields(fields: ConcaveTierFormFields) -> ConcaveFormData {
     }
 }
 
-/// Wires the three concave callbacks. Piggybacked onto
-/// [`super::tier_form::setup_save_tier_callback`], the one existing call site that
-/// already carries every argument they need (see
-/// [`super::tier_crud::setup_toggle_detach_callback`]'s doc comment for the reason).
+/// Wires the three concave callbacks. They are registered from
+/// [`super::tier_form::setup_save_tier_callback`], the one call site that already has every
+/// argument they need (see [`super::tier_crud::setup_toggle_detach_callback`]).
 pub(super) fn setup_concave_tier_callbacks(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,

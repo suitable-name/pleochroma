@@ -61,7 +61,7 @@ export global PropsModel {
     // --- The number keypad ---------------------------------------------------------------
     // Every number field of the Stone and Checks tabs opens one keypad sheet (and the
     // New Design form shows the same keypad inline). Rust owns the typed text
-    // (`KeypadState`): `number-begin` resets it, `number-key` presses a key and rewrites
+    // (`KeypadState`): `number-begin` resets it, `number-key-pressed` presses a key and rewrites
     // `number-readout`, `number-typing` and `number-text`.
     in-out property <bool> number-open: false;
     // The id of the field the sheet was opened for; that field takes the result.
@@ -210,10 +210,14 @@ export global PropsModel {
     in property <string> hdr-description: "";
     // True while an imported file is being decoded.
     in property <bool> hdr-busy: false;
+    // "Turns with the Camera": the HDR map turns with the camera instead of staying fixed in
+    // the room. While the map is the lighting the azimuth slider is the map's rotation.
+    in property <bool> hdr-follows-camera: false;
 
     callback hdr-import();
     callback hdr-clear();
     callback hdr-use(bool);
+    callback hdr-follow-changed(bool);
 
     // --- Checks tab --------------------------------------------------------------------
     // False while no solve matches the design; `checks-note` then says what is missing.

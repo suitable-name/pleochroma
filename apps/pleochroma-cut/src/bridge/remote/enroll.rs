@@ -10,29 +10,23 @@
 //! # Where the bundle goes, and why the user never chooses
 //!
 //! [`bundle_dir_for`] writes into a per-worker subdirectory of the settings directory,
-//! the same directory this crate already writes `settings.toml` into without asking.
-//! Keying the subdirectory off the worker's own name (not a random id) means
-//! re-claiming for an already-named worker simply overwrites that worker's own bundle
-//! in place -- the right behavior for "I re-ran `cert issue-token` because the old
-//! certificate was revoked", not an edge case to guard against.
+//! the same directory that holds `settings.toml`. The subdirectory is keyed by the worker's
+//! name, not a random id, so re-claiming a named worker overwrites its bundle in place, as
+//! when a certificate is reissued after revocation.
 //!
 //! # Why claiming runs on a background thread
 //!
-//! [`claim_and_write_bundle`] performs a real TCP connect and TLS handshake against a
-//! host the operator typed in, which may be slow or unreachable -- the same kind of
-//! blocking call `bridge::remote::remote_render::test_connection` already keeps off the Slint
-//! UI thread. `gui::remote`'s claim-token callback follows the same pattern; no
-//! cancellation or progress reporting is needed since a claim is a single
-//! request/response, not a multi-second stream.
+//! [`claim_and_write_bundle`] performs a real TCP connect and TLS handshake against a host
+//! the operator typed in, which may be slow or unreachable. It is a blocking call, like
+//! `bridge::remote::remote_render::test_connection`, and must stay off the Slint UI thread.
+//! A claim is one request and one response, so it needs no cancellation or progress.
 
 use pleochroma_net::enroll::ClaimError;
 use std::path::{Path, PathBuf};
 
-/// Directory name (under the settings directory) holding every worker's claimed
-/// certificate bundle, one subdirectory per worker -- kept separate from
-/// `settings.toml` itself so "delete my settings" and "delete my saved certificates"
-/// stay two different, individually reasonable things to do by hand if it ever comes to
-/// that.
+/// Directory name (under the settings directory) holding every worker's claimed certificate
+/// bundle, one subdirectory per worker. Kept apart from `settings.toml`, so the settings and
+/// the saved certificates can be removed separately.
 const BUNDLES_DIR_NAME: &str = "worker-certs";
 
 /// Computes the directory a freshly claimed bundle for `worker_name` should be written
@@ -78,12 +72,11 @@ fn slugify(name: &str) -> String {
     }
 }
 
-/// Maps a [`ClaimError`] to the text a person redeeming a token should see. Every
-/// variant reads as genuinely different advice, on purpose. One exception:
-/// [`ClaimError::Refused`] deliberately names "wrong token", "already claimed", and
-/// "expired" as three possibilities rather than distinguishing them, since the server
-/// itself collapses those three into one indistinguishable outcome so a failed claim
-/// can never be used to enumerate which happened.
+/// Maps a [`ClaimError`] to the text a person redeeming a token should see.
+///
+/// Each variant has its own wording. [`ClaimError::Refused`] names "mistyped", "used" and "expired"
+/// together: the server answers all three alike, so a failed claim cannot reveal which one
+/// happened.
 #[must_use]
 pub fn claim_error_message(err: &ClaimError) -> String {
     match err {
@@ -118,25 +111,8 @@ pub fn claim_error_message(err: &ClaimError) -> String {
     }
 }
 
-/// Redeems `token` against the enrollment listener at `addr`, and writes the resulting
-/// bundle to a fresh `bundle_dir` (created if needed) using the exact three filenames
-/// -- `ca.pem`, `client.pem`, `client.key` -- `WorkerSettings::ca_path`/
-/// `client_cert_path`/`client_key_path` already expect, so the caller only has to set
-/// `WorkerSettings::cert_dir` to `bundle_dir` afterward.
-///
-/// Synchronous and blocking (a real TCP connect and TLS handshake) -- see this module's
-/// doc comment on why the caller (`gui::remote`) runs this off the Slint UI thread.
-///
-/// The token itself is never logged or persisted anywhere; the caller is likewise
-/// expected to discard it once this returns, on success or failure alike.
-///
-/// # Errors
-///
-/// [`claim_error_message`] applied to whatever [`pleochroma_net::enroll::claim`] returned,
-/// or a message naming `bundle_dir` if creating it or writing one of the three files
-/// fails.
-/// The worker's default `serve --bind` port (`pleochroma-worker`'s `DEFAULT_BIND`);
-/// this crate cannot depend on the worker binary, so the number is repeated here.
+/// The worker's default `serve --bind` port (`pleochroma-worker`'s `DEFAULT_BIND`); this
+/// crate cannot depend on the worker binary, so the number is repeated here.
 const DEFAULT_WORKER_SERVE_PORT: u16 = 7878;
 
 /// The render address to suggest after a token was redeemed at `enroll_addr`: the
@@ -186,7 +162,23 @@ mod suggested_address_tests {
     }
 }
 
-/// Claims an enrollment token and writes the resulting credential bundle to disk.
+/// Redeems `token` at the enrollment listener `addr` and writes the bundle to `bundle_dir`.
+///
+/// `bundle_dir` is created if needed and gets the three filenames `ca.pem`, `client.pem`,
+/// `client.key` that `WorkerSettings::ca_path`/`client_cert_path`/`client_key_path` expect,
+/// so the caller only has to set `WorkerSettings::cert_dir` to `bundle_dir` afterward.
+///
+/// Synchronous and blocking (a real TCP connect and TLS handshake) -- see this module's
+/// doc comment on why the caller (`gui::remote`) runs this off the Slint UI thread.
+///
+/// The token is never logged or persisted; the caller is expected to discard it once this
+/// returns, on success or failure alike.
+///
+/// # Errors
+///
+/// [`claim_error_message`] applied to whatever [`pleochroma_net::enroll::claim`] returned,
+/// or a message naming `bundle_dir` if creating it or writing one of the three files
+/// fails.
 pub fn claim_and_write_bundle(
     token: &str,
     addr: &str,

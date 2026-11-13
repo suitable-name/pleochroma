@@ -4,8 +4,8 @@
 //! These are the host optics of the stones whose color comes from internal structure. The
 //! structure itself is not part of the material: a design carries the play-of-color choice
 //! (`inclusions::bragg::StructureSpec`, with its seed) and Moonstone's adularescence is the
-//! `Adularescence` preset of `inclusions::catalogue`. The existing `Opal` entry stays as it is,
-//! the plain body-color opal.
+//! `Adularescence` preset of `inclusions::catalogue`. The plain body-color `Opal` is a separate
+//! entry.
 
 use super::{AbsorptionUnit, CrystalSystem, GemMaterial, OpticalCharacter};
 use crate::optics::{
@@ -100,8 +100,8 @@ impl GemMaterial {
             // Precious Opal (White): a milky, translucent white body (the haze of
             // `recommended_scattering`, which choosing the material switches on) with a faint
             // cream from one weak band at the blue end (an aesthetic choice, model units). The
-            // photos of white opals (2026-11-04) show a cream to white body, b* +3 to +14; the
-            // clear body of earlier versions rendered as glass with flashes.
+            // photos of white opals show a cream to white body, b* +3 to +14; a clear body
+            // would render as glass with flashes.
             Self::structural_color_host(
                 "Precious Opal (White)",
                 CrystalSystem::Cubic,
@@ -113,10 +113,9 @@ impl GemMaterial {
             ),
             // Precious Opal (Black): the same silica with a dark neutral body, which is what
             // makes the play-of-color stand out. The body is a uniform grey absorption (three
-            // broad bands over the visible range, per model unit, an aesthetic choice): the plan
-            // asked for a dark base zone toward the pavilion, but a zoned material cannot show
-            // oriented inclusions or domains in the zoned estimator, and the domains sit where
-            // the light enters anyway.
+            // broad bands over the visible range, per model unit, an aesthetic choice). A zoned
+            // body would not show the domains (the zoned estimator skips them), and the domains
+            // sit where the light enters anyway, so the body is uniform.
             Self::structural_color_host(
                 "Precious Opal (Black)",
                 CrystalSystem::Cubic,
@@ -140,21 +139,17 @@ impl GemMaterial {
             // schiller are in `inclusions::bragg` (pair period 150-250 nm, Eur. J. Mineral. 34,
             // 393-410, 2022).
             //
-            // The body (2026-11-04, the GemSelect photos of 23 stones: an olive-grey translucent
-            // body, median L* 52, a* -1.9, b* +7.4) is a neutral grey (the magnetite-type
-            // inclusions that darken labradorite: three broad bands), a yellow edge (Fe3+ near
-            // 380-420 nm) and a weak red tail (the Fe2+ band near 1200 nm), in model units, an
-            // aesthetic fit; the translucency is the haze of `recommended_scattering`, which
-            // choosing the material switches on. No pleochroism of the body was found, so the
-            // three directions carry the same bands (a colored stone on a biaxial host keeps the
-            // per-axis tensor, owner decision 2026-10-27).
+            // The olive-grey body (median L* 52, a* -1.9, b* +7.4 in dealer photos) is a neutral
+            // grey of three broad bands (magnetite-type inclusions), a yellow edge (Fe3+ near
+            // 380-420 nm) and a weak red tail (a band at 950 nm), in model units. The translucency
+            // is the haze of `recommended_scattering`. No pleochroism of the body was found, so
+            // the three axes carry the same bands.
             //
-            // The default orientation lays the lamellae parallel to the table, as a labradorite is
-            // cut to show its flash face-up: with `LABRADORITE_NORMAL` 79 degrees from n_gamma,
-            // turned 90 degrees toward n_gamma x n_alpha, n_gamma = cos 79 Y + sin 79 Z and
-            // n_alpha = X put the lamella normal on Y, the table normal. With the old n_gamma = Y
-            // the lamellae stood nearly upright, and face up the flash came only from light that
-            // had crossed the clear stone many times, which the olive body absorbs.
+            // The default orientation lays the lamellae parallel to the table, as the flash is
+            // seen face up: with n_gamma = cos 79 Y + sin 79 Z and n_alpha = X, the lamella
+            // normal (`LABRADORITE_NORMAL`) lies on Y, the table normal. With n_gamma = Y the
+            // lamellae would stand nearly upright, and the face-up flash would need light to
+            // cross the olive body many times.
             Self {
                 c_axis: LABRADORITE_C_AXIS,
                 alpha_axis: Some(Vec3::X),
@@ -185,7 +180,7 @@ impl GemMaterial {
                 cauchy_from_b_minus_g(1.523, 0.012),
                 0.008,
                 Some(0.005),
-                // Colorless: the empty isotropic tensor, as for Labradorite above.
+                // Colorless: the empty isotropic tensor.
                 AbsorptionTensor::isotropic(vec![]),
             ),
         ]

@@ -12,8 +12,9 @@
 //!    `pleochroma_editor::material_lookup::traced_gem_material` (the RI override and body
 //!    color applied through `MaterialSelection::apply_overrides`). Then
 //!    `render_setup::resolve_material_with_override` and
-//!    `render_setup::apply_material_overrides`, the stone width measured by
-//!    `render_setup::measure_model_width` only when the stone-size control is on.
+//!    `render_setup::apply_material_overrides`, the plane arrangement measured by
+//!    `render_setup::measure_model_width` (`render_setup::needs_model_width` is true for
+//!    every material).
 //! 2. **Finishes.** All polished, or `geometry::girdle::girdle_facet_finishes` for the
 //!    frosted-girdle toggle.
 //! 3. **Camera.** `Camera::new(yaw, pitch, distance, DEFAULT_FOV_DEG)`.
@@ -42,7 +43,10 @@ use pleochroma::{
         Backdrop, MaterialOverrides, apply_material_overrides, measure_model_width,
         needs_model_width, resolve_material_with_override,
     },
-    renderer::{env_map::EnvironmentMap, frame_scene::FrameScene},
+    renderer::{
+        env_map::{EnvRotation, EnvironmentMap, HdrOrientation},
+        frame_scene::FrameScene,
+    },
     simd::PlanesSoA32,
 };
 use pleochroma_cut_core::native::{
@@ -64,6 +68,8 @@ pub use geometry::{GeometrySceneSpec, validate_tools};
 pub use material_inclusions::MaterialInclusionsSpec;
 
 #[cfg(test)]
+mod hdr_turn_tests;
+#[cfg(test)]
 mod material_inclusions_tests;
 #[cfg(test)]
 mod physics_flag_tests;
@@ -74,8 +80,7 @@ mod tests;
 /// export caps the long edge at 4096 px).
 pub const MAX_FRAME_PIXELS: u64 = 4096 * 4096;
 
-/// The unscaled surface glare (the desktop's `DEFAULT_SURFACE_GLARE`): the render as it was
-/// before the control existed.
+/// The unscaled surface glare, the desktop's `DEFAULT_SURFACE_GLARE`.
 pub const DEFAULT_SURFACE_GLARE: f32 = 1.0;
 
 /// One facet plane as plain data: exactly `GpuFacetPlane`'s two fields (`n . x + d <= 0`
@@ -191,8 +196,8 @@ pub struct CustomMaterialSpec {
     /// colours the material. Wire version 12.
     #[serde(default)]
     pub absorption_bands: Vec<[f64; 3]>,
-    /// The snapshot's `crystal_system` name (`"Orthorhombic"`, ...); empty means "infer it from
-    /// the birefringence", as before the field existed. Wire version 16.
+    /// The snapshot's `crystal_system` name (`"Orthorhombic"`, ...); empty means infer it from
+    /// the birefringence. Wire version 16.
     #[serde(default)]
     pub crystal_system: String,
     /// The snapshot's `optical_character` name (`"BiaxialPositive"`, ...); empty as above. Wire
@@ -401,11 +406,18 @@ pub struct LightingSpec {
     /// `0.0..=1.0` by `with_surface_glare`). Ignored for an HDR environment; appended in
     /// protocol v17.
     pub surface_glare: f32,
+    /// The HDR map's turn about the vertical axis in degrees (`0.0`, the default, is the map
+    /// as it was loaded). Ignored for a studio rig; appended in protocol v32.
+    pub hdr_yaw_deg: f32,
+    /// Whether the HDR map also turns with the camera's yaw, which keeps the map fixed
+    /// relative to the camera: orbiting then turns the stone under a fixed room. Ignored for
+    /// a studio rig; appended in protocol v32.
+    pub hdr_follows_camera: bool,
 }
 
 impl LightingSpec {
-    /// Builds a spec from typed values, with the surface glare unscaled (`1.0`, the render
-    /// before the control existed); see [`Self::with_surface_glare`].
+    /// Builds a spec from typed values, with the surface glare unscaled (`1.0`); see
+    /// [`Self::with_surface_glare`].
     #[must_use]
     pub const fn new(
         preset: LightingPreset,
@@ -423,6 +435,8 @@ impl LightingSpec {
             backdrop_index: backdrop.index(),
             head_shadow_deg,
             surface_glare: DEFAULT_SURFACE_GLARE,
+            hdr_yaw_deg: 0.0,
+            hdr_follows_camera: false,
         }
     }
 
@@ -432,6 +446,46 @@ impl LightingSpec {
     pub const fn with_surface_glare(mut self, surface_glare: f32) -> Self {
         self.surface_glare = surface_glare;
         self
+    }
+
+    /// This spec with the HDR map turned by `yaw_deg` degrees, and turning with the camera
+    /// as well when `follows_camera` (both are ignored for a studio rig).
+    #[must_use]
+    pub const fn with_hdr_turn(mut self, yaw_deg: f32, follows_camera: bool) -> Self {
+        self.hdr_yaw_deg = yaw_deg;
+        self.hdr_follows_camera = follows_camera;
+        self
+    }
+
+    /// The HDR map's orientation as the renderer takes it: the yaw in radians, wrapped into
+    /// one turn (a non-finite yaw reads as no turn).
+    #[must_use]
+    pub fn hdr_orientation(&self) -> HdrOrientation {
+        HdrOrientation {
+            yaw: self.hdr_yaw_deg.to_radians(),
+            follows_camera: self.hdr_follows_camera,
+        }
+        .sanitized()
+    }
+
+    /// The HDR map's total yaw in radians for a camera at `camera_yaw`: the map's own turn,
+    /// plus the camera's yaw when the map follows the camera.
+    #[must_use]
+    pub fn hdr_yaw_for(&self, camera_yaw: f32) -> f32 {
+        let orientation = self.hdr_orientation();
+        let follow = if orientation.follows_camera {
+            camera_yaw
+        } else {
+            0.0
+        };
+        orientation.yaw + follow
+    }
+
+    /// The rotation the HDR map is rendered with for a camera at `camera_yaw`
+    /// (`HdrOrientation::rotation_for` on [`Self::hdr_orientation`]).
+    #[must_use]
+    pub fn hdr_rotation_for(&self, camera_yaw: f32) -> EnvRotation {
+        EnvRotation::from_yaw(self.hdr_yaw_for(camera_yaw))
     }
 
     /// The preset (out-of-range indices fall back like `LightingPreset::from_index`).
@@ -485,8 +539,8 @@ pub struct SceneSpec {
     pub material: MaterialSpec,
     /// The camera.
     pub camera: CameraSpec,
-    /// Studio lighting (ignored for the environment when `hdr_id` is set, as on the
-    /// desktop).
+    /// Studio lighting. When `hdr_id` is set only its `exposure` applies (unmetered, as on
+    /// the desktop): it scales the map's radiance.
     pub lighting: LightingSpec,
     /// Maximum ray bounces.
     pub max_bounces: u32,
@@ -676,10 +730,11 @@ pub fn resolve_finishes(
 }
 
 /// The environment an [`OwnedScene`] traces against: the analytic rig, or a shared
-/// HDR map.
+/// HDR map at the scene's plain (unmetered) exposure, turned by the scene's HDR rotation,
+/// as the desktop lights it.
 enum OwnedEnvironment {
     Studio(EnvironmentSource<'static>),
-    Hdr(Arc<EnvironmentMap>),
+    Hdr(Arc<EnvironmentMap>, f32, EnvRotation),
 }
 
 /// A built scene that owns its planes, finishes, material, camera and environment, and
@@ -742,7 +797,11 @@ impl OwnedScene {
             DEFAULT_FOV_DEG,
         );
         let environment = match spec.hdr_id {
-            Some(id) => OwnedEnvironment::Hdr(hdr.ok_or(SceneError::MissingHdr { id })?),
+            Some(id) => OwnedEnvironment::Hdr(
+                hdr.ok_or(SceneError::MissingHdr { id })?,
+                spec.lighting.exposure,
+                spec.lighting.hdr_rotation_for(spec.camera.yaw),
+            ),
             None => OwnedEnvironment::Studio(spec.lighting.studio_environment()),
         };
         let plane_soa = build_plane_soa(&planes);
@@ -816,7 +875,9 @@ impl OwnedScene {
             max_bounces: self.max_bounces,
             environment: match &self.environment {
                 OwnedEnvironment::Studio(source) => *source,
-                OwnedEnvironment::Hdr(map) => EnvironmentSource::HdrMap(map),
+                OwnedEnvironment::Hdr(map, exposure, rotation) => {
+                    EnvironmentSource::hdr_at(map, *exposure).with_hdr_rotation(*rotation)
+                }
             },
         }
     }

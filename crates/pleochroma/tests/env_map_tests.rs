@@ -1,15 +1,9 @@
-//! Tests for `pleochroma::renderer::env_map` -- CPU-side HDR environment-map importance
-//! sampling. This module is deliberately self-contained and not wired into the tracer
-//! (see the module docs on `pleochroma::renderer::env_map`), so these tests exercise it
-//! directly rather than through any render path.
+//! Tests for `pleochroma::renderer::env_map`: CPU-side HDR environment-map importance
+//! sampling, exercised directly rather than through a render path.
 //!
-//! No external RNG crate is used (pleochroma is deliberately dependency-light); a small
-//! deterministic hash-based generator below stands in for one, using stratified
-//! `(i + jitter) / n` sequences so every draw lands strictly inside `(0, 1)` -- never
-//! exactly at `0.0` or `1.0` -- which matters at the poles: a direction sampled at
-//! *exactly* `v == 0.0` sits precisely on the equirectangular singularity where
-//! `sin(theta) == 0`, and dividing by that pdf would be `inf`, not a real bug in the
-//! library.
+//! Samples come from a deterministic hash, so no RNG crate is needed. Every draw lies
+//! strictly inside `(0, 1)`: a direction at exactly `v == 0.0` sits on the equirectangular
+//! pole, where `sin(theta) == 0` and the pdf would be `inf`.
 
 use std::f32::consts::PI;
 
@@ -49,25 +43,15 @@ fn stratified_pair(i: u64) -> (f32, f32) {
 }
 
 // ---------------------------------------------------------------------------------
-// The white furnace test -- the single most important test in this file.
+// The white furnace test.
 // ---------------------------------------------------------------------------------
 //
-// Set the environment to uniform radiance 1.0 everywhere and Monte-Carlo integrate
-// `L(w)/pdf(w)` over directions drawn from `EnvironmentMap::sample`. Because `pdf` is
-// kept in the standard, MIS-compatible convention of integrating to `1.0` over the
-// *whole* sphere (`integral pdf(w) dw == 1`, `w` ranging over all 4*PI steradians --
-// this exact convention is separately verified by `pdf_integrates_to_one_over_the_sphere`
-// below, independently of the sampler), the raw Monte Carlo estimator
-// `mean(L(w_i)/pdf(w_i))` is an unbiased estimator of `integral L(w) dw`, which for a
-// constant `L == 1` is mathematically the sphere's own total solid angle, `4*PI`
-// steradians -- not `1.0` -- *by definition*, regardless of whether the environment
-// sampler has any bugs at all. That is not a subtlety this test tries to route around:
-// it is exactly why `raw_mean` is asserted against `4*PI` below, and only the
-// *solid-angle-normalized* average (`raw_mean / (4*PI)`, i.e. "what constant radiance
-// would produce this total flux") is asserted against `1.0`. Reconstructing that
-// normalized average as anything other than the true constant (1.0) is precisely what a
-// wrong pdf normalization or a missing/misapplied `sin(theta)` row weighting produces --
-// see `build_distribution`'s doc comment in `env_map.rs`.
+// Constant radiance 1.0 is integrated as `L(w)/pdf(w)` over directions from
+// `EnvironmentMap::sample`. The pdf integrates to 1 over the whole sphere (checked
+// independently by `pdf_integrates_to_one_over_the_sphere`), so the raw mean estimates the
+// solid angle `4*PI`, not 1. The solid-angle-normalized mean `raw_mean / (4*PI)` must be 1.0;
+// a wrong pdf normalization or a missing `sin(theta)` weight breaks that. See
+// `build_distribution` in `env_map.rs`.
 #[test]
 fn white_furnace_test_converges_to_the_true_uniform_radiance() {
     let env = EnvironmentMap::uniform(512, 256, [1.0, 1.0, 1.0]);
@@ -404,7 +388,7 @@ fn upsampled_white_is_d65_white_at_unit_luminance() {
     );
 }
 
-/// The uplift puts white exactly on D65 at unit luminance (the test above). The three
+/// The uplift puts white on D65 at unit luminance (the test above). The three
 /// secondaries are chroma-only colors, lifted on the narrow bump basis whose coefficients
 /// are never negative, so each comes back within `2e-3` per linear-sRGB channel.
 #[test]

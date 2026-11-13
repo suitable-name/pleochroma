@@ -1,24 +1,14 @@
 import { Theme } from "../theme.slint";
 
-// Shared collapsible-section header: a 24px row with a chevron, an uppercase
-// muted title, and an optional right-side slot (`@children`) for controls
-// that must stay reachable even while the section is collapsed -- e.g.
-// `EditorInspector`'s Tier/Preform/Optimize pills, so switching tabs is still
-// possible (and re-expands the section, per that component's own wiring)
-// with the body hidden.
+// Collapsible-section header: a 24px row with a chevron, an uppercase title and an optional
+// right-side slot (`@children`) for controls that stay reachable while the section is collapsed
+// (for example the tab pills of `EditorInspector`).
 //
-// The chevron is a `Path`, not an image swap: no chevron/arrow asset exists
-// under `ui/icons` (grepped `@image-url` across every other editor
-// component), and `Path`/`Rectangle` don't expose the `rotation-angle`
-// `Text`/`Image` alone have in this Slint version -- so instead of rotating
-// one shape, this swaps between a right- and a down-pointing `commands`
-// string.
+// The chevron is a `Path` whose commands swap between a right- and a down-pointing shape, so its
+// stroke follows `Theme.text-muted` without a tinted image.
 //
-// This component owns no state of its own: `collapsed` is an `in` property
-// the caller drives (`EditorModel.settings_collapsed`/`inspector_collapsed`/
-// `remap_collapsed`), and `toggled` is the only way this ever asks for it to
-// change -- the caller's own `if !collapsed:` around the section's body is
-// what actually hides/shows content (see each caller for that half).
+// The component owns no state. The caller drives `collapsed` and hides the section body with
+// its own `if`; `toggled` is the only request the header makes.
 //
 // The header is a button for the keyboard and a screen reader: Tab reaches it, Space or Enter
 // toggles it, a visible ring shows the focus, and it says whether the section is expanded.

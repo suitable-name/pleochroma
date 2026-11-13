@@ -1,4 +1,4 @@
-//! Lossless encode/decode of the v14 8-bit picture payloads.
+//! Lossless encode/decode of the 8-bit picture payloads.
 //!
 //! `DISPLAY_FRAME` (live view, `TransferMode::DisplayOnly`) and `FINAL_IMAGE` (the reply
 //! to a `FinalImageRequest`).

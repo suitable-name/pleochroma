@@ -177,10 +177,10 @@ pub const ALLOW: &[(&str, &str)] = &[
         "needs an accepted location (see Accept)",
     ),
     (
-        "components/rough_planner/saved_list.slint|SavedPlanCard|\"Export\"",
-        "needs a saved plan (planner_save_and_reopen) and smoke denies the exact label \"export\" (support/smoke.rs DEFAULT_DENY); RoughPlanModel.export_saved is driven by planner_export_import_psrd through the callback",
+        "components/rough_planner/menus.slint|RoughMenus|\"Export\"",
+        "an entry of a saved plan's \"...\" menu: needs a saved plan (planner_save_and_reopen) and smoke denies the exact label \"export\" (support/smoke.rs DEFAULT_DENY); RoughPlanModel.export_saved and the menu's action 2 (RoughPlanModel.saved_menu) are driven by planner_export_import_psrd and planner_steps_and_tabs through the callbacks",
     ),
-    // ---- run-6 follow-up (R5B): needs a GPU render, a long job or real files ----
+    // ---- needs a GPU render, a long job or real files ----
     (
         "components/retarget_dialog/baseline_compare.slint|BaselineComparePanel|\"Compare Visually…\"",
         "GPU render: opens the Compare window for the snapshot, which renders both designs (the window itself is passed by window:compare:split view)",
@@ -230,7 +230,7 @@ pub const ALLOW: &[(&str, &str)] = &[
         "needs a provisional manipulate edit (see Discard)",
     ),
     (
-        "components/rough_planner/rough_form.slint|RoughForm|\"Remove\"",
+        "components/rough_planner/rough_form.slint|InclusionSection|\"Remove\"",
         "real file: removing an inclusion needs an imported mesh with an added inclusion (OBJ, STL or PLY through the file dialog)",
     ),
     (
@@ -269,7 +269,7 @@ pub const ALLOW: &[(&str, &str)] = &[
         "rig_window.slint|RigWindow|\"Save Calibrated Rig\"",
         "needs a successful calibration from real cube photos (RigWindow.can_save_calibrated)",
     ),
-    // ---- round 6 (R6B): dialogs and panels (scenarios/coverage/states_dialogs.rs) ----
+    // ---- dialogs and panels (scenarios/coverage/states_dialogs.rs) ----
     (
         "components/preview_batch_dialog.slint|PreviewBatchDialog|tip-button-from-import-2",
         "long job: the button is \"Generate\" / \"Full Render\" and calls BatchModel.preview_generate_confirmed (allow-listed above); the pass denies the labels \"generate\" and \"full render\" (states_dialogs::DENY_IMPORT_BATCH)",
@@ -278,7 +278,7 @@ pub const ALLOW: &[(&str, &str)] = &[
         "components/sweep_dialog/sweep_form.slint|SweepForm|sweep-button-running",
         "long job: the button is \"Run Sweep\" (SweepModel.run solves the design at every angle of the range on a worker) or, while one runs, \"Cancel\"; the pass denies the label \"run sweep\" and prepares a finished three-angle sweep outside the pass (states_dialogs::sweep_with_results)",
     ),
-    // ---- round 6 (R6A): library row menu (scenarios/coverage/states_editor.rs) ----
+    // ---- library row menu (scenarios/coverage/states_editor.rs) ----
     (
         "components/diagram_list.slint|DiagramListView|kebab_item1",
         "GPU render: \"Generate Previews\" calls LibraryModel.generate_previews_for_entry; denied in the states_editor row-menu states",
@@ -290,7 +290,7 @@ pub const ALLOW: &[(&str, &str)] = &[
     // ---- Color Pattern editor (scenarios/secondary_windows.rs::color_pattern_window) ----
     (
         "ColorPatternModel.*",
-        "the color_pattern_window scenario opens the window on a seeded pattern and invokes the template, preview mode, typical pattern, color form (Colors menu), color source (Source menu), variant, undo, cancel and discard callbacks; the others edit a pattern in a window the field-touch pass cannot reach (no state hands it focus; pick_color opens the main window's color editor on a zone), and their rules are unit-tested in gui/color_pattern",
+        "the color_pattern_window scenario opens the window on a seeded pattern and drives the view switch and swap, the Start From gallery (open, close, typical, template, preset, delete and name callbacks), the layer list (select, hide, add, rename, duplicate, move, reorder, delete), the From variant dropdown, Convert, the color picker (open, L/C/H fields, plane and hue drags, hex, variant chip, cancel, apply), undo, cancel and discard; the slider and toolbar callbacks (size, parameters, shape, axis, tilt and turn, scale mode, softness, slice position, viewport pointer) edit a pattern in a window the field-touch pass cannot reach (no state hands it focus), and their rules are unit-tested in gui/color_pattern",
     ),
     (
         "color_pattern_window.slint|*",
@@ -322,7 +322,32 @@ pub const ALLOW: &[(&str, &str)] = &[
         "build without the physical-color feature: physics_state::PHYSICS_COLOR_UI is false, so color_section_view never shows the physics section (and push_view hides it again after every edit); with the feature the states_dialogs physics state drives it",
     ),
     (
-        "components/rough_planner/axis_panel.slint|AxisPanel|\"From Color Zones\"",
+        "components/rough_planner/menus.slint|RoughMenus|\"From Color Zones\"",
         "disabled in every state the harness can build: it is enabled only when the open saved plan's stored rough color has a zone that runs along the crystal (a coaxial cylinder or prism, RoughPlanModel.axis_zones_possible), which only the Rough Color wizard's zone fit writes (a long job on photos of a rig), and the seeded plan of harness_support::seed_rough_color_plan has a base and a half space only; the callback it calls, RoughPlanModel.axis_from_zones, is driven by its row in rows_axis.rs (the 'no accepted color zone' answer)",
+    ),
+    #[cfg(not(feature = "beam"))]
+    (
+        "components/export_dialog/beam_tracing.slint|*",
+        "build without the beam feature (beam tracing is retired): SettingsModel.beam_build is false, so the export dialog and the tilt video section never show the Beam Tracing box (main_window sets it from cfg!(feature = \"beam\")); with the feature the states_reach beam states drive it",
+    ),
+    #[cfg(not(feature = "beam"))]
+    (
+        "components/preferences_dialog.slint|PreferencesDialog|\"Beam Tracing in Still Views\"",
+        "build without the beam feature: the switch is not shown (SettingsModel.beam_build); its callback PreferencesModel.beam_viewport_changed is invoked directly in rows_startup.rs",
+    ),
+    #[cfg(not(feature = "beam"))]
+    (
+        "components/preferences_dialog.slint|PreferencesDialog|\"Instant Lighting Changes With Beams\"",
+        "build without the beam feature: the switch is not shown (SettingsModel.beam_build); its callback PreferencesModel.beam_instant_lighting_changed is invoked directly in rows_startup.rs",
+    ),
+    #[cfg(not(feature = "adaptive-sampling"))]
+    (
+        "components/export_dialog/adaptive_sampling.slint|*",
+        "build without the adaptive-sampling feature (optional): SettingsModel.adaptive_sampling_build is false, so the export dialog and the tilt video section never show the Adaptive Sampling box (main_window sets it from cfg!(feature = \"adaptive-sampling\")); with the feature the states_reach adaptive states drive it",
+    ),
+    #[cfg(not(feature = "adaptive-sampling"))]
+    (
+        "components/preferences_dialog.slint|PreferencesDialog|\"Adaptive Sampling in the Viewport\"",
+        "build without the adaptive-sampling feature: the switch is not shown (SettingsModel.adaptive_sampling_build); its callback PreferencesModel.adaptive_viewport_changed is invoked directly in rows_startup.rs",
     ),
 ];

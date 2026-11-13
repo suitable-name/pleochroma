@@ -1,6 +1,5 @@
 //! The window-free work of the Fit step: the forward and fit inputs from the prepared views,
-//! the fit with its display records, the zone-geometry refinement, zone suggestions and zones
-//! from marks.
+//! the fit with its render, the zone-geometry refinement, zone suggestions and zones from marks.
 //!
 //! Runs on worker threads.
 
@@ -60,7 +59,7 @@ pub struct FitSetup {
     pub panel_size_mm: f64,
     /// The disk cache of the traces.
     pub cache_dir: Option<PathBuf>,
-    /// The host species (only with the physical colour feature).
+    /// The host species of the chromophore model; `None` without the `physical-color` feature.
     pub host_id: Option<String>,
     /// The planned stone width, mm.
     pub planned_mm: f64,

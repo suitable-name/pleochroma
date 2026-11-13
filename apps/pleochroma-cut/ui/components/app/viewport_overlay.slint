@@ -39,7 +39,7 @@ export component EditorViewportOverlay inherits Rectangle {
 
     if EditorModel.enabled && EditorModel.has_design && EditorModel.tiers.length == 0: Rectangle {
         x: (root.width - self.width) / 2;
-        // Below the toolbar's pill rows: at 16px it floated over the view pills and hid them.
+        // Starts below the toolbar's pill rows, so it never covers them.
         y: root.toolbar_inset;
         width: min(root.width - 32px, hint_row.preferred-width);
         height: hint_row.preferred-height;

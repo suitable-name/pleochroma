@@ -1,5 +1,4 @@
-//! Tests of the color variant type, its validation and the built-in data file (written, not run,
-//! by the variants lane).
+//! Tests of the color variant type, its validation and the built-in data files.
 
 use super::{
     ColorVariant, MATERIAL_DEFAULT_LABEL, MAX_VARIANT_BANDS, TensorRank, VariantBandRow,
@@ -284,8 +283,8 @@ fn with_color_variant_drops_the_zones_of_a_zoned_material() {
 fn a_pleochroic_variant_applied_keeps_is_pleochroic_and_its_sets() {
     let sapphire = built_in("Sapphire");
     for variant in built_in_variants("Sapphire") {
-        // A colorless variant is an all-empty tensor stored as not pleochroic (owner decision
-        // D-C): it has no pleochroism to keep.
+        // A colorless variant is an all-empty tensor stored as not pleochroic: it has no
+        // pleochroism to keep.
         let colorless = variant.absorption.o_ray.is_empty()
             && variant.absorption.e_ray.is_empty()
             && variant
@@ -352,8 +351,8 @@ fn the_name_match_ignores_ascii_case_and_unknown_names_are_empty() {
         "case is ignored"
     );
     assert_eq!(built_in_variants("Sapphire"), built_in_variants("sapphire"));
-    assert!(built_in_variants("Unobtainium").is_empty());
-    assert!(built_in_variants("").is_empty());
+    assert_eq!(built_in_variants("Unobtainium"), [] as [ColorVariant; 0]);
+    assert_eq!(built_in_variants(""), [] as [ColorVariant; 0]);
 }
 
 #[test]
@@ -382,7 +381,7 @@ fn every_built_in_material_has_a_valid_material_default_first() {
 #[test]
 fn every_data_file_entry_validates_against_its_material() {
     let entries = data::file_entries();
-    assert!(!entries.is_empty());
+    assert_ne!(entries, [] as [ColorVariant; 0]);
     let mut keys = std::collections::BTreeSet::new();
     for entry in entries {
         let host = built_in(&entry.material);
@@ -432,7 +431,8 @@ fn the_face_up_swatch_path_matches_the_render_scale_per_unit() {
     assert!((face_up_swatch_path(AbsorptionUnit::PerMm, 7.0) - per_mm_7).abs() < 1e-9);
     assert!((face_up_swatch_path(AbsorptionUnit::PerMm, 3.5) - per_mm_7 / 2.0).abs() < 1e-9);
     // One per-model-unit coefficient over one unit equals the same light as its per-mm
-    // equivalent (x REFERENCE_MODEL_WIDTH / (7 mm x MODEL_UNIT_FACE_UP_PATH)) over the per-mm path.
+    // equivalent (x REFERENCE_MODEL_WIDTH / (7 mm x MODEL_UNIT_FACE_UP_PATH)) over the per-mm
+    // path.
     let per_mm_factor = REFERENCE_MODEL_WIDTH / (7.0 * f64::from(MODEL_UNIT_FACE_UP_PATH));
     let model_unit_depth = face_up_swatch_path(AbsorptionUnit::ModelUnit, 9.0);
     let per_mm_depth = per_mm_factor * face_up_swatch_path(AbsorptionUnit::PerMm, 9.0);
@@ -711,8 +711,8 @@ fn the_slug_lowercases_and_replaces_every_non_alphanumeric() {
 
 #[test]
 fn the_pink_entry_is_a_measured_cr3_tensor_much_weaker_than_the_ruby_default() {
-    // The measured pink entry (GIA Cr3+ cross sections at 100 ppma*cm) replaced the estimated seed
-    // that was the Ruby tensor at one fifth of its peaks.
+    // The pink entry is the measured GIA Cr3+ spectrum at 100 ppma*cm, far weaker than the
+    // Ruby default.
     let ruby = built_in("Ruby");
     let pink = built_in_variants("Sapphire")
         .into_iter()
@@ -729,7 +729,7 @@ fn the_pink_entry_is_a_measured_cr3_tensor_much_weaker_than_the_ruby_default() {
     );
     // Face-up optical depth in the Cr3+ U band (560 nm): the per-mm tensor over the 9.905 mm
     // face-up path against the Ruby default's model-unit peak sum (one unit at 7 mm). The default
-    // carries Cr 400 ppma*cm since 2026-11-03 (it was 800), so pink's 100 is about a quarter.
+    // carries Cr 400 ppma*cm, so pink's 100 is about a quarter.
     let depth = |bands: &[AbsorptionBand], scale: f64| -> f64 {
         bands
             .iter()
@@ -753,8 +753,8 @@ fn the_pink_entry_is_a_measured_cr3_tensor_much_weaker_than_the_ruby_default() {
 
 #[test]
 fn the_yellow_entry_is_a_strong_light_yellow_at_the_7_mm_face_up_path() {
-    // The measured yellow entry (GIA h.-Fe3+ pair cross sections at 1.7 ppma*cm) replaced the
-    // estimated Fe3+ seed whose strongest visible band had an optical density of 0.3.
+    // The yellow entry is the measured GIA heat-treated Fe3+ pair spectrum at 1.7 ppma*cm.
+    // It must read as a light, strongly yellow stone at the 7 mm face-up path.
     let yellow = built_in_variants("Sapphire")
         .into_iter()
         .find(|v| v.key == "sapphire.yellow")

@@ -144,26 +144,20 @@ fn build_grid_eval_setup<'p>(
 /// 6. Scintillation: the spatial contrast (coefficient of variation) of light return
 ///    across the 18x18 sampling grid over the stone's face
 ///
-/// ## Decision record: Fire ordering on step (emerald) cuts, and the F/C bifurcation artifact
+/// ## Fire on step cuts
 ///
-/// When F-line/C-line traces exit via a different facet or bounce count, their critical
-/// angles straddled a TIR threshold at different points, so `acos(dir_f . dir_c)`
-/// measured unrelated exit directions, not dispersion -- these bifurcated pairs carried
-/// 45-98% of the weighted Fire sum wherever a step cut wrongly out-scored a brilliant.
-/// Fixed by the F/C gate below: a pair contributes only when both traces share the same
-/// exit facet and bounce count. Rejected a capped-credit alternative (a small fixed
-/// angle for a bifurcated pair): it put Quartz above Sapphire on the emerald cut, when
-/// Sapphire's true dispersion is higher.
+/// F-line and C-line traces that exit through a different facet or bounce count measure
+/// unrelated exit directions, so such pairs are discarded by the F/C gate in
+/// `classify::fire_sample`. A capped credit for them put Quartz above Sapphire on the emerald
+/// cut, where Sapphire's dispersion is the higher.
 ///
-/// ## Investigated and closed: Quartz vs. Topaz ordering on the emerald cut is noise, not a defect
+/// ## Quartz vs. Topaz on the emerald cut
 ///
-/// Quartz measures a higher `fire_index` than Topaz at the canonical pose despite
-/// Topaz's larger F-C dispersion. Sweeping camera pitch showed the gap swinging sign
-/// with no consistent direction, and quadrupling `grid_size` collapsed it near zero --
-/// discrete-grid quantization noise, not a material-ordering bug. Separately, Topaz's
-/// higher base index gives it lower Fresnel transmittance, legitimately offsetting its
-/// dispersion edge since Fire is transmittance-weighted by design. If revisited, raise
-/// `grid_size` rather than retune the F/C gate or `FIRE_DEGREES_TO_DISPLAY_SCALE`.
+/// Quartz scores a higher `fire_index` than Topaz at the canonical pose, although Topaz
+/// disperses more. The gap changes sign with camera pitch and quadrupling `grid_size`
+/// collapses it near zero, so it is grid quantization, not a material ordering. Topaz's
+/// higher index also lowers its Fresnel transmittance, which Fire weights by design. To test
+/// this, raise `grid_size`; do not retune the F/C gate or `FIRE_DEGREES_TO_DISPLAY_SCALE`.
 #[must_use]
 pub fn evaluate_gem_optical_metrics(
     planes: &[GpuFacetPlane],
@@ -340,11 +334,11 @@ pub(super) const fn placeholder_metrics() -> GemOpticalMetrics {
 /// Every ray goes through the one stone intersector, so the tools are subtracted from
 /// the polyhedron `geom.planes` define; with no tools the result is
 /// [`evaluate_gem_optical_metrics`]'s, bit for bit. The fan origins sit outside the
-/// stone because the fan is scaled to `P` alone (a cavity only removes material, so the
-/// polyhedron's girdle width bounds the stone). The traced ray follows the same
-/// refract-then-bounce loop as the planar case, so a path that leaves through a groove
-/// wall and would re-enter across the cavity is scored as having left: a v1 simplification
-/// shared with the tracer's exit split.
+/// stone because the fan is scaled to the polyhedron alone (a cavity only removes material,
+/// so the girdle width bounds the stone). The traced ray follows the same refract-then-bounce
+/// loop as the planar case, so a path that leaves through a groove wall and would re-enter
+/// across the cavity is scored as having left, a simplification shared with the tracer's
+/// exit split.
 ///
 /// Every facet is polished; [`evaluate_gem_optical_metrics_finished`] takes the finishes too.
 #[must_use]

@@ -1,5 +1,6 @@
-//! The editor-side controller struct itself ([`SolidPreviewState`]) and its
-//! UI-thread-facing entry points: construction, the cheap camera-follow
+//! The editor-side controller struct [`SolidPreviewState`] and its UI-thread-facing entry points.
+//!
+//! The entry points are construction, the cheap camera-follow
 //! reproject/facet-overlay submissions, the replan submission, and the tier-
 //! cutoff cache. See the parent module's doc comment for the two-worker split
 //! these methods feed into.
@@ -29,19 +30,15 @@ pub struct SolidPreviewState {
     /// `request_*`/finished-plan call. `None` until then, so a `SolidPreviewState`
     /// never asked to redraw never spawns a thread.
     pub(super) wake: Mutex<Option<Sender<()>>>,
-    /// Consumed only by the PLAN worker (`super::plan_worker`'s `spawn_plan_worker`)
-    /// -- a Separate queue from `gate` so a slow solve never blocks `Reproject` requests.
+    /// Consumed only by the PLAN worker (`super::plan_worker`'s `spawn_plan_worker`). A queue
+    /// of its own, so a slow solve never blocks `Reproject` requests.
     pub(super) plan_gate: Arc<RedrawGate<PlanJob>>,
-    /// [`Self::wake`]'s counterpart for the PLAN worker, created lazily the same
-    /// way on the first [`Self::request_replan`] call.
+    /// [`Self::wake`]'s counterpart for the PLAN worker, created on the first
+    /// [`Self::request_replan`] call.
     pub(super) plan_wake: Mutex<Option<Sender<()>>>,
-    /// A weak handle to this same value, filled in immediately after
-    /// construction -- lets the PLAN worker (which holds no other reference back
-    /// to `Self`) hand a finished `super::request::PlannedFrame` to the RENDER
-    /// worker through `super::render`'s `submit`, the exact same lazy-spawn-and-wake
-    /// path a `Reproject` call already uses, rather than duplicating that contract
-    /// a second time. `Weak`, not `Arc`: the PLAN worker thread must never be the
-    /// reason a `SolidPreviewState` outlives every caller's own handle to it.
+    /// A weak handle to this same value, set right after construction. The PLAN worker
+    /// uses it to hand a finished frame to the RENDER worker through [`Self::submit`]. It is
+    /// `Weak` so the worker never keeps the state alive.
     pub(super) self_weak: Mutex<Weak<Self>>,
     /// "Show through tier N" slider: `Some(n)` truncates the plane arrangement
     /// to `design.tiers[..=n]`. Cached here for UI access via [`Self::set_tier_cutoff`].
@@ -50,23 +47,13 @@ pub struct SolidPreviewState {
     /// (`Design::preview_steps`), `Some(0)` being the rough, `None` the finished stone.
     /// Wins over [`Self::tier_cutoff`] in a replan; set by [`Self::set_cut_steps`].
     pub(super) cut_steps: Mutex<Option<usize>>,
-    /// bumped by `gui::editor::auto_solve::scheduling::
-    /// reset_for_new_design` on every wholesale design replacement (New/Load
-    /// Selected/Open) via [`Self::bump_generation_floor`] -- lets the
-    /// PLAN worker (`super::plan_worker::spawn_plan_worker`) tell a `PlanJob`
-    /// queued or in flight for the design being REPLACED apart from one for
-    /// the design that replaced it, even though `self.plan_gate`
-    /// (`super::RedrawGate`) itself only ever coalesces to "the latest queued
-    /// job," never "the latest queued job for the CURRENT design." A `PlanJob`
-    /// whose own `generation` is below this floor is dropped rather than
-    /// solved and handed back as a frame.
+    /// Raised by [`Self::bump_generation_floor`] when the design is replaced wholesale. The
+    /// PLAN worker drops any `PlanJob` whose `generation` is below it, since the plan gate
+    /// only coalesces to the latest job, not to the latest job for the current design.
     pub(super) generation_floor: Arc<AtomicU64>,
     /// The Slice tool's provisional-tier outline and the drag-follower outline, shared
-    /// with the RENDER worker's `WorkerMemory::outlines`. Written synchronously by
-    /// [`Self::set_outlines`] (from the overlay's `provisional` / `moved` fields) and
-    /// read by the worker when it DRAWS, so a `Planned` request that
-    /// rebuilds the style, or a later request that supersedes an overlay update in
-    /// the "latest wins" gate, can neither drop nor resurrect them.
+    /// with the RENDER worker. Written by [`Self::set_outlines`] and read when the worker
+    /// draws, so no later request can drop or resurrect them.
     pub(super) outlines: SharedOutlines,
     /// When `Some`, replaces the `planes` of every [`Self::request_redraw_with_gear`]
     /// call: the Slice tool sets it to the provisional design's planes so a camera
@@ -74,25 +61,16 @@ pub struct SolidPreviewState {
     /// the COMMITTED `RenderContext::active_planes`) keeps showing the provisional
     /// facet instead of snapping back to the committed stone.
     pub(super) planes_override: Mutex<Option<Vec<(Vec3, f32)>>>,
-    /// The manufacturability findings the PLAN worker computed for its latest planned
-    /// designs. The worker writes an entry right AFTER it hands the frame on
-    /// ([`super::plan_worker`]: a frame never waits for the pass) and also delivers the
-    /// findings to the sink as their own update ([`super::PreviewSink::apply_findings`]).
-    /// The render worker looks the entry up when a planned frame reaches it -- it is there
-    /// only when the pass beat the render -- and copies it onto every frame it draws from
-    /// then on (the replan itself, but also the camera-follow reproject and overlay frames
-    /// that carry the last plan's masts forward), so the UI thread only DISPLAYS the
-    /// findings. Check 6 of the pass builds the stone's solid and the tools' polytopes,
-    /// which is far too slow for a UI thread -- see
+    /// The manufacturability findings of the latest planned designs. The PLAN worker writes
+    /// an entry after it hands its frame on, and the RENDER worker copies the findings onto
+    /// the frames it draws. The UI thread only displays them: the check (the stone's solid
+    /// and the tools' polytopes) is too slow for it. See
     /// `pleochroma_cut_core::manufacturability::concave_tool_warnings`.
     pub(super) warnings: SharedWarnings,
-    /// The Edit tab's view mode as the window last reported it ([`Self::note_view_mode`]),
-    /// or [`VIEW_MODE_UNNOTED`] while it never has. Read by the RENDER worker, which draws
-    /// every `Planned` frame at THIS mode instead of the one its job was made with: a plan
-    /// that took seconds to solve was made before the user switched to the Diagram, and
-    /// drawn at its own mode it would put the Solid back under a window that shows the
-    /// Diagram (no `has_diagram`, the "Solve to preview" placeholder) with nothing left to
-    /// ask for the Diagram again.
+    /// The Edit tab's view mode as last reported ([`Self::note_view_mode`]), or
+    /// [`VIEW_MODE_UNNOTED`]. The RENDER worker draws every `Planned` frame at this mode, not
+    /// the mode of its job: a plan can finish after the user switched views, and the frame
+    /// would otherwise show a view the window cannot display.
     pub(super) view_mode_note: Arc<AtomicU16>,
 }
 
@@ -100,17 +78,15 @@ pub struct SolidPreviewState {
 /// the mode of their own job.
 pub(super) const VIEW_MODE_UNNOTED: u16 = u16::MAX;
 
-/// One planned design's manufacturability findings, found again by the very `Arc` the plan
-/// job carried (the planned frame hands the same allocation on), never by generation.
+/// One planned design's manufacturability findings, matched by the `Arc` of the plan job
+/// (the planned frame carries the same allocation), not by generation.
 ///
-/// The editor's generation moves only when the design does, so a tier selection, a Cut slider
-/// move or an idle replan plans the same design again under the same generation, with a fresh
-/// `Arc`. Such a plan finds no entry of an earlier plan here, so its frame goes out without
-/// findings unless its own pass beats the render. `gui::solid_sink`'s `LateRows` is what
-/// brings the generation's findings back to its rows, from the copy it keeps.
+/// A replan of the same design gets a fresh `Arc`, so it finds no entry here and its frame
+/// goes out without findings unless its own pass finishes first. `gui::solid_sink`'s
+/// `LateRows` restores them to the rows.
 pub(super) struct PlanFindings {
-    /// The design the findings were computed for. Held so the allocation cannot be freed and
-    /// reused for another design while this entry can still be looked up.
+    /// The design the findings were computed for. Holding it keeps the allocation from being
+    /// reused while the entry can still be looked up.
     pub(super) design: Arc<Design>,
     pub(super) warnings: Arc<Vec<ManufacturabilityWarning>>,
 }
@@ -154,27 +130,14 @@ impl SolidPreviewState {
             .store(u16::from(view_mode), Ordering::Relaxed);
     }
 
-    /// Submits one cheap camera-follow redraw (see `super::request::RedrawRequest::
-    /// Reproject`) and returns immediately; the finished frame reaches
-    /// `super::sink::PreviewSink::apply` asynchronously. `size` must be the
-    /// viewport's LOGICAL size (points, not render resolution). `view_mode` (0
-    /// Solid / 1 Path-traced / 2 Both / 3 Diagram) decides whether the worker also
-    /// renders the "Both" mode's edges layer, or the Diagram mode's 2D facet
-    /// diagram, this frame -- a Diagram-mode request rebuilds the diagram at the
-    /// worker's last-known gear info/labels (see `super::state::DiagramMemory`)
-    /// since a `Reproject` request carries no `Design`. A burst of calls coalesces
-    /// to exactly the LAST one submitted -- see `RedrawGate`'s doc comment.
+    /// Submits a cheap camera-follow redraw and returns at once; the frame reaches
+    /// [`PreviewSink::apply`] asynchronously. `size` is the viewport's logical size in
+    /// points. `view_mode` is 0 Solid, 1 Path-traced, 2 Both or 3 Diagram. Only the last of a
+    /// burst of calls is drawn (see `RedrawGate`).
     ///
-    /// A thin `gear: None` wrapper over [`Self::request_redraw_with_gear`], kept at
-    /// this exact signature so every pre-existing caller (`gui::editor::view::
-    /// refresh_viewport`, `gui::editor::auto_solve`'s background-solve resubmit)
-    /// keeps compiling unchanged. `None` means the worker's last-known Diagram-mode
-    /// gear info is left as-is, which is only correct when that caller's design is
-    /// the same one the worker last replanned -- prefer
-    /// [`Self::request_redraw_with_gear`] with the loaded design's actual gear info
-    /// (`bridge::render_thread::RenderContext::design_gear`) wherever that is
-    /// available, as `gui::render::camera_lighting::resubmit_at_current_pose`
-    /// already does.
+    /// This is [`Self::request_redraw_with_gear`] with `gear: None`, which keeps the worker's
+    /// last-known Diagram gear info. Prefer the `_with_gear` form when the loaded design's
+    /// gear info is known.
     pub fn request_redraw(
         &self,
         planes: &[(Vec3, f32)],
@@ -185,14 +148,9 @@ impl SolidPreviewState {
         self.request_redraw_with_gear(planes, camera, size, view_mode, None);
     }
 
-    /// Same contract as [`Self::request_redraw`], plus `gear`: the currently loaded
-    /// design's gear tooth count/reference angle (`bridge::render_thread::
-    /// RenderContext::design_gear`), threaded through to a Diagram-mode (`view_mode`
-    /// 3) reproject so it shows THIS design's gear wheel rather than whatever a
-    /// previous editor replan happened to leave in the worker's own
-    /// `super::state::DiagramMemory` -- see `super::request::RedrawRequest::
-    /// Reproject`'s `gear` field doc comment. `None` leaves the worker's
-    /// last-known gear info untouched.
+    /// Same as [`Self::request_redraw`], with `gear`: the loaded design's gear tooth count and
+    /// reference angle. A Diagram-mode frame draws that gear wheel. `None` keeps the worker's
+    /// last-known gear info.
     pub fn request_redraw_with_gear(
         &self,
         planes: &[(Vec3, f32)],
@@ -210,15 +168,11 @@ impl SolidPreviewState {
         );
     }
 
-    /// [`Self::request_redraw_with_gear`] for a stone that may carry concave tools: the
-    /// camera-follow redraw of the whole `geometry`, planes, tools and the
-    /// `(tier, placement)` of each tool. Every caller that knows the design's tools
-    /// (`refresh_viewport`, the background-solve apply, a camera drag from
-    /// `RenderContext`) goes through here so a concave stone never loses its notches on
-    /// the way to the worker; the planes-only entry point wraps it.
+    /// [`Self::request_redraw_with_gear`] for a stone that may carry concave tools, with the
+    /// whole `geometry`: planes, tools and each tool's `(tier, placement)`. Callers that know
+    /// the design's tools use this form, so the notches are kept.
     ///
-    /// The Slice tool's [`Self::set_planes_override`] still replaces the PLANES only: a
-    /// provisional flat facet is drawn over the committed stone, tools included.
+    /// [`Self::set_planes_override`] replaces the planes only; the tools stay.
     pub fn request_redraw_geometry(
         &self,
         mut geometry: StoneGeometryBuf,
@@ -244,10 +198,8 @@ impl SolidPreviewState {
         });
     }
 
-    /// [`Self::request_redraw_geometry`] for a viewport that shows the COMMITTED design
-    /// only: the Slice tool's [`Self::set_planes_override`] is not applied. The Live
-    /// Render tab's Solid raster calls this, so the provisional tier -- an Edit-tab
-    /// preview of a slice that has not been kept -- never shows there.
+    /// [`Self::request_redraw_geometry`] for a viewport that shows only the committed design.
+    /// [`Self::set_planes_override`] is not applied, so a provisional slice never shows.
     pub fn request_redraw_committed_geometry(
         &self,
         geometry: StoneGeometryBuf,
@@ -265,25 +217,16 @@ impl SolidPreviewState {
         });
     }
 
-    /// Submits a facet-id-keyed highlight update ("which facet did I click", multi-
-    /// select, hover) -- see `super::types::FacetOverlay`'s doc comment. Re-renders
-    /// at whatever camera/planes/size/`view_mode` the worker last used for a
-    /// [`Self::request_redraw_with_gear`]/[`Self::request_replan`] call, exactly
-    /// like an ordinary camera-follow reproject, so a caller that already has a
-    /// facet id from a pick buffer never needs to also track/resend the camera
-    /// pose or the design's planes just to show it. A no-op before the worker has
-    /// rendered anything at all.
+    /// Submits a facet highlight update (hover, click, multi-select; see [`FacetOverlay`]).
+    /// It re-renders with the camera, planes, size and view mode the worker last used, so the
+    /// caller needs to resend none of them. A no-op before the worker has rendered anything.
     pub fn request_facet_overlay(&self, overlay: FacetOverlay) {
         self.submit(RedrawRequest::UpdateFacetOverlay(overlay));
     }
 
-    /// Stores the provisional-tier and drag-follower outlines where the RENDER worker
-    /// reads them when it draws -- see [`Self::outlines`] -- so they survive a
-    /// `Planned` request and an overlay update superseded in the "latest wins" gate
-    /// alike. Does NOT redraw: follow with [`Self::request_facet_overlay`]. The
-    /// editor's 3D overlay path calls this with the merged overlay's two fields on
-    /// every update; the Diagram view's own hover/click overlays never do, so they
-    /// cannot clear an outline they know nothing about.
+    /// Stores the provisional-tier and drag-follower outlines for the RENDER worker (see
+    /// [`Self::outlines`]). Does NOT redraw: follow with [`Self::request_facet_overlay`].
+    /// Only the 3D overlay path calls this; the Diagram view's overlays never clear outlines.
     pub fn set_outlines(&self, provisional: &[u32], moved: &[u32]) {
         let mut outlines = self.outlines.lock().unwrap_or_else(PoisonError::into_inner);
         outlines.provisional.clear();
@@ -342,19 +285,10 @@ impl SolidPreviewState {
             .unwrap_or_else(PoisonError::into_inner) = steps;
     }
 
-    /// Sets the "show through tier N" cutoff: `Some(n)` truncates to
-    /// `design.tiers[..=n]`. Does NOT trigger a redraw; the caller must submit
-    /// [`Self::request_replan`] afterwards.
+    /// Sets the "show through tier N" cutoff: `Some(n)` truncates to `design.tiers[..=n]`.
+    /// Does NOT redraw; the caller submits [`Self::request_replan`] afterwards.
     ///
-    /// Called from `gui::editor::view::submit_preview_replan_for`, which reads
-    /// `SolidPreviewModel.tier_cutoff` (`-1` means "no cutoff", matching this
-    /// crate's existing `-1`-means-`None` convention for e.g.
-    /// `diagram_enlarged_panel`) and converts it with
-    /// `usize::try_from(cutoff).ok()` before calling this and then
-    /// `request_replan` -- the same three-file shape `show_preform_planes`/
-    /// `diagram_enlarged_panel` already went through, just with the read happening
-    /// here instead of as a `ReplanRequest` field (see this state's own
-    /// `tier_cutoff` field doc comment for why).
+    /// The Cut slider goes through [`Self::set_cut_steps`], which wins over this value.
     pub fn set_tier_cutoff(&self, cutoff: Option<usize>) {
         *self
             .tier_cutoff
@@ -362,13 +296,8 @@ impl SolidPreviewState {
             .unwrap_or_else(PoisonError::into_inner) = cutoff;
     }
 
-    /// bumps [`Self::generation_floor`] to (at least) `floor` -- called
-    /// once per wholesale design replacement by `gui::editor::auto_solve::
-    /// scheduling::reset_for_new_design`. `fetch_max`, not a plain store: this
-    /// must never move BACKWARDS even if called out of order (defensive only
-    /// -- `EditorState::generation` is itself only ever bumped, never reset,
-    /// so a caller's own `floor` values are already non-decreasing in
-    /// practice).
+    /// Raises [`Self::generation_floor`] to at least `floor`, called on each wholesale design
+    /// replacement. It never moves backwards.
     pub fn bump_generation_floor(&self, floor: u64) {
         self.generation_floor.fetch_max(floor, Ordering::Relaxed);
     }

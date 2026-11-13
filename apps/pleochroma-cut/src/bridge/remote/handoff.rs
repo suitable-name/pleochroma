@@ -1,13 +1,11 @@
 //! [`HandoffMachine`]: the preview-then-handoff state machine.
 //!
-//! While the user manipulates the gem's orientation, the viewport renders locally at
-//! low spp, exactly as it always has (`render_thread`'s ordinary progressive
-//! accumulation). Once the orientation settles (no mouse button held for an orbit or
-//! light drag -- `RenderContext::camera_drag_held` -- and a short debounce, 250 ms, with
-//! no further movement since the last change or the button release; the orchestrator's
-//! `poll::POSE_SETTLE_DEBOUNCE`), the drag-time local
-//! preview is discarded -- never summed into anything --
-//! and a new image epoch starts that a configured remote worker contributes to:
+//! While the user manipulates the gem's orientation, the viewport renders locally at low spp
+//! through the ordinary progressive accumulation (`render_thread`). Once the orientation
+//! settles (no mouse button held for an orbit or light drag, `RenderContext::camera_drag_held`,
+//! and no movement for the 250 ms `poll::POSE_SETTLE_DEBOUNCE` since the last change or the
+//! button release), the drag-time local preview is discarded, never summed into anything, and
+//! a new image epoch starts that a configured remote worker contributes to:
 //!
 //! - `LiveComputeTarget::Both` (the default): local tracing KEEPS contributing to the
 //!   settled image. Local and the remote chunk lane claim disjoint sample ranges from
@@ -43,8 +41,9 @@
 //!   connect/handshake/dispatch window, before any reply has started streaming back.
 //! - [`HandoffState::RemoteRendering`]: the worker's reply stream has started and the
 //!   remote lane is working through its chunks (later chunks' `WELCOME`s are no-ops).
-//! - [`HandoffState::Cancelled`]: the user resumed dragging while [`Settling`](HandoffState::Settling)
-//!   or [`RemoteRendering`](HandoffState::RemoteRendering) was in progress. Transient --
+//! - [`HandoffState::Cancelled`]: the user resumed dragging while
+//!   [`Settling`](HandoffState::Settling) or [`RemoteRendering`](HandoffState::RemoteRendering)
+//!   was in progress. Transient --
 //!   the very next [`HandoffEvent::OrientationChanged`] (which is, in practice, exactly
 //!   what's still arriving from the still-ongoing drag) moves straight to
 //!   [`Previewing`](HandoffState::Previewing).
@@ -83,12 +82,10 @@ pub enum HandoffState {
     Cancelled,
 }
 
-/// Which backend produced the image currently on screen -- the "indication of which
-/// backend served the current image" the Slint panel surfaces. Updated only on a
-/// SUCCESSFUL remote completion or a fresh local preview starting; a failed/cancelled
-/// remote attempt leaves it unchanged (the graceful fallback: whatever was showing
-/// before stays showing, or local rendering resumes and will update it once IT next
-/// starts).
+/// Which backend produced the image currently on screen, as the Slint panel shows it.
+///
+/// Updated only on a successful remote completion or when a fresh local preview starts; a failed or
+/// cancelled remote attempt leaves it unchanged.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ImageSource {
     Local,
@@ -121,8 +118,8 @@ pub enum HandoffEvent {
     /// orientation -- material, lighting preset, sample target, resolution, bounce
     /// count, exposure, c-axis override, girdle finish, edge rounding, stone width, an
     /// HDR environment load/clear, a lighting-preset apply, or a different design being
-    /// loaded (see `render_thread::mod`'s `resolve_remote_ownership` doc comment for the
-    /// exhaustive enumeration) -- observed while a completed remote render was still the
+    /// loaded (see `render_thread::frame_helpers::resolve_remote_ownership` for the exhaustive
+    /// enumeration) -- observed while a completed remote render was still the
     /// displayed image (`served_by() == Remote`). Never changes `state`: there is
     /// nothing here to discard or cancel -- the render loop already reset its own
     /// accumulation buffer via the very same `ctx.dirty = true` write that produced this
@@ -245,7 +242,7 @@ impl HandoffMachine {
                     worker_available: false,
                 },
             ) => {
-                // Graceful fallback: keep converging locally, exactly as today.
+                // Keep converging locally.
                 (Idle, vec![])
             }
 
@@ -274,14 +271,9 @@ impl HandoffMachine {
         {
             self.served_by = ImageSource::Local;
         } else if matches!(event, HandoffEvent::SceneInvalidated) {
-            // Unconditional, not gated on `next_state`/`self.state` -- `SceneInvalidated`
-            // always falls into the wildcard match arm above (`(state, _) => (state,
-            // vec![])`), so `next_state` here always equals whatever `self.state` already
-            // was. The caller (`gui::remote::orchestrator`) only actually sends this event
-            // while `served_by() == Remote` (which, per the two branches above, only ever
-            // holds while `state() == Idle`), but setting `served_by` to `Local`
-            // unconditionally on this event is harmless even outside that window -- it is
-            // already `Local` in every other state.
+            // Unconditional: `SceneInvalidated` always takes the wildcard arm, so the state
+            // does not change. The caller sends it only while `served_by() == Remote`; setting
+            // `Local` is harmless in any state.
             self.served_by = ImageSource::Local;
         }
         actions

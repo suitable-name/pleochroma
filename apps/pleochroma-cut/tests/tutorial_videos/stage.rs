@@ -268,9 +268,8 @@ impl Film<'_> {
     }
 
     /// Why the camera must not be dragged right now, as a note key and a sentence; `None` when
-    /// the drag is free. Diagram's drag pans its drawing. Solid/Path-Traced/Ray-Traced/Both in Edit orbit the
-    /// shared camera, just like Live Render. Active manipulation owns this gesture, so the camera
-    /// is left alone until the tool is finished.
+    /// the drag is free. In Edit, the Diagram view's drag pans its drawing instead of orbiting.
+    /// An active manipulation owns the gesture until it is finished.
     fn camera_gesture_blocked(&self, screen: StageView) -> Option<(&'static str, &'static str)> {
         let solid = self.ui.global::<SolidPreviewModel>();
         let manipulate = self.ui.global::<ManipulateModel>();
@@ -415,7 +414,7 @@ impl Film<'_> {
 
         let target_dist = harness_support::fit_distance_now() * pacing::FIT_MARGIN;
 
-        // Skip when focus did not change and radius changed by <= 3 % per S-D5.
+        // Skip when the focus is unchanged and the radius moved by at most 3 %.
         if !force
             && !focus_changed
             && let Some(last_dist) = self.stage_state.last_fit_radius
@@ -436,8 +435,8 @@ impl Film<'_> {
             return Ok(());
         }
 
-        // The viewport maps pointer deltas to yaw/pitch at -0.008/+0.008
-        // radians per pixel (gem_viewport.slint and camera_lighting.rs).
+        // The viewport orbits at a fixed 0.008 radians per pixel (`pleochroma-solid`,
+        // `preview/camera.rs`), so the drag length is the pose difference divided by that rate.
         let center = spot.center();
         let dx = -(target_pose.0 - start_yaw) / 0.008;
         let dy = (target_pose.1 - start_pitch) / 0.008;

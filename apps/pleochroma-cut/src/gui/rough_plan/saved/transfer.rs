@@ -1,7 +1,7 @@
 //! Exporting a stored plan to a file and importing a file as a new stored plan.
 //!
-//! The pickers are the app's shared off-thread ones (`gui::pickers`); reading and
-//! writing the file and the database work run on a worker thread as well.
+//! File dialogs are the app's shared pickers (`gui::pickers`). The file and database work runs
+//! on a worker thread.
 
 use super::{
     announce,
@@ -104,10 +104,9 @@ fn write_replacing(target: &Path, text: &str) -> Result<(), String> {
 
 /// The text an export writes for stored plan `id` (worker thread).
 ///
-/// The stored name goes into the file. A plan that has a rough color or stone orientation
-/// choices is read, given the two sections and written again by the TOML writer as a version 4
-/// document; the other plans keep the exact text path: only the name line of the stored text
-/// changes, so what this build does not know in it is exported as it is.
+/// The stored name goes into the file. A plan with a rough color or stone orientation choices
+/// is written again at the version its content needs. Other plans keep their stored text with only
+/// the name line changed, so keys this build does not know are exported unchanged.
 ///
 /// # Errors
 ///

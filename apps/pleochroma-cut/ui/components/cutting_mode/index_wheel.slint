@@ -6,7 +6,8 @@ import { CmWheelMark, CmWheelScale } from "../../models/cutting_mode.slint";
 // it sits, with its number outside. Position 0 is at the top and the numbers run clockwise.
 // A ticked index is green, one still to cut is cyan.
 //
-// The strokes are SVG path commands in a 200 x 200 box (`pleochroma_editor::cutting_mode::dial`);
+// The strokes are SVG path commands in a 200 x 200 box
+// (`pleochroma_editor::cutting_mode::dial`);
 // the marks and numbers arrive as fractions of the wheel's square, so the picture scales with
 // whatever room it is given.
 export component CmIndexWheel inherits Rectangle {

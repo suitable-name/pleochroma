@@ -1,7 +1,5 @@
 //! The Preform tab's inputs: the rough's shape and size, the girdle Y-offset, the girdle
-//! diameter and the specific-gravity override, and their Apply buttons (the desktop's
-//! `tier_actions::design_forms::{setup_apply_preform_callback,
-//! setup_apply_yield_inputs_callback, setup_apply_preform_y_offset_callback}`).
+//! diameter and the specific-gravity override, and their Apply buttons.
 //!
 //! Each group is re-seeded from the design only when that group changed
 //! (`pleochroma_editor::scratch`), so an unrelated edit or solve never discards what is
@@ -26,8 +24,7 @@ use pleochroma_editor::{
 };
 use slint::{ComponentHandle, SharedString};
 
-/// The side count of a cylinder preform from the form: fixed, independent of the index
-/// gear (the desktop's `FIXED_CYLINDER_PREFORM_SIDES`).
+/// The side count of a cylinder preform from the form: fixed, independent of the index gear.
 const FIXED_CYLINDER_PREFORM_SIDES: usize = 96;
 
 /// Re-seeds the preform and yield fields of the groups that changed.
@@ -74,8 +71,8 @@ pub(super) fn push(pcx: &PushCtx<'_>) {
     }
 }
 
-/// Model units per millimetre-anchored scale of the current solve, when a girdle diameter
-/// anchors one.
+/// Model units per millimetre of the current solve; `None` without a girdle diameter to
+/// anchor the scale.
 fn mm_per_unit(pcx: &PushCtx<'_>) -> Option<f64> {
     pcx.solved
         .and_then(|solved| pcx.design.yield_report(solved).mm_per_unit)

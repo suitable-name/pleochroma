@@ -7,8 +7,9 @@
 //! (`editor::callbacks::tier_actions::viewport_material`). The editor refresh pushes the
 //! design's own effects back into the context and the controls, except while a live edit
 //! waits for its commit ([`live_edit_pending`]) so a slider drag is never overwritten.
-//! Nothing here touches the settings file: the effects live in the design, and the old
-//! `AppSettings` fields are read-only legacy values.
+//! Nothing here writes the settings file: the effects live in the design. The legacy
+//! `AppSettings` stone fields are only read, for the one-time migration
+//! ([`legacy_migration_edits`]).
 
 use crate::{
     CrystalAxisModel, MainWindow, SettingsModel,
@@ -353,8 +354,8 @@ mod tests {
         assert!(context_matches(&ctx, &haze()));
     }
 
-    /// A settings file written before the effects and the width moved into the design: all six
-    /// legacy effect keys and the width are off their defaults.
+    /// A settings file with the legacy stone keys: the six effect keys and the width, all off
+    /// their defaults.
     const OLD_FILE: &str = "[settings]\ninclusion_sigma_s = 0.5\ngirdle_frosted = true\n\
         c_axis_override_enabled = true\nc_axis_tilt_deg = 30.0\nc_axis_azimuth_deg = 120.0\n\
         edge_rounding_radius = 0.01\nstone_width_mm = 7.5\n";
@@ -549,8 +550,8 @@ mod tests {
             .with_inclusions(CrystalFrame::new(Vec3::Y, None).resolve(&[family]))
     }
 
-    /// The Silk Turn reaches a uniaxial custom material's stored families on the desktop just as
-    /// it does on the web: the context carries the design's Second Axis for such a stone, so
+    /// A uniaxial custom material's stored families are rebased about the design's Second Axis
+    /// (the Silk Turn), as the web app does. The context carries that axis for such a stone, so
     /// `apply_material_overrides` rebases the families about it instead of `(c, None)`.
     #[test]
     fn a_uniaxial_material_with_families_carries_the_second_axis_in_the_context() {

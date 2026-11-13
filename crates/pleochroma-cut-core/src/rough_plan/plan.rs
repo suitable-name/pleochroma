@@ -61,8 +61,8 @@ pub enum PlanPath {
 impl PlanInput<'_> {
     /// Determines whether the input uses the plain block or shaped planning path.
     ///
-    /// Only an uncut block without inclusions takes the plain path: a block with an inclusion is
-    /// a mesh rough and plans on the shaped path, as a locked block does.
+    /// Only an uncut block without inclusions takes the plain path: a block with inclusions is a
+    /// mesh rough and plans on the shaped path.
     #[must_use]
     pub const fn path(&self) -> PlanPath {
         match self.model.base {

@@ -40,10 +40,11 @@
 //! # What is stored
 //!
 //! [`LightingValues`] as JSON: the lighting rig, the light's position, exposure, surface
-//! glare, backdrop, head shadow and the HDR environment map path, if one is in use. A row
-//! stored before the head shadow existed reads the default for it. The camera is not part
-//! of a design's lighting (the shared struct can carry one, and this row never does). The decisions (what a stored row means, what to do when a design opens)
-//! are pure functions, tested without a window; the rest is thin glue over Slint.
+//! glare, backdrop, head shadow, Stone Shadow, Tray Reflection and the HDR environment map
+//! path, if one is in use. A row without a head-shadow value reads the default for it. The
+//! camera is not part of a design's lighting (the shared struct can carry one, and this row
+//! never does). The decisions (what a stored row means, what to do when a design
+//! opens) are pure functions, tested without a window; the rest is thin glue over Slint.
 
 mod opening;
 mod stored;
@@ -52,7 +53,10 @@ use crate::{
     DesignLightingModel, MainWindow, SettingsModel, ViewportModel,
     bridge::render_thread::{RenderContext, load_env_map},
     gui::{env_map_status_text, show_toast, tutorial_events::raise},
-    settings::{SettingsPersister, model::percent_from_surface_glare},
+    settings::{
+        SettingsPersister,
+        model::{percent_from_surface_glare, percent_from_tray_reflection},
+    },
 };
 use opening::{
     Lookup, Note, Plan, decide, first_time_for, lookup_from_row, may_show_over, note_text,
@@ -463,8 +467,8 @@ fn restore_normal_lighting(ui: &MainWindow, handles: &Handles) {
     }
 }
 
-/// Starts showing a design's own lighting: remembers the normal lighting for the day it
-/// ends, and pins it over the lighting fields of every write to the settings file until then
+/// Starts showing a design's own lighting: remembers the normal lighting for when it ends, and
+/// pins it over the lighting fields of every write to the settings file until then
 /// ([`SettingsPersister::set_disk_override`]), so the light controls, which write the
 /// settings as they are moved, cannot leave the design's values there.
 fn begin_override(ui: &MainWindow, handles: &Handles) {
@@ -655,6 +659,10 @@ const fn push_values_to_context(
     ctx.surface_glare = values.surface_glare;
     ctx.backdrop = values.backdrop;
     ctx.head_shadow_deg = values.head_shadow_deg;
+    ctx.stone_shadow = values.stone_shadow;
+    ctx.tray_reflection = values.tray_reflection;
+    ctx.hdr_yaw = values.env_map_yaw_deg.to_radians();
+    ctx.hdr_follows_camera = values.env_map_follows_camera;
 }
 
 /// The controls half of showing `values`: the sliders, the backdrop pills and the
@@ -668,6 +676,10 @@ fn push_values_to_controls(ui: &MainWindow, values: &LightingValues, rig: Lighti
     settings.set_surface_glare_pct(percent_from_surface_glare(values.surface_glare));
     settings.set_backdrop_index(values.backdrop.index());
     settings.set_head_shadow_deg(values.head_shadow_deg);
+    settings.set_stone_shadow(values.stone_shadow);
+    settings.set_tray_reflection_pct(percent_from_tray_reflection(values.tray_reflection));
+    settings.set_env_map_yaw_deg(values.env_map_yaw_deg);
+    settings.set_env_map_follows_camera(values.env_map_follows_camera);
     ui.global::<ViewportModel>()
         .set_selected_lighting_index(rig.index());
 }
@@ -724,9 +736,8 @@ fn use_lighting_for_design(ui: &MainWindow) {
         );
         return;
     }
-    // From now on this design's lighting is what is showing, so the normal lighting is
-    // remembered for the day another design opens. Already remembered when this design's
-    // lighting was showing before.
+    // The normal lighting is remembered now, for when this design's lighting ends. Nothing
+    // changes if it was already remembered.
     if !override_active() {
         begin_override(ui, &handles);
     }

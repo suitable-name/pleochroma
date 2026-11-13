@@ -20,8 +20,7 @@ fn capped(max_stones: u8) -> PlanSettings {
     }
 }
 
-/// A plan of the fixture rough and settings, as written before the stone cap existed: one
-/// that never has the key.
+/// A plan of the fixture rough and settings with no stone cap: it never has the key.
 fn old_plan_text() -> String {
     write(&plain_block(), &[sample_layout()])
 }

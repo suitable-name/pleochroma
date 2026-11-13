@@ -6,8 +6,8 @@
 //!
 //! | Bits  | Field |
 //! |-------|-------|
-//! | 0-1   | kind: 0 Ideal, 1 Frosted (today's girdle), 2 Polished with roughness, 3 Ground |
-//! | 2-11  | level: `Rq` in 0.1 nm (Polished), or the Ground roughness `α` in 0.001 (0 = default) |
+//! | 0-1   | kind: 0 Ideal, 1 Frosted, 2 Polished with roughness, 3 Ground |
+//! | 2-11  | level: `Rq` in 0.1 nm (Polished), or Ground `α` in 0.001 (0 = default) |
 //! | 12-19 | anisotropy code: `16 × α_across / α_along` (0 = round) |
 //! | 20-29 | scratch angle code: degrees `× 1023 / 180`, used with the Custom Angle bit |
 //! | 30    | Custom Angle: the scratch angle is fixed, the machine is ignored |
@@ -19,7 +19,7 @@
 
 use super::ggx::GgxLobe;
 
-/// The roughness of a Ground facet when the word names none: what today's frosted girdle becomes.
+/// The roughness of a Ground facet whose word names none: the frosted girdle's default.
 pub const DEFAULT_GROUND_ALPHA: f32 = 0.45;
 
 /// The default Scratch Strength: how much of a preset's anisotropy a design carries.
@@ -47,7 +47,7 @@ pub enum SurfaceKind {
     /// A perfect polish: the exact interface physics, no scatter.
     #[default]
     Ideal,
-    /// Today's frosted girdle; now a Ground facet of the default roughness.
+    /// The frosted girdle: a Ground facet of the default roughness.
     Frosted,
     /// A real polish: the exact interface physics plus a halo of total integrated scatter.
     Polished,
@@ -109,8 +109,8 @@ impl PolishPreset {
     }
 }
 
-/// The anchors of [`halo_alpha`]: `(Rq in nm, α = 2 Rq / ℓc)` of the presets (the Fine preset's
-/// 0.01515 is the R0 table's rounded 0.015).
+/// The anchors of [`halo_alpha`]: `(Rq in nm, α = 2 Rq / ℓc)` of the four presets, with `ℓc`
+/// from [`PolishPreset::correlation_length_um`].
 const HALO_ANCHORS: [(f32, f32); 4] = [(1.0, 0.010), (2.5, 0.015_152), (6.0, 0.025), (25.0, 0.040)];
 
 /// The upper bound of the halo width.
@@ -191,7 +191,7 @@ impl FacetSurface {
         self.0
     }
 
-    /// Today's frosted girdle: a Ground facet of the default roughness.
+    /// The frosted girdle: a Ground facet of the default roughness.
     #[must_use]
     pub const fn frosted() -> Self {
         Self(1)

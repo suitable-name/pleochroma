@@ -413,9 +413,8 @@ fn free_tier_mask_excludes_tiers_the_projection_forces() {
         [true, true, false, true, true, false, true, false, false]
     );
 
-    // The mask and the projection agree: a free crown or pavilion tier keeps a small sample, a
-    // masked one is frozen whatever the sample (an out-of-range angle is never repaired by an
-    // automatic correction, and an immobile tier receives no action).
+    // The mask matches the projection: a free crown or pavilion tier moves on a small sample,
+    // a masked one stays frozen for any sample (an out-of-range angle is not auto-corrected).
     for (tier, free) in obs.tiers.iter().zip(obs.free_tier_mask()) {
         if tier.block_type.abs() < 0.5 {
             continue;

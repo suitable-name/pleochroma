@@ -1,6 +1,5 @@
-//! Deep Solve (the desktop's `solve_actions::{deep_solve_run,deep_solve_pin}` and
-//! `deep_solve.rs`): checks the stone against the printed proportions of its published
-//! source, in the solve Worker, and shows the verdict with the tiers whose mast it moved.
+//! Deep Solve: checks the stone against the printed proportions of its published source, in
+//! the solve Worker, and shows the verdict with the tiers whose mast it moved.
 //!
 //! # Flow
 //!
@@ -22,18 +21,16 @@
 //!   edit's auto-solve (or an Optimize or Retarget request) supersedes a running Deep Solve,
 //!   which then reports that it stopped, and Run waits for a running solve, Optimize or
 //!   Retarget. The Optimize button waits for a running Deep Solve in return.
-//! - Cancel is two-stage, as Optimize's: the first press revokes the job's cancel URL and the
+//! - Cancel is two-stage, like Optimize's: the first press revokes the job's cancel URL and the
 //!   Worker answers "cancelled" at its next checkpoint (a search has no partial result to
 //!   keep); "Stop now" (a second press), or a Worker that does not answer in time, terminates
 //!   the Worker.
 //! - There is no activity list.
-//! - The lessons' two events are raised as on the desktop: `deep_solve_started` once the search
-//!   has been sent to the Worker, `deep_solve_finished` once a verdict is on screen (also one
-//!   that is already stale, or not accepted); a cancelled, replaced or failed run raises
-//!   neither.
+//! - The lessons' two events: `deep_solve_started` once the search has been sent to the
+//!   Worker, `deep_solve_finished` once a verdict is on screen (also one that is already
+//!   stale, or not accepted); a cancelled, replaced or failed run raises neither.
 //! - The verdict line does not name the file the printed figures came from, nor warn about
-//!   edits since load (the desktop's `format_verification_targets` and
-//!   `edited_since_load_caveat` are desktop-local text).
+//!   edits since load.
 
 use crate::{
     AppWindow, DeepSolveModel, DeepSolveRow, InspectorModel, OptimizeModel, RetargetModel,
@@ -299,8 +296,8 @@ fn show_outcome(
                 .collect(),
         });
     });
-    // A verdict is on screen (stale or not accepted ones count, as on the desktop): the
-    // lessons' "wait for the verdict" step.
+    // A verdict is on screen (a stale or not accepted one counts too): the lessons' "wait
+    // for the verdict" step.
     raise(ctx, DEEP_SOLVE_FINISHED);
     if stale {
         show_message(
@@ -469,7 +466,7 @@ fn pin(ctx: &Ctx, tier_index: i32) {
 
 /// One refresh: whether Deep Solve can run, the hint that says why not, and whether the
 /// shown result has gone stale. The Optimize tab's push lives in the inspector poll; this
-/// panel keeps its own timer so that file stays untouched.
+/// panel keeps its own timer.
 fn refresh(ctx: &Ctx) {
     let Some(ui) = ctx.ui.upgrade() else {
         return;

@@ -1,5 +1,6 @@
-//! Tests for varying `ScaleReference` tiers about a hinge, and for per-tier angle
-//! bounds: the plane geometry ([`super::super::space`]) checked against the planes
+//! Tests for varying `ScaleReference` tiers about a hinge, and for per-tier angle bounds.
+//!
+//! They check the plane geometry ([`super::super::space`]) checked against the planes
 //! `Design::planes_from_solved` really builds, and the candidate builders that use it.
 
 use super::{
@@ -123,9 +124,8 @@ fn a_hinge_on_the_plane_gives_back_the_tiers_own_mast() {
     }
 }
 
-/// The optimizer no longer carries a hinge formula of its own: the mast it writes for a
-/// turned anchored tier is `design::mast_through` with the hinge and azimuth that
-/// `design::tier_hinges` reports for that tier.
+/// The mast written for a turned anchored tier is `design::mast_through` with the hinge and
+/// azimuth that `design::tier_hinges` reports for that tier.
 #[test]
 fn the_anchored_mast_is_the_retarget_hinge_mast() {
     let design = imported_rbc();

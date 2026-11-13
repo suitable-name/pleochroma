@@ -7,7 +7,7 @@
 //! fills the same [`HandleLayout`] the 3D code does. Everything downstream -- the
 //! pixels-to-units drag mapping ([`drag_value`](super::drag_value)), snapping
 //! ([`SnapMode`](super::SnapMode)), the edit intent queue and the one-undo-step gesture --
-//! is shared with the 3D handles unchanged.
+//! is shared with the 3D handles.
 //!
 //! # What each panel offers
 //!
@@ -121,14 +121,12 @@ pub struct PanelHandles {
     pub rotation: Option<IndexRotation>,
 }
 
-/// The facet frame of `tier`'s facet at `index_on_gear`, with the azimuth the diagram's wheel
-/// gives it.
+/// The facet frame of `tier`'s facet at `index_on_gear`, at the azimuth the diagram's wheel
+/// draws it.
 ///
 /// That azimuth is `2 pi (index + reference) / teeth`, with the reference angle and tooth
-/// count `layout` was drawn with. [`FacetFrame::from_tier`] takes the plain index; a design
-/// with a gear reference angle would otherwise get its handles on a different azimuth than
-/// its facets. This is [`FacetFrame::from_tier_with_reference`] with the layout's values,
-/// which the 3D handles call with the design's.
+/// count of `layout`. [`FacetFrame::from_tier`] takes the plain index, which would put a
+/// design with a gear reference angle on a different facet than the one drawn.
 #[must_use]
 pub fn facet_frame(
     tier: &ConstraintTier,

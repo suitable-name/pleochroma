@@ -3,14 +3,13 @@
 //! lanes, and (through [`live::LiveEpoch`]) the live viewport's local tracer and its
 //! remote chunk lane.
 //!
-//! `SampleCursor` itself now lives in the GUI-free `pleochroma-dispatch` crate (so the
-//! render coordinator shares the exact same claim semantics) and is re-exported here
-//! unchanged; see its own docs there for disjointness and the retry piles. Every
-//! existing `bridge::sample_cursor::SampleCursor` path keeps compiling.
+//! The type is defined in the GUI-free `pleochroma-dispatch` crate, which the render
+//! coordinator shares, and re-exported here. Its docs there cover disjointness and the
+//! retry piles.
 //!
-//! [`LiveEpoch`] stays here: it is the live viewport's single-remote-lane bookkeeping
-//! (one in-flight `Accumulator`, the app's scene-generation stamp), which the
-//! coordinator replaces with `pleochroma_dispatch::LanePool` rather than reuses.
+//! [`LiveEpoch`] stays here: it is the live viewport's single remote lane (one in-flight
+//! `Accumulator`, the app's scene-generation stamp). Its multi-lane counterpart is
+//! `pleochroma_dispatch::LanePool`.
 
 pub mod live;
 #[cfg(test)]

@@ -2,19 +2,19 @@
 // Zoned absorption, unit 2 of 3: the path-length kernel.
 //
 // A function-by-function port of `k32` in `optics/zoning/kernels.rs` (the f32 kernel, itself
-// the same source as the f64 reference): same operation order, same breakpoint array sizes,
-// same insertion sort, same 8-point Gauss-Legendre constants, same smoothstep. Where the
-// Rust uses `a * b + c` this uses `a * b + c` too (no explicit `fma`); the shader compiler
-// may contract it, which is the one place a GPU result can differ from `k32` by an ulp.
+// the same source as the f64 reference). Same operation order, breakpoint sizes, insertion sort,
+// Gauss-Legendre constants and smoothstep. Where the Rust writes `a * b + c` this does too, with
+// no explicit `fma`; the shader compiler may contract it, the one place a GPU result can differ
+// from `k32` by an ulp.
 //
-// What it computes: how much of the straight segment `from -> to` lies in each zone. Index 0 is
-// the base zone, 1..=4 the shaped zones in order; later zones override earlier ones; the
-// lengths partition the segment. Sharp boundaries are cut analytically per shape; soft
-// boundaries (`softness > 0`) integrate a smoothstep weight with Gauss-Legendre pieces.
+// Computes how much of the segment `from -> to` lies in each zone. Index 0 is the base zone,
+// 1..=4 the shaped zones in order; a later zone overrides an earlier one, and the lengths
+// partition the segment. Sharp boundaries are cut analytically per shape; soft boundaries
+// (`softness > 0`) integrate a smoothstep weight with Gauss-Legendre pieces.
 //
-// MeshShell zones do not exist here: the host declines such a material (`gpu_zoning_decline`).
+// MeshShell zones are not supported: the host declines such a material (`gpu_zoning_decline`).
 //
-// Reads `material.zones` (declared in 01_zone_table.wgsl, bound as part of `material`).
+// Reads `material.zones`, the `GpuZoneTable` of 01_zone_table.wgsl (a field of `GpuGemMaterial`).
 // ---------------------------------------------------------------------------------
 
 const ZONE_TWO_PI: f32 = 6.2831855;
@@ -361,11 +361,9 @@ fn zone_sort_bp(bp: ptr<function, array<f32, 38>>, nb: u32) {
 
 // Sharp lengths as fractions of the segment, in the zone frame.
 fn zone_fractions_sharp(p0: vec3<f32>, dv: vec3<f32>, count: u32) -> array<f32, 5> {
-    // Every function-scope array in these units is initialised explicitly: the transport
-    // megakernel, compiled on at least one device, did not honour WGSL's implicit zero
-    // initialisation of `var` arrays (measured 2026-10-12: the GPU zoned bicolour was 5-7 %
-    // off the CPU; the standalone echo shader was unaffected). `bp[0]`, the segment start,
-    // is one of the entries that is read without ever being written.
+    // Function-scope arrays are zeroed explicitly, because some GPU compilers ignore WGSL's
+    // implicit zero-init of `var` arrays. `bp[0]`, the segment start, is read without ever
+    // being written.
     var spans: array<ZSpans, 4>;
     for (var s: u32 = 0u; s < 4u; s = s + 1u) {
         spans[s] = zs_empty();

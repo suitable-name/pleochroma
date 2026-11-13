@@ -6,10 +6,10 @@
 //! user last saw is remembered here and an Apply resolves the index against THAT list, never
 //! against one rebuilt after the material changed.
 //!
-//! The saved variants live in `IndexedDB` (`storage::color_variants`); they are read once when the
-//! page starts ([`load_saved`]) and kept in memory, so building the combo never waits for the
-//! browser. A variant saved from the Custom editor is added to the memory list as soon as the
-//! store accepts it.
+//! The saved variants live in `IndexedDB` (`storage::color_variants`). They are read once when
+//! the page starts ([`load_saved`]) and kept in memory, so building the combo never waits for
+//! the browser. A variant saved from the Custom editor joins the memory list once the store
+//! accepts it.
 
 use std::cell::RefCell;
 

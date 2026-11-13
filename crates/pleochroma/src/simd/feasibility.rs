@@ -6,14 +6,8 @@
 
 use glam::DVec3;
 
-// `SimdLevel` itself is named only inside this file's `#[cfg(target_arch = "x86_64")]`
-// match arms (`SimdLevel::Avx512`/`SimdLevel::Avx2`) -- the scalar fallback arm below
-// matches on it via `_`, never by name. `simd_level()` (the function that returns one)
-// stays imported unconditionally since that fallback `match` calls it on every target.
-// Splitting the import in two, rather than one `#[cfg]` on the whole `use` line, is
-// what keeps this a targeted fix for the one name that goes unused elsewhere, instead
-// of also hiding a real "you forgot to call `simd_level` on this target" mistake behind
-// the same attribute.
+// `SimdLevel` is named only in the x86_64 match arms; the scalar arm matches with `_`.
+// `simd_level()` is called on every target, so it is imported unconditionally.
 #[cfg(target_arch = "x86_64")]
 use super::SimdLevel;
 use super::simd_level;
@@ -222,8 +216,7 @@ pub fn classify_feasibility(planes: &PlanesSoA64, v: DVec3, eps: f64) -> Feasibi
 /// variant used by `stone_metrics` (order-independent, a pure OR).
 #[must_use]
 pub fn any_violation(planes: &PlanesSoA64, v: DVec3, eps: f64) -> bool {
-    // A pure disjunction: reuse the owner-tracking kernel by treating every
-    // owner as distinct would change semantics, so scan directly.
+    // A pure OR over the planes, so no owner tracking: scan directly.
     match simd_level() {
         #[cfg(target_arch = "x86_64")]
         // SAFETY: dispatch reached only after runtime feature detection.

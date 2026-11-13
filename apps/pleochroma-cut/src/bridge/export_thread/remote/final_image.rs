@@ -1,12 +1,12 @@
-//! "Final picture only" transfer for the still export and the tilt video: one v14 `FinalImageRequest` per image, answered by the
-//! remote with `PROGRESS` heartbeats, one tone-mapped PNG and `DONE`.
+//! Final-picture transfer for still and tilt exports: one `FinalImageRequest` per image,
+//! answered by the remote with `PROGRESS` heartbeats, one tone-mapped picture and `DONE`.
 //!
 //! - [`plan_export_transfer`] decides, purely, whether an image uses it at all.
 //! - [`run_final_image_request`] dispatches one request and waits for the picture.
 //! - [`final_picture_follow_up`] decides, purely, what a non-picture outcome means:
-//!   `UNSUPPORTED_REQUEST` (a plain worker) falls back to full data and is remembered
-//!   per remote ([`remember_final_picture_refused`]); a failure falls back to full data
-//!   under `Both` (which itself falls back to local) and fails under `RemoteOnly`.
+//!   `UNSUPPORTED_REQUEST` falls back to full data and is remembered per remote
+//!   ([`remember_final_picture_refused`]); a failure falls back to full data under `Both`
+//!   (which itself falls back to local) and fails under `RemoteOnly`.
 
 use super::dispatch::{CANCEL_WAIT_TIMEOUT, liveness_deadline};
 use crate::{
@@ -33,8 +33,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-/// Every final-image dispatch opens its own connection, so one fixed id is safe --
-/// the same reasoning as `dispatch::run_batch`'s own `REQUEST_ID`.
+/// Each final-image dispatch opens its own connection, so one fixed id is enough
+/// (same reasoning as `dispatch::run_batch`'s `REQUEST_ID`).
 const REQUEST_ID: u32 = 1;
 
 /// Which transfer one image actually uses -- [`plan_export_transfer`]'s answer.
@@ -80,12 +80,9 @@ pub(in crate::bridge::export_thread) enum FinalPictureOutcome {
     /// The decoded picture: exactly `width * height * 4` RGBA8 bytes.
     Completed {
         rgba: Vec<u8>,
-        /// v16: how many of the viewer's own reserved samples the coordinator rendered
-        /// itself because the [`LocalShare`] contribution did not arrive in time (or was
-        /// invalid) -- `0` for a request with no local share, and for every ordinary
-        /// full-remote picture. `Stats.reclaimed_samples`, unpacked here so
-        /// `worker::final_picture::final_picture` can surface it as a note without
-        /// reaching back into the accumulator itself.
+        /// Viewer samples the coordinator rendered itself because the [`LocalShare`]
+        /// contribution was late or invalid. `0` without a local share. Mirrors
+        /// `Stats.reclaimed_samples`.
         reclaimed_samples: u32,
     },
     /// `cancel` was observed; the remote confirmed (or never answered within
@@ -144,10 +141,9 @@ pub(in crate::bridge::export_thread) fn final_picture_follow_up(
     }
 }
 
-/// Remotes (by address) that answered a `FinalImageRequest` with
-/// `UNSUPPORTED_REQUEST` this session -- "remember per connection": a plain worker does
-/// not grow the feature by being asked again. Cleared when the remote is re-saved
-/// ([`forget_final_picture_refusals`]), since that may point at an upgraded server.
+/// Remotes (by address) that answered a `FinalImageRequest` with `UNSUPPORTED_REQUEST`
+/// this session, so they are not asked again. Cleared when the remote is re-saved
+/// ([`forget_final_picture_refusals`]), since it may now be an upgraded server.
 static FINAL_PICTURE_REFUSED: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
 
 /// Records that `worker` refused a final picture (see [`FINAL_PICTURE_REFUSED`]).
@@ -167,17 +163,16 @@ pub(in crate::bridge::export_thread) fn final_picture_refused(worker: &WorkerSet
         .contains(&worker.address)
 }
 
-/// Forgets every remembered refusal -- called when the remote endpoint is saved. Also
-/// clears [`FINAL_PICTURE_RATES`]: a re-saved remote may point at a different machine
-/// entirely, so a stale local/remote split measured against the old one must not seed
-/// the next [`viewer_share`] call.
+/// Forgets every remembered refusal and measured rate, when the remote endpoint is saved.
+///
+/// A re-saved remote may be a different machine, so a split measured against the old one
+/// must not seed the next [`viewer_share`] call.
 pub fn forget_final_picture_refusals() {
     forget_matching(|_| true);
 }
 
-/// Drops the refusal and the measured rates of every remote whose address `forget`
-/// accepts -- [`forget_final_picture_refusals`] forgets all of them; the tests forget
-/// only their own address so parallel tests never clear each other's entries.
+/// Drops the refusal and measured rates of every remote whose address `forget` accepts.
+/// Tests pass their own address so parallel tests never clear each other's entries.
 fn forget_matching(forget: impl Fn(&str) -> bool) {
     FINAL_PICTURE_REFUSED
         .lock()
@@ -189,14 +184,11 @@ fn forget_matching(forget: impl Fn(&str) -> bool) {
         .retain(|address, _| !forget(address));
 }
 
-// ---- v16: viewer contribution -- share sizing, the rate book, and the local render's
-// handle into `run_final_image_request` --------------------------------------------
+// ---- Viewer contribution: share sizing, rate book, local render handle ----
 
-/// The viewer's own contribution to a final-picture export that reserved a tail for it
-/// (v16) -- see [`super::super::worker::core::render_local_share`], which actually
-/// renders it, and [`run_final_image_request`]'s own doc comment for how this reaches
-/// the wire. Built by `worker::final_picture::final_picture` and consumed entirely
-/// inside [`run_final_image_request`]'s own polling loop.
+/// The viewer's own contribution to a final-picture export that reserved a tail for it.
+/// Rendered by [`super::super::worker::core::render_local_share`]; built by
+/// `worker::final_picture::final_picture` and consumed in [`run_final_image_request`]'s loop.
 pub(in crate::bridge::export_thread) struct LocalShare<'a> {
     /// How many samples the viewer's own render is worth -- `== viewer_samples`.
     pub samples: u32,
@@ -211,19 +203,17 @@ pub(in crate::bridge::export_thread) struct LocalShare<'a> {
     pub stop: &'a AtomicBool,
 }
 
-/// Default viewer share (10%) when no rate history exists yet for a remote -- see
-/// [`viewer_share`]. Conservative: small enough that a wildly wrong first guess (a much
-/// faster or slower machine than the remote) costs little either way, while still
-/// measuring something real to seed the next export's proportional split from.
+/// Viewer share (10%) used until a remote has a measured rate history, see [`viewer_share`].
+/// Small enough that a wrong first guess costs little, and still measures a real rate to
+/// seed the next split.
 pub(in crate::bridge::export_thread) const DEFAULT_VIEWER_SHARE: f64 = 0.10;
 
 /// The viewer's own sample share of a final-picture export's sample budget:
-/// `clamp(round(samples * local/(local+remote)), 0, samples/2)`. Falls back to
-/// [`DEFAULT_VIEWER_SHARE`] of `samples` (still capped at half) whenever either rate is
-/// unknown, non-positive, or non-finite -- there is nothing yet to split proportionally
-/// by. The half-of-`samples` cap ([`FinalImageRequest::viewer_share_valid`]) is the
-/// server's own hard limit; enforcing it here too means a caller never has to retry a
-/// refused request.
+/// `clamp(round(samples * local/(local+remote)), 0, samples/2)`.
+///
+/// Falls back to [`DEFAULT_VIEWER_SHARE`] of `samples` (still capped at half) when either
+/// rate is unknown, non-positive or non-finite. The half cap is the server's hard limit
+/// ([`FinalImageRequest::viewer_share_valid`]); enforcing it here avoids refused requests.
 #[must_use]
 pub(in crate::bridge::export_thread) fn viewer_share(
     samples: u32,
@@ -248,36 +238,28 @@ pub(in crate::bridge::export_thread) fn viewer_share(
     share.min(half)
 }
 
-/// One remote's measured local/remote throughput, PIXEL-normalised (`rate * pixels`,
-/// samples/sec times pixel count) exactly like `coordinator::job::RateBook` -- see that
-/// type's own doc comment for why: a rate measured at one export's resolution must still
-/// mean something at a very differently sized one.
+/// One remote's measured local/remote throughput, pixel-normalised (`rate * pixels`) like
+/// `coordinator::job::RateBook`, so a rate measured at one resolution applies to another.
 #[derive(Debug, Clone, Copy, Default)]
 struct SplitRates {
     local_px_rate: Option<f64>,
     remote_px_rate: Option<f64>,
 }
 
-/// Per-remote (by [`WorkerSettings::address`]) [`SplitRates`] book -- process-wide (not
-/// per-carry, per-export) so the SECOND final-picture export against the same remote
-/// already has a measured split to start [`viewer_share`] from, rather than
-/// [`DEFAULT_VIEWER_SHARE`] every single time. A `BTreeMap`, not a hash map (house rule:
-/// no hash-map iteration in a decision path -- reads here are by exact key anyway),
-/// keyed the same way [`FINAL_PICTURE_REFUSED`] just above is.
+/// Per-remote (by [`WorkerSettings::address`]) [`SplitRates`] book, process-wide so later
+/// exports against the same remote start [`viewer_share`] from a measured split. A
+/// `BTreeMap` keeps iteration order fixed in decision paths; keyed like [`FINAL_PICTURE_REFUSED`].
 static FINAL_PICTURE_RATES: Mutex<BTreeMap<String, SplitRates>> = Mutex::new(BTreeMap::new());
 
-/// This remote's current local/remote rates in plain samples/sec for an image of
-/// `pixels` pixels -- the stored pixel-samples/sec figures divided back down, mirroring
-/// `RateBook::get`. `None` for either half means "not measured yet for this remote" (a
-/// fresh session, or [`forget_final_picture_refusals`] cleared it).
+/// This remote's local/remote rates in samples/sec for an image of `pixels` pixels, the
+/// stored pixel-normalised rates divided back down (as `RateBook::get`). `None` means not
+/// measured yet for this remote.
 #[must_use]
 pub(in crate::bridge::export_thread) fn split_rates(
     worker: &WorkerSettings,
     pixels: u32,
 ) -> (Option<f64>, Option<f64>) {
-    // `.copied()` takes the (small, `Copy`) entry out from under the lock in this one
-    // statement, so the guard drops here rather than staying held through the
-    // denormalising below.
+    // Copy the small entry out so the lock is released before denormalising.
     let entry = FINAL_PICTURE_RATES
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
@@ -290,11 +272,9 @@ pub(in crate::bridge::export_thread) fn split_rates(
     (denorm(entry.local_px_rate), denorm(entry.remote_px_rate))
 }
 
-/// Records this contributed picture's measured local/remote rates (plain samples/sec at
-/// `pixels`), pixel-normalising before storing (`rate * pixels`), mirroring
-/// `RateBook::set`. `None` leaves that half of the book unchanged -- nothing new was
-/// measured this time (no local share was ever requested, say, or the remote lane's own
-/// rate couldn't be pinned down).
+/// Records a picture's measured local/remote rates (samples/sec at `pixels`), stored
+/// pixel-normalised as `RateBook::set` does. `None` leaves that half unchanged, when
+/// nothing was measured this time.
 pub(in crate::bridge::export_thread) fn record_split_rates(
     worker: &WorkerSettings,
     pixels: u32,
@@ -307,8 +287,7 @@ pub(in crate::bridge::export_thread) fn record_split_rates(
     let pixels = f64::from(pixels.max(1));
     let local = local.map(|rate| rate * pixels);
     let remote = remote.map(|rate| rate * pixels);
-    // One statement: the lock is held only for this `entry`/`and_modify`/`or_insert_with`
-    // chain, not across separate `if let` statements afterward.
+    // One statement, so the lock is held only for this chain.
     FINAL_PICTURE_RATES
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
@@ -352,13 +331,9 @@ pub(in crate::bridge::export_thread) fn decode_final_picture(
         .map_err(|e| format!("the remote's picture did not decode: {e}"))
 }
 
-/// Tone-maps a `PREVIEW` snapshot into the small sRGB thumbnail
-/// [`ExportProgress::preview`](crate::bridge::export_thread::ExportProgress) already
-/// knows how to show -- the same `tonemap_accumulation` the full-data preview thumbnail
-/// and the final PNG both use, always through the `Srgb` path since this is a live
-/// on-screen thumbnail, never written to disk (mirrors
-/// `export_thread::preview::downsample_preview`'s own reasoning for always going
-/// through `Srgb`, one level up in this same module tree).
+/// Tone-maps a `PREVIEW` snapshot into the sRGB thumbnail shown as
+/// [`ExportProgress::preview`](crate::bridge::export_thread::ExportProgress). Always the
+/// `Srgb` path: it is a live on-screen thumbnail, never written to disk.
 fn preview_image(snapshot: &PreviewSnapshot) -> SharedPixelBuffer<Rgba8Pixel> {
     let rgba = tonemap_accumulation(
         snapshot.width,
@@ -376,35 +351,25 @@ fn preview_image(snapshot: &PreviewSnapshot) -> SharedPixelBuffer<Rgba8Pixel> {
     buffer
 }
 
-/// Dispatches one `FinalImageRequest` for `[0, samples)` of `scene` (whose
-/// `width`/`height` are the output size) against `worker` and blocks until the picture
-/// arrives, the request fails, or `cancel` is observed (then `CANCEL` is sent and the
-/// remote's `DONE { cancelled }` awaited, bounded by [`CANCEL_WAIT_TIMEOUT`]).
+/// Dispatches one `FinalImageRequest` for `[0, samples)` of `scene` against `worker` and
+/// blocks until the picture arrives, the request fails, or `cancel` is observed. On cancel,
+/// `CANCEL` is sent and the remote's `DONE { cancelled }` awaited, bounded by
+/// [`CANCEL_WAIT_TIMEOUT`].
 ///
-/// `local` is the viewer's own concurrently-running contribution to a reserved tail
-/// (v16, see [`LocalShare`]'s own doc comment) -- `None` reproduces today's pure-remote
-/// picture (`viewer_samples: 0` on the wire). Every poll of this loop also checks
-/// `local.result` for the finished sum and uploads it the moment it's ready
-/// ([`remote_render::RemoteRenderHandle::contribute`]), resetting the liveness clock
-/// exactly like the `NEED_ASSET` upload does -- the server sends nothing while it reads
-/// the upload, so a wait spanning it needs the same transfer allowance a `FRAME` gets.
+/// `local` is the viewer's concurrent contribution to a reserved tail (see [`LocalShare`]);
+/// `None` sends `viewer_samples: 0`. Each poll also uploads `local.result` as soon as it is
+/// ready. The upload resets the liveness clock, because the server sends nothing while it
+/// reads the upload.
 ///
-/// `on_progress(remote_done, local_done, preview)` fires for every `PROGRESS` heartbeat
-/// (`preview: None`) and every `PREVIEW` the coordinator forces on for this job's own
-/// periodic look (`preview: Some`, tone-mapped via [`preview_image`]) -- see
-/// `coordinator::job::serve_final_image`'s own doc comment on why a `FinalImageRequest`
-/// always gets one even though its wire request has no `StreamConfig` of its own.
-/// `remote_done`/`local_done` are each lane's own running total, reported SEPARATELY:
-/// combining them into one number (and capping at `samples`, since the coordinator's own
-/// `PROGRESS` only folds a merged contribution in once, which can transiently make the
-/// raw sum overshoot) is the caller's job, since only the caller knows whether `local` is
-/// even in play -- see `worker::final_picture::report_combined_progress`.
+/// `on_progress(remote_done, local_done, preview)` fires for each `PROGRESS` (`preview:
+/// None`) and each `PREVIEW` (`preview: Some`, see [`preview_image`]). The coordinator
+/// always sends one for a `FinalImageRequest`. The two lane totals are reported separately;
+/// the caller combines and caps them (`worker::final_picture::report_combined_progress`).
 ///
-/// Liveness mirrors the full-data chunk watchdog (`dispatch::liveness_deadline`): the
-/// first event gets the long grace, every later wait the heartbeat-derived deadline
-/// plus an allowance for one payload in flight -- a `width * height * 4`-byte picture
-/// normally, or the viewer's own `width * height * 12`-byte radiance upload once it has
-/// started.
+/// Liveness mirrors the full-data watchdog (`dispatch::liveness_deadline`): the first event
+/// gets the long grace, later waits the heartbeat-derived deadline plus room for one
+/// payload in flight (a `width * height * 4`-byte picture, or the viewer's
+/// `width * height * 12`-byte radiance upload once started).
 pub(in crate::bridge::export_thread) fn run_final_image_request(
     worker: &WorkerSettings,
     scene: SceneState,
@@ -440,8 +405,7 @@ pub(in crate::bridge::export_thread) fn run_final_image_request(
     let mut cancel_sent_at: Option<Instant> = None;
     let mut last_update = Instant::now();
     let mut seen_first = false;
-    // Once uploaded, later waits budget for the (much smaller, and one-shot) upload
-    // frame instead of a whole finished picture -- see `contribution_bytes` above.
+    // After the upload, waits budget for the smaller one-shot upload, not a picture.
     let mut contribution_sent = false;
     loop {
         if cancel_sent_at.is_none() && cancel.load(Ordering::Relaxed) {
@@ -449,9 +413,7 @@ pub(in crate::bridge::export_thread) fn run_final_image_request(
             cancel_sent_at = Some(Instant::now());
             stop_local(local);
         }
-        // The local share may finish at any point in this loop, independent of
-        // whatever the remote is doing -- check every iteration, not just when a
-        // `RemoteUpdate` happens to arrive in the same 100ms slice.
+        // The local share can finish at any time, so check every iteration.
         if !contribution_sent
             && let Some(share) = local
             && let Ok((sum, _elapsed)) = share.result.try_recv()
@@ -511,9 +473,8 @@ pub(in crate::bridge::export_thread) fn run_final_image_request(
     }
 }
 
-/// Raises `local.stop` if there is a local share in play -- every exit path of
-/// [`run_final_image_request`]'s loop calls this, so a local render thread never keeps
-/// tracing samples nobody will use once the request itself has ended.
+/// Raises `local.stop` if there is a local share. Every exit of [`run_final_image_request`]
+/// calls this, so the local render stops once nobody uses its samples.
 fn stop_local(local: Option<&LocalShare<'_>>) {
     if let Some(share) = local {
         share.stop.store(true, Ordering::Relaxed);
@@ -534,10 +495,8 @@ fn on_update(
             on_progress(samples_done, local_done, None);
             None
         }
-        // The coordinator's periodic look at this job (see `run_final_image_request`'s
-        // own doc comment): the accumulator already holds the applied snapshot by the
-        // time this update reaches here (`connection::stream_io::to_remote_update` only
-        // translates an already-applied `ApplyOutcome`), so just read and tone-map it.
+        // The accumulator already holds the applied snapshot (see `to_remote_update`),
+        // so read and tone-map it.
         RemoteUpdate::Preview { .. } => {
             let guard = accumulator.lock().unwrap_or_else(PoisonError::into_inner);
             if let Some(snapshot) = guard.last_preview() {
@@ -555,9 +514,7 @@ fn on_update(
             cancelled: false, ..
         } => {
             let guard = accumulator.lock().unwrap_or_else(PoisonError::into_inner);
-            // v16: how many of the viewer's own reserved samples the coordinator ended
-            // up rendering itself -- `0` when there was no local share, or it arrived in
-            // time.
+            // Viewer samples the coordinator rendered itself; `0` if none were reclaimed.
             let reclaimed_samples = guard
                 .done_stats()
                 .map_or(0, |stats| stats.reclaimed_samples);

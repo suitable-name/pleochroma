@@ -64,8 +64,8 @@ fn hand_written(version: u32, preform_body: &str, tier_extra: &str) -> String {
 const BLOCK_PREFORM: &str =
     "shape = { kind = \"block\" }\nhalf_width = 1.0\nlength_over_width = 1.0\ndepth = 2.0";
 
-/// A tier without a relation writes no `angle_relation` key (so a relation-less file's
-/// bytes are what they always were), and one with a relation round-trips it.
+/// A tier without a relation writes no `angle_relation` key, and one with a relation
+/// round-trips it.
 #[test]
 fn a_tier_relation_is_written_only_when_present_and_round_trips() {
     let plain = write(&sample_file());
@@ -121,8 +121,7 @@ fn preform_table_y_offset_round_trips_through_toml_text() {
     assert_eq!(parsed.preform.y_offset, 0.35);
 }
 
-/// A file written before `y_offset` existed (no such key in `[preform]` at all) must
-/// still parse, with `y_offset` defaulting to `0.0`.
+/// A file with no `y_offset` key in `[preform]` still parses, with `y_offset` at `0.0`.
 #[test]
 fn a_preform_table_with_no_y_offset_key_parses_and_defaults_to_zero() {
     let parsed = read(&hand_written(1, BLOCK_PREFORM, ""));
@@ -195,7 +194,7 @@ fn a_plane_set_preform_without_a_source_key_loads_with_an_empty_source() {
     }
 }
 
-/// The Block form is unchanged by the new kind: same key, no `planes` or `source`.
+/// A Block preform writes `kind = "block"` and no `planes` or `source` keys.
 #[test]
 fn the_block_preform_text_is_unchanged_by_the_plane_set_kind() {
     let text = write(&sample_file());
@@ -317,8 +316,8 @@ fn custom_snapshot_dispersion_model_round_trips_through_toml_text() {
     }
 }
 
-/// A snapshot without a model writes no `dispersion_model` key at all (so every file made
-/// before the field existed keeps its bytes) and a file without one loads with `None`.
+/// A snapshot without a model writes no `dispersion_model` key, and a file without one
+/// loads with `None`.
 #[test]
 fn custom_snapshot_without_a_dispersion_model_writes_no_key() {
     let mut native = sample_file();
@@ -414,8 +413,7 @@ fn material_table_body_color_override_round_trips_through_toml_text() {
     assert_eq!(parsed, native);
 }
 
-/// No override: the key is not written at all, and a file without it (every file
-/// written before the field existed) loads back as `None`.
+/// No override: the key is not written at all, and a file without it loads as `None`.
 #[test]
 fn material_table_without_a_body_color_override_omits_the_key_and_loads_as_none() {
     let text = write(&sample_file());
@@ -457,7 +455,7 @@ fn material_table_body_color_bands_round_trip_next_to_the_triple() {
 }
 
 /// A custom snapshot's `absorption_bands_per_mm` sits next to `absorption_rgb`, round trips
-/// with the identical `f32` bits, and an old snapshot (no key) loads with `None`.
+/// with the identical `f32` bits, and loads as `None` when the key is absent.
 #[test]
 fn custom_snapshot_absorption_bands_round_trip_next_to_the_triple() {
     let mut native = sample_file();
@@ -480,7 +478,7 @@ fn custom_snapshot_absorption_bands_round_trip_next_to_the_triple() {
         assert_eq!(g.map(f32::to_bits), r.map(f32::to_bits));
     }
 
-    // An old snapshot (triple only) loads with no bands and writes no key.
+    // A triple-only snapshot loads with no bands and writes no key.
     let old =
         CustomMaterialSnapshot::new(1.62, 0.017, -0.021, None, "Trigonal", "UniaxialNegative")
             .with_body_color(Some([0.2, 0.6, 1.8]));
@@ -495,8 +493,9 @@ fn custom_snapshot_absorption_bands_round_trip_next_to_the_triple() {
     assert!(custom.body_color().is_some());
 }
 
-/// A custom snapshot's per-ray rows (`[material.custom.absorption_ray_bands_per_mm]`) round trip
-/// with the identical `f32` bits, with and without a beta ray, and an old snapshot loads with none.
+/// A custom snapshot's per-ray rows (`[material.custom.absorption_ray_bands_per_mm]`) round
+/// trip with the identical `f32` bits, with and without a beta ray. A snapshot without the
+/// rows loads with none.
 #[test]
 fn custom_snapshot_per_ray_bands_round_trip_and_are_omitted_when_unset() {
     let o = [[460.0_f32, 45.0, 0.2], [620.0, 1500.5, 0.6]];
@@ -540,8 +539,8 @@ fn custom_snapshot_per_ray_bands_round_trip_and_are_omitted_when_unset() {
     assert_eq!(custom.absorption_ray_bands_per_mm, None);
 }
 
-/// A biaxial material's `biaxial_delta_beta_alpha` is written, round trips through the
-/// document, and a snapshot built without it (every older file) writes no such key.
+/// A biaxial material's `biaxial_delta_beta_alpha` round trips through the document, and a
+/// snapshot without it writes no such key.
 #[test]
 fn custom_snapshot_biaxial_delta_round_trips_and_is_omitted_when_unset() {
     let mut native = sample_file();
@@ -586,9 +585,8 @@ fn sample_text_with_material_line(line: &str) -> String {
     text.replacen(marker, &format!("{marker}{line}\n"), 1)
 }
 
-/// Builds from 2026-09-28 wrote the key as `body_colour_override`. Such a file must load
-/// the override, keep nothing of the old key in the carry-over table, and write
-/// the current spelling exactly once when saved again.
+/// The British spelling `body_colour_override` must load the override, leave nothing in the
+/// carry-over table, and be saved once under `body_color_override`.
 #[test]
 fn the_old_british_body_colour_key_loads_and_is_saved_under_the_new_spelling() {
     let old = sample_text_with_material_line("body_colour_override = [0.2, 0.4, 2.8]");
@@ -612,9 +610,8 @@ fn the_old_british_body_colour_key_loads_and_is_saved_under_the_new_spelling() {
     assert_eq!(saved, write(&fresh));
 }
 
-/// A file a campaign build re-saved after the respelling can hold both keys. It must
-/// still open (a plain serde alias would refuse it), the new key wins, and the old one is
-/// gone after the next save.
+/// A file can hold both spellings. It must still open (a plain serde alias would refuse
+/// it), the new key wins, and the old one is dropped on the next save.
 #[test]
 fn a_file_with_both_body_colour_spellings_loads_with_the_new_one_winning() {
     let both = sample_text_with_material_line(
@@ -749,12 +746,9 @@ fn tier_id_round_trips_through_toml_text() {
     assert_eq!(parsed.tiers[1].tier_id, Some(1));
 }
 
-/// An OLD file (written before `TierTable::tier_id` existed) must still parse,
-/// with every tier's `tier_id` reading back as `None` -- the "ids assigned on
-/// load" half of stable tier ids is the loader's job
-/// (`pleochroma-cut-core::native`, outside this crate), but this crate's own
-/// half of the contract is that such a file is not rejected and carries no
-/// fabricated id.
+/// A file with no `tier_id` keys must still parse, with every tier's `tier_id` reading back
+/// as `None`. Assigning ids on load is the loader's job (`pleochroma-cut-core::native`); this
+/// crate only guarantees that such a file is not rejected and gets no invented id.
 #[test]
 fn a_fixture_without_tier_ids_still_parses_with_no_ids() {
     let extra = "\n[[tiers]]\nname = \"T2\"\n\

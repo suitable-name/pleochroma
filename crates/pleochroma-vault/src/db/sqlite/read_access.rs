@@ -15,8 +15,8 @@ impl Database {
     /// Runs `read` against a fresh read-only connection to `db_path`, or against the
     /// shared `shared` handle when no second connection is possible.
     ///
-    /// Opening costs well under a millisecond (no schema work, see
-    /// [`Database::open_read_only`]); the gain is that `read` never takes the shared
+    /// Opening is cheap (no schema work, see [`Database::open_read_only`]); the gain is
+    /// that `read` never takes the shared
     /// lock, so it neither waits for a worker holding it nor makes the UI thread wait
     /// for this read. The fallback exists for the `:memory:` database (it only lives
     /// inside the already-open handle) and for a file that cannot be opened read-only;

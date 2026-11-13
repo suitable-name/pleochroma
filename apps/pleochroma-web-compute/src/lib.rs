@@ -20,6 +20,7 @@ mod entry {
     use std::cell::{Cell, RefCell};
 
     use js_sys::{Array, ArrayBuffer, Uint8Array};
+    use pleochroma::optics::raytracer::{Estimator, set_default_estimator};
     use pleochroma_web_core::{
         protocol::{FromWorker, decode_to_worker, encode_from_worker},
         worker::{CancelProbe, WorkerHandler},
@@ -166,6 +167,9 @@ mod entry {
     #[wasm_bindgen(start)]
     pub fn start() {
         console_error_panic_hook::set_once();
+        // This Worker is its own wasm instance with its own statics: exit collection is the
+        // app's estimator, set before the first chunk is prepared.
+        set_default_estimator(Estimator::APP_DEFAULT);
         let closure = Closure::<dyn FnMut(MessageEvent)>::new(|event: MessageEvent| {
             on_message(&event);
         });

@@ -103,9 +103,65 @@ fn restarted(point: Vec3, dir: Vec3) -> Ray {
     }
 }
 
+/// Resolve a ray that left the stone for good: the lit environment, or, over a glossy tray,
+/// the floor split.
+///
+/// With no mirror, or a ray that does not meet the tray (upward, or already below it), this
+/// is `weight * leaf_at(origin, dir)`. When the ray meets the tray plane at
+/// `P` with Schlick reflectance `F`, the matte paper keeps `1 - F` and the mirror takes `F`:
+///
+/// `sum += weight * (1 - F) * leaf_at(origin, dir)`, then the reflected ray, restarted
+/// 1e-4 off the plane, continues as a child branch with factor `F`. The child is pushed
+/// only while the depth cap allows it and the last worklist slot stays free for the internal
+/// continuation; otherwise it resolves at once as the environment along the reflected
+/// direction (the stone is not searched for that one leaf, as on cavity overflow).
+///
+/// The tray reflects unpolarized light whatever the leaf's polarization (the Ray-Traced
+/// engine carries none), identically for every channel, so the RGB chains need no extra care.
+/// Both escape sites, the branch miss in [`trace_chain_with_cutoff`] and [`emit_outside`],
+/// call this one function. The WGSL twin is `wt_floor_escape` in the Ray-Traced shader (it calls
+/// `wt_floor`, the twin of `TrayMirror::hit`), applied at the twin of each of these two sites in
+/// the same order.
+fn resolve_escape(
+    work: &mut Worklist,
+    sum: &mut Vec3,
+    prep: &WhittedPrep<'_>,
+    leaf: Branch,
+    observer: Vec3,
+) {
+    let ray = leaf.ray;
+    if let Some(floor) = prep
+        .env
+        .mirror()
+        .and_then(|mirror| mirror.hit(ray.origin, ray.dir))
+    {
+        *sum +=
+            leaf.weight * (1.0 - floor.fresnel) * prep.env.leaf_at(ray.origin, ray.dir, observer);
+        let child = leaf.child(
+            restarted(floor.point, floor.reflected),
+            floor.fresnel,
+            false,
+            leaf.depth.saturating_add(1),
+        );
+        if child.depth <= prep.max_depth && work.len < WORKLIST_CAPACITY - 1 {
+            work.push(child, prep.max_depth);
+        } else {
+            *sum += child.weight * prep.env.leaf_at(child.ray.origin, child.ray.dir, observer);
+        }
+    } else {
+        *sum += leaf.weight * prep.env.leaf_at(ray.origin, ray.dir, observer);
+    }
+}
+
 /// Reserve the last stack slot for the internal continuation. Outside leaves
 /// resolve directly for convex stones; on cavity overflow only that leaf falls
 /// back to the environment. The continuation is never silently overwritten.
+///
+/// A direct resolve goes through [`resolve_escape`], so a leaf bound for a glossy tray
+/// reflects there instead of reading the paper. A stone with tools pushes its leaf instead,
+/// floor-bound or not, so that [`first_hit`] can find a re-entry into the cavity first; a
+/// pushed leaf that misses the stone meets the tray at the branch miss, which calls
+/// [`resolve_escape`] as well.
 fn emit_outside(
     work: &mut Worklist,
     sum: &mut Vec3,
@@ -115,7 +171,7 @@ fn emit_outside(
     observer: Vec3,
 ) {
     if tools.is_empty() || work.len >= WORKLIST_CAPACITY - 1 {
-        *sum += leaf.weight * prep.env.leaf(leaf.ray.dir, observer);
+        resolve_escape(work, sum, prep, leaf, observer);
     } else {
         work.push(leaf, prep.max_depth);
     }
@@ -186,9 +242,9 @@ thread_local! {
         const { std::cell::Cell::new(0) };
 }
 
-/// The shared intersection retains an empty-polyhedron sentinel. An image scene with no
-/// planes is instead an unobstructed environment (a miss). The result does not depend on
-/// the chain's refractive index, so one tap computes it once for all its chains.
+/// A scene with no planes is an unobstructed environment (a miss), not an intersection. The
+/// result does not depend on the chain's refractive index, so one tap computes it once for all
+/// its chains.
 pub(super) fn first_hit(
     scene: &FrameScene<'_>,
     tools: &[ToolPrimitive],
@@ -294,7 +350,7 @@ pub(super) fn trace_chain_with_cutoff(
 
     while let Some(mut branch) = work.pop() {
         // A caller-supplied result replaces only the camera ray's intersection; every
-        // later branch intersects here as before.
+        // later branch intersects here.
         let hit = primary.filter(|_| branch.primary).unwrap_or_else(|| {
             #[cfg(test)]
             {
@@ -305,9 +361,9 @@ pub(super) fn trace_chain_with_cutoff(
             first_hit(scene, tools, plane_soa, branch.ray)
         });
         let Some((hit, entering)) = hit else {
-            // One lookup for every escape: a primary miss sees the same lit tray a
-            // window does.
-            sum += branch.weight * prep.env.leaf(branch.ray.dir, observer);
+            // A miss resolves through `resolve_escape`: the lit environment, or a glossy tray's
+            // reflection.
+            resolve_escape(&mut work, &mut sum, prep, branch, observer);
             continue;
         };
         if branch.primary
@@ -349,6 +405,7 @@ pub(super) fn trace_chain_with_cutoff(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::optics::raytracer::environment::TrayMirror;
 
     #[test]
     fn cavity_overflow_preserves_the_continuation_and_resolves_the_leaf() {
@@ -376,5 +433,117 @@ mod tests {
         work.push(branch, prep.max_depth);
         assert_eq!(work.len, WORKLIST_CAPACITY);
         assert!(work.pop().expect("continuation").inside);
+    }
+
+    fn escaping_leaf() -> Branch {
+        let ray = Ray {
+            origin: Vec3::new(0.0, 1.0, 0.0),
+            dir: Vec3::new(0.3, -1.0, 0.1).normalize(),
+        };
+        Branch {
+            depth: 1,
+            primary: false,
+            ..Branch::camera(ray)
+        }
+    }
+
+    #[test]
+    fn a_floor_bound_leaf_pushes_its_reflected_child_when_there_is_room() {
+        let mirror = TrayMirror::new(-1.0, 0.5).expect("mirror");
+        let color = Vec3::new(0.3, 0.7, 0.9);
+        let prep = WhittedPrep::for_tests(1.5, Vec3::ZERO, color, 64, 1);
+        let prep = WhittedPrep {
+            env: prep.env.with_mirror(Some(mirror)),
+            ..prep
+        };
+        let leaf = escaping_leaf();
+        let floor = mirror.hit(leaf.ray.origin, leaf.ray.dir).expect("floor");
+        let mut work = Worklist::new(0.0);
+        let mut sum = Vec3::ZERO;
+        resolve_escape(&mut work, &mut sum, &prep, leaf, Vec3::Y);
+        assert_eq!(work.len, 1);
+        let child = work.pop().expect("child");
+        assert_eq!(child.depth, 2);
+        assert!(!child.inside && !child.primary);
+        assert!(
+            (child.weight - Vec3::splat(floor.fresnel))
+                .abs()
+                .max_element()
+                < 1e-7
+        );
+        assert!(child.ray.dir.y > 0.0);
+        assert!((sum - color * (1.0 - floor.fresnel)).abs().max_element() < 1e-6);
+    }
+
+    #[test]
+    fn a_stone_with_tools_pushes_a_floor_bound_leaf_unchanged() {
+        let mirror = TrayMirror::new(-1.0, 0.5).expect("mirror");
+        let color = Vec3::new(0.3, 0.7, 0.9);
+        let prep = WhittedPrep::for_tests(1.5, Vec3::ZERO, color, 64, 1);
+        let prep = WhittedPrep {
+            env: prep.env.with_mirror(Some(mirror)),
+            ..prep
+        };
+        let leaf = escaping_leaf();
+        assert!(mirror.hit(leaf.ray.origin, leaf.ray.dir).is_some());
+        let tools = [ToolPrimitive::ball(Vec3::ZERO, 0.2)];
+        let mut work = Worklist::new(0.0);
+        let mut sum = Vec3::ZERO;
+        emit_outside(&mut work, &mut sum, &prep, &tools, leaf, Vec3::Y);
+        // The cavity may re-enter the stone first: nothing is resolved, the leaf waits.
+        assert_eq!(work.len, 1);
+        assert_eq!(sum, Vec3::ZERO);
+        let pushed = work.pop().expect("leaf");
+        assert_eq!(pushed.ray.dir, leaf.ray.dir);
+        assert_eq!(pushed.depth, leaf.depth);
+        assert_eq!(pushed.weight, leaf.weight);
+    }
+
+    #[test]
+    fn a_reflected_child_past_the_depth_cap_resolves_instead_of_dropping() {
+        let mirror = TrayMirror::new(-1.0, 0.5).expect("mirror");
+        let color = Vec3::new(0.3, 0.7, 0.9);
+        let prep = WhittedPrep::for_tests(1.5, Vec3::ZERO, color, 64, 1);
+        let prep = WhittedPrep {
+            env: prep.env.with_mirror(Some(mirror)),
+            ..prep
+        };
+        let leaf = Branch {
+            depth: prep.max_depth,
+            ..escaping_leaf()
+        };
+        let mut work = Worklist::new(0.0);
+        let mut sum = Vec3::ZERO;
+        resolve_escape(&mut work, &mut sum, &prep, leaf, Vec3::Y);
+        // The child would sit one past the cap: it resolves as the environment, so the paper
+        // and the mirror share together are the whole leaf.
+        assert_eq!(work.len, 0);
+        assert!((sum - color).abs().max_element() < 1e-6, "{sum:?}");
+    }
+
+    #[test]
+    fn a_full_worklist_resolves_the_reflected_leaf_instead_of_dropping_it() {
+        let mirror = TrayMirror::new(-1.0, 0.5).expect("mirror");
+        let color = Vec3::new(0.3, 0.7, 0.9);
+        let prep = WhittedPrep::for_tests(1.5, Vec3::ZERO, color, 64, 1);
+        let prep = WhittedPrep {
+            env: prep.env.with_mirror(Some(mirror)),
+            ..prep
+        };
+        let leaf = escaping_leaf();
+        let held = Branch {
+            inside: true,
+            ..leaf
+        };
+        let mut work = Worklist::new(0.0);
+        for _ in 0..WORKLIST_CAPACITY - 1 {
+            work.push(held, prep.max_depth);
+        }
+        let mut sum = Vec3::ZERO;
+        resolve_escape(&mut work, &mut sum, &prep, leaf, Vec3::Y);
+        // The last slot stays free, and the whole radiance (paper plus mirror) is accounted
+        // for: a constant environment makes the two terms add up to the leaf's weight.
+        assert_eq!(work.len, WORKLIST_CAPACITY - 1);
+        assert!((sum - color).abs().max_element() < 1e-6, "{sum:?}");
     }
 }

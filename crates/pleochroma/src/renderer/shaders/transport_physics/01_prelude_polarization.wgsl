@@ -1,64 +1,45 @@
-// Phase 2 shared physics prelude -- the SINGLE definition of every ported function
-// consumed by BOTH `spectral_transport.wgsl` (the megakernel, the actually-shipped
-// path) and `transport_functions.wgsl` (the standalone kernels Tier 2's per-function
-// ULP checks exercise, driven by `renderer::gpu::transport_check`).
+// Shared physics prelude: the single definition of every ported function consumed by
+// `spectral_transport.wgsl` (the megakernel) and `transport_functions.wgsl` (the standalone
+// kernels that `renderer::gpu::transport_check` tests one function at a time).
 //
 // # Why this file exists
 //
-// Before it existed, this physics was hand-copied into both shader files (WGSL has no
-// `#include`). The copies could drift -- and once, demonstrably, did: an injected fault
-// in `transport_functions.wgsl`'s copy was caught precisely by Tier 2 with an exact
-// argmax diagnostic, while the SAME fault in the megakernel's own copy was caught only
-// marginally by Tier 3 (a handful of isolated-singleton pixels that would have
-// independently passed at that sample budget). Tier 2 was validating a duplicate, not
-// the shipped code. See `renderer::gpu::transport_check`'s module doc comment for the
-// full story, and the fault-injection re-run recorded there proving this file closes
-// the gap.
+// WGSL has no `#include`. Two copies of the same physics can drift apart, and a
+// function-level check then tests a copy that never ships. One definition keeps the checks
+// on the shipped code.
 //
 // # How it's wired in
 //
-// `build.rs` concatenates this file's text ahead of `spectral_transport.wgsl` and
-// `transport_functions.wgsl` at build time into `$OUT_DIR/*.generated.wgsl` -- those
-// generated files, not the checked-in `.wgsl` files directly, are what
-// `renderer::gpu::estimator_check` and `renderer::gpu::transport_check` `include_str!`.
-// Neither `spectral_transport.wgsl` nor `transport_functions.wgsl` is valid WGSL in
-// isolation any more: both assume every symbol defined here is already in scope, the
-// same way a Rust module assumes its `use` imports resolve.
+// `build.rs` concatenates the pieces of `transport_physics/` (01 to 13, in
+// `TRANSPORT_PHYSICS_PIECES` order, no separator) ahead of each transport unit, into
+// `$OUT_DIR/*.generated.wgsl`. `renderer::gpu::estimator_check` and
+// `renderer::gpu::transport_check` `include_str!` those generated files, not the sources.
+// No unit is valid WGSL alone: each assumes every symbol defined here is in scope.
 //
-// `build.rs`'s `PLEOCHROMA_BUILD_ID` content hash walks `src/**/*.wgsl` on disk (this file
-// included, since it lives under `src/renderer/shaders/`) -- NOT the generated
-// `$OUT_DIR` output -- so the hash still fingerprints exactly the physics text that
-// ships, just spread across one fewer duplicate copy than before.
+// `build.rs`'s `PLEOCHROMA_BUILD_ID` hash walks `src/**/*.wgsl` on disk, this file included,
+// not the generated output, so it covers the physics text that ships.
 //
 // # Rules for editing this file
 //
-// Only functions/types genuinely shared VERBATIM between the megakernel and the Tier 2
-// kernels belong here. Do not add bindings (`@group`/`@binding`) or entry points
-// (`@compute`) -- those are necessarily per-file (the megakernel's bindings and the
-// Tier 2 kernels' per-case bindings are entirely different shapes). A function that
-// only one of the two files needs stays local to that file.
+// Only functions and types shared verbatim by the megakernel and the standalone kernels
+// belong here. No bindings (`@group`/`@binding`) and no entry points (`@compute`): those
+// differ per file. A function that only one file needs stays local to it.
 //
-// P6 exit-event spectral splitting: the CPU-side physics
-// (`compute_channel_transmission`/`compute_uniaxial_exit_transmission` in
-// `optics::raytracer::refraction`) is ported here -- see the two functions of the same
-// name further down this file -- and wired into `spectral_transport.wgsl`'s
-// megakernel and verified by `renderer::gpu::transport_check::p6_exit_splitting`'s Tier 2
-// checks.
+// Exit-event spectral splitting: `compute_channel_transmission` and
+// `compute_uniaxial_exit_transmission` are defined in `08_exit_splitting.wgsl`. The
+// `renderer::gpu::transport_check::p6_exit_splitting` check covers them.
 
 const PI: f32 = 3.14159265358979323846;
 
 // ---------------------------------------------------------------------------------
-// optics::raytracer::hash_u32 plus the per-bounce stream salts
+// optics::raytracer::hash_u32, the per-bounce stream salts
 // (FRESNEL_BRANCH_STREAM/RUSSIAN_ROULETTE_STREAM/BIREFRINGENT_SPLIT_STREAM/
 // MODE_COUPLING_STREAM/FROSTED_DIR_U_STREAM/FROSTED_DIR_V_STREAM) and the frosted
 // r_unpol clamp bounds (R_UNPOL_MIN/R_UNPOL_MAX).
 //
-// These constants (frosted girdle finish) live here rather than in
-// `spectral_transport.wgsl` so `apply_frosted_bounce` below -- shared verbatim between
-// the megakernel and Tier 2's `transport_functions.wgsl` -- has them in scope in EITHER
-// concatenated file without a second copy of the constants themselves: there is exactly
-// one definition per concatenated module, never two (WGSL rejects a duplicate
-// top-level identifier).
+// Defined here because `apply_frosted_bounce` below needs them in every unit that
+// concatenates this file. WGSL rejects a duplicate top-level identifier, so each constant
+// has exactly one definition.
 const FRESNEL_BRANCH_STREAM: u32 = 0x9e3779b1u;
 const RUSSIAN_ROULETTE_STREAM: u32 = 0x517cc1b7u;
 const BIREFRINGENT_SPLIT_STREAM: u32 = 0x2545f491u;
@@ -89,18 +70,45 @@ fn hash_u32(x_in: u32) -> u32 {
     return x;
 }
 
+// optics::raytracer::sampling::discrete_draw: the raw u32 draw of a polished-path stream at
+// `bounce`, the salted hash.
+fn discrete_draw(rng_seed: u32, bounce: u32, stream: u32) -> u32 {
+    return hash_u32(rng_seed ^ hash_u32(bounce ^ stream));
+}
+
 // ---------------------------------------------------------------------------------
-// optics::polarization -- Stokes/Mueller matrix constructors. `StokesVector::
-// apply_matrix` itself has no separate function to share: every call site below (in
-// both consuming files) applies a matrix via the WGSL builtin `mat4x4<f32> *
-// vec4<f32>` operator, so there is nothing hand-written to duplicate or dedupe there.
+// Exit collection: the twin of optics::raytracer::Estimator::ExitCollection (CPU:
+// `refraction::dispatch::apply_collect_bounce`). At a partial Fresnel event no branch is drawn.
+// The arm stages the leaf (an exit's transmitted light, an entry's mirror reflection) in the
+// bounce's split slots with its spectral-MIS weight folded in. The split resolution adds the
+// leaf, unscaled, to the ray's `nee_xyz`, and the path continues undivided along the other branch.
+//
+// `collect_on` is set once per invocation by `collect_bind`. It is off by default, where every
+// arm is the branching estimator (self-tests and function kernels). The host turns it on only
+// for a convex stone over an ideal surface without next-event estimation, e.g. the uniform
+// furnace. Then `nee_xyz` holds nothing else, so a leaf needs no re-entry probe.
+// ---------------------------------------------------------------------------------
+// Bit of `GpuTransportParams::write_debug_buffers` that turns exit collection on
+// (`renderer::buffers::GpuTransportParams::COLLECT_BIT`).
+const PARAMS_COLLECT_BIT: u32 = 4u;
+// optics::raytracer::transport::bounce::COLLECT_ROULETTE_FLOOR.
+const COLLECT_ROULETTE_FLOOR: f32 = 0.02;
+
+var<private> collect_on: bool = false;
+
+// Binds the estimator of this invocation. `flags` is `params.write_debug_buffers`.
+fn collect_bind(flags: u32) {
+    collect_on = (flags & PARAMS_COLLECT_BIT) != 0u;
+}
+
+// ---------------------------------------------------------------------------------
+// optics::polarization -- Stokes/Mueller matrix constructors. Matrices are applied with the
+// WGSL `mat4x4<f32> * vec4<f32>` operator, so no helper is needed for that.
 // ---------------------------------------------------------------------------------
 
-// Fix 2 (see optics::polarization::MuellerMatrix::frame_rotation's doc comment): the
-// CPU array was written row-major but fed to a column-major constructor, realizing
-// R(-psi) instead of R(psi). WGSL's `mat4x4<f32>(col0, col1, col2, col3)` constructor
-// is likewise column-major, so this mirrors the same fix -- column 1 gets `-s2` and
-// column 2 gets `s2` (swapped from before) to build the textbook R(psi).
+// WGSL's `mat4x4<f32>(col0, col1, col2, col3)` is column-major. Column 1 holds `-s2` and
+// column 2 holds `s2`, which builds the textbook R(psi). A row-major fill of the CPU's array
+// gives R(-psi).
 fn mueller_frame_rotation(psi: f32) -> mat4x4<f32> {
     let c2 = cos(2.0 * psi);
     let s2 = sin(2.0 * psi);
@@ -168,9 +176,8 @@ fn normalize_or_zero(v: vec3<f32>) -> vec3<f32> {
     return vec3<f32>(0.0, 0.0, 0.0);
 }
 
-// optics::raytracer::signed_frame_rotation_psi -- signed plane-of-incidence rotation
-// angle between consecutive bounces, via atan2 (Fix 1 in the megakernel's own doc
-// comment).
+// optics::raytracer::absorption::signed_frame_rotation_psi: signed plane-of-incidence
+// rotation angle between consecutive bounces, via atan2.
 fn signed_frame_rotation_psi(prev: vec3<f32>, curr: vec3<f32>, axis: vec3<f32>) -> f32 {
     let cos_psi = clamp(dot(prev, curr), -1.0, 1.0);
     let sin_psi = dot(cross(prev, curr), normalize_or_zero(axis));
@@ -223,10 +230,8 @@ fn electric_field_direction(s: vec4<f32>, s_axis: vec3<f32>, propagation_dir: ve
 // for an isotropic material -- see `spectral_transport.wgsl`'s header comment).
 // ---------------------------------------------------------------------------------
 
-// `arbitrary_perpendicular` and this are two CPU-side names for the identical
-// construction (a stable orthonormal vector perpendicular to `n`); kept as distinct
-// WGSL functions here, as in both files before this dedup, to mirror the CPU naming
-// each call site is ported from.
+// The same construction as `arbitrary_perpendicular` (CPU `stable_orthonormal_basis`). Kept as
+// its own function to mirror the CPU name at each call site.
 fn stable_orthonormal_basis_t(n: vec3<f32>) -> vec3<f32> {
     var a: vec3<f32>;
     if (abs(n.x) > 0.9) {
@@ -294,38 +299,32 @@ fn isotropic_channel_alpha(
 }
 
 // ---------------------------------------------------------------------------------
-// Phase 3 -- optics::birefringence::BirefringenceParams::{effective_extraordinary_index,
-// walk_off_angle, extraordinary_poynting_dir} plus
-// optics::raytracer::{theta_c_for_bounce, per_channel_uniaxial_indices} (the latter as a
-// PER-CHANNEL function, `per_channel_uniaxial_index`, called once per channel by the
-// caller -- see this file's own doc comment: the CPU original loops over
-// `NUM_CHANNELS` internally, WGSL callers do that looping themselves and call this once
-// per iteration, so the shared body stays the single source of truth for one channel's
-// computation either way).
+// optics::birefringence::{effective_extraordinary_index, walk_off_angle,
+// extraordinary_poynting_dir} and optics::raytracer::{theta_c_for_bounce,
+// per_channel_uniaxial_indices}. `per_channel_uniaxial_index` is one channel of the CPU's
+// per-channel loop; WGSL callers loop over the channels themselves.
 //
-// `theta_c_for_bounce` below still omits the CPU function's `is_biaxial` parameter and
-// always takes the `!inside_gem && is_anisotropic` branch: for a genuinely biaxial
-// material (see the Phase 4 section further down for `BiaxialIndicatrix`'s own port)
-// its output -- and `per_channel_uniaxial_index`'s below -- is a provably DEAD value.
-// `spectral_transport.wgsl`'s `transport_main` selects the medium index for a bounce
-// from the biaxial mode-A/mode-B arrays instead whenever `is_biaxial` is true, so the
-// uniaxial `n_o_ch`/`n_eff_ch` this function's result feeds into is computed but never
-// read for a biaxial material -- exactly the same "harmless, unused, still cheap"
-// pattern this crate's CPU side documents elsewhere (see e.g.
-// `BounceRefractionGeometry`'s uniaxial/biaxial field pairs). Taking the CPU's
-// `!is_biaxial`-aware branch here would compute a DIFFERENT (also-unused) theta, but
-// never a NaN/Inf one -- `n_o_hero_seed`/`birefringence_delta` are always finite,
-// well-scaled index values regardless of crystal system -- so this simplification costs
-// nothing observable in rendered output while avoiding a signature change to an
-// already-verified, already-ULP-checked function.
+// `theta_c_for_bounce` omits the CPU's `is_biaxial` parameter and always takes the
+// `!inside_gem && is_anisotropic` branch. For a biaxial material its result, and that of
+// `per_channel_uniaxial_index`, is never read: `transport_main` takes the medium index from
+// the biaxial mode arrays instead. The value stays finite, so the unused result cannot carry
+// a NaN.
 // ---------------------------------------------------------------------------------
 
 fn effective_extraordinary_index(n_o: f32, n_e: f32, theta: f32) -> f32 {
     if (abs(n_o - n_e) < 1e-5) {
         return n_o;
     }
-    let sin_t = sin(theta);
-    let cos_t = cos(theta);
+    return effective_extraordinary_index_sc(n_o, n_e, sin(theta), cos(theta));
+}
+
+// `effective_extraordinary_index` from the sine and cosine of theta directly, so a caller that
+// evaluates several channels at one theta computes the trigonometry once.
+// `BirefringenceParams::effective_extraordinary_index_sc` is the CPU twin.
+fn effective_extraordinary_index_sc(n_o: f32, n_e: f32, sin_t: f32, cos_t: f32) -> f32 {
+    if (abs(n_o - n_e) < 1e-5) {
+        return n_o;
+    }
     let ne_cos = n_e * cos_t;
     let no_sin = n_o * sin_t;
     let denom_sq = fma(ne_cos, ne_cos, no_sin * no_sin);
@@ -353,12 +352,10 @@ fn walk_off_angle(n_o: f32, n_e: f32, theta: f32) -> f32 {
     return walk_off_from_sin_cos(n_o, n_e, sin(theta), cos(theta));
 }
 
-// Fix 1 (see optics::birefringence::BirefringenceParams::extraordinary_poynting_dir's
-// doc comment): the optic axis is a director (S(c) == S(-c)), so fold `c_axis` onto the
-// wave normal's own hemisphere via `sign` and negate the tilt on that branch to
-// compensate -- `theta`/`delta` already use the unsigned `|cos_theta|` and so are
-// branch-independent, but `c_proj` is built from the SIGNED `cos_theta` and flips sign
-// under `c_axis -> -c_axis` while `delta` does not.
+// The optic axis is a director (S(c) == S(-c)), so `c_axis` is folded onto the wave normal's
+// hemisphere via `sign` and the tilt is negated on that branch. `theta`/`delta` use the
+// unsigned `|cos_theta|` and do not depend on the branch; `c_proj` is built from the signed
+// `cos_theta`.
 fn extraordinary_poynting_dir(wave_normal: vec3<f32>, c_axis: vec3<f32>, n_o: f32, n_e: f32) -> vec3<f32> {
     let cos_theta = clamp(dot(wave_normal, c_axis), -1.0, 1.0);
     let abs_cos = abs(cos_theta);
@@ -383,15 +380,11 @@ fn extraordinary_poynting_dir(wave_normal: vec3<f32>, c_axis: vec3<f32>, n_o: f3
     return normalize(wave_normal * cos(delta) - sign * c_proj * sin(delta));
 }
 
-// optics::raytracer::theta_c_for_bounce -- see this section's header comment for why
-// `is_biaxial` is omitted (always false for any material the GPU ever sees).
+// optics::raytracer::theta_c_for_bounce. `is_biaxial` is omitted; see the section header above.
 //
-// P5: takes the precomputed hero e-index `n_e_hero_seed` directly (computed once per ray
-// by the caller via `extraordinary_dispersion_evaluate` when the material carries a
-// genuine independent e-ray curve, else the constant-offset `n_o_hero_seed +
-// birefringence_delta` -- mirroring `GemMaterial::extraordinary_index_at`) rather than
-// hardcoding the constant-offset form itself, matching the CPU-side fix in
-// `optics::raytracer::refraction::theta_c_for_bounce`.
+// Takes the hero e-index `n_e_hero_seed`, computed once per ray by the caller: via
+// `extraordinary_dispersion_evaluate` when the material has an independent e-ray curve, else
+// `n_o_hero_seed + birefringence_delta` (as `GemMaterial::extraordinary_index_at`).
 fn theta_c_for_bounce(
     normal: vec3<f32>,
     ray_dir: vec3<f32>,

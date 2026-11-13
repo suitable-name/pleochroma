@@ -108,7 +108,7 @@ impl NativeSourceContext {
     fn capture(file: &native::DesignFile) -> Self {
         let effects = file.render_effects.as_ref();
         Self {
-            // Include every raw material field, even one the older core reader drops.
+            // Include every raw material field, even one the core reader drops.
             // Unknown metadata stays opaque; it must not make the source sampleable.
             authored: file.material != native::MaterialTable::new(None, None, None)
                 || effects.is_some_and(|effects| !effects.is_empty())
@@ -129,9 +129,9 @@ impl NativeSourceContext {
                 .color_variant
                 .as_ref()
                 .filter(|variant| {
-                    // Removing a recorded fallback RGB intentionally resets an older
-                    // editor to Material Default. A changed RGB survives conversion
-                    // and is accepted by validate as the supported replacement.
+                    // A variant with a fallback RGB but no body colour override is dropped (an
+                    // older editor chose Material Default). With the override it is kept, and
+                    // validate accepts it as the replacement.
                     variant.fallback_rgb.is_none() || file.material.body_color_override.is_some()
                 })
                 .map(|variant| variant.label.clone()),
@@ -232,7 +232,7 @@ fn native_source_material(loaded: &native::LoadedDesign) -> Result<ResolvedMater
 }
 
 /// Fit a centred bounding block around a closed imported cut, with a 5% cutting margin.
-/// ASC's finite explicit masts make this independent of meet solving or native constraints.
+/// ASC planes are explicit, so the block needs no meet solving or native constraints.
 fn inferred_rough(schedule: &pleochroma_formats::asc::AscSchedule) -> Option<PreformSpec> {
     let planes: Vec<_> = StandardGemCuts::from_asc_schedule(schedule)
         .into_iter()

@@ -1,11 +1,11 @@
 //! Versioned, field-level recovery identities of the run configuration and the corpus.
 //!
-//! The legacy identities are `Debug` strings of whole structs, so any code change (a new field,
-//! a renamed field, a changed default, a reworded skip reason) refuses every saved run with a
-//! misleading "changed" error. These identities name their fields explicitly with stable
-//! spellings: a field enters only by being listed here, a `revision` bump marks a deliberate
-//! change of meaning, and a refused resume names the fields that differ. Recovery bundles store
-//! both forms and a resume is accepted when either one matches.
+//! `Debug` strings of whole structs change with any code edit (a new, renamed or reworded
+//! field), which would refuse every saved run with a misleading "changed" error. These
+//! identities name their fields explicitly with stable spellings: a field enters only by being
+//! listed here, a `revision` bump marks a change of meaning, and a refused resume names the
+//! fields that differ. Recovery bundles store both forms; a resume is accepted when either
+//! matches.
 //!
 //! Adding a field to a list: give it the value that reproduces the behaviour before the field
 //! existed in the list's `ADDED_*` table, so bundles saved without it still match while that
@@ -28,7 +28,7 @@ const CONFIG_IDENTITY_REVISION: u32 = 1;
 
 /// Configuration fields listed after revision 1, each with the value that reproduces the
 /// behaviour of runs saved before it was listed.
-pub(super) const ADDED_CONFIG_FIELDS: &[(&str, &str)] = &[];
+pub(super) const ADDED_CONFIG_FIELDS: &[(&str, &str)] = &[("ppo.weight_decay", "0.0")];
 
 /// Corpus fields listed after revision 1 (see [`ADDED_CONFIG_FIELDS`]).
 pub(super) const ADDED_CORPUS_FIELDS: &[(&str, &str)] = &[];
@@ -110,7 +110,7 @@ fn schedule(value: LrSchedule) -> String {
 type Field = (&'static str, String);
 
 /// Every PPO setting (PPO runs are resumed with their own step size).
-fn ppo_fields(ppo: &PpoConfig) -> [Field; 11] {
+fn ppo_fields(ppo: &PpoConfig) -> [Field; 12] {
     let PpoConfig {
         learning_rate,
         lr_schedule,
@@ -122,6 +122,7 @@ fn ppo_fields(ppo: &PpoConfig) -> [Field; 11] {
         epochs_per_batch,
         mini_batch_size,
         max_grad_norm,
+        weight_decay,
         target_kl,
     } = ppo;
     [
@@ -135,6 +136,7 @@ fn ppo_fields(ppo: &PpoConfig) -> [Field; 11] {
         ("ppo.epochs_per_batch", epochs_per_batch.to_string()),
         ("ppo.mini_batch_size", mini_batch_size.to_string()),
         ("ppo.max_grad_norm", float(max_grad_norm)),
+        ("ppo.weight_decay", float(weight_decay)),
         ("ppo.target_kl", float(target_kl)),
     ]
 }
@@ -281,8 +283,8 @@ pub(super) fn corpus_identity(split: &DatasetSplit) -> SemanticIdentity {
     }
 }
 
-/// The imitation learning rate and gradient-norm cap a legacy `Debug` configuration identity
-/// recorded, read from its `imitation: ImitationConfig { .. }` part (`None` when absent).
+/// The imitation learning rate and gradient-norm cap recorded in a `Debug` configuration
+/// identity, read from its `imitation: ImitationConfig { .. }` part (`None` when absent).
 pub(super) fn legacy_imitation_step_size(saved: &str) -> (Option<f32>, Option<f32>) {
     let Some(start) = saved.find("imitation: ImitationConfig { ") else {
         return (None, None);

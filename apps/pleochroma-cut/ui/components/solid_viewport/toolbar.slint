@@ -20,21 +20,16 @@ import { PreviewBadge } from "../material_chip.slint";
 // `batch_suspends_tracer` property.
 import { BatchModel } from "../../models/batch.slint";
 
-// The Edit tab's Solid viewport toolbar: mode toggle/cut slider, camera pose
-// pills, Tilt Curve/Preform toggles, the Diagram-mode enlarge pills, and the
-// status strip -- split out of `solid_viewport.slint` to keep that file under
-// its line budget. Everything here is driven directly by globals
-// (`SolidPreviewModel`/`ViewportModel`/`EditorModel`/`TiltModel`/`BatchModel`)
-// except `diagram_zoom`/`diagram_pan_x`/`diagram_pan_y`, which `SolidViewportView`
-// owns (its own Image rendering and drag handling read them too) and shares
-// two-way so the "Reset View" pill below can reset them.
+// The Edit tab's Solid viewport toolbar: mode toggle and cut slider, camera pose pills, tool
+// pills, the Diagram enlarge pills and the status strip. Driven by globals
+// (`SolidPreviewModel`/`ViewportModel`/`EditorModel`/`TiltModel`/`BatchModel`), except
+// `diagram_zoom`/`diagram_pan_*`, which `SolidViewportView` owns and shares two-way so the
+// "Reset View" pill can reset them.
 //
-// The pills take about 1350px in one row, and the Edit viewport is only
-// guaranteed 380px, so the toolbar re-flows by its own width (see
-// `SolidViewportToolbar` below): one row, two rows, three rows, or four rows
-// with tighter pills. The pills live in the small row components right below
-// (`CutSlider`, `ModePills`, `ViewPills`, `ToolPills`) so each layout can mount
-// the same pills in a different grouping.
+// The pills take about 1350px in one row, and the Edit viewport is guaranteed only 380px,
+// so the toolbar re-flows by its own width (see `SolidViewportToolbar`). The pills live in
+// the row components below (`CutSlider`, `ModePills`, `ViewPills`, `ToolPills`), so each
+// layout can group them differently.
 //
 // Every pill is a `PillButton` or `ModePill` (`components/pill_button.slint`): a tooltip in
 // plain words, Tab to reach it, Space or Enter to press it, a screen-reader label. Simple
@@ -88,19 +83,14 @@ component CutSlider inherits Rectangle {
             maximum: SolidPreviewModel.cut_step_count;
             step: 1;
             // Two-way, not a `value:` binding: a std Slider stops following a plain
-            // binding after the first drag, and Rust has to be able to move the handle
-            // (New, Open and Load put it back to Finished).
+            // binding after the first drag, and Rust must be able to move the handle.
             value <=> SolidPreviewModel.cut_position;
-            // `changed(value)` is the Slider's own INTERACTION callback (called only
-            // from an actual drag/keyboard nudge/click), not a plain property-change
-            // handler: a `changed value => { ... }` handler would also run when Rust moves
-            // the handle, firing a redundant replan, and Slint queues `changed` handlers
-            // to the next event-loop pass, so one could flush mid-borrow while a Rust
-            // callback that pumps the event loop (a blocking file dialog) still holds the
-            // `EditorState` guard. `SolidPreviewModel.tier_cutoff_changed`'s Rust handler
-            // (`gui::editor::setup::setup_tier_cutoff_callback`) uses `try_borrow` and
-            // retries for the same reason. The handle snaps to whole steps, and a drag
-            // only raises the callback when the step changes.
+            // `changed(value)` fires only for a user drag, key or click, not when Rust moves the
+            // handle. A `changed value` handler would also run on Rust moves and queue a redundant
+            // replan that can flush while a blocking Rust callback still holds the `EditorState`
+            // guard. `setup_tier_cutoff_callback` uses `try_borrow` and retries for the same
+            // reason. The handle snaps to whole steps; a drag raises the callback only on a
+            // step change.
             changed(value) => {
                 let steps = Math.round(value);
                 let cutoff = steps >= SolidPreviewModel.cut_step_count ? -1 : (steps <= 0 ? -2 : steps - 1);
@@ -194,11 +184,9 @@ component ViewPills inherits HorizontalLayout {
         clicked => { ViewportModel.set_view(1); }
     }
 
-    // #118: Bottom/Left/Right -- a one-click pavilion view, the commonest
-    // inspection for windowing, and a way to look at either side without
-    // a free-drag orbit. Same `ViewportModel.set_view` as Front/Top above, new kinds
-    // (`render::camera_lighting::setup_set_view_callback`'s own doc
-    // comment has the full kind -> pose mapping).
+    // Bottom, Left and Right: one-click views of the pavilion and the sides, without a
+    // free-drag orbit. Same `ViewportModel.set_view` as Front/Top; the kind-to-pose mapping is
+    // in `setup_set_view_callback`.
     PillButton {
         width: root.tight ? 56px : 66px;
         text: "Bottom";
@@ -217,22 +205,16 @@ component ViewPills inherits HorizontalLayout {
         hint: "Look at the stone's right side.";
         clicked => { ViewportModel.set_view(4); }
     }
-    // #118: recovers a usable framing after a free-drag orbit ends up
-    // pointed at empty space or edge-on to every facet -- unlike
-    // Front/Top/Bottom/Left/Right, Fit (`set_view` kind `5`) leaves the
-    // CURRENT orbit angle alone and only recomputes distance from the
-    // live mesh's own bounding radius.
+    // Fit (`set_view` kind `5`) keeps the current orbit angle and recomputes only the distance
+    // from the mesh's bounding radius, which recovers a framing after a free-drag orbit.
     PillButton {
         width: root.tight ? 34px : 44px;
         text: "Fit";
         hint: "Keep the current angle, but change the distance so the whole stone fits the view.";
         clicked => { ViewportModel.set_view(5); }
     }
-    // #118: `ViewportModel.reset_camera` -- the same canonical pose/light
-    // reset `gem_viewport.slint`'s own Reset button already calls for the
-    // Live Render tab; `render::camera_lighting::setup_camera_and_lighting_
-    // callbacks`'s `on_reset_camera` also re-requests a redraw at the new
-    // pose so both viewports show it, not just the one that triggered it.
+    // `ViewportModel.reset_camera`: the same pose and light reset as the Live Render Reset
+    // button. Its Rust handler also redraws both viewports.
     PillButton {
         width: root.tight ? 48px : 56px;
         text: "Reset";
@@ -282,10 +264,8 @@ component ToolPills inherits HorizontalLayout {
         clicked => { TiltModel.toggle_dialog(); }
     }
 
-    // #122: toggles the rough's own bounding (preform) planes on/off in
-    // the Solid view -- shown only there, since Path-traced/Both/Diagram
-    // either don't draw the preform at all (the path tracer) or handle
-    // it separately (Diagram's own facet labels).
+    // Shows or hides the rough's bounding (preform) planes. Shown only in the Solid view: the
+    // path tracer does not draw the preform, and the Diagram has its own facet labels.
     if SolidPreviewModel.view_mode == 0 && root.first_half: PillButton {
         width: root.tight ? 68px : 96px;
         text: "Preform";
@@ -358,8 +338,7 @@ component ToolPills inherits HorizontalLayout {
         }
     }
 
-    // #29: Diagram mode's own zoom/pan reset -- shown only in Diagram mode,
-    // where Front/Top (the shared orbit camera's poses) don't apply.
+    // Resets the diagram's zoom and pan. Shown only in Diagram mode, where Front/Top do not apply.
     if SolidPreviewModel.view_mode == 3 && root.first_half: PillButton {
         width: 76px;
         text: "Reset View";
@@ -372,16 +351,9 @@ component ToolPills inherits HorizontalLayout {
         }
     }
 
-    // A single-panel enlarged view: lets a cutter
-    // enlarge one of the diagram's three panels to fill the whole
-    // image, rather than reading it at one-third width. Re-clicking the
-    // already-enlarged panel's own pill returns to the three-column
-    // layout. Three explicit pills (matching every other pill in this
-    // file, e.g. Front/Top above) rather than a generated `for` loop,
-    // since `diagram_enlarged_panel`'s three values (0/1/2) each need
-    // their own label anyway. See `ui/models/solid_preview.slint`'s
-    // `diagram_enlarged_panel` doc comment for the Rust-side handoff
-    // this still needs (this pass owns only the Slint side).
+    // Enlarges one of the diagram's three panels to fill the view. Clicking the enlarged
+    // panel's pill again returns to three panels. Three explicit pills, since each panel needs
+    // its own label. `diagram_enlarged_panel` in `models/solid_preview.slint` holds the choice.
     if SolidPreviewModel.view_mode == 3 && root.enlarge_row: PillButton {
         width: root.tight ? 52px : 58px;
         text: "Crown";
@@ -411,25 +383,20 @@ component ToolPills inherits HorizontalLayout {
     }
 }
 
-// The toolbar re-flows by its own width (it is explicitly x/y/width-positioned
-// at 100% of the viewport, so reading `root.width` here is not a binding loop):
+// The toolbar re-flows by its own width (`root.width` is read here without a binding loop):
 //   wide   (>= 1740px) one row: Cut, modes, views, tools.
 //   medium (1260-1740) two rows: [Cut, modes, tools], [views].
 //   low    (740-1260)  three rows: [Cut, modes], [views], [tools].
 //   narrow (< 740) three rows of tighter pills, plus Cut while it shows; below 470px the
 //          tools row splits in two (`split`), so no pill is ever cut off.
-// Medium's first row is the widest: Cut 166 + modes 424 + tools 554 (all six pills) + the
-// gaps, the "?" and the 20px padding is about 1220px, so it needs 1260px, not the 1100px an
-// earlier version used (Slice was cut off at the right edge of an 1120px viewport).
+// The medium first row needs 1260px: Cut 166 + modes 424 + all six tool pills 554 + gaps,
+// the "?" and padding come to about 1220px.
 // Diagram omits the camera row and gives its panel selectors their own narrow row.
-// The Parameters sidebar supplies its own tabs at every width.
-// Rows are 28px with 8px between them (the pills' own gap). `top_height` is the rows' total
-// height, for the hint strip that sits under them (`ManipulateHintBar.toolbar_height`).
+// Rows are 28px with 8px between them. `top_height` is the rows' total height, for the hint
+// strip below them (`ManipulateHintBar.toolbar_height`).
 export component SolidViewportToolbar inherits VerticalLayout {
-    // Explicit `x`/`y`/`width`/`height`: keeps this overlay's pill row from
-    // becoming the viewport's maximum WIDTH (an overlay child positioned by
-    // default propagates its constraints to the parent) -- see `app.slint`'s
-    // "Sizing notes".
+    // Explicit `x`/`y`/`width`/`height`: a default-positioned overlay child would propagate its
+    // constraints to the viewport (see "Sizing notes" in `app.slint`).
     x: 0px;
     y: 0px;
     width: 100%;
@@ -461,20 +428,13 @@ export component SolidViewportToolbar inherits VerticalLayout {
     // A split tools row (`split`) is one more row, when its second half has any pill.
     out property <length> top_height: (root.wide ? 28px : (SolidPreviewModel.view_mode == 3 ? (root.narrow ? 100px : (root.medium ? 28px : 64px)) : (root.medium ? 64px : (root.low ? 100px : (root.has_cut ? 136px : 100px))))) + (root.split && root.second_half_shows ? 36px : 0px);
 
-    // The "Not solved" banner takes precedence over mesh_cache status when the shown
-    // solid is stale. A running catalogue-wide batch outranks both: while
-    // it holds `ctx.export_active`, the Path-traced/Both image is frozen at whatever
-    // it showed when the batch started, and the cutter needs to know that before
-    // anything else this strip could say.
+    // A running catalogue batch suspends the Path-traced and Both images, which then stay
+    // frozen, so the status strip reports it first.
     property <bool> batch_suspends_tracer: BatchModel.tilt_batch_running || BatchModel.preview_batch_running;
-    // "Not solved" states what is actually true (one edit behind, already
-    // catching up) rather than demanding the cutter press Solve, since an
-    // in-budget edit's own debounced auto-solve (or the very next edit)
-    // refreshes this automatically. Solve is still the right thing to suggest
-    // when nothing has ever solved at all (`SolidPreviewModel.has_solid`
-    // false), which keeps its own, more actionable phrasing.
-    // The Ray-Traced caveat the status line shows when nothing more urgent is up, and the same
-    // text broken into short lines for its tooltip (one 760 px line ran over the inspector).
+    // Status states the actual condition (one edit behind, catching up). Solve is suggested
+    // only when nothing has solved yet (`SolidPreviewModel.has_solid` false).
+    // The Ray-Traced caveat shown when nothing more urgent is up. The tooltip version has
+    // short lines so it fits the inspector's width.
     property <string> ray_note: "Ray-Traced: approximate color and frost; one index per color chain. No polarization, doubling, haze, zoning or edge rounding; bounce-limited.";
     property <string> ray_note_tip: "Ray-Traced: approximate color and frost;\none index per color chain. No polarization,\ndoubling, haze, zoning or edge rounding;\nbounce-limited.";
     property <string> status_text: root.batch_suspends_tracer && (SolidPreviewModel.path_selected || SolidPreviewModel.ray_selected) ? "Live render paused -- a catalogue batch is running in the background." : (SolidPreviewModel.stale ? (SolidPreviewModel.has_solid ? "Preview one edit behind -- updating." : "Not solved -- click Solve to refresh.") : (SolidPreviewModel.status != "" ? SolidPreviewModel.status : (SolidPreviewModel.ray_selected ? root.ray_note : "")));

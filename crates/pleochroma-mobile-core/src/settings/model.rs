@@ -1,8 +1,7 @@
 //! The settings structs the mobile app persists in `settings.toml`.
 //!
-//! Every struct is `#[serde(default)]` as a whole, so a file written by an older build
-//! (fewer keys) loads with the current default for each missing key, and keys a newer
-//! build added are ignored.
+//! The settings structs are `#[serde(default)]` as a whole, so a file with fewer keys
+//! loads the default for each missing key, and unknown keys are ignored.
 
 use serde::{Deserialize, Serialize};
 
@@ -85,7 +84,7 @@ pub enum Backdrop {
     /// White paper, 90 % reflectance (the default, like the desktop's).
     #[default]
     White,
-    /// Black velvet, 2 % reflectance (appended last so stored names stay valid).
+    /// Black velvet, 2 % reflectance.
     Black,
 }
 
@@ -154,7 +153,7 @@ impl Default for RenderSettings {
 }
 
 impl RenderSettings {
-    /// Fixed deterministic quality without changing the stored spectral sample targets.
+    /// The engine spec for these settings; the quality tier sets the anti-aliasing taps.
     #[must_use]
     pub const fn engine_spec(&self) -> pleochroma::renderer::engine::EngineSpec {
         use pleochroma::renderer::engine::{EngineSpec, RayOptions, RenderEngine};
@@ -191,11 +190,16 @@ pub struct LightingSettings {
     /// The surface-glare scale in percent (`0.0..=100.0`); 100 is unscaled.
     #[serde(default = "default_surface_glare_pct")]
     pub surface_glare_pct: f32,
+    /// The HDR map's turn about the vertical axis in degrees (`0.0..360.0`). The light
+    /// azimuth sets it while the HDR map is the lighting.
+    pub hdr_yaw_deg: f32,
+    /// Whether the HDR map also turns with the camera ("Turns with the Camera") instead of
+    /// staying fixed in the room.
+    pub hdr_follows_camera: bool,
 }
 
-/// The unscaled surface glare (100 percent): the default of
-/// [`LightingSettings::surface_glare_pct`] and of a settings file written before the field
-/// existed.
+/// The unscaled surface glare (100 percent), the default of
+/// [`LightingSettings::surface_glare_pct`].
 const fn default_surface_glare_pct() -> f32 {
     100.0
 }
@@ -210,6 +214,8 @@ impl Default for LightingSettings {
             backdrop: Backdrop::White,
             head_shadow_deg: 16.0,
             surface_glare_pct: default_surface_glare_pct(),
+            hdr_yaw_deg: 0.0,
+            hdr_follows_camera: false,
         }
     }
 }

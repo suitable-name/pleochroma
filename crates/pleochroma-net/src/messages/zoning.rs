@@ -1,7 +1,7 @@
 //! The zoning wire extension (`render` feature only).
 //!
-//! Colour zones travel BESIDE the scene, never inside it. The extension itself needed no protocol
-//! bump; v36 made a coordinator serve zoned scenes (last section).
+//! Colour zones travel BESIDE the scene, never inside it. The extension needs no protocol bump
+//! of its own. A coordinator serves zoned scenes too (see the last section).
 //!
 //! # Why a separate message
 //!
@@ -10,8 +10,8 @@
 //! `SceneState`, `BatchItem` and every pinned byte of a default build are untouched. The
 //! zones follow in a [`ZoningPayload`] (`ClientMessage::ZoningPayload`, enum index 9, appended
 //! last), written immediately BEFORE the request it belongs to; the receiving worker keeps it
-//! by `request_id` and re-attaches the zones to the decoded scene (`ZoningPayload::attach_to_scene`
-//! / `attach_to_batch`).
+//! by `request_id` and re-attaches the zones to the decoded scene
+//! (`ZoningPayload::attach_to_scene` / `attach_to_batch`).
 //!
 //! # The capability bit, and the proof a default build never sees it
 //!
@@ -34,7 +34,7 @@
 //! So the only bytes that differ between builds are the marker, and it appears only between two
 //! zoning builds, or on a `HELLO` that a default worker provably ignores.
 //!
-//! # Through a coordinator (v36)
+//! # Through a coordinator
 //!
 //! A coordinator answers a zoning viewer with the marker too. It keeps the payload the viewer
 //! sends ahead of a `RenderRequest` or `FinalImageRequest`, re-attaches the zones to the scene
@@ -200,7 +200,7 @@ impl ZoningPayload {
     /// zones (nothing to send).
     #[must_use]
     pub fn for_scene(request_id: u32, scene: &SceneState) -> Option<Self> {
-        // This image engine intentionally uses the material's already-carried base color.
+        // The Ray-Traced engine ignores zones: it traces the material's carried base absorption.
         if scene.engine.is_ray() {
             return None;
         }
@@ -442,6 +442,10 @@ mod tests {
             height: 8,
             yaw: 0.4,
             camera_roll: 0.0,
+            stone_shadow: false,
+            tray_reflection: 0.0,
+            hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
+            estimator: pleochroma::optics::raytracer::Estimator::Branching,
             pitch: 0.3,
             distance: 3.0,
             light_yaw: 0.85,
@@ -561,7 +565,7 @@ mod tests {
             4
         );
         assert_eq!(
-            PROTOCOL_VERSION, 36,
+            PROTOCOL_VERSION, 42,
             "zoning itself needs no protocol bump; the pinned value moves with the other changes"
         );
     }

@@ -3,8 +3,7 @@
 //! A plan of a mesh rough (a scan) can run for minutes. The limit is a deadline the plan's
 //! progress callback checks, in seconds, `0` for none. When it is reached the plan stops
 //! and shows the layouts found so far. This module holds the window-free parts: the
-//! deadline, the text of the field, the words of the notes and the stored value, so their
-//! tests run outside `gui::rough_plan`.
+//! deadline, the text of the field, the words of the notes and the stored value.
 
 use crate::settings::SettingsPersister;
 use std::time::{Duration, Instant};
@@ -12,7 +11,7 @@ use std::time::{Duration, Instant};
 /// The limit of a fresh settings file, in seconds.
 pub const DEFAULT_LIMIT_SECS: u32 = 120;
 
-/// The largest limit the field takes, in seconds (one day). Anything above is a typing slip.
+/// The largest limit the field takes, in seconds (one day). Larger values are refused.
 pub const MAX_LIMIT_SECS: u32 = 86_400;
 
 /// Shown when the field does not hold whole seconds.

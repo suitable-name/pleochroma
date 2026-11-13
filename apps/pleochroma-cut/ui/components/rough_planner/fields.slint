@@ -2,9 +2,8 @@ import { Theme } from "../../theme.slint";
 import { LineEdit } from "std-widgets.slint";
 import { TipBox } from "../tip_box.slint";
 
-// A caption above a form field, flush left. (The shared `FieldCaption` draws its text
-// centred in its box, which put the captions of this window over the middle of the fields
-// while every inline label sat at the left.) The caption carries the field's tooltip.
+// Caption above a form field, flush left (the shared `FieldCaption` centres its text). It
+// carries the field's tooltip.
 export component FieldLabel inherits Rectangle {
     in property <string> text;
     in property <string> hint;
@@ -26,10 +25,8 @@ export component FieldLabel inherits Rectangle {
     }
 }
 
-// A word-wrapped note whose height is worked out from its own width. A wrapped `Text` in a
-// layout reports the height of its unwrapped first line, so the notes of a scrolling column
-// were measured one line high and the rows under them ran into them; here the box takes the
-// height the wrapped text needs at the width the layout gives it.
+// A word-wrapped note sized to its own width. A wrapped `Text` in a layout reports only the
+// height of its first line, so this box computes the height the text needs.
 export component WrapText inherits Rectangle {
     in property <string> text;
     in property <length> font_size: 10px;
@@ -113,8 +110,7 @@ export component ScrollFade inherits Rectangle {
 // A labelled text field. `min-width: 0px` overrides the fluent `LineEdit`'s 160px
 // minimum so three of them fit side by side in a narrow card. `committed` fires on
 // Enter and when the field loses focus, so a field's owner can react once per edit.
-// The preferred width is 0 so that fields side by side share the row equally: with a
-// preferred width taken from the caption, the field with the longer caption came out wider.
+// Preferred width 0, so fields side by side share the row equally.
 export component RoughField inherits VerticalLayout {
     in property <string> label;
     // One plain sentence: what the number means. The tooltip of the caption and the field.
@@ -190,89 +186,6 @@ export component ElidedText inherits Rectangle {
     }
 }
 
-// One radio-style choice row (the candidates picker). Drawn by hand: a std
-// `CheckBox` cannot be driven by a model property without losing its binding on
-// the first click. It takes keyboard focus (Tab) and Space or Enter picks it.
-export component RoughRadio inherits Rectangle {
-    in property <bool> selected;
-    in property <string> label;
-    // One plain sentence: what choosing this does. Shown as the tooltip and read after the label.
-    in property <string> hint;
-    in property <bool> editable: true;
-    callback picked();
-
-    height: 22px;
-    background: radio_touch.has-hover && root.editable ? Theme.surface-control-hover : transparent;
-    border-radius: Theme.radius-sm;
-    border-width: radio_focus.has-focus ? 1px : 0px;
-    border-color: Theme.accent-cyan;
-
-    accessible-role: AccessibleRole.radio-button;
-    accessible-label: root.label;
-    accessible-description: root.hint;
-    accessible-checkable: true;
-    accessible-checked: root.selected;
-    accessible-enabled: root.editable;
-    accessible-action-default => {
-        if root.editable {
-            root.picked();
-        }
-    }
-
-    if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
-
-    radio_focus := FocusScope {
-        enabled: root.editable;
-        key-pressed(event) => {
-            if event.text == Key.Space || event.text == Key.Return {
-                root.picked();
-                return accept;
-            }
-            return reject;
-        }
-    }
-
-    HorizontalLayout {
-        spacing: 8px;
-        alignment: start;
-
-        Rectangle {
-            width: 14px;
-            Rectangle {
-                x: 0px;
-                y: (parent.height - self.height) / 2;
-                width: 14px;
-                height: 14px;
-                border-radius: 7px;
-                border-width: 1px;
-                border-color: root.selected ? Theme.accent-cyan
-                    : (radio_touch.has-hover && root.editable ? Theme.text-secondary : Theme.border-control);
-                background: Theme.surface-sunken;
-                Rectangle {
-                    x: (parent.width - self.width) / 2;
-                    y: (parent.height - self.height) / 2;
-                    width: 6px;
-                    height: 6px;
-                    border-radius: 3px;
-                    background: Theme.accent-cyan;
-                    visible: root.selected;
-                }
-            }
-        }
-        Text {
-            text: root.label;
-            font-size: 12px;
-            color: root.editable ? Theme.text-primary : Theme.text-disabled;
-            vertical-alignment: center;
-        }
-    }
-    radio_touch := TouchArea {
-        enabled: root.editable;
-        mouse-cursor: pointer;
-        clicked => { root.picked(); }
-    }
-}
-
 // A small text-button pill. A disabled pill is greyed out and swallows clicks. It
 // takes keyboard focus (Tab) and Space or Enter presses it.
 export component RoughPill inherits Rectangle {
@@ -292,9 +205,7 @@ export component RoughPill inherits Rectangle {
     border-color: !root.enabled ? Theme.border-subtle
         : (pill_focus.has-focus ? Theme.accent-cyan-hover
             : (root.active ? Theme.accent-cyan : Theme.border-control));
-    // A disabled pill is a flat sunken pill with muted (not disabled-grey) text: the shared
-    // disabled text colour sits ~1.5:1 on the disabled fill, which made the locked wizard steps
-    // and "Fit to Weight" unreadable.
+    // A disabled pill keeps muted text: the shared disabled colour is too faint on its fill.
     background: !root.enabled ? Theme.bg-input
         : (ta.has-hover ? Theme.surface-control-hover : Theme.surface-control);
 

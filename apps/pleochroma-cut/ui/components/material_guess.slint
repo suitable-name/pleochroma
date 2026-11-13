@@ -3,14 +3,10 @@ import { Theme } from "../theme.slint";
 import { EditorModel } from "../models/editor.slint";
 import { GuideModel } from "../models/guide.slint";
 
-// A small inline badge for
-// `EditorModel.material_guess_text` (e.g. "Sapphire? (from RI 1.76)"), with a
-// one-click "Set material" that confirms the guess
-// (`EditorModel.set_material_from_guess`) and a tooltip listing every other
-// built-in within tolerance (`EditorModel.material_guess_other_candidates_text`).
-// Renders nothing while there is no guess to show (an already-named material,
-// or nothing built in close enough) -- see `EditorModel.material_guess_text`'s
-// own doc comment.
+// Inline badge for `EditorModel.material_guess_text` (e.g. "Sapphire? (from RI 1.76)"). A
+// one-click "Set Material" button confirms the guess (`EditorModel.set_material_from_guess`), and
+// a tooltip lists the other built-ins within tolerance. Renders nothing when there is no guess:
+// the material is already named, or no built-in is close enough.
 export component MaterialGuessBadge inherits HorizontalLayout {
     spacing: 6px;
     visible: EditorModel.material_guess_text != "";
@@ -20,8 +16,7 @@ export component MaterialGuessBadge inherits HorizontalLayout {
         alignment: center;
         Rectangle {
             width: guess_lbl.preferred-width + 10px;
-            // The same 32 px as the "Set Material" button beside it (26 px looked like a smaller
-            // control stuck to a bigger one).
+            // Same 32 px as the "Set Material" button beside it, so the two read as one row.
             height: 32px;
             background: Theme.accent-amber.with-alpha(0.14);
             border-radius: Theme.radius-sm;
@@ -38,7 +33,8 @@ export component MaterialGuessBadge inherits HorizontalLayout {
                 horizontal-alignment: center;
                 vertical-alignment: center;
             }
-            // A guess is never stated as a fact: the tooltip says so and lists the other close matches.
+            // A guess is never stated as fact: the tooltip says so and lists the other close
+            // matches.
             Tooltip { text: @markdown("A guess from the refractive index alone: the design does not say which material it is. \{EditorModel.material_guess_other_candidates_text}"); }
         }
     }

@@ -21,11 +21,8 @@ pub fn cie_1931_cmf(lambda_nm: f32) -> Vec3 {
     Vec3::from_array(crate::color::cie1931::cie_1931_cmf(lambda_nm))
 }
 
-/// Batched, `Vec3`-returning wrapper around
-/// [`crate::color::cie1931::cie_1931_cmf_x8`] -- see that function's doc comment for
-/// the deliberate ULP-level re-baseline versus 8 calls to [`cie_1931_cmf`] (constant-
-/// folding the CMF call out of `integrate_channels_to_xyz` measurably cut tracer time,
-/// hence this batched path).
+/// Batched, `Vec3`-returning wrapper around [`crate::color::cie1931::cie_1931_cmf_x8`]. It
+/// differs from 8 calls to [`cie_1931_cmf`] by ULPs and is used in the hot integration loops.
 #[must_use]
 fn cie_1931_cmf_x8(lambdas: &[f32; NUM_CHANNELS]) -> [Vec3; NUM_CHANNELS] {
     crate::color::cie1931::cie_1931_cmf_x8(lambdas).map(Vec3::from_array)
@@ -33,76 +30,50 @@ fn cie_1931_cmf_x8(lambdas: &[f32; NUM_CHANNELS]) -> [Vec3; NUM_CHANNELS] {
 
 /// Identity pass-through for a channel's already-unbiased radiance estimate.
 ///
-/// # Decision record: a per-channel `own_pdf/sum_pdf * N` reweight is a category error
+/// # Why no per-channel reweight
 ///
-/// The 8 spectral channels are N different *integrands*, not N techniques for one
-/// integrand. Veach's balance-heuristic estimate for technique `i`'s own integral is
-/// `w_i * f_i / (c_i * p_i)`, and after combination `p_i` cancels -- a *different*
-/// integrand's pdf never enters the weight. Multiplying `radiance[k]` by `own_pdf /
-/// sum_pdf * N` double-counts the wrong channel's pdf as a combination weight; the
-/// `two_channel_fresnel_monte_carlo_discriminates_correct_from_biased_weighting` test
-/// (in `color/spectral_mis_tests.rs`) shows this biased by roughly +17% on a two-channel Fresnel analogue.
-///
-/// The correct combination (`spectral_mis_weight`, applied once as a single shared
-/// scalar at final XYZ integration) uses `path_pdf[hero_idx]` -- the density of the
-/// technique actually sampled -- never a companion channel's own pdf.
+/// The 8 channels are N different integrands, not N techniques for one integrand. Veach's
+/// balance heuristic cancels a technique's own pdf, so a different integrand's pdf never
+/// belongs in the weight. Multiplying `radiance[k]` by `own_pdf / sum_pdf * N` is biased
+/// (over 10 % on the two-channel Fresnel test in `color/spectral_mis_tests.rs`). The shared
+/// weight [`spectral_mis_weight`] is applied once at XYZ integration instead.
 #[inline]
 const fn mis_weighted_radiance(radiance: f32) -> f32 {
     radiance
 }
 
-/// The spectral-MIS balance-heuristic weight `N * p_hero(x) / sum_k p_k(x)`, where
-/// `p_k(x)` is `path_pdf[k]` -- channel k's own running density of having produced the
-/// exact realized path `x`, tracked incrementally through `trace_spectral_ray`'s
-/// bounce loop.
+/// The spectral-MIS balance-heuristic weight `N * p_hero(x) / sum_k p_k(x)`.
 ///
-/// This is Veach's balance heuristic for the "one-sample MIS" model, combining N
-/// stochastic techniques -- "which channel's index drives the shared geometric path" --
-/// each chosen with probability `1/N` (the wrapped hero construction makes this
-/// uniform-1/N premise hold). Per Veach's proof this weight is valid for any integrand
-/// multiplied by it, which is why the same scalar weight is applied uniformly to every
-/// channel's radiance, rather than the rejected per-channel `p_k(x)/sum_pdf` form (see
-/// `mis_weighted_radiance`).
+/// `p_k(x)` is `path_pdf[k]`: channel k's running density of having produced the realized
+/// path `x`, tracked through `trace_spectral_ray`'s bounce loop. This is Veach's balance
+/// heuristic for one-sample MIS over N techniques ("which channel drives the shared path"),
+/// each chosen with probability `1/N` (the wrapped hero draw makes that hold). The same
+/// scalar multiplies every channel's radiance.
 ///
-/// A companion channel's `path_pdf[k]` (and its `stokes[k]`/`radiance[k]`) collapses
-/// to exactly 0 the moment its own specular refraction direction diverges from the
-/// direction the hero-driven path actually took. `sum_pdf` then degenerates toward
-/// `path_pdf[hero_idx]` alone, pushing the weight up toward `N` -- concentrating that
-/// sample's contribution onto the hero's own color, the mechanism that produces
-/// dispersion "fire" at the image level: different samples have different hero
-/// wavelengths, so they concentrate onto different colors.
+/// When a companion's refraction diverges from the hero's, its `path_pdf` and radiance drop
+/// to 0, the weight tends to `N`, and the sample concentrates on the hero's own color. When
+/// every channel agrees, `sum_pdf` is `NUM_CHANNELS * path_pdf[hero_idx]` and the weight is
+/// exactly 1.
 ///
-/// `sum_pdf` degenerates to exactly `NUM_CHANNELS * path_pdf[hero_idx]` whenever every
-/// channel's technique agrees at every decision (a non-dispersive material), making
-/// this collapse to exactly 1.0.
-///
-/// A chromatically-terminated channel's own radiance must also be zeroed, not merely
-/// its `path_pdf` -- a variant that leaves it un-zeroed is measurably biased on the
-/// two-channel analogue in
-/// `two_channel_dispersive_termination_monte_carlo_is_unbiased_under_alternating_hero`
-/// below, even though its `path_pdf` alone is correctly zeroed.
+/// A chromatically terminated channel's radiance must also be zeroed, not only its
+/// `path_pdf`: see
+/// `two_channel_dispersive_termination_monte_carlo_is_unbiased_under_alternating_hero`.
 #[inline]
 pub(crate) fn spectral_mis_weight(path_pdf: &[f32; 8], hero_idx: usize) -> f32 {
     let sum_pdf: f32 = path_pdf.iter().sum();
     if sum_pdf <= 1e-12 {
-        // Should not happen in practice (the hero's own path_pdf factor is always
-        // bounded away from 0 by the r_unpol clamps), but fall back to the safe,
-        // already-proven-unbiased weight=1 rather than risk a NaN from 0/0.
+        // Should not happen; return the unbiased weight 1 rather than divide 0 by 0.
         return 1.0;
     }
     (path_pdf.len() as f32) * path_pdf[hero_idx] / sum_pdf
 }
 
-/// Numerical Integration: Spectral Radiance -> CIE XYZ Tristimulus (normalized by the
-/// integral of `y_bar` = 106.856). `radiance[k]` is already an unbiased per-channel
-/// estimator on its own -- see [`mis_weighted_radiance`]'s doc comment for why a
-/// per-channel reweighting on top would be a category error. A single shared scalar
-/// MIS weight, computed from the fully-accumulated `path_pdf`, is layered on top
-/// instead -- see [`spectral_mis_weight`]'s doc comment.
-// `pub(crate)`, not private: `renderer::gpu::furnace_check`'s CPU-side reference
-// estimator assembles itself from the SAME building blocks (`cie_1931_cmf`,
-// `spectral_mis_weight`) the GPU port was translated from, rather than re-deriving the
-// norm_factor/MIS-weight formula by hand in test code. Pure function, no side effects.
+/// Spectral radiance to CIE XYZ, normalized by the integral of `y_bar` (106.856).
+///
+/// Each `radiance[k]` is already unbiased on its own. The shared [`spectral_mis_weight`],
+/// computed from the accumulated `path_pdf`, multiplies all channels.
+// `pub(crate)`: `renderer::gpu::furnace_check`'s CPU reference uses the same building blocks
+// (`cie_1931_cmf`, `spectral_mis_weight`) as the GPU port.
 pub(crate) fn integrate_channels_to_xyz(
     radiance: &[f32; NUM_CHANNELS],
     lambdas: &[f32; NUM_CHANNELS],
@@ -122,26 +93,67 @@ pub(crate) fn integrate_channels_to_xyz(
     xyz
 }
 
-/// The per-channel-family generalisation of [`integrate_channels_to_xyz`] for
-/// exit-event spectral splitting. Three points:
+/// The plain comb sum of the exit-collection estimator's collected leaves.
 ///
-/// 1. With splitting enabled every channel alive at the exit contributes its own
-///    radiance, so each channel's balance-heuristic weight must be normalised over
-///    exactly the hero choices under which THAT channel would have been alive on this
-///    path -- its family, `compat[k]` (see `refraction::ExitSplitCtx::compat`), which
-///    differs channel to channel since the direction tolerance keeping a companion
-///    alive is a band around each hero, not one shared clique:
-///    `weight_k = N * path_pdf[hero] / sum_{j in compat[k]} path_pdf[j]`.
-/// 2. Summed over the heroes in channel k's family these weights add up to exactly 1,
-///    which is what makes the combined estimator unbiased.
-/// 3. Bias root cause of the naive alternative: a single shared weight normalised over
-///    the HERO's family does not have that property once companions contribute
-///    (measured +7% for Diamond, +12% for Synthetic Moissanite against a
-///    single-wavelength reference).
+/// `collected[k]` is channel `k`'s leaf radiance with its spectral-MIS weight already applied
+/// where the leaf was deposited (`refraction::exit_split::leaf_mis_weight`), so no weight is
+/// formed here: this is [`integrate_channels_to_xyz`] with a weight of one, the same
+/// `(400 / N) / 106.856` normalisation and the same CIE tables.
+pub(crate) fn integrate_collected_to_xyz(
+    collected: &[f32; NUM_CHANNELS],
+    lambdas: &[f32; NUM_CHANNELS],
+) -> Vec3 {
+    let mut xyz = Vec3::ZERO;
+    let norm_factor = (400.0 / NUM_CHANNELS as f32) / 106.856;
+    let cmfs = cie_1931_cmf_x8(lambdas);
+    for k in 0..NUM_CHANNELS {
+        xyz += cmfs[k] * (collected[k] * norm_factor);
+    }
+    xyz
+}
+
+/// The beam tracer's spectral integration (beam guide §9.1, §14.4).
 ///
-/// `path_pdf` must keep accumulating for a chromatically-terminated channel too (its
-/// radiance is zero, but its density still normalises other channels' weights).
-/// Reduces to [`integrate_channels_to_xyz`] when every family is the full set.
+/// The midpoint rule over the fixed node set, `Σ_k w · v_k · c̄(λ_k)` with
+/// `w = (400 / n_lambda) / 106.856` and the same CIE tables as
+/// [`integrate_channels_to_xyz`]. `node_values[i]` belongs to node `first_node + i` of
+/// `n_lambda`, at its centre `380 + (node + ½) · 400 / n_lambda`.
+#[cfg(feature = "beam")]
+#[must_use]
+pub fn integrate_nodes_to_xyz(node_values: &[f32], first_node: u32, n_lambda: u32) -> Vec3 {
+    // Node counts are tiny (at most a few hundred), so the casts to `f32` are exact.
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "node counts and indices are far below 2^24, exactly representable"
+    )]
+    let (delta, n_first) = (400.0_f32 / n_lambda.max(1) as f32, first_node as f32);
+    let norm_factor = delta / 106.856;
+    let mut xyz = Vec3::ZERO;
+    for (i, &value) in node_values.iter().enumerate() {
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "slot indices are below 2^24, exactly representable"
+        )]
+        let node = n_first + i as f32;
+        let lambda_nm = (node + 0.5).mul_add(delta, 380.0);
+        xyz += cie_1931_cmf(lambda_nm) * (value * norm_factor);
+    }
+    xyz
+}
+
+/// The per-channel-family generalisation of [`integrate_channels_to_xyz`] for exit-event
+/// spectral splitting, where every channel alive at the exit contributes its own radiance.
+///
+/// Channel `k` is weighted by `N * path_pdf[hero]` over the sum of `path_pdf[j]` for `j` in
+/// `compat[k]`: the hero choices under which channel `k` would be alive on this path
+/// (see `refraction::ExitSplitCtx::compat`). Summed over that family the weights
+/// equal 1, which keeps the estimator unbiased. A single weight normalised over the hero's
+/// own family is biased once companions contribute (+7 % Diamond, +12 % Synthetic
+/// Moissanite against a single-wavelength reference).
+///
+/// `path_pdf` keeps accumulating for a chromatically terminated channel: its radiance is
+/// zero, but its density still normalises other channels' weights. Reduces to
+/// [`integrate_channels_to_xyz`] when every family is the full set.
 pub(crate) fn integrate_channels_to_xyz_families(
     radiance: &[f32; NUM_CHANNELS],
     lambdas: &[f32; NUM_CHANNELS],
@@ -171,43 +183,34 @@ pub(crate) fn integrate_channels_to_xyz_families(
     xyz
 }
 
-/// color temperature (Kelvin) associated with each named lighting preset. A thin
-/// pass-through to [`LightingPreset::params`] -- the single source of truth both this
-/// and `sample_studio_environment` read from, since the white balance must be derived
-/// from the same illuminant that lit the scene.
+/// Color temperature (Kelvin) of a lighting preset.
+///
+/// From [`LightingPreset::params`], the same source `sample_studio_environment` lights the
+/// scene with. The white balance must come from that illuminant.
 // `pub(crate)`: the GPU white-balance self-test needs the exact same preset-to-
 // temperature mapping `sample_studio_environment` derives its lighting from.
 pub(crate) const fn illuminant_temperature_k(lighting_preset: LightingPreset) -> f32 {
     lighting_preset.params().temp_k
 }
 
-/// CIE Standard Illuminant D65 chromaticity -- matching
-/// `color::space::ColorSpace::Srgb::white_point_xy()` (and every other D65-referenced
-/// space this crate defines). This is the reference white
-/// [`compute_illuminant_white_balance`] adapts every studio illuminant toward, since
-/// `trace_spectral_ray`'s output reaches the screen through an sRGB-family encode step
-/// built around this same white point -- adapting to it here is what makes the
-/// "renders as neutral" promise true post gamut-mapping, not just in raw XYZ.
+/// CIE D65 white point, matching `color::space::ColorSpace::Srgb::white_point_xy()`.
+/// [`compute_illuminant_white_balance`] adapts every studio illuminant toward it, so a neutral
+/// render stays neutral after the sRGB encode, not just in XYZ.
 const D65_WHITE_X: f32 = 0.3127;
 const D65_WHITE_Y: f32 = 0.3290;
 
-/// Bradford chromatic-adaptation cone-response matrix (XYZ -> LMS; Lam 1985), the
-/// standard basis proper von Kries adaptation diagonalises in -- used by ICC v4 and
-/// most color-management pipelines. Row-major, same convention as
-/// `color::space::ColorSpace::xyz_to_rgb_matrix`. See
-/// [`compute_illuminant_white_balance`]'s doc comment for why this basis matters:
-/// scaling X and Z directly is not von Kries adaptation, since XYZ tristimulus values
-/// are not cone responses -- a diagonal scale there distorts hue under a non-D65
-/// illuminant.
+/// Bradford cone-response matrix (XYZ to LMS, Lam 1985): the basis that von Kries adaptation
+/// is diagonal in, as in ICC v4. Row-major, like `color::space::ColorSpace::xyz_to_rgb_matrix`.
+/// Scaling X and Z directly would not be von Kries adaptation, because XYZ values are not
+/// cone responses and a diagonal scale there shifts hue under a non-D65 illuminant.
 const BRADFORD_XYZ_TO_LMS: [[f32; 3]; 3] = [
     [0.8951, 0.2664, -0.1614],
     [-0.7502, 1.7135, 0.0367],
     [0.0389, -0.0685, 1.0296],
 ];
 
-/// Exact matrix inverse of [`BRADFORD_XYZ_TO_LMS`] (LMS -> XYZ), the standard published
-/// Bradford inverse (cross-checked: `BRADFORD_XYZ_TO_LMS * BRADFORD_LMS_TO_XYZ` is the
-/// identity to ~1e-7, comfortably within `f32` rounding).
+/// Inverse of [`BRADFORD_XYZ_TO_LMS`] (LMS to XYZ). The product of the two is the identity
+/// to about 1e-7, within `f32` rounding.
 const BRADFORD_LMS_TO_XYZ: [[f32; 3]; 3] = [
     [0.986_993, -0.147_054, 0.159_963],
     [0.432_305, 0.518_360, 0.049_291],
@@ -238,17 +241,14 @@ fn lms_to_xyz_bradford(lms: Vec3) -> Vec3 {
     )
 }
 
-/// Applies a von Kries white-balance scale (as returned by
-/// [`compute_illuminant_white_balance`]) to `xyz`: transforms to Bradford LMS, scales
-/// each cone response independently, transforms back. This -- not a direct per-channel
-/// scale of X and Z -- is what "diagonalise the adaptation in cone space" means.
-/// Mirrored ULP-budgeted (fma contraction, `/`, `sqrt` are implementation-defined, so
-/// WGSL cannot guarantee literal bit-identity) by `shaders/spectral_transport.wgsl`'s
-/// own application of `params.white_balance`.
-// `pub(crate)`: `renderer::gpu::estimator_check::run_spectral_debug` reapplies this
-// same scale, the same way, to its CPU-side recombination of the GPU kernel's raw
-// per-channel radiance -- it must match the megakernel's own application exactly, or
-// that self-consistency check compares two different white-balance conventions.
+/// Applies a von Kries white-balance scale to `xyz`.
+///
+/// The scale comes from [`compute_illuminant_white_balance`]. The steps are XYZ to Bradford
+/// LMS, scale each cone response, and back to XYZ. The WGSL twin in
+/// `shaders/spectral_transport.wgsl` matches within a ULP budget, since WGSL cannot guarantee
+/// bit-identical fma and division.
+// `pub(crate)`: `renderer::gpu::estimator_check::run_spectral_debug` must apply the scale
+// exactly as the megakernel does.
 pub(crate) fn apply_von_kries_white_balance(xyz: Vec3, lms_scale: Vec3) -> Vec3 {
     lms_to_xyz_bradford(xyz_to_lms_bradford(xyz) * lms_scale)
 }
@@ -263,17 +263,12 @@ pub(crate) fn apply_von_kries_white_balance(xyz: Vec3, lms_scale: Vec3) -> Vec3 
 ///
 /// # Diagonalised in LMS, not XYZ
 ///
-/// A diagonal scale of raw X and Z tristimulus values (`[Y_w/X_w, 1.0, Y_w/Z_w]`
-/// multiplied directly into XYZ) is not von Kries adaptation: chromatic adaptation
-/// happens per cone class, and X/Y/Z each mix all three cone types, so every color
-/// but the illuminant white itself picks up a hue shift. Instead, both the source
-/// illuminant's white and the [`D65_WHITE_X`]/[`D65_WHITE_Y`] reference white (at the
-/// same luminance, for a directly comparable ratio) are converted to Bradford LMS via
-/// [`xyz_to_lms_bradford`] before taking the per-component ratio.
-// `pub(crate)`: this exact 401-point (380..=780nm, 1nm step) quadrature is what the
-// GPU white-balance self-test (`renderer::gpu::environment_check`) must reproduce on
-// the GPU and compare ULP against -- calling the real function rather than
-// re-deriving the loop in test code.
+/// A diagonal scale of raw X and Z values is not von Kries adaptation: each cone class mixes
+/// X, Y and Z, so every color but the white itself shifts hue. Both the source white and the
+/// D65 reference white (at equal luminance) are converted with [`xyz_to_lms_bradford`]
+/// before taking the per-cone ratio.
+// `pub(crate)`: the GPU white-balance self-test (`renderer::gpu::environment_check`)
+// reproduces this exact 401-point (380..=780nm, 1nm step) quadrature and compares against it.
 pub(crate) fn compute_illuminant_white_balance(temp_k: f32) -> Vec3 {
     let mut xyz_w = Vec3::ZERO;
     for step in 0..=(780 - 380) {
@@ -310,21 +305,15 @@ pub(crate) fn compute_illuminant_white_balance(temp_k: f32) -> Vec3 {
     )
 }
 
-/// Returns the (lazily-computed, cached) per-channel von Kries white-balance scale for
-/// a given lighting preset.
+/// The cached per-channel von Kries white-balance scale for a lighting preset, computed on
+/// first use.
 ///
-/// Called from `trace_spectral_ray` once per ray sample -- up to millions of times
-/// per frame across every render worker thread. A `Mutex<HashMap<..>>` cache would
-/// serialize every ray sample on one lock, collapsing the parallel render loop to
-/// effectively single-threaded. Since the full set of lighting presets is small and
-/// known ahead of time, each preset instead gets its own `OnceLock<Vec3>` static,
-/// selected with a `match` -- a lock-free atomic read with no allocation after the
-/// first call per preset.
+/// Called per ray sample from many render threads, so it must not take a shared lock. Each
+/// preset has its own `OnceLock<Vec3>` static, selected with a `match`.
 ///
-/// Only presets with [`LightingPreset::uses_white_balance`] (the Planckian ones) carry
-/// an adaptation. The D65 presets get the identity (that white IS the sRGB white; a
-/// Planckian 6500 K scale would push neutrals green) and so do the UV lamps (no white
-/// point to adapt from).
+/// Only presets with [`LightingPreset::uses_white_balance`] (the Planckian ones) are adapted.
+/// The D65 presets get the identity: that white is already the sRGB white, and a 6500 K
+/// Planckian scale would push neutrals green. The UV lamps have no white point to adapt from.
 pub(super) fn illuminant_white_balance(lighting_preset: LightingPreset) -> Vec3 {
     static INCANDESCENT: std::sync::OnceLock<Vec3> = std::sync::OnceLock::new();
     static RING_LIGHTS: std::sync::OnceLock<Vec3> = std::sync::OnceLock::new();
@@ -358,11 +347,9 @@ pub(super) fn illuminant_white_balance(lighting_preset: LightingPreset) -> Vec3 
         .get_or_init(|| compute_illuminant_white_balance(illuminant_temperature_k(lighting_preset)))
 }
 
-/// ACES Filmic Tone Mapping Curve, applied to a scalar luminance value.
+/// ACES filmic tone-map curve for a scalar luminance.
 ///
-/// Reduced from the old per-channel-Vec3 form: applying this curve independently per
-/// RGB channel is a hue-shifting operator, which is exactly wrong for saturated
-/// dispersion "fire" colors. `xyz_to_srgb_gamma` now applies it to luminance only.
+/// It is applied to luminance only: a per-RGB-channel curve shifts hue on saturated colors.
 #[must_use]
 #[expect(
     clippy::many_single_char_names,
@@ -390,9 +377,8 @@ pub fn aces_tonemap(y: f32) -> f32 {
 /// transfer function. See `crate::color::space` and `crate::color::gamut` for the
 /// implementation this delegates to.
 ///
-/// No caller currently lets the user pick `space` -- every call site goes through
-/// [`xyz_to_srgb_gamma`] below. A future render-export path is the natural place to
-/// expose `space` as a user-facing choice (sRGB / Display P3 / Rec.2020 / `ACEScg`).
+/// Every call site goes through [`xyz_to_srgb_gamma`]; `space` is the parameter for other
+/// output spaces.
 #[must_use]
 pub fn xyz_to_rgb_in_space(xyz: Vec3, space: crate::color::ColorSpace) -> [u8; 4] {
     space.encode(xyz, crate::color::ToneMap::AcesFilmic { exposure: 1.0 })
@@ -400,17 +386,13 @@ pub fn xyz_to_rgb_in_space(xyz: Vec3, space: crate::color::ColorSpace) -> [u8; 4
 
 /// Converts CIE XYZ to sRGB via chromaticity-preserving gamut mapping (Procedure 3).
 ///
-/// Thin wrapper around [`xyz_to_rgb_in_space`] targeting
-/// [`crate::color::ColorSpace::Srgb`], which uses the true piecewise sRGB transfer
-/// curve (`12.92 * x` below the breakpoint, `1.055 * x^(1/2.4) - 0.055` above) rather
-/// than a flat `1/2.2` gamma approximation. The two curves diverge most in deep shadow
-/// (peak absolute difference ~0.0335, ~8.5 of 255 levels, at linear x ~= 0.00216) and
-/// stay under ~1.5 levels across the 0.1-0.9 midtone/highlight range -- acceptable
-/// since the true curve is physically correct and the deviation is confined to shadow
-/// detail below the range most gemstone renders spend their dynamic range in; see
+/// Thin wrapper around [`xyz_to_rgb_in_space`] for [`crate::color::ColorSpace::Srgb`], which
+/// uses the piecewise sRGB transfer curve, not a flat `1/2.2` gamma.
+///
+/// The two curves differ most in deep shadow (about 8.5 of 255 levels near linear x 0.002)
+/// and by under about 1.5 levels for 0.1 to 0.9. The regression test is
 /// `tests/color_tests.rs::
-/// srgb_encode_matches_xyz_to_srgb_gamma_reference_within_the_known_gamma_curve_difference`
-/// for the regression pinning this tolerance.
+/// srgb_encode_matches_xyz_to_srgb_gamma_reference_within_the_known_gamma_curve_difference`.
 #[must_use]
 pub fn xyz_to_srgb_gamma(xyz: Vec3) -> [u8; 4] {
     xyz_to_rgb_in_space(xyz, crate::color::ColorSpace::Srgb)

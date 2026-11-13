@@ -279,10 +279,8 @@ fn sort_order_wire_every_variant_round_trips_and_defaults_to_catalogue_order() {
     }
 }
 
-/// [`LibraryRequest::Search`] carries a real `order`/`tag_filter` pair (not the
-/// defaults) and round-trips both untouched -- a dedicated test (on top of this
-/// variant's coverage in [`library_request_variants_round_trip`]) so this contract
-/// is pinned by name.
+/// [`LibraryRequest::Search`] round-trips a non-default `order`/`tag_filter` pair untouched,
+/// pinned by name here as well as in [`library_request_variants_round_trip`].
 #[test]
 fn search_request_order_and_tag_filter_round_trip() {
     let req = LibraryRequest::Search {
@@ -368,10 +366,8 @@ fn search_results_exclusion_count_survives_the_wire() {
     assert_eq!(excluded_for_missing_curves, 17);
 }
 
-/// [`LibraryRequest::FetchDesignSource`] round-trips its `entry_id` -- a dedicated
-/// test (on top of this field's coverage in
-/// [`library_request_variants_round_trip`]) so this new variant's own contract is
-/// pinned by name.
+/// [`LibraryRequest::FetchDesignSource`] round-trips its `entry_id`, pinned by name as well
+/// as in [`library_request_variants_round_trip`].
 #[test]
 fn fetch_design_source_request_round_trips() {
     let req = LibraryRequest::FetchDesignSource { entry_id: 7 };
@@ -382,11 +378,9 @@ fn fetch_design_source_request_round_trips() {
     assert_eq!(decoded, req);
 }
 
-/// [`LibraryResponse::DesignSource`] round-trips every field, including `asc_text`
-/// content that itself contains newlines (a real `.asc` file's shape) -- a
-/// dedicated test (on top of this variant's coverage in
-/// [`library_response_variants_round_trip`]) so this new variant's own contract is
-/// pinned by name.
+/// [`LibraryResponse::DesignSource`] round-trips every field, including `asc_text` with
+/// newlines (a real `.asc` file's shape), pinned by name as well as in
+/// [`library_response_variants_round_trip`].
 #[test]
 fn design_source_response_round_trips() {
     let resp = LibraryResponse::DesignSource {
@@ -405,11 +399,11 @@ fn design_source_response_round_trips() {
     assert_eq!(decoded, resp);
 }
 
-/// The frosting list is appended LAST (v26) to [`LibraryResponse::DesignSource`] (as it is to
-/// `DesignRecord`), so a design without frosting adds exactly one trailing byte (the empty
-/// list's length) to what a v25 peer wrote, and the bytes before it are the v25 layout
-/// unchanged. A v25 message does not decode as v26 (the handshake refuses the version before
-/// any library message is read), which this pins so the bump stays deliberate.
+/// The frosting list is the last field of [`LibraryResponse::DesignSource`] (as it is of
+/// `DesignRecord`). A design without frosting adds exactly one trailing byte, the empty
+/// list's length, and everything before it keeps the layout an older peer wrote. An older
+/// message does not decode as the current one, which this pins so a protocol bump stays
+/// deliberate (the handshake refuses the version before any library message is read).
 #[test]
 fn the_frosting_list_is_the_last_field_of_a_design_source_reply() {
     let source = LibraryResponse::DesignSource {

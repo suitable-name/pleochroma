@@ -136,9 +136,9 @@ fn panel_button(film: &mut Film<'_>, label: &str) -> Result<(), String> {
 
 const OPTICAL_BUTTON: &str = "Optical Diagnostics";
 
-/// Why the toolbar button cannot be clicked: where every element carrying its label sits against
-/// the toolbar row and the window (a button pushed past the row end or the window edge is
-/// clipped, the button only exists in Path-Traced mode), so the next run names the cause.
+/// Why the toolbar button cannot be clicked: where the elements carrying its label sit against
+/// the toolbar row and the window. The button is clipped past the row end or the window edge,
+/// and it exists only in Path-Traced mode.
 fn optical_button_report(film: &Film<'_>) -> String {
     let view = film.view();
     let viewport = film.ui.global::<pleochroma_cut::ViewportModel>();
@@ -220,8 +220,8 @@ fn wait_map(film: &Film<'_>) -> Result<(), String> {
 }
 
 /// Waits for the layer picture to differ from `before` once a ready map is showing. A layer
-/// toggle no longer blanks the overlay (the old map stays ready and the controller republishes
-/// within one tick), so readiness alone would return at once with the old picture.
+/// toggle keeps the old map ready until the controller republishes within one tick, so readiness
+/// alone would return at once with the old picture.
 fn wait_new_layer(film: &Film<'_>, before: &slint::Image) -> Result<(), String> {
     if pacing::wait_real(Duration::from_secs(30), || {
         let optical = film.ui.global::<OpticalModel>();

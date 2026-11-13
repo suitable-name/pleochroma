@@ -18,7 +18,7 @@ pub const TARGET_HOLD: Duration = Duration::from_millis(800);
 pub const BEFORE_CLICK: Duration = Duration::from_millis(150);
 /// Time after Next, for the next step to build.
 pub const AFTER_NEXT_HOLD: Duration = Duration::from_millis(400);
-/// Time held after a stage transition (inspector tab, parameters dock, solid view mode, library toggle).
+/// Time held after a stage transition (inspector tab, parameters dock, view mode, library toggle).
 pub const STAGE_HOLD: Duration = Duration::from_millis(400);
 /// Time held after a view switch (Edit <-> Live Render).
 pub const VIEW_SWITCH_HOLD: Duration = Duration::from_millis(500);
@@ -49,14 +49,14 @@ pub const GIVE_UP_GRACE: Duration = Duration::from_secs(5);
 pub const START_TIMEOUT: Duration = Duration::from_secs(20);
 /// How long the design a tutorial needs may take to appear and solve.
 pub const PREPARE_TIMEOUT: Duration = Duration::from_secs(30);
-/// How long a live render may take to settle after a step (a cut, never shown).
+/// How long a live render may take to settle after a step; the wait is cut from the video.
 pub const RENDER_CAP: Duration = Duration::from_secs(60);
 /// How long the library copy may take to list its first design.
 pub const LIBRARY_LOAD: Duration = Duration::from_secs(120);
 
-/// A background wait is shown sped up by this factor (V-D4: 8x).
+/// A background wait is shown sped up by this factor.
 pub const LAPSE_SPEED: u32 = 8;
-/// A background wait never emits more than this much video (V-D4: 4 s); the rest is a cut.
+/// The most video a background wait emits; the rest of the wait is a cut.
 pub const LAPSE_MAX_VIDEO: Duration = Duration::from_secs(4);
 /// The video time one sampled frame of a time-lapse stands for (a little over one frame at
 /// 30 fps, so every sample emits a frame).
@@ -127,7 +127,7 @@ pub fn cues(title: &str, body: &[String]) -> Vec<String> {
     lines.chunks(2).map(|pair| pair.join("\n")).collect()
 }
 
-/// The number of words in `texts`.
+/// The number of words in the `title` and in the `body` pieces.
 #[must_use]
 pub fn word_count(title: &str, body: &[String]) -> usize {
     title.split_whitespace().count()
@@ -137,7 +137,9 @@ pub fn word_count(title: &str, body: &[String]) -> usize {
             .sum::<usize>()
 }
 
-/// Pumps until `condition` holds or `timeout` of real time has passed, with mock time advancing
+/// Pumps until `condition` holds or `timeout` of real time has passed.
+///
+/// Mock time advances
 /// by the real time that passed (not a fixed 10 ms per round), so the guide's timers and a
 /// recipe's tick budget run at the speed they do in the app while worker threads solve. Shows
 /// nothing: in a video this is a cut. (Copy of the UI harness' `wait_real`.)
@@ -159,7 +161,9 @@ pub fn wait_real(timeout: Duration, mut condition: impl FnMut() -> bool) -> bool
     }
 }
 
-/// The wait of a step the app performs, as a time-lapse: like [`wait_real`], and meanwhile one
+/// The wait of a step the app performs, as a time-lapse.
+///
+/// Like [`wait_real`], and meanwhile one
 /// frame is emitted per [`LAPSE_SPEED`] x [`LAPSE_FRAME`] of real time until [`LAPSE_MAX_VIDEO`]
 /// of video exists; after that the wait goes on as a cut. The state at the moment `condition`
 /// holds is shown if the budget has not run out. In a debug run (no video) it is [`wait_real`].

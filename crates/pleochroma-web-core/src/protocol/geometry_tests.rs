@@ -79,8 +79,7 @@ fn engine_is_variant_twelve_with_explicit_renderer_taps_and_fire() {
     assert_eq!(decode_to_worker(&bytes).expect("decodes"), message);
 }
 
-/// A planar scene still goes out as `SetScene`, byte for byte what it was before concave
-/// stones reached the browser's Render tab; only a stone with tools uses the new message.
+/// A planar scene still goes out as `SetScene`; only a stone with tools uses the new message.
 #[test]
 fn a_planar_scene_keeps_the_set_scene_bytes() {
     let planar = ToWorker::scene(9, spec(), &[]);
@@ -107,9 +106,8 @@ fn a_planar_scene_keeps_the_set_scene_bytes() {
 }
 
 /// `SolveRequest::{MetricsWithTools, TiltWithTools}`: the concave stone's metrics and tilt
-/// jobs. They are the last two `SolveRequest` variants (6 and 7, after `BodyColor` = 5), the
-/// tools survive the wire, and a stone without tools still sends the planar variants with
-/// the bytes they always had.
+/// jobs. They are the last two `SolveRequest` variants (6 and 7, after `BodyColor` = 5), and
+/// a stone without tools still sends the planar variants unchanged.
 #[test]
 fn the_solve_requests_with_tools_round_trip_and_are_the_last_variants() {
     use crate::solve::{MetricsParams, TiltParams};

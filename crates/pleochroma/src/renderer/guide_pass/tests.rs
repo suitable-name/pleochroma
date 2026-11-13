@@ -161,8 +161,8 @@ fn guide_buffers_with_no_tools_match_the_plane_only_entry_point_bit_for_bit() {
     assert_eq!(bits(&old), bits(&new));
 }
 
-/// No index (the old entry points) means no signature at all, and the other three
-/// buffers are the indexed run's, bit for bit.
+/// Without an index (the plane-only entry points) the signature is all zeros, and the other
+/// buffers match the indexed run bit for bit.
 #[test]
 fn without_an_index_the_signature_is_all_zeros_and_other_buffers_are_unchanged() {
     let planes = StandardGemCuts::standard_round_brilliant();

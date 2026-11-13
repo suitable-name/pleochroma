@@ -1,6 +1,8 @@
-//! The zoning wire extension end to end through the real connection handler (`zoning`
-//! builds): the capability marker, a zoned render and a zoned batch that equal the local CPU
-//! render of the same scene, and the refusals for a payload that does not fit.
+//! The zoning wire extension end to end through the real connection handler.
+//!
+//! Covers the capability marker, a zoned render and a zoned batch that equal the local CPU
+//! render of the same scene, and the refusals for a payload that does not fit. Runs in
+//! `zoning` builds.
 
 use super::fixtures::{DuplexHalf, heavier_scene, read_stream_until_done, test_db, tiny_scene};
 use crate::{render_core, serve::handle_connection};

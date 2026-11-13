@@ -9,11 +9,11 @@
 //! pool.render().on_error(|message| { /* status strip */ });
 //! pool.render().set_scene(spec);                  // new scene id, accumulation restarts
 //! pool.render().start(DEFAULT_LIVE_SPP);          // trace until 256 spp
-//! pool.render().cancel();                         // stop scheduling (results in flight still merge)
+//! pool.render().cancel();                         // stop scheduling; in-flight results still merge
 //! pool.render().on_picture(|result| { /* denoised RGBA or export PNG bytes */ });
 //! pool.render().request_picture(PictureKind::DenoisedLive)?; // made in the picture Worker
 //! pool.render().restart_workers()?;               // after a Worker gave up restarting
-//! pool.set_hdr(id, bytes)?;                       // an HDR map on the render Workers and the analysis Worker
+//! pool.set_hdr(id, bytes)?;                       // HDR map on render + analysis Workers
 //! pool.clear_hdr()?;                              // ...and drop it again
 //!
 //! let response = pool.solve().solve(toml, SolveRequest::Solve).await; // in spawn_local

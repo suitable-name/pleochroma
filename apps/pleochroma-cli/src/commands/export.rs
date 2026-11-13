@@ -5,13 +5,18 @@
 //! not solve and close is refused (exit 2) and nothing is written. The contents of each format
 //! are the ones the editor writes:
 //!
-//! | Format | Written by |
-//! |---|---|
-//! | `asc` | `pleochroma_formats::asc::to_asc_string` on the editor's export schedule: the effective refractive index, the solved masts and concave tiers as footnotes, with the CRLF line ends `GemCAD` itself writes |
-//! | `psdd` (alias `pleochroma`) | the file the design was opened from, with the design swapped in (see [`Loaded::design_text`]) |
-//! | `gcs` | `pleochroma_formats::gcs::to_gcs_string_with_frosting` on the same schedule `asc` is made from, with the design's frosted tiers and facets (experimental, as in the editor) |
-//! | `html` | `pleochroma_editor::cut_sheet::cutting_sheet_document_with_default`: the cutting instructions in the standard template (the four views as line drawings), then the shaded renderings, masts and carat estimate; headed by the file's own title, designer, shape and notes (else the `.asc` header lines) and the `--date` text |
-//! | `pdf` | `pleochroma_editor::cut_sheet::cutting_sheet_pdf_with_default`: the same template as a PDF on US Letter pages, the only binary format |
+//! - `asc`: `pleochroma_formats::asc::to_asc_string` on the editor's export schedule (effective
+//!   refractive index, solved masts, concave footnotes), with the CRLF line ends `GemCAD` writes.
+//! - `psdd` (alias `pleochroma`): the file the design was opened from, with the design
+//!   swapped in (see [`Loaded::design_text`]).
+//! - `gcs`: `pleochroma_formats::gcs::to_gcs_string_with_frosting` on the `asc` schedule,
+//!   with the design's frosted tiers and facets (experimental, as in the editor).
+//! - `html`: `pleochroma_editor::cut_sheet::cutting_sheet_document_with_default`: the cutting
+//!   instructions in the standard template (the four views as line drawings), then the shaded
+//!   renderings, masts and carat estimate. Headed by the file's own title, designer, shape and
+//!   notes (else the `.asc` header lines), and the `--date` text.
+//! - `pdf`: `pleochroma_editor::cut_sheet::cutting_sheet_pdf_with_default`: the same template as a
+//!   PDF on US Letter pages, the only binary format.
 //!
 //! The desktop editor also stamps the library entry a design came from into the footnotes of an
 //! exported `.asc` or `.gcs`, and marks a schedule rebuilt from an angle table; a command line

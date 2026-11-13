@@ -16,11 +16,10 @@
 //! - [`hdr_env::run_hdr_env_radiance`][]: `hdr_env_radiance_at` against
 //!   `renderer::env_map::EnvironmentMap::radiance_at`.
 //!
-//! Every dense sweep also includes the adversarial points the task calls out
-//! specifically: the 380/780nm band edges, every CMF table node and interpolation
-//! midpoint (P4: `cie_1931_cmf` is now a 5nm-table lookup, not a Gaussian-lobe fit --
-//! see [`cmf::build_cmf_lambdas`]), grazing incidence (dot products near 0 and near the
-//! ring lights' `0.96` spark threshold), and the `temp_k`/exponent clamp boundaries.
+//! Every dense sweep also includes adversarial points: the 380/780 nm band edges, every CMF
+//! table node and interpolation midpoint (see [`cmf::build_cmf_lambdas`]), grazing incidence
+//! (dot products near 0 and near the ring lights' `0.96` spark threshold), and the `temp_k` and
+//! exponent clamp boundaries.
 
 use glam::Vec3;
 
@@ -29,6 +28,12 @@ mod cmf;
 mod hdr_env;
 mod studio_env;
 mod sun_nee;
+mod tray_mirror;
+pub use tray_mirror::{TrayMirrorCase, run_tray_mirror_floor};
+mod tray_shadow;
+#[cfg(any(test, feature = "stone-shadow"))]
+pub use tray_shadow::build_tray_shadow_check_map;
+pub use tray_shadow::{TrayShadowCase, run_tray_shadow_lookup};
 mod white_balance;
 
 pub use blackbody::{BLACKBODY_ABS_FLOOR, BLACKBODY_ULP_BUDGET, BlackbodyCase, run_blackbody};
@@ -141,21 +146,25 @@ impl<Case: Clone> UlpAccumulator<Case> {
         }
         let within =
             crate::renderer::gpu::ulp::within_tolerance(cpu, gpu, self.budget, self.abs_floor);
-        if !within {
-            self.over_budget += 1;
-            if ulp > self.max_ulp {
-                self.max_ulp = ulp;
-                self.argmax = Some(UlpArgmax {
-                    case: case.clone(),
-                    component,
-                    cpu,
-                    gpu,
-                    ulp,
-                });
-            }
-        } else if ulp > self.budget {
+        if within && ulp > self.budget {
             // Would have failed on ULP alone but was rescued by the absolute floor.
             self.exempted += 1;
+            return;
+        }
+        // Every non-exempt comparison feeds `max_ulp` (its documented meaning); on a FAIL
+        // the argmax is still the worst over-budget comparison.
+        if !within {
+            self.over_budget += 1;
+        }
+        if ulp > self.max_ulp {
+            self.max_ulp = ulp;
+            self.argmax = Some(UlpArgmax {
+                case: case.clone(),
+                component,
+                cpu,
+                gpu,
+                ulp,
+            });
         }
     }
 

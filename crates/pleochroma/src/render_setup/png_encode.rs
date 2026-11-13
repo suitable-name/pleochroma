@@ -1,15 +1,11 @@
 //! In-memory PNG encoding with an embedded ICC profile for wide-gamut color spaces.
 //!
-//! Behind the `hdr` feature: that feature already pulls in the `image` crate (for
-//! `renderer::env_map`'s Radiance `.hdr` decoding), so reusing it here for PNG
-//! encoding costs nothing beyond one extra codec feature (`image`'s `png`, added
-//! alongside `hdr` in this crate's `Cargo.toml`) rather than a genuinely new
-//! dependency.
+//! Behind the `hdr` feature, which already pulls in the `image` crate (for
+//! `renderer::env_map`'s Radiance `.hdr` decoding); PNG needs only its `png` codec.
 //!
-//! [`encode_png_with_icc`] is pure/in-memory -- no filesystem access -- so both the
-//! desktop viewer (whose `save_png` writes the returned bytes to a file) and the
-//! browser app (which hands them to a download) produce byte-identical PNGs for the
-//! same pixel buffer and color space.
+//! [`encode_png_with_icc`] is pure and in-memory, so the desktop viewer (which writes the
+//! bytes to a file) and the browser app (which hands them to a download) produce
+//! byte-identical PNGs for the same pixel buffer and color space.
 
 use super::icc_profile;
 use crate::color::ColorSpace;
@@ -41,9 +37,7 @@ pub fn encode_png_with_icc(
     if color_space != ColorSpace::Srgb {
         encoder
             .set_icc_profile(icc_profile::build(color_space))
-            // Only fails for an encoder that can't carry a profile at all -- PNG can,
-            // so this is unreachable in practice, but threaded through rather than
-            // unwrapped.
+            // PNG can carry a profile, so this never fails; propagated rather than unwrapped.
             .map_err(|e| e.to_string())?;
     }
     encoder
@@ -52,17 +46,12 @@ pub fn encode_png_with_icc(
     Ok(bytes)
 }
 
-/// The finished catalogue-preview picture for a float radiance sum.
+/// The catalogue-preview PNG for a float radiance sum: `accum` divided by `samples`,
+/// tone-mapped to sRGB ([`crate::renderer::tonemap::tonemap_to_rgba`]) and encoded untagged.
 ///
-/// Divides `accum` by `samples`, tone-maps it to sRGB
-/// ([`crate::renderer::tonemap::tonemap_to_rgba`] at `1.0 / samples`) and encodes the result as
-/// an untagged sRGB PNG.
-///
-/// The ONE function the viewer's local preview path and a remote worker's
-/// `BATCH_ITEM_DONE` both call, so a preview rendered remotely is byte-identical to one
-/// rendered locally from the same sum. `None` only when `accum` is not
-/// `width * height` long or the encoder fails (neither happens for a well-formed sum).
-/// `samples` of zero is treated as one.
+/// Shared by the local preview path and a remote worker's `BATCH_ITEM_DONE`, so both give
+/// byte-identical output for the same sum. `None` when `accum` is not `width * height` long
+/// or the encoder fails. `samples` of zero counts as one.
 #[must_use]
 pub fn encode_preview_png(
     width: u32,

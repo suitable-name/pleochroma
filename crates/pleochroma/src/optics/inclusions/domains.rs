@@ -3,11 +3,11 @@
 //! Opal and labradorite are made of ordered domains: patches in which the silica spheres (opal)
 //! or the exsolution lamellae (labradorite) share one orientation and one lattice spacing. The
 //! map is procedural, with no texture: a jittered grid of cell size `s`, a seed point
-//! `p_c = (c + h3(c, seed)) s` in every cell `c = floor(x / s)`, and the domain at `x` is the one
-//! whose seed point is nearest among the 27 cells around `x`. Everything a domain owns (whether
-//! it is active, its normal-incidence Bragg wavelength, its lattice normal) is a hash of its id,
-//! so the map is a pure function of `(seed, x)` and can be rebuilt bit for bit anywhere, on the
-//! GPU included (the hash is [`hash_u32`]; the floats are `(h >> 8) / 2^24`, exact in `f32`).
+//! `p_c = (c + jitter(c, seed)) s` in every cell `c = floor(x / s)`, and the domain at `x`
+//! is the one whose seed point is nearest among the 27 cells around `x`. Everything a domain owns
+//! (whether it is active, its normal-incidence Bragg wavelength, its lattice normal) is a hash of
+//! its id, so the map is a pure function of `(seed, x)` and can be rebuilt bit for bit anywhere, on
+//! the GPU included (the hash is [`hash_u32`]; the floats are `(h >> 8) / 2^24`, exact in `f32`).
 //!
 //! The patterns follow from the cell size alone: a small cell is Pinfire, a large one Harlequin
 //! or Broad Flash.

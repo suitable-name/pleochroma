@@ -21,6 +21,10 @@ pub(super) fn tiny_scene() -> SceneState {
         height: 4,
         yaw: 0.4,
         camera_roll: 0.0,
+        stone_shadow: false,
+        tray_reflection: 0.0,
+        hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
+        estimator: pleochroma::optics::raytracer::Estimator::Branching,
         pitch: 0.3,
         distance: 3.0,
         light_yaw: 0.85,
@@ -140,11 +144,10 @@ pub(super) fn heartbeat_test_request() -> RenderRequest {
     render_request_with_preview(tiny_scene())
 }
 
-/// Spawns a thread that flips `state.finished` after `after` real wall time, letting
-/// `wait_for_tracer_to_stop`'s unbounded `while !finished` loop terminate -- standing
-/// in for the tracer noticing `cancel` and exiting. Always tens of milliseconds here,
-/// far under the real 2s `HEARTBEAT_INTERVAL`, since these tests inject a tiny interval
-/// instead to stay fast.
+/// Spawns a thread that flips `state.finished` after `after` of real wall time, letting
+/// `wait_for_tracer_to_stop`'s `while !finished` loop end. It stands in for the tracer
+/// noticing `cancel` and exiting. Callers pass a short `after`, far below the real
+/// `HEARTBEAT_INTERVAL` (2s), so the tests stay fast.
 pub(super) fn finish_after(
     state: &std::sync::Arc<std::sync::Mutex<SharedState>>,
     after: std::time::Duration,

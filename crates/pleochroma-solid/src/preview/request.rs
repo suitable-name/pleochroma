@@ -1,10 +1,5 @@
-//! The request/job/result payloads the frame pipeline runs on: [`RedrawRequest`]
-//! (one redraw), [`PlanJob`] (what [`super::build_planned_frame`] needs to run
-//! [`crate::live_update::plan_preview`]), and [`PlannedFrame`] (its result, ready
-//! to rasterize).
-//!
-//! Moved verbatim from the desktop's `gui::solid_preview::preview_state::request`,
-//! which re-exports them next to its own thread-facing `ReplanRequest`.
+//! The payloads of the frame pipeline: [`RedrawRequest`] (one redraw), [`PlanJob`]
+//! (the input of [`super::build_planned_frame`]) and [`PlannedFrame`] (its result).
 
 use super::types::{CameraPose, FacetOverlay, StoneGeometryBuf};
 use crate::{diagram2d::PanelKind, raster::SolidStyle};
@@ -46,11 +41,9 @@ pub enum RedrawRequest {
     Planned(Box<PlannedFrame>),
 }
 
-/// Which diagram panel a raw `enlarged_panel` index names.
-///
-/// `0` Crown, `1`
-/// Pavilion, `2` Profile ([`PanelKind`]'s declaration order); anything else
-/// (in particular the UI's own `-1` default) is `None`, the three-panel layout.
+/// Which diagram panel a raw `enlarged_panel` index names: `0` Crown, `1` Pavilion,
+/// `2` Profile ([`PanelKind`]'s order). Anything else, including the UI's `-1` default,
+/// is `None`, the three-panel layout.
 #[must_use]
 pub const fn panel_kind_from_index(index: i32) -> Option<PanelKind> {
     match index {
@@ -108,12 +101,10 @@ impl PlanJob {
     }
 }
 
-/// [`super::build_planned_frame`]'s result: everything
-/// [`super::render_request`] needs to finish and rasterize without calling
-/// `plan_preview` itself.
+/// [`super::build_planned_frame`]'s result: everything [`super::render_request`] needs to
+/// finish and rasterize without calling `plan_preview` itself.
 ///
-/// `style` is undimmed; the render step decides whether
-/// the frame is held-over.
+/// `style` is undimmed; the render step decides whether the frame is held over.
 pub struct PlannedFrame {
     /// The planned design (the same `Arc` the job carried).
     pub design: Arc<pleochroma_cut_core::Design>,

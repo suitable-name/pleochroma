@@ -138,9 +138,8 @@ fn start(window: &AppWindow, state: &Shared, step: Option<usize>) {
     }
 }
 
-/// Asks before the marks of the open design are cleared. The question is asked whenever the
-/// design has any mark stored, a changed one (its step was edited since) included, not
-/// only when a step reads done.
+/// Asks before the open design's marks are cleared, whenever any mark is stored. A changed
+/// step (edited since it was marked) counts too, not only a step that reads done.
 fn ask_reset(window: &AppWindow, state: &Shared) {
     let (done, changed, has_marks, title) = {
         let app = state.borrow();

@@ -1,15 +1,15 @@
-//! Plain-data settings model: settings persistence + lighting presets.
+//! Plain-data settings model: settings persistence and lighting presets.
 //!
-//! No dependency on Slint or any threading primitive -- every type and method here is
-//! pure data plus pure logic, exercised directly by unit tests. `gui::mod` is the only
-//! place that bridges these types to Slint properties / render-thread state.
+//! No dependency on Slint or any threading primitive: every type and method here is pure
+//! data plus pure logic, exercised directly by unit tests. The `gui` modules are the only
+//! place that bridges these types to Slint properties and render-thread state.
 //!
-//! Submodules: [`app_settings`] (`AppSettings`, persisted render/UI configuration),
-//! [`worker`] (`PreviewScale`/`LocalPreviewScale`/`WorkerSettings`, remote-rendering
-//! settings), [`remote_endpoint`] (`RemoteEndpoint`, the single configured remote, and
-//! its full-data / final-picture transfer preferences), [`local_compute`] (`LocalComputeTarget`, the local
-//! CPU/CPU+GPU/GPU choice), [`lighting_preset`] (`LightingPreset`, saveable lighting-rig
-//! snapshots), and [`settings_file`] (`SettingsFile`, the full on-disk document).
+//! Submodules: [`app_settings`] (`AppSettings`, persisted render and UI configuration),
+//! [`worker`] (`PreviewScale`, `LocalPreviewScale`, `WorkerSettings`), [`remote_endpoint`]
+//! (`RemoteEndpoint`, the single configured remote and its transfer preferences),
+//! [`local_compute`] (`LocalComputeTarget`, the local CPU, CPU+GPU or GPU choice),
+//! [`lighting_preset`] (`LightingPreset`, saveable lighting snapshots) and [`settings_file`]
+//! (`SettingsFile`, the full on-disk document).
 
 mod app_settings;
 mod faceting_machine;
@@ -30,16 +30,20 @@ mod surface_glare;
 #[cfg(test)]
 mod tests_batch_lanes;
 #[cfg(test)]
+mod tests_beam_keys;
+#[cfg(test)]
 mod tests_payload_encoding;
 #[cfg(test)]
 mod tests_preview_batch_size;
 #[cfg(test)]
 mod tests_remote;
+mod tray_reflection;
 mod ui_preferences;
 mod worker;
 
 pub use app_settings::{
-    clamp_remote_batch_lanes, clamp_remote_preview_batch_size, effective_remote_batch_lanes,
+    DEFAULT_PATH_CACHE_DISK_LIMIT_GB, clamp_path_cache_disk_limit_gb, clamp_remote_batch_lanes,
+    clamp_remote_preview_batch_size, effective_remote_batch_lanes,
 };
 pub use faceting_machine::{
     FacetingMachineSetting, current_faceting_machine, set_current_faceting_machine,
@@ -57,7 +61,8 @@ pub use local_compute::LocalComputeTarget;
 pub use output_settings::{
     BOUNCE_LADDER, EXPORT_SAMPLES_EXPONENT_RANGE, LIVE_SAMPLES_EXPONENT_RANGE, OutputSettings,
     PREVIEW_SAMPLES_RANGE, PREVIEW_SIZE_RANGE, RemoteAvailability, StillOutput,
-    TILT_STEP_HUNDREDTHS_RANGE, TiltVideoOutput, bounce_index, clamp_exponent, nearest_bounce_cap,
+    TILT_STEP_HUNDREDTHS_RANGE, TiltVideoOutput, bounce_index, clamp_exponent,
+    clamp_target_noise_index, nearest_bounce_cap,
 };
 pub use parameter_defaults::{LegacyStoneDefaults, ParameterTab, reset_tab};
 pub use radv_workaround::{RadvWorkaroundChoice, should_ask as should_ask_radv_workaround};
@@ -71,6 +76,11 @@ pub use surface_glare::DEFAULT_SURFACE_GLARE;
 pub use surface_glare::{
     clamp_surface_glare, percent_from_surface_glare, surface_glare_from_percent,
 };
+pub use tray_reflection::{
+    clamp_tray_reflection, percent_from_tray_reflection, tray_reflection_from_percent,
+};
+// Named by the sibling modules' serde attributes only.
+use tray_reflection::is_zero_reflection;
 pub use ui_preferences::{
     UI_SCALE_CHOICES, UiMode, normalize_ui_scale_percent, ui_scale_factor_text,
 };
@@ -146,6 +156,10 @@ mod tests {
                 surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
                 backdrop: crate::settings::model::Backdrop::default(),
                 head_shadow_deg: crate::settings::model::DEFAULT_HEAD_SHADOW_DEG,
+                stone_shadow: false,
+                tray_reflection: 0.0,
+                env_map_yaw_deg: 0.0,
+                env_map_follows_camera: false,
             }],
             rig_profiles: Vec::new(),
         };
@@ -173,6 +187,10 @@ mod tests {
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
             backdrop: crate::settings::model::Backdrop::default(),
             head_shadow_deg: crate::settings::model::DEFAULT_HEAD_SHADOW_DEG,
+            stone_shadow: false,
+            tray_reflection: 0.0,
+            env_map_yaw_deg: 0.0,
+            env_map_follows_camera: false,
         };
         file.upsert_user_preset(preset.clone()).unwrap();
         assert_eq!(file.find_preset("Evening Glow"), Some(&preset));
@@ -210,6 +228,10 @@ mod tests {
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
             backdrop: crate::settings::model::Backdrop::default(),
             head_shadow_deg: crate::settings::model::DEFAULT_HEAD_SHADOW_DEG,
+            stone_shadow: false,
+            tray_reflection: 0.0,
+            env_map_yaw_deg: 0.0,
+            env_map_follows_camera: false,
         };
         let result = file.upsert_user_preset(clash);
         assert!(result.is_err());
@@ -239,6 +261,10 @@ mod tests {
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
             backdrop: crate::settings::model::Backdrop::default(),
             head_shadow_deg: crate::settings::model::DEFAULT_HEAD_SHADOW_DEG,
+            stone_shadow: false,
+            tray_reflection: 0.0,
+            env_map_yaw_deg: 0.0,
+            env_map_follows_camera: false,
         };
         assert!(file.upsert_user_preset(preset).is_err());
     }
@@ -262,6 +288,10 @@ mod tests {
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
             backdrop: crate::settings::model::Backdrop::default(),
             head_shadow_deg: crate::settings::model::DEFAULT_HEAD_SHADOW_DEG,
+            stone_shadow: false,
+            tray_reflection: 0.0,
+            env_map_yaw_deg: 0.0,
+            env_map_follows_camera: false,
         })
         .unwrap();
         file.rename_preset("Draft", "Final Cut").unwrap();
@@ -290,6 +320,10 @@ mod tests {
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
             backdrop: crate::settings::model::Backdrop::default(),
             head_shadow_deg: crate::settings::model::DEFAULT_HEAD_SHADOW_DEG,
+            stone_shadow: false,
+            tray_reflection: 0.0,
+            env_map_yaw_deg: 0.0,
+            env_map_follows_camera: false,
         })
         .unwrap();
         assert!(file.rename_preset("Second", "Studio Softbox").is_err());
@@ -314,6 +348,10 @@ mod tests {
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
             backdrop: crate::settings::model::Backdrop::default(),
             head_shadow_deg: crate::settings::model::DEFAULT_HEAD_SHADOW_DEG,
+            stone_shadow: false,
+            tray_reflection: 0.0,
+            env_map_yaw_deg: 0.0,
+            env_map_follows_camera: false,
         })
         .unwrap();
         file.delete_preset("Temp").unwrap();
@@ -344,6 +382,10 @@ mod tests {
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
             backdrop: crate::settings::model::Backdrop::default(),
             head_shadow_deg: crate::settings::model::DEFAULT_HEAD_SHADOW_DEG,
+            stone_shadow: false,
+            tray_reflection: 0.0,
+            env_map_yaw_deg: 0.0,
+            env_map_follows_camera: false,
         })
         .unwrap();
 
@@ -480,8 +522,7 @@ mod tests {
         );
     }
 
-    /// A settings file saved before remote rendering existed (no remote/
-    /// `denoise_enabled` keys) must still load.
+    /// A settings file without the remote or `denoise_enabled` keys must still load.
     #[test]
     fn a_settings_file_predating_remote_rendering_still_parses_with_sensible_defaults() {
         let toml_str = "[settings]\nexposure = 1.1\n";
@@ -490,8 +531,8 @@ mod tests {
         assert_eq!(parsed.settings.remote, None);
     }
 
-    /// A settings file carrying the OLD `quality_preset` key (no `target_samples`)
-    /// must still load with every other field intact and `target_samples` defaulted.
+    /// A settings file with the retired `quality_preset` key (and no `target_samples`) must
+    /// still load, with every other field intact and `target_samples` defaulted.
     #[test]
     fn a_settings_file_with_the_old_quality_preset_key_still_loads_with_target_samples_defaulted() {
         let toml_str =
@@ -503,8 +544,8 @@ mod tests {
         assert_eq!(parsed.settings.max_bounces, 20);
     }
 
-    /// A settings file predating the render-resolution setting must still load,
-    /// defaulting both to `DEFAULT_RENDER_WIDTH`/`DEFAULT_RENDER_HEIGHT`.
+    /// A settings file without the render-resolution keys must still load, defaulting both to
+    /// `DEFAULT_RENDER_WIDTH`/`DEFAULT_RENDER_HEIGHT`.
     #[test]
     fn a_settings_file_predating_render_resolution_still_loads_with_800x600_defaulted() {
         let toml_str = "[settings]\nexposure = 1.2\n";
@@ -566,7 +607,7 @@ address = "10.0.0.9:9443"
         );
     }
 
-    /// A settings file predating this control must still load, defaulting to `Off`.
+    /// A settings file without this key must still load, defaulting to `Off`.
     #[test]
     fn a_settings_file_predating_local_preview_still_loads_with_it_off() {
         let toml_str = "[settings]\nexposure = 1.2\n";
@@ -589,10 +630,8 @@ address = "10.0.0.9:9443"
 
     // ---- Retired setting: `remote_render_samples` ------------------------------
 
-    /// `remote_render_samples` was removed (the live view's `target_samples` is now the
-    /// single global target for the combined local + remote image). A settings file
-    /// still carrying it must load exactly as before -- every other setting intact --
-    /// and must not write the retired key back out.
+    /// A retired key (`remote_render_samples`) must not stop an old settings file from
+    /// loading: every other setting stays intact, and the key is not written back out.
     #[test]
     fn an_old_settings_file_with_remote_render_samples_still_loads() {
         let toml_str =
@@ -614,8 +653,8 @@ address = "10.0.0.9:9443"
         assert_eq!(AppSettings::default().env_map_path, "");
     }
 
-    /// A settings file predating this control must still load, defaulting to the
-    /// empty ("no map, use the studio rig") string.
+    /// A settings file without this key must still load, defaulting to the empty
+    /// ("no map, use the studio rig") string.
     #[test]
     fn a_settings_file_predating_env_map_still_loads_with_none_loaded() {
         let toml_str = "[settings]\nexposure = 1.2\n";
@@ -633,7 +672,7 @@ address = "10.0.0.9:9443"
         );
     }
 
-    /// A settings file predating this control must still load, defaulting to `CpuGpu`.
+    /// A settings file without this key must still load, defaulting to `CpuGpu`.
     #[test]
     fn a_settings_file_predating_local_compute_target_still_loads_with_cpu_gpu_defaulted() {
         let toml_str = "[settings]\nexposure = 1.2\n";
@@ -675,7 +714,7 @@ address = "10.0.0.9:9443"
         }
     }
 
-    /// A settings file predating the pill must still load, defaulting to Local + Remote.
+    /// A settings file without this key must still load, defaulting to Local + Remote.
     #[test]
     fn a_settings_file_predating_the_tilt_video_compute_target_loads_as_both() {
         let toml_str = "[settings]\nexposure = 1.2\n";
@@ -722,7 +761,7 @@ address = "10.0.0.9:9443"
         assert_eq!(settings.preview_spp, DEFAULT_PREVIEW_SPP);
     }
 
-    /// A settings file predating this control must still load, defaulting both.
+    /// A settings file without these keys must still load, defaulting both.
     #[test]
     fn a_settings_file_predating_preview_generation_still_loads_with_defaults() {
         let toml_str = "[settings]\nexposure = 1.2\n";
@@ -743,10 +782,10 @@ address = "10.0.0.9:9443"
         assert_eq!(parsed.settings.preview_spp, 64);
     }
 
-    // ---- v16: AppSettings::contribute_to_final_picture ---------------------------
+    // ---- AppSettings::contribute_to_final_picture ---------------------------
 
-    /// Defaults `true` (both for a fresh install and a settings file that predates this
-    /// control), and round-trips either value through TOML.
+    /// Defaults `true` (both for a fresh install and a settings file without this key), and
+    /// round-trips either value through TOML.
     #[test]
     fn contribute_to_final_picture_defaults_true_when_absent_and_round_trips() {
         assert!(AppSettings::default().contribute_to_final_picture);

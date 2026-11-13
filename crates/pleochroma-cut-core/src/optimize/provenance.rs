@@ -8,7 +8,7 @@ use crate::{
 };
 use pleochroma::optics::materials::GemMaterial;
 
-/// Exact native authoring snapshots, not a lossy hash or row-angle freshness check.
+/// Exact native authoring snapshots, not a lossy hash of the design.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct OptimizationProvenance {
     /// Canonical native source state and stable identities.
@@ -20,7 +20,7 @@ pub struct OptimizationProvenance {
     pub scoring: String,
     /// Hard shape policy used during the operation.
     pub policy: PreservationPolicy,
-    /// Full depth changes carried even by the legacy outcome interface.
+    /// Full depth changes, which the plain outcome interface carries too.
     pub masts: Vec<(usize, f64, f64)>,
     /// Observational measurements, excluded from logical equality and from the wire:
     /// timings differ between two identical runs, so serialising them would make
@@ -39,7 +39,8 @@ impl PartialEq for OptimizationProvenance {
             && self.masts == other.masts
     }
 }
-/// Canonical JSON sorts map keys; explicit raw IDs also distinguish legacy empty-ID inputs.
+/// Canonical JSON, with the raw tier ids appended so that equal files with different tier
+/// ids stay distinct.
 ///
 /// # Errors
 /// [`PreservationViolation::InvalidBaseline`] when the design cannot be serialised.
@@ -131,7 +132,7 @@ impl OptimizationProvenance {
         Ok(())
     }
 }
-/// Shared legacy-outcome materialization; missing operation identity fails closed.
+/// Materialization of a plain [`OptimizeOutcome`]; missing operation identity fails closed.
 ///
 /// # Errors
 /// [`MaterializeError`] when the outcome carries no provenance, the design or the
@@ -279,7 +280,7 @@ fn rebuild_best(result: &mut super::OptimizeResult) {
     }
 }
 
-/// Shared rich-candidate gate, including its original policy and exact accepted state.
+/// Gate for one ranked candidate: its source, policy and exact accepted state.
 ///
 /// # Errors
 /// As [`materialize_outcome`], for a candidate's own provenance.

@@ -283,7 +283,7 @@ fn push_recent_dedups_orders_and_caps() {
     assert_eq!(settings.recent[1].title, "L5 again");
 }
 
-/// Two library entries and a file named like neither.
+/// Two library entries and a document named like the first one's title.
 fn three_recents() -> MobileSettings {
     let mut settings = MobileSettings::default();
     settings.push_recent(recent("L1", RecentKind::Library { entry_id: 1 }, 1));

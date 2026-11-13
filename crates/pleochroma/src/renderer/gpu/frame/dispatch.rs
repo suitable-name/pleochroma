@@ -1,9 +1,10 @@
-//! Per-chunk GPU dispatch: [`encode_and_dispatch`] (the self-test blocking path shared
-//! with `estimator_check::dispatch_transport`), [`GpuFrameRenderer::dispatch_chunk`]'s
-//! pipelined production dispatch through either kernel shape
-//! ([`GpuFrameRenderer::dispatch_chunk_wavefront`]/[`GpuFrameRenderer::run_wavefront_bounce_rounds`]
-//! for [`super::GpuPipelineKind::Wavefront`]), and the pure chunk-sizing arithmetic
-//! ([`chunk_pixels_for`]/[`GpuFrameRenderer::next_chunk_pixels`]/[`environment_params`]).
+//! Per-chunk GPU dispatch of the frame renderer.
+//!
+//! It holds [`encode_and_dispatch`] (the blocking self-test path shared with
+//! `estimator_check::dispatch_transport`), [`GpuFrameRenderer::dispatch_chunk`]'s pipelined
+//! production dispatch through either kernel shape (the megakernel, or the wavefront for
+//! [`super::GpuPipelineKind::Wavefront`]), and the pure chunk-sizing arithmetic
+//! ([`chunk_pixels_for`], [`GpuFrameRenderer::next_chunk_pixels`], [`environment_params`]).
 
 use std::time::Instant;
 
@@ -49,15 +50,13 @@ pub(super) fn workgroups_for(count: usize) -> u32 {
     workgroups_for_u32(count_u32(count))
 }
 
-/// Uploads the scene inputs, binds all eight buffers, and dispatches `transport_main`
-/// over `total_tuples` threads -- then BLOCKS until it finishes.
+/// Uploads the scene inputs, binds every buffer, and dispatches `transport_main` over
+/// `total_tuples` threads, then BLOCKS until it finishes.
 ///
-/// The single blocking dispatch routine for the megakernel: `estimator_check::dispatch_transport`
-/// and every other self-test in `renderer::gpu` go through here, so the Tier 2/Tier 3
-/// equivalence checks verify the exact binding code the renderer ships.
-/// [`GpuFrameRenderer::dispatch_chunk`]'s pipelined production dispatch uses
-/// [`build_chunk_bind_group`] instead -- see the parent module's doc comment's "Per-frame
-/// uploads, persistent staging" section.
+/// The blocking megakernel dispatch used by `estimator_check::dispatch_transport` and the
+/// other self-tests in `renderer::gpu`, so their equivalence checks run the exact binding code
+/// the renderer ships. [`GpuFrameRenderer::dispatch_chunk`]'s pipelined path uses
+/// [`build_chunk_bind_group`] instead.
 pub fn encode_and_dispatch(args: &TransportDispatchArgs<'_>, total_tuples: usize) {
     assert!(
         total_tuples <= args.outputs.capacity,
@@ -76,11 +75,11 @@ pub fn encode_and_dispatch(args: &TransportDispatchArgs<'_>, total_tuples: usize
     );
 }
 
-/// Builds one chunk's `GpuTransportParams`, split out of
-/// [`GpuFrameRenderer::dispatch_chunk`] purely to keep that method under clippy's
-/// function-length limit. `params` is written into this chunk's slot's persistent
-/// uniform buffer by the caller instead of being uploaded fresh here.
-fn build_chunk_params(
+/// Builds one chunk's `GpuTransportParams`, split out of [`GpuFrameRenderer::dispatch_chunk`]
+/// to keep that method under clippy's function-length limit. The caller writes the result into
+/// the chunk slot's persistent uniform buffer. The estimator is the frame's
+/// (`state.estimator`), as far as `GpuTransportParams::with_estimator` allows.
+pub(super) fn build_chunk_params(
     state: &ChunkFrameState<'_>,
     first_pixel: usize,
     pixels_this_chunk: usize,
@@ -104,18 +103,20 @@ fn build_chunk_params(
     .with_studio_use_d65(state.use_d65)
     .with_studio_model(state.studio_model)
     .with_tent_of(state.scene.environment)
+    .with_hdr_of(state.scene.environment)
     .with_backdrop(state.backdrop)
     .with_surface_glare(state.scene.environment.surface_glare())
     .with_head_shadow(head_shadow_cosines(
         state.scene.environment.head_shadow_deg(),
     ))
+    .with_estimator(state.estimator, state.ideal_surface)
 }
 
 impl GpuFrameRenderer {
-    /// Builds and submits ONE chunk's transport dispatch, its `reduce_xyz_main`
-    /// GPU-side sample-sum dispatch, and the non-blocking readback copy of the REDUCED
-    /// per-pixel result, returning the resulting [`PendingChunk`] for a later
-    /// [`super::GpuFrameRenderer::drain_pending_chunk`] to wait on.
+    /// Builds and submits one chunk: the transport dispatch, the reduction and the readback copy.
+    ///
+    /// The returned [`PendingChunk`] is waited on later by
+    /// [`super::GpuFrameRenderer::drain_pending_chunk`].
     ///
     /// # Why a second dispatch
     ///
@@ -130,10 +131,8 @@ impl GpuFrameRenderer {
     /// argument (fixed ascending summation order, matching the order the CPU sums them
     /// in).
     ///
-    /// Factored out of [`super::GpuFrameRenderer::accumulate_via_pipeline`]'s loop body to
-    /// keep that function under clippy's function-length limit; `state` bundles the
-    /// per-frame-constant values the loop would otherwise close over directly (see
-    /// [`ChunkFrameState`]).
+    /// Called once per chunk by `run_turn_chunks`. `state` bundles the per-frame constants
+    /// (see [`ChunkFrameState`]).
     pub(super) fn dispatch_chunk(
         &self,
         state: &ChunkFrameState<'_>,
@@ -146,10 +145,8 @@ impl GpuFrameRenderer {
         timing::reset_chunk();
         let mut total_mark = timing::Mark::now();
         let tuples = pixels_this_chunk * state.spp as usize;
-        // camera_params/material/planes/facet_finishes are NOT rebuilt or re-uploaded
-        // here -- frame_buffers already holds them, persistent across every accumulate
-        // call (see FrameSceneBuffers). params is written into this slot's persistent
-        // uniform buffer below instead of uploaded fresh.
+        // The scene buffers in frame_buffers persist across calls, so only params is written
+        // here, into this slot's persistent uniform buffer.
         let params = build_chunk_params(state, first_pixel, pixels_this_chunk);
 
         let staging_slot = chunk_index % 2;
@@ -160,10 +157,8 @@ impl GpuFrameRenderer {
             params_buf,
         } = self.resolve_chunk_slot_resources(staging_slot, tuples, pixels_this_chunk);
 
-        // Written into this slot's PERSISTENT uniform buffer rather than uploaded fresh
-        // -- see GpuFrameRenderer::params_buffers' doc comment for why reusing a slot
-        // two chunks later is safe (queue-ordering: this write is submitted strictly
-        // after the earlier chunk that read the same slot).
+        // Reusing this slot two chunks later is safe because the queue runs submissions in
+        // order (see GpuFrameRenderer::params_buffers).
         let mut mark = timing::Mark::now();
         self.ctx
             .queue
@@ -172,13 +167,10 @@ impl GpuFrameRenderer {
 
         let submitted_at = Instant::now();
         self.dispatch_transport(state, frame_buffers, params_buf, outputs, tuples)?;
-        // GPU-side sample reduction -- see this function's own doc comment ("Why a
-        // second dispatch"). Reads outputs.xyz() (just written by the dispatch above;
-        // safe without an explicit barrier because wgpu executes queue submissions in
-        // order, and this dispatch is submitted strictly after it on the same queue --
-        // the exact guarantee the readback copy right below already relies on) and
-        // writes pixel_output.buffer. Split into its own method to keep this one under
-        // clippy's function-length limit.
+        // GPU-side sample reduction (see "Why a second dispatch" in this function's doc). It
+        // reads outputs.xyz(), written by the dispatch above, and writes pixel_output.buffer.
+        // No barrier is needed: wgpu runs queue submissions in order. Split out to keep this
+        // function under clippy's function-length limit.
         self.dispatch_reduce(
             state.spp,
             staging_slot,
@@ -223,6 +215,18 @@ impl GpuFrameRenderer {
         tuples: usize,
     ) -> Result<(), super::GpuFrameError> {
         self.check_device_error()?;
+        // The sorted wavefront (`super::sorted`), when its switch is on and `ensure_sorted`
+        // prepared this chunk; it comes before the staged megakernel.
+        if let Some(plan) = self.sorted_plan_for(state, tuples) {
+            self.dispatch_sorted(state, frame_buffers, params_buf, outputs, &plan);
+            return self.check_device_error();
+        }
+        // The staged megakernel (`super::staged`), when the switch, the class and the device
+        // allow it and `ensure_staged` prepared this turn; every other chunk is unchanged.
+        if let Some(plan) = self.staged_plan_for(state, tuples) {
+            self.dispatch_staged(state, frame_buffers, params_buf, outputs, tuples, &plan);
+            return self.check_device_error();
+        }
         match self.pipeline_kind {
             GpuPipelineKind::Megakernel => {
                 let pipeline = self.pipeline_for_class(state.pipeline_class);
@@ -234,6 +238,10 @@ impl GpuFrameRenderer {
                     params_buf,
                     state.packed_len,
                     outputs,
+                    (
+                        self.optics_tables_for(state.pipeline_class),
+                        self.tray_shadow_for(state.pipeline_class),
+                    ),
                 );
                 mark.lap(Slot::TransportBind);
                 self.check_device_error()?;
@@ -260,32 +268,21 @@ impl GpuFrameRenderer {
         self.check_device_error()
     }
 
-    /// Runs one chunk through the wavefront pipeline instead of the
-    /// megakernel -- `wavefront_generate`, then `wavefront_bounce`/`wavefront_compact_*`
-    /// once per bounce round until either every ray has died or
-    /// `state.scene.max_bounces` rounds have run, then `wavefront_finalize_survivors`
-    /// for whatever remains. Populates `outputs.xyz()` (and, when `params` requested
-    /// them, the debug buffers) exactly as the megakernel would have for this same
-    /// chunk -- see `dispatch_chunk`'s own comment at its call site.
+    /// Runs one chunk through the wavefront pipeline instead of the megakernel.
     ///
-    /// Allocates a fresh set of ray-state buffers EVERY call, sized exactly to `tuples`
-    /// -- unlike `outputs`/`staging`/etc., which are grown-never-shrunk persistent
-    /// buffers reused across chunks. A documented simplification for this first cut
-    /// (see the parent module's doc comment's "Wavefront pipeline" section): the
-    /// megakernel path's overlapped, persistent-buffer machinery is substantial
-    /// (`FrameSceneBuffers`/`TransportOutputs`/`StagingSlot` growth policies,
-    /// double-buffering), and mirroring all of it for a pipeline that defaults OFF
-    /// until measured was judged not worth the risk here -- revisit if
-    /// `GpuPipelineKind::Wavefront` sees real use and per-chunk allocation shows up in
-    /// profiling.
+    /// `wavefront_generate` runs first, then `wavefront_bounce` and the compaction kernels once
+    /// per bounce round until every ray has died or `state.scene.max_bounces` rounds have run.
+    /// `wavefront_finalize_survivors` handles whatever remains. Fills `outputs.xyz()` as the
+    /// megakernel would for the same chunk.
     ///
-    /// The compaction round-trip (`wavefront_compact_scan`'s block counts read back,
-    /// CPU exclusive-prefix-summed, `compact_block_offset` re-uploaded) is a genuine
-    /// synchronous stall per bounce round -- see `wavefront_compact_scan`'s own doc
-    /// comment in `wavefront_transport.wgsl` for why an order-preserving compaction was
-    /// chosen anyway. This is the other half of why this pipeline stays opt-in: it
-    /// cannot currently participate in `dispatch_chunk`'s overlapped-chunk pipeline the
-    /// way the megakernel path does.
+    /// Allocates new ray-state buffers on every call, sized to `tuples`, unlike the persistent
+    /// `outputs` and staging buffers. The wavefront pipeline is opt-in, so it skips the
+    /// megakernel's persistent growth and double buffering.
+    ///
+    /// Each bounce round reads the compaction block counts back to the CPU, a synchronous
+    /// stall. An order-preserving compaction was kept anyway (see `wavefront_compact_scan` in
+    /// `wavefront_transport.wgsl`). This stall, and the lack of overlap with `dispatch_chunk`'s
+    /// pipeline, are why the wavefront stays opt-in.
     fn dispatch_chunk_wavefront(
         &self,
         state: &ChunkFrameState<'_>,
@@ -381,11 +378,10 @@ impl GpuFrameRenderer {
         }
     }
 
-    /// Runs [`WavefrontRayBuffers::active_in`](super::scene_buffers::WavefrontRayBuffers)'s
-    /// bounce/compact loop -- steps 2-4 of `wavefront_transport.wgsl`'s kernel sequence --
-    /// until either no ray remains alive or `max_bounces` rounds have run. Returns the
-    /// final `(active_count, bounce)` for [`Self::dispatch_chunk_wavefront`]'s own step
-    /// 5. Split out purely to keep that function under clippy's function-length limit.
+    /// Runs the bounce and compaction loop (steps 2-4 of `wavefront_transport.wgsl`'s kernel
+    /// sequence) until no ray is alive or `max_bounces` rounds have run. Returns the final
+    /// `(active_count, bounce)` for step 5 in [`Self::dispatch_chunk_wavefront`]. Split out to
+    /// keep that function under clippy's function-length limit.
     fn run_wavefront_bounce_rounds(
         &self,
         pipelines: &WavefrontPipelines,
@@ -399,6 +395,10 @@ impl GpuFrameRenderer {
         let queue = &self.ctx.queue;
         let mut active_count = chunk_rays;
         let mut bounce = 0u32;
+        // Rays alive after each round, for the survival curve. Recorded only when
+        // `PLEOCHROMA_GPU_TIMING` is set; the compaction reads the count back anyway.
+        let log_alive = timing::enabled();
+        let mut alive_after_round: Vec<u32> = Vec::new();
         while active_count > 0 && bounce < max_bounces {
             let workgroup_count = workgroups_for_u32(active_count);
             queue.write_buffer(
@@ -468,6 +468,16 @@ impl GpuFrameRenderer {
 
             active_count = new_active_count;
             bounce += 1;
+            if log_alive {
+                alive_after_round.push(new_active_count);
+            }
+        }
+        if log_alive {
+            tracing::info!(
+                target: "pleochroma_cut::render_bench",
+                "gpu_timing wavefront_chunk rays={chunk_rays} \
+                 alive_after_round={alive_after_round:?}"
+            );
         }
         (active_count, bounce)
     }
@@ -512,8 +522,8 @@ impl GpuFrameRenderer {
 
 /// How many pixels one dispatch covers, given a byte budget for its output buffers.
 ///
-/// A pixel's `spp` samples always stay in one dispatch (see the parent module's doc
-/// comment), so the budget is divided by `spp` first. Always at least 1 -- a single
+/// A pixel's `spp` samples always stay in one dispatch, so the budget is divided by `spp`
+/// first. Always at least 1 -- a single
 /// pixel over budget is still dispatched rather than looping forever on a zero-width
 /// chunk -- and never more than the frame has. Also never large enough to need more than
 /// [`MAX_WORKGROUPS_PER_DIMENSION`] workgroups -- see that constant's doc comment.
@@ -532,20 +542,15 @@ pub fn chunk_pixels_for(budget_bytes: usize, spp: u32, num_pixels: usize) -> usi
 pub type EnvironmentParams = (u32, f32, f32, f32, f32, f32, bool, u32, f32);
 
 /// Maps an [`EnvironmentSource`] onto the megakernel's `env_mode` and its studio-rig
-/// parameters -- see [`EnvironmentParams`] for the returned tuple's field meanings.
+/// parameters. See [`EnvironmentParams`] for the tuple's fields.
 ///
-/// `HdrMap`'s studio-rig fields (`temp_k`/`spot_mult`/`exposure`/`light_yaw`/`light_pitch`/
-/// `use_d65`/`studio_model`/`backdrop`) are unused by the shader's `env_mode == transport_env_mode::HDR_MAP` branch
-/// (see `sample_environment_with_rig` in `spectral_transport.wgsl`) -- zeroed here rather
-/// than left to whatever a caller might otherwise pass, so a stray read of one of them
-/// during future maintenance can't silently pick up a stale studio value.
+/// An HDR map's studio-rig fields are unused by the shader's `HDR_MAP` branch, so they are
+/// zeroed here rather than passed through. The map's exposure and yaw ride in
+/// `GpuTransportParams` (`with_hdr_of`), not in this tuple.
 ///
-/// Infallible: every [`EnvironmentSource`] variant has an
-/// `env_mode` -- returns [`EnvironmentParams`] directly rather than wrapping it in a
-/// `Result` that could never be `Err`, per clippy's `unnecessary_wraps`.
-/// [`super::GpuFrameError::UnsupportedEnvironment`] is still enforced elsewhere (kept as
-/// defensive future-proofing; see that variant's own doc comment), just not by this
-/// function any more.
+/// Infallible, so it returns the tuple directly rather than a `Result`.
+/// [`super::GpuFrameError::UnsupportedEnvironment`] is raised by `FrameSceneBuffers::ensure`
+/// for an oversized HDR map.
 pub const fn environment_params(environment: EnvironmentSource<'_>) -> EnvironmentParams {
     match environment {
         EnvironmentSource::Studio {
@@ -566,7 +571,7 @@ pub const fn environment_params(environment: EnvironmentSource<'_>) -> Environme
             preset.model().gpu_id(),
             backdrop,
         ),
-        EnvironmentSource::HdrMap(_) => (
+        EnvironmentSource::HdrMap { .. } => (
             transport_env_mode::HDR_MAP,
             0.0,
             0.0,

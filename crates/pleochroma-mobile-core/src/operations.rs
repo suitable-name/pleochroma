@@ -206,7 +206,7 @@ impl OperationState {
         }
     }
 
-    /// An engine has STOPPED and returned genuine validated partial candidates.
+    /// An engine has stopped and returned validated partial candidates.
     /// This explicit terminal handoff grants result use without calling a cancelled
     /// search "resumed" or "complete" in its presentation. Lifecycle/edit invalidation
     /// stays stale and cannot be revived by this path.

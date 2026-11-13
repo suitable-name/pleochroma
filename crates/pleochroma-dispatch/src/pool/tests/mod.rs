@@ -423,14 +423,10 @@ fn run_into_refuses_a_merger_for_another_image_and_streams_into_a_fresh_one() {
     assert_eq!(snapshot, reference(4, &samples));
 }
 
-/// Coordinator load balancing: two lanes at a 10:1 rate ratio,
-/// pre-calibrated to match their real per-sample cost exactly, tracing a job whose
-/// total range is small next to either lane's own target-duration chunk. Tail-aware
-/// sizing (`Epoch::want` -> `ChunkPolicy::tail_aware_samples`) caps each lane's chunk
-/// to its own proportional share of what is left, so neither one can grab an
-/// oversized tail chunk and force the other to wait out the whole thing. The test
-/// asserts the resulting split (samples per lane, full coverage), which does not
-/// depend on the host's sleep granularity.
+/// Two lanes at a 10:1 rate ratio on a small tail, both calibrated to their true cost.
+/// Tail-aware sizing (`Epoch::want`, `ChunkPolicy::tail_aware_samples`) caps each lane's
+/// chunk to its proportional share of what is left, so neither takes an oversized tail
+/// chunk while the other waits. The asserted split does not depend on sleep granularity.
 #[test]
 fn two_lanes_at_a_ten_to_one_rate_finish_a_small_tail_close_together() {
     let fast = fake(
@@ -518,7 +514,7 @@ fn a_staggered_lanes_first_chunk_is_half_the_size_and_the_second_is_full() {
     assert_eq!(staggered[0], 50);
     assert_eq!(staggered[1], 100);
     assert_eq!(staggered[2], 100);
-    // The scale is spent: the pool's copy of the model no longer holds one.
+    // The pool's copy of the model has already consumed its one-shot scale.
     let mut pool = LanePool::new(config(policy));
     pool.add_lane(
         Arc::new(SizeRecorder::new(100.0)) as Arc<dyn WorkerLane>,

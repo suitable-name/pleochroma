@@ -41,8 +41,8 @@ from PIL import Image, ImageDraw
 # shrinking is what gives clean facet edges at every size.
 SUPERSAMPLE = 8
 
-# Below this target size the facet lines are omitted entirely. At 16px a full brilliant's
-# 24 interior edges collapse into mud; the silhouette plus the table octagon still reads
+# Below this target size the facet lines are omitted entirely. At 16px the interior edges
+# collapse into mud; the silhouette plus the table octagon still reads
 # unmistakably as a gem, so small sizes get that instead of a smear.
 FACET_DETAIL_MIN_PX = 32
 

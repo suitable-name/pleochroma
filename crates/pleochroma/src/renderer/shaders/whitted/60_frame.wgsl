@@ -19,7 +19,7 @@ fn wt_tap(pixel: u32, tap: u32) -> vec3<f32> {
     for (var c: u32 = 0u; c < wt.counts.w; c = c + 1u) {
         rgb = rgb + wt.masks[c].xyz * wt_chain(wt_camera.origin, dir, wt.indices[c], -dir);
     }
-    // Preserve the CPU column-matrix summation order; Bradford explicitly fuses.
+    // Sum in the CPU's column-matrix order; wt_white_balance fuses its products explicitly.
     var xyz = (wt.rgb_to_xyz[0].xyz * rgb.x + wt.rgb_to_xyz[1].xyz * rgb.y) + wt.rgb_to_xyz[2].xyz * rgb.z;
     if (wt.modes.w != 0u) { xyz = wt_white_balance(xyz); }
     return max(xyz, vec3<f32>(0.0));
@@ -31,7 +31,7 @@ fn whitted_main(@builtin(global_invocation_id) id: vec3<u32>) {
     var sum = vec3<f32>(0.0);
     for (var s: u32 = 0u; s < wt.range.w; s = s + 1u) {
         let xyz = wt_tap(pixel, wt.range.z + s);
-        // Finite-sample filtering matches add_finite_sample, including the count.
+        // Drops non-finite samples and keeps the total count, as `add_finite_sample` does.
         if (all(abs(xyz) <= vec3<f32>(3.402823466e38))) { sum = sum + xyz; }
     }
     out_xyz[id.x * 3u] = sum.x;

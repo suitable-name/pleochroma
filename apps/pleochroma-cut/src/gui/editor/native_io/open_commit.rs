@@ -1,5 +1,6 @@
-//! Commits a loaded design file / `.asc` design into `EditorState`, wholesale, and pushes
-//! the result into the panel/viewport -- the shared tail every "Open" path
+//! Commits a loaded design file / `.asc` design into `EditorState`, wholesale.
+//!
+//! It also pushes the result into the panel/viewport -- the shared tail every "Open" path
 //! (a `.psdd` design file, a bare `.asc`, or a converted `.gem`/`.gcs`) funnels
 //! through.
 
@@ -110,22 +111,20 @@ impl ReplaceGuard {
     }
 }
 
-/// [`open_design_file`]'s own load result -- bundled (rather than two more
-/// parameters) purely to keep that function under clippy's argument-count lint.
+/// The load result [`open_design_file`] takes; bundled to keep its argument count within
+/// clippy's limit.
 pub(super) struct DesignFileLoad {
     pub(super) native_path: PathBuf,
     pub(super) loaded: DesignFileLoaded,
 }
 
-/// A `.psdd` design file: the file's own tiers WERE the design, so there is no paired
-/// `.asc`, fingerprint or tier-overlay question to ask.
-/// Restores a custom material snapshot and records the file as this design's save
-/// location -- unless it is a recovery snapshot, which is never a location to save back
-/// to (the next Save asks for a name, suggesting the design's own).
+/// Opens a `.psdd` design file: its tiers are the design, so there is no paired `.asc`,
+/// fingerprint or tier-overlay question. Restores the file's custom material and records
+/// the file as the save location. A recovery snapshot is never a save location: its next
+/// Save asks for a name.
 ///
-/// The design is recorded under `<stem>.asc` ([`schedule_name_for_design_path`]): the
-/// name the editor keys its window title, catalogue write-back and "Export .asc"
-/// default on, though no `.asc` exists.
+/// The design is recorded under `<stem>.asc` ([`schedule_name_for_design_path`]), the name
+/// the window title, catalogue write-back and export defaults use, though no `.asc` exists.
 pub(super) fn open_design_file(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -217,11 +216,9 @@ pub(super) fn open_design_file(
     );
 }
 
-/// The bare-`.asc` path -- builds the design exactly the
-/// way `gui::editor::loading::design_from_asc_text` already does for a catalogue
-/// attachment (no meet-intent overlay, no fingerprint, no draft flag: there is no
-/// design file at all), then replaces `state` wholesale via [`finish_state_replace`],
-/// the same tail [`open_design_file`] runs for a design file.
+/// Opens a bare `.asc`, built the way a catalogue attachment is (`design_from_asc_text`): no
+/// meet-intent overlay, fingerprint or draft flag, since there is no design file. Replaces
+/// `state` wholesale, then runs [`finish_state_replace`] like [`open_design_file`] does.
 pub(super) fn open_plain_asc(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -260,15 +257,13 @@ pub(super) fn open_plain_asc(
     }
 }
 
-/// A `.gem`/`.gcs` file converted to `.asc` cutting instructions
-/// ([`ConvertedPick`]): built into a design by the SAME
-/// `gui::editor::loading::design_from_asc_text` a bare `.asc` uses and committed
-/// through [`commit_plain_design`], so it behaves exactly like an opened `.asc`.
+/// Opens a `.gem`/`.gcs` converted to `.asc` cutting instructions ([`ConvertedPick`]). It is
+/// built like a bare `.asc` and committed through [`commit_plain_design`].
 ///
-/// The design is recorded under `<stem>.asc` (never the source file's own name),
-/// so Save offers a new `.psdd` design file and can never overwrite the `.gem`/
-/// `.gcs`; the window title still names the file actually opened. Reader and
-/// converter warnings go into the toast, which then stays up as a warning.
+/// The design is recorded under `<stem>.asc`, never the source file's name, so Save offers a
+/// new `.psdd` file and cannot overwrite the `.gem`/`.gcs`. The window title still names the
+/// file opened. Reader and converter warnings go into the toast, which then stays up as a
+/// warning.
 pub(super) fn open_converted_design(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -338,18 +333,11 @@ fn commit_plain_design(
     source_path: &Path,
     loaded: LoadedDesign,
 ) {
-    // A bare `.asc` has no design file at all -- see `CURRENT_NATIVE_PATH`'s own doc
-    // comment. Cleared rather than left at whatever the PREVIOUS design's own
-    // save/open set it to, so a later Save here is never mistaken for "re-saving
-    // that unrelated design's own file."
+    // A bare `.asc` has no design file (see `CURRENT_NATIVE_PATH`). Clearing the location
+    // stops a later Save from writing over the previous design's file.
     remember_design_location(None, None);
-    // `replace_wholesale`, not a plain `*state.borrow_mut() = ...`: carries
-    // this state's own `generation` `Arc` across the replacement (and bumps
-    // it) instead of handing back a brand-new one, so a background Deep
-    // Solve/Optimize/auto-solve dispatched against the design being replaced
-    // still observes the change -- see that method's own doc comment
-    // (`state/mod.rs`) and `tier_actions::do_new_design_create`'s matching
-    // comment for the same reasoning applied to New/Load Selected.
+    // `replace_wholesale` keeps this state's `generation` `Arc` (and bumps it), so a background
+    // Deep Solve or Optimize started on the replaced design sees the change. See its doc comment.
     state.borrow_mut().replace_wholesale(EditorState {
         session: EditorSession::with_history(loaded.design, History::new()),
         printed_proportions: None,
@@ -367,11 +355,8 @@ fn commit_plain_design(
         last_pushed_scratch: RefCell::new(PushedScratch::default()),
         material_combo_cache: RefCell::new(MaterialComboCache::default()),
         applied_library_material: None,
-        // Open (this path and the design-file one above) has no catalogue row of its
-        // own -- it loaded from a file the cutter picked directly, not from a library
-        // selection -- so there is nothing here for a later Save to write back
-        // to. `gui::editor::callbacks::tier_actions::setup_load_selected_callback`'s
-        // local branch is the one place this is ever `Some`.
+        // Open has no catalogue row to write back to: the file was picked directly, not
+        // selected from the library. Only a library load and a catalogue save set it.
         source_entry_id: None,
         // A design-file/plain-`.asc` open carries a real recorded
         // schedule, never the angle-table reconstruction fallback.
@@ -382,14 +367,10 @@ fn commit_plain_design(
     finish_state_replace(ui, render_ctx, preview_state, solid_last_solved, state);
 }
 
-/// The tail every "replace `EditorState` wholesale" open path shares, once the new
-/// state is already stored: refresh the viewport/panel from it, then reset selection
-/// unconditionally (a previously selected tier index now names, at best, an
-/// unrelated row in whatever design just replaced it) and mark the fresh state clean.
-/// Shared by [`open_design_file`] (a design file) and [`open_plain_asc`] (a
-/// bare `.asc`) so the "reset selection, mark clean" sequence is written exactly once
-/// for both -- the same reset `gui::editor::callbacks::tier_actions::apply_loaded_design`/
-/// `setup_new_design_create_callback` run for Load Selected/New.
+/// The tail shared by the open paths that replace `EditorState` wholesale, once the new state
+/// is stored: refresh the viewport and panel, reset the selection (a selected tier index
+/// would name an unrelated row) and mark the state clean. Load Selected and New run the same
+/// reset.
 fn finish_state_replace(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
@@ -397,42 +378,28 @@ fn finish_state_replace(
     solid_last_solved: &crate::gui::editor::view::SolidLastSolved,
     state: &Rc<RefCell<EditorState>>,
 ) {
-    // A Deep Solve or Optimize verdict describes the design that was just replaced,
-    // so it must not outlive it -- see `clear_analysis_results`' own doc comment.
+    // A Deep Solve or Optimize verdict describes the replaced design, so it is cleared.
     clear_analysis_results(ui);
-    // a material-suggestion banner (`tier_actions::apply_loaded_design`'s
-    // own Load Selected path sets/clears this from the newly loaded design's
-    // own RI) also describes whatever design was open before this replace --
-    // Open/Open Recent/the startup restore had no reset of their own at
-    // all, leaving a stale accept/dismiss banner from a previous design.
+    // The material-suggestion banner describes the replaced design too.
     ui.global::<EditorModel>()
         .set_material_suggestion_name("".into());
     ui.global::<EditorModel>()
         .set_material_suggestion_text("".into());
     let st = state.borrow();
     refresh_all(ui, render_ctx, preview_state, solid_last_solved, &st, true);
-    // Names the window title (`MainWindow.loaded_design_name`)
-    // after whatever design this replace just loaded -- covers both `open_design_file`
-    // and `open_plain_asc`, the two callers of this shared tail. Falls back to empty
-    // (bare "Pleochroma Cut") only in the defensive case where `asc_filename` was
-    // somehow never set, which neither caller actually does.
+    // The window title names the design just loaded. It is empty (bare "Pleochroma Cut")
+    // only if `asc_filename` is unset, which no caller does.
     ui.set_loaded_design_name(st.asc_filename.clone().unwrap_or_default().into());
     // Every open path (Open, Open Recent, the startup restore) installs a
     // real design -- the empty-state card grid must give way to it.
     push_has_design(ui, &st);
-    // The UUID the library database files this design's variants, cutting progress and
-    // lighting choice under -- logged so a "my variants are gone" report can be matched
-    // against what the file carries.
+    // The UUID the library database files this design's variants and progress under.
     tracing::debug!("Opened design with UUID {}", st.design_uuid());
     drop(st);
     ui.global::<EditorModel>().set_selected_tier_index(-1);
     let pulse = ui.global::<EditorModel>().get_form_reset_pulse();
     ui.global::<EditorModel>()
         .set_form_reset_pulse(pulse.wrapping_add(1));
-    // Explicit rather than left to `EditorModel.recompute_dirty`'s reactive `changed
-    // tiers` hook alone (`refresh_all` above does reassign `tiers`, so that hook would
-    // catch this too) -- a freshly replaced `EditorState` is clean by construction
-    // (`saved_generation`/`generation` both start at `0`), and saying so directly
-    // here is one line, easier to verify than tracing through the Slint side.
+    // Set explicitly: a freshly replaced `EditorState` is clean (both generations start at `0`).
     ui.global::<EditorModel>().set_is_dirty(false);
 }

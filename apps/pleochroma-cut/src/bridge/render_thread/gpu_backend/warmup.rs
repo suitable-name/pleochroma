@@ -94,6 +94,7 @@ impl ViewportGpu {
                     material: frame.material,
                     max_bounces: frame.max_bounces,
                     environment: frame.environment,
+                    estimator: None,
                 };
                 let _ = gpu.prepare_geom_surface_cancellable(
                     &scene,

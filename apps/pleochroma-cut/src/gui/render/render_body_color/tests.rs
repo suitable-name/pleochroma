@@ -257,7 +257,7 @@ fn the_dots_of_the_presets_and_variants_follow_the_stone_size() {
         mine(&list_view(&list, 14.0)),
         "so does a variant dot"
     );
-    // Review finding 9: the Material Default dot follows the Stone Size like the other rows.
+    // The Material Default dot follows the Stone Size like the other rows.
     let default = |view: &ListView| view.rows[0].swatch;
     assert_eq!(view_label(&list_view(&list, 5.0)), "Material Default");
     assert_ne!(
@@ -289,7 +289,7 @@ fn an_old_single_color_on_a_pleochroic_host_gets_the_legacy_row_and_note() {
     let view = list_view(&list, 0.0);
     let legacy = view.legacy.expect("a legacy row");
     assert!(legacy.label.starts_with("Legacy:"), "{}", legacy.label);
-    assert!(view.presets.is_empty());
+    assert_eq!(view.presets, [] as [RowView; 0]);
     assert_eq!(legacy_note(&shown, Some(&sapphire())), LEGACY_NOTE);
 
     let control = control_view(&input(ColorTarget::View, &shown, &list));
@@ -476,8 +476,7 @@ fn every_per_millimetre_variant_dot_follows_the_stone_width_a_custom_color_inclu
         sum(variant_swatch(&named, 14.0, &host)) < sum(variant_swatch(&named, 7.0, &host)),
         "a stone twice as wide is darker"
     );
-    // Review finding 4: the dot does not change meaning when a Custom Color is saved under a
-    // name (only the key and the label change, the tensor and the width stay).
+    // A Custom Color saved under a name keeps its dot: only the key and the label change.
     let custom = VariantChoice {
         key: CUSTOM_VARIANT_KEY.to_owned(),
         ..named.clone()
@@ -752,7 +751,7 @@ fn a_view_variant_is_saved_as_the_variant_alone_and_wins_over_old_entries() {
         restored_view_color(triple, bands, variant.clone()),
         Some(color.clone())
     );
-    // A file that holds both (an older legacy color and a newer variant) restores the variant.
+    // A file that holds both restores the variant.
     assert_eq!(
         restored_view_color(Some(YELLOW), Some(vec![[460.0, 45.0, 0.25]]), variant),
         Some(color)
@@ -809,7 +808,7 @@ fn a_settings_file_with_only_the_old_fields_restores_the_legacy_color_as_saved()
     assert_eq!(color.bands, Some(rows));
     assert_eq!(color.variant, None);
 
-    // And it renders as before: the bands, per millimetre, on the pleochroic host.
+    // Applied to a pleochroic host, the legacy color flattens it, as saved.
     let ctx = RenderContext {
         material_name: "Sapphire".to_string(),
         material_linked: false,

@@ -1,7 +1,11 @@
 #Requires -Version 7
+
 <#
 .SYNOPSIS
-  Runs the Windows-reference pin commands of the 2026-10-26 campaign and logs everything.
+  Runs the Windows checks: the pins that the companion direction match changes, one GPU build
+  of the changed kernels, the staged megakernel's tests and the sorted wavefront's tests, on this
+  machine's default adapter (the AMD Radeon integrated GPU on Vulkan; set WGPU_BACKEND=dx12 first
+  to test DX12).
 
 .DESCRIPTION
   Runs each command from the repo root, keeps going when one fails, and writes:
@@ -14,7 +18,8 @@
   The repository root (default C:\Users\ngussek\Dev\Rust\diagram_loader).
 
 .PARAMETER SkipGpu
-  Skip every step marked Gpu (none at the moment; kept for steps that need an adapter).
+  Skip the GPU steps (gpu-changed-kernels, staged-megakernel and sorted-wavefront), for a run of
+  the CPU pins only.
 #>
 param(
     [string]$Repo = 'C:\Users\ngussek\Dev\Rust\diagram_loader',
@@ -22,6 +27,11 @@ param(
 )
 
 $ErrorActionPreference = 'Continue'
+# The engine switches never come from the caller's shell: steps 3 to 5 compare against the
+# production engine, the staged megakernel (the staged and sorted twins switch their engine per
+# renderer). Run with `.\`, this also clears them in the calling session.
+Remove-Item -ErrorAction SilentlyContinue -Path Env:PLEOCHROMA_SORTED, Env:PLEOCHROMA_STAGED,
+    Env:PLEOCHROMA_GATED_LOOP, Env:PLEOCHROMA_GPU_PIPELINE
 $stamp = Get-Date -Format 'yyyy-MM-dd_HHmmss'
 $root = 'C:\temp\mcp2\owner_runs\windows'
 $out = Join-Path $root $stamp
@@ -38,57 +48,39 @@ Set-Content -Path $summary -Value @(
     '|---|---|---|---|---|---|'
 )
 
-# Every step, in order; the count gives each line its [xx/yy]. Steps that passed on the
-# owner's run 2026-10-27_010333 and need no further pin are gone (optimize views, model widths,
-# face-up path, raytracer goldens, event-wavefront GPU tests, both golden captures); only the
-# two pins re-recorded from that run remain, to confirm them. Add a step back when a change
-# needs it (for example a WGSL edit: the ew_ tests and the golden captures).
+# The companion direction match (|a - b|^2 <= 2e-6) changes the traced samples of every dispersive
+# stone. The cpu_accumulate pins hold Windows bits (ignored off Windows; Diamond and Zircon, both
+# dispersive). The raytracer goldens are shared with Linux, so this run shows whether the Linux
+# re-pin holds here. Step 3 builds the changed kernels on this machine's GPU: the production
+# megakernel, its exit-collection variant on Diamond and Zircon, and the event wavefront's
+# collection. The AMD driver has crashed on naga-valid WGSL with loop-indexed arrays before
+# (collect_leaf_weight loops over an array parameter). No step checks the version: no test pins a
+# version literal. Step 4 runs the staged megakernel's tests (the default engine, switched off
+# with PLEOCHROMA_STAGED=0): its twins against the megakernel on Zircon and Diamond with the stage
+# ends [3], [2, 5] and [1, 2, 3]. Its WGSL copies the path state through loop-indexed local arrays
+# (spectral_transport_staged.wgsl), the pattern this driver has crashed on. Step 5 runs the sorted
+# wavefront's tests (opt-in through PLEOCHROMA_SORTED): its twins against the megakernel, the
+# exactly-once accounting, the exit collection and the decline, and the naga checks of its two
+# units. Both run on this machine's default adapter (the AMD Radeon integrated GPU on Vulkan, whose
+# pipeline cache keeps compiled kernels between runs; under WGPU_BACKEND=dx12 wgpu keeps none and
+# every GPU test compiles its class's kernels). Step 3's --include-ignored also runs the
+# exit-collection twin, which the workspace run ignores (it takes over 60 s).
 $steps = @(
-    @{ Name = 'form-parsing-pin'; Gpu = $false
-       Display = 'cargo test -p pleochroma-cut --lib form_parsing_is_pinned -- --nocapture'
-       Command = { cargo test -p pleochroma-cut --lib form_parsing_is_pinned -- --nocapture } }
-    # Color variants campaign (2026-10-27, lane B1): Zircon got its measured per-axis tensor, so
-    # `cpu_accumulate_zircon_frosted_daylight_pin` moves (both hashes); the Diamond pin stays.
     @{ Name = 'cpu-accumulate-pins'; Gpu = $false
        Display = 'cargo test -p pleochroma --features gpu --lib renderer::gpu::pin_tests -- --nocapture'
        Command = { cargo test -p pleochroma --features gpu --lib renderer::gpu::pin_tests -- --nocapture } }
-    # Zoned-opal GPU-vs-CPU gap (reviews/FABLE_zoned_opal.md section 7) on this machine's AMD
-    # driver, to set against the Linux run: the zoned GPU tests with their printed ratios, and the
-    # ignored six-row diagnostic.
-    @{ Name = 'zoned-gpu-tests'; Gpu = $true
-       Display = 'cargo test -p pleochroma --all-features --lib gpu_backend::zoned_tests -- --nocapture'
-       Command = { cargo test -p pleochroma --all-features --lib gpu_backend::zoned_tests -- --nocapture } }
-    @{ Name = 'zoned-opal-diagnosis'; Gpu = $true
-       Display = 'cargo test -p pleochroma --all-features --lib zoned_opal_gap_diagnosis -- --ignored --nocapture'
-       Command = { cargo test -p pleochroma --all-features --lib zoned_opal_gap_diagnosis -- --ignored --nocapture } }
-    # The cut pins re-recorded from the lead's Windows run 2026-10-27 (cutting sheet fixture 0,
-    # retarget dump), to confirm them.
-    @{ Name = 'cut-identity-pins'; Gpu = $false
-       Display = 'cargo test -p pleochroma-cut --lib identity_pins -- --nocapture'
-       Command = { cargo test -p pleochroma-cut --lib identity_pins -- --nocapture } }
-    # Color variants campaign (2026-10-27): the raytracer tests that use the per-axis built-ins
-    # (Topaz in the biaxial refraction check, Tourmaline orientation, Zircon defaults); the
-    # Diamond/Sapphire goldens must stay bit-identical. Then the campaign's own tests (variant
-    # data with its pinned face-up colors, keyed color list, per-axis editor, patterns, vault).
     @{ Name = 'raytracer-tests'; Gpu = $false
-       Display = 'cargo test -p pleochroma --test raytracer_tests -- --nocapture'
-       Command = { cargo test -p pleochroma --test raytracer_tests -- --nocapture } }
-    @{ Name = 'color-variants-tests'; Gpu = $false
-       Display = 'cargo test -p pleochroma -p pleochroma-editor -p pleochroma-cut-core -p pleochroma-cut -p pleochroma-web-core -p pleochroma-mobile-core -p pleochroma-vault --lib -- <color filters>'
-       Command = { cargo test -p pleochroma -p pleochroma-editor -p pleochroma-cut-core -p pleochroma-cut -p pleochroma-web-core -p pleochroma-mobile-core -p pleochroma-vault --lib -- variants built_in_hues color_entry lch_color variant_choice color_variant pattern render_body_color body_color_combo render_color materials_symmetry scene_identity design_color design_props pattern_wire } }
-    # No WGSL change in the color variants campaign (KERNEL_SET_HASH stays); the GPU tests and the
-    # golden captures run again because the per-axis built-ins (Zircon, Topaz, Tourmaline,
-    # Amethyst, Citrine, Morganite, Chrysoberyl (Yellow), Andalusite) change scenes that use them.
-    # New capture folders, so the 2026-10-27 morning captures stay for comparison.
-    @{ Name = 'gpu-ew-tests'; Gpu = $true
-       Display = 'cargo test -p pleochroma --features gpu --release ew_ -- --nocapture'
-       Command = { cargo test -p pleochroma --features gpu --release ew_ -- --nocapture } }
-    @{ Name = 'gpu-golden-capture'; Gpu = $true
-       Display = 'cargo run --profile probe -p pleochroma --features gpu --example gpu_golden_capture -- capture --out target/gpu_golden/after_color_variants_2026-10-27'
-       Command = { cargo run --profile probe -p pleochroma --features gpu --example gpu_golden_capture -- capture --out target/gpu_golden/after_color_variants_2026-10-27 } }
-    @{ Name = 'gpu-golden-capture-event'; Gpu = $true
-       Display = 'cargo run --profile probe -p pleochroma --features gpu --example gpu_golden_capture -- capture --out target/gpu_golden/after_color_variants_2026-10-27_event --pipeline event'
-       Command = { cargo run --profile probe -p pleochroma --features gpu --example gpu_golden_capture -- capture --out target/gpu_golden/after_color_variants_2026-10-27_event --pipeline event } }
+       Display = 'cargo test -p pleochroma --features gpu --test raytracer_tests -- --nocapture'
+       Command = { cargo test -p pleochroma --features gpu --test raytracer_tests -- --nocapture } }
+    @{ Name = 'gpu-changed-kernels'; Gpu = $true
+       Display = 'cargo test -p pleochroma --features gpu --lib -- renderer::gpu_backend::tests renderer::gpu::frame::collect_hardware_tests renderer::gpu::event_wavefront::tests::ew_exit_collection_follows_the_megakernel --include-ignored --nocapture --test-threads 1'
+       Command = { cargo test -p pleochroma --features gpu --lib -- renderer::gpu_backend::tests renderer::gpu::frame::collect_hardware_tests renderer::gpu::event_wavefront::tests::ew_exit_collection_follows_the_megakernel --include-ignored --nocapture --test-threads 1 } }
+    @{ Name = 'staged-megakernel'; Gpu = $true
+       Display = 'cargo test -p pleochroma --features gpu --lib -- renderer::gpu::frame::staged::tests --nocapture --test-threads 1'
+       Command = { cargo test -p pleochroma --features gpu --lib -- renderer::gpu::frame::staged::tests --nocapture --test-threads 1 } }
+    @{ Name = 'sorted-wavefront'; Gpu = $true
+       Display = 'cargo test -p pleochroma --features gpu --lib -- renderer::gpu::frame::sorted_tests renderer::shader_validation_sorted_tests --include-ignored --nocapture --test-threads 1'
+       Command = { cargo test -p pleochroma --features gpu --lib -- renderer::gpu::frame::sorted_tests renderer::shader_validation_sorted_tests --include-ignored --nocapture --test-threads 1 } }
 )
 if ($SkipGpu) { $steps = @($steps | Where-Object { -not $_.Gpu }) }
 $total = $steps.Count
@@ -119,9 +111,4 @@ foreach ($step in $steps) {
     Add-Content -Path $summary -Value ("| {0} | {1} | {2} | {3} | {4} | ``{5}`` |" -f $tag, $step.Name, $code, $verdict, $minutes, $step.Display)
 }
 
-Add-Content -Path $summary -Value @(
-    '',
-    'Not scripted (by hand): re-capture optimizer_2.png (manual 08 + root README) and the site figure',
-    'fig_optimizer_result.png; send the new Fig. 21 numbers.'
-)
 Write-Host "Done. Summary: $summary"

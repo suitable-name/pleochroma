@@ -1,19 +1,19 @@
 //! The failure policy of a batch's remote lane: how long to hold off after the remote
-//! fails an item, and when to give up on it for a longer stretch.
+//! fails an item, and when to park it for a longer stretch.
 //!
-//! Without this, a remote that fails every request (refused handshake, wedged
-//! coordinator, corrupted TLS stream) let the lane claim the next item the instant the
-//! previous one failed -- draining the whole shared pool into the local retry pile in
-//! seconds and then exiting for good, with nothing logged. Pure bookkeeping (no sockets,
-//! no Slint), so the schedule is unit-tested here and the lane only has to ask.
+//! Without a pause, a remote that fails every request (refused handshake, wedged
+//! coordinator, corrupted TLS stream) would let the lane claim the next item at once and
+//! drain the shared pool into the local retry pile within seconds. This is pure bookkeeping
+//! (no sockets, no Slint), so the schedule is unit-tested here and the lane only asks it how
+//! long to wait.
 
 use std::time::{Duration, Instant};
 
 /// Delay after the FIRST consecutive failure; doubles with each further one.
 pub const REMOTE_BACKOFF_INITIAL: Duration = Duration::from_secs(1);
 
-/// Ceiling of the doubling schedule. Only reachable when [`REMOTE_SIT_OUT_AFTER`] is
-/// raised: with today's threshold the schedule is 1, 2, 4, 8 s and then the sit-out.
+/// Ceiling of the doubling schedule. Only reached when [`REMOTE_SIT_OUT_AFTER`] is above 5:
+/// at 5 the delays are 1, 2, 4, 8 s, then the sit-out.
 pub const REMOTE_BACKOFF_MAX: Duration = Duration::from_secs(30);
 
 /// Consecutive failures after which the remote is treated as down rather than flaky.

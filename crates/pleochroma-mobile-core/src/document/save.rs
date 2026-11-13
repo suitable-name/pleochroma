@@ -1,17 +1,18 @@
-//! Saving: the bytes of the self-contained `.psdd` file and of the `.asc`
-//! cutting schedule, built with the same shared-crate APIs the desktop's save and the web
-//! app's downloads use.
+//! Saving: the bytes of the self-contained `.psdd` file and of the `.asc` cutting schedule,
+//! built with the same shared-crate APIs as the desktop's save and the web app's downloads.
 //!
 //! | Action | Built with | File name |
 //! |---|---|---|
-//! | Save design | `design_to_file` + `native::design::to_string`; writes the opened file's `[meta]` table (stamped) and attachments back | `<name>.psdd` |
-//! | Export `.asc` | `Design::try_to_asc_schedule_from_solved_with` + `to_asc_string` (CRLF, `GemCAD`'s convention) | the design's `.asc` name |
+//! | Save design | `design_to_file`, `native::design::to_string` | `<name>.psdd` |
+//! | Export `.asc` | `try_to_asc_schedule_from_solved_with`, `to_asc_string` | the `.asc` name |
 //!
-//! A design that solves but does not close is written with the desktop's "NOT A CLOSED
-//! SOLID" header (`.asc`) and a warning; one that does not solve is saved as a draft
-//! design file (the desktop's "Save Anyway") and refused for `.asc`, exactly as the
-//! desktop refuses it. The solve comes from the current [`crate::design_state`] result
-//! when there is one, else it runs here (a save is rare and the answer is needed now).
+//! The `.psdd` keeps the opened file's `[meta]` table (stamped) and its attachments. The
+//! `.asc` uses CRLF line endings, the `GemCAD` convention.
+//!
+//! A design that solves but does not close gets a "NOT A CLOSED SOLID" header (`.asc`) and
+//! a warning. One that does not solve is saved as a draft `.psdd` and refused as `.asc`.
+//! The solve comes from the current [`crate::design_state`] result when there is one;
+//! otherwise it runs here, since a save needs the answer now.
 
 use std::{fmt, sync::atomic::AtomicBool};
 

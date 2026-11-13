@@ -1,7 +1,7 @@
-//! The unsaved-changes guard: a Slint Save / Discard / Cancel dialog
-//! (`ui/components/confirm_dialog.slint`, modelled on the desktop's
-//! `confirm_action_dialog.slint`) in front of every action that would replace a design
-//! that has unsaved edits (New Design, Open, drop). It replaces the browser's blocking
+//! The unsaved-changes guard: a Save / Discard / Cancel dialog in front of every action that
+//! would replace a design with unsaved edits (New Design, Open, drop).
+//!
+//! The dialog is `ui/components/confirm_dialog.slint`; it replaces the browser's blocking
 //! `window.confirm`.
 //!
 //! # Flow

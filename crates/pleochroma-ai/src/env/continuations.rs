@@ -54,7 +54,7 @@ macro_rules! continuations {
                 self.advance_teacher_label_adaptive(work, &|| false)
             }
 
-            /// Advance ready teacher results and optionally prepare the remaining search in parallel.
+            /// Advances ready results and optionally prepares the rest of the search in parallel.
             pub fn advance_teacher_label_adaptive(
                 &self,
                 work: &mut TeacherLabelWork,

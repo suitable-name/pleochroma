@@ -3,9 +3,9 @@
 //!
 //! One evaluation is an 18x18 grid of multi-bounce traces (see
 //! `pleochroma::color::metrics`), and a change of light, facets or material needs twenty
-//! of them (the pose plus the 19-point profile). Run inline, that held the render loop for
-//! seconds. Here the loop only *requests* an evaluation when its inputs differ from the
-//! last request, and keeps using the last published result until a newer one lands.
+//! of them (the pose plus the 19-point profile). Run inline, that would hold the render loop
+//! for seconds. The loop only *requests* an evaluation when its inputs differ from the last
+//! request, and keeps using the last published result until a newer one lands.
 //!
 //! # Scheduling
 //!
@@ -33,7 +33,7 @@ use pleochroma::{
         raytracer::{EnvironmentSource, FacetFinish, LightingPreset},
     },
     render_setup::hash_geometry,
-    renderer::env_map::EnvironmentMap,
+    renderer::env_map::{EnvRotation, EnvironmentMap},
 };
 use slint::{ComponentHandle, Weak};
 use std::{
@@ -108,6 +108,8 @@ struct Request {
     lighting_preset: LightingPreset,
     /// The loaded HDR panorama, which replaces the preset's rig as the lighting.
     env_map: Option<Arc<EnvironmentMap>>,
+    /// The turn of [`Self::env_map`] at the request's camera yaw; the identity without a map.
+    env_rotation: EnvRotation,
     head_shadow_deg: f32,
 }
 
@@ -122,7 +124,7 @@ impl Request {
                     .studio(1.0, light_yaw, light_pitch)
                     .with_head_shadow(self.head_shadow_deg)
             },
-            EnvironmentSource::HdrMap,
+            |map| EnvironmentSource::hdr(map).with_hdr_rotation(self.env_rotation),
         )
     }
 
@@ -140,6 +142,7 @@ impl Request {
             && self.material == other.material
             && self.lighting_preset == other.lighting_preset
             && same_env_map(self.env_map.as_ref(), other.env_map.as_ref())
+            && self.env_rotation == other.env_rotation
             && self.head_shadow_deg.to_bits() == other.head_shadow_deg.to_bits()
             && light_yaw.to_bits() == other_yaw.to_bits()
             && light_pitch.to_bits() == other_pitch.to_bits()
@@ -321,6 +324,7 @@ struct Submitted {
     pose: [f32; 4],
     lighting_preset: LightingPreset,
     env_map: Option<Arc<EnvironmentMap>>,
+    env_rotation: EnvRotation,
     head_shadow_deg: f32,
 }
 
@@ -353,15 +357,14 @@ impl MetricsWorker {
 
     /// Queues an evaluation of these inputs unless they equal the last ones queued.
     ///
-    /// `lighting_preset` and `env_map` are the lighting the viewport renders with (the
-    /// panorama, when one is loaded, replaces the preset's rig).
+    /// `lighting_preset` and `env` are the lighting the viewport renders with: a loaded
+    /// panorama and its turn at the camera yaw replace the preset's rig.
     ///
-    /// The frosted facets and girdle (`geometry.finishes`) are part of the stone: changing them
+    /// Frosted facets and girdle (`geometry.finishes`) are part of the stone: changing them
     /// re-queues the evaluation, and the figures are scored on the frosted stone.
     ///
-    /// Costs one hash of the facet planes (and tools), one of the frosted facets and a material
-    /// comparison on the calling thread; the material is cloned only when it actually changed,
-    /// and the finish list only when a request is queued.
+    /// Hashes the planes, tools and finishes on the calling thread. The material is cloned
+    /// only when it changed, and the finish list only when a request is queued.
     #[expect(
         clippy::float_cmp,
         reason = "pose is an exact change detector: any bit difference must resubmit"
@@ -372,7 +375,7 @@ impl MetricsWorker {
         material: &GemMaterial,
         pose: [f32; 4],
         lighting_preset: LightingPreset,
-        env_map: Option<&Arc<EnvironmentMap>>,
+        env: Option<(&Arc<EnvironmentMap>, EnvRotation)>,
         head_shadow_deg: f32,
     ) {
         let SharedGeometry {
@@ -380,6 +383,8 @@ impl MetricsWorker {
             tools,
             finishes,
         } = geometry;
+        let env_map = env.map(|(map, _)| map);
+        let env_rotation = env.map_or(EnvRotation::IDENTITY, |(_, rotation)| rotation);
         let planes_hash = hash_geometry(StoneGeometry { planes, tools });
         let frosting_hash = finishes_hash(finishes);
         if self.submitted.as_ref().is_some_and(|last| {
@@ -390,6 +395,7 @@ impl MetricsWorker {
                 && last.lighting_preset == lighting_preset
                 && last.head_shadow_deg.to_bits() == head_shadow_deg.to_bits()
                 && same_env_map(last.env_map.as_ref(), env_map)
+                && last.env_rotation == env_rotation
         }) {
             return;
         }
@@ -400,6 +406,7 @@ impl MetricsWorker {
             pose,
             lighting_preset,
             env_map: env_map.cloned(),
+            env_rotation,
             head_shadow_deg,
         });
         last.planes_hash = planes_hash;
@@ -408,6 +415,7 @@ impl MetricsWorker {
         last.lighting_preset = lighting_preset;
         last.head_shadow_deg = head_shadow_deg;
         last.env_map = env_map.cloned();
+        last.env_rotation = env_rotation;
         if last.material != *material {
             last.material.clone_from(material);
         }
@@ -421,6 +429,7 @@ impl MetricsWorker {
             pose,
             lighting_preset,
             env_map: env_map.cloned(),
+            env_rotation,
             head_shadow_deg,
         });
     }
@@ -462,13 +471,13 @@ impl MetricsWorker {
             material,
             pose,
             preset,
-            hdr,
+            hdr.map(|map| (map, EnvRotation::IDENTITY)),
             pleochroma::optics::raytracer::DEFAULT_HEAD_SHADOW_DEG,
         );
     }
     /// The newest published values and their version (`0` while still the defaults).
     ///
-    /// Possibly for inputs older than the last [`Self::request`]: the loop keeps showing
+    /// Possibly for inputs older than the last queued request: the loop keeps showing
     /// these until the debounced evaluation replaces them.
     pub(super) fn latest(&self) -> (u64, EvaluatedMetrics) {
         let state = self.shared.lock();
@@ -545,7 +554,7 @@ fn push_snapshot_if_due(
 
 /// The suspended-tab counterpart of [`push_if_fresh`]: pushes the newest published metrics
 /// only when they are newer than the last push or the camera-pitch marker moved, so an
-/// idle hidden tab no longer re-sends identical values every 100 ms tick. No `ui_idle`
+/// idle hidden tab does not re-send identical values on every 100 ms tick. No `ui_idle`
 /// gate: a suspended loop has no display cycle in flight.
 pub(super) fn push_if_changed<T, M>(
     worker: &MetricsWorker,
@@ -587,6 +596,7 @@ mod tests {
                 pose: [0.0; 4],
                 lighting_preset: LightingPreset::RingLights,
                 env_map: None,
+                env_rotation: EnvRotation::IDENTITY,
                 head_shadow_deg: pleochroma::optics::raytracer::DEFAULT_HEAD_SHADOW_DEG,
             },
             first_queued,
@@ -623,6 +633,7 @@ mod tests {
             pose,
             lighting_preset: LightingPreset::RingLights,
             env_map: None,
+            env_rotation: EnvRotation::IDENTITY,
             head_shadow_deg: pleochroma::optics::raytracer::DEFAULT_HEAD_SHADOW_DEG,
         }
     }
@@ -845,6 +856,56 @@ mod tests {
             fifth, sixth,
             "adding a concave tool changes the stone, so the metrics must be re-evaluated"
         );
+    }
+
+    /// Turning the HDR map (or, with the map following the camera, orbiting) changes the
+    /// radiance the figures are scored under, so it re-queues and supersedes a running profile.
+    #[test]
+    fn a_turned_map_requeues_the_metrics_and_changes_the_profile_inputs() {
+        let mut worker = MetricsWorker {
+            shared: Arc::new(empty_shared()),
+            submitted: None,
+        };
+        let planes = Arc::new(Vec::new());
+        let tools = Arc::new(Vec::new());
+        let material = GemMaterial::diamond();
+        let map = Arc::new(EnvironmentMap::uniform(4, 2, [1.0, 1.0, 1.0]));
+        let mut ask = |rotation: EnvRotation| {
+            thread::sleep(Duration::from_millis(2));
+            worker.request_with_head_shadow(
+                SharedGeometry {
+                    planes: &planes,
+                    tools: &tools,
+                    finishes: &[],
+                },
+                &material,
+                [0.1, 0.2, 0.3, 0.4],
+                LightingPreset::RingLights,
+                Some((&map, rotation)),
+                pleochroma::optics::raytracer::DEFAULT_HEAD_SHADOW_DEG,
+            );
+            worker
+                .shared
+                .lock()
+                .pending
+                .as_ref()
+                .map(|pending| pending.last_changed)
+        };
+        let unturned = ask(EnvRotation::IDENTITY);
+        assert_eq!(
+            ask(EnvRotation::IDENTITY),
+            unturned,
+            "same map, no re-queue"
+        );
+        let turned = ask(EnvRotation::from_yaw(0.7));
+        assert_ne!(unturned, turned, "a turned map must re-queue");
+
+        let mut running = request_with(GemMaterial::diamond(), [0.1, 0.2, 0.3, 0.4]);
+        let mut other = request_with(GemMaterial::diamond(), running.pose);
+        other.env_rotation = EnvRotation::from_yaw(0.7);
+        assert!(!running.same_profile_inputs(&other));
+        running.env_rotation = EnvRotation::from_yaw(0.7);
+        assert!(running.same_profile_inputs(&other));
     }
 
     fn worker_for_tests() -> MetricsWorker {

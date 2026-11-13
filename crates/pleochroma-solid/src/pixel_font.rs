@@ -1,14 +1,10 @@
 //! A minimal built-in 5x7 bitmap font.
 //!
-//! A fixed glyph lookup shared by every place that stamps text straight into an
-//! RGBA8 pixel buffer rather than going through a GUI toolkit's own text layout --
-//! [`crate::diagram2d`]'s crown/pavilion/profile panel labels, in this crate, and
-//! the desktop's `gui::tilt::video_export::overlay` tilt-performance readout
-//! (`apps/pleochroma-cut`, via this crate's re-export at `gui::pixel_font`). Both
-//! call sites keep their own scaling, drawing, and color code
-//! (`draw_text`/`draw_glyph`/`text_size`/`text_width`); only the glyph DATA -- the
-//! character-to-bitmap lookup -- lives here, so the two copies this module
-//! replaces could never drift against each other one character at a time.
+//! A fixed glyph lookup for code that stamps text straight into an RGBA8 buffer without
+//! a GUI toolkit's text layout: [`crate::diagram2d`]'s panel labels, and the desktop's
+//! tilt video-export overlay (re-exported there as `gui::pixel_font`). Each caller keeps
+//! its own scaling, drawing and color code; only the glyph data lives here, so the
+//! callers cannot drift apart one character at a time.
 //!
 //! Covers every character either caller actually draws: space, `-`, `.`, `'`,
 //! `/`, `_`, `%`, `:`, the digits, and every uppercase letter A-Z (case-folded --
@@ -31,9 +27,8 @@ fn row_bits(row: &str) -> u8 {
     bits
 }
 
-/// The punctuation/whitespace arms of [`glyph_rows`]'s lookup, split out purely to
-/// keep that function under clippy's function-length lint -- `c` is already
-/// uppercased by the caller.
+/// The punctuation and whitespace arms of [`glyph_rows`], split out for clippy's
+/// `too_many_lines` limit. `c` is already uppercased by the caller.
 const fn glyph_rows_symbols(c: char) -> Option<[&'static str; GLYPH_HEIGHT]> {
     Some(match c {
         ' ' => [
@@ -48,21 +43,17 @@ const fn glyph_rows_symbols(c: char) -> Option<[&'static str; GLYPH_HEIGHT]> {
         '\'' => [
             ".X...", ".X...", ".....", ".....", ".....", ".....", ".....",
         ],
-        // Needed for the multi-name tier join convention (`crates/
-        // pleochroma-cut-core/src/design/tier.rs`) and for an underscore in a
-        // tier name: `glyph` falls back to a blank cell for anything
-        // `glyph_rows` returns `None` for, so both characters need their own
-        // entries here to render instead of vanishing.
+        // Used by the multi-name tier join (`design/tier.rs` in pleochroma-cut-core)
+        // and by underscores in tier names. Unknown characters draw blank, so each
+        // one needs its own entry here.
         '/' => [
             "....X", "...X.", "..X..", "..X..", ".X...", "X....", ".....",
         ],
         '_' => [
             ".....", ".....", ".....", ".....", ".....", ".....", "XXXXX",
         ],
-        // Needed by the tilt video-export overlay's percentage readouts and its
-        // "HH:MM"-shaped ones -- diagram2d's own labels never use either, but the
-        // glyph shapes are identical wherever both callers happen to draw the
-        // same character (see the module doc comment).
+        // Used by the tilt video-export overlay (percentages and "HH:MM" times). The
+        // diagram labels do not use either.
         '%' => [
             "X...X", "...X.", "..X..", "..X..", ".X...", "X...X", ".....",
         ],
@@ -73,8 +64,8 @@ const fn glyph_rows_symbols(c: char) -> Option<[&'static str; GLYPH_HEIGHT]> {
     })
 }
 
-/// The digit arms of [`glyph_rows`]'s lookup, split out purely to keep that function
-/// under clippy's function-length lint -- `c` is already uppercased by the caller.
+/// The digit arms of [`glyph_rows`], split out for clippy's `too_many_lines` limit.
+/// `c` is already uppercased by the caller.
 const fn glyph_rows_digits(c: char) -> Option<[&'static str; GLYPH_HEIGHT]> {
     Some(match c {
         '0' => [
@@ -111,9 +102,8 @@ const fn glyph_rows_digits(c: char) -> Option<[&'static str; GLYPH_HEIGHT]> {
     })
 }
 
-/// The `A`-`M` letter arms of [`glyph_rows`]'s lookup, split out purely to keep that
-/// function under clippy's function-length lint -- `c` is already uppercased by the
-/// caller.
+/// The `A`-`M` letter arms of [`glyph_rows`], split out for clippy's `too_many_lines`
+/// limit. `c` is already uppercased by the caller.
 const fn glyph_rows_letters_a_to_m(c: char) -> Option<[&'static str; GLYPH_HEIGHT]> {
     Some(match c {
         'A' => [
@@ -159,9 +149,8 @@ const fn glyph_rows_letters_a_to_m(c: char) -> Option<[&'static str; GLYPH_HEIGH
     })
 }
 
-/// The `N`-`Z` letter arms of [`glyph_rows`]'s lookup, split out purely to keep that
-/// function under clippy's function-length lint -- `c` is already uppercased by the
-/// caller.
+/// The `N`-`Z` letter arms of [`glyph_rows`], split out for clippy's `too_many_lines`
+/// limit. `c` is already uppercased by the caller.
 const fn glyph_rows_letters_n_to_z(c: char) -> Option<[&'static str; GLYPH_HEIGHT]> {
     Some(match c {
         'N' => [
@@ -208,10 +197,8 @@ const fn glyph_rows_letters_n_to_z(c: char) -> Option<[&'static str; GLYPH_HEIGH
 }
 
 /// Returns the glyph rows for `c` (case-insensitive letters), or `None` for an
-/// unsupported character -- callers skip it rather than drawing a placeholder.
-/// Dispatches across [`glyph_rows_symbols`]/[`glyph_rows_digits`]/
-/// [`glyph_rows_letters_a_to_m`]/[`glyph_rows_letters_n_to_z`], split out purely to
-/// keep this lookup table's own function under clippy's function-length lint.
+/// unsupported character; callers skip it rather than draw a placeholder. Tries the
+/// [`glyph_rows_symbols`], [`glyph_rows_digits`] and letter tables in turn.
 const fn glyph_rows(c: char) -> Option<[&'static str; GLYPH_HEIGHT]> {
     let c = c.to_ascii_uppercase();
     if let Some(rows) = glyph_rows_symbols(c) {
@@ -260,20 +247,15 @@ mod tests {
         assert_eq!(glyph('z'), glyph('Z'));
     }
 
-    /// The two characters `diagram2d`'s own table never carried before this module
-    /// unified the two callers' glyph data -- the tilt video-export overlay draws
-    /// both (percentages, and a colon in "HH:MM"-shaped labels), so the merged
-    /// table must still cover them.
+    /// The tilt video-export overlay draws `%` and `:`, so the table must cover them.
     #[test]
     fn glyph_covers_the_percent_and_colon_symbols_the_overlay_needs() {
         assert_ne!(glyph('%'), [0u8; GLYPH_HEIGHT]);
         assert_ne!(glyph(':'), [0u8; GLYPH_HEIGHT]);
     }
 
-    /// Every letter/digit/symbol either real caller actually draws must render
-    /// (never fall back to blank) -- this is the exhaustive set `diagram2d.rs`'s
-    /// `text_size`/`draw_text_into_buffer` and `tilt::video_export::overlay`'s
-    /// `text_width`/`draw_text` between them ever pass to [`glyph`].
+    /// Every character the two callers draw must render a real glyph, never the blank
+    /// fallback.
     #[test]
     fn every_character_either_caller_draws_renders_a_non_blank_glyph() {
         for c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-.'/_%:".chars() {

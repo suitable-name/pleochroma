@@ -4,14 +4,11 @@
 //! the several remote dispatchers each batch runs at once ([`remote_dispatch`], sized by
 //! the setting [`remote_lanes_setting`] edits), the decoded preview-thumbnail cache the
 //! design list reads from ([`preview_cache`]), and the one geometry step both engines
-//! take for a record ([`record_planes_with_frosting_for_batch`]) and the one material rule they draw
-//! and score it with ([`catalogue_material`]).
+//! take for a record ([`record_planes_with_frosting_for_batch`]) and the one material rule
+//! they draw and score it with ([`catalogue_material`]).
 //!
-//! Was 4 flat top-level `gui` files (`preview_batch.rs`, `tilt_batch.rs`,
-//! `batch_queue.rs`, `preview_cache.rs`); grouped here since the two batches are
-//! deliberately parallel in shape (see [`preview`]'s and [`tilt`]'s own module doc
-//! comments for exactly what they share vs. why they stayed separate modules) and both
-//! were already, individually, well over this codebase's ~700-line split threshold.
+//! The two batches are deliberately parallel in shape; see [`preview`] and [`tilt`] for what
+//! they share and why they remain separate modules.
 
 pub mod batch_queue;
 pub mod catalogue_material;

@@ -26,8 +26,8 @@ struct CandidateWalkOptions {
     display_cap: usize,
     /// `false` stops the walk as soon as `display_cap` matches have been collected, so
     /// the returned count is then only a lower bound and must not be surfaced as the
-    /// real total (matches the pre-finding-17 [`Database::search_diagrams_display`]
-    /// behaviour: a solo display fetch doesn't need the exact total). `true` always
+    /// real total (a solo [`Database::search_diagrams_display`] fetch does not need it).
+    /// `true` always
     /// walks every raw page to completion, required whenever the exact total returned
     /// alongside it is actually surfaced to a caller
     /// ([`Database::count_matching_diagrams`],
@@ -149,11 +149,10 @@ impl Database {
     }
 
     /// [`Self::search_diagrams_display`] and [`Self::count_matching_diagrams`] combined
-    /// into one candidate walk -- a single-pass fix.
+    /// into one candidate walk.
     ///
-    /// Calling those two separately (as the library panel's `fetch_diagram_list_with_options`
-    /// once did) decodes every active-performance-filter candidate's tilt-curve BLOB
-    /// twice: once in each method's own walk over
+    /// Calling those two separately decodes every active-performance-filter candidate's
+    /// tilt-curve BLOB twice: once in each method's own walk over
     /// [`Self::search_diagrams_page_raw_ordered`]. This method walks the SQL-narrowed
     /// candidate set exactly once via [`Self::walk_matching_candidates`], decoding each
     /// candidate's curve at most once, and returns both the capped display page (in
@@ -182,13 +181,9 @@ impl Database {
         if range.performance.is_empty() {
             let display =
                 self.search_diagrams_display(query, shape_filter, gear_filter, range, filters)?;
-            // A page shorter than the cap already IS the exact total -- there is
-            // nothing past it to count (see `search_diagrams_page`'s doc comment on
-            // the same "short page means no more" contract). Skipping the separate
-            // `COUNT(*)` query in that case is the common case for this catalogue's
-            // size (most searches return under `SEARCH_RESULT_CAP` rows): measured at
-            // 37 ms search + 36 ms count when both always ran, vs just the search when
-            // the count is now free.
+            // A page shorter than the cap already IS the exact total (see
+            // `search_diagrams_page`'s "short page means no more" contract), so the
+            // separate `COUNT(*)` is skipped; most searches return under the cap.
             let limit_usize = usize::try_from(SEARCH_RESULT_CAP).unwrap_or(0);
             let total = if display.items.len() < limit_usize {
                 display.items.len()
@@ -384,10 +379,9 @@ impl Database {
     }
 
     /// Every entry id matching `query`/`shape_filter`/`gear_filter`/`range`/`filters`,
-    /// with NO [`SEARCH_RESULT_CAP`] truncation -- the library's "regenerate previews/
-    /// tilt curves for the whole filtered set" batch action needs the REAL match set,
-    /// not just the capped page a display query shows (`Self::search_diagrams_display`)
-    /// or a bare count (`Self::count_matching_diagrams`).
+    /// with NO [`SEARCH_RESULT_CAP`] truncation: a batch action over the filtered set needs
+    /// the REAL match set, not the capped page a display query shows
+    /// (`Self::search_diagrams_display`) or a bare count (`Self::count_matching_diagrams`).
     ///
     /// Walks the whole match set via the same offset-paginated
     /// [`Self::search_diagrams_page_raw_ordered`]/exact-performance-filter-recheck

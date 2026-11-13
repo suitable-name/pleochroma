@@ -1,8 +1,9 @@
-//! The fan-out export queue itself: [`ExportQueue`]/[`ExportJob`], the pure
-//! scene-transform helpers that build each job's [`bridge::export_thread::SceneSnapshot`],
-//! and [`start_next_export_job`]/[`finish_export_queue`] which step through the queue
-//! one job at a time -- see this group's own `mod.rs` doc comment for why sequential,
-//! and why `Arc<Mutex<_>>>`.
+//! The fan-out export queue and its job stepping.
+//!
+//! [`ExportQueue`] and [`ExportJob`] hold the queue, the pure scene-transform helpers build each
+//! job's [`bridge::export_thread::SceneSnapshot`], and [`start_next_export_job`]/
+//! [`finish_export_queue`] step through the queue one job at a time. The `mod.rs` doc comment
+//! explains why the jobs run one after another and why the queue sits behind `Arc<Mutex<_>>`.
 
 use crate::{
     ExportModel, MainWindow,
@@ -16,7 +17,13 @@ use crate::{
     },
     settings::{LightingPreset as SavedLightingPreset, LocalComputeTarget, model::PITCH_RANGE_RAD},
 };
-use pleochroma::color::ColorSpace;
+use pleochroma::{
+    color::ColorSpace,
+    renderer::{
+        accel::PathCacheSettings, accel_beam::BeamSettings, adaptive::AdaptiveSettings,
+        env_map::HdrOrientation,
+    },
+};
 use slint::ComponentHandle;
 use std::{
     collections::VecDeque,
@@ -25,9 +32,8 @@ use std::{
     time::Instant,
 };
 
-/// `export_dialog.slint`'s "Compute" pill index (0/1/2, see that property's own doc
-/// comment) -> [`ComputeTarget`]. Mirrors `gui::color_space_from_index`'s own
-/// int-discriminant convention.
+/// Maps the export dialog's "Compute" pill index (0, 1 or 2) to a [`ComputeTarget`], following
+/// the convention of `gui::color_space_from_index`.
 pub(in crate::gui) const fn compute_target_from_index(index: i32) -> ComputeTarget {
     match index {
         0 => ComputeTarget::LocalOnly,
@@ -36,19 +42,12 @@ pub(in crate::gui) const fn compute_target_from_index(index: i32) -> ComputeTarg
     }
 }
 
-/// Overrides a freshly captured [`SceneSnapshot`]'s bounce cap with the export
-/// dialog's OWN choice, rather than leaving whatever `SceneSnapshot::capture` read from
-/// the live viewport's `guard.max_bounces` at capture time.
+/// Overrides a captured [`SceneSnapshot`]'s bounce cap with the export dialog's own choice,
+/// instead of the live viewport's `max_bounces` that `SceneSnapshot::capture` read.
 ///
-/// This exists as a separate, pure step (not folded into `capture` itself) for two
-/// reasons: `capture` takes its lock deliberately short (see that function's own doc
-/// comment), so it must not grow a reason to hold it any longer than reading the
-/// viewport's own state requires; and `scene.max_bounces` is the SAME field
-/// `batch::render_batch`/`GpuSceneRef::max_bounces` (local CPU/GPU) and
-/// `remote::scene_state_from_snapshot` (the remote `RenderRequest`) all read from --
-/// overriding it here, once, before any fanned-out preset clones the base capture,
-/// is what guarantees the base render AND every fanned-out preset render trace at the
-/// SAME cap.
+/// A separate pure step, so `capture` keeps its lock short. The local and the remote renders
+/// both read this one field. Overriding it once, before the fan-out clones the base capture,
+/// makes the base render and every preset render trace at the same cap.
 #[must_use]
 pub(in crate::gui) const fn apply_export_bounce_cap(
     mut scene: SceneSnapshot,
@@ -58,37 +57,24 @@ pub(in crate::gui) const fn apply_export_bounce_cap(
     scene
 }
 
-/// Overlays a saved preset's light/camera/HDR-map fields onto a cloned base capture --
-/// the export-time counterpart of `gui::render::lighting_presets`'s live-apply
-/// callback, and deliberately following the exact same rules:
+/// Overlays a saved preset's light, camera and HDR-map fields onto a cloned base capture. The
+/// rules are those of the live apply in `gui::render::lighting_presets`:
 ///
-/// - light yaw/pitch/exposure/rig and the surface glare, backdrop and head shadow are ALWAYS
-///   overlaid -- every saved lighting carries these (read as one `LightingValues`; an older
-///   preset reads the current defaults for the three it lacks).
-/// - camera pose is overlaid only when the preset carries one (`camera_yaw`/
-///   `camera_pitch` both `Some`) -- otherwise the base capture's own camera (whatever
-///   the live viewport is currently posed at) is what this preset's render uses. See
-///   `settings::model::LightingPreset`'s doc comment for why `None` must mean "leave
-///   it alone", not "reset to some default", here exactly as it does when applying a
-///   preset live.
-/// - the HDR environment map is overlaid when the preset carries one AND it still
-///   loads successfully; a preset pointing at a file that has since moved or been
-///   deleted leaves the base capture's own environment untouched (silently, matching
-///   `gui::render::lighting_presets`' own "never assign on `Err`" rule) rather than
-///   failing this preset's whole render over a missing side asset -- the render itself
-///   is still worth producing. A preset without a map clears the base capture's map (the
-///   rig it names comes back), the same as applying it live.
+/// - The light, exposure, rig, glare, backdrop, head shadow, Stone Shadow and Tray Reflection
+///   are always overlaid. Fields a preset lacks take their serde defaults (`LightingValues`).
+/// - The camera pose is overlaid only when the preset carries one (`camera_yaw`/`camera_pitch`
+///   both `Some`). `None` leaves the base capture's camera alone (see
+///   `settings::model::LightingPreset`).
+/// - The HDR map is overlaid when the preset carries one and it loads, with the preset's own
+///   rotation (yaw and "turns with the camera"). A map that cannot be loaded leaves the base
+///   capture's environment in place, so a missing file does not fail the whole render. A preset
+///   without a map clears the base capture's map, as the live apply does.
 ///
-/// Material and geometry are never touched here: a preset is a captured VIEW (this
-/// type's own doc comment), never a material or cut choice, so every fanned-out render
-/// shares the exact material/geometry the base current-view capture already resolved.
+/// Material and geometry are never touched: a preset is a view, so every fanned-out render
+/// shares the material and geometry of the base capture.
 ///
-/// `mesh_bounding_radius` is the SAME live figure `gui::render::lighting_presets`'
-/// live-apply and the live orbit camera both clamp `distance` against (`main_window`'s
-/// own `Arc<Mutex<f64>>`, read once by the caller before the fan-out starts) -- without
-/// it, a preset's `camera_distance` reached the exported scene completely unclamped,
-/// unlike every other path that ever sets `RenderContext::distance`/`SceneSnapshot::
-/// distance`.
+/// `mesh_bounding_radius` is the live figure the live apply and the orbit camera clamp `distance`
+/// against. The caller reads it once before the fan-out starts.
 #[must_use]
 pub(super) fn apply_preset_to_scene(
     mut scene: SceneSnapshot,
@@ -105,7 +91,8 @@ pub(super) fn apply_preset_to_scene(
         .clamp(PITCH_RANGE_RAD.0, PITCH_RANGE_RAD.1);
     scene.lighting_preset =
         crate::gui::optics::offered_lighting::offered_from_label(&values.lighting_rig);
-    // A saved lighting is a complete look: its glare, backdrop and head shadow come with it.
+    // A saved lighting is a complete look: its glare, backdrop, head shadow, Stone Shadow and
+    // Tray Reflection come with it.
     scene.surface_glare = values.surface_glare;
     // Resolved at the saved lighting's own preset and pose (set just above), never the
     // base capture's: the tray's brightness follows the rig that lights it.
@@ -114,6 +101,18 @@ pub(super) fn apply_preset_to_scene(
             .backdrop
             .resolve(scene.lighting_preset, scene.light_yaw, scene.light_pitch);
     scene.head_shadow_deg = values.head_shadow_deg;
+    scene.stone_shadow = values.stone_shadow;
+    scene.tray_reflection = values.tray_reflection;
+    // The base capture looked at the stone only if it asked for a shadow or a reflection;
+    // a stone found not closed stays not closed.
+    if scene.stone_closed {
+        scene.stone_closed = SceneSnapshot::stone_closed_for(
+            scene.stone_shadow,
+            scene.tray_reflection,
+            &scene.active_planes,
+            &scene.tools,
+        );
+    }
     // The distance comes with a recorded camera pose only, matching `lighting_presets`'
     // own live-apply: a lighting-only preset keeps the base capture's zoom.
     if let Some(distance) = values.camera_distance {
@@ -128,14 +127,21 @@ pub(super) fn apply_preset_to_scene(
         scene.camera_roll = roll;
     }
 
-    match &values.env_map_path {
-        Some(path) => {
-            if let Ok(map) = load_env_map(path) {
-                scene.env_map = Some(map);
-            }
+    if let Some(path) = &values.env_map_path {
+        if let Ok(map) = load_env_map(path) {
+            scene.env_map = Some(map);
+            // The turn belongs to the map, as in the live apply (`keep_current_turn`): the
+            // saved turn comes with the map it loads; a map that fails to load keeps the base
+            // capture's map and its turn.
+            scene.hdr_orientation = HdrOrientation {
+                yaw: values.env_map_yaw_deg.to_radians(),
+                follows_camera: values.env_map_follows_camera,
+            };
         }
+    } else {
         // No map saved means no map: the rig comes back, as when the lighting is applied live.
-        None => scene.env_map = None,
+        scene.env_map = None;
+        scene.hdr_orientation = HdrOrientation::default();
     }
     // Metered for the saved lighting's own rig and pose, as `RenderContext::effective_exposure`
     // meters the live view; an HDR map keeps the plain exposure.
@@ -161,20 +167,16 @@ pub(in crate::gui) struct ExportJob {
     pub(in crate::gui) preset_label: String,
 }
 
-/// Everything shared across every job in one fan-out export, and across the recursive
-/// `start_next_export_job` calls that step through [`jobs`](Self::jobs) one at a time
-/// -- see this group's own `mod.rs` doc comment for why this lives behind
-/// `Arc<Mutex<_>>>` rather than a single-export `Rc<RefCell<Option<ExportHandle>>>>`.
+/// State shared by every job of one fan-out export.
+///
+/// It lives behind `Arc<Mutex<_>>` because the job callbacks run on other threads (see the
+/// `mod.rs` doc comment).
 ///
 /// # Progress: counting presets, not just samples within one image
 ///
-/// `total` jobs share the export dialog's single progress bar as one combined
-/// fraction -- `(current_index + this_job_own_fraction) / total`, computed in
-/// `start_next_export_job`'s own `on_progress` closure -- so a five-preset export's bar
-/// moves smoothly from 0% to 100% across the whole run. The alternative (each job
-/// reporting its own 0%-100%) would snap the bar back to 0% four times, which at a
-/// glance reads as the export hanging rather than progressing, or would reach 100%
-/// after job 1 and sit there while jobs 2-5 still run.
+/// The `total` jobs share the export dialog's one progress bar as a combined fraction,
+/// `(current_index + this_job_fraction) / total`, so a five-preset export moves smoothly from 0%
+/// to 100%. Per-job bars would snap back to 0% for each job, or reach 100% after the first one.
 pub(super) struct ExportQueue {
     pub(super) jobs: VecDeque<ExportJob>,
     pub(super) total: usize,
@@ -204,37 +206,33 @@ pub(super) struct ExportQueue {
     pub(super) colorspace: String,
 
     pub(super) params: export_thread::ExportParams,
+    /// The "Adaptive Sampling" choice (the cap is `params.samples_per_pixel`); `None` is off.
+    pub(super) adaptive: Option<AdaptiveSettings>,
+    /// The "Path Cache" choice (`persist` = "Keep for Re-Renders"); `None` is off.
+    pub(super) path_cache: Option<PathCacheSettings>,
+    /// The "Beam Tracing (Faceted Stones)" choice; `None` is off.
+    pub(super) beam: Option<BeamSettings>,
     pub(super) color_space: ColorSpace,
     /// Compute target, remote endpoint and transfer, fixed for the whole queue.
     pub(super) remote: export_thread::RemoteSelection,
     pub(super) local_compute: LocalComputeTarget,
 
-    /// The CURRENTLY RUNNING job's own time-remaining estimator -- reset every time
-    /// `start_next_export_job` starts a new job (see that function's own doc
-    /// comment), fed a fresh observation on every progress tick
-    /// (`handle_export_job_progress`), and read back into `ExportModel.eta_text`
-    /// right alongside it. Deliberately per-job, not per-whole-fan-out: a fresh
-    /// preset render can trace at a very different rate than the one before it
-    /// (a different lighting rig, a moved HDR environment, remote vs. local), so
-    /// carrying one job's observations into the next would fit a line across two
-    /// unrelated rates.
+    /// The running job's time-remaining estimator. Reset when a job starts and fed on every
+    /// progress tick (`handle_export_job_progress`). It is per job, not per fan-out: jobs can
+    /// render at very different rates (lighting rig, HDR map, local or remote), so one fit
+    /// across them would be wrong.
     pub(super) eta: EtaEstimator,
 }
 
-/// `ColorSpace`'s own display label, matching `export_dialog.slint`'s pill text --
-/// used only for the `{colorspace}` template variable, so this doesn't need to be a
-/// method on `ColorSpace` itself (that type has no UI-facing concerns of its own; every
-/// other consumer works with the enum directly).
+/// The display label of a `ColorSpace`, as `export_dialog.slint` shows it. Used only for the
+/// `{colorspace}` template variable, so it stays out of the `ColorSpace` type.
 pub(in crate::gui) const fn colorspace_label(cs: ColorSpace) -> &'static str {
     match cs {
         ColorSpace::Srgb => "sRGB",
         ColorSpace::DisplayP3 => "Display P3",
         ColorSpace::Rec2020 => "Rec.2020",
-        // Not offered by `export_dialog.slint`'s picker (see `bridge::export_thread`'s
-        // module doc comment on why a scene-linear space doesn't belong in an 8-bit PNG
-        // export) -- included here only so this match stays exhaustive against a future
-        // `ColorSpace` variant addition rather than silently compiling with a
-        // wildcard arm that could hide one.
+        // Not offered by the export dialog (a scene-linear space does not suit an 8-bit
+        // picture, see `bridge::export_thread`). Listed so the match stays exhaustive.
         ColorSpace::AcesCg => "ACEScg",
     }
 }
@@ -309,21 +307,17 @@ pub(in crate::gui) fn template_context(
     }
 }
 
-/// Finalizes the queue once every job has run (or the queue was cancelled): resumes the
-/// live viewport, clears the in-progress preview, and reports one combined outcome
-/// message covering every file this export attempted -- rather than the LAST job's own
-/// outcome, which would silently hide an earlier preset's failure the moment a later
-/// one happened to succeed.
+/// Finalizes the queue once every job has run or the queue was cancelled: resumes the live
+/// viewport, clears the preview, and reports one combined outcome for every file attempted, so
+/// an earlier failure is not hidden by a later success.
 pub(super) fn finish_export_queue(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
     queue: &ExportQueue,
 ) {
     ui.global::<ExportModel>().set_is_exporting(false);
-    // A COUNT, not a bool: the batch preview/tilt jobs can be in flight
-    // at the same time as a fanned-out hi-res export queue, so this decrements this
-    // queue's own claim rather than unconditionally clearing every job's -- see
-    // `RenderContext::export_active_count`'s doc comment.
+    // A count, not a flag: batch preview and tilt jobs can run alongside this queue, so it
+    // releases only its own claim. See `RenderContext::export_active_count`.
     if queue.remote.compute_target.pauses_live_viewport() {
         RenderContext::lock(render_ctx).export_active_count -= 1;
     }
@@ -375,12 +369,10 @@ pub(super) fn finish_export_queue(
     }
 }
 
-/// Pops the next job off `queue` and starts it, or finalizes the queue if none remain
-/// (or it was cancelled) -- called once to kick off the whole export, and once more
-/// from every job's own `on_done` to advance to the next one. Recursion through a named
-/// function (not a closure capturing itself) so `export_thread::spawn_export`'s
-/// `on_done` bound (`Fn`, not `FnMut`, `+ Clone`) is trivially satisfiable: each call
-/// just builds a fresh pair of closures over `Arc::clone`s of `render_ctx`/`queue`.
+/// Starts the next job of `queue`, or finalizes the queue when none remain or it was cancelled.
+/// Called once to start the export and then from each job's `on_done`. It recurses through a
+/// named function, not a self-capturing closure, so `spawn_export`'s `Fn` bound on `on_done`
+/// holds: each call builds fresh closures over `Arc` clones.
 pub(super) fn start_next_export_job(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
@@ -411,18 +403,25 @@ pub(super) fn start_next_export_job(
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let ctx = template_context_for_job(&q, &job);
         let output_path = export_thread::resolve_export_path(&q.export_dir, &q.template, &ctx);
-        // A fresh job's own render rate starts fresh too -- see `ExportQueue::eta`'s
-        // own doc comment on why this resets per job rather than per whole fan-out.
+        // A fresh job starts with a fresh rate estimate (see `ExportQueue::eta`).
         q.eta.reset();
         (q.current_index, q.total, output_path)
     };
     set_starting_job_ui_state(ui, current_index, total, &job);
 
-    let (params, color_space, remote, local_compute) = {
+    let (params, adaptive, path_cache, beam, color_space, remote, local_compute) = {
         let q = queue
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        (q.params, q.color_space, q.remote.clone(), q.local_compute)
+        (
+            q.params,
+            q.adaptive,
+            q.path_cache,
+            q.beam,
+            q.color_space,
+            q.remote.clone(),
+            q.local_compute,
+        )
     };
     ui.global::<ExportModel>()
         .set_preview_samples_total(params.samples_per_pixel.cast_signed());
@@ -435,6 +434,9 @@ pub(super) fn start_next_export_job(
         ui.as_weak(),
         job.scene,
         params,
+        adaptive,
+        path_cache,
+        beam,
         color_space,
         output_path,
         remote,
@@ -455,9 +457,8 @@ pub(super) fn start_next_export_job(
     }
 }
 
-/// Resets the export panel's progress/preview UI for the job about to start. Split out
-/// of `start_next_export_job` purely to keep that function under clippy's
-/// function-length lint.
+/// Resets the export panel's progress and preview for the job about to start. Kept apart to
+/// stay under clippy's function-length lint.
 fn set_starting_job_ui_state(ui: &MainWindow, current_index: usize, total: usize, job: &ExportJob) {
     ui.global::<ExportModel>()
         .set_preset_index(i32::try_from(current_index).unwrap_or(i32::MAX));
@@ -474,16 +475,16 @@ fn set_starting_job_ui_state(ui: &MainWindow, current_index: usize, total: usize
     ui.global::<ExportModel>().set_preview_samples_done(0);
     ui.global::<ExportModel>()
         .set_preview_image(slint::Image::default());
-    // The previous job's own estimate must not linger over this one's first tick --
-    // `handle_export_job_progress` sets a fresh reading again as soon as this job's
-    // own progress starts arriving.
+    // The previous job's estimate must not linger; `handle_export_job_progress` sets a new one.
     ui.global::<ExportModel>()
         .set_eta_text(String::new().into());
+    // Likewise the previous job's note (the path cache's size line or the reason it is off).
+    ui.global::<ExportModel>()
+        .set_progress_note(String::new().into());
 }
 
-/// `export_thread::spawn_export`'s `on_progress` callback body for
-/// `start_next_export_job`. Split out purely to keep that function under clippy's
-/// function-length lint.
+/// The `on_progress` callback of `spawn_export` (see `start_next_export_job`). Kept apart for
+/// clippy's function-length lint.
 fn handle_export_job_progress(
     ui: &MainWindow,
     queue: &Arc<Mutex<ExportQueue>>,
@@ -494,6 +495,10 @@ fn handle_export_job_progress(
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let now = Instant::now();
+        #[cfg(feature = "beam")]
+        q.eta
+            .observe_stretch(now, f64::from(progress.fraction), progress.beam.is_some());
+        #[cfg(not(feature = "beam"))]
         q.eta.observe(now, f64::from(progress.fraction));
         let eta_text = format_eta(q.eta.eta(now));
         (q.current_index, q.total, eta_text)
@@ -510,14 +515,16 @@ fn handle_export_job_progress(
             .set_preview_image(crate::bridge::pixel_buffer::rgba_image(buf));
     }
     if let Some(note) = progress.note {
+        // A note comes once: the toast shows it for a moment, the dialog keeps it under the
+        // progress bar for the rest of the job (the path cache's size line, or why it is off).
+        ui.global::<ExportModel>()
+            .set_progress_note(note.clone().into());
         show_toast(ui, &note, "info");
     }
 }
 
-/// `export_thread::spawn_export`'s `on_done` callback body for
-/// `start_next_export_job`: records the finished job's outcome, then recurses into the
-/// next one (see `start_next_export_job`'s own doc comment on this recursion). Split
-/// out purely to keep that function under clippy's function-length lint.
+/// The `on_done` callback of `spawn_export`: records the finished job's outcome, then starts
+/// the next one (see `start_next_export_job`).
 fn handle_export_job_done(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
@@ -544,12 +551,8 @@ mod tests {
     use super::*;
     use std::sync::Mutex;
 
-    /// The export's bounce cap must come from the export dialog, not silently
-    /// inherit whatever the live viewport happens to be set to. Captures a snapshot
-    /// from a `RenderContext` at one bounce count (standing in for "whatever the
-    /// viewport is currently set to") and
-    /// confirms `apply_export_bounce_cap` overrides it to a DIFFERENT value rather than
-    /// leaving the captured one in place.
+    /// The export's bounce cap comes from the export dialog, not from the live viewport: a
+    /// snapshot captured at one bounce count is overridden by `apply_export_bounce_cap`.
     #[test]
     fn apply_export_bounce_cap_overrides_the_snapshot_not_the_viewport_default() {
         let viewport_ctx = Mutex::new(RenderContext {
@@ -569,9 +572,8 @@ mod tests {
         );
     }
 
-    /// Compute-target mapping's own seam guard -- see `compute_target_from_index`'s doc
-    /// comment for why this mirrors `gui::color_space_from_index`'s convention, which
-    /// has its own equivalent test in `gui::mod`.
+    /// Pins the pill mapping. `gui::color_space_from_index` follows the same convention and has
+    /// its own test in `gui::startup_settings`.
     #[test]
     fn compute_target_from_index_maps_all_three_pill_values() {
         assert_eq!(compute_target_from_index(0), ComputeTarget::LocalOnly);
@@ -593,11 +595,8 @@ mod tests {
         assert_eq!(colorspace_label(ColorSpace::AcesCg), "ACEScg");
     }
 
-    /// A preset with no camera pose must leave the base capture's own camera pose
-    /// untouched -- the export-time mirror of `gui::render::lighting_presets`'
-    /// `setup_apply_lighting_preset_callback`'s live-apply behaviour, and the whole
-    /// reason `camera_yaw`/`camera_pitch` are `Option` in the first place (see
-    /// `settings::model::LightingPreset`'s own doc comment).
+    /// A preset without a camera pose leaves the base capture's camera untouched, as the live
+    /// apply does (see `settings::model::LightingPreset`).
     #[test]
     fn apply_preset_to_scene_leaves_camera_untouched_when_the_preset_carries_none() {
         let base = SceneSnapshot::capture(&Mutex::new(RenderContext {
@@ -622,6 +621,10 @@ mod tests {
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
             backdrop: crate::settings::model::Backdrop::default(),
             head_shadow_deg: crate::settings::model::DEFAULT_HEAD_SHADOW_DEG,
+            stone_shadow: false,
+            tray_reflection: 0.0,
+            env_map_yaw_deg: 0.0,
+            env_map_follows_camera: false,
         };
         let overlaid = apply_preset_to_scene(base.clone(), &preset, 1.5);
         assert_eq!(overlaid.yaw, base.yaw);
@@ -634,10 +637,7 @@ mod tests {
         assert_eq!(overlaid.light_yaw, preset.light_yaw_deg.to_radians());
     }
 
-    /// A preset that DOES carry a camera pose must overlay it -- confirms the
-    /// `camera_yaw`/`camera_pitch` "`None` means leave it alone" contract (this
-    /// function's own doc comment) actually reaches the export path, not just the
-    /// live-apply one.
+    /// A preset with a camera pose overlays it on the export path too.
     #[test]
     fn apply_preset_to_scene_overlays_camera_when_the_preset_carries_one() {
         let base = SceneSnapshot::capture(&Mutex::new(RenderContext {
@@ -662,6 +662,10 @@ mod tests {
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
             backdrop: crate::settings::model::Backdrop::default(),
             head_shadow_deg: crate::settings::model::DEFAULT_HEAD_SHADOW_DEG,
+            stone_shadow: false,
+            tray_reflection: 0.0,
+            env_map_yaw_deg: 0.0,
+            env_map_follows_camera: false,
         };
         let overlaid = apply_preset_to_scene(base, &preset, 1.5);
         assert_eq!(overlaid.yaw, 0.75);
@@ -676,6 +680,7 @@ mod tests {
         let base = SceneSnapshot::capture(&Mutex::new(RenderContext {
             surface_glare: 1.0,
             head_shadow_deg: 16.0,
+            stone_shadow: false,
             env_map: Some(Arc::new(
                 pleochroma::renderer::env_map::EnvironmentMap::uniform(2, 2, [1.0, 1.0, 1.0]),
             )),
@@ -699,10 +704,204 @@ mod tests {
             surface_glare: 0.25,
             backdrop: crate::settings::model::Backdrop::default(),
             head_shadow_deg: 5.0,
+            stone_shadow: false,
+            tray_reflection: 0.0,
+            env_map_yaw_deg: 0.0,
+            env_map_follows_camera: false,
         };
         let overlaid = apply_preset_to_scene(base, &preset, 1.5);
         assert_eq!(overlaid.surface_glare.to_bits(), 0.25_f32.to_bits());
         assert_eq!(overlaid.head_shadow_deg.to_bits(), 5.0_f32.to_bits());
         assert!(overlaid.env_map.is_none(), "no saved map means the rig");
+    }
+
+    /// A saved lighting carries its map rotation into the fanned-out scene: a preset with a map
+    /// sets the preset's yaw and follow switch, and one without a map clears the base capture's
+    /// turn along with its map.
+    #[test]
+    fn apply_preset_to_scene_sets_the_saved_maps_orientation() {
+        let pixels: Vec<image::Rgb<f32>> = (0..64)
+            .map(|i| image::Rgb([(i as f32).mul_add(0.01, 0.2), 0.5, 0.25]))
+            .collect();
+        let mut bytes = Vec::new();
+        image::codecs::hdr::HdrEncoder::new(&mut bytes)
+            .encode(&pixels, 16, 4)
+            .expect("the map encodes");
+        let path =
+            std::env::temp_dir().join(format!("pleochroma_queue_turn_{}.hdr", std::process::id()));
+        std::fs::write(&path, &bytes).expect("the map is written");
+        let base = SceneSnapshot::capture(&Mutex::new(RenderContext::default()))
+            .expect("Diamond resolves");
+        let mut preset = SavedLightingPreset {
+            name: "Turned".to_string(),
+            built_in: false,
+            light_yaw_deg: 10.0,
+            light_pitch_deg: 20.0,
+            exposure: 0.8,
+            lighting_rig: "Gem Studio Ring Lights".to_string(),
+            camera_distance: 2.0,
+            camera_yaw: None,
+            camera_pitch: None,
+            camera_roll: None,
+            env_map_path: Some(path.to_string_lossy().into_owned()),
+            export_usable: true,
+            surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
+            backdrop: crate::settings::model::Backdrop::default(),
+            head_shadow_deg: crate::settings::model::DEFAULT_HEAD_SHADOW_DEG,
+            stone_shadow: false,
+            tray_reflection: 0.0,
+            env_map_yaw_deg: 90.0,
+            env_map_follows_camera: true,
+        };
+        let turned = apply_preset_to_scene(base, &preset, 1.5);
+        assert!(turned.env_map.is_some(), "the saved map loads");
+        assert_eq!(
+            turned.hdr_orientation,
+            HdrOrientation {
+                yaw: 90.0_f32.to_radians(),
+                follows_camera: true
+            },
+            "the saved lighting's turn reaches the exported scene"
+        );
+        preset.env_map_path = None;
+        let studio = apply_preset_to_scene(turned, &preset, 1.5);
+        assert!(studio.env_map.is_none());
+        assert_eq!(studio.hdr_orientation, HdrOrientation::default());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// A saved lighting with the Stone Shadow on reaches the fanned-out scene, and one with it
+    /// off clears what the base capture had.
+    #[test]
+    fn apply_preset_to_scene_carries_the_stone_shadow() {
+        let base = SceneSnapshot::capture(&Mutex::new(RenderContext {
+            stone_shadow: false,
+            ..Default::default()
+        }))
+        .expect("Diamond resolves");
+        assert!(!base.stone_shadow);
+        let mut preset = SavedLightingPreset {
+            name: "Shadow".to_string(),
+            built_in: false,
+            light_yaw_deg: 10.0,
+            light_pitch_deg: 20.0,
+            exposure: 0.8,
+            lighting_rig: "Gem Studio Ring Lights".to_string(),
+            camera_distance: 2.0,
+            camera_yaw: None,
+            camera_pitch: None,
+            camera_roll: None,
+            env_map_path: None,
+            export_usable: true,
+            surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
+            backdrop: crate::settings::model::Backdrop::default(),
+            head_shadow_deg: crate::settings::model::DEFAULT_HEAD_SHADOW_DEG,
+            stone_shadow: true,
+            tray_reflection: 0.0,
+            env_map_yaw_deg: 0.0,
+            env_map_follows_camera: false,
+        };
+        let on = apply_preset_to_scene(base, &preset, 1.5);
+        assert!(
+            on.stone_shadow,
+            "the saved lighting's shadow reaches the scene"
+        );
+        preset.stone_shadow = false;
+        let off = apply_preset_to_scene(on, &preset, 1.5);
+        assert!(!off.stone_shadow, "a saved lighting without it clears it");
+    }
+
+    /// A saved lighting with a Tray Reflection reaches the fanned-out scene, and one without it
+    /// clears what the base capture had.
+    #[test]
+    fn apply_preset_to_scene_carries_the_tray_reflection() {
+        let base = SceneSnapshot::capture(&Mutex::new(RenderContext {
+            tray_reflection: 0.5,
+            ..Default::default()
+        }))
+        .expect("Diamond resolves");
+        assert_eq!(base.tray_reflection.to_bits(), 0.5f32.to_bits());
+        let mut preset = SavedLightingPreset {
+            name: "Glossy".to_string(),
+            built_in: false,
+            light_yaw_deg: 10.0,
+            light_pitch_deg: 20.0,
+            exposure: 0.8,
+            lighting_rig: "Gem Studio Ring Lights".to_string(),
+            camera_distance: 2.0,
+            camera_yaw: None,
+            camera_pitch: None,
+            camera_roll: None,
+            env_map_path: None,
+            export_usable: true,
+            surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
+            backdrop: crate::settings::model::Backdrop::default(),
+            head_shadow_deg: crate::settings::model::DEFAULT_HEAD_SHADOW_DEG,
+            stone_shadow: false,
+            tray_reflection: 0.04,
+            env_map_yaw_deg: 0.0,
+            env_map_follows_camera: false,
+        };
+        let on = apply_preset_to_scene(base, &preset, 1.5);
+        assert_eq!(on.tray_reflection.to_bits(), 0.04f32.to_bits());
+        preset.tray_reflection = 0.0;
+        let off = apply_preset_to_scene(on, &preset, 1.5);
+        assert_eq!(off.tray_reflection.to_bits(), 0);
+    }
+
+    /// A base capture of a stone that is not closed asked for nothing, so it never looked; a
+    /// preset that turns the shadow on must still leave the remote scene without it.
+    #[test]
+    fn apply_preset_to_scene_keeps_a_stone_that_is_not_closed_out_of_the_remote_scene() {
+        let base = SceneSnapshot::capture(&Mutex::new(RenderContext {
+            stone_shadow: false,
+            active_planes: Arc::new(Vec::new()),
+            ..Default::default()
+        }))
+        .expect("Diamond resolves");
+        assert!(
+            base.stone_closed,
+            "nothing was asked for, so nothing looked"
+        );
+        let preset = SavedLightingPreset {
+            name: "Shadow".to_string(),
+            built_in: false,
+            light_yaw_deg: 10.0,
+            light_pitch_deg: 20.0,
+            exposure: 0.8,
+            lighting_rig: "Gem Studio Ring Lights".to_string(),
+            camera_distance: 2.0,
+            camera_yaw: None,
+            camera_pitch: None,
+            camera_roll: None,
+            env_map_path: None,
+            export_usable: true,
+            surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
+            backdrop: crate::settings::model::Backdrop::default(),
+            head_shadow_deg: crate::settings::model::DEFAULT_HEAD_SHADOW_DEG,
+            stone_shadow: true,
+            tray_reflection: 0.04,
+            env_map_yaw_deg: 0.0,
+            env_map_follows_camera: false,
+        };
+        let overlaid = apply_preset_to_scene(base, &preset, 1.5);
+        assert!(!overlaid.stone_closed);
+        assert!(!overlaid.remote_stone_shadow());
+        assert_eq!(overlaid.remote_tray_reflection().to_bits(), 0);
+    }
+
+    /// A job scene of a stone that is not closed resolves to a snapshot that is not closed, and
+    /// the scene built back from it carries no shadow.
+    #[test]
+    fn a_job_scene_of_a_stone_that_is_not_closed_carries_no_shadow() {
+        use crate::gui::render_jobs::convert::{scene_from_snapshot, snapshot_from_scene};
+        let base = SceneSnapshot::capture(&Mutex::new(RenderContext::default()))
+            .expect("Diamond resolves");
+        let mut scene = scene_from_snapshot(&base, 16, 16);
+        scene.planes.clear();
+        scene.stone_shadow = true;
+        let snapshot = snapshot_from_scene(&scene, None);
+        assert!(!snapshot.stone_closed);
+        assert!(!scene_from_snapshot(&snapshot, 16, 16).stone_shadow);
     }
 }

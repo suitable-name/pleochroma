@@ -417,8 +417,7 @@ fn arithmetic_that_cannot_be_done_is_refused_by_name() {
 #[test]
 fn a_literal_beyond_the_largest_allowed_number_is_refused_when_typed() {
     let design = design_with(&[("A", 10.0), ("B", 40.0)]);
-    // The old overflow test relied on 1e308 literals; the limit is deliberate, so they
-    // are refused up front with the plain-English reason.
+    // Constants above the limit are refused when typed, with the plain-English reason.
     let too_large = "This relation is too big, or uses a number that is too large.";
     for text in ["B * 1e308 * 1e308", "B * 1e10", "B + 2e9", "-1e10 + B"] {
         assert_eq!(

@@ -30,10 +30,9 @@ component HintButton inherits Rectangle {
 
 // The one-line strip under the Solid view's toolbar row: what the pointer is on or what
 // the gesture in progress does (`ManipulateModel.hint-text`). Styled like the toolbar's
-// status strip. The instantiating site hides it while there is neither text nor a
-// provisional slice. At the right it carries the Slice tool's buttons: Symmetric
-// (whenever Slice mode is on), and Keep, Discard and Flip while a provisional tier
-// exists.
+// status strip. The caller hides it while there is neither text nor a provisional slice.
+// At the right it carries the Slice tool's buttons: Symmetric (in Slice mode or while a
+// provisional tier exists), and Keep, Discard and Flip while a provisional tier exists.
 export component ManipulateHintBar inherits Rectangle {
     // Explicit geometry, like `SolidToolbar`: keeps this overlay from propagating its
     // constraints to the view. The root only frames the view; the strip itself is the
@@ -43,8 +42,7 @@ export component ManipulateHintBar inherits Rectangle {
     width: 100%;
     height: 100%;
 
-    // The height of the toolbar's pill rows above the strip (one row, or two when the
-    // view is narrow; `SolidToolbar.top-height`).
+    // Height of the toolbar's pill rows above the strip (`SolidToolbar.top-height`).
     in property <length> toolbar-height: 28px;
 
     // Room reserved at the strip's right end for the buttons.

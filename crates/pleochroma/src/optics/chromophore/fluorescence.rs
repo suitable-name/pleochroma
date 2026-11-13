@@ -1,5 +1,5 @@
 //! Fluorescence of a color recipe: the emitters of its chromophores, their quenching, and the
-//! analytic glow under a UV lamp (`docs/fluorescence-plan.md` sections 3 and 5).
+//! analytic glow under a UV lamp.
 //!
 //! "What absorbs is what glows": an emitter's excitation bands are the chromophore's own
 //! resolved absorption bands scaled by its effective concentration (strength and treatment
@@ -624,9 +624,9 @@ mod tests {
         assert!(b.photon_yield < 0.1 * a.photon_yield, "{b:?} vs {a:?}");
     }
 
-    /// Emerald: iron halves the R-line yield at 660 ppm Fe (0.0849 wt% `FeO`; a DERIVED estimate
-    /// from the GIA Fall 2017 abstract, `research-2026-10-primary-data` section 8) and the n = 2
-    /// law gives the abstract's tenfold fall (12-fold) at 2200 ppm Fe.
+    /// Emerald: iron halves the R-line yield at 660 ppm Fe (0.0849 wt% `FeO`, derived from the
+    /// GIA Fall 2017 abstract; see `docs/chromophores/research-2026-10-primary-data.md`
+    /// section 8). The n = 2 law then gives the abstract's tenfold fall (12-fold) at 2200 ppm Fe.
     #[test]
     fn emerald_iron_quench_halves_the_yield_at_660_ppm_fe() {
         let fe_amount = |ppmw: f64| {

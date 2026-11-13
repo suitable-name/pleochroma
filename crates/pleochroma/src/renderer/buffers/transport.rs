@@ -3,40 +3,28 @@
 
 use core::mem::offset_of;
 
-use crate::optics::raytracer::{DEFAULT_HEAD_SHADOW_COSINES, TentParams};
+use crate::{
+    optics::raytracer::{DEFAULT_HEAD_SHADOW_COSINES, Estimator, TentParams},
+    renderer::env_map::EnvRotation,
+};
 
 /// Per-dispatch kernel parameters for `shaders/spectral_transport.wgsl`'s
 /// `transport_main` entry point.
 ///
-/// `env_mode` selects which environment model to sample (`0` = the direction-independent
-/// "uniform furnace" grey environment at `l0`, `1` = the analytic studio rig at the
-/// given color temperature/exposure/rig-pose). `sample_offset` + `camera.num_samples`
-/// select the sample range this dispatch traces, mirroring
-/// `apps/pleochroma-worker/src/render_core.rs`'s `first_sample`/`samples` convention --
-/// this lets `estimator_check`'s statistical comparison give the CPU and GPU DISJOINT
-/// sample ranges, as production would. `white_balance` is the precomputed von-Kries
-/// white balance (`compute_illuminant_white_balance`, already ULP-verified by
-/// `environment_check`). This is a **Bradford LMS-space** diagonal scale, not an
-/// XYZ-space one -- the megakernel's `apply_von_kries_white_balance` transforms to
-/// Bradford LMS, applies this scale, and transforms back, mirroring the CPU side
-/// exactly.
+/// `env_mode` selects the environment model (see [`transport_env_mode`]). `sample_offset` +
+/// `camera.num_samples` select the sample range this dispatch traces, as the worker's
+/// `first_sample`/`samples` request does. This lets `estimator_check` give the CPU and GPU
+/// disjoint sample ranges. `white_balance` is the precomputed von-Kries scale
+/// (`compute_illuminant_white_balance`). It is a diagonal in **Bradford LMS** space, not XYZ:
+/// `apply_von_kries_white_balance` transforms to LMS, scales, and transforms back, as the CPU
+/// side does.
 ///
 /// # Layout
 ///
-/// This struct is 112 bytes. The `offset_of!`/`size_of!` asserts right below this
-/// `impl` block are what actually pin the layout; this paragraph is descriptive, kept in
-/// sync with them by hand.
-///
-/// The ten leading scalars pack into 40 bytes; `pixel_offset`/`write_debug_buffers` bring
-/// that to 48 (a multiple of 16), so `white_balance` (`vec3<f32>`) needs no padding
-/// before it, landing at offset 48 and ending at 60. `studio_use_d65` (offset 60) fills
-/// the remaining 4 bytes of that 16-byte block, bringing the running total to 64 --
-/// exactly what the struct WOULD be without the two fields below. `studio_model` (64)
-/// and `backdrop` (68) add one more 16-byte block; `surface_glare` (72) fills the next
-/// slot and `head_shadow_outer_cos` (76) completes that block (80 bytes). One more
-/// 16-byte row follows: `head_shadow_inner_cos` (80), `tent_flat` (84) and two pads (88, 92,
-/// genuine padding WGSL echoes but never reads). A last 16-byte row (96..112) holds the light-tent
-/// parameters `tent_walls`, `tent_cards`, `tent_spark`, `tent_ground`, for 112 bytes total.
+/// The struct is 128 bytes in eight 16-byte rows. The `offset_of!`/`size_of!` asserts after the
+/// `impl` blocks pin every offset. `white_balance` (`vec3<f32>`) starts a row at offset 48, so
+/// it needs no padding. The last four rows hold the lighting model, the head-shadow cone, the
+/// light-tent parameters and the HDR map's yaw (`hdr_rot_cos`, `hdr_rot_sin`) with two pad words.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct GpuTransportParams {
@@ -44,42 +32,38 @@ pub struct GpuTransportParams {
     pub num_pixels: u32,
     /// Maximum number of internal bounces per path.
     pub max_bounces: u32,
-    /// Sample offset.
+    /// Index of the first sample this dispatch traces.
     pub sample_offset: u32,
-    /// Env mode.
+    /// Environment model, see [`transport_env_mode`].
     pub env_mode: u32,
-    /// L0.
+    /// Radiance of the uniform furnace environment (`env_mode == UNIFORM_FURNACE`).
     pub l0: f32,
-    /// Studio temp k.
+    /// Color temperature of the studio rig's light, in kelvin.
     pub studio_temp_k: f32,
-    /// Studio spot mult.
+    /// Spot multiplier of the studio rig.
     pub studio_spot_mult: f32,
-    /// Studio exposure.
+    /// Studio exposure: the analytic rig's (`env_mode == STUDIO_RIG`). An HDR map's exposure
+    /// rides in [`Self::hdr_exposure`] instead.
     pub studio_exposure: f32,
-    /// Studio light yaw.
+    /// Azimuth of the studio key light.
     pub studio_light_yaw: f32,
-    /// Studio light pitch.
+    /// Pitch of the studio key light.
     pub studio_light_pitch: f32,
-    /// Index of the first pixel this dispatch covers, added to the shader's own
-    /// `idx / num_samples` to recover a GLOBAL pixel index for camera-ray generation
-    /// while output slots stay dispatch-local. Zero for a dispatch covering a whole
-    /// frame (every self-test); exists for `renderer::gpu::frame`, which splits a frame
-    /// too large for its memory budget into chunks.
+    /// Index of the first pixel this dispatch covers. The shader adds its `idx / num_samples` to
+    /// it to get the global pixel for camera rays, while output slots stay dispatch-local. Zero
+    /// for a whole-frame dispatch; `renderer::gpu::frame` uses it to split a frame into chunks.
     pub pixel_offset: u32,
-    /// Whether `transport_main` should write its three per-channel debug output buffers
-    /// (`out_radiance`/`out_lambdas`/`out_path_pdf`) this dispatch. Nonzero (the default)
-    /// reproduces every existing dispatch's behaviour. Zero (see
-    /// [`Self::with_debug_buffers_disabled`]) skips those writes -- only `out_xyz` is
-    /// written -- so a production dispatch does 9x less write traffic and its chunk
-    /// budget holds 9x more samples per dispatch.
+    /// Flag bits. Bit 0 ([`Self::DEBUG_WRITES_BIT`]) enables the three per-channel debug output
+    /// buffers (`out_radiance`, `out_lambdas`, `out_path_pdf`). [`Self::new`] sets it and
+    /// [`Self::with_debug_buffers_disabled`] clears it, leaving only `out_xyz` written. Bit 1 is
+    /// unused and must stay free. Bit 2 ([`Self::COLLECT_BIT`]) runs the exit-collection
+    /// estimator, see [`Self::with_estimator`].
     pub write_debug_buffers: u32,
-    /// White balance.
+    /// Von Kries scale in Bradford LMS space (see the struct docs).
     pub white_balance: [f32; 3],
-    /// Whether `sample_studio_environment_with_rig` should sample the tabulated CIE D65
-    /// measured spectrum (nonzero) instead of `blackbody_spectrum` at `studio_temp_k`
-    /// (zero, default) -- mirrors that function's own
-    /// `preset.uses_d65()` branch. Meaningless when
-    /// `env_mode == transport_env_mode::UNIFORM_FURNACE`.
+    /// Nonzero to sample the tabulated CIE D65 spectrum instead of `blackbody_spectrum` at
+    /// `studio_temp_k` (zero, the default). Mirrors `sample_studio_environment_with_rig`'s
+    /// `preset.uses_d65()` branch. Unused when `env_mode == transport_env_mode::UNIFORM_FURNACE`.
     pub studio_use_d65: u32,
     /// Which environment model to sample -- see [`studio_model`].
     pub studio_model: u32,
@@ -96,15 +80,18 @@ pub struct GpuTransportParams {
     pub head_shadow_outer_cos: f32,
     /// Inner cosine of the head-shadow cone: `head_shadow_cosines(..)[1]`.
     pub head_shadow_inner_cos: f32,
-    /// Light-tent wall flattening (`TentParams::flat`; `0.0` = the tent's gradient). Lives in
-    /// the first former pad slot (offset 84), so the struct size is unchanged.
+    /// Light-tent wall flattening (`TentParams::flat`; `0.0` = the tent's gradient). Offset 84.
     pub tent_flat: f32,
-    /// Number of concave-tool records appended to the `planes` storage buffer, right after
-    /// the real planes (`0`, the default, for a planar stone; see [`Self::with_tool_count`]
-    /// and `renderer::gpu::frame::tools`). Occupies the former `_pad_head_shadow1` slot
-    /// (offset 88), so the struct size is unchanged.
+    /// Number of concave-tool records appended to the `planes` storage buffer after the real
+    /// planes (`0` for a planar stone; see [`Self::with_tool_count`]). Offset 88.
     num_tools: u32,
-    _pad_head_shadow2: u32,
+    /// The HDR map's exposure (`EnvironmentSource::HdrMap::exposure`), read only by
+    /// `env_mode == transport_env_mode::HDR_MAP` (`hdr_rgb_at_exposure` in
+    /// `transport_bounce/04_studio_and_hdr_environment.wgsl`, the twin of
+    /// `optics::raytracer::environment::hdr_rgb_at_exposure`). Defaults to `1.0`, which the
+    /// shader skips: a uniform built without [`Self::with_hdr_of`] (the self-test harnesses)
+    /// lights the map as decoded. Offset 92.
+    pub hdr_exposure: f32,
     /// Light-tent wall scale (`TentParams::walls`; `1.0` = the tent). Only the
     /// `LIGHT_TENT` model reads the four `tent_*` fields.
     pub tent_walls: f32,
@@ -114,6 +101,18 @@ pub struct GpuTransportParams {
     pub tent_spark: f32,
     /// Light-tent ground radiance (`TentParams::ground`; `0.02` = the tent).
     pub tent_ground: f32,
+    /// Cosine of the HDR map's yaw (`EnvRotation::cos_sin()[0]`), read only by
+    /// `env_mode == transport_env_mode::HDR_MAP` (`hdr_rot` in
+    /// `transport_bounce/04_studio_and_hdr_environment.wgsl`). Exactly `1.0` together with
+    /// [`Self::hdr_rot_sin`] `== 0.0` is the identity, which the shader skips, so a uniform
+    /// built without [`Self::with_hdr_rotation`] lights the map as decoded. Offset 112.
+    pub hdr_rot_cos: f32,
+    /// Sine of the HDR map's yaw (`EnvRotation::cos_sin()[1]`); see [`Self::hdr_rot_cos`].
+    pub hdr_rot_sin: f32,
+    /// Pad word completing the last 16-byte row; always zero.
+    _pad_hdr_rot0: u32,
+    /// Pad word completing the last 16-byte row; always zero.
+    _pad_hdr_rot1: u32,
 }
 
 /// `studio_model` discriminants for [`GpuTransportParams`].
@@ -149,13 +148,18 @@ pub mod transport_env_mode {
     pub const STUDIO_RIG: u32 = 1;
     /// `EnvironmentSource::HdrMap`.
     ///
-    /// Sampled via `hdr_env_radiance_at` against the `hdr_texels`/`hdr_env_dims`
-    /// storage/uniform buffers (bindings 10/11) instead of the analytic studio rig. See
-    /// `renderer::env_map_gpu`'s module doc comment.
+    /// Sampled via `hdr_env_radiance_at` from the map's storage and uniform buffers (bindings
+    /// 10/11), at [`super::GpuTransportParams::hdr_exposure`]. See `renderer::env_map_gpu`.
     pub const HDR_MAP: u32 = 2;
 }
 
 impl GpuTransportParams {
+    /// Bit of [`Self::write_debug_buffers`] that asks for the per-channel debug writes.
+    pub const DEBUG_WRITES_BIT: u32 = 1;
+    /// Bit of [`Self::write_debug_buffers`] that turns the exit-collection estimator on
+    /// (`PARAMS_COLLECT_BIT` in `shaders/transport_physics/01_prelude_polarization.wgsl`).
+    pub const COLLECT_BIT: u32 = 4;
+
     #[must_use]
     #[expect(
         clippy::too_many_arguments,
@@ -190,7 +194,7 @@ impl GpuTransportParams {
             studio_light_yaw,
             studio_light_pitch,
             pixel_offset: 0,
-            write_debug_buffers: 1,
+            write_debug_buffers: Self::DEBUG_WRITES_BIT,
             white_balance,
             studio_use_d65: 0,
             studio_model: 0,
@@ -200,11 +204,15 @@ impl GpuTransportParams {
             head_shadow_inner_cos: DEFAULT_HEAD_SHADOW_COSINES[1],
             tent_flat: TentParams::DEFAULT.flat,
             num_tools: 0,
-            _pad_head_shadow2: 0,
+            hdr_exposure: 1.0,
             tent_walls: TentParams::DEFAULT.walls,
             tent_cards: TentParams::DEFAULT.cards,
             tent_spark: TentParams::DEFAULT.spark,
             tent_ground: TentParams::DEFAULT.ground,
+            hdr_rot_cos: 1.0,
+            hdr_rot_sin: 0.0,
+            _pad_hdr_rot0: 0,
+            _pad_hdr_rot1: 0,
         }
     }
 
@@ -233,19 +241,53 @@ impl GpuTransportParams {
         }
     }
 
-    /// Returns a copy covering pixels `[pixel_offset, pixel_offset + num_pixels)` of a
-    /// larger frame -- see [`Self::pixel_offset`]. A separate builder rather than an
-    /// eleventh `new` parameter, so every existing caller keeps its exact constructor
-    /// call.
+    /// Returns a copy with the HDR map exposure `exposure` (see [`Self::hdr_exposure`]).
+    #[must_use]
+    pub const fn with_hdr_exposure(mut self, exposure: f32) -> Self {
+        self.hdr_exposure = exposure;
+        self
+    }
+
+    /// Returns a copy with the HDR map yaw `rotation` (see [`Self::hdr_rot_cos`]).
+    #[must_use]
+    pub const fn with_hdr_rotation(mut self, rotation: EnvRotation) -> Self {
+        let cos_sin = rotation.cos_sin();
+        self.hdr_rot_cos = cos_sin[0];
+        self.hdr_rot_sin = cos_sin[1];
+        self
+    }
+
+    /// Returns a copy with `environment`'s HDR exposure and rotation: the map's own for an
+    /// HDR map, `1.0` and the identity for the analytic rig (whose shader branch never reads
+    /// them, its exposure being `studio_exposure`). Every production dispatch builds its
+    /// uniform with this beside [`Self::with_tent_of`], so no builder can forget the rotation.
+    #[must_use]
+    pub const fn with_hdr_of(
+        self,
+        environment: crate::optics::raytracer::EnvironmentSource<'_>,
+    ) -> Self {
+        match environment {
+            crate::optics::raytracer::EnvironmentSource::HdrMap {
+                exposure, rotation, ..
+            } => self.with_hdr_exposure(exposure).with_hdr_rotation(rotation),
+            crate::optics::raytracer::EnvironmentSource::Studio { .. } => self
+                .with_hdr_exposure(1.0)
+                .with_hdr_rotation(EnvRotation::IDENTITY),
+        }
+    }
+
+    /// Returns a copy covering pixels `[pixel_offset, pixel_offset + num_pixels)` of a larger
+    /// frame, see [`Self::pixel_offset`]. A builder rather than a `new` parameter keeps existing
+    /// constructor calls unchanged.
     #[must_use]
     pub const fn with_pixel_offset(mut self, pixel_offset: u32) -> Self {
         self.pixel_offset = pixel_offset;
         self
     }
 
-    /// Returns a copy that traces a concave stone with `num_tools` tool records packed after
-    /// the planes in the `planes` binding (`GpuTransportParams::num_tools`, private). The count is a uniform,
-    /// so a planar stone (`0`) takes exactly the code path it always did.
+    /// Returns a copy that traces a concave stone with `num_tools` tool records packed after the
+    /// planes in the `planes` binding. The count is a uniform, so a planar stone (`0`) takes the
+    /// unchanged code path.
     #[must_use]
     pub const fn with_tool_count(mut self, num_tools: u32) -> Self {
         self.num_tools = num_tools;
@@ -263,8 +305,47 @@ impl GpuTransportParams {
     /// `GpuFrameRenderer::accumulate`'s production dispatch calls this.
     #[must_use]
     pub const fn with_debug_buffers_disabled(mut self) -> Self {
-        self.write_debug_buffers = 0;
+        self.write_debug_buffers &= !Self::DEBUG_WRITES_BIT;
         self
+    }
+
+    /// Returns a copy whose dispatch runs `estimator` at the partial Fresnel events: the GPU
+    /// twin of `optics::raytracer::transport::PreparedMaterial::with_estimator`.
+    ///
+    /// [`Estimator::ExitCollection`] is honoured only where the CPU tracer honours it and the
+    /// kernels implement it: over a surface the CPU tracer calls ideal (`ideal_surface`:
+    /// `GpuSurfaceScene::is_ideal_for_cpu`), without a light-sampling technique (not an HDR
+    /// map, not the Daylight + Sun rig) and for a convex stone (no tools: the kernels do not
+    /// probe a leaf for re-entry). The CPU tracer declines exactly the same stones (a stone with
+    /// tools runs the branching estimator on every engine), so a hybrid frame never mixes
+    /// estimators. Any other dispatch runs [`Estimator::Branching`], which is every dispatch as
+    /// it was. Call this LAST in a builder chain: it reads the environment
+    /// mode, the studio model and the tool count.
+    #[must_use]
+    pub const fn with_estimator(mut self, estimator: Estimator, ideal_surface: bool) -> Self {
+        let no_light_sampling = self.env_mode != transport_env_mode::HDR_MAP
+            && !(self.env_mode == transport_env_mode::STUDIO_RIG
+                && self.studio_model == studio_model::DAYLIGHT_SUN);
+        let collect = matches!(estimator, Estimator::ExitCollection)
+            && ideal_surface
+            && no_light_sampling
+            && self.num_tools == 0;
+        if collect {
+            self.write_debug_buffers |= Self::COLLECT_BIT;
+        } else {
+            self.write_debug_buffers &= !Self::COLLECT_BIT;
+        }
+        self
+    }
+
+    /// The estimator this dispatch runs (see [`Self::with_estimator`]).
+    #[must_use]
+    pub const fn estimator(&self) -> Estimator {
+        if self.write_debug_buffers & Self::COLLECT_BIT == 0 {
+            Estimator::Branching
+        } else {
+            Estimator::ExitCollection
+        }
     }
 
     /// Returns a copy that samples the tabulated CIE D65 measured spectrum instead of
@@ -335,10 +416,14 @@ const _: () = {
     assert!(offset_of!(GpuTransportParams, head_shadow_inner_cos) == 80);
     assert!(offset_of!(GpuTransportParams, tent_flat) == 84);
     assert!(offset_of!(GpuTransportParams, num_tools) == 88);
-    assert!(offset_of!(GpuTransportParams, _pad_head_shadow2) == 92);
+    assert!(offset_of!(GpuTransportParams, hdr_exposure) == 92);
     assert!(offset_of!(GpuTransportParams, tent_walls) == 96);
     assert!(offset_of!(GpuTransportParams, tent_cards) == 100);
     assert!(offset_of!(GpuTransportParams, tent_spark) == 104);
     assert!(offset_of!(GpuTransportParams, tent_ground) == 108);
-    assert!(size_of::<GpuTransportParams>() == 112);
+    assert!(offset_of!(GpuTransportParams, hdr_rot_cos) == 112);
+    assert!(offset_of!(GpuTransportParams, hdr_rot_sin) == 116);
+    assert!(offset_of!(GpuTransportParams, _pad_hdr_rot0) == 120);
+    assert!(offset_of!(GpuTransportParams, _pad_hdr_rot1) == 124);
+    assert!(size_of::<GpuTransportParams>() == 128);
 };

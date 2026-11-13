@@ -126,8 +126,8 @@ fn a_completed_empty_probe_is_not_mistaken_for_unstarted_work() {
     for &tier in env.movable_tier_indices() {
         assert_eq!(saved.probes[tier], Some(TierProbe::default()));
     }
-    // This empty snapshot contains no NaNs, so JSON can also exercise its serde schema.
-    // Real optical labels use the trainer's MessagePack journal to preserve NaNs.
+    // The empty snapshot has no NaNs, so JSON round-trips it. Real labels need the
+    // MessagePack journal, which keeps NaNs.
     let encoded = serde_json::to_vec(&saved).unwrap();
     let decoded: TeacherSearchSnapshot = serde_json::from_slice(&encoded).unwrap();
     env.core
@@ -140,8 +140,8 @@ fn a_completed_empty_probe_is_not_mistaken_for_unstarted_work() {
 fn rescue_continuation_preserves_refused_candidates_and_evaluation_counts() {
     let env = fixture_env();
     let h = env.config().probe_scale_deg;
-    // This is the supported all-refused-probes boundary. It must still try the ordinary
-    // bounded rescue, persist refusals as completed candidates, and preserve tie order.
+    // All probes refused: the bounded rescue still runs, refusals are kept as completed
+    // candidates, and tie order is preserved.
     let mut seed = TeacherSearchSnapshot::new(&env.core, h, &DEFAULT_LINE_SEARCH);
     for &tier in &seed.free_tiers {
         seed.probes[tier] = Some(TierProbe::default());
@@ -208,7 +208,7 @@ fn slow_parallel_checkpoints_never_overlap_and_end_with_all_completed_work() {
                         !writing.swap(true, Ordering::SeqCst),
                         "checkpoints overlapped"
                     );
-                    // A slow durable write: units keep completing outside the search lock meanwhile.
+                    // A slow durable write: units keep completing outside the search lock.
                     thread::sleep(Duration::from_millis(5));
                     let mut prior = last.lock().unwrap();
                     let done = prior

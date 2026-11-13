@@ -175,7 +175,7 @@ fn describe_uses_the_standard_code_for_an_old_style_name_and_a_positive_angle() 
         Edit::RemoveTier { index: 0 }.describe(&design),
         format!("Remove tier {code}")
     );
-    // Two changes to the one tier (a nudge plus the tiers that follow) read the same way.
+    // Two changes to the same tier read as one sentence, with the final angle.
     assert_eq!(
         Edit::Batch(vec![
             Edit::RetargetAngles {
@@ -188,7 +188,7 @@ fn describe_uses_the_standard_code_for_an_old_style_name_and_a_positive_angle() 
         .describe(&design),
         format!("Set {code} angle to 42.0 degrees")
     );
-    // A crown tier's angle is unchanged by the rule.
+    // A crown tier keeps its C code in the sentence.
     assert_eq!(
         Edit::RetargetAngles {
             changes: vec![(1, 30.0, 31.0)],

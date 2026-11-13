@@ -64,11 +64,11 @@ pub const HANDLE_GRAB_RADIUS_DP: f32 = 24.0;
 pub const HANDLE_DRAW_DIAMETER_DP: f32 = 32.0;
 /// The camera pill index of Reset ([`ViewportState::set_standard_view`]).
 ///
-/// The viewport restores [`RESET_POSE`] itself and never forwards this index to `camera::standard_view`, whose view
-/// `6` is Turn 90 (a quarter turn about the vertical axis): a forward would turn the image
+/// The viewport restores [`RESET_POSE`] itself and never forwards this index to
+/// `camera::standard_view`: there `6` is Turn 90, so a forward would turn the image
 /// instead of resetting it.
 pub const RESET_VIEW: i32 = 6;
-/// The camera pill index of Fit (the same index `camera::standard_view` numbers it with).
+/// The camera pill index of Fit, as `camera::standard_view` numbers it.
 pub const FIT_VIEW: i32 = 5;
 
 /// Which picture the viewport shows.
@@ -427,7 +427,7 @@ impl Default for ViewportState {
     }
 }
 
-// Same lexical module: private fields and helpers retain their existing visibility.
+// Included, not a submodule, so that `state.rs` can use the private fields.
 include!("viewport/state.rs");
 
 /// A usable display scale: finite and at least 1.

@@ -10,8 +10,8 @@ use serde::{Deserialize, Deserializer, Serialize};
 ///
 /// One global switch, shown as the "Simple | Advanced" pill in the header and in the
 /// Preferences dialog. [`UiMode::Advanced`] is the type's default because it is the
-/// interface exactly as it was before the switch existed: a settings file without the key
-/// (an existing install) must keep showing everything. Only a brand-new install starts in
+/// full interface with every control, so a settings file without the key (an existing install)
+/// keeps showing everything. Only a brand-new install starts in
 /// [`UiMode::Simple`] -- see `AppSettings::default`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]

@@ -15,7 +15,7 @@ use crate::{
 /// [`zone_swatches_face_up`]) to turn a stone width in millimetres into millimetres per model
 /// unit.
 ///
-/// The built-in cuts have a girdle radius of order one model unit (`GemMaterial::scattering_sigma_s`'s "useful range" note), i.e. a width of about 2.
+/// The built-in cuts are about 2 model units wide.
 /// Only the unsized swatches depend on it; a caller that holds a sized material (the render
 /// path) passes its millimetres per model unit to [`zone_swatches_face_up_at_scale`] instead.
 pub const ZONE_SWATCH_FALLBACK_MODEL_WIDTH: f64 = 2.0;
@@ -46,7 +46,7 @@ impl GemMaterial {
 /// `absorption_path_scale` is never read, so a stored scale (even exactly `1.0`) cannot change
 /// the result. A caller that holds a sized material uses [`zone_swatches_at_scale`].
 ///
-/// Callers: the rough-colour material zones (`gui::rough_colour::material_zones`).
+/// Callers: `gui/rough_colour/material_zones.rs` in the cut app.
 #[must_use]
 pub fn zone_swatches(material: &GemMaterial, width_mm: f32) -> Vec<[f32; 3]> {
     zone_swatches_over_path(material, unsized_path_mm(width_mm))
@@ -72,9 +72,8 @@ pub fn zone_swatches_at_scale(material: &GemMaterial, mm_per_unit: f32) -> Vec<[
 /// zone whose tensor is not pleochroic gives exactly the [`zone_swatches`] color.
 ///
 /// The path is the UNSIZED rule of [`zone_swatches`] (the stored `absorption_path_scale` is not
-/// read). Callers: `view_color.rs` in the cut app's render thread and
-/// `crystal_axis/presets.rs`. A caller that holds a sized material uses
-/// [`zone_swatches_face_up_at_scale`].
+/// read). Caller: `view_color.rs` in the cut app's render thread. A caller that holds a
+/// sized material uses [`zone_swatches_face_up_at_scale`].
 #[must_use]
 pub fn zone_swatches_face_up(material: &GemMaterial, width_mm: f32) -> Vec<[f32; 3]> {
     zone_swatches_face_up_over_path(material, unsized_path_mm(width_mm))
@@ -94,10 +93,10 @@ pub fn zone_swatches_face_up_at_scale(material: &GemMaterial, mm_per_unit: f32) 
 
 /// The face-up swatch color of `material`'s own absorption over `path`.
 ///
-/// `path` is in the unit the tensor is in (model units for a [`AbsorptionUnit::ModelUnit`] material, millimetres for a
-/// [`AbsorptionUnit::PerMm`] one, the swatch's existing path rule) with the crystal oriented
-/// as the material says: the single wave normal `k = -Y`, unpolarised absorption through the
-/// principal frame of `material.c_axis` / its biaxial indicatrix.
+/// `path` is in the tensor's unit: model units for an [`AbsorptionUnit::ModelUnit`] material,
+/// millimetres for an [`AbsorptionUnit::PerMm`] one. The crystal is oriented as the material
+/// says: the single wave normal `k = -Y`, unpolarised absorption through the principal frame
+/// of `material.c_axis` / its biaxial indicatrix.
 ///
 /// A material whose absorption is not pleochroic gives exactly
 /// `body_colors(&material.absorption, path, ill).unpolarised`. This is the core function the

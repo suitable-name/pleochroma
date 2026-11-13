@@ -20,7 +20,11 @@ fn tent() -> LightingValues {
         surface_glare: 0.5,
         backdrop: Backdrop::White,
         head_shadow_deg: 12.0,
+        stone_shadow: false,
+        tray_reflection: 0.04,
         env_map_path: Some("C:/hdr/studio.hdr".to_string()),
+        env_map_yaw_deg: 0.0,
+        env_map_follows_camera: false,
         camera_yaw: None,
         camera_pitch: None,
         camera_roll: None,
@@ -136,9 +140,11 @@ fn the_live_view_is_captured_from_the_render_context() {
         lighting_preset: LightingPreset::LightTent,
         surface_glare: 0.5,
         backdrop: Backdrop::White,
+        tray_reflection: 0.04,
         ..RenderContext::default()
     };
     let values = LightingValues::from_live(&ctx, Some("C:/hdr/studio.hdr".to_string()));
+    assert_eq!(values.tray_reflection.to_bits(), 0.04f32.to_bits());
     assert_eq!(values.lighting_rig, "Light tent + black cards");
     assert!(
         close(values.light_yaw_deg, 120.0),
@@ -610,7 +616,7 @@ fn clearing_the_map_by_hand_voids_a_decode_on_its_way_too() {
     assert_eq!(pending_env_path(), None);
 }
 
-// --- the cutter's own map beats the saved lighting's, before its decode starts (F1-17) ---
+// --- the cutter's own map beats the saved lighting's before its decode starts ---
 
 #[test]
 fn a_map_chosen_by_hand_while_the_lookup_waits_is_not_replaced_by_the_saved_map() {
@@ -746,9 +752,8 @@ fn values_written_into_the_settings_read_back_the_same() {
     assert_eq!(LightingValues::from_app_settings(&app).env_map_path, None);
 }
 
-/// The remaining gap of `landed_w2_light.md`: nudge the exposure while a design's
-/// lighting shows, close the app (a flush writes the file), and the settings file must
-/// still hold the normal lighting.
+/// While a design's lighting shows, the settings file keeps the normal lighting, even after
+/// the exposure is nudged and the app flushes its settings on close.
 #[test]
 fn light_control_changes_while_a_designs_lighting_shows_never_reach_the_settings_file() {
     let dir = std::env::temp_dir().join(format!(

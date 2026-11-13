@@ -78,8 +78,8 @@ component RenderChoices inherits Rectangle {
     }
 }
 
-// Settings unfold only when requested. Primary actions stay outside the scroll area;
-// short viewports scroll choices vertically and retain the viewport's top-strip space.
+// Settings unfold on request. The primary actions stay outside the scroll area, so a short
+// viewport scrolls only the choices.
 export component RenderControls inherits Rectangle {
     // The height the panel may take; the viewport passes its own height minus the bottom bar.
     // A component's property default cannot read `parent`, so the default is unbounded.
@@ -148,8 +148,8 @@ export component RenderControls inherits Rectangle {
             padding-top: Theme.space-xs;
             padding-bottom: Theme.space-xs;
             spacing: Theme.space-xs;
-            // Reserve the scrollbar gutter even when it is hidden, so its appearance
-            // cannot switch the row count while the height is being constrained.
+            // Keep the scrollbar gutter even when hidden, so the choices do not reflow
+            // when it appears.
             RenderChoices { width: max(1px, root.width - 2 * Theme.space-sm - 20px); }
             HorizontalLayout {
                 height: Theme.touch;

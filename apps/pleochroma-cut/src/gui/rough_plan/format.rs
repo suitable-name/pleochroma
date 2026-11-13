@@ -28,6 +28,8 @@ pub struct GroupRow {
     pub entry_id: i32,
     /// The design's title ("Design #id" when the library has none).
     pub name: String,
+    /// The title cut down for the legend ("Oval"), different for every design of the layout.
+    pub short_name: String,
     /// How many stones of this design the layout holds.
     pub count: i32,
     /// The size line ("5.10 x 5.10 x 3.40 mm, 1.20 ct each").
@@ -40,9 +42,8 @@ pub struct GroupRow {
     pub status: String,
     /// 0 none, 1 info, 2 warning, 3 error.
     pub status_level: i32,
-    /// Whether the design still exists in the library. Whether library links work at all
-    /// (they do not for a remote library) is the window's live `links_enabled`, which the
-    /// row combines with this, so switching libraries needs no new rows.
+    /// Whether the design still exists in the library. Library links also need the window's
+    /// live `links_enabled` (off for a remote library), which the row combines with this.
     pub linkable: bool,
 }
 
@@ -145,6 +146,93 @@ pub(super) fn design_name(titles: &BTreeMap<i64, String>, entry_id: i64) -> Stri
         .unwrap_or_else(|| format!("Design #{entry_id}"))
 }
 
+/// The first `words` words of `title`, joined by single blanks.
+fn first_words(title: &str, words: usize) -> String {
+    title
+        .split_whitespace()
+        .take(words)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// The legend names of designs titled `titles`: each title's first word ("Oval Brilliant
+/// 02.1" reads "Oval"). Designs whose first words would read alike get their first two words,
+/// and any that still read alike their whole title, so no two names of one list are the same.
+/// A title without a word of its own ("Design #4") stays whole.
+#[must_use]
+pub fn short_names(titles: &[&str]) -> Vec<String> {
+    let shortened = |count: usize| -> Vec<String> {
+        titles
+            .iter()
+            .map(|title| {
+                let short = first_words(title, count);
+                if short.is_empty() || title.starts_with("Design #") {
+                    title.trim().to_string()
+                } else {
+                    short
+                }
+            })
+            .collect()
+    };
+    let (one, two, whole) = (shortened(1), shortened(2), shortened(usize::MAX));
+    (0..titles.len())
+        .map(|index| {
+            let clashes = |names: &[String]| {
+                names
+                    .iter()
+                    .enumerate()
+                    .any(|(other, name)| other != index && *name == names[index])
+            };
+            if !clashes(&one) {
+                one[index].clone()
+            } else if !clashes(&two) {
+                two[index].clone()
+            } else {
+                whole[index].clone()
+            }
+        })
+        .collect()
+}
+
+/// A layout's badge text: its label without the "(Unrefined)" note and in sentence case
+/// ("Best Orientation (Unrefined)" reads "Best orientation"); empty for a layout that is
+/// one of the plan's own. The full label belongs in the badge's tooltip.
+#[must_use]
+pub fn badge_of(label: &str) -> String {
+    let base = label.split('(').next().unwrap_or_default().trim();
+    let mut chars = base.chars();
+    chars.next().map_or_else(String::new, |first| {
+        first.to_uppercase().collect::<String>() + &chars.as_str().to_lowercase()
+    })
+}
+
+/// Each layout's weight as a share of the heaviest one (`0..=1`), for the yield bars. All zero
+/// when no layout has a weight.
+#[must_use]
+pub fn relative_yields(layouts: &[RoughLayout]) -> Vec<f32> {
+    let best = layouts
+        .iter()
+        .map(|layout| layout.total_carat)
+        .fold(0.0_f64, f64::max);
+    layouts
+        .iter()
+        .map(|layout| share_of(layout.total_carat, best))
+        .collect()
+}
+
+/// `carat` as a share of `best` (`0..=1`); `0` when `best` is not positive.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "a share between 0 and 1 fits an f32"
+)]
+fn share_of(carat: f64, best: f64) -> f32 {
+    if best > 0.0 {
+        (carat / best).clamp(0.0, 1.0) as f32
+    } else {
+        0.0
+    }
+}
+
 /// A stone's bounding box in the rough's axes: "5.10 x 5.10 x 3.40".
 fn dims_text(stone: &PlacedStone) -> String {
     let [x, y, z] = stone.stone_size_mm;
@@ -206,7 +294,7 @@ pub fn effective_id(statuses: &BTreeMap<i64, DesignStatus>, entry_id: i64) -> i6
 /// The staleness chip of a design: its text and level (0 none, 1 info, 2 warning, 3 error).
 ///
 /// A design is also "matched by title" when a status elsewhere names it as the resolved
-/// entry (the layout was already re-pointed at it).
+/// entry (the layout already uses that entry).
 fn status_of(statuses: &BTreeMap<i64, DesignStatus>, entry_id: i64) -> (&'static str, i32) {
     let matched = ("matched by title", 1);
     match statuses.get(&entry_id) {
@@ -233,7 +321,7 @@ fn saved_shape(shape: &DesignShape) -> Option<SavedShape> {
 
 /// The designs of a layout, most stones first, with their metric lists.
 pub fn group_rows(layout: &RoughLayout, ctx: &RowContext<'_>) -> Vec<GroupRow> {
-    group_order(layout)
+    let mut rows: Vec<GroupRow> = group_order(layout)
         .into_iter()
         .enumerate()
         .map(|(swatch_index, (entry_id, count))| {
@@ -253,6 +341,7 @@ pub fn group_rows(layout: &RoughLayout, ctx: &RowContext<'_>) -> Vec<GroupRow> {
             GroupRow {
                 entry_id: i32::try_from(cached).unwrap_or(-1),
                 name: design_name(ctx.titles, entry_id),
+                short_name: String::new(),
                 count: to_i32(count),
                 detail: group_detail(&stones),
                 swatch_index,
@@ -262,7 +351,12 @@ pub fn group_rows(layout: &RoughLayout, ctx: &RowContext<'_>) -> Vec<GroupRow> {
                 linkable: !matches!(ctx.statuses.get(&entry_id), Some(DesignStatus::Deleted)),
             }
         })
-        .collect()
+        .collect();
+    let shorts = short_names(&rows.iter().map(|row| row.name.as_str()).collect::<Vec<_>>());
+    for (row, short) in rows.iter_mut().zip(shorts) {
+        row.short_name = short;
+    }
+    rows
 }
 
 /// `text` with its first letter upper-cased.
@@ -288,9 +382,11 @@ fn stage_phrase(axis: Axis, noun: &str, sizes: &[f64]) -> String {
     }
 }
 
-/// The 1-based `(slab, bar, piece within its bar)` of every stone, in the layout's
-/// traversal order (slab by slab, bar by bar, piece by piece): the numbers the cut plan
-/// text prints as "Slab S / Bar B / Piece P" and the 3D view names on hover.
+/// The 1-based `(slab, bar, piece within its bar)` of every stone, in the layout's order.
+///
+/// The order is the layout's traversal order (slab by slab, bar by bar, piece by piece). These
+/// are the numbers the cut plan text prints for each piece ("Slab", "Bar", "Piece") and the 3D
+/// view names on hover.
 ///
 /// Empty when the layout has no saw plan (an exact fit) or when its stones do not match
 /// the cut plan's pieces one to one, so a caller never names a position that does not
@@ -519,6 +615,78 @@ mod tests {
         assert_eq!(group_thousands(999), "999");
         assert_eq!(group_thousands(3299), "3,299");
         assert_eq!(group_thousands(1_234_567), "1,234,567");
+    }
+
+    #[test]
+    fn a_legend_name_is_the_first_word_of_the_title() {
+        assert_eq!(
+            short_names(&["Oval Brilliant 02.1", "Cushion 02.1", "Emerald cut"]),
+            ["Oval", "Cushion", "Emerald"]
+        );
+        assert_eq!(short_names(&["Round"]), ["Round"]);
+        assert_eq!(short_names(&[]), Vec::<String>::new());
+    }
+
+    #[test]
+    fn designs_that_would_read_alike_get_more_of_their_title() {
+        // Two ovals tell apart by their first two words; when those read alike as well,
+        // the whole titles are used.
+        assert_eq!(
+            short_names(&["Oval Brilliant", "Oval Step", "Cushion"]),
+            ["Oval Brilliant", "Oval Step", "Cushion"]
+        );
+        assert_eq!(
+            short_names(&["Oval Step 1", "Oval Step 2", "Round"]),
+            ["Oval Step 1", "Oval Step 2", "Round"]
+        );
+        // A library title that is missing stays "Design #id", whole.
+        assert_eq!(
+            short_names(&["Design #4", "Design #12"]),
+            ["Design #4", "Design #12"]
+        );
+    }
+
+    #[test]
+    fn a_badge_is_the_label_in_sentence_case_without_its_unrefined_note() {
+        assert_eq!(badge_of("Best Orientation (Unrefined)"), "Best orientation");
+        assert_eq!(badge_of("Balanced (Unrefined)"), "Balanced");
+        assert_eq!(badge_of("Best Yield"), "Best yield");
+        assert_eq!(badge_of(""), "");
+        assert_eq!(badge_of("  "), "");
+    }
+
+    #[test]
+    fn a_yield_bar_is_the_share_of_the_heaviest_layout() {
+        let mut heavy = layout(vec![stone(1, 4.0)]);
+        let mut light = layout(vec![stone(1, 1.0)]);
+        heavy.total_carat = 4.0;
+        light.total_carat = 3.0;
+        // The list is in rank order, which need not be the order of weight.
+        let shares = relative_yields(&[light.clone(), heavy]);
+        assert!((shares[0] - 0.75).abs() < 1e-6, "{shares:?}");
+        assert!((shares[1] - 1.0).abs() < 1e-6, "{shares:?}");
+        light.total_carat = 0.0;
+        assert_eq!(relative_yields(&[light]), [0.0]);
+        assert_eq!(relative_yields(&[]), Vec::<f32>::new());
+    }
+
+    #[test]
+    fn the_groups_of_a_layout_carry_their_legend_names() {
+        let titles = BTreeMap::from([
+            (3, "Emerald Cut 01".to_string()),
+            (4, "Emerald Step 02".to_string()),
+        ]);
+        let (statuses, designs) = (BTreeMap::new(), DesignData::default());
+        let settings = PlanSettings::default();
+        let layout = layout(vec![
+            stone(3, 1.0),
+            stone(3, 1.0),
+            stone(4, 2.0),
+            stone(9, 1.0),
+        ]);
+        let rows = group_rows(&layout, &context(&titles, &statuses, &settings, &designs));
+        let shorts: Vec<&str> = rows.iter().map(|r| r.short_name.as_str()).collect();
+        assert_eq!(shorts, ["Emerald Cut", "Emerald Step", "Design #9"]);
     }
 
     #[test]

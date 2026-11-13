@@ -15,12 +15,10 @@
 //! tick, so both features share one definition of "settled" rather than each running
 //! its own debounce timer.
 //!
-//! Everything this module calls into is already unit-tested without a GUI or socket
-//! (`bridge::remote::handoff::HandoffMachine`, `pleochroma_net::client`,
-//! `bridge::remote::enroll`, `settings::WorkerSettings`); this module is the glue
-//! wiring those tested pieces to real Slint callbacks, a real `slint::Timer`, and a
-//! real socket -- it compiles but, like the rest of the GUI layer, is not exercised by
-//! an automated test here.
+//! The logic this module calls (`bridge::remote::handoff::HandoffMachine`,
+//! `pleochroma_net::client`, `bridge::remote::enroll`, `settings::WorkerSettings`) is
+//! unit-tested without a GUI or socket. This module only wires those pieces to Slint
+//! callbacks, a `slint::Timer` and a socket, so it has no automated test of its own.
 
 mod advanced_in_use;
 mod orchestrator;
@@ -34,10 +32,11 @@ pub(in crate::gui) use worker_settings::{current_availability, publish_availabil
 
 use crate::settings::LiveComputeTarget;
 
-/// the Parameters panel's "Live Compute" pill index (0/1/2) -> [`LiveComputeTarget`].
-/// Mirrors `gui::render_export::compute_target_from_index`'s int-discriminant
-/// convention for the export dialog's own Compute pill, duplicated rather than shared
-/// since the two pickers carry different enum types.
+/// Maps the Parameters panel's "Live Compute" pill index (0/1/2) to a [`LiveComputeTarget`].
+///
+/// It follows the same index convention as the export dialog's Compute pill
+/// (`gui::render_export::compute_target_from_index`), duplicated because the two pickers use
+/// different enum types.
 #[must_use]
 pub const fn live_compute_target_from_index(index: i32) -> LiveComputeTarget {
     match index {

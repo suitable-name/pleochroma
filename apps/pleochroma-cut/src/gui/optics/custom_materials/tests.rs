@@ -251,7 +251,8 @@ fn a_plain_fantasy_save_has_no_recipe_column() {
     assert_eq!(row.absorption_rgb, super::absorption_rgb_for_color_index(3));
 }
 
-/// The swatch the dialog preselects for a stored material (`push_selected_custom_material_fields`).
+/// The swatch the dialog preselects for a stored material
+/// (`push_selected_custom_material_fields`).
 fn preselected_swatch(stored_mode: &ColorMode) -> i32 {
     super::color_index_for_absorption_rgb(stored_mode.fantasy_rgb)
         .unwrap_or(CUSTOM_KEEP_COLOR_INDEX)
@@ -369,7 +370,10 @@ fn picking_a_color_over_a_stored_recipe_saves_a_fixed_color_and_keeps_the_recipe
     assert_eq!(back.fantasy_rgb, super::absorption_rgb_for_color_index(0));
     assert_eq!(back.last_recipe, mode.last_recipe, "the recipe stays saved");
     assert_eq!(row.absorption_rgb, super::absorption_rgb_for_color_index(0));
-    assert!(ctx.lock().unwrap().custom_material_physics.is_empty());
+    assert_eq!(
+        ctx.lock().unwrap().custom_material_physics.as_slice(),
+        [] as [String; 0]
+    );
 }
 
 /// A coefficient model in the form is the curve the stone is traced with: the row keeps the
@@ -425,7 +429,10 @@ fn an_unusable_model_is_refused_and_nothing_is_written() {
         assert!(refusal.contains("cannot be used"), "{refusal}");
         let rows = db.lock().unwrap().get_custom_materials().unwrap();
         assert_eq!(rows.len(), 0, "nothing reached the vault");
-        assert!(ctx.lock().unwrap().custom_materials.is_empty());
+        assert_eq!(
+            ctx.lock().unwrap().custom_materials.as_slice(),
+            [] as [GemMaterial; 0]
+        );
     }
 }
 
@@ -465,7 +472,10 @@ fn deleting_a_material_clears_its_physics_flag() {
     )
     .expect("saves");
     super::apply_custom_material_delete(&db, &ctx, "Gone").expect("deletes");
-    assert!(ctx.lock().unwrap().custom_material_physics.is_empty());
+    assert_eq!(
+        ctx.lock().unwrap().custom_material_physics.as_slice(),
+        [] as [String; 0]
+    );
 }
 
 const BANDS: [[f32; 3]; 2] = [[460.0, 45.0, 0.25], [540.0, 45.0, 0.1]];

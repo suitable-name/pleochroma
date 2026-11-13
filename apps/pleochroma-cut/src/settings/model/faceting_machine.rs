@@ -4,17 +4,15 @@
 //! `pleochroma::optics::raytracer::surface::sweep`). Cutters' machines differ, so the setting
 //! belongs to the user and is never stored in a design. The default is the plain machine: the
 //! dop arm points at the lap centre, so the scratches run parallel to the girdle, with the
-//! typical sweep. The Settings dialog (a later wave) edits it; until then the file is the way in.
+//! typical sweep. It is edited from the render UI (`gui::render::faceting_machine_ui`).
 
 use pleochroma::optics::raytracer::surface::{FacetingMachine, SweepRange};
 use serde::{Deserialize, Serialize};
 use std::sync::{PoisonError, RwLock};
 
-/// The machine in force for this session, set from the settings at startup and whenever the
-/// preference changes. A process-wide value rather than a parameter of every render path: the
-/// library scans, the batch renders, the exports and the headless jobs all read it through
-/// [`current_faceting_machine`], and it is the only per-user input of a design's render
-/// physics that no design stores.
+/// The machine in force, set from the settings at startup and whenever the preference changes.
+/// Process-wide, so the library scans, batch renders, exports and headless jobs read it through
+/// [`current_faceting_machine`] without a parameter on every render path.
 static CURRENT: RwLock<FacetingMachine> = RwLock::new(FacetingMachine::DEFAULT);
 
 /// The faceting machine in force: the user's preference, or the default machine before the

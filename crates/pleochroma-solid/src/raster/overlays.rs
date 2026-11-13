@@ -134,12 +134,10 @@ impl SolidRasterizer {
         }
     }
 
-    /// Stamps each visible facet's own label (`style.facet_labels`,
-    /// `facet_map::FacetMap::facet_label`'s output) at its screen centroid, but
-    /// only where the facet is big enough to read ([`MIN_LABEL_SPAN`]) and still
-    /// wins the depth test at its own centroid -- the same two guards
-    /// `diagram2d::draw_panel_labels` uses, so a facet occluded by a nearer one
-    /// never gets a floating label drawn on top of whatever DID win that pixel.
+    /// Stamps each visible facet's label (`style.facet_labels`, from
+    /// `facet_map::FacetMap::facet_label`) at its screen centroid. Skips facets smaller
+    /// than [`MIN_LABEL_SPAN`], and facets that lose the depth test at their own
+    /// centroid, so a label never lands on top of a nearer facet.
     pub(super) fn draw_facet_labels(
         &mut self,
         label_spots: &[(usize, f32, f32, f32, f32)],
@@ -205,10 +203,8 @@ impl SolidRasterizer {
             return;
         }
         let (w, h) = (self.width as f32, self.height as f32);
-        // The same world radius `diagram2d::mesh_radii` would give this mesh's
-        // horizontal extent -- a plain re-derivation here rather than a shared
-        // helper, since this module intentionally carries no dependency on
-        // `diagram2d`'s panel-layout types (only its free-standing text helpers).
+        // The world radius `diagram2d::mesh_radii` gives this mesh's horizontal extent.
+        // Re-derived here so this module need not depend on `diagram2d`'s layout types.
         let radius = mesh
             .positions
             .iter()
@@ -217,16 +213,12 @@ impl SolidRasterizer {
         let origin = DVec3::new(0.0, 0.0, 0.0);
         let tip = DVec3::new(radius * 1.25, 0.0, 0.0);
         let (width, height) = (self.width, self.height);
-        // Top-left at the raster's own pixel size, or -- for a raster a viewport or
-        // comparison pane shows with a toolbar over its top edge -- bottom-left, scaled
-        // up with the raster so it stays legible, and left out when it would not fit.
-        // A raster shorter than `BOTTOM_CAPTION_MIN_HEIGHT` is a thumbnail or a probe
-        // with no toolbar over it: it keeps the top-left caption (and its pinned pixels).
+        // The caption goes bottom-left when the viewport's toolbar covers the top edge, and
+        // is left out when it would not fit. Shorter rasters have no toolbar over them and
+        // keep the top-left caption.
         let bottom_caption = bottom_caption && height >= BOTTOM_CAPTION_MIN_HEIGHT;
-        // A viewport raster is drawn at the display's own pixels, so the glyphs grow with it
-        // (a 5x7 font is a ~7 px speck on a 856 px viewport) -- the "0" tip label and the
-        // caption alike -- and so does the margin that keeps the caption off the viewport's
-        // rounded, bordered corner.
+        // Viewport rasters are drawn at display pixels, so the tip label, the caption and
+        // the margin that keeps the caption off the rounded corner all scale with the raster.
         let text_scale = if bottom_caption {
             (height / 400).clamp(1, 3)
         } else {
@@ -250,11 +242,9 @@ impl SolidRasterizer {
                 None,
             );
         }
-        // The camera looks FROM `camera.origin` at the stone centered on the
-        // world origin -- a positive `origin.y` means the camera sits above the
-        // girdle plane (`y = 0`, the same crown/pavilion split every facet
-        // normal already uses, see `facet_map.rs`'s candidate-normal
-        // construction), i.e. the crown is the side more toward the camera.
+        // The camera looks at the stone centred on the world origin. A positive `origin.y`
+        // puts the camera above the girdle plane (`y = 0`, the crown/pavilion split of the
+        // facet normals; see `facet_map/build.rs`), so the crown faces the camera.
         let side_label = if camera.origin.y >= 0.0 {
             "CROWN"
         } else {

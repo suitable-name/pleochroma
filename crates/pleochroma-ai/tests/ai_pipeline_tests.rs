@@ -1,9 +1,9 @@
 //! Model-layer tests: layers, the set-attention network, its sensitivity heads and the composed
 //! policy mean, sampling, weight persistence, action projection.
 //!
-//! Environment-reward and rollout-buffer tests live in `ai_env_training_tests.rs` so that this file only
-//! depends on the model API (plus `TierFeature`, which `project_actions` takes, and the observation
-//! constants the composed mean reads).
+//! Environment-reward and rollout-buffer tests live in `ai_env_training_tests.rs`, so this file
+//! depends only on the model API (plus `TierFeature`, which `project_actions` takes, and the
+//! observation constants the composed mean reads).
 
 use pleochroma_ai::{
     env::{
@@ -108,8 +108,9 @@ fn test_linear_new_mismatch_is_an_error() {
 fn test_mlp_block_has_no_internal_residual() {
     let block = MlpBlock::new(8, 16, 12_345);
     let zero = block.forward(&[0.0; 8]).expect("matching input");
-    // With zero input and zero biases, fc2(gelu(fc1(0))) = 0; a residual would also be 0, so probe a
-    // non-zero input: the output must equal fc2(gelu(fc1(x))) exactly, with nothing of x added back.
+    // With zero input and zero biases, fc2(gelu(fc1(0))) = 0; a residual would also be 0, so
+    // probe a non-zero input: the output must equal fc2(gelu(fc1(x))) exactly, with nothing of x
+    // added back.
     assert!(zero.iter().all(|v| *v == 0.0));
     let x = [0.1; 8];
     let y = block.forward(&x).expect("matching input");
@@ -137,7 +138,8 @@ fn test_gemstone_set_attention_variable_tiers() {
         assert_eq!(policy.mean.len(), n);
         assert_eq!(policy.log_std.len(), n);
         assert!(value.is_finite());
-        // The composed mean is in pre-squash units and reaches `+-MEAN_BOUND` on the steepest tier.
+        // The composed mean is in pre-squash units and reaches `+-MEAN_BOUND` on the steepest
+        // tier.
         assert!(
             policy
                 .mean
@@ -350,7 +352,7 @@ fn test_projection_does_not_force_pavilion_to_max_step() {
     let tiers = [tier(-45.0, -1.0, false)];
 
     // A modest step toward shallower is far from the floor and must pass through unchanged,
-    // not be forced to +max_step as the signed/positive mix-up used to do.
+    // not be forced to +max_step, as a sign mix-up would make it.
     let mut up = ContinuousTierAction::new(vec![0.6]);
     GemstoneSetAttentionNetwork::project_actions(&mut up, &tiers, 39.0, 0.75);
     assert!((up.deltas_deg[0] - 0.6).abs() < 1e-12);

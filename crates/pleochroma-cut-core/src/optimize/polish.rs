@@ -1,18 +1,14 @@
-//! The polish stage's algorithm itself: a deterministic Nelder-Mead downhill
-//! simplex, generic over the point-scoring function so it can be exercised in
-//! `tests.rs` against a synthetic objective with no [`crate::design::Design`]
-//! involved at all. See the parent module's "Coordinate descent stalls on diagonal
-//! ridges" section for why this hand-off from the coordinate stage exists: paired
-//! angles that must move together to hold a critical-angle relation form a ridge no
-//! axis-aligned move can climb, and a gradient-free simplex that can move every
-//! free angle at once can.
+//! The polish stage: a deterministic Nelder-Mead downhill simplex.
 //!
-//! [`super::search::run_search`]'s caller wires the real,
-//! [`crate::design::Design`]-backed scoring closure (built from
-//! [`super::candidate::build_free_angle_candidate`] and
-//! [`super::candidate::evaluate_candidate`]) -- this module never imports
-//! `Design`/`GemMaterial` itself, which is what keeps [`run_polish`] directly
-//! testable against a plain synthetic function.
+//! It is generic over the point-scoring function, so `tests::polish` can exercise it against
+//! a synthetic objective. The parent module's "Coordinate descent stalls on diagonal ridges"
+//! section explains why this stage exists: an axis-aligned move cannot climb a ridge of paired
+//! angles, but a simplex over all free angles can follow it.
+//!
+//! [`super::search::run_search`] wires in the real, [`crate::design::Design`]-backed scoring
+//! closure, built from [`super::candidate::build_free_angle_candidate`] and
+//! [`super::candidate::evaluate_in_context`]. This module never imports `Design` or
+//! `GemMaterial`, which keeps [`run_polish`] testable against a plain function.
 
 /// Standard Nelder-Mead coefficients (Nelder & Mead, 1965) -- algorithmic constants,
 /// not user-tunable search-budget knobs like [`super::search::OptimizeConfig`]'s
@@ -309,8 +305,7 @@ fn shrink(
 }
 
 /// The largest single-axis range (max - min across all vertices, over all axes) in
-/// `vertices` -- [`run_polish`]'s termination measure (the parent module's finding
-/// note calls this the simplex's "max angle spread").
+/// `vertices`, [`run_polish`]'s termination measure.
 fn simplex_spread(vertices: &[Vertex]) -> f64 {
     let Some(dims) = vertices.first().map(|v| v.point.len()) else {
         return 0.0;

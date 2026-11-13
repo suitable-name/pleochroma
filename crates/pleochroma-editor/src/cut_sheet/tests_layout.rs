@@ -700,8 +700,8 @@ fn the_carat_scaling_uses_two_smaller_round_sizes() {
     assert_eq!(smaller_round_sizes(12.0), [10.0, 7.0]);
     assert_eq!(smaller_round_sizes(3.5), [3.0, 2.0]);
     assert_eq!(smaller_round_sizes(1.0), [0.5]);
-    assert!(smaller_round_sizes(0.5).is_empty());
-    assert!(smaller_round_sizes(f64::NAN).is_empty());
+    assert_eq!(smaller_round_sizes(0.5), [] as [f64; 0]);
+    assert_eq!(smaller_round_sizes(f64::NAN), [] as [f64; 0]);
 }
 
 // ---- Views ---------------------------------------------------------------------------
@@ -829,8 +829,7 @@ fn the_line_drawings_carry_lines_and_tier_codes() {
 
 // ---- SheetDetails --------------------------------------------------------------------
 
-/// `cutting_sheet_document` is `cutting_sheet_document_with` the design's own details, so the
-/// web gets the new layout with the fallback header.
+/// `cutting_sheet_document` is `cutting_sheet_document_with` with the design's own details.
 #[test]
 fn the_plain_document_equals_the_document_with_the_fallback_details() {
     let mut design = round_brilliant_design();

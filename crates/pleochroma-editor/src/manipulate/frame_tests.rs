@@ -1,4 +1,6 @@
-//! The handle machinery against a REAL solid-preview frame: the anchor a target places on
+//! The handle machinery against a REAL solid-preview frame.
+//!
+//! The anchor a target places on
 //! the pick frame must land on the facet the pick buffer says is there, and the web's
 //! pointer <-> pick-frame mapping (a letterboxed `image-fit: contain` view) must agree
 //! with the pick lookup a hover or click uses.

@@ -31,7 +31,7 @@ fn nee_on_and_off_converge_to_the_same_mean_on_a_uniform_hdr_map() {
     let material = GemMaterial::new_custom("G7 furnace probe", 1.5, 0.0, 0.0, [0.0, 0.0, 0.0])
         .with_scattering(1.0, 0.2);
     let env_map = crate::renderer::env_map::EnvironmentMap::uniform(4, 2, [L0, L0, L0]);
-    let environment = EnvironmentSource::HdrMap(&env_map);
+    let environment = EnvironmentSource::hdr(&env_map);
     let ray = Ray {
         origin: Vec3::new(0.0, 2.5, 0.0),
         dir: Vec3::new(0.1, -1.0, 0.05).normalize(),
@@ -133,7 +133,7 @@ fn nee_on_and_off_agree_on_a_two_hemisphere_hdr_map() {
     }
     let env_map = crate::renderer::env_map::EnvironmentMap::from_rgb(WIDTH, HEIGHT, pixels)
         .expect("WIDTH * HEIGHT pixels for a WIDTH x HEIGHT map");
-    let environment = EnvironmentSource::HdrMap(&env_map);
+    let environment = EnvironmentSource::hdr(&env_map);
     let ray = Ray {
         origin: Vec3::new(0.0, 2.5, 0.0),
         dir: Vec3::new(0.1, -1.0, 0.05).normalize(),
@@ -197,19 +197,16 @@ fn nee_on_and_off_agree_on_a_two_hemisphere_hdr_map() {
     );
 }
 
-/// The same decisive NEE-on-vs-off unbiasedness measurement as
-/// [`nee_on_and_off_converge_to_the_same_mean_on_a_uniform_hdr_map`] above, but for a
-/// FROSTED-GIRDLE scene instead of a Henyey-Greenstein scattering medium -- isolates
-/// `apply_frosted_bounce`'s own NEE contribution
-/// (`scattering::nee_contribution_frosted_exterior`) and its `pending_light_mis`
-/// carry from the HG path's identical-shaped machinery, which this scene's material
-/// (`scattering_sigma_s == 0.0`, the `GemMaterial::new_custom` default) never
-/// exercises at all. A camera-grid sweep (mirroring
+/// The NEE-on-vs-off measurement of
+/// [`nee_on_and_off_converge_to_the_same_mean_on_a_uniform_hdr_map`] for a frosted-girdle scene
+/// instead of a Henyey-Greenstein medium. It isolates the frosted NEE contribution
+/// (`scattering::nee_contribution_frosted_exterior`) and its `pending_light_mis` carry, which a
+/// material with `scattering_sigma_s == 0.0` never reaches through the HG path. A camera-grid
+/// sweep, rather than one ray, exercises both NEE-eligible branches (entry reflect and exit
+/// transmit; see the "Sign convention for NEE eligibility" section of `apply_frosted_bounce`)
+/// across many incidence angles. It mirrors
 /// `frosted_girdle_white_furnace_energy_conservation_still_holds` in
-/// `tests/raytracer_tests.rs`) rather than one fixed ray, so both the entry-facet-
-/// reflect and exit-facet-transmit NEE-eligible branches (see
-/// `apply_frosted_bounce`'s "Sign convention for NEE eligibility" doc section) get
-/// exercised across many incidence angles.
+/// `tests/raytracer_tests/material_equivalence_finish.rs`.
 #[test]
 fn frosted_girdle_nee_on_and_off_converge_to_the_same_mean_on_a_uniform_hdr_map() {
     use super::super::super::camera::Camera;
@@ -228,7 +225,7 @@ fn frosted_girdle_nee_on_and_off_converge_to_the_same_mean_on_a_uniform_hdr_map(
     let material =
         GemMaterial::new_custom("G8 frosted furnace probe", 1.5, 0.0, 0.0, [0.0, 0.0, 0.0]);
     let env_map = crate::renderer::env_map::EnvironmentMap::uniform(4, 2, [L0, L0, L0]);
-    let environment = EnvironmentSource::HdrMap(&env_map);
+    let environment = EnvironmentSource::hdr(&env_map);
 
     let camera = Camera::new(0.35, 0.28, 5.0, 18.0);
     let mut sum_on = Vec3::ZERO;
@@ -297,20 +294,15 @@ fn frosted_girdle_nee_on_and_off_converge_to_the_same_mean_on_a_uniform_hdr_map(
     );
 }
 
-/// Regression: the two tests above use a colorless, NON-dispersive scattering
-/// probe, which cannot see either bug fixed alongside this test -- (a) the exit-split
-/// radiance a scatter event's continuation picks up had no MIS weight against a live
-/// NEE carry, and (b) the scattering-point NEE deposit was weighted by the FINAL
-/// post-loop `path_pdf` rather than its own moment's `path_pdf`/`compat`. Both biases
-/// are chromatic MIS-family effects that a same-index-every-channel material cannot
-/// exercise (every channel shares one family). `GemMaterial::diamond()` is genuinely
-/// dispersive (`Sellmeier3`) and colorless (`sigma_a == 0`), isolating both fixes from
-/// chromatic absorption -- see `ruby_scattering_nee_on_and_off_agree_within_half_a_percent`
-/// below for the absorbing-medium companion. Before the fix this measured NEE-on/NEE-off
-/// disagreeing by several percent (review-measured: 1.0598 vs 0.9911 relative to the
-/// furnace's own true value); after the fix both sides agree with each other (each
-/// converges independently to the analytic furnace target -- see
-/// `scattering_tests::dispersive_lossless_scattering_white_furnace_energy_conservation_holds`).
+/// Dispersive lossless scattering must keep NEE-on and NEE-off together. A colorless,
+/// non-dispersive probe cannot see the two MIS-family biases this guards: a scatter
+/// continuation's exit-split radiance without its MIS weight against a live NEE carry, and a
+/// scattering-point NEE deposit weighted by the final post-loop `path_pdf` instead of its own.
+/// Both are chromatic effects that a material with one shared family cannot exercise.
+/// `GemMaterial::diamond()` is dispersive (`Sellmeier3`) and colorless (`sigma_a == 0`), which
+/// isolates them from chromatic absorption. The absorbing companion is
+/// `ruby_scattering_nee_on_and_off_agree_within_half_a_percent`. The furnace target itself is
+/// checked by `dispersive_lossless_scattering_white_furnace_energy_conservation_holds`.
 #[test]
 fn dispersive_scattering_nee_on_and_off_converge_to_the_same_mean() {
     const SAMPLES: u32 = 20_000;
@@ -320,7 +312,7 @@ fn dispersive_scattering_nee_on_and_off_converge_to_the_same_mean() {
     let plane_soa = build_plane_soa(&planes);
     let material = GemMaterial::diamond().with_scattering(1.5, 0.3);
     let env_map = crate::renderer::env_map::EnvironmentMap::uniform(4, 2, [2.0, 2.0, 2.0]);
-    let environment = EnvironmentSource::HdrMap(&env_map);
+    let environment = EnvironmentSource::hdr(&env_map);
     let ray = Ray {
         origin: Vec3::new(0.0, 2.5, 0.0),
         dir: Vec3::new(0.12, -1.0, 0.06).normalize(),
@@ -384,13 +376,10 @@ fn dispersive_scattering_nee_on_and_off_converge_to_the_same_mean() {
     );
 }
 
-/// F-09b regression, absorbing-medium companion to the dispersive test above: an
-/// ABSORBING scattering material (`GemMaterial::ruby()`, chromatic per-channel
-/// absorption) makes the NEE deposit's mis-weighting visible even without dispersion,
-/// since absorption alone already makes each channel's own `path_pdf` diverge over the
-/// path -- measured at ~+0.4-0.9% before this fix (0.6006 -> 0.6062), within
-/// ~0.1% after (-> 0.6008). Tolerance kept at 0.5% (10x the measured residual)
-/// for CPU-only sample-budget headroom.
+/// The absorbing companion of the dispersive test above. An ABSORBING scattering material
+/// (`GemMaterial::ruby()`, chromatic per-channel absorption) shows the same deposit weighting
+/// without dispersion, since absorption alone makes each channel's `path_pdf` diverge along the
+/// path. The tolerance is 0.5 %, about ten times the residual this comparison leaves.
 #[test]
 fn ruby_scattering_nee_on_and_off_agree_within_half_a_percent() {
     const SAMPLES: u32 = 20_000;
@@ -400,7 +389,7 @@ fn ruby_scattering_nee_on_and_off_agree_within_half_a_percent() {
     let plane_soa = build_plane_soa(&planes);
     let material = GemMaterial::ruby().with_scattering(1.2, 0.4);
     let env_map = crate::renderer::env_map::EnvironmentMap::uniform(4, 2, [2.0, 2.0, 2.0]);
-    let environment = EnvironmentSource::HdrMap(&env_map);
+    let environment = EnvironmentSource::hdr(&env_map);
     let ray = Ray {
         origin: Vec3::new(0.0, 2.5, 0.0),
         dir: Vec3::new(0.1, -1.0, 0.05).normalize(),
@@ -510,21 +499,16 @@ fn nee_on_off_means(
 /// expectation unchanged, as the plain-haze ruby test above checks for Henyey-Greenstein.
 ///
 /// Density 1.0 puts about 1.2 extinction per model unit into the three basal needle families, so
-/// most paths scatter. 16 000 samples per side keep the test to seconds; the uniform map's
-/// per-sample spread is small (the ruby haze test above agrees to 0.1 percent at 20 000), so 2
-/// percent is many standard errors and still far below the several-percent bias the shadow-ray
-/// and MIS bugs produced.
+/// most paths scatter. The uniform map's per-sample spread is small: at 16 000 samples per side,
+/// 2 percent is many standard errors and still far below the several-percent bias that a
+/// shadow-ray or MIS error would give.
 #[test]
 fn star_silk_ruby_nee_on_and_off_agree_on_a_uniform_hdr_map() {
     const TOLERANCE: f32 = 0.02;
     let material = star_silk_ruby();
     let env_map = crate::renderer::env_map::EnvironmentMap::uniform(4, 2, [2.0, 2.0, 2.0]);
-    let (mean_on, mean_off) = nee_on_off_means(
-        &material,
-        EnvironmentSource::HdrMap(&env_map),
-        16_000,
-        131_000,
-    );
+    let (mean_on, mean_off) =
+        nee_on_off_means(&material, EnvironmentSource::hdr(&env_map), 16_000, 131_000);
     assert_means_agree("star silk ruby, uniform map", mean_on, mean_off, TOLERANCE);
 }
 
@@ -546,12 +530,8 @@ fn star_silk_ruby_nee_on_and_off_agree_on_a_two_hemisphere_hdr_map() {
     }
     let env_map = crate::renderer::env_map::EnvironmentMap::from_rgb(WIDTH, HEIGHT, pixels)
         .expect("WIDTH * HEIGHT pixels for a WIDTH x HEIGHT map");
-    let (mean_on, mean_off) = nee_on_off_means(
-        &material,
-        EnvironmentSource::HdrMap(&env_map),
-        24_000,
-        151_000,
-    );
+    let (mean_on, mean_off) =
+        nee_on_off_means(&material, EnvironmentSource::hdr(&env_map), 24_000, 151_000);
     assert_means_agree(
         "star silk ruby, two hemispheres",
         mean_on,

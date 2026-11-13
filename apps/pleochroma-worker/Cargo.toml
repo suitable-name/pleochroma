@@ -38,8 +38,9 @@ pleochroma-vault = { workspace = true }
 # `SceneState`'s nested types, gated behind `pleochroma-net`'s own `render` feature); this
 # crate also names `pleochroma::` directly (`gpu_backend::GpuBackend`, the CPU tracer's
 # `optics::raytracer`, `renderer::buffers::MAX_ABSORPTION_BANDS`), so it needs its own
-# dependency line too, not merely a re-export.
-pleochroma = { workspace = true, features = ["serde"], optional = true }
+# dependency line too, not merely a re-export. Beam tracing (retired) is this crate's own `beam`
+# feature, not part of this line.
+pleochroma = { workspace = true, features = ["serde", "stone-shadow"], optional = true }
 # Always present: the wire protocol (library-protocol types are always compiled in;
 # `pleochroma-net`'s own `render` feature -- which pulls in `pleochroma`-dependent types like
 # `SceneState`/`RenderRequest` -- is turned on only by this crate's `worker` feature
@@ -124,7 +125,7 @@ default = []
 # `Cargo.toml`) -- without that half, `pleochroma-net` would still pull `pleochroma` in via its
 # own unconditional dependency, and this feature alone wouldn't achieve anything.
 # `pleochroma/hdr`: decoding the HDR environment maps a viewer sends by content hash
-# (protocol v14 -- `crate::assets`) with the exact decoder the viewer uses.
+# (`crate::assets`) with the exact decoder the viewer uses.
 # A worker build also accepts zoned scenes (it advertises the zoning capability bit and
 # handles the separate `ZoningPayload` message).
 worker = ["dep:pleochroma", "dep:pleochroma-dispatch", "dep:pleochroma-render-jobs", "dep:glam", "dep:bytemuck", "dep:postcard", "dep:serde_json", "dep:image", "pleochroma/hdr", "pleochroma-net/render"]
@@ -137,6 +138,18 @@ worker = ["dep:pleochroma", "dep:pleochroma-dispatch", "dep:pleochroma-render-jo
 # default even with `worker` on: `wgpu`/`pollster` is a real dependency tree, and a
 # render-capable server may still run on a machine with no GPU adapter at all.
 gpu = ["worker", "pleochroma/gpu"]
+# Adaptive live passes: `render_core::{live, live_cache}`, the own lane's
+# `serve::connection::live_pass` and the coordinator's forwarding relay (`coordinator::live_pass`).
+# Parked and off by default: a worker without it answers every `LivePassRequest` with
+# `UNSUPPORTED_REQUEST` and keeps the connection, and a coordinator refuses instead of forwarding.
+# Implies `worker`; `beam` implies it. Its tests run whenever the feature is on.
+adaptive-sampling = ["worker"]
+# Beam tiles: `render_core::beam`, the own lane's `serve::connection::beam_tiles` and
+# the coordinator's forwarding relay (`coordinator::beam_tiles`). Retired and off by
+# default: a worker without it answers every `BeamTileRequest` with `UNSUPPORTED_REQUEST` and keeps the
+# connection. Implies `worker`; with `gpu` too the tiles also run on the GPU beam engine. Its tests
+# compile only with `RUSTFLAGS="--cfg beam_tests"` (scripts/run_beam_tests.sh).
+beam = ["worker", "adaptive-sampling", "pleochroma/beam"]
 
 [lints]
 workspace = true

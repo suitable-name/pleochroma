@@ -38,12 +38,8 @@ fn distinct_names_on_one_tier_are_merged_not_dropped() {
     );
 }
 
-/// Real corpus tier line (girdle tier literally named "G"): `parse_tier`'s token
-/// loop must honor a pending `expect_name` from the preceding "n" marker before
-/// checking for the "G" notes marker, or the name token "G" is misread
-/// as the start of the notes tail and every index after it is swallowed into
-/// `notes` instead. 2,296 of 5,759 corpus files hit this because "G" is a very
-/// common girdle-tier name.
+/// Corpus tier line whose facet name is "G". The name after an `n` marker must be read
+/// as the name, not as the `G` notes marker, or the indices after it go into `notes`.
 #[test]
 fn tier_named_g_is_not_swallowed_by_notes_marker() {
     let schedule = parse_asc(ASC_GIRDLE_NAMED_G).expect("must parse a tier named \"G\"");
@@ -54,9 +50,8 @@ fn tier_named_g_is_not_swallowed_by_notes_marker() {
     assert_eq!(tier.notes, "Set stone size.");
 }
 
-/// Same "G"-named-tier corpus quirk, but with no "G <notes>" tail at all -- every
-/// index after the name token must still parse as an index, not get swallowed as
-/// (empty) notes text.
+/// The same "G"-named tier with no notes tail: every index after the name is still an
+/// index, not notes text.
 #[test]
 fn tier_named_g_with_no_notes_keeps_all_indices() {
     let schedule = parse_asc(ASC_GIRDLE_NAMED_G_NO_NOTES)

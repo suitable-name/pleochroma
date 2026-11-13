@@ -22,24 +22,19 @@
 //!
 //! # Why a content hash, not `git describe`
 //!
-//! This repository has a `.git` directory but no commits yet, so `git describe`/
-//! `git rev-parse HEAD` both fail unconditionally. A content hash of the source works
-//! regardless of VCS state, and (unlike a commit hash) also flags uncommitted local
-//! edits that a `git`-based check would silently treat as whatever the last commit was.
+//! A content hash works regardless of VCS state. Unlike a commit hash, it also flags
+//! uncommitted local edits, which a `git`-based check would treat as the last commit.
 //!
 //! # Why not `DefaultHasher`
 //!
-//! `DefaultHasher`'s output is explicitly NOT guaranteed stable across Rust versions --
-//! two machines building the same source on different toolchains could disagree and
-//! refuse a compatible pairing. FNV-1a below is a fixed, fully-specified algorithm: same
-//! input bytes always produce the same output, on any platform or Rust version, forever,
-//! for about ten lines and zero dependencies.
+//! `DefaultHasher` is not guaranteed stable across Rust versions, so two toolchains could
+//! disagree on the same source. FNV-1a is fully specified: the same bytes always give the
+//! same hash, on any platform or toolchain.
 //!
 //! # Determinism
 //!
-//! - Files are visited in sorted, POSIX-normalized relative-path order (`/`, not `\`),
-//!   so the hash does not depend on the host OS's directory-listing order or path
-//!   separator.
+//! - Files are sorted by path components and hashed by POSIX-normalized path (`/`, not
+//!   `\`), so the hash does not depend on directory-listing order or the path separator.
 //! - The relative path itself is hashed alongside each file's contents, so renaming a
 //!   file changes the id even if no byte of any file's content changed.
 //! - Line endings are normalized (`\r\n` -> `\n`) before hashing, so an identical
@@ -51,9 +46,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
-/// The 64-bit FNV-1a offset basis and prime -- see
-/// <https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function>. Fully
-/// specified, versioned nowhere, and will never change out from under this build.
+/// The 64-bit FNV-1a offset basis and prime. See
+/// <https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function>.
 const FNV_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
 const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
 
@@ -89,14 +83,9 @@ fn normalize_path(rel: &Path) -> String {
         .join("/")
 }
 
-/// `transport_physics.wgsl`, `transport_bounce.wgsl`, and `transport_functions.wgsl` were
-/// each one oversized file; each is now a directory of ordered pieces (pure text
-/// slices, split along real responsibility boundaries -- see each piece's own leading
-/// comment) that must be concatenated in exactly this order to reproduce the original
-/// file's text byte-for-byte. `read_concat` below joins them with NO separator (not even
-/// a newline) for exactly that reason: every piece is a contiguous slice of the original
-/// file, so plain concatenation reproduces it exactly, and each piece already ends with
-/// its own trailing newline.
+/// Ordered pieces of `shaders/transport_physics/`. Each is a contiguous slice of the shader
+/// text and ends with its own newline, so `read_concat` joins them with no separator and
+/// reproduces the text exactly. Each piece's leading comment says what it holds.
 const TRANSPORT_PHYSICS_PIECES: &[&str] = &[
     "01_prelude_polarization.wgsl",
     "02_biaxial_eigenmodes.wgsl",
@@ -113,7 +102,7 @@ const TRANSPORT_PHYSICS_PIECES: &[&str] = &[
     "13_surface_ggx.wgsl",
 ];
 
-/// See [`TRANSPORT_PHYSICS_PIECES`]'s doc comment.
+/// Ordered pieces of `shaders/transport_bounce/`, joined as in [`TRANSPORT_PHYSICS_PIECES`].
 const TRANSPORT_BOUNCE_PIECES: &[&str] = &[
     "01_header_and_constants.wgsl",
     "02_scene_bindings.wgsl",
@@ -132,7 +121,7 @@ const TRANSPORT_BOUNCE_PIECES: &[&str] = &[
     "09_finalize_and_ray_gen.wgsl",
 ];
 
-/// See [`TRANSPORT_PHYSICS_PIECES`]'s doc comment.
+/// Ordered pieces of `shaders/transport_functions/`, joined as in [`TRANSPORT_PHYSICS_PIECES`].
 const TRANSPORT_FUNCTIONS_PIECES: &[&str] = &[
     "01_polarization_fresnel_tir.wgsl",
     "02_dispersion_absorption_uniaxial_index.wgsl",
@@ -147,19 +136,19 @@ const TRANSPORT_FUNCTIONS_PIECES: &[&str] = &[
     "11_surface.wgsl",
 ];
 
-/// The zoned-absorption units under `shaders/zoning/`, in concatenation order. They are
-/// appended to the shared bounce text of every generated transport shader.
+/// Zoned-absorption units under `shaders/zoning/`, in concatenation order. They are appended
+/// to the shared bounce text (see [`zoned_bounce_shared`]).
 const ZONING_PIECES: &[&str] = &[
     "01_zone_table.wgsl",
     "02_zone_kernel.wgsl",
     "03_zone_absorption.wgsl",
 ];
 
-/// The event wavefront kernels under `shaders/event_wavefront/`, in dispatch order.
+/// The event wavefront kernels under `shaders/event_wavefront/`, in dispatch order. This is
+/// also the `KERNEL_SET_HASH` input order.
 ///
-/// `ScatterOriented`, `ZonedAbsorb` and `ArmUniEntryTransmit` are the halves split off `Scatter`,
-/// `Surface` and `ArmUniEntry` to keep every kernel's browser compile time small; the order is the
-/// dispatch order and also the `KERNEL_SET_HASH` input order.
+/// `ScatterOriented`, `ZonedAbsorb` and `ArmUniEntryTransmit` are split off `Scatter`,
+/// `Surface` and `ArmUniEntry` to keep each kernel's browser compile time small.
 const EW_KERNELS: &[(&str, &str)] = &[
     ("Generate", "ew_generate.wgsl"),
     ("Extend", "ew_extend.wgsl"),
@@ -205,17 +194,16 @@ fn patch_once(text: &str, anchor: &str, replacement: &str, what: &str) -> String
     text.replacen(anchor, replacement, 1)
 }
 
-/// Diagnostic reverts for bisecting a GPU-only fault (2026-10-22: uniaxial stones return
-/// ~1e38 on AMD RADV since the render-physics waves; every per-function Tier 2 check passes).
+/// Diagnostic reverts for bisecting a GPU-only fault: a driver returns values near 1e38 for
+/// uniaxial stones while every per-function check passes.
 ///
-/// `PLEOCHROMA_WGSL_BISECT` is a comma list of the keys below (or `all`). Each key swaps one
-/// render-physics change on the bounce path back to its pre-change form or switches a new
-/// feature off; for a stone without e-ray curves, surface roughness, abraded edges or
-/// inclusions some reverts are numerically equivalent. A changed result helps isolate
-/// sensitive code generation; it does not by itself prove a driver defect. Other switches
-/// deliberately change the estimator and are not valid production fixes. Unset (the default) the
-/// shaders are untouched. The event-wavefront kernel-set hash moves with any revert, so its pin
-/// test fails in a bisect build; that is expected.
+/// `PLEOCHROMA_WGSL_BISECT` is a comma list of the keys below (or `all`). Each key replaces
+/// one bounce-path computation with a simpler form or switches a feature off. For a stone
+/// without e-ray curves, surface roughness, abraded edges or inclusions, some reverts are
+/// numerically equivalent. A changed result helps locate sensitive code generation; it does
+/// not prove a driver defect. Other switches change the estimator, so they are not valid
+/// production fixes. Unset, the shaders are untouched. The event-wavefront kernel-set hash
+/// moves with any revert, so its pin test fails in a bisect build.
 const BISECT_PATCHES: &[(&str, &str, &str)] = &[
     // 08a: the hero's walk-off index from the e-ray curve -> the constant offset.
     (
@@ -259,8 +247,8 @@ const BISECT_PATCHES: &[(&str, &str, &str)] = &[
         "            sc.scattered = 0u;",
     ),
     // 08b: a zoned stone with a domain structure takes the plain zoned estimator, without the
-    // Bragg tracker on top (the pre-D3 behavior: the structure is inert there); neutral for a
-    // stone without zones or without a structure.
+    // Bragg tracker on top, so the structure is inert; neutral for a stone without zones or
+    // without a structure.
     (
         "bragg_zoned",
         "        if (zoned_structure) {",
@@ -353,9 +341,8 @@ fn bisect_report(keys: &[String], hits: &[usize]) {
 /// 1. the `GpuGemMaterial` struct gains its trailing `zones: GpuZoneTable` field (the Rust
 ///    twin appends the table at offset 592, `renderer::buffers::GpuGemMaterial::zones`), then
 ///    `biaxial_curves: GpuBiaxialCurves` (offset 2720) and `inclusions: GpuInclusionBlock`
-///    (offset 2800). The patch is applied to every generated transport shader, so all variants
-///    declare the whole 3024-byte struct; the two block structs themselves are declared in
-///    `transport_bounce/02_scene_bindings.wgsl`;
+///    (offset 2800), so the struct is 3024 bytes in every shader built from the bounce text.
+///    The two block structs are declared in `transport_bounce/02_scene_bindings.wgsl`;
 /// 2. the homogeneous interior-absorption branch of `transport_bounce_step` becomes
 ///    `if (zoned) { zoned_interior_absorption(..) } else if (<the original condition>) {`.
 ///
@@ -396,28 +383,24 @@ fn zoned_bounce_shared(shaders_dir: &Path, bounce_shared: &str) -> String {
     out
 }
 
-/// Concatenates `shaders/transport_physics.wgsl` (the single shared source of the
-/// transport physics functions) ahead of each of `spectral_transport.wgsl`,
-/// `transport_functions.wgsl`, and `wavefront_transport.wgsl`, and writes each result
-/// into `$OUT_DIR`, since WGSL has no `#include` and every one of those files assumes
-/// the prelude's symbols are already in scope.
+/// Concatenates `shaders/transport_physics/` (the shared transport physics functions) ahead
+/// of each of `spectral_transport.wgsl`, `transport_functions/`, `wavefront_transport.wgsl`
+/// and `spectral_transport_staged.wgsl`, and writes each result into `$OUT_DIR`. WGSL has
+/// no `#include`, so every one of those units assumes the prelude's symbols are in scope.
 ///
-/// `shaders/transport_bounce.wgsl` -- the scene bindings plus the
-/// per-bounce `transport_bounce_step`/`transport_finalize_xyz` functions shared between
-/// the megakernel and the wavefront pipeline (see that file's own header comment) -- is
-/// ALSO concatenated in, for `spectral_transport.wgsl` and `wavefront_transport.wgsl`
-/// only: `transport_functions.wgsl` (Tier 2's standalone per-function kernels) never
-/// calls either shared function or needs their scene bindings, so it is not
-/// concatenated there.
+/// `shaders/transport_bounce/` -- the scene bindings plus the per-bounce
+/// `transport_bounce_step`/`transport_finalize_xyz` functions shared by the megakernel and
+/// the wavefront pipeline (see `01_header_and_constants.wgsl`) -- is also concatenated in,
+/// for every unit except `transport_functions`. That unit holds the standalone per-function
+/// kernels, which call neither shared function nor need the scene bindings.
 ///
 /// Deliberately writes into `$OUT_DIR` (under `target/`), never under `src/`: the
 /// content hash below walks `src/**/*.wgsl` on disk, and a generated file leaked into
 /// `src/` would either double-count as a redundant hash input or, if `.gitignore`d, go
 /// missing on a clean checkout and make the hash nondeterministic across `cargo clean`.
 ///
-/// `include_str!(concat!(env!("OUT_DIR"), "/..."))` in `renderer::gpu::estimator_check`,
-/// `renderer::gpu::transport_check`, and `renderer::gpu::frame` reads these generated
-/// files back at compile time.
+/// `include_str!(concat!(env!("OUT_DIR"), "/..."))` reads these generated files back at
+/// compile time.
 fn generate_transport_shaders(manifest_dir: &Path, out_dir: &Path) {
     let shaders_dir = manifest_dir.join("src").join("renderer").join("shaders");
     let read = |name: &str| -> String {
@@ -425,8 +408,7 @@ fn generate_transport_shaders(manifest_dir: &Path, out_dir: &Path) {
             .unwrap_or_else(|e| panic!("failed to read shaders/{name}: {e}"))
     };
     // Reads every named piece under `shaders/<subdir>/` in order and concatenates them
-    // with no separator -- see `TRANSPORT_PHYSICS_PIECES`'s doc comment above for why
-    // that reproduces the pre-split file exactly.
+    // with no separator; see `TRANSPORT_PHYSICS_PIECES`.
     let read_concat = |subdir: &str, pieces: &[&str]| -> String {
         pieces
             .iter()
@@ -438,11 +420,10 @@ fn generate_transport_shaders(manifest_dir: &Path, out_dir: &Path) {
             .collect()
     };
     let prelude = read_concat("transport_physics", TRANSPORT_PHYSICS_PIECES);
-    // Independent unit and admission hash: event-wavefront text/hash stay unchanged.
+    // The whitted unit has its own hash, separate from the event-wavefront kernel set.
     let mut whitted_tools = read("transport_physics/10_concave_tools.wgsl");
-    // The shared tool prelude predates the small-kernel explicit-initializer rule.
-    // Initialize its fully assigned records in this unit alone; old shaders/hash
-    // must remain byte-identical.
+    // Explicit initializers for the fully assigned tool records. Only this unit gets them;
+    // the prelude text of the other units is unchanged.
     for (name, ty) in [
         ("t", "CtTool"),
         ("r", "CtInterval"),
@@ -479,18 +460,19 @@ fn generate_transport_shaders(manifest_dir: &Path, out_dir: &Path) {
     let bounce_shared = bisect(&bounce_shared, &bisect_keys, &mut bisect_hits);
     bisect_report(&bisect_keys, &bisect_hits);
 
-    // (body file, whether `transport_bounce.wgsl` is concatenated in between the
-    // prelude and the body) -- see this function's own doc comment.
-    let units: [(&str, bool); 3] = [
+    // (body file, whether `transport_bounce` is concatenated between the prelude and the
+    // body); see this function's doc comment.
+    let units: [(&str, bool); 4] = [
         ("spectral_transport.wgsl", true),
         ("transport_functions.wgsl", false),
         ("wavefront_transport.wgsl", true),
+        // The staged megakernel: the same prelude and bounce text, with its own entry point.
+        ("spectral_transport_staged.wgsl", true),
     ];
 
     for (name, needs_bounce_shared) in units {
-        // `transport_functions.wgsl` is likewise now a directory of ordered pieces (see
-        // `TRANSPORT_FUNCTIONS_PIECES`'s doc comment above); `spectral_transport.wgsl`
-        // and `wavefront_transport.wgsl` are still single files, read as before.
+        // `transport_functions` is a directory of ordered pieces (see
+        // `TRANSPORT_FUNCTIONS_PIECES`); the other units are single files.
         let body = if name == "transport_functions.wgsl" {
             read_concat("transport_functions", TRANSPORT_FUNCTIONS_PIECES)
         } else {
@@ -536,9 +518,54 @@ fn generate_transport_shaders(manifest_dir: &Path, out_dir: &Path) {
         ew_hash = fnv1a_update(ew_hash, normalized.as_bytes());
     }
 
+    write_kernel_set_hash(out_dir, ew_hash);
+    generate_sorted_shaders(&shaders_dir, out_dir, &prelude, &bounce_shared, &common);
+}
+
+/// Writes `ew_kernel_set_hash.rs`: `KERNEL_SET_HASH`, the hash of the event wavefront's units.
+fn write_kernel_set_hash(out_dir: &Path, ew_hash: u64) {
     let hash_file_content = format!("pub const KERNEL_SET_HASH: &str = \"{ew_hash:016x}\";\n");
     fs::write(out_dir.join("ew_kernel_set_hash.rs"), hash_file_content)
         .unwrap_or_else(|e| panic!("failed to write ew_kernel_set_hash.rs to OUT_DIR: {e}"));
+}
+
+/// The sorted wavefront's two units (`renderer::gpu::frame::sorted`). The transport unit is
+/// the megakernel's prelude and bounce text, the event wavefront's ray records (`common`, its
+/// `00_common.wgsl`) and surface phase (`ew_surface.wgsl`, whose own entry point is never built
+/// from this unit), the queue layout and the kernels; the prepare unit is the queue layout and
+/// the two one-thread kernels. Neither is an input of `KERNEL_SET_HASH`.
+fn generate_sorted_shaders(
+    shaders_dir: &Path,
+    out_dir: &Path,
+    prelude: &str,
+    bounce_shared: &str,
+    common: &str,
+) {
+    let read = |rel: &str| -> String {
+        fs::read_to_string(shaders_dir.join(rel))
+            .unwrap_or_else(|e| panic!("failed to read shaders/{rel}: {e}"))
+    };
+    let queues = read("sorted_queues.wgsl");
+    let surface = read("event_wavefront/ew_surface.wgsl");
+    let kernels = read("sorted_wavefront.wgsl");
+    let transport = format!(
+        "// GENERATED by build.rs: shaders/transport_physics.wgsl + \
+         shaders/transport_bounce.wgsl + shaders/event_wavefront/00_common.wgsl + \
+         shaders/event_wavefront/ew_surface.wgsl + shaders/sorted_queues.wgsl + \
+         shaders/sorted_wavefront.wgsl.\n\
+         // Do not edit this file -- edit the sources above instead.\n\n\
+         {prelude}\n{bounce_shared}\n{common}\n{surface}\n{queues}\n{kernels}"
+    );
+    fs::write(out_dir.join("sorted_wavefront.generated.wgsl"), transport)
+        .unwrap_or_else(|e| panic!("failed to write sorted_wavefront.generated.wgsl: {e}"));
+    let prepare_kernels = read("sorted_prepare.wgsl");
+    let prepare = format!(
+        "// GENERATED by build.rs: shaders/sorted_queues.wgsl + shaders/sorted_prepare.wgsl.\n\
+         // Do not edit this file -- edit the sources above instead.\n\n\
+         {queues}\n{prepare_kernels}"
+    );
+    fs::write(out_dir.join("sorted_prepare.generated.wgsl"), prepare)
+        .unwrap_or_else(|e| panic!("failed to write sorted_prepare.generated.wgsl: {e}"));
 }
 
 fn main() {
@@ -576,21 +603,17 @@ fn main() {
 
     let mut rel_paths = Vec::new();
     collect_files(&src_dir, &manifest_dir, &mut rel_paths);
-    // .rs and .wgsl both carry physics this hash must fingerprint: a worker running a
-    // GPU backend executes WGSL as its physics, not as decoration on top of it. Two
-    // workers with byte-identical Rust but divergent WGSL would otherwise handshake as
-    // identical, which is exactly the silent-divergence failure this hash exists to
-    // catch. Deliberately still ONE hash, not two: verify_compatible has no "close
-    // enough" tier, so any change to either language is a build-identity change.
+    // .rs and .wgsl both carry physics, so both feed this hash. Two workers with identical
+    // Rust but different WGSL would otherwise handshake as identical. It is one hash, not
+    // two: `verify_compatible` has no "close enough" tier.
     rel_paths.retain(|p| {
         p.extension()
             .is_some_and(|ext| ext == "rs" || ext == "wgsl")
     });
 
-    // Pathological case: no source files found under src/ at all. Rather than silently
-    // emit a hash computed from Cargo.toml alone, fall back to an explicit sentinel --
-    // parse_build_id maps any non-16-hex-char string (this included) to
-    // UNKNOWN_BUILD_HASH, which verify_compatible refuses unconditionally.
+    // No source files under src/: emit an explicit sentinel rather than a hash of Cargo.toml
+    // alone. `parse_build_id` maps any non-16-hex-char string to `UNKNOWN_BUILD_HASH`, which
+    // `verify_compatible` always refuses.
     if rel_paths.is_empty() {
         println!("cargo:rerun-if-changed={}", src_dir.display());
         println!("cargo:rustc-env=PLEOCHROMA_SOURCE_HASH=unknown");
@@ -638,20 +661,14 @@ fn main() {
     let source_hash = format!("{hash:016x}");
     println!("cargo:rustc-env=PLEOCHROMA_SOURCE_HASH={source_hash}");
 
-    // The PRIMARY handshake identity is keyed on the crate VERSION, not on the source
-    // hash: a worker built on Linux and a viewer built on Windows from the same release
-    // must pair even when their checkouts differ in metadata, docs, or platform-only
-    // code. That guarantee rests on the release rule "bump the version whenever
-    // anything under src/ that affects a traced sample changes" -- a promise nothing
-    // enforces. The source hash above (`pleochroma::SOURCE_HASH`) is carried in the
-    // handshake for diagnostics only and is never compared (see
-    // `pleochroma-net::handshake`'s module doc comment).
-    // `CARGO_PKG_VERSION` is the package's resolved version: cargo substitutes a
-    // `version = { workspace = true }` inheritance before running this script, and
-    // `cargo package` writes the literal version into the published manifest, so a
-    // workspace build and a crates.io build of the same release agree. An empty or
-    // missing value must not hash into a plausible id, so it falls back to the
-    // `unknown` sentinel the handshake refuses.
+    // The primary handshake identity is the crate VERSION, not the source hash, so builds
+    // of one release pair even when their checkouts differ in metadata or platform-only
+    // code. That rests on the release rule "bump the version whenever anything under src/
+    // that affects a traced sample changes", which nothing enforces. The source hash
+    // (`pleochroma::SOURCE_HASH`) travels in the handshake for diagnostics only and is
+    // never compared (see `pleochroma-net::handshake`).
+    // `CARGO_PKG_VERSION` is already resolved for workspace inheritance. An empty value
+    // must not hash into a plausible id, so it falls back to the `unknown` sentinel.
     let build_id = match std::env::var("CARGO_PKG_VERSION") {
         Ok(version) if !version.trim().is_empty() => {
             format!(

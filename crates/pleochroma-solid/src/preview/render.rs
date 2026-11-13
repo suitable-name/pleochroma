@@ -1,12 +1,10 @@
-//! The drawing half of a redraw: [`render_request`] resolves one
-//! [`RedrawRequest`] (via [`resolve_request_state`]) and runs the mesh
-//! build/rasterize/edges-layer/diagram passes, returning a [`RenderedFrame`].
+//! The drawing half of a redraw: [`render_request`] resolves one [`RedrawRequest`] and
+//! rasterizes it, returning a [`RenderedFrame`].
 //!
-//! Moved from the desktop's `gui::solid_preview::preview_state::render`, minus the
-//! Slint pixel-buffer conversions: the finished solid image stays in the
-//! caller's `rasterizer` (and the "Both" layer in `edges_rasterizer`), the diagram
-//! comes back as its own [`DiagramFrame`]. The desktop wraps this to build its
-//! `PreviewFrame`; the web app pushes the same bytes into its own Slint images.
+//! The solid image stays in the caller's `rasterizer` (and the "Both" layer in
+//! `edges_rasterizer`); the diagram comes back as its own [`DiagramFrame`]. The desktop
+//! wraps this to build its preview frame, and the web app pushes the same bytes into its
+//! own Slint images. No Slint conversion happens here.
 
 use super::{
     request::RedrawRequest,
@@ -103,8 +101,8 @@ fn camera_for_pose(pose: CameraPose) -> Camera {
 
 /// View mode 3's diagram-building step: the diagram (three-panel, or the enlarged
 /// panel) of the closed `cached` mesh at `size` from the pipeline's `last_diagram`
-/// memory. Camera-independent. The caller passes the mesh it already fetched from the
-/// cache, so the plane list is not hashed a second time (perf review UI-7).
+/// memory. Camera-independent. Takes the mesh the caller already fetched, so the plane
+/// list is not hashed twice.
 ///
 /// `moved` is the app-owned set of drag-follower facet ids (see
 /// [`super::state::Outlines`]): like the solid view, the diagram outlines it from the
@@ -142,9 +140,8 @@ fn build_diagram(
 /// Renders one request against `mesh_cache`/`rasterizer`/`edges_rasterizer` plus
 /// `memory` -- see [`WorkerMemory`]'s doc comment.
 ///
-/// A `Reproject` request chains the
-/// pipeline's own last-known masts forward as its `solved` rather than reporting
-/// `None`, so orbiting never wipes a caller's `last_solved` cache.
+/// A `Reproject` request carries the last-known masts forward as its `solved`, so
+/// orbiting never wipes the caller's `last_solved` cache.
 ///
 /// Afterwards `rasterizer.color` holds the solid image (always sized to the
 /// request, background-colored when nothing ever closed) and, when
@@ -176,10 +173,9 @@ pub fn render_request(
     let style = memory.with_outlines(style);
     // View modes: 0 Solid, 1 Path-Traced, 2 Solid + Path-Traced (adds edges),
     // 3 Diagram (adds the diagram layer), 4 Ray-Traced, 5 Solid + Ray-Traced.
-    // Modes 0, 1 and 4 draw the same
-    // solid raster, because the traced image is composed by the caller and needs the
-    // solid pick geometry only. Any other value is treated as Solid, so another mode
-    // must be added to this match and to the layer branches below on purpose.
+    // Modes 0, 1 and 4 draw the same solid raster: the caller composes the traced image
+    // and needs only the solid pick geometry. Any other value is treated as Solid; a new
+    // mode must be added to this match and to the layer branches below.
     let view_mode = match view_mode {
         0..=5 => view_mode,
         _ => 0,
@@ -187,11 +183,9 @@ pub fn render_request(
 
     rasterizer.resize(size.0, size.1);
     let camera = camera_for_pose(camera_pose);
-    // The plane list is hashed once per request (perf review UI-7): by
-    // `resolve_request_state` for a `Planned` request (`known_key`), by this lookup
-    // otherwise. It used to be hashed again for the "Both" layer, the diagram and the
-    // frame geometry. Everything that needs the CURRENT closed mesh is therefore done
-    // inside this branch; none of it reads state the other passes write.
+    // The plane list is hashed once per request: by `resolve_request_state` for a
+    // `Planned` request (`known_key`), by this lookup otherwise. Everything that needs
+    // the current closed mesh is done inside this branch.
     let mut has_edges = false;
     let mut diagram = None;
     let mut closed_geometry = None;
@@ -249,10 +243,9 @@ pub fn render_request(
     let facet_tier = memory.diagram.facet_tier.clone();
     let facet_concave_tier = memory.diagram.facet_concave_tier.clone();
 
-    // Mirrors the `get_or_build(..).or_else(last_closed)` fallback chain the image
-    // was rendered from, so the distance clamp (and the manipulation handles) always
-    // describe the SAME solid the viewport is showing. The current mesh's geometry was
-    // taken above, from the same single cache lookup the image used.
+    // Mirrors the `get_or_build` then `last_closed` fallback the image was drawn from, so
+    // the distance clamp and the manipulation handles describe the solid on screen. The
+    // current mesh's geometry comes from the same single cache lookup the image used.
     let geometry = closed_geometry.or_else(|| {
         mesh_cache
             .last_closed()

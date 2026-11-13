@@ -112,10 +112,11 @@ pub fn binary_stl_of(header: &str, points: &[DVec3], triangles: &[[u32; 3]]) -> 
     bytes
 }
 
-/// The mesh as a PLY file in `format` (`ascii`, `binary_little_endian` or
-/// `binary_big_endian`). Every vertex carries a normal (`float nx ny nz`) and a colour
-/// (`uchar red green blue`) after its position, to be skipped by the reader, and the file
-/// has a comment and an `edge` element after the faces, also to be skipped.
+/// The mesh as a PLY file in `format` (`ascii`, `binary_little_endian` or `binary_big_endian`).
+///
+/// Every vertex carries a normal (`float nx ny nz`) and a colour (`uchar red green blue`) after its
+/// position, to be skipped by the reader, and the file has a comment and an `edge` element after
+/// the faces, also to be skipped.
 pub fn ply_of(format: &str, points: &[DVec3], faces: &[Vec<u32>]) -> Vec<u8> {
     let mut bytes = format!(
         "ply\nformat {format} 1.0\ncomment written by a test\nelement vertex {}\n\

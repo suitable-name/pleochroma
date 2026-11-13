@@ -92,8 +92,7 @@ fn refuse(message: &str) -> HdrRoute {
     HdrRoute::Refuse(ErrorMsg {
         code: error_codes::UNSUPPORTED_REQUEST,
         message: message.to_string(),
-        // This policy helper has
-        // no request in scope to stamp.
+        // No request is in scope here to stamp.
         request_id: None,
     })
 }

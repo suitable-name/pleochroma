@@ -44,12 +44,10 @@ fn reflectance_at_cos2_t(cos_i: f64, eta: f64, cos2_t: f64) -> f64 {
     (0.5 * r_par.mul_add(r_par, r_perp * r_perp)).clamp(0.0, 1.0)
 }
 
-/// Within 1e-6 of the f64 reference, widened only by the conditioning of `cos2_t`. Near the
-/// critical angle `R` falls with infinite slope in `cos2_t` (`cos_t = sqrt(cos2_t)`), so the
-/// rounding of `cos2_t` itself, not the kernel, sets the attainable accuracy there. The f32
-/// `cos2_t` carries at most 2^-24 * (1.5 eta^2 + 0.5) of error: the rounded `eta * eta` (relative
-/// 2^-24, times sin2 <= 1), the rounded `sin2` (absolute 2^-25, times `eta^2`) and the final
-/// rounding (below 2^-25). The extra allowance is how far the reference moves over that range.
+/// Within 1e-6 of the f64 reference, plus how far the reference moves over the rounding of
+/// `cos2_t`. Near the critical angle `R` has infinite slope in `cos2_t` (`cos_t = sqrt(cos2_t)`),
+/// so that rounding, not the kernel, bounds the accuracy there. The f32 `cos2_t` error is at most
+/// 2^-24 * (1.5 eta^2 + 0.5): the rounded `eta * eta`, the rounded `sin2` and the final rounding.
 #[test]
 fn fresnel_matches_the_f64_reference() {
     for eta_step in 4..=25 {
@@ -120,7 +118,7 @@ fn leaf_weights_conserve_energy_without_absorption() {
         facet_finishes: &[],
         material: &material,
         max_bounces: 256,
-        environment: EnvironmentSource::HdrMap(&env),
+        environment: EnvironmentSource::hdr(&env),
     };
     let soa = build_plane_soa(&planes);
     let prep = WhittedPrep::for_tests(1.5, Vec3::ZERO, Vec3::ONE, 256, 1);
@@ -168,7 +166,7 @@ fn the_tint_is_beer_lambert() {
             facet_finishes: &[],
             material: &material,
             max_bounces: 64,
-            environment: EnvironmentSource::HdrMap(&env),
+            environment: EnvironmentSource::hdr(&env),
         };
         let soa = build_plane_soa(&planes);
         let prep = WhittedPrep::for_tests(1.0, alpha, Vec3::ONE, 64, 1);
@@ -221,7 +219,7 @@ fn a_concave_cavity_reenters_the_stone() {
         facet_finishes: &[],
         material: &material,
         max_bounces: 128,
-        environment: EnvironmentSource::HdrMap(&env),
+        environment: EnvironmentSource::hdr(&env),
     };
     let prep = WhittedPrep::for_tests(1.5, Vec3::ZERO, Vec3::ONE, 128, 1);
     let rgb = trace_chain(&scene, &tools, &soa, &prep, ray, 1.5, -ray.dir, None);
@@ -247,7 +245,7 @@ fn a_frosted_entry_returns_the_prepared_diffuse_radiance() {
         facet_finishes: &finishes,
         material: &material,
         max_bounces: 64,
-        environment: EnvironmentSource::HdrMap(&env),
+        environment: EnvironmentSource::hdr(&env),
     };
     let mut prep = WhittedPrep::for_tests(1.5, Vec3::ZERO, Vec3::ONE, 64, 1);
     let expected = Vec3::new(0.1, 0.3, 0.7);

@@ -8,6 +8,7 @@ import { EnvironmentMapSection } from "../settings_dialog/environment_map_sectio
 import { LightingPresetsSection, SaveNameRow } from "../settings_dialog/lighting_presets_section.slint";
 import { DesignLightingSection } from "../settings_dialog/design_lighting_section.slint";
 import { SettingLabel } from "../settings_dialog/setting_label.slint";
+import { ToggleRow } from "../toggle_switch.slint";
 import { SegmentPill } from "../pill_button.slint";
 import { FooterButton, GroupHeader, SliderRow } from "parts.slint";
 
@@ -34,6 +35,11 @@ export component LightingTab inherits VerticalLayout {
     property <bool> studio_rig: ViewportModel.lighting_is_studio[ViewportModel.selected_lighting_index];
     property <bool> head_shadow_enabled: !SettingsModel.env_map_loaded && !root.studio_rig;
     property <int> head_shadow_shown: Math.round(SettingsModel.head_shadow_deg);
+    // The tray reflection reaches the same lights as the Stone Shadow: a studio light with a
+    // backdrop (not an HDR map, As Lit or the contrast and ultraviolet rigs).
+    property <bool> tray_reflection_enabled: !SettingsModel.env_map_loaded && SettingsModel.backdrop_index != 0
+        && ViewportModel.lighting_supports_stone_shadow[ViewportModel.selected_lighting_index];
+    property <int> tray_reflection_shown: Math.round(SettingsModel.tray_reflection_pct);
     property <bool> saving_view: false;
     property <string> new_view_name: "";
 
@@ -54,7 +60,7 @@ export component LightingTab inherits VerticalLayout {
             border-width: 1px;
             border-color: Theme.border-medium;
 
-            // The UV lamps are part of the `physical-color` build only (`PhysicscolorModel.ui_enabled`).
+            // UV lamps exist only in the `physical-color` build (`PhysicscolorModel.ui_enabled`).
             Tooltip { text: PhysicscolorModel.ui_enabled
                 ? @markdown("Lighting rig: the four studio rigs, or the lit models -- the\ngrading tray (D65 hemisphere + head shadow), light tent with black\ncards, daylight sky with sun -- the contrast view (ASET-style:\nred 45-75 deg, green 0-45 deg, blue 75-90 deg overhead, black\nbelow the horizon; not scored by the metrics) -- or a 365 nm or\n395 nm UV lamp (CPU only, lights fluorescent materials).")
                 : @markdown("Lighting rig: the four studio rigs, or the lit models -- the grading tray\n(D65 hemisphere + head shadow), light tent with black cards, daylight\nsky with sun, and the ASET-style contrast view (red 45-75 deg, green\n0-45 deg, blue 75-90 deg overhead; not scored by the metrics)."); }
@@ -84,9 +90,12 @@ export component LightingTab inherits VerticalLayout {
     }
 
     // --- Light direction ---------------------------------------------------------------
-    GroupHeader { text: "Light Direction"; }
+    // While an HDR map is loaded the light direction means nothing (the map is the light), so the
+    // group turns the map instead: its rotation, and whether it turns with the camera. The
+    // handlers are Rust's (`gui::render::camera_lighting`), which also write the values back.
+    GroupHeader { text: SettingsModel.env_map_loaded ? "Map Orientation" : "Light Direction"; }
 
-    SliderRow {
+    if !SettingsModel.env_map_loaded: SliderRow {
         icon: @image-url("../../icons/lightbulb.svg");
         text: "Light Azimuth";
         hint: "Light azimuth: the direction the main light shines from, as an angle\naround the stone (0 to 360 degrees). Dragging with the right mouse\nbutton, or Shift and the left button, in the viewport moves it too.";
@@ -98,7 +107,7 @@ export component LightingTab inherits VerticalLayout {
         edited(val) => { ViewportModel.light_pos_changed(val, SettingsModel.light_pitch_deg); }
     }
 
-    SliderRow {
+    if !SettingsModel.env_map_loaded: SliderRow {
         icon: @image-url("../../icons/lightbulb.svg");
         text: "Light Elevation";
         hint: "Light elevation: how high the main light is above the\nstone, from low and raking to nearly straight overhead.";
@@ -110,8 +119,29 @@ export component LightingTab inherits VerticalLayout {
         edited(val) => { ViewportModel.light_pos_changed(SettingsModel.light_yaw_deg, val); }
     }
 
+    if SettingsModel.env_map_loaded: SliderRow {
+        icon: @image-url("../../icons/lightbulb.svg");
+        text: "Map Rotation";
+        hint: "Turns the HDR map around the stone, from 0 to 360 degrees. Dragging with the right mouse button, or Shift and the left button, in the viewport turns it too.";
+        value_text: Math.round(SettingsModel.env_map_yaw_deg) + "°";
+        slider_label: "Map Rotation in Degrees";
+        minimum: 0.0;
+        maximum: 360.0;
+        value <=> SettingsModel.env_map_yaw_deg;
+        edited(val) => { ViewportModel.env_map_turn_changed(val); }
+    }
+
+    if SettingsModel.env_map_loaded: ToggleRow {
+        text: "Turns with the Camera";
+        hint: "The map stays fixed relative to the view, so orbiting turns the stone under the same surroundings. Off keeps the map fixed in the world. Switching it keeps the picture as it is.";
+        checked: SettingsModel.env_map_follows_camera;
+        toggled => { ViewportModel.env_map_follow_changed(!SettingsModel.env_map_follows_camera); }
+    }
+
     Text {
-        text: "Right-drag, or Shift and drag, in the viewport moves the light too.";
+        text: SettingsModel.env_map_loaded
+            ? "Right-drag, or Shift and drag, in the viewport turns the map."
+            : "Right-drag, or Shift and drag, in the viewport moves the light too.";
         font-size: 10px;
         color: Theme.text-muted;
         wrap: word-wrap;
@@ -122,7 +152,7 @@ export component LightingTab inherits VerticalLayout {
 
     SliderRow {
         text: "Overall Brightness";
-        hint: "Exposure: a correction on top of the light meter. 1x shows white paper the same under every lighting; lower is darker, higher brighter.";
+        hint: "Exposure: a correction on top of the light meter. 1x shows white paper the same under every lighting; lower is darker, higher brighter. Under an HDR map it scales the map's own light.";
         value_text: Math.round(SettingsModel.exposure_val * 100.0) / 100.0 + "x";
         slider_label: "Exposure";
         minimum: SettingsModel.exposure_min;
@@ -201,6 +231,41 @@ export component LightingTab inherits VerticalLayout {
                 }
             }
         }
+    }
+
+    ToggleRow {
+        text: "Stone Shadow";
+        note: SettingsModel.env_map_loaded ? "(not used with an HDR map)"
+            : SettingsModel.backdrop_index == 0 ? "(needs a backdrop)"
+            : !ViewportModel.lighting_supports_stone_shadow[ViewportModel.selected_lighting_index] ? "(not used with this light)" : "";
+        hint: "The stone casts its shadow and colored light onto the backdrop, as a stone on paper does. Studio lights only.";
+        enabled: !SettingsModel.env_map_loaded && SettingsModel.backdrop_index != 0
+            && ViewportModel.lighting_supports_stone_shadow[ViewportModel.selected_lighting_index];
+        checked: SettingsModel.stone_shadow;
+        toggled => {
+            SettingsModel.stone_shadow = !SettingsModel.stone_shadow;
+            SettingsModel.stone_shadow_changed(SettingsModel.stone_shadow);
+        }
+    }
+
+    // Tray reflection: makes the tray under the stone glossy, 0-100 % head-on reflectance in
+    // steps of 1 (0 = off). Rust snaps and applies it (`gui::render::quality::
+    // setup_tray_reflection_callback`). Outside a studio light with a backdrop the slider is
+    // dimmed, and the note says why, as the Stone Shadow row's does.
+    SliderRow {
+        text: "Tray Reflection";
+        note: SettingsModel.env_map_loaded ? "(not used with an HDR map)"
+            : SettingsModel.backdrop_index == 0 ? "(needs a backdrop)"
+            : !ViewportModel.lighting_supports_stone_shadow[ViewportModel.selected_lighting_index] ? "(not used with this light)" : "";
+        hint: "How mirror-like the surface under the stone is: its reflectance straight on. About 4 % looks like black acrylic or glass, 100 % is a mirror; glancing views reflect more.";
+        value_text: root.tray_reflection_shown == 0 ? "Off" : root.tray_reflection_shown + " %";
+        slider_label: "Tray Reflection in Percent";
+        minimum: 0.0;
+        maximum: 100.0;
+        step: 1.0;
+        enabled: root.tray_reflection_enabled;
+        value <=> SettingsModel.tray_reflection_pct;
+        edited(val) => { SettingsModel.tray_reflection_changed(Math.round(val)); }
     }
 
     // --- Observer ----------------------------------------------------------------------
@@ -287,7 +352,7 @@ export component LightingTab inherits VerticalLayout {
                 horizontal-stretch: 1;
                 icon: @image-url("../../icons/reset.svg");
                 text: "Reset";
-                hint: "Return the camera to its default orbit and distance, and the\nlight to its default direction. The rest of the lighting stays;\nReset this tab puts that back too, but not the camera.";
+                hint: "Return the camera to its default orbit and distance, and the\nlight to its default direction. A loaded HDR map returns to its\nunturned position. The rest of the lighting stays;\nReset this tab puts that back too, but not the camera.";
                 clicked => { ViewportModel.reset_camera(); }
             }
         }

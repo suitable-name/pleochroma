@@ -2,8 +2,8 @@
 //! order, overlays the selected metrics and writes a numbered PNG sequence.
 //!
 //! Two callers share it. The direct export (`run::spawn`) reports through a Slint adapter
-//! and renders every frame. A render job (`gui::render_jobs::execute`) reports to a job
-//! sink and passes `skip_existing`, so a paused or interrupted video continues at its
+//! and renders every frame. A render job (`gui::render_jobs`) reports to a job sink and
+//! passes `skip_existing`, so a paused or interrupted video continues at its
 //! first missing frame instead of starting over.
 //!
 //! Every frame is written atomically: the PNG goes to `frame_NNN.png.partial` first and is
@@ -12,7 +12,7 @@
 
 use super::{metrics, overlay, params, render, run::VideoExportRequest};
 use crate::{
-    bridge::export_thread::{AccumulationCarry, ComputeTarget},
+    bridge::export_thread::{AccumulationCarry, ComputeTarget, RenderTaps},
     gui::tilt::tilt_hover_preview,
     settings::LocalComputeTarget,
 };
@@ -220,8 +220,8 @@ fn prepare_legend(request: &VideoExportRequest, frames_done: usize) -> Result<()
         return Err(reason.to_string());
     }
     let path = request.out_dir.join(LEGEND_FILE);
-    // One axis keeps the wording it always had, so a folder rendered before several axes
-    // existed still resumes.
+    // A single axis keeps the one-axis wording, so the legend of an existing folder still
+    // matches on resume.
     let sweep = if let [axis] = request.axes.as_slice() {
         format!(
             "Sweep axis {axis}; start {}; end {}; step {} degrees; every frame is traced at its exact signed pose.",
@@ -300,6 +300,15 @@ fn draw_diagnostic_caption(rgba: &mut [u8], width: u32, height: u32) {
 
 /// The GPU backend a sweep traces with: acquired only when the local compute target uses
 /// the GPU and some frame still has to be rendered.
+#[cfg_attr(
+    not(feature = "gpu"),
+    allow(
+        clippy::missing_const_for_fn,
+        reason = "const-eligible only without pleochroma's `gpu` feature, whose stub \
+                  `GpuBackend::acquire` is a `const fn`; `allow`, not `expect`: a workspace \
+                  build enables that feature through other members"
+    )
+)]
 fn acquire_gpu(local_compute: LocalComputeTarget, needs_render: bool) -> GpuBackend {
     match local_compute {
         LocalComputeTarget::CpuGpu | LocalComputeTarget::Gpu if needs_render => {
@@ -415,16 +424,36 @@ fn diagnostics_stopped(message: String, cancel: &AtomicBool, frames_done: usize)
 /// `bridge::export_thread::render_accumulation` core the still-image export uses. With
 /// `skip_existing`, a frame whose PNG is already on disk is not rendered again. A frame that
 /// repeats an earlier pose (`params::earlier_same_frame`) is never rendered: it is linked or
-/// copied from that frame's PNG. `cancel`
-/// is checked between frames, not mid-frame: a frame's own trace is already parallelised
-/// internally and not worth interrupting partway through.
+/// copied from that frame's PNG. `cancel` is checked between frames, not mid-frame: a frame's
+/// own trace is already parallelised internally and not worth interrupting partway through.
+pub fn render_frames(
+    request: &VideoExportRequest,
+    skip_existing: bool,
+    cancel: &AtomicBool,
+    reporter: &mut dyn FrameReporter,
+) -> FramesOutcome {
+    render_frames_tapped(
+        request,
+        skip_existing,
+        &RenderTaps::default(),
+        cancel,
+        reporter,
+    )
+}
+
+/// [`render_frames`] with the optional [`RenderTaps`]: every rendered frame starts at
+/// `taps.sample_offset` and publishes its linear image to `taps.sink`, named after its PNG
+/// (`frame_0007`). A frame that is copied from an earlier pose, or already on disk and
+/// skipped, renders nothing and publishes nothing. With [`RenderTaps::default`] it is
+/// [`render_frames`], byte for byte.
 #[expect(
     clippy::too_many_lines,
     reason = "one frame loop whose setup, cancel checks and progress share local state"
 )]
-pub fn render_frames(
+pub fn render_frames_tapped(
     request: &VideoExportRequest,
     skip_existing: bool,
+    taps: &RenderTaps,
     cancel: &AtomicBool,
     reporter: &mut dyn FrameReporter,
 ) -> FramesOutcome {
@@ -488,7 +517,22 @@ pub fn render_frames(
         },
         needs_render,
     );
-    let mut carry = AccumulationCarry::default();
+    // The caller's adaptive settings (the command line's flags) win over the request's own
+    // ("Adaptive Sampling" in the section, or the job file); with neither, the taps are
+    // the caller's, byte for byte.
+    let mut frame_taps = taps.clone();
+    if frame_taps.adaptive.is_none() {
+        frame_taps.adaptive = request.adaptive;
+    }
+    // The same for the path cache: the caller's (`--path-cache`) wins, else the request's.
+    if frame_taps.path_cache.is_none() {
+        frame_taps.path_cache = request.path_cache;
+    }
+    // And for beam tracing: the caller's (`--beam`) wins, else the request's.
+    if frame_taps.beam.is_none() {
+        frame_taps.beam = request.beam;
+    }
+    let mut carry = AccumulationCarry::with_taps(frame_taps);
     let config = render::VideoComputeConfig {
         remote: request.remote.clone(),
         local_compute,
@@ -496,6 +540,9 @@ pub fn render_frames(
     // Only the image roll changes from axis to axis (`axis_roll`); one copy of the scene
     // for the whole video carries it.
     let mut scene = request.scene.clone();
+    scene.stone_shadow = false;
+    // Like the stone shadow, the tray reflection is left out of the tilt frames.
+    scene.tray_reflection = 0.0;
 
     for (index, pose) in poses.iter().enumerate() {
         if cancel.load(Ordering::Relaxed) {
@@ -525,6 +572,12 @@ pub fn render_frames(
         let (cam_yaw, cam_pitch) =
             tilt_hover_preview::camera_pose_for_axis_tilt(pose.axis_index, tilt_deg);
         scene.camera_roll = request.scene.camera_roll + axis_roll(&request.axes, pose.axis_index);
+        if taps.sink.is_some() {
+            carry.set_frame_name(
+                path.file_stem()
+                    .map(|stem| stem.to_string_lossy().into_owned()),
+            );
+        }
 
         let outcome = render::render_frame_rgba(
             &scene,
@@ -636,6 +689,9 @@ mod tests {
             keep_frames: true,
             remote: RemoteSelection::local_only(),
             local_compute: LocalComputeTarget::Cpu,
+            adaptive: None,
+            path_cache: None,
+            beam: None,
         }
     }
 

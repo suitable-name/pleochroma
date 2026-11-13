@@ -1,6 +1,7 @@
-//! `TILT_CURVES`: the single-request/single-response analytic tilt-performance sweep --
-//! contrast with `RENDER`'s progressive, multi-message stream (`crate::stream_emit`).
-//! See `pleochroma_net::messages::tilt`'s module docs for the wire types.
+//! `TILT_CURVES`: a single-request, single-response analytic tilt-performance sweep.
+//!
+//! Contrast with `RENDER`'s progressive stream (`crate::stream_emit`). The wire types are
+//! documented in `pleochroma_net::messages::tilt`.
 //!
 //! [`handle_tilt_curves_request`] is the one entry point, called from
 //! `super::connection`'s worker-build request loop where `RenderRequest` instead calls
@@ -8,18 +9,16 @@
 //!
 //! # Runs inline, unlike `RenderRequest`
 //!
-//! `stream_emit::run_stream` splits tracing onto its own thread so a slow `write()`
-//! never stalls sample production across a multi-second stream. A `TiltCurvesRequest`
-//! writes exactly one ~8,688-byte reply at the end, so there is nothing to stall and the
-//! thread split buys nothing. Measured cost was ~1.36s total (four axes, ~340ms each) before
-//! the Fire-less fast path; the sweep runs single-threaded here (see the call site).
+//! `stream_emit::run_stream` runs tracing on its own thread so a slow `write()` never
+//! stalls sample production. A `TiltCurvesRequest` writes one ~8,688-byte reply at the
+//! end, so there is nothing to stall and a thread split would buy nothing. The sweep runs
+//! single-threaded (about 340 ms per axis; see the call site).
 //!
 //! # Cancellation: 4 checkpoints, ~340ms worst-case latency
 //!
-//! [`poll_for_cancel`] runs once before each axis rather than `stream_emit`'s continuous
-//! polling loop -- there's nothing to report progress on between axes. A `CANCEL`
-//! arriving mid-axis is only noticed at the next checkpoint, bounding worst-case
-//! cancellation latency to one axis's duration (~340ms).
+//! [`poll_for_cancel`] runs once before each axis, not in a continuous loop, because there
+//! is no progress to report between axes. A `CANCEL` arriving mid-axis is seen at the next
+//! checkpoint, so latency is at most one axis (~340 ms).
 //!
 //! # `ComputeMode` plays no role here
 //!
@@ -52,10 +51,11 @@ use std::{
     time::Duration,
 };
 
-/// How long [`poll_for_cancel`] waits, per checkpoint, for a `CANCEL` that might already
-/// be sitting in the socket's receive buffer. Short and non-looping: this runs exactly
-/// once per checkpoint, so it only needs to catch what's already arrived over the
-/// ~340ms since the previous one.
+/// How long [`poll_for_cancel`] waits, per checkpoint, for a `CANCEL` already in the
+/// socket's receive buffer.
+///
+/// Short and non-looping: it runs once per checkpoint, so it only needs to catch what
+/// arrived during the ~340 ms since the previous one.
 const CANCEL_POLL_TIMEOUT: Duration = Duration::from_millis(5);
 
 /// What one [`poll_for_cancel`] check found.
@@ -71,20 +71,18 @@ pub enum CancelPoll {
 /// Checks whether a `CANCEL` for `request_id` is already sitting on `stream`'s socket
 /// buffer, without blocking longer than [`CANCEL_POLL_TIMEOUT`].
 ///
-/// Mirrors `crate::stream_emit`'s private `poll_for_client_message`: the length-prefix's
-/// first byte is read with a raw, timeout-tolerant `read()` rather than `read_exact`
-/// (whose docs leave it unspecified how many bytes land on an error), since a timeout
-/// must never land mid-message. Once a byte is seen, the rest of that message is read
-/// (bounded by `MAX_CONTROL_FRAME_LEN`) under a bounded timeout
-/// (`FRAME_REMAINDER_TIMEOUT`) where a timeout IS a protocol error. The first byte's timeout tolerance goes through
-/// [`crate::stream_emit::is_stream_timeout`] since a TLS stream's timeout can surface as
-/// `WriteZero` even from a read.
+/// Mirrors `crate::stream_emit`'s private `poll_for_client_message`. The length prefix's
+/// first byte is read with a raw `read()`, not `read_exact`, which leaves the bytes read on
+/// an error unspecified, so a timeout can only land before a message starts. Once a byte
+/// is seen, the rest is read under `FRAME_REMAINDER_TIMEOUT` (bounded by
+/// `MAX_CONTROL_FRAME_LEN`), where a timeout is a protocol error. The first byte's timeout
+/// is classified by [`crate::stream_emit::is_stream_timeout`], since a TLS stream can
+/// report a timeout as `WriteZero`.
 ///
-/// Anything besides a matching `CANCEL` -- a stale `CANCEL`, or any other pipelined
-/// `ClientMessage` -- is logged and dropped as [`CancelPoll::Pending`]: `TILT_CURVES`
-/// supports no pipelining, and the connection's next ordinary read picks it up once this
-/// reply has gone out. A dropped `ASSET` or `CONTRIBUTION` has its payload frame consumed
-/// too, so the stream stays in sync.
+/// Anything besides a matching `CANCEL` (a stale `CANCEL`, or any other pipelined
+/// `ClientMessage`) is logged and dropped as [`CancelPoll::Pending`]: `TILT_CURVES`
+/// supports no pipelining. A dropped `ASSET` or `CONTRIBUTION` has its payload frame
+/// consumed too, so the stream stays in sync.
 ///
 /// # Errors
 ///
@@ -138,13 +136,12 @@ pub fn poll_for_cancel<S: Read + TimeoutRead>(
             pleochroma_net::messages::discard_contribution_payload(stream, &header)?;
             CancelPoll::Pending
         }
-        // v25: not served mid-computation; a `PutAsset`'s payload frame is consumed.
+        // Not served mid-computation; a `PutAsset`'s payload frame is still consumed.
         pleochroma_net::messages::ClientMessage::Job(job) => {
             crate::jobs::ignore_in_flight(stream, &job)?;
             CancelPoll::Pending
         }
-        // The zones of a request pipelined behind this computation; kept for
-        // it (the tilt sweep itself ignores zones).
+        // Zones of a request pipelined behind this one are kept for it; the sweep ignores zones.
         #[cfg(feature = "worker")]
         pleochroma_net::messages::ClientMessage::ZoningPayload(payload) => {
             crate::serve::zoning::stash(*payload);
@@ -161,42 +158,34 @@ pub fn poll_for_cancel<S: Read + TimeoutRead>(
     })
 }
 
-/// Handles one `TiltCurvesRequest` end to end: validates the embedded scene, computes
-/// all [`TILT_CURVE_AXIS_COUNT`] axes, and writes exactly one [`TiltCurvesResponse`] --
-/// never a stream. See the module docs for why this runs inline, the cancellation
-/// design, and why `ComputeMode` plays no role.
+/// Handles one `TiltCurvesRequest`: computes all [`TILT_CURVE_AXIS_COUNT`] axes and writes
+/// one [`TiltCurvesResponse`], never a stream.
 ///
-/// Validates with [`validate::validate_scene`] -- the same path `RenderRequest` uses, so
-/// a rejected scene gets [`TiltCurvesResponse::Error`] carrying
-/// `super::connection::VALIDATION_FAILED_CODE`, the same numeric code `RenderRequest`
-/// uses in its own envelope.
+/// See the module docs for the inline and cancellation designs.
 ///
-/// Runs the per-axis evaluation inside `catch_unwind`, mirroring
-/// `stream_emit::tracer::run_tracer`'s precedent: a pathological but validation-passing
-/// scene is reported as [`TiltCurvesResponse::Error`] with
-/// `super::connection::TRACE_PANIC_CODE`, not a crashed connection.
+/// Validates with [`validate::validate_scene`], as `RenderRequest` does. A rejected scene
+/// gets [`TiltCurvesResponse::Error`] with `super::connection::VALIDATION_FAILED_CODE`.
 ///
-/// Restores `stream`'s read timeout to `None` (blocking) before returning, on every
-/// return path: [`poll_for_cancel`] leaves either [`CANCEL_POLL_TIMEOUT`]
-/// or [`crate::stream_emit::FRAME_REMAINDER_TIMEOUT`] applied to the socket, and this
-/// connection's next `read_message` call (`super::connection`'s request loop) assumes a
-/// blocking read exactly like every other message on this connection, same as before
-/// this request started. A thin wrapper around [`handle_tilt_curves_request_inner`],
-/// which does the actual work and may return early from several places -- restoring the
-/// timeout once, here, after it returns (however it returns) is simpler and less
-/// error-prone than duplicating the restore at each of those sites.
+/// Each axis runs inside `catch_unwind`, so a panic on a validation-passing scene is
+/// reported as [`TiltCurvesResponse::Error`] with `super::connection::TRACE_PANIC_CODE`
+/// instead of dropping the connection.
+///
+/// Restores `stream`'s read timeout to `None` (blocking) on every return path.
+/// [`poll_for_cancel`] leaves a short timeout applied, and the connection's next
+/// `read_message` expects a blocking read. This wrapper does the restore once, around
+/// [`handle_tilt_curves_request_inner`], which returns early from several places.
 ///
 /// # Errors
 ///
 /// Returns [`NetError`] for a transport-level failure while polling for `CANCEL` or
-/// writing the reply. A validation failure or caught panic is NOT an error return --
-/// both are reported as `TiltCurvesResponse::Error` and this returns `Ok(())`.
+/// writing the reply. A validation failure or caught panic is NOT an error return: both
+/// are reported as `TiltCurvesResponse::Error` and this returns `Ok(())`.
 ///
 /// # Panics
 ///
-/// Never panics in practice: the `unreachable!()` converting the axes `Vec` into a
-/// fixed-size array is unreachable by construction (the `debug_assert_eq!` above the
-/// loop pins the two independently-defined axis counts equal in every debug build).
+/// Does not panic. The array conversion after the loop is unreachable, because exactly
+/// `TILT_CURVE_AXIS_COUNT` axes are pushed; a debug assertion ties that count to the
+/// azimuth table.
 pub fn handle_tilt_curves_request<S: Read + Write + TimeoutRead>(
     stream: &mut S,
     request: &TiltCurvesRequest,
@@ -210,9 +199,9 @@ pub fn handle_tilt_curves_request<S: Read + Write + TimeoutRead>(
     result
 }
 
-/// The actual `TILT_CURVES` handling [`handle_tilt_curves_request`] wraps -- see that
-/// function's doc comment for everything except the timeout-restore responsibility,
-/// which deliberately lives in the wrapper, not here.
+/// The `TILT_CURVES` work that [`handle_tilt_curves_request`] wraps.
+///
+/// The timeout restore lives in the wrapper, not here.
 fn handle_tilt_curves_request_inner<S: Read + Write + TimeoutRead>(
     stream: &mut S,
     request: &TiltCurvesRequest,
@@ -271,11 +260,9 @@ fn handle_tilt_curves_request_inner<S: Read + Write + TimeoutRead>(
         }
 
         let axis_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            // `Some(1)`: this request holds no `render_core` thread permits, and the worker
-            // serves concurrent jobs under that process-wide pool, so an unpermitted
-            // fan-out here could oversubscribe a rendering worker. The sweep still gets
-            // the Fire-less fast path; threading it needs a permit-acquiring helper in
-            // `render_core`.
+            // `Some(1)`: this request holds no `render_core` permits, so a wider fan-out
+            // could oversubscribe the process-wide pool. Threading needs a
+            // permit-acquiring helper in `render_core`.
             pleochroma::color::metrics::evaluate_full_axis_profile_at_azimuth_finished_threaded(
                 pleochroma::color::metrics::FinishedStone::new(
                     pleochroma::geometry::StoneGeometry {
@@ -341,7 +328,7 @@ mod tests {
     use std::io::Cursor;
 
     /// A minimal `Read + Write + TimeoutRead` double over two in-memory buffers,
-    /// mirroring `super::super::tests::DuplexHalf` (kept separate rather than reaching
+    /// mirroring `serve::tests::fixtures::DuplexHalf` (kept separate to avoid reaching
     /// across that module boundary). `closed` distinguishes "peer hung up" (`Ok(0)`
     /// even with a timeout active) from "nothing pending yet" (`WouldBlock`/`TimedOut`),
     /// since a bare `timeout_active` flag alone can't tell them apart.
@@ -399,6 +386,10 @@ mod tests {
             height: 4,
             yaw: 0.4,
             camera_roll: 0.0,
+            stone_shadow: false,
+            tray_reflection: 0.0,
+            hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
+            estimator: pleochroma::optics::raytracer::Estimator::Branching,
             pitch: 0.3,
             distance: 3.0,
             light_yaw: 0.85,

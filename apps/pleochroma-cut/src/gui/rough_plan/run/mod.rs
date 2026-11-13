@@ -87,6 +87,9 @@ pub struct Reporter {
     ui_weak: Mutex<Weak<RoughPlannerWindow>>,
     last_push: Mutex<Option<Instant>>,
     cancel: Arc<AtomicBool>,
+    /// The line under the progress bar (`RoughPlanModel.best_so_far_text`), pushed with the
+    /// next stage line.
+    best_text: Mutex<String>,
 }
 
 impl Reporter {
@@ -96,7 +99,16 @@ impl Reporter {
             ui_weak: Mutex::new(ui_weak),
             last_push: Mutex::new(None),
             cancel,
+            best_text: Mutex::new(String::new()),
         }
+    }
+
+    /// Sets the line under the progress bar that the next [`Reporter::report`] pushes.
+    pub fn set_best_text(&self, text: String) {
+        *self
+            .best_text
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = text;
     }
 
     /// Whether the user asked to cancel.
@@ -122,7 +134,7 @@ impl Reporter {
 
     /// Pushes a stage line and a progress fraction (`0..=1`) to the window. Unless
     /// `force` is set, a push within [`PROGRESS_INTERVAL`] of the previous one is
-    /// dropped. After a cancel request the stage line reads "Cancelling...".
+    /// dropped.
     pub fn report(&self, stage: &str, fraction: f32, force: bool) {
         {
             let mut last = self
@@ -137,11 +149,17 @@ impl Reporter {
         }
         let stage = self.shown_stage(stage).to_string();
         let fraction = fraction.clamp(0.0, 1.0);
+        let best = self
+            .best_text
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
         let weak = self.ui_weak.lock().unwrap_or_else(PoisonError::into_inner);
         let _ = weak.upgrade_in_event_loop(move |ui| {
             let model = ui.global::<RoughPlanModel>();
             model.set_stage(stage.into());
             model.set_progress_fraction(fraction);
+            model.set_best_so_far_text(best.into());
         });
     }
 }
@@ -246,9 +264,9 @@ pub struct PlanJob {
     /// The scan plan time limit in seconds, `0` for none. Only a mesh rough obeys it
     /// (see [`crate::plan_limit`]).
     pub time_limit_secs: u32,
-    /// The Crystal Axis settings of the plan (its rule, the rules of single designs). With the
-    /// rough's orientation they give each design the rule it is cut under; the default (a plan
-    /// that never used the axis) plans exactly as before.
+    /// The Crystal Axis settings: the plan's rule and the rules of single designs. With the
+    /// rough's orientation they give each design the rule it is cut under; the default has
+    /// no axis rule.
     pub overrides: PlanSettingsOverrides,
     /// The stones the cutter locked: the plan keeps their pieces out of the rough and lists them
     /// in every layout (empty for a plan that locks nothing).
@@ -265,6 +283,9 @@ pub struct Finished {
     /// geometry that relies on its preform). Designs that could not be loaded or
     /// measured at all are named in `summary` instead.
     pub skipped: usize,
+    /// Whether the scan plan time limit stopped the plan, so its layouts are a partial search
+    /// (the window offers Plan Again with More Time).
+    pub stopped: bool,
 }
 
 /// How a run ended.
@@ -445,6 +466,33 @@ fn gather(db: &Mutex<Database>, reporter: &Reporter, ids: &[i64]) -> Result<Gath
     })
 }
 
+/// The sentence tail that says what the plan left out or could not use: the excluded designs,
+/// the ids with no row, the concave designs left unresolved, the cache that could not be
+/// written, and the designs planned as boxes only.
+///
+/// `designs` is (plannable designs, designs covered by a fitted outline or its exact twin);
+/// every other plannable design has no outline in the fit and is planned as a box only.
+fn plan_note(
+    excluded: usize,
+    id_count: usize,
+    gathered: &Gathered,
+    designs: (usize, usize),
+) -> String {
+    let boxes_only = designs.0.saturating_sub(designs.1);
+    // The concave-unresolved designs have no row either, but get their own note.
+    let unmeasured = id_count
+        .saturating_sub(gathered.stored.len())
+        .saturating_sub(gathered.concave_unresolved);
+    format!(
+        "{}{}{}{}{}",
+        excluded_note(excluded),
+        unmeasured_note(unmeasured),
+        concave_note(gathered.concave_unresolved),
+        cache_note(gathered.save_failures),
+        outline_note(boxes_only)
+    )
+}
+
 /// Runs a whole plan. Panics anywhere in it (including the scoped threads) reach the
 /// caller, which catches them.
 pub fn run_plan(db: &Mutex<Database>, job: &PlanJob, reporter: &Reporter) -> PlanOutcome {
@@ -476,23 +524,11 @@ pub fn run_plan(db: &Mutex<Database>, job: &PlanJob, reporter: &Reporter) -> Pla
     // "skipped"; ids with no row at all could not be loaded or measured (they are not
     // saved, so the next run retries them) and are named in the summary instead.
     let skipped = gathered.stored.len().saturating_sub(designs.len());
-    // A design whose exact twin is fitted is covered; every other plannable design that
-    // has no outline in the fit is planned as a box only.
-    let boxes_only = designs
-        .len()
-        .saturating_sub(prepared.hulls.len() + prepared.duplicates);
-    // The concave-unresolved designs have no row either, but get their own note.
-    let unmeasured = ids
-        .len()
-        .saturating_sub(gathered.stored.len())
-        .saturating_sub(gathered.concave_unresolved);
-    let note = format!(
-        "{}{}{}{}{}",
-        excluded_note(excluded),
-        unmeasured_note(unmeasured),
-        concave_note(gathered.concave_unresolved),
-        cache_note(gathered.save_failures),
-        outline_note(boxes_only)
+    let note = plan_note(
+        excluded,
+        ids.len(),
+        &gathered,
+        (designs.len(), prepared.hulls.len() + prepared.duplicates),
     );
     if designs.is_empty() {
         let summary = format!(
@@ -506,6 +542,7 @@ pub fn run_plan(db: &Mutex<Database>, job: &PlanJob, reporter: &Reporter) -> Pla
             BTreeMap::new(),
             summary,
             skipped,
+            false,
         );
     }
 
@@ -558,7 +595,10 @@ pub fn run_plan(db: &Mutex<Database>, job: &PlanJob, reporter: &Reporter) -> Pla
     if stopped {
         summary = format!("{summary}. {}", stop_note(limit_secs));
     }
-    finished(job, assembled, titles, shapes, summary, skipped)
+    // The limit may also have ended the alternatives, which `stopped` did not see: the window
+    // offers more time then as well.
+    let limit_hit = stopped || tracker.time_stopped();
+    finished(job, assembled, titles, shapes, summary, skipped, limit_hit)
 }
 
 /// The shape of every design the layouts use, as this run measured it (designs whose
@@ -577,7 +617,7 @@ fn planned_shapes(
         .collect()
 }
 
-/// The finished run of `job` with `layouts`.
+/// The finished run of `job` with `layouts`; `stopped` is whether the time limit ended it.
 fn finished(
     job: &PlanJob,
     (layouts, labels): (Vec<RoughLayout>, Vec<String>),
@@ -585,6 +625,7 @@ fn finished(
     shapes: BTreeMap<i64, DesignShape>,
     summary: String,
     skipped: usize,
+    stopped: bool,
 ) -> PlanOutcome {
     PlanOutcome::Done(Box::new(Finished {
         shown: ShownLayouts {
@@ -607,6 +648,7 @@ fn finished(
         },
         summary,
         skipped,
+        stopped,
     }))
 }
 
@@ -625,6 +667,7 @@ fn end_run(host: &Rc<Host>) {
     let model = host.window.global::<RoughPlanModel>();
     model.set_running(false);
     model.set_stage("".into());
+    model.set_best_so_far_text("".into());
     model.set_progress_fraction(1.0);
     if let Some(main) = host.main.upgrade() {
         raise(&main, ROUGH_PLAN_FINISHED);
@@ -641,15 +684,21 @@ fn apply_outcome(host: &Rc<Host>, outcome: PlanOutcome) {
                 shown,
                 summary,
                 skipped,
+                stopped,
             } = *finished;
             model.set_skipped_count(to_i32(skipped));
             model.set_stage("Preparing the results...".into());
-            host.session.borrow_mut().run.summary = Some(summary);
+            {
+                let mut session = host.session.borrow_mut();
+                session.run.summary = Some(summary);
+                session.run.stopped_pending = stopped;
+            }
             results::show_layouts(host, shown, Some(end_run));
         }
         PlanOutcome::Cancelled => {
             model.set_running(false);
             model.set_stage("".into());
+            model.set_best_so_far_text("".into());
             model.set_progress_fraction(0.0);
             // The results the run set aside come back, so a cancel never leaves an empty
             // list behind.
@@ -659,6 +708,7 @@ fn apply_outcome(host: &Rc<Host>, outcome: PlanOutcome) {
         PlanOutcome::Failed(message) => {
             model.set_running(false);
             model.set_stage("".into());
+            model.set_best_so_far_text("".into());
             model.set_progress_fraction(0.0);
             start::restore_previous(host);
             model.set_error_text(message.into());
@@ -705,11 +755,13 @@ pub fn spawn_worker(
         .map(|_handle| ())
 }
 
-/// Registers the Plan, Cancel, keep-toggle and re-plan callbacks on the planner window.
+/// Registers the Plan, Cancel, keep-toggle, re-plan and Plan Again with More Time callbacks
+/// on the planner window.
 pub(super) fn setup_run_callbacks(host: &Rc<Host>) {
     let model = host.window.global::<RoughPlanModel>();
     model.on_plan(|| on_host(start_plan));
     model.on_replan_loaded(|| on_host(start_plan));
+    model.on_plan_more_time(|| on_host(start::plan_more_time));
     model.on_cancel(|| on_host(start::cancel_plan));
     model.on_toggle_keep(|index| on_host(|host| start::toggle_keep(host, index)));
     model.on_confirm_replace(|replace| on_host(|host| start::answer_replace(host, replace)));

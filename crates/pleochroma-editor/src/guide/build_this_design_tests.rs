@@ -897,8 +897,8 @@ fn a_build_step_that_asks_for_exact_scale_value_unlocks_the_advanced_controls() 
 /// Steps outside the Build lessons that tell the learner to pick "Exact Scale Value" and need
 /// no Advanced unlock, with the reason.
 const EXACT_ENTRY_ALREADY_LISTED: &[(&str, &str)] = &[
-    // The Rich Teaching Design pins every depth, so its Table already uses the entry and the
-    // Simple interface lists it for that tier.
+    // The Rich Teaching Design pins every depth, so its Table already uses the entry and
+    // Simple mode lists it for that tier.
     ("tiers-arithmetic", "Calculate a scale value"),
 ];
 
@@ -963,7 +963,7 @@ fn the_girdle_step_names_the_preset_that_fills_in_angle_and_meets() {
         "only the girdle has a preset"
     );
 
-    // A girdle that is not half a unit wide: the preset's scale value has to be changed.
+    // A girdle whose scale value is not 1: the preset's value has to be changed to match.
     let mut wide = design_of(&[tier("G1", 90.0, &EIGHT_FOLD_INDICES)]);
     wide.tiers[0].constraint = MeetConstraint::ScaleReference(0.8);
     let guide = guide_of(&wide);

@@ -1,6 +1,7 @@
-//! The filename-collision confirmation flow: a cheap pre-scan of what an import
-//! would replace, and the up-front Yes/No prompt shown when it would replace
-//! anything at all.
+//! The filename-collision confirmation flow.
+//!
+//! It pre-scans what an import would replace, and shows a Yes/No prompt when it would replace
+//! anything.
 
 use super::scan::collect_import_candidates;
 use crate::MainWindow;
@@ -10,17 +11,12 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-/// Filename-only pre-scan of what `super::pipeline::import_path` would find at
-/// `path` -- how many of its candidate design files already share a name with a row
-/// already in `db` (returned first), out of how many candidates total (returned
-/// second). Uses the same `local://<file_name>` collision test the pipeline's own
-/// save step applies later, since that url is derivable from the
-/// file name alone -- no file is read or parsed here, so this costs only the
-/// directory listing [`collect_import_candidates`] needs regardless.
+/// Pre-scans, by file name only, what `super::pipeline::import_path` would import from `path`.
 ///
-/// `(0, 0)` for an unreadable path/empty folder: `import_path` reports that failure
-/// itself once the import actually runs, so this pre-scan does not need to duplicate
-/// it.
+/// Returns how many candidates already share a name with a catalogue row, then the candidate
+/// total. It uses the same `local://<file name>` test as the save step, so no file is read.
+///
+/// `(0, 0)` for an unreadable or empty folder. The import reports that failure itself.
 pub(super) fn count_pending_collisions(
     db: &Arc<Mutex<Database>>,
     path: &Path,
@@ -46,18 +42,12 @@ pub(super) fn count_pending_collisions(
     (collisions, candidates.len())
 }
 
-/// When `collisions` is non-zero, opens the SAME in-window write-confirm dialog
-/// `gui::editor::native_io::ask_write_confirm` already gives Save's own
-/// prompts, naming how many of `total` candidate files would replace an existing
-/// catalogue row, and runs `proceed` once the cutter accepts. Declining runs
-/// nothing at all -- the catalogue stays untouched, exactly like cancelling the
-/// picker itself does. Runs `proceed` immediately (synchronously) when
-/// `collisions == 0`, the common case with nothing to ask about.
+/// When `collisions` is non-zero, asks the cutter to confirm the replacement of existing
+/// catalogue rows, then runs `proceed` on acceptance. Declining runs nothing, so the
+/// catalogue stays untouched. With no collisions, `proceed` runs at once.
 ///
-/// Reuses `EditorModel.write_confirm_*` (`ui/models/editor.slint`), a plain global
-/// with no notion of which part of the app is asking, so no new Slint callback is
-/// needed -- only `native_io::ask_write_confirm` itself becoming reachable from here
-/// (see that function's own doc comment).
+/// This uses the editor's write-confirm dialog (`native_io::ask_write_confirm`), which is
+/// driven by the `EditorModel.write_confirm_*` properties, so no new Slint callback is needed.
 pub(super) fn confirm_collisions_then(
     ui: &MainWindow,
     collisions: usize,
@@ -77,23 +67,16 @@ pub(super) fn confirm_collisions_then(
              comparison). Continue?"
         ),
         "Continue",
-        // Not suppressible -- unlike
-        // `native_io::confirm_keys`'s two prompts (which only ever change whether a
-        // header note gets written), silencing this one would let a cutter
-        // permanently stop being warned before a catalogue row gets overwritten.
+        // Not suppressible: a cutter must not stop being warned before a catalogue row is
+        // overwritten.
         None,
         proceed,
     );
 }
 
-/// [`confirm_collisions_then`]'s pure decision -- whether ANY collision means the
-/// dialog is needed at all. Pulled out so a test can call it directly, matching
-/// `gui::editor::native_io::decide_write_status`'s own "pure decision, `ui`-touching
-/// action kept separate" split -- `confirm_collisions_then` itself is not
-/// exercised end-to-end here, since `ask_write_confirm` needs a live
-/// `slint::ComponentHandle` (a real `MainWindow`) this crate's test environment
-/// cannot start (the same constraint `solve_service`/`edit_intent`'s own test
-/// modules document).
+/// The pure decision in [`confirm_collisions_then`]: any collision needs the dialog. It is
+/// separate so it can be tested. The dialog itself needs a live `MainWindow`, which the test
+/// environment cannot start.
 #[must_use]
 pub(super) const fn collisions_need_confirmation(collisions: usize) -> bool {
     collisions > 0

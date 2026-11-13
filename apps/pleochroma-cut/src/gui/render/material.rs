@@ -1,8 +1,7 @@
-//! "Preview as..." (the view-only material pick) and the live half of the Stone tab's
-//! material effects (crystal-axis orientation, inclusion haze, frosted girdle, edge rounding).
+//! The view-only "Preview as..." material pick and the live material effects of the Stone tab.
 //!
-//! Split mechanically out of the former `material_quality.rs` (the quality half lives in
-//! [`super::quality`]).
+//! Crystal-axis orientation, inclusion haze, frosted girdle and edge rounding are applied here.
+//! Render quality controls live in [`super::quality`].
 //!
 //! The design is the single source of truth for the stone's material, size and effects:
 //!
@@ -79,9 +78,8 @@ fn trace_named_material(
         return false;
     }
     ctx.material_name = material.to_string();
-    // Cleared, not left alone: `resolve_material_with_override` PREFERS
-    // `material_override` over the name just written, and the design sync sets one on
-    // every refresh while the view follows the design (and a library row sets its own).
+    // Cleared, because `resolve_material_with_override` prefers `material_override` over the
+    // name just written. The design sync sets one on every refresh.
     ctx.material_override = None;
     // A design that names no material suspends tracing outright; naming one by hand
     // is the way out of that.
@@ -97,9 +95,8 @@ fn trace_named_material(
         ctx.alpha_axis_override = stone_effects::alpha_override_for(&ctx, &effects);
         stone_effects::refresh_inclusion_axis(&mut ctx, &effects);
     }
-    // Resolved once for both derived UI values below. `None` (no `materials[0]` fallback)
-    // is handled defensively: Diamond stands in for these two UI defaults only, never for
-    // anything that reaches the tracer.
+    // Resolved once for both UI values below. `None` falls back to Diamond for those two
+    // values only, never for the tracer.
     let resolved = resolve_material(
         &GemMaterial::all_materials(),
         &ctx.custom_materials,
@@ -371,8 +368,8 @@ pub(in crate::gui) fn setup_material_effect_override_callbacks(
             raise_edited(&ui_weak_girdle);
         });
 
-    // Facet edge rounding radius; see `RenderContext::edge_rounding_radius` for the
-    // `0.0`-`0.03` range's sourcing.
+    // Facet edge rounding radius, clamped to `0.0`-`0.03` (see
+    // `RenderContext::edge_rounding_radius`).
     let render_ctx_edge = render_ctx.clone();
     let ui_weak_edge = ui.as_weak();
     ui.global::<SettingsModel>()
@@ -427,8 +424,7 @@ fn axis_effects(ui: &MainWindow, tilt_deg: f32, azimuth_deg: f32) -> StoneRender
 /// the new value, then ask for the debounced commit.
 ///
 /// A library design on the viewport has no design to write: its effects are view-only session
-/// values (they started from the defaults when the row was shown, the Stone tab says they are
-/// not saved) and the change stays in the render context.
+/// values that stay in the render context.
 fn raise_edited(ui_weak: &slint::Weak<MainWindow>) {
     let Some(ui) = ui_weak.upgrade() else {
         return;

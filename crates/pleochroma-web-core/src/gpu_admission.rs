@@ -1,4 +1,4 @@
-//! The pure half of the GPU admission gate (plan section 6.5).
+//! The pure half of the GPU admission gate.
 //!
 //! It decides which scenes the GPU may trace and holds the stored per-adapter record and the
 //! adapter key. No DOM, no Workers, so all of it is tested natively; the page's
@@ -54,11 +54,11 @@ use crate::{
     storage_keys,
 };
 
-/// The base kernel set of an isotropic or biaxial stone in smallest-first order (section 6.5).
+/// The base kernel set of an isotropic or biaxial stone in smallest-first order.
 ///
 /// It is what a stone without scattering and without frosted facets traces with. The kernels
 /// only some stones reach are the [`KernelFeature`]s, compiled when a scene first needs them.
-/// A test pins these names to the desktop's own selection (`event_wavefront::kernels::kernels_for`).
+/// A test pins these names to the desktop's selection (`event_wavefront::kernels::kernels_for`).
 pub const ISOTROPIC_BASE_KERNELS: &[&str] = &[
     "Tail",
     "ArmTir",
@@ -70,9 +70,10 @@ pub const ISOTROPIC_BASE_KERNELS: &[&str] = &[
     "ArmGeneric",
 ];
 
-/// The base kernels of a uniaxial stone: the isotropic set plus the uniaxial arms (the entry arm
-/// is split into its reflect and transmit halves, WG8), which are the slowest to compile and so
-/// come last.
+/// The base kernels of a uniaxial stone: the isotropic set plus the uniaxial arms.
+///
+/// The entry arm is split into its reflect and transmit halves. The uniaxial arms are the slowest
+/// to compile, so they come last.
 pub const UNIAXIAL_BASE_KERNELS: &[&str] = &[
     "Tail",
     "ArmTir",
@@ -96,7 +97,7 @@ pub const BIAXIAL_CLASS: u32 = 3;
 ///
 /// Only the classes listed here may reach the GPU; a stone of any other class is refused with
 /// [`REASON_ANISOTROPIC`]. Each class ships on its own: add `UNIAXIAL_CLASS` or `BIAXIAL_CLASS`
-/// here once the owner's browser probes (guide section 6.5, G0) have passed for it. The page
+/// here once its browser probes have passed. The page
 /// compiles and tests a class on first use (its own admission record, see
 /// [`class_adapter_key`]) before a stone of it goes to the GPU.
 pub const ADMITTED_CLASSES: &[u32] = &[ISOTROPIC_CLASS];
@@ -210,10 +211,8 @@ pub const SELF_CHECK_SPP: u32 = 4;
 pub const ISOTROPIC_CLASS: u32 = 1;
 /// The worker's soft compile limit: a kernel slower than this fails the test.
 ///
-/// Measured on Chrome 156 with an AMD RDNA2 adapter (D3D12, probe results of 2026-10-26): the
-/// slowest single event-wavefront kernels took 9.5 to 11 s (`Scatter`), up to 8.1 s (`Surface`)
-/// and 6.5 s (`ArmUniEntry`), so 5 s failed every class. 15 s lets a slow but finishing compile
-/// pass and stays below [`COMPILE_HARD_MS`].
+/// The slowest event-wavefront kernel (`Scatter`) takes 9.5 to 11 s on Chrome with an AMD
+/// RDNA2 adapter, so the limit sits above that and below [`COMPILE_HARD_MS`].
 pub const COMPILE_SOFT_MS: u32 = 15_000;
 /// The worker's hard compile limit per request.
 pub const COMPILE_HARD_MS: u32 = 20_000;
@@ -274,9 +273,9 @@ pub fn gpu_ineligibility_reason(
     if material.zoning.is_some() {
         return Some(REASON_ZONED);
     }
-    // The browser variant compiles oriented inclusions out (`browser_pass_class`), so the Worker
-    // refuses a pass for such a stone. Refusing it here keeps the page from compiling kernel
-    // features for it and from reading the Worker's refusal as a lost scene (GPU-01).
+    // The browser variant compiles oriented inclusions out (`browser_pass_class`), so the
+    // Worker refuses a pass for such a stone. Refusing it here keeps the page from compiling
+    // kernel features for it and from reading the refusal as a lost scene.
     if material.oriented_inclusions().is_some() {
         return Some(REASON_ORIENTED);
     }
@@ -324,7 +323,7 @@ pub fn gpu_ineligibility_reason_with_tools(
         .or_else(|| (tool_count > GPU_MAX_TOOL_PRIMITIVES).then_some(REASON_TOO_MANY_TOOLS))
 }
 
-/// Builds the 16x16 4-spp Spinel self-check scene (section 6.5).
+/// Builds the 16x16 4-spp Spinel self-check scene.
 #[must_use]
 pub fn self_check_scene() -> SceneSpec {
     let planes = StandardGemCuts::standard_round_brilliant();
@@ -513,24 +512,20 @@ pub fn adapter_key(
     storage_keys::admission_key(&format!("{hash:016x}"))
 }
 
-/// Which compiled kernel variant and kernel split the stored records stand for.
+/// The version of the compiled kernel variant and kernel split the stored records stand for.
 ///
 /// Raise it whenever the variant the browser compiles for a class changes
 /// ([`browser_pipeline_class`]) or what a record covers changes, so every record and crash
-/// marker of the old shape is left behind and tested once more. Version 1 was the variant with
-/// the oriented, zoned and (isotropic, biaxial) extraordinary-dispersion features compiled
-/// out, one record per class for the whole kernel list (scattering and frosted-facet kernels
-/// included). Version 2 splits that list: the class record covers the base set, and each
-/// [`KernelFeature`] has a record of its own ([`unit_adapter_key`]). A version 1 record that
-/// failed on the `Scatter` kernel therefore no longer blocks stones that never scatter.
+/// marker of the old shape is left behind and tested once more. The class record covers the
+/// base kernel set, and each [`KernelFeature`] has a record of its own
+/// ([`unit_adapter_key`]), so a failed `Scatter` compile blocks only the stones that scatter.
 pub const BROWSER_PIPELINE_VARIANT: u32 = 2;
 
 /// The admission key of one material `class` on this adapter.
 ///
 /// The kernel set hash gets a `:c<class>:p<variant>` suffix, the way [`whitted_adapter_key`]
 /// does, so each class has its own record and crash marker, and a record made for another
-/// compiled variant ([`BROWSER_PIPELINE_VARIANT`]) is never read. That includes the isotropic
-/// records made before the variant existed: they are not read, and the class tests once more.
+/// compiled variant ([`BROWSER_PIPELINE_VARIANT`]) is never read.
 #[must_use]
 pub fn class_adapter_key(
     facts: &AdapterFacts<'_>,

@@ -1,12 +1,9 @@
 //! The Tier tab's concave form: seeding it from the selected concave tier, the
 //! dirty-draft and stale guards, and Add / Save Concave Tier.
 //!
-//! Modelled on the desktop's `concave_form_tab.slint` and
-//! `callbacks/tier_actions/concave_tier.rs`, with the mobile app's draft guard
-//! (`pleochroma_mobile_core::concave::ConcaveDraft::check_current`). The twelve text /
-//! combo / check fields, the snapshot of what they held when last seeded and the pending
-//! choice live in `InspectorModel` (`c-*`, `loaded-c-*`, `concave-*`); this module decides
-//! WHEN to seed, exactly as [`super::form`] does for a flat tier:
+//! The twelve text / combo / check fields, the snapshot of what they held when last seeded
+//! and the pending choice live in `InspectorModel` (`c-*`, `loaded-c-*`, `concave-*`); this
+//! module decides WHEN to seed, exactly as [`super::form`] does for a flat tier:
 //!
 //! - the subject is `EditorSession::selected_concave` (a concave row selected in the
 //!   table); selecting one turns `concave-mode` on and loads the tier into a clean form,
@@ -25,8 +22,8 @@
 //!
 //! A save is `parse_concave_tier_form` -> `concave_name_clash_message` ->
 //! `concave_tier_save_edit` -> `EditorSession::apply` -> [`finish_no_tier`]: no flat mast
-//! moves, but the design is re-solved like after every web edit (decision D12: the
-//! render's tools return with the solve).
+//! moves, but the design is re-solved like after every web edit (the render's tools return
+//! with the solve).
 
 use super::{PushCtx, finish_no_tier, form, poll::with_current};
 use crate::{
@@ -295,7 +292,7 @@ fn reseed_after_external_change(pcx: &PushCtx<'_>, model: &InspectorModel<'_>) {
     }
 }
 
-/// The dirty draft becomes an "Add" draft: it no longer names a tier.
+/// The dirty draft becomes an "Add" draft: it names no tier.
 fn forget_index(model: &InspectorModel<'_>) {
     model.set_loaded_concave_index(-1);
     model.set_concave_external_change(false);

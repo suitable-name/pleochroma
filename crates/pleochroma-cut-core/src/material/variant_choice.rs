@@ -1,9 +1,11 @@
 //! [`VariantChoice`]: the snapshot of a color variant a design carries.
 //!
+//! The snapshot of a color variant that a design carries.
+//!
 //! A design that picks a named color variant ("Sapphire / Padparadscha") copies the variant's
-//! whole per-axis absorption tensor into its [`super::MaterialSelection`], so the design renders
-//! the same without the variant library, on another machine and in the browser, and does not
-//! change when a saved variant is later edited or deleted.
+//! whole per-axis absorption tensor into its [`super::MaterialSelection`]. The design then
+//! renders the same without the variant library, on another machine and in the browser, and
+//! does not change when a saved variant is later edited or deleted.
 
 use pleochroma::optics::{
     absorption::AbsorptionTensor,
@@ -30,13 +32,13 @@ pub struct VariantChoice {
     pub key: String,
     /// The display label (Title Case): `"Padparadscha"`.
     pub label: String,
-    /// The per-axis absorption tensor, at most `MAX_ABSORPTION_BANDS` bands per ray.
+    /// The per-axis absorption tensor, at most `MAX_VARIANT_BANDS` bands per ray.
     pub absorption: AbsorptionTensor,
     /// What the tensor's amplitudes are per: millimetre or model unit.
     pub unit: AbsorptionUnit,
     /// The STONE WIDTH in millimetres the tensor's numbers are calibrated for: 7 for a built-in
     /// variant, the width of the stone a Custom Color was solved on. It is a width, never a light
-    /// path: every swatch and the `.psdd` fallback color of the variant are evaluated at
+    /// path: every swatch and fallback color of the variant is evaluated at
     /// `variants::face_up_swatch_path(unit, reference_path_mm)`, so a reader shows the swatch the
     /// cutter saw. The render ignores the field (it sizes the path from the stone itself).
     pub reference_path_mm: f32,

@@ -53,11 +53,9 @@ export global RetargetModel {
     // pinch (`SearchSettings::girdle`, `CheckInputs::girdle`). Used by Shift and Optimize.
     in-out property <bool> girdle_allowance: true;
 
-    // The target material picker: owned by THIS dialog (not borrowed from the
-    // design settings panel's own combo/RI-override fields any more -- see
-    // `gui::editor::callbacks::retarget_actions`'s module doc comment). `open()`
-    // seeds `target_material_index` from the design's own current material;
-    // changing either fires `proposal_changed()` to rebuild against the new target.
+    // The target material picker, owned by this dialog. `open()` seeds
+    // `target_material_index` from the design's material; changing either property fires
+    // `proposal_changed()`.
     in-out property <int> target_material_index: 0;
     in-out property <string> target_ri_override_text: "";
     // The combo's own option list (built-ins, then custom catalogue materials, then
@@ -101,9 +99,8 @@ export global RetargetModel {
     // target material / retargeted design in the target material. Empty = hide the table.
     in property <[string]> metrics_cells: [];
 
-    // Shared view fields the desktop dialog no longer fills: Optimize used to refuse a design
-    // whose tiers are pinned (`RetargetError::AnchoredTiers`); the search now varies them
-    // about their girdle edges. Kept because the web app shares the view type.
+    // Not filled by the desktop dialog, whose search varies pinned tiers about their girdle
+    // edges. Kept because the web app shares this view type.
     in property <[string]> anchored_tier_errors: [];
     // The design does not solve (the legacy refusal), or "".
     in property <string> solve_error: "";
@@ -147,45 +144,28 @@ export global RetargetModel {
     // A search has finished (with options or without).
     in property <bool> search_done: false;
 
-    // Legacy viewport ghost preview switch. The dialog no longer offers a toggle
-    // (the main viewport is paused behind it and the embedded comparison pane shows
-    // the proposal instead), and `open()` forces it off, so no ghost preview is
-    // applied while the dialog is open. Still read by
-    // `callbacks::retarget_actions::apply_ghost_preview_or_revert`.
+    // Ghost preview of the proposal in the viewport. `open()` forces it off, so the dialog
+    // shows none. Read by `callbacks::retarget_actions::apply_ghost_preview_or_revert`.
     in-out property <bool> preview_enabled: false;
 
-    // "Set Baseline" / "Compare to Baseline" -- a design + its solved masts captured
-    // on demand (`callbacks::retarget_actions`'s own module-local snapshot store,
-    // rather than an `EditorState` field on `state/mod.rs`), diffed against the
-    // design's CURRENT state via `pleochroma_cut_core::cutting_sheet::diff_tiers`.
-    // Reuses this dialog's own `RetargetRowItem` row shape rather than a second
-    // table type (see `compare_rows`'s own doc comment for exactly how each field
-    // is repurposed). Deliberately a SEPARATE open flag from `is_open`: Compare
-    // has nothing to do with a target-material proposal, but reuses this same
-    // modal's shell (see `retarget_dialog.slint`'s own `if compare_open` branch)
-    // rather than a second dialog component, since there is no `app.slint`
-    // export to wire one up.
+    // "Set Baseline" / "Compare to Baseline": a design and its solved masts, captured on demand
+    // and diffed against the live design by `pleochroma_cut_core::cutting_sheet::diff_tiers`.
+    // A separate flag from `is_open`; the Compare panel reuses this dialog's shell
+    // (`retarget_dialog.slint`'s `compare_open` branch).
     in-out property <bool> compare_open: false;
     // A short label naming what was snapshotted (the design's own label at
     // snapshot time) -- shown in the compare header so two different snapshots
     // across a session are never mistaken for each other.
     in property <string> compare_label: "";
-    // One row per tier position `pleochroma_cut_core::cutting_sheet::diff_tiers`
-    // compared (see that function's own "positional only" doc comment for its
-    // insert/delete limitation) -- `tier_index`/`name`/`old_angle`/`new_angle` mean
-    // exactly what they do in the Retarget table above (before/after this tier's
-    // angle); `margin` is repurposed to show the mast delta instead of a critical-
-    // angle margin (there is no target material here to measure one against); and
-    // `risk_label`/`risk_color` become a plain change-status badge ("Same" /
-    // "Changed" / "Added" / "Removed") rather than a windowing risk.
+    // One row per tier position compared by `diff_tiers`, which is positional only (no
+    // insert or delete matching). `tier_index`, `name`, `old_angle` and `new_angle` mean what
+    // they do in the Retarget table. `margin` shows the mast delta, and `risk_label` and
+    // `risk_color` give a change badge ("Same", "Changed", "Added" or "Removed").
     in property <[RetargetRowItem]> compare_rows: [];
 
-    // True whenever the held proposal above (`rows`/`notes`) was computed against
-    // an OLDER design generation than the one now live -- `gui::editor::stale`'s
-    // own doc comment
-    // explains why this is the one result that registry tracks. Badged with the
-    // shared `StaleBadge` in `retarget_dialog.slint`, "Recompute" wired to
-    // `proposal_changed()` (rebuilds against the live design/current controls).
+    // True when the held proposal (`rows`/`notes`) was computed against an older design
+    // generation than the live one (see `gui::editor::stale`). Badged with `StaleBadge`;
+    // "Recompute" calls `proposal_changed()`.
     in property <bool> stale: false;
 
     // Whether a setting that Simple mode hides is off its default: the crown fraction, the

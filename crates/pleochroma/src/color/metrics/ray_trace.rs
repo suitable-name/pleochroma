@@ -17,12 +17,10 @@ use crate::{
     simd::PlanesSoA32,
 };
 
-/// Outcome of refracting an incident ray into the gemstone at a known entry point/normal
-/// (for one specific refractive index) and following it through up to 10 internal
-/// bounces. Factored out so the exact same entry-refraction-then-bounce logic can be
-/// replayed at the d-line index (windowing/extinction/brilliance classification) and
-/// independently at the F-line and C-line indices (Fire measurement), from the
-/// identical physical entry point and incident direction.
+/// Outcome of refracting a ray into the gemstone and following it through up to 10 bounces.
+///
+/// Evaluated per refractive index: the d-line trace classifies the ray, and the F-line and
+/// C-line traces replay it from the same entry point for Fire.
 #[derive(Debug, Clone, Copy)]
 pub(super) enum RayFate {
     /// Entry refraction has no real solution at this index (only possible for a
@@ -99,9 +97,8 @@ pub(super) fn fresnel_transmittance(n1: f32, n2: f32, cos_i: f32, cos_t: f32) ->
 /// The stone every metrics ray is traced against: the plane arena built once per
 /// evaluation, plus the tools subtracted from it (empty for a planar stone).
 ///
-/// Bundled so the contexts and [`trace_entry`] gain one field instead of two, and
-/// so every metrics tracer calls the one intersector [`intersect_stone_soa`], which is
-/// `intersect_polyhedron_soa` exactly when `tools` is empty.
+/// Every metrics tracer intersects through [`intersect_stone_soa`], which equals the plain
+/// polyhedron intersector when `tools` is empty.
 ///
 /// `finishes` is the per-facet finish list, indexed like [`HitRecord::facet_idx`] (a missing
 /// entry is polished). It is EMPTY unless some facet is frosted -- `PreparedEval` drops an
@@ -327,11 +324,9 @@ pub(super) fn trace_entry(
 }
 
 /// Refracts `incoming_dir` into the gem at `entry_point`/`n_entry` using Snell's law for
-/// `index`, then follows up to 10 internal bounces (TIR vs refract-out) exactly as the
-/// original single-wavelength trace did. This is the physical core shared by the d-line,
-/// F-line, and C-line traces -- identical control flow, parameterized only by which
-/// refractive index the light is carrying. Identical arithmetic, with optional diagnostic
-/// metadata; no path allocation.
+/// `index`, then follows up to 10 internal bounces (TIR or refract-out). The d-line, F-line
+/// and C-line traces share this control flow and differ only in `index`. The optional `detail`
+/// records diagnostics; no path is allocated.
 fn trace_wavelength_detail(
     entry_point: Vec3,
     incoming_dir: Vec3,

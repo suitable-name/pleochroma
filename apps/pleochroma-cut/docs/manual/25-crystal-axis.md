@@ -119,7 +119,7 @@ When the material has an orientation rule (the table of rules below) the Verdict
 
 The axis a stone has is used by every picture and every figure of it: Live Render, exported pictures, render jobs, a remote worker, the catalogue thumbnail, tilt curves and videos, Compare, the Color Pattern preview, and the scoring behind Optimize, the angle sweeps, Tune, Baseline, Trials and Retarget (a Retarget to another material keeps the stone's orientation). The command-line tool renders with it too. A design that sets no axis, on a material that has no stored default, renders and scores as it always did, and its thumbnails are not redrawn.
 
-For a birefringent built-in material the face-up color, the light-return figures and the Doubling follow the axis, which they did not before. Their pictures and figures therefore changed once, on purpose, and then stay the same until you change the axis. Appendix C lists each material's optical character.
+For a birefringent built-in material the face-up color, the light-return figures and the Doubling follow the axis. Appendix C lists each material's optical character.
 
 ## The Rough Planner
 
@@ -127,18 +127,18 @@ The Rough Planner (Chapter 15) can use the crystal's direction in the rough. You
 
 ### The Axis of the Rough
 
-In the left column, between the **ROUGH** and **SHAPE** sections, the **CRYSTAL AXIS** panel appears for a material that has an axis. It starts as **Unknown**: the planner knows nothing about the crystal and plans exactly as it always did. Press **Set** to give the direction. Every change is one undo step, like every edit of the rough.
+In the left column, between the **Rough** and **Shape Cuts** steps, the **Crystal Axis** step appears for a material that has an axis. Its switch starts as **Unknown**: the planner knows nothing about the crystal and plans exactly as it always did. Switch it to **Known** to give the direction. Every change is one undo step, like every edit of the rough.
 
-With **Set**:
+With **Known**:
 
-- **Tilt (deg)** is the angle between the axis and the rough's own Y axis, 0 to 90 degrees.
-- **Azimuth (deg)** is its direction around the Y axis, from X toward Z, 0 to 360 degrees.
+- **Tilt** (deg) is the angle between the axis and the rough's own Y axis, 0 to 90 degrees.
+- **Turn** (deg) is its direction around the Y axis, from X toward Z, 0 to 360 degrees (the azimuth).
 - **Second Axis (deg)** appears for a two-axis material. Leave it empty for the material's own completion.
 - A line under the fields says in plain words how the axis runs in the rough.
 
-Four ways find the axis for you:
+Four ways, all in the **Find the Axis** menu, find the axis for you:
 
-- **Align to Face** (then **Click a Face...**): click a face of the rough in the 3D view and the axis is set along its normal. Click the pill again to cancel.
+- **Align to Face** (then **Click a Face...**): click a face of the rough in the 3D view and the axis is set along its normal. Press **Cancel** in the state card, or Esc, to cancel.
 - **Align to Edge** (then **Click the First End...** and **Click the Second End...**): click two points on the rough, such as the ends of a crystal edge, and the axis is set along the line between them.
 - **Fit to Crystal Length**: sets the axis along the longest direction of the rough. A crystal is usually longest along its axis, but not always, so the panel says how sure it is: "Fitted to the rough's length. Confidence 85 % (the rough is 2.4 times longer than wide)." When the longest direction hardly stands out it says so and asks you to check the axis against the crystal.
 - **From Color Zones**: sets the axis along the axis of a color zone you accepted in the Rough Color wizard (Chapter 24), a cylinder or prism around the crystal. It is available only when the plan has such a zone.
@@ -147,7 +147,7 @@ In the 3D view the rough's axis is drawn as a cyan line through the rough with a
 
 ### The Orientation Rule
 
-As soon as the axis is **Set**, the material's usual rule is switched on, and a line says so: "Stones are oriented to the crystal axis: Table Across (Sapphire default)". The planner never applies a rule while the axis is Unknown, and a material with no rule shows no line.
+As soon as the axis is **Known**, the material's usual rule is switched on, and a line says so: "Stones are oriented to the crystal axis: Table Across (Sapphire default)". The planner never applies a rule while the axis is Unknown, and a material with no rule shows no line.
 
 A rule has a **kind**, a **tolerance** and a **strength**:
 
@@ -175,7 +175,7 @@ These are the rules the program proposes for the built-in materials. It never ap
 | a two-axis custom material with direction-dependent color | none (choose a rule for it) | |
 | every other custom material, every isotropic material | none | |
 
-Under **ORIENTATION RULE** you can replace the default for the whole plan. The first choice is **Material Default**, then **Ignore the Axis** (the planner cuts for the most weight and no stone is judged against the axis) or **Set** (your own kind, tolerance, strength and weight). A **Reason** field saves why you differ from the default. A rule you change applies the next time you plan: the amber note "Rules changed since planning. The stones keep the orientation they were planned with; plan again to apply them." says so, and the same for a change of the axis itself. Each change is one undo step, together with the axis.
+In the rule card (**Change** opens the editor) you can replace the default for the whole plan. The first choice is **Material Default**, then **Ignore the Axis** (the planner cuts for the most weight and no stone is judged against the axis) or **Set** (your own kind, tolerance, strength and weight). A **Reason** field saves why you differ from the default. A rule you change applies the next time you plan: the amber note "Rules changed since planning. The stones keep the orientation they were planned with; plan again to apply them." says so, and the same for a change of the axis itself. Each change is one undo step, together with the axis.
 
 ### What the Planner Does with the Rule
 
@@ -185,7 +185,7 @@ A plan with a **Preferred** rule also gives you layouts that make the trade visi
 
 ### Reading the Stones
 
-Under the results, **STONES AND THE CRYSTAL AXIS** lists the stones of the selected result, locked stones first. Each row shows:
+In the selected layout's detail, **Stones** lists the stones of the layout, locked stones first. Each row shows:
 
 - the stone and its design, and **Locked** when it is locked;
 - "Axis 12° from the table normal": the true angle in the stone's own frame, from the pose the stone really has;
@@ -198,8 +198,8 @@ The text of the **Cut Plan** has the same lines: a block "Crystal Axis of the st
 
 You can differ from the planner at three levels, and each carries an optional **Reason** that is saved with the plan and printed on the cutting sheet.
 
-1. **The plan**: **Ignore the Axis** or your own rule under **ORIENTATION RULE**, as above.
-2. **A design**: select a design row in the results. Its rule appears under the stone rows, with **Follow the Plan**, **Ignore the Axis** and **Set**, and its own Reason. A rule you change here applies the next time you plan.
+1. **The plan**: **Ignore the Axis** or your own rule in the rule card, as above.
+2. **A design**: select a design card in the selected layout. Its rule appears under the stone rows, with **Follow the Plan**, **Ignore the Axis** and **Set**, and its own Reason. A rule you change here applies the next time you plan.
 3. **A stone**: each row has these controls.
    - **Pose 1, 2, 3, 4**: the stone as the planner placed it, or turned a half turn about one of its box axes. The piece and the weight stay; only the crystal axis angle changes.
    - **Re-Fit**: fits the best stone of this design into the same piece again, under the rule, without moving the saw cuts.
@@ -220,7 +220,7 @@ The limitation is stated in the results: **the locked stone is cut first; the sl
 
 ### Saving and Sharing
 
-A saved plan holds the rough's axis, the rule and every override with its Reason, and each stone's pose, Lock and Reason. A plan that sets none of these is saved as before. **Export** writes them into the plan file and **Import...** brings them back (Chapter 15).
+A saved plan holds the rough's axis, the rule and every override with its Reason, and each stone's pose, Lock and Reason. A plan that sets none of these is saved without them. **Export** writes them into the plan file and **Import...** brings them back (Chapter 15).
 
 ## Color Patterns That Follow the Axis
 
@@ -247,7 +247,7 @@ The first step of Cutting Mode shows the same instruction (Chapter 20): the sent
 
 **Mobile.** The Stone tab's **Crystal Axis** row switches between **As Material** and **Set for This Stone**, and offers the same presets as the desktop, with the color-named ones for the materials that have them. A two-axis material has **Second Axis** and **Second Axis Turn**. The orientation uses the same precedence (design, material default, built-in). The metrics read out **Doubling** for a birefringent stone, Retarget keeps the orientation, and Cutting Mode carries the orientation sentence and picture on its first step, the same words as the desktop.
 
-**Web.** A design that you open in the web app brings its own axis: while the render is linked to the design, the panel shows **Crystal Axis (from the design)** and its values, and the design wins over the per-user setting. Switch off **Linked to Design** to use the **Crystal Axis Override** yourself, with its **Second Axis** and **Second Axis Turn** for a two-axis material. The web tilt sweep keeps the axis. The browser's metrics line does not show Doubling.
+**Web.** A design that you open in the web app brings its own axis: while the render is linked to the design, the panel shows **Crystal Axis (from the design)** and its values, and the design wins over the per-user setting. Switch off **Linked to Design** to use the **Crystal Axis Override** yourself, with its **Second Axis** and **Second Axis Turn** for a two-axis material. The web tilt sweep keeps the axis.
 
 ## Files
 
@@ -263,7 +263,7 @@ A design's own axis is saved in its `[render_effects]` table (`c_axis_override_e
 - Alternatives of a Preferred rule are not refined (**Unrefined**), and add to the planning time of a block rough.
 - **Lock** plans the rest of the rough on its own and lists the locked stone first. The cut plan below it is for the remaining rough only.
 - A pattern imported from Rough Color does not follow the axis, and a zone color measured in the rough stays in the stone's own frame.
-- The phone and desktop pictures show the Crystal Axis, not the Second Axis. The web HUD shows no Doubling.
+- The phone and desktop pictures show the Crystal Axis, not the Second Axis.
 - Optimize, the sweeps and the tilt curves do roughly twice the work per figure for a birefringent material, because they follow both images of the light.
 
 ## Troubleshooting
@@ -275,7 +275,7 @@ A design's own axis is saved in its `[render_effects]` table (`c_axis_override_e
 | **Along the Width** is missing | The design is not solved. | Solve it (Chapter 5). |
 | "Second axis not set; the color across the first axis is approximate." | The material has direction-dependent color and the stone has no Second Axis. | Choose a color-named preset, or set the Second Axis. |
 | The Doubling figure is not shown | The material has no birefringence, or the first measurement is not done yet. | Wait for the figures, or pick a birefringent material. |
-| The planner has no **CRYSTAL AXIS** panel | The material has no crystal axis. | Choose another material. |
+| The planner has no **Crystal Axis** step | The material has no crystal axis. | Choose another material. |
 | **From Color Zones** is dim | The plan has no accepted zone along the crystal. | Fit zones in the Rough Color wizard (Chapter 24), or set the axis by hand. |
 | Rows still show the old orientation | The rules or the axis changed after planning. | Plan again. |
 | The cutting sheet has no Orientation block | The design sets no axis and its material has no stored default, or the material is isotropic. | Set the axis in the Stone tab, or hand the stone over from a plan. |

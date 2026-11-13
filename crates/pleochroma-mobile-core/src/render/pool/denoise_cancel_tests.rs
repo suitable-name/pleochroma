@@ -1,6 +1,5 @@
-//! The final denoise stops for an epoch that ended: its flag is raised exactly when the
-//! epoch ends, and a raised flag keeps the denoiser (and the permit and lock around it)
-//! untouched.
+//! A denoise pass of an ended epoch must not run: the epoch's flag is raised exactly when
+//! the epoch ends, and a raised flag keeps the denoiser, its permit and its lock untouched.
 
 use std::{
     sync::{Arc, atomic::Ordering},
@@ -88,9 +87,8 @@ fn an_epoch_raises_its_flag_exactly_when_it_ends() {
     assert!(third.obsolete.load(Ordering::Acquire), "closed");
 }
 
-/// A raised flag keeps the denoiser from starting even while the epoch still counts as
-/// current (before the fix only the epoch id was checked, so the full filter ran and the
-/// publish guard alone dropped the picture).
+/// A raised flag keeps the denoiser from starting even while the epoch is still current;
+/// nothing is published.
 #[test]
 fn a_raised_flag_never_reaches_the_denoiser() {
     let (shared, follow) = shared_with_epoch(1);

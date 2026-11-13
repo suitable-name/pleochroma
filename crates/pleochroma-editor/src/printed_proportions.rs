@@ -1,16 +1,12 @@
 //! The design settings panel's "Printed Proportions" form: the five figures (Vol/W^3,
-//! L/W, C/W, P/W, H/W) every `GemCAD`-style sheet prints, parsed from their text fields.
+//! L/W, C/W, P/W, H/W) that a printed sheet lists, parsed from their text fields.
 //!
-//! Moved from the desktop's `tier_actions::viewport_material`; both editors apply the
-//! result to the design's `printed_proportions`, which feeds Deep Solve's external
-//! verification target on the desktop and rides in a design file's `[source]` table on
-//! both.
+//! Both editors store the result in the design's `printed_proportions`. It is the external
+//! verification target of Deep Solve and is kept in a design file's `[source]` table.
 
 use pleochroma::geometry::stone_metrics::ExternalProportions;
 
-/// One printed-proportions field's text, parsed as `None` for blank text or
-/// `Some(value)` for a finite positive number -- shared by
-/// [`parse_printed_proportions_form`] across all five fields.
+/// Parses one field: `None` for blank text, `Some(value)` for a finite positive number.
 ///
 /// # Errors
 ///
@@ -30,9 +26,8 @@ pub fn parse_printed_proportions_field(label: &str, text: &str) -> Result<Option
     Ok(Some(value))
 }
 
-/// Parses the printed-proportions panel's five text fields into an
-/// [`ExternalProportions`], the exact shape the desktop builds from a catalogue row's
-/// own measured columns.
+/// Parses the panel's five text fields into [`ExternalProportions`], the same shape a
+/// catalogue row's measured columns produce.
 ///
 /// # Errors
 ///

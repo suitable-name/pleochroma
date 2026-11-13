@@ -17,11 +17,11 @@ import { SliderPreset } from "../models/sliders.slint";
 // with Shift), Page Up and Page Down by `mark` (ten steps without marks), Home and End jump
 // to the ends. A key press is a whole gesture, so it emits `moved` and then `released`.
 //
-// Marks are drawn every `mark` units (every second or third one when they would crowd).
+// Marks are drawn every `mark` units, thinned out when they would crowd.
 // A band (`band_to > band_from`) is drawn behind the rail in green.
 //
-// The slider is also a slider for screen readers: role, label, value in words, range, and
-// the increment and decrement actions.
+// Screen readers get the role, label, value in words, range, and the increment and
+// decrement actions.
 export component ValueSlider inherits Rectangle {
     // The number the field holds.
     in property <float> value: 0.0;

@@ -6,7 +6,7 @@ use cudarc::{
 };
 use std::sync::{Arc, Mutex};
 
-// Mirrors stone_metrics::pow2_scale_norm, including subnormal inputs.
+// Mirrors gpu_solid/normalize.rs pow2_scale_norm, including subnormal inputs.
 fn arrangement_scale(value: f64) -> f64 {
     const MANTISSA: u64 = (1 << 52) - 1;
     if !(value.is_finite() && value > 0.0) {
@@ -112,9 +112,9 @@ impl Runtime {
         {
             return Ok(ArrangementOutcome::Uncertain);
         }
-        // This optional rejection proof must never monopolize the device. A
-        // bypass is UNKNOWN, never a partial scan reported as a refutation.
-        // Check before packing, locking, uploads or scratch allocation.
+        // The optional rejection proof must not monopolize the device. Over budget it
+        // returns Capacity, never a partial scan read as a refutation. The budget check
+        // runs before packing, locking, uploads or scratch allocation.
         let Some(total) = net.arrangement_triples_within_budget() else {
             return Ok(ArrangementOutcome::Capacity);
         };

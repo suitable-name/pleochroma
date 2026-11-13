@@ -1,6 +1,6 @@
-// The angle sheet: edits one tier's angle three ways -- step buttons, a slider over the
-// shared ranges, and the app's own keypad -- plus "Typical" presets. Hosted inside the
-// Tiers tab as a full-height overlay.
+// The angle sheet: edits one tier's angle with step buttons, a slider over the shared
+// ranges and the app's own keypad, plus "Typical" presets. Hosted inside the Tiers tab
+// as a full-height overlay.
 //
 // The steppers, the slider and the presets change the design at once (consecutive
 // changes within the history's window are one undo step). The keypad builds a draft that
@@ -211,7 +211,7 @@ export component AngleSheet inherits Rectangle {
                 padding-bottom: Theme.space-xl;
                 spacing: Theme.space-md;
 
-                // A refusal ("This angle follows a relation", "Angle exceeds 90").
+                // A refusal, such as an angle that follows a relation or is over 90 degrees.
                 if TiersModel.angle-error != "": Text {
                     text: TiersModel.angle-error;
                     color: Theme.error;

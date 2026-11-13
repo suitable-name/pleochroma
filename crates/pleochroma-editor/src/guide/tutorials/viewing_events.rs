@@ -16,8 +16,8 @@
 /// clicked in the Solid or Diagram view.
 pub const TIER_SELECTED: &str = "tier_selected";
 
-/// A facet was clicked in the Solid, Path-Traced, Solid with Path-Traced, Ray-Traced or Diagram view and it belongs to a
-/// tier.
+/// A facet that belongs to a tier was clicked in any Edit mode of the Solid viewport (Solid,
+/// Path-Traced, Ray-Traced or their Solid combinations) or in the Diagram view.
 pub const FACET_PICKED: &str = "facet_picked";
 
 /// The Snap pill was clicked.
@@ -84,8 +84,8 @@ pub const LIBRARY_SEARCH_CLEARED: &str = "library_search_cleared";
 /// A library filter changed: the shape or gear drop-down, a range slider or the sort order.
 pub const LIBRARY_FILTERED: &str = "library_filtered";
 
-/// The library had a search or a filter on, and a change took the last one off: nothing narrows
-/// the list any more (the sort order does not count).
+/// A change left the library with no search and no filter: nothing narrows the list (the sort
+/// order does not count).
 pub const LIBRARY_FILTERS_RESET: &str = "library_filters_reset";
 
 /// A design was selected in the library list.
@@ -158,7 +158,7 @@ pub const PATTERN_EDITOR_OPENED: &str = "pattern_editor_opened";
 /// A template was picked in the Color Pattern window (`gui/color_pattern/actions.rs`).
 pub const PATTERN_TEMPLATE_PICKED: &str = "pattern_template_picked";
 
-/// The Color Pattern window stored the pattern with its material, with Apply or Save
+/// The Color Pattern window stored the pattern with its material, with Done or Save to Material
 /// (`gui/color_pattern/actions.rs`).
 pub const PATTERN_SAVED: &str = "pattern_saved";
 
@@ -219,9 +219,10 @@ pub const CRYSTAL_AXIS_DRAGGED: &str = "crystal_axis_dragged";
 /// (`gui/editor/manipulate/crystal_axis_overlay.rs`).
 pub const CRYSTAL_AXIS_DRAG_CANCELLED: &str = "crystal_axis_drag_cancelled";
 
-/// The rough's Crystal Axis was set in the Rough Planner: Set, a typed angle, Align to Face or
-/// Edge, Fit to Crystal Length, From Color Zones or a drag of the axis line
-/// (`gui/rough_plan/axis/panel.rs`).
+/// The rough's Crystal Axis was set in the Rough Planner: by Set, a typed angle, Align to Face
+/// or Edge, Fit to Crystal Length, From Color Zones or a drag of the axis line.
+///
+/// Reported from `gui/rough_plan/axis/panel.rs`.
 pub const ROUGH_AXIS_SET: &str = "rough_axis_set";
 
 /// One stone of a Rough Planner result was given its own pose or a Reason

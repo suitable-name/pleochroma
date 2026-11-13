@@ -1,18 +1,15 @@
 //! The gate grants a retarget the travel its requested facet turn implies.
 //!
-//! Owner run 3 (2026-10-19) left the three diamond-to-sapphire check tests red with
-//! `ShapeLimit`: the anchored seed kept every original meet, the girdle outline and the
-//! corner band, and was refused because `PreservationPolicy::RETARGET` bounded the pavilion
-//! depth change and the culet's travel by a constant 0.08 of the stone, while a ten-degree
-//! pavilion turn about the girdle outline (the critical-angle shift from n 2.42 to 1.77)
-//! carries the culet by `(R - r_culet) (tan 51 - tan 41) = 0.18 W`. The policy now follows
-//! the turn (`PreservationPolicy::bounds_follow_turn`, tightened by the owner the same day):
-//! the gate grants the largest per-tier product of a turned tier's inward reach from the
-//! outline and its tangent change, the tangent change read from the REQUESTED angles (the
-//! anchored seed, so the projection's repair cannot enlarge its allowance), only tiers the
-//! request turned counting, tangents capped at 75 degrees. Its constants bound what the
-//! projection's repair adds. For this stone the pavilion main reaches 0.99 R inward, so the
-//! grant is 0.18 W against the 0.17 W the stone deepens by.
+//! A constant depth bound refuses a retarget whose anchored seed keeps every original meet:
+//! a ten-degree pavilion turn about the girdle outline (the critical-angle shift from n 2.42
+//! to 1.77) carries the culet by `(R - r_culet) (tan 51 - tan 41) = 0.18 W`, more than the
+//! constant 0.08 of the stone. `PreservationPolicy::bounds_follow_turn` therefore grants the
+//! largest per-tier product of a turned tier's inward reach from the outline and its tangent
+//! change. The tangent change is read from the REQUESTED angles (the anchored seed, so the
+//! projection's repair cannot enlarge its allowance), only tiers the request turned count,
+//! and tangents are capped at 75 degrees. The policy's constants bound what the projection's
+//! repair adds. For this stone the pavilion main reaches 0.99 R inward, so the grant is
+//! 0.18 W against the 0.17 W the stone deepens by.
 
 use super::*;
 use pleochroma_cut_core::meet_preservation::{PreservationViolation, tangent_changes};
@@ -29,8 +26,8 @@ fn a_large_retarget_is_granted_the_depth_its_turn_implies() {
     );
     let figures = result.validity.figures;
 
-    // The point of the test: the stone deepens by far more than the constant depth bound
-    // (0.08 width units are 8 points of H/W), so the constant alone refuses it.
+    // The stone deepens by far more than the constant depth bound (0.08 width units, 8 points
+    // of H/W), so the constant alone would refuse it.
     let (depth_was, depth_now) = (
         figures.depth_was.expect("the depth is measured"),
         figures.depth_now.expect("the depth is measured"),

@@ -23,10 +23,9 @@ component Stat inherits HorizontalLayout {
     }
 }
 
-// The desktop's "Real-Time 5-Point Gemological Metrics HUD" (`gem_viewport.slint`): the
-// same labels, units and thresholds -- Brilliance, Fire, Scintillation, Windowing (ruby
-// above 10%) and Extinction (amber above 12%). Sits over the Render tab; `compact` stacks
-// the five into two rows for a narrow view.
+// Real-time five-point gemological metrics HUD over the Render tab, with the desktop's labels,
+// units and thresholds (`gem_viewport.slint`): Brilliance, Fire, Scintillation, Windowing
+// (ruby above 10 %) and Extinction (amber above 12 %). `compact` shows the stats in rows.
 export component MetricsHud inherits Rectangle {
     in property <bool> compact: false;
 
@@ -66,8 +65,7 @@ export component MetricsHud inherits Rectangle {
                 tint: Theme.text-secondary;
             }
         }
-        // The compact layout is three rows (two, two and one): all five in two rows were
-        // ~340px of text, which ran past a 390px window's right edge and cut "Extinction" off.
+        // Compact: three rows (two, two, one). Five stats in two rows overflowed a 390px window.
         if MetricsModel.has-metrics && root.compact: HorizontalLayout {
             spacing: 12px;
             Stat { label: "Scintillation:"; value: Math.round(MetricsModel.scintillation-pct) + "%"; tint: Theme.accent-purple; }

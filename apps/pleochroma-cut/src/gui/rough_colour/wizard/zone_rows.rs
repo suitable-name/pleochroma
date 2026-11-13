@@ -62,8 +62,9 @@ impl ShapeKind {
 
 /// A starting shape for a rough centred at `centre` with `extent_mm` across.
 ///
-/// A plane through the centre, a slab of a quarter of the extent, a cylinder or prism of a quarter of the extent along
-/// the vertical axis, a quarter-turn sector.
+/// A plane through the centre, a slab a quarter of the extent thick, a cylinder or prism of a
+/// quarter of the extent radius along the vertical axis, a quarter-turn sector. A non-finite or
+/// non-positive extent falls back to 10 mm.
 #[must_use]
 pub fn default_shape(kind: ShapeKind, centre: DVec3, extent_mm: f64) -> ZoneShape {
     let extent = if extent_mm.is_finite() && extent_mm > 0.0 {
@@ -130,7 +131,7 @@ pub const fn shape_name(shape: &ZoneShape) -> &'static str {
 /// A row of the zone list.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ZoneRow {
-    /// `"Base zone"` or `"Zone 2: Cylinder"`.
+    /// `"Base Zone"` or `"Zone 2: Cylinder"`.
     pub title: String,
     /// The key numbers.
     pub summary: String,
@@ -256,7 +257,7 @@ pub fn parameter_of_row(zoned: &ZonedAbsorption, zone: usize, row: usize) -> Opt
     scalar_parameters(&entry.shape).get(row).copied()
 }
 
-/// The range of the "Refinement iterations" spin box.
+/// The range of the "Refinement Iterations" spin box.
 #[expect(
     clippy::cast_possible_truncation,
     clippy::cast_possible_wrap,

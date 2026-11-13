@@ -67,8 +67,8 @@ export component AppWindow inherits Window {
     background: Theme.bg-darkest;
     default-font-family: "Segoe UI";
 
-    // Below this width the dock no longer fits beside the main view: it becomes an
-    // overlay, opened by the "Design" toggle at the main view's top-right corner.
+    // Below this width the dock does not fit beside the main view: it becomes an
+    // overlay, opened by the "Design" toggle at the main view's bottom-right corner.
     property <bool> narrow: root.width < 900px;
     // The guided walkthrough docks as a column beside the dock only where the main view
     // keeps a usable width (and never as the collapsed pill, which always floats).
@@ -87,10 +87,10 @@ export component AppWindow inherits Window {
         // work again the moment the last dialog closes.
         if !root.dialog-open {
             if LibraryModel.open {
-                // A dialog over the design library (the delete confirmation): it takes the keys back.
+                // A dialog over the design library (the delete confirmation) takes the keys back.
                 LibraryModel.focus-pulse += 1;
             } else if CuttingModeModel.open {
-                // A dialog opened from the menu bar over Cutting Mode: the screen takes the keys back.
+                // A dialog opened from the menu bar over Cutting Mode: the screen takes the keys.
                 CuttingModeModel.focus-pulse += 1;
             } else {
                 shortcuts.focus();
@@ -446,7 +446,7 @@ export component AppWindow inherits Window {
         VerdictPopover {
             width: min(360px, root.width - 16px);
             x: max(8px, root.width - self.width - 8px);
-            // Under the header: 8 px window padding, then its 40 px row (76 px stacked).
+            // Below the header, which is taller when it is stacked (a narrow window).
             y: root.width < 640px ? 90px : 54px;
             height-limit: root.height * 0.6;
         }

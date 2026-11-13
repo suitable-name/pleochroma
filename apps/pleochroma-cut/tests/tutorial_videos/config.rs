@@ -23,7 +23,7 @@ pub const ENV_INJECT: &str = "PLEOCHROMA_VIDEOS_ALLOW_INJECT";
 pub const LOGICAL_SIZE: (u32, u32) = (1920, 1080);
 /// The middle of the window, where the cursor starts (logical pixels).
 pub const WINDOW_CENTER: (f32, f32) = (960.0, 540.0);
-/// Physical pixels per logical pixel: the capture is 3840 x 2160, encoded down (V-D2).
+/// Physical pixels per logical pixel: the capture is 3840 x 2160, encoded down to 1920 x 1080.
 pub const SCALE: f32 = 2.0;
 /// The frame rate when [`ENV_FPS`] is not set or is out of range.
 pub const DEFAULT_FPS: u32 = 30;

@@ -1,6 +1,6 @@
 //! Pure display-referred, straight-alpha transfer. Never enters radiance or denoising.
 use crate::color::metrics::{OpticalImage, scintillation_index, scintillation_spatial};
-/// Version 1 Fire scale: weighted separation 0..0.1 degrees, fixed across all poses.
+/// Full scale of the Fire layer, in degrees of weighted separation. Fixed across all poses.
 pub const FIRE_RANGE_DEG: f32 = 0.1;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct OpticalPresentation {
@@ -73,10 +73,9 @@ pub fn optical_rgba(map: &OpticalImage, style: OpticalPresentation) -> Vec<u8> {
 
 /// [`optical_rgba`] with the patterns evaluated on beauty-image coordinates.
 ///
-/// `extent` is how many beauty pixels the map spans (the full beauty size for a draft
-/// sampled at a lower resolution; `[map.width, map.height]` for an export or a tile, which
-/// is one map pixel per beauty pixel). A draft and its refinement then draw the same
-/// hatching and stipple instead of re-patterning when the refined map replaces the draft.
+/// `extent` is how many beauty pixels the map spans: the full beauty size for a draft
+/// sampled at a lower resolution, or `[map.width, map.height]` for an export or a tile.
+/// With the same `extent`, a draft and its refinement draw identical patterns.
 #[must_use]
 #[expect(
     clippy::suboptimal_flops,

@@ -1,6 +1,4 @@
-// Only `search` is `pub`: `refresh_diagram_list` is reused by a downstream binary's
-// sync-complete handler (see `search::refresh_diagram_list`'s doc comment). The rest
-// are wiring `build_main_window` uses internally.
+// `search::refresh_diagram_list` is public for a downstream binary's sync-complete handler.
 mod batch;
 // The command palette (Ctrl+K): one table of every action with a fuzzy search and
 // availability rules -- see the module's own doc comment.
@@ -15,9 +13,8 @@ pub(crate) use editor::handles_hidden_reason;
 // Hand-made Color Patterns of custom materials: the vault storage API and the Color Pattern
 // Editor window -- see the module's own doc comment.
 mod color_pattern;
-// The Edit sub-tab's resizable-dock/collapsible-section layout persistence -- lives
-// in its own module purely to keep this file from growing further; see this
-// module's own doc comment.
+// The Edit sub-tab's resizable-dock and collapsible-section layout persistence -- see
+// the module's own doc comment.
 mod editor_layout;
 // The Parameters dock's persisted open/tab state -- see the module's own doc comment.
 mod parameters_dock;
@@ -33,9 +30,8 @@ mod external_links;
 pub mod help;
 pub(crate) mod latest_worker;
 mod library;
-// Building/wiring the `MainWindow` and its `MainWindowHandle` RAII guard -- see the
-// module's own doc comment. Moved out of this file purely to keep it from growing
-// further.
+// Building and wiring the `MainWindow` and its `MainWindowHandle` RAII guard -- see the
+// module's own doc comment.
 mod main_window;
 mod optics;
 // App-wide preferences (Simple/Advanced, UI scale, high contrast, larger handles, the
@@ -49,16 +45,10 @@ pub mod radv_workaround;
 // Resolving a native picker's starting directory from a text field's current value --
 // see the module's own doc comment.
 mod picker_field;
-// The single shared 5x7 bitmap-font glyph lookup for `solid_preview::diagram2d`'s
-// panel labels and `tilt::video_export::overlay`'s readout text -- see the
-// module's own doc comment. Moved into `pleochroma-solid` (`solid_preview::
-// diagram2d`'s own crate) and re-exported here at its old path so this app's own
-// `tilt::video_export::overlay` keeps resolving `gui::pixel_font` unchanged.
+// The shared 5x7 bitmap-font glyph lookup (from `pleochroma-solid`): the panel labels of
+// `solid_preview::diagram2d` and the readout text of `tilt::video_export::overlay` use it.
 pub(in crate::gui) use pleochroma_solid::pixel_font;
-// The one place the `rfd` crate's file dialog is ever constructed in this app
-// -- an off-UI-thread native picker/save-as/pick-folder worker plus the
-// UI-thread rendezvous and test hook every other module's own picker needs
-// use through this. See the module's own doc comment.
+// Every native file and folder picker -- see the module doc comment.
 mod pickers;
 mod remote;
 pub(crate) mod render;
@@ -69,22 +59,17 @@ pub mod render_jobs;
 // The Library menu's "Plan Rough..." dialog: up to K stones of library designs out of
 // one rough block -- see the module's own doc comment.
 mod rough_plan;
-// Rough colour and colour zoning: the vault storage API the Rough colour
-// UI calls, the planner pose choice, the adopt flow and the render-job persistence -- see the
-// module's own doc comment. Deliberately NOT under `rough_plan`, so its tests are independent of
-// that module's test filter.
+// Rough colour and colour zoning -- see the module's own doc comment. Kept out of `rough_plan`
+// so its tests do not depend on that module's test filter.
 pub mod rough_colour;
 pub mod solid_preview;
-// The real `PreviewSink` that hops a finished solid-preview frame back onto the UI
-// thread -- see the module's own doc comment. Moved out of this file purely to keep
-// it from growing further.
+// The `PreviewSink` that hands a finished solid-preview frame to the UI thread -- see the
+// module's own doc comment.
 mod solid_sink;
-// Startup settings-application and the settings-value <-> UI-pill-index conversions
-// that go with it -- moved out of this file purely to keep it from growing further.
-// Several of its items are used well beyond startup (e.g. by callbacks that need the
-// same index<->value mapping later), so this module re-exports them flatly below
-// rather than requiring every caller to spell out `gui::startup_settings::`.
+// Applying the saved ray-trace options to the render context and settings controls at start-up.
 mod startup_ray;
+// Start-up settings application and the settings-value <-> UI-pill-index conversions. Several
+// of its items are used beyond start-up, so they are re-exported below.
 mod startup_settings;
 pub(crate) mod view_modes;
 // A design file named on the command line (an OS double-click association starts the
@@ -115,21 +100,13 @@ pub(crate) mod zoning_ui;
 // regression over a window rather than an instantaneous rate.
 mod progress_eta;
 
-// `sync_range_bounds_to_ui` is defined in `library::diagram_list` but re-exported here
-// so its public path (`gui::sync_range_bounds_to_ui`) is unchanged for a downstream
-// binary's sync-complete handler and this crate's own `gui::library`, both of which
-// call it at that spelling.
+// Defined in `library::diagram_list`; re-exported as `gui::sync_range_bounds_to_ui`, the path
+// the downstream binary's sync-complete handler and `gui::library` call.
 pub use library::diagram_list::sync_range_bounds_to_ui;
-// `search` is grouped into `gui::library` with the rest of the library UI (see
-// that module's own doc comment), and re-exported here under this name so
-// `gui::search` (the path a downstream binary's sync-complete handler is
-// documented to use -- see `search::refresh_diagram_list`'s doc comment) keeps
-// resolving.
+// `search` lives in `gui::library`; re-exported as `gui::search`, the path that
+// `search::refresh_diagram_list` documents for a downstream binary's sync-complete handler.
 pub use library::search;
-// `MainWindowHandle`/`build_main_window` are re-exported here (rather than only at
-// `gui::main_window::`) so their public path (`gui::MainWindowHandle`/
-// `gui::build_main_window`) is unchanged for the downstream binary
-// `lib.rs`'s own doc comment describes.
+// Re-exported for the downstream binary that `lib.rs` describes.
 pub use main_window::{MainWindowHandle, build_main_window};
 // For the UI harness (`harness_support::release_window_state`); not part of the app.
 #[cfg(feature = "ui-harness")]
@@ -145,20 +122,19 @@ pub(crate) use {
     rough_plan::{
         EXPORT_SUFFIX as ROUGH_PLAN_EXPORT_SUFFIX, HARNESS_SEED_PLAN_NAME, harness_locate_window,
         harness_planner_window, harness_rig_window, harness_seed_rough_color_plan,
+        harness_view_unsettled as harness_planner_view_unsettled,
     },
 };
 // `gui::library::search::fetch` opens a read-only connection to the same on-disk
 // design library for background search -- see `db_path`'s own doc comment.
 pub(in crate::gui) use main_window::db_path;
-// Flat re-exports so every existing call site elsewhere in `gui` (which all spell
-// these as `gui::X`, never `gui::startup_settings::X`) keeps resolving unchanged.
+// Flat re-exports: the callers in `gui` use these as `gui::X`.
 pub(in crate::gui) use startup_settings::{
     color_space_from_index, env_map_status_text, is_c_axis_override_available,
     local_compute_target_from_index, local_preview_scale_from_index,
     refresh_lighting_preset_options, refresh_material_options,
 };
-// Same reasoning as the `startup_settings` re-export above -- every existing call
-// site spells this as `gui::starting_dir_from_picker_field`.
+// Used by child modules as `gui::starting_dir_from_picker_field`.
 use picker_field::starting_dir_from_picker_field;
 
 use crate::MainWindow;
@@ -184,24 +160,12 @@ pub fn main() -> anyhow::Result<()> {
 /// covers.
 pub fn run_gui() -> anyhow::Result<()> {
     let handle = build_main_window()?;
-    // Whether the user has ever touched the Edit sub-tab's layout -- read from the
-    // settings store's own in-memory snapshot (already seeded from disk by
-    // `editor_layout::apply_editor_layout_from_settings` above) rather than the UI's
-    // `EditorModel.dock_width`/etc. directly, since `fit_initial_window_size` only
-    // needs this one flag, not the whole layout. See `window_sizing`'s own doc
-    // comment for what it does with it.
+    // Whether the user has ever touched the Edit sub-tab's layout, from the settings store's
+    // snapshot. `fit_initial_window_size` needs only this flag (see `window_sizing`).
     //
-    // Read BEFORE `show()` below, not after: `apply_editor_layout_from_settings`'s
-    // own startup push only QUEUES its property writes, and `show()` is what flushes them -- which, on a
-    // truly fresh settings file, raises `EditorModel.layout_changed` purely
-    // because `editor_layout::FIRST_RUN_INSPECTOR_HEIGHT` differs from the
-    // compiled default (340px vs. 260px), not because of anything the user did.
-    // Reading the snapshot after `show()` used to see whatever that spurious
-    // flush had already written back (`editor_layout::setup_editor_layout_
-    // callbacks`'s own `on_layout_changed` sets `editor_layout_touched = true`
-    // unconditionally), so the small-screen default below never actually saw a
-    // fresh install as fresh. Reading it here instead captures the true on-disk
-    // value, from before that flush can happen.
+    // Read BEFORE `show()`: the queued layout writes of `apply_editor_layout_from_settings`
+    // are flushed by `show()`, which raises `layout_changed` (and so marks the layout touched)
+    // even on a fresh settings file. Read here, the flag holds the true on-disk value.
     let editor_layout_touched = handle
         .settings_store
         .snapshot()

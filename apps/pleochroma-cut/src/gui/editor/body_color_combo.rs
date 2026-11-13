@@ -521,8 +521,8 @@ mod tests {
         assert!(!variant_is_stale(&design, &[other]));
     }
 
-    /// Review finding 8: a rename of the saved variant leaves the tensor alone but is still a
-    /// change the design should be offered ("Update" refreshes the name it shows).
+    /// A rename leaves the tensor alone but is still a change: "Update" refreshes the name the
+    /// design shows.
     #[test]
     fn a_renamed_saved_variant_makes_the_snapshot_stale() {
         let stored = saved("user.1", "Mine", 0.6, 0.3);
@@ -535,8 +535,8 @@ mod tests {
         assert!(!variant_is_stale(&updated, &[renamed]));
     }
 
-    /// Review finding 2 (scenario B): a design with a color pattern keeps its color and pattern
-    /// through an Apply of the material row, whatever row the greyed combo holds.
+    /// A design with a color pattern keeps its color and pattern through an Apply of the
+    /// material row, whatever row the greyed combo holds.
     #[test]
     fn a_material_row_apply_keeps_the_pattern_and_the_variant() {
         use pleochroma_cut_core::material::pattern::{PatternAxis, TemplateId, template};
@@ -590,8 +590,8 @@ mod tests {
         }
     }
 
-    /// Review web finding 5: a design with no material name lists no variants (its traced
-    /// material is only a refractive-index guess) and has no host for a Custom Color.
+    /// A design with no material name lists no variants, since its traced material is only a
+    /// refractive-index guess, and it has no host for a Custom Color.
     #[test]
     fn a_nameless_design_has_no_host_and_lists_no_variants() {
         let mut design = design_with(MaterialSelection::none());

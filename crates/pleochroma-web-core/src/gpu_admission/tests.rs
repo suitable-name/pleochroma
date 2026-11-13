@@ -60,7 +60,7 @@ fn zoned_isotropic_material_is_refused() {
 
 /// A stone with oriented inclusions needs a feature the browser kernel variant compiles out
 /// (the Worker refuses every pass for it), so the page refuses it up front and never asks for
-/// the kernel features of a stone the Worker would not trace (GPU-01).
+/// the kernel features of a stone the Worker would not trace.
 #[test]
 fn a_stone_with_oriented_inclusions_is_refused_before_any_kernel_feature_is_asked_for() {
     use pleochroma::optics::inclusions::{CrystalDir, CrystalFrame, Family, FamilyKind};
@@ -379,9 +379,8 @@ fn sorted_names(names: &[&str]) -> Vec<String> {
     sorted
 }
 
-/// Pins the shipped admission: only the isotropic class reaches the GPU in the browser. Adding a
-/// class to `ADMITTED_CLASSES` is the owner's decision after the browser probes, and this test is
-/// the one to change with it.
+/// Pins the shipped admission: only the isotropic class reaches the GPU in the browser. A class
+/// joins `ADMITTED_CLASSES` only after its browser probes pass, and this test changes with it.
 #[test]
 fn only_the_isotropic_class_is_admitted_until_the_probes_pass() {
     assert_eq!(ADMITTED_CLASSES, &[ISOTROPIC_CLASS]);
@@ -571,7 +570,7 @@ fn base_lists_are_the_isotropic_set_plus_the_uniaxial_arms() {
     assert_eq!(names.len(), UNIAXIAL_BASE_KERNELS.len());
     // An unknown class compiles the isotropic list.
     assert_eq!(kernels_for_class(0), ISOTROPIC_BASE_KERNELS);
-    // The scattering, HDR scattering and frosted kernels are no longer in a class's list.
+    // The scattering, HDR scattering and frosted kernels are not in a class's base list.
     for kind in [ISOTROPIC_CLASS, UNIAXIAL_CLASS, BIAXIAL_CLASS] {
         for name in ["Scatter", "NeeHg", "ArmFrosted"] {
             assert!(!kernels_for_class(kind).contains(&name), "{name}");
@@ -579,8 +578,8 @@ fn base_lists_are_the_isotropic_set_plus_the_uniaxial_arms() {
     }
 }
 
-/// Every class has a record of its own, and none is the key made before the compiled variant
-/// existed: a record of the all-features pipeline is never read for the smaller one.
+/// Every class has a record of its own, and none collides with the plain adapter key or the
+/// Ray-Traced key.
 #[test]
 fn class_keys_are_separate_and_leave_the_all_features_key_behind() {
     let isotropic = class_adapter_key(&facts(), "141", 7_u64, ISOTROPIC_CLASS);
@@ -838,9 +837,8 @@ fn a_large_hdr_map_is_eligible_once_the_adapters_own_binding_limit_is_requested(
     );
 }
 
-/// The adapter limits are part of the key, so lifting the requested binding limit starts every
-/// browser on a fresh record (one re-test) while an adapter whose limit did not move keeps its
-/// record.
+/// The adapter limits are part of the key, so a change of the requested binding limit starts a
+/// fresh record while an unchanged set of limits keeps the same key.
 #[test]
 fn lifting_the_binding_limit_changes_the_adapter_key_once() {
     let baseline = AdapterFacts {
@@ -1115,8 +1113,8 @@ fn feature_keys_are_separate_from_class_and_from_each_other() {
     );
 }
 
-/// The stored shape changed (the class record no longer covers `Scatter`), so the records of
-/// version 1 are not read: a user whose `Scatter` compile failed retests the plain stones.
+/// A record made for the earlier, unsplit variant (`:p1`, whose class record covered `Scatter`)
+/// is never read.
 #[test]
 fn the_record_variant_was_raised_for_the_split() {
     const { assert!(BROWSER_PIPELINE_VARIANT >= 2) };
@@ -1149,7 +1147,7 @@ fn the_worker_ledger_remembers_kernels_per_kind() {
         ledger.missing(ISOTROPIC_CLASS, ["Tail", "Scatter", "Finalize"]),
         vec!["Scatter", "Finalize"]
     );
-    assert!(ledger.missing(ISOTROPIC_CLASS, ["Tail"]).is_empty());
+    assert_eq!(ledger.missing(ISOTROPIC_CLASS, ["Tail"]), [] as [&str; 0]);
     ledger.clear();
     assert_eq!(ledger, CompiledKernels::default());
 }
@@ -1180,10 +1178,9 @@ fn a_base_set_compile_leaves_a_scattering_stone_missing_only_its_feature_kernels
     for kernel in KernelFeature::Scattering.kernels() {
         ledger.record(needs.class, kernel);
     }
-    assert!(
-        ledger
-            .missing(needs.class, wanted.iter().copied())
-            .is_empty()
+    assert_eq!(
+        ledger.missing(needs.class, wanted.iter().copied()),
+        [] as [&str; 0]
     );
 }
 

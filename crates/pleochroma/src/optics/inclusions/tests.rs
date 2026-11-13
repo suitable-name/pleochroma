@@ -647,7 +647,7 @@ fn a_thin_platelet_family_reflects_like_a_mirror() {
     );
 }
 
-/// `Family` values survive the catalogue: all four exponents appear only as allowed ones.
+/// Every exponent the catalogue uses is one of the allowed `0, 1, 2, 4`.
 #[test]
 fn the_catalogue_uses_only_allowed_exponents() {
     for material in GemMaterial::built_in() {

@@ -4,9 +4,9 @@
 //! stone.
 //!
 //! The design supplies the parts (`gui::render::stone_effects` for the effects,
-//! `bridge::render_effects` for the facet words); the faceting machine is the user's own
+//! `bridge::render_effects` for the facet words). The faceting machine is the user's own
 //! preference and is held beside them. With nothing set the record is
-//! `SceneEffects::default()` and every consumer behaves as it did before the feature existed.
+//! `SceneEffects::default()`, which leaves the render unchanged.
 
 use super::RenderContext;
 use crate::bridge::render_effects::words_for_planes;

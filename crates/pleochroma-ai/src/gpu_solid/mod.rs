@@ -416,8 +416,7 @@ impl GpuSolid {
     #[cfg(feature = "cuda")]
     fn width_inner(&self, planes: &[(DVec3, f64)]) -> Result<Option<f64>, String> {
         let key = plane_key(planes);
-        // Optical requests own their working set; exact build results are a separate
-        // reuse opportunity and cannot evict it.
+        // Optical widths have their own cache, so build results cannot evict them.
         for cache in [&self.widths, &self.build_widths] {
             let hit = cache
                 .lock()

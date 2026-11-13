@@ -11,13 +11,13 @@
 //!   finite search is a reference policy, not a guaranteed upper bound.
 //!
 //! Every pass scores the same stone against the same target under the same objective weights.
-//! The end-of-run test evaluation and every in-training
-//! validation pass previously played designs one after another on one core. Designs are
-//! independent, so they are handed to the persistent bounded CPU pool (a design with many free
-//! tiers costs many times a small one) and every outcome is written into the slot of its entry;
-//! the report is then reduced serially in entry order. GPU/CUDA policy forwards share one
-//! bounded device owner which batches ready cases. CPU evaluation keeps the pure network;
-//! GPU floating point values may vary across backends and batch shapes.
+//!
+//! Designs are independent and run on the persistent bounded CPU pool (a design with many free
+//! tiers costs many times a small one). Each outcome goes into the slot of its entry, and the
+//! report is reduced serially in entry order, so the result does not depend on scheduling.
+//! GPU/CUDA policy forwards share one bounded device owner that batches ready cases. CPU
+//! evaluation uses the pure network; GPU floating point values may vary across backends and
+//! batch shapes.
 
 use std::{sync::Arc, time::Instant};
 
@@ -296,7 +296,7 @@ impl EvalJob<'_> {
         (action_from_direction(&raw, max_step), label.evaluations)
     }
 
-    /// The (unprojected) action and teacher evaluations used to choose it.
+    /// The (unprojected) action and the teacher evaluations that chose it.
     fn propose(
         &self,
         env: &EnvKind,

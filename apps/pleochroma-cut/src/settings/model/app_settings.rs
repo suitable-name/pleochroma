@@ -1,9 +1,10 @@
-//! [`AppSettings`]: the four originally in-memory-only settings, plus camera pose,
-//! the selected material, and everything else migrated into persistent storage.
+//! [`AppSettings`]: the persisted application settings: render, camera, lighting,
+//! remote and interface preferences.
 
 pub use super::view_settings::{DEFAULT_LIVE_VIEW_MODE, DEFAULT_SOLID_VIEW_MODE};
 use super::{
     head_shadow::{DEFAULT_HEAD_SHADOW_DEG, default_head_shadow_deg, deserialize_head_shadow_deg},
+    is_zero_reflection,
     local_compute::LocalComputeTarget,
     remote_endpoint::{
         LegacyWorkerMigration, RemoteEndpoint, TiltVideoCompute, migrate_legacy_workers,
@@ -31,19 +32,15 @@ use pleochroma_cut_core::material::VariantChoice;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
-// Defaults mirror `RenderContext::default()` and the Parameters panel's property
-// initializers, with ONE deliberate exception: `DEFAULT_LIGHTING_RIG` ("Light tent +
-// black cards") does not match `RenderContext::default()`'s `lighting_preset`
-// (`LightingPreset::RingLights`) -- the 2026-09-16 lighting rework changed the
-// settings-dialog/startup default to the light tent without touching
-// `RenderContext::default()` itself, which only ever seeds the render thread before
-// `gui::startup_settings::apply_saved_settings` overwrites it with whatever
-// `AppSettings` actually loads. Camera yaw/pitch are kept in RADIANS (matching
-// `RenderContext`) while light yaw/pitch are kept in DEGREES (matching the
-// settings-dialog sliders) -- each field stores whatever unit its main consumer
-// already uses (`gui::mod::apply_loaded_settings` converts degrees -> radians).
-/// `256` matches the old "High / Quality" preset's typical converged sample count --
-/// see `RenderContext::default()`'s `target_samples`, which mirrors this.
+// Defaults mirror `RenderContext::default()` and the Parameters panel's initializers,
+// with one exception: `DEFAULT_LIGHTING_RIG` (the light tent) differs from
+// `RenderContext::default()`'s `lighting_preset` (`LightingPreset::RingLights`).
+// Startup overwrites the render context with the loaded settings, so that default only
+// seeds the render thread. Camera yaw/pitch are in RADIANS (as `RenderContext`), light
+// yaw/pitch in DEGREES (as the sliders); each field keeps the unit its main consumer
+// uses (see `gui::startup_settings::apply_loaded_settings`).
+/// `256`: the converged progressive sample count. `RenderContext::default()`'s
+/// `target_samples` mirrors it.
 pub const DEFAULT_TARGET_SAMPLES: u32 = 256;
 /// Live render resolution -- matches `RenderContext::default()`'s `width`/`height`.
 pub const DEFAULT_RENDER_WIDTH: u32 = 800;
@@ -69,19 +66,20 @@ pub const DEFAULT_EDGE_ROUNDING_RADIUS: f32 = 0.0;
 pub const DEFAULT_STONE_WIDTH_MM: f32 = 0.0;
 /// Default local preview scale for new settings.
 pub const DEFAULT_LOCAL_PREVIEW_SCALE: LocalPreviewScale = LocalPreviewScale::Off;
-/// `LiveComputeTarget::Both` is a no-op without a configured remote
-/// (`orchestrator::poll_tick` only dispatches remote when `AppSettings::remote` is set),
-/// so a fresh install behaves exactly as before -- `Both` only starts doing anything
-/// once a remote is configured.
+/// Default live compute target: `LiveComputeTarget::Both`.
+///
+/// `Both` does nothing without a configured remote (`orchestrator::poll_tick` dispatches to a
+/// remote only when `AppSettings::remote` is set), so it has an effect only once a remote is
+/// configured.
 pub const DEFAULT_LIVE_COMPUTE_TARGET: LiveComputeTarget = LiveComputeTarget::Both;
-/// `CpuGpu` matches `LocalComputeTarget::Default`, reproducing today's hybrid CPU+GPU
-/// behaviour on a `gpu`-feature build (CPU-only otherwise, since `ViewportGpu` always
-/// declines there regardless of this setting).
+/// `CpuGpu` is the `LocalComputeTarget` default: hybrid CPU+GPU on a `gpu`-feature build,
+/// CPU-only otherwise.
 pub const DEFAULT_LOCAL_COMPUTE_TARGET: LocalComputeTarget = LocalComputeTarget::CpuGpu;
-/// v16: on by default -- a configured remote's final-picture exports converge faster
-/// with the idle local machine helping, and `worker::final_picture::contribution_allowed`'s
-/// own guards (compute target, matching scene, HDR) already keep it from ever changing
-/// what a picture looks like, only how fast it arrives.
+/// On by default: a configured remote's final-picture exports converge faster with the idle local
+/// machine helping.
+///
+/// `export_thread::worker::final_picture::contribution_allowed`'s guards (compute target, matching
+/// scene, HDR) keep it from changing what a picture looks like, only how fast it arrives.
 pub const DEFAULT_CONTRIBUTE_TO_FINAL_PICTURE: bool = true;
 /// How many pictures a catalogue preview or tilt batch keeps in flight on the remote at
 /// once, for new settings. `4` keeps a coordinator with a couple of joined workers busy
@@ -140,20 +138,14 @@ pub const DEFAULT_LIGHT_PITCH_DEG: f32 = 72.0;
 /// facet contrast, so an undialled-in render already reads like a photograph.
 pub const DEFAULT_LIGHTING_RIG: &str = "Light tent + black cards";
 
-/// The surface the stone lies on -- a lit tray seen around the stone and through its
-/// windows alike (`EnvironmentSource::Studio::backdrop`, resolved by
-/// `pleochroma::render_setup::Backdrop::resolve` at the scene's own preset and light pose).
+/// The surface the stone lies on: a lit tray seen around the stone and through its windows
+/// (`EnvironmentSource::Studio::backdrop`, resolved by
+/// `pleochroma::render_setup::Backdrop::resolve`).
 ///
-/// The `index`/`from_index` derivation this carries is pinned once in
-/// `pleochroma::render_setup::Backdrop` (shared with the browser app) and mirrored
-/// here variant-for-variant -- this type keeps its own definition, rather than a
-/// re-export, purely so it can carry the `serde` derives its on-disk settings-file
-/// representation needs: `pleochroma`'s own `serde` dependency is optional/feature-
-/// gated (off by default, on only for `pleochroma-net`'s wire protocol), and this
-/// crate doesn't enable it, so adding an unconditional `Serialize`/`Deserialize` to
-/// the pleochroma side would grow ITS base dependency footprint for every consumer,
-/// not just this one. Every method below just converts to the pleochroma mirror and
-/// delegates, so the derivation logic itself lives in exactly one place.
+/// The `index`/`from_index` logic lives once in `pleochroma::render_setup::Backdrop`, and
+/// this type mirrors it variant for variant. The mirror carries the `serde` derives: serde is
+/// optional in `pleochroma`, and enabling it for every consumer would grow its base
+/// dependencies. The methods below convert and delegate.
 ///
 /// Saved settings keep the choice they hold; only a fresh default is White.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -227,49 +219,41 @@ pub const DEFAULT_CAMERA_PITCH: f32 = DEFAULT_LIVE_CAMERA_PITCH;
 pub const DEFAULT_CAMERA_DISTANCE: f32 = DEFAULT_POSE.distance;
 /// Default material for new settings.
 pub const DEFAULT_MATERIAL: &str = "Diamond";
-/// Cached-preview (front/top thumbnail) square render size, in pixels -- see
-/// `bridge::preview_render`'s doc comment for the measured cost table this was picked
-/// from. `160` at [`DEFAULT_PREVIEW_SPP`] costs ~1.1s/image on 16 cores, small enough
-/// to sit comfortably in a diagram-list card with room for two side by side. Exposed
-/// as a setting rather than a hardcoded constant since the speed/crispness trade-off
-/// is a matter of taste.
+/// Square render size in pixels of the cached front/top catalogue thumbnails.
+///
+/// `160` keeps a card cheap to render and small enough for two side by side in the list. See
+/// `bridge::preview_render`. It is a setting because speed against crispness is a matter of taste.
 pub const DEFAULT_PREVIEW_SIZE: u32 = 160;
-/// See [`DEFAULT_PREVIEW_SIZE`] for the measured cost this pairs with.
+/// Samples per pixel of the cached preview thumbnails, paired with [`DEFAULT_PREVIEW_SIZE`].
 pub const DEFAULT_PREVIEW_SPP: u32 = 256;
-/// The "Edit" sub-tab's auto-solve budget, in milliseconds -- see
-/// `gui::editor::auto_solve::should_schedule_auto_solve`. After an edit, a design
-/// whose last measured solve took less than this is re-solved automatically
-/// (debounced); `300` was picked as comfortably above a small design's typical solve
-/// cost while staying well under what would read as sluggish. `0` disables auto-solve
-/// outright, reproducing this crate's pre-existing (Solve-button-only) behaviour.
+/// The Edit sub-tab's auto-solve budget in milliseconds.
+///
+/// After an edit, a design whose last solve took less than this is re-solved automatically
+/// (debounced); see `pleochroma_editor::solve_policy::should_schedule_auto_solve`. `300` is well
+/// above a small design's typical solve cost. `0` disables auto-solve: only the Solve button runs
+/// it.
 pub const DEFAULT_EDITOR_AUTO_SOLVE_BUDGET_MS: u32 = 300;
-/// The Edit sub-tab's dock width, in logical pixels -- see `EditorModel.dock_width`'s
-/// own doc comment (`ui/models/editor.slint`) and `gui::editor_layout` for the
-/// drag-clamp/persistence wiring. `640.0` is the narrowest width at which the tier table shows every column, so an
-/// existing settings file (predating the resizable viewport|dock split) restores
-/// exactly the width it always rendered at.
+/// The Edit sub-tab's dock width in logical pixels.
+///
+/// See `EditorModel.dock_width` in `ui/models/editor.slint` and `gui::editor_layout` for the drag
+/// clamp and persistence. `640.0` is the narrowest width at which the tier table shows every
+/// column.
 pub const DEFAULT_EDITOR_DOCK_WIDTH: f32 = 640.0;
-/// The Edit sub-tab's inspector height, in logical pixels -- see `EditorModel.
-/// inspector_height`'s own doc comment. `340.0` is tall enough for the Tier tab to show
-/// its title plus the Angle, Meets, Name and Indices rows and the pinned Save/Add row
-/// without scrolling (the old fixed `260.0` left a ~160px fold that hid Meets/Name/
-/// Indices). A settings file that already carries `editor_inspector_height` keeps its
-/// own value; only a missing key takes this default.
+/// The Edit sub-tab's inspector height in logical pixels (`EditorModel.inspector_height` in
+/// `ui/models/editor.slint`).
+///
+/// `340.0` fits the Tier tab's title, its Angle, Meets, Name and Indices rows and the pinned
+/// Save/Add row without scrolling.
 pub const DEFAULT_EDITOR_INSPECTOR_HEIGHT: f32 = 340.0;
 
-/// The four originally in-memory-only settings, plus camera pose and the selected
-/// material -- everything migrated into persistent storage.
+/// The persisted application settings: render, camera, lighting, remote and interface
+/// preferences.
 ///
-/// `#[serde(default)]` on the struct makes every field individually optional on
-/// deserialization: a settings file that predates a field still loads successfully
-/// with that field defaulted. Full-document parse failure is handled one level up, in
-/// `store::load_with_outcome`.
+/// `#[serde(default)]` makes every field optional on load: a missing field takes its
+/// default. Parse failures of the whole document are handled in `store::load_with_outcome`.
 ///
-/// Unknown keys are IGNORED (no `deny_unknown_fields`), which is how a removed setting
-/// retires without a migration: a file still carrying the old `remote_render_samples`
-/// key (removed when the live view's `target_samples` became the single global target
-/// for the combined local + remote image) loads fine and simply drops it on the next
-/// save.
+/// Unknown keys are ignored (no `deny_unknown_fields`), so a removed setting retires without
+/// a migration and is dropped on the next save.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 #[expect(
@@ -280,14 +264,12 @@ pub struct AppSettings {
     /// Quality for the explicitly selected Ray-Traced view.
     #[serde(default)]
     pub ray_trace: super::RaySettings,
-    /// The user's progressive-accumulation target sample count, replacing the old
-    /// four-tier `quality_preset` string (which TOML silently drops on load).
+    /// The progressive-accumulation target sample count of the live view.
     pub target_samples: u32,
-    /// Live render resolution, driving `RenderContext.width`/`.height` directly.
-    /// Restricted in the UI to a fixed pill list -- 640x480, 800x600 (default),
-    /// 1280x720, 1920x1080 -- rather than tracking the viewport `Image`'s actual size,
-    /// which Slint has no mechanism to report back to Rust. A hand-edited value
-    /// outside the four pills still loads and renders fine.
+    /// Live render resolution, driving `RenderContext.width`/`.height` directly. The UI
+    /// offers four pills (640x480, 800x600 default, 1280x720, 1920x1080) rather than
+    /// tracking the viewport size, which Slint cannot report back to Rust. A hand-edited
+    /// value outside the pills still loads and renders.
     pub render_width: u32,
     /// Render height in pixels.
     pub render_height: u32,
@@ -320,8 +302,8 @@ pub struct AppSettings {
     /// locally only. See [`RemoteEndpoint`].
     #[serde(default)]
     pub remote: Option<RemoteEndpoint>,
-    /// The retired multi-worker list, read (never written) only so an old settings file
-    /// migrates: [`AppSettings::migrate_legacy_remote_workers`] moves its first entry into
+    /// Multi-worker list of an old settings file, read (never written) only to migrate it:
+    /// [`AppSettings::migrate_legacy_remote_workers`] moves its first entry into
     /// [`Self::remote`] and logs the rest as dropped. Always empty after a load.
     #[serde(rename = "remote_workers", default, skip_serializing)]
     pub legacy_remote_workers: Vec<WorkerSettings>,
@@ -353,10 +335,18 @@ pub struct AppSettings {
         deserialize_with = "deserialize_head_shadow_deg"
     )]
     pub head_shadow_deg: f32,
-    /// Inclusion/subsurface scattering amount: the Henyey-Greenstein `sigma_s`
-    /// applied via `GemMaterial::with_scattering_amount` -- see `scattering_sigma_s`
-    /// in `crates/pleochroma/src/optics/materials/mod.rs` for the `0.05`-`3.0` useful
-    /// range. `0.0` (default) is off: the exact deterministic Beer-Lambert path.
+    /// Whether the stone casts its spectral shadow onto the backdrop paper.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stone_shadow: bool,
+    /// Head-on reflectance of the glossy tray under the stone, `0.0..=1.0` (`0.0`, the
+    /// default, is the matte tray). Studio lights with a backdrop only; limited wherever
+    /// it is read into a [`super::LightingValues`].
+    #[serde(default, skip_serializing_if = "is_zero_reflection")]
+    pub tray_reflection: f32,
+    /// Inclusion/subsurface scattering amount: the Henyey-Greenstein `sigma_s` applied via
+    /// `GemMaterial::with_scattering_amount`. For the useful range (`0.05` to `3.0`) see the
+    /// `scattering_sigma_s` field in `crates/pleochroma/src/optics/materials/mod.rs`. `0.0`
+    /// (default) is off: the exact deterministic Beer-Lambert path.
     pub inclusion_sigma_s: f32,
     /// Crystal-axis orientation override -- off ("as cut") by default, leaving each
     /// material's own `GemMaterial::c_axis` untouched. When on, `c_axis_tilt_deg`/
@@ -371,16 +361,12 @@ pub struct AppSettings {
     pub c_axis_tilt_deg: f32,
     /// Azimuth around `+Y`, 0-360 degrees.
     pub c_axis_azimuth_deg: f32,
-    /// Bruted (frosted) girdle finish toggle -- off by default (every facet
-    /// `Polished`). On, the girdle band from `girdle::girdle_facet_finishes` renders
-    /// `Frosted` instead -- a measured +17.3% face-up brightness change on the
-    /// standard round brilliant.
+    /// Frosted girdle finish. Off (default) leaves every facet `Polished`; on, the girdle
+    /// band from `girdle::girdle_facet_finishes` renders `Frosted`.
     pub girdle_frosted: bool,
-    /// Facet (meet-point) edge rounding radius, in world units (girdle radius of order
-    /// 1 model unit) -- see `GemMaterial::edge_rounding_radius`, which calls `0.01`
-    /// comfortably inside the soft-glint-not-a-bevel range. `0.0` (default) is off. The
-    /// slider's `0.03` ceiling is the largest radius the energy-conservation furnace
-    /// test verifies end to end.
+    /// Facet edge rounding radius in model units (the girdle radius is of order 1). `0.0`
+    /// (default) is off. The slider's `0.03` ceiling is the largest radius the
+    /// energy-conservation furnace test verifies.
     pub edge_rounding_radius: f32,
     /// Physical stone size: girdle width in millimetres to treat the active design as
     /// measuring -- see `RenderContext::stone_width_mm` for the full mechanism.
@@ -398,16 +384,14 @@ pub struct AppSettings {
     #[serde(default)]
     pub local_compute_target: LocalComputeTarget,
     /// The tilt video section's "Compute" pill (Local only / Remote only / Local + Remote),
-    /// remembered across restarts. An absent key (an older file) is Local + Remote, the
-    /// behaviour before the pill existed; without a configured remote the video is local
-    /// whatever this holds.
+    /// remembered across restarts. An absent key is Local + Remote; without a configured
+    /// remote the video is local whatever this holds.
     #[serde(default)]
     pub tilt_video_compute_target: TiltVideoCompute,
-    /// v16: whether this machine's own idle CPU/GPU traces a share of a "final picture
-    /// only" export/tilt-frame alongside the remote, uploading its sum for the
-    /// coordinator to fold in before tone-mapping -- see
-    /// [`DEFAULT_CONTRIBUTE_TO_FINAL_PICTURE`] and
-    /// `worker::final_picture::contribution_allowed` for when it actually applies.
+    /// Whether this machine's idle CPU/GPU traces a share of a "final picture only" export or
+    /// tilt frame alongside the remote, uploading its sum for the coordinator to fold in before
+    /// tone-mapping. See [`DEFAULT_CONTRIBUTE_TO_FINAL_PICTURE`] and
+    /// `export_thread::worker::final_picture::contribution_allowed` for when it applies.
     #[serde(default = "default_contribute_to_final_picture")]
     pub contribute_to_final_picture: bool,
     /// How many pictures a catalogue preview or tilt batch keeps in flight on the remote
@@ -444,7 +428,7 @@ pub struct AppSettings {
     /// catalogue previews (`ask` shows the question every time).
     #[serde(default)]
     pub import_preview_choice: super::ImportPreviewChoice,
-    /// How the viewer compresses the uploads it sends a coordinator (today the
+    /// How the viewer compresses the uploads it sends a coordinator (currently the
     /// `CONTRIBUTION` of a final-picture export): `"auto"` (default) follows the measured
     /// link speed, `"raw"`, `"lz4"`, `"zstd"` or `"zstd:LEVEL"` pin one encoding. A
     /// missing or unreadable value loads as `"auto"`.
@@ -453,14 +437,21 @@ pub struct AppSettings {
         deserialize_with = "pleochroma_net::messages::adaptive::PayloadChoice::deserialize_lenient"
     )]
     pub payload_encoding: pleochroma_net::messages::adaptive::PayloadChoice,
-    /// HDR environment maps: path to the last-loaded Radiance `.hdr` file, or empty
-    /// for "no map loaded, use the studio rig" (same empty-string-means-off
-    /// convention as `selected_material`/`lighting_rig`). `gui::mod::apply_loaded_settings`
-    /// reloads it at startup via `load_env_map`; a failure surfaces as a toast and
-    /// leaves the render on the studio rig without clearing this field, so fixing the
-    /// file and relaunching picks it back up.
+    /// HDR environment maps: path to the last-loaded Radiance `.hdr` file, or empty for "no
+    /// map, use the studio rig" (the empty-string-means-off convention of `selected_material`).
+    /// `gui::startup_settings::apply_loaded_settings` reloads it at startup via
+    /// `load_env_map`. A failed load shows a toast and keeps the studio rig without clearing
+    /// this field, so fixing the file and relaunching picks it back up.
     #[serde(default)]
     pub env_map_path: String,
+    /// Yaw of the loaded HDR environment map in degrees, `0.0..360.0` (`0.0`, the default,
+    /// is the map as loaded). Ignored without a map; loading a different map resets it.
+    #[serde(default, skip_serializing_if = "is_zero_reflection")]
+    pub env_map_yaw_deg: f32,
+    /// Whether the HDR map turns with the camera, so the stone orbits under a map that
+    /// stays fixed relative to the view. Off by default: the map is fixed in the world.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub env_map_follows_camera: bool,
     /// Square render size (pixels) for cached front/top design-catalogue preview
     /// thumbnails -- see `bridge::preview_render` and [`DEFAULT_PREVIEW_SIZE`].
     #[serde(default = "default_preview_size")]
@@ -536,32 +527,21 @@ pub struct AppSettings {
     /// collapsed.
     #[serde(default)]
     pub editor_remap_collapsed: bool,
-    /// Whether the user has ever changed the Edit sub-tab's layout (dock width,
-    /// inspector height, or any section's collapsed state) -- see
-    /// `gui::window_sizing`'s per-screen inspector-collapse default, which only
-    /// applies while this is still `false`, and `gui::editor_layout::
-    /// setup_editor_layout_callbacks`, the only place that ever sets it `true`.
+    /// Whether the user has changed the Edit sub-tab's layout (dock width, inspector height,
+    /// or any section's collapsed state). `gui::window_sizing`'s per-screen inspector-collapse
+    /// default applies only while this is `false`. `gui::editor_layout` sets it `true`.
     #[serde(default)]
     pub editor_layout_touched: bool,
-    /// The Edit sub-tab's "Open Recent" list: up to
-    /// [`MAX_RECENT_NATIVE_FILES`] design-file paths, most-recently-used first --
-    /// `.psdd` design files. Design-file
-    /// paths only (never a bare `.asc`, and never a row in the read-only catalogue
-    /// database, which this list deliberately has nothing to do with) -- see
+    /// The Edit sub-tab's "Open Recent" list: up to [`MAX_RECENT_NATIVE_FILES`] `.psdd` design
+    /// file paths, most recent first. Never a `.asc` and never a catalogue row. See
     /// [`Self::record_recent_native_file`].
     #[serde(default)]
     pub recent_native_files: Vec<String>,
-    /// Keys of the in-window `ConfirmActionDialog` prompts the cutter has ticked
-    /// "Don't ask again" on (`ui/components/confirm_action_dialog.slint`'s
-    /// `show_dont_ask`/`dont_ask`).
-    /// A `BTreeSet` (not `HashMap`/`HashSet` -- house rule: no hash-map iteration
-    /// in a decision path), keyed by a short, stable string each call site owns
-    /// (e.g. `"write_confirm.not_closed_solid"`) -- see
-    /// `gui::editor::native_io::confirm`'s `confirm_keys` module for the write-confirm
-    /// keys and `gui::editor::state`'s anchor-explainer key. A key present here means
-    /// that SPECIFIC prompt is silenced;
-    /// nothing else is affected, so suppressing "not a closed solid" never
-    /// silences any other prompt or vice versa.
+    /// Keys of the `ConfirmActionDialog` prompts the user ticked "Don't ask again" on
+    /// (`ui/components/confirm_action_dialog.slint`). A `BTreeSet`, not a hash set: no
+    /// hash-map iteration in a decision path. Each call site owns a stable key (e.g.
+    /// `"write_confirm.not_closed_solid"`); see `gui::editor::native_io::confirm`'s
+    /// `confirm_keys`. A key silences only its own prompt.
     #[serde(default)]
     pub suppressed_confirmations: BTreeSet<String>,
     /// Which controls the interface shows: Simple or Advanced (one global switch, the
@@ -593,6 +573,35 @@ pub struct AppSettings {
     /// Larger drag handles and hit areas on the Solid viewport, for touch screens and pens.
     #[serde(default)]
     pub large_handles: bool,
+    /// "Adaptive Sampling in the Viewport": while the view is still, samples move from clean
+    /// tiles to noisy ones. Off by default, which keeps plain progressive accumulation.
+    #[serde(default)]
+    pub adaptive_viewport: bool,
+    /// "Speed Up Still Views With a Path Cache": once the view stands still, the stone's paths
+    /// are cached in memory and shaded from the cache. Off by default.
+    #[serde(default)]
+    pub path_cache_viewport: bool,
+    /// "Instant Lighting Changes in the Ray-Traced View": a still Ray-Traced view keeps the
+    /// light paths in memory, so a lighting or exposure change re-lights it at once. Off by
+    /// default.
+    #[serde(default)]
+    pub instant_lighting: bool,
+    /// "Beam Tracing in Still Views": once the Path-Traced view stands still, an eligible
+    /// faceted stone is beam traced in the background, tile by tile. Off by default.
+    /// Read and written in every build; only a build with the `beam` feature uses it, so a
+    /// settings file keeps the choice through a standard build.
+    #[serde(default)]
+    pub beam_viewport: bool,
+    /// "Instant Lighting Changes" for beam-traced still views: the beams stay in memory, so a
+    /// lighting or exposure change re-lights them at once. Off by default; needs `beam_viewport`.
+    /// Read and written in every build, as `beam_viewport`.
+    #[serde(default)]
+    pub beam_instant_lighting: bool,
+    /// The most disk space kept path caches may use, in decimal gigabytes (the Path Cache Disk
+    /// Limit of Preferences > Rendering). A settings file without the key loads
+    /// [`DEFAULT_PATH_CACHE_DISK_LIMIT_GB`].
+    #[serde(default = "default_path_cache_disk_limit_gb")]
+    pub path_cache_disk_limit_gb: u32,
     /// The Solid viewport's Snap pill, remembered: `true` turns angle and depth snapping
     /// of the drag handles off.
     #[serde(default)]
@@ -616,27 +625,24 @@ pub struct AppSettings {
     /// [`MAX_RENDER_BODY_COLOR_CHANNEL`].
     #[serde(default, deserialize_with = "deserialize_render_body_color")]
     pub render_body_color_override: Option<[f32; 3]>,
-    /// The seven-band rows `[centre_nm, width_nm, amplitude_per_mm]` of the Live Render view
-    /// color when it came from the L*C*h editor, saved beside
-    /// [`Self::render_body_color_override`] (their legacy triple). A view setting only. `None`
-    /// (and a file without the key) is a color that is the triple alone. Rows that are not
-    /// finite and positive are dropped on load, at most [`MAX_RENDER_BODY_COLOR_BANDS`] stay,
-    /// and a list with nothing left loads as `None`; the rows are ignored while the triple is
-    /// `None`.
+    /// Band rows `[centre_nm, width_nm, amplitude_per_mm]` of the Live Render view color when
+    /// it came from the L*C*h editor, saved beside [`Self::render_body_color_override`]. A view
+    /// setting only. Rows that are not finite and positive are dropped on load, at most
+    /// [`MAX_RENDER_BODY_COLOR_BANDS`] stay, and a list left empty loads as `None`. The rows are
+    /// ignored while the triple is `None`.
     #[serde(
         default,
         deserialize_with = "deserialize_render_body_color_bands",
         skip_serializing_if = "Option::is_none"
     )]
     pub render_body_color_bands: Option<Vec<[f32; 3]>>,
-    /// The Live Render view color as a color variant of the viewed material (a picked variant or
-    /// a per-axis Custom Color): the snapshot of its tensor, so a pleochroic stone keeps every
-    /// direction. It wins over [`Self::render_body_color_override`] and
-    /// [`Self::render_body_color_bands`], which stay readable for the colors saved before variants
-    /// and keep rendering as saved. A view setting only. `None` (and a file without the key) means
-    /// no variant; a value that cannot be used (see [`RenderBodyColorVariant::is_usable`]) loads as
-    /// `None`. Read and written through [`Self::render_view_variant`] and
-    /// [`Self::set_render_view_variant`].
+    /// The Live Render view color as a color variant of the viewed material (a picked variant
+    /// or a per-axis Custom Color), kept as a snapshot of its tensor so a pleochroic stone
+    /// keeps every direction. It wins over [`Self::render_body_color_override`] and
+    /// [`Self::render_body_color_bands`], which still render a file that carries only them.
+    /// A view setting only. A value that cannot be used (see
+    /// [`RenderBodyColorVariant::is_usable`]) loads as `None`. Read and written through
+    /// [`Self::render_view_variant`] and [`Self::set_render_view_variant`].
     #[serde(
         default,
         deserialize_with = "deserialize_render_body_color_variant",
@@ -648,17 +654,16 @@ pub struct AppSettings {
     /// starts. A file without the table loads the defaults.
     #[serde(default)]
     pub output: super::output_settings::OutputSettings,
-    /// One-shot migration flag for the stone effects that moved from app-level settings
-    /// into the design (`inclusion_sigma_s`, the crystal-axis trio, `girdle_frosted`,
-    /// `edge_rounding_radius`, `stone_width_mm`). A file without the key predates the move
-    /// and loads `false` (so [`Self::legacy_stone_defaults`] offers the old values once);
-    /// a brand-new install starts `true`, with nothing to migrate. Those six fields stay in
-    /// the file as read-only legacy values and are no longer read for rendering.
+    /// Whether the legacy app-level stone effects (`inclusion_sigma_s`, the crystal-axis
+    /// trio, `girdle_frosted`, `edge_rounding_radius`, `stone_width_mm`) were already offered
+    /// to a design; see [`Self::legacy_stone_defaults`]. A file without the key loads `false`,
+    /// so the old values are offered once; a new install starts `true`. Those fields stay in
+    /// the file as read-only values and are not read for rendering.
     #[serde(default = "default_migrated_stone_effects")]
     pub migrated_stone_effects: bool,
     /// Whether the Parameters dock (Stone / Lighting & Environment / Render & Output) is
     /// expanded, remembered across runs. A file without the key loads `false`: the dock starts
-    /// folded into its thin rail, so the views look as they did before it existed.
+    /// folded into its thin rail.
     #[serde(default)]
     pub parameters_dock_open: bool,
     /// The Parameters dock's open tab: `0` Stone, `1` Lighting & Environment, `2` Render &
@@ -950,6 +955,26 @@ const fn default_slice_symmetric() -> bool {
 
 const fn default_contribute_to_final_picture() -> bool {
     DEFAULT_CONTRIBUTE_TO_FINAL_PICTURE
+}
+
+/// The disk limit of kept path caches a new install and an old settings file start with: 50 GB.
+pub const DEFAULT_PATH_CACHE_DISK_LIMIT_GB: u32 = 50;
+
+/// The most disk space kept path caches may use, in gigabytes, limited to what the Preferences
+/// field offers (1 to 100 000).
+#[must_use]
+pub const fn clamp_path_cache_disk_limit_gb(gb: u32) -> u32 {
+    if gb < 1 {
+        1
+    } else if gb > 100_000 {
+        100_000
+    } else {
+        gb
+    }
+}
+
+const fn default_path_cache_disk_limit_gb() -> u32 {
+    DEFAULT_PATH_CACHE_DISK_LIMIT_GB
 }
 
 const fn default_plan_time_limit_secs() -> u32 {

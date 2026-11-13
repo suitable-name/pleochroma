@@ -157,8 +157,7 @@ fn an_invalid_or_future_stone_pattern_is_refused_on_load() {
     use crate::native::{design_from_file, design_to_file};
     let mut file = design_to_file(&simple_design(), None, &DesignExtras::default());
     let mut pattern = solved_bicolor();
-    // One past the newest version this build reads (version 2 is readable since the color
-    // variants campaign: a pattern with a variant or a three-color zone).
+    // One past the newest pattern version this build reads.
     pattern.version = crate::material::pattern::PATTERN_FORMAT_VERSION + 1;
     file.material.color_pattern_override = Some(encode_pattern(&pattern).expect("JSON"));
     assert!(design_from_file(file.clone()).is_err());

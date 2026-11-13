@@ -1,8 +1,9 @@
-//! The design settings panel's refresh ([`refresh_design_settings`]), the
-//! "linked to design" viewport material sync ([`sync_viewport_material_link`], over
-//! `pleochroma_editor::material_lookup::traced_material_for`), the material-guess
-//! badge, and the Tier tab's
-//! per-facet chip row ([`selected_tier_chips`]/[`push_selected_tier_chips`]).
+//! The design settings panel and the viewport material link.
+//!
+//! Covers [`refresh_design_settings`], the "linked to design" material sync
+//! ([`sync_viewport_material_link`], which traces with
+//! `pleochroma_editor::material_lookup::traced_material_for`), the material-guess badge, and
+//! the Tier tab's per-facet chip row ([`push_selected_tier_chips`]).
 
 use super::state::{
     EditorState, ScratchDelta, builtin_preset_names, design_material_index_from_name,
@@ -31,24 +32,17 @@ use pleochroma_cut_core::{Design, TierFrosting, critical_angle_deg};
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use std::sync::{Arc, Mutex};
 
-/// The material-guess badge's push half of [`refresh_design_settings`] --
-/// split out purely to keep that function under clippy's function-length
-/// lint. Inferred material is shown as a guess, never as a fact: when
-/// `design.material.name` is `None`
-/// (every untouched `.asc` import carries only an `I`-line refractive index,
-/// no species), this looks up the nearest built-in preset within tolerance
-/// (`pleochroma_editor::material_lookup::material_guess`) and pushes a guess label
-/// plus the OTHER close candidates for the tooltip.
-/// Once a name IS set, every one of these three properties goes back to
-/// `""` -- there is nothing left to guess, and [`super::state::
-/// proportion_verdicts`]-style "guess vs fact" confusion is exactly what this
-/// exists to prevent.
+/// The material-guess badge of [`refresh_design_settings`]. Split out to stay under the
+/// function-length lint.
 ///
-/// A material the load applied from the library entry
-/// (`EditorState::applied_library_material`) keeps a badge too, while the design's material
-/// still is that one: it is the design's material (no "Set Material" button, see
-/// `material_guess_applied`), but still labelled as inferred so it is never mistaken for a
-/// cutter's choice.
+/// An inferred material is shown as a guess, never as a fact. When `design.material.name` is
+/// `None` (an untouched `.asc` import carries only an `I`-line refractive index), the nearest
+/// built-in preset within tolerance is offered as a guess, with the other close candidates in
+/// the tooltip. Once a name is set, the three guess properties are cleared.
+///
+/// A material applied from a library entry (`EditorState::applied_library_material`) keeps the
+/// badge while it is still the design's material. There is no "Set Material" button for it
+/// (`material_guess_applied`), and it stays labelled as inferred.
 fn push_material_guess(ui: &MainWindow, design: &Design, n_d: f64, applied: Option<&str>) {
     let guess = material_guess(design, n_d);
     let applied_guess = if guess.is_none() {
@@ -67,14 +61,12 @@ fn push_material_guess(ui: &MainWindow, design: &Design, n_d: f64, applied: Opti
         .set_material_guess_other_candidates_text(others.into());
 }
 
-/// The Live Render readout for a design's body-color variant: the traced material's
-/// name with the color's label (`Sapphire (Yellow)`), or `""` when the design sets
-/// no color or nothing traces at all (`traced_material_for`'s refusal) -- the same
-/// name `sync_viewport_material_link` traces, so the readout can never name a
-/// different stone than the one rendered. Computed whether or not the viewport is
-/// linked; the toolbar only shows it while linked. A custom colour's hex is the colour at the
-/// current Stone Size (`stone_width_mm`, `0.0` = not set), like the toolbar swatch; it is
-/// recomputed with the next editor refresh after the size changes.
+/// The Live Render readout for a design's body color: the traced material's name with the
+/// color's label (`Sapphire (Yellow)`), or `""` when the design sets no color or nothing traces
+/// (`traced_material_for`'s refusal). It names the same stone as
+/// `sync_viewport_material_link`, computed whether or not the viewport is linked. A custom
+/// color's hex is taken at the current stone width (`stone_width_mm`, `0.0` = not set), like
+/// the toolbar swatch.
 fn body_color_readout(design: &Design, custom: &[GemMaterial], stone_width_mm: f32) -> String {
     let rgb = design.material.body_color_override;
     // A color variant is named by its own label (`Sapphire (Padparadscha)`); the legacy colors
@@ -122,16 +114,14 @@ fn is_zoned_material(design: &Design, ctx: &RenderContext) -> bool {
         })
 }
 
-/// The design settings panel's color combo half of [`refresh_design_settings`] --
-/// split out purely to keep that function under clippy's function-length lint. The
-/// option list is the keyed list of [`body_color_combo::shown_colors`]: the material's own
-/// color, its color variants, the nine presets (a material that looks the same in every
-/// direction only) and the trailing "Custom..." entry. Its labels are pushed only while the combo
-/// does not hold them yet; the swatch of each row and its tooltip with them. The selected
-/// index is re-seeded from the design when `material_changed` (the same
+/// The color combo half of [`refresh_design_settings`]. The option list is the keyed list of
+/// [`body_color_combo::shown_colors`]: the material's own color, its color variants, the
+/// presets and the trailing "Custom..." entry. The labels are pushed only when the list
+/// changed; swatches and tooltips are pushed every time. The selected index is re-seeded when
+/// `material_changed` (the same
 /// [`ScratchDelta::material`] gate as the material combo, so an in-progress pick survives an
-/// unrelated refresh) or when the list itself changed (another material, another set of
-/// variants); `readout` (see [`body_color_readout`]) always.
+/// unrelated refresh) or when the list changed. `readout` (see [`body_color_readout`]) is
+/// always pushed.
 fn push_body_color_fields(
     ui: &MainWindow,
     design: &Design,
@@ -155,8 +145,7 @@ fn push_body_color_fields(
     if !list_unchanged {
         model.set_body_color_options(ModelRc::new(VecModel::from(labels)));
     }
-    // The swatch chip and the tooltip text of each row (a combo row has neither of its own):
-    // the Stone tab shows the selected row's.
+    // The swatch chip and the tooltip of each row (a combo row has neither of its own).
     model.set_body_color_swatches(ModelRc::new(VecModel::from(
         shown
             .items
@@ -179,15 +168,14 @@ fn push_body_color_fields(
     if material_changed || !list_unchanged {
         model.set_body_color_index(i32::try_from(shown.selected).unwrap_or(0));
     }
-    // A legacy single color on a pleochroic material keeps rendering as saved; the Stone tab
-    // says so and offers "Convert".
+    // A legacy single color on a pleochroic material keeps rendering as saved. The Stone tab
+    // says so and offers "Convert...".
     model.set_body_color_legacy_note(shown.legacy_note);
     // A snapshot of a saved variant that was edited since: "Variant Changed: Update".
     model.set_body_color_variant_stale(shown.stale_variant);
     model.set_body_color_readout(readout.into());
-    // The override replaces the whole absorption tensor, so it is unavailable (greyed out) for a
-    // physics material; one that is already set (a color variant included) gets a warning rather
-    // than a silent override.
+    // The override replaces the whole absorption tensor, so a physics material greys it out.
+    // One already set (a color variant included) gets a warning instead.
     model.set_design_material_is_physics(physics_material);
     // A zoned material's colour is its zones: the override is ignored for it, so the control is
     // greyed out with a note (the Stone tab) instead of silently doing nothing.
@@ -197,34 +185,21 @@ fn push_body_color_fields(
     );
 }
 
-/// Pushes the design settings panel's state (material combo options and index,
-/// RI-override/effective-RI/critical-angle readouts, gear/symmetry/mirror) and,
-/// while "linked to design" is on, syncs the shared viewport's render material
-/// (and its displayed selection/index) to match -- a display override made while
-/// unlinked must never be silently overridden. Shared by
-/// [`super::panel::refresh_editor_panel_from_solve`]/
+/// Pushes the design settings panel: the material combo, the refractive index and critical
+/// angle readouts, and the gear, symmetry and mirror fields. While "linked to design" is on,
+/// it also syncs the viewport's render material and its displayed selection. Used by
+/// [`super::panel::refresh_editor_panel_from_solve`] and
 /// [`super::panel_stale::push_stale_content`].
 ///
-/// `viewport_material_linked` alone is the real gate a display override needs.
-/// Also requiring `render_view_tab == 1` (the Edit tab itself being shown)
-/// would tie the render's material to tab history rather than to the design:
-/// switching to Live Render and back would never resync anything until the
-/// next edit happened to run this function again.
+/// The sync is gated on `viewport_material_linked` alone, so a display override made while
+/// unlinked is never overwritten.
 ///
-/// Returns this design's effective refractive index so
-/// [`super::state::tier_items`]/[`super::state::tier_items_stale`] can reuse the
-/// identical value for their per-tier margin/risk column rather than
-/// re-deriving it.
+/// Returns the design's effective refractive index, which `tier_items` and
+/// `tier_items_stale_with_last_solved` reuse for the per-tier margin column.
 ///
-/// `delta` (from [`EditorState::record_scratch_push`], computed once by the
-/// caller) gates the material/gear/symmetry scratch pushes independently, so
-/// an edit that only changed one of the three never re-seeds -- and so
-/// silently discards any in-progress typing/selection in -- the other two's
-/// fields.
-///
-/// `pub(super)`, not private: shared by `panel.rs`/`panel_stale.rs` (both
-/// siblings within `view`), neither of which touches the design settings panel
-/// directly otherwise.
+/// `delta` (from [`EditorState::record_scratch_push`], computed once by the caller) gates the
+/// material, gear and symmetry field pushes separately, so an edit that changed only one of
+/// them does not reseed the others and discard typing in progress.
 pub(super) fn refresh_design_settings(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
@@ -233,11 +208,8 @@ pub(super) fn refresh_design_settings(
 ) -> f64 {
     let design = &state.design;
 
-    // Scoped so the `RenderContext` lock (a shared resource the render thread
-    // also wants every frame) is held only for the work that actually needs
-    // it, and is a real `Drop` guard released at the end of this block rather
-    // than sitting locked across the `delta`-gated pushes below, which touch
-    // only `design`/`ui` -- clippy::nursery's `significant_drop_tightening`.
+    // The `RenderContext` lock (the render thread takes it every frame) is held only in this
+    // block, not across the `delta`-gated pushes below, which need only `design` and `ui`.
     let (n_d, options, color_readout, physics_material, zoned_material, shown_colors) = {
         let ctx = RenderContext::lock(render_ctx);
         // The color combo's keyed list for the design's material (its variants and presets). The
@@ -253,10 +225,7 @@ pub(super) fn refresh_design_settings(
         } else {
             body_color_readout(design, &ctx.custom_materials, ctx.stone_width_mm)
         };
-        // Custom-catalogue-aware: unlike `effective_refractive_index`,
-        // this also resolves a custom material by name before falling back to a built-in
-        // or the design's `I` line -- see `ri_source_text` below for the matching
-        // "where did this number come from" explanation shown in the inspector.
+        // Unlike `effective_refractive_index`, this also resolves a custom material by name.
         let n_d = design.effective_refractive_index_with(&ctx.custom_materials);
         ui.global::<EditorModel>()
             .set_ri_source_text(ri_source_text(&design.material, &ctx.custom_materials).into());
@@ -288,14 +257,10 @@ pub(super) fn refresh_design_settings(
         &shown_colors,
         delta.material,
     );
-    // The stone width (and the zone scale that follows it) is synced BEFORE the
-    // viewport material link: the link derives `material_override` from the re-scaled list, and
-    // `stone_width_applied` replaces a same-named override with the bare list entry.
+    // The stone width (and the zone scale that follows it) is synced before the material link,
+    // which derives `material_override` from the re-scaled list.
     push_stone_fields(ui, render_ctx, design);
-    // A second, separate lock acquisition (rather than reusing the guard
-    // above): its own last use sits right at this block's own end, so the
-    // lock is never held across work -- the `delta`-gated pushes below -- that
-    // does not need it either.
+    // A second lock, so the first is not held across the pushes below.
     let (selected_material_index, c_axis_available) = {
         let mut ctx = RenderContext::lock(render_ctx);
         let index = sync_viewport_material_link(ui, &mut ctx, design);
@@ -313,8 +278,7 @@ pub(super) fn refresh_design_settings(
     // an isotropic material to an anisotropic one must offer them (and the reverse).
     ui.global::<SettingsModel>()
         .set_c_axis_override_available(c_axis_available);
-    // The Stone tab's Inclusions and Play-of-Color groups follow the traced material too (its
-    // presets, whether it has a play-of-color, its own families); the note counts the latter.
+    // The Stone tab's Inclusions and Play-of-Color groups follow the traced material too.
     crate::gui::render::physics_effects_ui::refresh(ui, render_ctx);
     push_figures_note(ui, design);
     push_material_options(ui, &options);
@@ -381,14 +345,8 @@ fn push_stone_fields(ui: &MainWindow, render_ctx: &Arc<Mutex<RenderContext>>, de
 
 /// Pushes the material combo's option list and the New Design dialog's material list.
 fn push_material_options(ui: &MainWindow, options: &[String]) {
-    // `options` is already cached at the `Vec<String>` level
-    // (`EditorState::material_combo_options`'s own `MaterialComboCache`, rebuilt
-    // only when the catalogue's custom-material names change). Comparing against
-    // what is already pushed skips rebuilding a brand-new `ModelRc<VecModel<_>>`
-    // from that cached `Vec` (and the Slint-side model reset it triggers) unless
-    // the catalogue itself actually changed -- rebuilding unconditionally on every
-    // refresh would force the combo box to fully reset its rows on every angle
-    // nudge just as much as on an actual material save.
+    // `options` is cached by `EditorState::material_combo_options`. Push a new model only
+    // when the list differs, since a new model resets the combo box rows.
     let current_options = ui.global::<EditorModel>().get_material_combo_options();
     let unchanged = current_options.row_count() == options.len()
         && current_options
@@ -405,14 +363,8 @@ fn push_material_options(ui: &MainWindow, options: &[String]) {
                     .collect::<Vec<_>>(),
             )));
     }
-    // Pushed the same way, so `new_design_dialog.slint`'s New
-    // Design material `ComboBox` binds its `model` to `EditorModel.new_material_options`
-    // instead of hand-maintaining a literal list in the SAME order as
-    // `builtin_preset_names` -- see that function's own doc comment.
-    // `builtin_preset_names` never changes at runtime, so this is redundant work on
-    // every refresh, not a correctness issue -- matching `material_combo_options`
-    // just above rather than adding a one-shot-at-startup special case for one more
-    // static list.
+    // The New Design dialog's material list, so it is not a literal kept in step with
+    // `builtin_preset_names` in Slint. The list is static; it is pushed here with the others.
     ui.global::<EditorModel>()
         .set_new_material_options(ModelRc::new(VecModel::from(
             builtin_preset_names()
@@ -435,19 +387,13 @@ fn push_gear_symmetry_meta(ui: &MainWindow, design: &Design, delta: &ScratchDelt
         ui.global::<EditorModel>()
             .set_symmetry_order_text(design.meta.symmetry_order.to_string().into());
         ui.global::<EditorModel>().set_mirror(design.meta.mirror);
-        // Whatever the last typed-but-not-yet-applied preview
-        // said is no longer meaningful once the fields are freshly reseeded from
-        // the real (just-applied, or freshly loaded) design -- a value that
-        // matches the live design has nothing left to preview.
+        // A typed-but-unapplied preview no longer matches the reseeded design, so it is cleared.
         ui.global::<EditorModel>()
             .set_symmetry_preview_text("".into());
     }
     if delta.meta {
-        // `design.meta.headers`' first entry is the design's
-        // title (the catalogue round-trip convention -- see `EditorModel.
-        // design_title`'s own doc comment, `ui/models/editor.slint`), every
-        // further entry an "extra" header line, `';'`-joined back for the
-        // form's single-line field -- `apply_design_meta`'s own inverse split.
+        // The first header is the design's title; the rest are extra header lines, joined
+        // with `;` for the form's single-line field.
         let (title, extra_headers) = design
             .meta
             .headers
@@ -466,22 +412,14 @@ fn push_gear_symmetry_meta(ui: &MainWindow, design: &Design, delta: &ScratchDelt
     }
 }
 
-/// The viewport's material sync while the view follows the design (no sync while the person is
-/// previewing another material) -- the stone width and effects are [`sync_stone_from_design`]'s.
+/// The viewport's material sync, which runs while the view follows the design (not while a
+/// material preview is on). The stone width and effects are synced by
+/// [`sync_stone_from_design`]. Split out to stay under the function-length lint.
 ///
-/// See
-/// [`refresh_design_settings`]'s doc comment for why there is no separate
-/// `render_view_tab` gate. Split out purely to keep that function under clippy's
-/// function-length lint.
-///
-/// Returns the viewport material selection's (the "Preview as…" and library-row
-/// picker) resolved index instead of setting `ViewportModel.selected_material_index`
-/// itself. That setter's `changed` handler runs a DB query
-/// (`custom_materials.rs`), and every caller holds `ctx` -- the `render_ctx`
-/// mutex the render thread also locks every frame -- across this function's
-/// call; setting the property from inside that guard stalls the render
-/// thread on every refresh. Callers must set the returned index themselves,
-/// after the guard on `ctx` has been dropped.
+/// Returns the index of the traced material in the viewport's material options, rather than
+/// setting `ViewportModel.selected_material_index` here. That setter's `changed` handler runs a
+/// DB query, and the caller holds the `render_ctx` lock across this call, which would stall the
+/// render thread. The caller sets the index after dropping the lock.
 #[must_use]
 pub(in crate::gui::editor) fn sync_viewport_material_link(
     ui: &MainWindow,
@@ -499,25 +437,15 @@ pub(in crate::gui::editor) fn sync_viewport_material_link(
         ctx.material_unresolved.clone_from(&unresolved);
         ctx.dirty = true;
     }
-    // The resolved material itself, not merely its name:
-    // `context::resolve_material` can only look a name up in the built-in table,
-    // so a catalogue custom material or a typed RI override never reached the
-    // trace at all. `material_override` is what the tracer, the HUD metrics, the
-    // tilt sweep and the hover preview all prefer over that name lookup.
+    // The resolved material itself, not only its name: `material_override` is what the
+    // tracer, the HUD metrics, the tilt sweep and the hover preview use before a name lookup.
     //
-    // Keyed on `name` -- the material this design is traced AS, decided by
-    // `traced_material_for` just above -- and NOT on `design.material`. Passing the
-    // raw selection here sent it through `MaterialSelection::resolve`, whose
-    // no-name fallback is `GemMaterial::diamond()`: every `.asc` import and every
-    // new design names no material, so the override was diamond, the override beats
-    // the name, and the stone rendered with diamond's (empty) absorption bands --
-    // colorless whatever the schedule said. `traced_gem_material` returns `None`
-    // instead of substituting, and an absent override falls through to
-    // `context::resolve_material`'s own by-name lookup, so the name and the override
-    // can no longer describe two different stones. The design's body-color variant
-    // rides along here too (`MaterialSelection::apply_overrides`, inside
-    // `traced_gem_material`): `material_name` stays the species ("Sapphire"), the
-    // override carries its recolored absorption.
+    // It is keyed on `name`, the material the design is traced as, and not on the raw
+    // `design.material`. A raw selection with no name falls back to diamond in
+    // `MaterialSelection::resolve`, and that override would then beat the name. Here
+    // `traced_gem_material_at_width` returns `None` instead, so the name and the override
+    // always describe the same stone. The body-color variant is carried in the override,
+    // while `material_name` stays the species.
     let resolved = unresolved
         .is_none()
         .then(|| {
@@ -540,13 +468,8 @@ pub(in crate::gui::editor) fn sync_viewport_material_link(
         ctx.material_name.clone_from(&name);
         ctx.dirty = true;
     }
-    // Keeps the viewport material selection's displayed index in sync with
-    // the material actually being traced on every refresh. Writing this only
-    // once, at startup (`startup_settings::apply_saved_settings`), would let the
-    // selection go on showing e.g. "Diamond" long after `ctx.material_name` (and
-    // so the trace, and the tilt dialog's staleness check, both of which read
-    // `ViewportModel.selected_material_index`/`material_options`) had moved to
-    // something else entirely.
+    // The displayed selection follows the traced material on every refresh, so it never
+    // shows a material the trace no longer uses.
     let options = ui.global::<ViewportModel>().get_material_options();
     crate::gui::startup_settings::find_option_index(&options, &name)
 }
@@ -577,12 +500,11 @@ pub(in crate::gui::editor) struct StoneSync {
 }
 
 /// Makes the render context's stone width and render effects the design's own. Unlike the
-/// material, these are NOT view choices: they follow the design whether or not a material
-/// preview is on (the preview only swaps the material), so the old overwrite of a manual size
-/// by a linked refresh is gone -- there is one stone width, `design.girdle_diameter_mm`.
+/// material, they follow the design whether or not a material preview is on, so there is one
+/// stone width, `design.girdle_diameter_mm`.
 ///
 /// The effects are left alone while a Stone-tab control waits to commit its change to the design
-/// ([`stone_effects::live_edit_pending`]), so a refresh that lands mid-drag never takes the
+/// ([`stone_effects::live_edit_pending`]), so a refresh during a slider drag does not take the
 /// slider's value back. The caller pushes the controls after dropping the context lock.
 #[must_use]
 pub(in crate::gui::editor) fn sync_stone_from_design(
@@ -618,13 +540,10 @@ pub(in crate::gui::editor) fn sync_stone_from_design(
     }
 }
 
-/// Builds the chip row for whichever tier the inspector's Tier tab currently has
-/// loaded (`EditorModel.selected_tier_index`; `None` for "Add Tier" or an
-/// out-of-range value) -- the per-facet editing surface. Computed
-/// fresh from `design` on the UI thread every refresh, for only the one tier
-/// being edited, rather than for every row: see [`IndexChipItem`]'s own doc
-/// comment for why this can never be a field on the (background-thread-built,
-/// `Send`) [`crate::EditorTierItem`] instead.
+/// Builds the per-facet chip row for the tier loaded in the Tier tab
+/// (`EditorModel.selected_tier_index`; empty for "Add Tier" or an out-of-range value).
+/// It is built on the UI thread for that one tier only, because [`crate::EditorTierItem`]
+/// is built on a background thread and must be `Send`.
 #[must_use]
 fn selected_tier_chips(design: &Design, selected_tier_index: i32) -> Vec<IndexChipItem> {
     let Some(index) = usize::try_from(selected_tier_index).ok() else {
@@ -645,14 +564,9 @@ fn selected_tier_chips(design: &Design, selected_tier_index: i32) -> Vec<IndexCh
     chips
 }
 
-/// Pushes [`selected_tier_chips`]'s result into `EditorModel.selected_tier_chips`,
-/// plus the currently selected tier's own cheater-offset text
-/// into `EditorModel.selected_tier_cheater_offset_text` -- shared by
-/// [`super::panel::refresh_editor_panel`]/[`super::panel_stale::push_stale_content`]/
-/// `callbacks::tier_actions::apply_selected_tier_change` (a plain row-click/
-/// facet-click selection change, with no edit of its own) so both stay current
-/// after every one of the three ways the selected tier can change, exactly like
-/// `tiers` itself.
+/// Pushes the selected tier's chips, cheater offset, note and frosting into `EditorModel`.
+/// Called after every change of the selected tier: a refresh, a stale refresh and a plain
+/// row or facet click.
 pub(in crate::gui::editor) fn push_selected_tier_chips(ui: &MainWindow, state: &EditorState) {
     let selected = ui.global::<EditorModel>().get_selected_tier_index();
     let cheater_offset_text = usize::try_from(selected)

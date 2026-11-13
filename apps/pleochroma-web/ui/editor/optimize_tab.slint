@@ -7,9 +7,8 @@ import { OptimizeModel } from "optimize_model.slint";
 import { DeepSolveModel } from "deep_solve_model.slint";
 import { Divider, FieldLabel, InfoLine, SectionTitle } from "inspector_widgets.slint";
 
-// The Optimize tab (modelled on the desktop's `editor_inspector/optimize_tab.slint`):
-// weights, budget and seed, Run / Cancel with live progress from the solve Worker, the
-// before/after table, the tiers it would change, and Apply. Below it, the Deep Solve
+// The Optimize tab: weights, budget and seed, Run / Cancel with live progress from the solve
+// Worker, the before/after table, the tiers it would change, and Apply. Below it, the Deep Solve
 // section: check the stone against its printed proportions in the same Worker, with the
 // per-tier table and a Pin button per row.
 export component OptimizeTab inherits VerticalLayout {
@@ -24,8 +23,7 @@ export component OptimizeTab inherits VerticalLayout {
 
     FieldLabel { text: "Weights: Windowing / Extinction / Tilt Brilliance"; wrap: word-wrap; }
     // `min-width: 0px` on every field of a row: the style's LineEdit is at least 160px wide,
-    // so three of them made the whole tab wider than the dock (the hint text stopped
-    // wrapping and the third field was cut off).
+    // which would make three fields wider than the dock.
     HorizontalLayout {
         spacing: 4px;
         LineEdit { min-width: 0px; enabled: !root.busy; text <=> OptimizeModel.weight-windowing; placeholder-text: "windowing"; changed has-focus => { AppModel.text-focus = self.has-focus; } }
@@ -70,8 +68,8 @@ export component OptimizeTab inherits VerticalLayout {
         Rectangle { horizontal-stretch: 1; }
     }
 
-    // A result computed for an older design stays on screen, badged (the desktop's
-    // `optimize_stale`); Recompute runs Optimize again on the current design.
+    // A result computed for an older design stays on screen, badged; Recompute runs Optimize
+    // again on the current design.
     if OptimizeModel.result-stale && !root.busy: HorizontalLayout {
         StaleBadge {
             enabled: GuideModel.allows-advanced();

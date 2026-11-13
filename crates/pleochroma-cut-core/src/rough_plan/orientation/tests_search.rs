@@ -243,8 +243,8 @@ fn the_ends_of_a_preferred_rule_differ_strictly_on_a_rough_that_forces_the_trade
     // only full-size stone (volume 1.6, one piece, no saw cut) has its table facing x. The
     // crystal axis (tilt 0) runs along the rough's y and the rule wants the table across it: the
     // 2 mm must lie along y, where the block is 1 mm, so the stones shrink, and the kerf makes
-    // the many small pieces lose volume. (2026-10-22: the axis was along x, where the full stone
-    // already obeys the rule; and without a kerf eight half-size stones tile the same 1.6.)
+    // the many small pieces lose volume. The axis must not run along x, where the full stone
+    // already obeys the rule.
     let model = block_model(2.05, 1.0, 1.0);
     let settings = settings_with(1, 0.05, 0.0, 0.4);
     let along_y = CrystalOrientation::from_angles(0.0, 0.0, None);
@@ -431,8 +431,8 @@ fn the_exact_fit_stays_in_the_cone_of_a_required_rule() {
 
 #[test]
 fn a_tight_required_cone_still_finds_its_fit_off_the_grid() {
-    // The axis is slanted and the cone 2 degrees wide: no direction of the coarse grids lies in it,
-    // so the fit relies on the rule's own table normal being added to the tables.
+    // The axis is slanted and the cone 2 degrees wide: no direction of the coarse grids lies in
+    // it, so the fit relies on the rule's own table normal being added to the tables.
     let model = block_model(12.0, 12.0, 12.0);
     let region = model.usable_halfspaces(0.0).expect("region");
     let coarse = model.coarse_usable_halfspaces(0.0).expect("coarse region");

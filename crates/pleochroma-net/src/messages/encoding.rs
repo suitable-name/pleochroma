@@ -1,4 +1,4 @@
-//! Payload-encoding negotiation (protocol v14).
+//! Payload-encoding negotiation.
 //!
 //! [`PayloadEncoding`] is how a `FRAME`/`PREVIEW` radiance payload travels on the wire,
 //! [`DisplayEncoding`] how an 8-bit `DISPLAY_FRAME` travels.

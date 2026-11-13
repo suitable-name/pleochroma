@@ -1,15 +1,12 @@
-//! Reads/parses whichever file the "Open" picker (or File > Open Recent, or a path
-//! given on the command line) names -- a self-contained `.psdd` design file, a
-//! directly-picked bare `.asc`, or
-//! a `.gem`/`.gcs` design converted to `.asc` cutting instructions -- translating the
-//! result into a [`PickedNative`] for [`super::open_native::do_open_native`] to
-//! dispatch. A design file is routed by its content
+//! Reads and parses the file the "Open" picker, File > Open Recent or the command line names.
+//!
+//! The file is a `.psdd` design file, a bare `.asc`, or a `.gem`/`.gcs` converted to `.asc`
+//! cutting instructions. The result is a [`PickedNative`] for
+//! [`super::open_native::do_open_native`] to dispatch. A design file is routed by its content
 //! ([`pleochroma_formats::native::design::detect_kind`]), never by its name alone.
 //!
-//! The file reads and parses run on a worker thread ([`read_picked_path_then`]): a design
-//! file with embedded attachments is read, decoded and parsed in one go, which was a
-//! UI-thread stall that grew with the attachment budget. Everything that needs the window
-//! (toasts) runs back on the UI thread.
+//! Reads and parses run on a worker thread ([`read_picked_path_then`]), since a design file
+//! with attachments can be large. Toasts run back on the UI thread.
 
 use super::picker::{PickKind, pick_file};
 use crate::{
@@ -28,14 +25,11 @@ use std::{
     path::{Path, PathBuf},
 };
 
-/// What the "Open" picker actually returned -- see [`setup_open_native_callback`]'s
-/// own doc comment for why the same picker also accepts a bare `.asc` (a
-/// cutter handed a plain `GemCAD` file by email should not have to import it into the
-/// catalogue database first just to look at it).
+/// What the "Open" picker returned. The picker also accepts a bare `.asc`, so a plain
+/// `GemCAD` file can be viewed without importing it into the catalogue first.
 pub(super) enum PickedNative {
-    /// A self-contained `.psdd` design file, already parsed
-    /// and turned into a design. Boxed: a whole parsed design is several times larger
-    /// than [`Self::AscOnly`]'s bare path+text (`clippy::large_enum_variant`).
+    /// A `.psdd` design file, already parsed into a design. Boxed because a parsed design is
+    /// much larger than the other variants (`clippy::large_enum_variant`).
     Design {
         native_path: PathBuf,
         loaded: Box<LoadedDesign>,
@@ -43,11 +37,9 @@ pub(super) enum PickedNative {
     /// A directly-picked bare `.asc`, committed straight through
     /// `gui::editor::loading::design_from_asc_text` in [`open_plain_asc`].
     AscOnly { asc_path: PathBuf, asc_text: String },
-    /// A directly-picked `.gem` (`GemCAD`) or `.gcs` (Gem Cut Studio) file,
-    /// already converted to `.asc` cutting instructions by
-    /// `gui::library::local::convert_foreign_design` -- the same conversion Import
-    /// uses. Committed through the bare-`.asc` path in
-    /// `super::open_commit::open_converted_design`.
+    /// A `.gem` (`GemCAD`) or `.gcs` (Gem Cut Studio) file, converted to `.asc` cutting
+    /// instructions by `gui::library::local::convert_foreign_design`, the same conversion
+    /// Import uses. Committed by `super::open_commit::open_converted_design`.
     Converted(ConvertedPick),
 }
 
@@ -183,12 +175,11 @@ fn read_asc_text(path: &Path) -> std::io::Result<String> {
     std::fs::read(path).map(|bytes| pleochroma_formats::asc::decode_asc_bytes(&bytes).into_owned())
 }
 
-/// Reads the design at `picked_path`, whichever kind it is: a `.asc`, a `.gem`/`.gcs`,
-/// or a design file (`.psdd`). No window access, so it runs
-/// on a worker thread.
+/// Reads the design at `picked_path`, whichever kind it is: a `.asc`, a `.gem`/`.gcs`, or a
+/// `.psdd` design file. No window access, so it runs on a worker thread.
 ///
-/// A directly-picked `.asc` opens as [`PickedNative::AscOnly`]: authored meet
-/// constraints and detached facets live in the design file, which is opened directly.
+/// A `.asc` opens as [`PickedNative::AscOnly`]: authored meet constraints and detached facets
+/// live only in the design file.
 fn read_path_blocking(picked_path: PathBuf) -> BackgroundRead {
     if picked_path
         .extension()
@@ -213,13 +204,11 @@ fn read_path_blocking(picked_path: PathBuf) -> BackgroundRead {
     read_design_blocking(&picked_path)
 }
 
-/// Shows the "Open" picker (accepting `.psdd`, `.asc`, `.gem` or
-/// `.gcs`) and reads whichever one the cutter picked. `on_done`'s `None` is a
-/// cancellation or any read/parse failure, each already toasted before calling it.
+/// Shows the "Open" picker (`.psdd`, `.asc`, `.gem` or `.gcs`) and reads the file the cutter
+/// picked. `on_done`'s `None` is a cancellation or a read/parse failure, each already toasted
+/// before the call.
 ///
-/// The picker itself ([`PickKind::OpenDesign`]) runs on a background
-/// thread via [`pick_file`] -- see that function's own `match` for the filter
-/// shape it builds.
+/// The picker ([`PickKind::OpenDesign`]) runs on a background thread via [`pick_file`].
 pub(super) fn pick_design_then(
     ui: &MainWindow,
     on_done: impl FnOnce(&MainWindow, Option<PickedNative>) + 'static,

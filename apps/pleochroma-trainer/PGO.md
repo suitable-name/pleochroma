@@ -18,7 +18,7 @@ plausible for the current CPU-bound pipeline, but is not established until measu
 GPU memory occupancy is not the success metric; completed useful training work
 per second is.
 
-## Build on the A100/A6000 training host
+## Build on the A100 training host
 
 The CUDA driver/runtime and NVRTC required by a normal CUDA trainer run must be
 available. The script enables the standalone trainer's `cuda` feature when
@@ -50,8 +50,9 @@ tools. BOLT failure stops the script and retains the PGO artifact and diagnostic
 it leaves an existing `bin/pleochroma-trainer-cli` untouched and does not silently
 label an unmodified executable as BOLT optimized.
 
-Compilation is sequential by default (`--jobs 1`). Thin LTO and one codegen unit
-are applied to both instrumented and profile-use builds. They use the identical
+Compilation is sequential by default (`--jobs 1`). Thin LTO over 16 codegen units
+is applied to both instrumented and profile-use builds; the two must match, or the
+collected counters no longer fit the functions. They use the identical
 manifest, target, target directory, binary and feature set, and the trainer's own
 lockfile. Both builds select only `pleochroma-trainer-cli` and use
 `--no-default-features` to exclude the optional GUI dependencies and Slint UI
@@ -62,8 +63,8 @@ No application-wide Cargo settings or physics code are changed.
 The default CPU target is `native` on both x86-64 and AArch64. Both the
 instrumented and profile-use builds use `-C target-cpu=native`, and BOLT rewrites
 that same native PGO executable. This tunes the result for the current **CPU**;
-it may not run on another cloud host. An A100 or A6000 identifies the GPU, not
-the host CPU's instruction set. Override with `--cpu x86-64-v3` for a shared
+it may not run on another cloud host. The A100 identifies the supported training GPU,
+not the host CPU's instruction set. Override with `--cpu x86-64-v3` for a shared
 x86-64 baseline only if all deployment CPUs support it. For older hosts,
 explicitly select `--cpu x86-64-v2`; this loses FMA and can make
 the tracer's fused operations substantially slower. Compare ordinary release
@@ -174,8 +175,7 @@ build; the build script handles instrumentation and collection automatically.
 `LLVM_PROFILE_FILE` is inherited by all self-spawned trainer processes, and BOLT
 profiling likewise executes the same instrumented binary for every scenario.
 
-The old `scripts/profile-workload.py --binary PATH ...` interface remains as a
-small compatibility wrapper. It forwards arguments to `PATH --pgo` and contains
+`scripts/profile-workload.py --binary PATH ...` is a small compatibility wrapper. It forwards arguments to `PATH --pgo` and contains
 no workload logic. Python is needed only when invoking that legacy wrapper.
 
 ## Outputs and using the result
@@ -226,9 +226,6 @@ the first CUDA compilation/warmup iteration from steady state, compare rollout,
 teacher, update and validation timings, and check that useful accepted work and
 the selected backend remain comparable. Keep the ordinary release available
 until the resulting executable has been validated on the training host.
-
-Implementation validation here is static only: no builds, workloads, benchmarks,
-tests or clippy were run while adding these files.
 
 ## Toolchain references
 

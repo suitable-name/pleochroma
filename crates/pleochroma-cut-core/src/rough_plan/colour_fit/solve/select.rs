@@ -1,4 +1,4 @@
-//! Model selection (plan section 6.2): an information criterion and a likelihood ratio test.
+//! Model selection: an information criterion and a likelihood ratio test.
 //!
 //! * `chi2` is the plain sum of squared whitened residuals of the data term; `k` the effective
 //!   number of parameters `trace(H^-1 H_data)` (a smoothness prior makes a model use fewer than

@@ -11,13 +11,11 @@ use pleochroma::{
     },
 };
 
-/// Renders a `grid` x `grid` pixel image of `material` through `planes`, averaging
-/// `samples_per_pixel` independent spectral samples per pixel (each with its own
-/// hashed seed, so per-pixel noise is genuinely averaged down rather than repeating
-/// the same random branch decisions), and returns the CIE xy chromaticity of every
-/// pixel whose averaged luminance clears a minimum brightness (skipping background /
-/// near-black pixels, which contribute illuminant-only chromaticity unrelated to the
-/// gem itself and would otherwise dilute the measurement).
+/// Returns the CIE xy chromaticity of each pixel of a `grid` x `grid` render of `material`.
+///
+/// Each pixel averages `samples_per_pixel` spectral samples, each with its own seed, so the
+/// noise averages down. Pixels below a minimum luminance are skipped: they carry only
+/// illuminant chromaticity and would dilute the measurement.
 fn render_pixel_grid_chromaticities(
     camera: &Camera,
     planes: &[GpuFacetPlane],
@@ -63,27 +61,17 @@ fn variance(values: &[f32]) -> f32 {
     values.iter().map(|v| (v - mean) * (v - mean)).sum::<f32>() / n
 }
 
-/// Dispersion "fire" must be demonstrable at IMAGE level, not on a single ray -- a lone
-/// ray only traces ONE geometric path, so any single-ray "chromatic spread" measurement
-/// is dominated by illuminant color temperature and CMF lobe shape rather than by
-/// dispersion. Instead: render a small grid of pixels, average many samples per pixel
-/// down to a low-noise chromaticity, and compare the VARIANCE of that chromaticity
-/// ACROSS PIXELS between a high-dispersion material (Cubic Zirconia) and an
-/// otherwise-equivalent FLAT material built via `GemMaterial::new_custom(..,
-/// dispersion_delta = 0.0, ..)` (Cauchy b=c=0, a genuinely flat index across the whole
-/// visible spectrum) at the SAME mean refractive index, so brightness/Fresnel-magnitude
-/// differences between the two materials are controlled for.
+/// Dispersion "fire" must show at image level: a single ray traces one path, so its chromatic
+/// spread reflects the illuminant and CMF shape more than dispersion. This renders a small
+/// grid, averages the samples per pixel, and compares the variance of the chromaticity across
+/// pixels between Cubic Zirconia and a flat material (`dispersion_delta = 0.0`) with the same
+/// mean index, which controls for Fresnel magnitude.
 ///
-/// A physically flat (non-dispersive) gem should render with essentially UNIFORM hue
-/// across the image (facet-to-facet brightness varies, but not color): with an
-/// identical index at every wavelength, every channel's Fresnel reflect/transmit
-/// probabilities and refracted directions agree at every bounce
-/// (`spectral_mis_weight` collapsing to exactly 1.0, pinned down separately by
-/// `spectral_mis_weight_is_exactly_unity_when_all_channels_agree`), so the render's
-/// relative spectral shape reduces to a fixed hue at every pixel. The dispersive
-/// material has no such guarantee: `spectral_mis_weight` concentrates each sample's
-/// contribution onto its own hero wavelength once a dispersive refraction diverges
-/// from the shared path, widening the chromaticity spread across the image.
+/// A flat material renders a uniform hue: with one index at every wavelength all channels agree,
+/// so `spectral_mis_weight` is exactly 1 (see
+/// `spectral_mis_weight_is_exactly_unity_when_all_channels_agree`). A dispersive material's
+/// weight concentrates each sample on its hero wavelength once refraction diverges, which
+/// widens the spread across the image.
 #[test]
 fn test_image_level_chromatic_spread_reveals_dispersion_fire_vs_flat_material() {
     const GRID: usize = 20;
@@ -92,10 +80,8 @@ fn test_image_level_chromatic_spread_reveals_dispersion_fire_vs_flat_material() 
     let planes = StandardGemCuts::standard_round_brilliant();
     let dispersive = GemMaterial::by_name("Cubic Zirconia").unwrap();
     let nd_cz = dispersive.dispersion.evaluate(589.3);
-    // Same mean index as Cubic Zirconia, zero birefringence (isotropic, matching CZ's
-    // own Cubic crystal system) and zero absorption (matching CZ's own
-    // AbsorptionTensor::isotropic([0,0,0])) -- dispersion_delta is the ONLY
-    // physically-meaningful difference from `dispersive`.
+    // Same mean index, isotropic and absorption-free like Cubic Zirconia: dispersion is the
+    // only difference from `dispersive`.
     let flat = GemMaterial::new_custom("Flat CZ-index reference", nd_cz, 0.0, 0.0, [0.0, 0.0, 0.0]);
 
     // A moderately oblique view so pavilion facets and internal TIR bounces are
@@ -160,11 +146,9 @@ fn test_image_level_chromatic_spread_reveals_dispersion_fire_vs_flat_material() 
         "Cubic Zirconia's across-image y-chromaticity variance ({var_dispersive_y:.3e}) should clearly exceed the flat reference material's ({var_flat_y:.3e}) -- dispersion should visibly widen the spread of hues across the rendered image"
     );
 
-    // Requirement 2's image-level counterpart: the flat material's own spread should
-    // be genuinely small in absolute terms (a tight cluster of near-identical hues),
-    // not merely "smaller than the dispersive material's" -- CIE xy chromaticity
-    // spans roughly a unit square, so a variance below 1e-4 corresponds to a standard
-    // deviation under ~1%, i.e. an essentially uniform hue across the image.
+    // The flat material's spread must also be small in absolute terms, not only smaller than
+    // the dispersive one. CIE xy spans about a unit square, so a variance below 1e-4 is a
+    // standard deviation under about 1 %: an essentially uniform hue.
     assert!(
         var_flat_x < 1e-4 && var_flat_y < 1e-4,
         "flat (non-dispersive) material should render with essentially uniform hue across the image (var_x={var_flat_x:.3e}, var_y={var_flat_y:.3e})"

@@ -20,11 +20,9 @@ use glam::Vec3;
 /// (`n_o` for an ordinary incidence, the direction-dependent effective extraordinary
 /// index for an extraordinary incidence).
 ///
-/// `Clone`/`Copy` (performance, requirement 7): every field is itself `Copy` (`Cplx`,
-/// `f32`, `Vec3`), and `refraction::apply_uniaxial_internal_bounce` already computes
-/// the HERO channel's own solution once, to decide the reflect/transmit branch --
-/// being `Copy` lets it hand that same value to its per-channel loops for reuse at
-/// `k == hero_idx` instead of solving the identical boundary system a second time.
+/// `Copy` so that `refraction::apply_uniaxial_internal_bounce` can reuse the hero channel's
+/// solution, which it already computes to choose reflect or transmit, instead of solving the
+/// same boundary system again.
 #[derive(Clone, Copy)]
 pub(crate) struct InternalPolarizationSolution {
     /// Reflected amplitude into the SAME uniaxial medium's ordinary mode (backward root).
@@ -47,28 +45,14 @@ pub(crate) struct InternalPolarizationSolution {
     pub flux_re: f32,
     pub flux_ts: f32,
     pub flux_tp: f32,
-    /// The INCIDENT mode's own intrinsic Poynting flux -- NOT generally
-    /// `n_mode_inc * cos_i` for the extraordinary mode (its Poynting vector walks off
-    /// from its wave normal, so its flux-per-unit-amplitude genuinely differs from the
-    /// isotropic-looking formula; only the ordinary mode's flux reduces to that
-    /// shortcut exactly). Callers MUST use this (not a re-derived formula) to convert
-    /// `r_o`/`r_e`/`t_s`/`t_p` into power fractions -- see this crate's own energy-
-    /// conservation tests below for the bug this field's doc comment is warning about.
+    /// The incident mode's own intrinsic Poynting flux. The extraordinary flux is not
+    /// `n_mode_inc * cos_i` (its Poynting vector walks off the wave normal), so callers
+    /// must use this value to turn `r_o`, `r_e`, `t_s` and `t_p` into power fractions.
     pub flux_inc: f32,
-    /// World-space real E-field directions of the reflected o/e modes -- for a future
-    /// caller's Stokes-azimuth projection on internal reflection. Both internal-
-    /// reflection wirings (`apply_tir_bounce`'s hero-forced-TIR branch and
-    /// `apply_uniaxial_internal_bounce`'s general sub-critical branch) use the SAME
-    /// magnitude-only simplification those functions' own doc comments derive (the
-    /// o<->e mode LABEL for the next bounce is instead resolved separately and exactly
-    /// by `transport::apply_internal_mode_coupling`'s Poynting-weighted
-    /// `R_o/(R_o+R_e)` split), so still genuinely unread by any bounce-dispatch call
-    /// site. Read, though, by
-    /// `renderer::gpu::transport_check::p2_uniaxial_fresnel`'s `run_internal_solve`
-    /// GPU-parity check (compares this field against the WGSL mirror's own
-    /// `o_hat`/`e_hat`) -- `cfg_attr`'d to the `gpu` feature accordingly, rather than a
-    /// bare `#[expect(dead_code)]`, which would itself warn as "unfulfilled" whenever
-    /// that feature is enabled.
+    /// World-space real E-field directions of the reflected o and e modes. The bounce
+    /// wirings take the next mode label from `apply_internal_mode_coupling`'s
+    /// Poynting-weighted split instead, so bounce dispatch does not read these. The GPU
+    /// parity check `renderer::gpu::transport_check::p2_uniaxial_fresnel` does.
     #[cfg_attr(
         not(feature = "gpu"),
         expect(

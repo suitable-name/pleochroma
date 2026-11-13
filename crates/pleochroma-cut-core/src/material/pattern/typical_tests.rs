@@ -1,9 +1,10 @@
 //! Tests of the typical color zoning of the species.
 
 use super::{
-    ColorPattern, MAX_PATTERN_ZONES, OwnColor, PATTERN_BASE_FORMAT_VERSION, PATTERN_FORMAT_VERSION,
-    PatternAxis, PatternColor, TemplateId, TypicalPattern, ZoneColor, apply_color_pattern,
-    decode_pattern, encode_pattern, template, typical_index, typical_patterns,
+    ColorPattern, ColorRef, MAX_PATTERN_ZONES, OwnColor, PATTERN_BASE_FORMAT_VERSION,
+    PATTERN_FORMAT_VERSION, PatternAxis, PatternColor, PatternZone, TemplateId, TypicalPattern,
+    ZoneColor, apply_color_pattern, decode_pattern, encode_pattern, template, typical_index,
+    typical_patterns,
 };
 use glam::DVec3;
 use pleochroma::optics::{
@@ -121,7 +122,7 @@ fn every_built_in_species_resolves_to_its_typical_list() {
 #[test]
 fn matching_ignores_case_and_surrounding_space_and_never_guesses() {
     assert_eq!(ids("  SAPPHIRE "), ids("Sapphire"));
-    assert!(!ids("sapphire").is_empty());
+    assert_ne!(ids("sapphire"), [] as [TemplateId; 0]);
     for name in [
         "",
         "Diamond",
@@ -436,7 +437,7 @@ fn citrine_and_ametrine_split_in_purple_and_yellow_and_amethyst_in_strong_and_pa
     for name in ["Citrine", "Ametrine"] {
         let pattern = built(&typical_patterns(name)[0], [95.0, 0.0, 0.0], follows());
         assert_eq!(pattern.template, Some(TemplateId::Split));
-        // The seeds since 2026-11-03: a deeper purple and a softer, more golden yellow.
+        // The seeds: a deeper purple and a softer, more golden yellow.
         assert_eq!(single_lch(&pattern, 0), [46.0, 45.0, 305.0], "{name}");
         assert_eq!(single_lch(&pattern, 1), [84.0, 58.0, 85.0], "{name}");
     }
@@ -469,14 +470,14 @@ fn the_typical_only_templates_build_for_a_blue_sapphire_and_stay_out_of_the_gene
         assert!(!TemplateId::ALL.contains(&id), "{}", id.label());
         let pattern = template(id, PatternAxis::TABLE_NORMAL);
         assert_eq!(pattern.template, Some(id));
-        assert!(!pattern.zones.is_empty());
+        assert_ne!(pattern.zones, [] as [PatternZone; 0]);
         assert!(pattern.relative_to_stone);
     }
 }
 
 #[test]
 fn patterns_written_before_the_typical_templates_still_load_and_the_new_ones_round_trip() {
-    // The names an older build wrote are unchanged.
+    // The stored template names are unchanged.
     for id in TemplateId::ALL {
         let text = encode_pattern(&template(id, PatternAxis::TABLE_NORMAL)).expect("encodes");
         assert!(
@@ -493,7 +494,7 @@ fn patterns_written_before_the_typical_templates_still_load_and_the_new_ones_rou
         text.starts_with(r#"{"version":1,"template":"Watermelon","base":"#),
         "{text}"
     );
-    // The new ones round trip by name.
+    // The typical-only ones round trip by name.
     for id in TemplateId::TYPICAL_ONLY {
         let pattern = template(id, follows());
         let text = encode_pattern(&pattern).expect("encodes");
@@ -598,7 +599,7 @@ fn a_parti_color_sapphire_takes_the_yellow_variant_for_its_rim() {
     let host = apply_color_pattern(GemMaterial::sapphire(), &pattern, 7.0).expect("applies");
     assert_eq!(host.absorption_unit, AbsorptionUnit::PerMm);
 
-    // Without the variant the rim is today's `[L*, C*, h]` seed, and the version stays the first.
+    // Without the variant the rim is the `[L*, C*, h]` seed, and the version stays the first.
     let plain = entry.for_stone(own, &[]);
     assert_eq!(single_lch(&plain, 0), [80.0, 60.0, 90.0]);
     assert_eq!(plain.version, PATTERN_BASE_FORMAT_VERSION);
@@ -613,7 +614,7 @@ fn a_parti_color_sapphire_takes_the_yellow_variant_for_its_rim() {
 
 #[test]
 fn a_parti_color_rim_prefers_the_golden_yellow_and_a_yellow_core_keeps_the_yellow() {
-    // 2026-11-03: the Yellow variant over a thin rim reads a faint cream; the Golden Yellow (the same
+    // The Yellow variant over a thin rim reads a faint cream. The Golden Yellow (the same
     // h.-Fe3+ spectrum, three times as dense) is the rim's first choice, Yellow its fallback.
     let yellow = sapphire_yellow();
     let golden = built_in_variants("Sapphire")
@@ -668,7 +669,7 @@ fn a_tourmaline_takes_rubellite_and_verdelite_variants_where_it_has_them() {
         variant_key(&pattern, 1).as_deref(),
         Some("tourmaline.rubellite")
     );
-    assert!(pattern.unsolved_colors().is_empty());
+    assert_eq!(pattern.unsolved_colors(), [] as [ColorRef; 0]);
     assert_eq!(pattern.version, PATTERN_FORMAT_VERSION);
     // Reverse Watermelon swaps them, Tricolor keeps the pale middle as a seed.
     let reverse = list[1].for_stone(blue, &both);
@@ -817,7 +818,7 @@ fn hexagonal_banding_on_a_sapphire_has_no_single_zone() {
         assert!(same_lch(along, [28.05, 44.2, 289.0]), "{along:?}");
         assert!(same_lch(across, [45.9, 27.3, 276.0]), "{across:?}");
     }
-    // Two colors per zone are still a first-release pattern.
+    // Two colors per zone still make a version 1 pattern.
     assert_eq!(pattern.version, PATTERN_BASE_FORMAT_VERSION);
     assert_eq!(pattern.unsolved_colors().len(), 8);
     let zoned = filled(pattern).to_zoned().expect("valid").expect("zones");
@@ -880,7 +881,7 @@ fn a_one_color_stone_builds_the_same_pattern_either_way() {
             );
         }
     }
-    // A stone without pleochroism has one-color zones only (the first release's patterns).
+    // A stone without pleochroism has one-color zones only.
     let pattern = typical_patterns("Sapphire")[0].for_stone(own, &[]);
     assert!(
         zone_colors(&pattern)

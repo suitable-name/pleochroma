@@ -30,24 +30,17 @@ export global SolidPreviewModel {
     // widget's rendered size back to Rust.
     in-out property <length> viewport_width: 800px;
     in-out property <length> viewport_height: 600px;
-    // The Live Render tab's OWN viewport size (`gem_viewport.slint`) -- a SEPARATE
-    // pair of properties from `viewport_width`/`viewport_height` above. Keeping them
-    // separate stops whichever viewport resizes last from silently overwriting the
-    // other's pending redraw size (e.g. resizing the Live Render viewport
-    // while the Edit tab is open would otherwise size the Edit tab's next redraw to
-    // the Live tab's viewport, or vice versa). `render::camera_lighting::resubmit_at_current_pose`/
-    // `resubmit_live_solid` read these for the Live tab, `viewport_width`/
-    // `viewport_height` for the Edit tab.
+    // The Live Render tab's own viewport size (`gem_viewport.slint`). Kept apart from
+    // `viewport_width`/`viewport_height` so that resizing one viewport cannot change the
+    // other's pending redraw size. `render::camera_lighting::resubmit_at_current_pose` and
+    // `resubmit_live_solid` read these for the Live tab.
     in-out property <length> live_viewport_width: 800px;
     in-out property <length> live_viewport_height: 600px;
-    // Fired (debounced ~50ms, see `solid_viewport.slint`'s `resize_pulse`) after
-    // `viewport_width`/`viewport_height` settle on a new value -- a resize/maximise
-    // otherwise left the shown image rescaled and the pick buffer misaligned from
-    // the cursor until the next orbit/zoom redraw. Handled in `gui::mod`'s
-    // `build_main_window`, which calls `render::camera_lighting::
-    // resubmit_at_current_pose` deferred by one event-loop turn (so it reads the
-    // post-layout size), the same call `render_visibility.rs`'s tab-switch handler
-    // already makes.
+    // Fired (debounced ~50 ms, see `solid_viewport.slint`'s `resize_pulse`) once
+    // `viewport_width`/`viewport_height` settle. Until then the image stays rescaled and the
+    // pick buffer misaligned. Handled in `gui::mod`'s `build_main_window`, which calls
+    // `render::camera_lighting::resubmit_at_current_pose` one event-loop turn later so it
+    // reads the post-layout size.
     callback viewport_resized();
     // The Live Render tab's counterpart of `viewport_resized`: fired by `gem_viewport.slint`
     // whenever `live_viewport_width`/`live_viewport_height` change. Rust debounces it and
@@ -80,18 +73,10 @@ export global SolidPreviewModel {
     in property <string> diagram_hover_text: "";
     callback diagram_facet_hover(length, length);
     callback diagram_facet_click(length, length);
-    // The index wheel's own tooth pick buffer, threaded from the diagram
-    // frame through `gui::solid_preview::preview_state`/`diagram_wiring` --
-    // `diagram_facet_hover`/`diagram_facet_click` above now also check it
-    // whenever the SAME `(x, y)` misses every facet (a wheel tick, not a facet
-    // fill). `-1` means "nothing", exactly like `EditorModel.selected_tier_index`'s
-    // own convention. A one-shot report of the last tooth actually clicked; only
-    // the buffer is wired through here, see `diagram_wiring`'s own doc comment.
-    // There is no `..._hovered_tooth` sibling: a hovered tooth's index is already
-    // named in `diagram_hover_text` itself ("Index {t}", see
-    // `diagram_wiring::setup_diagram_hover_and_click_callbacks`), so a separate
-    // property for it would carry no information a reader of the tooltip text
-    // doesn't already have.
+    // The index wheel's tooth pick buffer, from the diagram frame (see `diagram_wiring`).
+    // `diagram_facet_hover` and `diagram_facet_click` also check it when a point misses every
+    // facet. `-1` means nothing, as for `EditorModel.selected_tier_index`. A hovered tooth's
+    // index is already in `diagram_hover_text`, so there is no separate property for it.
     in property <int> diagram_clicked_tooth: -1;
     // Hover tooltip text and the picking callbacks driving it (`solid_viewport.slint`'s
     // `facet_hover`/`facet_click`/`hover_text`).
@@ -114,32 +99,15 @@ export global SolidPreviewModel {
         }
     }
 
-    // Whether the Solid view's rasterizer (`gui::solid_preview::raster`)
-    // draws the rough's own bounding (preform) planes -- toggled by
-    // `solid_viewport.slint`'s "Preform" pill. `true` (the default) keeps every
-    // preform facet visible, tinted rather than invisible (see
-    // `raster::SolidStyle::show_preform`'s own doc comment); `false` hides them
-    // entirely so a cutter can see through the rough to the actual cut.
-    //
-    // Not implemented in this file: `gui::solid_preview::
-    // preview_state`'s Solid-view style builder needs to read this and set
-    // `SolidStyle::show_preform`/`preform_plane_count` (the latter from
-    // `facet_map::FacetMap::preform_plane_count()`, already computed there)
-    // accordingly -- see this crate's `raster.rs` for both fields.
+    // Whether the Solid view draws the rough's own bounding (preform) planes, toggled by the
+    // "Preform" pill in `solid_viewport.slint`. `true` keeps them visible but tinted; `false`
+    // hides them so the actual cut can be seen. Read by the shared solid raster
+    // (`SolidStyle::show_preform`).
     in-out property <bool> show_preform_planes: true;
 
-    // Which diagram panel, if any, is shown enlarged (filling the
-    // whole Diagram-mode image) instead of `solid_viewport.slint`'s ordinary
-    // three-column layout. `-1` (the default) means "all three, side by side";
-    // `0`/`1`/`2` mean Crown/Pavilion/Profile respectively, matching
-    // `gui::solid_preview::diagram2d::PanelKind`'s own tag order.
-    //
-    // Not implemented in this file: `gui::solid_preview::
-    // preview_state`'s `build_diagram_outputs` needs to read this and call
-    // `diagram2d::render_diagram_single_panel(mesh, config, style, panel)`
-    // instead of `diagram2d::render_diagram` whenever it is not `-1`; picking
-    // is unaffected either way (`DiagramFrame::pick_at`/`panel_at` work
-    // identically from either render function).
+    // Which Diagram panel fills the whole image: `-1` for all three side by side, `0`/`1`/`2`
+    // for Crown/Pavilion/Profile (the order of `PanelKind`). The shared solid preview draws
+    // the single panel; picking works the same either way.
     in-out property <int> diagram_enlarged_panel: -1;
     // Setting `diagram_enlarged_panel` alone redraws nothing (the panel choice is
     // read by the plan worker, so a replan has to be requested). This callback is

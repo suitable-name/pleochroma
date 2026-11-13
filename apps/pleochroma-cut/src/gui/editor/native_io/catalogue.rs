@@ -1,26 +1,21 @@
-//! This design's catalogue write-back once a save's `.psdd` file is already on
-//! disk: builds the same [`pleochroma_vault::local::ImportedAsc`] a re-import of
-//! the design's `.asc` and its `.psdd` file would, then updates the design's
-//! own row (or inserts a new one) -- see [`write_back_to_catalogue`]'s own doc comment for exactly what gets
-//! overwritten versus preserved.
+//! The catalogue write-back after a save's `.psdd` file is on disk.
+//!
+//! It builds the same [`pleochroma_vault::local::ImportedAsc`] a re-import of the design's files
+//! would, then updates the design's row or inserts a new one. See [`write_back_to_catalogue`] for
+//! what is overwritten and what is kept.
 
 use pleochroma_vault::db::sqlite::Database;
 use std::sync::{Arc, Mutex};
 use tracing::warn;
 
-/// [`write_back_to_catalogue`]'s outcome, for [`finish_save_native_success`]'s own
-/// toast wording -- the ordinary "updated existing row" case gets no extra toast at
-/// all (the file-save toast already said enough), while the others are surprising
-/// enough on their own to call out.
+/// The outcome of [`write_back_to_catalogue`], used for the toast of
+/// [`finish_save_native_success`]. A plain update gets no extra toast; the other cases
+/// are called out.
 pub(super) enum CatalogueWriteBack {
-    /// The design's own known `source_entry_id` still named a real row -- updated in
-    /// place. `stale_cache_invalidation_failed` is true when
-    /// [`write_back_locked`]'s own `delete_preview_images`/`delete_tilt_curves`/
-    /// `delete_solid_extents` calls could not clear that row's now-outdated cached
-    /// previews/tilt curves/solid extents,
-    /// so the cutter is told on screen instead of this only being logged via
-    /// `tracing::warn!`, where the cache silently showing stale geometry could go
-    /// unnoticed.
+    /// The known `source_entry_id` still named a real row, which was updated in place.
+    /// `stale_cache_invalidation_failed` is true when its cached previews, tilt curves or
+    /// solid extents could not be cleared. The cutter is told on screen, since stale cached
+    /// geometry would otherwise go unnoticed.
     UpdatedExisting {
         stale_cache_invalidation_failed: bool,
     },
@@ -30,66 +25,45 @@ pub(super) enum CatalogueWriteBack {
     /// while the design was open) -- a brand-new row was inserted instead of an
     /// update, same as [`Self::NewRow`], but worth telling the cutter about.
     SourceRowGoneNewRowCreated,
-    /// The design's catalogue url (`local://<file name>`) already belongs to a
-    /// DIFFERENT catalogue design, so nothing was written: `save_diagram_entry` is a
-    /// url-keyed upsert and would have renamed that design and replaced its angle table
-    /// and attachments. `title` is the owner's current title. The id paired with this
-    /// outcome in [`write_back_to_catalogue`]'s result is the OWNER's, not this
-    /// design's -- a caller must not adopt it as the design's source row.
+    /// The design's catalogue url (`local://<file name>`) already belongs to a different
+    /// catalogue design, so nothing was written. The upsert is keyed by url and would have
+    /// renamed that design and replaced its angle table and attachments. `title` is that
+    /// other design's title. The id returned with this outcome belongs to the other design,
+    /// so a caller must not adopt it as this design's source row.
     UrlCollision { existing_id: i64, title: String },
 }
 
-/// This design's catalogue write-back -- called by
-/// [`finish_save_native_success`] once [`write_file_atomically`] has already
-/// succeeded (never before: the file on disk is the design of record, so a
-/// catalogue-write failure here must never be read as "the save failed").
+/// Writes this design's catalogue row after the save's file is on disk.
 ///
-/// Builds the exact same [`pleochroma_vault::local::ImportedAsc`] an Import of the
-/// design's `.asc` with its `.psdd` file beside it would build
-/// ([`pleochroma_vault::local::import_asc`]) plus the same measured proportions/shape
-/// an import derives ([`crate::gui::library::local::apply_measured_metadata`]) --
-/// this is deliberately the SAME parse-and-measure path, not a second, independently
-/// maintained one, so a design's catalogue row always describes it exactly as
-/// re-importing those same files would.
+/// Called by [`finish_save_native_success`] only after [`write_file_atomically`] succeeded:
+/// the file is the design of record, so a failure here never means the save failed.
+///
+/// The row is built by the same parse-and-measure path as an Import of the design's files
+/// ([`pleochroma_vault::local::import_asc`] and
+/// [`crate::gui::library::local::apply_measured_metadata`]), so it describes the design
+/// exactly as a re-import would.
 ///
 /// # What gets overwritten versus preserved
 ///
-/// - `source_entry_id: Some(id)`, `id` still a real row: `angle_settings_table`/
-///   `attached_files` (the `.asc`, the `.psdd` design file and the attachments and
-///   `[meta]` fields that file carries) and every geometry-derived
-///   column (`refractive_index`/`index_gear`/`facets_count`/`symmetry_order`/
-///   `mirror_symmetry`/the measured `lw`/`hw`/`cw`/`pw`/`volume` ratios/`shape`) are
-///   always replaced with this save's own fresh values. Everything else --
-///   `designer_info`, a hand-corrected `shape` override, the competition/citation/
-///   scrape-only columns -- is merged forward from the existing row first
-///   ([`crate::gui::library::local::merge_reimport_metadata`], the SAME rule
-///   already applied to a `.asc` re-import), so a cutter's hand-typed
-///   metadata survives a Save exactly as it survives an Import. `title` is left
-///   untouched entirely (`Database::update_diagram_entry_url` never touches it --
-///   same precedent as `Database::update_diagram_metadata`): a title is something a
-///   cutter hand-corrects, never something a geometry write-back should silently
-///   rename. Previews and tilt curves are invalidated (deleted, to be regenerated on
-///   demand) -- they describe the geometry as it was before this save, same as a
-///   `.asc` re-import collision already does.
-/// - `source_entry_id: Some(id)`, but `id` no longer names a real row (deleted while
-///   this design was open): falls through to the next case, exactly as if
-///   `source_entry_id` had been `None`, so this save still lands somewhere instead
-///   of silently failing or resurrecting a deleted row.
-/// - `source_entry_id: None`: this design has never been saved to the catalogue --
-///   inserts a brand-new row, entry and detail in one transaction
-///   (`Database::save_design`, no merge: there is nothing existing to preserve).
-/// - Either way, when the design's url (`local://<file name>`) already belongs to a
-///   DIFFERENT catalogue row, nothing is written and the outcome is
-///   [`CatalogueWriteBack::UrlCollision`]: the url-keyed upsert would otherwise rename
-///   that other design and replace its angle table and attachments, and leave its
-///   previews, tilt curves and extents describing geometry that no longer exists. An
-///   explicit Import (which confirms the replacement) is the way to overwrite it.
+/// - `source_entry_id: Some(id)` and `id` still names a row: the angle table, the attached
+///   files and every geometry-derived column (indices, facet count, symmetry, the measured
+///   ratios, shape) are replaced with this save's values. Other fields such as
+///   `designer_info`, a hand-corrected shape and the competition or citation columns are
+///   merged from the existing row ([`crate::gui::library::local::merge_reimport_metadata`]),
+///   as on a re-import. The title is never changed. Previews, tilt curves and solid extents
+///   are deleted, since they describe the geometry from before this save.
+/// - `source_entry_id: Some(id)` but the row is gone (deleted while the design was open):
+///   handled as `None`, so the save still lands in a new row.
+/// - `source_entry_id: None`: a new row is inserted with its entry and detail in one
+///   transaction (`Database::save_design`).
+/// - In either case, if the url (`local://<file name>`) belongs to a different row, nothing
+///   is written and the outcome is [`CatalogueWriteBack::UrlCollision`]. Otherwise the
+///   upsert would rename that design and replace its data. An explicit Import, which asks
+///   for confirmation, is the way to overwrite it.
 ///
-/// Returns the row's id on success, so the caller can write it back into
-/// [`EditorState::source_entry_id`] -- every save after the FIRST one for a
-/// previously row-less design must update that SAME new row, never insert a second.
-/// For [`CatalogueWriteBack::UrlCollision`] the id is the OTHER design's and must not
-/// be written back.
+/// Returns the row id, which the caller stores as [`EditorState::source_entry_id`], so
+/// later saves update the same row. For [`CatalogueWriteBack::UrlCollision`] the id belongs
+/// to the other design and must not be stored.
 ///
 /// # Errors
 ///
@@ -104,20 +78,11 @@ pub(super) fn write_back_to_catalogue(
     design_filename: &str,
     design_text: &str,
 ) -> Result<(i64, CatalogueWriteBack), String> {
-    // Parse + measure runs inside `catch_file_panic`, exactly like a `.asc` import's
-    // own per-file loop (`gui::library::local::import::pipeline::parse_one_import`):
-    // `apply_measured_metadata` reaches into `pleochroma`'s geometry code, which this
-    // module cannot guarantee is panic-free on every design. This call runs on Save's
-    // own background thread (`native_io::save::spawn_native_save_write`),
-    // which has no `catch_unwind` of its own and no `BusyGuard`-style Drop-based
-    // recovery -- an uncaught panic here would silently kill that thread mid-save,
-    // the UI's completion closure would never run, and the cutter would be left
-    // looking at a save that never finishes and never errors. Turning it into an
-    // ordinary `Err` instead means the existing `show_toast(&ui, &message, "error")`
-    // path in `native_io::save::spawn_native_save_write` reports it like any other
-    // catalogue write-back failure -- see this function's own doc comment: the files
-    // on disk are safe either way, since this only runs after
-    // `write_file_atomically` already succeeded.
+    // Parse and measure run inside `catch_file_panic`, as in a `.asc` import, because the
+    // measurement reaches into `pleochroma`'s geometry code. This runs on Save's background
+    // thread, which has no `catch_unwind`: an uncaught panic would kill that thread and the
+    // completion would never run. An `Err` is reported by `spawn_native_save_write` instead.
+    // The files on disk are already safe at this point.
     let mut parsed = match crate::gui::library::local::catch_file_panic(
         std::panic::AssertUnwindSafe(|| {
             pleochroma_vault::local::import_asc(
@@ -162,14 +127,9 @@ pub(super) fn write_back_to_catalogue(
     write_back_locked(&db, source_entry_id, &mut parsed)
 }
 
-/// Deletes `existing_id`'s cached preview images, tilt curves and solid extents (all
-/// now stale: the design they describe was just overwritten), logging -- not
-/// propagating -- a failure on any, and reporting whether any one failed so the caller
-/// can surface it as `CatalogueWriteBack::UpdatedExisting::
-/// stale_cache_invalidation_failed`. Three independent expressions rather than a
-/// mutable accumulator reassigned by three `if let Err` statements: each deletion's
-/// own outcome is total (`Result::is_err`), so there is nothing conditional left to
-/// express imperatively.
+/// Deletes `existing_id`'s cached previews, tilt curves and solid extents, which describe
+/// the design this save just overwrote. Each failure is logged and not propagated. Returns
+/// whether any deletion failed, for `CatalogueWriteBack::UpdatedExisting`.
 fn invalidate_stale_caches(db: &Database, existing_id: i64) -> bool {
     let preview_failed = db
         .delete_preview_images(existing_id)

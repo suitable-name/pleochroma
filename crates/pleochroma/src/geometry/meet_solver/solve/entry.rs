@@ -19,7 +19,7 @@ use super::{
 /// `gear_teeth_abs` is the index wheel's tooth count (see
 /// [`pleochroma_formats::asc::AscSchedule::gear_teeth_abs`]). `tiers` must be in the
 /// schedule's own file order: phase 1's dependency-order pass
-/// (see the module docs' "three-phase algorithm") walks tiers in this same
+/// (see the module docs' "Solving strategy") walks tiers in this same
 /// file order and its result depends on it -- permuting the tier list changes
 /// which mast a `DependencyOrder`-strategy tier solves to, not just the
 /// order of the returned [`SolvedTier`]s. This is why
@@ -31,10 +31,10 @@ use super::{
 /// hashed iteration and no convex-hull library anywhere in this path.
 ///
 /// Latency: `O(P^3)` per refinement sweep in the plane count `P`; see the
-/// module docs' "Cost envelope" section for the measured figures. Never
+/// module docs' "Cost envelope" section. Never
 /// cancels and reports no progress -- see [`solve_meet_points_with`] for
 /// that; this is a thin wrapper passing a no-op [`SolveControl`], and above
-/// [`MAX_PLANES`] it keeps the legacy behavior of returning an all-
+/// [`MAX_PLANES`] it returns an all-
 /// [`SolveStrategy::Failed`](super::super::SolveStrategy::Failed) result instead of an error.
 #[must_use]
 pub fn solve_meet_points(gear_teeth_abs: u32, tiers: &[MeetTierInput]) -> Vec<SolvedTier> {

@@ -1,7 +1,7 @@
 //! The read-only design-library sync protocol.
 //!
-//! A client (a future viewer, or a mobile client with no renderer compiled in) mirrors
-//! designs from a `pleochroma-worker`'s catalogue.
+//! A client (the viewer, or a mobile client without a renderer) mirrors designs from a
+//! `pleochroma-worker`'s catalogue.
 //!
 //! [`LibraryRequest`]/[`LibraryResponse`] are their own message family, tagged into the
 //! same [`crate::messages::ClientMessage`] envelope the render protocol uses
@@ -9,22 +9,21 @@
 //! compiled in regardless of this crate's `render` feature, so a mobile client can speak
 //! it with no renderer.
 //!
-//! # Pull-mirror, read-only -- for now
+//! # Pull-mirror, read-only
 //!
-//! The server is authoritative; a client mirrors from it. No `Put`/`Delete`/merge
-//! request yet, and `pleochroma-worker` never writes to its catalogue in this phase.
+//! The server is authoritative; a client mirrors from it. There is no `Put`/`Delete`/merge
+//! request, and `pleochroma-worker` never writes to its catalogue.
 //!
-//! [`LibraryRequest::Search`] is a single round trip capped at
-//! `Database::search_diagrams`'s result cap -- fine for an interactive search box, not
-//! for listing a catalogue with more matching rows than that. [`LibraryRequest::SearchPage`]/
+//! [`LibraryRequest::Search`] is a single round trip capped at the vault's
+//! `SEARCH_RESULT_CAP` (1000 rows) -- fine for an interactive search box, not for listing a
+//! catalogue with more matching rows than that. [`LibraryRequest::SearchPage`]/
 //! [`LibraryResponse::SearchResultsPage`] is the keyset-cursor form a full-catalogue walk
 //! (a mirror sync) uses instead: same filters plus a cursor, walked page by page until a
 //! short page signals the end.
 //!
-//! Both enums are plain and generically named so a write operation can later be added as
-//! a new variant appended at the tail of each. [`DesignSummary::version`]/
-//! [`DesignRecord::version`], here for read-side staleness detection, double as what a
-//! future `Put` needs for optimistic-concurrency conflict detection.
+//! New operations are added as variants appended at the tail of each enum, so existing
+//! postcard indices stay put. [`DesignSummary::version`] and [`DesignRecord::version`]
+//! serve read-side staleness detection.
 //!
 //! # Staleness: a content hash and a revision token
 //!
@@ -37,8 +36,7 @@
 //! hashes: they are an O(1) revision token derived from the design's `url` and its
 //! `diagram_entries.updated_at`, so the summary can name the full record's revision
 //! without reading the detail rows or image bytes. Equal tokens mean the same stored
-//! revision; a token that changes and later changes back looks unchanged, but that's
-//! harmless here: worst case is one wasted round trip.
+//! revision.
 //!
 //! [`DesignSummary::version`] is the cheap first filter (up to 1000 rows per search);
 //! compare [`DesignSummary::design_version`] against the mirrored token to decide whether
@@ -81,10 +79,7 @@ mod record;
 #[cfg(test)]
 mod tests;
 
-// So that `tests`' `use super::*;` (see `tests.rs`, moved unaltered) resolves
-// `ErrorMsg` without every test needing its own import -- the same convention
-// `crate::db::sqlite`'s own `#[cfg(test)]` imports follow in the sibling `pleochroma-vault`
-// crate.
+// Lets `tests` (via `use super::*;`) name `ErrorMsg` without its own import.
 #[cfg(test)]
 use crate::messages::ErrorMsg;
 

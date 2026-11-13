@@ -39,38 +39,27 @@ export global EditorModel {
     // undoable edit of the design's girdle diameter, the same value as the Preform tab's field.
     callback apply_stone_width(string);
     // An explicit "use this material" action (Save & Apply in the material editor, the planner's
-    // "Use colour"): sets the open design's material by name, plus the stone width when it is
+    // "Use Color"): sets the open design's material by name, plus the stone width when it is
     // above zero, as ONE undoable edit, and ends any preview. Returns 0 when the design took it,
     // 1 when there is no editable design on the viewport (a library design is shown; the caller
     // then uses the library view selection instead) and 2 when the design was busy and nothing
     // was applied (`gui::render::material::ExplicitApply`, `apply_explicit_material`).
     callback apply_named_material(string, float) -> int;
 
-    // Bumped by the Rust no-solve panel refresh (`gui::editor::view::panel_stale::
-    // sync_tier_form_with_design`) whenever the design changed since the previous
-    // refresh and the selected tier is still in range -- an edit that left the
-    // selected tier selected (a handle drag, nudge, pin, adopt, facet edit, gear
-    // remap, retarget/optimize apply, symmetry change, in-range Undo/Redo), unlike
-    // `form_reset_pulse` above, which is for a selection that New/Load/Remove or an
-    // out-of-range Undo/Redo cleared outright. `EditorView` watches this to re-seed
-    // (not blank) `EditorInspector`'s form from whatever the edit left the selected
-    // tier holding, so a form left open across such an edit does not keep showing
-    // pre-edit values for Save Tier to write back.
-    // `form_reseed_tier_count_changed` is set alongside it, just before, every
-    // time -- read by the same watcher (a pulse carries no payload of its own).
+    // Bumped when the design changed and the selected tier is still in range (see
+    // `gui::editor::view::panel_stale`). `EditorView` re-seeds the inspector's form from the tier
+    // as the edit left it, so an open form does not show pre-edit values. Unlike
+    // `form_reset_pulse`, which blanks the form.
+    // `form_reseed_tier_count_changed` is set just before each bump; a pulse carries no payload.
     in-out property <int> form_reseed_pulse: 0;
-    // Whether the edit that is about to bump `form_reseed_pulse` changed the tier
-    // COUNT (a structural `AddTier`/`RemoveTier`, or its Undo/Redo) rather than just
-    // some tiers' data in place -- see `EditorInspector.reseed_after_external_
-    // change`'s own doc comment for what this changes about a dirty form.
+    // Whether the edit that bumped `form_reseed_pulse` changed the tier count (add, remove, or
+    // their undo and redo). `EditorInspector.reseed_after_external_change` treats a dirty form
+    // differently in that case.
     in-out property <bool> form_reseed_tier_count_changed: false;
 
-    // Bumped by app.slint's Ctrl+F arm to focus the tier filter box. A pulse
-    // (monotonically increasing counter) rather than a direct call because both
-    // `EditorView` instantiations sit inside `if` branches, and an element id
-    // inside a conditional is unreachable from the root `global_shortcuts`
-    // FocusScope. Writing the same value fires no `changed`, so pressing Ctrl+F
-    // twice must increment to fire focus twice.
+    // Bumped by Ctrl+F to focus the tier filter box. A counter, not a direct call: the filter
+    // sits inside an `if` branch that the root shortcut scope cannot reach by element id. A
+    // counter also fires `changed` on every press, since writing the same value does not.
     in-out property <int> filter_focus_pulse: 0;
 
     // Path the startup prompt offers to open, or "" for no offer. The Edit tab
@@ -110,16 +99,10 @@ export global EditorModel {
     in property <string> status_text: "";
     in property <bool> status_is_problem: false;
 
-    // A one-shot override for the tier-edit form's "Meets" combo, consumed by
-    // `EditorInspector.load_tier_into_form` the next time `selected_tier_index`
-    // actually changes (then reset back to `-1` there). This is how the tier
-    // table's "Add Anchor" action (`editor_tier_table.slint`, shown on a row
-    // `EditorTierItem.needs_anchor` flags) opens the Tier tab already set to
-    // "Exact scale value" (`constraint_kind == 2`) instead of leaving the cutter to
-    // notice and pick that combo entry themselves. `-1` (the default, and what
-    // `load_tier_into_form` restores immediately after reading it) means "no
-    // suggestion -- load the tier's own current kind," the path every ordinary
-    // selection change takes.
+    // One-shot "Meets" combo override, read by `EditorInspector.load_tier_into_form` when
+    // `selected_tier_index` next changes, then reset to -1. The table's "Add Anchor" action uses
+    // it to open the Tier tab on "Exact scale value" (`constraint_kind == 2`). -1 means no
+    // suggestion: load the tier's own kind.
     in-out property <int> suggested_constraint_kind: -1;
 
     // One-time explainer card shown when a design's solve first fails with
@@ -156,12 +139,9 @@ export global EditorModel {
     // has been saved.
     in property <string> design_girdle_diameter_text: "";
     in-out property <string> specific_gravity_override: "";
-    // `apply_yield_inputs`'s middle `int` argument used to be this
-    // model's own (now-removed) `material_index` property, bound to a Yield-
-    // tab combo whose selection `state::parse_yield_form` never actually read
-    // -- `preform_tab.slint`'s Apply button now passes a literal `0` instead,
-    // so this callback's signature stays unchanged for its one Rust handler
-    // (`callbacks::tier_actions::design_forms::setup_apply_yield_inputs_callback`).
+    // The middle `int` is always 0: the Yield tab's selection is not read, and `preform_tab.slint`
+    // passes a literal. Handled in
+    // `callbacks::tier_actions::design_forms::setup_apply_yield_inputs_callback`.
     callback apply_yield_inputs(string, int, string);
 
     in property <string> volumetric_yield_text: "";
@@ -215,8 +195,8 @@ export global EditorModel {
     // color is already set on such a design -- shown as a warning (it still wins until cleared).
     in property <bool> design_material_is_physics: false;
     in property <bool> physics_override_conflict: false;
-    // The design's material has colour zones (colour zoning). Its colour is its zones, so the body-colour override does not apply and the
-    // colour controls are greyed out with a note.
+    // The material has colour zones, and its colour is those zones: the body-colour override
+    // does not apply, so the colour controls are greyed out with a note.
     in property <bool> design_material_is_zoned: false;
     // (material combo index, RI override text, body color combo index).
     callback apply_design_material(int, string, int);
@@ -475,25 +455,17 @@ export global EditorModel {
     in property <bool> deep_solve_running: false;
     in property <string> deep_solve_status: "";
     in property <bool> deep_solve_status_is_problem: false;
-    // True whenever the design's
-    // live generation has moved past the generation `deep_solve_status` was
-    // computed for -- pushed on EVERY edit (`gui::editor::view::push_stale_content`),
-    // not only at the moment the run completed, so this flips the instant a
-    // further edit lands rather than only describing staleness that happened
-    // DURING the run itself. Drives `ui/components/stale_badge.slint` next to the
-    // Deep Solve line in `EditorStatusStrip`'s Details popup -- the result text
-    // itself is never cleared, only badged (see that component's own doc
-    // comment).
+    // True once the design has changed since `deep_solve_status` was computed. Pushed on every
+    // edit (`gui::editor::view::push_stale_content`). Drives `stale_badge.slint` beside the Deep
+    // Solve line. The result text is badged, never cleared.
     in property <bool> deep_solve_stale: false;
     // [`deep_solve_stale`]'s Optimize counterpart -- true once the design has
     // moved on from the generation `EditorState::pending_optimize`'s currently
     // held (appliable) result was computed against.
     in property <bool> optimize_stale: false;
     callback deep_solve();
-    // Abandons a running Solve/auto-solve. Unlike Deep Solve's
-    // cancel this cannot stop the worker mid-solve -- `Design::solve` has no
-    // checkpoint -- but it invalidates the in-flight result and gives the cutter
-    // their editor back immediately.
+    // Abandons a running Solve or auto-solve. `Design::solve` has no checkpoint, so the worker
+    // keeps running; its in-flight result is discarded and the editor returns at once.
     callback solve_cancel();
     callback deep_solve_cancel();
     // Per-tier table behind `deep_solve_status`'s aggregate verdict: one row per
@@ -571,20 +543,13 @@ export global EditorModel {
     // cutter checks against published designs). 0 until a solve completes.
     in property <int> facet_count: 0;
 
-    // `SolidPreviewModel.tier_cutoff`'s `changed` handler resubmits a replan on
-    // every cutoff change, so dragging the "Cut: N/M" slider redraws the viewport
-    // immediately. The slider uses an interaction callback (fires only on user
-    // drag, keyboard, or click, not on tier-list updates) to avoid duplicate
-    // replan calls and `borrow_mut` hazards from overlapping Slint handlers.
-
     // "Set Baseline" captures the current design + its solved masts as the Baseline (the ids
     // keep their "snapshot" names: tutorial routes use them).
     // "Compare to Baseline" diffs that Baseline against current state.
     callback snapshot_design();
     callback compare_to_snapshot();
-    // Whether a Baseline is held this session (set when a design opens, so normally always). Lets the command bar
-    // explain and gate "Compare to Baseline" instead of leaving it always
-    // enabled with no way to distinguish "nothing yet" from "available".
+    // Whether a Baseline is held. The command bar uses it to gate "Compare to Baseline", so
+    // "nothing yet" and "available" look different.
     in property <bool> has_snapshot: false;
 
     // Computes the full 4-axis tilt-performance sweep for the design currently
@@ -656,36 +621,17 @@ export global EditorModel {
     // than a stale schedule that no longer matches the tier table.
     in property <[AngleItem]> cutting_rows: [];
 
-    // A validation message for the tier-edit form, set from the same parse
-    // errors "Save Tier"/"Add Tier" would otherwise only show as a corner
-    // toast -- rendered under the form in
-    // `EditorInspector` instead of/alongside the toast. Wired: `setup_save_
-    // tier_callback`'s `report_tier_form_error` helper (`gui::editor::
-    // callbacks::tier_actions`) sets this from every parse/apply error branch
-    // and clears it back to "" on a successful save.
+    // Validation message for the tier-edit form, shown under the form. Set by
+    // `report_tier_form_error` (`gui::editor::callbacks::tier_actions`) for each parse or apply
+    // error, and cleared on a successful save.
     in-out property <string> tier_form_error: "";
 
-    // Which field `tier_form_error` above concerns --
-    // "angle" | "name" | "indices" | "constraint" | "" (general/unclassified,
-    // shown only under the form as today). Lets `editor_inspector.slint` put a red
-    // border on the SPECIFIC offending control instead of only the shared message
-    // under the whole form. Empty until `setup_save_tier_callback`'s
-    // `report_tier_form_error` call sites (`gui::editor::callbacks::tier_actions`)
-    // pass a second argument classifying the error text
-    // they already build -- e.g. the "Angle '...' is not a number."/"exceeds 90"
-    // messages classify as "angle", "Another tier is already named '...'" as
-    // "name", "Index '...' ..." as "indices", and the meet-constraint messages
-    // ("\"Meet named\" needs...", "Scale reference '...'", "No facet named
-    // '...'") as "constraint". Cleared back to "" alongside `tier_form_error`
-    // itself on a successful save.
+    // The field `tier_form_error` concerns: "angle", "name", "indices", "constraint", or ""
+    // for a general error. The inspector puts a red border on that control.
     in-out property <string> tier_form_error_field: "";
 
-    // The Edit-mode layout split (`editor_view.slint`/`editor_command_bar.slint`/
-    // `editor_inspector.slint`): the command bar's current hover hint (one line,
-    // shown under the button row -- see `EditorCommandBar`'s own doc comment),
-    // and which of the inspector's Tier/Preform/Optimize tabs is showing (see
-    // `EditorInspector`'s own doc comment). Purely Slint-local UI state -- Rust
-    // never reads either.
+    // Slint-only UI state that Rust never reads: the command bar's hover hint (one line under
+    // the button row), and the inspector's active tab (Tier, Preform or Optimize).
     in-out property <string> hover_hint: "";
     in-out property <int> inspector_tab: 0;
     // Whether the inspector's Tier tab shows the concave form for an "Add" draft
@@ -694,20 +640,11 @@ export global EditorModel {
     // is pressed, hence in-out. Purely UI state, like `inspector_tab`.
     in-out property <bool> inspector_concave_mode: false;
 
-    // The resizable/collapsible dock layout: `dock_width` is the
-    // viewport|dock split (`app.slint`'s edit-mode row, dragged via
-    // `SplitHandle`), `inspector_height` the table|inspector split
-    // (`editor_view.slint`, same handle). Of the three `*_collapsed` flags,
-    // `settings_collapsed` (`editor_design_settings.slint`) and
-    // `inspector_collapsed` (`editor_inspector.slint`) each gate a real
-    // `SectionHeader`-wrapped section. `remap_collapsed` does NOT -- nothing
-    // in `ui/` binds a `SectionHeader.collapsed`/`toggled` to it. It is
-    // persisted and round-trips through `layout_changed` like the other four,
-    // but nothing currently reads it back to collapse anything, so setting it
-    // has no visible effect until a `SectionHeader` binds to it. Every one of
-    // the five is persisted -- see `gui::editor_layout` (Rust) -- via
-    // `layout_changed`, fired after each one's own value has already been
-    // updated, so a listener always reads the new value, never the old one.
+    // Dock layout sizes and collapse flags, persisted by `gui::editor_layout` through
+    // `layout_changed`, which fires after each value is updated. `dock_width` is the
+    // viewport|dock split (`SplitHandle` in `app.slint`), `inspector_height` the table|inspector
+    // split in `editor_view.slint`. `remap_collapsed` is persisted, but no `SectionHeader`
+    // binds to it, so it has no visible effect.
     in-out property <length> dock_width: 640px;
     in-out property <length> inspector_height: 260px;
     in-out property <bool> settings_collapsed: false;
@@ -725,33 +662,12 @@ export global EditorModel {
     changed tier_table_collapsed => { layout_changed(); }
     changed remap_collapsed => { layout_changed(); }
 
-    // Whether SOME text input in the Edit tab currently has
-    // keyboard focus -- set from each `LineEdit`'s own `changed has-focus` (see
-    // `editor_tier_table.slint`'s `TierAngleCell`/filter box/batch-offset field
-    // and `new_design_dialog.slint`'s numeric fields for the pattern), read by
-    // `app.slint`'s `global_shortcuts` to stop Ctrl+Z/Ctrl+Y from undoing a
-    // design edit while a cutter is mid-correction on a facet name or a typed
-    // number -- see that file's own Ctrl+Z/Ctrl+Y arms.
-    //
-    // A plain last-write-wins flag, the same convention `editor_tier_table.
-    // slint`'s own `table_focused` already uses for one `FocusScope` -- here
-    // several independent text fields across several files all write the same
-    // property, so a focus move directly from one text field to another (Tab)
-    // can in principle see the outgoing field's `false` land after the
-    // incoming field's `true` and leave this reading `false` for one frame
-    // while a field still has focus; low-severity (it only mis-times a Ctrl+Z
-    // pressed in that exact instant) and accepted rather than a monotonic
-    // per-field counter, to match the codebase's existing single-flag idiom.
-    //
-    // Every `LineEdit` in `editor_design_settings.slint` and every remaining
-    // `LineEdit` in `editor_inspector.slint` (new facet position, rotate-by,
-    // cheater offset, tier note, preform half-width/length-over-width/depth/
-    // Y-offset, girdle diameter, specific gravity override, and the three
-    // Optimize weights plus budget/seed) carries the same
-    // `changed has-focus => { EditorModel.text_focus = self.has-focus; }`
-    // handler as the Angle/Meets/Name/Indices fields. A field that is unmounted while it has
-    // focus never sees `has-focus` change, so the parameters dock clears this flag itself when it
-    // folds or switches tab.
+    // True while a text field in the Edit tab has keyboard focus. Every such `LineEdit` sets it
+    // from `changed has-focus`. `app.slint`'s global shortcuts read it so that Ctrl+Z and Ctrl+Y
+    // do not undo a design edit while a value is being typed. A last-write-wins flag: a focus
+    // move between two fields can leave it false for one frame. A field unmounted while it has
+    // focus never reports the change, so the parameters dock clears the flag when it folds or
+    // switches tab.
     in-out property <bool> text_focus: false;
 
     // Builds `count` tiers via step series (e.g. emerald-cut ladder) as one

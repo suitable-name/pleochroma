@@ -1,7 +1,8 @@
-//! [`apply_optimize_outcome`], [`apply_optimize_result`] and
-//! [`apply_optimize_candidate`] -- turning an [`super::OptimizeOutcome`] (or a ranked
-//! [`super::OptimizeCandidate`]) into real, undoable `History` edits. See the parent
-//! module's doc comment ("`History` remains the sole mutator") for why
+//! Turns an [`super::OptimizeOutcome`] or a ranked [`super::OptimizeCandidate`] into
+//! undoable `History` edits, through [`apply_optimize_outcome`], [`apply_optimize_result`]
+//! and [`apply_optimize_candidate`].
+//!
+//! The parent module's "`History` remains the sole mutator" section explains why
 //! [`super::optimize_design`] itself never mutates a [`Design`].
 
 use super::{
@@ -39,8 +40,8 @@ pub fn apply_optimize_outcome(
 
 /// Applies an [`OptimizeResult`]'s best result to `design` through `history`.
 ///
-/// It applies the `outcome.changes` angle changes AND the `mast_changes` that go with them, as ONE
-/// [`Edit::Batch`] (one undo step, exact undo).
+/// It applies the `outcome.changes` angle changes and the `mast_changes` that go with them
+/// as ONE [`Edit::Batch`] (one undo step, exact undo).
 ///
 /// Same all-or-nothing contract and stale guard as [`apply_optimize_outcome`], extended
 /// to masts: a mast change is stale unless its tier is still a `ScaleReference` tier
@@ -54,10 +55,10 @@ pub fn apply_optimize_outcome(
 ///
 /// # Errors
 ///
-/// Returns [`crate::edit::EditError`] for the first change whose tier is gone or no
-/// longer carries the angle or mast the change started from, or (naming the first tier
-/// that follows a relation) when the relations cannot be worked out after the changes,
-/// before `design` is mutated at all.
+/// Returns [`crate::edit::EditError`] for the first change whose tier is gone or no longer
+/// carries the angle or mast the change started from. When the relations cannot be worked
+/// out after the changes, it returns an `EditError` at index `0`. Either way `design` is
+/// not mutated.
 pub fn apply_optimize_result(
     history: &mut History,
     design: &mut Design,

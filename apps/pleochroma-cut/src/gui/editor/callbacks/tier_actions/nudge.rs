@@ -29,16 +29,10 @@ use crate::{
     },
 };
 
-/// The tier list's inline angle cell (`editor_view.slint`'s `TierAngleCell`): commits
-/// on Enter or focus loss as one `Edit::ModifyTier` (angle only, everything else on
-/// the tier untouched) through `EditorState::apply`. Invalid text is reported via
-/// toast and left uncommitted -- since [`refresh_editor_panel_stale`] is skipped on
-/// that path, `editor_tiers` (and so the cell's own display) is untouched too, which
-/// only reverts the cell's local scratch text because `TierAngleCell` recreates its
-/// `LineEdit` (and re-seeds it from the row's real `angle_deg`) on every fresh
-/// `editor_tiers` push -- see that component's own doc comment. A parsed value
-/// identical to the tier's current angle is a silent no-op (no `Edit`, no refresh):
-/// committing an unchanged value should not spend an undo slot.
+/// The tier list's inline angle cell (`TierAngleCell`). Commits on Enter or focus loss as one
+/// `Edit::ModifyTier` that changes only the angle, through `EditorState::apply`. Invalid text is
+/// toasted and left uncommitted; the cell's scratch text reverts when the table is next pushed.
+/// An unchanged value makes no edit and shows a "No change." toast, so it spends no undo step.
 pub(in crate::gui::editor) fn setup_inline_set_angle_callback(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -84,19 +78,14 @@ pub(in crate::gui::editor) fn setup_inline_set_angle_callback(
 }
 
 // `clamp_nudge_to_side` (a nudge stops at 0 degrees instead of crossing blocks) and
-// the clamped tier's label moved to `pleochroma_editor::session` with the nudge
-// itself (`EditorSession::nudge_angles`); `tier_nudge_label` is re-exported here at
-// its old path for the Save Tier form and tier-detach paths.
+// `tier_nudge_label` live in `pleochroma_editor::session` with `EditorSession::nudge_angles`.
+// The label is re-exported here for the Save Tier form and the tier-detach paths.
 pub(super) use pleochroma_editor::session::tier_nudge_label;
 
-/// The tier list's angle-nudge path -- the inline cell's Up/Down/wheel (see
-/// `tier_angle_cell.slint`'s `TierAngleCell::step`/`TierAngleCell.nudge`) forwards
-/// here as `(anchor_index, delta_deg)`. The tier FORM's own Angle field Up/Down
-/// (`editor_inspector/tier_form_tab.slint`'s `LineEdit.key-pressed`) does NOT --
-/// it asks `SliderModel.stepped_angle_text` (`pleochroma_editor::slider_ranges::
-/// stepped_angle_text`), a pure function over the field's own local scratch text,
-/// since the form is a staging area with nothing committed to `Design` yet; this
-/// path only ever nudges an EXISTING, already-saved tier.
+/// The tier list's angle nudge. The inline cell's Up/Down and wheel (`TierAngleCell`) forward
+/// `(anchor_index, delta_deg)` here. The tier form's Angle field does not: it asks
+/// `SliderModel.stepped_angle_text` (`pleochroma_editor::slider_ranges::stepped_angle_text`),
+/// since the form stages text that is not yet in `Design`. This path nudges saved tiers only.
 ///
 /// `delta_deg` is a change of the angle the row SHOWS. The tier table prints a pavilion
 /// tier's angle without its minus sign, so Up (a positive delta) makes the shown number
@@ -112,21 +101,14 @@ pub(super) use pleochroma_editor::session::tier_nudge_label;
 /// `RetargetAngles` path with a single-element `changes` vec, so there is only one
 /// code path here rather than a single/multi split.
 ///
-/// Applied through [`EditorState::apply_coalescing`] (not [`EditorState::apply`]) so
-/// several nudges typed/scrolled in quick succession collapse into one undo step --
-/// see `pleochroma_editor::session::angle_nudge_coalesce_key` for how the coalescing key is derived from the
-/// nudge's actual target set, distinguishing a lone tier's nudge from a
-/// multi-selected group containing that same tier.
+/// Applied through [`EditorState::apply_coalescing`], so a burst of nudges on the same targets
+/// merges into one undo step. `pleochroma_editor::session::angle_nudge_coalesce_key` keys the
+/// merge by the exact target set, so a lone tier and a group containing it stay apart.
 ///
-/// `History::apply_coalescing`
-/// already merged the UNDO step for a fast nudge burst, but every tick still ran
-/// its own apply/refresh/replan cycle on the UI thread (each of those clones the
-/// whole `Design` twice -- `view::submit_preview_replan_for`'s own doc comment).
-/// This now posts an [`edit_intent::EditIntent::NudgeAngle`] into a queue this
-/// function builds once, and [`apply_nudge_intent`] (the actual apply/clamp/
-/// refresh/replan/toast logic, moved out of this closure unchanged) runs at most
-/// once per 16ms drain tick, against the SUMMED `delta_deg` of everything posted
-/// since the last tick -- see [`edit_intent::EditIntentQueue`]'s own doc comment.
+/// Each tick posts an [`edit_intent::EditIntent::NudgeAngle`] to a queue built once here.
+/// [`apply_nudge_intent`] runs at most once per 16 ms drain tick, on the summed `delta_deg` of
+/// the ticks since the last drain (see [`edit_intent::EditIntentQueue`]). A burst therefore costs
+/// one apply, refresh and replan.
 pub(in crate::gui::editor) fn setup_nudge_angle_callback(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -182,14 +164,9 @@ pub(in crate::gui::editor) fn setup_nudge_angle_callback(
         });
 }
 
-/// [`setup_nudge_angle_callback`]'s actual apply/clamp/refresh/replan/toast work,
-/// run once per drained [`edit_intent::EditIntent::NudgeAngle`] against the
-/// SUMMED `delta_deg` of the whole coalesced burst -- see that function's own doc
-/// comment. `targets`/`delta_deg` are read fresh against the design's CURRENT
-/// angle at drain time (not whatever it was when the first tick of the burst
-/// posted), so the zero-crossing clamp always judges the
-/// real, final position, exactly as if the summed delta had been applied in one
-/// step -- which, after this change, it is.
+/// The apply, clamp, refresh, replan and toast work of [`setup_nudge_angle_callback`], run once
+/// per drained [`edit_intent::EditIntent::NudgeAngle`] on the summed `delta_deg` of the burst.
+/// The angles are read at drain time, so the zero-crossing clamp judges the final position.
 fn apply_nudge_intent(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,

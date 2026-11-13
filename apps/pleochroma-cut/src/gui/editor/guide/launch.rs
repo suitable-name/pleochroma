@@ -25,9 +25,9 @@ use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 
 /// The New Design dialog's "Preform Shape" index for a block.
 const BLOCK_SHAPE_INDEX: i32 = 0;
-/// The dialog's "Preform Shape" index for a cylinder.
+/// The New Design dialog's "Preform Shape" index for a cylinder.
 const CYLINDER_SHAPE_INDEX: i32 = 1;
-/// The dialog's "Starting Material" index for "(none)".
+/// The New Design dialog's starting-material index for no material.
 const NO_MATERIAL_INDEX: i32 = 0;
 
 /// The New Design dialog's Empty form, filled in for a lesson's starting design.
@@ -130,7 +130,7 @@ pub(super) fn open_guide(ui: &MainWindow, guide: &Guide) {
     model.set_guide_id(guide.id.as_str().into());
     model.set_guide_title(guide.title.as_str().into());
     runtime::clear_events();
-    // The New Design dialog opens at "Start From: Empty", as the guides describe it.
+    // The New Design dialog opens on its Empty template, as the guides describe it.
     ui.global::<EditorModel>().set_new_template_index(0);
     model.invoke_begin();
 }
@@ -371,7 +371,8 @@ mod tests {
 
     #[test]
     fn a_template_lesson_asks_the_form_for_the_templates_own_rough() {
-        // The Standard Round Brilliant's rough is 2.2 deep: its culet lies 0.88 below the
+        // The Standard Round Brilliant's rough is 3.4 deep (`tall_rough`, so the template can
+        // be created in a material with a much deeper pavilion): its culet lies 0.88 below the
         // middle, which the 1.50-deep blank of an empty start would clip flat.
         let fields = EmptyFormFields::of(&lesson_start_spec(1));
         assert_eq!(fields.shape_index, CYLINDER_SHAPE_INDEX);
@@ -381,7 +382,7 @@ mod tests {
                 fields.length_over_width.as_str(),
                 fields.depth.as_str()
             ),
-            ("1.5", "1", "2.2")
+            ("1.5", "1", "3.4")
         );
         assert_eq!(fields.symmetry_order, "8");
         assert!(fields.mirror);

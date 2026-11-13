@@ -1,7 +1,8 @@
-//! Hand-written rows of the direct-invoke table for the color variants: the callbacks of the
-//! Stone tab's color combo, the per-direction Custom color editor, "Save as Variant...", the Color
-//! Variants section of the material editor and the Live Render color popup, called from a state
-//! where they apply and with an asserted effect.
+//! Hand-written rows of the direct-invoke table for the color variants.
+//!
+//! The callbacks of the Stone tab's color combo, the per-direction Custom color editor,
+//! "Save as Variant...", the Color Variants section of the material editor and the Live Render
+//! color popup, called from a state where they apply and with an asserted effect.
 //!
 //! Like `rows_checked.rs`, a row here replaces the generated row with the same key (`all_rows` in
 //! `coverage.rs`); the callbacks with no generated row (the new ones) have only this one. Every
@@ -10,10 +11,10 @@
 //! it keeps from before), then the callback itself. The throw-away profile's vault holds the
 //! saved variants and is wiped with every relaunch of the group.
 //!
-//! The Color Pattern window's callbacks (`ColorPatternModel.color_form_changed`,
-//! `color_source_changed`, `variant_picked`, `pick_color`) are on the allow list and are driven by
-//! the `color_pattern_window` scenario instead (`scenarios/secondary_windows.rs`): that window has
-//! a global instance of its own, which no row of this table reaches.
+//! The Color Pattern window's callbacks (`ColorPatternModel.view_changed`, `swap_views`,
+//! `open_gallery`, `toggle_hidden`, `reorder_row`, `variant_picked`, `open_picker` and the rest)
+//! are on the allow list: the `color_pattern_window` scenario (`scenarios/secondary_windows.rs`)
+//! drives them instead, since that window has a global instance no row of this table reaches.
 
 use super::{
     rows_checked::{clear_toast, toast_error},
@@ -105,10 +106,10 @@ pub(super) fn open_editor(ui: &MainWindow, material: &str) -> Result<(), String>
     }
 }
 
-/// The design on a sapphire with a one-color preset: the old single color an earlier version
-/// saved, which the Stone tab reports as "Legacy Color: No Pleochroism". The preset is picked on a
-/// diamond (a stone that looks the same in every direction lists the nine generic colors) and
-/// carried to the sapphire by one Apply, as the Stone tab's combos do.
+/// The design on a sapphire with a legacy single color, which the Stone tab reports as "Legacy
+/// Color: No Pleochroism". The color is picked on a diamond (a stone that looks the same in every
+/// direction lists the nine generic colors) and carried to the sapphire by one Apply, as the Stone
+/// tab's combos do.
 ///
 /// # Errors
 ///
@@ -147,7 +148,7 @@ pub(super) fn legacy_on_sapphire(ui: &MainWindow) -> Result<(), String> {
 // ---------------------------------------------------------------------------------------------
 
 /// The color of a sapphire has two rows ("Along the Axis", "Across the Axis"), a tanzanite three:
-/// choosing a row makes it the one the sliders edit; a row the stone does not have changes nothing.
+/// choosing a row makes it the one the sliders edit; a row the stone lacks changes nothing.
 fn axis_selected(ui: &MainWindow) -> Result<(), String> {
     open_editor(ui, "sapphire")?;
     let colour = ui.global::<BodyColorEditorModel>();
@@ -441,10 +442,10 @@ fn apply_requested(ui: &MainWindow) -> Result<(), String> {
 // Zoning: the stone's own pattern (Stone tab, Live Render color popup)
 // ---------------------------------------------------------------------------------------------
 
-/// The design on a sapphire with the first typical pattern of its species applied, so the stone has
-/// a pattern of its own: the Stone tab offers "Reset to Material Pattern" and the Live Render color
-/// popup "Remove Zoning" (`Zoning.stone_pattern_overridden`). The states of `states_color.rs` use
-/// it too.
+/// The design on a sapphire with the first typical pattern of its species applied, so the stone
+/// has a pattern of its own: the Stone tab offers "Reset to Material Pattern" and the Live Render
+/// color popup "Remove Zoning" (`Zoning.stone_pattern_overridden`). The states of
+/// `states_color.rs` use it too.
 ///
 /// # Errors
 ///
@@ -732,9 +733,9 @@ fn variants_duplicate(ui: &MainWindow) -> Result<(), String> {
 
 /// A saved copy takes a new name; a built-in row is refused (the call answers `false`).
 ///
-/// The saved rows are listed by label (the vault sorts them), so the renamed copy moves to where its
-/// new name sorts, and the vault may hold saved copies of earlier rows: the check counts the rows
-/// that carry the new name instead of reading one place.
+/// The saved rows are listed by label (the vault sorts them), so the renamed copy moves to where
+/// its new name sorts. The vault may hold saved copies of earlier rows too, so the check counts
+/// the rows that carry the new name instead of reading one place.
 fn variants_rename(ui: &MainWindow) -> Result<(), String> {
     const NEW_NAME: &str = "Harness Renamed";
     let colors = open_section(ui)?;

@@ -65,14 +65,12 @@ thread_local! {
     static STATE: RefCell<Option<Controller>> = const { RefCell::new(None) };
     static TIMER: RefCell<Option<slint::Timer>> = const { RefCell::new(None) };
 }
-/// Called by both actual UI image setters with the immutable producer's scene stamp.
+/// Called by both UI image setters with the producer's scene stamp.
 ///
-/// The setters show **every** frame they receive, including one whose scene generation
-/// has already moved on (an orbit or slider drag outpaces the render): dropping those
-/// froze the viewport for the whole drag. A stale frame only hides the overlay (its
-/// stamp is recorded here and `tick` refuses to publish against it) until a frame of the
-/// current generation arrives. A previous map is cleared before the new beauty image can
-/// appear.
+/// Every frame is shown, including one whose scene generation has already moved on. Such a
+/// stale frame only hides the overlay: its stamp is recorded and `tick` refuses to publish
+/// against it until a frame of the current generation arrives. A previous map is cleared
+/// before the new beauty image can appear.
 pub fn displayed(ui: &MainWindow, generation: u64, width: u32, height: u32) {
     STATE.with(|s| {
         let mut state = s.borrow_mut();

@@ -1,7 +1,5 @@
-//! Shared local-library helpers: re-running the catalogue query after any write
-//! (import/rename/delete/shape-change) -- [`import`], [`organize`], and [`export`]
-//! (see this group's own `mod.rs`) all call [`refresh_after_library_change`] as their
-//! last step.
+//! Shared helpers for local library writes. [`import`], [`organize`] and [`export`] all end
+//! with [`refresh_after_library_change`].
 //!
 //! [`import`]: super::import
 //! [`organize`]: super::organize
@@ -27,32 +25,17 @@ use std::{
 };
 use tracing::warn;
 
-/// Re-reads the search/shape/gear filters currently showing in `ui` and re-runs the
-/// catalogue query -- the shared "refresh everything that could have changed" step
-/// used by import/rename/delete/shape-change.
+/// Re-runs the catalogue query with the search and filters currently on screen. This is the
+/// shared refresh after an import, rename, delete or shape change.
 ///
-/// Import/rename/delete only ever touch the LOCAL database (rename/delete refuse
-/// outright while browsing remote -- see `setup_rename_callback`/`setup_delete_callback`'s
-/// own doc comments; import always writes locally regardless of which library is being
-/// browsed). So the attribute-range refresh -- which reads local attribute ranges --
-/// only happens here while [`LibrarySource::Local`] is actually active; a currently-Remote
-/// view instead goes through [`crate::gui::library::search::refresh_diagram_list_via_source`]
-/// (already off the UI thread -- see `search::refresh_diagram_list_remote`) so it stays
-/// showing remote results rather than silently switching to local ones after a
-/// local-only write.
+/// Those writes touch only the local database, so the attribute-range refresh runs only while
+/// the local library is active. A remote view refreshes through
+/// [`crate::gui::library::search::refresh_diagram_list_via_source`] and keeps showing remote
+/// results.
 ///
-/// The LOCAL path itself runs the two `Database` reads (attribute ranges, list query)
-/// on a background thread, over its own read-only connection, and only marshals the resulting
-/// `ui.set_*` calls back through `upgrade_in_event_loop` -- unlike every OTHER caller
-/// of those same reads (a search-box keystroke, a filter-slider drag), which stay
-/// synchronous because that responsiveness is the point. This call site is different:
-/// it always follows a database WRITE (import/rename/delete/shape-change), so the
-/// small extra latency of a thread hop is invisible, while running the read
-/// synchronously here is not -- against the real ~3,187-design catalogue this
-/// crate's own `perf_probe_refresh_after_library_change_cost` test measures
-/// `get_attribute_ranges` + an unfiltered `search_diagrams` at tens of milliseconds
-/// combined, long enough on the UI thread to read as a second freeze right after a big
-/// import finishes.
+/// The local path runs its two reads on a worker over a read-only connection, then applies the
+/// results on the UI thread. The reads follow a write, so the extra thread hop is not
+/// noticeable. A synchronous read on a large catalogue would freeze the window.
 pub fn refresh_after_library_change(
     ui: &MainWindow,
     db: &Arc<Mutex<Database>>,
@@ -86,17 +69,12 @@ pub fn refresh_after_library_change(
                 .row_data(gear_idx)
                 .unwrap_or_default()
                 .to_string();
-            // Same reasoning as the filter-preservation step just below: this
-            // refresh follows a WRITE, not a request to go back to the default
-            // view, so the cutter's own range filters, sort and "My designs"
-            // choices all have to survive it. Every one is read here, on the UI
-            // thread, since the fetch itself runs on a worker that has no
-            // `MainWindow` to read them from.
+            // This refresh follows a write, so the cutter's range filters, sort and
+            // "My designs" choice must survive it. They are read here, since the worker
+            // has no `MainWindow`.
             //
-            // Bumped here, BEFORE the background fetch is even spawned,
-            // and carried through as `query.seq` so `spawn_local_refresh`'s own
-            // completion closure can check it before touching the UI -- see that
-            // function's own doc comment.
+            // The sequence is bumped before the fetch starts, and `spawn_local_refresh`
+            // checks it before it touches the UI.
             let seq = bump_search_seq();
             let query = DiagramListQuery {
                 seq,
@@ -134,20 +112,11 @@ pub fn refresh_after_library_change(
     }
 }
 
-/// Runs the attribute-range read + the list query on their own worker
-/// thread and applies both results in one hop back onto the UI thread -- the
-/// background half of [`refresh_after_library_change`]'s `LibrarySource::Local`
-/// branch; see that function's own doc comment for why this one call site needs to be
-/// async where `sync_range_bounds_to_ui`/`refresh_diagram_list`'s other callers don't.
-/// Everything the catalogue list is currently filtered and ordered by, as it was
-/// on screen at the moment of the write this refresh follows -- see
-/// [`spawn_local_refresh`]'s own call site for why it has to be snapshotted on the
-/// UI thread rather than re-read (it cannot be) on the worker.
+/// The catalogue list's search, filters and sort order as they were on screen when the write
+/// finished. The UI thread snapshots them, since the worker cannot read the window.
 struct DiagramListQuery {
-    /// Captured by [`refresh_after_library_change`] at dispatch time -- the
-    /// same `bump_search_seq`/`is_current_search` staleness guard
-    /// `gui::library::search::dispatch_background_search` already uses for its own
-    /// async dispatch.
+    /// The search sequence number, taken at dispatch time. It is checked with
+    /// `is_current_search`, as in the background search.
     seq: u64,
     search: String,
     shape: String,
@@ -159,10 +128,11 @@ struct DiagramListQuery {
     id_filter: Option<Vec<i64>>,
 }
 
-/// A keystroke/filter change that lands while this background refresh is
-/// still in flight (`refresh_diagram_list`) bumps the sequence and may display first; without the [`crate::gui::library::search::is_current_search`]
-/// check below, this closure's own (now-stale) results would then land right on top
-/// of it moments later, silently reverting the list to the OLD search text/filters.
+/// Runs the attribute-range read and the list query on a worker thread.
+///
+/// Both results are applied on the UI thread in one hop. A keystroke or filter change made while
+/// this is in flight bumps the sequence. The [`crate::gui::library::search::is_current_search`]
+/// check stops these older results from overwriting that newer list.
 fn spawn_local_refresh(
     ui_weak: Weak<MainWindow>,
     db: Arc<Mutex<Database>>,
@@ -170,8 +140,8 @@ fn spawn_local_refresh(
 ) {
     thread::spawn(move || {
         let seq = query.seq;
-        // One dedicated read-only connection for both reads: this worker no longer holds
-        // the shared `Mutex<Database>` for the whole fetch (DB-1).
+        // One read-only connection serves both reads, so the shared database lock is not
+        // held during the fetch.
         let (ranges, list_result) = fetch_list_and_ranges_with_own_connection(
             &db,
             &query.search,
@@ -190,10 +160,8 @@ fn spawn_local_refresh(
                 return;
             }
             if let Some(ranges) = ranges {
-                // This refresh follows a WRITE (import/rename/delete/
-                // shape-change), not a request to clear the cutter's own range
-                // filters -- see `apply_attribute_range_bounds_preserving_filters`'s
-                // own doc comment for why it preserves them rather than resetting.
+                // This refresh follows a write, so the cutter's range filters are kept
+                // rather than reset.
                 apply_attribute_range_bounds_preserving_filters(&ui, &ranges);
             }
             match list_result {
@@ -244,9 +212,8 @@ a 41.000000 0.5 92 n T\n";
         dir
     }
 
-    /// A fresh path for a throwaway SQLite file -- never the real
-    /// `facet_diagrams.sqlite` (this crate's domain rules forbid that outright); every
-    /// test below builds its own temp database via [`Database::new`].
+    /// A fresh path for a throwaway SQLite file, never the real `facet_diagrams.sqlite`.
+    /// Each test builds its own database with [`Database::new`].
     pub(in crate::gui::library::local) fn temp_db_path_for_test(label: &str) -> PathBuf {
         static COUNTER: AtomicU32 = AtomicU32::new(0);
         let n = COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -276,15 +243,10 @@ mod tests {
     use pleochroma_vault::db::sqlite::Database;
     use std::path::Path;
 
-    /// Manual perf probe: `refresh_after_library_change`
-    /// re-queries the whole catalogue synchronously on the UI thread after every
-    /// import. Opens the user's real ~3,187-design `facet_diagrams.sqlite`
-    /// READ-ONLY (never as a test fixture to write into -- see this crate's own
-    /// domain rules) and times exactly the two calls that completion path makes:
-    /// `get_attribute_ranges` (`sync_range_bounds_to_ui`) and an unfiltered
-    /// `search_diagrams` (`refresh_diagram_list`). `#[ignore]`d: it depends on a file
-    /// that only exists on this workstation, so it must never run in CI; run
-    /// explicitly with `cargo test -p pleochroma-cut -- --ignored perf_probe --nocapture`.
+    /// Manual perf probe: times `get_attribute_ranges` and an unfiltered `search_diagrams` (the
+    /// post-write refresh reads) on a real `facet_diagrams.sqlite`, opened read-only. Ignored
+    /// because that file is not in the repository. Run it with
+    /// `cargo test -p pleochroma-cut -- --ignored perf_probe --nocapture`.
     #[test]
     #[ignore = "manual perf probe against the real local catalogue, not for CI"]
     fn perf_probe_refresh_after_library_change_cost() {

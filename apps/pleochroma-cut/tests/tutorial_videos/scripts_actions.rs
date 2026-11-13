@@ -700,8 +700,8 @@ impl Film<'_> {
             &still_open,
         );
         let finished = pacing::wait_real(pacing::STEP_TIMEOUT, || !verdict.get_busy());
-        // A fix reports what it changed in a toast ("Snapped 1 index position ... Undo (Ctrl+Z)
-        // puts it back."), so only the finish is checked; the toast is shown for the record.
+        // A fix reports what it changed in a toast, so only the finish is checked here; the toast
+        // is shown for the record.
         crate::debug_log::debug_check_with(
             "verdict fix finished; toast after it",
             &"finished, with the fix's own toast",

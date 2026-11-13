@@ -1,6 +1,7 @@
-//! Local-library management: import `.asc`/`.gem`/`.gcs` files, rename, delete, and export the
-//! user's own designs -- "Organize" plus "Import"/"Export" in the
-//! UI (see `apps/pleochroma-cut/ui/components/{import_dialog,detail_header}.slint`).
+//! Management of the user's own local designs: import, organize and export.
+//!
+//! These are the "Organize", "Import" and "Export" actions in the UI (see
+//! `apps/pleochroma-cut/ui/components/{import_dialog,detail_header}.slint`).
 //!
 //! Nothing here talks to the network or parses HTML/PDF; it operates only on files
 //! the user handed the app directly (`import_path`) or on rows already in the local
@@ -24,15 +25,11 @@ pub use organize::{
     setup_remove_tag_callback, setup_rename_callback, setup_set_shape_callback,
 };
 
-/// Re-exported for `gui::editor::native_io`'s own catalogue write-back: "Save"
-/// merges into an existing source row, or measures a brand-new one, using exactly the
-/// same rules a `.asc` re-import already applies -- see each function's own doc
-/// comment. `helpers`/`import` stay private modules; only these specific helpers
-/// cross the `gui::editor`/`gui::library` boundary, rather than opening either module
-/// up wholesale. `catch_file_panic` is included so that catalogue write-back's own
-/// `local::import_asc` + `apply_measured_metadata` step is panic-isolated exactly the
-/// same way a `.asc` import's per-file loop already is -- see
-/// `import::pipeline::catch_file_panic`'s own doc comment.
+/// Re-exported for `gui::editor::native_io`'s catalogue write-back.
+///
+/// "Save" merges into an existing source row, or measures a new one, under the same rules as
+/// a `.asc` re-import. `helpers` and `import` stay private. `catch_file_panic` isolates the
+/// write-back's parse-and-measure step from panics, as the import loop does.
 pub use helpers::refresh_after_library_change;
 /// Test-only: the synthetic `.gem` encoder the editor's record-loader tests share
 /// with the import tests.

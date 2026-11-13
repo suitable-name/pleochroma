@@ -172,7 +172,7 @@ pub(in super::super) fn maybe_scatter_oriented_zoned(
 ///   `exp(-(depth_k(t_model) - depth_hero(t_model)))` times its tracking ratio
 ///   ([`bragg_reflect_weights`]), depolarizes, and carries no phase ratio (`bragg` is set: no
 ///   scattering-point NEE, no phase MIS partner).
-/// * With nothing found, [`maybe_scatter_oriented_zoned`] decides the zoned event as before
+/// * With nothing found, [`maybe_scatter_oriented_zoned`] decides the zoned event
 ///   (it re-draws the same `u` and lands on the same `t_h`) and the product of the null-collision
 ///   ratios multiplies the result.
 #[expect(

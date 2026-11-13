@@ -149,16 +149,16 @@ A birefringent crystal has more than one refractive index, and each of them chan
 
 | Ray | Materials |
 |---|---|
-| Extraordinary ray of a one-axis crystal | Quartz, Amethyst, Citrine, Ametrine and Rutile (as before), and now **Sapphire** and **Ruby** (Malitson and Dodge, 1972), **Synthetic Moissanite** (Wang, 2013) and **Benitoite** (a separate Cauchy curve for each ray, with the ordinary ray's dispersion corrected to the published 0.039) |
+| Extraordinary ray of a one-axis crystal | Quartz, Amethyst, Citrine, Ametrine and Rutile, **Sapphire** and **Ruby** (Malitson and Dodge, 1972), **Synthetic Moissanite** (Wang, 2013) and **Benitoite** (a separate Cauchy curve for each ray, with the ordinary ray's dispersion corrected to the published 0.039) |
 | Alpha and gamma rays of a two-axis crystal | **Alexandrite** and **Chrysoberyl (Yellow)** (Walling, 1980) |
-| One constant offset, as before | Zircon, Tourmaline, Emerald, Aquamarine, Morganite, Topaz, Tanzanite, Peridot, Andalusite, Labradorite and Moonstone, because no per-ray dispersion was found for them |
+| One constant offset | Zircon, Tourmaline, Emerald, Aquamarine, Morganite, Topaz, Tanzanite, Peridot, Andalusite, Labradorite and Moonstone, because no per-ray dispersion was found for them |
 
 What changes for the stones with a curve:
 
-- The birefringence is no longer one number. Sapphire's extraordinary index lies 0.0085 below the ordinary one at 400 nm and 0.0080 below at 700 nm (0.0081 at the sodium line, the figure the table above shows). Alexandrite's spread is 0.0085 at 380 nm and 0.0074 at 780 nm.
-- Chrysoberyl (Yellow) takes Alexandrite's published curves, which makes its total birefringence 0.0076 (it was 0.0090 before). The published figure wins over the older value.
-- The doubled images of a birefringent stone separate a little by color, and the direction in which the extraordinary ray is displaced follows the index at each wavelength. This also applies to Quartz, Amethyst, Citrine, Ametrine and Rutile, which had a curve for the index but not yet for the displacement.
-- Their renders and their Doubling figure therefore changed once, on purpose, when this version arrived. A material without a curve renders exactly as before.
+- The birefringence is a curve, not one number. Sapphire's extraordinary index lies 0.0085 below the ordinary one at 400 nm and 0.0080 below at 700 nm (0.0081 at the sodium line, the figure the table above shows). Alexandrite's spread is 0.0085 at 380 nm and 0.0074 at 780 nm.
+- Chrysoberyl (Yellow) uses Alexandrite's published curves, which give it a total birefringence of 0.0076.
+- The doubled images of a birefringent stone separate a little by color, and the direction in which the extraordinary ray is displaced follows the index at each wavelength. This also applies to Quartz, Amethyst, Citrine, Ametrine and Rutile.
+- A material without a curve keeps the constant birefringence.
 
 **In the Material Editor.** A material that is not isotropic has a **Per-Axis Curves** row with **Simple** and **Curves**. **Simple** keeps the one main curve plus the constant birefringence. **Curves** shows a **Curve For** choice: **Extraordinary Ray** for a one-axis material, or the alpha and the gamma ray for a two-axis one (the main curve is the beta ray). Each curve has the same fields as the main curve (Sellmeier or Cauchy, with **Copy From**, a live readout and the same checks). Switching to **Curves** the first time starts from a Cauchy fit of the main curve and the birefringence, so you edit from the stone you had. A two-axis material needs both curves, and **Save** stays disabled while a needed curve is unusable. A two-axis pair is used only if the alpha curve stays below the beta (main) curve and the gamma curve above it at every wavelength from 380 to 780 nm; otherwise the pair is ignored and the fixed spreads apply. The curves are stored with the material in your catalogue and as `dispersion_model_e`, `dispersion_model_alpha` and `dispersion_model_gamma` tables of `[material.custom]` in a design; they are written only when used.
 
@@ -170,7 +170,7 @@ render physics colors but do not show the editor.
 **In a build without the feature** (the normal build), the Material Editor
 has no **Color Mode** toggle and no Physics section: it always shows the
 Fantasy swatches and **Pick...**. A material whose color comes from a physics
-recipe still renders exactly as before. Open it and the editor shows a note:
+recipe still renders from its stored data. Open it and the editor shows a note:
 "This material's color comes from a physics recipe made in another build.
 Picking a color here replaces it with a fixed color; the recipe stays saved
 with the material." No swatch is marked until you pick one, and the crystal
@@ -289,7 +289,7 @@ more saturated (a 10.87 mm green cubic zirconia stays green, only deeper), a
 smaller one paler. Colors made with the L*C*h editor, the library band rows
 and Physics recipes are per millimetre and follow the stone width the same way,
 with 7 mm assumed when none is set. There is only this one width: it is saved in the
-design, it is undoable, and the old per-app "Stone Size" setting no longer exists.
+design, it is undoable.
 
 **Where a custom material lives.** Saving writes it to your catalogue's own
 database -- this is the copy every material picker across the app actually
@@ -382,130 +382,211 @@ Pattern window is open. Close it to go on with this material."
 
 ### The Color Pattern Editor
 
-The window is titled with the material's name. Its top row holds the starting
-points; the left side is the preview, the right side the zones; the bottom row holds
-the settings of the whole pattern.
+The window is titled with the material's name. Under the title a subtitle gives
+the pattern at a glance ("Color pattern · 3 layers · pattern axis along the table
+normal"), and a small chip at the left shows the base color and the first zone's
+color on a diagonal. The stone is the largest thing in the window: the stage on the
+left shows it, with the **layers** of the pattern in a panel on the right. A header
+button, **Start From...**, opens a gallery of ready patterns, and **Undo** and **Redo**
+icon buttons sit at the right of the header. The footer holds **Cancel** and the
+button that keeps the pattern.
 
 <!-- figure: color_pattern_editor -->
 
-**Templates.** One button each: **Uniform**, **Bicolor**, **Tricolor**, **Banded**,
-**Watermelon**, **Reverse Watermelon**, **Core and Rim**, **Split** and **Sectors**.
-A template replaces the zones below it with a ready pattern: Watermelon is a rim
-around a three-sided core, Bicolor and Split divide the stone into halves, Banded
-adds up to four slabs, Sectors adds wedges. Uniform means "no zones": the plain
-material. The templates bring their own colors; change them afterwards.
+**The stage.** A switch at the top left of the picture chooses the view:
 
-**Typical for the species.** When the stone's material is a species that is known for a
-zoning, a row above the templates, titled for example **Typical for Sapphire:**, offers
-its typical patterns (see "Typical Zoning" below). They are built on the color the stone
-has, and replace the zones below like a template does.
+- **Stone** renders the open design with this pattern in the Path-Traced renderer. It
+  is the view the window opens on when a design is open. It refreshes a moment after
+  each edit. Without an open design (a library material) Stone is disabled, with a
+  hover note saying why, and the window opens on Slice.
+- **Slice** shows a flat cut through the stone. It draws the stone's outline at that
+  cut as a white line (without a design, a dashed circle one stone width across stands
+  in), outlines the selected zone in cyan, and dims the other zones a little. The zones
+  have handles here (see below).
+- **Crystal** draws a rod of the pattern along its axis, from slices.
 
-**Presets.** The **Presets** list holds patterns kept before, and the built-in
-Ametrine and Watermelon Tourmaline. Choosing one replaces the zones. **Save as
-Preset...** asks for a name and keeps the current pattern under it, to use on other
-materials. A preset keeps its colors as they were made; on another material it looks
-the same at the same size, and deeper in a much larger stone, just like any body
-color (see "How colors relate to the stone width" above).
+A chip at the top right shows the state of the picture: a green dot with "Path-Traced
+· refining" while the render adds samples, an amber dot with "Updating..." while a new
+pattern is waiting for its render, and nothing once the picture is done. Its hover
+note holds the rule that is true for every view: "Patterns show in Path-Traced views.
+Ray-Traced shows the base color." (see "Where a Pattern Shows" below).
 
-**Zones.** A pattern has a **base zone** (what fills the stone wherever no other
-zone is) and up to **four more zones**. In the list, a later zone covers the ones
-above it; **Up** and **Down** change the order. **Add Zone** asks for the shape of the
-new zone, **Duplicate** copies the selected one (shifted a little so both stay
-visible) and **Delete** removes it; the base zone cannot be deleted or given a shape.
-At four zones, Add Zone is disabled with the note "A pattern holds at most 4 zones
-besides the base."
+**The inset.** A small picture at the bottom right shows the other main view: the
+slice while Stone is up, the stone while Slice is up (in Crystal it shows the slice).
+Its caption reads "Slice 50 % · drag to edit" or "Stone". Click the inset, or its
+expand icon, to swap it with the main view. Handles are never drawn in the inset.
 
-For the selected zone the panel shows:
+**The slice rail.** In Slice view a vertical rail at the right edge of the picture
+moves the cut along the axis: **Table** at the top, **Culet** at the bottom, and the
+position in percent under the thumb. With the stage focused, Page Up and Page Down move
+it 5 %.
 
-- **Name**, for example Rim or Core.
-- **Color**, with **Pick...**. Pick... opens the usual color editor (Tone, Saturation,
-  Hue) in the main window; its apply button reads "Use this color for the zone in the
-  Color Pattern window." The color is solved for the stone's reference path, like any
-  body color. While it is being worked out the panel says "Solving colors...".
-- **Source**, **Variant** and **Colors** (see "Zone Colors and Color Variants" below).
-- **Size**, one slider, in percent of the stone width when the pattern scales with
-  the stone. This is the only size control in Simple mode.
-- In the Advanced interface, **Shape** (prism, cylinder, slab, half space, sectors
-  and the others) and one row for each of the shape's own measures, in millimeters.
+**Handles and click to select.** In Slice view every zone has handles. The move
+handle is a white square with a cyan rim: drag it to move the zone. The size handle is
+a cyan circle with a white rim: drag it to resize or turn the zone. While you hover or
+drag a handle, a small label names what it changes and its value ("Size 22 %", "Offset X
+3 %", "Rotation 15°", or "Width 2.4 mm" when the pattern does not scale with the
+stone). The selected zone's name sits in a chip under its move handle. A click in the
+picture that misses every handle selects the zone under it, so you can pick a layer by
+touching it.
 
-**Zone Colors and Color Variants.** Some stones show a different color depending on the direction you look through
-them (tourmaline is the classic case). A zone's color follows the same rule as
-the stone's own color (Chapter 6, "Color Variants and Pleochroism"): the number of
-colors a zone can have is fixed by its material.
-
-*Colors.* The **Colors** menu of a zone offers **One Color**, **Along and
-Across** and **Alpha, Beta and Gamma**, and puts first the form the material's
-crystal has: one color for a cubic or amorphous material, **Along and Across**
-(two colors) for a one-axis crystal, **Alpha, Beta and Gamma** (three colors) for a
-two-axis crystal. This menu replaces the old **Two Colors** switch. Each color
-has its own Pick... button. Looking along the crystal axis shows only the Along
-color; looking across it shows a blend of both. The colors follow the *stone's*
-Crystal Axis: the design's own setting from the Stone tab if it has one, else the
-material's default from the Material Editor's Crystal Axis row, else the table normal
-(Chapter 25). Live Render, exports, remote renders and catalogue thumbnails all use
-it. This is not the same as the pattern axis below. A new zone starts in the
-material's own form. A zone with one color on a material that has more than one
-(from an older pattern) reads **Legacy: No Pleochroism**, with a sentence under it,
-and keeps rendering as saved; a zone with more colors than the material has
-cannot be applied or saved, and a message under the zone panel says so. A material
-that is not birefringent (a crystal system other than Cubic and a birefringence
-other than 0 are needed for more than one color) offers **One Color** only; set a
-birefringence and a crystal system in the Gem Material Editor (shown in Advanced
-mode), save the material, then reopen the pattern. In the zone list a zone with several colors
-shows the blend as its swatch, and in its panel the swatch is split into one
-part for each color. The base zone may have several colors too (see "The base
-color" below).
-
-*Older versions.* A pattern with a zone of three colors (**Alpha, Beta and
-Gamma**) is a version 2 pattern, and so is a pattern made from the zones of a
-two-axis material (a typical pattern, a template or the zones the Rough Color wizard
-fits on such a material, which now keep all three colors where they used to keep
-two). A design with such a pattern opens in this version as saved. An older version
-of Pleochroma Cut does not open that pattern. A
-pattern of one or two colors is still readable by the older versions.
-
-*Source and Variant.* The **Source** menu of a zone chooses where its color comes
-from: **Variant** or **Custom**. With **Variant**, the **Variant** menu lists the
-stone's material's own color first (Material Default), then its built-in variants
-(an estimated one carries "(Estimated)" and its source in the hover note), then
-your saved variants; picking one copies its colors, one for each direction, into
-the zone, so the zone does not change if you edit the variant later. With
-**Custom**, the zone's color is picked with Pick... as before, one color for each
-direction of the form chosen in **Colors**; switching from Variant to Custom turns
-the variant into the picked colors of the same form, to adjust. A variant is
-offered only when it fits the material's crystal.
-
-**Pattern settings (bottom row).**
+**The pattern toolbar.** A bar along the bottom of the stage holds the settings of the
+whole pattern:
 
 - **Axis**: the direction the pattern runs along. **Table Normal** runs from the table
   down to the culet; **Across** and **Across Turned** lay it sideways, which turns a
   Watermelon's core from a bull's-eye into stripes. **Custom** unlocks **Tilt** and
-  **Turn** (Advanced interface). **Follows Crystal Axis** turns the zones with the
-  stone's Crystal Axis, so a pattern made along the crystal keeps following it
-  (Chapter 25). Zones imported from the wizard use their own axis, shown as
+  **Turn**, which the Advanced interface shows in the toolbar as two small readouts;
+  they become sliders only while the axis is Custom. **Follows Crystal Axis** turns the
+  zones with the stone's Crystal Axis, so a pattern made along the crystal keeps
+  following it (Chapter 25). Zones imported from the wizard use their own axis, shown as
   "Imported" and not editable.
-- **Size**: **Scales With Stone Size** (the zones grow and shrink with the stone
-  width set in the Stone tab) or **Fixed in mm** (they keep their millimeter size).
-- **Boundary**: **Sharp - Soft**. Left is a hard edge, right is a gradual blend from
+- **Edges**: **Sharp** to **Soft**. Left is a hard edge, right is a gradual blend from
   one zone to the next.
+- **Size**: **Scales With Stone** (the zones grow and shrink with the stone width
+  set in the Stone tab) or **Fixed in mm** (they keep their millimeter size).
 
-**Previews.** The pills above the picture switch between three views:
+**Start From...** The header button opens a gallery over the window, with the window
+dimmed behind it. Every tile is a small picture of the pattern in this stone's own
+colors, and its label. Clicking a tile replaces the layers with that pattern and closes
+the gallery; the gallery's note says so: "Replaces the layers — Undo brings them back".
 
-- **Crystal** draws a rod of the pattern along its axis, from slices.
-- **Current Design** renders the open design with this pattern in the Path-Traced
-  renderer, small and quick. It refreshes a moment after each edit and says
-  "Updating..." meanwhile.
-- **Cross-Section** shows a flat cut through the stone; the **Slice** slider moves the
-  cut along the axis. Here the zones have handles: drag one to move, resize or turn
-  the zone.
+- **Typical for the species.** When the stone's material is a species that is known for
+  a zoning, the first section, titled for example **Typical for Sapphire**, offers its
+  typical patterns on larger tiles with a star (see "Typical Zoning" below). They are
+  built on the color the stone has. They appear only here, not in a row of their own.
+- **Templates.** **Uniform**, **Bicolor**, **Tricolor**, **Banded**, **Watermelon**,
+  **Reverse Watermelon**, **Core and Rim**, **Split** and **Sectors**, without the
+  ones already shown as typical. Watermelon is a rim around a three-sided core, Bicolor
+  and Split divide the stone into halves, Banded adds up to four slabs, Sectors adds
+  wedges. Uniform means "no zones": the plain material. The templates bring their own
+  colors; change them afterwards.
+- **My presets.** The patterns you kept before, and the built-in Ametrine and
+  Watermelon Tourmaline. The last tile, **Save Current...**, asks for a name (right in
+  the tile) and keeps the current pattern under it, to use on other materials. Hover a
+  preset to show a small cross that deletes it from the list. A preset keeps its colors
+  as they were made; on another material it looks the same at the same size, and deeper
+  in a much larger stone, just like any body color (see "How colors relate to the stone
+  width" above).
 
-**Undo, Redo and the three buttons.** The editor has its own **Undo** and **Redo**,
-because the material dialog has none. **Cancel** closes the window and leaves the
-material's pattern as it was; if there are edits it asks first ("Discard the changes
-to this pattern?"). **Apply** and **Save** keep the pattern for the material; both
-are disabled while a message under the zone panel says something is not valid
-(for example a zone whose outer radius is not larger than its inner one) or while a
-color is still being solved.
+**Layers.** The panel on the right lists the pattern's layers, **the top layer first**
+and the base last; a note under the title says "upper layers cover lower ones". A
+pattern has a **base zone** (what fills the stone wherever no other zone is) and up to
+**four more zones**. Each layer is a card with a grip for dragging, a swatch (split on
+the diagonal for a zone with more than one color), the name, the shape and a short
+summary ("3-sided prism · 22 % wide"), an **eye** and a **...** menu. The base card has
+no grip, reads "Base · fills the rest", shows a lock instead of the eye, and cannot be
+deleted, moved or given a shape.
+
+- **Select** a layer by clicking its card (or its zone in the Slice view). The selected
+  card gets a cyan border and opens to show its controls.
+- **Add** opens a small menu of shapes; the new layer goes on top and is selected. At
+  four zones the button is disabled with the note "A pattern holds at most 4 zones
+  besides the base."
+- **Order.** Drag a card by its grip, press Alt+Up or Alt+Down on a focused card, or use
+  **Move Up** and **Move Down** in the **...** menu. A layer covers the ones below it in
+  the list. One drag is one step of Undo.
+- **...** menu: **Rename**, **Duplicate** (a copy shifted a little so both stay
+  visible), **Move Up**, **Move Down** and **Delete**.
+- **Rename** in place: double-click the name, type, press Enter.
+- **The eye** hides the layer in the pictures so you can see what lies under it. It
+  lasts for this session of the window only: nothing is stored, and a hidden layer is
+  still part of the pattern you save.
+
+**The selected layer.** Its card shows:
+
+- **Color**, with the material's kind at the right ("Pleochroic · uniaxial"), and one
+  large color tile for each color the zone has (see "Zone Colors" below). The tile is
+  the color itself, with a caption naming the direction. Click a tile to change that
+  color.
+- **From variant**: **Custom Color** first, then the material's color variants (see
+  "Zone Colors" below).
+- **Size**, one slider, "22 % of width" when the pattern scales with the stone. This is
+  the only size control in Simple mode.
+- In the Advanced interface, **Shape** as six icon toggles (cylinder, three-sided prism,
+  six-sided prism, slab, stripe, wedge, with the names in their hover notes), and then
+  one row for each of the shape's own measures (Offset X, Offset Z, Rotation and the
+  others).
+- A line at the bottom of the card, in the warning color, when the zone is not valid
+  (for example a zone whose outer radius is not larger than its inner one). Nothing can
+  be saved while it shows.
+
+**Zone Colors.** Some stones show a different color depending on the direction you
+look through them (tourmaline is the classic case). A zone's color follows the same
+rule as the stone's own color (Chapter 6, "Color Variants and Pleochroism"): the number
+of colors a zone can have is fixed by its material. The tiles show it:
+
+- one tile, **Color**, for a cubic or amorphous material;
+- two tiles, **Along c** and **Across c**, for a one-axis crystal;
+- three tiles, **α**, **β** and **γ**, for a two-axis crystal.
+
+Looking along the crystal axis shows only the Along color; looking across it shows a
+blend of both. The colors follow the *stone's* Crystal Axis: the design's own setting
+from the Stone tab if it has one, else the material's default from the Material
+Editor's Crystal Axis row, else the table normal (Chapter 25). Live Render, exports,
+remote renders and catalogue thumbnails all use it. This is not the same as the pattern
+axis above. A new zone starts in the material's own form. A material that is not
+birefringent (a crystal system other than Cubic and a birefringence other than 0 are
+needed for more than one color) has one tile only; set a birefringence and a crystal
+system in the Gem Material Editor (shown in Advanced mode), save the material, then
+reopen the pattern. A zone with one color on a material that has more than one (from an
+older pattern) shows the notice "One color only (older pattern)" with a **Convert**
+button, and keeps rendering as saved until you convert it. A zone with more colors than
+the material has cannot be saved, and the line at the bottom of its card says so. In
+the list a zone with several colors shows its colors split on its swatch. The base zone
+may have several colors too (see "The Base Color" below).
+
+*The color picker.* Clicking a color tile opens a picker beside the layers panel,
+next to the tile, which gets a cyan border while it is open. Its title names the
+direction ("Along the c-axis"). It holds:
+
+- a plane of lightness and chroma at the current hue (chroma grows to the right,
+  lightness upward; the part outside the sRGB colors a screen can show is dimmed), with
+  a ring you drag;
+- a hue strip under it;
+- number fields for **L**, **C** and **H**, and a fourth for the hex value;
+- **Material variants**: one chip for each color variant of the material; a click
+  copies that variant's color for this direction;
+- the result in the stone: the color you picked, an arrow, and the color the stone
+  really shows ("In the stone at 8.0 mm", "Closest absorption, ΔE 1.8"). The color is
+  solved for the stone's reference path, like any body color. While you drag, the row
+  keeps the last result and says "Solving..."; it updates a moment after you stop.
+
+**Use Color** keeps the color for the zone; **Cancel** closes the picker and leaves it
+alone. Escape closes the picker first; a second Escape closes the window (see below).
+
+*From variant.* The **From variant** menu replaces the old Source and Variant pair.
+**Custom Color** means the colors are your own. Below it comes the stone's material's
+own color (Material Default), then its built-in variants (an estimated one carries
+"(Estimated)" and its source in the hover note), then your saved variants; picking one
+copies its colors, one for each direction, into the zone, so the zone does not change
+if you edit the variant later. The tiles then carry the caption "From Rubellite" (the
+variant's name). Clicking a tile of such a zone turns it into Custom Color, starting
+from that color. A variant is offered only when it fits the material's crystal.
+
+*Older versions.* A pattern with a zone of three colors (**α, β and γ**) is a version 2
+pattern, and so is a pattern made from the zones of a two-axis material (a typical
+pattern, a template or the zones the Rough Color wizard fits on such a material, which
+keep all three colors). A design with such a pattern
+opens as saved. An older version of Pleochroma Cut does not open that
+pattern. A pattern of one or two colors is still readable by the older versions.
+
+**Undo, Redo and the footer.** The editor has its own **Undo** and **Redo**, because
+the material dialog has none; they are the two icon buttons in the header. The preview
+is live, so there is no Apply step. At the left of the footer a dot and a note say
+"Unsaved changes" or "Solving colors..." as it applies. At the right:
+
+- **Cancel** closes the window and leaves the material's pattern as it was; if there
+  are edits it asks first ("Discard the changes to this pattern?").
+- **Save to Material** keeps the pattern for the material and closes the window. For a
+  stone (the window opened from a design's Color Zoning) the same button reads **Done**
+  and keeps the pattern for this stone.
+
+The save button is disabled while the line under the selected layer says something is
+not valid, or while a color is still being solved.
+
+**Escape.** Escape closes the color picker, the gallery or an open menu first. With
+nothing of that open it acts as **Cancel**, and asks before discarding edits.
 
 ### Typical Zoning
 
@@ -560,7 +641,7 @@ You find them in three places:
 - **The Stone tab**, in the **Color Zoning** block, lists the same patterns as buttons
   under **Typical Zoning**, next to **Color Pattern...**. **Reset to Material Pattern**
   takes the zoning away.
-- **The Color Pattern Editor** shows them in the **Typical for ...** row.
+- **The Color Pattern Editor** shows them in the **Typical for ...** section of its **Start From...** gallery.
 
 Like every Color Pattern change of a single stone, a typical pattern changes only this stone:
 while the picture shows the open design it is one step that **Undo** takes back and Save keeps

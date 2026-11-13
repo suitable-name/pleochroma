@@ -33,7 +33,7 @@ fn a_sphere_primitive_contains_the_sphere_and_not_much_more() {
     for k in 0..40_u32 {
         let t = f64::from(k) / 39.0;
         let z = 2.0_f64.mul_add(t, -1.0);
-        let ring = (1.0 - z * z).sqrt();
+        let ring = z.mul_add(-z, 1.0).sqrt();
         let angle = f64::from(k) * 2.399_963;
         let direction = DVec3::new(ring * angle.cos(), ring * angle.sin(), z);
         assert!(mesh.contains_point(DVec3::splat(10.0) + direction * (radius * 0.999)));
@@ -54,7 +54,7 @@ fn an_ellipsoid_primitive_is_posed_and_contains_the_ellipsoid() {
     for k in 0..60_u32 {
         let t = f64::from(k) / 59.0;
         let z = 2.0_f64.mul_add(t, -1.0);
-        let ring = (1.0 - z * z).sqrt();
+        let ring = z.mul_add(-z, 1.0).sqrt();
         let angle = f64::from(k) * 2.399_963;
         let unit = DVec3::new(ring * angle.cos(), ring * angle.sin(), z);
         let on_ellipsoid = rotation * (unit * DVec3::from(semi)) * 0.999 + centre;

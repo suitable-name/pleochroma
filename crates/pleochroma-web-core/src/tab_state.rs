@@ -1,11 +1,11 @@
-//! The two facts about the open design that belong to ONE browser tab, kept apart from the
+//! The two facts about the open design that belong to one browser tab, kept apart from the
 //! shared settings.
 //!
 //! The render settings live in `localStorage`, which every tab of the page shares. The
-//! design's recorded `.asc` name and its unsaved flag describe the design THIS tab has open,
-//! so they are stored in this tab's `sessionStorage` as a [`TabState`]. A payload an
-//! earlier build wrote carries the same two facts inside [`SessionPayload`]; they are only
-//! read as a fallback ([`TabState::from_payload`]) when the tab has no state of its own.
+//! design's recorded `.asc` name and its unsaved flag describe the design this tab has open,
+//! so they are stored in this tab's `sessionStorage` as a [`TabState`]. An older payload
+//! carries the same two facts inside [`SessionPayload`]; it is read only as a fallback
+//! ([`TabState::from_payload`]) when the tab has no state of its own.
 
 use crate::settings::SessionPayload;
 use serde::{Deserialize, Serialize};

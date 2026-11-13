@@ -151,11 +151,10 @@ fn a_replan_of(design: &Arc<Design>, generation: u64) -> ReplanRequest {
     }
 }
 
-/// A plan whose masts describe its design is owed exactly the pass the inline code would
-/// run; one whose masts do not (unsolvable, another length, none) is owed none, because
-/// findings computed from foreign masts would badge the wrong rows. A stale plan is owed none
-/// either, for another reason: its masts are the fresh solve and do describe the design, but
-/// the frame is one edit behind and the idle replan's fresh plan brings the pass (F4-12).
+/// A plan whose masts describe its design is owed the pass the inline code would run; one whose
+/// masts do not (unsolvable, another length, none) is owed none, because findings computed from
+/// foreign masts would badge the wrong rows. A stale plan is owed none either: its masts describe
+/// the design, but its frame is one edit behind, and the idle replan's fresh plan brings the pass.
 #[test]
 fn only_a_plan_whose_masts_describe_its_design_is_owed_findings() {
     let design = Arc::new(Design::concave_fixture());
@@ -178,9 +177,9 @@ fn only_a_plan_whose_masts_describe_its_design_is_owed_findings() {
     assert!(findings_job(7, &design, Some(&leftover), false, false).is_none());
 }
 
-/// F3-12: a Slice-tool provisional plan runs no manufacturability pass at all -- its findings
-/// are never shown (the sink files rows for committed frames only), so the pass would only
-/// delay the next plan. The same plan under a real generation is owed it.
+/// A Slice-tool provisional plan runs no manufacturability pass at all: its findings are never
+/// shown (the sink files rows for committed frames only), so the pass would only delay the next
+/// plan. The same plan under a real generation is owed it.
 #[test]
 fn a_provisional_plan_is_owed_no_findings() {
     assert!(!frame_updates_mast_cache(PROVISIONAL), "the premise");
@@ -277,9 +276,9 @@ fn a_replan_hands_its_frame_on_before_its_findings() {
     );
 }
 
-/// F3-12 end to end: a provisional plan delivers its frame and no findings. The plan worker
-/// handles plans one at a time, so when the NEXT plan's findings arrive any findings of the
-/// provisional plan would have arrived before them.
+/// A provisional plan delivers its frame and no findings. The plan worker handles plans one at
+/// a time, so when the NEXT plan's findings arrive, any findings of the provisional plan would
+/// have arrived before them.
 #[test]
 fn a_provisional_replan_runs_no_findings_pass() {
     let sink = WarningSink::new();
@@ -326,12 +325,11 @@ fn unsolvable_design() -> Design {
     )
 }
 
-/// F4-8 end to end, as the sink sees it: a plan that solves, a plan that does not, a camera
-/// redraw. The camera redraw repeats the first plan's masts under the second plan's
-/// generation (which has no masts of its own), and the unsolvable plan carries none; filing
-/// those would let an export find the old masts "for exactly the new generation". With the
-/// sink's rule only the solved plan's masts are ever filed, under the generation they were
-/// solved for.
+/// As the sink sees it: a plan that solves, a plan that does not, and a camera redraw. The
+/// camera redraw repeats the first plan's masts under the second plan's generation (which has no
+/// masts of its own), and the unsolvable plan carries none. Filing those would let an export find
+/// the old masts "for exactly the new generation". With the sink's rule only the solved plan's
+/// masts are ever filed, under the generation they were solved for.
 #[test]
 fn only_the_solved_plan_has_masts_to_file_when_the_next_plan_does_not_solve() {
     let sink = WarningSink::new();
@@ -419,7 +417,7 @@ fn queued_job(design: &Arc<Design>, generation: u64) -> PlanJob {
     }
 }
 
-/// F3-17: only a plan with a plan of its own pass behind it is skipped.
+/// Only a queued committed plan makes a pass not worth running.
 #[test]
 fn only_a_queued_committed_plan_makes_a_pass_not_worth_running() {
     assert!(!newer_plan_will_run_a_pass(None), "nothing queued");
@@ -437,9 +435,9 @@ fn only_a_queued_committed_plan_makes_a_pass_not_worth_running() {
     );
 }
 
-/// F3-17: the pass runs on the plan worker, so a drag on a concave design must not wait for
-/// the pass of a plan the next one replaces. With a newer plan queued the pass is skipped (it
-/// stores nothing and delivers nothing); the plan nothing waits behind still gets its findings.
+/// The pass runs on the plan worker, so a drag on a concave design must not wait for the pass
+/// of a plan the next one replaces. With a newer plan queued the pass is skipped (it stores
+/// nothing and delivers nothing); the plan nothing waits behind still gets its findings.
 #[test]
 fn a_plan_with_a_newer_plan_queued_runs_no_pass_and_the_newest_still_gets_its_findings() {
     let design = Arc::new(Design::concave_fixture());
@@ -472,7 +470,7 @@ fn a_plan_with_a_newer_plan_queued_runs_no_pass_and_the_newest_still_gets_its_fi
     assert!(findings_of_plan(&state.warnings, &design).is_some());
 }
 
-/// F3-17: a Slice-tool plan waiting behind a committed plan does not take its pass away: it
+/// A Slice-tool plan waiting behind a committed plan does not take its pass away: it
 /// owes none, and nothing else would badge the committed design's rows.
 #[test]
 fn a_queued_provisional_plan_does_not_cost_the_committed_plan_its_pass() {

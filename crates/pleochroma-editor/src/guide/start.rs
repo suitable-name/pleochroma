@@ -332,7 +332,7 @@ mod tests {
         );
     }
 
-    /// The Standard Round Brilliant's culet plane lies 0.88 below the middle of the stone,
+    /// The Standard Round Brilliant's culet plane lies 0.89 below the middle of the stone,
     /// the Empty blank's floor 0.75: on that blank the culet never reaches the surface.
     #[test]
     fn the_empty_blank_would_clip_the_round_brilliants_culet_and_its_own_rough_does_not() {

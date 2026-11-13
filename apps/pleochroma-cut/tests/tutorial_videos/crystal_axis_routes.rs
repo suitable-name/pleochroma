@@ -248,9 +248,11 @@ fn as_material(film: &mut Film<'_>) -> Result<(), String> {
 
 // --- The Rough Planner --------------------------------------------------------------------
 
-/// Step 2: opens the planner, models a block of Sapphire and presses Set under CRYSTAL AXIS.
+/// Step 2: opens the planner, models a block of Sapphire and presses Known in the Crystal Axis
+/// step.
 fn rough_set_axis(film: &mut Film<'_>) -> Result<(), String> {
     film.film_rough_open()?;
+    planner_routes::open_step(film, 0)?;
     let (window, origin) = planner_routes::planner(film)?;
     let model = window.global::<RoughPlanModel>();
     let block = film.rough_control(
@@ -278,16 +280,24 @@ fn rough_set_axis(film: &mut Film<'_>) -> Result<(), String> {
     if !model.get_axis_available() {
         return Err("the planner shows no CRYSTAL AXIS section for Sapphire".into());
     }
-    let set = film.rough_control(window.window(), origin, "Set", AccessibleRole::Button)?;
-    film.click_secondary(window.window(), origin, &set)?;
+    // The Crystal Axis step exists (and has a header to open) only for this kind of material.
+    planner_routes::open_step(film, 1)?;
+    let known = film.rough_control(
+        window.window(),
+        origin,
+        "Known",
+        AccessibleRole::RadioButton,
+    )?;
+    film.click_secondary(window.window(), origin, &known)?;
     if !pacing::wait_real(pacing::STEP_TIMEOUT, || model.get_axis_set()) {
-        return Err("Set did not give the rough a crystal axis".into());
+        return Err("Known did not give the rough a crystal axis".into());
     }
     film.hold(pacing::RESULT_HOLD)
 }
 
 /// Picks `name` in the planner's Material list with the keys, like a learner with the list open.
 fn choose_material(film: &mut Film<'_>, name: &str) -> Result<(), String> {
+    planner_routes::open_step(film, 0)?;
     let (window, origin) = planner_routes::planner(film)?;
     let model = window.global::<RoughPlanModel>();
     let materials = model.get_materials();
@@ -345,30 +355,33 @@ fn choose_material(film: &mut Film<'_>, name: &str) -> Result<(), String> {
 
 /// Step 3: Fit to Crystal Length.
 fn rough_fit_axis(film: &mut Film<'_>) -> Result<(), String> {
+    planner_routes::open_step(film, 1)?;
     let (window, origin) = planner_routes::planner(film)?;
     let model = window.global::<RoughPlanModel>();
-    let fit = film.rough_control(
+    // Find the Axis is a menu: the button opens it and the entry does the fitting.
+    let find = film.rough_control(
         window.window(),
         origin,
-        "Fit to Crystal Length",
+        "Find the Axis",
         AccessibleRole::Button,
     )?;
-    film.click_secondary(window.window(), origin, &fit)?;
+    film.click_secondary(window.window(), origin, &find)?;
+    planner_routes::press_button(film, "Fit to Crystal Length")?;
     if !pacing::wait_real(pacing::STEP_TIMEOUT, || !model.get_axis_note().is_empty()) {
         return Err("Fit to Crystal Length left no note under the axis".into());
     }
     film.hold(pacing::RESULT_HOLD)
 }
 
-/// The first stone row of the selected result, picking a result card and a design row when the
-/// rows are not shown yet.
+/// Shows the stone rows of the selected result, picking a result card and a design row first
+/// when the rows are not shown yet.
 fn show_stone_rows(film: &mut Film<'_>) -> Result<(), String> {
     let (window, origin) = planner_routes::planner(film)?;
     let model = window.global::<RoughPlanModel>();
     let height = planner_routes::window_height(&window);
     let shown = || model.get_stone_rows().row_count() > 0;
     if shown() {
-        return Ok(());
+        return open_stones_fold(film);
     }
     let card = planner_routes::visible(&window, |element| {
         element.accessible_role() == Some(AccessibleRole::ListItem)
@@ -405,6 +418,29 @@ fn show_stone_rows(film: &mut Film<'_>) -> Result<(), String> {
             );
         }
     }
+    open_stones_fold(film)
+}
+
+/// Opens the "Stones" fold of the selected layout's detail, which holds the stone rows, unless a
+/// row's Reason field shows already. The link is scrolled into the Layouts list first, and the
+/// Reason field after it.
+fn open_stones_fold(film: &mut Film<'_>) -> Result<(), String> {
+    let link = planner_routes::reveal_in_results(film, "the Stones fold", &|| {
+        let window = harness_support::rough_planner_window()?;
+        targets::role_label(
+            &WindowView::of("RoughPlannerWindow", &window),
+            "Stones and the Crystal Axis",
+            AccessibleRole::Button,
+            None,
+        )
+    })?;
+    if in_first_row("Reason", AccessibleRole::TextInput).is_err() {
+        let (window, origin) = planner_routes::planner(film)?;
+        film.click_secondary(window.window(), origin, &link)?;
+    }
+    planner_routes::reveal_in_results(film, "the first stone row", &|| {
+        in_first_row("Reason", AccessibleRole::TextInput).ok()
+    })?;
     film.hold(pacing::RESULT_HOLD)
 }
 
@@ -426,11 +462,17 @@ fn override_stone(film: &mut Film<'_>) -> Result<(), String> {
     show_stone_rows(film)?;
     let (window, origin) = planner_routes::planner(film)?;
     let model = window.global::<RoughPlanModel>();
-    if let Ok(pose) = in_first_row("2", AccessibleRole::Button) {
+    // The pose choice is a segment of four radio buttons ("1" to "4"); only some stones offer it.
+    if in_first_row("2", AccessibleRole::RadioButton).is_ok() {
+        let pose = planner_routes::reveal_in_results(film, "the pose choice", &|| {
+            in_first_row("2", AccessibleRole::RadioButton).ok()
+        })?;
         film.click_secondary(window.window(), origin, &pose)?;
         film.hold(pacing::RESULT_HOLD)?;
     }
-    let field = in_first_row("Reason", AccessibleRole::TextInput)?;
+    let field = planner_routes::reveal_in_results(film, "the Reason field", &|| {
+        in_first_row("Reason", AccessibleRole::TextInput).ok()
+    })?;
     film.type_in_secondary(window.window(), origin, &field, REASON)?;
     if !pacing::wait_real(pacing::STEP_TIMEOUT, || {
         model
@@ -447,7 +489,9 @@ fn override_stone(film: &mut Film<'_>) -> Result<(), String> {
 fn lock_and_replan(film: &mut Film<'_>) -> Result<(), String> {
     let (window, origin) = planner_routes::planner(film)?;
     let model = window.global::<RoughPlanModel>();
-    let lock = in_first_row("Lock", AccessibleRole::Button)?;
+    let lock = planner_routes::reveal_in_results(film, "the Lock button", &|| {
+        in_first_row("Lock", AccessibleRole::Button).ok()
+    })?;
     film.click_secondary(window.window(), origin, &lock)?;
     if !pacing::wait_real(pacing::STEP_TIMEOUT, || {
         model
@@ -484,20 +528,7 @@ fn lock_and_replan(film: &mut Film<'_>) -> Result<(), String> {
 
 /// Step 8: Open in Editor on a design row, then the planner leaves the video.
 fn open_stone(film: &mut Film<'_>) -> Result<(), String> {
-    let (window, origin) = planner_routes::planner(film)?;
-    let height = planner_routes::window_height(&window);
-    let pill = planner_routes::visible(&window, |element| {
-        element.accessible_role() == Some(AccessibleRole::Button)
-            && element.accessible_enabled() != Some(false)
-            && element.accessible_label().is_some_and(|label| {
-                label.starts_with("Open ") && label.ends_with(" in the editor")
-            })
-    })
-    .into_iter()
-    .find(|spot| spot.y + spot.h < height - FOOTER_BAND)
-    .ok_or("no Open in Editor pill is visible above the results footer")?;
-    film.click_secondary(window.window(), origin, &pill)?;
-    film.hold(Duration::from_millis(500))?;
+    planner_routes::open_design_in_editor(film)?;
     if film.ui.global::<EditorModel>().get_unsaved_dialog_open() {
         return Err("Open in Editor raised an unsaved-changes question".into());
     }
@@ -508,7 +539,7 @@ fn open_stone(film: &mut Film<'_>) -> Result<(), String> {
             film.ui.get_toast_message()
         ));
     }
-    // The main window shows the design now; the planner is not part of the picture any more.
+    // The main window shows the design now and the planner leaves the picture.
     film.rec.detach_window();
     film.attached_window = None;
     film.hold(pacing::RESULT_HOLD)

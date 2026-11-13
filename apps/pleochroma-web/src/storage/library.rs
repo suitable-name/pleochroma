@@ -22,11 +22,11 @@
 //! # Async shape
 //!
 //! Every function is `async`, opens the database for the call and closes it again, and
-//! resolves when its transaction has completed. All of them return `Result<_, StoreError>`;
-//! none shows anything to the user, and none touches the autosave record. A read-modify-write
-//! (a counter, a tag edit, a mark) runs inside one `readwrite` transaction; the chained
-//! requests rely on the transaction staying active across the microtask that resumes the
-//! `.await`, which every current browser guarantees.
+//! resolves when its transaction has completed. All of them return `Result<_, StoreError>`.
+//! None shows anything to the user, and none touches the autosave record. A
+//! read-modify-write (a counter, a tag edit, a mark) runs inside one `readwrite`
+//! transaction. Its chained requests need that transaction to stay active across the
+//! microtask that resumes each `.await`.
 
 use super::{
     idb::{
@@ -991,8 +991,8 @@ pub async fn delete_variant(design_id: &str, variant_id: i64) -> StoreResult<boo
 
 /// The steps of a design marked done, in the order they were first marked.
 ///
-/// These are the library's copy by design id; Cutting Mode's own marks (`marks.rs`, keyed per
-/// the cutting-mode rule) are a separate store until a lane moves them here.
+/// This is the library's copy, keyed by design id. Cutting Mode's own marks (`marks.rs`,
+/// keyed by stone) are a separate store and are not read here.
 ///
 /// # Errors
 ///

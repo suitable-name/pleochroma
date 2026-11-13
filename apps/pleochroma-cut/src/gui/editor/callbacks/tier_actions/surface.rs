@@ -66,10 +66,10 @@ fn grade_index(grade: SurfaceGrade) -> i32 {
         .unwrap_or(0)
 }
 
-/// `old` moved to `grade`: the new grade's own values, with the old finish's scratch choices (Custom
-/// Angle, No Sweep) and frosted roughness kept where the new grade can use them. A Custom grade
-/// picked again keeps its Rq and anisotropy; a Custom grade picked from another grade starts from
-/// the Custom defaults and never inherits a frosted roughness (that would make it a ground finish).
+/// `old` moved to `grade`: the new grade's own values, keeping the old Custom Angle, No Sweep and
+/// frosted roughness where the new grade can use them. Picking Custom again keeps its Rq and
+/// anisotropy. Picking it from another grade starts from the Custom defaults, and never inherits
+/// a frosted roughness, which would make it a ground finish.
 fn finish_with_grade(old: &SurfaceFinish, grade: SurfaceGrade) -> SurfaceFinish {
     let mut finish = SurfaceFinish::of_grade(grade);
     if grade == SurfaceGrade::Custom && old.grade == SurfaceGrade::Custom {
@@ -136,8 +136,8 @@ fn facet_option_of(surface: Option<&TierSurface>, position: f64) -> i32 {
         })
 }
 
-/// `current` with the facet at `position` set to override-list entry `option`: `0` follows the tier
-/// again, otherwise the facet takes that grade (with the tier's scratch choices). `None` when
+/// `current` with the facet at `position` set to override-list entry `option`: `0` follows the
+/// tier again, otherwise the facet takes that grade (with the tier's scratch choices). `None` when
 /// nothing is left to state, or for an entry out of range.
 fn tier_with_facet_option(
     current: Option<&TierSurface>,
@@ -305,8 +305,8 @@ fn controls_of(ui: &MainWindow) -> Controls {
     }
 }
 
-/// Wires every `SurfaceModel` edit callback and fills the grade lists. Called once with the other
-/// tier callbacks (`tier_crud::setup_tier_crud_callbacks`).
+/// Wires every `SurfaceModel` edit callback and fills the grade lists. Called from
+/// `tier_crud::setup_toggle_detach_callback`.
 pub(super) fn setup_surface_callbacks(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,

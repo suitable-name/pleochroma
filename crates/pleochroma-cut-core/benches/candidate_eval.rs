@@ -1,12 +1,10 @@
-//! The pieces of one optimizer candidate evaluation, timed alone (BLD-2; findings
-//! PERF-1/PERF-2/PERF-3 in `review_perf_2026-10-12_fable.md`, section 5, table rows 1-3).
+//! The pieces of one optimizer candidate evaluation, timed alone.
 //!
 //! Fixture: RBC-445 (12 tiers), the small real meet-derived design the `cost_probe` test
 //! uses; the 103-tier CrackOtto-Step design appears for `solve` and the Fast objective
-//! only (its Full objective and the optimizer's inner loop are minutes, not a bench).
-//! Expected before any fix, 16-core AVX-512 host, release: RBC-445 `Full` 1.2-1.4 s,
-//! `Fast` 2.0-2.4 ms (PERF-2: 0.4-0.65 s and 0.7-1.1 ms), mesh plus measure plus
-//! manufacturability together 1.5-3 ms (PERF-3: under 1 ms), CrackOtto-Step `solve`
+//! only (its Full objective and the optimizer's inner loop take minutes, not a bench).
+//! Reference timings on a 16-core AVX-512 host, release: RBC-445 `Full` 1.2-1.4 s, `Fast`
+//! 2.0-2.4 ms; mesh plus measure plus manufacturability 1.5-3 ms; CrackOtto-Step `solve`
 //! about 5.9 s.
 //!
 //! The fixture builder repeats `optimize/tests/fixtures.rs` (private to the crate's test
@@ -53,7 +51,7 @@ const RBC_445: &str = "GemCad 5.0\ng 96 0.0\ny 3 y\nI 1.54\n\
      a 20.940747 0.56272062 14 n D 18 46 50 78 82\n\
      a 0.000000 0.40674031 96 n E\n";
 
-/// The 103-tier design the cost probe measures its 5.9 s solve against.
+/// The 103-tier CrackOtto-Step design the cost probe measures.
 const CRACKOTTO_STEP: &str = include_str!("../src/optimize_cost_probe_crackotto_step.asc");
 
 /// A real [`Design`] with genuine meet-derived structure from raw `.asc` text: every tier

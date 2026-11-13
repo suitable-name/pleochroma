@@ -4,7 +4,7 @@
 //! Plus [`narrow_compat`], the MIS-family narrowing step those functions share at an
 //! interior dispersive event.
 
-use super::{DIRECTION_MATCH_COS_TOL, geometry::BounceRefractionGeometry};
+use super::{directions_match, geometry::BounceRefractionGeometry};
 use crate::optics::{
     birefringence::{AbsorptionTensor3, BiaxialIndicatrix},
     materials::GemMaterial,
@@ -14,11 +14,11 @@ use crate::optics::{
 };
 use glam::Vec3;
 
-/// Per-ray context that stays fixed across every bounce of `trace_spectral_ray`'s main
-/// loop: the material, the ray's 8 hero-wavelength comb, which slot drives the shared
-/// geometric path, the optical c-axis, and whether this material is anisotropic at
-/// all. Bundled into one struct to keep [`super::geometry::compute_bounce_refraction_geometry`]'s
-/// argument count within clippy's `too_many_arguments` limit.
+/// Per-ray context fixed across every bounce of `trace_spectral_ray`'s main loop: the material,
+/// the 8 hero-wavelength comb, the slot that drives the shared geometric path, the optical c-axis,
+/// and whether the material is anisotropic. A struct so that
+/// [`super::geometry::compute_bounce_refraction_geometry`] stays under clippy's
+/// `too_many_arguments` limit.
 pub(crate) struct RayMaterialContext<'a> {
     pub(crate) material: &'a GemMaterial,
     pub(crate) lambdas: [f32; NUM_CHANNELS],
@@ -30,14 +30,10 @@ pub(crate) struct RayMaterialContext<'a> {
     pub(crate) enable_internal_mode_coupling: bool,
 }
 
-/// Per-sample cache of quantities that depend only on the ray's fixed 8-wavelength comb
-/// (`ctx.lambdas`) and the material -- both fixed for the whole trace -- computed once
-/// via [`super::wavelength_cache::build_ray_wavelength_cache`] and read back every bounce
-/// instead of recomputed. Kept as its own struct rather than new fields on
-/// [`RayMaterialContext`]: that struct is built via a bare struct literal at several
-/// `renderer::gpu::transport_check` Tier 2 GPU self-test call sites that must keep
-/// compiling unchanged, and it cannot derive `Default` (its `&'a GemMaterial` field
-/// isn't `Default`).
+/// Per-sample cache of quantities that depend only on the fixed 8-wavelength comb
+/// (`ctx.lambdas`) and the material, built once by
+/// [`super::wavelength_cache::build_ray_wavelength_cache`] and read every bounce. Separate from
+/// [`RayMaterialContext`], which GPU self-test call sites build by struct literal.
 pub(crate) struct RayWavelengthCache {
     /// `material.dispersion.evaluate(lambdas[k])` per channel. See
     /// [`super::geometry::per_channel_uniaxial_indices`] for the per-bounce `n_eff_ch`
@@ -59,6 +55,9 @@ pub(crate) struct RayWavelengthCache {
     /// The zoned-absorption tables (kernel plus per-zone tensors); `Some` exactly when
     /// `material.zoning` is. See `raytracer::zoned`.
     pub(crate) zoned: Option<crate::optics::raytracer::zoned::ZonedCache>,
+    /// The optics lookup tables of this render (`optics::tables`); `None` (the default) leaves
+    /// every Fresnel and absorption site on its closed form, bit for bit.
+    pub(crate) tables: Option<std::sync::Arc<crate::optics::tables::OpticsTableSet>>,
 }
 
 /// Per-trace context for exit-event spectral splitting -- see `refraction`'s top-of-file
@@ -67,7 +66,7 @@ pub(crate) struct RayWavelengthCache {
 /// same way [`RayMaterialContext`]/[`RayWavelengthCache`] are; the two per-trace
 /// accumulators (`split_radiance`, `compat`) are threaded as `&mut` through every
 /// bounce-dispatch function exactly like `stokes`/`path_pdf` are. `radiance` itself
-/// stays outside (threaded separately, as it always was).
+/// stays outside, threaded separately.
 pub(in crate::optics::raytracer) struct ExitSplitCtx<'a> {
     /// The same intersection arena `trace_spectral_ray_inner`'s own bounce loop already
     /// built once per trace -- reused here for [`super::exit_split::try_split_exit_channel`]'s
@@ -87,24 +86,22 @@ pub(in crate::optics::raytracer) struct ExitSplitCtx<'a> {
     /// primary ray -- for the lit lighting models' head shadow; see
     /// `environment::sample_studio_environment_observed`.
     pub(in crate::optics::raytracer) observer: Vec3,
-    /// A staging accumulator, separate from `trace_spectral_ray_inner`'s own
-    /// `radiance`: every split channel's contribution lands here first, and
-    /// `trace_spectral_ray_inner` folds it into `radiance` only if the shared/hero path
-    /// itself ultimately terminates via [`PathTermination::Escaped`]. This mirrors the
-    /// all-or-nothing way `accumulate_miss_radiance` already works for a plain
-    /// matching channel: if the shared path instead terminates via Russian roulette,
-    /// scatter absorption, or `max_bounces`, `accumulate_miss_radiance` is never called
-    /// and every channel's `radiance` stays `0.0` regardless of how many exit events it
-    /// survived. Without this staging + conditional-commit step, a split channel would
-    /// keep contributions in exactly the cases a plain matching channel would have lost
-    /// them -- an asymmetry `transport::exit_splitting_tests` caught empirically
-    /// (splitting-on/off z-scores growing rather than shrinking with sample count).
+    /// A staging accumulator, separate from `trace_spectral_ray_inner`'s own `radiance`. Every
+    /// split channel's contribution lands here first, and it is folded into `radiance` only if
+    /// the shared path terminates via [`PathTermination::Escaped`], as
+    /// `accumulate_miss_radiance` does for a matching channel. Any other termination (Russian
+    /// roulette, scatter absorption, `max_bounces`) discards it, so a split channel is not
+    /// credited where a matching one is not.
+    ///
+    /// A bounce off the glossy tray (Tray Reflection) is also an environment lookup of the
+    /// shared path: it commits this staging area into `radiance` and flushes both to the
+    /// integrated `nee_xyz` (`PathState::flush_radiance_to_nee`), after which it is empty
+    /// again. At an exit, a channel whose own direction, or the hero's, meets the tray stages
+    /// nothing here (see [`super::exit_leaves_via_floor`]).
     pub(in crate::optics::raytracer) split_radiance: &'a mut [f32; NUM_CHANNELS],
-    /// `false` reproduces pre-splitting chromatic-termination behaviour bit-for-bit at
-    /// every exit event; `true` (the production default from every public entry point)
-    /// enables splitting. Mirrors `RayMaterialContext`'s own
-    /// `enable_internal_mode_coupling` precedent: threaded only as far as
-    /// `trace_spectral_ray_inner`'s own parameter, never exposed publicly.
+    /// `false` gives chromatic termination without splitting, bit for bit at every exit event;
+    /// `true` (the default of every public entry point) enables splitting. Threaded only as far
+    /// as `trace_spectral_ray_inner`'s parameter, never exposed publicly.
     pub(in crate::optics::raytracer) enabled: bool,
     /// Pairwise spectral-compatibility mask -- bit `j` of `compat[c]` is set while
     /// channels `c` and `j` have refracted within `DIRECTION_MATCH_COS_TOL` of each
@@ -116,21 +113,16 @@ pub(in crate::optics::raytracer) struct ExitSplitCtx<'a> {
     /// by [`narrow_compat`]; read by `color::integrate_channels_to_xyz_families`. Only
     /// meaningful while `enabled`.
     pub(in crate::optics::raytracer) compat: [u8; NUM_CHANNELS],
-    /// The balance-heuristic MIS weight [`super::exit_split::try_split_exit_channel`]
-    /// must apply to every channel it adds into `split_radiance` THIS bounce -- `1.0`
-    /// (the default outside a transmit-out event) reproduces the pre-MIS-weighted
-    /// behaviour exactly. Set by `transport::bounce::dispatch_bounce` right before it
-    /// dispatches a bounce that MIGHT turn out to be a transmit-out-of-gem event with a
-    /// live incoming NEE carry (`pre_bounce_inside_gem && incoming_light_mis.is_some()`,
-    /// mirroring the hero's own escape weight at `transport::inner`'s
-    /// `phase_pdf_for_mis_this_check` site: `balance_heuristic(phase_pdf,
-    /// environment_nee_pdf(environment, interior_dir))`), and reset to `1.0` right after
-    /// that dispatch returns. A dispatch that turns out to reflect (or to transmit
-    /// without a live carry) never reads this field for a nonzero contribution, since
-    /// `try_split_exit_channel` is only reachable from the transmit/chromatic-termination
-    /// branch in the first place -- so setting it speculatively before the branch
-    /// decision is made is harmless.
+    /// The balance-heuristic MIS weight [`super::exit_split::try_split_exit_channel`] applies to
+    /// every channel it adds this bounce; `1.0` outside a transmit-out event with a live incoming
+    /// NEE carry. Set by `transport::bounce::dispatch_bounce` before the dispatch, which may turn
+    /// out to be such an event, and reset to `1.0` after it. A dispatch that reflects never reads
+    /// it, since only the transmit branch reaches `try_split_exit_channel`.
     pub(in crate::optics::raytracer) split_mis_weight: f32,
+    /// How each channel's refracted direction is matched against the hero's at the
+    /// dispersive events; `DirectionMatch::default()` (the tolerance test) in production, and
+    /// `Exact` for the beam tracer's reference tracer.
+    pub(in crate::optics::raytracer) direction_match: super::DirectionMatch,
 }
 
 const _: () = assert!(
@@ -138,11 +130,34 @@ const _: () = assert!(
     "ExitSplitCtx::compat packs one bit per channel into a u8"
 );
 
-/// Bundles the three read-only context references (fixed per trace, per sample, and
-/// per bounce respectively) every isotropic/biaxial bounce-dispatch function in this
-/// module needs, instead of each of those functions taking the flat `ctx, cache, geo`
-/// parameter triple individually. Purely a signature-level grouping: every
-/// field is the exact same reference the caller already had.
+/// The per-bounce state of the exit-collection estimator
+/// ([`crate::optics::raytracer::Estimator`]).
+///
+/// A separate struct rather than fields of [`ExitSplitCtx`] (which a number of tests build with a
+/// struct literal): the bounce loop builds one per facet event and hands it to
+/// `transport::bounce::dispatch_bounce`. With `active == false` nothing here is read or written
+/// and the event is the branching estimator's, bit for bit.
+///
+/// A collected leaf is a transmitted exit (or, at an entry, the mirror reflection) that is added
+/// to [`Self::collected`] at once, with its spectral-MIS weight already applied, instead of
+/// being carried on a branch; see `refraction::dispatch::apply_collect_bounce`. `collected` is
+/// final: Russian roulette never rescales it, and the end of the trace integrates it with the
+/// plain comb sum.
+pub(in crate::optics::raytracer) struct ExitCollect<'a> {
+    /// Whether this event is traced by exit collection.
+    pub(in crate::optics::raytracer) active: bool,
+    /// Whether a leaf of this event counts. The branching estimator only sees the escape of a
+    /// branch in the next loop iteration, so an event of the last iteration earns nothing there;
+    /// the collected leaf follows the same convention and the two estimators truncate alike.
+    pub(in crate::optics::raytracer) credit: bool,
+    /// Scale of the mirror reflection at an entry: the surface-glare factor at bounce 0, else 1.
+    pub(in crate::optics::raytracer) entry_leaf_scale: f32,
+    /// The weighted leaf radiance per channel.
+    pub(in crate::optics::raytracer) collected: &'a mut [f32; NUM_CHANNELS],
+}
+
+/// The three read-only references (fixed per trace, per sample and per bounce) that every
+/// isotropic and biaxial bounce-dispatch function needs. Each field is the caller's own reference.
 pub(in crate::optics::raytracer) struct BounceContext<'m, 'b> {
     pub(in crate::optics::raytracer) ctx: &'b RayMaterialContext<'m>,
     pub(in crate::optics::raytracer) cache: &'b RayWavelengthCache,
@@ -229,7 +244,7 @@ pub(super) fn narrow_compat(
             } else if b == hero {
                 hero_match[a]
             } else if let (Some(da), Some(db)) = (dirs[a], dirs[b]) {
-                da.dot(db) >= DIRECTION_MATCH_COS_TOL
+                directions_match(da, db)
             } else {
                 true
             };

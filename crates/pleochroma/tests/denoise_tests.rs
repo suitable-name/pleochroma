@@ -1,8 +1,5 @@
-//! Tests for the edge-avoiding À-Trous wavelet denoiser (`pleochroma::renderer::denoise`).
-//!
-//! This module is deliberately self-contained and not wired into the render loop (see
-//! the module docs on `pleochroma::renderer::denoise`), so these tests exercise it directly
-//! against synthetic buffers rather than through any render path.
+//! Tests for the edge-avoiding À-Trous wavelet denoiser (`pleochroma::renderer::denoise`),
+//! run on synthetic buffers rather than through a render path.
 
 use glam::Vec3;
 use pleochroma::renderer::{
@@ -12,8 +9,7 @@ use pleochroma::renderer::{
 };
 use std::ops::Range;
 
-/// A tiny deterministic xorshift32 PRNG so tests do not need an external `rand`
-/// dependency and are reproducible without any seed-management ceremony.
+/// Deterministic xorshift32 PRNG: reproducible test data without an external `rand` crate.
 struct Xorshift32(u32);
 
 impl Xorshift32 {
@@ -83,10 +79,9 @@ fn region_mse(buf: &[Vec3], truth: Vec3, width: usize, xs: &Range<usize>, ys: Ra
 /// wavelength speckle, filters it, and asserts the filtered image is measurably closer
 /// to ground truth than the noisy input was.
 ///
-/// This is the test the task description calls out by name: an over-aggressive filter
-/// can reduce the *variance* of its own output while making the *error against ground
-/// truth* worse (e.g. by converging confidently on the wrong local average). Comparing
-/// MSE-to-ground-truth (not the filtered output's own variance) is what catches that.
+/// An over-aggressive filter can lower the variance of its own output while making the error
+/// against ground truth worse (by converging on the wrong local average), so the check
+/// compares MSE to ground truth, not the output's variance.
 #[test]
 fn filtering_reduces_error_against_ground_truth() {
     let width = 48;
@@ -785,9 +780,9 @@ fn zero_passes_param_does_not_panic() {
 // 8. Non-finite texels, background pixels, and frames with no samples.
 // ---------------------------------------------------------------------------------
 
-/// One NaN or infinite color texel must stay a local problem: every other pixel of a
-/// uniform image has to come out as the uniform color, and the damaged texels themselves
-/// must be repaired from their neighbours rather than staying non-finite. (Previously a single NaN poisoned the whole 5x5 window of every pass.)
+/// One NaN or infinite color texel stays a local problem: every other pixel of a uniform image
+/// comes out as the uniform color, and the damaged texels are repaired from their neighbours
+/// rather than left non-finite.
 #[test]
 fn a_non_finite_texel_does_not_contaminate_its_neighbours() {
     let width = 40;

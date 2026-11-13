@@ -14,7 +14,7 @@ use pleochroma_editor::{
 };
 
 /// Viridis at nine evenly spaced stops: dark purple for the worst value, yellow for the best.
-/// It reads in grey scale and for every common kind of color blindness.
+/// Chosen to stay readable in grey scale and under common color-vision deficiencies.
 const VIRIDIS: [[u8; 3]; 9] = [
     [68, 1, 84],
     [72, 40, 120],

@@ -1,5 +1,6 @@
-//! `f32` structure-of-arrays plane arena and slab-method ray/polyhedron
-//! intersection: [`PlanesSoA32`] and [`slab_scan`], the spectral raytracer's
+//! `f32` structure-of-arrays plane arena and slab-method ray/polyhedron intersection.
+//!
+//! It provides [`PlanesSoA32`] and [`slab_scan`], the spectral raytracer's
 //! `intersect_polyhedron_soa` inner loop, with its scalar reference and
 //! AVX2/AVX-512 kernels.
 
@@ -373,10 +374,9 @@ fn slab_scan_avx512(planes: &PlanesSoA32, origin: Vec3, dir: Vec3) -> SlabScan {
 /// Slab-method scan of a ray against every plane in ascending index order --
 /// the raytracer's `intersect_polyhedron` inner loop.
 ///
-/// The vector paths
-/// compute `denom`/`side`/`t` lanes with the exact scalar operation order and
-/// replay the per-plane decisions sequentially, so the result is
-/// bit-identical to the scalar loop at every dispatch level.
+/// The vector paths compute `denom`/`side`/`t` lanes with the exact scalar operation order and
+/// replay the per-plane decisions sequentially, so the result is bit-identical to the scalar
+/// loop at every dispatch level.
 #[must_use]
 pub fn slab_scan(planes: &PlanesSoA32, origin: Vec3, dir: Vec3) -> SlabScan {
     match simd_level() {
@@ -408,22 +408,16 @@ mod tests {
         };
         for count in [1usize, 5, 8, 9, 16, 17, 40, 100] {
             for _round in 0..20 {
-                // A random unit direction per round, not the fixed (0, -1, 0) this test
-                // used to hardcode -- that direction has zero x/z components, so a
-                // kernel that silently dropped the x/z dot-product terms from its
-                // denom/side/t lanes would still agree with the scalar replay on every
-                // round. A random `dir` exercises all three components.
+                // A random unit direction per round: a fixed axis would leave the x/z
+                // dot-product terms of the denom/side/t lanes unexercised.
                 let dir = {
                     let d = Vec3::new(next(), next(), next());
                     d / d.length().max(1e-3)
                 };
                 let mut raw: Vec<([f32; 3], f32)> = Vec::new();
                 for i in 0..count {
-                    // Sprinkle in planes exactly parallel to THIS round's `dir`
-                    // (dot(dir, n) == 0) to exercise the parallel-reject branch --
-                    // computed relative to `dir` itself (rather than the old fixed
-                    // (0, 1, 0), which only stayed parallel because `dir` was also
-                    // fixed) so the branch keeps firing now that `dir` is randomized.
+                    // Every ninth plane is exactly parallel to this round's `dir`
+                    // (dot(dir, n) == 0), exercising the parallel-reject branch.
                     let n = if i % 9 == 3 {
                         let fallback = if dir.x.abs() < 0.9 { Vec3::X } else { Vec3::Y };
                         let perp = dir.cross(fallback).normalize();

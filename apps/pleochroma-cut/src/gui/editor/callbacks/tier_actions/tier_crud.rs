@@ -180,16 +180,10 @@ fn remove_tier_now(
     }
 }
 
-/// A row's "Duplicate" button and the tier list's Ctrl+D: inserts a copy of the
-/// named tier (name suffixed `'`, same indices/angle/constraint/detached set)
-/// immediately AFTER the source row as a new `Edit::AddTier` through
-/// `EditorState::apply` -- not appended at the end, since cut order is meaningful
-/// (`Edit::AddTier` already supports an arbitrary insertion index, so this passes
-/// the source row's own position plus one rather than appending at the end) --
-/// then moves the tier-list selection to the copy.
-/// The copy's `imported_meet` is always cleared -- it is a new, user-authored row,
-/// not itself something a real `.asc` file's `G` field ever made a claim about,
-/// even though the tier it was copied FROM might carry one.
+/// A row's "Duplicate" button and Ctrl+D. Inserts a copy of the tier, with a counted name, right
+/// after its source, as one `Edit::AddTier`: cut order matters, so it is not appended. The
+/// selection moves to the copy. The copy's `imported_meet` is always cleared, since the copy is a
+/// new row and no `.asc` `G` field speaks for it.
 pub(in crate::gui::editor) fn setup_duplicate_tier_callback(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -272,17 +266,10 @@ pub(in crate::gui::editor) fn setup_duplicate_tier_callback(
 /// symmetric tier's occurrences stay linked (an edit moves the whole orbit) until the
 /// user clicks this, and detaching never happens as a side effect of any other action.
 ///
-/// Also the wiring point for [`setup_move_tier_callback`]/[`setup_complete_orbit_
-/// callback`]/[`setup_clear_multi_select_callback`]/[`setup_remove_multi_selected_
-/// callback`]/[`setup_facet_remove_callback`]/[`setup_facet_toggle_detach_callback`]/
-/// [`setup_facet_add_callback`]/[`setup_tier_rotate_indices_callback`]/
-/// [`setup_tier_mirror_indices_callback`]/[`setup_generate_step_series_callback`]/
-/// [`setup_mirror_tier_to_other_block_callback`] (the last two share this one
-/// entry point) -- `gui::editor::mod::setup_editor_callbacks` has one fixed call
-/// site per `setup_*` function name, so a genuinely new callback can only be wired
-/// up by piggybacking its own `setup_*` call onto an EXISTING call site that
-/// already receives every argument it needs; this is the one existing call already
-/// carrying `render_ctx`/`preview_state`/`solid_last_solved` alongside `ui`/`state`.
+/// Also wires the other tier-list callbacks that take the same arguments: move, complete orbit,
+/// multi-select clear and remove, facet editing, frosting, surface finish, adopt and pin, tooth
+/// highlight, generated series, relations and mirroring to the other block. This is the one
+/// existing call site that receives `render_ctx`, `preview_state` and `solid_last_solved`.
 pub(in crate::gui::editor) fn setup_toggle_detach_callback(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -290,15 +277,9 @@ pub(in crate::gui::editor) fn setup_toggle_detach_callback(
     preview_state: &Arc<SolidPreviewState>,
     solid_last_solved: &SolidLastSolved,
 ) {
-    // Stashes the shared `RenderContext` handle for
-    // `auto_solve::render_ctx()` -- this is one of several `setup_*_callback`s
-    // already given the `Arc` directly by `gui::editor::mod::setup_editor_
-    // callbacks`, and it runs once here, synchronously, before
-    // `setup_editor_callbacks` returns and the
-    // event loop starts -- so by the time a user can hover or click anything,
-    // `setup_solid_facet_hover_callback`/`setup_solid_facet_click_callback`
-    // (whose own fixed call site never receives `render_ctx` at all) can already
-    // read it back to map a click through the letterboxed pick rectangle.
+    // Stashes the render context for `auto_solve::render_ctx()`. The Solid hover and click
+    // callbacks are wired without it, and read it back to map clicks through the letterboxed pick
+    // rectangle. This runs before the event loop starts, so it is in place by then.
     auto_solve::stash_render_ctx(render_ctx);
 
     let state_toggle = Rc::clone(state);
@@ -354,10 +335,7 @@ pub(in crate::gui::editor) fn setup_toggle_detach_callback(
     setup_complete_orbit_callback(ui, state, render_ctx, preview_state, solid_last_solved);
     setup_clear_multi_select_callback(ui, state);
     setup_remove_multi_selected_callback(ui, state, render_ctx, preview_state, solid_last_solved);
-    // #45: per-facet index editing -- piggybacked here for the same reason the four
-    // calls above are (see this function's own doc comment's "wiring point" section):
-    // this is the one existing `editor::setup_editor_callbacks` call site that already
-    // receives `render_ctx`/`preview_state`/`solid_last_solved` alongside `ui`/`state`.
+    // Per-facet index editing.
     setup_facet_remove_callback(ui, state, render_ctx, preview_state, solid_last_solved);
     setup_facet_toggle_detach_callback(ui, state, render_ctx, preview_state, solid_last_solved);
     // Frosted tier and frosted facet: one undo step each, no replan (see `frosting`).
@@ -368,12 +346,10 @@ pub(in crate::gui::editor) fn setup_toggle_detach_callback(
     setup_facet_add_callback(ui, state, render_ctx, preview_state, solid_last_solved);
     setup_tier_rotate_indices_callback(ui, state, render_ctx, preview_state, solid_last_solved);
     setup_tier_mirror_indices_callback(ui, state, render_ctx, preview_state, solid_last_solved);
-    //    // "wiring point" reason given above.
     setup_adopt_all_callback(ui, state, render_ctx, preview_state, solid_last_solved);
     setup_adopt_selected_callback(ui, state, render_ctx, preview_state, solid_last_solved);
     setup_pin_to_mast_callback(ui, state, render_ctx, preview_state, solid_last_solved);
     setup_highlight_tooth_callback(ui, state);
-    //    // reason given above.
     setup_generate_step_series_callback(ui, state, render_ctx, preview_state, solid_last_solved);
     // Tier relations: "Remove relation" and the hint for an angle that cannot be edited
     // (the linked step series registers with the plain one just above).
@@ -387,14 +363,9 @@ pub(in crate::gui::editor) fn setup_toggle_detach_callback(
     );
 }
 
-/// Row reorder (`Alt+Up`/`Alt+Down` and the tier list's own move buttons,
-/// `editor_tier_table.slint`): moves the tier at `index` to `index + direction` as
-/// one `Edit::MoveTier` -- a single `History` step (one undo press restores the
-/// original order) with its own honest "Move tier P1 up/down" label, rather than
-/// the two independently-undoable `Edit::ModifyTier` content swaps this used
-/// before `Edit::MoveTier` existed. `MoveTier` renumbers every tier strictly
-/// between `from` and `to` (see its own doc comment), so this always forces a full
-/// re-solve rather than passing a `dirty` set of just the two endpoints.
+/// Row reorder (`Alt+Up`/`Alt+Down` and the tier list's move buttons): moves the tier at `index`
+/// to `index + direction` as one `Edit::MoveTier`, a single undo step. `MoveTier` renumbers every
+/// tier between the two positions, so this forces a full re-solve rather than a `dirty` set.
 fn setup_move_tier_callback(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -466,14 +437,11 @@ fn setup_move_tier_callback(
         });
 }
 
-/// The tier table's "Complete orbit" action (shown on a row whose
-/// [`EditorTierItem::orbit_incomplete`](crate::EditorTierItem) is set): expands
-/// EVERY incomplete orbit unit the tier currently decomposes into
-/// (`Design::orbit_units`) to its full symmetric membership via one
-/// `Design::add_orbit_member` call each, anchored on that unit's own first member
-/// -- a tier with several independent incomplete units (rare, but possible) is
-/// fully completed in one click, as several separately-undoable `History` steps
-/// rather than a new batch primitive.
+/// The tier table's "Complete orbit" action, shown on a row whose
+/// [`EditorTierItem::orbit_incomplete`](crate::EditorTierItem) is set. Expands every incomplete
+/// orbit unit of the tier to its full symmetric membership. Each unit is one
+/// `Design::add_orbit_member` edit, anchored on the unit's first member, so a tier with several
+/// incomplete units takes one undo step per unit.
 fn setup_complete_orbit_callback(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -541,11 +509,9 @@ fn setup_clear_multi_select_callback(ui: &MainWindow, state: &Rc<RefCell<EditorS
     });
 }
 
-/// The tier table header's "Delete" action on its "N selected" indicator: removes
-/// every multi-selected tier, highest index first (so removing one never shifts
-/// an index still waiting to be removed out from under this loop) -- as several
-/// separately-undoable `Edit::RemoveTier`s, matching [`setup_complete_orbit_
-/// callback`]'s "several `History` steps, no new batch primitive" trade-off.
+/// The tier table header's "Delete" action on its "N selected" indicator. Removes every
+/// multi-selected tier, highest index first, so an index still waiting is never shifted. Each
+/// removal is its own `Edit::RemoveTier` and its own undo step.
 fn setup_remove_multi_selected_callback(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,

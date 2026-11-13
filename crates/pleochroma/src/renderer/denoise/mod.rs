@@ -1,10 +1,9 @@
 //! Edge-avoiding À-Trous wavelet denoiser.
 //!
-//! Correct spectral dispersion means that once a path refracts dispersively, only the
-//! hero wavelength survives -- each sample carries one wavelength's color rather than
-//! an average of eight, producing both the fire and the chromatic speckle in the
-//! viewport (the same phenomenon). That noise is removed by filtering (this module) or
-//! by more samples, not by making transport less correct.
+//! Once a path refracts dispersively only its hero wavelength survives, so each sample
+//! carries one wavelength's color rather than an average of eight. That gives the fire and
+//! the chromatic speckle in the viewport. The noise is removed by filtering (this module)
+//! or by more samples, not by making transport less correct.
 //!
 //! An edge-avoiding À-Trous wavelet filter (Dammertz, Sewtz, Hachisuka, Hensley Danskin
 //! 2010), not full A-SVGF: a handful of separable-in-spirit passes, no temporal history
@@ -12,6 +11,11 @@
 //! a fraction of the complexity. Each pass convolves with a widening (dilated) 5x5
 //! B3-spline kernel while down-weighting neighbours whose guide buffers disagree with
 //! the centre pixel's.
+//!
+//! The guide buffers hold the bounce-0 hit only. With a Tray Reflection, the stone seen
+//! mirrored in the tray is reached after a floor bounce, so it has no primary hit (facet
+//! id -1) and the filter passes it through unfiltered: the reflection stays as noisy as the
+//! samples make it. This is a documented approximation (physics.md section 9).
 //!
 //! # Wiring
 //!
@@ -54,7 +58,7 @@
 //!   hash of the facets the centre ray meets inside the stone. Inside one crown facet the
 //!   reflection pattern is the map of those interior regions; colour alone cannot tell it
 //!   from speckle, geometry can. A pure early return, so with `None` the filter is
-//!   bit-identical to the three-term-plus-colour form below.
+//!   bit-identical to the filter without the term.
 //! - **Normal**: `max(0, dot(n_p, n_q))^normal_power` (SVGF-style cosine-power weight),
 //!   a safety net for normal discontinuities facet id alone might miss; also constant.
 //! - **Depth**: `exp(-|z_p - z_q| / sigma_depth)`. A secondary tie-breaker (facets are
@@ -81,17 +85,16 @@
 //! counts the filter keeps smearing real detail no longer distinguishable from noise:
 //!
 //! ```text
-//! taper(spp) = 1 / sqrt(1 + spp / N0)          (N0 = TAPER_REFERENCE_SPP = 4.0)
+//! taper(spp) = 1 / sqrt(1 + spp / N0)          (N0 = taper_reference_spp = 4.0)
 //! sigma_color_effective(spp) = sigma_color_base * taper(spp)
 //! ```
 //!
 //! `taper = 1.0` at `spp = 0`, `~0.71` at `spp = N0`, `0.447` at `spp = 4*N0 = 16`;
 //! smooth and never exactly zero, matching real MC noise.
 //!
-//! Below `taper < TAPER_IDENTITY_EPSILON = 0.02` (around `spp ~= 10_000`) the filter
-//! short-circuits to a plain copy: every neighbour's color weight is by then
-//! numerically indistinguishable from the centre's own weight-of-one, and this also
-//! gives an exact bit-identical identity result.
+//! Below `taper < taper_identity_epsilon` (0.02 by default, around `spp ~= 10_000`) the filter
+//! short-circuits to an exact copy: every neighbour's color weight is then indistinguishable
+//! from the centre's weight of one.
 //!
 //! # Allocation and threads
 //!
@@ -113,19 +116,16 @@ use std::sync::atomic::{AtomicBool, Ordering};
 /// The auxiliary ("guide") buffers the filter needs alongside the noisy color buffer,
 /// one entry per pixel, row-major (`index = y * width + x`).
 ///
-/// All buffer slices must have exactly `width * height` elements; [`AtrousDenoiser::denoise`]
-/// treats a mismatched length as a degenerate/empty input (see its docs) rather than
-/// panicking.
+/// All buffer slices must have exactly `width * height` elements. A mismatched length degrades
+/// to a copy of `color` rather than panicking (see [`AtrousDenoiser::denoise_into`]).
 #[derive(Clone, Copy)]
 pub struct GBuffers<'a> {
     /// Averaged CIE XYZ radiance per pixel (i.e. the accumulation buffer already
     /// divided by `spp`), row-major.
     pub color: &'a [Vec3],
     /// First-hit depth (camera-space ray parameter `t`, or any monotonic distance
-    /// measure) per pixel. Non-finite depth values are treated as "no information"
-    /// (contribute a neutral depth weight) rather than propagating NaNs, but a large
-    /// finite sentinel (e.g. `1.0e6`) is still the recommended convention for
-    /// background/miss pixels since it composes better with future refinements.
+    /// measure) per pixel. Non-finite depths get a neutral depth weight rather than propagating
+    /// NaNs. Background pixels should use a large finite sentinel such as `1.0e6`.
     pub depth: &'a [f32],
     /// First-hit shading normal per pixel, need not be pre-normalised (the filter
     /// normalises defensively).
@@ -243,9 +243,8 @@ impl AtrousDenoiser {
     /// `Vec<Vec3>` of the same length. See [`Self::denoise_into`] for the
     /// allocation-free form.
     ///
-    /// Degenerate inputs (zero-size image, mismatched buffer lengths, `num_passes ==
-    /// 0`) return a plain clone of `inputs.color` (or an empty vec for a zero-size
-    /// image) rather than panicking.
+    /// Degenerate inputs (zero-size image, mismatched guide buffers) do not panic; see
+    /// [`Self::denoise_into`] for what they return.
     #[must_use]
     pub fn denoise(&mut self, inputs: &GBuffers<'_>, params: &AtrousParams) -> Vec<Vec3> {
         let mut output = vec![Vec3::ZERO; inputs.color.len()];
@@ -265,8 +264,7 @@ impl AtrousDenoiser {
     /// treated as "no filtering" (falls back to a copy of `color`).
     ///
     /// Runs each pass across all available CPU cores (see
-    /// [`Self::denoise_into_with_threads`] for a pinned thread count) -- the difference
-    /// between multi-second and sub-second passes at high resolution.
+    /// [`Self::denoise_into_with_threads`] for a pinned thread count).
     pub fn denoise_into(
         &mut self,
         inputs: &GBuffers<'_>,
@@ -335,7 +333,7 @@ impl AtrousDenoiser {
         let len = inputs.width * inputs.height;
         // Every path below overwrites all `len` texels (`copy_to`, the identity copy, or
         // the copy-plus-zero-tail fallback), so a same-length buffer is left as it is
-        // rather than memset first (UI-9: ~6 MB of dead zero-fill per cycle at 1080p).
+        // rather than zero-filled first.
         if output.len() != len {
             output.clear();
             output.resize(len, Vec3::ZERO);

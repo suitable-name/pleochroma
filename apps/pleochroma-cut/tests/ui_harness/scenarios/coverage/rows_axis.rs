@@ -1,6 +1,7 @@
-//! The direct-invoke rows of the Crystal Axis: the Stone tab's presets and Second Axis, the
-//! overlay's pointer callbacks (editor group), and the Rough Planner's axis, rule and stone
-//! callbacks (planner group).
+//! The direct-invoke rows of the Crystal Axis.
+//!
+//! The Stone tab's presets and Second Axis, the overlay's pointer callbacks (editor group), and
+//! the Rough Planner's axis, rule and stone callbacks (planner group).
 //!
 //! The presets and the Second Axis are CHECKED rows (`rows_checked.rs` style): a sapphire or a
 //! tanzanite is given to the design first, so the handlers reach their success path and the row

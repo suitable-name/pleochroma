@@ -1,13 +1,11 @@
 //! Birefringence: uniaxial and biaxial crystal optics, and pleochroic (polarization-
 //! dependent) absorption.
 //!
-//! Split from a single `birefringence.rs` by responsibility: [`helpers`] holds the
-//! low-level vector helpers shared by both the uniaxial and biaxial machinery,
-//! [`uniaxial`] holds [`BirefringenceParams`], [`absorption_tensor`] holds
-//! [`AbsorptionTensor3`] and the pleochroic-absorption functions built on it, and
-//! [`biaxial`] holds [`BiaxialIndicatrix`] and the general Poynting-direction formula.
-//! Every path reachable as `birefringence::X` before the split is still reachable at
-//! exactly that path via the re-exports below.
+//! Module layout: [`helpers`] holds the vector helpers shared by the uniaxial and biaxial
+//! code, [`uniaxial`] holds [`BirefringenceParams`], [`absorption_tensor`] holds
+//! [`AbsorptionTensor3`] and the pleochroic-absorption functions built on it, [`frame`]
+//! holds the full crystal frame constructors, and [`biaxial`] holds [`BiaxialIndicatrix`]
+//! and the general Poynting-direction formula. The public items are re-exported below.
 
 mod absorption_tensor;
 mod biaxial;

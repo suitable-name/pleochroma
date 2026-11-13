@@ -116,7 +116,10 @@ class MainActivity : NativeActivity() {
         null
     }
 
-    /** `createDocument(JLjava/lang/String;Ljava/lang/String;[B)Ljava/lang/String;`: save dialog; the bytes wait in the request. */
+    /**
+     * `createDocument(JLjava/lang/String;Ljava/lang/String;[B)Ljava/lang/String;`: save dialog.
+     * The bytes wait in the pending request until the user picks a file.
+     */
     fun createDocument(requestId: Long, name: String, mime: String, bytes: ByteArray): String? = guarded {
         val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
@@ -127,7 +130,10 @@ class MainActivity : NativeActivity() {
         null
     }
 
-    /** `share(Ljava/lang/String;Ljava/lang/String;[B)Ljava/lang/String;`: share sheet for a copy in cache/share/. */
+    /**
+     * `share(Ljava/lang/String;Ljava/lang/String;[B)Ljava/lang/String;`: share sheet for a
+     * copy written to cache/share/.
+     */
     fun share(name: String, mime: String, bytes: ByteArray): String? = guarded {
         val dir = File(cacheDir, "share")
         if (!dir.isDirectory && !dir.mkdirs()) throw IOException("Could not prepare the share folder.")
@@ -146,7 +152,10 @@ class MainActivity : NativeActivity() {
         null
     }
 
-    /** `printHtml(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;`: loads [html] in a WebView, then opens the print dialog. */
+    /**
+     * `printHtml(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;`: loads [html] in a
+     * WebView, then opens the print dialog.
+     */
     fun printHtml(title: String, html: String): String? = guarded {
         val jobName = title.ifBlank { "Pleochroma" }
         onUi {
@@ -173,7 +182,10 @@ class MainActivity : NativeActivity() {
         null
     }
 
-    /** `setClipboardText(Ljava/lang/String;)Ljava/lang/String;`: replaces the primary clip with plain text. */
+    /**
+     * `setClipboardText(Ljava/lang/String;)Ljava/lang/String;`: replaces the primary clip with
+     * plain text.
+     */
     fun setClipboardText(text: String): String? = guarded {
         onUi {
             val clipboard = getSystemService(ClipboardManager::class.java)
@@ -182,7 +194,9 @@ class MainActivity : NativeActivity() {
         null
     }
 
-    /** `keepScreenOn(Z)Ljava/lang/String;`: sets or clears the keep-screen-on window flag. */
+    /**
+     * `keepScreenOn(Z)Ljava/lang/String;`: sets or clears the keep-screen-on window flag.
+     */
     fun keepScreenOn(on: Boolean): String? = guarded {
         onUi {
             if (on) {
@@ -194,7 +208,10 @@ class MainActivity : NativeActivity() {
         null
     }
 
-    /** `thermalHeadroom()F`: the current thermal headroom, or NaN where the device does not report it. */
+    /**
+     * `thermalHeadroom()F`: the current thermal headroom, or NaN where the device does not
+     * report it (before API 30).
+     */
     fun thermalHeadroom(): Float =
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -253,16 +270,22 @@ class MainActivity : NativeActivity() {
         null
     }
 
-    /** `loadRemoteCredentials()Ljava/lang/String;`: the bundle, `null` if none; an exception escapes if it cannot be unlocked. */
+    /**
+     * `loadRemoteCredentials()Ljava/lang/String;`: the bundle, or `null` if none. An exception
+     * escapes when the bundle cannot be unlocked.
+     */
     fun loadRemoteCredentials(): String? = vault.load()
 
-    /** `forgetRemoteCredentials()Ljava/lang/String;`: deletes the encrypted file and the Keystore key. */
+    /**
+     * `forgetRemoteCredentials()Ljava/lang/String;`: deletes the encrypted file and the
+     * Keystore key.
+     */
     fun forgetRemoteCredentials(): String? = guarded {
         vault.forget()
         null
     }
 
-    /** Registers a [PendingRequest] under a fresh request code and starts [intent] on the UI thread. */
+    /** Starts [intent] on the UI thread under a new request code tied to a [PendingRequest]. */
     private fun startForResult(intent: Intent, rustId: Long, kind: Int, saveBytes: ByteArray?) {
         onUi {
             val code = nextRequestCode++
@@ -487,7 +510,7 @@ class MainActivity : NativeActivity() {
         /** Request kind for a save dialog (never sent from Rust). */
         private const val KIND_SAVE = 100
 
-        /** Rust's id for files nobody asked for. */
+        /** Rust request id for files the user did not pick (opened or shared into the app). */
         private const val INCOMING_ID = 0L
 
         private const val FIRST_REQUEST_CODE = 0x1000

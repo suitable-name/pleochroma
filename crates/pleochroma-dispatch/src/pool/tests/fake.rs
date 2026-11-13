@@ -25,6 +25,10 @@ pub(super) fn scene(width: u32, height: u32) -> SceneState {
         height,
         yaw: 0.4,
         camera_roll: 0.0,
+        stone_shadow: false,
+        tray_reflection: 0.0,
+        hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
+        estimator: pleochroma::optics::raytracer::Estimator::Branching,
         pitch: 0.3,
         distance: 3.0,
         light_yaw: 0.85,
@@ -111,7 +115,7 @@ pub(super) enum Failure {
     Panic,
 }
 
-/// See the module doc.
+/// A fake lane that traces at a fixed speed and fails as scripted by `Failure`.
 pub(super) struct FakeLane {
     name: String,
     values: Values,

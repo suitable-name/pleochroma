@@ -90,6 +90,14 @@ fn bounce_resolve_splits(
         var local_split_radiance = (*s).split_radiance;
         for (var k: u32 = 0u; k < NUM_CHANNELS; k = k + 1u) {
             if ((mask & (1u << k)) != 0u) {
+                // Exit collection: the slot holds a collected leaf, not a staged split. It is
+                // resolved through the same lookup into an emptied slot and added to `nee_xyz`
+                // at once as a plain comb term (`integrate_collected_to_xyz`): a leaf is final,
+                // whatever happens to the path afterwards.
+                let staged_k = local_split_radiance[k];
+                if (collect_on) {
+                    local_split_radiance[k] = 0.0;
+                }
                 try_split_exit_channel(
                     &local_split_radiance,
                     (*h).hit_point,
@@ -103,6 +111,11 @@ fn bounce_resolve_splits(
                     observer,
                     (*h).split_mis_weight,
                 );
+                if (collect_on) {
+                    (*s).nee_xyz = (*s).nee_xyz
+                        + cie_1931_cmf((*s).lambdas[k]) * (local_split_radiance[k] * NORM_FACTOR);
+                    local_split_radiance[k] = staged_k;
+                }
             }
         }
         (*s).split_radiance = local_split_radiance;
@@ -118,14 +131,36 @@ fn bounce_tail(
     bounce: u32,
     seed0: u32,
 ) -> u32 {
-    // Surface glare -- mirrors `trace_spectral_ray_inner`'s identical block: the camera
-    // path's first event at a polished facet left the ray outside the stone, so it was
-    // the specular reflection and the light never entered. Skipped at 1.0 and for a
-    // frosted facet, so those cases are bit-identical.
+    // Surface glare: at the camera path's first event on a polished facet the ray is outside
+    // the stone, so only the specular reflection arrives. Skipped at 1.0 and for frosted
+    // facets, which keeps those cases bit-identical.
     if (bounce == 0u && !(*s).inside_gem && !surf_is_ground((*h).finish) && params.surface_glare < 1.0) {
         for (var k: u32 = 0u; k < NUM_CHANNELS; k = k + 1u) {
             (*s).stokes[k] = (*s).stokes[k] * params.surface_glare;
         }
+    }
+
+    if (collect_on) {
+        // Exit collection (`apply_collect_roulette`): the chain's weights are physical, so
+        // nothing happens while the largest channel intensity is at least the floor; below it
+        // the path survives with probability `intensity / floor`, at every bounce.
+        var collect_max: f32 = 0.0;
+        for (var k: u32 = 0u; k < NUM_CHANNELS; k = k + 1u) {
+            collect_max = max(collect_max, max((*s).stokes[k].x, 0.0));
+        }
+        if (collect_max >= COLLECT_ROULETTE_FLOOR) {
+            return PHASE_NEXT;
+        }
+        let collect_q = collect_max / COLLECT_ROULETTE_FLOOR;
+        let collect_rand = f32(discrete_draw(seed0, bounce, RUSSIAN_ROULETTE_STREAM)) / 4294967295.0;
+        if (collect_q <= 0.0 || collect_rand > collect_q) {
+            return PHASE_TERMINATE;
+        }
+        for (var k: u32 = 0u; k < NUM_CHANNELS; k = k + 1u) {
+            (*s).stokes[k] = (*s).stokes[k] * (1.0 / collect_q);
+            (*s).split_radiance[k] = (*s).split_radiance[k] / collect_q;
+        }
+        return PHASE_NEXT;
     }
 
     if (bounce > 4u) {
@@ -134,12 +169,12 @@ fn bounce_tail(
             max_intensity = max(max_intensity, max((*s).stokes[k].x, 0.0));
         }
         let q = clamp(max_intensity, RR_FLOOR, 1.0);
-        let rr_rand = f32(hash_u32(seed0 ^ hash_u32(bounce ^ RUSSIAN_ROULETTE_STREAM))) / 4294967295.0;
+        let rr_rand = f32(discrete_draw(seed0, bounce, RUSSIAN_ROULETTE_STREAM)) / 4294967295.0;
         if (rr_rand > q) {
             return PHASE_TERMINATE;
         }
-        // `split_radiance` rides along on the same `1/q` survival
-        // rescale as `stokes` -- see `apply_russian_roulette`'s CPU-side doc comment.
+        // `split_radiance` gets the same `1/q` rescale as `stokes`, as in CPU
+        // `apply_russian_roulette`.
         for (var k: u32 = 0u; k < NUM_CHANNELS; k = k + 1u) {
             (*s).stokes[k] = (*s).stokes[k] * (1.0 / q);
             (*s).split_radiance[k] = (*s).split_radiance[k] / q;
@@ -222,6 +257,144 @@ fn transport_bounce_step(
     if (r == PHASE_NEXT) { r = bounce_scatter(&s, &h, rc, bounce, seed0, observer); }
     if (r == PHASE_NEXT) { r = bounce_surface(&s, &h, rc, bounce, seed0, observer); }
     if (r == PHASE_NEXT) { r = bounce_run_arm(&s, &h, rc, bounce, seed0, observer); }
+    if (r == PHASE_NEXT) { r = bounce_resolve_splits(&s, &h, rc, observer); }
+    if (r == PHASE_NEXT) { r = bounce_tail(&s, &h, rc, bounce, seed0); }
+
+    bounce_ray_to_pointers(
+        s, current_origin, current_dir, current_k, prev_plane_normal, pending_light_mis_dir, nee_xyz,
+        pending_light_mis, inside_gem, is_extraordinary, have_prev_plane_normal, path_escaped,
+        stokes, radiance, path_pdf, split_radiance, compat,
+    );
+
+    if (r == PHASE_TERMINATE) {
+        return BOUNCE_STATUS_TERMINATE;
+    }
+    return BOUNCE_STATUS_CONTINUE;
+}
+
+// First half of a bounce in the gated loop (`GATED_LOOP`, `transport_main`): extend, scatter
+// and surface, as `transport_bounce_step` runs them. A total internal reflection finishes
+// the bounce here. Any other arm is parked: the bounce copies what the arm needs into `park`,
+// writes the ray back and returns `BOUNCE_STATUS_PARKED`. This lets the parked lanes of a
+// warp reach `transport_bounce_back` together. `rc` carries the per-ray constants that
+// `transport_bounce_step` takes as separate arguments.
+fn transport_bounce_front(
+    bounce: u32,
+    seed0: u32,
+    rc: RayConstants,
+    observer: vec3<f32>,
+    lambdas: ptr<function, array<f32, 8>>,
+    stokes: ptr<function, array<vec4<f32>, 8>>,
+    radiance: ptr<function, array<f32, 8>>,
+    path_pdf: ptr<function, array<f32, 8>>,
+    current_origin: ptr<function, vec3<f32>>,
+    current_dir: ptr<function, vec3<f32>>,
+    current_k: ptr<function, vec3<f32>>,
+    inside_gem: ptr<function, bool>,
+    is_extraordinary: ptr<function, bool>,
+    prev_plane_normal: ptr<function, vec3<f32>>,
+    have_prev_plane_normal: ptr<function, bool>,
+    split_radiance: ptr<function, array<f32, 8>>,
+    compat: ptr<function, array<u32, 8>>,
+    nee_xyz: ptr<function, vec3<f32>>,
+    path_escaped: ptr<function, bool>,
+    pending_light_mis: ptr<function, f32>,
+    pending_light_mis_dir: ptr<function, vec3<f32>>,
+    park: ptr<function, BouncePark>,
+) -> u32 {
+    var s = bounce_ray_from_pointers(
+        current_origin, current_dir, current_k, prev_plane_normal, pending_light_mis_dir, nee_xyz,
+        pending_light_mis, inside_gem, is_extraordinary, have_prev_plane_normal, path_escaped,
+        lambdas, stokes, radiance, path_pdf, split_radiance, compat,
+    );
+    var h = bounce_hit_blank();
+
+    var r = bounce_extend(&s, &h, rc, bounce, seed0, observer);
+    if (r == PHASE_NEXT) { r = bounce_scatter(&s, &h, rc, bounce, seed0, observer); }
+    if (r == PHASE_NEXT) { r = bounce_surface(&s, &h, rc, bounce, seed0, observer); }
+    var parked = false;
+    if (r == PHASE_NEXT) {
+        if (h.arm != ARM_TIR) {
+            (*park).pending = true;
+            (*park).hit = h.hit;
+            (*park).hit_point = h.hit_point;
+            (*park).shading_normal = h.shading_normal;
+            (*park).wave_dir_at_bounce = h.wave_dir_at_bounce;
+            (*park).phase_pdf_this_check = h.phase_pdf_this_check;
+            (*park).phase_dir_this_check = h.phase_dir_this_check;
+            (*park).pre_bounce_inside_gem = h.pre_bounce_inside_gem;
+            (*park).finish = h.finish;
+            (*park).arm = h.arm;
+            parked = true;
+        } else {
+            let r_arm = bounce_run_arm(&s, &h, rc, bounce, seed0, observer);
+            r = r_arm;
+            if (r == PHASE_NEXT) { r = bounce_resolve_splits(&s, &h, rc, observer); }
+            if (r == PHASE_NEXT) { r = bounce_tail(&s, &h, rc, bounce, seed0); }
+        }
+    }
+
+    bounce_ray_to_pointers(
+        s, current_origin, current_dir, current_k, prev_plane_normal, pending_light_mis_dir, nee_xyz,
+        pending_light_mis, inside_gem, is_extraordinary, have_prev_plane_normal, path_escaped,
+        stokes, radiance, path_pdf, split_radiance, compat,
+    );
+
+    if (parked) {
+        return BOUNCE_STATUS_PARKED;
+    }
+    if (r == PHASE_TERMINATE) {
+        return BOUNCE_STATUS_TERMINATE;
+    }
+    return BOUNCE_STATUS_CONTINUE;
+}
+
+// The gated megakernel loop's second half of a bounce: the arm, the deferred exit splits and the
+// tail of the bounce `transport_bounce_front` parked. Rebuilds the `BounceHit` from `park`; the
+// arm recomputes its index setup (`bounce_arm_index`). Returns `BOUNCE_STATUS_CONTINUE` or
+// `BOUNCE_STATUS_TERMINATE`, as `transport_bounce_step` does.
+fn transport_bounce_back(
+    bounce: u32,
+    seed0: u32,
+    rc: RayConstants,
+    observer: vec3<f32>,
+    lambdas: ptr<function, array<f32, 8>>,
+    stokes: ptr<function, array<vec4<f32>, 8>>,
+    radiance: ptr<function, array<f32, 8>>,
+    path_pdf: ptr<function, array<f32, 8>>,
+    current_origin: ptr<function, vec3<f32>>,
+    current_dir: ptr<function, vec3<f32>>,
+    current_k: ptr<function, vec3<f32>>,
+    inside_gem: ptr<function, bool>,
+    is_extraordinary: ptr<function, bool>,
+    prev_plane_normal: ptr<function, vec3<f32>>,
+    have_prev_plane_normal: ptr<function, bool>,
+    split_radiance: ptr<function, array<f32, 8>>,
+    compat: ptr<function, array<u32, 8>>,
+    nee_xyz: ptr<function, vec3<f32>>,
+    path_escaped: ptr<function, bool>,
+    pending_light_mis: ptr<function, f32>,
+    pending_light_mis_dir: ptr<function, vec3<f32>>,
+    park: BouncePark,
+) -> u32 {
+    var s = bounce_ray_from_pointers(
+        current_origin, current_dir, current_k, prev_plane_normal, pending_light_mis_dir, nee_xyz,
+        pending_light_mis, inside_gem, is_extraordinary, have_prev_plane_normal, path_escaped,
+        lambdas, stokes, radiance, path_pdf, split_radiance, compat,
+    );
+    var h = bounce_hit_blank();
+    h.hit = park.hit;
+    h.hit_point = park.hit_point;
+    h.shading_normal = park.shading_normal;
+    h.wave_dir_at_bounce = park.wave_dir_at_bounce;
+    h.phase_pdf_this_check = park.phase_pdf_this_check;
+    h.phase_dir_this_check = park.phase_dir_this_check;
+    h.pre_bounce_inside_gem = park.pre_bounce_inside_gem;
+    h.finish = park.finish;
+    h.arm = park.arm;
+
+    let r_arm = bounce_run_arm(&s, &h, rc, bounce, seed0, observer);
+    var r = r_arm;
     if (r == PHASE_NEXT) { r = bounce_resolve_splits(&s, &h, rc, observer); }
     if (r == PHASE_NEXT) { r = bounce_tail(&s, &h, rc, bounce, seed0); }
 

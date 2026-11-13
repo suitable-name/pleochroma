@@ -84,6 +84,8 @@ OPTIONS:
                                   (default: 0.1)
     --max-grad-norm <X>           Imitation: cap of the global gradient norm before each optimizer
                                   step, above 0 (default: 1)
+    --weight-decay <X>            L2 weight decay of the shared Adam optimizer (applies to both
+                                  algorithms), 0 or more (default: 0 = off)
     --lr <X>                      PPO peak learning rate, decayed linearly to 0 over the run
                                   (default: the built-in PPO value, shown in the banner)
     --max-step-deg <X>            Step limit per tier and step, in degrees, above 0
@@ -189,6 +191,9 @@ pub struct CliArgs {
     /// Imitation global gradient-norm cap; `None` keeps the built-in value.
     #[serde(default)]
     pub max_grad_norm: Option<f32>,
+    /// L2 weight decay of the shared Adam optimizer (both algorithms); `None` keeps `0.0`.
+    #[serde(default)]
+    pub weight_decay: Option<f32>,
     /// PPO peak learning rate; `None` keeps the built-in PPO value.
     pub learning_rate: Option<f32>,
     /// Step limit in degrees; `None` keeps each environment's own.
@@ -211,8 +216,8 @@ pub struct CliArgs {
     pub design_dir: Option<String>,
     pub include_library: bool,
     pub resume: Option<String>,
-    /// Resume only: a changed environment backend may relabel the replay. A permission of one
-    /// invocation, never saved with the run.
+    /// Resume only: lets a changed environment backend relabel the replay. Applies to this
+    /// invocation; not saved with the run.
     #[serde(default, skip_serializing)]
     pub relabel: bool,
     pub warm_start: Option<String>,
@@ -426,6 +431,9 @@ impl CliArgs {
             "--max-grad-norm" => {
                 self.max_grad_norm = Some(parse_decimal_f32(flag, take(args, i, flag)?, false)?);
             }
+            "--weight-decay" => {
+                self.weight_decay = Some(parse_decimal_f32(flag, take(args, i, flag)?, true)?);
+            }
             _ => return Ok(false),
         }
         Ok(true)
@@ -460,6 +468,7 @@ impl CliArgs {
             action_coeff: None,
             gain_coeff: None,
             max_grad_norm: None,
+            weight_decay: None,
             learning_rate: None,
             max_step_deg: None,
             entropy_coeff: None,
@@ -707,6 +716,10 @@ fn apply_ppo(config: &mut RunConfig, args: &CliArgs) {
     if let Some(coeff) = args.entropy_coeff {
         config.ppo.entropy_coeff = coeff;
     }
+    // The Adam optimizer is shared by both algorithms, so the decay is applied here for both.
+    if let Some(decay) = args.weight_decay {
+        config.ppo.weight_decay = decay;
+    }
     config.ppo.lr_schedule = linear_schedule_for(
         args.iterations,
         args.batch_size,
@@ -750,10 +763,11 @@ fn apply_imitation(config: &mut RunConfig, args: &CliArgs) {
     };
 }
 
-/// The run configuration the flags ask for. The learning rate decays linearly to zero over the
-/// requested iterations (review TQ-20); a flag that is not given keeps the built-in value, and
-/// the mini-batch size, the epoch count and the label period resolve to the default of the
-/// chosen algorithm.
+/// The run configuration the flags ask for.
+///
+/// The learning rate decays linearly to zero over the requested iterations; a flag that is not
+/// given keeps the built-in value, and the mini-batch size, the epoch count and the label period
+/// resolve to the default of the chosen algorithm.
 #[must_use]
 pub fn build_config(args: &CliArgs) -> RunConfig {
     let mut config = RunConfig::new(args.mode, args.tier);

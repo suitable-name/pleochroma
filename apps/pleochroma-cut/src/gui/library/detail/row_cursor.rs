@@ -1,10 +1,10 @@
 //! The keyboard cursor of the library's cutting-instructions table.
 //!
-//! `cutting_table.slint` hides the rows a Pavilion or Crown filter leaves out, and Slint has no
-//! loop to find the next row that is still shown. So Up, Down, Home and End ask this module:
-//! `CuttingTableModel.step_row(angles, current, step, mode)` returns the `order_idx` the cursor
-//! moves to. The work is a pure function over the visible `order_idx` values
-//! ([`step_row_cursor`]), so a test can check every edge without a window.
+//! `cutting_table.slint` hides the rows that a Pavilion or Crown filter leaves out, and Slint
+//! has no loop to find the next visible row. So Up, Down, Home and End call
+//! `CuttingTableModel.step_row(angles, current, step, mode)`, which returns the `order_idx` the
+//! cursor moves to. The logic is a pure function over the visible `order_idx` values
+//! ([`step_row_cursor`]), so tests can run without a window.
 
 use super::shared::side_shown_in_mode;
 use crate::{AngleItem, CuttingTableModel, MainWindow};
@@ -20,9 +20,10 @@ fn visible_order_indices(angles: &ModelRc<AngleItem>, mode: i32) -> Vec<i32> {
         .collect()
 }
 
-/// Where the cursor goes when it moves `step` rows from `current` over the rows `visible` (their
-/// `order_idx` values, top to bottom). The result is always one of `visible`, or `-1` when the
-/// list is empty.
+/// Where the cursor goes when it moves `step` rows from `current` over the rows `visible`.
+///
+/// `visible` holds their `order_idx` values, top to bottom. The result is one of `visible`, or
+/// `-1` when the list is empty.
 ///
 /// - `current` is one of the rows: move by `step` and stop at the first or last row (no wrap).
 ///   A step far larger than the list (Home and End pass one) lands on the end.
@@ -59,9 +60,8 @@ pub(super) fn step_row_cursor(visible: &[i32], current: i32, step: i32) -> i32 {
     visible.get(target).copied().unwrap_or(-1)
 }
 
-/// Registers `CuttingTableModel::step_row`. Called by
-/// [`super::setup_filtered_row_count_callback`], which `gui::main_window::callbacks` already runs
-/// for the cutting table's row-count pills.
+/// Registers `CuttingTableModel::step_row`. It is called from
+/// [`super::setup_filtered_row_count_callback`].
 pub(super) fn setup_row_cursor_callback(ui: &MainWindow) {
     ui.global::<CuttingTableModel>()
         .on_step_row(|angles, current, step, mode| {

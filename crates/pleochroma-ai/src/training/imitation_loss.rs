@@ -9,22 +9,34 @@ pub(super) fn masked_sens_mse(hat: Tensor<3>, target: Tensor<3>, mask: Tensor<3>
     (diff.clone() * diff * mask).sum() / n_labels
 }
 
-/// Robust masked Huber regression for noisy finite-difference component labels.
-/// The raw masked MSE remains a separately reported diagnostic.
+/// Robust masked Huber regression for noisy finite-difference component labels, averaged
+/// **per sample**.
+///
+/// A design with many labelled tiers (or many supported components) must not dominate the
+/// gradient over a small design: each sample contributes one term, and samples without any
+/// label are excluded from the divisor, so a batch without labels gives exactly zero. This is
+/// the same weighting contract as [`balanced_action_huber`] and [`bounded_direction_loss`],
+/// which are also per-sample. The raw masked MSE ([`masked_sens_mse`]) remains a separately
+/// reported per-entry diagnostic and is not optimized.
 pub(super) fn masked_sens_huber(hat: Tensor<3>, target: Tensor<3>, mask: Tensor<3>) -> Tensor<1> {
-    let n_labels = mask.clone().sum().clamp(1.0, COUNT_CLAMP_MAX);
+    // `[batch, tiers, components]`: sum tiers first, then components, leaving one total per
+    // sample as `[batch, 1, 1]`.
+    let n_per_sample = mask.clone().sum_dim(1).sum_dim(2);
     let abs_error = ((hat - target) * mask).abs();
     let quadratic = abs_error.clone().clamp(0.0, HUBER_DELTA);
     let linear = abs_error - quadratic.clone();
-    ((quadratic.clone() * quadratic).mul_scalar(0.5) + linear.mul_scalar(HUBER_DELTA)).sum()
-        / n_labels
+    let error = (quadratic.clone() * quadratic).mul_scalar(0.5) + linear.mul_scalar(HUBER_DELTA);
+    let per_sample =
+        error.sum_dim(1).sum_dim(2) / n_per_sample.clone().clamp(1.0, COUNT_CLAMP_MAX);
+    let labelled = n_per_sample.clamp(0.0, 1.0);
+    (per_sample * labelled.clone()).sum() / labelled.sum().clamp(1.0, COUNT_CLAMP_MAX)
 }
 
-/// Masked cosine between the predicted and the target direction, per sample, over the tiers of
-/// `mask` (all `[batch, max_tiers]`). Returns `(cosine, cos_loss)`, both `[1]`: the mean cosine
-/// over the samples that have at least one masked tier, and `1 - cosine` over the same samples.
-/// A sample without any masked tier contributes `0` to both and is left out of the divisor, so a
-/// batch without any direction label gives exactly `(0, 0)`.
+/// Per-sample masked cosine between the predicted and the target direction.
+///
+/// Inputs are `[batch, max_tiers]`. Returns `(cosine, cos_loss)`, both `[1]`: the mean cosine
+/// and `1 - cosine` over the samples with at least one masked tier. Other samples are left out
+/// of the divisor, so a batch without any direction label gives exactly `(0, 0)`.
 pub(super) fn masked_cosine(
     hat: Tensor<2>,
     target: Tensor<2>,
@@ -95,9 +107,9 @@ pub(super) fn balanced_action_huber(
 /// `||a-y||^2 / max(1, ||a||^2 + ||y||^2)` lies in `[0, 2]`, is zero at the verified move,
 /// and has a finite gradient at a zero prediction. The denominator is differentiated as well;
 /// for a positive rescaling `a = k*y`, the unique minimum remains `k = 1` (no scale ambiguity).
-/// The unit floor uses action-fraction units;
-/// a tiny teacher move produces a tiny squared error rather than a unit direction/large cosine
-/// gradient. Raw cosine remains an independent diagnostic, not the optimized objective.
+/// The floor of 1 is in action-fraction units, so a tiny teacher move gives a tiny squared error
+/// rather than a unit-direction error with a large cosine gradient. Raw cosine is a diagnostic
+/// only.
 pub(super) fn bounded_direction_loss(
     hat: Tensor<2>,
     target: Tensor<2>,
@@ -126,7 +138,9 @@ pub(super) struct LossTerms {
 /// Combine component regression with verified-action, direction and gain supervision.
 ///
 /// Policy targets live after `tanh`, where the environment interprets their relative magnitude.
-/// This avoids fitting arbitrarily large raw means near an action bound.
+/// This avoids fitting arbitrarily large raw means near an action bound. Every supervised term
+/// is averaged **per sample** (sensitivity Huber, balanced action Huber, bounded direction and
+/// gain), so the loss does not weight large designs more heavily than small ones.
 pub(super) fn imitation_terms(
     out: BurnForward,
     labels: LabelTensors,

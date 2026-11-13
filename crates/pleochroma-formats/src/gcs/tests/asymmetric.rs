@@ -3,9 +3,8 @@
 //! The real `.gcs` corpus has none: every file is symmetric about index 0, so it cannot show
 //! whether the tooth survives the writer and the reader in the direction it was cut. These
 //! tests pin the round trip alone: what `to_gcs_string` writes, `parse_gcs` reads back at the
-//! same teeth. They say nothing about how Gem Cut Studio itself reads such a file; that is the
-//! owner's check (see the documentation of `to_gcs_string`), and the ignored test below writes
-//! the files to check with.
+//! same teeth. How Gem Cut Studio itself reads such a file is not tested here (see the
+//! documentation of `to_gcs_string`); the ignored test below writes the files for that check.
 
 use super::{index_set, octagon_schedule};
 use crate::{
@@ -58,7 +57,7 @@ fn a_negative_gear_reads_back_at_the_mirrored_teeth() {
 /// 5, 20 and 41 sit directly above the pavilion facets at the same teeth. Open the `.gcs` file
 /// in Gem Cut Studio: if the crown facets are NOT above the pavilion facets there, the writer
 /// reads the tooth of a pavilion facet the wrong way round (see the documentation of
-/// `to_gcs_string`, "The open question").
+/// `to_gcs_string`: the winding is unverified for chiral designs).
 ///
 /// Run it with `PLEOCHROMA_GCS_SAMPLE_DIR` set to an existing folder:
 /// `cargo test -p pleochroma-formats write_the_sample_files_for_gem_cut_studio -- --ignored`.

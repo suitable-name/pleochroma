@@ -1,80 +1,50 @@
 # Remote training throughput diagnostics
 
-These diagnostics investigate the A100 run reported on 2026-10-30. They exercise the
-production training and projection paths, and a separate optical workload that does
-not depend on the trainer feeding it. They do not modify an existing run or its
-checkpoints. The implementation was reviewed from source; it has **not** been built
-or executed by the implementation agent.
+These diagnostics measure the production training and projection paths, and a separate optical
+workload that does not depend on the trainer feeding it. They do not modify an existing run or its
+checkpoints.
 
-## What the supplied measurements establish
+## Bottleneck
 
-The resumed run switched from `cuda-env-v2` to `cuda-env-v3` after iteration 5. The
-first five entries in its statistics are historical. The replay count falling at
-iteration 6 is consistent with the reported invalidation of derived labels after
-the arithmetic change; model weights and optimizer state were retained.
+Geometry and scheduling dominate, upstream of the optics. Most CPU projection time goes to the
+original meet-preservation gate, which refuses most of its calls, and to CPU projection fallbacks
+that rarely succeed. Optical batches stay small because little optical work is ready. More VRAM or
+a larger neural minibatch alone does not address this. The original acceptance gate remains
+authoritative. CPU projection rescue is kept only for unsupported networks; on supported networks
+rare rescued proposals are given up to avoid repeated expensive failed searches.
 
-In the later v3 snapshot:
+Cumulative service counters overlap across workers and nested calls. They are not elapsed time.
+Compare the difference of a counter within one process and phase.
 
-| Measurement | Observed value | Interpretation |
-| --- | ---: | --- |
-| Optical batch capacity | 128 candidates | An upper bound, not actual supplied work |
-| Mean / maximum optical batch | 1.048 / 3 candidates | Optical service receives very small batches |
-| Optical queue / active requests | 0 / 0 | No optical backlog at that instant |
-| CPU projection fallback calls | 4,385 | Frequent reference searches remain |
-| Completed fallback successes / completions | 7 / 4,383 | About 0.16%; two calls were still in flight |
-| Summed CPU fallback service | 6,038.7 seconds | Concurrent service time, not elapsed time |
-| Exact CPU gate calls / original refusals | 171,771 / 168,505 | About 98.1% refused by the original gate |
-| Summed exact CPU gate service | 1,786.7 seconds | Nested in other projection timings |
-| Summed CUDA residual service | 24.24 seconds | Host service timing, not kernel event timing |
-| Optical service | 3.09 seconds | Small compared with the geometry work |
+## Current design
 
-Two snapshots within iteration 10 are particularly useful because they cover the
-same running process: over **87.65 seconds**, 81 steps completed, another 294 CPU
-fallbacks started, and the number of successful fallbacks did not increase.
-Optical service increased by only **0.244 seconds**. CPU fallback service increased
-by 294.5 seconds summed across concurrent calls.
+The current environment revision is `cuda-env-v7` (`CUDA_ENVIRONMENT_MATH`). Its behavior:
 
-This is evidence of geometry and scheduling starvation upstream of optics. It is
-not evidence that allocating more VRAM or increasing neural minibatch size alone
-will improve throughput. The original acceptance gate remains authoritative. The
-current implementation deliberately retains CPU projection rescue only for
-unsupported networks, accepting the loss of rare rescued proposals on supported
-networks to avoid repeated expensive failed searches.
+- The conservative interval prefilter intersects Cartesian and dual-basis enclosures. It skips the
+  CPU gate only when impossibility is proved. Distinct possible trials still need full gate
+  evaluations.
+- Active-bound QR pins blocked coordinates and re-solves the free subspace, including activation
+  cascades of any length. Accepted results still pass the exact original meet gate and the
+  requested motion bounds.
+- Direct-mast planes rebuild deduplication and provenance per candidate with production f32
+  arithmetic. Matching plane counts alone never reuse an alias map.
+- Rollout streams are independent. Shared stage admission and the CPU pool stay bounded; a busy
+  stream borrows spare capacity. Completed probe values hold no GPU tickets, and a round still waits
+  for its fixed per-slot quotas.
+- Inference and imitation use bucketed tier and row shapes. Zeroed padding never reaches a masked
+  computation, and small batches and epoch tails keep their statistical weight.
+- Optical and construction width caches are separate, so they do not evict one another. Optical
+  collection drains queued requests without a fill delay.
+- Neural updates are short compared with rollout work once compiled. Initialization, warmup and
+  steady-state iterations are reported separately.
+- Possible line trials without residual improvement are deferred, not discarded, and exact duplicate
+  deferred trials are removed within a request. Every remaining possible trial still needs original
+  certification before a numerical failure is returned. Deferred and proof-avoided counters are kept
+  apart, so postponed checks are not counted as saved CPU work. Failing searches can stay expensive.
 
-The changes to compare against that baseline are:
-
-- The conservative interval prefilter now intersects Cartesian and dual-basis
-  enclosures. It may skip the CPU gate only when impossibility is proved. Distinct
-  possible trials can still require distinct full gate evaluations.
-- Active-bound QR now pins blocked coordinates and re-solves the free subspace,
-  including activation cascades longer than six passes. Accepted results still
-  pass the exact original meet gate and requested motion bounds.
-- Direct-mast planes rebuild deduplication/provenance per candidate with production
-  f32 arithmetic. Matching plane counts alone no longer reuse an alias map.
-- Independent rollout streams remove index-lane blocking. Shared stage admission
-  and CPU pool limits remain bounded; tail streams borrow spare capacity and
-  environment respawns cannot bypass the pool. Completed probe values contain no
-  live GPU tickets. Final iteration completion still waits for all fixed quotas.
-- Inference row/tier buckets and imitation tier buckets reduce shape variation;
-  zeroed padding prevents unused values contaminating masked computations.
-  Small training batches and epoch tails retain their original statistical weight.
-- Optical and construction width caches no longer evict one another. Optical
-  collection drains already queued requests without a deliberate fill delay.
-- Neural updates are much shorter than rollout work after first-use compilation.
-  Cold initialization, warmup and steady-state iterations must be kept separate.
-
-The v5 arithmetic identity was `cuda-env-v5`. In addition to the v4 changes
-above, possible line trials without residual improvement are deferred, not
-discarded, and exact duplicate deferred trials are deduplicated within a request.
-All remaining possible trials still require original certification before a
-numerical failure. Separate deferred and proof-avoided counters prevent treating
-postponed checks as saved CPU work. Failed searches can remain expensive.
-
-Resuming older CUDA checkpoints
-keeps model, optimizer, iteration, RNG and accepted episodes, but clears derived
-teacher/replay/oracle labels. Keep workload settings identical for the first new
-comparison. The following changes have only been statically reviewed; the commands
-below are for the operator to run, not evidence of completed validation.
+Resuming an older CUDA checkpoint keeps the model, optimizer, iteration, RNG and accepted episodes,
+but clears its derived teacher, replay and oracle labels. The commands below are for the operator to
+run; they are not evidence of a completed validation.
 
 ## Build on the remote machine
 
@@ -150,10 +120,10 @@ Ctrl+C stops the current child and packages the partial collection.
 
 ## Comparisons after the first collection
 
-Repeat the same command on A6000 with a different output name and the same database
-and source revision. Preserve the workload before tuning worker count. To compare
-worker counts on the same machine, repeat a fresh collection with `--workers 9`
-and then `--workers 27`; these are experiments, not claims that either is optimal.
+The supported training device is the A100-80G (`sm_80`). A6000 is not a supported comparison point,
+because the GPU gate-avoidance proof is directed-rounding `f64` (A6000 FP64 is 1/64 of FP32).
+Preserve the workload before tuning worker count. To compare worker counts on the same machine, repeat a fresh collection with `--workers 9` and then `--workers 27`; these are
+experiments, not claims that either is optimal.
 
 `--include-cpu` adds a full CPU pipeline run using the same configuration. It can
 be slow. The default targeted projection case already includes the CPU reference,
@@ -176,7 +146,7 @@ training need not produce bitwise identical optimization trajectories.
 - Projection reports compare success/refusal, returned geometry and exact-gate
   behavior. Different valid CPU/CUDA solutions are a diagnostic difference, not
   automatically an error. Repeated exact requests expose positive/negative cache reuse.
-- The new geometry breakdown separates exact-gate rejection kinds from the reason
+- The geometry breakdown separates exact-gate rejection kinds from the reason
   the accelerated projector chose fallback. Bounded examples retain useful error
   detail without collecting unbounded unique messages.
 - Optical output records request throughput, service counters and numerical
@@ -200,7 +170,7 @@ training need not produce bitwise identical optimization trajectories.
   every material, or full-fidelity validation. Successful execution cannot establish
   production readiness by itself.
 
-## Acceptance evidence for this revision
+## Acceptance checks
 
 Run the numerical, recovery and scheduler tests before timing on both GPU models.
 Then collect the same corpus, seed and workload on each machine. Inspect:
@@ -211,10 +181,9 @@ Then collect the same corpus, seed and workload on each machine. Inspect:
 - Zero CUDA failures and no unexplained CPU optical fallbacks. Gate call counts
   and service time should fall on the troublesome designs without using an unsafe
   residual-only threshold to reject potentially valid moves.
-- At least two **completed measured iterations** after warmup. The original archive
-  timed out during the first measured iteration; its partial step counts cannot
-  serve as a completed steady-state throughput baseline. Retain its partial events
-  and report timeouts rather than treating missing summaries as zero elapsed work.
+- At least two **completed measured iterations** after warmup. A timed-out case
+  cannot serve as a steady-state baseline. Keep its partial events and report the timeout rather
+  than treating missing summaries as zero elapsed work.
 - Lower wall time to completed rollout/update boundaries with the same settings.
   Compare per-phase counter differences; nested or concurrent service seconds must
   not be converted into percentages of elapsed time.
@@ -269,19 +238,18 @@ cargo test -j 1 --manifest-path apps/pleochroma-trainer/Cargo.toml \
   --bin pleochroma-throughput-probe throughput_ -- --test-threads=1
 ```
 
-The original `diagnostic_active_bound` fixture demonstrates why scaling an
-unconstrained direction can collapse. New bounded-QR tests exercise re-solving
-the free subspace and sequential activation beyond six coordinates. These focused
-tests complement the existing numerical CUDA parity suite in the trainer README.
+The `diagnostic_active_bound` fixture shows why scaling an unconstrained direction can
+collapse. The bounded-QR tests exercise re-solving the free subspace and sequential
+activation beyond six coordinates. These focused tests complement the numerical CUDA
+parity suite in the trainer README.
 
-## Cold shapes and update attribution (v6)
+## Cold shapes and update attribution
 
-The v5 A100 pipeline's first rollout forward accumulated roughly 80.5 seconds,
-followed by 4.50 and 3.81 seconds. Its explicitly drained updates took roughly
-58.8, 4.79 and 0.72 seconds. These host durations show a substantial cold-path
-cost; they do not isolate compiler time. Initial backend/model construction is
+The first rollout forward and the first updates are dominated by a cold-path cost (first-use
+compilation and setup), so their host durations are not steady-state. They do not isolate compiler
+time. Initial backend/model construction is
 reported separately as `initialization_wall_secs`. Rollout scheduling diagnostics
-now split validation, inference-view creation, packing/upload, forward submission,
+split validation, inference-view creation, packing/upload, forward submission,
 the existing bundled host readback, and unpacking. Imitation `stages` split batch
 validation, gather, forward/loss submission, the existing loss readback, and
 backward/optimizer work (including the existing gradient-norm readback). Lazy
@@ -297,7 +265,7 @@ support, including the per-sample action and direction denominators. Row selecti
 row order, real sample weights and the number of optimizer steps are unchanged.
 Prepared upload bucket capacity includes padding under the existing 32 MiB budget;
 if a bucket/sentinel would exceed it, that window uses exact row counts instead.
-As before, a configured mini-batch larger than the budget remains one update.
+A configured mini-batch larger than the budget remains one update.
 
 Schema 2 explicitly distinguishes update attribution. With
 `--sync-every-iteration`, the row's update metrics and zero-based update identifier
@@ -320,25 +288,21 @@ than a cryptographic source fingerprint or proof about later checkout changes.
 `runtime_source_checkout` separately reports the original source checkout when
 available; it does not prove the contents of an already built binary. Metadata
 contains no Git paths, remotes, status entries or user identity. These timing and
-packing diagnostics provide no new CPU/CUDA numerical-parity guarantee; retain
+packing diagnostics provide no CPU/CUDA numerical-parity guarantee; retain
 the numerical and independent-validation comparisons when assessing parity.
 
-Recovery snapshots now store `imitation_objective_revision` independently of the
-last update's telemetry. A legacy revision 1 snapshot intentionally retains
-learned weights, Adam moments and replay, and emits a migration warning before
-subsequent revision 2 gradients. This continues training under the new objective;
-it does not claim the old objective's bitwise optimizer trajectory. New saves
-record revision 2 so later resumes retain the warning history without adding the
-same migration warning again.
+Recovery snapshots store `imitation_objective_revision` independently of the
+last update's telemetry. A revision 1 snapshot keeps its learned weights, Adam moments and
+replay, and emits a migration warning before revision 2 gradients. Training continues under
+the revision 2 objective; the old objective's bitwise optimizer trajectory is not
+reproduced. Saves record revision 2, so later resumes keep the warning history without
+repeating the warning.
 
-## Geometry and rollout admission (v6)
+## Geometry and rollout admission
 
-The current environment identity is `cuda-env-v6`. The v5 archive completed its
-pipeline measurement, but still spent 2,837 summed service seconds in line-trial
-CPU gates, with 47,268 detached-junction refusals across the pipeline process.
-These are overlapping service durations, not elapsed wall time. The optical
-service received a mean batch of about 1.004 candidates, despite the independent
-optical workload demonstrating capacity for much larger batches.
+The environment revision is `cuda-env-v7`. Line-trial CPU gates are the largest service cost, and
+optical batches stay near one candidate, although the independent optical workload shows capacity
+for much larger batches. Service durations overlap and are not elapsed wall time.
 
 The additional GPU check addresses the discrete junction requirement that a slab
 overlap test cannot decide. It enumerates every triple of candidate surface planes
@@ -368,7 +332,7 @@ payload). Runtime health is checked before cache use.
 CPU baseline preparation and GPU proof work have a cost, so the next measurement
 must establish the net benefit rather than infer it from the reduction in calls.
 
-Inspect the new geometry counters alongside the existing gate-phase counters:
+Inspect the geometry counters alongside the gate-phase counters:
 
 | Counter | Meaning |
 | --- | --- |
@@ -386,10 +350,9 @@ until that validation finishes. With 16 designs and the seven-objective sweep,
 progress counts 112 cases; no rollout steps are expected during this phase.
 Completed journal cases are reused without entering the work pool. New validation
 journals also retain completed passes, episode steps and teacher-search work as
-described below. An old unfinished case has no intermediate records to recover;
-its first execution with the updated binary starts creating those records.
-The same CUDA resume command can use this fix without discarding model, optimizer,
-replay or compatible completed-case journals. This bounds proof cost, not total
+described below. An unfinished case from an older binary has no intermediate records;
+it starts creating them on its first run. The same CUDA resume command keeps model, optimizer,
+replay and compatible completed-case journals. This bounds proof cost, not total
 validation duration; measure the remaining CPU gate and oracle work remotely.
 
 ### Incremental validation recovery
@@ -441,16 +404,15 @@ Keep the complete recovery directory, including validation and reference journal
 when moving a run to another machine. The `--device cuda --resume <prefix>` command
 and existing training checkpoint format are unchanged.
 
-The new recovery regressions are supplied for remote execution; they have not been
-run locally. Verify interruption/reopening at pass, step and teacher boundaries,
+Verify interruption/reopening at pass, step and teacher boundaries,
 stochastic RNG continuation, changed identity/fidelity refusal, per-case reference
 reuse across changed model weights, and legacy completed-case compatibility before
 relying on unattended recovery. Compare scores, selected actions and evaluation
 counts, not wall-clock durations. Cross-backend floating-point equivalence is not
 promised.
 
-Shared staged-work admission now permits a busy stream to borrow unused capacity,
-reserving admission for other registered idle streams. Total pending work remains
+Shared staged-work admission lets a busy stream borrow unused capacity,
+while reserving admission for other registered idle streams. Total pending work remains
 bounded by 128. Per-slot sample quotas, real-sample selection and checkpoint
 boundaries are unchanged. A round still waits for its slowest unfinished quota;
 allowing faster designs to steal those samples would bias the training data.
@@ -458,7 +420,7 @@ allowing faster designs to steal those samples would bias the training data.
 histogram by coordinator-observed slots with steps remaining. Those observations
 include event-delivery delays and final respawn drain; they are not CPU utilization.
 
-Run the new ignored CUDA safety regressions before collecting the v6 timings:
+Run the ignored CUDA safety regressions before timing:
 
 ```sh
 cargo test -j 1 --manifest-path crates/pleochroma-ai/Cargo.toml \
@@ -470,9 +432,8 @@ cargo test -j 1 --manifest-path crates/pleochroma-ai/Cargo.toml \
   gpu_geometry::projection_tests -- --ignored --test-threads=1
 ```
 
-Then run the training, recovery, scheduler and diagnostic tests listed above and
-rebuild both throughput executables. Use the same database, seed, sample counts
-and training parameters as v5 for the first comparison. Check that accepted moves
-still pass independent preservation validation, CUDA failures remain zero, and
-completed measured iterations improve. Do not increase minibatches or worker
-counts in that comparison: it would obscure the effect of these changes.
+Then run the training, recovery, scheduler and diagnostic tests listed above and rebuild both
+throughput executables. A comparison uses the same database, seed, sample counts and training
+parameters as the previous collection. Check that accepted moves still pass independent preservation
+validation, CUDA failures remain zero, and completed measured iterations improve. Do not increase
+minibatches or worker counts in that comparison: it would obscure the effect of the change.

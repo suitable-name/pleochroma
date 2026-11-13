@@ -33,9 +33,8 @@ fn negative_tilt_carries_on_over_the_pole() {
     assert!((over_the_pole.forward - opposite.forward).length() < 1e-5);
 }
 
-/// The flip a tilt video showed half-way: across table-up the picture must not turn.
-/// The image basis one small step either side of tilt 0 is nearly the same, on every
-/// sweep axis (it turned 180 degrees with the old opposite-azimuth pose).
+/// Across table-up the picture must not turn: the image basis one small step either side of
+/// tilt 0 is nearly the same on every sweep axis.
 #[test]
 fn crossing_table_up_does_not_turn_the_picture() {
     for axis in 0..PROFILE_AZIMUTHS_DEG.len() {

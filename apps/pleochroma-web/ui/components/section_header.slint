@@ -1,9 +1,7 @@
 import { Theme } from "theme.slint";
 
-// A 24px collapsible-section header: chevron, uppercase muted title and a
-// right-side `@children` slot -- a copy of the desktop's
-// `components/section_header.slint`. Owns no state: the caller drives
-// `collapsed` and hides its own body.
+// A 24px collapsible-section header: chevron, muted title and a right-side `@children`
+// slot. Owns no state: the caller drives `collapsed` and hides its own body.
 export component SectionHeader inherits Rectangle {
     in property <string> title;
     in property <bool> collapsed: false;

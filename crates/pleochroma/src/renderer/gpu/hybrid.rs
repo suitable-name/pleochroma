@@ -1,42 +1,38 @@
-//! CPU+GPU hybrid frame rendering: the GPU and every CPU core trace disjoint sample
-//! ranges of the SAME frame at the same time, and their per-pixel radiance sums are
-//! merged into one image.
+//! CPU+GPU hybrid frame rendering: the GPU and every CPU core trace disjoint sample ranges of
+//! the same frame at the same time, and their per-pixel radiance sums are merged into one image.
 //!
-//! Ports no physics of its own. The GPU side is exactly
-//! [`GpuFrameRenderer::accumulate`]; the CPU side uses the same seed hash, stratified
-//! jitter, Cranley-Patterson rotation, and hero-wavelength draw as `estimator_check`'s
-//! CPU reference loop, via `optics::raytracer::sampling::{pixel_rotations,
-//! sample_draws}` -- the one place that formula lives (`estimator_check` still carries
-//! an independent copy, so a formula change must land in both places).
+//! Ports no physics of its own. The GPU side is [`GpuFrameRenderer::accumulate`]; the CPU side
+//! uses the same seed hash, stratified jitter, Cranley-Patterson rotation and hero-wavelength
+//! draw as the CPU reference loop of `estimator_check`, via
+//! `optics::raytracer::sampling::{pixel_rotations, sample_draws}`. `estimator_check` keeps an
+//! independent copy of that loop, so a formula change must land in both places.
 //!
-//! The split is disjoint sample RANGES, not disjoint pixels:
-//! `GpuFrameRenderer::accumulate`'s `sample_offset` lets workers own disjoint ranges of
-//! one frame (the shader derives seed/jitter from the absolute sample index). GPU
-//! renders `[0, gpu_samples)`, CPU renders `[gpu_samples, gpu_samples + cpu_samples)`,
-//! concurrently.
+//! The split is disjoint sample RANGES, not disjoint pixels: `sample_offset` lets workers own
+//! disjoint ranges of one frame, since the shader derives seed and jitter from the absolute
+//! sample index. The GPU renders `[0, gpu_samples)` and the CPU renders
+//! `[gpu_samples, gpu_samples + cpu_samples)`, concurrently.
 //!
 //! # Merge convention: sum, never average
 //!
-//! Every accumulation buffer in this crate is a running SUM of per-sample radiance,
-//! divided by sample count only once, by the caller, at display time. [`render_hybrid`]
-//! adds the GPU and CPU per-pixel sums together; the caller divides by
-//! `split.total_spp()` as for a single-engine render.
+//! Every accumulation buffer in this crate is a running SUM of per-sample radiance, divided by
+//! sample count only once, by the caller, at display time. [`render_hybrid`] adds the GPU and
+//! CPU per-pixel sums together; the caller divides by `split.total_spp()` as for a single-engine
+//! render.
 //!
-//! # Biaxial routing
+//! # Unsupported materials
 //!
-//! [`render_hybrid`] overrides any material with `GemMaterial::gpu_supported() ==
-//! false` to an all-CPU split (`gpu_samples = 0`, reported via
-//! [`HybridStats::forced_cpu_only`]). Every built-in is GPU-supported; a custom material
-//! whose own band sets exceed `MAX_ABSORPTION_BANDS` is not (`gpu_material_decline`).
+//! [`render_hybrid`] overrides a material with `GemMaterial::gpu_supported() == false` to an
+//! all-CPU split (`gpu_samples = 0`, reported via [`HybridStats::forced_cpu_only`]). That covers
+//! zoned materials the GPU zone kernels cannot render, and any band set longer than
+//! `MAX_ABSORPTION_BANDS` (`renderer::buffers::gpu_material_decline`).
 //!
 //! # Determinism
 //!
-//! Two [`render_hybrid`] calls with the same explicit [`HybridSplit`] against the same
-//! scene produce byte-identical summed buffers: the GPU side already has this property,
-//! the CPU side by construction (seed/jitter are pure functions of pixel and absolute
-//! sample index). [`HybridSplit::calibrated`] itself is NOT required to be reproducible
-//! (it measures noisy wall-clock throughput) -- only a render given an already-chosen
-//! split is.
+//! Two [`render_hybrid`] calls with the same explicit [`HybridSplit`] against the same scene
+//! produce byte-identical summed buffers: the GPU side has this property, and the CPU side has
+//! it by construction (seed and jitter are pure functions of pixel and absolute sample index).
+//! [`HybridSplit::calibrated`] is NOT required to be reproducible, since it measures noisy
+//! wall-clock throughput. Only a render given an already-chosen split is.
 
 use std::time::{Duration, Instant};
 
@@ -175,9 +171,7 @@ pub struct HybridStats {
     /// `0.0` when `cpu_samples == 0`.
     pub cpu_samples_per_sec: f64,
     /// `true` when the requested split's `gpu_samples` was overridden to `0` -- see
-    /// "Biaxial routing" in the module doc. Always `false` today since `gpu_supported()`
-    /// is unconditional, but stays observable for any future material that returns
-    /// `false`.
+    /// "Unsupported materials" in the module doc.
     pub forced_cpu_only: bool,
 }
 
@@ -193,8 +187,8 @@ pub struct HybridStats {
 /// range -- see [`cpu_trace_range`]. Outputs land in separate buffers, combined only
 /// after both finish.
 ///
-/// A biaxial `scene.material` (`gpu_supported() == false`) routes EVERY sample to the
-/// CPU regardless of `requested_split` -- see "Biaxial routing" and
+/// A `scene.material` with `gpu_supported() == false` routes EVERY sample to the CPU
+/// regardless of `requested_split` -- see "Unsupported materials" and
 /// [`HybridStats::forced_cpu_only`].
 ///
 /// `accum` is ADDED into, like [`GpuFrameRenderer::accumulate`]'s own `accum`.
@@ -202,7 +196,7 @@ pub struct HybridStats {
 /// # Errors
 ///
 /// Whatever [`GpuFrameRenderer::accumulate`] returns for the GPU dispatch. Never
-/// reached when `scene.material` is biaxial.
+/// reached when `scene.material` is unsupported.
 ///
 /// # Panics
 ///
@@ -234,8 +228,7 @@ pub fn render_hybrid(
     // renderer.accumulate blocks on GPU readback, so overlapping it with CPU work is the
     // point of "hybrid".
     let (gpu_result, cpu_buf, cpu_elapsed) = std::thread::scope(|s| {
-        // Proving this closure Send walks wgpu's internal buffer/registry nesting --
-        // see the crate root's #![recursion_limit = "256"].
+        // Proving this closure Send needs the raised `recursion_limit` of the crate root.
         let gpu_handle = s.spawn(move || -> Result<(Vec<Vec3>, Duration), GpuFrameError> {
             let mut buf = vec![Vec3::ZERO; num_pixels];
             if split.gpu_samples == 0 {
@@ -294,7 +287,7 @@ fn samples_per_sec(num_pixels: usize, samples: u32, elapsed: Duration) -> f64 {
 /// same accumulate-not-overwrite convention, same `sample_offset` meaning, as its GPU
 /// counterpart.
 ///
-/// [`render_hybrid`]'s own CPU tracing, and its biaxial "route everything to CPU" case,
+/// [`render_hybrid`]'s own CPU tracing, and its unsupported-material "all CPU" case,
 /// both go through this exact function (via [`cpu_trace_range`]), so an isolated
 /// CPU-only measurement built to check against a hybrid render exercises the same code
 /// path, not a lookalike that could drift from it.
@@ -315,12 +308,10 @@ pub fn cpu_accumulate(scene: &GpuFrameScene<'_>, sample_offset: u32, spp: u32, a
     }
 }
 
-// CPU sample construction now lives in `renderer::cpu_frame` (wasm-safe, thread-free),
-// so it can also be called per-pixel-partition by a browser's Web Worker pool -- see
-// that module's doc comment. This function is only the THREADING wrapper around it:
-// each thread traces its own interleaved pixel partition via
-// `trace_pixels_interleaved` and the results are summed back with `scatter_interleaved`,
-// exactly as a Worker pool would, but over `std::thread::scope` instead of Workers.
+// CPU sample construction lives in `renderer::cpu_frame` (wasm-safe, thread-free), so a
+// browser's Web Worker pool can call it per pixel partition. The code below is only the
+// threading wrapper: each thread traces its interleaved pixel partition with
+// `trace_pixels_interleaved`, and the results are summed back with `scatter_interleaved`.
 
 /// Traces `spp` samples per pixel on the CPU, sample indices `[sample_offset,
 /// sample_offset + spp)`, across every available core, and returns one SUMMED `Vec3` per

@@ -40,7 +40,7 @@ impl FacetMap {
     }
 
     /// The map of the preform's planes plus the facets of the tiers `visible` marks,
-    /// renumbered consecutively in their original order. `self` must be a flat-only
+    /// renumbered consecutively, keeping their order. `self` must be a flat-only
     /// map (no concave facets appended yet).
     fn restricted_to(&self, visible: &[bool]) -> Self {
         let shown = |info: &FacetInfo| {

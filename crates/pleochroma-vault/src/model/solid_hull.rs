@@ -13,8 +13,8 @@
 /// a stored row whose `hull_version` differs from this is treated as missing by
 /// `Database::solid_hulls_for`, so the scan re-measures it.
 ///
-/// Version 2: the hull of a design with concave tools is the convex hull of its carved mesh
-/// (the corners the fit places), where version 1 stored the flat facet stone's corners.
+/// A design with concave tools is measured as the convex hull of its carved mesh (the
+/// corners the fit places), not the flat facet stone's.
 pub const SOLID_HULL_VERSION: u32 = 2;
 
 /// The error type returned when decoding a [`SolidHull`] from raw bytes fails.

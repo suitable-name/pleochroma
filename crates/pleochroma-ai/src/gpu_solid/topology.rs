@@ -21,7 +21,7 @@ pub(super) fn face_rings(arr: &Arrangement) -> Vec<FaceRing> {
 
 /// The divergence-theorem volume `sum(m * area / 3)` over the planes, in
 /// normalised units, from rings already built. Summed in plane order with
-/// `Iterator::sum`, the same expression the separate entry points always used.
+/// `Iterator::sum`, which fixes the float reduction order.
 pub(super) fn volume_from_rings(arr: &Arrangement, rings: &[FaceRing]) -> f64 {
     arr.deduped
         .iter()
@@ -53,12 +53,9 @@ pub(super) fn mesh_from_arrangement(arr: &Arrangement, rings: &[FaceRing]) -> So
         let facet_idx = arr.origin[i];
         let base = u32::try_from(mesh.positions.len()).expect("a mesh's vertex count fits in u32");
 
-        // Centroid vertex first, then the ring in angular order -- see this
-        // function's doc comment for why the fan pivots on the centroid
-        // rather than `ring[0]`. Positions are scaled back to `planes`' own
-        // real mast units here, at the point they enter the returned mesh --
-        // `ring` itself (pushed into `mesh.rings` below) gets the same
-        // treatment so a caller never observes the internal normalised scale.
+        // Centroid first, then the ring in angular order. The fan pivots on
+        // the centroid, not `ring[0]`. Output positions are scaled back to
+        // real units, so callers never see the normalised scale.
         mesh.positions.push(centroid * scale);
         mesh.normals.push(normal);
         mesh.facet_id.push(facet_idx);

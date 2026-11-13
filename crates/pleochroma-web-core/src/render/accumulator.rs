@@ -6,8 +6,9 @@ use glam::Vec3;
 
 use super::partition_len;
 
-/// Why [`Accumulator::add_chunk`] refused a chunk of the CURRENT scene. Each one is a
-/// host bug or a corrupted message, never an ordinary race (a stale scene is
+/// Why [`Accumulator::add_chunk`] refused a chunk of the current scene.
+///
+/// Each one is a host bug or a corrupted message, never an ordinary race (a stale scene is
 /// [`ChunkOutcome::Stale`], not a rejection).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ChunkRejection {
@@ -125,7 +126,7 @@ impl Accumulator {
         self.partitions
     }
 
-    /// The running per-pixel SUM (not the mean) over every merged pass, row-major.
+    /// The running per-pixel sum (not the mean) over every merged pass, row-major.
     #[must_use]
     pub fn sum(&self) -> &[Vec3] {
         &self.sum

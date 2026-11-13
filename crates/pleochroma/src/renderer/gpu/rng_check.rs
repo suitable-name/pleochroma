@@ -1,26 +1,22 @@
-//! RNG/integer bit-exactness self-test (Tier 1), plus a Tier 2 ULP-budget check for the
-//! fields in the same dispatch that aren't integer-derived.
+//! RNG and integer bit-exactness self-test, plus a ULP-budget check for the float fields of the
+//! same dispatch.
 //!
-//! Dispatches `shaders/rng_equivalence.wgsl` over ~10^6 `(pixel, sample, bounce)` tuples
-//! and compares every value against the identical computation performed on the CPU with
-//! this crate's real `hash_u32`/seed-formula/`low_discrepancy_base2`/
-//! `cranley_patterson_rotate`/`wrapped_hero_wavelengths` code -- see [`cpu_record`],
-//! which calls straight into `optics::raytracer`, not a reimplementation of it.
+//! Dispatches `shaders/rng_equivalence.wgsl` over ~10^6 `(pixel, sample, bounce)` tuples and
+//! compares every value with the same computation on the CPU, using this crate's own hashing,
+//! seed, low-discrepancy and wavelength functions. [`cpu_record`] calls `optics::raytracer`
+//! directly rather than a reimplementation, so a bug shared by both sides cannot pass.
 //!
 //! # Two tiers, two tolerances, in one dispatch
 //!
-//! [`compare_record`] (Tier 1, [`RngCheckResult`]) covers `seed`, `rot_jx_hash`,
-//! `rot_jy_hash`, `rot_hero_hash`, `sample_reversed`, and the three per-bounce stream
-//! draws -- all pure `u32` arithmetic, exact in WGSL, so this tier's tolerance is zero:
-//! any disagreement is a bug, not noise.
+//! [`compare_record`] (Tier 1, [`RngCheckResult`]) covers `seed`, the rotation hashes,
+//! `sample_reversed` and the per-bounce hash draws. These are pure `u32` arithmetic, exact in
+//! WGSL, so the tolerance is zero: any disagreement is a bug.
 //!
-//! [`check_float_ulp`] (Tier 2, [`FloatUlpResult`]) covers `jx`, `jy`, `hero_rand`, and
-//! `lambdas` -- fields built from float arithmetic (division, the Cranley-Patterson
-//! rotation's add/floor/subtract, or `fma`) rather than pure integer ops. These don't
-//! belong in Tier 1: on this workspace's dev hardware (AMD RDNA2 iGPU, Vulkan), the
-//! shader compiler doesn't always fuse WGSL's `fma()` into a true single-rounding
-//! hardware FMA the way `f32::mul_add` is on the CPU -- a real, measured small-ULP-scale
-//! discrepancy, not a porting bug. See [`FLOAT_ULP_BUDGET`] for the budget.
+//! [`FloatUlpAccumulator`] (Tier 2) covers `jx`, `jy`, `hero_rand` and `lambdas`, which are built
+//! from float arithmetic (division, the Cranley-Patterson add/floor/subtract, or `fma`). The
+//! shader compiler does not always fuse `fma()` into a single-rounding hardware FMA as
+//! `f32::mul_add` does on the CPU, so GPU values can differ by a few ULP. See
+//! [`FLOAT_ULP_BUDGET`].
 
 use crate::{
     optics::raytracer::{
@@ -66,7 +62,7 @@ pub struct RngRecord {
     /// Biref draws.
     pub biref_draws: [u32; 4],
     /// Tier 1 integer draw for the o<->e (uniaxial) / mode-A<->mode-B (biaxial)
-    /// re-coupling decision -- see `optics::raytracer::apply_internal_mode_coupling`.
+    /// re-coupling decision -- see `apply_internal_mode_coupling`.
     pub mode_coupling_draws: [u32; 4],
     /// Girdle finish: Tier 1 draws for `apply_frosted_bounce`'s cosine-weighted
     /// hemisphere sample -- see `optics::raytracer::FROSTED_DIR_U_STREAM`.
@@ -75,6 +71,8 @@ pub struct RngRecord {
     pub frosted_dir_v_draws: [u32; 4],
 }
 
+// Five `u32` (20 bytes), three `f32` (12), eight `f32` lambdas (32) and six arrays of four
+// `u32` (96): 160 bytes, a multiple of the struct's 4-byte WGSL alignment.
 const _: () = assert!(size_of::<RngRecord>() == 160);
 
 /// Must match `shaders/rng_equivalence.wgsl`'s `Params` uniform.
@@ -196,8 +194,8 @@ impl RngCheckResult {
     }
 }
 
-/// Tier 1 ONLY: pure-integer fields, zero tolerance. `jx`/`jy`/`hero_rand`/`lambdas`
-/// are excluded -- see [`FloatUlpAccumulator`] for why they belong in Tier 2.
+/// Tier 1 only: the pure-integer fields, with zero tolerance. The float fields are checked by
+/// [`FloatUlpAccumulator`].
 fn compare_record(
     pixel: u32,
     sample: u32,
@@ -231,25 +229,19 @@ fn compare_record(
     check!(frosted_dir_v_draws, "frosted_dir_v_draws");
 }
 
-/// Tier 2 ULP budget for `jx`/`jy`/`hero_rand`/`lambdas` (fields built from float
-/// arithmetic -- division, Cranley-Patterson add/floor/subtract, or `fma`).
+/// Tier 2 ULP budget for `jx`/`jy`/`hero_rand`/`lambdas`: fields built from float arithmetic.
 ///
-/// Measured on this workspace's dev hardware (AMD RDNA2 iGPU, Vulkan) over a
-/// 1,048,576-tuple run: observed max was **1 ULP**, on ~0.024% of records, consistent
-/// with the shader compiler not always fusing `fma()` into a true hardware FMA. 4 ULP
-/// gives comfortable margin for other GPU/drivers while staying far below what a real
-/// algebra bug produces (typically thousands of ULP) -- see [`crate::renderer::gpu::ulp`]
-/// for why ULP, not a relative epsilon. This divergence is also why a later Tier 3
-/// (statistical image comparison) must be variance-scaled rather than exact.
+/// The observed divergence on the development GPU is 1 ULP, from the shader compiler not always
+/// fusing `fma()`. 4 ULP leaves margin for other drivers, while a real algebra bug shows as
+/// thousands of ULP. See [`crate::renderer::gpu::ulp`] for why ULP rather than a relative epsilon.
 pub const FLOAT_ULP_BUDGET: u32 = 4;
 
 /// Absolute-difference floor for `jx`/`jy`/`hero_rand`/`lambdas` comparisons.
 ///
-/// See [`crate::renderer::gpu::ulp::within_tolerance`] for the general rationale. `jx`/`jy`
-/// range over `[-0.5, 0.5)` and legitimately land near zero (measured: a genuine,
-/// non-buggy pair at `jy ~= -6e-6` registered as 262,144 ULP apart from sign-boundary
-/// proximity alone). `lambdas` never approaches zero (`[380.0, 780.0]`), so the floor
-/// is inert there.
+/// See [`crate::renderer::gpu::ulp::within_tolerance`]. `jx`/`jy` range over `[-0.5, 0.5)` and
+/// can sit near zero, where two values that agree in absolute terms can be hundreds of thousands
+/// of ULP apart across a sign boundary. `lambdas` stays in `[380, 780]`, so the floor is inert
+/// there.
 pub const FLOAT_ABS_FLOOR: f32 = 1e-4;
 
 /// One float field's ULP distance from the CPU reference, kept only when it's the
@@ -337,6 +329,8 @@ impl FloatUlpAccumulator {
             if ulp > FLOAT_ULP_BUDGET {
                 // Within tolerance only via the abs-floor clause: a near-zero exemption.
                 self.exempted_count += 1;
+            } else {
+                self.max_ulp = self.max_ulp.max(ulp);
             }
             return;
         }
@@ -454,5 +448,30 @@ pub fn run(
         total_records: total,
         mismatches,
         float_ulp: float_acc.finish(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The GPU computes the CPU's seed, rotations and per-bounce hash draws bit for bit
+    /// (Tier 1 of this module). Skips without an adapter; `PLEOCHROMA_REQUIRE_GPU=1` makes
+    /// that a failure.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn the_gpu_draws_the_cpu_integer_fields() {
+        let Some(ctx) = crate::renderer::gpu::merge_tests::context_or_skip(
+            "the_gpu_draws_the_cpu_integer_fields",
+        ) else {
+            return;
+        };
+        let result = run(&ctx, 257, 96);
+        assert_eq!(result.total_records, 257 * 96);
+        assert!(
+            result.tier1_passed(),
+            "integer fields differ between the GPU and the CPU: {:#?}",
+            result.mismatches
+        );
     }
 }

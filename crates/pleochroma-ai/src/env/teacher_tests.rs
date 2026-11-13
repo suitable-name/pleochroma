@@ -9,17 +9,17 @@ use crate::env::{
 };
 use pleochroma_cut_core::ObjectivePreset;
 
-/// The probe size the tests label with (a quarter degree, the size the existing gradient
-/// tests use).
+/// The probe size the tests label with: a quarter degree.
 const H: f64 = 0.25;
 
 fn close(a: f32, b: f32, tolerance: f32) -> bool {
     (a - b).abs() <= tolerance
 }
 
-/// Whether two tier sensitivities agree bit for bit, NaN included. `PartialEq` says
-/// `NaN != NaN`, and a label of a design without a shape target (or a measurable yield) carries
-/// NaN in that component by contract, so `assert_eq!` on labels would never hold.
+/// Whether two tier sensitivities agree bit for bit.
+///
+/// NaN components (no shape target, no measurable yield) never compare equal under
+/// `PartialEq`.
 fn same_sensitivity(a: Option<TierSensitivity>, b: Option<TierSensitivity>) -> bool {
     match (a, b) {
         (None, None) => true,
@@ -56,8 +56,7 @@ fn assert_same_label(a: &TeacherLabel, b: &TeacherLabel, context: &str) {
     );
 }
 
-/// The probes of every tier of the design, one task each as a trainer's pool would run them:
-/// the per-tier sensitivities and the sum of the evaluations they cost.
+/// Probes every tier serially, returning the per-tier sensitivities and the summed evaluations.
 fn probe_all(env: &RetargetEnv, h_deg: f64) -> (Vec<Option<TierSensitivity>>, usize) {
     let mut evaluations = 0;
     let tiers = (0..env.base_design().tiers.len())

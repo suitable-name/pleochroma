@@ -3,9 +3,9 @@
 //!
 //! # The naming rule
 //!
-//! One design keeps what it always did: the explicit file (`--out FILE`, or `--csv FILE` for
-//! `sweep`) is where its output goes. Several designs cannot share one file, so a line with
-//! several designs and an explicit file is refused. `--out-dir DIR` writes one file for each
+//! With one design, the explicit file (`--out FILE`, or `--csv FILE` for `sweep`) is where its
+//! output goes. Several designs cannot share one file, so a line with several designs and an
+//! explicit file is refused. `--out-dir DIR` writes one file for each
 //! design instead, named `<stem of the design>.<extension of the output>` in `DIR`
 //! (`round.asc` and `--out-dir out` give `out/round.psdd` for `solve`). Two designs that would
 //! get the same name (`a/x.asc` and `b/x.asc`, or `x.asc` and `x.gem`) are refused before

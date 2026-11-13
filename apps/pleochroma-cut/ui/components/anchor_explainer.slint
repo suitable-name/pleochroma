@@ -7,13 +7,12 @@ import { HelpButton } from "help_button.slint";
 import { TipButton } from "compact_controls.slint";
 import { TipBox } from "tip_box.slint";
 
-// A one-time card explaining why the solver needs an anchor, shown
-// the first time (this session) a design lacks one
-// (`EditorModel.anchor_explainer_open`, driven by `gui::editor::state::
-// should_open_anchor_explainer`). "Don't show again" persists through
-// `AppSettings.suppressed_confirmations` (key `"anchor_explainer"`) --
-// `EditorModel.anchor_explainer_dismiss`'s own doc comment. Mounted once in
-// `app.slint`, the same way `write_confirm` is.
+// A one-time card explaining why the solver needs an anchor. It opens the first time in a
+// session that a design lacks one (`EditorModel.anchor_explainer_open`, driven by
+// `gui::editor::state::should_open_anchor_explainer`). "Don't show again" persists through
+// `AppSettings.suppressed_confirmations` (key `"anchor_explainer"`); see
+// `EditorModel.anchor_explainer_dismiss`. Mounted once in `GlobalDialogsOverlay`
+// (`components/app/global_dialogs.slint`).
 //
 // The last paragraph depends on the interface mode: "Exact scale value" in the Meets box is an
 // Advanced control (Simple mode only lists it for a tier that already uses it), so a Simple
@@ -50,7 +49,7 @@ export component AnchorExplainer inherits Rectangle {
         Rectangle {
             width: min(420px, parent.width - 40px);
             // Stated, not taken from the content: a wrapped Text measures as one line, so a
-            // content-sized card would clip the button (see `tilt_batch_dialog.slint`).
+            // content-sized card would clip the button.
             height: min(parent.height - 40px, 400px);
             background: Theme.surface-dialog;
             border-radius: Theme.radius-md;

@@ -9,9 +9,9 @@ use super::{EnvKind, pool};
 
 /// Probe in tier order until remaining cases leave spare workers, then share the suffix.
 ///
-/// The caller obtains `tail` inside `run_items_ranked`, which installs the trainer's
-/// persistent pool even for a single case. Nested Rayon work therefore never creates a
-/// global pool. Indexed collection and finalization preserve the serial arithmetic order.
+/// `tail` comes from `run_items_ranked`, which runs even a single case in the trainer's
+/// persistent pool, so nested Rayon work never creates the global pool. Indexed collection
+/// keeps the serial arithmetic order.
 pub(super) fn oracle(env: &EnvKind, h_deg: f64, scales: &[f64], tail: &pool::Tail) -> TeacherLabel {
     if pool::pool_threads() == 1 {
         return env.teacher_label(h_deg, scales);
@@ -41,7 +41,8 @@ pub(super) fn oracle(env: &EnvKind, h_deg: f64, scales: &[f64], tail: &pool::Tai
     }
 }
 
-/// Restore completed teacher units while committing new results before advancing the search.
+/// Teacher label with checkpointing: units already done in `saved` are restored, and each new
+/// snapshot is passed to `checkpoint` before the search advances.
 pub(super) fn oracle_with_recovery(
     env: &EnvKind,
     h_deg: f64,
@@ -61,9 +62,8 @@ pub(super) fn oracle_with_recovery(
     }
 }
 
-/// One validation step. The environment's line search runs its scales strictly in order
-/// (a smaller scale only after a rejection), so the capacity check passed here is kept for
-/// the adaptive API but never consulted.
+/// One validation step. Scales run in order (a smaller scale only after a rejection), and
+/// `tail` is checked before each unstarted scale, so spare workers only shorten the search.
 pub(super) fn step(
     env: &mut EnvKind,
     action: &ContinuousTierAction,

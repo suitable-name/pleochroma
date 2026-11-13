@@ -1,8 +1,8 @@
 //! The hyperparameter form: parsing and validating what the user typed.
 //!
-//! The GUI trains by imitation only, so the form has six fields. The worker's command still
-//! carries the PPO clip and GAE lambda (they are validated there); the form passes the values
-//! the worker reported last, which an imitation run ignores.
+//! The GUI trains with the default imitation algorithm, so the form has six fields. The worker's
+//! command still carries the PPO clip and GAE lambda (validated there); the form passes the
+//! values the worker reported last, which an imitation run ignores.
 
 use crate::trainer_worker::{TrainerCommand, runner::MAX_WORKERS};
 

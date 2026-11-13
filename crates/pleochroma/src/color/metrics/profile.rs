@@ -143,9 +143,8 @@ pub fn evaluate_angular_profile_at_azimuth_finished_stepped(
 /// The per-angle sampling loop behind [`evaluate_angular_profile_at_azimuth`] (called with
 /// `&PROFILE_ANGLES_DEG`, 19 points / 5° steps). Reads only brilliance, extinction and
 /// windowing, so it runs the Fire-less pass (bit-identical for those three) on one prepared
-/// stone. Serial on purpose: 19 poses are ~20 ms, and the metrics cache calls this from
-/// UI-adjacent code that must not fan out threads. Const-generic over `N` so one function
-/// body serves any grid without a `Vec`-based version paying an allocation per sweep.
+/// stone. Serial on purpose: 19 poses are too few to repay the cost of spawning threads.
+/// Const-generic over `N` so one body serves any grid without a `Vec` allocation per sweep.
 ///
 /// With `step: Some(..)` the hook is asked before each pose and the first `false` returns
 /// `None`; with `None` every pose runs and the result is always `Some`. Both modes call
@@ -223,23 +222,19 @@ const fn build_tilt_angles_deg() -> [f32; 181] {
 /// opposite azimuths of the axis pair -- see [`evaluate_full_axis_profile_at_azimuth`]'s
 /// doc comment for the full geometry and the pose-to-index formula.
 ///
-/// Table-up, not edge-on, is shared at the centre: an earlier version shared edge-on
-/// instead, which is approached from two physically distinct azimuths, making the
-/// merged curve discontinuous exactly at the "shared" point. Table-up is the one pose
-/// in this sweep that is actually azimuth-independent (see the next function's doc
-/// comment), which is what makes sharing it correct.
+/// The shared centre is table-up, not edge-on: edge-on is approached from two distinct
+/// azimuths, so a curve merged there would be discontinuous. Table-up is the one pose that
+/// is azimuth-independent (see the next function's doc), which is what makes sharing it correct.
 ///
 /// # Why 1° and not coarser (measured)
 ///
-/// Reconstruction error against the true 1°-resolution curve decays roughly linearly
-/// with step size (measured against round-brilliant diamond down to 2°/91 pts: 3-5
-/// percentage points), since the curve carries genuine high-frequency structure
-/// (individual facets flipping in and out of a fixed light as the stone tilts). That
-/// error is disqualifying here since these curves back hard-threshold catalogue filters
-/// (e.g. "windowing never exceeds 20% within ±45°"), where it can flip a design in or
-/// out of the result set. 1° is also the natural ceiling: the graph canvas is a few
-/// hundred pixels wide, so finer sampling would only resolve grid-sampling noise --
-/// don't "improve" this to 0.5° later.
+/// Reconstruction error against the true 1°-resolution curve decays roughly linearly with
+/// step size (measured against round-brilliant diamond down to 2°/91 pts: 3-5 percentage
+/// points), since the curve carries genuine high-frequency structure (individual facets
+/// flipping in and out of a fixed light as the stone tilts). That error is disqualifying
+/// here since these curves back hard-threshold catalogue filters (e.g. "windowing never
+/// exceeds 20% within ±45°"), where it can flip a design in or out of the result set. 1° is
+/// also the natural ceiling: finer sampling would only resolve grid-sampling noise.
 pub const TILT_ANGLES_DEG: [f32; 181] = build_tilt_angles_deg();
 
 /// Calculates a full-axis, 181-point angular profile spanning the ENTIRE `-90°..=+90°`
@@ -272,9 +267,9 @@ pub const TILT_ANGLES_DEG: [f32; 181] = build_tilt_angles_deg();
 /// # Why the negative half is a real sweep, not a mirror
 ///
 /// [`evaluate_gem_optical_metrics`] takes a FIXED environment (for the studio rigs, one
-/// light pose). Tilting toward vs. away from the light gives genuinely different brilliance/extinction/
-/// windowing, even for a symmetric round brilliant, and an asymmetric outline (pear,
-/// heart, half-moon) is not 2-fold symmetric geometrically either. So
+/// light pose). Tilting toward vs. away from the light gives genuinely different
+/// brilliance, extinction and windowing, even for a symmetric round brilliant, and an
+/// asymmetric outline (pear, heart, half-moon) is not 2-fold symmetric geometrically either. So
 /// `positive_azimuth_deg + 180°` is independently raytraced at every pitch, never
 /// derived by reflecting the positive half.
 ///
@@ -287,9 +282,7 @@ pub const TILT_ANGLES_DEG: [f32; 181] = build_tilt_angles_deg();
 /// `world_up` fallback switches exactly at this pole too, keeping `right`/`up` from
 /// spinning with `yaw` there. Table-up is therefore the one pose in this sweep that is
 /// actually azimuth-independent, which is what makes evaluating it once and sharing it
-/// between both halves correct rather than merely convenient (an earlier version
-/// shared edge-on instead -- see [`TILT_ANGLES_DEG`]'s doc comment for why that was a
-/// genuine bug).
+/// between both halves correct rather than merely convenient (see [`TILT_ANGLES_DEG`]).
 ///
 /// Net cost: `90 + 1 + 90 = 181` raytrace evaluations per axis (the shared table-up
 /// point is evaluated once, not twice).
@@ -334,8 +327,8 @@ pub fn evaluate_full_axis_profile_at_azimuth_geom(
 /// `max_threads` of `None` uses the machine's parallelism (at most 16), `Some(1)` runs
 /// serially on the calling thread; a caller that already parallelises across designs (the
 /// batch tilt curves) passes its share so lanes x threads stays within the core count.
-/// Every pose writes the curve slot it owns, so the result is bit-identical for any
-/// thread count (and to the pre-parallel serial sweep). `wasm32` always runs serially.
+/// Every pose writes the curve slot it owns, so the result is bit-identical for any thread
+/// count. `wasm32` always runs serially.
 ///
 /// The stone is swept polished; [`evaluate_full_axis_profile_at_azimuth_finished_threaded`]
 /// is the same sweep for a stone with frosted facets.
@@ -391,8 +384,8 @@ pub fn evaluate_full_axis_profile_at_azimuth_finished_threaded(
 /// [`evaluate_full_axis_profile_at_azimuth`] with a hook before every evaluation.
 ///
 /// `step` is called before each of the [`EVALUATIONS_PER_AXIS`] raytrace evaluations and
-/// can stop the sweep by answering `false` (then `None`). The browser app's tilt Worker
-/// uses it to report progress and to honour Cancel between points; with a `step` that
+/// can stop the sweep by answering `false` (then `None`). Callers use it to report progress
+/// and to honour cancel between points; with a `step` that
 /// always answers `true` the result is bit-identical to
 /// [`evaluate_full_axis_profile_at_azimuth`]'s.
 #[must_use]
@@ -438,8 +431,7 @@ pub fn evaluate_full_axis_profile_at_azimuth_stepped_geom(
 /// `step` runs on the calling thread only, never concurrently, and is asked in evaluation
 /// order; on a parallel run it is asked a few evaluations per worker ahead of the work (so
 /// progress leads the finished poses by a few milliseconds) and the first `false` stops the
-/// sweep before the next batch starts. Serial runs interleave ask and evaluate exactly as
-/// before.
+/// sweep before the next batch starts. Serial runs interleave ask and evaluate.
 #[must_use]
 pub fn evaluate_full_axis_profile_at_azimuth_stepped_geom_threaded(
     geom: StoneGeometry<'_>,

@@ -138,10 +138,9 @@ pub fn passes_z_criteria(
 /// 4-connectivity connected-component sizes of `|z| > threshold` pixels in a `width x
 /// height` grid, largest first.
 ///
-/// Standard flood fill -- this matters more than a bare
-/// failing-pixel count: a connected region (one facet, a grazing-angle band, one branch
-/// of the physics) is what a real porting bug leaves behind, while independent
-/// per-sample noise crossing the 3-sigma threshold lands as scattered singletons.
+/// Flood fill over 4-connected failing pixels. Connectivity matters more than a plain count: a
+/// real porting bug leaves a connected region (one facet, one branch of the physics), while
+/// independent per-sample noise lands as scattered singletons.
 #[must_use]
 pub fn connected_components(z_grid: &[f64], width: u32, height: u32, threshold: f64) -> Vec<usize> {
     let w = width as usize;
@@ -180,4 +179,67 @@ pub fn connected_components(z_grid: &[f64], width: u32, height: u32, threshold: 
     }
     sizes.sort_unstable_by(|a, b| b.cmp(a));
     sizes
+}
+
+/// Per-pixel, per-channel statistics of a frame rendered in batches.
+///
+/// `batches[k][pixel]` is the sum of batch `k`'s `spp` samples of `pixel`: one production
+/// `accumulate` call over its own sample range. Each batch mean is one observation, so the
+/// statistics need no per-sample buffer and hold whatever a single sample's distribution is
+/// (an importance-sampled map draw is heavy-tailed; a mean of several is close to normal).
+///
+/// # Panics
+///
+/// Panics if the batches differ in length.
+#[cfg(test)]
+#[must_use]
+pub fn batch_mean_stats(batches: &[Vec<glam::Vec3>], spp: u32) -> Vec<[Welford; 3]> {
+    let pixels = batches.first().map_or(0, Vec::len);
+    let mut stats = vec![[Welford::default(); 3]; pixels];
+    for batch in batches {
+        assert_eq!(batch.len(), pixels, "every batch covers the same pixels");
+        for (stat, sum) in stats.iter_mut().zip(batch) {
+            for (channel, value) in stat.iter_mut().zip(sum.to_array()) {
+                channel.update(f64::from(value) / f64::from(spp));
+            }
+        }
+    }
+    stats
+}
+
+/// Whether two batch-rendered `width x height` frames ([`batch_mean_stats`] over disjoint
+/// sample ranges) estimate the same image, with a one-line summary for an assertion message.
+///
+/// A pixel fails when its largest per-channel `|z|` exceeds [`SIGMA_THRESHOLD`]; the frame
+/// passes [`passes_z_criteria`] at the null rate of three channels. The batch-mean variance has
+/// one degree of freedom fewer than the batches, so its Student tails exceed the normal rate a
+/// little (0.43 % against 0.27 % per channel at 48 batches): the criteria's fivefold allowance
+/// covers that.
+#[cfg(test)]
+#[must_use]
+pub fn batch_frames_agree(
+    a: &[[Welford; 3]],
+    b: &[[Welford; 3]],
+    width: u32,
+    height: u32,
+) -> (bool, String) {
+    let z: Vec<f64> = a
+        .iter()
+        .zip(b)
+        .map(|(pa, pb)| {
+            pa.iter()
+                .zip(pb)
+                .map(|(ca, cb)| z_score(ca, cb).abs())
+                .fold(0.0, f64::max)
+        })
+        .collect();
+    let over = z.iter().filter(|v| **v > SIGMA_THRESHOLD).count();
+    let clusters = connected_components(&z, width, height, SIGMA_THRESHOLD);
+    let passed = passes_z_criteria(over, z.len(), 3.0 * NULL_OVER_3_SIGMA_RATE, &clusters);
+    let largest = clusters.first().copied().unwrap_or(0);
+    let summary = format!(
+        "{over} of {} pixels beyond {SIGMA_THRESHOLD} sigma, largest cluster {largest}",
+        z.len()
+    );
+    (passed, summary)
 }

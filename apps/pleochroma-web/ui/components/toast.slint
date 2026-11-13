@@ -1,7 +1,8 @@
 import { Theme } from "theme.slint";
 
-// A transient message card, modelled on the desktop's `components/toast.slint`// (text glyphs instead of its SVG icons). `kind` is "info", "success", "warning"
-// or "error"; `src/app/push.rs::show_message` decides whether it auto-dismisses.
+// A transient message card (text glyphs instead of the desktop's SVG icons). `kind` is "info",
+// "success", "warning" or "error"; `src/app/push.rs::show_message` decides whether it
+// auto-dismisses.
 export component Toast inherits Rectangle {
     in property <string> text;
     in property <string> kind: "info";

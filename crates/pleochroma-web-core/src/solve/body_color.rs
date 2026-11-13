@@ -1,10 +1,10 @@
 //! The path-aware L*C*h body-colour solve as a Worker job (`SolveRequest::BodyColor`).
 //!
-//! The Design settings colour editor (`pleochroma_editor::lch_color`) solves a typed Tone /
-//! Saturation / Hue for the design's reference path: a 2187-point grid plus a Levenberg-Marquardt
-//! polish, far too slow for the page's UI thread on every slider release. The request carries
-//! only the typed colour and the path (no design), the answer the whole [`LchSolve`] as plain
-//! data, so the page shows swatches and applies the result exactly as the desktop does.
+//! The Design settings colour editor (`pleochroma_editor::lch_color`) solves a typed
+//! Tone / Saturation / Hue for the design's reference path with a grid search and a
+//! Levenberg-Marquardt polish. That is too slow for the page's UI thread on every slider
+//! release, so it runs here. The request carries only the typed colour and the path (no
+//! design), and the answer is the whole [`LchSolve`] as plain data.
 
 use std::sync::atomic::AtomicBool;
 
@@ -35,7 +35,7 @@ pub struct BodyColorResultData {
     pub reachable: bool,
     /// The band rows `[centre_nm, width_nm, amplitude_per_mm]`, empty for a colourless solve.
     pub bands: Vec<[f32; 3]>,
-    /// The nearest legacy triple of the solved colour.
+    /// The nearest body-colour absorption triple of the solved colour.
     pub triple: [f32; 3],
     /// sRGB (0..1) swatches at the fixed paths, then the stone's own.
     pub swatches: Vec<[f32; 3]>,

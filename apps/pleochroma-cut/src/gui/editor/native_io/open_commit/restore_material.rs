@@ -33,10 +33,9 @@ pub(super) fn restore_custom_material(
     design_width_mm: Option<f64>,
 ) -> (Option<String>, bool) {
     if let (Some(snapshot), Some(name)) = (snapshot, material_name) {
-        // A physics recipe renders from its stored `resolved_bands`. When an older build edited
-        // the top-level color since (it differs from the fallback the file recorded) the file
-        // counts as fantasy-edited: the edited color is restored now and the user is asked
-        // whether to keep the recipe instead.
+        // A physics recipe renders from its stored `resolved_bands`. If an older build edited
+        // the top-level color (it differs from the fallback the file recorded), the edited
+        // color is restored and the user is asked whether to keep the recipe.
         let color = snapshot_color(snapshot);
         let gem: GemMaterial = gem_material_from_custom_snapshot(name, snapshot);
         let edited_elsewhere = matches!(color, SnapshotColor::EditedElsewhere(_));
@@ -102,10 +101,8 @@ pub(super) fn restore_custom_material(
         }
         return (Some(note), false);
     }
-    // A material name this build can't resolve AND has no snapshot to restore from
-    // still silently becomes Diamond once `MaterialSelection::resolve` runs -- see
-    // `MaterialResolution`'s own doc comment. Surfaced rather than swallowed, so at
-    // least the open toast says so.
+    // An unresolved material with no snapshot would otherwise silently become Diamond;
+    // the open toast reports it instead (see `MaterialResolution`).
     let unresolved = matches!(resolution, MaterialResolution::Unresolved);
     (unresolved.then(|| format!(" {resolution}")), unresolved)
 }

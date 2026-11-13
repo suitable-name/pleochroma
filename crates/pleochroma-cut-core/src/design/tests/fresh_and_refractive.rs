@@ -149,10 +149,8 @@ fn to_asc_schedule_writes_the_effective_refractive_index_not_the_legacy_field() 
     assert_ne!(schedule.refractive_index, design.meta.refractive_index);
 }
 
-/// A "golden `.asc` export for a retargeted design": applying a `RetargetAngles`
-/// edit and exporting must reflect the NEW angle in the resulting `.asc` schedule
-/// for the retargeted tier, while every untouched tier's own export stays
-/// byte-identical.
+/// Applying a `RetargetAngles` edit changes the exported angle of that tier only,
+/// and undo restores the exact original export.
 #[test]
 fn to_asc_schedule_reflects_a_retargeted_angle() {
     let mut design = Design::fresh(PreformSpec::block(2.0, 1.0, 2.0), 96, 8, 1.54);

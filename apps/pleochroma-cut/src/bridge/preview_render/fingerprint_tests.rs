@@ -76,10 +76,8 @@ fn cache_fingerprint_changes_with_every_parameter_it_tracks() {
     assert!(base.contains(PREVIEW_LIGHTING_PRESET.label()), "{base}");
 }
 
-/// A design the refractive index decided and that has no stone size keeps the material
-/// text its fingerprint had before the size and the source were tracked, byte for
-/// byte (the tilt fingerprint wholly, the preview one after the scene and band
-/// fields), so only designs whose file names a material or a size differ there.
+/// Pins the exact text of an unsized refractive-index pick: no size or source is appended,
+/// so only designs whose file names a material or a size differ.
 #[test]
 fn an_unsized_refractive_index_pick_keeps_the_old_fingerprint_exactly() {
     let backdrop = super::super::thumbnail_backdrop_name();
@@ -110,7 +108,7 @@ fn an_unsized_refractive_index_pick_keeps_the_old_fingerprint_exactly() {
         cache_fingerprint(PREVIEW, FingerprintMaterial::picked(None)).ends_with(";material=none"),
         "no material picked yet"
     );
-    // A row from before the size and source columns reads as exactly that.
+    // A persisted row without a size or source reads as an unsized pick.
     let legacy = PreviewMaterialState {
         name: Some("Quartz".to_string()),
         girdle_mm: None,
@@ -193,8 +191,8 @@ fn the_material_of_a_persisted_state_is_the_one_the_writer_used() {
     );
 }
 
-/// The tilt fingerprint names the scoring lighting preset by its stable label, so
-/// curves stored under another preset (the ring lights before 2026-10-07) are stale.
+/// The tilt fingerprint names the scoring lighting preset by its stable label, so curves
+/// stored under another preset (such as the ring lights) are stale.
 #[test]
 fn the_tilt_fingerprint_names_the_scoring_lighting_preset() {
     let fingerprint = cache_fingerprint(CacheKind::TiltCurves, picked("Diamond"));
@@ -610,8 +608,8 @@ fn a_default_axis_needs_both_angles() {
     assert_eq!(key.second_deg, None, "a non-finite turn is dropped");
 }
 
-/// The render physics keys: a design that sets none keeps the exact text it had before they
-/// existed, every key moves the text on its own, and each is `0` for "nothing".
+/// The render physics keys: a design that sets none keeps the plain text, every key moves the
+/// text on its own, and each is `0` for "nothing".
 #[test]
 fn render_effects_extend_the_fingerprint_only_when_set() {
     use pleochroma::optics::{
@@ -645,7 +643,7 @@ fn render_effects_extend_the_fingerprint_only_when_set() {
         halo_rq_nm: 0.0,
     };
 
-    // Nothing set: every key is 0 and the text is the old one.
+    // Nothing set: every key is 0 and the text is unchanged.
     assert_eq!(inclusions_hash(None, None), 0);
     assert_eq!(surfaces_hash(&[], &machine), 0);
     assert_eq!(surfaces_hash(&[0, 0, 0], &machine), 0);

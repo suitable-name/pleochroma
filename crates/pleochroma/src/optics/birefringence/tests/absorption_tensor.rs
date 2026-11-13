@@ -51,8 +51,7 @@ mod absorption_tensor_tests {
     /// dichroic uniaxial material along a FIXED propagation direction and rotate the
     /// polarization azimuth through 180 degrees. Absorption must vary smoothly and
     /// return to its starting value -- a clean sinusoid in `2*psi` -- and must clear a
-    /// wide range (not be constant, which is what the old propagation-angle-only
-    /// blend would give for a fixed direction).
+    /// wide range (a propagation-angle-only blend would be constant for a fixed direction).
     #[test]
     fn rotating_polarization_azimuth_traces_a_clean_sinusoid() {
         let c_axis = Vec3::new(0.2, 0.6, 0.77).normalize(); // deliberately off-axis
@@ -86,7 +85,7 @@ mod absorption_tensor_tests {
             "azimuth sweep must return to its starting value (start={start}, end={end})"
         );
 
-        // 2. Must actually vary -- not the old azimuth-blind behaviour.
+        // 2. Must actually vary with azimuth, not stay constant.
         let min = values.iter().copied().fold(f32::INFINITY, f32::min);
         let max = values.iter().copied().fold(f32::NEG_INFINITY, f32::max);
         assert!(
@@ -165,11 +164,9 @@ mod absorption_tensor_tests {
         );
     }
 
-    /// Pleochroism data pass: pins the `o_ray`/`e_ray` <-> `AbsorptionTensor3` naming
-    /// convention using REAL Ruby material band data (every other test in this module
-    /// uses synthetic `alpha_o`/`alpha_e` scalars) -- get this convention backwards and
-    /// every populated built-in's dichroism would render mirrored (e.g. Sapphire's
-    /// ~70nm band-centre shift would show up in exactly the wrong viewing direction).
+    /// Pins the `o_ray`/`e_ray` <-> `AbsorptionTensor3` naming convention with REAL Ruby band
+    /// data (the other tests here use synthetic `alpha_o`/`alpha_e` scalars). Swapping the
+    /// convention would mirror the dichroism of every populated built-in.
     ///
     /// `quadratic_form` evaluated exactly perpendicular to `c_axis` (E-perp-c) must
     /// equal the o-ray band sum, and evaluated exactly parallel to `c_axis`
@@ -212,18 +209,13 @@ mod absorption_tensor_tests {
         );
     }
 
-    /// Polarized probe, extending the synthetic-coefficient tests above (which used
-    /// hand-picked `alpha_o`/`alpha_e` scalars) to run against REAL material data end to
-    /// end through `pleochroic_channel_alpha` -- the exact function
-    /// `raytracer::apply_absorption` calls per spectral channel per bounce. For a
-    /// propagation direction exactly perpendicular to `c_axis`, feeds a FULLY polarized
-    /// Stokes vector (`degree_of_polarization` == 1) first with E exactly parallel to
-    /// `c_axis`, then exactly perpendicular to it, and checks the returned effective
-    /// coefficient equals the respective band sum exactly -- at full polarization the
-    /// unpolarized eigenmode-average term in `effective_pleochroic_alpha` is weighted
-    /// out entirely, so this isolates the quadratic-form term alone, run through the
-    /// SAME `electric_field_direction`/azimuth machinery a real bounce uses (unlike the
-    /// convention-pin test above, which calls `quadratic_form` directly).
+    /// Polarized probe on REAL material data through `pleochroic_channel_alpha`, which uses
+    /// the Stokes-derived `electric_field_direction` azimuth path. For a propagation direction
+    /// perpendicular to `c_axis`, a FULLY polarized Stokes vector (`degree_of_polarization`
+    /// == 1) with E parallel to `c_axis`, then perpendicular to it, must return the respective
+    /// band sum exactly. At full polarization the unpolarized eigenmode-average term of
+    /// `effective_pleochroic_alpha` is weighted out, so this isolates the quadratic form. The
+    /// convention-pin test above calls `quadratic_form` directly.
     #[test]
     fn polarized_probe_matches_band_sums_for_real_tourmaline_data() {
         use crate::optics::{materials::GemMaterial, raytracer::spectral_absorption};

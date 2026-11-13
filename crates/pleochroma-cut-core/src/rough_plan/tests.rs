@@ -555,7 +555,7 @@ fn layouts_are_geometrically_valid() {
 
 #[test]
 fn the_grid_is_thirty_units_per_axis_scaled_to_the_rough_whatever_the_settings() {
-    // The grid no longer depends on a stone count (there is none) or the design cap.
+    // The grid depends on neither the design cap nor a stone count.
     let rough = cube(20.0);
     for max_designs in [1, 20, 99] {
         assert_eq!(

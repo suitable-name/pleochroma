@@ -70,10 +70,10 @@ pub fn equivalence_cases<'a>(
     let tanzanite = GemMaterial::by_name("Tanzanite").expect("Tanzanite is built-in");
     let ruby = GemMaterial::by_name("Ruby").expect("Ruby is built-in");
     let spinel_scattering = spinel.clone().with_scattering(1.0, 0.3);
-    // HDR + scattering: Studio scenes have NEE off, so only this case can see an NEE or
-    // MIS bug in the scattering deposit.
+    // Only an HDR environment schedules the HG next-event kernel (see `needs_nee_hg`), so
+    // only this case covers NEE and MIS in the scattering deposit.
     let ruby_scattering = ruby.with_scattering(1.0, 0.3);
-    let hdr = EnvironmentSource::HdrMap(synthetic_hdr);
+    let hdr = EnvironmentSource::hdr(synthetic_hdr);
 
     match class {
         1 => vec![

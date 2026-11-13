@@ -1,24 +1,25 @@
-//! Validation of the user-delivered research spectra (`docs/chromophores/research-2026-10-polarized-spectra*.md`)
-//! against their own CIELAB, with OUR body-color code. These tables are secondary and, per
-//! `research-2026-10-primary-data.md`, their stated CIELAB is no target: the recipes are fitted to
-//! the primary data (`primary_data_tests`).
+//! Checks the research spectra of `docs/chromophores/research-2026-10-polarized-spectra*.md`
+//! against their own stated CIELAB, using the body-color code.
+//!
+//! The tables are secondary: their CIELAB is not a fit target (the recipes are fitted to the
+//! primary data, see `primary_data_tests`).
 //!
 //! Every tabulated spectrum is a fixture in `data/reference_spectra/*.csv` (metadata header,
 //! `lambda_nm` plus one Napierian alpha column per polarisation, and `# lab:` lines with the
-//! research's measured CIELAB). A spectrum is turned into a color exactly as the plan's forward
-//! model does: `T = exp(-alpha * L)`, D65 or A (Planckian 2856 K), 380-780 nm at 1 nm, the CIE
+//! research's measured CIELAB). A spectrum is turned into a color exactly as the forward model
+//! does: `T = exp(-alpha * L)`, D65 or A (Planckian 2856 K), 380-780 nm at 1 nm, the CIE
 //! 1931 2 degree observer, Lab relative to the illuminant's own white.
 //!
-//! Handling of the sparse lines: a few rows are single points of a narrow line (ruby R1/R2 at
-//! 694.3/692.8 nm, chrysoberyl R lines at 678.5/680.4, emerald R1 at 683.5, the report-2 ruby at
-//! 694). Interpolating them linearly with their neighbours would turn a 1 nm line into a
-//! triangle 20-80 nm wide. The line-aware reading removes those rows from the continuum,
-//! interpolates the continuum linearly, and puts back a Gaussian (in energy) of the stated
-//! linewidth with the tabulated excess as peak. The raw (naive) reading is reported next to it.
-//! Unpolarised colors: a uniaxial `mean_uniax` is the plan's rule `(2 T_o + T_e) / 3`; a
-//! `mean(a,b)` spec is the plain mean of the named columns (light along b of a biaxial crystal
-//! vibrates along a and c, so `(T_alpha + T_gamma) / 2`; the plan's three-mode rule is evaluated
-//! next to it for alexandrite).
+//! Handling of the sparse lines: a few rows are single points of a narrow line (ruby at 692.8,
+//! 694.0 and 694.3 nm, alexandrite at 678.5 and 680.4 nm, emerald at 683.5 nm). Interpolating
+//! them linearly with their neighbours would turn a 1 nm line into a triangle 20-80 nm wide.
+//! The line-aware reading removes those rows from the continuum, interpolates the continuum
+//! linearly, and puts back a Gaussian (in energy) of the stated linewidth with the tabulated
+//! excess as peak. The raw (naive) reading is reported next to it.
+//! Unpolarised colors: a uniaxial `mean_uniax` is `(2 T_o + T_e) / 3`; a `mean(a,b)` spec is the
+//! plain mean of the named columns (light along b of a biaxial crystal vibrates along a and c,
+//! so `(T_alpha + T_gamma) / 2`); the three-mode mean (`mean3`) is evaluated next to it for
+//! alexandrite.
 
 #![expect(
     clippy::suboptimal_flops,
@@ -240,7 +241,7 @@ impl Spectrum {
         a
     }
 
-    /// Our body color for a polarisation spec at path `path_cm` (see the module docs).
+    /// Body color of a polarisation spec at path `path_cm` (see the module docs).
     pub(super) fn lab(
         &self,
         spec: &str,
@@ -422,10 +423,10 @@ mod tests {
         parse(n, t)
     }
 
-    /// The research validation: every tabulated spectrum through OUR body-color code against the
-    /// research's own measured CIELAB. Only the two samples with dE00 <= 4.1 are consistent
-    /// (S-Met E-perp-c, amethyst); everything else disagrees with its own CIELAB, which is a
-    /// finding about the research, not about our colorimetry (validated against Sharma).
+    /// Every tabulated spectrum through the body-color code against its own measured CIELAB.
+    /// Only S-Met E-perp-c and amethyst agree (dE00 <= 4.5); the others disagree with their own
+    /// CIELAB, a property of the research tables rather than of the colorimetry (the dE00 code
+    /// matches Sharma's reference pairs).
     #[test]
     fn research_spectra_vs_their_own_cielab_pinned() {
         let table = validation_table();
@@ -462,7 +463,7 @@ mod tests {
                 .all(|n| ["sapphire_s_met_metamorphic", "amethyst_80ppmw_fe"].contains(n)),
             "only S-Met and amethyst reproduce their CIELAB: {consistent:?}"
         );
-        // Both the ruby spectra and their CIELAB cannot be right: every ruby is > 15.
+        // Every ruby differs from its stated CIELAB by more than 15 dE00.
         assert!(
             table
                 .iter()
@@ -471,8 +472,8 @@ mod tests {
         );
     }
 
-    /// The sparse lines hardly move the color (line-aware vs naive triangle): at most 2.1
-    /// dE00 for the alexandrite A rows, below 0.3 elsewhere.
+    /// The line-aware and naive readings differ little: at most 2.1 dE00 for alexandrite, and
+    /// 0.3 elsewhere.
     #[test]
     fn sparse_line_handling_changes_color_little() {
         for (name, l, aware, raw) in validation_table() {
@@ -491,8 +492,8 @@ mod tests {
     }
 
     /// Ruby U band: Dodd's decadic k555 = 22.1 cm^-1/wt% is 50.89 Napierian, Dubinsky's sigma
-    /// gives 51.2 through our number density; R-1 and R-2 tables carry 51.2 per wt%, R-3 carries
-    /// 55.4 (+8 %, Fe-containing sample: not the Cr U band alone).
+    /// gives 51.2 through the catalogue number density. The R-1 and R-2 tables carry 51.2 per
+    /// wt%, R-3 carries 55.4 (+8 %: an Fe-containing sample, so not the Cr U band alone).
     #[test]
     fn ruby_u_band_agrees_with_the_primary_values() {
         let cat = ChromophoreCatalogue::global();
@@ -515,8 +516,8 @@ mod tests {
         );
     }
 
-    /// R-1: the sample list says 1.00 cm, the color table 0.50 cm. The spectrum agrees better
-    /// with neither (dE00 15.9 at 0.5 cm), but 1.00 cm is worse.
+    /// The R-1 path length is ambiguous in the research (sample list 1.00 cm, color table
+    /// 0.50 cm); the spectrum fits the 0.50 cm color better.
     #[test]
     fn r1_path_length_is_ambiguous_in_the_research() {
         let s = fixture("ruby_r1_synthetic_verneuil_0p05wt");
@@ -525,11 +526,10 @@ mod tests {
         assert!(at(0.5) < at(1.0), "{} vs {}", at(0.5), at(1.0));
     }
 
-    /// Unit findings. V2O3: 0.26 wt% is 700 ppma of all atoms (1750 ppm of Al sites, 3500 per
-    /// formula unit), NOT 305; the V-corundum spectrum with the research sigma = 2.05e-19 cm^2
-    /// implies 305 ppma_all (0.113 wt% V2O3), so the spectrum supports 305 ppma and not the label.
-    /// Mg: 12 ppmw is 50 ppm per Al2O3 formula unit (the research's "ppma"), 10 ppma of all atoms:
-    /// the research ppma for Fe/Ti/Mg are per formula unit, 5x its own all-atom convention.
+    /// Unit checks. 0.26 wt% V2O3 is about 706 ppma of all atoms (about 1770 ppm of Al sites),
+    /// while the V-corundum spectrum with sigma = 2.05e-19 cm^2 implies about 305 ppma_all; the
+    /// label is more than 2.2 times the spectrum. Mg: 12 ppmw is 50 ppm per Al2O3 formula unit
+    /// and about 10 ppma of all atoms, so the research's Fe/Ti/Mg ppma are per formula unit.
     #[test]
     fn unit_findings_v2o3_and_mg() {
         let cat = ChromophoreCatalogue::global();
@@ -630,7 +630,7 @@ mod tests {
 
     /// Internal consistency of the alexandrite colors: XYZ is linear in T, so the stated
     /// "unpolarised, along b" color must equal the XYZ mean of the stated ray colors that
-    /// vibrate in the a-c plane, (alpha + gamma) / 2, NOT the plan's three-mode mean. D65 agrees
+    /// vibrate in the a-c plane, (alpha + gamma) / 2, not the three-mode mean. D65 agrees
     /// to dE00 ~3.4 (the A row to ~6.4: its own inconsistency); the three-mode mean is > 10 off.
     #[test]
     fn alexandrite_unpolarised_is_the_alpha_gamma_mean() {
@@ -669,11 +669,11 @@ mod tests {
         }
     }
 
-    /// The report-1 V-corundum TABLE gives a color change below 6 dE00 (D65 vs 3200 K, up to 10
-    /// mm at the 305 ppma the table supports). That is a finding about the table, not about
-    /// vanadium sapphire: the table follows the paper TEXT sigma (1.0e-19 cm^2 at 580 nm) and the
-    /// GIA xlsx cross-section gives 8-25 dE00 (`primary_data_tests`,
-    /// `v_corundum_color_change_matches_the_gia_derived_range`; the catalogue uses the xlsx).
+    /// The research's V-corundum table gives a D65 vs 3200 K color change below 6 dE00 at
+    /// 0.1-1 cm. That reflects the table, not vanadium sapphire: the table follows the paper text
+    /// sigma (1.0e-19 cm^2 at 580 nm), while the GIA xlsx cross-section gives 8-25 dE00 (see
+    /// `primary_data_tests`, `v_corundum_color_change_matches_the_gia_derived_range`; the
+    /// catalogue uses the xlsx).
     #[test]
     fn v_corundum_color_change_is_small_in_the_tabulated_spectrum() {
         let s = fixture("corundum_v_0p26wt_v2o3");
@@ -688,9 +688,8 @@ mod tests {
         }
     }
 
-    /// Evidence for the report-2 contradictions that the tables themselves decide.
-    /// Fe3+ 377/388/450 nm: the S-Bas/S-Met net bump ratios are 5.6-7.0 for a Fe ratio of 6.2, i.e.
-    /// linear in Fe; report 2's "377 nm proportional to Fe^2" would give 38.
+    /// Fe3+ bumps at 377, 388 and 450 nm: the S-Bas / S-Met net bump ratios follow the Fe ratio
+    /// (6.2), so they are linear in Fe; a proportionality to Fe^2 would give about 38.
     #[test]
     fn fe3_bumps_are_linear_in_iron() {
         let met = fixture("sapphire_s_met_metamorphic");
@@ -719,14 +718,14 @@ mod tests {
             );
         }
         // The 450 nm bump is narrower than 20 nm: the neighbours 440/460 sit on the continuum, so
-        // a 1500 cm^-1 FWHM (report 2) is excluded and ~500 cm^-1 (report 1) is supported.
+        // a 1500 cm^-1 FWHM is excluded and about 500 cm^-1 is supported.
         let drop = (a(&met, 440.0) + a(&met, 460.0)) / 2.0 / a(&met, 450.0);
         assert!(drop < 0.45, "440/460 nm are {drop:.2} of the 450 nm value");
     }
 
-    /// Ruby: both tabulated sets are narrower than either stated U FWHM (3180 / 3350 cm^-1) and
-    /// the E-par-c/E-perp-c U ratio is 0.71 (report 1) vs 0.53 (report 2); the two reports'
-    /// 0.25 wt% CIELAB differ by dE00 4.3.
+    /// The two 0.25 wt% ruby tables (`ruby_r2_synthetic_flux_0p25wt`, `ruby2_synthesised_0p25wt`)
+    /// are both narrower than the stated U FWHM (3180 / 3350 cm^-1). Their E_par_c / E_perp_c U
+    /// peak ratios are 0.71 and 0.53, and their stated CIELAB differ by dE00 4.3.
     #[test]
     fn ruby_report_1_and_2_tables_compared() {
         let half_width = |s: &Spectrum, col: &str| {

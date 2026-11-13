@@ -239,8 +239,7 @@ export component StoneTab inherits VerticalLayout {
         }
 
         // The inferred-material guess badge (nothing while the design names its material). Mounted
-        // only with a guess: a merely hidden badge still takes its row, which left a gap of about
-        // 60 px between the material button and Body Color.
+        // only with a guess: a hidden badge would still take its row and leave a gap.
         if EditorModel.material_guess_text != "": MaterialGuessBadge { }
 
         // Body colour of the design.

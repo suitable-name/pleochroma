@@ -82,8 +82,9 @@ fn the_plain_chooser_is_the_capped_one_at_the_plain_cap() {
 
 #[test]
 fn a_convex_cube_keeps_its_16_cell_grid() {
-    // 30 units clamp to 20 cells an axis, which shrink by 5 % steps (20, 19, 18, 17, 16)
-    // until the 2.6 M entry cap holds (136^3 = 2,515,456 entries).
+    // The base grid of 30 cells an axis clamps to 20 (`SHAPED_MAX_CELLS`), which shrinks
+    // by 5 % steps (20, 19, 18, 17, 16) until the 2.6 M entry cap holds (136^3 = 2,515,456
+    // entries).
     let grid = choose_shaped_grid_at([0.0; 3], [20.0; 3], &settings(10));
     assert_eq!(grid.cells, [16; 3]);
 }

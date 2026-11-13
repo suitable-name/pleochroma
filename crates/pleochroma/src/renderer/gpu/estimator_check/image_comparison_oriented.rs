@@ -1,9 +1,8 @@
 //! Tier 3 statistical image comparisons of stones with oriented inclusions.
 //!
 //! Their pipelines compile the oriented estimator in (`ORIENTED_INCLUSIONS`), which a stone
-//! without inclusions does not since 2026-10-22: AMD's RADV compiler returned garbage for
-//! uniaxial stones while that code was reachable. A uniaxial and an isotropic stone with the
-//! same silk tell whether the fault follows the material class.
+//! without inclusions leaves out. Comparing a uniaxial and an isotropic stone with the same
+//! silk shows whether a fault follows the material class.
 
 use crate::optics::{
     inclusions::{CrystalFrame, bragg::StructureSpec, catalogue},

@@ -11,11 +11,8 @@ use super::row_format::{
     tier_margin_and_risk,
 };
 
-/// Full-precision companion to [`format_angle_cell`]/[`format_index_value`] --
-/// see [`TierRow::angle_full`]/[`TierRow::indices_full`]'s own doc
-/// comments for why a form/inline-cell re-save needs the unrounded value rather
-/// than either display string. Plain `{}` `Display`, the same convention
-/// [`TierSolveInfo::mast_full`] already uses for the same reason.
+/// Unrounded `{}` text, for a form or inline cell to re-save; the display strings of
+/// [`format_angle_cell`] and [`format_index_value`] would lose digits.
 fn full_precision(value: f64) -> String {
     format!("{value}")
 }
@@ -35,11 +32,8 @@ pub use warnings::{
     solved_manufacturability_warnings,
 };
 
-/// The mast/strategy-derived half of one tier row -- [`build_tier_row`]'s only
-/// per-tier-varying input beyond the tier itself, bundled into one struct so that
-/// function stays under clippy's argument-count lint, instead of
-/// [`tier_items`]/[`tier_items_stale`]/[`tier_items_from_solved`] each building
-/// the whole [`TierRow`] literal inline, three times over.
+/// The per-tier solve results of one row, passed to [`build_tier_row`] as one value to keep its
+/// argument count within clippy's limit.
 struct TierSolveInfo {
     mast: String,
     /// The mast in millimetres, empty when nothing anchors a real scale -- see
@@ -53,12 +47,7 @@ struct TierSolveInfo {
     needs_anchor: bool,
 }
 
-/// [`build_tier_row`]'s per-DESIGN (not per-tier) context, bundled into one
-/// struct purely to keep that function under clippy's argument-count lint --
-/// the same reasoning [`TierSolveInfo`] (per-tier) is already split out for.
-/// Computed once by each of [`tier_items`]/[`tier_items_stale`]/
-/// [`tier_items_stale_with_last_solved`]/[`tier_items_from_solved`] before
-/// their own per-tier `.map(...)`, not per row.
+/// The per-design inputs [`build_tier_row`] reads, computed once per row list.
 struct RowContext<'a> {
     tier_blocks: &'a [Block],
     warnings: &'a BTreeMap<usize, String>,
@@ -67,16 +56,10 @@ struct RowContext<'a> {
     tier_labels: &'a [pleochroma_cut_core::TierLabelInfo],
 }
 
-/// Builds one [`TierRow`] row from `tier`'s own fields plus its
-/// already-resolved [`TierSolveInfo`] -- the part [`tier_items`],
-/// [`tier_items_stale`] and [`tier_items_from_solved`] all do identically once
-/// they've each worked out mast/strategy/detail their own way (a real solve, no
-/// solve at all, or an externally-supplied `solved` list, respectively).
-/// `multi_selected` is always `false` here: none of the three callers above has
-/// access to `EditorState::multi_selected` (deliberately not a parameter, even
-/// indirectly -- see [`super::row_format::apply_multi_selection`]'s own doc
-/// comment for why that's a post-pass instead); every real push site calls it on
-/// the built `Vec` immediately afterward.
+/// Builds one [`TierRow`] from `tier` and its resolved [`TierSolveInfo`].
+///
+/// `multi_selected` is always `false` here: the callers have no access to the editor's
+/// selection. [`super::row_format::apply_multi_selection`] sets it afterwards.
 fn build_tier_row(
     design: &Design,
     index: usize,
@@ -147,8 +130,7 @@ fn build_tier_row(
         meet_partners_text: meet_partners_text(design, index),
         warning_text: warnings.get(&index).cloned().unwrap_or_default(),
         multi_selected: false,
-        // Patched in place afterward, once there is a whole row list to patch --
-        // see `apply_proposed_angles`'s own doc comment.
+        // Set by `apply_proposed_angles` once the whole row list exists.
         proposed_angle: String::new(),
         kind: TierRowKind::Flat,
         tool_line: String::new(),
@@ -164,15 +146,11 @@ pub fn concave_tool_line(tier: &ConcaveTier) -> String {
     tier.second_line_fields().join("  ")
 }
 
-/// One [`TierRow`] per concave tier, in storage order, appended after the flat rows.
+/// One [`TierRow`] per concave tier, in storage order, after the flat rows.
 ///
-/// The tier table is an editing view, so (like the flat rows, which keep their
-/// stored order rather than cutting order) it lists concave tiers as authored; the
-/// cutting schedule ([`super::yield_report::cutting_instructions_rows`]) is the one
-/// view in `cutting_order()`. Each row's `code` is the one the cutting order gives it
-/// ([`Design::tier_codes`]: `P4` continues the flat pavilion tiers' count). A concave tier has
-/// no mast, strategy, meet constraint or critical-angle margin, so those cells read as "not
-/// applicable" (`"-"`, an empty string, risk `-1`). `warnings` is [`TierWarnings::concave`].
+/// Listed as authored, like the flat rows, not in cutting order. Each `code` comes from
+/// [`Design::tier_codes`]. A concave tier has no mast, strategy, meet constraint or margin,
+/// so those cells read as "not applicable" (`"-"`, an empty string, risk `-1`).
 fn concave_tier_rows(design: &Design, warnings: &BTreeMap<usize, String>) -> Vec<TierRow> {
     let codes = design.tier_codes().concave;
     design
@@ -226,20 +204,15 @@ fn concave_tier_rows(design: &Design, warnings: &BTreeMap<usize, String>) -> Vec
         .collect()
 }
 
-/// Builds the tier list's rows WITHOUT calling [`Design::solve`] at all -- every
-/// mast/strategy cell reads `"-"`/`"not solved"` (flagged uncertain) regardless of
-/// what the design actually is.
+/// Builds the tier list's rows without calling [`Design::solve`]: every mast and strategy
+/// cell reads `"-"`/`"not solved"` (flagged uncertain).
 ///
-/// Used by `refresh_editor_panel_stale` after every edit
-/// that isn't the explicit "Solve" action -- see this group's `mod.rs` doc comment for
-/// why: a real design can take multiple seconds to solve, and showing a PREVIOUS
-/// solve's masts would be actively wrong the moment the edit changed tier count/order.
+/// Used after every edit except the explicit "Solve". A previous solve's masts would be wrong
+/// once an edit changes the tier count or order, and a solve can take seconds.
 #[must_use]
 pub fn tier_items_stale(design: &Design, n_d: f64) -> Vec<TierRow> {
     let tier_blocks = classify_blocks(&design.meet_tier_inputs());
-    // Never solved here (see this function's own doc comment), so only the two
-    // mast-free manufacturability checks can run -- tagged "(pre-solve)" since
-    // that is the whole design's state right now, not a completed pass.
+    // No solve here, so only the mast-free manufacturability checks run, tagged "(pre-solve)".
     let warnings = TierWarnings::of(design, None);
     let (_, pavilion_partner_deg) = representative_crown_and_pavilion_angles_deg(design);
     let tier_labels = pleochroma_cut_core::compute_tier_labels(&design.tiers);
@@ -260,10 +233,7 @@ pub fn tier_items_stale(design: &Design, n_d: f64) -> Vec<TierRow> {
                 mast_full: String::new(),
                 strategy: "not solved".to_string(),
                 strategy_is_uncertain: true,
-                // Never solved here (see this function's own doc comment), so
-                // there is no per-tier detail or missing-anchor block to report
-                // yet -- both come back once the explicit "Solve" action calls
-                // `tier_items`.
+                // No solve here, so no detail or missing-anchor block; `tier_items` supplies them.
                 strategy_detail: String::new(),
                 needs_anchor: false,
             };
@@ -274,43 +244,16 @@ pub fn tier_items_stale(design: &Design, n_d: f64) -> Vec<TierRow> {
     rows
 }
 
-/// [`tier_items_stale`]'s counterpart for a caller that still has the LAST real solve's
-/// mast list on hand.
+/// [`tier_items_stale`] for a caller that still holds the last completed solve's masts.
 ///
-/// [`tier_items_stale`] blanks every mast/strategy/ warning to `"-"`/`"not solved"` until
-/// the next solve completes, even for an edit like a rename that cannot possibly move a
-/// mast.
+/// Keeps the previous readings, so an edit such as a rename does not wipe the figures a cutter
+/// compares against a gauge on a slow design. Rows whose index is in `dirty` (the tiers the
+/// edit touched, or every tier for a structural edit that can move masts) get
+/// [`tier_items_stale`]'s `"-"`/`"not solved"` treatment. Every other row keeps `last_solved`'s
+/// mast and detail, with strategy prefixed `"stale"`.
 ///
-/// On a slow design (auto-solve
-/// off, or over its own measured budget -- see `should_schedule_auto_solve`) that
-/// wipes 100+ mast readings the cutter may be comparing against a gauge, for no
-/// reason: a rename never invalidates anyone's mast. This function instead keeps
-/// the previous solve's readings for every tier the edit didn't touch.
-///
-/// Rows named in `dirty` (the edit's own affected tier indices -- e.g. the single
-/// index a Save Tier/inline-angle/wheel-nudge edit touched, or every index for a
-/// structural edit like Undo/Redo/remove/duplicate/detach/gear-remap that can move
-/// masts application-wide) get [`tier_items_stale`]'s own `"-"`/`"not solved"`
-/// treatment -- no PREVIOUS mast can be trusted for a tier that itself just changed.
-/// Every other row keeps `last_solved`'s own mast/strategy/detail, with strategy
-/// prefixed `"stale"` so it never reads as a fresh, just-completed solve.
-///
-/// `last_solved` (and therefore every row) falls back to [`tier_items_stale`]'s
-/// blank treatment whenever `None`, OR whenever its length no longer matches
-/// `design.tiers.len()` -- a tier add/remove/reorder invalidates every index in an
-/// old solve's list, so trusting it positionally would show tier 5's old mast on
-/// today's tier 6.
-///
-/// # Handoff
-/// `state/rows.rs` only computes; the caller needs a cached `Vec<SolvedTier>` from
-/// this design's last real solve (`auto_solve::solid_last_solved`'s shared handle
-/// already holds exactly this, refreshed by every completed background solve and
-/// every solid-preview replan) and the dirty tier index set each edit computes
-/// per callback -- `callbacks::tier_actions` is a directory now, not the single
-/// file this once pointed at; `tier_actions::nudge`/`tier_actions::tier_form`
-/// are two callers that build one -- both read from `view.rs`'s
-/// `push_stale_content`/`refresh_editor_panel_stale` (not this file), which
-/// would call this in place of [`tier_items_stale`].
+/// Falls back to [`tier_items_stale`] when `last_solved` is `None` or its length differs from
+/// `design.tiers.len()`: a list from another tier layout would show the wrong mast on a row.
 #[must_use]
 pub fn tier_items_stale_with_last_solved(
     design: &Design,
@@ -323,10 +266,7 @@ pub fn tier_items_stale_with_last_solved(
         return tier_items_stale(design, n_d);
     };
     let tier_blocks = classify_blocks(&design.meet_tier_inputs());
-    // A cached solve is still real evidence for the mast-free checks even though
-    // it may now be one edit old -- tagged "(pre-solve)" regardless, same as
-    // `tier_items_stale`, since a fresh edit landed since it ran and nothing here
-    // re-verifies it still holds.
+    // The cached solve may be one edit old, so the mast-free checks are tagged "(pre-solve)".
     let warnings = TierWarnings::of(design, None);
     let mm_per_unit = design.yield_report(last_solved).mm_per_unit;
     let (_, pavilion_partner_deg) = representative_crown_and_pavilion_angles_deg(design);
@@ -373,25 +313,11 @@ pub fn tier_items_stale_with_last_solved(
     rows
 }
 
-/// Patches `TierRow::proposed_angle` (`ui/types.slint`) onto each row one of `changes`'
-/// own [`pleochroma_cut_core::AngleChange`]s targets.
+/// Patches [`TierRow::proposed_angle`] onto the rows that `changes` targets.
 ///
-/// Called AFTER the row list is already built, the same "patch the already-pushed row
-/// list in place" shape [`super::row_format::apply_multi_selection`] already uses for the
-/// multi-select highlight, rather than threading an
-/// [`pleochroma_cut_core::OptimizeOutcome`] through
-/// [`tier_items`]/[`tier_items_stale`]/[`tier_items_from_solved`]/
-/// [`tier_items_stale_with_last_solved`]'s four independent call sites.
-///
-/// Leaves `proposed_angle` at its default (`""`) for every row `changes` does
-/// not mention. Formatted with [`format_angle_cell`]'s own two-decimal
-/// convention, so a ghost value reads exactly like the real `angle_deg` cell
-/// beside it.
-///
-/// # Handoff
-/// `ui/components/editor_tier_table.slint` still
-/// needs the ANGLE column's own rendering of this field -- e.g. a small
-/// "\u{2192} 41.20\u{b0}" ghost beside the real value.
+/// Runs after the row list is built, as [`super::row_format::apply_multi_selection`] does.
+/// Rows `changes` does not name keep the empty default. The value is formatted like
+/// `angle_deg`, so the ghost reads like the real cell beside it.
 pub fn apply_proposed_angles(tiers: &mut [TierRow], changes: &[pleochroma_cut_core::AngleChange]) {
     for change in changes {
         if let Some(row) = tiers.get_mut(change.index) {
@@ -400,12 +326,9 @@ pub fn apply_proposed_angles(tiers: &mut [TierRow], changes: &[pleochroma_cut_co
     }
 }
 
-/// Maps every tier index [`MissingAnchor::block_details`] names to the exact
-/// [`Block`] it belongs to -- lets [`tier_items`] mark exactly the tiers
-/// responsible for a [`MissingAnchor`] failure (and give each one its own
-/// one-block remedy sentence) rather than flagging every tier in the design,
-/// which is the bug this exists to fix (a pavilion-only anchor failure used to
-/// paint the crown's tiers "?" too).
+/// Maps each tier index that [`MissingAnchor::block_details`] names to its [`Block`].
+///
+/// Lets [`tier_items`] mark only the tiers that lack an anchor, not every tier in the design.
 fn missing_anchor_tier_blocks(missing: &MissingAnchor, design: &Design) -> BTreeMap<usize, Block> {
     missing
         .block_details(design)
@@ -414,16 +337,10 @@ fn missing_anchor_tier_blocks(missing: &MissingAnchor, design: &Design) -> BTree
         .collect()
 }
 
-/// The tier(s) [`Design::facet_meets`] actually resolved tier `index`'s meet
-/// constraint against, as a display string (e.g. `"meets tier 3 (C1)"`,
-/// `"meets tier 2 (C1), tier 4 (C2)"`), or `""` when it resolves to nothing
-/// (a `ScaleReference`/`MeetExisting` tier, or a `MeetNamed` tier every one of
-/// whose names is unresolved). Uses the same solver-grade
-/// [`pleochroma::geometry::meet_solver::MeetNameResolver`] the solver itself
-/// runs, unlike guessing from the typed `constraint_text` alone, so this shows
-/// the meet partners it actually resolved. Never needs a solve (`facet_meets`
-/// only resolves names against `meet_tier_inputs`), so this is populated
-/// identically by [`tier_items`] and [`tier_items_stale`].
+/// The meet partners that [`Design::facet_meets`] resolves tier `index`'s constraint against,
+/// as text (e.g. `"meets tier 3 (C1)"`), or `""` when none resolves, as for a `ScaleReference`
+/// tier. Uses the solver's own name resolver, so it shows the partners the solver used.
+/// It needs no solve, so [`tier_items`] and [`tier_items_stale`] both fill it.
 fn meet_partners_text(design: &Design, index: usize) -> String {
     let Ok(targets) = design.facet_meets(index) else {
         return String::new();
@@ -441,11 +358,9 @@ fn meet_partners_text(design: &Design, index: usize) -> String {
     )
 }
 
-/// [`SolveStrategy`]'s human-readable label for the tier list's "SOLVE" column,
-/// plus whether it should be flagged uncertain: `LeastSquaresFallback` is an
-/// estimate, not vertex-derived, and `Failed` is documented as "should not be
-/// trusted" -- both get flagged, `ScaleReference`/`DependencyOrder`/`JointGroup`
-/// do not.
+/// [`SolveStrategy`]'s label for the SOLVE column, and whether that label is flagged uncertain.
+/// `LeastSquaresFallback` is an estimate and `Failed` is not to be trusted; the others are not
+/// flagged.
 const fn strategy_label(strategy: SolveStrategy) -> (&'static str, bool) {
     match strategy {
         SolveStrategy::ScaleReference => ("Scale reference", false),
@@ -456,35 +371,25 @@ const fn strategy_label(strategy: SolveStrategy) -> (&'static str, bool) {
     }
 }
 
-/// Converts `design`'s current tier list into the rows `EditorView`'s list renders,
-/// including the solved mast and [`SolveStrategy`] label for each.
+/// Converts `design`'s tier list into the rows the editor's list renders, with each tier's
+/// solved mast and [`SolveStrategy`] label.
 ///
-/// `index` is the
-/// tier's position in `design.tiers` -- round-tripped back by
-/// `EditorView.save_tier`/`remove_tier`, a list index rather than a stable id.
+/// `index` is the tier's position in `design.tiers`; the UI sends it back on save and remove.
 ///
-/// Solves `design` exactly once up front. When [`Design::solve`] returns
-/// [`MissingAnchor`], only the tiers that error actually
-/// names (via [`missing_anchor_tier_blocks`]) get the "no anchor yet" `"?"`
-/// treatment; every other tier -- blocked only because some OTHER block has no
-/// anchor, not because it lacks one itself -- reads `"-"`/`"blocked"` instead,
-/// so a pavilion-only failure no longer paints the crown's tiers "?" too. See
-/// `status_text_and_is_problem`, which surfaces which block(s) are missing an
-/// anchor in the validation banner.
+/// Solves `design` once. Only a tier that the [`MissingAnchor`] error names (see
+/// [`missing_anchor_tier_blocks`]) reads `"?"` as having no anchor. Other tiers, blocked by
+/// another block's missing anchor, read `"-"`/`"blocked"`.
 ///
-/// Only called from `refresh_all` (New/Load/the explicit "Solve" action) -- see
-/// [`tier_items_stale`] for the no-solve version every other edit callback uses.
+/// For a full solve (New, Load, an explicit Solve); after an edit use [`tier_items_stale`].
 #[must_use]
 pub fn tier_items(design: &Design, n_d: f64) -> Vec<TierRow> {
     tier_items_from_result(design, &design.solve(), n_d)
 }
 
-/// [`tier_items`]'s counterpart for a caller that already ran [`Design::solve`].
+/// [`tier_items`] for a caller that already ran [`Design::solve`].
 ///
-/// The caller holds the `Result` -- a failed solve included. The `Ok` arm is
-/// [`tier_items_from_solved`]; the `Err` arm is the blocked / "no anchor yet" rows
-/// [`tier_items`] builds, so a design that just failed to solve is never solved a
-/// second time to explain the failure.
+/// An `Err` result gives the same rows [`tier_items`] builds for a failed solve, without
+/// solving a second time.
 ///
 /// # Panics
 ///
@@ -499,11 +404,8 @@ pub fn tier_items_from_result(
     match solved {
         Ok(rows) => tier_items_from_solved(design, rows, n_d),
         Err(err) => {
-            // Only a real `MissingAnchor` can name individual tiers -- a
-            // `TierTarget`/mismatch/plane-cap failure blocks the whole design at
-            // once, so every tier falls to the generic "blocked" arm below with
-            // that error's own status-strip sentence rather than a bogus "no
-            // anchor yet" on tiers that were never the problem.
+            // Only `MissingAnchor` names individual tiers. Any other failure blocks the whole
+            // design, so every tier takes the generic "blocked" arm.
             let missing_tier_blocks = match err {
                 DesignSolveError::MissingAnchor(missing) => {
                     missing_anchor_tier_blocks(missing, design)
@@ -520,8 +422,7 @@ pub fn tier_items_from_result(
                 err.to_string()
             };
             let tier_blocks = classify_blocks(&design.meet_tier_inputs());
-            // Tagged "(pre-solve)" -- see `manufacturability_warnings_tagged`'s
-            // own doc comment; there is no real solve to show warnings from yet.
+            // Tagged "(pre-solve)": there is no completed solve to report warnings from.
             let warnings = TierWarnings::of(design, None);
             let (_, pavilion_partner_deg) = representative_crown_and_pavilion_angles_deg(design);
             let tier_labels = pleochroma_cut_core::compute_tier_labels(&design.tiers);
@@ -565,17 +466,10 @@ pub fn tier_items_from_result(
     }
 }
 
-/// [`tier_items`]'s counterpart for a caller that already has an up-to-date `solved`
-/// mast list on hand.
+/// [`tier_items`] for a caller that already has an up-to-date `solved` mast list.
 ///
-/// Builds every row's mast/strategy/detail straight from it instead of calling
-/// [`Design::solve`] again. Exists so the
-/// solid-preview worker's own replan solve (`solid_preview::live_update::
-/// plan_preview`, run off the UI thread) can feed the SAME masts into the tier
-/// table instead of a second, separately dispatched full solve recomputing them.
-/// Not a single caller: `view::viewport::push_solved_preview`, `view::panel`'s
-/// own stale-refresh success arm, and `auto_solve::dispatch`'s background-solve
-/// completion each call this directly.
+/// Builds each row from `solved` instead of solving again, so the solid-preview replan and
+/// the background auto-solve feed the same masts to the tier table without a second solve.
 ///
 /// # Panics
 ///
@@ -587,14 +481,13 @@ pub fn tier_items_from_solved(design: &Design, solved: &[SolvedTier], n_d: f64) 
     tier_items_from_solved_and(design, solved, n_d, &TierWarnings::of(design, Some(solved)))
 }
 
-/// [`tier_items_from_solved`] for a caller on a UI thread, which must not run the pass itself.
+/// [`tier_items_from_solved`] for a caller on the UI thread, which must not run the pass itself.
 ///
-/// The manufacturability pass builds meshes (milliseconds for a planar design, far more for
-/// one with concave tools), so the findings come from `warnings`, the pass a worker ran
-/// against this same `design` and `solved` ([`solved_manufacturability_warnings`]).
-/// `None` -- the worker has no pass for this solve -- behaves as [`tier_items_from_solved`]
-/// for a design without concave tools, and for one with tools shows only the mast-free
-/// findings, tagged `(pre-solve)`, never building a mesh.
+/// The manufacturability pass builds meshes, slow for a design with concave tools, so `warnings`
+/// comes from the worker's pass for this same `design` and `solved`
+/// ([`solved_manufacturability_warnings`]). `None` (no worker pass) gives the full inline pass
+/// for a design without concave tools; with concave tools it shows only the mast-free findings,
+/// tagged `(pre-solve)`.
 ///
 /// # Panics
 ///
@@ -614,9 +507,9 @@ pub fn tier_items_from_solved_with_warnings(
     )
 }
 
-/// What the inline pass may be given when no worker pass exists: the masts for a design
-/// without concave tools (the pass is then cheap and complete), `None` -- the mast-free
-/// checks, which build no mesh -- for one with tools, whose check 6 builds a solid.
+/// The inline pass's input when no worker pass exists: the masts for a design without concave
+/// tools, where the pass is cheap; `None` (mast-free checks only, no mesh) for one with tools,
+/// whose check 6 builds a solid.
 fn without_tool_checks<'a>(design: &Design, solved: &'a [SolvedTier]) -> Option<&'a [SolvedTier]> {
     design.concave_tiers.is_empty().then_some(solved)
 }
@@ -629,9 +522,8 @@ fn tier_items_from_solved_and(
     warnings: &TierWarnings,
 ) -> Vec<TierRow> {
     let tier_blocks = classify_blocks(&design.meet_tier_inputs());
-    // `None` whenever the design carries no girdle diameter, which is
-    // the only thing that anchors model units to a real size. Computed once here
-    // rather than per row -- `yield_report` measures the whole solid.
+    // `None` without a girdle diameter, the only anchor to a real size. Measured once per
+    // list, not per row, since `yield_report` measures the whole solid.
     let mm_per_unit = design.yield_report(solved).mm_per_unit;
     let (_, pavilion_partner_deg) = representative_crown_and_pavilion_angles_deg(design);
     let tier_labels = pleochroma_cut_core::compute_tier_labels(&design.tiers);
@@ -665,10 +557,8 @@ fn tier_items_from_solved_and(
     rows
 }
 
-/// [`TierRow::block`]'s one-word label for a [`Block`] -- shared by
-/// [`tier_items`]/[`tier_items_stale`] so a table row's crown/pavilion/girdle side
-/// (a zero angle's side is the sign of the zero, `tier.rs`'s own doc comment) is
-/// never left to be guessed from the formatted angle text.
+/// [`TierRow::block`]'s one-word label for a [`Block`]. The side comes from the solver's block,
+/// so a zero angle's side is never guessed from its formatted text.
 const fn block_label(block: Block) -> &'static str {
     match block {
         Block::Crown => "Crown",
@@ -705,8 +595,8 @@ mod tests {
         session.design
     }
 
-    /// The `Err` rows built from a held failed solve equal the ones `tier_items` builds
-    /// by solving itself; the `Ok` rows equal `tier_items_from_solved`.
+    /// The `Err` rows from a held failed solve equal `tier_items`' rows; the `Ok` rows equal
+    /// `tier_items_from_solved`.
     #[test]
     fn tier_items_from_result_matches_tier_items_for_failed_and_solved_designs() {
         let failing = design_with(MeetConstraint::MeetExisting);

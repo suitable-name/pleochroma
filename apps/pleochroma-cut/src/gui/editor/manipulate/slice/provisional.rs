@@ -1,4 +1,6 @@
-//! The provisional slice session's data and the pure decisions around it: the dragged
+//! The provisional slice session's data and the pure decisions around it.
+//!
+//! It holds the dragged
 //! line, the snapped plan, the session struct, the in-place edits a handle drag makes to
 //! its tier, and the small predicates the orchestration in [`super`] branches on. None of
 //! it touches the Slint window or the thread-local session.
@@ -58,14 +60,10 @@ pub(in super::super) enum LandedAction {
 /// The decision behind [`super::on_landed`], on plain numbers.
 ///
 /// `base_generation` is the session's (`None`: no session), `awaiting` whether a
-/// provisional replan was submitted and is still queued or running (no provisional-
-/// generation frame has landed since, and no committed replan has taken the plan gate's
-/// single slot over it -- see `clear_awaiting`), `current_generation` the editor's now,
-/// `frame_generation` the landed frame's
-/// own. A frame stamped `PROVISIONAL_GENERATION` is the provisional picture
-/// (`Ignore`), so a provisional replan can never cause another one: the only frames that
-/// `Resubmit` are committed ones -- an idle replan, a solve landing, a selection
-/// replan -- and each of those needs at most one.
+/// provisional replan is still queued or running (see `clear_awaiting`),
+/// `current_generation` the editor's now and `frame_generation` the landed frame's own.
+/// A frame stamped `PROVISIONAL_GENERATION` is the provisional picture (`Ignore`), so a
+/// provisional replan never causes another one: only committed frames `Resubmit`.
 pub(in super::super) const fn landed_action(
     base_generation: Option<u64>,
     awaiting: bool,
@@ -624,7 +622,7 @@ mod tests {
     /// The Cut slider counts cutting steps. In the concave fixture the groove (a pavilion
     /// tool) is cut between the pavilion tiers and the crown tiers, so every crown tier --
     /// and the provisional one, appended last -- is cut one step later than its stored index.
-    /// Comparing the slider with the stored index hid the hint one step too late.
+    /// The slider must be compared with the step, never with the stored index.
     #[test]
     fn a_concave_step_between_flat_steps_moves_the_provisional_tiers_step() {
         let mut design = Design::concave_fixture();

@@ -9,17 +9,17 @@ import java.io.IOException
 
 /** The size limits for files that come from other apps. */
 internal object Limits {
-    /** One file. */
+    /** Largest single file. */
     const val MAX_FILE_BYTES: Long = 64L * 1024 * 1024
 
-    /** Everything read for one request (a multi-pick, a folder, an incoming batch). */
+    /** Total read for one request (a multi-pick, a folder, an incoming batch). */
     const val MAX_TOTAL_BYTES: Long = 256L * 1024 * 1024
 
     /** Design files collected from a picked folder. */
     const val MAX_TREE_FILES: Int = 2000
 }
 
-/** A limit above was exceeded; the message is shown to the user as it is. */
+/** A [Limits] value was exceeded; the message is shown to the user as is. */
 internal class ImportLimitException(message: String) : IOException(message)
 
 /** Counts the bytes read for one request against [Limits.MAX_TOTAL_BYTES]. */
@@ -132,7 +132,7 @@ internal class DocumentReader(private val resolver: ContentResolver) {
     }
 
     private companion object {
-        /** Faceting designs the core can read. */
+        /** Suffixes of the design files the Rust core can read. */
         val DESIGN_SUFFIXES = listOf(".psdd", ".asc", ".gem", ".gcs")
     }
 }

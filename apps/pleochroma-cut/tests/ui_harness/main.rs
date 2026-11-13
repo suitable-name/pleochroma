@@ -2,8 +2,8 @@
 //! `uiprobe` crate.
 //!
 //! Drives the real `MainWindow` with all its Rust wiring on Slint's testing backend, inside a
-//! throw-away profile, and collects every problem into `target/ui-harness/report.md` (plus
-//! `report.json` next to it). The process exits non-zero when anything was found.
+//! throw-away profile, and collects every problem into `target/ui-harness/report.md`. The
+//! process exits non-zero when anything was found.
 //!
 //! Run: `cargo ui-harness` (see `.cargo/config.toml`), or
 //! `cargo test -p pleochroma-cut --features ui-harness --test ui_harness` with the environment
@@ -48,6 +48,11 @@ type SharedApp = Rc<RefCell<HarnessApp>>;
 type ScenarioBody = dyn FnMut(&mut uiprobe::Ctx<'_>) -> Result<(), Finding>;
 
 fn main() -> ExitCode {
+    // The app's stone estimator, so the harness renders what the app renders (every process,
+    // the parent and each worker, runs this `main`).
+    pleochroma::optics::raytracer::set_default_estimator(
+        pleochroma::optics::raytracer::Estimator::APP_DEFAULT,
+    );
     // Every process (the parent and each worker runs this `main`): the live viewport traces
     // nothing, see `disable_viewport_rendering`.
     pleochroma_cut::harness_support::disable_viewport_rendering();
@@ -92,8 +97,8 @@ fn main() -> ExitCode {
     harness
         .teardown(move || {
             // Shuts the app down (render thread, settings writer, design library handle), then
-            // prints what `Profile::finish` used to: shutdowns that left handles alive and moves
-            // to a fresh working directory because the database was still locked.
+            // prints the shutdown summary: shutdowns that left handles alive, and the move to a
+            // fresh working directory when the database was still locked.
             teardown_app.borrow_mut().shutdown();
             print_shutdown_summary();
         })

@@ -16,9 +16,8 @@
 //!   request lists every template still missing, never one per request) and the cache,
 //!   and posts each finished picture to the UI thread as it is done, shapes first.
 //!
-//! A `slint::Image` is not `Send`, so the worker only ever holds a
-//! `SharedPixelBuffer`; `Image::from_rgba8` is called on the UI thread, in
-//! [`super::set_thumbnail`].
+//! A `slint::Image` is not `Send`, so the worker only ever holds a `SharedPixelBuffer`;
+//! the image is made on the UI thread in [`super::set_thumbnail`].
 
 use super::{gallery_design, set_thumbnail};
 use crate::{
@@ -47,12 +46,12 @@ use tracing::warn;
 /// A finished picture, `Send` so it can cross back to the UI thread.
 pub(super) type Pixels = SharedPixelBuffer<Rgba8Pixel>;
 
-/// A thumbnail's edge in pixels. The card draws it at about 94 logical pixels, so this
-/// stays sharp on a 150 % display.
+/// A thumbnail's edge in pixels: the card shows it smaller, so it stays sharp on high-DPI
+/// displays.
 pub(super) const THUMBNAIL_EDGE: u32 = 160;
 
-/// The viewing direction: a quarter turn short of straight ahead, and about 49 degrees
-/// above the girdle plane -- the table, the crown facets and the outline all show.
+/// The viewing direction, radians: yaw to the side and a pitch of about 49 degrees, so the
+/// table, the crown facets and the outline all show.
 const THUMBNAIL_YAW: f32 = 0.6;
 const THUMBNAIL_PITCH: f32 = 0.85;
 

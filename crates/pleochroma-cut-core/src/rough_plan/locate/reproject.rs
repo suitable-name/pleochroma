@@ -2,9 +2,9 @@
 //!
 //! The reprojection looks for the pixel whose refracted ray passes through the point: a
 //! derivative-free pattern search on the distance of the point from the ray inside the stone,
-//! started from the best local minima of a coarse grid around the straight-line pixel. The surface is
-//! piecewise flat, so the distance is continuous but not smooth, and a pattern search copes with
-//! that where a Newton step would not.
+//! started from the best local minima of a coarse grid around the straight-line pixel. The
+//! surface is piecewise flat, so the distance is continuous but not smooth, and a pattern search
+//! copes with that where a Newton step would not.
 //!
 //! Ghost images are the same search with the interior ray reflected totally at the surface one or
 //! two times before it passes the point: the user may have clicked such an image by mistake.
@@ -221,9 +221,9 @@ fn stone_window(scene: &Scene<'_>, view: usize) -> Option<(DVec2, DVec2)> {
 /// or two (up to `max_bounces`, at most [`MAX_GHOST_BOUNCES`]) total internal reflections.
 ///
 /// Only ghosts whose ray passes within `max_miss_mm` of the point are returned, nearest first.
-/// The search covers the stone's outline in the photo; each ghost is a local minimum of the
-/// distance found on a coarse grid and refined, so very faint or very narrow ghosts can be
-/// missed. Hollow markers at these pixels show the user which image a click may have hit.
+/// The search covers the box around the stone's projection in the photo. Each ghost is a local
+/// minimum of the distance found on a coarse grid and refined, so very faint or very narrow
+/// ghosts can be missed. Hollow markers at these pixels show which image a click may have hit.
 #[must_use]
 pub fn predict_ghosts(
     scene: &Scene<'_>,

@@ -2,10 +2,8 @@
 
 use super::*;
 
-/// A color pattern is written as the plain string key `pattern`, round trips, is omitted when
-/// unset, and an older build (a snapshot struct without the field) keeps the key in its
-/// unknown table, so it writes the pattern back unchanged.
-/// An older build's view of the custom-material table: no `pattern` field.
+/// An older build's view of the custom-material table, with no `pattern` field: the key
+/// lands in `unknown`, so a write keeps the pattern.
 #[derive(serde::Deserialize)]
 struct OlderSnapshot {
     #[expect(dead_code, reason = "read only to prove the known keys still parse")]
@@ -14,6 +12,8 @@ struct OlderSnapshot {
     unknown: toml::Table,
 }
 
+/// A color pattern is written as the plain string key `pattern`, round trips and is omitted
+/// when unset; an older build keeps the key in its unknown table and writes it back unchanged.
 #[test]
 fn custom_snapshot_pattern_round_trips_and_an_older_build_keeps_it() {
     let mut native = sample_file();

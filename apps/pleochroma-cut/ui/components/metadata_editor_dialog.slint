@@ -53,28 +53,21 @@ component MetaField inherits VerticalLayout {
     }
 }
 
-// Metadata editor: title, designer, shape, refractive index, index gear, facet
-// count, symmetry order, mirror symmetry, and the five geometry-derived proportion
-// ratios -- every field a user might legitimately hand-correct on their own local
-// design (see `apps/pleochroma-cut`'s `gui::detail::setup_save_metadata_callback` and
-// `pleochroma_vault::db::sqlite::Database::update_diagram_metadata`, which is what
-// actually persists this without zeroing anything else).
+// Metadata editor for a design's catalogue fields: title, designer, shape, facet count, the four
+// proportion ratios and the volume. Saved by `setup_save_metadata_callback`
+// (`apps/pleochroma-cut/src/gui/library/detail/metadata.rs`), which persists through
+// `pleochroma_vault::db::sqlite::Database::update_diagram_metadata` and leaves other fields
+// untouched.
 //
-// A MODAL, not more inline pencils like the existing title/shape editors in
-// `detail_header.slint`: thirteen fields is too many to fit as inline chips without
-// the header turning into an editing form by default, so this follows this app's
-// established modal convention (`material_editor_dialog.slint`'s full-viewport
-// backdrop + centered content-sized card) rather than inventing a new one.
+// A modal rather than inline edits like `detail_header.slint`: there are too many fields for
+// inline chips. It uses the app's modal idiom (`material_editor_dialog.slint`).
 export component MetadataEditorDialog inherits Rectangle {
     in-out property <string> title_draft: LibraryModel.current_detail.title;
     in-out property <string> designer_draft: LibraryModel.current_detail.designer;
     in property <[string]> shape_options: LibraryModel.shape_picker_options;
     in-out property <int> shape_index: LibraryModel.shape_picker_current_index;
-    // The design's current shape verbatim -- used as `selected_shape`'s fallback when
-    // `shape_index` doesn't land inside `shape_options` (e.g. a design's shape isn't
-    // in the current vocabulary, mirroring `detail_header.slint`'s own shape chip,
-    // which shows `detail.shape` regardless of whether the picker's own option list
-    // happens to contain it).
+    // The design's shape verbatim. `selected_shape` falls back to it when `shape_index` is outside
+    // `shape_options`, for a shape missing from the current vocabulary.
     in-out property <string> shape_draft: LibraryModel.current_detail.shape;
     in-out property <string> ri_draft: LibraryModel.current_detail.ri;
     in-out property <string> gear_draft: LibraryModel.current_detail.gear;
@@ -100,12 +93,9 @@ export component MetadataEditorDialog inherits Rectangle {
     property <string> selected_shape: (root.shape_index >= 0 && root.shape_index < root.shape_options.length)
         ? root.shape_options[root.shape_index] : root.shape_draft;
 
-    // A stray click on the backdrop would otherwise discard all thirteen typed
-    // values with no confirmation, so `is_dirty` compares every field this dialog can
-    // still actually edit (gear/RI/symmetry/mirror are read-only here, so they can
-    // never diverge from `current_detail` and are left out) against
-    // the record the dialog opened with; `request_close` asks first when any of them
-    // differ, and only `Discard`/an explicit Save proceed to the real `close()`.
+    // `is_dirty` compares the editable fields with the record the dialog opened with, so a stray
+    // backdrop click asks before discarding them. Gear, RI, symmetry and mirror are not editable
+    // here and are left out.
     property <bool> is_dirty: root.title_draft != LibraryModel.current_detail.title
         || root.designer_draft != LibraryModel.current_detail.designer
         || root.selected_shape != LibraryModel.current_detail.shape
@@ -125,11 +115,9 @@ export component MetadataEditorDialog inherits Rectangle {
         }
     }
 
-    // A ratio field is valid when left blank (Rust treats an empty string as "not
-    // recorded", not zero -- `library::detail::setup_save_metadata_callback`'s own
-    // `non_empty` filter) or parses as a positive, finite number -- the same rule
-    // `gui::editor::loading::external_proportions_from_full_record` applies when it
-    // later reads these very fields back for Deep Solve.
+    // A blank ratio means "not recorded" (Rust filters out empty strings, not zero). Otherwise it
+    // must parse as a positive, finite number, the same rule that
+    // `external_proportions_from_full_record` applies when Deep Solve reads these fields back.
     property <bool> lw_ratio_valid: root.lw_ratio_draft == "" || root.lw_ratio_draft.to-float() > 0;
     property <bool> hw_ratio_valid: root.hw_ratio_draft == "" || root.hw_ratio_draft.to-float() > 0;
     property <bool> cw_ratio_valid: root.cw_ratio_draft == "" || root.cw_ratio_draft.to-float() > 0;
@@ -145,12 +133,8 @@ export component MetadataEditorDialog inherits Rectangle {
         clicked => { root.request_close(); }
     }
 
-    // Escape = ask-then-cancel, matching `new_design_dialog.slint`'s own
-    // `init => { self.focus(); }` + `key-pressed` idiom.
-    //
-    // `accept` (not `reject`) for every other key -- otherwise
-    // an unhandled key bubbles past this dialog to `global_shortcuts` and fires a
-    // shortcut on the design underneath it.
+    // Escape asks before closing. Other keys are `accept`ed so they do not reach the design's
+    // shortcuts.
     key_scope := FocusScope {
         init => { self.focus(); }
         key-pressed(event) => {
@@ -165,9 +149,7 @@ export component MetadataEditorDialog inherits Rectangle {
 
     Rectangle {
         width: min(460px, max(240px, root.width - 24px));
-        // Content-driven height -- see `material_editor_dialog.slint`'s own doc
-        // comment on this exact line for why (`import_dialog.slint` shares the same idiom).
-        // Capped at the window less a 12px margin top and bottom: the body scrolls.
+        // Sized to its content, capped at the window less 12px top and bottom, so the body scrolls.
         height: min(content.preferred-height, root.height - 24px);
         background: Theme.surface-dialog;
         border-radius: Theme.radius-md;
@@ -183,7 +165,7 @@ export component MetadataEditorDialog inherits Rectangle {
             padding: 16px;
             spacing: 12px;
 
-            // 1. Header Bar
+            // Header bar
             HorizontalLayout {
                 alignment: space-between;
 
@@ -253,14 +235,11 @@ export component MetadataEditorDialog inherits Rectangle {
                 }
             }
 
-            // Shape / Facet Count -- catalogue-only descriptive fields. Index Gear,
-            // Refractive Index, Symmetry Order and Mirror Symmetry are edited from the
-            // Edit tab's own Design Settings panel (`editor_design_settings.slint`)
-            // instead of here, so a correction always lands in the one place that can
-            // never disagree with another copy of itself -- see the note below. Their
-            // draft properties stay declared (still round-tripped verbatim through
-            // `save()` below) since removing them from `LibraryModel.save_metadata`'s
-            // signature would require editing `ui/models/library.slint`.
+            // Shape and facet count. Index gear, refractive index, symmetry order and mirror
+            // symmetry are edited in Design Settings (`editor_design_settings.slint`), so there is
+            // one place to change them. Their drafts are still passed through `save()`, because
+            // removing them from `LibraryModel.save_metadata` would mean editing
+            // `ui/models/library.slint`.
             HorizontalLayout {
                 spacing: 10px;
                 VerticalLayout {

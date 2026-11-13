@@ -7,18 +7,14 @@ use crate::{
     native::{DesignExtras, catalogue_asc, design_from_str, design_to_string},
 };
 
-/// `.asc` has exactly one RI slot and export writes the EFFECTIVE value there
-/// (see `Design::effective_refractive_index`'s own doc comment). Re-importing
-/// that `.asc` alone would silently overwrite the AUTHORED (`meta.refractive_index`)
-/// figure. The design file's own `[schedule]` `refractive_index` must survive a
-/// real save/load round trip and restore the true authored value instead.
+/// `.asc` has one RI slot, and export writes the effective value there. Re-importing that
+/// `.asc` alone would overwrite the authored `meta.refractive_index`. The design file's
+/// `[schedule]` `refractive_index` must restore the authored value on a real save and load.
 #[test]
 fn authored_refractive_index_round_trips_through_save_and_load_even_when_the_asc_i_line_differs() {
     let mut design = simple_design();
-    // `simple_design` pins an override equal to the fixture's own authored RI
-    // (see that function's own doc comment) specifically so an UNRELATED test
-    // doesn't have to think about this divergence -- removed here so this test
-    // can exercise it on purpose.
+    // `simple_design` pins an override equal to the authored RI. It is removed here so the
+    // effective and authored values diverge.
     design.material.refractive_index_override = None;
     let authored = design.meta.refractive_index;
     assert_ne!(
@@ -27,10 +23,8 @@ fn authored_refractive_index_round_trips_through_save_and_load_even_when_the_asc
         "fixture must actually exercise the authored/effective divergence"
     );
 
-    // Importing the catalogue `.asc` ALONE (no design file at all) derives the
-    // EFFECTIVE RI back as `meta.refractive_index` -- proving this fixture
-    // really does exercise the lossy round trip the design file exists to fix, not
-    // one that happens to already agree.
+    // Importing the catalogue `.asc` alone derives the effective RI as `meta.refractive_index`.
+    // That shows the fixture exercises the lossy round trip, not a case where the two agree.
     let saved = catalogue_asc(&design, None, None).expect("must write");
     let schedule = pleochroma_formats::asc::parse_asc(&saved.asc_text).expect("must parse");
     let asc_only = Design::from_asc_schedule(design.preform.clone(), &schedule);

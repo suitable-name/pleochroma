@@ -38,14 +38,9 @@ fn report_transport_params_layout_check(ctx: &GpuContext) -> bool {
     false
 }
 
-/// The struct-layout GPU echo tests for `GpuReduceParams`, `GpuWavefrontParams`,
-/// `GpuHdrEnvDims`, `GpuDistDims`: `layout_check::run` (Tier 1a, `GpuGemMaterial`) and
-/// [`report_transport_params_layout_check`] (`GpuTransportParams`) cover their own
-/// structs at the byte-exact level, but these four 16-byte scalar structs otherwise
-/// have no such check beyond "verified matching by eye"; see
-/// [`layout_check::run_reduce_params`]'s own doc comment. Same
-/// `[(&str, LayoutCheckFn); N]` shape as [`report_phase1_layout_checks`]. Returns
-/// whether ALL FOUR passed.
+/// Byte-exact struct-layout echo tests for four 16-byte scalar structs
+/// (`GpuReduceParams`, `GpuWavefrontParams`, `GpuHdrEnvDims`, `GpuDistDims`); see
+/// [`layout_check::run_reduce_params`]. Returns whether all four passed.
 fn report_phase2_layout_checks(ctx: &GpuContext) -> bool {
     let checks: [(&str, LayoutCheckFn); 4] = [
         ("GpuReduceParams, 16 bytes", layout_check::run_reduce_params),
@@ -158,9 +153,8 @@ fn report_spectral_debug(ctx: &GpuContext) -> bool {
     false
 }
 
-/// Isotropic spectral estimator checks (cubic materials only). Pulled out of `main`
-/// purely to keep that function under clippy's function-length lint -- returns whether
-/// every check here passed.
+/// Isotropic spectral estimator checks (cubic materials only). Returns whether every check
+/// passed.
 pub fn run_phase2_checks(ctx: &GpuContext) -> bool {
     println!();
     println!("== Phase 2: isotropic spectral estimator (cubic materials only) ==");
@@ -194,8 +188,8 @@ pub fn run_phase2_checks(ctx: &GpuContext) -> bool {
         "DispersionModel::evaluate",
         &transport_check::run_dispersion(ctx),
     );
-    // Covers both `BandShape` variants (P6: wavelength- and energy-domain Gaussian
-    // absorption bands) in one case bank against the one production struct/kernel --
+    // Covers both `BandShape` variants (wavelength- and energy-domain Gaussian absorption
+    // bands) in one case bank against the one production struct/kernel --
     // see `transport_check::absorption_pleochroism::build_absorption_cases`'s own doc
     // comment.
     let absorption_passed =

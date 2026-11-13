@@ -1,6 +1,7 @@
-//! What the Crystal Axis asks of the planner's 3D view besides drawing its own gizmo
-//! (`axis_gizmo`): the layouts drawn with the cutter's box poses, the view switched to the rough
-//! for a pick, and the scenes built again after a stone changed.
+//! What the Crystal Axis asks of the planner's 3D view besides its own gizmo (`axis_gizmo`).
+//!
+//! That is redrawing the layouts with the cutter's box poses, showing the rough for a pick, and
+//! building the scenes again after a stone changes.
 //!
 //! A child of the view, so it reaches the view's own scene and selection functions.
 
@@ -44,10 +45,9 @@ fn wizard_poses_with_planner_poses(
     Some(merged)
 }
 
-/// The colour job of result `index` (see `zoning_hooks::colour_job`) with the cutter's box poses of
-/// this session applied over the poses the wizard stored, so a plan with a rough color draws the
-/// planner's poses too (the planner's choice wins on a stone both chose). `None` for a plan without
-/// a rough color.
+/// The colour job of result `index` (see `zoning_hooks::colour_job`), with the cutter's box poses
+/// of this session applied over the poses the wizard stored: the planner's choice wins on a stone
+/// both chose. `None` for a plan without a rough color.
 #[must_use]
 pub(super) fn colour_job_with_poses(
     overrides: &PlanSettingsOverrides,
@@ -218,8 +218,8 @@ mod tests {
         let wizard = PoseChoices::from([((0, 0), 1), ((0, 1), 2), ((2, 0), 3)]);
         let merged =
             wizard_poses_with_planner_poses(&wizard, &overrides, 0).expect("a pose chosen");
-        // The wizard's stone stays, the conflict goes to the planner, the new stone is added, and
-        // the choices of other results are not touched.
+        // The wizard's stone stays, the conflict goes to the planner, and the new stone is added;
+        // other results' choices are not touched.
         assert_eq!(
             merged,
             PoseChoices::from([((0, 0), 1), ((0, 1), 3), ((0, 2), 2), ((2, 0), 3)])

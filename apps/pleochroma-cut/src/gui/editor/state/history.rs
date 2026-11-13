@@ -35,9 +35,8 @@ impl EditorState {
     /// into one undo step. See `angle_nudge_coalesce_key` for how the editor derives
     /// `key` from the nudge's target tier(s).
     ///
-    /// Test-only since the production nudge path became [`Self::nudge_angles`]
-    /// (the same coalescing apply, plus the zero-crossing clamp); the history tests
-    /// and the identity pins still drive the raw coalescing apply directly.
+    /// Test-only: production nudges go through [`Self::nudge_angles`], which adds the
+    /// zero-crossing clamp.
     ///
     /// # Errors
     ///
@@ -131,18 +130,16 @@ impl EditorState {
     /// # Errors
     ///
     /// Propagates [`pleochroma_cut_core::History::undo`]'s error verbatim (a failed
-    /// replay of the recorded inverse edit) -- the caller (`gui::editor::callbacks::
-    /// tier_actions::setup_undo_callback`) surfaces this via a toast rather than
-    /// unwrapping/panicking, since `History::undo` returns `Err` here instead of
-    /// panicking.
+    /// replay of the recorded inverse edit). The Undo callback uses `undo_mapped` instead,
+    /// which also returns the row renumbering; this one serves callers that need none.
     pub(in crate::gui::editor) fn undo(&mut self) -> Result<bool, EditError> {
         self.session.undo().map(|change| change.is_some())
     }
 
     /// Redoes through [`pleochroma_cut_core::History::redo`] -- see [`Self::undo`].
     ///
-    /// Test-only: the Redo callback needs the row renumbering of the step and calls
-    /// `EditorSession::redo_mapped` itself.
+    /// Test-only: the Redo callback needs the step's row renumbering, so it calls
+    /// `EditorSession::redo_mapped` directly.
     ///
     /// # Errors
     ///
@@ -156,8 +153,8 @@ impl EditorState {
     /// Compares `self.design`'s current settings/preform/yield-relevant fields
     /// against the scratch snapshot recorded the last time this ran, records a fresh
     /// snapshot, and returns which groups actually changed -- see
-    /// [`pleochroma_editor::scratch::PushedScratch::record`]. Called exactly once per
-    /// `view::refresh_editor_panel`/`view::push_stale_content` invocation.
+    /// [`pleochroma_editor::scratch::PushedScratch::record`]. Called once per editor
+    /// refresh (`view::panel::refresh_editor_panel`, `push_stale_content`).
     pub(in crate::gui::editor) fn record_scratch_push(&self) -> ScratchDelta {
         self.last_pushed_scratch
             .borrow_mut()

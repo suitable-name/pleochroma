@@ -1,15 +1,14 @@
-//! Named objective weightings ([`ObjectivePreset`]) for a front end that offers a
-//! choice instead of four sliders. Each preset is just an [`ObjectiveWeights`]; the
-//! optimizer sees nothing but the weights.
+//! Named objective weightings ([`ObjectivePreset`]) for a front end.
+//!
+//! Each preset is just an [`ObjectiveWeights`]; the optimizer sees nothing but the weights.
 
 use super::objective::{ObjectiveWeights, ToneGoal};
 
 /// A named way to weigh the optical measurements, the yield and the face-up tone against
 /// each other.
 ///
-/// All of them scale the same weights of [`ObjectiveWeights`]; only their relative
-/// sizes matter (see [`ObjectiveWeights::score_with_yield`]). [`Self::Balanced`] is
-/// today's default.
+/// Each one is a set of [`ObjectiveWeights`]; only their relative sizes matter (see
+/// [`ObjectiveWeights::score_with_yield`]). [`Self::Balanced`] is the default.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ObjectivePreset {
     /// Windowing, extinction and tilt brilliance count equally; yield does not count.

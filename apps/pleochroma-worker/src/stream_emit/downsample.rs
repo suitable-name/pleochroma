@@ -7,10 +7,8 @@ use glam::Vec3;
 /// `target_width x target_height` box-averaged buffer -- the payload behind a `PREVIEW`
 /// message.
 ///
-/// Averages (not sums) each output pixel's source box, so the result stays directly
-/// comparable in scale to the full-resolution total it was built from, consistent with
-/// `PREVIEW` being a cumulative, display-only snapshot rather than something summed
-/// further.
+/// Averages rather than sums each source box, so the result stays comparable in scale to
+/// the full-resolution total it was built from.
 #[must_use]
 pub(super) fn downsample_preview(
     running_total: &[Vec3],

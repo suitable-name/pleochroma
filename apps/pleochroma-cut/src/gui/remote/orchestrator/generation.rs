@@ -1,5 +1,6 @@
-//! The two off-thread background generations the orchestrator keeps in flight: the
-//! guide-buffer prepass ([`PendingGuideGeneration`]/[`spawn_guide_generation`]/
+//! The two off-thread background generations the orchestrator keeps in flight.
+//!
+//! They are the guide-buffer prepass ([`PendingGuideGeneration`]/[`spawn_guide_generation`]/
 //! [`adopt_ready_guides`]) and the full denoise-and-tonemap pass
 //! ([`PendingDenoiseGeneration`]/[`spawn_denoise_generation`]/[`adopt_ready_denoise`]).
 //! See this group's own `mod.rs` doc comment.
@@ -22,23 +23,16 @@ use pleochroma::{
 };
 use std::sync::{Arc, Mutex, PoisonError, atomic::AtomicBool};
 
-/// A background primary-ray-only guide-buffer prepass in flight for one dispatched
-/// `RenderRequest` -- started at dispatch time (`super::tick::start_remote_render`),
-/// not on the first redraw that needs guides, so the work overlaps the network round
-/// trip and the remote render itself instead of stalling the first post-dispatch
-/// redraw.
+/// A background primary-ray guide-buffer prepass for one dispatched `RenderRequest`. It
+/// starts at dispatch (`tick::dispatch::start_remote_render`), so it overlaps the network
+/// round trip and the remote render.
 ///
-/// Cancellation mirrors `bridge::export_thread::ExportHandle`'s cooperative
-/// `Arc<AtomicBool>` pattern: setting `cancel` doesn't tear down the background thread
-/// forcibly, it just asks `generate_guide_buffers_cancellable_geom`'s per-row check to stop
-/// early.
+/// Cancellation is cooperative: setting `cancel` makes the worker's per-row check stop
+/// early (the same `Arc<AtomicBool>` pattern as `bridge::export_thread::ExportHandle`).
 ///
-/// A superseded generation can never overwrite a newer one's result: every call to
-/// [`spawn_guide_generation`] allocates a brand new `result` `Arc`, never reuses the
-/// previous generation's. So even if a cancelled (or simply slow) background thread
-/// finishes after `Orchestrator::pending_guide_gen` has already moved on to a fresh
-/// [`PendingGuideGeneration`], its write lands in an `Arc` nothing still reachable from
-/// `Orchestrator` ever reads from again.
+/// A superseded generation cannot overwrite a newer result, because each
+/// [`spawn_guide_generation`] allocates a fresh `result` slot. A late write lands in a slot
+/// that nothing reads any more.
 pub(super) struct PendingGuideGeneration {
     /// The pose/geometry/resolution this generation is for -- the same [`GuideKey`]
     /// identity `GuideCache` keys its own cache on. Compared against the current
@@ -100,15 +94,13 @@ pub(super) fn spawn_guide_generation(
     }
 }
 
-/// Checks whether guide buffers are ready and correct for `desired_key` -- the
-/// pose/geometry identity (see `GuideCache::key_for`) of the image about to be redrawn
-/// -- adopting a background generation's result into `guide_cache` when it matches, and
-/// reporting "not ready" otherwise so the caller can fall back to a plain tonemap for
-/// this frame rather than blocking the UI thread to regenerate guides synchronously.
+/// Adopts a background generation's guides into `guide_cache` when they match
+/// `desired_key` (the pose and geometry of the image about to be drawn). Returns `false`
+/// when they are not ready, so the caller falls back to a plain tonemap instead of
+/// blocking the UI thread to regenerate guides.
 ///
-/// Pure aside from the one `Mutex` lock on `pending`'s result slot, so it's directly
-/// unit-testable with a hand-built [`PendingGuideGeneration`] and no real background
-/// thread, socket, or timer -- see this module's tests.
+/// Apart from one lock on the result slot it is pure, so the tests use a hand-built
+/// [`PendingGuideGeneration`] with no background thread.
 pub(super) fn adopt_ready_guides(
     desired_key: &GuideKey,
     guide_cache: &mut GuideCache,
@@ -140,20 +132,15 @@ pub(super) fn adopt_ready_guides(
     true
 }
 
-/// The full À-Trous denoise-and-tonemap pass (`render_thread::denoise_and_tonemap_frame`)
-/// running on a background thread for one pose/buffer snapshot, mirroring
-/// [`PendingGuideGeneration`]'s cancellation-by-orphaning: a brand new `result` `Arc`
-/// every dispatch, so a stale generation's eventual write lands somewhere nothing
-/// still reachable ever reads.
+/// The full À-Trous denoise-and-tonemap pass running on a background thread for one
+/// pose and buffer snapshot. Like [`PendingGuideGeneration`], each dispatch gets a fresh
+/// `result` slot, so a stale write is never read.
 ///
-/// Unlike guide generation (dispatched once per `RenderRequest`, since guides depend
-/// only on pose+geometry), a denoise generation is redispatched every time the
-/// previous one completes and is adopted, because its input (the accumulation buffer)
-/// keeps growing as more `FRAME` events arrive. There is deliberately no cooperative
-/// `cancel` flag here: `AtrousDenoiser` has no early-exit hook, so an abandoned
-/// generation simply runs to completion on its own thread, consuming CPU but touching
-/// nothing else -- correctness comes entirely from the structural key check in
-/// [`adopt_ready_denoise`] below, never from timing.
+/// Unlike guide generation (once per `RenderRequest`), a denoise generation is redispatched
+/// each time the previous one is adopted, since the accumulation buffer keeps growing.
+/// There is no cooperative `cancel`: `AtrousDenoiser` has no early exit, so an abandoned
+/// generation runs to completion and touches nothing else. Correctness comes from the key
+/// check in [`adopt_ready_denoise`], not from timing.
 pub(super) struct PendingDenoiseGeneration {
     /// The pose/geometry/resolution this generation's output is valid for; a result is
     /// only adopted once [`adopt_ready_denoise`] confirms this still equals the pose
@@ -186,17 +173,14 @@ pub(super) struct DenoiseGenerationJob {
     pub(super) n_d: f32,
 }
 
-/// Kicks off one full denoise-and-tonemap pass on a background thread for `key`'s pose,
-/// over the given `buffer`/`samples_done` snapshot and `guides` (already known-good for
-/// `key` -- the caller confirms this via [`adopt_ready_guides`] before calling, and
-/// clones the buffers out of `guide_cache` since that cache is otherwise only touched
-/// from the Slint event-loop thread).
+/// Starts one denoise-and-tonemap pass on a background thread for `key`'s pose, over the
+/// given buffer snapshot and `guides`. The caller has already confirmed the guides match
+/// `key` with [`adopt_ready_guides`], and clones them out of `guide_cache`, which only the
+/// UI thread touches.
 ///
-/// Runs via [`render_merged_frame`], fed a throwaway [`GuideCache`] pre-seeded with
-/// `guides` so its internal `guide_cache.ensure` call is a guaranteed cache hit rather
-/// than a synchronous regenerate. Builds its own fresh, throwaway [`AtrousDenoiser`]
-/// and scratch buffers too -- this background thread owns nothing anyone else touches,
-/// and one extra allocation every ~3.5s (4K) is immaterial next to the pass itself.
+/// It runs through [`render_merged_frame`] with a throwaway [`GuideCache`] pre-seeded with
+/// `guides`, so the internal `ensure` is a cache hit. The throwaway denoiser and scratch
+/// buffers are owned by this thread alone, and their allocation is negligible next to the pass.
 pub(super) fn spawn_denoise_generation(
     key: GuideKey,
     job: DenoiseGenerationJob,

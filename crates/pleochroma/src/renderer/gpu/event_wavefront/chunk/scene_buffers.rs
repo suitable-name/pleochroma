@@ -1,8 +1,8 @@
 //! Persistent GPU-side scene buffers of the event wavefront renderer.
 //!
-//! NOTE: this still duplicates `frame::scene_buffers::FrameSceneBuffers` (plan section 5 asked
-//! for reuse); folding the two needs `EventWavefrontRenderer` (accumulate.rs) to hand over a
-//! `SceneBufferInputs`, which is outside the chunk module.
+//! TODO: fold this into `frame::scene_buffers::FrameSceneBuffers`, which it duplicates. That
+//! needs `EventWavefrontRenderer` (accumulate.rs) to hand over a `SceneBufferInputs`, which
+//! lies outside the chunk module.
 
 use wgpu::BufferUsages;
 
@@ -12,7 +12,7 @@ use crate::{
     renderer::{
         buffers::{GpuCameraParams, GpuGemMaterial, GpuTransportParams},
         env_map_gpu::HdrEnvGpuData,
-        gpu::compute,
+        gpu::{compute, frame::OpticsTablesGpu},
     },
 };
 
@@ -41,6 +41,10 @@ pub struct SceneBuffers {
     pub facet_finishes_capacity: usize,
     pub hdr_env: HdrEnvGpuData,
     pub hdr_env_identity: Option<usize>,
+    /// The optics lookup table buffer of the material being rendered, bound at
+    /// `OPTICS_TABLES_BINDING` of the kernels compiled for a class with
+    /// `material_class::OPTICS_TABLES`. Empty (nothing built) otherwise.
+    pub optics_tables: OpticsTablesGpu,
 }
 
 impl SceneBuffers {
@@ -55,7 +59,7 @@ impl SceneBuffers {
         environment: EnvironmentSource<'_>,
     ) -> Result<Self, EwError> {
         let (hdr_env, hdr_env_identity) = match environment {
-            EnvironmentSource::HdrMap(map) => {
+            EnvironmentSource::HdrMap { map, .. } => {
                 if !HdrEnvGpuData::fits_storage_binding(device, map) {
                     return Err(EwError::UnsupportedEnvironment);
                 }
@@ -101,6 +105,7 @@ impl SceneBuffers {
             facet_finishes_capacity: facet_finishes.len(),
             hdr_env,
             hdr_env_identity,
+            optics_tables: OpticsTablesGpu::default(),
         })
     }
 
@@ -159,12 +164,12 @@ impl SceneBuffers {
         }
 
         let new_identity = match environment {
-            EnvironmentSource::HdrMap(map) => Some(std::ptr::from_ref(map) as usize),
+            EnvironmentSource::HdrMap { map, .. } => Some(std::ptr::from_ref(map) as usize),
             EnvironmentSource::Studio { .. } => None,
         };
         if new_identity != self.hdr_env_identity {
             let (hdr_env, hdr_env_identity) = match environment {
-                EnvironmentSource::HdrMap(map) => {
+                EnvironmentSource::HdrMap { map, .. } => {
                     if !HdrEnvGpuData::fits_storage_binding(device, map) {
                         return Err(EwError::UnsupportedEnvironment);
                     }

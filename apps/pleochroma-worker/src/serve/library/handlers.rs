@@ -1,8 +1,8 @@
-//! Per-[`LibraryRequest`](pleochroma_net::library::LibraryRequest)-variant handlers:
-//! search, filter options, keyset-paginated search, and the `.asc` design-source
-//! lookup. [`super::handle_request`] dispatches to these; [`db_error`] is the shared
-//! "log in full, report generically" helper every handler here uses on a database
-//! failure.
+//! Per-[`LibraryRequest`](pleochroma_net::library::LibraryRequest)-variant handlers: search, filter
+//! options, keyset-paginated search, and the `.asc` design-source lookup.
+//!
+//! [`super::handle_request`] dispatches to these; [`db_error`] is the shared "log in full, report
+//! generically" helper every handler here uses on a database failure.
 
 use pleochroma_net::{
     library::{LibraryResponse, RangeFilterWire, SortOrderWire},
@@ -15,16 +15,11 @@ use pleochroma_vault::{
 
 use super::convert::{from_range_wire, to_frosting_wire, to_ranges_wire, to_summary};
 
-/// `LibraryResponse::Error` code for a library request refused before any database work.
+/// `LibraryResponse::Error` code for a library request refused before any database work,
+/// currently an out-of-range `tilt_radius_deg` (see [`super::convert::from_range_wire`]).
 ///
-/// Currently only a [`LibraryRequest`](pleochroma_net::library::LibraryRequest) with an
-/// out-of-range `tilt_radius_deg` (see [`super::convert::from_range_wire`]).
-///
-/// An alias of [`error_codes::LIBRARY_REQUEST_INVALID`]: `LibraryResponse::Error` shares
-/// the one `ErrorMsg::code` namespace with every other error reply (see that module's
-/// doc), so its value is unique across the whole table. Distinct from
-/// [`LIBRARY_ERROR_CODE`] so a client can tell "malformed request" apart from "server
-/// hit a problem".
+/// An alias of [`error_codes::LIBRARY_REQUEST_INVALID`]. It differs from
+/// [`LIBRARY_ERROR_CODE`] so a client can tell a malformed request from a server failure.
 pub const LIBRARY_VALIDATION_ERROR_CODE: u32 = error_codes::LIBRARY_REQUEST_INVALID;
 
 /// `LibraryResponse::Error` code for a `LibraryRequest` that failed on this server's side.
@@ -33,21 +28,15 @@ pub const LIBRARY_VALIDATION_ERROR_CODE: u32 = error_codes::LIBRARY_REQUEST_INVA
 /// [`LIBRARY_VALIDATION_ERROR_CODE`]).
 pub const LIBRARY_ERROR_CODE: u32 = error_codes::LIBRARY_FAILED;
 
-/// Handles [`LibraryRequest::Search`](pleochroma_net::library::LibraryRequest::Search):
-/// resolves `order`/`tag_filter` and calls `Database::search_diagrams_display`, so a
-/// remote search honours the same sort order and tag-chip restriction a local one does
-/// -- rather than the catalogue-order-only `search_diagrams_with_performance_exclusions`,
-/// which ignores both.
+/// Handles [`LibraryRequest::Search`](pleochroma_net::library::LibraryRequest::Search)
+/// with `Database::search_diagrams_display`, so sort order and tag filter match a local search.
 ///
-/// `tag_filter` is resolved by NAME via [`Database::tag_id_by_name`] (see
-/// `LibraryRequest::Search`'s own doc comment for why a name crosses the wire, never an
-/// id): a name this worker's catalogue has never seen resolves to `None` -- no
-/// restriction -- the same tolerance `apps/pleochroma-cut`'s own tag-chip lookup has for
-/// an unknown tag, rather than an error over an absent chip.
+/// `tag_filter` is a tag name, not an id, since ids are local to each database. It is
+/// resolved with [`Database::tag_id_by_name`]; an unknown name resolves to `None` (no
+/// restriction) rather than an error.
 ///
-/// `local_only`/`id_filter` on [`DisplayFilters`] are always `false`/`None` here: both
-/// name concepts local to the client's own database (see `LibraryRequest::Search`'s
-/// doc comment) that never cross the wire.
+/// `local_only` and `id_filter` on [`DisplayFilters`] are always `false`/`None` here:
+/// they name client-local concepts that never cross the wire.
 pub(super) fn search(
     db: &Database,
     query: &str,
@@ -95,29 +84,22 @@ pub(super) const fn sort_order_from_wire(order: SortOrderWire) -> SortOrder {
     }
 }
 
-/// Handles
-/// [`LibraryRequest::FetchDesignSource`](pleochroma_net::library::LibraryRequest::FetchDesignSource):
-/// finds `entry_id`'s design-file attachment with the same rule the client's own
-/// local load path uses (`pleochroma_vault::local::design_attachment_position`: the
-/// first `.asc`, else the first `.gem`, else the first `.gcs`) and returns it as
-/// `.asc` text ([`design_source_reply`]) -- matching that same local path so a
-/// design loads identically whether it came from this worker or a local file.
+/// Handles `LibraryRequest::FetchDesignSource`: returns the entry's design file as `.asc`
+/// text ([`design_source_reply`]).
 ///
-/// Three distinct outcomes, matching
-/// [`LibraryRequest::FetchDesign`](pleochroma_net::library::LibraryRequest::FetchDesign)'s
-/// own convention for `NotFound` plus one new case:
-/// - No such `entry_id` at all -> [`LibraryResponse::NotFound`] (same as `FetchDesign`).
-/// - `entry_id` exists but has no `.asc`/`.gem`/`.gcs` attachment -> [`LibraryResponse::DesignSourceNotAvailable`]
-///   (a design with only a reconstructed, placeholder schedule has no real file bytes to
-///   send -- see that variant's own doc comment).
-/// - A design-file attachment exists -> [`LibraryResponse::DesignSource`] with its
-///   name (for a `.gem`/`.gcs`, the converted `<stem>.asc`) and `.asc` text, or
-///   [`LibraryResponse::Error`] when a `.gem`/`.gcs` does not read.
+/// The file is chosen by `pleochroma_vault::local::design_attachment_position` (the first
+/// `.asc`, else the first `.gem`, else the first `.gcs`), the same rule the client's local
+/// load path uses, so a design loads identically from this worker or from a local file.
 ///
-/// No bespoke size cap here: a `.asc` schedule is always a small text file, and this
-/// reply is bounded the same way [`LibraryResponse::Attachment`] already is, by the
-/// transport-level `pleochroma_net::framing::MAX_FRAME_LEN`, not a second check
-/// duplicated per response type.
+/// Outcomes:
+/// - No such `entry_id` -> [`LibraryResponse::NotFound`], as for `FetchDesign`.
+/// - No `.asc`/`.gem`/`.gcs` attachment -> [`LibraryResponse::DesignSourceNotAvailable`]
+///   (a reconstructed placeholder schedule has no file bytes to send).
+/// - An attachment exists -> [`LibraryResponse::DesignSource`], named `<stem>.asc` for a
+///   `.gem`/`.gcs`, or [`LibraryResponse::Error`] when that file does not read.
+///
+/// No size cap here: the reply is bounded by the transport-level
+/// `pleochroma_net::framing::MAX_FRAME_LEN`, like every response.
 pub(super) fn design_source(db: &Database, entry_id: i64) -> LibraryResponse {
     let meta = match db.get_diagram_full_meta(entry_id) {
         Ok(Some(meta)) => meta,
@@ -157,16 +139,15 @@ pub(super) fn design_source(db: &Database, entry_id: i64) -> LibraryResponse {
     }
 }
 
-/// Handles
-/// [`LibraryRequest::FetchDesignNative`](pleochroma_net::library::LibraryRequest::FetchDesignNative):
-/// returns `entry_id`'s first self-contained `.psdd` attachment (by
-/// `pleochroma_vault::local::native_design_attachment_position`, the rule the local
-/// loader uses) as raw bytes -- never parsed or re-encoded here, so nothing is lost on
-/// the way to a client that must see the concave tiers `.asc` cannot carry.
+/// Handles `LibraryRequest::FetchDesignNative`: returns `entry_id`'s first self-contained
+/// `.psdd` attachment as raw bytes.
 ///
-/// Same three outcomes as [`design_source`]: no such entry -> `NotFound`; no native
-/// attachment (or one that vanished mid-request) -> `DesignNativeNotAvailable`; else
-/// `DesignNative`.
+/// The attachment is chosen by `pleochroma_vault::local::native_design_attachment_position`,
+/// the rule the local loader uses. The bytes are never parsed or re-encoded, so a client
+/// receives the concave tiers `.asc` cannot carry.
+///
+/// Same outcomes as [`design_source`]: no such entry -> `NotFound`; no native attachment
+/// (or one that vanished mid-request) -> `DesignNativeNotAvailable`; else `DesignNative`.
 pub(super) fn design_native(db: &Database, entry_id: i64) -> LibraryResponse {
     let meta = match db.get_diagram_full_meta(entry_id) {
         Ok(Some(meta)) => meta,
@@ -245,14 +226,13 @@ fn design_source_reply(
 /// one keyset-paginated page of `Database::search_diagrams_page`, converted to
 /// [`LibraryResponse::SearchResultsPage`].
 ///
-/// Pages at [`SEARCH_RESULT_CAP`] rows. `next_cursor` is `Some` (the last row's
-/// `entry_id`) exactly when the page came back full -- cheap-but-not-exact (an
-/// occasional harmless extra empty final page) rather than a second COUNT query.
+/// Pages hold at most [`SEARCH_RESULT_CAP`] rows. `next_cursor` is the last row's `entry_id`
+/// when the page is full. A full final page can yield one extra empty page; that is cheaper
+/// than a COUNT query.
 ///
-/// `excluded_for_missing_curves` is always `0` here: `Database` has no page-scoped
-/// counterpart of `search_diagrams_with_performance_exclusions`. Known limitation, not
-/// an oversight -- harmless today since this variant's only real caller
-/// (`library_mirror`'s exhaustive walk) never sets a performance filter.
+/// `excluded_for_missing_curves` is always `0`: `Database` has no page-scoped form of
+/// `search_diagrams_with_performance_exclusions`. Harmless today, because the only caller
+/// (`library_mirror`'s full walk) sets no performance filter.
 pub(super) fn search_page(
     db: &Database,
     query: &str,

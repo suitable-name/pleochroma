@@ -187,7 +187,10 @@ fn invalid_first_source_falls_back_without_losing_the_failure_diagnostic() {
         .find(|record| record["attachment_id"] == 10)
         .unwrap();
     assert_eq!(failed["status"], "failed");
-    assert!(!failed["notes"].as_array().unwrap().is_empty());
+    assert_ne!(
+        failed["notes"].as_array().unwrap().as_slice(),
+        [] as [Value; 0]
+    );
     assert!(failed["output"].is_null());
 }
 
@@ -201,7 +204,7 @@ fn all_invalid_sources_are_reported_without_writing_a_design() {
     assert!(partial);
     assert_eq!(report["summary"]["failed"], 2);
     assert_eq!(report["summary"]["converted"], 0);
-    assert!(fixture.designs().is_empty());
+    assert_eq!(fixture.designs(), [] as [PathBuf; 0]);
     assert!(
         report["records"]
             .as_array()

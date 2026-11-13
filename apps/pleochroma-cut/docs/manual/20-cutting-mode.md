@@ -62,7 +62,10 @@ On the left is the step itself:
   lists them. A step with no index list is cut at index 0 and shows that one chip.
   The chips wrap onto as many rows as the width needs.
 - **Instruction** gives the tier's own name and then what its facets meet, in the
-  words the cutting sheet uses (Chapter 11): "Crown Main: Meet P1, P2".
+  words the cutting sheet uses (Chapter 11): "Crown Main: Meet P1, P2". A step whose
+  facets reach no corner of the stone cut so far reads only its depth, "Cut to depth
+  2.81 mm.": cut it to the depth by measurement, as Chapter 11 explains under "Meet
+  Points on the Sheet".
 - **Depth** appears when the step has a depth to cut to: the depth in millimetres and
   the mast reading, or the mast reading alone when the design has no size yet.
 - **Cheater** shows the cheater offset in degrees, in amber so you do not miss it.

@@ -9,12 +9,14 @@ use super::{
     colors::{SolveCache, SolveWorker, cache_key},
     own::own_color,
     picker,
-    preview::{self, PreviewWorker, Rendered},
+    preview::{self, OutlineKey, PreviewWorker, Rendered},
     save,
-    session::{Deps, Host, Session, clear_deps, on_host, set_host, take_host, with_host},
+    session::{
+        Deps, Host, Session, VIEW_SLICE, VIEW_STONE, clear_deps, on_host, set_host, take_host,
+        with_host,
+    },
     stone::StonePatternApply,
     store,
-    undo::UndoStack,
     variants::zone_variants,
 };
 use crate::{
@@ -24,13 +26,17 @@ use crate::{
 use pleochroma::optics::materials::GemMaterial;
 use pleochroma_cut_core::material::pattern::{ColorPattern, OwnColor, allowed_rank};
 use pleochroma_editor::{guide::viewing_events as events, lch_color::reference_path_mm};
-use slint::{CloseRequestResponse, ComponentHandle};
+use slint::{CloseRequestResponse, ComponentHandle, Timer, TimerMode};
 use std::{
     cell::RefCell,
     rc::Rc,
     sync::{Arc, PoisonError, atomic::Ordering},
+    time::Duration,
 };
 use tracing::warn;
+
+/// How often the open window is checked for a new size.
+const TICK: Duration = Duration::from_millis(250);
 
 /// What a session opens with.
 pub(super) struct Opening {
@@ -69,37 +75,41 @@ fn seed_cache(pattern: &ColorPattern) -> SolveCache {
 /// Registers every callback of the window's `ColorPatternModel`.
 fn wire(window: &ColorPatternWindow) {
     let model = window.global::<ColorPatternModel>();
+    model.on_open_gallery(|| on_host(|host| actions::open_gallery(host)));
+    model.on_close_gallery(|| on_host(|host| actions::close_gallery(host)));
     model.on_template_picked(|index| on_host(|host| actions::template_picked(host, index)));
     model.on_typical_picked(|index| on_host(|host| actions::typical_picked(host, index)));
     model.on_preset_picked(|index| on_host(|host| actions::preset_picked(host, index)));
+    model.on_preset_delete(|index| on_host(|host| actions::preset_delete(host, index)));
     model.on_save_preset(|| on_host(|host| actions::save_preset(host)));
     model.on_preset_name_committed(|name| {
         on_host(|host| actions::preset_name_committed(host, name.as_str()));
     });
     model.on_preset_name_cancelled(|| on_host(|host| actions::preset_name_cancelled(host)));
 
-    model.on_preview_mode_changed(|mode| on_host(|host| actions::preview_mode_changed(host, mode)));
+    model.on_view_changed(|view| on_host(|host| actions::view_changed(host, view)));
+    model.on_swap_views(|| on_host(|host| actions::swap_views(host)));
     model.on_slice_changed(|position| on_host(|host| actions::slice_changed(host, position)));
     model.on_viewport_pointer(|fx, fy, kind| {
         on_host(|host| actions::pointer(host, fx, fy, kind));
     });
 
-    model.on_select_zone(|index| on_host(|host| actions::select_zone(host, index)));
+    model.on_select_row(|row| on_host(|host| actions::select_row(host, row)));
     model.on_add_zone(|index| on_host(|host| actions::add_zone(host, index)));
-    model.on_duplicate_zone(|| on_host(|host| actions::duplicate_zone(host)));
-    model.on_delete_zone(|| on_host(|host| actions::delete_zone(host)));
-    model.on_move_zone(|delta| on_host(|host| actions::move_zone(host, delta)));
-    model.on_rename_zone(|name| on_host(|host| actions::rename_zone(host, name.as_str())));
+    model.on_duplicate_row(|row| on_host(|host| actions::duplicate_row(host, row)));
+    model.on_delete_row(|row| on_host(|host| actions::delete_row(host, row)));
+    model.on_move_row(|row, delta| on_host(|host| actions::move_row(host, row, delta)));
+    model.on_reorder_row(|from, to| on_host(|host| actions::reorder_row(host, from, to)));
+    model.on_toggle_hidden(|row| on_host(|host| actions::toggle_hidden(host, row)));
+    model.on_rename_row(|row, name| {
+        on_host(|host| actions::rename_row(host, row, name.as_str()));
+    });
     model.on_shape_changed(|index| on_host(|host| actions::shape_changed(host, index)));
     model.on_param_changed(|row, value| on_host(|host| actions::param_changed(host, row, value)));
     model.on_size_changed(|value| on_host(|host| actions::size_changed(host, value)));
 
-    model.on_color_form_changed(|index| on_host(|host| actions::color_form_changed(host, index)));
-    model.on_color_source_changed(|index| {
-        on_host(|host| actions::color_source_changed(host, index));
-    });
     model.on_variant_picked(|index| on_host(|host| actions::variant_picked(host, index)));
-    model.on_pick_color(|which| on_host(|host| actions::pick_color(host, which)));
+    model.on_convert_legacy(|| on_host(|host| actions::convert_legacy(host)));
 
     model.on_axis_changed(|index| on_host(|host| actions::axis_changed(host, index)));
     model.on_tilt_turn_changed(|tilt, turn| {
@@ -115,7 +125,6 @@ fn wire(window: &ColorPatternWindow) {
     model.on_cancel(|| on_host(|host| actions::cancel(host)));
     model.on_discard_confirmed(|| on_host(|host| actions::discard_confirmed(host)));
     model.on_discard_declined(|| on_host(|host| actions::discard_declined(host)));
-    model.on_apply(|| on_host(|host| save::store_pattern(host, false)));
     model.on_save(|| on_host(|host| save::store_pattern(host, true)));
     picker::wire(window);
 
@@ -146,12 +155,20 @@ fn create(main: &MainWindow, deps: &Deps) -> Option<Rc<Host>> {
             }
         });
     });
-    let post_weak = weak;
-    let preview = PreviewWorker::new(Arc::new(move |ticket: u64, result: Rendered| {
-        let _ = post_weak.upgrade_in_event_loop(move |_| {
-            on_host(|host| preview::deliver(host, ticket, result));
-        });
-    }));
+    let post_weak = weak.clone();
+    let outline_weak = weak;
+    let preview = PreviewWorker::new(
+        Arc::new(move |ticket: u64, result: Rendered| {
+            let _ = post_weak.upgrade_in_event_loop(move |_| {
+                on_host(|host| preview::deliver(host, ticket, result));
+            });
+        }),
+        Arc::new(move |key: OutlineKey, outline: Option<Vec<(f64, f64)>>| {
+            let _ = outline_weak.upgrade_in_event_loop(move |_| {
+                on_host(|host| preview::deliver_outline(host, key, outline));
+            });
+        }),
+    );
     let host = Rc::new(Host {
         window,
         main: main.as_weak(),
@@ -159,8 +176,14 @@ fn create(main: &MainWindow, deps: &Deps) -> Option<Rc<Host>> {
         session: RefCell::new(None),
         solver,
         preview,
+        picker_timer: Timer::default(),
+        tick: Timer::default(),
     });
     set_host(&host);
+    // The window has no resize callback of its own: it is watched a few times a second.
+    host.tick.start(TimerMode::Repeated, TICK, || {
+        on_host(|host| actions::tick(host));
+    });
     Some(host)
 }
 
@@ -212,35 +235,22 @@ pub(super) fn open_session(main: &MainWindow, deps: &Deps, opening: Opening) {
             width,
         )
     });
+    let rank = allowed_rank(&opening.base_material, opening.two_colors_allowed);
     let session = Session {
         material_name: opening.material_name,
         stone_apply: opening.stone_apply,
         targets_design: opening.targets_design,
         preview_design,
         cache: seed_cache(&opening.pattern),
-        baseline: opening.pattern.clone(),
-        pattern: opening.pattern,
-        undo: UndoStack::new(),
-        selected_zone: 0,
         stone_width_mm: width,
         path_mm: reference_path_mm(Some(width)),
-        rank: allowed_rank(&opening.base_material, opening.two_colors_allowed),
+        rank,
         variants,
-        custom_axis: false,
-        solving: false,
-        pending_pick: None,
-        // D9: the Current Design when a design is open, else the Crystal.
-        preview_mode: i32::from(has_design),
-        slice_pos: 0.5,
+        // The Stone view when a design is open, else the Slice.
+        view: if has_design { VIEW_STONE } else { VIEW_SLICE },
         saved_presets,
         import_note: opening.import_note,
-        confirm_discard: false,
-        naming_preset: false,
-        handles: Vec::new(),
-        drag: None,
-        hover: None,
-        base_material: opening.base_material,
-        own,
+        ..Session::blank(opening.pattern, opening.base_material, own)
     };
     if let Ok(mut slot) = host.session.try_borrow_mut() {
         *slot = Some(session);

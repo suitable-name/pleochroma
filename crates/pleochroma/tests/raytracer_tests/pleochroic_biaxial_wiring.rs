@@ -1,9 +1,9 @@
-//! Pleochroic and biaxial-indicatrix absorption wiring tests: every built-in
-//! material stays finite through the pleochroic absorption block, Sapphire's
-//! uniaxial pleochroism actually attenuates end-to-end, Tanzanite's true biaxial
-//! eigenmodes diverge from the uniaxial fallback off-axis, non-biaxial materials'
-//! CURRENT render output stays pinned even after the biaxial-indicatrix wiring landed,
-//! and the three biaxial built-ins measurably differ from the uniaxial approximation.
+//! Pleochroic and biaxial-indicatrix absorption wiring tests.
+//!
+//! Every built-in material stays finite through the pleochroic absorption block. Sapphire's
+//! pleochroism attenuates end to end, Tanzanite's biaxial eigenmodes diverge from the uniaxial
+//! fallback off-axis, non-biaxial output stays pinned, and the three biaxial built-ins differ
+//! measurably from the uniaxial approximation.
 
 use glam::Vec3;
 use pleochroma::{
@@ -15,15 +15,10 @@ use pleochroma::{
     },
 };
 
-/// Regression safety net: every built-in material -- including the three
-/// biaxial (orthorhombic) species, Alexandrite/Topaz/Tanzanite, which now carry the new
-/// `biaxial_delta_beta_alpha` field alongside their existing uniaxial `c_axis` /
-/// `birefringence_delta` -- must still trace through `trace_spectral_ray` to a finite,
-/// non-negative XYZ across several seeds and an oblique ray direction. This is what
-/// would catch a NaN/Inf introduced by the new per-channel pleochroic quadratic-form
-/// wiring in `trace_spectral_ray`'s absorption block, which touches every
-/// anisotropic material's rendering path, not just the ones exercised by other tests
-/// in this file.
+/// Every built-in material, including the biaxial Alexandrite, Topaz and Tanzanite, must trace
+/// through `trace_spectral_ray` to finite, non-negative XYZ over several seeds and an oblique
+/// ray. This catches a NaN or Inf in the per-channel pleochroic quadratic form of
+/// `trace_spectral_ray`'s absorption block, which every anisotropic material passes through.
 #[test]
 fn all_builtin_materials_render_finite_through_pleochroic_absorption() {
     let planes = StandardGemCuts::standard_round_brilliant();
@@ -58,14 +53,10 @@ fn all_builtin_materials_render_finite_through_pleochroic_absorption() {
     }
 }
 
-/// The pleochroic absorption block must actually engage for a real
-/// anisotropic built-in (Sapphire, uniaxial) traced end-to-end -- i.e. the new
-/// per-channel `pleochroic_channel_alpha` wiring in `trace_spectral_ray` must still
-/// attenuate light passing through the gem body (not accidentally zero out or bypass
-/// absorption), matching the qualitative behaviour the old propagation-angle blend
-/// also had. This exercises the actual call site (argument order, `current_plane_normal`
-/// wiring, per-channel Stokes vectors) that the focused unit tests in
-/// `birefringence::absorption_tensor_tests` cannot reach on their own.
+/// The pleochroic absorption block must engage for a real uniaxial built-in (Sapphire) traced
+/// end to end: light through the body must be attenuated, not zeroed or bypassed. This
+/// exercises the call site (argument order, `current_plane_normal`, per-channel Stokes vectors)
+/// that the unit tests in `birefringence` cannot reach.
 #[test]
 fn sapphire_pleochroic_absorption_still_attenuates_end_to_end() {
     const SAMPLES: u32 = 64;
@@ -116,16 +107,11 @@ fn sapphire_pleochroic_absorption_still_attenuates_end_to_end() {
     );
 }
 
-/// headline physical claim is that tanzanite's trichroism -- three
-/// different colors down three axes -- is a direct consequence of it being biaxial,
-/// not uniaxial. `trace_spectral_ray`'s absorption block (wiring) now
-/// sources its two eigen-polarizations from `GemMaterial::biaxial_indicatrix` for
-/// tanzanite specifically, instead of the uniaxial ordinary/extraordinary
-/// approximation that can only ever distinguish TWO colors. This test pins that
-/// substitution down directly: at a generic (non-axis-aligned) propagation direction,
-/// tanzanite's true biaxial eigenmodes must give a measurably different pleochroic
-/// absorption coefficient than the uniaxial fallback would have -- i.e. the new
-/// biaxial data is actually being consulted, not silently ignored.
+/// Tanzanite's trichroism (three colors down three axes) follows from it being biaxial. The
+/// absorption block takes its two eigen-polarizations from `GemMaterial::biaxial_indicatrix`,
+/// not from the uniaxial ordinary/extraordinary approximation, which separates only two colors.
+/// At a generic, non-axis-aligned direction the biaxial eigenmodes must give a measurably
+/// different pleochroic coefficient than the uniaxial fallback, so the biaxial data is used.
 #[test]
 fn tanzanite_biaxial_eigenmodes_diverge_from_uniaxial_fallback_off_axis() {
     let tanzanite = GemMaterial::by_name("Tanzanite").unwrap();
@@ -159,15 +145,11 @@ fn tanzanite_biaxial_eigenmodes_diverge_from_uniaxial_fallback_off_axis() {
     );
 }
 
-/// Wiring the biaxial indicatrix into refraction/walk-off must not perturb a single
-/// bit of output for any NON-biaxial material -- cubic (isotropic) or uniaxial. Pins
-/// exact hex-encoded `f32` bit patterns (`to_bits()`, a literal bitwise comparison),
-/// to CURRENT values (see this test's own name -- despite the golden's derivation below,
-/// these are NOT the values from before biaxial wiring; they are what
-/// this test now pins going forward), for two cubic materials (Diamond, Cubic
-/// Zirconia) and three uniaxial materials spanning different crystal systems and
-/// birefringence signs (Sapphire and Ruby -- both trigonal corundum but opposite
-/// pleochroism; Synthetic Moissanite -- hexagonal, the strongest birefringence in the
+/// Non-biaxial materials (cubic or uniaxial) must render bit for bit as pinned, so the biaxial
+/// refraction wiring cannot change them. The pins are literal `f32` bit patterns (`to_bits()`).
+/// They cover two cubic materials (Diamond, Cubic Zirconia) and three uniaxial ones with
+/// different birefringence signs: Sapphire and Ruby (both trigonal corundum, opposite
+/// pleochroism) and Synthetic Moissanite (hexagonal, the strongest birefringence in the
 /// catalogue).
 #[test]
 fn non_biaxial_materials_render_is_pinned_to_current_post_chapter_04_values() {
@@ -185,58 +167,36 @@ fn non_biaxial_materials_render_is_pinned_to_current_post_chapter_04_values() {
     // are expected to move whenever the uniaxial Fresnel/absorption/exit-splitting
     // machinery changes.
     //
-    // This golden reflects three physics facts together:
-    // (1) `color::cie1931` uses the tabulated CIE 1931 2-degree observer rather than the
-    //     Wyman/Sloan/Shirley Gaussian fit -- the sole mover of every isotropic row
-    //     (Diamond/CZ/Moissanite reproduce the Gaussian-fit bits at 0 ULP when that fit
-    //     is substituted back in; the Gaussian fit is 1-3 % off, 50 % at the x-bar
-    //     trough); isotropic rows sit 0.04-0.4 % away from the Gaussian-fit values per
-    //     component.
-    // (2) `raytracer::absorption` computes pleochroic absorption from the geometric
-    //     assigned-mode alpha (`birefringence::assigned_mode_alpha`) rather than the
-    //     Stokes degree-of-polarization heuristic; substituting the heuristic back in
-    //     (with (1) also reverted) reproduces the axis-aligned sapphire cases in
-    //     `studio_rig_trace_output_is_pinned_to_current_values` exactly.
-    // (3) the Mueller frame-rotation mirror fix (`polarization.rs`) accounts for what
-    //     remains on the OBLIQUE uniaxial rows here: Sapphire +115/+226/+112 % and Ruby
-    //     +31/+38/+42 % once (1) and (2) are accounted for -- corundum's absorption acts
-    //     on the assigned mode's true E-field, so the correctly-mirrored oblique paths
-    //     are brighter than an unmirrored frame would produce. This is not toggleable
-    //     and is attributed by elimination: mode re-coupling, the TIR guard, exit
-    //     splitting, the observer, the backdrop, the RNG streams and the Studio
-    //     lighting were each ruled out by toggle or by proof.
+    // The golden reflects three things:
+    // (1) `color::cie1931` uses the tabulated CIE 1931 2-degree observer, not the Wyman,
+    //     Sloan and Shirley Gaussian fit. This moves every isotropic row.
+    // (2) `raytracer::absorption` takes pleochroic absorption from the geometric assigned-mode
+    //     alpha (`birefringence::assigned_mode_alpha`), not the Stokes degree-of-polarization
+    //     heuristic.
+    // (3) The Mueller frame-rotation mirror fix (`polarization.rs`) sets the oblique uniaxial
+    //     rows: corundum absorbs the assigned mode's true E-field, so the mirrored oblique paths
+    //     are brighter than an unmirrored frame would give. Other candidates were ruled out by
+    //     toggle or proof: mode re-coupling, the TIR guard, exit splitting, the observer, the
+    //     backdrop, the RNG streams and the studio lighting.
     //
-    // What these values are: drift detectors captured from the code's own output, not
-    // independently verified physics. They catch an unintended change in the tracer's
-    // bits; they cannot say whether the pinned radiance is right. An independent check
-    // would need a single-wavelength analytic absorption case: one channel, a
-    // non-dispersive slab or a path of known geometric length, with the transmitted
-    // fraction compared against the closed-form Beer-Lambert `exp(-alpha * length)`
-    // for the assigned mode's absorption coefficient.
+    // The values are drift detectors captured from the code's output, not verified physics. An
+    // independent check would need a single-wavelength Beer-Lambert case: one channel through a
+    // non-dispersive slab of known length, compared with `exp(-alpha * length)` for the assigned
+    // mode's coefficient.
     //
-    // Re-pinned on 2026-10-01 when the test profile started optimising this crate
-    // (`[profile.test.package.pleochroma]` in the workspace manifest): every row moved
-    // by 1 to 3 ULP per component, because the studio sampler rounds a few ULP
-    // differently between the unoptimised and the optimised build, and a release build
-    // had computed these bits all along. `cargo test` and `cargo test --release` now
-    // share them.
+    // The bits are for the optimised test profile (`[profile.test.package.pleochroma]`): the
+    // studio sampler rounds a few ULP differently in unoptimised builds.
     let golden: &[(&str, u32, u32, u32)] = &[
-        ("Diamond", 0x3F12_4125, 0x3F16_03EE, 0x3F1C_561C),
+        ("Diamond", 0x3F1D_28BE, 0x3F1B_8872, 0x3F1F_C317),
         ("Cubic Zirconia", 0x3FDA_E16D, 0x3FD1_A43F, 0x4018_44C4),
-        // Sapphire and Ruby re-pinned on 2026-10-19 after the measured color refits
-        // (owner decision; bits from the owner's Windows run). Sapphire, Ruby and Synthetic
-        // Moissanite re-pinned on 2026-10-22 when they took their measured
-        // extraordinary-index curves (n_e(lambda) instead of n_o + constant delta).
-        // Re-pinned on 2026-11-04 (owner's Windows run 2026-11-04_154834): the 2026-11-03
-        // dealer-photo round made Royal Blue the Sapphire default and refitted Ruby to the
-        // clean photo.
-        ("Sapphire", 0x3B2C_0086, 0x3AD9_1B56, 0x3C4B_AB9A),
-        ("Ruby", 0x3BDF_D294, 0x3B51_50EE, 0x38F5_3A78),
+        // Per material, the x, y and z bits of the same ray and seed.
+        ("Sapphire", 0x3B2E_8ABA, 0x3AD9_7227, 0x3C4E_DA1F),
+        ("Ruby", 0x3BDF_D6CD, 0x3B51_5532, 0x38F5_3B04),
         (
             "Synthetic Moissanite",
-            0x3E8D_87E6,
-            0x3E8C_CAD5,
-            0x3EA8_5656,
+            0x3E9B_3B7B,
+            0x3E98_9807,
+            0x3ED9_EC75,
         ),
     ];
 
@@ -266,29 +226,19 @@ fn non_biaxial_materials_render_is_pinned_to_current_post_chapter_04_values() {
     );
 }
 
-/// refraction/walk-off wiring must actually be consulted for the three
-/// biaxial built-ins (Alexandrite, Topaz, Tanzanite), not silently dead code. Compares
-/// each biaxial material's real render against an otherwise-identical clone with
-/// `biaxial_delta_beta_alpha` forced to `None` -- which routes that same clone through
-/// the pre-existing uniaxial ordinary/extraordinary approximation (`c_axis` as the
-/// single optic axis, `birefringence_delta` as `n_gamma - n_o`) instead of the true
-/// biaxial Fresnel-equation solve. Averaged over many paired samples (same seed for
-/// both variants, to cancel unrelated RNG noise -- a null check confirms comparing a
-/// material against ITSELF this way gives exactly zero, so any nonzero diff here is
-/// genuine signal, not sampling noise) at an off-axis ray so the wave normal is
-/// genuinely oblique to every principal axis.
+/// The biaxial refraction wiring must be consulted for Alexandrite, Topaz and Tanzanite, not
+/// left as dead code. Each real render is compared with a clone whose `biaxial_delta_beta_alpha`
+/// is `None`, which uses the uniaxial ordinary/extraordinary approximation (`c_axis` as the optic
+/// axis, `birefringence_delta` as `n_gamma - n_o`) instead of the biaxial Fresnel solve. Paired
+/// samples share their seeds, and an off-axis ray keeps the wave normal oblique to every
+/// principal axis. Comparing a material with itself gives exactly zero, so any nonzero
+/// difference is signal.
 ///
-/// The three built-ins are NOT equally biaxial: both Alexandrite and Topaz have
-/// `n_beta` sitting noticeably closer to `n_alpha` than to `n_gamma` (see their
-/// entries' doc comments in `materials::GemMaterial::all_materials` -- roughly 26% and
-/// 30% of the way from alpha to gamma, respectively), so both are only weakly biaxial
-/// (nearly uniaxial) and the uniaxial fallback is a fairly good approximation for them
-/// specifically -- the measured effect size at this ray is diff~4e-5 (Alexandrite) and
-/// diff~1e-5 (Topaz), vs. diff~1e-2 for the more strongly biaxial Tanzanite. The
-/// threshold below (`1e-6`) is set an order of magnitude below the smallest of these
-/// measured effects, safely above f32 noise for a paired comparison at ~0.1 magnitude
-/// -- i.e. this is not a weakened test, just one sized to genuinely small physical
-/// effects for two of the three materials.
+/// The three are not equally biaxial. Alexandrite and Topaz have `n_beta` close to `n_alpha` (see
+/// their entries in `materials::GemMaterial::all_materials`), so they are nearly uniaxial. The
+/// effect at this ray is about 4e-5 for Alexandrite and 1e-5 for Topaz, against about 1e-2 for
+/// Tanzanite. The 1e-6 threshold sits an order of magnitude below the smallest of these and well
+/// above f32 noise.
 #[test]
 fn biaxial_materials_measurably_differ_from_uniaxial_fallback_in_refraction() {
     let planes = StandardGemCuts::standard_round_brilliant();

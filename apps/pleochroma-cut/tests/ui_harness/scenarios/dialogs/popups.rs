@@ -107,8 +107,9 @@ fn popup_cycle(ctx: &mut Ctx<'_>, name: &str, open: &Action, close: &Action) {
     ctx.check_health(&format!("popup {name}"));
 }
 
-/// `FilterPanel`, `ImportDialog`, `RemoteWorkerDialog` (header), `EditorLogPopup` and the value-slider
-/// menu: each opens by its button, exposes controls, and closes (Esc or its close button).
+/// `FilterPanel`, `ImportDialog`, `RemoteWorkerDialog` (header), `EditorLogPopup` and the
+/// value-slider menu: each opens by its button, exposes controls and closes (Esc or its close
+/// button).
 pub(super) fn popups_open_and_close(ctx: &mut Ctx<'_>) {
     if !create_template_design(ctx) {
         return;

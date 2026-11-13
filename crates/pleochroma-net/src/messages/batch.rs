@@ -1,8 +1,7 @@
-//! `-> BATCH_RENDER_REQUEST` (v24): several finished pictures in one request.
+//! `-> BATCH_RENDER_REQUEST`: several finished pictures in one request.
 //!
-//! The catalogue-preview batch used to open one fresh connection per picture and ask for
-//! the full float radiance back; a GPU worker spent most of its time idle between
-//! pictures. A batch request names up to [`MAX_BATCH_ITEMS`] pictures at once, each with
+//! One persistent connection carries many pictures, so the worker keeps working between
+//! them. A batch request names up to [`MAX_BATCH_ITEMS`] pictures at once, each with
 //! its own scene and sample range, and the worker answers with FINISHED, tone-mapped PNGs
 //! as each is ready:
 //!
@@ -116,6 +115,10 @@ mod tests {
             height,
             yaw: 0.4,
             camera_roll: 0.0,
+            stone_shadow: false,
+            tray_reflection: 0.0,
+            hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
+            estimator: pleochroma::optics::raytracer::Estimator::Branching,
             pitch: 0.3,
             distance: 3.0,
             light_yaw: 0.85,

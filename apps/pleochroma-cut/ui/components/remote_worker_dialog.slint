@@ -12,34 +12,22 @@ import { ToggleRow } from "toggle_switch.slint";
 import { TipBox, FieldCaption } from "tip_box.slint";
 import { AdvancedNote } from "advanced_note.slint";
 
-// Remote rendering: the "Remote coordinator" form -- the ONE remote endpoint this
-// viewer renders with and browses the library of (a coordinator, rendering itself when
-// started with `--render`). Shows the configured endpoint with "Test
-// connection", library browse/mirror and remove; the form edits name/address/
-// certificate folder, token-based enrollment ("Redeem" -- claims an
-// `pleochroma-worker cert issue-token` token directly), the live stream preferences and
-// the default export "Transfer". Kept thin: every field is plain
-// data round-tripped to Rust (`gui::remote::worker_callbacks`); all protocol/connection
-// logic lives in `pleochroma_net::client`/`bridge::remote`, unit-tested there.
+// Remote rendering: the form for the ONE remote endpoint this viewer renders with and browses
+// the library of (a coordinator, or a single worker started with `--render`). It shows the
+// configured endpoint (Test Connection, library browse and mirror, remove) and edits the name,
+// address and certificate folder, token enrollment ("Redeem" claims a token from
+// `pleochroma-worker cert issue-token`), the live stream preferences and the default export
+// transfer. Every field is plain data round-tripped to Rust (`gui::remote::worker_callbacks`);
+// the protocol and connection logic lives in `pleochroma_net::client` and `bridge::remote`.
 //
-// Simple mode keeps what setting a remote up needs (name, address, certificate folder, the
-// token, the connection test, the library switch, mirror) and hides the stream tuning (live
-// stream, cadence, preview scale, export transfer, batch lanes). The form still holds those
-// values and saves them unchanged; `RemoteWorkerModel.advanced_in_use` says when one is off its
-// default so the note can appear.
+// Simple mode hides the stream tuning (live stream, cadence, preview scale, export transfer,
+// batch lanes). The form still holds those values and saves them unchanged;
+// `RemoteWorkerModel.advanced_in_use` says when one is off its default, so the note can appear.
 //
-// Inherits `PopupWindow`, not `Rectangle`, because a plain `Rectangle`-based
-// conditional child of `HeaderToolbar` paints as part of `HeaderToolbar`'s
-// subtree -- and `HeaderToolbar` is declared before the main workspace layout in
-// `app.slint`, so it would always paint underneath the detail panel with no `z` value
-// able to fix it (`z` only reorders siblings, it can't reach across subtrees). A
-// `PopupWindow` renders in Slint's dedicated popup layer, always on top of the rest of
-// the window regardless of declaration order. See `filter_panel.slint`'s doc comment
-// for the full mechanism, including why an explicit content-driven `height` is needed
-// (`Rectangle`'s default sizing fills whatever it's anchored to). See `header.slint`'s
-// `remote_popup` instantiation for the show()/close() wiring this requires --
-// `PopupWindow` cannot be used with the `if condition: RemoteWorkerDialog { ... }`
-// pattern (that's a compile error).
+// Inherits `PopupWindow`, not `Rectangle`: a plain `Rectangle` child of `HeaderToolbar` paints
+// inside that toolbar's subtree, beneath the detail panel, and no `z` value can reach across
+// subtrees. A `PopupWindow` renders in Slint's popup layer, above the window. It cannot be
+// instantiated under an `if` condition (a compile error); `header.slint` shows and closes it.
 export component RemoteWorkerDialog inherits PopupWindow {
     in property <string> claimed_cert_dir: RemoteWorkerModel.claimed_cert_dir;
     in property <string> picked_cert_dir: RemoteWorkerModel.picked_cert_dir;
@@ -56,8 +44,8 @@ export component RemoteWorkerDialog inherits PopupWindow {
     property <string> form_enroll_addr: "";
     property <string> form_token: "";
 
-    // Whether a hidden stream setting is off its default (the pure rule is
-    // `gui::remote::advanced_in_use`): the saved endpoint's, plus the batch lane count.
+    // Whether a hidden setting is off its default: the saved endpoint's stream values and the
+    // batch lane count (`RemoteWorkerModel.advanced_in_use`, a pure callback).
     property <bool> advanced_note_visible: !GuideModel.shows_advanced()
         && RemoteWorkerModel.advanced_in_use(
             RemoteWorkerModel.endpoint.transfer_mode_index,
@@ -71,18 +59,15 @@ export component RemoteWorkerDialog inherits PopupWindow {
         if (root.editing && root.claimed_cert_dir != "") {
             root.form_cert_dir = root.claimed_cert_dir;
             root.form_token = "";
-            // Save needs a render address; suggest the enrollment host on the
-            // server's default serve port so a redeemed token is one click from saved.
+            // Save needs an address: fill it from the enrollment host when it is empty.
             if (root.form_address == "") {
                 root.form_address = RemoteWorkerModel.claimed_address;
             }
         }
     }
 
-    // `pick_cert_dir`'s own completion -- see `RemoteWorkerModel.picked_cert_dir`'s
-    // own doc comment. Empty is "no pick landed yet" (initial value, and a
-    // cancelled dialog never sets this at all), not a real folder, so it is never
-    // copied into `form_cert_dir`.
+    // Set when `pick_cert_dir` completes. Empty means no pick has landed (a cancelled dialog
+    // never sets it), so it is never copied into `form_cert_dir`.
     changed picked_cert_dir => {
         if (root.picked_cert_dir != "") {
             root.form_cert_dir = root.picked_cert_dir;
@@ -106,9 +91,7 @@ export component RemoteWorkerDialog inherits PopupWindow {
     close-policy: PopupClosePolicy.no-auto-close;
 
     width: 420px;
-    // Content-driven height: matches whatever `content` (the padded VerticalLayout
-    // below) actually needs, instead of defaulting to the height of whatever this
-    // popup happens to be anchored to.
+    // Height is what `content` (the padded layout below) needs, not the anchor's height.
     height: content.preferred-height;
 
     Rectangle {
@@ -121,10 +104,8 @@ export component RemoteWorkerDialog inherits PopupWindow {
         drop-shadow-offset-y: 6px;
         clip: true;
 
-        // Escape closes the popup (nothing typed is lost that was not already unsaved), and Tab
-        // moves between the controls below.
-        // The popup takes the keyboard as it is built (as the filter panel does), so Esc
-        // reaches it without a click first.
+        // Escape closes the popup. It takes the keyboard as it is built, so Esc works without a
+        // click first; Tab moves between the controls.
         FocusScope {
             width: 100%;
             height: 100%;
@@ -218,9 +199,8 @@ export component RemoteWorkerDialog inherits PopupWindow {
 
             Rectangle { height: 1px; background: Theme.surface-raised; }
 
-            // Denoise toggle -- applies to the merged image regardless of source. See
-            // `settings::model::AppSettings::denoise_enabled`'s doc comment on why this is
-            // one global switch.
+            // Denoise toggle for the merged image, whatever its source. One global switch:
+            // see `AppSettings::denoise_enabled`.
             ToggleRow {
                 text: "Denoise Merged Image";
                 hint: "Smooth the grain out of the picture that combines this computer's render with the remote's.";
@@ -229,12 +209,10 @@ export component RemoteWorkerDialog inherits PopupWindow {
                 toggled => { RemoteWorkerModel.denoise_toggled(!RemoteWorkerModel.denoise_enabled); }
             }
 
-            // Remote lanes for batches -- how many pictures a catalogue preview or tilt batch
-            // keeps in flight on the remote at once (`AppSettings::remote_batch_lanes`). One
-            // app-wide choice like the denoise toggle above, not part of the endpoint form:
-            // it is saved the moment the spin box changes. The explanation has a stated
-            // two-line height because a wrapped `Text`'s preferred height is one line.
-            // Advanced mode only.
+            // Pictures a catalogue preview or tilt batch keeps in flight on the remote at once
+            // (`AppSettings::remote_batch_lanes`). App-wide, not part of the endpoint form, and
+            // saved as soon as the spin box changes. Advanced mode only. The note has a fixed
+            // height because a wrapped `Text` reports one line.
             if GuideModel.shows_advanced(): VerticalLayout {
                 spacing: 2px;
                 HorizontalLayout {
@@ -265,9 +243,8 @@ export component RemoteWorkerDialog inherits PopupWindow {
                 }
             }
 
-            // Pictures per remote preview request -- how many catalogue previews one batched
-            // request to a remote worker carries (`AppSettings::remote_preview_batch_size`).
-            // Saved the moment the spin box changes, like the lane count above.
+            // Catalogue previews per batched request to a remote worker
+            // (`AppSettings::remote_preview_batch_size`). Saved as soon as the spin box changes.
             if GuideModel.shows_advanced(): VerticalLayout {
                 spacing: 2px;
                 HorizontalLayout {
@@ -447,10 +424,9 @@ export component RemoteWorkerDialog inherits PopupWindow {
                     }
                 }
 
-                // Token-based enrollment: redeem a one-time token from `pleochroma-worker cert
-                // issue-token` directly, instead of installing the worker binary and running
-                // `cert claim` in a terminal by hand. On success this fills in
-                // `form_cert_dir` above automatically (see `changed claimed_cert_dir`).
+                // Token enrollment: redeem a one-time token from `pleochroma-worker cert
+                // issue-token` without running `cert claim` by hand. On success `form_cert_dir`
+                // is filled in (see `changed claimed_cert_dir`).
                 Text { text: "-- or redeem an enrollment token --"; font-size: 11px; color: Theme.text-muted; accessible-role: AccessibleRole.text; }
                 TipBox {
                     hint: "Paste the address and token from \"cert issue-token\" on the coordinator.";

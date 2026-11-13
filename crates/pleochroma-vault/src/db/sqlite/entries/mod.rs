@@ -19,7 +19,7 @@ mod edit;
 mod read;
 
 impl Database {
-    /// Saves a diagram entry from `source_id` (see `crate::source::DiagramSource::id`).
+    /// Saves a diagram entry tagged with `source_id`.
     /// If `url` already exists, updates its title/`design_id`/`source_id` instead.
     /// Returns the inserted or updated row's ID. Dedupes only *within* `url` --
     /// different sources describing the same physical design under different URLs
@@ -114,20 +114,12 @@ impl Database {
         }
     }
 
-    /// Saves `entry` and `detail` together in ONE transaction: either both land, or
-    /// neither does. Exactly [`Self::save_diagram_entry`] followed by
-    /// [`Self::save_diagram_detail`], except that a failure partway through cannot
-    /// leave an entry row with no matching detail row behind -- a gap seen on the real
-    /// catalogue itself (an import that saves the entry, then fails or is killed before
-    /// saving detail, leaves an entry with no detail row to this day). An entry without
-    /// a detail row reads as "not yet imported" to the import collision check, and as a
-    /// half-saved design the mirror's local-row guard then skips forever.
-    /// `save_diagram_entry`/`save_diagram_detail` themselves are left as their own
-    /// public, separately-committing methods -- existing callers that intentionally
-    /// save an entry without a detail yet (or vice versa) keep working unchanged; this
-    /// is for a caller that has both in hand at once and wants the atomicity. The
-    /// catalogue's three writers (Save's write-back, the mirror sync and the
-    /// `.asc` import) all go through it.
+    /// Saves `entry` and `detail` together in ONE transaction: either both land, or neither
+    /// does. This is [`Self::save_diagram_entry`] followed by [`Self::save_diagram_detail`],
+    /// except that a failure between the two cannot leave an entry row without its detail row.
+    /// Such a row reads as "not yet imported" to the import collision check, and as a
+    /// half-saved design to the mirror's local-row guard. The two separate methods still commit
+    /// on their own, for callers that save only one of them.
     ///
     /// Returns the entry's id (new or existing, same meaning as
     /// [`Self::save_diagram_entry`]'s own return value).
@@ -196,16 +188,10 @@ impl Database {
     }
 }
 
-/// The current wall-clock time as Unix seconds, for `diagram_entries.created_at`/
-/// `updated_at`. Same `SystemTime`-based approach this crate
-/// already uses for `diagram_tilt_curves.generated_at`/`diagram_previews.preview_generated_at`
-/// (see those tables' save methods), just computed here instead of taken as a caller
-/// parameter -- `save_diagram_entry`/`update_diagram_metadata` are existing public
-/// signatures with call sites across the workspace, so stamping the time internally
-/// keeps every one of them compiling unchanged.
+/// The current time as Unix seconds, for `diagram_entries.created_at`/`updated_at`.
 ///
-/// Falls back to `0` on a system clock set before the Unix epoch, which never happens
-/// on a real machine -- this only avoids a panic on `duration_since`'s `Result`.
+/// Read here rather than passed in, so the public save methods keep their signatures.
+/// Returns `0` for a clock set before the Unix epoch; this only avoids a panic.
 fn unix_now() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

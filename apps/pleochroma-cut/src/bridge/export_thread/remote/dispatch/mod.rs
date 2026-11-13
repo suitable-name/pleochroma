@@ -16,4 +16,6 @@ pub(in crate::bridge::export_thread) use progress::RemoteProgress;
 pub(in crate::bridge::export_thread) use run_batch::{
     CANCEL_WAIT_TIMEOUT, liveness_deadline, run_remote_batch,
 };
-pub(in crate::bridge::export_thread) use scene_state::scene_state_from_snapshot;
+pub(in crate::bridge::export_thread) use scene_state::{
+    scene_state_from_snapshot, scene_state_from_snapshot_with,
+};

@@ -1,13 +1,12 @@
 //! `census`: what the meet-preserving gate does to many designs, as data.
 //!
-//! The measurement behind the calibration of the Retarget and Optimize constants and behind
-//! the decision whether support bindings are worth building (follow-ups plan 2026-10-19,
-//! sections 4.1 to 4.4). For every design (the built-in templates and fixtures, design files,
+//! Measures the meet-preserving gate over many designs, for calibrating the Retarget and
+//! Optimize constants. For every design (the built-in templates and fixtures, design files,
 //! the designs of a library opened read-only), every target material and every mode it writes
 //! one row: the verdict under the Retarget bounds, the raw shape changes under bounds no stone
 //! reaches, the turn travel the gate grants, and for a refused shift whether the refusal is a
-//! branch mismatch or a real infeasibility. The report ends with the percentile tables of
-//! section 4.4 and the branch summary.
+//! branch mismatch or a real infeasibility. The report ends with the percentile tables and the
+//! branch summary.
 //!
 //! # Read-only and deterministic
 //!

@@ -4,7 +4,7 @@
 //! so [`desktop_recipe`] reproduces it with the same public `pleochroma` calls in the
 //! same order: `resolve_material_with_override` (falling back to diamond, which the
 //! desktop's suspension flag makes unreachable), the `StoneWidthCache` adapter's
-//! measure-only-when-on rule, `GirdleFinishCache`'s `girdle_facet_finishes`,
+//! `needs_model_width`-gated width measurement, `GirdleFinishCache`'s `girdle_facet_finishes`,
 //! `Camera::new(yaw, pitch, distance, 42.0)` and the environment formula.
 
 use super::*;
@@ -177,8 +177,21 @@ fn assert_environment_eq(a: EnvironmentSource<'_>, b: EnvironmentSource<'_>) {
                 "exposure / light yaw / light pitch / backdrop"
             );
         }
-        (EnvironmentSource::HdrMap(ma), EnvironmentSource::HdrMap(mb)) => {
+        (
+            EnvironmentSource::HdrMap {
+                map: ma,
+                exposure: ea,
+                rotation: ra,
+            },
+            EnvironmentSource::HdrMap {
+                map: mb,
+                exposure: eb,
+                rotation: rb,
+            },
+        ) => {
             assert!(std::ptr::eq(ma, mb), "different HDR maps");
+            assert_eq!(ea.to_bits(), eb.to_bits(), "HDR exposure");
+            assert_eq!(ra.bits(), rb.bits(), "HDR rotation");
         }
         _ => panic!("studio vs HDR environment"),
     }
@@ -381,8 +394,8 @@ fn a_custom_material_spec_keeps_a_biaxial_snapshots_crystal_optics() {
         .expect("the biaxial delta is restored");
     assert!((f64::from(delta) - 0.004).abs() < 1e-6, "{delta}");
 
-    // A spec with empty names and no delta (the shape before the fields existed) infers the
-    // optics from the birefringence, as ever.
+    // A spec with empty names and no delta (the shape of an older payload) infers the optics
+    // from the birefringence.
     let inferred = CustomMaterialSpec {
         crystal_system: String::new(),
         optical_character: String::new(),
@@ -428,7 +441,7 @@ fn a_custom_material_spec_keeps_a_per_ray_color_and_stays_pleochroic() {
     let back: CustomMaterialSpec = postcard::from_bytes(&bytes).expect("decodes");
     assert_eq!(back, spec);
 
-    // Without the rows the spec is the isotropic one it was, plus one `None` tag byte.
+    // Without the rows the spec is isotropic and its encoding ends in one `None` tag byte.
     let plain = CustomMaterialSpec {
         absorption_ray_bands: None,
         ..spec
@@ -485,7 +498,15 @@ fn an_hdr_scene_shares_the_map_and_needs_it() {
     let scene = OwnedScene::build(&spec, Some(Arc::clone(&map))).expect("builds with its map");
     assert_environment_eq(
         scene.frame_scene().environment,
-        EnvironmentSource::HdrMap(&map),
+        EnvironmentSource::hdr(&map),
+    );
+
+    // The map is lit at the spec's plain exposure (a map is its own light: never metered).
+    spec.lighting.exposure = 2.5;
+    let exposed = OwnedScene::build(&spec, Some(Arc::clone(&map))).expect("builds");
+    assert_environment_eq(
+        exposed.frame_scene().environment,
+        EnvironmentSource::hdr_at(&map, 2.5),
     );
 
     // A map handed to a studio scene is ignored.
@@ -558,9 +579,8 @@ fn bad_specs_are_errors_not_substitutions() {
     ));
 }
 
-/// A spec at the default surface glare (`1.0`) builds the very scene it built before the
-/// control existed: the environment equals the old formula's and a traced frame matches
-/// bit for bit.
+/// At the default surface glare (`1.0`) the environment is the unscaled one, and a traced
+/// frame matches it bit for bit.
 #[test]
 fn the_default_surface_glare_is_the_old_scene_bit_for_bit() {
     let planes = StandardGemCuts::standard_round_brilliant();
@@ -588,8 +608,7 @@ fn the_default_surface_glare_is_the_old_scene_bit_for_bit() {
     };
     assert_eq!(spec.lighting.surface_glare.to_bits(), 1.0f32.to_bits());
     let new = OwnedScene::build(&spec, None).expect("builds");
-    // The environment as the web built it before `surface_glare` existed (at the metered
-    // exposure the spec renders with).
+    // The unscaled environment, at the metered exposure the spec renders with.
     let old_env = LightingPreset::LightTent
         .studio(spec.lighting.metered_exposure(), 0.4, 0.35)
         .with_backdrop(Backdrop::Grey.resolve(LightingPreset::LightTent, 0.4, 0.35))

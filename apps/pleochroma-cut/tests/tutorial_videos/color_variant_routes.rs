@@ -97,9 +97,8 @@ impl Film<'_> {
 
     // --- The Stone tab ------------------------------------------------------------------------
 
-    /// Opens the Body Color list and moves to entry `wanted` with the keys, like a learner with the
-    /// list open. Every arrow key of the open list applies its entry at once, so the list is
-    /// followed one key at a time.
+    /// Opens the Body Color list and moves to entry `wanted` with the keys, as a learner does.
+    /// Each arrow key applies its entry at once, so the list is followed one key at a time.
     fn choose_body_color_entry(&mut self, wanted: i32) -> Result<(), String> {
         let editor = self.ui.global::<EditorModel>();
         let combo = self.stone_control("the Body Color list", |view| {
@@ -383,23 +382,27 @@ impl Film<'_> {
         self.click_pattern_spot(label, |view| targets::run_label(view, label))
     }
 
-    /// Step 4 of the zone lesson: the Watermelon template.
+    /// Step 4 of the zone lesson: the Watermelon pattern from the Start From gallery.
     ///
-    /// A tourmaline also has a Watermelon pill in the "Typical for Tourmaline" row above the
-    /// Templates row; that one builds the species' pattern and raises no template event, so the
-    /// lowest visible "Watermelon" (the Templates row) is the one clicked.
+    /// A tourmaline's gallery has one Watermelon tile: the species' typical zoning in the
+    /// "Typical for Tourmaline" section (the template of the same name is left out of the gallery
+    /// when a typical pattern shares its label). Picking it closes the gallery.
     fn pick_pattern_template(&mut self) -> Result<(), String> {
         let (window, _) = self.color_pattern_window()?;
         let model = window.global::<ColorPatternModel>();
-        self.click_pattern_spot("Watermelon (Templates row)", |view| {
-            view.by_label("Watermelon")
-                .iter()
-                .map(Spot::of)
-                .filter(|spot| spot.usable(view.size))
-                .max_by(|a, b| a.y.total_cmp(&b.y))
+        self.click_pattern_label("Start From\u{2026}")?;
+        if !pacing::wait_real(Duration::from_secs(10), || model.get_gallery_open()) {
+            return Err("Start From... did not open the gallery".into());
+        }
+        self.hold(Duration::from_millis(400))?;
+        self.click_pattern_spot("Watermelon (gallery tile)", |view| {
+            targets::role_label(view, "Watermelon", AccessibleRole::Button, None)
         })?;
+        if !pacing::wait_real(Duration::from_secs(10), || !model.get_gallery_open()) {
+            return Err("the Watermelon tile did not close the gallery".into());
+        }
         if !pacing::wait_real(Duration::from_secs(60), || {
-            !model.get_solving_colors() && !model.get_preview_busy()
+            !model.get_solving_colors() && model.get_render_state() != 2
         }) {
             return Err("the Watermelon colors did not finish solving".into());
         }
@@ -465,21 +468,12 @@ impl Film<'_> {
         self.hold(pacing::RESULT_HOLD)
     }
 
-    /// Gives the selected zone the color of the variant `name` (or the first variant after the
-    /// Material Default when the material has no such variant): Source = Variant, then the list.
+    /// Gives the selected layer the color of the variant `name` (or the first variant after
+    /// Custom color when the material has no such variant): the From variant dropdown.
     fn zone_takes_variant(&mut self, zone: &str, name: &str) -> Result<(), String> {
         self.select_pattern_zone(zone)?;
         let (window, _) = self.color_pattern_window()?;
         let model = window.global::<ColorPatternModel>();
-        if model.get_color_kind() != 3 {
-            let source = || model.get_color_source_index();
-            self.choose_pattern_entry("Color Source", 1, &source)?;
-        }
-        if !pacing::wait_real(pacing::STEP_TIMEOUT, || model.get_color_kind() == 3) {
-            return Err(format!(
-                "setting Source to Variant did not turn the {zone} zone into a variant color"
-            ));
-        }
         let labels = model.get_variant_labels();
         let wanted = (0..labels.row_count())
             .find(|&at| {
@@ -489,33 +483,37 @@ impl Film<'_> {
             })
             .and_then(|at| i32::try_from(at).ok())
             .or_else(|| (labels.row_count() > 1).then_some(1))
-            .ok_or("the Variant list has no entry besides the Material Default")?;
+            .ok_or("the From variant list has no entry besides Custom color")?;
         let variant = || model.get_variant_index();
         if variant() != wanted {
-            self.choose_pattern_entry("Color Variant", wanted, &variant)?;
+            self.choose_pattern_entry("From variant", wanted, &variant)?;
         }
         self.hold(pacing::RESULT_HOLD)
     }
 
-    /// Step 5 of the zone lesson: Core takes Rubellite, Rim takes Verdelite, Apply.
+    /// Step 5 of the zone lesson: Core takes Rubellite, Rim takes Verdelite, then Done, which
+    /// stores the pattern on the stone and closes the window.
     fn take_zone_colors_from_variants(&mut self) -> Result<(), String> {
         self.zone_takes_variant("Core", "Rubellite")?;
         self.zone_takes_variant("Rim", "Verdelite")?;
-        self.click_pattern_label("Apply")?;
+        self.close_color_pattern_window()?;
         self.wait_color_step_done("the zone colors")
     }
 
-    /// Done in the Color Pattern window, and the window leaves the video.
+    /// Done in the Color Pattern window (when it is still open), and the window leaves the video.
     fn close_color_pattern_window(&mut self) -> Result<(), String> {
-        self.click_pattern_label("Done")?;
+        if harness_support::color_pattern_window().is_some() {
+            self.click_pattern_label("Done")?;
+        }
         if !pacing::wait_real(pacing::STEP_TIMEOUT, || {
             harness_support::color_pattern_window().is_none()
         }) {
             return Err("Done did not close the Color Pattern window".into());
         }
-        self.rec.detach_window();
-        self.attached_window = None;
-        self.rec.caption("");
+        if self.attached_window.take().is_some() {
+            self.rec.detach_window();
+            self.rec.caption("");
+        }
         Ok(())
     }
 }

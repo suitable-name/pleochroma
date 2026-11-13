@@ -1,10 +1,10 @@
-//! [`PreviewPipeline`]: the frame pipeline run synchronously on one thread (the
-//! web app's main thread). It owns exactly what the desktop's RENDER worker owns
-//! for the process lifetime -- a [`MeshCache`], the solid and edges
-//! [`SolidRasterizer`]s and the [`WorkerMemory`] -- and drives the SAME
-//! [`build_planned_frame`]/[`render_request`] functions the desktop's PLAN and
-//! RENDER workers call, so the two apps produce the same bytes for the same
-//! request (see this module's identity test).
+//! [`PreviewPipeline`]: the frame pipeline run synchronously on one thread, for the web
+//! app's main thread.
+//!
+//! It owns a [`MeshCache`], the solid and edges [`SolidRasterizer`]s and the
+//! [`WorkerMemory`], and calls the same [`build_planned_frame`] and [`render_request`]
+//! functions as the desktop's workers, so both apps produce the same bytes (see the
+//! identity test in `tests.rs`).
 
 use super::{
     plan::build_planned_frame,
@@ -31,8 +31,7 @@ impl Default for PreviewPipeline {
 }
 
 impl PreviewPipeline {
-    /// An empty pipeline: nothing planned, 1 x 1 rasterizers (the desktop worker's
-    /// own starting state).
+    /// An empty pipeline: nothing planned, 1 x 1 rasterizers.
     #[must_use]
     pub fn new() -> Self {
         Self {

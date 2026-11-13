@@ -154,7 +154,7 @@ pub(super) struct Epoch<'a> {
     pub(super) sched: Sched,
     /// Every registered lane's rate model (this one included), for [`Self::want`]'s
     /// share-of-what-is-left computation. Grows when lanes join a running epoch; a
-    /// lane's position is its event index and never changes.
+    /// lane's index never changes.
     pub(super) lanes: &'a RwLock<Vec<Arc<LaneSlot>>>,
     /// Which lane threads are still going.
     pub(super) roster: Roster,

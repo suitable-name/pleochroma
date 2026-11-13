@@ -1,7 +1,7 @@
 //! Renumbering of the position-keyed side maps ([`Design::cheater_offsets_deg`] and
-//! [`Design::tier_notes`]) when a tier is inserted, removed or moved. Split from
-//! `apply.rs` so that file stays focused on the edits themselves; the methods are
-//! unchanged.
+//! [`Design::tier_notes`]) when a tier is inserted, removed or moved.
+//!
+//! Split from `apply.rs` so that file stays focused on the edits themselves.
 
 use crate::design::Design;
 

@@ -41,7 +41,7 @@ pub fn even_chunks(len: usize, lanes: usize) -> Vec<Range<usize>> {
 /// The `a0` slices of the clipped table for `lanes` threads.
 ///
 /// Plane `a0` holds `planes - a0` ranges of the a axis, so equal plane counts would leave
-/// the first lane with about twice the average work. The slices are consecutive, cover
+/// the first lane with the most work. The slices are consecutive, cover
 /// `0..planes` and each ends where the running range count first reaches its share.
 #[must_use]
 pub fn balanced_slices(planes: usize, lanes: usize) -> Vec<Range<usize>> {

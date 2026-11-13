@@ -1,4 +1,6 @@
-//! Where the three handles go: which facet carries them, the alignment checks that hide
+//! Where the three handles go.
+//!
+//! That covers which facet carries them, the alignment checks that hide
 //! them rather than land them on the wrong facet, and the hit-test that respects a tier
 //! with no index handle.
 //!
@@ -46,9 +48,10 @@ impl HandleTarget {
     }
 }
 
-/// The facet the handles anchor on: the last clicked facet when it belongs to `tier`
-/// and has a centroid, else the tier's first facet that has one (a selection made from
-/// the tier table names no facet).
+/// The facet the handles anchor on.
+///
+/// It is the last clicked facet when it belongs to `tier` and has a centroid, else the
+/// tier's first facet that has one (a selection made from the tier table names no facet).
 #[must_use]
 pub fn pick_facet(
     remembered: Option<u32>,
@@ -108,7 +111,7 @@ fn centroid_of(centroids: &[Option<glam::Vec3>], facet_id: u32) -> Option<glam::
 /// map and the frame hold different facet-id spaces, no facet of the tier is on screen,
 /// or a handle would land behind the camera.
 ///
-/// `tier` is a flat tier: concave tiers have no drag handles in v1, and a facet of a
+/// `tier` is a flat tier: concave tiers have no drag handles yet, and a facet of a
 /// concave tool has no flat tier (`FacetMap::tier_of` is `None` for it), so picking one
 /// never produces a target.
 #[must_use]

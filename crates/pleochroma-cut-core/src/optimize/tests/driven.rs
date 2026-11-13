@@ -151,16 +151,11 @@ fn a_design_without_relations_is_settled_untouched() {
 /// "C" is in no angle change list, and the candidate's yield is the yield of the design the
 /// relation produces.
 ///
-/// "C" keeps its depth freedom: `movable_masts` lets a pinned relation follower with a hinge
-/// move its mast, and the meets "C" shares with the turned crown facet need it (item 2 of
-/// `docs/meet-preserving-optimizers-implementation-report.md`: followers contribute depth
-/// variables, only independent follower-angle edits are refused). So a depth change of "C"
-/// is listed with the rest of the certified state; it starts from the mast the design
-/// pinned, applying it reproduces the listed depth bit for bit (owner decision Q1,
-/// 2026-10-19), and applying moves "C"'s angle only through the relation. The check is never
-/// vacuous: a list that does not name "C" must leave its pinned mast bit for bit, and at
-/// least one list (the result's or a candidate's) names it, since the turned crown facet
-/// moves the meets "C" shares with it.
+/// "C" keeps its depth freedom: `movable_masts` lets a pinned follower with a hinge move its
+/// mast, since the meets "C" shares with the turned crown facet need it. A listed depth change
+/// of "C" starts from the pinned mast, and applying it reproduces the listed depth bit for bit,
+/// while "C"'s angle moves only through the relation. The check is not vacuous: some certified
+/// state must list "C"'s depth.
 #[test]
 fn every_candidate_keeps_the_relation_and_never_lists_the_followers_angle() {
     let design = imported_with_follower();

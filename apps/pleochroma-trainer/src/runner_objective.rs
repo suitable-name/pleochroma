@@ -1,7 +1,7 @@
 //! What a run trains with: the algorithm and the objective weights of an episode.
 //!
 //! One model serves every weighting of the optical objective, because the objective's weight
-//! fractions are part of the observation (design section 3.1). That only works for weightings the
+//! fractions are part of the observation. That only works for weightings the
 //! model has seen, so every training episode and every validation design draws its own weights
 //! with [`draw_weights`]. The draws are pure functions of a seed: the same seed gives the same
 //! weights in any process and for any thread count. All seven presets, including tone goals, are
@@ -42,8 +42,8 @@ pub const TRAINABLE_PRESETS: [ObjectivePreset; 7] = [
 /// The training algorithm of a run.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Algorithm {
-    /// Supervised imitation of the finite-difference teacher on the policy's own states (`DAgger`).
-    /// The default.
+    /// Supervised imitation of the finite-difference teacher on the policy's own states
+    /// (`DAgger`). The default.
     #[default]
     Imitation,
     /// Proximal policy optimisation on the environment's reward.
@@ -182,10 +182,11 @@ pub fn draw_weights(sampling: ObjectiveSampling, seed: u64) -> ObjectiveWeights 
     }
 }
 
-/// Whether the episode identified by `seed` is judged in the design's own material (the
-/// optimizer task inside a retarget run) instead of a drawn target. `fraction` is the share of
-/// episodes for which this holds; a fraction that is not above 0 never draws it and one of 1 or
-/// more always does. Deterministic in `seed`.
+/// Whether the episode identified by `seed` is judged in the design's own material (the optimizer
+/// task inside a retarget run) instead of a drawn target.
+///
+/// `fraction` is the share of episodes for which this holds; a fraction that is not above 0 never
+/// draws it and one of 1 or more always does. Deterministic in `seed`.
 #[must_use]
 pub fn draws_same_material(fraction: f32, seed: u64) -> bool {
     if fraction.is_nan() || fraction <= 0.0 {

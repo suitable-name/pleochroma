@@ -112,7 +112,7 @@ def host_metadata(args):
 
 
 def process_sample(pid):
-    """Linux aggregate process CPU ticks and RSS; absent on other platforms."""
+    """Linux CPU seconds and /proc status fields of a process; None when unavailable."""
     content = text_file(f"/proc/{pid}/stat")
     status = text_file(f"/proc/{pid}/status")
     if content is None:

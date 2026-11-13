@@ -1,8 +1,8 @@
 //! Lock: keep a stone and plan the rest of the rough around it.
 //!
 //! A locked stone's PIECE (the sawn box, clipped by the rough's own planes) becomes an inclusion
-//! shell of the rough with margin 0: a closed solid inside the rough where no stone may go,
-//! which still counts as material you hold (see the mesh `inclusion` module). A re-plan then
+//! shell of the rough with margin 0: a closed solid inside the rough where no stone may go. The
+//! shell still counts as rough material (see the mesh `inclusion` module). A re-plan then
 //!
 //! - runs on the SHAPED path, also for a block rough (a rough with an inclusion is a mesh rough;
 //!   [`rough_with_locked_pieces`] turns a convex rough into one first, moved so its bounding box
@@ -200,14 +200,13 @@ pub fn locked_shell(
     convex_mesh(&planes, DVec3::from_array(shift)).ok_or(LockError::PieceUnusable)
 }
 
-/// `model` with the pieces of `locked` left out of it as inclusions (margin 0), ready to plan on
-/// the shaped path. With nothing locked the model is returned as it is.
+/// `model` with the pieces of `locked` added as inclusions (margin 0), ready to plan on the
+/// shaped path. With nothing locked the model is returned as it is.
 ///
-/// A rough that is not a mesh rough (a block, cylinder, pebble or plain hull) first becomes the
-/// hull of its cut solid, moved so its bounding box starts at the origin (see
-/// [`LockedRough::offset_mm`]); a mesh rough keeps its own frame and cuts. So does a block,
-/// cylinder or pebble that has inclusions of its own: the pieces join them, next to the
-/// inclusions already there, and the offset is zero.
+/// A block, cylinder or pebble becomes the hull of its cut solid, moved so its bounding box
+/// starts at the origin (see [`LockedRough::offset_mm`]). One with inclusions of its own keeps its
+/// base, cuts and frame instead, and the pieces join those inclusions (offset zero). A hull keeps
+/// its frame and cuts (offset zero).
 ///
 /// # Errors
 ///

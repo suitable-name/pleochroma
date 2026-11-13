@@ -1,9 +1,9 @@
 //! The small top and side picture of the crystal axis on the first page of Cutting Mode.
 //!
-//! The geometry is the cutting sheet's own ([`crate::cut_sheet::axis_diagram`]: the stone seen from
-//! above the table with index 0 at the right, and from the side with the table up); this only
-//! writes it as the SVG path commands the desktop's picture draws, in the diagram's own
-//! 380 x 190 units, so the picture scales with whatever room it is given.
+//! The geometry is the cutting sheet's own ([`crate::cut_sheet::axis_diagram`]: the stone seen
+//! from above the table with index 0 at the right, and from the side with the table up). This
+//! module only writes it as SVG path commands, in its 380 x 190 units, so the picture scales
+//! with the room it is given.
 
 use crate::cut_sheet::{AxisDiagram, AxisLine, axis_diagram};
 use pleochroma_cut_core::SheetOrientation;

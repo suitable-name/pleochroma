@@ -2,18 +2,18 @@
 //! capture session, so the Rough Color tutorial video can walk every page of the strip.
 //!
 //! The wizard opens from a saved plan with the plan's stored color: two cached working-resolution
-//! photos, the zones and the fit report (see `harness_seed`). That opens only Compare and Accept,
-//! because Photos, Calibration, Masks, Surfaces and Fit stand on facts a camera rig and a capture
-//! session produce (`steps::StepFacts`): a picked rig, the mesh aligned to it in the Locate window,
-//! a stone photo and a white frame for two views, and an applied calibration. None of that can be
-//! filmed (it needs the rig, its alignment, the photos and a fit of minutes), and loading a photo
-//! through the window would also throw the restored fit away. So this fills those facts directly:
+//! photos, the zones and the fit report (see `harness_seed_rough_color_plan`). That opens only
+//! Compare and Accept, because the other steps stand on facts that a camera rig and a capture
+//! session produce (`steps::StepFacts`): a picked rig, the mesh aligned to it in the Locate
+//! window, a stone photo and a white frame for two views, and an applied calibration. Those cannot
+//! be filmed, and loading a photo through the window would throw the restored fit away. So this
+//! fills those facts directly:
 //!
 //! * a stored rig: the default eight-camera layout, named [`RIG_NAME`];
 //! * the alignment: the rough's mesh centred on the rig's origin;
-//! * the files of the first views: a stone photo and a white frame each (the caller writes small
-//!   synthetic pictures and passes their paths; nothing is read from them unless Prepare is pressed);
-//! * the calibration: the sRGB camera fallback and the first CIE LED kind.
+//! * the files of the first views: a stone photo and a white frame each (the caller passes paths
+//!   to small synthetic pictures; they are read only when Prepare is pressed);
+//! * the calibration: the sRGB camera fallback and the LED backlight of the window's LED kind.
 //!
 //! The restored views, zones and fit stay as they are, so every step stays reachable. Nothing is
 //! stored: the state lives in the window until it closes.
@@ -49,13 +49,13 @@ const RIG_STONE_N: f64 = 1.55;
 /// The mean white frame colour the calibration is built from, linear RGB.
 const WHITE_RGB: [f64; 3] = [0.9, 0.9, 0.9];
 
-/// Half the edge of the seeded rough (a 20 mm cube), mm: the translation that centres it.
+/// Half the edge of the seeded rough (a notched 20 mm cube), mm: the translation that centres it.
 const ROUGH_HALF_EDGE_MM: f64 = 10.0;
 
 /// The fewest views the wizard needs photos for before it opens the Calibration step.
 const MIN_VIEWS: usize = 2;
 
-/// Fills the open wizard's rig, alignment, photo files and calibration (see the module comment).
+/// Fills the open wizard's rig, alignment, photo files and calibration (see the module docs).
 /// `photos` holds one `(stone photo, white frame)` pair per view, starting with the first view.
 ///
 /// # Errors

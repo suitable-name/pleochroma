@@ -1,5 +1,6 @@
-//! Tests for [`super::parse_gcs`], [`super::gcs_to_asc_schedule`] and
-//! [`super::to_gcs_string`]: a real trimmed excerpt, a spec-shaped example,
+//! Tests for [`super::parse_gcs`], [`super::gcs_to_asc_schedule`] and [`super::to_gcs_string`].
+//!
+//! They use a real trimmed excerpt, a spec-shaped example,
 //! hand-built error-path fixtures, and `#[ignore]` corpus checks that read
 //! `PLEOCHROMA_FORMAT_CORPUS_DIR`.
 
@@ -13,16 +14,10 @@ mod asymmetric;
 mod frosting;
 mod hostile;
 
-/// A real excerpt of `attached_files` id 1124 (detail 553), `"L1000-h0724-
-/// f085-i064-b83-ri170-215-Octagon-pc21086F-FVS-044-Octabar-X-by-Van-Sant-
-/// Fred-W.gcs"` -- "FVS-044 Octabar-X PC 21.086F" by Fred W. Van Sant. The
-/// root, `<index>`, and `<render>`/`<info>` lines are copied verbatim; the
-/// first `<tier>` is trimmed from its real 8 facets down to the first 2 (the
-/// bytes of each kept facet, including every vertex, are untouched) purely to
-/// keep this fixture short -- see `crates/pleochroma-formats/src/gcs/mod.rs`'s
-/// module docs for the full-file cross-check results this trimmed excerpt
-/// can't exercise on its own (tier-to-tier angle/index matching against the
-/// sibling `.asc`).
+/// A trimmed excerpt of a real `.gcs` file ("FVS-044 Octabar-X PC 21.086F" by Fred W.
+/// Van Sant, `attached_files` id 1124). The root, `<index>`, `<render>` and `<info>`
+/// are verbatim, and the first `<tier>` keeps only its first 2 facets, with each kept
+/// facet unchanged. Checks against the full file's sibling `.asc` need the whole file.
 const GCS_OCTABAR_X_EXCERPT: &str = r#"<GemCutStudio version="1000">
 <index gear="64" base="0" symmetry="4" mirror="0"/>
 <tier angle="126.38999938964842" depth="0.6664250328253426" name="P1" instructions="" visible="true" guide="false">
@@ -162,8 +157,7 @@ fn rejects_non_numeric_tier_angle() {
     ));
 }
 
-/// `parse_index_u32` must reject a value bigger than `u32::MAX` rather
-/// than silently saturating to it via `as u32`.
+/// An `<index>` integer above `u32::MAX` is rejected, not saturated by the cast.
 #[test]
 fn rejects_an_index_attribute_larger_than_u32_max() {
     let content = r#"<GemCutStudio version="1000">

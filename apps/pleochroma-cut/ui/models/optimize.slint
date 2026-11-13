@@ -1,11 +1,11 @@
 import { OptimizeToneSwatches } from "../types.slint";
 
 // The Inspector's Optimize tab: the objective preset, what may change, the angle ranges, the
-// run settings and the ranked candidate list. The tab's older state (the weight boxes, the
-// budget and seed, polish, "only selected tiers", the running/status/result rows, Apply and
-// the Preview toggle) stays on `EditorModel`, because the command bar's Optimize button and
-// the status strip read it too. The Rust side is `gui::editor::optimize_panel`; the pure
-// rules (defaults, clamping, row text) are in `pleochroma_editor::optimize_view`.
+// run settings and the ranked candidate list. The weight boxes, budget and seed, polish,
+// "only selected tiers", the running and result rows, Apply and the Preview toggle live on
+// `EditorModel`, because the command bar's Optimize button and the status strip read them too.
+// The Rust side is `gui::editor::optimize_panel`; the pure rules (defaults, clamping, row text)
+// are in `pleochroma_editor::optimize_view`.
 
 // One tier of the "Angle ranges" table. `min_text` and `max_text` are what the two fields
 // start with; the tier's own angle is shown beside them. A tier that follows a relation is

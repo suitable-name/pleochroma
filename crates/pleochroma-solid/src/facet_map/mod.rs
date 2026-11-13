@@ -200,11 +200,9 @@ impl FacetMap {
             .collect()
     }
 
-    /// Total number of facet ids this map covers (`Design::planes_from_solved`'s
-    /// output length, plus one per concave tool) -- every valid `facet_id` for [`Self::tier_of`]/
-    /// [`Self::hover_text`]/[`Self::facet_label`] is in `0..self.facet_count()`.
-    /// Used by `solid_preview::diagram2d`'s caller to build a facet-id-indexed
-    /// label/hover-text table covering every facet, not just the visible ones.
+    /// Number of facet ids this map covers: `Design::planes_from_solved`'s length plus
+    /// one per concave tool. Every valid `facet_id` for [`Self::tier_of`],
+    /// [`Self::hover_text`] and [`Self::facet_label`] is in `0..self.facet_count()`.
     #[must_use]
     pub const fn facet_count(&self) -> usize {
         self.facets.len()

@@ -1,7 +1,9 @@
-//! The enrollment listener's per-connection handling: a bare (no client-certificate
-//! requirement) TLS accept, then exactly one [`pleochroma_net::enroll::EnrollRequest`]/
-//! [`pleochroma_net::enroll::EnrollResponse`] exchange -- see `crate::enroll`'s module doc
-//! comment for why this listener structurally cannot reach `RenderRequest` handling.
+//! The enrollment listener's per-connection handling.
+//!
+//! It is a TLS accept without a client-certificate requirement, then exactly one
+//! [`pleochroma_net::enroll::EnrollRequest`]/
+//! [`pleochroma_net::enroll::EnrollResponse`] exchange. See the `crate::enroll` module doc for
+//! why this listener cannot reach `RenderRequest` handling.
 
 use super::registry::{EnrollRegistry, ZeroizeLocal};
 use pleochroma_net::{
@@ -24,18 +26,14 @@ pub(super) type EnrollTlsStream = rustls::StreamOwned<rustls::ServerConnection, 
 /// overhead -- comfortably under 4 KiB even with slack for a generously long `--name`.
 const MAX_ENROLL_REQUEST_LEN: u32 = 4096;
 
-/// Completes the TLS handshake for one just-accepted enrollment connection. No
-/// client-certificate check follows (unlike `crate::serve::accept_tls`) -- this listener
-/// never requires one; see the module doc comment.
+/// Completes the TLS handshake for one just-accepted enrollment connection. No client
+/// certificate is checked, unlike the render listener's `crate::serve::accept_tls`.
 ///
-/// Applies `crate::serve::HANDSHAKE_TIMEOUT` to the raw socket's read/write timeouts
-/// BEFORE `complete_io`: unlike the render listener's mutual-TLS accept,
-/// this listener requires no client certificate at all, so without a deadline here a
-/// peer that opens a connection and never completes the TLS handshake pins this
-/// connection's thread open indefinitely. Left in place afterward (not cleared, unlike
-/// `serve::handle_connection_with_gpu`'s post-`HELLO` reset): [`handle_enroll_connection`]
-/// handles exactly one request/response and returns, so there is no long-lived loop this
-/// deadline would wrongly bound.
+/// Sets `crate::serve::HANDSHAKE_TIMEOUT` on the raw socket before `complete_io`. Without it,
+/// a peer that never finishes the handshake would pin this thread, since no client
+/// certificate is required. The timeout is left in place afterwards:
+/// [`handle_enroll_connection`] handles one request and returns, so no long-lived loop is
+/// bounded by it.
 pub(super) fn accept_enroll_tls(
     stream: TcpStream,
     config: &Arc<rustls::ServerConfig>,
@@ -60,12 +58,10 @@ pub(super) fn accept_enroll_tls(
         }
     };
     let mut tls_stream = rustls::StreamOwned::new(conn, stream);
-    // F-06a: a real TOTAL deadline for the handshake, re-armed before every read --
-    // see `crate::serve::socket::DeadlineSocket`'s doc comment and
-    // `crate::serve::tls::accept_tls`'s identical use of it. This listener needs it at
-    // least as much as the render listener's `accept_tls`: it has NO client-certificate
-    // check at all (see the module doc comment), so a bare TLS handshake is the whole of
-    // its authentication story.
+    // One total deadline for the whole handshake, re-armed before every read (see
+    // `crate::serve::DeadlineSocket`). This listener needs it at least as much as the render
+    // listener does: it checks no client certificate, so the TLS handshake is its whole
+    // authentication.
     let deadline = std::time::Instant::now() + crate::serve::HANDSHAKE_TIMEOUT;
     let handshake_result = {
         let mut io = crate::serve::DeadlineSocket::new(&tls_stream.sock, deadline);
@@ -175,12 +171,9 @@ pub(super) fn handle_enroll_connection<S: Read + Write>(
     allowlist_path: Option<&Path>,
     peer: Option<SocketAddr>,
 ) -> Result<(), String> {
-    // F-06a: the same real, TOTAL deadline as the TLS handshake this connection already
-    // completed (a fresh `HANDSHAKE_TIMEOUT` budget for this second phase -- see
-    // `socket::HANDSHAKE_TIMEOUT`'s doc comment on why the two phases aren't a single
-    // shared budget). `DeadlineIo` only needs `S: Read`, so this wraps generically
-    // regardless of whether `stream` is the real `EnrollTlsStream` or (this module's own
-    // tests) an in-memory duplex.
+    // A fresh `HANDSHAKE_TIMEOUT` budget for this phase, separate from the TLS handshake's.
+    // `DeadlineIo` only needs `S: Read`, so this works for the real TLS stream and for the
+    // in-memory duplexes of this module's tests alike.
     let deadline = std::time::Instant::now() + crate::serve::HANDSHAKE_TIMEOUT;
     let request: EnrollRequest = {
         let mut guarded = crate::serve::DeadlineIo::new(&mut stream, deadline);

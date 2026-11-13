@@ -3,8 +3,8 @@
 //!
 //! [`Design::sheet_orientation`] builds it, only for an anisotropic material whose Crystal Axis
 //! is SET: the design's own setting (`[render_effects]`), else the stored default of a custom
-//! material. An isotropic material, and a stone whose axis is not set, give `None`, and a sheet
-//! without a block is byte for byte the sheet it always was.
+//! material. An isotropic material, and a stone whose axis is not set, give `None`, and the
+//! sheet then has no block.
 //!
 //! The block says where the axis runs (tilt from the table normal, azimuth, the azimuth also as
 //! the index of the dop's index wheel: the facet index of the same direction,
@@ -39,8 +39,8 @@ const NO_AZIMUTH_DEG: f64 = 0.5;
 pub struct SheetRuleCheck {
     /// The rule's name ("Table Across", "In the Table Plane", "Best Blue Face-Up").
     pub rule_name: String,
-    /// Where the rule comes from: "Sapphire default" for the material's own rule, or the plan's
-    /// own wording for a stone that came from a plan.
+    /// Where the rule comes from: "Sapphire default" for the material's own rule, else "plan" or
+    /// "design" (see [`crate::crystal_axis::CrystalAxisPlan::source_text`]).
     pub source: String,
     /// The angle within which the stone counts as following the rule, degrees.
     pub tolerance_deg: f64,
@@ -258,10 +258,9 @@ impl Design {
     /// [`Self::sheet_orientation`] with the stored default orientation of the design's material
     /// supplied by the caller (`LibraryMaterial::default_orientation` of its library row).
     ///
-    /// A caller that holds the row passes it here, so a custom material whose cutter explicitly
-    /// set "tilt 0" still prints its block; the baked axes of `custom` cannot tell that from a
-    /// plain material. With `None` the default is inferred from the baked axes, as
-    /// [`Self::sheet_orientation`] always did.
+    /// A caller that holds the row passes it here, so a custom material whose cutter set "tilt 0"
+    /// explicitly still prints its block. The baked axes of `custom` cannot tell that case from a
+    /// plain material. With `None` the default is inferred from the baked axes.
     #[must_use]
     pub fn sheet_orientation_with_default(
         &self,

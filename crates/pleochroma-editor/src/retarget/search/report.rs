@@ -79,7 +79,7 @@ pub enum CandidateRole {
 /// One valid option the search offers.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SearchCandidate {
-    /// Accuracy and shape facts for the exact accepted original-network correspondence.
+    /// The preservation facts of this candidate against the original meet network.
     pub preservation: Option<pleochroma_cut_core::meet_preservation::PreservationFacts>,
     /// Where it came from.
     pub kind: CandidateKind,

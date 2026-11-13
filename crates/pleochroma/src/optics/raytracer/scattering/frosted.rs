@@ -4,13 +4,12 @@
 //! hemisphere direction sampler, and the exterior-side next-event-estimation
 //! contribution for the two outcomes that land outside the gem.
 //!
-//! The render and metrics tracers no longer call these: decision D11 replaced the Lambertian
-//! bounce by the GGX ground lobe with energy compensation
+//! The render and metrics tracers do not call these. They use the GGX ground lobe with
+//! energy compensation
 //! ([`surface::apply_ground_bounce`](crate::optics::raytracer::surface::apply_ground_bounce),
-//! [`surface::ground`](crate::optics::raytracer::surface::ground)). The functions stay because the
-//! WGSL translation (`apply_frosted_bounce` in the shaders) and its Tier 2 check
-//! (`renderer::gpu::transport_check`) are compared against them until lane RP-G2 ports the new
-//! lobe, at which point this file goes.
+//! [`surface::ground`](crate::optics::raytracer::surface::ground)). These functions remain as
+//! the reference for the WGSL translation (`apply_frosted_bounce` in the shaders) and its
+//! Tier 2 check (`renderer::gpu::transport_check`).
 
 use super::{
     super::{
@@ -38,7 +37,8 @@ use glam::Vec3;
 /// call sites need no explicit pdf division.
 ///
 /// `pub(crate)`: `renderer::gpu::transport_check`'s Tier 2 ULP check compares this real
-/// function against `shaders/transport_physics.wgsl`'s translation. Visibility only.
+/// function against `shaders/transport_physics/03_dispersion_absorption_frosted.wgsl`'s
+/// translation. Visibility only.
 #[allow(
     dead_code,
     reason = "reference of the GPU twin until RP-G2 ports the ground lobe; see the module docs"
@@ -172,8 +172,8 @@ pub(crate) fn nee_contribution_frosted_exterior(
     }
 }
 
-/// The replacement for the specular TIR/partial-reflect/refract dispatch at a
-/// `FacetFinish::Frosted` facet.
+/// The diffuse dispatch at a `FacetFinish::Frosted` facet, used instead of the specular
+/// TIR/partial-reflect/refract dispatch.
 ///
 /// # The model, honestly
 ///
@@ -216,12 +216,9 @@ pub(crate) fn nee_contribution_frosted_exterior(
 ///   drawn into the interior hemisphere would need to find where THIS path eventually
 ///   exits the solid and pay that exit facet's own Fresnel transmittance, exactly the
 ///   shadow-ray search `nee_contribution_hg_scatter` already does from an interior
-///   scattering point. Deliberately not implemented (documented gap, not an oversight):
-///   entry-facet frosted transmission is the less common case in practice (a frosted
-///   girdle scattering light back OUT to the camera -- the exterior-transmit case below
-///   -- is the one every existing frosted-girdle test/scene exercises), and adding it
-///   would double this function's shadow-ray-tracing surface for comparatively little
-///   variance-reduction benefit. `pending_light_mis` is `None` for this branch, so a
+///   scattering point. Not implemented: entry-facet transmission is the less common case,
+///   and a shadow search here would double this function's ray-tracing surface for little gain.
+///   `pending_light_mis` is `None` for this branch, so a
 ///   phase-sampled continuation that (rarely, since it heads inward) still escapes
 ///   directly next bounce keeps its full weight rather than being MIS-weighted
 ///   against a light sample this function never drew.
@@ -259,15 +256,11 @@ pub(crate) fn nee_contribution_frosted_exterior(
 /// divided by its own 0.5 (same reasoning as `apply_refract_bounce`). Mode
 /// re-coupling is applied by the caller.
 ///
-/// # Why the exterior NEE deposit needs no separate `nee_xyz` accumulator (F-09b)
+/// # Why the exterior NEE deposit needs no separate `nee_xyz` accumulator
 ///
-/// `nee_contribution_frosted_exterior` deposits straight into the caller's shared
-/// `radiance` array (weighted, like every other channel's contribution, by the FINAL
-/// post-loop `path_pdf` at `trace_spectral_ray_inner`'s integration step) rather than
-/// into a separate `nee_xyz` accumulator integrated with THIS moment's `path_pdf`, the
-/// fix `try_scatter_step`'s identical deposit needed (see that function's own "NEE
-/// spectral weighting" doc section). That asymmetry is safe, not an oversight: both
-/// NEE-eligible outcomes here are, by construction, cases where `new_dir` lies in the
+/// `nee_contribution_frosted_exterior` deposits into the shared `radiance` array, which the
+/// integration step weights by the FINAL post-loop `path_pdf`. That is exact here, because
+/// NEE-eligible outcomes are, by construction, cases where `new_dir` lies in the
 /// open half-space strictly outward of this bounce point's TRUE outward normal (a
 /// cosine-weighted hemisphere about `normal` for the `!inside_gem` reflect branch,
 /// about `-normal` for the `inside_gem` transmit branch -- see "Sign convention for NEE
@@ -293,7 +286,8 @@ pub(crate) fn nee_contribution_frosted_exterior(
 /// HG path's own carry: consumed only by the VERY NEXT bounce-loop iteration's escape
 /// check, and only if that iteration's ray escapes directly.
 // `pub(crate)`: `renderer::gpu::transport_check`'s Tier 2 ULP check compares this real
-// function against `shaders/transport_physics.wgsl`'s translation. Visibility only.
+// function against `shaders/transport_physics/03_dispersion_absorption_frosted.wgsl`'s
+// translation. Visibility only.
 #[allow(
     dead_code,
     reason = "reference of the GPU twin until RP-G2 ports the ground lobe; see the module docs"

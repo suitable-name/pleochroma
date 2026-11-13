@@ -120,10 +120,10 @@ pub fn with_followers(design: &Design, seeds: impl IntoIterator<Item = usize>) -
 
 /// The small line under a schedule row.
 ///
-/// It is a concave tier's tool line (the four `second_line` columns joined with two spaces,
-/// as the desktop shows them under the facet line), then the tier's notes. `ScheduleRow` has
-/// no field of its own for the tool line, so it rides in the notes text, which the Schedule
-/// tab already wraps under the row.
+/// For a concave tier this is its tool line (the four `second_line` columns joined with two
+/// spaces, as the desktop shows them under the facet line), then the notes. The page's
+/// `ScheduleRow` (`apps/pleochroma-web`) has no field for the tool line, so it is carried in
+/// the notes text.
 #[must_use]
 pub fn schedule_notes(row: &CuttingRow) -> String {
     let Some(second) = &row.second_line else {

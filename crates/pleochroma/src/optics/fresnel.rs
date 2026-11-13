@@ -1,15 +1,9 @@
 //! Unpolarised Fresnel reflectance of a dielectric interface in `f64`.
 //!
-//! The spectral tracer has no reusable public Fresnel function: its reflectance is an
-//! inline `f32` expression inside the bounce geometry (`raytracer::refraction::dispatch::
-//! compute_entry_reflect_probability`, clamped to a sampling range) and a private helper in
-//! `color::metrics::ray_trace`. Neither can be called with plain `(cos_i, n_from, n_to)`, so
-//! this is a standalone `f64` implementation of the same textbook formula (the mean of the s
-//! and p power reflectances). The tests compare it with the tracer's `f32` expression
-//! transcribed verbatim.
-//!
-//! Used by the rig forward renderer (lane F1) together with
-//! `pleochroma_cut_core::rough_plan::locate::{refract, reflect}`.
+//! The tracer's reflectance is a private `f32` helper with its own sampling clamp
+//! (`raytracer::refraction::dispatch::compute_entry_reflect_probability`), so it cannot be
+//! called with plain `(cos_i, n_from, n_to)`. This is a standalone `f64` version of the same
+//! formula, the mean of the s and p power reflectances; the tests compare the two.
 
 /// Unpolarised Fresnel power reflectance `R` of a smooth dielectric interface.
 ///

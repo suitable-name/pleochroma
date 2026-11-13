@@ -1,19 +1,13 @@
-//! Pure critical-angle math shared by the material retarget proposal and the
-//! solid preview's risk overlay.
-//!
-//! Both need the same "how close is this facet to windowing" question answered from a
-//! tier's angle and the design's refractive index, so it lives here once rather than
-//! in either caller.
+//! Pure critical-angle math shared by the material retarget proposal and the solid
+//! preview's risk overlay, so both answer "how close is this facet to windowing" the same way.
 //!
 //! # Angle convention
 //!
-//! Every angle here is a [`crate::design::ConstraintTier::angle_deg`] value: signed
-//! degrees from the girdle plane, negative for a pavilion facet, non-negative for
-//! crown (a zero angle is the table unless it is a sign-negative `-0.0`, the culet -- see that field's
-//! own doc comment, which mirrors `pleochroma_formats::asc::AscTier::angle_deg` exactly).
-//! [`tier_margin_deg`], [`windowing_risk`] and [`retarget_angle_deg`] all read the
-//! MAGNITUDE of that angle and preserve the input's own sign on any angle they
-//! return.
+//! Every angle here is a [`crate::design::ConstraintTier::angle_deg`] value: signed degrees
+//! from the girdle plane, negative for a pavilion facet and non-negative for a crown. A
+//! sign-negative `-0.0` is the culet and `+0.0` the table; see that field's doc comment.
+//! [`tier_margin_deg`], [`windowing_risk`] and [`retarget_angle_deg`] read the magnitude of
+//! the angle and keep the input's sign on any angle they return.
 //!
 //! Windowing is a pavilion phenomenon: light entering through the crown that hits
 //! a pavilion facet below the critical angle refracts straight out instead of
@@ -23,17 +17,10 @@
 //!
 //! # Domain
 //!
-//! `n` (a refractive index) is assumed `> 1.0` -- true for every real gem material
-//! this crate can produce. [`critical_angle_deg`] is not meaningful outside that
-//! domain (`asin` of an argument `> 1.0` is `NaN`; exactly `n == 1.0` saturates to
-//! `90.0`, not `NaN`). Every real caller's `n` traces back to a resolved material,
-//! never a raw, unvalidated user-typed number, so this is not expected to be
-//! reached in practice -- but [`windowing_risk`] still guards it
-//! defensively rather than trusting that: without the guard, a `NaN` margin
-//! (from `n < 1.0`, or `n`/the tier angle itself already `NaN`) compares
-//! `false` against both `margin < 0.0` and `margin < 2.0`, falling through to
-//! [`Risk::Safe`] -- the single MOST reassuring reading available, exactly
-//! backwards for an input this function cannot actually make sense of.
+//! `n` (a refractive index) is assumed `> 1.0`, which every gem material this crate
+//! produces satisfies. [`critical_angle_deg`] is not meaningful outside that: `asin` of
+//! `1 / n > 1` is `NaN`, and `n == 1.0` gives `90.0`. [`windowing_risk`] maps a `NaN`
+//! margin to [`Risk::Windows`]; left alone, it would compare as [`Risk::Safe`].
 
 /// The critical angle for total internal reflection at refractive index `n`.
 ///
@@ -74,17 +61,11 @@ pub enum Risk {
     Windows,
 }
 
-/// Classifies a tier's windowing risk at index `n`.
+/// Classifies a tier's windowing risk at index `n`: [`Risk::Windows`] below a zero margin,
+/// [`Risk::Marginal`] up to 2 degrees, and [`Risk::Safe`] above that.
 ///
-/// See [`Risk`]'s own doc
-/// comment for the three bands and their boundaries (`< 0.0` is
-/// [`Risk::Windows`], `[0.0, 2.0)` is [`Risk::Marginal`], `>= 2.0` is
-/// [`Risk::Safe`]).
-///
-/// `n <= 1.0` (or a `NaN` `n`/`tier_angle_deg`) reports [`Risk::Windows`] --
-/// the most conservative band, never [`Risk::Safe`] -- see the module doc
-/// comment's "Domain" section for why a `NaN` margin must not be
-/// allowed to fall through to the most reassuring reading by accident.
+/// `n <= 1.0`, or a `NaN` `n` or `tier_angle_deg`, reports [`Risk::Windows`]. See the
+/// module's "Domain" section.
 #[must_use]
 pub fn windowing_risk(tier_angle_deg: f64, n: f64) -> Risk {
     let margin = tier_margin_deg(tier_angle_deg, n);
@@ -111,11 +92,9 @@ pub fn windowing_risk(tier_angle_deg: f64, n: f64) -> Risk {
 /// preserved on the output, so this is safe to call with a pavilion tier's
 /// (negative) `angle_deg` directly.
 ///
-/// This is the pure math half only. Clamping to the optimizer's safety bound
-/// (89.5 degrees), flagging a tier that would fall below the new critical angle,
-/// and the crown "scale by ratio" alternative are all dialog-level policy
-/// (`apps/pleochroma-cut`'s own retarget proposal UI) layered on top of this, not
-/// modeled here.
+/// This is the pure math half. The slope limits are [`guard_retargeted_angle_deg`]. The
+/// policy around it (flagging a tier that falls below the new critical angle, and the crown
+/// "scale by ratio" alternative) lives in `pleochroma-editor`'s retarget code.
 #[must_use]
 pub fn retarget_angle_deg(tier_angle_deg: f64, n_from: f64, n_to: f64) -> f64 {
     // `is_sign_negative`, not `< 0.0`: this crate's own templates author a
@@ -242,8 +221,7 @@ pub const fn guard_retargeted_angle_deg(old_deg: f64, shifted_deg: f64) -> (f64,
 /// the crown bent the ray toward (the two facets face each other across one
 /// radial cross-section). Resolving both directions as unit vectors in that
 /// plane and taking their dot product gives the angle of incidence at the
-/// pavilion directly: `theta_pavilion = p + (c - r)` (see this module's own
-/// tests for the vector algebra spelled out numerically). Compare that against
+/// pavilion directly: `theta_pavilion = p + (c - r)`. Compare that against
 /// [`critical_angle_deg`] exactly as [`tier_margin_deg`] compares the plain
 /// table-only incidence angle `p` -- entering through a tilted crown facet
 /// only ever ADDS incidence angle over the straight-through-the-table case
@@ -252,15 +230,11 @@ pub const fn guard_retargeted_angle_deg(old_deg: f64, shifted_deg: f64) -> (f64,
 ///
 /// # This is an estimate, not a full ray trace
 ///
-/// This follows exactly one ray (vertical incidence on the crown, in the
-/// crown/pavilion facets' own shared meridian plane) and ignores every other
-/// path light actually takes through a real stone -- internal reflections off
-/// OTHER facets, the crown facet's own azimuthal curvature away from that one
-/// meridian, dispersion (every wavelength refracts by a slightly different
-/// `r`), and any facet that is not radially opposite the one being typed. A
-/// caller-facing label should say "estimate", never "risk" alone -- see the
-/// module doc comment's own crown caveat, which this function narrows but does
-/// not remove.
+/// This follows one ray in the crown and pavilion facets' shared meridian plane. It ignores
+/// every other path light takes through a real stone: internal reflections off other facets,
+/// the crown's curvature away from that meridian, dispersion (each wavelength refracts by a
+/// different `r`), and facets not radially opposite. Callers should label the result an
+/// estimate.
 #[must_use]
 pub fn crown_window_margin_deg(pavilion_angle_deg: f64, crown_angle_deg: f64, n: f64) -> f64 {
     let c = crown_angle_deg.abs();

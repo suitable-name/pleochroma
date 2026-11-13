@@ -1,6 +1,8 @@
 //! The History tab's glue: when the rows are out of date, how they are rebuilt, and how a
-//! row's picture is asked for. (The rows' wording, the cache keys, the drawing and the
-//! thread have their own tests next to them; the Slint side cannot be run here.)
+//! row's picture is asked for.
+//!
+//! The wording, cache keys, drawing and thread have their own tests; the Slint side is not run
+//! here.
 
 use super::*;
 use pleochroma_cut_core::Edit;

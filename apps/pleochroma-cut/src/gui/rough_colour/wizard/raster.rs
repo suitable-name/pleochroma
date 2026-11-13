@@ -1,8 +1,8 @@
 //! Small RGBA rasters for the wizard's canvases: the transmittance photo, the mask overlay, zone
 //! outlines, the render and the colour-difference heat map.
 //!
-//! Everything is plain `Vec<u8>` so the
-//! logic is testable; the window turns a raster into a Slint image.
+//! Everything is plain `Vec<u8>`, so the logic is testable; the window turns a raster into a Slint
+//! image.
 
 use pleochroma_cut_core::rough_plan::photometry::{PixelMask, flag, linear_to_srgb};
 

@@ -34,16 +34,10 @@ pub fn preform_source_note(preform: &PreformSpec) -> String {
 /// Parses the preform form's shape choice and three dimension fields into a
 /// [`PreformSpec`].
 ///
-/// Pure and unit tested directly, same reasoning as
-/// [`super::tier_form::parse_tier_form`]. `cylinder_sides` is passed in (rather
-/// than read from a `Design` inside this function) so it stays decoupled from
-/// `pleochroma-cut-core` state and easy to test in isolation. Every caller
-/// (`callbacks::tier_actions`) always passes a FIXED side count, independent of
-/// the active design's index gear. Unlike
-/// [`pleochroma_cut_core::PreformSpec::cylinder_for_schedule`]'s "fold count
-/// matches the index gear" reasoning (correct only for a preform reconstructed
-/// ONCE from an already-authored schedule), a reapply after gear change can
-/// leave a stale side count behind if the design is queried for it.
+/// `cylinder_sides` is the caller's fixed choice, not read from the design, so a reapply
+/// after a gear change keeps it. This differs from
+/// [`pleochroma_cut_core::PreformSpec::cylinder_for_schedule`], which sets the side count to
+/// the index gear for a preform rebuilt from an authored schedule.
 ///
 /// # Errors
 ///
@@ -76,23 +70,18 @@ pub fn parse_preform_form(
     })
 }
 
-/// The New Design dialog's own symmetry-order/mirror/material fields, combined with an
-/// already-resolved gear tooth count and [`PreformSpec`] (the caller.
+/// Builds a [`FreshDesignSpec`] from the New Design dialog's fields.
 ///
-/// `super::callbacks::setup_new_design_create_callback` -- resolves those two first, via
-/// [`gear_choice_to_teeth`] then [`parse_preform_form`], since a cylinder preform's fold
-/// count needs the gear already resolved; kept as separate calls rather than folded into
-/// one wide function here to stay under clippy's `too_many_arguments`, matching
-/// `gui::tilt_hover_preview`'s own documented preference for a handful of small calls
-/// over one wide parameter list), into a [`FreshDesignSpec`] for
-/// `pleochroma_cut_core::Design::fresh_from_spec`.
+/// The spec is for `pleochroma_cut_core::Design::fresh_from_spec`. It takes an already-resolved
+/// gear tooth count and [`PreformSpec`], with the symmetry-order, mirror and material fields.
 ///
-/// `symmetry_order_text` must be a
-/// positive whole number; `material_index` reuses
-/// [`material_name_from_index`] (the fixed built-in list -- see that
-/// function's own doc comment; a brand-new design's starting material is
-/// just that, a starting point the design settings panel can change to a
-/// custom catalogue material afterward).
+/// The caller resolves the gear and the preform first (`gear_choice_to_teeth`, then
+/// [`parse_preform_form`]), since a cylinder preform's fold count needs the gear. They stay
+/// separate calls to keep this function under clippy's `too_many_arguments`.
+///
+/// `symmetry_order_text` must be a positive whole number. `material_index` reuses
+/// [`material_name_from_index`] (the fixed built-in list); the material is only a starting
+/// point that the design settings can change afterwards.
 ///
 /// # Errors
 ///

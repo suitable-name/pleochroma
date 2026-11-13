@@ -1,7 +1,9 @@
 //! Storage for `diagram_planner_exclusions`: the designs the Rough Planner must leave out
-//! of its candidate set. See `Database::migrate_planner_exclusion_table`'s doc comment (in
-//! `super::migrations`) for the schema and why this is a side table keyed by `entry_id`
-//! rather than a column on `diagram_entries`.
+//! of its candidate set.
+//!
+//! See `Database::migrate_planner_exclusion_table`'s doc comment (in `super::migrations`) for
+//! the schema, and why this is a side table keyed by `entry_id` rather than a column on
+//! `diagram_entries`.
 //!
 //! The mark is independent of `diagram_entries.ignored`: an excluded design stays in the
 //! library list, in `all_entry_ids` and in every search; only the planner reads this table.

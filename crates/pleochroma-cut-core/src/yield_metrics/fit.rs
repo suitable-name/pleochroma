@@ -1,7 +1,8 @@
-//! [`exceeds_preform`] and its finding, [`PreformFit`] -- whether a schedule's
-//! own facet planes (preform aside) imply a solid bigger than the stated
-//! rough. See the parent module's doc comment on this function for why the
-//! preform-LESS arrangement is what has to be measured.
+//! [`exceeds_preform`] and its finding, [`PreformFit`]: whether a schedule's own facet planes
+//! (preform aside) imply a solid bigger than the stated rough.
+//!
+//! The facets are measured without the preform, because the combined arrangement always fits inside
+//! the preform.
 
 use crate::design::Design;
 use pleochroma::geometry::{
@@ -16,16 +17,11 @@ use pleochroma::geometry::{
 ///
 /// # Why this needs the preform-LESS arrangement
 ///
-/// `Design::planes` always includes the preform's own half-spaces alongside the
-/// schedule's facet planes, so the combined arrangement's measured extent can never
-/// exceed the preform's -- it is a subset by construction. The facet planes ALONE
-/// are under no such obligation: most real schedules never author an explicit
-/// closing wall, relying on the preform's vertical walls instead, so a facets-alone
-/// arrangement is typically [`SolidStatus::Unbounded`] (normal, not a warning) and
-/// only occasionally closes on its own. When it DOES close, its extents are a
-/// genuine fact about what the schedule's constraints alone imply -- and if that
-/// solid is bigger than the stated preform in any axis, the preform is silently
-/// truncating the design.
+/// `Design::planes` always includes the preform's half-spaces, so the combined
+/// arrangement can never exceed the preform. The facet planes alone have no such
+/// bound: most schedules rely on the preform's walls and so are usually
+/// [`SolidStatus::Unbounded`] (normal, not a warning). When they do close, a solid
+/// bigger than the preform on any axis means the preform silently truncates the design.
 ///
 /// Named-axis comparison ([`PreformFit::exceeds_width`]/etc.), not a single number:
 /// a stone can be too wide without being too tall and vice versa.
@@ -80,30 +76,14 @@ pub(super) fn finished_metrics(design: &Design, solved: &[SolvedTier]) -> Option
         .unwrap_or_else(|_| measure_solid(&design.planes_from_solved(solved)))
 }
 
-/// The worst violation of `planes`' half-spaces (`n . x <= m`) by any of
-/// `vertices` -- the offending plane's index into `planes` and how far
-/// outside it the worst-violating vertex sits -- or `None` when every
-/// vertex satisfies every plane within [`FIT_EPS`].
+/// The worst violation of `planes`' half-spaces (`n . x <= m`) by any of `vertices`: the
+/// offending plane's index into `planes` and how far outside it the worst vertex sits. `None`
+/// when every vertex satisfies every plane within [`FIT_EPS_REL`].
 ///
-/// This is the exact, general preform-fit test.
-/// [`PreformFit::exceeds_width`]/[`PreformFit::exceeds_length`]/
-/// [`PreformFit::exceeds_height`] compare axis-aligned extents, which is
-/// only equivalent to this for [`crate::preform::PreformShape::Block`]
-/// (an axis-aligned box, with the design never rotated relative to its
-/// preform in this crate's convention -- so the box's own faces line up
-/// with the extents being compared). For any other
-/// [`crate::preform::PreformShape`] (e.g.
-/// [`crate::preform::PreformShape::Cylinder`], whose wall planes are not
-/// axis-aligned), a vertex can sit inside every extent yet outside a wall
-/// plane -- a square cross-section's corner poking past an octagon
-/// preform's cut corner, say, while both AABBs agree exactly. Checking
-/// every solved vertex against every preform half-space directly is the
-/// rule that always gets this right, of which the extents comparison is
-/// just the box special case.
-///
-/// A [`crate::preform::PreformShape::Planes`] preform (the Rough Planner's
-/// planned piece of rough) is exactly this general case: its extents compare
-/// its bounding box only, and the half-space test is the one that counts.
+/// This is the exact, general preform-fit test. The axis-aligned extents of [`PreformFit`] agree
+/// with it only for a [`crate::preform::PreformShape::Block`] preform. For a cylinder or a
+/// planned rough ([`crate::preform::PreformShape::Planes`]) a vertex can sit inside every extent
+/// yet outside a wall plane, so the half-space test is the one that counts.
 pub(super) fn worst_halfspace_violation(
     vertices: &[glam::DVec3],
     planes: &[(glam::DVec3, f64)],
@@ -140,39 +120,21 @@ pub struct PreformFit {
     pub preform_length: f64,
     /// Height of the preform, in mast units.
     pub preform_height: f64,
-    /// The exact, general fit test: `Some((plane index, max violation))` when
-    /// some solved-stone vertex sits outside one of the preform's own
-    /// half-space planes (indexing [`crate::preform::PreformSpec::planes`]'s
-    /// output), by how much (model units), else `None`. See
-    /// [`worst_halfspace_violation`]'s doc comment for why this can catch a
-    /// non-box preform's corner-cutting where the extents comparison alone
-    /// cannot; for a [`crate::preform::PreformShape::Block`] preform the two
-    /// agree in every PRACTICAL case (both gate on the same
-    /// [`FIT_EPS_REL`]-scaled slack), but not EXACTLY: [`worst_halfspace_violation`]
-    /// scales its slack by each plane's own offset (a `Block` preform's own
-    /// HALF-width/length/height), while [`Self::exceeds_width`]/
-    /// [`Self::exceeds_length`]/[`Self::exceeds_height`] scale theirs by the
-    /// FULL preform extent -- a factor of two apart -- so a violation sized
-    /// squarely between the two scaled slacks can trip one check without the
-    /// other. A [`crate::preform::PreformShape::Planes`] preform is exactly the
-    /// general case: the three extents compare its bounding box, and this
-    /// half-space test is the one that counts.
+    /// `Some((plane index, max violation))` when some solved-stone vertex sits outside one of the
+    /// preform's half-space planes (indexing the output of
+    /// [`crate::preform::PreformSpec::planes`]), by how much in model units; see
+    /// [`worst_halfspace_violation`]. The extents scale their slack by the preform's full extent,
+    /// this test by each plane's offset (half the extent for a block), so a violation between the
+    /// two slacks can trip one check and not the other.
     pub outside_halfspace: Option<(usize, f64)>,
 }
 
-/// Relative slack (a fraction of the design's own preform extent, or of a
-/// half-space plane's own offset) below which a design axis -- or a solved
-/// vertex against a preform half-space -- is treated as "fits" even if
-/// numerically a hair over the preform's own figure.
-///
-/// A FIXED, absolute mast-unit slack (rather than the old `1e-7` `FIT_EPS`)
-/// is the wrong shape for this: [`exceeds_preform`] narrows its facet planes to
-/// `f32` via `GpuFacetPlane` before measuring them (while the preform's own
-/// planes stay `f64`), so the measurement noise this needs to absorb scales
-/// with the DESIGN's own magnitude, not with a fixed mast-unit constant --  a
-/// girdle mast set to EXACTLY the block preform's own half-width could still
-/// measure `2.000000105 > 2.0 + 1e-7`, a false "design exceeds its stated
-/// rough". See `a_design_whose_own_width_exactly_matches_the_preform_is_not_reported_as_exceeding`.
+/// Relative slack, as a fraction of the preform's extent (or of a half-space plane's offset),
+/// below which a design axis or a solved vertex counts as fitting. It is relative because
+/// [`exceeds_preform`] narrows the facet planes to `f32` (`GpuFacetPlane`) before measuring
+/// them, so the noise scales with the design's own magnitude: a mast equal to the preform's
+/// half-width can measure a hair over it. See
+/// `a_design_whose_own_width_exactly_matches_the_preform_is_not_reported_as_exceeding`.
 const FIT_EPS_REL: f64 = 1e-6;
 
 impl PreformFit {

@@ -1,156 +1,324 @@
+import { LineEdit, ScrollView } from "std-widgets.slint";
 import { Theme } from "../../theme.slint";
-import { ColorPatternModel } from "../../models/color_pattern.slint";
-import { RoughPill, ElidedText } from "../rough_planner/fields.slint";
-import { PatternSwatch, PatternTitle, PatternNote } from "parts.slint";
+import { ColorPatternModel, PatternZoneRow } from "../../models/color_pattern.slint";
+import { PatternIcon, PatternIcons } from "icons.slint";
+import { PatternUi } from "state.slint";
+import { PatternButton, PatternIconButton, PatternChip } from "parts.slint";
+import { PatternCardBody } from "zone_properties.slint";
 
-// One row of the zone list. A click, or Space / Enter / Up / Down while the row has focus, picks it.
-component ZoneListItem inherits Rectangle {
-    in property <string> title;
-    in property <string> name;
-    in property <string> shape;
-    in property <string> summary;
-    in property <color> swatch;
-    in property <color> swatch_across;
-    in property <bool> dichroic;
-    in property <bool> selected;
-    callback picked();
+// The height of a collapsed card plus the gap under it: the pitch drag to reorder measures in.
+// (While a card is dragged every card shows collapsed, so the pitch is the same for all.)
+global PatternCardMetrics {
+    out property <length> head: 52px;
+    out property <length> pitch: 60px;
+}
 
-    height: 30px;
-    border-radius: Theme.radius-sm;
-    background: root.selected ? Theme.surface-selected : (row_touch.has-hover ? Theme.surface-control-hover : Theme.bg-card);
-    border-width: row_focus.has-focus ? 2px : 1px;
-    border-color: row_focus.has-focus ? Theme.accent-cyan-hover : (root.selected ? Theme.accent-cyan : Theme.border-subtle);
+// One layer card. Collapsed it is a 52 px head: grip, swatch, name, shape and summary, eye and
+// the "..." menu. The selected card has a cyan border and shows its body inline. A click, or
+// Space / Enter with the card focused, selects it; a double-click on the head (or F2, or
+// "..." > Rename) renames it in place. Alt+Up and Alt+Down are handled by the window.
+component PatternLayerCard inherits Rectangle {
+    in property <PatternZoneRow> layer;
+    // The view index (0 is the top layer) and the number of cards (the base is the last).
+    in property <int> index;
+    in property <int> count;
 
+    property <bool> renaming: PatternUi.rename_row == root.index;
+    property <bool> dragging: PatternUi.drag_from == root.index;
+    property <bool> bar_shown: PatternUi.drag_from >= 0 && PatternUi.drag_target == root.index && PatternUi.drag_target != PatternUi.drag_from;
+
+    border-radius: 10px;
+    background: root.layer.selected ? Theme.bg-card : (head_touch.has-hover ? Theme.bg-card : Theme.bg-dark);
+    border-width: fs.has-focus ? 2px : 1px;
+    border-color: fs.has-focus ? Theme.accent-cyan-hover : (root.layer.selected ? Theme.accent-cyan : Theme.border-subtle);
+    opacity: root.dragging ? 0.5 : 1.0;
     accessible-role: AccessibleRole.radio-button;
-    accessible-label: root.title + ": " + root.name;
-    accessible-description: root.shape + ". " + root.summary;
+    accessible-label: root.layer.title + ": " + root.layer.name;
+    accessible-description: root.layer.shape + ". " + root.layer.summary + (root.layer.is_base ? "" : ". Alt+Up and Alt+Down move the layer.");
     accessible-checkable: true;
-    accessible-checked: root.selected;
-    accessible-action-default => { root.picked(); }
+    accessible-checked: root.layer.selected;
+    accessible-action-default => { ColorPatternModel.select_row(root.index); }
 
-    row_focus := FocusScope {
+    fs := FocusScope {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: PatternCardMetrics.head;
         key-pressed(event) => {
             if event.text == Key.Space || event.text == Key.Return {
-                root.picked();
+                ColorPatternModel.select_row(root.index);
+                return accept;
+            }
+            if event.text == Key.F2 {
+                PatternUi.rename_row = root.index;
                 return accept;
             }
             return reject;
         }
     }
-
-    HorizontalLayout {
-        padding-left: 8px;
-        padding-right: 8px;
-        spacing: 8px;
-        VerticalLayout {
-            alignment: center;
-            PatternSwatch {
-                color_a: root.swatch;
-                color_b: root.swatch_across;
-                split: root.dichroic;
-            }
+    head_touch := TouchArea {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: PatternCardMetrics.head;
+        mouse-cursor: pointer;
+        clicked => {
+            fs.focus();
+            ColorPatternModel.select_row(root.index);
         }
-        Text {
-            width: 46px;
-            text: root.title;
-            font-size: 11px;
-            font-weight: 700;
-            color: Theme.text-primary;
-            vertical-alignment: center;
-        }
-        // Both text columns take an equal share whatever their text: a preferred width of
-        // 0 keeps the kind column at the same x on every row.
-        ElidedText {
-            preferred-width: 0px;
-            text: "\u{201c}" + root.name + "\u{201d}";
-            font_size: 11px;
-            text_color: Theme.text-primary;
-        }
-        ElidedText {
-            preferred-width: 0px;
-            text: root.shape;
-            font_size: 10px;
-            text_color: Theme.text-secondary;
+        double-clicked => {
+            ColorPatternModel.select_row(root.index);
+            PatternUi.rename_row = root.index;
         }
     }
-    row_touch := TouchArea {
-        mouse-cursor: pointer;
-        clicked => { root.picked(); }
+
+    // The drop marker while another card is dragged over this one.
+    if root.bar_shown: Rectangle {
+        x: 10px;
+        y: PatternUi.drag_target < PatternUi.drag_from ? -5px : parent.height + 3px;
+        width: parent.width - 20px;
+        height: 3px;
+        border-radius: 1.5px;
+        background: Theme.accent-cyan;
+    }
+
+    VerticalLayout {
+        HorizontalLayout {
+            height: PatternCardMetrics.head;
+            padding-left: 6px;
+            padding-right: 6px;
+            spacing: 10px;
+
+            // The grip: drag to reorder (the base has none).
+            Rectangle {
+                width: 16px;
+                if !root.layer.is_base: Rectangle {
+                    width: parent.width;
+                    height: parent.height;
+                    Tooltip { text: @markdown("Drag to move this layer up or down the list. Alt+Up and Alt+Down do the same from the keyboard."); }
+                    Rectangle {
+                        x: (parent.width - 8px) / 2;
+                        y: (parent.height - 14px) / 2;
+                        width: 8px;
+                        height: 14px;
+                        for dot[k] in 6: Rectangle {
+                            x: Math.mod(k, 2) * 5px;
+                            y: Math.floor(k / 2) * 5px;
+                            width: 3px;
+                            height: 3px;
+                            border-radius: 1.5px;
+                            background: grip_touch.has-hover ? Theme.text-secondary : Theme.text-muted;
+                        }
+                    }
+                    grip_touch := TouchArea {
+                        mouse-cursor: MouseCursor.grab;
+                        accessible-role: AccessibleRole.button;
+                        accessible-label: "Drag " + root.layer.name;
+                        accessible-description: "Drag to move this layer up or down the list. Alt+Up and Alt+Down do the same.";
+                        pointer-event(e) => {
+                            if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
+                                PatternUi.drag_from = root.index;
+                                PatternUi.drag_target = root.index;
+                            } else if e.kind == PointerEventKind.up || e.kind == PointerEventKind.cancel {
+                                if PatternUi.drag_from == root.index && PatternUi.drag_target >= 0 && PatternUi.drag_target != root.index && e.kind == PointerEventKind.up {
+                                    ColorPatternModel.reorder_row(root.index, PatternUi.drag_target);
+                                }
+                                PatternUi.drag_from = -1;
+                                PatternUi.drag_target = -1;
+                            }
+                        }
+                        moved => {
+                            if PatternUi.drag_from == root.index {
+                                PatternUi.drag_target = Math.clamp(Math.floor((self.absolute-position.y + self.mouse-y - (root.absolute-position.y - root.index * PatternCardMetrics.pitch)) / PatternCardMetrics.pitch), 0, root.count - 2);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // The swatch: split on the diagonal for a pleochroic layer.
+            VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    width: 36px;
+                    height: 36px;
+                    opacity: root.layer.hidden ? 0.4 : 1.0;
+                    PatternChip {
+                        a: root.layer.swatch;
+                        b: root.layer.swatch_across;
+                        split: root.layer.dichroic;
+                    }
+                }
+            }
+
+            // The name, and the shape icon and summary under it.
+            VerticalLayout {
+                horizontal-stretch: 1;
+                alignment: center;
+                spacing: 2px;
+                if !root.renaming: Text {
+                    text: root.layer.name;
+                    font-size: 13px;
+                    font-weight: 600;
+                    color: root.layer.hidden ? Theme.text-muted : Theme.text-primary;
+                    overflow: elide;
+                    accessible-role: AccessibleRole.text;
+                }
+                if root.renaming: LineEdit {
+                    height: 28px;
+                    text: root.layer.name;
+                    font-size: 13px;
+                    placeholder-text: "Layer Name";
+                    accessible-label: "Layer name";
+                    init => {
+                        self.focus();
+                        self.select-all();
+                    }
+                    accepted(value) => {
+                        PatternUi.rename_row = -1;
+                        ColorPatternModel.rename_row(root.index, value);
+                    }
+                    changed has-focus => {
+                        if !self.has-focus && PatternUi.rename_row == root.index {
+                            PatternUi.rename_row = -1;
+                            ColorPatternModel.rename_row(root.index, self.text);
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 5px;
+                    alignment: start;
+                    if PatternIcons.shape(root.layer.shape_icon) != "": VerticalLayout {
+                        alignment: center;
+                        horizontal-stretch: 0;
+                        PatternIcon {
+                            d: PatternIcons.shape(root.layer.shape_icon);
+                            size: 12px;
+                            stroke: 1.6px;
+                            ink: Theme.text-muted;
+                        }
+                    }
+                    Text {
+                        text: root.layer.summary;
+                        font-size: 11px;
+                        color: Theme.text-secondary;
+                        overflow: elide;
+                        horizontal-stretch: 1;
+                        accessible-role: AccessibleRole.text;
+                    }
+                }
+            }
+
+            // The eye (a session-only hide), or the lock of the base.
+            VerticalLayout {
+                alignment: center;
+                if root.layer.is_base: Rectangle {
+                    width: 28px;
+                    height: 28px;
+                    accessible-role: AccessibleRole.text;
+                    accessible-label: "Base layer, locked";
+                    Tooltip { text: @markdown("The base layer fills everything the other layers do not cover. It stays last."); }
+                    PatternIcon {
+                        x: (parent.width - self.width) / 2;
+                        y: (parent.height - self.height) / 2;
+                        d: PatternIcons.lock;
+                        size: 14px;
+                        ink: Theme.text-muted;
+                    }
+                }
+                if !root.layer.is_base: PatternIconButton {
+                    d: root.layer.hidden ? PatternIcons.eye-off : PatternIcons.eye;
+                    size: 28px;
+                    label: root.layer.hidden ? "Show layer" : "Hide layer";
+                    hint: root.layer.hidden
+                        ? "Show this layer in the preview again. Hiding is for this session only: nothing is stored."
+                        : "Hide this layer in the preview to see the ones below. It only affects this session: nothing is stored.";
+                    clicked => { ColorPatternModel.toggle_hidden(root.index); }
+                }
+            }
+
+            // The "..." menu.
+            VerticalLayout {
+                alignment: center;
+                PatternIconButton {
+                    d: PatternIcons.more;
+                    size: 28px;
+                    stroke: 2.6px;
+                    label: "Layer menu";
+                    hint: "Rename, duplicate, move or delete this layer.";
+                    clicked => {
+                        PatternUi.add_open = false;
+                        PatternUi.menu_x = self.absolute-position.x + self.width - 190px;
+                        PatternUi.menu_y = self.absolute-position.y + self.height + 2px;
+                        PatternUi.menu_row = PatternUi.menu_row == root.index ? -1 : root.index;
+                    }
+                }
+            }
+        }
+        if root.layer.selected && PatternUi.drag_from < 0: PatternCardBody { }
     }
 }
 
-// The zone list with its buttons: Add Zone (a menu of shapes), Duplicate, Delete and the two
-// move buttons. Later zones cover earlier ones, which the note under the buttons says.
-export component PatternZoneList inherits VerticalLayout {
-    // The shape list under the buttons is open.
-    property <bool> add_open: false;
-    spacing: 6px;
+// The layers panel: its title, the Add menu button and one card per layer, top layer first.
+// Dragging a card by its grip, Alt+Up and Alt+Down, and "..." > Move Up / Move Down reorder.
+export component PatternLayers inherits Rectangle {
+    background: Theme.bg-dark;
+    border-radius: 14px;
+    border-width: 1px;
+    border-color: Theme.border-subtle;
 
-    PatternTitle { text: "ZONES"; }
-
-    for row[i] in ColorPatternModel.zone_rows: ZoneListItem {
-        title: row.title;
-        name: row.name;
-        shape: row.shape;
-        summary: row.summary;
-        swatch: row.swatch;
-        swatch_across: row.swatch_across;
-        dichroic: row.dichroic;
-        selected: row.selected;
-        picked => { ColorPatternModel.select_zone(i); }
-    }
-
-    HorizontalLayout {
-        spacing: 6px;
-        alignment: start;
-        RoughPill {
-            text: "Add Zone";
-            hint: ColorPatternModel.can_add_zone ? "Add a zone of the shape you choose. It starts in the middle of the stone." : ColorPatternModel.add_zone_hint;
-            enabled: ColorPatternModel.can_add_zone;
-            active: root.add_open;
-            clicked => { root.add_open = !root.add_open; }
+    VerticalLayout {
+        padding: 12px;
+        spacing: 8px;
+        HorizontalLayout {
+            height: 32px;
+            spacing: 8px;
+            Text {
+                text: "Layers";
+                font-size: 14px;
+                font-weight: 600;
+                color: Theme.text-primary;
+                vertical-alignment: center;
+                horizontal-stretch: 0;
+                accessible-role: AccessibleRole.text;
+            }
+            Text {
+                horizontal-stretch: 1;
+                text: "upper layers cover lower ones";
+                font-size: 11px;
+                color: Theme.text-muted;
+                vertical-alignment: center;
+                overflow: elide;
+                accessible-role: AccessibleRole.text;
+            }
+            VerticalLayout {
+                alignment: center;
+                add_button := PatternButton {
+                    text: "Add";
+                    icon: PatternIcons.plus;
+                    chevron: true;
+                    enabled: ColorPatternModel.can_add_zone;
+                    active: PatternUi.add_open;
+                    hint: ColorPatternModel.can_add_zone ? "Add a layer of the shape you choose, on top of the others. It starts in the middle of the stone." : ColorPatternModel.add_zone_hint;
+                    clicked => {
+                        PatternUi.menu_row = -1;
+                        PatternUi.add_x = self.absolute-position.x + self.width - 200px;
+                        PatternUi.add_y = self.absolute-position.y + self.height + 4px;
+                        PatternUi.add_open = !PatternUi.add_open;
+                    }
+                }
+            }
         }
-        RoughPill {
-            text: "Duplicate";
-            hint: "Copy the selected zone, shifted a little so both stay visible.";
-            enabled: ColorPatternModel.can_edit_zone && ColorPatternModel.can_add_zone;
-            clicked => { ColorPatternModel.duplicate_zone(); }
-        }
-        RoughPill {
-            text: "Delete";
-            hint: "Remove the selected zone. The base zone cannot be removed.";
-            enabled: ColorPatternModel.can_edit_zone;
-            clicked => { ColorPatternModel.delete_zone(); }
-        }
-        RoughPill {
-            width: 30px;
-            text: "Up";
-            hint: "Move the selected zone up the list. A zone lower in the list covers the zones above it.";
-            enabled: ColorPatternModel.can_edit_zone && ColorPatternModel.selected_zone > 1;
-            clicked => { ColorPatternModel.move_zone(-1); }
-        }
-        RoughPill {
-            width: 40px;
-            text: "Down";
-            hint: "Move the selected zone down the list. A zone lower in the list covers the zones above it.";
-            enabled: ColorPatternModel.can_edit_zone && ColorPatternModel.selected_zone < ColorPatternModel.zone_rows.length - 1;
-            clicked => { ColorPatternModel.move_zone(1); }
-        }
-    }
-    PatternNote { text: "Later zones cover earlier ones."; }
-
-    // The shape menu of "Add Zone", open inline under the buttons (a popup cannot be placed
-    // reliably from inside a layout). Each entry adds the shape with that index in `shape_options`.
-    if root.add_open: VerticalLayout {
-        spacing: 3px;
-        PatternNote { text: "Choose the shape of the new zone:"; }
-        for shape[i] in ColorPatternModel.shape_options: RoughPill {
-            height: 24px;
-            text: shape;
-            hint: "Add a zone with this shape.";
-            clicked => {
-                root.add_open = false;
-                ColorPatternModel.add_zone(i);
+        ScrollView {
+            vertical-stretch: 1;
+            VerticalLayout {
+                alignment: start;
+                spacing: 8px;
+                for zone[i] in ColorPatternModel.zone_rows: PatternLayerCard {
+                    layer: zone;
+                    index: i;
+                    count: ColorPatternModel.zone_rows.length;
+                }
             }
         }
     }

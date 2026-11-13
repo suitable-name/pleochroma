@@ -9,9 +9,8 @@
 //! - **Always** serves the read-only design-library protocol ([`library`], backed by
 //!   [`pleochroma_vault`]) to viewers on `--bind` (default 7878).
 //! - **With `--render`** (implied by `--only-gpu`/`--only-cpu`; `worker` builds only)
-//!   renders viewers' `RenderRequest`s with its own CPU/GPU lane, exactly as a plain
-//!   worker did before coordinator mode. Without it no GPU is acquired and no sample is
-//!   traced here -- **`serve` no longer renders by default.**
+//!   renders viewers' `RenderRequest`s with its own CPU/GPU lane. Without it no GPU is
+//!   acquired and no sample is traced here: **`serve` does not render by default.**
 //! - **On `worker` builds** opens the worker port (`--worker-bind`, default 7880) where
 //!   `pleochroma-worker join` workers dial in and register in the coordinator's
 //!   [`crate::coordinator::Registry`]; a viewer's request is then executed over them
@@ -57,8 +56,8 @@
 //! - Every listener binds to loopback only unless `--allow-remote` is passed,
 //!   independent of TLS.
 //! - An authenticated client can still ask for an absurd render or search:
-//!   `crate::validate`'s caps bound the former, `Database::search_diagrams`'s 1000-row
-//!   cap bounds the latter unconditionally.
+//!   `crate::validate`'s caps bound the former, and `SEARCH_RESULT_CAP` (1000 rows)
+//!   bounds the latter.
 //! - Every accepted connection gets `TCP_NODELAY` and TCP keepalive best-effort (see
 //!   [`tune_accepted_socket`]), and [`HANDSHAKE_TIMEOUT`] until its first `HELLO`
 //!   (slowloris), cleared by the connection handler once `HELLO` arrives.
@@ -97,7 +96,7 @@ mod tls;
 // Zones received over the wire (see its own doc comment).
 #[cfg(feature = "worker")]
 pub(crate) mod zoning;
-// These tests drive a real render round trip, uncompilable without `render` support.
+// These tests drive a real render round trip and need the `worker` feature.
 // `library`'s own tests cover the library protocol unconditionally.
 // `pub(crate)` so other test modules (the coordinator's) share its temp-dir helper.
 #[cfg(all(test, feature = "worker"))]
@@ -110,7 +109,7 @@ pub(crate) use limiter::PRE_AUTH_HANDSHAKE_MULTIPLIER;
 pub use limiter::{ConnectionLimiter, ConnectionSlot};
 pub(crate) use socket::HANDSHAKE_TIMEOUT;
 // Ungated (unlike the `worker`-only re-exports below): `crate::enroll`'s listener runs
-// in every build, and needs these two to apply the same pre-HELLO deadline (F-06a) to
+// in every build, and needs these two to apply the same pre-HELLO deadline to
 // its own TLS-handshake-then-one-message exchange.
 pub(crate) use socket::{DeadlineIo, DeadlineSocket};
 #[cfg(feature = "worker")]
@@ -464,10 +463,11 @@ fn start_job_service(
 
 /// A representative scene for [`crate::render_core::hybrid::calibrate_now`]'s start-up
 /// probe: a real, traceable scene (so the probe measures genuine per-dispatch overhead,
-/// not just call overhead) at a typical interactive/live-view resolution. Only its
-/// resolution matters to the calibration decision (`render_core::hybrid::job_key`
-/// buckets to the enclosing power of two), so the exact material/geometry/lighting
-/// below are arbitrary.
+/// not just call overhead) at a typical interactive/live-view resolution. Its resolution
+/// and its estimator select the calibration key (`render_core::hybrid::job_key` buckets
+/// the resolution to the enclosing power of two), and it asks for
+/// `Estimator::APP_DEFAULT`, so the start-up calibration seeds the key the apps' scenes
+/// hit; the exact material/geometry/lighting below are arbitrary.
 #[cfg(feature = "worker")]
 fn probe_scene() -> pleochroma_net::SceneState {
     use pleochroma::{
@@ -480,6 +480,10 @@ fn probe_scene() -> pleochroma_net::SceneState {
         height: 512,
         yaw: 0.4,
         camera_roll: 0.0,
+        stone_shadow: false,
+        tray_reflection: 0.0,
+        hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
+        estimator: pleochroma::optics::raytracer::Estimator::APP_DEFAULT,
         pitch: 0.3,
         distance: 3.0,
         light_yaw: 0.85,
@@ -505,9 +509,8 @@ fn probe_scene() -> pleochroma_net::SceneState {
 /// `explicit`, else `base`'s host `offset` ports up. `None` (no listener) under
 /// `--no-enroll` or `--insecure-no-tls` (no `auth`).
 ///
-/// Builds its own dedicated pair of connection limiters (F-06b) rather than being
-/// handed the matching viewer/worker listener's real `--max-connections` limiter --
-/// see [`enroll::ENROLL_MAX_CONNECTIONS`]'s doc comment for why sharing it was a bug.
+/// Builds its own pair of connection limiters rather than sharing the matching viewer or
+/// worker listener's `--max-connections` limiter (see [`enroll::ENROLL_MAX_CONNECTIONS`]).
 fn start_enrollment(
     args: &ServeArgs,
     explicit: Option<&str>,

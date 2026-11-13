@@ -77,7 +77,7 @@ fn both<A: Send, B: Send>(
     }
 }
 
-/// The longest-first estimate remains free tiers × (1 + labelled) × design tiers.
+/// Longest-first cost estimate: free tiers (at least one) × (1 + labelled) × design tiers.
 fn step_cost(slot: &Slot, labelled: bool) -> u64 {
     let free = slot.env.free_tiers().len() as u64;
     free.max(1) * (1 + u64::from(labelled)) * slot.obs.tiers.len() as u64

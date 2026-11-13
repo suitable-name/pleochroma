@@ -1,10 +1,10 @@
 //! Per-block scale-reference anchoring from printed proportions.
 //!
 //! Meet-vertex incidence alone cannot recover a design's per-block translation
-//! (see the module docs on anchors); [`apply_ratio_anchors`] fills in whatever a
+//! (see the meet solver module docs); [`apply_ratio_anchors`] fills in whatever a
 //! schedule left unanchored from its printed `C/W`/`P/W` ratios, using real
 //! per-design plane geometry ([`geometric_ratio_anchor`],
-//! [`girdle_radius_for_anchor`]) rather than a corpus-fitted constant.
+//! [`girdle_radius_for_anchor`]) rather than a fitted constant.
 
 use super::{
     MeetConstraint, MeetTierInput,
@@ -26,10 +26,8 @@ const GIRDLE_REFERENCE_MAST: f64 = 1.0;
 /// dimension. Falls back to [`GIRDLE_REFERENCE_MAST`] if the design has no
 /// girdle tier at all.
 ///
-/// Treats the one known radius as representative of the whole girdle (an
-/// approximation; other girdle facets are still unresolved at this point)
-/// rather than attempting azimuth-matched per-facet radii -- still a real
-/// per-design geometric quantity, unlike a corpus-fitted constant.
+/// Treats that one radius as representative of the whole girdle, because the other
+/// girdle facets are still unresolved at this point.
 fn girdle_radius_for_anchor(tiers: &[MeetTierInput], blocks: &[Block]) -> f64 {
     let mut radii: Vec<f64> = (0..tiers.len())
         .filter(|&i| blocks[i] == Block::Girdle)
@@ -42,25 +40,17 @@ fn girdle_radius_for_anchor(tiers: &[MeetTierInput], blocks: &[Block]) -> f64 {
     radii.first().copied().unwrap_or(GIRDLE_REFERENCE_MAST)
 }
 
-/// Converts a printed proportion ratio (`C/W` or `P/W`) into an anchor mast for
-/// one tier by direct plane geometry -- the tier's own angle and the design's
-/// girdle radius -- rather than a corpus-fitted scalar. Which relation applies
-/// depends on `is_flat`, i.e. *which* tier [`apply_ratio_anchors`] is anchoring.
+/// Converts a printed ratio (`C/W` or `P/W`) into an anchor mast for one tier, from the
+/// tier's own angle and the design's girdle radius. `is_flat` selects the relation.
 ///
-/// **`is_flat = true`** (an explicit flat table/culet tier, always `theta = 0`):
-/// its mast literally *is* the block's height/depth above/below the girdle
-/// plane, since a horizontal plane's mast is its height by definition. With the
-/// girdle anchored at `girdle_r` (see [`girdle_radius_for_anchor`]),
-/// `W = 2 * girdle_r`, so `mast = ratio * 2.0 * girdle_r` directly.
+/// **`is_flat = true`** (an explicit flat table or culet, `theta = 0`): the mast is the
+/// block's height or depth, since a horizontal plane's mast is its height. With
+/// `W = 2 * girdle_r` (see [`girdle_radius_for_anchor`]), that is `ratio * 2.0 * girdle_r`.
 ///
-/// **`is_flat = false`** (the block's first tier, when it has no flat
-/// table/culet): rejected summing a girdle-rim term and a height term
-/// (`sin(theta) * girdle_r + cos(theta) * (ratio * 2.0 * girdle_r)`) -- a
-/// design's first-listed tier is almost always girdle-adjacent and reaches
-/// nowhere near the block's full height/depth, so the height term overshoots
-/// badly (43% crown / 107% pavilion median relative error). The pure
-/// girdle-rim relation `mast = sin(theta) * girdle_r` (no ratio) measures
-/// 10-14%, beating the old fitted constants' 18.2% crown / 10.2% pavilion.
+/// **`is_flat = false`** (the block's first tier, with no flat table or culet): the pure
+/// girdle-rim relation `sin(theta) * girdle_r`, ignoring the ratio. A height term would
+/// overshoot, because the first-listed tier is usually girdle-adjacent and does not reach
+/// the block's full height or depth.
 fn geometric_ratio_anchor(theta_deg: f64, ratio: f64, girdle_r: f64, is_flat: bool) -> f64 {
     let theta = theta_deg.abs().to_radians();
     if is_flat {
@@ -76,10 +66,8 @@ fn geometric_ratio_anchor(theta_deg: f64, ratio: f64, girdle_r: f64, is_flat: bo
 /// `C/W`/`P/W` ratio actually measures. `None` when the block has no such tier
 /// (a pointed table/culet, common on the pavilion side).
 ///
-/// The side test is `blocks[i] == want` alone: [`tier_sides`](super::blocks::tier_sides)
-/// already read it from the zero's sign (a sign-negative zero is the culet,
-/// which `parse_asc` produces from the file's negative culet distance), so
-/// nothing here needs to look at the sign again.
+/// The side is already encoded in `blocks`, derived from the zero's sign by
+/// [`tier_sides`](super::blocks::tier_sides), so only `blocks[i] == want` is tested.
 pub(super) fn explicit_table_or_culet(
     tiers: &[MeetTierInput],
     blocks: &[Block],
@@ -89,51 +77,33 @@ pub(super) fn explicit_table_or_culet(
         .find(|&i| blocks[i] == want && tiers[i].angle_deg == 0.0 && tiers[i].indices.len() <= 1)
 }
 
-/// Fills in per-block [`MeetConstraint::ScaleReference`] anchors from a design's
-/// printed proportions rather than from a real recorded mast.
+/// Fills in per-block [`MeetConstraint::ScaleReference`] anchors from printed proportions.
 ///
-/// `C/W`/`P/W` (crown height and pavilion depth, each over girdle width) are what
-/// let [`solve_meet_points`](super::solve_meet_points) run on a design that has
-/// no `.asc` file at all, and are exactly the free per-block dimensions
-/// meet-vertex incidence alone cannot recover (see the module docs).
+/// `C/W`/`P/W` (crown height and pavilion depth, each over girdle width) are the free
+/// per-block dimensions that meet incidence cannot recover (see the meet solver module
+/// docs). They also let [`solve_meet_points`](super::solve_meet_points) run on a design
+/// with no `.asc` file.
 ///
-/// Only touches a block that doesn't already carry an explicit
-/// [`MeetConstraint::ScaleReference`] (a schedule's own stated anchor always
-/// wins over an estimate) and that has at least one tier:
+/// Only a block with at least one tier and no explicit [`MeetConstraint::ScaleReference`]
+/// is touched, so a schedule's own stated anchor always wins:
 ///
-/// - **Girdle**: anchors the block's first tier (file order) at
-///   [`GIRDLE_REFERENCE_MAST`], unconditionally -- a design has only one real
-///   scale degree of freedom, so this is just the reference unit the crown and
-///   pavilion anchors below are expressed against.
-/// - **Crown**: if `cw_ratio` is `Some`, anchors an explicit flat table tier
-///   ([`explicit_table_or_culet`]) when present, else the block's first tier --
-///   via [`geometric_ratio_anchor`] (that tier's own angle, `cw_ratio`, and
-///   [`girdle_radius_for_anchor`]), not a fitted constant.
+/// - **Girdle**: when no girdle tier is anchored yet, the first girdle tier (file order)
+///   gets [`GIRDLE_REFERENCE_MAST`]. A design has one real scale degree of freedom, so
+///   this is only the unit the crown and pavilion anchors are expressed in.
+/// - **Crown**: if `cw_ratio` is `Some`, an explicit flat table tier
+///   ([`explicit_table_or_culet`]) when present, else the block's first tier, anchored
+///   via [`geometric_ratio_anchor`].
 /// - **Pavilion**: the same, via `pw_ratio` and an explicit flat culet tier when
-///   present (a minority of designs have one; most pavilions are pointed).
+///   present (most pavilions are pointed).
 ///
-/// Returns `(crown_anchored, pavilion_anchored)`: whether each was actually
-/// able to anchor (`false` when the ratio was `None` or the block has no tiers).
+/// Returns `(crown_anchored, pavilion_anchored)`: whether each was actually able to
+/// anchor (`false` when the ratio is `None` or the block has no tiers).
 ///
-/// # Why per-design geometry instead of a fitted constant
-///
-/// Rejected: four corpus-fitted constants (median `real_mast / ratio`), one per
-/// anchor-tier case -- implicitly assumes every design's anchor tier sits at the
-/// same angle, which is false in general; measured worse end-to-end than the
-/// real-mast baseline (corpus median relative error 0.2125 -> 0.3446).
-///
-/// [`geometric_ratio_anchor`] uses the anchor tier's own angle and this design's
-/// own girdle radius instead (corpus median relative error 0.2866, better than
-/// the fitted constants though short of the 0.2125 real-mast baseline, since a
-/// printed ratio is a noisier signal). The residual is a known, accepted limit:
-/// printed `C/W` is measured from the girdle band's top edge, not the
-/// mast-origin plane a flat table's mast is measured from, so
-/// `ratio * 2 * girdle_r` is exact for the wrong reference plane, and `C/W` is
-/// invariant under coherent block translation so it cannot pin the crown
-/// anchor absolutely (see
-/// [`solve_meet_points_verified`](super::solve_meet_points_verified)).
-///
-/// Still the only anchor source available for designs with no `.asc` file.
+/// The printed `C/W` is measured from the girdle band's top edge, not from the plane a
+/// flat table's mast is measured from. So `ratio * 2 * girdle_r` is off by that offset.
+/// `C/W` is also invariant under coherent block translation, so it cannot pin the crown
+/// anchor absolutely. This residual error is accepted. Real recorded masts are preferred
+/// when available (see [`solve_meet_points_verified`](super::solve_meet_points_verified)).
 pub fn apply_ratio_anchors(
     tiers: &mut [MeetTierInput],
     cw_ratio: Option<f64>,
@@ -180,8 +150,7 @@ mod tests {
     /// (angle exactly `0.0`, one instance) with `geometric_ratio_anchor(0.0,
     /// cw_ratio, girdle_r)`, which for a flat table (`theta = 0`) reduces exactly
     /// to `cw_ratio * 2.0 * girdle_r`, and the girdle block's first tier with the
-    /// fixed reference mast -- reproducing the design-4-shaped case from the corpus
-    /// (flat table, no explicit culet: a pointed pavilion).
+    /// fixed reference mast (flat table, pointed pavilion).
     #[test]
     fn apply_ratio_anchors_uses_the_explicit_table_tier_when_present() {
         let mut tiers = vec![
@@ -301,9 +270,8 @@ mod tests {
     /// doesn't even look at `theta_deg` in this branch) must equal `ratio * 2 *
     /// girdle_r` exactly (a horizontal plane's mast *is* its height); a
     /// girdle-adjacent tier (`is_flat = false`) must equal the pure girdle-rim
-    /// formula `sin(theta) * girdle_r`, completely independent of `ratio` --
-    /// mixing in a height term there was tried and measured to overshoot badly
-    /// (see the doc comment on [`geometric_ratio_anchor`]).
+    /// formula `sin(theta) * girdle_r`, completely independent of `ratio` (see the
+    /// doc comment on [`geometric_ratio_anchor`]).
     #[test]
     fn geometric_ratio_anchor_matches_its_two_cases() {
         let girdle_r = 1.37;

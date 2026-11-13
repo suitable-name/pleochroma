@@ -398,7 +398,7 @@ fn the_diagram_zooms_between_one_and_six() {
         rig.step(|vp, env| vp.wheel(400.0, 160.0, 100.0, env));
     }
     assert!((rig.viewport.diagram_view.zoom - 6.0).abs() < 1e-4);
-    // A double tap restores the unzoomed layout (no panel under the finger or not).
+    // A double tap restores the unzoomed layout, with or without a panel under the finger.
     rig.tap(5.0, 5.0);
     rig.advance(100);
     rig.tap(5.0, 5.0);

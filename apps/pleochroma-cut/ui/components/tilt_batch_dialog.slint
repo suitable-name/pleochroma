@@ -6,24 +6,15 @@ import { HelpButton } from "help_button.slint";
 import { TipButton } from "compact_controls.slint";
 import { SegmentPill } from "pill_button.slint";
 
-// Batch tilt-performance-curve computation. One component, two states, the
-// exact same shape `preview_batch_dialog.slint` already established for the preview
-// batch -- see that file's own doc comment for the `confirming`/running-or-done split
-// this mirrors line for line. Kept as a SEPARATE component rather than a generalized
-// shared one: see `app.slint`'s `tilt_batch_visible` doc comment for why.
+// Batch tilt-performance-curve computation: a confirmation state, then a running or done
+// state. It is a separate component from `preview_batch_dialog.slint`, which has the same
+// confirming and running split.
 //
-// `LiveComputeTarget::Both` runs `batch_queue::local_lane_count` local lanes plus a
-// remote dispatcher concurrently (`gui::batch::tilt`'s module doc comment, "Local +
-// remote" section), pulling designs off one shared queue -- so `design_index` is a
-// COMPLETED count, not a current-item cursor. With N local lanes each possibly
-// mid-design at once, no single title/axis-index pair can describe "the" local lane's
-// progress any more, so `local_active`/`local_lane_total`
-// report a plain busy-count instead (see `gui::batch::tilt`'s module doc comment's
-// "Progress with N local lanes (plus remote) in flight" section). `remote_active`/
-// `remote_in_flight`/`remote_title` describe the REMOTE side: `remote_batch_lanes`
-// dispatchers each keep one design (all 4 axes, one blocking request) in flight, so
-// the row shows how many designs are on the remote right now and the design a
-// dispatcher started most recently (same module's own doc comment).
+// `LiveComputeTarget::Both` runs `batch_queue::local_lane_count` local lanes plus remote
+// dispatchers at once, all pulling designs off one queue (see `gui::batch::tilt`). So
+// `design_index` is a completed count, not a cursor, and `local_active`/`local_lane_total`
+// report a busy count. `remote_active`/`remote_in_flight`/`remote_title` describe the remote
+// side: how many designs are on the remote and the design a dispatcher started last.
 export component TiltBatchDialog inherits Rectangle {
     in property <bool> confirming: BatchModel.tilt_confirming;
     in property <int> offer_count: BatchModel.tilt_offer_count;
@@ -74,28 +65,10 @@ export component TiltBatchDialog inherits Rectangle {
 
     background: Theme.overlay-backdrop;
 
-    // The card is wrapped in centering layouts rather than being a bare child with an
-    // explicit `height`. That is load-bearing, not cosmetic:
-    //
-    // A child of a plain `Rectangle` is not laid out -- it defaults to filling its
-    // parent -- so the card previously carried `height: card.preferred-height` to size
-    // itself to its content. That silently under-measures: the card's `Text` elements
-    // use `wrap: word-wrap`, and a wrapped text's preferred height is only meaningful
-    // once its WIDTH is known. Queried that way it resolved against an unconstrained
-    // width (as if each paragraph were one long line), so the card came out far shorter
-    // than its content, and `clip: true` cut the overflow away -- taking the buttons at
-    // the bottom with it. The dialog rendered as truncated text with nothing clickable.
-    //
-    // Centring alone did NOT fix it, though -- that was the first attempt. Slint
-    // measures a wrapped Text's preferred height as one unwrapped line whether it is
-    // asked directly or via a layout, so the card stayed too short either way. The
-    // actual fix is on the card itself: a stated height plus a scrollable body between
-    // a fixed title and fixed buttons. See the `height` binding below.
-    //
     // The keyboard stays inside the card: Tab moves between its buttons, Enter takes the
     // main button, Escape declines the offer (or closes the finished summary), and every
-    // other key is swallowed so a shortcut cannot fire on the design behind. A batch that is
-    // running ignores Escape: stopping it is the Cancel button's job.
+    // other key is swallowed so a shortcut cannot fire on the design behind. A running batch
+    // ignores Escape: the Cancel button stops it.
     // A full-window backdrop: clicks beside the card must not reach the design behind it.
     TouchArea {
         width: 100%;
@@ -135,21 +108,11 @@ export component TiltBatchDialog inherits Rectangle {
 
             Rectangle {
                 width: 380px;
-                // Explicit, and deliberately NOT derived from the content.
-                //
-                // Slint computes a `wrap: word-wrap` Text's preferred height as though
-                // it were a single unwrapped line, so ANY height derived from this
-                // card's children under-measures -- whether asked for directly
-                // (`card.preferred-height`, the original bug) or implicitly by placing
-                // the card in a layout (the first attempted fix). Both produced a card
-                // shorter than its text, and `clip: true` then cut the overflow away,
-                // taking the buttons with it.
-                //
-                // So the height is stated, and the body below is put in a `ScrollView`
-                // between a fixed title and fixed buttons. That makes the buttons
-                // structurally impossible to clip at ANY text length or window size:
-                // they are not inside the scrollable region. Capped against
-                // `root.height` so the card can never exceed the window it sits in.
+                // Stated, not derived from the content: Slint measures a wrapped Text as one
+                // line, so a height taken from the children would under-measure and `clip`
+                // would cut off the buttons. The body is a `ScrollView` between a fixed title
+                // and fixed buttons, so the buttons are never clipped. Capped against
+                // `root.height` so the card never exceeds the window.
                 height: root.confirming
                     ? Math.min(root.height - 96px, 430px)
                     : Math.min(root.height - 96px, root.done ? 240px : 340px);
@@ -278,12 +241,8 @@ export component TiltBatchDialog inherits Rectangle {
                             vertical-stretch: 0;
                             spacing: 10px;
 
-                            // Local runs `local_lane_total` lanes concurrently (Task:
-                            // saturate cores, not pin one) -- with N lanes each possibly
-                            // mid-design at once, no single title is meaningful any
-                            // more, so this reports a plain busy-count instead. Hidden
-                            // entirely under `RemoteOnly`, where no local lane runs at
-                            // all.
+                            // Local lanes run concurrently, so this shows a busy count rather
+                            // than one title. Hidden under `RemoteOnly`, where no local lane runs.
                             if root.local_lane_total > 0: Text {
                                 text: "Local: " + root.local_active + " / " + root.local_lane_total + " lane(s) busy";
                                 font-size: 12px;
@@ -291,12 +250,8 @@ export component TiltBatchDialog inherits Rectangle {
                                 overflow: elide;
                             }
 
-                            // The remote dispatchers' in-flight count and the design one
-                            // of them started most recently -- only shown at
-                            // all while remote dispatchers are running (`LocalOnly`
-                            // never sets `remote_active`, and `RemoteOnly` shows only
-                            // this row, no "Local:" row above, since no local lane
-                            // runs in that mode).
+                            // Remote dispatchers' in-flight count and the design one of them
+                            // started last. Shown only while remote dispatchers run.
                             if root.remote_active: Text {
                                 text: "Remote: " + (root.remote_in_flight > 0
                                 ? root.remote_in_flight + " on remote"
@@ -307,10 +262,8 @@ export component TiltBatchDialog inherits Rectangle {
                                 overflow: elide;
                             }
 
-                            // Overall progress: designs completed so far, out of `N` --
-                            // NOT a current-item cursor (see this component's own doc
-                            // comment): with local and remote both possibly in flight,
-                            // there is no single "current" design left to point at.
+                            // Overall progress: designs completed out of `N`. Not a cursor,
+                            // since local and remote designs can be in flight together.
                             VerticalLayout {
                                 spacing: 4px;
                                 HorizontalLayout {
@@ -351,11 +304,8 @@ export component TiltBatchDialog inherits Rectangle {
                                 }
                             }
 
-                            // How busy the local lane pool is right now (not
-                            // within-design axis progress any more -- see this
-                            // component's own doc comment for why that stopped being
-                            // meaningful with N local lanes). Hidden under `RemoteOnly`,
-                            // same as the "Local:" row above.
+                            // Busy count of the local lane pool. Hidden under `RemoteOnly`,
+                            // like the "Local:" row above.
                             if root.local_lane_total > 0: VerticalLayout {
                                 spacing: 4px;
                                 HorizontalLayout {
@@ -393,8 +343,8 @@ export component TiltBatchDialog inherits Rectangle {
                             wrap: word-wrap;
                         }
 
-                        // The card's height is fixed (see its comment); the spare height goes
-                        // here, so the rows keep their own height and the buttons sit at the bottom.
+                        // The card height is fixed; the spare height goes here, so the buttons sit
+                        // at the bottom.
                         Rectangle { vertical-stretch: 1; }
 
                         HorizontalLayout {

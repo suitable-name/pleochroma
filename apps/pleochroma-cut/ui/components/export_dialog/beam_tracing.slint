@@ -1,0 +1,77 @@
+import { CheckBox } from "std-widgets.slint";
+import { Theme } from "../../theme.slint";
+import { WrappedNote } from "wrapped_note.slint";
+
+// The "Beam Tracing (Faceted Stones)" check box, shared by the still export dialog and the tilt
+// video section; each host binds its own persisted model property. Beams follow the light through
+// a faceted stone as a whole and finish the picture with the path tracer's samples, so the stone
+// converges much faster. Notes about a stone that cannot use them (round or rounded edges, tools
+// on the stone) arrive as progress notes, shown under the progress bar like the path cache's.
+//
+// With the Ray-Traced renderer the box is greyed out, with the reason shown: that renderer has no
+// light paths to finish a beam picture with. The ticked state is kept, and Rust ignores it for a
+// Ray-Traced run.
+export component BeamTracingControls inherits VerticalLayout {
+    in-out property <bool> beam: false;
+    // "Keep Beams for Re-Renders", under the box once it is ticked. The tilt video section leaves
+    // `show_keep` off: its frames reuse "Keep Path Cache for This Video".
+    in-out property <bool> keep_beams: false;
+    in property <bool> show_keep: false;
+    // `false` for a build that cannot store beams: the box is greyed out, with the reason.
+    in property <bool> keep_available: true;
+    in property <bool> ray_traced: false;
+    in property <bool> enabled: true;
+    // `false` under exit collection, the default estimator, which does not use beam tracing:
+    // the box is greyed out, with the reason shown.
+    in property <bool> available: true;
+
+    spacing: 6px;
+
+    property <string> box_hint: root.ray_traced
+        ? "Beam tracing needs the Path-Traced renderer."
+        : !root.available
+            ? "Off: exit collection, the default estimator, does not use beam tracing."
+            : "Follows the light through a faceted stone as beams, so the stone settles much faster. The picture matches the path-traced one.";
+
+    property <string> keep_hint: root.keep_available
+        ? "Save the beams to disk, so rendering the same view again starts from them, even with other lighting. They share the Path Cache's folder and disk limit in Preferences."
+        : "This build cannot store beams.";
+
+    Rectangle {
+        height: beam_box.preferred-height;
+        Tooltip { text: @markdown("\{root.box_hint}"); }
+        beam_box := CheckBox {
+            text: "Beam Tracing (Faceted Stones)";
+            checked <=> root.beam;
+            enabled: root.enabled && !root.ray_traced && root.available;
+            accessible-description: "Follows the light through a faceted stone as beams, so the stone settles much faster. Stones with rounded edges or tools render as without it.";
+        }
+    }
+
+    if root.show_keep && root.beam && !root.ray_traced && root.available: Rectangle {
+        height: keep_box.preferred-height;
+        Tooltip { text: @markdown("\{root.keep_hint}"); }
+        keep_box := CheckBox {
+            text: "Keep Beams for Re-Renders";
+            checked <=> root.keep_beams;
+            enabled: root.enabled && root.keep_available;
+            accessible-description: "Saves the beams to disk, so rendering the same view again, even with other lighting, starts from them.";
+        }
+    }
+
+    if root.show_keep && root.beam && !root.ray_traced && root.available && !root.keep_available: WrappedNote {
+        text: "This build cannot store beams, so they are kept in memory only.";
+        font-size: 11px;
+        color: Theme.text-muted;
+        wrap: word-wrap;
+        accessible-role: AccessibleRole.text;
+    }
+
+    WrappedNote {
+        text: root.box_hint;
+        font-size: 11px;
+        color: Theme.text-muted;
+        wrap: word-wrap;
+        accessible-role: AccessibleRole.text;
+    }
+}

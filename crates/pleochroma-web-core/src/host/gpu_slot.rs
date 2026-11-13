@@ -1,7 +1,7 @@
 //! The GPU render Worker's slot in the pool: its state, the public GPU calls of
 //! [`RenderPool`], and the scheduling of full passes onto it.
 //!
-//! Rules this file keeps (plan sections 6.4-6.6):
+//! Invariants:
 //! - The slot is free only when the Worker has answered everything it was sent
 //!   ([`GpuLedger::is_busy`]); a scene restart never frees it early.
 //! - The Worker holds ONE scene. After the self-check replaced it, or after it lost it, the
@@ -47,8 +47,8 @@ pub(super) struct GpuSlot {
     pub(super) compiled_classes: u32,
 }
 
-/// What an eligibility verdict was computed for (the scene id names the tools too: every
-/// `set_scene_with_tools` is a new scene).
+/// What an eligibility verdict was computed for. The scene id covers the tools too, since
+/// every `set_scene_with_tools` call is a new scene.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) struct VerdictKey {
     scene_id: u64,

@@ -1,5 +1,4 @@
-//! The direct-invoke row of the Rough Planner callback run 8 left uncovered (lane H5 of the
-//! 2026-10-28 findings): `RoughPlanModel.cut_plan_toggled`.
+//! The direct-invoke row of `RoughPlanModel.cut_plan_toggled`.
 //!
 //! The "Cut Plan" disclosure of a result card calls it with the card's row when the plan is folded
 //! open and with -1 when it is folded shut; the click-through passes press that button, but a

@@ -1,6 +1,7 @@
-//! The bounded list of best distinct states a run keeps: the candidates it was asked for
-//! ([`super::OptimizeOptions::keep_candidates`]) plus the reserve the full-fidelity gate
-//! falls back on ([`super::OptimizeOptions::pool_capacity`]).
+//! The bounded list of the best distinct states a run keeps.
+//!
+//! It holds the candidates a run asked for ([`super::OptimizeOptions::keep_candidates`]) and
+//! the reserve the full-fidelity gate falls back on ([`super::OptimizeOptions::pool_capacity`]).
 //!
 //! A *state* is the vector of every free tier's angle, in the order of the run's free
 //! tier list, with its fast-fidelity score (lower is better). Two states are *distinct*
@@ -34,10 +35,9 @@ pub(super) struct PoolEntry {
     pub(super) score: f32,
 }
 
-/// The bounded list of best distinct states. A pool with capacity one or less is
-/// disabled and ignores every offer (a real run always keeps a reserve, see
-/// [`super::OptimizeOptions::pool_capacity`]; the multi-start driver's dead starts and
-/// the tests use disabled pools).
+/// The bounded list of best distinct states. A pool with capacity one or less is disabled
+/// and ignores every offer. A real run always keeps a reserve, see
+/// [`super::OptimizeOptions::pool_capacity`].
 #[derive(Debug, Clone)]
 pub(super) struct CandidatePool {
     capacity: usize,
@@ -81,13 +81,10 @@ fn same_depths(a: Option<&crate::design::Design>, b: Option<&crate::design::Desi
 /// purposes: no free angle differs by the separation and, only when the run has no free
 /// angle at all, no pinned mast differs either.
 ///
-/// A run with free angles reads the angles alone. The mast of a turned anchored tier
-/// follows its hinge and the projection drags the other pinned depths along, so every
-/// state of such a run has its own masts; comparing them too would make two states a
-/// tenth of a degree apart "distinct" and fill the pool with copies of one basin (measured
-/// on the Rich Teaching Design in Quartz: a pool of two held the end point and a state
-/// 0.13 degrees from it). A run whose variables are all depths has empty angle vectors,
-/// which resemble each other trivially, so there the masts are the state.
+/// A run with free angles reads the angles alone. Each state of such a run has its own
+/// masts (a turned anchored tier's mast follows its hinge), so comparing masts would split
+/// one basin into many candidates. A run whose variables are all depths has empty angle
+/// vectors, so there the masts are the state.
 fn same_candidate(
     separation_deg: f64,
     entry: &PoolEntry,
@@ -119,7 +116,7 @@ impl CandidatePool {
     }
 
     /// The kept states, best first (for the tests; a run reads them through
-    /// [`Self::rivals`]).
+    /// [`Self::rivals_for_design`]).
     #[cfg(test)]
     pub(super) fn entries(&self) -> &[PoolEntry] {
         &self.entries

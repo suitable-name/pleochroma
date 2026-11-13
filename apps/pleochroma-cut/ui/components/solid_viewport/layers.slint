@@ -4,11 +4,10 @@ import { ViewportModel } from "../../models/viewport.slint";
 import { EditorModel } from "../../models/editor.slint";
 
 // The pictures of the Edit viewport and the notes drawn with them: the solid image, the traced
-// image, the combined view's layers, the Diagram image, the refusal card and the placeholder. A
-// pure move out of `SolidViewportView` (`components/solid_viewport.slint`), which mounts it as
-// the one child below its pointer handling: it fills the viewport, handles no pointer event and
-// keeps the draw order the pictures had there. `is_dragging`, `diagram_zoom`, `diagram_pan_x`
-// and `diagram_pan_y` are the viewport's own gesture state.
+// image, the combined view's layers, the Diagram image, the refusal card and the placeholder.
+// Mounted by `SolidViewportView` (`components/solid_viewport.slint`) below its pointer handling:
+// it fills the viewport and handles no pointer event. `is_dragging`, `diagram_zoom`,
+// `diagram_pan_x` and `diagram_pan_y` are the viewport's own gesture state.
 export component SolidViewportLayers inherits Rectangle {
     in property <bool> is_dragging;
     in property <float> diagram_zoom: 1.0;
@@ -78,22 +77,17 @@ export component SolidViewportLayers inherits Rectangle {
     // transparent-fill/opaque-edges layer composited on top -- see
     // `gui::solid_preview::edges_layer`'s own doc comment.
     //
-    // #32: `edges_image` rebuilds from the CURRENT (possibly just-edited) design on
-    // every edit, while `render_image` only changes when the path tracer's own
-    // planes are resubmitted -- this reconciles the two layers' provenance so a
-    // misaligned edge overlay after an edit reads as the render simply being one
-    // edit behind, rather than a solver error. Gated on `trace_matches_solid`
-    // (defaults to `true`, so this composites normally until something actually
-    // sets it `false`); when mismatched, the base dims and a small note explains
-    // why, rather than silently overlaying stale edges.
+    // `edges_image` follows the current design on every edit, but `render_image` changes only
+    // when the path tracer is resubmitted. So a mismatch means the render is one edit behind.
+    // Gated on `trace_matches_solid` (default `true`): when it is `false` the base dims and a
+    // note says so, rather than overlaying stale edges.
     //
-    // While `root.is_dragging` (an orbit drag, `ViewportModel.camera_drag_begin`) the layers compose
-    // as if matching: the dim and the note wait for the release, and the edges stay
-    // visible as the orientation aid over the low-resolution preview trace.
+    // While `root.is_dragging` (an orbit drag) the layers compose as if matching, so the edges
+    // stay visible as the orientation aid over the low-resolution preview trace.
     //
-    // With the Cut slider cut back (`root.cut_shows_solid`) the stale render would show
-    // the wrong stone, so the solid layer shows the cut stone itself, edges on top, until
-    // the render catches up.
+    // With the Cut slider cut back (`root.cut_shows_solid`) the stale render would show the
+    // wrong stone, so the solid layer shows the cut stone with its edges until the render
+    // catches up.
     if !root.placeholder_only && root.cut_shows_solid: Image {
         width: 100%;
         height: 100%;
@@ -145,8 +139,8 @@ export component SolidViewportLayers inherits Rectangle {
     }
 
     // Diagram mode: the three-panel 2D faceting diagram (`gui::solid_preview::diagram2d`).
-    // #29: scaled/translated by `diagram_zoom`/`diagram_pan_x`/`diagram_pan_y` -- the viewport's
-    // own `clip: true` is what keeps a zoomed-in image from spilling outside it.
+    // Scaled and translated by `diagram_zoom`/`diagram_pan_x`/`diagram_pan_y`; the viewport's
+    // `clip: true` keeps a zoomed-in image inside it.
     if !root.placeholder_only && SolidPreviewModel.view_mode == 3 && SolidPreviewModel.has_diagram: Image {
         x: root.diagram_pan_x;
         y: root.diagram_pan_y;
@@ -179,12 +173,9 @@ export component SolidViewportLayers inherits Rectangle {
         }
 
         Text {
-            // A brand-new, zero-tier design has nothing TO solve, so this names
-            // the actual next step rather than telling a first-time cutter to
-            // press "Solve to preview" on a button that cannot yet do anything
-            // (New/Load Selected/Open all live in the catalogue panel
-            // and the command bar, neither of which this viewport can reach
-            // directly, hence naming them rather than linking them).
+            // A zero-tier design has nothing to solve, so the text names the next step. The
+            // actions it names live in other panels this viewport cannot reach, so they are
+            // named, not linked.
             text: EditorModel.tiers.length == 0
                 ? "Nothing to show yet -- start with New, Load Selected from the catalogue, or Open."
                 : ((SolidPreviewModel.view_mode == 0 || SolidPreviewModel.view_mode == 3) ? "Solve to preview" : "Nothing rendered yet");

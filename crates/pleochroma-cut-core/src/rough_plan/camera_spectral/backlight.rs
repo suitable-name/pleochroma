@@ -1,5 +1,5 @@
-//! The backlight spectrum (plan section 4.4): measured SPD, a CIE 15:2018 LED illuminant, or the
-//! LED closest to the white frame plus a two-parameter smooth white point correction.
+//! The backlight spectrum: a measured SPD, a CIE 15:2018 LED illuminant, or the LED closest to
+//! the white frame plus a two-parameter smooth white point correction.
 
 use pleochroma::color::led::LedKind;
 

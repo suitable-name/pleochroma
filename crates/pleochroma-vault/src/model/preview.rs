@@ -97,11 +97,12 @@ pub struct PreviewMaterialState {
 
 /// The crystal axis a design's own file sets for its stone.
 ///
-/// It is named as the cached-render fingerprints name it (`diagram_preview_axes`): the Crystal Axis tilt and azimuth and, when the file sets
-/// one, the Second Axis turn, all in degrees.
+/// The Crystal Axis tilt and azimuth and, when the file sets one, the Second Axis turn,
+/// all in degrees. The cached-render fingerprints (`diagram_preview_axes`) name it the
+/// same way.
 ///
 /// Stored only for a design whose file turns the axis override on; a design without a row
-/// draws with its material's own axis, which is the fingerprint every earlier render has.
+/// draws with its material's own axis.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PreviewAxis {
     /// Tilt from the table normal, `0..=90`.

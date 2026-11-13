@@ -83,11 +83,10 @@ impl AxisDiagram {
     }
 }
 
-/// The diagram of `block`: the stone from above the table and from the side.
+/// The geometry of the axis diagram of `block`, for the top view and the side view.
 ///
-/// On the left the stone is seen from above the table (the axis projected onto the table, azimuth
-/// running clockwise from index 0 at the right), on the right from the side, in the vertical plane
-/// of the axis.
+/// The top view shows the axis projected onto the table, with azimuth running clockwise from
+/// index 0 at the right. The side view shows the axis in the vertical plane of the axis.
 #[must_use]
 pub fn axis_diagram(block: &SheetOrientation) -> AxisDiagram {
     let axis = &block.orientation.axis;
@@ -142,10 +141,8 @@ fn label(out: &mut String, at: (f64, f64), anchor: &str, text: &str) {
     );
 }
 
-/// The diagram of `block`: on the left the stone seen from above the table (the axis projected
-/// onto the table, azimuth running clockwise from index 0 at the right), on the right the stone
-/// seen from the side, in the vertical plane of the axis (the axis leaning toward the right by
-/// its tilt).
+/// The axis diagram of `block` as inline SVG: the top view on the left, the side view on the
+/// right.
 #[must_use]
 #[expect(
     clippy::many_single_char_names,

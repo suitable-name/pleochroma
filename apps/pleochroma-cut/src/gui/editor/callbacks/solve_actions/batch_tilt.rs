@@ -31,21 +31,16 @@ use std::{
     thread,
 };
 
-/// Computes the full 4-axis tilt-performance sweep for the
-/// design currently open in the editor -- not whatever a catalogue row currently
-/// stores -- via `gui::batch::tilt::tilt_curves_for_stone` (the stone with its concave
-/// tools), entirely off the UI
-/// thread (~1.36s, see that function's own doc comment). Closes the crate's last
-/// 3 clippy warnings: `tilt_curves_for_stone`/`save_tilt_curves_for_entry` were
-/// real and tested but had no production caller before this.
+/// Computes the full 4-axis tilt-performance sweep for the design open in the editor.
 ///
-/// `run_epoch` (the same superseded-run guard [`super::deep_solve_run::setup_deep_solve_callback`]/
-/// [`super::optimize_run::setup_optimize_callback`] use) is what keeps a superseded run from ever
-/// overwriting a fresher result: a second click bumps it, and the FIRST run's
-/// eventual completion becomes a no-op the moment [`apply_batch_tilt_result`]
-/// checks back in. Body split into [`begin_batch_tilt_for_open_design`]/
-/// [`run_batch_tilt_for_open_design`]/[`apply_batch_tilt_result`] purely to keep
-/// each piece under clippy's function-length lint.
+/// The sweep runs on the open design, not the data a catalogue row stores. It uses
+/// `gui::batch::tilt::tilt_curves_for_stone` with the concave tools, entirely off the UI thread.
+///
+/// `run_epoch` (the superseded-run guard used by the other run callbacks) keeps an older run
+/// from overwriting a newer result: a second click bumps it, and the older run's completion does
+/// nothing once [`apply_batch_tilt_result`] checks it. The body is split into
+/// [`begin_batch_tilt_for_open_design`], [`run_batch_tilt_for_open_design`] and
+/// [`apply_batch_tilt_result`] to keep each piece under clippy's function-length lint.
 pub(in crate::gui::editor) fn setup_batch_tilt_for_open_design_callback(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -57,11 +52,9 @@ pub(in crate::gui::editor) fn setup_batch_tilt_for_open_design_callback(
     let db = Arc::clone(db);
     let ui_weak = ui.as_weak();
     let run_epoch = Arc::new(AtomicU64::new(0));
-    // The PREVIOUS click's own cancel flag, if a run is still in flight -- see
-    // `begin_batch_tilt_for_open_design`'s own comment. UI-thread-only
-    // bookkeeping (only ever read/written from inside this callback), so a
-    // plain `Rc<RefCell<..>>` is enough; the `Arc<AtomicBool>` INSIDE it is
-    // what actually crosses onto the background thread.
+    // The previous click's cancel flag, if a run is still in flight (see
+    // `begin_batch_tilt_for_open_design`). It is UI-thread only, so a plain `Rc<RefCell<..>>`
+    // suffices. The `Arc<AtomicBool>` inside is what crosses to the background thread.
     let active_cancel: Rc<RefCell<Option<Arc<AtomicBool>>>> = Rc::new(RefCell::new(None));
     // The progress dialog's Cancel (`tilt_batch_dialog.slint` in its single-design
     // mode): stops the run in flight between two raytrace evaluations.
@@ -87,11 +80,9 @@ pub(in crate::gui::editor) fn setup_batch_tilt_for_open_design_callback(
         });
 }
 
-/// Everything one "Compute Tilt Curves" run needs, snapshotted once on the UI
-/// thread by [`begin_batch_tilt_for_open_design`] and carried unchanged through
-/// [`run_batch_tilt_for_open_design`]/[`apply_batch_tilt_result`] -- bundled into
-/// one struct purely to keep those two functions' signatures under clippy's
-/// argument-count lint.
+/// Everything one "Compute Tilt Curves" run needs. [`begin_batch_tilt_for_open_design`]
+/// snapshots it on the UI thread, and the later steps receive it unchanged. It is one struct to
+/// keep those signatures under clippy's argument-count lint.
 struct BatchTiltRun {
     /// A snapshot of `state.design` at dispatch time -- solved by
     /// [`run_batch_tilt_for_open_design`], off the UI thread.
@@ -115,15 +106,9 @@ struct BatchTiltRun {
     db: Arc<Mutex<Database>>,
     /// The window this run reports back to, once finished.
     ui_weak: slint::Weak<MainWindow>,
-    /// This run's own cancel flag -- a fresh
-    /// `Arc::new(AtomicBool::new(false))` per click, stored alongside
-    /// `run_epoch` in `setup_batch_tilt_for_open_design_callback`'s own
-    /// `active_cancel` so the NEXT click can set THIS one before starting its
-    /// own. Without this, a second click before the first run's solve/sweep
-    /// finished only stopped that first run's RESULT from ever being shown
-    /// (`run_epoch`'s own superseded check) -- the solve and the ~1.36s+ sweep
-    /// themselves kept running to completion regardless, on their own
-    /// abandoned thread, for every click stacked up.
+    /// This run's cancel flag, fresh for each click. It is stored in `active_cancel`, so the
+    /// next click can set it before starting its own run. Without that, a superseded run would
+    /// keep solving and sweeping to completion on its abandoned thread.
     cancel: Arc<AtomicBool>,
     /// This run reports into the tilt batch dialog's single-design mode (progress
     /// bar, Cancel, summary). `false` when the dialog is already open for a
@@ -141,12 +126,10 @@ impl BatchTiltRun {
     }
 }
 
-/// `on_compute_tilt_curves_for_open_design`'s actual body -- snapshots
-/// `state.design` (and everything else [`BatchTiltRun`] bundles) on the UI
-/// thread, cheap enough to do inline, then hands the real work to
-/// [`run_batch_tilt_for_open_design`] on a background thread -- matching
-/// `gui::tilt::tilt_profile::spawn_tilt_profile_sweep`'s own `thread::spawn` +
-/// `upgrade_in_event_loop` shape rather than inventing a second pattern.
+/// The body of `on_compute_tilt_curves_for_open_design`. It snapshots `state.design` and the
+/// other [`BatchTiltRun`] fields on the UI thread, which is cheap, then runs the sweep on a
+/// background thread via [`run_batch_tilt_for_open_design`]. This uses the same `thread::spawn`
+/// and `upgrade_in_event_loop` pattern as `gui::tilt::tilt_profile::spawn_tilt_profile_sweep`.
 fn begin_batch_tilt_for_open_design(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -168,10 +151,8 @@ fn begin_batch_tilt_for_open_design(
         .as_ref()
         .clone();
 
-    // A second click supersedes the first outright: `run_epoch` already keeps
-    // the first run's eventual RESULT from ever being shown, but that alone
-    // left it running to completion, wasting CPU for as long as the solve/
-    // sweep took -- this is what actually tells it to stop.
+    // A second click supersedes the first. `run_epoch` already hides the first run's result,
+    // and setting its cancel flag also stops the wasted solve and sweep.
     if let Some(previous) = active_cancel.borrow_mut().take() {
         previous.store(true, AtomicOrdering::Relaxed);
     }
@@ -219,8 +200,7 @@ fn open_single_design_dialog(ui: &MainWindow) {
     batch.set_tilt_visible(true);
 }
 
-/// Evaluations between two progress pushes: the sweep runs 724 of them in about
-/// 1.4 s, so this is roughly 40 updates a second.
+/// Evaluations between two progress pushes, so the dialog gets one update per this many steps.
 const PROGRESS_STRIDE: usize = 8;
 
 /// Sends one progress step of `run`'s sweep to the dialog, unless the run was
@@ -296,18 +276,14 @@ fn run_batch_tilt_for_open_design(run: BatchTiltRun) {
             return;
         }
     };
-    // The stone WITH its concave tools, the geometry the Compare window shows; a planar
-    // design's planes are exactly `auto_solve::design_to_gpu_planes_from_solved`'s.
+    // The stone with its concave tools: the geometry the Compare window shows.
     let stone = cut_geometry(&run.design, Some(&solved), None);
     let lookup = EditorMaterialLookup::new(&run.custom_materials);
     // In the orientation the design gives the stone (its own Crystal Axis, when it sets one).
     let material =
         resolved_gem_material_for_design(&run.design.material, &lookup, &run.design.render_effects);
-    // `run.cancel`, not a fresh, unreachable local flag: a later click
-    // sets THIS run's own flag (via `begin_batch_tilt_for_open_design`'s
-    // `active_cancel`) before starting its own, so this sweep actually stops
-    // early instead of running to completion unattended.
-    // `stone.frosted`: the planes the design frosts, so the curves are the frosted stone's.
+    // `run.cancel` lets a later click stop this sweep (see `begin_batch_tilt_for_open_design`).
+    // `stone.frosted` marks the planes the design frosts, so the curves are the frosted stone's.
     let curves = tilt::tilt_curves_for_stone(
         stone.as_geometry(),
         &stone.frosted,
@@ -358,13 +334,8 @@ fn apply_batch_tilt_result(
         return;
     };
     if run.provenance.is_stale() {
-        // Wording consistent with every other generation guard in this file --
-        // see `setup_optimize_apply_callback`'s matching fix.
-        // "Result discarded" wording and amber class as every other generation
-        // guard in this file -- see `setup_optimize_apply_callback`'s matching
-        // fix. The curves themselves are still shown (never saved, per this
-        // function's own doc comment), so "discarded" here means specifically
-        // "not saved," which the sentence's own second half already says.
+        // Same "Result discarded" wording and amber class as the other generation guards. The
+        // curves are still shown but never saved, so "discarded" here means "not saved".
         report(
             ui,
             run.in_dialog,

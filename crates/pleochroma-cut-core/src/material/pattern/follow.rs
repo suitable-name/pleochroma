@@ -2,15 +2,15 @@
 //!
 //! A pattern written in its own frame has its axis along `+Y`. A pattern whose axis is
 //! [`PatternAxis::FollowsCrystalAxis`](super::PatternAxis::FollowsCrystalAxis) is stored with the
-//! table-normal frame; the application turns it with [`follow_c_axis`] wherever it knows the
-//! stone's axis, so a Two-Color zone's Along and Across colors and its geometry stay on the
+//! table-normal frame. The application turns it with [`follow_c_axis`] wherever it knows the
+//! stone's axis, so a two-color zone's Along and Across colors and its geometry stay on the
 //! crystal when the axis moves.
 //!
 //! The frame takes `+Y` to the axis line (the canonical, upper-hemisphere direction of
 //! `CrystalAxis`) and keeps the pattern's `+X` in the girdle plane
-//! ([`ZoneFrame::along_axis`], the same frame the render gives a following material), so a
-//! boundary in the pattern's `x = 0` plane runs along the axis line face up. A stone with the axis
-//! through the table keeps the identity frame (the stored default, bit for bit).
+//! ([`ZoneFrame::along_axis`], the same frame the render gives a following material). A boundary
+//! in the pattern's `x = 0` plane therefore runs along the axis line face up. A stone with the
+//! axis through the table keeps the identity frame, the stored default.
 
 use glam::Vec3;
 use pleochroma::optics::{
@@ -30,12 +30,13 @@ pub fn crystal_axis_frame(c_axis: Vec3) -> ZoneFrame {
     ZoneFrame::along_axis(c_axis.as_dvec3())
 }
 
-/// Whether `pattern` follows the Crystal Axis and has a boundary across it: a layer or a half space
-/// whose normal is the pattern axis (a tourmaline's Bicolor or Tricolor, a topaz's Bicolor).
+/// Whether `pattern` follows the Crystal Axis and has a boundary across it: a layer or a half
+/// space whose normal is the pattern axis (a tourmaline's Bicolor or Tricolor, a topaz's Bicolor).
 ///
-/// Such boundaries are perpendicular to the c axis. While the axis runs through the table they lie
-/// parallel to it, one color in the crown and another in the pavilion, and face up the eye looks
-/// through all of them at once; the application then suggests laying the axis in the table plane.
+/// Such boundaries are perpendicular to the c axis. With the axis through the table they lie
+/// parallel to it, so one color sits in the crown and another in the pavilion, and the eye
+/// looks through all of them face up. The application then suggests laying the axis in the
+/// table plane.
 #[must_use]
 pub fn layers_across_axis(pattern: &ColorPattern) -> bool {
     pattern.axis.follows_crystal_axis()
@@ -49,11 +50,10 @@ pub fn layers_across_axis(pattern: &ColorPattern) -> bool {
 
 /// Whether `pattern` shows face up only with the Crystal Axis through the table.
 ///
-/// These are the rings around the axis of a tourmaline's Watermelon and Reverse Watermelon. With
-/// the axis in the table plane (where a tourmaline's own axis lies) the eye looks across the
-/// rings, through rim, core and rim, and pink and green blend to orange; watermelons are cut as
-/// slices across c, so the application turns the axis through the table when it applies one of
-/// these patterns.
+/// These are the rings around the axis of a tourmaline's Watermelon and Reverse Watermelon.
+/// With the axis in the table plane (where a tourmaline's own axis lies) the eye looks across
+/// the rings, through rim, core and rim, and pink and green blend to orange. Watermelons are
+/// cut as slices across c, so the application turns the axis through the table for these.
 #[must_use]
 pub const fn wants_axis_through_table(pattern: &ColorPattern) -> bool {
     pattern.axis.follows_crystal_axis()

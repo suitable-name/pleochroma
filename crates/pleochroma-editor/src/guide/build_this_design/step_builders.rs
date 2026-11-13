@@ -234,10 +234,10 @@ fn meets_reason(planned: &PlannedTier) -> String {
     }
 }
 
-/// What a step title calls a tier: its code, as the cutting sheet's label column shows it,
-/// then its own name when that says more (`P1 Pavilion Main`); just the code for a tier whose
-/// name is an old-style one (`1`, `A`) or is the code itself, and just the name when no code
-/// is on record.
+/// What a step title calls a tier: its cutting-sheet code, then its name when that says more.
+///
+/// `P1 Pavilion Main` is code and name. A name that is old-style (`1`, `A`) or equal to the
+/// code gives the code alone; with no code on record the title is the name alone.
 fn tier_label(planned: &PlannedTier) -> String {
     let name = planned.recipe.name.trim();
     if planned.code.is_empty() {
@@ -426,7 +426,8 @@ fn concave_step(tier: &ConcaveTier, code: &str, number: usize, gear: u32) -> Gui
         }
     ));
     actions.push("Click Add Concave Tier.".to_owned());
-    // An unnamed concave tier is typed with a blank Name, which the form refuses: no recipe.
+    // An unnamed concave tier cannot be typed (the form refuses a blank Name), so it has no
+    // performable step.
     let mut step = GuideStep::new(
         format!("Add {label} (concave tier {number})"),
         "A concave tier is cut with a shaped tool instead of a flat lap.".to_owned(),

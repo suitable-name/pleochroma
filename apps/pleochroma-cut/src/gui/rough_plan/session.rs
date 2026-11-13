@@ -43,10 +43,8 @@ pub struct MaterialChoice {
     pub specific_gravity: f64,
 }
 
-/// The candidate design ids the two counts in the window were taken from, filled by the
-/// background query that opening the window starts. A display aid only: Plan resolves
-/// its own ids on the worker thread, and the lists keep the designs excluded from the
-/// planner that the shown counts leave out.
+/// The candidate design ids behind the two counts in the window, filled by the background query
+/// that opening the window starts. Display only: Plan resolves its own ids on the worker thread.
 #[derive(Default)]
 pub struct CachedIds {
     /// Bumped on every open; a slower, older query sees the mismatch and drops its result.
@@ -91,8 +89,8 @@ pub(super) struct Session {
     pub(super) cancel: Option<Arc<AtomicBool>>,
     /// The design ids the open-time background query found, shared with that thread.
     pub(super) ids: Arc<Mutex<CachedIds>>,
-    /// The designs excluded from the planner, as last read from the library; the rows'
-    /// Excluded pills and the Candidate Designs list mirror it.
+    /// The designs excluded from the planner, as last read from the library; the "Excluded
+    /// Designs" list mirrors it.
     pub(super) excluded: BTreeMap<i64, String>,
     /// The latest shape worker mesh, in the centred frame (bounding-box centre at the
     /// origin, mm).

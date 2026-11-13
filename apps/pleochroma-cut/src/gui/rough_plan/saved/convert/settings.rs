@@ -1,10 +1,8 @@
 //! The plan file's settings section and the candidate source: reading them into the core's
 //! [`PlanSettings`] (every number checked, every wrong one named) and writing them back.
 //!
-//! The design cap lives under the key `count` (a name kept from the time the planner had one
-//! cap only, so older files still open). The stone cap is the optional key `max_stones`:
-//! absent in every file written before it existed and in every plan without a cap, so uncapped
-//! plans are written exactly as they always were.
+//! The design cap is the key `count`, kept under that name so older files still open. The
+//! stone cap is the optional key `max_stones`, written only for a plan that has one.
 
 use super::{non_negative_up_to, positive_up_to};
 use crate::gui::rough_plan::saved::dto::{MAX_LOSS_MM, MAX_MIN_WIDTH_MM, SettingsDto};
@@ -102,7 +100,7 @@ pub fn candidate_source_from_dto(dto: &SettingsDto) -> Result<CandidateSource, S
 }
 
 /// The file section of `settings`, planned from `source`. The stone cap is written only
-/// when the plan has one, so a plan without a cap reads back as it always did.
+/// when the plan has one; a file without the key reads back as no cap.
 #[must_use]
 pub fn settings_to_dto(settings: &PlanSettings, source: CandidateSource) -> SettingsDto {
     SettingsDto {

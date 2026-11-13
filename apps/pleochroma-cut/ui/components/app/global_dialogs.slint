@@ -26,33 +26,23 @@ import { RenderJobsPanel } from "../render_jobs/jobs_panel.slint";
 import { ExportDialog } from "../export_dialog.slint";
 import { ExportModel } from "../../models/export.slint";
 
-// Every modal dialog `app.slint` mounts that is driven ENTIRELY by a global
-// model (no `MainWindow`-local property or callback involved) -- split out to
-// keep `app.slint` under its line budget. `MaterialEditorDialog` and
-// `PerformanceGraphDialog` are mounted here too (window size, so a short Edit
-// viewport cannot shrink their cards), and so is `ExportDialog`.
-// `close_confirm_open`'s own
-// dialog and the `Toast` stay in `app.slint`: both read `MainWindow`'s own
-// local properties/callbacks, which this component -- driven only by globals
-// -- deliberately has none of.
+// Every modal dialog `app.slint` mounts that is driven entirely by a global model (no
+// `MainWindow`-local property or callback). `MaterialEditorDialog`, `PerformanceGraphDialog` and
+// `ExportDialog` are mounted here at window size, so a short Edit viewport cannot shrink them.
+// The window-close question and the `Toast` stay in `app.slint`, as they read `MainWindow`'s
+// own properties and callbacks.
 //
-// Inherits `Rectangle` and is mounted with explicit `x/y/width/height` in
-// `app.slint`: a component with no base is an `Empty` whose size is its
-// content's preferred size, and every child here is an `if` branch, which
-// contributes no layout info -- so without this the overlay is 0 x 0 and every
-// dialog inside (all sized from `root.height`) draws nothing. A plain
-// `Rectangle` with no `TouchArea` passes input through, so while every `if`
-// branch is false the full-window overlay does not intercept clicks.
+// Inherits `Rectangle` and is mounted with explicit `x`/`y`/`width`/`height` in `app.slint`:
+// a component with no base is an `Empty` sized by its content, and every child here is an
+// `if` branch with no layout info, so the overlay would be 0 x 0. A plain `Rectangle` with
+// no `TouchArea` passes input through, so while every branch is false it blocks no clicks.
 export component GlobalDialogsOverlay inherits Rectangle {
-    // `NewDesignDialog`/`RetargetDialog`/`MetadataEditorDialog` are plain
-    // Rectangles with no key handling of their own -- wrapped here in
-    // a `FocusScope` that takes focus on mount, maps Escape to that dialog's own
-    // cancel/close path and Return to its primary action, and swallows every
-    // other key (`return accept`) so `global_shortcuts` (`app.slint`) cannot
-    // fire on the design underneath while one of these is open (e.g. Ctrl+S
-    // saving over the New Design form). `Key.Tab` is let through unhandled so
-    // the window's built-in focus-cycling still moves between the dialog's own
-    // fields/buttons.
+    // `NewDesignDialog`, `RetargetDialog` and `MetadataEditorDialog` have no key handling of
+    // their own, so each is wrapped in a `FocusScope` that takes focus on mount, maps Escape
+    // and Return to the dialog's cancel and primary actions, and swallows every other key
+    // (`return accept`) so `global_shortcuts` (`app.slint`) cannot fire on the design
+    // underneath (e.g. Ctrl+S over the New Design form). `Key.Tab` is let through so focus
+    // still cycles through the dialog's own fields and buttons.
     if EditorModel.new_dialog_open: FocusScope {
         width: 100%;
         height: 100%;
@@ -61,18 +51,10 @@ export component GlobalDialogsOverlay inherits Rectangle {
         key-pressed(event) => {
             if event.text == Key.Escape {
                 EditorModel.new_dialog_open = false;
-                // `NewDesignDialog`'s own fields (`new_design_dialog.slint`) set
-                // `EditorModel.text_focus` the same way every other text field
-                // in the Edit tab does -- the assignment above unmounts this
-                // WHOLE `if EditorModel.new_dialog_open:` subtree (this
-                // `FocusScope` and `new_design_dialog` together) on the very
-                // next re-evaluation, which drops a still-focused field's
-                // `changed has-focus` tracker along with it before it ever
-                // sees `has-focus` go `false` (a conditional element's tracker
-                // is dropped with the element, losing its queued handlers). Reset
-                // explicitly here, or `text_focus` sticks `true` forever,
-                // silently blocking `app.slint`'s Ctrl+Z/Ctrl+Y guard for the
-                // rest of the session.
+                // The New Design fields set `EditorModel.text_focus` like every Edit-tab text
+                // field. The assignment above unmounts this whole `if` subtree before a focused
+                // field reports `has-focus` going false, so reset the flag here: otherwise it
+                // stays true and blocks `app.slint`'s Ctrl+Z/Ctrl+Y guard for the session.
                 EditorModel.text_focus = false;
             } else if event.text == Key.Return {
                 // Through the dialog's own `do_create`, so Return respects
@@ -93,9 +75,8 @@ export component GlobalDialogsOverlay inherits Rectangle {
         }
     }
 
-    // Also for the snapshot comparison alone (Compare on the command bar sets only
-    // `compare_open`): `RetargetDialog` shows its Compare pane then, and without this host
-    // the button opened nothing.
+    // Also shown for Compare alone (it sets only `compare_open`): `RetargetDialog` then shows
+    // its Compare pane.
     if RetargetModel.is_open || RetargetModel.compare_open: FocusScope {
         width: 100%;
         height: 100%;
@@ -128,14 +109,9 @@ export component GlobalDialogsOverlay inherits Rectangle {
         }
     }
 
-    // The gear-remap confirmation is a modal dialog (rather than an inline
-    // section inside `EditorDesignSettings`, `editor_design_settings.slint`)
-    // so it cannot be missed entirely behind other work. Same
-    // wrapping-`FocusScope` idiom as `RetargetDialog`
-    // above: `GearRemapDialog` already has its own internal Escape/Return
-    // handling, but this outer layer additionally swallows every other key
-    // (e.g. Ctrl+S) so it cannot fire on the design underneath while this
-    // modal is open.
+    // The gear-remap confirmation is a modal dialog, so it cannot be missed behind other work.
+    // `GearRemapDialog` handles Escape and Return itself; this wrapper also swallows every
+    // other key (e.g. Ctrl+S) so none of them reaches the design underneath.
     if EditorModel.gear_remap_open: FocusScope {
         width: 100%;
         height: 100%;
@@ -164,11 +140,8 @@ export component GlobalDialogsOverlay inherits Rectangle {
         z: 400;
         init => { self.focus(); }
         key-pressed(event) => {
-            // Enter-to-save is not wired here: `MetadataEditorDialog::save`
-            // needs its own internal draft properties (title_draft/shape_draft/
-            // .../volume_draft), which the dialog resolves itself
-            // (`selected_shape` there is a plain, not externally readable,
-            // property), so that half stays with the dialog's own file.
+            // Enter-to-save is not handled here: the dialog owns the draft properties it saves,
+            // so Enter is wired inside `MetadataEditorDialog`.
             if event.text == Key.Escape {
                 LibraryModel.metadata_editor_open = false;
             } else if event.text == Key.Tab || event.text == Key.Backtab {
@@ -275,11 +248,9 @@ export component GlobalDialogsOverlay inherits Rectangle {
         z: 450;
     }
 
-    // The gem material editor, opened by the Live Render tab's Material actions and
-    // by the Edit tab's "New/Edit material..." button. Mounted here, at window size,
-    // rather than inside either viewport: the Edit viewport can be only 170-260px tall
-    // in the narrow stack, which would size the dialog card from that. Same `z` it had
-    // in the viewports.
+    // The gem material editor (Live Render's Material actions, the Edit tab's material
+    // button). Mounted at window size, not inside a viewport: the Edit viewport can be only
+    // 170-260px tall in the narrow stack, which would size the dialog card from that.
     if ViewportModel.material_editor_open: MaterialEditorDialog {
         width: 100%;
         height: 100%;
@@ -308,27 +279,23 @@ export component GlobalDialogsOverlay inherits Rectangle {
     }
 
     // The high-resolution render export dialog (Render & Output tab, the Live Render toolbar,
-    // the header's export indicator). It used to be mounted inside the Live Render viewport, so
-    // the window's modal scrim stopped at that viewport's edge and it never showed over the Edit
-    // view; mounted here it dims the whole window like every other dialog.
+    // the header's export indicator). At window level, so its scrim dims the whole window.
     if ExportModel.is_open: ExportDialog {
         width: 100%;
         height: 100%;
         z: 400;
     }
 
-    // The tilt-performance chart, opened by both viewports' "Tilt Curve" pills and
-    // mounted here at window size for the same reason.
+    // The tilt-performance chart, opened by both viewports' "Tilt Curve" pills. Mounted at
+    // window size, like the material editor.
     if TiltModel.dialog_open: PerformanceGraphDialog {
         width: 100%;
         height: 100%;
         z: 350;
     }
 
-    // Unsaved-changes guard for New/Load Selected/Open -- see
-    // `EditorModel.unsaved_dialog_*`'s own doc comment.
-    // Deliberately last-but-one in this stack: it only
-    // appears at startup, when none of the others can be open.
+    // Startup question: reopen the last design, or recover an autosave. It only appears at
+    // startup, when none of the other dialogs can be open.
     if EditorModel.startup_restore_path != "": ConfirmActionDialog {
         heading: EditorModel.startup_restore_is_autosave
             ? "Recover Unsaved Work?"
@@ -340,8 +307,7 @@ export component GlobalDialogsOverlay inherits Rectangle {
         primary_hint: EditorModel.startup_restore_is_autosave
             ? "Open the recovery file, with the work of the session that ended without saving."
             : "Open the design you were working on last time.";
-        // "Not Now" is the dialog's own close button (like Escape and the X): one button for
-        // "not now", not a Cancel beside a Not Now that did the same.
+        // "Not Now" is the dialog's close button, as Escape and the X are: one "not now" button.
         secondary_label: "";
         cancel_label: "Not Now";
         // Only a leftover AUTOSAVE is ever safe to delete outright here -- an
@@ -381,11 +347,9 @@ export component GlobalDialogsOverlay inherits Rectangle {
         }
     }
 
-    // Replaces the two blocking `rfd::MessageDialog` Yes/No prompts
-    // `gui::editor::native_io` would otherwise show on the UI thread ("not a
-    // closed solid, write anyway?" and similar) --
-    // see `EditorModel.write_confirm_*`'s own doc comment. No `secondary_label`
-    // set: Cancel alone is the decline.
+    // Yes/No question from `gui::editor::native_io` (e.g. "not a closed solid, write
+    // anyway?"), shown here instead of as a blocking dialog on the UI thread; see
+    // `EditorModel.write_confirm_*`. Cancel alone declines.
     if EditorModel.write_confirm_open: ConfirmActionDialog {
         width: 100%;
         height: 100%;

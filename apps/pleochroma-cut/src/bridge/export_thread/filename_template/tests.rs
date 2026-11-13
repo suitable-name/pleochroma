@@ -1,6 +1,4 @@
-//! `filename_template` tests: every recognised variable, sanitising, extension
-//! handling, and collision-avoidance. Moved out of `mod.rs` to keep that file from
-//! growing further.
+//! Tests of `filename_template`: variables, sanitising, the extension and collision handling.
 
 use super::*;
 
@@ -50,9 +48,7 @@ fn ctx() -> TemplateContext {
     }
 }
 
-// A fixed instant (2024-03-05 06:07:08 UTC), used by every test below that touches
-// `{date}`/`{time}`/`{timestamp}` so they're deterministic regardless of when the
-// test suite runs.
+// A fixed instant (2024-03-05 06:07:08 UTC) for the `{date}`, `{time}` and `{timestamp}` tests.
 fn fixed_now() -> SystemTime {
     SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_709_618_828)
 }
@@ -345,8 +341,8 @@ fn a_colliding_template_appends_a_numbered_suffix_rather_than_overwriting() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// J4-T4: the queue names a job with `resolve_export_name`, the immediate export with
-/// `resolve_export_path`; in an empty folder they must give the same file name.
+/// The render queue names a job with `resolve_export_name` and an immediate export with
+/// `resolve_export_path`. In an empty folder both must give the same file name.
 #[test]
 fn resolve_export_name_equals_the_file_name_of_resolve_export_path_in_an_empty_folder() {
     let dir = scratch_dir("export-name-parity");

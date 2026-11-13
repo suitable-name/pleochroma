@@ -11,17 +11,29 @@ use pleochroma_net::{SceneState, messages::StreamEvent};
 use pleochroma_vault::db::sqlite::Database;
 use std::io::{Cursor, Read, Write};
 
-/// A unique path for a throwaway temp database, named after the process id and a
-/// nanosecond timestamp so parallel tests never collide. Tests never touch
-/// `facet_diagrams.sqlite`, only their own throwaway temp files.
-fn unique_db_path() -> std::path::PathBuf {
-    std::env::temp_dir().join(format!(
-        "pleochroma-worker-serve-test-{}-{}.sqlite",
+/// The process id, a process-wide sequence number and a nanosecond timestamp.
+///
+/// The sequence number keeps the name unique within the process, since two parallel tests can
+/// read the same timestamp on a coarse clock.
+fn unique_suffix() -> String {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    format!(
+        "{}-{}-{}",
         std::process::id(),
+        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos()
+    )
+}
+
+/// A unique path for a throwaway temp database, named by [`unique_suffix`] so parallel tests
+/// never collide. Tests never touch `facet_diagrams.sqlite`, only their own throwaway temp files.
+fn unique_db_path() -> std::path::PathBuf {
+    std::env::temp_dir().join(format!(
+        "pleochroma-worker-serve-test-{}.sqlite",
+        unique_suffix()
     ))
 }
 
@@ -41,16 +53,12 @@ pub(super) fn test_db() -> LibraryHandle {
     LibraryHandle::open(Database::new(Some(path.to_str().unwrap())).unwrap())
 }
 
-/// A unique, freshly created temp directory named after `label`, the process id and a
-/// nanosecond timestamp, so parallel tests never collide.
+/// A unique, freshly created temp directory named after `label` and [`unique_suffix`], so
+/// parallel tests never collide.
 pub fn unique_temp_dir(label: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!(
-        "pleochroma-worker-test-{label}-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
+        "pleochroma-worker-test-{label}-{}",
+        unique_suffix()
     ));
     std::fs::create_dir_all(&dir).unwrap();
     dir
@@ -63,6 +71,10 @@ pub fn tiny_scene() -> SceneState {
         height: 4,
         yaw: 0.4,
         camera_roll: 0.0,
+        stone_shadow: false,
+        tray_reflection: 0.0,
+        hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
+        estimator: pleochroma::optics::raytracer::Estimator::Branching,
         pitch: 0.3,
         distance: 3.0,
         light_yaw: 0.85,
@@ -86,8 +98,8 @@ pub fn tiny_scene() -> SceneState {
 
 /// [`tiny_scene`] with dispersion removed: a Cauchy model with `b = c = 0` at
 /// diamond's `n_d` (2.417), so every spectral channel refracts along the same
-/// direction and no chromatic-termination decision can sit on its
-/// `DIRECTION_MATCH_COS_TOL` knife edge -- see
+/// direction and no chromatic-termination decision can sit on the threshold of its
+/// direction match (`directions_match`) -- see
 /// `super::render_roundtrip::hybrid_gpu_and_cpu_split_sums_to_the_same_result_as_tracing_the_range_directly`.
 #[cfg(feature = "gpu")]
 pub(super) fn tiny_scene_without_dispersion() -> SceneState {
@@ -112,6 +124,10 @@ pub(super) fn heavier_scene() -> SceneState {
         height: 24,
         yaw: 0.4,
         camera_roll: 0.0,
+        stone_shadow: false,
+        tray_reflection: 0.0,
+        hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
+        estimator: pleochroma::optics::raytracer::Estimator::Branching,
         pitch: 0.3,
         distance: 3.0,
         light_yaw: 0.85,

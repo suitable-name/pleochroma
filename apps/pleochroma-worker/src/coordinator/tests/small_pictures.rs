@@ -107,7 +107,7 @@ fn two_small_requests_of_one_viewer_run_at_once_each_whole_on_its_own_worker() {
     let viewer_bundle = bundle(&pki, "laptop", PeerRole::Viewer);
     let worker_bundle = bundle(&pki, "box", PeerRole::Worker);
     let handle = start(&coordinator_args(&pki), LivenessConfig::default());
-    // Whole-image routing as shipped; only the failure backoff is short, so the jobs end
+    // Default whole-image routing; only the failure backoff is short, so the jobs end
     // quickly once the fake workers hang up.
     handle
         .coordinator

@@ -1,27 +1,30 @@
-//! Editor and viewport states of the click-through passes that the 2026-10-28 run left uncovered
-//! (lane H4): the Files & Downloads tab pill, the editor's File menu, the Path-Traced Live Render
-//! view with its Optical Diagnostics button, metrics strip and panel, the tier table's orbit
-//! column, the Tune tab's Jump to Best and Revert This Tier, the trial's Compare to Current, the
-//! Export dialog's Ray-Traced Fire box, the Optimize comparison pane and the Material Editor's
-//! Crystal Axis, Inclusion Families and Play-of-Color Size controls, and the Stone tab's Silk Turn.
+//! Editor and viewport states that the other click-through states do not reach.
 //!
-//! Proves: in each state every enabled button, tab, check box and combo box of the scope is pressed
-//! once and every field touched (the engine of `overlays.rs`), after the state's `open` function
-//! reached the page the way a user does: model flags first, then the opener or the typing.
+//! They are the Files &
+//! Downloads tab pill, the editor's File menu, the Path-Traced Live Render view with its Optical
+//! Diagnostics button, metrics strip and panel, the tier table's orbit column, the Tune tab's Jump
+//! to Best and Revert This Tier, the trial's Compare to Current, the Export dialog's Ray-Traced
+//! Fire box, the Optimize comparison pane, the Material Editor's Crystal Axis, Inclusion Families
+//! and Play-of-Color Size controls, and the Stone tab's Silk Turn.
 //!
-//! What kept the controls unreached:
+//! Proves: in each state every enabled button, tab, check box and combo box of the scope is
+//! pressed once and every field touched (the engine of `overlays.rs`), after the state's `open`
+//! function reached the page the way a user does: model flags first, then opener or typing.
 //!
-//! * the Live Render tab starts in Solid (`startup_settings` writes `live_view_mode` 0 whatever the
-//!   settings remember), and the Optical Diagnostics button, the metrics strip and the panel
+//! Some controls exist only in some shapes:
+//!
+//! * the Live Render tab starts in Solid (`startup_settings` writes `live_view_mode` 0 whatever
+//!   the settings remember), and the Optical Diagnostics button, the metrics strip and the panel
 //!   exist only in Path-Traced (mode 1);
-//! * the File menu items and the Files & Downloads pill were clicked by the scenarios' `click`
-//!   helper, which does not record an activation, and the smoke engine denies the pill by its
-//!   label ("download" matches the word in "Files & Downloads", a local tab, not a network call);
-//! * the tier table's orbit button needs a column that fits: at the default 640 px dock the orbit
-//!   column is the first one `data_limit` hides;
-//! * the Tune tab's Jump to Best and Revert This Tier are enabled only for a tuned tier of a design
-//!   that left its Baseline; the Material Editor's axis, family-direction and size controls only
-//!   exist after their own switch is on; the Silk Turn slider after "Set Silk Turn".
+//! * the File menu items and the Files & Downloads pill are pressed by `press_typed`, which
+//!   records the activation; the smoke engine denies the pill by its label ("download" matches
+//!   the word in "Files & Downloads", a local tab, not a network call);
+//! * the tier table's orbit button needs a column that fits: in a narrow dock the orbit column is
+//!   the first one `data_limit` hides;
+//! * the Tune tab's Jump to Best and Revert This Tier are enabled only for a tuned tier of
+//!   a design that left its Baseline; the Material Editor's axis, family-direction and size
+//!   controls exist only after their own switch is on; the Silk Turn slider exists after
+//!   "Set Silk Turn".
 
 use super::{
     super::{Piece, existing_install},
@@ -45,8 +48,8 @@ use pleochroma_cut::{
 use slint::{ComponentHandle, Model, ModelRc, VecModel};
 use std::time::Duration;
 
-/// The pieces of this file: one `overlay:gaps-editor-*:<state>` piece per state, and the File menu,
-/// the Files & Downloads pill and the trial comparison.
+/// The pieces of this file: one `overlay:gaps-editor-*:<state>` piece per state, and the File
+/// menu, the Files & Downloads pill and the trial comparison.
 pub fn pieces() -> Vec<Piece> {
     let groups: [super::StateGroup; 4] = [
         ("gaps-editor-viewport", viewport_states),

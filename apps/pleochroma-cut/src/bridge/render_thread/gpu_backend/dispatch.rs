@@ -19,7 +19,7 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
-/// Compatibility entry point for deterministic CPU/GPU equivalence fixtures.
+/// Uncancellable form of [`accumulate_frame_samples_cancellable`] for the equivalence tests.
 #[cfg(test)]
 pub(in crate::bridge::render_thread) fn accumulate_frame_samples(
     backend: &mut ViewportGpu,
@@ -59,6 +59,38 @@ pub(in crate::bridge::render_thread) fn accumulate_frame_samples_cancellable(
         return false;
     }
     hybrid.prepare_frame(frame);
+    if target != LocalComputeTarget::Cpu
+        && frame.environment.tray_shadow().is_some()
+        && let Some(reason) = pleochroma::renderer::gpu_backend::scene_decline_with_tray_shadow(
+            frame.environment,
+            backend.gpu.supports_tray_shadow(),
+        )
+    {
+        backend.status_message = Some(reason.to_string());
+        return cpu_frame(backend, frame, outputs, hybrid, cancel);
+    }
+    if backend.status_message.as_deref()
+        == Some(pleochroma::renderer::gpu_backend::GpuRouteDecline::STONE_SHADOW_MESSAGE)
+    {
+        backend.status_message = None;
+    }
+    // The tray reflection beside the shadow: a device or pipeline that cannot run the mirror
+    // variant traces the frame on the CPU, and says so.
+    if target != LocalComputeTarget::Cpu
+        && frame.environment.tray_mirror().is_some()
+        && let Some(reason) = pleochroma::renderer::gpu_backend::scene_decline_with_tray_mirror(
+            frame.environment,
+            backend.gpu.supports_tray_mirror(),
+        )
+    {
+        backend.status_message = Some(reason.to_string());
+        return cpu_frame(backend, frame, outputs, hybrid, cancel);
+    }
+    if backend.status_message.as_deref()
+        == Some(pleochroma::renderer::gpu_backend::GpuRouteDecline::TRAY_REFLECTION_MESSAGE)
+    {
+        backend.status_message = None;
+    }
     if target == LocalComputeTarget::Cpu || !frame.routes_to_gpu() {
         // Nothing polls the preparation worker on this route, so its pill would stay.
         backend.clear_preparing_status();
@@ -255,7 +287,19 @@ pub(super) fn workload_key(frame: &BackendFrame<'_>) -> u64 {
             backdrop,
             surface_glare,
             head_shadow_deg,
+            tray_shadow,
+            tray_mirror,
         } => {
+            if let Some(map) = tray_shadow {
+                map.key().hash(&mut hash);
+            }
+            // A mirror changes the path costs (floor bounces), so it is part of the workload. An
+            // absent one hashes nothing.
+            if let Some(mirror) = tray_mirror {
+                [mirror.plane_y(), mirror.reflectance()]
+                    .map(f32::to_bits)
+                    .hash(&mut hash);
+            }
             format!("{preset:?}").hash(&mut hash);
             [
                 exposure,
@@ -268,7 +312,7 @@ pub(super) fn workload_key(frame: &BackendFrame<'_>) -> u64 {
             .map(f32::to_bits)
             .hash(&mut hash);
         }
-        pleochroma::optics::raytracer::EnvironmentSource::HdrMap(map) => {
+        pleochroma::optics::raytracer::EnvironmentSource::HdrMap { map, .. } => {
             std::ptr::from_ref(map).hash(&mut hash);
         }
     }
@@ -277,6 +321,14 @@ pub(super) fn workload_key(frame: &BackendFrame<'_>) -> u64 {
 
 /// A lane changes only after a 15% throughput improvement over the retained lane.
 const BACKEND_HYSTERESIS: f64 = 1.15;
+
+/// A GPU at least this many times the CPU's rate runs the pass alone.
+///
+/// The GPU share is then 0.7 or more, the limit of the export's hybrid rule
+/// (`export_thread::batch`). A split at a 0.91 share ran at 0.58 times GPU-only speed. The
+/// rates are measured in the shared passes themselves, so a GPU slowed by the CPU threads
+/// would otherwise never show up as a loss.
+const MAX_GPU_TO_CPU_FOR_SHARING: f64 = 7.0 / 3.0;
 
 /// Rates are samples per full image per second; both lanes use the same resolution.
 pub(in crate::bridge::render_thread) struct HybridPacing {
@@ -338,6 +390,9 @@ impl HybridPacing {
             return None;
         }
         let (gpu, cpu) = (self.gpu_rate?, self.cpu_rate?);
+        if gpu >= cpu * MAX_GPU_TO_CPU_FOR_SHARING {
+            return None;
+        }
         let fastest_alone = f64::from(spp) / gpu.max(cpu);
         // Whole-sample lanes have a join/merge cost. Require a measurable benefit;
         // a slow GPU should not drag a fast CPU into an unhelpful shared pass.
@@ -479,5 +534,16 @@ mod tests {
         assert_eq!(pacing.gpu_share(8), None);
         pacing.cpu_rate = Some(20.0);
         assert_eq!(pacing.gpu_share(8), Some(4));
+    }
+
+    #[test]
+    fn a_gpu_doing_seventy_percent_of_the_work_runs_alone() {
+        let mut pacing = HybridPacing::new();
+        pacing.gpu_rate = Some(3.0);
+        pacing.cpu_rate = Some(1.0);
+        assert_eq!(pacing.gpu_share(8), None, "share 0.75: the GPU alone");
+        assert!(!pacing.prefer_cpu());
+        pacing.gpu_rate = Some(2.0);
+        assert_eq!(pacing.gpu_share(9), Some(6), "share 0.67: still shared");
     }
 }

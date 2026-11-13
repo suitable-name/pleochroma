@@ -47,7 +47,7 @@ fn bounds(mesh: &SolidMesh) -> (DVec3, DVec3) {
 
 #[test]
 fn a_rough_without_inclusions_has_no_layer() {
-    assert!(layer_of(&block()).rings.is_empty());
+    assert_eq!(layer_of(&block()).rings, [] as [(usize, Vec<DVec3>); 0]);
 }
 
 #[test]
@@ -109,7 +109,7 @@ fn the_worker_hands_the_layer_on_beside_the_mesh() {
         ..request
     };
     let output = evaluate_reusing(&plain, None).0.outcome.expect("valid");
-    assert!(output.inclusions.rings.is_empty());
+    assert_eq!(output.inclusions.rings, [] as [(usize, Vec<DVec3>); 0]);
 }
 
 #[test]
@@ -139,14 +139,14 @@ fn a_cut_that_takes_a_shell_away_leaves_no_layer() {
         normal: [0.0, 0.0, 1.0],
         depth_mm: 5.0,
     });
-    assert!(layer_of(&model).rings.is_empty());
+    assert_eq!(layer_of(&model).rings, [] as [(usize, Vec<DVec3>); 0]);
 }
 
 #[test]
 fn an_imported_mesh_rough_gets_the_same_layer() {
     use crate::gui::rough_plan::obj_import::{C_SHAPE_OBJ, mesh_base_of};
     let plain = RoughModel::new(mesh_base_of(C_SHAPE_OBJ), Vec::new());
-    assert!(layer_of(&plain).rings.is_empty());
+    assert_eq!(layer_of(&plain).rings, [] as [(usize, Vec<DVec3>); 0]);
     // x 3..5 mm is well inside the cube, away from the notch in its +x face.
     let model = with_box_at(&plain, [4.0, 10.0, 10.0]);
     let layer = layer_of(&model);

@@ -85,10 +85,10 @@ export component AnalysisGroup inherits HorizontalLayout {
     }
 }
 
-// Set Baseline / Compare, handled by `callbacks::retarget_actions::setup_snapshot_callbacks`
-// (the ids and callbacks keep their "snapshot" names). Compare reuses the comparison-table
-// dialog shell (`retarget_dialog.slint`). Advanced: the Simple interface leaves both out; its
-// Baseline strip (`editor_inspector/baseline_strip.slint`) carries its own Set Baseline.
+// Set Baseline and Compare. The Rust side is `setup_snapshot_callbacks`, and the ids keep their
+// "snapshot" names. Compare uses the comparison dialog shell of `retarget_dialog.slint`. Advanced
+// only: the Simple interface sets the Baseline from the Baseline strip
+// (`editor_inspector/baseline_strip.slint`).
 export component SnapshotGroup inherits HorizontalLayout {
     height: 32px;
     spacing: 8px;

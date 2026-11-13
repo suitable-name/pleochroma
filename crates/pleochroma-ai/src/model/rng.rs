@@ -1,4 +1,4 @@
-//! Small deterministic pseudo-random generator used for weight initialisation, action sampling and
+//! Deterministic pseudo-random generator for weight initialisation, action sampling and
 //! mini-batch shuffling.
 //!
 //! The generator is `SplitMix64`: every `u64` seed (including 0) yields a full-period, well-mixed
@@ -17,7 +17,7 @@ impl Prng {
         Self { state: seed }
     }
 
-    /// Create a generator for sub-stream `stream` of `seed` (for example one stream per tier or per worker).
+    /// Create a generator for sub-stream `stream` of `seed`, e.g. one per tier or worker.
     #[must_use]
     pub const fn from_stream(seed: u64, stream: u64) -> Self {
         let mut mixer = Self::new(seed ^ stream.wrapping_mul(0xD1B5_4A32_D192_ED03));
@@ -58,7 +58,7 @@ impl Prng {
         if bound <= 1 {
             return 0;
         }
-        // Lemire's multiply-shift reduction; the bias is below 2^-64 * bound, irrelevant here.
+        // Lemire's multiply-shift reduction; the bias is at most bound / 2^64.
         ((u128::from(self.next_u64()) * bound as u128) >> 64) as usize
     }
 

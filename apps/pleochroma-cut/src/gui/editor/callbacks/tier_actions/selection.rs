@@ -17,23 +17,16 @@ use crate::{
 };
 use pleochroma_editor::guide::TIERS_MULTI_SELECTED;
 
-/// The tier list's Ctrl+click: toggles one row into/out of
-/// [`EditorState::multi_selected`], then patches `EditorTierItem::multi_selected`
-/// onto the ALREADY-PUSHED `editor_tiers` model in place, rather than calling
-/// [`refresh_editor_panel_stale`] -- toggling a multi-select highlight changes
-/// nothing about `Design`, so it must never re-label the validation banner "Not
-/// solved" the way every real edit's stale-refresh does. See
-/// `state::tier_items_stale`'s own doc comment for why this function
-/// exists instead of threading the selection through that builder.
+/// The tier list's Ctrl+click: toggles one row in or out of [`EditorState::multi_selected`]
+/// and patches `EditorTierItem::multi_selected` into the already-pushed `editor_tiers` model.
+/// It does not call [`refresh_editor_panel_stale`]: a highlight changes nothing in `Design`,
+/// so the validation banner must not turn "Not solved".
 pub(in crate::gui::editor) fn setup_toggle_multi_select_callback(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
 ) {
-    // Piggybacked here (before `state` below is shadowed by its own clone) for
-    // the reason `setup_toggle_detach_callback`'s own doc comment gives:
-    // `gui::editor::mod::setup_editor_callbacks` has one fixed call site per
-    // `setup_*` function name, so a new callback is wired up from an EXISTING
-    // call site instead.
+    // Wired from this call site, which already receives `state` (see
+    // `setup_toggle_detach_callback`).
     setup_select_tier_range_callback(ui, state);
 
     let state = Rc::clone(state);
@@ -85,24 +78,17 @@ fn report_group(ui: &MainWindow, count: usize) {
     }
 }
 
-/// The tier list's Shift+click: replaces
-/// [`EditorState::multi_selected`] wholesale with every tier index between the
-/// current selection anchor (`EditorModel.selected_tier_index`) and `index`,
-/// inclusive of both ends. Unlike [`setup_toggle_multi_select_callback`]'s
-/// Ctrl+click, which only ever flips ONE row in or out, a plain Shift+click
-/// always REPLACES the whole set -- the spreadsheet/GCS convention
-/// `editor_tier_table.slint`'s row click handler now follows for Shift, checked
-/// before that same handler's existing Ctrl+click branch.
+/// The tier list's Shift+click: replaces [`EditorState::multi_selected`] with every tier index
+/// from the selection anchor (`EditorModel.selected_tier_index`) to `index`, both included.
+/// Unlike Ctrl+click, which flips one row, Shift+click always replaces the whole set, as in
+/// spreadsheets. The row handler (`tier_table_row.slint`) checks Shift before Ctrl.
 ///
 /// No anchor yet (`selected_tier_index < 0` -- a brand-new design, before any row
 /// has ever been selected) falls back to a single-row selection of `index`: there
 /// is nothing sensible to range from.
 ///
-/// Reuses the exact row-patch/count-push/facet-overlay-resubmit tail
-/// [`setup_toggle_multi_select_callback`] already has, and is piggybacked onto
-/// that callback's own registration for the reason `setup_toggle_detach_callback`'s
-/// own doc comment gives: `gui::editor::mod::setup_editor_callbacks` (not this
-/// lane's file to edit) has one fixed call site per `setup_*` function name.
+/// Shares the row-patch, count-push and facet-overlay tail of
+/// [`setup_toggle_multi_select_callback`], and is registered from that callback.
 fn setup_select_tier_range_callback(ui: &MainWindow, state: &Rc<RefCell<EditorState>>) {
     let state = Rc::clone(state);
     let ui_weak = ui.as_weak();

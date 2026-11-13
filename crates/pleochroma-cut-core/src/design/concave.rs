@@ -5,9 +5,7 @@
 //! writes it (a facet line plus a tool line) and is kept apart from
 //! [`super::ConstraintTier`] on purpose: it has no mast, no meet constraint and
 //! no target, so none of the flat solver's per-tier machinery applies to it.
-//! Keeping it in its own list on [`Design`] also leaves the ~130
-//! `ConstraintTier` literals and every flat-only code path untouched, so a
-//! design without concave tiers behaves byte-for-byte as before.
+//! Keeping it in its own list on [`Design`] leaves the flat tier code paths untouched.
 
 use core::{
     fmt::{self, Write as _},
@@ -22,7 +20,7 @@ mod table_row;
 
 pub use table_row::ConcaveTableRow;
 
-/// A tool's three-letter code in the faceting-diagram standard (plan §1).
+/// A tool's three-letter code in the faceting-diagram standard.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ConcaveTool {
     /// Long cylinder (a mandrel-type lap).
@@ -155,7 +153,7 @@ pub const MAX_DIAMETER_RATIO: f64 = 10.0;
 /// tier may carry, for the same reason as [`MAX_DIAMETER_RATIO`].
 pub const MAX_DISPLACEMENT_RATIO: f64 = 10.0;
 
-/// One concave tier exactly as the two-line standard writes it (plan §4.1).
+/// One concave tier, as the two-line standard writes it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConcaveTier {
     /// Facet name, free text. Must not equal a flat tier's name.
@@ -192,7 +190,7 @@ pub enum ConcaveTierError {
         value: f64,
     },
     /// φ must satisfy `0 < |φ| < 90`: the frame is undefined on the table and
-    /// ambiguous on the girdle (plan §11a, Q1).
+    /// ambiguous on the girdle.
     AngleOutOfRange {
         /// The rejected angle.
         angle_deg: f64,
@@ -371,17 +369,16 @@ impl ConcaveTier {
         Ok(())
     }
 
-    /// The four columns of the tier's tool line, exactly as the faceting-diagram
-    /// reference template prints them (plan §1a):
+    /// The four columns of the tier's tool line, as the faceting-diagram reference template
+    /// prints them:
     /// `["CYL", "+10.00°", "X = 0.000, Y = 0.000, Z = 0.000", "D/W = 0.400, reciprocating"]`.
     ///
-    /// One formatter feeds every output (text and HTML sheets, view models and
-    /// the `.asc` footnotes, which take [`Self::second_line_fields_ascii`]), so they
-    /// can never disagree on a sign or a decimal. θ carries an explicit `+` when positive and none at zero; `CON`
-    /// and `DSC` print their included angle before the motion; the motion is
-    /// always printed because the standard lists it as a tool detail (plan
-    /// §11a). A value that rounds to zero prints without a sign, so `-0.000`
-    /// never reaches a sheet.
+    /// One formatter feeds every output (text and HTML sheets, view models and the `.asc`
+    /// footnotes, which take [`Self::second_line_fields_ascii`]), so they cannot disagree on a
+    /// sign or a decimal. θ carries an explicit `+` when positive and none at zero. `CON` and
+    /// `DSC` print their included angle before the motion. The motion is always printed, because
+    /// the standard lists it as a tool detail. A value that rounds to zero prints without a sign,
+    /// so `-0.000` never reaches a sheet.
     #[must_use]
     pub fn second_line_fields(&self) -> [String; 4] {
         self.second_line_fields_with("°")
@@ -425,7 +422,7 @@ impl ConcaveTier {
     }
 }
 
-/// A position in either tier list (plan §4.2).
+/// A position in either tier list.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum TierRef {
     /// Index into [`Design::tiers`].

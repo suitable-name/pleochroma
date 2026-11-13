@@ -21,27 +21,16 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-/// The tier list's "Adopt" action: switches a pinned tier over to the meet
-/// instruction the source file actually stated for it
-/// (`ConstraintTier::imported_meet`), through `Edit::SetConstraint` like any other
-/// edit. A silent no-op if the tier has nothing to adopt or the index is stale:
-/// `EditorView` only shows the button when `imported_meet_text` is non-empty, so this
-/// only guards a race with a concurrent edit.
+/// The tier list's "Adopt" action: switches a pinned tier to the meet instruction the source
+/// file stated for it (`ConstraintTier::imported_meet`), as `Edit::SetConstraint` like any other
+/// edit. It is a no-op if the tier has nothing to adopt or the index is stale. `EditorView`
+/// shows the button only when `imported_meet_text` is set, so this only guards a race.
 ///
-/// Calls `refresh_editor_panel_stale` (with `dirty = {index}`), not `refresh_all`'s
-/// real re-solve -- deliberately the one exception to "Solve on explicit action,
-/// not on every edit" that it would otherwise be: adopting a suggested meet isn't
-/// really a new edit whose result is unknown, since the value being adopted is
-/// exactly what the tier already showed after the design's last real solve, so
-/// paying the whole-schedule solve cost to re-confirm one already-known value
-/// would be a bigger hammer than it needs. `refresh_editor_panel_stale` pushes the
-/// immediate UI update from the CACHED last solve (which reads every OTHER row
-/// from that cache -- see `push_stale_content`'s own doc comment) and lets the
-/// background dirty-set replan confirm it via `resolve_dirty` instead, the same
-/// approach `callbacks::tier_actions::setup_pin_to_mast_callback` uses for its own
-/// per-row "Pin" action. "Solve, Adopt, and it says not solved again" cannot
-/// happen: `refresh_editor_panel_stale` reads the actual cached solve rather than
-/// a fixed "Not solved" banner for the untouched rows.
+/// It calls `refresh_editor_panel_stale` (with `dirty = {index}`) rather than a full `refresh_all`
+/// solve. The adopted value is the one the tier already showed after the last solve, so a
+/// whole-schedule solve would only re-confirm it. The panel updates from the cached solve, and
+/// the background dirty-set replan confirms the tier through `resolve_dirty`, as the per-row
+/// "Pin" action does (`callbacks::tier_actions::setup_pin_to_mast_callback`).
 pub(in crate::gui::editor) fn setup_adopt_meet_callback(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,

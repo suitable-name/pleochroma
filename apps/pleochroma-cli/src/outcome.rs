@@ -24,7 +24,9 @@ pub const EXIT_DESIGN: i32 = 2;
 /// A file could not be read or written.
 pub const EXIT_IO: i32 = 3;
 
-/// `validate` only: the overall verdict is Problem.
+/// The command worked and found something left to do: `validate`'s overall verdict is
+/// Problem, or `snap-meets` left a tier with no meet point or cut facets away. Its files are
+/// still written.
 pub const EXIT_PROBLEM: i32 = 4;
 
 /// `render` and `tilt-video` only: the render failed or was stopped (no reachable remote
@@ -92,8 +94,8 @@ pub struct Outcome {
     pub stdout: String,
     /// Text for standard error (progress notes, the error line).
     pub stderr: String,
-    /// Files to write, in order. Written only when `exit` is not a failure of the design:
-    /// a command that refuses its result returns none.
+    /// Files to write, in order. A command that refuses its result returns none; with several
+    /// designs, the files of the ones that worked are kept.
     pub files: Vec<OutFile>,
     /// The process exit code.
     pub exit: i32,

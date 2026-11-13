@@ -1,9 +1,5 @@
-//! Live export-progress thumbnail: box-downsamples the in-progress accumulation state
-//! directly into a small sRGB preview image, rate-limited so a fast-ticking export
-//! doesn't regenerate one on every batch.
-//!
-//! Split out of `bridge::export_thread` purely to keep that module (already sizeable)
-//! from growing further -- same reasoning as `batch`/`tonemap_png`/`scene_snapshot`.
+//! Live export-progress thumbnail: box-downsamples the in-progress accumulation into a small
+//! sRGB image, rate-limited so a fast export does not rebuild it on every batch.
 
 use super::tonemap_png::tonemap_accumulation;
 use glam::Vec3;
@@ -11,24 +7,17 @@ use pleochroma::color::ColorSpace;
 use slint::{Rgba8Pixel, SharedPixelBuffer};
 use std::time::{Duration, Instant};
 
-/// Preview thumbnail's long edge, in pixels. Large enough to read the composition at a
-/// glance; small enough that box-downsampling it costs a small, bounded fraction of a
-/// batch even at an 8K export. The downsample pass has to touch every source pixel, so
-/// its cost scales with the EXPORT's resolution rather than the thumbnail's -- see
-/// `downsample_preview` on why the column mapping is a lookup table, which is what
-/// keeps that pass memory-bound.
+/// Preview thumbnail's long edge in pixels: large enough to read the composition, small enough
+/// that the downsample stays cheap. The pass visits every source pixel, so its cost follows the
+/// export's resolution.
 const PREVIEW_MAX_LONG_EDGE: u32 = 360;
 
-/// Rate limit for preview regeneration -- about 2 per second, independent of how often
-/// `run_export`'s batch loop ticks. Nobody can perceive a thumbnail changing faster than
-/// this, so regenerating on every tick (a 4K export ticks far more often) would be pure
-/// waste.
+/// Minimum time between preview regenerations, about two per second. Nobody can see a faster
+/// change, and a 4K export ticks far more often than that.
 const PREVIEW_MIN_INTERVAL: Duration = Duration::from_millis(500);
 
-/// A source of "now" for [`PreviewThrottle`], abstracted purely so a test can drive the
-/// throttle with a fake, pre-scheduled sequence of instants instead of racing
-/// `PREVIEW_MIN_INTERVAL` against however busy the machine happens to be at test time.
-/// Production always uses [`SystemClock`], the only constructor `run_export` calls.
+/// A source of "now" for [`PreviewThrottle`], so tests can script the instants.
+/// Production uses [`SystemClock`].
 pub(super) trait Clock {
     /// The current instant.
     fn now(&mut self) -> Instant;
@@ -43,14 +32,9 @@ impl Clock for SystemClock {
     }
 }
 
-/// Rate-limits preview regeneration across `run_export`'s batch loop. One instance lives
-/// for the whole export, not per batch.
+/// Rate-limits preview regeneration for one whole export.
 ///
-/// Generic over its clock (default [`SystemClock`]) so
-/// [`preview_throttle_emits_first_then_withholds_until_the_interval_elapses`] can drive it
-/// with a fake, deterministic clock rather than sleeping past `PREVIEW_MIN_INTERVAL` --
-/// the production call site in `worker.rs` is unaffected: `PreviewThrottle::new()` still
-/// reads the real wall clock.
+/// Generic over its clock so tests can use a fake. [`PreviewThrottle::new`] uses the wall clock.
 pub(super) struct PreviewThrottle<C: Clock = SystemClock> {
     last: Option<Instant>,
     clock: C,
@@ -66,19 +50,15 @@ impl PreviewThrottle<SystemClock> {
 }
 
 impl<C: Clock> PreviewThrottle<C> {
-    /// Builds a throttle reading `clock` instead of the real wall clock -- test-only, so
-    /// `PREVIEW_MIN_INTERVAL` can be crossed deterministically rather than by sleeping.
+    /// Builds a throttle that reads `clock`. Test-only.
     #[cfg(test)]
     const fn with_clock(clock: C) -> Self {
         Self { last: None, clock }
     }
 
-    /// Returns a freshly regenerated thumbnail if at least `PREVIEW_MIN_INTERVAL` has
-    /// elapsed since the last one (the first call always produces one), `None`
-    /// otherwise. `accum`/`gpu_accum` are the export's two live local accumulation
-    /// buffers -- see [`downsample_preview`] for why both are needed. `remote_accum`,
-    /// when `Some`, is a live snapshot of the concurrently-dispatched remote engine's
-    /// in-progress accumulator; `None` when no remote engine is in play.
+    /// Returns a new thumbnail once `PREVIEW_MIN_INTERVAL` has passed since the last one. The
+    /// first call always produces one; otherwise `None`. `accum` and `gpu_accum` are the local
+    /// buffers; `remote_accum` is the remote snapshot, `None` when no remote is in play.
     pub(super) fn maybe_generate(
         &mut self,
         width: u32,
@@ -107,10 +87,7 @@ impl<C: Clock> PreviewThrottle<C> {
     }
 }
 
-/// Builds the small `SharedPixelBuffer` handed to the UI thread -- see
-/// [`downsample_preview`] for the actual downsample/tone-map work. Kept separate so
-/// `PreviewThrottle::maybe_generate` reads as "rate limit, then generate" rather than
-/// interleaving the two concerns.
+/// Builds the `SharedPixelBuffer` for the UI thread. The pixel work is in [`downsample_preview`].
 fn generate_preview_buffer(
     width: u32,
     height: u32,
@@ -122,44 +99,32 @@ fn generate_preview_buffer(
     let (thumb_w, thumb_h, rgba) =
         downsample_preview(width, height, accum, gpu_accum, remote_accum, samples_done);
     let mut buffer = SharedPixelBuffer::<Rgba8Pixel>::new(thumb_w, thumb_h);
-    // Zero-copy reinterpret RGBA8 bytes into `Rgba8Pixel` -- same idiom as
-    // `bridge::pixel_buffer::FramebufferTransfer::copy_from_gpu_slice`.
+    // Reinterprets the RGBA8 bytes as `Rgba8Pixel` without copying.
     let dst = buffer.make_mut_slice();
     let src: &[Rgba8Pixel] = bytemuck::cast_slice(&rgba);
     dst.copy_from_slice(src);
     buffer
 }
 
-/// Box-downsamples the combined CPU+GPU accumulation state directly into a small sRGB
-/// thumbnail (returns `(thumb_width, thumb_height, rgba_bytes)`), without ever
-/// tone-mapping -- or even fully materialising -- a full-resolution intermediate: each
-/// source pixel is visited exactly once and folded straight into its destination
-/// bucket.
+/// Box-downsamples the combined accumulation into a small sRGB thumbnail, returning
+/// `(width, height, rgba_bytes)`. Each source pixel is folded straight into its bucket, with no
+/// full-resolution intermediate.
 ///
 /// # Combining the hybrid buffers
 ///
-/// A hybrid export keeps separate accumulation buffers per engine (`accum`, `gpu_accum`,
-/// and -- while a remote worker is also in flight -- a live snapshot of its
-/// accumulator as `remote_accum`) that `run_export` only sums together once, at the
-/// end. A preview taken mid-export has to reflect ALL of them or it silently
-/// under-represents whatever share of the frame that engine is carrying. So every
-/// source pixel's contribution is `accum[i] + gpu_accum[i] + remote_accum[i]` (the
-/// last term `0` with no remote engine), summed on the fly.
+/// Each engine keeps its own buffer, and `run_export` sums them only at the end. The preview
+/// sums all of them per pixel, so a mid-export thumbnail is not missing an engine's share.
 ///
-/// # Normalising by samples actually done, not the export's target
+/// # Normalising by samples actually done
 ///
-/// Each combined source pixel is a SUM of `samples_done` samples, not an average --
-/// same convention as `accum` itself. This box-averages within each thumbnail bucket
-/// but leaves sample normalisation to [`tonemap_accumulation`], called with `samples_done`,
-/// never the export's target: normalising by the target would leave the preview
-/// looking almost black for most of the export.
+/// Source pixels are sums, not averages. Normalisation happens in [`tonemap_accumulation`]
+/// with `samples_done`. Using the export's target would make the preview nearly black for most
+/// of the export.
 ///
-/// # Reusing the export's sRGB tone-mapping
+/// # sRGB only
 ///
-/// Always goes through [`tonemap_accumulation`]'s sRGB path regardless of the
-/// export's chosen `ColorSpace`. This thumbnail is displayed on screen by Slint, which
-/// expects sRGB bytes; a preview can't carry an ICC profile the way the exported PNG
-/// can, so it always renders through the one path guaranteed correct without one.
+/// The thumbnail always uses the sRGB path, whatever the export's `ColorSpace`. Slint displays
+/// sRGB bytes, and a preview cannot carry an ICC profile.
 fn downsample_preview(
     width: u32,
     height: u32,
@@ -195,14 +160,11 @@ fn downsample_preview(
     let mut sum = vec![Vec3::ZERO; thumb_w_usize * thumb_rows];
     let mut count = vec![0u32; sum.len()];
 
-    // Forward (source -> bucket) box mapping via floored division. Surjective onto
-    // `0..thumb_h`/`0..thumb_w` since `scale` never upsamples, so `count` never holds
-    // a zero once this loop finishes.
+    // Source-to-bucket mapping by floored division. It covers every bucket because `scale`
+    // never upsamples, so no `count` stays zero.
     //
-    // The column mapping is hoisted into a lookup table rather than recomputed per
-    // pixel: it depends only on `x`, and recomputing it per pixel measured ~15 ms per
-    // preview at 3840x2160. One divide per COLUMN instead leaves this loop
-    // memory-bound on the two accumulation buffers it has to read either way.
+    // The column mapping depends only on `x`, so it is a lookup table. Recomputing it per pixel
+    // cost ~15 ms per preview at 4K.
     let col_bucket: Vec<usize> = (0..width_usize)
         .map(|x| x * thumb_w_usize / width_usize)
         .collect();
@@ -301,11 +263,7 @@ mod tests {
         );
     }
 
-    /// A fake [`Clock`]: returns instants from a fixed, pre-scheduled sequence, one per
-    /// call, so [`PreviewThrottle::maybe_generate`]'s interval check can be exercised
-    /// deterministically with no real waiting and no dependence on how busy the machine
-    /// happens to be -- unlike reading [`Instant::now`] directly, which made this test
-    /// flaky under compile load.
+    /// A [`Clock`] that returns a fixed sequence of instants, one per call.
     struct FakeClock {
         times: std::vec::IntoIter<Instant>,
     }
@@ -326,9 +284,8 @@ mod tests {
         }
     }
 
-    /// `PreviewThrottle` must emit on the first call, withhold a call made before
-    /// `PREVIEW_MIN_INTERVAL` has elapsed, and emit again once it has -- driven entirely
-    /// by a [`FakeClock`], so this has no wall-clock dependency at all.
+    /// The first call emits, a call before `PREVIEW_MIN_INTERVAL` is withheld, and a call after
+    /// it emits again.
     #[test]
     fn preview_throttle_emits_first_then_withholds_until_the_interval_elapses() {
         let accum = vec![Vec3::ONE; 4 * 4];

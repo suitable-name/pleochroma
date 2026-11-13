@@ -35,6 +35,7 @@ mod design_mesh;
 mod interaction;
 mod picking;
 mod render;
+mod scan;
 mod scene;
 mod state;
 mod thumbnails;
@@ -54,12 +55,13 @@ use self::{
 };
 pub(super) use self::{
     design_info::{DesignInfo, design_info, release_meshes},
+    scan::{scan_installed, scan_push, scan_read_started, scan_refused, unit_position},
     scene::rescaled_pose,
     state::ViewState,
     zoning_view::{ColourJob, redraw},
 };
 use super::{
-    axis,
+    axis, format,
     host::{Host, on_host},
     run::DesignStatus,
     shape_worker,
@@ -89,9 +91,10 @@ const RESIZE_QUIET: Duration = Duration::from_millis(150);
 /// The longest edge of a frame in pixels, whatever the display scale.
 const MAX_FRAME_EDGE: f32 = 1600.0;
 
-/// The size in pixels of the next frame: the image area at the display scale (at most
-/// [`MAX_FRAME_EDGE`] on its longer side), halved while the view is being moved. `(0, 0)`
-/// until the area is laid out.
+/// The size in pixels of the next frame: the image area at the display scale, halved while the
+/// view is being moved.
+///
+/// The longer side is at most [`MAX_FRAME_EDGE`]. `(0, 0)` until the area is laid out.
 #[must_use]
 #[expect(
     clippy::cast_possible_truncation,
@@ -159,16 +162,36 @@ pub(super) fn setup_view_callbacks(host: &Rc<Host>) {
     });
 }
 
+/// Registers the scan card's callbacks (`finding_show`, `rescan_units`). Called once, next to
+/// [`setup_view_callbacks`].
+pub(super) fn wire_scan_and_view(host: &Rc<Host>) {
+    scan::wire(host);
+}
+
+/// Outlines the stones of design group `group` of the selected result, or clears the outline
+/// for `None`.
+///
+/// The group is the one the result card's design rows number (the window's legend entry).
+pub(in crate::gui::rough_plan) fn set_legend_highlight(host: &Host, group: Option<usize>) {
+    host.window
+        .global::<RoughPlanModel>()
+        .set_selected_group(group.map_or(-1, format::to_i32));
+    if !host.session.borrow().view.building {
+        request_render(host);
+    }
+}
+
 /// Adopts the image area's current size (see [`interaction::sync_size`]): called when the
 /// planner window is shown.
 pub(super) fn sync_view_size(host: &Rc<Host>) {
     interaction::sync_size(host);
 }
 
-/// Sends the current scene to the render thread with the current camera and switches. The
-/// display scale is read again each time, so a window dragged to another display draws at
+/// Sends the current scene to the render thread with the current camera.
+///
+/// The display scale is read again each time, so a window dragged to another display draws at
 /// that display's resolution.
-fn request_render(host: &Rc<Host>) {
+fn request_render(host: &Host) {
     let model = host.window.global::<RoughPlanModel>();
     let armed = model.get_face_from_view_armed();
     let options = RenderOptions {
@@ -229,8 +252,9 @@ fn show_scene(host: &Rc<Host>, scene: Option<Arc<Scene>>) {
 }
 
 /// A finished frame arrives from the render thread: shown unless a newer one already is.
-/// When the picture under the pointer changed since the pointer last moved, what is under
-/// the pointer is looked up again in it.
+///
+/// When the picture under the pointer changed since the pointer last moved, what is under the
+/// pointer is looked up again in it.
 fn frame_ready(host: &Rc<Host>, generation: u64, pixels: render::Pixels) {
     let (newer, rehover) = {
         let mut session = host.session.borrow_mut();
@@ -251,6 +275,7 @@ fn frame_ready(host: &Rc<Host>, generation: u64, pixels: render::Pixels) {
             let mut pixels = pixels;
             zoning_view::draw_overlay(host, &mut pixels);
             axis_gizmo::draw_overlay(host, &mut pixels);
+            scan::draw_overlay(host, &mut pixels);
             pixels
         };
         host.window
@@ -259,6 +284,34 @@ fn frame_ready(host: &Rc<Host>, generation: u64, pixels: render::Pixels) {
     }
     if rehover {
         interaction::rehover(host);
+    }
+}
+
+/// Why the picture in the view is not final yet, or `None` when it is: the newest frame asked
+/// for is on screen, drawn at full size, of a scene that is not still being built. UI harness
+/// only: a screenshot waits for `None`, because frames arrive from the render thread later than
+/// `view_busy` clears.
+#[cfg(feature = "ui-harness")]
+pub(super) fn frame_unsettled(host: &Rc<Host>) -> Option<String> {
+    let session = host.session.borrow();
+    let view = &session.view;
+    if view.scene.is_none() {
+        Some("no scene is shown".to_owned())
+    } else if view.building {
+        Some("the result scene is still being built".to_owned())
+    } else if view.interactive() {
+        Some("the view is being moved or resized".to_owned())
+    } else if !(view.view_size.0 > 0.0 && view.view_size.1 > 0.0) {
+        Some(format!("the image area has no size ({:?})", view.view_size))
+    } else if view.generation == 0 {
+        Some("no frame was asked for".to_owned())
+    } else if view.applied < view.generation {
+        Some(format!(
+            "frame {} is on screen, frame {} is being drawn",
+            view.applied, view.generation
+        ))
+    } else {
+        None
     }
 }
 
@@ -284,8 +337,9 @@ fn scene_ready(host: &Rc<Host>, ticket: u64, scene: Arc<Scene>) {
     }
 }
 
-/// The drawing or the building of a result failed (a worker panicked, or is gone): the
-/// view stops waiting for it, forgets which result it was for, and says so. Selecting the
+/// The drawing or the building of a result failed (a worker panicked, or is gone).
+///
+/// The view stops waiting for it, forgets which result it was for, and says so. Selecting the
 /// result again tries again.
 fn draw_failed(host: &Rc<Host>) {
     host.session.borrow_mut().view.fail_build();
@@ -325,9 +379,10 @@ const fn toggled_group(current: i32, clicked: i32) -> i32 {
     if current == clicked { -1 } else { clicked }
 }
 
-/// Whether the model differs from the one the results were planned for. The Crystal Axis is not
-/// part of the shape: setting it leaves the results on screen (a warning says the stones were
-/// planned with the axis they had).
+/// Whether the model differs from the one the results were planned for.
+///
+/// The Crystal Axis is not part of the shape: setting it leaves the results on screen (a
+/// warning says the stones were planned with the axis they had).
 #[must_use]
 fn edited_since_plan(planned: Option<&RoughModel>, model: &RoughModel) -> bool {
     planned.is_some_and(|planned| planned.base != model.base || planned.cuts != model.cuts)
@@ -357,9 +412,10 @@ fn thumbnail_ready(
     }
 }
 
-/// How each stone of `layout` is drawn, by the stone's entry id: its own design as planned,
-/// a changed design or the design it was matched to by title (both scaled to the recorded
-/// width), or a grey box for a deleted design.
+/// How each stone of `layout` is drawn, by the stone's entry id.
+///
+/// Its own design as planned, a changed design or the design it was matched to by title (both
+/// scaled to the recorded width), or a grey box for a deleted design.
 fn mesh_ids_for(
     layout: &RoughLayout,
     statuses: &BTreeMap<i64, DesignStatus>,
@@ -429,9 +485,10 @@ fn show_fit_with(host: &Rc<Host>, index: usize, posed: bool) {
     }
 }
 
-/// A result is selected in the window: its scene is shown (built, or kept from before),
-/// and its highlight cleared unless it was the selected one already. A negative index is
-/// the "Rough" side of the view switch: no result is selected and the model is shown.
+/// A result is selected in the window: its scene is shown (built, or kept from before).
+///
+/// Its highlight is cleared unless it was the selected one already. A negative index is the
+/// "Rough" side of the view switch: no result is selected and the model is shown.
 fn select_result(host: &Rc<Host>, index: i32) {
     if index < 0 {
         deselect_result(host);
@@ -508,11 +565,13 @@ fn showing_result(host: &Rc<Host>) -> bool {
     .is_some()
 }
 
-/// The shape worker stored a new model mesh in the session: the model view redraws it. An
-/// edit away from the planned model also leaves the selected result; a refresh of the same
-/// model (the selected cut, the material) does not, and keeps the scene it has: the
-/// outline of the selected cut is a render option, not part of the scene.
+/// The shape worker stored a new model mesh in the session: the model view redraws it.
+///
+/// An edit away from the planned model also leaves the selected result. A refresh of the same
+/// model (the selected cut, the material) does not, and keeps the scene it has: the outline
+/// of the selected cut is a render option, not part of the scene.
 pub(super) fn model_changed(host: &Rc<Host>) {
+    scan::sync(host);
     let (edited, reuse) = {
         let mut guard = host.session.borrow_mut();
         let session = &mut *guard;
@@ -587,15 +646,16 @@ fn start_thumbnails(host: &Rc<Host>) {
         .set_thumbnails_pending(pending);
 }
 
-/// The results changed (a plan finished, a saved plan was loaded, or the list was
-/// cleared): the scenes built for the old list are forgotten and the new plan's rough gets
-/// a world mesh that all its scenes and thumbnails share (built by the first worker that
-/// needs it), the selection is checked, the view shows it, and the thumbnails restart. The
-/// design meshes are kept: a worker checks them against the library once for the new plan
-/// and drops those whose design was edited.
+/// The results changed: a plan finished, a saved plan was loaded, or the list was cleared.
+///
+/// The scenes built for the old list are forgotten, and the new plan's rough gets a world mesh
+/// that all its scenes and thumbnails share (built by the first worker that needs it). The
+/// selection is checked, the view shows it, and the thumbnails restart. The design meshes are
+/// kept: a worker checks them against the library once for the new plan and drops those whose
+/// design was edited.
 pub(super) fn results_changed(host: &Rc<Host>) {
-    // The plan's rough colour (if it has one) is read before the scenes and thumbnails of the new
-    // results are asked for.
+    // The rough colour of the plan, if it has one, is read before the scenes and thumbnails of
+    // the new results are asked for.
     super::zoning_hooks::refresh(host);
     {
         let mut guard = host.session.borrow_mut();

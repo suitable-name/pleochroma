@@ -26,9 +26,9 @@
 //!
 //! # What is supported
 //!
-//! Models are task-specific; each wrapper accepts only its matching checkpoint mode. Objectives
-//! support finite nonnegative weighting of windowing, extinction, tilt brilliance, measurable yield,
-//! either tone goal and optional shape penalty.
+//! Models are task-specific; each wrapper accepts only its matching checkpoint mode.
+//! Objectives support finite nonnegative weighting of windowing, extinction, tilt
+//! brilliance, measurable yield, either tone goal and an optional shape penalty.
 //!
 //! Every fallible step returns an [`InferenceError`]; nothing panics on a bad network file or
 //! an unsolvable design, and nothing falls back to a made-up answer. Settings live in

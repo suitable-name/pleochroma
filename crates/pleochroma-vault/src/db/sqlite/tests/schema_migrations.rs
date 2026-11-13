@@ -1,7 +1,10 @@
-//! Table/index/vocabulary-level migrations: shape-vocabulary seeding, the `ignored`
+//! Tests of the table, index and vocabulary-level migrations.
+//!
+//! They cover shape-vocabulary seeding, the `ignored`
 //! column plus the `diagram_previews`/`diagram_tilt_curves` side tables, the
-//! tilt-curve aggregate-column pruning, and the [`sql_identifier`] guard they (and the
-//! column migrations in [`super::migrations`]) all rely on.
+//! tilt-curve aggregate-column pruning, the solid-extent, solid-hull, saved-rough-plan and
+//! planner-exclusion tables, and the [`sql_identifier`] guard they (and the column
+//! migrations in [`super::migrations`]) all rely on.
 
 use super::{
     super::*,
@@ -32,8 +35,8 @@ fn a_fresh_database_has_the_full_seeded_shape_vocabulary() {
         "a fresh database must be seeded with the full canonical list, in order"
     );
 
-    // Before any design is imported, get_unique_shapes must still return the whole
-    // seeded vocabulary (the bug fixed here: a plain SELECT DISTINCT returned nothing).
+    // Before any design is imported, get_unique_shapes must still return the whole seeded
+    // vocabulary. A plain SELECT DISTINCT over the designs would return nothing.
     let shapes = db.get_unique_shapes().unwrap();
     let mut expected: Vec<String> = DEFAULT_SHAPES.iter().map(|s| (*s).to_string()).collect();
     expected.sort();
@@ -347,10 +350,9 @@ fn migrating_an_old_database_creates_the_planner_exclusion_table_idempotently() 
     let _ = std::fs::remove_file(&path);
 }
 
-/// Pins down `migrate_prune_tilt_curve_aggregate_columns`'s cleanup against a database
-/// that ran the never-released first-draft 36-column `diagram_tilt_curves` schema:
-/// seeds that old shape by hand, then asserts the 30 obsolete columns are gone, the 6
-/// survivors are renamed, and their data survives the rename intact.
+/// Pins down `migrate_prune_tilt_curve_aggregate_columns` against the old 36-column
+/// `diagram_tilt_curves` shape, seeded by hand. Asserts the 30 obsolete columns are
+/// dropped, the 6 survivors are renamed, and their data survives the rename.
 #[test]
 fn tilt_curve_aggregate_pruning_drops_obsolete_columns_and_renames_the_survivors() {
     let path = temp_db_path("tilt_curve_pruning");
@@ -516,8 +518,7 @@ fn ignored_migration_backfills_not_ignored_and_is_idempotent_across_two_opens() 
             "every pre-existing row must backfill to not-ignored"
         );
 
-        // The two new side tables must also be created by this same open, not just
-        // the one ALTER TABLE.
+        // The side tables must also be created by this same open, not only the ALTER TABLE.
         let entry_id: i64 = db
             .conn
             .query_row(
@@ -545,10 +546,7 @@ fn ignored_migration_backfills_not_ignored_and_is_idempotent_across_two_opens() 
         .unwrap();
     assert!(!ignored);
 
-    // The exact column set, not a bare count: the point of this assertion is that
-    // a re-run of the migration leaves no duplicate column behind, and comparing
-    // names catches that (a duplicate shows up twice) while also saying which
-    // columns the migration is expected to have produced.
+    // Compares the exact column set: a duplicate column left by a re-run would show up twice.
     let mut type_stmt = db2
         .conn
         .prepare("PRAGMA table_info(diagram_entries)")

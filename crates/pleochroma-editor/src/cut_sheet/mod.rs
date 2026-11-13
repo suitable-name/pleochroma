@@ -1,46 +1,37 @@
 //! A design's printable cutting instructions as a single self-contained HTML string or a PDF.
 //!
-//! Printable HTML that prints straight from the browser, the same sheet as a PDF, and the
-//! standalone 2D faceting diagram (PNG bytes) that shares their rendering pipeline.
+//! Printable cutting instructions as a self-contained HTML string or a PDF, plus the standalone
+//! 2D faceting diagram (PNG bytes). All of them share one rendering pipeline.
 //!
-//! Everything here is a pure function of `&Design` + `&[SolvedTier]` (+ the caller's
-//! [`SheetDetails`]): [`render_cut_diagram`] and [`render_cut_views`] (mesh ->
-//! `pleochroma_solid::diagram2d` raster -> PNG bytes in memory), [`render_vector_cut_views`]
-//! (the same views as line drawings), [`cutting_sheet_document_with`] (one HTML string) and
-//! [`cutting_sheet_pdf_with`] (PDF bytes), both written from [`SheetLayout`], which is built from
-//! [`pleochroma_cut_core::Design::cutting_sheet`]'s own rows. Nothing touches a file system,
-//! dialog or clock: the desktop writes the bytes to a picked path, the web app hands them to a
-//! browser download, and the export date is text the caller supplies.
+//! Everything here is a pure function of `&Design` + `&[SolvedTier]` and the caller's
+//! [`SheetDetails`]: [`render_cut_diagram`] and [`render_cut_views`] (mesh ->
+//! `pleochroma_solid::diagram2d` raster -> PNG bytes), [`render_vector_cut_views`] (the same
+//! views as line drawings), [`cutting_sheet_document_with`] (HTML) and [`cutting_sheet_pdf_with`]
+//! (PDF bytes), both written from [`SheetLayout`]. Nothing touches a file system, dialog or
+//! clock: the caller writes the bytes and supplies the export date as text.
 //!
 //! # Layout
 //!
-//! The printed sheet follows the official cutting-instructions template: a left column with the
-//! title, subtitle, Author | Month and year, Facet Data, Size Data and Design Data; beside it a
-//! 2 x 2 grid of the four views as line drawings (`down +Z`, `down +X`, `down -Y`, `down -Z`);
-//! then Comments, a Pavilion and a Crown section. The HTML and the PDF draw the same template
-//! (US Letter); the HTML adds an "Additional information" section after it, on a page of its
-//! own, with the shaded renderings at print resolution, a Stone summary ([`StoneSummary`]: the
-//! size in millimetres, the proportions, the material and the carat estimate with its scaling),
-//! the Orientation block and a mast table. On screen the HTML shows each printed page as a white
-//! sheet on grey under a screen-only bar; printed, it is the plain Letter pages. The counts,
-//! ratios and rows are computed once in [`SheetLayout`]; the HTML, the PDF and the text sheet are
-//! all written from it.
+//! The printed sheet follows the cutting-instructions template: a left column with the title,
+//! subtitle, Author | Month and year, Facet Data, Size Data and Design Data; beside it a 2 x 2
+//! grid of the four line-drawn views (`down +Z`, `down +X`, `down -Y`, `down -Z`); then Comments,
+//! a Pavilion and a Crown section. The HTML and the PDF draw this template on US Letter. The
+//! HTML adds an "Additional information" page with the shaded renderings, a Stone summary
+//! ([`StoneSummary`]), the Orientation block and a mast table. The counts, ratios and rows are
+//! computed once in [`SheetLayout`]; the HTML, PDF and text sheets are all written from it.
 //!
 //! # Pavilion/Crown sections
 //!
-//! A row's section comes from the solver's own `classify_blocks`
-//! (`design.meet_tier_inputs()` in, one `Block` per tier out, aligned with the cutting
-//! sheet's one-row-per-tier order) -- never derived from the sign of a formatted angle
-//! string. The girdle rows are part of the Pavilion section. An index list prints index 0 as
-//! the gear's tooth count (`96-24-48-72`), as the template does.
+//! A row's section comes from the solver's `classify_blocks` (one `Block` per tier, aligned with
+//! the cutting sheet's rows), never from the sign of a formatted angle string. The girdle rows
+//! belong to the Pavilion section. An index list prints index 0 as the gear's tooth count
+//! (`96-24-48-72`).
 //!
 //! # Model-unit vs. mm masts
 //!
-//! The mast table's "Mast (mm)" column only appears when
-//! [`pleochroma_cut_core::Design::girdle_diameter_mm`] is set -- not when the mm
-//! conversion actually resolves. A design with a stated girdle diameter that
-//! currently fails to close still shows the column, with `"-"` cells, rather than
-//! silently reverting to a model-units-only table.
+//! The mast table's "Mast (mm)" column appears when
+//! [`pleochroma_cut_core::Design::girdle_diameter_mm`] is set, even if the mm conversion does not
+//! resolve (the cells then show `"-"`).
 
 mod details;
 mod diagram;
@@ -69,11 +60,10 @@ pub use layout::{
 pub use orientation::{AxisDiagram, AxisLine, axis_diagram};
 pub use summary::{StoneSummary, SummaryRow};
 
-/// Three-panel diagram resolution of the standalone [`render_cut_diagram`] embed.
+/// Resolution of the three-panel picture from [`render_cut_diagram`].
 ///
-/// The printed sheet itself no longer embeds this picture: its template shows the four line
-/// drawings, and its additional information the four shaded views of [`SHEET_VIEW_WIDTH`] x
-/// [`SHEET_VIEW_HEIGHT`].
+/// The printed sheet does not use this picture; it shows line drawings and the shaded views of
+/// [`SHEET_VIEW_WIDTH`] x [`SHEET_VIEW_HEIGHT`].
 pub const SHEET_DIAGRAM_WIDTH: u32 = 900;
 /// See [`SHEET_DIAGRAM_WIDTH`].
 pub const SHEET_DIAGRAM_HEIGHT: u32 = 360;
@@ -81,8 +71,7 @@ pub const SHEET_DIAGRAM_HEIGHT: u32 = 360;
 /// Resolution of each of the four shaded renderings in the HTML sheet's additional information.
 ///
 /// Print resolution: two views per row of a 7.7 in column, so each prints about 3.8 in wide at
-/// over 400 dpi. Larger than the template's line drawings need, since these are the pictures a
-/// cutter zooms into.
+/// over 400 dpi.
 pub const SHEET_VIEW_WIDTH: u32 = 1600;
 /// See [`SHEET_VIEW_WIDTH`].
 pub const SHEET_VIEW_HEIGHT: u32 = 1257;
@@ -96,8 +85,8 @@ pub const VECTOR_VIEW_WIDTH: u32 = 560;
 /// See [`VECTOR_VIEW_WIDTH`].
 pub const VECTOR_VIEW_HEIGHT: u32 = 600;
 
-/// The standalone diagram export's resolution -- print-quality (roughly 150 DPI at
-/// A4 landscape width) rather than the cutting sheet's own smaller embed.
+/// Resolution of the standalone diagram export: print quality, about 150 DPI at A4 landscape
+/// width.
 pub const DIAGRAM_EXPORT_WIDTH: u32 = 1800;
 /// See [`DIAGRAM_EXPORT_WIDTH`].
 pub const DIAGRAM_EXPORT_HEIGHT: u32 = 720;
@@ -263,8 +252,7 @@ pub fn cutting_sheet_text_with(
 ///
 /// # Errors
 ///
-/// When `design` does not currently close to a solid (nothing to diagram -- named
-/// explicitly rather than silently producing a blank/stale image).
+/// When `design` does not currently close to a solid, so there is nothing to draw.
 pub fn diagram_export_png(
     design: &pleochroma_cut_core::Design,
     solved: &[pleochroma::geometry::meet_solver::SolvedTier],

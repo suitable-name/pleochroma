@@ -1,36 +1,25 @@
-//! CIE 1931 2° Standard Observer Color Matching Functions (CMFs), tabulated at 5 nm and
+//! CIE 1931 2° Standard Observer color matching functions (CMFs), tabulated at 5 nm and
 //! linearly interpolated.
 //!
 //! # Why a table, not an analytic fit
 //!
-//! The Wyman/Sloan/Shirley (2013) multi-lobe Gaussian analytic fit to the CIE 1931
-//! CMFs is a *fit*, not the standard: it carries 1-3% XYZ error relative to the real
-//! tabulated observer, worst in the x-bar trough
-//! between the fit's two x-bar lobes -- the real x-bar dips to a near-zero minimum
-//! around 495-510nm (table entries as small as 0.0024), and a sum of two Gaussians
-//! does not fall to zero between two peaks as sharply as the real curve does. Relative
-//! error is already ~5% by 480nm (the falling flank into the trough) and grows to
-//! roughly 50% right at the ~500nm minimum, where even a small absolute miss is a huge
-//! fraction of the tiny true value. See
-//! `legacy_fit_diverges_from_the_table_at_the_x_bar_trough` below for a test pinning
-//! that divergence down numerically.
+//! The Wyman/Sloan/Shirley (2013) multi-lobe Gaussian fit deviates from the real observer:
+//! about 1-3% in XYZ overall, ~5% by 480 nm, and roughly 50% at the ~500 nm x-bar minimum,
+//! where the true value is tiny (table entries as small as 0.0024). A test pins this
+//! divergence: `legacy_fit_diverges_from_the_table_at_the_x_bar_trough`.
 //!
-//! [`CIE_1931_TABLE`] below is the standard CIE 1931 2° observer, from CIE 15:2004
-//! "Colorimetry," 3rd ed., Table T.4 (also widely reproduced, e.g. Wyszecki & Stiles
-//! Table I(3.3.1) and <http://www.cvrl.org/>), at its conventional 5nm publication
-//! resolution, 380-780nm. [`cie_1931_cmf`] linearly interpolates between table entries.
+//! [`CIE_1931_TABLE`] is the standard observer (CIE 15:2004 Table T.4) at its published
+//! 5 nm resolution, 380-780 nm. [`cie_1931_cmf`] linearly interpolates between entries.
 //!
 //! Single source of truth: [`optics::raytracer`](crate::optics::raytracer) delegates to
 //! [`cie_1931_cmf`] rather than keeping its own copy of the table.
 //!
 //! # ULP-budgeted WGSL transcription
 //!
-//! [`cie_1931_cmf`] is written so a WGSL port (`const` array + the same `floor`/
-//! fraction/lerp steps, in the same order) reproduces it within a small ULP budget:
-//! only `f32` arithmetic, no `mul_add`/fma, no `f64` intermediates anywhere in the
-//! lookup or interpolation. This is ULP-budgeted, not bit-for-bit: WGSL leaves `fma`
-//! contraction, `/`, `sqrt`, and `sin`/`cos` implementation-defined, so a driver is
-//! free to round the same formula's intermediate steps differently than the CPU does.
+//! A WGSL port with the same `const` table and the same `floor`, fraction and lerp steps in
+//! the same order reproduces [`cie_1931_cmf`] within a small ULP budget, not bit-for-bit:
+//! WGSL leaves `fma` contraction, `/`, `sqrt` and `sin`/`cos` implementation-defined. Keep
+//! the lookup and interpolation in plain `f32`, with no `mul_add` and no `f64` intermediates.
 
 /// Wavelength (nm) of the table's first entry.
 const TABLE_START_NM: f32 = 380.0;
@@ -126,25 +115,11 @@ const CIE_1931_TABLE: [[f32; 3]; 81] = [
     [0.0000, 0.0000, 0.0000], // 780nm
 ];
 
-/// The definite integral of the tabulated `y_bar` column over 380-780nm, as a
-/// left-Riemann sum at the table's own 5nm step: `step * sum(y_bar_i)`.
+/// Integral of the tabulated `y_bar` over 380-780 nm, as a left Riemann sum at the 5 nm step.
 ///
-/// This is the SAME normalization constant every `cie_1931_cmf` caller elsewhere in the
-/// crate already divides an unbiased 1nm-step spectral quadrature by -- see
-/// `optics::raytracer::color::{integrate_channels_to_xyz, compute_illuminant_white_balance}`,
-/// `optics::raytracer::{intersect, scattering}`, `renderer::gpu::{furnace_check,
-/// estimator_check::furnace}`, and `shaders/{environment,furnace,spectral_transport}.wgsl`'s
-/// `NORM_FACTOR` -- all of which hard-code it as the literal `106.856`, so that an
-/// equal-energy white spectrum integrates to `Y = 1`.
-///
-/// Computed here as a `const` directly from [`CIE_1931_TABLE`] (not copied by hand) so
-/// it can never silently drift from the table it is derived from. Evaluates to
-/// ~106.8555 -- the SAME value, to the precision every other caller already hard-codes,
-/// as their `106.856` literal (that literal is the true tabulated integral, not an
-/// analytic-fit integral -- see
-/// `y_integral_matches_every_other_callers_106_856_literal` below, which pins this down
-/// numerically instead of asserting it in prose). No file outside `color/` needs to
-/// change its normalization constant to use this tabulated CMF.
+/// Matches the `106.856` literal that the optics and shader integrators divide by, so an
+/// equal-energy white spectrum integrates to `Y = 1`. Computed as a `const` from
+/// [`CIE_1931_TABLE`] so it cannot drift from the table.
 pub const CIE_1931_Y_INTEGRAL_5NM: f32 = {
     let mut sum = 0.0f32;
     let mut i = 0usize;
@@ -158,21 +133,15 @@ pub const CIE_1931_Y_INTEGRAL_5NM: f32 = {
 /// CIE 1931 2° Standard Observer Color Matching Functions at `lambda_nm`, by linear
 /// interpolation of [`CIE_1931_TABLE`].
 ///
-/// Returns `[0.0, 0.0, 0.0]` outside the tabulated 380-780nm range (this renderer's own
-/// wavelength sampling never leaves that range -- see `optics::raytracer::transport`'s
-/// `SPECTRUM_SPAN`/hero-wavelength wrapping -- so this is a defensive bound, not a path
-/// any real caller takes).
+/// Returns `[0.0, 0.0, 0.0]` outside the tabulated 380-780 nm range. The renderer's wavelength
+/// sampling stays inside that range, so this is a defensive bound.
 ///
 /// # ULP-budgeted WGSL transcription
 ///
-/// Deliberately plain `f32` arithmetic in a fixed order (`index = floor((lambda -
-/// start) / step)`, `t = position - index`, `lo + (hi - lo) * t`), no `mul_add`/fma and
-/// no `f64` intermediate anywhere -- a WGSL port doing the exact same steps against the
-/// same table reproduces this within a small ULP budget, not bit-for-bit: WGSL leaves
-/// `fma` contraction (among other things) implementation-defined, so a driver may still
-/// round a step differently than the CPU does. See `shaders/environment.wgsl`,
-/// `shaders/furnace.wgsl`, and `shaders/spectral_transport.wgsl`'s own copies of this
-/// function.
+/// Plain `f32` arithmetic in a fixed order (`index = floor((lambda - start) / step)`,
+/// `t = position - index`, `lo + (hi - lo) * t`), with no `mul_add` and no `f64`
+/// intermediate. The WGSL copies in `renderer/shaders` (`environment.wgsl`, `furnace.wgsl`)
+/// must keep these steps in this order; see the module doc for the ULP budget.
 #[must_use]
 #[expect(
     clippy::suboptimal_flops,
@@ -210,12 +179,8 @@ pub fn cie_1931_cmf(lambda_nm: f32) -> [f32; 3] {
 
 /// Batched form of [`cie_1931_cmf`] over 8 wavelengths.
 ///
-/// A table lookup has no transcendental function to batch (unlike a Gaussian-lobe fit,
-/// which would need all 8 lanes to share one [`crate::simd::exp_f32x8`] call instead of
-/// paying for 8 scalar `f32::exp` calls), so this is a plain per-lane [`cie_1931_cmf`]
-/// call, kept only so `optics::raytracer::color::cie_1931_cmf_x8` (its
-/// `Vec3`-returning wrapper) and its callers don't need to change. Bit-identical to 8
-/// separate [`cie_1931_cmf`] calls.
+/// A table lookup has no transcendental to share across lanes, so this is a plain per-lane
+/// call. Bit-identical to 8 separate [`cie_1931_cmf`] calls.
 #[must_use]
 pub fn cie_1931_cmf_x8(lambdas: &[f32; 8]) -> [[f32; 3]; 8] {
     lambdas.map(cie_1931_cmf)
@@ -223,8 +188,7 @@ pub fn cie_1931_cmf_x8(lambdas: &[f32; 8]) -> [[f32; 3]; 8] {
 
 /// The Wyman, Sloan, Shirley (2013) multi-lobe analytic fit to the CIE 1931 CMFs.
 ///
-/// Kept test-only to quantify how much more accurate the tabulated version above is
-/// (see the module doc comment).
+/// Test-only reference, to measure the table against (see the module doc).
 #[cfg(test)]
 fn cie_1931_cmf_legacy_gaussian_fit(lambda_nm: f32) -> [f32; 3] {
     fn lobe(x: f32, mu: f32, sigma_lo: f32, sigma_hi: f32) -> f32 {
@@ -313,8 +277,8 @@ mod tests {
         assert_eq!(z, 0.0057, "z_bar(555) must equal the table entry exactly");
     }
 
-    /// Another exact table point away from the peak, confirming the previous test
-    /// isn't accidentally passing only because `y_bar` peaks at exactly `1.0`.
+    /// Another exact table point away from the peak, so the test above cannot pass only
+    /// because `y_bar` is `1.0` there.
     #[test]
     fn table_point_480nm_returns_the_table_exactly() {
         let [x, y, z] = cie_1931_cmf(480.0);
@@ -339,10 +303,8 @@ mod tests {
         }
     }
 
-    /// Wavelengths outside the tabulated 380-780nm range must return exactly zero, not
-    /// clamp to the nearest edge value (unlike, e.g., `d65_relative_spectral_power`,
-    /// which clamps -- CMFs genuinely are ~zero for the human eye outside this range,
-    /// so zero is the physically correct extrapolation here).
+    /// Wavelengths outside 380-780 nm return exactly zero, not the nearest edge row: the
+    /// eye's CMFs are ~zero outside this range.
     #[test]
     fn out_of_range_wavelengths_return_zero() {
         assert_eq!(cie_1931_cmf(379.999), [0.0, 0.0, 0.0]);
@@ -351,19 +313,15 @@ mod tests {
         assert_eq!(cie_1931_cmf(850.0), [0.0, 0.0, 0.0]);
     }
 
-    /// The table's boundary wavelengths themselves are IN range and must return the
-    /// table's first/last rows exactly (not the zero the previous test checks just
-    /// outside them).
+    /// The boundary wavelengths are in range and return the first and last table rows exactly.
     #[test]
     fn boundary_wavelengths_return_the_table_edges_exactly() {
         assert_eq!(cie_1931_cmf(380.0), CIE_1931_TABLE[0]);
         assert_eq!(cie_1931_cmf(780.0), CIE_1931_TABLE[80]);
     }
 
-    /// [`CIE_1931_Y_INTEGRAL_5NM`] (derived purely from the table above) must agree with
-    /// the `106.856` literal every other CMF-integrating file in the crate still
-    /// hard-codes, to the precision those files use -- otherwise equal-energy white
-    /// would stop mapping to `Y = 1` in every file except this one.
+    /// [`CIE_1931_Y_INTEGRAL_5NM`] must agree with the `106.856` literal the optics and
+    /// shader integrators hard-code, or equal-energy white would not map to `Y = 1` there.
     #[test]
     fn y_integral_matches_every_other_callers_106_856_literal() {
         assert!(
@@ -373,10 +331,8 @@ mod tests {
         );
     }
 
-    /// An equal-energy spectrum (unit radiance at every wavelength) must integrate to
-    /// `Y = 1`, using the SAME 1nm-step rectangle-rule quadrature every real caller uses
-    /// (see [`CIE_1931_Y_INTEGRAL_5NM`]'s doc comment for the full list) and dividing by
-    /// that same constant.
+    /// An equal-energy spectrum integrates to `Y = 1` with a 1 nm rectangle-rule sum divided
+    /// by [`CIE_1931_Y_INTEGRAL_5NM`].
     #[test]
     fn equal_energy_spectrum_integrates_to_y_one() {
         let mut xyz = [0.0f32; 3];
@@ -397,11 +353,9 @@ mod tests {
         );
     }
 
-    /// D65's chromaticity, reconstructed the same way `optics::raytracer::color`'s own
-    /// `compute_illuminant_white_balance` does (401-point 1nm quadrature against the
-    /// tabulated D65 SPD), must land near the standard D65 chromaticity (0.3127, 0.3290)
-    /// -- confirms the new tabulated CMF, not just the old fit, reproduces a real,
-    /// externally-known reference point.
+    /// D65 chromaticity from a 401-point 1 nm quadrature against the tabulated D65 SPD (as in
+    /// `optics::raytracer::color::compute_illuminant_white_balance`) must land near the
+    /// standard (0.3127, 0.3290).
     #[test]
     fn d65_chromaticity_matches_the_standard_value() {
         use crate::optics::raytracer::environment::d65_relative_spectral_power;

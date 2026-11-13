@@ -14,6 +14,8 @@ use pleochroma::{
     optics::{LightingPreset, materials::GemMaterial},
 };
 
+mod meets;
+
 /// The gears the New Design dialog offers besides a free "custom" entry
 /// (`pleochroma_editor::material::GEAR_PRESETS`).
 const DIALOG_GEARS: [i32; 6] = [96, 80, 77, 72, 64, 120];
@@ -103,13 +105,10 @@ fn is_strict(spec: &TemplateSpec) -> bool {
     spec.featured && spec.family != ShapeFamily::Round
 }
 
-/// Every template in the gallery must build a non-empty tier table, and --
-/// the point of this module's whole "`ScaleReference`-only" restriction --
-/// solve and close as a real solid, the same standard this crate already
-/// holds `ConstraintTier::standard_round_brilliant` to
-/// (`standard_round_brilliant_template_solves_and_closes`, `tier.rs`): on the
-/// preform the New Design dialog gives it AND on the 1.5 x 1.0 x 1.5 cylinder
-/// the web app and the worked-example guide use for every template.
+/// Every template builds a non-empty tier table and solves and closes as a solid, both on its own
+/// preform and on the 1.5 x 1.0 x 1.5 cylinder the web app and the guide use. This is the
+/// standard `ConstraintTier::standard_round_brilliant` meets too (see
+/// `standard_round_brilliant_template_solves_and_closes` in `design/tier.rs`).
 #[test]
 fn every_template_solves_and_closes() {
     for spec in TEMPLATES {
@@ -166,10 +165,9 @@ fn every_template_has_a_girdle_a_table_and_its_intended_outline() {
     }
 }
 
-/// The four shapes added after the round brilliant: every facet reaches the
-/// surface, none is too small to cut, the table is a reasonable share of the
-/// width, the girdle is neither missing nor thick, and the preform does not touch
-/// the stone (its planes are not part of any ring).
+/// The four non-round featured shapes: every facet reaches the surface, none is too small to cut,
+/// the table is a reasonable share of the width, the girdle is neither missing nor thick, and the
+/// stone is shallower than its preform.
 #[test]
 fn the_new_shapes_have_no_vanishing_or_undersized_facets() {
     for spec in TEMPLATES.iter().filter(|spec| is_strict(spec)) {
@@ -294,7 +292,7 @@ fn the_featured_shapes_are_the_top_five_in_order() {
         ]
     );
     assert_eq!(TEMPLATES.iter().filter(|spec| !spec.featured).count(), 4);
-    // The templates that existed before the new shapes keep their positions.
+    // The first five templates are the round brilliants and the teaching designs.
     let first_five: Vec<&str> = TEMPLATES.iter().take(5).map(|spec| spec.name).collect();
     assert_eq!(
         first_five,
@@ -348,9 +346,8 @@ fn a_gear_that_breaks_the_index_layout_is_refused() {
     assert_eq!(oval.allowed_gears_among(&[]), vec![96]);
 }
 
-/// Remapped onto each gear the dialog offers, every template still solves and
-/// closes with an unchanged outline; the new shapes keep every facet, big enough to
-/// cut. This is what makes "allowed" a promise rather than a guess.
+/// Remapped onto each gear the dialog offers, every template still solves and closes with an
+/// unchanged outline; the non-round featured shapes keep every facet, big enough to cut.
 #[test]
 fn every_allowed_gear_keeps_the_stone_intact() {
     for spec in TEMPLATES {
@@ -399,32 +396,37 @@ fn the_fresh_spec_is_the_templates_own_schedule() {
     }
 }
 
-/// Every template is stored in the order it is cut, so its first tier is the first step a
-/// cutter takes: the pavilion mains first, the table last. The emerald step cut keeps its
-/// authored order inside each section, which `cutting_order` already reads pavilion first.
+/// Every template's tiers are stored in cutting order, so `flat_cutting_order` returns them
+/// unchanged.
 #[test]
-fn every_template_is_stored_in_its_cutting_order_except_the_emerald() {
+fn every_template_is_stored_in_its_cutting_order() {
     for spec in TEMPLATES {
         let tiers = spec.tiers();
         let order = flat_cutting_order(&tiers);
-        if spec.family == ShapeFamily::Emerald {
-            // Stored: the table, nine crown tiers, three girdle tiers, nine pavilion tiers.
-            let expected: Vec<usize> = (10..22).chain(1..10).chain([0]).collect();
-            assert_eq!(order, expected, "{:?}", spec.name);
-        } else {
-            let stored: Vec<usize> = (0..tiers.len()).collect();
-            assert_eq!(
-                order, stored,
-                "{:?} is not stored in cutting order",
-                spec.name
-            );
-        }
+        let stored: Vec<usize> = (0..tiers.len()).collect();
+        assert_eq!(
+            order, stored,
+            "{:?} is not stored in cutting order",
+            spec.name
+        );
     }
 }
 
-/// The reordered round brilliant lists the same tiers, angles, indices and masts as the
-/// `standard_round_brilliant` fixture; only the order differs. Its codes in stored order read
-/// P1, G1, P2, Culet, C1, C2, C3, T.
+/// The round brilliant's tiers in the order they are cut, the crown's upper girdle first.
+const ROUND_BRILLIANT_ORDER: [&str; 8] = [
+    "Pavilion Main",
+    "Girdle",
+    "Lower Girdle",
+    "Culet",
+    "Upper Girdle",
+    "Crown Main",
+    "Star",
+    "Table",
+];
+
+/// The standard template lists the same tiers, indices and angles as the
+/// `standard_round_brilliant` fixture, each pinned by an explicit depth, except the star, at 27
+/// degrees. Its codes in stored order read P1, G1, P2, Culet, C1, C2, C3, T.
 #[test]
 fn the_standard_template_has_the_fixtures_tiers_in_cutting_order() {
     let template = TEMPLATES[0].tiers();
@@ -435,28 +437,33 @@ fn the_standard_template_has_the_fixtures_tiers_in_cutting_order() {
             .iter()
             .find(|candidate| candidate.name == tier.name)
             .unwrap_or_else(|| panic!("the template has no {:?}", tier.name));
-        assert_eq!(same, tier, "{:?} differs from the fixture", tier.name);
+        let angle = if tier.name == "Star" {
+            27.0
+        } else {
+            tier.angle_deg
+        };
+        assert_eq!(
+            same.angle_deg.to_bits(),
+            angle.to_bits(),
+            "{:?}: the angle (and the culet's minus sign)",
+            tier.name
+        );
+        assert_eq!(same.indices, tier.indices, "{:?}: the indices", tier.name);
+        assert!(
+            matches!(same.constraint, MeetConstraint::ScaleReference(_)),
+            "{:?}: an explicit depth",
+            tier.name
+        );
     }
     let names: Vec<&str> = template.iter().map(|tier| tier.name.as_str()).collect();
-    assert_eq!(
-        names,
-        [
-            "Pavilion Main",
-            "Girdle",
-            "Lower Girdle",
-            "Culet",
-            "Crown Main",
-            "Star",
-            "Upper Girdle",
-            "Table"
-        ]
-    );
+    assert_eq!(names, ROUND_BRILLIANT_ORDER);
     let labels = crate::compute_tier_labels(&template);
     let codes: Vec<&str> = labels.iter().map(|label| label.code.as_str()).collect();
     assert_eq!(codes, ["P1", "G1", "P2", "Culet", "C1", "C2", "C3", "T"]);
 }
 
-/// The two teaching designs and the other round brilliants follow the same order.
+/// The teaching designs store pavilion, girdle, crown, table (the simple one has no crown main),
+/// and the other two round brilliants follow the round-brilliant order.
 #[test]
 fn the_teaching_designs_are_stored_pavilion_girdle_crown_table() {
     let names = |index: usize| -> Vec<String> {
@@ -471,31 +478,17 @@ fn the_teaching_designs_are_stored_pavilion_girdle_crown_table() {
     for index in [1, 2] {
         assert_eq!(
             names(index),
-            [
-                "Pavilion Main",
-                "Girdle",
-                "Lower Girdle",
-                "Culet",
-                "Crown Main",
-                "Star",
-                "Upper Girdle",
-                "Table"
-            ],
+            ROUND_BRILLIANT_ORDER,
             "{}",
             TEMPLATES[index].name
         );
     }
 }
 
-/// The gallery must not silently shrink to nothing, and every name must be
-/// unique -- a UI index-to-template mapping (the still-open Rust
-/// integration step this module's own top doc comment describes) depends
-/// on stable, distinct names.
+/// Template names are unique: the gallery shows each as the label of its card.
 #[test]
 fn template_names_are_unique_and_gallery_is_non_empty() {
-    // `TEMPLATES` is the `const` array literal declared above --
-    // `.is_empty()` on it is compile-time-decidable (clippy::const_is_empty);
-    // the uniqueness scan below is what actually earns this test its keep.
+    // No emptiness check: `TEMPLATES` is a const, so `is_empty` on it is decided at compile time.
     for (i, a) in TEMPLATES.iter().enumerate() {
         for b in &TEMPLATES[i + 1..] {
             assert_ne!(a.name, b.name, "duplicate template name {:?}", a.name);

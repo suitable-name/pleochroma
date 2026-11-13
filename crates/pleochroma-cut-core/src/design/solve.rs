@@ -40,10 +40,9 @@ impl Design {
     pub fn solve(&self) -> Result<Vec<SolvedTier>, DesignSolveError> {
         match self.solve_with(&SolveControl::default()) {
             Ok(solved) => Ok(solved),
-            // Legacy behavior above MAX_PLANES: solve_meet_points itself (not
-            // solve_meet_points_with) returns an all-`Failed` result rather than
-            // an error -- reproduce that exactly instead of surfacing the new
-            // `_with`-only error variant here.
+            // Above the solver's plane cap, `solve_meet_points` (unlike
+            // `solve_meet_points_with`) returns an all-`Failed` result instead of an
+            // error. Reproduce that here rather than surface the `_with`-only error.
             Err(DesignSolveError::Solve(SolveError::TooManyPlanes { .. })) => Ok(
                 solve_meet_points(self.meta.gear_teeth_abs(), &self.meet_tier_inputs()),
             ),
@@ -129,21 +128,15 @@ impl Design {
     ///
     /// # Panics
     ///
-    /// `previous` must have one entry per tier `self` currently has, in the same
-    /// order -- a prior [`Self::solve`]/[`Self::resolve_dirty`] result for a design
-    /// identical to `self` except at the positions `dirty` names. That holds for
-    /// [`Edit::ModifyTier`](crate::edit::Edit::ModifyTier)/
-    /// [`Edit::SetConstraint`](crate::edit::Edit::SetConstraint) but never
-    /// [`Edit::AddTier`](crate::edit::Edit::AddTier)/
+    /// Panics if `previous` is not aligned with [`Self::tiers`]: one entry per tier, in
+    /// the same order, from a prior solve of a design identical to `self` except at the
+    /// positions `dirty` names. That holds for the index-preserving edits
+    /// ([`Edit::ModifyTier`](crate::edit::Edit::ModifyTier),
+    /// [`Edit::SetConstraint`](crate::edit::Edit::SetConstraint)), not for
+    /// [`Edit::AddTier`](crate::edit::Edit::AddTier) or
     /// [`Edit::RemoveTier`](crate::edit::Edit::RemoveTier), which is why
-    /// [`crate::resolve::resolve_after_edit`] always calls [`Self::solve`] instead
-    /// for those two.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `previous` is not aligned with [`Self::tiers`] -- see
-    /// [`Self::resolve_dirty_with`]'s [`DesignSolveError::Mismatch`] for the
-    /// same condition surfaced as a real `Err` instead.
+    /// [`crate::resolve::resolve_after_edit`] calls [`Self::solve`] for those.
+    /// [`Self::resolve_dirty_with`] returns [`DesignSolveError::Mismatch`] instead.
     ///
     /// # Errors
     ///
@@ -163,7 +156,7 @@ impl Design {
                  SetConstraint); AddTier/RemoveTier must use Self::solve instead",
                 m.got_tiers, m.expected_tiers
             ),
-            // Legacy behavior above MAX_PLANES: see the matching arm on `Self::solve`.
+            // Above the plane cap: see the matching arm on `Self::solve`.
             Err(DesignSolveError::Solve(SolveError::TooManyPlanes { .. })) => {
                 let substituted = self.substituted_inputs(previous, dirty);
                 Ok(solve_meet_points(self.meta.gear_teeth_abs(), &substituted))
@@ -231,10 +224,9 @@ impl Design {
         )?)
     }
 
-    /// [`Self::resolve_dirty`]'s own legacy plane-cap fallback: builds `inputs`
-    /// from `self`'s RAW (not target-resolved) constraints -- see
-    /// [`Self::substitute_inputs`]'s own doc comment for why `resolve_dirty_with`
-    /// does not use this exact helper.
+    /// The plane-cap fallback of [`Self::resolve_dirty`]: builds `inputs` from `self`'s
+    /// RAW (not target-resolved) constraints. See [`Self::substitute_inputs`] for why
+    /// `resolve_dirty_with` does not use this helper.
     fn substituted_inputs(
         &self,
         previous: &[SolvedTier],

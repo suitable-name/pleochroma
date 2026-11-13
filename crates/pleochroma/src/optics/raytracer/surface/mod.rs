@@ -17,11 +17,11 @@
 //! - [`finishes`]: the finish list a scene's ground surfaces are reported in.
 //!
 //! With the default [`SurfaceScene`] (no facet surfaces, no abrasion) the hooks return their
-//! inputs unchanged and a trace is bit-identical to one without this module; only a frosted
-//! facet differs, because the ground lobe replaced the Lambertian bounce (decision D11).
+//! inputs unchanged, so an ideal facet traces bit for bit as without this module. Frosted facets
+//! still take the GGX ground lobe.
 //!
-//! The WGSL twins (lane RP-G2) are written against these expressions and draw from the same RNG
-//! streams, named below.
+//! The WGSL twins are written against these expressions and draw from the same RNG streams,
+//! named below.
 
 pub mod compensation;
 pub mod dispatch;

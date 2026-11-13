@@ -7,66 +7,38 @@ use glam::Vec3;
 use super::StandardGemCuts;
 use crate::geometry::plane::GpuFacetPlane;
 
-/// Girdle finish: the facet-index range of the girdle band.
+/// Facet-index range of the girdle band in [`StandardGemCuts::standard_round_brilliant`].
 ///
-/// Within [`StandardGemCuts::standard_round_brilliant`]'s own construction order, the 16
-/// vertical prism facets making up the physical girdle band -- see that function's own
-/// "5. 16 Girdle Facets (90.0° vertical cylinder of radius 1.0)" comment for the layout
-/// this indexes into (table: 1, star: 8, crown main: 8, upper girdle break: 16 -- NONE
-/// of which are the girdle itself, despite the name -- THEN the 16 true girdle facets,
-/// at indices 33..=48). Exposed so a caller building a bruted/frosted-girdle variant of
-/// this cut (e.g. `optics::raytracer::trace_spectral_ray_with_finish`'s
-/// `facet_finishes` argument) knows which facet indices to mark
-/// `optics::raytracer::FacetFinish::Frosted` without hand-deriving them -- and so that
-/// derivation stays correct automatically if this cut's facet-push order ever changes.
+/// These are the 16 true girdle facets, pushed as step 5 of that function (see its
+/// "5. 16 Girdle Facets" comment). The table, star, crown main and upper girdle break
+/// facets (33 planes) come before them. A frosted-girdle variant can mark these indices
+/// `optics::raytracer::FacetFinish::Frosted`. A test in `girdle` checks the range against
+/// the planes.
 pub const STANDARD_ROUND_BRILLIANT_GIRDLE_FACETS: std::ops::Range<usize> = 33..49;
 
 impl StandardGemCuts {
-    /// Converts an index-wheel position to azimuth (radians about the stone's
-    /// vertical axis), honoring a schedule's `g`-line reference angle.
+    /// Converts an index-wheel position to an azimuth (radians about the vertical axis).
     ///
-    /// `index` and `gear_reference_angle` are both in **index-wheel tooth
-    /// units** -- the same units [`pleochroma_formats::asc::AscTier::indices`] and
-    /// [`pleochroma_formats::asc::AscSchedule::gear_reference_angle`] use, *not*
-    /// degrees. That the reference angle is tooth-denominated (rather than a
-    /// degrees-from-some-fixed-direction offset) is not stated anywhere in
-    /// the `.asc` format's own sparse documentation; it was determined
-    /// empirically against the real corpus (`facet_diagrams.sqlite`'s 5,758
-    /// attached `.asc` files): of the 2,008 files (34.9%) with a nonzero
-    /// `gear_reference_angle`, **every single one's magnitude sits inside
-    /// `[0, gear_teeth]`** -- never once does it land in a degrees-style
-    /// `0..360` range independent of that design's own tooth count. The
-    /// value clusters almost entirely on two points: exactly `gear_teeth /
-    /// 2` (1,574 files -- a deliberate half-turn re-reference of the whole
-    /// index wheel) and exactly `gear_teeth` itself (424 files -- a full
-    /// turn, geometrically a no-op); the rest split between `-gear_teeth /
-    /// 2` (8 files) and `gear_teeth / 16` (2 files). Treating the field as
-    /// tooth-denominated is the only interpretation consistent with values
-    /// scaling with each design's own (varying: 96, 64, 80, 120, 72, ...)
-    /// gear count instead of clustering near a fixed degrees range.
+    /// `index` and `gear_reference_angle` are in index-wheel tooth units, as used by
+    /// [`pleochroma_formats::asc::AscTier::indices`] and
+    /// [`pleochroma_formats::asc::AscSchedule::gear_reference_angle`], not degrees. The
+    /// `.asc` format does not document this. Real files keep the reference angle within
+    /// `[0, gear_teeth]`, which only a tooth-count unit explains.
     ///
-    /// Applied as a simple additive offset to the raw index -- `index 0`
-    /// sits `gear_reference_angle` teeth around the wheel from the format's
-    /// own zero direction -- rather than negated or applied to index growth
-    /// direction, so this never flips the existing (load-bearing for every
-    /// scene already reconstructed from these files) handedness of index
-    /// growth; it only rotates the whole azimuth frame. At
-    /// `gear_reference_angle == 0.0` (the default, and 65.1% of real files)
-    /// this reduces to plain `2*pi*index/gear_teeth` bit-for-bit (`x + 0.0
-    /// == x` for every finite `f32`), so every schedule that never set a
-    /// reference angle renders exactly as before this fix.
+    /// The reference angle is a plain additive offset on the index. It rotates the whole
+    /// azimuth frame and never flips index growth, so existing scenes keep their handedness.
+    /// At zero the result equals `2*pi*index/gear_teeth` exactly.
     ///
-    /// `gear_teeth` must already be the *absolute* tooth count (see
-    /// [`pleochroma_formats::asc::AscSchedule::gear_teeth_abs`]) and non-zero --
-    /// callers are responsible for that (mirrors the `.max(1)` guard already
-    /// used at every call site below).
+    /// `gear_teeth` must be the absolute tooth count (see
+    /// [`pleochroma_formats::asc::AscSchedule::gear_teeth_abs`]) and non-zero. Callers guard this.
     #[must_use]
     pub fn index_to_azimuth(index: f32, gear_teeth: f32, gear_reference_angle: f32) -> f32 {
         2.0 * PI * (index + gear_reference_angle) / gear_teeth
     }
 
-    /// Generates exact 3D half-space planes for a 57-facet Standard Round Brilliant (SRB) Diamond cut
-    /// with standard ideal proportions (Crown height ~15% diameter, Table ~56% width, Pavilion depth ~43%).
+    /// Generates exact 3D half-space planes for a 57-facet Standard Round Brilliant (SRB)
+    /// cut with standard ideal proportions (crown height ~15% diameter, table ~56% width,
+    /// pavilion depth ~43%).
     #[must_use]
     pub fn standard_round_brilliant() -> Vec<GpuFacetPlane> {
         let mut planes = Vec::with_capacity(57);

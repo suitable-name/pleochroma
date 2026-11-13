@@ -1,6 +1,7 @@
-//! A candidate the projection certified is solved once, not twice, and scores exactly what it
-//! scored when the evaluation solved it itself; the mesh and the measures it is scored on come
-//! from one arrangement and equal the separate calls' figures bit for bit.
+//! A candidate the projection certified is solved once and scores exactly as a fresh solve.
+//!
+//! Its mesh and measures come from one arrangement and equal the separate calls' figures bit
+//! for bit.
 
 use super::*;
 use crate::{

@@ -1,14 +1,14 @@
 //! A saved Rough Planner plan with a stored rough color, for the tutorial videos (feature
 //! `ui-harness` only).
 //!
-//! The Rough Color lessons need a saved plan whose rough is a mesh and that already has a color:
-//! the wizard restores a stored fit and photos from such a plan, and the planner offers Stone
-//! Orientation and Use Color for it. A real one comes from a wizard run on photos of a rough on a
-//! camera rig, which no video can film, so this writes the same rows the wizard's Accept and the
-//! planner's Save write, from numbers generated here:
+//! The Rough Color lessons need a saved mesh-rough plan that already has a color: the wizard
+//! restores a stored fit and photos from it, and the planner offers Stone Orientation and
+//! Use Color for it. A real one comes from a wizard run on photos of a rough on a camera rig,
+//! which no video can film, so this writes the same rows as the wizard's Accept and the planner's
+//! Save, from generated numbers:
 //!
-//! * the plan: a non-convex C-shaped mesh rough (20 mm cube with a notch, so the planner keeps its
-//!   mesh and Rough Color... is enabled), two layouts of two library designs, saved through
+//! * the plan: a non-convex C-shaped mesh rough (a 20 mm cube with a notch, so the planner keeps
+//!   its mesh and enables Rough Color), two layouts of two library designs, saved through
 //!   [`store::replace_plan`] with the planner's own writer ([`serialize_checked_plan`]);
 //! * the color: an amethyst base zone and a citrine half space, stored through
 //!   `rough_colour::store::save_rough_colour_with_photos` together with a fixed fit report and two
@@ -243,7 +243,7 @@ fn pick_designs(database: &Database) -> Result<Designs, String> {
     })
 }
 
-/// The C-shaped mesh rough, imported as the planner imports an OBJ file.
+/// The C-shaped mesh rough, imported with `import_mesh` as the planner imports a mesh file.
 fn c_shape_model() -> Result<RoughModel, String> {
     let points: Vec<DVec3> = C_SHAPE_POINTS
         .iter()
@@ -370,7 +370,7 @@ const fn prediction(zone: usize, size_mm: f64, illuminant: Illuminant) -> ZonePr
     }
 }
 
-/// A converged two-zone fit report for `zoned`: the numbers a clean eight-view fit would give.
+/// A converged two-zone fit report for `zoned`, with fixed, plausible numbers.
 fn fixed_fit(zoned: &ZonedAbsorption) -> ColourFit {
     let mut tensors = vec![zoned.base.tensor.clone()];
     tensors.extend(

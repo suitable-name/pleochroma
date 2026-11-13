@@ -5,10 +5,10 @@
 //! across this folder by data source: [`round_brilliant`] (the 57-facet
 //! Standard Round Brilliant reference cut and the shared
 //! [`StandardGemCuts::index_to_azimuth`] helper), [`emerald`] (the Emerald
-//! Cut reference solid), [`database_angles`] (fabricated proportions from
-//! scraped `angle_settings` rows, [`FacetSpec`]), and [`asc_schedule`] (real
-//! per-tier depths from a parsed `.asc` schedule). [`error`] holds
-//! [`CutError`], the failure type for the `.asc` reconstruction path.
+//! Cut reference solid), [`database_angles`] (proportions built from scraped
+//! `angle_settings` rows, [`FacetSpec`]), and [`asc_schedule`] (per-tier depths
+//! from a parsed `.asc` schedule). [`error`] holds [`CutError`], the failure type
+//! for the `.asc` reconstruction path.
 
 mod asc_schedule;
 mod database_angles;

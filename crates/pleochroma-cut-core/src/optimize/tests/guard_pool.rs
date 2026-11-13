@@ -199,23 +199,21 @@ fn standard_brilliant() -> Design {
     )
 }
 
-/// The girdle thickness `measure_solid` reports: the figure the old guard read.
+/// The girdle thickness `measure_solid` reports.
 fn measured_thickness(measured: &Measured) -> f64 {
     measure_solid(&measured.planes)
         .and_then(|metrics| metrics.girdle_thickness)
         .expect("the stone has a girdle")
 }
 
-/// The pivot the hinge rule used before the owner's outline decision (2026-10-19): the extreme
-/// wall vertex of the tier's first live facet, the highest for a crown facet and the lowest for
-/// a pavilion facet, with vertices tied in height combined into the midpoint of their bounding
-/// box.
+/// The pivot a break facet turns about to pinch the band: the extreme girdle-wall vertex of
+/// the tier's first live facet (the highest for a crown facet, the lowest for a pavilion
+/// facet), with tied vertices combined into the midpoint of their bounding box.
 ///
-/// `design::hinge::tier_hinges` now pivots such a facet about its girdle OUTLINE corner, which
-/// keeps the corner and so cannot make the pinch the guard test below needs: the guard must
-/// still refuse a band that runs out between the walls, and the only way to build one with a
-/// break facet turned about a point on the wall is to turn it about the extreme vertex, where
-/// the corners move while the overall extent stays. So the fixture builds that pivot itself.
+/// `design::tier_hinges` pivots on the girdle outline corner instead, which keeps the corner
+/// and so cannot pinch the band. The guard must still refuse a band that runs out between
+/// the walls, so the fixture builds this pivot itself. Turning about it moves the corners
+/// while the overall extent stays.
 fn extreme_wall_vertex(
     measured: &Measured,
     range: &std::ops::Range<usize>,
@@ -256,9 +254,10 @@ fn extreme_wall_vertex(
     (low + high) * 0.5
 }
 
-/// The standard brilliant's two break facets (`start`'s Upper and Lower Girdle) turned steeper
-/// about their extreme girdle-wall vertices (see [`extreme_wall_vertex`]), by `share` of the full
-/// turn the pinch test below uses: `0.0` is `start` itself, `1.0` the angles 45.3 and -46.24.
+/// The standard brilliant's two break facets (`start`'s Upper and Lower Girdle) turned
+/// steeper about their extreme girdle-wall vertices (see [`extreme_wall_vertex`]), by `share`
+/// of the full turn the pinch test below uses: `0.0` is `start` itself, `1.0` the angles 45.3
+/// and -46.24.
 fn pinch_turned(start: &Measured, share: f64) -> Measured {
     let hinges = tier_hinges(&start.design, &start.solved);
     let ranges = tier_plane_ranges(&start.design, &start.solved);
@@ -287,17 +286,16 @@ fn band_of(measured: &Measured) -> Option<GirdleBand> {
     girdle_band_in(&measured.design, &ranges, &measured.planes, &measured.mesh)
 }
 
-/// A facet turned about its extreme wall vertex keeps the extreme wall vertices the measured girdle
-/// thickness is read from, so that figure cannot see the band pinch out between the walls.
-/// The guard measures the thinnest point too, and says no.
+/// A facet turned about its extreme wall vertex leaves the overall girdle thickness unchanged,
+/// so that figure cannot see the band pinch out between the walls. The guard measures the
+/// thinnest point too and refuses it.
 #[test]
 fn a_band_that_pinches_at_its_corners_is_rejected_while_the_measured_thickness_stays() {
     let start = measured(standard_brilliant());
     let guard = guard_for(&start, 0.5);
     assert!(admits(&guard, &start), "a design passes its own guard");
 
-    // The owner's emerald case in miniature: both break facets turned steeper about their
-    // girdle edges.
+    // Both break facets turned steeper about their girdle edges.
     let turned = pinch_turned(&start, 1.0);
 
     let (before, after) = (measured_thickness(&start), measured_thickness(&turned));
@@ -567,11 +565,9 @@ fn equal_scores_keep_their_arrival_order_and_bad_scores_are_ignored() {
     assert_eq!(kept(&pool), vec![entry(&[0.0], 1.0), entry(&[5.0], 1.0)]);
 }
 
-/// Two states of a run with free angles are told apart by their angles alone: the mast of a
-/// turned anchored tier follows its hinge, so every state has its own masts, and reading them
-/// too would make a state a tenth of a degree from another "distinct" (measured on the Rich
-/// Teaching Design: a pool of two held the end point and a copy 0.13 degrees away). A run with
-/// no free angle at all has only its masts to go by.
+/// States of a run with free angles are told apart by their angles alone. A turned anchored
+/// tier's mast follows its hinge, so counting masts too would make a state a tenth of a degree
+/// from another "distinct". A run with no free angle has only its masts to go by.
 #[test]
 fn a_run_with_free_angles_tells_states_apart_by_their_angles_alone() {
     let design = imported_rbc();

@@ -1,29 +1,24 @@
-//! Export request validation.
+//! Export request validation and the export's parameter types.
 //!
-//! Split out of `bridge::export_thread` purely to keep that module from growing
-//! further. The default output path lives in `filename_template`'s configurable
-//! resolver, not here.
+//! The default output path is resolved by `filename_template`, not here.
 
 use crate::settings::{ExportTransfer, WorkerSettings};
 
-/// Sane bounds for user-supplied export dimensions. `MAX_EXPORT_DIM` exists so
-/// nobody can point the exporter at, say, 100000x100000 and lock up the machine.
+/// Smallest allowed export width or height in pixels. The maxima below stop an accidental
+/// huge value from locking up the machine.
 pub const MIN_EXPORT_DIM: u32 = 16;
 /// Largest allowed export width or height in pixels.
 pub const MAX_EXPORT_DIM: u32 = 8192;
 /// Smallest allowed export samples per pixel.
 pub const MIN_EXPORT_SPP: u32 = 1;
-/// Deliberately generous: at 4K, 32768 spp is ~272 billion spectral paths (roughly
-/// 3+ hours on this project's integrated AMD Radeon, ~23M samples/sec). The cap only
-/// exists to stop a typo (an extra zero) from locking up the machine, not to
-/// second-guess a deliberate overnight run.
+/// Generous on purpose: the cap only stops a typo such as an extra zero.
 pub const MAX_EXPORT_SPP: u32 = 32768;
 
-/// Bounds for the export's max-bounce cap -- matches the ladder
-/// `export_dialog.slint`/the Parameters panel offer (4/8/12/24/64/128). The
-/// ceiling is 128 because `bounce_cost.rs` measurements found zero further image
-/// change up to a 1024-bounce reference. Validated defensively even though the
-/// dialog only ever sends one of the six rungs.
+/// Bounds for the export's max-bounce cap.
+///
+/// The ladder in `export_dialog.slint` is 4/8/12/24/64/128. 128 is the ceiling because
+/// `bounce_cost.rs` found no further image change beyond it. The values are checked even though the
+/// dialog sends only ladder rungs.
 pub const MIN_EXPORT_BOUNCES: u32 = 1;
 /// Largest allowed export bounce count.
 pub const MAX_EXPORT_BOUNCES: u32 = 128;
@@ -39,40 +34,46 @@ pub struct ExportParams {
     pub height: u32,
     /// Samples per pixel.
     pub samples_per_pixel: u32,
-    /// The export's OWN max-bounce cap, independent of the live viewport -- must
-    /// override `SceneSnapshot::capture`'s `guard.max_bounces` rather than being read
-    /// from it (see `gui::render_export`).
+    /// The export's own max-bounce cap. It is not read from the live viewport.
     pub max_bounces: u32,
 }
 
-/// Which engine(s) an export should use -- the export dialog's "Compute" pill,
-/// matching `export_dialog.slint`'s `compute_target` property (0/1/2).
+/// Which engines an export uses: the "Compute" pill of the export dialog, matching
+/// `export_dialog.slint`'s `compute_target` (0/1/2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ComputeTarget {
     LocalOnly,
     RemoteOnly,
-    /// Both engines trace disjoint sample ranges concurrently -- see
-    /// `export_thread::remote` and `run_export`. The default whenever a worker
-    /// advertising render capacity is configured.
+    /// Local and remote trace disjoint sample ranges concurrently (see `export_thread::remote`).
     Both,
 }
 
 impl ComputeTarget {
-    /// Whether the export suspends the live viewport for its duration. `RemoteOnly` uses
-    /// no local lane, no GPU adapter and no hybrid probe (see `frame_local_compute` in the
-    /// tilt video and `run_export`), so the viewport keeps tracing while the remote renders;
-    /// `LocalOnly` and `Both` share the CPU, GPU and adapter with it and pause it.
+    /// Whether the export suspends the live viewport. `RemoteOnly` uses no local CPU, GPU or
+    /// probe, so the viewport keeps tracing; `LocalOnly` and `Both` share the hardware and
+    /// pause it.
     #[must_use]
     pub const fn pauses_live_viewport(self) -> bool {
         !matches!(self, Self::RemoteOnly)
     }
+
+    /// Whether a remote lane could take part: `RemoteOnly` always (it traces nothing here),
+    /// `Both` only when a worker is configured (without one it renders locally), `LocalOnly`
+    /// never.
+    #[cfg(feature = "adaptive-sampling")]
+    #[must_use]
+    pub const fn uses_remote(self, worker_configured: bool) -> bool {
+        match self {
+            Self::LocalOnly => false,
+            Self::RemoteOnly => true,
+            Self::Both => worker_configured,
+        }
+    }
 }
 
-/// Everything about the REMOTE side of one export or tilt video, bundled so the render
-/// entry points take one argument for it: which engines ([`ComputeTarget`]), the
-/// configured remote endpoint's connection (`None` when no remote is configured -- there
-/// is at most one), and how its result travels ([`ExportTransfer`]: full data or final
-/// picture only).
+/// The remote side of one export or tilt video: the engines ([`ComputeTarget`]), the configured
+/// remote's connection (`None` if none is configured) and how its result travels
+/// ([`ExportTransfer`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RemoteSelection {
     /// The export dialog's "Compute" pill (the tilt video section has its own).
@@ -81,13 +82,10 @@ pub struct RemoteSelection {
     pub worker: Option<WorkerSettings>,
     /// "Transfer: Full data / Final picture only".
     pub transfer: ExportTransfer,
-    /// v16: whether this machine's own idle CPU/GPU may trace a share of a
-    /// final-picture export's sample budget alongside the remote -- the settings
-    /// dialog's "Final-picture exports: this machine renders a share too" switch
-    /// (`AppSettings::contribute_to_final_picture`). Only ever matters when `transfer`
-    /// is [`ExportTransfer::FinalPicture`] and `compute_target` is
-    /// [`ComputeTarget::Both`] -- see
-    /// `worker::final_picture::contribution_allowed`'s own guards.
+    /// Whether this machine's idle CPU and GPU trace a share of a final-picture export
+    /// alongside the remote (`AppSettings::contribute_to_final_picture`). Matters only for
+    /// [`ExportTransfer::FinalPicture`] with [`ComputeTarget::Both`]; see
+    /// `worker::final_picture::contribution_allowed`.
     pub contribute_local: bool,
 }
 

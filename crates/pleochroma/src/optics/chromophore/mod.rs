@@ -81,8 +81,7 @@ mod tests {
     }
 
     /// Every built-in material names a host, so the physics editor never falls back to the
-    /// alphabetically first host for a stone that has a real one (the yellow chrysoberyl and the
-    /// color-change garnet did until 2026-10-12), and every host offers something.
+    /// alphabetically first host, and every host offers at least one selectable element.
     #[test]
     fn every_built_in_material_has_a_host_and_every_host_offers_something() {
         let cat = ChromophoreCatalogue::global();
@@ -101,10 +100,8 @@ mod tests {
         assert!(empty.is_empty(), "hosts with nothing selectable: {empty:?}");
     }
 
-    /// The host list the physics editors show (Material Editor and the rough color wizard) is
-    /// alphabetical by the displayed name, case-insensitive. The catalogue keeps hosts sorted by
-    /// id; this pins that the id order and the name order agree, so a new host with a name that
-    /// sorts elsewhere is caught here instead of showing up out of place in a combo.
+    /// The host list shown in the physics editors is alphabetical by displayed name,
+    /// case-insensitive. Hosts are kept sorted by id, so this checks the two orders agree.
     #[test]
     fn the_host_names_are_alphabetical() {
         let cat = ChromophoreCatalogue::global();

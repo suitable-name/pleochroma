@@ -16,7 +16,7 @@
 //! see `crate::handshake`'s module doc comment. [`crate::handshake::verify_compatible`]
 //! compares only `build_hash`; `source_hash` is diagnostic only and never compared.
 //!
-//! # Roles (v14)
+//! # Roles
 //!
 //! [`Hello::role`] says who is dialing: a [`PeerRole::Viewer`] (the GUI, or a coordinator
 //! acting as a viewer toward nobody) wants to send requests; a [`PeerRole::Worker`] is a
@@ -123,7 +123,7 @@ pub enum Backend {
         /// The adapter's human-readable label.
         adapter: String,
     },
-    /// A coordinator fanning requests out over joined workers (v14). To a viewer it
+    /// A coordinator fanning requests out over joined workers. To a viewer it
     /// looks like one fast worker; these counts are for its "served by" line.
     Coordinator {
         /// Joined workers currently registered.
@@ -150,7 +150,7 @@ pub struct RenderCapability {
     /// `cadence_ms` anyway (rate-limited naturally by delta coalescing under
     /// backpressure), but a viewer UI can use this to grey out unreachable values.
     pub min_cadence_ms: u32,
-    /// v14: whether this server renders scenes lit by an HDR panorama
+    /// Whether this server renders scenes lit by an HDR panorama
     /// (`SceneEnvironment::Hdr`), fetching the map's bytes with `NEED_ASSET` when it lacks
     /// them. A viewer sends an HDR scene only to a server advertising `true`; anything
     /// else keeps HDR scenes local.
@@ -179,16 +179,15 @@ pub struct Welcome {
     /// before ever sending one. See the module doc comment.
     pub render: Option<RenderCapability>,
     /// Whether this worker serves the read-only design-library protocol
-    /// (`super::super::library`). Always `true` in this phase -- see the module doc
-    /// comment.
+    /// (`super::super::library`). Always `true` in current builds; it is a field so that a
+    /// build can turn the protocol off without a breaking `Welcome` change.
     pub library: bool,
     /// `true` iff this worker can accept a `TiltCurvesRequest` right now -- check this
     /// before ever sending one, exactly as [`Self::render`] gates `RenderRequest`.
     ///
-    /// Always equal to `render.is_some()` in this phase (both share the same feature
-    /// gate), but kept as its own explicit field, mirroring [`Self::library`], so a
-    /// future worker that decouples `TILT_CURVES` from full render capacity doesn't
-    /// need a breaking `Welcome` change.
+    /// Equal to `render.is_some()` while both share the same feature gate. It is kept as
+    /// its own field, mirroring [`Self::library`], so that a worker which decouples
+    /// `TILT_CURVES` from render capacity needs no breaking `Welcome` change.
     pub tilt_curves: bool,
     /// `Some` only in a coordinator's reply to a [`PeerRole::Worker`] Hello; `None` for
     /// every viewer.
@@ -368,10 +367,10 @@ mod tests {
     fn hello_and_welcome_bytes_are_the_pre_zoning_layout() {
         let mut hello = Hello::viewer(PROTOCOL_VERSION, [1, 2, 3, 4, 5, 6, 7, 8], [8; 8]);
         hello.accept_encodings = vec![PayloadEncoding::Raw];
-        let mut expected_hello = vec![0x24, 1, 2, 3, 4, 5, 6, 7, 8];
+        let mut expected_hello = vec![0x2A, 1, 2, 3, 4, 5, 6, 7, 8];
         expected_hello.extend_from_slice(&[8; 8]);
         expected_hello.extend_from_slice(&[0x00, 0x00, 0x01, 0x00]);
-        assert_eq!(PROTOCOL_VERSION, 36, "the hand-written bytes assume v36");
+        assert_eq!(PROTOCOL_VERSION, 42, "the hand-written bytes assume v42");
         assert_eq!(postcard::to_allocvec(&hello).unwrap(), expected_hello);
 
         let welcome = Welcome {
@@ -386,15 +385,15 @@ mod tests {
             #[cfg(feature = "render")]
             zoning: false,
         };
-        let mut expected_welcome = vec![0x24];
+        let mut expected_welcome = vec![0x2A];
         expected_welcome.extend_from_slice(&[9; 8]);
         expected_welcome.extend_from_slice(&[10; 8]);
         expected_welcome.extend_from_slice(&[0x00, 0x01, 0x00, 0x00, 0x00]);
         assert_eq!(postcard::to_allocvec(&welcome).unwrap(), expected_welcome);
     }
 
-    /// Pins the `Backend`/`PeerRole` discriminants: `Coordinator` is appended after the
-    /// two v13 variants, so a v13 `Cpu`/`Gpu` keeps its index.
+    /// Pins the `Backend`/`PeerRole` discriminants: variants are only appended, so the
+    /// earlier ones (`Cpu`, `Gpu`, ...) keep their index.
     #[test]
     fn appended_enum_variants_keep_the_older_discriminants() {
         assert_eq!(

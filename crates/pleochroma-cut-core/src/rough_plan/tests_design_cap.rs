@@ -30,8 +30,8 @@ pub(super) fn mixed_best(
 
 #[test]
 fn stones_are_not_capped_one_design_fills_a_long_bar_with_many_stones() {
-    // 100 x 6 x 6 mm: about sixteen cubes of 5.6 mm fit along the bar. The old planner stopped
-    // at the stone cap; now the layout holds as many as fit best, all of one design.
+    // 100 x 6 x 6 mm: about sixteen cubes of 5.6 mm fit along the bar. The layout holds as many
+    // stones as fit best, all of one design: the stone count is not capped.
     let rough = RoughBlock {
         x_mm: 100.0,
         y_mm: 6.0,

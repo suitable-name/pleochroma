@@ -14,7 +14,7 @@
 //! uses it: a user types a query, gets one page of results back. Reconnecting per call
 //! is a non-issue with no tight loop of them.
 //!
-//! [`LibrarySession`] exists for the opposite shape: `bridge::library_mirror`'s sync
+//! [`LibrarySession`] exists for the opposite shape: `bridge::library::mirror`'s sync
 //! issues thousands of requests for a real catalogue. Paying a full connect+handshake
 //! for every one turns a sync into minutes of pure handshaking before any data moves.
 //! A [`LibrarySession`] connects and handshakes once, then reuses that stream for
@@ -44,10 +44,9 @@ use std::{
 /// A read timeout applied to every [`RemoteStream`] this module holds, set once right
 /// after [`connect_and_handshake`] returns (see [`connect_checked`]). Without it, a
 /// worker that accepted the request and then stopped responding would block
-/// [`send_and_read`] forever. Considerably longer than
-/// `bridge::remote::remote_render::connection`'s `LIVENESS_TIMEOUT`: a library reply is
-/// one message, not a stream of ticks, and can legitimately be large -- 30s is generous
-/// headroom over a slow link, not a tight per-tick bound.
+/// [`send_and_read`] forever. Longer than the stream's `LIVENESS_TIMEOUT` (see
+/// `bridge::remote::remote_render::connection`): a library reply is one large message, not a
+/// stream of ticks.
 const LIBRARY_READ_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Everything that can go wrong making one library request against a remote worker.
@@ -212,9 +211,10 @@ fn request_with_reconnect<S: Read + Write>(
     }
 }
 
-/// A held mutual-TLS connection to `worker`'s design-library protocol, reused across
-/// many [`LibraryRequest`]s for the life of one `bridge::library_mirror` sync. See the
-/// module doc comment's "One-shot vs. one held session" section for why this exists
+/// A held mutual-TLS connection to `worker`'s design-library protocol, reused across many
+/// [`LibraryRequest`]s for the life of one `bridge::library::mirror` sync.
+///
+/// See the module doc comment's "One-shot vs. one held session" section for why this exists
 /// alongside [`request`].
 ///
 /// # Connecting, and the `welcome.library` check, happen once -- not per request
@@ -225,11 +225,11 @@ fn request_with_reconnect<S: Read + Write>(
 ///
 /// # What happens when the held connection drops mid-sync: reconnect and retry once
 ///
-/// A long-held connection breaking mid-sync is a certainty over a multi-thousand-design
-/// sync. [`Self::request`] (via [`request_with_reconnect`]) drops the dead stream,
-/// connects fresh exactly once, and retries the same request -- transparent to the
-/// caller, whose per-design loop only writes a design after every network call for it
-/// has succeeded, so a reconnect mid-fetch never leaves a half-written design.
+/// Over a sync of thousands of designs the held connection will break at some point.
+/// [`Self::request`] (via [`request_with_reconnect`]) drops the dead stream, connects fresh
+/// exactly once, and retries the same request. This is transparent to the caller: a design is
+/// written only after all its network calls succeed, so a reconnect never leaves a half-written
+/// design.
 ///
 /// If the reconnect attempt itself fails, [`Self::request`] returns that error rather
 /// than retrying further: a failure during catalogue enumeration surfaces as
@@ -399,8 +399,7 @@ mod tests {
 
     #[test]
     fn request_with_reconnect_propagates_the_error_when_reconnecting_also_fails() {
-        // The held connection is dead AND the network is genuinely down (not just a
-        // blip) -- the whole point of "reconnect once, don't retry forever".
+        // The held connection is dead and so is the reconnect: the error must surface, not loop.
         let mut held = Some(FakeStream::dead());
         let connect_calls = std::cell::Cell::new(0);
 

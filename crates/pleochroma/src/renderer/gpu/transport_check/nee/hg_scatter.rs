@@ -40,7 +40,8 @@ pub struct NeeHgScatterCase {
     /// `optics::materials::GemMaterial::absorption_path_scale`.
     absorption_path_scale: f32,
     /// `1` marks every one of the cube's six exit facets
-    /// [`crate::optics::raytracer::FacetFinish::Frosted`] (see [`build_nee_hg_cases`]) so
+    /// [`crate::optics::raytracer::FacetFinish::Frosted`] (see
+    /// [`accumulate_nee_hg_cpu_results`]) so
     /// `nee_contribution_hg_scatter`'s frosted-exit skip fires regardless of which facet
     /// the sampled shadow ray actually hits; `0` leaves every facet
     /// [`crate::optics::raytracer::FacetFinish::Polished`] (the CPU function's default).
@@ -113,10 +114,9 @@ fn build_nee_hg_cases() -> Vec<NeeHgScatterCase> {
         }),
     ];
 
-    // The medium-transmittance and frosted-exit-skip inputs. Cycled by case index (not cross-producted with the six axes
-    // above) so the case count stays the same order of magnitude while still covering
-    // lossless/unit-scale/polished alongside real absorbing, scattering and frosted
-    // combinations.
+    // Medium-transmittance and frosted-exit-skip inputs, cycled by case index rather than
+    // crossed with the axes above. This keeps the case count small while still covering
+    // lossless, unit-scale and polished cases alongside absorbing, scattering and frosted ones.
     let sigma_s_values = [0.0f32, 0.4, 1.2];
     let path_scale_values = [1.0f32, 1.6];
     let alpha_sets: [[f32; 8]; 3] = [
@@ -246,7 +246,7 @@ pub fn run_nee_hg_scatter(
 
     let plane_soa = build_plane_soa(&cube_planes);
     let nee_ctx = NeeContext {
-        environment: EnvironmentSource::HdrMap(&map),
+        environment: EnvironmentSource::hdr(&map),
         plane_soa: &plane_soa,
         tools: &[],
         enabled: true,
@@ -261,8 +261,7 @@ pub fn run_nee_hg_scatter(
 /// Runs the real CPU [`nee_contribution_hg_scatter`] for every case, integrates its
 /// deposit to XYZ exactly as `try_scatter_step` does (hero channel 0, the case's
 /// `path_pdf` and `compat`), and records each XYZ component's CPU-vs-GPU comparison into
-/// `acc`. Split out of [`run_nee_hg_scatter`] to
-/// keep that function under the house line-count limit.
+/// `acc`. Split out of [`run_nee_hg_scatter`] to keep that function short.
 fn accumulate_nee_hg_cpu_results(
     cases: &[NeeHgScatterCase],
     nee_ctx: NeeContext<'_>,

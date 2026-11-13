@@ -11,8 +11,8 @@
 //! # The rows
 //!
 //! [`stone_orientation_row`] is the data of a stone's row: the angle between the Crystal Axis
-//! and the table normal, whether the stone follows the rule (a check mark), is off it ("15 deg
-//! off"), or was overridden by the cutter (with the Reason), and for a biaxial material the angle
+//! and the table normal, whether the stone follows the rule (a check mark), is off it ("15° off"),
+//! or was overridden by the cutter (with the Reason), and for a biaxial material the angle
 //! of the color direction to the table.
 
 use pleochroma::optics::materials::GemMaterial;
@@ -32,7 +32,8 @@ use crate::{
 /// The stone's crystal orientation in its own model frame.
 ///
 /// It comes from the rough's `rough` orientation and the ACTUAL pose of the stone (`pose`: the
-/// chosen pose, at the stone's real scale) for a design placed by `placement`. `None` when the pose or the placement is not usable.
+/// chosen pose, at the stone's real scale) for a design placed by `placement`. `None` when the
+/// pose or the placement is not usable.
 #[must_use]
 pub fn stone_orientation_in_stone_frame(
     rough: &CrystalOrientation,
@@ -63,8 +64,8 @@ pub enum RuleStatus {
 }
 
 impl RuleStatus {
-    /// The text of the rule column: a check mark, "15 degrees off" (with the degree sign),
-    /// "overridden (reason)", or empty without a rule.
+    /// The text of the rule column: a check mark, "15° off", "overridden (reason)", or empty
+    /// without a rule.
     #[must_use]
     pub fn text(&self) -> String {
         match self {

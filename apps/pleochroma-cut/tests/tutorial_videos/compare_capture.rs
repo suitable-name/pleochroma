@@ -289,8 +289,8 @@ impl Film<'_> {
         });
         pump(20);
         self.rec.hold(Duration::from_millis(80))?;
-        // Capture image handles after the first click's delay, immediately before the second
-        // click. A new pair afterwards proves the reset gesture generated a new frame generation.
+        // Image handles are read after the first click, just before the second. The pair that
+        // follows must be a new frame generation, which shows the reset ran.
         let model = compare.global::<CompareModel>();
         let before = model.get_before_image();
         let after = model.get_after_image();

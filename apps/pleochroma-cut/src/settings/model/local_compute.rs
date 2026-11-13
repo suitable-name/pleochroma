@@ -22,11 +22,9 @@ pub enum LocalComputeTarget {
     /// machine whose adapter misbehaves -- the live-viewport analogue of
     /// `pleochroma-worker`'s `--only-cpu`.
     Cpu,
-    /// Today's hybrid behaviour: once both engines' throughputs are known, each
-    /// frame's samples split between CPU and GPU and trace CONCURRENTLY over disjoint
-    /// sub-ranges (see `HybridPacing`), falling back to a single engine while pacing
-    /// is still measuring. The default, so an existing settings file and a fresh
-    /// install both get unchanged viewport behaviour.
+    /// Hybrid: once both engines' throughputs are known, each frame's samples split between
+    /// CPU and GPU and trace concurrently over disjoint sub-ranges (see `HybridPacing`),
+    /// falling back to one engine while pacing is still measuring. The default.
     #[default]
     CpuGpu,
     /// GPU carries the WHOLE frame -- no hybrid split -- but still falls back to the

@@ -143,8 +143,8 @@ pub(super) fn refresh(ctx: &Ctx) {
     apply(ctx, pool.as_ref());
 }
 
-/// The status strip's line per section 6.5 (`CPU · 7 workers`, `GPU + CPU · 7 workers`, with
-/// the reason in brackets when the GPU is not in use).
+/// The status strip's line: `GPU + CPU · 7 workers` when the GPU is in use, else the CPU line
+/// with the GPU state in parentheses.
 #[must_use]
 pub fn format_backend_text(ctx: &Ctx, pool: &WorkerPool) -> String {
     texts(ctx, Some(pool)).map_or_else(

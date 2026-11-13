@@ -7,12 +7,14 @@
 //! run another callback: handlers read what they need, drop the borrow, then act.
 
 use super::{
-    colors::{SolveCache, SolveWorker, SwatchStone},
+    colors::{SolveCache, SolveWorker, SwatchStone, fill_from_cache},
     cross_section::Handle,
     model::{AXIS_CUSTOM, AXIS_IMPORTED, axis_index},
-    preview::PreviewWorker,
+    order::{Hidden, Remap},
+    picker::PickerState,
+    preview::{OutlineKey, OutlineMm, PreviewWorker},
     stone::StonePatternApply,
-    undo::UndoStack,
+    undo::{EditKey, UndoStack},
 };
 use crate::{ColorPatternWindow, MainWindow, bridge::render_thread::RenderContext};
 use pleochroma::optics::materials::{
@@ -20,18 +22,29 @@ use pleochroma::optics::materials::{
     variants::{ColorVariant, TensorRank},
 };
 use pleochroma_cut_core::material::pattern::{
-    ColorPattern, ColorRef, OwnColor, PatternError, ZoneRankFit, zone_rank_fit,
+    ColorPattern, ColorRef, OwnColor, PatternAxis, PatternError, ZoneRankFit, zone_rank_fit,
 };
+use pleochroma_editor::lch_color::reference_path_mm;
 use pleochroma_vault::db::sqlite::Database;
+use slint::{Image, Rgba8Pixel, SharedPixelBuffer};
 use std::{
     cell::RefCell,
+    collections::HashMap,
     rc::Rc,
     sync::{Arc, Mutex},
+    time::Instant,
 };
 
-/// The sentence of the Preview area: where a pattern shows.
+/// The sentence of the render status chip's tooltip: where a pattern shows.
 pub(super) const PREVIEW_NOTE: &str =
     "Patterns show in Path-Traced views. Ray-Traced shows the base color.";
+
+/// `ColorPatternModel.view`: the Current Design, Path-Traced.
+pub(super) const VIEW_STONE: i32 = 0;
+/// `ColorPatternModel.view`: the flat cut through the stone, with handles.
+pub(super) const VIEW_SLICE: i32 = 1;
+/// `ColorPatternModel.view`: the rod of stacked cuts.
+pub(super) const VIEW_CRYSTAL: i32 = 2;
 
 /// The vault and the render context the editor saves into and refreshes.
 #[derive(Clone)]
@@ -89,34 +102,172 @@ pub(super) struct Session {
     pub cache: SolveCache,
     /// A solve is running.
     pub solving: bool,
-    /// The color the body-color editor was opened for.
+    /// The color the body-color editor was opened for, read back by `pick_seed` and `picked_color`;
+    /// this window's own picker is [`Self::picker`].
     pub pending_pick: Option<ColorRef>,
-    /// 0 Crystal, 1 Current Design, 2 Cross-Section.
-    pub preview_mode: i32,
+    /// The window's color picker, while it is open.
+    pub picker: Option<PickerState>,
+    /// `VIEW_STONE`, `VIEW_SLICE` or `VIEW_CRYSTAL`.
+    pub view: i32,
     /// The Cross-Section's position along the axis, 0 to 1.
     pub slice_pos: f32,
     /// The presets the cutter saved.
     pub saved_presets: Vec<(String, ColorPattern)>,
     /// A sentence about where the pattern came from (zones of the Rough Color wizard).
     pub import_note: Option<String>,
+    /// A sentence about why the Current Design render failed.
+    pub render_note: Option<String>,
     /// The "Discard the changes?" bar is open.
     pub confirm_discard: bool,
     /// The preset name field is open.
     pub naming_preset: bool,
+    /// The "Start From..." gallery is open.
+    pub gallery_open: bool,
     /// The handles over the Cross-Section as last drawn.
     pub handles: Vec<Handle>,
     /// The handle being dragged.
     pub drag: Option<Drag>,
     /// The handle under the pointer.
     pub hover: Option<usize>,
+    /// The zones the cutter hid with the eye; session-only, the stored pattern never changes.
+    pub hidden: Hidden,
     /// The material the Current Design preview renders the pattern in.
     pub base_material: GemMaterial,
     /// The color the stone has without a pattern, per direction: what a typical pattern is built
     /// on (not the current base zone, which a typical pattern makes paler).
     pub own: OwnColor,
+    /// The last Current Design render, for the main picture and the inset.
+    pub design_image: Option<SharedPixelBuffer<Rgba8Pixel>>,
+    /// `ColorPatternModel.render_state`: 0 idle, 1 refining, 2 updating.
+    pub render_state: i32,
+    /// The stone outline of the slice as the outline worker last delivered it, with what it was
+    /// made for. Never worked out on the UI thread: the outline solves the design.
+    pub outline: Option<(OutlineKey, OutlineMm)>,
+    /// The outline the worker is making.
+    pub outline_pending: Option<OutlineKey>,
+    /// The picture area the pictures were last drawn for, logical pixels (a resize redraws them).
+    pub drawn_area: (f32, f32),
+    /// Gallery thumbnails by (tile id, swatch key); a new session starts empty, so they follow the
+    /// stone and its material.
+    pub thumbs: HashMap<(String, u64), Image>,
+    /// The picker's `LCh` planes by whole hue degree.
+    pub planes: HashMap<i32, Image>,
+    /// The picker's hue strip.
+    pub hue_strip: Option<Image>,
 }
 
 impl Session {
+    /// A session on `pattern` with every other setting at its start value: no design, Slice view,
+    /// a 7 mm stone, nothing selected, hidden or open. The window sets what it knows on top.
+    pub(super) fn blank(pattern: ColorPattern, base_material: GemMaterial, own: OwnColor) -> Self {
+        Self {
+            material_name: String::new(),
+            stone_apply: None,
+            preview_design: None,
+            targets_design: false,
+            baseline: pattern.clone(),
+            pattern,
+            undo: UndoStack::new(),
+            selected_zone: 0,
+            stone_width_mm: 7.0,
+            path_mm: reference_path_mm(Some(7.0)),
+            rank: TensorRank::Isotropic,
+            variants: Vec::new(),
+            custom_axis: false,
+            cache: SolveCache::new(),
+            solving: false,
+            pending_pick: None,
+            picker: None,
+            view: VIEW_SLICE,
+            slice_pos: 0.5,
+            saved_presets: Vec::new(),
+            import_note: None,
+            render_note: None,
+            confirm_discard: false,
+            naming_preset: false,
+            gallery_open: false,
+            handles: Vec::new(),
+            drag: None,
+            hover: None,
+            hidden: Hidden::default(),
+            base_material,
+            own,
+            design_image: None,
+            render_state: 0,
+            outline: None,
+            outline_pending: None,
+            drawn_area: (0.0, 0.0),
+            thumbs: HashMap::new(),
+            planes: HashMap::new(),
+            hue_strip: None,
+        }
+    }
+
+    /// Replaces the pattern with `next` and selects `selected`, as one undo step (`key` joins a
+    /// run of one control's changes); `remap` keeps the hidden zones on their zones. Colors the
+    /// solver already knows are filled in. Returns whether anything changed.
+    pub(super) fn commit(
+        &mut self,
+        mut next: ColorPattern,
+        selected: usize,
+        key: Option<EditKey>,
+        remap: Remap,
+        now: Instant,
+    ) -> bool {
+        fill_from_cache(&mut next, &self.cache);
+        if next == self.pattern && selected == self.selected() {
+            return false;
+        }
+        let before = std::mem::replace(&mut self.pattern, next);
+        if before != self.pattern {
+            self.undo.record(&before, key, now);
+        }
+        self.selected_zone = selected;
+        self.hidden.apply(remap);
+        self.hidden.retain_within(self.pattern.zones.len());
+        self.confirm_discard = false;
+        self.hover = None;
+        self.pending_pick = None;
+        self.picker = None;
+        true
+    }
+
+    /// The pattern the pictures show: the pattern without the hidden zones, and the stored index
+    /// of each of its zones (the base first), so a picture's zone index maps back to the list.
+    pub(super) fn visible(&self) -> (ColorPattern, Vec<usize>) {
+        let mut pattern = self.pattern.clone();
+        let mut kept = vec![0];
+        let zones = std::mem::take(&mut pattern.zones);
+        for (at, zone) in zones.into_iter().enumerate() {
+            let stored = at + 1;
+            if !self.hidden.contains(stored) {
+                pattern.zones.push(zone);
+                kept.push(stored);
+            }
+        }
+        (pattern, kept)
+    }
+
+    /// The tooltip of the render status chip: the import note, why a render failed, and where a
+    /// pattern shows.
+    pub(super) fn render_hint(&self) -> String {
+        [
+            self.import_note.as_deref(),
+            self.render_note.as_deref(),
+            Some(PREVIEW_NOTE),
+        ]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(" ")
+    }
+
+    /// The axis the outline of the slice depends on, with whether the pattern has zones (a
+    /// pattern without zones has no frame of its own).
+    pub(super) const fn outline_axis(visible: &ColorPattern) -> (PatternAxis, bool) {
+        (visible.axis, !visible.zones.is_empty())
+    }
+
     /// The stone the swatches are drawn for: the session's light path for picked colors, its
     /// stone width and material for a color variant.
     pub(super) const fn swatch_stone(&self) -> SwatchStone<'_> {
@@ -190,7 +341,7 @@ impl Session {
         String::new()
     }
 
-    /// Whether Apply and Save may run.
+    /// Whether Save (and Done) may run.
     pub(super) fn can_store(&self) -> bool {
         self.message().is_empty()
     }
@@ -208,8 +359,12 @@ pub(super) struct Host {
     pub session: RefCell<Option<Session>>,
     /// The thread that solves colors.
     pub solver: SolveWorker,
-    /// The thread that renders the Current Design preview.
+    /// The threads that render the Current Design preview and work out the stone's outline.
     pub preview: PreviewWorker,
+    /// Waits a moment after the last change of the picked color before it is solved.
+    pub picker_timer: slint::Timer,
+    /// Watches the window's size: the `narrow` flag and the pictures follow a resize.
+    pub tick: slint::Timer,
 }
 
 thread_local! {
@@ -262,4 +417,117 @@ pub(super) fn on_host(f: impl FnOnce(&Rc<Host>)) {
 pub(super) fn with_session<R>(host: &Host, f: impl FnOnce(&mut Session) -> R) -> Option<R> {
     let mut guard = host.session.try_borrow_mut().ok()?;
     guard.as_mut().map(f)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::gui::{
+        color_pattern::{
+            edit::{add_zone, reorder_zone},
+            order::{row_to_stored, stored_to_row},
+        },
+        rough_colour::wizard::zone_rows::ShapeKind,
+    };
+    use pleochroma_cut_core::material::pattern::{TemplateId, template};
+
+    /// A session on a watermelon with two more zones (three zones besides the base).
+    fn session() -> Session {
+        let mut pattern = template(TemplateId::Watermelon, PatternAxis::TABLE_NORMAL);
+        for _ in 0..2 {
+            pattern = add_zone(&pattern, ShapeKind::Slab, 7.0).unwrap().0;
+        }
+        Session::blank(
+            pattern,
+            GemMaterial::sapphire(),
+            OwnColor::single([50.0, 30.0, 100.0]),
+        )
+    }
+
+    fn names(session: &Session) -> Vec<String> {
+        session
+            .pattern
+            .zones
+            .iter()
+            .map(|zone| zone.name.clone())
+            .collect()
+    }
+
+    #[test]
+    fn the_selected_row_is_the_mirror_of_the_stored_index() {
+        let mut session = session();
+        session.selected_zone = 3;
+        let zones = session.pattern.zones.len();
+        // The top layer is the first row.
+        assert_eq!(stored_to_row(session.selected(), zones), 0);
+        session.selected_zone = 0;
+        assert_eq!(stored_to_row(session.selected(), zones), zones);
+        assert_eq!(row_to_stored(1, zones), Some(2));
+    }
+
+    #[test]
+    fn a_reorder_is_one_undo_step_and_undo_restores_the_order() {
+        let mut session = session();
+        let before = names(&session);
+        // Drag the bottom layer (stored 1) to the top (stored 3) in one commit.
+        let (next, selected) = reorder_zone(&session.pattern, 1, 3).unwrap();
+        assert!(session.commit(
+            next,
+            selected,
+            None,
+            Remap::Move { from: 1, to: 3 },
+            Instant::now()
+        ));
+        assert_ne!(names(&session), before);
+        assert_eq!(session.selected(), 3);
+        let moved = session.pattern.clone();
+        let back = session.undo.undo(&session.pattern).expect("one step");
+        assert_eq!(names_of(&back), before);
+        // The step was the only one.
+        assert!(!session.undo.can_undo());
+        // And redo brings the new order back.
+        let again = session.undo.redo(&back).expect("redo");
+        assert_eq!(again, moved);
+    }
+
+    fn names_of(pattern: &ColorPattern) -> Vec<String> {
+        pattern.zones.iter().map(|zone| zone.name.clone()).collect()
+    }
+
+    #[test]
+    fn hiding_a_zone_removes_it_from_the_pictures_but_never_from_the_pattern() {
+        let mut session = session();
+        let stored = session.pattern.clone();
+        session.hidden.toggle(2);
+        let (visible, kept) = session.visible();
+        assert_eq!(visible.zones.len(), 2);
+        assert_eq!(kept, [0, 1, 3]);
+        assert_eq!(session.pattern, stored);
+        assert!(!session.dirty());
+    }
+
+    #[test]
+    fn a_hidden_zone_stays_hidden_when_a_zone_moves_past_it() {
+        let mut session = session();
+        session.hidden.toggle(2);
+        let (next, selected) = reorder_zone(&session.pattern, 1, 3).unwrap();
+        session.commit(
+            next,
+            selected,
+            None,
+            Remap::Move { from: 1, to: 3 },
+            Instant::now(),
+        );
+        // The hidden zone is the one that was at 2; it is at 1 now.
+        assert!(session.hidden.contains(1) && !session.hidden.contains(2));
+    }
+
+    #[test]
+    fn the_render_hint_joins_the_notes() {
+        let mut session = session();
+        assert_eq!(session.render_hint(), PREVIEW_NOTE);
+        session.render_note = Some("The open design does not solve.".to_owned());
+        assert!(session.render_hint().starts_with("The open design"));
+        assert!(session.render_hint().ends_with(PREVIEW_NOTE));
+    }
 }

@@ -1,8 +1,8 @@
 // ---------------------------------------------------------------------------------
-// Phase-function refactor: BounceRay and BounceHit structs and constants.
+// BounceRay, BounceHit and BouncePark, and the arm and phase constants.
 //
-// Everything one ray carries from bounce to bounce. Mirrors the pointer parameters of
-// `transport_bounce_step` one-for-one; same names, same types.
+// `BounceRay` holds everything one ray carries from bounce to bounce. It mirrors the
+// pointer parameters of `transport_bounce_step` one-for-one.
 // ---------------------------------------------------------------------------------
 
 struct BounceRay {
@@ -27,7 +27,7 @@ struct BounceRay {
 
 // What one bounce step hands from one phase to the next. Lives only inside one step.
 struct BounceHit {
-    hit: HitInfo,                    // from intersect_ray (05_intersect...wgsl)
+    hit: HitInfo,                    // from `intersect_ray` (05_intersect_and_edge_rounding.wgsl)
     hit_point: vec3<f32>,
     shading_normal: vec3<f32>,
     wave_dir_at_bounce: vec3<f32>,   // = k at the start of the surface phase
@@ -39,6 +39,25 @@ struct BounceHit {
     split_mask: u32,                 // bit k set: channel k has a deferred exit split
     split_mis_weight: f32,
     split_dir: array<vec4<f32>, 8>,  // xyz = dir_k, w = transmitted_intensity
+    idx: IndexSetup,                 // the surface phase's index setup (megakernel), see `idx_valid`
+    idx_valid: bool,                 // true once `bounce_surface` stored `idx`; the arms then skip a recompute
+}
+
+// What a parked bounce carries from its surface phase to its arm (the gated megakernel loop,
+// `transport_bounce_front` / `transport_bounce_back` in `08f`). The `BounceHit` fields the arm,
+// the split resolution and the tail read, and nothing else: no arrays, and not the index setup,
+// which the arm recomputes.
+struct BouncePark {
+    pending: bool,
+    hit: HitInfo,
+    hit_point: vec3<f32>,
+    shading_normal: vec3<f32>,
+    wave_dir_at_bounce: vec3<f32>,
+    phase_pdf_this_check: f32,
+    phase_dir_this_check: vec3<f32>,
+    pre_bounce_inside_gem: bool,
+    finish: u32,
+    arm: u32,
 }
 
 const ARM_FROSTED: u32 = 1u;
@@ -52,8 +71,32 @@ const PHASE_NEXT: u32 = 0u;        // go on to the next phase in this bounce
 const PHASE_END_STEP: u32 = 1u;    // this bounce is over, ray alive (scatter continued)
 const PHASE_TERMINATE: u32 = 2u;   // ray dead; finalize it
 
+// A bounce step that stopped after its surface phase. The arm runs later, in
+// `transport_bounce_back`.
+const BOUNCE_STATUS_PARKED: u32 = 2u;
+
+fn bounce_park_blank() -> BouncePark {
+    var p: BouncePark;
+    p.pending = false;
+    p.hit.hit = false;
+    p.hit.t = 0.0;
+    p.hit.normal = vec3<f32>(0.0, 0.0, 0.0);
+    p.hit.facet_idx = 0u;
+    p.hit.side = HIT_SIDE_NONE;
+    p.hit_point = vec3<f32>(0.0, 0.0, 0.0);
+    p.shading_normal = vec3<f32>(0.0, 0.0, 0.0);
+    p.wave_dir_at_bounce = vec3<f32>(0.0, 0.0, 0.0);
+    p.phase_pdf_this_check = 0.0;
+    p.phase_dir_this_check = vec3<f32>(0.0, 0.0, 0.0);
+    p.pre_bounce_inside_gem = false;
+    p.finish = 0u;
+    p.arm = 0u;
+    return p;
+}
+
 fn bounce_hit_blank() -> BounceHit {
     var h: BounceHit;
+    h.idx_valid = false;
     h.hit.hit = false;
     h.hit.t = 0.0;
     h.hit.normal = vec3<f32>(0.0, 0.0, 0.0);
@@ -73,6 +116,20 @@ fn bounce_hit_blank() -> BounceHit {
         h.split_dir[k] = vec4<f32>(0.0, 0.0, 0.0, 0.0);
     }
     return h;
+}
+
+// Exit collection: stages the leaf of channel `k` for `bounce_resolve_splits`, which multiplies
+// it by the environment along `dir` and adds it to `nee_xyz`. `intensity` is clamped at zero
+// (as `StokesVector::intensity` does), then multiplied by `weight` (`collect_leaf_weight`
+// times any scale). A zero value is not staged. CPU equivalents: `deposit_exit_leaves` and
+// `deposit_entry_leaf`.
+fn collect_stage_leaf(h: ptr<function, BounceHit>, k: u32, dir: vec3<f32>, intensity: f32, weight: f32) {
+    let value = max(intensity, 0.0) * weight;
+    if (value > 0.0) {
+        (*h).split_mask = (1u << k) | (*h).split_mask;
+        (*h).split_dir[k] = vec4<f32>(dir, value);
+        (*h).split_mis_weight = 1.0;
+    }
 }
 
 fn bounce_ray_from_pointers(

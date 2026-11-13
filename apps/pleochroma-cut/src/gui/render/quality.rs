@@ -1,10 +1,8 @@
-//! Render-quality (lighting preset, target samples, resolution, inclusion scattering,
-//! pause, bounce count, exposure, local render path, surface glare, head shadow,
-//! backdrop) callback wiring.
+//! Callback wiring for the render-quality controls.
 //!
-//! Split mechanically out of the former `material_quality.rs` (the material half lives in
-//! [`super::material`]) so that the stone/material lane and the render-quality lane do not
-//! collide on one file. No behaviour change.
+//! Covers the lighting preset, target samples, resolution, pause, bounce count, exposure, local
+//! render path, surface glare, head shadow, backdrop, stone shadow and tray reflection. Stone
+//! material effects live in [`super::material`].
 
 use crate::{
     MainWindow, SettingsModel, ViewportModel,
@@ -15,27 +13,26 @@ use crate::{
     },
     settings::{
         SettingsPersister,
-        model::{head_shadow_deg_from_slider, surface_glare_from_percent},
+        model::{
+            head_shadow_deg_from_slider, surface_glare_from_percent, tray_reflection_from_percent,
+        },
     },
 };
 use pleochroma_editor::guide::viewing_events as events;
 use slint::ComponentHandle;
 use std::sync::{Arc, Mutex};
 
-/// Wires up lighting-preset/target-samples/render-resolution/inclusion-scattering
-/// changes, pause/tab-visibility, bounce count, and exposure callbacks. Each of the
-/// persisted settings also feeds the debounced `settings_store`. Split out of
-/// `run_gui` purely to keep that function under clippy's function-length lint.
+/// Wires the lighting-preset, target-samples, resolution, pause, bounce-count and exposure
+/// callbacks. Each persisted setting also feeds the debounced `settings_store`.
 pub(in crate::gui) fn setup_material_and_quality_callbacks(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
     settings_store: &Arc<SettingsPersister>,
 ) {
     super::ray_settings::setup(ui, render_ctx, settings_store);
-    // The UI carries the lighting preset's enum discriminant as a plain `int`;
-    // `LightingPreset::from_index` maps it back to the enum here, the one boundary
-    // crossing from "UI index" to "physics enum", and `.label()` is what's actually
-    // persisted/toasted as text.
+    // The UI carries the lighting preset as a plain `int`; `offered_from_index` maps it back to
+    // the enum, the one boundary crossing from UI index to physics enum. `.label()` is the text
+    // that is persisted and shown.
     let render_ctx_lit = render_ctx.clone();
     let settings_store_lit = settings_store.clone();
     let ui_weak_lit = ui.as_weak();
@@ -54,9 +51,8 @@ pub(in crate::gui) fn setup_material_and_quality_callbacks(
             }
         });
 
-    // Target Samples slider. Carries the slider's exponent (3..=10);
-    // `exponent_to_count` is the one boundary crossing from "slider position" to "the
-    // actual sample count", which is what's stored/persisted/rendered.
+    // Target Samples slider. Carries the exponent (3..=10); `exponent_to_count` converts it
+    // to the sample count, which is what is stored, persisted and rendered.
     let render_ctx_samples = render_ctx.clone();
     let settings_store_samples = settings_store.clone();
     let ui_weak_samples = ui.as_weak();
@@ -65,9 +61,8 @@ pub(in crate::gui) fn setup_material_and_quality_callbacks(
             let target_samples = exponent_to_count(u32::try_from(exponent).unwrap_or(0));
             let mut ctx = RenderContext::lock(&render_ctx_samples);
             ctx.target_samples = target_samples;
-            // A target changes when tracing stops, never the radiance already valid
-            // for this scene. The context guard cancels only the unfinished pass and
-            // requests a progress/completion redraw.
+            // A new target stops only the unfinished pass; the radiance already valid for
+            // this scene is kept. The context guard handles the cancel and the redraw.
             drop(ctx);
             settings_store_samples.update(|s| s.settings.target_samples = target_samples);
             if let Some(ui) = ui_weak_samples.upgrade() {
@@ -75,13 +70,9 @@ pub(in crate::gui) fn setup_material_and_quality_callbacks(
             }
         });
 
-    // Render Resolution pill selector: carries the resolved (width, height) pair
-    // directly, unlike the samples slider above. Setting `ctx.width`/`.height` is all
-    // that's needed to reset progressive accumulation cleanly: the render loop's
-    // `update_accumulation_state` already reallocates the accumulation buffer, the
-    // denoiser guide buffers, and `FramebufferTransfer` whenever it sees `width`/
-    // `height` differ on the next frame -- `ctx.dirty = true` here is the same
-    // belt-and-suspenders every other setting in this function sets, not load-bearing.
+    // Render Resolution pill selector: carries the resolved (width, height) pair. Setting
+    // `ctx.width`/`height` resets accumulation: the render loop reallocates its buffers when it
+    // sees a size change on the next frame. `dirty` is set as for every other setting here.
     let render_ctx_res = render_ctx.clone();
     let settings_store_res = settings_store.clone();
     let ui_weak_res = ui.as_weak();
@@ -104,10 +95,8 @@ pub(in crate::gui) fn setup_material_and_quality_callbacks(
 
     setup_local_render_path_callbacks(ui, render_ctx, settings_store);
 
-    // (Inclusion haze is a per-design stone effect now: `render::material`.)
-
-    // Render Pause / Resume -- explicit user intent.
-    // Independent of the tab-visibility auto-suspend: this is the one the button reflects.
+    // Explicit pause and resume, the state the button shows. Independent of the
+    // tab-visibility suspend.
     let render_ctx_pause = render_ctx.clone();
     ui.global::<ViewportModel>()
         .on_pause_toggled(move |paused: bool| {
@@ -115,13 +104,10 @@ pub(in crate::gui) fn setup_material_and_quality_callbacks(
             ctx.paused = paused;
         });
 
-    // Automatic render suspend when the rendered image isn't visible anywhere is driven
-    // by `RenderContext::tab_visible`, recomputed by `gui::render::render_visibility::
-    // recompute_tab_visible` from all the signals `render_is_visible` combines (outer
-    // tab, inner sub-tab, each sub-tab's own Solid/Path-traced view-mode toggle, and
-    // the Retarget dialog) -- see that function's own doc comment for the full list of
-    // call sites. That path must never touch `ctx.paused`: a manual pause must survive
-    // switching tabs (or flipping a view mode) away and back.
+    // The automatic suspend, used while the image is visible nowhere, is driven by
+    // `RenderContext::tab_visible`, recomputed by `render_visibility::recompute_tab_visible`
+    // from the signals `render_is_visible` combines. That path never touches `ctx.paused`, so
+    // a manual pause survives switching tabs or view modes away and back.
 
     let render_ctx_bnc = render_ctx.clone();
     let settings_store_bnc = settings_store.clone();
@@ -151,24 +137,19 @@ pub(in crate::gui) fn setup_material_and_quality_callbacks(
     super::advanced_in_use::setup_advanced_in_use_callback(ui);
 }
 
-/// Wires up the two local render-path controls: the preview-then-settle resolution
-/// reduction and the CPU/GPU compute target. Split out of
-/// `setup_material_and_quality_callbacks` purely to keep that function under clippy's
-/// function-length lint.
+/// Wires the two local render-path controls: the preview-then-settle resolution reduction and
+/// the CPU/GPU compute target. Kept apart to stay under clippy's function-length lint.
 ///
-/// What these two share, and what makes them the natural seam to cut on: neither sets
-/// `ctx.dirty` and neither raises a toast, because neither changes what is already on
-/// screen -- they only change how the next frame (or the next drag) is traced.
+/// Neither sets `ctx.dirty` nor raises a toast: neither changes what is on screen, only how the
+/// next frame or drag is traced.
 fn setup_local_render_path_callbacks(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
     settings_store: &Arc<SettingsPersister>,
 ) {
-    // Local preview-then-settle rendering: optional resolution reduction while the
-    // camera is moving -- see `RenderContext::local_preview_scale`'s doc comment for
-    // the mechanism. `Off` (index 0, the default) reproduces this crate's
-    // pre-existing behaviour exactly. No `ctx.dirty`/toast: this alone never changes
-    // what's on screen right now, only whether the next drag renders reduced.
+    // Local preview-then-settle: resolution is reduced while the camera moves (see
+    // `RenderContext::local_preview_scale`). `Off` (index 0, the default) renders at full
+    // resolution. No `ctx.dirty` or toast: only the next drag is affected.
     let render_ctx_preview = render_ctx.clone();
     let settings_store_preview = settings_store.clone();
     ui.global::<SettingsModel>()
@@ -178,12 +159,10 @@ fn setup_local_render_path_callbacks(
             settings_store_preview.update(|s| s.settings.local_preview_scale = scale);
         });
 
-    // Local Compute: which engine(s) the local (non-remote) render loop uses -- see
-    // `RenderContext::local_compute_target`'s doc comment. Live-updates `RenderContext`
-    // (read fresh by the render loop every frame) in addition to persisting the
-    // choice. No `ctx.dirty`/toast: this only changes how the next frame is traced,
-    // never what's already accumulated -- switching engines mid-render continues the
-    // same running average rather than restarting it.
+    // Local Compute: which engine(s) the local render loop uses (see
+    // `RenderContext::local_compute_target`). The context is updated live, as the render loop
+    // reads it every frame. No `ctx.dirty` or toast: switching engines mid-render continues the
+    // running average rather than restarting it.
     let render_ctx_local_compute = render_ctx.clone();
     let settings_store_local_compute = settings_store.clone();
     ui.global::<SettingsModel>()
@@ -242,6 +221,52 @@ pub(in crate::gui) fn setup_head_shadow_callback(
             ctx.dirty = true;
             drop(ctx);
             settings_store.update(|s| s.settings.head_shadow_deg = deg);
+        });
+}
+
+/// Applies the Stone Shadow toggle to the current frame and the stored lighting.
+pub(in crate::gui) fn setup_stone_shadow_callback(
+    ui: &MainWindow,
+    render_ctx: &Arc<Mutex<RenderContext>>,
+    settings_store: &Arc<SettingsPersister>,
+) {
+    let render_ctx = Arc::clone(render_ctx);
+    let settings_store = Arc::clone(settings_store);
+    ui.global::<SettingsModel>()
+        .on_stone_shadow_changed(move |enabled| {
+            let mut ctx = RenderContext::lock(&render_ctx);
+            if ctx.stone_shadow != enabled {
+                ctx.stone_shadow = enabled;
+                ctx.dirty = true;
+                drop(ctx);
+                settings_store.update(|s| s.settings.stone_shadow = enabled);
+            }
+        });
+}
+
+/// Wires the Tray Reflection slider: the head-on reflectance of the glossy tray under the stone
+/// in the live view and every export (`RenderContext::tray_reflection`, persisted as
+/// `AppSettings::tray_reflection`). The slider reports a whole percent; a drag that stays on the
+/// same percent changes nothing and so never restarts accumulation. The render thread resolves
+/// the plane per scene generation, and the scene identity includes the value.
+pub(in crate::gui) fn setup_tray_reflection_callback(
+    ui: &MainWindow,
+    render_ctx: &Arc<Mutex<RenderContext>>,
+    settings_store: &Arc<SettingsPersister>,
+) {
+    let render_ctx = Arc::clone(render_ctx);
+    let settings_store = Arc::clone(settings_store);
+    ui.global::<SettingsModel>()
+        .on_tray_reflection_changed(move |percent: f32| {
+            let reflection = tray_reflection_from_percent(percent);
+            let mut ctx = RenderContext::lock(&render_ctx);
+            if ctx.tray_reflection.to_bits() == reflection.to_bits() {
+                return;
+            }
+            ctx.tray_reflection = reflection;
+            ctx.dirty = true;
+            drop(ctx);
+            settings_store.update(|s| s.settings.tray_reflection = reflection);
         });
 }
 

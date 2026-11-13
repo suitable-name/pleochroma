@@ -1,6 +1,6 @@
 // Uniaxial entry arm, reflect half. `bounce_arm_uni_entry_core` (08d) has four Lekner solver call
-// sites, which made it the slowest arm to compile in the browser. The event wavefront runs it as
-// two kernels along its one real branch, with every operation unchanged and in the same order:
+// sites; the event wavefront splits it into two kernels along its one real branch (browser compile
+// time), with every operation unchanged and in the same order:
 //
 // * this kernel solves the hero's entry pair, draws the reflect-vs-transmit decision
 //   (`entry_rng_bounce < entry_r_branch`) and, on the reflect branch, runs the per-channel reflect
@@ -8,9 +8,9 @@
 //   the ray (`TAG_UNI_ENTRY_TRANSMIT`);
 // * `ew_arm_uni_entry_transmit` repeats the (pure) hero solve and runs the transmit branch.
 //
-// Nothing is written before the decision in the original either, so a parked ray is exactly the
-// ray the original function started from. The reflect loop reuses the hero's solution for channel
-// 0 (PERF-11), so each kernel has two solver call sites.
+// Nothing is written before the decision, so a parked ray is the ray the original function
+// started from. The reflect loop reuses the hero's solution for channel 0, so each kernel has
+// two solver call sites.
 
 // The reflect branch of `bounce_arm_uni_entry_core`. Returns true, leaving `s` and `h` untouched,
 // when the transmit branch was drawn instead.
@@ -39,15 +39,17 @@ fn ew_uni_entry_reflect(
     let sol_p_hero = pair_hero.p_sol;
     let reflect_mueller_hero = jones_to_mueller(sol_s_hero.r_s, sol_p_hero.r_s, sol_s_hero.r_p, sol_p_hero.r_p);
     let entry_r_branch = clamp(reflect_mueller_hero[0][0], R_UNPOL_SELECT_MIN, R_UNPOL_SELECT_MAX);
-    let entry_rng_bounce = f32(hash_u32(seed0 ^ hash_u32(bounce ^ FRESNEL_BRANCH_STREAM))) / 4294967295.0;
+    let entry_rng_bounce = f32(discrete_draw(seed0, bounce, FRESNEL_BRANCH_STREAM)) / 4294967295.0;
 
-    if (!(entry_rng_bounce < entry_r_branch)) {
+    // Exit collection draws no branch: the transmit half stages the mirror leaf and continues
+    // undivided (`ew_uni_entry_transmit`), so every ray parks.
+    if (collect_on || !(entry_rng_bounce < entry_r_branch)) {
         return true;
     }
     for (var k: u32 = 0u; k < NUM_CHANNELS; k = k + 1u) {
         // Channel 0 is the hero: `pair_hero` was solved with the identical
         // arguments (`n_o_hero == n_o_hoisted[0]`, `n_e_hero_solve ==
-        // n_e_raw_ch[0]`), so it is reused (PERF-11).
+        // n_e_raw_ch[0]`), so it is reused.
         var pair_k = pair_hero;
         if (k != 0u) {
             pair_k = entry_solve_pair_with_incidence(uinc_frame, 1.0, n_o_hoisted[k], n_e_raw_ch[k], c_axis, uframe);

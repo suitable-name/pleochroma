@@ -4,8 +4,7 @@
 //! The autosave (`super::persist`: `sessionStorage` for a reload, `IndexedDB` two seconds
 //! after the last change for a restart) is a safety net, not a save: it can lag the last
 //! edit, and the browser may evict it. A downloaded file is the only copy that is surely
-//! kept -- so the guard asks whenever the design is dirty, not only when closing. It is
-//! unchanged by the `IndexedDB` autosave.
+//! kept, so the guard asks whenever the design is dirty, not only when closing.
 
 use super::{Ctx, diagnostics::console_warn};
 use wasm_bindgen::{JsCast, closure::Closure};

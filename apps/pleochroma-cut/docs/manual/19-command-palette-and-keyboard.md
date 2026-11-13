@@ -161,7 +161,7 @@ of the row.
   the five Auto-solve settings (Off, 150 ms, 300 ms, 1 s, 3 s).
 - **Tools:** Plan Rough..., Angle Sweep... (Chapter 21), Cutting Mode... (Chapter 20), the
   three Regenerate commands for the catalogue's preview images and tilt curves, Show Tilt
-  Performance Chart, New or Edit Gem Material..., Stone Properties..., Lighting & Environment..., Render & Output... (the Parameters dock's three tabs; the older Render Settings... entry still opens the last one), Export Render Image...
+  Performance Chart, New or Edit Gem Material..., Stone Properties..., Lighting & Environment..., Render & Output... (the Parameters dock's three tabs; the Render Settings... entry, kept as an alias, opens the last one), Export Render Image...
 - **Help:** User Manual, Help for This Screen (F1), Keyboard Shortcuts, Guide: New Design
   Walkthrough, Tutorials..., Build the Selected Library Design and Welcome Tour
   (Chapter 22).

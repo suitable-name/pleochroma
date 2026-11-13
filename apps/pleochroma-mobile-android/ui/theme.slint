@@ -50,7 +50,8 @@ export global Theme {
     out property <color> inverse-surface: dark ? #e6e0e9 : #322f35;
     out property <color> on-inverse-surface: dark ? #322f35 : #f5eff7;
 
-    // The three verdict levels (0 good, 1 check, 2 problem) as roles. -1 is "not judged".
+    // Verdict levels 0 (good), 1 (check) and 2 (problem); -1 is not judged. The container and
+    // content roles fall back to the error roles for any other level, so callers guard -1.
     pure public function verdict-container(level: int) -> color {
         return level == 0 ? success-container : (level == 1 ? warning-container : error-container);
     }
@@ -59,7 +60,7 @@ export global Theme {
         return level == 0 ? on-success-container : (level == 1 ? on-warning-container : on-error-container);
     }
 
-    // The solid mark (a dot, a pill outline) of a level; nothing for "not judged".
+    // The mark color of a level; transparent for any level outside 0 to 2.
     pure public function verdict-mark(level: int) -> color {
         return level == 0 ? success : (level == 1 ? warning : (level == 2 ? error : transparent));
     }
@@ -70,10 +71,9 @@ export global Theme {
     out property <float> state-pressed: 0.12;
     out property <float> disabled-content: 0.38;
 
-    // Type scale. A global cannot use `rem` (it has no window to take the default font
-    // size from), so `AppWindow` copies its `default-font-size` into `base-font` (the
-    // platform's default size, which Android scales with the system font scale) and
-    // every size below is a multiple of it.
+    // Type scale. A global has no window to take `rem` from, so `AppWindow` copies its
+    // `default-font-size` into `base-font` (Android scales that with the system font size)
+    // and every size below is a multiple of it.
     in-out property <length> base-font: 14px;
     out property <length> text-display: base-font * 2.57;
     out property <length> text-headline: base-font * 2;

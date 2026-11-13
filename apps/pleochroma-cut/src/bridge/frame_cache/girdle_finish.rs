@@ -4,10 +4,8 @@
 //! design to decide which ones are the girdle band -- cheap once, but the render loop
 //! calls into whichever finish set is active many times per second, and the classified
 //! band only ever changes when the design's own geometry does. [`GirdleFinishCache`]
-//! recomputes only when `render_thread::hash_planes`'s key actually differs from the
-//! last call -- the same cheap `Pod`-bytes identity `bridge::frame_cache::guide_pass::GuideCache`
-//! already keys part of its own invalidation on (see that module's doc comment),
-//! reused here rather than a third, parallel geometry-identity scheme.
+//! recomputes only when `render_thread::hash_planes`'s key differs from the last call, the same
+//! identity `bridge::frame_cache::guide_pass::GuideCache` keys on.
 
 use crate::bridge::render_thread::hash_planes;
 use pleochroma::{
@@ -18,10 +16,8 @@ use pleochroma::{
     optics::raytracer::FacetFinish,
 };
 
-/// `key` starts `None`, so the very first [`Self::ensure`] call always sees a "stale"
-/// key and populates `finishes` before anything reads it -- same never-empty-but-still-
-/// correct shape `bridge::frame_cache::guide_pass::GuideCache` uses for the identical reason (see
-/// that type's doc comment).
+/// `key` starts `None`, so the first [`Self::ensure`] call populates `finishes` before anything
+/// reads it.
 #[derive(Debug, Default)]
 pub struct GirdleFinishCache {
     key: Option<u64>,
@@ -47,8 +43,7 @@ impl GirdleFinishCache {
     /// [`Self::ensure`] for a design with authored frosting: the frosted planes
     /// (`frosted`, indices into `planes`) are `Frosted` too, and the girdle band is
     /// `Frosted` as well when `girdle_frosted` is on. Recomputed only when the planes, the
-    /// flag or the list change. A caller with no authored frosting keeps using
-    /// [`Self::ensure`] (or `&[]`), which is what keeps such a design's frames as they were.
+    /// flag or the list change. A design without authored frosting uses [`Self::ensure`].
     pub fn ensure_with_frosted(
         &mut self,
         planes: &[GpuFacetPlane],
@@ -94,10 +89,7 @@ mod tests {
         }
     }
 
-    /// A second `ensure` call with the SAME planes must not reclassify -- verified
-    /// indirectly here (no observable generation counter, unlike `GuideCache`, since
-    /// there is nothing here expensive enough to be worth instrumenting) by confirming
-    /// the result is unchanged and still correct after a repeat call.
+    /// A repeat call with the same planes returns the same finishes.
     #[test]
     fn ensure_is_stable_across_repeated_calls_with_unchanged_planes() {
         let planes = StandardGemCuts::standard_round_brilliant();

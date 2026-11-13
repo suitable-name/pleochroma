@@ -83,8 +83,8 @@ fn the_compensated_ground_event_conserves_energy() {
     }
 }
 
-/// The uncompensated single-scatter loss at alpha 0.5 is real (the number D11 records), and the
-/// table is bounded and smooth.
+/// The uncompensated single-scatter loss at alpha 0.5 is real, and the table is bounded and
+/// smooth.
 #[test]
 fn the_uncompensated_loss_at_alpha_half_is_recorded() {
     for (cos_i, eta) in [(0.9f32, 1.5f32), (0.5, 1.5), (0.5, 1.0 / 1.5)] {

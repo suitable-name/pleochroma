@@ -166,8 +166,8 @@ fn arg_byte(value: usize) -> u8 {
 
 /// The best split of a run of `units` cells into runs, given the value of the run between
 /// `start` and `end` (`run_value(start, end)`, `-inf` when unusable): fills
-/// `best[0..=units]` and `arg`. The longest run is tried first, so it is kept on a tie: of two
-/// splits worth the same, the one with fewer pieces wins, as in the ranking.
+/// `best[0..=units]` and `arg`. The longest run is tried first and kept on a tie, so of two
+/// equal splits the one with fewer pieces wins.
 fn split_runs(
     units: usize,
     best: &mut [f64],
@@ -275,17 +275,15 @@ pub(super) fn solve_order(
 /// Reports [`PlanProgress::Dp`] once per starting plane in the bar and slab
 /// fills, so a cancel is seen within a fraction of the order's work.
 ///
-/// The stone cap is `settings.max_stones`. Without one this is exactly the free DP. With one,
-/// the free DP runs first and its layout is the answer whenever it already holds at most that
-/// many stones (no tree of at most N pieces is worth more than the free optimum, so it IS the
-/// capped optimum). The test is made on the built layout: a tree has at least as many pieces
-/// as the layout has stones, because a piece the fitter leaves without a stone is merged into
-/// a neighbour when the layout is built, so a tree of more pieces than the cap can still build
-/// a layout within it (the table valued a piece the fitter rejects, which a mesh rough's
-/// heuristic solver can do). Otherwise the count DP of the cap runs on the same table (a
-/// second pass, which reports the same events again) and the answer is the best layout of at
-/// most that many stones, not a larger one cut down. That DP limits the pieces of a tree, not
-/// the stones built from it (see `dp_capped`).
+/// Without a stone cap this is the free DP. With one, the free DP runs first and its layout
+/// is the answer when it holds at most that many stones, since no tree of at most that many
+/// pieces is worth more than the free optimum. The test is made on the built layout: a piece
+/// the fitter leaves without a stone is merged into a neighbour, so a tree with more pieces
+/// than the cap can still build a layout within it (the mesh solver can reject a piece the
+/// table valued). Otherwise the count DP of the cap runs on the same table (a second pass,
+/// which reports the same events again) and the answer is the best layout of at most that
+/// many stones. That DP limits the pieces of a tree, not the stones built from it (see
+/// `dp_capped`).
 ///
 /// # Returns
 ///

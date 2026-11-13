@@ -179,10 +179,12 @@ fn sphere_midpoint(
     })
 }
 
-/// A closed, convex, outward-wound icosphere of `radius` mm: an icosahedron split `levels`
-/// times, which has `20 * 4^levels` triangles and `10 * 4^levels + 2` vertices (1,280
+/// A closed, convex, outward-wound icosphere of `radius` mm.
+///
+/// It is an icosahedron split `levels` times, which has `20 * 4^levels` triangles and
+/// `10 * 4^levels + 2` vertices (1,280
 /// triangles at 3, 5,120 at 4). Every vertex is on the sphere, so its convex hull has one
-/// plane per triangle: a smooth scan, far over the 400-plane limit of an exact outline.
+/// plane per triangle, far over `MAX_HULL_PLANES` (400), the limit of an exact outline.
 pub fn icosphere(levels: u32, radius: f64) -> (Vec<DVec3>, Vec<[u32; 3]>) {
     let t = f64::midpoint(1.0, 5.0_f64.sqrt());
     let mut points: Vec<DVec3> = [

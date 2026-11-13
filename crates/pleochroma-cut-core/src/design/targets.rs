@@ -29,9 +29,8 @@
 //!   guess (starting from `0.0`) to measure the design's own `width_axis`,
 //!   convert `depth_mm` to a mast via `crate::yield_metrics::mm_per_unit`, and
 //!   repeat with that new mast as the next guess until it stops moving (at most
-//!   8 iterations) -- a single pass measures `width_axis` with the target tier
-//!   still sitting at the WRONG (bootstrap) mast, which is exactly what made a
-//!   single correction pass under-convert.
+//!   8 iterations). One conversion is not enough: it measures `width_axis` with
+//!   the target tier still at the bootstrap mast.
 //! - [`TierTarget::GirdleThicknessMm`]/[`TierTarget::TableWidthMm`] resolve by
 //!   bracketing the target tier's own mast around its CURRENTLY authored value
 //!   (never the bootstrap's `0.0`, which is measurably degenerate for a girdle/
@@ -41,6 +40,27 @@
 //!   girdle diameter. [`TargetResolveError::CannotBracket`] when the search
 //!   exhausts its budget without finding two measurable points that straddle the
 //!   target (e.g. a target wider than the preform itself allows).
+//!
+//! # The girdle thickness a target aims at
+//!
+//! [`TierTarget::GirdleThicknessMm`] measures the girdle at its LINE, the figure a cutter
+//! measures: the thinnest thickness at the line corners
+//! of [`Design::girdle_level`] (where girdle faces meet, and the ends of level edges), from
+//! [`super::girdle_level::GirdleLevel::thickness_range`]. Not the band's full height
+//! (`StoneProportions::girdle_thickness`), which on a faceted brilliant includes the V-scallops
+//! the break facets cut between the girdle corners. A design without a girdle line (no
+//! `|angle| = 90` tier, or no crown or pavilion facet meeting its girdle faces at a line corner)
+//! falls back to the band.
+//!
+//! The search stays a bracket-and-bisect: the line thickness is continuous and piecewise linear
+//! in the mast, as the band is (each line corner moves linearly between topology changes). A
+//! corner that joins or leaves the line as the tier moves (a level edge appearing where a facet
+//! at the face's azimuth starts to reach it) does so at the height the edge already had there,
+//! so the thinnest figure does not jump; where a design does jump (the line disappears and the
+//! band takes over), the bisection still ends, at the jump, after its fixed budget.
+//!
+//! A design saved with a girdle-thickness target re-solves to the line thickness when it is
+//! opened.
 //!
 //! # Legacy entry points resolve targets too
 //!
@@ -58,8 +78,10 @@
 use super::{Design, DesignSolveError, TierId};
 use crate::yield_metrics::mm_per_unit;
 use pleochroma::geometry::{
-    meet_solver::{MeetConstraint, MeetTierInput, SolveControl},
-    stone_metrics::{SolidMetrics, SolidStatus, StoneProportions, build_solid_mesh, measure_solid},
+    meet_solver::{MeetConstraint, MeetTierInput, SolveControl, SolvedTier},
+    stone_metrics::{
+        SolidMetrics, SolidStatus, StoneProportions, build_solid_mesh_and_measure, measure_solid,
+    },
 };
 use std::collections::BTreeMap;
 
@@ -71,8 +93,10 @@ pub enum TierTarget {
     /// [`crate::yield_metrics::mm_per_unit`].
     DepthMm(f64),
     /// "This design's girdle should be `_` mm thick" -- bisects the target
-    /// tier's own mast until [`StoneProportions::girdle_thickness`] (converted
-    /// to mm) matches. Ordinarily authored on the tier
+    /// tier's own mast until the girdle's thinnest thickness at its girdle LINE
+    /// ([`Design::girdle_level`], see the module docs; converted to mm) matches,
+    /// or the band's [`StoneProportions::girdle_thickness`] for a design without
+    /// a girdle line. Ordinarily authored on the tier
     /// `pleochroma::geometry::meet_solver::classify_blocks` would call the
     /// girdle (angle at or near 90 degrees), but this resolves the same way
     /// regardless of which tier carries it.
@@ -137,27 +161,40 @@ impl From<DesignSolveError> for TargetResolveError {
     }
 }
 
-/// Millimetre extent of one measured figure [`StoneProportions`] carries, for
-/// [`bisect_tier_mast`]'s generic bracket search -- `girdle_thickness`/table width
-/// share this shape (a mast-unit quantity derived from a solved-and-measured
-/// candidate, converted to mm by the caller).
-type MeasureFn = fn(&StoneProportions, &SolidMetrics) -> Option<f64>;
-
-const fn girdle_thickness_mast(
-    proportions: &StoneProportions,
-    _metrics: &SolidMetrics,
-) -> Option<f64> {
-    proportions.girdle_thickness
+/// Which measured figure [`bisect_tier_mast`]'s generic bracket search chases: a mast-unit
+/// length of a solved-and-measured candidate, converted to mm by the caller.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Figure {
+    /// The girdle's thinnest thickness at its girdle line, or the band without a line (see the
+    /// module docs, "The girdle thickness a target aims at").
+    GirdleThickness,
+    /// The table facet's own width.
+    TableWidth,
 }
 
-fn table_width_mast(proportions: &StoneProportions, metrics: &SolidMetrics) -> Option<f64> {
-    proportions
-        .table_percent
-        .map(|pct| pct / 100.0 * metrics.width_axis)
+/// `figure` of `design` solved as `solved`, whose stone measures `proportions`/`metrics`, in
+/// design units.
+fn figure_mast(
+    figure: Figure,
+    design: &Design,
+    solved: &[SolvedTier],
+    proportions: &StoneProportions,
+    metrics: &SolidMetrics,
+) -> Option<f64> {
+    match figure {
+        Figure::GirdleThickness => design
+            .girdle_level(solved)
+            .map_or(proportions.girdle_thickness, |level| {
+                Some(level.thickness_range().0.max(0.0))
+            }),
+        Figure::TableWidth => proportions
+            .table_percent
+            .map(|pct| pct / 100.0 * metrics.width_axis),
+    }
 }
 
 /// Solves `design` with tier `tier_index` pinned to `mast`, and returns
-/// `extract`'s figure converted to millimetres via `girdle_mm`/the resulting
+/// `figure` converted to millimetres via `girdle_mm`/the resulting
 /// `width_axis` -- `None` for anything that stops this from being measurable
 /// (solve failure, non-closed solid, non-positive width).
 fn measured_value_mm(
@@ -165,21 +202,20 @@ fn measured_value_mm(
     tier_index: usize,
     mast: f64,
     girdle_mm: f64,
-    extract: MeasureFn,
+    figure: Figure,
 ) -> Option<f64> {
     let mut trial = design.clone();
     trial.tiers[tier_index].constraint = MeetConstraint::ScaleReference(mast);
     let solved = trial.solve_with(&SolveControl::default()).ok()?;
     let planes = trial.planes_from_solved(&solved);
-    let metrics = measure_solid(&planes)?;
+    let (SolidStatus::Closed(mesh), Some(metrics)) = build_solid_mesh_and_measure(&planes) else {
+        return None;
+    };
     if metrics.width_axis <= 1e-9 {
         return None;
     }
-    let SolidStatus::Closed(mesh) = build_solid_mesh(&planes) else {
-        return None;
-    };
     let proportions = StoneProportions::from_solid(&metrics, &mesh, &planes);
-    let value_mast = extract(&proportions, &metrics)?;
+    let value_mast = figure_mast(figure, &trial, &solved, &proportions, &metrics)?;
     let scale = mm_per_unit(girdle_mm, metrics.width_axis)?;
     Some(value_mast * scale)
 }
@@ -195,26 +231,19 @@ const fn constraint_mast(constraint: &MeetConstraint) -> f64 {
     }
 }
 
-/// Brackets tier `tier_index`'s own mast around `seed_mast` -- its CURRENTLY
-/// authored value, from BEFORE this resolution pass ever touches it, never the
-/// bootstrap pass's `0.0` (see [`Design::resolved_meet_tier_inputs`]'s own doc
-/// comment): a girdle/table facet pinned to mast `0.0` sits at the design's own
-/// central axis, which is measurably degenerate (an empty or non-closed solid),
-/// so bracketing from there failed to bracket ANY target -- the actual bug this
-/// function exists to fix (see the module doc comment's own "Resolution"
-/// section and [`TargetResolveError::CannotBracket`]'s doc comment).
+/// Brackets tier `tier_index`'s own mast around `seed_mast`, its authored value from
+/// before this resolution pass (not the bootstrap's `0.0`, see
+/// [`Design::resolved_meet_tier_inputs`]). A girdle or table facet at mast `0.0` sits on
+/// the stone's axis and does not measure as a closed solid, so no target could be
+/// bracketed from there.
 ///
 /// # Direction is measured, never assumed
 ///
-/// A bigger mast does not always mean a bigger measured figure: on a
-/// `standard_round_brilliant` fixture, girdle thickness (mast `1.0` ->
-/// `1.06`) and table width (mast `0.32` -> `0.46`) BOTH shrink as their own
-/// tier's mast grows, right up to where the design stops closing that way at
-/// all -- the exact opposite of "expand outward to grow the figure". So the
-/// expansion direction here comes from a tiny nudge off `seed_mast` (does the
-/// measured figure increase or decrease as mast increases?), combined with
-/// which way `target_mm` sits from the seed's own measured figure -- not a
-/// blanket assumption either way.
+/// A bigger mast does not always mean a bigger measured figure: on the standard round
+/// brilliant, girdle thickness and table width both shrink as their own tier's mast
+/// grows. The expansion direction therefore comes from a small nudge off `seed_mast`
+/// (does the figure increase with mast?), combined with which side of `target_mm` the
+/// seed's own figure sits on.
 ///
 /// # Algorithm
 ///
@@ -223,24 +252,20 @@ const fn constraint_mast(constraint: &MeetConstraint) -> f64 {
 /// bracket, found by the SIGN of `measured - target_mm`, not by magnitude --
 /// correct regardless of which way the relationship runs), then bisects
 /// between the two bracket ends to a tolerance of `1e-4 * girdle_mm` -- at
-/// most 20 expansion steps plus 24 bisection steps. A trial mast that fails to
-/// measure at all (solve failure, non-closed solid, or a solid that no longer
-/// has this figure at all -- see the fixture note above) is walked back
-/// HALFWAY toward the last point that DID measure, rather than treated as an
-/// immediate hard failure -- only real exhaustion of the search budget (an
-/// unmeasurable neighborhood around `seed_mast` itself, or a target truly
-/// outside what the design can reach) reports
+/// most 20 expansion steps plus 24 bisection steps. A trial mast that fails to measure
+/// (solve failure, non-closed solid, or a solid without this figure) is walked back halfway
+/// toward the last point that did measure. Only exhausting the search budget reports
 /// [`TargetResolveError::CannotBracket`].
 fn bisect_tier_mast(
     design: &Design,
     tier_index: usize,
     girdle_mm: f64,
     target_mm: f64,
-    extract: MeasureFn,
+    figure: Figure,
     seed_mast: f64,
 ) -> Result<f64, TargetResolveError> {
     let bracket_err = || TargetResolveError::CannotBracket { tier_index };
-    let measure = |mast: f64| measured_value_mm(design, tier_index, mast, girdle_mm, extract);
+    let measure = |mast: f64| measured_value_mm(design, tier_index, mast, girdle_mm, figure);
     let tolerance = 1e-4 * girdle_mm.abs().max(1e-6);
 
     let seed = if seed_mast.is_finite() && seed_mast.abs() > 1e-9 {
@@ -397,16 +422,10 @@ impl Design {
         let mut resolved = bootstrap;
         for index in 0..resolved.tiers.len() {
             if let Some(TierTarget::DepthMm(target_mm)) = self.tier_target(index) {
-                // Fixed-point iteration: the bootstrap solve above measured
-                // `width_axis` with THIS tier still pinned at mast `0.0` (the
-                // bootstrap's own placeholder), so converting `target_mm`
-                // through it once gives a mast that is only as accurate as that
-                // wrong starting placement -- the "halves the requested depth"
-                // bug. Each further pass re-measures `width_axis` with the tier
-                // at its OWN latest guess instead, until the guess stops
-                // moving (at most 8 passes; a design's width_axis in response
-                // to one tier's depth is well-behaved enough in practice that
-                // this converges in 2-3).
+                // Fixed-point iteration: the bootstrap solve measured `width_axis` with this
+                // tier at mast `0.0`, so one conversion inherits that placement. Each further
+                // pass re-measures with the tier at its latest guess, until the guess stops
+                // moving (at most 8 passes; in practice 2-3).
                 let mut width_axis = bootstrap_metrics
                     .as_ref()
                     .map(|m| m.width_axis)
@@ -443,7 +462,7 @@ impl Design {
                     index,
                     girdle_mm,
                     target_mm,
-                    girdle_thickness_mast,
+                    Figure::GirdleThickness,
                     seed_mast,
                 )?),
                 Some(TierTarget::TableWidthMm(target_mm)) => Some(bisect_tier_mast(
@@ -451,7 +470,7 @@ impl Design {
                     index,
                     girdle_mm,
                     target_mm,
-                    table_width_mast,
+                    Figure::TableWidth,
                     seed_mast,
                 )?),
                 _ => None,
@@ -465,8 +484,7 @@ impl Design {
     }
 }
 
-/// Every tier's [`TierTarget`], keyed by [`TierId`] -- see the module docs.
-/// `pub`, not `pub(crate)`: `targets` (this module) is itself private, so the
-/// two are equivalent in visibility -- clippy's own `redundant_pub_crate`
-/// prefers the plain form in that case.
+/// Every tier's [`TierTarget`], keyed by [`TierId`]; see the module docs.
+/// `pub` rather than `pub(crate)`: this module is private, so the two are equivalent,
+/// and clippy's `redundant_pub_crate` prefers `pub`.
 pub type TierTargetMap = BTreeMap<TierId, TierTarget>;

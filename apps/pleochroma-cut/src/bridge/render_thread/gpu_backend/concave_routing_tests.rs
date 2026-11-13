@@ -114,9 +114,8 @@ fn a_cancelled_cpu_frame_does_not_add_samples_or_replace_guides() {
     assert_eq!(facet, [17]);
 }
 
-/// Replaces the old "a frame with tools is not convex and routes off the GPU" pin: the
-/// GPU traces tools now, so a concave frame routes to it up to the tool limit and only
-/// a stone beyond the limit stays on the CPU.
+/// A concave frame routes to the GPU up to the tool limit. Only a stone beyond the limit
+/// stays on the CPU.
 #[test]
 fn a_concave_frame_routes_to_the_gpu_up_to_the_tool_limit() {
     use pleochroma::geometry::tool::GPU_MAX_TOOL_PRIMITIVES;
@@ -134,13 +133,12 @@ fn a_concave_frame_routes_to_the_gpu_up_to_the_tool_limit() {
     assert!(!frame_with(&camera, &planes, &material, &beyond).routes_to_gpu());
 }
 
-/// A concave frame is traced WITH its tools on every compute target: the cut stone
-/// differs from the flat one whatever backend runs it. The CPU tracer is the reference
-/// (and the GPU's fallback), so with no adapter the hybrid and GPU-first targets come
-/// out of it bit for bit; with an adapter they come out of the GPU kernels, which the
-/// crate's own CPU-vs-GPU tool equivalence tests pin, so only "the tools were
-/// applied" is asserted here.
+/// A concave frame is traced with its tools on every compute target. The CPU tracer is the
+/// reference, so without an adapter the GPU targets match it bit for bit. With an adapter
+/// the GPU kernels are compared only by "the tools were applied" here. The crate's own
+/// tests pin their equivalence.
 #[test]
+#[ignore = "over 60 s in the workspace run (2026-11-08); run on request: scripts/run_tests_on_request.sh"]
 fn a_concave_frame_is_traced_with_its_tools_on_every_compute_target() {
     let tools = [ToolPrimitive::ball(Vec3::new(0.0, 0.35, 0.0), 0.3)];
     let flat = accumulate(&[], LocalComputeTarget::Cpu);
@@ -156,12 +154,12 @@ fn a_concave_frame_is_traced_with_its_tools_on_every_compute_target() {
     }
 }
 
-/// The kernels' tool limit is the CPU's own (`GPU_MAX_TOOL_PRIMITIVES == MAX_TOOL_PRIMITIVES`,
-/// 128 since 2026-10-20), so no valid stone is beyond it; the routing of a longer list is
-/// pinned by `a_concave_frame_routes_to_the_gpu_up_to_the_tool_limit`. A stone with the
-/// full list is traced with its tools on every target: with no adapter the GPU targets
-/// come out of the CPU tracer bit for bit, with one they come out of the kernels.
+/// The GPU tool limit equals the CPU's (`GPU_MAX_TOOL_PRIMITIVES == MAX_TOOL_PRIMITIVES`),
+/// so no valid stone exceeds it. Routing beyond it is pinned by
+/// `a_concave_frame_routes_to_the_gpu_up_to_the_tool_limit`. A stone with the full list is
+/// traced with its tools on every target, as in the test above.
 #[test]
+#[ignore = "over 60 s in the workspace run (2026-11-08); run on request: scripts/run_tests_on_request.sh"]
 fn a_frame_at_the_tool_limit_is_traced_with_its_tools_on_every_target() {
     use pleochroma::geometry::tool::{GPU_MAX_TOOL_PRIMITIVES, MAX_TOOL_PRIMITIVES};
     assert_eq!(GPU_MAX_TOOL_PRIMITIVES, MAX_TOOL_PRIMITIVES);
@@ -184,8 +182,8 @@ fn a_frame_at_the_tool_limit_is_traced_with_its_tools_on_every_target() {
     }
 }
 
-/// A frame with a surface finish routes to the GPU like a polished one: the surface scene rides
-/// with the request (`GpuBackend::try_accumulate_geom_surface`), so it no longer forces the CPU.
+/// A frame with a surface finish routes to the GPU like a polished one. The surface scene is
+/// sent with the request (`GpuBackend::try_accumulate_geom_surface_cancellable`).
 #[test]
 fn a_frame_with_a_surface_finish_routes_to_the_gpu() {
     use pleochroma::optics::raytracer::surface::FacetSurface;

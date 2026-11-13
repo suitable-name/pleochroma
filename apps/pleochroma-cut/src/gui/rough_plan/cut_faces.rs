@@ -214,12 +214,11 @@ fn snap(component: f64) -> f64 {
 /// The grid the components of a face normal are rounded to before they enter the model.
 const NORMAL_GRID: f64 = 1e12;
 
-/// A direction as the model stores it: every component rounded to 1e-12 and the vector
-/// scaled back to unit length with nothing but `sqrt` (correctly rounded on every
-/// platform). The platform's `sin` and `cos` differ in the last bits; rounding to a grid
-/// far coarser than that keeps those bits out of the model, so the planner sees the same
-/// normal for the same typed angles everywhere. A zero or non-finite direction becomes
-/// +Y.
+/// A direction as the model stores it: each component rounded to the 1e-12 grid, then scaled
+/// back to unit length with `sqrt` only, which is correctly rounded on every platform. The
+/// platform's `sin` and `cos` differ in the last bits; the grid keeps them out of the model,
+/// so the same typed angles give the same normal everywhere. A zero or non-finite direction
+/// becomes +Y.
 #[must_use]
 pub(super) fn canonical_normal(raw: [f64; 3]) -> [f64; 3] {
     let gridded = raw.map(|c| snap((c * NORMAL_GRID).round() / NORMAL_GRID));

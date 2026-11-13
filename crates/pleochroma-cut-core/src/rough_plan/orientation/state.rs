@@ -8,7 +8,7 @@
 //! # Which rule applies
 //!
 //! 1. No rule is ever applied while the rough's orientation is Unknown.
-//! 2. The plan's rule is the material's default ([`default_rule`], the D3 table) until the cutter
+//! 2. The plan's rule is the material's default ([`default_rule`]) until the cutter
 //!    changes it: [`RuleChoice::Default`]. The default is switched on by the rough getting an
 //!    orientation, never silently before ([`PlanSettingsOverrides::rule_line`] is the visible
 //!    line the window shows).
@@ -62,7 +62,7 @@ impl RuleSetting {
 /// Where the plan's rule comes from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuleSource {
-    /// The material's default rule (plan decision D3).
+    /// The material's default rule.
     MaterialDefault,
     /// A rule the cutter set.
     Own,

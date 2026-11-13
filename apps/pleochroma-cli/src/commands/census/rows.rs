@@ -1,5 +1,4 @@
-//! One census row: the columns of section 4.1 of the follow-ups plan, in order, and their
-//! CSV and JSON forms.
+//! One census row: its columns in order, and their CSV and JSON forms.
 //!
 //! A row is a list of [`Cell`]s in the order of [`COLUMNS`] followed by [`TIMING_COLUMNS`]. The
 //! numbers are rounded to six decimals when they are stored ([`quantize`]), so the CSV, the JSON
@@ -15,13 +14,13 @@ pub(super) const CENSUS_VERSION: u32 = 2;
 ///
 /// `reach_fallbacks_upper_bound` counts every tier whose inward reach could not be read at
 /// capture, turned or not, so it is an upper bound on the half-length fallbacks a retarget uses.
-/// The four concave columns are filled by wave 2 of the plan and are empty until then.
+/// `contacts_kept`, `faces_cut_before`, `faces_cut_after` and `new_tool_warnings` are reserved
+/// columns that nothing fills, so they stay empty.
 ///
-/// Version 2 (2026-10-20) added the meet-identification columns: `gemcad_version` and
-/// `mast_decimals` of the schedule, the captured network's `faces`, `valence` (`2E/V`: 3 when
-/// every meet is three facets, 4 when every one is four) and `split_ratio` (`V/(F-2)`: 1 when
-/// every junction is four-valent, 2 when every meet is split into three-valent ones), and
-/// `max_slack_ppm`, how far the design misses its own meets in millionths of the stone.
+/// `valence` (`2E/V`) and `split_ratio` (`V/(F-2)`) describe the captured network: `valence` is
+/// 3 when every meet is three facets and 4 when every one is four; `split_ratio` is 1 when every
+/// junction is four-valent and 2 when every meet is split into three-valent ones. `max_slack_ppm`
+/// is how far the design misses its own meets, in millionths of the stone.
 pub(super) const COLUMNS: &[&str] = &[
     "source",
     "key",

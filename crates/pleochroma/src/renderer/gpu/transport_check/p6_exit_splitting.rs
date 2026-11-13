@@ -1,35 +1,17 @@
-//! Exit-event spectral splitting -- kernel-level equivalence checks for the three pure
-//! per-channel helpers `shaders/transport_physics.wgsl`'s own exit-event splitting
-//! section defines: `compute_channel_transmission`, `compute_uniaxial_exit_transmission`,
-//! `narrow_compat`.
+//! Exit-event spectral splitting: kernel-level equivalence checks.
 //!
-//! # Why these CPU reference functions are transcriptions, not direct calls
+//! The checks cover the three per-channel helpers in
+//! `renderer/shaders/transport_physics/08_exit_splitting.wgsl`: `compute_channel_transmission`,
+//! `compute_uniaxial_exit_transmission` and `narrow_compat`.
 //!
-//! Every other Tier 2 case bank in this module tree (see `p2_uniaxial_fresnel.rs`, and
-//! `mod.rs`'s own doc comment) calls the REAL CPU function it was translated from,
-//! never a hand-written parallel reimplementation. That is not possible here:
-//! `optics::raytracer::refraction::compute_channel_transmission` and
-//! `compute_uniaxial_exit_transmission` are both module-private (not even
-//! `pub(super)`), and `narrow_compat` is `pub(super)` -- visible only within
-//! `optics::raytracer`, not from this crate's `renderer` tree. Widening any of their
-//! visibility would mean editing `refraction.rs`, which is on the coordinator-owned/
-//! protected list (`crates/pleochroma/src/optics/raytracer/
-//! {refraction,transport,color}.rs`) -- not modifiable under any circumstance.
+//! # Why the CPU side is a transcription
 //!
-//! `cpu_compute_channel_transmission`/`cpu_compute_uniaxial_exit_transmission`/
-//! `cpu_narrow_compat` below are therefore verbatim transcriptions of the real CPU
-//! source (same operations, same order, same `f32::mul_add` sites -- cross-referenced
-//! by file/line in each function's own doc comment) rather than a call through the
-//! module boundary, built as much as possible out of REAL, reachable crate primitives
-//! (`optics::polarization::{MuellerMatrix, StokesVector}`,
-//! `optics::raytracer::uniaxial_fresnel::Cplx`) so only the small amount of "glue"
-//! arithmetic those private functions add on top is actually duplicated. This mirrors
-//! the precedent `transport_check/mod.rs`'s own doc comment already sets for a
-//! similarly unreachable CPU formula (the standalone scalar Fresnel-amplitude check it
-//! deliberately omits) -- the difference here is this module explicitly requires
-//! kernel-level coverage of these three functions, so rather than omitting the check
-//! entirely this module accepts the transcription as the closest achievable
-//! approximation to "the real CPU function" given the protected-file boundary.
+//! The CPU originals cannot be called from the renderer tree. `compute_channel_transmission`
+//! is `pub(super)` to `optics::raytracer::refraction`, `compute_uniaxial_exit_transmission`
+//! is private to `refraction::uniaxial_internal`, and `narrow_compat` is `pub(super)` to
+//! `refraction`. So the `cpu_*` functions below transcribe them, with the same operations
+//! and `mul_add` sites. They are built on the real `MuellerMatrix`, `StokesVector` and `Cplx`
+//! primitives, so only the glue arithmetic is duplicated.
 
 use glam::Vec3;
 
@@ -37,7 +19,7 @@ use crate::{
     optics::{
         polarization::{MuellerMatrix, StokesVector},
         raytracer::{
-            refraction::{DIRECTION_MATCH_COS_TOL, R_UNPOL_PDF_MAX, R_UNPOL_PDF_MIN},
+            refraction::{R_UNPOL_PDF_MAX, R_UNPOL_PDF_MIN, directions_match},
             uniaxial_fresnel::Cplx,
         },
     },
@@ -48,7 +30,7 @@ use super::{SHADER_SRC, UlpAccumulator, UlpCheckResult};
 
 // ---------------------------------------------------------------------------------
 // compute_channel_transmission
-// (crates/pleochroma/src/optics/raytracer/refraction.rs:357-385)
+// (optics::raytracer::refraction::exit_split)
 // ---------------------------------------------------------------------------------
 
 /// One input case for the channel transmission check.
@@ -97,18 +79,11 @@ fn build_channel_transmission_cases() -> Vec<ChannelTransmissionCase> {
                 continue;
             }
             let cos_t_k = (1.0 - sin2_t_k).max(0.0).sqrt();
-            // `r_unpol` is always the shared HERO's own reflectance at (n1k, n2k,
-            // cos_i) -- deriving it here from the identical scalar-Fresnel formula
-            // `apply_partial_fresnel_bounce`/`mueller_fresnel_transmission`'s own
-            // caller uses (rather than sweeping it independently of the geometry)
-            // keeps every case physically self-consistent, exactly like a real
-            // bounce dispatch: r_unpol=0.98 at near-normal incidence, or r_unpol=0.02
-            // at grazing incidence, never occurs in a real trace and drives
-            // `mueller_fresnel_transmission`'s own near-normal-incidence `s`/`p`
-            // near-cancellation (see `MuellerMatrix::fresnel_transmission`'s `b =
-            // 0.5 * (ts2 - tp2)`) combined with an UNREALISTIC `1 / (1 - r_unpol)`
-            // amplification an independent sweep can hit but no physical geometry
-            // ever would.
+            // `r_unpol` is the hero's own Fresnel reflectance at (n1k, n2k, cos_i), as in a
+            // real bounce dispatch, so every case stays physically self-consistent. An
+            // independent sweep could reach r_unpol near 0.02 or 0.98 at geometries no trace
+            // produces. Those amplify `1 / (1 - r_unpol)` and the near-normal cancellation in
+            // `MuellerMatrix::fresnel_transmission`.
             let r_s =
                 f32::mul_add(n1k, -cos_i, n2k * cos_t_k) / f32::mul_add(n1k, cos_i, n2k * cos_t_k);
             let r_p =
@@ -140,10 +115,9 @@ fn build_channel_transmission_cases() -> Vec<ChannelTransmissionCase> {
     cases
 }
 
-/// Verbatim transcription of `refraction::compute_channel_transmission` -- see this
-/// module's own doc comment for why. Built from the real
-/// `MuellerMatrix::fresnel_transmission`/`StokesVector::apply_matrix`/`scale`, so only
-/// the small amount of glue arithmetic that function adds on top is duplicated.
+/// Transcription of `refraction::compute_channel_transmission`; see the module doc for why.
+/// Calls the real `MuellerMatrix::fresnel_transmission`, `StokesVector::apply_matrix` and
+/// `scale`, so only the glue arithmetic is duplicated.
 fn cpu_compute_channel_transmission(c: &ChannelTransmissionCase) -> [f32; 5] {
     let n1k = c.n1k;
     let n2k = c.n2k;
@@ -258,7 +232,7 @@ pub fn run_channel_transmission(
 
 // ---------------------------------------------------------------------------------
 // compute_uniaxial_exit_transmission
-// (crates/pleochroma/src/optics/raytracer/refraction.rs:2243-2264)
+// (optics::raytracer::refraction::uniaxial_internal)
 // ---------------------------------------------------------------------------------
 
 /// One input case for the uniaxial exit transmission check.
@@ -317,10 +291,8 @@ fn build_uniaxial_exit_transmission_cases() -> Vec<UniaxialExitTransmissionCase>
     cases
 }
 
-/// Verbatim transcription of `refraction::compute_uniaxial_exit_transmission` -- see
-/// this module's own doc comment for why. Built from the real
-/// `uniaxial_fresnel::Cplx`'s own `scale`/`norm_sqr`/`mul`/`conj`, so only the small
-/// amount of glue arithmetic that function adds on top is duplicated.
+/// Transcription of `compute_uniaxial_exit_transmission` (`refraction::uniaxial_internal`);
+/// see the module doc for why. Uses the real `Cplx` `scale`, `norm_sqr`, `mul` and `conj`.
 fn cpu_compute_uniaxial_exit_transmission(c: &UniaxialExitTransmissionCase) -> [f32; 5] {
     let t_s = Cplx {
         re: c.t_s_re,
@@ -430,9 +402,9 @@ pub fn run_uniaxial_exit_transmission(
 }
 
 // ---------------------------------------------------------------------------------
-// narrow_compat (crates/pleochroma/src/optics/raytracer/refraction.rs:315-339) -- exact
-// u32 equality, not a ULP comparison (the output is an integer bitmask, not a rounded
-// float), so this uses its own small result type rather than `UlpCheckResult`.
+// narrow_compat (optics::raytracer::refraction::context) -- exact u32 equality, not a ULP
+// comparison, because the output is an integer bitmask. So it uses its own result type
+// rather than `UlpCheckResult`.
 // ---------------------------------------------------------------------------------
 
 /// One input case for the narrow compat check.
@@ -488,17 +460,14 @@ impl NarrowCompatResult {
 
 fn build_narrow_compat_cases() -> Vec<NarrowCompatCase> {
     let mut cases = Vec::new();
-    // A grid of direction sets: the hero (channel 0) direction is fixed at +Z; every
-    // other channel's direction is either exactly +Z (matches), a small perturbation
-    // still within `DIRECTION_MATCH_COS_TOL` (matches), or a large perturbation well
-    // outside it (mismatches) -- and `dirs_valid` (the `.w` component) is toggled off
-    // for a subset of channels to exercise the CPU `Option::None` ("narrows nothing")
-    // path. `hero_match_mask` is derived consistently with each direction set (bit `j`
-    // set means `final_dir_k[j].dot(hero_dir) >= tol`), exactly mirroring how a real
-    // bounce-dispatch call site derives it -- so this grid, and its expected output,
-    // stays physically meaningful, not just syntactically valid.
+    // A grid of direction sets. The hero (channel 0) direction is +Z. Each other channel is
+    // exactly +Z (a match), a small perturbation inside the match tolerance (a match) or a
+    // large one (a mismatch). Channel 4 always has `.w` = 0, which exercises the CPU `None`
+    // path. `hero_match_mask` bit `j` is set when `directions_match` holds between channel `j`
+    // and the hero, as a bounce-dispatch call site derives it.
     let hero_dir = Vec3::new(0.0, 0.0, 1.0);
-    let close = Vec3::new(0.01, 0.0, 0.9999).normalize();
+    // 1 mrad off the hero, well inside the match tolerance, so CPU and kernel agree on it.
+    let close = Vec3::new(0.001, 0.0, 1.0).normalize();
     let far = Vec3::new(0.6, 0.4, 0.6).normalize();
     let variants = [hero_dir, close, far];
     for pattern in 0..3usize.pow(7) {
@@ -512,7 +481,7 @@ fn build_narrow_compat_cases() -> Vec<NarrowCompatCase> {
             let valid = ch % 4 != 0; // channel 4 always invalid, exercising Option::None
             let d = variants[variant];
             *slot = [d.x, d.y, d.z, f32::from(u8::from(valid))];
-            if d.dot(hero_dir) >= DIRECTION_MATCH_COS_TOL {
+            if directions_match(d, hero_dir) {
                 hero_match_mask |= 1 << ch;
             }
         }
@@ -531,9 +500,8 @@ fn build_narrow_compat_cases() -> Vec<NarrowCompatCase> {
     cases
 }
 
-/// Verbatim transcription of `refraction::narrow_compat`, specialized to the fixed
-/// hero index 0 exactly like the WGSL mirror -- see this module's own doc comment for
-/// why this is a transcription rather than a direct call.
+/// Transcription of `refraction::narrow_compat`, specialized to hero index 0 as in the WGSL
+/// mirror. See the module doc for why it is not a direct call.
 fn cpu_narrow_compat(case: &NarrowCompatCase) -> [u32; 8] {
     let dirs: [Option<Vec3>; 8] = std::array::from_fn(|k| {
         let d = case.dirs[k];
@@ -548,7 +516,7 @@ fn cpu_narrow_compat(case: &NarrowCompatCase) -> [u32; 8] {
             } else if b == 0 {
                 hero_match[a]
             } else if let (Some(da), Some(db)) = (dirs[a], dirs[b]) {
-                da.dot(db) >= DIRECTION_MATCH_COS_TOL
+                directions_match(da, db)
             } else {
                 true
             };

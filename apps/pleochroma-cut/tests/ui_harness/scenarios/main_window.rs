@@ -225,8 +225,8 @@ fn dock_state(ctx: &Ctx<'_>) -> (bool, i32) {
     (dock.get_open(), dock.get_active_tab())
 }
 
-/// The sidebar rail opens real settings; its own tabs remain reachable after the
-/// viewport shortcut buttons have been removed, and closing restores the rail.
+/// The sidebar rail opens the settings panel on each of its tabs; closing folds the panel back
+/// to the rail.
 fn parameters_dock_tabs(ctx: &mut Ctx<'_>) {
     const BUTTONS: [(&str, &str, i32); 3] = [
         ("Show the stone properties", "Stone", 0),
@@ -268,7 +268,7 @@ fn parameters_dock_tabs(ctx: &mut Ctx<'_>) {
 }
 
 /// Solid view modes 1-5 on the Edit tab, by the digit keys (the global shortcut); the view mode
-/// property must follow. Flaky only if keyboard focus is not on the shortcut scope.
+/// property must follow. Needs keyboard focus on the shortcut scope.
 fn solid_view_modes(ctx: &mut Ctx<'_>) {
     select_top_tab(ctx.app, 0);
     show_edit_tab(ctx.app);
@@ -309,8 +309,8 @@ fn solid_view_modes(ctx: &mut Ctx<'_>) {
     solid_view_mode_toggles(ctx);
 }
 
-/// The actual toolbar actions keep a solid layer independent of one selected tracer.
-/// A selected tracer can be removed from a combined view; a sole picture stays selected.
+/// The toolbar's layer toggles: each row of `TOGGLES` gives the mode after the click, indexed
+/// by the mode before it.
 fn solid_view_mode_toggles(ctx: &mut Ctx<'_>) {
     const TOGGLES: [(&str, [i32; 6]); 3] = [
         ("Solid", [0, 2, 1, 0, 5, 4]),

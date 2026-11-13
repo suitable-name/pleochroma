@@ -103,7 +103,7 @@ impl ToneIlluminant {
                 preset,
                 fallback_to_d65: preset.is_uv_lamp(),
             },
-            EnvironmentSource::HdrMap(_) => Self {
+            EnvironmentSource::HdrMap { .. } => Self {
                 preset: LightingPreset::Daylight,
                 fallback_to_d65: true,
             },
@@ -226,7 +226,7 @@ impl ToneAccumulator {
     }
 
     /// Adds one returned ray: [`Self::offer`] for a histogram accumulator (`principal_path`
-    /// ignored, bit for bit the old behaviour), else the ray joins the per-axis list.
+    /// ignored), else the ray joins the per-axis list.
     pub(super) fn offer_principal(
         &mut self,
         transmittance: f32,
@@ -332,7 +332,7 @@ impl ToneAccumulator {
             )
         };
 
-        // A pleochroic material's list of rays replaces the (then empty) histogram.
+        // A pleochroic material is evaluated from its per-ray list, not the histogram.
         let colour = self.rays.as_ref().map_or_else(
             || {
                 body_color_from_spectra(

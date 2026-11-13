@@ -49,19 +49,15 @@ fn an_unremarkable_closed_design_has_no_warnings() {
 #[test]
 fn a_facet_engulfed_by_a_later_shallower_cut_is_reported_as_vanishing() {
     let mut design = Design::fresh(PreformSpec::block(1.0, 1.0, 2.0), 96, 4, 1.62);
-    // A deep crown facet at mast 0.9 -- with the block preform's own
-    // half-width of 1.0 and a 90-degree crown side wall nowhere in this
-    // schedule, this is still inside the preform, but...
+    // A deep crown facet at mast 0.95, still inside the block preform.
     design.tiers.push(tier(
         "Deep",
         30.0,
         MeetConstraint::ScaleReference(0.95),
         &[0.0, 24.0, 48.0, 72.0],
     ));
-    // ...a later, much shallower crown facet at the SAME angle and
-    // indices as an entirely separate tier's closing table replaces it:
-    // a flat table at a shallow mast cuts every one of "Deep"'s facets
-    // away before they can reach the surface.
+    // A flat table at a shallow mast then cuts every one of "Deep"'s facets away
+    // before they reach the surface.
     design
         .tiers
         .push(tier("T", 0.0, MeetConstraint::ScaleReference(0.2), &[]));
@@ -107,8 +103,7 @@ fn a_facet_engulfed_by_a_later_shallower_cut_is_reported_as_vanishing() {
 /// with an equilateral triangle whose vertices sit on the block's own
 /// three faces meeting there. With half-space offset `m`, that triangle's
 /// side is `sqrt(2) * (3 - m*sqrt(3))` and its area is
-/// `(sqrt(3)/2) * (3 - m*sqrt(3))^2` -- an exact figure this test checks
-/// its expectation against, not just "some small number". The other
+/// `(sqrt(3)/2) * (3 - m*sqrt(3))^2`, the exact figure the test compares against. The other
 /// three indices (`36`/`60`/`84`, azimuths 135/225/315) place the same
 /// cut at the cube's other three top corners by symmetry.
 #[test]
@@ -130,9 +125,8 @@ fn a_sliver_facet_is_reported_as_undersized() {
     };
 
     let solved = solved(&design);
-    // A generous threshold (10% of W^2 = 10% of 2^2 = 0.4) that the
-    // ~0.0003-area sliver trips by three orders of magnitude while
-    // trivially clearing for any ordinary facet on this unit-scale cube.
+    // A generous threshold (10% of W^2 = 10% of 2^2 = 0.4): the ~0.0003-area sliver is
+    // three orders of magnitude under it, while ordinary facets on this cube clear it easily.
     let warnings = check_manufacturability(&design, &solved, 0.10);
     let undersized: Vec<_> = warnings
         .iter()
@@ -259,13 +253,10 @@ fn a_meet_reference_to_an_earlier_tier_is_not_flagged() {
     assert_eq!(check_cut_order(&design), Vec::new());
 }
 
-/// A design freshly imported via `Design::from_asc_schedule` pins every
-/// tier to `ScaleReference` (see that method's own doc comment) --
-/// meaning `check_cut_order` must find nothing to flag immediately after
-/// import, even when the original file's `G`-field text named a later
-/// facet. This is expected, not a check bug: this
-/// check fires rarely at first for exactly this reason, until the user
-/// adopts a real `MeetNamed` constraint via `imported_meet`.
+/// A design imported via `Design::from_asc_schedule` pins every tier to `ScaleReference`,
+/// so `check_cut_order` finds nothing to flag right after import, even when the file's `G`
+/// text named a later facet. The check applies once a `MeetNamed` constraint is adopted
+/// from `imported_meet`.
 #[test]
 fn a_freshly_imported_design_has_nothing_to_flag_for_cut_order() {
     let schedule = pleochroma_formats::asc::parse_asc(

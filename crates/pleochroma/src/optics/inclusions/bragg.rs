@@ -35,14 +35,14 @@
 //! alike (`08b_extend_scatter.wgsl`), so a structure on a zoned stone is carried but never
 //! scatters.
 //!
-//! The numbers are cited in `r0_render_physics_2026-10-21.md` section 3.5 and 3.6. The domain
-//! sizes and the mosaic spread have no published values and are appearance parameters.
+//! The domain sizes and the mosaic spread have no published values: they are appearance
+//! parameters.
 
 use super::{CrystalDir, CrystalFrame, platelet::platelet_sample};
 use crate::optics::materials::GemMaterial;
 use glam::Vec3;
 
-/// Refractive index of the silica spheres of opal (the opal infobox, 1.450).
+/// Refractive index of the silica spheres of opal.
 pub const SILICA_INDEX: f32 = 1.45;
 /// Refractive index of the matrix between the spheres (water-filled gaps, 1.33 to 1.40).
 pub const MATRIX_INDEX: f32 = 1.365;
@@ -304,9 +304,9 @@ pub fn structure_kind(material_name: &str) -> Option<StructureKind> {
 /// The labradorite lamella normal in the crystal frame `(n_alpha, c x n_alpha, c = n_gamma)`.
 ///
 /// The lamellae lie about parallel to (010), tilted about 11 degrees (literature 9 to 21) from
-/// it. The app's frame is optical, not crystallographic, and the orientation of a labradorite's
-/// indicatrix depends on its composition, so this is an approximation (unverifiable here): the
-/// normal is taken perpendicular to `n_alpha` and 11 degrees off the perpendicular to `n_gamma`.
+/// it. The app's frame is optical, not crystallographic, and the indicatrix orientation depends
+/// on composition, so this is an approximation: the normal is perpendicular to `n_alpha` and
+/// 11 degrees off the perpendicular to `n_gamma`.
 pub const LABRADORITE_NORMAL: CrystalDir = CrystalDir::Tilted {
     tilt_deg: 79.0,
     turn_deg: 90.0,
@@ -351,9 +351,7 @@ impl StructureSpec {
             },
             // A domain's wavelength is Gaussian about the middle of the range (`domains`), so
             // the range sets the most common flash: 400-560 nm centres on blue (480 nm) with some
-            // green, as the dealer photos flash (2026-11-04); the 470-740 nm of earlier versions
-            // centred on green-yellow and, face up with the lamellae along the table, flashed
-            // green, orange and red.
+            // green, which matches the flash of labradorite photos.
             StructureKind::Labradorite => Self {
                 pattern: StructurePattern::BroadFlash,
                 seed: DEFAULT_SEED,

@@ -4,11 +4,10 @@ import { GuideModel } from "../models/guide_model.slint";
 import { MiniField, TableStyle, ToolButton } from "tier_table_style.slint";
 import { TierTableModel } from "tier_table_model.slint";
 
-// The quick-add panel opened by the command bar's "Quick add" button: the desktop's three
-// starting-anchor presets (Table, Girdle, Culet -- each a scale-referenced tier with
-// reasonable starting values, so a first-time cutter has something solvable to adjust)
-// and a small tier form (angle, name, indices, what the tier meets) parsed with the same
-// `tier_form` code as the desktop's Tier tab. A new tier goes in right after the selected
+// The quick-add panel opened by the command bar's "Quick Add" button: three starting-anchor
+// presets (Table, Girdle, Culet: scale-referenced tiers with starting values to solve from)
+// and a small tier form (angle, name, indices, what the tier meets) parsed by
+// `parse_tier_form`, the same parser as the Tier tab. A new tier goes in after the selected
 // row, or at the end when nothing is selected.
 //
 // Meets: "Meet existing" leaves the depth to the solver (the design needs an anchor

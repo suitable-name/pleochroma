@@ -1,6 +1,7 @@
-//! Helpers shared by the local and remote detail-load paths: angle-side
-//! classification, the filtered-row-count callback, display formatting, the
-//! material guess, and clearing the detail pane.
+//! Helpers shared by the local and remote detail-load paths.
+//!
+//! They cover angle-side classification, the filtered row count, display formatting, the
+//! material guess and clearing the detail pane.
 
 use crate::{
     AngleItem, DiagramDetailData, LibraryModel, MainWindow,
@@ -8,27 +9,21 @@ use crate::{
 };
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 
-/// The angle (degrees) a catalogue schedule row must equal, within
-/// [`GIRDLE_ANGLE_TOLERANCE_DEG`], to be read as the girdle itself rather than a
-/// steep crown or pavilion facet. Deliberately an equality test, not a "steep
-/// enough" threshold: measured on the real catalogue, angles cluster tightly at
-/// exactly `90.00\u{b0}` (7,972 rows) with every other near-90 facet angle below
-/// `88.73\u{b0}` and nothing in between -- so an 89.6\u{b0} row is a real (if steep)
-/// facet, not a mislabelled girdle, and a "`>= 89.5`"-style threshold would wrongly
-/// have swallowed it.
+/// The angle (degrees) that marks a girdle row.
+///
+/// A row counts as the girdle when its angle is within [`GIRDLE_ANGLE_TOLERANCE_DEG`] of this.
+/// This is an equality test, not a "steep enough" threshold: girdle rows sit at exactly 90
+/// degrees, while the other near-90 facets stay below 88.73 degrees.
 const GIRDLE_ANGLE_DEG: f64 = 90.0;
 
-/// See [`GIRDLE_ANGLE_DEG`]'s own doc comment for why this is a tight equality
-/// tolerance rather than a broad "steep angle" threshold.
+/// The tight tolerance that [`GIRDLE_ANGLE_DEG`] matches within.
 const GIRDLE_ANGLE_TOLERANCE_DEG: f64 = 0.01;
 
-/// Parses a catalogue angle-settings row's `angle` text the same way
-/// `pleochroma_vault::local::parse_angle_deg` does -- that function is private to the
-/// vault crate, so this reimplements its body: strip a trailing degree sign, then a
-/// plain `f64` parse. Strips both the normal `\u{b0}` sign and `\u{fffd}` (the Unicode
-/// replacement character) -- measured on the real catalogue, 6 of the 50,817 stored
-/// `angle_settings.angle` values store a mangled degree sign as `\u{fffd}` instead of
-/// `\u{b0}` (detail 3282's `P`/`G`/`C` rows). `None` for text that still doesn't parse.
+/// Parses an angle-settings `angle` text, stripping a trailing degree sign first.
+///
+/// The vault crate's equivalent is private, so the logic is repeated here. U+FFFD is also
+/// stripped, since some stored rows use it in place of the degree sign. `None` if the text
+/// still does not parse.
 pub(super) fn parse_catalogue_angle_deg(angle: &str) -> Option<f64> {
     angle
         .trim()
@@ -43,18 +38,15 @@ fn eq_ignore_case_trim(text: &str, target: &str) -> bool {
     text.trim().eq_ignore_ascii_case(target)
 }
 
-/// Matches a table facet label: `T`, `t`, `Table`, `table`, any of those with a
-/// trailing `.`, case-insensitively (also catches the all-caps `TABLE.` seen in the
-/// real catalogue, which a case-sensitive `^[Tt](able)?\.?$` would miss).
+/// Matches a table facet label: `T` or `Table` in any case, with an optional trailing `.`.
 fn is_table_facet(facet: &str) -> bool {
     let f = facet.trim();
     let core = f.strip_suffix('.').unwrap_or(f);
     core.eq_ignore_ascii_case("t") || core.eq_ignore_ascii_case("table")
 }
 
-/// A row is the table row when its index column says so, or its facet label does --
-/// the two conventions seen in the real catalogue (e.g. detail 16's `T(0,'Table')` row
-/// sets both).
+/// A row is the table row when its index column or its facet label says so. Catalogue rows
+/// use either convention.
 fn is_table_row(facet: &str, index_val: &str) -> bool {
     eq_ignore_case_trim(index_val, "table") || is_table_facet(facet)
 }
@@ -83,10 +75,9 @@ fn is_crown_prefixed(facet: &str) -> bool {
         && chars.next().is_some_and(|c| c.is_ascii_digit())
 }
 
-/// Matches `1G`, `2G`, ... -- digits with a single trailing `G`/`g`, the catalogue's
-/// own way of tagging a facet as girdle-adjacent without its angle equalling
-/// [`GIRDLE_ANGLE_DEG`]. Checked before [`is_digits_with_optional_trailing_letter`]
-/// so `1G` reports girdle rather than being swallowed by that more general rule.
+/// Matches digits with a single trailing `G`/`g` (`1G`, `2G`), which tag a girdle-adjacent facet.
+///
+/// Checked before [`is_digits_with_optional_trailing_letter`], so `1G` reads as girdle.
 fn is_digit_with_trailing_girdle_letter(facet: &str) -> bool {
     let f = facet.trim();
     match f.chars().next_back() {
@@ -132,15 +123,12 @@ fn is_single_crown_letter(facet: &str) -> bool {
         && !c.eq_ignore_ascii_case(&'t')
 }
 
-/// Classifies one row purely from its own label (`facet`/parsed `angle`/`index_val`),
-/// with no knowledge of any other row in the schedule. `None` means the label alone
-/// isn't enough -- [`sides_from_rows`] falls back to [`positional_fallback`] for those.
+/// Classifies one row from its own label, with no knowledge of other rows.
 ///
-/// Order matters -- checked in this sequence: (a) girdle by angle or index text; (b)
-/// table by index text or facet; (c) pavilion-prefixed, then crown-prefixed, then
-/// digit+trailing-`G` (must come before the more general digit-plus-letter rule so
-/// `1G` reports girdle, not pavilion), then girdle-prefixed, then plain
-/// digit(+letter) as pavilion, then a lone crown letter.
+/// `None` means the label alone is not enough, and [`sides_from_rows`] falls back to
+/// [`positional_fallback`]. The order of the checks matters: girdle by angle or index text,
+/// then table, pavilion prefix, crown prefix, digit with trailing `G`, girdle prefix, plain
+/// digits (pavilion), and finally a lone crown letter.
 fn label_side(facet: &str, angle_deg: Option<f64>, index_val: &str) -> Option<i32> {
     if angle_deg.is_some_and(|d| (d - GIRDLE_ANGLE_DEG).abs() < GIRDLE_ANGLE_TOLERANCE_DEG)
         || eq_ignore_case_trim(index_val, "girdle")
@@ -171,24 +159,15 @@ fn label_side(facet: &str, angle_deg: Option<f64>, index_val: &str) -> Option<i3
     None
 }
 
-/// The positional fallback for a row [`label_side`] couldn't classify (an
-/// empty/unrecognised label): anchors on the schedule's own girdle row(s) --
-/// `girdle_positions`, every index [`label_side`] reported `0` for -- and, when
-/// present, `table_position` -- the FIRST row [`is_table_row`] matched.
+/// The positional fallback for a row [`label_side`] could not classify. It anchors on the
+/// girdle rows (`girdle_positions`) and on the first table row (`table_position`).
 ///
-/// A row strictly inside the girdle block (`girdle_positions.first()..=last()`)
-/// reports `0` -- it sits among the girdle rows themselves. Outside that block, the
-/// table row settles which side is crown: whichever side of the girdle block the
-/// table sits on (before or after) is crown (`1`), the other is pavilion (`-1`) --
-/// this is what fixes designs where the girdle is listed FIRST (1,403 of 3,021 real
-/// designs) and everything else, including real crown facets, would otherwise be
-/// misread as pavilion by a naive before/after-girdle rule.
-///
-/// With no table row to anchor on, this falls back to the old before/after-girdle
-/// rule (before = crown, after = pavilion) but ONLY when the girdle sits in the
-/// MIDDLE of the row list (not the first or last row overall) -- a girdle that's
-/// itself first or last gives no reliable "before" or "after" side to trust, so that
-/// case (and a schedule with no girdle row at all) reports `0` rather than guessing.
+/// A row inside the girdle block reports `0`. Outside it, the table row fixes the side:
+/// rows on the same side of the girdle as the table are crown (`1`), the others pavilion
+/// (`-1`). Many designs list the girdle first, so a plain before/after-girdle rule would
+/// misread real crown facets. With no table row, before the girdle is crown and after it
+/// is pavilion, but only when the girdle is neither the first nor the last row. Otherwise
+/// the row reports `0`.
 const fn positional_fallback(
     index: usize,
     girdle_positions: &[usize],
@@ -225,24 +204,16 @@ const fn positional_fallback(
     }
 }
 
-/// Derives every row's [`AngleItem::side`] (`-1` pavilion, `1` crown, `0` girdle/
-/// unclassified) from each row's own `facet`/`angle`/`index_val` label text, falling
-/// back to schedule POSITION only when the label itself doesn't say (see
-/// [`label_side`] and [`positional_fallback`]).
+/// Derives every row's [`AngleItem::side`]: `-1` pavilion, `1` crown, `0` girdle or unclassified.
 ///
-/// A purely positional rule (crown before the girdle row, pavilion after) does not
-/// work on this data: measured on the real catalogue's 3,021 designs with angle rows,
-/// the girdle row sits FIRST in 1,403 of them and in the MIDDLE in 1,401 -- so
-/// "before the girdle" is crown for barely more than half of all designs. This reads
-/// each row's own label first (facet conventions measured across all 50,817 rows:
-/// pure digits with an optional trailing letter, or a `P`/`PF` prefix, are pavilion;
-/// a single letter, a `C` prefix, or the table row are crown; `G`-prefixed or
-/// an angle equal to [`GIRDLE_ANGLE_DEG`] is the girdle itself) and only falls back
-/// to row position for the minority of rows an empty or unrecognised label leaves
-/// undecided -- see [`positional_fallback`] for that fallback's own rule. An
-/// unclassified row (no label match, no usable positional anchor) reports `0`, the
-/// same as the girdle: shown under "All", excluded from both the Pavilion and Crown
-/// filters -- never mis-shown as the wrong side.
+/// Each row's own label decides first. Schedule position is used only when the label does not
+/// say (see [`label_side`] and [`positional_fallback`]).
+///
+/// A purely positional rule does not work here, because the girdle row is often first.
+/// Pure digits with an optional trailing letter, or a `P`/`PF` prefix, mean pavilion. A
+/// single letter, a `C` prefix or the table row mean crown. A `G` prefix or an angle of
+/// [`GIRDLE_ANGLE_DEG`] mean the girdle. A row that cannot be placed reports `0`: it shows
+/// under All and is excluded from the Pavilion and Crown filters.
 pub(super) fn sides_from_rows<'a>(
     rows: impl Iterator<Item = (&'a str, &'a str, &'a str)>,
 ) -> Vec<i32> {
@@ -312,9 +283,10 @@ fn code_block(label: &str, index_val: &str, side: i32) -> Option<CodeBlock> {
     }
 }
 
-/// The label a person reads for each catalogue row: the standard code (`P1`, `G1`, `C1`, `T`)
-/// where the catalogue kept the old 123/ABC convention, and the catalogue's own label
-/// otherwise.
+/// The label a person reads for each catalogue row.
+///
+/// Rows with the old 123/ABC labels get the standard code (`P1`, `G1`, `C1`, `T`). Other rows
+/// keep the catalogue's own label.
 ///
 /// `rows` is each row's `(facet label, index column)` in schedule order and `sides` the
 /// matching [`sides_from_rows`] result. An old-style label (`1`, `3A`, `B`; see
@@ -361,9 +333,10 @@ pub(super) fn standard_codes(rows: &[(&str, &str)], sides: &[i32]) -> Vec<String
 }
 
 /// Whether a row with this [`AngleItem::side`] is shown under `mode` (0 = All, 1 = Pavilion,
-/// 2 = Crown) -- exactly `cutting_table.slint`'s own `row_shown` predicate (side < 0 pavilion,
-/// side > 0 crown). Shared by the row counts and by the keyboard cursor
-/// (`row_cursor::step_row_cursor`'s caller), so the three can never disagree.
+/// 2 = Crown).
+///
+/// This matches `cutting_table.slint`'s `row_shown` predicate. The row counts and the keyboard
+/// cursor share it, so they cannot disagree.
 #[must_use]
 pub(super) const fn side_shown_in_mode(side: i32, mode: i32) -> bool {
     match mode {
@@ -373,10 +346,9 @@ pub(super) const fn side_shown_in_mode(side: i32, mode: i32) -> bool {
     }
 }
 
-/// Counts `angles` under `mode` (0 = All, 1 = Pavilion, 2 = Crown) by
-/// [`AngleItem::side`] -- exactly `cutting_table.slint`'s own `row_shown` predicate
-/// ([`side_shown_in_mode`]), pulled out so [`setup_filtered_row_count_callback`]
-/// stays a thin Slint-callback wrapper.
+/// Counts `angles` under `mode` (0 = All, 1 = Pavilion, 2 = Crown) by [`AngleItem::side`].
+///
+/// It uses [`side_shown_in_mode`], which keeps [`setup_filtered_row_count_callback`] thin.
 #[must_use]
 pub(super) fn count_angles_for_mode(angles: &ModelRc<AngleItem>, mode: i32) -> i32 {
     let count = angles
@@ -386,15 +358,11 @@ pub(super) fn count_angles_for_mode(angles: &ModelRc<AngleItem>, mode: i32) -> i
     i32::try_from(count).unwrap_or(i32::MAX)
 }
 
-/// Registers `LibraryModel::filtered_row_count` -- the per-mode row count
-/// `cutting_table.slint`'s "All Steps (N)"/Pavilion/Crown pills need, which cannot
-/// be computed in Slint itself (see the comment above that file's row-count
-/// pills for why: Slint has no general loop or array `.filter`/`.reduce`, and a
-/// `pure function` there cannot even recurse to fake one). Reads
-/// `LibraryModel.current_angles` fresh on every call rather than
-/// taking it as a second argument -- see [`count_angles_for_mode`]'s doc comment,
-/// and `library.slint`'s own doc comment on `filtered_row_count` for why this
-/// still reacts correctly to a `current_angles` change.
+/// Registers `LibraryModel::filtered_row_count`, the per-mode count behind the cutting table's
+/// "All Steps (N)", Pavilion and Crown pills.
+///
+/// Slint cannot compute it, since it has no general loop or array filter. The callback reads
+/// `current_angles` on each call, so the count stays current.
 pub fn setup_filtered_row_count_callback(ui: &MainWindow) {
     let ui_weak = ui.as_weak();
     ui.global::<LibraryModel>()
@@ -405,22 +373,15 @@ pub fn setup_filtered_row_count_callback(ui: &MainWindow) {
             let angles = ui.global::<LibraryModel>().get_current_angles();
             count_angles_for_mode(&angles, mode)
         });
-    // The cutting table's keyboard cursor lives next to its row counts: both read the same
-    // `side` filter, and this function is already wired into the main window.
+    // The keyboard cursor is wired here too: it reads the same `side` filter.
     super::row_cursor::setup_row_cursor_callback(ui);
 }
 
-/// Clears the detail pane's display fields and drops the current row selection.
+/// Clears the detail pane and drops the row selection.
 ///
-/// Shared by [`crate::gui::library::local::organize`]'s delete handler (the original
-/// "the selected design is gone" case) and
-/// [`crate::gui::library::search::apply_diagram_list_to_ui`] (a search/
-/// filter refresh that drops the previously selected row off the new result list must
-/// not leave `LibraryModel.selected_entry_id` pointing at a design no longer even
-/// visible in the list it came from). Deliberately leaves `RenderContext`/the 3D
-/// viewport untouched: unlike an actual delete, the design itself hasn't changed here,
-/// only whether the LIST currently shows it, so there is nothing wrong with the
-/// viewport going on tracing it.
+/// Called when the selected design is deleted, and when a search refresh leaves it off the
+/// visible list, so the selection never points at a row that is not shown. The 3D viewport is
+/// left alone, because the design itself has not changed.
 pub fn clear_current_detail_display(ui: &MainWindow) {
     ui.global::<LibraryModel>()
         .set_current_detail(DiagramDetailData {
@@ -452,21 +413,12 @@ pub fn clear_current_detail_display(ui: &MainWindow) {
         .set_current_files(ModelRc::new(VecModel::from(Vec::new())));
 }
 
-/// Formats a stored proportion string to 3 decimal places for the detail header's
-/// metric chips -- DISPLAY ONLY. What actually lives in the database is never touched
-/// by this (see `pleochroma_vault::db::sqlite::Database::update_diagram_metadata`,
-/// which always round-trips a proportion's full, unrounded text -- the user's own
-/// instruction is "store everything, discard nothing, don't recalculate").
+/// Formats a stored proportion to 3 decimal places for the detail header's chips.
 ///
-/// Parses first: only a value that parses cleanly as a finite `f64` gets reformatted.
-/// Anything that doesn't parse -- a scraped legacy string in some other format, or a
-/// future value this app didn't write -- passes through completely untouched, so it
-/// can never be coerced into a misleading "0.000". Checked against the real
-/// ~3,187-design catalogue (`facet_diagrams.sqlite`): every non-null `lw_ratio`/
-/// `hw_ratio`/`cw_ratio`/`pw_ratio`/`volume` value there is already a plain
-/// REAL-affinity number with no exceptions, but the model type is `Option<String>` and
-/// nothing guarantees that stays true forever, so this stays defensive rather than
-/// assuming it.
+/// This is display only: the database keeps the full text.
+///
+/// Only a value that parses as a finite `f64` is reformatted. Anything else passes through
+/// unchanged, so it never shows as a misleading "0.000".
 fn format_proportion(raw: &str) -> String {
     match raw.trim().parse::<f64>() {
         Ok(n) if n.is_finite() => format!("{n:.3}"),
@@ -482,12 +434,8 @@ pub(super) fn format_optional_proportion(raw: Option<&str>) -> String {
     raw.map(format_proportion).unwrap_or_default()
 }
 
-/// Trims `text` and turns a blank result into `None` -- the metadata editor's
-/// convention for "the user cleared this field", matching
-/// `Database::rename_diagram_entry`'s own trim. `None` is what
-/// [`pleochroma_vault::model::metadata_update::MetadataUpdate`] stores as a field's new
-/// value in that case, not an empty-string sentinel -- consistent with every other
-/// optional column this app writes.
+/// Trims `text`, and maps a blank result to `None`. A cleared metadata field is stored as
+/// `None`, not as an empty string.
 pub(super) fn non_empty(text: &str) -> Option<String> {
     let trimmed = text.trim();
     if trimmed.is_empty() {
@@ -497,15 +445,11 @@ pub(super) fn non_empty(text: &str) -> Option<String> {
     }
 }
 
-/// [`DiagramDetailData::material_guess`]'s own computation -- a catalogue row
-/// records only a refractive index string (`ri_text`, `None`/unparseable
-/// reads as "nothing to guess"), so this is the only honest way to name the
-/// stone for the card ("Inferred material shown as a guess, never as a fact").
-/// Formatted
-/// identically to the editor's own material-guess badge ("Sapphire? (from RI
-/// 1.76)") so the two never disagree about wording; `""` when nothing built
-/// in is close enough within [`MATERIAL_MATCH_TOLERANCE`] -- hides the chip
-/// entirely rather than showing an empty/misleading one.
+/// The material guess for [`DiagramDetailData::material_guess`], from the refractive index alone.
+///
+/// A catalogue row stores no material. The text matches the editor's badge ("Sapphire? (from RI
+/// 1.76)"). It is empty when no built-in is within [`MATERIAL_MATCH_TOLERANCE`], which hides
+/// the chip.
 pub(super) fn catalogue_material_guess(ri_text: Option<&str>) -> String {
     let Some(n_d) = ri_text.and_then(|s| s.trim().parse::<f64>().ok()) else {
         return String::new();

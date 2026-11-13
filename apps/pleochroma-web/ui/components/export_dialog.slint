@@ -17,9 +17,9 @@ component Row inherits HorizontalLayout {
     @children
 }
 
-// File > Export PNG: size, samples, color space and denoise, then a progress bar
-// with Cancel while the export renders through the render Workers
-// (`src/render/export.rs`). Covers the window; the live render pauses meanwhile.
+// File > Export PNG: size, samples, color space and denoise, then a progress bar with
+// Cancel while the export renders on the render Workers (`src/render/export.rs`). Covers
+// the window; the live render pauses meanwhile.
 export component ExportDialog inherits Rectangle {
     background: Theme.overlay-backdrop;
 

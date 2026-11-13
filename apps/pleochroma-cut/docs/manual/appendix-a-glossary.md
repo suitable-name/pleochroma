@@ -46,8 +46,8 @@ Path-Traced remains the spectral engine; metrics keep a separate analytic tracer
 **Along and Across** — The two colors of a pattern zone (or of a stone) in a
 one-axis crystal: the **Along** color, seen looking along the crystal axis, and the
 **Across** color, which is blended in when looking across it. A two-axis crystal has
-three, **Alpha, Beta and Gamma**. A zone chooses its form in the **Colors** menu of the
-Color Pattern Editor and needs a birefringent material (Chapters 6 and 29).
+three, **Alpha, Beta and Gamma**. A zone shows one color tile for each in the Color
+Pattern Editor and needs a birefringent material (Chapters 6 and 29).
 
 **Anchor** — A tier whose scale is stated directly (Meets: **Exact Scale
 Value**) rather than derived from meeting other facets. Every block (crown,
@@ -202,16 +202,16 @@ of the Stone tab (Chapter 2).
 **Index** — The position on the cutting machine's dividing head (its
 "gear") where a facet is cut.
 
-**Lighting rig** — One of the thirteen ways of lighting the stone in the live view
-and in renders: the lit models (light tent, grading tray and others), the Studio rigs
-and the daylight rigs.
+**Lighting rig** — One of the ways of lighting the stone in the live view and in
+renders: the lit models (light tent, grading tray and others), the studio rigs and
+the daylight rigs.
 Picked in the Lighting & Environment tab (Chapter 2). A rig is
 only the lights; **Saved lighting** stores a rig together with everything else about
 the look.
 
 **Material effects** — The settings of the Stone tab that belong to the
 individual stone and are saved in its design: Inclusion Haze, Crystal Axis,
-Frosted Girdle and Edge Rounding, and the newer Inclusions, Abraded Edges and
+Frosted Girdle and Edge Rounding, Inclusions, Abraded Edges and
 Play-of-Color. A new design starts with all of them off (Chapter 2). The
 Surface Finish of a tier is saved with the tier (Chapter 26).
 
@@ -221,7 +221,10 @@ Always a solver output, never something you type in directly.
 
 **Meet point** — The point where three or more facet planes intersect. A
 facet's depth is usually determined by where its plane meets its
-neighbours, rather than set as a direct number.
+neighbours, rather than set as a direct number. On the cutting sheet a
+meet point is a corner that is already on the stone when the tier is cut;
+a tier that reaches none prints only its depth and is cut to it by
+measurement (Chapter 11).
 
 **Noise threshold** — How far a figure has to move before the program calls it a
 real change. Brilliance, Windowing and Extinction: 2 points; Scintillation: 3;
@@ -310,15 +313,13 @@ Chapter 23.
 design's pavilion and crown angles to a different material, reviewed in a
 dialog before anything is applied (Chapter 6).
 
-**Snapshot** — The older name of the **Baseline**. The command bar's
-**Snapshot Design** and **Compare to Snapshot** are now **Set Baseline** and
-**Compare to Baseline** (Chapter 14).
+**Snapshot** — Former name of the **Baseline**. The command bar offers **Set
+Baseline** and **Compare to Baseline** (Chapter 14).
 
 **Saved lighting** — A named, complete lighting look: the lighting rig, light
 direction, exposure, surface glare, backdrop (a lit tray), head shadow, the HDR environment map if
 any and optionally the camera pose. Eight come with the app; your own are added to the
-list and can be marked "usable for" export (Chapters 2 and 9). Formerly "Lighting
-Presets".
+list and can be marked "usable for" export (Chapters 2 and 9).
 
 **Schiller** — The single sheet of flashing color on a labradorite face, seen from one direction. It comes from fine lamellae in the crystal and is fixed to the crystal, so it follows the Crystal Axis (Chapter 28).
 
@@ -343,6 +344,8 @@ Editor accepts one-term and three-term fits (Chapter 29).
 **Solved / stale** — A design is "solved" once Solve has successfully run
 against its current tier list; it becomes "stale" the moment any further
 edit changes that tier list, until Solve runs again (Chapter 5).
+
+**Stone Shadow** — The optional shadow and colored caustic light cast by the stone onto a backdrop touching its culet. Studio lights only; off by default.
 
 **Stone width** — The width of the stone across the girdle in millimetres: the
 design's girdle diameter, set in the Stone tab (the same value as the Preform tab's
@@ -371,6 +374,8 @@ family of identical facets cut at the same angle and depth.
 performance as it tips away from face-up viewing, along a chosen compass
 direction around the stone (Chapter 2).
 
+**Tray Reflection** — The optional glossy surface under the stone: a smooth, endless mirror at the culet whose head-on reflectance is the slider value (about 4 % is black acrylic or glass, 100 % a mirror) and which reflects more at glancing angles. The stone appears mirrored in it. Studio lights with a backdrop only; off by default.
+
 **Trial** — A numbered record of the design at a moment you kept it, with its
 figures, listed in the History tab's Trials view. Trials last for the session only;
 **Save as Variant...** keeps one for good (Chapter 18).
@@ -394,7 +399,8 @@ optical performance readouts.
 
 **Zone (pattern zone)** — One region of a Color Pattern with its own color: the
 **base zone** that fills the stone wherever no other zone is, and up to four more
-zones, each with a shape. A later zone covers the earlier ones (Chapter 29).
+zones, each with a shape. The Color Pattern Editor lists them as layers, top layer
+first; an upper layer covers the ones below it (Chapter 29).
 
 ## Next Steps
 

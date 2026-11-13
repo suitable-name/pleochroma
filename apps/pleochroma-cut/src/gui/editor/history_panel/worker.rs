@@ -218,9 +218,10 @@ fn run(shared: &Shared) {
     }
 }
 
-/// Draws the picture `key` names from `snapshot`, or says why not. A panic in the solver or
-/// the renderer is logged and answered as "cannot draw" so one bad design cannot silence the
-/// thread.
+/// Draws the picture `key` names from `snapshot`, or says why not.
+///
+/// A panic in the solver or the renderer is logged and answered as "cannot draw", so one bad
+/// design cannot silence the thread.
 fn answer(
     renderer: &mut ThumbRenderer,
     snapshot: Option<&RenderSnapshot>,

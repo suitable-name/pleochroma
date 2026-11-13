@@ -6,9 +6,9 @@
 //! placement and widths from the library, the pose the cutter chose), the sawn piece of rough it
 //! comes from is moved into the design's frame (`stone_preform_planes`), and the lot is handed to
 //! `gui::editor::planned_stone`, which loads the design through the normal Load Selected path
-//! (unsaved-changes guard included) and applies the preform, the real width and the colour to it as
-//! one undoable edit. "Use Color" (`zoning_hooks`) goes through the same functions without the
-//! preform.
+//! (unsaved-changes guard included) and applies the preform, the real width and the colour to
+//! it as one undoable edit. "Use Color" (`zoning_hooks`) goes through the same functions without
+//! the preform.
 //!
 //! Neither action works while a remote library is active: the designs of a plan are local
 //! library entries.
@@ -261,8 +261,8 @@ fn request_from(
 }
 
 /// The crystal orientation of the rough the shown results were planned for: `None` while it is
-/// Unknown, for an isotropic material, built-in or custom (nothing to orient: the design must not
-/// gain a `[render_effects]` table), and for a material that cannot be resolved (`None`).
+/// Unknown, for an isotropic material (nothing to orient: the design must not gain a
+/// `[render_effects]` table), and for a material that cannot be resolved.
 fn rough_orientation(host: &Host, material: Option<&GemMaterial>) -> Option<CrystalOrientation> {
     if !is_c_axis_override_available(material?) {
         return None;

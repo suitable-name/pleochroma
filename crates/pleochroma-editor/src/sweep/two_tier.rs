@@ -497,10 +497,12 @@ fn evaluate_cell(shared: &Shared<'_>, index: usize) -> Option<Sweep2dCell> {
     }
 }
 
-/// Sets the swept tiers' angles on the clone and lets every tier whose angle follows a
-/// relation follow, as a real edit does: `rows::set_swept_angle` for several
-/// tiers at once (the relations are evaluated once, after every angle is written). The
-/// error is the relation's plain-English message.
+/// Sets both tiers' angles on the clone, then lets every tier whose angle follows a relation
+/// follow, as a real edit does.
+///
+/// Unlike `rows::set_swept_angle`, every angle is written before the relations are evaluated,
+/// once, so a relation reading both tiers sees the pair. The error is the relation's
+/// plain-English message.
 fn set_angles(scratch: &mut Design, angles: &[(usize, f64)]) -> Result<(), String> {
     for &(tier, angle_deg) in angles {
         if let Some(swept) = scratch.tiers.get_mut(tier) {
@@ -580,8 +582,8 @@ pub fn apply_sweep_angles(
         .map(Some)
 }
 
-/// A rough guess of how long a two-tier sweep of `cells` cells takes, in seconds: the
-/// one-tier estimate with a cell for a row, and the workers credited the same way.
+/// A rough guess, in seconds, of how long a two-tier sweep of `cells` cells takes: the
+/// one-tier estimate with each cell counted as a row.
 #[must_use]
 pub fn estimate_seconds_2d(
     cells: usize,

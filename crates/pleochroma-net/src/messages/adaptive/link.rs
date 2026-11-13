@@ -101,8 +101,8 @@ impl PeerLink {
         }
     }
 
-    /// A link pinned to `encoding` (what a connection did before adaptation existed):
-    /// never measures, never touches the peer book.
+    /// A link pinned to `encoding`, with no adaptation: never measures, never touches the
+    /// peer book.
     #[must_use]
     pub fn fixed(encoding: crate::messages::PayloadEncoding) -> Self {
         let policy = AdaptiveEncoderPolicy::fixed(&[encoding], &[encoding]);

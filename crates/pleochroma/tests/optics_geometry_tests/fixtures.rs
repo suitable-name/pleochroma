@@ -4,9 +4,10 @@
 use pleochroma::geometry::brep::GemPolyhedron;
 use std::collections::HashSet;
 
-/// Independently recomputes the polyhedron's edge set from its public
-/// `facet_polygons` field (deliberately not trusting anything internal to
-/// `from_planes`), and returns `(V, E, F)`. Panics if any edge is not shared by
+/// Independently recomputes the polyhedron's edge set and returns `(V, E, F)`.
+///
+/// The edges come from its public `facet_polygons` field (deliberately not trusting anything
+/// internal to `from_planes`). Panics if any edge is not shared by
 /// exactly two facets, or if Euler's formula `V - E + F = 2` does not hold.
 pub fn assert_euler_formula(hull: &GemPolyhedron) -> (usize, usize, usize) {
     let faces: Vec<&Vec<u32>> = hull

@@ -41,10 +41,10 @@ fn edit_a_tier_changes_the_angle_the_name_and_the_meet_then_undoes() {
     assert_eq!(sim.session.design.tiers[sim.row("P1")].angle_deg, -41.0);
 }
 
-/// F5-19: the lesson's Meets step makes the Rich Teaching Design's only pavilion tier meet the
-/// Girdle, which leaves the pavilion without an exact scale value. That is a solve error the
-/// status strip shows, so the step has to say so (and that the next step undoes it); every other
-/// state of the lesson solves and closes.
+/// The Meets step of the edit lesson makes the Rich Teaching Design's only pavilion tier meet the
+/// Girdle, which leaves the pavilion without an exact scale value. The status strip shows that
+/// solve error, so the step has to say so and that the next step undoes it. Every other state of
+/// the lesson solves and closes.
 #[test]
 fn the_edit_lesson_solves_everywhere_but_the_meets_step_which_says_why() {
     fn assert_solves(sim: &Sim, when: &str) {

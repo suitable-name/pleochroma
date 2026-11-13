@@ -27,7 +27,7 @@ fn tf_nee_contribution_frosted_exterior(
 ) {
     let u0 = f32(hash_u32(rng_seed ^ hash_u32(bounce ^ FROSTED_NEE_ENV_DIR_U_STREAM))) / 4294967295.0;
     let u1 = f32(hash_u32(rng_seed ^ hash_u32(bounce ^ FROSTED_NEE_ENV_DIR_V_STREAM))) / 4294967295.0;
-    let sample = tf_dist2d_sample(u0, u1);
+    let sample = tf_dist2d_sample(u0, u1, TF_HDR_IDENTITY_ROT);
     if (sample.pdf <= 0.0) {
         return;
     }
@@ -148,12 +148,9 @@ fn tf_intersect_ray(origin: vec3<f32>, dir: vec3<f32>) -> HitInfo {
 }
 
 
-// `sigma_s`/`absorption_path_scale`/`alphas` and `frosted_exit` mirror
-// `optics::raytracer::scattering::nee_contribution_hg_scatter`'s own extra parameters
-// -- the standalone harness has no scene-wide `material`/`facet_finishes` bindings the
-// megakernel (`transport_bounce.wgsl`) reads those from, so each case carries its own
-// copy instead (see the CPU-side `NeeHgScatterCase` struct's doc comments for how
-// `run_nee_hg_scatter` drives them).
+// `sigma_s`, `absorption_path_scale`, `alphas` and `frosted_exit` are the extra parameters
+// of `optics::raytracer::scattering::nee_contribution_hg_scatter`. The harness has no
+// scene-wide `material` or `facet_finishes` bindings, so each case carries its own copy.
 struct NeeHgScatterCase {
     scatter_point: vec3<f32>,
     n_inside_hero: f32,
@@ -177,20 +174,12 @@ struct NeeHgScatterCase {
 @group(0) @binding(76) var<storage, read> nee_hg_cases: array<NeeHgScatterCase>;
 @group(0) @binding(77) var<storage, read_write> nee_hg_out: array<f32>;
 
-// Operation-for-operation copy of `transport_bounce/06_nee_sampling.wgsl`'s
-// `nee_contribution_hg_scatter` (itself the WGSL translation of
-// `optics::raytracer::scattering::nee_contribution_hg_scatter` plus the immediate
-// family-integration `try_scatter_step` applies to its deposit). This standalone twin
-// retains pointer arguments and adds into `nee_xyz`; the production helper now takes
-// immutable spectral snapshots and returns that same XYZ increment. It also differs in
-// how it reaches the medium/finish inputs the megakernel
-// reads off the shared `material`/`facet_finishes` bindings: this standalone twin takes
-// them as explicit per-case parameters instead (`alphas`, `sigma_s`,
-// `absorption_path_scale`, `frosted_exit`), and samples the HDR environment through this
-// file's own `tf_hdr_env_sample_bilinear`/`tf_dist2d_sample` (bindings 62-66) rather than
-// the megakernel's scene-wide texture bindings. It has no `rc`/`is_extraordinary` inputs:
-// its `alphas` are fixed for the case whatever direction the shadow ray takes, the CPU
-// function's `ShadowAlphas::Fixed` arm, which is what the harness driver feeds it.
+// Operation-for-operation twin of `transport_bounce/06_nee_sampling.wgsl`'s
+// `nee_contribution_hg_scatter`. Unlike the megakernel version, it takes pointer arguments,
+// adds into `nee_xyz`, and reads medium and finish inputs as explicit parameters. It
+// samples the HDR map through `tf_dist2d_sample` (bindings 62-66). It has no `rc` or
+// `is_extraordinary` inputs: `alphas` are fixed for every shadow direction, the CPU
+// `ShadowAlphas::Fixed` arm that the harness driver uses.
 fn tf_nee_contribution_hg_scatter(
     lambdas: ptr<function, array<f32, 8>>,
     n_inside_hero: f32,
@@ -210,7 +199,7 @@ fn tf_nee_contribution_hg_scatter(
 ) {
     let u0 = f32(hash_u32(rng_seed ^ hash_u32(bounce ^ NEE_ENV_DIR_U_STREAM))) / 4294967295.0;
     let u1 = f32(hash_u32(rng_seed ^ hash_u32(bounce ^ NEE_ENV_DIR_V_STREAM))) / 4294967295.0;
-    let sample = tf_dist2d_sample(u0, u1);
+    let sample = tf_dist2d_sample(u0, u1, TF_HDR_IDENTITY_ROT);
     if (sample.pdf <= 0.0) {
         return;
     }
@@ -220,10 +209,8 @@ fn tf_nee_contribution_hg_scatter(
     if (!hit.hit) {
         return;
     }
-    // Mirrors `nee_contribution_hg_scatter`'s `facet_finishes` check -- the
-    // standalone harness has no scene-wide facet-finish buffer to index by `hit.facet_idx`,
-    // so the CPU driver marks the whole test cube Frosted or Polished up front and passes
-    // that verdict directly (see `NeeHgScatterCase::frosted_exit`'s doc comment).
+    // Mirrors the `facet_finishes` check. The harness has no facet-finish buffer, so the
+    // CPU driver passes one verdict for the whole test cube in `frosted_exit`.
     if (frosted_exit != 0u) {
         return;
     }
@@ -246,24 +233,18 @@ fn tf_nee_contribution_hg_scatter(
         return;
     }
 
-    // The exterior direction this light sample actually leaves along --
-    // same Snell's-law form as the megakernel twin; `sample.pdf` stays in the INTERIOR
-    // (pre-refraction) measure `tf_dist2d_sample` sampled in, only the radiance LOOKUP
-    // moves to the refracted direction.
+    // Exterior direction the light sample leaves along (Snell's law). `sample.pdf` stays in
+    // the interior measure that `tf_dist2d_sample` sampled; only the radiance lookup uses
+    // the refracted direction.
     let refracted_dir = normalize(n_inside_hero * sample.dir - fma(n_inside_hero, cos_i, -cos_t) * hit.normal);
-    let refracted_uv = hdr_direction_to_uv(refracted_dir);
+    let refracted_uv = hdr_direction_to_uv(hdr_world_to_map(refracted_dir, TF_HDR_IDENTITY_ROT));
     let env_rgb = tf_hdr_env_sample_bilinear(refracted_uv.x, refracted_uv.y);
 
-    // The medium transmittance a phase-sampled continuation in this same direction would
-    // pay on its way to this same boundary -- the same per-channel
-    // `exp_poly(-(alphas[k]+sigma_s)*(hit.t+offset)*path_scale)` the megakernel twin and
-    // the CPU function both apply (`exp_poly`, not the `exp()` builtin -- see that
-    // function's own doc comment, `transport_physics.wgsl`), over the full distance from
-    // the scattering point: the probe's origin sits `HG_SHADOW_PROBE_OFFSET` inside the
-    // material, so `hit.t` alone is that much short.
+    // Transmittance over the full path from the scattering point, per channel. Uses
+    // `exp_poly`, not `exp()`, as the megakernel and CPU do. The probe starts
+    // `HG_SHADOW_PROBE_OFFSET` inside the material, so `hit.t` alone is short by that much.
     let hit_t_scaled = (hit.t + HG_SHADOW_PROBE_OFFSET) * absorption_path_scale;
-    // `sigma_s` is per model unit (size-independent): converted to absorption-length units
-    // exactly as the CPU twin does (`sigma_s / absorption_path_scale`).
+    // `sigma_s` is per model unit; convert to absorption-length units.
     let sigma_s_abs = sigma_s / absorption_path_scale;
 
     let nee_common = t_unpol * phase_val * mis_weight / sample.pdf;

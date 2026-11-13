@@ -1,11 +1,11 @@
 //! The facet a convex solid has on one of its planes, cut out of that plane alone.
 //!
 //! The refit's bisection asks for the area of ONE facet at dozens of masts. Building the whole
-//! solid for each answer (`build_solid_mesh`: every vertex of the arrangement, every ring) pays
-//! for ~170 facets to read one. The facet of a convex solid on its plane `P` is the part of `P`
-//! inside every other half-space, so [`facet_area`] cuts exactly that: it starts from a large
-//! square in `P` and clips it by each other plane (Sutherland-Hodgman), O(planes x polygon size)
-//! instead of an arrangement walk.
+//! solid for each answer (`build_solid_mesh`: every vertex of the arrangement, every ring)
+//! computes every facet to read one. The facet of a convex solid on its plane `P` is the part
+//! of `P` inside every other half-space, so [`facet_area`] cuts exactly that: it starts from a
+//! large square in `P` and clips it by each other plane (Sutherland-Hodgman), O(planes x
+//! polygon size) instead of an arrangement walk.
 //!
 //! The mesh measures a facet differently in small ways (it merges vertices closer than 1e-6 and
 //! counts a vertex within 2e-5 of the plane, all in units of the stone's scale), so the two agree
@@ -14,9 +14,9 @@
 //! answers only where it can prove the mesh would give the same figure, and returns `None` (the
 //! caller builds the mesh) everywhere else:
 //!
-//! - Without a [`Reference`]: a closed solid with the same normals, seen once by the caller. The
-//!   planes of a probe differ only in one offset, and a polytope's boundedness depends on the
-//!   normals alone, so a solid that was closed stays bounded wherever it is nonempty.
+//! - Without a [`Reference`], which needs a closed solid with the same normals, seen once by the
+//!   caller. The probes' planes differ only in one offset, and a polytope's boundedness depends
+//!   on the normals alone, so one reference serves every probe.
 //! - When another plane lies nearly on top of the probed one, so the mesh's merge and
 //!   duplicate rules decide which facet owns the ring.
 //! - When the clipped facet is too thin for the solid to certainly be solid around it (see
@@ -425,6 +425,6 @@ mod tests {
         assert!((polygon_area(&polygon) - 0.5).abs() < 1e-15);
         // All of it.
         clip(&mut polygon, &mut scratch, 1.0, 0.0, -1.0);
-        assert!(polygon.is_empty());
+        assert_eq!(polygon, [] as [DVec2; 0]);
     }
 }

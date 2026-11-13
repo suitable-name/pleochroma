@@ -1,4 +1,5 @@
-//! The built-in color variant data file (`data/color_variants.toml`), embedded and parsed once.
+//! The built-in color variant data files (`data/color_variants.toml` and its per-group files),
+//! embedded and parsed once.
 //!
 //! The schema is documented at the top of the data file. Parsing validates every entry against
 //! the built-in material it names, so a data error is a build-time failure caught by the unit

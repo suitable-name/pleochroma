@@ -1,72 +1,49 @@
-//! Off-UI-thread solving: one persistent worker thread owning a request queue with
-//! last-wins coalescing, real mid-solve cancellation, throttled progress, and
-//! generation-tagged results a caller can drop when stale. Serves Deep Solve
-//! (`deep_solve::spawn_deep_solve`), the save/export solves (`native_io::solve`) and the
-//! candidate-preview solves, in place of an ad-hoc `thread::spawn` per call.
-//! `auto_solve::dispatch_background_solve` (see [`SolveKind::Full`]) and the Optimize
-//! search (`optimize_solve::spawn_optimize_run`) keep workers of their own. The UI thread
-//! never solves, never blocks.
+//! Off-UI-thread solving.
+//!
+//! One persistent worker thread owns a request queue with last-wins coalescing, real mid-solve
+//! cancellation, throttled progress, and generation-tagged results that a caller can drop when
+//! stale. It serves Deep Solve (`deep_solve::spawn_deep_solve`), the save and export solves
+//! (`native_io::solve`) and the candidate-preview solves. `auto_solve::dispatch_background_solve`
+//! (see [`SolveKind::Full`]) and the Optimize search (`optimize_solve::spawn_optimize_run`) keep
+//! workers of their own. The UI thread never solves and never blocks.
 //!
 //! # Shape
 //!
-//! [`SolveService::new`] spawns ONE background thread for the lifetime of the
-//! service (not one thread per solve, unlike the modules it replaces) that loops:
-//! block on the next request in [`Mailbox`], run it, report the result, repeat.
-//! [`SolveService::submit`] never blocks the caller -- it just overwrites the
-//! mailbox's single pending slot and wakes the worker. A burst of `submit` calls
-//! that all land before the worker gets around to picking one up collapses to
-//! exactly one solve, of the LAST request only (earlier ones are silently
-//! discarded, unread) -- "last-wins coalescing." A request that arrives while the
-//! worker is already mid-solve waits in the mailbox; once that solve finishes, the
-//! worker checks the mailbox again and picks up whatever is there (the newest thing
-//! queued, if anything landed meanwhile).
+//! [`SolveService::new`] spawns ONE background thread for the service's lifetime. It loops:
+//! take the next request from the [`Mailbox`], run it, report the result.
+//! [`SolveService::submit`] never blocks. It overwrites the mailbox's single pending slot and
+//! wakes the worker, so a burst of submits that land before the worker picks one up collapses
+//! to a single solve of the LAST request. Requests that arrive mid-solve wait in the mailbox
+//! for the next iteration.
 //!
 //! # Two independent kinds of "stale"
 //!
-//! 1. **Superseded by a later `submit`.** Every `submit` call bumps a shared
-//!    `latest_seq` counter and stamps its own request with the value it bumped to.
-//!    Before the worker reports a result, it compares its request's stamped seq
-//!    against the current `latest_seq` -- a mismatch means a newer request has
-//!    since been submitted. The result is STILL delivered, tagged
-//!    [`SolveResult::superseded`] `true`, rather than silently dropped: an earlier
-//!    version of this module discarded it outright (`continue`, no delivery at
-//!    all), which left any per-request bookkeeping keyed by
-//!    [`SolveResult::generation`] permanently stranded whenever two requests
-//!    landed close together on the SAME `SolveService` (`native_io::solve`'s
-//!    shared one, the case that actually hits this: a Save immediately
-//!    followed by an Export) -- no file, no toast, no error, forever. See
-//!    [`SolveResult::superseded`]'s own doc comment for what a caller must do
-//!    with one.
-//! 2. **The design changed for a reason that is NOT a new solve request** (an edit
-//!    landed while auto-solve is disabled, say). [`SolveResult::generation`] is the
-//!    caller's OWN domain generation counter, stamped at submit time -- this
-//!    service does not know what a "current" generation is; the caller compares
-//!    [`SolveResult::generation`] against its own live counter at delivery time and
-//!    drops the result itself when they disagree, exactly like
-//!    `auto_solve::apply_background_solve_result`'s own two-tier check already does
-//!    today (that pattern is preserved here, just split across this module's `seq`
-//!    and the caller's own `generation` comparison).
+//! 1. **Superseded by a later `submit`.** Every `submit` bumps a shared `latest_seq` counter
+//!    and stamps its request with the new value. Before reporting, the worker compares its
+//!    stamp with `latest_seq`. A mismatch sets [`SolveResult::superseded`]. The result is still
+//!    delivered, so per-request bookkeeping keyed by [`SolveResult::generation`] (such as
+//!    `native_io::solve`'s pending solves) is cleaned up and its waiting caller is told. A
+//!    silent drop would strand a Save or Export with no file and no message.
+//! 2. **The design changed for a reason that is not a new solve request** (an edit that landed
+//!    while auto-solve is disabled, say). [`SolveResult::generation`] is the caller's own
+//!    generation counter, stamped at submit time. This service does not know what is current.
+//!    The caller compares it with its live counter at delivery and drops the result when they
+//!    differ.
 //!
 //! # Cancellation
 //!
-//! [`SolveHandle::cancel`] sets the `Arc<AtomicBool>` the underlying
-//! `SolveControl::with_cancel` observes at every cancel point `pleochroma` exposes
-//! (per-sweep, per-pipeline-run) -- see this module's own
-//! `cancel_returns_quickly_on_the_largest_real_fixture` test. Cancelling a request
-//! that has not started yet (still sitting in the mailbox) is also safe: the flag
-//! is already set by the time the worker picks it up and calls `solve_with`, so it
-//! returns [`SolveError::Cancelled`] almost immediately instead of ever doing real
-//! work.
+//! [`SolveHandle::cancel`] sets the flag that `SolveControl::with_cancel` observes at every
+//! cancel point `pleochroma` exposes (per sweep and per pipeline run). See the
+//! `cancel_returns_quickly_on_the_largest_real_fixture` test. A request cancelled while still
+//! queued is safe: the flag is set before the worker starts it, so it returns
+//! [`SolveError::Cancelled`] almost at once.
 //!
 //! # Progress
 //!
-//! `on_progress` is throttled to roughly [`PROGRESS_THROTTLE`] (~10 Hz) via
-//! [`ProgressThrottle`] -- `pleochroma`'s solver can report a [`SolveProgress`] many
-//! times within one sweep; forwarding every one of those across
-//! `Weak::upgrade_in_event_loop` would itself become a UI-thread cost. The first
-//! report of a new `(phase, sweep)` pair is always forwarded immediately, so a
-//! caller's progress bar never looks stuck at a stale phase for a full throttle
-//! interval.
+//! `on_progress` is throttled to about [`PROGRESS_THROTTLE`] (10 Hz) by [`ProgressThrottle`].
+//! The solver can report many times per sweep, and forwarding each one across
+//! `Weak::upgrade_in_event_loop` would cost the UI thread. The first report of each new
+//! `(phase, sweep)` pair is always forwarded, so a progress bar never sits on a stale phase.
 
 use super::auto_solve::solve_cancellably;
 use pleochroma::geometry::{
@@ -96,33 +73,25 @@ const PROGRESS_THROTTLE: Duration = Duration::from_millis(100);
 pub enum SolveKind {
     /// A full [`Design::solve_with`].
     ///
-    /// Submitted by `native_io`'s save/export paths when no cached solve matches
-    /// the current design (`native_io::submit_full_solve`), and by this module's
-    /// own `cancel_returns_quickly_on_the_largest_real_fixture` test.
+    /// Submitted by `native_io`'s save and export paths when no cached solve matches the
+    /// current design (`native_io::solve::submit_full_solve`), and by this module's
+    /// `cancel_returns_quickly_on_the_largest_real_fixture` test.
     ///
-    /// Not routed through here by `auto_solve::dispatch_background_solve`, which
-    /// keeps its own worker because that worker does real UI-model formatting work
-    /// (`tier_items`/warnings/yield text over up to 103 tiers) that must ALSO stay
-    /// off the UI thread -- `SolveService`'s `on_result` runs via
-    /// `Weak::upgrade_in_event_loop`, i.e. on the UI thread itself, so moving that
-    /// formatting there would be a regression, not a fix.
+    /// `auto_solve::dispatch_background_solve` keeps its own worker instead. That worker also
+    /// formats UI models (tier items, warnings, yield text), and `on_result` runs on the UI
+    /// thread, so that formatting cannot move here.
     Full,
-    /// `pleochroma::geometry::meet_solver::solve_meet_points_verified_with`'s
-    /// externally verified repair search ("Deep Solve"). Always passes no
-    /// adjustable anchors -- see `deep_solve.rs`'s own doc comment, "`adjustable_anchors` is always empty",
-    /// which applies here identically.
+    /// `pleochroma::geometry::meet_solver::solve_meet_points_verified_with`'s externally
+    /// verified repair search ("Deep Solve"). It passes no adjustable anchors, as `deep_solve`
+    /// does.
     Verified {
         /// The printed proportions the repair search scores candidate mast
         /// configurations against.
         targets: ExternalProportions,
-        /// Whether the worker should also compute this design's own plain solve
-        /// (the "baseline" a Deep Solve's per-tier mast-delta table compares the
-        /// verified repair against) on THIS same background thread, before running
-        /// the verified search. `false` when the caller already has a valid
-        /// cached plain solve on hand and needs nothing more from this request --
-        /// see `deep_solve::spawn_deep_solve`'s own doc comment for why this can
-        /// never be submitted as a SEPARATE request instead (this service's
-        /// mailbox is last-wins).
+        /// Whether the worker should also compute this design's own plain solve (the
+        /// "baseline" that the per-tier mast-delta table compares against) on this thread,
+        /// before the verified search. `false` when the caller already holds a valid cached
+        /// plain solve. It cannot be a separate request, because the mailbox is last-wins.
         compute_baseline: bool,
     },
     /// A candidate design solved for display in the viewport in place of the real
@@ -176,28 +145,17 @@ pub enum SolveOutcome {
     Verified(Result<VerifiedSolve, SolveError>),
 }
 
-/// A delivered [`SolveService`] result -- ALWAYS delivered, even for a request a
-/// later `submit` superseded while this one was still computing: see
-/// [`Self::superseded`]'s own doc comment for why this module stopped silently
-/// discarding those instead.
+/// A result from [`SolveService`]. Always delivered, even when a later submit superseded it.
 pub struct SolveResult {
     /// Echoed from the [`SolveRequest`] this answers -- see
     /// [`SolveRequest::generation`]'s own doc comment.
     pub generation: u64,
     pub elapsed: Duration,
     pub outcome: SolveOutcome,
-    /// `true` when a later `submit` bumped [`SolveService`]'s own `latest_seq`
-    /// counter past this request's stamped value before the worker got around to
-    /// reporting it -- i.e. this design/kind is no longer the one anybody asked
-    /// about last. `outcome` is still the REAL computed result (the compute
-    /// itself was not wasted), but a caller must not apply or display it as
-    /// current; it is delivered at all ONLY so per-request bookkeeping keyed by
-    /// [`Self::generation`] (`native_io::solve::PENDING_SOLVES`, the motivating
-    /// case) gets a chance to clean itself up and tell its own caller what
-    /// happened, instead of leaking that entry and leaving whoever was waiting
-    /// on it (a Save, say) with no file and no toast forever. Previously
-    /// this case was silently `continue`d past with no delivery at all -- exactly
-    /// the "never leave a continuation stranded" bug the superseded-result delivery guards against.
+    /// `true` when a later `submit` moved the sequence past this request before it reported.
+    /// `outcome` is the real computed result, but a caller must not apply or display it as
+    /// current. It is delivered so that per-request bookkeeping keyed by [`Self::generation`]
+    /// (`native_io::solve::PENDING_SOLVES`) is cleaned up and its waiting caller is told.
     pub superseded: bool,
 }
 
@@ -231,16 +189,12 @@ struct Queued {
     cancel: Arc<AtomicBool>,
 }
 
-/// A single-slot, overwrite-on-put, block-until-present queue -- the "last-wins
-/// coalescing" mailbox the module doc comment describes. Deliberately not a
-/// channel: a channel would still need draining logic to discard everything but the
-/// newest entry, which is exactly what `put` does inline instead.
+/// A single-slot, overwrite-on-put, block-until-present queue: the last-wins mailbox of the
+/// module docs. It is not a channel, because a channel would need extra logic to drop all but
+/// the newest entry, which `put` does directly.
 ///
-/// Also carries [`SolveService`]'s own shutdown signal: `shutdown` is
-/// checked by [`Self::take_blocking`] every time it wakes, and
-/// [`Self::request_shutdown`] sets it and wakes the worker immediately, the
-/// same `Condvar` [`Self::put`] already uses -- there is no separate channel or
-/// second wait to coordinate.
+/// It also carries the shutdown signal. [`Self::request_shutdown`] sets `shutdown` and wakes
+/// the worker through the same `Condvar` as [`Self::put`].
 struct Mailbox {
     slot: Mutex<Option<Queued>>,
     ready: Condvar,
@@ -273,13 +227,9 @@ impl Mailbox {
         self.ready.notify_one();
     }
 
-    /// Blocks until a request is available OR shutdown was requested --
-    /// `None` means the latter: the worker's own signal to return from
-    /// [`worker_loop`] instead of looping again. A request already sitting in
-    /// the mailbox at shutdown time is still delivered (checked first, below)
-    /// rather than discarded, so a `submit` that raced a `Drop` is never
-    /// silently dropped -- though nothing in this crate submits to a
-    /// `SolveService` it no longer holds a reference to in practice.
+    /// Blocks until a request is available or shutdown was requested. `None` means shutdown,
+    /// and the worker returns from [`worker_loop`]. A request already queued at shutdown is
+    /// still returned first, so a racing `submit` is not dropped.
     fn take_blocking(&self) -> Option<Queued> {
         let mut slot = self.slot.lock().unwrap_or_else(PoisonError::into_inner);
         loop {
@@ -304,11 +254,9 @@ impl Mailbox {
     }
 }
 
-/// Per-request progress throttle -- see the module doc comment, "Progress". Built
-/// fresh for every request (so a new solve always forwards its first report
-/// immediately) and lives only inside [`worker_loop`]'s own thread, so plain `Cell`
-/// interior mutability is enough despite [`SolveControl::reporting`] requiring a
-/// `Fn`, not `FnMut`.
+/// Per-request progress throttle (see the module docs, "Progress"). Built fresh for each
+/// request, so a new solve always forwards its first report. It lives on the worker thread
+/// only, so `Cell` suffices although [`SolveControl::reporting`] takes a `Fn`.
 struct ProgressThrottle {
     last_forwarded: Cell<Option<Instant>>,
     last_phase_sweep: Cell<Option<(pleochroma::geometry::meet_solver::SolvePhase, u32)>>,
@@ -342,12 +290,9 @@ impl ProgressThrottle {
     }
 }
 
-/// Runs one request to completion (or cancellation), calling `on_progress` for
-/// every [`SolveProgress`] the underlying `_with` entry point reports (NOT yet
-/// throttled -- [`worker_loop`] wraps this with [`ProgressThrottle`] itself).
-/// Pulled out on its own, with no `Weak`/event-loop dependency at all, so a test
-/// can drive it directly on a plain background thread -- see this module's own
-/// `cancel_returns_quickly_on_the_largest_real_fixture` test.
+/// Runs one request to completion or cancellation, calling `on_progress` for each
+/// [`SolveProgress`] (not throttled here; [`worker_loop`] applies [`ProgressThrottle`]). It
+/// has no `Weak` or event-loop dependency, so a test can run it on a plain thread.
 fn run_solve(
     request: &SolveRequest,
     cancel: &AtomicBool,
@@ -361,14 +306,10 @@ fn run_solve(
             targets,
             compute_baseline,
         } => {
-            // Computed FIRST, on this same worker thread, so a Deep Solve run
-            // whose caller had no valid cached plain solve never falls back to
-            // one on the UI thread -- see `SolveKind::Verified::compute_baseline`'s
-            // own doc comment. Shares `cancel`, the identical flag the verified
-            // search below observes: a cancel requested mid-baseline is honoured
-            // here (near-instantly, same guarantee `solve_cancellably` documents),
-            // and the verified search that follows then observes the same flag
-            // already set and returns `SolveError::Cancelled` immediately too.
+            // The baseline runs first, on this thread, so the UI thread never solves it.
+            // It shares `cancel` with the verified search below. A cancel during the
+            // baseline stops it quickly, and the search then returns `SolveError::Cancelled`
+            // at once.
             let baseline = (*compute_baseline)
                 .then(|| solve_cancellably(&request.design, cancel).ok())
                 .flatten();
@@ -440,19 +381,10 @@ impl SolveService {
 }
 
 impl Drop for SolveService {
-    /// Signals the worker thread to exit instead of leaving it parked
-    /// forever on [`Mailbox::take_blocking`]'s `Condvar` wait -- every caller
-    /// that owns a `SolveService` for less than the app's own lifetime
-    /// (`deep_solve::spawn_deep_solve` spawns one PER run, held only by its
-    /// `DeepSolveHandle`) used to leak exactly that one worker thread per run,
-    /// since dropping the `Arc<Mailbox>` clone this struct itself holds does
-    /// nothing on its own -- the worker's own clone of the SAME `Arc` keeps it
-    /// allocated, and nothing was ever asked to stop reading from it. Does not
-    /// join the thread: `Drop` runs on whichever thread drops the last
-    /// `SolveService` (the UI thread, for every caller in this crate), and
-    /// blocking it on the worker's own exit would defeat the entire point of
-    /// running solves off that thread in the first place -- the worker still
-    /// exits promptly on its own, it just is not waited for here.
+    /// Signals the worker thread to exit. Without this the worker would stay parked in
+    /// [`Mailbox::take_blocking`] forever, because its own `Arc<Mailbox>` clone keeps the
+    /// mailbox alive. The thread is not joined: `Drop` runs on the UI thread, and blocking
+    /// there would defeat running solves off it.
     fn drop(&mut self) {
         self.mailbox.request_shutdown();
     }
@@ -479,10 +411,8 @@ fn worker_loop<T, P, D>(
             cancel,
         }) = mailbox.take_blocking()
         else {
-            // Shutdown requested (`SolveService::drop`) -- exit for
-            // real, rather than parking on this mailbox forever. Nothing to
-            // report: a `SolveService` being dropped means no caller can
-            // still be waiting on this worker's `on_result`.
+            // Shutdown requested by `SolveService::drop`. Nothing is reported: no caller
+            // can still be waiting on `on_result`.
             return;
         };
         let generation = request.generation;

@@ -1,7 +1,15 @@
 //! The parsed command line: one typed argument struct per command, the [`Command`] that holds
 //! them and the words the flags take.
 
-use pleochroma::{color::HighlightRule, optics::LightingPreset};
+#[cfg(feature = "beam")]
+use pleochroma::renderer::accel_beam::{BeamSettings, RegionMode};
+#[cfg(feature = "adaptive-sampling")]
+use pleochroma::renderer::adaptive::{AdaptiveSettings, AdaptiveSettingsError, NoiseMetric};
+use pleochroma::{
+    color::HighlightRule,
+    optics::{LightingPreset, tables::OpticsTables},
+    renderer::accel::{CacheCompression, PathCacheSettings},
+};
 use pleochroma_cut_core::ObjectivePreset;
 use pleochroma_editor::retarget::CrownShift;
 use pleochroma_formats::native::design::DESIGN_EXTENSION;
@@ -16,7 +24,7 @@ pub const LIGHTING_NAMES: [(&str, LightingPreset); 14] = [
     ("ring", LightingPreset::RingLights),
     ("spotlight", LightingPreset::DarkSpotlight),
     ("iso", LightingPreset::IsoHemisphere),
-    // The grading tray is the preset's current name; `lighting_name` keeps answering "iso".
+    // An alias of "iso"; `lighting_name` answers "iso" for it.
     ("grading", LightingPreset::IsoHemisphere),
     ("tent", LightingPreset::LightTent),
     ("dome", LightingPreset::DaylightDome),
@@ -37,7 +45,7 @@ pub const LIGHTING_NAMES: [(&str, LightingPreset); 16] = [
     ("ring", LightingPreset::RingLights),
     ("spotlight", LightingPreset::DarkSpotlight),
     ("iso", LightingPreset::IsoHemisphere),
-    // The grading tray is the preset's current name; `lighting_name` keeps answering "iso".
+    // An alias of "iso"; `lighting_name` answers "iso" for it.
     ("grading", LightingPreset::IsoHemisphere),
     ("tent", LightingPreset::LightTent),
     ("dome", LightingPreset::DaylightDome),
@@ -99,6 +107,8 @@ pub enum Topic {
     Retarget,
     /// `sweep`.
     Sweep,
+    /// `snap-meets`.
+    SnapMeets,
     /// `export`.
     Export,
     /// `census`.
@@ -107,6 +117,8 @@ pub enum Topic {
     Render,
     /// `tilt-video`.
     TiltVideo,
+    /// `image-compare`.
+    ImageCompare,
 }
 
 impl Topic {
@@ -121,10 +133,12 @@ impl Topic {
             "optimize" => Self::Optimize,
             "retarget" => Self::Retarget,
             "sweep" => Self::Sweep,
+            "snap-meets" => Self::SnapMeets,
             "export" => Self::Export,
             "census" => Self::Census,
             "render" => Self::Render,
             "tilt-video" => Self::TiltVideo,
+            "image-compare" => Self::ImageCompare,
             _ => Self::Root,
         }
     }
@@ -316,8 +330,8 @@ pub struct RetargetArgs {
     /// (`--mode optimize`; `--no-keep-look` turns it off).
     pub keep_look: bool,
     /// Let the girdle band grow up to 5 % and then 10 % thicker, never thinner, when the new
-    /// angles would pinch it at its corners (`--girdle-allowance`; the dialog's "Allow a Thicker
-    /// Girdle", which is on there by default and off here unless asked for).
+    /// angles would pinch it at its corners (`--girdle-allowance`). Off unless asked for, unlike
+    /// the dialog's "Allow a Thicker Girdle (up to +10 %)", which is on by default.
     pub girdle_allowance: bool,
     /// The light everything is scored under.
     pub lighting: LightingPreset,
@@ -357,6 +371,32 @@ pub struct SweepArgs {
     pub db: Option<PathBuf>,
 }
 
+/// How far `snap-meets` may move the depth of one tier.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SnapLimit {
+    /// `--max-move-fraction F`: a share of the finished stone's size (its largest extent).
+    /// Without either flag it is `pleochroma_cut_core::DEFAULT_SNAP_MAX_MOVE_FRACTION`.
+    Fraction(f64),
+    /// `--max-move MM`: millimeters, which only a design with a girdle diameter can turn into
+    /// its own units (the command refuses it otherwise).
+    Millimeters(f64),
+}
+
+/// `snap-meets`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SnapMeetsArgs {
+    /// The design file.
+    pub design: PathBuf,
+    /// How far one tier may move.
+    pub limit: SnapLimit,
+    /// Report what would move and write nothing, even with `out`.
+    pub dry_run: bool,
+    /// Save the snapped design here as a `.psdd` file. Always given unless `dry_run`.
+    pub out: Option<PathBuf>,
+    /// A design library, for its custom materials.
+    pub db: Option<PathBuf>,
+}
+
 /// `export`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExportArgs {
@@ -391,8 +431,7 @@ pub struct CensusOutput {
     pub json: bool,
 }
 
-/// `census`: the read-only measurement of the meet-preservation gate over many designs
-/// (follow-ups plan 2026-10-19, section 4.2).
+/// `census`: the read-only measurement of the meet-preservation gate over many designs.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CensusArgs {
     /// Design files to measure, in the order given.
@@ -446,8 +485,17 @@ impl JobCommandKind {
 }
 
 /// `render` and `tilt-video`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each bool is an independent command-line switch (--contribute-local, --restart, --quiet, --verbose) mirrored one to one; two-variant enums would only rename them and ripple through every parser and runner"
+)]
 pub struct RenderJobArgs {
+    /// Override the frozen Stone Shadow option (`--stone-shadow on|off`).
+    pub stone_shadow: Option<bool>,
+    /// Override the frozen Tray Reflection (`--tray-reflection PERCENT`): the tray's head-on
+    /// reflectance as a fraction in `0.0..=1.0` (the flag takes percent, `0` switches it off).
+    pub tray_reflection: Option<f32>,
     /// Override the frozen renderer (`--engine path|ray`).
     pub engine: Option<pleochroma::renderer::engine::RenderEngine>,
     /// Which command this is.
@@ -489,6 +537,190 @@ pub struct RenderJobArgs {
     /// How the job's exposure is read: as written, or metered with `--meter`
     /// ([`Exposure::Metered`]).
     pub exposure: Exposure,
+    /// `--raw-out`: write the finished linear image as `PLRAW1` here (`render`: a file;
+    /// `tilt-video`: a folder that gets one `frame_NNNN.plraw` per rendered frame).
+    pub raw_out: Option<PathBuf>,
+    /// `--progress-raw` (`render` only): a folder that gets `spp_NNNNNN.plraw` snapshots of the
+    /// linear image at every power of two from 16 samples per pixel on, and the final image.
+    pub progress_raw: Option<PathBuf>,
+    /// `--sample-offset`: the absolute index of the render's first sample; 0 is an ordinary
+    /// render.
+    pub sample_offset: u32,
+    /// `--adaptive` and its companions: adaptive sampling as asked for on the command line (a
+    /// build with the `adaptive-sampling` feature).
+    #[cfg(feature = "adaptive-sampling")]
+    pub adaptive: AdaptiveArgs,
+    /// `--path-cache`, `--persist-cache` and `--cache-dir`: the path cache as asked for on the
+    /// command line.
+    pub path_cache: PathCacheArgs,
+    /// `--optics-tables`: the optics lookup tables (the Fresnel amplitudes and the absorption
+    /// exponential read from tables built per material) on every engine of this computer.
+    pub optics_tables: OpticsTables,
+    /// `--beam` and its overrides: beam tracing as asked for on the command line.
+    #[cfg(feature = "beam")]
+    pub beam: BeamArgs,
+    /// `--verbose`: print the renderer's debug log lines to standard error (in a `beam` build the
+    /// beam tracer's per-batch lines too). Off prints nothing extra.
+    pub verbose: bool,
+}
+
+/// The most samples per pixel `--beam-residual-min-spp` takes.
+#[cfg(feature = "beam")]
+pub const MAX_BEAM_RESIDUAL_MIN_SPP: u32 = 65_536;
+
+/// The most tiles per batch `--beam-batch-tiles` takes.
+#[cfg(feature = "beam")]
+pub const MAX_BEAM_BATCH_TILES: u32 = 4096;
+
+/// The fewest and the most spectral nodes `--beam-nodes` takes (a multiple of 8 in between).
+#[cfg(feature = "beam")]
+pub const BEAM_NODES_RANGE: (u32, u32) = (8, 256);
+
+/// Whether this build can keep beams on disk (`--keep-beams`): the renderer's `path-cache-disk`
+/// feature, which the command line always builds with. When it is ever dropped, set this to
+/// `false` and the flag is refused with [`keep_beams_refusal`]'s message.
+#[cfg(feature = "beam")]
+pub const BEAM_PERSISTENCE_AVAILABLE: bool = true;
+
+/// Why `--keep-beams` cannot be honored, or `None` when it can.
+///
+/// `keep` is whether the flag was given and `persistence` whether the build can store beams
+/// ([`BEAM_PERSISTENCE_AVAILABLE`]).
+#[cfg(feature = "beam")]
+#[must_use]
+pub const fn keep_beams_refusal(keep: bool, persistence: bool) -> Option<&'static str> {
+    if keep && !persistence {
+        Some(
+            "--keep-beams stores the beams on disk, and this build has no disk storage for them \
+             (it was built without path-cache-disk)",
+        )
+    } else {
+        None
+    }
+}
+
+/// `--beam`, `--beam-residual-min-spp`, `--beam-batch-tiles`, `--beam-region-mode`,
+/// `--beam-nodes` and `--keep-beams`: beam tracing as the command line asks for it.
+///
+/// An override flag implies `--beam`, as the adaptive companions imply `--adaptive`. The flags
+/// replace the job's own `accel.beam` as a whole: values that are not given are the
+/// [`BeamSettings`] defaults.
+#[cfg(feature = "beam")]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct BeamArgs {
+    /// Beam tracing is on: `--beam`, or any override flag, which implies it.
+    pub enabled: bool,
+    /// `--keep-beams`: store the beams on disk so a re-render of the same view skips the tree.
+    pub keep: bool,
+    /// `--beam-residual-min-spp`: the reference samples every stone pixel gets at least.
+    pub residual_min_spp: Option<u32>,
+    /// `--beam-batch-tiles`: the tiles in one batch.
+    pub batch_tiles: Option<u32>,
+    /// `--beam-region-mode`: how a kept region is formed across a spectral interval.
+    pub region_mode: Option<RegionMode>,
+    /// `--beam-nodes`: the spectral nodes, a multiple of 8.
+    pub nodes: Option<u32>,
+}
+
+#[cfg(feature = "beam")]
+impl BeamArgs {
+    /// The settings the flags ask for; `None` when no flag turned beam tracing on (the job's own
+    /// `accel.beam` then applies).
+    #[must_use]
+    pub fn settings(&self) -> Option<BeamSettings> {
+        if !self.enabled {
+            return None;
+        }
+        let defaults = BeamSettings::default();
+        Some(BeamSettings {
+            spectral_nodes: self.nodes.unwrap_or(defaults.spectral_nodes),
+            residual_min_spp: self.residual_min_spp.unwrap_or(defaults.residual_min_spp),
+            region_mode: self.region_mode.unwrap_or(defaults.region_mode),
+            batch_tiles: self.batch_tiles.unwrap_or(defaults.batch_tiles),
+            keep_leaves: self.keep,
+            ..defaults
+        })
+    }
+}
+
+/// `--path-cache`, `--persist-cache` and `--cache-dir`: the path cache as the command line asks
+/// for it. The flags override the job's own `accel.path_cache`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PathCacheArgs {
+    /// The path cache is on: `--path-cache`, or `--persist-cache`, which implies it.
+    pub enabled: bool,
+    /// `--persist-cache`: keep the cache on disk for re-renders.
+    pub persist: bool,
+    /// `--cache-dir`: the folder kept caches live in; `None` is the app's `render_cache` folder.
+    pub cache_dir: Option<PathBuf>,
+}
+
+impl PathCacheArgs {
+    /// The settings the flags ask for; `None` when no flag turned the cache on (the job's own
+    /// setting then applies).
+    #[must_use]
+    pub const fn settings(&self) -> Option<PathCacheSettings> {
+        if self.enabled {
+            Some(PathCacheSettings {
+                persist: self.persist,
+                compression: CacheCompression::Zstd,
+            })
+        } else {
+            None
+        }
+    }
+}
+
+/// `--adaptive`, `--target-noise`, `--min-spp`, `--noise-metric` and `--gpu-convergence`:
+/// adaptive sampling as the command line asks for it (a build with the `adaptive-sampling`
+/// feature).
+///
+/// The values that are not given are filled in from [`AdaptiveSettings::provisional`] once the
+/// job's samples per pixel are known ([`Self::settings`]).
+#[cfg(feature = "adaptive-sampling")]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct AdaptiveArgs {
+    /// Adaptive sampling is on: `--adaptive`, or any of the three flags that imply it.
+    pub enabled: bool,
+    /// `--target-noise`: the error at which a tile stops, in the unit of the metric.
+    pub target_noise: Option<f32>,
+    /// `--min-spp`: no tile stops before this many samples per pixel.
+    pub min_spp: Option<u32>,
+    /// `--noise-metric`: how the target is measured.
+    pub metric: Option<NoiseMetric>,
+    /// `--gpu-convergence`: keep the sums on the GPU and measure the tiles there. Needs
+    /// `--adaptive` (the parser refuses it alone) and implies nothing else.
+    pub gpu_convergence: bool,
+}
+
+#[cfg(feature = "adaptive-sampling")]
+impl AdaptiveArgs {
+    /// The settings for a job of `max_spp` samples per pixel; `None` when adaptive sampling is
+    /// off.
+    ///
+    /// # Errors
+    ///
+    /// The message of the rule the combination breaks: a target out of range for the metric, a
+    /// minimum that is not a multiple of the 16-sample pass or above `max_spp`. Without
+    /// `--target-noise` the metric's own default applies (`NoiseMetric::default_target`: 1 %
+    /// relative, Delta E 1 absolute).
+    pub fn settings(&self, max_spp: u32) -> Result<Option<AdaptiveSettings>, String> {
+        if !self.enabled {
+            return Ok(None);
+        }
+        let metric = self.metric.unwrap_or(NoiseMetric::RelativeLstar);
+        let base = AdaptiveSettings::provisional(max_spp);
+        let settings = AdaptiveSettings {
+            target_noise: self.target_noise.unwrap_or_else(|| metric.default_target()),
+            metric,
+            min_spp: self.min_spp.unwrap_or(base.min_spp),
+            ..base
+        };
+        settings
+            .validate()
+            .map_err(|e: AdaptiveSettingsError| format!("adaptive sampling: {e}"))?;
+        Ok(Some(settings))
+    }
 }
 
 /// How `render` and `tilt-video` read the job's exposure.
@@ -497,11 +729,30 @@ pub enum Exposure {
     /// The job's exposure as it was written (no `--meter`).
     #[default]
     AsJob,
-    /// `--meter`: read the job's exposure as the compensation on top of the lighting rig's
-    /// light meter, as the app meters its live view
-    /// (`pleochroma::optics::raytracer::metered_exposure`), for a job written before the
-    /// meter or by hand. A job lit by an HDR map keeps its exposure.
+    /// `--meter`: read the job's exposure as compensation on top of the lighting rig's light
+    /// meter, as the app meters its live view
+    /// (`pleochroma::optics::raytracer::metered_exposure`). A job lit by an HDR map keeps its
+    /// exposure.
     Metered,
+}
+
+/// `image-compare`: two `PLRAW1` renders of the same scene, compared as a viewer would see them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImageCompareArgs {
+    /// The reference image (`PLRAW1`).
+    pub reference: PathBuf,
+    /// The image under test (`PLRAW1`).
+    pub run: PathBuf,
+    /// A second, independent reference of the same scene; gives the noise floor.
+    pub ref2: Option<PathBuf>,
+    /// A render job whose color space the images are tone-mapped for.
+    pub tonemap_from: Option<PathBuf>,
+    /// Write a false-color ΔE map here, as a PNG.
+    pub error_png: Option<PathBuf>,
+    /// Print JSON instead of text.
+    pub json: bool,
+    /// Write the report here instead of printing it.
+    pub out: Option<PathBuf>,
 }
 
 /// How the reports of several designs are put together on standard output.
@@ -558,6 +809,8 @@ pub enum Command {
     Retarget(RetargetArgs),
     /// `sweep`.
     Sweep(SweepArgs),
+    /// `snap-meets`.
+    SnapMeets(SnapMeetsArgs),
     /// `export`.
     Export(ExportArgs),
     /// `census`.
@@ -566,6 +819,8 @@ pub enum Command {
     Render(RenderJobArgs),
     /// `tilt-video`.
     TiltVideo(RenderJobArgs),
+    /// `image-compare`.
+    ImageCompare(ImageCompareArgs),
 }
 
 impl Command {
@@ -581,13 +836,15 @@ impl Command {
             Self::Optimize(args) => Some(&args.design),
             Self::Retarget(args) => Some(&args.design),
             Self::Sweep(args) => Some(&args.design),
+            Self::SnapMeets(args) => Some(&args.design),
             Self::Export(args) => Some(&args.design),
             Self::Batch(_)
             | Self::Census(_)
             | Self::Help(_)
             | Self::Version
             | Self::Render(_)
-            | Self::TiltVideo(_) => None,
+            | Self::TiltVideo(_)
+            | Self::ImageCompare(_) => None,
         }
     }
 }

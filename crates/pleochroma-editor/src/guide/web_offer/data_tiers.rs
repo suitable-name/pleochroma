@@ -1,9 +1,9 @@
 //! Web overlays for the first four sections of the learning path: getting started, adding and
 //! editing tiers, arranging tiers, and meets and concave tiers.
 //!
-//! Lessons that run on the web as written (the `A` class of the lesson audit) need no entry. Every
-//! `from` text below is a line of the catalogue's lesson, word for word; a test applies each overlay
-//! to the catalogue and fails when one no longer matches.
+//! Lessons that run on the web as written (class `A` in `WEB_LESSONS`) need no entry. Every
+//! `from` text below is a line of the catalogue's lesson, word for word; a test applies each
+//! overlay to the catalogue and fails when one no longer matches.
 
 use super::overlay::{GuideOverlay, StepOverlay, TextEdit};
 
@@ -73,8 +73,8 @@ fn welcome_tour() -> GuideOverlay {
         )
 }
 
-/// The walkthrough the web already runs: the nine lines of the old `WEB_WORDING` table, plus the
-/// sentences about the Simple interface, which the web does not have.
+/// The walkthrough's web wording, and the removal of the sentences about the Simple interface,
+/// which the web does not have.
 fn walkthrough() -> GuideOverlay {
     GuideOverlay::new("new-design-walkthrough")
         .step(StepOverlay::of("Start a new design").line(
@@ -240,8 +240,8 @@ fn cheater_offset() -> GuideOverlay {
     ))
 }
 
-// The web's "+ Add Concave Tier" sits in the command bar above the tier table
-// (`tier_table_commands.slint`, row 3), not in the table's own toolbar.
+// The web's "+ Add Concave Tier" sits in the command bar above the tier table, not in the
+// table's own toolbar (`tier_table_commands.slint`).
 fn concave_cylinder_cone() -> GuideOverlay {
     GuideOverlay::new("tiers-concave-cylinder-cone")
         .edit(TextEdit::sub(

@@ -102,7 +102,8 @@ impl CudaState {
         max_poses: usize,
         counters: Arc<Counters>,
     ) -> Result<Self, OpticalError> {
-        // CudaContext::new retains cuDevicePrimaryCtxRetain, as cubecl-cuda0.11 does.
+        // CudaContext::new retains the primary context (cuDevicePrimaryCtxRetain), the same
+        // context Burn's CubeCL CUDA backend uses.
         let context =
             CudaContext::new(ordinal).map_err(|e| OpticalError::Unavailable(e.to_string()))?;
         let stream = context.new_stream().map_err(runtime_error)?;

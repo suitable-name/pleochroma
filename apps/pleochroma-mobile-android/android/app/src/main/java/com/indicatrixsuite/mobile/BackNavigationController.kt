@@ -9,7 +9,7 @@ import android.window.OnBackInvokedCallback
 import android.window.OnBackInvokedDispatcher
 import androidx.annotation.RequiresApi
 
-/** One API 33+ app owner. Never registered at the app root or over an open IME. */
+/** Owns the API 33+ back callback. It is registered only with a back target and no open IME. */
 @RequiresApi(33)
 internal class BackNavigationController(
     private val activity: MainActivity,

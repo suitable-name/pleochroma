@@ -1,13 +1,13 @@
 //! The Rust half of the Stone tab's Inclusions, Play-of-Color and Abraded Edges groups
 //! (`RenderEffectsModel`, `ui/models/render_effects.slint`).
 //!
-//! The values are the design's render effects and ride the same live path as the other Stone-tab
-//! controls: a change shows at once in the render context ([`apply_live`]) and a debounced commit
-//! writes ONE undoable `Edit::SetRenderEffects`
-//! (`editor::callbacks::tier_actions::viewport_material`), which reads the controls through
-//! [`physics_from_controls`] (called by `stone_effects::effects_from_controls`). This module adds
+//! The values are the design's render effects. A change shows at once in the render context
+//! ([`apply_live`]), and a debounced commit writes one undoable `Edit::SetRenderEffects` (see
+//! `editor::callbacks::tier_actions::viewport_material`), which reads the controls through
+//! [`physics_from_controls`] (called by `stone_effects::effects_from_controls`). This module
+//! also holds:
 //!
-//! - the conversion of the three groups' controls to and from the design ([`physics_from_controls`],
+//! - the conversion of the groups' controls to and from the design ([`physics_from_controls`],
 //!   [`push_physics`]);
 //! - the groups' derived state: the material's presets, the Cat's-Eye wait for a Second Axis,
 //!   whether the material has a Play-of-Color ([`refresh`]);
@@ -113,9 +113,8 @@ fn raise_edited(ui: &MainWindow) {
     ui.global::<SettingsModel>().invoke_stone_effects_edited();
 }
 
-/// Makes the render context trace the controls' current effects and queues their commit: the one
-/// path every control of the three groups takes, so each is one set of the controls and one undo
-/// step. Recomputes the derived state and the silk lines afterwards.
+/// Makes the render trace the controls' current effects and queues their commit. Every control
+/// of the three groups takes this path, so each change is one undo step.
 fn apply_live(ui: &MainWindow, render_ctx: &Arc<Mutex<RenderContext>>) {
     let effects = stone_effects::effects_from_controls(ui, &StoneRenderEffects::default());
     {

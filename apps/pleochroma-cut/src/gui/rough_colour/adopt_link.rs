@@ -3,13 +3,13 @@
 //! The new "<plan> - <design> color" material is put into the material list and the render is
 //! pointed at it ([`point_render_at`]); the design's material, stone width (girdle diameter) and
 //! planned preform are then applied as ONE undoable design edit by
-//! `gui::editor::planned_stone::apply_pending`, which hands the render context back through
-//! [`restore`] if the design refuses the apply.
+//! `gui::editor::callbacks::tier_actions::planned_stone::apply_pending`, which hands the render
+//! context back through [`restore`] if the design refuses the apply.
 //!
 //! The planner's two actions ("Use Color" and "Open in Editor", `gui::rough_plan`) write the vault
-//! rows with `preview::adopt`, load the design they were computed for into the editor and only
-//! then call these. The render context belongs to the main window's wiring, which registers it
-//! here when it builds the window ([`register_render_context`]).
+//! rows with `preview::adopt`, load the design they were computed for into the editor, and only
+//! then call these. The main window registers its render context here when it is built
+//! ([`register_render_context`]).
 
 use super::store::AdoptOutcome;
 use crate::{MainWindow, bridge::render_thread::RenderContext};
@@ -105,8 +105,8 @@ pub fn point_render_at(
 
 /// Puts the render context back as [`point_render_at`] found it.
 ///
-/// The design refused the apply (it was busy), so reporting the adopted material now would be false, and the picture must
-/// keep tracing the material the design still has.
+/// The design refused the apply, so the adopted material is not in use. The picture must keep
+/// tracing the material the design still has.
 pub fn restore(previous: RenderPrevious) {
     let RenderPrevious {
         render_ctx,

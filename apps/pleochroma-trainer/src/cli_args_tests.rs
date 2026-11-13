@@ -216,7 +216,7 @@ fn the_training_flags_parse() {
     assert!((args.learning_rate.unwrap() - 1e-4).abs() < 1e-9);
     assert!((args.max_step_deg.unwrap() - 0.5).abs() < 1e-12);
     assert!((args.entropy_coeff.unwrap() - 0.002).abs() < 1e-9);
-    // The edges of the ranges are valid: an entropy bonus of zero, 1000 passes.
+    // The range edges are valid: a zero entropy bonus and a validation period of 1000.
     assert_eq!(
         run_args(&["--validation-every", "1000"]).validation_every,
         1000
@@ -364,6 +364,20 @@ fn the_algorithm_flags_reach_the_run_configuration() {
     assert!((config.imitation.learning_rate - 1e-3).abs() < 1e-9);
     assert!((config.imitation.cosine_coeff - 0.25).abs() < 1e-9);
     assert!((config.imitation.gain_coeff - 0.05).abs() < 1e-9);
+}
+
+#[test]
+fn the_weight_decay_flag_reaches_the_shared_optimizer_setting() {
+    // Off by default, so an existing run keeps its optimizer behaviour.
+    assert_eq!(build_config(&run_args(&[])).ppo.weight_decay, 0.0);
+    let config = build_config(&run_args(&["--weight-decay", "1e-4"]));
+    assert!((config.ppo.weight_decay - 1e-4).abs() < 1e-12);
+    // The Adam optimizer is shared by both algorithms, so the flag is not algorithm-specific.
+    let ppo = build_config(&run_args(&["--algo", "ppo", "--weight-decay", "2e-4"]));
+    assert!((ppo.ppo.weight_decay - 2e-4).abs() < 1e-12);
+    // The parser refuses a negative or non-finite penalty before the trainer sees it.
+    assert!(parse(&["--weight-decay", "-1"]).is_err());
+    assert!(parse(&["--weight-decay", "NaN"]).is_err());
 }
 
 #[test]

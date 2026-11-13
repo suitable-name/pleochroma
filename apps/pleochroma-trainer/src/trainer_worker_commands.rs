@@ -620,8 +620,8 @@ impl Worker<'_> {
     }
 
     fn toggle_device(&mut self) {
-        // The existing GUI switch is deliberately CPU/WGPU only. CUDA is classified as a GPU,
-        // so toggling from CUDA selects CPU; the CLI exposes CUDA as an independent opt-in.
+        // The GUI switch covers CPU and WGPU only, by design. CUDA counts as a GPU here, so
+        // toggling from CUDA selects CPU; the CLI offers CUDA as a separate opt-in.
         let current = self.runner.device_label();
         let target = if current == GPU_LABEL || current == CUDA_LABEL {
             DeviceChoice::Cpu

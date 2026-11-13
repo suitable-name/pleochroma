@@ -1,4 +1,5 @@
-//! Ray-Traced presentation remains separate from unchanged spectral scene payloads.
+//! Ray-Traced helpers: the engine choice, the refusal of a UV lamp and the progress line.
+//! The scene payload is the spectral one.
 
 use pleochroma::renderer::{engine::EngineSpec, whitted::WhittedDecline};
 use pleochroma_web_core::scene::SceneSpec;

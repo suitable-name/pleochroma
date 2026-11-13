@@ -3,8 +3,8 @@
 use super::super::measure::classify_shape;
 use pleochroma::geometry::cuts::StandardGemCuts;
 
-/// The strongest available anchor: the built-in standard round brilliant has 16
-/// girdle facets, so the outline-based rule must call it Round.
+/// The built-in standard round brilliant has 16 girdle facets, so the outline rule must
+/// call it Round.
 #[test]
 fn classify_shape_calls_the_standard_round_brilliant_round() {
     let planes = StandardGemCuts::standard_round_brilliant();
@@ -15,23 +15,20 @@ fn classify_shape_calls_the_standard_round_brilliant_round() {
     );
 }
 
-/// The regression this rule exists for. A fold-count rule called "Round
-/// Trichecker-12" a Hexagon, because its schedule declares 6-fold symmetry while
-/// the cut is round. Classification keys on the girdle OUTLINE instead, so a
-/// round outline stays Round no matter what fold count the schedule declares --
-/// `classify_shape` no longer receives `symmetry_order` at all, which is what
-/// makes that misreading unrepresentable rather than merely unlikely.
+/// Classification keys on the girdle outline, not the declared fold count.
+///
+/// A round outline stays Round whatever symmetry the schedule declares. `classify_shape` takes
+/// no `symmetry_order` argument, so a fold-count misreading cannot be expressed.
 #[test]
 fn classify_shape_ignores_fold_count_entirely() {
     let planes = StandardGemCuts::standard_round_brilliant();
-    // Same planes, and no symmetry_order is threaded in from anywhere: the only
-    // inputs are the outline and the measured ratio.
     assert_eq!(classify_shape(&planes, 1.0).as_deref(), Some("Round"));
 }
 
-/// An elongated stone is never guessed at, however round-looking its outline:
-/// Oval/Marquise/Pear cannot be told apart by side count alone, so the honest
-/// answer is no shape rather than a confident wrong one.
+/// An elongated stone is never guessed at, however round its outline looks.
+///
+/// Oval, Marquise and Pear cannot be told apart by side count alone, so the answer is no shape
+/// rather than a confident wrong one.
 #[test]
 fn classify_shape_refuses_to_guess_for_an_elongated_outline() {
     let planes = StandardGemCuts::standard_round_brilliant();
@@ -49,9 +46,10 @@ fn classify_shape_returns_none_without_a_usable_girdle() {
     assert_eq!(classify_shape(&[], 1.0), None);
 }
 
-/// Saving a design with concave tiers records them on the catalogue row: the tier
-/// count, the placement count, the tool rows (which the `has_concave` search filter and
-/// the library's second line read), and the flat rows stay the only measured ones.
+/// Saving a design with concave tiers records them on the catalogue row.
+///
+/// That covers the tier count, the placement count and the tool rows, which the `has_concave`
+/// filter and the library's second line read. The flat rows stay the only measured ones.
 #[test]
 fn saving_the_concave_fixture_records_its_concave_tiers_and_tool_lines() {
     use super::super::measure::apply_measured_metadata;

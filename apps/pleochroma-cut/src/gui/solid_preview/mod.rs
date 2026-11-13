@@ -2,19 +2,12 @@
 //! design's [`pleochroma::geometry::stone_metrics::SolidMesh`], independent of the
 //! GPU path tracer.
 //!
-//! [`raster`], [`diagram2d`], [`facet_map`], [`mesh_cache`], [`edges_layer`],
-//! [`live_update`] and `pixel_font` (re-exported at `gui::pixel_font`, see
-//! `gui::mod`) are all re-exported here, unchanged at their old paths, from the
-//! shared [`pleochroma_solid`] crate -- see that crate's own doc comment for what
-//! each one does. They moved out of this app (`crates/pleochroma-solid`) so the wasm web app
-//! can reuse the exact same solid renderer and 2D diagram, with no behaviour
-//! change here: every module below is the identical code, just imported rather
-//! than declared locally.
+//! [`raster`], [`diagram2d`], [`facet_map`], [`mesh_cache`], [`edges_layer`] and
+//! [`live_update`] are re-exported from the shared [`pleochroma_solid`] crate, which also
+//! serves the wasm web app; see that crate for what each one does.
 //!
-//! [`to_pixel_buffer`] is the one bridge into Slint types, kept here (rather than
-//! moving with `raster`) so the shared crate stays independently testable and
-//! reusable as the seam for a possible future `wgpu` backend, with no Slint
-//! dependency at all.
+//! [`to_pixel_buffer`] is the one bridge into Slint types. It stays here, not in the shared
+//! crate, so that crate has no Slint dependency.
 //!
 //! [`preview_state`] is the editor-side controller: one dedicated worker thread
 //! owning the mesh cache and rasterizer, coalescing redraw requests via
@@ -39,10 +32,8 @@ pub mod cut_slider;
 /// Converts a finished [`raster::SolidRasterizer`] frame into a `Send`-safe pixel
 /// buffer for [`preview_state::PreviewSink::apply`] to hand to the UI thread.
 ///
-/// Deliberately a `slint::SharedPixelBuffer<slint::Rgba8Pixel>`, not a `slint::Image`
-/// (not `Send` in this Slint version -- moving one into an `upgrade_in_event_loop`
-/// closure fails to compile): `slint::Image::from_rgba8` is called only on the UI
-/// thread, matching this crate's other cross-thread frame handoffs.
+/// Returns a `SharedPixelBuffer` rather than a `slint::Image`, which is not `Send`: the
+/// image is built with `slint::Image::from_rgba8` on the UI thread only.
 #[must_use]
 pub fn to_pixel_buffer(
     rasterizer: &raster::SolidRasterizer,
@@ -55,9 +46,7 @@ pub fn to_pixel_buffer(
     buffer
 }
 
-/// [`to_pixel_buffer`]'s twin for a [`diagram2d::DiagramFrame`] -- same reasoning
-/// (a raw `SharedPixelBuffer`, never a `slint::Image`, so the worker thread's
-/// result stays `Send`).
+/// The [`to_pixel_buffer`] counterpart for a [`diagram2d::DiagramFrame`].
 #[must_use]
 pub fn to_diagram_pixel_buffer(
     frame: &diagram2d::DiagramFrame,

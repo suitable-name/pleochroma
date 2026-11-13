@@ -7,12 +7,10 @@ use super::super::{parse_asc, to_asc_string};
 /// "For Fun" by Michiko Huyhn, RI 1.54, gear 96, symmetry order 1 with mirror.
 pub(super) const REAL_SAMPLE: &str = "GemCad 5.0\r\ng 96 0.0\r\ny 1 y\r\nI 1.54\r\nH PC 46.019  For Fun\r\nH by Michiko Huyhn\r\nH Gemology Online Faceting Design Competition 2013\r\nH Vindictive Entry 3\r\na -44.864054 0.53791082 84 n P1 12 G Cut to mast depth X.\r\na -50.185680 0.48593919 71 n P2 25 G Cut to mast depth X.\r\na -90.000000 0.78956831 36 12 84 n G1 60 n G1 G Set stone size.\r\na 0.000000 0.44755829 96 n U\r\nF Also USFG Newsletter Sep 2013, Facets Jan 2014\r\nF This diagram is in the public domain, and may be reproduced freely with full credit given to the \r\nF author.\r\n";
 
-/// Real corpus tier line (girdle tier literally named "G"): `parse_tier`'s token
-/// loop must honor a pending `expect_name` from the preceding "n" marker before
-/// checking for the "G" notes marker, or the name token "G" is misread
-/// as the start of the notes tail and every index after it is swallowed into
-/// `notes` instead. 2,296 of 5,759 corpus files hit this because "G" is a very
-/// common girdle-tier name.
+/// Real corpus tier line whose facet name is "G". The tier parser must treat a name
+/// token right after an `n` marker as the name, not as the `G` notes marker;
+/// otherwise every index after it is swallowed into `notes`. "G" is a common
+/// girdle-tier name, so this case is frequent in real files.
 pub(super) const ASC_GIRDLE_NAMED_G: &str = "GemCad 5.0\n\
 g 96 0.0\n\
 y 1 y\n\

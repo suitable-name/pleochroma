@@ -40,7 +40,9 @@ impl OwnedScene {
                 WhittedPrep::new(&self.frame_scene(), self.fluorescence(), self.engine.ray).map(
                     |prep| {
                         prep.into_owned_with_hdr(match &self.environment {
-                            super::OwnedEnvironment::Hdr(map) => Some(std::sync::Arc::clone(map)),
+                            super::OwnedEnvironment::Hdr(map, _, _) => {
+                                Some(std::sync::Arc::clone(map))
+                            }
                             super::OwnedEnvironment::Studio(_) => None,
                         })
                     },

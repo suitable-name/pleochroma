@@ -6,8 +6,8 @@
 //! [`write_json`] serialises the lot: the run date passed on the command line (the
 //! harness never reads the clock), the adapter label, `pleochroma::BUILD_ID`, the maximum
 //! genuine ULP per tier, every ULP check's statistics, every image comparison's z-score
-//! statistics and the overall verdict. The owner commits that file as
-//! `docs/gpu_harness_last_run.json` with each physics change (see `docs/gpu.md`).
+//! statistics and the overall verdict. The committed copy is
+//! `docs/gpu_harness_last_run.json` (see `docs/gpu.md`).
 //!
 //! The JSON is written by hand: the example deliberately takes no serialisation
 //! dependency (the crate's near-zero-dependency policy).

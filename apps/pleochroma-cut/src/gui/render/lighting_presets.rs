@@ -1,9 +1,5 @@
-//! The named-lighting/view-preset callbacks: create (lighting-only, the existing
-//! button), create (full view, the new "Save as preset" viewport button), apply,
-//! rename, delete, and toggle export-usable.
-//!
-//! Split out of `gui::mod` purely to keep that module (already sizeable) from growing
-//! further -- same reasoning as `gui::detail`/`gui::search`/`gui::remote`.
+//! The named-lighting and view-preset callbacks: save (lighting only), save (full view with
+//! the camera pose), apply, rename, delete, and toggle export-usable.
 
 use crate::{
     MainWindow, SettingsModel, ViewportModel,
@@ -24,10 +20,8 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-/// Wires up every named-lighting/view-preset callback: the existing lighting-only save,
-/// the new full-view save, apply, rename, delete, and the export-usable toggle. A thin
-/// orchestrator over six single-purpose helpers, each split out purely to keep every
-/// individual function under clippy's function-length lint.
+/// Wires every named-lighting and view-preset callback. A thin orchestrator over one helper per
+/// callback, kept apart to stay under clippy's function-length lint.
 pub(in crate::gui) fn setup_lighting_preset_callbacks(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
@@ -43,12 +37,9 @@ pub(in crate::gui) fn setup_lighting_preset_callbacks(
     setup_toggle_preset_export_usable_callback(ui, settings_store);
 }
 
-/// Reads the fields every save path (lighting-only AND full-view) captures in common:
-/// the lighting rig itself, plus the HDR environment map path currently loaded, if any
-/// -- see `LightingPreset::env_map_path`'s own doc comment for why this is captured by
-/// BOTH save buttons rather than being part of what distinguishes them (only camera
-/// pose is). Returns the empty-string-means-none `settings_store` value already
-/// translated to this type's `Option<String>` convention.
+/// Reads the fields both save paths capture: the lighting rig and the HDR environment map path
+/// (`None` when no map is loaded). The map is part of the look, so both saves keep it; only the
+/// camera pose tells them apart (see `LightingPreset::env_map_path`).
 struct CommonViewFields {
     light_yaw_deg: f32,
     light_pitch_deg: f32,
@@ -59,6 +50,11 @@ struct CommonViewFields {
     surface_glare: f32,
     backdrop: crate::settings::model::Backdrop,
     head_shadow_deg: f32,
+    stone_shadow: bool,
+    tray_reflection: f32,
+    /// The HDR map's yaw in degrees, `0..360`.
+    env_map_yaw_deg: f32,
+    env_map_follows_camera: bool,
 }
 
 fn read_common_view_fields(
@@ -74,6 +70,10 @@ fn read_common_view_fields(
         surface_glare,
         backdrop,
         head_shadow_deg,
+        stone_shadow,
+        tray_reflection,
+        env_map_yaw_deg,
+        env_map_follows_camera,
     ) = {
         let ctx = RenderContext::lock(render_ctx);
         (
@@ -85,15 +85,14 @@ fn read_common_view_fields(
             ctx.surface_glare,
             ctx.backdrop,
             ctx.head_shadow_deg,
+            ctx.stone_shadow,
+            ctx.tray_reflection,
+            ctx.hdr_yaw.to_degrees().rem_euclid(360.0),
+            ctx.hdr_follows_camera,
         )
     };
-    // The persisted settings string, not `RenderContext::env_map` itself: the render
-    // context only ever holds the DECODED map (an `Arc<EnvironmentMap>`, with no path
-    // recorded alongside it -- see that field's own doc comment), while the settings
-    // store is exactly where `gui::camera_lighting::setup_environment_map_callbacks`
-    // already keeps the path that decoded it in sync. Empty string (this crate's
-    // existing "no map loaded" convention for `AppSettings::env_map_path`) becomes
-    // `None` here, matching `LightingPreset::env_map_path`'s own `Option` convention.
+    // The path comes from the settings store: the render context holds only the decoded map,
+    // with no path. An empty `AppSettings::env_map_path` means no map and becomes `None`.
     let env_map_path = {
         let path = settings_store.snapshot().settings.env_map_path;
         (!path.is_empty()).then_some(path)
@@ -108,6 +107,10 @@ fn read_common_view_fields(
         surface_glare,
         backdrop,
         head_shadow_deg,
+        stone_shadow,
+        tray_reflection,
+        env_map_yaw_deg,
+        env_map_follows_camera,
     }
 }
 
@@ -128,10 +131,9 @@ fn unique_name(base: String, taken: &[String]) -> String {
     }
 }
 
-/// Wires `ViewportModel.suggest_lighting_name`, the name the Lighting tab's save rows start
-/// with: "<rig> - <date>" ([`SavedLightingPreset::default_save_name`]), so a new saved lighting
-/// no longer collides with the name of a lighting rig, made unique among the saved lightings.
-/// The date is today's, in UTC (the app has no time-zone database), as `YYYY-MM-DD`.
+/// Wires `ViewportModel.suggest_lighting_name`, the default name of a new saved lighting:
+/// "<rig> - <date>" ([`SavedLightingPreset::default_save_name`]), made unique among the saved
+/// lightings. The date is today's UTC date as `YYYY-MM-DD` (the app has no time-zone database).
 fn setup_suggest_lighting_name_callback(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
@@ -160,13 +162,10 @@ fn setup_suggest_lighting_name_callback(
         });
 }
 
-/// Captures the CURRENT live lighting-rig state -- light yaw/pitch, exposure, rig
-/// selection, camera distance, and the loaded HDR map path if any -- and saves it as a
-/// new preset, or overwrites an existing user preset of the same name. Deliberately
-/// writes `camera_yaw`/`camera_pitch: None` -- see `settings::model::LightingPreset`'s
-/// own doc comment for why that invariant survives, unchanged, for presets created via
-/// THIS button specifically (the new "Save as preset" viewport button,
-/// `setup_save_view_preset_callback` below, is the one that captures a camera pose).
+/// Saves the live lighting rig (light yaw and pitch, exposure, rig, camera distance, and the
+/// loaded HDR map path if any) as a preset, overwriting a user preset of the same name. It
+/// writes no camera pose (`camera_yaw`/`camera_pitch: None`); `setup_save_view_preset_callback`
+/// is the save that captures one. See `settings::model::LightingPreset`.
 fn setup_save_lighting_preset_callback(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
@@ -194,6 +193,10 @@ fn setup_save_lighting_preset_callback(
                 surface_glare: fields.surface_glare,
                 backdrop: fields.backdrop,
                 head_shadow_deg: fields.head_shadow_deg,
+                stone_shadow: fields.stone_shadow,
+                tray_reflection: fields.tray_reflection,
+                env_map_yaw_deg: fields.env_map_yaw_deg,
+                env_map_follows_camera: fields.env_map_follows_camera,
             };
 
             let mut result = Ok(());
@@ -212,15 +215,10 @@ fn setup_save_lighting_preset_callback(
         });
 }
 
-/// The new "Save as preset" viewport button: captures the FULL current view -- every
-/// field [`setup_save_lighting_preset_callback`] above does, PLUS the camera's current
-/// yaw/pitch as `Some(..)` -- so applying this preset later restores the exact shot,
-/// not just the lighting mood. This is the user-requested reversal of this type's old
-/// "camera is never part of a preset" invariant -- see
-/// `settings::model::LightingPreset`'s own doc comment for the full reasoning, and note
-/// that it is deliberately scoped to ONLY this button: the lighting-only save above keeps
-/// writing `None`, so a user who liked the lighting-only behaviour keeps getting it from
-/// the control they already know.
+/// The "Save as preset" viewport save: captures the full view, the lighting fields of
+/// [`setup_save_lighting_preset_callback`] plus the camera yaw, pitch and roll as `Some(..)`,
+/// so applying the preset restores the exact shot. A camera pose is part of a preset only
+/// here; see `settings::model::LightingPreset`.
 fn setup_save_view_preset_callback(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
@@ -252,6 +250,10 @@ fn setup_save_view_preset_callback(
                 surface_glare: fields.surface_glare,
                 backdrop: fields.backdrop,
                 head_shadow_deg: fields.head_shadow_deg,
+                stone_shadow: fields.stone_shadow,
+                tray_reflection: fields.tray_reflection,
+                env_map_yaw_deg: fields.env_map_yaw_deg,
+                env_map_follows_camera: fields.env_map_follows_camera,
             };
 
             let mut result = Ok(());
@@ -291,17 +293,23 @@ fn apply_environment(
     }
 }
 
-/// Applies preset `idx` (looked up in the settings store's current preset list, the
-/// same list the UI's `lighting_presets` model was built from): pushes its fields into
-/// `RenderContext` -- setting `ctx.dirty = true` so the render restarts, exactly as
-/// the existing light controls do -- mirrors them into the UI's own slider/dropdown
-/// state, and persists them as the new "current" settings so the applied look survives
-/// a restart even without the user touching a slider afterward.
+/// The turn belongs to the map. A saved lighting whose map could not be reloaded keeps the
+/// current map, so it also keeps that map's current turn and camera switch: they replace the
+/// ones in `values`, which are then applied, persisted and shown as usual. The queued export
+/// follows the same rule (`render_export::queue`).
+fn keep_current_turn(values: &mut LightingValues, ctx: &RenderContext) {
+    values.env_map_yaw_deg = ctx.hdr_yaw.to_degrees().rem_euclid(360.0);
+    values.env_map_follows_camera = ctx.hdr_follows_camera;
+}
+
+/// Applies preset `idx` from the settings store's current preset list (the list the UI's
+/// `lighting_presets` model is built from): pushes its fields into `RenderContext`, setting
+/// `dirty` so the render restarts, mirrors them into the UI controls, and persists them as the
+/// current settings so the look survives a restart.
 ///
-/// The camera pose is restored only when the preset actually carries one
-/// (`camera_yaw`/`camera_pitch` both `Some`); `None` leaves the current pose untouched. The HDR
-/// environment map is part of the look: a preset without one clears any loaded map
-/// ([`apply_environment`]). See `settings::model::LightingPreset`'s own doc comment.
+/// The camera pose is restored only when the preset carries one (`camera_yaw`/`camera_pitch`
+/// both `Some`). The HDR environment map is part of the look: a preset without one clears any
+/// loaded map ([`apply_environment`]).
 fn setup_apply_lighting_preset_callback(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
@@ -326,13 +334,12 @@ fn setup_apply_lighting_preset_callback(
 
             let lighting_preset =
                 crate::gui::optics::offered_lighting::offered_from_label(&preset.lighting_rig);
-            // The scene fields as the one shared struct, each limited the way the live
-            // controls limit it (a hand-edited or old preset cannot feed the tracer nonsense).
+            // The scene fields, each limited the way the live controls limit it, so a
+            // hand-edited preset cannot feed the tracer nonsense.
             let mut values = preset.values().sanitised();
-            // A built-in view (the Grading tray) frames the stone on screen, as Fit does: its
-            // stored distance was chosen for one stone and cut larger ones by the frame. A
-            // view the cutter saved keeps the distance it was saved with. Measured before the
-            // lock below, which the render thread shares.
+            // A built-in view (the Grading tray) is framed to the stone like Fit: its stored
+            // distance suits one stone only. A view the cutter saved keeps its own distance.
+            // Computed before the lock below, which the render thread shares.
             let fitted = (preset.built_in && values.camera_distance.is_some()).then(|| {
                 super::fit_view::fit_distance(&ui, &render_ctx_apply, &mesh_bounding_radius_apply)
             });
@@ -340,25 +347,20 @@ fn setup_apply_lighting_preset_callback(
                 values.camera_distance = fitted;
             }
 
-            // Loading an HDR file is I/O -- done here, BEFORE the lock below, matching
-            // `gui::camera_lighting::setup_environment_map_callbacks`'s own "never assign
-            // into `RenderContext::env_map` on `Err`" discipline: a preset pointing at a
-            // file that has since moved or been deleted must leave whatever environment
-            // (loaded map or studio rig) is currently active untouched, not clear it.
+            // Loading the HDR file is I/O, so it runs BEFORE the lock below. A map that cannot
+            // be loaded (moved or deleted) leaves the current environment untouched, as in
+            // `gui::camera_lighting::setup_environment_map_callbacks`.
             let env_map_result = preset.env_map_path.as_deref().map(load_env_map);
 
             {
                 let mut ctx = RenderContext::lock(&render_ctx_apply);
+                if matches!(env_map_result, Some(Err(_))) {
+                    keep_current_turn(&mut values, &ctx);
+                }
                 apply_values_to_context(&mut ctx, &values, lighting_preset);
-                // The same dynamic zoom clamp the live orbit camera uses, sized to the
-                // CURRENT mesh's own bounding radius (the same live
-                // `Arc<Mutex<f64>>` `gui::camera_lighting`'s own orbit/zoom handlers
-                // read -- see `main_window::mesh_bounding_radius`'s doc comment)
-                // rather than a fixed `[1.2, 8.0]` range or the
-                // `DEFAULT_MESH_BOUNDING_RADIUS` placeholder, so a preset saved while
-                // viewing a design larger/smaller than the default reapplies at a
-                // distance that actually frames THIS design, not whatever design was
-                // loaded when the preset was saved.
+                // The zoom clamp of the live orbit camera, sized to the current mesh's
+                // bounding radius (the live `Arc<Mutex<f64>>` shared with
+                // `gui::camera_lighting`), so the saved distance frames the loaded design.
                 let radius = *mesh_bounding_radius_apply
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -371,11 +373,8 @@ fn setup_apply_lighting_preset_callback(
                 } else if let Some(distance) = values.camera_distance {
                     ctx.distance = distance.clamp(min_distance, max_distance);
                 }
-                // Camera pose: only when the preset actually carries one -- see this
-                // function's own doc comment. The same yaw/pitch clamps
-                // `gui::camera_lighting::on_camera_orbit` applies to a live drag, so a
-                // preset saved from an old build (before that clamp existed, however
-                // unlikely) can't reapply an out-of-range pose.
+                // Camera pose, only when the preset carries one; the pitch is clamped so a
+                // stored pose stays in range.
                 apply_camera_pose(&mut ctx, &values);
                 apply_environment(&mut ctx, env_map_result.as_ref());
                 ctx.dirty = true;
@@ -398,7 +397,8 @@ fn setup_apply_lighting_preset_callback(
         });
 }
 
-/// A lighting-only preset preserves orientation; older saved shots have zero roll.
+/// Sets the camera pose when `values` carries one (a pose without a roll gets zero roll);
+/// otherwise the current pose is kept.
 const fn apply_camera_pose(ctx: &mut RenderContext, values: &LightingValues) {
     if let Some((yaw, pitch, roll)) = values.camera_pose() {
         ctx.yaw = yaw;
@@ -407,10 +407,10 @@ const fn apply_camera_pose(ctx: &mut RenderContext, values: &LightingValues) {
     }
 }
 
-/// Puts the scene fields of `values` into the render context: the light, exposure, rig,
-/// surface glare, backdrop and head shadow. The scene fields older presets lacked read their
-/// defaults (serde), so applying any preset sets the whole look. The caller sets the camera, the
-/// environment map and `dirty`.
+/// Puts the scene fields of `values` into the render context: the light, exposure, rig, surface
+/// glare, backdrop, head shadow, Stone Shadow, Tray Reflection and the HDR map's rotation and
+/// camera switch. Fields an older preset lacks take their serde defaults, so applying any preset
+/// sets the whole look. The caller sets the camera, the environment map and `dirty`.
 pub(in crate::gui) const fn apply_values_to_context(
     ctx: &mut RenderContext,
     values: &LightingValues,
@@ -426,9 +426,13 @@ pub(in crate::gui) const fn apply_values_to_context(
     ctx.surface_glare = values.surface_glare;
     ctx.backdrop = values.backdrop;
     ctx.head_shadow_deg = values.head_shadow_deg;
+    ctx.stone_shadow = values.stone_shadow;
+    ctx.tray_reflection = values.tray_reflection;
+    ctx.hdr_yaw = values.env_map_yaw_deg.to_radians();
+    ctx.hdr_follows_camera = values.env_map_follows_camera;
 }
 
-/// The controls half of showing `values`: the six lighting sliders / pills and the rig
+/// The controls half of showing `values`: the lighting sliders, pills and toggles and the rig
 /// drop-down. Setting a property from Rust does not fire the control's own "changed"
 /// callback, so nothing is written to the settings file by this. Shared by applying a saved
 /// lighting and by the Lighting tab's reset, so the two cannot drift apart.
@@ -444,6 +448,12 @@ pub(in crate::gui) fn push_lighting_values_to_controls(
     settings.set_surface_glare_pct(percent_from_surface_glare(values.surface_glare));
     settings.set_backdrop_index(values.backdrop.index());
     settings.set_head_shadow_deg(values.head_shadow_deg);
+    settings.set_stone_shadow(values.stone_shadow);
+    settings.set_tray_reflection_pct(crate::settings::model::percent_from_tray_reflection(
+        values.tray_reflection,
+    ));
+    settings.set_env_map_yaw_deg(values.env_map_yaw_deg);
+    settings.set_env_map_follows_camera(values.env_map_follows_camera);
     ui.global::<ViewportModel>()
         .set_selected_lighting_index(rig.index());
 }
@@ -467,6 +477,10 @@ fn persist_preset_values(
     s.settings.surface_glare = values.surface_glare;
     s.settings.backdrop = values.backdrop;
     s.settings.head_shadow_deg = values.head_shadow_deg;
+    s.settings.stone_shadow = values.stone_shadow;
+    s.settings.tray_reflection = values.tray_reflection;
+    s.settings.env_map_yaw_deg = values.env_map_yaw_deg;
+    s.settings.env_map_follows_camera = values.env_map_follows_camera;
     if let Some((yaw, pitch, roll)) = values.camera_pose() {
         s.settings.camera_yaw = yaw;
         s.settings.camera_pitch = pitch.clamp(-1.48, 1.48);
@@ -684,6 +698,48 @@ mod tests {
         let mut empty = RenderContext::default();
         apply_environment(&mut empty, Some(&Err("missing".to_string())));
         assert!(empty.env_map.is_none());
+    }
+
+    /// A saved lighting brings the map's rotation and its camera switch back, and a lighting
+    /// without them (an older one) puts both at their defaults.
+    #[test]
+    fn a_saved_lighting_carries_the_map_rotation_into_the_context() {
+        let rig = pleochroma::optics::raytracer::LightingPreset::RingLights;
+        let mut ctx = RenderContext::default();
+        let turned = LightingValues {
+            env_map_yaw_deg: 90.0,
+            env_map_follows_camera: true,
+            ..Default::default()
+        };
+        super::apply_values_to_context(&mut ctx, &turned, rig);
+        assert_eq!(ctx.hdr_yaw.to_bits(), 90.0_f32.to_radians().to_bits());
+        assert!(ctx.hdr_follows_camera);
+        super::apply_values_to_context(&mut ctx, &LightingValues::default(), rig);
+        assert_eq!(ctx.hdr_yaw.to_bits(), 0.0_f32.to_bits());
+        assert!(!ctx.hdr_follows_camera);
+    }
+
+    /// The turn belongs to the map: a lighting whose map cannot be reloaded keeps the current
+    /// map's turn and camera switch instead of bringing its own.
+    #[test]
+    fn a_map_that_cannot_be_reloaded_keeps_the_current_turn() {
+        let rig = pleochroma::optics::raytracer::LightingPreset::RingLights;
+        let mut ctx = RenderContext {
+            hdr_yaw: 30.0_f32.to_radians(),
+            hdr_follows_camera: false,
+            ..Default::default()
+        };
+        let mut values = LightingValues {
+            env_map_yaw_deg: 90.0,
+            env_map_follows_camera: true,
+            ..Default::default()
+        };
+        super::keep_current_turn(&mut values, &ctx);
+        super::apply_values_to_context(&mut ctx, &values, rig);
+        assert!((ctx.hdr_yaw.to_degrees() - 30.0).abs() < 1e-4);
+        assert!(!ctx.hdr_follows_camera);
+        assert!((values.env_map_yaw_deg - 30.0).abs() < 1e-4);
+        assert!(!values.env_map_follows_camera);
     }
 
     #[test]

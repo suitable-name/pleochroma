@@ -55,7 +55,7 @@ fn a_non_tunable_facet_selects_its_row_without_enabling_a_tune_request() {
         assert_eq!(listed_tier(&infos, tier), usize::try_from(tier).ok());
         assert_eq!(requested_tier(&infos, tier, Some((3, 8)), (3, 8)), None);
     }
-    // Deselect, omitted table/culet, out-of-range and concave rows clear the Tune choice.
+    // Deselect, omitted table/culet and out-of-range rows clear the Tune choice.
     for tier in [-1, 0, 9, i32::MAX] {
         assert_eq!(listed_tier(&infos, tier), None);
     }

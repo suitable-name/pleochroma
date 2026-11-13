@@ -1,9 +1,8 @@
-//! Handling a `RemoteUpdate` from an in-flight chunk ([`handle_remote_update`]):
-//! merging a finished chunk and requesting the next one, keeping a failed chunk's
-//! prefix and handing its remainder back, finishing the epoch -- and, for
-//! `LiveComputeTarget::RemoteOnly`, turning the epoch's merged remote sum into a
-//! displayed, denoised image ([`redraw_from_epoch`]). See this group's own `mod.rs` doc
-//! comment.
+//! Handling a `RemoteUpdate` from an in-flight chunk ([`handle_remote_update`]).
+//!
+//! Merges a finished chunk and requests the next one, keeps a failed chunk's prefix and hands
+//! its remainder back, and finishes the epoch. For `LiveComputeTarget::RemoteOnly` it turns the
+//! epoch's merged remote sum into a displayed, denoised image ([`redraw_from_epoch`]).
 
 use super::{
     dispatch::dispatch_next_chunk,
@@ -36,28 +35,23 @@ use super::super::generation::{
     DenoiseGenerationJob, adopt_ready_denoise, adopt_ready_guides, spawn_denoise_generation,
 };
 
-/// The minimum real-time gap between two Frame/Preview-triggered remote redraws
-/// `handle_remote_update` will perform -- mirrors `render_thread::
-/// DENOISE_MIN_INTERVAL`'s role for the local path (a plain tonemap alone is "tens of
-/// milliseconds even at 4K, not free"). 33ms (~30 FPS), since this crate has no
-/// pre-existing remote-specific cadence to reuse. The epoch's final redraw is
-/// deliberately never subject to this gap -- the fully-settled image must always be
-/// shown.
+/// Minimum real-time gap between two gated remote redraws (`Frame`, `Preview`, `DisplayFrame`).
+///
+/// About 30 FPS. A redraw is a plain tonemap, which costs tens of milliseconds at 4K. The
+/// epoch's final redraw is never subject to this gap: the settled image must always be shown.
 const REMOTE_REDRAW_MIN_INTERVAL: Duration = Duration::from_millis(33);
 
-/// Whether enough real time has passed since `last_redraw_at` (`None` meaning "no
-/// redraw yet this session/request") for another Frame/Preview-triggered remote redraw
-/// to be allowed, given `min_interval`. `now` is a parameter rather than read via
-/// `Instant::now()` internally, purely so this stays pure and directly unit-testable.
+/// Whether another remote redraw is due: `min_interval` has passed since `last_redraw_at`.
+///
+/// `None` means no redraw yet. `now` is a parameter so the function stays pure and testable.
 #[must_use]
 fn redraw_is_due(last_redraw_at: Option<Instant>, min_interval: Duration, now: Instant) -> bool {
     last_redraw_at.is_none_or(|t| now.duration_since(t) >= min_interval)
 }
 
-/// Whether the live viewport is currently combining (the EFFECTIVE target is `Both`:
-/// a final-picture epoch never combines) -- callers skip pushing a remote-only redraw
-/// while this holds, since the render thread's own display cycle is the combined
-/// image's sole producer in that mode.
+/// Whether the effective live target is `Both`, where the render thread draws the combined image.
+///
+/// Callers then skip their remote-only redraw. A final-picture epoch never combines.
 fn is_combining(render_ctx: &Arc<Mutex<RenderContext>>) -> bool {
     matches!(
         RenderContext::lock(render_ctx).effective_live_target(),
@@ -81,20 +75,15 @@ pub(super) fn handle_remote_update(
     let render_ctx = render_ctx.clone();
     let state = Arc::clone(state);
 
-    // `Frame`/`Preview` events can arrive many times per second while a chunk is in
-    // flight, each otherwise queuing its own UI-thread closure. Gate the two of them --
-    // and only the two -- through `Orchestrator::redraw_gate` (at most one pending
-    // closure) and `REMOTE_REDRAW_MIN_INTERVAL` (at most one redraw attempt per ~33ms)
-    // before enqueueing anything: dropping such an update here is safe because a redraw
-    // always re-reads the epoch's then-current sums when it runs. While combining, the
-    // render thread owns redraws entirely, so they are dropped outright -- except that
-    // the rate estimate still wants `Frame` progress, which `Progress` heartbeats
-    // (never gated) also carry.
+    // `Frame`/`Preview` events can arrive many times per second, each otherwise queuing a
+    // UI-thread closure. They pass `Orchestrator::redraw_gate` (at most one pending closure)
+    // and `REMOTE_REDRAW_MIN_INTERVAL` before anything is enqueued. Dropping one is safe: a
+    // redraw re-reads the epoch's current sums when it runs. While combining, the render
+    // thread owns redraws, and a `Frame` then only feeds the rate estimate.
     //
-    // `Connected`/`Progress`/`Done`/`Failed` are never gated this way: each is a
-    // one-time state transition or a cheap bookkeeping update.
-    // A `DisplayFrame` is gated the same way: the queued closure decodes whatever frame
-    // is LATEST in the chunk's accumulator when it runs, so dropping one here is safe.
+    // `Connected`/`Progress`/`Done`/`Failed` are never gated: each is a one-time state change
+    // or a cheap bookkeeping update. `DisplayFrame` is gated the same way: its closure decodes
+    // the accumulator's latest frame when it runs.
     let wants_gated_redraw = matches!(
         update,
         RemoteUpdate::Frame { .. }
@@ -218,11 +207,9 @@ fn apply_update(c: &UpdateCtx<'_>, update: RemoteUpdate) {
             cancelled,
         } => {
             if cancelled {
-                // A drag/scene-change cancel already abandoned the lane before this
-                // arrived (nothing left to do, caught by `chunk_paused` finding no
-                // matching in-flight chunk below); a suspend cancel
-                // (`poll::suspend_live_remote`) left the lane in place, waiting for
-                // exactly this confirmation to merge the chunk's valid prefix.
+                // A drag or scene-change cancel already abandoned the lane, so `chunk_paused`
+                // finds no matching chunk. A suspend cancel (`poll::suspend_live_remote`) keeps
+                // the lane and waits for this confirmation to merge the chunk's valid prefix.
                 on_chunk_paused(state, request_id);
             } else {
                 super::progress::finished(ui, render_ctx, state, c.chunk_accumulator);
@@ -342,7 +329,7 @@ fn show_display_frame(
 
 /// The remote refused a display-only request (`UNSUPPORTED_REQUEST`: a plain worker).
 /// Remember it for this connection, drop the epoch, and let the next poll tick
-/// re-dispatch the settled view with full data -- with ONE note.
+/// re-dispatch the settled view with full data, with one note.
 fn on_display_only_refused(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
@@ -412,16 +399,14 @@ fn on_chunk_done(
     continue_lane(ui, ui_weak, render_ctx, state);
 }
 
-/// The in-flight chunk `request_id`'s confirmed cancellation
-/// (`RemoteUpdate::Done{cancelled: true}`) after `poll::suspend_live_remote` asked for
-/// it: merges its valid prefix via `LiveLane::chunk_paused` (unlike [`on_chunk_done`],
-/// counting neither a failure nor a rate sample -- the worker was cut off, not slow or
-/// broken) and clears `remote_handle`. Deliberately does NOT call [`continue_lane`]:
-/// the lane is left idle on purpose, for `poll::resume_idle_lane` to continue once
-/// `live_remote_allowed` again -- calling it here would just re-check the same
-/// still-suspended condition a poll tick later. A no-op if `request_id` doesn't match
-/// the lane's in-flight chunk (already superseded by a drag/scene-change abandon, which
-/// takes the lane away entirely).
+/// Confirms the cancellation of the in-flight chunk `request_id` after a suspend.
+///
+/// The cancellation is `RemoteUpdate::Done{cancelled: true}`, requested by
+/// `poll::suspend_live_remote`. Merges the chunk's valid
+/// prefix via `LiveLane::chunk_paused`, counting neither a failure nor a rate sample: the
+/// worker was cut off, not slow or broken. Does not call [`continue_lane`]: the lane stays
+/// idle until `poll::resume_idle_lane` sees `live_remote_allowed` again. A no-op when
+/// `request_id` is not the lane's in-flight chunk.
 fn on_chunk_paused(state: &Arc<Mutex<Orchestrator>>, request_id: u32) {
     let merged = lock(state)
         .live_lane
@@ -433,11 +418,12 @@ fn on_chunk_paused(state: &Arc<Mutex<Orchestrator>>, request_id: u32) {
     lock(state).remote_handle = None;
 }
 
-/// A chunk failed (worker error, transport error or liveness timeout): the lane keeps
-/// its valid prefix and hands the remainder back. After too many failures in a row the
-/// lane gives up for this epoch with ONE status note: under `Both` the image finishes
-/// locally (the merged remote prefix stays in it); under `RemoteOnly` the epoch is
-/// released and local rendering restarts, exactly as a failed remote render always did.
+/// Handles a failed chunk: worker error, transport error or liveness timeout.
+///
+/// The lane keeps its valid prefix and hands the remainder back. After too many failures in a
+/// row the lane gives up for this epoch and shows one status note. Under `Both` the image
+/// finishes locally (the merged remote prefix stays in it); under `RemoteOnly` the epoch is
+/// released and local rendering restarts.
 fn on_chunk_failed(
     ui: &MainWindow,
     ui_weak: &Weak<MainWindow>,
@@ -458,9 +444,8 @@ fn on_chunk_failed(
             continue_lane(ui, ui_weak, render_ctx, state);
         }
         Some(ChunkVerdict::GaveUp) => {
-            // Never re-dispatched for this exact scene and mode (see
-            // `decisions::should_redispatch`); the next scene change or mode switch is a
-            // new epoch and may try the worker again.
+            // Not re-dispatched for this scene and mode (see `decisions::should_redispatch`);
+            // a scene change or mode switch starts an epoch that may try the worker again.
             let mode = RenderContext::lock(render_ctx).live_compute_target;
             {
                 let mut s = lock(state);
@@ -516,30 +501,24 @@ fn finish_epoch(
     lock(state).remote_handle = None;
 }
 
-/// Reads the epoch's merged remote sum (finished chunks plus the in-flight one) and
-/// its matching sample count, plus the pose/geometry/denoise-toggle state, decides what
-/// to display, and pushes the result to the viewport image. Only for
-/// `LiveComputeTarget::RemoteOnly` -- a no-op while combining (the render thread's
-/// display cycle owns the image then) or when no epoch is live.
+/// Shows the epoch's merged remote sum for `LiveComputeTarget::RemoteOnly`.
 ///
-/// The color is `remote_sum / remote_count` with the count read under the SAME locks as
-/// the sum (`LiveEpoch::remote_snapshot`), and that same count is what the background
-/// denoise generation receives, so the tone mapper and the denoiser always divide by
-/// the count that actually matches the radiance.
+/// The sum covers the finished chunks plus the in-flight one. Reads it with its matching sample
+/// count, then picks a cached denoised frame, a plain tonemap, or a fresh denoise. A no-op while
+/// combining (the render thread owns the image then) or when no epoch is live.
 ///
-/// This runs on the Slint UI/event-loop thread, for every chunk `Frame`/`Preview` and
-/// the epoch's end -- which, mid-render, can arrive many times per second. That is
-/// exactly why the actual (multi-second at 4K) denoise pass must never run inline here
-/// -- this function only does cheap work synchronously (a plain tonemap, tens of
-/// milliseconds even at 4K) and defers the expensive pass to a background thread via
-/// `spawn_denoise_generation`, swapping in its result on a later redraw once
-/// `adopt_ready_denoise` confirms it is ready and still valid for the pose on screen.
+/// The color is `remote_sum / remote_count`, with the count read under the same locks as the
+/// sum (`LiveEpoch::remote_snapshot`). The background denoise gets that same count, so tone
+/// mapping and denoising divide by the count matching the radiance.
 ///
-/// `state`'s lock is taken briefly, several times, rather than once for the whole
-/// function -- never held across the plain tonemap below (see
-/// `Orchestrator::last_redraw_at`'s "tens of milliseconds even at 4K, not free" doc
-/// comment): `handle_remote_update`'s own rate-limit check takes this same lock
-/// SYNCHRONOUSLY on the connection thread and must never wait out a tonemap.
+/// Runs on the UI thread for every `Frame`/`Preview` and at the epoch's end, which can be
+/// many times per second. The multi-second denoise pass therefore never runs here: this
+/// function does only the plain tonemap synchronously and hands the denoise to
+/// `spawn_denoise_generation`. Its result is swapped in on a later redraw, once
+/// `adopt_ready_denoise` finds it valid for the pose on screen.
+///
+/// `state`'s lock is taken briefly and several times, never held across the tonemap:
+/// `handle_remote_update`'s rate-limit check takes the same lock on the connection thread.
 pub(super) fn redraw_from_epoch(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
@@ -591,15 +570,11 @@ pub(super) fn redraw_from_epoch(
     .with_roll(camera_roll);
     let desired_key = GuideCache::key_for_camera(width, height, &camera, stone, n_d);
 
-    // First (brief) lock: adopt any freshly finished background denoise for this pose,
-    // and read out a cached denoised frame if one is already valid -- both O(1) next to
-    // the tonemap below, so held only long enough for that.
+    // Brief lock: adopt a finished background denoise for this pose and read a valid cached one.
     let cached_denoised = cached_denoised_frame(state, &desired_key, denoise_enabled);
 
-    // The plain tonemap -- "tens of milliseconds even at 4K, not free" -- runs with NO
-    // lock held at all: `handle_remote_update`'s rate-limit check takes this same
-    // `state` lock synchronously on the connection thread, and must never wait out
-    // a redraw's tonemap to get it.
+    // The plain tonemap runs with no lock held: the rate-limit check in
+    // `handle_remote_update` takes this `state` lock on the connection thread.
     let bytes = cached_denoised
         .unwrap_or_else(|| tonemap_running_average(width, height, samples_done, &buffer));
 
@@ -608,13 +583,10 @@ pub(super) fn redraw_from_epoch(
     {
         let mut orch = lock(state);
 
-        // Keep exactly one background denoise generation in flight per pose: dispatch a
-        // fresh one whenever denoising is on and nothing is already running for the
-        // current pose (`pending_denoise_gen`'s key not matching `desired_key` covers
-        // "nothing dispatched yet", "the one just adopted above", and "pose changed
-        // since the last dispatch" identically). Needs guides for this pose already
-        // ready -- otherwise there is nothing to hand the background thread yet; a
-        // later redraw, once the guide prepass lands, dispatches then.
+        // One background denoise generation in flight per pose. A fresh one is dispatched when
+        // denoising is on and `pending_denoise_gen` does not match `desired_key` (this covers
+        // "nothing dispatched yet", "just adopted above" and "pose changed"). It needs this
+        // pose's guides ready; otherwise a later redraw dispatches once the guide prepass lands.
         if denoise_enabled {
             let pending_matches = orch
                 .pending_denoise_gen
@@ -647,11 +619,8 @@ pub(super) fn redraw_from_epoch(
                             pitch,
                             distance,
                             camera_roll,
-                            // `DenoiseGenerationJob::planes` is a plain `Vec` (a
-                            // one-shot background job's own owned copy, not
-                            // `RenderContext`'s hot-path per-frame snapshot) --
-                            // `Arc::clone` above kept the read cheap; this is the one
-                            // place that copy actually has to happen.
+                            // An owned copy for the background job; the `Arc` clones above
+                            // kept the read cheap.
                             planes: planes.as_ref().clone(),
                             tools: tools.as_ref().clone(),
                             n_d,
@@ -661,9 +630,7 @@ pub(super) fn redraw_from_epoch(
             }
         }
 
-        // Stamps the moment this redraw happened so the pre-enqueue check can
-        // rate-limit the next Frame/Preview-triggered one. Set unconditionally, since
-        // every path above produced a fresh `bytes` to show.
+        // Stamps this redraw for the Frame/Preview rate limit in `handle_remote_update`.
         orch.last_redraw_at = Some(Instant::now());
     }
 
@@ -702,10 +669,10 @@ fn cached_denoised_frame(
 
 /// Shows `rgba` (`width * height * 4` bytes) as the viewport's rendered image.
 ///
-/// `generation` is the scene generation the frame was produced for. The frame is shown
-/// even when the scene has moved on since (network latency makes that the usual case
-/// during a drag; dropping those frames froze the viewport). The optical overlay gates
-/// itself on the recorded stamp instead -- see `optical_overlay::displayed`.
+/// `generation` is the scene generation the frame was produced for. A frame is shown even
+/// when the scene has moved on: during a drag the newest frame is usually already stale, and
+/// dropping stale frames would freeze the viewport. The optical overlay gates itself on the
+/// recorded stamp instead (`optical_overlay::displayed`).
 fn push_image(ui: &MainWindow, generation: u64, width: u32, height: u32, rgba: &[u8]) {
     crate::bridge::optical_overlay::displayed(ui, generation, width, height);
     let mut fb = crate::bridge::pixel_buffer::FramebufferTransfer::new(width, height);

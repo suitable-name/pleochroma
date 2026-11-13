@@ -15,16 +15,13 @@ fn bounce_extend(
 
     let hit = intersect_ray((*s).origin, (*s).dir);
     (*h).hit = hit;
-    // Concave stones only (`side` is `HIT_SIDE_NONE` for a stone without tools, so the
-    // planar path is untouched): the stretch of ray that ends at this hit is in the
-    // material exactly when the hit is an exit. The toggle in the arms agrees with that
-    // except when the `1e-4` restart stepped over a second surface within `1e-4` of the one
-    // it crossed (a tool's rim on a facet, the crease of two tools): the carve skipped that
-    // boundary as the ray's own origin, so the ray is in the other medium and the
-    // intersection's own state is the one to trace by. Twin of `run_bounce`'s
-    // `self.inside_gem = !entering`; it runs here, before the scatter and surface phases
-    // read `inside_gem`, in the megakernel, the old wavefront and `ew_extend` alike (the
-    // event wavefront stores the adopted flag with the ray).
+    // Concave stones only (`side` is `HIT_SIDE_NONE` for planar stones, which skip this).
+    // The ray is in the material exactly when the hit is an exit. The arms' toggle can
+    // disagree when the `1e-4` restart steps over a second surface within `1e-4` of the one
+    // just crossed (a tool rim on a facet, or the crease of two tools). The carve skipped that
+    // boundary as the ray's own origin, so the intersection's state is the one to follow.
+    // Matches `run_bounce`'s `self.inside_gem = !entering`. It runs before the scatter and
+    // surface phases read `inside_gem`; `ew_extend` stores the flag with the ray.
     if (hit.hit && hit.side != HIT_SIDE_NONE) {
         (*s).inside_gem = hit.side == HIT_SIDE_EXIT;
     }
@@ -44,18 +41,18 @@ fn bounce_extend(
             // on the CPU side -- negative `I` is unphysical on either side.
             (*s).radiance[k] = fma(max((*s).stokes[k].x, 0.0) * mis_weight, env, (*s).radiance[k]);
         }
-        // The only site that sets this: staged exit-split contributions commit
-        // only when the shared/hero path itself reaches this environment lookup.
+        // Only this site sets it. Staged exit splits commit only when the hero path reaches
+        // this lookup.
         (*s).path_escaped = true;
         return PHASE_TERMINATE;
     }
     return PHASE_NEXT;
 }
 
-// Scatter phase, composed of four shared pieces so that the megakernel, the old wavefront and the
-// event wavefront run the SAME physics. The event wavefront runs the pieces across two kernels
-// when the HG NEE needs the HDR buffers (`ew_scatter` then `ew_nee_hg`), keeping this order:
-//   alphas -> sample (Beer-Lambert + scatter decision) -> HG NEE -> commit (new direction + RR).
+// Scatter phase, in four pieces shared by the megakernel and the event wavefront, so both run
+// the same physics. The event wavefront splits it across two kernels when HG NEE needs the HDR
+// buffers (`ew_scatter`, then `ew_nee_hg`). The order is: alphas, sample (Beer-Lambert and the
+// scatter decision), HG NEE, commit (new direction and RR).
 
 // One interior scattering decision: whether the free flight ended in a scatter, where, and the
 // phase-sampled outgoing direction.
@@ -176,12 +173,10 @@ fn bounce_scatter_sample(
     return BounceScatterEvent(sc.scattered, (*s).origin + sc.t_free * (*s).dir, sc.new_dir, 0u);
 }
 
-// The Bragg domain tracker of a stone with a domain structure (opal, labradorite;
-// `material.inclusions.header.y != 0u`): the twin of `maybe_scatter_oriented_bragg`, which
-// decides the whole segment (a reflection, or the homogeneous event with the null-collision
-// ratios applied). `handled != 0u` means it did (`scattered`, `t_free` in model units and
-// `new_dir` as `OrientedScatterResult`, `bragg` set for a reflection, with `stokes`/`path_pdf`
-// updated in place) and the plain oriented estimator is skipped.
+// Bragg domain tracker, for a stone with a domain structure (opal, labradorite;
+// `material.inclusions.header.y != 0u`). Twin of `maybe_scatter_oriented_bragg`, which decides
+// the whole segment: a reflection, or the homogeneous event with null-collision ratios applied.
+// `handled != 0u` means it decided, and the plain oriented estimator is skipped.
 struct BraggTrackResult {
     handled: u32,
     scattered: u32,
@@ -339,9 +334,8 @@ fn zoned_scatter_depth_to(
     zoned_scatter_depths(&lens, za, sigma_s, depth);
 }
 
-// `zoned_scatter_depth_to`'s channel 0 alone, with the same operations in the same order: the
-// bisection reads only the hero, and the seven other channels per step cost registers on a
-// kernel that is already at the edge on AMD.
+// Channel 0 of `zoned_scatter_depth_to`, with the same operations in the same order. The
+// bisection reads only the hero, and the other channels would add register pressure.
 fn zoned_scatter_hero_depth_to(
     origin: vec3<f32>,
     dir: vec3<f32>,
@@ -559,7 +553,7 @@ fn bounce_scatter_sample_zoned_bragg(
         return BraggTrackResult(1u, 1u, tr.t_model, new_dir, 1u);
     }
 
-    // Nothing found: the zoned event decides as before, and the null-collision weights multiply
+    // Nothing found: the zoned event decides, and the null-collision weights multiply
     // the result.
     let sc = bounce_scatter_sample_zoned(s, h, rc, m, bounce, seed0, stokes, path_pdf);
     for (var k: u32 = 0u; k < NUM_CHANNELS; k = k + 1u) {
@@ -573,11 +567,9 @@ fn bounce_scatter_sample_zoned_bragg(
 // True for a zoned host with oriented inclusions or a domain structure. A pipeline built with
 // `SCATTER_NEE = false` is such a stone by construction (`material_class::feature_bits` sets
 // `NO_SCATTER_NEE` only for a zoned stone with an active inclusion block), so the test is then a
-// pipeline constant and the unzoned routes below (`bragg_track`, `maybe_scatter_oriented`)
-// are compiled out instead of staying reachable but dead. RADV (Mesa) produced wrong or
-// non-finite radiance for exactly these zoned-oriented classes while that code was reachable
-// (2026-10-27: zoned opal +14 %, zoned Star Silk NaN). The generic pipeline keeps the
-// run-time `zone_count` test, as before.
+// pipeline constant and the unzoned routes below (`bragg_track`, `maybe_scatter_oriented`) are
+// compiled out. Where this code stays reachable, RADV (Mesa) has produced wrong or non-finite
+// radiance for these classes. The generic pipeline keeps the run-time `zone_count` test.
 fn zoned_oriented_stone() -> bool {
     return ZONED_ORIENTED && (!SCATTER_NEE || material.zones.header.zone_count > 0u);
 }
@@ -685,9 +677,9 @@ fn bounce_scatter_commit(
 ) -> u32 {
     if (material_oriented_active() && ev.bragg == 0u) {
         // (A Bragg reflection's ratio is one: `OrientedScatter::phase_ratio` of the CPU.)
-        // Each channel owes the ratio of its own mixture phase to the hero's at the sampled
-        // direction (`OrientedScatter::phase_ratio`); applied AFTER the scattering-point NEE,
-        // which used the weight without it. `(*s).dir` is still the direction the ray arrived along.
+        // Each channel takes the ratio of its own mixture phase to the hero's at the sampled
+        // direction. It is applied after the scattering-point NEE, which used the weight without
+        // it. `(*s).dir` is still the arrival direction.
         var phase_per_channel: array<f32, 8>;
         for (var k: u32 = 0u; k < NUM_CHANNELS; k = k + 1u) {
             phase_per_channel[k] = 0.0;
@@ -712,7 +704,7 @@ fn bounce_scatter_commit(
             max_intensity = max(max_intensity, max((*s).stokes[k].x, 0.0));
         }
         let q = clamp(max_intensity, RR_FLOOR, 1.0);
-        let rr_rand = f32(hash_u32(seed0 ^ hash_u32(bounce ^ RUSSIAN_ROULETTE_STREAM))) / 4294967295.0;
+        let rr_rand = f32(discrete_draw(seed0, bounce, RUSSIAN_ROULETTE_STREAM)) / 4294967295.0;
         if (rr_rand > q) {
             return PHASE_TERMINATE;
         }

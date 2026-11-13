@@ -1,4 +1,4 @@
-//! The one function both subcommands use to actually run the tracer: [`trace_samples`].
+//! The tracer entry points of the `render` and `serve` paths, starting with [`trace_samples`].
 //!
 //! It traces an explicit `[first_sample, first_sample + samples)` range across a whole
 //! frame and returns the summed (never averaged) per-pixel XYZ radiance -- exactly what
@@ -6,44 +6,26 @@
 //! running total. See `pleochroma_net`'s crate docs for why sample-index partitioning
 //! (not screen-space tiling) is what makes that additive.
 //!
-//! # Keeping the seed formula in sync with the viewer
+//! # Keeping the sample draws in sync with the viewer
 //!
-//! The per-sample RNG seed and pixel-jitter derivation below is copied verbatim from
-//! `apps/pleochroma-cut/src/bridge/render_thread.rs`'s `render_frame_scanlines`. It is
-//! not re-derived here: the formula is a function of `(global_pixel_idx, sample_num)`
-//! alone, `sample_num` being the absolute sample index, never a batch-relative offset --
-//! exactly what lets tracing a sample range here, remotely, produce numbers identical to
-//! the viewer tracing that range itself. If this formula and the viewer's ever drift
-//! apart, a remote worker's contribution silently composes into a wrong but
-//! plausible-looking image (the wire-protocol analogue of the build-hash check that
-//! catches drift on the physics side).
+//! The per-sample seed and jitter draws come from `pleochroma`'s `sample_draws`, the one
+//! formula the viewer's renderers use too. It is a function of `(global_pixel_idx,
+//! sample_num)` alone, `sample_num` being the absolute sample index, never a batch-relative
+//! offset: that is what makes a remote worker's range match the viewer's numbers for the same
+//! range. A second copy of the formula would drift silently into a wrong but plausible image.
 //!
-//! # A process-wide permit pool bounds total CPU-tracer threads across connections
+//! # A process-wide permit pool bounds CPU-tracer threads across connections
 //!
-//! This worker runs one thread per connection and one tracer thread per request; each
-//! tracer's [`trace_into`] then spawns `effective_thread_count(threads)` scoped threads
-//! of its own for one sub-batch. Each of those numbers is reasonable in isolation, but
-//! nothing before this coordinated them across CONCURRENT requests: two clients
-//! streaming at once each ask for (typically) every available core, oversubscribing the
-//! CPU 2x (and N clients, Nx) -- every thread fighting the others for the same cores,
-//! worse throughput for everyone rather than either request simply queueing its share.
+//! Every request spawns its own tracer threads, so concurrent requests would each ask for the
+//! whole machine and fight over the same cores. [`THREAD_PERMITS`] caps the total: a pool
+//! sized to `effective_thread_count(0)`, from which every [`trace_into`] call takes its thread
+//! count before its `thread::scope` and returns it right after. A request asking for more than
+//! the pool holds is clamped to the pool's capacity (see [`ThreadPermits::acquire`]), so it never
+//! waits for permits that could not all be free at once. Permits are held per `trace_into` call
+//! (one sub-batch), so a large request interleaves with others rather than starving them.
 //!
-//! [`THREAD_PERMITS`] fixes this: a process-wide pool sized to
-//! `effective_thread_count(0)` (this machine's `available_parallelism`, the same number
-//! a solo request would ask for) that every [`trace_into`] call acquires `num_threads`
-//! permits from before its `thread::scope` and releases right after. A request wanting
-//! more threads than the pool's total capacity is clamped to that capacity (see
-//! [`ThreadPermits::acquire`]) rather than blocking forever on permits that could never
-//! all be free simultaneously. Permits are held only for the duration of one `trace_into`
-//! call (one sub-batch, not a whole request), so a large request doesn't starve a second
-//! client indefinitely -- it interleaves at sub-batch granularity instead.
-//!
-//! The GPU submitter thread (`hybrid::dispatch_concurrently`'s scoped thread that submits
-//! and polls a GPU dispatch) takes no permits at all: it isn't a CPU tracer thread, and
-//! the "one core reserved for the GPU submitter" accounting in
-//! [`hybrid::cpu_threads_beside_gpu`] already shrinks the CPU side's OWN permit request
-//! by one to leave that thread room -- the two mechanisms compose without double-counting
-//! or deadlocking each other, since neither ever waits on the other's permits.
+//! The GPU submitter thread takes no permits: it is not a CPU tracer, and the core it needs is
+//! already left out of the CPU request by [`hybrid::cpu_threads_beside_gpu`].
 
 use glam::Vec3;
 use pleochroma::optics::{
@@ -69,11 +51,19 @@ use std::{
 use pleochroma::{
     geometry::StoneGeometry,
     renderer::gpu_backend::{
-        GpuAccumulate, GpuBackend, GpuSceneRef, scene_routes_to_gpu_with_tools,
+        GpuAccumulate, GpuBackend, GpuRouteDecline, GpuSceneRef, scene_routes_to_gpu_with_tools,
     },
 };
 
+use crate::assets::TrayRef;
+
+#[cfg(feature = "beam")]
+pub(crate) mod beam;
 pub(crate) mod hybrid;
+#[cfg(feature = "adaptive-sampling")]
+pub(crate) mod live;
+#[cfg(feature = "adaptive-sampling")]
+pub(crate) mod live_cache;
 pub(crate) mod whitted;
 
 /// The stone `scene` describes: its planes with its concave tools subtracted.
@@ -91,25 +81,33 @@ pub(crate) fn stone_geometry(scene: &SceneState) -> StoneGeometry<'_> {
 /// material must be GPU-supported, the stone have at most `GPU_MAX_TOOL_PRIMITIVES` concave
 /// tools, the material not be fluorescent and the lighting not a UV lamp.
 ///
-/// The GPU kernels trace concave stones (every call below passes `scene.tools` through
-/// `GpuBackend::try_accumulate_geom_cancellable` / `GpuBatchItem::tools`), but not
-/// fluorescence (`docs/gpu.md`), so a fluorescent scene, or a stone with more tools than the
-/// kernels trace, is traced entirely on the CPU -- by the plain CPU path, never by a hybrid
-/// split, which would otherwise hand part of the samples to a GPU that cannot trace them. An
-/// HDR panorama has no lamp, so the preset only counts for the analytic rig.
+/// Concave tools are passed to the GPU with the scene. A scene the GPU cannot trace is traced
+/// entirely on the CPU, never by a hybrid split, which would hand part of the samples to a GPU
+/// that cannot trace them. An HDR panorama has no lamp, so the preset only counts for the
+/// analytic rig.
 ///
-/// A zoned material routes like the desktop does, through
-/// `GemMaterial::gpu_supported` (inside `scene_routes_to_gpu_with_tools`). The GPU zone kernels render the
-/// zones they support; a mesh-shell zone, a scattering zoned stone or an oversized band set
-/// is declined there and so traced entirely on the CPU, never silently as its base zone.
+/// A zoned material routes through `GemMaterial::gpu_supported` (inside
+/// `scene_routes_to_gpu_with_tools`). A zone the GPU kernels do not support (a mesh-shell zone,
+/// a scattering zoned stone, an oversized band set) sends the whole scene to the CPU, never a
+/// silent fallback to its base zone.
 ///
-/// A scene's surface finish (facet words or an abraded edge, `scene.effects`) rides with each
-/// GPU request (`GpuBackend::try_accumulate_geom_surface_cancellable`, `GpuBatchItem::surface`);
-/// inclusions and play-of-color ride in the traced material, which the kernels encode.
+/// The surface finish (`scene.effects`) rides with each GPU request; inclusions and
+/// play-of-color ride in the traced material.
+///
+/// A scene with the Stone Shadow goes to the GPU only when `gpu` can sample the map
+/// (`GpuBackend::supports_tray_shadow`), and one with the Tray Reflection only when `gpu` can
+/// trace the mirror (`GpuBackend::supports_tray_mirror`). Otherwise it is traced on the CPU,
+/// which [`note_tray_route`] reports.
 #[must_use]
-pub(crate) fn scene_uses_gpu(scene: &SceneState) -> bool {
+pub(crate) fn scene_uses_gpu(scene: &SceneState, gpu: &GpuBackend) -> bool {
     // Ray uses its independent small kernel, never spectral hybrid calibration.
     if scene.engine.is_ray() {
+        return false;
+    }
+    if scene.stone_shadow && !gpu.supports_tray_shadow() {
+        return false;
+    }
+    if scene.tray_reflection > 0.0 && !gpu.supports_tray_mirror() {
         return false;
     }
     let lighting = match scene.environment {
@@ -126,16 +124,39 @@ pub(crate) fn scene_uses_gpu(scene: &SceneState) -> bool {
     )
 }
 
+/// Logs, once per request, a Stone Shadow or Tray Reflection scene that `gpu` cannot trace
+/// (`GpuRouteDecline`). The log is the only report: there is no protocol message for it.
+/// Silent for a CPU-only worker and for a scene with neither.
+pub(crate) fn note_tray_route(scene: &SceneState, gpu: &GpuBackend) {
+    if scene.stone_shadow
+        && !scene.engine.is_ray()
+        && gpu.adapter_label().is_some()
+        && !gpu.supports_tray_shadow()
+    {
+        tracing::info!(
+            reason = GpuRouteDecline::STONE_SHADOW_MESSAGE,
+            "worker: GPU route declined"
+        );
+    }
+    if scene.tray_reflection > 0.0
+        && !scene.engine.is_ray()
+        && gpu.adapter_label().is_some()
+        && !gpu.supports_tray_mirror()
+    {
+        tracing::info!(
+            reason = GpuRouteDecline::TRAY_REFLECTION_MESSAGE,
+            "worker: GPU route declined"
+        );
+    }
+}
+
 /// Resolves the per-facet finish `scene.girdle_frosted` and `scene.frosted_planes` imply.
 ///
-/// `pleochroma_net::SceneState` carries no `Vec<FacetFinish>` of its own -- the
-/// wire-format encoding is the `girdle_frosted` bool plus the design's frosted plane
-/// indices, and the worker re-derives the same `Vec<FacetFinish>` the viewer would via
-/// `pleochroma::geometry::facet_finishes_with_frosted` /
-/// `pleochroma::geometry::girdle_facet_finishes`, pure, deterministic functions of the scene.
-/// Neither set returns an empty slice, equivalent to every facet using
-/// `FacetFinish::default() == Polished`; a scene without `frosted_planes` takes exactly the
-/// path it always did.
+/// `pleochroma_net::SceneState` carries no `Vec<FacetFinish>`: the wire encoding is the
+/// `girdle_frosted` bool plus the frosted plane indices. The worker re-derives the same list the
+/// viewer does, via `pleochroma::geometry::facet_finishes_with_frosted` or
+/// `pleochroma::geometry::girdle_facet_finishes`, which are pure functions of the scene. An
+/// empty list means every facet is `FacetFinish::default()`, Polished.
 #[must_use]
 pub(crate) fn resolve_facet_finishes(scene: &SceneState) -> Vec<FacetFinish> {
     if !scene.frosted_planes.is_empty() {
@@ -160,22 +181,20 @@ pub(crate) fn resolve_facet_finishes(scene: &SceneState) -> Vec<FacetFinish> {
 /// and the denoiser.
 pub use pleochroma::renderer::tonemap::effective_thread_count;
 
-/// A process-wide counting semaphore over CPU tracer threads -- see this module's own
-/// doc comment ("A process-wide permit pool...") for why this exists.
+/// A process-wide counting semaphore over CPU tracer threads (see the module docs).
 struct ThreadPermits {
-    /// Total capacity, fixed at construction (`effective_thread_count(0)`) -- never
-    /// mutated afterward; only [`Self::available`] moves.
+    /// Total capacity, fixed at construction (`effective_thread_count(0)`); only
+    /// [`Self::available`] moves.
     capacity: usize,
-    /// How many permits are currently unclaimed. Guarded by the same `Mutex` the
-    /// [`Condvar`] waits against, per the standard condvar pattern.
+    /// How many permits are currently unclaimed, guarded by the `Mutex` the [`Condvar`]
+    /// waits on.
     available: Mutex<usize>,
-    /// Notified every time [`Self::release`] returns permits, so a blocked
-    /// [`Self::acquire`] wakes up to re-check rather than polling.
+    /// Notified whenever [`Self::release`] returns permits, so a blocked [`Self::acquire`]
+    /// re-checks instead of polling.
     freed: Condvar,
 }
 
-/// How long one [`ThreadPermits::acquire`] wait slice lasts before re-checking its
-/// caller's cancel flag -- see that method's doc comment.
+/// The wait slice of [`ThreadPermits::acquire`] between re-checks of its cancel flag.
 const ACQUIRE_POLL: Duration = Duration::from_millis(100);
 
 impl ThreadPermits {
@@ -187,23 +206,15 @@ impl ThreadPermits {
         }
     }
 
-    /// Blocks until `wanted` permits are free, then claims them, returning how many
-    /// were actually acquired (== `wanted.clamp(1, self.capacity)`); `None` if `cancel`
-    /// was observed set first (nothing is claimed then).
+    /// Blocks until `wanted` permits are free, then claims them and returns how many were
+    /// taken (`wanted.clamp(1, self.capacity)`); `None` if `cancel` is observed set first,
+    /// with nothing claimed.
     ///
-    /// `wanted` is clamped to `self.capacity` first: a single request asking for more
-    /// threads than exist on this machine (or than this pool was ever sized for) must
-    /// still be satisfiable -- waiting for MORE permits than the pool's total capacity
-    /// would otherwise block forever, since that many can never be simultaneously free.
-    /// Clamped to at least 1 too, so a caller can't accidentally acquire zero permits
-    /// and skip the accounting entirely.
+    /// The count is clamped to `1..=self.capacity`: waiting for more permits than the pool
+    /// holds would never end, and zero permits would skip the accounting.
     ///
-    /// Waits in [`ACQUIRE_POLL`] slices (`wait_timeout`, never a plain, uninterruptible
-    /// `wait`) and re-checks `cancel` between them: every permit holder releases
-    /// promptly on its own (`PermitGuard`'s `Drop`), but a request queued behind one
-    /// that is wedged -- heartbeating without tracer progress, the coordinator-side
-    /// mechanism this guards against -- must not wait on permits that may never come
-    /// free.
+    /// Waits in [`ACQUIRE_POLL`] slices and re-checks `cancel` between them, so a request
+    /// queued behind a wedged tracer can still be cancelled.
     fn acquire(&self, wanted: usize, cancel: &AtomicBool) -> Option<usize> {
         let wanted = wanted.clamp(1, self.capacity);
         let mut available = self
@@ -225,11 +236,8 @@ impl ThreadPermits {
         Some(wanted)
     }
 
-    /// Returns `held` permits (as returned by a matching [`Self::acquire`] call) to the
-    /// pool and wakes every waiter to re-check -- `notify_all`, not `notify_one`: more
-    /// than one blocked request can each now have enough newly-freed permits to
-    /// proceed, and `notify_one` could wake the wrong one first and starve the others
-    /// for another full cycle.
+    /// Returns `held` permits (from a matching [`Self::acquire`]) to the pool and wakes every
+    /// waiter: `notify_all`, since more than one blocked request may now fit.
     fn release(&self, held: usize) {
         let mut available = self
             .available
@@ -241,18 +249,13 @@ impl ThreadPermits {
     }
 }
 
-/// The process-wide pool itself, sized once at first use to `effective_thread_count(0)`
-/// -- this machine's `available_parallelism`, matching what a single solo request would
-/// ask for. Every [`trace_into`] call acquires from and releases back to this same
-/// instance regardless of which connection or request it's tracing for.
+/// The process-wide pool, sized once at first use to `effective_thread_count(0)`. Every
+/// [`trace_into`] call takes its permits from this one instance.
 static THREAD_PERMITS: LazyLock<ThreadPermits> =
     LazyLock::new(|| ThreadPermits::new(effective_thread_count(0)));
 
-/// RAII guard releasing `n` permits back to [`THREAD_PERMITS`] on drop -- including on
-/// an unwind, so a tracer thread panicking mid-`thread::scope` (already re-raised by
-/// `hybrid::dispatch_concurrently`'s own `resume_unwind`, or a panic surfacing through
-/// `run_tracer`'s `catch_unwind`) never leaks permits the pool would otherwise never see
-/// again, slowly starving every future request on this worker.
+/// RAII guard releasing `n` permits to [`THREAD_PERMITS`] on drop, including on unwind, so
+/// a panicking tracer never leaks permits.
 struct PermitGuard(usize);
 
 impl Drop for PermitGuard {
@@ -275,6 +278,17 @@ impl Drop for PermitGuard {
 /// Returns an all-[`Vec3::ZERO`] buffer (still correctly sized) if `samples`, `width`,
 /// or `height` is zero -- callers are expected to have rejected those via
 /// [`crate::validate`] if invalid for their use case; this function has no opinion.
+///
+/// A scene with the Stone Shadow is traced with the `Final` map, and one with the Tray Reflection
+/// with its mirror, both built here.
+///
+/// # Panics
+///
+/// When `scene.stone_shadow` or `scene.tray_reflection` is set and the map or the mirror cannot
+/// be built (a stone that is not closed; the lighting cases are refused by
+/// [`crate::validate::validate_scene`]). This convenience entry has no way to refuse a request;
+/// the request paths resolve them first ([`crate::assets::resolve_tray`]) and answer with the
+/// refusal instead.
 #[must_use]
 pub fn trace_samples(
     scene: &SceneState,
@@ -293,11 +307,14 @@ pub fn trace_samples(
         .with_roll(scene.camera_roll);
     // The studio rig, or the HDR map the request path resolved -- see
     // `crate::assets::resolved_hdr_map`.
+    let cancel = &AtomicBool::new(false);
     let hdr_map = crate::assets::resolved_hdr_map(scene);
-    let environment = crate::assets::environment_source(scene, hdr_map.as_deref());
+    let tray = crate::assets::resolve_tray(scene, None, cancel)
+        .expect("the shadow and the mirror of this scene can be built (see `# Panics`)");
+    let environment = crate::assets::environment_for(scene, hdr_map.as_deref(), tray.view());
 
-    // No cancellation concept on this path (see this function's own doc comment); a
-    // permit wait can never be cut short here, so `trace_into` always returns `true`.
+    // This path has no cancellation, so a permit wait cannot be cut short and `trace_into`
+    // returns `true`.
     let never_cancel = AtomicBool::new(false);
     let _ = trace_into(
         scene,
@@ -317,21 +334,25 @@ pub fn trace_samples(
 /// Falls back to the CPU tracer (via [`trace_into`], the same code [`trace_samples`]
 /// runs) whenever `gpu` declines -- a decline is normal, not an error.
 ///
-/// A drop-in replacement for [`trace_samples`] at every call site: same return contract
-/// (summed, never averaged), same disjoint-and-additive sample-range property both
-/// `render_cmd` and `serve` depend on -- both backends add into a
-/// `Vec3::ZERO`-initialized buffer with identical semantics, keeping a GPU worker's
-/// sample ranges mergeable with a CPU viewer's.
-///
 /// A thin wrapper over [`trace_samples_with_gpu_cancellable`] with a cancellation flag
-/// that is never set -- kept for `render_cmd` (a one-shot CLI render with no
-/// cancellation concept) and tests that predate cooperative cancellation.
+/// that is never set, used by `render_cmd`, which has no cancellation.
+///
+/// Same contract as [`trace_samples`]: summed, never averaged, and disjoint sample ranges add
+/// up, so a GPU worker's ranges merge with a CPU viewer's.
+///
+/// A scene with the Stone Shadow is traced with the `Final` map, and one with the Tray Reflection
+/// with its mirror, both built here.
 ///
 /// # Panics
 ///
-/// Never panics in practice: the `.expect` below can only fire if
-/// [`trace_samples_with_gpu_cancellable`] returned `None`, which means it observed
-/// `cancel` set -- impossible here, since `never_cancel` is never set.
+/// Does not panic for a scene with neither: the dispatch cannot observe a cancellation, since
+/// `never_cancel` is never set.
+///
+/// With `scene.stone_shadow` or `scene.tray_reflection` set it panics when the map or the mirror
+/// cannot be built (a stone that is not closed; the lighting cases are refused by
+/// [`crate::validate::validate_scene`]). This convenience entry has no way to refuse a request;
+/// the request paths resolve them first ([`crate::assets::resolve_tray`]) and answer with the
+/// refusal instead.
 #[must_use]
 pub fn trace_samples_with_gpu(
     gpu: &GpuBackend,
@@ -341,30 +362,41 @@ pub fn trace_samples_with_gpu(
     threads: usize,
 ) -> Vec<Vec3> {
     let never_cancel = AtomicBool::new(false);
-    trace_samples_with_gpu_cancellable(gpu, scene, first_sample, samples, threads, &never_cancel)
-        .expect("cancel is never set, so this dispatch can never observe GpuAccumulate::Cancelled")
+    let tray = crate::assets::resolve_tray(scene, None, &never_cancel)
+        .expect("the shadow and the mirror of this scene can be built (see `# Panics`)");
+    trace_samples_with_gpu_cancellable(
+        gpu,
+        scene,
+        (first_sample, samples),
+        threads,
+        &never_cancel,
+        tray.view(),
+    )
+    .expect("cancel is never set, so this dispatch can never observe GpuAccumulate::Cancelled")
 }
 
 /// Cancellable counterpart of [`trace_samples_with_gpu`], used by
-/// `stream_emit::tracer::run_tracer`'s single-engine sub-batch dispatch.
+/// `stream_emit::tracer::run_tracer` for single-engine sub-batches.
 ///
-/// Used whenever a job hasn't calibrated a hybrid split, so a GPU sub-batch (which can
-/// run up to `MAX_SUBBATCH` samples, far more than `TARGET_SUBBATCH`'s wall-clock target
-/// on a fast adapter) can be interrupted mid-dispatch rather than only between whole
-/// sub-batches, tightening worst-case cancellation latency.
+/// A GPU sub-batch can be interrupted mid-dispatch rather than only between sub-batches,
+/// which bounds the cancellation latency.
 ///
-/// Returns `None` if `cancel` was observed set before the GPU dispatch finished --
-/// `buffer` is guaranteed untouched in that case, so the caller has nothing to fold in.
+/// Returns `None` if `cancel` was observed set before the dispatch finished; nothing was
+/// traced into the result then, so the caller has nothing to fold in.
 /// A `Declined` GPU still falls back to the CPU tracer for the full `samples` exactly as
 /// [`trace_samples_with_gpu`] does; `cancel` plays no further role once declined.
+///
+/// `tray` is the request's resolved Stone Shadow and Tray Reflection
+/// ([`crate::assets::resolve_tray`]): `shadow` is `Some` exactly when `scene.stone_shadow` is set
+/// and `mirror` exactly when `scene.tray_reflection > 0.0`.
 #[must_use]
 pub fn trace_samples_with_gpu_cancellable(
     gpu: &GpuBackend,
     scene: &SceneState,
-    first_sample: u32,
-    samples: u32,
+    (first_sample, samples): (u32, u32),
     threads: usize,
     cancel: &AtomicBool,
+    tray: TrayRef<'_>,
 ) -> Option<Vec<Vec3>> {
     let mut buffer = vec![Vec3::ZERO; scene.width as usize * scene.height as usize];
     trace_samples_with_gpu_into(
@@ -374,18 +406,23 @@ pub fn trace_samples_with_gpu_cancellable(
         threads,
         cancel,
         &mut buffer,
+        tray,
     )
     .then_some(buffer)
 }
 
 /// [`trace_samples_with_gpu_cancellable`] into a caller-owned `buffer`.
 ///
-/// A loop of sub-batches can reuse one frame-sized buffer instead of allocating (and page-faulting)
-/// a fresh ~25 MB one per ~100 ms sub-batch at 1080p.
+/// A loop of sub-batches reuses one frame-sized buffer instead of allocating a fresh one for
+/// each.
 ///
 /// `buffer` must be `width * height` long and all `Vec3::ZERO` on entry -- both backends
 /// add into it, so the result is bit-identical to a freshly allocated zero buffer.
 /// Returns `false` if `cancel` fired first, with `buffer` untouched (still all-zero).
+///
+/// `tray` is the request's resolved Stone Shadow and Tray Reflection, held by the caller for
+/// every sub-batch (`shadow` `Some` exactly when `scene.stone_shadow` is set, `mirror` exactly
+/// when `scene.tray_reflection > 0.0`); neither is rebuilt here.
 pub fn trace_samples_with_gpu_into(
     gpu: &GpuBackend,
     scene: &SceneState,
@@ -393,10 +430,12 @@ pub fn trace_samples_with_gpu_into(
     threads: usize,
     cancel: &AtomicBool,
     buffer: &mut [Vec3],
+    tray: TrayRef<'_>,
 ) -> bool {
     if scene.engine.is_ray() {
         return whitted::trace(
             scene,
+            tray,
             first_sample,
             samples,
             threads,
@@ -416,15 +455,13 @@ pub fn trace_samples_with_gpu_into(
     // The studio rig, or the HDR map the request path resolved -- see
     // `crate::assets::resolved_hdr_map`.
     let hdr_map = crate::assets::resolved_hdr_map(scene);
-    let environment = crate::assets::environment_source(scene, hdr_map.as_deref());
+    let environment = crate::assets::environment_for(scene, hdr_map.as_deref(), tray);
 
-    // scene.girdle_frosted re-expanded into Vec<FacetFinish> (see
-    // resolve_facet_finishes). The CPU fallback below resolves identical finishes from
-    // the same field, so a GPU decline mid-trace can't silently switch polish state.
+    // The frosting as `resolve_facet_finishes` expands it. The CPU fallback resolves the same
+    // finishes, so a GPU decline cannot change the polish.
     let facet_finishes = resolve_facet_finishes(scene);
-    // A scene the GPU cannot trace (fluorescence, a UV lamp, more tools than the kernels
-    // trace) skips straight to the CPU tracer below. A concave scene within the limit goes
-    // to the GPU WITH its tools (`scene.tools`, facet ids `planes.len() + k`).
+    // Scenes the GPU cannot trace (fluorescence, a UV lamp, too many tools) go to the CPU
+    // below. Concave tools go to the GPU with the scene (`scene.tools`).
     let traced_material = scene.traced_material();
     let gpu_scene = GpuSceneRef {
         camera: &camera,
@@ -435,10 +472,11 @@ pub fn trace_samples_with_gpu_into(
         material: &traced_material,
         max_bounces: scene.max_bounces,
         environment,
+        estimator: Some(scene.estimator),
     };
     // The facet surfaces, machine and abraded edge travel with the GPU request.
     let surfaces = scene.effects.surfaces();
-    let outcome = if scene_uses_gpu(scene) {
+    let outcome = if scene_uses_gpu(scene, gpu) {
         gpu.try_accumulate_geom_surface_cancellable(
             &gpu_scene,
             &scene.tools,
@@ -457,14 +495,11 @@ pub fn trace_samples_with_gpu_into(
         GpuAccumulate::Declined => {}
     }
 
-    // The GPU declined (no adapter, ComputeMode::OnlyCpu, an unsupported material, or a
-    // device lost part-way through the request). `buffer` is still all-zero:
-    // `GpuBackend::try_accumulate_cancellable` traces into its own scratch buffer and
-    // adds it into `buffer` only on `Done`, so even a decline on a late turn writes
-    // nothing here -- falling back is exactly trace_samples' own zero-initialized start.
-    // `trace_into` returning `false` means `cancel` fired while still queued for CPU
-    // permits, before any tracing began, so `buffer` is still all-zero: reporting `None`
-    // here is exact, same as the GPU-side `Cancelled` case above.
+    // The GPU declined (no adapter, `ComputeMode::OnlyCpu`, an unsupported material, or a
+    // device lost mid-request). `buffer` is still all-zero: the GPU traces into its own
+    // scratch buffer and adds it only on `Done`, so the fallback starts from zero too.
+    // `trace_into` returns `false` only when `cancel` fires while queued for CPU permits,
+    // before any tracing, so `buffer` is still zero then as well.
     trace_into(
         scene,
         SampleRange::new(first_sample, samples),
@@ -476,20 +511,17 @@ pub fn trace_samples_with_gpu_into(
     )
 }
 
-/// The CPU tracing loop itself, adding into an already-sized `buffer` (`width x height`
-/// entries, row-major). Shared by [`trace_samples`] and [`trace_samples_with_gpu`]'s CPU
-/// fallback so both go through the identical seed formula and thread-chunking.
+/// The CPU tracing loop, adding into an already-sized `buffer` (`width x height` entries,
+/// row-major). Shared by [`trace_samples`] and the CPU fallback of
+/// [`trace_samples_with_gpu_into`], so both use the same draws and thread split.
 ///
 /// # Work distribution: a shared atomic row counter, not contiguous row bands
 ///
-/// Rows through the stone cost far more than background rows, so this claims rows
-/// dynamically through a shared `AtomicUsize` counter (`fetch_add` per row) rather than
-/// splitting the frame into `num_threads` contiguous bands, the same load-balancing
-/// approach `apps/pleochroma-cut`'s scanline/batch renderers use. `buffer` is pre-split
-/// into per-row slices behind a `Mutex<Vec<Option<&mut [Vec3]>>>`; a thread claims row
-/// `y`, locks just long enough to take that row's slice, then traces it without the
-/// lock held. Every row is claimed by exactly one thread, so per-pixel sums stay
-/// bit-identical regardless of how rows are distributed across threads.
+/// Rows through the stone cost far more than background rows, so threads claim rows from a
+/// shared `AtomicUsize` counter rather than taking fixed bands. `buffer` is pre-split into
+/// per-row slices behind a `Mutex`; a thread takes its row's slice under the lock and traces
+/// it without the lock held. Each row goes to exactly one thread, so per-pixel sums do not
+/// depend on the split.
 fn trace_into(
     scene: &SceneState,
     range: SampleRange,
@@ -502,6 +534,10 @@ fn trace_into(
     if scene.engine.is_ray() {
         return whitted::trace(
             scene,
+            TrayRef {
+                shadow: environment.tray_shadow(),
+                mirror: environment.tray_mirror(),
+            },
             range.first_sample,
             range.samples,
             threads,
@@ -510,10 +546,8 @@ fn trace_into(
             buffer,
         );
     }
-    // Destructured immediately so every use below reads exactly as it did before this
-    // was bundled into one `SampleRange` (keeping `trace_into`'s own argument count at
-    // clippy's default limit -- the `cancel` flag for the cancellable permit wait would
-    // otherwise have pushed it to eight).
+    // Destructured here so the uses below read as plain locals; the bundle keeps
+    // `trace_into`'s argument count within clippy's limit.
     let SampleRange {
         first_sample,
         samples,
@@ -523,37 +557,28 @@ fn trace_into(
     let width_usize = width as usize;
 
     let requested_threads = effective_thread_count(threads).max(1);
-    // Acquire the process-wide CPU-tracer permits before spawning anything -- see this
-    // module's own doc comment ("A process-wide permit pool...") and `THREAD_PERMITS`.
-    // `acquire` blocks until enough are free (clamping to the pool's total capacity if
-    // `requested_threads` exceeds it) and returns exactly how many were granted; that's
-    // the number of scoped threads actually spawned below, so held permits and live
-    // threads always agree. `_permits` releases them (even on panic) once this
-    // `trace_into` call's `thread::scope` returns. Returns `false` (leaving `buffer`
-    // untouched) if `cancel` fired while still waiting for permits, so a cancelled
-    // caller queued behind a wedged tracer is never stuck here indefinitely.
+    // Take the process-wide CPU permits before spawning (see the module docs and
+    // `THREAD_PERMITS`). `acquire` clamps to the pool's capacity and returns how many it
+    // granted, which is exactly the number of threads spawned below. `_permits` releases
+    // them when the call ends, even on panic. `false` (with `buffer` untouched) means
+    // `cancel` fired while waiting for permits.
     let Some(num_threads) = THREAD_PERMITS.acquire(requested_threads, cancel) else {
         return false;
     };
     let _permits = PermitGuard(num_threads);
 
     let geom = stone_geometry(scene);
-    // Frosted girdle -- see `resolve_facet_finishes`'s doc comment. A ground facet word is also
-    // reported frosted in the list, merged once here rather than once per sample.
+    // `merged_facet_finishes` folds the surface facets into the finish list once, not per sample.
     let surfaces = scene.effects.surfaces();
     let resolved_finishes = resolve_facet_finishes(scene);
     let facet_finishes = merged_facet_finishes(&resolved_finishes, &surfaces);
     let traced_material = scene.traced_material();
     let material: &GemMaterial = &traced_material;
-    // The zoned material's kernels, built once for this whole call (not once per sample).
-    let prepared = PreparedMaterial::new(material);
-    // Built once for this whole `trace_into` call (one sub-batch, potentially many
-    // samples x many rows) rather than once per traced sample -- see
-    // `trace_spectral_ray_with_finish_soa`'s doc comment: rebuilding this arena per
-    // sample was a heap allocation on every single traced sample, measured at ~10-20% of
-    // per-sample cost on a 57-plane cut. `planes` is the exact slice this is built from,
-    // as that function requires; results stay bit-identical to the rebuild-every-call
-    // `trace_spectral_ray_with_finish` this replaces.
+    // The zone kernels are built once per call, not per sample. The scene's own estimator is
+    // used, so a frame split between the viewer and workers runs one estimator.
+    let prepared = PreparedMaterial::new(material).with_estimator(scene.estimator);
+    // Built once per call rather than per traced sample, which would allocate on every
+    // sample. See `trace_spectral_ray_with_finish_soa`'s doc comment for the arena contract.
     let plane_soa = build_plane_soa(geom.planes);
     let tracer = RowTracer {
         scene,
@@ -633,19 +658,15 @@ impl RowTracer<'_> {
                 .expect("a pixel index within one frame fits in u32");
             let mut sample_sum = Vec3::ZERO;
 
-            // Per-pixel Cranley-Patterson rotations for the stratified
-            // pixel-jitter/hero-wavelength draws below -- pure functions of
-            // `global_pixel_idx`, hoisted out of the sample loop. jx/jy/
-            // hero_rand each use a different prime base (2, 3, 5) rather
-            // than one base rotated three ways -- measurably better
-            // variance for the highest-variance pixels this targets.
+            // Per-pixel Cranley-Patterson rotations for the jitter and hero draws below,
+            // hoisted out of the sample loop. The three draws use different prime bases
+            // (2, 3, 5), not one base rotated three ways.
             let rot = pixel_rotations(global_pixel_idx);
 
             for s_idx in 0..self.samples {
                 let abs_sample = self.first_sample.wrapping_add(s_idx);
-                // Stratified, a pure function of the absolute sample index
-                // alone (never batch-relative) -- what lets disjoint worker
-                // sample ranges compose correctly.
+                // A pure function of the absolute sample index, so disjoint
+                // sample ranges compose.
                 let draws = sample_draws(global_pixel_idx, abs_sample, &rot);
 
                 let ray = self.camera.generate_ray(
@@ -671,14 +692,9 @@ impl RowTracer<'_> {
                     None,
                     self.surface,
                 );
-                // Defensive: no reachable NaN/Inf producer is known in this
-                // CPU path, but a single non-finite sample
-                // summed in would poison this pixel's accumulator
-                // permanently (NaN propagates through every future `+=`,
-                // including across later chunks/requests that reuse this
-                // buffer). Dropped but still counted: the shared rule every
-                // backend (GUI export, live view, GPU reduction) applies, so
-                // the client can merge this buffer with theirs.
+                // A non-finite sample is dropped but still counted, the rule every backend
+                // applies, so a client can merge this buffer with its own. No NaN or Inf
+                // source is known on this path, but one would poison the accumulator for good.
                 add_finite_sample(&mut sample_sum, sample);
             }
 
@@ -702,6 +718,10 @@ mod tests {
             height: 8,
             yaw: 0.4,
             camera_roll: 0.0,
+            stone_shadow: false,
+            tray_reflection: 0.0,
+            hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
+            estimator: pleochroma::optics::raytracer::Estimator::Branching,
             pitch: 0.3,
             distance: 3.0,
             light_yaw: 0.85,
@@ -788,5 +808,9 @@ mod tests {
 
 #[cfg(test)]
 mod effects_tests;
+#[cfg(test)]
+mod estimator_tests;
+#[cfg(test)]
+mod shadow_tests;
 #[cfg(test)]
 mod whitted_tests;

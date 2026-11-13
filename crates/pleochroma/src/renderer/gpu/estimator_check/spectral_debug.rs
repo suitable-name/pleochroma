@@ -1,7 +1,6 @@
-//! Spectral-space debug comparison: "before XYZ integration... so a CMF bug cannot
-//! masquerade as a transport bug". See [`run_spectral_debug`]'s own doc comment for the
-//! honest scope limit on what this can and cannot verify given the CPU
-//! visibility-only constraint.
+//! Spectral-space debug comparison, so that a CMF bug cannot masquerade as a transport bug.
+//!
+//! See [`run_spectral_debug`] for what this does and does not verify.
 
 use crate::{
     optics::raytracer::{
@@ -26,10 +25,9 @@ use super::{
 pub struct SpectralDebugResult {
     /// Total number of cases run.
     pub total_cases: usize,
-    /// Max ULP distance between the GPU's own `out_xyz` and re-integrating the GPU's
-    /// own per-channel `(radiance, lambdas, path_pdf)` debug output through the REAL
-    /// CPU `optics::raytracer::integrate_channels_to_xyz` -- see this function's own
-    /// doc comment for exactly what this does and does not prove.
+    /// Largest ULP distance among the comparisons over budget; 0 when none is. The
+    /// comparison re-integrates the GPU's per-channel `(radiance, lambdas, path_pdf)` debug
+    /// output on the CPU and is checked against the GPU's own `out_xyz`.
     pub max_self_consistency_ulp: u32,
     /// Number of comparisons that exceeded the budget.
     pub over_budget_count: usize,
@@ -38,34 +36,23 @@ pub struct SpectralDebugResult {
 const SPECTRAL_DEBUG_ULP_BUDGET: u32 = 64;
 const SPECTRAL_DEBUG_ABS_FLOOR: f32 = 1e-5;
 
-/// Isolates the CMF-fit-and-MIS-weight integration step from everything upstream, using
-/// the GPU's own per-channel debug output (no reimplementation of the bounce loop).
+/// Isolates the integration step from everything upstream, using the GPU's own per-channel
+/// debug output (no reimplementation of the bounce loop).
 ///
-/// # What this checks, and the honest gap
+/// # Scope
 ///
-/// `trace_spectral_ray` has no CPU debug hook for its internal per-channel
-/// `radiance`/`lambdas`/`path_pdf` -- only the final `Vec3` -- and adding one would mean
-/// duplicating the bounce loop, so there is no independent CPU per-channel reference to
-/// compare the GPU's per-channel output against.
+/// The CPU tracer has no hook for its internal per-channel `radiance`/`lambdas`/`path_pdf`,
+/// so there is no independent CPU per-channel reference. What this does check: the GPU's
+/// pre-integration `(radiance, lambdas, path_pdf)`, re-integrated on the CPU through
+/// `integrate_channels_to_xyz_families`, must match the GPU's own `out_xyz`. Agreement means
+/// any CPU/GPU divergence lies in the transport upstream; disagreement means the integration
+/// step is ported wrongly. The per-channel radiance values are not verified here; they are
+/// covered only indirectly, by the furnace anchor and Tier 3's final-XYZ comparison.
 ///
-/// What this DOES check: the GPU already writes its pre-integration
-/// `(radiance, lambdas, path_pdf)` to debug buffers. Feeding those into the real CPU
-/// `integrate_channels_to_xyz` and comparing against the GPU's own `out_xyz` isolates
-/// the integration step: agreement means any CPU/GPU divergence found elsewhere lives
-/// in the transport physics upstream, not the integration; disagreement means the
-/// integration step itself has a porting bug. It does NOT independently verify the
-/// per-channel radiance values against a CPU transport reference -- that remains
-/// covered only indirectly, via the furnace anchor and Tier 3's final-XYZ comparison.
-///
-/// Runs this isolation twice: once against `EnvironmentSource::Studio` (white balance
-/// applied, `env_mode == STUDIO_RIG`), once against `EnvironmentSource::HdrMap` (finding
-/// 70: white balance skipped on both sides, `env_mode == HDR_MAP`) -- reusing
-/// `environment_check::build_hdr_test_map`'s synthetic map rather than a second one, and
-/// `dispatch_transport_for_class` (not the `Studio`-only [`dispatch_transport`] wrapper)
-/// to pass its uploaded [`crate::renderer::env_map_gpu::HdrEnvGpuData`] through. Results
-/// from both are pooled into one [`SpectralDebugResult`]: this function isolates the
-/// SAME integration step either way, so a porting bug in either environment mode shows
-/// up as the same kind of disagreement.
+/// Runs twice: against `EnvironmentSource::Studio` (white balance applied, `env_mode ==
+/// STUDIO_RIG`) and against `EnvironmentSource::HdrMap` (no white balance on either side,
+/// `env_mode == HDR_MAP`), using `environment_check::build_hdr_test_map`. Both runs are pooled
+/// into one [`SpectralDebugResult`], since the same integration step is isolated either way.
 #[must_use]
 pub fn run_spectral_debug(ctx: &crate::renderer::gpu::GpuContext) -> SpectralDebugResult {
     let mut max_ulp = 0u32;
@@ -133,7 +120,7 @@ fn run_spectral_debug_studio_case(
 
 /// The `EnvironmentSource::HdrMap` half of [`run_spectral_debug`] -- NO
 /// white balance on either side (`env_mode == HDR_MAP` skips it in the kernel the same
-/// way `trace_spectral_ray_inner`'s `EnvironmentSource::HdrMap(_) => xyz` no-op does on
+/// way `trace_spectral_ray_inner`'s `EnvironmentSource::HdrMap { .. } => xyz` no-op does on
 /// the CPU), so the recombination below applies none either. Otherwise identical in
 /// shape to [`run_spectral_debug_studio_case`]; see that function's doc comment.
 fn run_spectral_debug_hdr_case(
@@ -147,11 +134,8 @@ fn run_spectral_debug_hdr_case(
     let material = tier3_material();
     let gpu_material = GpuGemMaterial::encode(&material);
     let camera_params = camera_params_for(&camera, width, height, samples);
-    // `studio_temp_k`/`studio_spot_mult`/`studio_exposure`/`studio_light_*`/
-    // `white_balance` are all `Studio`-only fields the kernel never reads once
-    // `env_mode == HDR_MAP` -- passed as harmless placeholders, mirroring how every
-    // OTHER `HdrMap` GPU dispatch in this module (`environment_check::run_hdr_env_radiance`,
-    // `image_comparison::run_image_comparison_hdr_nee`) leaves them at their defaults.
+    // The `Studio`-only fields (`studio_*`, `white_balance`) are never read once
+    // `env_mode == HDR_MAP`, so they are placeholders, as in the other HDR map dispatches.
     let params = GpuTransportParams::new(
         width * height,
         10,
@@ -181,6 +165,8 @@ fn run_spectral_debug_hdr_case(
             planes: &planes,
             facet_finishes: &finishes,
             hdr_env: Some(&hdr_env),
+            tray_shadow: None,
+            tray_mirror: None,
         },
         total,
     );
@@ -214,23 +200,14 @@ fn accumulate_spectral_debug_case(
             *c = u8::try_from(raw).expect("the kernel's compat flags are small bit sets");
         }
 
-        // `dispatch.xyz` already has the kernel's own `params.white_balance` applied
-        // via `apply_von_kries_white_balance` when `wb` is `Some` (Bradford LMS, not
-        // raw XYZ multiply) -- apply the same transform to the recombined value for a
-        // like-for-like compare; the `HdrMap` case passes `None` since the
-        // kernel itself skips the transform for `env_mode == HDR_MAP`.
+        // `wb` is the kernel's white balance, applied as a Bradford (von Kries) transform so
+        // the recombination matches `out_xyz`; the `HdrMap` case passes `None`, as the kernel
+        // skips it there.
         //
-        // The kernel's own final integration is `integrate_channels_to_xyz_families`
-        // (per-channel MIS family weighting, not the single shared weight
-        // `integrate_channels_to_xyz` uses) -- recombining with the old function would
-        // disagree with `out_xyz` whenever this trace narrowed a family, which isn't a
-        // porting bug, just the wrong CPU function. `dispatch.compat` is the GPU
-        // kernel's own `compat[]` array from the same `out_compat` buffer.
-        //
-        // `.max(Vec3::ZERO)`: the kernel clamps its (optionally white-balanced) result
-        // to non-negative like `trace_spectral_ray_inner` does, so the recombination
-        // must too, or a narrow sample whose Bradford round trip dips below zero
-        // compares `-4.9e-4` against `0`.
+        // The kernel integrates with `integrate_channels_to_xyz_families` (per-channel family
+        // weights), so the recombination uses it too. `dispatch.compat` is the kernel's own
+        // `compat[]` mask. The clamp mirrors `trace_spectral_ray_inner`: a narrow sample whose
+        // Bradford round trip dips below zero would otherwise compare `-4.9e-4` against `0`.
         let integrated =
             integrate_channels_to_xyz_families(&radiance, &lambdas, &path_pdf, 0, compat);
         let recombined = wb

@@ -20,16 +20,13 @@ mod proportions;
 
 // -----------------------------------------------------------------------
 // The `VertexAccumulator` x-sorted index in `insert_if_new` must make the
-// exact same accept/reject decision, in the exact same insertion order,
-// as the O(V^2) linear scan it replaces. Proven here by running both side
-// by side over the module's own fixtures plus real cutting instructions and
-// comparing the resulting vertex lists bit-for-bit.
+// same accept/reject decision, in the same insertion order, as a linear scan
+// over every accepted vertex. Checked here by running both side by side over
+// the module's fixtures and real cutting instructions, bit for bit.
 // -----------------------------------------------------------------------
 
-/// Pre-optimization dedup, kept only as a reference: a duplicate is any
-/// already-accepted vertex within [`VERTEX_DEDUP`] on every axis, found
-/// by scanning the full accepted set (this is exactly the body
-/// `flush_solid_batch` had before `VertexAccumulator` existed).
+/// Reference dedup: a duplicate is any already-accepted vertex within
+/// [`VERTEX_DEDUP`] on every axis, found by scanning the full accepted set.
 fn flush_solid_batch_linear_reference(
     batch: &crate::simd::TripleBatch,
     soa: &crate::simd::PlanesSoA64,

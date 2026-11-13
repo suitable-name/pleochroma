@@ -19,14 +19,16 @@ one place.
 | SOLVE column shows bold amber **Least-squares est.** or **FAILED (untrusted)** | The solver could not derive that tier's mast from real geometry and fell back to an estimate or a placeholder. | Treat the design as not actually finished. Review the tier's constraint and its neighbours; re-solve after changes. |
 | Solve is slow on a large design | Solve is a full geometric solve plus a solid-closure check across every tier -- this can take a second or two once a design has over a hundred tiers. This is expected, not a hang. | Wait for it to finish; this is exactly why Solve is a deliberate button press rather than something that reruns on every keystroke (Chapter 5). |
 | Deep Solve takes minutes | Deep Solve is a separate, much slower external verification pass -- a mean of roughly 68 solves per design on the app's own reference corpus. This is normal for Deep Solve specifically, not for ordinary Solve. | Let it finish, or click **Cancel** to stop waiting (the background computation keeps running to completion regardless; its result is simply discarded) -- Chapter 8. |
-| Deep Solve button is greyed out: "...unavailable for a new or placeholder-reconstructed design" | This design has no printed proportions (Vol/W^3, L/W, C/W, P/W, H/W) recorded in the catalogue to verify against. | Nothing to fix -- Deep Solve genuinely has nothing to check a brand-new or placeholder-reconstructed design against (Chapter 8). |
-| Deep Solve button is greyed out: "...has nothing to repair until you convert a tier to a meet constraint" | Every tier is still pinned exactly as imported -- there is nothing Deep Solve could move even if it found a discrepancy. | Adopt at least one tier first (Chapter 8), then try again. |
+| Deep Solve button is greyed out, saying it needs the design's printed proportions | This design has no printed proportions (Vol/W^3, L/W, C/W, P/W, H/W) recorded in the catalogue to verify against, as with a brand-new design. | Nothing to fix. Deep Solve has nothing to check the design against (Chapter 8). |
+| Deep Solve button is greyed out, saying every tier is pinned | Every tier is still pinned exactly as imported -- there is nothing Deep Solve could move even if it found a discrepancy. | Adopt at least one tier first (Chapter 8), then try again. |
 | Deep Solve on a concave design says "flat stone" | Deep Solve verifies the flat stone against the printed proportions; concave tools are not part of printed proportions. The hint and the verdict line both say so. | Nothing to fix. A pass means the flat facets reproduce the printed figures, not that the carved stone was checked. Do not enter figures measured on the carved stone as printed proportions (Chapter 8). |
 | Optimize button is greyed out: "Every tier is currently pinned as a scale reference..." | A freshly loaded catalogue design starts with zero free tiers -- this is expected, not broken. | Adopt at least one tier's real meet constraint, or author one by hand (Chapter 8). |
 | Optimize will not move a particular tier | That tier is either pinned as an Exact Scale Value (including the girdle, which Optimize never moves), or its SOLVE strategy is still uncertain (Least-squares est. / FAILED / not solved / blocked / no anchor yet). | Adopt the tier if it is pinned and you want it free; otherwise fix the uncertain solve first -- see "Trusting the SOLVE Column" (Chapter 8). |
 | Clicking Solve turns the button into **Abandon Solve** instead of Cancel | A background solve (a design of more than 16 tiers, or an auto-solve) has no partial result to keep, so the same button is relabeled Abandon rather than Cancel. It stops the solver within a sweep or pipeline run, typically a few milliseconds, and discards the result (Chapter 5). | Nothing to fix; click it to stop waiting, then Solve again when you are ready. |
 | A dialog titled "This Design Is Not a Closed Solid" appears when saving or exporting | The design does not currently solve to a closed solid, and you are about to write a file anyway. | Click **Cancel** and fix the design first, or **Save Anyway** (**Export Anyway**) to write it with a `NOT A CLOSED SOLID` header stamp so the file itself carries the warning (Chapter 11). |
 | Save writes a **draft** even though every block has an anchor tier | The design has more facet planes than the solver can verify (currently more than 400 total planes) -- the masts it would otherwise produce are untrustworthy placeholders, so the app saves a draft instead, the same as a design with no anchor tiers yet (Chapter 11). | Reduce the design's total plane count (fewer indices per tier, or split the design) and save again once it solves within the limit. |
+| The cutting sheet row reads only `Cut to depth 2.81 mm.` | When that tier is cut, its facets reach no corner of the stone cut so far, so the sheet names no meet point. The sheet names only corners that already exist at that step (Chapter 11). | Nothing is wrong with the design's shape. Cut the tier to the printed depth by measurement, or press **Snap to Meets** in the verdict's list (Chapter 5) to move such depths onto the nearest corner, then check the stone (the snap can cut small tiers away) and the optics. |
+| The verdict says "The girdle is not level" | Facets cut into the girdle line and thin the girdle in places, so it is thinner there than elsewhere (Chapter 5). | Move the named tiers' depth or angle until they stop at the girdle line, or keep the design if the setting will hide it. |
 
 ## Rendering and Remote-Worker Problems
 
@@ -37,7 +39,7 @@ not shown.
 Increasing AA taps smooths boundaries; it does not restore those optical models.
 Ray-Traced needs no denoising. Metrics and tilt curves keep their existing model.
 
-Remote Ray-Traced work requires matching protocol-29 peers. Update the viewer,
+Remote Ray-Traced work requires matching protocol-42 peers. Update the viewer,
 coordinator and joined workers together if the handshake refuses an old version.
 The GPU path uses Vulkan, DX12 or Metal; OpenGL is not used on the desktop (a machine with
 only OpenGL renders on the CPU; setting the environment variable `WGPU_BACKEND=gl` tries it
@@ -84,7 +86,7 @@ environment is left alone. A headless worker has the same switch as a command-li
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| A design's notes contain what looks like leftover web-page text, or only one tier (crown or pavilion) is stored where you would expect two | The design was imported from an external design-sharing source, and that import had a data-cleanup issue that has since been fixed. | Re-sync your catalogue against its original source to pick up the corrected import. If you do not manage the catalogue yourself, ask whoever does to re-run the sync. |
+| A design's notes contain what looks like leftover web-page text, or only one tier (crown or pavilion) is stored where you would expect two | The design was imported from an external design-sharing source whose import left web-page text in the notes or dropped a tier. | Re-sync your catalogue against its original source to pick up a clean import. If you do not manage the catalogue yourself, ask whoever does to re-run the sync. |
 | Catalogue seems to have lost designs you had before | You most likely started the program from a different folder than usual -- the catalogue file is opened relative to the program's working directory, not a fixed location (Chapter 1). | Start the program the same way you did before. Your designs are not deleted, just not the ones this session is looking at. |
 
 ## Log File
@@ -117,7 +119,11 @@ a full backtrace; attach that too if it exists.
 
 ## Known Limitations
 
-- **The live margin estimate under an angle field ignores custom materials.**
+- **Exit collection changes what a render costs.** The app renders with exit collection
+  (Chapter 9). A render with a fixed number of samples takes somewhat longer per sample, but
+  it is much cleaner. The path cache is off with it. Frames with an HDR map, Daylight + Sun,
+  a stone with tools, a rough or ground surface, or Tray Reflection fall back to the classic
+  estimator and are as noisy as before.- **The live margin estimate under an angle field ignores custom materials.**
   Export Edited .asc, Save, the cutting sheet, the Solid view's windowing-risk
   hatch and the MARGIN badge all resolve a custom catalogue material's own RI
   (Chapter 6), but the small estimate shown while you type an angle uses the
@@ -142,13 +148,9 @@ a full backtrace; attach that too if it exists.
   design to preview" rather than a message that names New Design.../Load
   Selected/Open as the next step -- only the tier table itself got
   that friendlier empty-state text (Chapter 3).
-- **One well-known gem species is not in the render material list.**
-  Sphene (titanite) is deliberately left out of the built-in render
-  materials: it needs birefringence and dispersion far outside the range
-  this renderer's anisotropic optics have been verified against, so adding
-  it without that verification would mean shipping unverified numbers
-  rather than a measured material (Appendix C). Rutile is included and is
-  reachable from the Stone tab's material lists like every other built-in.
+- **Titanite (Sphene) and Rutile are extreme cases.** Both carry birefringence and
+  dispersion far beyond the other built-in render materials. They are in the Stone
+  tab's material lists like every other built-in (Appendix C).
 - **The two render paths agree on the daylight spectrum and on Quartz.** The
   "D65 Daylight" lighting presets use the tabulated measured daylight
   spectrum on the graphics card as well as on the CPU, and the one built-in
@@ -189,8 +191,8 @@ a full backtrace; attach that too if it exists.
   preform. That piece is convex: for a scanned rough it follows the rough's
   outline, not its true surface, so a notch in the scan is not in the piece.
   Inclusions you modelled in the planner are not drawn or checked in the editor.
-  A design file saved with a planned piece needs this build or a newer one; a
-  build from before 2026-10-12 refuses it as an unsupported version. To hand
+  A design file saved with a planned piece needs this build or a newer one, and an
+  older build refuses it as an unsupported version. To hand
   such a design to someone with an older build, press **Apply Preform** first, which
   replaces the piece with a Block or Cylinder (Chapter 15).
 

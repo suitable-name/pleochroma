@@ -1,7 +1,7 @@
 // Interior scatter decision of the plain haze (`scattering_sigma_s > 0`, Henyey-Greenstein). A
 // stone with oriented inclusions or a domain structure scatters in `ew_scatter_oriented` instead
-// (`ew_extend` routes by tag), so nothing reachable from this kernel is an oriented, Bragg or
-// zoned estimator: that code is what made this kernel the slowest to compile in the browser.
+// (`ew_extend` routes by tag), so no oriented, Bragg or zoned estimator is reachable from this
+// kernel, which keeps the browser build's compile time down.
 //
 // `ew_scatter_sample_plain` and `ew_scatter_commit_plain` are the non-oriented tails of the shared
 // `bounce_scatter_sample` and `bounce_scatter_commit` (08b): the same statements in the same
@@ -9,7 +9,8 @@
 // reaches this kernel. The event-vs-megakernel equivalence tests keep them in step.
 //
 // With an HDR environment the scatter-point NEE needs five more storage buffers than this kernel
-// may bind (plan 4.3: at most 8), so the event is parked on the ray and `ew_nee_hg` finishes it:
+// may bind (WebGPU's default limit is 8 per stage), so the event is parked on the ray and
+// `ew_nee_hg` finishes it:
 // NEE first, then the same commit (new direction + roulette) the megakernel runs. Parked state:
 // `prev_plane_normal` holds the scatter point and `pending_mis_dir.xyz` the sampled outgoing
 // direction (both are dead until the commit rewrites them: `have_prev_plane_normal` is cleared
@@ -54,7 +55,7 @@ fn ew_scatter_commit_plain(
             max_intensity = max(max_intensity, max((*s).stokes[k].x, 0.0));
         }
         let q = clamp(max_intensity, RR_FLOOR, 1.0);
-        let rr_rand = f32(hash_u32(seed0 ^ hash_u32(bounce ^ RUSSIAN_ROULETTE_STREAM))) / 4294967295.0;
+        let rr_rand = f32(discrete_draw(seed0, bounce, RUSSIAN_ROULETTE_STREAM)) / 4294967295.0;
         if (rr_rand > q) {
             return PHASE_TERMINATE;
         }
@@ -92,8 +93,8 @@ fn ew_scatter(
         bounce_scatter_alphas(&s, rc, &alphas);
         let ev = ew_scatter_sample_plain(&s, &h, ew.bounce, seed0, alphas);
         if (ev.scattered != 0u) {
-            // The plain haze has no Bragg reflection (`ev.bragg` is 0), so every scatter event of
-            // an HDR scene is parked for `ew_nee_hg`.
+            // The plain haze has no Bragg reflection (`ev.bragg` is 0). With NEE enabled, an HDR
+            // scatter event is parked for `ew_nee_hg`.
             if (SCATTER_NEE && params.env_mode == 2u && scatter_nee_zone_free() && ev.bragg == 0u) {
                 s.prev_plane_normal = ev.scatter_point;
                 s.pending_light_mis_dir = ev.new_dir;

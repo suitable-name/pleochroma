@@ -72,8 +72,8 @@ export component AppWindow inherits Window {
 
     // Theme override. The Material widget style (AboutSlint, text selection) reads
     // `Palette.color-scheme`; forcing dark or light writes it, and going back to
-    // "System" restores the value seen before the first override. (After that the
-    // palette no longer follows later system changes until restart.)
+    // "System" restores the value seen before the first override. (Until restart, the
+    // palette then ignores later system changes.)
     property <int> theme-choice: Shell.theme-choice;
     property <bool> palette-overridden: false;
     property <ColorScheme> system-scheme: ColorScheme.unknown;

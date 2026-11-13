@@ -53,7 +53,7 @@ with these optical models:
 | [`crates/pleochroma-formats`](crates/pleochroma-formats/README.md) | Reader/writer for GemCAD-style `.asc` cutting-instructions files. Zero runtime dependencies. |
 | [`crates/pleochroma-vault`](crates/pleochroma-vault/README.md) | Local SQLite-backed design library — models, storage, and local `.asc` import/export. |
 | [`apps/pleochroma-cut`](apps/pleochroma-cut/README.md) | The desktop faceting-design editor, built with [Slint](https://slint.dev/): browse, search, and render your library in 3D, with a faceting editor for material retargeting and a solid inspection view. |
-| [`apps/pleochroma-web`](apps/pleochroma-web/README.md) | The browser build (Slint compiled to WebAssembly, static files): edit a design and view Solid, Diagram, Path-Traced or Ray-Traced. CPU Web Workers handle rendering and slow solves. WebGPU supports every material class in Ray-Traced and isotropic materials in Path-Traced, with separate qualification and CPU fallback. No design library, remote rendering or Deep Solve; state lives in the tab's session. Built with `trunk`. |
+| [`apps/pleochroma-web`](apps/pleochroma-web/README.md) | The browser build (Slint compiled to WebAssembly, static files): edit a design and view Solid, Diagram, Path-Traced or Ray-Traced. CPU Web Workers handle rendering and slow solves. WebGPU supports every material class in Ray-Traced and isotropic materials in Path-Traced, with separate qualification and CPU fallback. No desktop catalogue or remote rendering; designs live in the browser's own library. Built with `trunk`. |
 | [`apps/pleochroma-mobile-android`](apps/pleochroma-mobile-android/README.md) | The Android phone and tablet app: a touch-first Slint UI over `pleochroma-mobile-core`, the JNI platform services (files, share, print) and a desktop preview of the same UI. Not in an app store yet; build and install it yourself. |
 | [`crates/pleochroma-mobile-core`](crates/pleochroma-mobile-core/README.md) | The UI-free core of the mobile app: app state, settings, the library, the compute threads (render, solve, analysis), cutting progress and the platform-service trait. Shared by the Android app and any later iOS app; tested natively. |
 | [`apps/pleochroma-worker`](apps/pleochroma-worker/README.md) | Headless render CLI and remote server — `serve` is a coordinator that serves a design library over mutual TLS and (on a `worker` build) spreads render requests over the machines that `join` it, rendering itself too with `--render`. |
@@ -121,7 +121,7 @@ cargo test -p pleochroma --features gpu            # the gpu-feature tests the l
 ```
 
 **`cargo test --workspace` does not build or exercise `pleochroma`'s `gpu` feature
-at all** — a real bug once hid in exactly that gap for a long time. If you've
+at all** — if you've
 touched anything under `pleochroma`'s `renderer::gpu` or `renderer::env_map_gpu`, or
 anything else `#[cfg(feature = "gpu")]`, run the
 second command too. `apps/pleochroma-cut` and `apps/pleochroma-worker` each have
@@ -138,6 +138,20 @@ cargo run --profile probe -p pleochroma --features gpu --example gpu_equivalence
 
 See [`crates/pleochroma/docs/gpu.md`](crates/pleochroma/docs/gpu.md) for what each of
 its verification tiers checks.
+
+**Beam tests never run under `cargo test`, not even with `--all-features`.** Beam
+tracing is retired (the `beam` features, see Feature flags): its code compiles with the
+features, but every beam test compiles only with `--cfg beam_tests`. Run them on request with
+
+```
+bash scripts/run_beam_tests.sh
+```
+
+The script restates the `RUSTFLAGS` of `.cargo/config.toml`, adds `--cfg beam_tests`, and
+builds into its own target directory, `target/beam-tests`, so the regular build cache is kept.
+
+Adaptive sampling is an optional build feature (`adaptive-sampling`, see Feature flags). Its
+tests compile and run whenever the feature is on, `--all-features` included.
 
 The desktop UI targets of `pleochroma-cut` also run only on command (`test = false`, so the
 workspace commands above skip them):
@@ -230,17 +244,16 @@ own, with its own profile.
 
 The PowerShell script targets **Windows MSVC**; the bash script's Windows target is
 **Windows GNU**, including when run through Wine. They do not use interchangeable
-profiles. For the LLVM 23 MSVC failure `Missing .seh_endepilogue` during the final
-PGO build, PowerShell now disables LLVM machine tail merging in both the training
-and final builds (`-C llvm-args=-enable-tail-merge=false`). PGO, LTO and exception
-unwinding remain enabled. This is a targeted compiler workaround pending a native
-rebuild, not a change to Naga or the renderer. Use `-DisableSehWorkaround` only to
+profiles. PowerShell disables LLVM machine tail merging in both the training and final builds
+(`-C llvm-args=-enable-tail-merge=false`), a workaround for the LLVM 23 MSVC failure
+`Missing .seh_endepilogue`. PGO, LTO and exception unwinding stay enabled. It is a compiler
+workaround, not a change to Naga or the renderer. Use `-DisableSehWorkaround` only to
 check a corrected toolchain. Profiles are isolated below
 `pgo-profile/msvc-no-tail-merge/` (or `msvc-default/` with that switch), so the first
 run retrains even with `-SkipTrain`; old GNU, legacy and opposite-mode profiles
 are not reused. The script prints the Rust/LLVM version to identify future reports.
 
-Retry an AVX2 desktop GPU build on Windows with:
+Build an AVX2 desktop GPU variant on Windows with:
 
 ```powershell
 .\scripts\pgo-build.ps1 -Cpu avx2 -Gpu gpu -Target cut
@@ -298,8 +311,9 @@ version, so `releases/latest/download/<name>` links always reach the newest buil
 
 The architectures run sequentially (`max-parallel: 1`), overlapping workflow runs
 are serialized, and Cargo uses one build job (`CARGO_BUILD_JOBS=1`, `--jobs 1`).
-The workflow builds only the desktop executable, uses the lockfile, and disables
-fat LTO, debug information and incremental compilation to reduce memory/disk use.
+The workflow builds only the desktop executable and uses the lockfile. To reduce
+memory/disk use it turns off the release profile's thin LTO, debug information and
+incremental compilation, and compiles each crate as one codegen unit.
 These are ordinary release builds, not PGO builds. It installs current stable
 Rust; the manifest's `rust-version` is a minimum, not a compiler pin.
 
@@ -327,6 +341,13 @@ All of the following are **off by default**, except `pleochroma-net`'s `compress
 | `apps/pleochroma-cut` | `experimental` | Bundle that turns on `physical-color`. |
 | `apps/pleochroma-worker` | `worker` | Render capacity: the coordinator's worker port and job execution on `serve`, `serve --render`, the `join` subcommand, and the `render` subcommand actually working. Turns on `pleochroma-net/render`. Without it, `pleochroma-worker` serves a read-only design library only. |
 | `apps/pleochroma-worker` | `gpu` | Implies `worker`. Routes `render`/`serve --render`/`join` tracing through `pleochroma`'s GPU megakernel, falling back to the CPU tracer whenever it declines. |
+| `pleochroma` | `beam` | The retired beam tracer of faceted stones. The code is kept and keeps compiling; off by default. Its tests run only through `scripts/run_beam_tests.sh`, never under `cargo test`, not even with `--all-features`. |
+| `apps/pleochroma-cli` | `beam` | The retired beam tracer for `render` and `tilt-video` (the `--beam*` flags). Enables `pleochroma/beam` and `pleochroma-cut/beam`, because the CLI renders through the cut executor. Off by default; without it the `--beam*` words are unknown flags. Tests only through `scripts/run_beam_tests.sh`. |
+| `apps/pleochroma-cut` | `beam` | The retired beam tracer in the app: the Beam Tracing boxes, the two beam Preferences, kept beams, remote beam tiles. Enables `pleochroma/beam`. Off by default; settings and job files keep their beam choices either way. Tests only through `scripts/run_beam_tests.sh`. |
+| `apps/pleochroma-cut` | `adaptive-sampling` | Adaptive sampling in the app: the Adaptive Sampling boxes of the export dialog and the tilt video section, and the Preferences switch "Adaptive Sampling in the Viewport". Off by default (`beam` includes it); settings and job files keep their adaptive choices either way, and a job that asks for it renders at its own samples per pixel with the note "Adaptive sampling off: this build has no adaptive sampling." |
+| `apps/pleochroma-cli` | `adaptive-sampling` | Enables `pleochroma-cut/adaptive-sampling`. Adds `--adaptive`, `--target-noise`, `--min-spp`, `--noise-metric` and `--gpu-convergence` to `render` and `tilt-video`; without it they are unknown flags. Off by default. |
+| `apps/pleochroma-worker` | `adaptive-sampling` | Implies `worker`. The adaptive live-pass rendering of a worker and coordinator. Off by default; a build without it answers live-pass requests with "unsupported request" (code 5). |
+| `apps/pleochroma-worker` | `beam` | Implies `worker`. The retired beam-tile rendering of a worker and coordinator; with `gpu` it gives the GPU beam engine. Off by default; a build without it answers beam-tile requests with "unsupported request" (code 5). Tests only through `scripts/run_beam_tests.sh`. |
 
 ## Screenshots
 

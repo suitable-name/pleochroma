@@ -1,15 +1,18 @@
-// The Color Pattern Editor window's state (plan 2026-10-21, section 5.2).
+// The Color Pattern Editor window's state.
 //
 // A global is instantiated once per top-level window, so the Color Pattern window has its OWN
-// instance of `ColorPatternModel`, set by Rust (`gui::color_pattern`). The window holds only what
-// is typed; everything it shows is pushed from Rust. Properties the user edits are `in-out` so a
-// control can two-way bind them (a `ComboBox`, a `LineEdit`); Rust still owns the truth and writes
-// them back on every change.
+// instance of `ColorPatternModel`, set by Rust (`gui::color_pattern`). The window holds only
+// what is typed and a few transient overlay positions; everything else is pushed from Rust.
+// Properties the user edits are `in-out` so a control can two-way bind them (a `ComboBox`, a
+// `LineEdit`); Rust still owns the truth and writes them back on every change.
 //
 // Slider callbacks (`param_changed`, `size_changed`, ...) fire on every value change, including
 // the one a Rust write causes: Rust should ignore a value equal to the one it holds.
+//
+// Row indexes (`select_row`, `delete_row`, ...) are VIEW indexes: the list shows the top layer
+// first and the base last, the reverse of the stored order. Rust maps them.
 
-// One row of the zone list: the base zone or one zone inside it.
+// One row of the layer list: the base zone or one zone inside it.
 export struct PatternZoneRow {
     // "Base" or "Zone 1".
     title: string,
@@ -17,15 +20,23 @@ export struct PatternZoneRow {
     name: string,
     // "3-Sided Prism", or "Everywhere else" for the base.
     shape: string,
-    // One short line of the key numbers ("35 % of width").
+    // One short line of the key numbers ("3-sided prism \u{b7} 22 % wide").
     summary: string,
     // The zone's color (the Along or Alpha color of a pleochroic zone).
     swatch: color,
     // The Across or Gamma color; only drawn when `dichroic` is true.
     swatch_across: color,
+    // The Beta color of a biaxial zone (unused for the diagonal swatch, kept for tooltips).
+    swatch_mid: color,
     // The zone is pleochroic: Along and Across, Alpha, Beta and Gamma, or a pleochroic variant.
     dichroic: bool,
     selected: bool,
+    // The session-only eye: the zone is left out of the preview (never stored).
+    hidden: bool,
+    // -1 for the base, else the index into `shape_options` (picks the shape icon).
+    shape_icon: int,
+    // The base zone: locked, no grip, no move or delete.
+    is_base: bool,
 }
 
 // One parameter slider of the selected zone (Advanced mode).
@@ -44,20 +55,51 @@ export struct PatternParamRow {
     hint: string,
 }
 
-// One handle drawn over the preview image. `x` and `y` are fractions (0 to 1) of the preview
-// image's width and height, so the window needs no knowledge of the camera.
+// One handle drawn over the main Slice picture. `x` and `y` are fractions (0 to 1) of the
+// preview image's width and height, so the window needs no knowledge of the camera.
 export struct PatternHandle {
     x: float,
     y: float,
     // 0 move, 1 size, 2 rotate, 3 other: tells the window which shape to draw.
     kind: int,
     hovered: bool,
+    // What dragging it changes ("Size 22 %", "Offset X 3 %"); shown in a chip while hovered.
+    label: string,
+}
+
+// One color tile of the selected card.
+export struct PatternColorTile {
+    // "Color", "Along c", "Across c", "\u{3b1}", "\u{3b2}" or "\u{3b3}".
+    caption: string,
+    color: color,
+    // The `open_picker` slot: 0 the one color, 1 Along or Alpha, 2 Across or Beta, 3 Gamma.
+    slot: int,
+    // The zone takes this color from a material variant (a click turns it into a custom color).
+    from_variant: bool,
+}
+
+// One material variant offered as a chip in the picker.
+export struct PatternVariantChip {
+    label: string,
+    along: color,
+    across: color,
+}
+
+// One thumbnail of the "Start From" gallery.
+export struct PatternTile {
+    label: string,
+    image: image,
+    // The species' typical zoning (drawn with the amber star).
+    typical: bool,
 }
 
 export global ColorPatternModel {
     // --- Header ----------------------------------------------------------------------------
-    // The full window title ("Color Pattern \u{2014} Watermelon Tourmaline"); empty: the default.
+    // The material's name ("Watermelon Tourmaline"), shown in the header. The window builds its
+    // own title ("Color Pattern \u{2014} " + title) from it; empty: just "Color Pattern".
     in property <string> title;
+    // The header's second line: the layer count and the pattern axis.
+    in property <string> subtitle;
     in property <bool> stone_target: false;
     in property <bool> targets_design: false;
     in property <bool> design_preview_available: false;
@@ -67,78 +109,98 @@ export global ColorPatternModel {
     in property <bool> show_advanced: false;
     // The pattern differs from what the material dialog holds.
     in property <bool> dirty: false;
-    // A color is being solved on the worker: the window says so beside the buttons.
+    // A color is being solved on the worker: the footer says so.
     in property <bool> solving_colors: false;
+    // The window is below 1060 px wide: a narrower layer panel, inset and Edges slider. Set by
+    // Rust from the window width as a plain value; never a binding to the width (a loop).
+    in property <bool> narrow: false;
+    // The header chip: the base color, and the first zone's color.
+    in property <color> header_along: #888888;
+    in property <color> header_across: #888888;
 
-    // --- Templates and presets ---------------------------------------------------------------
-    // "Uniform", "Bicolor", "Tricolor", "Banded", "Watermelon", ...
-    in property <[string]> template_labels;
-    // The saved presets of the Presets menu. The first entry is the menu's own prompt
-    // ("My Presets"), which picks nothing.
-    in property <[string]> preset_labels;
-    callback template_picked(int);
-    // The typical patterns of the stone's species ("Hexagonal Banding" for a sapphire), shown
-    // before the generic templates; empty for a species that has none. `typical_title` is
-    // "Typical for Sapphire:". Picking one builds the pattern from the stone's own color.
-    in property <string> typical_title;
-    in property <[string]> typical_labels;
+    // --- "Start From" gallery ------------------------------------------------------------------
+    in property <bool> gallery_open: false;
+    callback open_gallery();
+    callback close_gallery();
+    // "Typical for Tourmaline"; empty means the gallery has no such section.
+    in property <string> typical_section;
+    in property <[PatternTile]> typical_tiles;
+    in property <[PatternTile]> template_tiles;
+    in property <[PatternTile]> preset_tiles;
+    // Each takes an index into its own tile list. Picking one closes the gallery (Rust).
     callback typical_picked(int);
+    callback template_picked(int);
     callback preset_picked(int);
-    // "Save as Preset...": Rust opens the name field (`preset_naming`) with a suggested name.
+    // The \u{d7} on a preset tile.
+    callback preset_delete(int);
+    // The "Save Current" tile: Rust opens the name field (`preset_naming`) with a suggested name.
     callback save_preset();
-    // The preset name field is open next to the Presets menu; the text is `preset_name`.
     in property <bool> preset_naming: false;
     in-out property <string> preset_name;
     // Enter, or "Save" beside the field, with the typed name.
     callback preset_name_committed(string);
     callback preset_name_cancelled();
 
-    // --- Preview -----------------------------------------------------------------------------
-    // 0 Crystal, 1 Current Design, 2 Cross-Section.
-    in-out property <int> preview_mode: 2;
+    // --- Stage -------------------------------------------------------------------------------
+    // 0 Stone (the design, Path-Traced), 1 Slice, 2 Crystal.
+    in-out property <int> view: 1;
+    callback view_changed(int);
     in property <image> preview_image;
-    // The preview is being (re)drawn: the window shows "Updating..." over the old picture.
-    in property <bool> preview_busy: false;
-    // "Patterns show in Path-Traced views. Ray-Traced shows the base color."
-    in property <string> preview_note;
-    // The Cross-Section's slice position along the pattern axis, 0 to 1. Used in mode 2 only.
+    // The other main view, small, bottom right of the stage.
+    in property <image> inset_image;
+    // "Slice 50 % \u{b7} drag to edit" or "Stone".
+    in property <string> inset_caption;
+    // The inset's expand button, or a click on the inset.
+    callback swap_views();
+    // 0 idle, 1 refining (samples are being added), 2 updating (a new pattern is waiting).
+    in property <int> render_state: 0;
+    // The status chip's tooltip: which views show the pattern.
+    in property <string> render_hint;
+    // The Slice view's position along the pattern axis, 0 to 1 (the rail beside the picture).
     in-out property <float> slice_pos: 0.5;
-    // The size of the picture area in logical pixels, written by the window whenever it changes.
-    // Rust renders the preview at this aspect, so the picture fills the area and the handle
-    // fractions below match it.
+    callback slice_changed(float);
+    // The size of the main picture area and of the inset picture in logical pixels, written by
+    // the window whenever they change. Rust renders at that aspect, so the pictures fill their
+    // areas and the handle fractions below match.
     in-out property <length> preview_area_width: 0px;
     in-out property <length> preview_area_height: 0px;
-    // Zone handles over the preview, in the order Rust draws them.
+    in-out property <length> inset_area_width: 0px;
+    in-out property <length> inset_area_height: 0px;
+    // Zone handles over the main Slice picture, in the order Rust draws them.
     in property <[PatternHandle]> handle_points;
-    callback preview_mode_changed(int);
-    callback slice_changed(float);
-    // The pointer over the preview: x and y as fractions of the picture (0 to 1), then 0 down,
-    // 1 move, 2 up. Rust picks and drags handles from it.
+    // The pointer over the main picture: x and y as fractions of the picture (0 to 1), then 0
+    // down, 1 move, 2 up. Rust picks and drags handles from it, and selects the zone under a
+    // press that misses every handle.
     callback viewport_pointer(float, float, int);
+    // Where the selected zone's name chip sits, as picture fractions; negative hides it.
+    in property <float> selected_label_x: -1;
+    in property <float> selected_label_y: -1;
 
-    // --- Zone list -----------------------------------------------------------------------------
+    // --- Layers --------------------------------------------------------------------------------
+    // Top layer first, the base last.
     in property <[PatternZoneRow]> zone_rows;
-    // Index into `zone_rows`; 0 is the base zone.
-    in property <int> selected_zone: 0;
+    // Index into `zone_rows`.
+    in property <int> selected_row: 0;
     // "A pattern holds at most 4 zones besides the base." while `can_add_zone` is false.
     in property <bool> can_add_zone: true;
     in property <string> add_zone_hint;
-    // The selected zone is not the base (Duplicate, Delete, Move need a real zone).
-    in property <bool> can_edit_zone: false;
-    callback select_zone(int);
-    // The index into `shape_options` of the shape to add.
-    callback add_zone(int);
-    callback duplicate_zone();
-    callback delete_zone();
-    // -1 moves the selected zone up the list (it covers fewer zones), +1 down.
-    callback move_zone(int);
-
-    // --- Selected zone ---------------------------------------------------------------------------
-    // The name field; Rust sets it on selection, the window two-way binds it.
-    in-out property <string> zone_name;
-    callback rename_zone(string);
-    // Shape combo (Advanced). Disabled for the base zone.
+    // "Cylinder", "3-Sided Prism", ... (the order the shape icons follow).
     in property <[string]> shape_options;
+    callback select_row(int);
+    // The index into `shape_options` of the shape to add; the new zone goes on top.
+    callback add_zone(int);
+    callback duplicate_row(int);
+    callback delete_row(int);
+    // `delta` -1 moves the row up the list (it covers more), +1 down.
+    callback move_row(int, int);
+    // Drag and drop: the card at view index `from` is dropped at view index `to`.
+    callback reorder_row(int, int);
+    // The eye: leave the zone out of the preview (session only).
+    callback toggle_hidden(int);
+    callback rename_row(int, string);
+
+    // --- Selected card -----------------------------------------------------------------------------
+    // Shape icons (Advanced). Disabled for the base zone.
     in-out property <int> shape_index: 0;
     in property <bool> shape_enabled: false;
     callback shape_changed(int);
@@ -154,62 +216,69 @@ export global ColorPatternModel {
     in property <string> size_text;
     in property <bool> size_enabled: false;
     callback size_changed(float);
-
-    // --- Color -------------------------------------------------------------------------------------
-    // What the selected zone's color is: 0 one picked color, 1 Along and Across, 2 Alpha, Beta
-    // and Gamma, 3 a color variant of the stone's material.
-    in property <int> color_kind: 0;
-    // The color forms the picker offers for a picked color, by the rank of the material: One Color
-    // on a cubic or amorphous one, Along and Across on a uniaxial one, Alpha, Beta and Gamma on a
-    // biaxial one. A zone whose color has another form (a one-color zone on a pleochroic material:
-    // "Legacy: No Pleochroism") lists it as well; `color_form_index` is the one it has.
-    in property <[string]> color_form_options;
-    in-out property <int> color_form_index: 0;
-    // One sentence under the form menu: what the material's rank means, or why the zone is legacy.
-    in property <string> color_form_hint;
-    callback color_form_changed(int);
-    // Where the color comes from: "Custom" (picked) or "Variant". The Source menu is offered only
-    // when the stone's material has variants (`variants_available`).
-    in property <[string]> color_source_options: ["Custom", "Variant"];
-    in-out property <int> color_source_index: 0;
-    in property <bool> variants_available: false;
-    // 0 Custom, 1 Variant.
-    callback color_source_changed(int);
-    // The variants of the stone's material that fit it (Material Default first), and the one the
-    // selected zone has (-1: none).
+    // One tile per color: one on a cubic or amorphous material, Along c and Across c on a
+    // uniaxial one, \u{3b1}, \u{3b2} and \u{3b3} on a biaxial one.
+    in property <[PatternColorTile]> color_tiles;
+    // "Pleochroic \u{b7} uniaxial".
+    in property <string> rank_text;
+    // "Custom color" first, then the material's variants.
     in property <[string]> variant_labels;
-    in-out property <int> variant_index: -1;
-    in property <string> variant_hint;
-    // The index into `variant_labels` of the variant to copy into the zone.
+    // The variant the zone has; 0 is "Custom color".
+    in-out property <int> variant_index: 0;
     callback variant_picked(int);
-    // The zone's color as the chips show it: the overall color, and the Along (Alpha), Beta and
-    // Across (Gamma) colors of a pleochroic zone or variant.
-    in property <color> single_swatch: #888888;
-    in property <color> along_swatch: #888888;
-    in property <color> beta_swatch: #888888;
-    in property <color> across_swatch: #888888;
-    // 0 the one color, then in slot order: 1 Along or Alpha, 2 Across or Beta, 3 Gamma. Rust opens
-    // the body-color editor in the main window.
-    callback pick_color(int);
-    // A stone's color picker lives in this window, independent of the material dialog.
+    // "From Rubellite", under the tiles of a variant zone; empty otherwise.
+    in property <string> variant_caption;
+    // A one-color zone on a pleochroic material: the amber notice and its Convert button.
+    in property <bool> legacy_notice: false;
+    callback convert_legacy();
+    // The validation sentence, amber at the bottom of the selected card; empty when valid.
+    in property <string> message;
+    // Not read by the window: the color tiles, `variant_labels` and `variant_caption` replace them.
+    in property <int> color_kind: 0;
+    in property <bool> variants_available: false;
+    in property <string> variant_hint;
+
+    // --- Color picker popover --------------------------------------------------------------------
     in property <bool> picker_open: false;
-    in-out property <float> picker_tone: 55;
-    in-out property <float> picker_chroma: 40;
-    in-out property <float> picker_hue: 260;
-    in property <color> picker_swatch;
-    callback picker_changed(int, float);
+    // The tile slot being edited (the same numbers as `PatternColorTile.slot`).
+    in property <int> picker_slot: 0;
+    // "Along the c-axis".
+    in property <string> picker_title;
+    // The LCh plane at the current hue (chroma to the right, lightness up) and the hue strip.
+    in property <image> picker_plane;
+    in property <image> picker_hue_strip;
+    // Lightness 0 to 100, chroma 0 to 150, hue 0 to 360.
+    in-out property <float> picker_l: 55;
+    in-out property <float> picker_c: 40;
+    in-out property <float> picker_h: 260;
+    in-out property <string> picker_hex;
+    // The L, C and H number fields were committed.
+    callback picker_lch_changed(float, float, float);
+    // Plane: x (chroma) and y (lightness, 0 at the top) as fractions; phase 0 down, 1 move, 2 up.
+    callback picker_plane_pointer(float, float, int);
+    // The hue strip: x as a fraction; phase as above.
+    callback picker_hue_pointer(float, int);
+    callback picker_hex_committed(string);
+    // A tile was clicked: open the picker for that slot.
+    callback open_picker(int);
+    in property <[PatternVariantChip]> picker_variants;
+    callback picker_variant_picked(int);
+    // The picked color, and the color the stone shows for it, with one sentence about it.
+    in property <color> picker_result_from: #888888;
+    in property <color> picker_result_to: #888888;
+    in property <string> picker_result_text;
+    in property <bool> picker_solving: false;
     callback picker_applied();
     callback picker_cancelled();
-    callback picker_srgb(color);
 
-    // --- Pattern ---------------------------------------------------------------------------------------
+    // --- Pattern toolbar ----------------------------------------------------------------------------
     // "Table Normal", "Across", "Across Turned", "Custom".
     in property <[string]> axis_options;
     in-out property <int> axis_index: 0;
     // Tilt and turn in degrees (Advanced); editable when the axis is Custom (index 3).
     in-out property <float> tilt_deg: 0;
     in-out property <float> turn_deg: 0;
-    // true: "Scales With Stone Size"; false: "Fixed in mm".
+    // true: "Scales With Stone"; false: "Fixed in mm".
     in property <bool> scales_with_stone: true;
     // Boundary softness: 0 Sharp to 1 Soft.
     in-out property <float> softness: 0;
@@ -218,9 +287,7 @@ export global ColorPatternModel {
     callback scale_mode_changed(bool);
     callback softness_changed(float);
 
-    // --- Validation and history ----------------------------------------------------------------------------
-    // One validation sentence under the property panel; empty when the pattern is valid.
-    in property <string> message;
+    // --- Footer and history ---------------------------------------------------------------------------
     in property <bool> can_undo: false;
     in property <bool> can_redo: false;
     callback undo();
@@ -228,12 +295,10 @@ export global ColorPatternModel {
     // Close without keeping the edits (Rust asks first when `dirty`).
     callback cancel();
     // Cancel was pressed with unsaved edits: the window asks "Discard the changes to this
-    // pattern?" in a bar above the buttons.
+    // pattern?" in a bar above the footer.
     in property <bool> confirm_discard: false;
     callback discard_confirmed();
     callback discard_declined();
-    // Store the pattern with the material and keep the window open.
-    callback apply();
-    // Store the pattern with the material and close the window.
+    // Store the pattern with the material and close the window ("Done" or "Save to Material").
     callback save();
 }

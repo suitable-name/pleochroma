@@ -20,13 +20,13 @@ import { CompareMetricsStrip } from "compare_metrics_strip.slint";
 component ChoicePill inherits Rectangle {
     in property <string> label;
     in property <string> hint;
-    // The hint broken into lines of at most ~70 characters, for the tooltip (a long hint was one
-    // 1300 px line); empty keeps the hint itself.
+    // The hint broken into lines of at most ~70 characters for the tooltip, since one long
+    // line is too wide to read; empty keeps the hint itself.
     in property <string> tip;
     in property <bool> active;
     callback clicked();
 
-    // 28 px like every other pill row of the app (the viewport toolbars, the Parameters tabs).
+    // 28 px, the height of the other pill rows of the app.
     height: 28px;
     width: pill_text.preferred-width + 24px;
     border-radius: Theme.radius-sm;
@@ -68,8 +68,8 @@ component ChoicePill inherits Rectangle {
     }
 }
 
-// The renderer switch (Solid / Path Traced / Ray Traced), mounted in the first row or, in a narrow pane, in
-// a row of its own.
+// The renderer switch (Solid / Path Traced / Ray Traced): in the first row, or in a row of its
+// own in a narrow pane.
 component RendererPills inherits HorizontalLayout {
     spacing: 6px;
 

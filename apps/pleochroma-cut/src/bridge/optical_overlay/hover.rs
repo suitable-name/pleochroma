@@ -91,8 +91,7 @@ pub(super) fn hover_text(
 /// The scintillation part of the read-out: the pixel's 0-100 index and how many of the five
 /// yaw poses returned light at its centre ray.
 fn scintillation_read_out(map: &OpticalImage, index: usize) -> String {
-    // The same combination the overlay draws: the module's 60/40 of the pixel's spatial
-    // and temporal terms.
+    // The same 60/40 blend of the spatial and temporal terms that the overlay draws.
     let Some(value) = scintillation_index_at(map, index) else {
         return " | Scint Not Computed".to_string();
     };

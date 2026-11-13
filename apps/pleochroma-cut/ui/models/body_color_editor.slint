@@ -1,8 +1,8 @@
-// State of the path-aware L*C*h body-colour editor (`components/material_editor/lch_editor.slint`).
+// State of the path-aware L*C*h colour editor (`components/material_editor/lch_editor.slint`).
 //
-// Tone, Saturation and Hue are the sliders' values (CIE L*, C*, h at D65). Rust solves the
-// colour for the design's reference path on a background thread
-// (`gui::editor::render_color`, `gui::editor::lch_color`) and pushes the swatches of the
+// Tone (L*), Chroma (C*) and Hue (h) are the sliders' values, under D65. Rust solves the
+// colour for the design's reference path on a background thread (`gui::editor::render_color`,
+// using `pleochroma_editor::lch_color`) and pushes the swatches of the
 // solved colour at 3 mm / 5 mm / 10 mm / "this stone", the reachability badge and `busy`.
 // Nothing is stored in the design until `apply_requested` (one undoable edit).
 export global BodyColorEditorModel {
@@ -63,7 +63,7 @@ export global BodyColorEditorModel {
     callback axis_selected(int);
     // A slider moved (tone, chroma, hue): solve again (the newest request wins).
     callback lch_edited(float, float, float);
-    // The hue/saturation/brightness picker's colour: converted to L*C*h, set on the sliders, solved.
+    // The HSB picker's colour: converted to L*C*h, set on the sliders, then solved.
     callback picker_picked(color);
     // Apply colour: store the last solved colour in the design as ONE undoable edit.
     callback apply_requested();

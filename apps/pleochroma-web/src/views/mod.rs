@@ -1,9 +1,8 @@
-//! The Solid and Diagram tabs: the desktop's solid viewport in its
-//! Solid (view mode 0) and Diagram (view mode 3) modes, drawn on the main thread
-//! by `pleochroma_solid::preview` -- the SAME planner/state machine/rasterizer the
-//! desktop's two worker threads run, so the same design, pose and size give the
-//! same pixels (`pleochroma_solid`'s `preview::tests` pin that against bytes
-//! recorded from the desktop).
+//! The Solid and Diagram tabs, drawn on the main thread by `pleochroma_solid::preview`.
+//!
+//! It is the desktop's solid viewport (view modes 0 and 3) and runs the same planner, state
+//! machine and rasterizer as the desktop's worker threads. The same design, pose and size
+//! therefore give the same pixels.
 //!
 //! # How a frame comes about
 //!
@@ -20,15 +19,13 @@
 //! - **overlay** (`RedrawRequest::UpdateFacetOverlay`) for hover, click and the
 //!   multi-selection highlight.
 //!
-//! A replan that comes back `Stale` (the subgraph re-solve overran the budget)
-//! shows the previous planes with the edited tiers outlined as pending, exactly as
-//! the desktop does, and replans once more on the next event-loop turn from the
-//! late result it chained forward. A design with no usable masts (first load, a
-//! tier added or removed) is planned right away when the desktop would solve it
-//! synchronously (`solve_policy::should_solve_synchronously`, or every tier
-//! pinned); otherwise the views keep the last frame, ask the app for a solve
-//! (`app::solve::with_solved`, answered by the solve Worker for larger designs) and
-//! replan when it arrives.
+//! A replan that comes back `Stale` (the subgraph re-solve overran the budget) shows the
+//! previous planes with the edited tiers outlined as pending. It then replans on the next
+//! event-loop turn from the late result. A design with no usable masts is planned at once
+//! when the desktop would solve it synchronously (`solve_policy::should_solve_synchronously`,
+//! or every tier pinned). Otherwise the views keep the last frame, ask the app for a solve
+//! (`app::solve::with_solved`, answered by the solve Worker for larger designs) and replan
+//! when it arrives.
 //!
 //! # When [`refresh`] runs
 //!
@@ -57,13 +54,13 @@
 //!
 //! # The Cut slider
 //!
-//! The toolbar's Cut slider walks the same cutting steps in the same order as Cutting Mode and
-//! the desktop: handle `k` is the stone after the first `k` steps in cutting order, so slider
-//! position `k` and Cutting Mode step `k` draw one stone. `SolidModel.tier-cutoff` stores the
-//! position in the desktop's encoding (`-1` finished, `-2` rough, `n >= 0` through steps `0..=n`);
-//! `cut_slider::publish` writes the step count, handle and label from it on every refresh, and
-//! `refresh` hands the planner `cut_steps` (never the table-row `tier_cutoff`). The mapping and
-//! its tests are `pleochroma_web_core::cut_slider`.
+//! The toolbar's Cut slider walks the same cutting steps in the same order as Cutting Mode:
+//! handle `k` is the stone after the first `k` steps, so slider position `k` and Cutting Mode
+//! step `k` draw one stone. `SolidModel.tier-cutoff` stores the position in the desktop's
+//! encoding (`-1` finished, `-2` rough, `n >= 0` through steps `0..=n`). `cut_slider::publish`
+//! writes the step count, handle and label from it on every refresh, and `refresh` hands the
+//! planner `cut_steps`, never the table-row `tier_cutoff`. The mapping is in
+//! `pleochroma_web_core::cut_slider`.
 //!
 //! # Selection API (for the tier table)
 //!

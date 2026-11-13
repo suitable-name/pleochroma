@@ -18,7 +18,7 @@ use std::{
 };
 
 /// The outline targets the solving, optimizing and comparing lessons introduced (see
-/// `guide/tutorials/solving/`). The older targets (`solve_button`, `tier_table`,
+/// `guide/tutorials/solving.rs`). The older targets (`solve_button`, `tier_table`,
 /// `design_settings`, `inspector_tier`, `preform_tab`) belong to the lessons that introduced them.
 const SOLVING_TARGETS: &[&str] = &[
     "auto_solve",

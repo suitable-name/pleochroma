@@ -7,30 +7,28 @@
 //! desktop. Selection restricts independent angle variables without replacing authored
 //! meet constraints.
 //!
-//! Retarget Shift runs the desktop's own check (`retarget::check`): the plan's angles are
-//! projected onto the ORIGINAL meet network, so a design whose facets are pinned (every
-//! imported design) works, and the answer carries the masts the projection moved
-//! ([`RetargetResultData::anchors`]) next to the angles. The page applies them together with
-//! `retarget::apply_with_anchors`, which validates the exact state again. A change the check
-//! refuses comes back as [`RetargetResultData::solve_error`], never as rows.
+//! Retarget Shift runs the desktop's own check (`retarget::check`). The plan's angles are
+//! projected onto the original meet network, so designs with pinned facets work. The answer
+//! carries the masts the projection moved ([`RetargetResultData::anchors`]) next to the
+//! angles; the page applies both with `retarget::apply_with_anchors`, which validates the
+//! state again. A change the check refuses comes back as [`RetargetResultData::solve_error`],
+//! never as rows.
 //!
-//! Retarget's legacy angle-only Optimize path searches from the original design under the
-//! stricter Retarget preservation policy and carries no masts; states requiring pinned-depth
-//! changes are refused up front.
+//! Retarget Optimize searches from the original design under the stricter Retarget
+//! preservation policy and returns no masts. States that need pinned-depth changes are
+//! refused up front.
 //!
 //! # Progress and cancel
 //!
-//! `optimize_design` reports its running evaluation count and stage through
-//! [`SolveHooks::on_progress`]; the Worker turns each report into a
-//! `FromWorker::Progress`. A Worker cannot read a message while it computes, so the page
-//! cancels a running search through a side channel: the Worker's progress hook (run
-//! between tier decisions) looks at the job's cancel URL (`ToWorker::WatchCancel`) and
-//! sets [`SolveHooks::cancel`], the flag the search polls once per tier decision. The
-//! search then returns the best result it has, as the desktop's Cancel does; the host
-//! terminates the Worker only if that takes longer than
-//! `host::GRACEFUL_CANCEL_MS` (30 s: the search still scores the design before and
-//! after at full fidelity, about 10 s each on one wasm thread, and cannot look at the
-//! cancel flag while it is scoring the starting point).
+//! `optimize_design_with` reports its evaluation count and stage through
+//! [`SolveHooks::on_progress`]; the Worker turns each report into a `FromWorker::Progress`.
+//! A Worker cannot read a message while it computes, so the page cancels a running search
+//! through the job's cancel URL (`ToWorker::WatchCancel`). The Worker's progress hook, run
+//! between tier decisions, sets [`SolveHooks::cancel`], which the search polls once per tier
+//! decision. The search then returns its best result so far. The page's solve client
+//! (`host::SolveClient`) terminates the Worker only after its `GRACEFUL_CANCEL_MS` (30 s),
+//! because the search scores the start and end designs at full fidelity before it can look
+//! at the flag.
 
 use pleochroma::optics::raytracer::LightingPreset;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -60,8 +58,7 @@ use serde::{Deserialize, Serialize};
 use super::SolveResponse;
 
 /// What a running search reports: the stage, and the evaluations spent of the run's
-/// inclusive budget (`inclusive_max_evaluations`, the coordinate cap plus the polish
-/// stage's own).
+/// inclusive budget (see `inclusive_max_evaluations_for`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProgressReport {
     /// The search stage.
@@ -177,19 +174,19 @@ pub struct MaterialSelectionData {
     pub body_color_override: Option<[f32; 3]>,
     /// The seven-band body colour of the path-aware L*C*h editor
     /// (`MaterialSelection::body_color_bands_override`), rows
-    /// `[centre_nm, width_nm, amplitude_per_mm]`; empty is "no bands" and the triple above
-    /// colours the stone. Wire version 12.
+    /// `[centre_nm, width_nm, amplitude_per_mm]`; empty means no bands, and the triple above
+    /// colours the stone.
     #[serde(default)]
     pub body_color_bands: Vec<[f32; 3]>,
     /// `MaterialSelection::absorption_path_scale_override` (mm per model unit) for the bands.
-    /// Wire version 12.
     #[serde(default)]
     pub absorption_path_scale_override: Option<f32>,
     /// Optional per-stone color zones, independent of the named material.
     #[serde(default, deserialize_with = "crate::pattern_wire::deserialize")]
     pub color_pattern_override: Option<pleochroma_cut_core::material::pattern::ColorPattern>,
     /// `MaterialSelection::color_variant_override`: the design's color variant snapshot, so a
-    /// Retarget keeps the stone's per-axis color. Appended last. Wire version 31.
+    /// Retarget keeps the stone's per-axis color. Keep new fields appended last, the wire
+    /// format is positional.
     #[serde(default)]
     pub color_variant: Option<VariantChoice>,
 }
@@ -243,7 +240,7 @@ pub struct AngleChangeData {
 /// named no material.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OptimizeResultData {
-    /// Portable freshness and complete accepted-state metadata. Old messages fail Apply.
+    /// Freshness and accepted-state metadata the page checks before applying the result.
     #[serde(default)]
     pub provenance: Option<pleochroma_cut_core::optimize::OptimizationProvenance>,
     /// Windowing, extinction and tilt brilliance before, in percent.
@@ -366,8 +363,8 @@ pub struct RetargetParams {
     pub crown_fraction: f64,
     /// Scale the crown angle by the critical-angle ratio instead.
     pub scale_crown_by_ratio: bool,
-    /// Let every crown angle follow the pavilion's vertical stretch (the default; a message
-    /// from before this field existed reads as `true`).
+    /// Let every crown angle follow the pavilion's vertical stretch. Missing from a message,
+    /// it reads as `true`.
     #[serde(default = "crown_follows_pavilion_default")]
     pub crown_follows_pavilion: bool,
     /// Shift or Optimize.
@@ -501,7 +498,7 @@ impl From<&AnchorChangeData> for AnchorChange {
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct RetargetResultData {
     /// The proposal's rows (empty on either error). In Shift mode the angles are the
-    /// CHECKED candidate's, which the projection may have turned a little away from the
+    /// checked candidate's, which the projection may have turned a little away from the
     /// plain shift.
     pub rows: Vec<RetargetRowData>,
     /// The proposal's notes (empty on either error).
@@ -652,7 +649,7 @@ pub fn run_retarget(
 ///
 /// The plan's angles are projected onto the original meet network (`retarget::check`), so a
 /// pinned design works: the masts of the facets that turn move with them. A valid check
-/// answers with the CHECKED candidate's angles as rows, the masts it moved, and its verdict;
+/// answers with the checked candidate's angles as rows, the masts it moved, and its verdict;
 /// anything else answers with the verdict as `solve_error` and no rows, so the page can never
 /// offer a change that would detach a meet.
 fn shift_result(
@@ -727,8 +724,8 @@ fn error_result(error: &RetargetError) -> RetargetResultData {
     }
 }
 
-/// Legacy angle-only Retarget: refuse pinned tiers, then search from the original
-/// geometry against the target material with the Retarget preservation policy.
+/// Retarget Optimize: refuse pinned tiers, then search from the original geometry against
+/// the target material with the Retarget preservation policy.
 fn optimize_mode_result(
     design: &Design,
     target: &ResolvedMaterial,
@@ -744,8 +741,8 @@ fn optimize_mode_result(
     }
     let n_from = design.effective_refractive_index_with(custom);
     let n_to = target.n_d;
-    // The original stone is the immutable reference, including in this legacy worker.
-    // This angle-only interface cannot transport projected pinned depths.
+    // The original stone is the immutable reference. This angle-only path cannot carry
+    // projected pinned depths, which is why pinned tiers were refused above.
     let options = OptimizeOptions {
         only_tiers: Some(scope.iter().copied().collect()),
         preservation_policy: pleochroma_cut_core::meet_preservation::PreservationPolicy::RETARGET,

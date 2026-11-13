@@ -28,10 +28,12 @@ use crate::{
                 kernels::EwKernel,
                 pipelines::EwPipelines,
             },
-            frame::{classify_material, environment_params},
+            frame::{classify_material, environment_params, material_class, tables_supported_by},
         },
     },
 };
+
+mod live;
 
 #[inline]
 fn count_u32(count: usize) -> u32 {
@@ -47,7 +49,7 @@ pub const TARGET_CHUNK_MS: f64 = 150.0;
 /// Default output-buffer budget for a single dispatch, in bytes.
 pub const CHUNK_BUDGET_BYTES: usize = 64 * 1024 * 1024;
 
-/// Hard floor on a time-budgeted chunk: 64 KiB worth of tuples.
+/// Smallest chunk budget in bytes (64 KiB).
 pub const MIN_CHUNK_BYTES: usize = 64 * 1024;
 
 /// Tuples the very first dispatch uses before an EMA measurement exists.
@@ -56,7 +58,7 @@ pub const FIRST_DISPATCH_MAX_TUPLES: usize = 1_000_000;
 /// Smoothing factor for exponential moving average of chunk duration.
 pub const CHUNK_TIMING_EMA_ALPHA: f64 = 0.3;
 
-/// Memory footprint per ray across core, chan, hit, and `out_xyz` buffers (§4.4: 668 bytes).
+/// Memory footprint per ray across the core, chan, hit and `out_xyz` buffers.
 pub const BYTES_PER_RAY: usize = 128 + 288 + size_of::<EwHit>() + 12;
 
 /// Maximum workgroups per compute dimension supported on WebGPU baseline.
@@ -151,6 +153,7 @@ fn chunk_transport_params(
     .with_studio_use_d65(use_d65)
     .with_studio_model(studio_model)
     .with_tent_of(scene.environment)
+    .with_hdr_of(scene.environment)
     .with_backdrop(backdrop)
     .with_surface_glare(scene.environment.surface_glare())
     .with_head_shadow(head_shadow_cosines(scene.environment.head_shadow_deg()))
@@ -180,7 +183,6 @@ pub(super) const fn check_tool_limit(tools: &[ToolPrimitive]) -> Result<(), EwEr
 
 /// Native and WebGPU event wavefront gemstone renderer.
 pub struct EventWavefrontRenderer {
-    ctx: GpuContext,
     pipelines: EwPipelines,
     scene_buffers: Option<SceneBuffers>,
     chunk_buffers: Option<ChunkRayBuffers>,
@@ -192,6 +194,17 @@ pub struct EventWavefrontRenderer {
     surface: GpuSurfaceScene,
     /// Opt-in raw-output validation for CPU-reference and equivalence diagnostics.
     validate_raw_samples: bool,
+    /// The pipelines and buffers of adaptive (live-tile) passes -- see `live`. Empty until the
+    /// first such pass, so ordinary renders allocate and compile nothing for it.
+    live: live::LiveEwState,
+    /// Whether the most recent frame ran the optics lookup table kernels.
+    tables_in_use: bool,
+    /// The estimator of every later frame; `None` follows the process default
+    /// (`optics::raytracer::default_estimator`). See [`Self::set_estimator`].
+    estimator: Option<crate::optics::raytracer::Estimator>,
+    /// The device. Declared last on purpose: the pipelines and buffers above drop first, so
+    /// the context's last clone tears the device down.
+    ctx: GpuContext,
 }
 
 impl EventWavefrontRenderer {
@@ -209,7 +222,36 @@ impl EventWavefrontRenderer {
             chunk_budget_bytes: CHUNK_BUDGET_BYTES,
             surface: GpuSurfaceScene::default(),
             validate_raw_samples: false,
+            live: live::LiveEwState::default(),
+            tables_in_use: false,
+            estimator: None,
         }
+    }
+
+    /// `class` as this device can run it: without `material_class::OPTICS_TABLES` when the device
+    /// grants too few storage buffers for the table buffer beside the kernels' own, and records
+    /// whether the frame about to run uses the tables ([`Self::optics_tables_in_use`]).
+    pub(super) fn supported_class(&mut self, class: u32) -> u32 {
+        let class = if material_class::uses_optics_tables(class)
+            && !tables_supported_by(&self.ctx.device)
+        {
+            tracing::warn!(
+                "too few storage buffers per shader stage for the optics lookup tables; \
+                 rendering without them"
+            );
+            class & !material_class::OPTICS_TABLES
+        } else {
+            class
+        };
+        self.tables_in_use = material_class::uses_optics_tables(class);
+        class
+    }
+
+    /// Whether the most recent frame ran the optics lookup table kernels: its class carried
+    /// `material_class::OPTICS_TABLES` and the device could bind the table buffer.
+    #[must_use]
+    pub const fn optics_tables_in_use(&self) -> bool {
+        self.tables_in_use
     }
 
     /// Constructs a renderer that rejects nonfinite finalized XYZ samples before
@@ -227,7 +269,7 @@ impl EventWavefrontRenderer {
         renderer
     }
 
-    /// Sets the surface finish of every LATER frame (see
+    /// Sets the surface finish of every later frame (see
     /// `GpuFrameRenderer::set_surface_scene`). A non-ideal scene with a Ground facet or an
     /// abraded edge also schedules the ground arm kernel for scenes without a frosted finish.
     pub fn set_surface_scene(
@@ -235,6 +277,19 @@ impl EventWavefrontRenderer {
         scene: &crate::optics::raytracer::surface::SurfaceScene<'_>,
     ) {
         self.surface = GpuSurfaceScene::from_scene(scene);
+    }
+
+    /// Chooses the estimator of every later frame (see `GpuFrameRenderer::set_estimator`);
+    /// `None` (the default) follows the process default.
+    pub const fn set_estimator(&mut self, estimator: Option<crate::optics::raytracer::Estimator>) {
+        self.estimator = estimator;
+    }
+
+    /// The estimator the next frame asks for: this renderer's own choice, else the process
+    /// default.
+    fn frame_estimator(&self) -> crate::optics::raytracer::Estimator {
+        self.estimator
+            .unwrap_or_else(crate::optics::raytracer::default_estimator)
     }
 
     /// Overrides the per-dispatch output-buffer budget (default [`CHUNK_BUDGET_BYTES`]).
@@ -266,7 +321,15 @@ impl EventWavefrontRenderer {
     }
 
     /// Compiles or retrieves the compute pipeline for `(kernel, material_class)`.
+    ///
+    /// # Panics
+    /// Panics when the class requests a stone shadow or a tray reflection, which event wavefront
+    /// cannot render.
     pub fn ensure_pipeline(&mut self, kernel: EwKernel, class: u32) -> &wgpu::ComputePipeline {
+        assert!(
+            !material_class::uses_tray_variant(class),
+            "event wavefront cannot compile a stone-shadow or tray-reflection pipeline"
+        );
         self.pipelines.ensure(&self.ctx.device, kernel, class)
     }
 
@@ -288,6 +351,9 @@ impl EventWavefrontRenderer {
     ///
     /// Never in practice: the scene and chunk buffers it expects are created just above.
     pub fn test_dispatch_kernel(&mut self, kernel: EwKernel, class: u32) -> Result<(), EwError> {
+        if material_class::uses_tray_variant(class) {
+            return Err(EwError::TrayVariant);
+        }
         let dummy_camera: GpuCameraParams = bytemuck::Zeroable::zeroed();
         let dummy_params: GpuTransportParams = bytemuck::Zeroable::zeroed();
         let dummy_material: GpuGemMaterial = bytemuck::Zeroable::zeroed();
@@ -304,6 +370,13 @@ impl EventWavefrontRenderer {
                 &dummy_finishes,
                 crate::optics::raytracer::LightingPreset::LightTent.studio(1.0, 0.0, 0.0),
             )?);
+        }
+
+        // A table kernel reaches the table binding: the dummy scene holds a disabled buffer.
+        if material_class::uses_optics_tables(class)
+            && let Some(ref mut sb) = self.scene_buffers
+        {
+            sb.optics_tables.ensure_disabled(&self.ctx.device);
         }
 
         if self.chunk_buffers.is_none() {
@@ -335,7 +408,7 @@ impl EventWavefrontRenderer {
             .scene_buffers
             .as_ref()
             .expect("scene buffers initialized");
-        let (planes_bytes, finishes_bytes) = scene_binding_bytes(dummy_planes.len());
+        let sizes = scene_binding_bytes(dummy_planes.len());
 
         let bg = bind_kernel(
             &self.ctx.device,
@@ -343,8 +416,8 @@ impl EventWavefrontRenderer {
             kernel,
             scene_buffers,
             chunk_buffers,
-            planes_bytes,
-            finishes_bytes,
+            sizes,
+            class,
         );
 
         let mut encoder = self
@@ -472,10 +545,17 @@ impl EventWavefrontRenderer {
             return Ok(());
         }
 
+        if scene.environment.tray_shadow().is_some()
+            || scene.environment.tray_mirror().is_some()
+            || material_class::uses_tray_variant(material_class)
+        {
+            return Err(EwError::TrayVariant);
+        }
         if !scene.material.gpu_supported() {
             return Err(EwError::UnsupportedMaterial(scene.material.name.clone()));
         }
         check_tool_limit(tools)?;
+        let material_class = self.supported_class(material_class);
 
         // The planes binding as the shader sees it: the planes, then the packed tool records
         // (borrowed unchanged for a convex stone). Hashing it keys the EMA on the tools too.
@@ -528,12 +608,13 @@ impl EventWavefrontRenderer {
 
     /// Encodes the camera, material, planes and environment of `scene` into the scene
     /// buffers, creating them on first use. `packed` is the planes binding: `scene.planes`
-    /// followed by the packed tool records (`pack_planes_and_tools`).
+    /// followed by the packed tool records (`pack_planes_and_tools`). When `material_class`
+    /// carries `material_class::OPTICS_TABLES` it also builds the material's optics table buffer.
     fn upload_scene(
         &mut self,
         scene: &FrameScene<'_>,
         packed: &[GpuFacetPlane],
-        spp: u32,
+        (spp, material_class): (u32, u32),
     ) -> Result<(), EwError> {
         let camera_params = GpuCameraParams {
             origin: scene.camera.origin.to_array(),
@@ -579,6 +660,15 @@ impl EventWavefrontRenderer {
                 scene.environment,
             )?);
         }
+        if material_class::uses_optics_tables(material_class)
+            && let Some(ref mut sb) = self.scene_buffers
+        {
+            sb.optics_tables.ensure(
+                &self.ctx.device,
+                scene.material,
+                bytemuck::bytes_of(&material_params),
+            );
+        }
         Ok(())
     }
 
@@ -611,7 +701,7 @@ impl EventWavefrontRenderer {
         accum: &mut [Vec3],
     ) -> Result<(), EwError> {
         let num_pixels = accum.len();
-        self.upload_scene(scene, packed, spp)?;
+        self.upload_scene(scene, packed, (spp, material_class))?;
 
         let max_storage_binding = self.ctx.device.limits().max_storage_buffer_binding_size;
         let byte_budget_pixels = chunk_pixels_for(
@@ -642,7 +732,8 @@ impl EventWavefrontRenderer {
                 sample_offset,
                 pixels_this_chunk,
                 pixel_offset,
-            );
+            )
+            .with_estimator(self.frame_estimator(), self.surface.is_ideal_for_cpu());
 
             clock::set_readback_deadline_ms(clock::chunk_deadline_ms(
                 self.ns_per_tuple_ema,

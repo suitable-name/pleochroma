@@ -1,11 +1,10 @@
 //! Material information consumed by the analytical teacher.
 //!
-//! Absorption is sampled at every integer wavelength from 380 through 780 nm, exactly
-//! the grid used by `color::body_color::body_color_from_spectra` for the teacher's tone.
-//! Refraction uses the teacher's D/F/C lines. The three absorption slots are never
-//! averaged: they are ordinary/alpha, ordinary/beta and extraordinary/gamma, in the
-//! column order of `PrincipalFrame`. This represents the analytical metric material,
-//! not the spatial or stochastic physics of the path tracer.
+//! Absorption is sampled at every integer wavelength from 380 through 780 nm, the grid used by
+//! `color::body_color::body_color_from_spectra` for the teacher's tone. Refraction uses the
+//! D, F and C lines. The three absorption slots are not averaged: they are ordinary/alpha,
+//! ordinary/beta and extraordinary/gamma, in the column order of `PrincipalFrame`. This is the
+//! analytical material model, not the path tracer's spatial or stochastic physics.
 
 use pleochroma::{
     color::principal_axes::PrincipalFrame,
@@ -32,13 +31,12 @@ const SCALE_INDEX: usize = 26;
 const UNIT_INDEX: usize = 27;
 const METRIC_LINES_NM: [f32; 3] = [589.3, 486.1, 656.3];
 
-/// Immutable raw material samples, captured once for a resolved episode material.
+/// Immutable raw material samples for one resolved episode material.
 ///
-/// The internal `Arc` lets retained rollout states share these episode spectra rather
-/// than copying thousands of floats into every structured observation. Dense replay packing
-/// still owns its flat row; the trainer enforces a separate replay-memory budget.
-/// Raw values remain inspectable in serialized observations; only `to_feature_vector`
-/// performs normalization. Defaults support manually constructed synthetic observations.
+/// Shared through an `Arc`, so retained rollout states reuse one copy of the spectra instead
+/// of copying thousands of floats into each observation. Raw values stay in serialized
+/// observations; only [`Self::to_feature_vector`] normalizes them. `Default` is an all-zero
+/// vector for synthetic observations.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(try_from = "MaterialFeaturesWire")]
 pub struct MaterialFeatures {
@@ -148,9 +146,9 @@ impl MaterialFeatures {
 
     /// Returns normalized features without clipping away spectral distinctions.
     ///
-    /// Indices are divided by three; nonnegative absorption and path scale use `ln(1+x)`.
-    /// This keeps large optical densities finite without collapsing every opaque value
-    /// to one. Frame components and flags already have a natural unit scale.
+    /// Indices are divided by three; nonnegative absorption and path scale use `ln(1+x)`,
+    /// which keeps large optical densities finite without collapsing them to one value.
+    /// Frame components and flags are already unit-scaled.
     #[must_use]
     pub fn to_feature_vector(&self) -> Vec<f32> {
         let mut features = self.values.to_vec();
@@ -224,10 +222,9 @@ fn principal_indices(material: &GemMaterial, lambda: f32) -> Result<[f32; 3], &'
 
 /// Applies the design's crystal orientation and physical size using production helpers.
 ///
-/// `model_width` must be the solved stone's measured girdle width, not the preform size.
-/// Call this for each scored candidate because that width may change with its angles.
-/// The analytical objective does not model inclusion scattering or spatial zoning; this
-/// does not pretend otherwise by adding them to the teacher's transport.
+/// `model_width` is the solved stone's measured width (`width_axis`), not the preform size.
+/// Call this for each scored candidate, since that width changes with its angles. Inclusion
+/// scattering and spatial zoning are outside the analytical objective and are not added here.
 #[must_use]
 pub fn material_for_design(
     design: &Design,
@@ -265,10 +262,10 @@ pub fn resolved_material_for_design(
     }
 }
 
-/// Effects present in a stone that the analytical training objective does not evaluate.
+/// Effects in a stone that the analytical training objective does not evaluate.
 ///
-/// A material can still supply useful refraction and homogeneous tone supervision. These
-/// notes prevent such a case from being reported as full render-physics coverage.
+/// The material can still supply refraction and homogeneous tone supervision. The notes keep
+/// such a case from being reported as full render-physics coverage.
 #[must_use]
 pub fn material_scope_notes(design: &Design, material: &GemMaterial) -> Vec<&'static str> {
     let mut notes = Vec::new();

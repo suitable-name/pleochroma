@@ -27,11 +27,8 @@ use glam::DVec3;
 
 use super::Face;
 
-/// The smallest clustering angle, in degrees.
-///
-/// With a budget of a few dozen clusters every smaller angle only aborts (at the first
-/// cluster over the budget), so the search starts where an outline of that size can first
-/// succeed on a sphere (about 22 degrees for 58 clusters).
+/// The first clustering angle tried, in degrees. On a sphere, angles below about 22 degrees
+/// exceed the 58-cluster budget, so the search climbs from here by [`GROWTH`].
 const START_DEGREES: f64 = 8.0;
 /// The factor the angle grows by while there are too many clusters.
 const GROWTH: f64 = 1.12;

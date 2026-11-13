@@ -1,23 +1,29 @@
-//! The File menu's saves and downloads, each built with the same shared-crate
-//! string API the desktop's save uses, then handed to [`download_bytes`]:
+//! The File menu's saves and downloads. Each builds its bytes with the shared-crate
+//! string API, then hands them to [`download_bytes`]:
 //!
-//! | Action | Built with | File name |
-//! |---|---|---|
-//! | Save `.asc` | `Design::to_asc_schedule_from_solved_with` + `pleochroma_formats::asc::to_asc_string` (CRLF, `GemCAD`'s convention) | the design's `.asc` name |
-//! | Export `.gcs` (experimental) | the `.asc` schedule through `pleochroma_formats::gcs::to_gcs_string`; concave tiers ride along as footnotes | the design's name with `.gcs` |
-//! | Save design | `pleochroma_cut_core::native::design_to_file` + `pleochroma_formats::native::design::to_string`; writes the opened file's `[meta]` table (stamped) and attachments back | `<name>.psdd` |
-//! | Save to library | the same file as Save design, stored in the design library (`crate::library`) instead of downloaded | `<name>.psdd` |
-//! | Cutting sheet (HTML) | `pleochroma_editor::cut_sheet::cutting_sheet_document_with_default` (the design's custom material brings its stored default axis): the standard template, then the renderings and further details | `<name>_cutting_sheet.html` |
-//! | Cutting sheet (PDF) | `pleochroma_editor::cut_sheet::cutting_sheet_pdf_with_default` with the same arguments: the standard template alone | `<name>_cutting_sheet.pdf` |
-//! | Diagram | `pleochroma_editor::cut_sheet::diagram_export_png` | `<name>_diagram.png` |
+//! - Save `.asc`: `Design::to_asc_schedule_from_solved_with` and
+//!   `pleochroma_formats::asc::to_asc_string` (CRLF, the `GemCAD` convention). File: the
+//!   design's `.asc` name.
+//! - Export `.gcs` (experimental): the same schedule through
+//!   `pleochroma_formats::gcs::to_gcs_string_with_frosting`; concave tiers ride along as
+//!   footnotes. File: the design's name with `.gcs`.
+//! - Save design: `pleochroma_cut_core::native::design_to_file` and
+//!   `pleochroma_formats::native::design::to_string`, writing the opened file's `[meta]`
+//!   table (stamped) and attachments back. File: `<name>.psdd`.
+//! - Save to library: the same file as Save design, stored in the design library
+//!   (`crate::library`) instead of downloaded. File: `<name>.psdd`.
+//! - Cutting sheet (HTML): `pleochroma_editor::cut_sheet::cutting_sheet_document_with_default`,
+//!   which takes the design's stored default axis from its custom material. File:
+//!   `<name>_cutting_sheet.html`.
+//! - Cutting sheet (PDF): `pleochroma_editor::cut_sheet::cutting_sheet_pdf_with_default`
+//!   with the same arguments. File: `<name>_cutting_sheet.pdf`.
+//! - Diagram: `pleochroma_editor::cut_sheet::diagram_export_png`. File: `<name>_diagram.png`.
 //!
-//! Names follow the desktop (`pleochroma_editor::files`). A design that solves but
-//! does not close is written with the desktop's "NOT A CLOSED SOLID" header (what
-//! its "Export Anyway" confirmation writes) and a warning; one that does not solve
-//! is saved as a draft design file (the desktop's "Save Anyway") and refused for plain
-//! `.asc`, cutting sheet and diagram, exactly as the desktop refuses them. The PDF sheet
-//! is also refused for a design that solves but does not close (its drawings would be
-//! empty), as on the desktop.
+//! File names come from `pleochroma_editor::files`. A design that solves but does not
+//! close gets the "NOT A CLOSED SOLID" header and a warning. A design that does not solve
+//! is saved only as a draft design file. `.asc`, `.gcs`, the cutting sheets and the
+//! diagram refuse it, and the PDF sheet also refuses a design that solves but does not
+//! close (it has no drawings).
 //!
 //! # Tutorial events
 //!
@@ -156,7 +162,7 @@ pub fn save_asc(ctx: &Ctx) {
 }
 
 /// `asc_name` with its extension replaced by `.gcs` (`round.asc` becomes `round.gcs`), or
-/// `.gcs` appended when it has none -- the desktop's `file_name_for_format`.
+/// `.gcs` appended when it has none.
 fn gcs_file_name(asc_name: &str) -> String {
     std::path::Path::new(asc_name)
         .with_extension("gcs")
@@ -166,13 +172,11 @@ fn gcs_file_name(asc_name: &str) -> String {
 
 /// File > Export `.gcs` (Experimental): the edited schedule as a Gem Cut Studio `.gcs` file.
 ///
-/// The desktop's "Export as Gem Cut Studio (.gcs)": the SAME `AscSchedule` the `.asc` save
-/// builds (from the solve already in hand), through the experimental
-/// `pleochroma_formats::gcs::to_gcs_string`. `.gcs`, like `.asc`, has no concave record, so
-/// the concave tiers ride along as footnotes (`Design::append_concave_footnotes`) and the
-/// success message says so. A design that does not close cannot be written (the writer needs
-/// a bounded stone) and the refusal is the writer's own sentence. Exporting is not saving: the
-/// design is not marked saved.
+/// Built from the same `AscSchedule` as the `.asc` save, through
+/// `pleochroma_formats::gcs::to_gcs_string_with_frosting`. `.gcs` has no concave record, so the
+/// concave tiers are added as footnotes (`Design::append_concave_footnotes`) and the success
+/// message says so. The writer refuses a design that does not close (it needs a bounded stone),
+/// and its message is shown. Exporting does not mark the design saved.
 pub fn save_gcs(ctx: &Ctx) {
     with_solved(ctx, |ctx, solved| {
         let solved = match solved {

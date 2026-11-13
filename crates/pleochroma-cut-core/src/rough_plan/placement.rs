@@ -1,7 +1,8 @@
 //! Where a planned stone sits in the rough, and the rigid map between the rough and the stone.
 //!
-//! Pure geometry on `glam` alone (no renderer types), so the editor's
-//! preform ([`crate::rough_plan::stone_preform`]) and the rough-colour zones (`zoned_plan::frame`) share one definition of the frames.
+//! Pure geometry on `glam` alone (no renderer types), so the editor's preform
+//! ([`crate::rough_plan::stone_preform`]) and the rough-colour zones (`zoned_plan::frame`) share
+//! one definition of the frames.
 //!
 //! # The three frames
 //!
@@ -125,8 +126,9 @@ pub struct RigidMap {
     pub translation: DVec3,
 }
 
-/// The rigid map from the rough frame (mm) to the stone frame (mm, `s * model`) of a stone placed
-/// with `pose`, for a design placed by `design`: `stone = Rc^T (A^T (rough - center) + s c)`.
+/// The rigid map from the rough frame (mm) to the stone frame (mm, `s * model`) of a stone
+/// placed with `pose`, for a design placed by `design`:
+/// `stone = Rc^T (A^T (rough - center) + s c)`.
 ///
 /// `None` when the pose is not a proper rotation, the scale is not positive, or `design` is
 /// not valid.
@@ -150,8 +152,8 @@ pub fn rough_to_stone_map(pose: &StonePose, design: &DesignPlacement) -> Option<
 /// Pose `index` of the stone: the planner's pose (`0`) turned by a half turn about one of its
 /// own axes (`1`: about the caliper `x`, `2`: about `y`, `3`: about `z`).
 ///
-/// The bounding box of
-/// the stone is unchanged, so each is as valid as the planner's pose for a box-model stone.
+/// The bounding box of the stone is unchanged, so each is as valid as the planner's pose for a
+/// box-model stone.
 ///
 /// `None` for an index of [`POSE_COUNT`] or more.
 #[must_use]

@@ -35,18 +35,10 @@ pub fn intersect_polyhedron(ray: Ray, planes: &[GpuFacetPlane]) -> Option<HitRec
                 far_normal = n;
             }
         } else if side > 0.0 {
-            // The ray travels (near-)parallel to this plane and its origin is
-            // already outside that plane's half-space (`n.origin + d > 0`) -- since
-            // `denom ~= 0` means `n.x + d` never changes along the ray, it can NEVER
-            // enter this half-space, so it can never be inside every half-space
-            // simultaneously (the polyhedron intersection is empty for this ray). This is
-            // the standard slab-method guard: without it, a plane this near-parallel
-            // would be silently skipped regardless of which side the origin was on,
-            // which could report a false hit through a still-eligible plane even though
-            // this one already rules the ray out entirely. Deliberately NOT applied to the
-            // `planes.is_empty()` case (the loop simply never runs then) -- see this
-            // function's callers/tests for why that sentinel-hit behavior is relied on
-            // elsewhere (the furnace kernel design).
+            // Parallel to this plane and outside its half-space: the ray can never enter the
+            // solid, so the slab method rejects it outright. Skipping the plane would instead
+            // risk a false hit through the remaining planes. An empty plane list never runs
+            // this loop, so it keeps the sentinel hit that the furnace check relies on.
             return None;
         }
     }
@@ -80,16 +72,9 @@ pub fn intersect_polyhedron(ray: Ray, planes: &[GpuFacetPlane]) -> Option<HitRec
 
 /// Builds the [`crate::simd::PlanesSoA32`] arena `intersect_polyhedron_soa` scans.
 ///
-/// Factored out of `trace_spectral_ray_inner`'s bounce loop purely to keep that
-/// already-long function under clippy's line-count lint (same "direct extraction, same
-/// operations in the same order" precedent as this file's other extractions); built once
-/// per sample there, not once per bounce.
-///
-/// `pub` (not `pub(crate)`) specifically so a caller tracing many samples against
-/// the same fixed `planes` -- a batch/frame loop outside this crate, same as
-/// [`crate::renderer::gpu::hybrid`]'s in-crate one -- can build this arena ONCE and
-/// drive [`crate::optics::raytracer::trace_spectral_ray_with_finish_soa`] with it,
-/// instead of paying this rebuild on every single traced sample.
+/// The bounce loop builds it once per sample, not once per bounce. It is `pub` so a batch
+/// caller tracing many samples against the same `planes` can build it once and pass it to
+/// [`crate::optics::raytracer::trace_spectral_ray_with_finish_soa`].
 #[must_use]
 pub fn build_plane_soa(planes: &[GpuFacetPlane]) -> crate::simd::PlanesSoA32 {
     crate::simd::PlanesSoA32::from_normals_d(planes.iter().map(|p| (p.normal, p.d)), planes.len())
@@ -131,67 +116,25 @@ pub(crate) fn intersect_polyhedron_soa(
     }
 }
 
-/// Facet edge rounding: perturbs a flat facet's SHADING normal
-/// near a meet edge to approximate the micron-scale rounded fillet a real cut edge has,
-/// without touching the underlying flat-facet solid [`intersect_polyhedron`] itself
-/// intersects against -- geometry stays perfectly sharp; only the normal fed to the
-/// downstream Fresnel/refraction calculation is perturbed, which is what actually
-/// produces a real rounded edge's characteristic soft glint (a smoothly-varying normal
-/// across a small neighborhood of the edge, rather than a hard discontinuity between two
-/// flat facets).
+/// Facet edge rounding: perturbs a flat facet's shading normal near a meet edge, so the
+/// soft glint of a rounded cut edge appears. The solid stays flat: [`intersect_polyhedron`]
+/// still intersects the sharp planes, and only the normal fed to the Fresnel and refraction
+/// calculation changes.
 ///
-/// # The geometric quantity this reuses -- no new geometry, no remeshing
+/// `planes` are the inward half-space constraints (`n.hit_point + d <= 0`) that define the
+/// solid. The nearest plane other than the hit facet's, by signed distance from `hit_point`,
+/// is the neighbour whose shared edge the hit approaches. The normal blends toward the angle
+/// bisector of the two flat normals as that distance falls to zero, with a `smoothstep` ease
+/// over `rounding_radius`, so the facet interior stays exactly flat.
 ///
-/// `planes` is the SAME set of inward-facing half-space constraints
-/// (`n.hit_point + d <= 0` for every plane, `intersect_polyhedron`'s own convention) the
-/// solid is already defined by. A hit point on facet `hit_facet_idx` satisfies that
-/// facet's own plane equation with equality (distance `0`) and satisfies every OTHER
-/// plane's equation with `<= 0` (interior or boundary), reaching equality (`0`) exactly
-/// on a shared EDGE with that neighboring facet -- a convex polyhedron's meet edges are,
-/// by construction, exactly the points where two of its defining half-space boundaries
-/// coincide. This function finds the single nearest such neighboring plane (by that same
-/// signed distance, already available with no new data structure) and blends the shading
-/// normal toward the ANGLE BISECTOR of the hit facet's own normal and that neighbor's
-/// flat normal as the hit point approaches their shared edge.
+/// The bisector is the shared value at the edge: evaluated from either facet, the result
+/// converges to the same `normalize(A + B)`, so the shading has no seam.
 ///
-/// # Why the bisector, not the neighbor's raw normal
+/// `rounding_radius <= 0.0` (the default of every built-in material) returns `hit_normal`
+/// unchanged before any work, so existing scenes stay bit-identical.
 ///
-/// A real rounded fillet is a single continuous surface: its normal exactly at the
-/// (idealized) sharp-edge location must be the SAME whether you approach it from facet
-/// A's side or facet B's side, and for a symmetric fillet that shared value is the angle
-/// bisector of A's and B's flat normals. Blending toward the bisector (rather than
-/// fully committing to `nearest_normal` at distance `0`) gives this function that same
-/// property BY CONSTRUCTION: evaluated from A's side (`hit_facet_idx = A`,
-/// `nearest_normal = B`) or from B's side (`hit_facet_idx = B`, `nearest_normal = A`),
-/// both converge to `normalize(A + B)` at `dist -> 0`, since vector addition is
-/// commutative -- no seam, no discontinuous flip in shading right at the edge line, the
-/// specific visual artifact a "commit fully to the neighbor's own normal" version of
-/// this function would otherwise introduce.
-///
-/// A `smoothstep` ease (not a bare linear blend) keeps the interior of each facet
-/// EXACTLY flat (zero blend the instant the hit point is more than `rounding_radius`
-/// from every other plane) and the transition itself continuous in its first
-/// derivative, rather than kinking hard at the `rounding_radius` boundary.
-///
-/// # Default-off bit-identity
-///
-/// `rounding_radius <= 0.0` (every built-in material's own stored
-/// `GemMaterial::edge_rounding_radius`) returns `hit_normal` completely unchanged --
-/// literally the same value, before the per-plane loop below even runs -- so every
-/// existing scene takes zero extra floating-point operations and stays bit-identical.
-///
-/// # GPU port
-///
-/// `pub(crate)`, not private: `renderer::gpu::transport_check`'s Tier 2 ULP check
-/// (`run_shading_normal_near_edge`) calls this REAL function directly (never a
-/// reimplementation), comparing against a dedicated WGSL translation
-/// (`shaders/shading_normal.wgsl`) that reads the SAME real round-brilliant `planes`
-/// case bank `polyhedron_check`'s own Tier 2 test already uses, driven from the shipped
-/// megakernel's own inline copy of this exact logic (`shaders/spectral_transport.wgsl`
-/// reads its `planes` storage binding directly rather than sharing a
-/// `transport_physics.wgsl` function for it, mirroring how `intersect_ray` already does
-/// -- see that file's own doc comment for why a binding-touching function stays
-/// per-file rather than living in the shared prelude).
+/// `pub(crate)` for the GPU check `renderer::gpu::shading_normal_check`, which compares the
+/// WGSL twin `shaders/shading_normal.wgsl` against this function.
 #[must_use]
 pub(crate) fn shading_normal_near_edge(
     planes: &[GpuFacetPlane],
@@ -247,14 +190,8 @@ mod intersect_polyhedron_parallel_ray_tests {
         .collect()
     }
 
-    /// A ray travelling parallel to the cube's top face (+Y, at y=0.5), whose
-    /// origin sits 1.5 units above that face (y=2.0, outside the top face's
-    /// half-space), can NEVER enter the cube -- moving along the ray never changes
-    /// `n.dot(origin) + d` when `n.dot(dir) == 0`. The pre-fix code silently skipped any
-    /// plane with `|n.dot(dir)| <= 1e-7` without checking which side of it the origin
-    /// was on, so it fell through to the remaining planes and reported a false hit
-    /// entering through the -X face at t=4.5 (the exact pre-fix measured value)
-    /// instead of correctly reporting no intersection.
+    /// A ray parallel to the cube's top face (+Y, at y=0.5) and starting above it never enters
+    /// the cube. The parallel-plane guard must reject it rather than fall through to the -X face.
     #[test]
     fn ray_parallel_to_and_outside_a_face_never_hits() {
         let planes = unit_cube_planes();
@@ -269,11 +206,8 @@ mod intersect_polyhedron_parallel_ray_tests {
         );
     }
 
-    /// Sanity check on the fixture and the guard's precision: the same parallel
-    /// direction, but with the origin inside the top/bottom face's slab (y=0, so the
-    /// ray never trips the new `side > 0.0` guard on those two faces), must still
-    /// resolve as a normal hit through the -X face -- the guard must not have become
-    /// overzealous and started rejecting legitimate hits.
+    /// The same direction from inside the top and bottom slab (y=0) never trips the guard and
+    /// still hits through the -X face: the guard must not reject legitimate hits.
     #[test]
     fn ray_parallel_to_a_face_but_inside_its_half_space_still_hits() {
         let planes = unit_cube_planes();
@@ -290,10 +224,8 @@ mod intersect_polyhedron_parallel_ray_tests {
         );
     }
 
-    /// The degenerate empty-planes case must remain untouched by this fix -- see
-    /// `renderer::gpu::furnace_check`'s module doc comment for why the furnace kernel's
-    /// design depends on `intersect_polyhedron(ray, &[])` returning the `t=1e30`
-    /// sentinel `Some`, never `None`.
+    /// An empty plane list returns the `t = 1e30` sentinel hit, never `None`: the furnace
+    /// check depends on it (see `renderer::gpu::furnace_check`).
     #[test]
     fn empty_planes_still_returns_the_sentinel_hit_not_none() {
         let ray = Ray {
@@ -359,10 +291,8 @@ mod edge_rounding_tests {
         }
     }
 
-    /// The decisive correctness check for the bisector redesign (see
-    /// `shading_normal_near_edge`'s own doc comment, "Why the bisector, not the
-    /// neighbor's raw normal"): evaluated from EITHER facet's side, a hit point exactly
-    /// on their shared edge must produce the IDENTICAL shading normal -- no seam.
+    /// Evaluated from either facet, a hit point on their shared edge gives the same shading
+    /// normal: no seam.
     #[test]
     fn edge_rounding_is_continuous_across_a_shared_edge() {
         let planes = corner_planes();
@@ -420,12 +350,8 @@ mod edge_rounding_tests {
         );
     }
 
-    /// Default-off bit-identity (a non-negotiable regression guard, the same one
-    /// `default_off_scattering_is_bit_identical_regardless_of_g` and the
-    /// pre-existing `frosted_finish_all_polished_is_bit_identical_to_trace_spectral_ray`
-    /// establish): a material with `edge_rounding_radius == 0.0` reached via the plain
-    /// default must trace BIT IDENTICALLY to the same material with rounding explicitly
-    /// set to `0.0`.
+    /// A material with `edge_rounding_radius == 0.0` traces bit-identically whether the radius
+    /// is the default or set explicitly.
     #[test]
     fn default_off_edge_rounding_is_bit_identical() {
         let planes = StandardGemCuts::standard_round_brilliant();
@@ -473,11 +399,7 @@ mod edge_rounding_tests {
         }
     }
 
-    /// A rounded girdle/pavilion edge must change the gem's face-up appearance
-    /// measurably, not merely run without crashing -- the same "decisive measurement"
-    /// standard the girdle-finish precedent
-    /// (`frosted_girdle_changes_face_up_appearance_measurably`) and the scattering one
-    /// (`scattering_measurably_changes_face_up_appearance`) both set.
+    /// A rounded edge must change the face-up appearance measurably, not merely run.
     #[test]
     fn edge_rounding_measurably_changes_face_up_appearance() {
         const SAMPLES_PER_PIXEL: u32 = 128;
@@ -548,9 +470,8 @@ mod edge_rounding_tests {
         const L0: f32 = 2.5;
         const SAMPLES_PER_PIXEL: u32 = 96;
         const GRID: usize = 12;
-        // Measured on 2026-10-01 by the integration test `furnace_noise_floor` at this
-        // sample budget: 0.6 percent truncation loss at cap 16 (nothing at cap 256) plus
-        // under 0.1 percent noise; five standard deviations of headroom.
+        // Covers the 0.6 percent truncation loss at cap 16 and under 0.1 percent noise at this
+        // sample budget, with five standard deviations of headroom.
         const TOLERANCE: f32 = 0.01;
 
         let planes = StandardGemCuts::standard_round_brilliant();
@@ -579,7 +500,7 @@ mod edge_rounding_tests {
                         &planes,
                         &material,
                         16,
-                        EnvironmentSource::HdrMap(&env_map),
+                        EnvironmentSource::hdr(&env_map),
                         seed,
                         (hash_u32(seed) as f32) / 4_294_967_295.0,
                         None,

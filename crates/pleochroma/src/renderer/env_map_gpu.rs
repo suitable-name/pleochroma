@@ -7,7 +7,9 @@
 //! (`hdr_env_sample_bilinear` in `spectral_transport.wgsl`) to mirror
 //! [`super::env_map::EnvironmentMap::radiance_at`]'s exact `f32` arithmetic order --
 //! `wgpu`'s hardware texture sampler has no such bit-exactness guarantee, which is why
-//! the map is uploaded as a storage buffer rather than a sampled texture.
+//! the map is uploaded as a storage buffer rather than a sampled texture. The texels are
+//! uploaded as decoded: the scene's exposure is a uniform (`GpuTransportParams::hdr_exposure`)
+//! the kernel applies per lookup, so an exposure change never re-uploads the map.
 //!
 //! # `HdrEnvGpuData` bindings
 //!
@@ -38,18 +40,18 @@
 //! - Binding 12 (`dist_func`, `array<f32>`, length `width*height + height + TABLE_LEN`): the first
 //!   `width*height` entries are each row's own raw (un-normalized) bucket weights
 //!   (`Distribution1D::func`), row-major; the trailing `height` entries are the
-//!   marginal's own `func` array, which -- by [`super::env_map_distribution::Distribution2D::new`]'s
-//!   own construction (`marginal_func.push(dist.func_int)` per row) -- is EXACTLY each
+//!   marginal's own `func` array, which -- by the construction of
+//!   [`super::env_map_distribution::Distribution2D::new`] (`marginal_func.push(dist.func_int)` per
+//!   row) -- is EXACTLY each
 //!   row's own [`super::env_map_distribution::Distribution1D::func_int`], so this one
 //!   trailing slice serves both "the marginal's own bucket weights" AND "each
 //!   conditional row's own normalization scalar" without uploading the same numbers
 //!   twice. The last `TABLE_LEN` entries are not part of the distribution: they are the
 //!   energy-compensation table of the ground (frosted) facet
-//!   ([`compensation::table_values`](crate::optics::raytracer::surface::compensation::table_values)),
+//!   (`compensation::table_values`),
 //!   which the megakernel and the ground arm kernel read from the END of the buffer
-//!   (`arrayLength(&dist_func) - GROUND_TABLE_WORDS`). Both are at the storage-buffer limit
-//!   and both already bind `dist_func`, so the table rides here instead of in a binding of its
-//!   own; the distribution's indexing never reaches it.
+//!   (`arrayLength(&dist_func) - GROUND_TABLE_WORDS`). It rides here rather than in a binding of
+//!   its own; the distribution's indexing never reaches it.
 //! - Binding 13 (`dist_cdf`, `array<f32>`, length `height*(width+1) + (height+1)`): the
 //!   first `height*(width+1)` entries are each row's own `Distribution1D::cdf` (length
 //!   `width+1`), row-major; the trailing `height+1` entries are the marginal's own cdf.
@@ -61,15 +63,10 @@
 use super::env_map::EnvironmentMap;
 use crate::renderer::gpu::compute;
 
-/// `spectral_transport.wgsl`'s `HdrEnvDims` uniform struct, binding 11.
-///
-/// See this module's doc comment. Four `u32`s, 16 bytes, no manual padding needed: WGSL's
-/// uniform address-space layout rules only require each member's own alignment (4 for
-/// `u32`), and 16 is already a multiple of the struct's own (4-byte) alignment.
-/// [`HdrEnvGpuData::upload`]/[`HdrEnvGpuData::dummy`] (this module) are the only
-/// PRODUCTION constructors; `pub(crate)` rather than private only so
-/// `layout_check::run_hdr_env_dims` can build a sample instance to echo through
-/// `phase2_layout_echo.wgsl` from outside this module.
+/// `spectral_transport.wgsl`'s `HdrEnvDims` uniform struct, binding 11. Four `u32`s, 16 bytes;
+/// the two pad words are explicit. [`HdrEnvGpuData::upload`] and [`HdrEnvGpuData::dummy`] are
+/// the production constructors. `pub(crate)` only so `layout_check::run_hdr_env_dims` can echo
+/// a sample instance through `phase2_layout_echo.wgsl`.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub(crate) struct GpuHdrEnvDims {
@@ -81,11 +78,9 @@ pub(crate) struct GpuHdrEnvDims {
 
 const _: () = assert!(size_of::<GpuHdrEnvDims>() == 16);
 
-/// `spectral_transport.wgsl`'s `GpuDistDims` uniform struct, binding 14 -- see this
-/// module's doc comment ("Bindings 12/13/14's layout") for what each field feeds.
-/// `_pad0` keeps the struct's size a multiple of its own (4-byte scalar) alignment,
-/// mirroring [`GpuHdrEnvDims`]'s identical padding rationale. `pub(crate)`: same reason
-/// as [`GpuHdrEnvDims`]'s own doc comment gives.
+/// `spectral_transport.wgsl`'s `GpuDistDims` uniform struct, binding 14 (see the layout notes
+/// above for what each field feeds). `_pad0` makes it 16 bytes, as for [`GpuHdrEnvDims`].
+/// `pub(crate)` for the same reason.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub(crate) struct GpuDistDims {
@@ -182,15 +177,9 @@ impl HdrEnvGpuData {
     /// when the map's identity has actually changed (a whole new panorama, not a
     /// per-frame refresh of the same one).
     ///
-    /// Does NOT itself refuse an oversized map -- kept infallible so every
-    /// existing caller outside `renderer::gpu::frame` (this crate's self-tests
-    /// among them) stays untouched. [`Self::fits_storage_binding`]
-    /// is the size check; `renderer::gpu::frame::build_hdr_env` and wasm32's
-    /// `GpuFrameRenderer::accumulate_async` -- the two production call sites that guard a
-    /// caller-controlled resolution rather than a fixed test fixture -- are what actually
-    /// enforce it, calling that check before this function rather than after (so an
-    /// oversized map never reaches `compute::upload`'s `create_buffer_init` at all,
-    /// rather than being uploaded then rejected).
+    /// Does not refuse an oversized map: it stays infallible for the self-tests. Callers check
+    /// [`Self::fits_storage_binding`] first (`renderer::gpu::frame::build_hdr_env` and wasm32's
+    /// `GpuFrameRenderer::accumulate_async`), so an oversized map never reaches `compute::upload`.
     pub(crate) fn upload(device: &wgpu::Device, map: &EnvironmentMap) -> Self {
         let texels: Vec<[f32; 4]> = map
             .pixels()
@@ -226,19 +215,14 @@ impl HdrEnvGpuData {
         }
     }
 
-    /// `true` if `map`'s texel buffer (`width * height * 16` bytes, one
-    /// `vec4<f32>` per texel) fits within `device`'s real `max_storage_buffer_binding_size`.
+    /// `true` if `map`'s texel buffer (`width * height * 16` bytes, one `vec4<f32>` per texel)
+    /// fits within `device`'s `max_storage_buffer_binding_size`.
     ///
-    /// `env_map.rs` only clamps `width`/`height` to `>= 1`, not against any upper bound,
-    /// so nothing upstream of [`Self::upload`] already guarantees an upload fits -- left
-    /// unchecked, `compute::upload`'s `create_buffer_init` would fail wgpu validation
-    /// instead, an uncaptured error that can panic the render thread on the largest,
-    /// most expensive-to-lose frame a caller could ask for. Checked against the
-    /// device's OWN advertised limit, not a
-    /// hard-coded figure: the WebGPU baseline is 128 MiB, but a real adapter can offer
-    /// more. `renderer::gpu::frame::build_hdr_env` and wasm32's
-    /// `GpuFrameRenderer::accumulate_async` are the callers that act on this; see
-    /// `build_hdr_env`'s own doc comment.
+    /// Nothing upstream of [`Self::upload`] bounds the map's size. An oversized buffer would
+    /// fail wgpu validation in `compute::upload`, an uncaptured error that can panic the render
+    /// thread. The limit is the adapter's own: the WebGPU baseline is 128 MiB, and a real
+    /// adapter may offer more. `renderer::gpu::frame::build_hdr_env` and wasm32's
+    /// `GpuFrameRenderer::accumulate_async` act on this check; see `build_hdr_env`'s docs.
     #[must_use]
     pub(crate) fn fits_storage_binding(device: &wgpu::Device, map: &EnvironmentMap) -> bool {
         let width = u64::try_from(map.width()).unwrap_or(u64::MAX);

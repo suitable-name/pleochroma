@@ -18,9 +18,9 @@ use crate::model::{entry::DiagramListItem, performance::PerformanceFilter};
 /// "All" behavior of the shape/gear dropdowns).
 ///
 /// New fields default (via `#[derive(Default)]`) to "no additional filtering", so
-/// `RangeFilter::default()` keeps meaning what it always did. A caller constructing an
-/// exhaustive struct literal (not `..Default::default()`) needs updating for new
-/// fields -- `apps/pleochroma-cut/src/gui/search.rs`'s `read_range_filter` is one such.
+/// `RangeFilter::default()` is the unfiltered state. A caller constructing an exhaustive
+/// struct literal (not `..Default::default()`) needs updating for new fields --
+/// `apps/pleochroma-cut/src/gui/library/search/filters.rs`'s `read_range_filter` is one such.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct RangeFilter {
     /// Lower bound on refractive index.
@@ -83,9 +83,8 @@ impl RangeFilter {
 ///
 /// The normal search results plus how many otherwise-matching designs were dropped
 /// because they have no stored tilt curves to test an active
-/// [`RangeFilter::performance`] predicate against. A separate result type, not a change
-/// to `search_diagrams`'s return type, so every existing caller keeps compiling and
-/// behaving identically.
+/// [`RangeFilter::performance`] predicate against. A separate type, so `search_diagrams`
+/// keeps its return type.
 #[derive(Debug, Clone)]
 pub struct PerformanceSearchResult {
     /// Rows of the current page.
@@ -100,7 +99,8 @@ pub struct PerformanceSearchResult {
 /// The *usable* min/max bounds for each range-filterable attribute -- drives the
 /// sliders' scale in the UI.
 ///
-/// As of the last time the catalogue was queried. The minimum is the real minimum; the
+/// Read from the catalogue by `Database::get_attribute_ranges`. The minimum is the
+/// real minimum; the
 /// maximum is **not** the raw maximum but a robust percentile (see
 /// `Database::get_attribute_ranges`/`RANGE_BOUND_PERCENTILE`) so a handful of
 /// data-entry errors can't compress the rest of the catalogue into a sliver of the

@@ -20,15 +20,13 @@ pub fn linear_to_srgb(linear: f32) -> f32 {
     }
 }
 
-/// The standard deviation, in the ENCODED (sRGB) domain, of the compression error of an 8-bit
-/// source, in units of the encoded range: an assumed 2 codes of 255.
+/// The assumed standard deviation, in the ENCODED (sRGB) domain, of the compression error of an
+/// 8-bit source: 2 codes of 255.
 ///
-/// A conservative modelling constant, not a measurement: a quality 85 to 95 JPEG typically
-/// reproduces a code within 1 to 3 codes RMS, and a lossless 8-bit PNG is over-estimated by it.
-/// The white frame's local variance cannot replace it for the stone, because a flat patch
-/// compresses almost perfectly while the textured stone does not; the stone's own compression
-/// error is estimated from the stone frame by [`estimate_stone_compression_sigma`], and this
-/// constant is only the fallback when that estimate is unavailable.
+/// A conservative modelling constant, not a measurement (a quality 85 to 95 JPEG reproduces a
+/// code within 1 to 3 codes RMS). The calibration uses it when the stone frame's own estimate
+/// ([`estimate_stone_compression_sigma`]) is unavailable, and [`encoding_variance`] assumes it.
+/// A flat white patch compresses almost perfectly, so it cannot stand in for a textured stone.
 pub const COMPRESSION_SIGMA_ENCODED: f32 = 0.008;
 
 /// The derivative of the inverse sRGB EOTF at the encoded value `encoded`.
@@ -41,8 +39,7 @@ fn srgb_to_linear_slope(encoded: f32) -> f32 {
 }
 
 /// The variance, in linear light, that the encoding of a non-linear source adds to a pixel of
-/// linear value `linear` (round 2, C4), with the ASSUMED compression term
-/// [`COMPRESSION_SIGMA_ENCODED`].
+/// linear value `linear`, with the ASSUMED compression term [`COMPRESSION_SIGMA_ENCODED`].
 ///
 /// See [`encoding_variance_with`].
 #[must_use]
@@ -90,7 +87,7 @@ pub const COMPRESSION_SIGMA_MAX: f32 = 4.0 * COMPRESSION_SIGMA_ENCODED;
 /// The half width of the box of [`estimate_compression_sigma`] (a 5 x 5 box).
 const BOX_RADIUS: usize = 2;
 
-/// Estimates the compression error of an 8-bit white frame from the frame itself (round 3, D4.2).
+/// Estimates the compression error of an 8-bit white frame from the frame itself.
 ///
 /// Per channel, the standard deviation in the ENCODED domain of the difference between a pixel
 /// and the mean of its 5 x 5 box, with
@@ -201,11 +198,11 @@ pub const JPEG_BLOCK: usize = 8;
 const MIN_STONE_BLOCKS: usize = 9;
 
 /// The compression error of an 8-bit stone frame in the ENCODED domain, in units of the encoded
-/// range, split into the two parts that propagate differently (S2, root-cause analysis R4).
+/// range, split into the two parts that propagate differently.
 ///
 /// A JPEG's error on smooth content is the per-pixel AC quantisation error, which averages down
-/// when pixels are averaged, plus one DC quantisation offset per 8 x 8 block, which is constant
-/// inside a block and so does NOT average down over a region of one block or less.
+/// when pixels are averaged, plus one DC quantisation offset per 8 x 8 block. The DC offset is
+/// constant inside a block, so it does NOT average down over a region of one block or less.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct StoneCompression {
     /// The per-pixel (AC and high-frequency) standard deviation, per channel: what
@@ -287,7 +284,7 @@ fn block_dc_sigma(
     sigma_f32(variance)
 }
 
-/// Estimates the compression error of an 8-bit STONE frame from the frame itself (ZC-3), as the
+/// Estimates the compression error of an 8-bit STONE frame from the frame itself, as the
 /// per-pixel part only.
 ///
 /// This is [`estimate_stone_compression`] without the block-DC part; see there for the method.
@@ -301,8 +298,8 @@ pub fn estimate_stone_compression_sigma(
     estimate_stone_compression(image, noise, mask, saturation_fraction).map(|s| s.ac)
 }
 
-/// Estimates the compression error of an 8-bit STONE frame from the frame itself (ZC-3 and the
-/// block-DC part of S2).
+/// Estimates the compression error of an 8-bit STONE frame from the frame itself: the per-pixel
+/// part ([`StoneCompression::ac`]) and the block-DC part ([`StoneCompression::block_dc`]).
 ///
 /// JPEG error is high frequency, while the stone's radiance is smooth at the working resolution
 /// of the rig (about 24 pixels per mm), so a robust high-pass estimator separates the two. Per
@@ -316,26 +313,25 @@ pub fn estimate_stone_compression_sigma(
 ///    curve, median over the same pixels) and the quantisation `1/255^2/12` subtracted in
 ///    variance;
 /// 4. the square root of what is left (zero when negative), capped at
-///    [`COMPRESSION_SIGMA_MAX`]: [`StoneCompression::ac`].
+///    [`COMPRESSION_SIGMA_MAX`]: the AC part.
 ///
-/// The block-DC part ([`StoneCompression::block_dc`]) is what the Laplacian cannot see: the DC
-/// quantisation offset of each 8 x 8 JPEG block is constant inside the block, so it shows only on
-/// the one-pixel seams, which the robust spread discards. It is estimated from the 8 x 8 block
-/// means of the encoded frame (blocks aligned to pixel 0, the JPEG grid of the decoded image,
-/// every one of whose 64 pixels is clear), by the same robust Laplacian over the blocks whose four
-/// neighbours are clear too: `sigma_block^2 = (MAD / 0.6745)^2 / 20`. The block mean also holds
-/// the pixel-level noise averaged down by 64, so `total / 64` (the pixel-level variance estimate
-/// of step 2, before the sensor and quantisation subtraction) is subtracted; what is left, clamped
-/// at zero, is the DC variance, capped at [`COMPRESSION_SIGMA_MAX`]. Fewer than nine usable
-/// blocks (or fewer than three blocks across or down) report zero: the stone frame is too small
-/// to separate the block offsets from the image itself, which is the optimistic side. The
-/// estimate assumes the stone's radiance is smooth over a block, as it is at the rig's working
-/// resolution, and a crop of the decoded frame must keep the 8-pixel alignment to be meaningful.
+/// The block-DC part is what the Laplacian cannot see: the DC offset of each 8 x 8 JPEG block is
+/// constant inside the block, so it shows only on the one-pixel seams, which the robust spread
+/// discards. It is estimated from the 8 x 8 block means of the encoded frame (blocks aligned to
+/// pixel 0, the JPEG grid of the decoded image, every one of whose 64 pixels is clear), by the
+/// same robust Laplacian over the blocks whose four neighbours are clear too:
+/// `sigma_block^2 = (MAD / 0.6745)^2 / 20`. The block mean also holds the pixel-level noise
+/// averaged down by 64, so `total / 64` (the pixel-level variance of step 2, before the sensor
+/// and quantisation subtraction) is subtracted; what is left, clamped at zero, is the DC variance,
+/// capped at [`COMPRESSION_SIGMA_MAX`]. Fewer than nine usable blocks (or fewer than three blocks
+/// across or down) report zero. The estimate assumes the stone's radiance is smooth over a block,
+/// as it is at the rig's working resolution, so a crop of the decoded frame must keep the 8-pixel
+/// alignment.
 ///
-/// `mask` (the stone's exclusion mask at the frame's resolution, [`super::PixelMask`]) removes every
-/// pixel with a flag at it or at one of its four neighbours; without a mask every pixel is used.
-/// Pixels whose neighbourhood holds a saturated value (`image.full_scale * saturation_fraction`)
-/// are skipped as well.
+/// `mask` (the stone's exclusion mask at the frame's resolution, [`super::PixelMask`]) removes
+/// every pixel with a flag at it or at one of its four neighbours; without a mask every pixel is
+/// used. Pixels whose neighbourhood holds a saturated value (`image.full_scale *
+/// saturation_fraction`) are skipped as well.
 ///
 /// `None` for a source that is not an 8-bit file, a frame smaller than 5 x 5 pixels, a mask of
 /// another size, or fewer than 16 usable pixels in a channel: the caller falls back to the

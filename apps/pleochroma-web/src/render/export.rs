@@ -3,8 +3,8 @@
 //!
 //! # Pipeline
 //!
-//! 1. The live scene (`live::live_geometry`, the same `SceneSpec` and concave tools the view renders) at
-//!    the export size: the view's aspect with the chosen long edge
+//! 1. The live scene (`live::live_geometry`, the same `SceneSpec` and concave tools the view
+//!    renders) at the export size: the view's aspect with the chosen long edge
 //!    (`display::export_size`, at most 4096 px).
 //! 2. The live render pauses: the pool gets the export scene (`set_scene`, so stale
 //!    live chunks are dropped) and traces it to the chosen samples; the dialog shows

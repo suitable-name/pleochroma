@@ -224,7 +224,7 @@ pub fn garnet_optics(fractions: &[(&str, f64)]) -> (f64, f64) {
     (ri / sum, sg / sum)
 }
 
-/// Fixed list of concentration unit prefixes/names (spec section 2.2).
+/// Fixed list of concentration unit names.
 const FIXED_UNITS: [&str; 4] = ["ppm_site", "ppma_all", "mol_fraction", "intensity"];
 
 /// Oxide table: name, molar mass in g/mol, cations per formula unit.
@@ -254,7 +254,7 @@ fn oxide_data(name: &str) -> Option<(f64, f64)> {
         .map(|&(_, m, k)| (m, k))
 }
 
-/// Whether `unit` is in the spec's fixed unit list (`wt_pct_oxide:<known oxide>` included).
+/// Whether `unit` is in the fixed unit list (`wt_pct_oxide:<known oxide>` included).
 #[must_use]
 pub fn unit_is_valid(unit: &str) -> bool {
     if let Some(ox) = unit.strip_prefix("wt_pct_oxide:") {
@@ -320,7 +320,7 @@ pub struct HostData {
     /// Per-host valence split: element -> species label (e.g. `"Fe2+"`) -> fraction of that
     /// element in the species. An element with an entry only populates the listed species; an
     /// element without one is not split (every chromophore sees the full amount). This is the
-    /// untreated state of the host; [`HostData::treated_split`] applies a recipe's treatments to it.
+    /// untreated state of the host. [`HostData::treated_split`] applies a recipe's treatments.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub valence_split: BTreeMap<String, BTreeMap<String, f64>>,
     /// Optional explicit input unit per element (otherwise derived from the host's chromophores).
@@ -456,8 +456,8 @@ impl HostData {
     /// Upper bound of a selectable id's amount in its input unit, under the host's untreated
     /// valence split.
     ///
-    /// End members: 1.0. Elements: the largest `conc_max` of the offered chromophores driven by the
-    /// element, converted into the element's input unit; hosts without any `conc_max` fall back to
+    /// End members: 1.0. Elements: the largest `conc_max` of the offered chromophores driven
+    /// by the element, converted into its input unit; hosts without any `conc_max` fall back to
     /// full occupation of the cation sites. This is [`Self::element_conc_max_split`] with
     /// [`Self::valence_split`]; a recipe with treatments is bounded by the split its treatments
     /// produce, see [`Self::treated_split`].
@@ -1094,7 +1094,7 @@ pub struct BandData {
     /// Full width at half maximum in cm^-1.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fwhm_cm1: Option<f64>,
-    /// Band shape as written in the data: `"gaussian_energy"` (default), `"lorentzian"` or `"edge"`.
+    /// Band shape as written in the data: `gaussian_energy` (default), `lorentzian` or `edge`.
     /// Loading converts the last two (see [`BandData::convert_shape`]); afterwards this is
     /// `"gaussian_energy"` and [`BandData::shape_original`] records the source shape.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1131,10 +1131,9 @@ pub struct BandData {
     /// Bibliographic source citation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
-    /// CIEDE2000 residual of the fit that produced this band's parameters, against the color
-    /// of the fitted primary spectrum (`data_version` 4: the GIA cross-sections or the Caltech
-    /// raw spectra through our color code, largest over the fitted path lengths and the
-    /// D65 / A illuminants). Earlier versions fitted against the research's stated CIELAB.
+    /// CIEDE2000 residual of the fit against the fitted primary spectrum (the GIA cross-sections
+    /// or the Caltech raw spectra), largest over the fitted path lengths and the D65 / A
+    /// illuminants.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fit_residual_de00: Option<f64>,
 }
@@ -1239,7 +1238,7 @@ impl BandData {
             }
         }
 
-        // Transition class vs epsilon (spec section 2.4, ranges in L/(mol cm)).
+        // Transition class vs epsilon (ranges in L/(mol cm)).
         if let (Some(eps), Some(t_class)) =
             (self.epsilon_l_mol_cm, self.transition_class.as_deref())
         {
@@ -1261,8 +1260,7 @@ impl BandData {
     }
 }
 
-/// Luminescence and emission parameters of one chromophore (see `docs/fluorescence-plan.md`
-/// section 3 and `resolve_fluorescence`).
+/// Luminescence and emission parameters of one chromophore (see `resolve_fluorescence`).
 ///
 /// A chromophore emits (gets a `FluorescentEmitter`) only when `quantum_yield` is above 0 and it
 /// has at least one emission line; an entry with `uv = inert`, no lines or `quantum_yield = 0`
@@ -1673,7 +1671,6 @@ total_atom_density_cm3 = 5.0e22
                 "tanzanite/V3+ / Ti4+ (heated 550 C, dichroic blue) [heated row reduces both coefficients and weights (double counting, plan 2.4)]",
             ]
         );
-        // The corundum unit-basis flags of review finding 4 are gone.
         assert!(!got.iter().any(|g| g.starts_with("corundum/Fe3+")
             || g.starts_with("corundum/V3+")
             || g.starts_with("corundum/Ti3+")));

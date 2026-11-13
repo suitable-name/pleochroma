@@ -15,12 +15,9 @@ use glam::{DVec3, Vec3};
 /// `pleochroma_formats::asc::parse_asc` turns that into a sign-negative zero
 /// angle, and the editor authors culets as `-0.0`.
 ///
-/// This replaced a file-order rule ("an unsigned zero inherits the previous tier's
-/// side"), which the real catalogue (5,759 files, measured 2026-09-28) shows to be
-/// wrong both ways: of the 148 zero-angle tiers with a negative (culet) distance, 8
-/// follow a crown tier or open the file and were read as a second table; and of
-/// the 5,153 positive-distance tables, 8 directly follow a pavilion tier (`GemCAD`'s
-/// table-first sort order) and were read as culets.
+/// File order is never consulted: an unsigned zero must not inherit a neighbouring
+/// tier's side, since the sign of a zero is the only way to tell a culet from a
+/// table.
 #[must_use]
 pub const fn tier_is_crown_side(angle_deg: f64) -> bool {
     angle_deg > 0.0 || (angle_deg == 0.0 && !angle_deg.is_sign_negative())

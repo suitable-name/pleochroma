@@ -2,9 +2,9 @@
 //!
 //! Every change of an angle goes through the edit path the tier table and the Angle Sweep dialog
 //! use, so each is one undo step and the tiers that follow a relation follow in the same step:
-//! the nudge buttons and the angle box through `EditorSession::set_tier_angle_from_text` (what
-//! the tier table's angle cell does), a click on the chart, Jump to Best and Revert This Tier
-//! through `pleochroma_editor::sweep::apply_sweep_angle` (what "Use This Angle" does).
+//! the nudge buttons and the angle box through `set_tier_angle_from_text` (what the tier
+//! table's angle cell does), a click on the chart, Jump to Best and Revert This Tier through
+//! `pleochroma_editor::sweep::apply_sweep_angle` (what "Use This Angle" does).
 //!
 //! No handler holds the hub across an edit: it reads what it needs from the hub, lets go, edits,
 //! then tells the hub what happened and shows it with [`tick_now`].

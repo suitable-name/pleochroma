@@ -1,0 +1,266 @@
+import { Theme } from "../../theme.slint";
+import { ScrollView } from "std-widgets.slint";
+import { RoughPlanModel } from "../../models/rough_plan.slint";
+import { KitIcon, KitIcons, KitButton, KitBadge } from "../kit/kit.slint";
+import { WrapText } from "fields.slint";
+import { ResultCard } from "result_card.slint";
+import { SaveNameRow, ConfirmOverwriteRow } from "save_name_row.slint";
+
+// A placeholder row while a plan runs and there is nothing to show yet.
+component SkeletonRow inherits Rectangle {
+    height: 46px;
+    Rectangle {
+        x: 34px;
+        y: 14px;
+        width: parent.width * 0.6;
+        height: 18px;
+        border-radius: 6px;
+        background: Theme.bg-elevated;
+    }
+}
+
+// The Layouts tab of the right column: the loaded-plan banner, the summary with its (i) note, the
+// ranked layouts (the selected one expanded), the save name row and the footer. The window
+// mounts it only while the Layouts tab is selected.
+export component ResultsColumn inherits VerticalLayout {
+    // What the numbers mean and what was left out, as the (i) icon's tooltip.
+    property <string> info_text: "Estimate after your kerf and allowance. Inclusions you added to the rough are kept clear of stones and count as material in the yield; a flaw you did not add is not known to the planner. Real yield also depends on how closely you follow the plan."
+        + (RoughPlanModel.skipped_count > 0
+            ? "\n\n" + RoughPlanModel.skipped_count + (RoughPlanModel.skipped_count == 1 ? " design" : " designs") + " skipped: no usable design file."
+            : "")
+        + (!RoughPlanModel.links_enabled ? "\n\nSwitch to the local library to open designs from these layouts." : "");
+
+    spacing: 8px;
+
+    // Loaded saved plan banner
+    if RoughPlanModel.loaded_banner != "": Rectangle {
+        border-radius: 10px;
+        background: Theme.surface-info;
+        border-width: 1px;
+        border-color: Theme.border-accent;
+        min-height: banner_lay.preferred-height;
+
+        banner_lay := HorizontalLayout {
+            padding: 8px;
+            spacing: 8px;
+
+            // Wraps in full: one line would cut it off before the Re-Plan button.
+            VerticalLayout {
+                horizontal-stretch: 1;
+                min-width: 0px;
+                alignment: center;
+                WrapText {
+                    text: RoughPlanModel.loaded_banner;
+                    font_size: 11px;
+                    text_color: Theme.text-primary;
+                }
+            }
+
+            VerticalLayout {
+                alignment: center;
+                KitButton {
+                    text: "Re-Plan";
+                    kind: 1;
+                    h: 28px;
+                    hint: RoughPlanModel.running
+                        ? "Wait for the running plan to finish."
+                        : "Plan again with the rough, the cuts and the settings of this saved plan, against the library as it is now.";
+                    enabled: !RoughPlanModel.running;
+                    clicked => { RoughPlanModel.replan_loaded(); }
+                }
+            }
+        }
+    }
+
+    // A plan that stopped at the scan time limit.
+    if RoughPlanModel.stopped_at_limit && !RoughPlanModel.running: Rectangle {
+        border-radius: 10px;
+        background: Theme.surface-warning;
+        border-width: 1px;
+        border-color: Theme.accent-amber;
+        min-height: limit_lay.preferred-height;
+
+        limit_lay := VerticalLayout {
+            padding: 8px;
+            spacing: 6px;
+            HorizontalLayout {
+                alignment: start;
+                KitBadge {
+                    text: "Stopped at the time limit";
+                    fill: Theme.badge-amber-bg;
+                    ink: Theme.badge-amber-text;
+                }
+            }
+            HorizontalLayout {
+                alignment: start;
+                KitButton {
+                    text: "Plan Again with More Time";
+                    h: 28px;
+                    hint: "Double the scan time limit and plan again.";
+                    clicked => { RoughPlanModel.plan_more_time(); }
+                }
+            }
+        }
+    }
+
+    // Header: the summary, the (i) note and the unsaved mark
+    if RoughPlanModel.results.length > 0: HorizontalLayout {
+        spacing: 6px;
+        height: 20px;
+
+        Rectangle {
+            horizontal-stretch: 0;
+            width: Math.min(summary_text.preferred-width, 220px);
+            summary_text := Text {
+                x: 0px;
+                width: parent.width;
+                height: parent.height;
+                text: RoughPlanModel.summary;
+                font-size: 11px;
+                color: Theme.text-secondary;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 18px;
+                height: 18px;
+                accessible-role: AccessibleRole.text;
+                accessible-label: "About These Numbers";
+                accessible-description: root.info_text;
+                Tooltip { text: @markdown("\{root.info_text}"); }
+                KitIcon {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    d: KitIcons.info;
+                    size: 14px;
+                    ink: Theme.text-muted;
+                }
+            }
+        }
+        Rectangle { horizontal-stretch: 1; }
+        if RoughPlanModel.results_unsaved: KitBadge {
+            text: "Unsaved";
+            fill: Theme.badge-amber-bg;
+            ink: Theme.badge-amber-text;
+        }
+    }
+
+    // A note (a plan saved, a staleness note)
+    if RoughPlanModel.status_text != "": WrapText {
+        text: RoughPlanModel.status_text;
+        font_size: 11px;
+        text_color: RoughPlanModel.status_level == 1 ? Theme.accent-amber : Theme.text-secondary;
+    }
+
+    // The layouts. While a plan runs, the previous ones stay dimmed until it finishes.
+    if RoughPlanModel.results.length > 0: ScrollView {
+        vertical-stretch: 1;
+        content-width: self.visible-width;
+        opacity: RoughPlanModel.running ? 0.5 : 1.0;
+
+        VerticalLayout {
+            alignment: start;
+            spacing: 2px;
+            // The scroll bar is drawn over the right edge of the rows: leave it room.
+            padding-right: 12px;
+
+            for result[index] in RoughPlanModel.results: ResultCard {
+                result: result;
+                rank_index: index;
+            }
+
+            Rectangle { height: 12px; }
+        }
+    }
+
+    // While the first plan runs: placeholder rows
+    if RoughPlanModel.results.length == 0 && RoughPlanModel.running: VerticalLayout {
+        vertical-stretch: 1;
+        alignment: start;
+        spacing: 2px;
+        SkeletonRow {}
+        SkeletonRow {}
+        SkeletonRow {}
+        SkeletonRow {}
+    }
+
+    // Empty state: the prompt, or why nothing came back
+    if RoughPlanModel.results.length == 0 && !RoughPlanModel.running: VerticalLayout {
+        vertical-stretch: 1;
+        alignment: center;
+        spacing: 10px;
+        HorizontalLayout {
+            alignment: center;
+            Rectangle {
+                width: 72px;
+                height: 72px;
+                border-radius: 36px;
+                background: Theme.bg-card;
+                KitIcon {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    d: KitIcons.oval;
+                    size: 40px;
+                    stroke: 1.4px;
+                    ink: Theme.text-muted;
+                }
+            }
+        }
+        Text {
+            text: "No layouts yet";
+            font-size: 14px;
+            font-weight: 600;
+            color: Theme.text-primary;
+            horizontal-alignment: center;
+        }
+        WrapText {
+            text: RoughPlanModel.summary != "" ? RoughPlanModel.summary
+                : "Describe the rough on the left and press Plan. The best layouts of your designs show here, ranked by weight.";
+            font_size: 12px;
+            text_color: Theme.text-secondary;
+            alignment: center;
+        }
+    }
+
+    // The question about a name that is taken, and the name row, above the footer
+    if RoughPlanModel.confirm_overwrite_open: ConfirmOverwriteRow {}
+
+    if RoughPlanModel.save_name_open: SaveNameRow {}
+
+    // Footer
+    if RoughPlanModel.results.length > 0: HorizontalLayout {
+        spacing: 8px;
+        KitButton {
+            text: "Show in Library";
+            icon: KitIcons.library;
+            kind: 2;
+            h: 34px;
+            accessible-label: "Show All in Library";
+            hint: RoughPlanModel.links_enabled
+                ? "Show every design these layouts use in the library list."
+                : "Switch to the local library first: the layouts link to designs there.";
+            enabled: RoughPlanModel.links_enabled;
+            clicked => { RoughPlanModel.show_all_in_library(); }
+        }
+        Rectangle { horizontal-stretch: 1; }
+        // Saving reads the results a plan is producing, so it waits for the plan.
+        KitButton {
+            text: RoughPlanModel.keep_count > 0 ? "Save " + RoughPlanModel.keep_count + " Starred\u{2026}" : "Save All\u{2026}";
+            kind: 1;
+            h: 34px;
+            accessible-label: RoughPlanModel.keep_count > 0 ? "Save Selected (" + RoughPlanModel.keep_count + ")" : "Save All";
+            enabled: !RoughPlanModel.running;
+            hint: RoughPlanModel.running ? "Wait for the plan to finish: saving reads the results it is producing."
+                : (RoughPlanModel.keep_count > 0
+                    ? "Save the layouts you starred under a name. Ctrl+S does the same."
+                    : "Save every layout under a name. Star layouts first to save only those. Ctrl+S does the same.");
+            clicked => {
+                RoughPlanModel.save_selected_only = RoughPlanModel.keep_count > 0;
+                RoughPlanModel.begin_save(RoughPlanModel.keep_count > 0);
+            }
+        }
+    }
+}

@@ -58,8 +58,7 @@ component CutSlider inherits Rectangle {
 
 // The standard-view pills.
 component ViewPills inherits HorizontalLayout {
-    // `tight`: a phone-width toolbar, where the five pills at their full padding ran past
-    // the right edge and cut "Right" off.
+    // `tight`: smaller padding, so all five pills fit a phone-width row.
     in property <bool> tight: false;
     spacing: root.tight ? 4px : 8px;
     SolidPill { text: "Front"; pad: root.tight ? 12px : 20px; clicked => { SolidModel.set-view(0); } }
@@ -128,18 +127,14 @@ component ToolRow inherits HorizontalLayout {
     }
 }
 
-// The Solid tab's overlay toolbar, modelled on the desktop's
-// `solid_viewport/toolbar.slint` (Solid view mode): the "Cut" cutting-order slider,
-// the camera pose pills (Front/Top/Bottom/Left/Right/Fit/Reset), the Preform
-// toggle, the Snap and Slice pills of the direct-manipulation tools
-// (`ManipulateModel`), and the status line along the bottom. The desktop's
-// Solid/Path-traced/Both/Diagram mode pills are the header's Render/Solid/Diagram
-// tabs here.
+// The Solid tab's overlay toolbar: the "Cut" cutting-order slider, the camera pose pills
+// (Front/Top/Bottom/Left/Right/Fit/Reset), the Tilt Curve, Preform, Snap and Slice pills
+// (`ManipulateModel`), and the status line along the bottom. The mode pills are the header's
+// Render / Solid / Diagram tabs.
 //
 // The pills take about 870px in one row, so below `wide` (920px of view width) they wrap
-// into two rows (the Cut slider and the tools, the camera pills under them), and below
-// 520px into three or four (Cut; the standard views; Fit and Reset; the tools). The hint strip and
-// timing readout sit under the pill rows, at `top-height` from the top.
+// into two rows, and below `narrow` (520px) into three or four. The hint strip and timing
+// readout sit under the pill rows, at `top-height` from the top.
 export component SolidToolbar inherits VerticalLayout {
     // Explicit geometry: an overlay must not become the view's size constraint.
     x: 0px;

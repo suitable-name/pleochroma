@@ -20,6 +20,15 @@
 //!   girdle for one that keeps every crown facet, nearest a table of about 56 % of the
 //!   stone's width. It judges the finished stone only (`retarget::validity::judge_stone`):
 //!   a table cuts the crown's apex away, so the meet-preservation gate does not apply.
+//! - **Snap to meets** moves each explicit-depth tier with no meet point to the nearest point
+//!   already on the stone when it is cut, where that is within
+//!   [`pleochroma_cut_core::DEFAULT_SNAP_MAX_MOVE_FRACTION`] of the stone's size
+//!   (`Design::snap_depths_to_meets`). It changes meets by its nature, so it judges the
+//!   finished stone only, by the one rule the CLI shares ([`super::judge_snap`], in
+//!   `verdict::snap`): it refuses a result that does not close, loses or thins the girdle, or
+//!   puts a table or culet on the wrong side of it. Facets the new depths cut away do not
+//!   refuse it: the plan's question ([`FixPlan::confirm`]) names them before anything is
+//!   applied, and the verdict, recomputed afterwards, offers to remove them.
 //!
 //! The planner solves the design (and candidates) itself, so a caller runs it on a worker
 //! thread. It never mutates the design it is given.
@@ -76,6 +85,11 @@ pub struct FixPlan {
     pub message: String,
     /// The tier to select afterwards, as a position in the design AFTER the edit.
     pub select: Option<usize>,
+    /// A question to ask before the edit is applied, built from what planning found: the snap
+    /// to meet points names the facets it would cut away ([`FixAction::asks_after_planning`]).
+    /// `None` for a fix that asks nothing, or whose question ([`super::Reason::confirm`]) is
+    /// asked before it is planned.
+    pub confirm: Option<String>,
 }
 
 /// The angle a steepened pavilion tier gets for a material of index `n_d`: the critical angle
@@ -99,12 +113,13 @@ pub fn plan_fix(design: &Design, action: &FixAction, n_d: f64) -> Result<FixPlan
         FixAction::MoveAfter { tier, after } => move_after(design, *tier, *after),
         FixAction::SteepenPavilion { tier } => steepen_pavilion(design, *tier, n_d),
         FixAction::AddTable => add_table(design),
+        FixAction::SnapToMeets => super::snap::snap_to_meets(design),
     }
 }
 
 /// The name a person reads for the tier: its own name, or its standard code for an unnamed
 /// or old-style one.
-fn tier_label(design: &Design, tier: usize) -> String {
+pub(super) fn tier_label(design: &Design, tier: usize) -> String {
     // What the tier table calls it: the tier's own name, or its standard code when the name
     // is empty or old-style (`3`, `A`). `Tier N` only when there is no such tier.
     crate::retarget::plan::tier_display_names(design)
@@ -120,7 +135,7 @@ const fn plural(count: usize) -> &'static str {
 
 /// An [`InvalidReason`] as a sentence about the CURRENT design (the gate's own wording speaks
 /// of a "retargeted" design).
-fn invalid_text(reason: &InvalidReason) -> String {
+pub(super) fn invalid_text(reason: &InvalidReason) -> String {
     match reason {
         InvalidReason::DoesNotSolve(why) => {
             format!("The design does not solve ({}).", why.trim_end_matches('.'))
@@ -141,8 +156,9 @@ pub(super) fn live_planes(mesh: &SolidMesh) -> BTreeSet<usize> {
 
 /// Which index entries of tier `tier` have a facet that is cut away, when that can be told.
 ///
-/// `ranges` are the tier plane ranges ([`pleochroma_cut_core::design::hinge::tier_plane_ranges`])
-/// and `live` the planes the stone shows. Entry `j` of the tier is plane `range.start + j`
+/// `ranges` are the tier plane ranges
+/// ([`pleochroma_cut_core::design::hinge::tier_plane_ranges`]) and `live` the planes the stone
+/// shows. Entry `j` of the tier is plane `range.start + j`
 /// only when the tier contributes exactly one plane per index entry (a duplicated plane makes
 /// the ranges shorter than the list), so anything else is `None`, and so is a tier with
 /// nothing cut away or everything cut away (the whole tier goes then, not entries).
@@ -275,6 +291,7 @@ fn snap_to_teeth(design: &Design, tier: usize) -> Result<FixPlan, String> {
             plural(moved)
         ),
         select: Some(tier),
+        confirm: None,
     })
 }
 
@@ -342,6 +359,7 @@ fn remove_vanished(design: &Design, tier: usize) -> Result<FixPlan, String> {
         edit,
         message,
         select: None,
+        confirm: None,
     })
 }
 
@@ -376,6 +394,7 @@ fn move_after(design: &Design, tier: usize, after: usize) -> Result<FixPlan, Str
         edit,
         message: format!("Moved {label} to just after {target}, so {target} is cut first."),
         select: Some(after),
+        confirm: None,
     })
 }
 
@@ -444,6 +463,7 @@ fn steepen_pavilion(design: &Design, tier: usize, n_d: f64) -> Result<FixPlan, S
              girdle corners, so the girdle outline stays."
         ),
         select: Some(tier),
+        confirm: None,
     })
 }
 
@@ -542,6 +562,7 @@ fn add_table(design: &Design) -> Result<FixPlan, String> {
             "Added a table at height {height:.3}: {percent:.0} % of the stone's width."
         ),
         select: Some(index),
+        confirm: None,
     })
 }
 

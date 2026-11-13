@@ -4,13 +4,10 @@ use super::{
     TemplateContext, TiltVideoExportModel, VideoTemplateSettings, axes_label, colorspace_label,
     params, samples_per_pixel_from_exponent, selected_axes, template,
 };
-/// Builds the `TemplateContext`/`VideoTemplateExtras` pair for a given
-/// design/designer/shape/RI/material/scene/settings -- the ONE place both the real
-/// export (`build_request`) and the dialog's own live "Resolves to" preview
-/// (`on_preview_video_folder_name`, via `live_template_context` below) turn "the
-/// currently open design" into a `TemplateContext`, so the two can never disagree
-/// about what that means. Pure/plain-argument on purpose so it stays testable
-/// without a live `MainWindow` (see this module's own tests).
+/// Builds the `TemplateContext`/`VideoTemplateExtras` pair from a design, its material, the scene
+/// and the settings. Both the real export (`build_request`) and the dialog's live "Resolves to"
+/// preview (via `live_template_context`) use it, so they always agree. Plain arguments keep it
+/// testable without a live `MainWindow`.
 pub(super) fn build_video_template_context(
     design: &str,
     designer: &str,
@@ -64,10 +61,8 @@ pub(super) fn live_template_context(
 ) -> (TemplateContext, template::VideoTemplateExtras) {
     let model = ui.global::<TiltVideoExportModel>();
     let detail = ui.global::<LibraryModel>().get_current_detail();
-    // A refused material (see `SceneSnapshot::capture`'s own doc comment) has nothing
-    // real to preview a filename for -- falls back to the same fixed sample the
-    // no-live-window branch above uses rather than showing a stale or wrong-material
-    // name; the actual export start (`build_request`) refuses for real.
+    // A refused material (see `SceneSnapshot::capture`) has no real name to preview, so the
+    // fixed sample is shown instead; the export start (`build_request`) refuses for real.
     let Ok(scene) = SceneSnapshot::capture(render_ctx) else {
         return (sample_template_context(), sample_template_extras());
     };

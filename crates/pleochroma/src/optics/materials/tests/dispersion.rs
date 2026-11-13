@@ -10,47 +10,22 @@ use crate::optics::materials::{GemMaterial, OpticalCharacter};
 /// silently shipping -- see each material's own doc comment in `all_materials` for
 /// the primary/reputable source and the derivation of its target Abbe number.
 ///
-/// Source priority for these targets (re-verified against trusted online sources,
-/// which now OUTRANK `GEMSTONE_RENDERING_BLUEPRINT.md` -- the document is used only
-/// as a tiebreaker/corroboration, never as the primary authority, because it is a
-/// research compilation whose own "Fire Delta n(F-C)" column demonstrably mixes
-/// Fraunhofer B-G and F-C conventions row-to-row, e.g. Quartz lists 0.013, the
-/// well-known B-G figure, in a column labelled F-C, contradicting that same row's
-/// own `V_d`):
+/// Source priority for these targets:
 ///   1. Primary optical measurements (Sellmeier/Cauchy fits from refractiveindex.info
 ///      and the papers it cites).
 ///   2. Reputable gemological references (GIA, Mindat, Handbook of Mineralogy,
-///      International Gem Society), corroborated by 2+ independent sources where
-///      possible, with their "dispersion" figures explicitly treated as Fraunhofer
-///      B-G (never plugged directly into an F-C slot).
-///   3. The document, as a tiebreaker only.
+///      International Gem Society), corroborated by 2+ sources where possible. Their
+///      "dispersion" figures are Fraunhofer B-G values, never plugged into an F-C slot.
 ///
 /// Two confidence tiers, reflected in the tolerance:
 ///   - TIGHT (0.5): Diamond, Sapphire, Ruby, Quartz, Spinel, Cubic Zirconia,
-///     Alexandrite, Synthetic Moissanite, GGG -- dispersion coefficients transcribed
-///     directly from a primary optical-constants paper (Peter 1923; Malitson &
-///     Dodge 1972; Ghosh 1999; Tropf & Thomas 1991; Wood & Nassau 1982; Walling
-///     1980; Wang 2013 corroborated by Singh 1971; Wood & Nassau 1990 for GGG), target computed from that exact
-///     published formula. Alexandrite and Moissanite CONTRADICT the document here
-///     (68.0 -> 73.90 and 21.5 -> 25.94 respectively) -- per the source priority
-///     above the primary measurement wins; see each entry's comment in
-///     `all_materials` for the two-source corroboration.
+///     Alexandrite, Synthetic Moissanite, GGG. Dispersion coefficients come from a
+///     primary optical-constants paper, and the target is computed from that formula.
 ///   - LOWER CONFIDENCE (2.5-4.0, roughly 5-12% relative): Zircon, Topaz,
-///     Tourmaline, Tanzanite, Emerald -- no primary Sellmeier/Cauchy fit exists in
-///     the optics literature for these species (confirmed absent from
-///     refractiveindex.info's database), so `n_d` is taken from 2+ corroborating
-///     reputable gemological sources and the dispersion shape is a 2-parameter
-///     Cauchy fit solved from that `n_d` and a Delta n(F-C) obtained by converting
-///     each species' well-corroborated gemological B-G "dispersion" figure via a
-///     B-G->F-C ratio (0.579, range 0.569-0.587) computed directly from the 8
-///     genuine primary Sellmeier curves above -- not from cross-comparing
-///     gemological tables against each other, which is how the earlier 0.591
-///     factor was derived. All five CONTRADICT the document (Zircon 28.0 -> 40.96, Topaz 64.0 ->
-///     76.83, Tourmaline 55.0 -> 64.58, Tanzanite 45.0 -> 39.85 (after the 2026-10-26 re-basing), Emerald's estimate
-///     shifts modestly from 69.99 to 70.93 with the refined ratio). Zircon's `n_d`
-///     also carried an unrelated, unsourced error, corrected to 1.925 from
-///     1.956878 (see its entry's comment) -- critical-angle-relevant since `n_d`
-///     drives it directly.
+///     Tourmaline, Tanzanite, Emerald. No primary Sellmeier/Cauchy fit exists for these
+///     species, so `n_d` comes from 2+ gemological sources. The dispersion shape is a
+///     2-parameter Cauchy fit from `n_d` and a Delta n(F-C) converted from the B-G figure
+///     with the B-G->F-C ratio (0.579) that the primary curves give.
 #[test]
 fn builtin_material_abbe_numbers_match_published_values() {
     // (name, sourced Abbe number V_d, tolerance)
@@ -73,8 +48,7 @@ fn builtin_material_abbe_numbers_match_published_values() {
         ("Zircon", 40.96, 3.0),
         ("Topaz", 76.83, 4.0),
         ("Tourmaline", 64.58, 3.5),
-        // 2026-10-26: base curve re-based to Hurlbut's n_beta 1.6943, B unchanged:
-        // V_d = 0.6943 / 0.017422 = 39.85 (was 40.21)
+        // Hurlbut's n_beta 1.6943 as the base curve: V_d = 0.6943 / 0.017422 = 39.85
         ("Tanzanite", 39.85, 3.0),
         ("Emerald", 70.93, 3.5),
     ];
@@ -99,31 +73,12 @@ fn builtin_material_abbe_numbers_match_published_values() {
         );
     }
 }
-/// Companion to `builtin_material_abbe_numbers_match_published_values`: pins down
-/// `n_d` at the sodium D line (589.3nm) for every re-sourced material below, so a
-/// future coefficient edit that silently shifts `n_d` gets caught. `n_d` drives
-/// the critical angle and therefore brilliance/windowing/extinction, so any
-/// intentional change here is significant downstream and must be deliberate, not
-/// an accident of refitting the dispersion shape.
-///
-/// For four of the six re-sourced materials (Synthetic Moissanite, Topaz,
-/// Tourmaline, Alexandrite), `n_d` is unchanged from before -- only the
-/// dispersion shape (`V_d`) moved, per
-/// `builtin_material_abbe_numbers_match_published_values`. Tanzanite's `n_d` DID
-/// change on 2026-10-26, from 1.700858 to 1.6943 (re-based to Hurlbut's measured
-/// `n_beta`, American Mineralogist 54, 702 (1969): -0.0066, above the ~0.002
-/// critical-angle threshold).
-///
-/// Zircon is the exception, and the one material in this file whose `n_d`
-/// DID change materially: from 1.956878 to 1.925, a -0.0319 shift, far above
-/// the ~0.002 threshold at which critical-angle-driven behaviour (brilliance,
-/// windowing, extinction) is expected to move. The old value was never actually
-/// sourced from anywhere (not the document, which gives `n_o=1.9250`, nor any
-/// external reference found); 1.925 is corroborated by the Handbook of Mineralogy,
-/// International Gem Society, and the document itself. See Zircon's comment in
-/// `all_materials` for the full derivation. Any test elsewhere in the workspace
-/// that hardcodes zircon's brilliance/windowing/pose behaviour will need
-/// re-stabilising against this new `n_d`.
+/// Companion to `builtin_material_abbe_numbers_match_published_values`: pins `n_d` at the
+/// sodium D line (589.3nm) for the re-sourced materials. `n_d` sets the critical angle, so
+/// brilliance, windowing and extinction depend on it. A change of more than about 0.002 is
+/// significant downstream and must be deliberate. Zircon's 1.925 is corroborated by the
+/// Handbook of Mineralogy and International Gem Society. Tests that hardcode zircon's
+/// brilliance or pose behaviour must follow this value.
 #[test]
 fn builtin_material_n_d_matches_sourced_values() {
     // (name, sourced n_d, tolerance)
@@ -149,14 +104,10 @@ fn builtin_material_n_d_matches_sourced_values() {
         );
     }
 }
-/// Every built-in material's dispersion curve (Sellmeier or Cauchy) must
-/// evaluate to a finite, physically-sane (`n >= 1.0`) index at BOTH ends of this
-/// renderer's actual sampled visible band (380nm violet, 780nm red) -- not just
-/// near the sodium D line every other dispersion test in this file checks. Most
-/// Cauchy fits here are only solved/verified near D and the F/C Fraunhofer lines
-/// (486-656nm); this pins the `.max(1.0)` floor added to
-/// `DispersionModel::Cauchy::evaluate` (see that variant's own doc comment) so an
-/// out-of-fit-range extrapolation can never silently produce `n < 1` or a NaN.
+/// Every built-in dispersion curve (Sellmeier or Cauchy) evaluates to a finite index `n >= 1.0`
+/// at both ends of the sampled visible band (380nm, 780nm), not only near the D line. Most
+/// Cauchy fits are verified only near 486-656nm, so this guards against an extrapolation that
+/// gives `n < 1` or NaN. It also covers the `.max(1.0)` floor of `DispersionModel::Cauchy`.
 #[test]
 fn every_builtin_dispersion_curve_stays_physical_at_the_sampled_band_edges() {
     for material in GemMaterial::all_materials() {
@@ -190,11 +141,8 @@ fn every_builtin_dispersion_curve_stays_physical_at_the_sampled_band_edges() {
         }
     }
 }
-/// Every new built-in must resolve by its own exact name
-/// (the same `by_name` round-trip `by_name_round_trips_every_builtin_material`
-/// already covers exhaustively -- this test's real job is the tolerance check
-/// below) and its `n(589.3nm)` must match the target table below to within
-/// 0.002.
+/// Each target material resolves by its own exact name, and its `n(589.3nm)` matches the
+/// target table below within the given tolerance.
 #[test]
 fn m4_new_species_match_their_target_n_d_within_tolerance() {
     // (name, target n_D, tolerance)
@@ -259,8 +207,7 @@ fn ggg_dispersion_is_wood_and_nassaus() {
 }
 /// Peridot's base Cauchy curve is `n_beta` (the biaxial convention), so its principal triplet
 /// at the D line must be the tabulated Deer, Howie & Zussman one for Fo~90 olivine:
-/// alpha 1.654, beta 1.669, gamma 1.690. Pins the earlier slip that stored `n_alpha` (1.654)
-/// as the base curve and so produced 1.639 / 1.654 / 1.675.
+/// alpha 1.654, beta 1.669, gamma 1.690.
 #[test]
 fn peridot_principal_triplet_is_the_tabulated_one() {
     let peridot = GemMaterial::by_name("Peridot").expect("Peridot must be a built-in material");
@@ -320,13 +267,10 @@ fn tanzanite_principal_triplet_is_hurlbuts() {
     );
 }
 
-/// Quartz's genuine per-axis (Ghosh o/e) dispersion must make its
-/// extraordinary-ray index actually VARY with wavelength in a way the old
-/// constant-offset approximation could not (the offset `n_o(lambda) +
-/// birefringence_delta` tracks `n_o`'s own curvature exactly, so `n_e(lambda) -
-/// n_o(lambda)` is constant under the old model but need not be under a genuine
-/// independent curve); a material with no `uniaxial_extraordinary_dispersion` set
-/// (e.g. Zircon) must keep the exact old constant-delta behaviour, bit-identical.
+/// Quartz's own (Ghosh o/e) dispersion makes its extraordinary-ray index vary with wavelength.
+/// The constant offset `n_o(lambda) + birefringence_delta` cannot do that, since `n_e - n_o`
+/// stays constant. A material without `uniaxial_extraordinary_dispersion` (e.g. Zircon) keeps
+/// the constant-delta behaviour bit for bit.
 #[test]
 fn quartz_extraordinary_index_has_wavelength_dependent_birefringence_while_legacy_entries_stay_constant()
  {
@@ -351,8 +295,7 @@ fn quartz_extraordinary_index_has_wavelength_dependent_birefringence_while_legac
 
     // A legacy entry (no per-axis curve) must keep the OLD constant-delta
     // behaviour exactly: n_e - n_o == birefringence_delta at every wavelength.
-    // (Sapphire was this premise's legacy entry until it gained the Malitson & Dodge
-    // e-ray curve; Zircon has no published per-ray dispersion.)
+    // (Zircon has no published per-ray dispersion, so it keeps the constant offset.)
     let zircon = GemMaterial::by_name("Zircon").expect("Zircon must resolve");
     assert!(
         zircon.uniaxial_extraordinary_dispersion.is_none(),
@@ -369,10 +312,9 @@ fn quartz_extraordinary_index_has_wavelength_dependent_birefringence_while_legac
     }
 }
 
-/// Rutile's principal indices follow `DeVore` (1951): `n_o(D) = 2.6129`, `n_e(D) =
-/// 2.9086`, with Fraunhofer `Delta n(F-C)` of 0.1636 (o) and 0.2072 (e) -- far below
-/// the gemological B-G figure (~0.30) the earlier Cauchy fit mistook for F-C -- and the
-/// stored `birefringence_delta` equals `n_e(D) - n_o(D)`.
+/// Rutile's principal indices follow `DeVore` (1951): `n_o(D) = 2.6129`, `n_e(D) = 2.9086`,
+/// with Fraunhofer `Delta n(F-C)` of 0.1636 (o) and 0.2072 (e). The stored
+/// `birefringence_delta` equals `n_e(D) - n_o(D)`.
 #[test]
 fn rutile_matches_devore_indices_and_dispersion() {
     let rutile = GemMaterial::by_name("Rutile").expect("Rutile must be a built-in material");

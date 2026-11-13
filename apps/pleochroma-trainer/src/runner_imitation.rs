@@ -1,10 +1,11 @@
-//! The labelled states of the imitation rounds (`DAgger`) and the exploration noise that visits them.
+//! The labelled states of the imitation rounds (`DAgger`) and the noise that visits them.
 //!
 //! Every round rolls the current policy out with a little noise, asks the simulator for the
-//! finite-difference labels of a share of the visited states ([`pleochroma_ai::env::TeacherLabel`])
-//! and adds them to one growing aggregate, [`LabelledStates`]. The next update trains on the whole
-//! aggregate, so the model keeps learning from the states of its earlier, worse selves. The
-//! aggregate retains a mixture of recent and older states under row and byte limits.
+//! finite-difference labels of a share of the visited states
+//! ([`pleochroma_ai::env::TeacherLabel`]) and adds them to one growing aggregate,
+//! [`LabelledStates`]. The next update trains on the whole aggregate, so the model keeps
+//! learning from the states of its earlier, worse selves. The aggregate retains a mixture of
+//! recent and older states under row and byte limits.
 
 use std::collections::VecDeque;
 
@@ -80,9 +81,11 @@ impl LabelledSample {
     }
 }
 
-/// Whether `label` teaches anything: some tier has a finite component slope, or the
-/// oracle gain or a complete verified action is finite. A state without these is not worth a place in the
-/// aggregate (the loss would skip every entry of it).
+/// Whether `label` teaches anything: some tier has a finite component slope, or the oracle gain or
+/// a complete verified action is finite.
+///
+/// A state without these is not worth a place in the aggregate (the loss would skip every entry of
+/// it).
 #[must_use]
 pub fn label_is_informative(label: &TeacherLabel) -> bool {
     label.oracle_gain.is_some_and(f32::is_finite)
@@ -208,8 +211,8 @@ impl LabelledStates {
         }
     }
 
-    /// Queue backing allocations are accounted in addition to row payloads. Row headers
-    /// are included in both figures, intentionally leaving a conservative budget margin.
+    /// Queue backing allocations, counted on top of the row payloads. The estimate is
+    /// deliberately conservative, which leaves a margin in the budget.
     fn queue_bytes(&self) -> usize {
         // Two slots per retained row cover VecDeque's geometric growth; we shrink
         // queues when eviction or recovery would leave more spare capacity than this.
@@ -273,7 +276,7 @@ impl LabelledStates {
         self.enforce_budget();
     }
 
-    /// Apply the current conservative accounting after loading legacy recovery data.
+    /// Evicts rows until the count and byte limits hold, then trims the queues' spare capacity.
     pub(super) fn enforce_budget(&mut self) {
         self.normalize_queue_capacity();
         while !self.states.is_empty()

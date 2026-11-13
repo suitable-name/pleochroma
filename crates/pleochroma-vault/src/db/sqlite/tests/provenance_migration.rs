@@ -1,5 +1,7 @@
-//! The material provenance migration (`diagram_previews.preview_girdle_mm` and
-//! `preview_material_source`, `Database::migrate_preview_material_provenance`): the
+//! Tests of the material provenance migration.
+//!
+//! The migration is `Database::migrate_preview_material_provenance`, over
+//! `diagram_previews.preview_girdle_mm` and `preview_material_source`: the
 //! columns appear ahead of the PNG blobs, every cached row survives, the cached results of
 //! designs that carry a native design file are marked outdated in both cache tables, and
 //! none of that repeats on a later open.
@@ -147,10 +149,9 @@ fn a_database_without_the_provenance_columns_gains_them_and_keeps_every_row() {
     std::fs::remove_file(&path).ok();
 }
 
-/// Previews and curves made before this change followed the refractive index alone, so the
-/// designs that carry a native design file (the only ones that can name a material or a
-/// size) lose their stored fingerprint in both cache tables and are listed as outdated;
-/// the others keep theirs.
+/// Older fingerprints ignored the material and size, which only a native design file can
+/// name. So the migration clears the fingerprint of designs that carry one, in both cache
+/// tables, and those are listed as outdated. The others keep theirs.
 #[test]
 fn designs_with_a_design_file_are_marked_outdated_once_and_the_others_are_not() {
     let path = seed_pre_provenance_db("provenance_marks_design_files");

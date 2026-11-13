@@ -80,10 +80,10 @@
 //! [`StagingSlot`]s, grown -- never shrunk -- only when
 //! [`GpuFrameRenderer::ensure_staging_capacity`] finds one too small (see
 //! [`staging_needs_growth`]), mirroring [`GpuFrameRenderer::ensure_capacity`]'s policy
-//! for `outputs`. [`dispatch_chunk`] therefore uploads nothing at all via
-//! [`build_chunk_bind_group`] -- only `queue.write_buffer`s into already-allocated
-//! buffers. The wasm32 [`GpuFrameRenderer::accumulate_async`] path has no such overlap
-//! and keeps uploading through [`build_bind_group`] unchanged.
+//! for `outputs`. [`GpuFrameRenderer::dispatch_chunk`] therefore uploads nothing at all
+//! via [`bind_groups::build_chunk_bind_group`]: only `queue.write_buffer`s into
+//! already-allocated buffers. The wasm32 [`GpuFrameRenderer::accumulate_async`] path has no
+//! such overlap and keeps uploading through [`bind_groups::build_bind_group`].
 //!
 //! # Material-class kernel specialisation
 //!
@@ -91,7 +91,7 @@
 //! biaxial) with runtime branches in one megakernel; a plain isotropic dispatch
 //! otherwise still carries every class's per-ray register state, since
 //! `is_anisotropic`/`is_biaxial` are ordinary runtime booleans no compiler can prove
-//! false ahead of time. [`compute::create_compute_pipeline_with_constants`] fixes
+//! false ahead of time. [`compute::create_persisted_compute_pipeline`] fixes
 //! `spectral_transport.wgsl`'s `MATERIAL_CLASS` pipeline-overridable constant at
 //! pipeline-creation time; [`GpuFrameRenderer`] builds one specialised pipeline per
 //! class LAZILY, on first use of that class. The GENERIC pipeline is lazy too: it compiles
@@ -129,30 +129,22 @@
 //!   depth/normal/facet-id for the A-Trous denoiser to key on. `apps/pleochroma-cut`'s
 //!   `bridge::guide_pass` regenerates them locally from one un-jittered primary ray per
 //!   pixel instead, reused unchanged from the remote path.
-//! - **Material routing is a contract, not a restriction today.**
-//!   `GemMaterial::gpu_supported` is this crate's routing predicate and
-//!   [`GpuFrameRenderer::accumulate`] enforces it ([`GpuFrameError::UnsupportedMaterial`]).
-//!   Currently unconditionally `true` -- every built-in material, including the
-//!   biaxial ones, is ported and verified against this module's Tier 2 per-function ULP
-//!   budgets -- but stays enforced because a future material kind the megakernel cannot
-//!   handle would flip it. Every
-//!   Beer-Lambert/extinction-transmittance site whose CPU twin calls
+//! - **Material routing.** `GemMaterial::gpu_supported` is this crate's routing predicate.
+//!   [`GpuFrameRenderer::accumulate`] declines a material it rejects with
+//!   [`GpuFrameError::UnsupportedMaterial`], so such a material renders on the CPU.
+//!   Every Beer-Lambert/extinction-transmittance site whose CPU twin calls
 //!   `crate::simd::exp_f32x8` -- `apply_absorption` (`absorption.rs`), the achromatic
 //!   scatter/survive branches of `maybe_scatter_or_extinguish`, and
 //!   `nee_contribution_hg_scatter`'s medium transmittance (all in `scattering.rs`) --
-//!   has a WGSL twin (`exp_poly`, `transport_physics.wgsl`) that ports `exp_f32x8`'s own
-//!   scalar reference op-for-op (same Cody-Waite range reduction, same `mul_add`/`fma`
-//!   placement, same polynomial coefficients), not the `exp()` builtin, at every one of
-//!   those call sites in `transport_physics.wgsl`/`transport_bounce.wgsl`/
-//!   `transport_functions.wgsl`. `spectral_absorption`'s Gaussian band-shape evaluation
-//!   (`optics::absorption::AbsorptionBand::evaluate`) is a DIFFERENT case: the CPU
-//!   genuinely calls `f32::exp()` there (not `exp_f32x8`), so its WGSL twin keeps the
-//!   plain `exp()` builtin too -- op-for-op identical source on both sides, the residual
-//!   ULP gap there is this adapter's hardware-transcendental-vs-`libm` rounding
-//!   difference, not a twin divergence, and stays within its own ULP budget, never 0. No
-//!   CPU-vs-GPU comparison in this crate should ever be tightened to bit-exact on that
-//!   basis -- but the Beer-Lambert-family sites above ARE
-//!   bit-exact (0 genuine ULP), since both sides run the identical polynomial.
+//!   has a WGSL twin (`exp_poly`, in `transport_physics/04_scattering.wgsl`) that ports
+//!   `exp_f32x8`'s scalar reference op-for-op (same Cody-Waite reduction, same `mul_add`
+//!   placement, same coefficients), not the `exp()` builtin, at each of those call sites in
+//!   the transport units. `spectral_absorption`'s band-shape evaluation
+//!   (`optics::absorption::AbsorptionBand::evaluate`) is the exception: the CPU calls
+//!   `f32::exp()` there, so its WGSL twin keeps the `exp()` builtin. Its residual ULP gap is
+//!   the adapter's transcendental-vs-`libm` rounding and stays within its own ULP budget,
+//!   never 0. No CPU-vs-GPU comparison should be made bit-exact on that basis, but the
+//!   Beer-Lambert sites above are bit-exact (0 ULP), since both sides run the same polynomial.
 //! - **HDR environment maps.** `EnvironmentSource::HdrMap` renders on the
 //!   GPU: `env_mode == transport_env_mode::HDR_MAP` routes the megakernel's miss-branch
 //!   and exit-splitting environment lookups through `hdr_env_radiance_at`
@@ -163,16 +155,18 @@
 //!   `renderer::env_map_gpu::HdrEnvGpuData`'s doc comment for the texel-buffer layout),
 //!   **not** claimed bit-exact: `run_hdr_env_radiance` gates on a ULP budget, not `== 0`,
 //!   the same way every other Tier 2 check in this module does, for any material whose
-//!   absorption/scattering feeds into what gets looked up.
+//!   absorption/scattering feeds into what gets looked up. The map's exposure
+//!   (`GpuTransportParams::hdr_exposure`) scales every texel the kernel reads, the miss
+//!   lookups and the NEE draws alike, through `hdr_rgb_at_exposure` (the twin of
+//!   `optics::raytracer::environment::hdr_rgb_at_exposure`, skipped at exactly 1.0).
 //!   The CPU (`optics::raytracer::transport::trace_spectral_ray_inner`'s own
 //!   white-balance step) and this GPU path both skip the Von-Kries white-balance round
 //!   trip for `HdrMap` --
-//!   `env_mode == 1u` (`Studio`) gates it on the GPU, `EnvironmentSource::HdrMap(_) => xyz`
+//!   `env_mode == 1u` (`Studio`) gates it on the GPU, `EnvironmentSource::HdrMap { .. } => xyz`
 //!   (no-op) on the CPU -- so a hybrid CPU/GPU HDR frame never disagrees by that
 //!   transform's own non-exact-inverse floor (`max|B*A - I| ~= 5.2e-7`), the way it would
 //!   if only one side applied the transform. [`GpuFrameError::UnsupportedEnvironment`] is
-//!   reachable, not merely unreachable-but-enforced future-proofing (mirroring
-//!   [`GpuFrameError::UnsupportedMaterial`]'s own status): [`build_hdr_env`] returns it
+//!   reachable: [`build_hdr_env`] returns it
 //!   for an HDR map whose texel buffer would exceed the
 //!   device's `max_storage_buffer_binding_size` (see
 //!   [`crate::renderer::env_map_gpu::HdrEnvGpuData::fits_storage_binding`]).
@@ -199,7 +193,7 @@
 //! [`GpuFrameRenderer::dispatch_chunk`]'s own comment at its pipeline-kind branch).
 //! Deliberately NOT persistent/grown-never-shrunk like `outputs`: allocated FRESH every
 //! `dispatch_chunk_wavefront` call, sized exactly to that chunk -- a documented
-//! simplification for this first cut (see [`GpuFrameRenderer::dispatch_chunk_wavefront`]'s
+//! simplification (see [`GpuFrameRenderer::dispatch_chunk_wavefront`]'s
 //! own doc comment for why). Also deliberately NOT storing the megakernel's per-ray
 //! "hoisted" material-derived constants (dispersion/absorption arrays, the biaxial axis
 //! frame, hero indices, studio rig directions): `wavefront_bounce` recomputes them fresh
@@ -222,8 +216,8 @@
 //!
 //! ## When to prefer which
 //!
-//! Unmeasured as of this writing -- [`GpuPipelineKind::Megakernel`] stays the default
-//! for every caller until the owner profiles both on real scenes. The wavefront
+//! The two pipelines are not yet profiled on real scenes: [`GpuPipelineKind::Megakernel`]
+//! stays the default for every caller. The wavefront
 //! pipeline's theoretical advantage is scenes with high bounce-to-bounce divergence
 //! (mixed material classes, frequent early ray termination via Russian roulette or
 //! misses) where the megakernel's whole-warp occupancy is dominated by its slowest
@@ -234,21 +228,37 @@
 //!
 //! ## Equivalence
 //!
-//! `renderer::gpu::transport_check::run_pipeline_equivalence` renders the same chunk
-//! through both pipelines and asserts bit-identical `out_xyz` per pixel; a companion
-//! determinism check runs the wavefront pipeline twice and asserts the same.
+//! `renderer::gpu::frame::run_pipeline_equivalence` renders the same chunk through both
+//! pipelines and requires the twin rule of `event_wavefront::compare` (two kernels, which a
+//! driver may round differently); a companion determinism check runs the wavefront pipeline
+//! twice and requires bit-identical `out_xyz`.
+//!
+//! # Adaptive (live-tile) passes
+//!
+//! `GpuFrameRenderer::accumulate_live_turn` (module `live`) traces only the pixels of a
+//! `renderer::adaptive::LiveTiles` and adds the odd-index samples to a second accumulator
+//! (half-buffer B). It compiles the UNCHANGED megakernel unit with one patched line (the pixel
+//! lookup, module `live_source`), so ordinary passes keep their pipelines, shader text and
+//! results byte for byte, and allocates nothing until the first live pass. See `live`'s module
+//! doc comment.
+//!
+//! A GPU-resident adaptive run (module `resident`) keeps the frame's sums on the GPU for the
+//! whole run: its passes add into resident buffers (nothing is read back per pass) and its
+//! convergence check runs on the GPU, one noise value per live tile crossing to the host.
 //!
 //! # Module layout
 //!
-//! Split from one file into this folder along real seams: [`scene_buffers`] owns the
-//! persistent scene/output GPU buffers, [`bind_groups`] builds pipelines and bind
-//! groups (including the wavefront kernel's five pipelines), [`specialisation`] is the
-//! material-class routing decision, [`renderer`] is [`GpuFrameRenderer`] itself plus its
-//! construction/capacity-management methods, [`accumulate`]/[`dispatch`] split the
-//! per-frame accumulate loop from the per-chunk GPU dispatch, [`readback`] is the
-//! GPU-side reduce and CPU readback, [`async_impl`] is the wasm32-only async
-//! counterpart, and [`equivalence`] holds the bit-exactness self-tests every other
-//! module's doc comments reference.
+//! [`scene_buffers`] owns the persistent scene/output GPU buffers, [`bind_groups`] builds
+//! pipelines and bind groups (including the wavefront kernel's five pipelines),
+//! [`specialisation`] is the material-class routing decision, [`renderer`] is
+//! [`GpuFrameRenderer`] itself with its construction and capacity-management methods,
+//! [`accumulate`]/[`dispatch`] hold the per-frame accumulate loop and the per-chunk GPU
+//! dispatch, [`readback`] is the GPU-side reduce and CPU readback, [`async_impl`] is the
+//! wasm32-only async counterpart, [`live`]/[`resident`] are the adaptive passes,
+//! [`sorted`]/[`staged`] are the alternative megakernel engines, and [`equivalence`] holds
+//! the equivalence self-tests that other doc comments reference (bit-exact where one kernel
+//! runs twice, the twin rule of `event_wavefront::compare` where two kernels run the same
+//! expressions).
 
 use std::{sync::atomic::AtomicBool, time::Instant};
 
@@ -261,15 +271,28 @@ mod accumulate;
 mod async_impl;
 mod batch;
 mod bind_groups;
+// The path cache's phase B passes: a child of this module (it needs the renderer's private state),
+// kept beside the phase B kernel source in `renderer/gpu/path_cache/`.
+#[path = "../path_cache/pass.rs"]
+mod cached_pass;
 mod dispatch;
 mod equivalence;
 mod failure;
 #[cfg(test)]
 mod legacy_specialisation_tests;
+mod live;
+mod live_source;
 mod readback;
 mod renderer;
+mod resident;
 mod scene_buffers;
+mod sorted;
 mod specialisation;
+mod staged;
+mod tables_buffer;
+mod tables_source;
+mod tray_shadow_buffer;
+pub(crate) mod tray_shadow_source;
 #[cfg(not(target_arch = "wasm32"))]
 mod warmup;
 mod workload;
@@ -280,6 +303,21 @@ mod tests;
 #[cfg(all(test, feature = "gpu"))]
 mod gpu_hardware_tests;
 
+#[cfg(all(test, feature = "gpu"))]
+mod live_hardware_tests;
+
+#[cfg(all(test, feature = "gpu"))]
+mod tables_hardware_tests;
+
+#[cfg(all(test, feature = "gpu"))]
+mod collect_hardware_tests;
+
+#[cfg(all(test, feature = "gpu"))]
+mod hdr_rotation_hardware_tests;
+
+#[cfg(all(test, feature = "gpu"))]
+mod sorted_tests;
+
 // `GpuPipelineKind` itself is defined in `renderer::gpu_backend`, NOT
 // here, and re-exported -- see that module's own doc comment on why `GpuBackend` exists
 // in both build configurations (with and without `feature = "gpu"`) and its types must
@@ -288,39 +326,49 @@ mod gpu_hardware_tests;
 // own signature reading naturally as `renderer::gpu::frame::GpuPipelineKind`.
 pub use crate::renderer::gpu_backend::GpuPipelineKind;
 
+#[cfg(test)]
+pub(crate) use renderer::{collect_applies, resolve_estimator};
+
 pub(crate) use batch::{BatchEvent, BatchState};
 pub(crate) use bind_groups::TransportDispatchArgs;
+pub(crate) use cached_pass::{CachedSlabJob, CachedSlabProgress, SlabGeometry};
 pub(crate) use dispatch::{encode_and_dispatch, environment_params};
 pub use equivalence::{
-    ChunkEquivalenceResult, PipelineEquivalenceResult, SpecialisationCaseResult,
+    ChunkEquivalenceResult, PipelineEquivalenceResult, SceneTwinReport, SpecialisationCaseResult,
     SpecialisationEquivalenceResult, diagnose_event_wavefront, run_chunk_equivalence,
     run_event_wavefront_equivalence, run_pipeline_equivalence, run_specialisation_equivalence,
     run_wavefront_determinism,
 };
+pub(crate) use live::{GpuReduceLiveParams, LivePass, LiveSums, live_pixel_indices};
+pub(crate) use live_source::{LIVE_PIXELS_BINDING, LIVE_REDUCE_ENTRY, LIVE_REDUCE_SHADER_SRC};
 pub(crate) use readback::GpuReduceParams;
 pub use renderer::GpuFrameRenderer;
+pub(crate) use resident::ResidentCheck;
 pub(crate) use scene_buffers::TransportOutputs;
-pub use specialisation::{classify_material, material_class};
+pub use sorted::{SortedSettings, SortedSwitch, sorted_requested};
+pub use specialisation::{classify_material, classify_material_with_tables, material_class};
+pub use staged::stage_ends_requested;
+pub(crate) use tables_buffer::{OpticsTablesGpu, tables_supported_by};
+pub(crate) use tables_source::{
+    event_wavefront_live_generate_source_for, event_wavefront_source_for,
+    event_wavefront_uses_tables,
+};
 
-/// `spectral_transport.wgsl` alone is not valid WGSL -- it assumes
-/// `shaders/transport_physics.wgsl`'s functions are already in scope, and `build.rs`
-/// concatenates the two. Shared with `estimator_check` so both compile the identical
-/// source text.
+/// `spectral_transport.wgsl` alone is not valid WGSL: the transport physics units must come
+/// first, and `build.rs` concatenates them. Shared with `estimator_check` so both compile the
+/// identical source text.
 pub(crate) const SHADER_SRC: &str = include_str!(concat!(
     env!("OUT_DIR"),
     "/spectral_transport.generated.wgsl"
 ));
 
-/// `reduce_xyz.wgsl`'s source -- a standalone kernel, unlike [`SHADER_SRC`] never
-/// concatenated with `transport_physics.wgsl` by `build.rs` (see that file's own doc
-/// comment: it only concatenates `spectral_transport.wgsl` and
-/// `transport_functions.wgsl`). Pulled in directly via `include_str!` instead. See
-/// [`GpuFrameRenderer::dispatch_chunk`]'s doc comment for why this kernel exists.
+/// `reduce_xyz.wgsl`'s source. It is a standalone kernel that `build.rs` does not
+/// concatenate with the transport units (unlike [`SHADER_SRC`]), so it is pulled in with
+/// `include_str!`. See [`GpuFrameRenderer::dispatch_chunk`]'s doc comment for why it exists.
 const REDUCE_SHADER_SRC: &str = include_str!("../../shaders/reduce_xyz.wgsl");
 
-/// `shaders/wavefront_transport.wgsl`'s generated source --
-/// `shaders/transport_physics.wgsl` + `shaders/transport_bounce.wgsl` +
-/// `shaders/wavefront_transport.wgsl`, concatenated by `build.rs` the same way
+/// `shaders/wavefront_transport.wgsl`'s generated source: the transport physics and bounce
+/// units in front of it, concatenated by `build.rs` the same way
 /// [`SHADER_SRC`] is (see that constant's own doc comment and `build.rs`'s own doc
 /// comment on `generate_transport_shaders`). Used only when
 /// [`GpuPipelineKind::Wavefront`] is selected -- see [`GpuFrameRenderer::set_pipeline_kind`].
@@ -335,8 +383,8 @@ const WAVEFRONT_SHADER_SRC: &str = include_str!(concat!(
 const FLOATS_PER_TUPLE: usize = 3;
 
 /// Fixed, deliberately tiny float count backing each of a production
-/// [`TransportOutputs`]'s three debug buffers (`radiance`/`lambdas`/`path_pdf`) -- with
-/// `write_debug_buffers = 0` the shader never writes them, so they only need to satisfy
+/// [`TransportOutputs`]'s three debug buffers (`radiance`/`lambdas`/`path_pdf`) -- with bit 0
+/// of `write_debug_buffers` clear the shader never writes them, so they only need to satisfy
 /// the megakernel's static bind-group layout, never hold real per-chunk data. One tuple's
 /// worth is an arbitrary safe size that never needs to grow with chunk size.
 const DEBUG_BUFFER_FLOATS: usize = 8;
@@ -396,24 +444,22 @@ pub enum GpuFrameError {
     Acquire(GpuAcquireError),
     /// The scene's environment cannot be dispatched as-is.
     ///
-    /// Every [`EnvironmentSource`] variant has an `env_mode` (including `HdrMap`,
-    /// see [`dispatch::environment_params`]), so this is not an unreachable-by-variant
-    /// case. It IS reachable:
-    /// [`scene_buffers::build_hdr_env`] returns it when
-    /// [`HdrEnvGpuData::fits_storage_binding`](crate::renderer::env_map_gpu::HdrEnvGpuData::fits_storage_binding)
-    /// says an HDR map's texel buffer would exceed the device's
-    /// `max_storage_buffer_binding_size`. A caller sees this exactly like any other
-    /// decline (fall back to the CPU tracer, which has no such buffer-size ceiling) --
-    /// see `renderer::gpu_backend::GpuBackend::try_accumulate_cancellable`'s non-`DeviceLost`
-    /// `Err` arm.
+    /// Every [`EnvironmentSource`] variant has an `env_mode`, `HdrMap` included (see
+    /// [`dispatch::environment_params`]). This is returned when [`scene_buffers::build_hdr_env`]
+    /// declines an HDR map whose texel buffer exceeds the device's
+    /// `max_storage_buffer_binding_size` (`HdrEnvGpuData::fits_storage_binding` decides).
+    /// Callers fall back to the CPU tracer, which has no such ceiling. See
+    /// `renderer::gpu_backend::GpuBackend::try_accumulate_cancellable`'s other `Err` arms.
     UnsupportedEnvironment,
+    /// This GPU route cannot preserve the position-dependent stone shadow or trace the tray
+    /// reflection (both need the tray variant of the megakernel).
+    TrayVariant,
     /// The device cannot bind enough storage buffers in one compute stage for the
     /// megakernel (`needed` is `MEGAKERNEL_STORAGE_BUFFERS`). WebGPU's baseline is 8;
     /// the adapter offered `available`. The backend declines to the CPU tracer.
     DeviceLimits { needed: u32, available: u32 },
-    /// The scene's material is one [`GemMaterial::gpu_supported`] rejects. Currently
-    /// unreachable (the predicate is unconditionally `true`); kept as defensive
-    /// future-proofing since `gpu_supported` is the crate's routing contract. Carries the
+    /// The scene's material is one [`GemMaterial::gpu_supported`] rejects, such as a zoned
+    /// material or one with more absorption bands than the GPU encoding holds. Carries the
     /// material's name, for a log line that says which stone.
     UnsupportedMaterial(String),
     /// The device stopped making forward progress -- a `Device::poll` timeout/error, a
@@ -424,6 +470,18 @@ pub enum GpuFrameError {
     /// this one call back to the CPU. The backend replaces it with a freshly acquired
     /// renderer once its recovery cool-down has passed; this renderer never recovers.
     DeviceLost(String),
+    /// An adaptive (live-tile) pass cannot run on this renderer or device.
+    ///
+    /// The legacy wavefront kernels have no live variant, a device may not fit the live pixel
+    /// list in one storage binding, and a shader unit may have lost the line the live variant
+    /// patches. Like the other routing declines, the caller traces the pass elsewhere.
+    LivePassUnavailable(String),
+    /// The frame would run exit collection (its own estimator, the renderer's or the process
+    /// default), which applies to it, but this renderer runs the legacy bounce wavefront,
+    /// which never collects. The caller traces the frame
+    /// elsewhere (the CPU tracer collects), so a frame never silently renders with the other
+    /// estimator than the one its scene names.
+    LegacyWavefrontCollect,
 }
 
 impl std::fmt::Display for GpuFrameError {
@@ -437,6 +495,11 @@ impl std::fmt::Display for GpuFrameError {
             Self::UnsupportedEnvironment => {
                 write!(f, "the GPU megakernel has no env_mode for this environment")
             }
+            Self::TrayVariant => write!(
+                f,
+                "the Stone Shadow and the Tray Reflection need the megakernel's tray variant; \
+                 rendering on the CPU"
+            ),
             Self::UnsupportedMaterial(name) => write!(
                 f,
                 "{name} is not GPU-supported (GemMaterial::gpu_supported), so it renders on the CPU"
@@ -444,6 +507,13 @@ impl std::fmt::Display for GpuFrameError {
             Self::DeviceLost(why) => write!(
                 f,
                 "GPU device lost or unresponsive, GPU rendering is suspended until the backend recovers: {why}"
+            ),
+            Self::LivePassUnavailable(why) => {
+                write!(f, "an adaptive pass cannot run on this GPU path: {why}")
+            }
+            Self::LegacyWavefrontCollect => write!(
+                f,
+                "the legacy bounce wavefront cannot collect exit leaves; rendering elsewhere"
             ),
         }
     }
@@ -453,7 +523,7 @@ impl std::error::Error for GpuFrameError {}
 
 /// Everything the megakernel needs to render a frame.
 ///
-/// A type alias, not a struct of its own: the field-for-field definition now lives at
+/// A type alias, not a struct of its own: the field-for-field definition lives at
 /// [`crate::renderer::frame_scene::FrameScene`] (backend-independent, so the wasm-safe
 /// CPU tracer in [`crate::renderer::cpu_frame`] can use it with no `gpu` feature
 /// enabled), kept alive at this path so every existing `GpuFrameScene { .. }`
@@ -558,6 +628,11 @@ pub(crate) struct TurnRequest<'a> {
     /// ([`GpuFrameRenderer::set_surface_scene`], ideal by default). Carried per request so
     /// callers that share one renderer never trace each other's surfaces.
     pub(crate) surface: Option<&'a crate::renderer::buffers::GpuSurfaceScene>,
+    /// The estimator this request asks for; `None` follows the renderer's own choice, else the
+    /// process default (see `GpuFrameRenderer::frame_estimator_for`). A legacy-wavefront renderer
+    /// whose frame would collect (by any of the three) where collection applies declines with
+    /// [`GpuFrameError::LegacyWavefrontCollect`].
+    pub(crate) estimator: Option<crate::optics::raytracer::Estimator>,
 }
 
 /// The per-frame values [`GpuFrameRenderer::dispatch_chunk`] needs but that never change
@@ -590,6 +665,11 @@ pub(crate) struct ChunkFrameState<'a> {
     pub(crate) use_d65: bool,
     pub(crate) studio_model: u32,
     pub(crate) backdrop: f32,
+    /// The estimator this frame asks for; `GpuTransportParams::with_estimator` decides per
+    /// dispatch whether it is honoured.
+    pub(crate) estimator: crate::optics::raytracer::Estimator,
+    /// Whether the frame's surface scene is ideal (exit collection needs it).
+    pub(crate) ideal_surface: bool,
 }
 
 /// The GPU-side preparation [`GpuFrameRenderer::accumulate_turn`] must redo on EVERY

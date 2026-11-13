@@ -46,15 +46,12 @@ pub(super) struct FrameActivityFlags {
     /// [`push_frame_to_ui`] neither starts nor finishes an activity for it.
     pub(super) camera_moving: bool,
     /// Whether THIS frame is the one where progressive accumulation first reached
-    /// `RenderContext::target_samples` (`mod.rs`'s own `converged_now`) -- the
-    /// "finished when the frame arrives" moment.
+    /// `RenderContext::target_samples` (`converged_now` in `worker.rs`).
     pub(super) converged: bool,
 }
 
-/// Lets [`push_frame_to_ui`] reach `crate::ActivityModel` while staying generic
-/// over `T: ComponentHandle`. Avoids naming `crate::MainWindow` directly in this
-/// module; Rust infers `T = MainWindow` from the sole call site in
-/// `gui::mod::run_gui`.
+/// Lets [`push_frame_to_ui`] reach `crate::ActivityModel` while staying generic over
+/// `T: ComponentHandle`, so this module does not name `crate::MainWindow`.
 pub trait TraceActivitySink: ComponentHandle {
     /// Registers an indeterminate, non-cancellable rendering activity and
     /// returns its id.
@@ -132,10 +129,9 @@ pub(super) fn push_trace_progress<T: TraceActivitySink + 'static>(
     });
 }
 
-/// One finished display cycle's payload, carried by [`push_frame_to_ui`]'s
-/// [`RedrawGate`] from the display thread to the Slint UI-thread closure that shows it
-/// (via [`RedrawGate::take`]). Needs an owned payload here, unlike the remote path's
-/// `()`, since this path has no already-live state a late-running closure could re-read.
+/// One finished display cycle's payload, carried by [`push_frame_to_ui`]'s [`RedrawGate`]
+/// from the display thread to the Slint UI-thread closure that shows it (via
+/// [`RedrawGate::take`]). Owned, since a late-running closure cannot re-read live state.
 pub(super) struct FramePayload {
     pub(super) image: slint::SharedPixelBuffer<slint::Rgba8Pixel>,
     pub(super) scene_generation: u64,
@@ -182,8 +178,7 @@ pub(super) fn push_frame_to_ui<T, F, M>(
                 cancel,
             }) = redraw_gate.take()
             else {
-                // Can't happen in practice -- enqueued only right after a `submit`
-                // that returned `Some`. Guarded rather than `unwrap` on principle.
+                // Unreachable: a closure is queued only right after a `submit` returned `Some`.
                 return;
             };
             if cancel
@@ -223,13 +218,11 @@ pub(super) fn push_frame_to_ui<T, F, M>(
     });
 }
 
-/// The activity start/finish decision itself, split out purely so
-/// [`push_frame_to_ui`]'s own closure stays readable. See [`FrameActivityFlags`]'s
-/// own doc comment for `camera_moving`/`converged`'s meaning. Starts an
-/// indeterminate, non-cancellable "Path tracing" activity on the first non-orbit,
-/// non-converged frame after one finishes (or after startup), and finishes it the
-/// moment a frame converges -- camera-orbit frames touch neither state, so
-/// continuous orbiting never flickers the status strip.
+/// The activity start/finish decision, split out of [`push_frame_to_ui`]'s closure. See
+/// [`FrameActivityFlags`] for `camera_moving` and `converged`. Starts an indeterminate,
+/// non-cancellable "Rendering" activity on the first non-orbit, non-converged frame, and
+/// finishes it when a frame converges. Camera-orbit frames touch neither state, so orbiting
+/// does not flicker the status strip.
 fn track_trace_activity<T: TraceActivitySink>(ui: &T, flags: FrameActivityFlags) {
     if !flags.camera_moving {
         let already_running = TRACE_ACTIVITY_ID.with(|cell| cell.borrow().is_some());
@@ -246,11 +239,10 @@ fn track_trace_activity<T: TraceActivitySink>(ui: &T, flags: FrameActivityFlags)
     }
 }
 
-/// Pushes just this iteration's gemological metrics to the UI thread, with no
-/// image. Invisible 3D tabs (e.g., the Edit tab's Solid view) must continue
-/// updating HUD and tilt-dialog metrics without paying for denoise/tonemap/
-/// framebuffer-copy cycles. No `RedrawGate` here; the ~100ms cadence of the
-/// suspended path is already far below burst-coalescing rates.
+/// Pushes just this iteration's gemological metrics to the UI thread, with no image.
+/// Invisible 3D tabs (e.g. the Edit tab's Solid view) keep updating the HUD and tilt-dialog
+/// metrics without denoise, tone-map or framebuffer copies. No `RedrawGate`: this path is
+/// not image-bound, so bursts do not pile up.
 pub(super) fn push_metrics_to_ui<T, M>(
     ui_weak: &Weak<T>,
     update_metrics: &M,
@@ -281,21 +273,15 @@ pub(super) fn push_metrics_to_ui<T, M>(
     });
 }
 
-/// Resets the progressive-accumulation state (buffer, sample count, and the three
-/// first-hit guide buffers) whenever the output dimensions change, and separately
-/// whenever the frame is marked `dirty` (camera/material/etc. moved). The guide
-/// buffers only need resizing (not re-zeroing) on `dirty`: `render_frame_scanlines`
-/// unconditionally overwrites every pixel's guide values every call, so there's no
-/// stale value to clear.
+/// Resets the accumulation state when the dimensions change, and separately when `dirty`
+/// is set. On a `dirty` reset the guide buffers keep their values, since the tracer
+/// overwrites every pixel's guides on each pass.
 ///
-/// This is also what makes local preview-then-settle rendering work for free: its
-/// caller feeds `width`/`height` shadowed to a (possibly reduced) EFFECTIVE resolution,
-/// so every preview<->full transition is just another dimension-changed reset this
-/// function already handles.
-/// The render loop's own accumulation state, kept alive across frames (never
-/// reallocated except on a reset) so steady-state rendering does no extra per-frame
-/// heap allocation. Bundled here to keep [`update_accumulation_state`]'s parameter
-/// list under clippy's argument-count lint.
+/// The render loop's accumulation state, kept across frames and reallocated only on a
+/// reset, so steady-state rendering does no per-frame heap allocation. Bundled to keep
+/// [`update_accumulation_state`]'s parameter list short. Preview and full resolution share
+/// this state: the caller passes the effective, possibly reduced, size, so a preview-to-full
+/// switch is an ordinary dimension change.
 pub(super) struct AccumulationBuffers<'a> {
     pub(super) accum: &'a mut Vec<Vec3>,
     pub(super) first_hit_depth: &'a mut Vec<f32>,
@@ -303,12 +289,10 @@ pub(super) struct AccumulationBuffers<'a> {
     pub(super) first_hit_facet_id: &'a mut Vec<i32>,
 }
 
-/// Applies the dimension-change and `dirty` reset rules described above.
+/// Applies the reset rules of [`AccumulationBuffers`].
 ///
-/// Retention policy: the four buffers keep their capacity across resizes, so the
-/// high-water mark is the largest frame seen (the full-resolution one; previews
-/// are smaller). A window resize to a much smaller size keeps the old capacity
-/// until the app restarts.
+/// The four buffers keep their capacity across resizes. Their capacity therefore grows to
+/// the largest frame seen and is not released until the app restarts.
 pub(super) fn update_accumulation_state(
     width: u32,
     height: u32,
@@ -427,26 +411,15 @@ pub(super) const fn should_combine_remote(
     remote_active && matches!(live_compute_target, LiveComputeTarget::Both)
 }
 
-/// The single choke point that releases stale remote-image ownership -- see
-/// `RenderContext::remote_active`'s doc comment for why it must stay set all the way
-/// through a *completed* remote render, and why it can only be released here, not at
-/// each of the ~25 individual `ctx.dirty = true` call sites scattered across `gui::*`.
+/// Releases stale remote-image ownership. This is the only place that does so, so no
+/// individual `dirty = true` call site needs to know about remote ownership. See
+/// `RenderContext::remote_active` for why it stays set through a completed remote render.
 ///
-/// `remote_active` can only ever transition `false -> true` one way: the handoff
-/// orchestrator's `DiscardLocalPreview` action sets it `true` in the SAME locked
-/// mutation as `dirty = true`, entering `Settling`, always from `remote_active ==
-/// false`. So the FIRST frame this loop observes `remote_active == true` after a frame
-/// where it was `false`, a fresh `dirty` alongside it is that legitimate hand-off
-/// starting -- `was_remote_active_last_frame` is `false`, and this returns
-/// `remote_active` unchanged (`true`).
-///
-/// Any OTHER frame where `dirty` is freshly `true` while `remote_active` was ALREADY
-/// `true` one frame ago can only mean some other `gui::*` callback touched the scene
-/// (this covers a completed remote render too, since `remote_active` is deliberately
-/// left `true` after `RemoteUpdate::Done`). That releases ownership (`false`)
-/// regardless of which callback caused it -- this function never enumerates call
-/// sites, it only looks at `dirty`/`remote_active`, which every site already touches
-/// or leaves alone. Pure and unit-tested.
+/// The hand-off sets `dirty` and `remote_active` together, from `remote_active == false`.
+/// So on the first frame that sees both set, the `dirty` belongs to the hand-off and
+/// ownership is kept. A `dirty` seen while `remote_active` was already set on the previous
+/// frame came from some other callback that changed the scene, so ownership is released.
+/// Pure and unit-tested.
 pub(super) const fn resolve_remote_ownership(
     dirty: bool,
     remote_active: bool,
@@ -463,7 +436,7 @@ pub(super) const fn resolve_remote_ownership(
 /// given the target iteration length `frame`.
 ///
 /// `paced` is whether this iteration handled a moving camera or had a display cycle due
-/// (see `mod.rs`'s `FRAME_PACE`): only those iterations are held to the frame interval,
+/// (see `pacing.rs`'s `FRAME_PACE`): only those iterations are held to the frame interval,
 /// and then only by the remainder the work itself did not already use. An iteration that
 /// has nothing to show, or that already ran past `frame`, does not sleep. Pure and
 /// unit-tested.

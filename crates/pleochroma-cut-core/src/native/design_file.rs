@@ -276,9 +276,8 @@ fn build_file(
             .with_surface(surface_columns(design.tier_surface(index)))
         })
         .collect();
-    // `DesignFile::new` picks version 4 for a plane-set preform and version 3 when a
-    // tier has a relation; the concave list below only ever raises the version to 2
-    // for a file with neither.
+    // The version follows the content (see the schema docs in `pleochroma_formats::native`).
+    // A concave tier list needs version 2 at least.
     let file = DesignFile::new(
         preform_table_from_spec(&design.preform, design.preform_y_offset),
         material_table_from_selection(&design.material).with_custom(custom.cloned()),

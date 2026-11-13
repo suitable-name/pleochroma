@@ -78,8 +78,8 @@ fn hdr_scene(bytes: &[u8], width: u32, height: u32) -> SceneState {
     }
 }
 
-/// The same scene rendered on this machine: the map decoded from `bytes` independently
-/// and registered under a key of its own (kept alive by the returned pin).
+/// The same scene rendered on this machine. The map is decoded from `bytes` and registered
+/// under a key of its own, so the local render does not share the coordinator's cache entry.
 fn local_reference(
     scene: &SceneState,
     bytes: &[u8],

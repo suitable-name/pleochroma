@@ -51,14 +51,10 @@ pub struct SolidMetrics {
 /// external targets a candidate mast configuration must reproduce. Any subset
 /// may be present.
 ///
-/// Corpus calibration (full 2,881-design `.asc` corpus, true masts, measured
-/// by a temporary corpus probe, deterministic run): with the **axis** width
-/// convention
-/// (`W` = the smaller of the two axis-aligned horizontal extents, which is the
-/// convention that matched -- rotating calipers measured strictly worse on
-/// every figure), each printed figure reproduces the true solid's measurement
-/// with a median deviation of ~0.1% (`Vol/W^3` 95.8% of designs within 1%,
-/// `L/W` 98.7%, `C/W` 88.6%, `P/W` 91.2%, `H/W` 96.8%).
+/// Printed figures are compared with the **axis** width convention: `W` is the
+/// smaller of the two axis-aligned horizontal extents. It matches printed
+/// diagrams better than rotating calipers on every figure, with a median
+/// deviation of about 0.1 %.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ExternalProportions {
     /// Printed `Vol/W^3`.
@@ -111,12 +107,9 @@ impl ExternalProportions {
 /// responsible.
 ///
 /// An editor calls [`build_solid_mesh`](super::build_solid_mesh) after every
-/// keystroke that touches a tier. Unlike [`measure_solid`](super::measure_solid)'s
-/// single `Option`, these three variants let the UI tell "not closed yet
-/// because tier 34 is missing its closing neighbor" apart from "closed, but
-/// numerically degenerate" apart from "here's your mesh" -- the first two are
-/// ordinary states while someone is mid-edit, not error conditions that
-/// should blank the viewport.
+/// edit. Unlike [`measure_solid`](super::measure_solid)'s single `Option`, the
+/// variants tell "not closed yet" apart from "closed, but numerically
+/// degenerate". The first two are ordinary mid-edit states, not errors.
 #[derive(Debug, Clone)]
 pub enum SolidStatus {
     /// A finite, watertight solid.
@@ -181,7 +174,7 @@ pub struct SolidMesh {
     ///
     /// A concave stone has several rings per `facet_id` (a facet is cut into
     /// convex pieces) and the pieces of a tool surface are curved, so the
-    /// per-vertex flat normal no longer says which way a *piece* faces. This
+    /// per-vertex flat normal does not say which way a *piece* faces. This
     /// is the exact normal there: the facet's plane normal for a flat piece,
     /// the negated outward normal of the exact tool (not its polytope) at the
     /// piece centroid for a tool piece.

@@ -179,9 +179,8 @@ fn start_forget(window: &AppWindow) {
     }
     // A connection test, a jobs request, or a picture export or Send To Server upload that
     // talks to the server must not hold the credentials while they are erased: each is
-    // cancelled (its connection ends at its next poll) and its result is dropped. A render
-    // that runs on this phone is left alone; the live remote render is stopped when the
-    // erase ends (`finish_forget`).
+    // cancelled and its result dropped. A render on this phone is left alone; a Remote render
+    // is stopped by `finish_forget` once the erase succeeds.
     interrupt();
     crate::design::render::cancel_remote_export();
     RUNTIME.with(|value| {

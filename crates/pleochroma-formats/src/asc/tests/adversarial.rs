@@ -1,18 +1,14 @@
-//! The adversarial `.asc` inputs exercised by the coordinator's own probe tool
-//! (cases 1 to 17), plus later hostile-gear cases.
-//!
-//! Cases 1 to 17 are hostile-input cases pinned here as real unit tests, so the
-//! lenient-vs-hard-reject line this module draws stays a tested contract.
+//! Hostile `.asc` inputs, each either parsed leniently with a warning or rejected with a
+//! typed error. Pinned as unit tests so that boundary stays a tested contract.
 
 use super::super::{AscLineEnding, AscParseError, parse_asc};
 
 const HDR: &str = "GemCad 5.0\ng 96 0.0\ny 8 y\nI 1.54\n";
 
-/// Case 1: a UTF-8 BOM plus CRLF line endings.
+/// A UTF-8 BOM plus CRLF line endings.
 ///
-/// The BOM is stripped before the first line is read, so the `GemCad` keyword
-/// still matches and the version survives (it used to be lost, and the writer
-/// then emitted a bare `GemCad `), and the CRLF terminator is recorded.
+/// The BOM is stripped before the first line is read, so the `GemCad` keyword still
+/// matches and the version survives, and the CRLF terminator is recorded.
 #[test]
 fn adversarial_01_bom_plus_crlf() {
     let content = "\u{feff}GemCad 5.0\r\ng 96 0.0\r\ny 8 y\r\nI 1.54\r\na 41 0.5 0 12\r\n";
@@ -24,9 +20,9 @@ fn adversarial_01_bom_plus_crlf() {
     assert_eq!(schedule.warnings, Vec::<String>::new());
 }
 
-/// Case 2: `NaN`/`inf` in an `a` record's angle/mast fields.
+/// `NaN`/`inf` in an `a` record's angle field.
 ///
-/// Rejected outright -- these feed the meet solver and stone measurement directly.
+/// Rejected outright: these feed the meet solver and stone measurement directly.
 #[test]
 fn adversarial_02_nan_inf_angle_and_mast() {
     let content = format!("{HDR}a NaN inf 0 12\n");
@@ -37,10 +33,10 @@ fn adversarial_02_nan_inf_angle_and_mast() {
     );
 }
 
-/// Case 3: a garbage index token (neither numeric nor an `n`/`G` marker).
+/// A garbage index token (neither numeric nor an `n`/`G` marker).
 ///
-/// A warning, not a fatal error and not folded into the name -- the surrounding
-/// real indices must still parse.
+/// Warned about, not fatal, and not folded into the name. The surrounding indices
+/// still parse.
 #[test]
 fn adversarial_03_garbage_index_token() {
     let content = format!("{HDR}a 41 0.5 1 2 x3 4\n");
@@ -54,10 +50,9 @@ fn adversarial_03_garbage_index_token() {
     assert!(schedule.warnings[0].contains("x3"));
 }
 
-/// Case 4: a comma-separated index token (`"2,5"`).
+/// A comma-separated index token (`"2,5"`).
 ///
-/// Same "neither numeric nor a marker" case as case 3 -- warned and dropped, not
-/// misread as two indices or a name.
+/// Warned about and dropped, not misread as two indices or as a name.
 #[test]
 fn adversarial_04_comma_index_token() {
     let content = format!("{HDR}a 41 0.5 1 2,5 4\n");
@@ -67,11 +62,9 @@ fn adversarial_04_comma_index_token() {
     assert!(schedule.warnings[0].contains("2,5"));
 }
 
-/// Case 5: free text trailing the last facet tier.
+/// Free text trailing the last facet tier.
 ///
-/// A warning (some real files carry a stray "Designed 1999 by X" line at the very
-/// end), not folded in as a bogus continuation -- the real tier's own data must
-/// come through untouched.
+/// Warned about, not folded in as a continuation. The tier's own data is unchanged.
 #[test]
 fn adversarial_05_trailing_free_text_annotation() {
     let content = format!("{HDR}a 41 0.5 0 12\nDesigned 1999 by X\n");
@@ -83,9 +76,9 @@ fn adversarial_05_trailing_free_text_annotation() {
     assert!(schedule.warnings[0].contains("Designed"));
 }
 
-/// Case 6: a zero symmetry order.
+/// A zero symmetry order.
 ///
-/// Rejected -- every azimuth computation in the crate divides by it.
+/// Rejected: every azimuth computation divides by it.
 #[test]
 fn adversarial_06_symmetry_order_zero() {
     let content = "GemCad 5.0\ng 96 0.0\ny 0 n\nI 1.54\na 41 0.5 0\n";
@@ -96,9 +89,9 @@ fn adversarial_06_symmetry_order_zero() {
     );
 }
 
-/// Case 7: a refractive index of `1.0` or less (here, negative).
+/// A refractive index of `1.0` or less (here, negative).
 ///
-/// Rejected -- it has no physical meaning for a faceted gemstone.
+/// Rejected: it has no physical meaning for a faceted gemstone.
 #[test]
 fn adversarial_07_refractive_index_zero_or_negative() {
     let content = "GemCad 5.0\ng 96 0.0\ny 8 n\nI -1\na 41 0.5 0\n";
@@ -112,10 +105,10 @@ fn adversarial_07_refractive_index_zero_or_negative() {
     );
 }
 
-/// Case 8: index positions beyond the gear-tooth count, or negative.
+/// Index positions beyond the gear-tooth count, or negative.
 ///
-/// Still finite numbers -- accepted, not range-checked. Only non-finite index
-/// values are hard-rejected (case 2's sibling check, applied to indices too).
+/// Finite numbers are accepted without a range check. Only non-finite indices are
+/// rejected.
 #[test]
 fn adversarial_08_index_beyond_gear_or_negative_is_accepted() {
     let content = format!("{HDR}a 41 0.5 96 200 -5\n");
@@ -124,10 +117,9 @@ fn adversarial_08_index_beyond_gear_or_negative_is_accepted() {
     assert_eq!(schedule.warnings, Vec::<String>::new());
 }
 
-/// Case 9: a comma-decimal angle (`"41,5"`, European-locale style).
+/// A comma-decimal angle (`"41,5"`).
 ///
-/// Does not parse as an `f64` -- rejected as non-numeric, not silently truncated
-/// to `41`.
+/// Rejected as non-numeric, not silently truncated to `41`.
 #[test]
 fn adversarial_09_comma_decimal_angle() {
     let content = format!("{HDR}a 41,5 0,5 0\n");
@@ -138,15 +130,13 @@ fn adversarial_09_comma_decimal_angle() {
     );
 }
 
-/// Case 10: lone `\r` line endings (no `\n` at all).
+/// Lone `\r` line endings (no `\n` at all).
 ///
-/// Not split into separate lines by [`str::lines`], so the whole file collapses
-/// into one line; the leading `GemCad` keyword then swallows every subsequent
-/// field as part of its version string, and no real `g` line is ever seen. Fails
-/// closed (`MissingGearLine`), not silently. Files are read through
+/// [`str::lines`] does not split on a lone CR, so the file collapses into one line and
+/// no `g` line is seen. It fails closed (`MissingGearLine`). Files are read through
 /// `decode_asc_bytes`, which turns a lone CR into LF first (see
-/// `encoding::cr_only_line_endings_parse_through_parse_asc_bytes`); this pins
-/// what the plain-text entry point does with undecoded input.
+/// `encoding::cr_only_line_endings_parse_through_parse_asc_bytes`). This pins the
+/// plain-text entry point on undecoded input.
 #[test]
 fn adversarial_10_lone_cr_line_endings() {
     let content = "GemCad 5.0\rg 96 0.0\ry 8 y\rI 1.54\ra 41 0.5 0\r";
@@ -154,11 +144,9 @@ fn adversarial_10_lone_cr_line_endings() {
     assert!(matches!(err, AscParseError::MissingGearLine), "{err:?}");
 }
 
-/// Case 11: a trailing `n` marker with nothing after it.
+/// A trailing `n` marker with nothing after it.
 ///
-/// Never resolves to a name (there is no token left to consume), but is not an
-/// error either -- the tier's other data (its one real index) still comes
-/// through.
+/// Yields no name, but is not an error. The tier's other data is kept.
 #[test]
 fn adversarial_11_trailing_n_marker_with_no_name() {
     let content = format!("{HDR}a 41 0.5 0 n\n");
@@ -167,9 +155,9 @@ fn adversarial_11_trailing_n_marker_with_no_name() {
     assert_eq!(schedule.tiers[0].name, "");
 }
 
-/// Case 12: a `G` marker with nothing after it.
+/// A `G` marker with nothing after it.
 ///
-/// Produces empty notes, not an error.
+/// Yields empty notes, not an error.
 #[test]
 fn adversarial_12_notes_marker_with_no_text() {
     let content = format!("{HDR}a 41 0.5 G\n");
@@ -178,9 +166,9 @@ fn adversarial_12_notes_marker_with_no_text() {
     assert_eq!(schedule.tiers[0].notes, "");
 }
 
-/// Case 13: a bare `a` record with no fields at all.
+/// A bare `a` record with no fields.
 ///
-/// Rejected -- needs at least an angle and a mast.
+/// Rejected: it needs at least an angle and a mast.
 #[test]
 fn adversarial_13_tier_record_alone_with_no_fields() {
     let content = format!("{HDR}a\n");
@@ -194,9 +182,9 @@ fn adversarial_13_tier_record_alone_with_no_fields() {
     );
 }
 
-/// Case 14: `NaN` in the `g` line's gear-tooth-count field.
+/// `NaN` in the `g` line's gear-tooth-count field.
 ///
-/// Rejected -- shares the ordinary numeric-range validation's finiteness check.
+/// Rejected as a non-finite value.
 #[test]
 fn adversarial_14_gear_teeth_nan() {
     let content = "GemCad 5.0\ng NaN 0\ny 8 y\nI 1.5\na 1 1\n";
@@ -213,7 +201,7 @@ fn adversarial_14_gear_teeth_nan() {
     );
 }
 
-/// Case 15: `NaN` in the `g` line's reference-angle field.
+/// `NaN` in the `g` line's reference-angle field.
 ///
 /// Rejected.
 #[test]
@@ -232,7 +220,7 @@ fn adversarial_15_gear_reference_angle_nan() {
     );
 }
 
-/// Case 16: `NaN` in the `I` (refractive index) line.
+/// `NaN` in the `I` (refractive index) line.
 ///
 /// Rejected.
 #[test]
@@ -251,10 +239,9 @@ fn adversarial_16_refractive_index_nan() {
     );
 }
 
-/// Case 17: duplicate `g` lines.
+/// Duplicate `g` lines.
 ///
-/// Not an error, but the second value must win, and the override must be
-/// recorded as a warning (not silently swapped).
+/// Not an error. The later value wins, and the override is recorded as a warning.
 #[test]
 fn adversarial_17_duplicate_gear_lines_last_wins_with_a_warning() {
     let content = "GemCad 5.0\ng 96 0\ng 64 0\ny 8 y\nI 1.5\na 1 1 0\n";
@@ -264,11 +251,10 @@ fn adversarial_17_duplicate_gear_lines_last_wins_with_a_warning() {
     assert!(schedule.warnings[0].contains("duplicate"));
 }
 
-/// Case 18: a gear of two billion teeth.
+/// A gear of two billion teeth.
 ///
-/// Fits an `i32`, so the whole-number check passes, but every consumer that draws
-/// the index wheel does work per tooth: rejected with a typed error naming the
-/// limit, on the `g` line and on the bare-gear-line fallback alike.
+/// Fits an `i32`, but every consumer does work per tooth, so it is rejected with a typed
+/// error naming the limit, on the `g` line and on the bare-gear-line fallback alike.
 #[test]
 fn adversarial_18_gear_of_two_billion_teeth() {
     let content = "GemCad 5.0\ng 2000000000 0\ny 8 y\nI 1.5\na 1 1 0\n";
@@ -289,10 +275,9 @@ fn adversarial_18_gear_of_two_billion_teeth() {
     assert!(matches!(err, AscParseError::MissingGearLine), "{err:?}");
 }
 
-/// Case 19: the gear limit itself.
+/// The gear limit itself.
 ///
-/// [`AscParseError::MAX_GEAR_TEETH`] teeth parse in either handedness; one more
-/// tooth does not.
+/// [`AscParseError::MAX_GEAR_TEETH`] teeth parse in either handedness; one more does not.
 #[test]
 fn adversarial_19_gear_limit_is_inclusive() {
     let max = i32::try_from(AscParseError::MAX_GEAR_TEETH).expect("the limit fits an i32");

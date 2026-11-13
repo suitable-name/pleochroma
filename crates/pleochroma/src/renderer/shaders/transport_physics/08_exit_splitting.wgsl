@@ -1,40 +1,19 @@
 // ---------------------------------------------------------------------------------
-// P6 exit-event spectral splitting: the three pure (no-binding)
-// per-channel helpers optics::raytracer::refraction's own top-of-file "Exit-event
-// spectral splitting" doc comment names -- `compute_channel_transmission`,
-// `compute_uniaxial_exit_transmission`, and `narrow_compat`. Every operation, and its
-// order, is a direct transcription of the CPU function it mirrors (`f32::mul_add` ->
-// `fma`, same clamp bounds, same intermediate names where WGSL's lack of tuple returns
-// allows it) -- see each function's own comment for the exact CPU counterpart.
+// Exit-event spectral splitting: the pure per-channel helpers of optics::raytracer::refraction
+// (`compute_channel_transmission`, `compute_uniaxial_exit_transmission`, `narrow_compat`).
+// Each is a direct transcription of its CPU function (`f32::mul_add` -> `fma`, same clamp
+// bounds, same operation order). Each function's comment names its CPU counterpart.
 //
-// `compute_channel_transmission`/`compute_uniaxial_exit_transmission` are private
-// (module-private, not even `pub(super)`) inside `refraction.rs`, and `narrow_compat`
-// is `pub(super)` (visible only within `optics::raytracer`, not from this crate's
-// `renderer` tree) -- `refraction.rs` is on the protected/coordinator-owned
-// list, so its visibility cannot be widened to import these directly the way
-// `p2_uniaxial_fresnel.rs` imports the (already `pub(crate)`) `entry_solve_pair`/
-// `internal_solve`. `renderer::gpu::transport_check::p6_exit_splitting`'s own CPU
-// reference functions are therefore verbatim transcriptions of the real CPU source
-// (cross-referenced by file/line in that module's doc comment) rather than a call
-// through the module boundary -- the one deliberate exception to this file tree's
-// usual "always call the real CPU function" rule, forced by that protection boundary,
-// not a design choice.
-//
-// Constants duplicated locally (`8u` in place of `NUM_CHANNELS`, an inlined `1.0 -
-// 1e-6` in place of `DIRECTION_MATCH_COS_TOL`) rather than referencing
-// `spectral_transport.wgsl`'s own copies: `build.rs` concatenates THIS file ahead of
-// both `spectral_transport.wgsl` and `transport_functions.wgsl` (see this file's own
-// header comment), so a name defined only in one of those two files is not yet in
-// scope here -- exactly the same reason `R_UNPOL_MIN`/`R_UNPOL_MAX` above are this
-// file's own copies rather than a reference to `spectral_transport.wgsl`'s
-// `R_UNPOL_SELECT_MIN`/`MAX`.
+// The two `compute_*` functions are private to `refraction.rs`, and `narrow_compat` is
+// `pub(super)`, so code outside `optics::raytracer` cannot call them. The CPU reference in
+// `renderer::gpu::transport_check::p6_exit_splitting` therefore holds verbatim copies of them
+// instead of calling the CPU code.
 // ---------------------------------------------------------------------------------
 
 // optics::raytracer::refraction::compute_channel_transmission. WGSL has no `Option`, so
-// `azimuth_valid == false` stands in for the Rust `None` case (same convention as
-// `entry_eigenmode_selection`'s own `valid` field above) -- callers pass
-// `false`/`0.0`/`0.0` for `azimuth_valid`/`cos_2psi_x`/`sin_2psi_x` whenever
-// `entering_anisotropic` is false or the entry mode-selection draw was invalid.
+// `azimuth_valid == false` stands in for the CPU's `None`, as the `valid` field does in
+// `entry_eigenmode_selection`. Callers pass `false`/`0.0`/`0.0` when `entering_anisotropic`
+// is false or the entry mode-selection draw was invalid.
 struct ChannelTransmissionW {
     transmitted: vec4<f32>,
     r_unpol_k: f32,
@@ -98,6 +77,18 @@ fn compute_uniaxial_exit_transmission(
     return result;
 }
 
+// optics::raytracer::refraction::{DIRECTION_MATCH_DISTANCE_SQ, directions_match}: whether two
+// unit directions are within the direction-match tolerance, an angle of 1.414 mrad (cosine
+// 1 - 1e-6). Tested as the squared distance (`|a - b|^2 = 2 (1 - cos)`), not as the cosine:
+// next to 1 an f32 cosine has steps of 6e-8, 17 of them down to 1 - 1e-6, so `dot >= 1 - 1e-6`
+// flipped with a rounding difference of one ULP; the difference vector keeps full precision.
+const DIRECTION_MATCH_DISTANCE_SQ: f32 = 2.0e-6;
+
+fn directions_match(a: vec3<f32>, b: vec3<f32>) -> bool {
+    let d = a - b;
+    return dot(d, d) <= DIRECTION_MATCH_DISTANCE_SQ;
+}
+
 // optics::raytracer::refraction::narrow_compat. `compat[c]` bit `j` set means channels
 // `c`/`j` have refracted within the direction-match tolerance of each other at every
 // interior dispersive event so far -- see `ExitSplitCtx::compat`'s own CPU-side doc
@@ -111,16 +102,15 @@ fn narrow_compat(
     dirs_valid: array<bool, 8>,
     hero_match: array<bool, 8>,
 ) {
-    let direction_match_cos_tol = 1.0 - 1e-6;
     for (var a: u32 = 0u; a < 8u; a = a + 1u) {
         for (var b: u32 = a + 1u; b < 8u; b = b + 1u) {
-            var matches_ab: bool;
+            var matches_ab: bool = true;
             if (a == 0u) {
                 matches_ab = hero_match[b];
             } else if (b == 0u) {
                 matches_ab = hero_match[a];
             } else if (dirs_valid[a] && dirs_valid[b]) {
-                matches_ab = dot(dirs[a], dirs[b]) >= direction_match_cos_tol;
+                matches_ab = directions_match(dirs[a], dirs[b]);
             } else {
                 matches_ab = true;
             }
@@ -130,5 +120,28 @@ fn narrow_compat(
             }
         }
     }
+}
+
+// optics::raytracer::refraction::exit_split::leaf_mis_weight with the hero in channel 0: the
+// spectral-MIS weight of a collected leaf of a channel whose family is `compat_c`.
+// `8 * path_pdf[0] / sum of path_pdf over (compat_c & producers)`; zero when the hero is not in
+// that family or the family carries no density. `producers` is the bit mask of the techniques
+// that produce the leaf: the channels that are not totally reflected at an interior event,
+// 0xFF at an entry.
+fn collect_leaf_weight(compat_c: u32, path_pdf: array<f32, 8>, producers: u32) -> f32 {
+    let family = compat_c & producers;
+    if ((family & 1u) == 0u) {
+        return 0.0;
+    }
+    var family_pdf: f32 = 0.0;
+    for (var j: u32 = 0u; j < 8u; j = j + 1u) {
+        if ((family & (1u << j)) != 0u) {
+            family_pdf = family_pdf + path_pdf[j];
+        }
+    }
+    if (family_pdf <= 1e-12) {
+        return 0.0;
+    }
+    return 8.0 * path_pdf[0] / family_pdf;
 }
 

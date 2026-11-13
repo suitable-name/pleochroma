@@ -2,8 +2,8 @@
 //!
 //! They run on the standard round brilliant template, whose tiers (all anchored by a
 //! scale value) are, in order: 0 Pavilion Main (-41), 1 Girdle (90), 2 Lower Girdle
-//! (-42.5), 3 Culet (-0, no indices), 4 Crown Main (34.5), 5 Star (15), 6 Upper Girdle
-//! (41), 7 Table (0, no indices).
+//! (-42.5), 3 Culet (-0, no indices), 4 Upper Girdle (41), 5 Crown Main (34.5), 6 Star
+//! (15), 7 Table (0, no indices).
 
 use std::{
     sync::{Arc, atomic::AtomicBool},
@@ -18,7 +18,9 @@ use super::*;
 use crate::{app_state::AppState, platform::Platform, platform_mock::MockPlatform};
 
 /// The Crown Main tier: a crown tier with eight indices that most tests edit.
-const CROWN: usize = 4;
+const CROWN: usize = 5;
+/// The Star tier, cut after the crown mains.
+const STAR: usize = 6;
 /// The Lower Girdle tier: a pavilion tier with sixteen indices.
 const LOWER_GIRDLE: usize = 2;
 
@@ -420,7 +422,7 @@ fn a_nudge_that_would_cross_zero_stops_there_and_says_so() {
 #[test]
 fn offset_multi_moves_every_selected_tier() {
     let mut state = template_state();
-    let (a, b) = (CROWN, 5);
+    let (a, b) = (CROWN, STAR);
     let (angle_a, angle_b) = (angle(&state, a), angle(&state, b));
     toggle_multi(&mut state, a);
     toggle_multi(&mut state, b);

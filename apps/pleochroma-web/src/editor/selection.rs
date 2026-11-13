@@ -2,7 +2,7 @@
 //!
 //! `WebApp::selected_tier` is the one selection all three share, and
 //! `EditorSession::multi_selected` the Ctrl / Shift group (whose facets the views outline).
-//! Like the desktop:
+//! Rules:
 //!
 //! - a plain click, the arrow keys, a click on a manufacturability warning or on a facet
 //!   select ONE tier and empty the group ([`crate::views::select_tier`]);

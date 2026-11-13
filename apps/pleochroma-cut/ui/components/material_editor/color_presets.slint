@@ -54,11 +54,9 @@ component ColorSwatch inherits Rectangle {
     }
 }
 
-// Body Color & Transmission preset swatches -- split out of
-// `material_editor_dialog.slint` to keep that file under its line budget.
-// `selected_color_preset` is `MaterialEditorDialog`'s own state (also written
-// by the template-selector presets), two-way bound so a click here writes
-// straight back to it.
+// Body Color & Transmission preset swatches. `selected_color_preset` is owned by
+// `MaterialEditorDialog` (the template presets write it too); the two-way binding sends a
+// click straight back to it.
 //
 // The eight coloured swatches are DATA: each `fill` and `edge` is the colour of the gem body it
 // stands for, the same in every palette, so they stay literals (`tests/theme_tokens.rs` lists
@@ -182,14 +180,9 @@ export component MaterialColorPresets inherits VerticalLayout {
             picked => { root.choose(8); }
         }
 
-        // 9: "Custom (keep)" -- selected by `ViewportModel.
-        // selected_custom_material_color_idx` (never by a click here reachable through
-        // the eight swatches above) whenever a reopened custom material's saved color
-        // matches none of the eight fixed presets exactly. A faint chip stands in for a
-        // swatch: there is no single RGB to preview, since the whole point is
-        // that this material's real color isn't one of the fixed eight. Clicking it
-        // is still a legitimate choice (re-selecting "keep" after having picked a
-        // preset by mistake), not just a display-only state.
+        // 9: "Keep". Selected for a saved color that matches none of the eight presets
+        // (see `ViewportModel.selected_custom_material_color_idx`). A faint chip stands in
+        // for a swatch, since there is no single RGB to preview. Clicking it is a valid choice.
         ColorSwatch {
             label: "Keep";
             hint: "Keep the color this material was saved with. It matches none of the swatches.";

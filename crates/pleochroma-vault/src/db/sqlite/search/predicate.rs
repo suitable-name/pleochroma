@@ -1,20 +1,19 @@
-//! Builds the shared `WHERE`-clause predicate every search/count/display query in
-//! [`super`] filters on, so free-text, shape/gear, range, tag, and tilt-performance
-//! filtering can never drift apart between them.
+//! Builds the shared `WHERE`-clause predicate every search/count/display query in [`super`] uses.
+//!
+//! Sharing it means free-text, shape/gear, range, tag, and tilt-performance
+//! filtering can never drift apart between the queries.
 
 use super::types::DisplayFilters;
 use crate::model::filter::RangeFilter;
 use rusqlite::functions::FunctionFlags;
 use std::fmt::Write as _;
 
-/// Registers the `fold(text)` SQL scalar function [`build_search_predicate`]'s title/
-/// designer `LIKE` clauses wrap both sides in (see [`fold`]'s own doc comment for what
-/// it does and why). Must be called exactly once per [`rusqlite::Connection`], right
-/// after it's opened -- both [`crate::db::sqlite::Database::new`] and
-/// [`crate::db::sqlite::Database::open_read_only`] call this, since search runs over
-/// read-only connections too (e.g. `pleochroma-worker`'s per-request connection). A
-/// `SELECT` naming `fold(...)` on a connection this was never called on fails outright
-/// ("no such function: fold"), never silently falling back to an unfolded comparison.
+/// Registers the `fold(text)` SQL scalar function that [`build_search_predicate`]'s title
+/// and designer `LIKE` clauses wrap both sides in (see [`fold`]). Called on every
+/// connection right after it is opened, read-only ones included:
+/// [`crate::db::sqlite::Database::new`] and [`crate::db::sqlite::Database::open_read_only`]
+/// both do. A connection without it fails a search with "no such function: fold" rather
+/// than silently comparing unfolded text.
 ///
 /// # Errors
 ///
@@ -27,14 +26,10 @@ pub(in crate::db::sqlite) fn register_fold_function(
         1,
         FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
         |ctx| {
-            // `dd.designer_info`/`dd.designer` are nullable columns (and the `LEFT
-            // JOIN` to `dd` itself can produce a NULL row), so `fold(...)` must accept
-            // SQL NULL as an ordinary input, not just a `String` -- `ctx.get::<String>`
-            // errors out on a NULL argument ("Invalid function parameter type Null"),
-            // which used to abort the ENTIRE search query (not just that one row) the
-            // moment it reached a design with no `designer_info`/`designer` recorded.
-            // `NULL` propagates to `NULL` here, exactly like SQLite's own `LIKE`
-            // already treats a NULL operand -- "no match", never an error.
+            // `dd.designer_info`/`dd.designer` are nullable, and the `LEFT JOIN` can yield
+            // a NULL row, so `fold` takes SQL NULL as input. A `String` argument would
+            // fail on NULL and abort the whole search, not just that row. NULL folds to
+            // NULL, which `LIKE` treats as "no match".
             let text = ctx.get::<Option<String>>(0)?;
             Ok(text.map(|t| fold(&t)))
         },
@@ -88,8 +83,8 @@ pub(super) fn fold(text: &str) -> String {
 ///
 /// # Tilt-performance filters: SQL narrows, Rust decides
 ///
-/// A [`crate::model::performance::PerformanceFilter`]'s tilt radius is an arbitrary
-/// `0.0..=90.0` value, ruling out a precomputed SQL column. This function adds only a
+/// A [`crate::model::performance::PerformanceFilter`]'s tilt radius is any value in
+/// `0.0..=90.0`, so no precomputed SQL column can answer it. This function adds only a
 /// sound, incomplete narrowing predicate per active filter
 /// ([`crate::model::performance::PerformanceFilter::sound_sql_narrowing`], built from
 /// `diagram_tilt_curves`'s 6 precomputed global-min/max columns): it can exclude a row
@@ -103,17 +98,13 @@ pub(super) fn fold(text: &str) -> String {
 /// `search_diagrams_with_performance_exclusions`'s second query, which counts designs
 /// excluded *for lack of curves* and so must apply every other filter but not these.
 ///
-/// `local_only` restricts the predicate to designs synced under
-/// [`crate::local::LOCAL_SOURCE_ID`] -- identified the same way
-/// `library/detail.rs::is_local` already does, by `diagram_entries.url` starting with
-/// the synthetic `local://` scheme every local import writes (see
-/// `crate::local::import_asc`) -- as opposed to a real page URL from the wider scraped
-/// catalogue. `false` (the default for every pre-existing caller) applies no such
-/// restriction.
+/// `local_only` restricts the predicate to the user's own designs: those whose
+/// `diagram_entries.url` starts with the `local://` scheme that every local import writes
+/// (see [`crate::local::import_asc`]), as opposed to scraped catalogue pages. `false`
+/// applies no such restriction.
 ///
 /// The returned `SELECT` always `LEFT JOIN`s `diagram_tilt_curves AS tc` regardless of
-/// `include_performance`: both are 1:1 joins on `diagram_entries.id`, so the
-/// unconditional join costs nothing measurable.
+/// `include_performance`: both are 1:1 joins on `diagram_entries.id`, so it is cheap.
 pub(super) fn build_search_predicate(
     query: &str,
     shape_filter: &str,
@@ -145,34 +136,21 @@ pub(super) fn build_search_predicate(
     if query.trim().is_empty() {
         sql.push_str(" AND (1=1 OR ?1 IS NULL) ");
     } else {
-        // The search tooltip/placeholder (header.slint) promises "title, designer
-        // or notes", and this predicate matches a stored note accordingly.
-        // `angle_settings.notes` is per-TIER (one design has many rows),
-        // so matching it needs an `EXISTS` subquery rather than a plain joined
-        // column, which would otherwise duplicate a design once per matching tier.
+        // Matches title, designer or notes, as the search placeholder promises.
+        // `angle_settings.notes` is per-tier (one design has many rows), so it needs an
+        // `EXISTS` subquery; a joined column would duplicate a design per matching tier.
         //
-        // `dd.designer` (the machine-split designer name -- see `FacetingDiagramDetail::designer`'s
-        // doc comment) is matched here too, not just `dd.designer_info`: before this,
-        // a query that only appeared in the split `designer` column (never in the
-        // free-text `designer_info` blob it was split from) silently matched nothing
-        // -- the "Cam's finds nothing" case was exactly a `designer_info` miss with
-        // no `designer` fallback.
+        // `dd.designer` (the split name, see `FacetingDiagramDetail::designer`) is matched
+        // as well as `dd.designer_info`, since a name may appear only in the split column.
         //
-        // `de.title`/`dd.designer_info`/`dd.designer` are wrapped in `fold(...)` on
-        // BOTH sides (column and `?1` pattern) -- see `fold`'s own doc comment: SQLite's
-        // `LIKE` only case-folds ASCII, so an accented name typed in a different case
-        // (`TORBJÖRN` vs `torbjörn`) would otherwise never match, and a plain ASCII
-        // apostrophe typed by the user would never match a scraped typographic one.
-        // `de.design_id`/the notes `EXISTS` subquery are deliberately NOT folded: an id
-        // is an exact scraped token, not prose, and notes text has no reported
-        // apostrophe/case complaint to fix -- folding it would only add cost with no
-        // known benefit.
+        // `de.title`, `dd.designer_info` and `dd.designer` are wrapped in `fold(...)` on
+        // both sides: SQLite's `LIKE` folds only ASCII case, and a typed ASCII apostrophe
+        // must match a scraped typographic one. `de.design_id` (an exact token) and the
+        // notes subquery are not folded.
         //
-        // `ESCAPE '\'` on every LIKE here, paired with `escape_like_pattern` above:
-        // without it, a literal `%`/`_` a user typed (both appear in real titles and
-        // designer names) is read as a SQL wildcard instead of the character it looks
-        // like -- an unescaped `_` alone matches every row's title. `fold` never
-        // touches `%`/`_`/`\`, so the escape still works after folding.
+        // `ESCAPE '\'` on every LIKE, paired with `escape_like_pattern` above, makes a
+        // typed `%` or `_` match literally instead of acting as a SQL wildcard. `fold`
+        // never touches `%`/`_`/`\`, so the escape survives folding.
         sql.push_str(
             " AND (fold(de.title) LIKE fold(?1) ESCAPE '\\'
                    OR fold(dd.designer_info) LIKE fold(?1) ESCAPE '\\'

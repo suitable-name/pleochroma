@@ -129,8 +129,8 @@ fn preform() -> GuideOverlay {
                     "Nothing changes in the design until you click Apply Preform.",
                 ),
         )
-        // The web Preform tab has no rough-shape control and no Simple interface, so nothing of
-        // this step is true in the browser.
+        // The web Preform tab has no rough-shape control and no Simple interface, so the whole
+        // step is omitted.
         .omit("Block, Cylinder and the Simple interface")
 }
 

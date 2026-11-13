@@ -1,9 +1,7 @@
-//! The "real solve" panel refresh: [`refresh_editor_panel`]/
-//! [`refresh_editor_panel_from_solve`] and the manufacturability/preform/yield/
-//! proportion-verdict pushes that ride along with it. See this group's `mod.rs`
-//! doc comment for the "Solve on explicit action, not on every edit" reasoning
-//! this half of the split exists to honour -- [`super::panel_stale`] is the
-//! no-solve counterpart.
+//! The editor panel refresh after a solve.
+//!
+//! [`refresh_editor_panel`] and [`refresh_editor_panel_from_solve`] derive every panel field
+//! from one solve result. [`super::panel_stale`] is the counterpart that does not solve.
 
 use super::{
     design_label::design_label,
@@ -16,8 +14,7 @@ use super::{
         tier_items_from_result,
     },
 };
-// The `_from_solved` proportion mirrors moved to `pleochroma_editor` with the rest of
-// the yield view model; re-exported here (and through `view`) at their old paths.
+// The `_from_solved` text helpers are re-exported here and through `view`.
 use crate::{
     AngleItem, EditorModel, EditorTierItem, MainWindow, UndoRedoLabels,
     bridge::render_thread::RenderContext,
@@ -37,40 +34,15 @@ use pleochroma_editor::{
 use slint::{ComponentHandle, SharedString};
 use std::sync::{Arc, Mutex, PoisonError, atomic::Ordering as AtomicOrdering};
 
-/// Refreshes everything `EditorView` itself renders (tier list, undo/redo
-/// availability, validation banner, preform fields) -- but NOT the shared viewport,
-/// see [`super::viewport::refresh_all`] for why those are kept separate.
+/// Refreshes the editor's panels from `state`, solving `state.design` once. The shared viewport
+/// is not touched; see [`super::viewport::refresh_all`].
 ///
-/// Calls [`Design::solve`] exactly ONCE and derives every other panel field from
-/// that SAME `solved_result` via its `_from_solved` counterpart or a small local
-/// mirror of it (`proportions_texts_from_solved`/`preform_mm_texts_from_solved`
-/// below -- `state` is a shared module this crate does not add functions to,
-/// same reasoning `auto_solve::design_to_gpu_planes_from_solved` already documents
-/// on itself). Deriving every field from that one solve avoids the six or more
-/// independent solves that separately calling `tier_items`,
-/// `status_text_and_is_problem` (itself two solves, via `status()`/`measure()`),
-/// `manufacturability_warning_lines`, `yield_report_texts`, `proportions_texts`,
-/// `preform_mm_texts`, and a final explicit `state.design.solve()` for
-/// `cutting_rows` would cost for one "Solve" click.
+/// Every other panel field is derived from that one solve result, so a refresh costs one solve.
+/// The startup paint is the only caller of this function. A user action with a design goes
+/// through [`refresh_editor_panel_from_solve`] with a solve the caller has gated itself, and an
+/// edit that must not solve goes through [`super::panel_stale::refresh_editor_panel_stale`].
 ///
-/// The only caller is the one-time startup paint (`gui::editor::mod`), which shows the
-/// fresh template -- a handful of planes, so the un-gated solve here is cheap by
-/// construction. [`super::viewport::refresh_all`] (New/Load/the explicit "Solve" action)
-/// does NOT come through here: it gates its own solve through `solves_inline` and hands
-/// the result to [`refresh_editor_panel_from_solve`]. Any new caller with a user design
-/// must do the same. Every other edit callback uses
-/// [`super::panel_stale::refresh_editor_panel_stale`] instead, which updates the
-/// same fields except the ones that require a solve.
-///
-/// Returns the solve result so [`super::viewport::refresh_all`] can hand it to
-/// [`super::viewport::refresh_viewport`] without that function paying for a
-/// SECOND solve of its own. A thin wrapper around
-/// [`refresh_editor_panel_from_solve`] that solves `state.design` itself. See
-/// that function's own doc comment for the caller (`refresh_all`'s synchronous
-/// branch) that instead already has a solve result on hand and would otherwise
-/// pay for a second, redundant one: `refresh_all` solves once to measure
-/// `Design::solve`'s wall time, then passes that same result into this function
-/// instead of letting it solve again, keeping the click to one real solve.
+/// Returns the solve result, so [`super::viewport::refresh_all`] can reuse it for the viewport.
 pub(in crate::gui::editor) fn refresh_editor_panel(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
@@ -80,25 +52,16 @@ pub(in crate::gui::editor) fn refresh_editor_panel(
     refresh_editor_panel_from_solve(ui, render_ctx, state, solved_result)
 }
 
-/// [`refresh_editor_panel`]'s own body, minus the `Design::solve()` call itself --
-/// takes an already-computed `solved_result` instead, so a caller that solved
-/// `state.design` for its own reasons (timing it, most commonly) can hand that
-/// SAME result in rather than triggering a second, thrown-away solve.
-/// [`super::viewport::refresh_all`] is exactly that caller: it needs to measure
-/// `Design::solve`'s own wall time (comparable to
-/// `auto_solve::dispatch_background_solve`'s own measurement, see that call
-/// site's doc comment) without also timing this function's UI-model pushes, so
-/// it solves once, records the duration, and passes the result here instead of
-/// letting this function solve again.
+/// [`refresh_editor_panel`] with the solve already done. A caller that has solved `state.design`
+/// itself passes the result in, so it is not solved twice. [`super::viewport::refresh_all`]
+/// is the caller: it times the solve and reuses the result here.
 pub(in crate::gui::editor) fn refresh_editor_panel_from_solve(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
     state: &EditorState,
     solved_result: Result<Vec<SolvedTier>, DesignSolveError>,
 ) -> Option<Vec<SolvedTier>> {
-    // Computed exactly once per refresh -- see `ScratchDelta`'s own doc
-    // comment for why each group below is gated on its OWN flag rather than
-    // "anything changed".
+    // Computed once per refresh. Each group below is gated on its own `ScratchDelta` flag.
     let delta = state.record_scratch_push();
     let n_d = refresh_design_settings(ui, render_ctx, state, &delta);
     // Derived from the same solve everything else on this refresh uses, never a
@@ -121,8 +84,7 @@ pub(in crate::gui::editor) fn refresh_editor_panel_from_solve(
     // apply, optimize apply or deep-solve pin changes the selected tier's values.
     super::panel_stale::sync_tier_form_with_design(ui, state);
 
-    // From the held `Result`, so a failed inline solve explains itself without being
-    // solved again (`Design::status` would re-solve a design that just failed).
+    // Read from the held result: `Design::status` would solve the design again.
     let (status_text, is_problem) =
         status_text_and_is_problem_from_result(&state.design, &solved_result);
     ui.global::<EditorModel>()
@@ -131,9 +93,7 @@ pub(in crate::gui::editor) fn refresh_editor_panel_from_solve(
     ui.global::<EditorModel>()
         .set_solve_state(if is_problem { "failed" } else { "solved" }.into());
 
-    // Opens the one-time anchor explainer card the first time (this session) a
-    // design lacks an anchor -- see `state::should_open_anchor_explainer`'s own
-    // doc comment.
+    // Opens the anchor explainer once per session, for a design that lacks an anchor.
     if super::state::should_open_anchor_explainer(solved_result.is_err()) {
         ui.global::<EditorModel>().set_anchor_explainer_open(true);
     }
@@ -158,13 +118,9 @@ pub(in crate::gui::editor) fn refresh_editor_panel_from_solve(
     solved_result.ok()
 }
 
-/// The manufacturability-warnings/preform-mm/yield/proportions push
-/// [`refresh_editor_panel_from_solve`] makes for this same "Solve" click's
-/// state -- split out purely to keep that function under clippy's
-/// function-length lint. `solved_result` is the SAME solve that function's own
-/// caller already has; an `Err` is a design that does not currently solve at
-/// all, in which case every one of these shows its failed-solve text derived from
-/// that held error (never a second, thrown-away solve of the same failing design).
+/// The warnings, preform, yield and proportion pushes of [`refresh_editor_panel_from_solve`].
+/// Split out to stay under the function-length lint. An `Err` in `solved_result` is a design
+/// that does not solve, and these fields show the failed-solve text from it.
 fn push_solve_dependent_panel_fields(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
@@ -177,18 +133,15 @@ fn push_solve_dependent_panel_fields(
     push_yield_and_proportions(ui, render_ctx, state, delta, solved_result, n_d);
 }
 
-/// The manufacturability-warnings/preform-mm push half of
-/// [`push_solve_dependent_panel_fields`] -- split out purely to keep that
-/// function (and this one) under clippy's function-length lint.
+/// The warnings and preform push half of [`push_solve_dependent_panel_fields`]. Split out to
+/// stay under the function-length lint.
 fn push_manufacturability_and_preform_scratch(
     ui: &MainWindow,
     state: &EditorState,
     delta: &ScratchDelta,
     solved: Option<&Vec<SolvedTier>>,
 ) {
-    // Kept as tagged pairs (not the flattened `manufacturability_warning_lines`/
-    // `_from_solved` text-only list) so the tier index survives to
-    // `manufacturability_warning_tiers`.
+    // Kept as tagged pairs so each warning keeps its tier index.
     let tagged_warnings =
         manufacturability_warnings_tagged(&state.design, solved.map(Vec::as_slice));
     let warning_tiers: Vec<i32> = tagged_warnings
@@ -234,9 +187,8 @@ fn push_manufacturability_and_preform_scratch(
             .set_preform_length_over_width(format!("{:.4}", preform.length_over_width).into());
         ui.global::<EditorModel>()
             .set_preform_depth(format!("{:.4}", preform.depth).into());
-        // The mm equivalent shown ALONGSIDE the model-unit fields above        // `preform_mm_texts`'s own doc comment.
-        // No solve means no scale: both fields blank, as `preform_mm_texts` shows for a
-        // design that does not solve, without solving it again to learn that.
+        // The mm equivalents of the fields above. Without a solve there is no scale, so both
+        // are blank.
         let (preform_half_width_mm, preform_depth_mm) = solved.map_or_else(
             || (String::new(), String::new()),
             |solved| preform_mm_texts_from_solved(&state.design, solved),
@@ -245,8 +197,7 @@ fn push_manufacturability_and_preform_scratch(
             .set_preform_half_width_mm_text(preform_half_width_mm.into());
         ui.global::<EditorModel>()
             .set_preform_depth_mm_text(preform_depth_mm.into());
-        // `mm_per_unit` comes from this SAME solve, matching
-        // `preform_half_width_mm`/`preform_depth_mm` above.
+        // From the same solve as the mm texts above.
         let mm_per_unit = solved.and_then(|solved| state.design.yield_report(solved).mm_per_unit);
         ui.global::<EditorModel>().set_preform_y_offset_mm(
             preform_y_offset_mm_text(state.design.preform_y_offset, mm_per_unit).into(),
@@ -254,17 +205,11 @@ fn push_manufacturability_and_preform_scratch(
     }
 }
 
-/// The yield/proportions/girdle-ratio push half of
-/// [`push_solve_dependent_panel_fields`] -- split out purely to keep that
-/// function (and this one) under clippy's function-length lint.
+/// The yield and proportion push half of [`push_solve_dependent_panel_fields`]. Split out to
+/// stay under the function-length lint.
 ///
-/// `render_ctx` is read here purely for
-/// [`RenderContext::custom_material_specific_gravity`]: a
-/// cheap `Arc` clone under the lock, handed to [`yield_report_texts_from_result`]
-/// so a custom catalogue material's own
-/// recorded specific gravity reaches the carat-weight estimate -- see that
-/// function's own doc comment for why `gui::editor::state` takes this as a
-/// plain parameter rather than reaching for `RenderContext` itself.
+/// `render_ctx` supplies the custom materials' specific gravities, so a custom catalogue
+/// material's own gravity reaches the carat-weight estimate.
 fn push_yield_and_proportions(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
@@ -274,10 +219,8 @@ fn push_yield_and_proportions(
     n_d: f64,
 ) {
     let solved = solved_result.as_ref().ok();
-    // Seed the Yield form's scratch buffers from the design's current state
-    // (only when it actually changed -- see `delta`'s own doc comment), then
-    // push the read-only figures this same "Solve" click's state produces
-    // (always, since those are never user-editable).
+    // Seeds the Yield form's scratch buffers when the design changed, then pushes the
+    // read-only figures, which are always pushed.
     push_yield_material_scratch(ui, state, delta);
     let custom_sg = Arc::clone(
         &render_ctx
@@ -309,11 +252,8 @@ fn push_yield_and_proportions(
     ui.global::<EditorModel>()
         .set_proportions_length_to_width(length_to_width.into());
 
-    // Girdle thickness and the printed C/W%/P/W%/G/W% ratios `proportions_texts`
-    // above still does not expose -- see `girdle_and_ratio_texts`'s own doc
-    // comment.
-    // A design that does not solve has no proportions to quote: all four read "-" (what
-    // `girdle_and_ratio_texts` returns for it), without solving it again.
+    // Girdle thickness and the crown, pavilion and girdle ratios. A design that does not solve
+    // reads "-" for all four.
     let (girdle_thickness, crown_to_width, pavilion_to_width, girdle_to_width) = solved
         .map_or_else(
             || {
@@ -334,41 +274,17 @@ fn push_yield_and_proportions(
     push_proportion_verdicts_from_solved(ui, &state.design, solved.map(Vec::as_slice), n_d);
 }
 
-/// the ONE place that computes AND pushes the Preform tab's five
-/// "within"/"near"/"outside" proportion-verdict chips against
-/// `pleochroma_cut_core::proportions_windows`'s reference table (see
-/// [`super::state::proportion_verdicts`]'s own doc comment) -- shared by the
-/// synchronous "Solve" push ([`push_yield_and_proportions`], above),
-/// `auto_solve::apply::push_solve_dependent_background_fields` (the debounced
-/// background-solve completion), and `view::viewport::push_solved_preview`
-/// (a completed solid-preview replan). Every path that publishes a solve's
-/// numbers pushes the chips with them, so a design solved in the background
-/// (any design the solve policy does not run inline:
-/// `pleochroma_editor::solve_policy::should_solve_synchronously_for` runs inline
-/// only at most 32 planes, at most 8 meet-derived tiers, no tier targets and no
-/// slow last measurement) never keeps chips from an older solve next to fresh
-/// numbers.
+/// Computes and pushes the Preform tab's five proportion verdict chips, using the reference
+/// table of `pleochroma_cut_core::proportions_windows`. Every path that publishes a solve's
+/// numbers calls this, so the chips never lag behind the numbers: the synchronous solve, the
+/// background solve's completion and a finished solid-preview replan. It also feeds the
+/// overall verdict through `verdict::on_solved`.
 ///
-/// Re-measures the SAME `solved` mast list `proportions_texts_from_solved`/
-/// `girdle_and_ratio_texts_from_solved` already read from (a cheap geometry
-/// measurement, not a re-solve). Pushes every chip's "nothing to judge yet"
-/// level (`-1`) and an empty reason when `solved` is `None` (design not
-/// currently solved/closed) OR `design.tiers.is_empty()` (the SAME
-/// tierless guard the Preform tab's own proportions readouts already apply --
-/// `state::yield_report::proportions_texts`'s own doc comment -- a bare,
-/// uncut preform is not a stone whose crown/pavilion angles or table percent
-/// mean anything to judge).
+/// The chips show "nothing to judge" (level `-1`, empty reason) when `solved` is `None` or the
+/// design has no tiers, since a bare preform has no crown or pavilion angles to judge.
 ///
-/// Deliberately never spells out `state::yield_report::ProportionVerdicts`
-/// (this function's own local `verdicts` binding, or a return type, or a
-/// parameter -- nowhere): that type lives in a `state` submodule private to
-/// `state` itself (`mod yield_report;`, no re-export of the type, only of the
-/// [`proportion_verdicts`] function that builds one), so no file outside
-/// `state/` can name it at all. Computing it in a type-inferred local and
-/// consuming it fully within this one function (rather than splitting
-/// "compute" from "push" across two functions, which WOULD need to name it)
-/// is what lets `view`/`auto_solve` share this logic without a
-/// `state/mod.rs` re-export outside this module.
+/// The verdict type is private to `state`, so it is not named here. It is computed and
+/// consumed inside this function.
 pub(in crate::gui::editor) fn push_proportion_verdicts_from_solved(
     ui: &MainWindow,
     design: &Design,
@@ -380,9 +296,13 @@ pub(in crate::gui::editor) fn push_proportion_verdicts_from_solved(
     // solve's completion and a finished solid-preview replan.
     crate::gui::editor::verdict::on_solved(ui, design, solved, n_d);
     let verdicts = (!design.tiers.is_empty())
-        .then(|| solved.and_then(|solved| design.stone_proportions(solved)))
+        .then_some(solved)
         .flatten()
-        .map(|proportions| proportion_verdicts(design, &proportions, n_d));
+        .and_then(|solved| {
+            design
+                .stone_proportions(solved)
+                .map(|proportions| proportion_verdicts(design, solved, &proportions, n_d))
+        });
     let push = |level: i32,
                 reason: &str,
                 set_level: fn(&MainWindow, i32),
@@ -487,16 +407,10 @@ fn apply_pending_optimize_ghost(tiers: &mut [EditorTierItem], state: &EditorStat
     }
 }
 
-/// Applies the multi-select highlight, pushes `tiers` into `EditorModel.tiers`
-/// (plus the multi-select count and the selected tier's facet-chip row), and
-/// refreshes the undo/redo buttons' enabled state and labels -- the common tail
-/// [`refresh_editor_panel`] and [`super::panel_stale::push_stale_content`] share,
-/// since they differ only in HOW `tiers` itself gets built (a real solve vs. the
-/// no-solve placeholder). Split out so neither caller grows past this crate's
-/// hundred-line function guideline.
-///
-/// `pub(super)`, not private: [`super::panel_stale::push_stale_content`] (a
-/// sibling file) shares this exact tail.
+/// Applies the multi-select highlight, pushes `tiers` into `EditorModel.tiers` with the
+/// multi-select count and the selected tier's chips, and refreshes the undo and redo state.
+/// Shared by [`refresh_editor_panel_from_solve`] and [`super::panel_stale::push_stale_content`],
+/// which differ only in how `tiers` is built.
 pub(super) fn push_tier_list_and_undo_redo(
     ui: &MainWindow,
     state: &EditorState,
@@ -505,13 +419,9 @@ pub(super) fn push_tier_list_and_undo_redo(
     apply_multi_selection(&mut tiers, &state.multi_selected);
     apply_pending_optimize_ghost(&mut tiers, state);
     push_tiers(ui, tiers);
-    // Pushed from the `&EditorState` already in hand, NOT through the
-    // `recompute_dirty` callback that `changed tiers` fires. That callback runs
-    // synchronously from inside `push_tiers` above, and almost every caller here is
-    // holding `state.borrow_mut()` at the time, so reading the `RefCell` from
-    // inside it panicked with "already mutably borrowed" on New and Load Selected.
-    // Computing it here is also strictly more correct: it is the same state that
-    // produced the rows, so the marker can never describe a different one.
+    // Pushed from the `&EditorState` in hand, not from the `recompute_dirty` callback that
+    // `changed tiers` fires inside `push_tiers`. That callback runs while the caller holds the
+    // state, so reading it there would panic on the `RefCell`.
     ui.global::<EditorModel>().set_is_dirty(state.is_dirty());
     push_multi_selected_count(ui, state.multi_selected.len());
     super::inspector::push_selected_tier_chips(ui, state);
@@ -526,15 +436,9 @@ pub(super) fn push_tier_list_and_undo_redo(
         .set_redo_label(state.redo_hint().into());
 }
 
-/// Pushes the Yield form's girdle-diameter/material scratch fields from the
-/// design's current state, each gated on its own [`ScratchDelta`] flag exactly
-/// like every other group here (see that type's own doc comment) -- shared by
-/// [`refresh_editor_panel`] and [`super::panel_stale::push_stale_content`] since
-/// both seed the same two fields from the same design state, whether or not a
-/// solve has just run.
-///
-/// `pub(super)`, not private: [`super::panel_stale::push_stale_preform_and_yield`]
-/// (a sibling file) shares this exact seed.
+/// Seeds the Yield form's girdle-diameter and material scratch fields from the design. Each
+/// field is gated on its own [`ScratchDelta`] flag. Shared with the stale panel, which seeds
+/// the same fields whether or not a solve ran.
 pub(super) fn push_yield_material_scratch(
     ui: &MainWindow,
     state: &EditorState,
@@ -553,15 +457,8 @@ pub(super) fn push_yield_material_scratch(
             .set_girdle_diameter_mm(girdle_text.into());
     }
     if delta.material {
-        // no longer pushes `EditorModel.material_index` -- the Preform
-        // tab's "Yield Material" combo that property fed was removed
-        // (`ui/components/editor_inspector/preform_tab.slint`): its selected
-        // index was never actually read back (`state::parse_yield_form`'s own
-        // `_material_index` parameter stayed unused), so keeping a dead
-        // control's display in sync with the design's real material served
-        // no purpose. The Design Settings panel's own material combo
-        // (`EditorModel.material_combo_index`, `view::inspector::
-        // refresh_design_settings`) is the one that actually names/changes it.
+        // The material itself is named by the Design Settings material combo
+        // (`EditorModel.material_combo_index`), not here.
         ui.global::<EditorModel>().set_specific_gravity_override(
             state
                 .design

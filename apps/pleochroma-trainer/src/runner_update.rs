@@ -30,10 +30,9 @@
 //!   to the same thread and waits for it at once, so there is one code path and the result is
 //!   the serial one.
 //!
-//! One Burn device is shared by the two threads (the update thread's trainer and the rollout
-//! trainer the runner keeps for the batched forward both target the same default device). Burn's
-//! compute clients are thread-safe handles to one server per device; this is the one thing the
-//! code cannot show by reading, see the lane report.
+//! Both threads use one Burn device: the update thread's trainer and the rollout trainer the
+//! runner keeps for the batched forward target the same default device. Burn's compute clients
+//! are thread-safe handles to one server per device, which the code cannot show by reading alone.
 
 use std::{
     path::{Path, PathBuf},

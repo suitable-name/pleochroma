@@ -44,32 +44,21 @@ pub(super) struct PoseAndGeometry<'a> {
     pub(super) n_d: f32,
 }
 
-/// Turns a remote accumulator's current running sum into a displayable RGBA byte
-/// buffer, applying the SAME single À-Trous denoise pass the local path applies to its
-/// own readback -- never a per-source one (`buffer` here is already the merged,
-/// summed-across-however-many-`FRAME`-events-arrived-so-far radiance; denoising is
-/// nonlinear, so it must run once, after summing, on that whole merged buffer, exactly
-/// like `render_thread::denoise_and_tonemap_frame`'s own doc comment requires of the
-/// local accumulation buffer -- there is no per-contribution denoise anywhere in this
-/// pipeline).
+/// Turns a remote accumulator's running sum into a displayable RGBA byte buffer.
 ///
-/// The depth/normal/facet-id guides a remote payload never carries (see
-/// `bridge::remote::remote_render`'s module docs on why they're not shipped over the wire) come
-/// from `guide_cache`: a local primary-ray-only prepass over the CURRENT camera pose
-/// and gem geometry (see `bridge::frame_cache::guide_pass`'s module docs for why that's valid for
-/// ANY image of that pose, remote-sourced or not, and why caching on pose+geometry
-/// rather than recomputing every call is what keeps this cheap across many `FRAME`
-/// events from one in-progress render).
+/// The denoise is the same single À-Trous pass the local path runs on its readback. It
+/// runs once on the whole merged buffer, never per contribution, because denoising is
+/// nonlinear and `buffer` already holds the sum of every `FRAME` received so far.
 ///
-/// No Slint/GUI types in the signature -- exercised directly by this module's own unit
-/// tests without a window, a socket, or a worker. This function itself still runs the
-/// full (multi-second at 4K) denoise pass synchronously, so it is called only from
-/// `super::generation::spawn_denoise_generation`'s background thread, never directly
-/// from `super::tick::redraw_from_epoch` (which runs on the Slint UI thread,
-/// invoked from inside `handle_remote_update`'s `upgrade_in_event_loop` closure, and
-/// would block it). The background thread pre-seeds a throwaway `GuideCache` via
-/// [`GuideCache::adopt`] so its own internal `guide_cache.ensure` call is a guaranteed
-/// cache hit rather than a synchronous regenerate -- see that function's doc comment.
+/// The depth, normal and facet-id guides come from `guide_cache`. A remote payload does not
+/// carry them, so they are built locally by a primary-ray prepass over the current pose and
+/// geometry. Caching on pose and geometry keeps repeated `FRAME` events cheap (see
+/// `bridge::frame_cache::guide_pass`).
+///
+/// No Slint types, so the unit tests run without a window, socket or worker. The full
+/// denoise takes seconds at 4K, so only `super::generation`'s background thread calls this,
+/// never the UI thread. That thread seeds a throwaway [`GuideCache`] via [`GuideCache::adopt`]
+/// so the internal `ensure` is a cache hit rather than a synchronous regenerate.
 pub(super) fn render_merged_frame(
     accum: AccumSnapshot<'_>,
     denoise_enabled: bool,
@@ -303,17 +292,10 @@ mod tests {
         );
     }
 
-    /// `render_merged_frame` takes exactly one buffer and one `samples_done` -- never a
-    /// per-contribution slice with its own smaller count -- and that TRUE merged total
-    /// is what must drive the denoiser's convergence taper (`renderer::denoise`'s
-    /// module docs on `sigma_color_effective`). This pins that the plumbing actually
-    /// threads the real total through: at a converged sample count the output must be
-    /// bit-identical to a plain tonemap (matching `render_thread`'s own
-    /// `denoise_and_tonemap_frame_is_identity_at_high_sample_counts` guarantee for the
-    /// local path). If this pipeline instead denoised a small per-contribution slice at
-    /// its own (permanently small) sample count -- the "never on a partial
-    /// contribution" mistake the task explicitly calls out -- this identity would never
-    /// be reachable even once the real remote accumulation had converged.
+    /// `render_merged_frame` takes one buffer and its true merged `samples_done`, which
+    /// drives the denoiser's convergence taper (see `renderer::denoise`). At a converged
+    /// count the output must be bit-identical to a plain tonemap, as on the local path. A
+    /// denoise of a small per-contribution slice could never reach that identity.
     #[test]
     fn render_merged_frame_at_a_converged_sample_count_matches_a_plain_tonemap() {
         const HIGH_SAMPLE_COUNT: u32 = 50_000; // taper(50000) << taper_identity_epsilon
@@ -359,15 +341,11 @@ mod tests {
         );
     }
 
-    /// At a low (unconverged) sample count, `render_merged_frame` must run the SAME
-    /// `render_thread::denoise_and_tonemap_frame` the local path uses, fed the SAME
-    /// guides an independent `GuideCache`/`generate_guide_buffers` call for the
-    /// identical pose/geometry would produce -- not some other, silently-diverged code
-    /// path. This is a direct cross-check of the actual wiring (rather than asserting
-    /// the output merely "looks filtered", which for a real gem's facet geometry over a
-    /// tiny test image can legitimately be a no-op if every pixel in the crop lands on
-    /// a distinct facet -- the hard per-facet edge-stop is deliberately that strict, see
-    /// `renderer::denoise`'s module docs).
+    /// At a low (unconverged) sample count, `render_merged_frame` must match a direct
+    /// `denoise_and_tonemap_frame` fed the guides from `generate_guide_buffers` for the same
+    /// pose and geometry. The check compares output, not that the image "looks filtered":
+    /// on a tiny crop the per-facet edge stop can leave every pixel unchanged (see
+    /// `renderer::denoise`).
     #[test]
     fn render_merged_frame_at_a_low_sample_count_matches_denoise_and_tonemap_frame_directly() {
         let planes = StandardGemCuts::standard_round_brilliant();

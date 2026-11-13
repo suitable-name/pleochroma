@@ -113,7 +113,7 @@ fn travel_units(start: &DragStart, pointer: ScreenPoint, dir: (f32, f32), per_un
 fn angle_value(start: &DragStart, pointer: ScreenPoint, snap: SnapMode) -> DragValue {
     let layout = &start.layout;
     // `angle_dir` points where the normal moves as `theta = |angle|` grows: toward a
-    // larger angle on the crown, toward a MORE negative angle on the pavilion.
+    // larger angle on the crown, toward a more negative angle on the pavilion.
     let side: f64 = if tier_is_crown_side(start.start_angle_deg) {
         1.0
     } else {
@@ -165,7 +165,7 @@ fn index_value(start: &DragStart, pointer: ScreenPoint) -> DragValue {
 ///   `pixels_per_degree`, snapped, then held to the tier's own side of zero by
 ///   [`clamp_nudge_to_side`] (so a crown tier stops at `+0.0`, a pavilion tier at
 ///   `-0.0`) and to at most 90 degrees. The travel counts toward a larger `|angle|`,
-///   which is a larger angle on the crown and a MORE negative one on the pavilion --
+///   which is a larger angle on the crown and a more negative one on the pavilion --
 ///   the way the handle's tip points.
 /// - **Mast**: keeps `start_mast`'s sign; the magnitude is `|start|` plus the travel
 ///   along `depth_dir` divided by `pixels_per_mast_unit`, never below 0, then snapped.

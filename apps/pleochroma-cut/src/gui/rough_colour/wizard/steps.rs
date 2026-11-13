@@ -106,8 +106,8 @@ pub struct StepFacts {
     pub calibration_applied: bool,
     /// A fit has finished and its result is shown.
     pub fit_done: bool,
-    /// The fit was restored from the saved plan and has no render (it needs neither the rig, the
-    /// alignment nor the calibration to be shown or accepted again).
+    /// The fit was restored from the saved plan without a render; it can be shown and accepted
+    /// without the rig, the alignment or the calibration.
     pub fit_without_render: bool,
     /// A background job is running.
     pub busy: bool,

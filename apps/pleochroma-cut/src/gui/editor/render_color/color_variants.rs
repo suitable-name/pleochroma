@@ -1,19 +1,19 @@
 //! The saved-color actions of the design color editor: "Save as Variant...", "Update" for a
 //! snapshot of a saved variant that changed, and "Nearest Variant" for a legacy color.
 //!
-//! * **Save as Variant**: the editor's per-direction colors are saved as a variant of the design's
-//!   material in the vault (`gui::optics::color_variant_store`) and the design then uses it, as one
-//!   undoable edit labelled `Sapphire (<Name>)`. A refusal (a blank name, a color the material does
-//!   not accept, a vault failure) is shown as the error toast and nothing changes.
-//! * **Update**: a design holds a snapshot of the saved variant it picked. When the variant was
-//!   edited since, the Stone tab offers "Variant Changed: Update", which copies the stored color
-//!   into the design again (one undoable edit).
-//! * **Nearest Variant**: a legacy single color on a pleochroic material (an old file) can be
-//!   replaced by the variant of the material whose face-up color is closest to it (CIEDE2000), the
-//!   material's own color included.
+//! * **Save as Variant**: the editor's per-direction colors are saved as a variant of the
+//!   design's material in the vault (`gui::optics::color_variant_store`), and the design then
+//!   uses it as one undoable edit. A refusal (a blank name, a color the material does not
+//!   accept, a vault failure) is shown as an error toast and nothing changes.
+//! * **Update**: a design holds a snapshot of the saved variant it picked. When that variant
+//!   was edited since, the Stone tab shows "Variant Changed" with an update action, which
+//!   copies the stored color into the design (one undoable edit).
+//! * **Nearest Variant**: a legacy single color on a pleochroic material can be replaced by
+//!   the variant whose face-up color is closest to it (CIEDE2000). The material's own color
+//!   is a candidate too.
 //!
-//! The decisions are pure functions ([`nearest_entry`], [`updated_selection`], [`persist`]) so they
-//! are unit-testable without a window; [`setup`] wires them to the Slint callbacks.
+//! The decisions are pure functions ([`nearest_entry`], [`updated_selection`], [`persist`]),
+//! so they are unit-testable without a window. [`setup`] wires them to the Slint callbacks.
 
 use std::{
     cell::RefCell,
@@ -89,13 +89,13 @@ const fn width_f32(stone_width_mm: f64) -> f32 {
     stone_width_mm as f32
 }
 
-/// The entry of `host` whose face-up color is closest (CIEDE2000) to `legacy_lab`, with its label
-/// and its distance.
+/// The entry of `host` whose face-up color is closest (CIEDE2000) to `legacy_lab`, with its
+/// label and its distance.
 ///
 /// The candidates are the material's own color and `variants` (the combo's built-in and saved
-/// variants, [`listed_variants`]). Each is seen face-up in a stone `stone_width_mm` wide, in its
-/// own unit ([`face_up_lab`]), the same stone the legacy color is read for ([`legacy_lab`]). `None`
-/// only without any candidate, which never happens: the material's own color is always one.
+/// variants, [`listed_variants`]). Each is seen face-up in a stone `stone_width_mm` wide, in
+/// its own unit ([`face_up_lab`]), the same stone the legacy color is read for ([`legacy_lab`]).
+/// `None` only without any candidate, which never happens: the material's own color is one.
 fn nearest_entry(
     host: &GemMaterial,
     variants: &[ColorVariant],
@@ -129,13 +129,12 @@ fn nearest_entry(
     best
 }
 
-/// The face-up lab color of the design's legacy color in a stone `stone_width_mm` wide, at the
-/// path the render shows it face-up: its band rows (per millimetre) at the per-millimetre face-up
-/// path, else its triple (a per-model-unit color) at the width-scaled swatch path. `None` without
-/// a legacy color.
+/// The face-up lab color of the design's legacy color in a stone `stone_width_mm` wide. Band
+/// rows (per millimetre) are read at the per-millimetre face-up path; a triple (per model unit)
+/// at the width-scaled swatch path. `None` without a legacy color.
 ///
-/// It is read for the same stone as the candidates of [`nearest_entry`], so the nearest variant
-/// does not change with the stone's size for the wrong reason.
+/// It is read for the same stone as the candidates of [`nearest_entry`], so the nearest
+/// variant does not depend on the stone size by accident.
 fn legacy_lab(material: &MaterialSelection, stone_width_mm: f64) -> Option<[f64; 3]> {
     let width = width_f32(stone_width_mm);
     let has_bands = material
@@ -155,9 +154,9 @@ fn legacy_lab(material: &MaterialSelection, stone_width_mm: f64) -> Option<[f64;
     )
 }
 
-/// `material` with the stored color of `stored` copied in, when `material` holds a snapshot of that
-/// very variant; `None` when it does not (another key, no variant) or the snapshot is already
-/// current (no undo step is added).
+/// `material` with the stored color of `stored` copied in, when `material` holds a snapshot of
+/// that variant. `None` for another key or no variant, or when the snapshot is already current
+/// (no undo step is added).
 fn updated_selection(
     material: &MaterialSelection,
     stored: &ColorVariant,
@@ -172,13 +171,13 @@ fn updated_selection(
     (next != *material).then_some(next)
 }
 
-/// Saves the editor's colors `choice` as a variant of `host` called `name` in `vault`, and returns
+/// Saves the editor's colors `choice` as a variant of `host` called `name` in `vault`. Returns
 /// the choice a design stores for it: the new key, the trimmed name, the same tensor.
 ///
 /// # Errors
 ///
-/// The sentence to show the cutter: a blank name, a color the material does not accept, a vault
-/// failure.
+/// The sentence to show the cutter: a blank name, a color the material does not accept, or a
+/// vault failure.
 fn persist(
     vault: &Mutex<Database>,
     host: &GemMaterial,
@@ -206,8 +205,8 @@ fn persist(
     })
 }
 
-/// The design's selection, its host material and the width of its stone (mm), or the sentence for
-/// why they cannot be read now.
+/// The design's selection, its host material and its stone width (mm). Or the sentence for why
+/// they cannot be read now.
 fn design_snapshot(
     state: &Rc<RefCell<EditorState>>,
     render_ctx: &Arc<Mutex<RenderContext>>,
@@ -230,9 +229,9 @@ fn taken_labels(host_name: &str) -> Vec<String> {
         .collect()
 }
 
-/// Saves `choice` as a variant of `host` called `name` and hands the saved choice to `apply` (the
-/// design edit). When `apply` refuses (the design is busy) the saved color is removed again, so
-/// nothing is saved and a retry does not leave a second variant with the same name.
+/// Saves `choice` as a variant of `host` called `name`, then hands the saved choice to `apply`
+/// (the design edit). When `apply` refuses, the saved color is removed again, so a retry does
+/// not leave a second variant with the same name.
 fn save_then_apply(
     vault: &Mutex<Database>,
     host: &GemMaterial,
@@ -250,8 +249,8 @@ fn save_then_apply(
     })
 }
 
-/// "Save as Variant": the editor's finished rows saved for the design's material, then used on
-/// the design as one undoable edit. When the design refuses the edit nothing is saved
+/// "Save as Variant": the editor's finished rows are saved for the design's material, then used
+/// on the design as one undoable edit. If the design refuses the edit, nothing is saved
 /// ([`save_then_apply`]).
 fn save_design_variant(
     state: &Rc<RefCell<EditorState>>,
@@ -287,8 +286,8 @@ fn save_design_variant(
     })
 }
 
-/// "Update": the stored color of the saved variant the design holds a snapshot of, copied into the
-/// design. Returns the variant's name.
+/// "Update": copies the stored color of the saved variant the design holds a snapshot of into
+/// the design. Returns the variant's label.
 fn update_stale_variant(
     state: &Rc<RefCell<EditorState>>,
     edit: &MaterialEdit,
@@ -345,8 +344,8 @@ pub(super) fn setup(
 ) {
     let editor = ui.global::<BodyColorEditorModel>();
 
-    // The name field starts on the coarse color of the first direction, unique among the labels
-    // of the material.
+    // The suggested name starts from the coarse color of the first direction and is unique
+    // among the material's labels.
     let (state_name, ctx_name, axes_name) =
         (Rc::clone(state), Arc::clone(render_ctx), Arc::clone(axes));
     editor.on_suggest_variant_name(move || {
@@ -528,9 +527,8 @@ mod tests {
         assert!(legacy_lab(&banded, 7.0).is_some());
     }
 
-    /// Review finding 12: the legacy color and the candidates are read for the SAME stone, so a
-    /// wide stone darkens the legacy color like it darkens the candidates (it is not left at the
-    /// 7 mm look while the candidates are compared at the stone width).
+    /// The legacy color and the candidates are read for the same stone, so a wider stone darkens
+    /// the legacy color as it darkens the candidates.
     #[test]
     fn the_legacy_color_is_read_for_the_stone_width_of_the_candidates() {
         let triple = sapphire().with_body_color(Some([0.2, 0.4, 2.8]));
@@ -551,8 +549,8 @@ mod tests {
         assert!(wide[0] <= narrow[0]);
     }
 
-    /// The conversion picks a variant and keeps the pleochroism: applying the nearest entry gives a
-    /// design with a variant (or the material's own color) and no legacy color left.
+    /// The conversion keeps the pleochroism: applying the nearest entry gives a design with a
+    /// variant (or the material's own color) and no legacy color left.
     #[test]
     fn applying_the_nearest_entry_replaces_the_legacy_color() {
         let host = GemMaterial::sapphire();
@@ -654,8 +652,8 @@ mod tests {
         assert!(refused.contains("does not fit Sapphire"), "{refused}");
     }
 
-    /// Review finding 7: the design edit comes with the save. When the design refuses the edit
-    /// nothing stays saved, so the retry does not leave a second variant with the same name.
+    /// The design edit comes with the save. When the design refuses the edit, nothing stays
+    /// saved, so a retry does not leave a second variant with the same name.
     #[test]
     fn a_refused_design_edit_saves_nothing() {
         let vault = memory_vault();
@@ -697,6 +695,6 @@ mod tests {
         let suggestion = suggested_label(&["Blue"], &["Blue".to_owned()]);
         assert_eq!(suggestion, "Blue 2");
         // Without a vault there are no saved labels, only the built-in ones.
-        assert!(taken_labels("No Such Material").is_empty());
+        assert_eq!(taken_labels("No Such Material"), [] as [String; 0]);
     }
 }

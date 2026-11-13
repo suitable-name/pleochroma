@@ -72,7 +72,7 @@ impl KernelFeature {
         }
     }
 
-    /// The tag in the feature's admission key and in nothing the user sees.
+    /// The tag the feature's admission key carries; never shown to the user.
     #[must_use]
     pub const fn key_tag(self) -> &'static str {
         match self {

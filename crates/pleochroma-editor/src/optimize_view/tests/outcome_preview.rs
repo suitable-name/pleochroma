@@ -1,9 +1,11 @@
-//! Positive coverage of the legacy-outcome preview: an outcome the optimizer certified (with its
-//! provenance) rebuilds exactly the accepted state, and the same outcome is refused once the
-//! design it was computed against has moved on.
+//! Positive coverage of the outcome preview.
 //!
-//! The fixture is the one of `candidate_apply`'s reproduction tests (a four-fold design with a
-//! relation follower, stretched along y by 3 %), which legitimately passes the original-meet gate.
+//! A certified outcome (one carrying provenance)
+//! rebuilds exactly the accepted state, and is refused once the design it was computed
+//! against has changed.
+//!
+//! The fixture matches `candidate_apply`'s reproduction tests: a four-fold design with a
+//! relation follower, stretched along y by 3 %, which passes the original-meet gate.
 use super::*;
 use pleochroma_cut_core::{
     MastChange, PreformSpec,

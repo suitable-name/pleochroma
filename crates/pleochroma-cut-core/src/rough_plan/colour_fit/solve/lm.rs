@@ -21,7 +21,7 @@ use super::{
 pub(super) struct LmSettings {
     pub max_iterations: usize,
     pub rel_tol: f64,
-    /// Hold every log-gain at its starting value (stage 1 of the staged fit, round 3, D1).
+    /// Hold every log-gain at its starting value (stage 1 of the staged fit).
     pub freeze_gains: bool,
     /// Pin the common mode of the log-gains by the numerical sigma (stage 2).
     pub pin_common_gain: bool,

@@ -1,7 +1,6 @@
 use super::*;
 
-/// The N-BK7 glass curve: a three-term Sellmeier no refractive index and dispersion pair
-/// can describe.
+/// The built-in N-BK7 glass model (a three-term Sellmeier).
 fn bk7() -> DispersionModel {
     GemMaterial::by_name("Glass (N-BK7)")
         .expect("N-BK7 is a built-in")

@@ -30,23 +30,23 @@ pub(super) fn setup_render_callbacks(
     settings_store: &Arc<SettingsPersister>,
     solid: &SolidView,
 ) {
-    // Persist the library panel's collapsed/expanded state -- same "debounced
-    // background writer" persistence every other durable setting in this file already
-    // goes through, just a one-off `bool` with no dedicated `gui::*` module of its own.
+    // Persists the library panel's collapsed state through the debounced settings writer.
     let settings_store_panel = settings_store.clone();
     ui.global::<LibraryModel>()
         .on_panel_collapsed_changed(move |collapsed: bool| {
             settings_store_panel.update(|s| s.settings.library_panel_collapsed = collapsed);
         });
-    // Persist the Edit sub-tab's resizable dock width / inspector height /
-    // collapsed sections the same way -- see `editor_layout::
-    // setup_editor_layout_callbacks`'s own doc comment.
+    // Persists the Edit sub-tab's dock width, inspector height and collapsed sections.
     editor_layout::setup_editor_layout_callbacks(ui, settings_store);
     // The Parameters dock's open/tab state: restored now, saved on every change.
     crate::gui::parameters_dock::setup_parameters_dock(ui, settings_store);
     // The Preferences dialog and the header's Simple | Advanced pill: save each choice
     // and apply it -- see `gui::preferences`.
     crate::gui::preferences::setup_preferences_callbacks(ui, settings_store);
+    // The same dialog's "Adaptive Sampling in the Viewport" switch, which also drives the render.
+    crate::gui::preferences::setup_adaptive_viewport_callback(ui, render_ctx, settings_store);
+    // And the path cache entries (viewport switch, disk limit, Open Folder, Clear Path Cache).
+    crate::gui::preferences::setup_path_cache_callbacks(ui, render_ctx, settings_store);
     // The Faceting Machine section of the Preferences dialog: seeded from the saved preference.
     render::faceting_machine_ui::setup_faceting_machine_callbacks(ui, render_ctx, settings_store);
 
@@ -63,6 +63,8 @@ pub(super) fn setup_render_callbacks(
     );
     render::camera_lighting::setup_camera_drag_callbacks(ui, render_ctx);
     render::material::setup_material_changed_callback(ui, render_ctx);
+    render::quality::setup_stone_shadow_callback(ui, render_ctx, settings_store);
+    render::quality::setup_tray_reflection_callback(ui, render_ctx, settings_store);
     render::quality::setup_backdrop_callback(ui, render_ctx, settings_store);
     render::quality::setup_surface_glare_callback(ui, render_ctx, settings_store);
     render::quality::setup_head_shadow_callback(ui, render_ctx, settings_store);
@@ -111,8 +113,7 @@ pub(super) fn setup_library_callbacks(
 ) {
     library::diagram_list::load_filter_options_and_initial_list(ui, db);
     library::diagram_list::setup_search_and_filter_callbacks(ui, db, library_source);
-    // The owner's "regenerate library previews/tilt curves for the filtered set"
-    // request -- see `setup_regenerate_filtered_set_callbacks`'s own doc comment.
+    // Regenerates previews and tilt curves for the filtered set.
     library::diagram_list::setup_regenerate_filtered_set_callbacks(ui, db, library_source);
     // The Library menu's whole-catalogue counterparts.
     batch::regenerate_all::setup_regenerate_all_callbacks(ui, db, library_source);
@@ -133,12 +134,8 @@ pub(super) fn setup_library_callbacks(
     library::local::setup_set_shape_callback(ui, db, library_source);
     library::local::setup_delete_callback(ui, db, library_source, render_ctx);
     library::local::setup_export_asc_callback(ui, db, library_source);
-    // Per-design ignore/un-ignore toggle -- grouped with the other library CRUD
-    // callbacks above since it's the same shape (local-only write, then
-    // `refresh_after_library_change`).
     library::local::setup_ignore_toggle_callback(ui, db, library_source);
-    // Per-design "Exclude from planner" toggle: a local-only write that keeps one
-    // design out of the Rough Planner's candidates without hiding it from the library.
+    // Keeps a design out of the Rough Planner's candidates, without hiding it from the library.
     library::local::setup_planner_exclusion_toggle_callback(ui, db, library_source);
     library::local::setup_add_tag_callback(ui, db, library_source);
     library::local::setup_remove_tag_callback(ui, db, library_source);
@@ -155,11 +152,8 @@ pub(super) fn setup_editor(
     render_ctx: &Arc<Mutex<RenderContext>>,
     solid: &SolidView,
 ) {
-    // The Edit sub-tab's own callbacks (tier add/remove/modify, preform controls,
-    // undo/redo, loading the selected design, `.asc` export).
-    // Bundles the three Solid-viewport handles above into the one value
-    // `editor::setup_editor_callbacks` takes for them -- see [`SolidPickState`]'s
-    // own doc comment for why they travel together.
+    // Bundles the Solid-viewport handles into the value `editor::setup_editor_callbacks`
+    // takes (see [`SolidPickState`]).
     let solid_pick_state = SolidPickState {
         pick: Arc::clone(&solid.pick),
         hover_text: Arc::clone(&solid.hover_text),
@@ -179,7 +173,7 @@ pub(super) fn setup_editor(
     commands::setup_command_palette(ui);
 }
 
-/// Persists the Solid viewport's view mode and redraws on a mode change or a viewport
+/// Persists the Solid viewport's view mode, and redraws on a mode change or a viewport
 /// resize.
 pub(super) fn setup_solid_view_mode_callbacks(
     ui: &MainWindow,
@@ -187,26 +181,18 @@ pub(super) fn setup_solid_view_mode_callbacks(
     settings_store: &Arc<SettingsPersister>,
     preview_state: &Arc<SolidPreviewState>,
 ) {
-    // Persist the Solid viewport's view mode through the same debounced writer every
-    // other durable setting in this file goes through -- see
-    // `AppSettings::solid_view_mode`'s own doc comment. Also recomputes
-    // `render_ctx.tab_visible`: this mode is one of the signals
-    // `render::render_visibility::render_is_visible` reads (the Edit tab traces live
-    // only in Path-traced/Both), so flipping it can turn the tracer on or off.
-    //
-    // Also re-requests a redraw at the new mode via `resubmit_at_current_pose` --
-    // otherwise switching TO Diagram or Both would never ask the worker for
-    // anything, so both would stay on whatever `has_diagram`/`has_solid_edges` a
-    // PREVIOUS mode happened to leave set (usually `false`, showing the "Solve to
-    // preview" placeholder until the user jiggled the mouse or made an edit).
+    // Persists the mode (see `AppSettings::solid_view_mode`). It also recomputes
+    // `render_ctx.tab_visible`, since the Edit tab traces live only in Path-traced and Both.
+    // It re-requests a redraw at the new mode too. Otherwise switching to Diagram or Both
+    // would keep whatever the previous mode left, usually the "Solve to preview" placeholder.
     let settings_store_solid_view_mode = settings_store.clone();
     let render_ctx_solid_view_mode = render_ctx.clone();
     let preview_state_solid_view_mode = Arc::clone(preview_state);
     let ui_weak_solid_view_mode = ui.as_weak();
     ui.global::<SolidPreviewModel>()
         .on_view_mode_changed(move |mode: i32| {
-            // First, before anything asks for a redraw: a plan still being solved was made at
-            // the old mode, and the render worker must draw it at this one when it lands.
+            // Before any redraw: a plan still being solved was made at the old mode, and must
+            // be drawn at this one when it lands.
             preview_state_solid_view_mode
                 .note_view_mode(render::camera_lighting::view_mode_index(mode));
             settings_store_solid_view_mode.update(|s| {
@@ -216,15 +202,9 @@ pub(super) fn setup_solid_view_mode_callbacks(
             if let Some(ui) = ui_weak_solid_view_mode.upgrade() {
                 render::render_visibility::recompute_tab_visible(&ui, &render_ctx_solid_view_mode);
                 let mut ctx = RenderContext::lock(&render_ctx_solid_view_mode);
-                // Path-traced/Both (modes 1/2) must resume accumulation from
-                // scratch on entry, mirroring `on_live_view_mode_changed` below --
-                // otherwise an accumulator already at `target_samples` for the
-                // current planes leaves the render thread's worker loop sleeping
-                // instead of sending a display cycle (`bridge/render_thread/mod.rs`),
-                // so flipping the Edit tab into Path-traced/Both would resume
-                // tracing but never force a visible restart: the newly revealed
-                // surface would show whatever was last pushed, reading as "this is
-                // current" even when it isn't.
+                // Path-traced and Both restart accumulation on entry, as the Live tab does
+                // below. Otherwise a finished accumulator leaves the render worker idle
+                // (`bridge/render_thread/mod.rs`), and the switch shows stale pixels.
                 if EditViewMode::from_raw(mode).is_traced() {
                     ctx.dirty = true;
                 }
@@ -233,20 +213,13 @@ pub(super) fn setup_solid_view_mode_callbacks(
                     &ctx,
                     &preview_state_solid_view_mode,
                 );
-                // Explicit: releases the `RenderContext` mutex right after its
-                // last use rather than leaving it held until this block's
-                // closing brace.
                 drop(ctx);
             }
         });
-    // Handles the debounced `SolidPreviewModel.viewport_resized()` signal
-    // (`solid_viewport.slint`'s `resize_pulse` timer) -- without it, dragging the
-    // dock splitter or maximising the window would leave the shown image
-    // rescaled/letterboxed and the pick buffer misaligned from the cursor until the
-    // next orbit/zoom redraw. Deferred by one event-loop turn (`slint::Timer::
-    // single_shot`) so the resubmit reads the size AFTER Slint's own layout pass
-    // for this resize has actually run, not whatever was current the instant the
-    // debounce timer fired.
+    // Handles the debounced `viewport_resized()` signal from `solid_viewport.slint`. Without it,
+    // a resize would leave the image scaled and the pick buffer misaligned until the next
+    // redraw. The resubmit is deferred one event-loop turn, so it reads the size after Slint's
+    // layout pass.
     let render_ctx_viewport_resized = render_ctx.clone();
     let preview_state_viewport_resized = Arc::clone(preview_state);
     let ui_weak_viewport_resized = ui.as_weak();
@@ -259,9 +232,8 @@ pub(super) fn setup_solid_view_mode_callbacks(
                 let Some(ui) = ui_weak.upgrade() else {
                     return;
                 };
-                // A stone the app framed at load, for the size the viewport had then, is framed
-                // again for this one (the Catalog opening beside it narrows the picture) before
-                // the redraw reads the camera.
+                // A stone framed at load is framed again for the new size, before the redraw
+                // reads the camera.
                 render::fit_view::reframe_for_viewport(&ui, &render_ctx);
                 let ctx = render_ctx
                     .lock()
@@ -278,17 +250,10 @@ pub(super) fn setup_live_view_mode_callbacks(
     settings_store: &Arc<SettingsPersister>,
     preview_state: &Arc<SolidPreviewState>,
 ) {
-    // Persist the Live Render tab's own view mode the same way -- see
-    // `AppSettings::live_view_mode`'s own doc comment. Same `recompute_tab_visible`
-    // reasoning as `solid_view_mode` above (the Live tab traces live only in
-    // Path-traced mode), plus two effects specific to this toggle:
-    // - Flipping TO Path-traced (`1`) must resume accumulation from the current
-    //   planes rather than showing whatever sample count was left over from the last
-    //   time this mode was visible (`ctx.dirty = true` forces a fresh restart, same as
-    //   every other scene-invalidating write to `RenderContext`).
-    // - Flipping TO Solid (`0`) must show the solid raster immediately, not wait for
-    //   the next camera drag or library selection to trigger a redraw
-    //   (`camera_lighting::resubmit_live_solid`).
+    // Persists the Live Render view mode (see `AppSettings::live_view_mode`) and recomputes
+    // `tab_visible`, as for the Solid mode above. Switching to Path-traced (`1`) restarts
+    // accumulation from the current planes. Switching to Solid (`0`) shows the solid raster at
+    // once.
     let settings_store_live_view_mode = settings_store.clone();
     let render_ctx_live_view_mode = render_ctx.clone();
     let preview_state_live_view_mode = Arc::clone(preview_state);
@@ -315,13 +280,9 @@ pub(super) fn setup_live_view_mode_callbacks(
             }
             drop(ctx);
         });
-    // The Live Render tab's own size changed (`gem_viewport.slint`'s `changed width/height`
-    // push `live_viewport_*` and raise this): re-plan the solid frame at the new size, or
-    // the shared `SolidPreviewModel.image` stays at the old one and Slint scales it. Only
-    // while the Live tab is up in Solid mode -- traced modes show no solid raster (the mode
-    // switch re-submits one on entry). Debounced like the Edit viewport's resize
-    // (`solid_viewport.slint`'s 50 ms pulse): a window or dock drag raises this per layout
-    // pass, and each restart of the timer drops the frames the drag would have queued.
+    // Re-plans the solid frame when the Live tab's size changes. Otherwise the shared image
+    // stays at the old size and Slint scales it. Only in Solid mode, since traced modes show
+    // no solid raster. Debounced, so a drag re-plans once rather than per layout pass.
     let resize_debounce = slint::Timer::default();
     let render_ctx_live_resized = render_ctx.clone();
     let preview_state_live_resized = Arc::clone(preview_state);
@@ -338,7 +299,7 @@ pub(super) fn setup_live_view_mode_callbacks(
                     let Some(ui) = ui_weak.upgrade() else {
                         return;
                     };
-                    // Same as the Edit viewport's resize above, for a stone the app framed.
+                    // As for the Edit viewport above, for a stone framed at load.
                     if ui.get_render_view_tab() == 0 {
                         render::fit_view::reframe_for_viewport(&ui, &render_ctx);
                     }
@@ -353,9 +314,7 @@ pub(super) fn setup_live_view_mode_callbacks(
                 },
             );
         });
-    // Persist the Edit sub-tab's auto-solve budget the same way -- see
-    // `AppSettings::editor_auto_solve_budget_ms`'s own doc comment and
-    // `gui::editor::auto_solve`'s module doc comment for the setting's effect.
+    // Persists the Edit sub-tab's auto-solve budget (`AppSettings::editor_auto_solve_budget_ms`).
     let settings_store_auto_solve_budget = settings_store.clone();
     ui.global::<EditorModel>()
         .on_auto_solve_budget_ms_changed(move |budget_ms: i32| {
@@ -366,8 +325,9 @@ pub(super) fn setup_live_view_mode_callbacks(
         });
 }
 
-/// Wires the remote library, the remote-rendering handoff and the preview/tilt batch
-/// jobs. Returns the handoff poll timer, which the caller must keep alive.
+/// Wires the remote library, the remote-rendering handoff and the batch jobs.
+///
+/// Returns the handoff poll timer, which the caller must keep alive.
 pub(super) fn setup_remote_and_batch(
     ui: &MainWindow,
     db: &Arc<Mutex<Database>>,
@@ -377,23 +337,16 @@ pub(super) fn setup_remote_and_batch(
 ) -> slint::Timer {
     library::remote::setup_library_source_callbacks(ui, db, library_source, settings_store);
     library::remote::setup_mirror_sync_callbacks(ui, db, settings_store);
-    // Preview-then-handoff remote rendering: a repeating `slint::Timer` that polls
-    // camera/light pose and drives the handoff -- must be kept alive for the life of
-    // the window (a dropped `Timer` simply stops firing), hence the binding held all
-    // the way to `ui.run()` below rather than being dropped immediately. Set up
-    // BEFORE `setup_worker_callbacks`: the denoise toggle it wires needs the
-    // `RemoteOrchestratorHandle` this also returns.
+    // Remote rendering: a repeating `slint::Timer` polls the camera and light pose. The caller
+    // must keep the timer alive, since a dropped `Timer` stops firing. It is set up before
+    // `setup_worker_callbacks`, which needs the `RemoteOrchestratorHandle` returned here.
     let (remote_rendering_timer, remote_orchestrator) =
         setup_remote_rendering(ui, render_ctx, settings_store);
     setup_worker_callbacks(ui, render_ctx, settings_store, &remote_orchestrator);
-    // Cached design-catalogue preview thumbnails (front/top renders) -- decoded and
-    // cached off the UI thread (see `preview_cache`'s own doc comment), and the
-    // background batch job that generates them (two-level progress, cancellation,
-    // per-item panic isolation, local/remote dispatch over a shared work queue -- see
-    // `preview_batch`'s own doc comment). The batch-callbacks setup also kicks off the
-    // once-per-session "designs with no previews yet" scan/offer (trigger: library
-    // scan) as part of its own wiring. The batch invalidates the thumbnail cache per
-    // saved design, so the cache handle is passed on.
+    // Preview thumbnails, decoded and cached off the UI thread, and the batch job that
+    // generates them. The batch setup also starts the once-per-session scan for designs
+    // without previews. The batch invalidates the thumbnail cache per saved design, so the
+    // cache handle is passed on.
     let thumbnail_cache = batch::preview_cache::setup_preview_thumbnail_callback(ui, db);
     batch::preview::setup_preview_batch_callbacks(
         ui,
@@ -402,10 +355,8 @@ pub(super) fn setup_remote_and_batch(
         settings_store,
         &thumbnail_cache,
     );
-    // Tilt-curve batch computation -- same shape as the preview batch above,
-    // deliberately never auto-scanned at startup (see `tilt_batch`'s own module doc
-    // comment for why: the cost per catalogue is roughly an order of magnitude
-    // higher).
+    // Tilt-curve batch. Unlike the preview batch, it is never scanned at startup, because
+    // its cost per catalogue is much higher.
     batch::tilt::setup_tilt_batch_callbacks(ui, db, render_ctx, settings_store);
     remote_rendering_timer
 }
@@ -417,21 +368,12 @@ pub(super) fn setup_window_close(
     render_ctx: &Arc<Mutex<RenderContext>>,
     settings_store: &Arc<SettingsPersister>,
 ) {
-    // Signal the render thread to exit when the window closes. `running` is the thread's
-    // shutdown flag -- it's only ever set to false here, once, since the thread has no way to
-    // be restarted. Without this the render thread would silently outlive the window.
+    // Signals the render thread to exit on close. `running` is set to false only here, since
+    // the thread cannot be restarted. Without this the render thread would outlive the window.
     //
-    // Gated on `EditorModel.is_dirty` so an unsaved Edit-tab design is never
-    // discarded by one click on the window's own close button with no prompt.
-    // A dirty design keeps the window open and shows `MainWindow.close_confirm_open`'s
-    // Save/Discard/Cancel guard instead (see `close_confirm_open`'s own doc comment in
-    // `app.slint`); `close_confirm_save`/`close_confirm_discard` below do the actual
-    // shutdown once the user picks one.
-    //
-    // Closing the main window also closes the Rough Planner, so a clean design does not
-    // close it while the planner holds results that were never saved or a running plan:
-    // the same guard asks, without its Save button (there is nothing to save), and its
-    // Discard closes everything.
+    // Closing asks first while the Edit tab has unsaved changes, or while the rough planner
+    // or a render job is at work (`close_confirm_open` in `app.slint`). The guard's save and
+    // discard actions finish the shutdown.
     let render_ctx_close = render_ctx.clone();
     let settings_store_close = settings_store.clone();
     let ui_weak_close = ui.as_weak();
@@ -454,11 +396,9 @@ pub(super) fn setup_window_close(
         );
         if !is_dirty && planner_risk.is_none() {
             RenderContext::lock(&render_ctx_close).running = false;
-            // Bypasses the debounce window -- a change made in the last `DEBOUNCE`
-            // interval before quitting must not be silently lost.
+            // Writes now, skipping the debounce, so a change from just before quitting is kept.
             settings_store_close.flush();
-            // A still-open compare window would otherwise keep the event loop
-            // (and the process) running after the main window is gone.
+            // Otherwise an open compare window would keep the process running.
             editor::close_compare_window();
             rough_plan::close_planner_window();
             crate::gui::color_pattern::close_window();
@@ -491,9 +431,10 @@ fn joined_risk(planner: Option<String>, render_jobs: Option<String>) -> Option<S
     }
 }
 
-/// The message of the close guard: the dirty design's sentence, the work-at-risk sentences
-/// (see `rough_plan::planner_work_at_risk` and `render_jobs::work_at_risk`), or both,
-/// design first.
+/// The message of the close guard.
+///
+/// It is the dirty design's sentence, the work-at-risk sentences (see
+/// `rough_plan::planner_work_at_risk` and `render_jobs::work_at_risk`), or both, design first.
 fn close_confirm_message(design_dirty: bool, planner_risk: Option<&str>) -> String {
     match (design_dirty, planner_risk) {
         (true, Some(risk)) => format!("{DIRTY_DESIGN_MESSAGE} {risk}"),
@@ -523,8 +464,8 @@ mod close_message_tests {
         );
     }
 
-    /// J4: a rough plan and a render job both at risk give one message, planner first,
-    /// and a design that is also dirty puts its own sentence first.
+    /// A rough plan and a render job both at risk give one message, planner first. A dirty
+    /// design's sentence comes before both.
     #[test]
     fn the_guard_joins_the_planner_and_render_job_risks() {
         let joined = joined_risk(

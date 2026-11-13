@@ -1,7 +1,8 @@
-//! The synchronous/background split for the local search path: a request-sequence
-//! counter that lets a stale async result be dropped, a debounced background dispatch
-//! for the (rare, slow) performance-filtered query, and [`refresh_diagram_list`], the
-//! single entry point every local search/filter change calls.
+//! The local search path.
+//!
+//! It has a request-sequence counter that drops stale results, a debounced background dispatch
+//! for every local list query, and [`refresh_diagram_list`], the entry point every local
+//! search or filter change calls.
 
 use super::{
     fetch::{
@@ -25,40 +26,33 @@ use std::{
 };
 use tracing::error;
 
-/// Debounce delay between a search/filter change and a background performance-
-/// filtered re-query actually dispatching (see [`dispatch_background_search`]) --
-/// collapses a burst of range-slider drag ticks to the LAST one, the same shape and
-/// magnitude as `gui::editor::auto_solve::AUTO_SOLVE_DEBOUNCE`.
+/// Debounce between a search or filter change and its background query.
+///
+/// A burst of range-slider ticks runs one query, for the last position.
 const SEARCH_DEBOUNCE_DELAY: Duration = Duration::from_millis(120);
 
 /// How long the search box waits after the last keystroke before the query runs (see
-/// [`debounce_text_refresh`]) -- a burst of typing runs the query once, for the text
-/// the cutter stopped on, instead of once per character.
+/// [`debounce_text_refresh`]), so typing runs one query rather than one per character.
 const TEXT_FILTER_DEBOUNCE: Duration = Duration::from_millis(120);
 
 thread_local! {
-    /// Bumped by every [`refresh_diagram_list`] call, sync or async alike -- an async
-    /// dispatch captures its own value at dispatch time (BEFORE the debounce delay,
-    /// not after) and only applies its result if this still matches on completion
-    /// (see [`is_current_search`]). This is the exact `current_seq`/`is_current` shape
-    /// `gui::editor::auto_solve::Runtime` already uses for a background solve --
-    /// bumping unconditionally (not just on an async dispatch) is what lets a
-    /// SYNCHRONOUS refresh (e.g. the performance filter was just cleared) correctly
-    /// supersede an older async one still in flight, even though the sync path never
-    /// looks at this counter itself.
+    /// Bumped by every [`refresh_diagram_list`] call.
+    ///
+    /// A dispatch captures the value when requested, and applies its result only if it still
+    /// matches on completion (see [`is_current_search`]). A newer search supersedes older ones.
     static SEARCH_SEQ: Cell<u64> = const { Cell::new(0) };
-    /// The debounce timer [`dispatch_background_search`] restarts on every eligible
-    /// call -- replacing it cancels whatever the previous one had pending, same as
-    /// `gui::editor::auto_solve::Runtime::debounce`.
+    /// The debounce timer for [`dispatch_background_search`]. Replacing it cancels the
+    /// pending one.
     static SEARCH_DEBOUNCE: RefCell<Option<slint::Timer>> = const { RefCell::new(None) };
     /// The timer [`debounce_text_refresh`] restarts on every keystroke. Any refresh that
     /// runs sooner takes it, since that refresh already reads the latest text.
     static TEXT_DEBOUNCE: RefCell<Option<slint::Timer>> = const { RefCell::new(None) };
 }
 
-/// Runs `refresh` once, [`TEXT_FILTER_DEBOUNCE`] after the LAST call to this function;
-/// a call made before that replaces the pending `refresh` with its own. The search box
-/// goes through this so typing does not run a query per character.
+/// Runs `refresh` once, [`TEXT_FILTER_DEBOUNCE`] after the last call.
+///
+/// A call made before that replaces the pending `refresh`. The search box goes through this,
+/// so typing does not run a query per character.
 ///
 /// UI thread only (it starts a `slint::Timer`).
 pub(super) fn debounce_text_refresh(refresh: impl FnOnce() + 'static) {
@@ -78,10 +72,8 @@ pub(super) fn debounce_text_refresh(refresh: impl FnOnce() + 'static) {
     TEXT_DEBOUNCE.with(|cell| *cell.borrow_mut() = Some(timer));
 }
 
-/// `pub(in crate::gui)`, not private: [`crate::gui::library::remote`] (both
-/// branches of `setup_library_source_callbacks`) and
-/// [`crate::gui::library::local::helpers::refresh_after_library_change`]
-/// also need to invalidate an in-flight search of their own.
+/// Invalidates any search in flight. Also called from outside this module, by
+/// [`crate::gui::library::remote`] and `refresh_after_library_change`.
 pub(in crate::gui) fn bump_search_seq() -> u64 {
     SEARCH_SEQ.with(|cell| {
         let next = cell.get() + 1;
@@ -90,12 +82,11 @@ pub(in crate::gui) fn bump_search_seq() -> u64 {
     })
 }
 
-/// Drops the search and text debounce timers a previous load left pending, so neither fires into
-/// a fresh library load. Called by `diagram_list::load_filter_options_and_initial_list`, which
-/// supersedes them anyway. The harness relaunches a new main window on the same thread: a timer
-/// left by the previous window then bumped [`SEARCH_SEQ`] after the new start-up load had
-/// captured its own value, the start-up list was dropped as stale and the library stayed empty;
-/// the timer's closure also kept the previous window's database connection open.
+/// Drops the search and text debounce timers a previous load left pending.
+///
+/// Called by `diagram_list::load_filter_options_and_initial_list`. A leftover timer could bump
+/// [`SEARCH_SEQ`] after the new load captured its value, and its closure would keep the old
+/// database connection open.
 pub(in crate::gui) fn cancel_pending_searches() {
     SEARCH_DEBOUNCE.with(|cell| {
         cell.borrow_mut().take();
@@ -105,19 +96,14 @@ pub(in crate::gui) fn cancel_pending_searches() {
     });
 }
 
-/// See [`bump_search_seq`]'s own doc comment for why this is `pub(in crate::gui)`
-/// rather than private.
+/// Whether `seq` is still the latest search.
 pub(in crate::gui) fn is_current_search(seq: u64) -> bool {
     SEARCH_SEQ.with(|cell| cell.get() == seq)
 }
 
-/// Owned counterpart of [`DisplaySearchOptions`] -- a background search thread cannot
-/// borrow `tag_filter`/`id_filter` from the UI-thread-local `String`/`Vec`
-/// `super::filters::{read_tag_filter, read_id_filter}` return, so
-/// [`BackgroundSearchRequest`] carries owned copies instead. `Clone`, not just owned:
-/// the debounce timer closure below must stay `FnMut`-compatible (Slint's `Timer`
-/// API), so it clones this out of its capture on each call rather than moving it --
-/// harmless since it only actually runs once (`TimerMode::SingleShot`).
+/// Owned counterpart of [`DisplaySearchOptions`], for the background thread.
+///
+/// It is `Clone` because the timer closure is `FnMut`.
 #[derive(Clone)]
 struct BackgroundSearchOptions {
     order: SortOrder,
@@ -126,17 +112,14 @@ struct BackgroundSearchOptions {
     id_filter: Option<Vec<i64>>,
 }
 
-/// Everything [`dispatch_background_search`] needs beyond `ui`/`db_mutex`, bundled to
-/// keep that function's argument count under clippy's limit -- same reasoning as
-/// `gui::editor::auto_solve::BackgroundSolveResult`.
+/// Everything [`dispatch_background_search`] needs beyond `ui` and `db_mutex`, bundled to
+/// keep that function's argument count within clippy's limit.
 #[derive(Clone)]
 struct BackgroundSearchRequest {
-    /// Captured by [`refresh_diagram_list`] at dispatch time, BEFORE the debounce
-    /// delay -- see [`SEARCH_SEQ`]'s own doc comment for why that timing matters.
+    /// Captured by [`refresh_diagram_list`] at dispatch time, before the debounce delay.
     seq: u64,
-    /// Whether a performance filter makes this the slow (~540 ms) query: only then does
-    /// the status line say "Searching..." -- the indexed path answers in ~3 ms and a
-    /// flashing message per slider tick would be noise.
+    /// Whether a performance filter makes this the slow query. Only then does the status
+    /// line say "Searching...", since a flashing message per slider tick would be noise.
     slow: bool,
     search: String,
     shape_filter: String,
@@ -145,29 +128,15 @@ struct BackgroundSearchRequest {
     options: BackgroundSearchOptions,
 }
 
-/// Moves every local list query off the UI thread -- the library-search freeze fix.
-/// Measured against the real ~3,300-design catalogue: an active performance filter's
-/// fallback (walking every SQL-narrowed candidate and decoding its tilt curves in
-/// Rust, see `pleochroma_vault::db::sqlite::search`'s own module doc comment) took
-/// ~145ms for `search_diagrams_display` plus ~395ms for `count_matching_diagrams`,
-/// versus ~3ms for the same call with no performance filter active. The no-filter
-/// path used to run synchronously on every slider tick; it now goes through this
-/// debounce too, so a drag runs one query for the position it stops on and the UI
-/// thread never waits on SQL or on the shared database lock (perf review UI-4).
+/// Runs a local list query off the UI thread.
 ///
-/// Follows `gui::editor::auto_solve::dispatch_background_solve`'s own shape: a
-/// debounced `slint::Timer::start` (`TimerMode::SingleShot`) defers the actual
-/// `thread::spawn`, and the worker posts its result back via
-/// `Weak::upgrade_in_event_loop`, checking [`is_current_search`] before touching
-/// anything -- a superseded result (a newer keystroke/slider-tick landed, or the
-/// cutter cleared the performance filter and the fast sync path already ran) is
-/// simply dropped.
+/// The UI never waits on SQL or the shared database lock. The request is debounced: a timer
+/// starts the worker thread, which posts its result back with `Weak::upgrade_in_event_loop`.
+/// The result is dropped unless [`is_current_search`] still holds.
 ///
-/// For a slow (performance-filtered) request, sets `LibraryModel.status_message` to
-/// "Searching..." immediately (not after the debounce delay) so the cutter sees
-/// SOMETHING happened right away, and clears it back to empty once a current result
-/// lands. A fast request leaves the message alone but still clears a stale
-/// "Searching..." an older slow dispatch left behind.
+/// For a slow request, `LibraryModel.status_message` shows "Searching..." at once and is
+/// cleared when a current result lands. A fast request leaves the message alone, but clears
+/// a stale "Searching..." left by an older slow request.
 fn dispatch_background_search(
     ui: &MainWindow,
     db_mutex: &Arc<Mutex<Database>>,
@@ -198,9 +167,7 @@ fn dispatch_background_search(
                     range,
                     options,
                 } = request;
-                // Its own dedicated read-only connection, not the shared
-                // `db_mutex` -- see `fetch_diagram_list_with_own_connection`'s own doc
-                // comment.
+                // Uses its own read-only connection, not the shared `db_mutex`.
                 let result = fetch_diagram_list_with_own_connection(
                     &db_mutex,
                     &search,
@@ -216,9 +183,7 @@ fn dispatch_background_search(
                 );
                 let _ = ui_weak.upgrade_in_event_loop(move |ui| {
                     if !is_current_search(seq) {
-                        // A newer search (or a sync refresh that ran in the meantime,
-                        // e.g. clearing the performance filter) already owns the
-                        // display -- nothing here is still current enough to show.
+                        // A newer search already owns the display.
                         return;
                     }
                     match result {
@@ -262,13 +227,8 @@ pub fn refresh_diagram_list(
     shape_filter: &str,
     gear_filter: &str,
 ) {
-    // Drop any debounce timer a PREVIOUS call to this function left
-    // pending. Its own eventual result is already safely dropped by
-    // `is_current_search` (the `seq` bump right below invalidates it), but without
-    // this it still fires ~120ms later and still runs the locked query
-    // `dispatch_background_search`'s own doc comment measures at up to ~540ms against
-    // the real catalogue, for a result nobody will ever see -- wasted work every time
-    // a performance filter is added and then cleared inside one debounce window.
+    // Drops the debounce timer a previous call left pending. Its result would be dropped by
+    // the `seq` bump below anyway, but the query would still run for nothing.
     SEARCH_DEBOUNCE.with(|cell| {
         cell.borrow_mut().take();
     });
@@ -287,9 +247,8 @@ pub fn refresh_diagram_list(
     let tag_filter = read_tag_filter(ui);
     let id_filter = read_id_filter(ui);
 
-    // Every query goes through the debounced worker, performance filter or not: the
-    // indexed path used to run here synchronously (a four-query lock hold per slider
-    // tick, blocked outright while a worker held the mutex).
+    // Every query goes through the debounced worker, performance filter or not, so the UI
+    // thread never waits on the database.
     let slow = !range.performance.is_empty();
     dispatch_background_search(
         ui,

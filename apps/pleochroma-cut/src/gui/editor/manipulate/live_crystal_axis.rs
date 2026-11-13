@@ -31,7 +31,7 @@ fn line(
     ])
 }
 
-/// The actual image's contain rectangle, including a reduced bootstrap's aspect.
+/// Size and offset of `image` fitted into `viewport` with its aspect ratio kept (letterboxed).
 fn contain(viewport: (f32, f32), image: (f32, f32)) -> ((f32, f32), (f32, f32)) {
     let factor = (viewport.0 / image.0).min(viewport.1 / image.1);
     let size = (image.0 * factor, image.1 * factor);
@@ -89,8 +89,8 @@ pub(super) fn refresh(ui: &MainWindow, shared: &Shared) {
     let (size, offset) = contain(viewport, image);
     let camera = Camera::new(render.yaw, render.pitch, render.distance, DEFAULT_FOV_DEG)
         .with_roll(render.camera_roll);
-    // A previous design's Solid frame may still supply the radius while this
-    // scene traces. Keep the direction marker in front of the current camera.
+    // The shown radius can come from the last Solid frame, so cap the marker
+    // length by the current camera distance.
     let length = shown_length
         .unwrap_or(render.distance * 0.15)
         .min(render.distance * 0.25);

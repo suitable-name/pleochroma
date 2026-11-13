@@ -1,6 +1,7 @@
-//! The small, targeted mutations a cutter can make to an already-imported design:
-//! rename, hand-corrected metadata, its own `url`, provenance, the "ignored" flag, and
-//! deletion.
+//! The small, targeted mutations a cutter can make to an already-imported design.
+//!
+//! These are rename, hand-corrected metadata, the design's own `url`, provenance, the
+//! "ignored" flag, and deletion.
 
 use super::Database;
 use crate::model::{
@@ -44,12 +45,8 @@ impl Database {
         Ok(())
     }
 
-    /// Renames `entry_id` and applies `update` to its detail row in ONE transaction:
-    /// either both land or neither does. The metadata editor saves the title and the
-    /// other fields together; issuing [`Self::rename_diagram_entry`] and
-    /// [`Self::update_diagram_metadata`] separately left the new title committed when a
-    /// hand-typed numeric field was then rejected, while the dialog reported the whole
-    /// save as failed.
+    /// Renames `entry_id` and applies `update` to its detail row in ONE transaction: either
+    /// both land or neither does, so a rejected numeric field cannot leave the title committed.
     ///
     /// # Errors
     ///
@@ -77,18 +74,14 @@ impl Database {
     /// already-imported design -- see [`MetadataUpdate`]'s own doc comment for which
     /// fields that is and why title isn't one of them.
     ///
-    /// # The trap this exists to avoid
+    /// # Why not read, edit and re-save the whole detail
     ///
-    /// [`Database::get_diagram_full`] returns a [`crate::model::entry::FullDiagramRecord`],
-    /// a STRICT SUBSET of [`crate::model::detail::FacetingDiagramDetail`] (missing
-    /// `hw_ratio`/`tw_ratio`/`uw_ratio`/`pw_ratio`/`cw_ratio`/`symmetry_order`/
-    /// `mirror_symmetry`/`designer`/`source_citation`/`pdf_file`/`gem_file`/
-    /// `shape_category`). Since [`Self::save_diagram_detail`] fully REPLACES the
-    /// detail row, a naive read-edit-rebuild-save would silently zero every field
-    /// above -- erasing a locally-imported design's just-measured proportions. This
-    /// method is the fix: one `UPDATE` naming exactly `MetadataUpdate`'s fields (plus
-    /// `facets`/`girdle_facets`, kept in sync below) and nothing else -- no delete, so
-    /// every other column and all child rows survive unchanged.
+    /// [`Database::get_diagram_full`] returns a [`crate::model::entry::FullDiagramRecord`], which
+    /// does not carry every field of [`crate::model::detail::FacetingDiagramDetail`] (the
+    /// concave-tier counts, for one). [`Self::save_diagram_detail`] replaces the whole detail
+    /// row, so a read-edit-rebuild-save would silently zero the fields the record lacks. This
+    /// method issues one `UPDATE` naming only `MetadataUpdate`'s fields (plus `facets` and
+    /// `girdle_facets`, kept in sync below). Every other column and all child rows survive.
     ///
     /// `facets`/`girdle_facets` are a queryable split of `facets_count` (see
     /// [`parse_facets_count`]; the search range filter reads them directly, never the
@@ -96,21 +89,15 @@ impl Database {
     ///
     /// # Hand-typed numeric fields are parsed, never bound as raw text
     ///
-    /// `refractive_index`/`index_gear`/`symmetry_order`/`lw_ratio`/`hw_ratio`/
-    /// `cw_ratio`/`pw_ratio`/`volume` are `Option<String>` on [`MetadataUpdate`] (a
-    /// text field's natural type), but their columns are REAL/INTEGER. Binding that
-    /// text directly would rely on SQLite's column-affinity conversion, which only
-    /// converts a value that already looks like a plain number and otherwise silently
-    /// stores it as TEXT in the REAL/INTEGER column -- e.g. a hand-typed European
-    /// `"1,76"` persisted as the literal string `"1,76"`, which then sorts/filters
-    /// wrong against every other row's real `REAL` value. Each of those eight fields is
-    /// therefore parsed through [`parse_optional_numeric`] first: a blank/`None` field still
-    /// means "clear this value" (`Ok(None)`), but any other unparsable text is a hard
-    /// error naming the field, and NOTHING is written -- see that function's doc
-    /// comment. `facets_count` is not in this list: its column is TEXT, so it never had
-    /// this problem, and it keeps `parse_facets_count`'s own, deliberately tolerant
-    /// splitting (shared with the scrape-import path, where a partial parse like
-    /// `"45+R"` is real, legitimate data, not hand-typed garbage to reject).
+    /// Eight fields (`refractive_index`, `index_gear`, `symmetry_order`, `lw_ratio`, `hw_ratio`,
+    /// `cw_ratio`, `pw_ratio`, `volume`) are `Option<String>` on [`MetadataUpdate`] but REAL or
+    /// INTEGER columns. Bound as text, SQLite's column affinity stores a value that is not a
+    /// plain number (a hand-typed `"1,76"`) as TEXT, which then sorts and filters wrongly. Each
+    /// is therefore parsed through [`parse_optional_numeric`] first. A blank field still clears
+    /// the value, and any other unparsable text is an error naming the field, with nothing
+    /// written. `facets_count` is not in the list: its column is TEXT, and it keeps
+    /// [`parse_facets_count`]'s tolerant split, since a partial value such as `"45+R"` is valid
+    /// scraped data.
     ///
     /// # Errors
     ///
@@ -178,11 +165,8 @@ impl Database {
             ));
         }
 
-        // Bumps `diagram_entries.updated_at` for the "recently edited" sort --
-        // best-effort: a hand-correction to metadata having gone through
-        // above is the change that matters, so a failure here is logged rather than
-        // rolled back into an error the caller would otherwise treat as "nothing was
-        // saved."
+        // Bumps `diagram_entries.updated_at` for the "recently edited" sort. Best effort: the
+        // metadata write above is the change that matters, so a failure here is only logged.
         if let Err(e) = conn.execute(
             "UPDATE diagram_entries SET updated_at = MAX(?1, COALESCE(updated_at, 0) + 1) WHERE id = ?2",
             params![super::unix_now(), entry_id],
@@ -221,13 +205,9 @@ impl Database {
         Ok(())
     }
 
-    /// `entry_id`'s recorded source row's own id and title -- the one query a
-    /// "Derived from: <title>" badge/link needs: `set_derived_from_entry_id`
-    /// already records provenance at import time, and this reads it back for
-    /// display. `None`
-    /// when `entry_id` has no recorded source, or when the recorded source
-    /// row no longer exists (e.g. it was since deleted) -- a caller renders
-    /// nothing rather than a dangling reference either way.
+    /// The id and title of the source `entry_id` was derived from (see
+    /// [`Self::set_derived_from_entry_id`]), for a "Derived from" link. `None` when no source is
+    /// recorded or the recorded source row no longer exists, so a caller renders nothing.
     ///
     /// # Errors
     ///
@@ -250,7 +230,7 @@ impl Database {
 
     /// Records that `entry_id` was derived from `derived_from`, e.g. an
     /// export-then-reimport of an existing catalogue design. Pass
-    /// `None` to clear a previously recorded value. Deliberately takes an explicit,
+    /// `None` to clear a recorded value. Deliberately takes an explicit,
     /// already-known source id rather than inferring one -- see
     /// `migrate_diagram_entries_provenance`'s doc comment for why this crate never
     /// guesses provenance from titles or other heuristics.

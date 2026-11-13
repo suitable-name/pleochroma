@@ -6,9 +6,9 @@ import { IconButton } from "../icon_button.slint";
 
 // The one-line "name it and keep it" row of the Lighting tab: a text field that already holds a
 // suggested name (selected, so typing replaces it) and a check button. Used by the saved-lighting
-// list below and by the Camera block's "Save view" (the lighting plus the camera pose). The caller
-// fills `name` with `ViewportModel.suggest_lighting_name()` before the row appears, and clears
-// it afterwards. Enter confirms, like the button.
+// list below and by the Camera block's "Save View as Saved Lighting..." (lighting plus camera
+// pose). The caller fills `name` with `ViewportModel.suggest_lighting_name()` before the row
+// appears, and clears it afterwards. Enter confirms, like the button.
 export component SaveNameRow inherits HorizontalLayout {
     in-out property <string> name;
     in property <string> placeholder: "Name this lighting...";
@@ -68,9 +68,9 @@ export component SaveNameRow inherits HorizontalLayout {
 // Saved lighting: the named looks you can bring back with one click. A saved lighting is a
 // complete look -- the lighting rig, the light direction, exposure, surface glare, backdrop, head
 // shadow and the HDR map, plus the camera distance -- but deliberately not the way you are turned
-// around the stone (only "Save view" in the Camera block keeps that too), so applying one never
-// spins the gem out from under you. The Lighting tab mounts the "This design" block
-// (`DesignLightingSection`) as its own group after this one.
+// around the stone (only "Save View as Saved Lighting..." in the Camera block keeps that too), so
+// applying one never spins the gem out from under you. The Lighting tab mounts the "This design"
+// block (`DesignLightingSection`) as its own group after this one.
 export component LightingPresetsSection inherits VerticalLayout {
     property <bool> adding_preset: false;
     property <string> new_preset_name: "";
@@ -199,7 +199,7 @@ export component LightingPresetsSection inherits VerticalLayout {
                 }
             }
 
-            // "Usable for export" toggle. Shown for EVERY saved lighting, built-ins
+            // "Usable for export" toggle. Shown for every saved lighting, built-ins
             // included (unlike rename/delete below): whether a lighting mood
             // is worth re-rendering under is a matter of taste, not identity.
             icon-button-export-usable := IconButton {

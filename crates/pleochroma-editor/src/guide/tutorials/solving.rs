@@ -9,17 +9,16 @@
 //!   with its comparison.
 //! - `tuning`: the two-tier sweep, Keep as Trial and the Trials view, and Tune by hand.
 //!
-//! Every lesson starts from a design it can rely on (a teaching template, whose tier names are
-//! fixed, or the design that is open), judges each step from the design as it is now (a tier, the
-//! material, the preform, the girdle size, the inspector tab, the solve verdict), and waits for a
-//! UI event only for what leaves no trace in the design (the Solve button was pressed, a result
-//! list appeared, a snapshot was taken). A dialog covers the lesson's own panel while it is open,
-//! so a step that sends the learner into a dialog says everything the dialog needs and waits for
-//! its outcome in the design (a retarget applied, a sweep angle used, text applied) or for one
-//! event, and the next step is read once the dialog is closed.
+//! Every lesson starts from a design it can rely on (a teaching template with fixed tier names,
+//! or the open design), judges each step from the design as it is now (a tier, the material, the
+//! preform, the girdle size, the inspector tab, the solve verdict), and waits for a UI event only
+//! for what leaves no trace in the design (the Solve button, a result list, a snapshot). A dialog
+//! covers the lesson's panel while it is open, so a step that sends the learner into one says
+//! what the dialog needs and waits for its outcome in the design (a retarget applied, a sweep
+//! angle used, text applied) or for one event; the next step is read once the dialog closes.
 //!
-//! Template designs start without a material, so every lesson whose figures need one begins with
-//! a "choose the material" step. Lessons that must not be hurried along by auto-solve switch it off
+//! Template designs start without a material, so a lesson whose figures need one begins with a
+//! "choose the material" step. Lessons that must not be hurried along by auto-solve switch it off
 //! first, and a reading step at the end puts it back.
 //!
 //! The tests in `solving_tests` play every lesson in a real `EditorSession`: each step's goal is
@@ -40,12 +39,12 @@ use super::solving_events as events;
 use crate::guide::{Goal, GoalContext, Group, Guide};
 use pleochroma_cut_core::{ConstraintTier, Design};
 
-/// The session template index of the Standard Round Brilliant (card 1 of the New Design dialog):
-/// eight tiers, a table, star and break rings, mains and a culet.
+/// Template index of the Standard Round Brilliant (card 1 of the New Design dialog): eight
+/// tiers, a table, star and break rings, mains and a culet.
 const STANDARD: usize = 1;
 
-/// The session template index of the Rich Teaching Design (card 5): a table, a crown main ring, a
-/// girdle and a pavilion main ring, every depth pinned.
+/// Template index of the Rich Teaching Design (card 5): a table, a crown main ring, a girdle
+/// and a pavilion main ring, every depth pinned.
 const RICH: usize = 5;
 
 /// The crown main angle of the Rich Teaching Design.

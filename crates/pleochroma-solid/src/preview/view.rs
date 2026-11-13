@@ -238,10 +238,9 @@ pub const fn panel_index(panel: PanelKind) -> i32 {
 
 /// A double click on the diagram: the next enlarged-panel index.
 ///
-/// From the three-panel layout (`current` not a
-/// panel) it enlarges the `clicked` panel (`DiagramFrame::panel_at` under the
-/// pointer), staying at three panels when the click missed every panel; from an
-/// enlarged panel it always goes back to three panels (`-1`).
+/// From the three-panel layout (`current` not a panel) it enlarges the `clicked` panel
+/// (from `DiagramFrame::panel_at`), staying at three panels when the click missed every
+/// panel. From an enlarged panel it always goes back to three panels (`-1`).
 #[must_use]
 pub const fn toggle_enlarged_panel(current: i32, clicked: Option<PanelKind>) -> i32 {
     if panel_kind_from_index(current).is_some() {
@@ -325,10 +324,9 @@ pub fn dirty_tiers(previous: &Design, current: &Design) -> Option<BTreeSet<usize
 
 /// Whether `design` plans with no solver call at all.
 ///
-/// True when every tier is a
-/// `MeetConstraint::ScaleReference` (`live_update::plan_preview`'s "Pinned" tier,
-/// checked first there too), so its masts are read straight off the tiers and a
-/// "full solve" costs nothing whatever the design's size.
+/// Every tier is a
+/// `MeetConstraint::ScaleReference`, so its masts are read straight off the tiers and a
+/// full solve costs nothing whatever the design's size.
 #[must_use]
 pub fn plans_without_solver(design: &Design) -> bool {
     design.tiers.iter().all(|tier| {
@@ -355,10 +353,10 @@ pub enum ReplanBasis {
 
 /// Chooses a replan's starting point for `design`.
 ///
-/// First an authoritative solve of the
-/// CURRENT design (`current_solve`) first, nothing dirty; else the masts the
-/// previous frame was planned from (`cached`: that design and its masts), with
-/// [`dirty_tiers`] as the dirty set; else [`ReplanBasis::FullSolve`].
+/// That is the current design's own solve
+/// (`current_solve`) with nothing dirty; else the masts it was previously planned from
+/// (`cached`: the earlier design and its masts) with [`dirty_tiers`] as the dirty set;
+/// else [`ReplanBasis::FullSolve`].
 #[must_use]
 pub fn replan_basis(
     design: &Design,
@@ -383,11 +381,9 @@ pub fn replan_basis(
     ReplanBasis::FullSolve
 }
 
-/// The UI-side inputs of one replan, as a view reads them.
-///
-/// The design snapshot
-/// and generation, the [`ReplanBasis`], the camera and raster size, and the
-/// view's own settings in their UI encodings (`-1` for "none").
+/// The UI-side inputs of one replan: the design snapshot and generation, the
+/// [`ReplanBasis`], the camera and raster size, and the view's settings in their UI
+/// encodings (`-1` for none).
 pub struct ReplanInputs<'a> {
     /// The design to plan (shared with the planned frame, never deep-cloned).
     pub design: Arc<Design>,

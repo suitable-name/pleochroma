@@ -676,8 +676,8 @@ fn an_inclusion_that_does_not_fit_is_refused_as_for_a_mesh_rough() {
         one.with_inclusions_added(&[shell([12.0, 10.0, 10.0], 8.0)], 0.0),
         Err(HullError::Inclusion(MeshError::InclusionsOverlap))
     );
-    // One that wraps an inclusion the rough already has is refused when it is added, not later
-    // when the model is built (the 8 mm cube of `with_box` is wholly inside a 12 mm one).
+    // Wrapping an existing inclusion is refused on add, not when the model is built (the
+    // 8 mm cube of `with_box` lies inside this 12 mm one).
     assert_eq!(
         one.with_inclusions_added(&[shell([10.0; 3], 12.0)], 0.0),
         Err(HullError::Inclusion(MeshError::InclusionsOverlap))

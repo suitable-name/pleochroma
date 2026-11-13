@@ -22,9 +22,8 @@ mod scanner;
 use scanner::{Event, Kind, events, scan};
 
 /// Callbacks (`Owner.name`) that are deliberately unhandled, each with the reason. Add an entry
-/// only after reading the code that proves the callback is not needed; it starts empty.
-/// (Callbacks with a Slint body, such as `TutorialsModel.open_browser` or `GuideModel.start`,
-/// need no entry: the body counts as the handler.)
+/// only after reading the code that shows the callback is not needed. Callbacks with a Slint
+/// body (such as `TutorialsModel.open_browser`) need no entry: the body counts as the handler.
 const CALLBACK_ALLOW_LIST: &[(&str, &str)] = &[];
 
 /// `accessible-role` values that make an element interactive and so require a label.
@@ -718,9 +717,9 @@ fn slider_row_body(source: &str, label: &str, end: &str) -> Option<String> {
     )
 }
 
-/// The confirm step of the preview batch offers the same two sliders as the Render & Output tab
-/// -- label, hint, value text, range, step, binding and callback -- so a change made there
-/// persists exactly as it does in the tab, and tells the user where to find them again.
+/// The preview offer's two sliders must mirror the Render & Output tab's (label, hint, value
+/// text, range, step, binding and callback), so a change in either persists the same way. The
+/// offer also names where to change them later.
 #[test]
 fn the_preview_offer_sliders_mirror_the_render_output_tab() {
     let sources = slint_sources();

@@ -82,8 +82,8 @@ fn a_corrupt_or_unreadable_file_keeps_the_full_interface_and_skips_the_tour() {
     }
 }
 
-/// A settings file from before the interface switch existed: its owner is an existing
-/// user, so it loads Advanced with the tour done -- not the newcomer's defaults.
+/// A file without the interface keys belongs to an existing user: it loads Advanced with
+/// the tour done, not the newcomer's defaults.
 #[test]
 fn an_existing_file_without_the_interface_keys_loads_advanced_with_the_tour_done() {
     let dir = TempDir::new("existing-install");
@@ -166,6 +166,44 @@ fn peeking_the_scale_never_fails() {
         peek_ui_scale_percent_at(&write("top-level.toml", "ui_scale_percent = 125\n")),
         0
     );
+}
+
+#[test]
+fn peeking_the_path_cache_limit_reads_the_saved_value_and_never_fails() {
+    let dir = TempDir::new("peek-path-cache-limit");
+    let path = dir.path().join("settings.toml");
+    let mut file = SettingsFile::default();
+    file.settings.path_cache_disk_limit_gb = 120;
+    save(&path, &file).unwrap();
+    assert_eq!(peek_path_cache_disk_limit_gb_at(&path), 120);
+
+    let write = |name: &str, text: &str| {
+        let path = dir.path().join(name);
+        std::fs::write(&path, text).unwrap();
+        path
+    };
+    // No file, a directory, broken TOML, a missing key, a negative value and one of the wrong
+    // type all give the default.
+    for path in [
+        dir.path().join("does-not-exist.toml"),
+        dir.path().to_path_buf(),
+        write("broken.toml", "not { toml"),
+        write("no-key.toml", "[settings]\nexposure = 1.0\n"),
+        write(
+            "negative.toml",
+            "[settings]\npath_cache_disk_limit_gb = -5\n",
+        ),
+        write(
+            "text.toml",
+            "[settings]\npath_cache_disk_limit_gb = \"120\"\n",
+        ),
+    ] {
+        assert_eq!(
+            peek_path_cache_disk_limit_gb_at(&path),
+            DEFAULT_PATH_CACHE_DISK_LIMIT_GB,
+            "{path:?}"
+        );
+    }
 }
 
 #[test]
@@ -337,6 +375,9 @@ fn save_then_load_round_trips_settings_and_presets() {
     original.settings.exposure = 1.65;
     original.settings.max_bounces = 20;
     original.settings.selected_material = "Ruby".to_string();
+    original.settings.tray_reflection = 0.04;
+    original.settings.env_map_yaw_deg = 125.0;
+    original.settings.env_map_follows_camera = true;
     original
         .upsert_user_preset(LightingPreset {
             name: "Golden Hour".to_string(),
@@ -354,6 +395,10 @@ fn save_then_load_round_trips_settings_and_presets() {
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
             backdrop: crate::settings::model::Backdrop::default(),
             head_shadow_deg: crate::settings::model::DEFAULT_HEAD_SHADOW_DEG,
+            stone_shadow: false,
+            tray_reflection: 0.04,
+            env_map_yaw_deg: 125.0,
+            env_map_follows_camera: true,
         })
         .unwrap();
 
@@ -382,8 +427,8 @@ fn save_overwrites_existing_file_atomically() {
     assert!(!path.with_extension("toml.tmp").exists());
 }
 
-/// An old settings FILE holding two workers loads with the first as the single
-/// remote endpoint, and the next save no longer carries the retired list.
+/// A file with a legacy `remote_workers` list loads its first worker as the single
+/// `remote` endpoint, and the next save drops the list.
 #[test]
 fn an_old_file_with_two_workers_migrates_on_load_and_saves_without_the_list() {
     let dir = TempDir::new("two-workers");
@@ -417,8 +462,8 @@ fn default_settings_path_is_non_empty_and_ends_with_settings_file_name() {
     assert!(path.components().any(|c| c.as_os_str() == APP_DIR_NAME));
 }
 
-/// [`migrate_legacy_settings_if_needed`] takes an explicit `new_path` precisely so
-/// these tests can point it at a temp directory rather than a real `%APPDATA%`.
+/// [`copy_legacy_settings_if_absent`] takes both paths, so these tests use temp
+/// directories instead of the real config directory.
 mod migration {
     use super::*;
 

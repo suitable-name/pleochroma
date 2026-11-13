@@ -1,13 +1,13 @@
-//! MIT source: pleochroma/color/metrics/lighting.rs. Production prepares the canonical
-//! radiance threshold/rig once per preset; the complete CPU classifier is a parity oracle.
-//! The illumination the metrics are scored under: whether a ray leaving the crown sees a
-//! light source or only the dim surround.
+//! MIT source: pleochroma/color/metrics/lighting.rs.
 //!
-//! The test reads the same radiance the tracer lights the image with
+//! The illumination the metrics are scored under: whether a ray leaving the crown sees a
+//! light source or only the dim surround. Production prepares the canonical radiance
+//! threshold and rig once per preset; the complete CPU classifier is a parity oracle.
+//!
+//! The lit test reads the same radiance the tracer lights the image with
 //! (`sample_studio_environment_with_rig` for the analytic rigs, the map's own luminance for an
-//! HDR panorama), so the lobes that make a facet flash in the render are the lobes that
-//! count as "illuminated" here, and a preset change moves the numbers the way it moves
-//! the picture.
+//! HDR panorama), so the lobes that make a facet flash in the render count as "illuminated"
+//! here, and a preset change moves the numbers as it moves the picture.
 //!
 //! "Illuminated" is relative to the environment's ambient level, the median radiance over
 //! a fixed set of directions spread evenly over the upper hemisphere. Two rules apply.
@@ -21,11 +21,9 @@
 //! - Every other model (the light tent, the daylight dome, the ISO hemisphere) is a lit
 //!   environment: its walls, sky or dome are the light. A direction is lit when its
 //!   radiance exceeds [`UNIFORM_FRACTION_OF_AMBIENT`] times the ambient level, so the
-//!   brilliance metric means "light return" under all of them, as it does for the ISO
-//!   figure cutters know from `GemRay`. Under the tent the walls count as lit while the
-//!   black cards (x0.1), the ground and the head shadow do not, so a facet reflecting a
-//!   card still costs extinction. The old 4x rule counted only the tent's key cone and
-//!   the dome's sun disc, which made brilliance a measure of aiming exits at one patch.
+//!   brilliance metric means "light return" under all of them. Under the tent the walls
+//!   count as lit while the black cards (x0.1), the ground and the head shadow do not, so a
+//!   facet reflecting a card still costs extinction.
 //!
 //! The observer's head shadow is not part of this radiance (the observer is passed as the
 //! zero vector): the host reduction applies the observer cone separately.
@@ -41,7 +39,7 @@ use pleochroma::{
         },
         studio_rig::StudioRig,
     },
-    renderer::env_map::EnvironmentMap,
+    renderer::env_map::{EnvRotation, EnvironmentMap},
 };
 
 /// Wavelength the analytic rigs are probed at, the photopic luminosity peak.
@@ -79,12 +77,12 @@ enum RadianceSource<'a> {
     Studio {
         preset: LightingPreset,
         rig: Box<StudioRig>,
-        /// [`studio_spec_power`] of `preset` at [`PROBE_WAVELENGTH_NM`], evaluated once: it
-        /// is a pure function of the preset, and every exited ray used to recompute it.
+        /// [`studio_spec_power`] of `preset` at [`PROBE_WAVELENGTH_NM`]. It depends only on the
+        /// preset, so it is evaluated once rather than per exit ray.
         spec_power: f32,
     },
-    /// A loaded HDR panorama.
-    Hdr(&'a EnvironmentMap),
+    /// A loaded HDR panorama, turned by the rotation (looked up along `rotation.to_map(dir)`).
+    Hdr(&'a EnvironmentMap, EnvRotation),
 }
 
 impl RadianceSource<'_> {
@@ -103,8 +101,8 @@ impl RadianceSource<'_> {
                 Vec3::ZERO,
                 *spec_power,
             ),
-            Self::Hdr(map) => {
-                let [r, g, b] = map.radiance_rgb(dir);
+            Self::Hdr(map, rotation) => {
+                let [r, g, b] = map.radiance_rgb_rotated(dir, *rotation);
                 LUMINANCE_WEIGHTS[0]
                     .mul_add(r, LUMINANCE_WEIGHTS[1].mul_add(g, LUMINANCE_WEIGHTS[2] * b))
             }
@@ -153,8 +151,8 @@ pub(super) struct ExitLighting<'a> {
 }
 
 impl<'a> ExitLighting<'a> {
-    /// Canonical preset data for the native mirror of environment/rig.rs. The ambient
-    /// median is prepared once, preserving the exact CPU comparison threshold.
+    /// Canonical preset data for the CUDA mirror of `optics/raytracer/environment/rig.rs`.
+    /// The ambient median is prepared once so the GPU compares against the CPU threshold.
     pub(super) fn cuda_parameters(&self) -> Option<Vec<f32>> {
         let RadianceSource::Studio {
             preset,
@@ -200,7 +198,7 @@ impl<'a> ExitLighting<'a> {
         let head_shadow_cos = head_shadow_cone_cos(
             match environment {
                 EnvironmentSource::Studio { preset, .. } => preset.model() == LightingModel::Studio,
-                EnvironmentSource::HdrMap(_) => true,
+                EnvironmentSource::HdrMap { .. } => true,
             },
             environment.head_shadow_deg(),
         );
@@ -223,7 +221,9 @@ impl<'a> ExitLighting<'a> {
                     preset.model() != LightingModel::Studio,
                 )
             }
-            EnvironmentSource::HdrMap(map) => (RadianceSource::Hdr(map), false),
+            EnvironmentSource::HdrMap { map, rotation, .. } => {
+                (RadianceSource::Hdr(map, rotation), false)
+            }
         };
         let factor = if uniform {
             UNIFORM_FRACTION_OF_AMBIENT

@@ -2,14 +2,13 @@
 //! process.
 //!
 //! `cert issue-token` (run by the operator, against a running `serve`) and `cert claim`
-//! (run on the machine being enrolled). See `crate::enroll`'s module doc comment for the
-//! full design and lifecycle these two talk to.
+//! (run on the machine being enrolled). The design and lifecycle are in the `crate::enroll`
+//! module doc.
 //!
 //! The security-critical pinned-CA TLS handshake and wire exchange live in
-//! [`pleochroma_net::enroll::claim`] instead, shared with `apps/pleochroma-cut`.
-//! [`claim`] below is a thin wrapper: calls that, turns its
-//! [`pleochroma_net::enroll::ClaimError`] into this CLI's `--token`/`--addr`-flavored
-//! message, and writes the returned bundle to `--out`.
+//! [`pleochroma_net::enroll::claim`], shared with `apps/pleochroma-cut`. [`claim`] below is a
+//! thin wrapper: it converts the [`pleochroma_net::enroll::ClaimError`] into this CLI's
+//! `--token`/`--addr`-flavored message and writes the returned bundle to `--out`.
 
 use crate::{
     cli::{CertClaimArgs, CertIssueTokenArgs},
@@ -129,9 +128,9 @@ pub fn write_bundle(
 /// `pleochroma-worker cert issue-token --ca <ca.pem> --admin-addr <host:port> --name <label>`.
 ///
 /// Connects to a running `serve` process's enrollment listener at `args.admin_addr`,
-/// verifying it with ordinary (non-pinned) TLS against `args.ca` -- the operator already
-/// has that file, so there's no bootstrap problem here the way there is for [`claim`].
-/// Asks it to mint a token for `args.name` and prints the result.
+/// verifying it with ordinary (non-pinned) TLS against `args.ca`. The operator already has
+/// that file, so no pinned CA is needed here as it is for [`claim`]. Asks the listener to
+/// mint a token for `args.name` and prints the result.
 ///
 /// The request is authorised by the operator secret in `issue.secret` next to `args.ca`
 /// (created by `serve` on first start, readable only by its owner): this command must run
@@ -145,9 +144,8 @@ pub fn write_bundle(
 ///
 /// A human-readable message if `args.ca` or the `issue.secret` beside it can't be loaded,
 /// `args.admin_addr` isn't `host:port`, the connection or TLS handshake fails, the wire
-/// exchange fails, or the
-/// server refuses to issue a token (not a loopback connection, or too many enrollments
-/// already pending -- see `crate::enroll::EnrollRegistry::issue`).
+/// exchange fails, or the server refuses to issue a token (not a loopback connection, or too
+/// many enrollments already pending; see `crate::enroll::EnrollRegistry::issue`).
 pub fn run_issue_token(args: &CertIssueTokenArgs) -> Result<(), String> {
     let response = issue_token_over_tls(&args.ca, &args.admin_addr, &issue_name(args))?;
 
@@ -155,8 +153,8 @@ pub fn run_issue_token(args: &CertIssueTokenArgs) -> Result<(), String> {
 }
 
 /// The `Issue` name for `args`: the bare `--name` for a viewer, `worker:<name>` for
-/// `--role worker` -- which is how the enrollment listener tells the requested role
-/// (see `crate::enroll`'s module doc comment; no wire change).
+/// `--role worker`. The enrollment listener reads the requested role from this prefix (see
+/// the `crate::enroll` module doc).
 fn issue_name(args: &CertIssueTokenArgs) -> String {
     match args.role {
         pleochroma_net::messages::PeerRole::Viewer => args.name.clone(),

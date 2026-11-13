@@ -6,7 +6,7 @@ use pleochroma_editor::retarget::{
     CrownShift, RetargetPlan, anchors::anchored_candidate, build_plan, validity::analyze,
 };
 
-/// Adapter executing neural RL material retargeting matching `pleochroma-editor`'s workflow.
+/// Runs the RL material retarget and returns results in `pleochroma-editor`'s terms.
 #[derive(Debug, Clone)]
 pub struct EditorRetargetAdapter {
     model: RlRetargetModel,
@@ -19,8 +19,8 @@ impl EditorRetargetAdapter {
         Self { model }
     }
 
-    /// Return the complete original-relative result. The policy and its immutable meet baseline
-    /// both start from `design`; no shifted geometry is recaptured as a new baseline.
+    /// Returns the full result relative to the original design. The policy and its immutable
+    /// meet baseline both start from `design`, so shifted geometry never becomes a new baseline.
     pub fn retarget_certified(
         &self,
         design: &Design,

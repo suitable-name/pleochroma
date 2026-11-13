@@ -8,9 +8,7 @@ import { TipBox, FieldCaption } from "../tip_box.slint";
 export component TargetMaterialSection inherits VerticalLayout {
     spacing: 12px;
 
-    // 2. Target material picker -- owned by this dialog (see
-    // `RetargetModel.target_material_index`'s own doc comment), not the
-    // design settings panel's combo.
+    // Target material picker, owned by this dialog rather than the design settings panel.
     VerticalLayout {
         spacing: 4px;
         FieldCaption {
@@ -19,8 +17,8 @@ export component TargetMaterialSection inherits VerticalLayout {
         }
         HorizontalLayout {
             spacing: 6px;
-            // The combo may shrink (min-width) so the row never grows past the column: its own
-            // minimum plus the n_D field used to push the field under the scroll bar.
+            // The combo may shrink so the row stays inside the column; the n_D field must not be
+            // pushed under the scroll bar.
             TipBox {
                 horizontal-stretch: 1;
                 min-width: 90px;
@@ -30,18 +28,15 @@ export component TargetMaterialSection inherits VerticalLayout {
                     current-index <=> RetargetModel.target_material_index;
                     enabled: !RetargetModel.is_busy;
                     accessible-label: "Target Material";
-                    // Picking a material drops a custom n_D: the field is an
-                    // override, and a number left from the design's own
-                    // override would otherwise beat the material picked.
+                    // Picking a material clears a custom n_D, which would otherwise override it.
                     selected(val) => {
                         RetargetModel.target_ri_override_text = "";
                         RetargetModel.proposal_changed();
                     }
                 }
             }
-            // No min-width override here: a TipBox takes its minimum from the LineEdit inside it
-            // (about 109 px), and a smaller minimum let the field overflow the box by 13 px, past
-            // the column's right edge and under the scroll viewport.
+            // No min-width here: the TipBox takes its minimum from the LineEdit (about 109 px),
+            // which keeps the field inside the column.
             TipBox {
                 preferred-width: 112px;
                 horizontal-stretch: 0;
@@ -57,13 +52,9 @@ export component TargetMaterialSection inherits VerticalLayout {
         }
     }
 
-    // 3. Target material readout -- the RESOLVED result of the picker above.
-    // The name shown is derived from the picker's own `MaterialSelection`
-    // (Rust side, `retarget_actions::target_display_name`), not the resolved
-    // `GemMaterial`, so "(none)"/a typed custom RI never show as "Diamond".
-    // An RI override that fails to parse is surfaced below as its own error
-    // line rather than silently falling back to the design's OLD material
-    // with no sign anything was typed wrong.
+    // Resolved target material. The name comes from the picker's `MaterialSelection`
+    // (`target_display_name`, in `pleochroma-editor`), so a custom n_D never reads as a material.
+    // A custom n_D that does not parse gets its own error line below.
     Rectangle {
         height: target_row.preferred-height + 12px;
         border-radius: Theme.radius-sm;

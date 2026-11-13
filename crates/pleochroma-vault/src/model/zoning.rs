@@ -1,7 +1,7 @@
-//! Rows of the rough-colour side tables.
+//! Rows of the zoning, rough-colour, pose, pattern and colour-variant side tables.
 //!
-//! The vault never parses these payloads: `zoned_json` / `fit_json` are opaque JSON text and
-//! the photo `data` is an opaque blob whose layout `encoding` names. The application
+//! The vault never parses these payloads: `zoned_json` and `fit_json` are opaque JSON text,
+//! and the photo `data` is an opaque blob whose layout `encoding` names. The application
 //! (`pleochroma-cut`) owns every format, so a change to one needs no migration here.
 
 /// The fitted rough colour of one saved rough plan (`rough_colour`).
@@ -69,12 +69,11 @@ pub struct StonePoseChoiceRow {
     pub pose: u8,
 }
 
-/// Everything the cutter chose for one stone of a plan's layout.
+/// Everything the cutter chose for one stone of a plan's layout (the `stone_pose_choice` row).
 ///
-/// It is the `stone_pose_choice` row, with its nullable `free_pose_json`, `locked` and `reason` columns): a box-symmetric pose or a free
-/// pose, whether the stone is locked, and the Reason for an override.
-///
-/// The vault never parses `free_pose_json`: the application owns its format.
+/// The pose is a box-symmetric pose or a free pose. The row also says whether the stone is
+/// locked and carries the cutter's Reason for an override. The vault never parses
+/// `free_pose_json`: the application owns its format.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct StoneChoiceRow {
     /// The result (layout) of the plan, in the plan's own order.

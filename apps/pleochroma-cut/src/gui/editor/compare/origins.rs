@@ -49,7 +49,7 @@ pub(in crate::gui::editor) struct VariantSide {
 /// What the Optimize comparison's before side is measured against.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(super) enum Reference {
-    /// The live design (today's behaviour, the default).
+    /// The live design (the default).
     #[default]
     Current,
     /// The original held before the last Retarget Apply.
@@ -95,7 +95,7 @@ pub(super) fn reference_options(offer: &ReferenceOffer) -> Vec<String> {
     options
 }
 
-/// Everything `super::wiring::open_compare` needs to open a session.
+/// Everything `super::wiring::open_session` needs to open a session.
 pub(super) struct OpenRequest {
     /// Retarget's Shift check did not deliver preview geometry. Never show a substitute.
     pub(super) before_unavailable: bool,

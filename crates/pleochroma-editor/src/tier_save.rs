@@ -1,18 +1,19 @@
 //! The tier inspector's Save/Add Tier: which `Edit` a parsed tier form becomes.
 //!
-//! Moved from the desktop's `tier_actions::tier_form` so the web inspector saves a tier
-//! exactly as the desktop does: a new tier inserts right after the selected row, an
-//! existing tier modifies itself in place, and a depth / girdle-thickness / table-width
-//! target is written (or cleared) in the same undo step.
+//! Shared by the desktop and the web inspector, so both save a tier the same way: a new tier
+//! inserts right after the selected row, an existing tier modifies itself in place, and a
+//! depth / girdle-thickness / table-width target is written (or cleared) in the same undo
+//! step.
 
 use crate::manipulate::{dependents::rename_dependant_edits, tiers_meeting};
 use pleochroma_cut_core::{ConstraintTier, Design, Edit, TierTarget, design::ConcaveTier};
 
 /// Every OTHER tier's own name token, with the tier at `excluded_index` left out.
 ///
-/// The tokens are `ConstraintTier::names()`, split on `/`. Feeds `TierFormFields::other_tier_names` so
-/// `parse_tier_form` can reject name collisions. `excluded_index < 0` (a brand-new
-/// tier) excludes nothing, since there is no existing row to exempt.
+/// The tokens are `ConstraintTier::names()`, split on `/`. Feeds
+/// `TierFormFields::other_tier_names` so `parse_tier_form` can reject name collisions.
+/// `excluded_index < 0` (a brand-new tier) excludes nothing, since there is no existing row
+/// to exempt.
 ///
 /// Concave tier names are always included: a flat tier may not share a name with a
 /// concave one (`Design::validate_concave_tiers` rejects it on every load).
@@ -183,8 +184,8 @@ pub const fn concave_tier_save_edit(
 /// name, so two tiers sharing one would read as one step printed twice. The comparison
 /// ignores case, like the flat form's own rule ([`other_tier_names_excluding`]). The message
 /// starts like the flat form's, so `tier_form_error_field` puts the red border on the name.
-/// Not an `Edit` rule: an edit that refused a repeat would also refuse replays (a saved
-/// variant, the undo of a rename) on a file an earlier build saved with one.
+/// Not an `Edit` rule: an edit that refused a repeat would also refuse replays of data that
+/// already holds one (a saved variant, the undo of a rename).
 #[must_use]
 pub fn concave_name_clash_message(
     design: &Design,

@@ -1,15 +1,11 @@
-//! H03 measurement: one analytical diagnostic image, serial and on a thread team
-//! (`FABLE_perf_verification.md`, item H03).
+//! Cost of one analytical diagnostic image, serial and on a thread team.
 //!
 //! `evaluate_optical_image` (color/metrics/image.rs) is a serial pixel loop, and
-//! `evaluate_optical_image_threaded` spreads the same rows over scoped workers with a
-//! bit-identical result. The cut app's overlay worker
-//! (apps/pleochroma-cut/src/bridge/optical_overlay/worker.rs) runs two passes per job on
-//! the display share of the live CPU partition (a quarter of the cores, so 4 on 16): a draft
-//! whose longer edge is 128 px at 1 sample, then a refinement at 320 px and 4 samples. Both
-//! are sampled from the frame's
-//! projection (`projection_size`), which is how the worker calls it. A 16:9 frame therefore
-//! gives 128x72 and 320x180; the default 4:3 frame gives 128x96 and 320x240.
+//! `evaluate_optical_image_threaded` splits the same rows over scoped workers with a
+//! bit-identical result. The cut app's overlay worker runs two passes per job on its share
+//! of the CPU: a draft at 1 sample with a longer edge of 128 px, then a refinement at 320 px
+//! and 4 samples. Both are sampled from the frame's projection (`projection_size`). A 16:9
+//! frame therefore gives 128x72 and 320x180; the default 4:3 frame gives 128x96 and 320x240.
 //!
 //! The channels are the optional extra traces: Fire (`want_fire`) and the scintillation
 //! temporal term (`want_scintillation`, which needs the orbit pose).

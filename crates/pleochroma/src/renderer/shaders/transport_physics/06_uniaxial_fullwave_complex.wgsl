@@ -1,27 +1,13 @@
 // ---------------------------------------------------------------------------------
-// P2 full uniaxial Fresnel (Lekner 1991) -- GPU mirror of
-// `optics::raytracer::uniaxial_fresnel` (see that module's own Rust doc comment for
-// the physics/derivation; this section is a direct, op-for-op translation, the same
-// convention every other section of this file already follows -- e.g. the Phase 4
-// `Biaxial*` functions above). Deliberately entirely self-contained (no `Cplx`/complex
-// arithmetic exists anywhere else in this shader tree) since the CPU module itself
-// states explicitly why: "the WGSL mirror needs the exact same explicit re/im
-// arithmetic -- a `vec2<f32>`-based complex type there, hand-written
-// `add`/`mul`/`div`/`sqrt`, exactly mirrors this" (see `Cplx`'s own Rust doc comment).
-// A plain two-field struct is used here instead of `vec2<f32>` purely so field access
-// reads `.re`/`.im` (matching the Rust field names exactly) rather than `.x`/`.y`.
+// Uniaxial Fresnel (Lekner 1991): GPU mirror of `optics::raytracer::uniaxial_fresnel`, a
+// direct op-for-op translation. Complex arithmetic is written out on explicit re/im pairs, as
+// the CPU `Cplx` is, because no other shader code uses complex numbers. `Cplx` keeps the Rust
+// field names `re`/`im` rather than `vec2` `x`/`y`.
 //
-// Wired into `spectral_transport.wgsl`'s uniaxial entry AND internal-reflection/exit
-// dispatch -- see that file's own P2-full section for the branch structure this
-// mirrors (`apply_uniaxial_entry_bounce`/`apply_uniaxial_internal_bounce` on the CPU
-// side), including the same `k_hat` x `c_axis` degenerate-axis guard.
-//
-// Verified against the CPU implementation by `renderer::gpu::transport_check`'s
-// `run_entry_solve_pair`/`run_internal_solve` Tier 2 ULP checks (feeds IDENTICAL
-// `(n1, n_o, n_e, c_axis, frame)` inputs to both `uniaxial_fresnel::entry_solve_pair`/
-// `internal_solve` and this section's `entry_solve_pair_with_incidence`/
-// `internal_solve`, compares every output field within a ULP budget) and Tier 3 image
-// comparison for Zircon/Tourmaline/Quartz/Rutile.
+// The transport units use this for the uniaxial entry and for internal-reflection and exit
+// solves, with the same `k_hat` x `c_axis` degenerate-axis guard as the CPU. Checked against
+// the CPU by `renderer::gpu::transport_check`'s `run_entry_solve_pair` and `run_internal_solve`
+// ULP checks, which feed identical inputs to both sides.
 // ---------------------------------------------------------------------------------
 
 struct Cplx {
@@ -90,18 +76,20 @@ fn cplx_div(a: Cplx, b: Cplx) -> Cplx {
 
 // optics::raytracer::uniaxial_fresnel::Cplx::sqrt_forward_branch
 fn cplx_sqrt_forward_branch(a: Cplx) -> Cplx {
-    // Mirrors the CPU function's own identical fix -- see that function's doc comment
-    // for the full derivation. A
-    // pure negative-real input makes `theta` land exactly on `pi/2`, where
-    // `cos(theta)`'s sign is rounding noise this hardware's trig unit resolves
-    // differently from Rust's `atan2`/`cos`; bypassing that round-trip for this one
-    // input shape makes both platforms compute the identical, contract-correct
-    // (`im > 0`) result.
+    // Mirrors the CPU's `Cplx::sqrt_forward_branch`. A pure negative real input puts `theta`
+    // exactly at pi/2, where the sign of `cos(theta)` is rounding noise. Returning `i * sqrt(-a)`
+    // directly gives both platforms the same result, with `im > 0`.
     if (a.im == 0.0 && a.re < 0.0) {
         var out0: Cplx;
         out0.re = 0.0;
         out0.im = sqrt(-a.re);
         return out0;
+    }
+    // A real, non-negative input: `atan2(0, x) = 0`, `cos 0 = 1`, `sin 0 = 0`, so the general
+    // path below returns exactly `(sqrt(sqrt(x * x)), 0)`; both call sites pass a real argument,
+    // and this skips an `atan2`, a `cos` and a `sin` per call.
+    if (a.im == 0.0) {
+        return Cplx(sqrt(sqrt(a.re * a.re)), 0.0);
     }
     let r = sqrt(sqrt(cplx_norm_sqr(a)));
     let theta = atan2(a.im, a.re) * 0.5;
@@ -251,10 +239,8 @@ fn uniaxial_q_roots(n_o: f32, n_e: f32, frame: UniaxialFrameW, tangential: f32) 
     result.qo_plus = qo_plus;
     result.qo_minus = qo_minus;
 
-    // Performance (requirement 7): exact isotropic limit, mirrors the CPU's own
-    // `uniaxial_q_roots` fast path exactly -- see that function's doc comment for the
-    // algebraic derivation (both extraordinary roots collapse to the ordinary ones
-    // exactly at `n_o == n_e`).
+    // Isotropic limit: at `n_o == n_e` both extraordinary roots equal the ordinary ones
+    // exactly, as on the CPU fast path.
     if (n_o == n_e) {
         result.qe_plus = qo_plus;
         result.qe_minus = qo_minus;

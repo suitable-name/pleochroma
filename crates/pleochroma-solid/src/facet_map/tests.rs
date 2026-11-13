@@ -312,17 +312,10 @@ fn hover_text_reports_a_preform_plane_distinctly_from_a_facet() {
     assert!(facet_text.contains("index 0"), "got: {facet_text}");
 }
 
-// --- Does the 2D diagram apply a tier's cheater offset? ---
-//
-// `crown_project`/`pavilion_project`/`profile_project` project `SolidMesh`
-// vertex positions directly, with no separate azimuth recomputation anywhere
-// in the fill/edge passes (the module's own `index_to_azimuth`-based
-// `wheel_direction` is used ONLY for the decorative index-wheel ticks, never
-// for a facet's own body), so a cheater offset baked into
-// `Design::planes_from_solved` (`design/export.rs::apply_cheater_offsets`)
-// does reach the picture. This test proves it by actually rendering both a
-// plain and a cheatered diagram from the SAME round-brilliant fixture every
-// other test in this file uses, and comparing the two `DiagramFrame`s.
+// A cheater offset applied in `Design::planes_from_solved` (`apply_cheater_offsets`)
+// reaches the 2D diagram: the panels project the mesh's own vertices, and only the
+// decorative index-wheel ticks recompute an azimuth. This renders a plain and a
+// cheatered diagram of the round-brilliant fixture and compares the two frames.
 #[test]
 fn cheater_offset_moves_only_its_own_tiers_facets_in_the_2d_diagram() {
     use super::super::diagram2d::{DiagramConfig, DiagramStyle, render_diagram};
@@ -334,13 +327,9 @@ fn cheater_offset_moves_only_its_own_tiers_facets_in_the_2d_diagram() {
         .iter()
         .position(|t| t.name == "Crown Main")
         .expect("fixture must have a Crown Main tier");
-    // Tiers whose facets share no plane with Crown Main and are nowhere near
-    // it in the schedule -- these must render byte-identically whichever way
-    // the cheater offset is set. (Crown Main's own immediate neighbours,
-    // Star and Upper Girdle, are deliberately excluded: a real rotation also
-    // moves the shared EDGE with an adjacent tier, so asserting pixel
-    // equality for them would be asserting something not actually true of
-    // the geometry.)
+    // Tiers sharing no plane with Crown Main must render identically whichever way the
+    // cheater offset is set. Its neighbours (Star, Upper Girdle) are excluded: a
+    // rotation also moves their shared edge, so their pixels legitimately change.
     let unrelated_tier_names = ["Table", "Girdle", "Pavilion Main", "Lower Girdle", "Culet"];
 
     let solved = design.solve().expect("every tier is pinned");
@@ -349,11 +338,8 @@ fn cheater_offset_moves_only_its_own_tiers_facets_in_the_2d_diagram() {
     let plain_planes = design.planes_from_solved(&solved);
     design.cheater_offsets_deg.insert(cheatered_tier, 0.5);
     let cheatered_planes = design.planes_from_solved(&solved);
-    // Sanity check on the precondition this test actually exercises: the
-    // rotation must have landed on the planes at all (core-level behaviour
-    // `design/export.rs`'s own tests already cover in depth; asserted here
-    // only so a regression there fails loudly in THIS test too, rather than
-    // this test silently passing because nothing differed upstream).
+    // Precondition: the rotation must change the planes. The core crate tests cover
+    // this in depth; asserting it here stops the test passing when nothing differed.
     assert_ne!(
         plain_planes, cheatered_planes,
         "the cheater offset must change at least one plane"

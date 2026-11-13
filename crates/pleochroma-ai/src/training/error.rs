@@ -1,18 +1,18 @@
-//! Error type for the training pipeline (PPO updates, rollout buffers, device set-up, weight export).
+//! Error type for the training pipeline: updates, rollout buffers, device set-up, recovery, export.
 
 use std::fmt;
 
 /// Error raised by the training pipeline.
 ///
-/// Every failure that used to be a panic, a silent zero padding or an empty `Vec` is reported through
-/// this type so the caller (GUI worker or CLI) can log it and decide whether to continue.
+/// Failures are returned as this type, never as a panic, silent zero padding or empty `Vec`, so
+/// the caller (GUI worker or CLI) can log them and decide whether to continue.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TrainError {
     /// A hyperparameter or constructor argument is out of range.
     InvalidConfig(String),
     /// A batch row, action row, tier count or weight array has the wrong length.
     ShapeMismatch(String),
-    /// A loss, reward or value was NaN or infinite; the optimizer step was skipped.
+    /// A loss, gradient or input value was NaN or infinite; no step is applied for it.
     NonFinite(String),
     /// Reading a tensor back to the host failed.
     Tensor(String),

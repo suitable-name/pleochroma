@@ -35,32 +35,27 @@ use std::{
     time::Instant,
 };
 
-/// Starts a settled pose's image epoch: installs a fresh [`LiveEpoch`] (the shared
-/// sample cursor over `[0, target_samples)` plus the remote sums) in `RenderContext`
-/// together with `remote_active`/`dirty` in ONE locked mutation, creates the epoch's
-/// [`LiveLane`], and dispatches its first chunk. `target_samples` is the live view's
-/// single global target: local and remote together trace exactly that many samples.
+/// Starts a settled pose's image epoch: installs a fresh [`LiveEpoch`] in `RenderContext`
+/// with `remote_active` and `dirty`, in one locked mutation, creates its [`LiveLane`] and
+/// dispatches the first chunk. `target_samples` is the single global target: local and
+/// remote together trace that many samples.
 ///
-/// Callers must already have checked `bridge::remote::live_remote_dispatch` (the HDR
-/// guard) -- `poll::poll_tick` does, right before feeding `SettleElapsed`.
+/// Callers have already passed the HDR guard (`bridge::remote::live_remote_dispatch`).
 ///
-/// Final-picture live transfer: when the endpoint's live transfer is "Final picture" (and this
-/// connection has not refused it, see `decisions::wants_display_only`), the epoch is a
-/// display-only one: ONE `DisplayOnly` request over the budget, no local combining
-/// (`RenderContext::live_display_only` makes a `Both` epoch act as `RemoteOnly`), no
-/// guide prepass (the remote denoises), and the decoded display frames are the image.
+/// A display-only epoch (Final picture transfer, see `decisions::wants_display_only`) sends
+/// one `DisplayOnly` request over the whole budget. It has no local combining
+/// (`RenderContext::live_display_only`) and no guide prepass, since the remote denoises and
+/// its decoded frames are the image.
 pub(super) fn start_remote_render(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
     endpoint: RemoteEndpoint,
     state: &Arc<Mutex<Orchestrator>>,
 ) {
-    // Read live off `RenderContext` at dispatch time -- an epoch always uses whatever
-    // size/budget/mode is CURRENTLY configured. The scene generation is read in the
-    // same lock and BEFORE the scene is captured below: if anything changes after this
-    // point (during the capture, or before the render thread's next frame), the render
-    // thread sees a different generation than the one stamped into the epoch and
-    // releases it rather than merging two scenes (`live_split::epoch_scene_mismatch`).
+    // Read under one lock, before the scene is captured: a change after this point makes
+    // the render thread see a different scene generation than the one stamped into the
+    // epoch, so it releases the epoch rather than merging two scenes
+    // (`live_split::epoch_scene_mismatch`).
     let (width, height, target_samples, live_compute_target, scene_generation) = {
         let mut ctx = RenderContext::lock(render_ctx);
         (
@@ -80,27 +75,20 @@ pub(super) fn start_remote_render(
         lock(state).display_only_refused,
     );
     let combining = matches!(live_compute_target, LiveComputeTarget::Both) && !display_only;
-    // Refuses (see `SceneSnapshot::capture`'s own doc comment) rather than dispatching
-    // the wrong stone to a remote worker when the design's material does not resolve --
-    // the render loop's own suspended branch (`render_thread::mod`) is what surfaces the
-    // refusal to the user; here it is enough to skip this dispatch and let the next
-    // settle retry once the material resolves again.
+    // A material that does not resolve makes the capture fail, so the wrong stone is never
+    // sent to a worker. The render loop shows the refusal; here the dispatch is skipped and
+    // the next settle retries.
     let Ok(snapshot) = SceneSnapshot::capture(render_ctx) else {
         return;
     };
     let scene = scene_state_from_snapshot(&snapshot, width, height);
 
-    // Kick off the guide-buffer prepass NOW, at dispatch time, rather than waiting for
-    // the first remote redraw to need it -- camera pose and gem geometry are both
-    // already known here, so this overlaps the network round trip and the remote
-    // render itself (see `bridge::frame_cache::guide_pass`'s module doc comment). Cancel whatever
-    // generation was still running for a previous pose first.
+    // Start the guide-buffer prepass at dispatch time, so it overlaps the network round
+    // trip and the remote render. Cancel the generation still running for a previous pose.
     //
-    // Skipped for `LiveComputeTarget::Both`: local tracing keeps running in that mode,
-    // producing its OWN first-hit guide buffers for this exact pose as a side effect of
-    // its ordinary trace loop, and the render thread's display cycle (not this
-    // orchestrator) denoises the merged image with them. Skipped for a display-only
-    // epoch too: the remote's frames arrive already denoised.
+    // Skipped when combining: local tracing produces the same first-hit guides for this
+    // pose as a side effect, and the render thread denoises the merged image with them.
+    // Skipped for a display-only epoch too, since the remote's frames arrive denoised.
     if snapshot.engine.denoises() && !combining && !display_only {
         // The path signature refracts at the material's index, so it keys the guides.
         let n_d = snapshot.material.dispersion.n_d();
@@ -136,12 +124,10 @@ pub(super) fn start_remote_render(
         ));
     }
 
-    // Discards the local preview and starts this settle's epoch in ONE locked
-    // mutation, so the render thread can never observe `remote_active`/`dirty` freshly
-    // true while still holding a STALE (previous epoch's, or absent) epoch -- and the
-    // `dirty` restarts local accumulation from zero, so the drag-time preview is never
-    // summed into the settled image. This is where `HandoffAction::DiscardLocalPreview`'s
-    // actual work happens -- see `apply_actions`'s deferred arm for it.
+    // Discards the local preview and starts this settle's epoch in one locked mutation, so
+    // the render thread never sees `remote_active` set together with a stale epoch. The
+    // `dirty` flag restarts local accumulation, so the drag preview is not summed into the
+    // settled image. This is where `HandoffAction::DiscardLocalPreview` takes effect.
     let epoch = Arc::new(LiveEpoch::new(width, height, target_samples).for_scene(scene_generation));
     {
         let mut ctx = RenderContext::lock(render_ctx);
@@ -151,11 +137,8 @@ pub(super) fn start_remote_render(
         ctx.live_display_only = display_only;
     }
 
-    // Reuse the cached connection when its identity already matches the endpoint (the
-    // common case once a session is under way), or create one lazily when it doesn't
-    // (`poll_tick`'s `connection_is_stale` check already cleared a mismatched one; or
-    // this is the very first dispatch this session has ever made). This is the only
-    // place a `RemoteConnectionHandle` is ever created.
+    // Reuse the cached connection when its identity matches the endpoint, else create one.
+    // This is the only place a `RemoteConnectionHandle` is created.
     {
         let mut s = lock(state);
         if s.remote_connection
@@ -246,24 +229,16 @@ pub(super) fn dispatch_next_chunk(
     true
 }
 
-/// Whether the persistently-cached connection identity `cached` should be torn down
-/// given the remote `wanted` for the settle currently being checked -- `wanted` being
-/// `None` means "no remote configured for this settle" (remote compute switched off via
-/// `LiveComputeTarget::LocalOnly`, or `AppSettings::remote` was removed).
+/// Whether the cached connection identity `cached` must be torn down for the `wanted`
+/// worker of the settle being checked. `wanted` is `None` when no remote is configured
+/// (`LiveComputeTarget::LocalOnly`, or the worker was removed).
 ///
-/// Comparing the WHOLE `WorkerSettings` (not just `address`/`cert_dir`) is deliberately
-/// coarse: a `transfer_mode`/`cadence_ms`/`preview_scale` tweak forces a reconnect it
-/// doesn't strictly need, but that costs one extra handshake on a settings save
-/// (rare, off the camera-drag hot path) in exchange for never having to reason about
-/// which subset of fields is "connection identity" versus "per-request preference" --
-/// and getting that subset wrong in the other direction (missing a field that DOES
-/// affect the certificates used, say) is exactly the kind of mistake this exists to
-/// rule out. `address`/`cert_dir` changing MUST force a reconnect either way: a
-/// connection already authenticated under the OLD certificates must never be reused as
-/// if the new ones had been verified -- see `RemoteConnectionHandle`'s own doc comment.
+/// Compares the whole `WorkerSettings`. A tweak to a non-identity field costs one extra
+/// handshake on save, which is rare and off the drag path. Address and cert dir always
+/// force a reconnect: a connection authenticated under the old certificates must never be
+/// reused (see `RemoteConnectionHandle`).
 ///
-/// Pure and side-effect-free, so this decision is directly unit-testable with plain
-/// `WorkerSettings` values -- no socket, no `Orchestrator`, no Slint type involved.
+/// Pure, so it is unit-tested with plain `WorkerSettings` values.
 #[must_use]
 pub(super) fn connection_is_stale(
     cached: Option<&WorkerSettings>,
@@ -276,19 +251,14 @@ pub(super) fn connection_is_stale(
     }
 }
 
-/// Builds the fully-resolved `pleochroma_net::SceneState` a remote worker needs from a
-/// local `SceneSnapshot` plus the session's render resolution -- see
-/// `pleochroma_net::scene::SceneState`'s own doc comment on why every field must be a
-/// resolved value, never a name/id the worker can't look up.
+/// Builds the fully resolved `pleochroma_net::SceneState` a remote worker renders from a
+/// local `SceneSnapshot` and the session's resolution. Every field is a resolved value,
+/// since the worker cannot look up names or ids (see `pleochroma_net::scene::SceneState`).
 ///
-/// Frosted girdle and authored frosting: `snapshot.facet_finishes` is already resolved -- empty
-/// (nothing frosted), `girdle_facet_finishes(&snapshot.active_planes)` (girdle toggle on), or
-/// that list with the design's frosted planes marked too -- see
-/// `export_thread::scene_snapshot::SceneSnapshot::capture`. `SceneState` carries it as the
-/// girdle on/off bit plus the authored frosted plane indices rather than the resolved list
-/// itself (see those fields' doc comments), via `pleochroma::geometry::finishes_wire_form`:
-/// the remote worker re-derives the identical `Vec<FacetFinish>` from the identical `planes`
-/// it already receives below. A scene without authored frosting is the same bytes as before.
+/// Frosting: `SceneState` carries only the girdle bit and the authored frosted plane
+/// indices (`pleochroma::geometry::finishes_wire_form`). The worker re-derives the same
+/// finishes from the `planes` it also receives, so a scene without frosting is unchanged on
+/// the wire.
 fn scene_state_from_snapshot(snapshot: &SceneSnapshot, width: u32, height: u32) -> SceneState {
     let (girdle_frosted, frosted_planes) =
         pleochroma::geometry::finishes_wire_form(&snapshot.active_planes, &snapshot.facet_finishes);
@@ -298,6 +268,12 @@ fn scene_state_from_snapshot(snapshot: &SceneSnapshot, width: u32, height: u32) 
         height,
         yaw: snapshot.yaw,
         camera_roll: snapshot.camera_roll,
+        // Off for a stone that is not closed, which the worker would refuse.
+        stone_shadow: snapshot.remote_stone_shadow(),
+        tray_reflection: snapshot.remote_tray_reflection(),
+        // The map's yaw and follow switch; the worker turns it at this scene's `yaw`.
+        hdr_orientation: snapshot.hdr_orientation,
+        estimator: pleochroma::optics::raytracer::default_estimator(),
         pitch: snapshot.pitch,
         distance: snapshot.distance,
         light_yaw: snapshot.light_yaw,
@@ -351,6 +327,28 @@ mod tests {
         let snapshot = SceneSnapshot::capture(&ctx).expect("default resolves");
         let state = scene_state_from_snapshot(&snapshot, 64, 64);
         assert_eq!(state.surface_glare.to_bits(), 0.4f32.to_bits());
+    }
+
+    #[test]
+    fn the_live_dispatch_scene_of_a_stone_that_is_not_closed_has_no_shadow_and_no_reflection() {
+        let scene_for = |planes: Vec<pleochroma::geometry::plane::GpuFacetPlane>| {
+            let ctx = Mutex::new(RenderContext {
+                stone_shadow: true,
+                tray_reflection: 0.04,
+                active_planes: std::sync::Arc::new(planes),
+                ..Default::default()
+            });
+            let snapshot = SceneSnapshot::capture(&ctx).expect("default resolves");
+            scene_state_from_snapshot(&snapshot, 64, 64)
+        };
+        let degenerate = scene_for(Vec::new());
+        assert!(!degenerate.stone_shadow);
+        assert_eq!(degenerate.tray_reflection.to_bits(), 0);
+
+        let closed =
+            scene_for(pleochroma::geometry::cuts::StandardGemCuts::standard_round_brilliant());
+        assert!(closed.stone_shadow);
+        assert_eq!(closed.tray_reflection.to_bits(), 0.04f32.to_bits());
     }
 
     #[test]

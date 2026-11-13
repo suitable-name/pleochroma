@@ -12,13 +12,10 @@ use crate::geometry::{
     plane::GpuFacetPlane,
 };
 
-/// The failure mode a quantized-bin dedup has and a tolerance compare does not:
-/// two offsets that are genuinely close (well within the dedup quantum) but sit
-/// on opposite sides of a bin's rounding boundary. Built at the boundary between
-/// bin `0` and bin `1` (`0.5 * QUANT`, i.e. `0.5/2048`) `+/- 1e-7`, so the old
-/// `(v / QUANT).round()` bin lookup would put them in different bins and keep
-/// both, even though they are only `2e-7` apart -- four orders of magnitude
-/// smaller than the `~5e-4` quantum itself.
+/// Two offsets that are close but straddle a quantization bin's rounding boundary.
+/// Built at the edge between bins `0` and `1` (`0.5 * QUANT`) `+/- 1e-7`. A
+/// `(v / QUANT).round()` bin lookup would keep both, though they are only `2e-7`
+/// apart; the tolerance compare must merge them.
 #[test]
 fn dedup_merges_planes_straddling_a_quantization_bin_edge() {
     const QUANT: f32 = 1.0 / 2048.0;
@@ -102,11 +99,9 @@ fn dedup_keeps_planes_one_degree_apart() {
     );
 }
 
-/// The first occurrence survives even when a later duplicate has the smaller
-/// `|d|` (the tighter-fitting plane) -- an earlier version of this function
-/// substituted the smaller-`|d|` plane in place, which breaks per-tier
-/// attribution in callers that walk `from_asc_schedule`'s output positionally
-/// against the tier that produced it (see [`dedup_planes`]'s doc comment).
+/// The first occurrence survives even when a later duplicate has the smaller `|d|`.
+/// Substituting the tighter plane would break per-tier attribution in callers that
+/// walk `from_asc_schedule`'s output positionally (see [`dedup_planes`]).
 #[test]
 fn dedup_keeps_the_first_occurrence_even_when_a_later_duplicate_is_tighter() {
     let normal = Vec3::new(0.0, 0.0, 1.0);
@@ -120,12 +115,9 @@ fn dedup_keeps_the_first_occurrence_even_when_a_later_duplicate_is_tighter() {
     );
 }
 
-/// A shallow-angle tier with many index positions must keep every facet as
-/// its own plane, not merge the ones whose normals happen to be close
-/// together because the tier's angle is small. Regression coverage for a
-/// `1 - 1e-5` dot-product bound collapsing adjacent facets at 1, 2 and 3.5
-/// degrees (96 indices used to keep only 24, 48 and 48 planes respectively;
-/// every one of them is a real, distinct facet).
+/// A shallow-angle tier with many index positions keeps every facet as its own
+/// plane. Guards against a `1 - 1e-5` dot-product bound merging adjacent facets
+/// at 1, 2 and 3.5 degrees, each of which is a distinct facet.
 #[test]
 fn dedup_keeps_widely_spaced_shallow_tier_facets() {
     for &angle in &[1.0f64, 2.0, 3.5] {
@@ -144,15 +136,9 @@ fn dedup_keeps_widely_spaced_shallow_tier_facets() {
     }
 }
 
-/// The offset tolerance compare must give the same result whether a
-/// tier's mast revisions are read in file order or in reverse -- not
-/// necessarily merge the same specific two planes into one survivor, but
-/// keep the same set of genuinely-distinct offsets either way. Masts chosen
-/// so adjacent pairs (1.0/1.0004, 1.0004/1.0008) are within tolerance but
-/// the two ends (1.0/1.0008) are not: the middle value is absorbed by
-/// whichever end is visited first, and the two ends never merge with each
-/// other, so both visiting orders below keep exactly the pair of end
-/// values.
+/// The offset tolerance must not depend on the order of a tier's mast revisions.
+/// Adjacent masts (1.0, 1.0004, 1.0008) pair up within tolerance, but the two ends
+/// do not. Reading the revisions forwards or backwards keeps the same two end values.
 #[test]
 fn dedup_offset_tolerance_is_order_independent_for_a_tiers_own_revision_history() {
     let mk = |masts: &[f64]| {
@@ -196,10 +182,9 @@ fn sample_angle_index(k: u32) -> (f64, u32) {
     (angle, (k * 37) % 96)
 }
 
-/// A bit-identical duplicate must always be merged, however the `f32`
-/// normalisation rounded: about a quarter of generic `(angle, index)` normals
-/// have a squared length just below `1`, where a raw dot-product bound tight
-/// enough to separate real neighbours used to miss the copy.
+/// A duplicate must always merge, whatever the `f32` normalisation rounding. A raw
+/// dot-product bound tight enough to separate real neighbours can miss the copy when
+/// the squared length falls just below `1`.
 #[test]
 fn an_index_listed_twice_survives_as_exactly_one_plane() {
     for k in 0..2000 {

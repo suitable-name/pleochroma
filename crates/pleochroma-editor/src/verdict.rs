@@ -13,7 +13,9 @@
 //!   same gate Retarget uses (`retarget::validity`), so a fix never trades one problem for a
 //!   worse one. It solves the design (and a candidate) itself, so a caller runs it off the UI
 //!   thread. The caller applies the edit through the session, which makes it ONE undo step,
-//!   and re-solves; the verdict is recomputed from that solve.
+//!   and re-solves; the verdict is recomputed from that solve. A plan may carry a question
+//!   ([`FixPlan::confirm`]) to ask before it is applied.
+//! - [`judge_snap`] is the snap to meet points' safety rule, shared by its fix and the CLI.
 //!
 //! The optical figures (windowing, extinction, brilliance with the table up) take a few
 //! milliseconds to measure and so are an OPTIONAL input: a caller measures them off the UI
@@ -21,16 +23,18 @@
 //!
 //! # Thresholds
 //!
-//! The optical thresholds below are named constants. Windowing follows the brief (above 15 %
-//! is a Check, above 30 % a Problem: at 30 % a third of the stone is a see-through window).
-//! Extinction and brilliance are set loosely, so that only a stone that is clearly off is
-//! flagged; they are starting points to tune against real designs once the readouts of a
-//! few known-good stones are at hand, not measured limits.
+//! The optical thresholds below are named constants. Windowing: above 15 % is a Check, above
+//! 30 % a Problem (at 30 % a third of the stone is a see-through window). Extinction and
+//! brilliance are deliberately loose, so only a clearly off stone is flagged; they are not
+//! measured limits.
 
 mod axis;
 mod fix;
 mod fix_text;
 mod gather;
+mod measured;
+mod meets;
+mod snap;
 #[cfg(test)]
 mod tests;
 
@@ -44,6 +48,8 @@ use std::{
 pub use axis::{AxisFact, axis_fact};
 pub use fix::{FixPlan, QUICK_ADD_TABLE_MAST, plan_fix, steep_target_deg};
 pub use gather::gather;
+pub use meets::{FloatingTier, GirdleLevelFact, MeetFacts};
+pub use snap::{CutAway, SnapOutcome, SnapRefusal, judge_snap};
 
 /// Windowing above this many percent of the stone is worth a look.
 ///
@@ -74,7 +80,7 @@ pub const BRILLIANCE_PROBLEM_BELOW_PCT: f32 = 10.0;
 /// tier table stops badging the facet once it is fixed.
 pub const SAFE_MARGIN_DEG: f64 = 2.0;
 
-/// At most this many pavilion tiers are listed one by one; the rest are summed up in one line.
+/// At most this many windowing tiers are listed one by one; the rest are summed up in one line.
 pub const MAX_LISTED_WINDOWING_TIERS: usize = 4;
 
 /// How good the open design is, from best to worst.
@@ -127,6 +133,12 @@ pub enum ReasonKind {
     OffGear,
     /// A tier meets a tier that is cut later.
     OutOfOrder,
+    /// When a tier is cut, its facets reach no point already on the stone, so the cutter has to
+    /// set its depth by measurement ([`pleochroma_cut_core::Design::cut_meets`]).
+    NoMeetPoint,
+    /// A tier cuts into the girdle, so the girdle is not level
+    /// ([`pleochroma_cut_core::Design::girdle_level`]).
+    GirdleNotLevel,
     /// A meet name would not survive saving as plain `.asc` text.
     NameNotSafe,
     /// A concave tool does something it should not.
@@ -178,6 +190,10 @@ pub enum FixAction {
     },
     /// Add a flat table facet to the crown.
     AddTable,
+    /// Move the depth of every explicit-depth tier that has no meet point, and is close enough
+    /// to one, to the nearest point already on the stone when it is cut
+    /// ([`pleochroma_cut_core::Design::snap_depths_to_meets`]).
+    SnapToMeets,
 }
 
 /// One thing the verdict found.
@@ -194,7 +210,9 @@ pub struct Reason {
     pub tier: Option<usize>,
     /// The fix, where a safe tool exists.
     pub fix: Option<FixAction>,
-    /// A question to ask before the fix runs (a removal), `None` when it needs none.
+    /// A question to ask before the fix runs (a removal, a snap to meet points), `None` when it
+    /// needs none. [`FixAction::confirm_heading`] and [`FixAction::confirm_button`] give the
+    /// dialog's other words.
     pub confirm: Option<String>,
 }
 
@@ -286,6 +304,13 @@ pub struct VerdictInputs {
     /// How the crystal axis stands against the material's orientation rule, when the material
     /// has one: an informational note, see [`axis_fact`].
     pub axis: Option<AxisFact>,
+    /// The tiers with no point to cut to, when the stone closes.
+    pub meets: Option<MeetFacts>,
+    /// The girdle, when it is not level.
+    pub girdle_level: Option<GirdleLevelFact>,
+    /// Millimetres per design unit, from the design's girdle diameter (the yield report's
+    /// scale); `None` without one, and the reasons give percentages instead.
+    pub mm_per_unit: Option<f64>,
 }
 
 impl VerdictInputs {
@@ -633,55 +658,6 @@ fn windowing_reasons(inputs: &VerdictInputs) -> Vec<Reason> {
     reasons
 }
 
-/// The reasons the measured optics give.
-fn optics_reasons(optics: &MetricColumn) -> Vec<Reason> {
-    let mut reasons = Vec::new();
-    let windowing = optics.windowing_pct;
-    if windowing > WINDOWING_CHECK_PCT {
-        let level = if windowing > WINDOWING_PROBLEM_PCT {
-            Level::Problem
-        } else {
-            Level::Check
-        };
-        reasons.push(reason(
-            ReasonKind::OpticalWindowing,
-            level,
-            format!(
-                "About {windowing:.0} % of the stone leaks light straight out of the bottom (windowing)."
-            ),
-        ));
-    }
-    let extinction = optics.extinction_pct;
-    if extinction > EXTINCTION_CHECK_PCT {
-        let level = if extinction > EXTINCTION_PROBLEM_PCT {
-            Level::Problem
-        } else {
-            Level::Check
-        };
-        reasons.push(reason(
-            ReasonKind::OpticalExtinction,
-            level,
-            format!("About {extinction:.0} % of the light is lost inside the stone (extinction)."),
-        ));
-    }
-    let brilliance = optics.brilliance_pct;
-    if brilliance < BRILLIANCE_CHECK_BELOW_PCT {
-        let level = if brilliance < BRILLIANCE_PROBLEM_BELOW_PCT {
-            Level::Problem
-        } else {
-            Level::Check
-        };
-        reasons.push(reason(
-            ReasonKind::OpticalBrilliance,
-            level,
-            format!(
-                "Only about {brilliance:.0} % of the light returns to the eye with the table up."
-            ),
-        ));
-    }
-    reasons
-}
-
 /// The headline for `level` and the sorted `reasons`.
 fn headline_for(level: Level, reasons: &[Reason], with_optics: bool) -> String {
     // A note at `Level::Good` (the crystal axis) is not a thing to check.
@@ -723,8 +699,8 @@ fn capitalised(text: &str) -> String {
 /// The verdict for `inputs`.
 ///
 /// Reasons are ordered worst first, and in a fixed order within a level: solving, closing,
-/// vanished facets, small facets, off-gear indices, cut order, names, concave tools,
-/// windowing, the table, proportions, then the measured optics.
+/// vanished facets, small facets, off-gear indices, cut order, meet points, the girdle's level,
+/// names, concave tools, windowing, the table, proportions, then the measured optics.
 #[must_use]
 pub fn evaluate(inputs: &VerdictInputs) -> Verdict {
     if inputs.is_empty() {
@@ -752,6 +728,8 @@ pub fn evaluate(inputs: &VerdictInputs) -> Verdict {
     reasons.extend(undersized_reasons(inputs));
     reasons.extend(off_gear_reasons(inputs));
     reasons.extend(out_of_order_reasons(inputs));
+    reasons.extend(meets::meet_point_reason(inputs));
+    reasons.extend(meets::girdle_level_reason(inputs));
     reasons.extend(other_warning_reasons(inputs));
     reasons.extend(windowing_reasons(inputs));
     if inputs.missing_table {
@@ -775,7 +753,7 @@ pub fn evaluate(inputs: &VerdictInputs) -> Verdict {
         ));
     }
     if let Some(optics) = &inputs.optics {
-        reasons.extend(optics_reasons(optics));
+        reasons.extend(measured::optics_reasons(optics));
     }
     // An informational note at `Level::Good`: sorted last, never the verdict's level.
     if let Some(fact) = &inputs.axis {

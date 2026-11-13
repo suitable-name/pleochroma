@@ -153,9 +153,8 @@ pub struct ParsedText {
     pub schedule: AscSchedule,
     /// The 1-based line each tier starts on, in tier order.
     pub tier_lines: Vec<usize>,
-    /// The 1-based line of the gear (`g`) record the parser kept: the last one when the
-    /// text has several. It comes from the parser itself, so it is the line the parser read
-    /// the gear from, whatever spelling that line has.
+    /// The 1-based line of the gear (`g`) record the parser read: the last one when the text
+    /// has several.
     pub gear_line: Option<usize>,
 }
 

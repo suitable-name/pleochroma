@@ -8,8 +8,8 @@
 //! which is coming from a tag on the wire. [`handshake`] reads the one reply frame,
 //! tries to decode it as [`Welcome`], and falls back to [`ErrorMsg`] if that fails.
 //! Decoding uses `postcard::take_from_bytes` and explicitly requires the returned
-//! remainder to be empty -- `postcard::from_bytes` alone does NOT enforce that (postcard
-//! 1.1.3 happily ignores trailing bytes after a structurally valid decode), so without
+//! remainder to be empty -- `postcard::from_bytes` alone does NOT enforce that (it ignores
+//! trailing bytes after a structurally valid decode), so without
 //! this check an accidental cross-decode would only need byte length to be *at least*
 //! enough. Requiring the whole frame consumed narrows that back down to needing every
 //! field to also land on a valid discriminant/length -- vanishingly unlikely for two
@@ -176,7 +176,7 @@ pub struct ConnectionInfo {
     pub library: bool,
     /// Whether the peer computes tilt curves.
     pub tilt_curves: bool,
-    /// The payload encoding the server negotiated (v14) -- see
+    /// The payload encoding the server negotiated -- see
     /// [`Welcome::payload_encoding`].
     pub payload_encoding: crate::messages::PayloadEncoding,
     /// `render` builds only: whether the peer accepts `ZoningPayload` messages

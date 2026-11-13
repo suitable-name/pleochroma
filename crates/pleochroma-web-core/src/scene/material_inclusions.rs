@@ -1,14 +1,14 @@
 //! [`MaterialInclusionsSpec`]: the oriented inclusions and play-of-color a custom MATERIAL
 //! carries, as plain wire data.
 //!
-//! A custom material stores its inclusion families and its play-of-color structure with the
-//! material; opening a design resolves them into `GemMaterial::inclusions`, which is
-//! `#[serde(skip)]` (like the zones), so the built materials of
+//! The inclusion families and play-of-color structure of a custom material live in
+//! `GemMaterial::inclusions`, which is `#[serde(skip)]`, so the built materials of
 //! [`MaterialSpec::custom_materials`](super::MaterialSpec::custom_materials) reach a Worker
-//! without them. The design's own choice ([`EffectsSpec`](super::EffectsSpec)) is looked up by the
-//! material NAME, which a custom name does not match. This record carries the resolved set beside
-//! the material instead (`MaterialSpec::custom_material_inclusions`, parallel to
-//! `custom_materials`), so a Worker traces the silk and schiller the page traces.
+//! without them. The design's own choice ([`EffectsSpec`](super::EffectsSpec)) is looked up
+//! by the material NAME, which a custom name does not match. This record carries the
+//! resolved set beside the material instead (`MaterialSpec::custom_material_inclusions`,
+//! parallel to `custom_materials`), so a Worker traces the same silk and structure as the
+//! page.
 //!
 //! `InclusionSet` has private fields, among them a length that indexes a fixed array, so it is
 //! not read straight off the wire: the families and the structure travel as plain values, are
@@ -21,14 +21,14 @@
 //! (`crates/pleochroma-net/src/scene/material_inclusions.rs`), which web-core cannot depend on:
 //! same shape, same validation rules, and that file is the source of truth -- keep the two in
 //! lock-step. `pleochroma-net` is not a dev-dependency of this crate, so the tests in
-//! `scene/tests.rs` pin the rules by example (the accepted and refused values the net crate's own
-//! tests use) rather than by calling the net type.
+//! `scene/material_inclusions_tests.rs` pin the rules by example (the accepted and refused
+//! values the net crate's own tests use) rather than by calling the net type.
 //!
 //! One difference in what is recorded: the net record is taken from the RESOLVED material (after
-//! the design's Crystal Axis turned the families), the web record from the page's custom material
-//! as stored. An `InclusionSet`'s crystal frame is not part of the wire form, so a Worker cannot
-//! turn these families with a design's own Crystal Axis override; they render in the frame the
-//! material stored them in.
+//! the design's Crystal Axis turned the families), the web record from the page's custom
+//! material as stored. An `InclusionSet`'s crystal frame is not part of the wire form, so a
+//! Worker cannot turn these families with a design's own Crystal Axis override; they render in
+//! the frame the material stored them in.
 
 use pleochroma::optics::{
     inclusions::{InclusionSet, MAX_FAMILIES, ResolvedFamily, bragg::BraggStructure},
@@ -65,8 +65,7 @@ impl MaterialInclusionsSpec {
     }
 
     /// The list for `MaterialSpec::custom_material_inclusions`: one entry per material of
-    /// `materials`, or an empty list when none of them carries inclusions (the scene is then
-    /// byte-for-byte the scene without the field's content).
+    /// `materials`, or an empty list when none of them carries inclusions.
     #[must_use]
     pub fn list_of(materials: &[GemMaterial]) -> Vec<Option<Self>> {
         let list: Vec<Option<Self>> = materials.iter().map(Self::of_material).collect();
@@ -88,7 +87,7 @@ impl MaterialInclusionsSpec {
             .fold(set, InclusionSet::with_structure)
     }
 
-    /// Refuses a record no honest sender produces.
+    /// Rejects a record with too many families or implausible values.
     ///
     /// # Errors
     ///
@@ -116,8 +115,8 @@ impl MaterialInclusionsSpec {
 }
 
 impl MaterialSpec {
-    /// Refuses a record no honest sender produces: an inclusion list whose length is neither
-    /// zero nor the number of custom materials, or an entry that fails
+    /// Rejects an inclusion list whose length is neither zero nor the number of custom
+    /// materials, or an entry that fails
     /// [`MaterialInclusionsSpec::validate`].
     ///
     /// # Errors

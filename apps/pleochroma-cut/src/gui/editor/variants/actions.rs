@@ -1,11 +1,12 @@
-//! What each button of the Variants view does: opening the forms, saving, renaming, changing a
-//! note, deleting and opening a variant. Comparing two designs is in [`super::comparing`].
+//! What the buttons of the Variants view do: save, rename, change a note, delete and open.
+//!
+//! Comparing two designs is in [`super::comparing`].
 //!
 //! Every function runs on the UI thread. The ones that need the library start a worker thread
 //! ([`spawn_job`]) and finish in a continuation that finds the shared state again through
-//! [`live_deps`]. `VariantsModel.busy` is on from the click until the continuation runs, and
-//! no `EditorState` borrow is held across a call into Slint other than the refresh that Undo
-//! itself makes while holding one.
+//! [`live_deps`]. `VariantsModel.busy` is on from the click until the continuation runs. No
+//! `EditorState` borrow is held across a call into Slint, except the refresh that follows an
+//! edit of the open design (see `put_in_place`).
 
 use super::{
     Deps, Identity, VARIANTS_VIEW, adopt_open_design, apply, capture,

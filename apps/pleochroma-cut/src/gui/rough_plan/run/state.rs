@@ -66,6 +66,8 @@ pub(in crate::gui::rough_plan) struct Screen {
     pub keep_count: i32,
     /// The banner above a loaded plan's rows, empty for a fresh plan.
     pub banner: SharedString,
+    /// Whether the plan that made the rows was stopped by the scan plan time limit.
+    pub stopped_at_limit: bool,
 }
 
 impl Screen {
@@ -80,6 +82,7 @@ impl Screen {
             expanded_index: model.get_expanded_index(),
             keep_count: model.get_keep_count(),
             banner: model.get_loaded_banner(),
+            stopped_at_limit: model.get_stopped_at_limit(),
         }
     }
 
@@ -93,6 +96,7 @@ impl Screen {
         model.set_expanded_index(self.expanded_index);
         model.set_keep_count(self.keep_count);
         model.set_loaded_banner(self.banner);
+        model.set_stopped_at_limit(self.stopped_at_limit);
     }
 }
 
@@ -133,12 +137,12 @@ pub(in crate::gui::rough_plan) struct RunState {
     /// rather than measuring the designs again, so the file describes the stones as
     /// planned.
     pub(in crate::gui::rough_plan) shapes: BTreeMap<i64, DesignShape>,
-    /// The Crystal Axis rules the shown results were planned with (the plan's rule and the rules
-    /// of its designs; no stone choices: those are the session's). A save stores these, not the
-    /// rules edited since, and the window warns when the two differ.
+    /// The Crystal Axis rules the shown results were planned with (the plan's rule and the
+    /// rules of its designs; no stone choices, those belong to the session). A save stores
+    /// these, not the rules edited since, and the window warns when the two differ.
     pub(in crate::gui::rough_plan) plan_overrides: PlanSettingsOverrides,
-    /// What each result is when it is not one of the plan's own layouts ("Best Orientation"):
-    /// one text per result, empty for the plan's own.
+    /// What each result is when it is not one of the plan's own layouts (for example
+    /// "Best Yield"): one text per result, empty for the plan's own.
     pub(in crate::gui::rough_plan) labels: Vec<String>,
     /// The "keep" tick of every result row.
     pub(in crate::gui::rough_plan) keep: Vec<bool>,
@@ -158,6 +162,9 @@ pub(in crate::gui::rough_plan) struct RunState {
     pub(super) generation: u64,
     /// The summary line of the run that just finished, for the push that follows it.
     pub(super) summary: Option<String>,
+    /// Whether the run that just finished was stopped by the scan plan time limit, for the
+    /// push that follows it (it shows `RoughPlanModel.stopped_at_limit`).
+    pub(super) stopped_pending: bool,
 }
 
 impl RunState {
@@ -232,7 +239,8 @@ pub(in crate::gui::rough_plan) struct ShownLayouts {
     pub source: ResultsSource,
     /// The Crystal Axis rules the layouts were planned with.
     pub plan_overrides: PlanSettingsOverrides,
-    /// What each layout is when it is not one of the plan's own ("Best Yield"), "" otherwise.
+    /// What each layout is when it is not one of the plan's own (for example "Best Yield"),
+    /// "" otherwise.
     pub labels: Vec<String>,
     /// The layouts are the ones already shown, shown again because the cutter changed one (a
     /// re-fit, a stone turned by hand): the choices for the stones and the layouts the cutter

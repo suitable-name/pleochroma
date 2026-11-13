@@ -10,8 +10,8 @@ use pleochroma::optics::materials::{
 };
 use pleochroma_cut_core::{Design, Edit, MaterialSelection, RemapRounding};
 
-// The keyed color-entry list (a material's variants beside the presets) the desktop combo uses;
-// the fixed-index functions below stay for the web and mobile combos until they move over.
+// The keyed color-entry list the desktop combo uses. The fixed-index functions below serve
+// the web and mobile combos.
 mod color_entry;
 pub use color_entry::{
     ColorEntry, ColorEntryItem, color_entries, color_entries_for_design, entry_for_selection,
@@ -52,56 +52,31 @@ impl MaterialComboCache {
     }
 }
 
-/// The material-combo cache: [`design_material_options`]'s last result, plus the
-/// custom-material name list (in `custom_materials` order) it was built from.
+/// Caches [`design_material_options`]'s last result, keyed by the custom-material name list it
+/// was built from.
 ///
-/// `view::refresh_design_settings` only calls
-/// `design_material_options(&ctx.custom_materials)` again when the combo's actual
-/// contents change -- a custom material saved, deleted, or renamed in the
-/// material editor dialog -- rather than on every editor refresh: every other
-/// refresh (an angle nudge, a solve, a tier edit) would otherwise rebuild the same
-/// now-33-plus-customs-entry `Vec<String>` for nothing. `signature` is only the
-/// NAME list, not the full `GemMaterial`: `design_material_options` lists names
-/// only (an RI/absorption edit to an existing custom material changes no name in
-/// the list, so it cannot change this combo's contents either).
+/// The combo is refreshed on every editor update, but its contents change only when a custom
+/// material is saved, deleted or renamed, so the list is rebuilt only then. The key is names
+/// only: `design_material_options` lists names alone, so RI and absorption edits do not
+/// change it.
 ///
-/// `signature` is `None` until the first build, not a plain `Vec` default: with no
-/// custom materials in the vault the incoming name list is empty, which would
-/// equal an empty default signature, so the cache would never rebuild and the
-/// combo would receive an EMPTY model -- Slint's `ComboBox` then clears
-/// `current-value` to `""`, which shows as a blank Material box for every loaded
-/// design.
+/// `signature` is `None` until the first build. An empty default would equal the signature of
+/// an empty custom list, so the first call would return no options at all.
 #[derive(Default)]
 pub struct MaterialComboCache {
     signature: Option<Vec<String>>,
     options: Vec<String>,
 }
 
-/// The material `ComboBox`'s preset names, in EXACT index order.
+/// The material `ComboBox`'s preset names, in exact index order.
 ///
-/// Index 0 is `"(none)"` (a deliberate leading entry); every following index is a
-/// [`pleochroma_cut_core::MaterialCatalogue`] built-in name, sorted alphabetically
-/// ([`compare_material_names`]: case-insensitive, by the displayed name) -- not in
-/// `GemMaterial::all_materials`'s table order. Every consumer maps an index back through
-/// this same function, so the order is free to be the one the user reads.
+/// Index 0 is `"(none)"`. Every following index is a built-in name from
+/// [`pleochroma_cut_core::MaterialCatalogue`], sorted by [`compare_material_names`]. Every
+/// consumer maps an index back through this function. The list covers every built-in species
+/// the renderer supports, because it comes from the catalogue with no custom materials.
 ///
-/// This lists every built-in species the renderer supports, not just a
-/// hand-picked THIRTEEN-name subset (`"Diamond"`..`"Cubic Zirconia"`) of the
-/// renderer's THIRTY-FOUR (including the zoned Ametrine)
-/// built-ins -- every garnet, Aquamarine, Morganite,
-/// Chrysoberyl (Yellow), Amethyst, Citrine, Peridot, YAG, GGG, Benitoite,
-/// Andalusite, Opal, both glasses and Rutile can already be traced in Live
-/// Render (`gui::startup_settings::built_in_material_option_names` already reads
-/// `GemMaterial::all_materials()` directly), and can also be NAMED on a design
-/// or offered by the New Design dialog. `MaterialCatalogue::build(&[])` -- no
-/// custom materials, since this is the CAD side's built-in-only picker -- is
-/// the one place that decides "every built-in species exists", so this list
-/// cannot drift from the renderer's own.
-///
-/// `new_design_dialog.slint`'s New Design material `ComboBox`
-/// binds its `model` to `EditorModel.new_material_options`,
-/// pushed from this same function every refresh (`view.rs`) -- see that property's
-/// own doc comment (`ui/models/editor.slint`).
+/// The New Design dialog's material combo lists these names through
+/// `EditorModel.new_material_options` (`ui/models/editor.slint`).
 #[must_use]
 pub fn builtin_preset_names() -> Vec<String> {
     std::iter::once("(none)".to_string())
@@ -154,14 +129,11 @@ pub fn render_material_options(custom: &[GemMaterial]) -> Vec<String> {
     names
 }
 
-/// [`builtin_preset_names`]'s index for `name` (`None` -> `0`, an unrecognized name
-/// -> `0` as a safe fallback rather than an out-of-range `ComboBox` index).
+/// [`builtin_preset_names`]'s index for `name`. `0` for `None` or an unrecognized name, so the
+/// result is never an out-of-range `ComboBox` index.
 ///
-/// Test-only: the design settings panel names materials by
-/// [`design_material_index_from_name`] instead (built-ins and custom catalogue
-/// entries alike; this function has no production call site),
-/// but the round-trip test against every [`builtin_preset_names`] entry still
-/// wants this narrower, built-ins-only accessor directly.
+/// Test-only: production code uses [`design_material_index_from_name`], which also covers
+/// custom catalogue materials. This built-ins-only form serves the round-trip test.
 #[cfg(test)]
 #[must_use]
 pub fn material_index_from_name(name: Option<&str>) -> i32 {
@@ -170,11 +142,10 @@ pub fn material_index_from_name(name: Option<&str>) -> i32 {
         .map_or(0, |i| i32::try_from(i).unwrap_or(i32::MAX))
 }
 
-/// The inverse of [`material_index_from_name`]: the name at `index` in
-/// [`builtin_preset_names`], or `None` for index `0` ("(none)") or an out-of-range index
-/// (defensive only.
+/// The inverse of [`material_index_from_name`]: the name at `index` in [`builtin_preset_names`], or
+/// `None` for index `0` ("(none)") or an out-of-range index.
 ///
-/// `EditorView`'s `ComboBox` can never produce one).
+/// The combo never produces an out-of-range index, so that case is defensive only.
 #[must_use]
 pub fn material_name_from_index(index: i32) -> Option<String> {
     let names = builtin_preset_names();
@@ -188,26 +159,13 @@ pub fn material_name_from_index(index: i32) -> Option<String> {
 /// [`pleochroma_cut_core::Edit::SetGirdleDiameterMm`]/[`pleochroma_cut_core::Edit::SetMaterial`]'s
 /// payloads.
 ///
-/// Pure and unit tested directly. An empty `girdle_diameter_mm`/
-/// `specific_gravity_override` field parses to `None` (the "unset, use the preset's
-/// own figure" state), never an error: blank is a valid, deliberate choice here,
-/// unlike the preform's three fields, which always name a real dimension.
+/// A blank `girdle_diameter_mm` or `specific_gravity_override` parses to `None`, meaning the
+/// preset's own figure is used. Anything else must be a positive, finite number.
 ///
-/// The returned [`MaterialSelection`] is `current.with_specific_gravity_override(..)`
-/// -- `name`/`refractive_index_override` always carry through from `current`
-/// unchanged. Deriving `name` from `material_index` against
-/// [`builtin_preset_names`] (built-ins only) instead would silently rename a
-/// custom catalogue material to "(none)" (since `material_index_from_name` has
-/// no custom entry to map it to) and would drop the RI override on every
-/// "Apply Yield Inputs" click, even one that only touched the girdle diameter --
-/// the Yield tab's own Material combo can only ever name a built-in preset or
-/// "(none)", so it has no way to name a custom material correctly either.
-/// `_material_index` is consequently unread: it stays a
-/// parameter (prefixed `_`) only so this signature keeps matching the
-/// existing `on_apply_yield_inputs` call site; the combo itself is
-/// inert for naming purposes here (changing it and clicking Apply does not rename the
-/// design's material) -- redesigning or removing that
-/// control is a separate UI decision.
+/// The returned [`MaterialSelection`] is `current.with_specific_gravity_override(..)`, so the
+/// name and RI override carry through from `current`. The Yield combo can name only a built-in
+/// preset, so deriving the name from `_material_index` would rename a custom material to
+/// "(none)". The parameter is unread and kept only so the call site's signature stays the same.
 ///
 /// # Errors
 ///
@@ -247,17 +205,14 @@ pub fn parse_yield_form(
     ))
 }
 
-/// Explains what `Design::effective_refractive_index_with`'s current result (shown
-/// as "Eff.
+/// Names the source of the design's effective refractive index, shown as "Eff.
 ///
-/// RI" in the design settings panel) actually IS and where it came from,
-/// so a cutter picking a custom catalogue material
-/// can tell whether the critical angle/MARGIN/render/export are using
-/// that material's real index or a stale fallback, because nothing on screen named
-/// the source. Mirrors `Design::effective_refractive_index_with`'s own precedence
-/// exactly (typed override, then a custom catalogue material by name, then a
-/// built-in preset, then the design's legacy imported `I` line) so this text can
-/// never disagree with the number it explains.
+/// RI" in the design settings panel, so a cutter can see whether the critical angle, MARGIN and
+/// renders use the material's real index or a fallback.
+///
+/// Follows the precedence of `Design::effective_refractive_index_with` exactly (typed override,
+/// custom catalogue material, built-in preset, then the legacy imported value), so the text
+/// cannot disagree with the number.
 #[must_use]
 pub fn ri_source_text(material: &MaterialSelection, custom: &[GemMaterial]) -> String {
     if let Some(value) = material.refractive_index_override {
@@ -277,32 +232,23 @@ pub fn ri_source_text(material: &MaterialSelection, custom: &[GemMaterial]) -> S
     "no material selected -- using this design's legacy imported value".to_string()
 }
 
-/// Appended to a custom material's own name when it collides
-/// case-insensitively with a built-in already in the combo (`design_material_options`'s
-/// list order guarantees the built-in's own plain entry always comes first, from
-/// [`builtin_preset_names`]), so the combo shows a second, clearly-labeled entry
-/// instead of silently dropping the custom material from the list entirely -- a
-/// cutter selecting "Diamond" can tell that a custom "Diamond"
-/// exists too, and that `EditorMaterialLookup`'s custom-over-built-in
-/// precedence (`material_lookup.rs`) means it is the one actually rendered.
-/// [`design_material_name_from_index`] strips this suffix back off before it ever
-/// becomes a real [`MaterialSelection::name`] -- see that function's own doc comment.
+/// Appended to a custom material's name when it collides case-insensitively with a built-in, so
+/// the combo lists both. The custom entry is the one rendered, since `EditorMaterialLookup`
+/// gives custom materials precedence. [`design_material_name_from_index`] strips the suffix
+/// before the name is stored.
 const CUSTOM_BUILTIN_COLLISION_SUFFIX: &str = " (custom)";
 
-/// The design settings panel's material combo, in the EXACT order it must list.
+/// The design settings panel's material combo, in the exact order it lists.
 ///
-/// A leading `"(none)"`, then every built-in and every `custom` name in ONE alphabetical
-/// list ([`compare_material_names`]), then a final `"Custom RI…"` sentinel -- see
-/// [`design_material_name_from_index`] for what selecting it means.
+/// A leading `"(none)"`, then every built-in and custom name in one alphabetical list
+/// ([`compare_material_names`]), then a final `"Custom RI…"` sentinel (see
+/// [`design_material_name_from_index`]).
 ///
-/// A custom name that collides case-insensitively with a built-in already listed is
-/// labeled with [`CUSTOM_BUILTIN_COLLISION_SUFFIX`] rather than skipped outright (it sorts
-/// right after the plain built-in entry).
+/// A custom name that collides case-insensitively with a built-in is labeled with
+/// [`CUSTOM_BUILTIN_COLLISION_SUFFIX`] rather than skipped.
 ///
-/// Pure and cheap enough to call directly for a
-/// one-off need; `view::refresh_design_settings`'s own per-refresh call instead goes
-/// through [`MaterialComboCache::options`], which caches this result and
-/// only re-derives it when `custom`'s own name list has actually changed.
+/// Callers that refresh often should use [`MaterialComboCache::options`], which returns the
+/// cached list until the custom names change.
 #[must_use]
 pub fn design_material_options(custom: &[GemMaterial]) -> Vec<String> {
     let mut names: Vec<String> = built_in_names_alphabetical();
@@ -327,13 +273,10 @@ pub fn design_material_options(custom: &[GemMaterial]) -> Vec<String> {
     options
 }
 
-/// The inverse of [`design_material_name_from_index`]: `options`'s index for `name`
-/// (case-insensitive, matched against the REAL name.
+/// The inverse of [`design_material_name_from_index`]: `options`' index for `name`, matched
+/// case-insensitively against the real name (a collision suffix is stripped first).
 ///
-/// A labeled entry's own suffix is stripped before comparing, so a stored
-/// `MaterialSelection::name` of "Diamond" still finds a match even if the only remaining
-/// occurrence in `options` were the labeled one), or `0` ("(none)") when `name` is absent
-/// or not found.
+/// `0` ("(none)") when `name` is absent or not found.
 #[must_use]
 pub fn design_material_index_from_name(name: Option<&str>, options: &[String]) -> i32 {
     name.and_then(|n| {
@@ -349,19 +292,10 @@ pub fn design_material_index_from_name(name: Option<&str>, options: &[String]) -
 /// The name at `index` in `options`, or `None` for index `0` ("(none)"), the trailing
 /// `"Custom RI…"` sentinel, or an out-of-range index.
 ///
-/// Selecting `"Custom RI…"`
-/// clears `MaterialSelection::name` the same way "(none)" does -- it exists so a
-/// species with no built-in or catalogue preset (e.g. garnet) can still be given a
-/// real, typed refractive index without pretending to pick a preset that isn't used.
-///
-/// A [`CUSTOM_BUILTIN_COLLISION_SUFFIX`]-labeled entry
-/// (`"Diamond (custom)"`) is stripped back to the real material name (`"Diamond"`)
-/// here -- the label is a DISPLAY convenience only; the stored
-/// [`MaterialSelection::name`] must stay the real name so it keeps resolving through
-/// `crate::material_lookup::EditorMaterialLookup`'s custom-over-built-in precedence
-/// exactly like the plain built-in entry does (both name the same real material,
-/// since the label exists only to show the collision, not to distinguish two
-/// different selections).
+/// Selecting `"Custom RI…"` clears `MaterialSelection::name`, so a species with no preset
+/// (e.g. garnet) can take a typed refractive index. A collision-labeled entry is returned with
+/// its suffix stripped: the stored name must stay the real name so it resolves through
+/// `EditorMaterialLookup`.
 #[must_use]
 pub fn design_material_name_from_index(index: i32, options: &[String]) -> Option<String> {
     usize::try_from(index)
@@ -374,25 +308,16 @@ pub fn design_material_name_from_index(index: i32, options: &[String]) -> Option
         })
 }
 
-/// Parses the design settings panel's material combo index plus its RI override text
-/// field into a new [`MaterialSelection`].
+/// Parses the design settings panel's material combo index and RI override text into a new
+/// [`MaterialSelection`].
 ///
-/// Reads `current` first and carries its `specific_gravity_override` through unchanged
-/// (that stays the Yield panel's own field), matching [`Edit::SetMaterial`]'s "wholesale,
-/// not per-field" contract.
+/// The specific gravity override is carried through from `current`, since [`Edit::SetMaterial`]
+/// replaces the whole selection. Color overrides and variants carry through only while the
+/// material stays the same (case-insensitively): a color picked for one species does not
+/// apply to another.
 ///
-/// `current`'s `body_color_override` carries through only while the parsed name
-/// stays the same material (case-insensitively; two nameless selections count as
-/// the same): a color picked for one species is a what-if about THAT stone, so
-/// switching species (e.g. the Retarget dialog, which has no color control of its
-/// own) falls back to the new material's own color. The design settings panel sets
-/// the color explicitly afterwards from its own color combo, via
-/// [`MaterialSelection::with_body_color`].
-///
-/// An
-/// empty override field means `None` (use the resolved material's own `n_D`); a
-/// non-blank field must parse as a finite refractive index strictly greater than 1.0
-/// (no real gem material has RI <= 1.0).
+/// An empty override field means `None`, which uses the resolved material's own `n_D`. A
+/// non-blank field must be a finite refractive index above 1.0.
 ///
 /// # Errors
 ///
@@ -494,8 +419,8 @@ pub fn body_color_index_for(rgb: Option<[f32; 3]>) -> i32 {
 /// [`body_color_index_for`] the triple.
 #[must_use]
 pub fn body_color_index_for_material(material: &MaterialSelection) -> i32 {
-    // A color variant is not in the preset table either; until the combo lists variants it
-    // reads as the custom entry, never as "Material Default".
+    // A color variant is not in the preset table, so it reads as the custom entry, never as
+    // "Material Default".
     if material.color_variant_override.is_some()
         || material
             .body_color_bands_override
@@ -510,8 +435,8 @@ pub fn body_color_index_for_material(material: &MaterialSelection) -> i32 {
 
 /// The inverse of [`body_color_index_for`] for the fixed entries.
 ///
-/// `None` ("Material default") for index `0`, an out-of-range index or the custom index (a custom triple is
-/// not in any table; the caller keeps the design's current triple or the picked one), else
+/// `None` ("Material Default") for index `0`, an out-of-range index, or the custom index. A
+/// custom triple is in no table, so the caller keeps the design's current triple. Otherwise
 /// preset `index - 1`'s absorption triple.
 #[must_use]
 pub fn body_color_from_index(index: i32) -> Option<[f32; 3]> {
@@ -634,9 +559,8 @@ pub fn gear_remap_preview(
         .iter()
         .map(|t| format_indices(&t.indices))
         .collect();
-    // Same magnitude-only ratio `Edit::RemapIndices` itself applies -- computing it
-    // here from the signed tooth counts is what made this preview disagree with the
-    // edit for a design whose `.asc` header carries a negative `g`.
+    // The magnitude-only ratio `Edit::RemapIndices` applies, so the two agree for a negative
+    // tooth count.
     let ratio = pleochroma_cut_core::remap_ratio(from_gear, to_gear);
     let non_integral: Vec<bool> = design
         .tiers

@@ -1,7 +1,8 @@
-//! Resolves a [`Design`] from a catalogue entry's full record -- preferring an attached
-//! self-contained `.psdd` design file, then a real attached schedule, over the angle-table placeholder
-//! reconstruction. The bare-`.asc` half
-//! (`design_from_asc_text`, the default preform, [`LoadedDesign`]) lives in
+//! Resolves a [`Design`] from a catalogue entry's full record, preferring an attached
+//! self-contained `.psdd` design file.
+//!
+//! A real attached schedule comes next, and the angle-table placeholder reconstruction last.
+//! The bare-`.asc` half (`design_from_asc_text`, [`LoadedDesign`]) lives in
 //! `pleochroma_editor::loading`, shared with the web app.
 
 use pleochroma::geometry::stone_metrics::ExternalProportions;
@@ -41,8 +42,9 @@ impl AttachmentError {
 /// carries.
 ///
 /// `custom_material` is the file's own snapshot of a material no built-in preset answers
-/// to (`pleochroma_cut_core::native::LoadedDesign::restorable_custom_material`): `Some` only when the
-/// file names such a material and carried a snapshot of it. The editor's [`LoadedDesign`]
+/// to (`pleochroma_cut_core::native::LoadedDesign::restorable_custom_material`): `Some` only
+/// when the file names such a material and carried a snapshot of it.
+/// The editor's [`LoadedDesign`]
 /// has no field for it -- the web app and the CLI build that type by literal -- so it
 /// travels beside it. The consumers that draw a library design in its own material
 /// (`super::catalogue_planes`) rebuild the material from it when the vault's custom list
@@ -65,11 +67,11 @@ impl AttachedDesign {
     }
 }
 
-/// The design built from `full`'s self-contained `.psdd` attachment, if it has one that
-/// reads. The file carries the whole design, so
-/// it wins over any `.asc`, `.gem` or `.gcs` attached beside it (an import attaches a
-/// design file found next to its schedule; a catalogue save attaches the saved design
-/// beside the `.asc` it wrote).
+/// The design built from `full`'s self-contained `.psdd` attachment, if it has one that reads.
+///
+/// The file carries the whole design, so it wins over any `.asc`, `.gem` or `.gcs` attached
+/// beside it (an import attaches a design file found next to its schedule; a catalogue save
+/// attaches the saved design beside the `.asc` it wrote).
 ///
 /// The design is recorded under the attached `.asc`'s name when there is one -- with
 /// that text kept, so a later Save can preserve it byte for byte -- else under
@@ -146,13 +148,14 @@ fn design_from_design_attachment(
     }))
 }
 
-/// The design built from `full`'s design-file attachment, picked by
-/// `pleochroma_vault::local::design_attachment_position` (the first `.asc`, else the
-/// first `.gem`, else the first `.gcs`, extension case-insensitive) and read as
-/// `.asc` text by `pleochroma_vault::local::design_file_to_asc_text` -- a `.gem`/
-/// `.gcs` converted to cutting instructions, so the design loads with its real
-/// masts instead of the angle-table placeholder. Reading runs inside
-/// `gui::library::local::catch_file_panic`, the importer's own per-file guard.
+/// The design built from `full`'s design-file attachment.
+///
+/// The first `.asc` is used, else the first `.gem`, else the first `.gcs` (extension
+/// case-insensitive, picked by `pleochroma_vault::local::design_attachment_position`). Each is
+/// read as `.asc` text by `pleochroma_vault::local::design_file_to_asc_text`: a `.gem` or `.gcs`
+/// is converted to cutting instructions, so the design loads with its real masts instead of the
+/// angle-table placeholder. Reading runs inside `gui::library::local::catch_file_panic`, the
+/// importer's own per-file guard.
 ///
 /// `None` when the record has no design-file attachment; `Some(Err)` (a ready
 /// message) when it has one that does not read, convert or parse, or whose concave
@@ -227,17 +230,12 @@ pub(super) fn design_from_attachment(
 
 /// Builds the design that should be loaded for one catalogue entry's full record.
 ///
-/// Prefers a real attached design file's own schedule ([`design_from_attachment`]:
-/// a `.asc`, else a `.gem`, else a `.gcs`) -- its mast values are the
-/// file's actual recorded depths -- over `pleochroma_vault::local::reconstruct_asc_schedule`'s
-/// placeholder reconstruction from the angle/index table alone, which (per that
-/// function's own doc comment) has no depth data to work with at all and fills every
-/// tier's `mast` with `0.0`. That fallback is still offered rather than refused
-/// outright -- it is the SAME reconstruction `gui::library::local::export::setup_export_asc_callback`
-/// already exports today with the same caveat -- but [`LoadedDesign::used_placeholder`]
-/// tells the caller which path was taken, so it can warn exactly the way that existing
-/// export path already does, rather than silently handing the user a schedule whose
-/// masts are all zero.
+/// Prefers a real attached design file's own schedule ([`design_from_attachment`]: a `.asc`,
+/// else a `.gem`, else a `.gcs`), whose masts are the file's recorded depths. The fallback is
+/// `pleochroma_vault::local::reconstruct_asc_schedule` over the angle/index table alone. It has
+/// no depth data and sets every tier's `mast` to `0.0`, so it is used only when no usable design
+/// file is attached. [`LoadedDesign::used_placeholder`] tells the caller which path was
+/// taken, so it can warn the cutter that the masts are placeholders.
 ///
 /// # Errors
 ///
@@ -279,19 +277,13 @@ pub(in crate::gui::editor) fn design_from_full_record(
     })
 }
 
-/// Builds Deep Solve's external verification targets from a catalogue entry's own
-/// printed proportion columns -- see `deep_solve`'s module doc comment ("External
-/// verification: printed proportions" in `solve_meet_points_verified`'s own doc
-/// comment is the underlying reasoning). `volume`/`lw_ratio`/`cw_ratio`/`pw_ratio`/
-/// `hw_ratio` map straight onto `ExternalProportions`' `vol_w3`/`lw`/`cw`/`pw`/`hw`
-/// -- the exact same column-to-field mapping
-/// `crates/pleochroma/examples/meet_solver_validation.rs` uses when it builds the same
-/// struct from a `diagram_details` row.
+/// Builds Deep Solve's external verification targets from a catalogue entry's printed
+/// proportion columns (see `solve_meet_points_verified` for why they are used). `volume`,
+/// `lw_ratio`, `cw_ratio`, `pw_ratio` and `hw_ratio` map onto `ExternalProportions`' `vol_w3`,
+/// `lw`, `cw`, `pw` and `hw`.
 ///
-/// Returns `None` when none of the five columns hold a usable positive, finite
-/// number: a design with nothing printed on it at all gives the search no external
-/// signal to score against at all, so Deep Solve must be disabled rather than run
-/// against a target that can never accept or reject anything (see
+/// Returns `None` when none of the five columns holds a usable positive, finite number: with
+/// nothing printed there is no signal to score against, so Deep Solve must be disabled (see
 /// `super::view::deep_solve_hint`).
 pub(in crate::gui::editor) fn external_proportions_from_full_record(
     full: &pleochroma_vault::model::entry::FullDiagramRecord,
@@ -396,9 +388,11 @@ mod tests {
         assert_eq!(design.tier_frosting.len(), 2, "no other tier is frosted");
     }
 
-    /// The library import of a `.gcs` (the converted `.asc` first, the original beside it, the
-    /// frosting in the side table) opens in the editor with the tier and the facets frosted;
-    /// the polished twin opens polished.
+    /// The library import of a `.gcs` opens in the editor with its tier and facets frosted; the
+    /// polished twin opens polished.
+    ///
+    /// The converted `.asc` comes first, the original `.gcs` beside it, and the frosting is in
+    /// the side table.
     #[test]
     fn a_library_design_imported_from_a_frosted_gcs_opens_with_its_frosting() {
         use crate::gui::library::local::{ForeignFormat, convert_foreign_design};
@@ -627,8 +621,7 @@ mod tests {
         );
     }
 
-    /// A record whose only design file is a `.gem` (254 real catalogue details,
-    /// none with an `.asc` sibling) opens with the `.gem`'s real geometry, not the
+    /// A record whose only design file is a `.gem` opens with the `.gem`'s real masts, not the
     /// zero-mast angle-table placeholder.
     #[test]
     fn design_from_full_record_opens_a_gem_only_record_with_real_masts() {

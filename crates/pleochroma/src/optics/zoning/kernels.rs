@@ -54,7 +54,7 @@ use super::{
 use glam::{DVec3, Vec3};
 
 // The shape discriminants are also the GPU zone table's `kind` values
-// (`shaders/zoning/*.wgsl` repeats them; a test compares the two).
+// (`renderer/shaders/zoning/*.wgsl` repeats them; `renderer::buffers::zoning` tests them).
 pub const K_NONE: u32 = 0;
 pub const K_HALF: u32 = 1;
 pub const K_SLAB: u32 = 2;
@@ -712,10 +712,7 @@ macro_rules! zone_kernel_impl {
                     (a, [b[0] - a[0], b[1] - a[1], b[2] - a[2]])
                 }
 
-                /// Point queries for `zoning::point`.
-                ///
-                /// The shaped zone count, the softness and the signed depth of shaped zone `j`
-                /// at the outer-frame point `p`.
+                /// Point queries for `zoning::point`: the shaped zone count.
                 pub(super) const fn zone_count(&self) -> usize {
                     self.count
                 }

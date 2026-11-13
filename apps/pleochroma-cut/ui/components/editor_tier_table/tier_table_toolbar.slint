@@ -27,8 +27,8 @@ component TipField inherits Rectangle {
         height: parent.height;
         font-size: 10px;
         text <=> root.text;
-        // The placeholder is drawn below at 10 px, the size of the typed text: the field's own
-        // placeholder rendered about 12 px here. A screen reader still gets it.
+        // The placeholder is drawn below at the typed text's 10 px size. A screen reader gets it
+        // through `accessible-placeholder-text`.
         accessible-placeholder-text: root.placeholder;
         accessible-label: root.reader_label;
         accessible-description: root.hint;
@@ -88,11 +88,9 @@ export component TierTableToolbar inherits VerticalLayout {
     property <bool> keep_linked: false;
     property <bool> advanced: GuideModel.shows_advanced();
 
-    // Lets `EditorTierTable.focus_filter()` (Ctrl+F, see that function's own
-    // doc comment) reach `filter_edit`, which now lives in this component
-    // rather than in `EditorTierTable` itself. The field stays mounted while the
-    // Simple interface hides it (an id inside an `if` could not be reached from
-    // here), and Ctrl+F then does nothing.
+    // Lets `EditorTierTable.focus_filter()` (Ctrl+F) reach `filter_edit`. The field stays
+    // mounted while the Simple interface hides it, since an id inside an `if` cannot be
+    // reached from here, and Ctrl+F then does nothing.
     public function focus_filter() {
         if root.advanced {
             filter_edit.focus();
@@ -171,17 +169,10 @@ export component TierTableToolbar inherits VerticalLayout {
         padding-left: 4px;
         padding-right: 4px;
         spacing: 6px;
-        // A discoverable "+ Add Tier" affordance right in the table
-        // itself, alongside the Tier tab's inspector form below (the
-        // empty-state text names it, but nothing here does). Reuses the
-        // SAME `selected_tier_index
-        // = -1` + `inspector_tab`/`inspector_collapsed` properties the
-        // "Add Anchor" row action below already drives, so no new
-        // `EditorModel` surface is needed. The round-trip-through-another-
-        // value guard (see the "Add Anchor" touch handler's own comment for
-        // why) is not needed here: entering Add mode when already IN Add
-        // mode has nothing to reload, unlike jumping between two different
-        // real tiers.
+        // A "+ Add Tier" button in the table, next to the Tier tab's form. It sets
+        // `selected_tier_index = -1` and the inspector tab properties, the same as the row's
+        // "Add Anchor" action (`TierRowActions`). Entering Add mode while already in it has
+        // nothing to reload, so no reload guard is needed.
         CompactButton {
             height: 24px;
             font_size: 10px;
@@ -218,12 +209,8 @@ export component TierTableToolbar inherits VerticalLayout {
             enabled: GuideModel.allows_tier_table();
             clicked => { EditorModel.adopt_all(); }
         }
-        // A visible affordance for the Ctrl/Shift-click multi-select
-        // gesture, which
-        // otherwise has no on-screen hint that it exists at all. Toggling
-        // this does not itself select/deselect anything -- it only shows a
-        // checkbox column (below) that clicking, without holding Ctrl,
-        // acts on the same way Ctrl+click already does.
+        // On-screen hint for the Ctrl/Shift+click multi-select gesture. Toggling it selects
+        // nothing: it only shows the checkbox column, where a plain click adds or removes a row.
         CompactButton {
             height: 24px;
             font_size: 10px;
@@ -430,9 +417,8 @@ export component TierTableToolbar inherits VerticalLayout {
         }
     }
 
-    // The "N selected" indicator plus Clear/Delete batch actions -- shown only
-    // while a multi-select group of more than one row exists. Lives in the
-    // tier table's header for clear, always-visible placement.
+    // The "N selected" indicator and the batch actions, shown only while more than one row is
+    // selected.
     if EditorModel.multi_selected_count > 1: HorizontalLayout {
         padding-left: 4px;
         padding-right: 4px;

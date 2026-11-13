@@ -94,8 +94,7 @@ impl HarnessApp {
             // `close_all_windows` presses Discard on the close guard, so a dirty design cannot
             // keep the window (and its render thread) alive.
             let _ = harness_support::close_all_windows(&handle);
-            // Was a fixed `settle(150)`: wait for the observable effect instead (the main
-            // window is hidden), with the old 150 ms as the limit.
+            // Waits until the main window is hidden, for at most 150 ms.
             let _ = wait_until(Duration::from_millis(150), || {
                 !handle.ui.window().is_visible()
             });
@@ -125,8 +124,7 @@ impl HarnessApp {
     }
 
     /// Shuts the app down, wipes everything it persisted, seeds `settings.toml` as `seed` says
-    /// and launches a fresh instance. This is the "freshly re-established state" of the
-    /// click-everything engine.
+    /// and launches a fresh instance. The click-everything pass restores its state this way.
     ///
     /// # Errors
     ///
@@ -136,7 +134,7 @@ impl HarnessApp {
             self.shutdown();
             profile.wipe_app_data();
             profile.seed_settings(seed);
-            // The hooks crate's `picker::clear`, through the app's seam.
+            // Drops queued picker answers so a stale one cannot answer the next launch's dialog.
             harness_support::clear_picker_answers();
             *self = Self::launch()?;
             Ok(())

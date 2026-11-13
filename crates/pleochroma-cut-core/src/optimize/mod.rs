@@ -4,54 +4,30 @@
 //! Windowing, extinction, and the tilt-performance sweep, instead of only reporting
 //! them after the fact.
 //!
-//! # Cost first (measured, not assumed)
+//! # Cost
 //!
-//! Every candidate needs a real, solved geometry (see [`evaluate_objective`]'s doc
-//! comment), so every evaluation pays for a [`crate::design::Design::solve`] --
-//! never [`crate::design::Design::resolve_dirty`], which buys nothing once a design
-//! has more than one non-`ScaleReference` tier (see [`crate::resolve`]'s module doc
-//! comment), exactly the situation this optimizer's free-variable set creates.
+//! Every evaluation pays for a [`crate::design::Design::solve`], which dominates the cost.
+//! [`crate::design::Design::resolve_dirty`] does not help once a design has more than one
+//! non-`ScaleReference` tier (see [`crate::resolve`]), which a typical free set is.
 //!
 //! [`cost_probe`] (`#[cfg(test)]`, `#[ignore]`d: `cargo test -p pleochroma-cut-core
 //! --release --lib cost_probe -- --ignored --nocapture`) measures one full objective
-//! evaluation end to end. Measured numbers (release, single-threaded, this machine).
-//! They predate the meet-preserving gate: a *proposal* is now a bounded projection
-//! (see "Varying anchored tiers" below), which pays many solves, one validation and
-//! one finite-difference probe per variable per iteration (the budget is pinned by
-//! `meet_preservation::tests::projection_retains_a_nonzero_coupled_authored_deformation`),
-//! so the per-evaluation figures below are a floor for a proposal, not its cost:
+//! evaluation end to end.
 //!
-//! | fixture | tiers | solve | Fast metrics | Full metrics (724 samples) |
-//! |---|---|---|---|---|
-//! | RBC-445 | 12 | 5.1 ms | 2.2 ms | 1.281 s |
-//! | CrackOtto-Step | 103 | 6.200 s | 0.11 ms | 145.9 ms |
+//! At [`ObjectiveFidelity::Fast`], which the search loop spends its budget on, one
+//! evaluation is dominated by the solve once a design has real meet-derived structure. A
+//! proposal is a bounded projection, which pays many solves and one finite-difference probe
+//! per variable per iteration (see "Varying anchored tiers" below). There is no cheap
+//! incremental resolve to fall back on once tiers are genuinely free.
 //!
-//! CrackOtto-Step's metrics cost is an artifact of the cost-probe's arbitrary,
-//! un-calibrated fixture (an under-filled camera frustum means cheap early ray
-//! misses) -- RBC-445's 1.281 s is the trustworthy figure. Net effect at
-//! [`ObjectiveFidelity::Fast`] (what [`optimize_design`]'s search loop actually
-//! spends its budget on): one evaluation is solve-dominated the moment a design has
-//! real meet-derived structure -- **~7 ms/eval on a small design like RBC-445 (200
-//! evaluations in ~1.4 s, interactive), versus ~6.2 s/eval on a large, heavily
-//! meet-derived design like CrackOtto-Step (200 evaluations would be ~20 minutes,
-//! entirely re-solving)**. There is no cheap incremental resolve to fall back on
-//! once tiers are genuinely free. (The table above predates the per-candidate geometry
-//! being built once: a candidate's plane list, mesh and solid measurement are now shared
-//! by the guard, the manufacturability gate and the score, and the preform is measured
-//! once per run, so the figures above include that repeated work; the girdle guard's
-//! extra `measure_solid` below is likewise gone.)
-//!
-//! Asking for several candidates ([`OptimizeOptions::keep_candidates`]) adds one more
-//! `Full`-fidelity scoring per extra candidate (the last column above: 1.281 s on
-//! RBC-445), once, at the end; the search loop itself pays only the bookkeeping of
-//! its pool (a clone of every accepted state that beats the start's `Fast` score). A
-//! run whose states fail the `Full` gate scores up to [`OptimizeOptions::pool_capacity`]
-//! states (the candidates wanted plus [`options::FULL_GATE_RESERVE`] fallbacks) before
-//! it reports no change; a run whose states pass never scores more than it keeps. The
-//! girdle guard ([`OptimizeOptions::min_girdle_fraction`]) adds one
-//! `measure_solid` per candidate that closes, plus a plane-boundary pass and one walk
-//! over the girdle walls' rings (the thinnest-point measure). Neither of those two
-//! extras was measured separately.
+//! Asking for several candidates ([`OptimizeOptions::keep_candidates`]) adds one `Full`
+//! scoring per extra candidate, once, at the end. The search loop itself pays only for the
+//! bookkeeping of its pool (a clone of every accepted state that beats the start's `Fast`
+//! score). A run whose states fail the `Full` gate scores up to
+//! [`OptimizeOptions::pool_capacity`] states before it reports no change. A run whose states
+//! pass never scores more than it keeps. The girdle guard
+//! ([`OptimizeOptions::min_girdle_fraction`]) adds a `measure_solid` and a walk over the
+//! girdle walls per candidate that closes.
 //!
 //! # Which tiers are free (never moves a pinned facet)
 //!
@@ -116,20 +92,15 @@
 //! percentage). The thinnest point takes the same fraction unless
 //! [`OptimizeOptions::min_girdle_thinnest_fraction`] gives it one of its own.
 //!
-//! [`OptimizeOptions::keep_candidates`] keeps a bounded list of the best *distinct*
-//! states the search saw (some free angle differing by at least
-//! [`OptimizeConfig::min_step_deg`], or [`OptimizeOptions::candidate_separation_deg`]),
-//! with a reserve of fallbacks on top ([`OptimizeOptions::pool_capacity`]). At the end
-//! they are re-scored at full fidelity, best fast score first, until `keep_candidates`
-//! of them pass the gate (no worse than the start at full fidelity), and those are
-//! returned, best first, as [`OptimizeResult::candidates`]; the plain
-//! [`OptimizeOutcome`] describes the first. The reserve exists because the `Fast`
-//! (table-up) objective the search descends on and the `Full` (tilt-sweep) gate can
-//! disagree outright: on the Rich Teaching Design in Quartz the `Fast` optimum turns
-//! the pavilion to 42.6 degrees and lowers the crown by 5 (`Fast` 24.4 against the
-//! start's 46.8) while its `Full` score is worse (47.7 against 46.1); the state the
-//! gate accepts (pavilion 41.4, crown as it was, `Full` 45.8) is only the sixth best by
-//! `Fast`. See `search::result::build_result`.
+//! [`OptimizeOptions::keep_candidates`] keeps a bounded list of the best *distinct* states
+//! the search saw (some free angle differing by at least [`OptimizeConfig::min_step_deg`],
+//! or [`OptimizeOptions::candidate_separation_deg`]), plus a reserve of fallbacks
+//! ([`OptimizeOptions::pool_capacity`]). At the end they are re-scored at full fidelity,
+//! best fast score first, until `keep_candidates` pass the gate (no worse than the start at
+//! full fidelity). Those are returned, best first, as [`OptimizeResult::candidates`]; the
+//! plain [`OptimizeOutcome`] describes the first. The reserve exists because the `Fast`
+//! objective the search descends on and the `Full` gate can disagree; see
+//! `search::result::build_result`.
 //! [`OptimizeOptions::shape_target`] keeps the stone's look: every score, the starting
 //! design's included, adds a penalty for drifting from a table size and a
 //! crown-to-pavilion ratio ([`ShapeTarget`]); `None` changes nothing.
@@ -140,16 +111,15 @@
 //! The objective has a fifth, optional term: the colour the stone shows face-up
 //! ([`FaceUpTone`]: CIELAB `L*`, chroma, hue and an sRGB swatch of the returned light),
 //! with a goal ([`ToneGoal`]: lighter or deeper) at [`ObjectiveWeights::tone_weight`].
-//! Weight `0` (the default) measures nothing in the search loop and every result stays
-//! bit for bit what it was. Cost: about +0.2 ms per weighted `Fast` evaluation and about
-//! +2.4 ms per `Full` scoring. Every `Full` scoring (the start, the end point, each
-//! alternative) measures and reports the tone whether it is weighted or not.
+//! Weight `0` (the default) measures nothing for this term and leaves every score unchanged.
+//! At `Fast` the tone comes from the same trace as the components; at `Full` it costs one
+//! more table-up trace. Every `Full` scoring (the start, the end point, each alternative)
+//! reports the tone whether it is weighted or not.
 //!
 //! The tone is the table-up pose, under [`OptimizeConfig::lighting`]'s own light and
-//! white point (a UV lamp has no visible white and falls back to D65). The stone size
-//! enters through [`pleochroma::optics::materials::GemMaterial::absorption_path_scale`]
-//! (the caller sizes the material, see the editor's `sized_material_for_optimize`). A
-//! head-shadow setting would enter only the Returned classification of the rays.
+//! white point (a UV lamp has no visible white and falls back to D65). The stone size enters
+//! through [`pleochroma::optics::materials::GemMaterial::absorption_path_scale`]; the caller
+//! sizes the material (`sized_material_for_optimize` in `pleochroma-editor`).
 //! [`OptimizeResult::lighting`] records the preset a run scored under.
 //!
 //! # Where the compute runs, and why not remote
@@ -162,27 +132,22 @@
 //! not the optics metrics a worker can already compute -- is the dominant cost, so
 //! dispatching candidates remotely would never reach the expensive part.
 //!
-//! **Local parallelism** IS reusable: a coordinate search's two candidates per free
-//! tier per sweep (`angle + step`, `angle - step`) are independent `Design::solve`
-//! calls with no shared state, so [`optimize_design`] evaluates the pair
-//! concurrently via `std::thread::scope` (see
-//! [`candidate::evaluate_candidate_pair`]), roughly halving each tier's decision
-//! cost on two free cores -- the only parallelism available, since sweep N+1's
-//! starting point depends on which of sweep N's candidates were accepted. Moving it
-//! into `meet_solver`'s own phase-3 scan instead was tried and reverted: flat at 2-4
-//! threads, a regression at `available_parallelism()` (see the NOTE in
-//! `pleochroma::geometry::meet_solver::candidates`'s module doc comment).
+//! **Local parallelism** is used here: a coordinate search's two candidates per free tier
+//! per sweep (`angle + step`, `angle - step`) are independent `Design::solve` calls with no
+//! shared state, so [`optimize_design`] evaluates the pair concurrently via
+//! `std::thread::scope` (see [`candidate::evaluate_candidate_pair`]). That roughly halves
+//! each tier's decision cost on two free cores. It is the only parallelism available, since
+//! sweep N+1 starts from whichever of sweep N's candidates were accepted.
 //!
 //! # Never proposes geometry that fails to close, or moves a tier past its own block boundary
 //!
-//! Every candidate is solved and meshed before it is scored; one that fails to
-//! solve or does not close into [`pleochroma::geometry::stone_metrics::SolidStatus::Closed`]
-//! is rejected outright and never scored (see [`candidate::evaluate_candidate`]). A
-//! candidate is also rejected before solving if the proposed angle would change sign
-//! or land on zero, for every tier alike -- a measured hazard: a 0.5-degree edit
-//! crossing the girdle plane can remove a block's own anchor by reclassifying the
-//! tier's crown/pavilion/girdle [`pleochroma::geometry::meet_solver::Block`] entirely
-//! (see [`candidate::candidate_angle_is_safe`]).
+//! Every candidate is solved and meshed before it is scored; one that fails to solve or
+//! does not close into [`pleochroma::geometry::stone_metrics::SolidStatus::Closed`] is
+//! rejected outright (see [`candidate::evaluate_candidate_controlled`]). A candidate is
+//! also rejected before solving if the proposed angle would change sign or land on zero,
+//! for every tier alike: such an edit can remove a block's own anchor by reclassifying the
+//! tier's [`pleochroma::geometry::meet_solver::Block`] (see
+//! [`candidate::candidate_angle_is_safe`]).
 //!
 //! # Manufacturability must not regress
 //!
@@ -213,25 +178,24 @@
 //! `(Design, OptimizeConfig, OptimizeOptions)` input always produces an identical
 //! [`OptimizeResult`], candidates and mast changes included.
 //!
-//! # Why the new knobs are not fields of `OptimizeConfig`
+//! # Why the extended request is not a field of `OptimizeConfig`
 //!
 //! `OptimizeConfig` is `Copy` and is stored in `pleochroma-editor`'s `RetargetMode`
-//! (also `Copy`), and the web crates build [`OptimizeOutcome`] by full struct literal;
-//! the extended request and answer therefore live in their own types
-//! ([`OptimizeOptions`], [`OptimizeResult`]) and the old types keep their shape. Their
-//! behaviour did change with the meet-preserving gate: every accepted state is checked
-//! against the captured network and stamped with provenance. See [`options`]'s module docs.
+//! (also `Copy`), and the web crates build [`OptimizeOutcome`] by full struct literal. The
+//! extended request and answer therefore live in their own types ([`OptimizeOptions`],
+//! [`OptimizeResult`]), and the older types keep their shape. Every accepted state is
+//! checked against the captured network and stamped with provenance. See [`options`]'s
+//! module docs.
 //!
 //! # Coordinate descent stalls on diagonal ridges
 //!
 //! [`search`]'s coordinate descent tries one free tier's angle at a time; optical
 //! objectives (windowing, extinction, tilt brilliance) have ridges where paired
 //! angles (e.g. a crown break and a pavilion main) must move together to hold a
-//! critical-angle relation, and axis-aligned moves stall there. [`polish`] is the
-//! second stage that picks up once the coordinate stage's own step has shrunk small
-//! enough that further halving is exactly this stalling behavior: a deterministic
-//! Nelder-Mead simplex search over the whole free-angle vector at once, which can
-//! move along a ridge no single axis move can climb. See [`search::optimize_design`]'s
+//! critical-angle relation, and axis-aligned moves stall there. [`polish`] is the second
+//! stage: once the coordinate step is small, a deterministic Nelder-Mead simplex over the
+//! whole free-angle vector can move along a ridge that no single-axis move climbs. See
+//! [`search::optimize_design`]'s
 //! own doc comment ("Two stages") and [`polish::run_polish`]'s for the algorithm and
 //! knobs ([`search::OptimizeConfig::polish_start_step_deg`]/
 //! [`search::OptimizeConfig::polish_max_evaluations`]).
@@ -260,9 +224,9 @@
 //!    single-start search does (the `Full` scorings, the `<= before` gate and its
 //!    fallbacks).
 //!
-//! Cost rule: [`effective_starts`] caps the starts at `max_evaluations / (8 * free)` so
-//! each gets four sweeps; a large, slow design therefore degrades to one start on its
-//! own, and `starts <= 1` is bit for bit the single-start search.
+//! Cost rule: [`effective_starts`] caps the starts at the coordinate budget divided by
+//! `8 * free`, so each start gets eight sweeps. A large, slow design therefore degrades to
+//! one start on its own, and `starts <= 1` is bit for bit the single-start search.
 //!
 //! Determinism: per-start budgets, seeds and start points are fixed before a wave
 //! begins, results are collected by start index and merged in that order, so the result
@@ -289,8 +253,9 @@
 //! [`space`] (angle bounds and the hinge geometry), [`guard`] (the girdle/table
 //! guard), [`pool`] (the bounded list of distinct candidates), `multistart` (the generic
 //! multi-start driver; the design-specific engine is `search::multi`), [`preset`] (named
-//! objective weightings), and [`apply`] (turning an outcome into real `History`
-//! edits).
+//! objective weightings), [`constrained`] (the meet-preserving projection), and
+//! [`materialize`] and [`provenance`] (turning changes into `History` edits, and the
+//! operation identity).
 
 mod apply;
 mod candidate;

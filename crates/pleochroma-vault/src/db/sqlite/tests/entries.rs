@@ -71,9 +71,8 @@ fn force_stale_updated_at(db: &Database, entry_id: i64) {
         .unwrap();
 }
 
-/// `rename_diagram_entry` must bump `updated_at` for the "recently edited" sort,
-/// same as `update_diagram_metadata`/
-/// `update_diagram_entry_url` already do.
+/// `rename_diagram_entry` must bump `updated_at` for the "recently edited" sort, as
+/// `update_diagram_metadata` and `update_diagram_entry_url` do.
 #[test]
 fn rename_diagram_entry_bumps_updated_at() {
     let db = Database::new(Some(":memory:")).expect("create in-memory db");
@@ -241,10 +240,8 @@ fn delete_diagram_entry_cascades_to_detail_angles_and_files() {
     let _ = std::fs::remove_file(&path);
 }
 
-/// an import used to save the entry and the detail row in two separate
-/// transactions, so a crash/error between them left an entry with no detail row
-/// (observed on the real catalogue -- entry id 3200). `save_design` must commit both
-/// or neither.
+/// `save_design` commits the entry and its detail row together. Two separate writes would
+/// leave an entry with no detail row if one of them failed.
 #[test]
 fn save_design_saves_entry_and_detail_together() {
     let path = temp_db_path("save_design_atomic");

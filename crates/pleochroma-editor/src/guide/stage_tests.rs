@@ -1,4 +1,4 @@
-//! Tests for the stage model and derivation rules (Lane S1).
+//! Tests for the stage model and its derivation rules.
 
 use super::{
     CameraFocus, GuideCatalog, HIGHLIGHT_TARGETS, LibraryPanel, StageView, opening_stage,

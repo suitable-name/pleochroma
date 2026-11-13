@@ -637,8 +637,10 @@ fn a_page_reads_like_the_cutting_sheet_row() {
     assert_eq!(page.heading, "Step 6 of 8");
     assert_eq!(page.tier_name, "C2", "the heading is the tier's code");
     assert_eq!(
-        page.meet, "Crown Main: Meet C1",
-        "the tier's name leads the instruction (the meets are worked out from the stone)"
+        page.meet, "Crown Main: Set to mast depth 0.5900",
+        "the tier's name leads the instruction (worked out from the stone cut so far: the \
+         template's round masts reach none of the points the earlier tiers left, so it prints \
+         its mast)"
     );
     assert_eq!(page.side, "Crown");
     assert_eq!(page.angle, "34.50°");

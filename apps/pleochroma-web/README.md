@@ -3,16 +3,15 @@
 [![#MadeWithSlint](https://raw.githubusercontent.com/slint-ui/slint/master/logo/MadeWithSlint-logo-light.svg#gh-light-mode-only)](https://slint.dev)
 [![#MadeWithSlint](https://raw.githubusercontent.com/slint-ui/slint/master/logo/MadeWithSlint-logo-dark.svg#gh-dark-mode-only)](https://slint.dev)
 
-The browser build of Pleochroma: open or start a faceting design, edit it in the same
-`EditorSession` the desktop app uses, look at it as a solid, a diagram and a rendered
-stone, and save it back as a download. It is a Slint UI compiled to
-`wasm32-unknown-unknown`, served as static files, with its heavy work (rendering and
-the slow solves) in Web Workers. It has no design library, no remote worker, no Deep
-Solve and no database; a design lives in the browser tab's session and
-nowhere else. Rendering runs on your CPU cores; in Chrome and Edge the GPU joins in for
-Ray-Traced views of every material class and Path-Traced views of isotropic stones such
-as diamond and spinel. Each kernel set is qualified independently, and the page says
-what it renders with.
+The browser build of Pleochroma: open, start or build a faceting design, edit it in the same
+`EditorSession` the desktop app uses, look at it as a solid, a diagram and a rendered stone, and
+save it back as a download. It is a Slint UI compiled to `wasm32-unknown-unknown`, served as static
+files, with its heavy work (rendering and the slow solves) in Web Workers. Designs live in a library
+in the browser's IndexedDB, which autosaves the open design, and the tab keeps its own copy. There is
+no remote worker and no database. Rendering runs on your CPU cores; in Chrome and Edge the GPU joins
+in for Ray-Traced views of every material class and Path-Traced views of isotropic stones such as
+diamond and spinel. Each kernel set is qualified independently, and the page says what it renders
+with.
 
 ## What works
 
@@ -22,15 +21,15 @@ what it renders with.
   layout follows the browser window; the dock is resizable (drag its left edge, and the
   bar above the inspector), and below 900 px it becomes an overlay opened by a "Design"
   button at the main view's bottom-right corner. Every pill and icon button has a
-  tooltip; Help has the **Guided Walkthrough**, a short **User Guide** and the **Keyboard Shortcuts** list (also `?`).
+  tooltip; Help has the **Guided Walkthrough**, the **Tutorials** browser, a short **User Guide** and the
+  **Keyboard Shortcuts** list (also `?`).
 - **Tier table and editing (Design dock).** The desktop's tier table with its columns
   (code in cutting order -- P1, G1, C1, T --, angle, name, indices, meets, mast, solve
   strategy, margin, orbit, Adopt / Pin / Detach / Add Anchor, move, duplicate, delete),
   a "= P1 - 2" badge on an angle that follows a relation (such an angle takes no direct
   edit, drag or nudge; the status line names the tier that drives it), concave tiers
-  listed after the flat ones with a "Tool" badge and their tool line (they can be viewed
-  and selected but not edited yet: every editing action on one says so and changes
-  nothing), manufacturability and unsolved-tier
+  listed after the flat ones with a "Tool" badge and their tool line (edited in the inspector's
+  concave form, and removed or duplicated like flat tiers), manufacturability and unsolved-tier
   tints, a filter box, and a status panel (solving / solved / stale / cannot be solved /
   not a closed solid, plus the warnings, each click-through to its tier). Selecting a row
   selects the tier in the Solid and Diagram views and back; Ctrl / Shift-click
@@ -65,8 +64,8 @@ what it renders with.
   browser's IndexedDB (database version 3, a `color_variants` store; an upgrade keeps the
   designs, thumbnails and everything else) and stay on this browser, so they are not
   shared with the desktop's library; the design file carries its own copy of the variant it
-  uses. The Worker protocol is 31 (the variant is part of the render request). The saved
-  variants cannot be renamed or deleted in the browser yet (the desktop's Color Variants
+  uses. The variant is part of the render request sent to the Worker. The saved
+  variants cannot be renamed or deleted in the browser (the desktop's Color Variants
   section does that). The built-in variants are the same data as the desktop's.
 - **Design settings** (Design menu, or the button in the dock): material, RI override and
   color, index gear (with the remap confirmation), symmetry and mirror, title / header /
@@ -166,6 +165,17 @@ what it renders with.
   lifts every lock. Its place (open, step, collapsed, panel position) survives a reload.
 - **New Design.** The template gallery (Empty plus the nine built-in templates) inside the
   desktop's New Design dialog: preform, index gear, symmetry, mirror and starting material.
+- **Design library.** Design Library... (Alt+L, or File > Save to Library) lists the designs kept in
+  the browser's IndexedDB, with thumbnails, a search bar and filters, the detail pane (open, edit,
+  export, delete) and Import Designs. It is local to this browser and is not the desktop's SQLite
+  catalogue.
+- **Deep Solve** (inspector's Optimize tab). Checks the stone against the printed proportions of
+  its published source, in the solve Worker, and lists the tiers whose mast it moved. It is
+  read-only: each row's **Pin** button fixes that tier to its verified mast.
+- **Cutting Mode** (Design > Cutting Mode..., Alt+C). Shows the cutting instructions one step at a
+  time, with the index wheel and the step strip. Steps can be marked done; the marks are kept in the
+  browser (`localStorage`, else `sessionStorage`, which lasts only until the tab closes).
+- **Tutorials** (Help > Tutorials...). The browser lessons by section, each started as a guide.
 - **Opening files.** File > Open (several files at once) or drag and drop onto the page.
 
   | File | How it is read |
@@ -216,7 +226,7 @@ what it renders with.
   `.psdd` design file, metadata included) for a synchronous restore after a reload; it is
   gone when the tab closes. If the design's attachments do not fit in `sessionStorage`, that
   copy leaves them out (the metadata stays), `pleochroma.design.attachments_dropped.v1`
-  records that, and the restored tab says so. IndexedDB holds the autosaved design with its
+  records that, and the restored tab says so. IndexedDB holds the design library and the autosaved design with its
   attachments, restored when the tab has no copy of its own. An entry an earlier build left
   in `sessionStorage` is moved to `localStorage` on first read, and where `localStorage` is
   blocked the small keys stay in `sessionStorage`. Where no storage is available (some
@@ -262,6 +272,7 @@ browser allows it; browser-reserved combinations are replaced.
 |---|---|
 | Ctrl+O / Ctrl+S / Ctrl+Shift+S | Open / Save design (`.psdd`) / Save `.asc` |
 | Alt+N | New Design (the desktop's Ctrl+N would open a new browser window) |
+| Alt+L / Alt+C | Design Library / Cutting Mode |
 | Ctrl+Z, Ctrl+Y or Ctrl+Shift+Z | Undo, Redo (left to a text field while one has focus) |
 | F5 | Solve (Slint's web backend cancels the browser's reload on it) |
 | Alt+1 / Alt+2 / Alt+3 | Render / Solid / Diagram tab (the desktop's Ctrl+1..3 switch browser tabs) |
@@ -277,8 +288,8 @@ File menu and the tabs.
 
 ## Not in the web app
 
-- **The design library** (catalogue, search, mirror), **remote rendering and the
-  coordinator**, **Deep Solve**, and **the database**. (For Path-Traced, anisotropic and color-zoned
+- **The desktop's SQLite catalogue** (`facet_diagrams.sqlite`, with its mirror), **remote rendering
+  and the coordinator**, and **the database**. (For Path-Traced, anisotropic and color-zoned
   stones render on the CPU only in the browser; the GPU renders isotropic stones in
   Chrome and Edge.)
 - **Batch export, the tilt video and GIF export** and the vault's custom-material store.
@@ -353,12 +364,10 @@ cargo test -p pleochroma-web-core
 with the workspace's `[profile.pleochroma-web-compute]` (opt-level 3, no debug info),
 because an unoptimised Worker traces far too slowly to be usable; the page uses the same
 profile, with only its own crate at opt-level 1 to keep rebuilds short (its hot loops live
-in dependencies that stay at opt-level 3). Measured on the development machine: an edit to
-a Rust file rebuilds the page in about 40 s, an edit to a `.slint` file in 3 to 6 minutes
-(the generated UI code is recompiled whole; opt-level 0 would cut that to about 2 minutes
-but makes the Diagram frame too slow), and a Solid frame takes 4 to 8 ms, a Diagram frame
-8 to 23 ms. The dev `dist/` is large (the page's wasm is about 25 MB, 5 MB gzipped; the
-Worker's 1.5 MB) because dev builds run no `wasm-opt`.
+in dependencies that stay at opt-level 3). An edit to a `.slint` file is the slowest rebuild,
+because the generated UI code is recompiled whole; opt-level 0 would build faster but makes the
+Diagram frame too slow. The dev `dist/` is large (the page's wasm is about 25 MB, 5 MB gzipped; the
+Worker's about 1.5 MB) because dev builds run no `wasm-opt`.
 
 **Release build** (run by the owner, not by this repository's tooling):
 
@@ -410,6 +419,9 @@ winit at start-up. That is expected on every Slint web app, not an error.
 | `src/render/` | the live render loop, its settings panel, PNG export, viewport-size tracking and the GPU gate (`gpu_gate`, with `startup` and `status`: the start-up test, its progress card and the "what renders" sentence) |
 | `src/metrics/` | the metrics HUD's scheduling (`hud`) and the Tilt dialog's sweep (`tilt`), both in the analysis Worker |
 | `src/io/` | picker, drag-and-drop, per-kind loaders, `.hdr` check, downloads |
+| `src/library/`, `src/storage/` | the design library screen (`library`) and the browser storage: IndexedDB (`idb`, `library`, `color_variants`), `session`, `marks` |
+| `src/editor/deep_solve/`, `src/editor/cutting_mode/`, `src/editor/tutorials.rs` | Deep Solve, Cutting Mode and the tutorial browser's state |
+| `ui/library/`, `ui/editor/cutting_mode*.slint`, `ui/editor/deep_solve_model.slint`, `ui/components/tutorial_browser.slint` | the library screen, Cutting Mode, the Deep Solve panel and the tutorial browser |
 | `src/workers/` | the lazily created Worker pool (render Workers and the solve Worker when a design first shows on the Render tab or a solve needs them; the analysis Worker on first use) |
 
 The logic that can be tested natively lives in `crates/pleochroma-web-core` (the Worker

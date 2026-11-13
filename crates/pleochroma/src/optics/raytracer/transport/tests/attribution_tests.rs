@@ -97,25 +97,21 @@ fn attributed_radiance_equals_plain_radiance() {
     }
 }
 
-/// A convex stone never lets a path back in after it left, an entered path always ends for a
-/// reason the loop recorded, and a path that entered almost never loses itself inside.
+/// A convex stone never lets a path back in after it left, and a path that entered almost never
+/// loses itself inside.
 ///
-/// "Almost": a ray inside a convex polyhedron can fail to find an exit only through
-/// floating-point effects at a facet edge. The bounce loop restarts every ray `1e-4` past the
-/// facet it hit, and `intersect_polyhedron_soa` reports a miss when the exit lies within
-/// `1e-4` (`t_far <= 1e-4`) or when the restart point already sits outside a neighbouring
-/// plane (`t_near > t_far`). Both need the hit to fall within about `1e-4` of an edge. Sample
-/// 2015 of this fixture is such a case (measured 2026-10-20; the path's geometry does not
-/// depend on the lighting, and this assertion was never calibrated). The tracer is left
-/// alone: the lost sample is one of ~1e-3 and carries no systematic direction.
+/// "Almost": inside a convex polyhedron a ray can miss its exit only through floating-point
+/// effects at a facet edge. The loop restarts each ray `1e-4` past the facet it hit, and
+/// `intersect_polyhedron_soa` reports a miss when the exit lies within `1e-4` or the restart
+/// point already sits outside a neighbouring plane. Both need the hit to fall within about
+/// `1e-4` of an edge. Sample 2015 of this fixture is such a case; its geometry does not depend
+/// on the lighting.
 ///
-/// Bound, derived: the share of a facet surface within `delta = 1e-4` of an edge is
-/// `(total edge length * 2 * delta) / surface area`. For the round brilliant (about 100
-/// edges of mean length 0.4, surface area about 6 in the stone's units) that is
-/// `40 * 2e-4 / 6 = 1.3e-3` per facet event. Counting every near-edge event as a loss (an
-/// over-estimate, since many restarts still find a plane) and at most 12 events per path
-/// (`max_bounces`), a path is lost with probability at most `12 * 1.3e-3 = 1.6e-2`. The
-/// assertion allows 2 % of the entered paths; the one case seen in 2016 samples is ~0.1 %.
+/// Bound: the share of a facet within `delta = 1e-4` of an edge is
+/// `(total edge length * 2 * delta) / surface area`. For the round brilliant (about 100 edges of
+/// mean length 0.4, surface area about 6) that is `1.3e-3` per facet event. Counting every
+/// near-edge event as a loss (an over-estimate) and at most 12 events per path, a path is lost
+/// with probability at most `1.6e-2`. The assertion allows 2 % of the entered paths.
 #[test]
 fn a_convex_stone_never_reenters_and_rarely_loses_a_path_after_entry() {
     let environment = LightingPreset::IsoHemisphere.studio(1.0, 0.85, 0.95);
@@ -233,10 +229,10 @@ fn russian_roulette_and_scatter_are_reasons() {
     assert!(roulette > 0, "roulette must occur at a 64-bounce budget");
 }
 
-/// How often the spectral hero path's windowed label agrees with the analytical map's
-/// d-line verdict on the identical camera rays (isotropic diamond, polished). The stochastic
-/// Fresnel branch and the hero wavelength explain the disagreement; the plan's target is
-/// 99 %, which no run has yet confirmed, so this prints the rate instead of asserting it.
+/// How often the spectral hero path's windowed label agrees with the analytical map's d-line
+/// verdict on the identical camera rays (isotropic diamond, polished). The stochastic Fresnel
+/// branch and the hero wavelength cause disagreement. The target is 99 %; this test prints the
+/// measured rate instead of asserting it.
 #[test]
 #[ignore = "pinned at Gate A: prints the measured agreement rate"]
 fn windowed_matches_the_analytical_predicate_on_identical_rays() {

@@ -14,9 +14,8 @@ import { Theme } from "../theme.slint";
 // `EditorModel.dock_width`/`inspector_height` (see those call sites for the
 // clamp formulas).
 //
-// Its 6px thickness is a real layout constraint of the enclosing row/column,
-// which is fine: nothing below the window's positioned wrapper reaches the OS
-// window any more -- see `app.slint`'s sizing notes.
+// Its 6px thickness is a layout constraint of the enclosing row or column (see "Sizing
+// notes" in `app.slint`).
 export component SplitHandle inherits Rectangle {
     // `true` for a horizontal bar that resizes something vertically (dragged
     // up/down, cursor `row-resize`); `false` (default) for a vertical bar
@@ -30,10 +29,8 @@ export component SplitHandle inherits Rectangle {
 
     // Only the thickness is pinned (min == max == 6px on the resizing axis);
     // the other axis is left unconstrained so the enclosing layout stretches
-    // the bar across it. NEVER bind the long axis to `100%` here: a percent
-    // binding on a layout child becomes that child's min AND max, tied to the
-    // parent's current size, and the parent row can then never grow again
-    // (the window enlarged but the content stayed put).
+    // the bar across it. Never bind the long axis to `100%`: on a layout child that becomes
+    // both min and max, tied to the parent's current size, so the parent can never grow again.
     min-width: root.vertical ? 0px : 6px;
     max-width: root.vertical ? 1000000px : 6px;
     min-height: root.vertical ? 6px : 0px;

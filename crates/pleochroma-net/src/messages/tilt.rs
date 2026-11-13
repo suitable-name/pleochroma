@@ -7,12 +7,10 @@
 //! [`crate::scene::SceneState`], gated the same way `RenderRequest` is.
 //!
 //! Its own small request/response family rather than a [`super::stream::StreamEvent`]
-//! stream: a `TiltCurvesRequest` produces exactly one reply, 8,688 bytes, at the end
-//! (~1.36s total, measured, to compute the axis profile four times) -- nothing
-//! progressive to report, so `RENDER`'s streaming machinery buys nothing here.
-//! [`TiltCurvesResponse`] mirrors [`crate::library::LibraryResponse`]'s plain-enum shape
-//! instead, and its `Error` case reuses `RenderRequest`'s `ErrorMsg` shape and error
-//! codes rather than a second failure vocabulary.
+//! stream: a `TiltCurvesRequest` produces exactly one reply, 8,688 bytes, at the end, so
+//! there is nothing progressive to stream. [`TiltCurvesResponse`] mirrors
+//! [`crate::library::LibraryResponse`]'s plain-enum shape instead, and its `Error` case
+//! reuses the stream's [`ErrorMsg`] and error codes rather than a second failure vocabulary.
 
 use crate::{messages::ErrorMsg, scene::SceneState};
 use serde::{Deserialize, Serialize};
@@ -148,6 +146,10 @@ mod tests {
             height: 4,
             yaw: 0.4,
             camera_roll: 0.0,
+            stone_shadow: false,
+            tray_reflection: 0.0,
+            hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
+            estimator: pleochroma::optics::raytracer::Estimator::Branching,
             pitch: 0.3,
             distance: 3.0,
             light_yaw: 0.85,

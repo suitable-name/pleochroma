@@ -2,44 +2,34 @@
 //! friends, resolved to a collision-free, filesystem-safe path inside the user's
 //! configured export directory.
 //!
-//! [`TemplateContext`] is assembled once, in `gui::render_export` -- the one place with
-//! the selected diagram, resolved material, and export request all in scope -- and
-//! handed down fully resolved.
+//! [`TemplateContext`] is built in `gui::render::render_export` (its `queue` and `wiring`
+//! submodules), which has the selected design, material and export request, and passed in
+//! fully resolved.
 //!
-//! # Threat model: `{design}`/`{designer}` come from a scraped catalogue
+//! # Untrusted design names
 //!
-//! `{design}`/`{designer}` come straight from `pleochroma_vault`'s SQLite-backed
-//! catalogue, built by scraping third-party web pages -- nothing before this module has
-//! validated that a design title can't contain a `/`, a trailing dot, a reserved
-//! Windows device name, or literal `..`. [`sanitize_filename`] closes that risk for the
-//! whole rendered filename in one pass, not per-variable, so no substitution can slip
-//! past it.
+//! `{design}` and `{designer}` come from a catalogue built by scraping web pages, so they are
+//! not validated. A title may contain `/`, a trailing dot, a reserved Windows name or `..`.
+//! [`sanitize_filename`] runs once over the whole rendered name, so no substitution bypasses it.
 //!
-//! # Unknown/malformed variables
+//! # Unknown variables
 //!
-//! `{spp}` misspelled as `{sp}`, or a stray `{` with no matching `}`: this module never
-//! rejects a template outright. An unrecognised `{name}` is emitted literally, braces
-//! included, so a typo stays visible instead of silently vanishing -- see [`render`].
+//! Templates are never rejected. An unrecognised `{name}`, or an unmatched `{`, is emitted
+//! literally so a typo stays visible; see [`render`].
 
 use std::{
     path::{Path, PathBuf},
     time::SystemTime,
 };
 
-/// The default filename template. `{timestamp}` is deliberately last: it's the one
-/// variable this module can still guarantee unique on its own, so keeping it at the end
-/// means the uniqueness guarantee survives even if a user trims the template down. See
-/// [`unique_path`] for the collision handling that covers a template that drops
-/// `{timestamp}` entirely.
+/// The default filename template. `{timestamp}` comes last so names stay unique when a user
+/// trims the template. [`unique_path`] handles templates that drop it.
 pub const DEFAULT_TEMPLATE: &str = "gem_export_{material}_{width}x{height}_{spp}spp_{timestamp}";
 
-/// Every value a filename template may reference, gathered once per export (or once
-/// per preset in a fan-out export) by the one caller with all of it in scope:
-/// `gui::render_export`.
+/// The values a filename template may reference, gathered once per export (or per preset in a
+/// fan-out export).
 ///
-/// Every `String` field here is used RAW (not pre-sanitised) -- [`resolve_export_path`]
-/// sanitises the fully-rendered filename in one pass, so callers don't need to think
-/// about escaping at all.
+/// String fields are used raw; [`resolve_export_path`] sanitises the rendered name.
 #[derive(Debug, Clone)]
 pub struct TemplateContext {
     /// The selected design's title (`DiagramDetailData::title` / `{design}`). Empty
@@ -65,15 +55,12 @@ pub struct TemplateContext {
     pub bounces: u32,
     /// The export's color-space label (`{colorspace}`) -- e.g. "sRGB", "Display P3".
     pub colorspace: String,
-    /// The lighting preset's name being rendered THIS file (`{preset}`) -- empty for
-    /// the base current-view render in a fan-out export, the preset's own name for
-    /// each additional one.
+    /// The lighting preset of this file (`{preset}`). Empty for the base render of a fan-out
+    /// export.
     pub preset: String,
     /// The lighting rig label actually in effect for this render (`{lighting}`).
     pub lighting: String,
-    /// Camera yaw, in DEGREES (`{yaw}`) -- converted from `SceneSnapshot::yaw`'s
-    /// radians at the call site: a filename is a human-facing surface, and nobody
-    /// reads radians off one.
+    /// Camera yaw in degrees (`{yaw}`), converted from radians by the caller.
     pub yaw_deg: f32,
     /// Camera pitch in degrees.
     pub pitch_deg: f32,
@@ -120,9 +107,10 @@ fn substitute(name: &str, ctx: &TemplateContext, now: SystemTime) -> Option<Stri
     })
 }
 
-/// Substitutes every `{variable}` in `template` against `ctx`/`now`, leaving anything
-/// unrecognised -- a misspelled variable, or a stray `{` with no matching `}` --
-/// exactly as written, so a typo stays visible rather than vanishing.
+/// Substitutes every `{variable}` in `template` against `ctx`/`now`.
+///
+/// Anything unrecognised -- a misspelled variable, or a stray `{` with no matching `}` --
+/// is left exactly as written, so a typo stays visible rather than vanishing.
 ///
 /// `now` is threaded in as a parameter rather than calling `SystemTime::now()` itself
 /// so `{date}`/`{time}`/`{timestamp}` are unit-testable against a known instant.
@@ -170,14 +158,11 @@ const RESERVED_WINDOWS_NAMES: &[&str] = &[
     "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
 ];
 
-/// Sanitises a fully-rendered filename (stem, no extension yet) into something safe to
-/// create on Windows -- runs on the whole rendered string in one pass rather than
-/// per-variable.
+/// Makes a rendered filename stem (no extension yet) safe to create on Windows. Runs once over
+/// the whole name.
 ///
-/// Also makes a `..`-style directory-traversal attempt structurally impossible: every
-/// path separator (`/` and `\`) is replaced with `_`, so the result can never contain
-/// more than one path component. [`resolve_export_path`] still independently asserts
-/// the final joined path stays inside the export directory.
+/// Every path separator becomes `_`, so the result has one path component and cannot escape
+/// the export directory. [`resolve_export_path`] asserts this again.
 fn sanitize_filename(raw: &str) -> String {
     let mut cleaned: String = raw
         .chars()
@@ -244,33 +229,24 @@ fn unique_path(dir: &Path, filename: &str) -> PathBuf {
     candidate
 }
 
-/// Renders `template` against `ctx`, sanitises it and appends `.png` if missing: the
-/// file name [`resolve_export_path`] starts from, without a folder or a uniqueness check.
+/// Renders `template` against `ctx`, sanitises it and appends `.png`: the name
+/// [`resolve_export_path`] starts from, without a folder or uniqueness check.
 ///
-/// The render queue uses this to name a job's picture when the job is added, and then
-/// reserves the name itself against the disk and the other queued jobs.
+/// The render queue uses it to name a job, then reserves the name against the disk and other jobs.
 #[must_use]
 pub fn resolve_export_name(template: &str, ctx: &TemplateContext) -> String {
     let rendered = render(template, ctx, SystemTime::now());
     ensure_png_extension(&sanitize_filename(&rendered))
 }
 
-/// Renders `template` against `ctx`, sanitises it, appends `.png` if missing, and
-/// resolves a collision-free path inside `export_dir`.
-///
-/// # The directory-escape assertion
-///
-/// [`sanitize_filename`] already makes an escape structurally impossible, but this
-/// asserts it anyway (`dir.join(name)`'s parent must be exactly `export_dir`, `name`
-/// must not be `.`/`..`) as cheap defense-in-depth against a future edit to
-/// `sanitize_filename` reopening the escape. A real `assert!`, not `debug_assert!`,
-/// since release builds are exactly where a scraped-catalogue title is most likely to
-/// be weird.
+/// Renders `template`, sanitises it, appends `.png` and resolves a collision-free path inside
+/// `export_dir`.
 ///
 /// # Panics
 ///
-/// Panics if the resolved path would not live directly inside `export_dir`. Should be
-/// unreachable given [`sanitize_filename`]'s guarantee.
+/// Panics if the path would not sit directly inside `export_dir`. [`sanitize_filename`] makes
+/// this unreachable. The check is a real `assert!` in every build, since release builds are
+/// where an odd catalogue title is most likely.
 #[must_use]
 pub fn resolve_export_path(export_dir: &Path, template: &str, ctx: &TemplateContext) -> PathBuf {
     let named = resolve_export_name(template, ctx);
@@ -295,12 +271,12 @@ pub fn resolve_export_path(export_dir: &Path, template: &str, ctx: &TemplateCont
     resolved
 }
 
-/// Converts a Unix timestamp (whole seconds since the epoch, UTC) into
-/// `(year, month, day, hour, minute, second)` without pulling in a date/time crate
-/// just for `{date}`/`{time}`. Proleptic Gregorian, based on Howard Hinnant's
-/// public-domain `civil_from_days` algorithm
-/// (<http://howardhinnant.github.io/date_algorithms.html>), pinned by this function's
-/// tests against several known dates including the 1970 epoch and a Feb-29 leap day.
+/// Converts Unix seconds (UTC) into `(year, month, day, hour, minute, second)` without a date
+/// crate.
+///
+/// Proleptic Gregorian, from Howard Hinnant's public-domain `civil_from_days`
+/// (<http://howardhinnant.github.io/date_algorithms.html>). The tests cover the epoch and a leap
+/// day.
 #[expect(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,

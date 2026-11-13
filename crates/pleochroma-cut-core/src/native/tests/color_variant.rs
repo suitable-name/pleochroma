@@ -1,6 +1,5 @@
-//! A design's color variant (`MaterialSelection::color_variant_override`) in the `.psdd` file:
-//! the `[material.color_variant]` table, the legacy fallback triple written next to it, and the
-//! unchanged read of a file without one.
+//! A design's color variant in the `.psdd` file: the `[material.color_variant]` table and the
+//! legacy fallback triple written next to it.
 
 use super::fixtures::simple_design;
 use crate::{

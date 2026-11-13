@@ -1,11 +1,11 @@
 //! The model-level geometry every shaped stage shares.
 //!
 //! Deriving the halfspaces, the non-box planes, the solid's volume and its
-//! bounding box costs a vertex enumeration of the whole rough (about a tenth
-//! of a second for a pebble). [`ShapedCtx`] does it once per plan and is passed
-//! by reference to the grid, the DP, the layout builder, the uniform pass and
-//! the refinement. For a rough with a non-convex mesh it also carries the mesh, which each
-//! of them consults before accepting a stone.
+//! bounding box takes a vertex enumeration of the whole rough. [`ShapedCtx`]
+//! does it once per plan and is passed by reference to the grid, the DP, the
+//! layout builder, the uniform pass and the refinement. For a rough with a
+//! non-convex mesh it also carries the mesh, which each of them consults before
+//! accepting a stone.
 
 use std::sync::Arc;
 

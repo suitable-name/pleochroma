@@ -105,22 +105,17 @@ impl From<StepSeriesError> for String {
 
 /// The "Generate steps" form's parsing half.
 ///
-/// Everything the form needs turned into real
-/// values BEFORE `ConstraintTier::step_series` can be called, except the indices list,
-/// which the caller parses separately via [`super::parse_index_list`] (that parse also
-/// needs the design's own `gear_teeth_abs`, not available here). An empty anchor field
-/// means [`MeetConstraint::MeetExisting`] (the same "blank means use whatever's already
-/// anchored" convention -- the caller is relying on an anchor elsewhere in the design); a
-/// non-empty one is parsed and pinned via [`MeetConstraint::ScaleReference`].
+/// Turns the form's text into the values `ConstraintTier::step_series` needs. The caller
+/// parses the indices list separately with [`super::parse_index_list`], which also needs the
+/// design's `gear_teeth_abs`. An empty anchor field means [`MeetConstraint::MeetExisting`]
+/// (the caller relies on an anchor elsewhere in the design); a non-empty one is pinned via
+/// [`MeetConstraint::ScaleReference`].
 ///
-/// The ladder it describes must be one a cutter can actually cut: `count` is from 1 to
+/// The ladder must be one a cutter can cut: `count` is from 1 to
 /// [`ConstraintTier::MAX_STEP_SERIES`], and every generated angle (`start_angle` plus
-/// `n * angle_step`, the way `ConstraintTier::step_series` computes it) has a magnitude
-/// above 0 and at most 90 degrees and stays on the start angle's side of the girdle --
-/// crown (positive) or pavilion (negative), never across.
-///
-/// Moved here from the desktop's `tier_actions/tier_generation.rs` so the web
-/// app's step generator parses identically.
+/// `n * angle_step`, as `ConstraintTier::step_series` computes it) has a magnitude above 0
+/// and at most 90 degrees, on the start angle's side of the girdle: crown (positive) or
+/// pavilion (negative), never across.
 ///
 /// # Errors
 ///

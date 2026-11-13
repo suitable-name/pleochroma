@@ -41,12 +41,12 @@ mod reference_tests;
 /// as a parameter so a caller who disagrees can override it.
 pub const DEFAULT_MIN_FACET_AREA_FRACTION_OF_W2: f64 = 1e-4;
 
-/// Runs all five checks over `design`'s current authored state, then (only when it
-/// has concave tiers) [`check_concave_tools`].
+/// Runs every check over `design`'s current authored state. The concave-tool check
+/// ([`check_concave_tools`]) runs only when the design has concave tiers.
 ///
 /// Uses `solved` (an already-[`Design::solve`]'d, or [`Design::resolve_dirty`]'d,
 /// mast list -- see this module's doc comment for why a second solve is not
-/// forced here) for the two checks that need real geometry.
+/// forced here) for the checks that need real geometry.
 ///
 /// `min_facet_area_fraction_of_w2` is [`check_undersized_facets`]'s threshold,
 /// expressed as a fraction of the solid's measured width squared -- pass
@@ -87,9 +87,8 @@ pub fn check_manufacturability(
 /// is [`SolidStatus::Closed`], and `metrics` is `measure_solid` of those same planes (only
 /// read when `mesh` is `Some`).
 ///
-/// The optimiser and the AI environment already hold both for every candidate they
-/// score; rebuilding them here was 2 of the 5 plane-list/mesh/measure passes per
-/// evaluation. The warnings are bit for bit the wrapper's, which calls this.
+/// Lets a caller that already holds both, such as the optimiser, skip rebuilding them.
+/// The warnings are the same as [`check_manufacturability`]'s.
 ///
 /// # Panics
 ///
@@ -142,32 +141,23 @@ pub fn check_manufacturability_with_geometry(
     warnings
 }
 
-/// Cumulative facet-plane count contributed by `schedule.tiers[0..=i]`, for every
-/// `i` -- i.e. `boundaries[i]` is how many facet planes
-/// `StandardGemCuts::from_asc_schedule(schedule)` places at or before tier `i`'s
-/// own contribution, in [`Design::planes`]'s combined list (offset by the
-/// preform's own plane count, which the caller adds).
+/// Cumulative facet-plane count per tier prefix.
 ///
-/// # Why this asks the production plane builder instead of re-deriving plane counts
+/// `boundaries[i]` covers `schedule.tiers[0..=i]`: how many facet planes
+/// `StandardGemCuts::from_asc_schedule` places at or before tier `i`, in
+/// [`Design::planes`]'s combined list. The caller adds the
+/// preform's own plane count.
 ///
-/// `StandardGemCuts::from_asc_schedule` deduplicates near-identical planes (two
-/// `.asc` tier rows occasionally produce the exact same half-space), so a tier's
-/// contribution is not always exactly `indices.len().max(1)`. Dedup only ever
-/// *drops* an element based on what came before it, so the count after tier `i` is
-/// the number of planes kept among the first `i + 1` tiers' planes in one pass over
-/// the whole schedule ([`StandardGemCuts::asc_tier_plane_boundaries`], which shares
-/// the dedup rule with `from_asc_schedule` rather than copying it). It used to build
-/// one prefix schedule per tier (O(n^2) tier clones, 5 356 for a 103-tier design),
-/// which the 12-tier interactive optimiser case, at 200 evaluations a second and a
-/// half, could not call negligible. The prefix schedules ran with a reference angle
-/// of `0.0`, and so does the single pass: the figure is unchanged bit for bit.
+/// The count comes from the production plane builder rather than a re-derivation, because
+/// it deduplicates near-identical planes: a tier does not always contribute
+/// `indices.len().max(1)` planes. Dedup only drops an element based on earlier ones, so one
+/// pass over the schedule gives every prefix count
+/// ([`StandardGemCuts::asc_tier_plane_boundaries`], which shares the dedup rule). The pass
+/// uses reference angle `0.0`.
 ///
-/// `pub`, not re-exported crate-wide, since this `mesh_checks` module is
-/// itself private: [`crate::design::Design::tier_for_plane_index`] reaches
-/// this via `crate::manufacturability`'s own `pub(crate)` re-export, turning
-/// an escaping [`SolidStatus::Unbounded`] plane index into a tier index
-/// without re-deriving this same offset itself; nothing outside this crate
-/// needs the raw boundaries directly, only that per-index lookup.
+/// `pub`, not re-exported crate-wide, since this `mesh_checks` module is itself private:
+/// [`crate::design::Design::tier_for_plane_index`] reaches it through the `pub(crate)`
+/// re-export in this module's parent.
 ///
 /// [`StandardGemCuts::asc_tier_plane_boundaries`]: pleochroma::geometry::cuts::StandardGemCuts::asc_tier_plane_boundaries
 pub fn facet_plane_boundaries(schedule: &pleochroma_formats::asc::AscSchedule) -> Vec<usize> {
@@ -271,11 +261,9 @@ const OPPOSITE_FACET_COS: f64 = -0.9;
 /// stroke, which leaves the stone there by design.
 const STROKE_END_FACET_COS: f64 = 0.5;
 
-/// Polygon sides for the overlap test's tool tessellation. Coarse on purpose: the
-/// test runs once per pair of nearby tools, and an octagon's equal-area radius
-/// keeps its overlap estimate within the noise of a threshold that is already a
-/// graze. (A ball is always its 320-face icosphere, whatever this says; the pairs it
-/// takes part in are kept cheap by the bounding-box test instead.)
+/// Polygon sides for the overlap test's tool tessellation. Coarse on purpose: the test
+/// runs for every nearby pair of tools. A ball always uses its 320-face icosphere, whatever
+/// this says, and the bounding-box test keeps its pairs cheap.
 const OVERLAP_SEGMENTS: usize = 8;
 
 /// A tool that touches the stone's surface with less than this fraction of the stone's
@@ -335,7 +323,7 @@ fn broken_through_facet(
 ///
 /// Empty for a design without concave tiers, and also when the tiers cannot be
 /// resolved (an invalid tier is reported by validation, not here), so planar
-/// manufacturability output never changes. See [`concave_tool_warnings`] for what each warning means.
+/// manufacturability output never changes. See [`concave_tool_warnings`] for the warnings.
 #[must_use]
 pub fn check_concave_tools(
     design: &Design,
@@ -349,12 +337,9 @@ pub fn check_concave_tools(
         return Vec::new();
     };
     let preform_len = design.preform.planes().len();
-    // The tier table asks on every refresh, and the warnings cost many mesh builds, so
-    // an unchanged stone (same planes, tools and threshold) is answered from a small
-    // cache. It is shared by every thread: a worker that computed the warnings for a
-    // frame leaves them for the next caller of the same stone, whichever thread that is.
-    // The key covers every input the warnings read, and a hit compares all of them, not just
-    // their hash.
+    // The warnings cost many mesh builds, and the tier table asks on every refresh, so an
+    // unchanged stone is answered from a small shared cache. The key holds every input the
+    // warnings read, and a hit compares all of them, not just the hash.
     let key = ConcaveWarningsKey::new(
         &planes,
         preform_len,
@@ -419,14 +404,11 @@ const CONCAVE_WARNINGS_CACHE_LEN: usize = 4;
 static CONCAVE_WARNINGS_CACHE: Mutex<Vec<(ConcaveWarningsKey, Vec<ManufacturabilityWarning>)>> =
     Mutex::new(Vec::new());
 
-/// Everything [`concave_tool_warnings`] reads, as the exact bits of the planes and of every
-/// tool, the placements, the preform's plane count and the area threshold, plus a 64-bit hash
-/// of them.
+/// Everything [`concave_tool_warnings`] reads, as exact bits, plus a 64-bit hash of them.
 ///
-/// The hash is the quick test and the inputs the final one: two keys are equal only when
-/// every input is, so a hash collision cannot hand one stone another's warnings. The key is
-/// a few thousand words for a design of some hundred planes, and a cache of four keeps that
-/// small. `DefaultHasher::new()` has fixed keys, so equal inputs always give equal hashes.
+/// The hash is the quick test; equality compares every input, so a hash collision cannot
+/// hand one stone another's warnings. `DefaultHasher::new()` uses fixed keys, so equal
+/// inputs always hash equally.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ConcaveWarningsKey {
     hash: u64,
@@ -478,7 +460,7 @@ impl ConcaveWarningsKey {
     }
 }
 
-/// The concave-tool warnings for `tools` carved from the flat stone `planes` (plan §9.1).
+/// The concave-tool warnings for `tools` carved from the flat stone `planes`.
 ///
 /// The order is fixed: per tool in primitive order (`ToolMissesStone`, or
 /// `ToolEnclosed`, or else `ToolBreaksThrough`, `ToolRemovesMeet` per vertex,
@@ -505,11 +487,9 @@ impl ConcaveWarningsKey {
 ///
 /// # Cost
 ///
-/// A plane-arrangement mesh is cubic in its plane count, so each mesh the check builds
-/// leaves out the planes that cannot matter ([`super::tool_cull`]): the stone planes a tool
-/// lies wholly inside, and the tool planes the stone lies wholly inside. A tool wholly beyond
-/// a stone plane, and a pair of tools whose boxes are separated, need no mesh at all. None
-/// of this changes an answer; it only skips work.
+/// A plane-arrangement mesh is cubic in its plane count, so each mesh leaves out the planes
+/// that cannot change it ([`super::tool_cull`]). A tool wholly beyond a stone plane, or a
+/// pair of tools with separated boxes, needs no mesh at all. None of this changes an answer.
 #[must_use]
 pub fn concave_tool_warnings(
     planes: &[(DVec3, f64)],

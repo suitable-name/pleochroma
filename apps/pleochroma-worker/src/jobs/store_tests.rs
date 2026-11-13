@@ -33,6 +33,10 @@ fn scene() -> SceneState {
         height: 16,
         yaw: 0.4,
         camera_roll: 0.0,
+        stone_shadow: false,
+        tray_reflection: 0.0,
+        hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
+        estimator: pleochroma::optics::raytracer::Estimator::Branching,
         pitch: 0.3,
         distance: 3.0,
         light_yaw: 0.85,
@@ -467,15 +471,14 @@ fn the_state_file_is_written_as_format_two_and_reads_format_one() {
     assert!(state_from_text(&value.to_string()).is_none());
 }
 
-/// A store written under the card rule (state format 1, a job file without the backdrop
-/// marker holding the old White card level 8.0) replays as the White tray of the file's own
-/// preset and pose, not as an 8.0 emitter.
+/// A format-1 store (a job file without the backdrop marker, holding the White card level 8.0)
+/// reads back as the White tray of the file's own preset and pose, not as an 8.0 emitter.
 #[test]
 fn a_format_one_store_converts_its_card_level_to_the_tray_on_read() {
     let (store, dir) = open("legacy-card", Limits::default());
     let info = store.submit("alice", &submit(7), NOW).unwrap();
     drop(store);
-    // Rewrite both files the way the previous build wrote them.
+    // Rewrite both files in the format 1 layout.
     let job_path = dir.join(job_file_name(&info.job_id));
     let mut job: Value = serde_json::from_str(&fs::read_to_string(&job_path).unwrap()).unwrap();
     assert!(

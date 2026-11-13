@@ -1,7 +1,5 @@
-//! The save/delete custom gemstone material callbacks.
-//!
-//! Split out of `gui::mod` purely to keep that module (already sizeable) from growing
-//! further -- same reasoning as `gui::detail`/`gui::search`/`gui::remote`.
+//! The custom-material editor's callbacks: the name probe, the dialog's pre-fill from the stored
+//! row, and the save and delete buttons. The save and delete logic is in `save`.
 
 mod crystal_axis;
 mod curves;
@@ -42,17 +40,13 @@ use save::{
     apply_custom_material_save, built_in_name_collision, restore_trace,
 };
 
-/// Wires up the save/delete custom gemstone material callbacks. Split out of
-/// `run_gui` purely to keep that function under clippy's function-length lint.
-/// Answers the material editor's two name-collision questions as the cutter types,
-/// against the same sources the authoritative save-time
-/// checks use: [`built_in_name_collision`] and the live `custom_materials` list.
+/// Answers the material editor's two name-collision questions as the cutter types, against the
+/// same sources as the save-time checks: [`built_in_name_collision`] and the live
+/// `custom_materials` list.
 ///
-/// Lives here rather than in Slint because Slint can neither loop over a list inside
-/// an expression nor test a string for a substring -- and because a second
-/// implementation of "does this name already exist" would be free to drift from the
-/// real one. Comparison is case-insensitive, matching `built_in_name_collision`'s
-/// own `eq_ignore_ascii_case`, so "quartz" is caught as readily as "Quartz".
+/// Kept in Rust because Slint cannot loop over a list or test a string for a substring, and a
+/// second implementation of the check could drift. Comparison ignores ASCII case, so "quartz"
+/// is caught as readily as "Quartz".
 fn setup_material_name_probe(ui: &MainWindow, render_ctx: &Arc<Mutex<RenderContext>>) {
     let render_ctx_probe = render_ctx.clone();
     let ui_weak = ui.as_weak();
@@ -77,25 +71,18 @@ fn setup_material_name_probe(ui: &MainWindow, render_ctx: &Arc<Mutex<RenderConte
         });
 }
 
-/// Pushes `selected_name`'s own saved values into `ViewportModel.selected_custom_
-/// material_*`, the material editor's pre-fill source.
+/// Pushes `selected_name`'s saved values into `ViewportModel.selected_custom_material_*`, the
+/// material editor's pre-fill source.
 ///
-/// Reads the ORIGINAL `CustomMaterialRow`, not the converted `GemMaterial` the
-/// render context's `custom_materials` list holds: `GemMaterial::new_custom`'s
-/// RI/dispersion/absorption-RGB scalar inputs cannot be recovered from the material
-/// they expand into (see `crystal_optics::save_gem_material`'s own doc comment) --
-/// only the original row still has them. Crystal system/optical character/biaxial
-/// delta are read off [`gem_material_from_row`]'s OWN reconstruction rather than the
-/// row's raw (possibly-`None`) fields directly, so a legacy row with no explicit
-/// crystal-optics columns still pre-fills with `new_custom`'s real inferred values
-/// instead of a wrong "Cubic/Isotropic" default.
+/// Reads the stored `CustomMaterialRow`, not the `GemMaterial` in the render context: the RI,
+/// dispersion and absorption scalars cannot be recovered from the material they expand into
+/// (see `crystal_optics::save_gem_material`). Crystal system, optical character and biaxial
+/// delta come from [`gem_material_from_row`], so a row without them pre-fills the inferred
+/// values.
 ///
-/// Sets `selected_custom_material_valid` false -- leaving every other property at
-/// whatever it last was -- for a built-in selection, or a name no longer present
-/// (e.g. deleted out from under an open combo): there is nothing honest to pre-fill
-/// from either case, and `material_editor_dialog.slint`
-/// must gate its own one-time pre-fill assignment on this flag, never assign from a
-/// stale previous value while it reads `false`.
+/// Sets `selected_custom_material_valid` to false for a built-in selection or a name that is
+/// not stored. `material_editor_dialog.slint` gates its one-time pre-fill on that flag and must
+/// never assign from a stale value while it is false.
 fn push_selected_custom_material_fields(
     ui: &MainWindow,
     db: &Arc<Mutex<Database>>,
@@ -143,13 +130,9 @@ fn push_selected_custom_material_fields(
     model.set_selected_custom_material_biaxial_delta_beta_alpha(
         material.biaxial_delta_beta_alpha.unwrap_or(0.0),
     );
-    // Reverse lookup against the SAME preset table `apply_custom_material_save`
-    // resolves an index into -- `CUSTOM_KEEP_COLOR_INDEX` when the row's color
-    // matches none of the nine fixed presets, so `material_editor_dialog.slint`'s
-    // `init` can select "Custom (keep)" instead of silently defaulting to index 0
-    // ("Clear"), which is what used to flatten a re-saved colored custom material
-    // to colorless the moment its RI was merely tweaked (this module's own doc
-    // comment).
+    // Reverse lookup in the preset table `apply_custom_material_save` resolves an index from.
+    // `CUSTOM_KEEP_COLOR_INDEX` when the row's color matches none of the nine fixed presets, so
+    // the dialog selects "Custom (keep)" rather than defaulting to "Clear".
     // The dialog's swatch row mirrors the FANTASY payload: a physics row's top-level color is
     // only the older-build fallback, so the stored `ColorMode`'s own fantasy color is used.
     let mode = row
@@ -225,10 +208,9 @@ fn setup_selected_material_prefill_callback(ui: &MainWindow, db: &Arc<Mutex<Data
         });
 }
 
-/// The success half of `on_save_custom_material`'s result handling: refreshing the
-/// material combo/crystal-axis availability, syncing the viewport material selection when
-/// the save also applied, and the resulting toast. Split out of
-/// [`setup_custom_material_callbacks`] purely to keep that function under clippy's
+/// The success half of the save callback's result handling: refreshes the material combo and
+/// crystal-axis availability, syncs the viewport selection when the save also applied, and
+/// shows the toast. Kept out of [`setup_custom_material_callbacks`] to stay under clippy's
 /// function-length lint.
 fn handle_saved_custom_material(
     ui: &MainWindow,
@@ -263,9 +245,8 @@ fn handle_saved_custom_material(
         }
         !busy
     };
-    // This toast carries no biaxial-vs-GPU caveat: `gpu_supported()` is
-    // unconditionally `true` since the `BiaxialIndicatrix` WGSL port (see its own doc
-    // comment), so a biaxial custom material renders on the GPU like any other.
+    // No GPU caveat in this toast: a biaxial material stays GPU-supported unless its band count
+    // or zoning declines the GPU path (`gpu_material_decline`).
     // Re-read the selected material's stored values (and its "color data updated" badge): a
     // save that kept the same selection does not fire the selection-changed handler itself.
     ui.global::<ViewportModel>()
@@ -276,9 +257,7 @@ fn handle_saved_custom_material(
         "Saved"
     };
     let suffix = if applied { " and applied" } else { "" };
-    // Confirms the SG the cutter typed actually made it all the way through to the
-    // carat-weight estimate's own side channel -- see `outcome.specific_gravity`'s own
-    // doc comment for why this is read back rather than echoed from the form.
+    // The SG is read back from the carat-weight side channel, so the toast confirms it arrived.
     let sg_suffix = outcome
         .specific_gravity
         .map(|sg| format!(" (SG {sg:.2})"))
@@ -299,6 +278,8 @@ fn handle_saved_custom_material(
     );
 }
 
+/// Wires the material editor's callbacks: name probe, pre-fill, dispersion, inclusions, color
+/// patterns and variants, save and delete.
 #[expect(
     clippy::too_many_lines,
     reason = "wires the save callback and the material editor's other callbacks in one place"

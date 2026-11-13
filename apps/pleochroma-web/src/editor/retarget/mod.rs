@@ -1,14 +1,13 @@
-//! "Retarget for material" (the desktop's `callbacks/retarget_actions` and
-//! `retarget_dialog.slint`): proposes new facet angles for another material and applies
-//! them, together with the material, as one undoable edit.
+//! Retarget for material: proposes new facet angles for another material and applies them,
+//! together with the material, as one undoable edit.
 //!
 //! # Two algorithms
 //!
 //! Shift mode on a design with nothing pinned is angle arithmetic checked against the original
 //! meets, built right here on the page (`pleochroma_editor::retarget::retarget_view`), so
 //! dragging the crown slider is live. A design whose crown or pavilion facets are pinned by a
-//! scale reference (every imported design) cannot take an angle-only change without detaching
-//! meets, so Shift asks the solve Worker for the desktop's own check instead
+//! scale reference cannot take an angle-only change without detaching meets, so Shift asks the
+//! solve Worker for the full check instead
 //! (`SolveRequest::Retarget` in Shift mode): the answer carries the angles AND the masts the
 //! check moved, and Apply commits both together with `retarget::apply_with_anchors`, which
 //! validates the exact state once more. A change the check refuses shows its verdict and
@@ -18,7 +17,7 @@
 //! solve Worker as `SolveRequest::Retarget`, with the same progress and cancel as the Optimize
 //! tab, and its rows come back as plain data that the page turns back into a
 //! `RetargetProposal`. A tier still pinned by a scale reference cannot be searched, so
-//! Optimize mode refuses up front and names the tiers, exactly as the desktop does.
+//! Optimize mode refuses up front and names the tiers.
 //!
 //! # What differs from the desktop
 //!
@@ -205,7 +204,7 @@ fn rebuild(ctx: &Ctx) {
     }
     if !anchored.is_empty() {
         // Pinned facets: an angle-only change would detach their meets and the page has no
-        // way to carry the masts that keep them, so the Worker runs the desktop's check.
+        // way to carry the masts that keep them, so the Worker runs the full check.
         start_search(
             ctx,
             epoch,
@@ -453,9 +452,8 @@ fn close(ctx: &Ctx) {
     }
 }
 
-/// Apply: the angle retarget and the target material together, one undo step -- moving
-/// the angles without the material would leave critical-angle-shifted tiers reading as
-/// windows against the OLD material until the material was applied separately.
+/// Apply: the angle retarget and the target material as one undo step, so no tier is left
+/// reading against the old material.
 fn apply(ctx: &Ctx) {
     let Some(ui) = ctx.ui.upgrade() else {
         return;

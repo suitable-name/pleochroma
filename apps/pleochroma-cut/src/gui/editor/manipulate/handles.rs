@@ -65,9 +65,11 @@ pub(super) fn layout_to_logical(
     }
 }
 
-/// The facet the handles anchor on: the last clicked facet when it belongs to `tier`
-/// and has a centroid, else the tier's first facet that has one (a selection made from
-/// the tier table names no facet).
+/// The facet the handles anchor on: the last clicked facet when it belongs to `tier` and has a
+/// centroid.
+///
+/// Otherwise the tier's first facet that has one (a selection made from the tier table names no
+/// facet).
 pub(super) fn pick_facet(
     remembered: Option<u32>,
     tier: usize,
@@ -86,9 +88,10 @@ pub(super) const fn masts_aligned(tier_count: usize, masts_len: usize) -> bool {
     tier_count == masts_len
 }
 
-/// Whether the facet map and the frame's geometry share one facet-id space. They differ
-/// while a frame is behind the design, and under the Cut slider (the mesh then holds
-/// only the first tiers' planes); the handles hide rather than land on the wrong facet.
+/// Whether the facet map and the frame's geometry share one facet-id space.
+///
+/// They differ while a frame is behind the design, and under the Cut slider (the mesh then holds
+/// only the first tiers' planes). The handles hide rather than land on the wrong facet.
 pub(super) const fn ids_aligned(map_facets: usize, centroid_count: usize) -> bool {
     map_facets == centroid_count
 }
@@ -122,10 +125,11 @@ pub(super) fn hit_kind_without_angle(
     hit_kind(&layout, indexless, p, radius)
 }
 
-/// The relation (as a cutter reads it, `P1 - 2`) the angle of committed tier `tier`
-/// follows, if it follows one -- such a tier has no angle handle. `None` for a free angle,
-/// for the provisional slice tier (it is not in the design yet) and while the editor state
-/// is borrowed.
+/// The relation (as a cutter reads it, `P1 - 2`) that the angle of committed tier `tier`
+/// follows, if any.
+///
+/// Such a tier has no angle handle. `None` for a free angle, for the provisional slice tier (it
+/// is not in the design yet) and while the editor state is borrowed.
 pub(super) fn driven_relation(ctx: &Shared, tier: usize) -> Option<String> {
     ctx.state
         .try_borrow()
@@ -133,10 +137,11 @@ pub(super) fn driven_relation(ctx: &Shared, tier: usize) -> Option<String> {
         .and_then(|st| st.design.relation_text(tier))
 }
 
-/// Whether the handles just landed on a NEW committed selection whose angle follows a
-/// relation -- the moment to say why it has no angle handle (a hidden handle cannot be
-/// hovered to ask). Never for the provisional slice tier and never for a frame that merely
-/// re-places the handles already on screen.
+/// Whether the handles just landed on a new committed selection whose angle follows a relation.
+///
+/// That is the moment to say why it has no angle handle (a hidden handle cannot be hovered to
+/// ask). Never for the provisional slice tier, and never for a frame that merely re-places the
+/// handles already on screen.
 pub(super) fn driven_hint_due(previous: Option<SelectionKey>, now: SelectionKey) -> bool {
     !now.1 && previous != Some(now)
 }
@@ -166,9 +171,10 @@ pub(super) fn aligned_masts(ctx: &Shared, tier_count: usize) -> Option<Vec<Solve
         .map(|(_, masts)| masts.clone())
 }
 
-/// The facet map of `design` against the cached masts, rebuilt only when the design
-/// generation or the solved-masts generation moved since the last call. `None` when the
-/// masts do not describe the design.
+/// The facet map of `design` against the cached masts.
+///
+/// It is rebuilt only when the design generation or the solved-masts generation moved since the
+/// last call. `None` when the masts do not describe the design.
 pub(super) fn facet_map_for(
     ctx: &Shared,
     design_generation: u64,
@@ -207,11 +213,12 @@ fn centroid_of(centroids: &[Option<Vec3>], facet_id: u32) -> Option<Vec3> {
     centroids.get(facet_id as usize).copied().flatten()
 }
 
-/// The point where a provisional tangent plane touches the existing stone. At exact
-/// tangency the provisional facet has no area, so its mesh ring (and centroid) do not
-/// exist yet. The handles still need a stable point on that plane to let the cutter drag
-/// it into the stone. Contact corners are averaged to avoid choosing one arbitrary
-/// vertex when several simplified-ring corners share the supporting plane.
+/// The point where a provisional tangent plane touches the existing stone.
+///
+/// At exact tangency the provisional facet has no area, so its mesh ring (and centroid) do not
+/// exist yet. The handles still need a stable point on that plane to let the cutter drag it into
+/// the stone. Contact corners are averaged, so no single arbitrary vertex is chosen when several
+/// simplified-ring corners share the supporting plane.
 fn tangent_contact_anchor(normal: Vec3, mast: f64, corners: &[Vec3]) -> Option<Vec3> {
     if !mast.is_finite() || !normal.is_finite() || normal.length_squared() < f32::EPSILON {
         return None;
@@ -259,11 +266,12 @@ fn tangent_contact_anchor(normal: Vec3, mast: f64, corners: &[Vec3]) -> Option<V
     anchor.is_finite().then_some(anchor)
 }
 
-/// The handle target on `tier` of `design`, whose facets `map` describes and `geometry`
-/// (the frame on screen) has centroids for: the `remembered` facet when it belongs to
-/// the tier, else the tier's first facet with a centroid. `None` when the map and the
-/// frame hold different facet-id spaces, no facet of the tier is on screen, or a
-/// handle would land behind the camera.
+/// The handle target on `tier` of `design`.
+///
+/// `map` describes the facets, and `geometry` (the frame on screen) has their centroids. The
+/// `remembered` facet is used when it belongs to the tier, else the tier's first facet with a
+/// centroid. `None` when the map and the frame hold different facet-id spaces, no facet of the
+/// tier is on screen, or a handle would land behind the camera.
 pub(super) fn target_for(
     geometry: &FrameGeometry,
     map: &FacetMap,
@@ -331,11 +339,12 @@ pub(super) fn target_for(
     })
 }
 
-/// Works out where the handles go for the current selection and frame, or `None` when
-/// they should be hidden: no selection, no geometry, an unsolved or misaligned design, a
-/// tier with no facet on screen, or a facet behind the camera. In the Diagram view they
-/// sit on one of its panels instead (see `diagram::place`). In Slice mode the only
-/// handles are the provisional tier's.
+/// Works out where the handles go for the current selection and frame.
+///
+/// `None` when they should be hidden: no selection, no geometry, an unsolved or misaligned
+/// design, a tier with no facet on screen, or a facet behind the camera. In the Diagram view
+/// they sit on one of its panels instead (see `diagram::place`). In Slice mode the only handles
+/// are the provisional tier's.
 fn place(ui: &MainWindow, ctx: &Shared) -> Option<Target> {
     let geometry = ctx
         .geometry
@@ -375,10 +384,11 @@ const fn selection_key(target: &Target) -> SelectionKey {
     (target.tier, target.provisional)
 }
 
-/// Whether the handles just landed on a NEW committed selection while "Larger handles" is
-/// on -- the moment to word what the three handles do, because a touch screen or pen has
-/// no hover to show it. Never for the provisional slice tier (its own hint is showing) and
-/// never for a frame that merely re-places the handles already on screen.
+/// Whether the handles just landed on a new committed selection while "Larger handles" is on.
+///
+/// That is the moment to word what the three handles do, because a touch screen or pen has no
+/// hover to show it. Never for the provisional slice tier (its own hint is showing), and never
+/// for a frame that merely re-places the handles already on screen.
 pub(super) fn selection_hint_due(
     large_handles: bool,
     previous: Option<SelectionKey>,
@@ -397,6 +407,7 @@ fn hint_line_is_free(ui: &MainWindow) -> bool {
 }
 
 /// Shows `hint` (the selection hint: what the handles do, or why the angle has none).
+///
 /// Marked as ours (`hover_hint_active`) so hiding the handles, or the pointer touching and
 /// leaving a handle, clears it again.
 fn show_selection_hint(ui: &MainWindow, hint: &str) {
@@ -448,7 +459,8 @@ pub(super) fn refresh_handles(ui: &MainWindow, ctx: &Shared) {
     }
 }
 
-/// The radius, in pick-frame pixels, within which a press grabs a handle tip:
+/// The radius, in pick-frame pixels, within which a press grabs a handle tip.
+///
 /// [`HANDLE_HIT_RADIUS_PX`] at the window's scale factor, times `handle_scale`
 /// (`ManipulateModel.handle_scale`, bigger with the "Larger handles" preference). The
 /// markers are drawn `handle_scale` times larger, so what you see is what you can hit.
@@ -457,6 +469,7 @@ pub(super) const fn hit_radius_px(window_scale: f32, handle_scale: f32) -> f32 {
 }
 
 /// Stores `target` in the session and pushes its logical positions to the model.
+///
 /// `angle_visible` is `false` for a tier whose angle follows a relation: its angle handle
 /// is neither drawn nor grabbable.
 fn show(ui: &MainWindow, target: Target, angle_visible: bool) {

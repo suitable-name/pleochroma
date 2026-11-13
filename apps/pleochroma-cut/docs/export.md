@@ -6,9 +6,13 @@ How `.asc` files move in and out of the local library. For everything else see
 For rendered pictures, the export dialog selects **Path-Traced** or **Ray-Traced**.
 Ray-Traced freezes 1/4/8/16 AA taps and Fire with the job, finishes at that tap count,
 and bypasses denoising; it does not use a progressive sample target. Path-Traced
-keeps its spectral sampling and denoising controls. Frozen Ray-Traced jobs use
-render-job format 2; historical format-1 jobs remain Path-Traced. Remote peers must
-all use protocol 29 to carry this choice. See the
+keeps its spectral sampling and denoising controls. With "Stone Shadow" off and "Tray Reflection" at 0,
+frozen Ray-Traced jobs use format 2 and Path-Traced jobs use format 1. The shadow alone makes a still
+use format 3; any still with "Tray Reflection" above 0 uses format 4, with or without the shadow.
+A stone with color zones makes any Path-Traced job format 5; the zones are saved in the job file.
+A job lit by a turned HDR map (the map rotation above 0, or "Turns with the Camera" on) is format 6, which wins over the others; the rotation is saved in the job file.
+Tilt videos do not show the tray reflection.
+The desktop app and remote workers must all use protocol 42. See the
 [rendering manual](manual/09-rendering-and-export.md) for the approximation's limits.
 
 **Import**: the Import Designs panel has **Choose File...** (one `.psdd`, `.asc`,
@@ -123,10 +127,8 @@ uses (see [remote-rendering.md](remote-rendering.md)'s own "Timeouts and
 Liveness" section): a generous 30s first-event grace for the wait for that
 chunk's very first update (a worker's calibration/warm-up at a high resolution
 with a coarse cadence can legitimately take that long), then a tighter 8s
-steady-state deadline once at least one update has arrived. This prevents a false
-timeout: exporting at 4K with a worker cadence of 20 samples/tick would otherwise
-incorrectly report "worker silent" for a calibration probe that is, in fact,
-still computing its first tick.
+steady-state deadline once at least one update has arrived. This avoids reporting a
+worker as silent while its first calibration tick is still computing.
 
 When a chunk's dispatch does time out (or fails for any other reason) partway
 through, the export does not silently finish without that chunk's remaining

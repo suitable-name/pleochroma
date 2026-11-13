@@ -21,11 +21,9 @@ component HelpNavRow inherits Rectangle {
     // The width the row has to itself (the list's width less its padding and scrollbar).
     in property <length> row_width: 220px;
 
-    // Long chapter titles wrap onto a second line instead of being cut with "...". A layout
-    // does not do height-for-width, so the line count is worked out from the title's real
-    // one-line width (an invisible, non-wrapping twin of the label, which depends on neither
-    // the row nor its width, so there is no binding loop) and the width left beside the
-    // indent. 6 % is allowed for the space a word wrap leaves unused at the end of a line.
+    // Long chapter titles wrap onto a second line. A layout has no height-for-width, so the line
+    // count comes from an invisible one-line twin of the label (it depends on neither the row nor
+    // its width, so there is no binding loop). The 6 % allows for the unused end of a wrapped line.
     property <length> text_font: root.item.level == 0 ? 12px : 11px;
     property <int> text_weight: root.item.level == 0 && root.item.open ? 700 : 400;
     property <length> text_width: max(60px, root.row_width - 8px - root.item.level * 14px - 6px);
@@ -217,9 +215,8 @@ component HelpBlockView inherits VerticalLayout {
     // A table row. Every cell is a Rectangle with no size of its own and a stretch
     // equal to its column's weight, so the cells share the row in that proportion and
     // the columns line up from row to row; the row is as high as its tallest cell.
-    // The text sits in a padded layout (not at a fixed x/y) so its wrapped height reaches
-    // the row: a hand-placed text gave the row no height, and the rows piled up on top of
-    // each other and of the next paragraph.
+    // The text sits in a padded layout, not at a fixed x/y, so its wrapped height sets the row
+    // height.
     if root.block.kind == 5: HorizontalLayout {
         padding-left: root.block.indent * 20px;
 

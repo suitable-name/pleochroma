@@ -1,8 +1,8 @@
-//! The inspector's read-only figures, computed from the last solve: the Tier tab's
-//! "Solved" section, the Preform tab's proportions, verdicts and yield, and the Schedule
-//! tab's cut order. Each is computed only while its tab is showing (a design of a hundred
-//! tiers measures in tens of milliseconds, but nobody needs it hidden), and blank -- never
-//! a stale figure -- when the design does not currently solve.
+//! The inspector's read-only figures, computed from the last solve.
+//!
+//! They are the Tier tab's "Solved" section, the Preform tab's proportions, verdicts and
+//! yield, and the Schedule tab's cut order. Each is computed only while its tab is showing,
+//! and blank -- never a stale figure -- when the design does not currently solve.
 
 use super::PushCtx;
 use crate::{InspectorModel, PreformReadout, ScheduleRow, SolvedInfo, Verdict, VerdictSet};
@@ -111,7 +111,7 @@ fn push_preform(pcx: &PushCtx<'_>, model: &InspectorModel<'_>) {
     let verdicts = (!design.tiers.is_empty())
         .then(|| design.stone_proportions(solved))
         .flatten()
-        .map(|proportions| proportion_verdicts(design, &proportions, pcx.n_d));
+        .map(|proportions| proportion_verdicts(design, solved, &proportions, pcx.n_d));
     model.set_verdicts(verdicts.map_or_else(no_verdicts, |v| VerdictSet {
         table: verdict(&v.table_pct),
         crown_angle: verdict(&v.crown_angle),

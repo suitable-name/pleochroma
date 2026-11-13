@@ -260,8 +260,8 @@ impl SupportWorkspace {
     /// lies in the material. Otherwise the plane of the blocking triangle the pose passes
     /// least far (see `RoughMesh::blocker_rows`, which adds the planes of the same wall
     /// along with it), its outward side kept `inset_mm` clear, is added as a row and the LP
-    /// solved again, at most
-    /// [`MESH_ROUNDS`] times. Rows only shrink the feasible set, so every pose returned is
+    /// solved again, at most [`MESH_ROUNDS`] times. Rows only shrink the feasible set, so every
+    /// pose returned is
     /// verified; the result is conservative near a notch, since a triangle's plane also
     /// forbids the air side far beyond the triangle. `None` when no valid pose is found
     /// (also for a pose with no scale).

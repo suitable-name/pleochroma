@@ -1,22 +1,13 @@
 // ---------------------------------------------------------------------------------
-// Inclusion/subsurface scattering GPU port
-// (optics::raytracer::{henyey_greenstein_phase, sample_henyey_greenstein_direction,
-// maybe_scatter_or_extinguish}) -- ported here (not into `spectral_transport.wgsl` or
-// `transport_functions.wgsl` separately) for the exact same reason `apply_frosted_bounce`
-// lives here: the shipped megakernel and Tier 2's standalone kernels must call the SAME
-// function object, never two texts that could drift (see this file's own header
-// comment).
+// Inclusion and subsurface scattering: optics::raytracer::{henyey_greenstein_phase,
+// sample_henyey_greenstein_direction, maybe_scatter_or_extinguish}. Ported here so the
+// megakernel and the standalone kernels call the same functions (see
+// `03_dispersion_absorption_frosted.wgsl`).
 //
-// `maybe_scatter_or_extinguish` takes the per-channel absorption coefficients
-// (`alphas`) as an explicit `array<f32, 8>` argument rather than recomputing them from
-// band data itself, mirroring `dispersion_evaluate`'s "one shared body, two different
-// binding shapes at the call sites" convention above: the megakernel already computes
-// this exact per-channel array inline (the pre-Task-1 absorption block,
-// `spectral_absorption` + `pleochroic_channel_alpha`), so this function starts from
-// that array rather than re-deriving it -- see `optics::raytracer::maybe_scatter_or_extinguish`'s
-// doc comment for the full estimator derivation (hazards 1-5); this is a line-for-line
-// translation of that function's body, `channel_absorption_alphas`'s work already done
-// by the caller.
+// `maybe_scatter_or_extinguish` takes the per-channel absorption coefficients (`alphas`)
+// as an explicit `array<f32, 8>`, like `dispersion_evaluate`. The caller has already
+// computed them (`spectral_absorption` and `pleochroic_channel_alpha`). The CPU function's
+// doc comment has the estimator derivation. This is a line-for-line translation of its body.
 // ---------------------------------------------------------------------------------
 
 // optics::raytracer::{DISTANCE_SAMPLE_STREAM, PHASE_DIR_U_STREAM, PHASE_DIR_V_STREAM}.
@@ -62,20 +53,16 @@ fn sample_henyey_greenstein_direction(u1: f32, u2: f32, g: f32, forward: vec3<f3
     return normalize_or_zero(dir);
 }
 
-// `simd::exp_poly::exp_lane` -- the scalar reference `exp_f32x8`'s AVX2
-// path is tested bit-identical against (`src/simd/exp_poly.rs`), ported op-for-op
-// (same Cody-Waite range reduction, same `mul_add`/`fma` placement, same polynomial
-// coefficient order) so this and the CPU's `exp_f32x8` agree beyond the intrinsic
-// `exp()`/`f32::exp()` divergence a hardware transcendental unit vs. a software `libm`
-// necessarily has. Used at every WGSL site whose CPU twin calls `exp_f32x8` --
-// Beer-Lambert/extinction transmittance (`maybe_scatter_or_extinguish` below,
-// `nee_contribution_hg_scatter`'s medium transmittance, `apply_absorption`'s twin in
-// `transport_bounce.wgsl`) -- NEVER at a site whose CPU twin genuinely calls
-// `f32::exp()` instead (`spectral_absorption`'s Gaussian band shape, the Planckian
-// `blackbody_spectrum` twin): those stay on the plain `exp()` builtin, matching the CPU
-// op-for-op, and their (small, bounded) ULP gap against `f32::exp()` is a genuine
-// hardware-transcendental-precision fact about this adapter, not a bug this function
-// papers over.
+// `simd::exp_poly::exp_lane`, the scalar reference that `exp_f32x8`'s AVX2 path is tested
+// bit-identical against (`src/simd/exp_poly.rs`). Ported op for op: same Cody-Waite range
+// reduction, same `fma` placement, same polynomial order. GPU and CPU then agree up to the
+// difference between a hardware transcendental unit and `libm`.
+// Used where the CPU twin calls `exp_f32x8`: Beer-Lambert transmittance
+// (`maybe_scatter_or_extinguish` below, the NEE medium transmittance, `apply_absorption`
+// in `transport_bounce/`).
+// NOT used where the CPU calls `f32::exp()`, such as `spectral_absorption`'s Gaussian band
+// shape or the blackbody spectrum. Those stay on the `exp()` builtin, and their small ULP gap
+// against `f32::exp()` is a property of this adapter.
 const EXP_LOG2E: f32 = 1.4426950408889634;
 const EXP_C1: f32 = 0.693359375;
 const EXP_C2: f32 = -2.1219444e-4;
@@ -142,10 +129,8 @@ fn maybe_scatter_or_extinguish(
     let one_minus_u = max(1.0 - dist_rand, 1e-7);
     let t_free = -(log(one_minus_u)) / sigma_t_hero;
 
-    // P1 (absorption path scale): model units -> absorption-length units. See
-    // optics::materials::GemMaterial::absorption_path_scale and the CPU
-    // maybe_scatter_or_extinguish's own doc comment. `path_scale == 1.0` (every
-    // built-in) is an exact no-op.
+    // Model units -> absorption-length units (`GemMaterial::absorption_path_scale`).
+    // `path_scale == 1.0`, every built-in, is an exact no-op.
     let hit_t_scaled = hit_t * path_scale;
 
     var result: ScatterOrExtinguishResult;

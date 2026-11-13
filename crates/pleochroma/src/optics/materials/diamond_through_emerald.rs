@@ -8,10 +8,8 @@ use crate::optics::{
 use glam::Vec3;
 
 impl GemMaterial {
-    /// First quarter of the built-in material table (Diamond through Emerald). Split
-    /// out of `all_materials` purely to keep each part under clippy's function-length
-    /// lint -- this is plain data, not logic, so the split point carries no
-    /// significance.
+    /// The Diamond to Emerald entries of the built-in table, split out of `all_materials` to
+    /// stay under clippy's function-length lint.
     pub(super) fn built_in_materials_diamond_through_emerald() -> Vec<Self> {
         let mut materials = Self::built_in_materials_diamond_and_sapphire();
         materials.extend(Self::built_in_materials_ruby_and_emerald());
@@ -71,8 +69,7 @@ impl GemMaterial {
             // Sellmeier fit (same 1972 paper, "Al2O3: Malitson-e"):
             //   n_e^2 = 1 + 1.5039759*l^2/(l^2-0.0740288^2) + 0.55069141*l^2/(l^2-0.1216529^2)
             //           + 6.5927379*l^2/(l^2-20.072248^2)
-            // giving n_e(D) = 1.760002 against n_o(D) = 1.768076 (an earlier version of this
-            // comment quoted 1.768106, a transcription slip), i.e. n_e - n_o = -0.008074
+            // giving n_e(D) = 1.760002 against n_o(D) = 1.768076, i.e. n_e - n_o = -0.008074
             // at the sodium D line, both indices from the same primary paper. The stored
             // birefringence_delta -0.0081 is that value rounded; the e-ray Sellmeier
             // itself is the `uniaxial_extraordinary_dispersion` below, so n_e - n_o runs
@@ -87,41 +84,17 @@ impl GemMaterial {
                     c: [0.00528, 0.01424, 325.015],
                 },
                 birefringence_delta: -0.0081,
-                // Chromophore: blue sapphire's color comes from a broad Fe2+-Ti4+
-                // intervalence charge-transfer (IVCT) band centred ~580nm (yellow),
-                // absorbing yellow-orange-red and transmitting blue (see e.g. "Fe-Ti
-                // Charge Transfer: The Mechanism Behind Sapphire's Blue," skyjems.ca).
-                // Width (90nm) and amplitude (peak=3.0) tuned for plausible saturation
-                // at a typical internal path length.
+                // Chromophore: blue sapphire's color comes from the Fe2+-Ti4+ intervalence
+                // charge-transfer (IVCT) band, which absorbs yellow to red and transmits blue.
+                // Source: Dubinsky, Stone-Sundberg & Emmett, "A Quantitative Description of the
+                // Causes of Color in Corundum," Gems & Gemology 56(1), 2020, pp. 2-28: the band
+                // peaks at 580 nm for E perp c (o-ray) and at 700 nm for E par c (e-ray).
                 //
-                // PLEOCHROISM: genuine uniaxial `o_ray`/`e_ray` split with a real
-                // ~70nm band-centre shift between the two rays. Source: E.V. Dubinsky, J.
-                // Stone-Sundberg & J.L. Emmett, "A Quantitative Description of the Causes of
-                // Color in Corundum," Gems & Gemology 56(1), Spring 2020, pp. 2-28 (an earlier
-                // version of this comment named a nonexistent paper): "For E-perp-c the [Fe2+-Ti4+ IVCT] band
-                // peaks at 580 nm, while for E-parallel-c the peak is at 700 nm"
-                // (E-perp-c = o-ray, E-parallel-c = e-ray). o-ray amplitude (peak=3.0)
-                // is consistent with the paper's cited E-perp-c cross-section
-                // (1.94e-18 cm^2 +/-25%). e_ray band centre (700nm) is cited; width
-                // (95nm) and amplitude (peak=2.1, figure-read off Emmett et al. Fig.
-                // 10's relative peak heights, the lowest-confidence number here) are
-                // tuned/estimated.
-                //
-                // 2026-10-19 color check (OWNER DECISION: take the measured-shape
-                // refit) REPLACED the single
-                // 580/700 nm wavelength-Gaussians by bounded 3-band energy-Gaussian
-                // fits of the GIA Fe2+-Ti4+ pair cross section (Dubinsky,
-                // Stone-Sundberg & Emmett, Gems & Gemology Spring 2020 [S1];
-                // `data/reference_spectra/gia_v3plus_fe2plus_ti4plus_sigma_5nm.csv`:
-                // 1.98e-18 cm^2 at 580 nm E-perp-c, 1.25e-18 at 700 nm E-parallel-c)
-                // at 10 ppma*cm. Fitted, not tuned. Swatch (7 mm, D65): L*57 C*40
-                // h=283 (x1.2 for L*51); the old data gave L*54 h=275.
-                //
-                // 2026-11-03 (OWNER DECISION: Royal Blue is the default blue) every peak
-                // times 1.25, i.e. the same fit at 12.5 ppma*cm: the medium-dark, vivid royal
-                // blue a fine sapphire is traded as. Swatch (7 mm, D65): L*50 C*44 h=285,
-                // face-up (o-ray) L*39 C*67 h=295. The former 10 ppma*cm strength is the
-                // Medium Blue color variant (`sapphire.medium_blue`).
+                // Three energy Gaussians per ray, fitted to the GIA Fe2+-Ti4+ cross sections
+                // (`data/reference_spectra/gia_v3plus_fe2plus_ti4plus_sigma_5nm.csv`) at
+                // 12.5 ppma*cm: the medium-dark, vivid royal blue of a fine sapphire. The
+                // 10 ppma*cm strength is the Medium Blue variant (`sapphire.medium_blue`).
+                // Swatch (7 mm, D65): L*50 C*44 h 285; o-ray L*39 C*67 h 295.
                 // Calibration record: docs/chromophores/calibration-records.md#sapphire
                 absorption: AbsorptionTensor::uniaxial(
                     vec![
@@ -185,56 +158,18 @@ impl GemMaterial {
                 // and Cr:Al2O3 spectroscopy papers citing peaks at ~410-413nm/~550nm.
                 // This double-window structure is what makes ruby shift redder under
                 // incandescent light than daylight (see
-                // `raytracer_tests::ruby_shifts_redder_under_incandescent_than_d65`).
-                // Widths (30nm/45nm) and peaks (3.0/2.5) tuned; band positions cited.
+                // `illuminant_color_shift::ruby_shifts_redder_under_incandescent_than_d65`).
                 //
-                // PLEOCHROISM: uniaxial `o_ray`/`e_ray` split. Source: J.A. Mandarino,
-                // American Mineralogist 44, 961 (1959), Table 5: k_omega (o-ray) maxes
-                // near 560nm, k_epsilon (e-ray) near 550nm; raw peak ratios
-                // omega:epsilon range 1.37 (pink) to 2.25 (deep red), with the two
-                // rays near-equal around 440nm. o-ray yellow-green centre set to 556nm
-                // (close to Mandarino's ~560nm); e_ray centres sit blueward of the
-                // o-ray's (400nm/550nm), matching k_epsilon's blueward shift; e_ray
-                // widths reuse the o-ray's own (30nm/45nm, no separate figure given).
-                // Amplitude ratio: 1.8x per band (violet band kept near-equal between
-                // rays per Mandarino's "near-equal at 440nm"; yellow-green carries the
-                // bulk of the dichroic ratio) -- a mid-range, tuned simplification of
-                // Mandarino's cited 1.37-2.9 span.
+                // Pleochroism: o-ray maxima near 560 nm and e-ray near 550 nm (Mandarino,
+                // American Mineralogist 44, 961, 1959, Table 5).
                 //
-                // 2026-10-19 color check REPLACED
-                // the hand-tuned 410/556 nm (o) and 400/550 nm (e) Gaussians (density
-                // of a 0.8 mm slice, window ratio A(472)/A(556) = 0.32 vs 0.075
-                // measured: pink-mauve, L*57 C*30 h=340) by bounded 3-band
-                // energy-Gaussian fits to the GIA sample 1110 Cr3+ cross sections
-                // (Dubinsky, Stone-Sundberg & Emmett, Gems & Gemology Spring 2020
-                // [S1]; `data/reference_spectra/gia_cr3plus_sample1110_sigma.csv`),
-                // scaled to 800 ppma*cm Cr (e.g. ~900 ppma over the 8.8 mm face-up
-                // path; OWNER DECISION 2026-10-19; 1 ppma = 1.178e17 cm^-3 [S1]).
-                // Fitted, not tuned; the DENSITY (800 ppma*cm) is the owner's choice
-                // (600 ppma*cm would be these peaks x 0.75). The o-ray is the
-                // stronger absorber (U band 10.9 vs 3.4); the e-ray's 397 nm band
-                // carries the measured E-parallel-c near-UV rise. Swatch (7 mm,
-                // D65): L*41 C*67 h=356 (p=1.5: h 4; p=2: h 11), GIA Appendix 2
-                // "both" 38.7/70.8/352 at 750 ppma*cm.
-                //
-                // 2026-11-03 (owner: "make the ruby follow more the clean photo") REPLACED the
-                // pure-Cr3+ 800 ppma*cm set, which rendered a magenta-pink (Pentalume
-                // Sapphire, Light Tent L*30 C*45 h 358) where a clean faceted-ruby photo on
-                // white (WEZ "Ruby cushion") measures L*39 C*52 h 14. Lighter Cr alone only
-                // opens the blue window and turns it pinker; the R-line daylight glow moved
-                // the render by 2 deg (tested, and it is physics-color only). The blue window
-                // is closed by Fe3+, which every ruby but the marble-hosted Mogok kind
-                // carries: now the GIA Cr3+ AND Fe3+ cross sections of the same paper
-                // (`data/reference_spectra/gia_dubinsky2020_corundum_six_chromophores_sigma_1nm.csv`,
-                // Napierian sigma, 1 ppma = 1.178e17 cm^-3) at Cr 400 and Fe 1000 ppma*cm over
-                // the face-up path (about 0.10 wt% Cr and 0.28 wt% Fe: a Mozambique-type,
-                // amphibolite-hosted ruby, today's main source), fitted per ray with seven
-                // energy Gaussians over 380-780 nm (rms of T 1.8 % o / 0.6 % e; the 325 and
-                // 370 nm bands are ultraviolet edge stand-ins). The two densities are
-                // CHOSEN from renders against the photo (Light Tent: Cr 400 / Fe 750 h 8,
-                // Cr 500 / Fe 1000 L*30 h 11; chosen L*32 C*41 h 11, Softbox h 13).
-                // Swatch (7 mm, D65): o L*36 C*58 h 5, e L*60 C*57 h 37, unpolarised L*46
-                // C*53 h 19 (path 2: h 26).
+                // Seven energy Gaussians per ray, fitted to the GIA Cr3+ and Fe3+ cross sections
+                // of the same paper (`data/reference_spectra/gia_dubinsky2020_corundum_six_
+                // chromophores_sigma_1nm.csv`) at Cr 400 and Fe 1000 ppma*cm over the face-up
+                // path. Fe3+ closes the blue window, which a pure Cr3+ set leaves open and
+                // renders magenta. The 325 and 370 nm bands are ultraviolet edge stand-ins.
+                // The two densities are chosen from renders against a clean ruby photo.
+                // Swatch (7 mm, D65): unpolarised L*46 C*53 h 19.
                 // Calibration record: docs/chromophores/calibration-records.md#ruby
                 absorption: AbsorptionTensor::uniaxial(
                     vec![
@@ -278,22 +213,12 @@ impl GemMaterial {
             },
             // Emerald (Beryl, Be3Al2(SiO3)6:Cr/V)
             //
-            // No primary-literature Sellmeier fit for beryl exists (absent from
-            // refractiveindex.info's database), so this is a Cauchy (visible-range-
-            // only) fit, LOWER CONFIDENCE than the Sellmeier-sourced entries above.
+            // No primary Sellmeier fit for beryl exists, so this is a visible-range Cauchy
+            // fit with lower confidence than the Sellmeier entries, to be cross-checked.
             //
-            // n_d = 1.5791, within International Gem Society's cited emerald range
-            // 1.57-1.60. Dispersion shape: IGS's cited "dispersion .014" is the
-            // Fraunhofer B-G interval, not F-C; converted via a B-G -> F-C ratio
-            // computed directly from physics (evaluating this file's 8 genuine primary
-            // Sellmeier fits -- Diamond, Sapphire/Ruby, Quartz, Spinel, Cubic
-            // Zirconia, Alexandrite, Moissanite -- at the actual Fraunhofer
-            // wavelengths: ratio range 0.569-0.587, mean 0.579, used throughout this
-            // file for every gemological, non-primary-sourced species). 0.579 is the
-            // MEAN over eight Sellmeier materials; a two-term Cauchy n = A + B/lambda^2
-            // gives exactly 1.9099/3.2677 = 0.5846 for the F-C / B-G pair. Delta n(F-C)
-            // = 0.0141*0.579 = 0.00816, giving Abbe V_d = 70.93. LOWER CONFIDENCE than
-            // the Sellmeier-sourced entries -- flagged for human cross-check.
+            // n_d = 1.5791, within the International Gem Society's emerald range 1.57-1.60.
+            // The society's "dispersion .014" is B-G; Delta n(F-C) = 0.0141 * 0.579 = 0.00816
+            // (the 0.579 B-G to F-C ratio of the gemological entries), giving Abbe V_d 70.93.
             Self {
                 name: "Emerald".to_string(),
                 crystal_system: CrystalSystem::Hexagonal,
@@ -305,24 +230,14 @@ impl GemMaterial {
                 },
                 birefringence_delta: -0.0060,
                 // Chromophore: emerald's Cr3+ (some localities: V3+ too) absorbs in a
-                // blue-violet band near 430nm and a red-orange band near 600nm,
-                // leaving a narrow green transmission window near 510nm (alpha(lambda)
-                // minimized at ~506nm) -- this two-window structure is what makes
-                // emerald green. Sources: GIA gemological references reporting
-                // emerald's "main absorption bands at approximately 620 and 430nm"
-                // (the red-side centre is reported ~600-620nm across localities;
-                // 600nm used here). Widths (30nm/40nm) and peaks (2.8/2.6) tuned; band
-                // positions cited.
+                // blue-violet band near 430 nm and a red-orange band near 600 nm, leaving a
+                // green transmission window near 510 nm. Sources: GIA gemological references
+                // ("main absorption bands at approximately 620 and 430 nm").
                 //
-                // 2026-10-19 color check (OWNER DECISION: take the measured-shape
-                // refit) REPLACED the isotropic
-                // 430/600 nm wavelength-Gaussians by uniaxial bounded 3-band
-                // energy-Gaussian fits of the Caltech GRR 3570 emerald spectrum
-                // (G. R. Rossman, Caltech Mineral Spectroscopy Server;
-                // `data/reference_spectra/caltech_emerald_grr3570_5nm.csv`) scaled to
-                // 0.3 cm. Fitted, not tuned. This adds the measured o/e dichroism
-                // (Wood & Nassau 1968 [S3]: o-ray yellowish green, e-ray bluish
-                // green). Swatch (7 mm, D65): L*65 C*101 h=168 (old L*64 h=166).
+                // Uniaxial three-band energy-Gaussian fits to the Caltech GRR 3570 emerald
+                // spectrum (`data/reference_spectra/caltech_emerald_grr3570_5nm.csv`) at 0.3 cm.
+                // This gives the measured o/e dichroism: o-ray yellowish green, e-ray bluish
+                // green (Wood & Nassau 1968). Swatch (7 mm, D65): L*65 C*101 h 168.
                 // Calibration record: docs/chromophores/calibration-records.md#emerald
                 absorption: AbsorptionTensor::uniaxial(
                     vec![

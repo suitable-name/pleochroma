@@ -1,5 +1,6 @@
-//! The local tracer's per-frame sample claim ([`local_frame_claim`]) for the live
-//! hybrid, plus the CPU-split equivalence tests that prove a local + remote split of one
+//! The local tracer's per-frame sample claim ([`local_frame_claim`]) for the live hybrid.
+//!
+//! Also holds the CPU-split equivalence tests that prove a local + remote split of one
 //! epoch merges to the same image a single backend renders over the whole range.
 //!
 //! # Where local's sample indices come from
@@ -8,8 +9,8 @@
 //! continues from its own count (`sample_offset = accum_samples`). Inside one
 //! (`LiveComputeTarget::Both` with a live epoch), local claims each frame's range from
 //! the epoch's shared cursor instead, exactly like the remote lane claims its chunks,
-//! so the two can never trace the same absolute sample index (invariant 1 of the
-//! hybrid guide). The claimed `start` becomes `BackendFrame::sample_offset`.
+//! so the two never trace the same absolute sample index. The claimed `start` becomes
+//! `BackendFrame::sample_offset`.
 
 use crate::bridge::sample_cursor::LiveEpoch;
 
@@ -35,8 +36,8 @@ pub(super) fn local_frame_claim(
 /// Whether this frame must RELEASE the remote epoch because it was dispatched for a
 /// different scene than the one this frame is about to trace: a scene change landed
 /// between the settle's dispatch (which captured the scene the remote worker renders)
-/// and this frame's snapshot. Merging the two would average two different scenes
-/// (invariant 2), so the epoch is released, the frame continues local-only, and the
+/// and this frame's snapshot. Merging the two would average two different scenes, so the
+/// epoch is released, the frame continues local-only, and the
 /// orchestrator re-dispatches for the new scene once it is stable. `false` whenever
 /// remote does not own the image or there is no epoch to compare.
 #[must_use]
@@ -201,8 +202,8 @@ mod tests {
         assert_matches_reference(&merged, &reference());
     }
 
-    /// Same, but the remote chunk fails after 3 samples: its prefix is kept, local
-    /// picks up the returned remainder, and the merged image is still the reference.
+    /// The remote chunk fails after 3 samples: its prefix is kept, local picks up the
+    /// returned remainder, and the merged image is still the reference.
     #[test]
     fn a_failed_remote_chunk_still_merges_to_the_single_backend_render() {
         let epoch = Arc::new(LiveEpoch::new(W, H, 2 * N));

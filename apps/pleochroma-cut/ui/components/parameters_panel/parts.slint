@@ -2,11 +2,9 @@ import { ScrollView, Slider } from "std-widgets.slint";
 import { Theme } from "../../theme.slint";
 import { SettingLabel } from "../settings_dialog/setting_label.slint";
 
-// A tab's scroll area with a soft fade at the edge that has more content beyond it, so a
-// control cut by the scroll edge reads as "scrolled", not as a broken half button (the first
-// wheel notch in the Stone tab chopped "Set Material" at the top; the Lighting tab sliced the
-// Camera buttons at the bottom). The fades draw over the content and handle no pointer input.
-// `tint` is the colour behind the tab (the panel's own background).
+// A tab's scroll area with a soft fade at each edge that has more content beyond it, so a control
+// cut by the edge reads as scrolled rather than broken. The fades draw over the content and take
+// no pointer input. `tint` is the color behind the tab (the panel's background).
 export component FadedScroll inherits Rectangle {
     in property <color> tint;
     clip: true;
@@ -32,9 +30,7 @@ export component FadedScroll inherits Rectangle {
     }
 }
 
-// The small pieces the Parameters dock's three tabs and its footer are built from. They were
-// private to the old Rendering Settings card (`settings_dialog.slint`); the tabs and the panel
-// share them from here.
+// Building blocks of the Parameters panel's tabs and footer.
 
 // One button of the panel's footer: Reset this tab, its Confirm and Cancel. `kind` 0 is a plain
 // button, 1 the main action (the cyan one), 2 a destructive one. Tab reaches it, Space or Enter
@@ -177,8 +173,8 @@ export component GroupHeader inherits HorizontalLayout {
 
 // A labelled slider row: the name (with its tooltip) and the current value on one line, the
 // slider below. The value is two-way bound by the caller and `edited` fires on an actual drag or
-// keyboard nudge, never when Rust moves the handle -- the std `Slider`'s own `changed(value)`
-// semantics, which the old card relied on. `link_text` is an optional small link beside the
+// keyboard nudge, never when Rust moves the handle (the std `Slider`'s `changed` semantics).
+// `link_text` is an optional small link beside the
 // value ("Reset to 100 %"); `step` is only the keyboard nudge (a drag is continuous), and a
 // `step` of 0 nudges by one hundredth of the range.
 //

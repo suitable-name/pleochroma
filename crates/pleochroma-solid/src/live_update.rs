@@ -1,10 +1,8 @@
 //! Which geometry to hand the solid preview after an edit, chosen automatically among
 //! three tiers of freshness.
 //!
-//! Pure and independent of `preview_state`'s worker
-//! thread/`RedrawGate` machinery -- [`plan_preview`] is a plain function callers run
-//! on the UI thread before ever touching `super::preview_state::SolidPreviewState`
-//! (the desktop's own worker controller, which stays in `apps/pleochroma-cut`).
+//! Pure: no threads and no `RedrawGate`. [`plan_preview`] is a plain function, and the
+//! desktop's plan worker (`apps/pleochroma-cut`, `preview_state`) is its caller.
 //!
 //! # The three tiers
 //!
@@ -62,12 +60,11 @@ use std::{collections::BTreeSet, time::Duration};
 
 /// Default over-budget threshold for [`plan_preview`]'s tier-2/3 decision.
 ///
-/// `50` ms, a UI-responsiveness budget rather than a guarantee every design resolves
-/// within it. Measured against the worst fixture available (CrackOtto-Step, 103
-/// tiers, nearly all non-anchor): that resolve took **2.13 s**, confirming this is
-/// exactly the shape tier 3 (`Freshness::Stale`) exists for -- a budget loose enough
-/// to tolerate it would make ordinary ScaleReference-heavy edits feel just as
-/// sluggish. See `tests::timing_resolve_dirty_on_crackotto_step_103_tier`.
+/// `50` ms is a UI-responsiveness budget, not a guarantee that every design resolves
+/// within it. A 103-tier design with almost no anchors takes 2.13 s to resolve (see
+/// `tests::timing_resolve_dirty_on_crackotto_step_103_tier`), the case tier 3
+/// (`Freshness::Stale`) exists for. A budget loose enough to tolerate that would make
+/// ordinary edits feel sluggish.
 pub const DEFAULT_PREVIEW_BUDGET: Duration = Duration::from_millis(50);
 
 /// A monotonic clock injected into [`plan_preview`]'s tier-2/3 budget check --
@@ -98,7 +95,7 @@ pub trait DirtySolver {
     ) -> Result<Vec<SolvedTier>, DesignSolveError>;
 }
 
-/// The real [`DirtySolver`], delegating straight to [`pleochroma_cut_core::Design::resolve_dirty`].
+/// The real [`DirtySolver`], delegating to [`pleochroma_cut_core::Design::resolve_dirty`].
 /// Every other implementation in this crate exists solely for this module's tests.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct RealSolver;
@@ -142,7 +139,7 @@ pub struct PreviewPlan {
 }
 
 /// Narrows a [`pleochroma_cut_core::Design::planes_from_solved`] result to the `f32`
-/// convention every other `solid_preview` module uses.
+/// convention used across the preview modules.
 #[expect(
     clippy::cast_possible_truncation,
     reason = "f32 is the preview's GPU/storage precision; plane normals and offsets are in the normal float range"
@@ -160,7 +157,7 @@ fn narrow_planes(planes: Vec<(DVec3, f64)>) -> Vec<(Vec3, f32)> {
 /// A planar design (no concave tiers) keeps its stored order: tiers `0..=cutoff` -- this is
 /// the web slider's "show through tier N of the table"; the desktop Cut slider uses
 /// [`CutLimit::Steps`], which follows [`Design::cutting_order`] for every design. With
-/// concave tiers this slider walks [`Design::cutting_order`] too (plan §4.4): the shown flat
+/// concave tiers this slider walks [`Design::cutting_order`] too: the shown flat
 /// tiers are those cut up to and including flat tier `cutoff`, so the planes and the
 /// concave tools of one frame always describe the same step of the cut. For a design
 /// stored in cutting order the two rules agree.
@@ -252,8 +249,8 @@ pub enum CutLimit {
     /// Every tier: the finished stone.
     #[default]
     Finished,
-    /// The flat tiers up to and including this index into `Design::tiers` -- the
-    /// web app's slider, and what [`plan_preview`]'s `tier_cutoff` has always meant.
+    /// The flat tiers up to and including this index into `Design::tiers`: the web
+    /// app's slider, and what [`plan_preview`]'s `tier_cutoff` means.
     ThroughTier(usize),
     /// The stone after this many cutting steps ([`Design::preview_steps`]); `0` is
     /// the rough, the preform alone. A count at or past the last step is the
@@ -310,10 +307,9 @@ pub fn display_geometry(
     }
 }
 
-/// [`plan_preview`]'s single choice of "the full arrangement" vs. "truncated" (the
-/// "show through tier N" and Cut-step sliders) -- routing every one of
-/// `plan_preview`'s five branches through here keeps that truncation decision in
-/// exactly one place rather than five.
+/// The single choice of "the full arrangement" vs. "truncated" (the "show through tier N"
+/// and Cut-step sliders), shared by every branch of [`plan_preview_limited`] so the
+/// decision lives in one place.
 ///
 /// [`CutLimit::Finished`] reproduces [`Design::planes_from_solved`] exactly. A planar
 /// [`CutLimit::ThroughTier`] truncates by stored position
@@ -501,10 +497,9 @@ pub fn plan_preview_limited(
             Err(err) => {
                 // `last_solved` is `None` or misaligned here (an aligned one took the
                 // dirty-subgraph path above), so it cannot describe this design's tiers.
-                // `planes_for_display` draws nothing for it instead of panicking, which
-                // used to kill the plan worker and freeze the view until a restart; the
-                // renderer then keeps its last closed stone, dimmed, under the status.
-                // The rough needs no masts, so it is still drawn.
+                // `planes_for_display` draws nothing for it instead of panicking, since a
+                // panic would kill the plan worker. The renderer keeps its last closed
+                // stone and shows the status. The rough needs no masts, so it is drawn.
                 let planes = narrow_planes(planes_for_display(
                     design,
                     last_solved.unwrap_or(&[]),

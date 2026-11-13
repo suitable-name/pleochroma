@@ -40,10 +40,9 @@ cargo build -p pleochroma-cut
 cargo run -p pleochroma-cut
 ```
 
-`build.rs` runs `slint_build::compile("ui/app.slint")` at build time, which pulls
-in `theme.slint`, `types.slint`, and everything under `ui/components/`. No
-platform-specific setup beyond what Slint itself needs (a Windows graphics
-backend) was found in this crate's `Cargo.toml`.
+`build.rs` compiles `ui/app.slint` at build time, which pulls in `theme.slint`,
+`types.slint`, and everything under `ui/components/`. The crate needs no platform
+setup beyond what Slint itself requires.
 
 **Where the library lives.** The local catalog database is the file named by
 `PLEOCHROMA_LIBRARY` if set; else `facet_diagrams.sqlite` in the process's current
@@ -64,8 +63,8 @@ ship alongside the binary. Regenerate the icon with:
 python scripts/make-icons.py
 ```
 
-A **release** build sets `windows_subsystem = "windows"`, so launching the `.exe`
-directly no longer opens an empty console beside the window. A **debug** build keeps its
+(from the repository root). A **release** build sets `windows_subsystem = "windows"`,
+so launching the `.exe` directly does not open an empty console beside the window. A **debug** build keeps its
 console, so `cargo run` still shows panics during development. A release build has no
 console to write to, so `main.rs` installs a `tracing` subscriber
 (`install_tracing_subscriber`) that writes to stderr, filtered by `RUST_LOG` (default
@@ -81,12 +80,42 @@ cargo build -p pleochroma-cut --features gpu
 
 Routes both the viewport's progressive accumulation *and* the high-resolution
 export worker through `pleochroma`'s verified GPU megakernel instead of the
-multithreaded CPU tracer. **Off by default.** Measured on this project's
-integrated AMD Radeon (Vulkan), at 960x540 / 64 spp / 12 bounces on Emerald:
-**1.44 s on GPU vs 10.66 s across 16 CPU threads, a 7.4x speedup**. The
-fallback to the CPU tracer is per frame (per batch, for an export), not per
-session, and is a normal outcome, not an error — see
-[`docs/gpu.md`](docs/gpu.md) for exactly when and why it happens.
+multithreaded CPU tracer. **Off by default.** The fallback to the CPU tracer is
+per frame (per batch, for an export), not per session, and is a normal outcome,
+not an error — see [`docs/gpu.md`](docs/gpu.md) for exactly when and why it
+happens.
+
+### The `beam` feature (retired)
+
+```
+cargo build -p pleochroma-cut --features beam
+```
+
+**Beam tracing is retired.** The code stays and keeps compiling with this feature, which
+is **off by default** and chains to `pleochroma/beam`. Every beam setting is off by default.
+In the standard build the Beam Tracing boxes (export dialog, tilt video section) and the two
+beam Preferences switches are not shown. Saved settings keep their beam choices: the standard
+build reads them and writes them back unchanged, but never uses them. A render job that asks
+for beams loads and renders without them, with the note "Beam tracing off: this build has no
+beam tracer."; if the path cache is also asked for, it is used. Kept beams share the
+`render_cache` folder and its disk limit, so the standard build's limit and Clear Path Cache can
+delete them.
+
+### The `adaptive-sampling` feature
+
+```
+cargo build -p pleochroma-cut --features adaptive-sampling
+```
+
+Adaptive sampling is an **optional build feature, off by default** (the `beam` feature
+includes it). In the standard build the Adaptive Sampling box (export dialog, tilt video
+section) and the Preferences switch "Adaptive Sampling in the Viewport" are not shown. Saved
+settings keep their adaptive choices: the standard build reads them and writes them back
+unchanged, but never uses them. A render job that asks for adaptive sampling loads and renders
+at its own samples per pixel, with the note "Adaptive sampling off: this build has no adaptive
+sampling." The command line and the worker have the same feature; without it `--adaptive`,
+`--target-noise`, `--min-spp`, `--noise-metric` and `--gpu-convergence` are unknown flags, and a
+worker or coordinator refuses a live pass as an unsupported request (code 5).
 
 ### Linux notes
 
@@ -112,9 +141,9 @@ It only concerns Mesa's AMD driver. The headless worker has the same switch:
 - View a diagram in 3D with `pleochroma`'s full spectral path tracer — orbit camera,
   adjustable lighting/exposure/material/quality, live optical-metrics readouts
   (brilliance/fire/scintillation/windowing/extinction) and a tilt-performance
-  analysis graph — 181 measured tilt angles (1° steps from −90° to +90°) swept at four camera azimuths (0°,
-  45°, 90°, 135°), switchable or overlaid, with a hover readout that
-  interpolates between the measured points.
+  analysis graph — 181 measured tilt angles (1° steps from −90° to +90°) swept at
+  four camera azimuths (0°, 45°, 90°, 135°), switchable or overlaid, with a hover
+  readout that interpolates between the measured points.
 - View the cutting-instructions table (facet/angle/index/notes) and any attached
   original files.
 - Edit tab: drag the angle, depth, or index handle on a selected facet in the
@@ -208,5 +237,8 @@ settings writer, the HDR/remote guard, the live remote lane, tonemap/denoise
 correctness and the "denoise is a no-op at converged sample counts" property,
 quality-preset label/index round trips, and filename sanitization. The Slint
 windows are driven by the UI harness in `tests/ui_harness` (feature `ui-harness`).
-**Nothing exercises a live socket to a `pleochroma-worker`** — per the source's
-own doc comments, that is left to manual verification.
+Beam tests do not run under `cargo test`, not even with `--all-features`: they compile
+only with `--cfg beam_tests` (plus the `beam` feature). Run them on request from the
+repository root with `bash scripts/run_beam_tests.sh`.
+**Nothing in the automated tests exercises a live socket to a `pleochroma-worker`**;
+that is checked by hand.

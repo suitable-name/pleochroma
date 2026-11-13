@@ -6,14 +6,10 @@ import { ViewportModel } from "../../models/viewport.slint";
 import { ActionButton } from "../chip_toggle.slint";
 import { WrappedNote } from "wrapped_note.slint";
 
-// The export directory (chosen once via a native folder picker -- see
-// `ExportModel.export_directory`'s own doc comment -- and just displayed/
-// changeable here) and the filename template every file in this export (the
-// current-view render, and every fanned-out preset render) resolves its own
-// name from -- split out of `export_dialog.slint` to keep that file under its
-// line budget. See `bridge::export_thread::filename_template`'s module doc
-// comment for the full variable list, sanitising, and collision behaviour.
-// Driven entirely by `ExportModel`, so it needs no properties of its own.
+// The export directory (picked with a native folder dialog, see `ExportModel.export_directory`)
+// and the filename template that every file of an export resolves its name from, including each
+// fanned-out preset render. The variable list, sanitising and collision rules are in the module
+// doc of `bridge::export_thread::filename_template`. Driven entirely by `ExportModel`.
 //
 // In Simple mode the list of `{placeholders}` and the note about `{preset}` are left out; the
 // template field itself and its "Resolves to" line stay, so the file name can still be set.
@@ -96,21 +92,9 @@ export component ExportOutputLocation inherits VerticalLayout {
         Tooltip { text: @markdown("The name of each exported file. Words in curly brackets, like {design}, are replaced by the real value."); }
 
         LineEdit {
-            // Fills the full width/height of the enclosing background/
-            // border `Rectangle` -- unlike the directory field just above
-            // (a `HorizontalLayout`, which stretches its own children
-            // itself), a plain `Rectangle` is not a layout, so without an
-            // explicit size here `LineEdit` fell back to its own narrow
-            // default preferred width, leaving it floating at the left
-            // edge of an otherwise-empty-looking full-width background --
-            // reading as "the field is too small" even though its
-            // container already spanned the dialog's full content width,
-            // same as the directory field's own row does. `LineEdit`
-            // already scrolls its own text horizontally past this width
-            // rather than clipping or wrapping it (the same native
-            // single-line behaviour every other `LineEdit` in this dialog
-            // already relies on), so a long template stays fully visible
-            // and editable by scrolling, not truncated.
+            // Fills the bordered `Rectangle`. A plain `Rectangle` is not a layout, so the field
+            // needs an explicit size; without one it shrinks to its narrow default width. The
+            // `LineEdit` scrolls long text horizontally rather than clipping it.
             width: 100%;
             height: 100%;
             accessible-label: "Filename Template";

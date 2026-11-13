@@ -1,5 +1,4 @@
-//! The percentile tables at the end of a census (follow-ups plan 2026-10-19, section 4.4) and
-//! the branch summary behind decision D4.
+//! The percentile tables and the branch summary at the end of a census.
 //!
 //! A percentile is the nearest-rank one: the value at rank `ceil(p n / 100)` of the sorted
 //! figures, so the 100th is the maximum and no value is interpolated. Only rows whose
@@ -72,7 +71,7 @@ pub(super) struct Table {
     pub over_limit: usize,
 }
 
-/// How many refusals are branch mismatches (decision D4).
+/// Where the refusals of the shift rows that reached the projection come from.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(super) struct BranchSummary {
     /// Shift rows that reached the projection (status valid or invalid).

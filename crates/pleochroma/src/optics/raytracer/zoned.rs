@@ -21,8 +21,8 @@
 //!    unzoned product), and the f32 kernel's rounding can never create or lose path.
 //!
 //! `GemMaterial::absorption` is IGNORED for a zoned material: the base zone
-//! (`ZonedAbsorption::base`) takes its place. Keep them equal when a default build must show the
-//! same stone (the adopt path stores the base zone as the ordinary material).
+//! (`ZonedAbsorption::base`) takes its place. Keep them equal so a tracer that ignores zones
+//! shows the same stone.
 //!
 //! # Preparation
 //!
@@ -31,8 +31,8 @@
 //! frame/pass/job and every traced sample borrows it (`trace_spectral_ray_prepared`). A mesh-shell
 //! kernel owns a copy of the shell's vertices and triangles, so that is also the one copy of the
 //! mesh bytes a frame retains. The per-zone tensors ([`ZonedCache`]) depend on the sample's
-//! wavelength comb and are still built per sample. A caller that does not prepare (tests, the
-//! hover preview) gets the old behaviour: the kernels are built for that one trace.
+//! wavelength comb and are still built per sample. A caller that does not prepare builds the
+//! kernels for that one trace.
 //!
 //! # Pleochroism
 //!
@@ -212,8 +212,8 @@ impl ZonedCache {
     /// Each zone's per-channel absorption coefficient for a ray of wave normal `k_hat`, assigned
     /// to eigenmode `is_extraordinary`. Unused zone slots are zero.
     ///
-    /// The mode selection is a twin of `absorption::channel_absorption_alphas_assigned`
-    /// (kept next to it by name); only the tensor differs per zone.
+    /// The mode selection mirrors `absorption::channel_absorption_alphas_assigned`; only the
+    /// tensor differs per zone.
     pub(crate) fn zone_alphas(
         &self,
         ctx: &RayMaterialContext,
@@ -348,7 +348,7 @@ pub fn optical_depths_spectral(
 /// along `ray.dir`, `path_len` model units long), or `None` when the material has no zones, in
 /// which case the caller keeps the homogeneous path.
 ///
-/// This is the single zoned replacement for the homogeneous `alpha * scaled_path_len` of
+/// The zoned replacement for the homogeneous `alpha * scaled_path_len` of
 /// `absorption::apply_segment_absorption`.
 pub(super) fn segment_optical_depths(
     ctx: &RayMaterialContext,

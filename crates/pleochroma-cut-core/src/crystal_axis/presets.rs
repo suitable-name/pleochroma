@@ -16,7 +16,7 @@
 //!   direction really is green (hue within 30 degrees of green and a chroma C* of at least
 //!   10); a stone none of whose directions is green gets no preset.
 //!
-//! Peridot and every other material get none (its pleochroism is weak, see the plan).
+//! Peridot and every other material get none (its pleochroism is weak).
 
 use std::sync::{Mutex, OnceLock};
 
@@ -96,9 +96,10 @@ impl AxisPreset {
 
 /// The azimuth, in degrees `[0, 180)`, of a design's width direction.
 ///
-/// `width_dir = [x, z]` is (the unit vector of `pleochroma::geometry::stone_metrics::CaliperFrame::width_dir`, in the
-/// model's x/z plane). The azimuth runs from `+X` toward `+Z`, like the Crystal Axis's own.
-/// `None` for a vector that is not a usable direction.
+/// `width_dir` is `[x, z]`, the unit width direction of
+/// `pleochroma::geometry::stone_metrics::CaliperFrame`, in the model's x/z plane. The azimuth
+/// runs from `+X` toward `+Z`, like the Crystal Axis's own. `None` for a vector that is not a
+/// usable direction.
 #[must_use]
 pub fn width_azimuth_deg(width_dir: [f64; 2]) -> Option<f64> {
     let [x, z] = width_dir;
@@ -292,8 +293,8 @@ pub fn color_presets(material: &GemMaterial) -> Vec<ColorPreset> {
         return Vec::new();
     }
     // The presets never read the material's own frame (every choice replaces it), so the cache
-    // key is the material with the frame reset; the six spectral integrations run once per
-    // distinct material instead of once per stone row, sheet or Verdict.
+    // key is the material with the frame reset. The six spectral integrations then run once
+    // per distinct material, not once per stone row, sheet or Verdict.
     let mut key = material.clone();
     key.c_axis = Vec3::Y;
     key.alpha_axis = None;
@@ -345,9 +346,7 @@ fn compute_color_presets(material: &GemMaterial) -> Vec<ColorPreset> {
                 .unwrap_or_default()
         }
         "Andalusite" => {
-            // Only a direction that is green. The built-in (since 2026-11-03 0.65 x the Fe-Ti
-            // crystal plus 0.35 x the Greener variant) has one: through alpha, beta and gamma show
-            // a pale yellow-green; the Fe-Ti crystal alone had none.
+            // Only a green direction counts. Andalusite's built-in has one, so it gets the preset.
             let all = choices(material);
             all.iter()
                 .filter(|choice| {
@@ -373,11 +372,11 @@ pub fn color_preset(material: &GemMaterial, id: ColorPresetId) -> Option<ColorPr
         .find(|preset| preset.id == id)
 }
 
-/// The angle, in degrees `[0, 90]`, between a principal direction and the table normal.
+/// The angle, in degrees `[0, 90]`, between `direction` of a stone oriented as `orientation` and
+/// the table normal.
 ///
-/// The direction is `direction` of a stone
-/// oriented as `orientation`. A stone with no Second Axis set has the
-/// material's own completion of alpha (`alpha_axis_from_turn(gamma, 0)`).
+/// A stone with no Second Axis set has the material's own completion of alpha
+/// (`alpha_axis_from_turn(gamma, 0)`).
 #[must_use]
 pub fn principal_angle_to_table_deg(
     orientation: &CrystalOrientation,
@@ -469,9 +468,8 @@ mod tests {
         let alexandrite = color_presets(&material("Alexandrite"));
         assert_eq!(alexandrite.len(), 1);
         assert_eq!(alexandrite[0].id, ColorPresetId::StrongestColorChange);
-        // Andalusite (since 2026-11-03): alpha a brownish red-orange, beta and gamma a pale
-        // yellow-green, so looking along alpha is green (swatch C* 25 h 119) and it offers one
-        // "Best Green Face-Up"; the other two directions are a brownish yellow (h 88-89).
+        // Andalusite: one direction gives the green face-up color (swatch C* 25, h 119), so it
+        // offers one "Best Green Face-Up"; the other two are a brownish yellow (h 88-89).
         let andalusite = color_presets(&material("Andalusite"));
         assert_eq!(andalusite.len(), 1);
         assert_eq!(andalusite[0].id, ColorPresetId::BestGreenFaceUp);

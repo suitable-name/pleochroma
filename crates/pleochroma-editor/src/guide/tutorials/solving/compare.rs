@@ -12,14 +12,12 @@ pub fn guides() -> Vec<Guide> {
     vec![history(), variants(), snapshot_compare(), raw_text()]
 }
 
-/// The crown at 36 degrees and the pavilion where the template put it: the Rich Teaching Design
-/// after the history lesson's first change.
+/// The Rich Teaching Design with the crown at 36 degrees and the pavilion at its template angle.
 fn after_first_change(ctx: &GoalContext<'_>) -> bool {
     tier_at(ctx.design, "Crown Main", 36.0) && tier_at(ctx.design, "Pavilion Main", RICH_PAVILION)
 }
 
-/// The crown at 36 degrees and the pavilion at -41: the stone after both changes of the history
-/// lesson.
+/// The crown at 36 degrees and the pavilion at -41 degrees.
 fn after_both_changes(ctx: &GoalContext<'_>) -> bool {
     tier_at(ctx.design, "Crown Main", 36.0) && tier_at(ctx.design, "Pavilion Main", -41.0)
 }

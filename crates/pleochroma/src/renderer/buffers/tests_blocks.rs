@@ -33,8 +33,8 @@ fn appended_blocks_sit_at_the_documented_offsets() {
     assert_eq!(STRUCTURE_ROWS, 3);
 }
 
-/// A material with neither feature uploads exactly the bytes of the old layout in front, and
-/// zeros in both new blocks.
+/// A material with neither feature leaves the bytes in front of the appended blocks unchanged
+/// and zeroes both blocks.
 #[test]
 fn a_plain_material_encodes_both_new_blocks_as_zero() {
     for name in ["Diamond", "Sapphire", "Alexandrite"] {

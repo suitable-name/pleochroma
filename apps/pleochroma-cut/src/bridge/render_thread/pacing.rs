@@ -1,22 +1,20 @@
 //! Display pacing constants, shared unchanged by both image engines.
 use std::time::Duration;
 
-/// Minimum real-time gap between two display cycles (snapshot + hand-off to
-/// [`super::display_thread`]) being SENT while samples are still accumulating. See the loop
-/// body's `denoise_due` computation for the exceptions that always send regardless
-/// (first frame, `dirty`, a dimension change, denoising disabled, reaching
-/// `target_samples`). The À-Trous denoiser dominates every live frame (267ms/1072ms
-/// per call at 800x600/1920x1080), so re-running it every ~16ms iteration while still
-/// converging capped the viewport at a few FPS for no visible benefit. 120ms is fast
-/// enough to feel live while converging and cuts denoiser invocations ~7-8x.
+/// Minimum real-time gap between two display cycles sent while samples still accumulate.
 ///
-/// The actual denoise+tonemap+push work runs on [`super::display_thread`], so the render
-/// thread never blocks on a cycle's cost -- there is nothing to scale a duty-cycle gap
-/// against, unlike when that cost was paid synchronously on this thread.
+/// The loop body's `denoise_due` computation lists the cycles that always send regardless
+/// (first frame, `dirty`, a dimension change, denoising disabled, reaching `target_samples`).
+/// The À-Trous denoiser dominates every live frame (267 ms to 1072 ms per call at 800x600 to
+/// 1920x1080), so running it on every ~16 ms iteration while converging capped the viewport
+/// at a few FPS. 120 ms still feels live while converging.
+///
+/// The denoise, tone-map and push work runs on [`super::display_thread`], so the render
+/// thread never blocks on a cycle's cost.
 pub(super) const DENOISE_MIN_INTERVAL: Duration = Duration::from_millis(120);
 
-/// Timeout for the convergence wait at [`display.busy()`]. À-Trous cycles run in
-/// the 100ms-1s range, so 5s is generous for a healthy display thread.
+/// Timeout for the wait on `display.busy()`. À-Trous cycles run in the 100 ms to 1 s range,
+/// so 5 s is generous for a healthy display thread.
 pub(super) const DISPLAY_BUSY_WAIT_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Target length of one loop iteration while the picture is being shown or the camera is

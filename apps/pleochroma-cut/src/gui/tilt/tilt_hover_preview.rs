@@ -32,9 +32,9 @@ use std::{
 /// axis's own azimuth. A negative tilt carries the camera on over the pole (pitch past
 /// 90 degrees), which puts the eye where the measured curve's opposite azimuth puts it,
 /// and `Camera::new` keeps the image basis continuous through the pole -- so a sweep
-/// across table-up is one fluid motion. (Jumping to the opposite azimuth with
-/// `pitch = 90 - |tilt|` instead turned the picture 180 degrees at table-up: the flip
-/// half-way through a tilt video.) The image-independent metrics see the same eye.
+/// across table-up is one fluid motion. Jumping to the opposite azimuth at `pitch = 90 - |tilt|`
+/// would turn the picture 180 degrees at table-up instead. The image-independent metrics see the
+/// same eye.
 #[expect(
     clippy::cast_possible_truncation,
     reason = "f32 is the camera/GPU precision; angles are small radians"
@@ -88,7 +88,9 @@ fn unavailable(weak: &slint::Weak<MainWindow>, queue: &Arc<Queue>, serial: u64, 
         m.set_hover_status(format!("Unavailable: {message}").into());
     });
 }
-fn environment(scene: &SceneSnapshot) -> EnvironmentSource<'_> {
+/// The preview's lighting; an HDR map is turned by the scene's orientation for `cam_yaw`, the
+/// camera yaw of this axis, so a map that turns with the camera is seen from the swept pose.
+fn environment(scene: &SceneSnapshot, cam_yaw: f32) -> EnvironmentSource<'_> {
     scene.env_map.as_deref().map_or_else(
         || {
             scene
@@ -98,7 +100,10 @@ fn environment(scene: &SceneSnapshot) -> EnvironmentSource<'_> {
                 .with_surface_glare(scene.surface_glare)
                 .with_head_shadow(scene.head_shadow_deg)
         },
-        EnvironmentSource::HdrMap,
+        |map| {
+            EnvironmentSource::hdr_at(map, scene.exposure)
+                .with_hdr_rotation(scene.hdr_orientation.rotation_for(cam_yaw))
+        },
     )
 }
 fn render(
@@ -140,7 +145,7 @@ fn render(
                     &scene.material,
                     &scene.fluorescence,
                     scene.max_bounces,
-                    environment(scene),
+                    environment(scene, pose[0]),
                     draws.seed,
                     draws.hero_rand,
                     None,
@@ -204,7 +209,7 @@ fn overlay_diagnostics(
         },
         finishes: &scene.facet_finishes,
         material: &scene.material,
-        environment: export::diagnostic_environment(scene),
+        environment: export::diagnostic_environment(scene, pose[0]),
         want_fire: style.layers[3],
         want_scintillation: style.scintillation,
         pose: Some([pose[0], pose[1], scene.distance]),
@@ -272,6 +277,10 @@ fn serve(
                 return;
             }
         }
+    }
+    if let Some(note) = super::video_export::run::tilt_views_note(&scene) {
+        status.push(' ');
+        status.push_str(&note);
     }
     if cancelled() {
         return;

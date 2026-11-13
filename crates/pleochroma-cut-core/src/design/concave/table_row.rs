@@ -60,8 +60,8 @@ fn labelled(part: &str, label: &str) -> Result<f64, String> {
 }
 
 impl ConcaveTier {
-    /// Rebuilds a tier from an angle-table row (see the module comment for what is
-    /// rounded). The result is not validated: the caller's resolver does that
+    /// Rebuilds a tier from an angle-table row (see the module docs for what is rounded). The
+    /// result is not validated: the caller's resolver does that
     /// ([`crate::design::resolve_tiers_on_planes`]).
     ///
     /// # Errors

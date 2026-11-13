@@ -20,12 +20,11 @@ component ConcaveRow inherits VerticalLayout {
     }
 }
 
-// The Tier tab's form for a CONCAVE tier (modelled on the desktop's
-// `editor_inspector/concave_form_tab.slint`). A concave tier is authored as two lines, so
-// the form has both: name, angle, indices and instructions for the facet, then tool,
-// theta, X / Y / Z, D/W, tool angle and motion for the tool. The scratch fields and the
-// dirty tracking live in `InspectorModel` (`c-*`, `loaded-c-*`); nothing commits until
-// Add / Save Concave Tier, which `Inspector` pins below the scroll view.
+// The Tier tab's form for a CONCAVE tier. A concave tier is two lines: the facet line (name,
+// angle, indices, instructions) and the tool line (tool, theta, X / Y / Z, D/W, tool angle,
+// motion). The scratch fields and the dirty tracking live in `InspectorModel` (`c-*`,
+// `loaded-c-*`); nothing commits until Add / Save Concave Tier, which `Inspector` pins below
+// the scroll view.
 export component ConcaveFormTab inherits VerticalLayout {
     // Retyping a field clears its stale error marker (never a `changed` handler: that
     // would also fire for Rust seeding the field).

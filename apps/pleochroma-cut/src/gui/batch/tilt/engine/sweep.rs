@@ -1,12 +1,11 @@
-//! The sweep itself, local and remote: what one design's four-axis tilt curves are computed
-//! from, split from `engine.rs` (which keeps the resolve/save/lane bookkeeping) so each file
-//! stays readable.
+//! The local and remote tilt-curve sweeps of one design's four axes.
 //!
-//! Both halves honour the design's frosting, the way the render does. The local sweep takes
-//! the stone's facet finishes ([`FinishedStone`]); the remote request carries the same
-//! information in its scene (`SceneState::frosted_planes`, the planes the design frosts), from
-//! which the worker rebuilds the finishes with the function a `RENDER` of that scene uses, so a
-//! design's curves are the same wherever they are computed.
+//! `engine.rs` keeps the resolve, save and lane bookkeeping.
+//!
+//! Both halves honour the design's frosting, as the render does. The local sweep takes the
+//! stone's facet finishes ([`FinishedStone`]). The remote request carries the same planes in
+//! `SceneState::frosted_planes`, and the worker rebuilds the finishes the way a `RENDER` of
+//! that scene does, so a design's curves are the same wherever they are computed.
 
 use crate::{
     bridge::{
@@ -43,13 +42,11 @@ use std::{
 };
 use tracing::warn;
 
-/// `max_bounces` on the [`SceneState`] a remote tilt-curve request carries -- IGNORED
-/// by the worker's `TILT_CURVES` handler entirely (see `pleochroma_net::messages::tilt`'s
-/// module doc comment: only `planes`/`material`/`light_yaw`/`light_pitch` and the facet
-/// finishes actually feed the computation), but still validated, so this must be a plausible
-/// value (`1..=128`, see `apps/pleochroma-worker::validate::MAX_BOUNCES`). It is the
-/// raytracer's [`DEFAULT_MAX_BOUNCES`] purely for familiarity -- no render this batch
-/// performs ever actually bounces a ray, so the specific value is otherwise arbitrary.
+/// `max_bounces` of the [`SceneState`] a remote tilt-curve request carries.
+///
+/// The worker's `TILT_CURVES` handler ignores it (only the planes, material, light pose and
+/// facet finishes feed the sweep) but still validates it, so it must stay within the worker's
+/// `validate::MAX_BOUNCES` (128).
 const REMOTE_SCENE_MAX_BOUNCES: u32 = DEFAULT_MAX_BOUNCES;
 
 /// The environment the batch's tilt curves are scored under: [`BATCH_TILT_LIGHTING_PRESET`]
@@ -94,15 +91,14 @@ fn wire_axis_to_storage(axis: WireAxisTiltCurves) -> Result<StorageAxisTiltCurve
     })
 }
 
-/// Dispatches one design's full tilt-curve sweep to `worker` as a single `TILT_CURVES`
-/// request, blocking until it finishes, fails, or `cancel` is already set. See this
-/// group's `mod.rs` doc comment's "Remote dispatch has no mid-request cancellation or
-/// progress" section for why `cancel` is checked only once, up front, rather than
-/// during the request. Returns `None` on ANY shortfall (connection failure, missing
-/// `tilt_curves` capability, a `Cancelled`/`Error` reply, or a malformed reply) so the
-/// caller can decide what to do next -- see this group's "Local + remote" section:
-/// [`Both`] requeues for guaranteed local processing, [`RemoteOnly`] surfaces the
-/// failure directly.
+/// Dispatches one design's full tilt-curve sweep to `worker` as a single `TILT_CURVES` request.
+///
+/// It blocks until the request finishes or fails. `cancel` is checked only once, up front,
+/// because a `TILT_CURVES` request cannot be cancelled in flight (see `gui::batch::tilt`'s
+/// module doc). Returns `None` on ANY shortfall (connection failure, missing `tilt_curves`
+/// capability, a `Cancelled` or `Error` reply, or a malformed reply). The caller then
+/// decides: [`Both`] requeues the design for local processing, [`RemoteOnly`] surfaces the
+/// failure.
 ///
 /// `frosted` lists the planes (ascending indices into `stone.planes`) the design frosts; the
 /// scene carries them, so the worker sweeps the frosted stone.
@@ -121,13 +117,16 @@ pub(super) fn fetch_tilt_curves_remote(
     }
     let scene = SceneState {
         engine: pleochroma::renderer::engine::EngineSpec::default(),
-        // Ignored by the `TILT_CURVES` handler (see this group's `mod.rs` doc
-        // comment) -- `1` is a plausible, `validate_scene`-legal placeholder, not a
-        // real render target.
+        // Ignored by the `TILT_CURVES` handler; `1` is a legal placeholder, not a render target.
         width: 1,
         height: 1,
         yaw: 0.0,
         camera_roll: 0.0,
+        stone_shadow: false,
+        tray_reflection: 0.0,
+        // The tilt-curve sweep is lit by a studio preset, never an HDR map.
+        hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
+        estimator: pleochroma::optics::raytracer::default_estimator(),
         pitch: 0.0,
         distance: 1.0,
         light_yaw: PREVIEW_LIGHT_YAW,
@@ -177,30 +176,26 @@ pub(super) fn fetch_tilt_curves_remote(
     }
 }
 
-/// Threads each local lane may spend inside one design's sweep: the machine's parallelism
-/// divided by the lane count, floored at `1`, so lanes x inner threads never exceeds the
-/// cores. The sweep itself is parallel now
-/// (`evaluate_full_axis_profile_at_azimuth_finished_threaded`), and the lanes already run
-/// whole designs side by side.
+/// Threads each local lane may use inside one design's sweep.
+///
+/// It is the machine's parallelism divided by the lane count, floored at `1`, so lanes times
+/// inner threads never exceeds the cores.
 fn inner_threads_per_lane() -> usize {
     let cores = thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get);
     (cores / local_lane_count()).max(1)
 }
 
-/// Computes all 4 axis sweeps for one design LOCALLY, checking `cancel` before each --
-/// the finer-grained cancellation the local path affords over the remote one (see this
-/// group's `mod.rs` doc comment). Returns `None` the moment `cancel` is observed,
-/// abandoning this one in-flight design without saving anything for it (this group's
-/// own "all-or-nothing" section).
+/// Computes all four axis sweeps for one design locally.
+///
+/// `cancel` is checked before each axis, the finer-grained cancellation the local path offers.
+/// Returns `None` as soon as `cancel` is seen, abandoning the design without saving anything:
+/// tilt curves are all-or-nothing.
 ///
 /// `stone` carries the design's facet finishes: a frosted facet scatters light, so a frosted
-/// design's curves are not its polished ones.
+/// design's curves differ from its polished ones.
 ///
-/// Reports no per-axis progress to the caller -- see this group's `mod.rs` doc
-/// comment's "Progress with N local lanes" section for why a per-axis readout isn't
-/// meaningful once more than one local lane can be mid-design at once. `cancel` is
-/// still checked once per axis regardless: that granularity is about how quickly a
-/// cancel is honoured, unrelated to what the UI displays.
+/// Reports no per-axis progress: with several local lanes mid-design at once, a per-axis
+/// readout means nothing to the UI.
 pub(super) fn compute_tilt_curves_locally(
     stone: FinishedStone<'_>,
     material: &GemMaterial,
@@ -229,10 +224,11 @@ pub(super) fn compute_tilt_curves_locally(
     Some(TiltPerformanceCurves { axes })
 }
 
-/// [`compute_tilt_curves_locally`] with `on_step` called before every one of the
-/// sweep's raytrace evaluations, for the single-design run's progress bar. Uses the
-/// shared stepped sweep (`pleochroma::color::metrics::evaluate_all_axes_profiles_stepped`),
-/// whose curves are bit-identical to the plain per-axis calls, and honours `cancel`
+/// [`compute_tilt_curves_locally`] with `on_step` called before every raytrace evaluation.
+///
+/// It serves the single-design progress bar. It uses the shared stepped sweep
+/// (`pleochroma::color::metrics::evaluate_all_axes_profiles_stepped_finished_threaded`),
+/// whose curves are bit-identical to the plain per-axis calls, and it honours `cancel`
 /// between evaluations instead of between axes.
 pub(super) fn compute_tilt_curves_locally_stepped(
     stone: FinishedStone<'_>,

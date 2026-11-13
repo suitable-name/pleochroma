@@ -67,10 +67,9 @@ fn spectral_transmission(
     transmitted / white
 }
 
-/// The bins follow the full spectrum at every path length, not only the face-up path they
-/// were fitted at: the old three-coefficient fit drifted an emerald 10-25 degrees of hue on
-/// longer paths. 0.02 bounds a 10 nm bin's error over these materials (an estimate of the
-/// same arithmetic gave 0.010 at most, ruby at a quarter path).
+/// The bins must follow the spectrum at every path length, not only the face-up path they are
+/// fitted at. 0.02 bounds the 10 nm binning error over these materials (0.010 at most, reached
+/// by ruby at a quarter path).
 #[test]
 fn the_binned_tint_follows_the_spectrum_at_every_path_length() {
     let mut negative_channels = 0;
@@ -234,12 +233,11 @@ fn the_studio_leaf_is_g_times_the_illuminant() {
     }
 }
 
-/// The reference for the 1024-row ASET table: the spectral integral at the two table rows that
-/// bracket `y`, interpolated linearly exactly as `WhittedEnv::leaf` does. The table samples `y`
-/// every 2 / 1023, and the ASET zone edges are smoothsteps only 0.04 wide in `y` (second
-/// derivative up to 6 / 0.04^2), so a straight comparison with the integral at an arbitrary `y`
-/// inside an edge differs by up to (2 / 1023)^2 / 8 * 3750 * 5 = 9e-3 on the blue channel of
-/// 5.0 from interpolation alone. At a row itself the reference is the integral at that `y`.
+/// The reference for the 1024-row ASET table: the spectral integral at the two rows bracketing
+/// `y`, linearly interpolated as `WhittedEnv::leaf` does. The zone edges are smoothsteps 0.04
+/// wide in `y`, so interpolation alone differs from the integral at an arbitrary `y` inside an
+/// edge by up to 9e-3 on a blue channel of 5.0. At a row itself the reference is the integral at
+/// that `y`.
 fn aset_table_reference(y: f32, spectrum: impl Fn(Vec3, f32) -> f32) -> Vec3 {
     let at_row = |row: f32| {
         let row_y = (row / 1023.0).mul_add(2.0, -1.0);
@@ -281,15 +279,38 @@ fn the_hdr_leaf_is_the_map_radiance_and_can_outlive_the_source() {
     let expected = Vec3::new(0.3, 0.7, 1.2);
     let owned = {
         let map = EnvironmentMap::uniform(4, 2, expected.to_array());
-        let env = WhittedEnv::new(EnvironmentSource::HdrMap(&map));
+        let env = WhittedEnv::new(EnvironmentSource::hdr(&map));
         close(env.leaf(Vec3::Z, Vec3::Y), expected, 1.0e-6);
         env.into_owned()
     };
     close(owned.leaf(Vec3::NEG_X, Vec3::Y), expected, 1.0e-6);
 }
 
-/// There is no separate primary-miss lookup any more: the camera ray that misses the stone and
-/// a ray that leaves it both call `leaf`, which sees the lit tray below the horizon.
+/// The scene exposure scales the HDR leaf (exactly, for a power of two), before and after the
+/// environment is detached from its scene; exposure 1 is the plain map.
+#[test]
+fn the_hdr_leaf_is_lit_at_the_scene_exposure() {
+    let map = EnvironmentMap::uniform(4, 2, [0.3, 0.7, 1.2]);
+    let plain = WhittedEnv::new(EnvironmentSource::hdr(&map));
+    let doubled = WhittedEnv::new(EnvironmentSource::hdr_at(&map, 2.0));
+    for dir in [Vec3::Z, Vec3::NEG_X, Vec3::new(0.3, -0.8, 0.52).normalize()] {
+        let base = plain.leaf(dir, Vec3::Y);
+        assert_eq!(base.to_array(), map.radiance_rgb(dir));
+        assert_eq!(
+            doubled.leaf(dir, Vec3::Y).to_array(),
+            (base * 2.0).to_array()
+        );
+    }
+    let owned = WhittedEnv::new(EnvironmentSource::hdr_at(&map, 0.5)).into_owned();
+    close(
+        owned.leaf(Vec3::Z, Vec3::Y),
+        Vec3::new(0.15, 0.35, 0.6),
+        1.0e-6,
+    );
+}
+
+/// A camera ray that misses the stone and a ray that leaves it both use `leaf`, which sees the
+/// lit tray below the horizon.
 #[test]
 fn the_primary_miss_equals_the_leaf() {
     let preset = LightingPreset::IsoHemisphere;
@@ -330,9 +351,8 @@ fn the_primary_miss_equals_the_leaf() {
     close(pixel, expected, expected.abs().max_element() * 1.0e-3);
 }
 
-/// Windows and the surround are one lookup: under the grading dome the pixels the stone covers
-/// gain light when the lit tray replaces the nothing-below-the-girdle ground, and no pixel loses
-/// any; the surround is the tray itself.
+/// Under the grading dome the lit tray replaces the empty ground below the girdle: pixels the
+/// stone covers gain light and none loses any. The surround is the tray itself.
 #[test]
 fn a_window_shows_the_backdrop() {
     let planes = StandardGemCuts::emerald_cut();
@@ -408,12 +428,12 @@ fn a_window_shows_the_backdrop() {
         tray_sum / stone_f,
         as_lit_sum / stone_f
     );
-    // Looking straight down, the surround is the tray (the sky is above the horizon), and the
-    // windows read at the level of the surround scaled by the glass's transmission: same order.
+    // As Lit has no light below the girdle, so the surround must read dark.
     assert!(
         as_lit_surround / surround_f < 0.01 * (surround_sum / surround_f),
         "As Lit has nothing below the girdle: {as_lit_surround} vs {surround_sum}"
     );
+    // Looking straight down the surround is the tray; a window must read at least a fifth of it.
     assert!(
         tray_sum / stone_f > 0.2 * (surround_sum / surround_f),
         "windows read as light, not as holes: {} vs {}",
@@ -496,8 +516,8 @@ fn the_aset_table_shows_the_tray_below_the_horizon() {
     close(as_lit.leaf(Vec3::NEG_Y, Vec3::Z), Vec3::ZERO, 1.0e-6);
 }
 
-/// A frosted facet pointing down averages the environment over its cosine lobe, which now
-/// includes the tray.
+/// A frosted facet pointing down averages the environment over its cosine lobe, which includes
+/// the tray.
 #[test]
 fn frost_of_a_downward_facet_sees_the_tray() {
     let tray = 0.81;

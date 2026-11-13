@@ -33,6 +33,8 @@ impl Default for RenderContext {
             backdrop: crate::settings::model::Backdrop::default(),
             surface_glare: 1.0,
             head_shadow_deg: pleochroma::optics::raytracer::DEFAULT_HEAD_SHADOW_DEG,
+            stone_shadow: false,
+            tray_reflection: 0.0,
             target_samples: 256,
             max_bounces: DEFAULT_MAX_BOUNCES,
             exposure: 1.0,
@@ -73,9 +75,18 @@ impl Default for RenderContext {
             live_display_only: false,
             local_compute_target: LocalComputeTarget::CpuGpu,
             local_preview_scale: LocalPreviewScale::Off,
+            adaptive_viewport: false,
+            path_cache_viewport: false,
+            instant_lighting: false,
+            #[cfg(feature = "beam")]
+            beam_viewport: false,
+            #[cfg(feature = "beam")]
+            beam_instant_lighting: false,
             camera_moving: false,
             camera_drag_held: false,
             env_map: None,
+            hdr_yaw: 0.0,
+            hdr_follows_camera: false,
             scene_identity: SceneIdentity::default(),
             frame_cancel: Arc::new(AtomicBool::new(false)),
         }

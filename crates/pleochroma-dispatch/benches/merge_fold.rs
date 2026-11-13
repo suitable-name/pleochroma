@@ -1,12 +1,10 @@
-//! Deterministic chunk merge, `Merger::add` (BLD-2; finding NET-1 in
-//! `review_perf_2026-10-12_fable.md`, section 5, table row 8: coordinator non-render tail
-//! per chunk, 50-300 ms before, 20-50 ms less after).
+//! Benchmarks `Merger::add`, the per-chunk merge on the coordinator.
 //!
 //! Each iteration adds two consecutive full-frame chunks into a fresh merger: the first
 //! becomes the merged prefix (a move), the second folds into it with `add_assign`. Both
 //! pay the invalid-pixel scan and the mutex. The chunk buffers are built outside the timed
-//! region. At 1080p one buffer is 24 MB (12 bytes x 2 073 600 pixels), at 4K 100 MB; expect
-//! a few ms (1080p) to a few tens of ms (4K) per add, memory-bandwidth bound.
+//! region. At 1080p one buffer is 24 MB (12 bytes x 2 073 600 pixels), at 4K 100 MB, so
+//! the cost is memory-bandwidth bound.
 //!
 //! Run: `cargo bench -p pleochroma-dispatch --bench merge_fold`.
 

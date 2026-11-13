@@ -7,8 +7,8 @@ import { IconButton } from "icon_button.slint";
 
 // The glossary dialog (Help > Glossary, and "More in the glossary" from a tooltip): every
 // term of Appendix A of the manual, with a search box that narrows the list as you type.
-// Mounted by `app.slint` inside an Escape-handling `FocusScope`, like the other modal
-// dialogs. The terms come from `gui::help::glossary`; this dialog only shows
+// Mounted by `app/window_dialogs.slint` inside an Escape-handling `FocusScope`, like the other
+// modal dialogs. The terms come from `gui::help::glossary`; this dialog only shows
 // `HelpModel.glossary_rows`.
 export component GlossaryDialog inherits Rectangle {
     background: Theme.overlay-backdrop;

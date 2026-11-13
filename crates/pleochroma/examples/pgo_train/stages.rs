@@ -1,4 +1,5 @@
 //! The training stages `main` runs in order, plus the row/frame tracer they share.
+//!
 //! Every stage takes the `PGO_SCALE` factor (see the example's module docs) and returns a
 //! checksum so the optimiser cannot discard the work.
 
@@ -44,23 +45,16 @@ fn scaled(base: u32, scale: f32, min: u32) -> u32 {
 
 /// One frame's inputs, bundled so the row tracer takes one argument.
 ///
-/// `plane_soa` is built ONCE per cut (see `train_tracer`'s outer loop) and shared by
-/// every material/preset/frame traced against that same `planes` -- not rebuilt on every
-/// sample the way `trace_spectral_ray_with_finish` alone would (that per-sample rebuild
-/// is exactly the cost this training workload is meant to profile realistically, so this
-/// harness has to avoid paying it artificially many times over).
+/// `plane_soa` is built once per cut and shared by every frame traced against those
+/// `planes`, so the training run does not rebuild it per sample.
 struct TraceJob<'a> {
     camera: &'a Camera,
     planes: &'a [GpuFacetPlane],
     plane_soa: &'a PlanesSoA32,
     finishes: &'a [FacetFinish],
     material: &'a GemMaterial,
-    /// Which environment `trace_row` samples on a ray miss -- either the analytic
-    /// studio rig (`LightingPreset::studio`) or a loaded HDR map
-    /// (`EnvironmentSource::HdrMap`), threaded straight through to
-    /// `trace_spectral_ray_with_finish_soa` unchanged. Carrying the already-built
-    /// `EnvironmentSource` (rather than a bare `LightingPreset`) is what lets
-    /// `train_lighting` share this same job/row/frame machinery for its HDR-map case.
+    /// The environment sampled on a ray miss: the analytic studio rig
+    /// (`LightingPreset::studio`) or an HDR map (`EnvironmentSource::HdrMap`).
     lighting: EnvironmentSource<'a>,
     width: u32,
     height: u32,
@@ -182,33 +176,28 @@ fn trace_frame(job: &TraceJob<'_>) -> Frame {
     frame
 }
 
-/// `material` with the render's stone-size rule applied for "no size set" (all training materials
-/// are `ModelUnit`, so no planes are read).
+/// `material` with the render's stone-size rule applied for "no size set". All training
+/// materials are `ModelUnit`, so no planes are read.
 fn sized_for_training(material: GemMaterial) -> GemMaterial {
     pleochroma::render_setup::material_for_stone(material, 0.0, &[])
 }
 
-/// Every built-in material the tracer is trained against, spanning all three optical
-/// characters (isotropic, uniaxial, biaxial), dispersive and near-non-dispersive, and
-/// both clean and inclusion-scattering variants -- `bool` marks "trace with a frosted
-/// girdle finish".
+/// Every built-in material the tracer is trained against: all three optical characters,
+/// dispersive and near-non-dispersive, clean and inclusion-scattering. `bool` marks a
+/// frosted girdle finish.
 ///
-/// Every material goes through the render's size rule (`material_for_stone`, no stone size set =
-/// the 7 mm look), so a coloured `ModelUnit` built-in is traced at the same absorption the app
-/// renders (scale `1 / MODEL_UNIT_FACE_UP_PATH`, not the old bare 1.0). The checksums this example
-/// prints therefore changed with that recalibration (coloured materials are lighter now); the
-/// training itself stays deterministic.
+/// Each material goes through the render's size rule (`material_for_stone`), so coloured
+/// `ModelUnit` built-ins are traced at the absorption the app renders.
 fn training_materials() -> Vec<(&'static str, GemMaterial, bool)> {
     let by_name =
         |name: &str| sized_for_training(GemMaterial::by_name(name).expect("built-in material"));
     vec![
-        // Isotropic (cubic): Diamond (highly dispersive), Cubic Zirconia (much less
-        // so) -- both take the isotropic Fresnel path in `transport.rs`, with no
-        // birefringent mode-coupling code ever entered.
+        // Isotropic (cubic): Diamond and Cubic Zirconia take the isotropic Fresnel path in
+        // `optics::raytracer::transport`, with no birefringent mode coupling.
         ("Diamond", sized_for_training(GemMaterial::diamond()), false),
         ("Cubic Zirconia", by_name("Cubic Zirconia"), false),
-        // Uniaxial +/-: Zircon (positive) and Sapphire/Ruby/Tourmaline (negative) all
-        // take `transport.rs`'s anisotropic o<->e re-coupling path.
+        // Uniaxial +/-: Zircon (positive) and Sapphire/Ruby/Tourmaline (negative) take the
+        // anisotropic o<->e re-coupling path.
         ("Zircon", by_name("Zircon"), true),
         ("Tourmaline", by_name("Tourmaline"), false),
         ("Ruby", by_name("Ruby").with_edge_rounding(0.01), false),
@@ -217,10 +206,8 @@ fn training_materials() -> Vec<(&'static str, GemMaterial, bool)> {
             by_name("Sapphire").with_scattering_amount(0.4),
             true,
         ),
-        // Biaxial +: Alexandrite and Topaz both exercise `BiaxialIndicatrix`'s
-        // eigen-polarization/mode-Poynting construction and the mode-A<->mode-B
-        // re-coupling variant of the same internal-reflection dispatch uniaxial
-        // materials use.
+        // Biaxial +: Alexandrite and Topaz exercise `BiaxialIndicatrix`'s eigenpolarization
+        // and the mode-A<->mode-B re-coupling of the internal-reflection dispatch.
         ("Alexandrite", by_name("Alexandrite"), false),
         ("Topaz", by_name("Topaz"), false),
     ]
@@ -251,8 +238,7 @@ pub fn train_tracer(scale: f32) -> f32 {
     let mut filtered = Vec::new();
     let mut checksum = 0.0f32;
     for (cut_name, planes) in &cuts {
-        // Built once per cut (`planes` is fixed for every material/preset/frame traced
-        // below), not once per sample -- see `TraceJob::plane_soa`'s own doc comment.
+        // Built once per cut, since `planes` is fixed for every frame below. See `TraceJob`.
         let plane_soa = build_plane_soa(planes);
         let girdle = girdle_facet_finishes(planes);
         for (name, material, frosted) in &materials {
@@ -276,9 +262,8 @@ pub fn train_tracer(scale: f32) -> f32 {
                 let t0 = Instant::now();
                 let frame = trace_frame(&job);
                 let avg: Vec<Vec3> = frame.accum.iter().map(|v| *v / spp as f32).collect();
-                // BLD-1: every second preset denoises with a real path signature (the
-                // production `frame_denoise` path); the other keeps the signature-less
-                // early-return branch trained too.
+                // Every second preset denoises with a path signature (the `frame_denoise`
+                // path); the other keeps the signature-less early-return branch covered.
                 let guides = (i == 1).then(|| {
                     generate_guide_buffers_geom_with_index(
                         width,
@@ -316,18 +301,12 @@ pub fn train_tracer(scale: f32) -> f32 {
     checksum
 }
 
-/// Lighting-model coverage: every [`LightingPreset::ALL`] entry through the analytic
-/// studio rig (all four `LightingModel`s -- `Studio`, `IsoHemisphere`, `LightTent`,
-/// `DaylightDome`), plus one synthetic HDR equirectangular map through
-/// [`EnvironmentSource::HdrMap`] -- the two branches
-/// `trace_spectral_ray_with_finish_soa`'s ray-miss lookup dispatches between.
-/// [`train_tracer`] above only exercises two of the seven presets (`RingLights`,
-/// `Incandescent`, chosen for material coverage, not lighting-model coverage); this
-/// stage is the one that visits every preset and the HDR-map path at all. Reuses
-/// [`trace_frame`]/[`TraceJob`] directly (a single diamond round-brilliant, no
-/// material/finish variation), so its own frame is deliberately smaller than
-/// [`train_tracer`]'s -- this stage's job is lighting-branch coverage, not another
-/// full material sweep.
+/// Lighting-model coverage: every [`LightingPreset::ALL`] entry, covering all four
+/// `LightingModel`s, plus one synthetic HDR map through [`EnvironmentSource::HdrMap`].
+///
+/// These are the two branches of `trace_spectral_ray_with_finish_soa`'s ray-miss lookup.
+/// [`train_tracer`] visits only `RingLights` and `Incandescent`, chosen for material coverage. Uses
+/// one diamond round brilliant with no finishes, at a smaller frame size.
 pub fn train_lighting(scale: f32) -> f32 {
     let width = scaled(160, scale, 16);
     let height = scaled(120, scale, 12);
@@ -363,10 +342,8 @@ pub fn train_lighting(scale: f32) -> f32 {
         println!("  lighting: {preset:?}: {:.2?}", t0.elapsed());
     }
 
-    // One procedural, real-sized (1024x512) HDR panorama needing no file I/O: sun,
-    // softboxes and a sky gradient (see `stages_extra::procedural_hdr_map`), so
-    // `EnvironmentMap`'s importance sampler and `EnvironmentSource::HdrMap`'s branch in the
-    // transport code train on a map with a production-like CDF, not an 8x4 gradient.
+    // A procedural 1024x512 HDR panorama (sun, softboxes, sky; see
+    // `stages_extra::procedural_hdr_map`), so the importance sampler sees a realistic CDF.
     let t0 = Instant::now();
     let env_map = procedural_hdr_map(1024, 512);
     let job = TraceJob {
@@ -375,7 +352,7 @@ pub fn train_lighting(scale: f32) -> f32 {
         plane_soa: &plane_soa,
         finishes: &[],
         material: &material,
-        lighting: EnvironmentSource::HdrMap(&env_map),
+        lighting: EnvironmentSource::hdr(&env_map),
         width,
         height,
         spp,
@@ -419,13 +396,10 @@ const SCHEDULES: [&str; 3] = [
      a 0.000000 0.42000000 n T\n",
 ];
 
-/// Real, catalogue-sourced `.asc` designs trained alongside [`SCHEDULES`]' synthetic
-/// ones: the crate's own CrackOtto-Step cost-probe fixture (103 tiers, 205 facet-plane
-/// instances -- the heaviest real design this crate ships, see
-/// `pleochroma_cut_core::optimize`'s own measured cost table) plus the four real
-/// designs `tests/optics_geometry_tests/asc_designs.rs` also exercises, via the exact
-/// same `include_str!`'d fixture files (nothing duplicated between the test and this
-/// example).
+/// Real `.asc` designs trained alongside [`SCHEDULES`]: the CrackOtto-Step cost-probe fixture
+/// (205 facet-plane instances, the heaviest design here) and the four designs that
+/// `tests/optics_geometry_tests/asc_designs.rs` also uses. Both share the same
+/// `include_str!`'d fixtures.
 const REAL_DESIGNS: [(&str, &str); 5] = [
     (
         "CrackOtto-Step",
@@ -482,8 +456,8 @@ pub fn train_solver(scale: f32) -> f64 {
     for (i, text) in SCHEDULES.iter().enumerate() {
         let schedule = pleochroma_formats::asc::parse_asc(text).expect("training schedule parses");
         let mut tiers = meet_solver::meet_tier_inputs_from_asc(&schedule);
-        // Anchor the first three tiers on their recorded masts, as the validation
-        // probe's baseline report does.
+        // Anchor the first three tiers on their recorded masts, as the validation harness's
+        // Report A does.
         for j in [0usize, 1, 2] {
             tiers[j].constraint =
                 meet_solver::MeetConstraint::ScaleReference(schedule.tiers[j].mast);
@@ -507,22 +481,15 @@ pub fn train_solver(scale: f32) -> f64 {
         println!("  solver: schedule {i}: {:.2?}", t0.elapsed());
     }
 
-    // Real, non-fabricated designs -- see `REAL_DESIGNS`' own doc comment. "A few"
-    // plain solves each (not `main_iters`'s 60: CrackOtto-Step's 205 facet-plane
-    // instances make it the heaviest design in the corpus this crate ships fixtures
-    // from -- measured well over a second per plain solve even at `--profile probe`
-    // -- so this loop deliberately does not multiply that by anywhere near
-    // `main_iters`) plus one verified solve, then the CAD-preview measurement/mesh
-    // pass every `pleochroma-cut-core::design::Design::solve` caller runs next.
+    // Real designs get a few plain solves each, not `main_iters`: one plain CrackOtto-Step
+    // solve takes well over a second. Then one verified solve and the CAD-preview pass.
     let real_iters = scaled(2, scale, 1);
     for (name, text) in REAL_DESIGNS {
         let schedule =
             pleochroma_formats::asc::parse_asc(text).expect("real training schedule parses");
         let mut tiers = meet_solver::meet_tier_inputs_from_asc(&schedule);
-        // Same baseline anchoring the synthetic schedules above use: pin the first
-        // three tiers to their recorded masts so the solver has real scale references
-        // to work from (see `pleochroma::geometry::meet_solver`'s module docs, "What
-        // meets alone cannot determine").
+        // Same anchoring as the synthetic schedules: pin the first three tiers to their
+        // recorded masts. See `pleochroma::geometry::meet_solver`'s module docs.
         for j in 0..tiers.len().min(3) {
             tiers[j].constraint =
                 meet_solver::MeetConstraint::ScaleReference(schedule.tiers[j].mast);
@@ -542,11 +509,9 @@ pub fn train_solver(scale: f32) -> f64 {
                 &[],
             );
             checksum += verified.iter().map(|s| s.mast).sum::<f64>();
-            // `report.final_score` is `f64::INFINITY` when the search never found a
-            // measurable configuration (the first-three-tiers anchor above is a
-            // training-only heuristic, not a real per-block anchor set, so an
-            // unmeasurable solve is possible on a weakly anchored design) -- guarded
-            // so one such design can't poison this whole stage's checksum.
+            // `final_score` is infinite when the search finds no measurable configuration. The
+            // first-three-tiers anchor is a training heuristic, so this can happen. Guarded so
+            // one design cannot poison the checksum.
             if report.final_score.is_finite() {
                 checksum += report.final_score;
             }
@@ -559,18 +524,12 @@ pub fn train_solver(scale: f32) -> f64 {
     checksum
 }
 
-/// Rebuilds the CAD-preview solid from `solved`'s masts (not `schedule`'s recorded
-/// ones) via [`stone_metrics::measure_solid`]/[`stone_metrics::build_solid_mesh`] --
-/// exactly the path every `pleochroma-cut-core::design::Design::solve` caller runs
-/// next, reproduced here directly since this crate cannot depend on
-/// `pleochroma-cut-core` (the dependency runs the other way -- see
-/// `crates/pleochroma-cut-core/examples/pgo_train.rs` for that crate's own copy of
-/// this same CAD-preview path, exercised through `Design` itself there). Folds
-/// whatever it measures into `checksum`; a solve that doesn't close into a valid
-/// solid (possible from the plain, non-verified solver on a weakly anchored real
-/// design -- see [`train_solver`]'s own comment on its training-only anchor pins)
-/// contributes nothing rather than panicking: this stage profiles real code paths,
-/// not asserts correctness the way [`train_brep`]'s round-trip check does.
+/// Rebuilds the CAD-preview solid from `solved`'s masts, not the recorded ones, via
+/// [`stone_metrics::measure_solid`] and [`stone_metrics::build_solid_mesh`]. This is the
+/// path `pleochroma-cut-core`'s `Design::solve` runs. This crate cannot depend on that
+/// crate, so the path is reproduced here. A solve that does not close into a valid solid
+/// adds nothing to `checksum` rather than panicking, since this stage profiles code paths
+/// and does not assert correctness (unlike [`train_brep`]).
 fn measure_solved_preview(
     schedule: &pleochroma_formats::asc::AscSchedule,
     tiers: &[meet_solver::MeetTierInput],
@@ -591,10 +550,10 @@ fn measure_solved_preview(
     }
 }
 
-/// `.asc` reader/writer round trip, plus B-Rep solid reconstruction from real
-/// (non-fabricated) cutting instructions -- the two `pleochroma-formats`/`geometry::cuts` paths a
-/// production tracer never exercises on its own, since it always renders from
-/// already-resolved [`GpuFacetPlane`]s, never from a raw schedule.
+/// `.asc` writer round trip, plus B-Rep reconstruction from real cutting instructions.
+///
+/// The tracer never runs these paths, since it renders from resolved [`GpuFacetPlane`]s and not
+/// from a raw schedule.
 ///
 /// # Panics
 ///
@@ -608,9 +567,7 @@ pub fn train_brep() -> f64 {
         let t0 = Instant::now();
         let schedule = pleochroma_formats::asc::parse_asc(text).expect("training schedule parses");
 
-        // Writer round trip: `to_asc_string` -> `parse_asc` must reproduce the same
-        // tier count (see `pleochroma_formats::asc::to_asc_string`'s own doc comment for the
-        // exact round-trip guarantee this checks).
+        // Writer round trip: `to_asc_string` then `parse_asc` must keep the tier count.
         let written =
             pleochroma_formats::asc::to_asc_string(&schedule).expect("training schedule writes");
         let reparsed = pleochroma_formats::asc::parse_asc(&written).expect("written .asc reparses");
@@ -620,8 +577,7 @@ pub fn train_brep() -> f64 {
             "asc writer round trip must preserve tier count"
         );
 
-        // Real (non-fabricated) B-Rep reconstruction: the schedule's own recorded
-        // masts, through `from_asc_schedule` -> `GemPolyhedron::from_planes`.
+        // B-Rep reconstruction from the schedule's recorded masts.
         let hull = StandardGemCuts::reconstruct_validated_brep_from_asc(&schedule)
             .expect("training schedule reconstructs into a valid solid");
         let area_sum: f32 = hull.facet_areas().iter().sum();
@@ -632,10 +588,11 @@ pub fn train_brep() -> f64 {
     checksum
 }
 
-/// Tilt-performance sweep: `pleochroma-worker`'s `TILT_CURVES` request and
-/// `pleochroma-cut`'s tilt-profile panel both bottom out in
-/// [`pleochroma::color::metrics::evaluate_full_axis_profile_at_azimuth`], called once per
-/// [`pleochroma::color::metrics::PROFILE_AZIMUTHS_DEG`] entry -- reproduced exactly here.
+/// Tilt-performance sweep.
+///
+/// The worker's `TILT_CURVES` request and the cut app's tilt panel both call
+/// [`pleochroma::color::metrics::evaluate_full_axis_profile_at_azimuth`] once per
+/// [`pleochroma::color::metrics::PROFILE_AZIMUTHS_DEG`] entry.
 pub fn train_tilt(scale: f32) -> f32 {
     use pleochroma::color::metrics::{PROFILE_AZIMUTHS_DEG, evaluate_full_axis_profile_at_azimuth};
 
@@ -677,14 +634,13 @@ pub fn train_tilt(scale: f32) -> f32 {
     checksum
 }
 
-/// CPU-side GPU chunk orchestration: `renderer::gpu::hybrid::{HybridSplit::calibrated,
-/// render_hybrid}`, the same dispatch/readback loop `apps/pleochroma-cut`'s and
-/// `apps/pleochroma-worker`'s `gpu` features route progressive/export rendering through.
-/// Only compiled and only runs when this crate is built with `--features gpu`; skips
-/// itself gracefully (prints and returns `0.0`) when no adapter is present, and can be
-/// disabled outright via `PGO_TRAIN_SKIP_GPU=1` (e.g. to keep GPU dispatch code out of
-/// a deliberately CPU-only profile even in a `gpu`-feature build). Never trains the
-/// WGSL compute shader itself -- LLVM PGO has no visibility into it.
+/// CPU-side GPU chunk orchestration, trained as one stage.
+///
+/// It covers `renderer::gpu::hybrid::{HybridSplit::calibrated,
+/// render_hybrid}`, the dispatch and readback loop the cut and worker apps use for
+/// progressive and export rendering. Built only with `--features gpu`. Returns `0.0` when no
+/// adapter is present. `PGO_TRAIN_SKIP_GPU=1` skips it, to keep GPU dispatch code out of a
+/// CPU-only profile. The WGSL compute shader is not trained, since LLVM PGO cannot see it.
 #[cfg(feature = "gpu")]
 pub fn train_gpu(scale: f32) -> f32 {
     use pleochroma::renderer::gpu::{

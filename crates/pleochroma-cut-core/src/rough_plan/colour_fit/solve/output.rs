@@ -12,10 +12,10 @@ use crate::rough_plan::locate::Rigid;
 /// The version of the serialised [`ColourFit`].
 pub const FIT_VERSION: u32 = 1;
 
-/// The Birge ratio above which the covariance and the radii are inflated (round 3, D4.1).
+/// The Birge ratio above which the covariance and the radii are inflated.
 pub const BIRGE_THRESHOLD: f64 = 1.2;
 
-/// The spectral model of a fit (plan section 6.2).
+/// The spectral model of a fit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ModelKind {
     /// A: log-amounts of the host's catalogue chromophores.
@@ -55,20 +55,19 @@ pub struct ZonePrediction {
     pub delta_e_radius: f64,
     /// The metamer spread: the largest CIEDE2000 from `lab` among parameter vectors with
     /// `Delta chi2 <= 1` relative to the optimum, computed WITHOUT the smoothness and magnitude
-    /// priors (round 2, C3). Unlike `delta_e_radius` it does not hide directions the camera data
-    /// cannot see; a spread above the accuracy target means the target is a metamer limit of the
-    /// data, not an error of the fit. An estimate from a deterministic search, not a bound.
+    /// priors. Unlike `delta_e_radius` it does not hide directions the camera data cannot see; a
+    /// spread above the accuracy target means the target is a metamer limit of the data, not an
+    /// error of the fit. An estimate from a deterministic search, not a bound.
     ///
-    /// Round 5, ZC-4: the spread is the largest CIEDE2000 from `lab` among the verified end
-    /// points of the constrained extremisation of `+-L*, +-a*, +-b*` and of the distance from the
-    /// fit over `{chi2_data + 2 gain_prior <= optimum + Delta}` (`Delta` is 1, or the Birge ratio
-    /// when that is above 1.2), every end point re-checked with the full nonlinear chi-square
-    /// and non-negative on a 5 nm grid from 400 to 700 nm.
+    /// The spread is the largest CIEDE2000 from `lab` among the verified end points of the
+    /// constrained extremisation of `+-L*, +-a*, +-b*` and of the distance from the fit over
+    /// `{chi2_data + 2 gain_prior <= optimum + Delta}` (`Delta` is 1, or the Birge ratio when
+    /// that is above 1.2). Every end point is re-checked with the full nonlinear chi-square and
+    /// non-negative on a 5 nm grid from 400 to 700 nm.
     #[serde(default)]
     pub metamer_spread: f64,
-    /// The same search before the verification of round 3, D3 (the quadratic-model candidates
-    /// as they were): shown next to `metamer_spread` so that the effect of the verification is
-    /// visible.
+    /// The same search with the quadratic-model candidates, before verification, for comparison
+    /// with `metamer_spread`.
     #[serde(default)]
     pub metamer_spread_unverified: f64,
 }
@@ -100,16 +99,16 @@ pub struct ModelFit {
     pub zone_tensors: Vec<AbsorptionTensor>,
     /// The total objective (half the robust chi-square plus the priors).
     pub cost: f64,
-    /// The robust (Huber) data term alone; `cost - data_cost` is the prior part (round 3, D1.3).
+    /// The robust (Huber) data term alone; `cost - data_cost` is the prior part.
     #[serde(default)]
     pub data_cost: f64,
     /// The prior part of `cost` by term, `(name, value)`: gain, smoothness, magnitude, l1,
-    /// zone pull (round 3, D1.3).
+    /// zone pull.
     #[serde(default)]
     pub prior_terms: Vec<(String, f64)>,
     /// The Birge ratio `chi2_robust / (erf(k / sqrt 2) (n_data - effective_params))` with the
-    /// Huber-weighted chi-square (round 5, ZC-18; the plain ratio is
-    /// `chi2 / (n_data - effective_params)`). When it exceeds
+    /// Huber-weighted chi-square (the plain ratio is `chi2 / (n_data - effective_params)`).
+    /// When it exceeds
     /// [`BIRGE_THRESHOLD`] the covariance and the predictions' radii are inflated by it: the
     /// noise model was too small. 1 for a fit that was never scored.
     #[serde(default = "one")]
@@ -127,8 +126,7 @@ pub struct ModelFit {
     pub iterations: usize,
     /// The iterations of each stage on its own: the multi-start's first stage (absent when a
     /// structured start won), the three staged runs of the winner, one entry per reweighted L1
-    /// round (one entry for a warm start). Empty
-    /// in fits saved before this field existed.
+    /// round (one entry for a warm start). Empty in fits saved before this field existed.
     #[serde(default)]
     pub iterations_per_stage: Vec<usize>,
     /// Whether the iteration stopped on its tolerance.
@@ -307,11 +305,11 @@ pub enum WarningKind {
     /// A view has no usable pixels.
     EmptyView,
     /// The fit's Birge ratio is above [`BIRGE_THRESHOLD`]: the photos scatter more than the
-    /// noise model says, and the uncertainties were inflated accordingly (round 3, D4.1).
+    /// noise model says, and the uncertainties were inflated accordingly.
     NoiseUnderestimated,
     /// The fitted spectrum of the smooth basis (14 bands) was refitted onto the 7-band GPU basis
-    /// and the refit changes a face-up colour noticeably (round 5, ZC-6). The message carries the
-    /// largest CIEDE2000 and absorption difference.
+    /// and the refit changes a face-up colour noticeably. The message carries the largest
+    /// CIEDE2000 and absorption difference.
     ExportRefit,
 }
 

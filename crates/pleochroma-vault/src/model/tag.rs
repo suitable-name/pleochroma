@@ -1,10 +1,9 @@
 //! [`Tag`]: one row of the catalogue's flat tag set.
 //!
-//! Deliberately flat, not hierarchical -- a design can carry any number of tags, but a
-//! tag itself has no parent/child structure (folders) and no other metadata. See
-//! `crate::db::sqlite::migrations::Database::migrate_tag_tables`'s doc comment for the
-//! schema and the reasoning for keeping this a side table pair rather than a column on
-//! `diagram_entries`.
+//! Flat by design: a tag has no parent or child (no folders) and no metadata beyond its
+//! name, while a design can carry any number of tags. The schema, and why the tags are a
+//! side table pair rather than a column on `diagram_entries`, are documented on
+//! `crate::db::sqlite::Database::migrate_tag_tables`.
 
 use serde::{Deserialize, Serialize};
 
@@ -13,6 +12,6 @@ use serde::{Deserialize, Serialize};
 pub struct Tag {
     /// Database identifier.
     pub id: i64,
-    /// Display name.
+    /// Display name, unique ignoring ASCII case.
     pub name: String,
 }

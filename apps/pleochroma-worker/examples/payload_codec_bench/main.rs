@@ -4,8 +4,8 @@
 //! (`PayloadEncoding::{Raw, ShuffleLz4, ShuffleZstd}` for `FRAME`/`PREVIEW` radiance, and the
 //! PNG display codec for 8-bit `DISPLAY_FRAME`s) on deterministic synthetic frames, then
 //! applies a link model to say which setting gives the best frame rate. Run with `--help`
-//! for the flags; the sweep is synthetic, `--captures <dir>` switches to the older report
-//! over frames written by `capture_frame_payloads`.
+//! for the flags. `--captures <dir>` reports on the frames written by
+//! `capture_frame_payloads` instead of the synthetic sweep.
 //!
 //! ```text
 //! cargo run -p pleochroma-worker --release --example payload_codec_bench -- --quick

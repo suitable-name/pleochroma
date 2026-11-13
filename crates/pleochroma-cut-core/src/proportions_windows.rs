@@ -9,16 +9,13 @@
 //!
 //! # Scope and honesty
 //!
-//! Only [`ShapeClass::Round`] carries real, shape-specific windows (the round
-//! brilliant is the one shape this app ships verified, closing templates for
-//! today -- see [`crate::templates`]'s own doc comment on why the gallery
-//! stops at round-brilliant variants). Every other [`ShapeClass`] falls back
-//! to the SAME wide, material-independent "widely published lapidary rule of
-//! thumb" windows [`MaterialClass::Mid`]/[`MaterialClass::Low`] already use for
-//! Round -- there is no dedicated cushion/oval/step/trillion reference data in
-//! this crate, and claiming otherwise would be exactly the "never claim more
-//! than the model supports" mistake this module exists to avoid. See each
-//! table entry's own `source` field for its citation.
+//! Only [`ShapeClass::Round`] carries shape-specific windows: the round brilliant
+//! is the only shape with verified, closing templates (see [`crate::templates`]).
+//! Every other [`ShapeClass`] falls back to the same generic "widely published
+//! lapidary rule of thumb" windows that [`MaterialClass::Mid`]/[`MaterialClass::Low`]
+//! use for Round. This crate has no cushion, oval, step or trillion reference data,
+//! so those shapes must not be presented as if it did. See each table entry's
+//! `source` field for its citation.
 //!
 //! Windows are one-sided or two-sided ranges with a "near" margin: a value
 //! inside `[min, max]` is [`Verdict::Within`]; a value within `near_margin` of
@@ -34,8 +31,7 @@
 /// class against a value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ShapeClass {
-    /// Radially symmetric, 6-fold or higher, mirrored -- the round brilliant
-    /// family (this crate's only verified-closing template shape today).
+    /// Radially symmetric, 6-fold or higher, mirrored: the round brilliant family.
     Round,
     /// A rounded, elongated outline with no dedicated reference data here --
     /// judged against the same generic lapidary windows as
@@ -150,9 +146,8 @@ struct Entry {
     window: ProportionWindow,
 }
 
-/// The reference-window table. A linear `const` slice, scanned by
-/// [`window_for`] -- not a `HashMap`, per this crate's own "no HashMap/HashSet
-/// in a decision path, static tables as const slices" house rule.
+/// The reference-window table: a linear `const` slice scanned by [`window_for`]. Kept
+/// out of a `HashMap` so the decision path stays deterministic.
 ///
 /// [`ShapeClass::Round`] carries three material-specific rows per metric
 /// (diamond's own published AGS/GIA "Excellent" round-brilliant ranges for
@@ -320,11 +315,9 @@ pub fn window_for(
 
 /// Looks up `metric`'s window and classifies `value` against it.
 ///
-/// Convenience wrapper: looks up `metric`'s window for `shape`/`material`
-/// (via [`window_for`]) and classifies `value` against it in one call. `None`
-/// when [`window_for`] finds nothing at all (never happens today: the
-/// `Round`/`Mid` fallback always resolves for every metric this table
-/// lists).
+/// Looks up `metric`'s window for `shape`/`material` (via [`window_for`]) and
+/// classifies `value` against it. `None` only when [`window_for`] finds nothing,
+/// which cannot happen while the `Round`/`Mid` fallback rows exist for every metric.
 #[must_use]
 pub fn verdict_for(
     shape: ShapeClass,
@@ -370,8 +363,8 @@ mod tests {
     }
 
     /// A round brilliant in sapphire (`n_d` 1.76, `MaterialClass::Mid`) at the
-    /// standard 41-degree pavilion / 34.5-degree crown must read Within on
-    /// both angle metrics -- the acceptance case this module was built for.
+    /// standard 41-degree pavilion and 34.5-degree crown must read Within on both
+    /// angle metrics.
     #[test]
     fn round_brilliant_in_sapphire_reads_within_for_standard_angles() {
         let material = MaterialClass::from_ri(1.76);

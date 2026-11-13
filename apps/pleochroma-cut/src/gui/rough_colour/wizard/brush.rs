@@ -1,9 +1,8 @@
 //! The user brush of the Masks step: clicks that exclude or restore round patches of a view's
 //! working-resolution mask.
 //!
-//! Only the `USER` flag is touched; the automatic flags (saturated,
-//! below the noise floor, outside the outline, edge band, inclusion, ghost) are not the
-//! brush's to clear.
+//! Only the `USER` flag is touched. The automatic flags (saturated, below the noise floor, outside
+//! the outline, edge band, inclusion, ghost) belong to the mask computation and are kept.
 
 use pleochroma_cut_core::rough_plan::photometry::{PixelMask, flag};
 
@@ -45,9 +44,10 @@ const fn pixel_index(v: f64) -> usize {
     v.max(0.0) as usize
 }
 
-/// Applies one click at working position `centre` with `radius_px` (clamped to
-/// `0.5..=MAX_BRUSH_RADIUS_PX`). A pixel is in the patch when its centre is within the
-/// radius.
+/// Applies one click at working position `centre` with `radius_px`, clamped to
+/// `0.75..=MAX_BRUSH_RADIUS_PX` (a NaN radius counts as 0.75).
+///
+/// A pixel is in the patch when its centre lies within the radius.
 ///
 /// Returns how many pixels changed.
 pub fn apply(mask: &mut PixelMask, centre: [f64; 2], radius_px: f64, mode: BrushMode) -> usize {

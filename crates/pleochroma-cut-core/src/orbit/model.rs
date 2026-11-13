@@ -1,19 +1,17 @@
-//! The orbit model itself: [`OrbitUnit`], [`orbit_units`] (grouping a tier's
+//! The orbit model itself.
+//!
+//! It consists of [`OrbitUnit`], [`orbit_units`] (grouping a tier's
 //! raw `indices` into units), and [`expected_orbit`] (the reverse -- every
 //! position one requested occurrence's orbit *should* have). See the parent
-//! module's doc comment for the rotation/mirror math this implements and the
-//! corpus measurement behind it.
+//! module for the rotation and mirror model.
 
 use crate::design::ScheduleMeta;
 
 /// Float-equality tolerance for index-wheel azimuths.
 ///
-/// `pleochroma_formats::asc`'s own module docs measure roughly 0.2% of real index
-/// tokens as fractional (non-integer index-wheel positions), so exact
-/// equality is never the right test here; this is small enough to never
-/// conflate two genuinely distinct index-wheel teeth (whole teeth are
-/// always >= 1 apart) while absorbing that fractional noise and ordinary
-/// `f64` rounding.
+/// Real `.asc` files contain fractional index tokens (see `pleochroma_formats::asc`),
+/// so exact equality is never the right test. The tolerance is far below one tooth
+/// (teeth are always >= 1 apart), so distinct teeth are never conflated.
 pub const INDEX_TOLERANCE: f64 = 1e-3;
 
 /// Distance between `a` and `b` on a ring of circumference `ring` -- the
@@ -80,8 +78,7 @@ pub fn mirror_indices(indices: &[f64], gear_teeth_abs: u32) -> Vec<f64> {
 }
 
 /// One physical facet's occurrence set under the schedule's stated
-/// symmetry -- see the module docs for the model and the corpus-measured
-/// shape distribution.
+/// symmetry -- see the module docs for the model.
 #[derive(Debug, Clone, PartialEq)]
 pub struct OrbitUnit {
     /// Members of this unit actually present in the tier's `indices`,

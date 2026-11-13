@@ -67,15 +67,14 @@ pub(super) struct RedispatchInputs {
     /// The last epoch for exactly this scene and compute target gave up after
     /// repeated remote failures -- no retry until the scene or mode changes.
     pub(super) gave_up_for_this_scene: bool,
-    /// Live rendering is paused or a high-resolution export/batch job is running --
-    /// the same two conditions [`live_remote_may_run`] adds on top of `tab_visible`.
-    /// Kept as its own field rather than folded into `tab_visible` itself, so a
-    /// dragging-while-paused scene change still blocks a redispatch even though
-    /// `tab_visible` alone would have allowed one -- see [`LiveRemoteAllowedInputs`].
+    /// Live rendering is paused or a high-resolution export/batch job is running -- the
+    /// two conditions [`live_remote_may_run`] adds on top of `tab_visible`. Kept separate
+    /// from `tab_visible`, so a scene change while paused does not redispatch even when
+    /// the tab is visible (see [`LiveRemoteAllowedInputs`]).
     pub(super) suspended: bool,
-    /// A mouse button is held for an orbit or light drag (`poll::drag_held_effective`,
-    /// so a stale flag past the watchdog no longer counts) -- a redispatch now would
-    /// be cancelled by the very next move.
+    /// A mouse button is held for an orbit or light drag, as given by
+    /// [`drag_held_effective`] (a stale flag past the watchdog does not count). A
+    /// redispatch now would be cancelled by the very next move.
     pub(super) drag_held: bool,
 }
 

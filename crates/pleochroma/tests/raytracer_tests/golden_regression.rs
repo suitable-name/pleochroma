@@ -1,6 +1,5 @@
-//! Bit-exact golden-value regression pinning `trace_spectral_ray`,
-//! `sample_studio_environment`, and `evaluate_gem_optical_metrics` against exact
-//! `f32::to_bits()` values across a small diamond/sapphire case table.
+//! Bit-exact golden values for `trace_spectral_ray`, `sample_studio_environment` and
+//! `evaluate_gem_optical_metrics`, over a small diamond and sapphire case table.
 
 use glam::Vec3;
 use pleochroma::{
@@ -13,20 +12,16 @@ use pleochroma::{
 };
 use std::hint::black_box;
 
-/// One golden-value test case for `studio_rig_trace_output_is_pinned_to_current_values`:
-/// (ray, rng seed, lighting preset, light yaw, light pitch, expected diamond XYZ bits, expected sapphire XYZ bits).
+/// One case of `studio_rig_trace_output_is_pinned_to_current_values`: ray, rng seed, lighting
+/// preset, light yaw and pitch, then the expected diamond and sapphire XYZ bits.
 type GoldenCase = (Ray, u32, LightingPreset, f32, f32, [u32; 3], [u32; 3]);
 
-/// Golden-value regression pinning `trace_spectral_ray`, `sample_studio_environment`,
-/// and `evaluate_gem_optical_metrics` against exact `f32::to_bits()` values (not just
-/// approximate equality), across a small case table of diamond/sapphire rays, presets
-/// and light poses -- any bit drift here means something in the estimator or these
-/// metrics changed, intentionally or not.
+/// Pins the output bit for bit (`f32::to_bits()`) across diamond and sapphire rays, presets
+/// and light poses. Any drift means the estimator or these metrics changed.
 ///
-/// Every table below pins the CURRENT output of the code, captured from a run of this
-/// crate: they are drift detectors, not independently derived physics. Re-pin a table
-/// only after an intended change to the quantity it covers, and say which change in
-/// the commit that re-pins it.
+/// The tables record the code's current output. They are drift detectors, not independently
+/// derived physics. Re-pin a table only after an intended change to the quantity it covers,
+/// and name that change in the commit.
 #[test]
 #[expect(
     clippy::too_many_lines,
@@ -40,10 +35,9 @@ fn studio_rig_trace_output_is_pinned_to_current_values() {
     let diamond = GemMaterial::diamond();
     let ruby = GemMaterial::sapphire();
 
-    // `expected_diamond` (cubic, `is_anisotropic == false`) stays unchanged across any
-    // anisotropic-only physics change; `expected_ruby` (actually `GemMaterial::sapphire()`,
-    // genuinely uniaxial) moves whenever entry/internal-reflection/exit birefringence
-    // handling changes.
+    // The diamond column (cubic) is unaffected by anisotropic-only changes. The ruby column
+    // is really `GemMaterial::sapphire()` (uniaxial) and moves with the entry, internal and
+    // exit birefringence handling.
     let cases: [GoldenCase; 4] = [
         (
             Ray {
@@ -55,13 +49,9 @@ fn studio_rig_trace_output_is_pinned_to_current_values() {
             0.85,
             0.95,
             [0x3c69_75d5, 0x3c73_f69d, 0x3c8a_018e],
-            // This ray (dir (0,-1,0)) hits the crown at exactly normal incidence with
-            // Sapphire's default `c_axis == Vec3::Y` -- the degenerate wave-normal-
-            // parallel-to-optic-axis limit, where both eigenmodes collapse to a single
-            // isotropic response at `n_o`. Re-pinned on 2026-10-19 after the measured
-            // sapphire color refit (owner decision; bits from the owner's Windows run).
-            // Re-pinned on 2026-11-04 (owner's Windows run 2026-11-04_154834): Sapphire's default
-            // became the Royal Blue strength on 2026-11-03 (owner decision).
+            // This ray hits the crown at exactly normal incidence with Sapphire's default
+            // `c_axis == Vec3::Y`: the degenerate limit where the wave normal is parallel to
+            // the optic axis and both eigenmodes collapse to one isotropic response at `n_o`.
             [0x3ae4_cb15, 0x3a8a_b0e1, 0x3bec_7e4b],
         ),
         (
@@ -73,25 +63,12 @@ fn studio_rig_trace_output_is_pinned_to_current_values() {
             LightingPreset::Incandescent,
             0.0,
             1.2,
-            // Moved by 5 / 3 / 4 ULP on 2026-10-01 when the test profile started
-            // optimising this crate (`[profile.test.package.pleochroma]` in the
-            // workspace manifest): the studio sampler rounds a few ULP differently
-            // between the unoptimised and the optimised build, and a release build had
-            // computed these bits all along. Re-pinned to the optimised value, which
-            // `cargo test` and `cargo test --release` now share.
+            // The bits are for the optimised test profile: the studio sampler rounds a few ULP
+            // differently from an unoptimised build (`[profile.test.package.pleochroma]`).
             [0x3ff8_597e, 0x4000_e393, 0x4010_b5b0],
-            // Same degenerate normal-incidence-along-c_axis geometry as the seed=1337
-            // case above. Y moved by exactly one ULP (0x3c30_fa27 -> 0x3c30_fa26) on
-            // 2026-09-28 when the degenerate uniaxial entry (k parallel to the c
-            // axis) stopped taking its own isotropic fallback and went through the
-            // general partial-Fresnel path like the GPU;
-            // re-pinned to the new value. Moved again by 6 / 7 / 9 ULP on 2026-10-01
-            // with the optimised test profile (see the diamond row above). Re-pinned on
-            // 2026-10-19 after the measured sapphire color refit (owner's Windows run).
-            // Y moved by 2 ULP on 2026-10-22 when Sapphire took its measured
-            // extraordinary-index curve (n_e(lambda) instead of n_o + constant delta).
-            // Re-pinned on 2026-11-04 (owner's Windows run 2026-11-04_154834): Sapphire's default
-            // became the Royal Blue strength on 2026-11-03 (owner decision).
+            // Same degenerate normal-incidence geometry along `c_axis` as the seed=1337 case.
+            // The degenerate uniaxial entry goes through the general partial-Fresnel path, as
+            // on the GPU. Sapphire uses its measured extraordinary-index curve n_e(lambda).
             [0x3d99_78ab, 0x3ccd_1d47, 0x3ed6_3784],
         ),
         (
@@ -103,19 +80,13 @@ fn studio_rig_trace_output_is_pinned_to_current_values() {
             LightingPreset::DarkSpotlight,
             2.1,
             0.4,
-            // This oblique ray (dir = (-0.05, -1.0, 0.02).normalize()) draws the
-            // EXTRAORDINARY eigenmode at the air->crystal entry and reaches a real
-            // dispersive crystal->air exit with a live companion channel -- the case
-            // that exercises exit-event spectral splitting, unlike the other three.
-            // Z moved by 2 ULP on 2026-10-01 with the optimised test profile (see the
-            // seed=42 diamond row above).
+            // This oblique ray draws the EXTRAORDINARY eigenmode at the air-to-crystal entry and
+            // reaches a real dispersive crystal-to-air exit with a live companion channel. It is
+            // the case that exercises exit-event spectral splitting, unlike the other three.
             [0x3d22_0c97, 0x3d2b_789c, 0x3d45_c546],
-            // Re-pinned on 2026-10-19 after the measured sapphire color refit, and on
-            // 2026-10-22 when Sapphire took its measured extraordinary-index curve (this
-            // extraordinary-mode ray separates by color slightly differently).
-            // Re-pinned on 2026-11-04 (owner's Windows run 2026-11-04_154834): Sapphire's default
-            // became the Royal Blue strength on 2026-11-03 (owner decision).
-            [0x3a8a_b475, 0x39a9_05b6, 0x3bae_bfbb],
+            // A channel past its critical angle keeps its Stokes vector and path_pdf rather than
+            // being scaled by the solved reflectance (1 up to rounding; `apply_tir_bounce`).
+            [0x3a8a_b475, 0x39a9_05b7, 0x3bae_bfbb],
         ),
         (
             Ray {
@@ -130,13 +101,7 @@ fn studio_rig_trace_output_is_pinned_to_current_values() {
             // samples the tabulated CIE D65 measured spectrum rather than a smooth
             // 6500K Planckian.
             [0x3ccc_d14a, 0x3cdc_72bc, 0x3ce4_6a02],
-            // Same degenerate normal-incidence-along-c_axis geometry as the seed=1337
-            // case above. Y moved by three ULPs (0x38d4_1626 -> 0x38d4_1623) on
-            // 2026-09-28 for the same reason as the seed=42 case (the degenerate
-            // uniaxial entry now takes the general partial-Fresnel path); re-pinned.
-            // Re-pinned again on 2026-10-19 after the measured sapphire color refit.
-            // Re-pinned on 2026-11-04 (owner's Windows run 2026-11-04_154834): Sapphire's default
-            // became the Royal Blue strength on 2026-11-03 (owner decision).
+            // Same degenerate normal-incidence geometry along `c_axis` as the seed=1337 case.
             [0x3a62_10a0, 0x3999_9429, 0x3b97_e2be],
         ),
     ];
@@ -187,8 +152,7 @@ fn studio_rig_trace_output_is_pinned_to_current_values() {
         Vec3::new(-0.3, 0.2, 0.9).normalize(),
         Vec3::new(1.0, 0.0, 0.0),
     ];
-    // Re-pinned on 2026-10-01 with the optimised test profile (see the seed=42 diamond
-    // row above): the four rows moved by at most 2 ULP per component.
+    // Pinned for the optimised test profile, as the case table above.
     let env_expected: [[u32; 3]; 4] = [
         [0x3d95_c282, 0x3db0_45c3, 0x3dac_2599],
         [0x4160_feaa, 0x4184_69d1, 0x4181_5071],
@@ -216,9 +180,8 @@ fn studio_rig_trace_output_is_pinned_to_current_values() {
         }
     }
 
-    // evaluate_gem_optical_metrics golden values. The bit table below must be re-pinned
-    // after the metrics rework (radiance-based illumination test, girdle-scaled sampling
-    // fan and the explicit environment argument): every value moves.
+    // evaluate_gem_optical_metrics golden values at a face-up pose; any change to the
+    // metrics moves them.
     let m = evaluate_gem_optical_metrics(
         &planes,
         &diamond,

@@ -66,20 +66,14 @@ impl<T> WriteGate<T> {
     }
 }
 
-/// Writes `text` to `path` as one atomic-as-possible operation: a read-only folder, a
-/// full disk or an antivirus lock must never leave a truncated design file behind.
+/// Writes `text` to `path` as one atomic-as-possible operation, so a failed write (full
+/// disk, locked file) never leaves a truncated design file behind.
 ///
-/// The text is staged under a same-directory temp sibling name first ([`temp_sibling`]
-/// -- always the same filesystem as the real target, so the rename that follows is a
-/// cheap, effectively-atomic same-volume operation, never one that could silently
-/// fall back to copy+delete across volumes; unique per call, so concurrent writers
-/// to one target cannot clobber each other's staging file) and flushed to stable
-/// storage ([`write_synced`]) before the rename, so a power loss after the rename
-/// cannot leave a zero-length file under the real name. Before the temp file is
-/// renamed into place, a file ALREADY at `path` is copied to a `.bak` sibling
-/// ([`backup_existing`]): a bad save (or this very save, if the design regressed
-/// since the last one) must never overwrite the only copy of a design that was
-/// already on disk.
+/// The text is staged in a same-directory temp sibling ([`temp_sibling`]): the rename that
+/// follows then stays on one volume and cannot fall back to copy+delete. The staged file is
+/// flushed ([`write_synced`]) before the rename, so a power loss cannot leave a zero-length
+/// file under the real name. A file already at `path` is copied to a `.bak` sibling
+/// ([`backup_existing`]) first, so the previous version is never lost.
 ///
 /// # Errors
 ///
@@ -108,15 +102,12 @@ pub(super) fn write_file_atomically(path: &Path, text: &str) -> Result<(), Strin
     Ok(())
 }
 
-/// A same-directory temp sibling of `path`, used to stage a write before the final
-/// atomic-as-possible rename -- see [`write_file_atomically`]. Always a sibling
-/// (never `std::env::temp_dir()`), so the rename that follows never crosses
-/// filesystems.
+/// A same-directory temp sibling of `path` for staging a write (see
+/// [`write_file_atomically`]). Never in `std::env::temp_dir()`, which may be another
+/// filesystem.
 ///
-/// Unique on every call (`<file>.<pid>.<counter>.tmp`): a fixed `<file>.tmp` let two
-/// quick saves, or a save and an autosave, write into one staging file and rename
-/// an interleaved result into place. A crash mid-write leaves one such file behind
-/// instead of reusing it on the next save.
+/// Unique per call (`<file>.<pid>.<counter>.tmp`), so concurrent writers to one target
+/// never share a staging file. A crash can leave such a file behind; it is never reused.
 pub(super) fn temp_sibling(path: &Path) -> PathBuf {
     let suffix = format!(
         ".{}.{}.tmp",
@@ -147,9 +138,8 @@ pub(super) fn write_synced(path: &Path, contents: &str) -> std::io::Result<()> {
     file.sync_all()
 }
 
-/// `path`'s `.bak` sibling -- e.g. `design.psdd` -> `design.psdd.bak`. One generation of backup only:
-/// a second save in a row overwrites the `.bak` from the first, matching "keep the
-/// PREVIOUS version" rather than an ever-growing history.
+/// `path`'s `.bak` sibling, e.g. `design.psdd` -> `design.psdd.bak`. Only one generation is
+/// kept: each save overwrites the previous `.bak`.
 fn backup_sibling(path: &Path) -> PathBuf {
     let file_name = path.file_name().map_or_else(
         || std::ffi::OsString::from("save.bak"),
@@ -162,13 +152,9 @@ fn backup_sibling(path: &Path) -> PathBuf {
     path.with_file_name(file_name)
 }
 
-/// Never overwrites the only copy: copies `path` to its [`backup_sibling`]
-/// before [`write_file_atomically`] renames a freshly staged temp file over it. A
-/// no-op (`Ok(())`) when `path` doesn't exist yet -- a design's first save has
-/// nothing to back up. Copies rather than renames `path` itself: `path` is left
-/// completely untouched by this step either way, so a failed backup aborts the whole
-/// save (see [`write_file_atomically`]) without having disturbed the file that was
-/// already there.
+/// Copies `path` to its [`backup_sibling`] before [`write_file_atomically`] renames the
+/// staged file over it. A no-op when `path` does not exist yet. The file is copied, not
+/// renamed, so a failed backup aborts the save and leaves `path` untouched.
 ///
 /// # Errors
 ///

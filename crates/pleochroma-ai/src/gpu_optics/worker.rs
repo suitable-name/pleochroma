@@ -217,11 +217,32 @@ impl Drop for Worker {
     }
 }
 
+/// Default coalescing window (microseconds) for a second Fast candidate once a batch holds one.
+///
+/// The trainer submits candidates mostly one at a time, so most arrivals are isolated. A short wait
+/// for an imminent second request turns a size-1 kernel launch into a real batch. The window is
+/// small and configurable so it can be disabled when latency matters more than batching.
+const DEFAULT_COALESCE_MICROS: u64 = 250;
+/// Hard ceiling of the coalescing window; a longer wait only adds latency to every batch.
+const MAX_COALESCE_MICROS: u64 = 10_000;
+
+/// Bounded coalescing window in microseconds, from `PLEOCHROMA_AI_OPTICS_COALESCE_US`
+/// (default 250, `0` disables the wait). Values above the ceiling are clamped.
+fn coalesce_micros() -> u64 {
+    std::env::var("PLEOCHROMA_AI_OPTICS_COALESCE_US")
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .map_or(DEFAULT_COALESCE_MICROS, |value| {
+            value.min(MAX_COALESCE_MICROS)
+        })
+}
+
 fn run(mut state: CudaState, receiver: &Receiver<Candidate>, counters: &Counters) {
     let fast_candidates = counters
         .capacity
         .get()
         .map_or(16, |c| c.max_fast_candidates);
+    let coalesce = coalesce_micros();
     let mut pending = VecDeque::new();
     loop {
         let first = match pending.pop_front().or_else(|| receiver.recv().ok()) {
@@ -240,7 +261,14 @@ fn run(mut state: CudaState, receiver: &Receiver<Candidate>, counters: &Counters
             }
             continue;
         }
-        let batch = collect_fast_batch(first, receiver, &mut pending, fast_candidates, counters);
+        let batch = collect_fast_batch(
+            first,
+            receiver,
+            &mut pending,
+            fast_candidates,
+            coalesce,
+            counters,
+        );
         counters.dequeue(batch.len());
         counters.active.store(batch.len(), Ordering::Relaxed);
         counters.batches.fetch_add(1, Ordering::Relaxed);
@@ -290,23 +318,40 @@ fn run(mut state: CudaState, receiver: &Receiver<Candidate>, counters: &Counters
     }
 }
 
-/// Collect already queued Fast requests and account for collection and queue time.
+/// Collects queued Fast requests into one batch and accounts for collection and queue time.
+///
+/// Never blocks beyond the `coalesce_micros` window and never waits for a full batch. A
+/// Full-fidelity request is parked in `pending` for the next iteration, since Full runs alone.
 fn collect_fast_batch(
     first: Candidate,
     receiver: &Receiver<Candidate>,
     pending: &mut VecDeque<Candidate>,
     fast_candidates: usize,
+    coalesce_us: u64,
     counters: &Counters,
 ) -> Vec<Candidate> {
     let mut batch = vec![first];
     let collection_start = Instant::now();
-    // Bound inspected requests too: a stream of cancelled work must not delay
-    // the first live candidate indefinitely. Never wait to fill a sparse batch.
-    for _ in 1..fast_candidates {
+    let deadline = collection_start + Duration::from_micros(coalesce_us);
+    // Bound inspected requests too: a flood of cancelled work must not delay the first live
+    // candidate indefinitely.
+    let mut inspected = 0usize;
+    loop {
+        if batch.len() >= fast_candidates || inspected >= fast_candidates {
+            break;
+        }
         let next = match receiver.try_recv() {
             Ok(next) => next,
-            Err(_) => break,
+            Err(mpsc::TryRecvError::Empty) => {
+                if Instant::now() >= deadline {
+                    break;
+                }
+                std::thread::sleep(Duration::from_micros(50));
+                continue;
+            }
+            Err(mpsc::TryRecvError::Disconnected) => break,
         };
+        inspected += 1;
         if next.cancel.load(Ordering::Relaxed) {
             counters.dequeue(1);
             counters.completed.fetch_add(1, Ordering::Relaxed);

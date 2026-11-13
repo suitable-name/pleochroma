@@ -1,11 +1,9 @@
-//! The provisional `v0` frame for concave tools (plan §4.4 and §11a).
+//! The `v0` frame for concave tools.
 //!
-//! **Every convention of the frame lives in this one file** (the width rule,
-//! [`stone_width`], was settled on 2026-10-19; the rest is still pending
-//! confirmation by Arya Akhavan) and is read only by
-//! [`super::Design::concave_tools_from_solved`] (and its siblings). Changing a decision therefore means editing this file plus
-//! a reader shim keyed on [`CONCAVE_FRAME_VERSION`], which the native file records
-//! next to its concave tiers. Each item below names the §11a row it implements.
+//! **Every convention of the frame lives in this one file**, and only
+//! [`super::Design::concave_tools_from_solved`] and its siblings read it. Changing a
+//! decision means editing this file plus a reader shim keyed on
+//! [`CONCAVE_FRAME_VERSION`], which the native file records next to its concave tiers.
 //!
 //! The geometry is `f64` throughout; [`primitive_for`] narrows to `f32` exactly
 //! once, like `to_halfspace_f64` does for planes in the opposite direction. The one
@@ -30,63 +28,56 @@ use crate::design::{ConcaveTier, ConcaveTool, ToolMotion};
 
 /// The frame this file implements.
 ///
-/// Must equal `pleochroma_formats::native::CONCAVE_FRAME_V0`, which the native
-/// file writes next to concave tiers and a reader checks before trusting a design
-/// (§11a, "consequences": an unknown frame string is refused, never reinterpreted).
+/// Must equal `pleochroma_formats::native::CONCAVE_FRAME_V0`, which the native file
+/// writes next to concave tiers. A reader checks it before trusting a design, and an
+/// unknown frame string is refused, never reinterpreted.
 pub const CONCAVE_FRAME_VERSION: &str = "v0";
 
 /// Reciprocation half-stroke for `CYL`, `CON`, `CIR` and `DSC`, times `W`.
 ///
-/// Along the tool axis (§11a, Q2 reciprocation). The stroke length is never
-/// written in the notation, so it is "enough to clear the stone".
+/// Along the tool axis. The notation gives no stroke length, so the stroke is taken as
+/// enough to clear the stone.
 pub const RECIP_HALF_STROKE_RATIO: f64 = 2.0;
 
 /// Reciprocation half-stroke for `SPH`, times the tool diameter `D · W`.
 ///
-/// §11a, Q2 reciprocation: a ball dimple is a short rocking motion, not a pass
-/// over the whole stone.
+/// A ball dimple is a short rocking motion, not a pass over the whole stone.
 pub const SPH_RECIP_HALF_STROKE_RATIO: f64 = 0.5;
 
 /// Rim width of a `CIR` tool, times its diameter `D · W`.
 ///
-/// Taken as the cylinder's **full** length (§11a, Q2 `CIR`): the rim of a flat
-/// wheel.
+/// Taken as the cylinder's **full** length: the rim of a flat wheel.
 pub const CIR_RIM_WIDTH_RATIO: f64 = 0.1;
 
 /// Half-length of a `CYL` tool, times the stone width `W`.
 ///
-/// §11a, Q2 `CIR`: "`CYL` is the long cylinder". One `W` each way makes the
-/// cylinder span the stone, so a plunged cylinder is a straight groove with no
-/// stroke.
+/// One `W` each way makes the cylinder span the stone, so a plunged cylinder is a
+/// straight groove with no stroke.
 pub const CYL_HALF_LENGTH_RATIO: f64 = 1.0;
 
-/// The stone width `W` every concave ratio is taken of (§11a Q3, settled 2026-10-19).
+/// The stone width `W` every concave ratio is taken of.
 ///
 /// `W` is the FINISHED flat stone's `SolidMetrics::width_axis`: the smaller axis-aligned
-/// girdle extent, the same `W` as the sheet's `L/W`, `C/W`, `P/W` and `Vol/W³`
-/// (`ExternalProportions`, corpus-verified) and the denominator of `mm_per_unit`, so a
-/// tool's diameter in millimetres is `D/W` times the design's Stone Width. One `W` per
-/// design: the same for every concave tier, whatever stage the stone is at when the tier
-/// is cut, because a printed sheet has one `W` and a cutter sizes every ratio from the
-/// width they are cutting to. Rejected alternatives: the width of the stone cut so far
-/// (not on the sheet; for a pavilion tier with no girdle facet before it, it is the
-/// rough's width, which the design does not determine), `width_caliper` (differs from
-/// the printed `W` for stones turned off the axes) and `girdle_diameter_mm` (optional,
-/// in millimetres, not in `.asc`).
+/// girdle extent, the same `W` as the sheet's `L/W`, `C/W`, `P/W` and `Vol/W³`, and the
+/// denominator of `mm_per_unit`. One `W` per design, whatever stage the stone is at when a
+/// tier is cut, because a printed sheet has one `W` and a cutter sizes every ratio from the
+/// width they are cutting to. Not the width of the stone cut so far (the rough's width for
+/// a pavilion tier with no girdle facet before it, which the design does not determine),
+/// not `width_caliper` (differs from the printed `W` for stones turned off the axes), and
+/// not `girdle_diameter_mm` (optional, not in `.asc`).
 #[must_use]
 pub const fn stone_width(metrics: &SolidMetrics) -> f64 {
     metrics.width_axis
 }
 
 /// Included angle assumed for a `CON` or `DSC` whose angle is absent. Validation
-/// rejects that case, so this only keeps the resolver total (§11a, Q2 cone/disc
-/// angle: the angle is the **included** angle).
+/// rejects that case, so this only keeps the resolver total. The angle is the
+/// **included** angle.
 const FALLBACK_INCLUDED_ANGLE_DEG: f64 = 90.0;
 
-/// Vertices whose support value is within this fraction of the stone width `W`
-/// of the best count as tied (§11a, Q1 frame origin: ties go to the
-/// lexicographically smallest vertex), so float noise on a facet's own vertices
-/// cannot pick a different corner on a different platform.
+/// Vertices whose support value is within this fraction of the stone width `W` of the
+/// best count as tied, and ties go to the lexicographically smallest vertex, so float
+/// noise on a facet's own vertices cannot pick a different corner on a different platform.
 ///
 /// The flat normals are `f32`, so the corners of one flat facet differ in `v · n`
 /// by about `1e-7 · W` along any direction that is not that facet's exact normal;
@@ -96,7 +87,7 @@ const SUPPORT_TIE_REL_EPS: f64 = 1e-6;
 /// A dop frame `(u, v, n)`, right-handed (`u × v = n`).
 pub type DopFrame = (DVec3, DVec3, DVec3);
 
-/// The dop frame at (φ, index) (§11a, Q1 frame axes).
+/// The dop frame at (φ, index).
 ///
 /// `n` is the would-be flat facet normal that `StandardGemCuts` builds for the
 /// same (φ, index), `u` is the unit projection of the girdle-ward direction
@@ -144,8 +135,8 @@ pub fn dop_frame(
 /// The vertex of `vertices` furthest along `n`; ties (within `1e-6 · width`)
 /// go to the lexicographically smallest `(x, y, z)` by `f64::total_cmp`.
 ///
-/// `width` is the stone width `W`. Split from [`contact_point`] so the resolver
-/// can enumerate the stone's vertices once and reuse them for every placement.
+/// `width` is the stone width `W`. Takes the vertices as given, so the resolver can
+/// enumerate them once for every placement.
 #[must_use]
 pub fn support_vertex(vertices: &[DVec3], n: DVec3, width: f64) -> Option<DVec3> {
     let best = vertices.iter().map(|v| v.dot(n)).max_by(f64::total_cmp)?;
@@ -162,7 +153,7 @@ pub fn support_vertex(vertices: &[DVec3], n: DVec3, width: f64) -> Option<DVec3>
 }
 
 /// Support point of the convex polytope `planes` (`n · x ≤ m`) in direction `n`:
-/// the first point a tool pressed along `−n` would touch (§11a, Q1 frame origin).
+/// the first point a tool pressed along `−n` would touch.
 ///
 /// `None` when the planes do not bound a solid.
 #[must_use]
@@ -171,8 +162,8 @@ pub fn contact_point(planes: &[(DVec3, f64)], n: DVec3) -> Option<DVec3> {
     support_vertex(&vertices, n, stone_width(&metrics))
 }
 
-/// Tool centre: `c0 + W·(X·u + Y·v − Z·n)` (§11a, Q1 frame axes: `Z > 0` moves
-/// the tool **into** the stone). `frame` is `(u, v, n)`.
+/// Tool centre: `c0 + W·(X·u + Y·v − Z·n)`, where `Z > 0` moves the tool **into** the
+/// stone. `frame` is `(u, v, n)`.
 ///
 /// For `CON` the "centre" is the cone's apex (see [`primitive_for`]), so `Z` is
 /// the depth of a conical pit.
@@ -183,8 +174,7 @@ pub fn tool_centre(c0: DVec3, width: f64, frame: DopFrame, displacement: [f64; 3
     c0 + width * (u * x + v * y - n * z)
 }
 
-/// Tool axis (§11a, Q1 θ and Q2 plunge): `cos θ·u + sin θ·v`, or `−n` for a
-/// plunged `CON`.
+/// Tool axis: `cos θ·u + sin θ·v`, or `−n` for a plunged `CON`.
 ///
 /// A plunged cone is a conical pit, so θ is ignored. θ is normalised to
 /// `[0, 360)` here, not at validation, so the stored value is what the author
@@ -213,8 +203,7 @@ const fn narrow3(v: DVec3) -> Vec3 {
     Vec3::new(narrow(v.x), narrow(v.y), narrow(v.z))
 }
 
-/// Builds the primitive for one placement from the resolved centre, axis and
-/// stone width (§11a, Q2 `CIR`, cone/disc angle, reciprocation, plunge).
+/// Builds the primitive for one placement from the resolved centre, axis and stone width.
 ///
 /// - `CYL`: cylinder of radius `W·D/2`, half-length `W` times
 ///   [`CYL_HALF_LENGTH_RATIO`].

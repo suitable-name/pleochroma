@@ -95,7 +95,7 @@ struct Blob {
 }
 
 impl Blob {
-    /// A regular octagon-ish outline filling about a third of the frame.
+    /// Octagonal outline centred in the frame, covering about a third of it.
     fn new(w: usize, h: usize) -> Self {
         let mut normals = [(0.0, 0.0); FACETS];
         for (k, n) in normals.iter_mut().enumerate() {

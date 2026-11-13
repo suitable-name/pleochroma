@@ -1,4 +1,6 @@
-//! Tests for the v14 payload codecs (`super::payload`): bit-exact round trips for every
+//! Tests for the payload codecs (`super::payload`).
+//!
+//! They cover bit-exact round trips for every
 //! encoding, the per-payload `Raw` fallback, and the bounded-decode rejections (bombs,
 //! short output, lying headers, oversize dimensions).
 
@@ -165,7 +167,7 @@ fn oversize_dimensions_are_refused_before_allocating() {
 }
 
 /// The exact boundary of check 1 (the module doc comment's ordered list) --
-/// `16 * 2_796_202 * 12 == 536_870_784`, one `raw_len`-worth (768 bytes) under
+/// `16 * 2_796_202 * 12 == 536_870_784`, 128 bytes under
 /// `framing::MAX_FRAME_LEN` (`536_870_912`). At this size the dimensions themselves pass,
 /// so a deliberately wrong `raw_len` (`0`) reaches check 2 instead
 /// (`RawLenMismatch`), never `TooLarge`.

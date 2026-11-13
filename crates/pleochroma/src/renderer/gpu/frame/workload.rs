@@ -3,8 +3,10 @@
 use std::hash::{DefaultHasher, Hash, Hasher};
 
 use crate::{
-    geometry::plane::GpuFacetPlane, optics::raytracer::EnvironmentSource,
-    render_setup::hash_planes, renderer::buffers::GpuGemMaterial,
+    geometry::plane::GpuFacetPlane,
+    optics::raytracer::{EnvironmentSource, Estimator},
+    render_setup::hash_planes,
+    renderer::buffers::GpuGemMaterial,
 };
 
 use super::{GpuPipelineKind, TurnRequest, renderer::GpuFrameRenderer};
@@ -34,7 +36,7 @@ pub(super) fn workload_key(
     bytemuck::bytes_of(material).hash(&mut hash);
     finishes.hash(&mut hash);
     match scene.environment {
-        EnvironmentSource::HdrMap(map) => {
+        EnvironmentSource::HdrMap { map, .. } => {
             0u8.hash(&mut hash);
             // Immutable maps are shared between frames; no per-frame scan of their pixels.
             std::ptr::from_ref(map).hash(&mut hash);
@@ -47,7 +49,19 @@ pub(super) fn workload_key(
             backdrop,
             surface_glare,
             head_shadow_deg,
+            tray_shadow,
+            tray_mirror,
         } => {
+            if let Some(map) = tray_shadow {
+                map.key().hash(&mut hash);
+            }
+            if let Some(mirror) = tray_mirror {
+                // The reflection changes the cost of a frame (floor bounces); its identity is
+                // the plane height and R0 bits.
+                2u8.hash(&mut hash);
+                mirror.plane_y().to_bits().hash(&mut hash);
+                mirror.reflectance().to_bits().hash(&mut hash);
+            }
             1u8.hash(&mut hash);
             std::mem::discriminant(&preset).hash(&mut hash);
             for value in [
@@ -66,6 +80,27 @@ pub(super) fn workload_key(
 }
 
 impl GpuFrameRenderer {
+    /// Remembers the cost identity of the frame being prepared and forgets the chunk timing when
+    /// it changed. A collected sample costs more than a branching one, so the estimator the
+    /// frame asks for is part of the identity (the top bit of the key).
+    pub(super) fn note_workload(
+        &mut self,
+        request: &TurnRequest<'_>,
+        packed: &[GpuFacetPlane],
+        material: &GpuGemMaterial,
+        finishes: &[u32],
+        estimator: Estimator,
+    ) {
+        let collect = u64::from(estimator == Estimator::ExitCollection) << 63;
+        let scene_key =
+            workload_key(request, self.pipeline_kind, packed, material, finishes) ^ collect;
+        if self.last_scene_key != Some(scene_key) {
+            self.ns_per_tuple_ema = None;
+            self.measured_chunk_tuples = None;
+            self.last_scene_key = Some(scene_key);
+        }
+    }
+
     /// Grow at most twice the last completed chunk's tuple count. A background-only
     /// first chunk must not immediately expand into a full-frame heavy stone dispatch.
     pub(super) fn growth_limited_pixels(&self, spp: u32, budget: usize) -> usize {
@@ -108,6 +143,7 @@ mod tests {
             cancel: None,
             max_chunks: 1,
             surface: None,
+            estimator: None,
         };
         workload_key(&request, pipeline, scene.planes, material, finishes)
     }

@@ -1,20 +1,34 @@
 //! One parser per command: the words after the command's name into its argument struct.
 
+#[cfg(feature = "adaptive-sampling")]
+use super::types::AdaptiveArgs;
+#[cfg(feature = "beam")]
+use super::types::{
+    BEAM_NODES_RANGE, BEAM_PERSISTENCE_AVAILABLE, BeamArgs, MAX_BEAM_BATCH_TILES,
+    MAX_BEAM_RESIDUAL_MIN_SPP, keep_beams_refusal,
+};
 use super::{
     batch::{Fan, fan_out},
     types::{
         CensusArgs, CensusBuiltins, CensusOutput, Command, ExportArgs, ExportFormat, Exposure,
-        InfoArgs, JobCommandKind, MaterialArg, MetricsArgs, Mode, OptimizeArgs, RenderJobArgs,
-        ReportFormat, ReportStyle, RetargetArgs, SolveArgs, SweepArgs, ValidateArgs,
+        InfoArgs, JobCommandKind, MaterialArg, MetricsArgs, Mode, OptimizeArgs, PathCacheArgs,
+        RenderJobArgs, ReportFormat, ReportStyle, RetargetArgs, SnapLimit, SnapMeetsArgs,
+        SolveArgs, SweepArgs, ValidateArgs,
     },
     values::{
         Cursor, parse_candidates, parse_count, parse_crown_fraction, parse_crown_mode,
-        parse_export_format, parse_ids, parse_lighting, parse_mode, parse_modes, parse_preset,
-        parse_range, parse_ri, parse_targets, set_material,
+        parse_export_format, parse_ids, parse_lighting, parse_max_move_fraction, parse_max_move_mm,
+        parse_mode, parse_modes, parse_preset, parse_range, parse_ri, parse_targets, set_material,
     },
 };
-use pleochroma::color::HighlightRule;
-use pleochroma_cut_core::{CANONICAL_LIGHTING_PRESET, ObjectivePreset};
+#[cfg(feature = "beam")]
+use pleochroma::renderer::accel_beam::{BeamOff, RegionMode};
+#[cfg(feature = "adaptive-sampling")]
+use pleochroma::renderer::adaptive::NoiseMetric;
+use pleochroma::{color::HighlightRule, optics::tables::OpticsTables};
+use pleochroma_cut_core::{
+    CANONICAL_LIGHTING_PRESET, DEFAULT_SNAP_MAX_MOVE_FRACTION, ObjectivePreset,
+};
 use pleochroma_editor::{
     optimize_view::{
         DEFAULT_BUDGET, DEFAULT_CANDIDATES, DEFAULT_STARTS, parse_budget, parse_seed, parse_starts,
@@ -489,6 +503,68 @@ pub(super) fn parse_sweep(args: &[String]) -> Result<Command, String> {
     })
 }
 
+/// `snap-meets`: the design files, the limit (the default share of the stone's size unless
+/// `--max-move` or `--max-move-fraction` gives one) and where the result goes. An output
+/// (`--out` or `--out-dir`) is required unless `--dry-run` is given.
+pub(super) fn parse_snap_meets(args: &[String]) -> Result<Command, String> {
+    let mut cursor = Cursor::new("snap-meets", args);
+    let mut designs = Vec::new();
+    let (mut max_move_mm, mut max_move_fraction) = (None, None);
+    let mut dry_run = false;
+    let (mut out, mut out_dir, mut db) = (None, None, None);
+    while let Some(word) = cursor.token() {
+        match word {
+            "--max-move" => {
+                max_move_mm = Some(parse_max_move_mm(cursor.number("--max-move")?)?);
+            }
+            "--max-move-fraction" => {
+                max_move_fraction = Some(parse_max_move_fraction(
+                    cursor.number("--max-move-fraction")?,
+                )?);
+            }
+            "--dry-run" => dry_run = true,
+            "--out" => out = Some(("--out", cursor.path("--out")?)),
+            "--out-dir" => out_dir = Some(cursor.path("--out-dir")?),
+            "--db" => db = Some(cursor.path("--db")?),
+            other => cursor.design_word(other, &mut designs)?,
+        }
+    }
+    let designs = cursor.require_designs(designs)?;
+    let limit = match (max_move_mm, max_move_fraction) {
+        (Some(_), Some(_)) => {
+            return Err(
+                "give one of --max-move MM and --max-move-fraction F, not both".to_string(),
+            );
+        }
+        (Some(mm), None) => SnapLimit::Millimeters(mm),
+        (None, Some(fraction)) => SnapLimit::Fraction(fraction),
+        (None, None) => SnapLimit::Fraction(DEFAULT_SNAP_MAX_MOVE_FRACTION),
+    };
+    if !dry_run && out.is_none() && out_dir.is_none() {
+        return Err(format!(
+            "\"snap-meets\" needs --out FILE{DESIGN_EXTENSION_DOTTED} (--out-dir DIR for several \
+             designs), or --dry-run to only report what would move (see --help)"
+        ));
+    }
+    let fan = Fan {
+        command: "snap-meets",
+        designs,
+        out,
+        out_dir,
+        extension: DESIGN_EXTENSION,
+        style: ReportStyle::Text,
+    };
+    fan_out(fan, |design, out| {
+        Command::SnapMeets(SnapMeetsArgs {
+            design,
+            limit,
+            dry_run,
+            out,
+            db: db.clone(),
+        })
+    })
+}
+
 fn parse_local(word: &str) -> Result<LocalEngines, String> {
     LocalEngines::from_cli_word(word)
         .ok_or_else(|| format!("unknown engines {word:?} (expected cpu, gpu or cpu+gpu)"))
@@ -536,6 +612,21 @@ fn parse_variant_key(word: &str) -> Result<String, String> {
     Ok(key.to_string())
 }
 
+/// The Tray Reflection `--tray-reflection` gives, as the fraction the scene carries: a percent
+/// from 0 (the matte tray) to 100 (a mirror), the unit of the app's slider.
+fn parse_tray_reflection(word: &str) -> Result<f32, String> {
+    let percent: f32 = word
+        .trim()
+        .parse()
+        .map_err(|_| format!("--tray-reflection needs a percent from 0 to 100, got {word:?}"))?;
+    if !(0.0..=100.0).contains(&percent) {
+        return Err(format!(
+            "--tray-reflection needs a percent from 0 to 100, got {word:?}"
+        ));
+    }
+    Ok(percent / 100.0)
+}
+
 /// The renderer `--engine` names: `path` or `ray`.
 fn parse_engine(word: &str) -> Result<pleochroma::renderer::engine::RenderEngine, String> {
     match word {
@@ -556,6 +647,41 @@ fn parse_remote_address(word: &str) -> Result<String, String> {
     Ok(address.to_string())
 }
 
+/// `render` or `tilt-video` before any flag is read: every option at its default.
+fn blank_render_job(kind: JobCommandKind) -> RenderJobArgs {
+    RenderJobArgs {
+        stone_shadow: None,
+        tray_reflection: None,
+        engine: None,
+        kind,
+        job: PathBuf::new(),
+        out: None,
+        local: LocalEngines::default(),
+        compute: None,
+        transfer: None,
+        remote: None,
+        cert_dir: None,
+        contribute_local: false,
+        restart: false,
+        quiet: false,
+        highlights: HighlightRule::default(),
+        material: None,
+        color_variant: None,
+        color_pattern: None,
+        exposure: Exposure::AsJob,
+        raw_out: None,
+        progress_raw: None,
+        sample_offset: 0,
+        #[cfg(feature = "adaptive-sampling")]
+        adaptive: AdaptiveArgs::default(),
+        path_cache: PathCacheArgs::default(),
+        optics_tables: OpticsTables::Off,
+        #[cfg(feature = "beam")]
+        beam: BeamArgs::default(),
+        verbose: false,
+    }
+}
+
 /// Parses the words of `render` or `tilt-video`: one job file and the engine options.
 pub(super) fn parse_render_job(
     kind: JobCommandKind,
@@ -563,93 +689,354 @@ pub(super) fn parse_render_job(
 ) -> Result<RenderJobArgs, String> {
     let command = kind.word();
     let mut cursor = Cursor::new(command, args);
+    let mut parsed = blank_render_job(kind);
     let mut job: Option<PathBuf> = None;
-    let mut out: Option<PathBuf> = None;
-    let mut local = LocalEngines::default();
-    let mut engine = None;
-    let (mut compute, mut transfer) = (None, None);
-    let (mut remote, mut cert_dir): (Option<String>, Option<PathBuf>) = (None, None);
-    let (mut contribute_local, mut restart, mut quiet) = (false, false, false);
-    let mut exposure = Exposure::AsJob;
-    let mut highlights = HighlightRule::default();
-    let (mut material, mut color_variant): (Option<String>, Option<String>) = (None, None);
-    let mut color_pattern: Option<String> = None;
     while let Some(word) = cursor.token() {
-        match word {
-            "--out" if kind == JobCommandKind::Render => out = Some(cursor.path("--out")?),
-            "--out" => {
-                return Err(
-                    "--out is for \"render\"; use --out-dir with \"tilt-video\" (see --help)"
-                        .to_string(),
-                );
-            }
-            "--out-dir" if kind == JobCommandKind::TiltVideo => {
-                out = Some(cursor.path("--out-dir")?);
-            }
-            "--restart" if kind == JobCommandKind::TiltVideo => restart = true,
-            "--out-dir" | "--restart" => {
-                return Err(format!(
-                    "{word} is for \"tilt-video\", not \"{command}\" (see --help)"
-                ));
-            }
-            "--engine" => engine = Some(parse_engine(cursor.value("--engine")?)?),
-            "--local" => local = parse_local(cursor.value("--local")?)?,
-            "--compute" => compute = Some(parse_compute(cursor.value("--compute")?)?),
-            "--transfer" => transfer = Some(parse_transfer(cursor.value("--transfer")?)?),
-            "--remote" => remote = Some(parse_remote_address(cursor.value("--remote")?)?),
-            "--cert-dir" => cert_dir = Some(cursor.path("--cert-dir")?),
-            "--contribute-local" => contribute_local = true,
-            "--quiet" => quiet = true,
-            "--meter" => exposure = Exposure::Metered,
-            "--highlights" => highlights = parse_highlights(cursor.value("--highlights")?)?,
-            "--material" => material = Some(parse_material_name(cursor.value("--material")?)?),
-            "--color-variant" => {
-                color_variant = Some(parse_variant_key(cursor.value("--color-variant")?)?);
-            }
-            "--color-pattern" => {
-                color_pattern = Some(parse_pattern_name(cursor.value("--color-pattern")?)?);
-            }
-            other if other.starts_with('-') => {
-                return Err(format!(
-                    "unknown flag {other:?} for \"{command}\" (see --help)"
-                ));
-            }
-            other => {
-                if job.is_some() {
-                    return Err(format!(
-                        "unexpected extra argument {other:?} for \"{command}\": give one job file \
-                         (see --help)"
-                    ));
-                }
-                job = Some(PathBuf::from(other));
-            }
+        if word.starts_with('-') {
+            apply_render_flag(kind, word, &mut cursor, &mut parsed)?;
+        } else if job.is_some() {
+            return Err(format!(
+                "unexpected extra argument {word:?} for \"{command}\": give one job file \
+                 (see --help)"
+            ));
+        } else {
+            job = Some(PathBuf::from(word));
         }
     }
-    let job = job.ok_or_else(|| format!("\"{command}\" needs a job file (see --help)"))?;
-    if remote.is_some() != cert_dir.is_some() {
+    parsed.job = job.ok_or_else(|| format!("\"{command}\" needs a job file (see --help)"))?;
+    check_render_job_flags(&parsed)?;
+    Ok(parsed)
+}
+
+/// Reads one flag of `render` or `tilt-video` (with its value, if it takes one) into `parsed`.
+fn apply_render_flag(
+    kind: JobCommandKind,
+    word: &str,
+    cursor: &mut Cursor<'_>,
+    parsed: &mut RenderJobArgs,
+) -> Result<(), String> {
+    if apply_accel_flag(word, cursor, parsed)? {
+        return Ok(());
+    }
+    let command = kind.word();
+    match word {
+        "--raw-out" => parsed.raw_out = Some(cursor.path("--raw-out")?),
+        "--progress-raw" if kind == JobCommandKind::Render => {
+            parsed.progress_raw = Some(cursor.path("--progress-raw")?);
+        }
+        "--progress-raw" => {
+            return Err(
+                "--progress-raw is for \"render\", not \"tilt-video\": a video's frames are \
+                 not built up in steps (see --help)"
+                    .to_string(),
+            );
+        }
+        "--sample-offset" => {
+            parsed.sample_offset = parse_sample_offset(cursor.value("--sample-offset")?)?;
+        }
+        "--out" if kind == JobCommandKind::Render => parsed.out = Some(cursor.path("--out")?),
+        "--out" => {
+            return Err(
+                "--out is for \"render\"; use --out-dir with \"tilt-video\" (see --help)"
+                    .to_string(),
+            );
+        }
+        "--out-dir" if kind == JobCommandKind::TiltVideo => {
+            parsed.out = Some(cursor.path("--out-dir")?);
+        }
+        "--restart" if kind == JobCommandKind::TiltVideo => parsed.restart = true,
+        "--out-dir" | "--restart" => {
+            return Err(format!(
+                "{word} is for \"tilt-video\", not \"{command}\" (see --help)"
+            ));
+        }
+        "--stone-shadow" if kind == JobCommandKind::Render => {
+            parsed.stone_shadow = Some(match cursor.value("--stone-shadow")? {
+                "on" => true,
+                "off" => false,
+                other => return Err(format!("--stone-shadow needs on or off, got {other:?}")),
+            });
+        }
+        "--stone-shadow" => {
+            return Err(
+                "--stone-shadow is for \"render\", not \"tilt-video\". Tilt videos do not show \
+                 the stone shadow yet."
+                    .to_string(),
+            );
+        }
+        "--tray-reflection" if kind == JobCommandKind::Render => {
+            parsed.tray_reflection =
+                Some(parse_tray_reflection(cursor.value("--tray-reflection")?)?);
+        }
+        "--tray-reflection" => {
+            return Err(
+                "--tray-reflection is for \"render\", not \"tilt-video\". Tilt videos do not \
+                 show the tray reflection yet."
+                    .to_string(),
+            );
+        }
+        "--engine" => parsed.engine = Some(parse_engine(cursor.value("--engine")?)?),
+        "--local" => parsed.local = parse_local(cursor.value("--local")?)?,
+        "--compute" => parsed.compute = Some(parse_compute(cursor.value("--compute")?)?),
+        "--transfer" => parsed.transfer = Some(parse_transfer(cursor.value("--transfer")?)?),
+        "--remote" => parsed.remote = Some(parse_remote_address(cursor.value("--remote")?)?),
+        "--cert-dir" => parsed.cert_dir = Some(cursor.path("--cert-dir")?),
+        "--contribute-local" => parsed.contribute_local = true,
+        "--quiet" => parsed.quiet = true,
+        "--verbose" => parsed.verbose = true,
+        "--meter" => parsed.exposure = Exposure::Metered,
+        "--highlights" => parsed.highlights = parse_highlights(cursor.value("--highlights")?)?,
+        "--material" => {
+            parsed.material = Some(parse_material_name(cursor.value("--material")?)?);
+        }
+        "--color-variant" => {
+            parsed.color_variant = Some(parse_variant_key(cursor.value("--color-variant")?)?);
+        }
+        "--color-pattern" => {
+            parsed.color_pattern = Some(parse_pattern_name(cursor.value("--color-pattern")?)?);
+        }
+        other => {
+            return Err(format!(
+                "unknown flag {other:?} for \"{command}\" (see --help)"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Reads one of the acceleration flags (the optics tables, the path cache, adaptive sampling in a
+/// build with that feature) into `parsed`; `false` when `word` is not one of them.
+fn apply_accel_flag(
+    word: &str,
+    cursor: &mut Cursor<'_>,
+    parsed: &mut RenderJobArgs,
+) -> Result<bool, String> {
+    match word {
+        "--optics-tables" => parsed.optics_tables = OpticsTables::On,
+        "--path-cache" => parsed.path_cache.enabled = true,
+        "--persist-cache" => {
+            parsed.path_cache.enabled = true;
+            parsed.path_cache.persist = true;
+        }
+        "--cache-dir" => parsed.path_cache.cache_dir = Some(cursor.path("--cache-dir")?),
+        #[cfg(feature = "beam")]
+        "--beam" => parsed.beam.enabled = true,
+        #[cfg(feature = "beam")]
+        "--keep-beams" => {
+            parsed.beam.enabled = true;
+            parsed.beam.keep = true;
+        }
+        #[cfg(feature = "beam")]
+        "--beam-residual-min-spp"
+        | "--beam-batch-tiles"
+        | "--beam-region-mode"
+        | "--beam-nodes" => apply_beam_override(word, cursor, &mut parsed.beam)?,
+        #[cfg(feature = "adaptive-sampling")]
+        "--adaptive" => parsed.adaptive.enabled = true,
+        #[cfg(feature = "adaptive-sampling")]
+        "--gpu-convergence" => parsed.adaptive.gpu_convergence = true,
+        #[cfg(feature = "adaptive-sampling")]
+        "--target-noise" => {
+            parsed.adaptive.target_noise =
+                Some(parse_target_noise(cursor.value("--target-noise")?)?);
+            parsed.adaptive.enabled = true;
+        }
+        #[cfg(feature = "adaptive-sampling")]
+        "--min-spp" => {
+            parsed.adaptive.min_spp = Some(parse_min_spp(cursor.value("--min-spp")?)?);
+            parsed.adaptive.enabled = true;
+        }
+        #[cfg(feature = "adaptive-sampling")]
+        "--noise-metric" => {
+            parsed.adaptive.metric = Some(parse_noise_metric(cursor.value("--noise-metric")?)?);
+            parsed.adaptive.enabled = true;
+        }
+        _ => return Ok(false),
+    }
+    Ok(true)
+}
+
+/// The rules that tie the flags of `render` and `tilt-video` together, checked once all are read.
+fn check_render_job_flags(parsed: &RenderJobArgs) -> Result<(), String> {
+    if parsed.remote.is_some() != parsed.cert_dir.is_some() {
         return Err("--remote and --cert-dir go together: give both or neither".to_string());
     }
-    if matches!(compute, Some(ComputeChoice::Remote | ComputeChoice::Both)) && remote.is_none() {
+    if matches!(
+        parsed.compute,
+        Some(ComputeChoice::Remote | ComputeChoice::Both)
+    ) && parsed.remote.is_none()
+    {
         return Err("--compute remote needs --remote and --cert-dir".to_string());
     }
-    Ok(RenderJobArgs {
-        engine,
-        kind,
-        job,
-        out,
-        local,
-        compute,
-        transfer,
-        remote,
-        cert_dir,
-        contribute_local,
-        restart,
-        quiet,
-        highlights,
-        material,
-        color_variant,
-        color_pattern,
-        exposure,
+    #[cfg(feature = "adaptive-sampling")]
+    if parsed.adaptive.gpu_convergence && !parsed.adaptive.enabled {
+        return Err(
+            "--gpu-convergence moves the convergence check of --adaptive to the GPU: add \
+             --adaptive (see --help)"
+                .to_string(),
+        );
+    }
+    let ray_traced = matches!(
+        parsed.engine,
+        Some(pleochroma::renderer::engine::RenderEngine::RayTraced)
+    );
+    #[cfg(feature = "adaptive-sampling")]
+    if ray_traced && parsed.adaptive.enabled {
+        return Err(
+            "--adaptive is for the path-traced renderer: the Ray Traced engine's taps are a \
+             fixed set, with no noise to converge"
+                .to_string(),
+        );
+    }
+    if ray_traced && parsed.path_cache.enabled {
+        return Err(
+            "--path-cache is for the path-traced renderer: the Ray Traced engine has no \
+             light paths to cache"
+                .to_string(),
+        );
+    }
+    #[cfg(feature = "beam")]
+    if ray_traced && parsed.beam.enabled {
+        return Err(format!(
+            "{} (--beam): the Ray Traced engine has no residual to sample",
+            BeamOff::RayTracedResidual.message()
+        ));
+    }
+    #[cfg(feature = "beam")]
+    if let Some(why) = keep_beams_refusal(parsed.beam.keep, BEAM_PERSISTENCE_AVAILABLE) {
+        return Err(why.to_string());
+    }
+    if ray_traced && parsed.optics_tables == OpticsTables::On {
+        return Err(
+            "--optics-tables is for the path-traced renderer: the Ray Traced engine does not \
+             use the tables"
+                .to_string(),
+        );
+    }
+    Ok(())
+}
+
+/// Reads one of the beam tracing overrides (with its value) into `beam` and turns beam tracing
+/// on, as the adaptive companions turn adaptive sampling on.
+#[cfg(feature = "beam")]
+fn apply_beam_override(
+    word: &str,
+    cursor: &mut Cursor<'_>,
+    beam: &mut BeamArgs,
+) -> Result<(), String> {
+    match word {
+        "--beam-residual-min-spp" => {
+            beam.residual_min_spp = Some(parse_beam_count(
+                word,
+                cursor.value(word)?,
+                1,
+                MAX_BEAM_RESIDUAL_MIN_SPP,
+            )?);
+        }
+        "--beam-batch-tiles" => {
+            beam.batch_tiles = Some(parse_beam_count(
+                word,
+                cursor.value(word)?,
+                1,
+                MAX_BEAM_BATCH_TILES,
+            )?);
+        }
+        "--beam-region-mode" => beam.region_mode = Some(parse_region_mode(cursor.value(word)?)?),
+        _ => beam.nodes = Some(parse_beam_nodes(cursor.value(word)?)?),
+    }
+    beam.enabled = true;
+    Ok(())
+}
+
+/// A whole number from `least` to `most` for the beam flag `flag`.
+#[cfg(feature = "beam")]
+fn parse_beam_count(flag: &str, word: &str, least: u32, most: u32) -> Result<u32, String> {
+    word.trim()
+        .parse::<u32>()
+        .ok()
+        .filter(|value| (least..=most).contains(value))
+        .ok_or_else(|| format!("{flag} needs a whole number from {least} to {most}, got {word:?}"))
+}
+
+/// The spectral nodes `--beam-nodes` names: a multiple of 8 within [`BEAM_NODES_RANGE`].
+#[cfg(feature = "beam")]
+fn parse_beam_nodes(word: &str) -> Result<u32, String> {
+    let (least, most) = BEAM_NODES_RANGE;
+    word.trim()
+        .parse::<u32>()
+        .ok()
+        .filter(|value| (least..=most).contains(value) && value.is_multiple_of(8))
+        .ok_or_else(|| {
+            format!(
+                "--beam-nodes needs a multiple of 8 from {least} to {most} (default 48), \
+                 got {word:?}"
+            )
+        })
+}
+
+/// The mode `--beam-region-mode` names: `end-intersection` or `per-node`.
+#[cfg(feature = "beam")]
+fn parse_region_mode(word: &str) -> Result<RegionMode, String> {
+    match word.trim() {
+        "end-intersection" => Ok(RegionMode::EndIntersection),
+        "per-node" => Ok(RegionMode::PerNode),
+        other => Err(format!(
+            "unknown region mode {other:?} for --beam-region-mode (expected end-intersection or \
+             per-node)"
+        )),
+    }
+}
+
+/// The error `--target-noise` names: a number above 0. Whether it fits the metric (below 1 for
+/// the relative one) is judged with the metric and the job, by [`AdaptiveArgs::settings`].
+#[cfg(feature = "adaptive-sampling")]
+fn parse_target_noise(word: &str) -> Result<f32, String> {
+    word.trim()
+        .parse::<f32>()
+        .ok()
+        .filter(|value| value.is_finite() && *value > 0.0)
+        .ok_or_else(|| {
+            format!(
+                "--target-noise needs a number above 0 (a fraction such as 0.01 for the relative \
+                 metric, a Delta E such as 1.5 for the absolute one), got {word:?}"
+            )
+        })
+}
+
+/// The samples `--min-spp` names: a whole number from 1 up.
+#[cfg(feature = "adaptive-sampling")]
+fn parse_min_spp(word: &str) -> Result<u32, String> {
+    word.trim()
+        .parse::<u32>()
+        .ok()
+        .filter(|value| *value >= 1)
+        .ok_or_else(|| {
+            format!(
+                "--min-spp needs a whole number from 1 up (samples per pixel before a tile may \
+                 stop), got {word:?}"
+            )
+        })
+}
+
+/// The metric `--noise-metric` names: `relative` or `absolute`.
+#[cfg(feature = "adaptive-sampling")]
+fn parse_noise_metric(word: &str) -> Result<NoiseMetric, String> {
+    match word.trim() {
+        "relative" => Ok(NoiseMetric::RelativeLstar),
+        "absolute" => Ok(NoiseMetric::AbsoluteDeltaE),
+        other => Err(format!(
+            "unknown noise metric {other:?} for --noise-metric (expected relative or absolute)"
+        )),
+    }
+}
+
+/// The first sample index `--sample-offset` names: a whole number from 0 up.
+fn parse_sample_offset(word: &str) -> Result<u32, String> {
+    word.trim().parse::<u32>().map_err(|_| {
+        format!(
+            "--sample-offset needs a whole number from 0 up (the first sample index), \
+             got {word:?}"
+        )
     })
 }
 

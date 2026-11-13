@@ -1,13 +1,12 @@
 //! The output defaults of the Render & Output tab: seeding the Export and Tilt Video dialogs
-//! from `AppSettings::output` and writing the values a run used back ("last used").
+//! from `AppSettings::output`, and writing back the values a run used ("last used").
 //!
-//! The dialogs keep their own controls (`ExportModel`, `TiltVideoExportModel`); those are
-//! per-run overrides seeded from the persisted values. Seeding happens when the still export
-//! dialog opens and at start-up for the tilt-video section (its model persists for the
-//! session); remembering happens when a run starts or is added to the queue, and when the
-//! dialog closes, so values typed without exporting are kept too. Every value read from the settings file
-//! goes through `OutputSettings::sanitised`, so a hand-edited file cannot seed an impossible
-//! slider position.
+//! The dialogs keep their own controls (`ExportModel`, `TiltVideoExportModel`) as per-run
+//! overrides. The still dialog is seeded each time it opens, the tilt-video section at start-up
+//! and after a tab reset. Values are remembered when a run starts or is queued, and when the
+//! dialog closes, so values typed without exporting are kept too. Every value read from the
+//! settings file goes through `OutputSettings::sanitised`, so a hand-edited file cannot seed an
+//! impossible slider position.
 
 use crate::{
     ExportModel, MainWindow, SettingsModel, TiltVideoExportModel,
@@ -17,11 +16,17 @@ use crate::{
         model::{
             AppSettings, EXPORT_SAMPLES_EXPONENT_RANGE, OutputSettings, StillOutput,
             TILT_STEP_HUNDREDTHS_RANGE, TiltVideoOutput, bounce_index, clamp_exponent,
-            nearest_bounce_cap,
+            clamp_target_noise_index, nearest_bounce_cap,
         },
     },
 };
-use pleochroma::color::metrics::PROFILE_AZIMUTHS_DEG;
+#[cfg(feature = "adaptive-sampling")]
+use pleochroma::renderer::adaptive::TARGET_NOISE_PRESETS;
+use pleochroma::{
+    color::metrics::PROFILE_AZIMUTHS_DEG,
+    optics::raytracer::{Estimator, default_estimator},
+    renderer::{accel::PathCacheSettings, accel_beam::BeamSettings, adaptive::AdaptiveSettings},
+};
 use slint::{ComponentHandle, Model as _, ModelRc, VecModel};
 
 /// The remote endpoint's own default transfer (what an export follows until a choice was made).
@@ -179,6 +184,10 @@ pub(in crate::gui) fn publish_summaries(
 
 /// The still export dialog's controls as plain values: what seeding sets and what a run reads
 /// back. Kept apart from `ExportModel` so the mapping can be tested without a window.
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "independent switches of the dialog, not a state machine"
+)]
 #[derive(Debug, Clone, PartialEq)]
 struct StillControls {
     engine: pleochroma::renderer::engine::EngineSpec,
@@ -190,6 +199,12 @@ struct StillControls {
     compute_target_index: i32,
     bounce_index: i32,
     transfer_index: i32,
+    adaptive_sampling: bool,
+    target_noise_index: i32,
+    path_cache: bool,
+    keep_path_cache: bool,
+    beam: bool,
+    keep_beams: bool,
 }
 
 /// The tilt-video section's controls as plain values (see [`StillControls`]).
@@ -223,6 +238,11 @@ struct TiltControls {
     metric_tilt_brilliance: bool,
     metric_angle: bool,
     keep_frames: bool,
+    adaptive_sampling: bool,
+    target_noise_index: i32,
+    path_cache: bool,
+    keep_video_cache: bool,
+    beam: bool,
 }
 
 /// What the still export dialog shows when it opens: the remembered values, limited to what
@@ -242,6 +262,12 @@ fn still_controls(settings: &AppSettings) -> StillControls {
             .transfer
             .unwrap_or_else(|| endpoint_transfer(settings))
             .index(),
+        adaptive_sampling: still.adaptive_sampling,
+        target_noise_index: still.target_noise_index,
+        path_cache: still.path_cache,
+        keep_path_cache: still.keep_path_cache,
+        beam: still.beam,
+        keep_beams: still.keep_beams,
     }
 }
 
@@ -266,6 +292,12 @@ fn still_from_controls(
         } else {
             previous_transfer
         },
+        adaptive_sampling: controls.adaptive_sampling,
+        target_noise_index: clamp_target_noise_index(controls.target_noise_index),
+        path_cache: controls.path_cache,
+        keep_path_cache: controls.keep_path_cache,
+        beam: controls.beam,
+        keep_beams: controls.keep_beams,
     }
 }
 
@@ -300,6 +332,11 @@ fn tilt_controls(settings: &AppSettings) -> TiltControls {
         metric_tilt_brilliance: video.metric_tilt_brilliance,
         metric_angle: video.metric_angle,
         keep_frames: video.keep_frames,
+        adaptive_sampling: video.adaptive_sampling,
+        target_noise_index: video.target_noise_index,
+        path_cache: video.path_cache,
+        keep_video_cache: video.keep_video_cache,
+        beam: video.beam,
     }
 }
 
@@ -336,11 +373,16 @@ fn tilt_from_controls(
         metric_tilt_brilliance: controls.metric_tilt_brilliance,
         metric_angle: controls.metric_angle,
         keep_frames: controls.keep_frames,
+        adaptive_sampling: controls.adaptive_sampling,
+        target_noise_index: clamp_target_noise_index(controls.target_noise_index),
+        path_cache: controls.path_cache,
+        keep_video_cache: controls.keep_video_cache,
+        beam: controls.beam,
     }
 }
 
 /// Seeds the still export dialog's controls from the remembered values. Called every time the
-/// dialog opens (`populate_fanout_presets`).
+/// dialog opens.
 pub(in crate::gui) fn seed_still_dialog(ui: &MainWindow, settings: &AppSettings) {
     let controls = still_controls(settings);
     let model = ui.global::<ExportModel>();
@@ -355,6 +397,16 @@ pub(in crate::gui) fn seed_still_dialog(ui: &MainWindow, settings: &AppSettings)
     model.set_compute_target_index(controls.compute_target_index);
     model.set_bounce_index(controls.bounce_index);
     model.set_transfer_index(controls.transfer_index);
+    model.set_adaptive_sampling(controls.adaptive_sampling);
+    model.set_target_noise_index(controls.target_noise_index);
+    model.set_path_cache(controls.path_cache);
+    model.set_keep_path_cache(controls.keep_path_cache);
+    model.set_path_cache_available(accelerators_available());
+    model.set_beam_available(accelerators_available());
+    model.set_beam(controls.beam);
+    model.set_keep_beams(controls.keep_beams);
+    #[cfg(feature = "beam")]
+    model.set_beam_keep_available(BEAM_PERSISTENCE_AVAILABLE);
 }
 
 /// Seeds the tilt-video section's controls from the remembered values, and the export folder
@@ -387,6 +439,13 @@ pub(in crate::gui) fn seed_tilt_dialog(ui: &MainWindow, settings: &AppSettings) 
     model.set_metric_tilt_brilliance(controls.metric_tilt_brilliance);
     model.set_metric_angle(controls.metric_angle);
     model.set_keep_frames(controls.keep_frames);
+    model.set_adaptive_sampling(controls.adaptive_sampling);
+    model.set_target_noise_index(controls.target_noise_index);
+    model.set_path_cache(controls.path_cache);
+    model.set_keep_video_cache(controls.keep_video_cache);
+    model.set_path_cache_available(accelerators_available());
+    model.set_beam_available(accelerators_available());
+    model.set_beam(controls.beam);
     ui.global::<ExportModel>()
         .set_directory(settings.export_directory.clone().into());
 }
@@ -421,6 +480,12 @@ pub(in crate::gui) fn remember_still(
         compute_target_index: model.get_compute_target_index(),
         bounce_index: model.get_bounce_index(),
         transfer_index: model.get_transfer_index(),
+        adaptive_sampling: model.get_adaptive_sampling(),
+        target_noise_index: model.get_target_noise_index(),
+        path_cache: model.get_path_cache(),
+        keep_path_cache: model.get_keep_path_cache(),
+        beam: model.get_beam(),
+        keep_beams: model.get_keep_beams(),
     };
     output.still = still_from_controls(&controls, output.still.transfer, uses_remote);
     store_and_publish(ui, settings_store, output);
@@ -459,6 +524,11 @@ pub(in crate::gui) fn remember_tilt(
         metric_tilt_brilliance: model.get_metric_tilt_brilliance(),
         metric_angle: model.get_metric_angle(),
         keep_frames: model.get_keep_frames(),
+        adaptive_sampling: model.get_adaptive_sampling(),
+        target_noise_index: model.get_target_noise_index(),
+        path_cache: model.get_path_cache(),
+        keep_video_cache: model.get_keep_video_cache(),
+        beam: model.get_beam(),
     };
     output.tilt_video = tilt_from_controls(&controls, output.tilt_video.transfer, uses_remote);
     store_and_publish(ui, settings_store, output);
@@ -489,6 +559,232 @@ pub(in crate::gui) fn tilt_engine(ui: &MainWindow) -> pleochroma::renderer::engi
         model.get_ray_taps(),
         model.get_ray_fire(),
     )
+}
+
+/// The adaptive-sampling settings a dialog's "Adaptive Sampling" box and "Target Noise" combo ask
+/// for, for a render of `samples` samples per pixel (the cap); `None` when the box is off or the
+/// renderer is Ray-Traced, which has no noise to converge.
+#[cfg(feature = "adaptive-sampling")]
+#[must_use]
+pub(in crate::gui) fn adaptive_choice(
+    adaptive: bool,
+    target_noise_index: i32,
+    engine: pleochroma::renderer::engine::EngineSpec,
+    samples: u32,
+) -> Option<AdaptiveSettings> {
+    if !adaptive || engine.is_ray() {
+        return None;
+    }
+    let index = usize::try_from(clamp_target_noise_index(target_noise_index)).unwrap_or(0);
+    let (_, target_noise) = TARGET_NOISE_PRESETS[index.min(TARGET_NOISE_PRESETS.len() - 1)];
+    Some(AdaptiveSettings {
+        target_noise,
+        ..AdaptiveSettings::provisional(samples)
+    })
+}
+
+/// The still dialog's adaptive-sampling choice for a render of `samples` samples per pixel.
+#[cfg(feature = "adaptive-sampling")]
+pub(in crate::gui) fn still_adaptive(
+    ui: &MainWindow,
+    engine: pleochroma::renderer::engine::EngineSpec,
+    samples: u32,
+) -> Option<AdaptiveSettings> {
+    let model = ui.global::<ExportModel>();
+    adaptive_choice(
+        model.get_adaptive_sampling(),
+        model.get_target_noise_index(),
+        engine,
+        samples,
+    )
+}
+
+/// The tilt-video section's adaptive-sampling choice for frames of `samples` samples per pixel.
+#[cfg(feature = "adaptive-sampling")]
+pub(in crate::gui) fn tilt_adaptive(
+    ui: &MainWindow,
+    engine: pleochroma::renderer::engine::EngineSpec,
+    samples: u32,
+) -> Option<AdaptiveSettings> {
+    let model = ui.global::<TiltVideoExportModel>();
+    adaptive_choice(
+        model.get_adaptive_sampling(),
+        model.get_target_noise_index(),
+        engine,
+        samples,
+    )
+}
+
+/// Without the `adaptive-sampling` feature the dialog has no "Adaptive Sampling" box: never
+/// adaptive. The remembered box (`ExportModel.adaptive_sampling`) stays as the settings file
+/// has it.
+#[cfg(not(feature = "adaptive-sampling"))]
+pub(in crate::gui) const fn still_adaptive(
+    _ui: &MainWindow,
+    _engine: pleochroma::renderer::engine::EngineSpec,
+    _samples: u32,
+) -> Option<AdaptiveSettings> {
+    None
+}
+
+/// Without the `adaptive-sampling` feature the tilt-video section has no adaptive box: never
+/// adaptive.
+#[cfg(not(feature = "adaptive-sampling"))]
+pub(in crate::gui) const fn tilt_adaptive(
+    _ui: &MainWindow,
+    _engine: pleochroma::renderer::engine::EngineSpec,
+    _samples: u32,
+) -> Option<AdaptiveSettings> {
+    None
+}
+
+/// Whether the process estimator lets the path cache and beam tracing work: exit collection, the
+/// app's default, uses neither, so the dialogs grey their boxes out.
+fn accelerators_available() -> bool {
+    default_estimator() == Estimator::Branching
+}
+
+/// The path-cache settings a dialog's "Path Cache" box and its keep box ask for under the process
+/// estimator (see [`path_cache_choice_with`]).
+#[must_use]
+pub(in crate::gui) fn path_cache_choice(
+    path_cache: bool,
+    keep: bool,
+    engine: pleochroma::renderer::engine::EngineSpec,
+) -> Option<PathCacheSettings> {
+    path_cache_choice_with(path_cache, keep, engine, default_estimator())
+}
+
+/// The path-cache settings a dialog's "Path Cache" box and its keep box ask for; `None` when the
+/// box is off, the renderer is Ray-Traced, which has no light paths to cache, or `estimator` is
+/// exit collection, which does not use the cache. `keep` writes the cache to disk.
+#[must_use]
+pub(in crate::gui) fn path_cache_choice_with(
+    path_cache: bool,
+    keep: bool,
+    engine: pleochroma::renderer::engine::EngineSpec,
+    estimator: Estimator,
+) -> Option<PathCacheSettings> {
+    if !path_cache || engine.is_ray() || estimator == Estimator::ExitCollection {
+        return None;
+    }
+    Some(PathCacheSettings {
+        persist: keep,
+        ..PathCacheSettings::default()
+    })
+}
+
+/// The still export dialog's path-cache choice ("Path Cache" with "Keep for Re-Renders").
+pub(in crate::gui) fn still_path_cache(
+    ui: &MainWindow,
+    engine: pleochroma::renderer::engine::EngineSpec,
+) -> Option<PathCacheSettings> {
+    let model = ui.global::<ExportModel>();
+    path_cache_choice(model.get_path_cache(), model.get_keep_path_cache(), engine)
+}
+
+/// The tilt-video section's path-cache choice: the frames' caches reach the disk only with
+/// "Keep Path Cache for This Video".
+pub(in crate::gui) fn tilt_path_cache(
+    ui: &MainWindow,
+    engine: pleochroma::renderer::engine::EngineSpec,
+) -> Option<PathCacheSettings> {
+    let model = ui.global::<TiltVideoExportModel>();
+    path_cache_choice(model.get_path_cache(), model.get_keep_video_cache(), engine)
+}
+
+/// The beam-tracing settings a dialog's "Beam Tracing (Faceted Stones)" box asks for; `None` when
+/// the box is off or the renderer is Ray-Traced, whose beams only re-light and never run a
+/// residual (the box is greyed out there).
+#[cfg(test)]
+#[cfg(all(feature = "beam", beam_tests))]
+#[must_use]
+pub(in crate::gui) fn beam_choice(
+    beam: bool,
+    engine: pleochroma::renderer::engine::EngineSpec,
+) -> Option<BeamSettings> {
+    beam_choice_keeping(beam, false, engine)
+}
+
+/// Whether this build can store beams on disk. The app enables the `path-cache-disk` feature of
+/// `pleochroma` (see `Cargo.toml`), so this is `true`. If that feature is ever dropped, set it to
+/// `false`: "Keep Beams for Re-Renders" is then greyed out with a note, and no job asks for
+/// persistence.
+#[cfg(feature = "beam")]
+pub(in crate::gui) const BEAM_PERSISTENCE_AVAILABLE: bool = true;
+
+/// `beam_choice` with the "Keep Beams for Re-Renders" choice under the process estimator (see
+/// [`beam_choice_keeping_with`]).
+#[cfg(feature = "beam")]
+#[must_use]
+pub(in crate::gui) fn beam_choice_keeping(
+    beam: bool,
+    keep: bool,
+    engine: pleochroma::renderer::engine::EngineSpec,
+) -> Option<BeamSettings> {
+    beam_choice_keeping_with(beam, keep, engine, default_estimator())
+}
+
+/// The beam-tracing settings for a box, its keep box and `estimator`. `keep` sets
+/// [`BeamSettings::keep_leaves`] (beams stored for later renders), only where the build can
+/// store them. `None` when the box is off, the renderer is Ray-Traced, or `estimator` is exit
+/// collection, which does not use beam tracing: a remembered, greyed box never beam-traces.
+#[cfg(feature = "beam")]
+#[must_use]
+pub(in crate::gui) fn beam_choice_keeping_with(
+    beam: bool,
+    keep: bool,
+    engine: pleochroma::renderer::engine::EngineSpec,
+    estimator: Estimator,
+) -> Option<BeamSettings> {
+    if !beam || engine.is_ray() || estimator == Estimator::ExitCollection {
+        return None;
+    }
+    Some(BeamSettings {
+        keep_leaves: keep && BEAM_PERSISTENCE_AVAILABLE,
+        ..BeamSettings::default()
+    })
+}
+
+/// The still export dialog's beam-tracing choice ("Beam Tracing (Faceted Stones)" with "Keep Beams
+/// for Re-Renders").
+#[cfg(feature = "beam")]
+pub(in crate::gui) fn still_beam(
+    ui: &MainWindow,
+    engine: pleochroma::renderer::engine::EngineSpec,
+) -> Option<BeamSettings> {
+    let model = ui.global::<ExportModel>();
+    beam_choice_keeping(model.get_beam(), model.get_keep_beams(), engine)
+}
+
+/// The tilt-video section's beam-tracing choice ("Beam Tracing (Faceted Stones)"). The frames'
+/// beams reach the disk only with "Keep Path Cache for This Video", which beams reuse.
+#[cfg(feature = "beam")]
+pub(in crate::gui) fn tilt_beam(
+    ui: &MainWindow,
+    engine: pleochroma::renderer::engine::EngineSpec,
+) -> Option<BeamSettings> {
+    let model = ui.global::<TiltVideoExportModel>();
+    beam_choice_keeping(model.get_beam(), model.get_keep_video_cache(), engine)
+}
+
+/// Without the `beam` feature the dialog has no "Beam Tracing (Faceted Stones)" box: never beams.
+/// The remembered box (`ExportModel.beam`) stays as the settings file has it.
+#[cfg(not(feature = "beam"))]
+pub(in crate::gui) const fn still_beam(
+    _ui: &MainWindow,
+    _engine: pleochroma::renderer::engine::EngineSpec,
+) -> Option<BeamSettings> {
+    None
+}
+
+/// Without the `beam` feature the tilt-video section has no beam box: never beams.
+#[cfg(not(feature = "beam"))]
+pub(in crate::gui) const fn tilt_beam(
+    _ui: &MainWindow,
+    _engine: pleochroma::renderer::engine::EngineSpec,
+) -> Option<BeamSettings> {
+    None
 }
 
 fn output_engine(index: i32, taps: i32, fire: bool) -> pleochroma::renderer::engine::EngineSpec {
@@ -535,6 +831,12 @@ mod tests {
             color_space_index: 1,
             compute: TiltVideoCompute::Local,
             transfer: Some(ExportTransfer::FinalPicture),
+            adaptive_sampling: true,
+            target_noise_index: 2,
+            path_cache: true,
+            keep_path_cache: true,
+            beam: true,
+            keep_beams: true,
         };
         settings.output.tilt_video = TiltVideoOutput {
             engine: pleochroma::renderer::engine::EngineSpec::default(),
@@ -559,6 +861,11 @@ mod tests {
             metric_tilt_brilliance: true,
             metric_angle: false,
             keep_frames: true,
+            adaptive_sampling: true,
+            target_noise_index: 0,
+            path_cache: true,
+            keep_video_cache: true,
+            beam: true,
         };
         settings.tilt_video_compute_target = TiltVideoCompute::Remote;
         settings
@@ -579,8 +886,214 @@ mod tests {
                 compute_target_index: TiltVideoCompute::Both.index(),
                 bounce_index: 2,
                 transfer_index: ExportTransfer::FullData.index(),
+                adaptive_sampling: false,
+                target_noise_index: 1,
+                path_cache: false,
+                keep_path_cache: false,
+                beam: false,
+                keep_beams: false,
             }
         );
+    }
+
+    /// "Keep Beams for Re-Renders" comes back when the dialog opens, is written back by a run,
+    /// is off on a fresh install and sets `keep_leaves` in the beam settings.
+    #[cfg(all(feature = "beam", beam_tests))]
+    #[test]
+    fn keep_beams_is_remembered_and_sets_keep_leaves() {
+        use pleochroma::renderer::engine::{EngineSpec, RenderEngine};
+        assert!(still_controls(&chosen()).keep_beams);
+        assert!(!still_controls(&AppSettings::default()).keep_beams);
+
+        let mut controls = still_controls(&chosen());
+        controls.keep_beams = false;
+        let written = still_from_controls(&controls, None, false);
+        assert!(!written.keep_beams);
+        let mut next = AppSettings::default();
+        next.output.still = written;
+        assert!(!still_controls(&next).keep_beams);
+
+        let path = EngineSpec::default();
+        let kept = beam_choice_keeping(true, true, path).expect("the box is on");
+        assert!(kept.keep_leaves);
+        let plain = beam_choice_keeping(true, false, path).expect("the box is on");
+        assert!(!plain.keep_leaves);
+        assert_eq!(beam_choice_keeping(false, true, path), None, "beams off");
+        let ray = EngineSpec {
+            engine: RenderEngine::RayTraced,
+            ..EngineSpec::default()
+        };
+        assert_eq!(beam_choice_keeping(true, true, ray), None);
+    }
+
+    /// Exit collection, the app's default estimator, does not use beam tracing: a ticked box and
+    /// a ticked keep box still ask for none, so a remembered box never beam-traces.
+    #[cfg(all(feature = "beam", beam_tests))]
+    #[test]
+    fn exit_collection_asks_for_no_beams() {
+        use pleochroma::renderer::engine::EngineSpec;
+        let path = EngineSpec::default();
+        let collect = Estimator::ExitCollection;
+        assert_eq!(beam_choice_keeping_with(true, false, path, collect), None);
+        assert_eq!(beam_choice_keeping_with(true, true, path, collect), None);
+        assert!(beam_choice_keeping_with(true, true, path, Estimator::Branching).is_some());
+    }
+
+    /// An older settings file without the key loads the box off.
+    #[cfg(all(feature = "beam", beam_tests))]
+    #[test]
+    fn a_settings_file_without_keep_beams_loads_it_off() {
+        let old: StillOutput = toml::from_str("beam = true\n").expect("an older file parses");
+        assert!(old.beam && !old.keep_beams);
+    }
+
+    /// The "Beam Tracing (Faceted Stones)" boxes come back when the dialogs open, are written
+    /// back by a run, and are off on a fresh install.
+    #[cfg(all(feature = "beam", beam_tests))]
+    #[test]
+    fn the_beam_boxes_are_remembered_for_the_still_and_the_tilt_video() {
+        let settings = chosen();
+        assert!(still_controls(&settings).beam);
+        assert!(tilt_controls(&settings).beam);
+
+        let mut controls = still_controls(&settings);
+        controls.beam = false;
+        let written = still_from_controls(&controls, None, false);
+        assert!(!written.beam);
+        let mut next = AppSettings::default();
+        next.output.still = written;
+        assert!(!still_controls(&next).beam);
+
+        let mut controls = tilt_controls(&settings);
+        controls.beam = false;
+        assert!(!tilt_from_controls(&controls, None, false).beam);
+        let kept = tilt_from_controls(&tilt_controls(&settings), None, false);
+        assert!(kept.beam);
+
+        assert!(!still_controls(&AppSettings::default()).beam);
+        assert!(!tilt_controls(&AppSettings::default()).beam);
+    }
+
+    /// The box becomes beam settings (the defaults), and is ignored for the Ray-Traced renderer.
+    #[cfg(all(feature = "beam", beam_tests))]
+    #[test]
+    fn the_dialog_choice_becomes_beam_settings_and_ray_traced_ignores_it() {
+        use pleochroma::renderer::engine::{EngineSpec, RenderEngine};
+        let path = EngineSpec::default();
+        assert_eq!(beam_choice(false, path), None, "box off");
+        assert_eq!(beam_choice(true, path), Some(BeamSettings::default()));
+        let ray = EngineSpec {
+            engine: RenderEngine::RayTraced,
+            ..EngineSpec::default()
+        };
+        assert_eq!(beam_choice(true, ray), None);
+    }
+
+    /// The "Path Cache" boxes come back when the dialogs open, are written back by a run, and
+    /// are off on a fresh install.
+    #[test]
+    fn the_path_cache_boxes_are_remembered_for_the_still_and_the_tilt_video() {
+        let settings = chosen();
+        let still = still_controls(&settings);
+        assert!(still.path_cache && still.keep_path_cache);
+        let tilt = tilt_controls(&settings);
+        assert!(tilt.path_cache && tilt.keep_video_cache);
+
+        let mut controls = still_controls(&settings);
+        controls.path_cache = false;
+        controls.keep_path_cache = false;
+        let written = still_from_controls(&controls, None, false);
+        assert!(!written.path_cache && !written.keep_path_cache);
+        let mut next = AppSettings::default();
+        next.output.still = written;
+        assert!(!still_controls(&next).path_cache);
+
+        let mut controls = tilt_controls(&settings);
+        controls.keep_video_cache = false;
+        let written = tilt_from_controls(&controls, None, false);
+        assert!(written.path_cache && !written.keep_video_cache);
+
+        let fresh = still_controls(&AppSettings::default());
+        assert!(!fresh.path_cache && !fresh.keep_path_cache);
+        let fresh = tilt_controls(&AppSettings::default());
+        assert!(!fresh.path_cache && !fresh.keep_video_cache);
+    }
+
+    #[test]
+    fn the_dialog_choice_becomes_path_cache_settings_and_keeping_is_persisting() {
+        use pleochroma::renderer::engine::{EngineSpec, RenderEngine};
+        let path = EngineSpec::default();
+        let branching = Estimator::Branching;
+        assert_eq!(
+            path_cache_choice_with(false, true, path, branching),
+            None,
+            "box off"
+        );
+        let in_render =
+            path_cache_choice_with(true, false, path, branching).expect("the box is on");
+        assert!(!in_render.persist);
+        let kept = path_cache_choice_with(true, true, path, branching).expect("the box is on");
+        assert!(kept.persist);
+        assert_eq!(kept.compression, PathCacheSettings::default().compression);
+        // The Ray-Traced renderer has no light paths to cache.
+        let ray = EngineSpec {
+            engine: RenderEngine::RayTraced,
+            ..EngineSpec::default()
+        };
+        assert_eq!(path_cache_choice_with(true, true, ray, branching), None);
+    }
+
+    /// Exit collection, the app's default estimator, does not use the path cache: a ticked box
+    /// and a ticked keep box still ask for none.
+    #[test]
+    fn exit_collection_asks_for_no_path_cache() {
+        use pleochroma::renderer::engine::EngineSpec;
+        let path = EngineSpec::default();
+        let collect = Estimator::ExitCollection;
+        assert_eq!(path_cache_choice_with(true, false, path, collect), None);
+        assert_eq!(path_cache_choice_with(true, true, path, collect), None);
+        assert!(path_cache_choice_with(true, true, path, Estimator::Branching).is_some());
+    }
+
+    /// The "Adaptive Sampling" box and the "Target Noise" combo come back when the dialogs open,
+    /// are written back by a run, and a hand-edited index cannot select a fourth entry.
+    #[test]
+    fn adaptive_sampling_is_remembered_for_the_still_and_the_tilt_video() {
+        let settings = chosen();
+        let still = still_controls(&settings);
+        assert!(still.adaptive_sampling);
+        assert_eq!(still.target_noise_index, 2);
+        let tilt = tilt_controls(&settings);
+        assert!(tilt.adaptive_sampling);
+        assert_eq!(tilt.target_noise_index, 0);
+
+        let mut controls = still_controls(&settings);
+        controls.adaptive_sampling = false;
+        controls.target_noise_index = 1;
+        let written = still_from_controls(&controls, None, false);
+        assert!(!written.adaptive_sampling);
+        assert_eq!(written.target_noise_index, 1);
+        let mut next = AppSettings::default();
+        next.output.still = written;
+        assert!(!still_controls(&next).adaptive_sampling);
+        assert_eq!(still_controls(&next).target_noise_index, 1);
+
+        let mut controls = tilt_controls(&settings);
+        controls.adaptive_sampling = false;
+        controls.target_noise_index = 2;
+        let written = tilt_from_controls(&controls, None, false);
+        assert!(!written.adaptive_sampling);
+        assert_eq!(written.target_noise_index, 2);
+
+        // Off and Standard on a fresh install; a wild index is limited to the three entries.
+        let fresh = still_controls(&AppSettings::default());
+        assert!(!fresh.adaptive_sampling);
+        assert_eq!(fresh.target_noise_index, 1);
+        let mut wild = AppSettings::default();
+        wild.output.still.target_noise_index = 9;
+        wild.output.tilt_video.target_noise_index = -4;
+        assert_eq!(still_controls(&wild).target_noise_index, 2);
+        assert_eq!(tilt_controls(&wild).target_noise_index, 0);
     }
 
     #[test]
@@ -636,14 +1149,14 @@ mod tests {
         assert_eq!(step_hundredths_of(0.001), TILT_STEP_HUNDREDTHS_RANGE.0);
         assert_eq!(step_hundredths_of(9.0), TILT_STEP_HUNDREDTHS_RANGE.1);
         assert_eq!(step_hundredths_of(f32::NAN), 100);
-        assert!(axis_list(&[]).is_empty());
-        assert!(axes_of(&[]).is_empty());
+        assert_eq!(axis_list(&[]), [] as [i32; 0]);
+        assert_eq!(axes_of(&[]), [] as [u8; 0]);
         // The play order survives the round trip; repeats and indices off the chart do not.
         assert_eq!(axes_of(&axis_list(&[2, 0])), vec![2, 0]);
         assert_eq!(axis_list(&[3, 3, 9, 1]), vec![3, 1]);
         assert_eq!(axes_of(&[-1, 2, 7, 2, 0]), vec![2, 0]);
         let fresh = tilt_controls(&AppSettings::default());
-        assert!(fresh.video_axes.is_empty());
+        assert_eq!(fresh.video_axes, [] as [i32; 0]);
         assert_eq!(
             (fresh.start_angle_deg, fresh.end_angle_deg, fresh.fps_index),
             (-90, 90, 1)
@@ -741,6 +1254,36 @@ mod tests {
         assert_eq!(exponent_of(10.6), 11);
         assert_eq!(exponent_of(-3.0), EXPORT_SAMPLES_EXPONENT_RANGE.0);
         assert_eq!(exponent_of(99.0), EXPORT_SAMPLES_EXPONENT_RANGE.1);
+    }
+
+    #[cfg(feature = "adaptive-sampling")]
+    #[test]
+    fn the_dialog_choice_becomes_the_settings_with_the_samples_as_the_cap() {
+        use pleochroma::renderer::engine::{EngineSpec, RenderEngine};
+        let path = EngineSpec::default();
+        assert_eq!(adaptive_choice(false, 1, path, 1024), None, "box off");
+        for (index, (_, target)) in TARGET_NOISE_PRESETS.iter().enumerate() {
+            let settings = adaptive_choice(true, i32::try_from(index).unwrap(), path, 1024)
+                .expect("the box is on");
+            assert_eq!(settings.target_noise.to_bits(), target.to_bits());
+            assert_eq!(settings.max_spp, 1024);
+            assert_eq!(settings.validate(), Ok(()));
+        }
+        // An index off the combo reads as the nearest entry; small caps stay valid.
+        let wild = adaptive_choice(true, 40, path, 8).expect("on");
+        assert_eq!(
+            wild.target_noise.to_bits(),
+            TARGET_NOISE_PRESETS[TARGET_NOISE_PRESETS.len() - 1]
+                .1
+                .to_bits()
+        );
+        assert_eq!(wild.validate(), Ok(()));
+        // The Ray-Traced renderer has no noise to converge.
+        let ray = EngineSpec {
+            engine: RenderEngine::RayTraced,
+            ..EngineSpec::default()
+        };
+        assert_eq!(adaptive_choice(true, 1, ray, 16), None);
     }
 
     #[test]

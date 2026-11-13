@@ -57,9 +57,9 @@ pub struct LoadedPlan {
     pub designs: Vec<SavedDesignDto>,
     /// The saved layouts, best rank first.
     pub layouts: Vec<RoughLayout>,
-    /// The rough colour the file carries (schema version 4), as the file has it. It has
-    /// been checked to be usable by the import. The
-    /// library stores it beside the plan, not in the plan's payload (see `saved/sections.rs`).
+    /// The rough colour the file carries (schema version 4), checked by the loader.
+    ///
+    /// The library stores it beside the plan, not in the plan's payload (see `sections`).
     pub colour: Option<RoughColourDto>,
     /// The stone orientation choices the file carries (schema version 4), each checked against
     /// `layouts`.
@@ -217,14 +217,12 @@ pub fn payload_version_of(text: &str) -> Option<u32> {
 
 /// Brings the text of a plan written with schema `version` up to the current schema.
 ///
-/// Version 6 is the current schema and needs nothing. Version 5 differs only by the
-/// `rough.inclusions` of a block, cylinder or pebble, which its files do not have. Version 4
-/// differs only by the optional
-/// `rough.orientation` and `axis` tables, which its files do not have. Version 3 differs only by the optional
-/// `colour` table and `pose_choices` tables, version 2 also by the optional `rough.inclusions`
-/// tables, and version 1 also by the optional `rough.mesh` table, which their files do not
-/// have, so their text reads as it is. A later format change adds an arm here that rewrites
-/// the older text, so the DTOs only ever describe the newest schema.
+/// Each older version lacks the tables of the versions after it, so its text reads as it is:
+/// version 5 lacks the inclusions of a block, cylinder or pebble, version 4 also the
+/// `rough.orientation` and `axis` tables, version 3 also the `colour` and `pose_choices` tables,
+/// version 2 also the `rough.inclusions` of a mesh, and version 1 also `rough.mesh`. A later
+/// format change adds an arm here that rewrites the older text, so the DTOs describe only the
+/// newest schema.
 fn migrate(text: &str, version: u32) -> Result<Cow<'_, str>, String> {
     match version {
         BASE_SCHEMA_VERSION
@@ -323,8 +321,8 @@ fn plan_from_dto(dto: SavedPlanDto, version: u32) -> Result<LoadedPlan, String> 
             "rough.inclusions needs plan version {INCLUSION_SCHEMA_VERSION}; this plan declares version {version}."
         ));
     }
-    // A block, cylinder or pebble with inclusions is a version 6 plan. An older file that lists
-    // them was never written by any build, and an old build would drop them without a word.
+    // A block, cylinder or pebble with inclusions needs version 6; an older build would drop
+    // them silently.
     if version < ANALYTIC_INCLUSION_SCHEMA_VERSION
         && dto.rough.analytic_inclusions()
         && !dto.rough.base.trim().eq_ignore_ascii_case("hull")
@@ -591,9 +589,8 @@ pub fn serialize_plan_with_planned(
         pose_choices: Vec::new(),
         axis: axis_to_dto_planned(overrides, planned),
     };
-    // Only a plan with a mesh needs the newer schema, one with inclusions a newer one still, and
-    // one with inclusions in a block, cylinder or pebble the newest: every other plan is what it
-    // always was, byte for byte.
+    // The oldest version that holds the content (see `content_version`), so a plan with none of
+    // the newer sections stays version 1.
     doc.version = doc.content_version();
     toml::to_string_pretty(&doc).map_err(|e| format!("Could not write the plan: {e}"))
 }

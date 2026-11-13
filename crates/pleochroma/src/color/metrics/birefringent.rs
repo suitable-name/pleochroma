@@ -80,7 +80,7 @@ pub(super) const MODE_WEIGHT: f32 = 0.5;
 
 /// Whether `material` is anisotropic by the renderer's own predicate: not cubic AND
 /// `|birefringence_delta| > 1e-4` (`build_ray_material_context`, mirrored by the GPU material
-/// encode). Not a threshold of the plan's: the figures follow the renders.
+/// encode). The threshold is the renderer's, so the figures follow the renders.
 pub(super) fn is_anisotropic(material: &GemMaterial) -> bool {
     material.crystal_system != CrystalSystem::Cubic && material.birefringence_delta.abs() > 1e-4
 }

@@ -6,10 +6,10 @@ use pleochroma_cut::{EditorModel, OptimizeModel, RetargetModel, SweepModel};
 use slint::{ComponentHandle, Model};
 use std::time::Duration;
 
-/// How long the short Optimize run of the lesson may take. The panel's own estimate (about five
-/// seconds) is a guess from the design size; the run is a multi-start search on several threads,
-/// then three full-quality scorings (the starting stone and two candidates), so a loaded machine
-/// (a debug run starts many scenarios at once) took 30 s and more.
+/// How long the short Optimize run may take. The panel's estimate (about five seconds) is only a
+/// guess from the design size: the run is a multi-start search on several threads, then three
+/// full-quality scorings (the starting stone and two candidates), which can exceed 30 s on a
+/// loaded machine.
 const OPTIMIZE_TIMEOUT: Duration = Duration::from_secs(120);
 
 impl Film<'_> {

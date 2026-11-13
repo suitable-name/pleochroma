@@ -1,6 +1,7 @@
 //! Tests for the overall verdict: the levels for constructed inputs, what [`gather()`] reads off
 //! real designs. The fix tests (every fix gives the edit it promises as ONE undo step) are in
-//! the `fixes` child module and share the fixtures below.
+//! the `fixes` child module and share the fixtures below; the meet-point and girdle-level
+//! reasons, and their snap fix, are in the `meets` child module.
 
 use super::{
     BRILLIANCE_CHECK_BELOW_PCT, BRILLIANCE_PROBLEM_BELOW_PCT, EXTINCTION_CHECK_PCT,
@@ -16,6 +17,7 @@ use pleochroma_cut_core::{
 use std::collections::BTreeSet;
 
 mod fixes;
+mod meets;
 
 // ---------------------------------------------------------------------------------------
 // Fixtures
@@ -552,8 +554,8 @@ fn a_mast_list_that_does_not_belong_to_the_design_counts_as_no_solve() {
 
 #[test]
 fn a_pavilion_below_the_critical_angle_is_listed_and_fixable() {
-    // Index 1.50: critical angle 41.8 degrees, so the 41-degree main windows and the
-    // 42.5-degree lower girdle does not.
+    // Index 1.50: critical angle 41.8 degrees, so the 41-degree main window and not the
+    // 42.5-degree lower girdle facet.
     let design = brilliant();
     let solved = design.solve().expect("every tier is pinned");
     let inputs = gather(&design, Some(&solved), 1.5, None);

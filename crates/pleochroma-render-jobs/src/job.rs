@@ -6,27 +6,47 @@
 //! not render content, so they are deliberately not part of a job.
 
 use crate::codec::JobFileError;
+use pleochroma::{
+    optics::{materials::AbsorptionUnit, zoning::ZonedAbsorption},
+    renderer::{accel::RenderAccel, adaptive::AdaptiveSettings},
+};
 use pleochroma_net::SceneState;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 /// The newest job file format this version reads.
-pub const JOB_FORMAT_VERSION: u32 = 2;
-/// Path-Traced jobs retain their original format; only Ray-Traced requires the new reader.
+pub const JOB_FORMAT_VERSION: u32 = 6;
+/// The file format version a job is written in.
+///
+/// A job lit by a turned HDR map needs format 6, a job with color zones format 5, a job with
+/// a tray reflection format 4 and a shadowed job format 3. Other jobs take their engine's
+/// format: 2 for Ray-Traced, 1 otherwise. The map's turn counts only in an HDR-lit scene.
 #[must_use]
-pub const fn format_for_engine(engine: pleochroma::renderer::engine::EngineSpec) -> u32 {
-    if engine.is_ray() { 2 } else { 1 }
+pub const fn format_for(job: &RenderJobFile) -> u32 {
+    if job.scene.hdr().is_some() && job.scene.hdr_orientation.is_turned() {
+        6
+    } else if job.zoning.is_some() {
+        5
+    } else if job.scene.tray_reflection > 0.0 {
+        4
+    } else if job.scene.stone_shadow {
+        3
+    } else if job.engine.is_ray() {
+        2
+    } else {
+        1
+    }
 }
-/// [`RenderJobFile::scene_backdrop_model`] of a file written before the lit tray: the scene's
-/// backdrop is a card level only the camera ray saw.
+/// [`RenderJobFile::scene_backdrop_model`] of a legacy file: the backdrop is a card level that
+/// only the camera ray saw.
 pub const BACKDROP_MODEL_LEGACY_CARD: u32 = 0;
 /// [`RenderJobFile::scene_backdrop_model`] of a file that carries the tray radiance at
-/// exposure 1 (what every writer writes).
+/// exposure 1, as every writer writes it.
 pub const BACKDROP_MODEL_TRAY: u32 = 1;
-/// The old Grey card level (`BACKDROP_GREY` before the tray), kept as a literal: it names
-/// what a legacy file holds, whatever the live constants become.
+/// The Grey card level a legacy file holds. A literal, so a change to the renderer's
+/// `BACKDROP_GREY` does not change how old files convert.
 const LEGACY_CARD_GREY: f32 = 0.23;
-/// The old White card level (a light box behind the stone).
+/// The White card level a legacy file holds (a light box behind the stone).
 const LEGACY_CARD_WHITE: f32 = 8.0;
 
 /// Converts a legacy card level in `scene.backdrop` to the tray radiance, once.
@@ -52,8 +72,8 @@ pub fn legacy_backdrop_to_tray(scene: &mut SceneState) {
 
 /// The optical diagnostic model version this crate accepts in a job.
 ///
-/// It must equal the renderer's `OPTICAL_MODEL_VERSION`; the desktop app asserts that in a test, because this
-/// crate cannot see the renderer.
+/// It must equal the renderer's `OPTICAL_MODEL_VERSION`. This crate cannot see the renderer,
+/// so the two are kept equal by hand.
 pub const SUPPORTED_OPTICAL_MODEL_VERSION: u32 = 1;
 /// The suffix of a job file name.
 pub const JOB_FILE_SUFFIX: &str = ".job.json";
@@ -75,13 +95,13 @@ pub const CURVE_POINTS: usize = 181;
 /// A frozen render job: everything needed to render one picture or one video.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RenderJobFile {
-    /// The authoritative image-forming engine; absent in legacy format-1 files.
+    /// The image-forming engine. Absent when it is the default engine.
     #[serde(
         default,
         skip_serializing_if = "pleochroma::renderer::engine::EngineSpec::is_default"
     )]
     pub engine: pleochroma::renderer::engine::EngineSpec,
-    /// The job file format, [`JOB_FORMAT_VERSION`].
+    /// The job file format, the one [`format_for`] gives this job.
     pub format: u32,
     /// A random token of 32 lowercase hexadecimal characters, made when the job is added.
     pub token: String,
@@ -94,11 +114,11 @@ pub struct RenderJobFile {
     pub design: DesignInfo,
     /// The fully resolved scene: material, planes, lighting and camera.
     pub scene: SceneState,
-    /// What `scene.backdrop` means: [`BACKDROP_MODEL_LEGACY_CARD`] (0, the default for a file
-    /// written before the lit tray: a card level of `0.0`, `0.23` or `8.0` that only the
-    /// camera ray saw) or [`BACKDROP_MODEL_TRAY`] (1, the tray radiance at exposure 1 of
-    /// the surface below the girdle plane). Writers write 1; a reader converts a 0 once with
-    /// [`RenderJobFile::upgrade_backdrop_model`] ([`crate::codec::from_text`] does).
+    /// What `scene.backdrop` means: [`BACKDROP_MODEL_LEGACY_CARD`] (0, the default when the
+    /// key is missing: a card level of `0.0`, `0.23` or `8.0` that only the camera ray saw)
+    /// or [`BACKDROP_MODEL_TRAY`] (1, the tray radiance at exposure 1 of the surface below the
+    /// girdle plane). Writers write 1; [`crate::codec::from_text`] converts a 0 once through
+    /// [`RenderJobFile::upgrade_backdrop_model`].
     #[serde(default)]
     pub scene_backdrop_model: u32,
     /// The HDR map file, exactly when the scene is lit by one.
@@ -111,13 +131,20 @@ pub struct RenderJobFile {
     pub output: String,
     /// What the job renders.
     pub kind: JobKind,
-    /// Explicit optional analytical diagnostics, outside the remote transport scene.
+    /// Optional analytical diagnostics, kept outside the remote transport scene.
     ///
-    /// Missing means clean output. The job format stays at version 1 and the struct does not
-    /// deny unknown fields, so a reader that predates this field silently renders a job
-    /// that carries it without the diagnostics.
+    /// Missing means clean output. The job format does not change with it, and the struct
+    /// accepts unknown fields, so a reader that predates the field renders the job without
+    /// the diagnostics.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub optical_diagnostics: Option<OpticalDiagnosticOptions>,
+    /// The stone's color zones. The scene's material cannot carry them (its serde leaves them
+    /// out), so they travel beside it. Missing means one color throughout. Written only when
+    /// the stone has zones, and then the job is format 5, so a format 4 reader refuses it
+    /// instead of rendering the base color alone. A Ray-Traced job never carries them: that
+    /// engine renders the base color.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub zoning: Option<ZonedAbsorption>,
 }
 
 /// Frozen presentation for the versioned analytical model. Missing means clean output.
@@ -129,10 +156,9 @@ pub struct OpticalDiagnosticOptions {
     pub map_mode: bool,
     #[serde(default)]
     pub high_contrast: bool,
-    /// The scintillation layer (a fifth channel beside `layers`). Missing in files written
-    /// before it existed, which read as off; written only when on, so a job without it is
-    /// byte for byte what it was. It does not change [`SUPPORTED_OPTICAL_MODEL_VERSION`]:
-    /// the four existing layers are unchanged.
+    /// The scintillation layer, a fifth channel beside `layers`. Missing reads as off, and it
+    /// is written only when on. It does not change [`SUPPORTED_OPTICAL_MODEL_VERSION`]: the
+    /// four existing layers keep their meaning.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub scintillation: bool,
 }
@@ -311,7 +337,7 @@ pub enum JobKind {
 }
 
 /// The settings of a still picture job.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StillJob {
     /// Samples per pixel.
     pub samples_per_pixel: u32,
@@ -320,6 +346,9 @@ pub struct StillJob {
     /// The lighting preset this picture was added with, if any. Informational.
     #[serde(default)]
     pub preset_label: String,
+    /// Optional render accelerations. Missing reads as off; written only when something is on.
+    #[serde(default, skip_serializing_if = "RenderAccel::is_off")]
+    pub accel: RenderAccel,
 }
 
 /// The settings of a tilt video job.
@@ -329,9 +358,8 @@ pub struct TiltVideoJob {
     /// first of the video's axes.
     pub axis_index: u32,
     /// Further axes after `axis_index`, in the order the video shows them. Empty for a
-    /// one-axis video, which is one `start -> end` pass (every job written before several
-    /// axes existed). With any, the video rocks each axis through face-up in turn,
-    /// `0 -> end -> start -> 0`.
+    /// one-axis video, a single `start -> end` pass. With any, the video rocks each axis
+    /// through face-up in turn, `0 -> end -> start -> 0`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub more_axes: Vec<u32>,
     /// The first tilt angle, in degrees.
@@ -364,6 +392,14 @@ pub struct TiltVideoJob {
     pub keep_frames: bool,
     /// The name of the video file, without folder or extension.
     pub video_name: String,
+    /// Optional render accelerations for every frame. Missing reads as off; written only when
+    /// something is on.
+    #[serde(default, skip_serializing_if = "RenderAccel::is_off")]
+    pub accel: RenderAccel,
+    /// Whether each frame's path cache is written to disk and kept after the video is made.
+    /// Written only when on.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub keep_path_cache: bool,
 }
 
 /// Which metric overlays a tilt video draws.
@@ -443,6 +479,17 @@ impl RenderJobFile {
         }
     }
 
+    /// Moves the color zones the scene's material carries into [`Self::zoning`], where they
+    /// survive the file. Zones already in [`Self::zoning`] win, and a Ray-Traced job keeps none
+    /// (that engine renders the base color), so either way the scene's material ends without
+    /// them. Recompute [`Self::format`] with [`format_for`] afterwards.
+    pub fn move_scene_zoning_to_file(&mut self) {
+        let zoning = self.scene.material.zoning.take();
+        if self.zoning.is_none() && !self.engine.is_ray() {
+            self.zoning = zoning;
+        }
+    }
+
     /// Converts a legacy backdrop card level to the tray radiance (see
     /// [`legacy_backdrop_to_tray`]) and marks the job as [`BACKDROP_MODEL_TRAY`]. Does nothing
     /// to a job that already carries the tray, so it is safe to call on any job.
@@ -485,10 +532,32 @@ impl RenderJobFile {
     ///
     /// [`JobFileError::Invalid`] with one plain sentence naming the first broken rule.
     pub fn validate(&self) -> Result<(), JobFileError> {
+        // First, so that a hand-edited file with an impossible reflectance is told so rather than
+        // that its format does not match (`format_for` reads the reflectance).
+        if !(0.0..=1.0).contains(&self.scene.tray_reflection) {
+            return Err(invalid("Tray reflection must be between 0 and 100 %."));
+        }
         self.validate_common()?;
+        if self.scene.stone_shadow {
+            if !self.scene.lit_by_studio_backdrop() {
+                return Err(invalid(
+                    "Stone shadow needs a studio light with a backdrop.",
+                ));
+            }
+            self.refuse_tilt_video("stone shadow")?;
+        }
+        if self.scene.tray_reflection > 0.0 {
+            if !self.scene.lit_by_studio_backdrop() {
+                return Err(invalid(
+                    "Tray reflection needs a studio light with a backdrop.",
+                ));
+            }
+            self.refuse_tilt_video("tray reflection")?;
+        }
         match &self.kind {
             JobKind::Still(still) => {
                 check_spp(still.samples_per_pixel)?;
+                check_accel(&still.accel, still.samples_per_pixel)?;
             }
             JobKind::TiltVideo(video) => validate_video(video)?,
         }
@@ -507,8 +576,26 @@ impl RenderJobFile {
                     "Optical diagnostics require Path-Traced rendering.",
                 ));
             }
+            let adaptive = match &self.kind {
+                JobKind::Still(still) => still.accel.adaptive,
+                JobKind::TiltVideo(video) => video.accel.adaptive,
+            };
+            if adaptive.is_some() {
+                return Err(invalid("Adaptive sampling requires Path-Traced rendering."));
+            }
         }
         self.validate_hdr()
+    }
+
+    /// Refuses a tilt video that asks for `feature` (a lowercase noun phrase: "stone shadow"),
+    /// which the frames of a tilt video do not show yet.
+    fn refuse_tilt_video(&self, feature: &str) -> Result<(), JobFileError> {
+        if matches!(self.kind, JobKind::TiltVideo(_)) {
+            return Err(invalid(format!(
+                "Tilt videos do not show the {feature} yet."
+            )));
+        }
+        Ok(())
     }
 
     fn validate_common(&self) -> Result<(), JobFileError> {
@@ -521,9 +608,7 @@ impl RenderJobFile {
                 "Unsupported optical diagnostic model or invalid opacity",
             ));
         }
-        if !(1..=JOB_FORMAT_VERSION).contains(&self.format)
-            || self.format != format_for_engine(self.engine)
-        {
+        if !(1..=JOB_FORMAT_VERSION).contains(&self.format) || self.format != format_for(self) {
             return Err(invalid(format!(
                 "This job file has format {}, but this version reads format {JOB_FORMAT_VERSION}.",
                 self.format
@@ -563,6 +648,19 @@ impl RenderJobFile {
             .effects
             .validate(self.scene.planes.len())
             .map_err(|message| invalid(format!("The render effects are not usable: {message}")))?;
+        if let Some(zoning) = &self.zoning {
+            if self.engine.is_ray() {
+                return Err(invalid("Color zones require Path-Traced rendering."));
+            }
+            zoning
+                .validate()
+                .map_err(|error| invalid(format!("The color zones are not usable: {error}")))?;
+            if self.scene.material.absorption_unit != AbsorptionUnit::PerMm {
+                return Err(invalid(
+                    "The color zones need a material with per-millimeter absorption.",
+                ));
+            }
+        }
         Ok(())
     }
 
@@ -609,8 +707,28 @@ fn check_spp(spp: u32) -> Result<(), JobFileError> {
     }
 }
 
+/// Checks the adaptive settings of a job against the job's own sample count, which is their cap,
+/// and its beam settings against the range a worker accepts.
+fn check_accel(accel: &RenderAccel, spp: u32) -> Result<(), JobFileError> {
+    if let Some(adaptive) = accel.adaptive {
+        let capped = AdaptiveSettings {
+            max_spp: spp,
+            ..adaptive
+        };
+        capped
+            .validate()
+            .map_err(|error| invalid(format!("Adaptive sampling: {error}.")))?;
+    }
+    if let Some(beam) = &accel.beam {
+        beam.validate()
+            .map_err(|error| invalid(format!("Beam tracing: {error}.")))?;
+    }
+    Ok(())
+}
+
 fn validate_video(video: &TiltVideoJob) -> Result<(), JobFileError> {
     check_spp(video.samples_per_pixel)?;
+    check_accel(&video.accel, video.samples_per_pixel)?;
     if !(1..=MAX_FPS).contains(&video.fps) {
         return Err(invalid(format!(
             "The frame rate must be between 1 and {MAX_FPS} frames per second."
@@ -691,6 +809,10 @@ pub(crate) mod test_support {
             height: 48,
             yaw: 0.4,
             camera_roll: 0.0,
+            stone_shadow: false,
+            tray_reflection: 0.0,
+            hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
+            estimator: pleochroma::optics::raytracer::Estimator::Branching,
             pitch: 0.3,
             distance: 3.0,
             light_yaw: 0.85,
@@ -731,6 +853,7 @@ pub(crate) mod test_support {
         RenderJobFile {
             engine: pleochroma::renderer::engine::EngineSpec::default(),
             optical_diagnostics: None,
+            zoning: None,
             format: 1,
             token: TOKEN.to_string(),
             label: "Round · Current view · 64×48".to_string(),
@@ -755,6 +878,7 @@ pub(crate) mod test_support {
                 samples_per_pixel: 64,
                 color_space: JobColorSpace::Srgb,
                 preset_label: String::new(),
+                accel: RenderAccel::default(),
             }),
         }
     }
@@ -770,6 +894,30 @@ pub(crate) mod test_support {
             windowing: curve(0.02),
             extinction: curve(0.003),
         }
+    }
+
+    /// A still lit by an HDR map the job turns: 0.7 radians, following the camera (format 6).
+    pub fn turned_hdr_still_job() -> RenderJobFile {
+        let (scene, source) = hdr_scene();
+        let mut job = still_job();
+        job.scene = scene;
+        job.hdr = Some(source);
+        job.scene.hdr_orientation = pleochroma::renderer::env_map::HdrOrientation {
+            yaw: 0.7,
+            follows_camera: true,
+        };
+        job.format = format_for(&job);
+        job
+    }
+
+    /// A still whose stone carries the Ametrine color zones (format 5).
+    pub fn zoned_still_job() -> RenderJobFile {
+        let mut job = still_job();
+        job.scene.material = GemMaterial::diamond();
+        job.zoning = Some(pleochroma::optics::materials::ametrine_zoning());
+        job.scene.material.absorption_unit = AbsorptionUnit::PerMm;
+        job.format = format_for(&job);
+        job
     }
 
     pub fn video_job() -> RenderJobFile {
@@ -798,6 +946,8 @@ pub(crate) mod test_support {
                 more_curves: Vec::new(),
                 keep_frames: true,
                 video_name: "Round tilt".to_string(),
+                accel: RenderAccel::default(),
+                keep_path_cache: false,
             }),
             ..still_job()
         }

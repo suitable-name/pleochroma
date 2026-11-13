@@ -55,8 +55,8 @@ component InspectorTabPill inherits Rectangle {
     GuideLockTip { locked: !root.allowed; }
 
     HorizontalLayout {
-        // Tight sides: the pill's width is fixed per label by its user (so the row never
-        // reflows between tabs), and 11 px bold "Preform" must fit inside 66 px.
+        // Tight sides: each pill has a fixed width, set by its caller, so the row does not
+        // reflow. The widest label, bold "Preform", needs 66 px.
         padding-left: 6px;
         padding-right: 6px;
         alignment: center;
@@ -72,9 +72,8 @@ component InspectorTabPill inherits Rectangle {
 
 // The row of tab pills in the Inspector's header (`SectionHeader`'s right-side slot), with the
 // manual button of the open tab. `EditorModel.inspector_tab` (0 = Tier, 1 = Preform, 2 = Optimize,
-// 3 = Schedule, 4 = History) is the tab showing. Each pill also re-expands the section --
-// switching tabs while collapsed must be visibly useful, not just recorded for whenever the
-// section next opens.
+// 3 = Schedule, 4 = History) is the tab showing. Each pill also expands the section, so a
+// switch made while it is collapsed is visible.
 export component InspectorTabPills inherits HorizontalLayout {
     // Whether the Advanced interface shows: the Simple interface leaves out the Schedule tab.
     in property <bool> advanced;
@@ -133,8 +132,7 @@ export component InspectorTabPills inherits HorizontalLayout {
         highlighted: GuideModel.highlight_target == "history_tab";
         clicked => { EditorModel.inspector_tab = 4; EditorModel.inspector_collapsed = false; }
     }
-    // The manual page for the open tab (the History tab too: its own "?" inside the tab was
-    // dropped, so the slot is never empty). Always 20 px wide, so the pills never shift when the
+    // The manual page for the open tab. Always 20 px wide, so the pills do not shift when the
     // tab changes.
     VerticalLayout {
         width: 20px;

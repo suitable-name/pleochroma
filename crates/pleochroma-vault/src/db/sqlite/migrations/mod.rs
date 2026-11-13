@@ -1,5 +1,7 @@
-//! Schema creation and every idempotent migration [`super::Database::new`] runs, in
-//! order, against an existing database file. Split into four sibling modules by concern:
+//! Schema creation and the idempotent migrations [`super::Database::new`] runs, in order,
+//! against an existing database file.
+//!
+//! Split into four sibling modules by concern:
 //!
 //! - [`blob_order`]: the migration that rebuilds the blob-heavy tables with their BLOB
 //!   columns last, and the `PRAGMA table_info` column-position probe it uses.
@@ -41,14 +43,12 @@ impl Database {
     ///
     /// Idempotent: gated on `refractive_index`'s ACTUAL column type, read via `PRAGMA
     /// table_info` ([`Self::column_sql_type`]), not on whether `facets` exists. A fresh
-    /// database's `diagram_details` (see `create_tables_if_not_exist`) already declares
-    /// `refractive_index`/`lw_ratio`/`volume`/`index_gear` as REAL/INTEGER and already
-    /// has `facets`/`girdle_facets` -- gating on column presence alone would still run
-    /// the full DROP-COLUMN/RENAME-COLUMN retype cycle (`retype_text_column_to_numeric`)
-    /// against columns that were never TEXT to begin with, on every single fresh
-    /// install. Gating on the type itself makes that a no-op read instead, while an old
-    /// database whose columns are genuinely still TEXT is unaffected and still migrates.
-    /// Runs in one transaction, rolling back atomically on failure.
+    /// database already declares `refractive_index`/`lw_ratio`/`volume`/`index_gear` as
+    /// REAL/INTEGER and has `facets`/`girdle_facets`. Gating on column presence alone would
+    /// run the DROP-COLUMN/RENAME-COLUMN retype cycle (`retype_text_column_to_numeric`)
+    /// against columns that were never TEXT. Gating on the type makes that a no-op read,
+    /// while a database whose columns are still TEXT still migrates. Runs in one transaction,
+    /// rolling back on failure.
     ///
     /// # Errors
     ///
@@ -163,10 +163,8 @@ impl Database {
     /// (`shape_category`), with the five `ALTER`s in one transaction that skips any
     /// column already present -- see [`Self::migrate_proportions_columns`].
     ///
-    /// An earlier version of this migration also created
-    /// `idx_diagram_details_designer` here, for an "every design by X" exact lookup
-    /// that turned out to have no caller -- see
-    /// [`Self::migrate_drop_unused_designer_index`], which removes it.
+    /// Does not create `idx_diagram_details_designer`; [`Self::migrate_drop_unused_designer_index`]
+    /// drops it from databases that have it.
     ///
     /// # Errors
     ///
@@ -193,13 +191,9 @@ impl Database {
         Ok(())
     }
 
-    /// Drops `idx_diagram_details_designer`, created by an earlier version of
-    /// [`Self::migrate_designer_and_attachment_columns`] for an "every design by X"
-    /// exact-match lookup: nothing in this crate or `apps/pleochroma-cut`
-    /// ever runs that query -- every real "by designer" search goes through
-    /// `crate::db::sqlite::search`'s free-text `LIKE` predicate instead, which an
-    /// equality index cannot serve at all. Pure dead weight: extra bytes written on
-    /// every `diagram_details` insert/update, for a lookup nothing performs.
+    /// Drops `idx_diagram_details_designer`, an index for an exact designer lookup that nothing
+    /// runs. Designer search is a free-text `LIKE` predicate (`crate::db::sqlite::search`), which
+    /// an equality index cannot serve, so the index only adds write cost to `diagram_details`.
     ///
     /// `DROP INDEX IF EXISTS` is naturally idempotent, so this always runs rather than
     /// checking first, the same way [`Self::migrate_search_indexes`] does.
@@ -254,9 +248,8 @@ impl Database {
         Ok(())
     }
 
-    /// Creates the library search predicate's supporting indexes on an existing
-    /// database -- see [`SEARCH_INDEXES_SQL`] for which, and for the measurements that
-    /// motivated them.
+    /// Creates the library search predicate's supporting indexes on an existing database. See
+    /// [`SEARCH_INDEXES_SQL`] for which, and why.
     ///
     /// `CREATE INDEX IF NOT EXISTS` is naturally idempotent, so this always runs rather
     /// than checking first, the same way [`Database::migrate_shape_vocabulary`] does.
@@ -274,8 +267,7 @@ impl Database {
     }
 
     /// Creates `shape_vocabulary` for a database created before it existed, and seeds
-    /// (or re-seeds) it from [`DEFAULT_SHAPES`] -- fixes `get_unique_shapes` returning
-    /// nothing on a fresh database (no imported design has a `shape` value yet).
+    /// (or re-seeds) it from [`DEFAULT_SHAPES`].
     ///
     /// `CREATE TABLE IF NOT EXISTS` and `INSERT OR IGNORE` (keyed on `name`) are each
     /// naturally idempotent, so this always runs both rather than checking first: a
@@ -337,13 +329,10 @@ impl Database {
         Ok(())
     }
 
-    /// Adds `custom_gem_materials.per_axis_dispersion_json`, a nullable TEXT column
-    /// holding per-axis dispersion coefficients as JSON, for a custom material
-    /// authored with `pleochroma`'s optional per-axis dispersion rather than the
-    /// single scalar `refractive_index`/`birefringence` REAL columns this table has
-    /// always had. JSON, not several new REAL columns, since the per-axis shape varies
-    /// (uniaxial vs. biaxial) and is a `pleochroma`-defined enum this crate must not
-    /// depend on.
+    /// Adds `custom_gem_materials.per_axis_dispersion_json`, a nullable TEXT column holding
+    /// per-axis dispersion coefficients as JSON. JSON rather than several REAL columns, because
+    /// the shape varies (uniaxial or biaxial) and is defined by `pleochroma`, which this crate
+    /// must not depend on.
     ///
     /// Purely additive and nullable, same idiom as
     /// [`Self::migrate_crystal_optics_columns`]: `NULL` already means "no per-axis data
@@ -439,11 +428,9 @@ impl Database {
         Ok(())
     }
 
-    /// Adds `custom_gem_materials.specific_gravity`, a nullable REAL column holding
-    /// the material's density relative to water, so a custom material can carry its
-    /// own SG the way the thirteen built-in species already do: without it, Est.
-    /// Carat Weight stays empty for a custom material unless the cutter separately
-    /// types an SG override for every design.
+    /// Adds `custom_gem_materials.specific_gravity`, a nullable REAL column holding the
+    /// material's density relative to water. Est. Carat Weight needs it: without it a custom
+    /// material has no SG unless the cutter types one for every design.
     ///
     /// Purely additive and nullable, same idiom as
     /// [`Self::migrate_per_axis_dispersion_column`]: `NULL` means "no SG recorded"
@@ -469,8 +456,8 @@ impl Database {
     /// Adds `custom_gem_materials.color_recipe_json`, a nullable TEXT column holding
     /// the serialized `ColorRecipe` for physically based chromophore colors.
     ///
-    /// Purely additive and nullable, same idiom as [`Self::migrate_custom_material_specific_gravity`]:
-    /// `NULL` means legacy fantasy mode or no recipe for every pre-existing row.
+    /// Purely additive and nullable, like [`Self::migrate_custom_material_specific_gravity`].
+    /// `NULL` means no recipe, for every pre-existing row.
     ///
     /// # Errors
     ///
@@ -495,7 +482,7 @@ impl Database {
     ///
     /// Purely additive and nullable, same idiom as [`Self::migrate_custom_material_color_recipe`]:
     /// `NULL` for every pre-existing row, which keeps loading as the Cauchy fit of its
-    /// refractive index and `n_F - n_C` figure exactly as before. The column is opaque
+    /// refractive index and `n_F - n_C` figure. The column is opaque
     /// text to this crate (it must not depend on `pleochroma`).
     ///
     /// # Errors
@@ -521,7 +508,7 @@ impl Database {
     /// custom material's seven-band body colour (the path-aware L*C*h editor's result) as JSON
     /// rows.
     ///
-    /// Purely additive and nullable, same idiom as [`Self::migrate_custom_material_dispersion_model`]:
+    /// Purely additive and nullable, like [`Self::migrate_custom_material_dispersion_model`]:
     /// `NULL` for every pre-existing row, which keeps colouring from its legacy absorption
     /// triple exactly as before. The column is opaque text to this crate.
     ///
@@ -610,10 +597,8 @@ impl Database {
         Ok(())
     }
 
-    /// Adds `diagram_entries.created_at`/`updated_at` (both nullable `INTEGER` Unix
-    /// seconds) for a database created before this crate recorded when a design was
-    /// added or last changed -- see
-    /// [`Self::migrate_diagram_entries_provenance`] for the column it's paired with.
+    /// Adds `diagram_entries.created_at`/`updated_at` (both nullable `INTEGER` Unix seconds) for
+    /// a database created before this crate recorded when a design was added or last changed.
     ///
     /// Both `NULL`, not backfilled: a pre-existing row's real creation/edit time is
     /// simply unknown, and a fabricated "now" would be a lie a "recently edited" sort
@@ -644,17 +629,14 @@ impl Database {
         Ok(())
     }
 
-    /// Adds `diagram_entries.derived_from_entry_id` (nullable `INTEGER`, no
-    /// `FOREIGN KEY`) for a database created before this crate recorded provenance
-    /// between rows: without it, an export-then-reimport of an existing catalogue
-    /// design lands as an indistinguishable second row, since a different `url`
-    /// means `INSERT`, not `UPDATE` (`Database::save_diagram_entry`).
+    /// Adds `diagram_entries.derived_from_entry_id` (nullable `INTEGER`, no `FOREIGN KEY`) for a
+    /// database created before rows could record provenance. Without it, an export-then-reimport
+    /// of a catalogue design becomes a second row, because a different `url` means `INSERT`, not
+    /// `UPDATE` (`Database::save_diagram_entry`).
     ///
-    /// This migration only adds the column and leaves every row's value `NULL`; it
-    /// does not attempt to backfill provenance for existing rows by guessing from
-    /// titles or any other heuristic (deliberately -- see this column's callers).
-    /// No `FOREIGN KEY`: the row this points at can be renamed, re-synced, or deleted
-    /// independently without this column blocking or cascading that operation.
+    /// Existing rows stay `NULL`: provenance is never guessed from titles or other heuristics.
+    /// There is no `FOREIGN KEY`, so the source row can be renamed, re-synced or deleted
+    /// independently.
     ///
     /// Idempotent: gated on whether `derived_from_entry_id` already exists.
     ///

@@ -1,7 +1,8 @@
-//! The viewer's own share of a `FinalImageRequest` (v16): [`ContributionSlot`] is the
-//! rendezvous between the connection thread (which reads the `CONTRIBUTION` off the
-//! wire, see [`ContributionSlot::receive`]) and the job's producer thread (which waits
-//! for it once its own lanes finish, see [`ContributionSlot::await_until`]).
+//! The viewer's own share of a `FinalImageRequest`, held in a [`ContributionSlot`].
+//!
+//! The slot is the rendezvous between the connection thread (which reads the `CONTRIBUTION`
+//! off the wire, see [`ContributionSlot::receive`]) and the job's producer thread (which
+//! waits for it once its own lanes finish, see [`ContributionSlot::await_until`]).
 //!
 //! # Why a rendezvous, not a channel
 //!
@@ -25,8 +26,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-/// The default wait for a reserved viewer contribution once the server's own lanes
-/// finish, when a request doesn't override it -- see [`super::super::coordinator::job::JobConfig::contribution_wait`].
+/// The default wait for a reserved viewer contribution once the server's own lanes finish,
+/// unless a request overrides it (see `JobConfig::contribution_wait`).
 pub const DEFAULT_CONTRIBUTION_WAIT: Duration = Duration::from_secs(30);
 
 /// Per-read timeout while a `CONTRIBUTION` payload streams in -- mirrors
@@ -38,8 +39,7 @@ pub enum Awaited {
     /// The contribution arrived, was valid, and is ready to fold in.
     Arrived(Vec<Vec3>),
     /// No usable contribution: the wait elapsed, or what arrived was invalid. `reason`
-    /// is logged by the caller, never sent to the viewer (see this crate's coordinator
-    /// job doc comment on why a reclaim is silent).
+    /// is logged by the caller and never sent to the viewer.
     Reclaim {
         /// Human-readable reason, for a `tracing::info!` at the call site.
         reason: String,
@@ -216,9 +216,10 @@ impl ContributionSlot {
         )
     }
 
-    /// The producer thread's side: waits up to `wait` (extended for as long as a
-    /// receive is actually in flight) in 50 ms slices for the contribution to arrive,
-    /// or `cancelled` to report the request has ended.
+    /// The producer thread's side: waits for the contribution to arrive.
+    ///
+    /// Waits up to `wait`, extended while a receive is in flight, in 50 ms slices. It also
+    /// returns early when `cancelled` reports the request has ended.
     ///
     /// Returns [`Awaited::Arrived`] immediately once the slot holds one (marking it
     /// `Taken`); [`Awaited::Reclaim`] immediately once it holds an invalid one (marking

@@ -532,9 +532,9 @@ fn periodic_checkpoint_path(args: &CliArgs, iteration: usize) -> String {
     training_checkpoint_name(args, iteration)
 }
 
-/// The best-validation weights of one validation identity: `<stem>-best-validation-v3.<tag>.json`,
-/// or the fixed `<stem>-best-validation-v3.json` (`tag` `None`) that runs recorded before
-/// per-identity names keep using for their identity.
+/// The best-validation weights of one validation identity, named
+/// `<stem>-best-validation-v3.<tag>.json`. `tag` `None` selects the unsuffixed
+/// `<stem>-best-validation-v3.json` that runs recorded before per-identity names use.
 fn validation_checkpoint_path(args: &CliArgs, tag: Option<&str>) -> String {
     let name = |stem: &str| {
         tag.map_or_else(

@@ -692,8 +692,8 @@ fn finish_pass1(
     }
 }
 
-/// Whether `point` (mesh frame) is seen through the glass from `view`: the straight line of sight
-/// to it meets the surface before it reaches it.
+/// Whether `point` (mesh frame) is seen through the glass from `view`: the straight line of
+/// sight to it meets the surface before the point does.
 pub(super) fn seen_through(scene: &Scene<'_>, view: usize, point: DVec3) -> bool {
     let Some(pose) = scene.rig.views.get(view) else {
         return false;
@@ -726,13 +726,14 @@ fn line_gap(ray: &Line, point: DVec3, along: DVec3) -> f64 {
 
 /// How far the line fit starts from the nominal edge, in mm.
 ///
-/// The two ends are moved in opposite directions, so the start is off in position and in direction, and the result shows what the
-/// rays say, not where the fit began.
+/// The two ends move in opposite directions, so the start is off in position and direction.
+/// The result shows what the rays say, not where the fit began.
 const START_OFFSET_MM: DVec3 = DVec3::new(0.6, -0.5, 0.4);
 
 /// Fits the line that every ray meets as closely as possible.
 ///
-/// It starts from the nominal edge `start_a` to `start_b` moved by [`START_OFFSET_MM`]. Returns two points of the fitted line.
+/// It starts from the nominal ends `start_a` and `start_b`, moved by +/- [`START_OFFSET_MM`].
+/// Returns two points of the fitted line.
 fn fit_line(rays: &[Line], start_a: DVec3, start_b: DVec3) -> (DVec3, DVec3) {
     let (start_a, start_b) = (start_a + START_OFFSET_MM, start_b - START_OFFSET_MM);
     let begin = [
@@ -750,8 +751,8 @@ fn fit_line(rays: &[Line], start_a: DVec3, start_b: DVec3) -> (DVec3, DVec3) {
     )
 }
 
-/// The rays of the clicks along diagonal edge `edge` from every view that sees its middle `middle`
-/// through the glass, and the views that contributed. Views that do not are noted in `skipped`.
+/// The rays of the clicks along diagonal edge `edge`, from every view that sees its midpoint
+/// `middle` through the glass, and the views that contributed. Views that do not go in `skipped`.
 fn gather_edge_rays(
     scene: &Scene<'_>,
     lines: &[DiagonalLine],
@@ -854,7 +855,8 @@ pub fn check_diagonal(
 
 /// The whole calibration: pass 1 on the outer edges, then pass 2 on the coated diagonal.
 ///
-/// Pass 2 runs when `diagonal` has clicks. The measured accuracy is stored in the returned rig's `calibration`.
+/// Pass 2 runs when `diagonal` has clicks; its accuracy is stored in the returned rig's
+/// `calibration`.
 ///
 /// # Errors
 ///

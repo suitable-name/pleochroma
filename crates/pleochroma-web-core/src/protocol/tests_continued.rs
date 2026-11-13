@@ -2,10 +2,9 @@
 /// the name is a length-prefixed string, each `f64` eight little-endian bytes, an
 /// `Option` a 0/1 tag before its payload, `recipe_json` a length-prefixed string and
 /// `fallback_rgb` a fixed array without a length. It travels inside
-/// `SceneSpec::custom_materials`, so a change here is a protocol change too. Version 16
-/// appended the crystal system and optical character (empty strings, one `00` length byte
-/// each) and the biaxial delta (`None`, one `00` tag byte). Version 31 appended the per-ray
-/// body-color rows (`None`, one more `00` tag byte).
+/// `SceneSpec::custom_materials`, so a change here is a protocol change too. The trailing
+/// crystal system, optical character, biaxial delta and per-ray rows are empty or `None`
+/// (one `00` byte each).
 #[test]
 fn custom_material_with_color_recipe_wire_format_is_pinned() {
     let spec = crate::scene::CustomMaterialSpec {
@@ -226,10 +225,10 @@ fn the_metrics_and_tilt_messages_round_trip() {
     });
 }
 
-/// The HDR map's and the finishes' place in the metrics messages, pinned: `finishes` (appended
-/// in protocol 30) is the last field of the request (the message ends with it), `hdr_id` the
-/// field before it, and `scored_under` the field before the last of the result
-/// (`doubling_arcmin`, appended in protocol 26, ends it).
+/// The HDR map's and the finishes' place in the metrics messages, pinned: `hdr_yaw` (four
+/// bytes) is the last field of the request, `finishes` the field before it, `hdr_id` the one
+/// before that, and `scored_under` the field before the last of the result (`doubling_arcmin`
+/// ends it).
 #[test]
 fn the_metrics_hdr_fields_are_pinned() {
     let spec = |hdr_id| SceneSpec {
@@ -255,14 +254,17 @@ fn the_metrics_hdr_fields_are_pinned() {
         hdr_id,
     };
     let request = |hdr_id| {
-        encode_to_worker(&ToWorker::Solve {
+        let mut bytes = encode_to_worker(&ToWorker::Solve {
             job_id: 9,
             design_toml: String::new(),
             request: SolveRequest::Metrics {
                 params: MetricsParams::from_scene(&spec(hdr_id)),
             },
         })
-        .expect("encodes")
+        .expect("encodes");
+        // An unturned map's `hdr_yaw` is four zero bytes at the very end.
+        assert_eq!(bytes.split_off(bytes.len() - 4), [0x00; 4]);
+        bytes
     };
     // `Option<u64>`: a tag byte, then the varint (300 = AC 02); then the `FinishSpec`
     // (`AllPolished` = variant 0, one byte).
@@ -275,7 +277,7 @@ fn the_metrics_hdr_fields_are_pinned() {
     let finished = |finishes| {
         let mut scene = spec(None);
         scene.finishes = finishes;
-        let bytes = encode_to_worker(&ToWorker::Solve {
+        let mut bytes = encode_to_worker(&ToWorker::Solve {
             job_id: 9,
             design_toml: String::new(),
             request: SolveRequest::Metrics {
@@ -283,6 +285,7 @@ fn the_metrics_hdr_fields_are_pinned() {
             },
         })
         .expect("encodes");
+        bytes.truncate(bytes.len() - 4);
         bytes[bytes.len() - 6..].to_vec()
     };
     assert_eq!(
@@ -295,6 +298,20 @@ fn the_metrics_hdr_fields_are_pinned() {
         [0x00, 0x02, 0x03, 0x01, 0x00, 0x01],
         "no map, then PerFacet of three"
     );
+
+    // A map that follows the camera carries the camera's yaw as its `hdr_yaw`: 0.6 is
+    // `9A 99 19 3F`, the last four bytes of the request.
+    let mut following = spec(None);
+    following.lighting = following.lighting.with_hdr_turn(0.0, true);
+    let bytes = encode_to_worker(&ToWorker::Solve {
+        job_id: 9,
+        design_toml: String::new(),
+        request: SolveRequest::Metrics {
+            params: MetricsParams::from_scene(&following),
+        },
+    })
+    .expect("encodes");
+    assert_eq!(bytes[bytes.len() - 4..], [0x9A, 0x99, 0x19, 0x3F]);
 
     // SolveResult = variant 8, job 9; Metrics = response variant 6; five f32s; then
     // `ScoredUnder`: HdrMap = variant 1 with id 300 (AC 02), Preset = variant 0 with the
@@ -334,10 +351,10 @@ fn garbage_is_an_error_not_a_panic() {
     assert!(decode_from_worker(&[]).is_err());
 }
 
-/// The v12 band fields pinned: `body_color_bands` is a varint length and then each row as
-/// three little-endian `f32`s, `absorption_path_scale_override` a 0/1 tag before its payload.
+/// The band fields pinned: `body_color_bands` is a varint length and then each row as three
+/// little-endian `f32`s, `absorption_path_scale_override` a 0/1 tag before its payload.
 /// `DesignMaterialOverrides` is `refractive_index_override` (`None` = 00), `body_color_override`
-/// (`None` = 00), then the two band fields, the v28 optional pattern tag and the v31 optional
+/// (`None` = 00), then the two band fields, the optional pattern tag and the optional
 /// color-variant tag.
 #[test]
 fn the_band_fields_wire_format_is_pinned_and_round_trips() {
@@ -413,8 +430,8 @@ fn wire_variant(biaxial: bool) -> pleochroma_cut_core::material::VariantChoice {
     }
 }
 
-/// The v31 color variant crosses both positional records bit for bit (a uniaxial and a
-/// biaxial snapshot), after the pattern tag, and reaches the selection a Worker rebuilds.
+/// The color variant crosses both positional records bit for bit (a uniaxial and a biaxial
+/// snapshot), after the pattern tag, and reaches the selection a Worker rebuilds.
 #[test]
 fn the_color_variant_wire_format_round_trips_for_both_records() {
     for biaxial in [false, true] {
@@ -448,8 +465,8 @@ fn the_color_variant_wire_format_round_trips_for_both_records() {
     }
 }
 
-/// A JSON record shaped like protocol 30 (no `color_variant` key) still reads, with no
-/// variant: the serde default every self-describing reader of these records relies on.
+/// A JSON record without the `color_variant` key still reads, with no variant: the serde
+/// default every self-describing reader of these records relies on.
 #[test]
 fn a_protocol_30_shaped_record_reads_without_a_variant() {
     let overrides = r#"{"refractive_index_override":null,"body_color_override":[0.2,0.4,0.6],
@@ -465,7 +482,7 @@ fn a_protocol_30_shaped_record_reads_without_a_variant() {
     assert_eq!(old.name.as_deref(), Some("Quartz"));
 }
 
-/// The body-colour job crosses the page/Worker boundary both ways (request variant 5, response
+/// The body-color job crosses the page/Worker boundary both ways (request variant 5, response
 /// variant 8, each the last of its enum).
 #[test]
 fn the_body_colour_job_round_trips_and_is_the_last_variant() {
@@ -517,7 +534,7 @@ fn the_body_colour_job_round_trips_and_is_the_last_variant() {
     assert_eq!(bytes[0], 8, "appended after TiltCurves (variant 7)");
 }
 
-/// v27: `SetEffects` is the last `ToWorker` variant (index 13). The default record is pinned:
+/// `SetEffects` is the last `ToWorker` variant (index 13). The default record is pinned:
 /// four "none" bytes (inclusions, second axis, structure, the empty facet list), the default
 /// machine (arm offset 0, lap 100 mm, mast 0, sweep 40 to 80 mm: five `f32`) and the unset edge
 /// (three `f32`). A busy record round-trips.

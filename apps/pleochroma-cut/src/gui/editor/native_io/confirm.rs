@@ -1,7 +1,7 @@
-//! Group 2: the shared in-window write-confirm dialog (`EditorModel.write_confirm_*`)
-//! every write path in [`super`] uses instead of a blocking native message dialog --
-//! [`decide_write_status`] (pure decision) and [`ask_write_confirm`] (shows the
-//! dialog, stashes the continuation).
+//! The in-window write-confirm dialog that replaces blocking native dialogs on write paths.
+//!
+//! [`decide_write_status`] makes the decision and [`ask_write_confirm`] shows the dialog
+//! (`EditorModel.write_confirm_*`) and stashes the continuation.
 
 use crate::{
     EditorModel, MainWindow, gui::editor::state::EditorState, settings::SettingsPersister,
@@ -12,7 +12,7 @@ use slint::ComponentHandle;
 use std::{cell::RefCell, rc::Rc};
 use tracing::warn;
 
-// --- Group 2: in-window write confirmations (no more blocking native message dialogs) -
+// --- In-window write confirmations ---
 
 /// [`decide_write_status`]'s outcome -- pure decision from a design's own status,
 /// no dialog shown yet.
@@ -61,12 +61,10 @@ struct PendingWriteConfirm {
     suppress_key: Option<&'static str>,
 }
 
-/// Stable [`AppSettings::suppressed_confirmations`] keys for the suppressible
-/// write-confirm prompt. The unsaved-changes/fingerprint-mismatch/gear-remap guards
-/// use their own separate `ConfirmActionDialog` mounts (`app.slint`) and are
-/// deliberately NOT wired to `show_dont_ask` at all -- a wrong "don't ask again"
-/// there risks real data loss, unlike this one (which only ever affects whether a
-/// header note gets written).
+/// Stable [`AppSettings::suppressed_confirmations`] keys for the suppressible write-confirm
+/// prompt. The unsaved-changes, fingerprint and gear-remap guards have their own
+/// `ConfirmActionDialog` mounts without "Don't ask again": suppressing one of them could
+/// lose data, while suppressing this prompt only skips a header note.
 pub(super) mod confirm_keys {
     /// [`super::super::save::finish_native_save`]/the Export `.asc` path's "this design is not
     /// a closed solid" prompt.
@@ -193,16 +191,10 @@ pub(super) fn setup_write_confirm_dialog_callbacks(
     ui.global::<EditorModel>().on_write_confirm_cancel(move || {
         // The cutter's explicit cancel -- no toast, nothing runs.
         PENDING_WRITE_CONFIRM.with(|cell| *cell.borrow_mut() = None);
-        // This dialog is shared with `gui::library::local::import`'s own
-        // "replace existing design(s)?" prompt (see this module's own doc
-        // comment), which never touches `after_save` at all -- clearing it
-        // unconditionally here is still correct: a Save/Export flow is the
-        // only thing that ever SETS it, and the two dialogs cannot be open at
-        // once (both are modal), so there is nothing else this could
-        // possibly clobber. Left dangling otherwise, a stashed `after_save`
-        // would make some LATER, unrelated successful save spuriously close
-        // the window or resume a stale pending action; see `AfterSave`'s own doc
-        // comment.
+        // The library import's "replace existing design(s)?" prompt shares this dialog
+        // and never sets `after_save`. Clearing it here is safe because only a Save or
+        // Export flow sets it and the two dialogs are modal. A stale value would
+        // otherwise run on a later, unrelated successful save.
         state_cancel.borrow_mut().after_save = None;
     });
 }

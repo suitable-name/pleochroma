@@ -17,7 +17,7 @@ use pleochroma::{
     optics::materials::GemMaterial,
 };
 
-/// `design` with its concave tiers taken away: the flat shell the optimizer used to score.
+/// `design` with its concave tiers removed: the flat shell.
 fn without_tools(design: &Design) -> Design {
     let mut flat = design.clone();
     flat.concave_tiers.clear();

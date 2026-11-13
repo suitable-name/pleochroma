@@ -1,8 +1,8 @@
 // ---------------------------------------------------------------------------------
-// Surface finish GPU port (lane RP-G2): Tier 2 kernels for `transport_physics/13_surface_ggx.wgsl`,
-// the WGSL twin of `optics::raytracer::surface`. Each kernel calls the SAME physics function
-// the megakernel and the event wavefront call; only the energy-compensation table is read
-// from this file's own binding (the shipped kernels read it from the tail of `dist_func`).
+// Tier 2 kernels for `transport_physics/13_surface_ggx.wgsl`, the WGSL form of
+// `optics::raytracer::surface`. Each kernel calls the same physics function as the
+// megakernel and the event wavefront. Only the energy-compensation table comes from this
+// file's own binding; the shipped kernels read it from the tail of `dist_func`.
 // ---------------------------------------------------------------------------------
 
 // ---- surf_lobe_main: the GGX lobe (ggx.rs) ----
@@ -90,8 +90,9 @@ struct SurfWordCase {
 }
 
 @group(0) @binding(114) var<storage, read> surf_word_cases: array<SurfWordCase>;
-// 12 floats per case: [0] kind, [1] rq_nm, [2] ground_alpha, [3] anisotropy, [4] custom angle (deg),
-// [5] scratch angle (deg), [6..9) across-scratches direction, [9] low 16 bits and [10] high 16 bits
+// 12 floats per case: [0] kind, [1] rq_nm, [2] ground_alpha, [3] anisotropy,
+// [4] custom angle (deg), [5] scratch angle (deg), [6..9) across-scratches direction,
+// [9] low 16 bits and [10] high 16 bits
 // of `with_rq_at_least(word, rq_floor)`, [11] 1 if the word has roughness.
 @group(0) @binding(115) var<storage, read_write> surf_word_out: array<f32>;
 
@@ -120,13 +121,13 @@ fn surf_word_main(@builtin(global_invocation_id) gid: vec3<u32>) {
     surf_word_out[base + 11u] = select(0.0, 1.0, surf_has_roughness(c.word));
 }
 
-// ---- surf_albedo_main / surf_ground_main: the energy compensation and the ground event (ground.rs) ----
+// ---- surf_albedo_main / surf_ground_main: energy compensation, ground event (ground.rs) ----
 
 // The compensation table, as `compensation::table_values` lays it out.
 @group(0) @binding(116) var<storage, read> surf_ground_table: array<f32>;
 
-// `ground_albedo` against this file's table binding (the shipped kernels read the tail of
-// `dist_func`); the cell and the blend are the shared physics functions.
+// `ground_albedo` reading this file's table binding. The cell and the blend are the shared
+// physics functions.
 fn tf_ground_albedo(alpha: f32, cos_i: f32, eta_rel: f32) -> f32 {
     let cell = ground_albedo_cell(alpha, cos_i, eta_rel);
     return ground_albedo_blend(

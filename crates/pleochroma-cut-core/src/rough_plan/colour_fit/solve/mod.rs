@@ -1,7 +1,7 @@
-//! The inverse solver of the colour fit (plan 2026-10-09, section 6).
+//! The inverse solver of the colour fit: traced records and photos to the zone absorptions.
 //!
-//! From the stored path records of lane F1 and the rig photos of lane P1 to the absorption
-//! spectrum of every zone, with its uncertainty, a validation and a model comparison.
+//! From the traced path records and the rig photos to the absorption spectrum of every zone,
+//! with its uncertainty, a validation and a model comparison.
 //!
 //! # Entry points
 //!
@@ -16,13 +16,15 @@
 //! The prediction for view `v` and pixel `p` is the camera RGB relative to the empty backlit rig,
 //! times a per-view gain `g_v = exp(gamma_v)` (a nuisance that absorbs exposure drift). The
 //! gains are split into a common mode `m = mean(gamma_v)` (prior `N(0, 0.02^2)`, or pinned) and
-//! the deviations `gamma_v - m` (prior `N(0, 0.03^2)` each), see `FitConfig::gain_mean_sigma`. The observed value is the transmittance image of lane P1 on the
-//! same working grid. Residuals are whitened by the photo variance plus the Monte-Carlo variance of
-//! the records (see `problem`), with the Huber loss at `delta = 2 sigma`; the objective is the
-//! robust data term plus the priors, minimised by Levenberg-Marquardt on log-parameters with
-//! dense normal equations and a fixed iteration order. CIEDE2000 is only ever a reported metric.
+//! the deviations `gamma_v - m` (prior `N(0, 0.03^2)` each), see `FitConfig::gain_mean_sigma`.
+//! The observed value is the transmittance image of the photo pipeline (`photometry`) on the
+//! same working grid. Residuals are whitened by the photo variance plus the Monte-Carlo variance
+//! of the records (see `problem`) and enter through the Huber loss (`FitConfig::huber_k`); the
+//! objective is the robust data term plus the priors, minimised by Levenberg-Marquardt on
+//! log-parameters with dense normal equations and a fixed iteration order. CIEDE2000 is only
+//! ever a reported metric.
 //!
-//! Two spectral models (plan section 6.2), one parameter block per zone of the records:
+//! Two spectral models, one parameter block per zone of the records:
 //!
 //! * [`ChromophoreModel`] (A): log-amounts of the host's catalogue chromophores, through the
 //!   catalogue resolver.
@@ -30,10 +32,10 @@
 //!   Gaussian-process smoothness prior on the amplitudes and an exponential magnitude prior (see
 //!   the notes of `models`). Its spectrum is exported to seven GPU bands by a refit.
 //!
-//! The default choice follows the plan: A when a host is set and A is not significantly worse
-//! than B (likelihood ratio test at 1 %), else B; [`FitConfig::preferred_model`] overrides.
+//! The default choice is A when a host is set and A is not significantly worse than B
+//! (likelihood ratio test at 1 %), else B; [`FitConfig::preferred_model`] overrides.
 //!
-//! # Staged fit (round 3, D1)
+//! # Staged fit
 //!
 //! A common gain is degenerate with a wavelength-flat absorption, and a start with a high gain
 //! and a grey floor is a local minimum. Every start therefore runs in three stages, each from the
@@ -44,36 +46,36 @@
 //! component of the absorption removed, and one band at the most absorbed channel of each zone;
 //! `FitModel::structured_starts`). The lowest TOTAL objective (data plus priors) wins.
 //!
-//! # Honest noise (round 3, D3 and D4)
+//! # Noise scale
 //!
 //! After the fit the Birge ratio `R = chi2_robust / (erf(k / sqrt 2) (n - p_eff))` is computed
-//! from the Huber-weighted chi-square (round 5, ZC-18: a few down-weighted outliers must not
-//! widen the covariance; `erf(k / sqrt 2)` is the expectation of the weighted square for honest
-//! Gaussian noise); above [`BIRGE_THRESHOLD`] the covariance (and with it the radii) is
+//! from the Huber-weighted chi-square. Down-weighted outliers therefore do not widen the
+//! covariance, and `erf(k / sqrt 2)` is the expectation of the weighted square for honest
+//! Gaussian noise. Above [`BIRGE_THRESHOLD`] the covariance (and with it the radii) is
 //! inflated by `R` and the metamer search accepts `Delta chi2 <= R`.
 //!
-//! # The metamer spread (round 5, ZC-4)
+//! # The metamer spread
 //!
 //! The reported spread is a profile-likelihood statement: for every zone, size and illuminant
 //! and each of `+-L*, +-a*, +-b*` (then once for the CIEDE2000 distance from the fit) the colour
 //! is extremised over `{x : chi2_data(x) + 2 gain_prior(x) <= chi2(x_data) + Delta}`, where
-//! `x_data` is the optimum without the model priors. See `extremes`. The old ellipsoid figure is
-//! kept as `ZonePrediction::metamer_spread_unverified`.
+//! `x_data` is the optimum without the model priors. See `extremes`. The quadratic (ellipsoid)
+//! estimate is kept as `ZonePrediction::metamer_spread_unverified` for comparison.
 //!
 //! # Cost and determinism
 //!
 //! One normal-equation pass visits every valid pixel (`fold_pixel_jacobian`): about
-//! `pixels * 3 * (np^2 / 2 + np)` multiply-adds plus the record sums, a second or so serially for
-//! 480 000 pixels with `np` of about 10. The pass is cut into fixed chunks of pixels, each summed
-//! serially and combined in chunk order, on the cores the running starts leave over
-//! (`par::inner_threads`). The independent starts and the held-out refits run in parallel; every
-//! task is a complete computation and the results are gathered in task order, so the output is
-//! bitwise the same for any `FitConfig::threads` (and for any thread count of the tracer).
+//! `pixels * 3 * (np^2 / 2 + np)` multiply-adds plus the record sums. The pass is cut into
+//! fixed chunks of pixels, each summed serially and combined in chunk order, on the cores the
+//! running starts leave over (`par::inner_threads`). The independent starts and the held-out refits
+//! run in parallel; every task is a complete computation and the results are gathered in task
+//! order, so the output is bitwise the same for any `FitConfig::threads` (and for any thread count
+//! of the tracer).
 //!
 //! # Not done here
 //!
-//! The zone geometry is an input (the records were traced with it); estimating boundaries is a
-//! later lane. Nothing here runs without the records of lane F1.
+//! The zone geometry is an input (the records were traced with it); boundaries are not
+//! estimated here. The fit needs the records of `forward`.
 
 #![allow(
     clippy::needless_range_loop,
@@ -203,7 +205,7 @@ pub struct FitProgress {
     pub fraction: f32,
 }
 
-/// The skin roughness search (golden section, plan section 6.4).
+/// The skin roughness search (golden-section search).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RoughnessSearch {
     /// The smallest GGX roughness (alpha), default 0.05.
@@ -245,7 +247,7 @@ impl Default for AlignmentRefine {
     }
 }
 
-/// Which predicted colours the fit reports (plan section 6.5).
+/// Which predicted colours the fit reports.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PredictionConfig {
     /// The reference stone width, mm, default 7.
@@ -281,53 +283,50 @@ impl PredictionConfig {
     }
 }
 
-/// Default sigma of the per-view deviation of the log-gains from their mean (round 2, C1).
+/// Default sigma of the per-view deviation of the log-gains from their mean.
 pub const GAIN_DEVIATION_SIGMA: f64 = 0.03;
-/// Default sigma of the mean log-gain (the common mode, round 2, C1).
+/// Default sigma of the mean log-gain (the common mode).
 pub const GAIN_MEAN_SIGMA: f64 = 0.02;
 /// The sigma the common mode gets when [`FitConfig::fix_common_gain`] is set: a numerical pin.
 pub const GAIN_FIXED_SIGMA: f64 = 1e-4;
 
-/// The settings of a fit. The defaults are the plan's.
+/// The settings of a fit.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FitConfig {
     /// The catalogue host (`"tourmaline"`, `"quartz"`, ...) for model A; `None` fits model B only.
     pub host_id: Option<String>,
     /// Catalogue treatments applied to every zone of model A (not fitted).
     pub treatments: Vec<String>,
-    /// The user's choice of model; `None` follows the plan's rule.
+    /// The user's choice of model; `None` follows the default rule.
     pub preferred_model: Option<ModelKind>,
     /// Sigma of the deviation of a view's log-gain from the mean log-gain of the views
-    /// ([`GAIN_DEVIATION_SIGMA`], 0.03). P1 normalises every photo to its own white frame, so a gain
-    /// only models exposure drift between the stone and white frames of that view.
+    /// ([`GAIN_DEVIATION_SIGMA`], 0.03). The photo pipeline normalises every photo to its own
+    /// white frame, so a gain only models exposure drift between the stone and white frames.
     pub gain_sigma: f64,
     /// Sigma of the prior on the common mode of the log-gains, their mean over the views
-    /// ([`GAIN_MEAN_SIGMA`], 0.02). The common gain is degenerate with a wavelength-flat absorption
-    /// whenever the path length hardly varies across the pixels (a cube), so it must be pinned
-    /// by the calibration knowledge that the white-frame normalisation leaves it near 1.
+    /// ([`GAIN_MEAN_SIGMA`], 0.02). The common gain is degenerate with a wavelength-flat
+    /// absorption whenever the path length hardly varies across the pixels (a cube), so it is
+    /// pinned near 1 by the white-frame calibration.
     pub gain_mean_sigma: f64,
-    /// Pin the common mode of the log-gains at 0 (sigma [`GAIN_FIXED_SIGMA`]); default ON
-    /// (round 5, ZC-5). P1 divides every photo by its own white frame, so the common exposure
-    /// factor is 1 by construction, and on a cube (every direct path 10 mm) a free common gain
-    /// is exactly degenerate with a flat absorption: its prior alone would leave 0.8 to 1.9 L*
-    /// of uncertainty at 7 to 12 mm. Set it to `false` only for rigs without white frames.
+    /// Pins the common mode of the log-gains at 0 (sigma [`GAIN_FIXED_SIGMA`]). Default `true`.
+    /// The photo pipeline divides every photo by its own white frame, so the common exposure
+    /// factor is 1 by construction. On a cube a free common gain is exactly degenerate with a
+    /// flat absorption, and its prior alone would leave 0.8 to 1.9 L* of uncertainty at 7 to
+    /// 12 mm. Set it to `false` only for rigs without white frames.
     pub fix_common_gain: bool,
     /// The Huber threshold in sigma, default 2.
     pub huber_k: f64,
     /// Amplitude scale `sigma_a` of the Gaussian-process smoothness prior of model B, per mm,
-    /// default 0.3. It is the prior standard deviation of an amplitude, and the body-colour
-    /// amplitudes of gems are 0.01 to 0.3 per mm; the former 1 per mm sat 5 to 10 sigma wider
-    /// than the physics and bounded nothing, leaving the 11 null directions of the three camera
-    /// channels per zone to noise (round 6, R2). Costs scale as `1 / sigma_a^2`: a saturated
-    /// truth 1.7, an isolated 0.2 per mm band 8.9. See the notes of `models`.
+    /// default 0.3. It is the prior standard deviation of an amplitude; body-colour amplitudes
+    /// are 0.01 to 0.3 per mm, and a much wider prior leaves the camera's null directions to
+    /// noise. Costs scale as `1 / sigma_a^2`. See the notes of `models`.
     pub smoothness_sigma: f64,
-    /// Correlation length `ell` of the smoothness prior, nm, default 60 (1.5 band spacings of
-    /// the 40 nm body-colour basis; crystal-field bands are 25 to 50 nm wide).
+    /// Correlation length `ell` of the smoothness prior, nm, default 60 (2.4 spacings of the
+    /// 25 nm fit basis; crystal-field bands are 25 to 50 nm wide).
     pub smoothness_length_nm: f64,
-    /// Scale `b` of the exponential magnitude prior of model B, per mm, default 0.05: a band of
-    /// amplitude `a` costs `a / b`, so zero costs nothing, 0.2 per mm costs 4.0, and a 0.38 per
-    /// mm band the camera cannot see costs 7.6, far above the ~0.5 a free direction buys from
-    /// noise (round 6, R2).
+    /// Scale `b` of the exponential (L1) magnitude prior of model B, per mm, default 0.05. A
+    /// band of amplitude `a` costs `a / b`, so zero costs nothing, while a band the camera
+    /// cannot see costs more than the noise lets a free direction gain.
     pub magnitude_scale: f64,
     /// Weight of the reweighted L1 prior on the relative amounts of model A, default 0.05
     /// (0 turns it off).
@@ -343,8 +342,7 @@ pub struct FitConfig {
     pub stage1_iterations: usize,
     /// Starts that continue after the first stage, default 2.
     pub finalists: usize,
-    /// Iteration limit of every stage of a run, default 500 (round 3, D1: it was 200, and the
-    /// watermelon cube hit it).
+    /// Iteration limit of every stage of a run, default 500.
     pub max_iterations: usize,
     /// Stop when an accepted step lowers the objective by less than this fraction, default 1e-9.
     pub rel_cost_tol: f64,

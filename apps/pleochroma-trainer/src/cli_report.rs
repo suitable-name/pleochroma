@@ -113,8 +113,8 @@ fn describe_schedule(schedule: LrSchedule) -> String {
 }
 
 /// The rollout banner phrase: the steps per rollout, the mini-batch and how much the update
-/// trains. Imitation trains `updates_per_round` mini-batches per round, or, when that is 0, the
-/// old `epochs_per_round` full epochs over the aggregate; PPO trains epochs per iteration.
+/// trains. Imitation trains `updates_per_round` mini-batches per round, or, when that is 0,
+/// `epochs_per_round` full epochs over the aggregate; PPO trains epochs per iteration.
 fn describe_rollout(config: &RunConfig) -> String {
     let steps = config.rollout_size;
     match config.algo {
@@ -182,9 +182,7 @@ pub fn print_banner(
     println!("  scores       0-100, lower is better\n");
 }
 
-/// Banner lines of the algorithm and the settings in effect that decide how the run learns:
-/// rollout, step limit, label rule, line search, objectives, exploration, learning rate and
-/// schedule, and the validation cadence.
+/// Banner lines for the algorithm and the settings that decide how the run learns.
 fn print_tuning(runner: &TrainingRunner, args: &CliArgs) {
     let config = runner.config();
     println!("  algorithm    {}", describe_algorithm(config.algo));
@@ -387,7 +385,7 @@ fn progress_segments(
     segments
 }
 
-/// The full progress line (every segment), as a log file without a console width gets it.
+/// Test helper: the full progress line with every segment, unwrapped.
 #[cfg(test)]
 fn progress_line(
     point: &IterationMetricPoint,

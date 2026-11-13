@@ -15,15 +15,13 @@ use pleochroma::optics::raytracer::Camera;
 /// Renders `prepared` into `rasterizer` for the "Both" view's solid-edges layer.
 ///
 /// Identical to [`SolidRasterizer::render_prepared`] with `style.fill_mode` forced
-/// to [`FillMode::Transparent`]. Clones `style` internally so the SAME `SolidStyle`
-/// used for the ordinary opaque Solid-mode render can be reused here unchanged.
+/// to [`FillMode::Transparent`]. Clones `style`, so the caller can pass the same
+/// `SolidStyle` as the opaque Solid-mode render.
 ///
-/// The orientation marker and the facet labels are forced OFF as well. Both belong
-/// to the opaque solid render: this layer is composited over the path-traced image,
-/// where the marker would either double up with the solid view's own copy or appear
-/// over a render that never asked for it. Forcing them off keeps this layer's
-/// promise that every pixel it leaves opaque is an edge pixel, which is what the
-/// compositing in `solid_viewport.slint` relies on.
+/// The orientation marker and the facet labels are forced off too: this layer is
+/// composited over the path-traced image, and they would paint opaque non-edge
+/// pixels there. Every opaque pixel must be an edge pixel, which the compositing in
+/// `solid_viewport.slint` relies on.
 pub fn render_edges_layer(
     rasterizer: &mut SolidRasterizer,
     prepared: &CachedMesh,

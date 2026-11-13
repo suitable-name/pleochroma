@@ -83,22 +83,16 @@ impl TierMastDelta {
     }
 }
 
-/// A mast movement below this (in the same units as `SolvedTier::mast`, i.e. mast
-/// order) is treated as "unchanged" -- filters out the floating-point noise a tier
-/// Deep Solve genuinely left alone would otherwise show as a spurious sub-millitier
-/// disagreement.
+/// Mast movements at or below this (in `SolvedTier::mast` units) count as unchanged,
+/// filtering the floating-point noise of tiers Deep Solve left alone.
 const MAST_DELTA_EPSILON: f64 = 1e-6;
 
-/// Zips `current` (a plain [`pleochroma_cut_core::Design::solve`]) against `verified`
-/// (a Deep Solve's own [`DeepSolveOutcome::Completed::solved`]) tier by tier.
+/// Keeps the tiers whose mast moved by more than `MAST_DELTA_EPSILON` between `current`
+/// (a plain solve) and `verified` (the masts Deep Solve searched to).
 ///
-/// Keeps only the tiers whose mast actually moved by more than [`MAST_DELTA_EPSILON`] --
-/// the per-tier breakdown [`DeepSolveOutcome`]'s own doc comment describes. Both
-/// slices are expected in the same tier order (`Design::meet_tier_inputs`'s own
-/// convention); this pairs them positionally and silently stops at the shorter of the
-/// two lengths rather than panicking, since a design edited between the plain solve
-/// and Deep Solve's completion can change tier count -- the caller already flags that
-/// case `stale` independently (`EditorState::generation`).
+/// Both slices use the tier order of `Design::meet_tier_inputs`. The pairing stops at the
+/// shorter slice instead of panicking: a design edited mid-run can change its tier count,
+/// and the caller flags that case as stale.
 #[must_use]
 pub fn tier_mast_deltas(current: &[SolvedTier], verified: &[SolvedTier]) -> Vec<TierMastDelta> {
     current
@@ -116,14 +110,11 @@ pub fn tier_mast_deltas(current: &[SolvedTier], verified: &[SolvedTier]) -> Vec<
         .collect()
 }
 
-/// Renders [`tier_mast_deltas`]'s result as a status-line suffix naming which tiers
-/// Deep Solve's verified repair actually disagreed with the plain solve on.
+/// Renders [`tier_mast_deltas`]'s result as a status-line suffix naming the tiers whose
+/// verified mast disagrees with the plain solve, and by how much.
 ///
-/// It also gives by how much -- the minimal consumer [`DeepSolveOutcome`]'s own doc comment describes,
-/// so this per-tier data is never dead: `format_deep_solve_report`
-/// (`gui::editor::view`) still owns the aggregate verdict line; this is appended
-/// after it. Returns `""` when `deltas` is empty (report already reads as full
-/// agreement, and an empty sentence would just be noise).
+/// The aggregate verdict stays with `format_deep_solve_report`; this suffix is appended
+/// after it. Returns `""` when `deltas` is empty.
 #[must_use]
 pub fn format_tier_mast_deltas(deltas: &[TierMastDelta]) -> String {
     if deltas.is_empty() {
@@ -180,9 +171,9 @@ pub fn format_deep_solve_report(report: &VerifiedSolveReport, stale: bool) -> St
 
 /// Renders a Deep Solve verdict as the status text.
 ///
-/// Honest by construction: it always shows the score movement and the run count, and never
-/// claims that `accepted` proves the geometry. `concave_tiers` is the design's concave
-/// tier count; when it is positive the text says the verdict is about the flat stone.
+/// It always shows the score movement and the run count, and never presents `accepted`
+/// as proof of the geometry. A positive `concave_tiers` says the verdict covers the flat
+/// stone only.
 #[must_use]
 pub fn format_deep_solve_report_for(
     report: &VerifiedSolveReport,

@@ -6,8 +6,8 @@
 //!
 //! The stone is scored as the render shows it: its concave tools cut out, and its frosted
 //! facets and frosted girdle ([`Design::facet_finishes_from_solved`] of the design being
-//! scored) scattering the light. A polished design has no finishes and scores exactly as it
-//! always did.
+//! scored) scattering the light. A polished design has no finishes, so it is scored as a
+//! plain stone.
 
 use super::{RowMetrics, SweepOptions, SweepScene, TiltAverages};
 use crate::{
@@ -179,7 +179,7 @@ fn score_inner(
     let volume =
         Design::carved_metrics(Some(solid), &planes, &tools).map_or(solid.volume, |m| m.volume);
     let tilt = if options.tilt_average {
-        // The same measurement the compare window takes, stopped by the cancel flag.
+        // The same measurement the Compare window takes, stopped by the cancel flag.
         let Some(averages) = measure_tilt(stone, scene, tilt_threads, cancel) else {
             return Err(Cancelled);
         };

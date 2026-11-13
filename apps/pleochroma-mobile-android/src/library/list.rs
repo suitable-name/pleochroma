@@ -53,10 +53,11 @@ fn attach(rt: &mut Runtime, handle: LibraryHandle) {
     rt.handle = Some(handle);
 }
 
-/// The open library, opened on the calling (UI) thread when it is not open yet. Used by
-/// the rare callers that cannot wait for [`open_and_load`]'s background open (an import
-/// started before the page was ever shown). A failure is kept in the runtime and shown
-/// by the page.
+/// The open library, opened on the UI thread when it is not open yet. A failure is kept in
+/// the runtime and shown by the page.
+///
+/// Used by the rare callers that cannot wait for [`open_and_load`]'s background open, such
+/// as an import started before the page was ever shown.
 pub(super) fn ensure_open(window: &AppWindow) -> Option<LibraryHandle> {
     let (shared, existing) = runtime::with(|rt| (Rc::clone(&rt.shared), rt.handle.clone()))?;
     if existing.is_some() {

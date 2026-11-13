@@ -66,10 +66,10 @@ pub const fn crystal_system_name(system: CrystalSystem) -> &'static str {
     }
 }
 
-/// Inverse of [`crystal_system_name`]. `None` for anything unrecognised.
+/// Inverse of [`crystal_system_name`]. `None` for anything unrecognized.
 ///
-/// A hand-edited database, or a variant a later build adds, gives such a name: the caller
-/// treats that like an absent field and keeps what `GemMaterial::new_custom` infers.
+/// A hand-edited database, or a name from a newer build, gives such a name. The caller then
+/// treats it like an absent field and keeps what `GemMaterial::new_custom` infers.
 #[must_use]
 pub fn crystal_system_from_name(name: &str) -> Option<CrystalSystem> {
     CRYSTAL_SYSTEMS
@@ -110,7 +110,7 @@ pub const fn is_biaxial(character: OpticalCharacter) -> bool {
     )
 }
 
-/// The biaxial optical character a stored `n_beta - n_alpha` implies, by the optic-sign rule.
+/// The biaxial optical character implied by a stored `n_beta - n_alpha`, by the optic-sign rule.
 ///
 /// A biaxial crystal has three principal indices `alpha < beta < gamma`. It is optically
 /// POSITIVE when `beta` lies nearer `alpha` (`gamma` is then the acute bisectrix) and NEGATIVE
@@ -131,13 +131,12 @@ pub const fn is_biaxial(character: OpticalCharacter) -> bool {
 /// `None` when the pair cannot describe a biaxial material: a delta that is not finite, zero or
 /// negative, a birefringence that is not finite, or a delta larger than the birefringence
 /// (`beta` would lie beyond `gamma`). A delta equal to the birefringence (`beta` on `gamma`) is
-/// still NEGATIVE, by the rule above. The caller then keeps the character it already has,
-/// exactly as before this rule existed.
+/// still NEGATIVE, by the rule above. The caller then keeps the character it already has.
 ///
-/// The library row and the file snapshot both call this when a stored delta comes with no
-/// readable optical-character name (rows written before the names were stored, hand-edited
-/// files, the web protocol's custom-material spec): the delta is only ever written for a
-/// biaxial material, so its presence is evidence of one. A name that parses always wins.
+/// Callers use this when a stored delta comes with no readable optical-character name (older
+/// rows, hand-edited files, the web protocol's custom-material spec). The delta is only ever
+/// written for a biaxial material, so its presence is evidence of one. A name that parses
+/// always wins.
 #[must_use]
 pub const fn biaxial_character_from_deltas(
     delta_beta_alpha: f64,
@@ -171,7 +170,7 @@ pub struct LibraryMaterial<'a> {
     pub dispersion: f32,
     /// The birefringence.
     pub birefringence: f32,
-    /// The body colour as an absorption triple.
+    /// The body color as an absorption triple.
     pub absorption_rgb: [f32; 3],
     /// The stored [`crystal_system_name`], or `None` for "infer it from the birefringence".
     pub crystal_system: Option<&'a str>,
@@ -209,13 +208,13 @@ pub struct LibraryMaterial<'a> {
     pub structure_json: Option<&'a str>,
 }
 
-/// Stone width (mm) assumed for a banded custom material when nothing sets the real one: the
-/// physics colour's default. The bands are per millimetre, the stone is about two model units
-/// wide, so the path scale is half of this. A design with a girdle diameter overrides it.
+/// Stone width (mm) of a banded custom material's path scale: the physics color's default.
+/// The bands are per millimetre, and the path is half this width. The render setup replaces it
+/// with the design's own stone width.
 const BANDED_DEFAULT_STONE_WIDTH_MM: f32 = 7.0;
 
-/// `material` coloured by the body-colour band rows of a library row (the one place the path
-/// scale of a banded custom material is chosen, shared by the editor's save and by loading).
+/// `material` colored by the body-color band rows of a library row. This is the one place the
+/// path scale of a banded custom material is chosen, shared by the editor's save and by loading.
 #[must_use]
 pub fn with_library_bands(material: GemMaterial, rows: &[[f32; 3]]) -> GemMaterial {
     material.with_body_color_bands(rows, BANDED_DEFAULT_STONE_WIDTH_MM / 2.0)
@@ -224,11 +223,10 @@ pub fn with_library_bands(material: GemMaterial, rows: &[[f32; 3]]) -> GemMateri
 /// `material` with a stored default crystal orientation baked into its own axes: the Crystal
 /// Axis becomes `c_axis`, and the Second Axis of a biaxial material becomes `alpha_axis`.
 ///
-/// This is the one place a custom material's default axis (precedence step 2: the design's own
-/// setting beats it, the built-in's axis loses to it) reaches the stone, so every consumer that
-/// holds the material (the live render, thumbnails, tilt, scoring, the web and the command
-/// line) sees it without a lookup of its own. `None` and an isotropic material are returned
-/// untouched, so a material without a default is byte-identical to what it was.
+/// This is the one place a custom material's default axis reaches the stone, so every consumer
+/// (the live render, thumbnails, tilt, scoring, the web and the command line) sees it without a
+/// lookup of its own. A design's own axis setting takes precedence over it. `None` and
+/// isotropic materials are returned unchanged.
 #[must_use]
 pub fn with_default_orientation(
     mut material: GemMaterial,
@@ -253,9 +251,8 @@ pub fn with_default_orientation(
 ///
 /// Callers pass rows produced by `pattern::rows_from_bands` or the seven-band solver, which keep
 /// only bands whose row decodes to the same shape. The domain of a stored row is inferred from
-/// its width (above 500 is an energy band, otherwise a wavelength band), a legacy encoding; a
-/// row that would change shape under that rule is a caller bug (a versioned representation is
-/// pending, owner decision D5).
+/// its width (above 500 is an energy band, otherwise a wavelength band). That is a legacy
+/// encoding, so a row that would change shape under this rule is a caller bug.
 #[must_use]
 pub fn absorption_bands_to_json(rows: &[[f32; 3]]) -> Option<String> {
     // A row carries no shape tag, so the shape check itself lives in `rows_from_bands`; here a
@@ -273,9 +270,9 @@ pub fn absorption_bands_to_json(rows: &[[f32; 3]]) -> Option<String> {
 ///
 /// `None` for blank, malformed or empty text and for rows with a non-finite number or a
 /// non-positive centre, width or amplitude (a centre of zero would divide by zero in an energy
-/// band): the caller then colours the material from its legacy triple, exactly as before the
-/// column existed. The same rule as `GemMaterial::with_body_color_bands` and `usable` in
-/// `pattern/convert.rs`; a test keeps the three in lock-step.
+/// band). The caller then colors the material from its legacy triple. The same rule as
+/// `GemMaterial::with_body_color_bands` and `usable` in `pattern/convert.rs`; a test keeps the
+/// three in lock-step.
 #[must_use]
 pub fn absorption_bands_from_json(text: &str) -> Option<Vec<[f32; 3]>> {
     let rows: Vec<[f32; 3]> = serde_json::from_str(text.trim()).ok()?;
@@ -288,12 +285,11 @@ pub fn absorption_bands_from_json(text: &str) -> Option<Vec<[f32; 3]>> {
 
 /// The per-ray body-color rows of a custom material whose color depends on the direction.
 ///
-/// One `[centre_nm, width_nm, amplitude_per_mm]` list per ray, the rows of the isotropic form (the
-/// same width rule, see [`absorption_bands_to_json`]).
+/// One `[centre_nm, width_nm, amplitude_per_mm]` list per ray, in the same form as the isotropic
+/// rows (same width rule, see [`absorption_bands_to_json`]).
 ///
-/// A uniaxial material has `o` and `e`; a biaxial one also has `beta` (alpha is `o`, gamma is `e`,
-/// as everywhere else). Stored beside the isotropic form in the same column, see
-/// [`absorption_ray_bands_to_json`].
+/// A uniaxial material has `o` and `e`. A biaxial one also has `beta` (alpha is `o`, gamma is
+/// `e`, as everywhere else). See [`absorption_ray_bands_to_json`] for storage.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RayBandRows {
     /// The ordinary ray (alpha for a biaxial material).
@@ -345,9 +341,9 @@ impl RayBandRows {
     }
 
     /// The rows of a design file's `[material.custom.absorption_ray_bands_per_mm]` table, `None`
-    /// when a ray has no usable rows (the rule of [`absorption_ray_bands_from_json`]: a stored
-    /// table a hand edit emptied or broke is ignored, the material is then colored from its
-    /// other rows or its triple).
+    /// when a ray has no usable rows (the rule of [`absorption_ray_bands_from_json`]). A table
+    /// that a hand edit emptied or broke is ignored, and the material is colored from its other
+    /// rows or its triple.
     #[must_use]
     pub fn from_table(table: &RayBandsTable) -> Option<Self> {
         let rays = Self {
@@ -381,9 +377,8 @@ impl RayBandRows {
     }
 }
 
-/// The JSON object of a stored [`RayBandRows`]: `{"o": [...], "e": [...], "beta": [...]}`. An older
-/// build reads the column as a list of rows, finds an object, and colors the material from its
-/// legacy triple, as before the column held anything.
+/// The JSON object of a stored [`RayBandRows`]: `{"o": [...], "e": [...], "beta": [...]}`. Its
+/// shape differs from the plain row list, so a reader of one form cannot mistake the other.
 #[derive(serde::Serialize, serde::Deserialize)]
 struct RayBandsJson {
     o: Vec<[f32; 3]>,
@@ -392,8 +387,8 @@ struct RayBandsJson {
     beta: Option<Vec<[f32; 3]>>,
 }
 
-/// Whether `rows` is a usable band list: not empty, every number finite, every centre, width and
-/// amplitude positive (the rule of [`absorption_bands_from_json`]).
+/// Whether `rows` is a usable band list: not empty, every number finite, and every centre,
+/// width and amplitude positive (the rule of [`absorption_bands_from_json`]).
 fn usable_rows(rows: &[[f32; 3]]) -> bool {
     !rows.is_empty()
         && rows
@@ -402,8 +397,9 @@ fn usable_rows(rows: &[[f32; 3]]) -> bool {
 }
 
 /// The JSON text a library row stores for per-ray body-color rows, or `None` when a ray has no
-/// usable rows (a colorless ray next to a colored one carries a negligible stand-in band, so no
-/// ray is empty).
+/// usable rows.
+///
+/// A colorless ray next to a colored one carries a negligible stand-in band, so no ray is empty.
 #[must_use]
 pub fn absorption_ray_bands_to_json(rays: &RayBandRows) -> Option<String> {
     let beta_ok = rays.beta.as_deref().is_none_or(usable_rows);
@@ -421,9 +417,8 @@ pub fn absorption_ray_bands_to_json(rays: &RayBandRows) -> Option<String> {
 
 /// Inverse of [`absorption_ray_bands_to_json`].
 ///
-/// `None` for blank or malformed text, a plain row list (the isotropic form, read by
-/// [`absorption_bands_from_json`]) and any ray without usable rows. A row saved before per-ray
-/// colors therefore reads as the isotropic color it always was.
+/// `None` for blank or malformed text, for a plain row list (the isotropic form, read by
+/// [`absorption_bands_from_json`]) and for any ray without usable rows.
 #[must_use]
 pub fn absorption_ray_bands_from_json(text: &str) -> Option<RayBandRows> {
     let json: RayBandsJson = serde_json::from_str(text.trim()).ok()?;
@@ -435,10 +430,10 @@ pub fn absorption_ray_bands_from_json(text: &str) -> Option<RayBandRows> {
     })
 }
 
-/// `material` coloured by the per-ray rows of a library row.
+/// `material` colored by the per-ray rows of a library row.
 ///
 /// Only the absorption tensor and its unit change (per millimetre, with the same path scale as
-/// [`with_library_bands`]); every other field, the material's pleochroic character included, is
+/// [`with_library_bands`]). Every other field, the material's pleochroic character included, is
 /// kept. The caller checks [`RayBandRows::fits`] first.
 #[must_use]
 pub fn with_library_ray_bands(material: GemMaterial, rays: &RayBandRows) -> GemMaterial {
@@ -450,26 +445,24 @@ pub fn with_library_ray_bands(material: GemMaterial, rays: &RayBandRows) -> GemM
 impl LibraryMaterial<'_> {
     /// The [`GemMaterial`] this row describes.
     ///
-    /// `GemMaterial::new_custom`'s own two-variant inference (cubic or trigonal, isotropic or
-    /// uniaxial from the sign of the birefringence) is applied first; the crystal system,
-    /// optical character and biaxial delta the row stores then replace what it inferred. A row
-    /// saved before those fields existed has none of them, so it renders exactly as it always
-    /// did.
+    /// `GemMaterial::new_custom`'s own inference (cubic or trigonal, isotropic or uniaxial from
+    /// the sign of the birefringence) is applied first. The crystal system, optical character
+    /// and biaxial delta the row stores then replace what it inferred. A field the row lacks
+    /// keeps the inferred value.
     ///
     /// A row that stores a biaxial delta but no readable optical-character name (empty, `None`
-    /// or unrecognised) takes its biaxial character from [`biaxial_character_from_deltas`]
-    /// (the optic-sign rule on the delta and the birefringence), since the delta is only ever
-    /// stored for a biaxial material; a delta that rule rejects leaves the inferred character.
+    /// or unrecognized) takes its biaxial character from [`biaxial_character_from_deltas`]. The
+    /// delta is only ever stored for a biaxial material. A delta that rule rejects leaves the
+    /// inferred character.
     ///
     /// A row whose `dispersion_model_json` holds a usable Sellmeier or Cauchy model builds its
-    /// curve with `GemMaterial::new_custom_with_dispersion`; a row without one (or with one that
+    /// curve with `GemMaterial::new_custom_with_dispersion`. A row without one (or with one that
     /// fails `DispersionModel::validate`) takes the `new_custom` path from `refractive_index`
     /// and `dispersion`. A stored physics recipe renders from its `resolved_bands` while physics
-    /// is the active colour mode.
+    /// is the active color mode.
     ///
     /// Stored per-axis dispersion curves and inclusion families are applied last, through
-    /// [`with_custom_physics`] (the same function a design file's snapshot uses); a row without
-    /// them is exactly what it was before the columns existed.
+    /// [`with_custom_physics`] (the same function a design file's snapshot uses).
     #[must_use]
     pub fn gem_material(&self) -> GemMaterial {
         let mut material = self
@@ -522,14 +515,12 @@ impl LibraryMaterial<'_> {
             .absorption_ray_bands()
             .filter(|rays| rays.fits(material.optical_character))
         {
-            // Per-ray colour of a material whose colour depends on the direction. A row whose
-            // rays no longer fit the material's optical character (it was edited afterwards)
-            // is coloured from its triple below, never from the wrong number of directions.
+            // Per-ray color of a material whose color depends on the direction. Rays that no
+            // longer fit the material's optical character (after an edit) are ignored, so the
+            // color never comes from the wrong number of directions.
             material = with_library_ray_bands(material, &rays);
         } else if let Some(rows) = self.absorption_bands() {
-            // The seven-band colour replaces the triple's three bands (the triple stays what an
-            // older build shows). The scale gives the bands per millimetre a physical stone;
-            // a design with a girdle diameter overrides it at render time.
+            // The seven-band color replaces the triple's three bands.
             material = with_library_bands(material, &rows);
         }
         let orientation = self.default_orientation();
@@ -588,39 +579,37 @@ impl LibraryMaterial<'_> {
         ))
     }
 
-    /// The usable body-colour band rows, if the row stores any (the isotropic form).
+    /// The usable body-color band rows, if the row stores any (the isotropic form).
     #[must_use]
     pub fn absorption_bands(&self) -> Option<Vec<[f32; 3]>> {
         self.absorption_bands_json
             .and_then(absorption_bands_from_json)
     }
 
-    /// The usable per-ray body-colour rows, if the row stores them instead (a material whose
-    /// colour depends on the direction).
+    /// The usable per-ray body-color rows, if the row stores them instead (a material whose
+    /// color depends on the direction).
     #[must_use]
     pub fn absorption_ray_bands(&self) -> Option<RayBandRows> {
         self.absorption_bands_json
             .and_then(absorption_ray_bands_from_json)
     }
 
-    /// The [`CustomMaterialSnapshot`] a design file carries for this material, so a design
-    /// saved under a custom material does not reload as Diamond on a machine without it.
+    /// The [`CustomMaterialSnapshot`] a design file carries for this material. A design saved
+    /// under a custom material then does not reload as Diamond on a machine without the row.
     ///
     /// The snapshot holds the numbers the cutter typed (refractive index, dispersion,
-    /// birefringence, specific gravity) rather than anything re-derived from the resolved
-    /// material, and the dispersion model when one is stored and valid. The crystal system and
-    /// optical character go in as plain text, and the biaxial delta as a number; the open path
+    /// birefringence, specific gravity), not values re-derived from the resolved material, plus
+    /// the dispersion model when one is stored and valid. The crystal system and optical
+    /// character go in as text, and the biaxial delta as a number. The open path
     /// (`gem_material_from_custom_snapshot`) restores all three, so a biaxial material keeps its
-    /// crystal optics on a machine without the library row. An empty or unrecognised name
-    /// leaves what the birefringence implies, unless a usable biaxial delta is stored with it
-    /// ([`biaxial_character_from_deltas`] then picks the biaxial character on the open path).
+    /// crystal optics without the library row. An empty or unrecognized name leaves what the
+    /// birefringence implies, unless a usable biaxial delta is stored with it.
+    /// [`biaxial_character_from_deltas`] then picks the biaxial character on the open path.
     ///
-    /// Both colour payloads travel: the top-level body colour, and, when the row holds a
-    /// recipe, the typed [`ColorMode`] with its fallback colour recorded exactly as the
-    /// top-level colour was written. An older build that edits the top-level colour later makes
-    /// the two differ, which the open path detects. A per-ray colour (rows of a material whose
-    /// colour depends on the direction) is written in its own table, next to the seven-band form
-    /// a plain row would use.
+    /// Both color payloads travel: the top-level body color and, when the row holds a recipe,
+    /// the [`ColorMode`] with its fallback color set to the top-level color. A later edit of
+    /// only the top-level color makes the two differ, which the open path detects. Per-ray
+    /// colors go in their own table, beside the seven-band form.
     #[must_use]
     pub fn snapshot(&self) -> CustomMaterialSnapshot {
         let mut snapshot = CustomMaterialSnapshot::new(
@@ -652,8 +641,8 @@ impl LibraryMaterial<'_> {
             snapshot = snapshot.with_absorption_bands(&rows);
         }
         // A per-ray color travels in its own table, so the stone is as pleochroic on a machine
-        // without the library row as it is here (the open path applies it with
-        // `with_library_ray_bands` when the rays fit the optical character).
+        // without the library row (the open path applies it when the rays fit the optical
+        // character).
         if let Some(rays) = self.absorption_ray_bands() {
             snapshot = snapshot.with_absorption_ray_bands(Some(rays.to_table()));
         }
@@ -664,8 +653,8 @@ impl LibraryMaterial<'_> {
                 self.c_axis_second_azimuth_deg,
             );
         }
-        // The render-physics data travels as the canonical re-serialisation of what parsed, so
-        // a stored text this build cannot use is not carried into the file.
+        // The render-physics data travels as the canonical re-serialization of what parsed, so
+        // unusable stored text is not carried into the file.
         snapshot = match self.per_axis_dispersion() {
             Some(PerAxisDispersion::Uniaxial(e)) => {
                 snapshot.with_axis_dispersion(Some(dispersion_model_dto(&e)), None, None)

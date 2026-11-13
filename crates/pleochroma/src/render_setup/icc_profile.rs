@@ -5,8 +5,8 @@
 //! A PNG holding Display P3 or Rec.2020 pixel values with no color-space tag is
 //! interpreted by every viewer as sRGB -- silently wrong, not just unlabeled.
 //!
-//! Rather than embedding a third-party profile's raw bytes (unverifiable here, and
-//! liable to drift from the pixels actually encoded), this builds a small ICC v2.4
+//! Rather than embedding a third-party profile's raw bytes (not checkable from this crate,
+//! and liable to drift from the pixels actually encoded), this builds a small ICC v2.4
 //! matrix/TRC profile from the same [`crate::color::space::ColorSpace`] data
 //! `ColorSpace::encode` itself uses: `xyz_to_rgb_matrix` (inverted, then
 //! Bradford-adapted from the space's D65 white to the ICC profile-connection-space's
@@ -21,7 +21,7 @@
 //! `iCCP` chunk) lives in [`crate::render_setup::png_encode`], gated behind the `hdr`
 //! feature (which already pulls `image` in).
 //!
-//! # Verification, given no ICC-aware viewer is available here
+//! # Verification
 //!
 //! [`tests`] pins the mechanical/structural facts checkable without an external
 //! profile inspector: ICC magic bytes and header fields land at spec-mandated
@@ -187,8 +187,8 @@ fn matvec3(a: [[f32; 3]; 3], v: [f32; 3]) -> [f32; 3] {
     ]
 }
 
-/// The `desc` tag's human-readable name for `color_space` -- purely descriptive
-/// (`build` is never called for `Srgb`/`AcesCg` in practice, but this stays exhaustive).
+/// The `desc` tag's human-readable name for `color_space`. Purely descriptive; `Srgb` never
+/// reaches `build` through `encode_png_with_icc`, which writes untagged sRGB.
 const fn space_description(color_space: ColorSpace) -> &'static str {
     match color_space {
         ColorSpace::Srgb => "sRGB",
@@ -261,10 +261,8 @@ fn xyz_tag(xyz: [f32; 3]) -> Vec<u8> {
     out
 }
 
-/// Number of samples in each `curv` tag's lookup table -- generous enough (a step of
-/// roughly `1/65535` in device-value terms per two output codes) that quantizing the
-/// already-8-bit-quantized pixel data through this curve introduces no additional
-/// visible banding beyond what encoding to 8 bits already costs.
+/// Samples in each `curv` lookup table. Dense enough that the table adds no visible
+/// banding beyond the 8-bit pixel data it quantizes.
 const CURVE_SAMPLES: usize = 1024;
 
 /// Builds an ICC `curveType` (`curv`) tag body (ICC.1:2001-04 §6.5.3) as a
@@ -377,9 +375,8 @@ fn build_header(total_size: u32) -> [u8; 128] {
     h[12..16].copy_from_slice(b"mntr"); // device class: display monitor
     h[16..20].copy_from_slice(b"RGB "); // data color space
     h[20..24].copy_from_slice(b"XYZ "); // profile connection space
-    // Fixed, arbitrary creation date/time (24..36) -- this profile is generated fresh
-    // at every export, so there is no real "authored on" date to record; any
-    // well-formed date is spec-valid.
+    // Creation date/time (24..36): a fixed placeholder, as the profile has no authored-on
+    // date; any well-formed date is spec-valid.
     for (offset, value) in [(24, 2000u16), (26, 1), (28, 1), (30, 0), (32, 0), (34, 0)] {
         h[offset..offset + 2].copy_from_slice(&value.to_be_bytes());
     }
@@ -498,9 +495,8 @@ mod tests {
         assert_eq!(column(m, 2), [3.0, 6.0, 9.0]);
     }
 
-    /// `curve_tag` must sample `TransferFunction::decode` directly, not a
-    /// reimplementation -- pins the two endpoints (`decode(0) == 0`, `decode(1) == 1`)
-    /// so a divergent reimplementation would be caught here.
+    /// Pins the endpoints of `curve_tag`'s table to `TransferFunction::decode(0)` and
+    /// `decode(1)`, so a divergent copy of the transfer function would fail here.
     #[test]
     fn curve_tag_endpoints_match_transfer_function_decode() {
         for tf in [

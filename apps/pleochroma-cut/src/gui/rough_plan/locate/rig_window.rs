@@ -126,7 +126,7 @@ struct RigHost {
 }
 
 thread_local! {
-    /// The one rig window of the app session, once it was opened.
+    /// The one rig window of the app session, created on first open.
     static RIGS: RefCell<Option<Rc<RigHost>>> = const { RefCell::new(None) };
 }
 

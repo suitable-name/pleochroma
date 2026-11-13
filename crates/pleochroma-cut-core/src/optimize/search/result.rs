@@ -1,9 +1,9 @@
-//! The last step of [`optimize_design_with`](super::optimize_design_with): measuring the
-//! ending point(s) at full fidelity and turning them into ranked candidates
-//! ([`build_result`]). Split from the parent module so the file stays readable; the
-//! functions were moved here, not rewritten. Every scored state is re-validated against the
-//! captured meet network first (`score_state`), and `provenance::stamp_result` re-checks it
-//! when it stamps the candidates.
+//! The last step of [`optimize_design_with`](super::optimize_design_with).
+//!
+//! It measures the ending point(s) at full fidelity and turns them into ranked candidates
+//! ([`build_result`]). Every scored state is re-validated against the captured meet network
+//! first (`score_state`), and `provenance::stamp_result` re-checks it when it stamps the
+//! candidates.
 
 use super::{AngleChange, Baseline, OptimizeOutcome, SearchHooks, SearchRunSummary, SearchStage};
 use crate::{
@@ -35,18 +35,15 @@ struct ScoredState {
 
 /// Solves `state` once (the gate that validates it hands the solve back), scores it at
 /// [`ObjectiveFidelity::Full`] and blends the yield in -- the measurement [`build_result`]
-/// gates every candidate on. `None` if `state` no longer solves (only a state that was
-/// never accepted by the search could not), or, with `allow_cancel`, when
-/// [`SearchHooks::cancel`] stopped the `Full` sweep (the partial sweep is dropped, never
-/// scored). The accepted incumbent passes `allow_cancel: false`: it is finished even after
-/// a cancellation.
+/// gates every candidate on. `None` if `state` does not solve or fails the gate, or, with
+/// `allow_cancel`, when [`SearchHooks::cancel`] stopped the `Full` sweep (the partial sweep
+/// is dropped, never scored). The accepted incumbent passes `allow_cancel: false`: it is
+/// finished even after a cancellation.
 ///
-/// Reports [`SearchStage::FinalFull`] through `hooks` (evaluations `evaluations`,
-/// unchanged by this call -- same reasoning as [`baseline_report`]'s own report)
-/// before running the scoring -- this call is as expensive as the baseline's;
-/// without this report, a caller's progress ticker would stay stuck on its last
-/// coordinate/polish reading through the whole final scoring, reading as the run
-/// having already finished when it had not.
+/// Reports [`SearchStage::FinalFull`] through `hooks` before the scoring, with
+/// `evaluations` unchanged (see [`baseline_report`]). The scoring is as expensive as the
+/// baseline's, and the report keeps a progress display from sitting on the last search
+/// stage while it runs.
 fn score_state(
     state: &Design,
     ctx: &SearchContext,
@@ -56,8 +53,8 @@ fn score_state(
 ) -> Option<ScoredState> {
     hooks.report(evaluations, SearchStage::FinalFull);
     let feasible = ctx.space.feasible.as_ref()?;
-    // Finish the one accepted incumbent even after cancellation, preserving the
-    // existing best-so-far contract. The caller skips remaining rivals on Cancel.
+    // The accepted incumbent is finished even after a cancellation; the caller skips the
+    // remaining rivals then.
     let final_check = feasible.baseline.telemetry.phase(6);
     // The validating solve is the only solve: its tiers are those of `state` as passed.
     let (_, solved) = feasible
@@ -211,11 +208,10 @@ fn tone_gate_passes(
     }
 }
 
-/// [`optimize_design_with`]'s "measure the ending point" half: re-solves `current`
-/// (see [`optimize_design`]'s own `# Panics` section for why the `.expect()` inside
-/// this is safe) and the states in `rivals` it needs, scores each at
-/// [`ObjectiveFidelity::Full`] (see [`score_state`]), and diffs its tier angles and
-/// masts against `design`'s original ones to build the [`OptimizeCandidate`] list.
+/// [`optimize_design_with`]'s "measure the ending point" half: scores `current` and the
+/// `rivals` it needs at [`ObjectiveFidelity::Full`] (see [`score_state`]), and diffs each
+/// one's tier angles and masts against `design`'s original ones to build the
+/// [`OptimizeCandidate`] list.
 ///
 /// A state becomes a candidate when it changes something and its `Full` score is no
 /// worse than the starting design's -- the search accepts candidates on the `Fast`
@@ -273,8 +269,8 @@ pub(super) fn build_result(
                 break;
             }
             let scored = score_state(rival, ctx, hooks, summary.evaluations, true);
-            // A rival whose `Full` sweep was stopped scores nothing: the cancel flag is never
-            // cleared, so a `None` that finds it set is a cancelled scoring, like the check above.
+            // A rival whose `Full` sweep was stopped scores nothing. The cancel flag is never
+            // cleared, so a `None` with the flag set is a cancelled scoring.
             if scored.is_none() && hooks.is_cancelled() {
                 cancelled = true;
                 break;

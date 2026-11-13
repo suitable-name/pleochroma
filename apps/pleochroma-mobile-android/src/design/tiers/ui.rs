@@ -60,7 +60,8 @@ thread_local! {
     static UI: RefCell<TiersUi> = RefCell::new(TiersUi::default());
 }
 
-/// Runs `f` on the tab's UI state. Do not call Slint callbacks from inside `f`.
+/// Runs `f` on the tab's UI state. Slint callbacks must not run inside `f`: they would
+/// borrow the state again.
 pub(super) fn with<R>(f: impl FnOnce(&mut TiersUi) -> R) -> R {
     UI.with(|ui| f(&mut ui.borrow_mut()))
 }

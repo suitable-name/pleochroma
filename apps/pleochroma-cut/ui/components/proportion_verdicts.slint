@@ -1,14 +1,11 @@
 import { Theme } from "../theme.slint";
 
-// A small "Within" / "Near" / "Outside" chip shown next to one of the Preform
-// tab's raw proportion numbers (table %, crown angle, pavilion angle, total
-// depth %, girdle thickness %), judged against
-// `pleochroma_cut_core::proportions_windows`'s reference table
-// (`EditorModel.proportion_verdict_*_level`/`_reason`, pushed by
-// `gui::editor::view::push_proportion_verdicts`). Renders nothing at
-// `level == -1` ("nothing to judge yet" -- the design does not currently
-// solve/close, or this particular metric has no value, e.g. no crown tier at
-// all) rather than a misleading chip.
+// A small "Within" / "Near" / "Outside" chip beside one of the Preform tab's raw proportion
+// numbers (table %, crown angle, pavilion angle, total depth %, girdle thickness %). The level
+// is judged by `pleochroma_cut_core::proportions_windows` and pushed as
+// `EditorModel.proportion_verdict_*_level`/`_reason` by `push_proportion_verdicts_from_solved`.
+// Renders nothing at `level == -1`: there is nothing to judge (no solved design, or no value
+// for this metric, such as a missing crown tier).
 export component VerdictChip inherits Rectangle {
     in property <int> level: -1;
     in property <string> reason: "";

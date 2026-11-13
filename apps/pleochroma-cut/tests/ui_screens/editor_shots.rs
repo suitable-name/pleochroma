@@ -14,9 +14,8 @@ use pleochroma_editor::material::gear_index_from_teeth;
 use slint::{ComponentHandle, Model};
 use uiprobe::screenshot::Shot;
 
-/// Inspector height of the Edit-view shots, in logical pixels. The first-run default (380 px)
-/// leaves the tier table at its minimum, a header with no rows, at the shots' window height;
-/// this split shows table rows and the top of the tier form together.
+/// Inspector height of the Edit-view shots, in logical pixels (the app default is 340 px). It
+/// shows table rows and the top of the tier form together at the shots' window height.
 const SHOT_INSPECTOR_HEIGHT: f32 = 250.0;
 /// The gear the `SplitChecker` is changed to.
 const NEW_TEETH: i32 = 64;
@@ -134,9 +133,9 @@ fn open_retarget(sc: &Sc<'_, '_>) -> Result<(), String> {
     retarget.invoke_proposal_changed();
     pump(800);
     let compare = ui.global::<CompareModel>();
-    // The check ends in "not valid" (3) or "could not be checked" (4) when the design is
-    // refused; the pane then opens only for a refusal that still leaves a proposal. Stop at
-    // once on a verdict that comes without a pane, and say what the dialog says.
+    // Validity 3 ("not valid") and 4 ("could not be checked") mean a refused design. The pane
+    // opens only when a proposal remains, so a verdict without a pane ends the wait here and
+    // its text is reported.
     let opened = Sc::wait(60, || {
         compare.get_embedded_open()
             || (!retarget.get_is_busy() && matches!(retarget.get_validity_state(), 3 | 4))
@@ -500,11 +499,11 @@ pub fn history_trials(sc: &mut Sc<'_, '_>) -> Result<Shot, String> {
     Ok(rect_of(&sc.view(), "EditorInspector")?.crop(&shot))
 }
 
-/// Ray-Traced comparison coverage alongside the existing path-traced and solid shots.
+/// `retarget_dialog_ray.png`: Side by Side, Ray Traced.
 ///
 /// # Errors
 ///
-/// The design or comparison controls cannot be opened.
+/// As [`retarget_dialog`].
 pub fn retarget_dialog_ray(sc: &mut Sc<'_, '_>) -> Result<Shot, String> {
     retarget_shot(sc, "Side by Side", "Ray Traced")
 }

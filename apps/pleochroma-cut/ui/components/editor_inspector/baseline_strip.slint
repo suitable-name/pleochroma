@@ -20,18 +20,15 @@ import { StaleBadge } from "../stale_badge.slint";
 // Inspector can add it up for its own minimum height without reaching into the strip, and a
 // wrapped note cannot under-measure it. It is also FIXED: the figures' rows and the note line
 // are always reserved, so scoring (the note "Scoring the Baseline...") never grows it, and the
-// sub-tab row below never moves.
+// form below never moves.
 export global BaselineStripMetrics {
     // Figures per row; a design with tilt averages wraps to a further row.
     out property <int> columns: 5;
     // 30 px per figure: the 10 px name, the 11 px value and a gap of about 4 px before the next row.
     out property <length> cell_h: 30px;
-    // The figures a design always has (see `BaselineCell.short_label`). While a Baseline is held
-    // but its figures are not scored yet (the score lands a moment after a design opens), the
-    // strip keeps the room these will take, so the form below does not jump down under the
-    // pointer when they arrive (a click on Add Facet at that moment missed). The reserved room
-    // shows the names with "--" in place of the values, so it reads as "not scored yet" and not
-    // as a blank band.
+    // The figures a design always has (see `BaselineCell.short_label`). Until they are scored,
+    // the strip keeps their room so the form below does not move when they arrive. The room
+    // shows the names with "--" for the values, so it reads as "not scored yet", not as blank.
     out property <[string]> placeholder_labels: ["Bril.", "Wind.", "Ext.", "Fire", "Scint.", "Yield", "Warn."];
     // Always at least the rows of the figures a design has, scored or not.
     out property <int> rows: Math.ceil(Math.max(BaselineModel.cells.length, BaselineStripMetrics.placeholder_labels.length) / BaselineStripMetrics.columns);

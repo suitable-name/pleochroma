@@ -290,11 +290,10 @@ fn the_color_variant_lessons_name_the_controls_the_window_has() {
     for needle in [
         "Color Pattern...",
         "Watermelon",
-        "Source",
-        "Variant",
+        "From variant",
         "Rubellite",
         "Verdelite",
-        "Apply",
+        "Start From...",
         "Done",
     ] {
         assert!(
@@ -329,7 +328,7 @@ fn the_lessons_say_colors_menu_and_not_the_old_two_colors_switch() {
     assert!(
         last.actions
             .join(" ")
-            .contains("Colors says how many colors")
+            .contains("Color tiles say how many colors")
     );
 }
 

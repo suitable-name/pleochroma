@@ -15,11 +15,9 @@ use crate::common::{report_image_comparison_material, report_transport_ulp_check
 /// function-length reason as [`run_phase2_checks`]/[`run_phase3_checks`] -- returns
 /// whether every check here passed.
 ///
-/// Whether the port checked here is actually trusted for a real render stays a
-/// SEPARATE decision from whether it passes these checks -- see
-/// [`pleochroma::optics::materials::GemMaterial::gpu_supported`]'s own doc comment, which
-/// is where that answer lives. Today it is `true` unconditionally, biaxial built-ins
-/// included, so this verifies a path that real renders genuinely take.
+/// Whether a real render uses this port is decided by
+/// [`pleochroma::optics::materials::GemMaterial::gpu_supported`], not by these checks; see
+/// its doc comment.
 pub fn run_phase4_checks(ctx: &GpuContext) -> bool {
     println!();
     println!("== Phase 4: biaxial birefringence (live path -- gpu_supported() is true) ==");
@@ -47,10 +45,9 @@ pub fn run_phase4_checks(ctx: &GpuContext) -> bool {
         "pleochroic_channel_alpha (biaxial)",
         &transport_check::run_biaxial_pleochroic(ctx),
     );
-    // P1 assigned-mode absorption (biaxial branch): replaces
-    // pleochroic_channel_alpha_biaxial on the interior transport path's anisotropic
-    // branch -- see `transport_check::eigenmodes_biaxial::run_assigned_mode_alpha_biaxial`'s
-    // own doc comment.
+    // Assigned-mode absorption, biaxial branch: the interior path's anisotropic branch uses
+    // it in place of `pleochroic_channel_alpha_biaxial`. See
+    // `transport_check::eigenmodes_biaxial::run_assigned_mode_alpha_biaxial`.
     let assigned_mode_alpha_biaxial_passed = report_transport_ulp_check(
         "assigned_mode_alpha (biaxial, P1)",
         &transport_check::run_assigned_mode_alpha_biaxial(ctx),

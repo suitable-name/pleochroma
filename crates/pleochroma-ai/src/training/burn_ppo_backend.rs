@@ -1,7 +1,7 @@
 //! Explicit backend constructors for [`BurnTrainer`].
 //!
-//! CUDA is an opt-in native CubeCL backend. The ordinary package features and the existing
-//! WGPU/CPU constructors stay independent of CUDA availability.
+//! CUDA is an opt-in native CubeCL backend. The default features and the WGPU/CPU constructors do
+//! not depend on CUDA availability.
 
 use burn::{prelude::*, tensor::TensorData};
 use std::panic::{AssertUnwindSafe, catch_unwind};

@@ -175,9 +175,10 @@ pub trait Platform: Send + Sync {
         None
     }
 
-    /// Whether the active network is metered (Android `ConnectivityManager.isActiveNetworkMetered`).
-    /// `None` is unknown or no network; the desktop preview and tests report `None`, which
-    /// the remote policy treats as unmetered so a missing signal never blocks a render.
+    /// Whether the active network is metered (Android
+    /// `ConnectivityManager.isActiveNetworkMetered`). `None` is unknown or no network: the
+    /// desktop preview and tests report `None`, and the remote policy treats it as unmetered
+    /// so a missing signal never blocks a render.
     fn network_metered(&self) -> Option<bool> {
         None
     }

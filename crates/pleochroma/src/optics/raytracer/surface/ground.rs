@@ -1,11 +1,12 @@
 //! The ground (frosted) facet: a GGX rough dielectric interface.
 //!
-//! This replaces the cosine-weighted Lambertian bounce a frosted facet used to have (decision
-//! D11). One event is the exact interface physics at a micro-normal drawn from the distribution
-//! of visible normals of an anisotropic GGX lobe (Walter et al. 2007; Heitz 2018):
+//! A ground facet (frosted girdle, Ground surface, abraded edge) is a GGX rough dielectric.
+//!
+//! One event is the exact interface physics at a micro-normal drawn from the distribution of
+//! visible normals of an anisotropic GGX lobe (Walter et al. 2007; Heitz 2018):
 //!
 //! 1. the branch (reflect or transmit) is drawn with the broadband macroscopic Fresnel
-//!    probability `r_sel` of the hero, as before, and divides out of the throughput;
+//!    probability `r_sel` of the hero, and divides out of the throughput;
 //! 2. a micro-normal `m` is drawn; the reflected (or refracted) direction `o` follows from the
 //!    exact mirror (or Snell) law at `m`;
 //! 3. the throughput is `F(m)/r_sel` (or `(1 − F(m))/(1 − r_sel)`) times the masking ratio
@@ -14,8 +15,8 @@
 //!    ends on the wrong side of the macro surface carries weight `0`.
 //!
 //! Next-event estimation evaluates the same lobe: the BSDF-sampled continuation and the light
-//! sample are combined with the balance heuristic over the density of the direction GIVEN the
-//! branch, exactly as the Lambertian version did over `cos / π`.
+//! sample are combined with the balance heuristic over the density of the direction given the
+//! branch.
 //!
 //! [`GroundCtx`] is the pure core shared by the render tracer ([`apply_ground_bounce`]) and the
 //! metrics tracer's frosted event, which therefore draw the same direction bit for bit.
@@ -225,7 +226,7 @@ impl GroundCtx {
         }
     }
 
-    /// The reflect-branch throughput energy `F / r_sel`, or the transmit-branch `(1 − F)/(1 − r_sel)`.
+    /// Branch energy: `F / r_sel` for reflection, `(1 − F) / (1 − r_sel)` for transmission.
     fn branch_energy(&self, fresnel: f32, reflect: bool) -> f32 {
         if reflect {
             fresnel / self.r_sel
@@ -329,8 +330,8 @@ impl GroundCtx {
 /// The light direction is drawn from the environment and the lobe is evaluated at it; the
 /// deposit is `intensity × w × p / p_light × MIS`, where `w` and `p` are the throughput factor
 /// and the branch-conditional density [`GroundCtx::eval`] returns and the MIS weight is the
-/// balance heuristic of the light density against `p`. A concave stone casts a shadow probe, as
-/// the Lambertian version did. Consumes the same two RNG streams.
+/// balance heuristic of the light density against `p`. A concave stone casts a shadow probe.
+/// Draws from the two environment-direction RNG streams.
 #[expect(
     clippy::too_many_arguments,
     reason = "the lobe joined the NEE inputs of the Lambertian version (context, surface point, \
@@ -380,8 +381,8 @@ pub(crate) fn nee_contribution_ground(
     }
 }
 
-/// The ground replacement for the specular TIR/partial-reflect/refract dispatch at a frosted
-/// facet; the successor of the Lambertian `apply_frosted_bounce`, with the same contract.
+/// The GGX counterpart of `scattering::frosted::apply_frosted_bounce`, with the same contract:
+/// the TIR, partial-reflect and refract dispatch of a ground facet.
 ///
 /// `normal` is the facet's outward normal turned to face the medium the ray is in, `k_in` the
 /// propagation direction of the ray, `params` the facet's lobe. Depolarizes every channel (the
@@ -397,7 +398,7 @@ pub(crate) fn nee_contribution_ground(
 ///
 /// NEE is eligible exactly for the outcomes that end outside the gem: a reflection while
 /// outside, a transmission while inside. An entry through a ground facet is not NEE-sampled (the
-/// light sample would have to find the exit facet), as before.
+/// light sample would have to find the exit facet).
 #[expect(
     clippy::too_many_arguments,
     reason = "bundles ctx/geo like the polished dispatch; nee/lambdas/radiance are the HDR-map NEE \

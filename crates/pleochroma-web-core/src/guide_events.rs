@@ -61,9 +61,9 @@ pub fn library_events(before: &LibraryQuery, after: &LibraryQuery) -> Vec<&'stat
 
 /// The lesson events for the stone effects that `next` changes against `before`.
 ///
-/// The inclusion haze, the frosted girdle and the edge rounding each have their own (the
-/// desktop's `raise_effect_events`). The stone width is the design's (Apply Yield Inputs), not a panel
-/// edit.
+/// The inclusion haze, the frosted girdle and the edge rounding each have their own event, as
+/// in the desktop's `raise_effect_events`. The stone width belongs to the design (Apply Yield
+/// Inputs), so it raises none.
 #[must_use]
 pub fn changed_effects(before: &RenderSettings, next: &RenderSettings) -> Vec<&'static str> {
     let mut events = Vec::new();
@@ -267,7 +267,10 @@ mod tests {
 
     #[test]
     fn spaces_typed_into_an_empty_box_clear_nothing() {
-        assert!(library_events(&LibraryQuery::default(), &with_text("  ")).is_empty());
+        assert_eq!(
+            library_events(&LibraryQuery::default(), &with_text("  ")),
+            [] as [&str; 0]
+        );
     }
 
     #[test]
@@ -331,7 +334,10 @@ mod tests {
     #[test]
     fn an_untouched_panel_changes_no_stone_effect() {
         let settings = RenderSettings::default();
-        assert!(changed_effects(&settings, &settings.clone()).is_empty());
+        assert_eq!(
+            changed_effects(&settings, &settings.clone()),
+            [] as [&str; 0]
+        );
     }
 
     #[test]
@@ -370,7 +376,7 @@ mod tests {
             exposure: before.exposure + 0.5,
             ..before.clone()
         };
-        assert!(changed_effects(&before, &louder).is_empty());
+        assert_eq!(changed_effects(&before, &louder), [] as [&str; 0]);
     }
 
     #[test]
@@ -387,7 +393,8 @@ mod tests {
 
     #[test]
     fn the_auto_list_values_map_to_the_events_the_lessons_wait_for() {
-        // The combo sends 0 for Off (a negative value is read as 0 too); see `tier_table_commands.slint`.
+        // The combo sends 0 for Off (a negative value is read as 0 too); see
+        // `tier_table_commands.slint`.
         let off = u32::try_from(-1_i32).unwrap_or(0);
         assert_eq!(auto_solve_event(off), "auto_solve_off");
         assert_eq!(auto_solve_event(300), "auto_solve_on");

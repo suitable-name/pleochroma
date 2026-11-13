@@ -1,7 +1,7 @@
 //! Exact anisotropic-interface Fresnel solution for uniaxial crystals.
 //!
-//! Replaces the "effective index" scalar-Fresnel-per-mode approximation that used to
-//! live at every `is_anisotropic && !is_biaxial` interface in [`super::refraction`].
+//! Replaces the scalar "effective index" Fresnel approximation at every
+//! `is_anisotropic && !is_biaxial` interface in [`super::refraction`].
 //!
 //! # Physics and derivation
 //!
@@ -47,82 +47,38 @@
 //!
 //! ## Validation
 //!
-//! Before transcribing this into Rust, the exact algebra below (q-root formula,
-//! eigenvector construction, boundary-matching linear solve, Poynting-flux energy
-//! accounting) was independently validated in Python (native `complex`, no numeric
-//! libraries) against:
-//!   - a brute-force from-scratch boundary-value solve (own sanity check the isotropic
-//!     limit reproduces this crate's exact `r_s`/`r_p` sign convention, see this
-//!     module tree's own tests),
-//!   - R + T == 1 (Poynting-projected) to machine precision (< 3e-15) across 3 uniaxial
-//!     materials x multiple optic-axis orientations (axis-aligned and random) x 6-9
-//!     incidence angles x both polarizations, for BOTH the entry and the
-//!     internal-reflection/exit interface, including 204 genuine TIR (complex,
-//!     evanescent) cases,
-//!   - continuity: `Delta n -> 0` reduces to this crate's own isotropic Fresnel `r_s`/
-//!     `r_p` to within `O(Delta n)`,
-//!   - the normal-incidence, optic-axis-in-surface-plane special case.
-//!
-//! See `entry_energy_conservation_matches_isotropic_at_zero_birefringence` and the
-//! other tests in this module tree for the Rust-side re-derivation of those same checks.
+//! The closed form is checked against R + T == 1 (Poynting-projected) at both the entry and
+//! the internal/exit interface, including TIR; against the scalar Fresnel formulas in the
+//! isotropic limit `n_o == n_e`; and against normal incidence with the optic axis in the
+//! surface plane. See the tests in this module tree.
 //!
 //! ## Wiring
 //!
-//! - **Entry** (`entry_solve_pair`/`entry_incidence_frame`/
-//!   `entry_solve_pair_with_incidence`): wired into
-//!   `refraction::apply_uniaxial_entry_bounce`.
-//! - **Internal reflection and exit transmission** (`internal_solve`): wired into both
-//!   `refraction::apply_tir_bounce`'s hero-forced-TIR branch and the general
-//!   (sub-critical, non-forced) internal-reflection/exit-transmission path via
-//!   `refraction::apply_uniaxial_internal_bounce` --
-//!   `apply_partial_reflect_bounce`/`apply_refract_channel`'s scalar-Fresnel machinery
-//!   is reached only by an isotropic or biaxial material, or the degenerate
-//!   wave-normal-parallel-to-optic-axis limit (see `apply_partial_fresnel_bounce`'s own
-//!   doc comment).
-//! - **o<->e internal re-coupling** (`transport::apply_internal_mode_coupling`): uses
-//!   the exact Poynting-weighted `R_o/(R_o+R_e)` split from the same `internal_solve`
-//!   call already run for the reflection event's own energy accounting, rather than a
-//!   polarization-projection heuristic (still the fallback for a biaxial material,
-//!   which has no uniaxial closed form to draw an exact split from).
-//! - **Performance**: `EntryIncidenceFrame`/`entry_incidence_frame` share the
-//!   isotropic incidence-side boundary-matching data (provably independent of
-//!   `n_o(lambda)`/`n_e(lambda)`) across all 8 hero channels of one bounce instead of
-//!   rebuilding it per channel; [`uniaxial_q_roots`] short-circuits to the isotropic
-//!   limit exactly when `n_o == n_e`; `apply_uniaxial_internal_bounce` reuses its own
-//!   hero-channel `internal_solve` result at `k == hero_idx` instead of solving the
-//!   identical boundary system twice.
-//! - **WGSL mirror**: `shaders/transport_physics.wgsl`'s own full uniaxial Fresnel
-//!   (Lekner 1991) section is a direct, op-for-op port of this entire module tree
-//!   (`Cplx`/`CVec3`/`UniaxialFrameW`/`uniaxial_q_roots`/mode fields/`solve4`-family/
-//!   `entry_solve_pair`/`internal_solve`/`jones_to_mueller`/`mode_power`/
-//!   `azimuth2_in_frame`), wired into `spectral_transport.wgsl`'s megakernel bounce
-//!   dispatch (entry, hero-forced TIR, and the general internal/exit path) mirroring
-//!   this module tree's own CPU wiring bounce-for-bounce. Verified via
-//!   `renderer::gpu::transport_check::p2_uniaxial_fresnel`'s kernel-level ULP checks (0
-//!   genuine ULP divergence against this module's own CPU functions) and a Tier 3
-//!   statistical image comparison on Zircon/Tourmaline/Quartz/Rutile, all passing on
-//!   real AMD Radeon (Vulkan) hardware via `examples/gpu_equivalence_harness`.
-//! - **GPU-parity fix**: `Cplx::sqrt_forward_branch` special-cases a pure
-//!   negative-real input directly (bypassing an `atan2`/`cos`/`sin` round-trip whose
-//!   near-zero-magnitude branch-cut decision is otherwise rounding noise that CPU and
-//!   GPU transcendental implementations can resolve to opposite signs) -- found by,
-//!   and fixed to pass, the `internal_solve` ULP check above; see that function's own
-//!   doc comment.
+//! - **Entry** (`entry_solve_pair`, `entry_incidence_frame`,
+//!   `entry_solve_pair_with_incidence`): used by `refraction::apply_uniaxial_entry_bounce`.
+//! - **Internal reflection and exit transmission** (`internal_solve`): used by
+//!   `refraction::apply_tir_bounce` (hero-forced TIR) and by
+//!   `refraction::apply_uniaxial_internal_bounce` (sub-critical path). The scalar Fresnel
+//!   path in `apply_partial_fresnel_bounce` serves isotropic and biaxial materials and the
+//!   degenerate wave normal parallel to the optic axis.
+//! - **o<->e re-coupling** (`apply_internal_mode_coupling` in `transport::bounce`): takes the
+//!   Poynting-weighted `R_o/(R_o+R_e)` split from the same `internal_solve` result. A
+//!   polarization projection remains the fallback for biaxial materials.
+//! - **Performance**: `EntryIncidenceFrame` shares the incidence-side data, which does not
+//!   depend on `n_o(lambda)`/`n_e(lambda)`, across the hero channels of one bounce.
+//!   [`uniaxial_q_roots`] returns early when `n_o == n_e`, and
+//!   `apply_uniaxial_internal_bounce` reuses the hero channel's `internal_solve` result.
+//! - **WGSL mirror**: `renderer/shaders/transport_physics/06_uniaxial_fullwave_complex.wgsl`
+//!   and `07_uniaxial_fullwave_solve.wgsl` port this module op for op. GPU parity is checked
+//!   by `renderer::gpu::transport_check::p2_uniaxial_fresnel`.
 //!
-//! Split from a single `uniaxial_fresnel.rs` into this module tree by seam:
-//! [`complex`] holds the `Cplx`/`CVec3` arithmetic, [`frame`] holds the incidence frame
-//! and the closed-form mode fields/Poynting flux built from it, [`linalg`] holds the
-//! shared 4x4 boundary-matching solve, [`entry`] and [`internal`] hold the two
-//! interfaces' own boundary-value solutions, and [`mueller`] holds the Stokes/Mueller
-//! integration. Every path reachable as `uniaxial_fresnel::X` before the split stays
-//! reachable at exactly that path via the re-exports below.
+//! The module is split by seam: [`complex`] holds the `Cplx`/`CVec3` arithmetic, [`frame`]
+//! the incidence frame, the closed-form mode fields and the Poynting flux, [`linalg`] the
+//! shared 4x4 boundary solve, [`entry`] and [`internal`] the two interfaces, and [`mueller`]
+//! the Stokes/Mueller integration. Items used outside the module are re-exported below.
 
-// `pub`, not private, for every submodule holding a `pub(crate)` item: a `pub(crate)`
-// item inside a private module is only reachable via this file's re-export, which
-// clippy's `redundant_pub_crate` (nursery) then flags as suspicious -- see
-// `raytracer::mod`'s own identical comment for this exact pattern. Making the
-// submodule `pub` resolves it without widening any item's own effective visibility,
-// still capped at its declared visibility. `linalg` holds only `pub(super)` items, so
+// `pub` for the submodules that hold `pub(crate)` items: a `pub(crate)` item in a private
+// module trips clippy's `redundant_pub_crate`. `linalg` holds only `pub(super)` items, so
 // it stays private.
 pub mod complex;
 pub mod entry;

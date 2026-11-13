@@ -1,6 +1,5 @@
-//! The render-physics parts of the design file: the inclusion and structure subtables of
-//! `[render_effects]` and the surface columns of a tier record, converted between the plain
-//! tables of `pleochroma_formats::native` and this crate's types.
+//! Converts the render-physics parts of the design file: the inclusion and structure subtables
+//! of `[render_effects]`, and a tier's surface columns.
 //!
 //! Everything here is written only when set, so a design that does not use the features keeps
 //! its bytes. A name this build does not know (an inclusion preset, a pattern, a grade) reads as
@@ -185,8 +184,8 @@ pub(super) fn tier_surface_from_columns(columns: &SurfaceColumns) -> Option<Tier
 
 /// Restores `design.tier_surfaces` from `raw` (the tiers' surface columns, captured before the
 /// file's `tiers` array was consumed), each entry keyed by the id its tier ended up with. A
-/// tier whose columns state nothing is ideal, which is also what a file saved before surface
-/// finish existed reads as. Must run after the tier ids are applied.
+/// tier whose columns state nothing is ideal, as is a file with no surface columns. Must run
+/// after the tier ids are applied.
 pub(super) fn apply_tier_surfaces(design: &mut Design, raw: &[SurfaceColumns]) {
     design.tier_surfaces.clear();
     for (columns, &id) in raw.iter().zip(&design.tier_ids) {

@@ -1,8 +1,8 @@
 //! The cutter's stone choices in the library: the side table beside a saved plan.
 //!
 //! The library keeps them in `stone_pose_choice` (see the vault's `stone_choice_store`): the box
-//! pose, a free pose (as the JSON of [`FreePoseDto`], the same text a file's `[axis.stones.free_pose]`
-//! holds), the lock and the Reason. A plan that has none writes nothing here.
+//! pose, a free pose (stored as the JSON of [`FreePoseDto`]), the lock and the Reason. A plan
+//! that has none writes nothing here.
 //!
 //! The results of a saved plan are indexed `(layout, stone)` as the plan lists them (best rank
 //! first). The window's settings are indexed by the result row on screen, so a save that covers
@@ -107,9 +107,8 @@ pub(super) fn save_stone_choices(
 }
 
 /// Clears the stored choices of the first `saved_layouts` layouts of plan `plan_id` that `stones`
-/// no longer holds: a stone the cutter set back to the default (no pose, lock or Reason) must not
-/// keep an older stored row. The rows of layouts past `saved_layouts` (the color wizard's pose rows
-/// of layouts the save did not cover) stay.
+/// does not hold: a stone set back to the default (no pose, lock or Reason) keeps no stored row.
+/// Rows of layouts past `saved_layouts` (the colour wizard's pose rows) stay.
 ///
 /// # Errors
 ///

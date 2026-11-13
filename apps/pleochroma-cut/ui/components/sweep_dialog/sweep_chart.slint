@@ -89,9 +89,7 @@ export component SweepChart inherits VerticalLayout {
         Rectangle { horizontal-stretch: 1; }
     }
 
-    // The plot takes every spare pixel of the dialog (the rows around it stay their own
-    // height): with a fixed 150 px plot the surplus was shared by the summary rows, which left
-    // ~80 px of nothing above and below the legend line.
+    // The plot takes the spare height of the dialog; the rows around it keep their own height.
     plot := Rectangle {
         min-height: 120px;
         preferred-height: 150px;

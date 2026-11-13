@@ -1,8 +1,9 @@
-//! Hand-written rows for the editor and viewport callbacks that the generated tables never had a
-//! row for (lane H4 of the 2026-10-28 harness findings): the Baseline strip's three buttons, the
-//! Frosted tick box and the facet chips' frost button, the Optical Diagnostics overlay's
-//! `invalidate`, `refresh` and `hover`, Stop After This Job, the Thumbnail Backdrop pills, the Live
-//! Render tab's resize and the Performance graph's `cancel_hover`.
+//! Hand-written rows for callbacks that the generated tables have no row for.
+//!
+//! The Baseline strip's three buttons, the Frosted tick box and the facet chips' frost button,
+//! the Optical Diagnostics overlay's `invalidate`, `refresh` and `hover`, Stop After This Job,
+//! the Thumbnail Backdrop pills, the Live Render tab's resize and the Performance graph's
+//! `cancel_hover`.
 //!
 //! Every row is a CHECKED row (`rows_checked.rs` style): it calls the callback in a state where it
 //! does something and asserts what the handler leaves behind. Where the state cannot make the
@@ -22,9 +23,8 @@ use std::time::Duration;
 // Editor group: the Baseline strip
 // ---------------------------------------------------------------------------------------------
 
-/// Set as Baseline: the handler is the command bar's Set Baseline (`EditorModel.snapshot_design`),
-/// so the effect is the "Baseline set" toast it raises once the design's masts are known and the
-/// strip holding a Baseline.
+/// Set as Baseline: the effect is the "Baseline set" toast, raised once the design's masts are
+/// known, and the strip holding a Baseline.
 fn baseline_set(ui: &MainWindow) -> Result<(), String> {
     clear_toast(ui);
     ui.global::<BaselineModel>().invoke_set_baseline();
@@ -121,7 +121,7 @@ fn tier_frosted(ui: &MainWindow) -> Result<(), String> {
     }
 }
 
-/// A facet chip's frost button: the first facet of tier 0 frosted (the row says so), then polished.
+/// A facet chip's frost button: the first facet of tier 0 frosted, then polished.
 fn facet_frosted(ui: &MainWindow) -> Result<(), String> {
     let editor = ui.global::<EditorModel>();
     let first = editor
@@ -241,7 +241,7 @@ const GAPS_EDITOR_PLAIN: &[Row] = rows!(MainWindow, Main, Editor, false;
 // Startup group
 // ---------------------------------------------------------------------------------------------
 
-/// Stop After This Job with no queue running: there is no job to stop after, so the flag stays down
+/// Stop After This Job with no queue running: no job to stop after, so the flag stays down
 /// and no toast says otherwise.
 fn stop_after_current(ui: &MainWindow) -> Result<(), String> {
     clear_toast(ui);

@@ -59,8 +59,9 @@ pub struct RoughModel {
     pub cuts: Vec<RoughCut>,
     /// The inclusions of a block, cylinder or pebble, in the frame of the uncut base (empty
     /// for every other rough: an imported mesh keeps its inclusions in its own mesh). See the
-    /// [`inclusions`] module; edit it through [`with_inclusions_added`](Self::with_inclusions_added)
-    /// and [`with_inclusion_removed`](Self::with_inclusion_removed).
+    /// [`inclusions`] module; edit it through
+    /// [`with_inclusions_added`](Self::with_inclusions_added) and
+    /// [`with_inclusion_removed`](Self::with_inclusion_removed).
     pub inclusions: InclusionSet,
     /// The crystal's orientation in the rough frame (the Crystal Axis, and the Second Axis of a
     /// biaxial stone), `None` while it is Unknown (every rough until the cutter sets it). It is
@@ -356,7 +357,7 @@ impl RoughModel {
 
     /// The model with every length multiplied by `factor`: the base sizes, the edge and
     /// corner setbacks and the face depths; face normals stay. Fitting a rough to its
-    /// weighed carat scales by the cube root of the carat ratio, a factor close to 1. The
+    /// carat weight scales by the cube root of the carat ratio, a factor close to 1. The
     /// inclusions scale with it (their margins included).
     #[must_use]
     pub fn scaled(&self, factor: f64) -> Self {
@@ -512,12 +513,10 @@ impl RoughModel {
             max_p = max_p.max(p);
         }
 
-        // A mesh rough's volume is the mesh's, within the cuts; the polytope is the hull. The
-        // inclusions of a mesh are material you hold, so the volume is the gross one: the
-        // stones' room plus the inclusions (without inclusions, the stones' room alone, to
-        // the bit).
-        // A block, cylinder or pebble whose inclusions no longer fit is an error here, not a
-        // plain rough: nothing is dropped.
+        // A mesh rough is measured by its mesh within the cuts; the polytope only bounds the
+        // stones. Inclusions are material held, so they count in the volume (without them the
+        // volume is the plain mesh volume). Inclusions that no longer fit make `mesh_checked`
+        // fail here: nothing is dropped.
         let (volume_mm3, inclusion_count, inclusion_mm3) = match self.mesh_checked()? {
             Some(mesh) => {
                 let cuts = self.cut_planes()?;

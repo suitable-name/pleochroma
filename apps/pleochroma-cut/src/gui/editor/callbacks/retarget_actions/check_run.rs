@@ -9,12 +9,10 @@
 //!
 //! # State
 //!
-//! The editor crate owns the logic, this module owns the one place the latest result
-//! lives: a `thread_local!` [`CHECK`] slot, like [`super::RETARGET_ASYNC`] (Slint's event
-//! loop is single-threaded; `EditorState::pending_retarget` keeps its older type for the
-//! web app's sake, so the masts the check chose travel here instead). The worker sees only
-//! the [`CHECK_SERIAL`] atomic: every request bumps it, and a worker whose serial no longer
-//! matches stops at its next step.
+//! The editor crate owns the logic. This module holds the latest result in a `thread_local!`
+//! [`CHECK`] slot, like [`super::RETARGET_ASYNC`]. The worker sees only the [`CHECK_SERIAL`]
+//! atomic: every request bumps it, and a worker whose serial differs stops at its
+//! next step.
 //!
 //! - [`apply_gate`] decides whether Apply may go ahead; the exact checked state
 //!   supplies the edit through [`validated_candidate_edit`].
@@ -81,11 +79,8 @@ struct CheckSlot {
     /// The analysis of the ORIGINAL stone at one design generation. It does not depend on
     /// the plan, so every slider tick of the same design reuses it.
     analysis: Option<(u64, Arc<AnalysisResult>)>,
-    /// The atomic edit `progress`'s check produced for one design, validated against the
-    /// operation-start network already (on the worker that ran the check, or on the first
-    /// ask). Apply, the compare window and the viewport ghost all want it; the validation is
-    /// a full solve, so it is done once per check, never once per ask. Cleared whenever
-    /// `progress` changes.
+    /// The edit the check produced, validated for one design. Validation is a full solve, so
+    /// it runs once per check. Cleared whenever `progress` changes.
     validated: Option<PrevalidatedEdit>,
 }
 
@@ -246,8 +241,7 @@ pub(super) fn is_invalid(generation: u64) -> bool {
 }
 
 /// The masts of the latest finished check, whatever generation it belongs to; empty when
-/// nothing finished. Only the tests read it now: the viewport ghost takes its masts from the
-/// check's validated edit.
+/// nothing finished. Tests only: the viewport ghost takes its masts from the validated edit.
 #[cfg(test)]
 pub(super) fn latest_anchors() -> Vec<AnchorChange> {
     CHECK.with(|cell| match &cell.borrow().progress {
@@ -453,7 +447,7 @@ fn spawn_worker(job: CheckJob) {
     });
 }
 
-/// A worker's result, back on the UI thread. Dropped when `serial` is no longer current.
+/// A worker's result, back on the UI thread. Dropped when `serial` is stale.
 fn finish_check(
     ui: &MainWindow,
     serial: u64,

@@ -378,10 +378,11 @@ mod tests {
     /// A network that gives every tier the same sensitivity, whatever it is shown: the
     /// sensitivity head ignores its input (all weights zero) and its bias is `[bias, 0, 0, 0]`,
     /// so every tier has the windowing sensitivity `bias` and none to the other components.
-    /// With its zero-initialized action residual, the composed mean is `-MEAN_BOUND` for `bias > 0` and `+MEAN_BOUND`
-    /// for `bias < 0` (the objective's windowing fraction is positive for the default
-    /// weights), and zero for `bias == 0`. The projection then turns the tiers it lets move
-    /// by `tanh(+-MEAN_BOUND) * max_step_deg`, 95 % of the step limit, in one direction.
+    /// With its zero-initialized action residual, the composed mean is `-MEAN_BOUND` for
+    /// `bias > 0`, `+MEAN_BOUND` for `bias < 0` (the objective's windowing fraction is positive
+    /// for the default weights) and zero for `bias == 0`. The projection then turns the tiers
+    /// it lets move by `tanh(+-MEAN_BOUND) * max_step_deg`, 95 % of the step limit, in one
+    /// direction.
     fn constant_network(bias: f32) -> GemstoneSetAttentionNetwork {
         let mut network = ModelTier::Small.init_network(11);
         network.sens_head.weights.fill(0.0);
@@ -674,7 +675,7 @@ mod tests {
         )
         .expect("an optimizer checkpoint serves the optimizer");
         assert_eq!(model.config(), &fast_config());
-        // Checkpoints are task-specific (schema 4): a retarget model is refused by its mode.
+        // Checkpoints are task-specific: a retarget model is refused by its mode.
         assert!(matches!(
             RlOptimizerModel::from_checkpoint(checkpoint_of(TrainingMode::Retarget), fast_config()),
             Err(InferenceError::Weights(WeightError::ModeMismatch {

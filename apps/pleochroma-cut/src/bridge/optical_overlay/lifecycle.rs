@@ -97,11 +97,8 @@ mod tests {
         };
         assert!(may_publish(5, 5, before_exposure, Some(preview), 6, true));
     }
-    /// The setters (`state.rs` local frames, `update.rs` remote frames) no longer drop a
-    /// beauty frame whose scene generation moved while it was in flight; they always show
-    /// it and record its own stamp. Dropping them froze the viewport for the whole of an
-    /// orbit, light or slider drag. The overlay's own gating must still hold: a stale
-    /// stamp is recorded, hides the overlay, and never permits publication.
+    /// A beauty frame from an older scene generation is shown and its stamp recorded, but
+    /// it hides the overlay and blocks publication until a current-generation frame arrives.
     #[test]
     fn a_stale_beauty_frame_is_shown_but_blocks_publication() {
         let mut shown = None;

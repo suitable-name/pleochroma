@@ -1,4 +1,4 @@
-//! WebGPU admission gate (section 6.5): per-adapter qualification, compilation benchmarking,
+//! WebGPU admission gate: per-adapter qualification, compilation benchmarking,
 //! and admission state machine for GPU rendering in the browser.
 //!
 //! State transitions (`RenderModel.gpu-state`, [`GpuState`]):
@@ -30,7 +30,7 @@
 //! (1, 2, 3); the GPU Worker compiles and traces the browser variant of it
 //! (`gpu_admission::browser_pipeline_class`: no oriented inclusions, no zoning, which a browser
 //! scene never reaches, and no extraordinary curve unless uniaxial), so the all-features
-//! variant, whose `Scatter` kernel exceeds the compile deadline, is never built. The isotropic
+//! variant, whose `Scatter` kernel takes seconds to compile, is never built. The isotropic
 //! class is compiled at start-up. Another class is compiled and
 //! tested on first use: when a stone of an admitted class (`gpu_admission::ADMITTED_CLASSES`)
 //! shows its first image, the [`classes`] module starts the same compile-and-self-check run
@@ -109,7 +109,7 @@ struct GateState {
     /// The record of each compile unit: what is stored, and the running compile's marker.
     records: BTreeMap<u32, AdmissionRecord>,
     /// The compile unit the running (or the last) test or `admit` compile is for; the isotropic
-    /// class before any ran. Named `run_class` as the units began as classes.
+    /// class before any ran.
     run_class: Option<u32>,
     /// "Test GPU" is running (compile, then the self-check).
     testing: bool,
@@ -179,10 +179,11 @@ thread_local! {
     static GATE: RefCell<GateState> = RefCell::new(GateState::default());
 }
 
-/// Computes the unique admission storage key of compile `unit` (a material class's base set, or
-/// one kernel feature of a class) for this adapter and browser version (section 6.5): FNV-1a 64
-/// over the adapter's fields, the Chrome major version and the kernel set hash, with the unit's
-/// suffix (`pleochroma_web_core::gpu_admission::unit_adapter_key`).
+/// Computes the unique admission storage key of compile `unit` for this adapter and browser.
+///
+/// The `unit` is a material class's base set, or one kernel feature of a class. The key is
+/// FNV-1a 64 over the adapter's fields, the Chrome major version and the kernel set hash,
+/// with the unit's suffix (`pleochroma_web_core::gpu_admission::unit_adapter_key`).
 #[must_use]
 pub fn compute_unit_key(facts: &AdapterFacts<'_>, unit: u32) -> String {
     gpu_admission::unit_adapter_key(
@@ -350,7 +351,7 @@ fn fail_class(ctx: &Ctx, class: u32, reason: &str) {
     }
 }
 
-/// Initializes the GPU gate on page load (section 6.5): turns every crash marker left
+/// Initializes the GPU gate on page load: turns every crash marker left
 /// behind in the `Probing` state into `Failed`, then runs the start-up test (or says why
 /// not).
 pub fn init(ctx: &Ctx) {
@@ -370,8 +371,7 @@ pub fn init(ctx: &Ctx) {
 }
 
 /// Whether the pool may start the GPU worker by itself when it is created: not in a browser
-/// without WebGPU, and not after a start that was blocked (the worker's adapter request is
-/// the step that run lost the GPU in).
+/// without WebGPU, and not after a start that was blocked before the adapter was known.
 #[must_use]
 pub fn worker_allowed() -> bool {
     GATE.with(|gate| {
@@ -680,8 +680,7 @@ pub fn on_gpu_test_clicked(ctx: &Ctx) {
         show(ctx, GpuState::Ok, COMPILE_BLOCKED_TEXT, false);
         return;
     }
-    // The test needs no scene of its own (it renders the built-in self-check scene), so it
-    // does not wait for the first image as it did when it was only a button.
+    // The test renders the built-in self-check scene, so it does not wait for a first image.
     startup::begin_run(ctx, true);
     begin_test(ctx, &pool, ISOTROPIC_CLASS);
 }

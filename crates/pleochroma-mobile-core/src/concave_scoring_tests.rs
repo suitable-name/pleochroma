@@ -1,11 +1,9 @@
 //! Optimize and Retarget accept designs with concave tiers.
 //!
-//! Both used to decline them, because their scores measured the flat shell. The engine
-//! entry points they call now score every candidate on the stone with its tools
-//! (`ScoredStone` and the `*_geom_under` objectives in cut-core, `measure_analysis_column`
-//! in the editor), so the phone has no reason to refuse: these tests pin that a concave
-//! design is captured exactly when the same design without the tool tier is, and that the
-//! tool tier is part of the operation's identity.
+//! Both score every candidate on the stone with its tools (`ScoredStone` and the
+//! `*_geom_under` objectives in cut-core, `measure_analysis_column` in the editor). These
+//! tests pin that a concave design is captured exactly when the same design without the
+//! tool tier is, and that the tool tier is part of the operation's identity.
 
 use crate::{
     app_state::AppState,

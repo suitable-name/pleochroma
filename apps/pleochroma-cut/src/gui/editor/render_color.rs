@@ -1,18 +1,19 @@
-//! The editor's side of the Live Render toolbar's "Color" control
-//! (`gui::render::render_body_color`): reading and editing the open design's body-colour
-//! override while the view shows that design with the render material linked to it.
+//! The editor's side of the Live Render toolbar's "Color" control.
+//!
+//! The control is `gui::render::render_body_color`. This module reads and edits the open
+//! design's body-color override while the view shows that design with the render material
+//! linked to it.
 //!
 //! A pick is the same edit the Edit tab's color box makes ([`Edit::SetMaterial`] with the
-//! design's material and a new `body_color_override`): one undo step, the design is marked
-//! changed, and the Edit tab's own controls follow through the usual panel refresh. Unlike
-//! the color box it applies only the colour, never a half-typed material or RI in the
-//! Design settings form.
+//! design's material and a new `body_color_override`): one undo step, and the Edit tab
+//! follows through the usual panel refresh. Unlike the color box, it applies only the color,
+//! never a half-typed material or refractive index.
 //!
-//! The Design settings color editor ("Custom...") authors one color per direction of the stone
-//! (see [`AxisState`]): the design is stored as a Custom Color variant whose tensor has the host's
-//! rank, so a pleochroic stone never becomes isotropic. The material editor dialog's color editor
-//! has the same rows for a uniaxial or biaxial material ([`open_dialog_rows`]), held as per-ray
-//! band rows until Save. "Save as Variant...", "Update" and "Nearest Variant" live in
+//! The Design settings color editor ("Custom...") sets one color per direction of the stone
+//! (see [`AxisState`]). The design is stored as a Custom Color variant whose tensor has the
+//! host's rank, so a pleochroic stone never becomes isotropic. The material editor dialog
+//! has the same rows for a uniaxial or biaxial material ([`open_dialog_rows`]), held as
+//! per-ray band rows until Save. "Save as Variant...", "Update" and "Nearest Variant" live in
 //! [`color_variants`].
 
 use std::{
@@ -65,10 +66,10 @@ use crate::{
     },
 };
 
-/// The selection the design would have with `change` applied (a legacy body-colour override, whose
-/// L*C*h band form is dropped with it, or a color variant snapshot that replaces every legacy
-/// field), or `None` when it already has exactly that colour (nothing to edit, so no undo step is
-/// added). A plain color replaces the stone's pattern.
+/// The selection the design would have with `change` applied: a legacy body-color override
+/// (which drops its L*C*h band form), or a color variant that replaces every legacy field.
+/// `None` when the design already has exactly that color, so no undo step is added. A plain
+/// color replaces the stone's pattern.
 fn recoloured(material: &MaterialSelection, change: &ColorChange) -> Option<MaterialSelection> {
     match change {
         ColorChange::Legacy(color) => {
@@ -144,8 +145,8 @@ pub(super) fn setup_render_color_callbacks(
     let port = Rc::new(DesignColorPort {
         current,
         apply: Box::new(move |change| edit_color(&|material| recoloured(material, &change))),
-        // The cutter's saved variants of the material the toolbar lists, read without waiting for
-        // the vault (`saved_variants` keeps the list last read while a worker holds it).
+        // The saved variants the toolbar lists, read without waiting for the vault
+        // (`saved_variants` returns the last list read while a worker holds it).
         saved_variants: Box::new(saved_variants),
     });
     setup_lch_editor(ui, state, render_ctx, Rc::clone(&edit), Rc::clone(&port));
@@ -201,14 +202,13 @@ fn push_solve(model: &BodyColorEditorModel<'_>, solve: &LchSolve) {
 /// Starts one solve for `[L*, C*, h]` (the callback every slider and the picker share).
 type LchStart = dyn Fn(&MainWindow, [f64; 3]);
 
-/// Starts a solve of every colour row of the design target (see [`AxisState`]).
+/// Starts a solve of every color row of the design target (see [`AxisState`]).
 type AxesStart = dyn Fn(&MainWindow);
 
 /// The stone a color editor target is solved for: its width, and the solver's reference path
 /// (`lch_color::reference_path_mm`, the girdle times 1.5), both in millimetres.
 ///
-/// A Custom Color stores the WIDTH (`custom_choice`); the solver and the editor's own swatches use
-/// the PATH.
+/// A Custom Color stores the width (`custom_choice`). The solver and the swatches use the path.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct StoneSize {
     /// The stone's width (mm).
@@ -268,8 +268,9 @@ fn apply_keeps_stored(opened: Option<&[[f64; 3]]>, current: &[[f64; 3]], has_sto
     has_stored && opened == Some(current)
 }
 
-/// Whether the design's selection already stores a color the editor reads back: a color variant
-/// (a picked one or an earlier Custom Color) or, on a one-color host, the L*C*h editor's band rows.
+/// Whether the design's selection already stores a color the editor reads back: a color
+/// variant (a picked one or an earlier Custom Color) or, on a one-color host, the L*C*h band
+/// rows.
 ///
 /// On a pleochroic host those band rows are a LEGACY single color (no pleochroism): "Convert"
 /// opens the editor seeded from it and an untouched Apply must store the per-axis Custom Color,
@@ -292,7 +293,7 @@ fn design_has_stored_color(material: &MaterialSelection, rank: TensorRank) -> bo
 #[derive(Clone)]
 struct AxisState {
     /// The design's material resolved, so [`Self::rank`] is the host's. `false` (a design that
-    /// names no material) keeps the old single legacy colour: nothing is traced anyway.
+    /// names no material) keeps a single legacy color; nothing is traced.
     host_known: bool,
     /// The host's rank: one, two or three rows.
     rank: TensorRank,
@@ -395,10 +396,10 @@ fn push_axes(model: &BodyColorEditorModel<'_>, axes: &AxisState) {
     push_state(model, &swatches, labels, worst, reachable);
 }
 
-/// Builds the "start a solve of every colour row" callback of the design target.
+/// Builds the "start a solve of every color row" callback of the design target.
 ///
 /// It shares `latest` and `running` with [`lch_start_solver`], so a newer request of either kind
-/// supersedes an older one. The solve runs on a background thread; a row whose target did not
+/// supersedes an older one. The solve runs on a background thread. A row whose target did not
 /// change is not solved again (`lch_color::solve_axes`). When still the newest, the result is
 /// stored in `axes` and pushed.
 fn axes_start_solver(
@@ -448,8 +449,8 @@ fn axes_start_solver(
 /// What a color-editor target other than the design's solves into: the last finished solve.
 type LastSolve = Arc<Mutex<Option<LchSolve>>>;
 
-/// Builds the shared "start a solve" callback of the colour editor for the targets with one
-/// colour (the material editor dialog, the view-only color, a zone color).
+/// Builds the shared "start a solve" callback of the color editor for the targets with one
+/// color (the material editor dialog, the view-only color, a zone color).
 ///
 /// Each call supersedes the previous one (`latest` ticket, `running` cancel flag), solves on
 /// a background thread and, when still the newest, pushes the result into the model and
@@ -488,21 +489,20 @@ fn lch_start_solver(
     })
 }
 
-/// The Design settings colour editor (the combo's "Custom..." entry): Tone / Saturation / Hue
-/// sliders and the hue-saturation-brightness picker feed ONE solver ([`lch_color::solve_lch`])
-/// that runs on a background thread for the design's reference path; a newer request cancels
-/// and supersedes an older one that is still running. Nothing reaches the design until
-/// "Apply colour", which stores the last finished solve as ONE undoable edit through `edit`.
+/// The Design settings color editor (the combo's "Custom..." entry). The Tone / Saturation /
+/// Hue sliders and the picker feed ONE solver ([`lch_color::solve_lch`]) that runs on a
+/// background thread for the design's reference path. A newer request cancels and supersedes
+/// one still running. Nothing reaches the design until "Apply colour", which stores the last
+/// finished solve as ONE undoable edit through `edit`.
 ///
-/// For the open design the editor has one colour row per direction of the stone (one for a
+/// For the open design the editor has one color row per direction of the stone (one for a
 /// material that looks the same in every direction, two for a uniaxial and three for a biaxial
-/// one): the sliders edit the chosen row, and "Apply Color" stores all rows together as one
+/// one). The sliders edit the chosen row, and "Apply Color" stores all rows together as one
 /// Custom Color whose tensor has the host's rank. The dialog, the view-only color and a zone
 /// color keep their single color.
 ///
-/// No `changed` handler here touches the editor state: the callbacks only read it with
-/// `try_borrow` (the design's girdle and material) and write Slint properties, so the
-/// re-entrancy rule of `slint-changed-handler-reentrancy` is not at risk.
+/// The callbacks read the editor state only with `try_borrow` and write Slint properties, so
+/// no `changed` handler here re-enters a borrow of it.
 fn setup_lch_editor(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -515,8 +515,8 @@ fn setup_lch_editor(
     let last: LastSolve = Arc::default();
     let axes: SharedAxes = Arc::new(Mutex::new(AxisState::closed()));
 
-    // The dialog, a pattern zone and the view-only color take the render's stone width; the
-    // design targets take the open design's girdle diameter.
+    // The dialog, a pattern zone and the view-only color use the render's stone width; the
+    // design targets use the open design's girdle diameter.
     let state_size = Rc::clone(state);
     let ctx_size = Arc::clone(render_ctx);
     let size_of: Rc<SizeOf> = Rc::new(move |target: i32| {
@@ -647,8 +647,8 @@ fn register_axis_selected(ui: &MainWindow, axes: &SharedAxes) {
     });
 }
 
-/// Stores `lch` as the typed colour of the chosen row (the sliders or the picker moved): the
-/// untouched-open guard is off and the row's name follows.
+/// Stores `lch` as the typed color of the chosen row (the sliders or the picker moved). Clears
+/// `opened`, the untouched-open guard, and refreshes the row color names.
 fn edit_active_row(ui: &MainWindow, axes: &SharedAxes, lch: [f64; 3]) {
     let mut state = lock_axes(axes);
     let active = state.active;
@@ -736,14 +736,15 @@ struct AppliedRows<'a> {
     opened: Option<&'a [[f64; 3]]>,
 }
 
-/// The selection "Apply Color" makes of `material`: `None` when there is nothing to store (the
-/// editor was opened on a stored color and left alone, or the design already has exactly that).
+/// The selection "Apply Color" makes of `material`. `None` when there is nothing to store: the
+/// editor was opened on a stored color and left alone, or the design already has exactly that.
 ///
 /// A design whose material is known gets a Custom Color with the host's rank
-/// (`lch_color::custom_choice`) that replaces the legacy fields and the pattern; one without keeps
-/// the old single legacy color. An untouched open keeps a stored color ([`apply_keeps_stored`]),
-/// but not a legacy single color on a pleochroic host: "Convert" starts from it and an untouched
-/// Apply stores the per-axis color ([`design_has_stored_color`]).
+/// (`lch_color::custom_choice`) that replaces the legacy fields and the pattern. One without
+/// a known material keeps a single legacy color. An untouched open keeps a stored color
+/// ([`apply_keeps_stored`]), but not a legacy single color on a pleochroic host: "Convert"
+/// starts from it, and an untouched Apply stores the per-axis color
+/// ([`design_has_stored_color`]).
 fn applied_selection(
     material: &MaterialSelection,
     rows: &AppliedRows<'_>,
@@ -770,7 +771,7 @@ fn applied_selection(
 
 /// "Apply Color" of the Live Render popup's view-only color: every row's last finished solve as
 /// one Custom Color of the viewed material (`apply_view_choice`, which routes to the design when
-/// the view changed under the popup); a material that cannot be resolved keeps the single legacy
+/// the view changed under the popup). A material that cannot be resolved keeps a single legacy
 /// color. An untouched open keeps the stored color ([`apply_keeps_stored`]).
 fn apply_view_rows(
     ui: &MainWindow,
@@ -861,11 +862,11 @@ struct LchOpenPorts {
     axes: SharedAxes,
 }
 
-/// Opens the rows of the design target or the view-only color ([`has_axis_rows`]): seeds one
-/// `[L*, C*, h]` per direction of the host (`lch_color::seed_axis_lch`: the stored color, a legacy
-/// color on every row, or the material's own tensor direction by direction), shows the rows and
-/// solves them. The design's host is the design's material; the view's is the material the Live
-/// Render shows with the view-only color it holds.
+/// Opens the rows of the design target or the view-only color ([`has_axis_rows`]). Seeds one
+/// `[L*, C*, h]` per direction of the host (`lch_color::seed_axis_lch`: the stored color, a
+/// legacy color on every row, or the material's own tensor direction by direction), then shows
+/// the rows and solves them. The design's host is the design's material. The view's host is the
+/// material the Live Render shows with the view-only color it holds.
 fn open_design_rows(ui: &MainWindow, ports: &LchOpenPorts, target: i32, size: StoneSize) {
     let model = ui.global::<BodyColorEditorModel>();
     let (material, host) = if target == TARGET_VIEW {
@@ -1034,8 +1035,8 @@ fn open_dialog_rows(
 }
 
 /// The color the dialog holds after "Apply Color" on a uniaxial or biaxial material: the rows of
-/// every direction as per-ray band rows, and the nearest legacy triple of the face-up color (what
-/// an older build shows). `None` when the solves do not match `rank`.
+/// every direction as per-ray band rows, and the nearest legacy triple of the face-up color for
+/// the single-color readers. `None` when the solves do not match `rank`.
 fn dialog_rows(rank: TensorRank, solves: &[LchSolve], path_mm: f64) -> Option<DialogColor> {
     let tensor = lch_color::tensor_from_solves(rank, solves)?;
     let face_up = lch_color::direction_swatches(&tensor, path_mm)
@@ -1087,9 +1088,8 @@ fn rows_active(target: i32, axes: &SharedAxes) -> bool {
     has_axis_rows(target) || (target == TARGET_DIALOG && !lock_axes(axes).lch.is_empty())
 }
 
-/// Registers the colour editor's "open" callback: seeds the sliders from the target's stored
-/// colour (the editor's own default for a design with the material's colour), forgets the
-/// previous solve and solves.
+/// Registers the color editor's "open" callback. Seeds the sliders from the target's stored
+/// color (or the editor's default), forgets the previous solve, and solves.
 fn register_lch_open(ui: &MainWindow, ports: LchOpenPorts) {
     let model = ui.global::<BodyColorEditorModel>();
     let ui_weak = ui.as_weak();
@@ -1299,9 +1299,9 @@ mod tests {
         )
     }
 
-    /// Web review, desktop side: "Convert" on a legacy single color (a preset triple, or the old
-    /// band rows) of a pleochroic host stores a per-axis Custom Color even when the editor was
-    /// not touched, and keeps it pleochroic; the legacy fields and the pattern are gone.
+    /// "Convert" on a legacy single color (a preset triple, or band rows) of a pleochroic host
+    /// stores a per-axis Custom Color even when the editor was not touched, and keeps it
+    /// pleochroic. The legacy fields and the pattern are cleared.
     #[test]
     fn an_untouched_convert_stores_a_per_axis_custom_color() {
         let host = GemMaterial::sapphire();
@@ -1342,9 +1342,9 @@ mod tests {
         assert_eq!(converted(&banded, &diamond), None);
     }
 
-    /// The editor opens on the host's own color, not black (review finding 1): the seed of a plain
-    /// Sapphire is its two rays at the face-up path, and "Apply Color" on the untouched open of a
-    /// plain design stores exactly those colors (a Custom Color the first row of which is light).
+    /// The editor opens on the host's own color, not black. The seed of a plain Sapphire is its
+    /// two rays at the face-up path, and an untouched "Apply Color" on a plain design stores
+    /// those colors.
     #[test]
     fn the_seed_of_a_plain_built_in_is_not_black() {
         let host = GemMaterial::sapphire();
@@ -1433,7 +1433,10 @@ mod tests {
             )
         );
         // Rows of the other rank are not used: a biaxial material starts from nothing here.
-        assert!(dialog_seed(&held, TensorRank::Biaxial, size).is_empty());
+        assert_eq!(
+            dialog_seed(&held, TensorRank::Biaxial, size),
+            [] as [[f64; 3]; 0]
+        );
         // A single legacy color goes on every row.
         let single = DialogColor {
             triple: Some([0.2, 0.4, 2.8]),
@@ -1442,7 +1445,10 @@ mod tests {
         let seed = dialog_seed(&single, TensorRank::Biaxial, size);
         assert_eq!(seed.len(), 3);
         assert!(seed.iter().all(|row| *row == seed[0]));
-        assert!(dialog_seed(&DialogColor::default(), TensorRank::Uniaxial, size).is_empty());
+        assert_eq!(
+            dialog_seed(&DialogColor::default(), TensorRank::Uniaxial, size),
+            [] as [[f64; 3]; 0]
+        );
     }
 
     #[test]

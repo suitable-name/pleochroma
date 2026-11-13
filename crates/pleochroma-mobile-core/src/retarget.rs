@@ -1,4 +1,6 @@
-//! Governed Retarget Shift/search, retaining checked complete authored candidates.
+//! Retarget jobs: a checked shift and an optional search, run on the governed worker.
+//!
+//! The checked candidates are kept for preview and apply.
 use crate::{
     app_state::AppState,
     compute_policy::ComputePolicy,
@@ -130,9 +132,9 @@ impl RetargetJob {
             .acquire(&|| self.token.is_cancelled())
             .ok_or_else(|| "Retarget interrupted.".to_owned())?;
         let stop = || self.token.is_cancelled() || self.policy.paused();
-        // Both stones are scored in the design's own Crystal Axis (and Second Axis): the
-        // new material keeps the orientation the stone has in the rough, as on the desktop. A
-        // design with no axis set gives both materials back untouched.
+        // Both stones are scored in the design's own crystal axes, so the new material keeps
+        // the orientation the stone has in the rough, as on the desktop. Without axes set,
+        // both come back unchanged.
         let effects = self.design.render_effects;
         let mut target = resolved_material_from_selection(&self.controls.target, &self.custom);
         target.gem = oriented_for_effects(

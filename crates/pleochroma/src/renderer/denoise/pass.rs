@@ -113,8 +113,7 @@ pub(super) fn cos_pow(base: f32, power: f32) -> f32 {
 #[inline]
 fn normal_weight_unit(a_n: Vec3, b_n: Vec3, power: f32) -> f32 {
     if a_n == Vec3::ZERO || b_n == Vec3::ZERO {
-        // No usable normal information on one side: treat as neutral rather than
-        // rejecting, matching the pre-precompute behaviour this replaced.
+        // No usable normal on one side: a neutral weight, not a rejection.
         return 1.0;
     }
     let cos_theta = a_n.dot(b_n).clamp(-1.0, 1.0).max(0.0);
@@ -250,12 +249,12 @@ fn shifted(base: usize, offset: i64, limit: usize) -> Option<usize> {
         .filter(|&pos| pos < limit)
 }
 
-/// The neighbour at `idx` as `(texel, weight)`, or `None` when it must not contribute:
-/// a different facet, a different interior path signature (when `GBuffers::path_sig` is
-/// present; a pure early return, no weight is touched), a non-finite texel (it would contaminate every tap that shares
-/// it), or a normal weight of exactly zero (the product would be zero anyway, so the
-/// two `exp` calls are skipped). The factor order is fixed: it is the filter's
-/// bit-exact definition.
+/// The neighbour at `idx` as `(texel, weight)`, or `None` when it must not contribute: a
+/// different facet, a different interior path signature (when `GBuffers::path_sig` is present;
+/// a pure early return, no weight is touched), a non-finite texel (it would contaminate every
+/// tap that shares it), or a normal weight of exactly zero (the product would be zero anyway, so
+/// the two `exp` calls are skipped). The factor order is fixed: it is the filter's bit-exact
+/// definition.
 #[inline]
 fn tap_contribution(
     centre: &Centre,

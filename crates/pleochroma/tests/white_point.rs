@@ -1,10 +1,10 @@
 //! White-point guard: "a colourless stone renders colourless" under every analytic
 //! lighting preset, plus measuring tools for the GPU gallery PNGs and reference photos.
 //!
-//! The renders here are CPU renders that keep the PRE-tone-map XYZ per pixel (the
-//! gallery's `render_cpu` only returns tone-mapped sRGB bytes). A pixel counts as stone
-//! when every one of five sub-pixel rays hits the polyhedron, as backdrop when none does;
-//! edge pixels, which mix the two, are left out of both regions.
+//! The renders here are CPU renders that keep the pre-tone-map XYZ per pixel, which
+//! `render_cpu` in the lighting gallery does not (it returns tone-mapped sRGB bytes).
+//! A pixel counts as stone when every one of five sub-pixel rays hits the polyhedron, as
+//! backdrop when none does; edge pixels, which mix the two, are left out of both regions.
 //!
 //! The two PNG-measuring tools are ignored and need the `hdr` feature (it brings the
 //! `image` decoder in):
@@ -41,8 +41,8 @@ const CHROMA_TOLERANCE: f32 = 0.007;
 /// Tolerance for the non-dispersive twin (measured within 0.0001 at 256 spp).
 const STRICT_CHROMA_TOLERANCE: f32 = 0.002;
 
-/// The lead sets this from the first run of `light_tent_table_luminance_floor` (the printed
-/// stone / backdrop mean-Y ratio), then reruns. While it is 0.0 the test only prints.
+/// Pinned stone / backdrop mean-Y ratio checked by `light_tent_table_luminance_floor`.
+/// Zero disables the check; the test then only prints the measured ratio.
 const PINNED_TENT_TABLE_RATIO: f32 = 0.0;
 /// Relative band around [`PINNED_TENT_TABLE_RATIO`].
 const PINNED_TENT_BAND: f32 = 0.15;
@@ -210,12 +210,10 @@ const SPP: u32 = 64;
 /// tolerances. The backdrop is only checked when `backdrop_tolerance` is `Some`.
 ///
 /// Skipped presets: the UV lamps (not white light) and `Aset`, the contrast view, which is
-/// false-colour by design (one narrow band per elevation zone). With `skip_sun_stone` the
-/// stone region of `DaylightSun` is printed but not asserted: the 40 000-radiance sun reaches
-/// a polished stone only through a handful of deterministic facet flashes, so at 64 spp the
-/// stone mean is a few firefly samples (each carrying only four wavelengths) and its
-/// chromaticity is Monte-Carlo noise, not a bias. The unbiased-equal-weight property is
-/// pinned deterministically by `a_ray_into_the_sun_has_every_channel_at_equal_weight`.
+/// false-colour by design. With `skip_sun_stone` the stone region of `DaylightSun` is printed
+/// but not asserted: a polished stone sees the sun only through a few facet flashes, so at
+/// 64 spp its chromaticity is Monte-Carlo noise, not bias. The equal-weight property is
+/// pinned by `a_ray_into_the_sun_has_every_channel_at_equal_weight`.
 fn neutrality_failures(
     material: &GemMaterial,
     stone_tolerance: f32,
@@ -264,9 +262,10 @@ fn neutrality_failures(
     failures
 }
 
-/// Strict white-balance check: a colourless, non-dispersive stone (same mean index as
-/// diamond, zero F-C delta, no absorption) and the backdrop must both sit on D65 under every
-/// analytic preset. Measured 2026-10-07 at 256 spp the twin is within 0.0001 of D65.
+/// Strict white-balance check: a colourless, non-dispersive stone and the backdrop sit on D65.
+///
+/// The stone is diamond's mean index with zero F-C delta and no absorption. At 256 spp it
+/// lands within 0.0001 of D65.
 #[test]
 fn a_non_dispersive_colourless_stone_is_neutral_under_every_analytic_preset() {
     let flat = GemMaterial::new_custom("NoDispersion", 2.417, 0.0, 0.0, [0.0; 3]);
@@ -282,12 +281,12 @@ fn a_non_dispersive_colourless_stone_is_neutral_under_every_analytic_preset() {
     );
 }
 
-/// Deterministic sun check: a camera ray that misses the stone and points straight at the
-/// sun disc of `DaylightSun` must deposit the sun's D65 spectrum with the SAME weight in every
-/// channel (no hero-dependent MIS weight, no different SPD). Averaged over 512 evenly spaced
-/// hero draws the chromaticity is D65, and the luminance is the sun's own (tens of
-/// thousands, not the sky's fraction of one). A one-wavelength-in-four drop (the hero getting
-/// a competing-technique weight the companions do not) would shift both.
+/// Deterministic check that a direct sun hit gives every channel the same weight.
+///
+/// A ray that misses the stone and points at the `DaylightSun` disc must deposit the sun's
+/// D65 spectrum with equal weight in every channel. Averaged over 512 evenly spaced hero
+/// draws, the chromaticity is D65 and the luminance is the sun's own (tens of thousands).
+/// A hero that gets a competing-technique weight its companions do not would shift both.
 #[test]
 fn a_ray_into_the_sun_has_every_channel_at_equal_weight() {
     let planes = StandardGemCuts::standard_round_brilliant();
@@ -332,10 +331,8 @@ fn a_ray_into_the_sun_has_every_channel_at_equal_weight() {
     );
 }
 
-/// Looser check for real Diamond. Dispersion "fire" shifts the face-up average by about
-/// 0.003-0.005 depending on spp (measured 2026-10-07: +0.003/+0.003 top, -0.002/-0.002
-/// tilted at 256 spp; up to 0.0045/0.0047 at 64 spp), which is physical, not a
-/// white-balance error.
+/// Looser check for real Diamond. Dispersion "fire" shifts the chromaticity by about
+/// 0.003-0.005 (more at lower spp), which is physical, not a white-balance error.
 #[test]
 fn clear_diamond_stays_near_neutral_under_every_analytic_preset() {
     let diamond = GemMaterial::by_name("Diamond").expect("built-in");
@@ -346,15 +343,13 @@ fn clear_diamond_stays_near_neutral_under_every_analytic_preset() {
     );
 }
 
-/// Diagnostic: is the top-view stone cast caused by dispersion (fire sampled from a spiky
-/// rig) rather than the white balance? Renders Diamond and a non-dispersive twin
-/// (same mean index, zero F-C delta, no absorption) face-up at 4x the samples and prints
-/// both stone chromaticities. If the twin is neutral and Diamond is not, the cast is
-/// dispersion; the white balance is then exonerated.
+/// Diagnostic: is the top-view stone cast from dispersion rather than white balance?
 ///
-/// Measured 2026-10-07 (256 spp): the twin is neutral to within 0.0001 of D65 under every
-/// Studio preset, face-up and tilted; Diamond leans +0.003/+0.003 face-up and
-/// -0.002/-0.002 tilted. The cast is physical fire, not a white-balance error.
+/// Renders Diamond and a non-dispersive twin (same mean index, zero F-C delta, no
+/// absorption) at four times the samples and prints both stone chromaticities. A neutral
+/// twin with a non-neutral Diamond means the cast is dispersion, which exonerates the
+/// white balance. At 256 spp the twin is within 0.0001 of D65; Diamond leans
+/// +0.003/+0.003 face-up and -0.002/-0.002 tilted.
 ///
 /// `cargo test -p pleochroma --test white_point dispersion_explains_top_view_cast -- --ignored --nocapture`
 #[test]
@@ -626,8 +621,8 @@ fn measure_gallery_pngs() {
     }
 }
 
-/// The same measurement on `C:\temp\mcp2\reference_photos\*.png` (the owner converts the
-/// RAW/JPEG to PNG). `PLEOCHROMA_PHOTO_CARD_RECT=x,y,w,h` marks the grey-card patch and
+/// The same measurement on the PNGs in `C:\temp\mcp2\reference_photos`.
+/// `PLEOCHROMA_PHOTO_CARD_RECT=x,y,w,h` marks the grey-card patch and
 /// `PLEOCHROMA_PHOTO_STONE_RECT=x,y,w,h` the stone (defaults: corner patch, centre 40 %);
 /// the stone chromaticity is printed relative to the card.
 ///

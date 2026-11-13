@@ -9,9 +9,9 @@
 //! id `0` is the incoming-files channel ("Open with", "Share to"), which uses the same
 //! two pick calls without a request.
 
-// The JNI export names are fixed by the JVM's name mangling and are not snake case, but
-// rustc's `non_snake_case` skips `#[no_mangle]` functions with a foreign ABI, so no
-// lint attribute is needed (an `expect` here would be unfulfilled).
+// The JNI export names follow the JVM's name mangling, not snake case. rustc's
+// `non_snake_case` skips `#[no_mangle]` functions with a foreign ABI, so no lint
+// attribute is needed here.
 
 use jni::{
     Env, EnvUnowned,

@@ -120,7 +120,7 @@ fn selected_entry(ui: &MainWindow) -> i32 {
 // Startup group
 // ---------------------------------------------------------------------------------------------
 
-/// A 1x1 Radiance picture (`.hdr`), the smallest file the environment-map loader reads.
+/// A 1x1 Radiance picture (`.hdr`) for the environment-map loader.
 const TINY_HDR: &[u8] = b"#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 1 +X 1\n\x80\x80\x80\x81";
 
 /// Loads a real (1x1) environment map from the profile's working directory: no error toast.
@@ -136,6 +136,89 @@ fn load_env_map(ui: &MainWindow) -> Result<(), String> {
     toast_error(ui).map_or(Ok(()), |message| {
         Err(format!("loading a valid 1x1 HDR file raised: {message}"))
     })
+}
+
+/// Waits (the settings file is written after a short quiet time) for the settings file to hold
+/// `needle`.
+fn settings_file_holds(needle: &str) -> bool {
+    wait_until(Duration::from_secs(5), || {
+        std::fs::read_to_string(harness_support::settings_path())
+            .is_ok_and(|text| text.contains(needle))
+    })
+}
+
+/// The Map Rotation slider reports 135 degrees with a map loaded: the readout stays and the
+/// settings file keeps the yaw.
+fn env_map_turn_changed(ui: &MainWindow) -> Result<(), String> {
+    load_env_map(ui)?;
+    let settings = ui.global::<SettingsModel>();
+    // The slider has set its own value by the time it reports it.
+    settings.set_env_map_yaw_deg(135.0);
+    ui.global::<ViewportModel>()
+        .invoke_env_map_turn_changed(135.0);
+    pump(100);
+    let shown = settings.get_env_map_yaw_deg();
+    if (shown - 135.0).abs() > 1e-3 {
+        return Err(format!("the map rotation reads {shown} after 135 was set"));
+    }
+    if settings_file_holds("env_map_yaw_deg = 135.0") {
+        Ok(())
+    } else {
+        Err("the settings file does not hold the 135 degree map rotation".to_owned())
+    }
+}
+
+/// Switches the map's follow-the-camera on and off again at a map rotation of 90 degrees: on
+/// takes the camera's yaw out of the rotation, off puts it back.
+fn env_map_follow_changed(ui: &MainWindow) -> Result<(), String> {
+    load_env_map(ui)?;
+    let settings = ui.global::<SettingsModel>();
+    let viewport = ui.global::<ViewportModel>();
+    settings.set_env_map_yaw_deg(90.0);
+    viewport.invoke_env_map_turn_changed(90.0);
+    viewport.invoke_env_map_follow_changed(true);
+    pump(100);
+    if !settings.get_env_map_follows_camera() {
+        return Err("the switch did not turn on".to_owned());
+    }
+    let following = settings.get_env_map_yaw_deg();
+    if (following - 90.0).abs() < 1.0 {
+        return Err(format!(
+            "turning the switch on left the rotation at {following}: the picture would jump"
+        ));
+    }
+    viewport.invoke_env_map_follow_changed(false);
+    pump(100);
+    let restored = settings.get_env_map_yaw_deg();
+    if settings.get_env_map_follows_camera() || (restored - 90.0).abs() > 1e-2 {
+        return Err(format!(
+            "turning the switch off again left the rotation at {restored}, not 90"
+        ));
+    }
+    Ok(())
+}
+
+/// A right-drag with a map loaded turns the map by 0.01 radian a pixel and leaves the light
+/// where it is.
+fn light_move_turns_the_map(ui: &MainWindow) -> Result<(), String> {
+    load_env_map(ui)?;
+    let settings = ui.global::<SettingsModel>();
+    let light_before = (settings.get_light_yaw_deg(), settings.get_light_pitch_deg());
+    ui.global::<ViewportModel>().invoke_light_move(10.0, 25.0);
+    pump(100);
+    let expected = 0.1_f32.to_degrees();
+    let turned = settings.get_env_map_yaw_deg();
+    if (turned - expected).abs() > 1e-2 {
+        return Err(format!("the map turned to {turned}, not {expected}"));
+    }
+    let light_after = (settings.get_light_yaw_deg(), settings.get_light_pitch_deg());
+    if light_before == light_after {
+        Ok(())
+    } else {
+        Err(format!(
+            "the light moved with a map loaded: {light_before:?} -> {light_after:?}"
+        ))
+    }
 }
 
 /// The Empty form's Create with a readable form: the editor holds a design afterwards.
@@ -167,6 +250,9 @@ fn new_design_create(ui: &MainWindow) -> Result<(), String> {
 
 const STARTUP_CHECKED: &[Row] = checked_rows!(Startup, true;
     SettingsModel.load_env_map => load_env_map;
+    ViewportModel.env_map_turn_changed => env_map_turn_changed;
+    ViewportModel.env_map_follow_changed => env_map_follow_changed;
+    ViewportModel.light_move => light_move_turns_the_map;
     EditorModel.new_design_create => new_design_create;
 );
 
@@ -174,8 +260,8 @@ const STARTUP_CHECKED: &[Row] = checked_rows!(Startup, true;
 // Library group
 // ---------------------------------------------------------------------------------------------
 
-/// Toggles the "ignored" flag of the selected entry: no error toast (the generated row used the
-/// id 1, which the seeded library need not hold).
+/// Toggles the "ignored" flag of the selected entry. The id is not fixed, since the seeded
+/// library need not hold any particular one. No error toast.
 fn toggle_ignored(ui: &MainWindow) -> Result<(), String> {
     clear_toast(ui);
     let id = selected_entry(ui);
@@ -285,8 +371,8 @@ fn apply_preform(ui: &MainWindow) -> Result<(), String> {
     no_complaint(ui, "the Preform form as it stands")
 }
 
-/// The Y-offset box with "0.00": no unreadable-argument complaint (a refusal because the girdle
-/// has not anchored the scale is a different toast and not the point here).
+/// The Y-offset box with "0.00": no unreadable-argument complaint. Other refusals, such as an
+/// unanchored girdle scale, are other toasts and are not checked here.
 fn apply_preform_y_offset(ui: &MainWindow) -> Result<(), String> {
     clear_toast(ui);
     ui.global::<EditorModel>()
@@ -400,10 +486,9 @@ fn facet_remove(ui: &MainWindow) -> Result<(), String> {
 }
 
 /// "Add to Queue" with a 1920 x 1080, 64-sample still: the queue lists one more job (nothing
-/// starts it). The handler first needs an export folder (a folder dialog while none is
-/// configured: `render_export::wiring::resolve_export_dir_then`), so the row answers that dialog
-/// with a folder in the profile's working directory instead of the generic cancels, and then
-/// waits for the finished stone (prepared on a worker thread) to arrive.
+/// starts it). With no export folder configured the handler first asks for one
+/// (`render_export::wiring::resolve_export_dir_then`), so the row answers that dialog with a
+/// folder in the working directory. The finished stone arrives from a worker thread.
 fn add_still_jobs(ui: &MainWindow) -> Result<(), String> {
     let jobs = ui.global::<RenderJobsModel>();
     let before = jobs.get_rows().row_count();

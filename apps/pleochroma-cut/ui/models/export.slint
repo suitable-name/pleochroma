@@ -16,13 +16,38 @@ export global ExportModel {
     in-out property <int> custom_height: 1080;
     // Continuous drag target for the sample-count slider; `sample_exponent` (in
     // `export_dialog.slint`) rounds it to the nearest integer so the power-of-two math
-    // stays exact even mid-drag. 10.0 is the exponent for 1024, matching the old
-    // "High" preset's default.
+    // stays exact mid-drag. 10.0 (1024 samples) is the default.
     in-out property <float> sample_exponent_raw: 10.0;
-    // Wide-gamut export: 0 = sRGB (default, untagged, byte-identical to exports made
-    // before this control existed), 1 = Display P3, 2 = Rec.2020 -- both wide-gamut
-    // choices get an embedded ICC profile (`bridge::icc_profile::build`) so the file is
-    // never silently misread as sRGB by a viewer.
+    // "Adaptive Sampling": each part of the picture stops once it is clean enough, and the
+    // samples setting becomes the most any part gets. Off renders exactly as before. Seeded
+    // every time the dialog opens and written back like the other settings
+    // (`gui::render::output_defaults`); the Rust side ignores it for the Ray-Traced renderer.
+    in-out property <bool> adaptive_sampling: false;
+    // "Target Noise": 0 Fine, 1 Standard, 2 Draft -- an index into
+    // `pleochroma::renderer::adaptive::TARGET_NOISE_PRESETS`.
+    in-out property <int> target_noise_index: 1;
+    // "Path Cache": shade the stone from cached light paths, and "Keep for Re-Renders": write
+    // the cache to disk. Off renders exactly as before. Remembered like the adaptive box; the
+    // Rust side ignores both for the Ray-Traced renderer.
+    in-out property <bool> path_cache: false;
+    in-out property <bool> keep_path_cache: false;
+    // Whether the path cache and beam tracing can be used at all. Rust sets both every time the
+    // dialog opens: `false` under exit collection, the app's default estimator, which uses
+    // neither; the boxes are then greyed out with a note.
+    in property <bool> path_cache_available: true;
+    in property <bool> beam_available: true;
+    // "Beam Tracing (Faceted Stones)": follow the light through the stone as beams and finish the
+    // picture with path samples. Off renders exactly as before. Remembered like the path cache
+    // box; the Rust side ignores it for the Ray-Traced renderer.
+    in-out property <bool> beam: false;
+    // "Keep Beams for Re-Renders": store the beams on disk, so rendering the same view again starts
+    // from them. Remembered like the beam box; `beam_keep_available` is `false` for a build that
+    // cannot store beams (Rust sets it every time the dialog opens), which greys the box out.
+    in-out property <bool> keep_beams: false;
+    in property <bool> beam_keep_available: true;
+    // Export color space: 0 = sRGB (default, untagged), 1 = Display P3, 2 = Rec.2020. Both
+    // wide-gamut choices embed an ICC profile (`pleochroma::render_setup::icc_profile::build`)
+    // so a viewer never reads the file as sRGB.
     in-out property <int> selected_color_space_index: 0;
 
     // Whether a configured worker was confirmed reachable and render-capable the last
@@ -74,12 +99,9 @@ export global ExportModel {
     in property <string> current_preset_label: "";
 
     // The export directory and filename template. `directory` is READ-ONLY here (""
-    // means "not chosen yet -- the next export will prompt with a native folder
-    // picker"); `change_directory` opens that same picker on demand, for changing a
-    // folder already chosen without waiting for it to somehow become unset again.
-    // `filename_template` is a plain editable text field; Rust persists every edit via
-    // `filename_template_changed`, matching how `env_map_path`'s free-text field is
-    // already persisted on edit elsewhere in this app.
+    // means "not chosen yet": the next export prompts with a native folder picker);
+    // `change_directory` opens that picker on demand. `filename_template` is an editable
+    // text field; Rust persists every edit via `filename_template_changed`.
     in property <string> directory: "";
     callback change_directory();
     in-out property <string> filename_template: "";
@@ -99,6 +121,9 @@ export global ExportModel {
     // `gui::progress_eta::EtaEstimator`), never a raw seconds count.
     in property <string> eta_text: "";
     in property <string> status_message: "";
+    // The last one-off note the running export reported (the path cache's size estimate, or
+    // the reason it is not used), kept under the progress bar. Cleared when a job starts.
+    in property <string> progress_note: "";
     in property <bool> has_error: false;
     // Live preview: a small in-progress thumbnail of the accumulation buffer, pushed
     // alongside `progress` at up to ~2 updates/sec (see

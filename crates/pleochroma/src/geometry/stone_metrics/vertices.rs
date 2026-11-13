@@ -10,7 +10,7 @@ use crate::geometry::cuts::normals_coincide;
 
 #[cfg(test)]
 thread_local! {
-    /// Per-thread count of [`feasible_vertices`] calls (test-only; each test runs on its own thread).
+    /// Per-thread count of [`feasible_vertices`] calls (test-only; one per test thread).
     pub(super) static FEASIBLE_VERTEX_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
@@ -36,13 +36,10 @@ struct VertexAccumulator {
 }
 
 impl VertexAccumulator {
-    /// Inserts `v` unless some already-accepted vertex is within
-    /// [`VERTEX_DEDUP`] of it on every axis -- identical to a linear scan
-    /// testing `(s.v - v).abs().max_element() < VERTEX_DEDUP` against every
-    /// prior vertex, just restricted up front to the `x`-sorted window that
-    /// could possibly match (any vertex outside `[v.x - VERTEX_DEDUP, v.x +
-    /// VERTEX_DEDUP]` fails the `x`-axis check alone, so narrowing to that
-    /// window changes no accept/reject decision).
+    /// Inserts `v` unless some accepted vertex is within [`VERTEX_DEDUP`] of it on
+    /// every axis. Same decisions as a linear scan over all accepted vertices: only
+    /// the `x`-sorted window that can match is checked, since a vertex outside
+    /// `[v.x - VERTEX_DEDUP, v.x + VERTEX_DEDUP]` fails the `x` check alone.
     fn insert_if_new(&mut self, v: DVec3) {
         let verts = &self.verts;
         let lo = self
@@ -87,13 +84,12 @@ pub(super) fn dedup_planes(planes: &[(DVec3, f64)]) -> Vec<(DVec3, f64)> {
 /// `visit`, in ascending lane order. `lanes[i]` holds the plane-index triple
 /// pushed into lane `i`. Returns `None` the moment a well-conditioned
 /// (`|det| >= MIN_TRIPLE_DET`) vertex escapes to the blank box, propagated by
-/// the caller via `?` -- matching the original loop's immediate `return None`.
-/// Shared by [`for_each_feasible_triple`]'s batching loop.
+/// the caller via `?`. Shared by [`for_each_feasible_triple`]'s batching loop.
 ///
 /// `det_floor` is the smallest `|det|` a lane may have and still be solved and
 /// visited. [`feasible_vertices`] passes [`MIN_TRIPLE_DET`] itself, which makes
 /// the escape branch's own `det_abs >= MIN_TRIPLE_DET` test always true there,
-/// so its behaviour is exactly the pre-walker one. A caller passing a lower
+/// so every lane that reaches the escape test is well-conditioned. A caller passing a lower
 /// floor (the B-rep, which wants to *report* ill-conditioned vertices rather
 /// than silently lose them) also sees feasible lanes with
 /// `det_floor <= |det| < MIN_TRIPLE_DET`, but such a lane never triggers the
@@ -112,11 +108,8 @@ fn flush_solid_batch(
         reason = "the lane index addresses several parallel SoA arrays (det, vx, vy, vz, lanes)"
     )]
     for lane in 0..batch.len {
-        // `is_nan() || .. < det_floor` rather than a plain `.. < det_floor`:
-        // a NaN determinant (a non-finite mast or index reaching the solve) fails
-        // every ordered comparison, so the plain `<` form falls through and hands a
-        // NaN-tainted vertex to the accumulator (see the module docs on non-finite
-        // inputs). The explicit `is_nan()` check catches it too.
+        // A NaN determinant fails every ordered comparison, so a plain `< det_floor`
+        // test would let it through to the accumulator; `is_nan()` rejects it.
         let det_abs = sol.det[lane].abs();
         if det_abs.is_nan() || det_abs < det_floor {
             continue;
@@ -222,17 +215,15 @@ fn pair_misses_solid(all: &[(DVec3, f64)], a: usize, b: usize, det_floor: f64) -
 ///
 /// `prune_pairs` skips every pair `(a, b)` that [`pair_misses_solid`] proves
 /// cannot take part in a visited triple -- the same triples are visited in the
-/// same order, only faster (a dense 600-plane sphere walks about 30x faster;
-/// the 205-plane crackotto fixture about 4x). Both callers enable it; `false`
+/// same order, only faster. Both callers enable it; `false`
 /// is the plain exhaustive walk the pruned one is checked against.
 ///
-/// Batched through `crate::simd`, matching
-/// `meet_solver::enumerate_candidate_vertices`: one `PlanesSoA64` built up
-/// front (owner is irrelevant to this owner-free scan, so every plane is
-/// pushed with owner 0), triples solved via `solve_triple_batch` via
-/// [`flush_solid_batch`], and the `any()` feasibility scan replaced by
-/// `any_violation` -- bit-identical per lane to the `glam` `DMat3` sequence
-/// and scalar scan they replace (see `src/simd.rs`'s determinism contract).
+/// Batched through `crate::simd`, as the meet solver's candidate enumeration is:
+/// one `PlanesSoA64` built up front (the owner field is unused here, so every
+/// plane is pushed with owner 0), triples solved via `solve_triple_batch` through
+/// [`flush_solid_batch`], and feasibility checked with `any_violation`, which is
+/// bit-identical per lane to the scalar `glam` check (see `src/simd/mod.rs`'s
+/// determinism contract).
 pub(in crate::geometry) fn for_each_feasible_triple(
     planes: &[(DVec3, f64)],
     det_floor: f64,
@@ -286,11 +277,10 @@ pub(in crate::geometry) fn for_each_feasible_triple(
 /// blank (the real planes don't bound a finite solid).
 ///
 /// A thin wrapper over [`for_each_feasible_triple`] with
-/// `det_floor = MIN_TRIPLE_DET` and pair pruning. Lanes are drained in ascending order and
-/// triples are generated by the same nested loops in the same order (the prune
-/// only skips pairs that provably yield no visited triple), so vertex order and
-/// every decision here (determinant check, bounds check, feasibility,
-/// blank-escape) match the unbatched scalar version exactly.
+/// `det_floor = MIN_TRIPLE_DET` and pair pruning. Lanes are drained in ascending
+/// order and triples come from the same nested loops, so the vertex order and
+/// every decision (determinant, bounds, feasibility, blank escape) match a scalar
+/// walk exactly.
 pub(super) fn feasible_vertices(planes: &[(DVec3, f64)]) -> Option<Vec<SolidVertex>> {
     #[cfg(test)]
     FEASIBLE_VERTEX_CALLS.with(|c| c.set(c.get() + 1));
@@ -351,11 +341,9 @@ pub(super) fn dedup_origin_indices(
 /// and collects which of the REAL (non-blank) plane indices participate in
 /// at least one.
 ///
-/// Not SIMD-batched, unlike [`feasible_vertices`]: this only runs on an
-/// editor's invalid intermediate states, never on the success path measured
-/// by any perf budget, so a plain `glam` solve per triple (the same
-/// arithmetic `feasible_vertices`'s batches compute, just one triple at a
-/// time) is the right tradeoff here -- obviously correct beats fast.
+/// Not SIMD-batched, unlike [`feasible_vertices`]: it runs only on unbounded
+/// arrangements (an editor's invalid intermediate states), so a plain `glam` solve
+/// per triple, the same arithmetic one triple at a time, is enough.
 pub(in crate::geometry) fn escaping_plane_indices(planes: &[(DVec3, f64)]) -> Vec<usize> {
     let real_count = planes.len();
     let mut all: Vec<(DVec3, f64)> = planes.to_vec();

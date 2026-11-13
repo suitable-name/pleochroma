@@ -1,7 +1,7 @@
 //! Which stored file an entry opens from, and reading it as a [`Design`].
 //!
-//! The rule is the vault's: a self-contained `.psdd` design file
-//! first, else the first `.asc`, else the first `.gem`, else the first `.gcs` (converted to `.asc`).
+//! The rule is the vault's: a self-contained `.psdd` design file first, else the first `.asc`,
+//! else the first `.gem`, else the first `.gcs` (converted to `.asc`).
 //! Other attachments (PDFs, images) are never a design.
 //!
 //! `.asc` has no notation for frosting, so the frosting of an entry read from one of those

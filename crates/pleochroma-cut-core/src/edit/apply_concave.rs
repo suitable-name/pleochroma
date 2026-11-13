@@ -1,7 +1,8 @@
-//! The concave-tier halves of [`Design::apply_edit`], split from `apply.rs` so
-//! that file stays focused on the flat-tier edits. Every method here validates
-//! before it mutates, keeping `apply_edit`'s "without modifying `self` on error"
-//! contract, and returns the exact inverse [`Edit`].
+//! The concave-tier halves of [`Design::apply_edit`], split from `apply.rs` so that file stays
+//! focused on the flat-tier edits.
+//!
+//! Every method here validates before it mutates, keeping `apply_edit`'s "without modifying `self`
+//! on error" contract, and returns the exact inverse [`Edit`].
 
 use super::edit_type::{Edit, EditError};
 use crate::design::{ConcaveTier, Design, TierId};
@@ -11,18 +12,15 @@ impl Design {
     /// [`ConcaveTier::validate`] against this design's gear and does not reuse a
     /// flat tier's name.
     ///
-    /// A name shared by two CONCAVE tiers is deliberately not refused here, the same
-    /// split the flat tiers have: the form refuses it (`concave_name_clash_message` in
-    /// `pleochroma-editor`), the edit does not. An edit that refused it would also refuse
-    /// the replays that rebuild a design (a saved variant, the undo of a rename) for a file
-    /// an earlier build saved with a repeated name; those tiers stay distinguishable by id.
+    /// Two concave tiers may share a name: the form refuses it (`concave_name_clash_message`
+    /// in `pleochroma-editor`), but the edit does not. Refusing it here would also refuse the
+    /// replays that rebuild a design, such as a saved variant, for files already holding a
+    /// repeated name. Those tiers stay distinguishable by id.
     ///
-    /// [`EditError`] has one shape, naming a position and a count, so a rejected
-    /// tier reuses it with the concave list's length -- the same precedent as
-    /// `SetSchedule`'s schedule-wide validation failure. The editor's own tier
-    /// form reports the precise [`crate::design::ConcaveTierError`] before an edit
-    /// is ever built; this is the backstop that keeps a hostile tier out of the
-    /// design.
+    /// [`EditError`] has one shape, so a rejected tier reuses it with the concave list's
+    /// length, as `SetSchedule` does for its schedule-wide failure. The editor's tier form
+    /// reports the precise [`crate::design::ConcaveTierError`] first; this is the backstop
+    /// that keeps an invalid tier out of the design.
     fn check_concave_candidate(&self, index: usize, tier: &ConcaveTier) -> Result<(), EditError> {
         let reject = || EditError {
             index,

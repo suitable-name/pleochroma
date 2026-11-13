@@ -14,10 +14,8 @@ export component TierTableToolbar inherits VerticalLayout {
     spacing: 4px;
 
     // The filter box: dims the non-matching rows (they stay in the list so the arrow
-    // keys keep working on the whole list).
-    // A std `LineEdit` is taller than 24px; left to stretch it spilled out of this row
-    // and was drawn over the button row below (Adopt all / Select). It is pinned to the
-    // row's height here (the `MiniField` recipe) and centred.
+    // keys keep working on the whole list). The std `LineEdit` is pinned to a 22px field
+    // and centred, since its own height would overflow this row.
     Rectangle {
         height: 28px;
         background: Theme.bg-input;

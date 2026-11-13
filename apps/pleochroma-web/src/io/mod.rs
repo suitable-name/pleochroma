@@ -5,8 +5,7 @@
 //! (`InputFileKind::classify`) and loads them through [`load`]
 //! (designs) or [`hdr`] (environment maps).
 //!
-//! Output: [`save`] builds every File menu download with the desktop's string
-//! APIs and hands it to [`download`].
+//! Output: [`save`] builds every File menu download and hands it to [`download`].
 //!
 //! Both directions tell an open tutorial what succeeded: an opened design raises
 //! `DESIGN_REPLACED` ([`open_files`]), the saves and downloads their own events (see [`save`]).
@@ -109,7 +108,13 @@ fn open_hdr(ctx: &Ctx, file: IncomingFile) {
                 upload.height,
                 upload.bytes.len() as f64 / (1024.0 * 1024.0)
             );
-            ctx.state.borrow_mut().hdr = Some(upload);
+            {
+                let mut app = ctx.state.borrow_mut();
+                app.hdr = Some(upload);
+                // A different map starts unturned (the follow switch stays as it was).
+                app.settings.hdr_yaw_deg = 0.0;
+            }
+            schedule_save(ctx);
             if let Some(ui) = ctx.ui.upgrade() {
                 push_settings(&ui, &ctx.state.borrow());
             }

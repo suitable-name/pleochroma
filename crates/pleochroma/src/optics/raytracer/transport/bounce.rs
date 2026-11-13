@@ -8,50 +8,47 @@
 use super::super::{
     NUM_CHANNELS,
     camera::{FacetFinish, Ray},
-    environment::{environment_nee_pdf, sample_environment_channels},
+    environment::{environment_nee_pdf, sample_environment_channels_at},
     refraction::{
         BounceContext, BounceRay, BounceRefractionGeometry, BounceState, ExitEvent, ExitSplitCtx,
-        PathModeState, RayMaterialContext, RayWavelengthCache, RngDraw,
-        apply_partial_fresnel_bounce, apply_tir_bounce, entry_eigenmode_selection,
-        poynting_dir_for_mode,
+        PathModeState, RayMaterialContext, RayWavelengthCache, RngDraw, apply_collect_bounce,
+        apply_partial_fresnel_bounce, apply_tir_bounce, context::ExitCollect,
+        entry_eigenmode_selection, poynting_dir_for_mode,
     },
-    sampling::{MODE_COUPLING_STREAM, RUSSIAN_ROULETTE_STREAM, hash_u32},
+    sampling::{MODE_COUPLING_STREAM, RUSSIAN_ROULETTE_STREAM, discrete_draw},
     scattering::{NeeContext, balance_heuristic},
     surface::{GroundParams, apply_ground_bounce},
 };
 use crate::optics::polarization::StokesVector;
 use glam::Vec3;
 
-/// Accumulates the environment radiance for a ray that exited or missed the gemstone
-/// entirely, terminating the bounce loop.
+/// Adds the environment radiance seen by a ray that left the gemstone or missed it. The
+/// escaping ray's origin (the camera origin at bounce 0) locates the illuminated paper for a
+/// downward escape.
 ///
-/// The environment, the `StudioRig` and the observer come from the per-trace `exit`
-/// context, which builds the rig once from `light_yaw`/`light_pitch` -- neither varies per
-/// spectral channel or per bounce, and `StudioRig::new` (~40 sin/cos plus 16 vector
-/// normalizes) is far too costly to repeat for every escape. All `NUM_CHANNELS` channels
-/// look along the same `ray_dir`, so the direction's wavelength-independent lighting is
-/// evaluated once and each channel only applies its own spectral power; the per-channel
-/// values are bit-identical to looking each channel up on its own.
+/// The `StudioRig` is built once per trace in the `exit` context, since building it per escape
+/// is too costly. All channels look along the same `ray_dir`, so the wavelength-independent
+/// lighting is evaluated once and each channel applies only its own spectral power.
 ///
-/// `exit.observer` is the unit direction from the stone towards the eye, for the lit
-/// lighting models' head shadow (see `environment::sample_studio_environment_observed`).
+/// `exit.observer` is the unit direction from the stone towards the eye, for the lit lighting
+/// models' head shadow (see `environment::sample_studio_environment_observed`).
 ///
-/// `mis_weight` scales every channel's contribution uniformly -- `1.0`
-/// (exactly, so `stokes[k].intensity() * 1.0` is bit-identical to the bare value)
-/// reproduces this function's behaviour with NEE absent precisely; every call site with
-/// NEE disabled passes `1.0`. A value `< 1.0` is the
-/// balance-heuristic weight for a phase/BSDF-sampled continuation directly following an
-/// NEE-eligible scattering event -- see `trace_spectral_ray_inner`'s own call site.
+/// `mis_weight` scales every channel uniformly. `1.0` leaves the bare environment value bit
+/// for bit and is passed whenever NEE is off. A value below `1.0` is the balance-heuristic
+/// weight of a phase- or BSDF-sampled continuation that follows an NEE-eligible scatter (see
+/// `trace_spectral_ray_inner`'s call site).
 pub(super) fn accumulate_miss_radiance(
     exit: &ExitSplitCtx<'_>,
+    ray_origin: Vec3,
     ray_dir: Vec3,
     lambdas: &[f32; NUM_CHANNELS],
     stokes: &[StokesVector; NUM_CHANNELS],
     mis_weight: f32,
     radiance: &mut [f32; NUM_CHANNELS],
 ) {
-    let env_spectral = sample_environment_channels(
+    let env_spectral = sample_environment_channels_at(
         exit.environment,
+        ray_origin,
         ray_dir,
         lambdas,
         exit.studio_rig.as_ref(),
@@ -65,31 +62,30 @@ pub(super) fn accumulate_miss_radiance(
     }
 }
 
-/// Dispatches one bounce's TIR / partial-reflect / refract event -- or, for a
-/// `FacetFinish::Frosted` facet, `apply_ground_bounce` (the GGX ground lobe `ground`,
-/// which replaced the Lambertian `apply_frosted_bounce`) instead -- then applies
-/// internal mode re-coupling if that event was an internal reflection. Extracted out
-/// of the bounce loop purely for clippy's function-length lint; behavior is unchanged.
+/// Dispatches one bounce's event: TIR, partial reflect or refract, or for a
+/// `FacetFinish::Frosted` facet the ground lobe of `apply_ground_bounce`. It then applies
+/// internal mode re-coupling if the event was an internal reflection.
 ///
-/// `was_internal_reflection` mirrors the polished-reflect condition
-/// (`inside_gem && is_extraordinary_update.is_none() && new_inside_gem == inside_gem`,
-/// evaluated pre-bounce): it is unconditionally `true` for a TIR bounce, since TIR is
-/// only reachable with `inside_gem == true` (`n1 > n2` for the hero channel -- see
-/// `compute_bounce_refraction_geometry`), and `false` for any transmit/refract event,
-/// since those always flip `inside_gem`.
+/// `was_internal_reflection` is `true` for a TIR bounce, which is only reachable from inside
+/// the gem (`n1 > n2` for the hero channel), and `false` for any event that transmits, since
+/// those always flip `inside_gem`.
 ///
-/// `current_k` is the wave normal `k` (see `refraction`'s "wave normal vs Poynting
-/// direction" design note), read here as the incoming `k` and updated in place to the
-/// outgoing `k'` alongside `current_ray.dir` (`S'`). A `Frosted` bounce collapses
-/// `k' == S'`: a diffuse bounce depolarizes like a Henyey-Greenstein scatter (see
-/// `try_scatter_step`'s identical treatment), leaving no coherent wave-normal-vs-
-/// Poynting distinction to track past it.
+/// `current_k` is the wave normal `k` (see the `refraction` module docs, wave normal versus
+/// Poynting direction). It is read as the incoming `k` and updated in place to the outgoing
+/// `k'`, alongside `current_ray.dir` (`S'`). A `Frosted` bounce sets `k' == S'`: a diffuse
+/// bounce depolarizes like a Henyey-Greenstein scatter, so no wave-normal distinction remains.
 ///
-/// Returns the `pending_light_mis` carry -- `Some` only when the `Frosted`
-/// branch dispatched an NEE-eligible outcome (see `apply_frosted_bounce`'s "Sign
-/// convention for NEE eligibility" doc section), `None` for every TIR/polished dispatch
-/// and every non-eligible frosted one. The caller stashes this in `pending_light_mis`
-/// exactly like `try_scatter_step`'s identical HG-path carry.
+/// Returns the `pending_light_mis` carry: `Some` for a `Frosted` NEE-eligible outcome (see the
+/// "Sign convention for NEE eligibility" section of `apply_frosted_bounce`) or for a polished
+/// transmit out that passes an incoming carry through. The caller stores it like the
+/// Henyey-Greenstein carry of `try_scatter_step`.
+///
+/// `collect` is the exit-collection estimator's state (see [`ExitCollect`]). With
+/// `collect.active == false` the dispatch is the branching one. With it, a polished event is
+/// traced by `apply_collect_bounce` (the transmitted leaf is collected, the reflection is
+/// followed undivided), and a forced total internal reflection keeps its branch factors out of
+/// `path_pdf`. Collection is active only for a stone without tools, so a collected leaf never
+/// re-enters the stone.
 #[expect(
     clippy::too_many_arguments,
     reason = "bundles every value fixed for the trace (ctx) or the bounce (cache, geo) \
@@ -128,13 +124,10 @@ pub(super) fn dispatch_bounce(
     lambdas: &[f32; NUM_CHANNELS],
     radiance: &mut [f32; NUM_CHANNELS],
     incoming_light_mis: Option<(f32, Vec3)>,
+    collect: &mut ExitCollect<'_>,
 ) -> Option<(f32, Vec3)> {
-    // `*inside_gem` read directly below (both here and in `was_internal_reflection`
-    // further down) is this bounce's PRE-event value -- nothing before the mutation at
-    // `*inside_gem = new_inside_gem` further down touches it. `dispatch_polished_bounce`
-    // reads the identical pre-event value back out of its own `mode_state.inside_gem`
-    // (built from `*inside_gem` right here, below) rather than a redundant second
-    // named binding.
+    // `*inside_gem` read below is the PRE-event value, since it is only written after the
+    // event. `dispatch_polished_bounce` reads the same value through `mode_state.inside_gem`.
     let (new_k, new_s, new_inside_gem, is_extraordinary_update, exact_p_o, bounce_light_mis) =
         if finish == FacetFinish::Frosted {
             let (new_dir, new_inside_gem, is_extraordinary_update, frosted_light_mis) =
@@ -158,17 +151,13 @@ pub(super) fn dispatch_bounce(
                 new_inside_gem,
                 is_extraordinary_update,
                 None,
-                // The frosted arm's own carry pairs with `new_dir`: unlike the polished
-                // exit below, a frosted transmit's `new_dir` is already the true
-                // exterior propagation direction (no further refraction happens between
-                // here and a possible direct escape next iteration), so pairing the
-                // carry with `new_dir` is bit-identical to reading `current_ray.dir`
-                // (equal to this same `new_dir`) at escape time. The
-                // INCOMING carry is deliberately dropped here, superseded by this
-                // bounce's own fresh one (or `None`).
+                // The frosted carry pairs with `new_dir`, already the exterior propagation
+                // direction, so it equals `current_ray.dir` at a later escape. The incoming
+                // carry is dropped: this bounce's own carry replaces it.
                 frosted_light_mis.map(|phase_pdf| (phase_pdf, new_dir)),
             )
         } else if geo.sin2_t > 1.0 {
+            let densities_before = *path_pdf;
             let (k_prime, exact_p_o) = apply_tir_bounce(
                 ctx,
                 geo,
@@ -178,10 +167,13 @@ pub(super) fn dispatch_bounce(
                 stokes,
                 path_pdf,
             );
+            if collect.active {
+                // The collected chain is followed with probability one: no branch factor.
+                *path_pdf = densities_before;
+            }
             let s_prime = poynting_dir_for_mode(ctx, geo, k_prime, *inside_gem, *is_extraordinary);
-            // TIR is always an internal reflection (still inside afterward) -- the
-            // incoming carry has no competing NEE sample to weigh itself against here,
-            // so it is dropped, exactly like every other non-transmit-out dispatch.
+            // TIR is an internal reflection, so the incoming carry has no competing NEE
+            // sample and is dropped.
             (k_prime, s_prime, *inside_gem, None, exact_p_o, None)
         } else {
             let bctx = BounceContext { ctx, cache, geo };
@@ -204,7 +196,7 @@ pub(super) fn dispatch_bounce(
                 rng,
                 &mut state,
                 &mut exit_event,
-                (nee, incoming_light_mis),
+                (nee, incoming_light_mis, collect),
             )
         };
     let was_internal_reflection =
@@ -216,13 +208,10 @@ pub(super) fn dispatch_bounce(
     if let Some(updated) = is_extraordinary_update {
         *is_extraordinary = updated;
     }
-    // `current_k` (updated above) and `stokes` are this bounce's post-event state --
-    // what the internal re-coupling draw needs to weight itself by polarization
-    // relative to the new wave normal's eigenbasis (see
-    // `maybe_apply_internal_mode_coupling`'s doc comment). `exact_p_o` is the
-    // closed-form `R_o/(R_o+R_e)` split already computed for a uniaxial internal
-    // reflection (`None` for a frosted bounce, biaxial material, or transmit/exit
-    // event, in which case the fallback heuristic below is used instead).
+    // `current_k` and `stokes` are the post-event state the re-coupling weighs by
+    // polarization. `exact_p_o` is the closed-form `R_o/(R_o+R_e)` split of an internal
+    // reflection; it is `None` for a frosted bounce, a biaxial material or a transmit, where
+    // the fallback heuristic applies.
     maybe_apply_internal_mode_coupling(
         ctx,
         geo.is_biaxial,
@@ -238,11 +227,9 @@ pub(super) fn dispatch_bounce(
     bounce_light_mis
 }
 
-/// [`dispatch_polished_bounce`]'s own return type -- named purely so clippy's
-/// `type_complexity` lint doesn't trip on the six-tuple; mirrors
-/// `refraction::dispatch::FresnelBounceResult`'s identical precedent for
-/// `apply_partial_fresnel_bounce`'s own five-tuple, extended with the
-/// `bounce_light_mis` carry.
+/// The return type of [`dispatch_polished_bounce`]: the five-tuple of
+/// `apply_partial_fresnel_bounce` plus the transmit-out `bounce_light_mis` carry. Named so that
+/// clippy's `type_complexity` lint stays quiet.
 type PolishedBounceResult = (
     Vec3,
     Vec3,
@@ -252,23 +239,18 @@ type PolishedBounceResult = (
     Option<(f32, Vec3)>,
 );
 
-/// The non-frosted, non-forced-TIR arm of [`dispatch_bounce`] -- the general
-/// TIR/partial-reflect/refract dispatch (`apply_partial_fresnel_bounce`, covering both
-/// the scalar-Fresnel and closed-form uniaxial paths). Extracted purely to keep
-/// `dispatch_bounce` itself under clippy's function-length lint; behavior is unchanged,
-/// this is a direct extraction of that function's own former `else` branch, with every
-/// argument bundled into the SAME context structs `apply_partial_fresnel_bounce` itself
-/// already takes (`bctx`/`ray`/`mode_state`/`rng`/`state`/`exit_event`, built by the
-/// caller exactly as it built them inline before), plus one tuple for the two values
-/// that function doesn't need (`nee`, for `split_mis_weight`'s own environment lookup,
-/// and the live `incoming_light_mis` carry) -- keeping the argument count under
-/// clippy's `too_many_arguments` limit without a new `#[expect]`.
+/// The non-frosted, non-forced-TIR arm of [`dispatch_bounce`]: the partial Fresnel dispatch
+/// (scalar or closed-form uniaxial), or [`apply_collect_bounce`] when collection is active.
+/// The context structs `apply_partial_fresnel_bounce` takes are built here, with one tuple for
+/// the values it does not need (`nee`, the incoming light-MIS carry and `collect`). That keeps
+/// the argument count under clippy's limit.
 ///
-/// `mode_state.inside_gem` is this bounce's PRE-event `inside_gem` (`dispatch_bounce`'s
-/// own `pre_bounce_inside_gem`, read here via `mode_state` instead of a redundant extra
-/// parameter -- `mode_state` is passed by value, unread again by the caller, so no
-/// aliasing concern). Returns the same five-tuple `apply_partial_fresnel_bounce` does,
-/// plus the transmit-out `bounce_light_mis` carry (`None` for every other outcome).
+/// With `collect.active` the event is traced by `apply_collect_bounce` and returns. NEE is off
+/// whenever collection is active, so a collected event has no light-sample MIS weight and
+/// returns no carry.
+///
+/// `mode_state.inside_gem` is the PRE-event value. The return is the five-tuple of
+/// `apply_partial_fresnel_bounce` plus the transmit-out carry (`None` for every other outcome).
 fn dispatch_polished_bounce(
     bctx: &BounceContext<'_, '_>,
     ray: BounceRay,
@@ -276,23 +258,27 @@ fn dispatch_polished_bounce(
     rng: RngDraw,
     state: &mut BounceState<'_>,
     exit_event: &mut ExitEvent<'_, '_>,
-    nee_and_carry: (NeeContext<'_>, Option<(f32, Vec3)>),
+    nee_carry_collect: (NeeContext<'_>, Option<(f32, Vec3)>, &mut ExitCollect<'_>),
 ) -> PolishedBounceResult {
-    let (nee, incoming_light_mis) = nee_and_carry;
+    let (nee, incoming_light_mis, collect) = nee_carry_collect;
+    if collect.active {
+        let (k_prime, s_prime, new_inside_gem, is_extraordinary_update, exact_p_o) =
+            apply_collect_bounce(bctx, ray, mode_state, rng, state, exit_event, collect);
+        return (
+            k_prime,
+            s_prime,
+            new_inside_gem,
+            is_extraordinary_update,
+            exact_p_o,
+            None,
+        );
+    }
     let pre_bounce_inside_gem = mode_state.inside_gem;
-    // This dispatch is the ONLY place a transmit-out-of-gem event with a live
-    // incoming NEE carry can reach `try_split_exit_channel` (see
-    // `ExitSplitCtx::split_mis_weight`'s doc comment): whether the hero itself
-    // ends up transmitting out (vs. reflecting) is decided inside
-    // `apply_partial_fresnel_bounce`/`apply_uniaxial_internal_bounce` below, but
-    // `try_split_exit_channel` is reachable at all only from their own
-    // transmit/chromatic-termination branch, and that branch always transmits OUT
-    // when `pre_bounce_inside_gem` is true (entering_anisotropic, the only source
-    // of an entry-transmit `Some` update, requires `!inside_gem`) -- so computing
-    // the weight speculatively from `pre_bounce_inside_gem` here, before the
-    // reflect/transmit coin flip happens, is exact, not an approximation.
-    // Mirrors the hero's own escape weight at `transport::inner`'s
-    // `phase_pdf_for_mis_this_check` site exactly: same balance heuristic, same
+    // Only a transmit out of the gem can reach `try_split_exit_channel` with a live carry (see
+    // `ExitSplitCtx::split_mis_weight`). The partial-Fresnel dispatch below decides whether the
+    // hero transmits, but a transmit from inside always leaves the gem. So the weight can be
+    // computed from `pre_bounce_inside_gem` before the reflect/transmit draw, and it is exact.
+    // It is the same weight `handle_miss` gives a hero escape: the balance heuristic with
     // `environment_nee_pdf` at the carried INTERIOR direction.
     exit_event.exit.split_mis_weight = if pre_bounce_inside_gem {
         incoming_light_mis.map_or(1.0, |(phase_pdf, interior_dir)| {
@@ -309,15 +295,9 @@ fn dispatch_polished_bounce(
     // Reset immediately after dispatch -- `split_mis_weight` must never leak into
     // a later bounce's own (unrelated) split contributions.
     exit_event.exit.split_mis_weight = 1.0;
-    // A scatter event's pending complementary-MIS carry must survive
-    // the polished exit refraction rather than being dropped here. Reachable
-    // only for the genuine transmit-out case -- `pre_bounce_inside_gem` was
-    // true, the outcome flipped to exterior, and `is_extraordinary_update` is
-    // `None` (guaranteed here since `entering_anisotropic` requires
-    // `!inside_gem`, so it can never be the transmit branch's own entry-mode
-    // update when the ray started inside) -- never for a reflect (which never
-    // changes `inside_gem`) or an air->crystal entry transmit (`inside_gem` was
-    // already `false`, so no carry could have been pending for it anyway).
+    // A pending NEE carry survives only a genuine transmit out: the ray started inside, the
+    // outcome is exterior, and there is no entry-mode update. A reflection never changes
+    // `inside_gem`, and an air->crystal entry transmit never has a carry pending.
     let transmit_out_of_gem =
         pre_bounce_inside_gem && !new_inside_gem && is_extraordinary_update.is_none();
     let bounce_light_mis = if transmit_out_of_gem {
@@ -335,24 +315,19 @@ fn dispatch_polished_bounce(
     )
 }
 
-/// Russian Roulette termination with weighted survival. A hard cutoff on dim paths
-/// biases the estimator dark, worst on long internal bounce trains inside high-index
-/// stones. Instead, survive with probability `q` (the path's max spectral throughput,
-/// clamped) and on survival divide every Stokes vector by `q` so the estimator stays
-/// unbiased (`E[survive] * (1/q) = 1`). Returns `false` if the path should terminate,
-/// `true` if it survives (Stokes vectors rescaled in place).
+/// Russian roulette with weighted survival. A hard cutoff on dim paths biases the estimator
+/// dark, worst on long internal bounce trains inside high-index stones. Instead the path
+/// survives with probability `q` (the largest channel intensity, clamped), and on survival
+/// every Stokes vector is divided by `q`, so `E[survive] * (1/q) = 1` and the estimator stays
+/// unbiased. Returns `false` if the path terminates, `true` if it survives (Stokes vectors
+/// rescaled in place).
 ///
-/// `split_radiance` rides the same `1/q` rescale as `stokes`: a channel that split off
-/// at an earlier bounce (`bounce > 4`) already folded its contribution into
-/// `exit.split_radiance[k]`, and that contribution is committed into `radiance` only if
-/// the hero path survives every remaining roulette draw -- so it must be rescaled
-/// exactly like every other quantity riding the same path, or it understates itself by
-/// a factor of `q` per surviving draw past the split.
+/// `split_radiance` takes the same `1/q` rescale. A channel that split off at an earlier
+/// bounce stages its contribution there, and that is committed to `radiance` only if the hero
+/// path survives every later draw, so it must be rescaled with them.
 ///
-/// `pub(in super::super)` (raytracer + descendants), not `pub(super)`: `scattering`'s
-/// `try_scatter_step` (a sibling of `transport`, not a descendant of it) calls this
-/// directly for its own trailing Russian-roulette draw -- the same scope this function
-/// had before the split, when it lived straight in `transport.rs` (parent: `raytracer`).
+/// `pub(in super::super)`: `scattering`'s `try_scatter_step` calls this for its own trailing
+/// roulette draw, from outside `transport`.
 pub(in super::super) fn apply_russian_roulette(
     bounce: u32,
     rng_seed: u32,
@@ -362,8 +337,49 @@ pub(in super::super) fn apply_russian_roulette(
     let max_intensity = stokes.iter().fold(0.0f32, |a, s| a.max(s.intensity()));
     let q = max_intensity.clamp(0.05, 1.0);
     let rr_rand =
-        (hash_u32(rng_seed ^ hash_u32(bounce ^ RUSSIAN_ROULETTE_STREAM)) as f32) / 4_294_967_295.0;
+        (discrete_draw(rng_seed, bounce, RUSSIAN_ROULETTE_STREAM) as f32) / 4_294_967_295.0;
     if rr_rand > q {
+        return false;
+    }
+    for s in &mut *stokes {
+        *s = s.scale(1.0 / q);
+    }
+    for r in &mut *split_radiance {
+        *r /= q;
+    }
+    true
+}
+
+/// The weight below which the exit-collection estimator plays Russian roulette.
+///
+/// Above it the largest channel intensity is a physical weight that the chain carries as it is.
+const COLLECT_ROULETTE_FLOOR: f32 = 0.02;
+
+/// Russian roulette for the exit-collection estimator.
+///
+/// [`apply_russian_roulette`] would fire on most collected paths: their largest intensity is a
+/// physical weight, and a white-noise draw on it gives back the variance the collection removed.
+/// Here nothing happens while the largest intensity is at least [`COLLECT_ROULETTE_FLOOR`].
+/// Below it the path survives with probability `intensity / floor`, and every Stokes vector is
+/// divided by that probability, which keeps the estimator unbiased. The draw uses the roulette
+/// stream. Returns `false` if the path terminates.
+///
+/// `split_radiance` is rescaled as in [`apply_russian_roulette`]; the collected leaves are final
+/// and are not rescaled.
+pub(super) fn apply_collect_roulette(
+    bounce: u32,
+    rng_seed: u32,
+    stokes: &mut [StokesVector; NUM_CHANNELS],
+    split_radiance: &mut [f32; NUM_CHANNELS],
+) -> bool {
+    let max_intensity = stokes.iter().fold(0.0f32, |a, s| a.max(s.intensity()));
+    if max_intensity >= COLLECT_ROULETTE_FLOOR {
+        return true;
+    }
+    let q = max_intensity / COLLECT_ROULETTE_FLOOR;
+    let rr_rand =
+        (discrete_draw(rng_seed, bounce, RUSSIAN_ROULETTE_STREAM) as f32) / 4_294_967_295.0;
+    if q <= 0.0 || rr_rand > q {
         return false;
     }
     for s in &mut *stokes {
@@ -380,57 +396,37 @@ pub(in super::super) fn apply_russian_roulette(
 ///
 /// # What this models
 ///
-/// A path's eigenmode is assigned once at the air->crystal entry. Reusing that mode's
-/// index unconditionally at every subsequent internal bounce via an isotropic Fresnel
-/// calculation would be wrong: a uniaxial crystal's o/e eigenbasis is defined
-/// relative to the LOCAL wave-normal direction at each facet, so a differently
-/// oriented facet has a different eigenbasis than the one the path last bounced off:
-/// real light partially converts between the two labels at every internal bounce, a
-/// genuine contributor to the "doubling" high-birefringence stones (zircon,
-/// moissanite) show. This function models that conversion as a fresh draw of which
-/// mode's index governs the path from here: with the exact closed-form share when the
-/// caller has one, the polarization-weighted `entry_eigenmode_selection` share for a
-/// uniaxial reflection without one, and a blanket 50/50 for biaxial materials. It is not
-/// a per-bounce probability derived from the actual angle between the old and new
-/// eigenbases (that would need genuine anisotropic Fresnel coefficients at an
-/// anisotropic interface -- out of scope). This lets a many-internal-bounce path
-/// (the pavilion TIR trains responsible for brilliance) sample a genuine mix of
-/// o-like/e-like propagation instead of freezing to its entry mode; it does not buy a
-/// physically-derived conversion fraction per bounce or coherent superposition.
+/// A path takes its eigenmode once, at the air->crystal entry. A uniaxial eigenbasis is
+/// defined relative to the local wave normal, so a facet with another orientation has another
+/// basis, and light partly converts between the two labels at every internal bounce. That
+/// conversion contributes to the doubling of high-birefringence stones (zircon, moissanite).
+/// This function models it as a fresh draw of which mode's index governs the path from here.
+/// The draw uses the exact closed-form share when the caller has one, the polarization-weighted
+/// `entry_eigenmode_selection` share for a uniaxial reflection without one, and 50/50 for
+/// biaxial materials. It is not a per-bounce probability from the angle between the old and new
+/// eigenbases, which would need anisotropic Fresnel coefficients at an anisotropic interface. A
+/// long TIR train therefore mixes o-like and e-like propagation instead of freezing at its
+/// entry mode.
 ///
-/// # Decision record: a relabeling, not a split -- no `1/p` division needed
+/// # Why no path weight
 ///
-/// At the entry split, one incident ray becomes two physically distinct rays each
-/// carrying ~0.5 the energy, and the selected mode's Fresnel transmittance is
-/// evaluated against the full incident Stokes vector -- so its 0.5 selection
-/// probability must match each mode's true energy share for the unscaled sample to
-/// stay unbiased. Here nothing new is created: the path still has exactly one Stokes
-/// vector and one `path_pdf`, and this function only re-rolls which eigenmode LABEL
-/// governs the refractive index for the next bounce, touching neither. Since neither
-/// accumulator is touched, no `1/p` weight is owed and there is no energy-fraction
-/// constraint like the entry split's. The selection probability is therefore a
-/// modelling choice that sets the o/e mixture along the path, not an importance-sampling
-/// density that an estimator weight would correct. It uses the exact closed-form
-/// `internal_solve` Poynting-weighted split `R_o/(R_o+R_e)` when the caller has one
-/// (`exact_p_o: Some(..)`, from the same `internal_solve` call `apply_tir_bounce`
-/// already ran for this bounce's reflected energy), which is the hero channel's share:
-/// the path carries one mode label, so the companion channels use the hero's share even
-/// though their own shares differ slightly (`docs/physics.md` section 2.4). Without a
-/// closed-form share it falls back to the polarization-weighted
-/// `entry_eigenmode_selection` heuristic, and biaxial materials keep the blanket 50/50
-/// (`BiaxialIndicatrix` has no uniaxial closed-form solve to draw an exact split from).
+/// The path keeps one Stokes vector and one `path_pdf`. This function only re-labels which
+/// eigenmode governs the next bounce, so it applies no `1/p` weight, and the selection
+/// probability is a modelling choice rather than an importance-sampling density. The exact
+/// split `R_o/(R_o+R_e)` is the hero channel's share, from this bounce's own `internal_solve`.
+/// The companion channels use it too, although their own shares differ slightly
+/// (`docs/physics.md` section 2.4). Biaxial materials have no closed-form uniaxial solve and
+/// keep 50/50.
 ///
-/// `path_pdf` is left untouched rather than multiplied by `0.5` per draw: across the
-/// long internal-bounce trains a TIR-heavy pavilion produces (tens to ~100 reflections
-/// is not unusual), `0.5^n` underflows to `0.0` well before `n` reaches 100, which
-/// would trip `spectral_mis_weight`'s "should not happen" guard.
+/// `path_pdf` is not multiplied by `0.5` per draw. Across a long internal-bounce train (tens to
+/// about 100 reflections) `0.5^n` underflows to zero, which would zero the path's spectral MIS
+/// weight.
 ///
-/// Returns the freshly-selected `is_extraordinary`; the caller applies it only when the
-/// internal reflection it just dispatched happened while `inside_gem && is_anisotropic`.
+/// Returns the freshly-selected `is_extraordinary`. The caller applies it only when the internal
+/// reflection happened while `inside_gem && is_anisotropic`.
 ///
-/// `pub(super)`: `transport::tests::mode_coupling_tests` exercises this directly (an A/B
-/// mechanism-level check against the exact closed-form split), rather than only through
-/// the full bounce loop.
+/// `pub(super)`: `transport::tests::mode_coupling_tests` checks this directly against the exact
+/// closed-form split.
 #[expect(
     clippy::too_many_arguments,
     reason = "thin re-labeling draw: ctx/is_biaxial/current_plane_normal/new_k/stokes \
@@ -461,18 +457,14 @@ pub(super) fn apply_internal_mode_coupling(
         .map_or(0.5, |(p, ..)| p)
     });
     let split_rand =
-        (hash_u32(rng_seed ^ hash_u32(bounce ^ MODE_COUPLING_STREAM)) as f32) / 4_294_967_295.0;
+        (discrete_draw(rng_seed, bounce, MODE_COUPLING_STREAM) as f32) / 4_294_967_295.0;
     split_rand >= p_o
 }
 
-/// Applies [`apply_internal_mode_coupling`] in place on `is_extraordinary` exactly when
-/// the bounce dispatch that just ran was an internal reflection inside an anisotropic
-/// crystal; a no-op otherwise. `was_internal_reflection` is `true` for a TIR bounce
-/// (only reachable from inside the gem -- see `compute_bounce_refraction_geometry`),
-/// and `is_extraordinary_update.is_none() && new_inside_gem == inside_gem_before_bounce`
-/// for `apply_partial_fresnel_bounce`'s outcome (its reflect arm returns `None` and
-/// never changes `inside_gem`; its refract arm always flips `inside_gem` and returns
-/// `Some`).
+/// Applies [`apply_internal_mode_coupling`] to `is_extraordinary` only when the bounce that
+/// just ran was an internal reflection inside an anisotropic crystal; a no-op otherwise.
+/// `was_internal_reflection` is `true` for a TIR bounce, and for a partial Fresnel bounce
+/// that neither transmits nor changes `inside_gem`.
 #[expect(
     clippy::too_many_arguments,
     reason = "thin dispatcher for apply_internal_mode_coupling's own inputs plus the \

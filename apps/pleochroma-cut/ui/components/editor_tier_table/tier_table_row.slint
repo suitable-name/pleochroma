@@ -78,11 +78,8 @@ component CodeFlip inherits Rectangle {
 // explains the lock. Row selection (click, Ctrl/Shift+click, the Select-mode
 // checkbox) stays usable: it changes no design data.
 export component TierTableRow inherits Rectangle {
-    // Named `item`, not `row` -- `row` is a reserved `GridLayout`
-    // cell-placement property every element inherits, so declaring a
-    // same-named custom property fails with "Cannot override property 'row'"
-    // (see `EditorInspector`'s own `tier_row`/`row` doc comment for the same
-    // trap, in `editor_inspector/tier_form_tab.slint`).
+    // Named `item`, not `row`: `row` is a reserved `GridLayout` property every element inherits,
+    // and redeclaring it fails to compile (see `editor_inspector/tier_form_tab.slint`).
     in property <EditorTierItem> item;
     // Mirrors `EditorTierTable.keyboard_focus_index` two-way: a click here
     // moves the shared cursor, and the shared cursor's own movement (arrow
@@ -138,8 +135,8 @@ export component TierTableRow inherits Rectangle {
     // `false` while the worked-example guide locks the tier table -- see this
     // component's own doc comment.
     property <bool> unlocked: GuideModel.allows_tier_table();
-    // The Simple interface leaves out the MAST, SOLVE and ORBIT columns and the Adopt, Pin and Detach buttons
-    // (`TierTableHeader` leaves out the same ones); their state is untouched.
+    // The Simple interface leaves out the MAST, SOLVE and ORBIT columns and the Adopt, Pin and
+    // Detach buttons (as `TierTableHeader` does). Their state is untouched.
     property <bool> advanced: GuideModel.shows_advanced();
     // Tab stops: only the row that holds the keyboard cursor offers its buttons to Tab, so a
     // long table is not hundreds of stops. Tab from the list walks the cursor row's buttons.
@@ -148,9 +145,8 @@ export component TierTableRow inherits Rectangle {
     // The width of this row's pinned group: the table's, or wider when the row offers two slot
     // buttons (Adopt and Add Anchor together).
     property <length> group_width: max(root.col_actions_width, row_actions.needed_width);
-    // Where the group starts in this row's own coordinates, less a 4 px gap. A data value that
-    // would run under it is hidden whole instead of cut through a digit: MARGIN and ORBIT are
-    // behind the group in a ~600 px dock until the table is scrolled sideways.
+    // Where the group starts in this row's coordinates, less a 4 px gap. A data value that would
+    // run under the group is hidden whole rather than cut through a digit.
     property <length> data_limit: root.pane_width - root.scroll_gutter - root.group_width - 6px - root.pane_x;
 
     height: 28px;
@@ -313,15 +309,11 @@ export component TierTableRow inherits Rectangle {
                             }
                             if root.item.warning_text != "": Tooltip { text: @markdown("\{root.item.warning_text}"); }
                         }
-                        // The tier's code (`EditorTierItem::code`: P1, G1, C1, T, Culet), the
-                        // label the cutting sheet prints; a row with no code shows its block's
-                        // one letter (`EditorTierItem::block`).
-                        // A facet at exactly 0 degrees has no discoverable way to
-                        // declare its side except by typing "-0" by hand.
-                        // `EditorModel.inline_set_angle` applies text verbatim, so
-                        // clicking this badge sends "0" or "-0" to flip at the
-                        // boundary. Only offered at zero; negating a non-boundary
-                        // angle would move the facet to a different depth.
+                        // The tier's code (`EditorTierItem::code`), or its block's letter when it
+                        // has none. At exactly 0 degrees the code is a button that flips the facet
+                        // to the other block: it sends "0" or "-0" to `inline_set_angle`, which
+                        // applies the text as typed. Other angles are not offered, since negating
+                        // one would move the facet to a different depth.
                         block_cell := Rectangle {
                             property <bool> zero_angle: root.item.angle_deg == "0.00" || root.item.angle_deg == "-0.00";
                             property <string> code_text: root.item.code != ""
@@ -543,14 +535,10 @@ export component TierTableRow inherits Rectangle {
                                 vertical-alignment: center;
                             }
                         }
-                        // Solve-strategy badge: `DependencyOrder`/`JointGroup`
-                        // (a real vertex-derived mast) reads normally;
-                        // `LeastSquaresFallback`/`Failed`/no-anchor-yet is
-                        // flagged in amber (`EditorTierItem::strategy_is_uncertain`).
-                        // `strategy_detail` (either the one-block missing-anchor
-                        // remedy or `SolvedTier::detail`'s prose -- see that field's
-                        // own doc comment) is shown verbatim as this cell's tooltip
-                        // when there is one, rather than thrown away.
+                        // Solve-strategy badge: `DependencyOrder` and `JointGroup` (a real
+                        // vertex-derived mast) read normally. `LeastSquaresFallback`, `Failed` and
+                        // no-anchor-yet are amber (`EditorTierItem::strategy_is_uncertain`).
+                        // `strategy_detail` is shown verbatim as the tooltip when set.
                         if root.advanced: Rectangle {
                             width: root.col_solve_width;
                             height: 100%;
@@ -585,17 +573,12 @@ export component TierTableRow inherits Rectangle {
                             overflow: elide;
                             vertical-alignment: center;
                         }
-                        // This tier's orbit shape (`EditorTierItem::orbit_status`)
-                        // -- emerald for a complete orbit (or several
-                        // folded together), amber for incomplete/
-                        // inconsistent, muted with a trailing "*" once the
-                        // row is detached (still shown, no longer
-                        // auto-followed). Clickable ("Complete orbit") whenever
-                        // amber and not detached -- fills in the missing
-                        // symmetric positions the schedule already implies
-                        // (`Design::add_orbit_member`) instead of leaving the
-                        // amber badge as the only, unactionable, sign of it.
-                        // In the Simple interface this column is left out.
+                        // This tier's orbit shape (`EditorTierItem::orbit_status`): emerald when
+                        // complete, amber when incomplete or inconsistent, and muted with a
+                        // trailing "*" once detached. An amber, non-detached orbit is a button
+                        // ("Complete orbit") that adds the missing symmetric positions the
+                        // schedule already implies (`Design::add_orbit_member`).
+                        // The Simple interface leaves this column out.
                         if root.advanced: orbit_cell := Rectangle {
                             property <bool> completable: root.item.kind == 0 && root.item.orbit_incomplete && !root.item.is_detached;
                             width: root.col_orbit_width;

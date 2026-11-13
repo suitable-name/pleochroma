@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------------
-// Struct layouts -- must match `renderer::buffers` field-for-field (see that module's
-// doc comment on why a hand-derived offset is never trusted without the echo test).
+// Struct layouts: they must match `renderer::buffers` field for field. The layout echo tests check
+// the offsets.
 // ---------------------------------------------------------------------------------
 
 struct GpuCameraParams {
@@ -26,16 +26,16 @@ struct GpuTransportParams {
     studio_light_yaw: f32,
     studio_light_pitch: f32,
     pixel_offset: u32,
-    // Reused pad field: gates `transport_main`'s three per-channel debug writes.
+    // Flag bits: bit 0 enables the per-channel debug writes, bit 1 is unused, bit 2 enables exit
+    // collection.
     write_debug_buffers: u32,
     white_balance: vec3<f32>,
-    // Reused pad field: selects the tabulated CIE D65 measured spectrum over
-    // `blackbody_spectrum`.
+    // Selects the tabulated CIE D65 spectrum instead of `blackbody_spectrum`.
     studio_use_d65: u32,
     studio_model: u32,
-    // `EnvironmentSource::Studio::backdrop`: the radiance, at exposure 1, of the lit tray
-    // below the girdle plane (`albedo * E_rig / pi`), seen by every escape and by the camera;
-    // 0.0 = As Lit (the preset's own ground).
+    // `EnvironmentSource::Studio::backdrop`: radiance at exposure 1 of the lit tray below the
+    // girdle plane (`albedo * E_rig / pi`), seen by every escape and by the camera. 0.0 means
+    // As Lit, the preset's own ground.
     backdrop: f32,
     // `EnvironmentSource::Studio::surface_glare`: scale of the camera path's first-surface
     // specular reflection, 1.0 for no change.
@@ -43,18 +43,26 @@ struct GpuTransportParams {
     // `EnvironmentSource::Studio::head_shadow_deg` as two cosines (`head_shadow_cosines`).
     head_shadow_outer_cos: f32,
     head_shadow_inner_cos: f32,
-    // `TentParams::flat`, in the first former pad slot (offset 84).
+    // `TentParams::flat`, at offset 84.
     tent_flat: f32,
-    // Number of concave-tool records appended to `planes` (`CT_RECORD_VECS` entries each,
-    // right after the real planes); 0 for a planar stone. Occupies the former
-    // `_pad_head_shadow1` slot (offset 88), so the struct size is unchanged.
+    // Number of concave-tool records appended to `planes` (`CT_RECORD_VECS` entries each, after
+    // the real planes); 0 for a planar stone. At offset 88.
     num_tools: u32,
-    _pad_head_shadow2: u32,
+    // `EnvironmentSource::HdrMap::exposure`, read by `hdr_rgb_at_exposure` (env_mode 2 only).
+    // At offset 92.
+    hdr_exposure: f32,
     // `LightingRigParams::tent` (`TentParams`): the light-tent model's per-preset knobs.
     tent_walls: f32,
     tent_cards: f32,
     tent_spark: f32,
     tent_ground: f32,
+    // The HDR map's yaw (`EnvRotation::cos_sin()`), read by `hdr_rot` (env_mode 2 only).
+    // (1.0, 0.0) is the identity, which `hdr_world_to_map` and `hdr_map_to_world` skip.
+    // The two pad words fill the last 16-byte row (offsets 112..128).
+    hdr_rot_cos: f32,
+    hdr_rot_sin: f32,
+    _pad_hdr_rot0: u32,
+    _pad_hdr_rot1: u32,
 }
 
 struct DispersionParams {
@@ -66,15 +74,14 @@ struct DispersionParams {
     is_anisotropic: u32,
     biaxial_delta_beta_alpha: f32,
     has_biaxial_delta: u32,
-    // `.xyz` = `GemMaterial::alpha_axis`, `.w` = 1.0 when set (else all zero): see
-    // `renderer::buffers::DispersionParams::a_axis_and_flag`. Read only by `biaxial_axes`.
+    // `.xyz` = `GemMaterial::alpha_axis`, `.w` = 1.0 when set, else 0. Read by `biaxial_axes` only.
     a_axis_and_flag: vec4<f32>,
 }
 
-// The biaxial principal-index curves, appended to `GpuGemMaterial` at byte offset 2720 (after the
-// zone table): see `renderer::buffers::GpuBiaxialCurves`. `types` is `[alpha_type, gamma_type,
-// has, 0]` with the `dispersion_model_type` discriminants; the parameters are encoded like
-// `DispersionParams::param_a`/`param_b`.
+// Biaxial principal-index curves, at byte offset 2720 after the zone table. See
+// `renderer::buffers::GpuBiaxialCurves`. `types` is `[alpha_type, gamma_type, has, 0]` with the
+// `dispersion_model_type` discriminants. The parameters are encoded like `DispersionParams`
+// `param_a` and `param_b`.
 struct GpuBiaxialCurves {
     types: vec4<u32>,
     alpha_a: vec4<f32>,
@@ -83,9 +90,9 @@ struct GpuBiaxialCurves {
     gamma_b: vec4<f32>,
 }
 
-// The oriented-inclusion block, appended last at byte offset 2800: see
-// `renderer::buffers::GpuInclusionBlock` (header = [family_count, structure_flag, domain_seed,
-// flags]; fam_dir = world direction xyz + kind w; fam_params = [sigma, p, lobe, rho]).
+// Oriented-inclusion block, at byte offset 2800. See `renderer::buffers::GpuInclusionBlock`:
+// header = [family_count, structure_flag, domain_seed, flags]; fam_dir = world direction xyz and
+// kind w; fam_params = [sigma, p, lobe, rho].
 struct GpuInclusionBlock {
     header: vec4<u32>,
     fam_dir: array<vec4<f32>, 4>,
@@ -107,9 +114,8 @@ struct GpuGemMaterial {
     scattering_sigma_s: f32,
     scattering_g: f32,
     edge_rounding_radius: f32,
-    // Appended fields below are always added at the end, never inserted earlier, so no
-    // existing field's offset ever shifts -- see `renderer::buffers::GpuGemMaterial`'s
-    // doc comment.
+    // Fields are only ever appended, so no existing offset shifts. See
+    // `renderer::buffers::GpuGemMaterial`.
     has_beta_ray: u32,
     beta_ray_band_count: u32,
     beta_ray_bands: array<AbsorptionBand, 8>,
@@ -125,7 +131,7 @@ struct FacetPlane {
     d: f32,
 }
 
-// HdrEnvDims and GpuDistDims are defined in transport_physics.wgsl.
+// `HdrEnvDims` and `GpuDistDims` are defined in `transport_physics/05_nee_env_sampling.wgsl`.
 
 @group(0) @binding(0) var<uniform> camera: GpuCameraParams;
 @group(0) @binding(1) var<uniform> params: GpuTransportParams;
@@ -135,63 +141,41 @@ struct FacetPlane {
 @group(0) @binding(5) var<storage, read_write> out_radiance: array<f32>;
 @group(0) @binding(6) var<storage, read_write> out_lambdas: array<f32>;
 @group(0) @binding(7) var<storage, read_write> out_path_pdf: array<f32>;
-// `optics::raytracer::FacetFinish`, one entry per `planes[i]`, PARALLEL to `planes` (a
-// separate binding, not a widened `FacetPlane` -- see `renderer::buffers::facet_finish`'s
-// doc comment for why). `facet_finish::FROSTED` (1u) routes that facet's bounce through
-// `apply_frosted_bounce` instead of the polished TIR/reflect/refract dispatch below; any
-// other value (including an out-of-bounds index) is `facet_finish::POLISHED` (0u).
+// `optics::raytracer::FacetFinish` per `planes[i]`. It is a separate binding, parallel to
+// `planes`, so `FacetPlane` stays unchanged. `facet_finish::FROSTED` (1) sends the bounce through
+// `apply_frosted_bounce`. Any other value, including an out-of-bounds index, is polished (0).
 @group(0) @binding(8) var<storage, read> facet_finishes: array<u32>;
-// One `compat[k]` narrowed-family bitmask per channel, per (pixel, sample) tuple --
-// same `write_debug_buffers`-gated, self-test-only contract as `out_radiance`/
-// `out_lambdas`/`out_path_pdf` above.
+// `compat[k]` family bitmask per channel and tuple. Written only with the debug flag, like
+// `out_radiance`, `out_lambdas` and `out_path_pdf`.
 @group(0) @binding(9) var<storage, read_write> out_compat: array<u32>;
-// `optics::raytracer::environment::EnvironmentSource::HdrMap`'s GPU-side
-// texel storage -- row-major `vec4<f32>` (alpha unused/zero), uploaded by
-// `renderer::env_map_gpu::HdrEnvGpuData::upload`. See that module's doc comment for why
-// these two bindings are always present regardless of `params.env_mode`.
+// HDR map texels, row-major `vec4<f32>` (alpha unused), uploaded by
+// `renderer::env_map_gpu::HdrEnvGpuData::upload`. These two bindings are always present, whatever
+// `params.env_mode` is, because bindings follow static reachability.
 @group(0) @binding(10) var<storage, read> hdr_texels: array<vec4<f32>>;
 @group(0) @binding(11) var<uniform> hdr_env_dims: HdrEnvDims;
-// renderer::env_map_gpu::HdrEnvGpuData's flattened Distribution2D -- see
-// that module's own doc comment ("Bindings 12/13/14's layout") for the exact layout.
+// Flattened `Distribution2D` of the HDR map, layout as in `renderer::env_map_gpu`.
 @group(0) @binding(12) var<storage, read> dist_func: array<f32>;
 @group(0) @binding(13) var<storage, read> dist_cdf: array<f32>;
 @group(0) @binding(14) var<uniform> dist_dims: GpuDistDims;
 
 // The per-facet word is `surface::FacetSurface`: bits 0-1 are the kind (0 ideal, 1 frosted,
-// 2 polished with roughness, 3 ground), the rest carry the roughness and the scratch
-// parameters. A frosted test therefore masks the kind first.
+// 2 polished with roughness, 3 ground), the rest carry the roughness and scratch parameters. A
+// frosted test must mask the kind first.
 const FACET_FINISH_KIND_MASK: u32 = 3u;
 const FACET_FINISH_FROSTED: u32 = 1u;
 
-// Register-pressure/divergence reduction -- workgroup-shared plane
-// cache. `intersect_ray` (below) is the single hottest per-thread loop in this kernel:
-// every thread re-walks `planes[]` from a storage buffer on EVERY bounce (up to
-// `params.max_bounces` times), even though every thread in a workgroup is reading the
-// exact same array (one gemstone's facet planes, shared across the whole dispatch).
-// When the polyhedron has at most `PLANES_SHARED_CAPACITY` facets, `transport_main`
-// cooperatively copies `planes[]` into this workgroup-shared array ONCE at kernel
-// start (one plane per invocation, looping by `workgroup_size` strides, then a single
-// `workgroupBarrier()`), and every `intersect_ray` call for the rest of the dispatch
-// reads `planes_shared` instead of re-issuing a storage load per bounce per thread.
-//
-// Bit-identical by construction: `plane_at` below reads the exact same `FacetPlane`
-// values in the exact same ascending index order either way -- `planes_shared[i]` is
-// filled from the exact storage read `planes[i]` would otherwise perform, so which
-// address space serves the read never changes a single bit of the result.
-//
-// A polyhedron with more than `PLANES_SHARED_CAPACITY` facets (rare -- comfortably
-// above every existing cut gemstone's facet count) reads `planes[]` directly instead.
-// The fallback decision (`plane_count <=
-// PLANES_SHARED_CAPACITY`) is uniform across the entire workgroup -- `arrayLength(&planes)`
-// is a dispatch-wide constant, never a per-thread quantity -- so branching on it is
-// uniform control flow, not divergence, and is safe on both sides of the
-// `workgroupBarrier()` in `transport_main` below.
+// Workgroup-shared plane cache. `intersect_ray` is the hottest loop of the kernel, and every
+// thread of a workgroup re-reads the same `planes[]` on every bounce. When there are at most
+// `PLANES_SHARED_CAPACITY` planes, `transport_main` copies them into `planes_shared` once per
+// workgroup, before the barrier. The values read are the same, only the address space differs, so
+// the result is bit-identical. Larger polyhedra read `planes[]` directly. The choice depends on
+// `arrayLength(&planes)`, which is fixed for the whole dispatch, so the branch is uniform and the
+// barrier in `transport_main` is reached by every thread.
 const PLANES_SHARED_CAPACITY: u32 = 128u;
 
 var<workgroup> planes_shared: array<FacetPlane, 128>;
 
-// Reads plane `i` from whichever address space `transport_main` populated this
-// dispatch for -- see `planes_shared`'s own doc comment above.
+// Reads plane `i` from the address space that `transport_main` filled for this dispatch.
 fn plane_at(i: u32, plane_count: u32) -> FacetPlane {
     if (plane_count <= PLANES_SHARED_CAPACITY) {
         return planes_shared[i];
@@ -199,19 +183,18 @@ fn plane_at(i: u32, plane_count: u32) -> FacetPlane {
     return planes[i];
 }
 
-// Concave tools (`transport_physics/10_concave_tools.wgsl`) ride in the `planes` storage
-// binding, after the real planes: `params.num_tools` records of `CT_RECORD_VECS` entries.
-// Reusing the binding keeps the storage-buffer count unchanged
-// (`MEGAKERNEL_STORAGE_BUFFERS`). Every loop over the real planes must use
-// `scene_plane_count()`, never `arrayLength(&planes)`, which also counts the records.
+// Concave tools (`transport_physics/10_concave_tools.wgsl`) are stored in the `planes` binding
+// after the real planes: `params.num_tools` records of `CT_RECORD_VECS` entries each. Reusing the
+// binding keeps the storage-buffer count unchanged. Loops over the real planes must use
+// `scene_plane_count()`, not `arrayLength(&planes)`, which also counts the records.
 //
 // `params.num_tools` is a uniform, so every branch on it is uniform control flow.
 fn scene_plane_count() -> u32 {
     return arrayLength(&planes) - CT_RECORD_VECS * params.num_tools;
 }
 
-// Tool `k`, whose records start at `planes[plane_count + 5k]`. An entry is a `FacetPlane`
-// only by shape: `normal` holds `xyz` and `d` the `w` of the record's `vec4`.
+// Tool `k`, whose records start at `planes[plane_count + CT_RECORD_VECS * k]`. A record is read
+// as a `FacetPlane` by shape only: `normal` holds `xyz` and `d` the `w` of the `vec4`.
 fn scene_tool(plane_count: u32, k: u32) -> CtTool {
     let base = plane_count + CT_RECORD_VECS * k;
     let r0 = planes[base];

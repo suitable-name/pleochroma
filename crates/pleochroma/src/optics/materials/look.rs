@@ -3,10 +3,10 @@
 //! translucent one.
 //!
 //! These effects are design choices, not part of the material (see
-//! `feldspars_and_precious_opal`), so a stone switched to one of these materials used to render
-//! as clear glass until the effect was turned on by hand. Choosing the material now switches its
-//! look on, wherever a material is chosen (the Stone tab, the command line's `--material`), when
-//! the design has none of it yet: [`MaterialLook::of`] is the one rule both read.
+//! `feldspars_and_precious_opal`), so without them a stone chosen for one of these materials
+//! renders as clear glass. Choosing the material switches its look on, wherever a material is
+//! chosen (the Stone tab, the command line's `--material`), when the design has none of it yet:
+//! [`MaterialLook::of`] is the one rule both read.
 
 use super::GemMaterial;
 use crate::optics::inclusions::bragg::StructureSpec;

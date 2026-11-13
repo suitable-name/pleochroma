@@ -1,83 +1,43 @@
-//! Off-UI-thread native file pickers -- the ONE place `rfd::FileDialog` is ever
-//! constructed anywhere in this app, so no picker dialog ever blocks the UI
-//! thread.
+//! Off-UI-thread native file pickers. This is the only place `rfd::FileDialog` is
+//! constructed, so no picker dialog blocks the UI thread.
 //!
-//! Generalizes `gui::editor::native_io`'s own `pick_file`/`PickKind`
-//! (that module moved its own dialogs off the UI thread, but left every other
-//! module's `rfd` call untouched -- see this module's own handoff note) into
-//! one shared worker every picker in the app goes through:
-//! [`pick`] shows [`PickerRequest`]'s dialog on a background thread (never the
-//! UI thread) and delivers the result to a continuation on the UI thread via
-//! `Weak::upgrade_in_event_loop`, plus a `#[cfg(test)]` hook
-//! ([`set_test_pick_answer`]) so a test can inject a chosen path (or a
-//! cancellation) with no real OS dialog and no spawned thread.
+//! [`pick`] shows a [`PickerRequest`]'s dialog on a background thread and delivers the
+//! result to a continuation on the UI thread via `Weak::upgrade_in_event_loop`. A
+//! `#[cfg(test)]` hook ([`set_test_pick_answer`]) injects a chosen path, or a
+//! cancellation, without an OS dialog.
 //!
-//! # Why a request enum/struct, not a caller-supplied `rfd::FileDialog` builder
+//! # Why a request struct, not a caller-supplied `rfd::FileDialog` builder
 //!
-//! A closure like `impl FnOnce() -> rfd::FileDialog` would still need `rfd::`
-//! written out at every call site to build one, defeating the point of having
-//! a single construction site to grep for. Every
-//! picker's own shape (open/save/folder, filters, starting directory, default
-//! file name) is instead plain data ([`PickerRequest`]), and only [`pick`]
-//! itself (via the private [`build_dialog`]) ever turns that into a real
-//! `rfd::FileDialog`.
+//! A builder closure would need `rfd::` at every call site, defeating the single
+//! construction site. Each picker's shape (kind, filters, starting directory, default
+//! file name) is plain data instead, and only [`pick`] (via the private
+//! [`build_and_show`]) turns it into a real `rfd::FileDialog`.
 //!
-//! # `gui::editor::native_io`
+//! # Callers
 //!
-//! That module's own `pick_file`/`PickKind` are kept (not removed) as a thin
-//! wrapper over [`pick`]/[`PickerRequest`] -- see that module's own doc
-//! comment on `pick_file` for why: five call sites there already build a
-//! `PickKind` value and thread a continuation through it, and none of that
-//! shape needs to change now that the picker itself lives here instead.
-//!
-//! # Every `rfd`-using dialog in this app goes through here
-//!
-//! `gui::render::camera_lighting::setup_environment_map_callbacks`'s
-//! `on_pick_hdr_file` and `gui::remote::worker_callbacks::setup_cert_dir_picker_callback`'s
-//! `on_pick_cert_dir` are the two dialogs whose own Slint callback signature had
-//! to change to reach this module: both were Slint callbacks that
-//! RETURNED their result directly into a property assignment
-//! (`root.env_map_path = root.pick_hdr_file(root.env_map_path)`,
-//! `root.form_cert_dir = RemoteWorkerModel.pick_cert_dir(root.form_cert_dir)`)
-//! -- Slint has no way to await a value-returning callback, so neither could
-//! move here while their own signatures stayed value-returning. Both callbacks
-//! are void now (`ui/models/settings.slint`/`ui/models/remote_worker.slint`), and each
-//! dialog (the Parameters panel's `env_map_path`,
-//! `remote_worker_dialog.slint`'s `form_cert_dir` via a new
-//! `RemoteWorkerModel.picked_cert_dir` property and `changed` handler) is
-//! filled from the completion continuation this module hands back on the UI
-//! thread instead -- so both now build their `PickerRequest` and call [`pick`]
-//! exactly like every other caller.
+//! `gui::editor::native_io::picker` wraps [`pick`] as its own `pick_file`/`PickKind`.
+//! A Slint callback cannot await a dialog, so a dialog whose result fills a field
+//! (the Parameters panel's HDR map, the remote worker's certificate folder) fills it
+//! from its continuation on the UI thread.
 
 use crate::MainWindow;
 use slint::{ComponentHandle, Weak};
 use std::{cell::RefCell, collections::HashMap, path::PathBuf};
 
-/// One filter row a picker offers -- a label plus the extensions (no leading
-/// dot) it accepts. Mirrors `rfd::FileDialog::add_filter`'s own two
-/// parameters exactly; [`build_and_show`] is the only place this is ever
-/// turned into a real one.
+/// One filter row a picker offers: a label and the extensions (no leading dot) it
+/// accepts. Mirrors `rfd::FileDialog::add_filter`.
 ///
-/// Owned (`String`/`Vec<String>`), not `&'static str`/`&'static [&'static str]`:
-/// most of this app's own filters ARE `'static` literals (a fixed extension
-/// like `"asc"`), but at least one real caller
-/// (`gui::library::detail::export_diagram_file_via_source`) needs a filter
-/// built from a RUNTIME string (an attachment's own file extension, not known
-/// until the attachment is picked) -- a `'static`-only field would force that
-/// caller to leak memory (`Box::leak`) just to satisfy the type, once per
-/// click, for no real benefit over an owned `String` a `PickerRequest` already
-/// gets dropped after one use anyway.
+/// Owned rather than `'static`: most filters are literals, but
+/// `gui::library::detail::attachments` builds one from an attachment's runtime
+/// extension, which a `'static` field would need to leak.
 pub(super) struct PickerFilter {
     pub label: String,
     pub extensions: Vec<String>,
 }
 
 impl PickerFilter {
-    /// The common case: a single extension whose own name (with no leading
-    /// dot) doubles as the filter's label -- e.g. `PickerFilter::single("asc")`
-    /// reads as `label: "asc", extensions: ["asc"]`. Most of this app's own
-    /// filters are exactly this shape; a caller that wants a different label
-    /// (e.g. `".asc design"` for `"asc"`) builds the struct literal directly.
+    /// A single extension that doubles as the filter's label: `single("asc")` is
+    /// `label: "asc", extensions: ["asc"]`. Build the struct literal for another label.
     #[must_use]
     pub fn single(extension: impl Into<String>) -> Self {
         let extension = extension.into();
@@ -98,11 +58,8 @@ pub(super) enum PickerKind {
     PickFolder,
 }
 
-/// Everything one native dialog needs, as plain data -- every
-/// `rfd::FileDialog` builder method this app's own dialogs use, named as a
-/// field instead of a method call. See the module
-/// doc comment for why this exists at all (not a caller-supplied
-/// `rfd::FileDialog` builder closure).
+/// Everything one native dialog needs, as plain data: each `rfd::FileDialog` builder
+/// method the app uses, as a field. See the module doc comment.
 pub(super) struct PickerRequest {
     pub kind: PickerKind,
     /// `rfd::FileDialog::set_title`. `None` leaves the OS's own default title.
@@ -118,15 +75,12 @@ pub(super) struct PickerRequest {
     pub starting_dir: Option<PathBuf>,
 }
 
-/// [`set_test_pick_answer`]'s own stashed answer -- a one-field wrapper around
-/// `Option<PathBuf>` (the picker's own "cancelled or picked" result) purely so
-/// the OUTER "is a test answer stashed at all" state can be a single-level
-/// `Option`, not `Option<Option<PathBuf>>` (`clippy::option_option`) -- the
-/// same shape `gui::editor::native_io::TestPickAnswer` uses.
+/// A picker answer (`None` when cancelled), wrapped so [`TEST_PICK_ANSWER`] stays a
+/// single `Option` rather than `Option<Option<PathBuf>>` (`clippy::option_option`).
 struct TestPickAnswer(Option<PathBuf>);
 
-/// A stashed [`pick`] continuation -- named purely to keep [`PENDING_PICKS`]'s
-/// own type under clippy's `type_complexity` lint.
+/// A stashed [`pick`] continuation, named to keep [`PENDING_PICKS`] under clippy's
+/// `type_complexity` lint.
 type PickContinuation = Box<dyn FnOnce(&MainWindow, Option<PathBuf>)>;
 
 thread_local! {
@@ -134,14 +88,8 @@ thread_local! {
     /// with no OS dialog and no spawned thread, consumed (taken) exactly once.
     /// `TestPickAnswer(None)` stubs a dismissed picker.
     static TEST_PICK_ANSWER: RefCell<Option<TestPickAnswer>> = const { RefCell::new(None) };
-    /// [`pick`]'s own UI-thread-only rendezvous for its (typically non-`Send`)
-    /// `on_done` continuation: a picker's own caller routinely closes over an
-    /// `Rc<RefCell<EditorState>>`-shaped handle, which must never itself cross
-    /// into the spawned thread below or into the `upgrade_in_event_loop`
-    /// closure that hops back (both require `Send`). Only a plain `u64` key
-    /// and the `Send`-safe `Option<PathBuf>` answer ever actually cross the
-    /// thread boundary; `on_done` itself is inserted and removed on the UI
-    /// thread only.
+    /// Continuations waiting for a [`pick`] answer, UI thread only. `on_done` is not
+    /// `Send`, so only the `u64` key and the `Send` answer cross the thread boundary.
     static PENDING_PICKS: RefCell<HashMap<u64, PickContinuation>> = RefCell::new(HashMap::new());
     static NEXT_PICK_KEY: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
@@ -187,12 +135,10 @@ const fn kind_label(kind: &PickerKind) -> &'static str {
     }
 }
 
-/// The `ui-harness` feature's replacement for the native dialog: the next queued answer of
-/// `crate::harness_support` (an empty queue records an "unexpected file dialog" failure and
-/// answers "cancelled"). `Some(answer)` means "answered, do not open anything"; the outer
-/// `Option` exists so the feature-off twin below can return `None` and fall through to `rfd`,
-/// and so a build the harness does not drive (`crate::harness_seams_active`) shows the real
-/// dialog.
+/// The `ui-harness` replacement for the native dialog: the next queued answer of
+/// `crate::harness_support` (an empty queue records an "unexpected file dialog" failure
+/// and answers "cancelled"). `None` means the real dialog is shown, which is also what a
+/// build the harness does not drive (`crate::harness_seams_active`) does.
 #[cfg(feature = "ui-harness")]
 fn harness_answer(request: &PickerRequest) -> Option<TestPickAnswer> {
     if !crate::harness_seams_active() {
@@ -241,15 +187,11 @@ fn build_and_show(request: &PickerRequest) -> Option<PathBuf> {
     }
 }
 
-/// The one entry point every native file/folder picker in this app uses: shows
-/// `request`'s dialog on a background thread (never the UI thread) and
-/// delivers the result (`None` on cancel/dismiss) to `on_done` on the UI
-/// thread via `Weak::upgrade_in_event_loop`. The caller's own state must never
-/// be borrowed across a call to this function -- pick first, then borrow,
-/// never the other way around (the same discipline `gui::editor::native_io`'s
-/// own former `pick_file` doc comment already established). `on_done` silently
-/// never runs if the window closed while the picker was open, the same
-/// convention every worker in this crate follows.
+/// The one entry point every native file and folder picker uses: shows `request`'s
+/// dialog on a background thread and delivers the result (`None` on cancel/dismiss)
+/// to `on_done` on the UI thread. The caller must not hold a borrow of its own state
+/// across this call: pick first, then borrow. `on_done` never runs if the window
+/// closed while the dialog was open.
 pub(super) fn pick(
     ui: &MainWindow,
     request: PickerRequest,
@@ -288,17 +230,11 @@ mod tests {
     use super::{TEST_PICK_ANSWER, TestPickAnswer, set_test_pick_answer, take_test_pick_answer};
     use std::path::PathBuf;
 
-    /// The picker test hook's own take/set mechanics, moved here from
-    /// `gui::editor::native_io`'s `pick_file_test_hook_is_consumed_exactly_once`
-    /// test when the picker itself generalized to this module -- same coverage,
-    /// same assertions.
+    /// The test hook is consumed exactly once, and `None` stubs a dismissed picker.
     #[test]
     fn pick_test_hook_is_consumed_exactly_once() {
-        // No hook stashed yet -- `pick` must fall through to a real picker
-        // (not exercised here, since this suite has no display -- see
-        // `solve_service.rs`'s own tests for the same constraint). Cleared
-        // first so this test is independent of whatever another test in this
-        // same process left behind in the shared `thread_local!`.
+        // Cleared first: the thread-local may hold an answer another test left behind.
+        // (The real dialog path needs a display and is not exercised here.)
         TEST_PICK_ANSWER.with(|cell| *cell.borrow_mut() = None);
         assert!(take_test_pick_answer().is_none());
 
@@ -313,10 +249,7 @@ mod tests {
         assert_eq!(take_test_pick_answer().expect("stashed").0, None);
     }
 
-    /// [`TestPickAnswer`] is only ever constructed via [`take_test_pick_answer`]'s
-    /// own pattern match above -- referenced here purely so a future refactor
-    /// that renames its single field doesn't silently go unnoticed by every
-    /// test in this module at once.
+    /// Pins the wrapper's single field, so a rename shows up in this module's tests.
     #[test]
     fn test_pick_answer_wraps_the_answer_directly() {
         assert_eq!(TestPickAnswer(None).0, None);

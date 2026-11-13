@@ -1,14 +1,11 @@
-// Facet edge rounding: `shading_normal_near_edge` Tier 2
-// kernel -- driven by `renderer::gpu::shading_normal_check`. A standalone file with its
-// own `planes` binding (bound to the SAME real 57-facet Standard Round Brilliant plane
-// set `intersect_polyhedron.wgsl`/`polyhedron_check` use), mirroring that file's own
-// pattern for a function whose only extra input beyond scalars/vectors is the
-// polyhedron's plane list. A direct, unmodified line-for-line translation of
-// `optics::raytracer::shading_normal_near_edge` -- the SAME translation
-// `shaders/spectral_transport.wgsl`'s megakernel-local copy is (both read `planes` via
-// their own file's binding, so neither can share a `transport_physics.wgsl` function
-// for it -- see that file's own doc comment for why a binding-touching function stays
-// per-file).
+// Facet edge rounding: the `shading_normal_near_edge` kernel, driven by
+// `renderer::gpu::shading_normal_check`. Tier 2 test.
+//
+// Standalone file with its own `planes` binding, bound to the same 57-facet Standard Round
+// Brilliant plane set as `intersect_polyhedron.wgsl`. It is a line-for-line translation of
+// `optics::raytracer::shading_normal_near_edge`. The megakernel in `spectral_transport.wgsl` has
+// its own copy, because each copy reads `planes` through its own binding and so cannot share a
+// function.
 
 struct FacetPlane {
     normal: vec3<f32>,
@@ -34,7 +31,7 @@ fn normalize_or_zero(v: vec3<f32>) -> vec3<f32> {
     return vec3<f32>(0.0, 0.0, 0.0);
 }
 
-// optics::raytracer::shading_normal_near_edge
+// Translates `optics::raytracer::shading_normal_near_edge`.
 fn shading_normal_near_edge(hit_point: vec3<f32>, hit_facet_idx: u32, hit_normal: vec3<f32>, rounding_radius: f32) -> vec3<f32> {
     if (rounding_radius <= 0.0) {
         return hit_normal;

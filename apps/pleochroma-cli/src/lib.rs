@@ -18,9 +18,12 @@
 //! | `optimize` | search the free tier angles, as the Optimize tab does |
 //! | `retarget` | new angles for another material, through the dialog's engine and gate |
 //! | `sweep` | one tier's angle over a range, every angle scored |
-//! | `export` | `.asc`, `.psdd`, `.gcs` or the cutting sheet as HTML |
+//! | `snap-meets` | snap floating tiers onto the stone (exit 4 on floats or cut-away facets) |
+//! | `export` | `.asc`, `.psdd`, `.gcs` or the cutting sheet as HTML or PDF |
+//! | `census` | read-only measurement of the meet-preserving gate over many designs |
 //! | `render` | render a still picture from a render job file (`*.job.json`) |
-//! | `tilt-video` | render a tilt performance video from a render job file; resumes from its frames |
+//! | `tilt-video` | render a tilt performance video from a job file; resumes from its frames |
+//! | `image-compare` | compare two `PLRAW1` renders as a viewer sees them (CIEDE2000, glints) |
 //!
 //! Designs open from `.psdd`, `.asc`, `.gem` and `.gcs` files.
 //! Custom materials come from a design library given with `--db`, opened read-only. Render job
@@ -42,7 +45,7 @@
 //! | 1 | the command line is wrong |
 //! | 2 | the design cannot be used, or a result was refused |
 //! | 3 | a file could not be read or written |
-//! | 4 | `validate`: the verdict is Problem |
+//! | 4 | `validate`: verdict Problem; `snap-meets`: a tier has no meet point or facets are cut |
 //! | 5 | `render`, `tilt-video`: the render failed or was stopped |
 //!
 //! For `render` and `tilt-video`, code 2 means the job file cannot be used and code 3 that a
@@ -65,6 +68,8 @@ mod help;
 mod load;
 mod materials;
 mod outcome;
+pub mod radv_workaround;
+pub mod raw_image;
 mod stone;
 #[cfg(test)]
 mod testing;
@@ -123,11 +128,12 @@ pub fn run_command_line(args: &[String]) -> Outcome {
 /// command asks for.
 ///
 /// Files are written only when the command succeeded (exit code 0), or when it succeeded in
-/// finding a Problem (`validate`, exit code 4): a command that refuses its result never leaves
-/// a file behind. With several designs each design is its own command: the files of the ones
-/// that worked are written even when another failed, and the run ends with the failure's exit
-/// code. A file that cannot be written ends the run with exit code 3 (the other files are still
-/// written). Each file that was written is noted on standard error.
+/// finding something left to do (exit code 4: a `validate` Problem, or `snap-meets` leaving a
+/// tier with no meet point or cutting facets away): a command that refuses its result never
+/// leaves a file behind. With several designs each design is its own command: the files of the
+/// ones that worked are written even when another failed, and the run ends with the failure's
+/// exit code. A file that cannot be written ends the run with exit code 3 (the other files are
+/// still written). Each file that was written is noted on standard error.
 ///
 /// `render` and `tilt-video` write their pictures themselves and stream their progress to
 /// standard error while they run (one rewritten line when it is a terminal): that part is

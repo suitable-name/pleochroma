@@ -1,9 +1,7 @@
 //! Proximal Policy Optimization (PPO) hyperparameters, the learning-rate schedule shared with the
 //! imitation trainer, and the metrics a PPO update reports.
 //!
-//! PPO is the secondary training algorithm; imitation (`training::imitation`) is the primary one.
-//! The configuration files and statistics of older runs still load: serde ignores the fields that
-//! were removed (`pre_tanh_penalty_coeff`, `teacher_coeff`, `pre_tanh_sq`, `teacher_loss`).
+//! Serde ignores unknown fields, so configs and metrics saved by older builds still load.
 
 use serde::{Deserialize, Serialize};
 
@@ -54,9 +52,9 @@ pub struct PpoConfig {
     pub value_loss_coeff: f32,
     /// Entropy bonus coefficient to encourage exploration.
     ///
-    /// The entropy is the **mean** over a sample's free tiers (not the sum), so the coefficient means
-    /// the same on a 4-tier and a 24-tier stone. The log-std is state-independent now, which is why the
-    /// default is small: the bonus only guards against an early collapse of the three values.
+    /// The entropy is the **mean** over a sample's free tiers, not the sum, so the coefficient
+    /// means the same for a 4-tier and a 24-tier stone. The log-std is state-independent (one
+    /// value per block), so the bonus only guards against an early collapse of those values.
     pub entropy_coeff: f32,
     /// Number of training epochs per rollout batch.
     pub epochs_per_batch: usize,
@@ -66,6 +64,12 @@ pub struct PpoConfig {
     /// rescaled to this norm before the Adam step. The pre-clip norm is reported in
     /// [`TrainingMetrics::grad_norm`].
     pub max_grad_norm: f32,
+    /// L2 weight decay added to the gradient of every parameter before the Adam step. Default
+    /// `0.0` (off). This is Burn's coupled weight decay on the shared Adam optimizer, which keeps
+    /// the optimizer state layout, so recovery snapshots stay compatible. Intended range
+    /// `1e-5..1e-4` for the parameter-heavy input projections. Keep it identical across a resumed
+    /// run (it is part of the recovery identity).
+    pub weight_decay: f32,
     /// Target KL divergence; the epoch loop stops after the first mini-batch whose approximate KL
     /// exceeds `1.5 * target_kl`, so a bad epoch cannot run to its end.
     pub target_kl: f32,
@@ -84,6 +88,7 @@ impl Default for PpoConfig {
             epochs_per_batch: 8,
             mini_batch_size: 128,
             max_grad_norm: 0.5,
+            weight_decay: 0.0,
             target_kl: 0.02,
         }
     }
@@ -145,6 +150,11 @@ impl PpoConfig {
             ));
         }
         positive("max_grad_norm", self.max_grad_norm)?;
+        if !(self.weight_decay.is_finite() && self.weight_decay >= 0.0) {
+            return Err(TrainError::InvalidConfig(
+                "weight_decay must be finite and >= 0".into(),
+            ));
+        }
         positive("target_kl", self.target_kl)?;
         if let LrSchedule::Linear { total_updates } = self.lr_schedule
             && total_updates == 0
@@ -164,8 +174,8 @@ pub struct TrainingMetrics {
     pub policy_loss: f32,
     /// Mean critic value MSE loss.
     pub value_loss: f32,
-    /// Mean policy entropy per free tier (real, unpinned, non-flat, inside their envelope), averaged
-    /// over the samples.
+    /// Mean policy entropy per free tier (real, unpinned, non-flat, inside their envelope),
+    /// averaged over the samples.
     pub entropy: f32,
     /// Approximate KL divergence between old and updated policy.
     pub approx_kl: f32,
@@ -272,7 +282,7 @@ mod tests {
 
     #[test]
     fn an_older_json_config_with_the_removed_fields_still_parses() {
-        // Configs written before the removal carry the two extra keys: serde ignores them.
+        // Unknown keys (removed fields) are ignored by serde.
         let mut value = serde_json::to_value(PpoConfig::default()).unwrap();
         let fields = value.as_object_mut().unwrap();
         fields.insert("pre_tanh_penalty_coeff".to_owned(), serde_json::json!(1e-3));
@@ -280,7 +290,7 @@ mod tests {
         let parsed: PpoConfig = serde_json::from_value(value).unwrap();
         assert_eq!(parsed, PpoConfig::default());
 
-        // So do the metrics of an older run, with or without the optional `grad_norm`.
+        // Metrics with unknown keys parse too, with or without the optional `grad_norm`.
         let old_metrics = serde_json::json!({
             "policy_loss": 0.1,
             "value_loss": 0.2,

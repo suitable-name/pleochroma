@@ -407,6 +407,7 @@ fn a_plain_block_with_a_stone_cap_plans_like_the_core_for_every_lane_count() {
 }
 
 #[test]
+#[ignore = "over 60 s in the workspace run (2026-11-08); run on request: scripts/run_tests_on_request.sh"]
 fn a_cut_block_with_both_caps_plans_like_the_core_for_every_lane_count() {
     // At most two of three designs and at most two stones, together.
     assert_stone_cap_lanes_match_the_core(cut_block_of_two_designs(), 2, LANES);
@@ -453,6 +454,7 @@ fn c_shape_mesh() -> Fixture {
 }
 
 #[test]
+#[ignore = "over 60 s in the workspace run (2026-11-08); run on request: scripts/run_tests_on_request.sh"]
 fn a_mesh_rough_plans_like_the_core_for_one_and_three_lanes() {
     let fixture = c_shape_mesh();
     assert_lane_counts_match_the_core(&fixture, [1, 3]);
@@ -467,6 +469,7 @@ fn a_mesh_rough_plans_like_the_core_for_one_and_three_lanes() {
 }
 
 #[test]
+#[ignore = "over 60 s in the workspace run (2026-11-08); run on request: scripts/run_tests_on_request.sh"]
 fn a_mesh_rough_with_a_stone_cap_plans_like_the_core_for_one_and_three_lanes() {
     assert_stone_cap_lanes_match_the_core(c_shape_mesh(), 3, [1, 3]);
 }

@@ -1,11 +1,11 @@
 //! Plays the recipes Next performs in a real [`EditorSession`].
 //!
-//! A recipe is data, so the only way to know Next really finishes a step is to carry it out. The
-//! `Sim` here does what the desktop does for each [`Perform`]: the Tier form's parse and save
-//! (with the side rule of a new pavilion tier), the concave form, the Steps panel, the mirror, the
-//! relation and cheater edits, the palette commands that change the design, and, for what leaves
-//! no trace in the design (the Solve press, a panel opening), the UI event the desktop reports.
-//! After a recipe, the step's goal must hold.
+//! A recipe is data, so the only way to know Next really finishes a step is to carry it out.
+//! The `Sim` does what the desktop does for each [`Perform`]: the Tier form's parse and save
+//! (with the side rule of a new pavilion tier), the concave form, the Steps panel, the mirror,
+//! the relation and cheater edits, the palette commands that change the design, and, for what
+//! leaves no trace in the design (the Solve press, a panel opening), the UI event the desktop
+//! reports. After a recipe, the step's goal must hold.
 //!
 //! The walks cover the worked example, a "Build this design" lesson (plain and with a concave
 //! tier) and every static tutorial. A walk stops where a step has no recipe, or where a recipe is

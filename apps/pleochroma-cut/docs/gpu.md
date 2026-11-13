@@ -12,7 +12,7 @@ Routes both the viewport's progressive accumulation *and* the high-resolution
 export worker through `pleochroma`'s verified GPU megakernel
 (`pleochroma::renderer::gpu::frame`) instead of the multithreaded CPU tracer. **Off
 by default**, so an ordinary build pulls in neither `wgpu` nor `pollster` and
-behaves exactly as it did before the feature existed.
+runs the CPU tracer only.
 
 Export is where it matters most — a 4K render at 1024 spp is ~8.5 billion
 spectral paths. Measured on this project's integrated AMD Radeon (Vulkan), at
@@ -26,14 +26,15 @@ and falls through to the CPU tracer whenever it declines:
 | The GPU declines when | Because |
 | --- | --- |
 | No usable adapter on this machine | Logged once at startup; every frame then uses the CPU |
-| The GPU device was lost mid-run | Logged at `warn`; the backend stays disabled for the rest of the process |
+| The GPU device was lost mid-run | Logged at `warn`; the backend declines until a fresh device is acquired, retried 30 s after the loss and at most 6 times an hour |
 | The environment is an HDR map too large for the device | Its texel buffer would exceed the adapter's storage-buffer limit. Ordinary HDR maps render on the GPU — the megakernel has its own environment mode for them |
 
-All materials support the GPU path: the `BiaxialIndicatrix` machinery is ported to
-WGSL and verified at the same Tier 2 / Tier 3 bar as every other material, so
-`GemMaterial::gpu_supported` returns `true` for every material. See
-`pleochroma::renderer::gpu_backend`'s module doc comment for the authoritative
-decline list (which covers GPU adapter support, not materials).
+The `BiaxialIndicatrix` machinery is ported to WGSL and verified at the same Tier 2 /
+Tier 3 bar as every other material. A zoned material declines the GPU, and renders on
+the CPU, when it has a mesh-shell zone, a scattering haze, invalid zoning, or more
+absorption bands than the GPU holds; `GemMaterial::gpu_supported` reports this per
+material (see `pleochroma::renderer::buffers::zoning`). The decline list for the
+adapter itself is `pleochroma::renderer::gpu_backend`'s module doc comment.
 
 Both the viewport (`bridge::render_thread`, through its `ViewportGpu` wrapper in
 `bridge::render_thread::gpu_backend`) and the export worker (`bridge::export_thread`)

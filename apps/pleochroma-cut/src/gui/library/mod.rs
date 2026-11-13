@@ -1,11 +1,9 @@
-//! The design-library UI: browsing/searching/filtering ([`diagram_list`], [`search`]),
-//! opening/saving a design's own metadata ([`detail`]), copying detail fields to the
-//! clipboard ([`clipboard`]), local-only CRUD -- import/organize/export -- ([`local`]),
-//! and switching between the local database and a remote worker's library plus
-//! driving a pull-mirror sync ([`remote`]).
+//! The design-library UI.
 //!
-//! Grouped here as one coherent "design library" domain, with the local-only
-//! import/organize/export logic further split into [`local`]'s own submodules.
+//! It covers browsing and searching ([`diagram_list`], [`search`]), a design's metadata
+//! ([`detail`]), copying detail fields ([`clipboard`]), local import, organize and export
+//! ([`local`]), and switching between the local database and a remote worker's library with
+//! a pull-mirror sync ([`remote`]).
 
 pub mod clipboard;
 pub mod detail;

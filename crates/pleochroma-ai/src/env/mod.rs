@@ -7,7 +7,7 @@
 //! holds measured per-tier component sensitivities and a separate verified behavior target.
 //! Both environments expose `probe_tier` and `teacher_label_from_probes` so a trainer can
 //! schedule probes independently, then select the best measured coordinate or gradient
-//! candidate with bounded rescue. [`assemble_label`] and [`OracleOutcome`] remain legacy
+//! candidate with bounded rescue. [`assemble_label`] and [`OracleOutcome`] are
 //! slope-only helpers; they do not produce the behavior target.
 
 pub mod action;

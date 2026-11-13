@@ -4,8 +4,8 @@
 use super::error::GcsParseError;
 
 /// One `<tag ...>`, `<tag .../>`, or `</tag>` construct, with its attributes
-/// already split out and entity-decoded. Owns its strings: `.gcs` files are tens
-/// of KB, so the extra allocations are immaterial next to the clarity win.
+/// already split out and entity-decoded. Owns its strings: `.gcs` files are small,
+/// so the allocations do not matter.
 pub(super) struct RawTag {
     pub(super) name: String,
     attrs: Vec<(String, String)>,
@@ -166,9 +166,9 @@ fn parse_attrs(s: &str, line: usize) -> Result<Vec<(String, String)>, GcsParseEr
     Ok(out)
 }
 
-/// The most characters between `&` and `;` that still name an entity: the longest
-/// real body is `#x10FFFF`, 8 characters. Bounding the search for the `;` keeps
-/// decoding linear in the input however many `&` it holds.
+/// Longest entity body (between `&` and `;`) that is looked up. The longest real
+/// one, `#x10FFFF`, has 8 characters. Bounding the search for the `;` keeps decoding
+/// linear in the input however many `&` it holds.
 const MAX_ENTITY_BODY: usize = 12;
 
 /// Decodes XML entities in one left-to-right pass, so `&amp;lt;` stays `&lt;`: the

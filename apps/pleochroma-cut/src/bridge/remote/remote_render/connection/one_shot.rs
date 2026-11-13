@@ -1,7 +1,8 @@
-//! The one-shot connection lifecycle: one request per thread (on a fresh connection, or
-//! one parked by [`super::pool`] after a previous clean `DONE`), then the thread
-//! ends --[`spawn_remote_render`] (a `RenderRequest`) and [`spawn_final_image_request`]
-//! (a v14 `FinalImageRequest`), sharing the worker body [`run`].
+//! The one-shot connection lifecycle: one request per thread, then the thread ends.
+//!
+//! [`spawn_remote_render`] sends a `RenderRequest` and [`spawn_final_image_request`] a
+//! `FinalImageRequest`; both share the worker body [`run`]. The connection may be one parked by
+//! [`super::pool`] after a previous clean `DONE`.
 
 use super::{
     super::types::{
@@ -31,7 +32,7 @@ use std::{
 enum OneShotRequest {
     /// A `RenderRequest` (export chunks, batch previews).
     Render(RemoteRenderRequest),
-    /// A v14 `FinalImageRequest` ("final picture only").
+    /// A `FinalImageRequest` ("final picture only").
     FinalImage(RemoteFinalImageRequest),
 }
 
@@ -110,9 +111,10 @@ impl OneShotRequest {
     }
 }
 
-/// Connects to `request.worker`, performs the mutual-TLS handshake and
-/// `HELLO`/`WELCOME`, then sends and streams one `RenderRequest` covering
-/// `[request.first_sample, request.first_sample + request.samples)` of
+/// Renders one `RenderRequest` on `request.worker` and streams the replies into `accumulator`.
+///
+/// It connects, performs the mutual-TLS handshake and `HELLO`/`WELCOME`, then sends and streams
+/// the request, covering `[request.first_sample, request.first_sample + request.samples)` of
 /// `request.scene` at the session's `request.width x request.height` resolution.
 ///
 /// `accumulator` is shared with the caller: [`Accumulator::begin_request`] is called
@@ -128,12 +130,13 @@ pub fn spawn_remote_render(
     spawn(OneShotRequest::Render(request), accumulator, on_update)
 }
 
-/// [`spawn_remote_render`]'s twin for a v14 `FinalImageRequest` ("final picture only"):
-/// the remote renders `[first_sample, first_sample + samples)` and tone-maps it itself.
+/// [`spawn_remote_render`]'s twin for a `FinalImageRequest` ("final picture only"): the remote
+/// renders `[first_sample, first_sample + samples)` and tone-maps it itself.
+///
 /// Replies are `PROGRESS` heartbeats, one `FINAL_IMAGE` (lands, still encoded, in
-/// `accumulator.final_image()`, reported as [`RemoteUpdate::FinalImage`]) and `DONE`;
-/// a cancel ends it with `DONE { cancelled: true }` and no picture; a plain worker
-/// answers [`RemoteUpdate::Unsupported`].
+/// `accumulator.final_image()`, reported as [`RemoteUpdate::FinalImage`]) and `DONE`; a cancel ends
+/// it with `DONE { cancelled: true }` and no picture; a plain worker answers
+/// [`RemoteUpdate::Unsupported`].
 pub fn spawn_final_image_request(
     request: RemoteFinalImageRequest,
     accumulator: Arc<Mutex<Accumulator>>,
@@ -203,12 +206,11 @@ struct Attempt {
 /// The one-shot body, with the liveness deadline threaded in as a parameter -- see
 /// [`super::LIVENESS_TIMEOUT`]'s own doc comment for why.
 ///
-/// A `RenderRequest` first tries a connection parked by [`super::pool`] (the export's
-/// previous chunk left one: one connection per chunk cost a DNS lookup, TCP, TLS and
-/// `HELLO`/`WELCOME` each time). A pooled connection may have gone stale while idle; if
-/// it fails before the worker answered anything and before any command was consumed, the
-/// request is sent again, unchanged, on a fresh connection -- so pooling never turns an
-/// idle drop into a failed chunk.
+/// A `RenderRequest` first tries a connection parked by [`super::pool`], which saves the
+/// DNS, TCP, TLS and `HELLO`/`WELCOME` of a new one. A pooled connection may have gone stale
+/// while idle. If it fails before the worker answered and before any command was consumed,
+/// the request is sent again, unchanged, on a fresh connection, so an idle drop never fails
+/// a chunk.
 fn run(
     request: &OneShotRequest,
     accumulator: &Arc<Mutex<Accumulator>>,
@@ -352,11 +354,8 @@ fn run_on(
                 pleochroma_net::client::send_cancel(&mut stream, request_id)?;
                 cancel_sent_at.get_or_insert_with(Instant::now);
             }
-            // v16: the viewer's own reserved-tail sum, ready to upload as one
-            // `CONTRIBUTION` -- only meaningful for a `FinalImageRequest`; a plain
-            // `RenderRequest` never gets a `RemoteRenderHandle::contribute` call in the
-            // first place (nothing constructs one for it), so this is a defensive no-op
-            // there rather than an error.
+            // The viewer's reserved-tail sum, uploaded as one `CONTRIBUTION`. Only a
+            // `FinalImageRequest` gets one; for a `RenderRequest` this is a no-op.
             Ok(RemoteCommand::Contribute(sum)) => {
                 attempt.command_taken = true;
                 send_viewer_contribution(&mut stream, request, &sum, &mut last_event)?;
@@ -371,11 +370,9 @@ fn run_on(
 
         let Some((event, payload)) = try_read_stream_event(&mut stream, super::POLL_INTERVAL)?
         else {
-            // Nothing arrived within this poll -- distinct from an actual I/O error
-            // (see `RemoteError::WorkerSilent`'s own doc comment): if this has gone on
-            // longer than the currently-applicable deadline, the worker has stopped
-            // saying anything at all and this gives up rather than polling a dead
-            // connection forever.
+            // Nothing arrived within this poll. Not an I/O error (see
+            // `RemoteError::WorkerSilent`): past the current deadline the worker has gone
+            // silent, so give up rather than poll a dead connection forever.
             let deadline = super::liveness_deadline(seen_first_event, liveness_timeout);
             if last_event.elapsed() > deadline {
                 return Err(RemoteError::WorkerSilent(last_event.elapsed()));

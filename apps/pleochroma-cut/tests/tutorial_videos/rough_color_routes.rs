@@ -204,17 +204,26 @@ impl Film<'_> {
                 first_row().unwrap_or_default()
             ));
         }
-        let saved = Self::rough_color_button(&rough, "Saved Plans")?;
+        // Saved Plans is a radio segment of the right column; the plan's "..." menu holds Open.
+        let saved = targets::role_label(
+            &WindowView::of("RoughPlannerWindow", &rough),
+            "Saved Plans",
+            AccessibleRole::RadioButton,
+            None,
+        )
+        .ok_or("the Rough Planner tab \"Saved Plans\" is not visible")?;
         self.click_secondary(rough.window(), origin, &saved)?;
-        if !pacing::wait_real(pacing::STEP_TIMEOUT, || model.get_saved_open()) {
+        if !pacing::wait_real(pacing::STEP_TIMEOUT, || model.get_results_tab() == 1) {
             return Err(format!("{what}: Saved Plans did not open the list"));
         }
         self.hold(pacing::RESULT_HOLD)?;
+        let menu = Self::rough_color_button(&rough, &format!("Menu of {name}"))?;
+        self.click_secondary(rough.window(), origin, &menu)?;
         let open = Self::rough_color_button(&rough, "Open")?;
         self.click_secondary(rough.window(), origin, &open)?;
-        // The banner and the closing of the list wait for the rows of the opened plan.
+        // The banner and the switch back to the Layouts tab wait for the rows of the opened plan.
         if !pacing::wait_real(pacing::STEP_TIMEOUT, || {
-            !model.get_loaded_banner().is_empty() && !model.get_saved_open()
+            !model.get_loaded_banner().is_empty() && model.get_results_tab() == 0
         }) {
             return Err(format!(
                 "{what}: the saved plan did not open: {:?}",
@@ -254,6 +263,8 @@ impl Film<'_> {
             ));
         }
 
+        // The button sits under the inclusions of the Rough step.
+        self.open_rough_step(0)?;
         let button =
             self.rough_color_control(window, origin, "Rough Color...", AccessibleRole::Button)?;
         self.click_secondary(window, origin, &button)?;
@@ -376,9 +387,19 @@ impl Film<'_> {
     /// leaves the video so the editor shows the design with its color.
     pub(crate) fn film_rough_color_use(&mut self) -> Result<(), String> {
         let (rough, origin) = self.open_seeded_plan("rough_color_used")?;
+        // Use Color is an entry of the design card's "..." menu.
+        let model = rough.global::<RoughPlanModel>();
+        let design = model
+            .get_results()
+            .row_data(usize::try_from(model.get_selected_result()).unwrap_or(0))
+            .and_then(|result| result.groups.row_data(0))
+            .map(|group| group.name)
+            .ok_or("no layout is selected, so no design card has a menu")?;
+        let menu = Self::rough_color_button(&rough, &format!("Menu of {design}"))?;
+        self.click_secondary(rough.window(), origin, &menu)?;
         let view = WindowView::of("RoughPlannerWindow", &rough);
         let pill = targets::run_label_start(&view, "Use the Color of")
-            .ok_or("no Use Color button is visible on a design row")?;
+            .ok_or("no Use Color entry is in the design menu")?;
         self.click_secondary(rough.window(), origin, &pill)?;
         self.hold(Duration::from_millis(500))?;
         if self.ui.global::<EditorModel>().get_unsaved_dialog_open() {

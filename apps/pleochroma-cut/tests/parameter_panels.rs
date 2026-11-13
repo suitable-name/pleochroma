@@ -1,11 +1,11 @@
-//! Guards three promises of the Parameters dock that no single unit test can see, because they
-//! are properties of the whole source tree:
+//! Guards three promises of the Parameters dock that no unit test sees, because they are
+//! properties of the whole source tree:
 //!
-//! - nothing but the explicit "Preview as..." handler ever sets the viewport material to
-//!   "not linked to the design" (a silent unlink would show a picture that is not the design);
+//! - only the explicit "Preview as..." handler sets the viewport material to "not linked to the
+//!   design" (a silent unlink would show a picture that is not the design);
 //! - the Stone tab and the Preform tab edit one stone width (`EditorModel.girdle_diameter_mm`),
-//!   and the old app-level `SettingsModel.stone_width_mm` is read-only for the dock;
-//! - the old "Linked to design" toggle is gone.
+//!   and the legacy app-level `SettingsModel.stone_width_mm` is read-only for the dock;
+//! - no Slint file carries the "Linked to design" toggle.
 //!
 //! It only reads the sources as text, like `guide_highlights.rs` and `theme_tokens.rs`.
 
@@ -90,8 +90,7 @@ fn only_the_preview_handler_unlinks_the_viewport_material() {
 fn no_slint_file_unlinks_the_material_or_keeps_the_old_toggle() {
     for (path, text) in sources("ui", "slint") {
         for line in code_lines(&text) {
-            // `viewport_material_linked =` is a write; the `=` of `changed viewport_material_linked =>`
-            // is a read handler, so a needle directly followed by `>` does not count.
+            // A write is `viewport_material_linked =`; `=>` makes it a read handler.
             let assigns = line.contains("viewport_material_linked <=>")
                 || line.contains("<=> ViewportModel.viewport_material_linked")
                 || line
@@ -104,7 +103,7 @@ fn no_slint_file_unlinks_the_material_or_keeps_the_old_toggle() {
             );
         }
     }
-    // The render pipeline relies on this read handler; a later sweep must not drop it silently.
+    // The render pipeline relies on this read handler.
     let viewport = read("ui/models/viewport.slint");
     assert!(
         code_lines(&viewport).any(|line| line.contains("changed viewport_material_linked =>")),

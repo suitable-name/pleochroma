@@ -76,9 +76,8 @@ fn launch_with_library(ctx: &mut Ctx<'_>, designs: &[FixtureDesign]) -> Result<u
     })
 }
 
-/// The fixture designs in the library, the first row selected. The relaunch is repeated (after a
-/// short real-time pause) when the list model does not reach the seeded count: the finding names
-/// the count the model held on the last attempt.
+/// The fixture designs in the library, the first row selected. The relaunch is repeated while the
+/// list model falls short of the seeded count; the error names the counts it held.
 fn library(ctx: &mut Ctx<'_>) -> Result<(), String> {
     let designs = sample_designs();
     let wanted = designs.len();
@@ -89,9 +88,8 @@ fn library(ctx: &mut Ctx<'_>) -> Result<(), String> {
         if shown >= wanted {
             break;
         }
-        // Was a fixed `settle(500)` before the next attempt: the relaunch already waited 10 s
-        // for the rows, so this only gives a late list one more chance (returns at once when
-        // the rows arrive).
+        // The relaunch has already waited up to 10 s for the rows; this gives a late list one
+        // more short chance and returns at once when the rows arrive.
         let late = {
             let ui = ctx.app.ui();
             wait_until(Duration::from_millis(500), || {
@@ -125,8 +123,7 @@ fn library(ctx: &mut Ctx<'_>) -> Result<(), String> {
     }
     // The selection is set at once; the detail of the entry (header, angle table, attachment list)
     // follows on a worker and lands in one UI step, so a row that reads the angle table needs it.
-    // Waited for by the entry's id, not for a title (a short wait that ended with an empty table
-    // made `copy_cutting_row` copy nothing under load).
+    // Waited for by the entry's id, not a title: a short wait can end with an empty table.
     let _ = wait_until(Duration::from_secs(10), || {
         ui.global::<LibraryModel>().get_current_detail().id == id
     });
@@ -137,7 +134,7 @@ fn library(ctx: &mut Ctx<'_>) -> Result<(), String> {
 /// (the corpus' slowest design takes about 6 s alone, more with the worker threads of a pass).
 const EDITOR_DESIGN_WAIT: Duration = Duration::from_secs(45);
 
-/// Waits until the editor's design is the one on the viewport (`ViewportModel.shows_editor_design`)
+/// Waits until the editor's design is on the viewport (`ViewportModel.shows_editor_design`)
 /// and no solve runs. The viewport is claimed by the first solve that lands for the design
 /// (`push_viewport_owner`), which for a loaded design is a background solve: until then
 /// `EditorModel.apply_named_material` answers "Library" and Pin finds no solved mast. Best effort:
@@ -172,7 +169,7 @@ fn planner(ctx: &mut Ctx<'_>) -> Result<(), String> {
     if wait_until(Duration::from_secs(5), || {
         harness_support::rough_planner_window().is_some()
     }) {
-        // Was a fixed `settle(150)`: the planner lists its materials once it is ready.
+        // The planner lists its materials once it is ready.
         let _ = wait_until(Duration::from_millis(150), || {
             harness_support::rough_planner_window()
                 .is_some_and(|w| w.global::<RoughPlanModel>().get_materials().row_count() > 0)
@@ -190,11 +187,9 @@ const SNAPSHOT_WAIT: Duration = Duration::from_secs(30);
 /// Sets the Baseline of the editor's design, waits until the app holds it, then opens the Baseline
 /// compare window (what "Compare Visually…" does) and waits until it is shown.
 ///
-/// A design that is opened already holds a Baseline (the app sets one on open), so Compare is
-/// enabled from the start and there is no longer a race with a first Baseline. The explicit Set
-/// Baseline still replaces it with the design as it is now, which for a design whose solve is not
-/// cached yet (one Load Selected has just installed) happens only once a background solve lands,
-/// so the wait stays.
+/// A design that is opened already holds a Baseline, so Compare is enabled from the start. The
+/// explicit Set Baseline replaces it with the design as it is now; for a design whose solve is not
+/// cached yet, that happens only once a background solve lands, so the wait stays.
 ///
 /// # Errors
 ///
@@ -237,7 +232,7 @@ fn help(ctx: &mut Ctx<'_>) -> Result<(), String> {
     if wait_until(Duration::from_secs(5), || {
         harness_support::help_window().is_some()
     }) {
-        // Was a fixed `settle(100)`: the window is shown.
+        // Waits until the window is visible.
         let _ = wait_until(Duration::from_millis(100), || {
             harness_support::help_window().is_some_and(|w| w.window().is_visible())
         });

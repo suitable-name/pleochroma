@@ -268,8 +268,8 @@ fn hex(bytes: &[u8]) -> String {
 #[test]
 fn wire_format_is_pinned_to_worker() {
     assert_eq!(
-        PROTOCOL_VERSION, 31,
-        "the bytes below were pinned for version 31"
+        PROTOCOL_VERSION, 32,
+        "the bytes below were pinned for version 32"
     );
 
     // TraceChunk = variant 4; scene id 300 = varint AC 02.
@@ -293,7 +293,7 @@ fn wire_format_is_pinned_to_worker() {
         hex(&encode_to_worker(&watch).expect("encodes")),
         "08 05 06 62 6C 6F 62 3A 78"
     );
-    // Init = variant 0, then version 31 (0x1F), role Render = 0, worker index 2.
+    // Init = variant 0, then version 32 (0x20), role Render = 0, worker index 2.
     let init = ToWorker::Init {
         protocol_version: PROTOCOL_VERSION,
         role: WorkerRole::Render,
@@ -301,7 +301,7 @@ fn wire_format_is_pinned_to_worker() {
     };
     assert_eq!(
         hex(&encode_to_worker(&init).expect("encodes")),
-        "00 1F 00 02"
+        "00 20 00 02"
     );
     // Init with role Gpu = 2, worker index 0.
     let init_gpu = ToWorker::Init {
@@ -311,7 +311,7 @@ fn wire_format_is_pinned_to_worker() {
     };
     assert_eq!(
         hex(&encode_to_worker(&init_gpu).expect("encodes")),
-        "00 1F 02 00"
+        "00 20 02 00"
     );
     // GpuCompile = variant 9.
     let gpu_compile = ToWorker::GpuCompile {
@@ -342,8 +342,8 @@ fn wire_format_is_pinned_to_worker() {
 #[test]
 fn wire_format_is_pinned_from_worker() {
     assert_eq!(
-        PROTOCOL_VERSION, 31,
-        "the bytes below were pinned for version 31"
+        PROTOCOL_VERSION, 32,
+        "the bytes below were pinned for version 32"
     );
 
     // ChunkResult = variant 2; one [0.5, 1.0, 2.0] sum; 187.25 ms = 0x4067680000000000.
@@ -435,18 +435,19 @@ fn wire_format_is_pinned_from_worker() {
         hex(&encode_from_worker(&gpu_lost).expect("encodes")),
         "12 04 6C 6F 73 74"
     );
-    // Loaded = variant 0, then the version 31 (0x1F): the one Worker-to-page message that
+    // Loaded = variant 0, then the version 32 (0x20): the one Worker-to-page message that
     // carries the version, so a bump changes this byte too.
     let loaded = FromWorker::Loaded {
         protocol_version: PROTOCOL_VERSION,
     };
-    assert_eq!(hex(&encode_from_worker(&loaded).expect("encodes")), "00 1F");
+    assert_eq!(hex(&encode_from_worker(&loaded).expect("encodes")), "00 20");
 }
 
 /// `LightingSpec` pinned: preset index and backdrop index as zigzag varints, then the
-/// three `f32`s, the appended v11 `head_shadow_deg` (16.0 = `00 00 80 41`) and the appended
-/// v17 `surface_glare` (the default 1.0 = `00 00 80 3F`). The first preset of the combo (the
-/// light tent) is index 0.
+/// three `f32`s, `head_shadow_deg` (16.0 = `00 00 80 41`), `surface_glare` (the default 1.0 =
+/// `00 00 80 3F`), `hdr_yaw_deg` (the default 0.0 = `00 00 00 00`) and `hdr_follows_camera`
+/// (off = `00`). The first preset of
+/// the combo (the light tent) is index 0.
 #[test]
 fn lighting_spec_wire_format_is_pinned() {
     let spec = LightingSpec::new(
@@ -459,19 +460,42 @@ fn lighting_spec_wire_format_is_pinned() {
     );
     assert_eq!(
         hex(&postcard::to_allocvec(&spec).expect("encodes")),
-        "00 00 00 80 3F 00 00 00 3F 00 00 80 3E 02 00 00 80 41 00 00 80 3F"
+        "00 00 00 80 3F 00 00 00 3F 00 00 80 3E 02 00 00 80 41 00 00 80 3F 00 00 00 00 00"
     );
-    // A dialled-in 0.5 (`00 00 00 3F`) replaces only the appended field.
+    // A dialled-in 0.5 (`00 00 00 3F`) replaces only the glare field.
     assert_eq!(
         hex(&postcard::to_allocvec(&spec.with_surface_glare(0.5)).expect("encodes")),
-        "00 00 00 80 3F 00 00 00 3F 00 00 80 3E 02 00 00 80 41 00 00 00 3F"
+        "00 00 00 80 3F 00 00 00 3F 00 00 80 3E 02 00 00 80 41 00 00 00 3F 00 00 00 00 00"
     );
 }
 
-/// A Retarget message from before `crown_follows_pavilion` existed (as a self-describing
-/// format would carry it) reads the field as `true`, the default: the crown follows the
-/// pavilion. The postcard wire itself has no defaults, which is why the field bumped
-/// [`PROTOCOL_VERSION`].
+/// A turned `LightingSpec` pinned and round-tripped: 90 degrees is `00 00 B4 42`, following the
+/// camera is the final `01`, and the decoded spec equals the one written.
+#[test]
+fn a_turned_lighting_spec_round_trips_and_is_pinned() {
+    let spec = LightingSpec::new(
+        LightingPreset::LightTent,
+        1.0,
+        0.5,
+        0.25,
+        Backdrop::Grey,
+        16.0,
+    )
+    .with_hdr_turn(90.0, true);
+    let bytes = postcard::to_allocvec(&spec).expect("encodes");
+    assert_eq!(
+        hex(&bytes),
+        "00 00 00 80 3F 00 00 00 3F 00 00 80 3E 02 00 00 80 41 00 00 80 3F 00 00 B4 42 01"
+    );
+    let back: LightingSpec = postcard::from_bytes(&bytes).expect("decodes");
+    assert_eq!(back, spec);
+    assert_eq!(back.hdr_yaw_deg.to_bits(), 90.0_f32.to_bits());
+    assert!(back.hdr_follows_camera);
+}
+
+/// A self-describing format reads a missing `crown_follows_pavilion` as `true`, the default:
+/// the crown follows the pavilion. The postcard wire has no defaults, so the field is a
+/// [`PROTOCOL_VERSION`] change instead.
 #[test]
 fn a_retarget_message_without_the_crown_follow_field_reads_it_as_true() {
     let params = RetargetParams {

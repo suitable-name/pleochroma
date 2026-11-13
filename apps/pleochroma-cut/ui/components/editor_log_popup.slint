@@ -3,29 +3,21 @@ import { Theme } from "../theme.slint";
 import { EditorModel } from "../models/editor.slint";
 import { GuideModel } from "../models/guide.slint";
 import { StaleBadge } from "stale_badge.slint";
-// The Log popup's "Copy" button reuses LibraryModel.copy_text to copy details
-// to clipboard and show "Copied!" toast.
+// `LibraryModel.copy_text` copies the details and shows the toast.
 import { LibraryModel } from "../models/library.slint";
 import { TouchButton } from "touch_button.slint";
 
-// The Edit sub-tab's full detail-width status line -- see `app.slint`'s
-// Edit-mode layout doc comment. Shows only the single highest-priority
-// message as a colored dot + one line -- the solver's own state
-// (solving/stale/failed/solved) always leads, see
-// `EditorStatusStrip::strip_text`'s own doc comment for the full order;
-// "Details" (a current-state snapshot, not a history a cutter could
-// scroll back through) opens `EditorLogPopup` with every message in
-// full, so nothing is ever unreachable, only reordered behind one click.
+// The Details popup of the editor status strip: every message the strip can show, in full.
+// The strip shows one message at a time (`EditorStatusStrip.strip_text` has the priority
+// order). This popup is a snapshot of the current state, so nothing is unreachable.
 export component EditorLogPopup inherits PopupWindow {
-    // `close-on-click-outside` gives the popup real click-outside-to-close,
-    // making the old backdrop genuinely redundant.
+    // Clicking outside the popup closes it, so no backdrop is needed.
     close-policy: PopupClosePolicy.close-on-click-outside;
     width: 380px;
     height: outer.preferred-height;
 
-    // Popup height is capped so it doesn't grow past the top of the window.
-    // Plumbed from EditorStatusStrip.window_height, bound from app.slint's
-    // root.height, the same way RetargetDialog/TiltBatchDialog size themselves.
+    // Popup height is capped so it does not pass the top of the window.
+    // `EditorStatusStrip.window_height` sets it from the window height.
     in property <length> window_height: 900px;
 
     // Grabs keyboard focus every time the popup opens so Escape works immediately.
@@ -64,7 +56,6 @@ export component EditorLogPopup inherits PopupWindow {
     }
 
     Rectangle {
-        // Uses theme tokens for background/border/shadow instead of bare hex.
         background: Theme.popup-surface;
         border-radius: Theme.radius-md;
         border-width: 1px;
@@ -96,21 +87,12 @@ export component EditorLogPopup inherits PopupWindow {
                     Text { text: "Editor Details"; font-size: 13px; font-weight: 700; color: Theme.text-primary; vertical-alignment: center; }
                     HorizontalLayout {
                         spacing: 6px;
-                        // Copies everything this popup shows (`log_text` above)
-                        // through the same generic clipboard callback
-                        // `performance_graph_dialog.slint`'s own Copy button
-                        // uses -- `LibraryModel.copy_text` shows its own
-                        // "Copied to clipboard!" toast, so nothing more is
-                        // needed here.
+                        // Copies everything this popup shows (`log_text`) through
+                        // `LibraryModel.copy_text`, which shows its own toast.
                         Rectangle {
                             width: copy_label.preferred-width + 16px;
                             height: 24px;
                             border-radius: Theme.radius-sm;
-                            // `Theme.bg-card-hover` matches the hover treatment
-                            // this file already uses a few segments below (the
-                            // "Saved:" chip's own TouchArea), so the same
-                            // hover-affordance role renders consistently
-                            // everywhere it appears in this popup.
                             background: copy_touch.has-hover ? Theme.bg-card-hover : transparent;
                             border-width: 1px;
                             border-color: Theme.border-dialog;
@@ -147,11 +129,9 @@ export component EditorLogPopup inherits PopupWindow {
                     body := VerticalLayout {
                         spacing: 10px;
 
-                        // Validation status line -- the old green/ruby "Closed solid --
-                        // volume …" banner's full text.
-                        // Dot + wrapped text are absolutely placed inside a Rectangle sized to
-                        // the text's wrapped height (a wrapped Text inside a HorizontalLayout
-                        // reports a one-line height, so the next row would overlap it).
+                        // Solver status line. The dot and the wrapped text are placed absolutely
+                        // inside a Rectangle sized to the text's wrapped height: a wrapped Text
+                        // in a HorizontalLayout reports one line.
                         if EditorModel.status_text != "": Rectangle {
                             height: status_row_t.preferred-height;
                             Rectangle { x: 0px; y: 3px; width: 8px; height: 8px; border-radius: 4px; background: EditorModel.status_is_problem ? Theme.accent-ruby : Theme.accent-emerald; }
@@ -181,11 +161,8 @@ export component EditorLogPopup inherits PopupWindow {
                                     wrap: word-wrap;
                                 }
                             }
-                            // Badges (never clears) a verdict computed for an
-                            // OLDER design generation -- see
-                            // `EditorModel.deep_solve_stale`'s own doc comment.
-                            // Not shown while a run is actively in progress (its
-                            // own amber "running" state already says enough).
+                            // Marks a Deep Solve verdict computed for an older design. It
+                            // never clears the verdict. Hidden while a run is in progress.
                             if EditorModel.deep_solve_stale && !EditorModel.deep_solve_running: StaleBadge {
                                 // Locked with Deep Solve while the worked-example guide runs.
                                 enabled: GuideModel.allows_advanced();
@@ -193,11 +170,8 @@ export component EditorLogPopup inherits PopupWindow {
                             }
                         }
 
-                        // Optimize status line -- same shape as Deep Solve's own,
-                        // so the Details popup can badge staleness for it too
-                        // (`EditorModel.optimize_stale`). The full per-tier
-                        // result/change tables live in `editor_inspector.slint`'s
-                        // Optimize tab.
+                        // Optimize status line, shaped like the Deep Solve one. Its per-tier
+                        // tables are in the Optimize tab of the inspector.
                         if EditorModel.optimize_running || EditorModel.optimize_status != "": VerticalLayout {
                             spacing: 4px;
                             Rectangle {
@@ -225,14 +199,9 @@ export component EditorLogPopup inherits PopupWindow {
                             }
                         }
 
-                        // The per-tier table behind the aggregate verdict above
-                        // -- one row per tier Deep Solve's verified repair
-                        // actually disagreed with the plain solve on
-                        // (`EditorModel.deep_solve_tier_rows`, additional to --
-                        // never replacing -- the status line's own
-                        // one-sentence "Disagrees with the last solve on: ..."
-                        // suffix). Empty (and so hidden) when there is nothing
-                        // to report.
+                        // Per-tier mast comparison for the tiers where Deep Solve's verified
+                        // repair disagreed with the plain solve. It extends the one-sentence
+                        // status line above and never replaces it. Hidden when empty.
                         if EditorModel.deep_solve_tier_rows.length > 0: VerticalLayout {
                             spacing: 3px;
                             Text { text: "Deep Solve: Per-Tier Mast Comparison"; font-size: 11px; font-weight: 700; color: Theme.text-primary; }
@@ -253,11 +222,8 @@ export component EditorLogPopup inherits PopupWindow {
                                 Text { width: 56px; text: r.before_mast; font-size: 10px; color: Theme.text-muted; }
                                 Text { width: 56px; text: r.after_mast; font-size: 10px; color: Theme.text-primary; }
                                 Text { width: 56px; text: r.delta; font-size: 10px; font-weight: 700; color: Theme.accent-amber; }
-                                // Opt-in "Pin to verified mast" --
-                                // `pin_verified_mast` takes the SAME "#N"
-                                // tier-number text this row already prints, so
-                                // no new field is needed to identify the tier.
-                                // Advanced: the Simple interface leaves Pin out.
+                                // Pins the verified mast. Takes the "#N" text this row prints.
+                                // Advanced only.
                                 if GuideModel.shows_advanced(): Rectangle {
                                     width: 30px;
                                     height: max(20px, pin_text.preferred-height);
@@ -279,9 +245,8 @@ export component EditorLogPopup inherits PopupWindow {
                             }
                         }
 
-                        // Manufacturability warnings -- every one, in full. Amber, never
-                        // ruby: these are never treated as errors that stop anything, only
-                        // things the user should look at.
+                        // Manufacturability warnings, in full. Amber, never ruby: they are
+                        // advisory, not errors.
                         if EditorModel.manufacturability_warnings.length > 0: VerticalLayout {
                             spacing: 3px;
                             Text { text: "Manufacturability (" + EditorModel.manufacturability_warnings.length + ")"; font-size: 11px; font-weight: 700; color: Theme.accent-amber; }
@@ -327,8 +292,7 @@ export component EditorLogPopup inherits PopupWindow {
                             Text { text: EditorModel.preform_fit_warning; font-size: 10px; color: Theme.text-secondary; wrap: word-wrap; }
                         }
 
-                        // Catalogue-load material suggestion, with its accept/dismiss
-                        // actions kept exactly as the old banner offered them.
+                        // Catalogue-load material suggestion, with its accept and dismiss actions.
                         if EditorModel.material_suggestion_text != "": VerticalLayout {
                             spacing: 4px;
                             Text { text: EditorModel.material_suggestion_text; font-size: 11px; color: Theme.accent-cyan; wrap: word-wrap; }
@@ -339,13 +303,9 @@ export component EditorLogPopup inherits PopupWindow {
                             }
                         }
 
-                        // The full path, in the one place that has room for it
-                        // -- the strip itself shows only the bare file name.
-                        // Deliberately outside the "Nothing to
-                        // report." condition below: a saved path is a fact about
-                        // the session, not a message competing for the strip's
-                        // single slot, so it stays visible even when there is
-                        // genuinely nothing else to report.
+                        // The full saved path. The strip shows only the file name. It stays
+                        // outside the "Nothing to report." condition: a saved path is a fact,
+                        // not a message competing for the strip's slot.
                         if EditorModel.last_saved_path != "": VerticalLayout {
                             spacing: 3px;
                             Text { text: "Last Saved To"; font-size: 11px; font-weight: 700; color: Theme.text-primary; }

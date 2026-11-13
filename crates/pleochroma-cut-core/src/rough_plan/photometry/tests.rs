@@ -639,13 +639,12 @@ fn an_encoded_source_carries_quantisation_and_compression_variance() {
             .unwrap()
             .variance[0][0]
     };
-    // A perfectly flat white frame shows no compression error (round 3, D4.2 estimates it from
-    // the frame), so only the 8-bit quantisation is added: 1.2 times, not the five times of the
-    // assumed constant.
+    // A flat white frame has no compression error to estimate, so the 8-bit source adds only
+    // its quantisation: a small excess, but still above 1.2 times RAW.
     assert!(variance_of(SourceKind::Rgb8) > 1.2 * variance_of(SourceKind::Raw));
 }
 
-/// Round 3, D4.2: the compression sigma comes from the local variance of the white frame.
+/// The compression sigma of an 8-bit white frame comes from its local variance.
 #[test]
 fn the_compression_sigma_is_estimated_from_the_white_frame() {
     use super::{COMPRESSION_SIGMA_MAX, estimate_compression_sigma, srgb_to_linear};
@@ -686,8 +685,8 @@ fn the_compression_sigma_is_estimated_from_the_white_frame() {
     assert!(estimate_compression_sigma(&raw, &noise, 0.98).is_none());
 }
 
-/// ZC-3: the stone's compression error is estimated from the stone frame by a robust Laplacian,
-/// and it is what the stone's transmittance variance carries.
+/// The stone's compression error is estimated from the stone frame by a robust Laplacian, and
+/// it is what the stone's transmittance variance carries.
 #[test]
 #[allow(
     clippy::too_many_lines,
@@ -805,8 +804,8 @@ fn the_stone_compression_sigma_is_estimated_from_the_stone_frame() {
     }
     assert!(estimate_stone_compression_sigma(&decoded, &noise, Some(&blocked), 0.98).is_none());
 
-    // The stone's variance in the transmittance carries the stone's estimate, not the flat white
-    // frame's zero: a textured JPEG stone against a flat white frame.
+    // The stone's variance carries the stone's own estimate, not the flat white frame's: a
+    // textured JPEG stone against a flat white frame.
     let calibration = ViewCalibration {
         frames: CalibrationFrames {
             white: vec![
@@ -844,15 +843,13 @@ fn the_stone_compression_sigma_is_estimated_from_the_stone_frame() {
     );
 }
 
-/// S2 (root-cause analysis R4): the per-8x8-block DC offset of a stone frame is estimated from the
-/// block means.
+/// The per-8x8-block DC offset of a stone frame is estimated from the block means.
 ///
 /// The oracle frame is built, not encoded: a smooth encoded-domain gradient plus a known Gaussian
 /// offset per 8 x 8 block (sigma 0.9 code) plus independent pixel noise (sigma 0.9 code), rounded
-/// to 8 bits. A real JPEG cannot serve as the 30 % oracle here: at quality 90 the DC step is only
-/// 3 coefficient units (0.1 code of block mean, below the pixel noise floor), and on a noise-free
-/// gradient the DC error is a deterministic sawtooth that is locally smooth, so no Laplacian can
-/// see it. The codec is covered by the smoke checks at the end.
+/// to 8 bits. A real JPEG cannot serve as the oracle: at quality 90 the DC step is below the pixel
+/// noise floor, and on a noise-free gradient the DC error is locally smooth, so no Laplacian sees
+/// it. The codec is covered by the smoke test at the end.
 fn block_dc_oracle_frame() -> (LinearImage, NoiseModel) {
     use super::JPEG_BLOCK;
     let (w, h) = (160_usize, 160_usize);
@@ -950,7 +947,7 @@ fn a_mask_flag_in_every_block_removes_the_block_dc_term() {
 }
 
 /// Smoke check on a real quality 90 JPEG of a smooth gradient: both parts exist and respect
-/// the cap, and the AC part is the old estimate.
+/// the cap, and the AC part is the per-pixel estimate alone.
 #[test]
 fn a_quality_90_jpeg_gives_a_capped_block_dc_term_and_the_old_ac_estimate() {
     use super::{
@@ -999,8 +996,8 @@ fn a_quality_90_jpeg_gives_a_capped_block_dc_term_and_the_old_ac_estimate() {
     );
 }
 
-/// S2: the per-pixel variance averages down onto the working grid, the block-DC variance only by
-/// the block count (`var_dc * min(1, 64 / N)`), and a transmittance without a block term resamples
+/// The per-pixel variance averages down onto the working grid, the block-DC variance only by the
+/// block count (`var_dc * min(1, 64 / N)`), and a transmittance without a block term resamples
 /// exactly as before.
 #[test]
 fn the_block_dc_variance_is_propagated_as_correlated_within_a_block() {
@@ -1028,7 +1025,7 @@ fn the_block_dc_variance_is_propagated_as_correlated_within_a_block() {
         (1.0_f64, 16, per_pixel + block),
         // One block per working pixel: the pixel part averages by 64, the block part not at all.
         (8.0, 2, per_pixel / 64.0 + block),
-        // Four blocks per working pixel: the block part averages by 4 (= 64 / 256 * 64 / 64).
+        // Four blocks per working pixel: the block part averages by 4 (= 64 / 256).
         (16.0, 1, per_pixel / 256.0 + block / 4.0),
     ] {
         let grid = WorkingGrid {
@@ -1044,7 +1041,7 @@ fn the_block_dc_variance_is_propagated_as_correlated_within_a_block() {
             }
         }
     }
-    // Without a block term the old resampling is unchanged, bit for bit.
+    // Without a block term the resampling is the plain one, bit for bit.
     let plain = make(0.0);
     let grid = WorkingGrid {
         width: 2,

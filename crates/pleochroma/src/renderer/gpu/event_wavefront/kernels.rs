@@ -189,13 +189,13 @@ pub fn needed_arms(material_class: u32, scene: &FrameScene<'_>) -> Vec<EwKernel>
 /// stone under an HDR environment map (`env_mode == 2` in the shader).
 #[must_use]
 pub fn needs_nee_hg(scene: &FrameScene<'_>) -> bool {
-    scene.material.scatters() && matches!(scene.environment, EnvironmentSource::HdrMap(_))
+    scene.material.scatters() && matches!(scene.environment, EnvironmentSource::HdrMap { .. })
 }
 
 /// Whether `scene`'s stone has color zones as the kernels see them.
 ///
 /// That is the encoded material's zone count (`material.zones.header.zone_count` in the shader),
-/// which is 0 for a stone whose zones the GPU cannot render. Such a stone needs
+/// which is 0 for a stone whose zones the GPU cannot render; such a stone gets no
 /// [`EwKernel::ZonedAbsorb`].
 #[must_use]
 pub fn is_zoned(scene: &FrameScene<'_>) -> bool {
@@ -207,18 +207,17 @@ pub fn is_zoned(scene: &FrameScene<'_>) -> bool {
             > 0
 }
 
-/// The kernel list for given scene properties: the pure core of [`needed_kernels`].
+/// The kernel list for a scene's properties: the pure core of [`needed_kernels`].
 ///
-/// It is the list for a stone without color zones, which is what a browser compiles (the browser
-/// refuses zoned stones); [`with_zoned_absorb`] adds the kernel a zoned stone needs. A class value
-/// without the `NO_ORIENTED` bit may hold oriented inclusions, so it lists
-/// [`EwKernel::ScatterOriented`] after the plain scatter kernel; the browser's class always sets
-/// that bit and compiles neither.
+/// This is the list for a stone without color zones, which is what a browser compiles;
+/// [`with_zoned_absorb`] adds the kernel a zoned stone needs. Without the `NO_ORIENTED` class bit
+/// a stone may hold oriented inclusions, so [`EwKernel::ScatterOriented`] is listed after the
+/// plain scatter kernel.
 ///
-/// Every kernel split off a heavy one follows the rule of the `NeeHg` guard: it is listed exactly
-/// when the shader can tag a ray for it, so an omitted kernel never receives a ray.
-/// `ew_extend` tags `TAG_SCATTER_ORIENTED` only when `material_oriented_active()`, which the
-/// pipeline constant `ORIENTED_INCLUSIONS` (class bit `NO_ORIENTED`) folds to false.
+/// Each kernel split off a heavy one is listed exactly when the shader can tag a ray for it (as
+/// the `NeeHg` guard does), so an omitted kernel never receives a ray. `ew_extend` tags
+/// `TAG_SCATTER_ORIENTED` only when `material_oriented_active()`, which the pipeline constant
+/// `ORIENTED_INCLUSIONS` (class bit `NO_ORIENTED`) folds to false.
 #[must_use]
 pub fn kernels_for(class: u32, frosted: bool, has_scatter: bool, nee_hg: bool) -> Vec<EwKernel> {
     let mut kernels = Vec::with_capacity(EwKernel::ALL.len());
@@ -261,10 +260,11 @@ pub fn needed_kernels(material_class: u32, scene: &FrameScene<'_>) -> Vec<EwKern
     needed_kernels_with_surface(material_class, scene, false)
 }
 
-/// [`needed_kernels`] for a scene with a surface finish.
+/// [`needed_kernels`] with an extra trigger for the frosted arm.
 ///
-/// `ground_arm` (a Ground facet surface or the abraded-edge band, `GpuSurfaceScene::needs_ground_arm`) schedules the ground arm kernel
-/// even when no facet finish is frosted, because the surface phase then routes rays to it.
+/// `ground_arm` (a ground facet surface or the abraded-edge band, see
+/// `GpuSurfaceScene::needs_ground_arm`) schedules the frosted arm kernel even when no facet finish
+/// is frosted, because the surface phase routes those rays to it.
 #[must_use]
 pub fn needed_kernels_with_surface(
     material_class: u32,

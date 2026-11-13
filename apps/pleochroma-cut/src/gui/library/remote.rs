@@ -1,14 +1,10 @@
-//! Wiring for switching the browsed library source (`switch_library_source`) and
-//! driving a pull-mirror sync (`start_mirror_sync`/`cancel_mirror_sync`).
+//! Wiring for switching the browsed library source (`switch_library_source`) and for the
+//! pull-mirror sync (`start_mirror_sync`/`cancel_mirror_sync`).
 //!
-//! Everything that actually decides "local or remote" and "how to mirror" lives in
-//! `bridge::library_source`/`bridge::library_client`/`bridge::library_mirror` -- this
-//! module is purely the Slint-callback glue, following the same shape
-//! `gui::remote::worker_callbacks` already uses for "Test connection" (a blocking call
-//! on its own `std::thread::spawn` worker, result marshalled back via
-//! `Weak::upgrade_in_event_loop`) and `gui::mod`'s export wiring (an `Rc<RefCell<Option<_>>>`
-//! held on the UI thread so a running sync's handle can be reached by a later "Cancel"
-//! click).
+//! The decisions about local or remote and about mirroring live in `bridge::library`. This
+//! module is the Slint-callback glue: blocking calls run on a `std::thread::spawn` worker, and
+//! results return through `Weak::upgrade_in_event_loop`. A running sync's handle is kept on the
+//! UI thread so a later "Cancel" click can reach it.
 
 use crate::{
     LibraryModel, MainWindow, RemoteWorkerModel,
@@ -31,15 +27,11 @@ use std::{
 
 /// Wires the "Local"/"Browse library" switch (see `remote_worker_dialog.slint`).
 ///
-/// Switching to a worker first PROBES it (handshake only, no data request -- mirrors
-/// `bridge::remote::remote_render::test_connection`'s own shape) on a background thread, and
-/// only commits `source` to [`LibrarySource::Remote`] -- updating the always-visible
-/// badge (`header.slint`) and loading that worker's filter options + initial list -- if
-/// the probe succeeds and the worker actually advertises library capacity
-/// (`ConnectionInfo::library`). A failure (unreachable, wrong certs, library-less
-/// worker) shows a clear toast and leaves `source`/the badge exactly as they were --
-/// the viewer stays on whatever it was already showing (local, on a fresh app with
-/// nothing configured yet), never a half-switched, unusable state.
+/// Switching to a worker first probes it on a background thread (handshake only). The
+/// source becomes [`LibrarySource::Remote`], and the badge and the worker's filters and list
+/// load, only when the probe succeeds and the worker advertises library capacity
+/// (`ConnectionInfo::library`). Otherwise a toast explains why and the viewer stays on its
+/// current library, never in a half-switched state.
 pub fn setup_library_source_callbacks(
     ui: &MainWindow,
     db: &Arc<Mutex<Database>>,
@@ -56,11 +48,8 @@ pub fn setup_library_source_callbacks(
         };
 
         if idx < 0 {
-            // Invalidates any in-flight remote search reply from BEFORE
-            // this switch -- `load_filter_options_and_initial_list` below also bumps
-            // (via `refresh_diagram_list`), but that happens only once its own
-            // synchronous query finishes; this closes the window between the click and
-            // that point too.
+            // Drops any remote search reply still in flight. The local reload below bumps the
+            // sequence only once its own query finishes, so this covers the gap.
             crate::gui::library::search::bump_search_seq();
             // A detail load of the other library still in flight must not land here.
             crate::gui::library::detail::invalidate_detail_loads();
@@ -81,11 +70,8 @@ pub fn setup_library_source_callbacks(
         };
 
         ui.global::<LibraryModel>().set_status_message(format!("Connecting to {}...", worker_display_name(&worker)).into());
-        // Captured BEFORE the probe is even dispatched (matching
-        // `search::refresh_diagram_list_remote`'s own "bump before the async work
-        // starts" rule): a second switch clicked while this probe is still in flight
-        // bumps the sequence again, so THIS reply -- whichever of the two lands last --
-        // can tell it has been superseded and must never commit
+        // The sequence is bumped before the probe starts. A second switch clicked meanwhile
+        // bumps it again, so this reply can tell it has been superseded and must not commit
         // `LibrarySource::Remote`.
         let switch_seq = crate::gui::library::search::bump_search_seq();
         crate::gui::library::detail::invalidate_detail_loads();
@@ -96,17 +82,13 @@ pub fn setup_library_source_callbacks(
             let result = library_client::probe(&worker_for_probe);
             let _ = ui_weak_result.upgrade_in_event_loop(move |ui| {
                 if !crate::gui::library::search::is_current_search(switch_seq) {
-                    // A newer switch (to Local, or to this-or-another remote worker)
-                    // already owns the display -- this probe reply is stale and must
-                    // never touch `source`/the UI, success or not.
+                    // A newer switch already owns the display, so this reply must not
+                    // touch `source` or the UI, whether it succeeded or not.
                     return;
                 }
                 match result {
                 Ok(info) if info.library => {
-                    // Invalidates any in-flight LOCAL (or previous remote
-                    // worker's) search reply from before this switch -- see the `idx <
-                    // 0` branch's own comment above for why this can't just wait for
-                    // `load_filter_options_and_initial_list_remote`'s own bump.
+                    // Drops any search still in flight from the previous library.
                     crate::gui::library::search::bump_search_seq();
                     let new_source = LibrarySource::Remote(worker_for_probe);
                     *source_probe.lock().unwrap_or_else(PoisonError::into_inner) =
@@ -117,15 +99,9 @@ pub fn setup_library_source_callbacks(
                         load_filter_options_and_initial_list_remote(&ui, w.clone());
                     }
                     show_toast(&ui, &format!("Now browsing: {}", new_source.label()), "success");
-                    // The sort selector and tag chips reach the remote
-                    // worker's own search (`LibraryRequest::Search::order`/`tag_filter`,
-                    // see `gui::library::search::refresh_diagram_list_remote`) and are not
-                    // greyed out. "My designs" and the just-imported restriction
-                    // still are (see `filter_panel.slint`/`diagram_list.slint`'s own
-                    // `RemoteWorkerModel.library_is_remote` bindings) -- both name local
-                    // entry ids/the local import scheme, which have no meaning against a
-                    // remote catalogue. Say why, once, rather than leaving a cutter to
-                    // wonder why those two stopped reacting.
+                    // The sort and tag filters are sent to the remote search, so they work.
+                    // "My designs" and the just-imported restriction name local entry ids
+                    // and are greyed out for a remote library. Say so once.
                     ui.global::<LibraryModel>().set_status_message(
                         "\"My designs\" and the just-imported filter apply to the local \
                          library only."
@@ -150,10 +126,10 @@ pub fn setup_library_source_callbacks(
     });
 }
 
-/// Sets the header badge's label/remote-ness (`library_source_label`/`library_is_remote`)
-/// to reflect `source`. `library_source_worker_index` is set separately at each call
-/// site (the row index a click came from, or `-1` for local) -- `LibrarySource` itself
-/// doesn't carry a worker-list index, only the resolved `WorkerSettings`.
+/// Sets the header badge's label and remote flag to reflect `source`.
+///
+/// `library_source_worker_index` is set separately at each call site, since `LibrarySource`
+/// holds only the resolved `WorkerSettings`, not a list index.
 fn apply_source_badge(ui: &MainWindow, source: &LibrarySource) {
     ui.global::<RemoteWorkerModel>()
         .set_library_source_label(source.label().into());
@@ -162,17 +138,13 @@ fn apply_source_badge(ui: &MainWindow, source: &LibrarySource) {
     crate::gui::rough_plan::refresh_links_enabled();
 }
 
-/// Loads `worker`'s filter options (shapes/gears/attribute ranges) and initial diagram
-/// list -- the remote counterpart of `gui::diagram_list::load_filter_options_and_initial_list`,
-/// run when a switch to that worker just succeeded.
+/// Loads `worker`'s filter options (shapes, gears, attribute ranges) and its initial diagram
+/// list. This is the remote counterpart of
+/// `gui::library::diagram_list::load_filter_options_and_initial_list`.
 fn load_filter_options_and_initial_list_remote(ui: &MainWindow, worker: WorkerSettings) {
-    // Captured before this request is dispatched -- see
-    // `search::refresh_diagram_list_remote`'s own doc comment for why. Without this,
-    // a slow `FilterOptions` reply landing after the cutter switched away (back to
-    // Local, or to browsing a different remote worker) would still reset the
-    // shape/gear dropdowns and chain into `refresh_diagram_list_remote` -- which would
-    // itself mint a FRESH seq for a search against a worker the UI is no longer even
-    // showing, making that stale search look current again.
+    // The sequence is captured before the request. A late `FilterOptions` reply must not
+    // reset the dropdowns after the cutter has switched library, and must not start a
+    // search for a worker no longer shown.
     let seq = crate::gui::library::search::bump_search_seq();
     let worker_for_search = worker.clone();
     crate::bridge::library::source::spawn_library_request(
@@ -191,12 +163,9 @@ fn load_filter_options_and_initial_list_remote(ui: &MainWindow, worker: WorkerSe
                 }) => {
                     apply_shape_gear_options(ui, &shapes, &gears);
                     apply_range_wire_to_ui(ui, &ranges);
-                    // The box, tag chip filter and just-imported
-                    // restriction don't come from this reply at all (unlike shape/gear,
-                    // which `apply_shape_gear_options` above already resets), so they'd
-                    // otherwise still show whatever the previous library left behind
-                    // while the query below runs against the literal `""`/"All
-                    // Shapes"/"All Gears" it's about to be called with.
+                    // The search box, tag chips and just-imported restriction are not part of
+                    // this reply, so reset them here. Otherwise they keep the previous
+                    // library's values while the query below runs with empty filters.
                     crate::gui::library::diagram_list::reset_search_and_filter_ui_inputs(ui);
                 }
                 Ok(_) => {
@@ -208,11 +177,8 @@ fn load_filter_options_and_initial_list_remote(ui: &MainWindow, worker: WorkerSe
                     format!("Could not load remote filter options: {e}").into(),
                 ),
             }
-            // Chained rather than parallel: both requests each pay their own connect
-            // cost (see `bridge::library_client`'s module doc comment -- one connect+
-            // handshake per request in this phase), and the initial list only needs to
-            // exist once filter options have already populated the dropdowns/bounds
-            // it's rendered alongside.
+            // Chained, not parallel: each request opens its own connection, and the list
+            // needs the filter options already loaded.
             crate::gui::library::search::refresh_diagram_list_remote(
                 ui,
                 worker_for_search,
@@ -224,10 +190,10 @@ fn load_filter_options_and_initial_list_remote(ui: &MainWindow, worker: WorkerSe
     );
 }
 
-/// A worker's display name for a status message -- its `name` if set, else its
-/// `address`. The same fallback [`LibrarySource::label`] uses internally, but without
-/// that method's `"Remote: "` prefix (not appropriate mid-sentence, as in "Connecting
-/// to X...").
+/// A worker's display name for a status message: its `name` if set, else its `address`.
+///
+/// This is [`LibrarySource::label`]'s fallback without the `"Remote: "` prefix, which does not
+/// read well mid-sentence.
 fn worker_display_name(worker: &WorkerSettings) -> &str {
     if worker.name.trim().is_empty() {
         &worker.address
@@ -298,12 +264,8 @@ fn apply_range_wire_to_ui(ui: &MainWindow, ranges: &AttributeRangesWire) {
 
 /// Wires "Mirror to local" / "Cancel" (see `remote_worker_dialog.slint`).
 ///
-/// One sync at a time, enforced by the UI itself: a second row's "Mirror to local"
-/// button is disabled while `mirror_in_progress` is set (see that `.slint` file) --
-/// the same division of responsibility `gui::render_export::setup_render_export_callbacks`
-/// already uses for exports (the Rust side here never even inspects `handle` before
-/// starting a new sync; it simply overwrites it, exactly as that module's own
-/// `export_handle` does).
+/// Only one sync runs at a time. The UI disables "Mirror to local" while `mirror_in_progress`
+/// is set. This code does not check the handle before a new sync and simply overwrites it.
 pub fn setup_mirror_sync_callbacks(
     ui: &MainWindow,
     db: &Arc<Mutex<Database>>,
@@ -374,10 +336,10 @@ fn on_mirror_progress(ui: &MainWindow, progress: &MirrorProgress) {
     );
 }
 
-/// A trailing `" (N designs skipped -- deleted locally.)"` clause for the mirror
-/// summary, or empty when `orphaned_mirror_states` is `0` -- see
-/// `MirrorCounts::orphaned_mirror_states`'s own doc comment for what this counts
-/// (owner decision: "local delete wins", so these never come back on their own).
+/// A trailing `" (N designs skipped -- deleted locally.)"` clause for the mirror summary.
+///
+/// It is empty when `orphaned` is `0`. A local delete wins, so these designs never return on
+/// their own.
 fn orphaned_mirror_states_suffix(orphaned: u64) -> String {
     if orphaned == 0 {
         String::new()
@@ -430,29 +392,17 @@ fn on_mirror_done(ui: &MainWindow, outcome: &MirrorOutcome) {
     show_toast(ui, &text, toast_kind);
 }
 
-/// One remote design's original `.asc` cutting-instructions text, fetched via
-/// [`fetch_remote_design_source`] -- the exact bytes/text a locally-attached `.asc`
-/// file would carry (never the placeholder angle-table reconstruction), so
-/// `gui::editor::loading::design_from_full_record`'s own `pleochroma_formats::asc::parse_asc` +
-/// `Design::from_asc_schedule` path can build an identical [`pleochroma_cut_core::Design`]
-/// from it.
+/// One remote design's original `.asc` text, fetched by [`fetch_remote_design_source`].
 ///
-/// This module deliberately stops at "fetch the text off the UI thread and hand it
-/// back" -- building the `Design` itself (preform sizing, angle-table fallback, etc.)
-/// stays `gui::editor`'s job, which already owns that logic for the local path. See
-/// [`fetch_remote_design_source`]'s own doc comment for the one remaining call site
-/// this crate's file-ownership split leaves outside this module's reach.
+/// It is the text a local `.asc` attachment carries, not a rebuild from the angle table. The
+/// editor builds the `Design` from it, as for local designs.
 #[derive(Debug)]
 pub struct RemoteDesignSource {
-    /// The attachment's own bare file name (e.g. `"round-brilliant.asc"`) -- feeds
-    /// `EditorState::asc_filename` exactly like the local load path's own
-    /// `LoadedDesign::asc_filename`, for `catalogue_asc`-style "Save"
-    /// round-tripping later.
+    /// The attachment's bare file name (e.g. `"round-brilliant.asc"`), used as
+    /// `EditorState::asc_filename`.
     pub file_name: String,
-    /// The attachment's exact original text -- feeds both
-    /// `pleochroma_formats::asc::parse_asc` (to build the `Design`) and
-    /// `EditorState::original_asc_text` (so a later "Export .asc" can round-trip the
-    /// exact bytes, not a re-serialization).
+    /// The attachment's exact text. It is parsed into the `Design`, and kept as
+    /// `EditorState::original_asc_text` so "Export .asc" can write the same bytes back.
     pub asc_text: String,
     /// What the remote design states as frosted, by tier position and facet slot of the
     /// schedule `asc_text` describes (`.asc` has no notation for it, so it travels beside
@@ -461,28 +411,14 @@ pub struct RemoteDesignSource {
     pub frosting: Vec<(usize, pleochroma_formats::gcs::GcsTierFrosting)>,
 }
 
-/// Fetches `entry_id`'s original `.asc` text from `worker` via
-/// `LibraryRequest::FetchDesignSource`, off the UI thread (wraps
-/// `bridge::library::source::spawn_library_request`, the same one-connect-per-request
-/// pattern every other remote library call in this crate uses), delivering the result
-/// to `on_done` on the Slint event loop.
+/// Fetches `entry_id`'s original `.asc` text from `worker`, off the UI thread.
 ///
-/// `on_done`'s `Err(String)` is always a ready-to-toast, human-readable message,
-/// covering: a transport failure; `LibraryResponse::NotFound` (the entry no longer
-/// exists on that worker); `LibraryResponse::DesignSourceNotAvailable` (a real entry
-/// with no attached `.asc` -- loading it even locally would only ever reach the
-/// placeholder angle-table reconstruction, so there is nothing genuine here to fetch);
-/// a server-side `LibraryResponse::Error`; and any other unexpected reply shape.
+/// `on_done` runs on the Slint event loop. Its `Err` is a ready-to-toast message for a
+/// transport failure, a missing entry, an entry with no attached `.asc`, a server error, or an
+/// unexpected reply.
 ///
-/// # The one remaining wiring step
-///
-/// `gui::editor::callbacks::tier_actions::setup_load_selected_callback` currently
-/// refuses "Load Selected" outright whenever the active `LibrarySource` is remote (see
-/// that guard's own comment: a remote `DesignRecord` never carries attachment bytes, so
-/// there was nothing to load). This function is what removes that limitation, but
-/// `gui/editor/callbacks/**` is outside this module's ownership -- wiring it in is a
-/// one-line guard-replacement call into this function, left to `gui/editor/callbacks`
-/// to make since it is outside this module's ownership.
+/// Used by the editor to open a remote design: `gui::editor::callbacks::tier_actions::lifecycle`
+/// and `gui::editor::guide::build_design`.
 pub fn fetch_remote_design_source(
     ui_weak: Weak<MainWindow>,
     worker: WorkerSettings,
@@ -497,9 +433,9 @@ pub fn fetch_remote_design_source(
     );
 }
 
-/// [`fetch_remote_design_source`]'s reply-to-outcome mapping, pulled out as its own
-/// pure function purely so it's unit-testable without a live network round trip --
-/// see the tests below.
+/// Maps a reply to the [`fetch_remote_design_source`] outcome.
+///
+/// It is a separate pure function, so it can be tested without a network round trip.
 fn map_design_source_response(
     result: Result<LibraryResponse, library_client::LibraryClientError>,
 ) -> Result<RemoteDesignSource, String> {

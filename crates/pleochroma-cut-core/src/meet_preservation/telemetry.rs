@@ -7,7 +7,8 @@ use std::{
 /// Inclusive phase timings; solve and validation time are included in projection time.
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SearchDiagnostics {
-    /// Nanoseconds by phase: baseline, projection, solves, validation, Fast optics, Full optics, final checks.
+    /// Nanoseconds by phase: baseline, projection, solves, validation, Fast optics, Full
+    /// optics, final checks.
     pub phase_ns: [u64; 7],
     /// Number of calls to each phase in the same order.
     pub phase_calls: [u64; 7],

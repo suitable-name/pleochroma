@@ -22,9 +22,9 @@
 //!
 //! # With a mesh rough
 //!
-//! A piece clipped by a non-convex mesh is solved by a heuristic, `solve_in_mesh` of the
-//! shaped `PartialSolver` (the LP of the convex region plus up to six rounds of cutting
-//! planes), so the argument above needs a second look. It holds for the TRUE problem: if a dominated
+//! A piece clipped by a non-convex mesh is solved by a heuristic, `solve_in_mesh` of the shaped
+//! `PartialSolver` (the LP of the convex region plus up to `MESH_ROUNDS` cutting-plane rounds),
+//! so the argument above needs a second look. It holds for the TRUE problem: if a dominated
 //! design `d` has a stone of width `s` at a centre `t` that the mesh accepts (no triangle
 //! meets its caliper box, the centre is in the material), the dominator `e` has, for the
 //! same assignment, a caliper box that is no larger on any axis (`l_e <= l_d`, `h_e <= h_d`,
@@ -35,7 +35,7 @@
 //!
 //! What it can cost is the heuristic's miss: near a notch the solver may fail for `e`
 //! (it starts from the convex optimum of `e`, which can press into the notch beyond what
-//! six rounds clear) where it would have succeeded for `d`, and `d` is no longer in the pool
+//! six rounds clear) where it would have succeeded for `d`, and `d` is then not in the pool
 //! to try. The loss is a smaller or missing stone in one piece, never a wrong placement
 //! (every accepted stone is checked against the mesh), and it is the "near a notch it can be
 //! a little more cautious" the manual states. Keeping the dominated designs of a mesh rough
@@ -47,10 +47,12 @@ use std::cmp::Ordering;
 
 use super::{piece::Norm, types::CandidateDesign};
 
-/// Drop invalid candidates (any non-finite or non-positive field), swap a
-/// reversed width/length pair, sort by `entry_id` (then by the measured
-/// fields, so equal ids still order deterministically) and keep one of any
-/// run of candidates with the same `entry_id` and the same shape (all four
+/// Normalises a candidate list: drops invalid ones, orders the rest and removes duplicates.
+///
+/// Invalid candidates (any non-finite or non-positive field) are dropped, a
+/// reversed width/length pair is swapped, the list is sorted by `entry_id` (then by the
+/// measured fields, so equal ids still order deterministically) and one of any
+/// run of candidates with the same `entry_id` and the same shape is kept (all four
 /// measured fields equal once width/length are ordered).
 ///
 /// Two candidates that share an `entry_id` but differ in shape both stay: the

@@ -18,11 +18,9 @@ fn unspecified(mut tier: ConstraintTier) -> ConstraintTier {
     tier
 }
 
-/// The worked example's four tiers with the angles and indices of its steps, and a variety of
-/// meets so that the goal tests can tell the three kinds apart: the girdle states a scale
-/// value, the pavilion and the crown name a facet, the table is unspecified. (The values the
-/// walkthrough really tells the learner to type, and whether they solve, are pinned in
-/// `tests.rs`; this design is for the goal predicates, not for solving.)
+/// The worked example's four tiers, with a meet of each kind so the goal tests can tell them
+/// apart: the girdle states a scale value, the pavilion and the crown name a facet, the table
+/// is unspecified. Whether the typed values solve is pinned in `tests.rs`.
 fn brilliant() -> Design {
     design_with(&[
         tier("G1", 90.0, &EIGHT_FOLD_INDICES),

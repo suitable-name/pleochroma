@@ -1,10 +1,10 @@
 //! The rule editor of the planner window: the plan's rule and the rule of one design.
 //!
 //! The rule is the way stones are oriented to the crystal axis ("Table Across", "In the Table
-//! Plane", a custom angle, a color-named frame), how far a stone may be off (the tolerance) and how
-//! hard the rule holds (Preferred, with a weight per degree, or Required). The plan's rule is the
-//! material's default until the cutter changes it; a design may follow the plan, ignore the axis
-//! or have a rule of its own. Each edit, with its optional Reason, is one undo step
+//! Plane", a custom angle, a color-named frame), how far a stone may be off (the tolerance) and
+//! how hard the rule holds (Preferred, with a weight per degree, or Required). The plan's rule
+//! is the material's default until the cutter changes it; a design may follow the plan, ignore
+//! the axis or have a rule of its own. Each edit, with its optional Reason, is one undo step
 //! (`Session::edit_overrides`).
 //!
 //! The pure half (the form and how a typed field changes a setting) is tested here; the window

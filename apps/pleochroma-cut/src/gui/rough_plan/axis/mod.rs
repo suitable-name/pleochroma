@@ -5,11 +5,11 @@
 //! `pleochroma_cut_core::rough_plan::orientation`; this module is its window:
 //!
 //! - [`panel`]: the axis of the rough (Unknown or Set, the angles, Align to Face, Align to Edge,
-//!   Fit to Crystal Length, From Color Zones). The axis is part of the rough model, so every change
-//!   is one step of the shape undo stack.
-//! - [`rules`]: the plan's rule and the rule of one design (Material Default, Ignore the Axis, or a
-//!   rule of your own with a tolerance and Preferred or Required), each edit with its Reason one
-//!   undo step.
+//!   Fit to Crystal Length, From Color Zones). The axis is part of the rough model, so every
+//!   change is one step of the shape undo stack.
+//! - [`rules`]: the plan's rule and the rule of one design (Material Default, Ignore the Axis, or
+//!   a rule of your own with a tolerance and Preferred or Required), each edit with its Reason
+//!   one undo step.
 //! - [`rows`]: the stones of the selected result with the angle of their crystal axis to the table
 //!   and whether they follow the rule, and the same lines in the cut plan text.
 //! - [`stone`]: the stone menu (box poses, Re-Fit This Piece, Free Orientation, Lock, Reason).
@@ -22,7 +22,7 @@
 //! stones, the alternatives) is `run::axis_plan`.
 //!
 //! A plan that never sets the axis goes through none of it: nothing is drawn, no rule applies and
-//! its layouts and saved plans are exactly what they always were.
+//! its layouts and saved plans are unchanged.
 
 pub(super) mod layouts;
 pub(super) mod material;
@@ -56,6 +56,8 @@ pub(super) fn sync(host: &Rc<Host>) {
     stone::push(host);
     rows::push(host);
     stone::refresh_layouts(host);
+    // The axis is part of what the Crystal Axis step sums up.
+    super::steps::refresh(host);
 }
 
 /// The pick a click on the 3D view makes now.

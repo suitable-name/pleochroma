@@ -1,6 +1,6 @@
-//! The manually-triggered "designs with no tilt curves yet" library scan -- see this
-//! group's own `mod.rs` doc comment for why this one is never run automatically,
-//! unlike `gui::batch::preview::scan`.
+//! The manually triggered scan for designs with missing or outdated tilt curves.
+//!
+//! It never runs automatically (see [`spawn_missing_tilt_curve_scan`]).
 
 use crate::MainWindow;
 use pleochroma_vault::db::sqlite::Database;
@@ -10,15 +10,11 @@ use std::{
     thread,
 };
 
-/// Every entry id with no stored tilt curves at all
-/// (`Database::entry_ids_missing_tilt_curves`) -- the tilt-curve counterpart of
-/// `gui::batch::preview::scan`'s `scan_missing_preview_ids`: one blob-free `LEFT JOIN`
-/// query rather than a page walk plus a per-row point lookup. Intended to run
-/// off the UI thread -- see [`spawn_missing_tilt_curve_scan`].
+/// The entry ids whose tilt curves are missing, or stored under a fingerprint the design no
+/// longer has. It runs off the UI thread (see [`spawn_missing_tilt_curve_scan`]).
 ///
-/// The fingerprint a row is compared with is built from the design's persisted material
-/// state (name, stone size and source: `FingerprintMaterial::from_state`), exactly as the
-/// preview scan builds it.
+/// The fingerprint compared with each row is built from the design's persisted material
+/// state, as the preview scan builds it (`FingerprintMaterial::from_state`).
 fn scan_missing_tilt_curve_ids(db: &Mutex<Database>) -> Vec<i64> {
     let guard = db.lock().unwrap_or_else(PoisonError::into_inner);
     // A frosted design's curves are stored under a fingerprint naming its frosting:
@@ -52,14 +48,9 @@ fn scan_missing_tilt_curve_ids(db: &Mutex<Database>) -> Vec<i64> {
 /// Runs [`scan_missing_tilt_curve_ids`] on its own worker thread and reports the result
 /// back to `on_result` on the UI event loop.
 ///
-/// Unlike `gui::batch::preview::scan::spawn_missing_preview_scan` (which `gui::mod`
-/// calls once, automatically, shortly after every session's diagram list loads), this
-/// scan is never launched automatically: at ~72 minutes/catalogue, surprising a user
-/// with an unprompted "compute tilt curves for N designs?" offer every session would
-/// be far more intrusive than the preview batch's equivalent. This function is called
-/// only from the two explicit triggers `super::wiring::setup_tilt_batch_callbacks`
-/// wires: the filter panel's "Compute missing tilt curves" button and a session-wide
-/// manual re-scan, never on a timer or at startup.
+/// A full-catalogue run is long, so the scan is never offered unprompted. It is
+/// started only by the explicit triggers `super::wiring::setup_tilt_batch_callbacks` wires:
+/// the filter panel's "Compute missing tilt curves" button and a manual re-scan.
 pub(super) fn spawn_missing_tilt_curve_scan(
     ui_weak: Weak<MainWindow>,
     db: Arc<Mutex<Database>>,

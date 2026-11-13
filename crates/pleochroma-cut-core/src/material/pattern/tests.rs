@@ -1,4 +1,4 @@
-//! Tests of the color pattern model (written, not run, by lane CP-C1).
+//! Tests of the color pattern model.
 
 use super::{
     ColorPattern, ColorRef, ColorSlot, PATTERN_BASE_FORMAT_VERSION, PATTERN_FORMAT_VERSION,
@@ -569,8 +569,8 @@ fn rows_from_bands_refuses_bands_that_would_change_shape() {
     let wavelength = |sigma| band(BandShape::GaussianWavelength, 520.0, sigma);
 
     // An energy sigma of 500 cm^-1 or less would read back as a wavelength Gaussian.
-    assert!(rows_from_bands(&[energy(400.0)]).is_empty());
-    assert!(rows_from_bands(&[energy(500.0)]).is_empty());
+    assert_eq!(rows_from_bands(&[energy(400.0)]), [] as [[f32; 3]; 0]);
+    assert_eq!(rows_from_bands(&[energy(500.0)]), [] as [[f32; 3]; 0]);
     assert_eq!(rows_from_bands(&[energy(501.0)]), vec![[520.0, 501.0, 0.2]]);
 
     // A wavelength sigma above 500 nm would read back as an energy band.
@@ -578,7 +578,7 @@ fn rows_from_bands_refuses_bands_that_would_change_shape() {
         rows_from_bands(&[wavelength(500.0)]),
         vec![[520.0, 500.0, 0.2]]
     );
-    assert!(rows_from_bands(&[wavelength(501.0)]).is_empty());
+    assert_eq!(rows_from_bands(&[wavelength(501.0)]), [] as [[f32; 3]; 0]);
 
     // Every kept row decodes to the shape it was written from.
     let kept = [energy(501.0), wavelength(500.0), wavelength(30.0)];

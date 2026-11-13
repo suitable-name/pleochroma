@@ -5,65 +5,49 @@
 use super::{
     R_UNPOL_SELECT_MAX, R_UNPOL_SELECT_MIN,
     context::{
-        BounceContext, BounceRay, BounceState, ExitEvent, PathModeState, RayMaterialContext,
-        RngDraw, UniaxialBounceContext,
+        BounceContext, BounceRay, BounceState, ExitCollect, ExitEvent, PathModeState,
+        RayMaterialContext, RngDraw, UniaxialBounceContext,
+    },
+    exit_split::{
+        ChannelTransmissionInputs, EntryLeaf, ExitLeaves, compute_channel_transmission,
+        deposit_entry_leaf, deposit_exit_leaves, restore_densities, transmitting_techniques,
     },
     geometry::{BounceRefractionGeometry, poynting_dir_for_mode},
     reflect_refract::{RefractSelection, apply_partial_reflect_bounce, apply_refract_bounce},
     uniaxial_entry::{apply_uniaxial_entry_bounce, entry_eigenmode_selection},
-    uniaxial_internal::apply_uniaxial_internal_bounce,
+    uniaxial_internal::{
+        HeroInternalSolve, apply_uniaxial_internal_bounce,
+        apply_uniaxial_internal_reflect_channels, solve_hero_internal,
+        uniaxial_exit_leaf_intensities,
+    },
 };
 use crate::optics::{
     polarization::StokesVector,
-    raytracer::sampling::{BIREFRINGENT_SPLIT_STREAM, FRESNEL_BRANCH_STREAM, hash_u32},
+    raytracer::{
+        NUM_CHANNELS,
+        sampling::{BIREFRINGENT_SPLIT_STREAM, FRESNEL_BRANCH_STREAM, discrete_draw},
+    },
+    tables::{OpticsTableSet, reflection_amplitudes},
 };
 use glam::Vec3;
 
-/// [`apply_partial_fresnel_bounce`]'s own full result tuple: the new wave-normal `k`
-/// and Poynting direction `S`, the new `inside_gem` state, the `is_extraordinary`
-/// update (if any), and (mirroring [`super::reflect_refract::RefractBounceOutcome`]) a
-/// reserved fifth slot.
-/// Named purely so [`try_dispatch_uniaxial_bounce`]'s `Option`-wrapped return type
-/// doesn't trip clippy's `type_complexity` lint.
+/// The result of [`apply_partial_fresnel_bounce`]: the new wave normal `k` and Poynting direction
+/// `S`, the new `inside_gem` state, the `is_extraordinary` update (if any), and the exact ordinary
+/// probability `p_o` of a closed-form uniaxial internal event (`None` otherwise).
+///
+/// A named alias keeps the `Option` return type of [`try_dispatch_uniaxial_bounce`] under
+/// clippy's `type_complexity` limit.
 type FresnelBounceResult = (Vec3, Vec3, bool, Option<bool>, Option<f32>);
 
-/// Dispatches [`apply_partial_fresnel_bounce`]'s two closed-form uniaxial paths --
-/// air->crystal entry and internal/exit -- split out purely to keep that function's
-/// own body under the workspace line-count lint. Returns `Some` with the full result
-/// tuple when one of the closed-form paths applies; `None` when the caller must fall
-/// through to the general (biaxial/isotropic) machinery instead.
+/// Dispatches the two closed-form uniaxial paths of [`apply_partial_fresnel_bounce`]: air to
+/// crystal entry, and internal exit or o/e coupling. Kept out of that function for its line-count
+/// lint. Returns `None` when the general (isotropic, biaxial or degenerate) machinery must run.
 ///
-/// A uniaxial air->crystal entry whose wave normal is NOT parallel to the optic axis
-/// (`k_hat.cross(c_axis).length_squared() > 1e-6`) takes the closed-form
-/// `apply_uniaxial_entry_bounce` path in full, self-contained, and returns directly.
-///
-/// Any uniaxial internal event (o<->e coupled partial reflection or
-/// uniaxial->isotropic exit transmission) that is not already hero-forced past
-/// critical angle (that case is `apply_tir_bounce`'s own uniaxial branch, dispatched
-/// from a different call site in `transport::dispatch_bounce`) takes the closed-form
-/// `apply_uniaxial_internal_bounce` path the same way, under the SAME non-degenerate
-/// guard -- see that function's own doc comment.
-///
-/// Both closed-form paths share this one degeneracy guard (the entry branch
-/// used to special-case it internally via its own now-removed isotropic-Fresnel
-/// fallback, reached by no split draw the general path below takes, which diverged
-/// from the GPU's `uniaxial_nondegenerate`-gated 50/50 draw at this exact limit). The
-/// remaining fallthrough case (`None`, `apply_partial_fresnel_bounce`'s general
-/// `entry_eigenmode_selection`/scalar-Fresnel machinery) is reached by a biaxial
-/// material, an isotropic one, or this SAME degenerate wave-normal-parallel-to-optic-axis
-/// case for EITHER a uniaxial entry or a uniaxial internal bounce (`k_hat.cross(c_axis)`
-/// ~ 0): the closed-form ordinary D-direction `k x c_axis` vanishes exactly there,
-/// singularizing `internal_solve`'s boundary system (its own `flux_inc` floors to the
-/// `1e-12` guard instead of the true nonzero value, which very nearly zeroed EVERY
-/// uniaxial internal bounce along a c-axis-aligned ray -- caught by
-/// `test_spectral_raytrace_colored_gem`'s ruby render going black) and, for entry,
-/// `apply_uniaxial_entry_bounce`'s own boundary-match system the same way. At this
-/// exact limit BOTH eigenmodes truly collapse to a single isotropic response at `n_o`
-/// (`effective_extraordinary_index(n_o, n_e, theta_c=0) == n_o` exactly), so falling
-/// through to the plain scalar isotropic-at-`n_o` machinery is not an approximation --
-/// it is the exact physics, and (now) the SAME code path a degenerate entry and
-/// a degenerate internal bounce both take, rather than two independently-maintained
-/// isotropic special cases.
+/// A path is taken only when the wave normal is not parallel to the optic axis
+/// (`k_hat.cross(c_axis).length_squared() > 1e-6`). There the closed forms are singular, and both
+/// eigenmodes collapse to one isotropic response at `n_o` (`effective_extraordinary_index` gives
+/// `n_o` at zero critical angle), so the scalar path at `n_o` is exact there. Hero total internal
+/// reflection is `apply_tir_bounce`'s, dispatched from `transport::dispatch_bounce`.
 fn try_dispatch_uniaxial_bounce(
     bctx: &BounceContext<'_, '_>,
     ray: BounceRay,
@@ -81,16 +65,9 @@ fn try_dispatch_uniaxial_bounce(
         ..
     } = mode_state;
 
-    // Guarded by the SAME non-degenerate test (`k_hat` vs the optic axis, not
-    // parallel) the internal-bounce branch below already uses -- a degenerate entry
-    // (wave normal parallel to `c_axis`) singularizes `apply_uniaxial_entry_bounce`'s
-    // own closed-form boundary-match system, so it declines (`None`) here and falls
-    // through to `apply_partial_fresnel_bounce`'s general scalar-Fresnel path instead,
-    // matching the GPU's `uniaxial_nondegenerate` gate (`08_bounce_step.wgsl`) exactly:
-    // both sides now draw a plain (or polarization-weighted) ordinary/extraordinary
-    // split through the same code path at this exact limit, rather than the CPU alone
-    // taking a separate hand-rolled isotropic-Fresnel fallback no split draw ever
-    // reached.
+    // Same non-degenerate test as the internal branch below. A wave normal parallel to
+    // `c_axis` makes the entry system singular, so this declines (`None`) and the general path
+    // takes the event, as the GPU's `uniaxial_nondegenerate` gate does.
     if entering_anisotropic
         && let Some(frame) = geo.uniaxial_frame
         && k_hat.cross(ctx.c_axis).length_squared() > 1e-6
@@ -101,7 +78,7 @@ fn try_dispatch_uniaxial_bounce(
             frame: &frame,
         };
         let (new_k, new_s, new_inside_gem, is_extraordinary_update) =
-            apply_uniaxial_entry_bounce(&ubctx, ray, rng, state, exit_event.exit);
+            apply_uniaxial_entry_bounce(&ubctx, ray, rng, state, exit_event, None);
         return Some((new_k, new_s, new_inside_gem, is_extraordinary_update, None));
     }
     if inside_gem
@@ -144,9 +121,8 @@ struct EntryModeSelectionInputs<'m, 'b> {
 /// under the workspace line-count lint. Returns `(use_extraordinary,
 /// entry_mode_azimuth2)`.
 ///
-/// Mirrors `apply_refract_bounce`'s old `split_rand < 0.5` exactly when
-/// `entry_selection` is `None` (`p_o == 0.5`: `1.0 - p_o == 0.5` too, same hash,
-/// same threshold, same sense -- extraordinary iff `mode_split_rand < 0.5`);
+/// With no `entry_selection` (`p_o == 0.5`) this is the plain 50/50 split: the same hash,
+/// threshold and sense, extraordinary iff `mode_split_rand < 0.5`;
 /// weighted by polarization otherwise (extraordinary drawn with probability
 /// `1 - p_o`, ordinary with probability `p_o`, as `p_o`'s own doc comment defines
 /// it). For a non-entering bounce (internal TIR/reflect/refract, or any
@@ -179,9 +155,8 @@ fn resolve_entry_mode_selection(
         None
     };
     let p_o = entry_selection.map_or(0.5, |(p, ..)| p);
-    let mode_split_rand = (hash_u32(rng_seed ^ hash_u32(bounce ^ BIREFRINGENT_SPLIT_STREAM))
-        as f32)
-        / 4_294_967_295.0;
+    let mode_split_rand =
+        (discrete_draw(rng_seed, bounce, BIREFRINGENT_SPLIT_STREAM) as f32) / 4_294_967_295.0;
     let use_extraordinary = if entering_anisotropic {
         mode_split_rand < (1.0 - p_o)
     } else {
@@ -209,15 +184,9 @@ fn resolve_entry_mode_selection(
 /// `geo.cos_i` are unaffected: `n1 == 1.0` (air) on every path this function can
 /// reach (`entering_anisotropic` requires `!inside_gem`).
 ///
-/// `sin2_t` is bit-identical to the earlier `(1.0 - geo.sin2_t).sqrt()` whenever `n2
-/// == geo.n2` (every case that isn't a fresh ordinary-mode selection): reuses
-/// `geo.sin2_t` itself rather than re-deriving an algebraically-equivalent value from
-/// `n1`/`n2`/`cos_i`, since a DIFFERENT sequence of floating-point operations
-/// computing "the same" mathematical quantity is not guaranteed (and, empirically, is
-/// not) bit-identical to `geo.sin2_t`'s own `eta * eta * cos_i.mul_add(-cos_i, 1.0)`.
-/// Only genuinely recomputed (at `n_o_hero` instead of `geo.n2`, via the exact same
-/// expression shape `compute_bounce_refraction_geometry` uses) when the ordinary
-/// mode was actually selected.
+/// `sin2_t` reuses `geo.sin2_t` unless the ordinary mode was selected: a re-derived value is
+/// not bit-identical to `geo.sin2_t`. When the ordinary mode is selected it is recomputed at
+/// `n_o_hero` with the same expression shape `compute_bounce_refraction_geometry` uses.
 ///
 /// The reflect/transmit SELECTION probability's clamp (`min`/`max`) is distinct from
 /// the per-channel `r_unpol_k` clamps elsewhere in this file (which only scale
@@ -233,6 +202,7 @@ fn compute_entry_reflect_probability(
     use_extraordinary: bool,
     min: f32,
     max: f32,
+    tables: Option<&OpticsTableSet>,
 ) -> f32 {
     let ordinary_selected = entering_anisotropic && !geo.is_biaxial && !use_extraordinary;
     let n2 = if ordinary_selected {
@@ -247,30 +217,21 @@ fn compute_entry_reflect_probability(
         geo.sin2_t
     };
     let cos_t = (1.0 - sin2_t).max(0.0).sqrt();
-    let r_s =
-        f32::mul_add(n2, -cos_t, geo.n1 * geo.cos_i) / f32::mul_add(n2, cos_t, geo.n1 * geo.cos_i);
-    let r_p =
-        f32::mul_add(geo.n1, -cos_t, n2 * geo.cos_i) / f32::mul_add(geo.n1, cos_t, n2 * geo.cos_i);
+    let (r_s, r_p) = reflection_amplitudes(tables, geo.n1, n2, geo.cos_i, cos_t);
 
     let r_unpol_raw = 0.5 * r_p.mul_add(r_p, r_s * r_s);
     r_unpol_raw.clamp(min, max)
 }
 
-/// Partial Fresnel Reflection & Refraction via Stokes-Mueller Polarized Wave Transport:
-/// decides reflect vs. transmit for the shared hero-driven path from the hero's own
-/// `r_unpol` (a well-mixed hash of `(rng_seed, bounce)`, replacing an earlier
-/// deterministic `(rng_seed + bounce*7919) % 1000` arithmetic progression that could
-/// correlate with the Russian-roulette draw; this hash is decorrelated from it via a
-/// distinct salt), then applies whichever event was sampled via
-/// [`apply_partial_reflect_bounce`] or [`apply_refract_bounce`]. A direct extraction of
-/// the pre-extraction inline branch dispatch: the same floating-point operations, in
-/// the same order, driven by the same random draw. Returns the new wave normal `k'`,
-/// the new Poynting direction `S'` (reflection's `k'` is re-converted to `S'` via
-/// [`poynting_dir_for_mode`] here, using the mode still in effect -- reflection alone
-/// never changes `is_extraordinary`, see `maybe_apply_internal_mode_coupling`'s own doc
-/// comment for the SEPARATE relabeling step that may reassign it for the NEXT bounce),
-/// the new `inside_gem` state, and (mirroring [`super::reflect_refract::RefractBounceOutcome`])
-/// the `is_extraordinary` update, if any.
+/// Partial Fresnel reflection or refraction of the shared hero-driven path.
+///
+/// Decides reflect vs. transmit from the hero's `r_unpol`, drawn from a hash of `(rng_seed,
+/// bounce)` with its own salt, so the draw is decorrelated from the Russian-roulette draw. Then
+/// applies the sampled event via [`apply_partial_reflect_bounce`] or [`apply_refract_bounce`].
+/// Returns the new wave normal `k'`, the new Poynting direction `S'` (a reflection's `k'` is
+/// converted with [`poynting_dir_for_mode`] using the mode still in effect, since reflection never
+/// changes `is_extraordinary`), the new `inside_gem` state, and the `is_extraordinary` update, if
+/// any (see [`super::reflect_refract::RefractBounceOutcome`]).
 ///
 /// At an air->crystal entry into an anisotropic material, which eigenmode
 /// (ordinary/mode-A vs extraordinary/mode-B) this path's single geometric transmission
@@ -347,19 +308,28 @@ pub(in crate::optics::raytracer) fn apply_partial_fresnel_bounce(
             bounce,
         });
 
+    let tables = bctx.cache.tables.as_deref();
     let r_unpol = compute_entry_reflect_probability(
         geo,
         entering_anisotropic,
         use_extraordinary,
         R_UNPOL_SELECT_MIN,
         R_UNPOL_SELECT_MAX,
+        tables,
     );
     let rng_bounce =
-        (hash_u32(rng_seed ^ hash_u32(bounce ^ FRESNEL_BRANCH_STREAM)) as f32) / 4_294_967_295.0;
+        (discrete_draw(rng_seed, bounce, FRESNEL_BRANCH_STREAM) as f32) / 4_294_967_295.0;
 
     if rng_bounce < r_unpol {
-        let new_k =
-            apply_partial_reflect_bounce(geo, r_unpol, k_hat, normal, state.stokes, state.path_pdf);
+        let new_k = apply_partial_reflect_bounce(
+            geo,
+            r_unpol,
+            k_hat,
+            normal,
+            state.stokes,
+            state.path_pdf,
+            tables,
+        );
         let new_s = poynting_dir_for_mode(ctx, geo, new_k, inside_gem, is_extraordinary);
         (new_k, new_s, inside_gem, None, None)
     } else {
@@ -377,4 +347,243 @@ pub(in crate::optics::raytracer) fn apply_partial_fresnel_bounce(
             None,
         )
     }
+}
+
+/// [`apply_partial_fresnel_bounce`] for the exit-collection estimator
+/// ([`crate::optics::raytracer::Estimator::ExitCollection`]): no reflect-vs-transmit draw.
+///
+/// Both outcomes of the event are taken, each with its physical weight and nothing divided by a
+/// selection probability:
+///
+/// - **Interior event** (the hero is not totally reflected; that case is `apply_tir_bounce`'s):
+///   every channel that can transmit adds its own exit leaf, `T_k` times the environment along its
+///   own refracted direction, at once ([`deposit_exit_leaves`]); the path continues along the
+///   reflection with `R_k`.
+/// - **Entry event** (outside to inside): every channel adds the mirror reflection, `R_k` times
+///   the environment along the mirror direction; the path continues inside with `T_k`. The
+///   eigenmode draw of an anisotropic entry is the one of [`apply_partial_fresnel_bounce`].
+///
+/// The branch factors the reused bounce functions fold into `path_pdf` are undone afterwards
+/// ([`restore_densities`]): the chain is followed with probability one, so the spectral-MIS weight
+/// lives in the leaf ([`super::exit_split::leaf_mis_weight`]), not in `path_pdf`.
+///
+/// Only a convex stone (no tools) is traced this way, so no leaf can re-enter the stone: a stone
+/// with tools runs the branching estimator on every engine. The tuple is
+/// [`apply_partial_fresnel_bounce`]'s, with `inside_gem` flipped at an entry and kept at an
+/// interior reflection.
+pub(in crate::optics::raytracer) fn apply_collect_bounce(
+    bctx: &BounceContext<'_, '_>,
+    ray: BounceRay,
+    mode_state: PathModeState,
+    rng: RngDraw,
+    state: &mut BounceState<'_>,
+    exit_event: &mut ExitEvent<'_, '_>,
+    collect: &mut ExitCollect<'_>,
+) -> FresnelBounceResult {
+    debug_assert!(
+        exit_event.exit.tools.is_empty(),
+        "exit collection runs only for a stone without tools"
+    );
+    if mode_state.inside_gem {
+        collect_interior_event(bctx, ray, mode_state, state, (exit_event, collect))
+    } else {
+        collect_entry_event(bctx, ray, mode_state, rng, state, (exit_event, collect))
+    }
+}
+
+/// Channel k's own refracted wave direction out of the gem at an interior event, `None` where k is
+/// totally reflected.
+fn exit_leaf_dirs(geo: &BounceRefractionGeometry, ray: BounceRay) -> [Option<Vec3>; NUM_CHANNELS] {
+    let BounceRay { k_hat, normal } = ray;
+    std::array::from_fn(|k| {
+        let sin2_t_k = geo.sin2_t_ch[k];
+        if sin2_t_k > 1.0 {
+            return None;
+        }
+        let cos_t_k = (1.0 - sin2_t_k).max(0.0).sqrt();
+        let eta_k = geo.n1_ch[k] / geo.n2_ch[k];
+        Some((eta_k * k_hat + f32::mul_add(eta_k, geo.cos_i, -cos_t_k) * normal).normalize())
+    })
+}
+
+/// Each channel's transmitted intensity out of the gem at an interior event of the scalar-Fresnel
+/// machinery (isotropic, biaxial, or the degenerate uniaxial limit), nothing divided out.
+///
+/// The per-channel Fresnel transmission `apply_refract_channel` runs for a matching channel,
+/// called with `r_unpol = 0` so its `1 / (1 - r_unpol)` is one.
+fn scalar_exit_leaf_intensities(
+    bctx: &BounceContext<'_, '_>,
+    stokes: &[StokesVector; NUM_CHANNELS],
+) -> [f32; NUM_CHANNELS] {
+    let geo = bctx.geo;
+    let tables = bctx.cache.tables.as_deref();
+    std::array::from_fn(|k| {
+        if geo.sin2_t_ch[k] > 1.0 {
+            return 0.0;
+        }
+        let (transmitted, _) = compute_channel_transmission(
+            &ChannelTransmissionInputs {
+                n1k: geo.n1_ch[k],
+                n2k: geo.n2_ch[k],
+                cos_i: geo.cos_i,
+                cos_t_k: (1.0 - geo.sin2_t_ch[k]).max(0.0).sqrt(),
+                r_unpol: 0.0,
+                entering_anisotropic: false,
+                entry_mode_azimuth2: None,
+                incident_stokes_k: stokes[k],
+            },
+            tables,
+        );
+        transmitted.intensity()
+    })
+}
+
+/// Adds the interior exit leaves `intensities` along `dirs` to `collect`.
+fn deposit_interior_leaves(
+    bctx: &BounceContext<'_, '_>,
+    state: &BounceState<'_>,
+    (exit_event, collect): (&ExitEvent<'_, '_>, &mut ExitCollect<'_>),
+    dirs: &[Option<Vec3>; NUM_CHANNELS],
+    intensities: &[f32; NUM_CHANNELS],
+) {
+    deposit_exit_leaves(
+        exit_event,
+        collect,
+        &ExitLeaves {
+            lambdas: &bctx.ctx.lambdas,
+            dirs,
+            intensities,
+            path_pdf: state.path_pdf,
+            hero: bctx.ctx.hero_idx,
+            producers: transmitting_techniques(&bctx.geo.sin2_t_ch),
+        },
+    );
+}
+
+/// The interior event of [`apply_collect_bounce`]: the exit leaves, then the undivided reflection.
+fn collect_interior_event(
+    bctx: &BounceContext<'_, '_>,
+    ray: BounceRay,
+    mode_state: PathModeState,
+    state: &mut BounceState<'_>,
+    (exit_event, collect): (&mut ExitEvent<'_, '_>, &mut ExitCollect<'_>),
+) -> FresnelBounceResult {
+    let (ctx, geo) = (bctx.ctx, bctx.geo);
+    let BounceRay { k_hat, normal } = ray;
+    let dirs = exit_leaf_dirs(geo, ray);
+    let saved = *state.path_pdf;
+    if let Some(frame) = geo.uniaxial_frame
+        && k_hat.cross(ctx.c_axis).length_squared() > 1e-6
+    {
+        // Closed-form uniaxial internal event (same guard as `try_dispatch_uniaxial_bounce`).
+        let ubctx = UniaxialBounceContext {
+            ctx,
+            geo,
+            frame: &frame,
+        };
+        let (hero_solve, p_o_exact) = solve_hero_internal(&ubctx, mode_state.is_extraordinary);
+        let intensities = uniaxial_exit_leaf_intensities(&ubctx, &hero_solve, state.stokes);
+        deposit_interior_leaves(bctx, state, (exit_event, collect), &dirs, &intensities);
+        let undivided = HeroInternalSolve {
+            r_branch: 1.0,
+            ..hero_solve
+        };
+        apply_uniaxial_internal_reflect_channels(&ubctx, &undivided, state);
+        restore_densities(&saved, state.path_pdf);
+        let new_k = k_hat - 2.0 * k_hat.dot(normal) * normal;
+        return (new_k, new_k, true, None, Some(p_o_exact));
+    }
+    let intensities = scalar_exit_leaf_intensities(bctx, state.stokes);
+    deposit_interior_leaves(bctx, state, (exit_event, collect), &dirs, &intensities);
+    let tables = bctx.cache.tables.as_deref();
+    let new_k = apply_partial_reflect_bounce(
+        geo,
+        1.0,
+        k_hat,
+        normal,
+        state.stokes,
+        state.path_pdf,
+        tables,
+    );
+    restore_densities(&saved, state.path_pdf);
+    let new_s = poynting_dir_for_mode(ctx, geo, new_k, true, mode_state.is_extraordinary);
+    (new_k, new_s, true, None, None)
+}
+
+/// The entry event of [`apply_collect_bounce`]: the mirror leaf, then the undivided transmission.
+fn collect_entry_event(
+    bctx: &BounceContext<'_, '_>,
+    ray: BounceRay,
+    mode_state: PathModeState,
+    rng: RngDraw,
+    state: &mut BounceState<'_>,
+    (exit_event, collect): (&mut ExitEvent<'_, '_>, &mut ExitCollect<'_>),
+) -> FresnelBounceResult {
+    let (ctx, geo) = (bctx.ctx, bctx.geo);
+    let BounceRay { k_hat, normal } = ray;
+    let mirror_dir = k_hat - 2.0 * k_hat.dot(normal) * normal;
+    let entering_anisotropic = ctx.is_anisotropic;
+    if entering_anisotropic
+        && let Some(frame) = geo.uniaxial_frame
+        && k_hat.cross(ctx.c_axis).length_squared() > 1e-6
+    {
+        // The closed-form uniaxial entry collects its own mirror leaf.
+        let ubctx = UniaxialBounceContext {
+            ctx,
+            geo,
+            frame: &frame,
+        };
+        let (new_k, new_s, new_inside_gem, update) =
+            apply_uniaxial_entry_bounce(&ubctx, ray, rng, state, exit_event, Some(collect));
+        return (new_k, new_s, new_inside_gem, update, None);
+    }
+    let tables = bctx.cache.tables.as_deref();
+    let mut leaf_stokes = *state.stokes;
+    let mut leaf_pdf = *state.path_pdf;
+    apply_partial_reflect_bounce(
+        geo,
+        1.0,
+        k_hat,
+        normal,
+        &mut leaf_stokes,
+        &mut leaf_pdf,
+        tables,
+    );
+    deposit_entry_leaf(
+        exit_event,
+        collect,
+        &EntryLeaf {
+            dir: mirror_dir,
+            lambdas: &ctx.lambdas,
+            stokes: &leaf_stokes,
+            path_pdf: state.path_pdf,
+            hero: ctx.hero_idx,
+        },
+    );
+    let (use_extraordinary, entry_mode_azimuth2) =
+        resolve_entry_mode_selection(&EntryModeSelectionInputs {
+            ctx,
+            geo,
+            entering_anisotropic,
+            current_plane_normal: mode_state.current_plane_normal,
+            k_hat,
+            hero_stokes: state.stokes[ctx.hero_idx],
+            is_extraordinary: mode_state.is_extraordinary,
+            rng_seed: rng.rng_seed,
+            bounce: rng.bounce,
+        });
+    let selection = RefractSelection {
+        use_extraordinary,
+        entry_mode_azimuth2,
+    };
+    let saved = *state.path_pdf;
+    let outcome = apply_refract_bounce(bctx, 0.0, ray, false, selection, state, exit_event);
+    restore_densities(&saved, state.path_pdf);
+    (
+        outcome.new_k,
+        outcome.new_s,
+        true,
+        outcome.is_extraordinary_update,
+        None,
+    )
 }

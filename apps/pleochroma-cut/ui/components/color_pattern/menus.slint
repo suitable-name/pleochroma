@@ -1,0 +1,175 @@
+import { Theme } from "../../theme.slint";
+import { ColorPatternModel } from "../../models/color_pattern.slint";
+import { PatternIcon, PatternIcons } from "icons.slint";
+import { PatternUi } from "state.slint";
+
+// The two small menus of the layer panel: "Add" (a shape per entry) and a card's "..." menu. Both
+// are window-level elements placed by the window at `PatternUi`'s coordinates (a popup cannot be
+// placed reliably from inside a layout, and the scrolling list would clip them).
+
+// One entry of a menu: an icon, a name and a tooltip. Tab reaches it; Space and Enter press it.
+component PatternMenuItem inherits Rectangle {
+    in property <string> icon;
+    in property <string> text;
+    in property <string> hint;
+    in property <bool> enabled: true;
+    in property <bool> danger: false;
+    // Take the keyboard focus when the menu opens (the first entry).
+    in property <bool> autofocus: false;
+    callback clicked();
+
+    height: 32px;
+    border-radius: 6px;
+    background: touch.has-hover && root.enabled ? Theme.bg-card-hover : transparent;
+    border-width: fs.has-focus ? 2px : 0px;
+    border-color: Theme.accent-cyan-hover;
+    accessible-role: AccessibleRole.button;
+    accessible-label: root.text;
+    accessible-description: root.hint;
+    accessible-action-default => {
+        if root.enabled {
+            root.clicked();
+        }
+    }
+
+    if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
+    fs := FocusScope {
+        enabled: root.enabled;
+        init => {
+            if root.autofocus {
+                self.focus();
+            }
+        }
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.clicked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 10px;
+        VerticalLayout {
+            alignment: center;
+            PatternIcon {
+                d: root.icon;
+                size: 16px;
+                ink: !root.enabled ? Theme.text-disabled : (root.danger ? Theme.danger : Theme.text-secondary);
+            }
+        }
+        Text {
+            text: root.text;
+            font-size: 13px;
+            color: !root.enabled ? Theme.text-disabled : (root.danger ? Theme.danger : Theme.text-primary);
+            vertical-alignment: center;
+        }
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+// The card of a menu: surface, rim and shadow of the app's dialogs.
+component PatternMenuCard inherits Rectangle {
+    background: Theme.surface-dialog;
+    border-radius: 10px;
+    border-width: 1px;
+    border-color: Theme.border-dialog;
+    drop-shadow-blur: 20px;
+    drop-shadow-color: Theme.modal-shadow;
+    drop-shadow-offset-y: 6px;
+}
+
+// "Add": one entry per shape in `shape_options`; the new zone goes on top and is selected.
+export component PatternAddMenu inherits PatternMenuCard {
+    width: 200px;
+    height: col.preferred-height;
+    accessible-role: AccessibleRole.list;
+    accessible-label: "Add a layer";
+    col := VerticalLayout {
+        padding: 4px;
+        spacing: 0px;
+        for shape[i] in ColorPatternModel.shape_options: PatternMenuItem {
+            icon: PatternIcons.shape(i);
+            text: shape;
+            hint: "Add a layer with this shape on top of the others. It starts in the middle of the stone.";
+            autofocus: i == 0;
+            clicked => {
+                PatternUi.add_open = false;
+                ColorPatternModel.add_zone(i);
+            }
+        }
+    }
+}
+
+// A card's "...": Rename, Duplicate, Move Up, Move Down and Delete, for the card at
+// `PatternUi.menu_row`. The base layer can only be renamed.
+export component PatternRowMenu inherits PatternMenuCard {
+    in property <int> target: PatternUi.menu_row;
+    property <bool> is_base: root.target >= ColorPatternModel.zone_rows.length - 1;
+    width: 190px;
+    height: 5 * 32px + 8px;
+    accessible-role: AccessibleRole.list;
+    accessible-label: "Layer menu";
+    VerticalLayout {
+        padding: 4px;
+        spacing: 0px;
+        PatternMenuItem {
+            icon: PatternIcons.pencil;
+            text: "Rename";
+            hint: "Type a new name for this layer. Double-clicking the name does the same.";
+            autofocus: true;
+            clicked => {
+                PatternUi.rename_row = root.target;
+                PatternUi.menu_row = -1;
+            }
+        }
+        PatternMenuItem {
+            icon: PatternIcons.copy;
+            text: "Duplicate";
+            enabled: !root.is_base && ColorPatternModel.can_add_zone;
+            hint: !root.is_base && !ColorPatternModel.can_add_zone ? ColorPatternModel.add_zone_hint : "Copy this layer, shifted a little so both stay visible.";
+            clicked => {
+                // `target` follows `menu_row`: act first, then close the menu.
+                ColorPatternModel.duplicate_row(root.target);
+                PatternUi.menu_row = -1;
+            }
+        }
+        PatternMenuItem {
+            icon: PatternIcons.arrow-up;
+            text: "Move Up";
+            enabled: !root.is_base && root.target > 0;
+            hint: "Move this layer up the list. Upper layers cover lower ones. Alt+Up does the same.";
+            clicked => {
+                ColorPatternModel.move_row(root.target, -1);
+                PatternUi.menu_row = -1;
+            }
+        }
+        PatternMenuItem {
+            icon: PatternIcons.arrow-down;
+            text: "Move Down";
+            enabled: !root.is_base && root.target < ColorPatternModel.zone_rows.length - 2;
+            hint: "Move this layer down the list, towards the base. Alt+Down does the same.";
+            clicked => {
+                ColorPatternModel.move_row(root.target, 1);
+                PatternUi.menu_row = -1;
+            }
+        }
+        PatternMenuItem {
+            icon: PatternIcons.trash;
+            text: "Delete";
+            danger: true;
+            enabled: !root.is_base;
+            hint: root.is_base ? "The base layer cannot be removed: it fills everything the other layers do not cover." : "Remove this layer. Undo brings it back.";
+            clicked => {
+                ColorPatternModel.delete_row(root.target);
+                PatternUi.menu_row = -1;
+            }
+        }
+    }
+}

@@ -7,6 +7,8 @@
 import { Theme } from "../../theme.slint";
 import { PageScroll } from "../../shell/page_scroll.slint";
 import { Segmented } from "../../shell/chips.slint";
+import { ListRow } from "../../shell/list_row.slint";
+import { Toggle } from "../../shell/toggle.slint";
 import { TonalButton, TextButton } from "../../shell/buttons.slint";
 import { PropsModel } from "props_model.slint";
 import { SectionHeader, SettingBlock, SliderBlock, RadioMark, PresetRow } from "props_parts.slint";
@@ -67,14 +69,15 @@ export component LightTab inherits PageScroll {
     }
 
     SectionHeader {
-        text: "Light Direction";
+        text: PropsModel.hdr-selected ? "Map Rotation" : "Light Direction";
     }
 
+    // While the HDR map is the lighting this slider turns the map (it has no main light).
     SliderBlock {
-        title: "Light Azimuth";
+        title: PropsModel.hdr-selected ? "Map Rotation" : "Light Azimuth";
         value-text: Math.round(PropsModel.azimuth) + "°";
-        info-body: "Light azimuth: the direction the main light shines from, as an angle around the stone (0 to 360 degrees).";
-        enabled: PropsModel.uses-light-direction;
+        info-body: PropsModel.hdr-selected ? "Map rotation: turns the HDR map around the stone (0 to 360 degrees). Dragging in the picture turns it too." : "Light azimuth: the direction the main light shines from, as an angle around the stone (0 to 360 degrees).";
+        enabled: PropsModel.hdr-selected || PropsModel.uses-light-direction;
         value <=> PropsModel.azimuth;
         minimum: 0;
         maximum: 360;
@@ -84,7 +87,7 @@ export component LightTab inherits PageScroll {
         }
     }
 
-    SliderBlock {
+    if !PropsModel.hdr-selected: SliderBlock {
         title: "Light Elevation";
         value-text: Math.round(PropsModel.elevation) + "°";
         info-body: "Light elevation: how high the main light is above the stone, from low and raking to nearly straight overhead.";
@@ -95,6 +98,21 @@ export component LightTab inherits PageScroll {
         step: 1;
         released => {
             PropsModel.light-released();
+        }
+    }
+
+    if PropsModel.hdr-selected: ListRow {
+        title: "Turns with the Camera";
+        supporting: PropsModel.hdr-follows-camera ? "The map stays fixed relative to the camera" : "The map stays fixed in the room";
+        clicked => {
+            PropsModel.hdr-follow-changed(!PropsModel.hdr-follows-camera);
+        }
+
+        Toggle {
+            checked: PropsModel.hdr-follows-camera;
+            toggled(value) => {
+                PropsModel.hdr-follow-changed(value);
+            }
         }
     }
 
@@ -123,8 +141,8 @@ export component LightTab inherits PageScroll {
         title: "Backdrop";
         info-body: "Backdrop: the surface the stone lies on, lit by the lighting and seen both around the stone and through its windows. As Lit: the lighting's own ground (for the Grading Tray, nothing below the girdle, so windows look black). Black: velvet, 2% reflectance. Grey: an 18% grey card. White: paper, 90% reflectance. Under a ring light a white tray is very bright; lower the exposure or pick Black.";
 
-        // Shown as As Lit, Black, Grey, White; the stored indices stay 0 as lit, 1 grey,
-        // 2 white, 3 black, so the control's position maps to them here.
+        // Shown as As Lit, Black, Grey, White. Stored backdrop values: 0 as lit, 1 grey,
+        // 2 white, 3 black.
         Segmented {
             options: ["As Lit", "Black", "Grey", "White"];
             current: PropsModel.backdrop == 0 ? 0 : (PropsModel.backdrop == 3 ? 1 : (PropsModel.backdrop == 1 ? 2 : 3));

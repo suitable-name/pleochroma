@@ -117,7 +117,7 @@ impl EdgeSpec {
 
 /// The render physics of one scene: inclusions, play-of-color and surface finish.
 ///
-/// Appended to [`super::SceneState`] (protocol v32; v34 appended [`Self::material_inclusions`]).
+/// Appended to [`super::SceneState`].
 /// Every field is "off" at its default, which postcard still writes (it cannot omit a field).
 #[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 pub struct SceneEffects {
@@ -137,7 +137,7 @@ pub struct SceneEffects {
     /// The abraded-edge setting.
     pub edge: EdgeSpec,
     /// The inclusions the MATERIAL itself carries (a custom material's stored families and
-    /// play-of-color structure, protocol v34), which `GemMaterial` leaves out of its serde bytes
+    /// play-of-color structure), which `GemMaterial` leaves out of its serde bytes
     /// and the name-keyed choices above cannot find. Applied first, so a preset the design
     /// chooses still replaces them, exactly as on the desktop. Appended last for the postcard
     /// reason of [`super::SceneState::tools`]; `#[serde(default)]` for the `scene.json` reason.
@@ -157,8 +157,7 @@ impl SceneEffects {
     }
 
     /// `true` when the surface finish departs from a perfect polish (facet words or an abraded
-    /// edge). The GPU kernels do not read the surface word yet, so a scene like this is traced
-    /// on the CPU.
+    /// edge); otherwise [`Self::surface_scene`] is the ideal scene.
     #[must_use]
     pub fn has_surface(&self) -> bool {
         !self.facet_surfaces.is_empty() || self.edge.to_abrasion().active()

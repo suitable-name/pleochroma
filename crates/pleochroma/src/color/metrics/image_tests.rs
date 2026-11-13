@@ -347,10 +347,9 @@ fn perspective_rays_use_their_own_eye_direction_for_the_observer_cone() {
     );
 }
 
-/// Prints the per-pixel Fire distribution `FIRE_RANGE_DEG` is chosen from (run with
-/// `--nocapture`): the 50th and 95th percentile of `fire_deg()` over the hit pixels, for a
-/// high- and a low-dispersion stone at one pose. The owner picks the range, or a
-/// per-material scale, from these numbers.
+/// Diagnostic print of the per-pixel Fire distribution (50th and 95th percentile and maximum of
+/// `fire_deg()`) for a high- and a low-dispersion stone at one pose, to inform
+/// `FIRE_RANGE_DEG`. Run with `--nocapture`.
 #[test]
 fn fire_distribution_for_the_range_choice() {
     use crate::renderer::optical_overlay::FIRE_RANGE_DEG;
@@ -584,7 +583,7 @@ fn threaded_images_equal_the_serial_loop_for_every_bench_pass_kind() {
         ((48, 36), 4, true, true),
     ];
     for ((width, height), samples, want_fire, want_scintillation) in kinds {
-        // The plain serial entry point is the reference the old loop became.
+        // The plain serial entry point is the reference.
         let r = OpticalImageRequest {
             camera: &camera,
             width,

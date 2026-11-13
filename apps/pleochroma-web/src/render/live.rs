@@ -10,10 +10,10 @@
 //!   gets its resolved tools (`live_tools`, the same `Design::tools_for_scoring` the
 //!   desktop's scoring uses), which ride with the scene to every Worker (CPU and GPU alike)
 //!   and take part in the comparison. Any difference is a new scene:
-//!   `set_scene_with_tools` + `start(target)`, a new epoch whose stale chunks the pool drops. A
+//!   `set_scene_with_effects` + `start(target)`, a new epoch whose stale chunks the pool drops. A
 //!   changed target alone just moves the goal. Leaving the Render tab pauses the pool
 //!   (`cancel`); coming back resumes the same accumulation.
-//! - **HDR map.** `hdr::sync_hdr` uploads the uploaded `.hdr` to the render Workers
+//! - **HDR map.** `hdr::sync_hdr` uploads the loaded `.hdr` to the render Workers
 //!   and the analysis Worker (so the metrics HUD is scored under it) and returns the id
 //!   the scene names; it drops the map again when the setting is turned off.
 //! - **Display.** Every merged pass calls [`on_progress`]. The picture is the
@@ -25,16 +25,15 @@
 //! - **Denoise on settle.** Once the target is reached, or no pass has landed for
 //!   [`SETTLE_MS`], the running sum goes to the pool's picture Worker (`request_picture
 //!   (DenoisedLive)`), which runs the desktop's guide pass (once per scene) and
-//!   `denoise_and_tonemap_frame`. It runs there, not on the page: measured natively
-//!   on one thread, the denoise alone takes 0.3 s at 480x360, 0.8 s at 800x600 and
-//!   1.2 s at 960x720 (plus 0.1 s of guide pass), and wasm is slower still -- far
-//!   past the ~300 ms the page could spare. It is a Worker of its own, not one of the
-//!   tracing Workers, so an orbit right after a settle finds every partition free. A
-//!   denoise that fails is asked for once more, then left as traced (the pill says so).
+//!   `denoise_and_tonemap_frame`. The denoise takes 0.3 to 1.2 s on one native thread at
+//!   480x360 to 960x720, and wasm is slower: far past the ~300 ms the page can spare, so it
+//!   runs in a Worker. It is a Worker of its own, not one of the tracing Workers, so an
+//!   orbit right after a settle finds every partition free. A denoise that fails is asked
+//!   for once more, then left as traced (the pill says so).
 //! - **Status.** The progress pill reads `samples/target spp · spp/s · N workers`;
 //!   the status strip's backend slot reads `CPU · N workers`. A Worker that crashes or
-//!   goes silent is replaced by the pool; one that keeps failing shows "Restart render
-//!   workers".
+//!   goes silent is replaced by the pool; one that keeps failing shows "Restart Render
+//!   Workers".
 
 mod design_cache;
 pub(super) mod effects;
@@ -165,8 +164,7 @@ pub(super) fn ensure_pool(ctx: &Ctx) -> Result<WorkerPool, String> {
         render.on_picture(move |result| on_picture(&c, result));
         let c = ctx.clone();
         render.on_gpu_event(move |event| super::gpu_gate::on_gpu_event(&c, event));
-        // Not in a browser without WebGPU, and not after a blocked start (the GPU Worker's
-        // adapter request is the step the last start lost the GPU in).
+        // Only when the GPU may start by itself: not without WebGPU or after a blocked start.
         if ctx.state.borrow().settings.gpu_enabled && super::gpu_gate::worker_allowed() {
             render.set_gpu_enabled(true);
         }
@@ -306,9 +304,8 @@ fn desired(ctx: &Ctx) -> Result<(Desired, Option<WorkerPool>), String> {
         return Ok((Desired::Nothing, crate::workers::existing()));
     }
     if tab != 0 {
-        // Another tab is showing: pause a pool that exists, but do not start Workers just
-        // to hold them idle (a session restored on the Solid tab creates them when the
-        // Render tab is first shown, or when a solve needs the solve Worker).
+        // Another tab is showing: pause a pool that exists, but do not start Workers only to
+        // hold them idle.
         let existing = crate::workers::existing();
         return Ok((Desired::Hidden, existing));
     }
@@ -638,7 +635,7 @@ fn on_error(ctx: &Ctx, message: &str) {
     }
 }
 
-/// "Restart render workers".
+/// "Restart Render Workers".
 fn restart_workers(ctx: &Ctx) {
     let Some(pool) = crate::workers::existing() else {
         return;

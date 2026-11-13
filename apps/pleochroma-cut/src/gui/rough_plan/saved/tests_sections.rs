@@ -1,7 +1,7 @@
-//! Tests of the `colour` and `pose_choices` sections of a plan file (schema version 4): what the
-//! loader checks, that an export carries the library's color and stone orientations and an
-//! import brings them back, and that a plan without them is written and stored exactly as it
-//! always was.
+//! Tests of the `colour` and `pose_choices` sections of a plan file (schema version 4).
+//!
+//! The loader checks both sections. An export carries the library's color and stone orientations
+//! and an import brings them back. A plan without them is written as a version 1 plan.
 
 use super::{
     dto::{PoseChoiceDto, RoughColourDto, SavedPlanDto},
@@ -299,7 +299,7 @@ mod with_colour {
         let loaded = parse_and_validate_plan(&text).expect("the export is a plan");
         assert_eq!(loaded.pose_choices, vec![choice(0, 1, 2)]);
 
-        // A plan with neither is exported as it always was.
+        // A plan with neither is exported as stored, with only its name changed.
         let stored = store::load_saved(&db, with_neither).expect("loaded");
         assert_eq!(
             export_text(&db, with_neither).expect("exported"),

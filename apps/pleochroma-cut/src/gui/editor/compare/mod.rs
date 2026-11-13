@@ -1,12 +1,13 @@
-//! The visual before/after comparison: a separate OS window
-//! (`ui/compare_window.slint`'s `CompareWindow`), or the pane embedded in the
+//! The visual before/after comparison, in a separate OS window or an embedded pane.
+//!
+//! It is `ui/compare_window.slint`'s `CompareWindow`, or the pane embedded in the
 //! Retarget dialog (`ui/components/compare_view.slint`'s `CompareView`, backed by the
 //! main window's own `CompareModel` instance), showing the design before and after
 //! a Retarget proposal, an Optimize result, or against the held design snapshot --
 //! side by side, under a draggable split divider (window only), or as a difference
 //! overlay on the "after" side (removed material red, added green, outlines). Both
 //! sides are turned by ONE shared orbit camera, in the flat solid view (instant) or
-//! the CPU path tracer (a modest fixed quality, started only after the pose has
+//! a traced renderer (the CPU path tracer or Ray-Traced, started only after the pose has
 //! settled and the mouse button is released). Only one session is live at a time,
 //! on one of those two surfaces.
 //!
@@ -40,7 +41,7 @@
 //! the tilt run's state and the strip's text), [`origins`] (gathering each
 //! origin's sides and the Keep guard), [`host`] (the two surfaces, the live session
 //! and frame delivery), and [`wiring`] (which surface a request opens on, and every
-//! Slint callback). `tests` covers the first two without Slint.
+//! Slint callback). `tests` covers the Slint-free modules.
 
 mod host;
 mod metrics;

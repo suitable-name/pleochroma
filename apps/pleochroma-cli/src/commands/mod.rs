@@ -7,11 +7,13 @@
 mod batch;
 mod census;
 mod export;
+mod image_compare;
 mod info;
 mod metrics;
 mod optimize;
 mod render_job;
 mod retarget;
+mod snap_meets;
 mod solve;
 mod sweep;
 mod validate;
@@ -45,8 +47,10 @@ pub fn dispatch(command: &Command) -> CommandResult {
         Command::Optimize(args) => optimize::run(args),
         Command::Retarget(args) => retarget::run(args),
         Command::Sweep(args) => sweep::run(args),
+        Command::SnapMeets(args) => snap_meets::run(args),
         Command::Export(args) => export::run(args),
         Command::Census(args) => census::run(args),
+        Command::ImageCompare(args) => image_compare::run(args),
         Command::Render(_) | Command::TiltVideo(_) => Err(CliError::usage(
             "internal: render commands need dispatch_streaming",
         )),

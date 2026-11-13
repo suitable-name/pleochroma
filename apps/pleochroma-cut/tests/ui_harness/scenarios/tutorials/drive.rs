@@ -211,9 +211,9 @@ fn drive_step(
     goal: Option<&Goal>,
     stats: &mut RunStats,
 ) {
-    // Was a fixed wait of `ENTRY_SETTLE`: a reading step and a step the goal already finished
-    // (the guide moved on or reports it done) are decided at once, so the wait ends there; any
-    // other step still gets the full time to check its goal.
+    // Waits up to `ENTRY_SETTLE` for the goal to show. A reading step and a step the goal already
+    // finished (the guide moved on or reports it done) end the wait at once; any other step gets
+    // the full time to check its goal.
     let _ = wait_real(ENTRY_SETTLE, || {
         let now = snap(ctx.app.ui());
         !now.at(n) || now.manual || now.done
@@ -396,9 +396,8 @@ fn drive_without_recipe(
     await_and_advance(ctx, label, n, before, stats);
 }
 
-/// The recipe of a `YieldApplied` step (the guide has none of its own: the learner types the
-/// stone width into the Preform tab): sets the girdle diameter and presses Apply Yield Inputs
-/// through the callback the button calls.
+/// The recipe of a `YieldApplied` step, which the guide gives none of its own: sets the girdle
+/// diameter and presses Apply Yield Inputs through the callback the button calls.
 fn apply_yield_inputs(ctx: &Ctx<'_>) {
     const GIRDLE_DIAMETER_MM: &str = "6.5";
     let editor = ctx.app.ui().global::<EditorModel>();
@@ -471,13 +470,13 @@ fn open_variants_view(ctx: &mut Ctx<'_>, stats: &mut RunStats) {
     }
     // The inspector is the last part of the Edit view's scrolling dock: at the default 1366 x 768
     // it lies below the dock's visible area, and the harness does not enumerate scrolled-out
-    // controls (the 2026-10-30 local run found the Edit view but no inspector at all). The window
-    // is made tall like the coverage click-through's (`coverage::overlays::TALL`) for the press.
+    // controls. The window is made tall like the coverage click-through's
+    // (`coverage::overlays::TALL`) for the press.
     let before = ctx.app.main_view().size;
     ctx.app.set_size(TALL.0, TALL.1);
     pump(100);
-    // The pill of its own component type: other controls are labelled "Variants" too, and the
-    // first of them was pressed instead (2026-10-29_170825). The History tab is built when the
+    // The pill of its own component type: other controls are labelled "Variants" too, and
+    // pressing the first of them does not open the view. The History tab is built when the
     // inspector shows it, so the pill may need a frame or two to appear.
     let mut found = false;
     let _ = wait_real(ROUTE_SETTLE, || {
@@ -486,7 +485,7 @@ fn open_variants_view(ctx: &mut Ctx<'_>, stats: &mut RunStats) {
     });
     let pressed = found && wait_real(ROUTE_SETTLE, || variants.get_view() == 1);
     if !pressed {
-        // What the window does offer under that label, so the next run says why.
+        // What the window offers under that label, reported with the finding.
         let seen: Vec<String> = ctx
             .app
             .main_view()

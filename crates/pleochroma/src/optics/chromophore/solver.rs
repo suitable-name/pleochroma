@@ -1,5 +1,4 @@
-//! Inverse solver: maps a target color (CIELAB) back to elements, fractions and treatments
-//! (plan §4.2).
+//! Inverse solver: maps a target color (CIELAB) back to elements, fractions and treatments.
 //!
 //! Deterministic, staged, linear-model search:
 //! - Stage `s` (1, 2, 3) enumerates every *independent* subset of `s` free items (never
@@ -66,7 +65,7 @@ const KAPPA: f64 = 1.0;
 const ACCEPT_DE: f64 = 1.0;
 /// Levenberg-Marquardt iteration cap.
 const LM_ITERS: usize = 20;
-/// Further LM iterations on the budgeted forward model (§4.2 step 6).
+/// Further LM iterations on the budgeted forward model (the final re-score).
 const RESCORE_ITERS: usize = 5;
 /// Coarse log-grid points per dimension for subset sizes 1, 2, 3.
 const GRID_POINTS: [usize; 3] = [24, 8, 6];
@@ -78,7 +77,7 @@ const MAX_SUBSET: usize = 3;
 const N: usize = 401;
 /// Treatments combined at once by the search.
 const MAX_TREATMENTS: usize = 2;
-/// color temperature of the optional second target (the Incandescent preset).
+/// Color temperature of the optional second target (the Incandescent preset).
 const A_TEMP_K: f32 = 3200.0;
 
 /// The solve was cancelled through its cancellation flag.
@@ -180,7 +179,7 @@ pub fn solve_physics(
         .unwrap_or_else(|Cancelled| unreachable!("a flag that nobody sets cannot cancel"))
 }
 
-/// Staged inverse solve (§4.2). `cancel` is polled between evaluations; when it is set the solve
+/// Staged inverse solve. `cancel` is polled between evaluations; when it is set the solve
 /// returns `Err(Cancelled)` (latest request wins: the caller sets the flag of the superseded
 /// solve).
 ///
@@ -1082,7 +1081,8 @@ impl<'a> Search<'a> {
         Some((self.ctx.residual(d65.lab, lab_a), d65))
     }
 
-    /// WYSIWYG re-scoring through [`resolve`] (§4.2 step 6) and result assembly.
+    /// Re-scores the best candidate through [`resolve`] (what is rendered) and assembles the
+    /// result.
     fn finalise(&self, best: &Candidate, capped: bool) -> Result<SolveResult, Cancelled> {
         let ids = best.ids.clone();
         let c = best.amounts.clone();
@@ -1282,7 +1282,7 @@ const FANTASY_PEAK_MAX: f64 = 20.0;
 /// Smallest non-zero legacy band peak (smaller values are returned as exactly 0).
 const FANTASY_PEAK_MIN: f64 = 1e-4;
 
-/// Solves the three `absorption_rgb` band peaks for the D65 color `target_lab` (§4.6).
+/// Solves the three `absorption_rgb` band peaks for the D65 color `target_lab`.
 ///
 /// The peaks are the amplitudes of [`legacy_rgb_bands`] per model unit (swatch path L = 1.0),
 /// found with the same grid + Levenberg-Marquardt machinery as [`solve_physics`]. Three fixed
@@ -1371,7 +1371,7 @@ pub fn solve_fantasy_lab(
 
 /// Solves the legacy `absorption_rgb` triple for a target sRGB color in `[0, 1]`.
 ///
-/// See [`solve_fantasy_lab`]. The result keeps fantasy materials in their existing format: it is
+/// See [`solve_fantasy_lab`]. The result keeps the legacy fantasy-material format: it is
 /// the amplitude triple of [`legacy_rgb_bands`], not a transmittance.
 #[must_use]
 pub fn solve_fantasy(target_rgb: [f32; 3]) -> [f32; 3] {
@@ -1383,15 +1383,15 @@ pub fn solve_fantasy(target_rgb: [f32; 3]) -> [f32; 3] {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Path-aware L*C*h body colour (seven-band basis)
+// Path-aware L*C*h body color (seven-band basis)
 // ---------------------------------------------------------------------------------------------
 
-/// The colour a path-aware body-colour solve aims at.
+/// The color that a path-aware body-color solve aims at.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BodyColorTarget {
     /// CIE L*C*h(ab) under D65: `[L*, C*, h in degrees]`.
     pub lch: [f64; 3],
-    /// The light path (mm) the colour is seen through: the stone's size.
+    /// The light path (mm) the color is seen through: the stone's size.
     pub path_mm: f64,
 }
 
@@ -1414,8 +1414,8 @@ const BODY_BANDS: usize = 7;
 const BODY_OD_MIN: f64 = 1e-3;
 const BODY_OD_MAX: f64 = 8.0;
 /// Weight of the smoothness residual (`0.01 x` the optical-density step between neighbouring
-/// bands): picks the smoothest of the many spectra that make the same colour, with a
-/// negligible effect on the colour itself.
+/// bands): picks the smoothest of the many spectra that make the same color, with a
+/// negligible effect on the color itself.
 const BODY_REG: f64 = 0.01;
 const BODY_LM_ITERS: usize = 60;
 /// Grid points kept as Levenberg-Marquardt starts.
@@ -1581,17 +1581,16 @@ fn lm_body(
 }
 
 /// Solves the seven per-millimetre amplitudes of the `BODY_COLOR_BASIS_NM` bands that make a
-/// stone with light path `target.path_mm` show the L*C*h colour `target.lch` under D65.
+/// stone with light path `target.path_mm` show the L*C*h color `target.lch` under D65.
 ///
-/// Optical density is `amplitude x path`, so the same colour at twice the path needs half the
-/// amplitudes (the solve itself runs in density space and only the last step divides by the
-/// path). Seven Gaussians against a three-number target leave many equivalent spectra: a
-/// small smoothness term ([`BODY_REG`]) picks the smoothest. The search is a fixed 3^7 grid
-/// (about 2 200 evaluations, a few tens of milliseconds) whose three best points each start a
-/// Levenberg-Marquardt refinement in log space; the best refined point wins, ties to the
-/// earlier one. Deterministic: no threads, fixed iteration order, bit-identical for identical
-/// input on one platform. A band below twice the minimum density comes back as exactly 0 (a
-/// colourless target gives seven zeros).
+/// Optical density is `amplitude x path`, so the same color at twice the path needs half the
+/// amplitudes (the solve runs in density space and only the last step divides by the path).
+/// Seven Gaussians against a three-number target leave many equivalent spectra: a small
+/// smoothness term ([`BODY_REG`]) picks the smoothest. The search is a fixed 3^7 grid whose
+/// three best points each start a Levenberg-Marquardt refinement in log space; the best refined
+/// point wins, ties to the earlier one. Deterministic: no threads, fixed iteration order,
+/// bit-identical for identical input on one platform. A band below twice the minimum density
+/// comes back as exactly 0 (a colorless target gives seven zeros).
 ///
 /// # Errors
 ///

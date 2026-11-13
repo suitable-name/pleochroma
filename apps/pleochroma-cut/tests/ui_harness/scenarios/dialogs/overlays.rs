@@ -360,8 +360,8 @@ pub(super) fn dialogs_editor_overlays(ctx: &mut Ctx<'_>) {
 
 /// A library without pictures makes the start-up scans offer the preview and tilt batches
 /// (full-window dialogs). While one is up, `MainWindow.other_overlay_open` stays true and no other
-/// dialog's close hands the keyboard back (`ui/app.slint`), and the dialog sits over the whole
-/// window. Waits briefly for the offers, then declines them as "Not Now" does.
+/// dialog's close hands the keyboard back (`window_state.slint`), and the dialog sits over the
+/// whole window. Waits briefly for the offers, then declines them as "Not Now" does.
 fn dismiss_batch_offers(ctx: &Ctx<'_>) {
     let ui = ctx.app.ui().clone_strong();
     let batch = ui.global::<BatchModel>();
@@ -442,8 +442,8 @@ fn preferences_updates_section(ctx: &mut Ctx<'_>) {
     let ui = ctx.app.ui().clone_strong();
     ui.global::<PreferencesModel>().set_dialog_open(true);
     pump(300);
-    // The Updates section sits in the middle of the dialog's scroll area: a control scrolled out of
-    // a `ScrollView` is not enumerated, so the area is scrolled until the button shows.
+    // The Updates section sits mid-dialog: a control scrolled out of a `ScrollView` is not
+    // enumerated, so the area is scrolled until the button shows.
     scroll_dialog_until_visible(ctx.app, "PreferencesDialog", "Check Now");
     let view = ctx.app.main_view();
     ctx.expect(

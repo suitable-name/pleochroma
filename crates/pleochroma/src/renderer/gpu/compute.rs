@@ -11,21 +11,20 @@ use wgpu::util::DeviceExt;
 
 /// Bound on every production-path GPU wait.
 ///
-/// It covers [`finish_map_read`]'s `Device::poll` AND the
-/// paired `mpsc::Receiver::recv_timeout` for the buffer-mapping callback (also used by
-/// [`readback`]/[`dispatch_and_wait`]).
+/// It covers the device poll and the map callback of [`finish_map_read`] and
+/// [`dispatch_and_wait`]. [`readback`] uses the longer [`SELF_TEST_WAIT_TIMEOUT`].
 ///
-/// Without a bound a hung driver blocks forever; 4s sits well above the ~50ms per-chunk
-/// target (`TARGET_CHUNK_MS`) even on a slow integrated GPU, while still surfacing a
-/// wedged driver as `GpuFrameError::DeviceLost`.
+/// Without a bound a hung driver blocks forever. 4 s sits well above the ~50 ms per-chunk target
+/// (`TARGET_CHUNK_MS`) even on a slow integrated GPU, and still surfaces a wedged driver as
+/// `GpuFrameError::DeviceLost`. Beam fragment chunks wait with the longer
+/// `BEAM_CHUNK_WAIT_TIMEOUT` (`gpu::beam::fragments`) because they exceed that target.
 pub const GPU_WAIT_TIMEOUT: Duration = Duration::from_secs(4);
 
-/// The bound on a self-test's one-shot whole-image dispatch.
+/// The bound on a self-test's one-shot dispatch and readback.
 ///
-/// [`dispatch_and_wait_for`] from `frame::encode_and_dispatch` may run a Tier 3 comparison
-/// with 48 x 48 pixels x 500 samples in one dispatch, far beyond a production chunk. A stone
-/// with oriented inclusions in a zoned host took longer than [`GPU_WAIT_TIMEOUT`] on an
-/// integrated GPU (2026-10-22).
+/// A Tier 3 comparison runs 48 x 48 pixels x 500 samples in one dispatch, far beyond a
+/// production chunk. On an integrated GPU a stone with oriented inclusions can exceed
+/// [`GPU_WAIT_TIMEOUT`].
 pub const SELF_TEST_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// Why a bounded, non-panicking production-path GPU wait ([`finish_map_read`]) failed to
@@ -89,9 +88,8 @@ pub fn create_compute_pipeline(
 /// [`wgpu::PipelineCompilationOptions`] -- WGSL `override` name/value pairs resolved at
 /// pipeline creation.
 ///
-/// `GpuFrameRenderer`'s material-class-specialised pipelines are the
-/// only caller with non-empty `constants`: fixing `MATERIAL_CLASS` per pipeline lets
-/// naga/the driver dead-code-eliminate other material classes' per-ray state.
+/// The material-class pipelines of `GpuFrameRenderer` fix `MATERIAL_CLASS` this way, so the
+/// compiler can drop the per-ray state of the other material classes.
 ///
 /// # Panics
 ///
@@ -110,11 +108,10 @@ pub fn create_compute_pipeline_with_constants(
 
 /// Names the pipeline being compiled when a panic unwinds out of wgpu.
 ///
-/// naga's backends panic (rather than return an error) on IR they cannot lower, for example
-/// "Expression [89] is not cached!" in the SPIR-V writer. That message names neither the
-/// kernel nor the material class, which is the first thing a failing run needs; this guard
-/// prints both as the panic unwinds through [`create_compute_pipeline_cached`]. It does
-/// nothing on the normal path.
+/// naga's backends panic rather than return an error on IR they cannot lower (for example
+/// "Expression [89] is not cached!"), and that message names neither the kernel nor the
+/// material class. The guard prints both as the panic unwinds through
+/// [`create_compute_pipeline_cached`].
 struct CompileTrace<'a> {
     label: &'a str,
     entry_point: &'a str,
@@ -133,7 +130,7 @@ impl Drop for CompileTrace<'_> {
 }
 
 /// Like [`create_compute_pipeline_with_constants`], but compiles through `cache` when one
-/// is given (see [`create_persisted_compute_pipeline`]); `None` behaves exactly as the uncached call.
+/// is given (see [`create_persisted_compute_pipeline`]). `None` is the uncached call.
 ///
 /// # Panics
 ///
@@ -152,6 +149,12 @@ pub fn create_compute_pipeline_cached(
         entry_point,
         constants,
     };
+    // A driver compile has no timeout: in a test build the watchdog names a stuck one.
+    #[cfg(all(test, not(target_arch = "wasm32")))]
+    let _watch = super::test_support::watch(
+        &format!("compiling the compute pipeline `{label}` (entry point `{entry_point}`)"),
+        super::test_support::PIPELINE_COMPILE_BOUND,
+    );
     tracing::info!(
         label,
         entry_point,
@@ -309,9 +312,12 @@ pub fn zeroed_buffer<T: bytemuck::Pod>(
 /// Blocking readback of `count` `T`s from a `COPY_SRC` buffer.
 ///
 /// Copies into a fresh `MAP_READ` staging buffer, submits, blocks (bounded by
-/// [`GPU_WAIT_TIMEOUT`]) on the poll, and returns the mapped bytes reinterpreted as `T`.
-/// Self-test-only: kept panicking (unlike [`finish_map_read`]) since converting every
-/// caller to `Result` has no production benefit, but the wait is still bounded.
+/// [`SELF_TEST_WAIT_TIMEOUT`]) on the poll, and returns the mapped bytes reinterpreted as `T`.
+/// Self-test only: it panics (unlike [`finish_map_read`]), but the wait is still bounded.
+///
+/// The poll also waits for every earlier submission on the device, such as a beam fragment
+/// dispatch queued just before, which can run longer than a production chunk. That is why this
+/// uses the self-test bound rather than [`GPU_WAIT_TIMEOUT`].
 ///
 /// # Panics
 ///
@@ -345,11 +351,17 @@ pub fn readback<T: bytemuck::Pod>(
     device
         .poll(wgpu::PollType::Wait {
             submission_index: None,
-            timeout: Some(GPU_WAIT_TIMEOUT),
+            timeout: Some(SELF_TEST_WAIT_TIMEOUT),
         })
-        .expect("device poll failed or timed out during readback");
-    rx.recv_timeout(GPU_WAIT_TIMEOUT)
-        .expect("map_async callback did not fire within GPU_WAIT_TIMEOUT")
+        .unwrap_or_else(|error| {
+            panic!(
+                "device poll failed or timed out during readback of {count} x {} bytes \
+                 (bound {SELF_TEST_WAIT_TIMEOUT:?}): {error}",
+                size_of::<T>()
+            )
+        });
+    rx.recv_timeout(SELF_TEST_WAIT_TIMEOUT)
+        .expect("map_async callback did not fire within SELF_TEST_WAIT_TIMEOUT")
         .expect("failed to map readback staging buffer");
 
     let out = {
@@ -422,9 +434,9 @@ pub fn dispatch_and_wait_for(
 /// The non-blocking counterpart to [`dispatch_and_wait`]: submits `pipeline` once but
 /// does not poll or wait.
 ///
-/// `GpuFrameRenderer::accumulate`'s chunked dispatch pairs this with
+/// `GpuFrameRenderer`'s chunked dispatch pairs this with
 /// [`copy_to_staging`]/[`begin_map_read`]/[`finish_map_read`] to queue a chunk's work
-/// without stalling the CPU before the next chunk. Self-tests use [`dispatch_and_wait`].
+/// without stalling the CPU. Self-tests use [`dispatch_and_wait`].
 #[must_use]
 pub fn dispatch(
     device: &wgpu::Device,
@@ -513,14 +525,12 @@ pub fn begin_map_read(
 
 /// Blocks (bounded by [`GPU_WAIT_TIMEOUT`]) until `staging`'s producing submission completes.
 ///
-/// The submission is `copy_index`, from [`copy_to_staging`]; `rx` (from [`begin_map_read`])
-/// must resolve too, then it reads the buffer back and unmaps it.
+/// Then it reads the buffer back and unmaps it. `copy_index` comes from [`copy_to_staging`] and
+/// `rx` from [`begin_map_read`].
 ///
-/// The read-back length is whatever `count` [`copy_to_staging`] sized `staging` for.
-/// Waiting on `copy_index` specifically (rather than "most recent submission") avoids
-/// also waiting for a later chunk already queued. This is the ONE production-path wait
-/// (`GpuFrameRenderer::accumulate`'s chunk pipeline is its only caller); every failure
-/// returns [`ComputeWaitError`] rather than panicking, for the caller to turn into
+/// The read-back length is whatever `count` [`copy_to_staging`] sized `staging` for. Waiting on
+/// `copy_index` rather than the latest submission avoids also waiting for later queued chunks.
+/// Every failure returns [`ComputeWaitError`] rather than panicking, so the caller can report
 /// `GpuFrameError::DeviceLost`.
 ///
 /// # Errors
@@ -632,18 +642,13 @@ fn copy_prefix<T: Copy>(src: &[T], count: usize, out: &mut Vec<T>) -> usize {
 }
 
 /// Like [`finish_map_read`], but copies only the first `count` elements into a
-/// caller-provided, reusable `Vec<T>` instead of allocating a fresh one on every call.
+/// caller-provided `Vec<T>`, reusing its allocation.
 ///
-/// `GpuFrameRenderer::drain_pending_chunk` holds one scratch `Vec<f32>` across every
-/// chunk of every frame and passes it here, rather than paying a heap allocation per
-/// chunk the way the plain [`finish_map_read`] does. `count` is the chunk's live element
-/// count: persistent staging buffers are grown-never-shrunk, so the mapped range can be
-/// far larger than what this chunk wrote, and copying the whole of it would both waste
-/// bandwidth and pollute the caller's timing measurement. The mapping itself still covers
-/// the whole buffer. After a successful call `out.len() == count` (a debug build asserts
-/// the staging buffer was at least that large). [`finish_map_read`] itself is kept
-/// unchanged (and is still what every self-test uses): converting every caller to a
-/// reusable buffer has no benefit for a one-shot self-test dispatch.
+/// `GpuFrameRenderer::drain_pending_chunk` passes one scratch `Vec<f32>` for every chunk.
+/// `count` is the chunk's live element count: staging buffers only grow, so the mapped range
+/// can be far larger than this chunk wrote, and copying all of it would waste bandwidth and
+/// skew the timing measurement. The mapping still covers the whole buffer. After a successful
+/// call `out.len() == count`; a debug build asserts the staging buffer was at least that large.
 ///
 /// # Errors
 ///
@@ -702,7 +707,7 @@ mod tests {
         let src = [1.0_f32, 2.0, 3.0];
         let mut out = vec![7.0_f32; 4];
         assert_eq!(copy_prefix(&src, 0, &mut out), 0);
-        assert!(out.is_empty());
+        assert_eq!(out, [] as [f32; 0]);
     }
 
     /// The helper itself clamps silently (it never asserts), so this holds in debug and

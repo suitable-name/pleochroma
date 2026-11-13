@@ -14,7 +14,7 @@ use crate::{
     },
     renderer::{
         buffers::whitted::GpuWhittedParams,
-        env_map::EnvironmentMap,
+        env_map::{EnvRotation, EnvironmentMap},
         frame_scene::FrameScene,
         gpu::{
             compute,
@@ -47,9 +47,15 @@ fn whitted_cpu_gpu_frames_are_close_and_two_dispatches_are_identical() {
         GemMaterial::diamond(),
         GemMaterial::new_custom("clear", 1.5, 0.0, 0.0, [0.0; 3]),
     ] {
-        for tools in [
-            Vec::new(),
-            vec![ToolPrimitive::ball(Vec3::new(0.0, 0.5, 0.0), 0.2)],
+        // The last case lights the map at a scene exposure: the GPU leaf scales it as the CPU
+        // leaf does (`wt_hdr_at_exposure`, `hdr_rgb_at_exposure`).
+        for (tools, exposure) in [
+            (Vec::new(), 1.0),
+            (
+                vec![ToolPrimitive::ball(Vec3::new(0.0, 0.5, 0.0), 0.2)],
+                1.0,
+            ),
+            (Vec::new(), 2.5),
         ] {
             let scene = FrameScene {
                 camera: &camera,
@@ -59,7 +65,7 @@ fn whitted_cpu_gpu_frames_are_close_and_two_dispatches_are_identical() {
                 facet_finishes: &[],
                 material: &material,
                 max_bounces: 64,
-                environment: EnvironmentSource::HdrMap(&env),
+                environment: EnvironmentSource::hdr_at(&env, exposure),
             };
             let prep = WhittedPrep::new(
                 &scene,
@@ -101,7 +107,338 @@ const LIT_TRAY_OUTLIERS: usize = 6;
 /// the bit patterns order like the values).
 const EXP_ULP_BUDGET: u32 = 2;
 
-/// Under a lit backdrop tray the GPU frame (primary misses included, which now take the same
+#[test]
+fn whitted_cpu_gpu_frames_agree_with_stone_shadow() {
+    use crate::optics::raytracer::environment::tray_shadow::{
+        TRAY_SHADOW_BANDS, TrayShadowKey, TrayShadowMap,
+    };
+    let Some(context) = require_gpu() else {
+        return;
+    };
+    let mut renderer = pollster::block_on(WhittedGpuRenderer::from_context_async(context))
+        .expect("compile Ray-Traced");
+    let camera = Camera::new(0.6, 0.45, 3.0, 42.0);
+    let planes = StandardGemCuts::standard_round_brilliant();
+    let material = GemMaterial::diamond();
+    let factors: Vec<f32> = (0..16)
+        .flat_map(|i| std::iter::repeat_n((i as f32).mul_add(0.04, 0.2), TRAY_SHADOW_BANDS))
+        .collect();
+    let rgb = (0..16)
+        .map(|i| [(i as f32).mul_add(0.04, 0.2), 0.4, 0.7])
+        .collect();
+    let map = TrayShadowMap::from_parts(-1.0, [0.0, 0.0], 3.0, 4, factors, rgb, TrayShadowKey(7));
+    let env = LightingPreset::LightTent
+        .studio(1.0, 0.85, 0.95)
+        .with_backdrop(0.81);
+    let scene = FrameScene {
+        camera: &camera,
+        width: 24,
+        height: 16,
+        planes: &planes,
+        facet_finishes: &[],
+        material: &material,
+        max_bounces: 64,
+        environment: env.with_tray_shadow(Some(&map)),
+    };
+    let options = crate::renderer::engine::RayOptions {
+        aa_taps: 4,
+        fire: true,
+    };
+    let prep = WhittedPrep::new(&scene, Fluorescence::none(), options).expect("prep");
+    let plane_soa = build_plane_soa(&planes);
+    let cpu = whitted_pixels_interleaved_geom(&scene, &[], &plane_soa, &prep, 0, 1, 0, 4);
+    let uploaded = renderer.prepare(&scene, &[], &prep).expect("upload");
+    let gpu = renderer
+        .trace_chunk(&uploaded, 0, 24 * 16, 0, 4)
+        .expect("GPU frame");
+    let unshadowed = FrameScene {
+        environment: env,
+        ..scene
+    };
+    let plain_prep =
+        WhittedPrep::new(&unshadowed, Fluorescence::none(), options).expect("plain prep");
+    let plain =
+        whitted_pixels_interleaved_geom(&unshadowed, &[], &plane_soa, &plain_prep, 0, 1, 0, 4);
+    // Purpose of the test: the shadow must reach the frame. It must move more pixels beyond the
+    // rounding bound than the rounding tier allows, or a GPU frame without the shadow would pass.
+    let reach = compare_frames(&cpu, &plain, 4).rounding_failing_pixels;
+    assert!(
+        reach > FrameDiff::allowed_rounding_outliers(cpu.len()),
+        "the shadow moves only {reach} pixels beyond the rounding bound"
+    );
+    // The same scene without the shadow on the GPU (the lit-tray test's LightTent frame): its
+    // differences are the chain's own ties.
+    let plain_uploaded = renderer
+        .prepare(&unshadowed, &[], &plain_prep)
+        .expect("plain upload");
+    let plain_gpu = renderer
+        .trace_chunk(&plain_uploaded, 0, 24 * 16, 0, 4)
+        .expect("plain GPU frame");
+    let plain_difference = compare_frames(&plain, &plain_gpu, 4);
+    // The lookup mirrors the CPU operation for operation and is linear in the tray, so only
+    // rounding separates the frames. Near a critical angle a few ulp move the Fresnel weights
+    // (`FrameDiff::ROUNDING_RELATIVE_BOUND`) and can tip a TIR-or-exit, facet-edge or cutoff
+    // decision. The map exposes more of these ties than the uniform tray, because the two
+    // leaves of a tie can land on different factors. The rounding tier bounds exactly this. A
+    // GPU that drops or misplaces the shadow changes pixels by percent, not ulp, and fails it.
+    let difference = compare_frames(&cpu, &gpu, 4);
+    assert!(
+        difference.rounding_passed(cpu.len()),
+        "{difference:?}; without the shadow: {plain_difference:?}"
+    );
+}
+
+/// A glossy tray under the stone: the GPU frame (floor escapes at the exits and at the primary
+/// misses, reflected branches on the 4-slot stack) matches the CPU frame, and the reflection
+/// really reaches the frame.
+#[test]
+fn whitted_cpu_gpu_frames_agree_over_a_glossy_tray() {
+    use crate::optics::raytracer::environment::TrayMirror;
+    let Some(context) = require_gpu() else {
+        return;
+    };
+    let mut renderer = pollster::block_on(WhittedGpuRenderer::from_context_async(context))
+        .expect("compile Ray-Traced");
+    let camera = Camera::new(0.6, 0.45, 3.0, 42.0);
+    let planes = StandardGemCuts::standard_round_brilliant();
+    let material = GemMaterial::diamond();
+    let plane_soa = build_plane_soa(&planes);
+    let options = crate::renderer::engine::RayOptions {
+        aa_taps: 4,
+        fire: true,
+    };
+    let env = LightingPreset::LightTent
+        .studio(1.0, 0.85, 0.95)
+        .with_backdrop(0.81);
+    for reflectance in [0.04_f32, 0.6] {
+        let mirror = TrayMirror::new(-1.0, reflectance).expect("a valid mirror");
+        let scene = FrameScene {
+            camera: &camera,
+            width: 24,
+            height: 16,
+            planes: &planes,
+            facet_finishes: &[],
+            material: &material,
+            max_bounces: 64,
+            environment: env.with_tray_mirror(Some(mirror)),
+        };
+        let prep = WhittedPrep::new(&scene, Fluorescence::none(), options).expect("prep");
+        let cpu = whitted_pixels_interleaved_geom(&scene, &[], &plane_soa, &prep, 0, 1, 0, 4);
+        let uploaded = renderer.prepare(&scene, &[], &prep).expect("upload");
+        let gpu = renderer
+            .trace_chunk(&uploaded, 0, 24 * 16, 0, 4)
+            .expect("GPU frame");
+        let matte = FrameScene {
+            environment: env,
+            ..scene
+        };
+        let matte_prep =
+            WhittedPrep::new(&matte, Fluorescence::none(), options).expect("matte prep");
+        let plain =
+            whitted_pixels_interleaved_geom(&matte, &[], &plane_soa, &matte_prep, 0, 1, 0, 4);
+        // Purpose of the test: the reflection reaches the frame. It must move more pixels
+        // beyond the rounding bound than the rounding tier lets go, or a GPU frame without it
+        // would pass.
+        let reach = compare_frames(&cpu, &plain, 4).rounding_failing_pixels;
+        assert!(
+            reach > FrameDiff::allowed_rounding_outliers(cpu.len()),
+            "R0 {reflectance}: the reflection moves only {reach} pixels beyond the rounding bound"
+        );
+        let difference = compare_frames(&cpu, &gpu, 4);
+        assert!(
+            difference.rounding_passed(cpu.len()),
+            "R0 {reflectance}: {difference:?}"
+        );
+    }
+}
+
+/// A stone with a cavity over a glossy tray: leaves bound for the tray are pushed so the
+/// cavity can catch them (`emit_outside`'s tools branch), and the GPU frame still matches the
+/// CPU frame.
+#[test]
+fn whitted_cpu_gpu_frames_agree_over_a_glossy_tray_with_a_cavity() {
+    use crate::optics::raytracer::environment::TrayMirror;
+    let Some(context) = require_gpu() else {
+        return;
+    };
+    let mut renderer = pollster::block_on(WhittedGpuRenderer::from_context_async(context))
+        .expect("compile Ray-Traced");
+    let camera = Camera::new(0.6, 0.45, 3.0, 42.0);
+    let planes = StandardGemCuts::standard_round_brilliant();
+    let material = GemMaterial::diamond();
+    let plane_soa = build_plane_soa(&planes);
+    let options = crate::renderer::engine::RayOptions {
+        aa_taps: 4,
+        fire: true,
+    };
+    // A ball cut into the pavilion main facet at azimuth 0 (that facet is at y = -0.45 for
+    // x = 0.5).
+    let tools = [ToolPrimitive::ball(Vec3::new(0.5, -0.45, 0.0), 0.2)];
+    let env = LightingPreset::LightTent
+        .studio(1.0, 0.85, 0.95)
+        .with_backdrop(0.81);
+    let mirror = TrayMirror::new(-1.0, 0.6).expect("a valid mirror");
+    let scene = FrameScene {
+        camera: &camera,
+        width: 24,
+        height: 16,
+        planes: &planes,
+        facet_finishes: &[],
+        material: &material,
+        max_bounces: 64,
+        environment: env.with_tray_mirror(Some(mirror)),
+    };
+    let prep = WhittedPrep::new(&scene, Fluorescence::none(), options).expect("prep");
+    let cpu = whitted_pixels_interleaved_geom(&scene, &tools, &plane_soa, &prep, 0, 1, 0, 4);
+    let uploaded = renderer.prepare(&scene, &tools, &prep).expect("upload");
+    let gpu = renderer
+        .trace_chunk(&uploaded, 0, 24 * 16, 0, 4)
+        .expect("GPU frame");
+    // Purpose of the test: the cavity and the reflection both reach the frame, or a GPU frame
+    // without either would pass.
+    let uncut = whitted_pixels_interleaved_geom(&scene, &[], &plane_soa, &prep, 0, 1, 0, 4);
+    let cavity = compare_frames(&cpu, &uncut, 4).rounding_failing_pixels;
+    assert!(
+        cavity > FrameDiff::allowed_rounding_outliers(cpu.len()),
+        "the cavity moves only {cavity} pixels beyond the rounding bound"
+    );
+    let matte = FrameScene {
+        environment: env,
+        ..scene
+    };
+    let matte_prep = WhittedPrep::new(&matte, Fluorescence::none(), options).expect("matte prep");
+    let plain =
+        whitted_pixels_interleaved_geom(&matte, &tools, &plane_soa, &matte_prep, 0, 1, 0, 4);
+    let reach = compare_frames(&cpu, &plain, 4).rounding_failing_pixels;
+    assert!(
+        reach > FrameDiff::allowed_rounding_outliers(cpu.len()),
+        "the reflection moves only {reach} pixels beyond the rounding bound"
+    );
+    // The same two effects on the device, device against device (no CPU tie between them): a GPU
+    // frame without the cavity or without the reflection fails here, whatever the tie allowance
+    // below lets through.
+    let uncut_gpu = renderer
+        .prepare(&scene, &[], &prep)
+        .and_then(|uploaded| renderer.trace_chunk(&uploaded, 0, 24 * 16, 0, 4))
+        .expect("uncut GPU frame");
+    let plain_gpu = renderer
+        .prepare(&matte, &tools, &matte_prep)
+        .and_then(|uploaded| renderer.trace_chunk(&uploaded, 0, 24 * 16, 0, 4))
+        .expect("matte GPU frame");
+    let gpu_cavity = compare_frames(&gpu, &uncut_gpu, 4).rounding_failing_pixels;
+    let gpu_reach = compare_frames(&gpu, &plain_gpu, 4).rounding_failing_pixels;
+    assert!(
+        gpu_cavity > FrameDiff::allowed_rounding_outliers(cpu.len())
+            && gpu_reach > FrameDiff::allowed_rounding_outliers(cpu.len()),
+        "on the GPU the cavity moves {gpu_cavity} and the reflection {gpu_reach} pixels beyond \
+         the rounding bound"
+    );
+    let difference = compare_frames(&cpu, &gpu, 4);
+    assert!(
+        difference.non_finite_pixels == 0
+            && difference.tol_failing_pixels <= CAVITY_MIRROR_TOL_FAILING
+            && difference.rounding_failing_pixels <= CAVITY_MIRROR_TIES,
+        "{difference:?}; the cavity moves {cavity} and the reflection {reach} pixels on the CPU"
+    );
+}
+
+/// Pixels of the 384-pixel cavity-over-mirror frame allowed beyond the rounding bound. The
+/// cavity's rim, seen directly in the mirror, is a tie that the CPU and the GPU can settle
+/// differently.
+///
+/// The ball's interval uses the same expressions on both sides (`ball_interval`,
+/// `ct_ball_interval`), but a GPU driver fuses the dot products into FMAs and the CPU does not.
+/// So a ray grazing the rim can enter on one side and miss on the other. The rounding tier's own
+/// `max(4, 2 %)` allowance is 7, far below this count.
+const CAVITY_MIRROR_TIES: usize = 16;
+
+/// Pixels of the same frame allowed beyond the golden tolerance. Every path that meets the ball
+/// carries rounding, so many pixels sit just outside that tolerance. The rounding tier's own
+/// 20 % allowance alone would be 76.
+const CAVITY_MIRROR_TOL_FAILING: usize = 128;
+
+/// The stone shadow and the glossy tray together: the paper part of every escape reads the
+/// shadow map, and the GPU frame matches the CPU frame.
+#[test]
+fn whitted_cpu_gpu_frames_agree_with_stone_shadow_and_a_glossy_tray() {
+    use crate::optics::raytracer::environment::{
+        TrayMirror,
+        tray_shadow::{TRAY_SHADOW_BANDS, TrayShadowKey, TrayShadowMap},
+    };
+    let Some(context) = require_gpu() else {
+        return;
+    };
+    let mut renderer = pollster::block_on(WhittedGpuRenderer::from_context_async(context))
+        .expect("compile Ray-Traced");
+    let camera = Camera::new(0.6, 0.45, 3.0, 42.0);
+    let planes = StandardGemCuts::standard_round_brilliant();
+    let material = GemMaterial::diamond();
+    let plane_soa = build_plane_soa(&planes);
+    let factors: Vec<f32> = (0..16)
+        .flat_map(|i| std::iter::repeat_n((i as f32).mul_add(0.04, 0.2), TRAY_SHADOW_BANDS))
+        .collect();
+    let rgb = (0..16)
+        .map(|i| [(i as f32).mul_add(0.04, 0.2), 0.4, 0.7])
+        .collect();
+    let map = TrayShadowMap::from_parts(-1.0, [0.0, 0.0], 3.0, 4, factors, rgb, TrayShadowKey(7));
+    let options = crate::renderer::engine::RayOptions {
+        aa_taps: 4,
+        fire: true,
+    };
+    let env = LightingPreset::LightTent
+        .studio(1.0, 0.85, 0.95)
+        .with_backdrop(0.81);
+    let mirror = TrayMirror::new(-1.0, 0.6).expect("a valid mirror");
+    let scene = FrameScene {
+        camera: &camera,
+        width: 24,
+        height: 16,
+        planes: &planes,
+        facet_finishes: &[],
+        material: &material,
+        max_bounces: 64,
+        environment: env
+            .with_tray_shadow(Some(&map))
+            .with_tray_mirror(Some(mirror)),
+    };
+    let prep = WhittedPrep::new(&scene, Fluorescence::none(), options).expect("prep");
+    let cpu = whitted_pixels_interleaved_geom(&scene, &[], &plane_soa, &prep, 0, 1, 0, 4);
+    let uploaded = renderer.prepare(&scene, &[], &prep).expect("upload");
+    let gpu = renderer
+        .trace_chunk(&uploaded, 0, 24 * 16, 0, 4)
+        .expect("GPU frame");
+    // Purpose of the test: both the shadow and the reflection reach the frame.
+    let mirror_only = FrameScene {
+        environment: env.with_tray_mirror(Some(mirror)),
+        ..scene
+    };
+    let mirror_prep =
+        WhittedPrep::new(&mirror_only, Fluorescence::none(), options).expect("mirror prep");
+    let unshadowed =
+        whitted_pixels_interleaved_geom(&mirror_only, &[], &plane_soa, &mirror_prep, 0, 1, 0, 4);
+    let shadow_reach = compare_frames(&cpu, &unshadowed, 4).rounding_failing_pixels;
+    assert!(
+        shadow_reach > FrameDiff::allowed_rounding_outliers(cpu.len()),
+        "the shadow moves only {shadow_reach} pixels beyond the rounding bound"
+    );
+    let shadow_only = FrameScene {
+        environment: env.with_tray_shadow(Some(&map)),
+        ..scene
+    };
+    let shadow_prep =
+        WhittedPrep::new(&shadow_only, Fluorescence::none(), options).expect("shadow prep");
+    let unmirrored =
+        whitted_pixels_interleaved_geom(&shadow_only, &[], &plane_soa, &shadow_prep, 0, 1, 0, 4);
+    let mirror_reach = compare_frames(&cpu, &unmirrored, 4).rounding_failing_pixels;
+    assert!(
+        mirror_reach > FrameDiff::allowed_rounding_outliers(cpu.len()),
+        "the reflection moves only {mirror_reach} pixels beyond the rounding bound"
+    );
+    let difference = compare_frames(&cpu, &gpu, 4);
+    assert!(difference.rounding_passed(cpu.len()), "{difference:?}");
+}
+
+/// Under a lit backdrop tray the GPU frame (primary misses included, which take the same
 /// lookup as every window) matches the CPU frame for a lit model, a Studio rig and ASET.
 #[test]
 fn whitted_cpu_gpu_frames_agree_over_a_lit_tray() {
@@ -164,23 +501,15 @@ fn whitted_cpu_gpu_frames_agree_over_a_lit_tray() {
             "{preset:?}: the 0.81 tray changes no CPU pixel relative to tray 0"
         );
 
-        // The G-D10 comparator (`compare.rs`, plan section 11.5) with its standard outlier
-        // allowance, max(2, 0.1 %) of pixels, which is what absorbs facet-edge ties.
+        // The frame comparator (`compare.rs`) allows max(2, 0.1 %) outlier pixels, which
+        // absorbs facet-edge ties. IsoHemisphere and LightTent use the per-pixel rule below
+        // with the fixed `LIT_TRAY_OUTLIERS` instead: edge ties scale with the stone's edges,
+        // not with the frame's area.
         //
-        // ASET joins the Studio branch although it is not a Studio-model rig: the GPU looks up
-        // the CPU-built 1024-row ASET elevation table with its own f32 index arithmetic, and at
-        // ASET's steep smoothstep zone edges a few ulp of d.y shift the interpolated value by up
-        // to about 1e-3 relative. Measured on the real GPU under the strict rule: tray 0, fire
-        // on: 8 pixels over 1e-5 relative and 1 over 1e-3 (pixel 182, a TIR-or-exit tie of the
-        // red-index chain, about 5 %); tray 0, fire off: 4 and 0; tray 0.81, fire on: 6 and 1
-        // (pixel 182 again); tray 0.81, fire off: 3 and 0. The mismatch exists at tray 0, so it
-        // is not the tray. IsoHemisphere and LightTent keep the per-pixel rule. The outlier
-        // allowance of this 384-pixel frame is a fixed `LIT_TRAY_OUTLIERS` instead of the
-        // standard max(2, 0.1 %), which is 2 here: edge ties scale with the stone's edges, not
-        // with the frame's area. Measured on the owner's Linux server GPU (2026-10-20):
-        // LightTent at tray 0.81 with fire on had 4 pixels over the tolerance (largest
-        // absolute difference 0.27), the TIR-or-exit ties documented above; the owner's
-        // Windows GPU had none. A tray that failed to reach the GPU frame would move far more.
+        // ASET joins the Studio branch although it is not a Studio-model rig. The GPU looks up
+        // the CPU-built 1024-row ASET elevation table with its own f32 index arithmetic. At
+        // ASET's steep smoothstep zone edges a few ulp of d.y shift the value by up to about
+        // 1e-3 relative. The mismatch also occurs at tray 0, so the tray is not the cause.
         if preset.model() != LightingModel::Studio && preset != LightingPreset::Aset {
             let difference = compare_frames(&cpu, &gpu, 4);
             assert!(
@@ -191,18 +520,12 @@ fn whitted_cpu_gpu_frames_agree_over_a_lit_tray() {
             continue;
         }
 
-        // Studio-model rigs: the CPU and GPU light functions agree pointwise within
-        // `STUDIO_ENV_ULP_BUDGET` (8192 ULP, `environment_check/studio_env.rs`), i.e.
-        // 8192 * 2^-23 ~ 9.8e-4 relative (see `whitted_physics_and_every_studio_rig_match_the_
-        // cpu_twins`). The per-pixel frame tolerance consistent with that budget is, per
-        // channel, `STUDIO_ENV_ULP_BUDGET * f32::EPSILON * max(|cpu|, |gpu|) + 4e-6`, with the
-        // G-D10 outlier allowance max(2, 0.1 %) of pixels (`FrameDiff::allowed_tol_failing`,
-        // `compare.rs`). Measured on the real GPU: Daylight, Incandescent and RingLights at
-        // tray 0 and Daylight at tray 0.81 with fire off agree on EVERY pixel within this
-        // tolerance; with fire on exactly one pixel (Daylight, tray 0.81, index 182) differs,
-        // red 3.53 vs 3.30 (about 6 %): a TIR-or-exit tie of the red-index chain at the
-        // critical angle, made visible by the bright tray. That facet-edge tie is what the
-        // outlier allowance absorbs.
+        // Studio-model rigs: CPU and GPU light functions agree pointwise within
+        // `STUDIO_ENV_ULP_BUDGET` (see `environment_check/studio_env.rs`), about 9.8e-4
+        // relative. The per-pixel tolerance is, per channel,
+        // `STUDIO_ENV_ULP_BUDGET * f32::EPSILON * max(|cpu|, |gpu|) + 4e-6`, with the outlier
+        // allowance `FrameDiff::allowed_tol_failing` (`compare.rs`). The remaining failures are
+        // facet-edge ties at the critical angle, which that allowance absorbs.
         let budget = STUDIO_ENV_ULP_BUDGET as f32 * f32::EPSILON;
         let failing = cpu
             .iter()
@@ -218,7 +541,8 @@ fn whitted_cpu_gpu_frames_agree_over_a_lit_tray() {
             .count();
         assert!(
             failing <= FrameDiff::allowed_tol_failing(cpu.len()),
-            "{preset:?}: {failing} of {} pixels beyond the {STUDIO_ENV_ULP_BUDGET}-ULP              per-channel tolerance (allowed {})",
+            "{preset:?}: {failing} of {} pixels beyond the {STUDIO_ENV_ULP_BUDGET}-ULP \
+             per-channel tolerance (allowed {})",
             cpu.len(),
             FrameDiff::allowed_tol_failing(cpu.len())
         );
@@ -257,7 +581,7 @@ fn whitted_white_furnace_matches_the_analytic_background() {
         facet_finishes: &[],
         material: &material,
         max_bounces: 64,
-        environment: EnvironmentSource::HdrMap(&env),
+        environment: EnvironmentSource::hdr(&env),
     };
     let prep = WhittedPrep::new(
         &scene,
@@ -316,9 +640,8 @@ fn check_probe_results(
         let eta = cases[2 * index + 1][3];
         let result = &results[index * 8..index * 8 + 8];
         assert!((result[0] - fresnel_unpolarised_f32(x, eta)).abs() <= 1e-6);
-        // Within 2 ULP of the CPU twin, not bitwise: a driver may contract the polynomial's
-        // multiply-adds (WGSL cannot forbid it). The owner's Linux server GPU (2026-10-20)
-        // was 1 ULP off at x = -86.97631, the bottom of the normal f32 range.
+        // Within 2 ULP of the CPU twin, not bitwise: WGSL cannot forbid a driver from
+        // contracting the polynomial's multiply-adds.
         let (gpu_bits, cpu_bits) = (result[1].to_bits(), crate::simd::exp_lane(x).to_bits());
         assert!(
             gpu_bits.abs_diff(cpu_bits) <= EXP_ULP_BUDGET,
@@ -348,10 +671,8 @@ fn check_probe_results(
         };
         let g = g_at(dir);
         // The studio function chains `pow` lobes (`powi` on the CPU, exp2/log2 on the GPU), which
-        // amplify a few ulp of `dot(d, light)` by the exponent. Same function, same budget as the
-        // megakernel harness's `sample_studio_environment` check (8192 ULP, 1e-4 absolute floor;
-        // see `STUDIO_ENV_ULP_BUDGET` for why). That budget supersedes the former ad-hoc
-        // rounding allowance, which is removed.
+        // amplify a few ulp of `dot(d, light)` by the exponent. The budget is
+        // `STUDIO_ENV_ULP_BUDGET` with its absolute floor.
         assert!(
             within_tolerance(g, result[6], STUDIO_ENV_ULP_BUDGET, STUDIO_ENV_ABS_FLOOR),
             "{preset:?}, shadow {head_shadow_deg}, tray {tray}, direction {dir:?}: {g} vs {}",
@@ -415,7 +736,9 @@ fn whitted_physics_and_every_studio_rig_match_the_cpu_twins() {
                 light_pitch: 0.8,
                 backdrop: tray,
                 surface_glare: 1.0,
+                tray_shadow: None,
                 head_shadow_deg,
+                tray_mirror: None,
             },
         };
         let prep = WhittedPrep::new(
@@ -484,7 +807,7 @@ fn large_raster_coordinates_and_public_prep_counts_match_cpu() {
         facet_finishes: &[],
         material: &material,
         max_bounces: 1,
-        environment: EnvironmentSource::HdrMap(&env),
+        environment: EnvironmentSource::hdr(&env),
     };
     let soa = build_plane_soa(&[]);
     let mut prep = WhittedPrep::new(
@@ -530,7 +853,7 @@ const fn hdr_scene<'a>(
         facet_finishes: &[],
         material,
         max_bounces: 4,
-        environment: EnvironmentSource::HdrMap(map),
+        environment: EnvironmentSource::hdr(map),
     }
 }
 
@@ -618,5 +941,174 @@ fn an_owned_hdr_map_is_uploaded_once_across_camera_changes() {
             )
             .expect("borrowed upload");
         assert_eq!(uploads_on_this_thread(), base + 2 + step);
+    }
+}
+
+/// A map whose texels differ in every column, so a turn of the lookup changes the picture.
+fn gradient_map(width: u8, height: u8) -> EnvironmentMap {
+    let mut pixels = Vec::with_capacity(usize::from(width) * usize::from(height));
+    for y in 0..height {
+        for x in 0..width {
+            let (fx, fy) = (f32::from(x), f32::from(y));
+            pixels.push([
+                fx.mul_add(0.3, 1.0),
+                fy.mul_add(0.2, 0.5),
+                fx.mul_add(-0.1, 2.0),
+            ]);
+        }
+    }
+    EnvironmentMap::from_rgb(usize::from(width), usize::from(height), pixels).expect("gradient map")
+}
+
+/// The CPU and the device frame of the 24 x 16 clear-stone scene lit by `environment`.
+fn hdr_cpu_and_gpu_frames(
+    renderer: &mut WhittedGpuRenderer,
+    environment: EnvironmentSource<'_>,
+) -> (Vec<Vec3>, Vec<Vec3>) {
+    let camera = Camera::new(0.6, 0.45, 3.0, 42.0);
+    let planes = StandardGemCuts::standard_round_brilliant();
+    let material = GemMaterial::new_custom("clear", 1.5, 0.0, 0.0, [0.0; 3]);
+    let scene = FrameScene {
+        camera: &camera,
+        width: 24,
+        height: 16,
+        planes: &planes,
+        facet_finishes: &[],
+        material: &material,
+        max_bounces: 64,
+        environment,
+    };
+    let prep = WhittedPrep::new(
+        &scene,
+        Fluorescence::none(),
+        crate::renderer::engine::RayOptions {
+            aa_taps: 4,
+            fire: true,
+        },
+    )
+    .expect("prep");
+    let uploaded = renderer.prepare(&scene, &[], &prep).expect("upload");
+    let gpu = renderer
+        .trace_chunk(&uploaded, 0, 24 * 16, 0, 4)
+        .expect("GPU frame");
+    let cpu =
+        whitted_pixels_interleaved_geom(&scene, &[], &build_plane_soa(&planes), &prep, 0, 1, 0, 4);
+    (cpu, gpu)
+}
+
+/// A turned map: the kernel's `hdr_world_to_map` agrees with `EnvRotation::to_map`, so the CPU
+/// and device frames stay close, and the turn really changes the picture.
+///
+/// The kernel's `atan2` and `acos` are not bit-identical to the CPU's. Over a gradient map each
+/// escape can land a few 1e-5 off, beyond the golden tolerance but within the rounding bound. A
+/// wrong turn moves the texel a direction reads, which changes a pixel by percent, so the
+/// rounding bound separates the two cases.
+#[test]
+fn whitted_cpu_gpu_frames_agree_with_a_turned_hdr_map() {
+    let Some(context) = require_gpu() else {
+        return;
+    };
+    let mut renderer = pollster::block_on(WhittedGpuRenderer::from_context_async(context))
+        .expect("compile Ray-Traced");
+    let env = gradient_map(16, 8);
+    let turned = EnvironmentSource::hdr_at(&env, 1.0).with_hdr_rotation(EnvRotation::from_yaw(0.7));
+    let (cpu, gpu) = hdr_cpu_and_gpu_frames(&mut renderer, turned);
+    let (cpu_unturned, unturned) =
+        hdr_cpu_and_gpu_frames(&mut renderer, EnvironmentSource::hdr_at(&env, 1.0));
+    let difference = compare_frames(&cpu, &gpu, 4);
+    let unturned_difference = compare_frames(&cpu_unturned, &unturned, 4);
+    let allowed = FrameDiff::allowed_rounding_outliers(cpu.len());
+    assert!(
+        difference.non_finite_pixels == 0 && difference.rounding_failing_pixels <= allowed,
+        "{difference:?}; the unturned map: {unturned_difference:?}"
+    );
+    let moved = compare_frames(&cpu, &unturned, 4).rounding_failing_pixels;
+    assert!(
+        moved > allowed,
+        "the turn moves only {moved} pixels beyond the rounding bound"
+    );
+}
+
+/// An identity rotation is the default: the same bits on the same device, however it is spelled.
+#[test]
+fn whitted_identity_hdr_rotation_is_bitwise_the_default_frame() {
+    let Some(context) = require_gpu() else {
+        return;
+    };
+    let mut renderer = pollster::block_on(WhittedGpuRenderer::from_context_async(context))
+        .expect("compile Ray-Traced");
+    let env = gradient_map(16, 8);
+    let (_, default) = hdr_cpu_and_gpu_frames(&mut renderer, EnvironmentSource::hdr_at(&env, 1.0));
+    for rotation in [EnvRotation::IDENTITY, EnvRotation::from_yaw(0.0)] {
+        let environment = EnvironmentSource::hdr_at(&env, 1.0).with_hdr_rotation(rotation);
+        let (_, frame) = hdr_cpu_and_gpu_frames(&mut renderer, environment);
+        assert_eq!(frame, default);
+    }
+}
+
+/// Turning the map by whole columns (2 pi k / W) equals shifting its columns by k: the device
+/// frame of the turned map matches the device frame of the shifted map.
+#[test]
+fn whitted_gpu_column_shift_equals_a_turned_hdr_map() {
+    let Some(context) = require_gpu() else {
+        return;
+    };
+    let mut renderer = pollster::block_on(WhittedGpuRenderer::from_context_async(context))
+        .expect("compile Ray-Traced");
+    let (width, height, shift) = (16_usize, 8_usize, 3_usize);
+    let env = gradient_map(16, 8);
+    // Texel `x` of the shifted map is texel `x - shift` of the original (wrapping): the turn
+    // puts the map's u = 0 at azimuth `shift` columns on.
+    let mut shifted_pixels = Vec::with_capacity(width * height);
+    for y in 0..height {
+        for x in 0..width {
+            shifted_pixels.push(env.texels()[y * width + (x + width - shift) % width]);
+        }
+    }
+    let shifted = EnvironmentMap::from_rgb(width, height, shifted_pixels).expect("shifted map");
+    // 2 pi * 3 / 16.
+    let yaw = std::f32::consts::TAU * 3.0 / 16.0;
+    let turned = EnvironmentSource::hdr_at(&env, 1.0).with_hdr_rotation(EnvRotation::from_yaw(yaw));
+    let (_, turned_frame) = hdr_cpu_and_gpu_frames(&mut renderer, turned);
+    let (_, shifted_frame) =
+        hdr_cpu_and_gpu_frames(&mut renderer, EnvironmentSource::hdr_at(&shifted, 1.0));
+    let difference = compare_frames(&shifted_frame, &turned_frame, 4);
+    assert!(difference.tol_passed(turned_frame.len()), "{difference:?}");
+}
+
+/// The uniform carries the map's yaw in `key_dir.xy` for the HDR mode and [1, 0] unturned.
+#[test]
+fn whitted_hdr_uniform_carries_the_rotation_in_key_dir() {
+    let camera = Camera::new(0.6, 0.45, 3.0, 42.0);
+    let planes = StandardGemCuts::standard_round_brilliant();
+    let material = GemMaterial::diamond();
+    let env = gradient_map(16, 8);
+    let rotation = EnvRotation::from_yaw(0.7);
+    for (environment, expected) in [
+        (EnvironmentSource::hdr_at(&env, 1.0), [1.0, 0.0, 0.0, 0.0]),
+        (
+            EnvironmentSource::hdr_at(&env, 1.0).with_hdr_rotation(rotation),
+            [rotation.cos_sin()[0], rotation.cos_sin()[1], 0.0, 0.0],
+        ),
+    ] {
+        let scene = FrameScene {
+            camera: &camera,
+            width: 8,
+            height: 8,
+            planes: &planes,
+            facet_finishes: &[],
+            material: &material,
+            max_bounces: 4,
+            environment,
+        };
+        let prep = WhittedPrep::new(
+            &scene,
+            Fluorescence::none(),
+            crate::renderer::engine::RayOptions::default(),
+        )
+        .expect("prep");
+        let params = GpuWhittedParams::new(&scene, 0, &prep);
+        assert_eq!(params.modes[1], 2);
+        assert_eq!(params.key_dir.map(f32::to_bits), expected.map(f32::to_bits));
     }
 }

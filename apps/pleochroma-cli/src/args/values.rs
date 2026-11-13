@@ -122,6 +122,28 @@ pub(super) fn parse_range(range: f64) -> Result<f64, String> {
     }
 }
 
+/// `mm` as the most `snap-meets` may move one tier, in millimeters (`--max-move`).
+pub(super) fn parse_max_move_mm(mm: f64) -> Result<f64, String> {
+    if mm > 0.0 {
+        Ok(mm)
+    } else {
+        Err(format!("--max-move needs millimeters above 0, got {mm}"))
+    }
+}
+
+/// `fraction` as the most `snap-meets` may move one tier, as a share of the stone's size
+/// (`--max-move-fraction`).
+pub(super) fn parse_max_move_fraction(fraction: f64) -> Result<f64, String> {
+    if fraction > 0.0 && fraction <= 1.0 {
+        Ok(fraction)
+    } else {
+        Err(format!(
+            "--max-move-fraction needs a share of the stone's size above 0 and at most 1 \
+             (0.02 is 2 %), got {fraction}"
+        ))
+    }
+}
+
 /// The algorithm a `--mode` word names.
 pub(super) fn parse_mode(word: &str) -> Result<Mode, String> {
     match word.to_ascii_lowercase().as_str() {

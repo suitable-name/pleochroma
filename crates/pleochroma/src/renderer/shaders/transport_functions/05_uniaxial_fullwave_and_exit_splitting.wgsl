@@ -1,8 +1,7 @@
 // ---------------------------------------------------------------------------------
-// P2 full uniaxial Fresnel (Lekner 1991) -- Tier 2 kernel-level equivalence checks for
-// `optics::raytracer::uniaxial_fresnel::{entry_solve_pair, internal_solve}` against
-// `transport_physics.wgsl`'s own `entry_solve_pair`/`internal_solve` mirror (see that
-// file's own P2-full section header comment). Driven by
+// Full-wave uniaxial Fresnel (Lekner 1991): Tier 2 equivalence checks for
+// `optics::raytracer::uniaxial_fresnel::{entry_solve_pair, internal_solve}` against the
+// `transport_physics.wgsl` mirrors of the same functions. Driven by
 // `renderer::gpu::transport_check::p2_uniaxial_fresnel`.
 // ---------------------------------------------------------------------------------
 
@@ -112,16 +111,11 @@ fn internal_solve_main(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 
 // ---------------------------------------------------------------------------------
-// P6 exit-event spectral splitting: kernel-level equivalence for the
-// three pure per-channel helpers `transport_physics.wgsl`'s own "P6 exit-event
-// spectral splitting" section defines -- `compute_channel_transmission`,
-// `compute_uniaxial_exit_transmission`, `narrow_compat` -- driven by
-// `renderer::gpu::transport_check::p6_exit_splitting`. See that module's own doc
-// comment for why its CPU reference functions are verbatim transcriptions of the real
-// CPU source rather than a direct call (both `compute_channel_transmission`/
-// `compute_uniaxial_exit_transmission` are module-private in `refraction.rs`, and
-// `narrow_compat` is `pub(super)` there -- `refraction.rs` is a
-// coordinator-owned/protected file, so none of the three can be imported cross-module).
+// Exit-event spectral splitting: kernel-level equivalence for the three per-channel helpers
+// `compute_channel_transmission`, `compute_uniaxial_exit_transmission` and `narrow_compat`
+// defined in `transport_physics.wgsl`. Driven by
+// `renderer::gpu::transport_check::p6_exit_splitting`. The CPU originals are not
+// importable across modules (`refraction.rs`), so the Rust side carries verbatim copies.
 // ---------------------------------------------------------------------------------
 
 struct ChannelTransmissionCase {
@@ -190,11 +184,8 @@ fn uniaxial_exit_transmission_main(@builtin(global_invocation_id) gid: vec3<u32>
         return;
     }
     let c = uniaxial_exit_transmission_cases[idx];
-    // Only the fields `compute_uniaxial_exit_transmission` actually reads
-    // (`t_s`/`t_p`/`flux_ts`/`flux_tp`/`flux_inc`) are populated from the case -- the
-    // rest of `InternalSolW` (`r_o`/`r_e`/`flux_ro`/`flux_re`/`o_hat`/`e_hat`) is never
-    // touched by that function, so left zero, exactly like this Tier 2 kernel's own
-    // Rust-side case bank never derives them either.
+    // Only `t_s`, `t_p` and the fluxes are read by `compute_uniaxial_exit_transmission`.
+    // The other `InternalSolW` fields stay zero, as in the Rust case bank.
     var sol: InternalSolW;
     sol.r_o = cplx_zero();
     sol.r_e = cplx_zero();

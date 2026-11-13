@@ -7,11 +7,17 @@
 //! - Request execution: [`job`] fans a viewer's `RenderRequest` or
 //!   `FinalImageRequest` out over [`Registry::checkout`]ed connections ([`lanes`]) and
 //!   the own lane with `pleochroma-dispatch`'s `LanePool`; [`tilt`] routes
-//!   `TiltCurvesRequest`s; [`viewer`] sends `CAPABILITY_CHANGED` between requests.
+//!   `TiltCurvesRequest`s; `live_pass` (`adaptive-sampling` builds) forwards an adaptive
+//!   `LivePassRequest` whole to one idle joined worker; [`viewer`] sends
+//!   `StreamEvent::CapabilityChanged` between requests.
 
+#[cfg(feature = "beam")]
+mod beam_tiles;
 mod job;
 mod lanes;
 mod listener;
+#[cfg(feature = "adaptive-sampling")]
+mod live_pass;
 mod liveness;
 mod registry;
 #[cfg(test)]
@@ -19,21 +25,26 @@ mod tests;
 mod tilt;
 mod viewer;
 
+#[cfg(feature = "beam")]
+pub use beam_tiles::serve_beam_tiles;
 pub use job::{
     Coordinator, InteractivePin, JobConfig, LaneKey, OwnLaneSetup, RateBook, ViewerSession,
     job_bytes, serve_final_image, serve_render,
 };
 pub use lanes::{JobLanes, JoinedWorkerLane, LaneNeed, LaneTimeouts, OwnLane};
 pub use listener::{WorkerListenerConfig, spawn_worker_listener};
+#[cfg(feature = "adaptive-sampling")]
+pub use live_pass::serve_live_pass;
 pub use registry::{Capacity, LivenessConfig, Registry, WorkerConn, WorkerHandle, WorkerInfo};
 pub use tilt::serve_tilt;
 pub use viewer::{CapabilityWatch, read_message_watching};
 
 use pleochroma_net::messages::{Backend, RenderCapability};
 
-/// What a coordinator's viewer-facing `WELCOME.render` says, from
-/// its own lane's capability (`Some` iff `serve --render`) and the joined workers'
-/// [`Capacity`] (`None` without a worker port):
+/// The `WELCOME.render` a coordinator advertises to viewers.
+///
+/// Derived from its own lane's capability (`Some` iff `serve --render`) and the joined
+/// workers' [`Capacity`] (`None` without a worker port):
 ///
 /// - no own lane, no joined worker: `None` -- the GUI sees a library-only remote and
 ///   renders locally;

@@ -1,5 +1,6 @@
 //! Slint-free tests for the compare window: session construction, pose
-//! arithmetic, the split clamp, stale-frame rejection, and the pure render paths.
+//! arithmetic, the split clamp, stale-frame rejection, the difference overlay and the pure
+//! render paths.
 
 use super::{
     overlay::{
@@ -634,9 +635,9 @@ fn the_metrics_material_is_the_named_one_and_otherwise_follows_the_refractive_in
     );
 }
 
-/// Review fix (absorption units): a compare side of a sized stone traces AND measures the very
-/// material the render builds (`material_for_stone` with the design's girdle diameter), and an
-/// unsized design keeps the bare material.
+/// A compare side traces and measures the material the render builds for the design's girdle
+/// diameter (`material_for_stone_oriented`); an unsized design gets only the face-up
+/// calibration scale.
 #[test]
 fn a_compare_side_traces_and_measures_the_sized_material() {
     let mut design = round_brilliant();
@@ -669,8 +670,8 @@ fn a_compare_side_traces_and_measures_the_sized_material() {
 
 // ---- concave stones: Compare draws, traces and measures them with their tools ----
 
-/// The concave fixture (8 flat tiers, a cylinder groove and a sphere dimple), and the same
-/// design with its concave tiers cleared.
+/// The concave fixture (`Design::concave_fixture`), and the same design with its concave
+/// tiers cleared.
 fn concave_design() -> Design {
     Design::concave_fixture()
 }
@@ -769,5 +770,5 @@ fn the_traced_render_carries_the_tools() {
     );
 }
 
-// Existing continued tests share this module and its fixture helpers.
+// tests_more.rs continues this module and shares its fixtures.
 include!("tests_more.rs");

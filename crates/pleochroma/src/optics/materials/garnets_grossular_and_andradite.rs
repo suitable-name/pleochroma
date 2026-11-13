@@ -28,33 +28,18 @@ impl GemMaterial {
                     c: 0.0,
                 },
                 birefringence_delta: 0.0,
-                // Chromophore: V3+ in the octahedral site, bands at 436 and 606 nm,
-                // with the UV edge of the high-vanadium type; transmission windows at
-                // 520 nm (green) and beyond 700 nm (deep red, T(740) = 0.89 at 7 mm).
-                // FITTED 2026-10-19 by a bounded
-                // least-squares energy-Gaussian fit (log residual, 380-780 nm) to the
-                // Caltech Mineral Spectroscopy Server spectrum of tsavorite GRR 229
-                // (Tanzania; Ca2.97 Al1.75 Cr0.01 V0.11 Ti0.02; 0.758 mm; baseline
-                // 0.042 removed),
-                // `data/reference_spectra/caltech_tsavorite_grr229_0p758mm.csv`, at
-                // 0.5 x the sample's vanadium (about 0.9 wt% V2O3, a fine saturated
-                // stone) over the 8.8 mm face-up path of a 7 mm stone. Swatch (7 mm,
-                // D65): L*56 C*86 h=147; p = 1.5: h 150, p = 2: h 151. Multiply every
-                // peak by s/0.5 for another V content (0.35 x: L*65; 0.18 x ~ 0.32
-                // wt% V2O3: L*78).
+                // Chromophore: V3+ in the octahedral site, bands at 436 and 606 nm, with the UV
+                // edge of the high-vanadium type; windows at 520 nm (green) and beyond 700 nm
+                // (deep red). Energy-Gaussian fit (log residual, 380-780 nm) to the Caltech
+                // spectrum of tsavorite GRR 229 (Tanzania, 0.758 mm),
+                // `data/reference_spectra/caltech_tsavorite_grr229_0p758mm.csv`, over the 8.8 mm
+                // face-up path of a 7 mm stone. Peaks are halved from the sample's vanadium
+                // (0.25 x it), and `.scaled(0.7)` applies on top: 0.175 x the sample's vanadium.
+                // Swatch (7 mm, D65): L*80 C*62 h 137.
+                // The strength is set by the median hue of dealer photos (139). Saturation is
+                // a little below the x 1 render (s_uv 0.88 against 1.11) because tsavorite is
+                // sold small, and the shorter paths of those stones are not the 7 mm reference.
                 // Calibration record: docs/chromophores/calibration-records.md#tsavorite
-                // 2026-11-03 (owner: "match the pictures of actual gemstones"): every peak x 0.5,
-                // i.e. 0.25 x the GRR 229 sample's vanadium. Twenty-two dealer photos of tsavorite
-                // (GemSelect) have a median hue of 139 (colored pixels); the 0.5 x sample default
-                // rendered h 152 (Light Tent), this one h 143. Swatch L*73 C*72 h 140 (it was L*56
-                // C*86 h 147). The Mint variant is now 0.72 x this.
-                // 2026-11-04 (owner: "The render seems to err toward saturated"): x 0.7 of that
-                // (0.175 x the sample's vanadium). Colored-pixel saturation s_uv: the faceted dealer
-                // photos 0.88, the x 1 render 1.11 (x 0.5: 0.76 at h 137); x 0.63 matches the
-                // photos, but tsavorite is sold small (most photos show stones under 6 mm, whose
-                // paths are shorter than the 7 mm reference), so 0.7. Swatch L*80 C*62 h 137,
-                // T(650) 0.44. That is where the Mint variant (0.18 x the vanadium) sat, so Mint
-                // is now half this default (0.0875 x, L*89 C*41 h 133).
                 // Calibration record: docs/chromophores/calibration-records.md#saturation-round-2026-11-04
                 absorption: AbsorptionTensor::isotropic(vec![
                     // measured spectra, see the note above
@@ -92,33 +77,17 @@ impl GemMaterial {
                     c: 0.0,
                 },
                 birefringence_delta: 0.0,
-                // Chromophore: Fe3+ (440 nm band and the O->Fe3+ charge-transfer
-                // edge, total absorption below 450 nm) plus Cr3+ at 578/629 nm;
-                // windows at 520-545 nm (green) and beyond 720 nm (deep red,
-                // T(740) = 0.75 at 7 mm), an NIR band at ~880 nm. FITTED 2026-10-19
-                // by a bounded
-                // least-squares energy-Gaussian fit (log residual, 380-780 nm) to the
-                // Caltech Mineral Spectroscopy Server spectrum of the Russian
-                // demantoid slab GIA 2952 (2.5 mm; scattering baseline 0.816
-                // removed),
-                // `data/reference_spectra/caltech_demantoid_gia2952_2p5mm.csv`, at
-                // the slab's own composition over the 8.8 mm face-up path of a 7 mm
-                // stone. Swatch (7 mm, D65): L*41 C*92 h=140; p = 1.5: h 144, p = 2:
-                // h 149 (0.75 x all peaks: L*50). The heated Ural demantoid GRR 2667
-                // is 2.6 x more absorbing per cm and would be near-black at 7 mm.
+                // Chromophore: Fe3+ (the 440 nm band and the O to Fe3+ charge-transfer edge,
+                // absorbing below 450 nm) plus a little Cr3+ near 615 nm, leaving green and
+                // deep-red windows. Eight energy-Gaussian bands, a mix of the Russian demantoid
+                // slab (Caltech GIA 2952, `caltech_demantoid_gia2952_2p5mm.csv`, 0.15 x, for its
+                // Cr3+) and the Topazolite variant (measured Fe3+ andradite GRR 48, 0.35 x),
+                // refitted. Iron-rich Namibian and Madagascan demantoid are the common kind,
+                // and the dealer photos' median hue (117) is what the mix reproduces (the
+                // Cr-rich slab alone rendered h 150). `.scaled(0.35)` sets the saturation: the
+                // faceted dealer photos measure s_uv 0.62 and the x 1 render 0.98. Swatch
+                // L*85 C*59 h 115.
                 // Calibration record: docs/chromophores/calibration-records.md#demantoid
-                // 2026-11-03 (owner: "match the pictures of actual gemstones"): REPLACED the
-                // Russian slab alone by 0.15 x that spectrum (its Cr3+) plus the measured Fe3+
-                // andradite GRR 48 (the Topazolite variant, k 0.35), refitted to eight energy
-                // Gaussians (dE2000 0.46 against the sum). Nineteen dealer photos (GemSelect;
-                // today's demantoid is mostly the iron-rich Namibian and Madagascan kind) have a
-                // median hue of 117 (colored pixels); the Cr-rich Russian slab rendered h 150, this
-                // mix h 120 (Light Tent). Swatch L*62 C*72 h 115 (it was L*41 C*92 h 140).
-                // 2026-11-04 (owner: "The render seems to err toward saturated"): x 0.35 of that mix.
-                // Colored-pixel saturation s_uv: the faceted dealer photos 0.62 (mostly small
-                // stones), the one usable Commons photo 0.96, the x 1 render 0.98 (x 0.25: 0.72 at
-                // h 115, x 0.5: 0.85); the factor takes half the gap in log terms. Swatch L*85 C*59
-                // h 115, T(650) 0.68.
                 // Calibration record: docs/chromophores/calibration-records.md#saturation-round-2026-11-04
                 absorption: AbsorptionTensor::isotropic(vec![
                     // measured spectra, see the note above

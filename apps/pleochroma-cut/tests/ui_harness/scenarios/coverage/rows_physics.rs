@@ -1,11 +1,13 @@
-//! The direct-invoke rows of the Render Physics controls: the tier Surface Finish edits
-//! (`SurfaceModel`), the Faceting Machine preference (`FacetingMachineModel`), the Stone tab's
-//! Inclusions, Play-of-Color and Abraded Edges groups (`RenderEffectsModel`) and the Gem Material
-//! Editor's Inclusion Families and Play-of-Color sections (`InclusionFamiliesModel`,
-//! `StructureParamsModel`). `AxisCurvesModel` has no callback.
+//! The direct-invoke rows of the Render Physics controls.
 //!
-//! A few rows are CHECKED (`rows_checked.rs` style): a material that offers the control is given to
-//! the design first, so the handler reaches its success path and the row asserts the control it
+//! The tier Surface Finish edits (`SurfaceModel`), the Faceting Machine preference
+//! (`FacetingMachineModel`), the Stone tab's Inclusions, Play-of-Color and Abraded Edges groups
+//! (`RenderEffectsModel`) and the Gem Material Editor's Inclusion Families and
+//! Play-of-Color sections (`InclusionFamiliesModel`, `StructureParamsModel`).
+//! `AxisCurvesModel` has no callback.
+//!
+//! A few rows are CHECKED (`rows_checked.rs` style): a material that offers the control is
+//! given to the design first, so the handler reaches its success path and the row asserts what it
 //! sets. The others are plain rows with the empty value of each parameter type: without a dialog
 //! open or a stone that offers the control, the handlers answer "nothing here" and must neither
 //! panic nor change the design; the passes of `states_physics.rs` drive the controls themselves.
@@ -20,7 +22,7 @@ use std::time::Duration;
 // Helpers
 // ---------------------------------------------------------------------------------------------
 
-/// Gives the editor's design the material containing `wanted` (lower case) and waits for the solve.
+/// Gives the editor's design the material containing `wanted` (lower case) and waits for it.
 fn use_material(ui: &MainWindow, wanted: &str) -> Result<(), String> {
     let name = ui
         .global::<ViewportModel>()

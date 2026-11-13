@@ -120,10 +120,9 @@ fn ri_candidates_evaluates_at_the_sodium_d_line() {
     );
 }
 
-/// A remote worker's `BATCH_ITEM_DONE` PNG and a local preview come from the same
-/// shared function; this pins that function to the encoding the local path used
-/// before it was shared (tone-map at `1 / spp`, then `image`'s default PNG writer),
-/// so no cached thumbnail's bytes changed.
+/// A remote worker's `BATCH_ITEM_DONE` PNG and a local preview share one encoder. This pins
+/// its output to the bytes of the original local path (tone-map at `1 / spp`, then `image`'s
+/// default PNG writer), so cached thumbnails stay valid.
 #[test]
 fn the_shared_preview_png_matches_the_encoding_the_local_path_used_before() {
     let accum: Vec<Vec3> = (0..16)
@@ -205,8 +204,8 @@ fn the_catalogue_preview_scene_is_the_white_surround_with_an_8_degree_shadow() {
     assert!(tray.cards.abs() < f32::EPSILON && tent.cards > 0.0);
 }
 
-/// The live render's default rig is still the light tent: only the catalogue previews
-/// moved to the white surround.
+/// The live render's default rig is the light tent; the catalogue previews use the white
+/// surround.
 #[test]
 fn the_live_default_lighting_is_still_the_light_tent() {
     use crate::settings::model::{AppSettings, DEFAULT_LIGHTING_RIG};

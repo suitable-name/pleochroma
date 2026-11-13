@@ -158,7 +158,10 @@ fn route_event_drops_a_stale_done_without_clearing_the_real_current_request() {
         current.is_some(),
         "a stale DONE for a superseded request must never end the CURRENT one"
     );
-    assert!(updates.lock().unwrap().is_empty());
+    assert!(
+        updates.lock().unwrap().is_empty(),
+        "no update reaches the UI"
+    );
 }
 
 #[test]
@@ -183,7 +186,7 @@ fn route_event_worker_error_clears_current_regardless_of_epoch() {
     ));
 }
 
-// ---- v14 server errors and picture/capability events -------------------------------
+// ---- Server errors and picture/capability events ----------------------------------
 
 /// A plain worker refusing a v14 coordinator feature ends the request as `Unsupported`
 /// (the fallback trigger), never as a generic failure.
@@ -293,12 +296,9 @@ fn live_stream_config_switches_to_display_only_without_a_preview() {
     assert_eq!(display.cadence_ms, full.cadence_ms);
 }
 
-// ---- `check_liveness`: the socket-free liveness decision `run_connection`'s `Ok(None)`
-// arm applies -- see that function's own doc comment for why this, not a full
-// `run_connection` run against a fake socket, is what's unit-tested: `RemoteStream` is a
-// concrete `rustls::StreamOwned<ClientConnection, TcpStream>`, with no way to substitute
-// an in-memory double the way `bridge::library::client`'s generic `Read + Write` helpers
-// allow.
+// ---- `check_liveness`: the socket-free liveness decision behind `run_connection`'s idle
+// arm. `RemoteStream` is a concrete TLS stream that tests cannot replace, so the decision
+// is tested on its own.
 
 #[test]
 fn check_liveness_is_a_no_op_when_nothing_is_current() {
@@ -325,7 +325,10 @@ fn check_liveness_is_a_no_op_before_the_deadline() {
         Duration::from_secs(30)
     ));
     assert!(current.is_some());
-    assert!(updates.lock().unwrap().is_empty());
+    assert!(
+        updates.lock().unwrap().is_empty(),
+        "no update reaches the UI"
+    );
 }
 
 /// The scenario [`super::LIVENESS_TIMEOUT`] exists to catch: a worker that accepted a
@@ -374,14 +377,14 @@ fn check_liveness_never_trips_while_last_event_keeps_being_reset() {
     }
 
     assert!(current.is_some());
-    assert!(updates.lock().unwrap().is_empty());
+    assert!(
+        updates.lock().unwrap().is_empty(),
+        "no update reaches the UI"
+    );
 }
 
-// ---- `liveness_deadline`: the pure decision behind the false-positive fix -- which of
-// `FIRST_EVENT_TIMEOUT`/`liveness_timeout` applies to the CURRENT idle wait. See that
-// function's own doc comment for why the first wait after a dispatch needs more slack:
-// confirmed against a real 4K/cadence-20 export where the worker's first tick
-// legitimately outran `LIVENESS_TIMEOUT` while genuinely still calculating.
+// ---- `liveness_deadline`: which of `FIRST_EVENT_TIMEOUT` and `liveness_timeout` applies to
+// the current idle wait.
 
 #[test]
 fn liveness_deadline_grants_the_first_event_grace_before_any_event_has_arrived() {
@@ -412,13 +415,6 @@ fn first_event_timeout_is_strictly_longer_than_liveness_timeout() {
     // every steady-state heartbeat interval after it.
     assert!(FIRST_EVENT_TIMEOUT > LIVENESS_TIMEOUT);
 }
-
-// ---- The false-positive scenario itself: a long busy phase this thread spends NOT
-// polling the socket, immediately followed by a real event, must never be mistaken for
-// silence -- see `check_liveness`'s own doc comment and this module's "Why a busy
-// consumer can never make either deadline fire early" doc section for why this holds
-// by construction (the deadline is only ever checked right after a just-attempted,
-// empty read), pinned here as an explicit regression test rather than left implicit.
 
 // ---- `cancel_ack_overdue`: the pure decision that bounds a one-shot connection after
 // CANCEL, so a coordinator that keeps heartbeating without honouring it cannot park the
@@ -469,14 +465,12 @@ fn cancel_unacknowledged_names_the_wait_in_its_message() {
     );
 }
 
-// ---- v16: `RemoteRenderHandle::contribute` -- one-shot only ------------------------
+// ---- `RemoteRenderHandle::contribute`: one-shot only ------------------------------
 
-/// A persistent connection (`RemoteConnectionHandle`) never dispatches a
-/// `FinalImageRequest` with `viewer_samples > 0` -- the live viewport's own transfer is
-/// a different one entirely. `contribute` on a `HandleKind::Connection` handle must
-/// therefore be a harmless refusal, not a silent no-op that LOOKS like it queued an
-/// upload: the caller (`run_final_image_request`'s polling loop) uses the `bool` to
-/// decide whether to keep the local sum around and retry, or treat it as sent.
+/// A persistent connection never dispatches a `FinalImageRequest` with `viewer_samples > 0`,
+/// so `contribute` on its handle must refuse (`false`) rather than pretend the upload was
+/// queued. `run_final_image_request` reads the `bool` to decide whether to keep the local
+/// sum and retry.
 #[test]
 fn contribute_is_refused_on_a_persistent_handle() {
     use super::super::types::{ConnectionCommand, HandleKind, RemoteRenderHandle};
@@ -494,21 +488,13 @@ fn check_liveness_ignores_a_long_busy_phase_that_ends_with_a_fresh_event() {
     let mut current = Some(cur);
     let timeout = Duration::from_millis(20);
 
-    // Simulate a long stretch (far past `timeout`) where this thread was doing
-    // something else entirely and never touched the socket at all -- `last_event`
-    // still reflects whenever the request was last dispatched or last produced a real
-    // event, long before this "busy phase" began.
+    // `last_event` is five seconds old, as after a long stretch without reading the socket.
     let stale_last_event = Instant::now()
         .checked_sub(Duration::from_secs(5))
         .expect("5s in the past is always representable");
 
-    // The busy phase ends with the loop resuming reading and immediately getting a
-    // REAL event -- exactly `run_connection`'s `Ok(Some(..))` arm, which resets
-    // `last_event` to "now" and calls `route_event` BEFORE `check_liveness` could ever
-    // be reached for this iteration. `check_liveness` itself is therefore never even
-    // called with the stale value in the real loop; this test pins that by showing
-    // that even if it WERE (a fresh `last_event` taken right as the event arrives), the
-    // stale five-second gap that preceded it has no bearing on the outcome.
+    // A real event resets `last_event` before the check runs, so a fresh timestamp is
+    // what decides here and the stale gap before it has no effect.
     let fresh_last_event = Instant::now();
     assert!(!check_liveness(&mut current, fresh_last_event, timeout));
     assert!(
@@ -516,12 +502,12 @@ fn check_liveness_ignores_a_long_busy_phase_that_ends_with_a_fresh_event() {
         "an event arriving right after a long busy phase must never be treated as the \
          worker having gone silent"
     );
-    assert!(updates.lock().unwrap().is_empty());
+    assert!(
+        updates.lock().unwrap().is_empty(),
+        "no update reaches the UI"
+    );
 
-    // For contrast: had the busy phase instead ended with a poll that STILL came back
-    // empty, the stale `last_event` from five seconds ago correctly does trip the
-    // deadline -- this is genuine, measured silence on the socket, not an artifact of
-    // the consumer having been busy.
+    // With no event since then, the stale timestamp trips the deadline: real silence.
     assert!(check_liveness(&mut current, stale_last_event, timeout));
     assert!(current.is_none());
 }

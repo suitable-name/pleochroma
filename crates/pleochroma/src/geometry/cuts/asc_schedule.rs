@@ -19,8 +19,7 @@ impl StandardGemCuts {
     /// [`Self::from_database_angles`] has to invent when only `angle_settings` (angle
     /// + index, no depth) is available.
     ///
-    /// # Conventions (determined empirically against the real corpus; see the
-    /// module-level report this function was built for)
+    /// # Conventions
     ///
     /// - **Angle sign** decides crown vs. pavilion, via
     ///   [`tier_is_crown_side`](crate::geometry::plane::tier_is_crown_side):
@@ -37,34 +36,21 @@ impl StandardGemCuts {
     ///   describe (no real catalogue file has one; the parser warns), and the
     ///   magnitude is still the physical depth.
     /// - **Azimuth**: `phi = 2*pi*(index + gear_reference_angle)/gear_teeth_abs()`
-    ///   via [`Self::index_to_azimuth`] -- see that function's doc comment for
-    ///   the reference-angle convention (tooth-denominated, additive, derived
-    ///   from real corpus data) and why it never flips the existing handedness
-    ///   of index growth. A tier with no listed index (rare -- a bare `angle
-    ///   mast` with only a name) still produces one plane, with normal
+    ///   via [`Self::index_to_azimuth`] -- see that function's doc for the
+    ///   reference-angle convention (tooth-denominated and additive; it never flips
+    ///   the handedness of index growth). A tier with no listed index (rare -- a bare
+    ///   `angle mast` with only a name) still produces one plane, with normal
     ///   `(0, +-cos(theta), sin(theta))` (the reference angle is not applied to an
     ///   absent index). That normal points at +Z, i.e. azimuth `phi = 90` degrees,
     ///   not at index 0 (+X, `phi = 0`); for a table or culet (`theta = 0`) the
     ///   horizontal component vanishes, so the azimuth is immaterial there.
-    /// - **`mirror` is not applied here.** `schedule.mirror` (the `y` line's
-    ///   second field) is a symmetry *descriptor*, not a geometric transform:
-    ///   every `a` record already lists every index-wheel position its facet
-    ///   actually occurs at, mirror image included whenever the design has
-    ///   one (see `pleochroma_formats::asc`'s module docs on tier records, which fold
-    ///   more than one `n <name>` group into a single tier's `indices`
-    ///   precisely so this holds). This is confirmed by
-    ///   `pleochroma_cut_core::orbit`'s own corpus measurement (600 of 2,881
-    ///   designs sampled, 10,006 tiers classified against a rotation+mirror
-    ///   orbit model): `mirror` is used there only to *predict* a facet's
-    ///   expected orbit-mate positions for editing operations
-    ///   (`Design::add_orbit_member`/`remove_orbit_member`), never to rewrite
-    ///   a tier's recorded `indices` -- 92.0% of sampled designs are already
-    ///   fully consistent with their stated indices under that model, and the
-    ///   remaining `mixed_fold`/`partial` tiers are designs whose file
-    ///   genuinely doesn't carry a complete mirror pair. Applying `mirror` as
-    ///   a transform in this function would double-reflect the (common)
-    ///   schedules that already list both mirror images explicitly, and would
-    ///   fabricate facets for the ones that don't.
+    /// - **`mirror` is not applied here.** `schedule.mirror` is a symmetry *descriptor*,
+    ///   not a geometric transform: every `a` record already lists each index-wheel
+    ///   position its facet occurs at, mirror image included (see the tier records in
+    ///   `pleochroma_formats::asc`). Applying it here would double-reflect schedules
+    ///   that already list both mirror images, and fabricate facets for designs that
+    ///   do not. `pleochroma_cut_core::orbit` uses it only to predict orbit-mates for
+    ///   editing, never to rewrite a tier's `indices`.
     #[must_use]
     pub fn from_asc_schedule(schedule: &AscSchedule) -> Vec<GpuFacetPlane> {
         let (planes, _) = Self::raw_asc_planes(schedule, schedule.gear_reference_angle);
@@ -221,42 +207,19 @@ impl StandardGemCuts {
 /// Drops planes that are near-duplicates of an earlier one in the list (same normal
 /// and offset within a coarse tolerance), keeping the first occurrence.
 ///
-/// Real `.asc` files occasionally list the same index position twice across two
-/// separate tier rows that happen to share an identical angle and mast (a data-entry
-/// artifact in the original hand-authored schedules, e.g. index `0` appearing in both
-/// a `-90 ... 0 32` row and a later `-90 ... 0` row at the same mast). Two planes with
-/// the same normal and offset are the same half-space -- geometrically redundant, not
-/// a real second facet -- and `GemPolyhedron::from_planes` correctly rejects them
-/// outright (two coincident half-spaces would claim the same facet twice). Removing
-/// the redundant copy here does not change the
-/// resulting solid at all, only avoids handing `from_planes` a construction it cannot
-/// use.
+/// Real `.asc` files can list the same index twice in separate tier rows with the same angle
+/// and mast. Such planes are one half-space, and `GemPolyhedron::from_planes` rejects
+/// coincident planes, so the redundant copy is dropped here without changing the solid.
 ///
-/// A genuine `O(P^2)` tolerance compare against every already-kept plane, not a
-/// quantized-bin lookup: `P` is small (real schedules top out in the low hundreds of
-/// planes), so the quadratic cost is negligible, and it avoids the quantized
-/// approach's own failure mode -- two planes whose true values are close but land in
-/// ADJACENT bins (e.g. offsets half a quantum apart, straddling a bin edge) hash to
-/// different keys and are kept as spurious distinct entries, which then makes
-/// `GemPolyhedron::from_planes` reject the schedule outright as coincident planes.
+/// The test is an `O(P^2)` tolerance compare against every kept plane, not a quantized-bin
+/// lookup: two planes whose values straddle a bin edge would land in different bins and both
+/// be kept, which `from_planes` then rejects as coincident.
 ///
-/// The **first** occurrence of a recognized duplicate survives; a later one is
-/// dropped in place, never substituted in. This is not a claim that the result is
-/// independent of input order in general -- an interior member of a chain of
-/// several mutually-within-tolerance planes can still end up merged into whichever
-/// neighbour is visited first, so an adversarial permutation (e.g. visiting the
-/// chain's middle element before its ends) can change which planes survive. What
-/// this dedup does guarantee is that the same real half-space is picked as *the*
-/// representative from either end of a schedule's own plane list -- i.e. reading a
-/// tier's plane run forwards or reading the same run backwards keeps the same set
-/// of planes, only the arrival order of two truly-distinct planes is reversed --
-/// because real `.asc` schedules list a duplicate revision row physically adjacent
-/// to the row it duplicates, never interleaved with an unrelated distinct facet.
-/// Keeping the first occurrence (rather than the smaller-`|d|` one, as an earlier
-/// version of this function did) also matters beyond dedup itself: callers such as
-/// `facet_plane_boundaries`/`apply_cheater_offsets`-style per-tier attribution walk
-/// `planes` positionally against the tier that produced them, and substituting a
-/// later tier's plane into an earlier tier's slot would silently reattribute it.
+/// The **first** occurrence of a duplicate survives; a later one is dropped in place, never
+/// substituted in. Callers attribute planes to tiers by position, and substituting a later
+/// tier's plane into an earlier slot would silently reattribute it. The result can depend on
+/// the order of a chain of mutually close planes, but real schedules list a duplicate row
+/// next to the row it duplicates.
 pub(super) fn dedup_planes(planes: Vec<GpuFacetPlane>) -> Vec<GpuFacetPlane> {
     let keep = dedup_keep_mask(&planes);
     planes
@@ -279,13 +242,10 @@ fn dedup_keep_mask(planes: &[GpuFacetPlane]) -> Vec<bool> {
 
 /// Raw index of the first retained plane representing each raw input plane.
 fn dedup_representatives(planes: &[GpuFacetPlane]) -> Vec<usize> {
-    // Relative to the larger of the two offsets (floored at `1.0`, the common
-    // sub-unit mast range every real schedule up to now has used): a schedule
-    // authored at a larger `ScaleReference` has proportionally larger masts, and
-    // an absolute quantum sized for masts around `1.0` would either fail to
-    // merge genuine duplicate revision rows (too tight) or start merging
-    // genuinely distinct facets (too loose) once every offset is scaled up.
-    // Below the `1.0` floor this is exactly the old ~5e-4 absolute quantum.
+    // Relative to the larger of the two offsets, floored at `1.0`: a schedule at a larger scale
+    // has proportionally larger masts, so an absolute quantum would either miss genuine
+    // duplicates or merge distinct facets. Below the floor this is an absolute quantum of
+    // about 5e-4.
     const OFFSET_REL_EPSILON: f32 = 1.0 / 2048.0;
 
     let mut kept: Vec<usize> = Vec::with_capacity(planes.len());

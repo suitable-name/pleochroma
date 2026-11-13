@@ -1,11 +1,14 @@
 //! The verdict's Fix buttons: plan on a worker, apply as ONE undo step, say so in a toast.
 //!
-//! The click goes: [`fix_reason`] checks the verdict on screen still describes the design,
-//! asks for a confirmation where the fix removes something, and [`start`] hands the planning
-//! (`pleochroma_editor::verdict::plan_fix`, which solves candidates and so takes a moment) to
-//! a thread. [`finish_fix`] runs back on the UI thread: it applies the planned edit through
-//! the editor session (one history step, so one Undo takes it back), refreshes the panel the
-//! way an Undo does, selects the tier the plan names and toasts the sentence.
+//! The click goes: [`fix_reason`] checks the verdict on screen still describes the design and,
+//! for a fix whose question is known up front (a removal), asks it with the heading and button
+//! the fix names. [`start`] then hands the planning (`pleochroma_editor::verdict::plan_fix`,
+//! which solves candidates and so takes a moment) to a thread. [`finish_fix`] runs back on the
+//! UI thread. A plan that carries its own question (the snap to meet points, which names the
+//! facets it would cut away: only planning finds them) asks it now, and nothing is applied
+//! unless the cutter agrees. [`apply_plan`] applies the planned edit through the editor session
+//! (one history step, so one Undo takes it back), refreshes the panel the way an Undo does,
+//! selects the tier the plan names and toasts the sentence.
 //!
 //! Nothing is applied when the design changed meanwhile (the plan was made for another
 //! design) or when the planner refused: the cutter gets the planner's plain sentence instead.
@@ -27,12 +30,6 @@ use pleochroma_editor::verdict::{FixAction, FixPlan, plan_fix};
 use slint::ComponentHandle;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
-/// The confirmation dialog's heading for a fix that removes facets.
-const CONFIRM_HEADING: &str = "Remove What Is Cut Away?";
-
-/// The confirmation dialog's button for it.
-const CONFIRM_BUTTON: &str = "Remove";
-
 /// Said when the planner stopped unexpectedly.
 const PLANNER_FAILED: &str = "The fix stopped unexpectedly. Nothing was changed.";
 
@@ -48,19 +45,16 @@ pub(super) fn fix_reason(ui: &MainWindow, index: i32) {
         .map_err(|_| "There is no such reason.".to_string())
         .and_then(|index| pending_fix(index, &services.editor.borrow().design.tiers));
     match ready {
-        Ok((action, Some(question))) => {
-            ask_write_confirm(
-                ui,
-                CONFIRM_HEADING,
-                question,
-                CONFIRM_BUTTON,
-                None,
-                move |ui| {
-                    start(ui, action);
-                },
-            );
+        // A fix whose plan asks its own question is planned first (see `finish_fix`).
+        Ok((action, Some(question))) if !action.asks_after_planning() => {
+            // The heading and the button name what the fix does (a removal, ...).
+            let heading = action.confirm_heading();
+            let button = action.confirm_button();
+            ask_write_confirm(ui, heading, question, button, None, move |ui| {
+                start(ui, action);
+            });
         }
-        Ok((action, None)) => start(ui, action),
+        Ok((action, _)) => start(ui, action),
         Err(message) => show_toast(ui, &message, "info"),
     }
 }
@@ -85,12 +79,21 @@ fn start(ui: &MainWindow, action: FixAction) {
     std::thread::spawn(move || {
         let planned = catch_unwind(AssertUnwindSafe(|| plan_fix(&design, &action, n_d)))
             .unwrap_or_else(|_| Err(PLANNER_FAILED.to_string()));
-        let _ = ui_weak.upgrade_in_event_loop(move |ui| finish_fix(&ui, &reference, planned));
+        let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+            finish_fix(&ui, &action, reference, planned);
+        });
     });
 }
 
-/// The planner's answer, back on the UI thread: applies it when it still fits the design.
-fn finish_fix(ui: &MainWindow, reference: &[ConstraintTier], planned: Result<FixPlan, String>) {
+/// The planner's answer, back on the UI thread: a refusal is toasted; a plan that carries a
+/// question asks it first (nothing is applied unless the cutter agrees); any other plan is
+/// applied when it still fits the design.
+fn finish_fix(
+    ui: &MainWindow,
+    action: &FixAction,
+    reference: Vec<ConstraintTier>,
+    planned: Result<FixPlan, String>,
+) {
     SLOT.with(|cell| cell.borrow_mut().busy = false);
     present::set_busy(ui, false);
     let plan = match planned {
@@ -100,6 +103,22 @@ fn finish_fix(ui: &MainWindow, reference: &[ConstraintTier], planned: Result<Fix
             return;
         }
     };
+    if let Some(question) = plan.confirm.clone() {
+        ask_write_confirm(
+            ui,
+            action.confirm_heading(),
+            question,
+            action.confirm_button(),
+            None,
+            move |ui| apply_plan(ui, &reference, plan),
+        );
+        return;
+    }
+    apply_plan(ui, &reference, plan);
+}
+
+/// Applies `plan`, made for a design with the tiers `reference`, when the design still has them.
+fn apply_plan(ui: &MainWindow, reference: &[ConstraintTier], plan: FixPlan) {
     let Some(services) = services() else {
         return;
     };
@@ -107,7 +126,8 @@ fn finish_fix(ui: &MainWindow, reference: &[ConstraintTier], planned: Result<Fix
         show_toast(ui, EDITOR_BUSY, "error");
         return;
     };
-    // The plan was made for `reference`; any edit since (even a one-tier change) voids it.
+    // The plan was made for `reference`; any edit since (even a one-tier change) voids it,
+    // including one made while its question was open.
     if st.design.tiers != reference {
         drop(st);
         show_toast(
@@ -121,6 +141,7 @@ fn finish_fix(ui: &MainWindow, reference: &[ConstraintTier], planned: Result<Fix
         edit,
         message,
         select,
+        ..
     } = plan;
     match st.try_apply_mapped(edit, None) {
         Ok((change, renumbering)) => {

@@ -217,10 +217,10 @@ pub struct Orientation {
 /// Generates discrete orientations from table directions on the sphere and spins.
 ///
 /// For each table direction `d`:
-/// - Reference rough axis `r` is the axis with the smallest `|d · r|`, ties going to the lower index.
+/// - Reference axis `r` is the rough axis with the smallest `|d · r|`; ties go to the lower index.
 /// - `e1 = normalise(r - (r · d) d)`.
 /// - `e2 = d x e1`.
-/// - For each spin angle `phi`: stone x is `cos(phi) e1 + sin(phi) e2`, y is `d`, and z is `x x y`.
+/// - For each spin angle `phi`: stone x is `cos(phi) e1 + sin(phi) e2`, y is `d`, z is `x x y`.
 #[must_use]
 pub fn generate_orientations(level: usize, spins: usize) -> Vec<Orientation> {
     orientations_for(&sphere_directions(level), spins)

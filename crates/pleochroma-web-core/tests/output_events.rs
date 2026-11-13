@@ -1,6 +1,7 @@
-//! Guards where the browser raises the tutorial events of the output lessons (section 11:
-//! `output-save`, `output-open`, `output-export-asc`, `output-export-gcs`, `output-cutting-sheet`,
-//! `output-diagram-png`, `output-cutting-mode`).
+//! Guards where the browser raises the tutorial events of the output lessons.
+//!
+//! The events are `output-save`, `output-open`, `output-export-asc`, `output-export-gcs`,
+//! `output-cutting-sheet`, `output-diagram-png` and `output-cutting-mode`.
 //!
 //! `guide_targets.rs` proves that every event of an offered lesson is raised somewhere. This file
 //! pins WHERE, for the events of the files and the cutting steps: each is raised by the function

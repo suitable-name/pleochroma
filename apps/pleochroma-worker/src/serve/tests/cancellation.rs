@@ -65,11 +65,9 @@ fn cancel_mid_stream_produces_done_cancelled_and_no_further_payload() {
     );
 }
 
-/// The scenario a slow reader creates: the emitter gets stuck inside a blocked `write()`
-/// and a `CANCEL` arrives only while it is stuck. `DuplexHalf` cannot express that --
-/// its `CANCEL` is already sitting in the scripted input at time zero and its unbounded
-/// `Vec` write can never block -- so this test uses `BackpressureDuplex`, whose writes
-/// stall once its small capacity is full.
+/// The scenario a slow reader creates: the emitter's `write()` blocks because the peer is not
+/// draining. `DuplexHalf`'s unbounded `Vec` write can never block, so this test uses
+/// `BackpressureDuplex`, whose writes time out once its small capacity is full.
 #[test]
 fn a_peer_that_never_drains_ends_the_connection_rather_than_hanging_forever() {
     let mut input = Vec::new();
@@ -94,8 +92,8 @@ fn a_peer_that_never_drains_ends_the_connection_rather_than_hanging_forever() {
     let mut duplex = BackpressureDuplex::new(input, 8);
     let result = handle_connection(&mut duplex, 2, &test_db());
 
-    // The bound this closes: without WRITE_TIMEOUT this would hang forever; instead
-    // it returns an error within one WRITE_TIMEOUT.
+    // Without the emitter's `WRITE_TIMEOUT` this would hang forever; with it the
+    // connection ends with an error within one `WRITE_TIMEOUT`.
     let err = result.expect_err(
         "a peer that never drains must end the connection with an error, not hang forever",
     );

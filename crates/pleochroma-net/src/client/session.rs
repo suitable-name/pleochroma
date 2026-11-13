@@ -59,7 +59,7 @@ pub fn send_render_request<W: Write>(
     Ok(())
 }
 
-/// Sends a `PING` (v14).
+/// Sends a `PING`.
 ///
 /// The answer arrives as [`StreamEvent::Pong`] with the same `nonce`, reported by
 /// [`run_client_session`] as [`SessionUpdate::Pong`]. Only compiled under this crate's
@@ -74,7 +74,7 @@ pub fn send_ping<W: Write>(writer: &mut W, nonce: u64) -> Result<(), ClientError
     Ok(())
 }
 
-/// Sends a `FINAL_IMAGE_REQUEST` (v14).
+/// Sends a `FINAL_IMAGE_REQUEST`.
 ///
 /// See `crate::messages::final_image` for the reply sequence. Call
 /// [`Accumulator::begin_request`] with its `request_id` first, as for a `RenderRequest`;
@@ -103,7 +103,7 @@ pub fn send_final_image_request<W: Write>(
     Ok(())
 }
 
-/// Sends the asset a server asked for with `NEED_ASSET` (v14, HDR environment maps).
+/// Sends the asset a server asked for with `NEED_ASSET` (HDR environment maps).
 ///
 /// The `ASSET` header, then `bytes` as one raw frame (see `crate::messages::asset`).
 /// `bytes` must be exactly the asset the server named -- its SHA-256 is recomputed here
@@ -120,13 +120,13 @@ pub fn send_asset<W: Write>(writer: &mut W, bytes: &[u8]) -> Result<(), ClientEr
     Ok(())
 }
 
-/// Sends a `CONTRIBUTION` (v16): the viewer's own share of a `FinalImageRequest`'s
+/// Sends a `CONTRIBUTION`: the viewer's own share of a `FinalImageRequest`'s
 /// reserved tail, `sum` being the float-XYZ radiance sum of exactly `range.1` samples
 /// starting at `range.0`.
 ///
 /// `range` is `(first_sample, samples)` -- the same shape
-/// `FinalImageRequest::reserved_range` returns -- collapsed into one parameter to keep
-/// this function's arity under clippy's default limit.
+/// `FinalImageRequest::reserved_range` returns, kept as one tuple to stay within clippy's
+/// argument-count limit.
 ///
 /// A thin wrapper over `crate::messages::write_contribution_message`. `render`-feature
 /// only, like the variant itself.
@@ -202,8 +202,8 @@ pub fn send_tilt_curves_request<W: Write>(
 ///
 /// One blocking read of exactly one [`crate::messages::TiltCurvesResponse`]. A plain,
 /// un-epoch-gated read, matching how a [`crate::library::LibraryResponse`] is read:
-/// `TILT_CURVES` supports neither pipelining nor cancel-then-retry on one connection in
-/// this phase, so there is no [`Accumulator`] epoch to gate against.
+/// `TILT_CURVES` supports neither pipelining nor cancel-then-retry on one connection, so
+/// there is no [`Accumulator`] epoch to gate against.
 ///
 /// # Errors
 ///
@@ -272,22 +272,22 @@ pub enum SessionUpdate {
     /// The worker rejected the request outright -- never epoch-gated, since `ERROR`
     /// carries no `request_id` of its own.
     WorkerError(ErrorMsg),
-    /// A payload arrived for a `request_id` that no longer matches the accumulator's
+    /// A payload arrived for a `request_id` that does not match the accumulator's
     /// current epoch -- correctly dropped. Surfaced only so a caller can log it at
     /// debug level; no action is expected.
     StaleDropped { request_id: u32 },
-    /// v14: a `DISPLAY_FRAME` for the current epoch replaced
+    /// A `DISPLAY_FRAME` for the current epoch replaced
     /// [`Accumulator::last_display_frame`].
     DisplayFrame { request_id: u32 },
-    /// v14: the current epoch's `FINAL_IMAGE` is in [`Accumulator::final_image`].
+    /// The current epoch's `FINAL_IMAGE` is in [`Accumulator::final_image`].
     FinalImage { request_id: u32 },
-    /// v14: a `PONG` answering the `PING` with this `nonce`.
+    /// A `PONG` answering the `PING` with this `nonce`.
     Pong { nonce: u64 },
-    /// v14: the server's render capability changed since `WELCOME`.
+    /// The server's render capability changed since `WELCOME`.
     CapabilityChanged {
         render: Option<crate::messages::RenderCapability>,
     },
-    /// v14: the server needs the asset with this SHA-256 before it proceeds --
+    /// The server needs the asset with this SHA-256 before it proceeds --
     /// answer with [`send_asset`] on the write side.
     NeedAsset { content_hash: [u8; 32] },
 }
@@ -372,20 +372,20 @@ fn to_update(event: &StreamEvent, outcome: ApplyOutcome) -> SessionUpdate {
 /// Every [`StreamEvent`] read is applied via [`Accumulator::apply`] and reported to
 /// `on_update`.
 ///
-/// Returns `Ok(())` on a clean EOF at a frame boundary -- the normal way this loop ends,
-/// treating "peer closed the connection" as done, not a failure. A connection that ends
-/// inside a frame is an error ([`crate::framing::FramingError::TruncatedFrame`]). There is deliberately no other way to
-/// stop this loop from the inside: a blocking read can't notice an out-of-band "please
-/// stop" short of the connection closing, so a caller that wants to stop early shuts
+/// Returns `Ok(())` on a clean EOF at a frame boundary, the normal way this loop ends (the
+/// peer closed the connection). A connection that ends inside a frame is an error
+/// ([`crate::framing::FramingError::TruncatedFrame`]).
+///
+/// There is no other way to stop this loop from the inside: a blocking read cannot notice a
+/// "please stop" short of the connection closing. A caller that wants to stop early shuts
 /// down the underlying stream from another thread (e.g. `TcpStream::shutdown`), which
-/// unblocks the read with an I/O error (an `Err`, not `Ok(())`) that a caller doing this
-/// deliberately should treat as expected, not a real failure.
+/// unblocks the read with an I/O error. A caller doing this deliberately should treat that
+/// error as expected.
 ///
 /// # Errors
 ///
-/// Returns [`ClientError::Net`] for a transport-level failure other than a clean EOF
-/// between frames,
-/// or [`ClientError::Radiance`] if a `FRAME`/`PREVIEW` payload fails to decode.
+/// Returns [`ClientError::Net`] for a transport-level failure other than a clean EOF between
+/// frames, or [`ClientError::Radiance`] if a `FRAME`/`PREVIEW` payload fails to decode.
 pub fn run_client_session<R: Read>(
     reader: &mut R,
     accumulator: &mut Accumulator,
@@ -430,6 +430,10 @@ mod tests {
             height: 2,
             yaw: 0.4,
             camera_roll: 0.0,
+            stone_shadow: false,
+            tray_reflection: 0.0,
+            hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
+            estimator: pleochroma::optics::raytracer::Estimator::Branching,
             pitch: 0.3,
             distance: 3.0,
             light_yaw: 0.85,
@@ -471,8 +475,8 @@ mod tests {
         }
     }
 
-    /// The v14 connection-level events reach `on_update` through the session loop,
-    /// ahead of (and independent of) any request epoch.
+    /// Connection-level events reach `on_update` through the session loop, ahead of (and
+    /// independent of) any request epoch.
     #[test]
     fn run_client_session_reports_pong_and_capability_changed() {
         let mut wire = Vec::new();

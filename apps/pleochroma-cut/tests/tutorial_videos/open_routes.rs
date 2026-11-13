@@ -69,10 +69,9 @@ impl Film<'_> {
     /// Films the first part of the Deep Solve lesson's Setup: a catalogue design is loaded from
     /// the library, the way [`Self::open_imported_library_design`] films it.
     ///
-    /// The lesson's first step says Deep Solve stays dim until a design with printed proportions
-    /// is loaded from the library and a tier adopted, and a template design (see
-    /// `Film::film_design_setup`) has neither. So, as the step says, the learner does both before
-    /// starting the lesson.
+    /// Deep Solve stays dim until a design with printed proportions is loaded and a tier adopted,
+    /// as the lesson's first step says; a template design (see `Film::film_design_setup`) has
+    /// neither.
     pub(crate) fn film_catalogue_setup(&mut self) -> Result<(), String> {
         self.rec.chapter("Setup");
         self.rec.caption(
@@ -256,15 +255,13 @@ impl Film<'_> {
         Ok(index)
     }
 
-    /// The chip `label` (Adopt or Add Anchor) of the row `row_prefix` names, with the sideways
-    /// turns it took to bring the exact row and control into the safe viewport. Leave the row
-    /// visible for review.
+    /// The chip `label` (Adopt or Add Anchor) of the row `row_prefix` names, and the sideways
+    /// turns taken to bring it into view; the caller undoes those with `unturn_table`.
     ///
-    /// The chips sit in the pinned ACTIONS group at the right edge of the table, which is
-    /// visible without scrolling sideways, so the route normally needs no sideways turns. The
-    /// exact row's control must still have its center and most of its bounds inside the
-    /// dock-clipped viewport, clear of both overlay scrollbars. Real vertical (and, if ever
-    /// needed, sideways) wheel turns reveal it, with fresh row-scoped queries after each turn.
+    /// The chips sit in the pinned ACTIONS group at the right edge of the table, so sideways
+    /// turns are normally not needed. The row must show at least 60% of its height in the
+    /// dock-clipped viewport, and the control most of its bounds, clear of both overlay
+    /// scrollbars. Vertical wheel turns reveal the row, re-queried after each turn.
     fn row_chip_for_row(&mut self, row_prefix: &str, label: &str) -> Result<(Spot, usize), String> {
         let row_index = row_prefix
             .strip_prefix("Tier ")

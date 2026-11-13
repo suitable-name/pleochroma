@@ -2,10 +2,9 @@
 //! previews, the zone handles drawn on the model view and dragged with the mouse, and the
 //! polished-window brush on the mesh.
 //!
-//! This file holds only glue to the planner's private state. The logic is in
-//! `gui::rough_colour` and has its tests there (`preview`, `handles`, `mesh_paint`, `zone_link`,
-//! `wizard::state`); nothing in this module is tested, because tests of `gui::rough_plan` are
-//! never run.
+//! Glue to the planner's private state. The logic lives in `gui::rough_colour` and is tested
+//! there (`preview`, `handles`, `mesh_paint`, `zone_link`, `wizard::state`); this module has no
+//! tests of its own.
 //!
 //! * **Previews.** A result's scene is built from the layout with the cutter's pose choice and
 //!   its stones coloured by the plan's rough colour ([`prepare`], [`ColourJob`]); the builder and
@@ -198,9 +197,11 @@ pub(in crate::gui::rough_plan) fn click(host: &Rc<Host>, x: f32, y: f32) -> bool
     mesh_ray(host, x, y).is_some_and(|ray| zone_link::mesh_click(&ray))
 }
 
-/// The point `(x, y)` (logical pixels) of the model view as a ray in the rough's frame, mm. The
-/// view's world is the rough's frame with its bounding-box centre at the origin, scaled so half the
-/// box diagonal is one unit (`WorldFrame`), so the ray is the camera's ray moved and scaled back.
+/// The point `(x, y)` (logical pixels) of the model view as a ray in the rough's frame, mm.
+///
+/// The view's world is the rough's frame with its bounding-box centre at the origin, scaled so
+/// half the box diagonal is one unit (`WorldFrame`), so the ray is the camera's ray moved and
+/// scaled back.
 pub(in crate::gui::rough_plan) fn mesh_ray(host: &Host, x: f32, y: f32) -> Option<MeshRay> {
     let data = view_data(host)?;
     let ray = camera_for(data.pose).generate_ray(x, y, data.size.0, data.size.1, 0.0, 0.0);
@@ -230,8 +231,9 @@ pub(in crate::gui::rough_plan) fn drag_begin(host: &Rc<Host>) {
     });
 }
 
-/// The pointer moved by `(dx, dy)` with the button held. Returns whether a handle drag used it (the
-/// camera then stays where it is).
+/// The pointer moved by `(dx, dy)` with the button held.
+///
+/// Returns whether a handle drag used it (the camera then stays where it is).
 pub(in crate::gui::rough_plan) fn drag_move(host: &Rc<Host>, dx: f32, dy: f32) -> bool {
     let step = LINK.with(|link| {
         let mut link = link.borrow_mut();

@@ -4,7 +4,7 @@
 #
 # Usage (from anywhere inside the repository, on the machine with the GPU):
 #   .\scripts\wgsl-bisect.ps1                          # baseline, every default key alone, then all
-#   .\scripts\wgsl-bisect.ps1 nee_hg_off nee_carry_off # only these keys (each alone), plus baseline and all
+#   .\scripts\wgsl-bisect.ps1 nee_hg_off nee_carry_off   # these keys alone, plus baseline and all
 #
 # Writes target\wgsl-bisect\summary.txt: per variant the build warning that lists the reverted
 # sites, the uniaxial / event-wavefront / NEE furnace lines and the harness verdict. Full logs

@@ -2,38 +2,30 @@
 //! sweeps for all four `pleochroma::color::metrics::PROFILE_AZIMUTHS_DEG` axes.
 //!
 //! One sample point (`evaluate_gem_optical_metrics`, round brilliant/diamond, release,
-//! single-threaded) measures ~1.875 ms. A full-axis profile is 181 points across all
-//! four axes, so one complete single-threaded sweep costs roughly `181 * 4 * 1.875 ms`
-//! ~= 1.36 seconds. The sweep is threaded now (and skips the Fire/scintillation tracing
-//! it never reads), so on a multi-core machine it finishes well under that; the figure
-//! stays as the single-thread cost -- still a user-visible wait on small machines, which
-//! is why:
+//! single-threaded) measures ~1.875 ms, so one full single-threaded sweep (181 points on each
+//! of four axes) costs ~1.36 seconds. The sweep is threaded and skips the Fire/scintillation
+//! tracing it never reads, so it finishes well under that on a multi-core machine. The
+//! single-thread cost is still a visible wait on small machines, which is why:
 //!
 //! - This work runs on its own `std::thread::spawn` worker, never the UI thread.
 //! - `AxesCacheKey`/`launched_key` short-circuit re-opening the dialog (or a `changed`
-//!   re-fire with unchanged inputs) against a second ~1.4s sweep. `AxesCacheKey` keys
-//!   on the fully resolved [`GemMaterial`], not just its display name -- a custom
-//!   material can be edited (RI, birefringence, dispersion, ...) while a tier keeps
-//!   referencing the same name, and keying on the name alone would make that register
-//!   as "nothing changed," causing both the "Re-render" button to read as a no-op and
-//!   a newly opened dialog to show a curve for a material it no longer matches.
-//!   [`should_recompute_axes`] is that dedup decision pulled out as its own pure
-//!   function.
-//! - The `generation` counter lets a stale in-flight computation be abandoned: at
-//!   ~1.36s per run, a superseded sweep landing after the user has moved on (changed
-//!   material, orbited the camera, reopened against different geometry) would
-//!   otherwise be a visible glitch.
-//! - `PerformanceGraphDialog.extra_axes_loading` is a real loading state the dialog
-//!   must show for over a second, not a brief flicker.
+//!   re-fire with unchanged inputs) against a second ~1.4s sweep. `AxesCacheKey` keys on the
+//!   fully resolved [`GemMaterial`], not its display name: a custom material can be edited
+//!   (RI, birefringence, dispersion, ...) while a tier keeps its name, and a name-only key would
+//!   show curves for a material the stone no longer has. [`should_recompute_axes`] is the pure
+//!   dedup decision.
+//! - The `generation` counter abandons a stale in-flight sweep: a superseded sweep landing
+//!   after the user changed material, orbited or reopened against other geometry would be a
+//!   visible glitch.
+//! - `PerformanceGraphDialog.extra_axes_loading` shows for the whole sweep, which takes over
+//!   a second.
 //!
-//! This sweeps all four axes uniformly (not just the three non-canonical azimuths),
-//! including axis 0, rather than special-casing it to reuse the live render thread's
-//! own positive-half-only value (`graph_brilliance`/etc., still computed every frame
-//! for the Parameters panel's mini tilt chart) -- that value cannot supply the
-//! negative half a full-axis sweep needs anyway. One code path, one cache key, one
-//! generation counter, no cross-thread reuse of a value that could itself be
-//! mid-update, at the cost of one redundant azimuth-0-positive-half resweep (~12% of
-//! the ~724 total raytrace evaluations per run).
+//! All four axes are swept the same way, axis 0 included, rather than reusing the live render
+//! thread's positive-half value (`graph_brilliance` and friends, still computed every frame for
+//! the Parameters panel's mini tilt chart): that value cannot supply the negative half a
+//! full-axis sweep needs. One code path, one cache key and one generation counter avoid reusing
+//! a value that may be mid-update, at the cost of one redundant positive-half sweep of axis 0
+//! (~12% of the ~724 raytrace evaluations per run).
 //!
 //! Reads `RenderContext::active_planes`/`material_name`/`custom_materials`/
 //! `lighting_preset`/`light_yaw`/`light_pitch` directly -- the same inputs
@@ -53,7 +45,10 @@ use crate::{
     gui::optics::curve_path::full_axis_curve_path, settings::SettingsPersister,
 };
 use pleochroma::{
-    color::metrics::{FinishedStone, evaluate_all_axes_profiles_finished_threaded},
+    color::metrics::{
+        FinishedStone, PROFILE_AZIMUTHS_DEG, evaluate_all_axes_profiles_finished_threaded,
+        evaluate_full_axis_profile_at_azimuth_finished_threaded,
+    },
     geometry::{
         plane::GpuFacetPlane,
         tool::{StoneGeometry, ToolPrimitive},
@@ -83,15 +78,18 @@ struct AxesCacheKey {
     lighting_preset: LightingPreset,
     light_yaw: f32,
     light_pitch: f32,
-    /// The fully resolved material (`resolve_material`'s output), not merely its
-    /// display name. `GemMaterial`'s derived, field-by-field `PartialEq` is what makes
-    /// editing a custom material's own RI/birefringence/dispersion under the same name
-    /// register as a real cache-key change -- keying on a bare name would silently
-    /// treat "same name, different optics" as "nothing changed."
+    /// The fully resolved material (`resolve_material`'s output), not its display name:
+    /// `GemMaterial`'s field-by-field `PartialEq` makes an edit to a custom material's optics
+    /// under the same name a cache-key change.
     material: GemMaterial,
     planes_hash: u64,
     head_shadow_bits: u32,
     hdr_identity: HdrIdentity,
+    /// The HDR map's orientation itself: `[yaw.to_bits(), u32::from(follows_camera)]`, all zero
+    /// without a map. Turning the map or flipping its camera switch re-scores the curves; an
+    /// orbit does not, because each axis is scored at its own camera yaw (a map that turns with
+    /// the camera is sampled at the axis azimuth, not at the viewport's yaw).
+    hdr_orientation_bits: [u32; 2],
 }
 
 #[derive(Clone)]
@@ -105,11 +103,9 @@ impl PartialEq for HdrIdentity {
         }
     }
 }
-/// Whether launching a fresh four-axis sweep for `requested` is actually necessary
-/// given whatever was last launched (`current`) -- pulled out of the mutex-guarded
-/// dedup check in [`setup_tilt_profile_callback`] purely so it is unit-testable.
-/// `true` means the ~1.36s sweep must actually run; `false` means the existing
-/// `graph_*_extra_axes` data already describes exactly this material/light/geometry.
+/// Whether a fresh four-axis sweep for `requested` is needed, given what was last launched
+/// (`current`). `true` means the ~1.36s sweep must run; `false` means the `graph_*_extra_axes`
+/// data already describes exactly this material, light and geometry. Kept pure so it is testable.
 #[must_use]
 fn should_recompute_axes(current: Option<&AxesCacheKey>, requested: &AxesCacheKey) -> bool {
     current != Some(requested)
@@ -136,22 +132,12 @@ fn stone_key(geom: StoneGeometry<'_>, finishes: &[FacetFinish]) -> u64 {
     hasher.finish()
 }
 
-/// One metric's curve for every `PROFILE_AZIMUTHS_DEG` axis, in axis order: four rows,
-/// each a full 181-point ±90° profile. Named rather than written inline purely so
-/// [`sweep_all_axes`]'s three-of-these return type stays readable (and under clippy's
-/// `type_complexity` bar).
+/// One metric's curve for every `PROFILE_AZIMUTHS_DEG` axis, in axis order: four rows, each a
+/// full 181-point ±90° profile.
 type AxisCurveRows = Vec<[f32; 181]>;
 
 /// Sweeps all four [`PROFILE_AZIMUTHS_DEG`] axes, each a full 181-point ±90° profile,
 /// returning `(brilliance, extinction, windowing)` rows in axis order.
-///
-/// Axis 0 is swept here too, rather than reusing the live render thread's own value:
-/// that one covers only the positive half and cannot supply the negative half a
-/// full-axis sweep needs.
-///
-/// Split out of [`setup_tilt_profile_callback`] purely to keep that function under
-/// clippy's function-length lint. It is also the entire ~1.36s cost of a sweep in one
-/// place, which makes that cost easy to find and measure.
 ///
 /// `stone` carries the facet finishes of the stone on screen (the frosted-girdle toggle and the
 /// design's authored frosting), so the curves describe the frosted stone the viewport shows.
@@ -162,19 +148,30 @@ fn sweep_all_axes(
     light_yaw: f32,
     light_pitch: f32,
     head_shadow: f32,
-    hdr: Option<&pleochroma::renderer::env_map::EnvironmentMap>,
+    hdr: Option<(
+        &pleochroma::renderer::env_map::EnvironmentMap,
+        pleochroma::renderer::env_map::HdrOrientation,
+    )>,
 ) -> (AxisCurveRows, AxisCurveRows, AxisCurveRows) {
     // The sweep itself lives in `pleochroma::color::metrics` (the browser app's Worker
     // runs the same one); this only splits its axes into the dialog's three row sets.
     // Scored under the selected preset at the current light pose, the lighting the
     // viewport renders with.
+    if let Some((map, orientation)) = hdr.filter(|(_, orientation)| orientation.follows_camera) {
+        // A map that turns with the camera is seen from each axis's own camera yaw (its
+        // azimuth), as the hover preview and the tilt-video frames see it.
+        return sweep_axes_following_hdr(stone, material, map, orientation);
+    }
     let environment = hdr.map_or_else(
         || {
             lighting_preset
                 .studio(1.0, light_yaw, light_pitch)
                 .with_head_shadow(head_shadow)
         },
-        pleochroma::optics::raytracer::EnvironmentSource::HdrMap,
+        |(map, orientation)| {
+            pleochroma::optics::raytracer::EnvironmentSource::hdr(map)
+                .with_hdr_rotation(orientation.rotation_for(0.0))
+        },
     );
     let axes = evaluate_all_axes_profiles_finished_threaded(stone, material, environment, None);
     let mut brilliance_rows: AxisCurveRows = Vec::with_capacity(axes.len());
@@ -188,12 +185,39 @@ fn sweep_all_axes(
     (brilliance_rows, extinction_rows, windowing_rows)
 }
 
-/// `on_request_tilt_profile_axes`'s own handler body -- checks `launched_key` for a
-/// duplicate request, then spawns the background sweep and pushes its results back
-/// onto the UI thread once done (dropping a stale result if superseded by a newer
-/// request via `generation`). Split out of [`setup_tilt_profile_callback`] purely to
-/// keep that function under clippy's function-length lint; see that function's own
-/// doc comment for the full behaviour.
+/// [`sweep_all_axes`] for an HDR map that turns with the camera: one threaded sweep per
+/// [`PROFILE_AZIMUTHS_DEG`] axis, the map turned for that axis's own azimuth as camera yaw.
+fn sweep_axes_following_hdr(
+    stone: FinishedStone<'_>,
+    material: &GemMaterial,
+    map: &pleochroma::renderer::env_map::EnvironmentMap,
+    orientation: pleochroma::renderer::env_map::HdrOrientation,
+) -> (AxisCurveRows, AxisCurveRows, AxisCurveRows) {
+    let mut brilliance_rows: AxisCurveRows = Vec::with_capacity(PROFILE_AZIMUTHS_DEG.len());
+    let mut extinction_rows: AxisCurveRows = Vec::with_capacity(PROFILE_AZIMUTHS_DEG.len());
+    let mut windowing_rows: AxisCurveRows = Vec::with_capacity(PROFILE_AZIMUTHS_DEG.len());
+    for azimuth_deg in PROFILE_AZIMUTHS_DEG {
+        let environment = pleochroma::optics::raytracer::EnvironmentSource::hdr(map)
+            .with_hdr_rotation(orientation.rotation_for(azimuth_deg.to_radians()));
+        let (brilliance, extinction, windowing) =
+            evaluate_full_axis_profile_at_azimuth_finished_threaded(
+                stone,
+                material,
+                azimuth_deg,
+                environment,
+                None,
+            );
+        brilliance_rows.push(brilliance);
+        extinction_rows.push(extinction);
+        windowing_rows.push(windowing);
+    }
+    (brilliance_rows, extinction_rows, windowing_rows)
+}
+
+/// Handles `on_request_tilt_profile_axes`: checks `launched_key` for a duplicate request, then
+/// spawns the background sweep and pushes its results back to the UI thread once done (a result
+/// superseded by a newer request via `generation` is dropped). See
+/// [`setup_tilt_profile_callback`] for the full behaviour.
 fn handle_request_tilt_profile_axes(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
@@ -321,9 +345,20 @@ fn request_axes_for_stone(
     let light_pitch = scene.light_pitch;
     let head_shadow = scene.head_shadow_deg;
     let hdr = scene.env_map;
+    // The map's orientation (all zero for a studio scene). Not turned by the viewport's yaw:
+    // the sweep scores each axis at its own camera yaw, so an orbit changes nothing here.
+    let hdr_orientation = scene.hdr_orientation;
     let key = AxesCacheKey {
         head_shadow_bits: head_shadow.to_bits(),
         hdr_identity: HdrIdentity(hdr.clone()),
+        hdr_orientation_bits: if hdr.is_some() {
+            [
+                hdr_orientation.yaw.to_bits(),
+                u32::from(hdr_orientation.follows_camera),
+            ]
+        } else {
+            [0, 0]
+        },
         lighting_preset,
         light_yaw,
         light_pitch,
@@ -384,6 +419,7 @@ fn request_axes_for_stone(
         SweepRequest {
             head_shadow,
             hdr,
+            hdr_orientation,
             planes,
             tools,
             finishes: facet_finishes,
@@ -403,12 +439,13 @@ fn request_axes_for_stone(
     );
 }
 
-/// The per-sweep inputs [`spawn_tilt_profile_sweep`] needs, bundled so that
-/// function's own signature stays under clippy's `too_many_arguments` threshold --
-/// see [`SweepBookkeeping`] for the other half.
+/// The per-sweep inputs of [`spawn_tilt_profile_sweep`], bundled to keep its signature short;
+/// see [`SweepBookkeeping`] for the rest.
 struct SweepRequest {
     head_shadow: f32,
     hdr: Option<Arc<pleochroma::renderer::env_map::EnvironmentMap>>,
+    /// How the viewport turns `hdr`; read only with a map.
+    hdr_orientation: pleochroma::renderer::env_map::HdrOrientation,
     planes: Arc<Vec<GpuFacetPlane>>,
     /// The concave tools cut out of `planes`; empty for a planar stone.
     tools: Arc<Vec<ToolPrimitive>>,
@@ -442,11 +479,9 @@ struct SweepBookkeeping {
     activity_id: i32,
 }
 
-/// The background-thread half of [`request_axes_for_stone`]: runs the full
-/// four-curve sweep off the UI thread, then pushes the results back via
-/// `upgrade_in_event_loop`, dropping a stale result superseded by a newer request
-/// (see `generation`'s own doc comment on `setup_tilt_profile_callback`). Split out
-/// purely to keep that caller under clippy's function-length lint.
+/// The background-thread half of [`request_axes_for_stone`]: runs the four-curve sweep off the
+/// UI thread, then pushes the results back via `upgrade_in_event_loop`, dropping a result that a
+/// newer request superseded (see `generation` on [`setup_tilt_profile_callback`]).
 fn spawn_tilt_profile_sweep(
     request: SweepRequest,
     bookkeeping: SweepBookkeeping,
@@ -455,6 +490,7 @@ fn spawn_tilt_profile_sweep(
     let SweepRequest {
         head_shadow,
         hdr,
+        hdr_orientation,
         planes,
         tools,
         finishes,
@@ -484,7 +520,7 @@ fn spawn_tilt_profile_sweep(
             light_yaw,
             light_pitch,
             head_shadow,
-            hdr.as_deref(),
+            hdr.as_deref().map(|map| (map, hdr_orientation)),
         );
 
         let brilliance_paths: Vec<SharedString> = brilliance_rows
@@ -542,11 +578,10 @@ fn spawn_tilt_profile_sweep(
     });
 }
 
-/// Wires `MainWindow::request_tilt_profile_axes` to a background computation of all
-/// four full-axis (±90°, 1° step) tilt-elevation sweeps, pushing the results into
-/// `graph_*_extra_axes`/`graph_*_extra_paths` (and `extra_axes_loading` around the
-/// computation) once done. Split out of `run_gui`/`build_main_window` purely to keep
-/// those functions under clippy's function-length lint.
+/// Wires `MainWindow::request_tilt_profile_axes` to a background computation of all four
+/// full-axis (±90°, 1° step) tilt-elevation sweeps, pushing the results into
+/// `graph_*_extra_axes`/`graph_*_extra_paths` (and `extra_axes_loading` around the computation)
+/// once done.
 pub(in crate::gui) fn setup_tilt_profile_callback(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
@@ -635,8 +670,8 @@ pub(in crate::gui) fn setup_tilt_profile_callback(
 /// `cached_material_name` is `None` whenever there is no cached curve to compare
 /// against at all (e.g. no preview generated yet, or browsing a remote library whose
 /// wire protocol carries no preview-material field), in which case this always
-/// returns `false`: "no cached data" is not "stale cached data". Name comparison is
-/// exact (matching `resolve_material`'s `eq_ignore_ascii_case`).
+/// returns `false`: "no cached data" is not "stale cached data". Names compare ignoring ASCII
+/// case, as `resolve_material` does.
 ///
 /// The caller (`gui::detail::load_diagram_detail`) sources `cached_material_name` from
 /// `Database::get_preview_images(entry_id).material`.

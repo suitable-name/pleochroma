@@ -22,7 +22,7 @@ use uiprobe::screenshot::{self, Shot};
 
 /// The main window's logical size in every shot.
 pub const MAIN_SIZE: (u32, u32) = (1920, 1152);
-/// Physical pixels per logical pixel: the shots are `HiDPI`, like the ones they replace.
+/// Physical pixels per logical pixel (`HiDPI` shots).
 pub const SCALE: f32 = 2.0;
 /// A live render that was seen running is photographed no earlier than this after the wait began.
 const MIN_SETTLE: Duration = Duration::from_millis(1500);

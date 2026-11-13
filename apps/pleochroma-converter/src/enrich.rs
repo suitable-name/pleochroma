@@ -582,7 +582,7 @@ mod tests {
         assert_eq!(report.candidates, 1);
         assert_eq!(report.adopted, 0);
         assert_eq!(design, original);
-        assert!(!report.notes.is_empty());
+        assert_ne!(report.notes, [] as [String; 0]);
     }
 
     #[test]
@@ -593,6 +593,6 @@ mod tests {
         let report = adopt_meets(&mut design);
         assert_eq!(report.adopted, 0);
         assert_eq!(design, original);
-        assert!(!report.notes.is_empty());
+        assert_ne!(report.notes, [] as [String; 0]);
     }
 }

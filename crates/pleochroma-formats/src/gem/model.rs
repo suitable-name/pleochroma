@@ -120,8 +120,7 @@ fn normalise_tooth(raw: f64, teeth: f64) -> f64 {
     }
 }
 
-/// A derived view of one labelled facet (one with a name or instructions), in the
-/// shape the old heuristic text scanner produced.
+/// A derived view of one labelled facet (one with a name or instructions).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GemNote {
     /// Position of the facet in [`GemDesign::facets`].
@@ -157,8 +156,8 @@ pub struct GemDesign {
     /// The embedded CAM preform design, when the file has a `preform` section.
     pub preform: Option<Box<Self>>,
     /// The median of `p·v` over every stored vertex of this design (not its
-    /// preform): `1.0` in 224 corpus files, `0.81` in 30. `1.0` when there are no
-    /// vertices. See the module docs for the 0.81 hypothesis.
+    /// preform). `1.0` when there are no vertices. Corpus files are either `1.0` or
+    /// `0.81`; see the module docs.
     pub vertex_scale: f64,
 }
 

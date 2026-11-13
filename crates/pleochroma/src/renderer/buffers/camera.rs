@@ -1,11 +1,12 @@
-//! Camera and geometry self-test GPU structs: [`CameraUniform`] (the per-frame
+//! Camera and geometry self-test GPU structs.
+//!
+//! They are [`CameraUniform`] (the per-frame
 //! camera/render-target uniform), [`GpuCameraParams`] (`optics::raytracer::Camera`'s
 //! ray-generation basis), [`GpuRay`] (a traced ray), and [`GpuHitRecord`]
 //! (`intersect_polyhedron`'s `Option<HitRecord>` result). Each carries state across the
 //! CPU/GPU boundary for a self-test (`renderer::gpu::{camera_check, polyhedron_check}`)
-//! and gets its own `layout_check` echo test. Every vec3 field is deliberately followed by
-//! a plain f32 scalar so the next vec3's 16-byte alignment is met with no separate
-//! `_pad*` field.
+//! and gets its own `layout_check` echo test. A vec3 followed by a scalar packs into its 16-byte
+//! slot without a `_pad*` field; the other structs name their padding explicitly.
 
 use core::mem::offset_of;
 
@@ -13,12 +14,9 @@ use core::mem::offset_of;
 ///
 /// # Layout
 ///
-/// Every field's Rust-natural offset already lands on a WGSL-legal boundary for this
-/// exact field order and type set (`mat4x4<f32>`/`vec3<f32>` need 16-byte alignment;
-/// every other field is a plain 4-byte scalar). `camera_pos`/`c_axis` both happen to
-/// start at offsets (64, 96) already multiples of 16, so WGSL inserts no extra padding --
-/// a property of this field order, not a general guarantee, so reordering could silently
-/// break it; the `offset_of!` assertions below pin it down explicitly.
+/// The `mat4x4` and both `vec3` fields start on 16-byte offsets for this field order, so WGSL
+/// inserts no padding. Reordering the fields can break that; the `offset_of!` assertions below
+/// pin the offsets.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct CameraUniform {
@@ -55,18 +53,13 @@ const _: () = {
     assert!(size_of::<CameraUniform>() == 112);
 };
 
-/// A camera pose's screen-space ray-generation basis (`optics::raytracer::Camera`),
-/// GPU-encoded.
-///
-/// Produced by porting `Camera::new` (from `(yaw, pitch, distance, fov_deg)`) and
-/// consumed by porting `Camera::generate_ray`.
+/// The ray-generation basis of `optics::raytracer::Camera`, GPU-encoded: the origin and the
+/// frame axes of a camera pose.
 ///
 /// # Layout
 ///
-/// `origin`/`forward`/`right` each pack with the scalar immediately following into a
-/// 16-byte block (see the module doc comment); `up` is the last vec3 and needs no
-/// trailing pad since `num_samples` already lands on a legal offset (60) right after it,
-/// with the whole 64-byte struct already a multiple of its own alignment.
+/// `origin`, `forward` and `right` pack with the scalar after them into 16-byte blocks; `up` is
+/// followed by `num_samples` at offset 60, so the struct needs no `_pad*` field.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct GpuCameraParams {

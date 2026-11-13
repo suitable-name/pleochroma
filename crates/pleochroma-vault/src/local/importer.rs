@@ -5,7 +5,8 @@
 //! stays with the caller: where the bytes come from, the panic guard around the call, the
 //! measuring geometry (the two hooks of [`import_bytes`], usually built on
 //! [`apply_measured_metadata`](super::apply_measured_metadata)), how a failure reads to the
-//! user, and how the row is stored (see [`reconcile_with_existing`](super::reconcile_with_existing)).
+//! user, and how the row is stored (see
+//! [`reconcile_with_existing`](super::reconcile_with_existing)).
 //!
 //! The function does no panic isolation of its own: measuring reaches into geometry code
 //! this crate does not own, so callers wrap the call in the same guard they use elsewhere.
@@ -224,7 +225,7 @@ a 41.000000 0.5 92 n T\n";
         .unwrap_or_else(|failure| panic!("{failure}"));
         assert_eq!(imported.parsed.entry.title, "Round Trichecker-12");
         assert_eq!(imported.parsed.entry.url, "local://trichecker.asc");
-        assert!(imported.warnings.is_empty());
+        assert_eq!(imported.warnings, [] as [String; 0]);
         let names: Vec<&str> = imported
             .parsed
             .detail
@@ -242,7 +243,7 @@ a 41.000000 0.5 92 n T\n";
             .err()
             .expect("not an .asc");
         assert_eq!(asc.stage, ImportStage::Asc);
-        assert!(!asc.message.is_empty());
+        assert_ne!(asc.message, "");
         assert_eq!(asc.to_string(), asc.message);
 
         let design = import_bytes(

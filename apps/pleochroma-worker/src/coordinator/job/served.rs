@@ -37,9 +37,8 @@ impl Served {
     }
 }
 
-/// Logs how a request ended: without it a request that SUCCEEDS leaves no trace on the
-/// console, so "the console went quiet" cannot tell "stopped being asked" from "stopped
-/// answering".
+/// Logs how a request ended. A successful request otherwise leaves no console trace, so a
+/// quiet console cannot tell "no longer asked" from "no longer answering".
 ///
 /// `served` is how it ran; `elapsed` runs from planning to the end of the stream, viewer
 /// wait (FIFO turn or whole-image slot) included.

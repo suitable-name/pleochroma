@@ -12,9 +12,10 @@ impl PathState<'_> {
     /// reflect/refract dispatch, so the recorder sees the side flag the intersection settled.
     pub(super) fn record_facet(&mut self, bounce: u32, hit: HitRecord, inside_before: bool) {
         let (inside_after, dir_after) = (self.inside_gem, self.current_ray.dir);
+        let is_ext = self.is_extraordinary;
         let fluoresced = self.lambdas != self.camera_lambdas;
         if let Some(events) = self.events.as_deref_mut() {
-            events.facet(bounce, hit, inside_before, inside_after, dir_after);
+            events.facet(bounce, hit, inside_before, inside_after, dir_after, is_ext);
             if fluoresced {
                 events.fluoresce();
             }

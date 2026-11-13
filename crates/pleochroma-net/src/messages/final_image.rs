@@ -1,4 +1,4 @@
-//! `-> FINAL_IMAGE_REQUEST` (v14): ask for one finished, tone-mapped picture.
+//! `-> FINAL_IMAGE_REQUEST`: ask for one finished, tone-mapped picture.
 //!
 //! Asks the server to render a whole sample range AND tone-map it, replying with one
 //! 8-bit PNG instead of float radiance -- the "final picture only" transfer for still
@@ -10,12 +10,12 @@
 //! <- PROGRESS          { request_id, samples_done }                 -- heartbeat, at least every 2 s
 //! <- PREVIEW           { .. }                                        -- optional; a coordinator sends a
 //!                                                                       <= 360 px thumbnail about every 1 %
-//! -> CONTRIBUTION (optional, v16) + payload -- the viewer's own share, see below
+//! -> CONTRIBUTION (optional) + payload -- the viewer's own share, see below
 //! <- FINAL_IMAGE       { request_id, width, height, samples_done, encoding, payload_len } + raw PNG bytes
 //! <- DONE              { request_id, cancelled: false, stats }      -- exactly once, after FINAL_IMAGE
 //! ```
 //!
-//! # Viewer contribution (v16)
+//! # Viewer contribution
 //!
 //! `viewer_samples` reserves the LAST `viewer_samples` of `[first_sample, first_sample +
 //! samples)` for the viewer itself: the server only plans `server_samples()` of it, and
@@ -110,25 +110,25 @@ pub struct FinalImageRequest {
     pub first_sample: u32,
     /// Number of samples; the tone-mapping divisor.
     pub samples: u32,
-    /// Output width in pixels. Must equal `scene.width` in v14 (a server refuses a
-    /// mismatch); kept separate so a later version can add server-side scaling.
+    /// Output width in pixels. Must equal `scene.width` (a server refuses a mismatch);
+    /// kept separate so a later version can add server-side scaling.
     pub width: u32,
-    /// Output height in pixels. Must equal `scene.height` in v14, see [`Self::width`].
+    /// Output height in pixels. Must equal `scene.height`, see [`Self::width`].
     pub height: u32,
     /// The color space to tone-map into.
     pub color_space: WireColorSpace,
     /// The output format.
     pub output: FinalOutput,
-    /// v16: the viewer renders the LAST `viewer_samples` of `[first_sample,
+    /// The viewer renders the LAST `viewer_samples` of `[first_sample,
     /// first_sample+samples)` itself and uploads them as one `CONTRIBUTION`; the server
-    /// plans only `samples - viewer_samples`. `0` = today's behaviour. Must be `<=
-    /// samples / 2` (else `VALIDATION_FAILED`).
+    /// plans only `samples - viewer_samples`. `0` means the server plans the whole range.
+    /// Must be `<= samples / 2` (else `VALIDATION_FAILED`).
     #[serde(default)]
     pub viewer_samples: u32,
 }
 
 impl FinalImageRequest {
-    /// Whether the output size matches the scene, the only size v14 servers accept.
+    /// Whether the output size matches the scene, the only size servers accept.
     #[must_use]
     pub const fn output_matches_scene(&self) -> bool {
         self.width == self.scene.width && self.height == self.scene.height
@@ -181,6 +181,10 @@ mod tests {
             height: 6,
             yaw: 0.4,
             camera_roll: 0.0,
+            stone_shadow: false,
+            tray_reflection: 0.0,
+            hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
+            estimator: pleochroma::optics::raytracer::Estimator::Branching,
             pitch: 0.3,
             distance: 3.0,
             light_yaw: 0.85,

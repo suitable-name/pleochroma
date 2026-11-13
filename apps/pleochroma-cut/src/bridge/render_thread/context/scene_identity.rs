@@ -1,7 +1,7 @@
 //! [`SceneIdentity`]: a content-derived scene generation counter for `RenderContext`.
 //!
-//! Every backend contributing to one live image must render the IDENTICAL scene
-//! (invariant 2 of the hybrid guide). A settle's remote epoch is dispatched from a
+//! Every backend contributing to one live image must render the IDENTICAL scene.
+//! A settle's remote epoch is dispatched from a
 //! scene captured on the UI thread, while the render thread reads the scene again on
 //! its next frame; a scene change landing in between must never be merged into that
 //! epoch. `RenderContext::scene_generation` turns "the scene the render thread / the
@@ -42,6 +42,12 @@ struct SceneKey {
     girdle_frosted: bool,
     lighting_preset: LightingPreset,
     backdrop: Backdrop,
+    stone_shadow: bool,
+    /// The Tray Reflection as a bit pattern, so a change restarts accumulation.
+    tray_reflection: u32,
+    /// The HDR map's yaw bits and whether it follows the camera (zeros without a map). A
+    /// lighting member like the map itself, so it is left out of [`SceneKey::same_pose`].
+    hdr_orientation: [u32; 2],
     material_name: String,
     material_override: Option<GemMaterial>,
     /// The view-only body colour that actually applies (`None` while it is dormant), triple
@@ -80,6 +86,23 @@ const fn floats(ctx: &RenderContext) -> [u32; 12] {
         ctx.surface_glare.to_bits(),
         ctx.head_shadow_deg.to_bits(),
     ]
+}
+
+/// The entries of [`floats`] that are not lighting: the camera (yaw, pitch, roll,
+/// distance), the scattering strength, the edge rounding and the stone width.
+const fn pose_floats(floats: &[u32; 12]) -> [u32; 7] {
+    [
+        floats[0], floats[1], floats[2], floats[3], floats[7], floats[8], floats[9],
+    ]
+}
+
+/// The HDR map's orientation as bit patterns; zeros without a map, where it is not read.
+fn hdr_orientation_bits(ctx: &RenderContext) -> [u32; 2] {
+    if ctx.env_map.is_some() {
+        [ctx.hdr_yaw.to_bits(), u32::from(ctx.hdr_follows_camera)]
+    } else {
+        [0, 0]
+    }
 }
 
 fn c_axis(ctx: &RenderContext) -> Option<[u32; 3]> {
@@ -144,6 +167,9 @@ impl SceneKey {
             girdle_frosted: ctx.girdle_frosted,
             lighting_preset: ctx.lighting_preset,
             backdrop: ctx.backdrop,
+            stone_shadow: ctx.stone_shadow,
+            tray_reflection: ctx.tray_reflection.to_bits(),
+            hdr_orientation: hdr_orientation_bits(ctx),
             material_name: ctx.material_name.clone(),
             material_override: ctx.material_override.clone(),
             view_color: view_color_bits(ctx),
@@ -158,6 +184,38 @@ impl SceneKey {
         }
     }
 
+    /// Whether `ctx`'s scene differs from this key in its LIGHTING at most: the lighting preset,
+    /// the light direction, the exposure, the backdrop, the Stone Shadow switch, the Tray
+    /// Reflection, the surface glare, the head shadow and the HDR environment are not compared.
+    /// Everything else the path cache depends on is (the geometry, the material, the camera, the
+    /// size and the engine).
+    ///
+    /// The Tray Reflection is left out: a mirror disables every pose-keyed accelerator (the
+    /// instant re-shade, the viewport path cache, the still beams and the Ray-Traced beams),
+    /// so nothing cached for a pose holds a mirrored picture.
+    fn same_pose(&self, ctx: &RenderContext) -> bool {
+        self.engine == ctx.engine
+            && self.planes_owner == ctx.planes_owner
+            && self.dims == dims(ctx)
+            && pose_floats(&self.floats) == pose_floats(&floats(ctx))
+            && self.c_axis == c_axis(ctx)
+            && self.alpha_axis == alpha_axis(ctx)
+            && self.girdle_frosted == ctx.girdle_frosted
+            && self.material_name == ctx.material_name
+            && self.material_override == ctx.material_override
+            && self.view_color == view_color_bits(ctx)
+            && self.view_pattern.as_ref() == ctx.current_view_color_pattern()
+            && Arc::ptr_eq(&self.active_planes, &ctx.active_planes)
+            && *self.active_frosted == *ctx.active_frosted
+            && Arc::ptr_eq(&self.active_tools, &ctx.active_tools)
+            && Arc::ptr_eq(&self.custom_materials, &ctx.custom_materials)
+            && same_fluorescence(
+                self.fluorescence.as_ref(),
+                ctx.active_fluorescence().as_ref(),
+            )
+            && self.scene_effects == ctx.scene_effects
+    }
+
     /// Whether `ctx`'s scene still equals this key -- compared in place, with no
     /// allocation but the few band rows of a view color that carries them, since the render
     /// loop asks every frame.
@@ -170,6 +228,9 @@ impl SceneKey {
             && self.alpha_axis == alpha_axis(ctx)
             && self.girdle_frosted == ctx.girdle_frosted
             && self.lighting_preset == ctx.lighting_preset
+            && self.stone_shadow == ctx.stone_shadow
+            && self.tray_reflection == ctx.tray_reflection.to_bits()
+            && self.hdr_orientation == hdr_orientation_bits(ctx)
             && self.backdrop == ctx.backdrop
             && self.material_name == ctx.material_name
             && self.material_override == ctx.material_override
@@ -195,9 +256,20 @@ impl SceneKey {
 pub struct SceneIdentity {
     key: Option<SceneKey>,
     generation: u64,
+    /// Bumps with `generation` except when only the lighting changed.
+    pose_generation: u64,
 }
 
 impl RenderContext {
+    /// The generation of the current scene's POSE: the geometry, material, camera, size and
+    /// engine, but not the lighting. A lighting change bumps [`Self::scene_generation`] and
+    /// leaves this alone. Valid as of the last [`Self::scene_generation`] call, which the
+    /// render loop makes every frame.
+    #[must_use]
+    pub const fn pose_generation(&self) -> u64 {
+        self.scene_identity.pose_generation
+    }
+
     /// The current scene's generation: unchanged while every scene-defining field is
     /// unchanged since the previous call, bumped otherwise. Called under the context
     /// lock by the render loop (every frame, via `snapshot_frame_inputs`), by the
@@ -211,6 +283,14 @@ impl RenderContext {
             .as_ref()
             .is_some_and(|key| key.matches(self));
         if !unchanged {
+            let same_pose = self
+                .scene_identity
+                .key
+                .as_ref()
+                .is_some_and(|key| key.same_pose(self));
+            if !same_pose {
+                self.scene_identity.pose_generation += 1;
+            }
             self.scene_identity.key = Some(SceneKey::of(self));
             self.scene_identity.generation += 1;
         }
@@ -372,6 +452,78 @@ mod tests {
         assert!(ctx.scene_generation() > second);
     }
 
+    /// The path cache of a pose survives every lighting edit and nothing else.
+    #[test]
+    fn lighting_edits_bump_the_scene_but_not_the_pose() {
+        let mut ctx = RenderContext::default();
+        let scene = ctx.scene_generation();
+        let pose = ctx.pose_generation();
+        assert!(pose > 0, "the first query starts a pose");
+        let lighting: [fn(&mut RenderContext); 9] = [
+            |c| c.lighting_preset = LightingPreset::Daylight,
+            |c| c.exposure = 1.7,
+            |c| c.light_yaw += 0.3,
+            |c| c.light_pitch += 0.2,
+            |c| c.surface_glare = 0.4,
+            |c| c.tray_reflection = 0.04,
+            |c| c.env_map = Some(Arc::new(EnvironmentMap::uniform(2, 2, [1.0, 1.0, 1.0]))),
+            |c| c.hdr_yaw = 0.7,
+            |c| c.hdr_follows_camera = true,
+        ];
+        let mut last = scene;
+        for change in lighting {
+            change(&mut ctx);
+            let now = ctx.scene_generation();
+            assert!(now > last, "a lighting edit is a scene change");
+            assert_eq!(ctx.pose_generation(), pose, "but the pose stays");
+            last = now;
+        }
+        ctx.yaw += 0.1;
+        ctx.scene_generation();
+        assert!(ctx.pose_generation() > pose, "the camera is the pose");
+    }
+
+    #[test]
+    fn every_non_lighting_edit_bumps_the_pose() {
+        let mut ctx = RenderContext::default();
+        ctx.scene_generation();
+        let mut last = ctx.pose_generation();
+        let changes: [fn(&mut RenderContext); 8] = [
+            |c| c.pitch += 0.1,
+            |c| c.camera_roll = std::f32::consts::FRAC_PI_2,
+            |c| c.distance += 1.0,
+            |c| c.material_name = "Spinel".to_string(),
+            |c| c.material_override = Some(GemMaterial::diamond()),
+            |c| c.active_planes = Arc::new(c.active_planes.as_ref().clone()),
+            |c| c.width = 640,
+            |c| c.girdle_frosted = true,
+        ];
+        for change in changes {
+            change(&mut ctx);
+            ctx.scene_generation();
+            assert!(ctx.pose_generation() > last, "a pose edit bumps the pose");
+            last = ctx.pose_generation();
+        }
+    }
+
+    /// The map's yaw and its camera switch are scene members only while a map is loaded.
+    #[test]
+    fn the_hdr_orientation_counts_only_with_a_map() {
+        let mut ctx = RenderContext::default();
+        let first = ctx.scene_generation();
+        ctx.hdr_yaw = 1.2;
+        ctx.hdr_follows_camera = true;
+        assert_eq!(ctx.scene_generation(), first, "no map, no scene change");
+        ctx.env_map = Some(Arc::new(EnvironmentMap::uniform(2, 2, [1.0, 1.0, 1.0])));
+        let loaded = ctx.scene_generation();
+        assert!(loaded > first);
+        ctx.hdr_yaw = 1.3;
+        assert!(
+            ctx.scene_generation() > loaded,
+            "turning the map is a change"
+        );
+    }
+
     #[test]
     fn an_unchanged_scene_keeps_its_generation() {
         let mut ctx = RenderContext::default();
@@ -461,7 +613,7 @@ mod tests {
     fn every_kind_of_scene_change_bumps_the_generation() {
         let mut ctx = RenderContext::default();
         let mut last = ctx.scene_generation();
-        let changes: [fn(&mut RenderContext); 12] = [
+        let changes: [fn(&mut RenderContext); 16] = [
             |c| c.yaw += 0.1,
             |c| c.camera_roll = std::f32::consts::FRAC_PI_2,
             |c| c.exposure = 2.0,
@@ -475,9 +627,13 @@ mod tests {
                 )]);
             },
             |c| c.env_map = Some(Arc::new(EnvironmentMap::uniform(2, 2, [1.0, 1.0, 1.0]))),
+            |c| c.hdr_yaw = 0.7,
+            |c| c.hdr_follows_camera = true,
             |c| c.girdle_frosted = true,
             |c| c.width = 640,
             |c| c.surface_glare = 0.5,
+            |c| c.stone_shadow = true,
+            |c| c.tray_reflection = 0.04,
             |c| c.head_shadow_deg = 0.0,
         ];
         for change in changes {

@@ -1,4 +1,4 @@
-//! HDR environment maps over the protocol (v14), server side.
+//! Server side of HDR environment maps over the protocol.
 //!
 //! A viewer's `SceneState` names an HDR panorama by the SHA-256 of its `.hdr` file
 //! (`SceneEnvironment::Hdr`). Before such a request is served, the request loop resolves
@@ -41,7 +41,11 @@ pub mod policy;
 mod tests;
 
 pub use cache::{AssetCache, CacheError, DEFAULT_CACHE_BYTES};
-pub use decoded::{decode_and_register, environment_source, lookup, resolved_hdr_map};
+pub use decoded::{
+    Shadow, Tray, TrayPin, TrayRef, TrayStop, decode_and_register, environment_for,
+    environment_source, lookup, mirror_for_scene, resolve_tray, resolved_hdr_map, shadow_for_scene,
+    shadow_quality,
+};
 pub use fetch::{ASSET_WAIT, Fetched, Pending, discard_asset, ensure_environment, ensure_held};
 pub use held::HeldAsset;
 pub use policy::{HdrRoute, coordinator_advertises_hdr, hdr_route};

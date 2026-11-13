@@ -16,10 +16,9 @@ use crate::{
 pub enum AdaptiveMode {
     /// Choose per frame from the encoding matrix by size class and bandwidth tier.
     Adaptive,
-    /// Today's behaviour: the first entry of this server preference list the peer accepts
-    /// ([`negotiate`]), for every frame, whatever the size or the link. Loopback is NOT
-    /// special-cased here; a caller wanting raw on loopback passes
-    /// `LOOPBACK_SERVER_PREFERENCE`.
+    /// The first entry of the server preference list that the peer accepts ([`negotiate`]),
+    /// for every frame, whatever the size or the link. Loopback is not special-cased here;
+    /// a caller wanting raw on loopback passes `LOOPBACK_SERVER_PREFERENCE`.
     Fixed(Vec<PayloadEncoding>),
 }
 

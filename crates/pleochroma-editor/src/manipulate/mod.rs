@@ -40,7 +40,7 @@
 //! - [`diagram2d`]: the same three handles on the 2D Diagram view's orthographic panels
 //!   -- which panel offers which handle, where the tips go, and the index handle's turn
 //!   about the panel centre. Its [`PanelHandles`] carries the ordinary [`HandleLayout`], so
-//!   [`drag_value`], snapping and the edit path are shared unchanged.
+//!   [`drag_value`], snapping and the edit path are shared.
 //!
 //! The pointer <-> pick-frame mapping for a view that letterboxes its raster lives in
 //! `pleochroma_solid::preview::view::ContainFit`.

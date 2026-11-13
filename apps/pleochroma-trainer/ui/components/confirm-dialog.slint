@@ -2,8 +2,8 @@ import { Button } from "std-widgets.slint";
 import { TrainerTheme } from "../theme.slint";
 
 // A modal dialog over the whole window: scrim, card, up to three buttons. Escape cancels.
-// `primary_text` is the main action (colored by `danger`), `secondary_text` an optional
-// second action (empty hides it), `cancel_text` always dismisses.
+// `primary_text` is the main action, `secondary_text` an optional second action (empty hides
+// it), `cancel_text` always dismisses. `danger` gives the card an amber border.
 export component ConfirmDialog inherits Rectangle {
     in property <string> heading;
     in property <string> body;

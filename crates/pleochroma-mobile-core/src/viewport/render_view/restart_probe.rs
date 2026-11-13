@@ -7,9 +7,9 @@
 //! copies, so the driver can ask "did any of them change since the last attempt?" with
 //! plain comparisons, and run the full comparison only when one did.
 //!
-//! # The audit: everything `prepare` and `needs_restart` read
+//! # Inputs read by the scene description
 //!
-//! `scene::prepare(state, view)` reads, and the probe holds:
+//! `scene::prepare(state, view)` reads these, and the probe holds each of them:
 //!
 //! - `state.render.view()` -- the raster `needs_restart` prepares at (`view`);
 //! - `state.session.current_generation()` -- the design (planes, tiers, tools, frosting,
@@ -34,8 +34,8 @@
 //! `state.platform()` (the power-save flag `start` reads) is not part of the scene key, so
 //! it is not part of the probe either.
 //!
-//! The probe owns copies, made once per CHANGE (`of`); a poll only compares them with the
-//! state ([`RestartProbe::differs_from_state`]) and allocates nothing.
+//! The probe owns copies, made when something changes (`of`); a poll only compares them
+//! with the state ([`RestartProbe::differs_from_state`]) and allocates nothing.
 //!
 //! [`render::needs_restart`]: crate::render::needs_restart
 //! [`HdrState::identity`]: crate::hdr::HdrState::identity
@@ -158,7 +158,7 @@ mod tests {
         assert!(!differs_after(|_| {}));
     }
 
-    /// One assertion per input `prepare` reads (the audit list in the module docs).
+    /// One assertion per input `prepare` reads (the list in the module docs).
     #[test]
     fn each_input_the_scene_reads_makes_the_probe_differ() {
         assert!(differs_after(|app| app.viewport.camera.yaw += 0.1), "yaw");

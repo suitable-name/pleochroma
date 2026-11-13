@@ -1,11 +1,11 @@
 //! Transactional storage for the CLI recovery bundle.
 //!
 //! A generation directory is written, every payload is synced and stamped, and only then is the
-//! small manifest replaced. The first manifests stamped every payload byte-wise with FNV-1a;
-//! new ones stamp word-wise, and each stamp names its hash by its field ([`FileStamp`]). They
-//! also carry the stamps of the previous generation, so a damaged latest generation falls back
-//! to it (loudly, never silently). Both kinds verify; the additions are optional fields of
-//! schema 1, which the PGO workload (`pgo_workload/capture.rs`) also reads.
+//! small manifest replaced. Payloads are stamped word-wise ([`StampHash::MulRotate64`]); older
+//! manifests stamped them byte-wise with FNV-1a and still verify. Each stamp names its hash by
+//! its field ([`FileStamp`]). Manifests also carry the stamps of the previous generation, so a
+//! damaged latest generation falls back to it (loudly, never silently). The stamp fields are
+//! optional additions to schema 1, which the PGO workload (`pgo_workload/capture.rs`) also reads.
 
 use std::{
     collections::BTreeMap,
@@ -45,7 +45,7 @@ const STAMP_BUFFER: usize = 1 << 20;
 /// Accidental-corruption detection, not a cryptographic authenticity claim.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum StampHash {
-    /// FNV-1a 64 over every byte: every manifest written before word-wise stamps existed.
+    /// FNV-1a 64 over every byte; the stamp of manifests written before word-wise stamps.
     Fnv1a,
     /// One multiplication per eight bytes: `state = ((state ^ word) * WORD_MULTIPLIER)
     /// .rotate_left(29)` over the little-endian 64-bit words, the zero-padded tail word and
@@ -92,7 +92,7 @@ struct Manifest {
     previous: Option<String>,
     files: BTreeMap<String, FileStamp>,
     /// Stamps of `previous`, so a damaged latest generation can fall back to it; absent in
-    /// manifests written before the fallback existed.
+    /// older manifests.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     previous_bundle: Option<Bundle>,
 }
@@ -579,7 +579,7 @@ fn validation_iteration(name: &str) -> Option<usize> {
     iteration.parse().ok()
 }
 
-/// Removes the pending generations no longer referenced by `live`.
+/// Removes the pending generations that `live` does not reference.
 fn sweep(root: &Path, live: &Manifest) -> Vec<String> {
     let kept = [Some(live.generation.as_str()), live.previous.as_deref()];
     remove_matching(

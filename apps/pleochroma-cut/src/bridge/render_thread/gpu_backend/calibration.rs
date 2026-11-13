@@ -1,4 +1,4 @@
-//! A bounded diagnostic probe, independent of the display's first image.
+//! A bounded CPU-rate probe, run on its own thread.
 use super::{BackendFrame, owned_frame::OwnedFrame};
 use std::{
     sync::{

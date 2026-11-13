@@ -51,7 +51,7 @@ pub(super) fn clipped_for(
     build_clipped_table(&params, &mut |_| true).expect("clipped table")
 }
 
-/// Four designs none of which dominates another (ratios `l`, `h`, `f`).
+/// Four designs on the Pareto front: none dominates another.
 pub(super) fn four_front_designs() -> Vec<CandidateDesign> {
     let make = |entry_id, length, height, volume| CandidateDesign {
         entry_id,
@@ -172,8 +172,7 @@ fn alternative_rounds_are_scored_with_their_own_pool() {
         "dropping one of four front designs leaves three"
     );
 
-    // The round's table holds the pool's own best design in every interior
-    // piece, not an index into the baseline front.
+    // The round's table holds the best design of its own pool in every interior piece.
     let round_table = alternative_table(&params, &pool, &mut |_| true).expect("round table");
     assert_interior_entries_belong_to_pool(&grid, &settings, &round_table, &pool);
 

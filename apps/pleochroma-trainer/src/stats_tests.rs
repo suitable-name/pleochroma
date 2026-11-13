@@ -13,7 +13,7 @@ fn major_version_is_compared() {
     assert_eq!(major("1.0.0"), "1");
 }
 
-/// A metric point as the first two training runs wrote it (before the diagnostic fields).
+/// A metric point in the format of telemetry files that predate the diagnostic fields.
 const OLD_POINT: &str = r#"{"iteration":3,"episode":7,"total_steps":300,
     "steps_per_sec":12.5,"mean_return":-4.5,"best_score":2.0,"policy_loss":0.1,
     "value_loss":2.0,"entropy":1.0,"clip_fraction":0.2,"approx_kl":0.01,

@@ -1,6 +1,6 @@
 // The top bar of a page: optional back arrow, the title, up to three action icons and
-// an optional overflow button. Safe-area padding is applied once by `AppWindow`, so
-// the bar never sits under the status bar.
+// an optional overflow button. Pages already sit below the status bar (`AppWindow`
+// insets the page area), so the bar adds no top inset.
 import { Theme } from "../theme.slint";
 import { Icons } from "../icons.slint";
 import { IconButton } from "icon_button.slint";
@@ -50,7 +50,6 @@ export component TopBar inherits Rectangle {
         }
 
         for action[index] in root.actions: IconButton {
-            // Entries past the third collapse to nothing instead of crowding the title.
             visible: index < 3;
             width: index < 3 ? Theme.touch : 0px;
             icon: action.icon;

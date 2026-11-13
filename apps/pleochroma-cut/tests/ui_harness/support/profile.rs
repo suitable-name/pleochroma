@@ -92,15 +92,14 @@ impl ProfileExt for ProfileDir {
                 let _ = self.wipe_file(&PathBuf::from(name));
             }
             // A connection a previous launch leaked (a thread or a timer still holding it) keeps
-            // the file locked on Windows, and the next scenario would silently inherit its rows
-            // (run 4: a catalogue at id 145, designs left ignored or deleted by earlier
-            // scenarios). Move to a fresh working directory instead, so the next launch opens a
-            // new, empty database, and say so.
+            // the file locked on Windows, and the next scenario would silently inherit its rows.
+            // Move to a fresh working directory instead, so the next launch opens a new, empty
+            // database, and say so.
             if database.exists() {
                 let n = FRESH_CWDS.fetch_add(1, Ordering::Relaxed) + 1;
                 let fresh = self.root().join(format!("{CWD_DIR}-{n}"));
                 match fs::create_dir_all(&fresh).and_then(|()| std::env::set_current_dir(&fresh)) {
-                    // Said once; `print_locked_summary` prints how often it happened.
+                    // Said once; `print_shutdown_summary` counts the later moves.
                     Ok(()) if n == 1 => println!(
                         "uiprobe:   the database {} is still locked by an earlier launch; \
                          continuing in {} (later moves are counted at the end)",
@@ -119,8 +118,8 @@ impl ProfileExt for ProfileDir {
     }
 }
 
-/// The survivors / locked-database summary the old `Profile::finish` printed; `main.rs` calls it
-/// from the harness teardown, before the crate deletes the profile.
+/// Prints the survivor and locked-database summary. `main.rs` calls it from the harness
+/// teardown, before the profile is deleted.
 pub fn print_shutdown_summary() {
     let survivors = harness_support::shutdowns_with_survivors();
     if survivors > 0 {

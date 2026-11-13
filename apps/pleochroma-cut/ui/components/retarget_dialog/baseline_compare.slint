@@ -8,14 +8,10 @@ import { IconButton } from "../icon_button.slint";
 import { ActionButton } from "../chip_toggle.slint";
 import { ColumnHeading } from "parts.slint";
 
-// "Compare to Baseline" -- reuses the Retarget dialog's modal shell rather than a second
-// dialog component, and the proposal table's row shape rather than a new struct:
-// `compare_rows` is a `[RetargetRowItem]` like `rows`, with
-// `block` blank, `margin` repurposed to the signed mast delta, and
-// `risk_label`/`risk_color` repurposed as a plain Same/Changed/Added/
-// Removed status badge instead of a windowing risk (see
-// `callbacks::retarget_actions::diff_rows_from_deltas`'s own doc
-// comment for exactly why each field means what it does here).
+// "Compare to Baseline": reuses the Retarget modal shell and the proposal table's row type.
+// `compare_rows` is a `[RetargetRowItem]` with `block` blank, `margin` holding the signed mast
+// change and `risk_label`/`risk_color` a Same/Changed/Added/Removed status instead of a risk
+// (see `diff_rows_from_deltas`).
 export component BaselineComparePanel inherits VerticalLayout {
     padding: 16px;
     spacing: 12px;
@@ -57,9 +53,8 @@ export component BaselineComparePanel inherits VerticalLayout {
         wrap: word-wrap;
     }
 
-    // The number columns are wide enough for the longest values with a gutter on the
-    // right, so "Mast \u{394}" and "Status" no longer sit against the card's edge while the
-    // Tier column holds 120 px of slack; the row layout below uses the same widths.
+    // Number columns are sized to their longest values, with a right gutter. The rows below use
+    // the same widths.
     HorizontalLayout {
         padding-left: 6px;
         padding-right: 16px;
@@ -104,8 +99,8 @@ export component BaselineComparePanel inherits VerticalLayout {
     HorizontalLayout {
         spacing: 8px;
 
-        // The same snapshot-vs-current comparison, but as rendered stones
-        // in the visual compare window (`gui::editor::compare`) -- view only.
+        // The snapshot-vs-current comparison as rendered stones, in the visual compare window.
+        // View only.
         ActionButton {
             horizontal-stretch: 1;
             height: 32px;

@@ -329,9 +329,8 @@ fn only_movable_free_tiers_change_and_bounds_hold() {
 
 /// Angles and depths are independent variables of the projection: a flat pinned tier (the
 /// table) is a depth variable with no angle, and a projected tier may keep its angle while
-/// its depth moves. So the old "every turned tier has a mast change and only those" is not
-/// an invariant any more; the invariant is that a depth only ever moves on a tier the
-/// projection was allowed to move, from the mast the design pinned.
+/// its depth moves. So a depth change does not imply an angle change; the invariant is that
+/// a depth only moves on a tier the projection may move, from the mast the design pinned.
 #[test]
 fn every_mast_change_is_on_a_movable_tier_and_starts_from_the_pinned_mast() {
     let run = anchored_run();
@@ -352,11 +351,10 @@ fn every_mast_change_is_on_a_movable_tier_and_starts_from_the_pinned_mast() {
     }
 }
 
-/// What an applied candidate guarantees is the projection's contract, not a hinge
-/// incidence: the whole original meet network survives within the policy. The hinge only
-/// seeds the proposal; the projection moves every variable (the junction that was the
-/// hinge may travel up to `max_junction_displacement`), so "the first facet still passes
-/// through its hinge" is no longer an invariant.
+/// An applied candidate is guaranteed by the projection's contract: the whole original meet
+/// network survives within the policy. The hinge only seeds the proposal; the projection
+/// moves every variable (the junction at the hinge may travel up to
+/// `max_junction_displacement`), so a facet need not still pass through its hinge.
 #[test]
 fn applied_candidates_keep_the_original_meets_within_the_policy() {
     let run = anchored_run();

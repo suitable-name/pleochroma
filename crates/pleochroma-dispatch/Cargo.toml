@@ -24,7 +24,7 @@ glam = { workspace = true }
 [dev-dependencies]
 # Only to build a real `SceneState` (material + facet planes) in the tests.
 pleochroma = { workspace = true }
-# Benchmark harness for `benches/merge_fold.rs` (BLD-2).
+# Benchmark harness for `benches/merge_fold.rs`.
 divan = { workspace = true }
 
 [[bench]]

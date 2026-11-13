@@ -1,7 +1,7 @@
-//! Shared low-level vector helpers used by both the uniaxial and biaxial
-//! birefringence machinery: a stable orthonormal-basis completion, the
-//! eigenvector sign convention, and the fma-based cross/dot products this crate
-//! keeps bit-parity with the WGSL port through.
+//! Shared low-level vector helpers for the uniaxial and biaxial birefringence code.
+//!
+//! They are the stable orthonormal-basis completion, the eigenvector sign convention, and the
+//! fma-based cross and dot products that keep bit-parity with the WGSL port.
 
 use glam::Vec3;
 
@@ -37,10 +37,8 @@ pub(super) fn canonicalize_eigenvector_sign(v: Vec3) -> Vec3 {
     if largest < 0.0 { -v } else { v }
 }
 
-/// `a.cross(b)`, computed via explicit `mul_add` (fused multiply-subtract) rather than
-/// plain `*`/`-`, so it rounds identically to the WGSL mirror's `fma`-based
-/// `cross_fma` in `transport_physics.wgsl` -- see `BiaxialIndicatrix::eigenvector_world`'s
-/// doc comment for why this specific cross product needs that guarantee.
+/// `a.cross(b)` with explicit `mul_add`, so it rounds identically to the WGSL `cross_fma`.
+/// Used by `BiaxialIndicatrix::eigenvector_world`, where CPU/GPU rounding must match.
 pub(super) fn cross_fma(a: Vec3, b: Vec3) -> Vec3 {
     Vec3::new(
         a.y.mul_add(b.z, -(a.z * b.y)),
@@ -49,9 +47,8 @@ pub(super) fn cross_fma(a: Vec3, b: Vec3) -> Vec3 {
     )
 }
 
-/// `a.dot(b)`, computed via explicit `mul_add` for the same CPU/GPU rounding-parity
-/// reason as `cross_fma` above -- used by `BiaxialIndicatrix::eigenvector_world` to
-/// determine the ROBUST sign relating two (anti)parallel cross products.
+/// `a.dot(b)` with explicit `mul_add`, for the same CPU/GPU rounding match as `cross_fma`.
+/// Gives the sign relating two (anti)parallel cross products in `eigenvector_world`.
 pub(super) fn dot_fma(a: Vec3, b: Vec3) -> f32 {
     a.x.mul_add(b.x, a.y.mul_add(b.y, a.z * b.z))
 }

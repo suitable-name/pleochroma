@@ -1,6 +1,5 @@
-// Deep Solve's state (modelled on the desktop's `EditorModel.deep_solve_*`), pushed by
-// `src/editor/deep_solve`. A global is only a Rust type if `app.slint`'s export block
-// names it.
+// Deep Solve's state, pushed by `src/editor/deep_solve`. A global is only a Rust type if
+// `app.slint`'s export block names it.
 
 // One row of the table behind a verdict: a tier whose verified mast differs from the
 // plain solve's. `tier-index` is the 0-based `Design::tiers` position the Pin button
@@ -26,8 +25,8 @@ export global DeepSolveModel {
     // The live status line while running, the verdict after.
     in property <string> status: "";
     in property <bool> status-is-problem: false;
-    // The result on screen was computed for an older design: the tab badges it "Stale:
-    // design changed" with a Recompute, and the rows cannot be pinned.
+    // The result on screen was computed for an older design: the tab badges it "Stale: Design
+    // Changed" with a Recompute, and the rows cannot be pinned.
     in property <bool> result-stale: false;
     in property <[DeepSolveRow]> rows: [];
 

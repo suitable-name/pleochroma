@@ -2,8 +2,7 @@
 // dialog shows in physics mode is pushed from Rust (`gui::optics::physics_ui`), which owns the
 // recipe, the undo stack and the solver worker; this global is only the view's data.
 //
-// Split out of `ViewportModel` because the physics UI outgrew it: rows, add options,
-// treatments, swatches and the picker's callbacks.
+// Kept apart from `ViewportModel`: rows, add options, treatments, swatches and picker callbacks.
 
 // One element/end-member row of the recipe (an "offered" item that is in the recipe).
 export struct PhysicsRow {
@@ -151,7 +150,7 @@ export global PhysicscolorModel {
     in property <int> fantasy_serial: 0;
     in property <int> fantasy_idx: 9;
 
-    // ---- an older build edited the top-level color of an opened file ----
+    // ---- top-level color and physics recipe disagree ----
     // Non-empty while the "keep physics recipe / use edited color" question is open; the
     // value is the material's name.
     in-out property <string> color_conflict_name: "";
@@ -195,7 +194,7 @@ export global PhysicscolorModel {
     // one to select. With the physics editor hidden, this replaces a physics recipe's color with
     // that fixed color (the recipe stays saved); otherwise it returns the index unchanged.
     callback color_preset_chosen(int) -> int;
-    // Answer to the "an older build edited the color" question: true keeps the physics recipe.
+    // Answer to the color-conflict question: true keeps the physics recipe.
     callback color_conflict_resolved(bool);
     // Pure helpers for the color picker's hex field.
     pure callback format_hex(color) -> string;

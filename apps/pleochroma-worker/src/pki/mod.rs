@@ -2,17 +2,15 @@
 //! for `pleochroma-worker`'s mutual TLS, with two client roles (viewer and joining
 //! worker -- see [`role`]).
 //!
-//! Certificate GENERATION only -- one-shot CLI operations that produce PEM files on
-//! disk. Private-key writing (including Windows-ACL permissioning) and loading an
-//! issued bundle back into `rustls` configs both live in [`pleochroma_net::tls`]
-//! instead, since `apps/pleochroma-cut`'s token-redeem UI needs the same
-//! restricted-permission write and both apps already depend on that crate.
+//! Certificate generation only: one-shot CLI operations that write PEM files to disk.
+//! Private-key writing (with Windows ACL restriction) and loading a bundle into `rustls`
+//! configs live in [`pleochroma_net::tls`], which `apps/pleochroma-cut` shares.
 //!
 //! # Why a private CA rather than a public one
 //!
-//! The worker is addressed by IP on a LAN or private host, which no public CA will
-//! issue for, and there is exactly one operator on both ends of the trust
-//! relationship -- no third party's vouching is worth anything here.
+//! The worker is addressed by IP on a LAN or private host, which no public CA issues for.
+//! The same operator runs both ends of the trust relationship, so a third party's vouching
+//! adds nothing.
 //!
 //! # Layout
 //!
@@ -52,12 +50,9 @@
 //!
 //! # Errors
 //!
-//! Every fallible function in this module returns [`PkiError`] rather than a bare
-//! `String`: callers that only ever print the failure (`main.rs`) see the exact same
-//! text as before via [`PkiError`]'s [`Display`](std::fmt::Display) impl, while a caller
-//! that wants to distinguish failure kinds (rather than pattern-matching substrings out
-//! of a message) can match on the enum instead -- `crate::enroll::registry::EnrollIssueError`
-//! does exactly that, wrapping [`PkiError`] rather than flattening it to a `String`.
+//! Fallible functions return [`PkiError`] so callers can match on the failure kind. Its
+//! [`Display`](std::fmt::Display) text is the message printed to the user.
+//! `crate::enroll::registry::EnrollIssueError` wraps it.
 
 use pleochroma_net::{messages::PeerRole, tls};
 use rcgen::{
@@ -100,17 +95,11 @@ const LEAF_LIFETIME_DAYS: i64 = 365 * 5;
 /// between the issuing machine and whichever machine checks validity later.
 const NOT_BEFORE_SLACK_DAYS: i64 = 1;
 
-/// Everything that can go wrong generating or loading this module's certificates/keys.
-///
-/// Each variant carries what's needed to reproduce the exact message this module always
-/// printed (see the `# Errors` sections on the functions below, and this module's own
-/// doc comment on why the message text is what's preserved, not a particular variant
-/// shape).
+/// Everything that can go wrong generating or loading this module's certificates and keys.
 #[derive(Debug)]
 pub enum PkiError {
-    /// A plain filesystem operation on `path` failed. `verb` names what was attempted
-    /// ("create" / "write" / "read"), reproducing this module's long-standing "could
-    /// not {verb} {path}: {source}" phrasing.
+    /// A plain filesystem operation on `path` failed. `verb` is "create", "write" or "read",
+    /// and the message reads "could not {verb} {path}: {source}".
     Io {
         verb: &'static str,
         path: PathBuf,
@@ -132,9 +121,8 @@ pub enum PkiError {
     /// A VIEWER certificate was requested for a `--name` starting with
     /// [`WORKER_CN_PREFIX`], which would make it look like a worker certificate.
     ReservedRolePrefix { name: String },
-    /// An [`rcgen`] operation failed (key generation, building a SAN list,
-    /// self-signing, or leaf-signing). `context` names what was being built, matching
-    /// this module's existing "<what> failed: <e>" messages.
+    /// An [`rcgen`] operation failed (key generation, building a SAN list, self-signing, or
+    /// leaf-signing). `context` names the step.
     Rcgen {
         context: &'static str,
         source: rcgen::Error,
@@ -142,10 +130,8 @@ pub enum PkiError {
     /// [`load_ca`] found `ca.key`/`ca.pem` on disk but [`rcgen`] couldn't parse it back
     /// into a signing identity.
     RcgenAtPath { path: PathBuf, source: rcgen::Error },
-    /// A message already fully formatted by a helper outside this module -- currently
-    /// only [`pleochroma_net::tls::write_private_key_pem`], which returns `String`
-    /// because its own failure modes (directory creation, an external `icacls`
-    /// process) aren't PKI-specific either. Printed verbatim, no extra wrapping.
+    /// A message already formatted by a helper outside this module, such as
+    /// [`pleochroma_net::tls::write_private_key_pem`]. Printed verbatim.
     Message(String),
     /// [`pleochroma_net::tls::load_certs`] couldn't parse the certificate at `path`.
     Certificate {
@@ -160,7 +146,7 @@ pub enum PkiError {
         path: PathBuf,
         fingerprint_hex: String,
         name: String,
-        // Boxed: with four strings/paths inline this variant made the whole error large.
+        // Boxed to keep `PkiError` small.
         source: Box<tls::TlsError>,
     },
 }
@@ -233,9 +219,7 @@ impl std::error::Error for PkiError {
     }
 }
 
-/// [`pleochroma_net::tls::write_private_key_pem`] returns `Result<(), String>`; this
-/// lets every `tls::write_private_key_pem(..)?` call site in this module keep working
-/// against this module's own [`PkiError`]-returning functions.
+/// Lets `?` convert the `String` error of [`pleochroma_net::tls::write_private_key_pem`].
 impl From<String> for PkiError {
     fn from(msg: String) -> Self {
         Self::Message(msg)
@@ -253,15 +237,15 @@ fn not_after(lifetime_days: i64) -> OffsetDateTime {
 /// `pleochroma-worker cert init --dir <pki-dir>`: generates a new private CA keypair and
 /// self-signed certificate.
 ///
-/// Refuses to run if `<pki-dir>` already contains a CA -- overwriting one would
-/// invalidate every certificate already issued from it. No `--force`: removing the old
-/// files yourself is the point at which you're supposed to notice the blast radius.
+/// Refuses to run if `<pki-dir>` already contains a CA, since overwriting one would
+/// invalidate every certificate issued from it. There is no `--force`: removing the old
+/// files is a deliberate step.
 ///
 /// # Errors
 ///
 /// A human-readable message if `dir` can't be created, already has a CA, key
-/// generation/self-signing fails, or the CA files can't be written (including a
-/// Windows-ACL failure restricting `ca.key` -- see [`pleochroma_net::tls::write_private_key_pem`]).
+/// generation/self-signing fails, or the CA files can't be written (including a Windows
+/// ACL failure restricting `ca.key`; see [`pleochroma_net::tls::write_private_key_pem`]).
 pub fn init(dir: &Path) -> Result<(), PkiError> {
     std::fs::create_dir_all(dir).map_err(|source| PkiError::Io {
         verb: "create",
@@ -350,8 +334,8 @@ pub(crate) fn load_ca(dir: &Path) -> Result<Issuer<'static, KeyPair>, PkiError> 
         path: ca_key_path.clone(),
         source,
     })?;
-    // rcgen 0.14: `Issuer` pairs the CA's stored subject/extensions with its private
-    // key; issuing a leaf only reads the stored CA cert, never mints a second one.
+    // `Issuer` pairs the stored CA certificate with its key; issuing a leaf reads only that
+    // certificate.
     let issuer =
         Issuer::from_ca_cert_pem(&ca_pem, ca_key).map_err(|source| PkiError::RcgenAtPath {
             path: ca_cert_path.clone(),
@@ -529,10 +513,9 @@ pub fn issue_client_with_role(
     Ok(())
 }
 
-/// The signing logic shared by [`issue_client_with_role`] (writes the bundle to disk
-/// and allowlists it immediately) and [`issue_client_in_memory`] (returns PEM strings,
-/// touches neither disk nor the allowlist). Returns the certificate, its key, its expiry
-/// and the Common Name it was issued under ([`role::common_name_for`]).
+/// The signing logic shared by [`issue_client_with_role`] and [`issue_client_in_memory`].
+/// Returns the certificate, its key, its expiry and the Common Name it was issued under
+/// ([`role::common_name_for`]).
 ///
 /// # Errors
 ///
@@ -648,11 +631,10 @@ pub fn issue_client_in_memory(
     })
 }
 
-/// The default path of `serve --allowlist` (the VIEWER allowlist).
+/// The default VIEWER allowlist of `serve --allowlist`, next to the `--ca` file.
 ///
-/// [`viewer_allowlist_in`] the `--ca` file's directory: `allowlist-viewers.txt`, or a
-/// pre-role `allowlist.txt` while only that exists. Matches where [`issue_client`]
-/// writes by default.
+/// See [`viewer_allowlist_in`]: `allowlist-viewers.txt`, or a legacy `allowlist.txt` while
+/// only that exists.
 #[must_use]
 pub fn default_viewer_allowlist_path(ca_path: &Path) -> PathBuf {
     viewer_allowlist_in(&role::pki_dir_of(ca_path))

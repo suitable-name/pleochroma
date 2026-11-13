@@ -1,11 +1,10 @@
 //! [`decode_asc_bytes`]: turns raw `.asc` file bytes into text, and
 //! [`parse_asc_bytes`]: decodes then parses in one step.
 //!
-//! `GemCAD` for Windows is an ANSI application, and 591 of the 5,759 real catalogue
-//! files (measured 2026-09-28) are not valid UTF-8: they carry Windows-1252 bytes
-//! such as `0xB0` (`°`) in an `H`, `F` or `G` line. Reading such a file with
-//! `read_to_string` fails outright, so every read site hands the raw bytes to
-//! [`decode_asc_bytes`] instead.
+//! `GemCAD` for Windows is an ANSI application, and many real files (591 of 5,759 in the
+//! reference catalogue) are not valid UTF-8: they carry Windows-1252 bytes such as `0xB0`
+//! (`°`) in an `H`, `F` or `G` line. `read_to_string` fails on such a file, so every read
+//! site hands the raw bytes to [`decode_asc_bytes`] instead.
 
 use super::{error::AscParseError, parse::parse_asc, schedule::AscSchedule};
 use crate::encoding::decode_windows_1252_or_utf8;

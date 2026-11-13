@@ -14,20 +14,13 @@ use std::{
     },
 };
 
-/// A scripted, in-memory [`LibraryTransport`] -- no socket, no TLS, no real
-/// `pleochroma-worker`. Counts how many times each request kind is made so tests can
-/// pin the "no-op second sync costs nothing but one `SearchPage` per page" claim
-/// precisely, and pages `search_result` at [`Self::page_size`] rows per
-/// `SearchPage` reply -- a scripted stand-in for `apps/pleochroma-worker`'s own
-/// `SEARCH_RESULT_CAP`-per-page behavior, small enough in tests to exercise a real
-/// multi-page walk without seeding a thousand-plus rows.
+/// A scripted, in-memory [`LibraryTransport`] with no socket, TLS or real worker. It counts each
+/// request kind, so tests can assert exact call counts. It pages `search_result` at
+/// [`Self::page_size`] rows per `SearchPage` reply, so a multi-page walk needs only a few rows.
 pub(super) struct FakeTransport {
     search_result: Vec<DesignSummary>,
-    /// How many `search_result` rows one `SearchPage` reply hands back. Defaults
-    /// (via [`Self::new`]) to `usize::MAX` -- one page always covers the whole
-    /// `search_result` list -- so every pre-existing single-page test keeps making
-    /// exactly one `SearchPage` call, unchanged; [`Self::with_page_size`] shrinks it
-    /// for a test that specifically wants to exercise pagination.
+    /// How many `search_result` rows one `SearchPage` reply hands back. Defaults to
+    /// `usize::MAX`, so one page holds the whole list. [`Self::with_page_size`] shrinks it.
     page_size: usize,
     designs: HashMap<i64, DesignRecord>,
     attachments: HashMap<i64, (String, Vec<u8>)>,
@@ -38,13 +31,10 @@ pub(super) struct FakeTransport {
     /// lets a test assert WHICH designs were (not) re-fetched, not just a count.
     pub(super) fetched_entry_ids: RefCell<Vec<i64>>,
     /// When `Some(id)`, [`LibraryRequest::FetchDesign`] for that entry id returns a
-    /// transport-level [`library_client::LibraryClientError::Client`] error instead
-    /// of a normal reply -- standing in for a `LibrarySession` whose held connection
-    /// dropped mid-sync AND whose own reconnect attempt then also failed (see
-    /// `library_client::request_with_reconnect`'s "propagates the error when
-    /// reconnecting also fails" case): a genuine transport failure reaching
-    /// `super::pass::run_mirror_sync`, not a logical [`LibraryResponse::NotFound`].
-    /// Set via [`Self::with_fetch_design_failure`].
+    /// transport-level [`library_client::LibraryClientError::Client`] error instead of a reply.
+    /// This stands in for a held connection that dropped and could not be re-established (see
+    /// `library_client::request_with_reconnect`), so the error reaches the sync as a transport
+    /// failure, not as [`LibraryResponse::NotFound`]. Set via [`Self::with_fetch_design_failure`].
     fail_fetch_design_for: Option<i64>,
 }
 
@@ -68,10 +58,8 @@ impl FakeTransport {
         self
     }
 
-    /// Shrinks how many rows one `SearchPage` reply hands back, forcing
-    /// `super::super::catalogue::enumerate_remote_catalogue` into more than one round
-    /// trip for a `search_result` longer than `page_size`. See [`Self::page_size`]'s
-    /// own doc comment.
+    /// Shrinks how many rows one `SearchPage` reply hands back, so that
+    /// `catalogue::enumerate_remote_catalogue` makes more than one round trip.
     pub(super) fn with_page_size(mut self, page_size: usize) -> Self {
         self.page_size = page_size;
         self
@@ -109,9 +97,8 @@ impl LibraryTransport for FakeTransport {
                     .saturating_add(self.page_size)
                     .min(self.search_result.len());
                 let page = self.search_result[start..end].to_vec();
-                // Mirrors `apps/pleochroma-worker`'s own rule (see
-                // `serve::library::search_page`): a full page means "there may be
-                // more", a short page means "this was the last one".
+                // Mirrors the worker's rule (`serve::library::search_page`): a full page
+                // may be followed by more, a short page is the last one.
                 let next_cursor = if page.len() == self.page_size {
                     page.last().map(|s| s.entry_id)
                 } else {
@@ -120,9 +107,7 @@ impl LibraryTransport for FakeTransport {
                 Ok(LibraryResponse::SearchResultsPage {
                     results: page,
                     next_cursor,
-                    // This fake never models a performance filter -- see this
-                    // module's own doc comment on why `excluded_for_missing_curves`
-                    // is always `0` for a `SearchPage` reply in practice.
+                    // No performance filter is modelled, so nothing is excluded.
                     excluded_for_missing_curves: 0,
                 })
             }
@@ -170,15 +155,8 @@ impl LibraryTransport for FakeTransport {
 
 /// A fresh, empty temp database for one test.
 ///
-/// The counter plus `process::id()` make the name unique WITHIN a run, but not
-/// ACROSS runs: a run that dies before cleanup (a panicking test, a killed
-/// `cargo test`) leaks its file, and the OS reuses process ids freely. A later run
-/// whose pid and counter both collide with a leaked file would open a
-/// PRE-POPULATED database and fail spuriously against stale data, with the
-/// assertions themselves innocent.
-///
-/// Deleting any pre-existing file first removes the failure mode entirely, rather
-/// than merely making a collision less likely.
+/// The file name holds the process id and a counter. A file left behind under the same name
+/// is removed first, so a stale database never leaks into a test.
 pub(super) fn temp_db() -> (Arc<Mutex<Database>>, std::path::PathBuf) {
     static COUNTER: AtomicUsize = AtomicUsize::new(0);
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -227,13 +205,9 @@ pub(super) fn design_record_at(
         facets_count: Some("57".to_string()),
         shape: Some("Round".to_string()),
         designer_info: Some("Capps, Jerry".to_string()),
-        // A mirror-sync fixture stands in for a design whose previews have never
-        // been generated -- the ordinary case for a freshly mirrored catalogue.
+        // No previews generated yet.
         preview_material: None,
-        // Likewise stand-ins for a design with no proportion/symmetry metadata on
-        // file yet -- these fields (added alongside `PROTOCOL_VERSION` v6) aren't
-        // what any test in this module exercises, so `None` keeps this fixture's
-        // existing shape rather than inventing values these tests never check.
+        // Not exercised by these tests.
         hw_ratio: None,
         tw_ratio: None,
         uw_ratio: None,
@@ -242,10 +216,7 @@ pub(super) fn design_record_at(
         symmetry_order: None,
         mirror_symmetry: None,
         designer: None,
-        // Stand-ins for a design with no citation/attachment/shape-category metadata
-        // on file yet -- these four fields (added alongside `PROTOCOL_VERSION` v15)
-        // aren't what any test in this module exercises either; see the comment on
-        // the ratio/symmetry fields just above.
+        // Not exercised by these tests either.
         source_citation: None,
         pdf_file: None,
         gem_file: None,
@@ -260,7 +231,7 @@ pub(super) fn design_record_at(
         }],
         attachments: Vec::new(),
         version: revision_token(url, revision),
-        // An unfrosted design, the ordinary case; the frosting test sets its own.
+        // Unfrosted; the frosting tests set their own.
         frosting: Vec::new(),
     }
 }
@@ -312,10 +283,9 @@ fn revision_token(url: &str, revision: u32) -> [u8; 32] {
     content_hash(&[b"revision", url.as_bytes(), &revision.to_le_bytes()])
 }
 
-/// A trivial, deterministic stand-in for the real server-side SHA-256 hash (see
-/// `apps/pleochroma-worker/src/serve/library/version_hash.rs`) -- this module never
-/// computes or checks the hash's own algorithm, only compares two hashes for equality, so
-/// any deterministic function of the "content" a test cares about is sufficient.
+/// A deterministic stand-in for the worker's SHA-256 content hash (see
+/// `apps/pleochroma-worker/src/serve/library/version_hash.rs`). The sync only compares hashes
+/// for equality, so any deterministic function of the test's content works.
 fn content_hash(parts: &[&[u8]]) -> [u8; 32] {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();

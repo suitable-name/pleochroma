@@ -5,10 +5,9 @@ import { SolidModel } from "../components/solid_model.slint";
 import { CuttingModeModel } from "../models/cutting_mode_model.slint";
 import { CmAxisPicture, CmBadge, CmButton, CmCard, CmChips, CmFact, CmIndexWheel, CmSchedule } from "cutting_mode_parts.slint";
 
-// The step itself: which step and which side of the stone, the code and the angle in large
-// type, the indices to tick off, and the meet, depth, cheater offset, tool and note. `angle-size`
-// comes from the screen (not from this panel's own width, which would make its height depend on
-// its width).
+// The current step: its side of the stone, code and angle in large type, the indices to tick
+// off, and the meet, depth, cheater, tool and note. `angle-size` comes from the screen, not from
+// the panel's own width (that would make its height depend on its width).
 component CmStepPanel inherits VerticalLayout {
     in property <length> angle-size: 56px;
     // Smaller type and a shorter axis picture on a narrow window.
@@ -88,8 +87,8 @@ component CmStepPanel inherits VerticalLayout {
         toggled(index) => { CuttingModeModel.chip-clicked(index); }
     }
 
-    // The facts: the tier's own name, then what it meets (`Crown Main: Meet P1, P2`), and the
-    // rest only when the step has it.
+    // The facts: the instruction (what the step meets, e.g. `Crown Main: Meet P1, P2`), then
+    // the optional rows, shown only when the step has them.
     CmFact {
         label: "Instruction";
         value: CuttingModeModel.meet-text;
@@ -263,13 +262,11 @@ component CmStrip inherits HorizontalLayout {
     }
 }
 
-// Cutting Mode: the cutting instructions one step per page, filling the window. See
-// `CuttingModeModel` (`models/cutting_mode_model.slint`) for what each property is and who
-// writes it. `app.slint` mounts it over the window while `CuttingModeModel.open`, with an
-// explicit `x`, `y`, `width` and `height` like the dialogs.
+// Cutting Mode: the cutting instructions one step per page, filling the window. The state is in
+// `CuttingModeModel` (`models/cutting_mode_model.slint`). `app.slint` mounts it over the window
+// while `CuttingModeModel.open`, with an explicit geometry like the dialogs.
 //
-// From the top: the header (title, the step's state, Close), the step strip, a notice line, the
-// body, and the footer (Previous, Mark Step Done, Next, Reset Progress, the keys).
+// From the top: the header, the step strip, a notice line, the body, and the footer.
 //
 // Body, window at least 1000 px wide: left the step card over the schedule, right the stone
 // with the index wheel beside it (below it in a narrower window). Narrower than 1000 px the
@@ -284,7 +281,7 @@ export component CuttingModeScreen inherits Rectangle {
     property <bool> compact: root.width < 520px;
     property <bool> ready: !CuttingModeModel.busy && CuttingModeModel.error == "";
     property <length> angle-size: root.wide ? 64px : (root.compact ? 40px : 52px);
-    // Mirrors the model, so that closing the Reset question hands the keyboard back.
+    // Mirrors the model, so that closing the reset question returns the keyboard focus.
     property <bool> confirm-open: CuttingModeModel.confirm-reset;
     changed confirm-open => {
         if !root.confirm-open {

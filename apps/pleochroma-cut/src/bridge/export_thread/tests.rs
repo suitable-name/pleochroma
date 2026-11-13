@@ -1,7 +1,5 @@
-//! `run_export` end-to-end tests: a valid PNG for a tiny scene, HDR-environment-map
-//! wiring, pre-set cancellation, and the wide-gamut export's byte-identity/ICC-profile
-//! requirements. Moved out of `mod.rs` alongside [`super::worker::run_export`] to keep
-//! that file from growing further.
+//! `run_export` end-to-end tests: a valid PNG for a tiny scene, HDR-environment-map wiring,
+//! pre-set cancellation, and the wide-gamut export's byte-identity and ICC-profile output.
 
 use super::*;
 use pleochroma::{
@@ -10,6 +8,7 @@ use pleochroma::{
 };
 
 #[test]
+#[ignore = "over 60 s in the workspace run (2026-11-08); run on request: scripts/run_tests_on_request.sh"]
 fn run_export_produces_a_valid_png_for_a_tiny_scene() {
     let scene = SceneSnapshot {
         camera_roll: 0.0,
@@ -31,8 +30,12 @@ fn run_export_produces_a_valid_png_for_a_tiny_scene() {
         fluorescence: std::sync::Arc::default(),
         facet_finishes: Vec::new(),
         env_map: None,
+        hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
         surface_glare: 1.0,
         head_shadow_deg: 16.0,
+        stone_shadow: false,
+        tray_reflection: 0.0,
+        stone_closed: true,
     };
     let params = ExportParams {
         engine: pleochroma::renderer::engine::EngineSpec::default(),
@@ -78,13 +81,12 @@ fn run_export_produces_a_valid_png_for_a_tiny_scene() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// An HDR-carrying `SceneSnapshot` (`env_map: Some(..)`) must still produce a valid,
-/// completed export. `LocalComputeTarget::CpuGpu` is used deliberately (not `Cpu`) so
-/// this exercises the same code path a real hybrid export would: on a `gpu` build
-/// with a real adapter, `GpuBackend::try_accumulate` declines every batch here (no
-/// `env_mode` for `HdrMap`) and every sample falls through to the CPU tracer -- this
-/// test's job is only to prove the HDR map reaches that point at all.
+/// A `SceneSnapshot` with an HDR environment map (`env_map: Some(..)`) must still produce a
+/// valid, completed export. `LocalComputeTarget::CpuGpu` exercises the same path as a hybrid
+/// export: with a GPU, `GpuBackend::try_accumulate` declines every batch for `HdrMap`, and the
+/// samples fall through to the CPU tracer.
 #[test]
+#[ignore = "over 60 s in the workspace run (2026-11-08); run on request: scripts/run_tests_on_request.sh"]
 fn run_export_with_an_hdr_environment_map_still_produces_a_valid_png() {
     let scene = SceneSnapshot {
         camera_roll: 0.0,
@@ -108,8 +110,12 @@ fn run_export_with_an_hdr_environment_map_still_produces_a_valid_png() {
         env_map: Some(std::sync::Arc::new(
             pleochroma::renderer::env_map::EnvironmentMap::uniform(4, 4, [0.5, 0.5, 0.5]),
         )),
+        hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
         surface_glare: 1.0,
         head_shadow_deg: 16.0,
+        stone_shadow: false,
+        tray_reflection: 0.0,
+        stone_closed: true,
     };
     let params = ExportParams {
         engine: pleochroma::renderer::engine::EngineSpec::default(),
@@ -169,8 +175,12 @@ fn run_export_honors_pre_set_cancellation_and_writes_no_file() {
         fluorescence: std::sync::Arc::default(),
         facet_finishes: Vec::new(),
         env_map: None,
+        hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
         surface_glare: 1.0,
         head_shadow_deg: 16.0,
+        stone_shadow: false,
+        tray_reflection: 0.0,
+        stone_closed: true,
     };
     let params = ExportParams {
         engine: pleochroma::renderer::engine::EngineSpec::default(),
@@ -226,14 +236,19 @@ fn tiny_scene() -> SceneSnapshot {
         fluorescence: std::sync::Arc::default(),
         facet_finishes: Vec::new(),
         env_map: None,
+        hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
         surface_glare: 1.0,
         head_shadow_deg: 16.0,
+        stone_shadow: false,
+        tray_reflection: 0.0,
+        stone_closed: true,
     }
 }
 
-/// An `Srgb` export must produce bytes IDENTICAL regardless of which `save_png` code
-/// path runs, down to the raw bytes.
+/// Two `Srgb` exports of the same scene must produce identical bytes, exercising the `Srgb`
+/// branch of `save_png`.
 #[test]
+#[ignore = "over 60 s in the workspace run (2026-11-08); run on request: scripts/run_tests_on_request.sh"]
 fn srgb_export_is_byte_identical_regardless_of_which_save_png_path_runs() {
     let scene = tiny_scene();
     let params = ExportParams {
@@ -244,8 +259,7 @@ fn srgb_export_is_byte_identical_regardless_of_which_save_png_path_runs() {
         max_bounces: 4,
     };
 
-    // Two full deterministic renders through `run_export`'s public entry point must
-    // agree byte-for-byte, exercising `save_png`'s `Srgb` branch directly.
+    // Two deterministic renders through `run_export` must agree byte for byte.
     let dir = std::env::temp_dir().join(format!(
         "pleochroma-cut-srgb-identity-test-{}",
         std::process::id()
@@ -292,10 +306,10 @@ fn srgb_export_is_byte_identical_regardless_of_which_save_png_path_runs() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// A non-`Srgb` export must carry an embedded ICC profile (`iCCP` PNG chunk) --
-/// the whole point of `bridge::icc_profile`: an untagged wide-gamut PNG is
-/// silently misread as sRGB by every viewer.
+/// A non-`Srgb` export must carry an embedded ICC profile (`iCCP` PNG chunk). Without one,
+/// viewers read a wide-gamut PNG as sRGB. See `bridge::icc_profile`.
 #[test]
+#[ignore = "over 60 s in the workspace run (2026-11-08); run on request: scripts/run_tests_on_request.sh"]
 fn wide_gamut_export_embeds_an_icc_profile_chunk() {
     for color_space in [ColorSpace::DisplayP3, ColorSpace::Rec2020] {
         let scene = tiny_scene();

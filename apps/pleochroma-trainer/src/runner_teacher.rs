@@ -16,9 +16,9 @@
 /// carries a run of expensive labelled steps while another carries none. The operands are
 /// reduced first, so a wrapped pass counter cannot overflow.
 ///
-/// The schedule it replaced summed the sample index and the pass count; with `n` slots that sum
-/// moves by `n + 1` per pass, so whenever `n + 1` was a multiple of `every` (27 slots with
-/// period 2, say) the same slots labelled every pass of the run.
+/// The slot index and the pass are each reduced modulo the period before they are added: an
+/// unreduced sum moves by `n + 1` per pass with `n` slots, so when `n + 1` is a multiple of
+/// `every` (27 slots, period 2) the same slots would label every pass.
 pub(super) const fn labels_pass(every: usize, pass: usize, slot: usize) -> bool {
     every > 0 && (pass % every + slot % every).is_multiple_of(every)
 }

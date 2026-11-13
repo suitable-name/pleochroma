@@ -15,8 +15,8 @@
 //!   [`MAX_RETARGET_ANGLE_DEG`]; a row held at one of those limits says so.
 //! - A flat tier (the table at `+0.0`, the culet at `-0.0`, any other horizontal plane) is
 //!   listed so the cutter sees it stays put, but it is never moved: the angle of a flat
-//!   plane has no critical-angle meaning, and "shifting" it is what used to flip the
-//!   table onto the pavilion side.
+//!   plane has no critical-angle meaning, and shifting it would flip the table onto the
+//!   pavilion side.
 //! - Girdle tiers are not listed at all: they are structural, not optical.
 //! - A tier whose angle follows a relation (`P2 = P1 - 2`) is listed too, but it is never
 //!   shifted on its own: it moves with the tiers it reads. Its row carries the relation
@@ -201,7 +201,7 @@ pub struct PlanRow {
 }
 
 impl PlanRow {
-    /// The row as the older [`RetargetRow`] the web app and the Optimize path use.
+    /// The row as a [`RetargetRow`], the type the web app and the Optimize path use.
     ///
     /// A row with no margin (a crown row of a design with no pavilion) reads `0.0` and
     /// [`Risk::Safe`] there: that type has no way to say "not applicable".
@@ -277,7 +277,7 @@ impl RetargetPlan {
     ///
     /// A moving row that `angles` does not name keeps its old angle. The tiers that follow
     /// a relation, the margins and the risks are worked out again for the new angles; the
-    /// notes are rebuilt (the shift guard's notes no longer apply).
+    /// notes are rebuilt (the shift guard's notes do not apply).
     #[must_use]
     pub fn with_angles(&self, design: &Design, angles: &[(usize, f64)]) -> Self {
         let mut rows = self.rows.clone();
@@ -296,7 +296,7 @@ impl RetargetPlan {
             }
         }
         let relation_error = complete_rows(design, &mut rows, self.n_to);
-        // The angles no longer come from the shift formula, so the crown-follows-pavilion
+        // The angles do not come from the shift formula, so the crown-follows-pavilion
         // note does not apply: no stretch is passed.
         let mut notes = build_notes(RetargetMode::Shift, self.n_from, self.n_to, self.crown, 1.0);
         if rows.iter().any(|row| !row.moves && row.follows.is_none()) {
@@ -320,7 +320,7 @@ impl RetargetPlan {
         }
     }
 
-    /// The rows that actually move, as the older proposal type.
+    /// The rows that actually move, as a [`RetargetProposal`].
     #[must_use]
     pub fn proposal(&self) -> RetargetProposal {
         RetargetProposal {

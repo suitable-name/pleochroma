@@ -53,9 +53,9 @@ pub(super) const fn view_live_render() -> Command {
         "render ray trace view tab",
         Some("Ctrl+E"),
         VIEW_TABS,
-        // Fires the view pill's callback even when Live Render is already showing (the start-up
-        // view): the tutorial step "Open Live Render" runs this command and waits for that
-        // callback's event, which a plain view switch never raises from the view it is in.
+        // Fires the view pill's callback even when Live Render is already shown (the start-up
+        // view), which a plain view switch never does. Tutorial steps that wait for the pill's
+        // event rely on it.
         run::enter_live_render_view,
     )
 }

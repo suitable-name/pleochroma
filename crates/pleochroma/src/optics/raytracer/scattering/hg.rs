@@ -30,9 +30,10 @@ use glam::Vec3;
 ///
 /// `alphas` is the caller's precomputed [`channel_absorption_alphas_assigned`] result
 /// (computed once in `try_scatter_step` below) rather than derived internally, so
-/// `shaders/transport_physics.wgsl`'s WGSL translation can share this exact signature.
+/// `shaders/transport_physics/04_scattering.wgsl`'s WGSL translation can share this exact
+/// signature.
 ///
-/// # The estimator, hazard by hazard
+/// # The estimator
 ///
 /// 1. **Extinction, not absorption.** `sigma_t = sigma_a + sigma_s` (`sigma_a` is this
 ///    channel's chromatic [`channel_absorption_alphas_assigned`] value, unchanged from
@@ -49,10 +50,9 @@ use glam::Vec3;
 ///    technique density for the final `spectral_mis_weight` combination. For
 ///    `k == hero_idx` both branches collapse to `sigma_s / sigma_t_hero` (the
 ///    single-scattering albedo) and exactly `1.0` -- the standard unbounded-free-path-
-///    sampling identities. Genuinely different estimator SHAPE than `apply_absorption`'s
-///    deterministic `exp(-alpha*path_len)` (unbiased only in expectation), which is why
-///    this is gated behind `scattering_sigma_s > 0.0` rather than relied on to reduce
-///    to the old path algebraically at `sigma_s -> 0`.
+///    sampling identities. The estimator's shape differs from `apply_absorption`'s
+///    deterministic `exp(-alpha * path_len)`, so it runs only for a material that
+///    scatters (`GemMaterial::scatters`: haze or oriented inclusions).
 /// 3. **HG phase/pdf cancellation.** [`sample_henyey_greenstein_direction`]
 ///    importance-samples exactly the HG phase function's own normalized distribution,
 ///    so `phase / pdf == 1.0` identically -- mirroring `cosine_weighted_hemisphere`'s
@@ -62,9 +62,9 @@ use glam::Vec3;
 ///    `scattering_g`) are sampled and reused for every channel, so -- unlike the
 ///    polished path's `direction_matches` guard -- there is no chromatic-termination
 ///    check: there is only ever one direction to match.
-/// 5. **New, decorrelated RNG streams** ([`DISTANCE_SAMPLE_STREAM`],
+/// 5. **Decorrelated RNG streams** ([`DISTANCE_SAMPLE_STREAM`],
 ///    [`PHASE_DIR_U_STREAM`], [`PHASE_DIR_V_STREAM`]), mirrored bit-for-bit in
-///    `shaders/transport_physics.wgsl`.
+///    `shaders/transport_physics/04_scattering.wgsl`.
 ///
 /// # Depolarization
 ///
@@ -111,7 +111,7 @@ pub(crate) fn maybe_scatter_or_extinguish(
 
     let dist_rand =
         (hash_u32(rng_seed ^ hash_u32(bounce ^ DISTANCE_SAMPLE_STREAM)) as f32) / 4_294_967_295.0;
-    // Unbounded exponential free-path sample (see hazard 2 above). `one_minus_u` is
+    // Unbounded exponential free-path sample (see point 2 of the doc). `one_minus_u` is
     // reused as `pdf_hero` below (`exp(-sigma_t_hero * t_free) == one_minus_u`
     // algebraically) rather than recomputing the exponential. `t_free` is in
     // ABSORPTION-LENGTH units (same as `alphas`/`sigma_s`), converted back below.
@@ -200,7 +200,8 @@ pub(in super::super) struct ZonedScatterParams {
 /// * scatter: `weight_k = tr_k * sigma_s / pdf_hero` with `tr_k = exp(-tau_k(t_free))`,
 ///   `pdf_hero = sigma_t_hero(x) * exp(-tau_h(t_free))` (the same `one_minus_u`), and
 ///   `path_pdf[k] *= sigma_t_k(x) * tr_k`;
-/// * survive: `survive_k = exp(-tau_k(hit_t))`, normalised by the hero's, `path_pdf[k] *= survive_k`.
+/// * survive: `survive_k = exp(-tau_k(hit_t))`, normalised by the hero's;
+///   `path_pdf[k] *= survive_k`.
 ///
 /// For a single zone covering the segment this reduces to [`maybe_scatter_or_extinguish`] up to
 /// the bisection's rounding. `zone_alphas` are the per-zone per-channel coefficients of
@@ -352,10 +353,8 @@ fn scatter_or_survive(
 /// What [`try_scatter_step`] found, and what `trace_spectral_ray_inner`'s bounce loop
 /// should do about it.
 ///
-/// `pub(in super::super)` (raytracer + descendants), not `pub(super)`: `transport`'s
-/// bounce loop (a sibling of `scattering`, not a descendant of it) consumes this
-/// directly -- the same scope this type had before the split, when it lived straight
-/// in `scattering.rs` (parent: `raytracer`).
+/// Visible to `raytracer` and its descendants: `transport`'s bounce loop, a sibling of
+/// `scattering`, consumes it directly.
 pub(in super::super) enum ScatterStepOutcome {
     /// `material.scattering_sigma_s <= 0.0` -- skipped entirely (no RNG draw, no
     /// extinction applied). Caller falls through to the plain facet-dispatch code,
@@ -453,12 +452,9 @@ pub(in super::super) fn try_scatter_step(
     split_radiance: &mut [f32; NUM_CHANNELS],
     nee: NeeContext<'_>,
     lambdas: &[f32; NUM_CHANNELS],
-    // The final XYZ output's own NEE accumulator (`trace_spectral_ray_inner`'s
-    // `nee_xyz`) -- see F-09b / this function's own "NEE spectral weighting" doc note
-    // below for why a scattering-point NEE deposit is integrated to XYZ HERE, using
-    // THIS moment's own `path_pdf`/`compat`, rather than folded into the shared
-    // `radiance` array the way it was before (which let it drift, wrongly, onto
-    // whatever `path_pdf` the REST of the path happened to end up with).
+    // The XYZ output's NEE accumulator (`trace_spectral_ray_inner`'s `nee_xyz`). The
+    // deposit is integrated to XYZ here with this event's own `path_pdf`/`compat`, not the
+    // final ones of the whole path; see the "NEE spectral weighting" note below.
     nee_xyz: &mut Vec3,
     // `trace_spectral_ray_inner`'s own `enable_exit_splitting` parameter and this
     // moment's `exit_split_ctx.compat` snapshot -- see `nee_xyz`'s doc comment above.
@@ -533,19 +529,13 @@ pub(in super::super) fn try_scatter_step(
     // the phase-sampled continuation below. A no-op (no RNG draw, no accumulator touch)
     // whenever `!nee.enabled`.
     //
-    // # NEE spectral weighting (F-09b)
+    // # NEE spectral weighting
     //
-    // This deposit is a complete, self-contained direct-lighting sample: it must be
-    // combined into XYZ using `path_pdf`/`compat` AS THEY STAND RIGHT NOW (this
-    // scattering event's own per-channel technique densities), never the FINAL
-    // `path_pdf`/`compat` the rest of the path -- unrelated further bounces this same
-    // sample has no bearing on -- happens to end up with. Depositing into a fresh local
-    // buffer and integrating it immediately, added into the caller's own running
-    // `nee_xyz` (unconditionally, exactly like the old shared-`radiance` deposit was
-    // always summed regardless of how the loop eventually terminated -- Russian
-    // roulette's `apply_russian_roulette` rescales `stokes`/`split_radiance` only,
-    // never `radiance`/`nee_xyz`), fixes this without changing that unconditional
-    // inclusion.
+    // This deposit is a self-contained direct-lighting sample, so it is combined into XYZ
+    // with `path_pdf`/`compat` as they stand now (this event's own technique densities),
+    // not the final values after the rest of the path. It is added to `nee_xyz`
+    // unconditionally: Russian roulette rescales `stokes`/`split_radiance` only, never
+    // `nee_xyz`.
     let mut nee_deposit = [0.0f32; NUM_CHANNELS];
     // The shadow ray's own extinction. `alphas` above belongs to the segment that led
     // HERE (evaluated at `*current_k`, the direction the ray arrived along), which is not
@@ -601,7 +591,7 @@ pub(in super::super) fn try_scatter_step(
     // here" (the latter would legitimately give the escape branch full weight too, but
     // via `balance_heuristic`'s own degenerate-input handling, not by skipping it).
     let phase_pdf_for_mis =
-        (nee.enabled && matches!(nee.environment, EnvironmentSource::HdrMap(_))).then(|| {
+        (nee.enabled && matches!(nee.environment, EnvironmentSource::HdrMap { .. })).then(|| {
             (
                 henyey_greenstein_phase(new_dir.dot(old_dir), material.scattering_g),
                 new_dir,
@@ -624,7 +614,7 @@ pub(in super::super) fn try_scatter_step(
 /// [`crate::optics::materials::GemMaterial::scattering_g`]. `g == 0.0` reduces to the
 /// isotropic constant `1 / (4*pi)`.
 ///
-/// Not called by [`maybe_scatter_or_extinguish`]'s own estimator (hazard 3:
+/// Not called by [`maybe_scatter_or_extinguish`]'s own estimator (point 3 of its doc:
 /// [`sample_henyey_greenstein_direction`] importance-samples this exact distribution,
 /// so `phase / pdf` cancels to `1.0` and is never evaluated at a real scattering event).
 ///
@@ -661,7 +651,7 @@ pub(crate) fn henyey_greenstein_phase(cos_theta: f32, g: f32) -> f32 {
 ///
 /// Because this samples exactly [`henyey_greenstein_phase`]'s own distribution,
 /// `henyey_greenstein_phase(dot(result, forward), g) / pdf(result) == 1.0` for every
-/// `(u1, u2, g)` -- see [`maybe_scatter_or_extinguish`] hazard 3.
+/// `(u1, u2, g)` -- see [`maybe_scatter_or_extinguish`] point 3.
 #[must_use]
 pub(crate) fn sample_henyey_greenstein_direction(u1: f32, u2: f32, g: f32, forward: Vec3) -> Vec3 {
     let cos_theta = if g.abs() < 1e-3 {

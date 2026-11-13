@@ -76,8 +76,8 @@ component VerdictAction inherits Rectangle {
 export component VerdictPopover inherits PopupWindow {
     // `close-on-click-outside` gives the popup real click-outside-to-close.
     close-policy: PopupClosePolicy.close-on-click-outside;
-    // 360px, not 400: opened above the status strip's badge it must stay clear of the
-    // guide panel docked to its right.
+    // 360px: opened above the status strip's badge, it must stay clear of the guide panel
+    // docked to its right.
     width: 360px;
     height: outer.preferred-height;
 
@@ -174,10 +174,9 @@ export component VerdictPopover inherits PopupWindow {
                     }
                 }
 
-                // The verdict as one plain sentence. Dot-free: the word beside the title
-                // already carries the level. The three notes below are each sized by their
-                // own wrapped height (a wrapped Text in a layout reports one line, so the
-                // popup came out too short and its last reason was clipped).
+                // The verdict as one plain sentence. The word beside the title carries the
+                // level. Each note is sized to its own wrapped height: a wrapped Text in a
+                // layout reports one line.
                 Rectangle {
                     height: headline_text.preferred-height;
                     headline_text := Text {
@@ -242,7 +241,7 @@ export component VerdictPopover inherits PopupWindow {
                             // HorizontalLayout reports a one-line height).
                             Rectangle {
                                 height: reason_text.preferred-height;
-                                // The dot's colour carries the level, so a screen reader is told it.
+                                // The dot's colour carries the level; the label says it too.
                                 accessible-role: AccessibleRole.text;
                                 accessible-label: (r.level >= 2 ? "Problem: " : (r.level == 1 ? "Check: " : "Good: ")) + r.text;
                                 Rectangle {

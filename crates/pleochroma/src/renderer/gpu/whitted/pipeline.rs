@@ -3,7 +3,6 @@ use crate::renderer::gpu::{GpuContext, compute};
 
 pub struct WhittedGpuRenderer {
     pub(super) id: u64,
-    pub(super) ctx: GpuContext,
     pub(super) pipeline: wgpu::ComputePipeline,
     /// Latest uploaded HDR environment; dies with this renderer (a lost device replaces it).
     pub(super) environment_cache: super::env_cache::EnvironmentCache,
@@ -12,6 +11,9 @@ pub struct WhittedGpuRenderer {
     pub(super) slots: [Option<super::native_dispatch::Slot>; 2],
     #[cfg(not(target_arch = "wasm32"))]
     pub(super) timing: super::native_dispatch::ChunkTiming,
+    /// The device. Declared last on purpose: the pipeline and the buffers above drop first,
+    /// so the context's last clone tears the device down inside its lifecycle turn.
+    pub(super) ctx: GpuContext,
 }
 
 static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
@@ -27,7 +29,7 @@ impl WhittedGpuRenderer {
         pollster::block_on(Self::new_async())
     }
 
-    /// Genuine asynchronous adapter acquisition for browser clients.
+    /// Asynchronous adapter acquisition for browser clients.
     ///
     /// # Errors
     ///

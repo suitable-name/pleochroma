@@ -15,7 +15,7 @@ use pleochroma::{
         materials::GemMaterial,
         raytracer::{Camera, DEFAULT_FOV_DEG, EnvironmentSource, FacetFinish, LightingPreset},
     },
-    renderer::env_map::EnvironmentMap,
+    renderer::env_map::{EnvRotation, EnvironmentMap},
 };
 use std::sync::Arc;
 #[derive(Clone)]
@@ -35,6 +35,9 @@ pub struct OpticalSnapshot {
     pub light_pose: [f32; 2],
     pub head_shadow: f32,
     pub hdr: Option<Arc<EnvironmentMap>>,
+    /// The turn of [`Self::hdr`] at the captured camera yaw (the map's yaw, plus the camera's
+    /// when the map follows it); the identity without a map.
+    pub hdr_rotation: EnvRotation,
     pub limitations: String,
 }
 impl OpticalSnapshot {
@@ -123,6 +126,9 @@ impl OpticalSnapshot {
             light_pose: [ctx.light_yaw, ctx.light_pitch],
             head_shadow: ctx.head_shadow_deg,
             hdr: ctx.env_map.clone(),
+            hdr_rotation: ctx.env_map.as_ref().map_or(EnvRotation::IDENTITY, |_| {
+                ctx.hdr_orientation().rotation_for(ctx.yaw)
+            }),
             limitations: notices.join(" "),
         })
     }
@@ -146,7 +152,7 @@ impl OpticalSnapshot {
                     .studio(1.0, self.light_pose[0], self.light_pose[1])
                     .with_head_shadow(self.head_shadow)
             },
-            EnvironmentSource::HdrMap,
+            |map| EnvironmentSource::hdr(map).with_hdr_rotation(self.hdr_rotation),
         )
     }
     /// Optical identity excludes presentation, exposure, beauty sample and bounce targets.
@@ -158,6 +164,7 @@ impl OpticalSnapshot {
             && self.lighting == other.lighting
             && self.light_pose.map(f32::to_bits) == other.light_pose.map(f32::to_bits)
             && self.head_shadow.to_bits() == other.head_shadow.to_bits()
+            && self.hdr_rotation == other.hdr_rotation
             && (Arc::ptr_eq(&self.planes, &other.planes) || self.planes == other.planes)
             && (Arc::ptr_eq(&self.tools, &other.tools) || self.tools == other.tools)
             && (Arc::ptr_eq(&self.finishes, &other.finishes) || self.finishes == other.finishes)
@@ -198,6 +205,26 @@ mod tests {
         )]);
         let tools = capture(&mut ctx);
         assert!(!material.same_input(&tools));
+    }
+    /// The overlay is scored under the turned map: another yaw is another optical input, and a
+    /// map that follows the camera carries the camera's yaw in.
+    #[test]
+    fn a_turned_hdr_map_is_part_of_the_optical_input() {
+        let mut ctx = RenderContext {
+            env_map: Some(Arc::new(EnvironmentMap::uniform(2, 2, [1.0, 1.0, 1.0]))),
+            ..RenderContext::default()
+        };
+        let plain = capture(&mut ctx);
+        assert!(plain.hdr_rotation.is_identity());
+        ctx.hdr_yaw = 0.7;
+        let turned = capture(&mut ctx);
+        assert!(!turned.hdr_rotation.is_identity());
+        assert!(!plain.same_input(&turned));
+        ctx.hdr_yaw = 0.0;
+        ctx.hdr_follows_camera = true;
+        ctx.yaw = 0.7;
+        let following = capture(&mut ctx);
+        assert_eq!(following.hdr_rotation, turned.hdr_rotation);
     }
     #[test]
     fn the_snapshot_carries_the_finishes_the_viewport_draws() {

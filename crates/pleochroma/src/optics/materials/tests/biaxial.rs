@@ -9,11 +9,8 @@ use crate::optics::{
 };
 use glam::Vec3;
 
-/// Only the six orthorhombic (biaxial) built-ins -- Alexandrite, Topaz,
-/// Tanzanite, and Chrysoberyl (Yellow), Peridot, Andalusite
-/// -- should carry biaxial principal-index data; every other material (isotropic
-/// or uniaxial) must resolve to `None`, keeping them on the existing uniaxial code
-/// path unchanged.
+/// The nine biaxial built-ins listed below expose a biaxial indicatrix. Every other material
+/// (isotropic or uniaxial) resolves to `None` and stays on the uniaxial code path.
 #[test]
 fn only_biaxial_materials_expose_a_biaxial_indicatrix() {
     let biaxial_names = [
@@ -44,13 +41,9 @@ fn only_biaxial_materials_expose_a_biaxial_indicatrix() {
         }
     }
 }
-/// Each biaxial built-in's indicatrix must order its three principal indices
-/// `n_alpha` <= `n_beta` <= `n_gamma`; must place `n_beta` exactly at the
-/// material's own base dispersion curve (the documented convention); and must
-/// place `n_gamma` minus `n_alpha` exactly at the material's own
-/// `birefringence_delta` (its pre-existing "or max-min" meaning, unchanged) --
-/// pinning the `biaxial_indicatrix` wiring itself, independent of whether the
-/// underlying `biaxial_delta_beta_alpha` numbers are later refined.
+/// Each biaxial built-in's indicatrix orders its principal indices
+/// `n_alpha <= n_beta <= n_gamma`, places `n_beta` on the base dispersion curve, and places
+/// `n_gamma - n_alpha` at `birefringence_delta`. This pins the wiring of `biaxial_indicatrix`.
 #[test]
 fn biaxial_indicatrix_is_internally_consistent_with_existing_fields() {
     for name in ["Alexandrite", "Topaz", "Tanzanite"] {
@@ -81,28 +74,12 @@ fn biaxial_indicatrix_is_internally_consistent_with_existing_fields() {
         );
     }
 }
-/// `optical_character`'s `BiaxialPositive`/`BiaxialNegative`
-/// sign must actually match the three principal indices `biaxial_indicatrix`
-/// builds from `dispersion` (equal to `n_beta`), `biaxial_delta_beta_alpha` (equal
-/// to `n_beta` minus `n_alpha`) and `birefringence_delta` (equal to `n_gamma`
-/// minus `n_alpha`) -- optic sign is determined by where `n_beta` sits between
-/// `n_alpha` and `n_gamma`: positive when beta sits closer to alpha (`n_beta`
-/// minus `n_alpha` is less than `n_gamma` minus `n_beta`), negative when it sits
-/// closer to gamma (`n_beta` minus `n_alpha` is greater than `n_gamma` minus
-/// `n_beta`). This caught the Tanzanite entry shipping
-/// `biaxial_delta_beta_alpha: Some(0.0070)` against `birefringence_delta: 0.0130`
-/// under a declared `BiaxialPositive`: 0.0070 is greater than 0.0130 minus 0.0070
-/// equals 0.0060, which is actually NEGATIVE. Fixed by re-deriving
-/// `biaxial_delta_beta_alpha` from Hurlbut's per-specimen tanzanite indices
-/// (American Mineralogist 54, 702 (1969): `n_alpha` = 1.6925, `n_beta` = 1.6943,
-/// `n_gamma` = 1.7015; re-based on 2026-10-26, the earlier triplet 1.6915 / 1.6935 /
-/// 1.7020 and the 0.0130 / 0.0025 pair were not Hurlbut's) rather than the
-/// independent-range midpoints the old comment
-/// used -- see the field's own comment on the Tanzanite entry above. Runs over
-/// every built-in with `biaxial_delta_beta_alpha: Some(_)` (not just Tanzanite) so
-/// this stays a live guard against the same mistake recurring on Alexandrite,
-/// Topaz, Chrysoberyl (Yellow), Peridot or Andalusite, or on any future biaxial
-/// built-in.
+/// `optical_character`'s `BiaxialPositive`/`BiaxialNegative` sign must match the principal
+/// indices `biaxial_indicatrix` builds: `n_beta` is at `dispersion`, `n_alpha` at
+/// `n_beta - biaxial_delta_beta_alpha`, `n_gamma` at `n_alpha + birefringence_delta`. The sign
+/// is set by where `n_beta` sits between them: positive when it is closer to `n_alpha`
+/// (`n_beta - n_alpha < n_gamma - n_beta`), negative when closer to `n_gamma`. Runs over every
+/// built-in with `biaxial_delta_beta_alpha` set, so a spread on the wrong side fails.
 #[test]
 fn biaxial_sign_matches_optical_character() {
     for material in GemMaterial::all_materials() {
@@ -139,16 +116,11 @@ fn biaxial_sign_matches_optical_character() {
         }
     }
 }
-/// Trichroism convention pin for Alexandrite's own shipped data (the same
-/// discipline `birefringence::biaxial_reduction_tests` applies with synthetic
-/// coefficients, applied here to the real entry, measured GRR 874 rays in Farrell & Newnham's axes):
-/// each principal direction's band set must carry the qualitative amplitude
-/// pattern the cited pleochroic colors dictate, and feeding the shipped band
-/// sums through the REAL `AbsorptionTensor3::biaxial` constructor must land each
-/// one on its own world axis (alpha -> +X, beta -> Z, gamma -> +Y for
-/// `c_axis = Vec3::Y`, per `stable_orthonormal_basis`'s pinned construction) --
-/// so a future swap of the alpha/beta/gamma argument order, or of the axis
-/// convention underneath, fails loudly instead of silently recoloring the stone.
+/// Trichroism convention pin for Alexandrite's shipped data (measured GRR 874 rays in Farrell &
+/// Newnham's axes). Each principal direction's band set must carry the amplitude pattern of the
+/// cited pleochroic colors, and the band sums fed through the real `AbsorptionTensor3::biaxial`
+/// constructor must land on their world axes (alpha -> +X, beta -> Z, gamma -> +Y for
+/// `c_axis = Vec3::Y`). A swapped argument order or axis convention fails here.
 #[test]
 fn alexandrite_trichroic_band_sets_follow_the_cited_pleochroic_pattern() {
     let alex =
@@ -171,8 +143,7 @@ fn alexandrite_trichroic_band_sets_follow_the_cited_pleochroic_pattern() {
     // 4T2 system (yellow-to-red region, evaluated at F&N's 595nm gamma centre):
     // gamma (crystal b, GREEN -- absorbs "both red and yellow") strongest, alpha
     // (crystal c, RED) intermediate, beta (crystal a, YELLOW -- red/yellow left
-    // open) weakest, the order of F&N's Fig. 4 and of the measured data (2026-11-03:
-    // about 7.4, 3.3 and 1.0 per model unit).
+    // open) weakest, the order of F&N's Fig. 4 and of the measured data.
     let (t2_alpha, t2_beta, t2_gamma) = (
         sum_at(bands_alpha, 595.0),
         sum_at(bands_beta, 595.0),
@@ -221,16 +192,14 @@ fn alexandrite_trichroic_band_sets_follow_the_cited_pleochroic_pattern() {
         );
     }
 }
-/// Every new built-in must have an explicit birefringence sign/magnitude
-/// matching the target table below (a cheap, high-signal regression against
-/// a mistyped `birefringence_delta` literal).
+/// Each built-in's `birefringence_delta` matches the target table below (a regression guard
+/// against a mistyped literal).
 #[test]
 fn m4_new_species_match_their_target_birefringence() {
     let expected: &[(&str, f32, f32)] = &[
         ("Aquamarine", -0.006, 1e-4),
         ("Morganite", -0.006, 1e-4),
-        // Was 0.009 (a gem value) until the Walling principal curves landed (F4,
-        // owner decision 2026-10-22); the D-line spread of those curves is 0.007567.
+        // D-line spread of the Walling principal curves.
         ("Chrysoberyl (Yellow)", 0.007_567, 1e-4),
         ("Amethyst", 0.0091, 1e-4),
         ("Citrine", 0.0091, 1e-4),
@@ -247,7 +216,7 @@ fn m4_new_species_match_their_target_birefringence() {
             material.birefringence_delta
         );
     }
-    // The five garnets, YAG, GGG, Opal and the two glasses are isotropic --
+    // The six garnets, YAG, GGG, Opal and the two glasses are isotropic --
     // birefringence_delta must be exactly 0.0.
     for name in [
         "Pyrope Garnet",

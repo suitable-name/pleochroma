@@ -1,5 +1,8 @@
-//! Tests of the Bragg structure: the Bragg wavelength against its formula, the spectral profile,
-//! the majorant, the deterministic domain map, the per-design seed and the new built-ins.
+//! Tests of the Bragg structure.
+//!
+//! They check the Bragg wavelength against its formula, the spectral profile,
+//! the majorant, the deterministic domain map, the per-design seed and the structural-color
+//! built-ins.
 
 use super::{
     InclusionSet,
@@ -43,7 +46,7 @@ fn opal_bragg_wavelength_follows_the_lattice_formula() {
     assert!(relative_error(opal_effective_index(), n_eff) < 1e-6);
     let ratio = 2.0 * (2.0f64 / 3.0).sqrt() * n_eff;
     assert!(relative_error(opal_bragg_ratio(), ratio) < 1e-6);
-    // The plan's "about 2.33 D": D = 200 nm is blue, D = 270 nm red.
+    // About 2.33 D: D = 200 nm is blue, D = 270 nm red.
     assert!((opal_bragg_ratio() - 2.33).abs() < 0.01);
     assert!((opal_wavelength_nm(200.0) - 466.0).abs() < 2.0);
     assert!((opal_wavelength_nm(270.0) - 630.0).abs() < 2.0);
@@ -444,8 +447,8 @@ fn the_new_built_ins_have_their_catalogue_and_optics() {
     assert!((f_minus_c(&lab) - 0.579 * 0.012).abs() < 2e-4);
     assert!((f_minus_c(&moon) - 0.579 * 0.012).abs() < 2e-4);
 
-    // Black opal is darker than white opal at every wavelength. White opal has carried a faint
-    // cream band at 400 nm since 2026-11-04 (its milky body), so it absorbs a little in the blue.
+    // Black opal is darker than white opal at every wavelength. White opal's milky body keeps a
+    // faint cream band at 400 nm, so it absorbs a little in the blue.
     let (white, black) = (builtin(names[0]), builtin(names[1]));
     for lambda in [450.0f32, 550.0, 650.0] {
         let alpha = |m: &GemMaterial| -> f32 {

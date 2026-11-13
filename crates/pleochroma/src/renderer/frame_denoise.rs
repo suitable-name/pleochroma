@@ -1,17 +1,16 @@
 //! Denoise + tone-map one displayed frame: a raw accumulation-buffer running sum plus its
 //! first-hit guide buffers in, a displayable RGBA byte buffer out.
 //!
-//! This is the viewer's live-view picture pipeline (average, À-Trous denoise, tone-map).
-//! It moved here unchanged from `apps/pleochroma-cut`'s `bridge::render_thread::denoise`
-//! (which re-exports it, so every GUI call site is untouched) so a coordinator streaming
-//! finished 8-bit `DISPLAY_FRAME`s can produce exactly the picture the viewer would have
-//! produced from the same merged sum -- guides from [`crate::renderer::guide_pass`], the
-//! denoiser from [`crate::renderer::denoise`], the tone curve from
-//! [`crate::renderer::tonemap`]. `tests::denoised_output_is_pinned_to_the_pre_move_gui_code`
-//! pins the bytes.
+//! Denoise and tone-map one displayed frame: running sum and first-hit guides in, RGBA bytes out.
 //!
-//! CPU only (the denoiser and tone-mapper are `std::thread::scope` loops): no GPU program
-//! is involved, so a caller never needs a `GpuBackend` turn for it.
+//! This is the viewer's live-view pipeline (average, À-Trous denoise, tone-map). The GUI
+//! re-exports it, and a coordinator that streams finished 8-bit frames gets the same picture
+//! from the same merged sum. Guides come from [`crate::renderer::guide_pass`], the denoiser
+//! from [`crate::renderer::denoise`] and the tone curve from [`crate::renderer::tonemap`].
+//! The test `denoised_output_is_pinned_to_the_pre_move_gui_code` pins the output bytes.
+//!
+//! CPU only (the denoiser and tone-mapper are `std::thread::scope` loops): no `GpuBackend`
+//! turn is needed.
 
 use crate::renderer::{
     denoise::{AtrousDenoiser, AtrousParams, GBuffers},
@@ -35,17 +34,15 @@ pub fn denoise_and_tonemap_frame(
 
 /// Denoises and tone-maps one frame into the caller's `width * height * 4` RGBA buffer.
 ///
-/// Runs the À-Trous denoiser over `frame.accum_buffer`'s running average -- NEVER over
-/// `accum_buffer` itself, which stays the raw unfiltered sum so filtered output is
-/// never fed back into the progressive-accumulation estimator (that would bias it) --
-/// and tone-maps the result. A frame with no samples yet (`current_sample_count == 0`)
-/// is a finite black frame rather than an average of nothing.
+/// Runs the À-Trous denoiser over the running average of `frame.accum_buffer`, then
+/// tone-maps the result. The denoiser never reads the raw sum back into the estimator:
+/// filtered output fed into progressive accumulation would bias it. A frame with no
+/// samples yet (`current_sample_count == 0`) is black.
 ///
-/// `scratch`'s denoiser and buffers are owned by the caller and passed by mutable
-/// reference, and `rgba` is written in place (for example a display surface), so
-/// steady-state use does no per-frame heap allocation. `rgba` should hold exactly
-/// `width * height * 4` bytes; see [`tonemap_to_rgba_into`](crate::renderer::tonemap::tonemap_to_rgba_into) for what a mismatched length
-/// converts.
+/// `scratch` and `rgba` are caller-owned and written in place, so steady-state use does no
+/// per-frame heap allocation. `rgba` should hold exactly `width * height * 4` bytes; see
+/// [`tonemap_to_rgba_into`](crate::renderer::tonemap::tonemap_to_rgba_into) for what a
+/// mismatched length converts.
 ///
 /// Denoising is nonlinear: call this once, on the whole merged sum, never per source.
 /// The guide buffers depend only on pose and geometry, so they may come from traced
@@ -61,10 +58,9 @@ pub fn denoise_and_tonemap_frame_into(
 
 /// [`denoise_and_tonemap_frame_into`] with caller-chosen filter parameters.
 ///
-/// The GUI's display thread passes a reduced `num_passes` while the camera is orbiting
-/// (strides 1, 2, 4 instead of 1..16): a frame that is replaced within a fraction of a
-/// second does not need the widest, most expensive passes (PERF-4). With
-/// `AtrousParams::default()` the output is byte-identical to
+/// The GUI's display thread lowers `num_passes` while the camera orbits (strides 1, 2, 4
+/// instead of 1 to 16): a frame replaced within a fraction of a second does not need the
+/// widest passes. With `AtrousParams::default()` the output is byte-identical to
 /// [`denoise_and_tonemap_frame_into`].
 pub fn denoise_and_tonemap_frame_with_params_into(
     frame: FirstHitSnapshot<'_>,
@@ -138,7 +134,7 @@ pub fn denoise_and_tonemap_frame_with_params_into_cancellable(
     tonemap_cancellable(scratch.filtered_buf, rgba, cancel)
 }
 
-/// Convert in parallel as before, but check cancellation between small pixel blocks.
+/// Converts in parallel, checking cancellation between pixel blocks.
 fn tonemap_cancellable(colors: &[Vec3], rgba: &mut [u8], cancel: &AtomicBool) -> bool {
     let count = colors.len().min(rgba.len() / 4);
     if count == 0 || cancel.load(Ordering::Relaxed) {
@@ -170,11 +166,8 @@ fn tonemap_cancellable(colors: &[Vec3], rgba: &mut [u8], cancel: &AtomicBool) ->
     !cancel.load(Ordering::Relaxed)
 }
 
-/// One frame's accumulated radiance plus its first-hit guide buffers.
-///
-/// Everything [`denoise_and_tonemap_frame`] reads (never mutates) to build that call's
-/// `GBuffers`. `Copy`: every field is a shared reference or scalar, so by-value is as
-/// cheap as by-reference and reads better.
+/// One frame's accumulated radiance plus its first-hit guide buffers, as read by
+/// [`denoise_and_tonemap_frame`]. `Copy`: every field is a shared reference or a scalar.
 #[derive(Clone, Copy)]
 pub struct FirstHitSnapshot<'a> {
     /// Image width in pixels.
@@ -192,13 +185,13 @@ pub struct FirstHitSnapshot<'a> {
     /// First-hit facet index per pixel (`-1` for a miss).
     pub first_hit_facet_id: &'a [i32],
     /// First-hit path signature per pixel (`0` for a miss or when the material has no
-    /// index): `GuideBuffers::path_sig`. Empty means the caller has none and the
-    /// denoiser filters on the other guides alone, exactly as before the signature existed.
+    /// index), as in `GuideBuffers::path_sig`. Empty means none: the denoiser then filters
+    /// on the other guides alone.
     pub first_hit_path_sig: &'a [u32],
 }
 
-/// The mutable denoise scratch state a call reuses across frames to avoid per-frame
-/// heap allocation -- see [`denoise_and_tonemap_frame`].
+/// Buffers reused across frames so that steady-state calls do not allocate; see
+/// [`denoise_and_tonemap_frame_into`].
 pub struct DenoiseScratch<'a> {
     /// The persistent denoiser (its ping-pong buffers are resized only on a size change).
     pub denoiser: &'a mut AtrousDenoiser,
@@ -217,18 +210,16 @@ mod tests {
         renderer::{guide_pass::generate_guide_buffers, tonemap::tonemap_to_rgba},
     };
 
-    /// FNV-1a 64 over `bytes` -- a dependency-free fingerprint for the pin below.
+    /// FNV-1a 64 over `bytes`: a dependency-free fingerprint for the pin below.
     fn fnv1a64(bytes: &[u8]) -> u64 {
         bytes.iter().fold(0xcbf2_9ce4_8422_2325_u64, |hash, &b| {
             (hash ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
         })
     }
 
-    /// The pin fixture: a 24x16 view of the standard round brilliant at a fixed pose,
-    /// and a deterministic, deliberately noisy 3-sample accumulation sum (low enough
-    /// that the denoiser really filters). `apps/pleochroma-cut`'s
-    /// `render_thread::denoise` tests rebuild this exact fixture through the GUI's own
-    /// `GuideCache` and re-exports and assert the same hash.
+    /// The pin fixture: a 24x16 view of the standard round brilliant at a fixed pose, and
+    /// a deterministic, noisy 3-sample sum (noisy enough that the denoiser really filters).
+    /// The GUI's `render_thread::denoise` test rebuilds this fixture and asserts the same hash.
     const PIN_SIZE: (u32, u32) = (24, 16);
     const PIN_SAMPLES: u32 = 3;
     const PIN_POSE: (f32, f32, f32) = (0.60, 0.45, 2.4);
@@ -245,9 +236,8 @@ mod tests {
             .collect()
     }
 
-    /// `bridge::frame_cache::guide_pass::generate_guide_buffers` exactly as the GUI
-    /// computed each pixel before the move, run serially (every pixel is a pure function
-    /// of its own ray, so row chunking cannot change a value): the "before" side.
+    /// Reference guides: one serial first-hit query per pixel. Each pixel is a pure function
+    /// of its own ray, so this matches `generate_guide_buffers` whatever the row chunking.
     fn pre_move_guides(
         (width, height): (u32, u32),
         camera: &Camera,
@@ -271,8 +261,7 @@ mod tests {
         (depth, normal, facet_id)
     }
 
-    /// `bridge::render_thread::denoise::denoise_and_tonemap_frame` exactly as the GUI
-    /// wrote it before the move (fresh buffers instead of caller scratch).
+    /// Reference denoise and tone-map with fresh buffers instead of caller scratch.
     fn pre_move_denoise_and_tonemap(
         (width, height): (u32, u32),
         samples: u32,
@@ -296,15 +285,12 @@ mod tests {
         tonemap_to_rgba(&filtered, 1.0)
     }
 
-    /// Byte identity of the moved pipeline (guide prepass + denoise + tone-map) with the
-    /// pre-move GUI code, plus a pinned hash so a later change to any of the three fails
-    /// here first. The hash is the pre-move code's output.
+    /// Checks the guide prepass, denoiser and tone-map against the reference steps, then
+    /// against a pinned hash that catches a change to any of them.
     #[test]
     fn denoised_output_is_pinned_to_the_pre_move_gui_code() {
-        // Pinned with the denoiser copying background pixels (negative facet id) through
-        // unfiltered and the sRGB encode's final 8-bit quantisation at round-to-nearest.
-        // Re-pinned on 2026-11-04 (owner's run): the encode's default highlight rule became
-        // `HighlightRule::KeepColor` on 2026-11-03 (it was 0x4b0e_fd3c_897e_809c under Whiten).
+        // Under the default highlight rule (`HighlightRule::KeepColor`). Background pixels
+        // (negative facet id) pass through unfiltered; the sRGB encode rounds to nearest.
         const PINNED: u64 = 0x50f9_945c_3ecd_b2a7;
         let planes = StandardGemCuts::standard_round_brilliant();
         let camera = Camera::new(PIN_POSE.0, PIN_POSE.1, PIN_POSE.2, 42.0);
@@ -329,7 +315,7 @@ mod tests {
                 first_hit_depth: &guides.depth,
                 first_hit_normal: &guides.normal,
                 first_hit_facet_id: &guides.facet_id,
-                // Not fed to the pin fixture: `PINNED` below stays the old literal.
+                // No path signature, as in the reference path.
                 first_hit_path_sig: &[],
             },
             &mut DenoiseScratch {
@@ -349,8 +335,8 @@ mod tests {
         assert_eq!(hash, PINNED, "pre-move hash: {hash:#018x}");
     }
 
-    /// Writing into a caller's (dirty, reused) byte buffer gives exactly the bytes the
-    /// allocating form returns, and the scratch state carries no history between calls.
+    /// Writing into a reused byte buffer gives the bytes the allocating form returns, and
+    /// the scratch carries no history between calls.
     #[test]
     fn the_into_form_matches_the_allocating_form() {
         let planes = StandardGemCuts::standard_round_brilliant();
@@ -403,11 +389,9 @@ mod tests {
         );
     }
 
-    /// Convergence requirement: at a high enough sample count the À-Trous filter's
-    /// taper curve drives its color sigma below `taper_identity_epsilon`, so
-    /// `denoise_into` short-circuits to an exact copy of its input. Pins that
-    /// guarantee at the integration point: once converged, the displayed image must be
-    /// bit-identical to tone-mapping the raw accumulation average.
+    /// At a high sample count the À-Trous taper drops its color sigma below
+    /// `taper_identity_epsilon`, so `denoise_into` copies its input. Once converged, the
+    /// displayed image must be bit-identical to tone-mapping the raw accumulation average.
     #[test]
     fn denoise_and_tonemap_frame_is_identity_at_high_sample_counts() {
         // taper(50000) ~= 0.009, comfortably under the 0.02 identity threshold.

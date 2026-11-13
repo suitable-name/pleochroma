@@ -1,10 +1,9 @@
 //! Re-solve only what an edit could actually change, instead of
 //! [`Design::solve`](crate::design::Design::solve)'s whole-design re-solve every time.
 //!
-//! A full re-solve costs 0.01 ms (2 tiers) to 5.9 s (a real 103-tier catalogue
-//! design) non-monotonically -- cost tracks how badly `meet_solver`'s refinement
-//! sweeps thrash, not tier count -- which is why `pleochroma-cut`'s Edit tab has an
-//! explicit "Solve" button instead of solving on every keystroke.
+//! A full re-solve ranges from well under a millisecond to seconds on a large catalogue
+//! design. Cost tracks how badly `meet_solver`'s refinement sweeps thrash, not the tier
+//! count, so the editor offers an explicit "Solve" action instead of solving on every edit.
 //!
 //! # No changes to the solver itself
 //!
@@ -19,19 +18,14 @@
 //!
 //! # Rejected: a per-tier dependency graph
 //!
-//! The natural approach -- `MeetNamed`/`MeetExisting` depend only on the tiers they
-//! name or precede, affected = transitive closure from the edit -- is wrong:
-//! `meet_solver::solve`'s phase 3 rebuilds the entire plane arrangement from every
-//! non-anchor tier's *current* mast on every sweep, ignoring file order and named
-//! references AT THAT PHASE, so any non-anchor tier can move any other regardless
-//! of where either sits in the file. Measured on real fixtures
-//! ("Six Main Hilite LB", "RBC-445", "Briolette of India Replica"): editing a
-//! design's last tier moved earlier tiers' masts by up to 3.8x10<sup>-2</sup>
-//! relative, including edits crossing crown and pavilion entirely -- cases a
-//! "preceding tiers only" rule marks as unaffected (silently wrong). Filtering by a
-//! tier's previous `SolveStrategy` doesn't help either: every non-anchor tier in all
-//! three fixtures reported `DependencyOrder`, yet phase 3 still moved several of them
-//! regardless.
+//! A per-tier graph (`MeetNamed`/`MeetExisting` depend only on the tiers they name or
+//! precede) is wrong. `meet_solver::solve`'s phase 3 rebuilds the whole plane arrangement
+//! from every non-anchor tier's current mast on every sweep, ignoring file order and
+//! named references, so any non-anchor tier can move any other. On real fixtures, editing
+//! a design's last tier moved earlier tiers' masts by up to 3.8x10<sup>-2</sup> relative,
+//! including edits across crown and pavilion, which a "preceding tiers only" rule would
+//! silently miss. Filtering by a tier's `SolveStrategy` does not help either: phase 3
+//! still moves tiers whose strategy is `DependencyOrder`.
 //!
 //! This is not the same claim as "the solve is order-independent" -- it is not.
 //! Phase 1 (finding each anchor's own candidate vertex) runs in strict file order
@@ -49,7 +43,7 @@
 //! anything but its own authored value. So [`affected_tiers`] is exactly: the edited
 //! tier(s), plus every tier whose current constraint is not `ScaleReference` -- no
 //! named-reference resolution, no file-order edges, no strategy inspection, since
-//! anything narrower risks the silent-stale-mast failure measured above.
+//! anything narrower risks a silently stale mast.
 //!
 //! # What this buys
 //!
@@ -57,9 +51,8 @@
 //! [`Design::from_asc_schedule`](crate::design::Design::from_asc_schedule)), editing
 //! one tier's angle affects only that tier. It buys nothing once a design has more
 //! than one non-`ScaleReference` tier anywhere: [`affected_tiers`] then includes
-//! essentially the whole meet-derived remainder regardless of which tier was edited
-//! -- see `resolve_dirty_speed_on_a_large_real_design` (ignored by default) for the
-//! measured extreme.
+//! essentially the whole meet-derived remainder regardless of which tier was edited.
+//! See `resolve_dirty_speed_on_a_large_real_design` (ignored by default) for the cost.
 
 use crate::{
     design::{Design, DesignSolveError},
@@ -89,11 +82,9 @@ pub(crate) fn affected_tiers(inputs: &[MeetTierInput], dirty: &BTreeSet<usize>) 
 /// Re-solves a design after `edit` was applied to it, as cheaply as the edit
 /// allows.
 ///
-/// `apps/pleochroma-cut` does not call this function directly (grep: zero call
-/// sites) -- it re-solves through its own `auto_solve` wrapper around
-/// [`Design::resolve_dirty`]/[`Design::solve`] instead. This function is the
-/// library-level building block that wrapper's reasoning is built from, and
-/// this crate's own tests exercise it directly.
+/// The editor does not call this function; its `auto_solve` module runs cancellable
+/// background solves of the whole design. This is the library-level incremental entry
+/// point, exercised by the crate's tests and PGO training example.
 ///
 /// `design` is the design *after* `edit` was applied (via
 /// [`crate::edit::History::apply`], or replayed by
@@ -114,31 +105,15 @@ pub fn resolve_after_edit(
     edit: &Edit,
 ) -> Result<Vec<SolvedTier>, DesignSolveError> {
     match edit {
-        // None of these touch a tier's angle/indices/constraint -- no MAST could
-        // possibly have changed, so `previous`'s masts are still valid and this
-        // returns them unchanged. `SetMeta`'s `gear_reference_angle` is the one
-        // exception worth flagging here: it rotates the solved PLANE arrangement
-        // downstream of this function (see `Edit::SetMeta`'s own doc comment), so
-        // a caller that also needs the rotated planes -- not just the masts --
-        // still gets them correctly, since `Design::planes_from_solved` reads
-        // `gear_reference_angle` fresh on every call; this function's job is
-        // masts only.
+        // These edits leave every mast unchanged, so `previous` stays valid.
+        // `SetMeta`'s `gear_reference_angle` rotates the planes, not the masts:
+        // `Design::planes_from_solved` reads it fresh on every call.
         //
-        // EXCEPT when `design` authors any `TierTarget` at all: a resolved
-        // target's own mast can depend on the girdle diameter, the preform, the
-        // cheater offsets, or another target (a `TierTarget` only ever becomes a
-        // mast inside `Design::solve_with`/`resolve_dirty_with`'s own resolution
-        // pre-pass, never retroactively -- see `crate::design::targets`'s module
-        // docs) -- exactly what `SetPreform`/`SetPreformYOffset`/
-        // `SetGirdleDiameterMm`/`SetMeta`/`SetCheaterOffset`/`SetTierTarget`
-        // itself can change. So those six get a full re-solve here instead,
-        // whenever `tier_targets` is non-empty -- cheap enough (`tier_targets`
-        // is the rare case) not to bother teaching `resolve_dirty` about it. See
-        // Returning `previous` unchanged left a resolved target's mast
-        // stale after exactly these edits, because a resolved target tier
-        // looks like an ordinary `ScaleReference` anchor to `affected_tiers`.
-        // `SetMaterial`/`SetTierNote` are excluded from this exception -- neither
-        // one is an input any `TierTarget` conversion reads.
+        // Exception: with any `TierTarget` authored, a target's mast can depend on the
+        // girdle diameter, the preform, the cheater offsets or another target (see
+        // `crate::design::targets`). A resolved target looks like an ordinary
+        // `ScaleReference` anchor to `affected_tiers`, so the six variants below need a
+        // full re-solve. `SetMaterial` and `SetTierNote` are not `TierTarget` inputs.
         Edit::SetPreform { .. }
         | Edit::SetPreformYOffset { .. }
         | Edit::SetGirdleDiameterMm { .. }
@@ -162,12 +137,8 @@ pub fn resolve_after_edit(
         // Frosting and surface finish are finishes on a plane, not geometry: no mast reads them.
         | Edit::SetTierFrosting { .. }
         | Edit::SetTierSurface { .. }
-        // Pure `TierId` bookkeeping (see that variant's own doc comment) --
-        // never constructed directly, only ever replayed as part of a
-        // `RemoveTier` undo's own `Batch` -- touches no tier's angle/indices/
-        // constraint and is not itself a `TierTarget` input, so it is mast-inert
-        // exactly like the other variants in this arm, unconditionally (no
-        // `tier_targets`-non-empty exception needed).
+        // Pure `TierId` bookkeeping, replayed only inside a `RemoveTier` undo's batch.
+        // It is mast-inert regardless of `tier_targets`.
         | Edit::RestoreTierId { .. }
         // Concave tiers have no mast, meet constraint or target, and the flat
         // solve never reads them, so none of these can move a flat mast.

@@ -73,11 +73,9 @@ pub fn run(args: &JoinArgs) -> Result<(), String> {
     } else {
         GpuBackend::acquire()
     });
-    // Makes the hybrid CPU/GPU split decision once, before the coordinator's first real
-    // chunk, rather than paying its 3-sample probe on whichever chunk happens to arrive
-    // first. Only meaningful with a real adapter and the hybrid path (`OnlyGpu`/
-    // `OnlyCpu` never calibrate a split at all -- see `render_core::hybrid::job_key`'s
-    // doc comment).
+    // Decides the hybrid CPU/GPU split once, before the coordinator's first chunk, instead of
+    // paying the 3-sample probe on whichever chunk arrives first. Only the hybrid mode with a
+    // real adapter splits work; the other modes never calibrate.
     if args.compute_mode == ComputeMode::Hybrid && gpu.adapter_label().is_some() {
         crate::render_core::hybrid::calibrate_now(
             &gpu,
@@ -126,12 +124,10 @@ pub fn run(args: &JoinArgs) -> Result<(), String> {
     Ok(())
 }
 
-/// A representative scene for [`crate::render_core::hybrid::calibrate_now`]'s start-up
-/// probe: a real, traceable scene (so the probe measures genuine per-dispatch overhead,
-/// not just call overhead) at a typical interactive/live-view resolution. Only its
-/// resolution matters to the calibration decision (`render_core::hybrid::job_key`
-/// buckets to the enclosing power of two), so the exact material/geometry/lighting
-/// below are arbitrary.
+/// The scene for [`crate::render_core::hybrid::calibrate_now`]'s start-up probe. It is a real
+/// traceable scene, so the probe measures genuine per-dispatch overhead. Its resolution and
+/// estimator (`Estimator::APP_DEFAULT`) select the calibration key the apps' scenes hit; the
+/// material, geometry and lighting are arbitrary.
 fn probe_scene() -> pleochroma_net::SceneState {
     use pleochroma::{
         geometry::cuts::StandardGemCuts,
@@ -143,6 +139,10 @@ fn probe_scene() -> pleochroma_net::SceneState {
         height: 512,
         yaw: 0.4,
         camera_roll: 0.0,
+        stone_shadow: false,
+        tray_reflection: 0.0,
+        hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
+        estimator: pleochroma::optics::raytracer::Estimator::APP_DEFAULT,
         pitch: 0.3,
         distance: 3.0,
         light_yaw: 0.85,
@@ -237,9 +237,8 @@ fn sleep_unless_stopped(delay: Duration, stop: &AtomicBool) {
 
 /// Jittered exponential backoff: [`BACKOFF_MIN`] doubling to [`BACKOFF_MAX`].
 ///
-/// Each delay
-/// scaled by a random factor in `[0.5, 1.0)` so many workers reconnecting after a
-/// coordinator restart don't arrive in lockstep.
+/// Each delay is scaled by a random factor in `[0.5, 1.0)`, so workers reconnecting after a
+/// coordinator restart do not arrive in lockstep.
 #[derive(Debug)]
 pub struct Backoff {
     next: Duration,

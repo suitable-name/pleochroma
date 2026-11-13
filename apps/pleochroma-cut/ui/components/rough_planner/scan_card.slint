@@ -1,0 +1,271 @@
+import { Theme } from "../../theme.slint";
+import { RoughPlanModel, RoughFinding } from "../../models/rough_plan.slint";
+import { KitIcon, KitIcons, KitIconButton, KitButton, KitCombo, KitCaption } from "../kit/kit.slint";
+import { RoughUi } from "state.slint";
+import { LinkText, FillBar } from "parts.slint";
+import { WrapText } from "fields.slint";
+
+// The scan card of step 1: the file, what the import counted, a "..." menu, the bounding box and
+// the file units. The units can be changed after the import: Rust reads the same file again in
+// the new unit (`rescan_units`). While the file is read the card shows the progress instead.
+export component ScanCard inherits Rectangle {
+    property <bool> editable: !RoughPlanModel.running && !RoughPlanModel.mesh_busy;
+    property <bool> has_scan: RoughPlanModel.scan_verdict >= 0;
+
+    border-radius: 10px;
+    background: Theme.bg-input;
+    min-height: card_lay.preferred-height;
+
+    card_lay := VerticalLayout {
+        padding: 10px;
+        spacing: 8px;
+
+        HorizontalLayout {
+            spacing: 10px;
+            VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    width: 36px;
+                    height: 36px;
+                    border-radius: 8px;
+                    background: Theme.bg-elevated;
+                    KitIcon {
+                        x: (parent.width - self.width) / 2;
+                        y: (parent.height - self.height) / 2;
+                        d: KitIcons.scan;
+                        size: 22px;
+                        ink: Theme.accent-cyan-hover;
+                    }
+                }
+            }
+            VerticalLayout {
+                horizontal-stretch: 1;
+                min-width: 0px;
+                alignment: center;
+                spacing: 2px;
+                Rectangle {
+                    height: 18px;
+                    Text {
+                        x: 0px;
+                        width: parent.width;
+                        height: parent.height;
+                        text: root.has_scan && RoughPlanModel.scan_file != "" ? RoughPlanModel.scan_file
+                            : (RoughPlanModel.mesh_busy ? "Reading the scan\u{2026}" : "No scan chosen yet");
+                        font-size: 13px;
+                        font-weight: 600;
+                        color: Theme.text-primary;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                }
+                Rectangle {
+                    height: 15px;
+                    Text {
+                        x: 0px;
+                        width: parent.width;
+                        height: parent.height;
+                        text: RoughPlanModel.mesh_busy ? RoughPlanModel.mesh_busy_text
+                            : (root.has_scan ? RoughPlanModel.scan_stats : "Choose an OBJ, STL or PLY file.");
+                        font-size: 11px;
+                        color: Theme.text-secondary;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                }
+            }
+            if root.has_scan: VerticalLayout {
+                alignment: center;
+                KitIconButton {
+                    d: KitIcons.more;
+                    size: 28px;
+                    stroke: 2.6px;
+                    label: "Scan Menu";
+                    hint: "Replace the scan with another file, or read this file again.";
+                    enabled: root.editable;
+                    clicked => {
+                        RoughUi.menu_kind = 2;
+                        RoughUi.menu_row = -1;
+                        RoughUi.menu_group = -1;
+                        RoughUi.menu_right = true;
+                        RoughUi.menu_x = self.absolute-position.x + self.width;
+                        RoughUi.menu_y = self.absolute-position.y + self.height + 4px;
+                    }
+                }
+            }
+        }
+
+        if RoughPlanModel.mesh_busy && RoughPlanModel.scan_progress >= 0: FillBar {
+            fraction: RoughPlanModel.scan_progress;
+            accessible-role: AccessibleRole.progress-indicator;
+            accessible-label: "Reading Progress";
+            accessible-value: Math.round(RoughPlanModel.scan_progress * 100) + " percent";
+        }
+
+        if !RoughPlanModel.mesh_busy: HorizontalLayout {
+            spacing: 6px;
+            if root.has_scan: VerticalLayout {
+                horizontal-stretch: 1;
+                min-width: 0px;
+                spacing: 4px;
+                KitCaption { text: "Size (bounding box)"; }
+                Rectangle {
+                    height: 28px;
+                    Text {
+                        x: 0px;
+                        width: parent.width;
+                        height: parent.height;
+                        text: RoughPlanModel.scan_size_text;
+                        font-size: 13px;
+                        color: Theme.text-primary;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                }
+            }
+            if !root.has_scan: Rectangle { horizontal-stretch: 1; }
+            VerticalLayout {
+                spacing: 4px;
+                width: 96px;
+                KitCaption { text: "File units"; }
+                KitCombo {
+                    model: ["mm", "cm", "m", "inch", "\u{00B5}m"];
+                    current_index <=> RoughPlanModel.mesh_unit_index;
+                    enabled: root.editable;
+                    label: "Unit of the Numbers in a Mesh File";
+                    hint: "The unit the numbers in the file are in. The planner scales them to millimetres. Changing it reads the same file again.";
+                    selected(i) => {
+                        if root.has_scan {
+                            RoughPlanModel.rescan_units(i);
+                        }
+                    }
+                }
+            }
+        }
+
+        if !RoughPlanModel.mesh_busy && !root.has_scan: HorizontalLayout {
+            alignment: start;
+            KitButton {
+                text: "Choose File\u{2026}";
+                icon: KitIcons.scan;
+                hint: "Pick an OBJ, STL or PLY file of the rough. Files up to 64 MB are read.";
+                enabled: root.editable;
+                clicked => { RoughPlanModel.import_obj(); }
+            }
+        }
+    }
+}
+
+// One line of the import report: a level icon, the finding, its consequence, and Show when the
+// finding has a place in the scan.
+component ReportItem inherits HorizontalLayout {
+    in property <RoughFinding> finding;
+    in property <int> index;
+
+    spacing: 8px;
+    VerticalLayout {
+        alignment: start;
+        padding-top: 1px;
+        Rectangle {
+            width: 18px;
+            height: 18px;
+            border-radius: 9px;
+            background: root.finding.level == 0 ? Theme.badge-emerald-bg
+                : (root.finding.level == 1 ? Theme.surface-info
+                : (root.finding.level == 2 ? Theme.badge-amber-bg : Theme.danger-surface-hover));
+            KitIcon {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                d: root.finding.level == 0 ? KitIcons.check : (root.finding.level == 1 ? KitIcons.info : KitIcons.close);
+                size: 11px;
+                stroke: 2.2px;
+                ink: root.finding.level == 0 ? Theme.accent-emerald
+                    : (root.finding.level == 1 ? Theme.accent-cyan
+                    : (root.finding.level == 2 ? Theme.accent-amber : Theme.danger));
+            }
+        }
+    }
+    VerticalLayout {
+        horizontal-stretch: 1;
+        min-width: 0px;
+        spacing: 1px;
+        WrapText {
+            text: root.finding.text;
+            font_size: 12px;
+            text_color: Theme.text-primary;
+        }
+        if root.finding.detail != "": WrapText {
+            text: root.finding.detail;
+            font_size: 11px;
+            text_color: Theme.text-secondary;
+        }
+    }
+    if root.finding.has_place: VerticalLayout {
+        alignment: start;
+        LinkText {
+            text: "Show";
+            hint: "Turn the 3D view to this place in the scan and highlight it.";
+            accessible-label: "Show Finding " + (root.index + 1) + " in the View";
+            clicked => { RoughPlanModel.finding_show(root.index); }
+        }
+    }
+}
+
+// The import report of a scan: which shape the planner works on (the scan itself, its convex
+// outline, or nothing when the scan was refused) and one line per finding.
+export component ScanReport inherits Rectangle {
+    border-radius: 10px;
+    background: Theme.bg-input;
+    border-width: 1px;
+    border-color: RoughPlanModel.scan_verdict == 2 ? Theme.danger-border : Theme.border-subtle;
+    min-height: rep_lay.preferred-height;
+
+    rep_lay := VerticalLayout {
+        padding: 10px;
+        spacing: 8px;
+
+        HorizontalLayout {
+            spacing: 6px;
+            Text {
+                text: RoughPlanModel.scan_verdict == 2 ? "Scan" : "Planned on";
+                font-size: 11px;
+                color: Theme.text-secondary;
+                vertical-alignment: center;
+                horizontal-stretch: 0;
+            }
+            Rectangle {
+                height: 20px;
+                width: verdict_text.preferred-width + 14px;
+                border-radius: 10px;
+                background: RoughPlanModel.scan_verdict == 0 ? Theme.badge-emerald-bg
+                    : (RoughPlanModel.scan_verdict == 1 ? Theme.badge-amber-bg : Theme.danger-surface-hover);
+                verdict_text := Text {
+                    x: 7px;
+                    height: parent.height;
+                    text: RoughPlanModel.scan_verdict == 2 ? "refused"
+                        : (RoughPlanModel.scan_verdict_text != "" ? RoughPlanModel.scan_verdict_text
+                        : (RoughPlanModel.scan_verdict == 0 ? "the scan itself" : "its convex outline"));
+                    font-size: 11px;
+                    font-weight: 600;
+                    color: RoughPlanModel.scan_verdict == 0 ? Theme.success
+                        : (RoughPlanModel.scan_verdict == 1 ? Theme.badge-amber-text : Theme.danger);
+                    vertical-alignment: center;
+                }
+            }
+            Rectangle { horizontal-stretch: 1; }
+        }
+        if RoughPlanModel.scan_verdict == 2: WrapText {
+            text: RoughPlanModel.scan_verdict_text;
+            font_size: 12px;
+            text_color: Theme.danger;
+        }
+        if RoughPlanModel.scan_verdict == 2: WrapText {
+            text: "This file was not used. The rough stays as it was: a scan loaded before is still the one the planner works on.";
+            font_size: 11px;
+            text_color: Theme.text-secondary;
+        }
+        for finding[i] in RoughPlanModel.scan_findings: ReportItem {
+            finding: finding;
+            index: i;
+        }
+    }
+}

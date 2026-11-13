@@ -1,13 +1,15 @@
-//! Tests for the illuminant spectral-power curves, the preset label/index round trip,
-//! the backdrop fill, the lit models' observer head shadow, and the studio rig's own
-//! golden-bits regression pin.
+//! Tests for the illuminants and light models of the raytracer environment.
+//!
+//! They cover the illuminant spectral-power curves, the preset label/index round trip, the lit
+//! models' observer head shadow, the light tent variants, the sun and the ASET view, and the
+//! studio rig's golden-bits regression pin.
 
 use super::*;
 use std::hint::black_box;
 
 /// Pins [`d65_relative_spectral_power`] against the tabulated CIE D65 values
 /// directly, and against a genuine Planckian 6500K curve to confirm this is not
-/// just a relabelled blackbody -- D65's real, measured blue-green irregularity
+/// just a blackbody -- D65's real, measured blue-green irregularity
 /// means the two must disagree at some wavelengths.
 #[test]
 fn d65_relative_spectral_power_matches_the_cie_table_at_450_and_550nm() {
@@ -73,10 +75,6 @@ fn daylight_preset_studio_environment_uses_the_d65_table_not_a_blackbody() {
          end, got 450nm={daylight_450}, 550nm={daylight_550}"
     );
 }
-
-// The old `backdrop_fills_the_camera_ray_only_when_set` test is replaced by
-// `tests_tray::the_tray_is_seen_by_every_bounce`: the backdrop is part of the environment
-// function now, not a bounce-0 card.
 
 #[test]
 fn label_and_index_round_trip_for_every_preset() {
@@ -273,10 +271,10 @@ fn head_shadow_width_off_default_and_wide() {
     assert_eq!(studio.to_bits(), studio_default.to_bits());
 }
 
-/// The default-width path is bit-identical to the unparameterised one: the same 192
-/// (direction, wavelength) pairs per preset the Studio golden uses, through the public
-/// rig sampler, the explicit-cone sampler and the `EnvironmentSource` entry points
-/// (`with_head_shadow(16.0)` included).
+/// The default-width path is bit-identical to the unparameterised one, over the same 64
+/// directions and 3 wavelengths as the baseline pin. It covers the public rig sampler, the
+/// explicit-cone sampler and the `EnvironmentSource` entry points (`with_head_shadow(16.0)`
+/// included).
 #[test]
 fn default_head_shadow_is_bit_identical_to_the_unparameterised_call() {
     let observer = Vec3::new(0.2, 0.9, -0.3).normalize();
@@ -361,7 +359,7 @@ fn legacy_lit_model_labels_resolve_to_the_renamed_presets() {
         LightingPreset::from_label("Daylight dome + sun"),
         LightingPreset::DaylightDome
     );
-    // The dome was relabelled; the old label is what saved settings meant: the dome.
+    // A saved "Daylight sky + sun" label loads as the dome.
     assert_eq!(
         LightingPreset::from_label("Daylight sky + sun"),
         LightingPreset::DaylightDome,
@@ -411,9 +409,8 @@ fn new_models_never_exceed_their_documented_peak() {
         max_soft <= 5.5,
         "Light tent peak must not exceed 5.5, got {max_soft}"
     );
-    // The dome is sky only now: aureole (0.30, at the key direction) + sky (<= 0.18, the
-    // horizon value; 0.08 less at the zenith) at most, and the D65 power at 560 nm is 1.0.
-    // 0.18 + 0.30 = 0.48 bounds it analytically; the old cap of 10.5 included the sun (10.0).
+    // The dome is sky only: aureole (0.30 at the key direction) plus sky (at most 0.18 at the
+    // horizon). Their sum, 0.48, bounds it, with the D65 power at 560 nm equal to 1.0.
     assert!(
         max_daylight <= 0.5,
         "Daylight dome peak must not exceed 0.5, got {max_daylight}"
@@ -576,8 +573,8 @@ fn spiral_dir(k: u32, n: u32) -> Vec3 {
 
 /// Peak caps of the three tent variants (D65 SPD, so `spectral_power(560)` is about 1).
 /// Shop: walls <= 0.66 + key 1.4 + spark 5.0 (the key and the spark never coincide, but the
-/// cap is the sum's bound, 7.1). Window: key 1.4 + walls <= 0.088. Tray: walls <= 0.99
-/// (key and spark are off through `spot_mult` 0) over the ground 0.8 below the horizon.
+/// cap is the sum's bound, 7.1). Window: key 1.4 + walls <= 0.088. Tray: walls 0.9 (key and
+/// spark are off through `spot_mult` 0), and the ground 0.8 below the horizon.
 #[test]
 fn tent_variants_never_exceed_their_documented_peak() {
     let mut max = [0.0f32; 3];
@@ -666,8 +663,8 @@ fn tent_variants_have_no_cards_and_the_right_spark_key_and_ground() {
         |dir: Vec3, preset| sample_studio_environment(dir, 560.0, preset, 1.0, yaw, pitch) / spd;
     let wall = |dir: Vec3, scale: f32| scale * 0.08f32.mul_add(dir.y.max(0.0), 0.14);
 
-    // A card centre (ring slot 4): the variants show the open wall, the tent does not.
-    // (The tray's walls are flat: 0.18 * 5.0 at every elevation.)
+    // A card centre (ring slot 4) shows the open wall in every variant. The tray's walls are
+    // flat (0.18 * 5.0 at every elevation).
     let card = rig.ring_dirs[4];
     for (preset, scale, flat) in [
         (LightingPreset::ShopLights, 3.0, false),
@@ -705,7 +702,7 @@ fn tent_variants_have_no_cards_and_the_right_spark_key_and_ground() {
 
 /// `flat == 0` keeps the wall gradient bit for bit: every preset except the tray has
 /// `flat == 0`, and the walls it shows (read off a direction away from the key, spark, cards
-/// and horizon blend, so only the walls contribute) equal the old closed form exactly.
+/// and horizon blend, so only the walls contribute) equal the closed form exactly.
 #[test]
 fn tent_flat_zero_is_bit_identical_to_the_old_wall_values() {
     for preset in LightingPreset::ALL {
@@ -713,8 +710,8 @@ fn tent_flat_zero_is_bit_identical_to_the_old_wall_values() {
             assert_eq!(preset.params().tent.flat.to_bits(), 0.0f32.to_bits());
         }
     }
-    // The light tent at the zenith (no card, key or spark there): the old formula
-    // `(0.08 * 1 + 0.14) * 1.0` times the card factor 1 (card mask 0), times the horizon
+    // The light tent at the zenith (no card, key or spark there): the closed form
+    // `(0.08 * 1 + 0.14) * 1.0`, times the card factor 1 (card mask 0), times the horizon
     // blend and spectral power the lighting adds.
     let (yaw, pitch) = (0.4f32, 0.35f32);
     let up = Vec3::Y;
@@ -730,7 +727,7 @@ fn tent_flat_zero_is_bit_identical_to_the_old_wall_values() {
             "light tent zenith {got} vs {expected}"
         );
     }
-    // The pinned `BASELINE_BITS` LightTent row (unchanged) is the bit-exact check.
+    // The `BASELINE_BITS` LightTent row is the bit-exact check.
 }
 
 /// The white tray's walls do not depend on the elevation: every direction above the horizon,
@@ -757,28 +754,16 @@ fn white_tray_walls_are_uniform() {
     }
 }
 
-/// Largest tolerated bit-pattern distance between a freshly computed value and
-/// its golden. Every baseline value here is positive and finite, so `u32` bit
-/// patterns increase monotonically with the represented value exactly like ULP
-/// distance does -- a signed difference of the raw bit patterns IS the ULP
-/// distance, no separate distance function needed. See the doc comment above
-/// for why this must stay tight rather than a wider, looser bound.
+/// Largest tolerated ULP distance between a computed value and its golden bits. The baseline
+/// values are positive and finite, so the signed difference of their `u32` bit patterns is
+/// the ULP distance. Keep it tight: see the regeneration notes on
+/// [`baseline_lambdas`].
 const MAX_ULP_DIFF: i64 = 2;
-// One row per preset in the order the table was recorded (the declaration order, not
-// the combo order of [`LightingPreset::ALL`]): Daylight, Incandescent,
-// RingLights, DarkSpotlight, IsoHemisphere, LightTent, DaylightDome, UvLamp365,
-// UvLamp395) -- the first seven rows are unchanged since the table was first recorded;
-// NOTE (lane SUN, 2026-10-07): the DaylightDome row (index 6) needs NO re-pin even though the
-// dome lost its sun disc: the removed term was `smoothstep(cos 4 deg, cos 2 deg, key_dot) *
-// 10`, exactly `0.0` for every probe direction here (the nearest of the 64 Fibonacci
-// directions is 8.8 degrees from the pose-(0.4, 0.35) key, outside the 4 degree cone) and
-// `x + 0.0 == x`. Checked numerically with a script, not by running the suite; if this test
-// does fail on the dome row, // RE-PIN: that row (it was the only row the change could touch);
-// the two UV-lamp rows were recorded from their implementation at the lamp's own
-// wavelengths (see `baseline_lambdas`), since a UV line is exactly zero at 450-650 nm. See
-// "Regenerating the baseline" above. IsoHemisphere's row is legitimately full of
-// exact `0` bit patterns for its lower hemisphere (see
-// `iso_hemisphere_is_one_above_and_zero_below` above), not a probe artifact.
+// One row per preset, in the order listed here: Daylight, Incandescent, RingLights,
+// DarkSpotlight, IsoHemisphere, LightTent, DaylightDome, UvLamp365, UvLamp395. The UV rows
+// are recorded at the lamp lines (see `baseline_lambdas`), since a UV line is exactly zero at
+// 450-650 nm. IsoHemisphere's lower hemisphere is legitimately full of exact `0` bit patterns
+// (see `iso_hemisphere_is_one_above_and_zero_below`).
 #[allow(
     clippy::unreadable_literal,
     reason = "bit-pattern baseline table is pinned verbatim as printed"
@@ -1037,74 +1022,17 @@ const BASELINE_BITS: [[u32; 192]; 9] = [
     ],
 ];
 
-/// Regression pin for the rig-sharing split (`sample_studio_environment_with_rig`,
-/// which both the ad-hoc callers here and `accumulate_miss_radiance`'s escape lookup
-/// share -- the latter borrows the rig the trace built once -- instead of each
-/// duplicating the studio rig arithmetic inline):
-/// tracing 64 directions x 3 wavelengths through EVERY preset in [`LightingPreset::ALL`]
-/// (not just `RingLights`, which is all the original version of this test pinned) must
-/// reproduce [`BASELINE_BITS`], to within a small ULP tolerance.
+/// The three wavelengths [`studio_presets_are_unchanged_by_the_split`] samples for `preset`:
+/// 450/550/650 nm for every visible-light preset, and for a UV lamp the lamp line and two
+/// points on its flanks, since a lamp line is exactly zero at visible wavelengths.
 ///
-/// # Regenerating the baseline
-///
-/// [`BASELINE_BITS`] is captured from this test's OWN current output (a temporary
-/// `eprintln!` of `got_bits` per sample, run once via `cargo
-/// test -p pleochroma --lib -- studio_presets_are_unchanged_by_the_split
-/// --nocapture`, then removed). [`MAX_ULP_DIFF`] must stay tight: a budget wide
-/// enough to absorb reassociation noise is ALSO wide enough to absorb a small
-/// coefficient change on the ambient term without the test ever failing, which would
-/// mean it isn't actually pinning the formula.
-///
-/// The table was last captured on 2026-10-01 from the optimised test profile: the
-/// workspace manifest gives this crate `opt-level = 3` under `cargo test`
-/// (`[profile.test.package.pleochroma]`), and a release build passes this test with
-/// it. The inputs of the call go through `black_box` since then, so no build folds any
-/// part of it at compile time (a release build with LTO otherwise evaluated the
-/// wavelength terms in double precision and landed 3 ULP off). The unoptimised build
-/// rounds the studio sampler a few ULP differently, within 2 ULP for most samples but
-/// up to 12 ULP at the falloff-cone directions 28/29/38/46 where `key_dot.powi(28)`
-/// amplifies the difference, so it no longer passes this test; nothing runs the suite
-/// unoptimised since that change.
-///
-/// The CPU/GPU HDR white-balance step does not touch
-/// `studio_rig_lighting`/`sample_studio_environment` at all -- it lives entirely in
-/// `trace_spectral_ray_inner`'s post-integration white-balance step -- so nothing on
-/// the Studio-rig sampling path this test exercises is affected by it. Before
-/// accepting a freshly captured baseline, diff it against the prior one: deltas of a
-/// few ULP concentrated in the falloff-cone-edge cluster named below (e.g.
-/// 28/29/38/46) match the `key_dot.powi(28)` reassociation-noise mechanism analyzed
-/// below and can be folded into the new baseline; a diff that is large, widespread,
-/// or inconsistent with that mechanism is a real regression and should be reported
-/// rather than pasted over.
-///
-/// # Why a tolerance at all, not bit-for-bit equality
-///
-/// Requiring exact equality only ever surfaces the FIRST mismatch (`assert_eq!`
-/// aborts the loop immediately), which is what hid the true shape of this the first
-/// time: an exhaustive sweep of all 192 samples' bit-pattern deltas (not just the
-/// first failure) is needed to tell "reassociation noise" apart from "a real
-/// regression". Every non-ambient term in `studio_rig_lighting` (key softbox, fill,
-/// ring) is accumulated via `softbox.mul_add(spec_power, radiance)`-style fused
-/// multiply-adds, and `key_dot.powi(28)` in particular amplifies a sub-ULP
-/// perturbation in `key_dot` into a much larger one in the softbox term for
-/// directions near the falloff cone's edge -- exactly where the largest deltas
-/// (dir 28/29/38/46) sit. Floating-point multiplication and fused multiply-add are
-/// not associative, so evaluating the identical formula through a differently-shaped
-/// call chain, or a differently-optimized build, can legitimately round
-/// intermediate bits either way, with a `^28` term turning "either way" into
-/// "either way, times a large derivative" -- with no change in the actual light
-/// transport (10 ULP here is a relative difference near `1e-6`, many orders below
-/// anything a path tracer's own sample noise could ever resolve). [`MAX_ULP_DIFF`]'s
-/// `2` leaves headroom for exactly that kind of single-ULP-scale noise on the
-/// majority of samples while a difference of many thousands of ULP -- what a
-/// genuine behavioural regression (a changed exponent, a changed coefficient, a
-/// dropped term) would actually produce -- still fails loudly; a handful of the
-/// falloff-edge directions may need re-diffing the same way if a future legitimate
-/// change (not a regression) shifts them past `2` again.
-/// The three wavelengths [`studio_presets_are_unchanged_by_the_split`] samples for
-/// `preset`: 450/550/650 nm for every visible-light preset (unchanged), and for a UV lamp
-/// the lamp line itself and two points on its flanks, since a lamp at 365 or 395 nm is
-/// exactly zero (underflow) at the visible wavelengths and would pin nothing.
+/// The studio pin samples 64 directions x these 3 wavelengths and compares each bit pattern
+/// with [`BASELINE_BITS`] within [`MAX_ULP_DIFF`]. Regenerate the table only from this test's
+/// own output (print `got_bits` temporarily, run with `--nocapture`), and diff it against the
+/// old table first. A few ULP at the falloff-cone edge (directions 28, 29, 38, 46) is
+/// reassociation noise: `key_dot.powi(28)` amplifies sub-ULP differences there, and the
+/// test profile is optimised (`opt-level = 3`) so the table reproduces. Anything larger or
+/// widespread is a real regression.
 fn baseline_lambdas(preset: LightingPreset) -> [f32; 3] {
     preset
         .uv_line()
@@ -1113,6 +1041,7 @@ fn baseline_lambdas(preset: LightingPreset) -> [f32; 3] {
         })
 }
 
+/// Pins the studio presets to [`BASELINE_BITS`]; regeneration notes are on [`baseline_lambdas`].
 #[test]
 fn studio_presets_are_unchanged_by_the_split() {
     // The baseline table keeps the order it was recorded in (the declaration order), not
@@ -1136,10 +1065,8 @@ fn studio_presets_are_unchanged_by_the_split() {
             let r = y.mul_add(-y, 1.0).max(0.0).sqrt();
             let dir = Vec3::new(r * phi.cos(), y, r * phi.sin());
             for &lambda in &baseline_lambdas(preset) {
-                // Through `black_box`, so that no build folds part of this call at
-                // compile time (a release build with LTO otherwise evaluates the
-                // wavelength terms in double precision); the table pins the run-time
-                // path the renderer takes.
+                // `black_box` keeps the call at run time, as in a render; the table
+                // pins that path.
                 let val = sample_studio_environment(
                     black_box(dir),
                     black_box(lambda),
@@ -1182,8 +1109,8 @@ fn white_balance_rule_is_explicit_per_preset() {
     assert!(UvLamp365.is_uv_lamp() && UvLamp395.is_uv_lamp());
     assert!(!UvLamp365.uses_d65() && !UvLamp395.uses_d65());
     assert!(!Daylight.is_uv_lamp() && Daylight.uses_d65());
-    // The new presets: the tent variants, the sun and the contrast view are unadapted;
-    // Illuminant A is a 2856 K Planckian Studio preset with the Bradford adaptation.
+    // The tent variants, the sun and the contrast view are unadapted; Illuminant A is a
+    // 2856 K Planckian Studio preset with the Bradford adaptation.
     for preset in [DaylightSun, Aset, ShopLights, WindowDaylight, WhiteTray] {
         assert!(!preset.uses_white_balance(), "{preset:?}");
     }
@@ -1195,8 +1122,8 @@ fn white_balance_rule_is_explicit_per_preset() {
     assert_eq!(DaylightSun.model().gpu_id(), 5);
 }
 
-/// The UV presets come last in the combo, parse from their labels and fall back to the
-/// default (light tent) for anything an older build would not know.
+/// The UV presets come last in the combo, parse from their labels, and an unknown index falls
+/// back to the default (light tent).
 #[test]
 fn uv_lamp_presets_are_appended_and_parse() {
     assert_eq!(LightingPreset::DarkSpotlight.index(), 11);

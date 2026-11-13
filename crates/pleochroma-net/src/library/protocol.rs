@@ -9,15 +9,14 @@ use super::{
 };
 use crate::messages::ErrorMsg;
 
-/// One request in the read-only library-sync protocol. Deliberately request/response,
-/// not streamed like `RENDER`; see the module docs for the push-extension room left in
-/// the shape.
+/// One request in the read-only library-sync protocol. Request/response, not streamed like
+/// `RENDER`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum LibraryRequest {
     /// List/search designs -- mirrors
     /// `pleochroma_vault::db::sqlite::Database::search_diagrams_display`'s filters
     /// one-for-one: the sort order and tag chip are carried on this variant, not
-    /// silently dropped. Capped at that method's result cap (currently 1000);
+    /// silently dropped. Capped at the vault's `SEARCH_RESULT_CAP` (1000 rows);
     /// see [`Self::SearchPage`] for the paginated form a full-catalogue walk needs
     /// instead.
     ///
@@ -75,7 +74,7 @@ pub enum LibraryRequest {
     /// bytes, decoded as UTF-8 -- see [`LibraryResponse::DesignSource`]), so a remote
     /// design can be loaded into the local cutting-design editor the same way a
     /// locally-attached `.asc` already is (`gui::editor::loading::design_from_full_record`
-    /// on the client, `crate::serve::library::design_source` on this worker).
+    /// on the client; the worker's `serve::library` design-source handler answers it).
     ///
     /// Distinct from [`Self::FetchDesign`]: that reply carries attachment METADATA only
     /// (see the module docs' "Attachments" section), never enough to reconstruct the
@@ -84,8 +83,8 @@ pub enum LibraryRequest {
     /// earlier in the enum, so postcard's index-based encoding of every existing variant
     /// is undisturbed.
     FetchDesignSource { entry_id: i64 },
-    /// Fetch one design's self-contained native design file (`.psdd`), byte for byte
-    /// (v19). The only lossless carrier of a concave design: the `.asc` that
+    /// Fetch one design's self-contained native design file (`.psdd`), byte for byte.
+    /// It is the only lossless carrier of a concave design: the `.asc` that
     /// [`Self::FetchDesignSource`] returns cannot represent concave tiers, so a client
     /// that wants the real stone loads this instead. Answered by
     /// [`LibraryResponse::DesignNative`], or [`LibraryResponse::DesignNativeNotAvailable`]
@@ -134,25 +133,22 @@ pub enum LibraryResponse {
     /// `cursor: next_cursor`), or `None` on the final page (`results` may be empty). A
     /// caller loops until `None`.
     ///
-    /// `excluded_for_missing_curves` exists for the same reason as on
-    /// [`Self::SearchResults`], but is currently always `0` since no caller pages
-    /// through a performance-filtered search yet; reserved to avoid a future protocol
-    /// bump.
+    /// `excluded_for_missing_curves` has the same meaning as on [`Self::SearchResults`]. It is
+    /// always `0` today because no caller pages through a performance-filtered search; the
+    /// field is reserved so the layout need not change when one does.
     SearchResultsPage {
         results: Vec<DesignSummary>,
         next_cursor: Option<i64>,
         excluded_for_missing_curves: u32,
     },
-    /// Reply to [`LibraryRequest::FetchDesignSource`]: `entry_id`'s real, attached
-    /// `.asc` file, decoded as UTF-8 (lossily, same as the client's own local load path
-    /// -- see `gui::editor::loading::design_from_full_record`). `file_name` is that
-    /// attachment's own bare file name (for the "Save"
-    /// round-tripping later), `asc_text` its exact original text. Subject to the same
-    /// per-message [`crate::framing::MAX_FRAME_LEN`] wire cap every other reply
-    /// (including [`Self::Attachment`]) already carries -- no separate bespoke size
-    /// limit is layered on top, matching [`Self::Attachment`]'s own precedent.
+    /// Reply to [`LibraryRequest::FetchDesignSource`]: `entry_id`'s real, attached `.asc`
+    /// file, decoded as UTF-8 (lossily, same as the client's own local load path -- see
+    /// `gui::editor::loading::design_from_full_record`). `file_name` is that attachment's
+    /// bare file name, `asc_text` its exact original text. It is bounded by the per-message
+    /// [`crate::framing::MAX_FRAME_LEN`] cap like every other reply (including
+    /// [`Self::Attachment`]); no separate size limit applies.
     ///
-    /// `frosting` (v26) is what the design states as frosted, by tier position and facet
+    /// `frosting` is what the design states as frosted, by tier position and facet
     /// slot of the schedule `asc_text` describes: `.asc` cannot carry it, so it travels
     /// beside the text (a client builds the design from `asc_text`, then applies it with
     /// `Design::apply_imported_frosting`). Appended last; empty for a design without frosting.

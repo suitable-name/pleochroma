@@ -2,7 +2,7 @@
 //!
 //! The math (projection, hit radius, snapping, the value a pointer position stands for,
 //! the wording) lives in `pleochroma_editor::manipulate`, shared with the desktop and the
-//! web app. This module is the touch wiring around it, a port of the web app's
+//! web app. This module is the touch wiring around it, following the web app's
 //! `views/manip`:
 //!
 //! - a press within the grab radius of a handle tip starts a drag

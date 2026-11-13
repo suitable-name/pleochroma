@@ -68,7 +68,7 @@ fn policy_coordinate(angle: f64, free: bool, requested: Option<(f64, f64)>) -> P
 }
 
 impl EnvCore {
-    /// Shared policy/teacher mobility; no geometry is built to inspect one coordinate.
+    /// Mobility window of one tier, shared by the policy and the teacher. Builds no geometry.
     pub(crate) fn policy_coordinate(&self, index: usize) -> PolicyCoordinate {
         let angle = self
             .current_design

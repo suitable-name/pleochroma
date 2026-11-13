@@ -4,7 +4,7 @@
 //! The values themselves (the "set for this stone" switch, tilt, azimuth, the Second Axis) are the
 //! design's render effects and ride the same live path as the other Stone-tab controls
 //! (`render::stone_effects`, `render::material`): a change shows at once in the render context
-//! and a debounced commit writes ONE undoable `Edit::SetRenderEffects`. This module adds
+//! and a debounced commit writes one undoable `Edit::SetRenderEffects`. This module adds
 //!
 //! - the presets (Through the Table, In the Table Plane, Along the Width, and the ones named by
 //!   the colors they give), each one a single set of the controls and so one undo step;
@@ -498,7 +498,7 @@ pub(in crate::gui) fn setup(ui: &MainWindow, render_ctx: &Arc<Mutex<RenderContex
         }
     });
 
-    // The toolbar toggle: remembered per user. (The session-only switch-on never reaches this.)
+    // Remembered per user. The session-only switch-on does not reach this handler.
     let ui_weak = ui.as_weak();
     model.on_show_axis_toggled(move |show: bool| {
         crate::gui::preferences::persist_show_crystal_axis(show);

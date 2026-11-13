@@ -191,14 +191,8 @@ pub const FURNACE_ABS_FLOOR: f32 = 1e-4;
 /// A converged Monte-Carlo mean's relative error from the analytic target must fall
 /// under this bound.
 ///
-/// Calibrated the same way
-/// `tests/env_map_tests.rs::white_furnace_test_converges_to_the_true_uniform_radiance`
-/// calibrates its own `0.005` bound for a similarly-sized sample count (`NUM_PIXELS *
-/// NUM_SAMPLES` = 262,144 total tuples here, comparable order of magnitude to that
-/// test's 400,000): both sides of this estimator have far lower per-sample variance
-/// than a general importance-sampled furnace test, though, since `wrapped_hero_wavelengths`
-/// is systematic (fixed 50nm spacing) rather than fully random -- so this bound is
-/// intentionally tight.
+/// Relative error bound for the converged mean. Per-sample variance is low because
+/// `wrapped_hero_wavelengths` is systematic (fixed 50 nm spacing) rather than random.
 pub const CONVERGENCE_RELATIVE_TOLERANCE: f32 = 0.01;
 
 /// Runs the furnace-anchor self-test against a live GPU.

@@ -10,32 +10,24 @@ use pleochroma_cut_core::{Design, MaterialSelection, material::MaterialLookup};
 /// How far a built-in material's own `n_D` may drift from the RI a design's exported
 /// `.asc` currently reports before [`ri_override_to_preserve`] steps in to hold the
 /// export steady.
-///
-/// See that function's own doc comment.
 pub const RI_PRESERVE_TOLERANCE: f64 = 0.01;
 
 /// `Design::effective_refractive_index` derives the EXPORTED RI from the selected
-/// material's own built-in `n_D` whenever no override is set -- see that method's
-/// own doc comment.
+/// material's own built-in `n_D` whenever no override is set.
 ///
-/// That is exactly right for a design that never had a
-/// recorded RI of its own, but wrong for one that did: picking "Diamond" (`n_D`
-/// 1.5442) for a design whose exported schedule currently reads `I 1.54` would
-/// otherwise silently rewrite that line the moment a material is applied, even
-/// though nothing about the facet geometry or the cutter's typed figure changed.
+/// That is right for a design that never had a recorded RI, but wrong for one that did:
+/// picking "Diamond" (`n_D` 1.5442) for a design whose exported schedule reads `I 1.54`
+/// would silently rewrite that line, though the facet geometry and the typed figure
+/// have not changed.
 ///
-/// Returns `Some(original_ri)` -- to be pinned into
-/// [`MaterialSelection::refractive_index_override`] -- when `name` resolves to a
-/// built-in whose own `n_D` differs from `original_ri` by more than
-/// [`RI_PRESERVE_TOLERANCE`], so the export keeps reading `original_ri` exactly
-/// as before. Returns `None` (no override needed) when `name` is not a built-in
-/// at all, or when the two already agree closely enough that pinning would be
-/// pure noise.
+/// Returns `Some(original_ri)`, to be pinned into
+/// [`MaterialSelection::refractive_index_override`], when `name` is a built-in whose
+/// `n_D` differs from `original_ri` by more than [`RI_PRESERVE_TOLERANCE`]. Returns
+/// `None` when `name` is not a built-in, or when the two agree closely enough that
+/// pinning would be noise.
 ///
-/// Shared by [`material_selection_for_accepted_suggestion`] (the catalogue-load
-/// suggestion, which already applied this reasoning under a different name) and
-/// `callbacks::tier_actions::setup_apply_design_material_callback` (for a plain
-/// in-editor material pick with no typed RI override of its own).
+/// Used by [`material_selection_for_accepted_suggestion`] and by the desktop's
+/// `setup_apply_design_material_callback` for a plain in-editor material pick.
 #[must_use]
 pub fn ri_override_to_preserve(name: &str, original_ri: f64) -> Option<f64> {
     let built_in_ri = pleochroma_cut_core::built_in_refractive_index(name)?;
@@ -44,25 +36,18 @@ pub fn ri_override_to_preserve(name: &str, original_ri: f64) -> Option<f64> {
 
 /// Whether a plain material pick should pin the design's legacy exported RI.
 ///
-/// `picked_name` is the pick, with no typed RI override of its own. The RI is pinned into
-/// [`MaterialSelection::refractive_index_override`] to `legacy_ri` (i.e.
-/// `meta.refractive_index` -- the schedule's own `I` line) so the pick does not silently
-/// rewrite it. Returns `None` (pick
-/// stays unpinned, the newly resolved material's own `n_D` wins) whenever
-/// `previous_material_name` is `Some`: once a design already has a NAMED
-/// material, that material's own `n_D` (or an explicit typed override) is the
-/// design's RI story from then on, and pinning the OUTGOING material's RI onto
-/// the incoming one would be exactly the bug this guard exists to prevent --
-/// see [`ri_override_to_preserve`] for the tolerance check itself.
+/// `picked_name` is the pick, with no typed RI override of its own. The RI is pinned to
+/// `legacy_ri` (`meta.refractive_index`, the schedule's own `I` line) so the pick does not
+/// rewrite it. Returns `None` (the new material's own `n_D` wins) whenever
+/// `previous_material_name` is `Some`: once a design has a named material, that material's
+/// `n_D` or an explicit typed override is its RI from then on, and pinning the outgoing
+/// material's RI onto the incoming one would be the bug this guard prevents.
 ///
-/// Also `None` when `legacy_ri` is [`Design::LEGACY_DEFAULT_REFRACTIVE_INDEX`] (`1.54`):
-/// that is the placeholder a brand-new design starts with and `GemCad`'s own "unspecified"
-/// `I` value, not a figure anyone recorded, so there is no exported RI to hold steady and
-/// the pick's own `n_D` must show (a new design that picks Diamond reads 2.417, not a
-/// pinned 1.54).
+/// Also `None` when `legacy_ri` is [`Design::LEGACY_DEFAULT_REFRACTIVE_INDEX`] (`1.54`): that
+/// is a new design's placeholder and `GemCad`'s "unspecified" `I` value, not a recorded figure,
+/// so the pick's own `n_D` must show (a new design that picks Diamond reads 2.417).
 ///
-/// Moved from the desktop's `tier_actions::materials_symmetry` so the web design
-/// settings apply a material pick identically.
+/// The tolerance check is [`ri_override_to_preserve`].
 #[must_use]
 pub fn ri_override_for_material_pick(
     picked_name: Option<&str>,
@@ -80,14 +65,11 @@ pub fn ri_override_for_material_pick(
 
 /// What accepting the catalogue-load material suggestion applies.
 ///
-/// See `super::callbacks::setup_load_selected_callback`'s own doc comment for when the
-/// suggestion (`super::material_lookup::nearest_built_in_material`) is offered in the
-/// first place.
+/// The suggestion comes from [`nearest_built_in_material`]; the desktop's
+/// `setup_load_selected_callback` decides when it is offered.
 ///
-/// `current`'s `specific_gravity_override` and `body_color_override` are
-/// carried through unchanged -- this only ever touches
-/// `name`/`refractive_index_override`; see [`ri_override_to_preserve`] for why
-/// the override is pinned at all.
+/// Only `name` and `refractive_index_override` change; every other override of `current`
+/// is kept. See [`ri_override_to_preserve`] for why the RI is pinned.
 #[must_use]
 pub fn material_selection_for_accepted_suggestion(
     name: &str,
@@ -112,12 +94,11 @@ pub fn material_selection_for_accepted_suggestion(
 /// Applied while the design is built, before any session or history wraps it, so it is
 /// neither an undo step nor an unsaved change (a loaded design is clean by definition).
 ///
-/// The precedence is the library detail view's own (`apply_catalogue_material` on the
-/// desktop) and the batches' (`gui::batch::catalogue_material`):
+/// The precedence matches the desktop's library detail view (`apply_catalogue_material`)
+/// and its batch path (`gui::batch::catalogue_material`):
 ///
-/// 1. the design's own material -- a design file that names one keeps it, untouched
-///    (the file wins over the library entry; this function returns `None` for it, also
-///    when the name resolves nowhere, since the editor refuses such a design on purpose);
+/// 1. the design's own material -- a design file that names one keeps it, untouched, and
+///    the function returns `None` even when that name resolves nowhere;
 /// 2. `preview_material`, the entry's persisted material, when `lookup` resolves it;
 /// 3. the built-in the design's refractive index names
 ///    ([`nearest_built_in_material`] within [`MATERIAL_MATCH_TOLERANCE`]), the same
@@ -259,11 +240,8 @@ mod tests {
     fn accepted_suggestion_pins_the_schedule_ri_when_the_built_in_ri_differs_by_more_than_the_tolerance()
      {
         let quartz_ri = pleochroma_cut_core::built_in_refractive_index("Quartz").unwrap();
-        // A schedule RI 0.02 away from Quartz's own real n_D -- still within the
-        // suggestion's own 0.01 SEARCH tolerance is not guaranteed here (this
-        // test picks the schedule RI directly, not via `nearest_built_in_material`),
-        // but exercises exactly the "accepting would otherwise silently move the
-        // exported RI" case this function exists to prevent.
+        // A schedule RI 0.02 from Quartz's n_D, outside RI_PRESERVE_TOLERANCE: accepting
+        // the material would otherwise move the exported RI.
         let schedule_ri = quartz_ri + 0.02;
         let current = MaterialSelection::none();
         let selection = material_selection_for_accepted_suggestion("Quartz", schedule_ri, &current);

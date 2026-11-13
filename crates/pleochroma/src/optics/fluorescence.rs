@@ -1,9 +1,5 @@
 //! CPU-only fluorescence: emitter data and the in-medium fluorescence vertex sampling.
 //!
-//! This module holds the data types and the sampling maths of the vertex (see
-//! `docs/fluorescence-plan.md` sections 3-4, and the "Fluorescence" section of
-//! `crates/pleochroma/docs/physics.md`).
-//!
 //! # Model
 //!
 //! A [`FluorescentEmitter`] is one chromophore's glow: the absorption bands that
@@ -668,7 +664,7 @@ mod tests {
         assert!(blue.pseudo_extinction(450.0) < 1e-6);
     }
 
-    /// Furnace energy test (plan section 6, item 3), at the estimator level.
+    /// Furnace energy test at the estimator level.
     ///
     /// Phi = 1, emission spectrum equal to the excitation spectrum. With unit incident
     /// radiance at every wavelength and no transmittance loss, the emitted spectral

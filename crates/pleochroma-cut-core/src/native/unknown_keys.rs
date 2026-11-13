@@ -1,14 +1,11 @@
 //! [`UnknownFileKeys`]: the keys of a self-contained design file this build does not
 //! claim, carried on the [`crate::design::Design`] from Open to Save.
 //!
-//! Every table of the file ([`pleochroma_formats::native::design::DesignFile`]) keeps
-//! a flattened `unknown` map of the keys a newer build wrote, and a plain file round
-//! trip writes them back. A [`crate::design::Design`] has no home for them, so loading
-//! a file into a design used to drop them and the next Save then wrote a file without
-//! them. This type is that home: [`super::design_from_file`] fills it and
-//! [`super::design_to_file`] writes it back. A tier's or concave tier's keys are keyed
-//! by its stable [`TierId`], so they follow the tier through add, remove, move and undo;
-//! keys of a tier that is gone are simply not written.
+//! Every table of the file ([`pleochroma_formats::native::design::DesignFile`]) keeps a
+//! flattened `unknown` map of the keys a newer build wrote. [`super::design_from_file`]
+//! fills this type and [`super::design_to_file`] writes it back, so a Save keeps them.
+//! A tier's or concave tier's keys are keyed by its stable [`TierId`], so they follow the
+//! tier through add, remove, move and undo. Keys of a removed tier are not written.
 
 use crate::design::TierId;
 use std::collections::BTreeMap;

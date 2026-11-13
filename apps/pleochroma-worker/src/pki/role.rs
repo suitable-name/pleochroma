@@ -1,6 +1,5 @@
-//! Certificate roles: which of the two client roles -- a viewer
-//! or a joining render worker -- a client certificate was issued for, and the two
-//! allowlist files that go with them.
+//! Certificate roles: whether a client certificate is for a viewer or a joining render
+//! worker, and the two allowlist files that go with them.
 //!
 //! # How a role is recorded
 //!
@@ -10,11 +9,9 @@
 //! - a **viewer** certificate is every other client certificate -- in particular every
 //!   certificate issued before roles existed, whose CN is just the `--name` label.
 //!
-//! `cert issue-client` refuses a viewer `--name` that already starts with `worker:`, so
-//! the prefix can only ever come from an explicit `--role worker`. The CA is private and
-//! operated by the same person on both ends, so a CN prefix is as trustworthy as a
-//! custom extension would be, and far simpler to inspect by hand
-//! (`openssl x509 -noout -subject`).
+//! `cert issue-client` refuses a viewer `--name` that starts with `worker:`, so the prefix
+//! comes only from an explicit `--role worker`. The CA is private, so a CN prefix is as
+//! trustworthy as a custom extension and is easy to inspect (`openssl x509 -noout -subject`).
 //!
 //! # Two allowlists
 //!
@@ -157,7 +154,7 @@ pub fn pki_dir_of(ca_path: &Path) -> PathBuf {
 // ---- A minimal DER walk to the subject Common Name ---------------------------------
 //
 // Only what an X.509 certificate's subject needs: definite-length TLVs, a SEQUENCE /
-// SET / OID / string walk. No new dependency (rcgen's parser does not expose a leaf's
+// SET / OID / string walk. No extra dependency (rcgen's parser does not expose a leaf's
 // subject publicly).
 
 /// DER tags this walk needs.

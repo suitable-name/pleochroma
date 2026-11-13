@@ -1,6 +1,7 @@
 //! Bounded exact request memoization, owned by one immutable episode/policy.
+//!
 //! No tolerance keys: requested travel is derived from the exact proposal, and
-//! the entire angle box is part of the key. The owner must check runtime health.
+//! the entire angle box is part of the key. Callers must check runtime health first.
 use super::certificate::same_state;
 use pleochroma_cut_core::Design;
 use std::{

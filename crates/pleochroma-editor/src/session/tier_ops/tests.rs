@@ -384,8 +384,8 @@ fn inline_angle_text_on_a_pavilion_tier_keeps_its_side() {
     assert_eq!(session.design.tiers[1].angle_deg, -40.0);
 }
 
-/// Zero is the one number whose side is not in its sign bit's number, so it follows the
-/// tier it is typed on; only an explicit leading sign (`-0`, `+0`) asks for the other side.
+/// Zero has no side in its digits, so it keeps the side of the tier it is typed on. Only an
+/// explicit leading sign (`-0`, `+0`) asks for the other side.
 #[test]
 fn inline_zero_keeps_the_side_of_the_tier_it_is_typed_on() {
     let mut session = session_with_two_tiers();

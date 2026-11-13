@@ -2,8 +2,7 @@
 //! opened by the connection's first library request, never for render, tilt,
 //! final-image, ping or asset traffic.
 //!
-//! A connection used only to render (a desktop batch's per-picture connection, a
-//! coordinator's chunk dispatch) therefore never pays for opening the library, and never
+//! A connection used only to render therefore never pays for opening the library, and never
 //! fails because it cannot be opened.
 
 use super::{handle_request, handlers};

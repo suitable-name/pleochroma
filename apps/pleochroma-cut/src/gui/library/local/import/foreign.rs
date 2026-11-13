@@ -1,11 +1,10 @@
-//! `.gem` (`GemCAD`'s binary save file) and `.gcs` (Gem Cut Studio) designs,
-//! converted to `.asc` cutting instructions so Import and the editor's Open... can
-//! hand them to the SAME `.asc` path every other design takes.
+//! Converts `.gem` (`GemCAD`'s binary save file) and `.gcs` (Gem Cut Studio) designs to `.asc`.
 //!
-//! The readers and converters live in `pleochroma_formats::gem`/`gcs`; the
-//! conversion to `.asc` text is `pleochroma_vault::local::design_file_to_asc_text`,
-//! the same one the editor's catalogue record loader and the worker's
-//! `FetchDesignSource` use. This module only picks the format from a file path.
+//! Import and the editor's Open... then use the same `.asc` path as every other design.
+//!
+//! The readers live in `pleochroma_formats::gem` and `gcs`. The conversion is
+//! `pleochroma_vault::local::design_file_to_asc_text`, which the record loader and the
+//! worker also use. This module only picks the format from a file path.
 
 use pleochroma_vault::local::{DesignFileKind, design_file_to_asc_text};
 use std::path::Path;
@@ -58,11 +57,9 @@ pub struct ConvertedDesign {
     /// missing refractive index, unknown `.gcs` elements or attributes. Empty for
     /// a clean file.
     pub warnings: Vec<String>,
-    /// What a `.gcs` file states as frosted, by tier position and facet slot (`.asc`
-    /// has no notation for it). A caller that opens the design applies it with
-    /// `Design::apply_imported_frosting`; the library import stores it with the row
-    /// (`ImportedAsc::with_frosting`, written by `local::apply_imported_extras`), because
-    /// the `.asc` text it also stores cannot.
+    /// The frosting a `.gcs` file states, by tier position and facet slot. `.asc` has no
+    /// notation for it. The editor applies it with `Design::apply_imported_frosting`, and the
+    /// library stores it with the row, since the `.asc` text cannot hold it.
     pub frosting: Vec<(usize, pleochroma_formats::gcs::GcsTierFrosting)>,
 }
 
@@ -130,13 +127,10 @@ pub mod test_gem {
         out.extend_from_slice(text.as_bytes());
     }
 
-    /// A tiny `.gem` encoder (the formats crate's own encoder is test-only there):
-    /// per facet `f64 px, py, pz` (`p = n / mast`, `phi = 90° - 360°·i/gear`), `i32`
-    /// tier, a length-prefixed `name\tinstructions` label (the name on the tier's
-    /// first facet only, as `GemCAD` writes it) and an empty vertex list (`i32 0`);
-    /// then the `-99999.0` sentinel and the trailer (`i32 symmetry, i32 mirror, i32
-    /// gear, f64 ri, u32 0x7FFF, f64 offset`, eight length-prefixed strings with the
-    /// title first).
+    /// Encodes a synthetic `.gem` file. Each facet holds its normal (`p = n / mast`),
+    /// tier, a `name\tinstructions` label (the name on the tier's first facet only), and an
+    /// empty vertex list. The file ends with the `-99999.0` sentinel and a trailer that
+    /// holds the gear, index and title.
     pub fn encode_gem(tiers: &[GemTierSpec<'_>], gear: i32, title: &str) -> Vec<u8> {
         let mut out = Vec::new();
         for (tier_number, (name, angle, mast, indices)) in (1_i32..).zip(tiers) {

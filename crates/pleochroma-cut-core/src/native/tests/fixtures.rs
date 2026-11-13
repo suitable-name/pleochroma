@@ -19,15 +19,11 @@ pub(super) const SIMPLE_ASC: &str = "GemCad 5.0\n\
      a 0.000000 0.60000000 G Set stone size\n\
      a -0.000000 0.55000000 G Set stone size\n";
 
-/// Same geometry as [`SIMPLE_ASC`], but every tier's `G` note already reads exactly
-/// what [`crate::design::Design::to_asc_schedule`]'s `constraint_notes` canonicalizes
-/// a [`MeetConstraint::ScaleReference`] tier to ("Set stone size.", full stop
-/// included). `SIMPLE_ASC` keeps the more natural "Set girdle thickness" wording
-/// instead, so re-exporting it can never come back byte-identical even when nothing
-/// changed (notes are regenerated from the constraint alone -- see the parent
-/// module doc comment's "Preserving the original `.asc` text" section); this
-/// constant is the already-canonical file the untouched-design preservation test
-/// needs instead.
+/// Same geometry as [`SIMPLE_ASC`], but each tier's `G` note already has the canonical text
+/// that `constraint_notes` writes for a [`MeetConstraint::ScaleReference`] tier ("Set stone
+/// size.", full stop included). Notes are regenerated from the constraint, so `SIMPLE_ASC`'s
+/// "Set girdle thickness" would never re-export byte-identical. This is the file the
+/// untouched-design preservation test needs.
 pub(super) const FULLY_CANONICAL_ASC: &str = "GemCad 5.0\n\
      g 4 0.0\n\
      y 1 n\n\
@@ -59,13 +55,11 @@ pub(super) fn simple_design() -> Design {
     design
 }
 
-/// Same base fixture as [`simple_design`], but WITHOUT its tier-1 `MeetExisting`
-/// override: every tier stays exactly as [`crate::design::Design::from_asc_schedule`]
-/// pinned it (`ScaleReference`). That override is needed for tests exercising the
-/// meet-intent overlay, but it also means `Design::solve` derives tier 1's mast
-/// fresh from geometry rather than the recorded `0.6` -- wrong for a test asserting
-/// `to_asc_schedule()` reproduces the original text byte for byte. Used by the
-/// save-preserve/regenerate and custom-catalogue-RI test files.
+/// Same base as [`simple_design`], but without its tier-1 `MeetExisting` override. Every tier
+/// keeps the `ScaleReference` pin from [`crate::design::Design::from_asc_schedule`]. With the
+/// override, `Design::solve` derives tier 1's mast from geometry instead of the recorded `0.6`,
+/// so `to_asc_schedule()` would not reproduce the text. Used by the save-preserve and
+/// custom-catalogue tests.
 pub(super) fn fully_anchored_design() -> Design {
     let schedule =
         pleochroma_formats::asc::parse_asc(FULLY_CANONICAL_ASC).expect("fixture must parse");

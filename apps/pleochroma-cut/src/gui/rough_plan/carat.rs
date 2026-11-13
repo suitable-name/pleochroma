@@ -1,10 +1,10 @@
 //! The carat field: the model's own weight until a weighed carat is typed over it, and
-//! the Fit to weight action that scales the model to the typed weight.
+//! the Fit to Weight action that scales the model to the typed weight.
 //!
 //! The field follows the model (every size, cut or material change rewrites it with the
 //! model's carat for the picked material) as long as it holds the text the window wrote
 //! last. Text typed over it is a weighed carat: the field keeps it, the weight check
-//! compares it with the model, and Fit to weight scales every length of the model by the
+//! compares it with the model, and Fit to Weight scales every length of the model by the
 //! cube root of the carat ratio (one undo step), after which the field follows the model
 //! again.
 
@@ -47,8 +47,8 @@ pub(super) fn typed_carat(host: &Rc<Host>) -> Result<Option<f64>, String> {
 }
 
 /// The uniform scale that takes a model of `current` carat to `target` carat: the cube
-/// root of their ratio. `None` when either figure is not positive, or when the ratio is
-/// within a hundredth of a percent of 1 (nothing to fit).
+/// root of their ratio. `None` when either figure is not positive, or when the scale is
+/// within 0.01 % of 1 (nothing to fit).
 pub(super) fn fit_factor(current: f64, target: f64) -> Option<f64> {
     if !(current > 0.0 && target > 0.0) {
         return None;
@@ -82,8 +82,7 @@ pub(super) fn show(host: &Rc<Host>, model: &RoughPlanModel<'_>, output: &ShapeOu
 /// Whether scaling `model` rebuilds meshes, which takes a worker thread: an imported mesh
 /// (its mesh and its hull) and a rough with inclusions (each shell with its search tree).
 ///
-/// It does not ask a block, a cylinder or a pebble for its mesh: with inclusions that mesh is
-/// built on demand, and the UI thread must not be the one to build it.
+/// Only an imported mesh is asked for its mesh here, so this check stays cheap on the UI thread.
 fn scales_in_background(model: &RoughModel) -> bool {
     !model.inclusions.is_empty()
         || (matches!(model.base, RoughBase::Hull { .. }) && model.mesh().is_some())
@@ -134,9 +133,9 @@ fn apply_fitted(host: &Rc<Host>, original: &RoughModel, scaled: RoughModel, text
     resync(host, true);
 }
 
-/// The Fit to weight button: scales every length of the model so that its carat equals
-/// the typed weight, as one undo step. A typed weight that already matches the model
-/// within a hundredth of a percent only hands the field back to the model.
+/// The Fit to Weight button: scales every length of the model so that its carat equals
+/// the typed weight, as one undo step. A typed weight that already matches the model (the
+/// scale is within 0.01 % of 1) only hands the field back to the model.
 ///
 /// A mesh rough and a rough with inclusions are scaled on a worker thread (see
 /// [`mesh_task`]); every other rough is scaled at once.

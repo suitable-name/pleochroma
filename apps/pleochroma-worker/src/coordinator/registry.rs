@@ -1,7 +1,9 @@
-//! The coordinator's registry of joined worker connections: id assignment,
+//! The coordinator's registry of joined worker connections.
+//!
+//! It handles id assignment,
 //! each connection's reported [`RenderCapability`], liveness, check-out/check-in for
-//! request execution, a capacity snapshot, and change notifications. Deliberately free
-//! of request-execution logic -- that is C-coord's job, built on [`Registry::checkout`].
+//! request execution, a capacity snapshot, and change notifications. It holds no
+//! request-execution logic: that lives in `job`, built on [`Registry::checkout`].
 //!
 //! # One entry per connection
 //!

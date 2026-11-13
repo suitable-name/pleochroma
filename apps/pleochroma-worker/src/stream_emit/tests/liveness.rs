@@ -1,12 +1,8 @@
-//! Tests for the liveness/timeout-classification machinery: [`is_stream_timeout`]'s
-//! `WriteZero`-counts-too classification, [`poll_for_client_message`]'s tolerance of it,
-//! and [`wait_for_tracer_to_stop`]'s cadence-independent heartbeat backstop.
+//! Tests for stream-timeout classification and the heartbeat backstop.
 //!
-//! `run_stream`'s main loop applies the same gating logic the `wait_for_tracer_to_stop`
-//! tests below pin, but that requires a real tracer thread to observe "produces nothing
-//! for a while" against. `wait_for_tracer_to_stop` is the same gate with none of that
-//! machinery: a plain `Write`, a `SharedState` driven directly, and an injectable
-//! interval.
+//! [`is_stream_timeout`] and [`poll_for_client_message`] treat `WriteZero` as a timeout.
+//! `run_stream` applies the same heartbeat gate, but only with a real tracer thread, so these
+//! tests drive [`wait_for_tracer_to_stop`] directly with a plain `Write` and an injectable bound.
 
 use super::fixtures::{
     decode_events, finish_after, heartbeat_test_request, shared_state, tiny_scene,
@@ -51,8 +47,7 @@ fn is_stream_timeout_rejects_unrelated_error_kinds() {
     }
 }
 
-/// A `Read + TimeoutRead` double whose very first (and only) read returns one scripted
-/// `io::Error`, used to pin `poll_for_client_message`'s classification of that error.
+/// A `Read + TimeoutRead` double whose only read returns the scripted `io::Error`.
 struct ErroringRead(ErrorKind);
 
 impl std::io::Read for ErroringRead {
@@ -67,10 +62,9 @@ impl TimeoutRead for ErroringRead {
     }
 }
 
-/// A real TLS stream can surface a socket timeout as `WriteZero` even from a read call
-/// (`rustls::Stream::read`'s `complete_io()` can need to flush outgoing bytes too).
-/// Pins that `poll_for_client_message` tolerates it like `WouldBlock`/`TimedOut`, not
-/// as a fatal protocol error.
+/// A TLS stream can report a socket timeout as `WriteZero` on a read, because
+/// `rustls::Stream::read` may need to flush outgoing bytes first. It must count as a
+/// timeout, not as a fatal protocol error.
 #[test]
 fn poll_for_client_message_tolerates_a_write_zero_on_the_first_byte() {
     let mut stream = ErroringRead(ErrorKind::WriteZero);
@@ -79,10 +73,9 @@ fn poll_for_client_message_tolerates_a_write_zero_on_the_first_byte() {
     assert!(matches!(result, Ok(ClientPoll::Pending)));
 }
 
-/// A tracer that produces nothing for well over two heartbeat intervals must still see
-/// at least two `StreamEvent::Progress` heartbeats -- what a wide-`cadence` cancellation
-/// wind-down (or a slow calibration probe, long GPU sub-batch, hybrid CPU-only tail)
-/// needs from this function.
+/// A silent tracer must still get at least two `StreamEvent::Progress` heartbeats over
+/// more than two heartbeat intervals. A long calibration probe, GPU sub-batch or
+/// wide-cadence cancellation wind-down would otherwise go silent.
 #[test]
 fn wait_for_tracer_to_stop_heartbeats_at_least_twice_when_the_tracer_produces_nothing() {
     let scene = tiny_scene();
@@ -118,9 +111,8 @@ fn wait_for_tracer_to_stop_heartbeats_at_least_twice_when_the_tracer_produces_no
     );
 }
 
-/// The counterpart: while `heartbeat_bound` hasn't elapsed yet, no heartbeat goes out
-/// at all -- a tick that already proved liveness this recently must suppress the extra
-/// write, not double up on it.
+/// Within `heartbeat_bound` no heartbeat is written, since recent progress already proves
+/// liveness.
 #[test]
 fn wait_for_tracer_to_stop_suppresses_the_heartbeat_within_the_interval() {
     let scene = tiny_scene();
@@ -153,8 +145,7 @@ fn wait_for_tracer_to_stop_suppresses_the_heartbeat_within_the_interval() {
     );
 }
 
-/// The heartbeat's payload is a live read of `samples_done` at the moment it fires --
-/// pins that it is never stale.
+/// A heartbeat reports the `samples_done` current when it fires, never a stale value.
 #[test]
 fn wait_for_tracer_to_stop_heartbeat_carries_the_latest_samples_done() {
     let scene = tiny_scene();

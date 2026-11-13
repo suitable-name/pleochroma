@@ -3,10 +3,9 @@
 //! Dispatches `shaders/self_determinism.wgsl` twice against identical input on the same
 //! adapter and asserts the two output buffers are byte-for-byte identical.
 //!
-//! This is the property a future real GPU raytracer's per-pixel accumulation MUST have
-//! (see the shader's own doc comment): each thread owns its pixels' accumulation with
-//! no `atomicAdd` and no cross-thread reduction, so nothing about GPU scheduling can
-//! change the bit pattern of the result from run to run.
+//! The GPU raytracer's per-pixel accumulation needs this property (see the shader's doc
+//! comment): each thread owns its pixels' accumulation, with no `atomicAdd` and no cross-thread
+//! reduction, so GPU scheduling cannot change the bit pattern of the result.
 
 use crate::renderer::gpu::compute;
 
@@ -26,13 +25,13 @@ struct Params {
 pub struct DeterminismMismatch {
     /// Index of the pixel.
     pub pixel: u32,
-    /// Run1.
+    /// Value from the first run.
     pub run1: f32,
-    /// Run2.
+    /// Value from the second run.
     pub run2: f32,
 }
 
-/// Outcome of the determinism check check.
+/// Outcome of the determinism check.
 #[derive(Debug, Clone)]
 pub struct DeterminismCheckResult {
     /// Number of pixels in the dispatch.
@@ -44,7 +43,7 @@ pub struct DeterminismCheckResult {
 }
 
 impl DeterminismCheckResult {
-    /// Whether every compared value stayed within its budget.
+    /// Whether the two runs were bit-for-bit identical.
     #[must_use]
     pub const fn passed(&self) -> bool {
         self.mismatches.is_empty()
@@ -114,11 +113,8 @@ pub fn run(
         .zip(run2.iter())
         .enumerate()
         .filter_map(|(pixel, (&a, &b))| {
-            // Bitwise, not `==`: this must be the exact same bit pattern, not merely
-            // numerically-equal-modulo-NaN-weirdness (an accumulation that produced NaN
-            // deterministically both times should still be reported as "passed" for
-            // THIS check, since `NaN != NaN` under `==` would otherwise flag a
-            // perfectly reproducible result as a mismatch).
+            // Compared by bit pattern, not `==`: `NaN != NaN` would flag a result that is
+            // reproducibly NaN in both runs.
             (a.to_bits() != b.to_bits()).then_some(DeterminismMismatch {
                 pixel: u32::try_from(pixel).expect("the pixel count is a u32"),
                 run1: a,

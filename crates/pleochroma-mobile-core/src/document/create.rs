@@ -391,8 +391,7 @@ pub fn new_from_form(state: &mut AppState, form: &NewDesignForm) -> Result<(), S
 /// Installs the design of template card `index` (`0` is a blank design on the default
 /// rough) on the template's own gear and starting material.
 ///
-/// The design's first header
-/// line is the template's name, so the page and a save have a title.
+/// The design's first header line is the template's name, so the page and a save have a title.
 ///
 /// # Errors
 /// A sentence when `index` names no template; the current design is unchanged then.

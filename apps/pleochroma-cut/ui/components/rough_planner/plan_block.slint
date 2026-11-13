@@ -1,0 +1,150 @@
+import { Theme } from "../../theme.slint";
+import { RoughPlanModel } from "../../models/rough_plan.slint";
+import { KitButton } from "../kit/kit.slint";
+import { FillBar } from "parts.slint";
+
+// The sticky Plan block under the steps. Idle it is one large Plan button (Plan Again once there
+// are layouts) with its shortcut; while a plan runs it holds the stage, Cancel, a progress bar and
+// the best layout so far; when planning is not possible the button is off and says why.
+export component PlanBlock inherits Rectangle {
+    property <bool> busy: RoughPlanModel.running;
+    property <float> fraction: Math.max(0.0, Math.min(1.0, RoughPlanModel.progress_fraction));
+    // Plan needs a material with a known specific gravity, a valid model and no mesh being read.
+    property <bool> can_plan: RoughPlanModel.materials.length > 0 && RoughPlanModel.model_error == "" && !RoughPlanModel.mesh_busy;
+    // The short reason shown in the off button.
+    property <string> reason: RoughPlanModel.materials.length == 0 ? "no material available"
+        : (RoughPlanModel.mesh_busy ? (RoughPlanModel.base_kind == 3 ? "waits for the scan" : "waits for the mesh")
+        : (RoughPlanModel.model_error != "" ? "fix the red step first" : ""));
+    // What the Plan button does, or why it is off.
+    property <string> plan_hint: root.can_plan
+        ? "Work out how to cut the stones out of the rough, and show the best layouts. Ctrl+Enter does the same."
+        : (RoughPlanModel.materials.length == 0
+            ? "No material with a known specific gravity is available, so the rough cannot be weighed."
+            : (RoughPlanModel.mesh_busy
+                ? "Plan is off while the mesh is being read or scaled. It is back in a moment."
+                : "Plan is off until the model is valid: see the red step on the left."));
+
+    function plan_now() {
+        if root.can_plan && !root.busy {
+            RoughPlanModel.plan();
+        }
+    }
+
+    height: root.busy ? 96px : 48px;
+    border-radius: 10px;
+    background: root.busy ? Theme.bg-card : transparent;
+    border-width: root.busy ? 1px : 0px;
+    border-color: Theme.border-subtle;
+
+    if !root.busy: Rectangle {
+        border-radius: 10px;
+        background: !root.can_plan ? Theme.bg-elevated
+            : (plan_touch.has-hover ? Theme.accent-cyan-hover : Theme.accent-cyan);
+        border-width: plan_focus.has-focus ? 2px : 0px;
+        border-color: Theme.text-primary;
+        accessible-role: AccessibleRole.button;
+        accessible-label: "Plan";
+        accessible-description: root.plan_hint;
+        accessible-enabled: root.can_plan;
+        accessible-action-default => { root.plan_now(); }
+
+        Tooltip { text: @markdown("\{root.plan_hint}"); }
+        plan_focus := FocusScope {
+            enabled: root.can_plan;
+            key-pressed(event) => {
+                if event.text == Key.Space || event.text == Key.Return {
+                    root.plan_now();
+                    return accept;
+                }
+                return reject;
+            }
+        }
+        HorizontalLayout {
+            alignment: center;
+            spacing: 10px;
+            Text {
+                text: RoughPlanModel.results.length > 0 ? "Plan Again" : "Plan";
+                font-size: 15px;
+                font-weight: 700;
+                color: root.can_plan ? Theme.text-on-accent : Theme.text-disabled;
+                vertical-alignment: center;
+                horizontal-stretch: 0;
+            }
+            Text {
+                text: root.can_plan ? "Ctrl+Enter" : root.reason;
+                font-size: 11px;
+                color: root.can_plan ? Theme.text-on-accent : Theme.text-muted;
+                vertical-alignment: center;
+                horizontal-stretch: 0;
+            }
+        }
+        plan_touch := TouchArea {
+            enabled: root.can_plan;
+            mouse-cursor: root.can_plan ? pointer : default;
+            clicked => { root.plan_now(); }
+        }
+    }
+
+    if root.busy: VerticalLayout {
+        padding: 12px;
+        spacing: 8px;
+
+        HorizontalLayout {
+            spacing: 8px;
+            Rectangle {
+                horizontal-stretch: 1;
+                min-width: 0px;
+                Text {
+                    x: 0px;
+                    width: parent.width;
+                    height: parent.height;
+                    text: RoughPlanModel.stage;
+                    font-size: 12px;
+                    font-weight: 600;
+                    color: Theme.text-primary;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+            }
+            Text {
+                text: Math.round(root.fraction * 100) + "%";
+                font-size: 12px;
+                font-weight: 700;
+                color: Theme.accent-cyan;
+                vertical-alignment: center;
+                horizontal-stretch: 0;
+            }
+            KitButton {
+                text: "Cancel";
+                kind: 2;
+                h: 26px;
+                accessible-label: "Cancel the Plan";
+                hint: "Stop the plan. The layouts found so far are dropped. Escape does the same.";
+                clicked => { RoughPlanModel.cancel(); }
+            }
+        }
+
+        FillBar {
+            height: 6px;
+            border-radius: 3px;
+            fraction: root.fraction;
+            accessible-role: AccessibleRole.progress-indicator;
+            accessible-label: "Planning Progress";
+            accessible-value: Math.round(root.fraction * 100) + " percent";
+        }
+
+        Rectangle {
+            height: 16px;
+            Text {
+                x: 0px;
+                width: parent.width;
+                height: parent.height;
+                text: RoughPlanModel.best_so_far_text;
+                font-size: 11px;
+                color: Theme.text-secondary;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+    }
+}

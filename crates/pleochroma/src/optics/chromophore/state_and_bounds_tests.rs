@@ -1,7 +1,7 @@
-//! The valence state of a host is the way it is in reality, and the amount bounds follow it.
+//! A host's valence state comes from its treatments, and the amount bounds follow that state.
 //!
-//! - The second species of glass copper (the `Cu0` colloid of copper ruby) and of quartz iron (the
-//!   interstitial `Fe2+` of prasiolite) exists only after the treatment that makes it
+//! - The second species of glass copper (the `Cu0` colloid of copper ruby) and of quartz iron
+//!   (the interstitial `Fe2+` of prasiolite) exists only after the treatment that makes it
 //!   (`reducing_strike`, `thermal_anneal_550`), so a single-element recipe never raises the
 //!   advisory `Relation` warning against itself.
 //! - An element's bound is taken under the recipe's treatments (`element_conc_max_split`): a

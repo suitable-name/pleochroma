@@ -58,11 +58,9 @@ fn select_candidate_directions_is_empty_when_both_directions_are_unsafe() {
     assert_eq!(survivors.len(), 0);
 }
 
-/// The pre-rejected case (both directions unsafe, see
-/// `select_candidate_directions_is_empty_when_both_directions_are_unsafe`) must
-/// short-circuit to the same empty evaluation a fully-evaluated-but-rejected pair
-/// would produce -- without ever entering `std::thread::scope`, since there is
-/// nothing left to evaluate.
+/// With no surviving direction (see
+/// `select_candidate_directions_is_empty_when_both_directions_are_unsafe`) the evaluation
+/// is empty and never enters `std::thread::scope`, since there is nothing to evaluate.
 #[test]
 fn evaluate_survivors_with_no_survivors_needs_no_thread_scope_and_matches_the_old_result() {
     let material = GemMaterial::diamond();
@@ -115,10 +113,9 @@ fn evaluate_survivors_with_one_survivor_evaluates_it_inline() {
     assert_eq!(result.evaluations, 1);
 }
 
-/// Two surviving directions must both be solved (evaluations == 2) via the
-/// `std::thread::scope` path -- kept as a regression guard that splitting the
-/// function did not change this behavior. Every accepted direction is reported in
-/// `accepted` (what a multi-candidate run feeds its pool), the winner or not.
+/// Two surviving directions are both solved (evaluations == 2) on the
+/// `std::thread::scope` path. Every accepted direction is reported in `accepted` (what a
+/// multi-candidate run feeds its pool), the winner or not.
 #[test]
 fn evaluate_survivors_with_two_survivors_evaluates_both() {
     let design = rbc_445();
@@ -211,11 +208,9 @@ fn the_configured_lighting_preset_reaches_the_candidate_score() {
     );
 }
 
-/// [`candidate::build_free_angle_candidate`] -- the real, `Design`-backed bridge
-/// [`run_polish_stage`] uses to turn one simplex vertex into a scoreable candidate
-/// -- must only ever write `free`'s own tier indices, exactly like every other
-/// angle-only edit this module makes (see the parent module's doc comment, "A
-/// tier's `angle_deg` is the only field this module ever changes on a free tier").
+/// [`candidate::build_free_angle_candidate`], the bridge [`run_polish_stage`] uses to turn
+/// one simplex vertex into a candidate, must only write `free`'s own tier indices, like
+/// every other angle-only edit in this module.
 #[test]
 fn build_free_angle_candidate_never_touches_a_tier_outside_free() {
     let design = rbc_445();

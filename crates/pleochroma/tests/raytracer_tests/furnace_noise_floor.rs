@@ -48,9 +48,8 @@ use crate::fixtures::{bruted_girdle_finishes, furnace_mean_xyz, uniform_furnace_
 
 /// Radiance of the uniform environment, as in every anchor.
 const L0: f32 = 2.5;
-/// Independent runs per level; each gets its own seed salt and its own thread. A standard
-/// deviation estimated from eight runs is itself uncertain by about a quarter, which made
-/// the noise-ratio check below trip by chance; sixteen halves that.
+/// Independent runs per level, each with its own seed salt and thread. Sixteen keeps the noise
+/// estimate, which the ratio check uses, from scattering by chance.
 const SEEDS: usize = 16;
 /// Multiples of the anchor's own samples per pixel that are measured at its own cap.
 const LADDER: [u32; 3] = [1, 4, 16];
@@ -97,7 +96,7 @@ fn probe(name: &'static str, delta: f32) -> GemMaterial {
     GemMaterial::new_custom(name, 1.5, 0.0, delta, [0.0, 0.0, 0.0])
 }
 
-/// The anchors, with the caps, sample counts and tolerances their tests use today.
+/// The anchors, with the caps, sample counts and tolerances their tests use.
 fn anchors(plane_count: usize) -> Vec<Anchor> {
     let frosted = || Some(bruted_girdle_finishes(plane_count));
     vec![
@@ -167,7 +166,7 @@ fn furnace_mean(
                     planes,
                     &anchor.material,
                     max_bounces,
-                    EnvironmentSource::HdrMap(env),
+                    EnvironmentSource::hdr(env),
                     seed,
                     hero,
                     None,
@@ -180,7 +179,7 @@ fn furnace_mean(
                     finishes,
                     &anchor.material,
                     max_bounces,
-                    EnvironmentSource::HdrMap(env),
+                    EnvironmentSource::hdr(env),
                     seed,
                     hero,
                     None,

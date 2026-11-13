@@ -17,7 +17,7 @@
 //! [`connection::spawn_remote_render`] owns its connection for exactly one
 //! `RenderRequest` (connect, handshake, stream to `DONE`, exit) -- used by
 //! `bridge::export_thread::remote`'s one-shot dispatches.
-//! [`connection::spawn_final_image_request`] is the same lifecycle for one v14
+//! [`connection::spawn_final_image_request`] is the same lifecycle for one
 //! `FinalImageRequest` ("final picture only" transfer).
 //!
 //! [`connection::spawn_remote_connection`] returns a [`types::RemoteConnectionHandle`]
@@ -30,19 +30,17 @@
 //! # Timeouts and liveness
 //!
 //! Every blocking step has a deadline: [`connection::connect_and_handshake`] bounds the
-//! TCP connect, TLS handshake, `HELLO`/`WELCOME` exchange, and every write. Both `run`
-//! and `run_connection` additionally enforce a liveness deadline -- no event
-//! (`FRAME`/`PREVIEW`/`PROGRESS`/`DONE`/`ERROR`) within it fails the request rather than
-//! polling forever. The deadline is two-tiered: a longer `FIRST_EVENT_TIMEOUT` covers a
-//! dispatch's first event (worker calibration/warm-up at high resolution can legitimately
-//! outrun the steady-state deadline), and the tighter, heartbeat-derived
-//! `LIVENESS_TIMEOUT` covers every wait after that. See `connection`'s own doc comment
-//! for the constant list and the `liveness_deadline` decision. Every
-//! [`types::RemoteUpdate`] carries a `request_id` so a consumer juggling more than one
-//! request can tell a stale update from a current one.
+//! TCP connect, TLS handshake, `HELLO`/`WELCOME` exchange, and every write. Both one-shot
+//! and persistent connections also enforce a liveness deadline: no event
+//! (`FRAME`/`PREVIEW`/`PROGRESS`/`DONE`/`ERROR`) within it fails the request. The deadline
+//! has two tiers: a longer `FIRST_EVENT_TIMEOUT` for a dispatch's first event, and the
+//! tighter `LIVENESS_TIMEOUT` for every wait after that. The timeout constants in
+//! `connection` document the limits and the `liveness_deadline` decision. Every
+//! [`types::RemoteUpdate`] carries a `request_id`, so a consumer can tell a stale update from
+//! a current one.
 //!
-//! `bridge::export_thread::remote::dispatch` applies the identical two-tier deadline one
-//! level up its own stack.
+//! The export dispatcher in `bridge::export_thread::remote` keeps its own deadlines above
+//! this layer.
 //!
 //! # Module split
 //!

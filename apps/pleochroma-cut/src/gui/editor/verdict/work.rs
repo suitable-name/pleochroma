@@ -93,8 +93,7 @@ pub(super) fn compute(
 }
 
 /// The finish of each of `design`'s planes (`design.planes_from_solved(solved)`): the frosted
-/// facets and the frosted girdle, as the render shows them. Empty for a design that frosts
-/// nothing, which measures exactly as the polished stone always did.
+/// facets and the frosted girdle, as the render shows them. Empty when nothing is frosted.
 fn design_finishes(design: &Design, solved: &[SolvedTier]) -> Vec<FacetFinish> {
     design.facet_finishes_from_solved(solved, &design_to_gpu_planes_from_solved(design, solved))
 }

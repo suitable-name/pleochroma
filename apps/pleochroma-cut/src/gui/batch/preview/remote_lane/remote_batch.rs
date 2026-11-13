@@ -1,4 +1,4 @@
-//! One remote dispatcher's BATCHED mode (protocol v24): a persistent connection, whole
+//! One remote dispatcher's BATCHED mode: a persistent connection, whole
 //! designs per request, and the next request queued while the current one traces.
 //!
 //! The single-picture mode in the parent module opens a fresh connection per picture and
@@ -13,7 +13,7 @@
 //! 4. saves each picture as its PNG arrives (`finish_item_at_revision`, the same path a
 //!    local render takes).
 //!
-//! # Failure policy (unchanged per item)
+//! # Failure policy
 //!
 //! A picture that comes back failed, a batch that ends with pictures unanswered, a refused
 //! request, a dead connection and a missed deadline all hand the affected pictures back

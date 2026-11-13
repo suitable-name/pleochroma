@@ -1,10 +1,8 @@
-//! The "Remote coordinator" form (save/remove; there is only one remote endpoint),
-//! "Test connection", token-based enrollment, the global denoise toggle, and the live
-//! compute-target / live-transfer pickers.
+//! Callbacks of the "Remote coordinator" dialog and the related remote-render controls.
 //!
-//! Split out of `gui::remote` purely to keep that module (already sizeable) from
-//! growing further -- same reasoning as `gui::detail`/`gui::search`/`gui::remote`
-//! itself.
+//! They cover save and remove of the one remote endpoint, "Test connection", token
+//! enrollment, the global denoise toggle, the live compute-target picker, and the
+//! final-picture export switch.
 
 use super::{live_compute_target_from_index, worker_settings::from_worker_item};
 use crate::{
@@ -21,11 +19,10 @@ use std::sync::{Arc, Mutex};
 
 // ---- Remote endpoint form + "Test connection" + denoise toggle -------------------
 
-/// Wires the "Remote coordinator" form's save/remove, "Test connection", and the
-/// global denoise-toggle callbacks. Split out of `setup_remote_rendering` purely to
-/// keep that function shorter. `orchestrator` is the handle `setup_remote_rendering`
-/// itself returns -- see `setup_denoise_toggle_callback`'s own doc comment for why the
-/// denoise toggle needs it.
+/// Wires every callback of the "Remote coordinator" dialog and the global denoise toggle.
+///
+/// `orchestrator` is the handle `setup_remote_rendering` returns; the denoise toggle needs it (see
+/// `setup_denoise_toggle_callback`).
 pub fn setup_worker_callbacks(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
@@ -43,12 +40,12 @@ pub fn setup_worker_callbacks(
     super::advanced_in_use::setup_advanced_in_use_callback(ui);
 }
 
-/// Wires `on_save_remote`: the form replaces the one endpoint, including its merged live
-/// transfer (the old "Live stream" and "Live transfer" are one form control). Forgets any
-/// remembered "this remote refuses final pictures" (the address may now point at an upgraded
-/// coordinator). An actual change of the live transfer while a settled epoch is live releases
-/// it (`RenderContext::release_remote`), exactly like a live-compute-target change: the
-/// orchestrator re-dispatches the settled view with the new transfer on its next tick.
+/// Wires `on_save_remote`, which replaces the one endpoint.
+///
+/// The form includes the merged live transfer. Forgets any remembered refusal of final
+/// pictures, since the address may now point at an upgraded coordinator. A changed live
+/// transfer releases a live settled epoch (`RenderContext::release_remote`), as a
+/// live-compute-target change does; the orchestrator re-dispatches the view on its next tick.
 fn setup_save_remote_callback(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
@@ -107,13 +104,12 @@ fn setup_remove_remote_callback(ui: &MainWindow, settings_store: &Arc<SettingsPe
     });
 }
 
-/// Wires the Render & Output tab's "Final-picture exports: this machine renders a share
-/// too" switch (v16). Unlike [`setup_live_transfer_callback`]/
-/// [`setup_live_compute_target_callback`] just above, this only PERSISTS the choice --
-/// no `RenderContext` field to keep in step, because an export reads the settings
-/// snapshot fresh every time it dispatches (`gui::render::render_export::wiring`,
-/// `gui::tilt::video_export`), unlike the live viewport's own settled epoch, which a
-/// live-affecting setting must actively release.
+/// Wires the Render & Output tab's switch for this machine rendering a share of final-picture
+/// exports.
+///
+/// Unlike [`setup_live_compute_target_callback`], this only persists the choice: an export reads
+/// the settings snapshot each time it dispatches (`gui::render::render_export::wiring`,
+/// `gui::tilt::video_export`), so there is no `RenderContext` field to keep in step.
 fn setup_contribute_to_final_picture_callback(
     ui: &MainWindow,
     settings_store: &Arc<SettingsPersister>,
@@ -125,9 +121,7 @@ fn setup_contribute_to_final_picture_callback(
         });
 }
 
-/// Wires the global denoise toggle. Split out of `setup_worker_callbacks` purely to
-/// keep that function under clippy's function-length lint -- same reasoning as
-/// `setup_live_compute_target_callback` below.
+/// Wires the global denoise toggle.
 fn setup_denoise_toggle_callback(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
@@ -140,19 +134,14 @@ fn setup_denoise_toggle_callback(
     let ui_weak_denoise = ui.as_weak();
     ui.global::<RemoteWorkerModel>()
         .on_denoise_toggled(move |enabled: bool| {
-            // Live-updates `RenderContext` (governs the render loop immediately, both the
-            // local readback in `render_thread`'s own frame loop and the remote
-            // merged-accumulation readback in `orchestrator::tick::update::
-            // redraw_from_epoch`) in addition to persisting the choice -- the same
-            // two-step pattern every other live render setting in this module uses (see
-            // e.g. `on_target_samples_changed`/`on_bounces_changed` in `gui::mod`),
-            // rather than only taking effect after the next app restart.
+            // Updates `RenderContext` at once (the local render loop and the remote redraw in
+            // `orchestrator::tick::update::redraw_from_epoch` both read it) and persists the
+            // choice. Other live render settings take the same two steps (e.g.
+            // `on_bounces_changed` in `gui::render::quality`).
             let mut ctx = RenderContext::lock(&render_ctx_denoise);
             ctx.denoise_enabled = enabled;
-            // One-shot re-tonemap request for the `Both`/local-only render loop --
-            // see `RenderContext::redisplay_requested`'s own doc comment for why this
-            // is needed at all (accumulation may have already converged, so nothing
-            // would otherwise ever read `denoise_enabled` again).
+            // One-shot re-tonemap: a converged accumulation would otherwise never read
+            // `denoise_enabled`. See `RenderContext::redisplay_requested`.
             ctx.redisplay_requested = true;
             drop(ctx);
             settings_store_denoise.update(|s| s.settings.denoise_enabled = enabled);
@@ -162,21 +151,16 @@ fn setup_denoise_toggle_callback(
                 // so the property must follow the choice or neither switch moves.
                 ui.global::<RemoteWorkerModel>()
                     .set_denoise_enabled(enabled);
-                // `RemoteOnly` suspends the render thread's loop entirely, so
-                // `redisplay_requested` above has no frame-loop iteration to be read
-                // back on -- force the orchestrator's own display path instead. A no-op
-                // in every other live-compute-target (`request_redisplay`'s own doc
-                // comment).
+                // `RemoteOnly` suspends the render loop, so the flag above is never read:
+                // force the orchestrator's display path (a no-op in other targets, see
+                // `request_redisplay`).
                 orchestrator_denoise.request_redisplay(&ui, &render_ctx_denoise);
             }
         });
 }
 
-/// Wires `on_test_worker_connection`, spawning a background thread that probes the
-/// candidate address/cert-dir and reports compatibility back on the UI thread. Split
-/// out of `setup_worker_callbacks` purely to keep that function under clippy's
-/// function-length lint -- same reasoning as `setup_live_compute_target_callback`
-/// below.
+/// Wires `on_test_worker_connection`: probes the candidate address and cert dir on a
+/// background thread and reports compatibility back on the UI thread.
 fn setup_test_worker_connection_callback(ui: &MainWindow) {
     let ui_weak_test = ui.as_weak();
     ui.global::<RemoteWorkerModel>().on_test_worker_connection(
@@ -223,25 +207,18 @@ fn setup_test_worker_connection_callback(ui: &MainWindow) {
     );
 }
 
-/// Wires the native folder picker for `form_cert_dir` ("Browse..." beside the
-/// certificate-bundle-folder field in `remote_worker_dialog.slint`). Split out of
-/// `setup_worker_callbacks` purely to keep that function under clippy's
-/// function-length lint -- same reasoning as `setup_live_compute_target_callback`
-/// below.
+/// Wires the native folder picker for `form_cert_dir` (the "Browse..." button beside the
+/// certificate-bundle-folder field in `remote_worker_dialog.slint`).
 ///
-/// Fills the field, doesn't validate or use it itself; `save_worker`/`test_connection`
-/// still do that, unchanged, whichever way the folder got typed, pasted, or claimed via
-/// enrollment token. Returns the SAME text it was given when the user cancels, so the
-/// Slint-side assignment (`root.form_cert_dir = root.pick_cert_dir(root.form_cert_dir)`)
-/// is a no-op on cancel.
+/// Only fills the field; the form's save and test actions validate it, whichever way the
+/// folder was typed, pasted, or claimed via enrollment token. Returns the SAME text on cancel,
+/// so the Slint-side assignment is a no-op then.
 ///
-/// The dialog runs off the UI thread through `gui::pickers::pick`, like every other
-/// picker in this app. Slint has no way to await a value-returning callback, so
-/// `on_pick_cert_dir` is void (`ui/models/remote_worker.slint`) and this closure
-/// instead pushes the chosen folder into `RemoteWorkerModel.picked_cert_dir` once the
-/// picker completes; `RemoteWorkerDialog`'s own `changed picked_cert_dir` handler
-/// (`ui/components/remote_worker_dialog.slint`) copies it into `form_cert_dir`. Left
-/// unchanged when the user cancels.
+/// The dialog runs off the UI thread through `gui::pickers::pick`. Slint cannot await a
+/// value-returning callback, so `on_pick_cert_dir` is void (`ui/models/remote_worker.slint`):
+/// this closure pushes the chosen folder into `RemoteWorkerModel.picked_cert_dir`, and
+/// `RemoteWorkerDialog`'s `changed picked_cert_dir` handler copies it into `form_cert_dir`.
+/// Left unchanged when the user cancels.
 fn setup_cert_dir_picker_callback(ui: &MainWindow) {
     let ui_weak = ui.as_weak();
     ui.global::<RemoteWorkerModel>()
@@ -251,18 +228,9 @@ fn setup_cert_dir_picker_callback(ui: &MainWindow) {
             let Some(ui) = ui_weak.upgrade() else {
                 return;
             };
-            // Cleared before the dialog even opens, not just left for the
-            // completion closure below to overwrite: picking the SAME folder
-            // this field already holds `picked_cert_dir` from a previous pick
-            // would otherwise be a same-value write, and `RemoteWorkerDialog`'s
-            // own `changed picked_cert_dir` handler (`remote_worker_dialog.
-            // slint`) -- like every Slint `changed` handler -- never fires for
-            // one of those,
-            // silently dropping a genuine re-pick of the same folder. Clearing
-            // it here first guarantees the picker's own completion below is
-            // always a real `"" -> <folder>` transition, and "" is already
-            // documented (that handler's own comment) as never copied into
-            // `form_cert_dir`, so a cancelled picker leaves nothing to notice.
+            // Cleared before the dialog opens: Slint `changed` handlers do not fire for a
+            // same-value write, so re-picking the folder already held would be dropped.
+            // Clearing first makes the completion below a real `"" -> <folder>` change.
             ui.global::<RemoteWorkerModel>()
                 .set_picked_cert_dir("".into());
             let starting_dir = crate::gui::starting_dir_from_picker_field(current.as_str());
@@ -282,19 +250,14 @@ fn setup_cert_dir_picker_callback(ui: &MainWindow) {
         });
 }
 
-/// Wires the "Live Compute" picker (the Parameters panel's Local/Remote/Local+Remote
-/// pills). Split out of `setup_worker_callbacks` purely to keep that function under
-/// clippy's function-length lint.
+/// Wires the "Live Compute" picker (the Parameters panel's Local/Remote/Local+Remote pills).
 ///
-/// Live-updates `RenderContext` (read fresh by `gui::remote::orchestrator::poll_tick` at
-/// the NEXT settle -- see `RenderContext::live_compute_target`'s own doc comment) in
-/// addition to persisting the choice, the same two-step pattern `on_denoise_toggled`
-/// above already uses. An ACTUAL change while a settled epoch is live releases it
-/// (`RenderContext::release_remote`, which restarts local from a clean buffer): the
-/// render loop only claims from the epoch's cursor while combining, so switching modes
-/// mid-epoch would otherwise re-trace indices local already took from it, and
-/// `RemoteOnly` <-> `Both` also changes who owns the display. The orchestrator notices
-/// the release on its next tick and cancels the epoch's remote lane.
+/// Updates `RenderContext` and persists the choice, the same two steps as `on_denoise_toggled`.
+/// The orchestrator reads the target at its next settle (`RenderContext::live_compute_target`).
+/// An actual change while an epoch is live releases it (`RenderContext::release_remote`): local
+/// claims indices from the epoch's cursor while combining, so switching mid-epoch would
+/// re-trace indices already taken, and `RemoteOnly` <-> `Both` changes who owns the display.
+/// The orchestrator cancels the epoch's remote lane on its next tick.
 fn setup_live_compute_target_callback(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
@@ -335,9 +298,8 @@ fn setup_live_compute_target_callback(
 /// The token is read out of the callback's own argument and moved into the background
 /// closure; nothing here logs it, stores it in `settings::WorkerSettings`, or otherwise
 /// keeps a copy once the claim attempt (success or failure) completes -- `claim_result_text`/
-/// `claimed_cert_dir` report the OUTCOME back to the dialog, never the token itself,
-/// and `remote_worker_dialog.slint`'s own handler clears its `form_token` field on
-/// success (see that file's `changed claim_result_cert_dir` handler).
+/// `claimed_cert_dir` report the outcome back to the dialog, never the token itself. The
+/// dialog clears its `form_token` field on success (its `changed claimed_cert_dir` handler).
 fn setup_claim_token_callback(ui: &MainWindow) {
     let ui_weak = ui.as_weak();
     ui.global::<RemoteWorkerModel>().on_claim_token(
@@ -402,10 +364,9 @@ fn setup_claim_token_callback(ui: &MainWindow) {
 
 /// Human-readable description of what a connected server can render.
 ///
-/// Takes the whole `Option` rather than a `Backend`, because a server legitimately may
-/// have no render capacity at all: since the worker's render path moved behind its
-/// `worker` feature, a library-only build advertises `render: None`. The viewer must say
-/// so plainly rather than imply a renderer that is not there.
+/// Takes the whole `Option`, because a server may have no render capacity: a worker built
+/// without its `worker` feature advertises `render: None`, and the label says so plainly
+/// rather than implying a renderer.
 pub(super) fn backend_label(render: Option<&pleochroma_net::messages::RenderCapability>) -> String {
     match render.map(|r| &r.backend) {
         Some(pleochroma_net::messages::Backend::Cpu { threads }) => {

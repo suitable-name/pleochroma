@@ -2,9 +2,8 @@
 // Full license: LICENSE-MIT in this directory.
 //! Rotating-caliper extents over a 2D outline.
 //!
-//! Used by
-//! production `measure_solid` as the cross-check against the
-//! axis-aligned width/length convention the printed proportions actually use.
+//! Used by `topology::measure_from_arrangement` for the caliper widths that sit
+//! next to the axis-aligned ones.
 
 /// Rotating-caliper width and length of a 2D point set: the smallest directional
 /// extent over all convex-outline edge directions, and the extent along the
@@ -43,8 +42,7 @@ struct EdgeMeasure {
 /// Measures the hull against the direction of edge `i`; `None` for a
 /// zero-length edge. The edge length is `sqrt(fma(ez, ez, ex*ex))`, built only
 /// from correctly rounded operations, so the result does not depend on the platform libm.
-/// [`caliper_extents`] and production `caliper_frame` both go through here, which keeps
-/// them bit-identical.
+/// Same arithmetic as pleochroma's `stone_metrics::caliper`, so both give bit-identical extents.
 fn measure_edge(hull: &[(f64, f64)], i: usize) -> Option<EdgeMeasure> {
     let (px, pz) = hull[i];
     let (qx, qz) = hull[(i + 1) % hull.len()];

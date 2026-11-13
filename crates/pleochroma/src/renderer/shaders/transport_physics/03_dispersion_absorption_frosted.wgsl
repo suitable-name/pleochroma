@@ -21,35 +21,18 @@ fn dispersion_evaluate(model_type: u32, param_a: vec4<f32>, param_b: vec4<f32>, 
         return sqrt(max(n2, 1.0));
     } else {
         let l4 = l2 * l2;
-        // Floored at 1.0, matching `DispersionModel::Cauchy`'s own `.max(1.0)`
-        // (optics::dispersion, `dispersion.rs:63`) -- an out-of-fit-range
-        // extrapolation (this renderer samples down to 380nm/up to 780nm; most Cauchy
-        // fits are only solved/verified at/near the sodium D line and the F/C
-        // Fraunhofer lines, 486-656nm) must never be allowed to produce a
-        // physically-impossible n < 1 index, exactly like the Sellmeier branches'
-        // `max(n2, 1.0)` above (latent: no shipped Cauchy material's fit coefficients
-        // currently dip below 1.0 anywhere in the visible range).
+        // Floored at 1.0 like the CPU's Cauchy branch and the Sellmeier branches above. An
+        // extrapolation outside the fit range (the renderer samples 380-780 nm, while most
+        // Cauchy fits are verified only at 486-656 nm) must not give an unphysical n < 1.
         return max(param_a.x + (param_a.y / l2) + (param_a.z / l4), 1.0);
     }
 }
 
-// P3 (extraordinary-ray dispersion GPU port): optics::dispersion::DispersionModel::
-// evaluate, evaluated against a material's OPTIONAL independent extraordinary-ray
-// curve (`GpuGemMaterial::has_extraordinary_dispersion`/`extraordinary_model_type`/
-// `extraordinary_param_a`/`extraordinary_param_b` -- see `renderer::buffers::
-// GpuGemMaterial`'s own doc comment). A separate function from `dispersion_evaluate`
-// above -- rather than that function reused as-is -- because it evaluates a distinct
-// curve (extraordinary vs. ordinary), not because the floor differs: the CPU's
-// `DispersionModel::evaluate` floors EVERY variant at `n >= 1.0` (`sqrt(max(n2, 1.0))`
-// on both Sellmeier branches, an explicit `.max(1.0)` on the Cauchy branch -- see that
-// function's own doc comment on why an out-of-fit-range extrapolation must never
-// produce a physically-impossible index), and `dispersion_evaluate` above now applies
-// the identical Cauchy floor (this crate's built-in ordinary-ray Cauchy fits only ever
-// evaluate well within their validated range, but a faithful port matches
-// `DispersionModel::evaluate` unconditionally rather than only for the variant currently
-// in use). Every built-in extraordinary-ray curve today (Quartz/Amethyst/Citrine/Rutile)
-// is Sellmeier3, so this
-// function's own Cauchy floor is here purely for the same complete-port reason.
+// optics::dispersion::DispersionModel::evaluate on a material's OPTIONAL independent
+// extraordinary-ray curve (the `extraordinary_*` fields of `GpuGemMaterial`, see
+// `renderer::buffers`). It is a separate function because it evaluates a different curve.
+// Its `n >= 1` floor matches `dispersion_evaluate` and the CPU's `DispersionModel::evaluate`,
+// which floors every variant.
 fn extraordinary_dispersion_evaluate(model_type: u32, param_a: vec4<f32>, param_b: vec4<f32>, lambda_nm: f32) -> f32 {
     let lambda_um = lambda_nm * 1e-3;
     let l2 = lambda_um * lambda_um;
@@ -68,11 +51,8 @@ fn extraordinary_dispersion_evaluate(model_type: u32, param_a: vec4<f32>, param_
     }
 }
 
-// optics::raytracer::per_channel_uniaxial_indices -- one channel's (n_o, n_eff) pair;
-// see the Phase 3 section header comment above for why the CPU's internal
-// NUM_CHANNELS loop is the WGSL caller's responsibility instead of this function's.
-// Placed after `dispersion_evaluate` (which it calls) rather than up in the Phase 3
-// section above, purely so every function here is defined after everything it calls.
+// optics::raytracer::per_channel_uniaxial_indices for one channel: (n_o, n_eff). The CPU
+// loops over `NUM_CHANNELS`; WGSL callers loop themselves (see `01_prelude_polarization.wgsl`).
 fn per_channel_uniaxial_index(
     model_type: u32,
     param_a: vec4<f32>,
@@ -100,10 +80,9 @@ fn per_channel_uniaxial_index(
 // `e_ray_band_count`), avoiding two near-identical `_o`/`_e` copies of this function.
 // ---------------------------------------------------------------------------------
 
-// P6: `shape` selects which domain this band is Gaussian in (0 = GaussianWavelength,
-// 1 = GaussianEnergy) -- see `optics::absorption::BandShape` and
-// `renderer::buffers::band_shape`. Mirrors `renderer::buffers::GpuAbsorptionBand`
-// field-for-field, echoed and size-asserted by `renderer::gpu::layout_check` against
+// `shape` selects the domain this band is Gaussian in (0 = GaussianWavelength, 1 =
+// GaussianEnergy), see `optics::absorption::BandShape`. Mirrors `renderer::buffers::
+// GpuAbsorptionBand` field for field. `renderer::gpu::layout_check` checks the layout against
 // `layout_echo.wgsl`.
 struct AbsorptionBand {
     center_nm: f32,
@@ -113,9 +92,8 @@ struct AbsorptionBand {
 }
 
 // optics::raytracer::spectral_absorption / optics::absorption::AbsorptionBand::evaluate.
-// The `shape == 0u` (GaussianWavelength) branch keeps the exact same f32 op order as
-// before `shape` was added, so every existing wavelength-domain material's GPU result is
-// byte-identical to before this function grew a shape branch.
+// The `shape == 0u` (GaussianWavelength) branch keeps a fixed f32 op order, so existing
+// wavelength-domain materials keep bit-identical GPU results.
 fn spectral_absorption(bands: array<AbsorptionBand, 8>, band_count: u32, lambda_nm: f32) -> f32 {
     var sum: f32 = 0.0;
     for (var i: u32 = 0u; i < band_count; i = i + 1u) {
@@ -138,15 +116,11 @@ fn spectral_absorption(bands: array<AbsorptionBand, 8>, band_count: u32, lambda_
 }
 
 // ---------------------------------------------------------------------------------
-// Frosted-facet GPU port: optics::raytracer::{frosted_orthonormal_basis,
-// cosine_weighted_hemisphere, apply_frosted_bounce} -- the diffuse (bruted/frosted
-// girdle facet) bounce, ported here (not into `spectral_transport.wgsl` or
-// `transport_functions.wgsl` separately) so the shipped megakernel and Tier 2's
-// standalone `frosted_bounce_main`/`cosine_hemisphere_main` kernels call the exact same
-// function object, never two texts that could drift -- see this file's own header
-// comment for why that property matters (a duplicate-vs-shipped-code fault is
-// otherwise caught only by luck, see `renderer::gpu::transport_check`'s module doc
-// comment).
+// Frosted-facet bounce: optics::raytracer::{frosted_orthonormal_basis,
+// cosine_weighted_hemisphere, apply_frosted_bounce}, the diffuse bounce of a bruted or
+// frosted girdle facet. It lives here so the megakernel and the standalone
+// `frosted_bounce_main`/`cosine_hemisphere_main` kernels share one text (see the header of
+// `01_prelude_polarization.wgsl`).
 //
 // # The one deliberate simplification, preserved exactly
 //
@@ -298,8 +272,7 @@ fn apply_frosted_bounce(
     for (var k: u32 = 0u; k < 8u; k = k + 1u) {
         let intensity = max((*stokes)[k].x, 0.0);
         (*stokes)[k] = vec4<f32>(intensity, 0.0, 0.0, 0.0);
-        // No `* split_pdf` -- scale-invariant under a uniform per-channel factor, was a
-        // pure no-op on the MIS weight; see refraction.rs.
+        // No `* split_pdf`: a uniform per-channel factor cancels in the MIS weight.
         (*path_pdf)[k] = (*path_pdf)[k] * t_unpol;
     }
     result.new_dir = new_dir;

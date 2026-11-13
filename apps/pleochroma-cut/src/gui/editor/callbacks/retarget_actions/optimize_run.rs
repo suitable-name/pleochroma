@@ -346,7 +346,7 @@ pub(super) fn cancel_optimize_run(ui: &MainWindow) {
     reset_check(ui);
     ui.global::<RetargetModel>()
         .set_search_summary("The search was cancelled.".into());
-    // Keep the certified Shift stage visible, with an explicit waiting right side.
+    // Keep the certified Shift stage shown; its right side reads as waiting.
     sync_embedded_comparison(ui, true);
 }
 
@@ -570,9 +570,8 @@ fn spawn_worker(job: SearchJob, ui_weak: slint::Weak<MainWindow>) {
                 "the search stopped unexpectedly".to_string(),
             ))
         });
-        // Validate every option's edit here, once, so picking it and applying it never solve on
-        // the UI thread.
-        // A panic here only costs the head start: the first Apply validates itself.
+        // Validated here, once, so picking or applying an option never solves on the UI thread.
+        // A panic here only loses the head start: the first Apply validates itself.
         let edits = catch_unwind(AssertUnwindSafe(|| {
             outcome
                 .as_ref()

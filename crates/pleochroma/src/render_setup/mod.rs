@@ -1,13 +1,14 @@
 //! Pure render-setup helpers shared by every renderer built on this crate.
 //!
-//! The desktop viewer (`apps/pleochroma-cut`, through thin re-exports/adapters at its old
-//! paths) and the browser app (`apps/pleochroma-web`) both use them, so both build the exact
-//! same scene/material for the same settings and produce byte-identical output.
+//! The desktop viewer (`apps/pleochroma-cut`, through thin re-exports) and the browser app
+//! (`apps/pleochroma-web`) both use them, so both build the same scene/material for the same
+//! settings and produce byte-identical output.
 //!
-//! Everything here is pure: no threads, no `Instant::now`, no filesystem access, so
-//! the whole module compiles for `wasm32-unknown-unknown`. State that genuinely needs
-//! to persist across frames (a plane-hash-keyed measurement cache, for instance) stays
-//! on the caller's side -- see [`stone_width::measure_model_width`]'s own doc comment.
+//! Everything here is pure (no `Instant::now`, no filesystem access) except the
+//! `stone-shadow` precompute, which uses threads; the rest compiles for
+//! `wasm32-unknown-unknown`. State that must persist across frames (a plane-hash-keyed
+//! measurement cache, for instance) stays on the caller's side -- see
+//! [`stone_width::measure_model_width`]'s own doc comment.
 //!
 //! Submodules: [`materials`] (by-name material resolution and the render-time
 //! override stack), [`backdrop`] (the `Backdrop` level/index mapping), [`plane_hash`]
@@ -27,7 +28,13 @@ pub mod plane_hash;
 #[cfg(feature = "hdr")]
 pub mod png_encode;
 pub mod sample_scale;
+#[cfg(feature = "stone-shadow")]
+mod stone_shadow;
 pub mod stone_width;
+mod tray_mirror;
+#[cfg(feature = "stone-shadow")]
+pub use stone_shadow::{stone_shadow_for, stone_shadow_for_with_threads};
+pub use tray_mirror::{TrayMirrorOff, tray_mirror_for};
 
 pub use backdrop::Backdrop;
 pub use materials::{

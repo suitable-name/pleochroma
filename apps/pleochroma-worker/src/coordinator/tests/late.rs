@@ -41,10 +41,9 @@ fn short_chunks() -> JobConfig {
     }
 }
 
-/// A worker registering after the job started is handed one of its chunks within a few
-/// ticks; its connection dying on that chunk costs the job nothing (the lane is removed,
-/// the range goes back to the real worker). A second fake registering after the first one
-/// died -- a worker that rejoined under a new id -- is handed a chunk of the same job.
+/// A worker registering mid-job is offered a chunk within a few ticks. Its connection dying
+/// on that chunk costs the job nothing: the range is re-queued for the other workers. A
+/// worker that rejoins under a new id is offered a chunk of the same job too.
 #[test]
 fn workers_registering_mid_job_receive_chunks_of_the_running_job() {
     let pki = pki_with_server("late-join");

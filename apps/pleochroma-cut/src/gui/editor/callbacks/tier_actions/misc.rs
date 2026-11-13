@@ -37,8 +37,8 @@ fn tier_name_taken(tiers: &ModelRc<EditorTierItem>, name: &str) -> bool {
         })
 }
 
-/// Live critical-angle guidance in the Tier form's Angle field (see
-/// `EditorModel::angle_live_preview`'s own doc comment on `ui/models/editor.slint`).
+/// Live critical-angle guidance in the Tier form's Angle field, behind
+/// `EditorModel.angle_live_preview` (`ui/models/editor.slint`).
 ///
 /// The bar itself is [`angle_live_margin`], shared with the web inspector: the same
 /// functions a saved row's MARGIN cell uses, so a value typed but not yet saved reads the
@@ -79,11 +79,10 @@ pub(in crate::gui::editor) fn setup_angle_live_preview_callback(
         });
 }
 
-/// The anchor explainer card's "Got it" / "Don't show again" dismiss buttons:
-/// "Don't show again" additionally persists the suppression (`state::anchor_explainer_suppress_permanently`,
-/// `AppSettings::suppressed_confirmations` key `"anchor_explainer"`) so
-/// `state::should_open_anchor_explainer` never reopens it again, on top of the
-/// session-scoped "already shown once" guard that function already applies.
+/// The anchor explainer card's "Got it" and "Don't show again" buttons. "Don't show again" also
+/// persists the suppression (`state::anchor_explainer_suppress_permanently`, under the key
+/// `"anchor_explainer"` in `AppSettings::suppressed_confirmations`), so
+/// `state::should_open_anchor_explainer` never reopens the card.
 pub(in crate::gui::editor) fn setup_anchor_explainer_dismiss_callback(ui: &MainWindow) {
     let ui_weak = ui.as_weak();
     ui.global::<EditorModel>()
@@ -98,30 +97,20 @@ pub(in crate::gui::editor) fn setup_anchor_explainer_dismiss_callback(ui: &MainW
         });
 }
 
-/// Bumps `EditorModel.form_reset_pulse` -- see that property's own doc comment
-/// (`ui/models/editor.slint`) for why a plain increment, not a flag, is what makes
-/// `EditorView`'s watcher fire even when `selected_tier_index` is already `-1` (so
-/// setting it to `-1` again would raise no `changed` on its own).
-///
-/// `pub(super)` since the design-lifecycle and tier-CRUD callbacks share it.
+/// Bumps `EditorModel.form_reset_pulse`. A plain increment, not a flag, makes `EditorView`'s
+/// watcher fire even when `selected_tier_index` is already `-1` and setting it again would raise
+/// no `changed` (see `ui/models/editor.slint`).
 pub(super) fn bump_form_reset_pulse(ui: &MainWindow) {
     let pulse = ui.global::<EditorModel>().get_form_reset_pulse();
     ui.global::<EditorModel>()
         .set_form_reset_pulse(pulse.wrapping_add(1));
 }
 
-/// Adjusts `EditorModel.selected_tier_index` after [`Edit::RemoveTier`] removes the
-/// tier at `removed_index`, shifting every later tier down by one (see
-/// `pleochroma_cut_core`'s own `edit::apply` -- read-only here): equal to the removed
-/// index, the selected tier no longer exists, so the selection is cleared and
-/// [`bump_form_reset_pulse`] guarantees `EditorView`'s form still blanks even if the
-/// selection was already `-1`; greater than it, the same tier survived one position
-/// lower, so the index is shifted down to keep pointing at it (this fires
-/// `EditorView`'s `changed tracked_selected_tier_index` for real, re-seeding the
-/// form from the right row). Anything else (less than, or already `-1`) is left
-/// untouched.
-///
-/// `pub(super)` since [`super::tier_crud::setup_remove_tier_callback`] uses it.
+/// Adjusts `EditorModel.selected_tier_index` after [`Edit::RemoveTier`] removed the tier at
+/// `removed_index`, which shifts every later tier down by one. A selection on the removed tier is
+/// cleared, and [`bump_form_reset_pulse`] blanks the form even when it was already `-1`. A
+/// selection past the removed tier moves down by one to follow its tier. Anything below it is
+/// left alone.
 pub(super) fn adjust_selection_after_remove(ui: &MainWindow, removed_index: i32) {
     let selected = ui.global::<EditorModel>().get_selected_tier_index();
     if selected == removed_index {
@@ -133,20 +122,13 @@ pub(super) fn adjust_selection_after_remove(ui: &MainWindow, removed_index: i32)
     }
 }
 
-/// Clamps `EditorModel.selected_tier_index` after an undo/redo to `tier_count`
-/// (the number of table rows post-replay: flat plus concave tiers). Unlike [`adjust_selection_after_remove`],
-/// undo/redo can change the tier count by any amount in either direction (an
-/// `AddTier`/`RemoveTier` reversed, or several tiers' worth of a coalesced
-/// `RetargetAngles`), so there is no single shifted-by-one relationship to
-/// preserve -- an index that no longer names a real tier is simply cleared, with
-/// the same [`bump_form_reset_pulse`] guarantee.
+/// Clamps `EditorModel.selected_tier_index` after an undo or redo to `tier_count`: the table
+/// rows after the replay, flat plus concave tiers. Unlike [`adjust_selection_after_remove`], an
+/// undo or redo can change the count by any amount, so there is no shift to preserve. An index
+/// that no longer names a tier is cleared, with the same [`bump_form_reset_pulse`] guarantee.
 ///
-/// An in-range survivor needs no pulse from here: the no-solve panel refresh
-/// that ran just before (`view::refresh_editor_panel_stale`) already asked the
-/// form to re-seed from the replayed design, because the selection was in range
-/// against the post-replay tier count at that point.
-///
-/// `pub(super)` since [`super::history`]'s Undo/Redo callbacks use it.
+/// An in-range selection needs no pulse: the no-solve panel refresh just before
+/// (`view::refresh_editor_panel_stale`) already re-seeded the form from the replayed design.
 pub(super) fn clamp_selection_to_tier_count(ui: &MainWindow, tier_count: usize) {
     let selected = ui.global::<EditorModel>().get_selected_tier_index();
     let out_of_range = usize::try_from(selected).is_ok_and(|index| index >= tier_count);

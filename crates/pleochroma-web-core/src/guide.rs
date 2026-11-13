@@ -79,10 +79,9 @@ impl GuideProgress {
 /// line still exists, so rewording one in the shared crate cannot silently drop its
 /// override.
 ///
-/// This table serves the ten-step runner of today. The shared crate now carries the same wording
-/// for every lesson as a per-step overlay (`pleochroma_editor::guide::Guide::for_platform` with
-/// `Platform::Web`), and a test below pins that the overlay of the walkthrough holds every pair of
-/// this table, so the catalogue runner can replace this table without changing a word.
+/// The shared `pleochroma_editor::guide::Guide::for_platform` with `Platform::Web` carries the
+/// same wording as a per-step overlay. A test below checks that the walkthrough's overlay
+/// holds every pair of this table.
 pub const WEB_WORDING: &[(&str, &str)] = &[
     (
         "Choose File > New Design... in the command bar (or in the File menu at the top of the window).",
@@ -203,7 +202,7 @@ mod tests {
         let web = catalogue
             .web_guide(WORKED_EXAMPLE_ID, WebFeatures::NONE)
             .expect("the walkthrough is offered without any feature");
-        assert!(web_text_problems(&web, false).is_empty());
+        assert_eq!(web_text_problems(&web, false), [] as [String; 0]);
     }
 
     #[test]

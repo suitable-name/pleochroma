@@ -14,38 +14,33 @@ use pleochroma_net::SceneState;
 ///
 /// 7680x4320 (8K UHD) keeps a traced radiance buffer
 /// (`width * height * 12` bytes, see `pleochroma_net::radiance::BYTES_PER_PIXEL`) at
-/// ~379 MiB, comfortably under [`pleochroma_net::framing::MAX_FRAME_LEN`] (512 MiB) so a
-/// `serve` reply for a maximum-sized scene always fits in one `FRAME` message.
+/// about 379 MiB, under [`pleochroma_net::framing::MAX_FRAME_LEN`] (512 MiB), so a `serve`
+/// reply for a maximum-sized scene fits in one `FRAME` message.
 pub const MAX_PIXELS: u32 = 7680 * 4320;
 
 /// Hard cap on a single `RenderRequest.samples` value in `serve`.
 ///
-/// A `serve` request's `samples` is meant to be one batch out of a much larger total
-/// (unlike `render`'s `--samples`, the total spp for a whole trusted local invocation),
-/// so this is far smaller than
-/// [`render_cmd::MAX_CLI_SAMPLES`](crate::render_cmd::MAX_CLI_SAMPLES). Without this
-/// cap, a malicious or buggy `RenderRequest` could make a worker spend unbounded CPU
-/// time before ever replying -- a denial-of-service vector, not a memory one.
+/// Caps one `serve` request's `samples`, which is a single batch of a larger total. Without
+/// it, a malicious or buggy `RenderRequest` could hold a worker's CPU before it replies, a
+/// denial-of-service risk rather than a memory one. The local CLI cap,
+/// [`render_cmd::MAX_CLI_SAMPLES`](crate::render_cmd::MAX_CLI_SAMPLES), is far larger.
 ///
-/// The one definition lives in `pleochroma_dispatch`, where the coordinator sizes its
-/// chunks against it.
+/// Defined in `pleochroma_dispatch`, which sizes its chunks against it.
 pub use pleochroma_dispatch::DEFAULT_MAX_CHUNK_SAMPLES as MAX_SAMPLES_PER_REQUEST;
 
 /// Hard cap on `SceneState::max_bounces`.
 ///
-/// 128 is the top rung of the GUI's own bounce ladder (4/8/12/24/64/128; see
-/// `apps/pleochroma-cut/src/bridge/export_thread/params.rs::MAX_EXPORT_BOUNCES`). This
-/// must never sit below that ceiling: a lower cap here would make a "Local + Remote"
-/// export at 128 bounces reply `StreamEvent::Error` and hang the connection at 0% GPU
-/// with no error surfaced to the user.
+/// Must stay at or above the GUI's top bounce rung, `MAX_EXPORT_BOUNCES` in
+/// `apps/pleochroma-cut/src/bridge/export_thread/params.rs`. A lower cap would make a
+/// 128-bounce "Local + Remote" export receive an error it never shows, leaving the job at
+/// 0% GPU.
 ///
-/// Cost is measured, not assumed: `crates/pleochroma/examples/bounce_cost.rs` found only
-/// a 1.27-1.38x wall-time increase across an 85x cap sweep -- the median path terminates
-/// at 4 bounces, p95 at 29, and only 0.03% of paths ever reach bounce 128. Raising the
-/// cap from 64 to 128 is not a meaningful `DoS` amplification lever.
+/// The cap is cheap: `crates/pleochroma/examples/bounce_cost.rs` measured only a
+/// 1.27-1.38x wall-time increase, since almost no paths go deep (0.03% reach bounce 128).
+/// It is not a meaningful `DoS` amplification lever.
 pub const MAX_BOUNCES: u32 = 128;
 
-/// Hard cap on `SceneState::backdrop`, the tray radiance at exposure 1 (protocol v29).
+/// Hard cap on `SceneState::backdrop`, the tray radiance at exposure 1.
 ///
 /// The brightest plausible tray, a white tray (albedo 0.9) under the brightest Studio rig,
 /// is about 8; 16 leaves a factor of two and still refuses a corrupt or hostile 1e30 emitter.
@@ -55,37 +50,43 @@ pub const MAX_BACKDROP: f32 = 16.0;
 /// Plausible refractive-index bounds, checked at the sodium D line and at both ends of
 /// the visible spectrum (see [`validate_scene`]).
 ///
-/// No real gem material in this workspace exceeds ~2.9 (moissanite, rutile); these
-/// bounds are looser to avoid rejecting a legitimate exotic material, while still
-/// catching a Sellmeier/Cauchy fit gone to NaN, negative, or many orders of magnitude
-/// off, before it reaches `trace_spectral_ray`.
+/// No real gem material here exceeds about 2.9 (moissanite, rutile). The bounds are looser
+/// so a legitimate exotic material is not rejected, yet a Sellmeier or Cauchy fit gone to
+/// NaN, negative or far off is caught before it reaches `trace_spectral_ray`.
 pub const MIN_PLAUSIBLE_RI: f32 = 1.0;
 /// Largest refractive index accepted as plausible.
 pub const MAX_PLAUSIBLE_RI: f32 = 6.0;
 
 /// Hard cap on `scene.planes.len()`.
 ///
-/// A plausible cut has well under a thousand facets; without this cap, an unsolved
-/// design's raw preform planes, or an attacker- or fat-finger-supplied scene, could
-/// send enough planes to make `build_plane_soa` and the GPU encoding path spend
-/// unbounded time and memory before ever tracing a sample.
+/// A plausible cut has well under a thousand facets. Without this cap, a huge plane list
+/// could make `build_plane_soa` and the GPU encoding spend unbounded time and memory before
+/// any sample is traced.
 pub const MAX_PLANES: usize = 4096;
 
 /// Validates a fully-resolved [`SceneState`].
 ///
-/// Checks finite, non-degenerate facet-plane normals; a plausible refractive index
-/// across the visible spectrum; finite camera/light/exposure/material scalars; and a
-/// bounded `max_bounces`.
+/// It requires finite, non-degenerate facet normals, a plausible refractive index across the
+/// visible spectrum, finite scalars, and bounded `max_bounces`, backdrop and tray reflection.
 ///
-/// Does not check `width`/`height` against [`MAX_PIXELS`] itself -- callers
-/// (`render_cmd`, `serve`) check that against their own caller-supplied dimensions,
-/// since `render`'s `--width`/`--height` flags are authoritative over a `scene.json`
-/// file's own ignored `width`/`height` fields.
+/// The Stone Shadow and the Tray Reflection each need a studio light with a backdrop. An HDR
+/// environment, As Lit or the lamp presets are refused here with the feature's own message.
+/// Whether the stone is closed enough is known only once the map is built, so the request
+/// path decides that (`crate::assets::resolve_tray`).
+///
+/// `width`/`height` are checked against [`MAX_PIXELS`] by the callers (`render_cmd`, `serve`),
+/// since the `render` flags override the dimensions in a `scene.json`.
 ///
 /// # Errors
 ///
 /// Returns a human-readable message describing the first thing wrong with `scene`.
 pub fn validate_scene(scene: &SceneState) -> Result<(), String> {
+    if scene.stone_shadow && !scene.lit_by_studio_backdrop() {
+        return Err("Stone shadow needs a studio light with a backdrop.".to_owned());
+    }
+    if scene.tray_reflection > 0.0 && !scene.lit_by_studio_backdrop() {
+        return Err("Tray reflection needs a studio light with a backdrop.".to_owned());
+    }
     if scene.engine.is_ray() {
         if !pleochroma::renderer::engine::AA_TAP_CHOICES.contains(&scene.engine.ray.aa_taps) {
             return Err("Ray-Traced AA taps must be 1, 4, 8 or 16".to_owned());
@@ -111,14 +112,21 @@ pub fn validate_scene(scene: &SceneState) -> Result<(), String> {
         ("backdrop", scene.backdrop),
         ("surface_glare", scene.surface_glare),
         ("head_shadow_deg", scene.head_shadow_deg),
+        ("tray_reflection", scene.tray_reflection),
+        ("hdr_orientation.yaw", scene.hdr_orientation.yaw),
     ] {
         if !v.is_finite() {
             return Err(format!("scene.{name} must be finite (got {v})"));
         }
     }
-    // The tray radiance at exposure 1 (protocol v29): the brightest plausible tray, a white
-    // tray under the brightest rig, is about 8; a hostile or corrupt scene must not set a
-    // 1e30 emitter.
+    // The tray's head-on reflectance `R0`: a fraction, 0 (matte tray) to 1 (mirror).
+    if !(0.0..=1.0).contains(&scene.tray_reflection) {
+        return Err(format!(
+            "scene.tray_reflection must be between 0 and 1 (got {})",
+            scene.tray_reflection
+        ));
+    }
+    // Tray radiance at exposure 1; see `MAX_BACKDROP`.
     if !(0.0..=MAX_BACKDROP).contains(&scene.backdrop) {
         return Err(format!(
             "scene.backdrop must be between 0 and {MAX_BACKDROP} (got {})",
@@ -140,14 +148,43 @@ pub fn validate_scene(scene: &SceneState) -> Result<(), String> {
 
     check_planes_and_tools(scene)?;
 
-    // Fluorescent emitters (v20): at most `MAX_EMITTERS` of at most `MAX_BANDS` excitation
-    // and emission bands each, every value finite, quantum yields in [0, 1] -- the
-    // tracer builds per-emitter sampling tables from them.
+    // Fluorescent emitters: at most `MAX_EMITTERS`, each with at most `MAX_BANDS` excitation
+    // and emission bands, all values finite, quantum yields in [0, 1].
     scene
         .fluorescence
         .validate()
         .map_err(|e| format!("scene.fluorescence is invalid: {e}"))?;
 
+    check_material_scalars(scene)?;
+
+    // `renderer::buffers::GpuGemMaterial` flattens each eigenmode's `Vec<AbsorptionBand>`
+    // into a fixed-capacity `[GpuAbsorptionBand; MAX_ABSORPTION_BANDS]` array for GPU
+    // encoding. Reject an oversized `Vec` here rather than silently truncating it the
+    // first time the GPU path encodes it.
+    check_absorption_band_caps(scene)?;
+
+    // Sodium D line (589.3nm, the conventional n_d reference) plus both ends of the
+    // visible spectrum -- a fit that looks fine at n_d can still blow up (or be masked
+    // by `DispersionModel::evaluate`'s `n2.max(1.0)` clamp) at the edge of its range.
+    for lambda_nm in [380.0f32, 589.3, 780.0] {
+        let n = scene.material.dispersion.evaluate(lambda_nm);
+        if !n.is_finite() || !(MIN_PLAUSIBLE_RI..=MAX_PLAUSIBLE_RI).contains(&n) {
+            return Err(format!(
+                "scene.material's refractive index at {lambda_nm}nm is implausible: {n} (expected {MIN_PLAUSIBLE_RI}..={MAX_PLAUSIBLE_RI})"
+            ));
+        }
+    }
+
+    validate_environment(scene)
+}
+
+/// Checks the scalar properties of the material: the axis and birefringence values are finite and
+/// the absorption path scale is finite and positive.
+///
+/// # Errors
+///
+/// Returns a message naming the first material value that is non-finite or out of range.
+fn check_material_scalars(scene: &SceneState) -> Result<(), String> {
     if !scene.material.c_axis.is_finite() {
         return Err(format!(
             "scene.material.c_axis is non-finite: {}",
@@ -178,26 +215,7 @@ pub fn validate_scene(scene: &SceneState) -> Result<(), String> {
             scene.material.absorption_path_scale
         ));
     }
-
-    // `renderer::buffers::GpuGemMaterial` flattens each eigenmode's `Vec<AbsorptionBand>`
-    // into a fixed-capacity `[GpuAbsorptionBand; MAX_ABSORPTION_BANDS]` array for GPU
-    // encoding. Reject an oversized `Vec` here rather than silently truncating it the
-    // first time the GPU path encodes it.
-    check_absorption_band_caps(scene)?;
-
-    // Sodium D line (589.3nm, the conventional n_d reference) plus both ends of the
-    // visible spectrum -- a fit that looks fine at n_d can still blow up (or be masked
-    // by `DispersionModel::evaluate`'s `n2.max(1.0)` clamp) at the edge of its range.
-    for lambda_nm in [380.0f32, 589.3, 780.0] {
-        let n = scene.material.dispersion.evaluate(lambda_nm);
-        if !n.is_finite() || !(MIN_PLAUSIBLE_RI..=MAX_PLAUSIBLE_RI).contains(&n) {
-            return Err(format!(
-                "scene.material's refractive index at {lambda_nm}nm is implausible: {n} (expected {MIN_PLAUSIBLE_RI}..={MAX_PLAUSIBLE_RI})"
-            ));
-        }
-    }
-
-    validate_environment(scene)
+    Ok(())
 }
 
 /// Checks the facet planes and the concave tools of `scene`.
@@ -234,10 +252,9 @@ fn check_planes_and_tools(scene: &SceneState) -> Result<(), String> {
         }
     }
 
-    // Concave tools (v19). The count bound is the shared cap the kernel's tool scan is
-    // sized for; each primitive is checked by the same validator the desktop applies, so
-    // a worker never feeds the tracer a tool with a non-finite, degenerate or
-    // out-of-range field.
+    // Concave tools. The count bound is the shared cap the kernel's tool scan is sized for.
+    // Each primitive uses the desktop's own validator, so a worker never feeds the tracer a
+    // tool with a non-finite, degenerate or out-of-range field.
     if scene.tools.len() > pleochroma::geometry::MAX_TOOL_PRIMITIVES {
         return Err(format!(
             "scene.tools has {} primitive(s), exceeding the maximum of {}",
@@ -249,8 +266,8 @@ fn check_planes_and_tools(scene: &SceneState) -> Result<(), String> {
         tool.validate()
             .map_err(|e| format!("scene.tools[{i}] is invalid: {e}"))?;
     }
-    // Frosted planes (v26): at most one entry per plane, so a scene cannot carry an unbounded
-    // list. An index past the planes is harmless (it names nothing) and is not an error.
+    // Frosted planes: at most one entry per plane, so the list is bounded. An index past the
+    // planes names nothing and is not an error.
     if scene.frosted_planes.len() > scene.planes.len() {
         return Err(format!(
             "scene.frosted_planes has {} entries for {} facet(s)",
@@ -258,7 +275,7 @@ fn check_planes_and_tools(scene: &SceneState) -> Result<(), String> {
             scene.planes.len()
         ));
     }
-    // Render physics (v32): inclusion and structure choices, facet surface words, the sender's
+    // Render physics: inclusion and structure choices, facet surface words, the sender's
     // machine and the abraded edge.
     scene.effects.validate(scene.planes.len())?;
     Ok(())
@@ -296,11 +313,11 @@ fn check_absorption_band_caps(scene: &SceneState) -> Result<(), String> {
     Ok(())
 }
 
-/// Validates the scene's HDR environment, if any (v14).
+/// Validates the scene's HDR environment, if any.
 ///
-/// Its declared size must be within `pleochroma::renderer::env_map::HdrLimits::DEFAULT`
-/// -- checked before the server ever asks for the map's bytes, so an over-limit map is
-/// refused without a transfer.
+/// Its declared size must be within `pleochroma::renderer::env_map::HdrLimits::DEFAULT`.
+/// This is checked before the map's bytes are requested, so an over-limit map costs no
+/// transfer.
 ///
 /// # Errors
 ///
@@ -366,11 +383,8 @@ pub fn validate_request(scene: &SceneState, first_sample: u32, samples: u32) -> 
             "samples per request must be <= {MAX_SAMPLES_PER_REQUEST} (got {samples})"
         ));
     }
-    // Beyond plain overflow: `first_sample + samples` must also leave headroom below
-    // `u32::MAX` for at least one more `MAX_SAMPLES_PER_REQUEST`-sized chunk -- other
-    // absolute-sample-index arithmetic downstream (chunk end bounds, a coordinator's
-    // own accounting) adds a further chunk's worth without re-checking this request's
-    // own bound, and must never wrap doing so.
+    // Beyond plain overflow, leave room below `u32::MAX` for one more chunk. Downstream chunk
+    // bounds and the coordinator's accounting add a chunk's worth without re-checking this.
     if first_sample
         .checked_add(samples)
         .is_none_or(|end| end > u32::MAX - MAX_SAMPLES_PER_REQUEST)
@@ -383,35 +397,192 @@ pub fn validate_request(scene: &SceneState, first_sample: u32, samples: u32) -> 
     Ok(())
 }
 
+/// Why a [`pleochroma_net::messages::LivePassRequest`] is refused.
+#[cfg(feature = "adaptive-sampling")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LivePassRefusal {
+    /// A well-formed request this server does not trace: the Ray-Traced engine (it has no noise
+    /// to converge) or an HDR environment (a live pass is studio-lit). Answered with
+    /// `UNSUPPORTED_REQUEST`.
+    Unsupported(String),
+    /// The request breaks a rule (the scene, the sample range or the live-tile set). Answered
+    /// with `VALIDATION_FAILED`.
+    Invalid(String),
+}
+
+#[cfg(feature = "adaptive-sampling")]
+impl LivePassRefusal {
+    /// The human-readable reason.
+    #[must_use]
+    pub fn message(&self) -> &str {
+        match self {
+            Self::Unsupported(message) | Self::Invalid(message) => message,
+        }
+    }
+
+    /// The `ErrorMsg::code` the refusal is answered with.
+    #[must_use]
+    pub const fn code(&self) -> u32 {
+        match self {
+            Self::Unsupported(_) => pleochroma_net::messages::error_codes::UNSUPPORTED_REQUEST,
+            Self::Invalid(_) => pleochroma_net::messages::error_codes::VALIDATION_FAILED,
+        }
+    }
+}
+
+/// Validates one [`pleochroma_net::messages::LivePassRequest`] and returns the live tiles it
+/// names on its scene's frame.
+///
+/// The scene and the sample range are checked as for a `RenderRequest` ([`validate_request`]),
+/// the live-tile set against the frame and
+/// [`pleochroma_net::messages::MAX_LIVE_PASS_PIXELS`].
+///
+/// # Errors
+///
+/// [`LivePassRefusal`], `Unsupported` for a Ray-Traced or HDR-lit scene and `Invalid` for
+/// anything else.
+#[cfg(feature = "adaptive-sampling")]
+pub fn validate_live_pass(
+    request: &pleochroma_net::messages::LivePassRequest,
+) -> Result<pleochroma::renderer::adaptive::LiveTiles, LivePassRefusal> {
+    if request.scene.engine.is_ray() {
+        return Err(LivePassRefusal::Unsupported(
+            "a live pass is for the path-traced renderer: the Ray-Traced engine has no noise to \
+             converge"
+                .to_owned(),
+        ));
+    }
+    if request.scene.hdr().is_some() {
+        return Err(LivePassRefusal::Unsupported(
+            "a live pass is studio-lit; an HDR environment is not served in a live pass".to_owned(),
+        ));
+    }
+    validate_request(&request.scene, request.first_sample, request.samples)
+        .map_err(LivePassRefusal::Invalid)?;
+    request
+        .live_tiles()
+        .map_err(|e| LivePassRefusal::Invalid(e.to_string()))
+}
+
+#[cfg(feature = "beam")]
+/// Why a [`pleochroma_net::messages::BeamTileRequest`] is refused.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BeamTileRefusal {
+    /// A well-formed request this server does not render: the Ray-Traced engine (beams need the
+    /// path-traced residual) or an HDR environment (the beams are studio-lit). Answered with
+    /// `UNSUPPORTED_REQUEST`.
+    Unsupported(String),
+    /// The request breaks a rule (the scene, the sample range, the settings or the tile set).
+    /// Answered with `VALIDATION_FAILED`.
+    Invalid(String),
+}
+
+#[cfg(feature = "beam")]
+impl BeamTileRefusal {
+    /// The human-readable reason.
+    #[must_use]
+    pub fn message(&self) -> &str {
+        match self {
+            Self::Unsupported(message) | Self::Invalid(message) => message,
+        }
+    }
+
+    /// The `ErrorMsg::code` the refusal is answered with.
+    #[must_use]
+    pub const fn code(&self) -> u32 {
+        match self {
+            Self::Unsupported(_) => pleochroma_net::messages::error_codes::UNSUPPORTED_REQUEST,
+            Self::Invalid(_) => pleochroma_net::messages::error_codes::VALIDATION_FAILED,
+        }
+    }
+}
+
+#[cfg(feature = "beam")]
+/// Validates one [`pleochroma_net::messages::BeamTileRequest`] and returns the tiles it names on
+/// its scene's frame.
+///
+/// The scene and first sample are checked as for [`validate_request`]. The settings and tile
+/// set are checked by `BeamTileRequest::live_tiles`, which applies `BeamSettings::validate`
+/// (spectral nodes 8..=1024 in eights, positive finite tolerances, fragment depth within the
+/// GPU clamp) and [`pleochroma_net::messages::MAX_BEAM_TILE_PIXELS`]. The tile edge must equal
+/// the adaptive tile, since the beam tile is the adaptive tile. `adaptive.max_spp` is capped at
+/// [`MAX_SAMPLES_PER_REQUEST`], and `sample_offset + max_spp` must leave headroom below
+/// `u32::MAX`. `beam.residual_min_spp` may exceed `max_spp`; the residual clamps it.
+///
+/// # Errors
+///
+/// [`BeamTileRefusal`], `Unsupported` for a Ray-Traced or HDR-lit scene and `Invalid` for anything
+/// else.
+pub fn validate_beam_tiles(
+    request: &pleochroma_net::messages::BeamTileRequest,
+) -> Result<pleochroma::renderer::adaptive::LiveTiles, BeamTileRefusal> {
+    if request.scene.engine.is_ray() {
+        return Err(BeamTileRefusal::Unsupported(
+            pleochroma::renderer::accel_beam::BeamOff::RayTracedResidual
+                .message()
+                .to_owned(),
+        ));
+    }
+    if request.scene.hdr().is_some() {
+        return Err(BeamTileRefusal::Unsupported(
+            "beam tiles are studio-lit; an HDR environment is not served in beam tiles".to_owned(),
+        ));
+    }
+    // One sample checks the scene and the offset; the residual range is checked below.
+    validate_request(&request.scene, request.sample_offset, 1).map_err(BeamTileRefusal::Invalid)?;
+    // The residual loop has no other bound, so the live-pass sample cap applies.
+    if request.adaptive.max_spp > MAX_SAMPLES_PER_REQUEST {
+        return Err(BeamTileRefusal::Invalid(format!(
+            "max_spp must be <= {MAX_SAMPLES_PER_REQUEST} (got {})",
+            request.adaptive.max_spp
+        )));
+    }
+    // `beam.residual_min_spp` above `max_spp` is clamped by `tile_residual::residual_settings`,
+    // not refused, since the default would reject small jobs.
+    if request
+        .sample_offset
+        .checked_add(request.adaptive.max_spp)
+        .is_none_or(|end| end > u32::MAX - MAX_SAMPLES_PER_REQUEST)
+    {
+        return Err(BeamTileRefusal::Invalid(format!(
+            "sample_offset + max_spp must not overflow u32 and must leave headroom below \
+             u32::MAX (sample_offset={}, max_spp={})",
+            request.sample_offset, request.adaptive.max_spp
+        )));
+    }
+    let live = request
+        .live_tiles()
+        .map_err(|e| BeamTileRefusal::Invalid(e.to_string()))?;
+    if live.tile() != request.adaptive.tile {
+        return Err(BeamTileRefusal::Invalid(format!(
+            "the beam tile is the adaptive tile: the tile set has edge {} but the adaptive \
+             settings have {}",
+            live.tile(),
+            request.adaptive.tile
+        )));
+    }
+    Ok(live)
+}
+
 /// Validates the [`pleochroma_net::messages::StreamConfig`] half of a `serve`
 /// [`pleochroma_net::messages::RenderRequest`].
 ///
-/// [`validate_request`] covers the rest of the request; this also CLAMPS
-/// [`pleochroma_net::messages::StreamConfig::cadence_ms`] up to this worker's
-/// advertised floor.
+/// [`validate_request`] covers the rest of the request. This also clamps
+/// [`pleochroma_net::messages::StreamConfig::cadence_ms`] up to the advertised floor.
 ///
 /// # `cadence_ms` clamping
 ///
-/// `stream.cadence_ms` below [`crate::stream_emit::MIN_CADENCE_FLOOR_MS`] (the same
-/// floor `WELCOME::min_cadence_ms` already advertises) is silently raised to it, IN
-/// PLACE -- `stream` is taken `&mut` for exactly this. **`0` does not mean "as fast
-/// as possible, unbounded"**: combined with a full-scale
-/// [`pleochroma_net::messages::StreamConfig::preview`] under
-/// [`pleochroma_net::messages::TransferMode::FinalOnly`], an unclamped `cadence_ms = 0`
-/// would make the emitter write the ENTIRE frame's preview on every ~20ms `EMITTER_POLL`
-/// tick for the whole request, not just at cadence boundaries -- exactly the bandwidth a
-/// cadence exists to pace. See the check below for why a full-scale preview under
-/// `FinalOnly` is rejected outright rather than left to this clamp alone.
+/// A `cadence_ms` below [`crate::stream_emit::MIN_CADENCE_FLOOR_MS`] is raised to it in place,
+/// so `stream` is taken `&mut`. `0` does not mean "as fast as possible": with a full-scale
+/// preview under `FinalOnly`, the emitter would write the whole preview on every
+/// `EMITTER_POLL` tick (about 20 ms) instead of once per cadence.
 ///
 /// # Full-scale preview under `FinalOnly`
 ///
-/// Also rejected outright: under `FinalOnly`, `FRAME` is sent exactly once at the end,
-/// so the emitter's "skip a redundant full-scale `PREVIEW`" logic (which only fires
-/// when a `FRAME` delta went out on the SAME tick) never applies there -- a full-scale
-/// `PREVIEW` would duplicate the whole frame's data on every cadence tick for the
-/// entire request instead of exactly once. `LiveProgressive` is unaffected: it sends
-/// `FRAME` deltas throughout, so the emitter's existing redundancy skip already covers
-/// a full-scale preview there.
+/// Rejected outright. `FinalOnly` sends `FRAME` once at the end, so the emitter's skip of a
+/// redundant full-scale `PREVIEW` (which fires only when a `FRAME` delta went out on the same
+/// tick) never applies, and the preview would repeat the whole frame on every cadence tick.
+/// `LiveProgressive` is fine, because its `FRAME` deltas trigger that skip.
 ///
 /// # Errors
 ///

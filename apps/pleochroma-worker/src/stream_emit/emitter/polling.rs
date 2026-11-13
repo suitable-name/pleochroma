@@ -21,10 +21,10 @@ pub(in crate::stream_emit) enum ClientPoll {
     /// currently streaming -- see [`super::run_stream`]'s doc comment for how this is
     /// handled.
     NextRequest(Box<RenderRequest>),
-    /// A `PING` (v14) with this nonce: answer with a `PONG` and keep streaming.
+    /// A `PING` with this nonce: answer with a `PONG` and keep streaming.
     Ping(u64),
-    /// `-> CONTRIBUTION` (v16): the header has been read, but its payload frame has
-    /// NOT -- the caller (`super::run_stream_loop`) must consume it (into a reserved
+    /// A `CONTRIBUTION` header: read, but its payload frame is NOT. The caller
+    /// (`super::run_stream_loop`) must consume the frame (into a reserved
     /// [`super::super::ContributionSlot`], or discard it) before the next poll, or the
     /// stream desyncs.
     Contribution(ContributionHeader),
@@ -41,10 +41,12 @@ pub enum RawPoll {
 }
 
 /// Reads one pending [`ClientMessage`] frame without blocking past `poll_timeout` before
-/// its first byte -- the timeout-tolerant read [`poll_for_client_message`] interprets for
-/// a streaming request, shared with `crate::assets`' wait for an asset. See
-/// [`poll_for_client_message`]'s doc comment for the first-byte/remainder timeout rules
-/// and `timeouts`.
+/// its first byte.
+///
+/// This is the timeout-tolerant read that [`poll_for_client_message`] interprets for a
+/// streaming request, and that `crate::assets` uses while it waits for an asset. See
+/// [`poll_for_client_message`] for the first-byte and remainder timeout rules and
+/// `timeouts`.
 ///
 /// # Errors
 ///
@@ -169,8 +171,8 @@ pub(in crate::stream_emit) fn poll_for_client_message<S: Read + TimeoutRead>(
             );
             ClientPoll::Stale
         }
-        // v24: a batch is served by `serve::connection::batch`, on a connection with no
-        // single render in flight; mid-stream it is dropped like a FinalImageRequest.
+        // A batch is served by `serve::connection::batch`, on a connection with no render
+        // in flight; mid-stream it is dropped like a FinalImageRequest.
         ClientMessage::BatchRenderRequest(_) => {
             tracing::debug!(
                 "received a BatchRenderRequest while request_id={request_id} was streaming -- \
@@ -184,14 +186,30 @@ pub(in crate::stream_emit) fn poll_for_client_message<S: Read + TimeoutRead>(
             crate::assets::discard_asset(stream, &header)?;
             ClientPoll::Stale
         }
-        // v16: handed to the caller with its payload frame still unread -- only it
-        // knows whether this request reserved a contribution slot (see
-        // `ClientPoll::Contribution`'s own doc comment).
+        // Handed to the caller with its payload frame still unread: only it knows whether
+        // this request reserved a contribution slot (see `ClientPoll::Contribution`).
         ClientMessage::Contribution(header) => ClientPoll::Contribution(header),
-        // v25: a durable job request is not served while a request streams (a job client
-        // uses a connection of its own); a `PutAsset`'s payload frame is consumed.
+        // A job request is not served while a request streams (a job client uses its own
+        // connection); a `PutAsset`'s payload frame is consumed.
         ClientMessage::Job(job) => {
             crate::jobs::ignore_in_flight(stream, &job)?;
+            ClientPoll::Stale
+        }
+        // A live pass is served between requests, never while a render streams; it is
+        // dropped like a batch.
+        ClientMessage::LivePassRequest(_) => {
+            tracing::debug!(
+                "received a LivePassRequest while request_id={request_id} was streaming -- live \
+                 passes are not serviced mid-stream; ignoring"
+            );
+            ClientPoll::Stale
+        }
+        // Beam tiles are served between requests too, never while a render streams.
+        ClientMessage::BeamTileRequest(_) => {
+            tracing::debug!(
+                "received a BeamTileRequest while request_id={request_id} was streaming -- beam \
+                 tiles are not serviced mid-stream; ignoring"
+            );
             ClientPoll::Stale
         }
     })

@@ -16,8 +16,8 @@ pub const MAX_META_TAGS: usize = 1_000;
 /// Upper bound on one tag, in bytes of UTF-8.
 pub const MAX_META_TAG_BYTES: usize = 200;
 
-/// The `[meta]` table: per-design descriptive data. The design module's documentation
-/// has the table of what is stored and what is deliberately recomputed instead.
+/// The `[meta]` table: per-design descriptive data. See [`super::schema`] for which
+/// fields are stored and which are recomputed.
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DesignMetadata {
     /// Stable design identity as a UUID string (`8-4-4-4-12` hexadecimal), supplied by
@@ -57,7 +57,7 @@ pub struct DesignMetadata {
     /// designs may name one booklet, and the bytes (if kept) are an attachment.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub pdf_file: String,
-    /// Name of the original `GemCad` `.gem` file; see [`Self::pdf_file`].
+    /// Name of the original `GemCAD` `.gem` file; see [`Self::pdf_file`].
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub gem_file: String,
     /// Licence or usage terms of the design, free text (e.g. `"CC BY-NC 4.0"`).
@@ -195,8 +195,9 @@ fn digits(part: &str, len: usize) -> Option<u32> {
 
 /// `true` for an ISO-8601 UTC timestamp (`YYYY-MM-DDTHH:MM:SSZ`).
 ///
-/// An optional `.` and 1 to 9 fraction digits may precede the `Z`; month 1-12, day 1-31, hour 0-23, minute 0-59 and second 0-59.
-/// A shape check, not a calendar: `2026-02-31T00:00:00Z` passes.
+/// An optional `.` and 1 to 9 fraction digits may precede the `Z`. Month 1-12, day 1-31,
+/// hour 0-23, minute and second 0-59. A shape check, not a calendar: `2026-02-31T00:00:00Z`
+/// passes.
 #[must_use]
 pub fn is_iso8601_utc(text: &str) -> bool {
     let Some(body) = text.strip_suffix('Z') else {

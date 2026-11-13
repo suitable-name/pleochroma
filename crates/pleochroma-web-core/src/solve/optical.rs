@@ -2,34 +2,22 @@
 //!
 //! # Same numbers as the desktop
 //!
-//! - **Current-view metrics** ([`run_metrics_with_map`]) are the desktop render loop's
-//!   `compute_or_reuse_metrics` for the pose it renders: `evaluate_gem_optical_metrics`
-//!   with the traced material (the render-time overrides applied, exactly the material the
-//!   scene is built with), the camera yaw/pitch of the frame and its lighting preset and
-//!   light yaw/pitch. The metrics are scored under the radiance the frame is lit with
-//!   (`metrics_worker.rs`'s `Request::environment`): the loaded HDR panorama when there is
-//!   one, else the preset's rig. Here the panorama is the map the Worker holds, named by
-//!   [`MetricsParams::hdr_id`]; a Worker that holds no map with that id scores under the
-//!   preset and says so ([`ScoredUnder`]). The cache is the shared
-//!   `pleochroma::color::metrics::MetricsCache`, which keys on the map's contents, so the
-//!   Worker recomputes on exactly the desktop's changes. The facet finishes are applied: the
-//!   request carries them ([`MetricsParams::finishes`], the frosted girdle and the design's
-//!   frosted facets) and the pose is scored on the frosted stone, as the desktop's live
-//!   Checks numbers are (`compute_or_reuse_pose_metrics_finished`; the cache key carries a
-//!   hash of the frosted facets, so frosting or unfrosting one recomputes the pose). A
-//!   frosted stone's figures are a sampled estimate. Ground Fine and Ground Coarse surface
-//!   grades are not part of the finishes and stay scored as polished.
-//! - **Tilt curves** ([`run_tilt`]) are the desktop Tilt Performance dialog's sweep
-//!   (`gui::tilt::tilt_profile`): `pleochroma::color::metrics::evaluate_all_axes_profiles`,
-//!   the four `PROFILE_AZIMUTHS_DEG` axes at 181 points each, under the preset's rig at
-//!   the current light (the dialog's sweep never uses the HDR map, so neither does this
-//!   one) and the resolved material sized by the stone width ([`tilt_material_spec`]; the
-//!   desktop sizes it with `material_for_stone`) and oriented by the stone's Crystal Axis and
-//!   Second Axis -- the dialog states that inclusions and edge rounding are not applied to it,
-//!   so the request's other overrides are dropped here. The facet finishes are applied: the request carries them
-//!   ([`TiltParams::finishes`], the frosted girdle and the design's frosted facets) and the
-//!   sweep scores the frosted stone, as the desktop dialog now does (a frosted facet scatters
-//!   light, so the curves of a frosted design are not its polished ones).
+//! - **Current-view metrics** ([`run_metrics_with_map`]) are scored for the pose the viewport
+//!   renders: the traced material with its render-time overrides, the camera pose, and the
+//!   light. The radiance is the HDR panorama the Worker holds when the request names it
+//!   ([`MetricsParams::hdr_id`]), else the lighting preset's rig. A request for a map the
+//!   Worker does not hold scores under the preset and says so ([`ScoredUnder`]). The cache
+//!   is the shared `MetricsCache`, which keys on the map's contents.
+//! - **Tilt curves** ([`run_tilt`]) are the desktop's Tilt Performance sweep: the four
+//!   `PROFILE_AZIMUTHS_DEG` axes at 181 points each, under the preset's rig at the current
+//!   light. The sweep never uses the HDR map. The material is sized by the stone width and
+//!   oriented by the Crystal Axis and Second Axis ([`tilt_material_spec`]). Inclusions and
+//!   edge rounding are not applied, so the request's other overrides are dropped.
+//!
+//! Both apply the facet finishes ([`MetricsParams::finishes`], [`TiltParams::finishes`]): a
+//! frosted facet scatters light, so the figures of a frosted stone are a sampled estimate and
+//! differ from the polished ones. Ground Fine and Ground Coarse are not finishes and are
+//! scored as polished.
 //!
 //! Neither request carries a design: the caller sends the stone's planes and the settings
 //! it renders with (see [`MetricsParams::from_scene`]), and the message's `design_toml` is
@@ -37,12 +25,12 @@
 //!
 //! # Concave stones
 //!
-//! Like the desktop, both are scored on the stone WITH its cutting tools
+//! Both are scored on the stone with its cutting tools, as on the desktop
 //! (`StoneGeometry { planes, tools }`, tools from `Design::tools_for_scoring`). The tools
 //! travel with the request ([`SolveRequest::MetricsWithTools`] / `TiltWithTools`, built by
-//! [`SolveRequest::metrics`] / [`SolveRequest::tilt`], which keep the planar variants -- and
-//! so the planar bytes -- when there are no tools). [`MetricsJob`] / [`TiltJob`] pair the
-//! params with the tools for the page's "are these the numbers on screen" comparison.
+//! [`SolveRequest::metrics`] / [`SolveRequest::tilt`], which keep the planar variants when
+//! there are no tools). [`MetricsJob`] / [`TiltJob`] pair the params with the tools for the
+//! page's "are these the numbers on screen" comparison.
 
 use std::sync::atomic::Ordering;
 
@@ -57,7 +45,7 @@ use pleochroma::{
         tool::{StoneGeometry, ToolPrimitive},
     },
     optics::raytracer::{EnvironmentSource, LightingPreset},
-    renderer::env_map::EnvironmentMap,
+    renderer::env_map::{EnvRotation, EnvironmentMap},
 };
 use serde::{Deserialize, Serialize};
 
@@ -69,6 +57,8 @@ use crate::scene::{
 
 #[cfg(test)]
 mod concave_tests;
+#[cfg(test)]
+mod hdr_turn_tests;
 #[cfg(test)]
 mod tests;
 
@@ -93,20 +83,23 @@ pub struct MetricsParams {
     /// The HDR map the metrics are scored under: `Some(id)` means "under the map the
     /// Worker holds with this id" (the viewport is lit by it); `None` means the preset.
     pub hdr_id: Option<u64>,
-    /// The facet finishes the pose is scored with (appended last, protocol 30): a frosted
-    /// facet scatters light, so a frosted stone's figures are not its polished ones. The
-    /// desktop's live Checks numbers score the same stone.
+    /// The facet finishes the pose is scored with. A frosted facet scatters light, so a
+    /// frosted stone's figures are not its polished ones.
     pub finishes: FinishSpec,
+    /// The HDR map's total yaw in radians at this pose: the map's own turn plus the camera's
+    /// yaw when the map follows the camera. `0.0` is the map as loaded; it is ignored when
+    /// the metrics are scored under the preset.
+    pub hdr_yaw: f32,
 }
 
 impl MetricsParams {
     /// The metrics inputs of the frame `spec` renders: its planes, material, camera pose,
     /// lighting preset, light direction, HDR map and facet finishes. Two scenes that differ
     /// only in exposure, size or bounces give equal params, so those changes recompute
-    /// nothing; another map (or none), or a change of the facet finishes (the frosted-girdle
-    /// setting, the design's frosted facets), gives different ones, which is what makes the
-    /// HUD recompute. The preset and light stay in the params under a map too: they are
-    /// what a Worker without that map scores under.
+    /// nothing; another map (or none), a turn of the map, or a change of the facet finishes
+    /// (the frosted-girdle setting, the design's frosted facets), gives different ones, which
+    /// is what makes the HUD recompute. The preset and light stay in the params under a map
+    /// too: they are what a Worker without that map scores under.
     #[must_use]
     pub fn from_scene(spec: &SceneSpec) -> Self {
         Self {
@@ -119,6 +112,7 @@ impl MetricsParams {
             light_pitch: spec.lighting.light_pitch,
             hdr_id: spec.hdr_id,
             finishes: spec.finishes.clone(),
+            hdr_yaw: spec.lighting.hdr_yaw_for(spec.camera.yaw),
         }
     }
 }
@@ -190,8 +184,7 @@ pub struct MetricsResultData {
     /// The environment these were scored under.
     pub scored_under: ScoredUnder,
     /// The Doubling figure: the mean angular separation, in arc-minutes, between the two
-    /// light modes of a birefringent stone (`0` for an isotropic one). Appended last, protocol
-    /// 26.
+    /// light modes of a birefringent stone (`0` for an isotropic one).
     pub doubling_arcmin: f32,
 }
 
@@ -228,8 +221,8 @@ pub struct TiltParams {
     pub light_yaw: f32,
     /// Light pitch in radians.
     pub light_pitch: f32,
-    /// The facet finishes the sweep scores (appended last, protocol 21): a frosted facet
-    /// scatters light, so the curves of a frosted stone are not its polished ones.
+    /// The facet finishes the sweep scores. A frosted facet scatters light, so the curves of
+    /// a frosted stone are not its polished ones.
     pub finishes: FinishSpec,
 }
 
@@ -321,7 +314,7 @@ const fn job_environment(
     LightingPreset::from_index(preset_index).studio(1.0, light_yaw, light_pitch)
 }
 
-/// One axis of a finished sweep: three 181-point curves (`TILT_ANGLES_DEG`-indexed).
+/// One axis of a finished sweep: three curves of 181 points each.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TiltAxisData {
     /// The axis' azimuth in degrees (`PROFILE_AZIMUTHS_DEG`).
@@ -429,9 +422,10 @@ pub fn run_metrics_with_geometry(
         Err(error) => return failed(error.to_string()),
     };
     let (environment, scored_under) = match (params.hdr_id, held) {
-        (Some(wanted), Some((id, map))) if wanted == id => {
-            (EnvironmentSource::HdrMap(map), ScoredUnder::HdrMap(id))
-        }
+        (Some(wanted), Some((id, map))) if wanted == id => (
+            EnvironmentSource::hdr(map).with_hdr_rotation(EnvRotation::from_yaw(params.hdr_yaw)),
+            ScoredUnder::HdrMap(id),
+        ),
         _ => (
             job_environment(params.preset_index, params.light_yaw, params.light_pitch),
             ScoredUnder::Preset(params.preset_index),
@@ -454,12 +448,12 @@ pub fn run_metrics_with_geometry(
     SolveResponse::Metrics(MetricsResultData::new(metrics, scored_under))
 }
 
-/// The material the tilt sweep traces: the resolved material with no render-time override
-/// (inclusions, edge rounding) except the stone size, which the render's own scene
-/// carries in `overrides.stone_width_mm` (the linked design's girdle diameter, or the
-/// stone-width control), and the stone's crystal orientation (the Crystal Axis and the Second
-/// Axis), which decides the colors and the doubling the sweep scores. The desktop's tilt
-/// profile traces the render's own material the same way, so web tilt == desktop tilt.
+/// The material the tilt sweep traces.
+///
+/// It is the scene's material without its render-time overrides
+/// (inclusions, edge rounding), except the stone size (`overrides.stone_width_mm`) and the
+/// crystal orientation (the Crystal Axis and the Second Axis). Those two set the colors and
+/// the doubling the sweep scores.
 #[must_use]
 pub fn tilt_material_spec(material: &MaterialSpec) -> MaterialSpec {
     MaterialSpec {

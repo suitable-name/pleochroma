@@ -1,4 +1,4 @@
-//! Candidate packing; d-line conventions copied from metrics/{prepared,birefringent}.rs.
+//! Candidate packing. The d-line conventions follow metrics/{prepared,birefringent}.rs.
 use super::{OpticalError, fan::FanGeometry};
 use glam::{Mat3, Vec3};
 use pleochroma::{

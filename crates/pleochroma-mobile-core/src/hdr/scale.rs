@@ -1,11 +1,11 @@
 //! Reading the texels of a decoded map and box-filtering them down to at most
 //! [`MAX_WIDTH`] x [`MAX_HEIGHT`].
 //!
-//! `EnvironmentMap` keeps its texels private, so [`read_texels`] reads each one back at its
-//! own centre through the map's bilinear lookup (a texel centre returns that texel, up to a
-//! float rounding of the direction round trip that is far below one percent). The box
-//! filter weights the source texels by their exact overlap with each target texel, so the
-//! mean radiance of the image is kept whatever the size ratio.
+//! `EnvironmentMap` keeps its texels private, so `read_texels` (tests only) reads each one
+//! back at its own centre through the map's bilinear lookup (a texel centre returns that
+//! texel, up to a float rounding of the direction round trip, far below one percent). The
+//! box filter weights the source texels by their exact overlap with each target texel, so
+//! the mean radiance of the image is kept whatever the size ratio.
 
 use pleochroma::renderer::env_map::EnvironmentMap;
 
@@ -101,9 +101,10 @@ pub fn read_texels(map: &EnvironmentMap) -> Vec<[f32; 3]> {
     texels
 }
 
-/// `map` box-filtered to `width x height` (each at least 1), row-major. Reads the source one
-/// row at a time and filters horizontally on the fly, so only a `source rows x width` strip
-/// is held besides the source.
+/// `map` box-filtered to `width x height` (each at least 1), row-major.
+///
+/// Reads the source one row at a time and filters horizontally on the fly, so only a `source rows x
+/// width` strip is held besides the source.
 #[must_use]
 pub fn resample_map(map: &EnvironmentMap, width: usize, height: usize) -> Vec<[f32; 3]> {
     let (width, height) = (width.max(1), height.max(1));

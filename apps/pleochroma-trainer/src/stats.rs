@@ -110,10 +110,10 @@ pub fn save_evaluations(
     Ok(())
 }
 
-/// Collection diagnostics for one rollout, separate from the legacy rejection buckets.
+/// Collection diagnostics for one rollout, separate from the rejection buckets.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TrainingDiagnostics {
-    /// Steps rejected by meet or constraint preservation; a subset of legacy `rej_unsafe`.
+    /// Steps rejected by meet or constraint preservation; a subset of `rej_unsafe`.
     pub preservation_rejected: usize,
     /// Reported proposals that projected to the exact current design and reused its evaluation.
     pub unchanged_proposals: usize,
@@ -373,9 +373,8 @@ impl IterationMetricPoint {
     /// Wall seconds the main thread spent on the iteration: the rollout plus the time it stood
     /// still for the update. An imitation update trains on its own thread during the next
     /// rollout, so only the wait counts; a PPO update is waited for at once, so its wait already
-    /// holds the whole update and the same formula is right for both algorithms. A point from a
-    /// file that predates `update_wait_secs` (an update, but no `update_of_iteration`) falls back
-    /// to the old rollout-plus-update sum.
+    /// holds the whole update and the same formula is right for both algorithms. A point without
+    /// `update_wait_secs` (an update, no `update_of_iteration`) counts the whole update.
     #[must_use]
     pub fn main_thread_secs(&self) -> f32 {
         let legacy = self.update_of_iteration.is_none() && self.update_secs > 0.0;
@@ -399,8 +398,9 @@ impl IterationMetricPoint {
 }
 
 /// The model's share of the oracle's score drop (`model / oracle`; 1 means the model matches the
-/// finite-difference oracle). `None` when the oracle drop is missing, not finite or too small
-/// for a ratio to mean anything.
+/// finite-difference oracle).
+///
+/// `None` when the oracle drop is missing, not finite or too small for a ratio to mean anything.
 #[must_use]
 pub fn drop_ratio(model: f32, oracle: Option<f32>) -> Option<f32> {
     oracle
@@ -408,9 +408,10 @@ pub fn drop_ratio(model: f32, oracle: Option<f32>) -> Option<f32> {
         .map(|oracle_drop| model / oracle_drop)
 }
 
-/// The three validation drops as one phrase, `drop model 4.20 / oracle 6.10 / sampled 1.30
-/// (model/oracle 0.69)`; a missing figure reads `-` and the ratio is left out when it is
-/// undefined (see [`drop_ratio`]).
+/// The three validation drops as one phrase.
+///
+/// For example `drop model 4.20 / oracle 6.10 / sampled 1.30 (model/oracle 0.69)`; a missing
+/// figure reads `-` and the ratio is left out when it is undefined (see [`drop_ratio`]).
 #[must_use]
 pub fn describe_drops(model: f32, oracle: Option<f32>, sampled: Option<f32>) -> String {
     let cell = |value: Option<f32>| value.map_or_else(|| "-".to_owned(), |d| format!("{d:.2}"));

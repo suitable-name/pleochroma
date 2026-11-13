@@ -11,8 +11,8 @@
 //! - `launch`: starts a guide -- arranges the design it starts from (a new one, a library
 //!   one, the open one), pushes its steps into `GuideModel` and opens the first.
 //! - `progress`: decides, from STATE, whether the current step's goal is met and reports it
-//!   through `GuideModel.notify`; also takes UI events (`progress::guide_event`, the handler
-//!   of `GuideModel.event`; other desktop code reports an event with `gui::tutorial_events::raise`).
+//!   through `GuideModel.notify`. It also takes UI events (`progress::guide_event`, behind
+//!   `GuideModel.event`); other desktop code raises one with `gui::tutorial_events::raise`.
 //! - `perform`: Next on an unfinished step -- carries out the step's recipe through the very
 //!   callbacks the learner's own clicks would reach, then lets `progress` judge the goal.
 //! - `browser`: the tutorial browser's list, the welcome dialog and the "finished" marks.
@@ -47,9 +47,9 @@ use std::{
 };
 
 /// Wires every tutorial callback (`GuideModel`, `TutorialsModel`, `BuildDesignModel`) and
-/// remembers the editor state, so a UI event can re-check the current step. `db` and
-/// `source` are the library "Build this design" reads the design to rebuild from. Called
-/// from `gui::editor::setup_editor_callbacks`.
+/// remembers the editor state, so a UI event can re-check the current step. `db` and `source`
+/// let "Build this design" read the library design it rebuilds. Called from
+/// `gui::editor::setup_editor_callbacks`.
 pub(in crate::gui::editor) fn setup_guide(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,

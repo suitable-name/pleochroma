@@ -381,8 +381,7 @@ fn the_cancel_poll_is_throttled_and_reports_the_probe() {
 }
 
 /// A probe that cannot run (a strict content-security policy refuses the synchronous
-/// request) says nothing about the page's wishes: it is not a cancel, and it is not asked
-/// again -- only the message mark can still stop the job.
+/// request) is no cancel and is not asked again; only the message mark can still stop the job.
 #[test]
 fn an_unavailable_probe_is_not_a_cancel_and_is_asked_once() {
     let asked = Cell::new(0);
@@ -575,8 +574,8 @@ fn a_sweep_whose_probe_is_unavailable_runs_on_until_a_cancel_message_names_it() 
     );
 }
 
-/// A cancel message that arrives while jobs are queued still skips every job up to its id,
-/// and the mark is kept as the newest id seen.
+/// A cancel that arrives while jobs are queued skips every job up to its id; the mark only
+/// grows, so an older cancel never lowers it.
 #[test]
 fn cancel_messages_raise_a_mark_that_only_grows() {
     let mut handler = init(WorkerRole::Solve);

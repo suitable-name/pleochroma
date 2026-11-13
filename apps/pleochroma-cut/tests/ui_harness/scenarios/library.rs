@@ -94,10 +94,9 @@ fn window_mentions(app: &HarnessApp, needle: &str) -> bool {
 /// only when something evaluates the layout): the window is resized by one pixel and back, which
 /// invalidates and re-solves every layout, and the geometry of all controls is read.
 ///
-/// The HEIGHT is nudged, never the width: app.slint's `changed width` re-runs
-/// `sync_library_auto_collapse`, which folds a library the harness had just opened back onto its
-/// rail whenever the window sits in an auto-collapse band (1366 px does), so a width nudge
-/// removed the very list rows and empty-state card the checks below look for.
+/// The HEIGHT is nudged, never the width: a width change re-runs `sync_library_auto_collapse`
+/// (`window_state.slint`), which folds the library back onto its rail inside the auto-collapse
+/// band (1366 px is in it), and that would remove the list rows and the empty-state card.
 fn nudge_layout(app: &HarnessApp) {
     let window = app.ui().window();
     let size = window.size().to_logical(window.scale_factor());
@@ -109,9 +108,9 @@ fn nudge_layout(app: &HarnessApp) {
 }
 
 /// Brings the library list back when the window folded it onto its rail. At the harness's
-/// 1366 px width the Edit view is narrower than `library_wants_auto_collapse` allows (app.slint
-/// ~411: the library folds below ~1386 px), so the main window launches with `CollapsedLibraryRail`
-/// instead of `DiagramListView` and no list row or "No diagrams found" card exists to find.
+/// 1366 px width the library folds (`library_wants_auto_collapse` in `window_state.slint`, below
+/// about 1386 px without the guide), so the window shows `CollapsedLibraryRail` instead of
+/// `DiagramListView` and no list row or "No diagrams found" card exists to find.
 fn ensure_library_open(ctx: &Ctx<'_>) {
     let ui = ctx.app.ui().clone_strong();
     let library = ui.global::<LibraryModel>();
@@ -126,8 +125,8 @@ fn ensure_library_open(ctx: &Ctx<'_>) {
     nudge_layout(ctx.app);
 }
 
-/// How many pieces the library click-everything pass (143 s in one piece) is cut into: each piece
-/// presses the controls whose key hashes into its part (`support::part`).
+/// How many pieces the library click-everything pass is cut into: each piece presses its share
+/// of the controls (see `Piece::part`).
 const CLICK_PARTS: usize = 3;
 
 /// The pieces of this file.
@@ -255,7 +254,7 @@ fn library_search_and_filters(ctx: &mut Ctx<'_>) {
     ctx.check_health("library search");
     ctx.sweep_main_at_sizes("library search: one result");
     if !click(ctx.app, "Clear Search") {
-        // GAP: the clear button is not reachable by label; the callback the typing fires is driven.
+        // GAP: the clear button is not reachable by label; the typing callback is driven.
         library.set_search_text("".into());
         library.invoke_search_changed("".into());
     }

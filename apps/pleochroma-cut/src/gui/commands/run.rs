@@ -198,9 +198,10 @@ const PARAMETERS_LIGHTING: i32 = 1;
 /// `ParametersModel.active_tab` of the Render & Output tab.
 const PARAMETERS_RENDER: i32 = 2;
 
-/// Brings the 3D tab forward and shows tab `tab` of the Parameters dock, expanded, like the View
-/// menu items and the dock's toolbar buttons. The Live Render / Edit choice is left as it is:
-/// the dock is in both.
+/// Brings the 3D tab forward and shows tab `tab` of the Parameters dock, expanded.
+///
+/// Like the View menu items and the dock's toolbar buttons. The Live Render / Edit choice is
+/// left as it is, since the dock is in both views.
 fn show_parameters_tab(ui: &MainWindow, tab: i32) {
     show_tab(ui, TAB_3D);
     ui.global::<ParametersModel>().invoke_show_tab(tab);
@@ -216,8 +217,8 @@ pub fn open_lighting_and_environment(ui: &MainWindow) {
     show_parameters_tab(ui, PARAMETERS_LIGHTING);
 }
 
-/// Opens the Parameters dock on its Render & Output tab. Also what the older "Render Settings..."
-/// command does: the Live Render view's settings card became this tab.
+/// Opens the Parameters dock on its Render & Output tab. The "Render Settings..." command
+/// runs the same action.
 pub fn open_render_and_output(ui: &MainWindow) {
     show_parameters_tab(ui, PARAMETERS_RENDER);
 }

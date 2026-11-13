@@ -1,6 +1,8 @@
-//! The Stone, Light and Checks tabs: their Slint callbacks (`wire`) and the state pushed
-//! into `PropsModel` (`push`). The logic lives in `pleochroma_mobile_core::design_props`;
-//! this module only converts between its plain structs and the Slint structs.
+//! The Stone, Light and Checks tabs: their Slint callbacks (`wire`) and the state pushed into
+//! `PropsModel` (`push`).
+//!
+//! The logic lives in `pleochroma_mobile_core::design_props`; this module only converts between its
+//! plain structs and the Slint structs.
 //!
 //! `push` runs on every refresh of the Design page (selection, camera, a finished solve),
 //! so it remembers what it pushed last and writes only what changed. A text field or a
@@ -134,6 +136,12 @@ fn finish(window: &AppWindow, state: &Shared, result: Result<bool, String>) {
             refresh(window, state);
         }
     }
+}
+
+/// Handles the answer to one of the Checks tab's dialogs (ids 5000-5099; 5001 asks before a
+/// planned fix is applied). Returns false for any other id.
+pub fn handle_dialog_result(window: &AppWindow, state: &Shared, id: i32, confirmed: bool) -> bool {
+    checks::handle_dialog_result(window, state, id, confirmed)
 }
 
 /// Forgets the state (see `design::shutdown`).

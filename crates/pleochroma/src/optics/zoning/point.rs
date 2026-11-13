@@ -1,7 +1,7 @@
 //! Which zone holds a point: [`ZoneKernel::zone_index_at`] and its f32 twin.
 //!
 //! The segment kernels answer "how long is this segment in each zone"; this answers the same
-//! question for a single point, with the same semantics (see the notes in `kernels.rs`):
+//! question for a single point, with the same semantics (see the module notes in `kernels.rs`):
 //!
 //! * sharp boundaries: the LAST zone whose shape contains the point wins, else the base;
 //! * soft boundaries: the zone with the largest blended weight, the weights being the ones the

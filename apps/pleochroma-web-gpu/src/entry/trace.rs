@@ -1,8 +1,7 @@
 //! The GPU Worker's `TraceFullPass` handling: takes the renderer and the cached scene out
 //! of the shared state, traces one full-frame pass, puts both back and posts the answer.
 //!
-//! Split out of `lib.rs` (the message handler grew past the lint's line limit); the shared
-//! state, `post` and the device flags live in the parent module.
+//! The shared state, `post` and the device flags live in the parent module.
 
 use std::{cell::RefCell, rc::Rc};
 

@@ -1,10 +1,9 @@
 //! Storage for `diagram_inclusion_effects`: the inclusion and play-of-color choice a library
 //! design's own file states, as the text the cached-render fingerprints hash.
 //!
-//! The staleness scans never open a design file, so what the cached renders were made with is read
-//! from here, as the surface finish is read from `diagram_surface_finish`. Written with the rest
-//! of a design's row state when the design is imported, saved or mirrored
-//! (`crate::local::apply_imported_extras`).
+//! The staleness scans never open a design file, so the choice is read from here, as the surface
+//! finish is read from `diagram_surface_finish`. It is written with the rest of a design's row
+//! state when the design is imported, saved or mirrored (`crate::local::apply_imported_extras`).
 //!
 //! A side table cascading off `diagram_entries`: writing it never touches the entry row or its
 //! `updated_at`. A design without a row states neither choice, which is also what every design
@@ -29,13 +28,14 @@ impl Database {
     /// Creates `diagram_inclusion_effects` for a database created before the choices were
     /// tracked. Adds nothing to any existing table; idempotent via `CREATE TABLE IF NOT EXISTS`.
     ///
-    /// When the table is created by this call it is filled once from the design files the library
-    /// already stores ([`Self::backfill_inclusion_effects`]), so a design saved with silk before
-    /// the table existed does not keep a thumbnail rendered without it.
+    /// Creating the table fills it once from the design files the library already stores
+    /// ([`Self::backfill_inclusion_effects`]), so a cached thumbnail is not kept rendered without
+    /// the choice its design file states.
     ///
     /// # Errors
     ///
-    /// Returns an error if creating the table fails. A design file that cannot be read is skipped.
+    /// Returns an error if creating the table fails. A design file that states no readable
+    /// choice is skipped.
     pub(in crate::db::sqlite) fn migrate_inclusion_effects_table(&self) -> Result<()> {
         let existed = self.inclusion_effects_table_exists()?;
         self.conn

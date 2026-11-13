@@ -1,20 +1,19 @@
-//! Secondary-window states for the elements run 7 still left uncovered in the Rough Planner and
-//! the Rough Colour wizard (lane E of the 2026-10-15 findings).
+//! Secondary-window states of the Rough Planner and the Rough Colour wizard.
 //!
 //! Proves: in each state every enabled control of the window is pressed once and every field
 //! touched (the overlay engine with `OVERLAY_DENY`), without a panic, an unexpected file dialog
 //! or an error toast.
 //!
-//! What kept the elements unreached, by state:
+//! Why some controls need a special route, by state:
 //!
-//! * the planner's excluded list was opened before Rust had pushed the exclusion, and the losses
-//!   fields sit in a disclosure no state opened;
+//! * the excluded list fills only after Rust pushes the exclusion, and the losses fields sit in a
+//!   disclosure that must be opened;
 //! * "Save Selected" needs a ticked result, "Re-Plan" an opened saved plan, the pose pills and
 //!   "Use Color" a stored rough color (`Zoning.colour_available`), "Fit to Weight" the weight
 //!   check the shape worker pushes after the weighed carat is committed;
 //! * the wizard's zone list: `add_zone` ends in `push_steps`, which writes the wizard's own step
-//!   back (0), so adding the zone after `set_step(5)` threw the Fit page away; the camera file,
-//!   LED and frosted-skin controls need their combo or pill choice made.
+//!   back (0), so the zone is added before the step is set; the camera file, LED and frosted-skin
+//!   controls need their combo or pill choice made.
 
 use super::{
     super::{Piece, existing_install},
@@ -231,7 +230,8 @@ fn save_plan(model: &RoughPlanModel<'_>) -> bool {
 /// The library, then the planner, then what `step` needs:
 ///
 /// * 0: the first design excluded from planning through the library (its "Exclude from
-///   Planner"), the planner's Excluded list and Losses disclosure open once Rust listed it;
+///   Planner"), the planner's Plan Settings step with its Excluded list and Losses disclosure open
+///   once Rust listed it;
 /// * 1: a plan with result 0 selected and ticked, and a stored rough color;
 /// * 2: a plan saved and opened again from the saved list (the "Re-Plan" banner);
 /// * 3: a cylinder with a weighed carat, once the shape worker pushed its weight check;
@@ -271,6 +271,8 @@ fn planner_prepare(app: &mut HarnessApp, profile: &Profile, step: u8) {
     match step {
         0 => {
             let _ = wait_until(Duration::from_secs(10), || model.get_excluded_count() > 0);
+            // The excluded designs and the losses are in the Plan Settings step.
+            model.set_open_step(3);
             model.set_excluded_open(true);
             model.set_losses_open(true);
         }
@@ -301,6 +303,8 @@ fn planner_prepare(app: &mut HarnessApp, profile: &Profile, step: u8) {
             let _ = wait_until(Duration::from_secs(10), || {
                 model.get_weight_check_level() != 0
             });
+            // Fit to Weight and the weighed carat are in the Rough step.
+            model.set_open_step(0);
         }
         4 => super::planner_axis::axis_set(&model),
         5 => super::planner_axis::stone_locked(&model),

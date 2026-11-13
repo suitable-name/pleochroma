@@ -12,12 +12,10 @@ use super::{
 use crate::optics::raytracer::Ray;
 use glam::Vec3;
 
-/// Small camera-yaw offsets (degrees), sampled around the primary viewing azimuth, used
-/// to measure Scintillation's TEMPORAL component: how much a given grid cell's light
-/// return *changes* as the stone is gently rotated, distinct from the static spatial
-/// contrast measured at a single fixed pose. Five poses (odd count -- see
-/// `cell_returned_at_yaw_offset`'s doc for why), spanning +/-3 deg, comparable in scale
-/// to a hand gently tilting a stone for inspection, not a full turn.
+/// Small camera-yaw offsets (degrees) around the viewing azimuth, for the TEMPORAL term: how
+/// much a grid cell's light return changes as the stone is gently rotated. Five poses (odd
+/// count, see `cell_returned_at_yaw_offset`), spanning +/-3 deg, about a hand tilt rather than
+/// a full turn.
 pub(super) const SCINT_TEMPORAL_YAW_OFFSETS_DEG: [f32; 5] = [-3.0, -1.5, 0.0, 1.5, 3.0];
 
 /// Weight of the spatial (per-pose, per-grid-cell contrast) term in the combined
@@ -27,17 +25,14 @@ const SCINT_SPATIAL_WEIGHT: f32 = 0.6;
 /// `scintillation_pct`. See `combine_scintillation_pct` for the full weighting rationale.
 const SCINT_TEMPORAL_WEIGHT: f32 = 0.4;
 
-/// Per-evaluation context threaded through the Scintillation temporal sub-poses
-/// (`cell_returned_at_yaw_offset`): everything needed to fire and classify one extra
-/// ray at a rotated camera azimuth, bundled to keep that function's argument count
-/// within clippy's `too_many_arguments` lint -- identical across all
-/// `grid_size * grid_size * SCINT_TEMPORAL_YAW_OFFSETS_DEG.len()` calls per invocation.
+/// Per-pose context for the Scintillation temporal sub-poses (`cell_returned_at_yaw_offset`):
+/// what is needed to fire and classify one ray at a rotated camera azimuth. Bundled to keep
+/// that function under clippy's `too_many_arguments` limit.
 pub(super) struct TemporalPoseContext<'a> {
     pub(super) stone: StoneArena<'a>,
     pub(super) nd: f32,
     /// The camera frame `(forward, right, up)` at each of the
-    /// [`SCINT_TEMPORAL_YAW_OFFSETS_DEG`] yaws, built once per pose instead of once per
-    /// cell and offset (5 distinct frames against 900 `Camera::new` calls per evaluation).
+    /// [`SCINT_TEMPORAL_YAW_OFFSETS_DEG`] yaws, built once per pose rather than per cell.
     bases: [(Vec3, Vec3, Vec3); 5],
     /// Where the fan's rays start, scaled to the stone.
     pub(super) fan: FanGeometry,
@@ -68,20 +63,16 @@ impl<'a> TemporalPoseContext<'a> {
     }
 }
 
-/// Fires a single, non-jittered ray at grid cell `(u, v)` (same screen-space coordinates
-/// as the main grid loop, in `[-1, 1]`) from the camera pose rotated by `yaw_offset_deg`
-/// around `ctx.cam_yaw`, refracts it at the d-line only, and reports whether it is
-/// visibly returned to an observer at that pose (`ray_is_visibly_returned` above).
-/// Independent of the main grid loop's per-cell state: temporal modulation asks whether
-/// the SAME screen-space cell's return status flips as the viewpoint rotates, a
-/// different question from the spatial sub-aperture contrast; no F/C companion trace is
-/// needed since only whether light returns, not its color separation, matters here.
+/// Fires one non-jittered ray at grid cell `(u, v)` and reports whether it is visibly returned.
 ///
-/// Odd offset counts (see [`SCINT_TEMPORAL_YAW_OFFSETS_DEG`]) avoid the temporal term
-/// ever reaching exactly 100%: an even sample count lets a cell that flips exactly half
-/// the time hit the maximum Bernoulli variance (p=0.5, p*(1-p)=0.25) exactly, whereas
-/// 5 (odd) samples cap the achievable variance at 0.24 (k=2 or 3 of 5), strictly below
-/// 0.25.
+/// The ray is fired from the pose `bases[offset_index]` (screen space `[-1, 1]`) and refracts
+/// at the d-line only (`ray_is_visibly_returned`). Each sample is independent of the main grid
+/// loop: the question is whether the same cell's return flips as the view rotates, so no F/C
+/// companion trace is needed.
+///
+/// Odd offset counts (see [`SCINT_TEMPORAL_YAW_OFFSETS_DEG`]) keep the variance below its
+/// continuous maximum 0.25: an even count lets a cell that flips exactly half the time reach
+/// 0.25, while 5 samples reach at most 0.24 (2 or 3 of 5).
 ///
 /// Returns the returned WEIGHT of the cell's ray: `1.0` or `0.0` for an isotropic stone; an
 /// anisotropic one traces both eigenmodes (see [`super::birefringent`]) and returns `0.5` per
@@ -151,17 +142,16 @@ pub(super) fn cell_temporal_variance(ctx: &TemporalPoseContext, u: f32, v: f32) 
     temporal_p.mul_add(-temporal_p, temporal_p)
 }
 
-/// Scintillation SPATIAL term: coefficient of variation (std-dev / mean) of per-cell
-/// light-return fraction across the 18x18 grid, mapped into a 0-100 percentage. CV = 0
-/// means every visited cell returns light at the same rate (no contrast, no sparkle);
-/// CV climbs as bright and dark cells diverge, and routinely lands well above 1.0 for
-/// these sparse-bright-cell distributions -- a straight `(cv * 100.0).clamp(0.0, 100.0)`
-/// was measured to saturate at exactly 100% for 19 of 26 material/cut combinations,
-/// collapsing the metric's ability to discriminate among most stones.
+/// Scintillation SPATIAL term: the contrast of the per-cell light-return fraction, as a 0-100
+/// percentage.
 ///
-/// Instead, squash CV through `cv / (1 + cv)`, a monotone bijection from [0, inf) to
-/// [0, 1) that never reaches 100% however large CV gets. A stone with no visited cells
-/// reports 0.
+/// The contrast is the coefficient of variation (std-dev / mean) across the 18x18 grid. CV = 0
+/// means no contrast, no sparkle. CV often exceeds 1.0 for sparse bright cells, so it is
+/// squashed rather than clamped: a linear `cv * 100` clamp saturates at 100 for most stones (19 of
+/// 26 material/cut combinations measured).
+///
+/// The squash `cv / (1 + cv)` is a monotone map from [0, inf) onto [0, 1). A stone with no
+/// visited cells reports 0.
 #[must_use]
 pub(super) fn spatial_scintillation_pct(
     cell_fraction_sum: f32,
@@ -197,19 +187,13 @@ pub(super) fn temporal_scintillation_pct(temporal_variance_sum: f32, cell_count:
     ((temporal_variance_sum / cell_count as f32) / 0.24 * 100.0).clamp(0.0, 100.0)
 }
 
-/// Combines the Scintillation spatial and temporal terms (both already 0-100
-/// percentages) into the final displayed `scintillation_pct`.
+/// Combines the Scintillation spatial and temporal terms (both already 0-100 percentages)
+/// into the final displayed `scintillation_pct`.
 ///
-/// The reference gemological definition of scintillation is spatial AND temporal
-/// modulation together: a static bright/dark pattern is not "sparkle", and uniform
-/// flicker with no spatial contrast has nothing to flicker between. Weighted 60/40
-/// toward the spatial term, since it is measured from a much larger effective sample (5
-/// sub-aperture rays x 18x18 grid) and validated as non-saturating and broadly
-/// discriminating, while the temporal term is measured more coarsely (5 single-ray
-/// azimuth samples per cell, no sub-aperture averaging) to keep added cost modest. Not
-/// strong enough to make SRB out-scintillate the emerald cut unconditionally (the
-/// spatial term's larger dynamic range still dominates when the two cuts return very
-/// different light), but decisive at roughly comparable brilliance.
+/// Scintillation needs both: a static bright/dark pattern is not sparkle, and uniform flicker
+/// has nothing to flicker between. The 60/40 weights favour the spatial term, which has the
+/// larger sample (5 sub-aperture rays x 18x18 grid); the temporal term takes 5 single-ray
+/// samples per cell to keep the cost down.
 #[must_use]
 pub(super) fn combine_scintillation_pct(spatial_pct: f32, temporal_pct: f32) -> f32 {
     SCINT_TEMPORAL_WEIGHT

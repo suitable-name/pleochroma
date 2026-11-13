@@ -1,32 +1,17 @@
-//! Property tests for the edit vocabulary: every [`Edit`] variant, applied
-//! through [`Design::apply_edit`] and then undone by applying the [`Edit`] it
-//! returns, must reproduce the exact original [`Design`] -- `#[derive(PartialEq)]`
-//! on [`Design`] itself is the oracle, so there is nothing to hand-roll per
-//! field.
+//! Property tests for the edit vocabulary.
 //!
-//! An integration test (`tests/`), not a unit test inside the crate: every
-//! type and function used here is `pleochroma_cut_core`'s own public API, the
-//! same surface `apps/pleochroma-cut` itself is limited to -- see the crate's
-//! own doc comment. `crates/pleochroma-cut-core/src/edit/tests.rs` already
-//! covers `AddTier`/`ModifyTier`/`MoveTier`/`RemoveTier`/`SetConstraint`/
-//! `SetGirdleDiameterMm`/`SetMaterial`/`SetMeta`/`SetPreform`/`SetSchedule`/
-//! `SetCheaterOffset`/`SetTierNote`/`RemapIndices`/`RestoreIndices`/
-//! `RetargetAngles`/`Batch` with hand-picked cases (grepped before writing this
-//! file, per this item's own instruction) -- this file is NOT a duplicate of
-//! that coverage: it drives every variant, including the two this item names
-//! by name (`RemapIndices`/`RetargetAngles`) and the two with no dedicated
-//! round-trip test anywhere in the crate (`SetIndices`/`SetPreformYOffset`/
-//! `SetTierTarget`), through a small deterministic generator over a fixed
-//! multi-tier fixture, at several seeds each, so a regression that only shows
-//! up for a PARTICULAR combination of indices/values has more chances to be
-//! caught than one hand-picked example gives it.
+//! Every [`Edit`] variant, applied through
+//! [`Design::apply_edit`] and then undone by applying the [`Edit`] it returns, must reproduce
+//! the exact original [`Design`]. `#[derive(PartialEq)]` on [`Design`] is the oracle, so no
+//! field is compared by hand.
 //!
-//! No `proptest` dependency: not in this workspace already (checked
-//! `Cargo.toml`/`Cargo.lock` before writing this), and the task's own
-//! instruction allows a seeded LCG instead. [`Lcg`] below is that generator --
-//! deterministic (a fixed seed reproduces the exact same sequence every run,
-//! so a failure is always reproducible without needing a printed seed) and
-//! dependency-free.
+//! The cases come from a small seeded generator over a fixed multi-tier fixture, at several
+//! seeds each, so a combination of indices and values that breaks an undo has more chances to
+//! show up than one hand-picked example gives it. The hand-picked cases are in `src/edit/tests/`.
+//! This is an integration test, so it uses only the crate's public API.
+//!
+//! [`Lcg`] is that generator. It is deterministic (a fixed seed gives the same sequence on every
+//! run, so a failure reproduces without a printed seed) and has no dependencies.
 
 use pleochroma::geometry::meet_solver::MeetConstraint;
 use pleochroma_cut_core::{
@@ -35,12 +20,8 @@ use pleochroma_cut_core::{
     design::{ConcaveTier, ConcaveTool, RelationExpr, TierRelation, ToolMotion},
 };
 
-/// A tiny, dependency-free seeded PRNG (xorshift64*) -- enough to drive this
-/// file's own generators deterministically. Not cryptographic, not a general
-/// utility: local to this file, matching the task's own "a seeded LCG ... is
-/// fine" allowance (xorshift64* has better output distribution than a bare LCG
-/// for the same one-line implementation cost, but plays the identical role
-/// here: a deterministic, seedable stream of numbers).
+/// A dependency-free, seeded xorshift64* generator, local to this file. It is not
+/// cryptographic.
 struct Lcg(u64);
 
 impl Lcg {
@@ -91,15 +72,11 @@ impl Lcg {
     }
 }
 
-/// A small "round brilliant"-shaped fixture: one girdle tier (the block
-/// anchor) plus two pavilion and two crown tiers, each independently
-/// scale-referenced (every tier `Design::from_asc_schedule` imports pins to
-/// `MeetConstraint::ScaleReference` regardless of the file's own `G` field --
-/// see that method's own doc comment) so every block already solves and no
-/// generated edit needs to special-case a `MissingAnchor` design. Five tiers
-/// (not one or two) so `MoveTier`/`RemapIndices`/`RetargetAngles`'s
-/// multi-tier behaviour has real interior positions to exercise, not just
-/// edge cases.
+/// A small round-brilliant-shaped fixture: one girdle tier plus two pavilion and two crown
+/// tiers. `Design::from_asc_schedule` pins every imported tier to
+/// `MeetConstraint::ScaleReference`, so the design always solves and no generated edit needs
+/// to handle a missing anchor. Five tiers give `MoveTier`, `RemapIndices` and
+/// `RetargetAngles` interior positions to work on.
 fn round_brilliant_fixture() -> Design {
     const ASC: &str = "GemCad 5.0\n\
          g 16 0.0\n\
@@ -136,9 +113,8 @@ fn assert_round_trips(mut design: Design, edit: &Edit, label: &str) {
     let inverse = design
         .apply_edit(edit.clone())
         .unwrap_or_else(|e| panic!("{label}: apply failed for {edit:?}: {e}"));
-    // Every case this file drives is generated specifically to change
-    // something -- a passing round trip on a no-op edit would never have
-    // caught a broken apply (e.g. an inverse computed from the wrong field).
+    // Every case is generated to change something: a round trip of a no-op edit
+    // would not catch a broken apply, such as an inverse built from the wrong field.
     assert_ne!(design, before, "{label}: edit was a no-op");
     design
         .apply_edit(inverse.clone())
@@ -192,10 +168,8 @@ fn remove_tier_round_trips() {
     }
 }
 
-/// Also exercises the "removed tier carried a cheater offset/note" branch of
-/// [`Edit::RemoveTier`]'s own inverse (a multi-step `Batch`, per
-/// `Design::apply_edit`'s own doc comment on `apply_remove_tier`) on every
-/// other seed, rather than only the plain single-`AddTier` inverse.
+/// Also covers a removed tier that carries a cheater offset and a note, whose inverse is a
+/// multi-step `Batch` (see `apply_remove_tier`).
 #[test]
 fn remove_tier_with_cheater_offset_and_note_round_trips() {
     for &seed in &SEEDS {
@@ -396,10 +370,7 @@ fn set_constraint_round_trips() {
     }
 }
 
-/// [`Edit::SetIndices`] -- no dedicated round-trip test existed anywhere in
-/// the crate before this file (grepped first, per this item's own
-/// instruction: `edit/tests.rs` exercises `SetConstraint`/`SetCheaterOffset`/
-/// `SetTierNote` but never `SetIndices`).
+/// [`Edit::SetIndices`] round trip.
 #[test]
 fn set_indices_round_trips() {
     for &seed in &SEEDS {
@@ -434,11 +405,8 @@ fn set_preform_round_trips() {
     }
 }
 
-/// [`Edit::SetPreformYOffset`] -- no dedicated round-trip test existed
-/// anywhere in the crate before this file (`native/tests.rs`'s
-/// `preform_y_offset_round_trips_through_save_and_load` covers the NATIVE
-/// FILE round trip, a different thing entirely from this edit's own
-/// apply/undo).
+/// [`Edit::SetPreformYOffset`] round trip. The native file round trip is a separate test,
+/// `preform_y_offset_round_trips_through_save_and_load` in `native/tests/`.
 #[test]
 fn set_preform_y_offset_round_trips() {
     for &seed in &SEEDS {
@@ -532,8 +500,7 @@ fn set_tier_note_round_trips() {
     }
 }
 
-/// [`Edit::SetTierTarget`] -- no dedicated round-trip test existed anywhere in
-/// the crate before this file.
+/// [`Edit::SetTierTarget`] round trip.
 #[test]
 fn set_tier_target_round_trips() {
     for &seed in &SEEDS {
@@ -668,11 +635,9 @@ fn set_schedule_round_trips() {
     }
 }
 
-/// This item's own named target #1: [`Edit::RemapIndices`]'s inverse is
-/// [`Edit::RestoreIndices`] (a verbatim snapshot, not a reverse remap -- see
-/// that variant's own doc comment for why a lossy ratio makes a reverse remap
-/// unsound), so this is the one variant in this file where `edit` and its own
-/// inverse are two DIFFERENT variants, not the same one played backward.
+/// [`Edit::RemapIndices`]. Its inverse is [`Edit::RestoreIndices`], a verbatim snapshot
+/// rather than a reverse remap (a lossy ratio cannot be reversed), so here the edit and its
+/// inverse are different variants.
 #[test]
 fn remap_indices_round_trips() {
     for &seed in &SEEDS {
@@ -697,10 +662,8 @@ fn remap_indices_round_trips() {
     }
 }
 
-/// [`Edit::RestoreIndices`] played directly (not only reached via
-/// `RemapIndices`'s own inverse above) -- its own apply/inverse pair is
-/// symmetric (applying it twice, with the two `tiers` snapshots swapped,
-/// round-trips), unlike `RemapIndices`.
+/// [`Edit::RestoreIndices`] applied directly. Its inverse is again a `RestoreIndices`, with
+/// the two snapshots swapped.
 #[test]
 fn restore_indices_round_trips() {
     for &seed in &SEEDS {

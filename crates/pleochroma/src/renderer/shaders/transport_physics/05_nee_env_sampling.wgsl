@@ -1,23 +1,13 @@
 // ---------------------------------------------------------------------------------
-// Next-event estimation -- optics::raytracer::scattering::balance_heuristic.
+// Next-event estimation: optics::raytracer::scattering::balance_heuristic.
 //
-// The direction-sampling (dist1d/dist2d binary search over the HDR importance
-// distribution) and shadow-ray-dependent NEE contribution functions
-// (`nee_contribution_hg_scatter`/`nee_contribution_frosted_exterior`) are NOT here:
-// they need the `planes`/`dist_func`/`dist_cdf`/`dist_dims`/`hdr_texels` storage/uniform
-// bindings, which (like `hdr_env_radiance_at`/`intersect_ray`/`try_split_exit_channel`/
-// `shading_normal_near_edge` above them) are declared per-file, not in this shared
-// prelude -- a `@group`/`@binding` declared here would collide with
-// `transport_functions.wgsl`'s own binding numbers once `build.rs` concatenates this
-// file ahead of both `spectral_transport.wgsl` AND `transport_functions.wgsl` (which
-// already uses bindings 12-15 for its own Tier 2 case banks). So those five functions
-// live directly in `spectral_transport.wgsl` (megakernel-local), with
-// `transport_functions.wgsl` carrying its own standalone copies for
-// `renderer::gpu::transport_check`'s Tier 2 self-tests -- the same "own standalone copy
-// with its own binding" convention `shading_normal_near_edge`'s doc comment already
-// establishes for `shaders/shading_normal.wgsl`. `balance_heuristic` itself is a pure
-// function of two scalars (no binding needed), so it alone lives here, shared bit-for-bit
-// by every copy of those five.
+// The NEE functions that read scene or environment bindings (direction sampling, shadow-ray
+// contributions, `hdr_env_radiance_at`, `intersect_ray`, `try_split_exit_channel`,
+// `shading_normal_near_edge`) are not here. A binding declared in this prelude would collide
+// with the binding numbers of the units it is concatenated into. Those functions live in the
+// per-unit pieces: `transport_bounce/` for the megakernel family, and standalone copies in
+// `transport_functions/08_nee_and_intersect.wgsl`. `balance_heuristic` takes two scalars and
+// needs no binding, so it alone is shared.
 // ---------------------------------------------------------------------------------
 
 // optics::raytracer::scattering::balance_heuristic
@@ -32,7 +22,8 @@ fn balance_heuristic(pdf_a: f32, pdf_b: f32) -> f32 {
 // ---------------------------------------------------------------------------------
 // Environment map spherical direction and UV conversions, solid-angle
 // Jacobian, and spectral conversion.
-// Mirrors optics::raytracer::environment::EnvironmentMap::{uv_to_direction, direction_to_uv, pdf_uv_to_solid_angle}.
+// Mirrors optics::raytracer::environment::EnvironmentMap::{uv_to_direction, direction_to_uv,
+// pdf_uv_to_solid_angle}.
 // ---------------------------------------------------------------------------------
 
 fn hdr_direction_to_uv(dir: vec3<f32>) -> vec2<f32> {
@@ -57,6 +48,24 @@ fn hdr_uv_to_direction(u_in: f32, v_in: f32) -> vec3<f32> {
     let sin_phi = sin(phi);
     let cos_phi = cos(phi);
     return vec3<f32>(sin_theta * sin_phi, cos_theta, sin_theta * cos_phi);
+}
+
+// renderer::env_map::EnvRotation::to_map: a world direction into the HDR map's frame (a turn by
+// -yaw about +Y). `rot` = (cos, sin) of the map's yaw, computed on the CPU; exactly (1, 0) returns
+// `dir` untouched, so an unrotated map keeps its bits.
+fn hdr_world_to_map(dir: vec3<f32>, rot: vec2<f32>) -> vec3<f32> {
+    if (rot.x == 1.0 && rot.y == 0.0) {
+        return dir;
+    }
+    return vec3<f32>(fma(rot.x, dir.x, -(rot.y * dir.z)), dir.y, fma(rot.x, dir.z, rot.y * dir.x));
+}
+
+// EnvRotation::to_world: a map-frame direction (an importance draw) into the world.
+fn hdr_map_to_world(dir: vec3<f32>, rot: vec2<f32>) -> vec3<f32> {
+    if (rot.x == 1.0 && rot.y == 0.0) {
+        return dir;
+    }
+    return vec3<f32>(fma(rot.x, dir.x, rot.y * dir.z), dir.y, fma(rot.x, dir.z, -(rot.y * dir.x)));
 }
 
 // `min(v, 1.0 - v)`: the reflection `sin(PI - x) == sin(x)` folded in BEFORE the
@@ -284,14 +293,11 @@ fn cie_1931_cmf(l: f32) -> vec3<f32> {
     return lo + (hi - lo) * t;
 }
 
-// optics::raytracer::color::integrate_channels_to_xyz_families -- each channel `k`
-// weighted by the balance heuristic over exactly its own MIS *family* (`compat[k]`, the
-// hero choices under which channel `k` would have stayed alive on this same geometric
-// path), not the hero's own family. Factored out here (rather than left inline at its
-// one-time-only call site) so `nee_contribution_hg_scatter` (a scattering-point
-// NEE deposit integrated to XYZ immediately, using THAT moment's own `path_pdf`/
-// `compat`, not the trace's final one) and `transport_finalize_ray`'s own end-of-trace
-// integration share one definition instead of two independently-maintained copies.
+// optics::raytracer::color::integrate_channels_to_xyz_families. Channel `k` is weighted by the
+// balance heuristic over its own MIS family (`compat[k]`: the hero choices under which channel
+// `k` would have stayed alive on this path), not over the hero's family. Shared by
+// `nee_contribution_hg_scatter`, which integrates a scattering-point deposit at that moment's
+// `path_pdf`/`compat`, and by `transport_finalize_ray` at the end of the trace.
 fn integrate_channels_to_xyz_family(radiance: array<f32, 8>, lambdas: array<f32, 8>, path_pdf: array<f32, 8>, compat: array<u32, 8>) -> vec3<f32> {
     var xyz = vec3<f32>(0.0, 0.0, 0.0);
     for (var k: u32 = 0u; k < NUM_CHANNELS; k = k + 1u) {

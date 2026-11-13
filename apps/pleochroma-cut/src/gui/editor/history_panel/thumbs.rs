@@ -24,7 +24,8 @@ const MAX_EDGE_PX: u32 = 512;
 /// needs no real revision; this is a value no step can have.
 pub(super) const START_REVISION: u64 = u64::MAX;
 
-/// The most pictures the cache keeps. A 72 pixel picture at scale 2 is about 83 KB.
+/// The most finished pictures the cache keeps. At scale 2 one is about 83 KB, so this bounds
+/// the cache near 21 MB.
 pub(super) const CACHE_CAPACITY: usize = 256;
 
 /// Names one picture.
@@ -125,8 +126,9 @@ impl<V: Clone> ThumbCache<V> {
         }
     }
 
-    /// Answers a row's lookup. A key not known yet is marked waiting and reported as
-    /// [`Lookup::Requested`], once: the caller queues it, and later lookups say
+    /// Answers a row's lookup. A key not known yet is marked waiting.
+    ///
+    /// It is reported as [`Lookup::Requested`] once: the caller queues it, and later lookups say
     /// [`Lookup::Waiting`] until the picture is stored.
     pub(super) fn lookup(&mut self, key: &ThumbKey) -> Lookup<V> {
         self.tick += 1;

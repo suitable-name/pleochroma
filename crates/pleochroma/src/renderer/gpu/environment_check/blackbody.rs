@@ -15,22 +15,16 @@ pub struct BlackbodyCase {
 
 /// ULP budget for `blackbody_spectrum`.
 ///
-/// See [`super::CMF_ULP_BUDGET`]'s doc comment for the calibration philosophy; this
-/// function chains two `exp()`s and a `powi_u(_, 5)` (exponentiation by squaring, chosen
-/// deliberately over WGSL's general `pow()` -- see `environment.wgsl`'s own comment on
-/// why), so a slightly larger budget than the pure polynomial `cie_1931_cmf` is
-/// expected.
+/// The function chains two `exp()`s and a `powi_u(_, 5)` (exponentiation by squaring, not WGSL's
+/// `pow()`; see `environment.wgsl`), so it needs a larger budget than the polynomial
+/// `cie_1931_cmf`.
 pub const BLACKBODY_ULP_BUDGET: u32 = 48;
 
 /// Absolute-difference floor for `blackbody_spectrum` comparisons.
 ///
-/// See [`super::CMF_ABS_FLOOR`]'s doc comment for the rationale. `blackbody_spectrum` is
-/// clamped to `[0.01, 20.0]` by construction, so `0.01` is the SMALLEST value this
-/// function can ever legitimately return -- a floor several orders of magnitude below
-/// that clamp still cannot mask a real divergence between two in-range values, but does
-/// correctly ignore the case where a low-probability tail evaluation is close enough to
-/// the clamp boundary that clamp-driven rounding differs by a tiny amount between CPU
-/// and GPU.
+/// The function is clamped to `[0.01, 20.0]`, so `0.01` is its smallest value. The floor sits
+/// far below that, so it absorbs rounding at the clamp boundary without masking a real
+/// divergence between in-range values.
 pub const BLACKBODY_ABS_FLOOR: f32 = 1e-5;
 
 /// Builds the blackbody cases for the check.

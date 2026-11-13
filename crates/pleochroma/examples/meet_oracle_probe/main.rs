@@ -1,34 +1,31 @@
-//! TEMPORARY oracle probe for the vertex-incidence meet model.
+//! Temporary oracle probe for the vertex-incidence meet model.
 //!
-//! For every tier of every corpus design, this pins every *other* tier at its real
-//! recorded mast and asks: is this tier's own recorded mast realized as `n . v` for a
-//! vertex `v` of the arrangement of the other tiers' planes? (The "E3b" measurement
-//! from the Python analysis, reproduced in Rust, in f64, deterministically -- no
-//! convex-hull crate anywhere.) It also gathers the statistics the incremental solver
-//! rebuild needs:
+//! For every tier of every corpus design, the other tiers are pinned at their recorded
+//! masts, and the probe asks whether this tier's recorded mast is realized as `n . v` for a
+//! vertex `v` of the arrangement of the other tiers' planes. Computed in f64, with no
+//! convex-hull crate. It also gathers the statistics the incremental solver rebuild needs:
 //!
 //! - rank of the true vertex among candidate levels ordered by `n . v` descending
-//!   (rank 0 == support-function tangency, the current solver's model);
-//! - how much intersecting candidate values across a tier's symmetric index
-//!   instances prunes the candidate list;
-//! - whether "deepest cut that leaves every other facet alive" identifies the true
+//!   (rank 0 is support-function tangency, the current solver's model);
+//! - how much intersecting candidate values across a tier's symmetric index instances
+//!   prunes the candidate list;
+//! - whether the "deepest cut that leaves every other facet alive" identifies the true
 //!   level (a candidate local selection rule);
-//! - E4: for stated `"Meet <names>"` tiers whose names resolve, does restricting
-//!   candidates to vertices incident to the named tiers pin the true value;
-//! - an incremental-reachability ceiling: starting from the design's scale anchor,
-//!   can every tier's true vertex be pinned by already-reachable tiers plus the
-//!   tier's own sibling instances;
-//! - a global-solve ceiling: with the TRUE incidence structure known, is the whole
-//!   mast vector uniquely determined by the anchors alone (one big linear system).
+//! - for stated `"Meet <names>"` tiers whose names resolve, whether restricting candidates
+//!   to vertices incident to the named tiers pins the true value;
+//! - an incremental-reachability ceiling: starting from the design's scale anchors, whether
+//!   every tier's true vertex is pinned by already-reachable tiers plus the tier's own
+//!   sibling instances;
+//! - a global-solve ceiling: with the true incidence structure known, whether the whole
+//!   mast vector is uniquely determined by the anchors alone (one linear system).
 //!
 //! Run from the workspace root:
 //! ```text
 //! cargo run --profile probe -p pleochroma --example meet_oracle_probe
 //! ```
 
-// Temporary measurement tooling: readability-of-the-measurement wins over the
-// production lint bar here (the lints below are all style/perf-shape, not
-// correctness).
+// Temporary measurement tooling: readability wins over the production lint bar here.
+// The allowed lints are style and performance shape, not correctness.
 #![allow(
     clippy::doc_markdown,
     clippy::suboptimal_flops,
@@ -94,7 +91,7 @@ fn main() {
         .collect();
     println!("scored meet-derived tiers: {}", all_tiers.len());
 
-    // E3b
+    // Relative mast error per tier.
     let err_first: Vec<f64> = all_tiers.iter().map(|t| t.err0).collect();
     let err_worst_all: Vec<f64> = all_tiers.iter().map(|t| t.err_worst).collect();
     print_dist("E3b err (instance 0)", &err_first);
@@ -155,7 +152,7 @@ fn main() {
         pct(safe_off1, with_safe.len())
     );
 
-    // E4
+    // Named-reference restriction.
     let e4_all: Vec<f64> = all_tiers.iter().filter_map(|t| t.e4_err).collect();
     let e4_full: Vec<f64> = all_tiers
         .iter()

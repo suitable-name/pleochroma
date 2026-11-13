@@ -1,5 +1,4 @@
-//! Camera spectral sensitivity and backlight spectrum for the rig colour fit (plan
-//! 2026-10-09 sections 4.3 and 4.4).
+//! Camera spectral sensitivity and backlight spectrum for the rig colour fit.
 //!
 //! The colour fit needs `S_cam(lambda)`, the 3-channel spectral sensitivity of the camera that
 //! took the transmission photos, and `E(lambda)`, the spectrum of the backlight. Everything here

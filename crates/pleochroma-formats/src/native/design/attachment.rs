@@ -28,11 +28,11 @@ pub const MAX_ATTACHMENT_MIME_BYTES: usize = 127;
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AttachmentRole {
-    /// The design's diagram picture (see `[meta]` for nothing else about it).
+    /// The design's diagram picture.
     DiagramImage,
     /// A PDF describing the design (instructions, competition booklet).
     Pdf,
-    /// The original `GemCad` `.gem` file the design was made from.
+    /// The original `GemCAD` `.gem` file the design was made from.
     Gem,
     /// The original `.asc` text the design was imported from, byte for byte.
     Asc,

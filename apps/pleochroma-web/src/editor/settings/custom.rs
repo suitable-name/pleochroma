@@ -1,6 +1,5 @@
-//! The Design settings dialog's compact custom-material editor (the desktop's material
-//! editor dialog, cut down to the fields that decide the optics -- see
-//! `pleochroma_web_core::custom_material` for what is and is not mirrored).
+//! The Design settings dialog's compact custom-material editor: only the fields that decide
+//! the optics (see `pleochroma_web_core::custom_material` for what is mirrored).
 //!
 //! "Save and use" builds the material from the typed fields, registers it in the page's
 //! catalogue (so the material combos offer it), makes it the design's material as one

@@ -303,12 +303,9 @@ fn the_visible_tiers_account_for_the_drawn_plane_count() {
     assert!(one_step > rough && one_step < full);
 }
 
-/// A cutoff at or past the last tier index must reproduce the full arrangement
-/// exactly -- `Design::planes_through_tier`'s own documented "every tier"
-/// equivalence for `through_tier >= tiers.len()`, but exercised here through
-/// `plan_preview`'s own entry point rather than the core function directly.
-/// Uses `design.tiers.len()` itself (not `usize::MAX`) -- `planes_through_tier`
-/// computes `through_tier + 1` internally, which would overflow for `MAX`.
+/// A cutoff at or past the last tier gives the full arrangement, through `plan_preview`.
+/// Uses `design.tiers.len()` rather than `usize::MAX`: `planes_through_tier` computes
+/// `through_tier + 1`, which would overflow.
 #[test]
 fn tier_cutoff_past_the_last_tier_matches_the_full_arrangement() {
     let design = free_design();
@@ -333,10 +330,8 @@ fn tier_cutoff_past_the_last_tier_matches_the_full_arrangement() {
     assert_eq!(full.planes.len(), uncut.planes.len());
 }
 
-/// A design stored crown-first, with a pavilion groove: the slider must follow
-/// cutting order for the planes as well as the tools. Stored-prefix truncation kept
-/// only the crown tier's planes, so the pavilion groove was carved into a stone with
-/// no pavilion.
+/// A design stored crown-first with a pavilion groove: the planes must follow cutting
+/// order like the tools do, or the groove is carved into a stone with no pavilion.
 #[test]
 fn concave_tier_cutoff_follows_cutting_order_for_the_planes() {
     let mut design = Design::concave_fixture();
@@ -411,11 +406,9 @@ fn plan_with(
     )
 }
 
-/// The freeze behind "the view stops following the Cut slider": a design that does not
-/// solve, planned against a `last_solved` of the wrong length (an add or remove), fed
-/// that list to `planes_through_tier`, which panics -- on the plan worker, whose death
-/// stopped every later replan. It must draw nothing (the renderer keeps its last stone)
-/// and report why, for every limit.
+/// A design that does not solve, planned against a misaligned `last_solved` (after an add
+/// or remove), must not panic: `planes_through_tier` would, and a dead plan worker stops
+/// every later replan. Every limit draws nothing and reports why.
 #[test]
 fn an_unsolvable_design_with_misaligned_masts_does_not_panic() {
     let design = unsolvable_design();
@@ -549,8 +542,8 @@ fn display_geometry_pairs_each_step_s_tools_with_its_planes() {
     assert_eq!(finished.planes, tools_after(7).planes);
 }
 
-/// `pleochroma-cut-core`'s "CrackOtto-Step" fixture (PC 05.115, 103 tiers), re-authored
-/// as a full [`Design`] rather than raw planes: every tier is implicit
+/// `pleochroma-cut-core`'s "CrackOtto-Step" fixture (103 tiers) as a full [`Design`],
+/// not raw planes: every tier is implicit
 /// `MeetExisting`, so one `ScaleReference` anchor is bootstrapped per
 /// crown/pavilion/girdle block from that tier's real recorded mast, leaving the
 /// rest genuinely free.
@@ -608,12 +601,10 @@ fn crackotto_step_design() -> Design {
     )
 }
 
-/// `std::time::Instant`-based perf measurement, not a correctness check --
-/// `#[cfg(not(target_arch = "wasm32"))]` (on top of `#[ignore]`) rather than an
-/// injected [`Clock`], since this one measures `Design::resolve_dirty` directly
-/// (bypassing `plan_preview`) and a canned `Clock` would defeat the point of a
-/// real timing. See the crate README for why `wasm32-unknown-unknown` must
-/// never see `Instant::now` even in a test that never runs there.
+/// Timing measurement, not a correctness check. It calls `Design::resolve_dirty` directly
+/// with `std::time::Instant`, since an injected [`Clock`] would defeat the timing. It is
+/// gated off wasm32 as well as `#[ignore]`d, since `Instant::now` panics on
+/// `wasm32-unknown-unknown` (see the crate README).
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 #[ignore = "timing measurement, not a correctness check -- run with \

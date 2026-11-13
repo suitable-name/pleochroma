@@ -1,5 +1,5 @@
-//! The zoning UI's one remaining build switch: rough color and color zoning from rig photos are
-//! always shown; only the host-species picker (the chromophore model) follows the physical color
+//! Build switch of the zoning UI. Rough color and color zoning from rig photos are always
+//! shown; only the host-species picker (the chromophore model) follows the physical color
 //! feature.
 
 /// Whether the wizard shows the host-species picker (the chromophore model): only when the

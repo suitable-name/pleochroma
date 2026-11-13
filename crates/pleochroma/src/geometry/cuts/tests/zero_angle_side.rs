@@ -1,4 +1,6 @@
-//! The table/culet side rule end to end: real corpus zero-angle lines, parsed by
+//! The table/culet side rule, tested end to end.
+//!
+//! Real zero-angle lines, parsed by
 //! `parse_asc` and turned into planes by [`StandardGemCuts::from_asc_schedule`]
 //! (and blocks by the meet solver's `classify_blocks`), land on the side the file
 //! states -- never on the side of the tier before them.
@@ -47,8 +49,7 @@ fn assert_flat_side(tiers: &str, flat_tier: usize, crown: bool, depth: f64) {
     assert_eq!(blocks[flat_tier], expected_block, "{tiers:?}");
 }
 
-/// pc45015 (`a 0.00 -0.28924 0`, tier 4 of 7, here right after a crown tier):
-/// the documented culet encoding, no longer a second table.
+/// pc45015 (`a 0.00 -0.28924 0`) after a crown tier: a negative-distance zero is the culet.
 #[test]
 fn a_zero_angle_negative_distance_culet_after_a_crown_tier_is_pavilion() {
     assert_flat_side("a 41 0.5 0 48\na 0.00 -0.28924 0\n", 1, false, 0.28924);

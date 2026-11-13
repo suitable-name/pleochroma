@@ -1,8 +1,7 @@
-//! End-to-end tests for the producer-stall watchdog, through [`run_stream_with`]: a
-//! producer that never adds a chunk must fail the request with `PRODUCER_STALLED` (and no
-//! `DONE`) once `StreamSpec::stall_timeout` passes -- while the emitter's own `PROGRESS`
-//! heartbeat keeps going in the meantime, exactly the situation that used to park a
-//! batch client on one request forever.
+//! End-to-end tests for the producer-stall watchdog through [`run_stream_with`].
+//!
+//! A producer that never adds a chunk must fail the request with `PRODUCER_STALLED` (and no
+//! `DONE`) once `StreamSpec::stall_timeout` passes, while the `PROGRESS` heartbeat keeps going.
 
 use super::fixtures::{decode_events, render_request_with_preview, tiny_scene};
 use crate::stream_emit::{
@@ -68,8 +67,7 @@ impl TimeoutWrite for QuietWire {
     }
 }
 
-/// A producer that never calls `add_chunk`: it only returns once the emitter raises the
-/// cancel flag -- a wedged tracer that does eventually notice `cancel`.
+/// A producer that never calls `add_chunk` and returns only once the emitter cancels it.
 fn wedged_producer(sink: ProducerSink) {
     while !sink.is_cancelled() {
         std::thread::sleep(Duration::from_millis(10));

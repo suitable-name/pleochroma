@@ -173,8 +173,8 @@ impl TrainingRunner {
         }
     }
 
-    /// Steps 3 and 4: dependencies release each slot after its own probes. Probe wall time
-    /// remains separate from the whole pass, although other slots can now overlap it.
+    /// Steps 3 and 4: each slot is released after its own probes. Probe wall time is measured
+    /// apart from the whole pass, although other slots overlap it.
     fn step_pass(
         &mut self,
         pending: &[PendingStep],
@@ -397,10 +397,10 @@ impl TrainingRunner {
         Ok(())
     }
 
-    /// Collects `rollout_size` steps using the algorithm's deterministic schedule. `keep_going` is asked before
-    /// every environment step; when it returns `false` the partial rollout is discarded (the
-    /// labelled states it already added to the aggregate stay: a label is exact for its state)
-    /// and `None` is returned.
+    /// Collects `rollout_size` steps using the algorithm's deterministic schedule. `keep_going`
+    /// is asked before every environment step; when it returns `false` the partial rollout is
+    /// discarded (the labelled states it already added to the aggregate stay: a label is exact
+    /// for its state) and `None` is returned.
     pub(super) fn collect_rollout(
         &mut self,
         keep_going: &mut dyn FnMut() -> bool,

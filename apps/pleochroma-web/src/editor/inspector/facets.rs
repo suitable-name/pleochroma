@@ -1,7 +1,6 @@
-//! Per-facet and tier-wide index editing from the Tier tab, and the tier's cheater
-//! offset and note (the desktop's `tier_actions::facet_editing` and
-//! `tier_actions::design_forms`): every action is one undoable edit through
-//! `EditorSession`, on the tier the form has loaded.
+//! Per-facet and tier-wide index editing from the Tier tab, and the tier's cheater offset
+//! and note: every action is one undoable edit through `EditorSession`, on the tier the form
+//! has loaded.
 
 use super::finish;
 use crate::{

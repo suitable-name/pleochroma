@@ -12,21 +12,18 @@ fn unit_rand(seed: u32) -> f32 {
     (hash_u32(seed) as f32) / 4_294_967_295.0
 }
 
-/// The rejected `own_pdf / sum_pdf * num_channels` balance-heuristic weight (see
-/// `mis_weighted_radiance`'s doc comment). Reproduced here directly so this
-/// regression test can permanently guard against reintroducing the bias it causes.
+/// The biased `own_pdf / sum_pdf * num_channels` weight that `mis_weighted_radiance` rejects,
+/// reproduced so the regression test guards against its return.
 fn shipped_biased_weight(radiance: f32, own_pdf: f32, sum_pdf: f32, num_channels: usize) -> f32 {
     let weight = (own_pdf / sum_pdf.max(1e-8)) * num_channels as f32;
     radiance * weight
 }
 
-/// Discriminating Monte Carlo regression test for the spectral-MIS bias bug, using
-/// UNEQUAL per-channel pdfs (channel 0 hero R0=0.2, channel 1 companion R1=0.6) with
-/// closed-form ground truth `L_k = 1.0` (a Fresnel interface reflects or transmits
-/// with unit total probability) -- an equal-pdf test cannot discriminate, since
-/// `own_pdf/sum_pdf * N` and the constant weight 1 are then algebraically identical.
-/// Asserts the fixed estimator (weight=1) converges within a few percent while the
-/// old `own_pdf/sum_pdf * N` weight is biased by roughly +17% on both channels.
+/// Monte Carlo regression for the spectral-MIS bias, with unequal per-channel pdfs (hero
+/// R0 = 0.2, companion R1 = 0.6) and ground truth `L_k = 1.0` (a Fresnel interface reflects
+/// or transmits with unit total probability). Equal pdfs cannot discriminate, because both
+/// weights then coincide. The fixed estimator (weight 1) must converge within 3 %, while the
+/// biased weight must be off by more than 10 %.
 #[test]
 fn two_channel_fresnel_monte_carlo_discriminates_correct_from_biased_weighting() {
     const R0: f32 = 0.2; // hero (channel 0) reflectance
@@ -87,8 +84,7 @@ fn two_channel_fresnel_monte_carlo_discriminates_correct_from_biased_weighting()
         );
     }
 
-    // The old formula must be clearly, substantially biased -- proving the test
-    // actually discriminates between the two formulas.
+    // The biased formula must be clearly off, so the test tells the two apart.
     for (k, &avg) in biased_avg.iter().enumerate() {
         let err = (avg - GROUND_TRUTH).abs() / GROUND_TRUTH;
         assert!(
@@ -191,10 +187,8 @@ fn spectral_mis_weight_is_exactly_unity_when_all_channels_agree() {
     }
 }
 
-/// `spectral_mis_weight` must depart from 1.0 once channels disagree, and must
-/// approach `N` (here 8) as the non-hero channels' `path_pdf` collapses toward 0 --
-/// once chromatic termination kills off every companion, the surviving hero's own
-/// sample gets the full weight (the mechanism producing dispersion "fire").
+/// `spectral_mis_weight` must depart from 1.0 once channels disagree, and approach `N` (here
+/// 8) as the companions' `path_pdf` goes to 0, giving the surviving hero the full weight.
 #[test]
 fn spectral_mis_weight_approaches_n_as_companions_are_chromatically_terminated() {
     let hero_idx = 0usize;
@@ -219,16 +213,10 @@ fn spectral_mis_weight_approaches_n_as_companions_are_chromatically_terminated()
     );
 }
 
-/// Discriminating Monte Carlo regression test for the spectral-MIS weight extended
-/// to a genuine dispersive-refraction "chromatic termination" event. Unlike the
-/// sibling test above (fixed hero at channel 0), this alternates which of the two
-/// channels drives (p=1/2 each trial) -- the combined weight is provably biased
-/// under a single fixed hero and only becomes unbiased once the ensemble genuinely
-/// alternates, matching how a real render accumulates independent samples with
-/// their own wrapped hero draw. The companion's transmission is modelled as
-/// genuinely dispersive: the non-driving channel's `path_pdf` AND radiance both
-/// zero at that event (chromatic termination). Ground truth is still exactly 1.0
-/// (Fresnel unitarity) by Veach's theorem applied per-channel.
+/// Monte Carlo regression for chromatic termination under dispersive refraction. The hero
+/// alternates between the two channels with probability 1/2 per trial, because the combined
+/// weight is biased under a fixed hero. On transmission the companion's `path_pdf` and
+/// radiance both drop to 0. Ground truth is 1.0 (Fresnel unitarity).
 #[test]
 fn two_channel_dispersive_termination_monte_carlo_is_unbiased_under_alternating_hero() {
     const R_A: f32 = 0.2;
@@ -246,9 +234,8 @@ fn two_channel_dispersive_termination_monte_carlo_is_unbiased_under_alternating_
             // Reflect: never dispersive -- both channels' directions coincide.
             (1.0f32, r_other / r_hero, r_hero, r_other)
         } else {
-            // Transmit: genuinely dispersive -- the companion's refracted
-            // direction never coincides with the driving channel, so its path_pdf
-            // and Stokes/radiance both collapse to 0 (chromatic termination).
+            // Transmit: dispersive. The companion's refracted direction never coincides
+            // with the driving channel, so its path_pdf and radiance collapse to 0.
             (1.0f32, 0.0f32, 1.0 - r_hero, 0.0f32)
         };
 

@@ -1,5 +1,5 @@
-//! Renders a design's solved masts into a 2D crown/pavilion/profile faceting diagram
-//! and PNG-encodes it, with no Slint/file/dialog dependency of any kind.
+//! Renders a design's solved masts as 2D faceting diagrams (raster PNG and line drawings).
+//! Pure: no file, dialog or UI dependency.
 
 use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
 use pleochroma::geometry::{
@@ -21,26 +21,18 @@ pub struct DiagramImage {
     pub width: u32,
     /// Pixel height, matching what was requested of [`render_cut_diagram`].
     pub height: u32,
-    /// The frame, already PNG-encoded (RGBA8, no ICC profile -- an untagged PNG
-    /// is read as sRGB by every viewer/printer, matching this diagram's fixed,
-    /// non-photographic color palette).
+    /// The frame, PNG-encoded as RGBA8 without an ICC profile: viewers read it as sRGB,
+    /// which matches the fixed diagram palette.
     pub png_bytes: Vec<u8>,
 }
 
 /// Builds `design`'s three-panel (crown/pavilion/profile) 2D faceting diagram at
 /// `width` x `height` and PNG-encodes it.
 ///
-/// It is drawn from the already-[`Design::solve`]'d (or
-/// [`Design::resolve_dirty`]'d) `solved` masts.
+/// It is drawn from the `solved` masts of the design's current solve.
 ///
-/// `None` when the design's current planes don't close to a real solid
-/// ([`build_solid_mesh`] reports [`SolidStatus::Unbounded`]/[`SolidStatus::Degenerate`]
-/// rather than [`SolidStatus::Closed`]) -- there is no meaningful diagram to draw
-/// for a design that isn't currently a closed stone, the same condition the Edit
-/// tab's own Solid/Diagram viewport already handles by showing its last-good
-/// frame instead. A caller (a printed sheet, or a standalone diagram export)
-/// shows this design-not-closed message itself rather than a blank or stale
-/// image.
+/// `None` when the planes do not close to a solid ([`SolidStatus::Closed`] is required).
+/// The caller reports that case itself rather than showing a blank image.
 ///
 /// # Panics
 ///
@@ -114,8 +106,8 @@ pub fn render_cut_views(
     };
     let config = diagram_config(design, width, height);
     let mut style = diagram_style(design, solved);
-    // The facet labels grow with the frame like the tooth numbers do: at the sheet's
-    // 1600 x 1257 the original 5x7 labels would be specks.
+    // Scale the facet labels with the frame height, as the tooth numbers are; the fixed
+    // 5x7 labels would be too small at sheet size.
     style.label_scale = diagram2d::text_scale(height);
     let single = |panel| {
         frame_image(&diagram2d::render_diagram_single_panel(
@@ -177,9 +169,7 @@ const fn diagram_config(design: &Design, width: u32, height: u32) -> DiagramConf
         width,
         height,
         gear_teeth: design.meta.gear_teeth_abs(),
-        // `f32`: `DiagramConfig`'s own field, matching every other in-app
-        // consumer of `ScheduleMeta::gear_reference_angle` (an `f64`) narrowed
-        // to feed this Slint-free rendering path.
+        // Narrowed to the `f32` that `DiagramConfig` stores.
         gear_reference_angle: design.meta.gear_reference_angle as f32,
         symmetry_order: design.meta.symmetry_order,
         mirror: design.meta.mirror,
@@ -206,12 +196,7 @@ fn frame_image(frame: &DiagramFrame) -> Option<DiagramImage> {
     })
 }
 
-/// PNG-encodes a raw RGBA8 `width * height * 4`-byte buffer -- the same
-/// `PngEncoder`/`ExtendedColorType::Rgba8` call
-/// `bridge::export_thread::tonemap_png::save_png` uses for its own untagged
-/// (sRGB) branch, just encoding to an in-memory buffer instead of a file (this
-/// diagram's bytes end up embedded in HTML or written out by
-/// the desktop's diagram export, never saved directly by this function).
+/// PNG-encodes a raw RGBA8 buffer of `width * height * 4` bytes into memory, untagged (sRGB).
 ///
 /// # Errors
 ///

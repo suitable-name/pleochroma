@@ -1,59 +1,33 @@
-//! Renders the two cached catalogue-preview images (front + top) for one design's own
-//! geometry, and picks which built-in [`GemMaterial`] preset to render it in.
+//! Renders the two cached catalogue-preview images (front and top) of one design, and picks
+//! which built-in [`GemMaterial`] preset to render it in.
 //!
-//! This is the Rust-side half of `pleochroma_vault::model::preview` -- that crate owns
-//! *storage* (`PreviewImages`, `Database::save_preview_images`/`get_preview_images`/
-//! `ensure_preview_material`) and is deliberately `pleochroma`-free (see
-//! `pleochroma_vault::model::material_match`'s module doc comment), so the actual
-//! rendering and the `GemMaterial::all_materials()` -> `RiPresetCandidate` adaptation
-//! both have to live on this side of the boundary. `gui::batch::preview` is the one
-//! caller: it resolves a design's planes/material and calls [`render_view`] (locally)
-//! or [`render_view_remote_checked`] once per [`PreviewView`] -- up to twice per design, from
-//! whichever of its local/remote lanes claims each view -- and persists whatever comes
-//! back via `Database::save_preview_images` once both views are accounted for.
+//! Storage lives in `pleochroma_vault::model::preview`, which stays `pleochroma`-free, so the
+//! rendering and the `GemMaterial::all_materials()` -> `RiPresetCandidate` adaptation live
+//! here. `gui::batch::preview` is the one caller: it renders each [`PreviewView`] with
+//! [`render_view`] or [`render_view_remote_checked`], then saves both views with
+//! `Database::save_preview_images`.
 //!
 //! # Camera convention: front = pitch 0, top = pitch 90 degrees
 //!
-//! `pleochroma::optics::raytracer::Camera::new`'s own origin formula --
-//! `(d*cos(p)*sin(y), d*sin(p), d*cos(p)*cos(y))` -- puts the camera directly overhead
-//! (`origin = (0, d, 0)`) at `pitch = 90 deg` regardless of `yaw` (azimuth is provably
-//! irrelevant at that pole), and squarely on the horizontal plane at `pitch = 0`. That is
-//! the SAME pole `pleochroma::color::metrics::evaluate_full_axis_profile_at_azimuth` calls
-//! "the shared table-up (pitch 90) pole" in its own doc comment -- [`PreviewView::pitch`]
-//! reuses exactly that convention rather than inventing a second one, so "top" here means
-//! the same thing it means everywhere else in this codebase: table-up, face-up.
+//! `Camera::new`'s origin is `(d*cos(p)*sin(y), d*sin(p), d*cos(p)*cos(y))`, so at
+//! `pitch = 90 deg` the camera sits directly overhead (`origin = (0, d, 0)`) for any `yaw`,
+//! and at `pitch = 0` it lies on the horizontal plane. [`PreviewView::pitch`] uses the same
+//! table-up pole as `pleochroma::color::metrics::evaluate_full_axis_profile_at_azimuth`, so
+//! "top" means table-up, face-up everywhere.
 //!
-//! # Sizing: measured cost and the chosen default
+//! # Sizing: the chosen default
 //!
-//! Single-threaded release-build cost for one square preview render of a round
-//! brilliant at 12 bounces:
-//!
-//! | dim | spp | per image (1 thread) |
-//! |---|---|---|
-//! | 96  | 64  | 1.67 s |
-//! | 128 | 64  | 2.97 s |
-//! | 128 | 256 | 11.54 s |
-//! | 160 | 128 | 8.88 s |
-//! | 160 | 256 | 17.78 s |
-//!
-//! Divide by core count for the real wall-clock figure. `settings::model::{
-//! DEFAULT_PREVIEW_SIZE, DEFAULT_PREVIEW_SPP}` default to 160x160 at 256 spp -- about
-//! 1.1s/image on 16 cores, small enough for a diagram-list card while staying clean
-//! rather than noisy at that size. Both numbers are exposed as settings
-//! (`AppSettings::preview_size`/`preview_spp`), not hardcoded, since this is a
-//! taste/patience trade-off, not a fixed requirement.
+//! `settings::model::{DEFAULT_PREVIEW_SIZE, DEFAULT_PREVIEW_SPP}` are 160x160 at 256 spp:
+//! about 1.1 s per image on 16 cores, small enough for a diagram-list card and clean at that
+//! size. Both are settings (`AppSettings::preview_size`/`preview_spp`), since they trade
+//! quality for time.
 //!
 //! # Render path: GPU with a CPU scanline fallback, one full-resolution dispatch
 //!
-//! Each view is one call: try [`GpuBackend::try_accumulate`] for the whole `spp` budget
-//! in a single dispatch, falling back to [`export_thread::batch::render_batch`] (the
-//! exact CPU scanline tracer the export path uses) if the GPU declines. Unlike an
-//! export, a preview never chunks a view's samples into multiple batches --
-//! `gui::batch::preview`'s progress reports "which view"/"which lane", not "how
-//! converged", so there is nothing to report more finely than "done", and a ~1-2s
-//! render has no cancellation-latency argument for chunking either.
-//! `gui::batch::preview` gives cancellation and per-view panic isolation their own,
-//! coarser granularity (between items) instead.
+//! Each view is one call: [`GpuBackend::try_accumulate`] runs the whole `spp` budget in a
+//! single dispatch, and `export_thread::batch::render_batch` (the CPU scanline tracer the
+//! export path uses) takes over if the GPU declines. A preview is never split into batches;
+//! cancellation and per-view panic isolation happen between items in `gui::batch::preview`.
 
 use crate::{
     bridge::{
@@ -113,9 +87,8 @@ pub use solid::render_view_solid_with_tools;
 /// this wavelength to match the convention a design's own stored (scraped)
 /// `refractive_index` already uses.
 ///
-/// `pub` (effectively crate-visible only -- clippy's `redundant_pub_crate` prefers
-/// plain `pub` over `pub(crate)` here): `gui::material_quality`'s `on_material_changed`
-/// handler also needs this exact constant, not a bare `589.3` magic number.
+/// `pub` for `gui::material_quality`'s `on_material_changed` handler, which uses this exact
+/// constant rather than a bare `589.3`.
 pub const SODIUM_D_NM: f32 = 589.3;
 
 /// Evaluates `material`'s refractive index at the sodium D line ([`SODIUM_D_NM`]) --
@@ -136,23 +109,21 @@ pub fn material_ri_at_sodium_d(material: &GemMaterial) -> f64 {
 /// surround: see [`PREVIEW_LIGHTING_PRESET`] (white tray, 8 degree head shadow).
 const PREVIEW_YAW: f32 = DEFAULT_POSE.yaw;
 const PREVIEW_DISTANCE: f32 = DEFAULT_POSE.distance;
-/// `pub` (effectively crate-visible only -- see [`SODIUM_D_NM`]'s note): `gui::batch::tilt`'s
-/// batch tilt-curve computation reuses this same light position for every design,
-/// rather than whatever angle happens to be dialled into the live viewport. Deliberate,
-/// not a shortcut: `crate::model::performance`'s search filters compare a threshold
-/// against a design's stored curves, and a filter like "windowing stays under 20%
-/// within +/-45 degrees" only means the same thing across the catalogue if every
-/// design's curves were swept under the identical light -- letting the batch inherit a
-/// per-session light pose would make stored curves silently depend on who last ran it.
+/// Light yaw of every preview and tilt sweep, `pub` for `gui::batch::tilt`.
+///
+/// It is fixed, not the live viewport's light: a filter over stored curves, such as "windowing
+/// stays under 20% within +/-45 degrees", only means the same thing if every design was swept under
+/// the same light.
 pub const PREVIEW_LIGHT_YAW: f32 = 0.85;
 /// Fixed light pitch used for previews.
 pub const PREVIEW_LIGHT_PITCH: f32 = 0.95;
-/// The lighting preset every stored tilt-curve set is scored under, locally and (in the
-/// `SceneState` a remote worker receives) remotely, so both lanes describe the same
-/// lighting. The ISO hemisphere (uniform lit dome, the grading standard the optimizer's
-/// `CANONICAL_LIGHTING_PRESET` also uses), at the preview light pose. It was the ring
-/// lights before 2026-10-07. Its label is part of the tilt-curve cache fingerprint, so
-/// curves scored under another preset count as stale and are recomputed.
+/// The lighting preset every stored tilt-curve set is scored under.
+///
+/// Used locally and remotely (in the `SceneState` a remote worker receives), so both lanes
+/// describe the same lighting. The ISO hemisphere, a uniform lit dome, the grading standard
+/// the optimizer's `CANONICAL_LIGHTING_PRESET` also uses, at the preview light pose. Its
+/// label is part of the tilt-curve cache fingerprint, so curves scored under another preset
+/// are stale.
 pub const BATCH_TILT_LIGHTING_PRESET: LightingPreset = LightingPreset::IsoHemisphere;
 /// Exposure of every catalogue preview. Part of the preview fingerprint
 /// (`fingerprint::cache_fingerprint`), so changing it renders the previews again.
@@ -164,7 +135,7 @@ const PREVIEW_EXPOSURE: f32 = 1.0;
 /// floor is dark (0.05) and whose pinpoint spark would put hot spots into a catalogue
 /// comparison.
 ///
-/// This is a CATALOGUE decision only. The live viewport's default rig stays `LightTent`
+/// This is a catalogue decision only. The live viewport's default rig is `LightTent`
 /// (`DEFAULT_LIGHTING_RIG`, "Light tent + black cards"): a photo tent is the right model
 /// for looking at one stone, a white surround the right one for comparing many stones'
 /// colors side by side. The Compare window's Traced mode renders under this same rig, so
@@ -184,7 +155,7 @@ static THUMBNAIL_BACKDROP: std::sync::atomic::AtomicI32 =
     std::sync::atomic::AtomicI32::new(Backdrop::Grey.index());
 
 /// Sets the tray catalogue previews render on (a [`Backdrop`] index). Changing it changes the
-/// preview fingerprint, so every stored preview reads as outdated once.
+/// preview fingerprint, so stored previews become outdated.
 pub fn set_thumbnail_backdrop_index(index: i32) {
     THUMBNAIL_BACKDROP.store(
         Backdrop::from_index(index).index(),
@@ -198,9 +169,8 @@ fn thumbnail_backdrop() -> Backdrop {
 }
 
 /// The name of the thumbnail tray in the preview fingerprint (with `TRAY_MODEL_VERSION`),
-/// instead of a radiance: a future change of the light pose or of the preview rig then does
-/// not silently rename it, and a change of the tray model makes every stored preview stale
-/// exactly once.
+/// instead of a radiance, so a change of the light pose or the preview rig leaves the
+/// fingerprint alone. A change of the tray model makes stored previews stale.
 fn thumbnail_backdrop_name() -> &'static str {
     match thumbnail_backdrop() {
         Backdrop::AsLit => "as-lit",
@@ -230,8 +200,8 @@ fn preview_backdrop() -> f32 {
     });
     TRAYS[usize::try_from(thumbnail_backdrop().index()).unwrap_or(1)]
 }
-/// The surface glare every preview renders with (the live view's neutral value). Part of the
-/// preview fingerprint with [`PREVIEW_BACKDROP_NAME`]: both decide pixels.
+/// Surface glare of every preview (the live view's neutral value). Part of the preview
+/// fingerprint, with the tray name: both decide pixels.
 const PREVIEW_SURFACE_GLARE: f32 = 1.0;
 
 /// Which of the two cached preview images a [`render_view`] call produces -- see this
@@ -296,28 +266,25 @@ pub struct PreviewJob<'a> {
     /// the stone is rendered WITH them, as the Compare window and the exports render it
     /// (`gui::editor::CataloguePlanes::render_tools`). The GPU traces them with the planes
     /// (`GpuBackend::try_accumulate_geom`, up to `GPU_MAX_TOOL_PRIMITIVES`); beyond that the
-    /// CPU tracer does. A planar job is unchanged.
+    /// CPU tracer does.
     pub tools: &'a [ToolPrimitive],
     /// The planes the design frosts: ascending indices into `planes`
     /// (`gui::editor::resolve_catalogue_planes_with_frosting`), traced `Frosted` locally and
     /// on a remote worker, as the live viewport and the exports trace them. Empty for a
-    /// polished design, which renders exactly as it always did.
+    /// polished design.
     pub frosted: &'a [u32],
     /// The design's render physics (inclusions, play-of-color, facet surface finish, abraded
-    /// edge) with the user's faceting machine; the default record for a design that sets none,
-    /// which renders exactly as it always did. Ignored by the Ray-Traced engine.
+    /// edge) with the user's faceting machine; the default record for a design that sets none.
+    /// Ignored by the Ray-Traced engine.
     pub effects: &'a SceneEffects,
     /// Gem material the stone is rendered with.
     pub material: &'a GemMaterial,
-    /// Square render dimension in pixels -- `AppSettings::preview_size` (or a caller-
-    /// chosen override), see this module's doc comment for the measured cost table.
+    /// Square render dimension in pixels: `AppSettings::preview_size` or a caller override.
     pub size: u32,
     /// Samples per pixel -- `AppSettings::preview_spp`.
     pub spp: u32,
-    /// `AppSettings::default().max_bounces`-equivalent bounce cap for this render. Not
-    /// itself a settings-file field (a preview's bounce cap is fixed, not user-tunable
-    /// the way size/spp are -- see `gui::batch::preview::engine::PREVIEW_MAX_BOUNCES`'s own
-    /// doc comment for why 12 was chosen and left off the settings surface).
+    /// Bounce cap of the render. Fixed rather than a setting: see
+    /// `gui::batch::preview::engine::PREVIEW_MAX_BOUNCES`.
     pub max_bounces: u32,
 }
 
@@ -354,26 +321,22 @@ pub fn render_view(job: &PreviewJob<'_>, view: PreviewView, gpu: &GpuBackend) ->
         // A concave design's grooves and dimples; empty for a planar one.
         tools: job.tools.to_vec(),
         fluorescence: Arc::default(),
-        // No frosted-girdle finish for a catalogue thumbnail (the girdle flag is a live
-        // viewport setting that doesn't exist for a design that has never been opened
-        // this session), but the planes the design itself frosts are traced frosted. The
-        // composition returns an empty list when nothing is frosted -- the export's "empty
-        // means every facet Polished" convention
-        // (`trace_spectral_ray_with_finish`'s doc comment) -- so a polished design keeps
-        // its bytes.
+        // No frosted girdle for a catalogue thumbnail; the planes the design frosts are
+        // traced frosted. Empty when nothing is frosted, which means every facet is Polished.
         facet_finishes: pleochroma::geometry::facet_finishes_with_frosted(
             job.planes,
             false,
             job.frosted,
         ),
-        // Catalogue thumbnails always use the analytic studio rig, same reasoning as
-        // `facet_finishes` above: there is no per-design HDR map setting to read, and a
-        // batch-generated thumbnail for all ~3,187 designs must not depend on whatever
-        // HDR map happened to be loaded in the live viewport during the session that
-        // triggered the batch.
+        // Thumbnails use the analytic studio rig, never an HDR map: a batch must not depend
+        // on whatever map the live viewport had loaded.
         env_map: None,
+        hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
         surface_glare: PREVIEW_SURFACE_GLARE,
         head_shadow_deg: PREVIEW_HEAD_SHADOW_DEG,
+        stone_shadow: false,
+        tray_reflection: 0.0,
+        stone_closed: true,
         effects: job.effects.clone(),
     };
     let camera = Camera::new(scene.yaw, scene.pitch, scene.distance, DEFAULT_FOV_DEG)
@@ -392,6 +355,7 @@ pub fn render_view(job: &PreviewJob<'_>, view: PreviewView, gpu: &GpuBackend) ->
         material: &traced,
         max_bounces: scene.max_bounces,
         environment,
+        estimator: None,
     };
 
     let pixel_count = (job.size as usize) * (job.size as usize);
@@ -403,8 +367,8 @@ pub fn render_view(job: &PreviewJob<'_>, view: PreviewView, gpu: &GpuBackend) ->
     let facet_surfaces = scene.facet_surfaces();
     let surface = scene.surface_scene(&facet_surfaces);
     if !gpu.try_accumulate_geom_surface(&gpu_scene, job.tools, &surface, 0, job.spp, &mut accum) {
-        // The batch runs `cores - 1` lanes: each fallback render takes its fair share of
-        // the core pool and spawns exactly that many threads (see `cpu_permits`).
+        // Each fallback render takes its fair share of the core pool and spawns exactly that
+        // many threads (see `cpu_permits`).
         let permits = cpu_permits::acquire_share();
         export_thread::batch::render_batch_with_threads(
             (job.size, job.size),
@@ -424,9 +388,8 @@ pub fn render_view(job: &PreviewJob<'_>, view: PreviewView, gpu: &GpuBackend) ->
 }
 
 /// Renders `planes` minus the concave `tools` in `material` on the CPU at an arbitrary
-/// orbit pose and
-/// rectangular size, and returns the tone-mapped RGBA8 buffer (row-major, four bytes
-/// per pixel) instead of PNG bytes.
+/// orbit pose and rectangular size, and returns the tone-mapped RGBA8 buffer (row-major,
+/// four bytes per pixel) instead of PNG bytes.
 ///
 /// The visual compare window's "Traced" mode (`gui::editor::compare::render`) is the
 /// caller: it needs the SAME lighting rig, backdrop, exposure, field of view and
@@ -486,8 +449,12 @@ pub fn render_rgba_at_pose(
         // the planes the design frosts; empty when it frosts none.
         facet_finishes: pleochroma::geometry::facet_finishes_with_frosted(planes, false, frosted),
         env_map: None,
+        hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
         surface_glare: PREVIEW_SURFACE_GLARE,
         head_shadow_deg: PREVIEW_HEAD_SHADOW_DEG,
+        stone_shadow: false,
+        tray_reflection: 0.0,
+        stone_closed: true,
         effects: SceneEffects::default(),
     };
     let camera = Camera::new(yaw, pitch, distance, DEFAULT_FOV_DEG).with_roll(roll);
@@ -496,11 +463,9 @@ pub fn render_rgba_at_pose(
     tonemap_to_rgba(&accum, 1.0 / spp as f32)
 }
 
-/// A single fixed request id for every preview remote dispatch -- safe for the same
-/// reason `export_thread::remote::REQUEST_ID` gives: [`remote_render::spawn_remote_render`]
-/// opens its OWN fresh one-shot connection per call, so nothing is ever pipelined
-/// behind an unrelated request on the same socket the way the live viewport's
-/// persistent-connection `next_request_id` counter has to guard against.
+/// The request id of every preview remote dispatch. Each dispatch opens its own one-shot
+/// connection ([`remote_render::spawn_remote_render`]), so no request is pipelined behind
+/// another on the same socket.
 const PREVIEW_REQUEST_ID: u32 = 1;
 
 /// The environment every catalogue thumbnail is rendered under: always the analytic
@@ -516,10 +481,9 @@ const PREVIEW_ENV_MAP: Option<&Arc<EnvironmentMap>> = None;
 /// cancellation, a missed progress/wall deadline, or fewer samples than asked for -- so
 /// `gui::batch::preview`'s remote lane can decide what's next: under
 /// `LiveComputeTarget::Both` it requeues the item for a guaranteed local retry via
-/// [`render_view`]; under `RemoteOnly` the failure is final and surfaced. Never
-/// partially reports: unlike an export (which keeps a worker's partial contribution and
-/// traces only the shortfall locally), a preview is cheap enough that a partial remote
-/// result is discarded and the whole image is retraced locally.
+/// [`render_view`]; under `RemoteOnly` the failure is final and surfaced. A partial remote
+/// result is discarded and the whole image retraced locally: a preview is cheap to redo,
+/// unlike an export, which keeps the worker's partial samples.
 ///
 /// Every shortfall comes back as a [`RemoteShortfall`] naming the reason. Deadlines: the wait
 /// gives up (after sending a `CANCEL` and allowing [`PREVIEW_CANCEL_ACK_WAIT`] for its
@@ -531,7 +495,7 @@ const PREVIEW_ENV_MAP: Option<&Arc<EnvironmentMap>> = None;
 /// coordinator heartbeats every couple of seconds whether or not its tracer advances: a
 /// wedged remote would otherwise park the batch's remote lane on one item forever, and a
 /// Cancel could never complete either. Every shortfall is logged at `warn!` with the
-/// view, so a failing remote is visible in `pleochroma-cut.log` instead of silent.
+/// view, so a failing remote shows in `pleochroma-cut.log`.
 ///
 /// # Errors
 ///
@@ -570,6 +534,11 @@ fn remote_scene(job: &PreviewJob<'_>, view: PreviewView) -> SceneState {
         height: job.size,
         yaw: PREVIEW_YAW,
         camera_roll: 0.0,
+        stone_shadow: false,
+        tray_reflection: 0.0,
+        // Thumbnails are lit by the studio rig, so there is no map to turn.
+        hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
+        estimator: pleochroma::optics::raytracer::default_estimator(),
         pitch: view.pitch(),
         distance: solid::preview_distance(job.planes),
         light_yaw: PREVIEW_LIGHT_YAW,
@@ -591,7 +560,7 @@ fn remote_scene(job: &PreviewJob<'_>, view: PreviewView) -> SceneState {
     }
 }
 
-/// One picture of a protocol v24 `BatchRenderRequest`: `job`'s `view` over the whole
+/// One picture of a `BatchRenderRequest`: `job`'s `view` over the whole
 /// `job.spp` budget, answered by the worker with a finished PNG. `item_id` is the item's
 /// index within its batch.
 ///
@@ -774,12 +743,9 @@ fn await_cancel_ack(rx: &mpsc::Receiver<RemoteUpdate>) {
     }
 }
 
-/// PNG-encodes `rgba` (`width * height * 4` bytes) into an in-memory buffer -- the
-/// preview path's counterpart of `export_thread::tonemap_png::save_png`'s `Srgb` branch,
-/// duplicated in miniature (no ICC profile, no file I/O) because a cached preview is
-/// always sRGB (there is no color-space picker for a background thumbnail the way
-/// `export_dialog.slint` offers one for a deliberate export) and is stored as bytes in
-/// SQLite, never written to a path on disk.
+/// PNG-encodes `rgba` (`width * height * 4` bytes) into memory. The preview path's
+/// counterpart of the `Srgb` branch of `export_thread::tonemap_png`, without an ICC profile or
+/// file I/O: a cached preview is always sRGB and is stored as bytes, never written to a path.
 fn encode_png(width: u32, height: u32, rgba: &[u8]) -> Option<Vec<u8>> {
     let image = image::RgbaImage::from_raw(width, height, rgba.to_vec())?;
     let mut bytes = Vec::new();

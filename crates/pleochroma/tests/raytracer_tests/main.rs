@@ -1,6 +1,6 @@
-//! Integration tests for `pleochroma`'s spectral raytracer, color pipeline, and
-//! optical-metrics machinery. Split by topic across the sibling modules below;
-//! `fixtures` holds helpers shared across more than one topic module.
+//! Integration tests for `pleochroma`'s spectral raytracer, color pipeline and optical metrics.
+//!
+//! Each topic is a sibling module below; `fixtures` holds helpers shared between them.
 
 mod absorption_bands;
 mod backdrop_tray;

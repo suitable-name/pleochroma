@@ -1,8 +1,8 @@
-//! Environment-reward, action, line-search, teacher and rollout-buffer tests (split out of
-//! `ai_pipeline_tests.rs`).
+//! Environment-reward, action, line-search, teacher and rollout-buffer tests.
 //!
 //! When `compute_step_reward`, `TrajectoryStep` or `compute_gae_per_worker` change shape, adapt
-//! the tests here (the `reward_scale` argument of `compute_gae_per_worker` is `1.0` = raw rewards).
+//! the tests here. The `reward_scale` argument of `compute_gae_per_worker` is `1.0` for raw
+//! rewards.
 
 use pleochroma_ai::{
     env::{

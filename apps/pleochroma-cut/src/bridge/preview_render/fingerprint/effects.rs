@@ -2,8 +2,7 @@
 //! the facets and the abraded edge.
 //!
 //! Each key is `0` for a design that sets nothing, and then adds nothing to the fingerprint
-//! text, so every picture cached before the effects existed keeps its fingerprint. A key is
-//! never `0` for anything set.
+//! text. A key is never `0` for anything set.
 
 use pleochroma::optics::{
     inclusions::{bragg::StructureSpec, spec::InclusionSpec},
@@ -104,9 +103,11 @@ pub fn inclusions_hash(
     fnv1a(format!("{inclusions:?}|{structure:?}").as_bytes()).max(1)
 }
 
-/// A hash of a design's packed facet surface words (`FacetSurface::packed`, in plane order) and
-/// the faceting machine the scratch directions come from. `0` when every word is ideal, so a
-/// design with no surface override keeps its fingerprint whatever the user's machine says.
+/// A hash of a design's packed facet surface words (`FacetSurface::packed`, in plane order) and the
+/// faceting machine the scratch directions come from.
+///
+/// `0` when every word is ideal, so a design with no surface override does not depend on the user's
+/// machine.
 #[must_use]
 #[cfg_attr(
     not(test),

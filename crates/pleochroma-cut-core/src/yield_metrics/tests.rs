@@ -13,17 +13,12 @@ use pleochroma::geometry::meet_solver::MeetConstraint;
 ///
 /// A block preform `2x2x2` model units (`half_width=1.0`, `length_over_width=1.0`,
 /// `depth=2.0`, so `x`/`z` in `[-1,1]` and `y` in `[-1,1]`), with a single flat
-/// table tier at mast 0.5 (crown side, angle 0, no indices). Per
-/// `pleochroma::geometry::cuts::StandardGemCuts::from_asc_schedule`'s own documented
-/// convention, an angle-0, index-less, crown tier produces the plane `+Y <= mast`
-/// -- i.e. `y <= 0.5` -- which is STRICTLY TIGHTER than the preform's own `y <=
-/// 1.0`, so the table facet is the one that actually caps the top (cutting off
-/// the slice `y in (0.5, 1.0]`) while the preform's own floor (`y >= -1.0`) is
-/// untouched. The finished solid is therefore `2 (x) * 2 (z) * 1.5 (y, from -1.0
-/// to 0.5)`, volume 6.0, `width_axis` 2.0 (the table cuts height only, never
-/// `x`/`z`) -- both figures independently confirmed by
-/// `gate_1_yield_and_carat_weight_match_a_hand_calculation`'s own printed
-/// arithmetic below, not just asserted blind.
+/// table tier at mast 0.5 (crown side, angle 0, no indices). An angle-0, index-less,
+/// crown tier produces the plane `+Y <= mast` (`StandardGemCuts::from_asc_schedule`),
+/// i.e. `y <= 0.5`, which is tighter than the preform's `y <= 1.0`. The table therefore
+/// caps the top, and the preform's floor (`y >= -1.0`) is untouched. The finished solid
+/// is `2 (x) * 2 (z) * 1.5 (y, from -1.0 to 0.5)`, volume 6.0, and `width_axis` is 2.0
+/// (the table cuts height only, never `x`/`z`).
 fn box_design(girdle_diameter_mm: Option<f64>, material: MaterialSelection) -> Design {
     let mut design = Design::fresh(PreformSpec::block(1.0, 1.0, 2.0), 96, 4, 1.62);
     design.tiers.push(ConstraintTier {
@@ -40,8 +35,7 @@ fn box_design(girdle_diameter_mm: Option<f64>, material: MaterialSelection) -> D
     design
 }
 
-/// Gate 1: yield and finished carat weight for a known design and rough must
-/// match a hand calculation, arithmetic shown.
+/// Yield and finished carat weight match a hand calculation of a known design.
 #[test]
 fn gate_1_yield_and_carat_weight_match_a_hand_calculation() {
     // Girdle diameter 2.0 model-units wide anchored to 8.0mm real width ->
@@ -83,9 +77,8 @@ fn gate_1_yield_and_carat_weight_match_a_hand_calculation() {
     assert!((report.carat_weight.unwrap() - expected_carat).abs() < 1e-9);
 }
 
-/// Gate 2: volumetric yield must be unaffected by the SG value -- checked here by
-/// varying material (and therefore SG) across three very different values while
-/// holding geometry fixed, and confirming `volumetric_yield` never moves.
+/// Volumetric yield is unaffected by the specific gravity: material (and so SG) varies across
+/// three very different values with the geometry fixed, and `volumetric_yield` never moves.
 #[test]
 fn gate_2_volumetric_yield_is_independent_of_specific_gravity() {
     let none = box_design(Some(8.0), MaterialSelection::none());
@@ -140,9 +133,8 @@ fn gate_2_volumetric_yield_is_independent_of_specific_gravity() {
     assert!(carat_diamond < carat_heavy);
 }
 
-/// Gate 3: changing the girdle diameter must scale volume by the CUBE of the
-/// ratio -- checked directly against a hand-computed expectation, not just "some
-/// other number".
+/// Changing the girdle diameter scales the finished volume by the CUBE of the ratio, checked
+/// against a hand-computed expectation.
 #[test]
 fn gate_3_changing_girdle_diameter_scales_volume_by_the_cube_of_the_ratio() {
     let base = box_design(Some(8.0), MaterialSelection::none());
@@ -178,13 +170,10 @@ fn gate_3_changing_girdle_diameter_scales_volume_by_the_cube_of_the_ratio() {
     );
 }
 
-/// Gate 4: a design larger than its preform must be flagged. Uses the
-/// "Octahedron" real fixture (`crate::design`'s own test corpus, PC 11.020) --
-/// two tiers (one crown cone, one pavilion cone, 4-fold symmetric) that close
-/// into a real bipyramid ENTIRELY ON THEIR OWN, with no preform involvement at
-/// all -- exactly the self-closing-facets case [`exceeds_preform`]'s own doc
-/// comment explains is the (uncommon but real) precondition for this check to
-/// fire.
+/// A design larger than its preform is flagged. Uses the "Octahedron" fixture (`GemCad`
+/// header `PC 11.020`): two tiers (one crown cone, one pavilion cone, 4-fold symmetric)
+/// that close into a bipyramid on their own, with no preform involvement. That
+/// self-closing case is the precondition for [`exceeds_preform`] to report anything.
 #[test]
 fn gate_4_a_design_larger_than_its_preform_is_flagged() {
     let schedule = pleochroma_formats::asc::parse_asc(
@@ -266,13 +255,10 @@ fn exceeds_preform_honours_the_preforms_y_offset() {
     );
 }
 
-/// A design whose own facets-alone width, computed independently via the
-/// tetrahedral half-angle's own trig (not by re-measuring the design and
-/// comparing it against itself), exactly matches the preform's must not be
-/// reported as exceeding it. Before the relative-epsilon fix, `exceeds_preform`'s
-/// own `f32`-narrowing (`GpuFacetPlane`) measurement noise at this design's
-/// scale (~1.67 mast units) could exceed the old FIXED `1e-7` slack, reading a
-/// stone that measures EXACTLY its own preform's width as bigger than it.
+/// A design whose facets-alone width, computed from the tetrahedral half-angle's trig
+/// (not by re-measuring the design), exactly matches the preform's must not be reported
+/// as exceeding it. The `f32` narrowing of the facet planes is noise at this scale
+/// (~1.67 mast units), so the comparison needs the relative slack of `FIT_EPS_REL`.
 #[test]
 fn a_design_whose_own_width_exactly_matches_the_preform_is_not_reported_as_exceeding() {
     let schedule = pleochroma_formats::asc::parse_asc(
@@ -390,7 +376,7 @@ fn fits_the_box_extents_but_pokes_out_of_an_octagonal_preform() {
 
 /// A tiny `CIR` pit plunged well inside the 2x2x1.5 box of [`box_design`] removes
 /// exactly its own volume, so the yield must drop by that volume over the
-/// preform's (8.0), whatever the planar numbers are. Pit geometry (W = 2,
+/// preform's (8.0), whatever the planar figures. Pit geometry (W = 2,
 /// contact corner (1, -1, -1), phi = -45, index 0): centre
 /// (0.010, -0.576, 0.000), radius 0.1, length 0.02, entirely interior.
 #[test]

@@ -1,9 +1,8 @@
 //! Opening design files: [`open_picked`] sorts the picked files by kind, loads the best
 //! design among them and installs it as the current design.
 //!
-//! A port of the web app's `io` module (`open_files`, `load_best` and the per-kind
-//! loaders), every one of which goes through the same shared-crate entry point the
-//! desktop's Open uses:
+//! Mirrors the web app's `io` module (`open_files`, `load_best`, the per-kind loaders).
+//! Each loader goes through the shared-crate entry point the desktop's Open uses:
 //!
 //! | Kind | Path |
 //! |---|---|
@@ -340,8 +339,8 @@ struct MaterialRestore {
     unresolved: bool,
 }
 
-/// Decides what to do with the custom-material snapshot a file carried (when its
-/// material is not a built-in): the desktop's `open_native_self_contained` rule.
+/// Decides what to do with the custom-material snapshot a file carries; a snapshot never
+/// replaces a built-in of the same name.
 fn restore_material(
     name: Option<&str>,
     resolution: MaterialResolution,

@@ -1,6 +1,6 @@
-// Surface phase: shading normal, frame rotation, interior absorption, facet finish lookup, and arm selection.
+// Surface phase: shading normal, frame rotation, interior absorption, facet finish and arm choice.
 //
-// Surface finish (lane RP-G2), the WGSL twin of `optics::raytracer::surface`. The per-facet word
+// Surface finish, the WGSL twin of `optics::raytracer::surface`. The per-facet word
 // of binding 8 (`FacetSurface`) is resolved here, before the plane-of-incidence frame is
 // built, into what the CPU's `begin_facet_surface` decides:
 //
@@ -18,11 +18,10 @@
 // normal, wavelengths, seed, bounce), so nothing but `BounceHit::finish` has to survive
 // between the event wavefront's kernels.
 
-// The energy-compensation table (`compensation::ground_albedo`) is the tail of the `dist_func`
-// buffer, `GROUND_TABLE_WORDS` f32 values long (`env_map_gpu::flatten_distribution` appends it
-// behind the distribution, whose indexing never reaches it): the megakernel and the ground arm
-// kernel are already at the storage-buffer limit, and both bind `dist_func`. A buffer without
-// the table (shorter than that) compensates nothing.
+// The energy-compensation table (`compensation::ground_albedo`) is the last `GROUND_TABLE_WORDS`
+// of `dist_func`. `env_map_gpu::flatten_distribution` appends it behind the distribution. It
+// lives there because the megakernel and the ground arm kernel are at the storage-buffer
+// binding limit. A shorter buffer has no table and compensates nothing.
 fn ground_albedo(alpha: f32, cos_i: f32, eta_rel: f32) -> f32 {
     let total = arrayLength(&dist_func);
     if (total < GROUND_TABLE_WORDS) {
@@ -282,12 +281,12 @@ fn bounce_surface(
     let alpha_beta_hoisted = rc.alpha_beta_hoisted;
 
     let hit_point = (*current_origin) + hit.t * (*current_dir);
-    // See shading_normal_near_edge's own doc comment. `shading_normal_for_hit` is that
-    // function unchanged for a planar stone and the concave-stone rule otherwise.
+    // `shading_normal_for_hit` (05_intersect_and_edge_rounding.wgsl) returns the edge-rounded
+    // normal for a planar stone, and applies the concave-stone rule otherwise.
     var normal = shading_normal_for_hit(hit_point, hit.facet_idx, hit.normal, material.edge_rounding_radius);
-    // Surface finish (see this file's header): the facet word, and the micro-normal of a polish's
-    // halo draw in place of the macroscopic normal. Resolved before the plane-of-incidence frame
-    // below is built, exactly as the CPU's `facet_event` does.
+    // Surface finish: the facet word, and the micro-normal of a polish's halo draw in place of
+    // the macroscopic normal. Resolved before the plane-of-incidence frame is built, as the
+    // CPU's `facet_event` does.
     var finish: u32 = 0u;
     if (hit.facet_idx < arrayLength(&facet_finishes)) {
         finish = facet_finishes[hit.facet_idx];
@@ -302,15 +301,10 @@ fn bounce_surface(
     (*h).hit.normal = normal;
     normal = begun.normal;
     finish = begun.finish;
-    // `wave_dir_at_bounce` is the wave normal `k` (== (*current_k)), used for
-    // EVERY index lookup, cos_i/sin_i, Snell/Fresnel evaluation, TIR decision, and
-    // the Stokes plane-of-incidence frame below -- see
-    // optics::raytracer::refraction's "wave normal vs Poynting direction" design
-    // note. The Poynting/energy direction `S` (== (*current_dir)) is used directly
-    // (geometric origin-advance/intersection only) where still needed.
-    // `wave_dir_at_bounce == (*current_dir)` trivially outside the crystal and for the
-    // uniaxial ordinary eigenmode, so every such case is bit-identical to the plain
-    // all-`(*current_dir)` code.
+    // `wave_dir_at_bounce` is the wave normal `k`. It drives every index lookup, cos_i and
+    // sin_i, the Snell and Fresnel terms, the TIR decision and the Stokes frame below. The
+    // Poynting direction `S` is used only for geometric origin advance and intersection. The
+    // two are equal outside the crystal and for the ordinary eigenmode.
     let wave_dir_at_bounce = (*s).k;
 
     // Plane-of-incidence frame rotation (signed psi via atan2).
@@ -335,22 +329,16 @@ fn bounce_surface(
 
     if ((*s).inside_gem) {
         normal = -normal;
-        // A scattering-active material's extinction for this segment was
-        // already applied above (in the `maybe_scatter_or_extinguish` no-scatter
-        // branch) -- applying the plain absorption loop here too would charge
-        // this segment's absorption TWICE. `!material_scatters()` (no haze and no oriented
-        // inclusions, the CPU's `GemMaterial::scatters()`) is exactly the pre-Task-1 case
-        // (including every existing scene), where the block above never ran and this is the
-        // ONLY absorption application, matching the CPU's identical guard.
+        // A scattering material's extinction for this segment is already applied in the
+        // `maybe_scatter_or_extinguish` no-scatter branch. Applying it again here would charge
+        // the segment twice. Without scattering (`!material_scatters()`, the CPU's
+        // `GemMaterial::scatters()`) this block is the only absorption, as on the CPU.
         if (!material_scatters()) {
-            // P1 (assigned-mode absorption): optics::raytracer::absorption::
-            // channel_absorption_alphas_assigned. `(*is_extraordinary)` names which
-            // eigenmode this path was assigned to at its most recent air->crystal
-            // entry -- computed fresh from the CURRENT wave normal
-            // (`wave_dir_at_bounce`) every bounce, not read off `(*stokes)[k]`'s
-            // (possibly azimuth-drifted) Stokes state. The isotropic branch is the
-            // Stokes-independent eigenmode midpoint -- see the scatter block's own
-            // comment above.
+            // Assigned-mode absorption (`optics::raytracer::absorption::
+            // channel_absorption_alphas_assigned`). `(*is_extraordinary)` gives the eigenmode
+            // chosen at the most recent air-to-crystal entry. It is computed from the current
+            // wave normal each bounce, not from the Stokes state, which can drift in azimuth.
+            // The isotropic branch uses the eigenmode midpoint, which does not depend on Stokes.
             var alphas_interior: array<f32, 8>;
             for (var k: u32 = 0u; k < NUM_CHANNELS; k = k + 1u) {
                 alphas_interior[k] = 0.0;
@@ -380,12 +368,9 @@ fn bounce_surface(
                 }
             }
             for (var k: u32 = 0u; k < NUM_CHANNELS; k = k + 1u) {
-                // (absorption path scale): mirrors
-                // optics::raytracer::absorption::apply_absorption's own
-                // `path_len * ctx.material.absorption_path_scale` multiply exactly.
+                // Same `path_len * absorption_path_scale` multiply as `apply_absorption`.
                 let scaled_hit_t = hit.t * material.absorption_path_scale;
-                // `exp_poly`, not the `exp()` builtin --
-                // `apply_absorption` calls `crate::simd::exp_f32x8`, not `f32::exp`.
+                // `exp_poly`, not `exp()`, to match the CPU's SIMD exponential.
                 let trans_factor = exp_poly(-alphas_interior[k] * scaled_hit_t);
                 local_stokes[k] = local_stokes[k] * trans_factor;
             }
@@ -393,25 +378,10 @@ fn bounce_surface(
         (*s).stokes = local_stokes;
     }
 
-    // Which specular/diffuse treatment
-    // this facet gets. Bounds-checked (mirrors optics::raytracer::trace_spectral_ray_inner's
-    // `facet_finishes.get(hit_rec.facet_idx).copied().unwrap_or_default()`): an
-    // index past the end of a shorter-than-`planes` buffer defaults to
-    // `facet_finish::POLISHED`, exactly as the CPU's `Default` does.
-    // `select`'s two value arguments are BOTH evaluated in WGSL (no short-circuit),
-    // so an `if` guard is used instead of `select` here -- indexing
-    // `facet_finishes[hit.facet_idx]` unconditionally would attempt an
-    // out-of-bounds storage-buffer read whenever `facet_idx >= arrayLength(...)`
-    // (harmless per WGSL's robustness guarantees, but its RESULT is
-    // implementation-defined, so this must never be allowed to influence `finish`).
-    // (`finish` was looked up, and resolved by `surface_begin`, at the top of this function.)
-    // Captured before any of the three bounce-dispatch arms below run -- see
-    // optics::raytracer::dispatch_bounce's doc comment for why `was_internal_reflection`
-    // is always computed against the PRE-bounce `(*inside_gem)`. The TIR/reflect/refract
-    // arms below never need this explicitly (they either never touch `(*inside_gem)` at
-    // all, or only flip it once at their very end, after which nothing else in that
-    // arm reads it this bounce) -- only the frosted arm, which can update `(*inside_gem)`
-    // itself, needs the pre-bounce value spelled out separately.
+    // Captured before the bounce arms run. `dispatch_bounce` computes `was_internal_reflection`
+    // against the pre-bounce `inside_gem`. Only the frosted arm can change `inside_gem` midway,
+    // so it needs this value spelled out. (The facet finish was looked up above, with an
+    // out-of-range index defaulting to POLISHED.)
     let pre_bounce_inside_gem = (*s).inside_gem;
 
     (*h).hit_point = hit_point;
@@ -421,6 +391,10 @@ fn bounce_surface(
     (*h).pre_bounce_inside_gem = pre_bounce_inside_gem;
 
     let idx = bounce_index_setup(s, h, rc);
+    // The arm of this bounce starts from this very value (`bounce_arm_index`): nothing it reads
+    // changes between here and there.
+    (*h).idx = idx;
+    (*h).idx_valid = true;
 
     if (surf_is_ground(finish)) {
         (*h).arm = ARM_FROSTED;

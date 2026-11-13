@@ -5,12 +5,12 @@
 //! three tabs:
 //!
 //! - **Stone (0):** the per-design render effects, applied to the open design as one undoable
-//!   edit. That needs the editor, so this handler only fires
-//!   `ParametersModel.reset_stone_effects`, which the Stone lane wires. The material and the
-//!   geometry are never touched.
-//! - **Lighting & Environment (1):** `ViewportModel.reset_lighting_tab` (the lighting lane's
-//!   handler in `camera_lighting`). The panel calls it directly; the arm here is the same call,
-//!   so a Rust-side caller reaches it through this dispatch too.
+//!   edit. That needs the editor, so this arm only fires `ParametersModel.reset_stone_effects`,
+//!   which the editor's Stone-tab callbacks handle (in `gui::editor::callbacks`). The material
+//!   and the geometry are never touched.
+//! - **Lighting & Environment (1):** `ViewportModel.reset_lighting_tab`, handled in
+//!   `camera_lighting`. The panel calls it directly; this arm makes the same call, so a
+//!   Rust-side caller reaches it through this dispatch too.
 //! - **Render & Output (2):** the settings reset ([`reset_tab`]) persisted, then the render
 //!   context, the controls and the dialogs' remembered values re-pushed
 //!   ([`apply_render_output_settings`]).

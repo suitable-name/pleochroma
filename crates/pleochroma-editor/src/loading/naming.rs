@@ -128,20 +128,16 @@ fn is_girdle_angle(angle_deg: f64) -> bool {
 
 /// The auto-name for a brand-new tier saved with a blank Name field.
 ///
-/// An empty name can never become a `MeetNamed` target (`ConstraintTier::names()`
-/// returns nothing for it), so leaving a fresh `AddTier` unnamed silently makes it
-/// un-meetable until the cutter notices.
+/// An empty name can never become a `MeetNamed` target (`ConstraintTier::names()` returns
+/// nothing for it), so an unnamed tier would stay un-meetable.
 ///
-/// The block letter is `G` for a girdle tier (`|angle|` at 90 degrees, either sign),
-/// `P` for a pavilion tier (negative angle) and `C` for a crown tier (non-negative
-/// angle). The girdle test is the one `meet_solver::blocks::classify_blocks` applies
-/// (`|cos(theta)| <= 1e-6`), so a tier this names `G1` is also classified as a girdle
-/// by the table. The crown/pavilion split is simplified: this only has to pick a
-/// reasonable DEFAULT name the cutter can always retype, so it does not reproduce that
-/// module's unsigned-zero "inherits the previous tier's side" rule just to name a
-/// single new tier. Collision against `existing_names` ([`name_collides`]: ASCII
-/// case-insensitive, per `/`-joined name) counts up past it (`G1`, `G2`, ...; `C1`,
-/// `C2`, ...).
+/// The block letter is `G` for a girdle tier (`|angle|` at 90 degrees), `P` for a pavilion
+/// tier (negative angle) and `C` for a crown tier (non-negative angle). The girdle test is
+/// `meet_solver::blocks::classify_blocks`'s (`|cos(theta)| <= 1e-6`), so a tier named `G1`
+/// is classified as a girdle there too. The crown/pavilion split is simplified: it only
+/// picks a default name the cutter can retype, without reproducing that module's
+/// unsigned-zero side rule. A collision with `existing_names` ([`name_collides`]) counts up
+/// (`G1`, `G2`, ...; `C1`, `C2`, ...).
 #[must_use]
 pub fn next_free_block_name(angle_deg: f64, existing_names: &[String]) -> String {
     let letter = if is_girdle_angle(angle_deg) {
@@ -163,23 +159,16 @@ pub fn next_free_block_name(angle_deg: f64, existing_names: &[String]) -> String
 
 /// The tier list's Duplicate name: never collides with `existing_names`.
 ///
-/// Counts up a `" (N)"` suffix (`"P1 (2)"`,
-/// `"P1 (3)"`, ...) rather than appending an apostrophe: the apostrophe scheme produced
-/// an unreadable "P1''''" pile on a second or third duplicate of the same tier and,
-/// worse, silently created a duplicate name that `MeetNameResolver::name_match`
-/// (`pleochroma::geometry::meet_solver::names`) resolves by binding to whichever tier
-/// holds it FIRST -- so a duplicate's stale copy of a popular name could silently steal
-/// every future `MeetNamed` reference meant for the original.
+/// Counts up a `" (N)"` suffix (`"P1 (2)"`, `"P1 (3)"`, ...).
 ///
-/// [`split_duplicate_suffix`] first removes a trailing `" (N)"` a PREVIOUS call to this
-/// same function already appended, so duplicating "P1 (2)" produces "P1 (3)" rather than
-/// nesting into "P1 (2) (2)". An empty source name (an unnamed tier) falls back to the
-/// base "Tier" rather than producing a bare "(2)" -- giving the duplicate a real name is
-/// also what lets it become a `MeetNamed` target, since `ConstraintTier::names` never
-/// resolves a name from an empty string.
+/// A duplicate must not share a name: `MeetNameResolver::name_match`
+/// (`pleochroma::geometry::meet_solver::names`) binds a `MeetNamed` reference to the FIRST
+/// tier bearing it, so a copy with the same name would steal the references meant for the
+/// original.
 ///
-/// Moved here from the desktop's `tier_actions/tier_generation.rs`, unchanged, so the web
-/// app's Duplicate names copies identically.
+/// [`split_duplicate_suffix`] first removes a trailing `" (N)"` from the source, so
+/// duplicating "P1 (2)" gives "P1 (3)", not "P1 (2) (2)". An empty source name falls back
+/// to the base "Tier", since an empty name can never be a meet target.
 #[must_use]
 pub fn unique_duplicate_name(source_name: &str, existing_names: &[String]) -> String {
     let (base, source_number) = split_duplicate_suffix(source_name.trim());
@@ -208,10 +197,9 @@ pub fn unique_duplicate_name(source_name: &str, existing_names: &[String]) -> St
 /// Splits `name` into its base portion and a trailing `" (N)"` counter.
 ///
 /// The counter is a whole, non-negative number in parentheses, preceded by exactly one
-/// space -- see [`unique_duplicate_name`]'s own doc comment for why. A name with no such suffix comes
-/// back whole with `None`, and so does one whose digits do not fit a `u32`, for the same
-/// reason `"P1 (a)"` does: a suffix this cannot read is part of the name the cutter
-/// typed, not a counter to continue.
+/// space (see [`unique_duplicate_name`]). A name without such a suffix comes back whole
+/// with `None`, and so does one whose digits do not fit a `u32`: a suffix this cannot read
+/// is part of the name the cutter typed, not a counter to continue.
 #[must_use]
 pub fn split_duplicate_suffix(name: &str) -> (&str, Option<u32>) {
     let Some((base, rest)) = name.rsplit_once(" (") else {

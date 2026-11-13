@@ -7,7 +7,7 @@
 export struct TierRowData {
     // The row's id: its position in the table, which every callback sends back. A flat
     // tier's id is its index in the design's tiers; a concave tier's id is the number of
-    // flat tiers plus its index among the concave ones (`editor::table::resolve_row`).
+    // flat tiers plus its index among the concave ones (`pleochroma_web_core::rows::resolve_row`).
     index: int,
     // The tier's code in cutting order (P1, G1, C1, T, ...), the cutting sheet's label.
     code: string,

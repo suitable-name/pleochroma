@@ -3,8 +3,7 @@
 //! The live state (`RenderContext`), a design's own lighting (the library's
 //! `design_lighting` JSON), the named presets ([`super::LightingPreset`]) and the render-job
 //! scene capture all convert to and from it, so no surface can silently lack a field the
-//! others carry (before this struct, a design's lighting lacked the head shadow and a preset
-//! lacked glare, backdrop and head shadow).
+//! others carry.
 //!
 //! No dependency on Slint, the render thread or the GUI: pure data plus pure logic. The
 //! pieces that need the render context or the GUI (`from_live`, the rig lookup, the disk
@@ -13,7 +12,9 @@
 
 use super::{
     app_settings::{AppSettings, Backdrop},
+    clamp_tray_reflection,
     head_shadow::{DEFAULT_HEAD_SHADOW_DEG, clamp_head_shadow_deg},
+    is_zero_reflection,
     surface_glare::{DEFAULT_SURFACE_GLARE, clamp_surface_glare},
 };
 use serde::{Deserialize, Serialize};
@@ -42,11 +43,9 @@ const fn default_head_shadow() -> f32 {
 
 /// Every scene/lighting field, as one value.
 ///
-/// Every field a reader might lack has a serde default, so a row written by a build that
-/// knew fewer settings (a design's stored lighting without a head shadow, say) still loads
-/// with the current default for the missing field, and keys a newer build added are ignored.
-/// The camera pose is optional and left out of the serialised form when absent, so the
-/// design-lighting JSON is byte-compatible with the earlier format.
+/// Every field has a serde default, so a row that lacks a field (a design's stored lighting
+/// without a head shadow, say) loads with the current default for it, and keys a newer build
+/// added are ignored. The camera pose is left out of the serialised form when absent.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LightingValues {
     /// The format this row was written in, see [`FORMAT_VERSION`].
@@ -69,9 +68,21 @@ pub struct LightingValues {
     /// Head-shadow radius in degrees, `0.0..=30.0` (`0.0` is off).
     #[serde(default = "default_head_shadow")]
     pub head_shadow_deg: f32,
+    /// Whether the stone casts its spectral shadow onto the backdrop paper.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stone_shadow: bool,
+    /// Head-on reflectance of the glossy tray under the stone, `0.0..=1.0` (`0.0` is off).
+    #[serde(default, skip_serializing_if = "is_zero_reflection")]
+    pub tray_reflection: f32,
     /// The HDR environment map in use, if any. `None` means the studio rig.
     #[serde(default)]
     pub env_map_path: Option<String>,
+    /// Yaw of the HDR map in degrees, `0..360` (`0.0` is the map as loaded).
+    #[serde(default, skip_serializing_if = "is_zero_reflection")]
+    pub env_map_yaw_deg: f32,
+    /// Whether the HDR map turns with the camera.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub env_map_follows_camera: bool,
     /// Camera yaw in radians, if a pose is carried (always together with
     /// [`Self::camera_pitch`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -107,7 +118,11 @@ impl LightingValues {
             surface_glare: app.surface_glare,
             backdrop: app.backdrop,
             head_shadow_deg: app.head_shadow_deg,
+            stone_shadow: app.stone_shadow,
+            tray_reflection: app.tray_reflection,
             env_map_path: (!app.env_map_path.is_empty()).then(|| app.env_map_path.clone()),
+            env_map_yaw_deg: app.env_map_yaw_deg,
+            env_map_follows_camera: app.env_map_follows_camera,
             camera_yaw: None,
             camera_pitch: None,
             camera_roll: None,
@@ -150,7 +165,10 @@ impl LightingValues {
             finite_or(self.exposure, defaults.exposure).clamp(EXPOSURE_RANGE.0, EXPOSURE_RANGE.1);
         self.surface_glare = clamp_surface_glare(self.surface_glare);
         self.head_shadow_deg = clamp_head_shadow_deg(self.head_shadow_deg);
+        self.tray_reflection = clamp_tray_reflection(self.tray_reflection);
         self.env_map_path = self.env_map_path.filter(|path| !path.trim().is_empty());
+        // Adding `0.0` turns a negative zero into the positive one the settings skip.
+        self.env_map_yaw_deg = finite_or(self.env_map_yaw_deg, 0.0).rem_euclid(360.0) + 0.0;
         self.camera_yaw = self.camera_yaw.filter(|v| v.is_finite());
         self.camera_pitch = self.camera_pitch.filter(|v| v.is_finite());
         self.camera_roll = self.camera_roll.filter(|v| v.is_finite());
@@ -184,7 +202,11 @@ impl LightingValues {
         app.surface_glare = self.surface_glare;
         app.backdrop = self.backdrop;
         app.head_shadow_deg = self.head_shadow_deg;
+        app.stone_shadow = self.stone_shadow;
+        app.tray_reflection = self.tray_reflection;
         app.env_map_path = self.env_map_path.clone().unwrap_or_default();
+        app.env_map_yaw_deg = self.env_map_yaw_deg;
+        app.env_map_follows_camera = self.env_map_follows_camera;
     }
 }
 
@@ -204,7 +226,66 @@ const fn clamp_pitch_deg(degrees: f32) -> f32 {
 mod tests {
     use super::*;
 
-    /// A row stored before the head shadow existed reads the current default for it.
+    /// The Stone Shadow toggle survives the settings file, a saved lighting and a per-design
+    /// lighting row, and writes back into the settings.
+    #[test]
+    fn stone_shadow_survives_global_saved_and_per_design_lighting() {
+        let app = AppSettings {
+            stone_shadow: true,
+            ..AppSettings::default()
+        };
+        let restored: AppSettings =
+            toml::from_str(&toml::to_string(&app).expect("write settings")).expect("read settings");
+        let mut preset = crate::settings::model::lighting_preset::built_in_presets().remove(0);
+        preset.set_values(&LightingValues::from_app_settings(&restored));
+        let row =
+            LightingValues::from_json(&preset.values().to_json().expect("write design lighting"))
+                .expect("read design lighting");
+        let mut applied = AppSettings::default();
+        row.write_into(&mut applied);
+        assert!(applied.stone_shadow);
+    }
+
+    /// The Tray Reflection survives the settings file, a saved lighting and a per-design
+    /// lighting row, writes back into the settings, and an off value leaves the row's JSON
+    /// exactly as before.
+    #[test]
+    fn tray_reflection_survives_global_saved_and_per_design_lighting() {
+        let app = AppSettings {
+            tray_reflection: 0.04,
+            ..AppSettings::default()
+        };
+        let restored: AppSettings =
+            toml::from_str(&toml::to_string(&app).expect("write settings")).expect("read settings");
+        let mut preset = crate::settings::model::lighting_preset::built_in_presets().remove(0);
+        preset.set_values(&LightingValues::from_app_settings(&restored));
+        let json = preset.values().to_json().expect("write design lighting");
+        let row = LightingValues::from_json(&json).expect("read design lighting");
+        let mut applied = AppSettings::default();
+        row.write_into(&mut applied);
+        assert_eq!(applied.tray_reflection.to_bits(), 0.04f32.to_bits());
+        let off = LightingValues::default().to_json().expect("serialises");
+        assert!(!off.contains("tray_reflection"), "{off}");
+    }
+
+    /// The reflection is limited to `0..=1` and a damaged value reads as off.
+    #[test]
+    fn tray_reflection_is_limited_and_damage_reads_as_off() {
+        let wild = LightingValues {
+            tray_reflection: 7.0,
+            ..LightingValues::default()
+        }
+        .sanitised();
+        assert_eq!(wild.tray_reflection.to_bits(), 1.0f32.to_bits());
+        let damaged = LightingValues {
+            tray_reflection: f32::NAN,
+            ..LightingValues::default()
+        }
+        .sanitised();
+        assert_eq!(damaged.tray_reflection.to_bits(), 0.0f32.to_bits());
+    }
+
+    /// A row without a head shadow reads the current default for it.
     #[test]
     fn a_row_without_a_head_shadow_reads_the_default() {
         let json = r#"{"lighting_rig":"ISO hemisphere","light_yaw_deg":10.0,
@@ -225,8 +306,8 @@ mod tests {
         assert!(json.contains("head_shadow_deg"), "{json}");
     }
 
-    /// The oldest stored rows carried only the rig, the light and the exposure (and perhaps a
-    /// map): glare, backdrop and head shadow all read the current defaults.
+    /// A row with only the rig, the light, the exposure and a map reads glare, backdrop and head
+    /// shadow at their defaults.
     #[test]
     fn the_oldest_row_reads_every_newer_field_at_its_default() {
         let json = r#"{"lighting_rig":"Gem Studio Ring Lights","light_yaw_deg":48.0,
@@ -234,6 +315,8 @@ mod tests {
                        "env_map_path":"C:/env/studio.hdr"}"#;
         let values = LightingValues::from_json(json).expect("loads");
         assert_eq!(values.version, FORMAT_VERSION);
+        assert!(!values.stone_shadow);
+        assert_eq!(values.tray_reflection.to_bits(), 0.0f32.to_bits());
         assert_eq!(
             values.surface_glare.to_bits(),
             DEFAULT_SURFACE_GLARE.to_bits()
@@ -247,7 +330,7 @@ mod tests {
         assert_eq!((values.camera_yaw, values.camera_pitch), (None, None));
     }
 
-    /// The row that is written today reads back as itself, and the keys a newer build might
+    /// A row written by this build reads back as itself, and the keys a newer build might
     /// add are ignored rather than refused.
     #[test]
     fn a_row_round_trips_and_ignores_keys_it_does_not_know() {
@@ -255,6 +338,8 @@ mod tests {
             surface_glare: 0.5,
             backdrop: Backdrop::White,
             head_shadow_deg: 8.0,
+            stone_shadow: true,
+            tray_reflection: 0.5,
             camera_yaw: Some(0.25),
             camera_pitch: Some(0.75),
             camera_roll: Some(1.5),
@@ -265,6 +350,47 @@ mod tests {
         assert_eq!(LightingValues::from_json(&json), Ok(values.clone()));
         let newer = json.replacen('{', r#"{"a_future_field":[1,2,3],"#, 1);
         assert_eq!(LightingValues::from_json(&newer), Ok(values));
+    }
+
+    /// The map rotation and its camera switch survive the settings file, a saved lighting
+    /// and a per-design row, write back, and the unturned default leaves the JSON as before.
+    #[test]
+    fn env_map_rotation_survives_global_saved_and_per_design_lighting() {
+        let app = AppSettings {
+            env_map_yaw_deg: 125.0,
+            env_map_follows_camera: true,
+            ..AppSettings::default()
+        };
+        let restored: AppSettings =
+            toml::from_str(&toml::to_string(&app).expect("write settings")).expect("read settings");
+        let mut preset = crate::settings::model::lighting_preset::built_in_presets().remove(0);
+        preset.set_values(&LightingValues::from_app_settings(&restored));
+        let json = preset.values().to_json().expect("write design lighting");
+        let row = LightingValues::from_json(&json).expect("read design lighting");
+        let mut applied = AppSettings::default();
+        row.write_into(&mut applied);
+        assert_eq!(applied.env_map_yaw_deg.to_bits(), 125.0f32.to_bits());
+        assert!(applied.env_map_follows_camera);
+        let off = LightingValues::default().to_json().expect("serialises");
+        assert!(!off.contains("env_map_yaw_deg"), "{off}");
+        assert!(!off.contains("env_map_follows_camera"), "{off}");
+    }
+
+    /// The yaw wraps into `0..360` and a damaged value reads as the unturned map.
+    #[test]
+    fn env_map_yaw_wraps_and_damage_reads_as_unturned() {
+        let wrapped = LightingValues {
+            env_map_yaw_deg: -90.0,
+            ..LightingValues::default()
+        }
+        .sanitised();
+        assert_eq!(wrapped.env_map_yaw_deg.to_bits(), 270.0f32.to_bits());
+        let damaged = LightingValues {
+            env_map_yaw_deg: f32::NAN,
+            ..LightingValues::default()
+        }
+        .sanitised();
+        assert_eq!(damaged.env_map_yaw_deg.to_bits(), 0.0f32.to_bits());
     }
 
     #[test]

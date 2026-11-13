@@ -189,10 +189,9 @@ export component TierRowActions inherits Rectangle {
                 // (`EditorModel.suggested_constraint_kind`, consumed by
                 // `EditorInspector.load_tier_into_form`).
                 //
-                // Goes through `root.tier_selected` -- the SAME callback a plain click on this row
-                // fires -- rather than writing `EditorModel.selected_tier_index` directly:
-                // `EditorView`'s own handler for that callback already covers the "this row is
-                // already selected" case (a same-value property write raises no `changed` at all).
+                // Goes through `root.tier_selected`, the callback a plain row click fires, not a
+                // direct write to `EditorModel.selected_tier_index`. `EditorView` handles the case
+                // where this row is already selected, which a same-value write would miss.
                 if root.anchor_shown: VerticalLayout {
                     horizontal-stretch: 0;
                     min-width: root.anchor_width;
@@ -234,9 +233,8 @@ export component TierRowActions inherits Rectangle {
                 icon: root.item.is_detached ? @image-url("../../icons/link.svg") : @image-url("../../icons/detach.svg");
                 label: root.item.is_detached ? "Reattach" : "Detach";
                 ink: root.item.is_detached ? Theme.accent-cyan : Theme.text-secondary;
-                // Describes what the button actually, observably does: the ONLY behavioral
-                // consumer of `detached` is `Design::remove_orbit_member`, so this avoids
-                // promising a general "exempt from orbit symmetry handling".
+                // Says only what Detach observably changes: `Design::remove_orbit_member` skips a
+                // detached tier. It is not a general exemption from orbit symmetry.
                 hint: root.unlocked
                     ? (root.item.is_detached
                         ? "Reattach this tier's facets to their symmetric\nfamily, so they follow it again. See the glossary."

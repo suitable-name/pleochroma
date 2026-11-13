@@ -1,6 +1,5 @@
-//! The triangle/edge rasterizer itself: the two-pass (fill, then edges) render
-//! pipeline, the affine-depth convex-polygon span fill, and the Bresenham edge
-//! stroke -- see the parent module's doc comment for the camera/depth model.
+//! The rasterizer's render passes: a two-pass fill then edge pipeline, the affine-depth
+//! span fill and the Bresenham edge stroke. The camera and depth model is in the parent.
 
 use super::{
     CachedMesh, EDGE_DEPTH_BIAS, FillMode, HATCH_PERIOD, NEAR_EPS, SolidRasterizer, SolidStyle,
@@ -132,10 +131,8 @@ impl SolidRasterizer {
         }
     }
 
-    /// Same output as [`Self::render`], but sources already-[`simplify_ring`]d
-    /// rings from a [`CachedMesh`] instead of re-simplifying every facet from
-    /// scratch (see `mesh_cache`'s doc comment for why that cost mattered). Kept
-    /// as its own method so `render`'s own tests stay untouched.
+    /// Same output as [`Self::render`], but takes the rings a [`CachedMesh`] has already
+    /// simplified, so no facet is re-simplified per frame (see [`crate::mesh_cache`]).
     pub fn render_prepared(&mut self, prepared: &CachedMesh, camera: &Camera, style: &SolidStyle) {
         self.clear(style.background);
         self.edge_points.clear();
@@ -271,12 +268,9 @@ impl SolidRasterizer {
 
         let flagged = style.flagged.get(facet_id).copied().unwrap_or(false);
         let selected = style.selected.get(facet_id).copied().unwrap_or(false);
-        // A 58% blend toward `selected_color`, strong enough to read clearly
-        // against an unselected facet even on a light-grey solid turned away
-        // from the key light. Still leaves the facet's own lighting visible
-        // underneath (unlike the flagged hatch, which fully replaces the
-        // pixel), while reading clearly next to a hatched facet instead of
-        // losing to it for attention.
+        // A 58% blend toward `selected_color`: strong enough to stand out from unselected
+        // facets, and it keeps the facet's own lighting visible (unlike the flagged hatch,
+        // which replaces the pixel).
         let selected_fill = selected.then(|| blend_toward(color, style.selected_color, 0.58));
         let alpha: u8 = if style.fill_mode == FillMode::Transparent {
             0
@@ -347,11 +341,10 @@ impl SolidRasterizer {
     }
 
     /// Draws one edge segment from `a` to `b` (each a `(screen_x, screen_y,
-    /// view_depth)` triple from [`project`]), `width` pixels wide (`1` for an
-    /// ordinary facet boundary, `2` for a `selected`/`pending` highlight -- see
-    /// [`Self::draw_facet_edges`]), depth-tested against the fill pass so an edge
-    /// behind an already-painted facet never draws -- see [`EDGE_DEPTH_BIAS`] for
-    /// the slack needed against the edge's own facet.
+    /// view_depth)` triple from [`project`]), `width` pixels wide: `1` for an ordinary
+    /// facet boundary, wider for the highlight passes (see [`Self::draw_facet_edges`]).
+    /// Depth-tested against the fill pass, so an edge behind a painted facet never draws;
+    /// see [`EDGE_DEPTH_BIAS`] for the slack against the edge's own facet.
     pub(super) fn draw_edge(
         &mut self,
         from: (f32, f32, f32),
@@ -527,9 +520,9 @@ pub fn largest_piece_label_spots(
         .collect()
 }
 
-/// Screen-space `(min_x, max_x, min_y, max_y)` bounds of a facet's projected
-/// ring -- shared by [`SolidRasterizer::render`]'s and [`SolidRasterizer::
-/// render_prepared`]'s label-spot collection.
+/// Screen-space `(min_x, max_x, min_y, max_y)` bounds of a facet's projected ring, used
+/// for label spots by both [`SolidRasterizer::render`] and
+/// [`SolidRasterizer::render_prepared`].
 fn screen_bounds(pts: &[(f32, f32, f32)]) -> (f32, f32, f32, f32) {
     let (mut min_x, mut max_x, mut min_y, mut max_y) = (
         f32::INFINITY,

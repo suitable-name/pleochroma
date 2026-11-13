@@ -33,9 +33,7 @@ export global AppModel {
     in property <int> tier-count: 0;
     in property <bool> can-undo: false;
     in property <bool> can-redo: false;
-    // Set by a text field while it has focus, so Ctrl+Z/Ctrl+Y stay with the field
-    // (the desktop's `EditorModel.text_focus`). Nothing sets it yet; the editor
-    // panels' text fields are meant to.
+    // Set by a text field while it has focus, so Ctrl+Z / Ctrl+Y stay with the field.
     in-out property <bool> text-focus: false;
 
     // -- Solve status (pushed by `push_solve_status`) -------------------------------

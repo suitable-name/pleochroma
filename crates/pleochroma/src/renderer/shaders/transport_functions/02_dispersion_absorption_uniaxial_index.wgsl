@@ -144,8 +144,8 @@ fn eigen_polarization_main(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 
 // ---------------------------------------------------------------------------------
-// Phase 3: optics::raytracer::theta_c_for_bounce (the theta_c fixed-point iteration --
-// see `transport_physics.wgsl`'s Phase 3 section for why `is_biaxial` is omitted).
+// optics::raytracer::theta_c_for_bounce (the theta_c fixed-point iteration). `is_biaxial`
+// is not passed: GPU materials are never biaxial here (see `transport_physics.wgsl`).
 // ---------------------------------------------------------------------------------
 
 struct ThetaCCase {
@@ -175,15 +175,10 @@ fn theta_c_main(@builtin(global_invocation_id) gid: vec3<u32>) {
         return;
     }
     let c = theta_c_cases[idx];
-    // P5: `theta_c_for_bounce`'s WGSL signature takes the precomputed hero e-index
-    // directly (see that function's own doc comment in transport_physics.wgsl). This
-    // case bank's `GemMaterial` (built in `cpu_theta_c` in
-    // `renderer::gpu::transport_check::eigenmodes_uniaxial`) never carries a genuine
-    // independent extraordinary-ray curve, so `extraordinary_index_at`'s CPU-side
-    // fallback reduces to exactly this constant-offset form -- computing it here keeps
-    // this kernel testing the SAME iteration algorithm `theta_c_for_bounce` runs on the
-    // CPU side, without needing a dispersion-curve-carrying case bank of its own (that
-    // is covered separately by the `per_mode_index`/`dispersion` checks).
+    // `theta_c_for_bounce` takes the precomputed hero e-index. This case bank has no
+    // independent extraordinary-ray curve, so the constant-offset seed used here matches
+    // `GemMaterial::extraordinary_index_at`'s fallback. Curve-carrying cases are covered
+    // by the `per_mode_index` and `dispersion` checks.
     let n_e_hero_seed_case = c.n_o_hero_seed + c.birefringence_delta;
     theta_c_out[idx] = theta_c_for_bounce(
         c.normal, c.ray_dir, c.cos_i, c.inside_gem != 0u, c.is_anisotropic != 0u, c.c_axis,
@@ -192,7 +187,7 @@ fn theta_c_main(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 
 // ---------------------------------------------------------------------------------
-// Phase 3: optics::birefringence::BirefringenceParams::extraordinary_poynting_dir (the
+// optics::birefringence::BirefringenceParams::extraordinary_poynting_dir (the
 // extraordinary ray's walk-off direction).
 // ---------------------------------------------------------------------------------
 
@@ -224,10 +219,8 @@ fn walk_off_main(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 
 // ---------------------------------------------------------------------------------
-// Phase 3: optics::raytracer::per_channel_uniaxial_indices (one channel's per-mode
-// (n_o, n_eff) index pair, via `per_channel_uniaxial_index` -- see
-// `transport_physics.wgsl`'s Phase 3 section for why the CPU's NUM_CHANNELS loop is the
-// caller's responsibility here).
+// optics::raytracer::per_channel_uniaxial_indices: one channel's per-mode (n_o, n_eff)
+// pair via `per_channel_uniaxial_index`. The per-channel loop stays with the caller.
 // ---------------------------------------------------------------------------------
 
 struct PerModeIndexCase {

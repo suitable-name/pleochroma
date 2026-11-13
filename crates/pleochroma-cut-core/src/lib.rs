@@ -8,10 +8,9 @@
 //!
 //! Undo/redo is business logic, not view logic: it has to be correct independent of
 //! whatever widget toolkit drives it, and testable without a window (see [`edit`]'s
-//! module doc comment). Two dependencies only -- [`pleochroma`] for geometry and
-//! [`pleochroma-formats`] for `.asc` read/write and the `.psdd` design file's own
-//! on-disk format -- so `apps/pleochroma-cut` can wire a UI on top of it without this
-//! crate ever needing to know Slint, wgpu, or SQLite exist.
+//! module doc comment). Geometry comes from [`pleochroma`] and file formats from
+//! [`pleochroma-formats`], so `apps/pleochroma-cut` can wire a UI on top of this crate
+//! without it knowing about Slint, wgpu, or SQLite.
 //!
 //! # The pieces
 //!
@@ -21,18 +20,17 @@
 //!   [`design::ConstraintTier`]s -- authored meet constraints, not recorded masts.
 //!   `Design::solve` derives masts on demand and builds the full plane arrangement
 //!   feeding `pleochroma::geometry::stone_metrics::build_solid_mesh`.
-//! - [`edit`]: [`edit::Edit`] (add/remove/modify a tier or its constraint, or
-//!   replace the preform) and [`edit::History`], a command/inverse-pair undo/redo
-//!   stack over a [`Design`].
+//! - [`edit`]: [`edit::Edit`], a reversible change to a [`Design`] (tiers, schedule,
+//!   preform, annotations), and [`edit::History`], the undo/redo stack over them.
 //! - [`resolve`]: [`resolve::resolve_after_edit`] re-solves only the tiers an edit
 //!   could actually change, instead of [`Design::solve`]'s whole-design re-solve.
 //! - [`orbit`]: [`orbit::orbit_units`] derives a tier's symmetry-generated facet
 //!   groups from schedule metadata (never stored, always recomputed), and the
 //!   `Design::*_orbit_member` helpers keep membership changes orbit-consistent by
 //!   construction.
-//! - [`manufacturability`]: four checks (vanishing facets, undersized facets,
-//!   gear-quantization error, out-of-order meets) over an already-solved
-//!   [`design::Design`] -- warnings only, never silently corrected.
+//! - [`manufacturability`]: warning-only checks over an already-solved
+//!   [`design::Design`]: vanishing and undersized facets, gear quantization, meet order
+//!   and names, and concave tool geometry. Nothing is silently corrected.
 //! - [`material`]: [`material::MaterialSelection`] and a specific-gravity lookup
 //!   table; [`material::MaterialSelection::resolve`] and
 //!   [`design::Design::effective_refractive_index`] give a design one real
@@ -42,22 +40,19 @@
 //! - [`yield_metrics`]: the real-unit binding ([`yield_metrics::mm_per_unit`]) and
 //!   the figures built on it -- exact volumetric yield, an estimated carat weight,
 //!   and the design-bigger-than-its-rough check.
-//! - [`native`]: converts a [`Design`] to and from the self-contained `.psdd`
-//!   design file (design state `.asc` has no field for at all), and builds the catalogue `.asc` text
-//!   a save stores next to it ([`native::catalogue_asc`]). The on-disk document itself --
-//!   schema, TOML encode/decode, path rules -- lives in
-//!   `pleochroma_formats::native`; this module owns only the conversions to and from
-//!   [`Design`].
+//! - [`native`]: converts a [`Design`] to and from the self-contained `.psdd` design
+//!   file, which `.asc` cannot hold, and builds the catalogue `.asc` text a save stores
+//!   next to it ([`native::catalogue_asc`]). The on-disk document (schema, TOML
+//!   encode/decode, path rules) lives in `pleochroma_formats::native`; this module owns
+//!   only the conversions to and from [`Design`].
 //! - [`optimize`]: the objective ([`optimize::evaluate_objective`]) and
 //!   [`optimize::optimize_design`], a deterministic coordinate search over a
 //!   design's free facet angles that never moves a pinned tier, never proposes
 //!   geometry that fails to close, and never regresses a manufacturability warning.
 //! - [`cutting_sheet`]: [`design::Design::cutting_sheet`] builds a
-//!   [`cutting_sheet::CuttingSheet`] (every tier in cutting order, with angle,
-//!   indices, solved mast and a printable meet instruction) from a design and
-//!   its already-solved masts; [`design::Design::facet_meets`] and
-//!   [`cutting_sheet::diff_tiers`] are the companion per-facet and
-//!   before/after reads built alongside it.
+//!   [`cutting_sheet::CuttingSheet`] from a design and its already-solved masts;
+//!   [`design::Design::facet_meets`] gives the per-facet meets and
+//!   [`cutting_sheet::diff_tiers`] the before/after diff.
 //!
 //! # Determinism
 //!
@@ -74,17 +69,16 @@
 /// [`crystal_axis::CrystalOrientation`], with the per-design resolution
 /// [`crystal_axis::stone_orientation`].
 pub mod crystal_axis;
-/// [`design::Design::cutting_sheet`]'s own output type.
+/// The cutting sheet a design prints, and its before/after diff.
 ///
-/// [`cutting_sheet::CuttingSheet`]: every tier in cutting order, with angle,
-/// indices, solved mast and a printable meet instruction) plus the
-/// before/after diff over it ([`cutting_sheet::diff_tiers`]).
+/// [`cutting_sheet::CuttingSheet`] lists every tier in cutting order, with its angle,
+/// indices, solved mast and a printable meet instruction. [`cutting_sheet::diff_tiers`]
+/// compares two such lists.
 pub mod cutting_sheet;
 /// A design's preform plus editable cutting instructions.
 ///
-/// The derivation from authored constraints down to a renderable solid --
-/// see this module's own doc comment ("Constraints, not masts"/ "Scale
-/// anchoring").
+/// How authored constraints become a renderable solid is described in this module's
+/// own doc comment ("Constraints, not masts" and "Scale anchoring").
 pub mod design;
 /// Reversible edits over a [`design::Design`].
 ///
@@ -93,7 +87,7 @@ pub mod design;
 pub mod edit;
 /// Warnings-only checks over an already-solved [`design::Design`].
 ///
-/// Vanishing/undersized facets, gear-quantization error, out-of-order meets.
+/// Facet, gear, meet-order and concave-tool checks; see the module's own doc comment.
 pub mod manufacturability;
 /// A design's material choice and the specific-gravity lookup table.
 ///
@@ -151,8 +145,8 @@ pub mod rough_plan;
 pub mod templates;
 /// The real-unit binding and the figures built on it.
 ///
-/// [`yield_metrics::mm_per_unit`]: exact volumetric yield, an estimated
-/// carat weight, and the design-bigger-than-its-rough check.
+/// [`yield_metrics::mm_per_unit`] binds design units to millimetres; the figures are
+/// exact volumetric yield, an estimated carat weight, and the check that a design fits its rough.
 pub mod yield_metrics;
 
 pub use crystal_axis::{
@@ -168,11 +162,14 @@ pub use cutting_sheet::{
     format_sheet_indices_on_gear,
 };
 pub use design::{
-    ConstraintTier, Design, DesignSolveError, DesignTierCodes, EdgeAbrasionEffects,
-    FreshDesignSpec, InclusionEffects, MissingAnchor, ScheduleMeta, SolveMismatch,
-    StoneRenderEffects, StructureEffects, SurfaceFinish, SurfaceGrade, TargetResolveError,
-    TierFrosting, TierId, TierLabelInfo, TierSurface, TierTarget, compute_tier_labels,
-    convert_legacy_facet_name, is_legacy_123_abc, name_indicates_pavilion,
+    ConstraintTier, CutMeet, CutMeetAnchor, CutMeets, DEFAULT_SNAP_MAX_MOVE_FRACTION, Design,
+    DesignSolveError, DesignTierCodes, EdgeAbrasionEffects, FreshDesignSpec, InclusionEffects,
+    MEET_TOLERANCE_FRACTION, MeetTarget, MissingAnchor, ScheduleMeta, SnapMove, SnapReport,
+    SolveMismatch, StoneRenderEffects, StructureEffects, SurfaceFinish, SurfaceGrade,
+    TargetResolveError, TierFrosting, TierId, TierLabelInfo, TierSurface, TierTarget,
+    compute_tier_labels, convert_legacy_facet_name,
+    girdle_level::{GIRDLE_LEVEL_TOLERANCE_FRACTION, GirdleLevel},
+    is_legacy_123_abc, name_indicates_pavilion,
 };
 pub use edit::{
     Edit, EditError, History, HistoryEntry, JumpError, RemapRounding, ScheduleState, remap_ratio,

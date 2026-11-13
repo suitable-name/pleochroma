@@ -14,8 +14,8 @@ component TemplateCard inherits Rectangle {
     callback picked();
 
     width: root.with_picture ? 106px : 218px;
-    // 168 px: the name gets three lines ("Round Brilliant --" / "Shallow" / "Pavilion"), so two
-    // templates that share a long prefix never elide into the same text.
+    // 168 px leaves room for a name of three lines, so templates that share a long prefix stay
+    // distinct.
     height: root.with_picture ? 168px : 46px;
     background: root.selected
         ? Theme.primary-glow

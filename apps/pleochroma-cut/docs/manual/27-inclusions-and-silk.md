@@ -33,8 +33,8 @@ Fine inclusions scatter short wavelengths more than long ones, so very fine silk
 This matters for what you will see.
 
 - **A faceted stone** shows silk as a soft sheen that turns with the stone and follows the Crystal Axis, a velvety, lower-contrast body, and bright streaks where a cone of scattered light reaches the eye through a facet. A faceted star sapphire shows fragments of the star, a broken star that moves from facet to facet as you turn the stone. That is what real faceted silky corundum shows, and it is what the program draws.
-- **A true star or eye needs a curved dome.** The star is the place on a dome where the scattering cones meet the mirror condition for the eye. The program builds stones out of flat facets and subtractive tools, and has no convex dome shape yet. A cabochon made of many small facets approximates one and shows a segmented star. A true dome, for a smooth star and eye, is planned for a later version.
-- **Cubic materials** (star garnet, star spinel) have no crystal frame in which to say where the needles run, so they offer no inclusion presets for now. The presets are for materials with a crystal axis, plus Rutilated Quartz.
+- **A true star or eye needs a curved dome.** The star is the place on a dome where the scattering cones meet the mirror condition for the eye. The program builds stones out of flat facets and subtractive tools and has no convex dome shape. A cabochon made of many small facets approximates one and shows a segmented star.
+- **Cubic materials** (star garnet, star spinel) have no crystal frame in which to say where the needles run, so they offer no inclusion presets. The presets are for materials with a crystal axis, plus Rutilated Quartz.
 
 ## The Presets
 
@@ -74,7 +74,7 @@ A custom material has no presets. If it has inclusion families of its own (next 
 
 Needles that lie in the basal plane of a corundum have an in-plane direction too: which of the three a directions is the first. The **Silk Turn** is a turn, from 0 to 180 degrees, of the whole set of inclusions about the Crystal Axis. For a uniaxial material (Sapphire, Ruby, Tourmaline, the beryls, Quartz) it is the same stored turn as the Second Axis of Chapter 25, used only for the inclusions: the optics of a uniaxial stone ignore it, so setting it does not change doubling or color. For a two-axis material (Chrysoberyl, Alexandrite) the inclusions follow the real Second Axis.
 
-**Set Silk Turn** is off by default and then the inclusions follow the stone's Second Axis, if it has one. Switch it on to give the turn by hand with the slider. With the inclusions off, a Second Axis on a uniaxial stone changes nothing at all, as before.
+**Set Silk Turn** is off by default and then the inclusions follow the stone's Second Axis, if it has one. Switch it on to give the turn by hand with the slider. With the inclusions off, a Second Axis on a uniaxial stone changes nothing at all.
 
 ### Cat's-Eye Needs a Second Axis
 
@@ -101,8 +101,7 @@ Under the list a note says what the families do for the material's character, an
 
 - **Path-Traced, Solid + Path-Traced, exports, render jobs, remote workers, the web viewer and the command-line tool** draw the inclusions. The graphics card draws them too.
 - **Ray-Traced** ignores them.
-- **The figures ignore them.** Brilliance, Fire, Scintillation, the Verdict, Compare, Optimize and the tilt curves are computed as if the stone were clear. When an inclusion preset is on, the Checks tooltip, the Verdict and the Compare header add "Figures ignore Inclusions." (naming together everything that is on, for example "Figures ignore Inclusions and Surface Finish."). A figure for how much light the silk takes may follow in a later version.
-- **Zoned stones** (Chapter 24) show inclusions too.
+- **The figures ignore them.** Brilliance, Fire, Scintillation, the Verdict, Compare, Optimize and the tilt curves are computed as if the stone were clear. When an inclusion preset is on, the Checks tooltip, the Verdict and the Compare header add "Figures ignore Inclusions." (naming together everything that is on, for example "Figures ignore Inclusions and Surface Finish.").- **Zoned stones** (Chapter 24) show inclusions too.
 
 ## Files
 
@@ -110,8 +109,8 @@ A design's inclusion choice is saved in an optional `[render_effects.inclusions]
 
 ## Limitations
 
-- The presets cover materials with a crystal axis and Rutilated Quartz. Cubic materials have none for now.
-- A faceted stone shows sheen and the fragments of a star. A true star or eye needs a dome shape that is not yet in the program.
+- The presets cover materials with a crystal axis and Rutilated Quartz. Cubic materials have none.
+- A faceted stone shows sheen and the fragments of a star. A true star or eye needs a dome shape, which the program does not have.
 - The amounts are chosen to look right, not measured; adjust **Density** to a stone you know.
 - **Cat's-Eye Silk** needs the Second Axis.
 - The even **Inclusion Haze** is a separate setting and adds to the inclusions; with a preset on, the haze takes the preset's own forward-scattering strength instead of the fixed one.

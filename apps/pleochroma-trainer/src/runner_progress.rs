@@ -51,7 +51,7 @@ pub struct ProgressSnapshot {
     pub completed_steps: usize,
     pub total_steps: usize,
     pub completed_tasks: usize,
-    /// Expected phase tasks; zero in JSON means the total is unknown.
+    /// Expected phase tasks; zero means the total is unknown.
     pub total_tasks: usize,
     pub fresh_labels: usize,
     pub reused_labels: usize,

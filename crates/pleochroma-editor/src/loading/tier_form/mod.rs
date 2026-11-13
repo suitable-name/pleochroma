@@ -1,8 +1,8 @@
 //! Parses the tier-edit form's text/enum fields into a
-//! [`pleochroma_cut_core::ConstraintTier`]/[`TierTarget`].
+//! [`pleochroma_cut_core::ConstraintTier`] and a [`TierTarget`].
 //!
-//! Including the shorthand index-entry notations (colon-separated arithmetic sequences
-//! and the orbit "xN" fold-count suffix).
+//! It also reads the shorthand index notations: colon-separated arithmetic sequences and
+//! the orbit "xN" fold-count suffix.
 
 use super::number_expr::{NameValues, eval_number};
 use pleochroma::geometry::meet_solver::MeetConstraint;
@@ -10,9 +10,8 @@ use pleochroma_cut_core::{ConstraintTier, TierTarget};
 
 /// Parses just the angle text an inline tier-list cell commits (`inline_set_angle`).
 ///
-/// The same validation [`parse_tier_form`]'s own angle field applies (must parse as a
-/// finite `f64`), pulled out so the inline cell doesn't need a whole tier form's worth of
-/// other fields just to validate one number.
+/// It applies the same validation as the angle field of [`parse_tier_form`], without the
+/// other fields a whole form would need.
 ///
 /// # Errors
 ///
@@ -42,21 +41,15 @@ pub fn parse_angle_only_with_names(
     Ok(angle_deg)
 }
 
-/// Parses `token` as the colon-separated arithmetic sequence shorthand
-/// `start:step:stop` (e.g. `"0:12:96"`) for the Indices field -- generates every
-/// `start + k*step` strictly before `stop` (exclusive, the same half-open
-/// convention every other "count up to N" in
-/// this codebase uses), wrapped modulo `gear_teeth_abs` so a sequence that
-/// runs past the gear's own tooth count still lands on real positions
-/// instead of failing outright. Each generated value still goes through the
-/// caller's own finite/range/duplicate checks, so a wrap that lands out of
-/// range or repeats an earlier value is still caught and reported.
+/// Parses `token` as the `start:step:stop` sequence shorthand (e.g. `"0:12:96"`).
 ///
-/// Returns `None` when `token` does not split into exactly three colon-
-/// separated parts or any of them fails to parse as a plain `f64` (or `step`
-/// is exactly zero, which would loop forever) -- the caller then falls
-/// through to treating `token` as an ordinary single index, which reports
-/// its own "not a number" error the normal way.
+/// It generates every `start + k*step` strictly before `stop`, wrapped modulo
+/// `gear_teeth_abs` so a sequence running past the gear still lands on real positions.
+/// The caller's finite, range and duplicate checks still run on each value.
+///
+/// Returns `None` when `token` is not three colon-separated finite numbers, or `step` is
+/// zero (the sequence would never end). The caller then reads `token` as an ordinary index
+/// and reports its own "not a number" error.
 fn parse_colon_sequence(token: &str, gear_teeth_abs_f64: f64) -> Option<Vec<f64>> {
     let parts: Vec<&str> = token.split(':').collect();
     let [start, step, end] = parts.as_slice() else {
@@ -88,15 +81,13 @@ fn parse_colon_sequence(token: &str, gear_teeth_abs_f64: f64) -> Option<Vec<f64>
     Some(values)
 }
 
-/// Parses `suffix` as the "xN" fold-count half of the "N xM" orbit shorthand
-/// (e.g. `"12 x8"`) -- the same `x`-prefixed notation the ORBIT column already
-/// displays for a complete family (see `docs/manual/03-loading-and-tier-list.md`'s
-/// "Orbits" section: `orbit x8`).
-/// Returns the fold count when `suffix` is exactly `x`/`X` followed by one or
-/// more digits naming a positive count, `None` otherwise -- the caller then
-/// treats the two tokens as two ordinary (and, for the second, almost
-/// certainly invalid) indices, which still reports a normal "not a number"
-/// error rather than silently doing nothing.
+/// Parses `suffix` as the "xN" fold-count half of the "N xM" orbit shorthand.
+///
+/// `"12 x8"` is the notation the ORBIT column shows for a complete family (see the "Orbits"
+/// section of `docs/manual/03-loading-and-tier-list.md`). Returns the fold count when
+/// `suffix` is `x`/`X` followed by digits naming a positive count, `None` otherwise. The
+/// caller then reads both tokens as ordinary indices, which reports a normal "not a number"
+/// error.
 fn parse_orbit_suffix(suffix: &str) -> Option<u32> {
     let digits = suffix.strip_prefix(['x', 'X'])?;
     if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
@@ -105,14 +96,12 @@ fn parse_orbit_suffix(suffix: &str) -> Option<u32> {
     digits.parse::<u32>().ok().filter(|&n| n > 0)
 }
 
-/// Expands `base` into `fold_count` evenly spaced index-wheel positions --
-/// `base + k * (gear_teeth_abs / fold_count)` for `k` in `0..fold_count`, wrapped
-/// modulo `gear_teeth_abs`. The other half of [`parse_orbit_suffix`]'s "12 x8"
-/// shorthand. A `fold_count` that does not
-/// evenly divide the gear still produces values (landing on fractional
-/// teeth) rather than being rejected here -- the caller's own non-integral-
-/// index warning is what flags that, exactly as it would for a hand-typed
-/// fractional index.
+/// Expands `base` into `fold_count` evenly spaced index-wheel positions.
+///
+/// The positions are `base + k * (gear_teeth_abs / fold_count)` for `k` in `0..fold_count`,
+/// wrapped modulo `gear_teeth_abs`: the other half of [`parse_orbit_suffix`]'s "12 x8"
+/// shorthand. A `fold_count` that does not divide the gear evenly gives fractional
+/// positions, which the non-integral index warning flags.
 fn expand_orbit_shorthand(base: f64, fold_count: u32, gear_teeth_abs_f64: f64) -> Vec<f64> {
     if gear_teeth_abs_f64 <= 0.0 {
         return vec![base];
@@ -136,12 +125,10 @@ fn wheel_position(value: f64, gear_teeth_abs_f64: f64) -> f64 {
     }
 }
 
-/// A magnitude beyond 90 degrees is never a real facet. Every angle in this app
-/// is measured from the girdle plane or is the girdle itself (`0.0`), so nothing
-/// legitimately authored ever exceeds a right angle either side. Left unchecked,
-/// a mistyped extra digit (e.g. `410` for `41.0`) can sail through the inline
-/// cell and tier form and only surface later as "Degenerate: only N vertex(es)",
-/// with no hint the angle was the mistake.
+/// Refuses a magnitude beyond 90 degrees.
+///
+/// No crown or pavilion facet is steeper than a right angle, since angles are measured from
+/// the girdle plane. Checking here refuses a mistyped digit (`410` for `41.0`) at entry.
 fn reject_angle_over_90(angle_deg: f64) -> Result<(), String> {
     if angle_deg.abs() > 90.0 {
         // The message reads the magnitude (`-91` and `91` both read `91.00`): the side of the
@@ -157,15 +144,10 @@ fn reject_angle_over_90(angle_deg: f64) -> Result<(), String> {
 
 /// [`parse_tier_form`]'s bundled input.
 ///
-/// The tier-edit form's five text/enum fields
-/// (`angle`/`constraint_kind`/`constraint_text`/`name`/`indices`), the design's own
-/// `gear_teeth_abs` needed to validate `indices` against it, and the two carry-through
-/// values (`imported_meet`/`original_notes`) an existing row keeps across a save (see
-/// [`parse_tier_form`]'s own doc comment for both).
-///
-/// Bundled into its own struct purely to keep [`parse_tier_form`] under clippy's
-/// argument-count lint -- every one of these eight fields is still required, none
-/// dropped.
+/// The form's text and enum fields (`angle`, `constraint_kind`, `constraint_text`, `name`,
+/// `indices`), the design's `gear_teeth_abs` that `indices` is checked against, the carried
+/// `imported_meet` and `original_notes` an existing row keeps across a save, and the other
+/// tiers' names. A struct keeps [`parse_tier_form`] under clippy's argument limit.
 pub struct TierFormFields<'a> {
     /// The angle text field; must parse as a finite `f64`.
     pub angle: &'a str,
@@ -184,50 +166,39 @@ pub struct TierFormFields<'a> {
     pub imported_meet: Option<MeetConstraint>,
     /// The tier's current `original_notes`, threaded straight through unchanged.
     pub original_notes: Option<String>,
-    /// Every OTHER tier's own name token (`ConstraintTier::names()`, i.e. already
-    /// split on `/` -- see that method's own doc comment for the multi-name join
-    /// convention), gathered by the caller with the tier being saved itself
-    /// excluded. Checked case-insensitively against this form's own name so two
-    /// tiers can never silently share a name --
-    /// `MeetNameResolver::name_match` (`pleochroma::geometry::meet_solver::names`)
-    /// binds a `MeetNamed` reference to the FIRST tier bearing a given name, so an
-    /// undetected collision does not error, it just silently redirects some OTHER
-    /// tier's constraint to the wrong facet.
+    /// The `/`-split name tokens of every OTHER tier (see `ConstraintTier::names()`), with
+    /// the tier being saved excluded. The new name is checked against them case-insensitively:
+    /// `MeetNameResolver::name_match` binds a `MeetNamed` reference to the FIRST tier bearing
+    /// a name, so an undetected clash silently redirects another tier's constraint.
     ///
-    /// This form validates only the tier being saved. The other direction -- other
-    /// tiers whose `MeetNamed` lists name the tier being RENAMED -- is handled when
-    /// the save becomes an edit: `crate::tier_save::tier_save_edit` rewrites those lists
-    /// in the same batch, and `crate::tier_save::unnaming_blocked_message` refuses to
-    /// leave a met tier unnamed.
+    /// This checks only the tier being saved. Other tiers that name a RENAMED tier are
+    /// rewritten by `crate::tier_save::tier_save_edit`, and
+    /// `crate::tier_save::unnaming_blocked_message` refuses to leave a met tier unnamed.
     pub other_tier_names: Vec<String>,
 }
 
 /// Parses a tier form's index field into validated index-wheel positions.
 ///
-/// Accepts a comma/space/semicolon separated list whose tokens may each be a plain
-/// number, a `start:step:stop` arithmetic sequence, or a `base xN` orbit shorthand
-/// (see [`parse_colon_sequence`] and [`expand_orbit_shorthand`]
-/// for each form's own rules). Every produced value is checked for finiteness, for
-/// being on the design's own gear (`0` up to and including `gear_teeth_abs`), and for
-/// not repeating.
+/// Accepts a comma/space/semicolon separated list whose tokens may each be a plain number,
+/// a `start:step:stop` arithmetic sequence, or a `base xN` orbit shorthand (see
+/// [`parse_colon_sequence`] and [`expand_orbit_shorthand`]). Every produced value is checked
+/// for finiteness, for being on the design's gear (`0` up to and including `gear_teeth_abs`),
+/// and for not repeating.
 ///
-/// The index wheel is a ring: `gear_teeth_abs` (96 on a 96-tooth gear) is the same
-/// position as `0`. A typed `96` is therefore valid, and is kept exactly as typed (never
-/// rewritten to `0`, so a `.asc` file that carries `96` round-trips), while the duplicate
-/// check compares ring positions, so `0, 96` is reported as a repeat.
+/// The index wheel is a ring: `gear_teeth_abs` (96 on a 96-tooth gear) is the same position
+/// as `0`. A typed `96` is valid and kept as typed (never rewritten to `0`, so a `.asc` file
+/// that carries `96` round-trips), while the duplicate check compares ring positions, so
+/// `0, 96` is reported as a repeat.
 ///
 /// # Errors
 ///
-/// A message naming the offending token, ready to show the cutter. A value produced
-/// by a shorthand names the shorthand it came from as well as the value itself, so
-/// a range or duplicate error is traceable back to what was actually typed. A value
-/// off the gear reports the valid range ("Indices run from 0 to 96 on this gear.").
+/// A message naming the offending token, ready to show the cutter. A value produced by a
+/// shorthand names the shorthand as well as the value, so the error traces back to what was
+/// typed. A value off the gear reports the valid range ("Indices run from 0 to 96 on this
+/// gear.").
 ///
-/// `pub(super)` (rather than private to this module) so
-/// `callbacks::tier_actions::setup_generate_step_series_callback` can parse its own
-/// shared indices field with the exact same free-text convention
-/// [`parse_tier_form`]'s own indices field uses, instead of a second, divergent
-/// parser.
+/// Public so the desktop's `setup_generate_step_series_callback` reads its indices field
+/// with the same convention as [`parse_tier_form`].
 pub fn parse_index_list(indices: &str, gear_teeth_abs: u32) -> Result<Vec<f64>, String> {
     let gear_teeth_abs_f64 = f64::from(gear_teeth_abs);
     let mut parsed_indices: Vec<f64> = Vec::new();
@@ -299,72 +270,39 @@ pub fn parse_index_list(indices: &str, gear_teeth_abs: u32) -> Result<Vec<f64>, 
 
 /// Parses the tier-edit form's five text/enum fields into a [`ConstraintTier`].
 ///
-/// Pure
-/// and unit tested directly (see this module's tests) rather than only exercised
-/// through the Slint callback -- every validation an editor's numeric text field
-/// needs (not a number, not finite) surfaces as a plain `Err` message shown via a
-/// toast, never a panic on bad user input.
+/// Every validation failure is an `Err` message shown to the cutter, never a panic. The form
+/// has no `mast` field: a mast is [`pleochroma_cut_core::Design::solve`]'s output, never
+/// authored state (see `pleochroma_cut_core::design`'s module docs).
 ///
-/// There is deliberately no `mast` field -- see `pleochroma_cut_core::design`'s
-/// module docs: a mast is [`pleochroma_cut_core::Design::solve`]'s output, never
-/// authored state. The form does not offer a text field for it at all.
-/// `constraint_kind` is `EditorTierItem`'s own three-way encoding (`app.slint`'s
-/// `editor_save_tier` callback), the inverse of `super::state`'s
-/// `constraint_kind_and_text`:
+/// `constraint_kind` encodes the Meets choice, the inverse of `constraint_kind_and_text` in
+/// the view model:
 /// - `0` -- [`MeetConstraint::MeetExisting`] (`constraint_text` ignored).
-/// - `1` -- [`MeetConstraint::MeetNamed`], `constraint_text` a comma-separated name
-///   list.
-/// - `2` -- [`MeetConstraint::ScaleReference`], `constraint_text` a single real
-///   number (the authored dimension itself).
-/// - `3`/`4`/`5` -- an authored `TierTarget` ("cut to
-///   depth"/"girdle thickness"/"table width" -- see [`parse_tier_target`], this
-///   function's cutter-facing counterpart). The returned
-///   [`ConstraintTier::constraint`] is a `ScaleReference(0.0)` PLACEHOLDER for
-///   these three kinds -- `pleochroma_cut_core::design::targets`'s module docs
-///   document that `Design::resolved_meet_tier_inputs` always overwrites it
-///   with the real resolved mast before solving, so this function itself never
-///   needs (and cannot, without a `Design` to bisect against) compute the real
-///   value. The caller (`callbacks::tier_actions::setup_save_tier_callback`)
-///   calls [`parse_tier_target`] separately, with the same `constraint_kind`/
-///   `constraint_text`, to get the actual `TierTarget` for its own
-///   `Edit::SetTierTarget`.
-/// - anything else -- rejected as an `Err`, never silently coerced to a default
-///   constraint kind.
+/// - `1` -- [`MeetConstraint::MeetNamed`], `constraint_text` a comma-separated name list.
+/// - `2` -- [`MeetConstraint::ScaleReference`], `constraint_text` a single real number.
+/// - `3`/`4`/`5` -- an authored `TierTarget` (depth, girdle thickness, table width; see
+///   [`parse_tier_target`]). The returned constraint is a `ScaleReference(0.0)` placeholder:
+///   `Design::resolved_meet_tier_inputs` overwrites it with the resolved mast before
+///   solving, and this function has no `Design` to resolve it against. The caller calls
+///   [`parse_tier_target`] with the same fields to get the `TierTarget`.
+/// - anything else -- rejected as an `Err`, never coerced to a default kind.
 ///
-/// Indices split on comma/space/semicolon, matching
-/// `pleochroma_vault::local::reconstruct_asc_schedule`'s own splitting convention for
-/// the same kind of field, so a value copied from that reconstruction's indices
-/// column round-trips straight back in. Two shorthand forms are recognized before
-/// that plain split-and-parse: `"start:step:stop"` (a colon-separated arithmetic
-/// sequence, exclusive of `stop`, see [`parse_colon_sequence`]) and `"base xN"`
-/// (a base index followed by an `xN` fold count, expanded the same
-/// way the ORBIT column's own `orbit x8` label already describes a complete family,
-/// see [`parse_orbit_suffix`]/[`expand_orbit_shorthand`]); either form's generated
-/// values are wrapped modulo the gear and fed through the exact same per-value
-/// validation below as a hand-typed index. Each parsed value is then validated
-/// against `gear_teeth_abs` (the design's own index-wheel tooth count, from
-/// [`pleochroma_cut_core::design::tier::ScheduleMeta::gear_teeth_abs`]): it must be
-/// finite, within `0.0..=gear_teeth_abs as f64` (an index the gear physically has no
-/// tooth for is never silently accepted; the closing value is the same position as `0`
-/// on the ring and is kept as typed), and not a repeat of an earlier value in the
-/// same list (a duplicate names the same facet occurrence twice, which is never a
-/// meaningful tier; `0` and `gear_teeth_abs` count as the same position). The first entry that fails any of these is reported by its own
-/// text, matching every other field's own "name the offending value" convention here.
-/// A non-integral value (from either a hand-typed fraction or a fold count that does
-/// not evenly divide the gear) is still ACCEPTED here -- warning about it without
-/// rejecting it is the caller's job (`callbacks::tier_actions::setup_save_tier_callback`),
-/// since it is real GemCad-file behavior (`pleochroma_formats::asc`'s own module docs
-/// measure roughly 0.2% of real index tokens as fractional), not necessarily a mistake.
+/// Indices split on comma, space or semicolon, as
+/// `pleochroma_vault::local::reconstruct_asc_schedule` splits the same field, so a value
+/// copied from its indices column round-trips. The two
+/// shorthands ([`parse_colon_sequence`], [`expand_orbit_shorthand`]) are expanded first, and
+/// their values go through the same per-value checks as a typed index: each must be finite,
+/// within `0.0..=gear_teeth_abs` (`ScheduleMeta::gear_teeth_abs`), and not repeat an earlier
+/// value. `0` and `gear_teeth_abs` count as the same position, and the closing value is kept
+/// as typed. The first failing entry is reported by its own text.
 ///
-/// `imported_meet` is threaded straight through to the built [`ConstraintTier`]
-/// unchanged -- this function never inspects or clears it. The caller
-/// (`super::callbacks::setup_save_tier_callback`) passes the CURRENT tier's own
-/// `imported_meet` when editing an existing row (`index >= 0`) so that tweaking,
-/// say, just this tier's name does not silently discard the file's stated meet
-/// instruction, and `None` when adding a brand-new tier (`index < 0`), which
-/// has no import history to preserve at all. The one-click "Adopt" action
-/// (`super::callbacks::setup_adopt_meet_callback`) is the only thing that ever
-/// actually CONSULTS this field to build a new constraint from it.
+/// A non-integral value is accepted: real `GemCad` files carry fractional positions (see
+/// `pleochroma_formats::asc`). The caller warns about it instead of rejecting it
+/// (`callbacks::tier_actions::setup_save_tier_callback`).
+///
+/// `imported_meet` is passed through to the built [`ConstraintTier`] unchanged, so editing
+/// another field does not discard the file's stated meet instruction. The caller passes the
+/// current tier's value for an existing row and `None` for a new tier. Only the one-click
+/// "Adopt" action (`setup_adopt_meet_callback`) builds a constraint from it.
 ///
 /// # Errors
 ///
@@ -448,9 +386,10 @@ pub fn parse_tier_form(form: TierFormFields<'_>) -> Result<ConstraintTier, Strin
     })
 }
 
-/// [`parse_tier_form`] for a form whose angle field may hold a RELATION: text starting
-/// with `=` (`=C1-4`, `= (P1 + P3) / 2`) drives the tier's angle from other tiers
-/// instead of fixing it.
+/// [`parse_tier_form`] for a form whose angle field may hold a relation.
+///
+/// Text starting with `=` (`=C1-4`, `= (P1 + P3) / 2`) drives the tier's angle from other
+/// tiers instead of fixing it.
 ///
 /// Returns the tier and the relation text exactly as typed after the `=` (trimmed;
 /// the caller turns it into a relation with `EditorSession::set_tier_relation`, which
@@ -509,7 +448,7 @@ pub fn parse_tier_form_with_relation(
 /// The same "name the offending value" wording [`parse_tier_form`]'s own
 /// `ScaleReference` arm uses, prefixed with the target's own cutter-facing
 /// label ("Depth"/"Girdle thickness"/"Table width") instead of "Scale
-/// reference" -- `callbacks::tier_actions::tier_form_error_field` recognizes
+/// reference" -- [`tier_form_error_field`] recognizes
 /// all three prefixes and classifies them the same `"constraint"` field a
 /// bad Meets value always has. A non-finite or non-positive value is
 /// rejected the same way a non-positive preform dimension is
@@ -544,17 +483,12 @@ pub fn parse_tier_target(
 
 /// Classifies a [`parse_tier_form`] (or `Edit`-apply) error message by tier-form field.
 ///
+/// Names the form field a message is about, for marking its control.
+///
 /// The answer is `"angle"`, `"name"`, `"indices"` or `"constraint"` (and, for the concave
-/// form, `"tool"`, `"theta"`, `"x"`, `"y"`, `"z"`, `"diameter"` or `"tool_angle"`), or `""` for a
-/// general/unclassified error -- what a UI reads to put a red border on the SPECIFIC
-/// offending control, not only on the shared message under the whole form.
-///
-/// Matched on the exact wording this module's own error branches build (it reads the
-/// rendered text rather than a structured variant, since [`parse_tier_form`] returns a
-/// plain `String`); a message this does not recognize classifies as `""`, the same
-/// "general" bucket an apply-time (post-parse) failure falls into.
-///
-/// Moved from the desktop's `tier_actions::tier_form`.
+/// form, `"tool"`, `"theta"`, `"x"`, `"y"`, `"z"`, `"diameter"` or `"tool_angle"`), or `""`
+/// for a general error. It matches the exact wording this module's error branches build,
+/// since [`parse_tier_form`] returns a plain `String`.
 #[must_use]
 pub fn tier_form_error_field(message: &str) -> &'static str {
     // The concave form's messages name their field up front (`"theta: ..."`, see
@@ -611,16 +545,14 @@ fn concave_form_error_field(message: &str) -> Option<&'static str> {
 
 /// The warning shown for a non-integral index-wheel position, which is accepted anyway.
 ///
-/// [`parse_tier_form`] deliberately ACCEPTS such a position (real
-/// `.asc` files carry a small but real fraction of these) rather than rejecting it,
-/// since a hand-typed fraction is sometimes exactly what was meant. Without this
-/// warning a cutter gets no signal at all when it was NOT meant -- a stray extra digit
-/// ("12.5" for "12") would only ever surface later as an obscure solver oddity. A
-/// caller shows it after a successful parse, so a save is never blocked by this, only
-/// flagged. `1e-3` matches `pleochroma_cut_core`'s own `orbit::model::INDEX_TOLERANCE`
-/// order of magnitude for "close enough to call it a whole tooth".
+/// The warning shown for a non-integral index-wheel position, which is accepted anyway.
 ///
-/// Moved from the desktop's `tier_actions::tier_form`.
+/// [`parse_tier_form`] deliberately ACCEPTS such a position, since real `.asc` files carry
+/// some and a hand-typed fraction is sometimes exactly what was meant. Without this warning a
+/// stray extra digit ("12.5" for "12") would only surface later as an obscure solver oddity.
+/// A caller shows it after a successful parse, so a save is only flagged, never blocked.
+/// `1e-3` is `orbit::model::INDEX_TOLERANCE`, the tolerance for "close enough to call it a
+/// whole tooth".
 #[must_use]
 pub fn non_integral_index_warning(indices: &[f64]) -> Option<String> {
     let mut fractional: Vec<String> = indices

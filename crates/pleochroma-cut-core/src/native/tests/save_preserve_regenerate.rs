@@ -1,7 +1,6 @@
-//! When [`crate::native::catalogue_asc`] preserves the caller's original `.asc`
-//! text byte for byte versus when it must regenerate fresh text, the
-//! reconstructed-file marker, and a from-scratch [`crate::design::FreshDesignSpec`]
-//! design's own round trip.
+//! When [`crate::native::catalogue_asc`] keeps the caller's `.asc` text and when it
+//! regenerates it, the reconstructed marker, and the round trip of a
+//! [`crate::design::FreshDesignSpec`] design.
 
 use super::fixtures::{FULLY_CANONICAL_ASC, fully_anchored_design, reopen, simple_design};
 use crate::{
@@ -12,12 +11,10 @@ use crate::{
 };
 use pleochroma::geometry::meet_solver::MeetConstraint;
 
-/// [`crate::native::catalogue_asc`] must preserve the caller's original `.asc` text
-/// byte for byte when the design was not touched in any way that changes its
-/// `to_asc_schedule` output. Setting `girdle_diameter_mm`/`material` does NOT
-/// round-trip into `.asc`, so it must not trigger a regeneration either. Uses
-/// [`FULLY_CANONICAL_ASC`], not `SIMPLE_ASC` -- see that constant's own doc comment
-/// for why.
+/// [`crate::native::catalogue_asc`] keeps the caller's `.asc` text byte for byte when
+/// `to_asc_schedule` would write the same schedule. `girdle_diameter_mm` and `material`
+/// do not reach `.asc`, so changing them must not trigger a regeneration either. Uses
+/// [`FULLY_CANONICAL_ASC`] (see that constant for why it is not `SIMPLE_ASC`).
 #[test]
 fn catalogue_asc_preserves_untouched_text() {
     let design = fully_anchored_design();
@@ -27,13 +24,11 @@ fn catalogue_asc_preserves_untouched_text() {
     assert_eq!(saved.asc_text, FULLY_CANONICAL_ASC);
 }
 
-/// Selecting a different BUILT-IN material must not, by itself, force a fresh
-/// `.asc` regeneration. `fully_anchored_design`'s own `refractive_index_override:
-/// Some(1.62)` exists only to keep `simple_design`'s sibling fixture byte-stable
-/// for unrelated tests -- dropping it here and switching to
-/// Quartz (`n_D` ~1.544, not the file's own `I 1.62`) is the REAL case: nothing
-/// tier/preform-facing changed, only `Design::effective_refractive_index`'s derived
-/// output, which the design file's own `[material]` table already records separately.
+/// Selecting a different built-in material must not, by itself, force a fresh `.asc`
+/// regeneration. Clearing the fixture's `refractive_index_override` and selecting
+/// Quartz (`n_D` ~1.544, not the file's `I 1.62`) changes only
+/// `Design::effective_refractive_index`, which the design file's `[material]` table
+/// records on its own.
 #[test]
 fn catalogue_asc_preserves_untouched_text_after_a_material_change_alone() {
     let mut design = fully_anchored_design();
@@ -60,7 +55,7 @@ fn catalogue_asc_preserves_untouched_text_after_a_material_change_alone() {
 }
 
 /// The moment a real tier-facing edit changes the schedule, [`crate::native::catalogue_asc`]
-/// must regenerate fresh `.asc` text instead of preserving the (now stale) original.
+/// must regenerate fresh `.asc` text instead of preserving the stale original.
 #[test]
 fn catalogue_asc_regenerates_after_a_real_edit() {
     let mut design = simple_design();
@@ -74,9 +69,7 @@ fn catalogue_asc_regenerates_after_a_real_edit() {
     assert!((reparsed.tiers[1].mast - 0.5).abs() < 1e-9);
 }
 
-/// With no original text at all (a brand-new design, never previously exported),
-/// `catalogue_asc` must fall straight through to a fresh export rather than
-/// erroring.
+/// Without original text, `catalogue_asc` exports fresh instead of erroring.
 #[test]
 fn catalogue_asc_with_no_original_text_exports_fresh() {
     let design = fully_anchored_design();

@@ -26,8 +26,8 @@ You can keep editing other parts of the design while this runs. If you make
 an edit that changes the design before the background solve finishes, its
 result is discarded rather than applied over your newer edit — the strip
 already shows the correct "not solved" state for what you just changed, and
-you can Solve again once you're ready. At 16 tiers or under, Solve still
-completes immediately, matching the app's original behaviour.
+you can Solve again once you're ready. At 16 tiers or fewer, Solve completes
+immediately.
 
 While stale, the status strip reads:
 
@@ -47,8 +47,7 @@ a short pause (so a burst of keystrokes only triggers one solve, not one
 per keystroke) — and the tier list, status strip, and viewport update on
 their own once it completes, exactly as if you had clicked Solve.
 
-- **Off** disables this entirely: edits only ever mark the design stale, the
-  same behaviour the app has always had.
+- **Off** disables this entirely: edits only mark the design stale.
 - Any other setting is a *ceiling*, not a guarantee: it is judged against
   THIS design's own last real solve time, which starts unmeasured on a
   fresh or freshly loaded design (auto-solve is tried optimistically until
@@ -163,7 +162,7 @@ reason they belong to.
 | Word | Meaning |
 |---|---|
 | **Good** | The design solves and closes, nothing in the manufacturability list applies, no facet lets light out of the bottom and no proportion is outside its usual range. |
-| **Check** | The stone can be cut, but something deserves a look: a manufacturability warning, a facet below the critical angle, a missing table, a proportion outside the usual range, or an optical figure past its first threshold. |
+| **Check** | The stone can be cut, but something deserves a look: a manufacturability warning, a facet below the critical angle, a missing table, a proportion outside the usual range, a tier with no meet point, a girdle that is not level, or an optical figure past its first threshold. |
 | **Problem** | The design does not solve or the facets do not close into a stone, or an optical figure is far past its threshold. Fix these before cutting. |
 
 The badge is recomputed whenever a solve lands (the button, the automatic
@@ -184,6 +183,7 @@ only where a safe tool exists:
 | A tier meets a tier that is cut later. | **Move later** | Moves the tier to just after the last tier it meets, so the schedule is cut in a workable order. |
 | A pavilion facet is below the critical angle (windowing). | **Steepen** | Turns the facet about its girdle corners to the critical angle plus 2 degrees, so the girdle outline stays where it is. It is checked with the same gate Retarget uses and refused when the result would not be a valid stone. |
 | The crown has no table. | **Add a table** | Adds a flat top at 0 degrees, using the quick-add height when that keeps every crown facet, otherwise the nearest height that does. |
+| Tiers have no meet point: when they are cut, there is no corner on the stone to cut them to. | **Snap to Meets** | After a confirmation, moves the depth of each listed tier onto the nearest corner of the stone cut so far, when that corner is within 2 % of the stone's size (0.2 mm on a 10 mm stone). Offered when at least one listed tier is that close. The anchors never move, and no angle or index changes. It can cut small tiers away; the dialog names them before you confirm. |
 
 A Fix is **one undo step**: a single Ctrl+Z puts everything back, and a
 toast says what changed. Each fix is planned on a copy of the design first
@@ -193,7 +193,66 @@ material would need beyond 89.5 degrees, or a result that no longer solves.
 While a guide or tutorial step has locked the tier table (Chapters 7 and 22)
 the Fix buttons are dimmed and say so in their tooltips. Other reasons (an unsafe meet name, a
 concave-tool finding, a proportion outside its range, a crown facet that may
-leak) have no Fix: change the design yourself, then look at the verdict again.
+leak, a girdle that is not level) have no Fix: change the design yourself,
+then look at the verdict again.
+
+### Meet Points and a Level Girdle
+
+Two Checks are about cutting the stone rather than about how it looks.
+
+**No meet point.** The cutting sheet tells the cutter, row by row, which
+corner of the stone to cut each tier to (Chapter 11, "Meet Points on the
+Sheet"). That corner has to be on the stone already when the tier is cut.
+When a tier's facets reach no corner of the stone cut so far, the cutter has
+nothing to stop at, and the verdict says so, for example:
+
+> 3 tiers have no meet point: P2 (0.12 mm off), P3 (0.26 mm off) and T (0.83 mm off). A cutter has to set their depth by measurement.
+
+The figure in brackets is how far the tier's facets pass from the nearest
+corner. A design without a girdle diameter gives it as a share of the
+stone's size instead: "(1.2 % of the stone's size off)". On the sheet
+those rows give only their depth ("Cut to depth ..."). This is common after Optimize,
+which sets each depth for the best optics and not for a corner. **Snap to
+Meets** works the new depths out first, then asks, in a dialog headed "Move
+Depths to Meet Points?" with a **Move** button:
+
+> Move the depth of 3 tiers to the nearest meet point? This changes the design; check the optics afterwards.
+
+It moves only tiers set by an explicit depth, in cutting order, and only as
+far as 2 % of the stone's size. A tier farther from any corner keeps its
+depth, and stays in the list. The command-line tool's `snap-meets` command
+does the same with a limit you choose (Chapter 11).
+
+The nearest corner is not always the one the designer meant. On Pentalume
+the only corner near P2 when it is cut is the culet, so the snap takes P2
+down to the culet, and the new depths then cut every facet of the small
+tiers P3 and C3 away. The snap still goes ahead, because the stone itself
+holds: it is refused only when the stone would no longer solve or close,
+would lose its girdle or get a much thinner one, or would put the table or
+culet on the wrong side of the girdle. The dialog names the tiers it would
+cut away before you press **Move** ("It cuts away P3 (all 10 facets) and C3
+(all 10 facets)."), the message afterwards names them again, and the
+verdict then lists them with its **Remove** fix. One Ctrl+Z puts the design
+back as it was.
+
+**Girdle not level.** A level girdle is a band of the same thickness all
+the way round: every pavilion facet meets it at one height and every crown
+facet at another. The check reads the girdle line: the corners between the
+girdle facets and the ends of the level edges. The small scallop where two
+break facets meet in the middle of a girdle facet makes the girdle a little
+thicker there, as on every brilliant, and does not count. The girdle is not
+level when facets cut into the girdle line and thin it, as the tiny P3 and
+C3 facets of Pentalume do at the corners of its clipped pentagon: the
+girdle comes out thinner in some places than in others, and a setting does
+not sit evenly on it. The verdict gives the range and names the tiers that
+do it:
+
+> The girdle is not level: it is 0.26 to 0.40 mm thick. P3 and C3 cut into it.
+
+A design without a girdle diameter gives the thickness as a share of the
+stone's width. There is no Fix: move the named tiers' depth or angle until
+they stop at the girdle line, or keep the design as it is if the setting
+will hide the difference.
 
 ### Where the Thresholds Come From
 
@@ -211,10 +270,7 @@ closes and the design names a material:
 
 The windowing thresholds are the ones to trust most. The extinction and
 brilliance thresholds are loose starting points, not measured limits: they
-are meant to flag a stone that is plainly poor, not to rank good ones. All of
-them are named constants at the top of the verdict code, so they are easy to
-tighten once enough real stones have been compared.
-
+are meant to flag a stone that is plainly poor, not to rank good ones.
 ### What the Figures Ignore
 
 The optical figures (the Windowing, Extinction and Brilliance above, and the readouts over the viewport) describe a clear stone with perfectly polished facets. They do not count the Inclusions of Chapter 27, the Surface Finish and Abraded Edges of Chapter 26 or the Play-of-Color of Chapter 28. When one of these is on, the tooltip of the metrics readout, the list of reasons behind this badge and the header of the Compare window (Chapter 14) add one line, for example "Figures ignore Inclusions and Surface Finish.", naming only what is switched on. The line never changes the badge, a word or a number: it says that the picture shows something the numbers do not. Optimize, the angle sweeps, Tune, Baseline, Trials and the tilt curves are blind to these effects in the same way.
@@ -223,24 +279,16 @@ The optical figures (the Windowing, Extinction and Brilliance above, and the rea
 
 While a solve is running in the background, the Solve button itself reads
 **Abandon Solve** and stays enabled; there is no second button beside it.
-Clicking it stops the solver within a sweep
-or pipeline run — typically a few milliseconds, on the order of 1 ms —
-not just discard the eventual answer client-side: `dispatch_background_solve`
-threads a `SolveControl::with_cancel` through `Design::solve_with`, the
-same real mid-run cancellation Deep Solve and Optimize already use for
-their own Cancel buttons (Chapter 8). The status strip goes back to
+Clicking it stops the solver mid-run, within a few milliseconds, rather than
+only discarding the eventual answer. Deep Solve and Optimize stop the same way
+(Chapter 8). The status strip goes back to
 **Stale** immediately, on the same click, and the status strip's
 activity list (the small chips showing whatever is currently running)
 drops the entry right away too.
 
-The label is "Abandon" rather than "Cancel" for one honest
-reason: it discards whatever partial progress the solver had made,
-exactly like Cancel Deep Solve/Cancel Optimize — the difference from
-those two is only that a plain `Design::solve` has no partial RESULT to
-keep even if it wanted to (Deep Solve's own search can report a
-best-so-far; a meet-point solve is all-or-nothing), so "Abandon" reads
-slightly more accurately for this one button. Functionally, all three
-Cancel/Abandon buttons stop their worker immediately.
+The label is "Abandon" because a meet-point solve is all-or-nothing: it has no
+partial result to keep. Cancel Deep Solve and Cancel Optimize keep a
+best-so-far, but all three buttons stop their worker immediately.
 
 ## Activity Strip and Cancelling
 

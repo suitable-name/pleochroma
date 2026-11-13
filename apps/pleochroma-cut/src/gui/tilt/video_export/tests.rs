@@ -17,11 +17,10 @@ fn axis_order_keeps_the_order_and_each_axis_once() {
     assert_eq!(axis_order([2, 0, 3]), vec![2, 0, 3]);
     assert_eq!(axis_order([1, 1, 3, 1]), vec![1, 3]);
     assert_eq!(axis_order([-1, 4, 2, 99]), vec![2]);
-    assert!(axis_order([]).is_empty());
+    assert_eq!(axis_order([]), [] as [usize; 0]);
 }
 
-/// Click order is play order: nothing is chosen at first, the first click is first, the second
-/// second; taking one out moves the ones after it up, and taking out the last one leaves none.
+/// Click order is play order. Taking an axis out moves the ones after it up.
 #[test]
 fn a_click_on_an_axis_chip_appends_or_removes_it_in_order() {
     assert_eq!(toggled_axes(&[], 2), vec![2]);
@@ -32,7 +31,7 @@ fn a_click_on_an_axis_chip_appends_or_removes_it_in_order() {
     // Out and in again: it goes last.
     assert_eq!(toggled_axes(&[0, 3], 2), vec![0, 3, 2]);
     // The last one out: none chosen again.
-    assert!(toggled_axes(&[3], 3).is_empty());
+    assert_eq!(toggled_axes(&[3], 3), [] as [usize; 0]);
 }
 
 #[test]
@@ -40,7 +39,7 @@ fn the_compute_pill_maps_to_the_engines_and_is_local_without_a_remote() {
     assert_eq!(compute_target_of(0, true), ComputeTarget::LocalOnly);
     assert_eq!(compute_target_of(1, true), ComputeTarget::RemoteOnly);
     assert_eq!(compute_target_of(2, true), ComputeTarget::Both);
-    // An out-of-range index falls back to today's behaviour.
+    // An out-of-range index falls back to `Both`.
     assert_eq!(compute_target_of(7, true), ComputeTarget::Both);
     // No remote configured: the pill is hidden, so even a stale "Remote only" renders locally.
     for index in 0..3 {
@@ -56,11 +55,11 @@ fn colorspace_label_covers_every_variant() {
     assert_eq!(colorspace_label(ColorSpace::AcesCg), "ACEScg");
 }
 
-/// `build_video_template_context` -- the function `live_template_context` feeds
-/// the preview from -- must carry the real design and material all the way
-/// through the rendered folder name, for a design/material pair that is
-/// nothing like the hard-coded sample, so the "Resolves to" preview never
-/// falls back to the fixed placeholder while a real design is open.
+/// The real design and material must reach the rendered folder name.
+///
+/// The path runs through `build_video_template_context`, which `live_template_context` feeds
+/// the "Resolves to" preview from. The pair here differs from the hard-coded sample, so a
+/// fallback to the sample would show.
 #[test]
 fn preview_reflects_the_real_open_design_and_material_not_the_hard_coded_sample() {
     let scene =
@@ -105,11 +104,10 @@ fn preview_reflects_the_real_open_design_and_material_not_the_hard_coded_sample(
     );
 }
 
-/// A CPU end-to-end smoke test covering the whole pipeline this module wires up
-/// (frame pose list, per-frame render, overlay, PNG write) at 128x128 with a
-/// handful of frames. Drives `run::render_all_frames`'s pieces directly (not
-/// through the Slint callback plumbing, which needs a live `MainWindow`) so it
-/// can run in a headless `cargo test` process.
+/// CPU end-to-end smoke test of the per-frame pipeline at 128x128 with three frames.
+///
+/// It covers frame angles, render, overlay and PNG write. It calls the pieces directly, not
+/// the Slint callbacks (which need a live `MainWindow`), so it runs headless.
 #[test]
 fn end_to_end_cpu_render_at_128x128_with_a_handful_of_frames_and_overlay() {
     use crate::bridge::render_thread::RenderContext;

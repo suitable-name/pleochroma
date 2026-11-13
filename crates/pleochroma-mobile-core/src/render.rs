@@ -243,8 +243,7 @@ impl Drop for RenderState {
 }
 
 // The pool's state is shared behind an `Arc`, so several methods need no `&mut self`; they
-// take it anyway so the owner of the `AppState` serialises every call (the agreed contract).
-// (Clippy's `needless_pass_by_ref_mut` does not fire on this block as it stands.)
+// take it anyway so the owner of the `AppState` serialises every call.
 impl RenderState {
     /// Shared budget for long editor operations and exports as well as tracing.
     #[must_use]
@@ -456,7 +455,7 @@ impl RenderState {
             }
             // A panic while the scene is built or the GPU is acquired would be swallowed by
             // the queue and leave the epoch "tracing" with no scene for good; fail it
-            // instead, so the driver starts a fresh one.
+            // instead, so the next start begins a fresh epoch.
             let prepared = catch_unwind(AssertUnwindSafe(|| {
                 let built = spec
                     .build_with_customs(hdr, &customs)
@@ -477,9 +476,10 @@ impl RenderState {
     }
 }
 
-/// The sample target of the live render for the quality setting and the window class:
-/// Draft 32; Normal the compact or large count of the settings; Fine twice that; battery
-/// saver always Draft.
+/// The live render's sample target for the quality setting and the window class.
+///
+/// Draft is 32; Normal is the compact or large count of the settings; Fine is twice that;
+/// battery saver always uses Draft.
 #[must_use]
 pub fn live_target_spp(state: &AppState) -> u32 {
     let render = &state.settings.render;
@@ -508,9 +508,8 @@ pub fn live_target_spp(state: &AppState) -> u32 {
 /// Starts a render epoch at `view`'s size from the current design, solve, material,
 /// lighting, HDR map and camera, cancelling the epoch before.
 ///
-/// Returns the new epoch's id
-/// (the `epoch` of its frames) at once; the scene is built and traced on the pool's
-/// threads.
+/// Returns the new epoch's id (the `epoch` of its frames) at once; the scene is built and
+/// traced on the pool's threads.
 ///
 /// # Errors
 ///
@@ -538,9 +537,9 @@ pub fn start(state: &mut AppState, view: RenderView) -> Result<u64, String> {
 
 /// Whether [`start`] would trace something other than what runs now.
 ///
-/// That is so when the design (its
-/// solve), the material, the lighting, the HDR map, the camera, the sample target or the
-/// window class changed since the last start, or nothing was started (or it was stopped).
+/// That is so when the design (its solve), the material, the lighting, the HDR map, the
+/// camera, the sample target or the window class changed since the last start, or nothing
+/// was started (or it was stopped).
 ///
 /// An unchanged answer ("nothing to render" again) is not a change, so the UI does not
 /// loop on a design that cannot be rendered.
@@ -565,9 +564,9 @@ const fn pixel_size(width: f32, height: f32) -> (u32, u32) {
 
 /// Snapshots the scene for a picture export.
 ///
-/// The size follows the live view's aspect (or
-/// the viewport's, or 4:3) with the requested long edge, and the long edge and the samples
-/// are capped by `settings.render.export_cap_px` and `export_cap_spp`.
+/// The size follows the live view's aspect (or the viewport's, or 4:3) with the requested
+/// long edge. The long edge and the samples are capped by `settings.render.export_cap_px`
+/// and `export_cap_spp`.
 ///
 /// # Errors
 ///

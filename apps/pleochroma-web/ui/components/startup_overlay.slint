@@ -2,11 +2,10 @@ import { Button } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 import { RenderModel } from "render_model.slint";
 
-// The GPU start-up run's progress card (`src/render/gpu_gate/startup.rs`): shown over the
-// whole window while the page tests the GPU (adapter request, limits check, kernel compile,
-// test render), with a bar that follows the real steps. The CPU workers render meanwhile;
-// "Hide" only hides the card, the run goes on and its result is said in the Render panel and
-// the status strip. A full-window dim layer, so a click outside the card does nothing.
+// GPU start-up test progress card (`src/render/gpu_gate/startup.rs`), shown over the window
+// while the page tests the GPU. The bar follows the real steps, and the CPU workers render
+// meanwhile. "Hide" only hides the card: the test goes on, and its result shows in the Render
+// panel and the status strip. A full-window dim layer, so clicks outside the card do nothing.
 export component StartupOverlay inherits Rectangle {
     background: Theme.overlay-backdrop;
 

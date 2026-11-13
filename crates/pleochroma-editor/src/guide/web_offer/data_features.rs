@@ -1,13 +1,13 @@
-//! Web overlays for the lessons that wait for a web feature (the `B` class of the lesson audit):
+//! Web overlays for the lessons that wait for a web feature (class `B` in `WEB_LESSONS`):
 //! Deep Solve, the library, cutting mode and the Cut slider.
 //!
-//! Deep Solve, the library and cutting mode now exist in the browser, so these lines describe their
-//! real screens: the Deep Solve section of the Optimize tab, the Design Library screen (File >
-//! Design Library..., Alt+L) with its search box, Shape, Gear and Tag lists, Concave Only chip and
-//! Open Design button, and the Cut Mode button; the Cut slider reads Cut: Rough, Cut: n/N and
-//! Cut: Finished. The variants view and a design's own lighting have no browser screen, so those two
-//! lessons are class C (`web_offer.rs`) and have no overlay here. Every `from` text is a line of the catalogue's lesson, word for
-//! word; a test applies each overlay to the catalogue and fails when one no longer matches.
+//! The lines describe the browser's real screens: the Deep Solve section of the Optimize tab,
+//! the Design Library screen (File > Design Library..., Alt+L) with its search box, Shape, Gear
+//! and Tag lists, Concave Only chip and Open Design button, the Cut Mode button, and the Cut
+//! slider reading Cut: Rough, Cut: n/N and Cut: Finished. The variants view and a design's own
+//! lighting have no browser screen, so those two lessons are class `C` (`web_offer.rs`) and have
+//! no overlay here. Every `from` text is a line of the catalogue's lesson, word for word; a test
+//! applies each overlay to the catalogue and fails when one no longer matches.
 
 use super::overlay::{GuideOverlay, StepOverlay};
 use crate::guide::{Goal, Group, viewing_events::LIBRARY_FILTERED};

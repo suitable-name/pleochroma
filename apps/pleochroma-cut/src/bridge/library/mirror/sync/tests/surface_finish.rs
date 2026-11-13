@@ -1,6 +1,8 @@
-//! The surface finish of a remote design: a mirror sync reads it from the design file among the
-//! design's attachments, a later revision replaces it, and a design whose file states none (or
-//! that has no design file) is mirrored with the ideal polish.
+//! Tests of the surface finish of a remote design in a mirror sync.
+//!
+//! A mirror sync reads the finish from the design file among the design's attachments, a later
+//! revision replaces it, and a design whose file states none (or that has no design file) is
+//! mirrored with no surface finish stored.
 
 use super::{
     super::pass::run_mirror_sync,
@@ -115,7 +117,7 @@ fn a_mirror_sync_reads_the_finish_from_the_attached_design_file_and_a_later_revi
     sync(&db, 1, Some(design_text(false)));
     assert!(stored(&db).is_empty());
 
-    // And a design that has no design file at all is mirrored with the ideal polish.
+    // A design with no design file at all stores no finish.
     sync(&db, 2, Some(design_text(true)));
     assert!(!stored(&db).is_empty());
     sync(&db, 3, None);

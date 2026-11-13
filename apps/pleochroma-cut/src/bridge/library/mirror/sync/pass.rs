@@ -181,11 +181,9 @@ pub(super) fn run_mirror_sync(
     MirrorOutcome::Completed(counts)
 }
 
-/// [`pleochroma_vault::db::sqlite::Database::count_mirror_states_without_entry`], with
-/// any error collapsed to `0` -- a failed count degrades the sync summary's "N designs
-/// skipped (deleted locally)" line to silently reading `0`, rather than failing (or
-/// even just not reporting) an otherwise-successful sync over a query this method
-/// itself documents as never mutating anything.
+/// [`pleochroma_vault::db::sqlite::Database::count_mirror_states_without_entry`], with any error
+/// collapsed to `0`, so a failed count never fails an otherwise successful sync. The query only
+/// reads.
 fn count_orphaned_mirror_states(db: &Arc<Mutex<Database>>) -> u64 {
     db.lock()
         .unwrap_or_else(PoisonError::into_inner)

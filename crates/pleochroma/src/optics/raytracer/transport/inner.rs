@@ -4,17 +4,22 @@
 //! capture, facet finish lookup, interior-segment absorption, and the per-sample ray
 //! context builders).
 
-use super::{PathTermination, path_events::PathEvents};
+use super::{
+    PathTermination,
+    path_events::PathEvents,
+    reference::{KeptFn, ReferenceSample},
+};
 
 use super::super::{
     NUM_CHANNELS,
     absorption::apply_segment_absorption,
     camera::{FacetFinish, HitRecord, Ray},
-    environment::EnvironmentSource,
+    environment::{EnvironmentSource, environment_supports_nee},
+    estimator::Estimator,
     intersect::shading_normal_near_edge,
     refraction::{
-        RayMaterialContext, RayWavelengthCache, build_ray_wavelength_cache,
-        build_ray_wavelength_cache_prepared,
+        DirectionMatch, RayMaterialContext, RayWavelengthCache, build_ray_wavelength_cache,
+        build_ray_wavelength_cache_prepared, build_ray_wavelength_cache_tabled,
     },
     surface::{SurfaceScene, merged_facet_finishes},
     zoned::PreparedZoneKernels,
@@ -29,17 +34,22 @@ use crate::{
         materials::{CrystalSystem, GemMaterial},
         polarization::StokesVector,
         studio_rig::StudioRig,
+        tables::OpticsTableSet,
     },
 };
 use glam::Vec3;
 use std::sync::Arc;
 
 mod bounce_body;
-use bounce_body::trace_spectral_ray_core;
+use bounce_body::{trace_spectral_ray_core, trace_spectral_ray_core_reference};
 
-/// Records the primary ray's first hit for the denoiser's guide buffers. Only bounce 0
-/// writes: at that point `current_ray` is still the camera ray, and the traced path is
-/// always driven by the hero channel, so this is unambiguously the hero's own first hit.
+/// Records the primary ray's first hit for the denoiser's guide buffers. Only bounce 0 writes:
+/// there `current_ray` is still the camera ray, and the path is driven by the hero channel, so
+/// the slot receives the hero's own first hit.
+///
+/// A stone seen in a Tray Reflection is reached only after a floor bounce, so it has no bounce-0
+/// hit. Its pixel keeps no primary hit (facet id -1 in the guide buffers) and the denoiser passes
+/// it through unfiltered. This is a documented approximation (`docs/physics.md` section 9).
 fn capture_primary_hit(
     primary_hit_out: &mut Option<&mut Option<HitRecord>>,
     bounce: u32,
@@ -59,12 +69,12 @@ fn facet_finish_for(facet_finishes: &[FacetFinish], facet_idx: usize) -> FacetFi
 
 /// Edge-rounded shading normal for a hit on a (possibly concave) stone.
 ///
-/// A convex stone calls [`shading_normal_near_edge`] unchanged, so the planar output is
-/// bit-identical. With tools, rounding is skipped (v1) for a hit on a tool surface, and
-/// for a plane hit within `rounding_radius` of a tool: `shading_normal_near_edge` blends
-/// toward the nearest *plane* normal, which would be the wrong neighbour there. The
-/// tool-proximity test probes the four in-plane points one radius away, which is exact
-/// for the common case of a tool crossing the facet and cheap (tools are few).
+/// A convex stone returns [`shading_normal_near_edge`] unchanged, so a planar result is
+/// bit-identical. With tools, rounding is skipped for a hit on a tool surface, and for a plane
+/// hit within `rounding_radius` of a tool: `shading_normal_near_edge` blends toward the nearest
+/// *plane* normal, the wrong neighbour there. The tool-proximity test probes four in-plane
+/// points one radius away. That is exact when a tool crosses the facet, and cheap since tools
+/// are few.
 fn shading_normal_for_hit(
     geom: StoneGeometry<'_>,
     hit_point: Vec3,
@@ -110,19 +120,17 @@ fn point_in_material(geom: StoneGeometry<'_>, p: Vec3) -> bool {
         && !geom.tools.iter().any(|tool| tool.contains(p))
 }
 
-/// Debug check of the `inside_gem` toggle against the geometry (concave stones only).
+/// Debug check of the `inside_gem` state against the geometry (concave stones only).
 ///
-/// The toggle is correct because every boundary of the material is a crossing, so the
-/// point just before the next hit is in material exactly when `inside_gem`. A point
-/// within a few `1e-4` of another surface can classify either way, so the check fires
-/// only when two probe points straddling the `1e-4` hit offset agree with each other.
+/// Every boundary of the material is a crossing, so the point just before the next hit lies in
+/// the material exactly when `inside_gem`. A probe within a few `1e-4` of another surface can
+/// classify either way, so the check fires only when two probes straddling the `1e-4` hit
+/// offset agree with each other.
 ///
-/// `inside_gem` is the intersection's own state by the time this runs (the bounce loop
-/// adopts the side `intersect_stone_soa_side` reports), so the check compares that state
-/// with a classification that shares no code with the intersection. The toggle alone is
-/// not enough on a concave stone: a `1e-4` restart can step over a second surface (the
-/// rim where a tool meets a facet), and the toggle then names the wrong medium for the
-/// whole next stretch.
+/// `inside_gem` is the side the intersection reports (`intersect_stone_soa_side`), and the
+/// classification shares no code with the intersection. The toggle alone is not enough on a
+/// concave stone: a `1e-4` restart can step over a second surface (a tool's rim on a facet),
+/// and the toggle would then name the wrong medium for the rest of the stretch.
 #[cfg(debug_assertions)]
 fn debug_assert_inside_gem_matches_geometry(
     geom: StoneGeometry<'_>,
@@ -141,29 +149,25 @@ fn debug_assert_inside_gem_matches_geometry(
     );
 }
 
-/// Interior-side handling of one facet hit: flips the geometric normal to face the
-/// interior ray, then applies the segment's plain Beer-Lambert absorption. A no-op
-/// while the ray is outside the gem.
+/// Interior-side handling of one facet hit: flips the geometric normal to face the interior
+/// ray, then applies the segment's Beer-Lambert absorption. A no-op outside the gem.
 ///
-/// A scattering-active material's extinction for this segment is already applied by
-/// `try_scatter_step`'s no-scatter branch -- calling `apply_absorption` here too would
-/// double-charge absorption. `scattering_sigma_s <= 0.0` is the non-scattering case,
-/// where this is the only absorption application.
+/// A scattering material's extinction for the segment is already applied by `try_scatter_step`,
+/// so absorption is applied here only for a non-scattering material.
 ///
-/// `ray_ctx` bundles `(&RayMaterialContext, &RayWavelengthCache)` to keep this
-/// function's argument count within clippy's `too_many_arguments` limit.
+/// `ray_ctx` bundles the material context and wavelength cache, to stay within clippy's
+/// argument limit.
 ///
-/// `k_hat` is the WAVE NORMAL `k` (`current_k` in the caller), not the Poynting
-/// direction `S` -- `apply_absorption`'s assigned-mode E-field derives from `k`; the
-/// segment's path length stays geometric. See `refraction`'s design note, rule 6.
+/// `k_hat` is the WAVE NORMAL `k`, not the Poynting direction: the assigned-mode E-field of the
+/// absorption derives from `k`, while the segment length stays geometric. See the `refraction`
+/// module docs.
 ///
-/// `segment` is the interior segment: the ray it travelled (its current origin and direction
-/// in model units) and its length `hit_t`. The ray matters only to a zoned material, whose
-/// absorption depends on where the segment lies (`absorption::apply_segment_absorption`).
+/// `segment` is the ray the path travelled (origin and direction, model units) and its length
+/// `hit_t`. Only a zoned material reads the ray, since its absorption depends on where the
+/// segment lies (`absorption::apply_segment_absorption`).
 ///
-/// `is_extraordinary` names which eigenmode this path was assigned to at its most recent
-/// air->crystal entry -- see `absorption::channel_absorption_alphas_assigned`'s doc
-/// comment.
+/// `is_extraordinary` is the eigenmode assigned at the path's latest air->crystal entry (see
+/// `absorption::channel_absorption_alphas_assigned`).
 fn apply_interior_segment(
     ray_ctx: (&RayMaterialContext, &RayWavelengthCache),
     k_hat: Vec3,
@@ -206,20 +210,23 @@ pub(super) fn build_ray_material_context(
 
 /// Bundles [`build_ray_material_context`] and [`build_ray_wavelength_cache_prepared`] into one
 /// call -- see [`RayWavelengthCache`]'s doc comment for what it caches. `zone_kernels` is the
-/// frame's shared zone kernels (`None` for an unprepared trace, which builds its own).
-fn build_ray_context<'m>(
+/// frame's shared zone kernels (`None` for an unprepared trace, which builds its own). `tables` is
+/// the render's optics lookup tables (`None`, the default, keeps every site on its closed form).
+pub(super) fn build_ray_context<'m>(
     material: &'m GemMaterial,
     lambdas: [f32; NUM_CHANNELS],
     hero_idx: usize,
     enable_internal_mode_coupling: bool,
     zone_kernels: Option<&Arc<PreparedZoneKernels>>,
+    tables: Option<&Arc<OpticsTableSet>>,
 ) -> (RayMaterialContext<'m>, RayWavelengthCache) {
     let mat_ctx =
         build_ray_material_context(material, lambdas, hero_idx, enable_internal_mode_coupling);
-    let wavelength_cache = zone_kernels.map_or_else(
-        || build_ray_wavelength_cache(&mat_ctx),
-        |kernels| build_ray_wavelength_cache_prepared(&mat_ctx, Some(kernels)),
-    );
+    let wavelength_cache = match (zone_kernels, tables) {
+        (None, None) => build_ray_wavelength_cache(&mat_ctx),
+        (kernels, None) => build_ray_wavelength_cache_prepared(&mat_ctx, kernels),
+        (kernels, tables) => build_ray_wavelength_cache_tabled(&mat_ctx, kernels, tables),
+    };
     (mat_ctx, wavelength_cache)
 }
 
@@ -235,21 +242,20 @@ fn record_termination(
     }
 }
 
-/// The shared body of [`trace_spectral_ray`](super::trace_spectral_ray)/
-/// [`trace_spectral_ray_with_finish`](super::trace_spectral_ray_with_finish) -- see
-/// those functions' doc comments for the parameter list. `enable_internal_mode_coupling
-/// = false` reproduces the pre-existing behaviour (mode fixed at entry for the whole
-/// interior traversal); only this module's tests use `false`.
+/// The shared body of [`trace_spectral_ray`](super::trace_spectral_ray) and
+/// [`trace_spectral_ray_with_finish`](super::trace_spectral_ray_with_finish). See those for the
+/// parameters.
 ///
-/// `plane_soa` is the caller-supplied [`crate::simd::PlanesSoA32`] arena
-/// `intersect_polyhedron_soa` scans, built once by the caller rather than once per
-/// sample. `planes` is still taken separately since `shading_normal_near_edge` needs
-/// the per-facet plane records themselves, not just the `SoA` arena.
+/// `enable_internal_mode_coupling = false` fixes the eigenmode at entry for the whole interior
+/// traversal. Only this module's tests pass `false`.
 ///
-/// `pub(super)`: called by every public entry point in `transport::mod`, and directly by
-/// `transport::tests`' own A/B on/off sweeps (`enable_internal_mode_coupling`,
-/// `enable_exit_splitting`, `enable_nee`), which the public entry points hardcode to
-/// `true` and so cannot express.
+/// `plane_soa` is the [`crate::simd::PlanesSoA32`] arena that `intersect_polyhedron_soa` scans,
+/// built once by the caller. `planes` is still needed, since `shading_normal_near_edge` reads the
+/// per-facet plane records.
+///
+/// `pub(super)`: called by every public entry point in `transport::mod`, and by the A/B sweeps of
+/// `transport::tests` over `enable_internal_mode_coupling`, `enable_exit_splitting` and
+/// `enable_nee`. The public entry points fix those switches, so the tests need this.
 #[expect(
     clippy::too_many_arguments,
     reason = "the shared bounce loop every public entry point delegates to -- see \
@@ -270,12 +276,9 @@ pub(super) fn trace_spectral_ray_inner(
     primary_hit_out: Option<&mut Option<HitRecord>>,
     enable_internal_mode_coupling: bool,
     enable_exit_splitting: bool,
-    // `true` only at every public entry point when `environment` is `HdrMap`
-    // (the procedural studio rig has no importance distribution to draw NEE samples
-    // from, and its own sampling already matches its structure -- see
-    // `NeeContext::enabled`'s doc comment), or when this file's own tests force it
-    // explicitly for an on/off A-B comparison, mirroring `enable_exit_splitting`'s
-    // identical precedent.
+    // `true` at the public entry points when `environment` is an HDR map (the studio rig has no
+    // importance distribution for NEE samples, see `NeeContext::enabled`), or when a test forces
+    // it for an on/off comparison.
     enable_nee: bool,
     termination_out: Option<&mut (u32, PathTermination)>,
 ) -> Vec3 {
@@ -300,8 +303,8 @@ pub(super) fn trace_spectral_ray_inner(
 }
 
 /// [`trace_spectral_ray_inner`] for a stone with tools: `tools` are subtracted from the
-/// polyhedron `planes` define, and `plane_soa` is still the arena built from `planes`
-/// alone. With `tools` empty this is the old function, bit for bit.
+/// polyhedron `planes` define, and `plane_soa` is still the arena built from `planes` alone.
+/// With `tools` empty this is `trace_spectral_ray_inner`, bit for bit.
 #[expect(
     clippy::too_many_arguments,
     reason = "the shared bounce loop every public entry point delegates to -- see \
@@ -324,12 +327,9 @@ pub(super) fn trace_spectral_ray_inner_geom(
     primary_hit_out: Option<&mut Option<HitRecord>>,
     enable_internal_mode_coupling: bool,
     enable_exit_splitting: bool,
-    // `true` only at every public entry point when `environment` is `HdrMap`
-    // (the procedural studio rig has no importance distribution to draw NEE samples
-    // from, and its own sampling already matches its structure -- see
-    // `NeeContext::enabled`'s doc comment), or when this file's own tests force it
-    // explicitly for an on/off A-B comparison, mirroring `enable_exit_splitting`'s
-    // identical precedent.
+    // `true` at the public entry points when `environment` is an HDR map (the studio rig has no
+    // importance distribution for NEE samples, see `NeeContext::enabled`), or when a test forces
+    // it for an on/off comparison.
     enable_nee: bool,
     termination_out: Option<&mut (u32, PathTermination)>,
 ) -> Vec3 {
@@ -405,8 +405,8 @@ type TraceOutputs<'a, 'b> = (
 );
 
 /// [`trace_spectral_ray_inner_geom_events`] with the surface finish of the facets and edges
-/// (`surface`, see [`crate::optics::raytracer::surface`]). With [`SurfaceScene::IDEAL`] it is the
-/// function above, bit for bit, apart from the ground lobe a frosted facet now has.
+/// (`surface`, see [`crate::optics::raytracer::surface`]). With [`SurfaceScene::IDEAL`] the
+/// result equals the function above; a frosted facet takes the ground lobe in both.
 #[expect(
     clippy::too_many_arguments,
     reason = "see trace_spectral_ray_inner_geom_events, plus the surface scene"
@@ -445,15 +445,34 @@ pub(in crate::optics::raytracer) fn trace_spectral_ray_inner_geom_events_surface
         enable_internal_mode_coupling,
         enable_exit_splitting,
         enable_nee,
-        (outputs, surface, None),
+        (outputs, surface, None, None, false),
     )
 }
 
+/// The extras of [`trace_spectral_ray_inner_geom_events_surface_prepared`]: the trace outputs, the
+/// surface scene, the prepared material's zone kernels, the render's optics tables and whether
+/// the exit-collection estimator is asked for.
+type PreparedExtras<'a, 'b, 'c> = (
+    TraceOutputs<'a, 'b>,
+    SurfaceScene<'c>,
+    Option<&'c Arc<PreparedZoneKernels>>,
+    Option<&'c Arc<OpticsTableSet>>,
+    bool,
+);
+
 /// [`trace_spectral_ray_inner_geom_events_surface`] with the frame's shared zone kernels as the
-/// third element of the last parameter (`PreparedMaterial`'s, see `transport::prepared`). With
-/// `None` it is the function above: the kernels of a zoned material are built for this one trace.
-/// With `Some` they must have been built from `material`'s own zoning; the radiance is
-/// bit-identical either way (the same kernel values, built once instead of once per sample).
+/// third element of the last parameter (from `PreparedMaterial`, see `transport::prepared`). With
+/// `None` the kernels of a zoned material are built for this one trace. With `Some` they must
+/// come from `material`'s own zoning. The radiance is bit-identical either way.
+///
+/// The fourth element is the render's optics lookup tables (`optics::tables`). With `None` no
+/// table is read.
+///
+/// The fifth element requests the exit-collection estimator ([`Estimator::ExitCollection`](
+/// crate::optics::raytracer::Estimator)); `false` is the branching estimator. The request is
+/// honoured only without next-event estimation and fluorescence, over an ideal surface, without
+/// a Tray Reflection (`environment.tray_mirror()` is `None`) and for a stone without tools. The
+/// GPU declines the same scenes, so a hybrid frame never mixes estimators.
 #[expect(
     clippy::too_many_arguments,
     reason = "see trace_spectral_ray_inner_geom_events_surface, plus the shared zone kernels"
@@ -474,11 +493,7 @@ pub(in crate::optics::raytracer) fn trace_spectral_ray_inner_geom_events_surface
     enable_internal_mode_coupling: bool,
     enable_exit_splitting: bool,
     enable_nee: bool,
-    (outputs, surface, zone_kernels): (
-        TraceOutputs<'_, '_>,
-        SurfaceScene<'_>,
-        Option<&Arc<PreparedZoneKernels>>,
-    ),
+    (outputs, surface, zone_kernels, tables, exit_collection): PreparedExtras<'_, '_, '_>,
 ) -> Vec3 {
     let (termination_out, events) = outputs;
     // A ground facet of the surface list is a frosted facet in the finish list too, so every
@@ -498,11 +513,18 @@ pub(in crate::optics::raytracer) fn trace_spectral_ray_inner_geom_events_surface
         surface_glare: environment.surface_glare(),
         surface,
         zone_kernels,
+        tables,
     };
     let switches = TraceSwitches {
         internal_mode_coupling: enable_internal_mode_coupling,
         exit_splitting: enable_exit_splitting,
         nee: enable_nee,
+        direction_match: DirectionMatch::default(),
+        estimator: if exit_collection {
+            Estimator::ExitCollection
+        } else {
+            Estimator::Branching
+        },
     };
     trace_spectral_ray_core(
         &scene,
@@ -514,9 +536,77 @@ pub(in crate::optics::raytracer) fn trace_spectral_ray_inner_geom_events_surface
     )
 }
 
-/// The per-trace inputs of one traced ray, bundled to keep the loop's argument count
-/// down. `surface_glare` is read from the environment (see
-/// `EnvironmentSource::surface_glare`), so it rides every existing entry point.
+/// The reference tracer's extras: the surface scene, the zone kernels, the optics tables and the
+/// `kept` callback.
+type ReferenceExtras<'a> = (
+    SurfaceScene<'a>,
+    Option<&'a Arc<PreparedZoneKernels>>,
+    Option<&'a Arc<OpticsTableSet>>,
+    Option<&'a KeptFn<'a>>,
+);
+
+/// The reference tracer's shared body: the production switches, except `direction_match = Exact`
+/// and `exit_splitting = false`, with the signature accumulator and the `kept` zeroing on. `ids`
+/// is `(rng_seed, hero_rand)`, and `extras` holds the surface scene, the render's optics tables
+/// and the `kept` callback. See
+/// See [`super::reference::trace_spectral_ray_reference_prepared`].
+///
+/// The zone kernels are the prepared material's, as in the production prepared entry. No
+/// production entry point reaches this function.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "see trace_spectral_ray_inner_geom_events_surface_prepared, plus the kept callback"
+)]
+pub(super) fn trace_spectral_ray_reference_inner(
+    initial_ray: Ray,
+    geom: StoneGeometry<'_>,
+    plane_soa: &crate::simd::PlanesSoA32,
+    facet_finishes: &[FacetFinish],
+    material: &GemMaterial,
+    fluorescence: &Fluorescence,
+    max_bounces: u32,
+    environment: EnvironmentSource<'_>,
+    ids: (u32, f32),
+    primary_hit_out: Option<&mut Option<HitRecord>>,
+    extras: ReferenceExtras<'_>,
+) -> ReferenceSample {
+    let (rng_seed, hero_rand) = ids;
+    let (surface, zone_kernels, tables, kept) = extras;
+    let merged_finishes = merged_facet_finishes(facet_finishes, surface.facet_surfaces);
+    let facet_finishes = &*merged_finishes;
+    let scene = TraceScene {
+        planes: geom.planes,
+        tools: geom.tools,
+        plane_soa,
+        facet_finishes,
+        material,
+        fluorescence,
+        max_bounces,
+        environment,
+        surface_glare: environment.surface_glare(),
+        surface,
+        zone_kernels,
+        tables,
+    };
+    let switches = TraceSwitches {
+        internal_mode_coupling: true,
+        exit_splitting: false,
+        nee: environment_supports_nee(environment),
+        direction_match: DirectionMatch::Exact,
+        estimator: Estimator::Branching,
+    };
+    trace_spectral_ray_core_reference(
+        &scene,
+        initial_ray,
+        rng_seed,
+        hero_rand,
+        switches,
+        (primary_hit_out, kept),
+    )
+}
+
+/// The per-trace inputs of one traced ray, bundled to keep the loop's argument count down.
+/// `surface_glare` is read from the environment (`EnvironmentSource::surface_glare`).
 #[derive(Clone, Copy)]
 struct TraceScene<'a> {
     planes: &'a [GpuFacetPlane],
@@ -537,13 +627,15 @@ struct TraceScene<'a> {
     /// The frame's shared zone kernels, built once by `PreparedMaterial`; `None` builds them
     /// per trace (unprepared callers) or means the material has no zones.
     zone_kernels: Option<&'a Arc<PreparedZoneKernels>>,
+    /// The render's optics lookup tables (`optics::tables`); `None` (the usual case) leaves the
+    /// whole trace exactly as it was without the field.
+    tables: Option<&'a Arc<OpticsTableSet>>,
 }
 
 thread_local! {
     /// The last [`StudioRig`] this thread built, keyed by the exact bits of its
-    /// `(light_yaw, light_pitch)`. A render batch traces thousands of samples under one light
-    /// pose, so the rig (~38 transcendentals and 18 normalizes, about 1-2 us) is built once
-    /// per thread and copied (a plain `memcpy` of ~250 bytes) per sample.
+    /// `(light_yaw, light_pitch)`. A render batch traces many samples under one light pose, so
+    /// the rig is built once per thread and copied per sample.
     static STUDIO_RIG_CACHE: std::cell::Cell<Option<(u32, u32, StudioRig)>> =
         const { std::cell::Cell::new(None) };
 }
@@ -572,4 +664,12 @@ struct TraceSwitches {
     internal_mode_coupling: bool,
     exit_splitting: bool,
     nee: bool,
+    /// The dispersive-event match rule; the default (the cosine test) everywhere except the
+    /// beam tracer's reference tracer, which sets `Exact` (beam guide §5.5).
+    direction_match: DirectionMatch,
+    /// The estimator asked for. The bounce loop honours [`Estimator::ExitCollection`] only
+    /// without next-event estimation and fluorescence, over an ideal surface, with exit
+    /// splitting on, without a Tray Reflection and for a stone without tools;
+    /// [`Estimator::Branching`] everywhere but the prepared production entry.
+    estimator: Estimator,
 }

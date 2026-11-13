@@ -101,7 +101,7 @@ fn prepare_library(ctx: &mut Ctx<'_>, plan: &BuildPlan) -> Option<PreparedLibrar
             .relaunch_with_library(&sample_designs())
             .then_some(PreparedLibrary::Fixtures),
         LibrarySource::Database(original) => {
-            // The original is only ever read by the file copy; the app and the harness use the copy.
+            // The original is only read by the file copy; the app and the harness use the copy.
             let copy = match relaunch_with_database(ctx, original) {
                 Ok(copy) => copy,
                 Err(error) => {

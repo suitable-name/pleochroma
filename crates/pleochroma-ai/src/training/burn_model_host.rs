@@ -31,8 +31,8 @@
 //! `pack_states` cuts flat states (`[global | padded tier tokens]`, what
 //! `GemstoneObservation::flatten(max_tiers)` produces) into the three model inputs. The PPO
 //! trainer and the rollout forward pack through it, so a state is laid out the same way
-//! wherever the model reads it. (The imitation trainer's `pack_imitation` repeats the same three
-//! copies next to its labels and could call it.)
+//! wherever the model reads it. The imitation trainer's `pack_imitation` builds the same three
+//! inputs next to its labels.
 
 use burn::{prelude::*, tensor::TensorData};
 use serde::{Deserialize, Serialize};
@@ -62,8 +62,9 @@ pub struct HostPolicyBatch {
 }
 
 /// Host wall timings for a forward, without additional device synchronization.
-/// Lazy execution and first-use compilation can appear in readback rather than submission;
-/// these are observable stage durations, not compiler or GPU-kernel timings.
+///
+/// Lazy execution and first-use compilation can appear in readback rather than submission; these
+/// are observable stage durations, not compiler or GPU-kernel timings.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 pub struct HostForwardDiagnostics {
     /// Actual observations, in caller order.
@@ -202,7 +203,7 @@ impl BurnSetAttention {
     }
 
     /// The same forward and output order as [`Self::forward_host`], with host stage timings.
-    /// Includes the existing bundled readback, and introduces no device synchronization.
+    /// Reads back in the same bundle and adds no device synchronization.
     ///
     /// # Errors
     ///

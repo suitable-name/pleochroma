@@ -1,21 +1,22 @@
-//! Editor states of the click-through passes that run 6 left uncovered (lane R6A): the Solid
-//! viewport's toolbar, the empty design, the "pending" Apply buttons, the tier form's draft
-//! banners, the tier table's row actions and the library list's hover menu.
+//! Editor states that the other click-through states do not reach.
 //!
-//! Proves: in each state every enabled button, tab, check box and combo box of the scope is pressed
-//! once and every field touched (the engine of `overlays.rs`), after the state's `open` function
-//! reached the page the way a user does: model flags first, then the opener or the typing.
+//! The Solid viewport's toolbar, the empty design, the "pending" Apply buttons, the tier form's
+//! draft banners, the tier table's row actions and the library list's hover menu.
 //!
-//! Three things the earlier states could not do are done here:
+//! Proves: in each state every enabled button, tab, check box and combo box of the scope is
+//! pressed once and every field touched (the engine of `overlays.rs`), after the state's `open`
+//! function reached the page the way a user does: model flags first, then opener or typing.
 //!
-//! * typing: `states_reach::type_into` sets a text field through its accessible set-value action, which fires
-//!   the field's `edited` callback exactly as a keystroke does, so the local "changes not applied
-//!   yet" flags of the Apply buttons are up when the button is pressed;
-//! * hovering: [`hover`] moves the pointer with `slint::Window::dispatch_event(PointerMoved)`
-//!   (the testing backend's `ElementHandle` has no hover call, but the window API reaches every
-//!   `TouchArea.has-hover`), which is what makes a list row show its "more actions" button;
-//! * scrolling: `ElementHandle::scroll` moves a `ScrollView` so a field at the bottom of a dialog is
-//!   inside the clip and therefore enumerated.
+//! Three helpers make these states reachable:
+//!
+//! * typing: `states_reach::type_into` sets a text field through its accessible set-value action,
+//!   which fires the field's `edited` callback exactly as a keystroke does, so the "changes not
+//!   applied yet" flags of the Apply buttons are up when the button is pressed;
+//! * hovering: [`hover_first_row`] moves the pointer with `slint::Window::dispatch_event`
+//!   (`PointerMoved`). The testing backend's `ElementHandle` has no hover call, but the window
+//!   API reaches every `TouchArea.has-hover`, which shows a list row's "more actions" button;
+//! * scrolling: `ElementHandle::scroll` moves a `ScrollView` so a field at the bottom of a dialog
+//!   is inside the clip and therefore enumerated.
 
 use super::{
     super::{Piece, dialogs, existing_install},
@@ -336,7 +337,7 @@ fn optical_scintillation_checkbox(ctx: &mut Ctx<'_>) {
 // The empty design
 // ---------------------------------------------------------------------------------------------
 
-/// "+ Add Tier" of the hint over a design with no tier yet.
+/// The Edit view over an empty design, made by the Empty template's Create.
 fn empty_design_states() -> Vec<State> {
     vec![State {
         name: "Edit view, empty design",
@@ -600,10 +601,8 @@ fn concave_cone_selected(a: &HarnessApp) {
 
 /// A linked step series made from tier 0 ("Steps / Mirror" with "Keep Linked": every tier after
 /// the first follows the first), then a following tier selected, so the Tier form shows its
-/// relation and "Remove Relation". (The earlier route typed `=<code>-2` into tier 1 through
-/// `save_tier`; the relation never showed within its waits, so the state spent 150 s waiting and
-/// offered no Remove Relation. The linked series is the route the checked direct-invoke row
-/// proves.)
+/// relation and "Remove Relation". Typing a relation into a tier through `save_tier` does not
+/// show it within the waits, so the linked series is used.
 fn tier_following_relation(a: &HarnessApp) {
     inspector(a, 0);
     wait_settled(a);
@@ -688,11 +687,9 @@ fn tier_row_states() -> Vec<State> {
             edit_tab(a);
             wait_settled(a);
             let editor = a.ui().global::<EditorModel>();
-            // Pin freezes the mast of the last solve of THIS generation of the design
-            // (`adopt::pinnable_mast`) and warns "Wait for the current design to finish solving"
-            // without one: the template is solved on a worker, whose result (and the mast cache
-            // it fills) lands before `solve_state` reads "solved". A pass that presses Pin must
-            // start from that state, so wait for it, not only for the solve to stop running.
+            // Pin needs the mast of the design's last solve (`adopt::pinnable_mast`). The
+            // template's worker stores it before `solve_state` reads "solved", so wait for that
+            // state, not only for the solve to stop running.
             let _ = wait_until(Duration::from_secs(15), || {
                 editor.get_solve_state().as_str() == "solved"
             });

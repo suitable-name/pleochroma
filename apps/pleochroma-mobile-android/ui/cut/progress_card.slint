@@ -105,7 +105,7 @@ export component ProgressCard inherits Rectangle {
 export component DiagramCard inherits Rectangle {
     in property <string> hint: "";
 
-    // The picture is 2.5 times as wide as it is tall; the user of the card sets the height.
+    // The picture is 2.5 times as wide as it is tall; the parent sets the height.
     border-radius: Theme.radius-lg;
     background: #0c0e14;
     clip: true;

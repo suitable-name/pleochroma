@@ -202,10 +202,10 @@ pub(super) fn trace_product(a: &[f64], b: &[f64], n: usize) -> f64 {
     sum
 }
 
-/// `j c j^T` for a `3 x n` matrix `j` (row-major) and the `n x n` matrix `c`.
+/// `j c j^T` for the three outputs, where `j[p]` holds the derivatives of the outputs with
+/// respect to parameter `p`. `c` is read as the leading `n x n` block of a matrix with row
+/// stride `stride`.
 pub(super) fn sandwich3(j: &[[f64; 3]], c: &[f64], n: usize, stride: usize) -> [[f64; 3]; 3] {
-    // `j` is given column-wise: `j[p]` is the derivative of the three outputs with respect to
-    // parameter `p`. `c` has row stride `stride` and the leading `n x n` block is used.
     let mut out = [[0.0; 3]; 3];
     for p in 0..n {
         for q in 0..n {

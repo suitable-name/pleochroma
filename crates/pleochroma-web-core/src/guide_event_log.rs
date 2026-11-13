@@ -134,7 +134,7 @@ mod tests {
         log.enter(&guide, 1, false);
         log.enter(&guide, 0, true);
         log.enter(&guide, 1, false);
-        assert!(log.as_slice().is_empty());
+        assert_eq!(log.as_slice(), [] as [String; 0]);
     }
 
     #[test]
@@ -144,7 +144,7 @@ mod tests {
         log.enter(&guide, 0, false);
         log.record(DEEP_SOLVE_FINISHED);
         log.enter(&guide, 1, false);
-        assert!(log.as_slice().is_empty());
+        assert_eq!(log.as_slice(), [] as [String; 0]);
     }
 
     #[test]
@@ -156,7 +156,7 @@ mod tests {
         log.record(DEEP_SOLVE_FINISHED);
         log.record(DEEP_SOLVE_STARTED);
         log.enter(&guide, 1, false);
-        assert!(log.as_slice().is_empty());
+        assert_eq!(log.as_slice(), [] as [String; 0]);
     }
 
     #[test]
@@ -178,9 +178,9 @@ mod tests {
         log.record(DEEP_SOLVE_STARTED);
         log.record(DEEP_SOLVE_FINISHED);
         log.enter(&other, 1, false);
-        assert!(log.as_slice().is_empty());
+        assert_eq!(log.as_slice(), [] as [String; 0]);
         log.record("x");
         log.clear();
-        assert!(log.as_slice().is_empty());
+        assert_eq!(log.as_slice(), [] as [String; 0]);
     }
 }

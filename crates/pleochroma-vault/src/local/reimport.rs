@@ -71,23 +71,18 @@ pub fn reconcile_with_existing(
 
 /// Carries the hand-entered fields of the row being replaced into the fresh detail.
 ///
-/// A row is replaced wholesale by the store, so re-importing a file whose name collides
-/// with an existing row would, without this merge, silently wipe every hand-entered field
-/// the fresh parse does not itself produce: `designer_info`, a manually corrected `shape`,
-/// the competition-entry columns, and any proportion the cutter typed in over the
-/// measurement.
+/// The store replaces a row wholesale, so without this merge a re-import would silently
+/// wipe the hand-entered fields the fresh parse does not produce: `designer_info`, a
+/// corrected `shape`, the competition entry, and a proportion typed over the measurement.
 ///
 /// # The merge rule
 ///
-/// For every field below: the freshly imported or measured value wins when it is present
-/// (`Some`, non-empty): a re-import is the cutter saying "this file is the current
-/// version", so a fresh geometry-derived shape or proportion wins over a stale one. Only
-/// when the fresh parse left a field blank does the EXISTING row's value survive. Since
-/// the importer never populates `designer_info`, `designer`, `source_citation`,
-/// `competition_diagram`, `pdf_file`, `gem_file`, `shape_category`,
-/// `diagram_image_name`/`diagram_image_data` or `page_url` at all (those are
-/// remote-scrape-only or hand-typed fields), this rule always preserves them across a
-/// local re-import: a cutter's typed metadata is never silently discarded.
+/// A fresh value wins whenever it is present (`Some`, non-empty): a re-import says "this
+/// file is the current version", so a freshly measured shape or proportion beats a stale
+/// one. Only a blank fresh field keeps the stored value. A plain `.asc` import sets none of
+/// the designer, source, competition, PDF, `.gem`, image, `page_url` or shape-category
+/// fields, so a local `.asc` re-import always keeps them. A `.psdd` file's `[meta]` does
+/// set them, and then the file's value wins.
 /// `angle_settings_table` and `attached_files` are deliberately NOT touched: those two
 /// are the whole point of a re-import and always come from the fresh file.
 pub fn merge_reimport_metadata(fresh: &mut FacetingDiagramDetail, existing: &FullDiagramRecord) {

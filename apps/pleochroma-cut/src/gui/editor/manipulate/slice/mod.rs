@@ -321,11 +321,9 @@ pub(super) fn restore_tier(ui: &MainWindow, ctx: &Shared, snapshot: Snapshot) {
 /// budget on a large design); the first replan after a session begins (or a Flip) is a
 /// full solve -- see [`replan_chain`].
 ///
-/// The replan draws the stone at the Cut slider's current cut. When the slider has moved
-/// since the last provisional replan, the planes the preview still holds for the slice are
-/// the old cut's: they are dropped here, so a redraw before the new frame lands shows the
-/// committed stone at the new cut instead of a stale one ([`note_planes`] then takes the
-/// new frame's planes).
+/// The replan draws the stone at the Cut slider's current cut. When the slider has moved,
+/// the held planes belong to the old cut and are dropped, so a redraw before the new frame
+/// lands does not show them ([`note_planes`] then takes the new frame's planes).
 pub(super) fn resubmit(ui: &MainWindow, ctx: &Shared) {
     let Some((design, last_solved, dirty)) = with_provisional(|p| {
         p.awaiting = true;
@@ -487,10 +485,9 @@ pub(super) fn clear_awaiting() {
 /// generation frame that carries committed planes (a redraw racing the first
 /// provisional replan) is ignored.
 ///
-/// "Match" means the plane count of the provisional design at the Cut slider's cut of the
-/// latest provisional replan ([`expected_plane_count`]): a cut-back stone has fewer planes
-/// than the finished one, and comparing with the finished count rejected every frame drawn
-/// while the slider was cut back, which left the planes of the previous cut on screen.
+/// A frame matches when its plane count equals [`expected_plane_count`] at the Cut slider's
+/// cut of the latest provisional replan: a cut-back stone has fewer planes than the finished
+/// one.
 pub(super) fn note_planes(planes: &[(Vec3, f32)]) {
     let accepted = with_provisional(|p| {
         let masts = p

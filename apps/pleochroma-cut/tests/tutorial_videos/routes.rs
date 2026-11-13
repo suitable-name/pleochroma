@@ -1,5 +1,5 @@
-//! The routes a learner takes for the steps that have no recipe (a step that waits for a UI event),
-//! shown in the video, plus the small app helpers the director shares.
+//! The routes a learner takes for the steps that have no recipe (a step that waits for a UI
+//! event), shown in the video, plus the small app helpers the director shares.
 //!
 //! Every route is a click or key input on a visible control; native file dialogs are answered
 //! with `queue_picker_path` after the filmed click that opens them. An event with no route is
@@ -222,9 +222,8 @@ impl Film<'_> {
         Ok(true)
     }
 
-    /// Opens the Auto-Solve combo and picks Off (`on` false) or 300 ms (`on` true): the list
-    /// is Off, 150 ms, 300 ms, 1 s, 3 s, and both lessons that turn auto-solve back on name
-    /// 300 ms as the choice.
+    /// Opens the Auto-Solve combo and picks Off (`on` false) or 300 ms (`on` true). The list
+    /// is Off, 150 ms, 300 ms, 1 s, 3 s.
     fn film_auto_solve(&mut self, on: bool) -> Result<(), String> {
         let combo = targets::resolve(&self.view(), "auto_solve");
         let targets::Resolved::Found(combo) = combo else {

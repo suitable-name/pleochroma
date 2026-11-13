@@ -33,10 +33,9 @@ impl Database {
     /// axis was tracked. Adds nothing to any existing table; naturally idempotent via
     /// `CREATE TABLE IF NOT EXISTS`.
     ///
-    /// When the table is created by this call, it is filled once from the design files the
-    /// library already stores ([`Self::backfill_preview_axes`]): a design saved before the
-    /// table existed with its crystal axis on would otherwise keep a thumbnail rendered
-    /// without the axis until it was saved again.
+    /// When this call creates the table, it is filled once from the design files the library
+    /// stores ([`Self::backfill_preview_axes`]), so designs that already set an axis keep it
+    /// in their renders.
     ///
     /// # Errors
     ///
@@ -264,9 +263,9 @@ mod tests {
         assert_eq!(db.all_preview_axes().unwrap().len(), 1);
     }
 
-    /// A library saved before the table existed: its stored design text sets an axis, the table
-    /// is missing, and the build that creates it records the axis; a design whose text leaves
-    /// the override off gets no row, and a second run (table present) changes nothing.
+    /// With the table missing, the migration that creates it records the axis of each stored
+    /// design file that sets one; a design whose file leaves the override off gets no row,
+    /// and a second run changes nothing.
     #[test]
     fn creating_the_table_backfills_the_axis_of_stored_design_files() {
         use crate::local::{LOCAL_SOURCE_ID, import_native_design, oriented_design_text};

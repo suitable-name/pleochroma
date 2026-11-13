@@ -6,8 +6,8 @@
 //! A [`TierFrosting`] sits in [`Design::tier_frosting`], keyed by the tier's [`TierId`] exactly
 //! like [`Design::tier_targets`] and [`Design::tier_relations`], so it survives add, remove,
 //! move and undo, and widening [`super::ConstraintTier`] is not needed. A tier absent from the
-//! map is polished. A design without any frosting has an empty map, which keeps its behavior
-//! and the bytes of its file and its scenes exactly as they were.
+//! map is polished. A design without frosting has an empty map, and its file and scenes are
+//! unchanged by it.
 //!
 //! Frosting is authored content: it participates in `PartialEq` (by tier position, like the
 //! other id-keyed annotations) and changes only through the undoable
@@ -124,7 +124,7 @@ impl Design {
     /// The frosting the tier at `index` would have with one facet flipped.
     ///
     /// The facet at index-wheel position `position` goes between frosted and polished, the other
-    /// facets as they are now. `None` when that leaves nothing frosted; the whole-tier frosting
+    /// facets unchanged. `None` when that leaves nothing frosted; the whole-tier frosting
     /// ([`TierFrosting::Tier`]) when it leaves every facet of the tier frosted. A position that
     /// is not one of the tier's facets changes nothing.
     ///
@@ -245,8 +245,8 @@ impl Design {
     /// ([`Self::frosted_planes_from_solved`]), and the girdle band is frosted too when
     /// [`StoneRenderEffects::girdle_frosted`] is on, which is what the render shows.
     ///
-    /// Empty for a design without any frosted facet, the documented all-polished form, so a
-    /// polished design scores exactly as it always did.
+    /// Empty for a design without any frosted facet, the all-polished form, so a polished design
+    /// is scored with no finishes at all.
     ///
     /// [`StoneRenderEffects::girdle_frosted`]: super::StoneRenderEffects::girdle_frosted
     #[must_use]
@@ -344,7 +344,7 @@ impl Design {
     ///
     /// By tier position, and for a facet-by-facet frosting by slot in the tier's `indices` (see
     /// `pleochroma_formats::gcs::to_gcs_string_with_frosting`). Empty for a design without
-    /// frosting, which makes the writer's output exactly what it was before frosting existed.
+    /// frosting, which leaves the writer's output unchanged.
     #[must_use]
     pub fn gcs_frosting_spec(&self) -> Vec<(usize, GcsTierFrosting)> {
         if self.tier_frosting.is_empty() {

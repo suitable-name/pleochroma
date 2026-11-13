@@ -1,9 +1,9 @@
 //! What the Compare step shows besides the pictures.
 //!
-//! The per-pixel colour difference, the
+//! That is the per-pixel colour difference, the
 //! leave-one-view-out table, the model comparison, the predicted colour chips with their
 //! uncertainty, the fit's warnings and the "This looks zoned" prompt. All of it is derived from
-//! the fit result and is window-free.
+//! the fit result and is free of window types.
 
 use pleochroma::color::body_color::{Illuminant, delta_e_2000, srgb_to_lab};
 use pleochroma_cut_core::rough_plan::{
@@ -126,10 +126,9 @@ pub struct DeltaStats {
 }
 
 /// The per-pixel CIEDE2000 difference between `observed` and `gain * predicted` where `valid`
-/// is true and both are finite; other pixels get 0 and are not counted.
+/// is true and both are finite. Other pixels get 0 and are not counted.
 ///
-/// The second value is the
-/// validity actually used.
+/// Returns the differences, which pixels were used, and their statistics.
 #[must_use]
 pub fn delta_e_map(
     observed: &[[f32; 3]],
@@ -181,7 +180,8 @@ pub fn stats(mut values: Vec<f32>) -> DeltaStats {
     }
 }
 
-/// The line under a view's pictures: `"median 1.8, 95 % under 4.2, worst 9.1 (23 456 pixels)"`.
+/// The line under a view's pictures: the median, the 95th percentile and the worst difference,
+/// with the number of compared pixels.
 #[must_use]
 pub fn stats_text(stats: &DeltaStats) -> String {
     if stats.count == 0 {
@@ -277,7 +277,7 @@ pub struct ChipRow {
     pub label: String,
     /// The colour.
     pub srgb: [u8; 3],
-    /// The numbers: `"Lab 62.1, 41.0, 55.2 +/- 1.8 dE (metamer spread 3.2 dE)"`.
+    /// The numbers: `"Lab 62.1, 41.0, 55.2 ± 1.8 dE (metamer spread 3.2 dE)"`.
     pub text: String,
 }
 
@@ -331,7 +331,8 @@ pub fn chip_rows(fit: &ColourFit) -> Vec<ChipRow> {
         .collect()
 }
 
-/// The fit's warnings as rows (amber), plus a line for a spatially structured residual.
+/// The fit's warnings as rows (all but the preference notice drawn amber), plus one row naming the
+/// amounts that ran into their limits.
 #[must_use]
 pub fn warning_rows(fit: &ColourFit) -> Vec<TextRow> {
     let mut rows: Vec<TextRow> = fit

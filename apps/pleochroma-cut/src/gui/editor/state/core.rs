@@ -23,9 +23,8 @@ use tracing::warn;
 
 use super::file_extras::DesignFileExtras;
 
-/// The coalescing window every `EditorState`-owned `History` is built with -- see
-/// [`pleochroma_editor::session::ANGLE_NUDGE_COALESCE_WINDOW`], re-exported here at
-/// its old path.
+/// The coalescing window of every `EditorState` history (defined in
+/// `pleochroma_editor::session`).
 pub(in crate::gui::editor) use pleochroma_editor::session::ANGLE_NUDGE_COALESCE_WINDOW;
 
 /// The `AppSettings::suppressed_confirmations` key the anchor explainer card's
@@ -33,24 +32,20 @@ pub(in crate::gui::editor) use pleochroma_editor::session::ANGLE_NUDGE_COALESCE_
 const ANCHOR_EXPLAINER_SUPPRESS_KEY: &str = "anchor_explainer";
 
 thread_local! {
-    /// Whether this session has already DECIDED once (shown the card, or
-    /// found it suppressed) whether to open the anchor explainer -- on top of
-    /// the permanent "Don't show again" suppression persisted in
-    /// `AppSettings` (see [`ANCHOR_EXPLAINER_SUPPRESS_KEY`]), so a design
-    /// that stays `MissingAnchor` across several further edits neither
-    /// reopens the card NOR re-reads the settings file on every refresh --
-    /// only the FIRST time a design lacks an anchor is ever checked at all.
+    /// Whether this session has already decided to open the anchor explainer (shown it, or
+    /// found it suppressed). A design that stays `MissingAnchor` then neither reopens the card
+    /// nor rereads the settings on every refresh. The permanent "Don't show again" lives in
+    /// `AppSettings` (see [`ANCHOR_EXPLAINER_SUPPRESS_KEY`]).
     static ANCHOR_EXPLAINER_DECIDED_THIS_SESSION: std::cell::Cell<bool> =
         const { std::cell::Cell::new(false) };
 }
 
-/// Whether the anchor explainer's "Don't show again" has been recorded, read from the
-/// application's [`SettingsPersister`] (see [`SettingsPersister::install_for_this_thread`])
-/// so a choice made earlier in this session counts. With no persister installed
-/// nothing is suppressed.
+/// Whether the anchor explainer's "Don't show again" has been recorded. Read from the
+/// application's [`SettingsPersister`], so a choice made earlier in this session counts.
+/// With no persister installed, nothing is suppressed.
 ///
-/// The same pattern as `native_io::confirm`'s write-confirm suppressions, which live
-/// in a private module and so cannot be called from here.
+/// Follows the pattern of `native_io::confirm`'s suppressions, which are private to that
+/// module.
 fn anchor_explainer_is_suppressed() -> bool {
     SettingsPersister::installed_for_this_thread().is_some_and(|persister| {
         persister
@@ -60,11 +55,10 @@ fn anchor_explainer_is_suppressed() -> bool {
     })
 }
 
-/// Records the anchor explainer's "Don't show again" -- the write half of
-/// [`anchor_explainer_is_suppressed`]. Goes through the [`SettingsPersister`], never
-/// straight into the settings file: the persister's in-memory snapshot is what every
-/// close path flushes over the file, so a choice written around it would be erased on
-/// exit.
+/// Records the anchor explainer's "Don't show again", the write half of
+/// [`anchor_explainer_is_suppressed`]. Writes through the [`SettingsPersister`], never to
+/// the file: every close flushes its in-memory snapshot over the file, so a write around it
+/// would be erased on exit.
 pub(in crate::gui::editor) fn anchor_explainer_suppress_permanently() {
     let Some(persister) = SettingsPersister::installed_for_this_thread() else {
         warn!("No settings persister is installed; not suppressing the anchor explainer");
@@ -76,16 +70,11 @@ pub(in crate::gui::editor) fn anchor_explainer_suppress_permanently() {
     });
 }
 
-/// Whether the anchor explainer card should open NOW, given
-/// `design_has_missing_anchor` (this refresh's own solve result: `true` when
-/// [`Design::solve`] just returned `Err(MissingAnchor)`) -- session-scoped
-/// once-only (see [`ANCHOR_EXPLAINER_DECIDED_THIS_SESSION`]) and permanently
-/// suppressible (see [`anchor_explainer_is_suppressed`]). Marks the session
-/// flag the moment it makes ANY decision (open or not), not only when it
-/// opens, so a design that stays `MissingAnchor` (or one whose explainer is
-/// already permanently suppressed) never touches the settings file again
-/// after the first check this session -- every refresh after that is a
-/// cheap `Cell` read, not a file read.
+/// Whether the anchor explainer card should open now. `design_has_missing_anchor` is `true`
+/// when this refresh's solve returned `Err(MissingAnchor)`. The decision is made once per
+/// session (see [`ANCHOR_EXPLAINER_DECIDED_THIS_SESSION`]) and a permanent "Don't show
+/// again" also stops it (see [`anchor_explainer_is_suppressed`]). The session flag is set on
+/// the first decision, open or not, so later refreshes read a `Cell` and not the settings file.
 #[must_use]
 pub(in crate::gui::editor) fn should_open_anchor_explainer(
     design_has_missing_anchor: bool,
@@ -114,74 +103,51 @@ pub(in crate::gui::editor) struct PendingGearRemap {
     pub(in crate::gui::editor) rounding: RemapRounding,
 }
 
-/// A destructive action (New/Load Selected/Open) that was about to replace
-/// [`EditorState`] wholesale while the design still had unsaved edits -- stashed by
-/// that action's own callback the moment it sees [`EditorState::is_dirty`], so the
-/// Save/Discard/Cancel dialog's own resolution (`gui::editor::callbacks::tier_actions::
-/// setup_unsaved_guard_dispatch`) knows what to actually run once the user picks
-/// Save or Discard (Cancel just clears this back to `None` and does nothing).
+/// A destructive action (New, Load Selected or Open) that would replace [`EditorState`]
+/// while the design has unsaved edits. The action's callback stores it here when
+/// [`EditorState::is_dirty`] is true. The Save/Discard/Cancel dialog resolves it
+/// (`callbacks::tier_actions::lifecycle::setup_unsaved_guard_dispatch`). Cancel clears it.
 ///
-/// `New` carries the already-parsed [`FreshDesignSpec`] (built from the New Design
-/// dialog's fields at the moment "Create" was clicked) rather than re-reading those
-/// fields later -- the dialog's fields are `EditorModel` properties that COULD in
-/// principle change while the confirmation dialog is up, and re-parsing them then
-/// would silently create a different design than the one the user actually asked
-/// for. `LoadSelected`/`OpenNative` carry nothing: both re-read their own inputs
-/// (the library selection, a freshly-shown file picker) fresh at resume time,
-/// which is exactly what running them again from scratch means.
+/// `New` carries the parsed [`FreshDesignSpec`], taken when "Create" was clicked. The dialog's
+/// fields could change while the confirmation is up, and re-reading them would create a
+/// different design. `LoadSelected` and `OpenNative` carry nothing and re-read their inputs
+/// when resumed.
 pub(in crate::gui) enum PendingUnsavedAction {
-    /// Resume by building this spec into a fresh design -- see
-    /// `gui::editor::callbacks::tier_actions::do_new_design_create`.
+    /// Resume by building this spec into a fresh design (see
+    /// `callbacks::tier_actions::new_design::do_new_design_create`).
     ///
-    /// `template_index` is the dialog's "Start from" choice,
-    /// carried through the unsaved-changes guard rather than re-read afterwards:
-    /// the dialog is already closed by the time the guard resolves, so its own
-    /// state is gone.
+    /// `template_index` is the "Start from" choice, kept here because the dialog is already
+    /// closed when the guard resolves.
     New {
         spec: Box<FreshDesignSpec>,
         template_index: i32,
     },
-    /// Resume by re-running "Load Selected" against the library's current selection --
-    /// see `gui::editor::callbacks::tier_actions::do_load_selected`.
+    /// Resume by re-running "Load Selected" against the library's current selection (see
+    /// `callbacks::tier_actions::lifecycle::do_load_selected`).
     LoadSelected,
-    /// Resume by re-running "Open" (which shows the file picker again) --
-    /// see `gui::editor::native_io::do_open_native`.
+    /// Resume by re-running "Open", which shows the file picker again (see
+    /// `native_io::open_native::do_open_native`).
     OpenNative,
 }
 
-/// What to do once the Save this guard just triggered actually lands -- set by
-/// [`EditorState::after_save`]'s two writers (`gui::window_close`'s close-confirm
-/// "Save" and [`PendingUnsavedAction`]'s own "Save" resolution,
-/// `callbacks::tier_actions::lifecycle::setup_unsaved_guard_dispatch`) right before
-/// each calls `EditorModel.save_native`. Both guards used to check
-/// `EditorState::is_dirty`/`EditorModel.is_dirty` SYNCHRONOUSLY right after that
-/// call returned, as if the save had already finished -- but Save is
-/// asynchronous end to end (the design is resolved and the file written on a
-/// spawned thread, `native_io::save`'s own `write_native_save`), so that check
-/// always read the state from BEFORE the save even started, never its outcome.
-/// This field lets the save's own real completion
-/// (`native_io::save_finish::finish_save_native_success`, the one place that
-/// actually knows the write landed) run the guarded action instead, via
-/// `native_io::notify_save_completed`'s listener mechanism -- see that function's
-/// own doc comment for why a listener registry, not a parameter threaded through
-/// the whole write path.
+/// What to do once the Save started by an unsaved-changes guard lands. Save is asynchronous:
+/// the write runs on a spawned thread, so a guard cannot check `is_dirty` right after calling
+/// it. Instead the save's own completion (`native_io::save_finish::finish_save_native_success`,
+/// the one place that knows the write landed) runs the action, through the listeners of
+/// `native_io::notify_save_completed`.
 ///
-/// Cleared (never left dangling) on every path that does NOT end in a completed
-/// save: the Save-As picker's own cancel (`native_io::save::save_native_via_dialog`),
-/// the write-confirm dialog's Cancel (`native_io::confirm::
-/// setup_write_confirm_dialog_callbacks`), and the background write's own `Err`
-/// toast path (`native_io::save::write_native_save`) -- a stale `Some` left behind
-/// by any of those would otherwise make some LATER, unrelated successful save
-/// spuriously close the window or resume a stale pending action.
+/// Set by `gui::window_close`'s close-confirm Save and by the Save resolution of
+/// [`PendingUnsavedAction`], just before each calls `EditorModel.save_native`.
 ///
-/// Declared `pub(in crate::gui)`, not the narrower `pub(in crate::gui::editor)`
-/// every other type here uses: `gui::window_close` is a SIBLING of `gui::editor`,
-/// not a descendant, and needs to name this type directly (see
-/// `native_io`'s own re-export of it).
+/// Cleared on every path that does not end in a completed save: the Save-As picker's cancel
+/// (`native_io::save::save_native_via_dialog`), the write-confirm Cancel
+/// (`native_io::confirm::setup_write_confirm_dialog_callbacks`) and the background write's
+/// error path (`native_io::save::write_native_save`). A stale value would make a later,
+/// unrelated save close the window or resume an old action.
+///
+/// `pub(in crate::gui)` because `gui::window_close` is a sibling of `gui::editor`.
 pub(in crate::gui) enum AfterSave {
-    /// `gui::window_close`'s close-confirm guard: hide the window once the save
-    /// actually lands, instead of the old synchronous `is_dirty` check that raced
-    /// the save's own background write thread.
+    /// `gui::window_close`'s close-confirm guard: hide the window once the save lands.
     CloseWindow,
     /// The New/Load Selected/Open unsaved-changes guard: resume this
     /// action once the save actually lands.
@@ -189,21 +155,15 @@ pub(in crate::gui) enum AfterSave {
 }
 
 /// The editor's live state: the shared [`EditorSession`] (design, undo/redo history,
-/// multi-selection, generation/saved-generation -- every design/history mutation
-/// goes through it, so the desktop and the web app edit identically) plus the
-/// desktop-only bookkeeping around it (Deep Solve/Optimize handles, the paired
-/// `.asc`, the catalogue row, the unsaved-changes guard). Derefs to the session, so
-/// `state.design`/`state.history`/`state.multi_selected`/`state.generation` read
-/// straight through. See this group's `mod.rs` doc comment for why
-/// [`Self::apply`]/[`Self::undo`]/[`Self::redo`] (all routed through the session)
-/// are the only functions allowed to touch design and history at once.
+/// multi-selection, generations; every mutation goes through it, so the desktop and the web
+/// app edit identically) plus desktop-only bookkeeping (Deep Solve and Optimize handles, the
+/// paired `.asc`, the catalogue row, the unsaved-changes guard). It derefs to the session, so
+/// `state.design` and `state.generation` read straight through. See the `mod.rs` docs for why
+/// [`Self::apply`], [`Self::undo`] and [`Self::redo`] are the only functions that touch design
+/// and history together.
 ///
-/// Shared via `Rc<RefCell<..>>`, not this crate's usual `Arc<Mutex<..>>`: every
-/// callback that touches this state is a Slint callback, which only ever runs on the
-/// UI/event-loop thread -- unlike `RenderContext`, which the render thread also reads
-/// every frame and genuinely needs a lock for. A real lock here would buy no
-/// correctness while inviting clippy's `significant_drop_tightening` lint on every
-/// callback holding the guard across a `refresh_all` call.
+/// Shared as `Rc<RefCell<..>>` because every callback that touches it runs on the UI thread.
+/// A lock would add no safety here and would trip clippy's `significant_drop_tightening` lint.
 pub(in crate::gui) struct EditorState {
     /// The design, its history, the multi-selection and the generation counters --
     /// see [`EditorSession`]'s own field docs (`generation` is an `Arc<AtomicU64>`
@@ -217,64 +177,43 @@ pub(in crate::gui) struct EditorState {
     /// against an unmeasurable target.
     pub(in crate::gui::editor) printed_proportions:
         Option<pleochroma::geometry::stone_metrics::ExternalProportions>,
-    /// Bumped ONLY by [`Self::replace_wholesale`] -- i.e. exactly when New / Load
-    /// Selected / Open swap in a different design, never by an ordinary
-    /// edit.
+    /// Bumped only by [`Self::replace_wholesale`], so exactly when New, Load Selected or Open
+    /// swap in a different design.
     ///
-    /// `generation` cannot answer this on its own: it counts edits AND
-    /// replacements alike, so a background Deep Solve/Optimize comparing against it
-    /// learns only "something changed", not whether its result still describes the
-    /// design on screen. The two cases want opposite handling. After an edit, a
-    /// finished run's verdict is still about this design a few edits ago -- worth
-    /// showing with a caveat, since the run took minutes and its aggregate figures
-    /// still mean something. After a replacement it is about a different stone
-    /// entirely, and the panel is legitimately meant to be empty (see
-    /// `callbacks::solve_actions::clear_analysis_results`), so the completion
-    /// handler must stay silent rather than repaint a verdict over the fresh
-    /// design's blank panel.
+    /// `generation` counts edits and replacements alike and cannot tell them apart. After an
+    /// edit, a finished background run still describes this design, so it may be shown with a
+    /// caveat. After a replacement it describes a different stone, so its completion must stay
+    /// silent.
     ///
-    /// Same `Arc<AtomicU64>` sharing discipline as `generation`, and the same trap:
-    /// [`Self::replace_wholesale`] carries the EXISTING `Arc` across the
-    /// replacement instead of adopting the replacement's own fresh one, so every
-    /// clone a background closure captured before the replacement observes the
-    /// bump. Handing back a new `Arc` here would silently defeat the check for
-    /// precisely the runs it exists to catch.
+    /// The `Arc` is carried across a replacement rather than replaced, so every clone a
+    /// background closure captured observes the bump.
     pub(in crate::gui::editor) design_epoch: Arc<AtomicU64>,
     /// See [`PendingUnsavedAction`]. `None` whenever the Save/Discard/Cancel dialog
     /// is closed (the common state).
     pub(in crate::gui::editor) pending_unsaved_action: Option<PendingUnsavedAction>,
-    /// See [`AfterSave`]. `None` whenever no Save is currently running on this
-    /// design's behalf of a close/replace guard (the common state) -- an ordinary
-    /// Save click (with no guard behind it) never touches this field at all.
+    /// See [`AfterSave`]. `None` unless a close or replace guard's Save is running. An
+    /// ordinary Save never touches this field.
     pub(in crate::gui) after_save: Option<AfterSave>,
-    /// The in-flight Deep Solve's handle, so `setup_deep_solve_cancel_callback` can
-    /// reach it -- `None` when none has ever run. Whether one is CURRENTLY running is
-    /// tracked by the `editor_deep_solve_running` Slint property, not by this being
-    /// `Some`: the completion callback can't clear this field itself, so a finished
-    /// run's handle just sits here until overwritten by the next one.
+    /// The Deep Solve handle, so `setup_deep_solve_cancel_callback` can reach it. `None` when
+    /// none has run. Whether one is running is tracked by the `editor_deep_solve_running`
+    /// property, not by this field. A finished run's handle stays until the next run replaces it.
     pub(in crate::gui::editor) deep_solve: Option<deep_solve::DeepSolveHandle>,
     /// The in-flight Optimize run's handle -- same role as `deep_solve` above.
     pub(in crate::gui::editor) optimize: Option<optimize_solve::OptimizeSolveHandle>,
-    /// The most recent COMPLETED or CANCELLED Optimize run's result, held here (never
-    /// auto-applied) until `setup_optimize_apply_callback` commits it via
-    /// [`Self::apply_optimize_outcome`], or a fresh run supersedes it. Paired with the
-    /// design `generation` the search ran against, so an Apply click after the design
-    /// has since changed is refused rather than reinterpreting stale tier indices.
-    ///
-    /// `Arc<Mutex<..>>` for the same non-`Send` reason `generation` is atomic --
-    /// Optimize's completion handler runs on a worker thread -- but a `Mutex` here
-    /// since the payload (a whole [`OptimizeOutcome`]) isn't atomically representable.
+    /// The latest completed or cancelled Optimize result. It is never applied automatically.
+    /// `setup_optimize_apply_callback` commits it through [`Self::apply_optimize_outcome`], and
+    /// a new run replaces it. It is paired with the design `generation` the search ran
+    /// against, so an Apply after the design changed is refused instead of using stale tier
+    /// indices. The completion handler runs on a worker thread, hence the `Arc`. The `Mutex`
+    /// is needed because the whole [`OptimizeOutcome`] is not atomic.
     pub(in crate::gui::editor) pending_optimize: Arc<Mutex<Option<(OptimizeOutcome, u64)>>>,
-    /// The design `generation`
-    /// (see [`Self::generation`]) Deep Solve's currently DISPLAYED verdict
-    /// (`EditorModel.deep_solve_status`) was computed for, or `None` before any
-    /// Deep Solve has ever completed for this design. Unlike `pending_optimize`'s
-    /// matching `u64` (which only needs a ONE-TIME staleness check at Apply time),
-    /// this is compared against the LIVE `generation` on every subsequent edit
-    /// (`view::push_stale_content`, via [`result_is_stale`]) so the status strip's
-    /// "Stale: design changed" badge appears the moment a further edit lands,
-    /// not only at the instant the run itself completed -- see
-    /// `callbacks::solve_actions::apply_deep_solve_outcome`, the one writer.
+    /// The design [`Self::generation`] that the displayed Deep Solve verdict
+    /// (`EditorModel.deep_solve_status`) was computed for. `None` before any Deep Solve has
+    /// completed for this design. Unlike `pending_optimize`'s value, which is checked once at
+    /// Apply time, this is compared with the live generation on every edit
+    /// (`view::push_stale_content`, via `pleochroma_editor::session::result_is_stale`). That
+    /// shows the "Stale: design changed" badge as soon as the design changes. The one writer is
+    /// `apply_deep_solve_outcome` in `callbacks::solve_actions`.
     pub(in crate::gui::editor) deep_solve_result_generation: Option<u64>,
     /// The paired `.asc`'s bare file name and exact original text, when this design's
     /// schedule came from a real `.asc` file on disk (a catalogue attachment, or a
@@ -284,28 +223,18 @@ pub(in crate::gui) struct EditorState {
     /// byte-for-byte untouched instead of regenerating it.
     pub(in crate::gui::editor) asc_filename: Option<String>,
     pub(in crate::gui::editor) original_asc_text: Option<String>,
-    /// The catalogue row this design belongs to, once it has one -- see the
-    /// "full round trip" design decision below.
+    /// The catalogue row this design belongs to, once it has one.
     ///
-    /// Set when Load Selected opens a LOCAL row, and by the first Save of a
-    /// design that had none (which inserts a row and records its id). Every later
-    /// save updates that same row rather than inserting a second, which is what
-    /// stops export-then-reimport from filling the catalogue with near-duplicate
-    /// same-titled entries. `None` for a design that has never been in the
-    /// catalogue, and for anything opened from a remote library -- a remote entry id
-    /// and a local row id occupy independent id spaces, so storing one here would be
-    /// a silent mis-write waiting to happen.
+    /// Set when Load Selected opens a local row, and by the first Save of a design that had
+    /// none (that Save inserts a row). Later saves update the same row, so export and
+    /// reimport do not add near-duplicate entries. `None` for a design never in the catalogue,
+    /// and for a remote library: remote and local row ids are separate id spaces.
     ///
-    /// Deliberately NOT reset by a plain edit: the design keeps belonging to its row
-    /// across edits, and only a wholesale replacement (`replace_wholesale`, i.e. New
-    /// or a different Load) puts a different design on the bench.
+    /// A plain edit does not reset it. Only a wholesale replacement does.
     pub(in crate::gui::editor) source_entry_id: Option<i64>,
-    /// Whether `design`'s masts came from `loading::LoadedDesign`'s angle-table
-    /// reconstruction fallback -- no attached `.asc` was found, so every mast is a
-    /// fabricated `0.0`. Lets Save and Export stamp
-    /// `pleochroma_formats::asc::mark_reconstructed`, so a file that looks like a
-    /// real cut instruction but is not says so in its own header. `false` for every
-    /// other construction path.
+    /// Whether the masts came from the angle-table reconstruction fallback (no attached `.asc`
+    /// was found, so every mast is a placeholder `0.0`). Save and Export then stamp
+    /// `pleochroma_formats::asc::mark_reconstructed` into the file header.
     pub(in crate::gui::editor) used_placeholder: bool,
     /// The `[meta]` table and attachments of the `.psdd` file this design came
     /// from, so a Save writes them back unchanged -- see [`DesignFileExtras`].
@@ -313,66 +242,46 @@ pub(in crate::gui) struct EditorState {
     /// See [`PendingGearRemap`]. `None` whenever the gear remap confirmation panel is
     /// closed (the common state).
     pub(in crate::gui::editor) pending_gear_remap: Option<PendingGearRemap>,
-    /// The last-built "Retarget for material" proposal, paired with the design
-    /// `generation` it was built against -- the same stale-result shape
-    /// `pending_optimize` uses, simplified to a plain `Option` since nothing here
-    /// completes on a background thread. Cleared by `setup_retarget_apply_callback`
-    /// (after applying) and `setup_retarget_close_callback` (on cancel).
+    /// The last-built "Retarget for material" proposal, paired with the design `generation` it
+    /// was built against. Cleared by `setup_retarget_apply_callback` after applying and by
+    /// `setup_retarget_close_callback` on cancel.
     pub(in crate::gui::editor) pending_retarget: Option<(retarget::RetargetProposal, u64)>,
-    /// Snapshot of every design-derived value the design-settings/preform/yield
-    /// scratch fields mirror, as of the last time `view::refresh_design_settings`/
-    /// the preform+yield push in `view::refresh_editor_panel`/`view::
-    /// push_stale_content` actually wrote them into `EditorModel` -- see
-    /// [`ScratchDelta`]'s own doc comment for why this exists: it stops an
-    /// unrelated edit's refresh from silently overwriting whatever the user is
-    /// mid-typing/mid-selecting in these fields, since every refresh otherwise
-    /// re-seeds all of them from `design` unconditionally.
+    /// The values the design-settings, preform and yield scratch fields last received from
+    /// `design`. Refreshes write those fields only when the design value changed, so an
+    /// unrelated edit does not overwrite what the user is typing. See
+    /// `pleochroma_editor::scratch::ScratchDelta`.
     ///
-    /// A `RefCell`, not a plain field mutated through `&mut self`, purely so
-    /// `view`'s refresh functions -- which only ever receive `&EditorState`,
-    /// because most of their own callers only hold an immutable borrow -- can
-    /// update it without every one of those callers needing to start passing a
-    /// mutable borrow through instead.
+    /// It is a `RefCell` so the `view` refresh functions, which only receive `&EditorState`,
+    /// can update it.
     pub(in crate::gui::editor) last_pushed_scratch: RefCell<PushedScratch>,
-    /// Cache for [`design_material_options`]'s result -- see
-    /// [`Self::material_combo_options`], the method that reads/fills it. Same
-    /// `RefCell`-through-`&self` discipline as `last_pushed_scratch` just above, and
-    /// the same reason: `view::refresh_design_settings` only ever receives
-    /// `&EditorState`.
+    /// Cache for the material combo's options. See [`Self::material_combo_options`]. It is a
+    /// `RefCell` for the same reason as `last_pushed_scratch`.
     pub(in crate::gui::editor) material_combo_cache: RefCell<MaterialComboCache>,
-    /// The material name Load Selected applied from the library entry
-    /// (`pleochroma_editor::loading::apply_library_material`) because the design named none;
-    /// `None` for every other design. It only drives the "inferred" badge
-    /// (`pleochroma_editor::material_lookup::applied_material_guess`), which retires itself
-    /// as soon as the design's material is anything else. Never saved.
+    /// The material name that Load Selected applied from the library entry because the design
+    /// named none (`pleochroma_editor::loading::apply_library_material`). `None` otherwise. It
+    /// only drives the "inferred" badge (`material_lookup::applied_material_guess`), which
+    /// goes away once the design's material is changed. Never saved.
     pub(in crate::gui::editor) applied_library_material: Option<String>,
-    /// Whether this is a REAL design -- created (New Design, any template), loaded
-    /// (Load Selected) or opened (Open/Open Recent/the startup restore) --
-    /// rather than [`Self::fresh`]'s startup placeholder. Mirrored into
-    /// `EditorModel.has_design` by `view::push_has_design`, which gates the
-    /// empty-state card grid: a real design with zero tiers must stay visible.
+    /// Whether this is a real design (created, loaded or opened), rather than the startup
+    /// placeholder of [`Self::fresh`]. Mirrored into `EditorModel.has_design` by
+    /// `view::push_has_design`, which gates the empty-state card grid. A real design with zero
+    /// tiers must stay visible.
     pub(in crate::gui::editor) has_design: bool,
 }
 
 impl EditorState {
-    /// A brand-new design: a generously sized cylindrical preform and an empty
-    /// schedule, matching the "New" button's job -- start from something that already
-    /// renders as a real, closed stone rather than an empty viewport (see
-    /// [`EditorSession::fresh`], whose history uses the longer
-    /// [`ANGLE_NUDGE_COALESCE_WINDOW`] so an unhurried scroll-wheel nudge still merges
-    /// into one undo step; `setup_inline_set_angle_callback`'s no-op branch ends a run
-    /// explicitly). Used as the startup placeholder, so [`Self::has_design`] is
-    /// `false` here.
+    /// A brand-new design: a generously sized cylindrical preform and an empty schedule, so the
+    /// viewport starts with a real, closed stone (see [`EditorSession::fresh`]). Its history
+    /// uses [`ANGLE_NUDGE_COALESCE_WINDOW`], so a slow scroll-wheel nudge merges into one undo
+    /// step. This is the startup placeholder, so [`Self::has_design`] is `false`.
     pub(in crate::gui::editor) fn fresh() -> Self {
         // The startup placeholder is not a design the user asked for.
         Self::wrapping(EditorSession::fresh(), false)
     }
 
-    /// A brand-new design from the New Design dialog's full [`FreshDesignSpec`]
-    /// (preform, gear, symmetry, mirror, starting material), seeded with template
-    /// `template_index`'s starting tiers (`0` is "Empty") -- see
-    /// [`EditorSession::from_template`]. Otherwise identical to [`Self::fresh`]:
-    /// empty `History`, no printed proportions, no pending work.
+    /// A brand-new design from the New Design dialog's [`FreshDesignSpec`] (preform, gear,
+    /// symmetry, mirror, starting material), seeded with template `template_index`'s tiers
+    /// (`0` is "Empty"). See [`EditorSession::from_template`].
     pub(in crate::gui::editor) fn fresh_from_template(
         spec: FreshDesignSpec,
         template_index: i32,
@@ -380,12 +289,9 @@ impl EditorState {
         Self::wrapping(EditorSession::from_template(spec, template_index), true)
     }
 
-    /// A brand-new design around an already-built `session` -- the New Design dialog's
-    /// template path, where `pleochroma_editor::templates::create_from_template` has
-    /// remapped the gear, set the stone width and (when the material called for it)
-    /// adapted the facet angles before any history exists. Otherwise identical to
-    /// [`Self::fresh_from_template`]: a real design ([`Self::has_design`]), empty
-    /// `History`, no printed proportions, no pending work.
+    /// A brand-new design around an already-built `session`. The template path builds it with
+    /// `pleochroma_editor::templates::create_from_template`, which remaps the gear, sets the
+    /// stone width and adapts the facet angles before any history exists.
     pub(in crate::gui::editor) fn fresh_from_session(session: EditorSession) -> Self {
         Self::wrapping(session, true)
     }
@@ -408,8 +314,8 @@ impl EditorState {
             pending_retarget: None,
             source_entry_id: None,
             used_placeholder: false,
-            // A new design (and the startup placeholder) is named by a fresh UUID from
-            // the start -- see `state::design_identity`.
+            // A new design, and the startup placeholder, get a fresh UUID at once (see
+            // `state::design_identity`).
             file_extras: DesignFileExtras::default().with_design_uuid_assigned(None),
             last_pushed_scratch: RefCell::new(PushedScratch::default()),
             material_combo_cache: RefCell::new(MaterialComboCache::default()),
@@ -418,59 +324,27 @@ impl EditorState {
         }
     }
 
-    /// The UUID that names this design in the library database, where its saved
-    /// variants, cutting progress and lighting choice live (`pleochroma_vault`'s
-    /// per-design tables are keyed by it).
+    /// The UUID that names this design in the library database. The vault's per-design tables
+    /// (saved variants, cutting progress, lighting choice) are keyed by it.
     ///
-    /// Never empty for a state built through the constructors or the open paths. It is
-    /// the design's `[meta].id`, so Save, Save As and autosave write it to the file
-    /// unchanged: a copy of a design keeps its side data. See `state::design_identity`
-    /// for how it is chosen when a design opens.
+    /// It is the design's `[meta].id`, so Save, Save As and autosave keep it, and a copy keeps
+    /// its side data. See `state::design_identity` for how it is chosen on open.
     pub(in crate::gui) fn design_uuid(&self) -> &str {
         &self.file_extras.metadata.id
     }
 
-    /// Replaces `self` wholesale with `replacement` -- a brand-new `New`/`Load
-    /// Selected`/`Open` state -- while keeping THIS state's own
-    /// `generation` counter alive and bumping it, instead of letting
-    /// `replacement` bring its own fresh `Arc::new(AtomicU64::new(0))` (as its
-    /// constructor -- [`Self::fresh`]/[`Self::fresh_from_template`], or a hand-built
-    /// literal -- otherwise would).
+    /// Replaces `self` with `replacement`, a new `New`, `Load Selected` or `Open` state.
     ///
-    /// Reusing (and bumping) the SAME `Arc` across the replacement, instead of
-    /// letting `replacement` bring its own fresh `Arc::new(AtomicU64::new(0))`,
-    /// keeps every staleness check a background closure dispatched BEFORE the
-    /// replacement (Deep Solve, Optimize, the debounced auto-solve) already
-    /// captured valid: that closure keeps comparing against this SAME `Arc`, so
-    /// it observes the bump immediately. A closure comparing against a
-    /// replacement-owned `Arc` instead would keep watching a value nothing ever
-    /// increments again -- so a search started against design A could complete,
-    /// report, and even be applied against design B. The
-    /// replacement still reads as clean immediately afterward -- `saved_generation`
-    /// is set to match the just-bumped value, not left at whatever the literal
-    /// happened to write, so `is_dirty` is `false` right away, matching a freshly
-    /// loaded/created design's actual state.
+    /// The `generation` and [`Self::design_epoch`] counters are carried over and bumped, not
+    /// taken from `replacement`. A background closure that captured the old `Arc` then sees
+    /// the bump, so a search started against the old design cannot be applied to the new one.
+    /// The replacement reads as clean at once (`saved_generation` is set to match), so
+    /// `is_dirty` is false.
     pub(in crate::gui::editor) fn replace_wholesale(&mut self, mut replacement: Self) {
-        // Cancels any Deep Solve/Optimize run still in flight for the design
-        // being replaced: dropping the OLD `self.deep_solve`/
-        // `self.optimize` handle below (via `*self = replacement`) alone does
-        // NOT stop the search -- neither handle cancels itself on drop, so an
-        // abandoned run kept burning CPU on its own worker thread for as long
-        // as it took to finish (up to several minutes for Deep Solve, see
-        // `deep_solve`'s own module doc comment) with no way for the cutter to
-        // start a fresh one against the NEW design in the meantime. Calling
-        // the real, checkpoint-based `cancel()` here -- the same one the
-        // Deep-Solve-Cancel/Optimize-Cancel buttons call -- stops the search
-        // itself within roughly the same single-digit-millisecond to
-        // few-second latency those buttons document, and lets the abandoned
-        // run's own completion handler (which already checks
-        // `design_epoch`/`RunProvenance::design_replaced`) arrive promptly
-        // instead of stalling behind a long-running search that had no reason
-        // to keep going. This only stops the WORK; the caller-visible
-        // `editor_deep_solve_running`/`editor_optimize_running` busy flags are
-        // a separate `EditorState` has no handle to, reset by
-        // `callbacks::solve_actions::clear_analysis_results` at every one of
-        // this method's own call sites instead.
+        // Cancel any Deep Solve or Optimize still running for the old design. Dropping the
+        // handles does not stop a run, and it would keep a worker busy for minutes. The
+        // completion handlers check `design_epoch`, so they return promptly once cancelled.
+        // The busy flags are reset by `callbacks::solve_actions::clear_analysis_results`.
         if let Some(handle) = self.deep_solve.take() {
             handle.cancel();
         }
@@ -478,12 +352,8 @@ impl EditorState {
             handle.cancel();
         }
         replacement.session.continue_generation_from(&self.session);
-        // Carried and bumped exactly like `generation` directly above, and for the
-        // same reason -- see [`Self::design_epoch`]'s own doc comment for what the
-        // second counter buys that `generation` alone cannot. Bumping it HERE, in
-        // the one method every replacement path goes through, is what makes it
-        // cover New, Load Selected, Open and Open plain `.asc` uniformly
-        // instead of relying on four call sites each remembering to do it.
+        // Bumped here, in the one method every replacement path goes through, so New, Load
+        // Selected, Open and plain `.asc` open all bump it.
         replacement.design_epoch = Arc::clone(&self.design_epoch);
         replacement
             .design_epoch

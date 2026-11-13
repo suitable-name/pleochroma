@@ -1,5 +1,5 @@
-//! Tests for [`LiveEpoch`] (`SampleCursor`'s own tests moved with it to
-//! `pleochroma-dispatch`), plus helpers other `bridge` tests reuse.
+//! Tests for [`LiveEpoch`], and helpers other `bridge` tests reuse. `SampleCursor`'s own
+//! tests live in `pleochroma-dispatch`.
 
 use super::*;
 use glam::Vec3;

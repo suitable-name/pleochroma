@@ -4,7 +4,7 @@
 //! The layout is cut in the order Y, X, Z (`Yxz`: slabs across Y, bars across X, pieces
 //! across Z) with a kerf of 0.3 mm and an allowance of 0.2 mm per side:
 //!
-//! | piece | slab thickness (Y) | bar width (X) | piece length (Z) | piece box `[x, y, z]` | origin |
+//! | piece | slab (Y) | bar (X) | piece (Z) | piece box `[x, y, z]` | origin |
 //! |-------|-----|-----|-----|-----------------|----------------|
 //! | 0     | 4.0 | 3.0 | 3.5 | `[3.0, 4.0, 3.5]` | `[0, 0, 0]`    |
 //! | 1     | 4.0 | 3.0 | 3.2 | `[3.0, 4.0, 3.2]` | `[0, 0, 3.8]`  |

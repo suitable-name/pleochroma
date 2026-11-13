@@ -522,7 +522,7 @@ pub fn tier_detail(state: &AppState, row: &MobileTierRow) -> Option<TierDetail> 
     } else {
         format!("{} ({})", row.code, row.name)
     };
-    // The mast is a bare number on the desktop table; here it gets its name and meaning.
+    // Name the mast here: the desktop table shows only the bare number.
     let mast = if row.mast_text.is_empty() {
         String::new()
     } else {

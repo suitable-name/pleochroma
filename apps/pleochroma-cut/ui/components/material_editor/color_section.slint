@@ -8,25 +8,24 @@ import { MaterialColorPresets } from "color_presets.slint";
 import { ChromophorePicker } from "chromophore_picker.slint";
 import { LchEditor } from "lch_editor.slint";
 
-// The Color area of the Gem Material Editor. Fantasy (the nine presets or a free pick, fitted to
-// the three legacy bands) or Physics (host + elements, see `ChromophorePicker`). Switching keeps
-// BOTH payloads: the recipe survives a trip through Fantasy and a saved fantasy color survives a
-// trip through Physics.
+// The Color area of the Gem Material Editor: Fantasy (the presets or a free pick, fitted to the
+// three bands) or Physics (host and elements, see `ChromophorePicker`). Switching keeps both
+// payloads: a recipe survives a trip through Fantasy, and a saved fantasy color survives a trip
+// through Physics.
 //
 // The physics editor is a cargo feature (`physical-color`). Without it the toggle and the recipe
-// section are not shown and the Fantasy controls are always shown, even over a stored physics
-// recipe (a note says so); which of the four views applies is decided in Rust
+// section are hidden and the Fantasy controls always shown, even over a stored physics recipe
+// (a note says so). Rust decides which view applies
 // (`gui::optics::physics_state::color_section_view`).
 //
-// Split out of `material_editor_dialog.slint` to keep that file under its line limit; the
-// dialog's `selected_color_preset` is shared through the two-way binding.
+// The dialog's `selected_color_preset` is shared through a two-way binding.
 export component MaterialColorSection inherits VerticalLayout {
     in-out property <int> selected_color_preset;
     // The dialog's optical character (its combo index). A uniaxial or biaxial material gets one
     // color row per direction in the editor below, so the material keeps its pleochroism.
     in property <int> optical_character_idx: 0;
 
-    // The fantasy mode's free color picker (spec 7), inline under the preset row.
+    // The fantasy mode's free color picker, inline under the preset row.
     property <bool> fantasy_picker_open: false;
 
     spacing: 8px;

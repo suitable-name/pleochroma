@@ -57,8 +57,7 @@ component TrialLine inherits Rectangle {
     in property <bool> selected;
     in property <bool> baseline: false;
     in property <bool> usable: true;
-    // Room left free at the right edge for the list's scroll bar, which is drawn over the row
-    // (it covered the Star button).
+    // Room kept free at the right edge for the list's scroll bar, which is drawn over the row.
     in property <length> gutter: 0px;
     callback chosen();
     callback star_toggled();
@@ -166,8 +165,8 @@ component TrialLine inherits Rectangle {
 }
 
 // The Inspector's History tab, third view: the trials the cutter kept. A trial is the design with
-// its figures; the table reads them against the Baseline (the strip under the tabs). A click on a
-// row previews the trial on the stone; Restore brings it back as one undo step.
+// its figures. The table reads them against the Baseline, its first line. A click on a row
+// previews the trial on the stone; Restore brings it back as one undo step.
 export component TrialsView inherits Rectangle {
     // The same condition as the History tab's other buttons.
     property <bool> usable: EditorModel.enabled && GuideModel.allows_history();
@@ -189,9 +188,8 @@ export component TrialsView inherits Rectangle {
         padding-right: FormRowMetrics.scroll_gutter;
         padding-top: 2px;
 
-        // The title, the buttons and the Sort drop-down share ONE row, so the first trial sits
-        // as high as the view allows: a step that clicks a trial needs the list, not the heading
-        // and the hint above it (the hint is under the list now).
+        // The title, the buttons and the Sort drop-down share one row, so the list starts as
+        // high as the view allows.
         HorizontalLayout {
             spacing: 6px;
             // As tall as the Sort drop-down beside the buttons, so the row reads as one line.
@@ -359,8 +357,7 @@ export component TrialsView inherits Rectangle {
             }
         }
 
-        // How to read the list, and the recording switch: under the list, so the trial rows are
-        // what the view opens on.
+        // How to read the list, and the recording switch, sit under the list.
         if TrialsModel.rows.length > 0: WrapNote {
             text: "Click a trial to see it on the stone. Colors show the change since the Baseline; the best figure of each column has an outline.";
             font_size: 10px;

@@ -333,8 +333,8 @@ fn cut_from_dto(dto: &CutDto, path: &str) -> Result<RoughCut, String> {
 }
 
 /// The modelled rough of `dto`: base, cuts and, for a block, cylinder or pebble, its
-/// inclusions, checked field by field and then as a whole (the core must be able to build the
-/// solid).
+/// inclusions. Each field is checked first, then the whole rough (the core must be able to
+/// build the solid).
 ///
 /// # Errors
 ///
@@ -355,8 +355,8 @@ pub fn rough_from_dto(dto: &RoughDto) -> Result<RoughModel, String> {
         .transpose()?;
     let mut model = RoughModel::new(base, cuts).with_orientation(orientation);
     model.halfspaces().map_err(|e| format!("rough: {e}"))?;
-    // An imported mesh keeps its inclusions in its own base (see `base_from_hull`); every other
-    // base keeps them on the model, and they must lie in the rough as it is cut.
+    // An imported mesh keeps its inclusions in its own base (see `base_from_hull`). Every
+    // other base keeps them on the model, and they must lie in the rough as it is cut.
     if !matches!(model.base, RoughBase::Hull { .. }) {
         let set = set_from_dto(dto)?;
         if !set.is_empty() {

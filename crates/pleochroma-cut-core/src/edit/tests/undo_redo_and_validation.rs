@@ -99,22 +99,13 @@ fn a_new_edit_after_undo_clears_the_redo_stack() {
     assert!(!history.can_redo());
 }
 
-/// Edits that pinch the solid to zero volume must surface as
-/// `Degenerate` via `Design::status`, and undoing the pinch must close
-/// it again -- edit/undo and validation status composing the way an
-/// editor actually needs them to.
+/// Edits that pinch the solid to zero volume must report `Degenerate` through
+/// `Design::status`, and undoing the pinch must close it again.
 ///
-/// A `Design`'s arrangement is always `preform.planes() ++ facet
-/// planes`, and the preform alone already bounds a bunch of space around
-/// the origin (see `crate::preform`'s tests) -- so in practice
-/// `Unbounded` is essentially unreachable through `Design::status` as
-/// long as the preform stays sane; the preform always caps every
-/// direction, so a schedule missing a closing facet just shows more of
-/// the rough there instead of leaving the arrangement open. `Degenerate`
-/// (zero/negative volume, or too few vertices) is the status an editor
-/// actually needs to watch for once a preform is in play, which is what
-/// this test exercises: two zero-mast facets on opposite sides pinch the
-/// preform's own vertical extent down to a single plane.
+/// The arrangement is `preform.planes() ++ facet planes`, and the preform caps every
+/// direction, so `Unbounded` is practically unreachable here. `Degenerate` (zero or
+/// negative volume, or too few vertices) is the status to watch for. This test pinches the
+/// preform's vertical extent with two zero-mast facets on opposite sides.
 #[test]
 fn validation_status_tracks_edits_through_undo() {
     let mut design = fresh_design();

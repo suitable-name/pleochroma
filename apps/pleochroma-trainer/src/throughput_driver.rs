@@ -1,4 +1,4 @@
-//! Real production iterations and targeted projection cases, with no recovery lifecycle.
+//! Production iterations and targeted projection cases; no checkpoints or recovery.
 
 use serde_json::{Value, json};
 use std::{

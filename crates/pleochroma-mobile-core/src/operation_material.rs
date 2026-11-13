@@ -1,12 +1,16 @@
-//! Explicit optics for search; an unnamed imported index is not a material guess.
+//! Resolves the optics of an operation's source and target material. A named material is
+//! looked up; a bare refractive index is used as it is and is never matched to a species.
 use pleochroma::optics::materials::GemMaterial;
 use pleochroma_cut_core::{Design, MaterialLookup, MaterialSelection};
 use pleochroma_editor::material_lookup::EditorMaterialLookup;
 
+/// The design's own material. A design without a named material falls back to its stored
+/// refractive index.
 pub fn source(design: &Design, custom: &[GemMaterial]) -> Result<GemMaterial, String> {
     resolve(&design.material, custom, Some(design.meta.refractive_index))
 }
 
+/// The target material. It needs a name or an explicit refractive index; nothing is assumed.
 pub fn target(
     selection: &MaterialSelection,
     custom: &[GemMaterial],

@@ -36,41 +36,24 @@
 //! `ui-screens: wrote assets/<name>.png (<w> x <h>)`. The report is in
 //! `target/ui-screens/report.md`.
 //!
-//! Shots: main, `solid_rendering`, `cutting_instructions`, `tilt_performance`, `tilt_performance_export`,
-//! `tilt_performance_cad`, `emerald_export_settings_4k`, cad, `cad_solved_diagram`, `diagram_view`,
-//! `diagram_view_detail`, `retarget_dialog`, `retarget_dialog_1`, `retarget_dialog_ray`, `retarget_gear_2`, `retarget_merge`,
-//! `optimizer_1`, `optimizer_2`, `optimizer_tune`, `optimizer__compare_1`, `optimizer__compare_2`, `tutorial_from_design`,
-//! `tutorial_from_design_2`, `tutorial_from_design_3`, `rough_planner`, `rough_planner_result`,
-//! `parameters_stone`, `parameters_lighting`, `parameters_render`, and the shots of the user
-//! manual's chapters: `new_design_dialog`, `material_editor`, `material_zones`, `preferences`,
-//! `command_palette`, `remote_coordinator`, `tier_form`, `concave_tier_form`, `history_steps`,
-//! `history_variants`, `history_trials`, `cutting_mode`, `angle_sweep`, `render_jobs`, and the
-//! shots of the Crystal Axis chapter: `crystal_axis_stone_tab`, `crystal_axis_second_axis`,
-//! `crystal_axis_overlay`, `crystal_axis_overlay_second`, `crystal_axis_planner_axis`,
-//! `crystal_axis_planner_stones`, `crystal_axis_planner_view`, `crystal_axis_cutting_mode`, and the
-//! shots of the Render Physics chapters: `physics_stone_inclusions`, `physics_stone_edges`,
-//! `physics_stone_play_of_color`, `physics_stone_schiller`, `physics_surface_inspector`,
-//! `physics_surface_overlay`, `physics_faceting_machine`, `physics_material_curves`,
-//! `physics_material_families`, `physics_material_structure`, and the shots of the Color Variants
-//! chapter: `color_variants_stone_sapphire`, `color_variants_stone_diamond`,
-//! `color_variants_custom_sapphire`, `color_variants_custom_tanzanite`, `color_variants_legacy`,
-//! `color_variants_section`, `color_pattern_variant`, `color_variants_live_render`.
+//! The shots are the entries of `SHOTS` below, one PNG each, named by the file stem.
 //!
 //! Not reproducible by the harness (left alone): `web_ui.png`, `web_ui_mobile.png` (the web app),
 //! `hybrid_remote_rendering.png` (several machines), the cutting sheet's Orientation block (the
 //! sheet is an exported HTML file, not a window), the Rough Color wizard (it needs a scanned
-//! mesh rough and eight rig photos), `settings_1.png` and `settings_2.png` (the
-//! Settings dialog is gone; the `parameters_*` shots replace them), and the unused
-//! `retarget_dialog_2.png`, `retarget_dialog_3.png`, `retarget_gear.png`, `retarget_gear_3.png`.
+//! mesh rough and eight rig photos), `settings_1.png` and `settings_2.png` (the `parameters_*`
+//! shots replace them), and the `retarget_dialog_2.png`, `retarget_dialog_3.png`,
+//! `retarget_gear.png` and `retarget_gear_3.png` files, which no shot writes.
 //!
 //! Privacy: no shot may show a path with the user's name. The profile lives under the user's
-//! temp folder, so the Export dialog's Output Location is set to a neutral text before its shot,
-//! and every shot's visible labels, values and placeholders are scanned for the user's name and
-//! for profile path fragments; a hit fails the shot instead of writing it.
+//! temp folder, so the Export dialog's Output Location and the Preferences dialog's path cache
+//! folder are set to neutral texts before their shots, and every shot's visible labels, values
+//! and placeholders are scanned for the user's name and for profile path fragments; a hit fails
+//! the shot instead of writing it.
 //!
 //! Look: the software renderer draws with the system fonts and draws no window frame, so a shot
-//! shows the window content only. Windows are 1920 x 1152 logical pixels (the Compare window and
-//! the Rough Planner use their preferred sizes) at scale 2.0.
+//! shows the window content only. The main window is 1920 x 1152 logical pixels and the Rough
+//! Planner 1280 x 820, both at scale 2.0.
 
 mod axis_shots;
 mod color_shots;
@@ -214,6 +197,11 @@ const SHOTS: [(&str, ShotFn); 70] = [
 ];
 
 fn main() -> ExitCode {
+    // The app's stone estimator, so the harness renders what the app renders (every process,
+    // the parent and each worker, runs this `main`).
+    pleochroma::optics::raytracer::set_default_estimator(
+        pleochroma::optics::raytracer::Estimator::APP_DEFAULT,
+    );
     // Read before the profile moves the working directory and redirects the user variables.
     let config = Rc::new(Config::from_env());
     let harness = Harness::new()

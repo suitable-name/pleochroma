@@ -228,8 +228,8 @@ fn save_cancelled_changes_nothing(ctx: &mut Ctx<'_>) {
     let before = probe.parent().map_or_else(Vec::new, names_in);
     harness_support::queue_picker_cancel();
     editor.invoke_save_native_as();
-    // Was a fixed `settle(800)`: wait until the picker has consumed the cancel, then keep a short
-    // fixed pause because "nothing is written" cannot be observed.
+    // Wait until the picker has consumed the cancel, then pause briefly: "nothing is written"
+    // cannot be observed directly.
     let _ = crate::support::app::wait_until(Duration::from_millis(800), || {
         harness_support::pending_picker_answers() == 0
     });
@@ -291,8 +291,7 @@ fn import_asc(ctx: &mut Ctx<'_>) {
     });
     let mut before = library.get_diagram_list().row_count();
     for _ in 0..20 {
-        // Was `settle(500)` per round; the status/rows condition above already holds, so a
-        // second read 100 ms later is enough to see a straggler.
+        // The status above has settled; a re-read 100 ms later catches a straggler.
         settle(100);
         pump(50);
         let now = library.get_diagram_list().row_count();

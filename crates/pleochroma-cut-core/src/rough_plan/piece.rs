@@ -223,9 +223,8 @@ fn cube_root(x: f64) -> f64 {
     lo
 }
 
-/// Units per axis of a rough with the proportions of a cube, before the grid is scaled to
-/// the rough's own proportions: the resolution the planner used for its largest stone count
-/// (99) when the count was still capped.
+/// Units per axis of a cube-shaped rough, before [`choose_grid`] scales them to the rough's own
+/// proportions.
 const UNITS_PER_AXIS: f64 = 30.0;
 
 /// The DP operation estimate summed over the six cut orders: per order the bars
@@ -243,8 +242,8 @@ fn op_estimate(cells: [usize; 3]) -> f64 {
 /// `8..=48` per axis, shrunk until the DP operation estimate is at most `3e9`.
 ///
 /// The shrink works in 5 % steps on all axes together and may take an axis
-/// below the 8-unit floor (never below 2). Without a stone dimension the DP is cheap, so
-/// the shrink only matters for the shaped planner's own caps (`shaped::grid`).
+/// below the 8-unit floor (never below 2). The shaped planner starts its own grid from these
+/// cells and clamps them to its caps (`shaped::grid`).
 ///
 /// The grid never depends on the settings' stone cap or design cap: a stone cap is solved on
 /// this same grid (by the count DP of `dp_capped`), so a cap that does not bind changes

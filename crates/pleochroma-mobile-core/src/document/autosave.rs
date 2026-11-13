@@ -240,12 +240,10 @@ impl DocumentState {
     ///   entry as where the design came from, or this document wrote it (see
     ///   [`autosave`]) and is itself the working copy of one of them. Otherwise a restart
     ///   would bring the deleted design back.
-    /// - When the open design is the working copy of one of the entries, it stays open (the
-    ///   user may be looking at it) but belongs to no entry any more: its origin becomes
-    ///   [`DocumentOrigin::New`], so "Save" no longer overwrites or re-creates an entry by
-    ///   itself, and it reads as unsaved, so replacing it asks first. The autosave does not
-    ///   write it again until the design changes; an edit after the delete is the user's
-    ///   own act and is autosaved like any unsaved design.
+    /// - When the open design is the working copy of one of the entries, it stays open but
+    ///   belongs to no entry: its origin becomes [`DocumentOrigin::New`], so "Save" does not
+    ///   overwrite or re-create an entry by itself. It reads as unsaved, so replacing it asks
+    ///   first. The autosave is not written again until the design changes.
     ///
     /// Returns whether the open design was one of the deleted entries' working copy.
     pub fn forget_library_entries(

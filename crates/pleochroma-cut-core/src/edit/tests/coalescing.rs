@@ -207,10 +207,9 @@ fn an_ordinary_apply_between_two_coalescing_calls_breaks_the_merge() {
     assert!(!history.can_undo());
 }
 
-/// [`crate::edit::History::with_coalesce_window`] lets a caller pick a
-/// window other than the crate-wide 500ms default -- here, one short enough that
-/// two calls 100ms apart (which the default-window test above merges) do NOT
-/// merge.
+/// [`crate::edit::History::with_coalesce_window`] lets a caller pick a window other than the
+/// crate-wide 500ms default. Here the window is short enough that two calls 100ms apart do
+/// not merge.
 #[test]
 fn with_coalesce_window_uses_the_given_window_instead_of_the_default() {
     let mut design = fresh_design();

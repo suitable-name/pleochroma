@@ -2,10 +2,10 @@
 //! `preview_top`) per design for `diagram_list.slint`'s two small per-row thumbnails.
 //!
 //! This is a synchronous Slint callback backed by a background-decoded cache, not a
-//! field on `DiagramItem`: `gui::search::to_diagram_item` (the only place `DiagramItem`
-//! rows are built) does not decode the cached PNGs, so this resolves them lazily
-//! instead. `diagram_list.slint` calls `root.get_preview_thumbnails(item.id,
-//! root.preview_cache_version)` per visible row, and
+//! field on `DiagramItem`: the search code that builds `DiagramItem` rows
+//! (`gui::library::search`) does not decode the cached PNGs, so this resolves them lazily
+//! instead. `diagram_list.slint` calls `LibraryModel.get_preview_thumbnails(item.id,
+//! LibraryModel.preview_cache_version)` per visible row, and
 //! [`setup_preview_thumbnail_callback`] answers purely from `item.id`.
 //!
 //! The callback runs on the UI thread and must return fast: a cache hit is a plain
@@ -389,11 +389,11 @@ fn run_decoder(shared: &Arc<Shared>, db: &Mutex<Database>, ui_weak: &slint::Weak
     }
 }
 
-/// Registers `MainWindow::get_preview_thumbnails` -- see this module's doc comment.
-/// Owns its cache for the life of the window; the cache keeps at most
-/// [`MAX_CACHED_DESIGNS`] decoded designs. Returns the shared handle so the preview
-/// batch can invalidate an entry (via [`PreviewThumbnailCache::invalidate`]) after
-/// saving new previews.
+/// Registers the `LibraryModel.get_preview_thumbnails` callback.
+///
+/// The cache lives as long as the window and keeps at most [`MAX_CACHED_DESIGNS`] decoded designs.
+/// Returns the shared handle so the preview batch can invalidate an entry (via
+/// [`PreviewThumbnailCache::invalidate`]) after saving new previews.
 pub fn setup_preview_thumbnail_callback(
     ui: &MainWindow,
     db: &Arc<Mutex<Database>>,

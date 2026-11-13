@@ -1,5 +1,4 @@
-//! Branch diagnosis (follow-up plan 2026-10-19, section 8.1). Written without a toolchain:
-//! the owner runs them.
+//! Tests of the branch diagnosis of refused candidates.
 
 use super::*;
 use crate::meet_preservation::BranchDiagnosis;
@@ -33,11 +32,11 @@ fn a_split_apex_with_nothing_derived_is_infeasible() {
 }
 
 /// Not runnable on the octahedron: the solver's rank-1 level for the derived `C3` is the
-/// original apex (levels 1.5 then 0.5; `pipeline.rs` picks index 1), so the premise below
-/// fails and the diagnosis is `Unresolved`. A mismatch needs a fixture whose derived tier has
-/// a shallower feasible vertex level than its original mast, and whose junctions still hold
-/// three fixed planes each (pinning `C3` off the apex leaves only two, so the ideal mast
-/// cannot be formed). The real-stone mismatch is measured by the census instead.
+/// original apex (levels 1.5 then 0.5), so the premise below fails and the diagnosis is
+/// `Unresolved`. A mismatch needs a fixture whose derived tier has a shallower feasible
+/// vertex level than its original mast, and whose junctions still hold three fixed planes
+/// each (pinning `C3` off the apex leaves only two, so the ideal mast cannot be formed).
+/// The real-stone mismatch is measured by the census instead.
 #[test]
 #[ignore = "needs a fixture where the meet solver picks a different vertex; see FABLE_V0 F1"]
 fn a_derived_tier_that_picked_another_vertex_is_a_branch_mismatch() {

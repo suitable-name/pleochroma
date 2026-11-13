@@ -13,10 +13,9 @@ use tracing::warn;
 /// uniformly.
 const RANGE_BOUND_PERCENTILE: f64 = 99.0;
 
-/// A raw maximum more than this many times the derived bound is treated as a probable
-/// data-quality outlier worth logging (see `warn_if_outlier`). Measured p99-to-max
-/// ratios for genuine long-tail attributes stay under ~3x; the one confirmed data error
-/// was ~200x, so 5x sits between "wide but real" and "obviously wrong".
+/// A raw maximum more than this many times the derived bound is logged as a probable
+/// data-entry error (see `warn_if_outlier`). Genuine long tails stay under about 3x the
+/// p99 bound; a confirmed data error was about 200x.
 const OUTLIER_WARNING_RATIO: f64 = 5.0;
 
 impl Database {

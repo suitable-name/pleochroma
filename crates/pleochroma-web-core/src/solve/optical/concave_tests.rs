@@ -1,6 +1,8 @@
-//! The analysis Worker's metrics and tilt jobs score a concave stone WITH its tools, as the
-//! desktop does (`StoneGeometry { planes, tools }`), and a flat stone exactly as before.
-//! The stone is `Design::concave_fixture()` (a groove and a dimple).
+//! The analysis Worker's metrics and tilt jobs score a concave stone with its tools, as the desktop
+//! does (`StoneGeometry { planes, tools }`).
+//!
+//! A flat stone keeps the planar request. The stone is `Design::concave_fixture()` (a groove and a
+//! dimple).
 
 use pleochroma::{
     color::metrics::{

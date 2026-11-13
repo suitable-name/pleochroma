@@ -2,15 +2,11 @@
 //! control ([`crate::render_setup::apply_material_overrides`]'s `stone_width_mm`
 //! override).
 //!
-//! [`measure_model_width`] itself is cheap to call but not free -- it enumerates every
-//! feasible plane-triple intersection of the active design ([`crate::geometry::
-//! stone_metrics::measure_solid`]) -- so a caller that needs it every frame (the
-//! desktop's live render loop) should still cache the result keyed on
-//! [`crate::render_setup::hash_planes`], the way `StoneWidthCache`
-//! (`apps/pleochroma-cut/src/bridge/frame_cache/stone_width.rs`) does. That cache
-//! itself stays desktop-side rather than moving here: it is plain per-call state, not
-//! render physics, and nothing about it needs to be wasm-specific -- this function is
-//! the part every renderer built on this crate needs to agree on.
+//! [`measure_model_width`] enumerates every feasible plane-triple intersection of the design
+//! ([`crate::geometry::stone_metrics::measure_solid`]), so a caller that needs it every frame
+//! should cache the result keyed on [`crate::render_setup::hash_planes`]. The desktop's
+//! `StoneWidthCache` (`apps/pleochroma-cut/src/bridge/frame_cache/stone_width.rs`) does this.
+//! The cache stays app-side: it is per-app state, not render physics.
 
 use crate::geometry::{plane::GpuFacetPlane, stone_metrics::measure_solid};
 use glam::DVec3;

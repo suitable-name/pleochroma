@@ -3,9 +3,8 @@ import { Theme } from "../../theme.slint";
 import { GuideModel } from "../../models/guide.slint";
 import { TipBox } from "../tip_box.slint";
 
-// One labelled slider: the caption with its plain-language tooltip on the left, the value on the
-// right, and the slider under them. `step` is what an arrow key moves the slider by, so a keyboard
-// user can set the number, not just a mouse user.
+// One labelled slider: caption with its tooltip on the left, value on the right, slider below.
+// `step` is the arrow-key increment, so keyboard users can set an exact value.
 component OpticsSlider inherits VerticalLayout {
     in property <string> label;
     in property <string> hint;
@@ -40,12 +39,8 @@ component OpticsSlider inherits VerticalLayout {
     }
 }
 
-// The Refractive Index / Dispersion / Specific Gravity / Birefringence
-// sliders -- split out of `material_editor_dialog.slint` to keep that file
-// under its line budget. Each value is two-way bound back to
-// `MaterialEditorDialog`'s own identically-named property (see that file's
-// own doc comments -- `sg_val`'s "0.0 = not recorded" convention in
-// particular).
+// Refractive index, dispersion, specific gravity and birefringence sliders of the Gem Material
+// Editor. Each value is two-way bound to the same-named property of `MaterialEditorDialog`.
 //
 // Simple mode hides the birefringence slider (`GuideModel.shows_advanced()`); its value stays and
 // still applies, and the dialog says so when it is not zero.
@@ -61,7 +56,7 @@ export component MaterialOpticsSliders inherits VerticalLayout {
     // n_d and n_F - n_C, so the two sliders would only mislead. The values themselves stay.
     in property <bool> show_dispersion_sliders: true;
 
-    // 3. Refractive Index (RI) Slider
+    // Refractive index slider.
     if root.show_dispersion_sliders : OpticsSlider {
         label: "Refractive Index (nd):";
         hint: "Refractive index n_d: how strongly the stone bends light, measured for yellow light. Gems are typically 1.4 to 2.7; this editor allows up to 3.2 for rare high-index materials. See the glossary.";
@@ -73,7 +68,7 @@ export component MaterialOpticsSliders inherits VerticalLayout {
         value <=> root.ri_val;
     }
 
-    // 4. Dispersion (Fire Index) Slider
+    // Dispersion (fire index) slider.
     if root.show_dispersion_sliders : OpticsSlider {
         label: "Dispersion (Fire ΔnF-C):";
         hint: "Dispersion: how much the stone spreads white light into colors, which is its fire. Typically 0.005 to 0.03 (diamond 0.0256, moissanite 0.0635; rutile reaches 0.207). See the glossary.";
@@ -85,11 +80,9 @@ export component MaterialOpticsSliders inherits VerticalLayout {
         value <=> root.disp_val;
     }
 
-    // Specific gravity -- without this, a custom
-    // material's Est. Carat Weight stays empty unless a cutter separately
-    // types an SG override in the Yield panel for every design that uses it.
-    // `0.0` reads as "not recorded" on the Rust side (see `MaterialEditorDialog.
-    // sg_val`'s own doc comment) rather than a real zero-density material.
+    // Specific gravity. `0.0` means "not recorded" on the Rust side, not a real zero density.
+    // A recorded value lets a custom material's Est. Carat Weight fill in without a separate
+    // SG override in the Yield panel for every design that uses it.
     OpticsSlider {
         label: "Specific Gravity:";
         hint: "Specific gravity: the density of the material compared with water. It is used to estimate carat weight. Leave it at 0 to leave it unrecorded.";
@@ -101,7 +94,7 @@ export component MaterialOpticsSliders inherits VerticalLayout {
         value <=> root.sg_val;
     }
 
-    // 5. Birefringence (Double Refraction) Slider -- Advanced mode only.
+    // Birefringence (double refraction) slider. Advanced mode only.
     if GuideModel.shows_advanced() : OpticsSlider {
         label: "Birefringence (Δn = ne - no):";
         hint: "Double refraction: the difference between the two refractive indices of a stone that splits light in two. 0 for isotropic gems, typically up to 0.05 for most species (higher for zircon or calcite). See the glossary.";

@@ -1,46 +1,33 @@
-//! The conversions behind the `.psdd` design file (Pleochroma Suite Design Document),
-//! plus the catalogue `.asc`
-//! text a save stores next to it.
+//! The conversions behind the `.psdd` design file (Pleochroma Suite Design Document), and the
+//! catalogue `.asc` text a save stores next to it.
 //!
-//! The on-disk document shape itself -- the schema, TOML encode/decode and path
-//! rules -- lives in [`pleochroma_formats::native`], a dependency-free-of-editor-types
-//! format crate this module re-exports from (see that module's own doc comment for the
-//! format and "the gap this closes"). What stays HERE is everything that needs this
-//! crate's own editor types in scope: [`convert`]'s free functions between the on-disk
-//! mirror types and [`crate::design::Design`]/[`crate::preform::PreformSpec`]/
-//! [`crate::material::MaterialSelection`]/`pleochroma`'s own
-//! [`pleochroma::geometry::meet_solver::MeetConstraint`] (see [`convert`]'s own doc
-//! comment for why these are free functions, not `From`/`Into` impls), and the two
-//! directions built on top of them: [`design_to_file`]/[`design_from_file`] and
-//! [`save`]'s [`catalogue_asc`].
+//! The on-disk shape (schema, TOML encode/decode, path rules) lives in
+//! [`pleochroma_formats::native`], which has no editor types. This module holds the parts that
+//! need this crate's types: [`convert`]'s free functions between the on-disk mirror types and
+//! [`crate::design::Design`], [`crate::preform::PreformSpec`],
+//! [`crate::material::MaterialSelection`] and `pleochroma`'s
+//! [`pleochroma::geometry::meet_solver::MeetConstraint`]. They are free functions because
+//! most of these pairs are foreign to this crate, which the orphan rules do not allow to
+//! implement `From`/`Into`. The module also holds [`design_to_file`]/[`design_from_file`]
+//! and [`save`]'s [`catalogue_asc`].
 //!
 //! # The self-contained design file
 //!
 //! [`design_to_file`]/[`design_from_file`] convert a design to and from the single-file
-//! `.psdd` format ([`pleochroma_formats::native::design`]), which carries the whole
-//! design and needs no paired `.asc`. There is no other native file.
+//! `.psdd` format ([`pleochroma_formats::native::design`]). It carries the whole design and
+//! needs no paired `.asc`.
 //!
 //! # Preserving the original `.asc` text
 //!
-//! [`pleochroma_formats::asc::to_asc_string`] is round-trip-stable but not byte-identical to
-//! hand-authored `GemCAD` output. Saving a design that came from a catalogue `.asc`
-//! and was never actually edited should not reformat that text just because a design
-//! file sits beside it: [`catalogue_asc`] takes the caller's already-loaded original
-//! `.asc` text and preserves it byte for byte whenever the design's current
-//! [`crate::design::Design::to_asc_schedule`] output is semantically equal to what
-//! that text itself parses to, WITH ONE FIELD MASKED: `refractive_index` is compared
-//! against the original text's own value, not the design's current
-//! [`crate::design::Design::effective_refractive_index`] -- picking a different
-//! built-in material changes that derived figure on its own, with no tier/preform
-//! data touched at all, and the design file's `[material]` table already records the
-//! real selection, so the exported `I` line staying at its original value costs
-//! nothing. So: nothing authored actually changed, even if
-//! `girdle_diameter_mm`/`material`/`preform` were touched (none of which round-trip
-//! into `.asc` beyond that one masked field). Once a real tier/preform edit breaks that
-//! (masked) equality, this regenerates a fresh `.asc` instead -- see the
-//! `catalogue_asc_preserves_untouched_text`/`catalogue_asc_preserves_untouched_text_after_a_material_change_alone`/`catalogue_asc_regenerates_after_a_real_edit`
-//! tests, and that module's own (private) `schedules_equal_ignoring_refractive_index`
-//! for the actual comparison.
+//! [`pleochroma_formats::asc::to_asc_string`] is round-trip stable but not byte-identical to
+//! hand-authored `GemCAD` output. So [`catalogue_asc`] keeps the caller's loaded original `.asc`
+//! text byte for byte when the design's current [`crate::design::Design::to_asc_schedule`]
+//! equals what that text parses to, with one field masked: `refractive_index` is compared
+//! against the original's own value, not [`crate::design::Design::effective_refractive_index`].
+//! A different built-in material changes the effective value alone, and the design file's
+//! `[material]` table already records the real selection, so keeping the `I` line costs
+//! nothing. Any real tier or preform edit breaks the equality and regenerates the `.asc`.
+//! The comparison is the private `schedules_equal_ignoring_refractive_index` in `save`.
 
 mod axis_curves;
 mod convert;

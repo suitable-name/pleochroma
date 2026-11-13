@@ -55,11 +55,9 @@ pub const DEFAULT_JOIN_CERT_DIR: &str = "worker-cert";
 
 /// `join --slots`'s default: two connections.
 ///
-/// A second chunk is already in flight when the first one's transfer/decode gap would
-/// otherwise leave this worker idling in the coordinator's `Epoch::claim` between
-/// chunks -- measured as an underused fast remote worker (e.g. an A100) behind a much
-/// slower coordinator lane. Was `1` before this was measured; bump further only for a
-/// CPU-only machine juggling many small chunks (see `USAGE_JOIN`).
+/// The second slot keeps a chunk in flight while the first one's transfer/decode gap
+/// would otherwise leave this worker idle between chunks. Raise it only for a CPU-only
+/// machine juggling many small chunks (see `USAGE_JOIN`).
 pub const DEFAULT_JOIN_SLOTS: usize = 2;
 
 /// The most `join --slots` accepted -- a sanity bound, not a tuning knob.
@@ -87,9 +85,8 @@ impl HelpTopic {
 
 /// `pleochroma-worker --help` / `pleochroma-worker -h` / no arguments at all.
 ///
-/// Small
-/// enough to fit on a terminal screen; command-specific detail lives on
-/// [`USAGE_RENDER`]/[`USAGE_SERVE`]/[`USAGE_CERT`], not here.
+/// Fits one terminal screen; command-specific detail lives on [`USAGE_RENDER`],
+/// [`USAGE_SERVE`] and [`USAGE_CERT`].
 pub const USAGE_ROOT: &str =
     "pleochroma-worker -- headless pleochroma coordinator and render worker
 

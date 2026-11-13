@@ -10,13 +10,11 @@ use std::{
 
 /// The one `wgpu::InstanceDescriptor` every native acquisition path uses.
 ///
-/// `wgpu` defaults to `Backends::all()`, which includes GL. On Windows, Linux and macOS GL is
-/// excluded on purpose (decision 2026-10-20): wgpu-hal 30.0.1 `unwrap`s inside the GL
-/// context's teardown (`gles/wgl.rs:173`, and the same shape in `gles/egl.rs`), on whichever
-/// thread drops the last reference, so a probe cannot make it safe. GL would also add almost
-/// nothing: Windows always has DX12 (and WARP), macOS Metal, and only old Linux hardware
-/// without a Vulkan driver or lavapipe lacks Vulkan; there the CPU tracer renders. Desktop
-/// targets therefore get `Backends::PRIMARY` (Vulkan/Metal/DX12). Android keeps GLES and
+/// Desktop targets get `Backends::PRIMARY` (Vulkan, Metal, DX12) rather than `wgpu`'s default
+/// `Backends::all()`. GL is excluded because wgpu-hal 30.0.1 `unwrap`s inside the GL context
+/// teardown, on whichever thread drops the last reference, so no probe can make it safe. GL
+/// would add almost nothing: Windows has DX12 (and WARP), macOS has Metal, and on old Linux
+/// hardware without a Vulkan driver or lavapipe the CPU tracer renders. Android keeps GLES and
 /// wasm32 its browser backends. `WGPU_BACKEND=gl` is the explicit, at-your-own-risk opt-in.
 pub(in crate::renderer::gpu) fn instance_descriptor() -> wgpu::InstanceDescriptor {
     #[cfg_attr(
@@ -72,43 +70,33 @@ pub const WAVEFRONT_STORAGE_BUFFERS: u32 = 27;
 /// Total uniform + storage buffer bindings `wavefront_bounce`'s auto-derived pipeline
 /// layout reaches in one stage (`wavefront_transport.wgsl`).
 ///
-/// Every scene binding (0-15: `camera` through `wf_params`, all reachable via
-/// `transport_bounce_step`/`transport_generate_ray`, see
-/// [`super::frame::wavefront_bounce_bind_group`]'s own doc comment on why `camera` is
-/// included) plus its 14 per-ray `SoA` arrays (16-29) plus `ray_pending_light_mis_dir`
-/// (34, the light-MIS interior-direction hand-off) plus `ray_nee_xyz` (35, the running
-/// Henyey-Greenstein scattering-point NEE total) = 32. Distinct from
-/// [`WAVEFRONT_STORAGE_BUFFERS`] (a
-/// storage-buffer-only count that does not include that binding or the `camera`/`params`
-/// uniform bindings this entry point also reaches):
-/// `wgpu` 30's `max_buffers_and_acceleration_structures_per_shader_stage` limit counts
-/// EVERY buffer/acceleration-structure binding (uniform and storage alike) in one stage,
-/// not storage buffers alone, and its WebGPU-baseline default (well under 32) makes
-/// `Device::create_compute_pipeline`'s implicit-layout derivation fail outright --
-/// "Unable to derive an implicit layout ... Too many bindings" -- rather than merely
-/// declining gracefully. [`Self::acquire_async`] requests this many (clamped) from the
-/// adapter; [`super::frame::GpuFrameRenderer::set_pipeline_kind`] checks the device
-/// actually granted enough before switching to [`super::frame::GpuPipelineKind::Wavefront`].
+/// Every scene binding (0-15, `camera` through `wf_params`; see
+/// [`super::frame::wavefront_bounce_bind_group`] for why `camera` is included), the 14 per-ray
+/// `SoA` arrays (16-29), `ray_pending_light_mis_dir` (34, the light-MIS interior-direction
+/// hand-off) and `ray_nee_xyz` (35, the running Henyey-Greenstein scattering-point NEE total):
+/// 32 in all. This is not [`WAVEFRONT_STORAGE_BUFFERS`]: `wgpu` counts uniform and storage
+/// bindings alike against `max_buffers_and_acceleration_structures_per_shader_stage`, and under
+/// the WebGPU baseline the implicit layout derivation fails with "Too many bindings" instead of
+/// declining. [`Self::acquire_async`] requests this many (clamped), and
+/// [`super::frame::GpuFrameRenderer::set_pipeline_kind`] checks the device granted them before
+/// switching to [`super::frame::GpuPipelineKind::Wavefront`].
 pub const WAVEFRONT_BOUNCE_TOTAL_BUFFERS: u32 = 32;
 
 /// Upper bound on the per-stage storage-buffer limit requested from an adapter.
 const MAX_REQUESTED_STORAGE_BUFFERS_PER_STAGE: u32 = 32;
 
-/// Upper bound on the per-stage combined uniform+storage+acceleration-structure buffer
-/// limit requested from an adapter -- see [`WAVEFRONT_BOUNCE_TOTAL_BUFFERS`]'s doc
-/// comment. A little headroom over that count, same reasoning as
-/// [`MAX_REQUESTED_STORAGE_BUFFERS_PER_STAGE`]'s own margin over
-/// [`WAVEFRONT_STORAGE_BUFFERS`].
+/// Upper bound on the per-stage combined buffer limit requested from an adapter (see
+/// [`WAVEFRONT_BOUNCE_TOTAL_BUFFERS`]), with a little headroom over that count.
 const MAX_REQUESTED_BUFFERS_AND_ACCEL_PER_STAGE: u32 = 40;
 
 /// Whether [`GpuContext::acquire_async`] asks for the adapter's own storage-binding and buffer
 /// size limits instead of the WebGPU baseline (128 MiB binding, 256 MiB buffer).
 ///
-/// On in the browser, where the baseline sent every HDR map over about 8.4 M texels to the CPU
-/// (`texels * 16` bytes must fit one storage binding). Off elsewhere so the desktop's chunk
-/// sizing (the legacy wavefront caps its chunks by this limit) stays as it was; the desktop
-/// can switch it on once its large-map behaviour is measured.
-const LIFT_STORAGE_BINDING_LIMIT: bool = cfg!(target_arch = "wasm32");
+/// The baseline would move any HDR map above about 8.4 M texels (16 bytes each) and any beam
+/// reduction above 128 MiB to the CPU. The renderer's chunk sizing reads the device's real
+/// limit (`cap_byte_budget_for_wavefront`, `chunk_pixels_for`), so a larger binding only widens
+/// chunks that the byte budget still bounds.
+const LIFT_STORAGE_BINDING_LIMIT: bool = true;
 
 /// The `max_storage_buffer_binding_size` and `max_buffer_size` to request from an adapter.
 ///
@@ -134,6 +122,10 @@ fn requested_buffer_sizes(adapter: &wgpu::Limits, lift: bool) -> (u64, u64) {
 /// A live `wgpu` adapter/device/queue, acquired once and reused by every self-test.
 #[derive(Clone)]
 pub struct GpuContext {
+    /// Declared first, so it drops first: the last clone takes the lifecycle turn here and
+    /// holds it while the handles below drop (`gpu::lifecycle`).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::renderer::gpu) _teardown_begin: super::lifecycle::TeardownBegin,
     /// wgpu instance.
     pub instance: wgpu::Instance,
     /// Selected adapter.
@@ -142,23 +134,26 @@ pub struct GpuContext {
     pub device: wgpu::Device,
     /// Submission queue.
     pub queue: wgpu::Queue,
-    /// Set by the [`Device::on_uncaptured_error`](wgpu::Device::on_uncaptured_error)
-    /// handler [`Self::acquire_async`] installs, the moment `wgpu` reports a validation
-    /// or internal error that no `push_error_scope` caught. Without that handler, `wgpu`'s
-    /// documented default for an uncaptured error is to panic the calling thread -- which,
-    /// mid-`dispatch_chunk`, panics with the previous chunk's `map_async` already in
-    /// flight and its staging buffer never unmapped (see `renderer::gpu::frame`'s module
-    /// doc comment and `GpuFrameRenderer::abandon_in_flight`). Reading this flag turns
-    /// that panic into an ordinary [`super::frame::GpuFrameError::DeviceLost`] instead --
-    /// see `GpuFrameRenderer::accumulate_turn` and the event wavefront. `Arc` (not a plain
-    /// `AtomicBool`): the handler closure captures a clone and outlives this struct field
-    /// by however long `wgpu` holds the callback registered.
+    /// Set by the uncaptured-error handler that [`Self::acquire_async`] installs.
+    ///
+    /// Without that handler `wgpu` panics on an uncaught validation error, possibly mid-dispatch
+    /// with a staging buffer still mapped (see `GpuFrameRenderer::abandon_in_flight`). Reading
+    /// this flag turns that panic into [`super::frame::GpuFrameError::DeviceLost`]; see
+    /// `GpuFrameRenderer::accumulate_turn` and the event wavefront. `Arc` because the handler
+    /// closure holds a clone for as long as `wgpu` keeps it registered.
     pub validation_error_seen: Arc<AtomicBool>,
     /// The first GPU failure, with a device-loss callback's details appended if it
     /// arrives later. Kept for this context's lifetime: a failed context must be
     /// replaced, and later rejected submissions must not overwrite the root cause.
     /// The field name is retained for existing diagnostic callers.
     pub last_uncaptured_error: Arc<Mutex<Option<String>>>,
+    /// The beam kernels and uploads compiled for this device, shared by every clone of the
+    /// context and dropped with the last one (see `gpu::beam::device_caches`).
+    #[cfg(feature = "beam")]
+    pub(crate) beam_caches: Arc<crate::renderer::gpu::beam::device_caches::DeviceCaches>,
+    /// Declared last, so it drops last: gives back the turn `_teardown_begin` took.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::renderer::gpu) _teardown_end: super::lifecycle::TeardownEnd,
 }
 
 impl GpuContext {
@@ -195,8 +190,20 @@ impl GpuContext {
     /// [`GpuAcquireError::RequestDevice`] if device creation failed. Callers MUST treat
     /// either as a clean, diagnosable condition to report and exit on -- never panic or
     /// `unwrap`, since "no GPU here" is expected on some machines, not a bug.
+    ///
+    /// Every acquisition, and the teardown of a context's last clone, takes the process-wide
+    /// lifecycle turn (`gpu::lifecycle`): no two threads are inside instance or device creation
+    /// or destruction at once, since concurrent calls deadlock in the driver. A test build adds
+    /// the watchdog through `gpu::test_support::acquire_serialised`.
     pub fn acquire() -> Result<Self, GpuAcquireError> {
-        pollster::block_on(Self::acquire_async())
+        #[cfg(all(test, not(target_arch = "wasm32")))]
+        {
+            super::test_support::acquire_serialised()
+        }
+        #[cfg(not(all(test, not(target_arch = "wasm32"))))]
+        {
+            pollster::block_on(Self::acquire_async())
+        }
     }
 
     /// Asynchronously acquires a `wgpu` adapter/device/queue.
@@ -206,8 +213,9 @@ impl GpuContext {
     /// [`GpuAcquireError::NoAdapter`] if no backend/driver can produce an adapter, or
     /// [`GpuAcquireError::RequestDevice`] if device creation failed.
     //
-    // `pub(crate)`: wasm32-only `GpuFrameRenderer::new_async` awaits this directly
-    // instead of `pollster::block_on` (which parks the OS thread, unavailable on wasm32).
+    // `pub`: the web GPU app (`pleochroma-web-gpu`) and the wasm32-only
+    // `GpuFrameRenderer::new_async` await this directly instead of `pollster::block_on` (which
+    // parks the OS thread, unavailable on wasm32).
     //
     // `clippy::future_not_send` fires only for wasm32: `wgpu`'s web backend future holds
     // browser-side `Rc` handles, never `Send` -- and there's no second thread on
@@ -222,6 +230,10 @@ impl GpuContext {
         )
     )]
     pub async fn acquire_async() -> Result<Self, GpuAcquireError> {
+        // One thread at a time creates an instance, an adapter and a device; the handles of a
+        // failed attempt drop inside the same turn (`lifecycle`).
+        #[cfg(not(target_arch = "wasm32"))]
+        let turn = super::lifecycle::enter();
         let instance = wgpu::Instance::new(instance_descriptor());
 
         let adapter = instance
@@ -256,11 +268,8 @@ impl GpuContext {
                     wgpu::Limits::default().max_storage_buffers_per_shader_stage,
                     MAX_REQUESTED_STORAGE_BUFFERS_PER_STAGE,
                 ),
-            // A SEPARATE limit from
-            // `max_storage_buffers_per_shader_stage` above -- see
-            // `WAVEFRONT_BOUNCE_TOTAL_BUFFERS`'s doc comment for why the wavefront
-            // pipeline's implicit layout derivation needs this one raised too, not just
-            // the storage-buffer-only count.
+            // Separate from `max_storage_buffers_per_shader_stage`: the wavefront pipeline's
+            // implicit layout needs this one raised too (see `WAVEFRONT_BOUNCE_TOTAL_BUFFERS`).
             max_buffers_and_acceleration_structures_per_shader_stage: adapter_limits
                 .max_buffers_and_acceleration_structures_per_shader_stage
                 .clamp(
@@ -304,13 +313,25 @@ impl GpuContext {
             record_failure(&error_flag, &error_detail, error.to_string(), false);
         }));
 
+        // The turn ends before the teardown fields exist: dropping them takes the turn again.
+        #[cfg(not(target_arch = "wasm32"))]
+        let (teardown_begin, teardown_end) = {
+            drop(turn);
+            super::lifecycle::teardown_pair()
+        };
         Ok(Self {
+            #[cfg(not(target_arch = "wasm32"))]
+            _teardown_begin: teardown_begin,
             instance,
             adapter,
             device,
             queue,
             validation_error_seen,
             last_uncaptured_error,
+            #[cfg(feature = "beam")]
+            beam_caches: Arc::default(),
+            #[cfg(not(target_arch = "wasm32"))]
+            _teardown_end: teardown_end,
         })
     }
 }

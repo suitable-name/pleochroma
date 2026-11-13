@@ -2,11 +2,9 @@
 //!
 //! [`hull_faces`](super::hull_faces) decides "this face sees the point" with a float plane test
 //! and a tolerance. On a design outline with clusters of nearly coincident, nearly coplanar
-//! corners (two corners 1e-5 apart on a facet edge, say) those decisions contradict each other:
-//! a point sees two faces that share an edge in the same direction, the horizon is no longer a
-//! loop, and every later point that sees the duplicated faces duplicates them again. The face
-//! list then doubles step after step (hundreds of thousands of faces from a few hundred points)
-//! and the call never returns. A planner lane stuck in it froze the whole plan.
+//! corners (two corners 1e-5 apart on a facet edge, say) those decisions can contradict each
+//! other: a point sees two faces that share an edge in the same direction, the horizon is no
+//! longer a loop, and the face list doubles at every later point that sees the duplicates.
 //!
 //! Here a face sees a point when the exact orientation of the face's three corners and the
 //! point is positive ([`orient3d`]: a float determinant with an error bound, and exact rational
@@ -103,8 +101,7 @@ pub(super) fn exact_hull_faces(pts: &[DVec3], eps: f64) -> Option<Vec<Face>> {
 mod tests {
     use super::*;
 
-    /// The outline corners of a library design whose float hull doubled its faces without end
-    /// (the second plan of a rough with a locked stone hung in it).
+    /// The outline corners of a design whose float hull doubles its faces without end.
     const STUCK_OUTLINE: &str = include_str!("testdata/stuck_design_outline.txt");
 
     fn stuck_points() -> Vec<DVec3> {

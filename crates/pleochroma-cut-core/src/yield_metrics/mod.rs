@@ -4,8 +4,8 @@
 //! # Why `mast` needed binding at all
 //!
 //! `Design::solve`'s masts, and therefore [`pleochroma::geometry::stone_metrics::measure_solid`]'s
-//! `volume`/`width_axis`/etc., are all in an arbitrary "mast unit" -- `crate::preform`'s
-//! own module doc comment already says so for the preform, and it is equally true of
+//! `volume`/`width_axis`/etc., are all in an arbitrary "mast unit" -- `crate::preform` says so
+//! for the preform, and it is equally true of
 //! every solved tier. Carat yield -- the commercial metric a cutter actually cares
 //! about -- needs a real unit. [`mm_per_unit`] is the one anchor this crate adds:
 //! the girdle diameter is the dimension a lapidary actually measures with calipers on

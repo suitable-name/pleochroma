@@ -22,7 +22,7 @@ use std::io::{self, Read, Write};
 /// Guards against a corrupt or hostile length prefix causing an attempted
 /// multi-gigabyte allocation before any content has even been read. Comfortably larger
 /// than any radiance buffer this protocol is expected to carry (a 4K frame's `Vec3`
-/// buffer is ~100 MiB).
+/// buffer is about 95 MiB).
 pub const MAX_FRAME_LEN: u32 = 512 * 1024 * 1024;
 
 /// Cap for every control message.
@@ -161,10 +161,11 @@ pub fn skip_frame_bounded<R: Read>(reader: &mut R, max: u32) -> Result<u32, Fram
 
 /// Reads the rest of a frame whose first length-prefix bytes the caller already consumed.
 ///
-/// `already_read` holds one to four prefix bytes -- the "wait for the first byte with a
-/// short timeout, then finish the frame" pattern of a poll loop. Behaves exactly like [`read_frame_bounded`] with `max`: the bound is checked before any
-/// payload allocation, the payload buffer grows with the bytes received, and a reader
-/// that ends inside the frame reports [`FramingError::TruncatedFrame`].
+/// `already_read` holds one to four prefix bytes, as in a poll loop that waits for the first
+/// byte with a short timeout and then finishes the frame. Behaves exactly like
+/// [`read_frame_bounded`] with `max`: the bound is checked before any payload allocation, the
+/// payload buffer grows with the bytes received, and a reader that ends inside the frame
+/// reports [`FramingError::TruncatedFrame`].
 ///
 /// # Errors
 ///

@@ -161,8 +161,8 @@ fn an_edit_of_a_followed_angle_is_refused_and_changes_nothing() {
     let before = session.design.clone();
     let generation = session.current_generation();
 
-    // A drag: the old `apply` family fails with an `EditError` naming the tier, and
-    // keeps the typed reason.
+    // A drag: `set_tier_angle` returns an `EditError` naming the tier, and the typed
+    // reason is kept for `take_refusal`.
     let error = session.set_tier_angle(1, 30.0, ms(0)).unwrap_err();
     assert_eq!(error.index, 1);
     let refusal = session.take_refusal().expect("the reason is kept");

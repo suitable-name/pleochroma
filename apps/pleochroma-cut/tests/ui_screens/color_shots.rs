@@ -6,9 +6,8 @@
 //! Source is Variant, and the Live Render color popup on a sapphire. Each drives the real app
 //! through the model calls its controls make.
 //!
-//! The Stone tab shots work on a design in the editor (the library's design shows a view-only
-//! color instead); the Live Render popup shot works on a library design, as the Crystal Axis shots
-//! do.
+//! The Stone tab shots work on a design in the editor (a library design shows a view-only color
+//! instead); the Live Render popup shot works on a library design.
 
 use crate::{
     dialog_shots::{open_material_editor, popup_in, scroll_to_label},
@@ -44,8 +43,8 @@ fn option_named(options: &[String], wanted: &str) -> Option<(usize, String)> {
     Some((place, options.get(place)?.clone()))
 }
 
-/// Gives the open design the built-in material called `wanted` (the Stone tab's Material pick) and
-/// waits for the solve it starts.
+/// Gives the open design the built-in material called `wanted` (the Stone tab's Material
+/// pick) and waits for the solve it starts.
 fn design_on(sc: &Sc<'_, '_>, wanted: &str) -> Result<(), String> {
     let ui = sc.ui();
     let names: Vec<String> = ui
@@ -160,8 +159,8 @@ pub fn stone_sapphire(sc: &mut Sc<'_, '_>) -> Result<Shot, String> {
     combo_open(sc, "sapphire")
 }
 
-/// `color_variants_stone_diamond.png`: the Stone tab's Body Color list of a diamond: its own color,
-/// the nine generic colors and Custom.
+/// `color_variants_stone_diamond.png`: the Stone tab's Body Color list of a diamond: its own
+/// color, the nine generic colors and Custom.
 ///
 /// # Errors
 ///
@@ -170,8 +169,8 @@ pub fn stone_diamond(sc: &mut Sc<'_, '_>) -> Result<Shot, String> {
     combo_open(sc, "diamond")
 }
 
-/// The Stone tab of a design in `material` with the Custom color editor open (the combo on its last
-/// row and "Choose Color..." pressed), once it solved its `rows` direction rows.
+/// The Stone tab of a design in `material` with the Custom color editor open (the combo on its
+/// last row and "Choose Color..." pressed), once it solved its `rows` direction rows.
 fn custom_editor(sc: &Sc<'_, '_>, material: &str, rows: usize) -> Result<Shot, String> {
     stone_tab_of(sc, material)?;
     let ui = sc.ui();
@@ -219,9 +218,11 @@ pub fn custom_tanzanite(sc: &mut Sc<'_, '_>) -> Result<Shot, String> {
     custom_editor(sc, "tanzanite", 3)
 }
 
-/// `color_variants_legacy.png`: a sapphire that keeps the single color an earlier version saved: the
-/// Stone tab says so and offers "Convert..." and "Nearest Variant". The old color is a generic
-/// preset picked on a diamond and carried to the sapphire by one Apply, as the combos do.
+/// `color_variants_legacy.png`: a sapphire that keeps a single saved color: the Stone tab says so
+/// and offers "Convert..." and "Nearest Variant".
+///
+/// The color is a generic preset picked on a diamond and carried to the sapphire by one Apply, as
+/// the combos do.
 ///
 /// # Errors
 ///
@@ -264,9 +265,10 @@ pub fn legacy_color(sc: &mut Sc<'_, '_>) -> Result<Shot, String> {
     Ok(dock.crop(&shot))
 }
 
-/// `color_variants_section.png`: the Color Variants section of the Gem Material Editor on a
-/// sapphire: its own color, its built-in variants (with the Estimated mark and the source line) and
-/// a saved copy that can be renamed and deleted.
+/// `color_variants_section.png`: the Color Variants section of the Gem Material Editor.
+///
+/// It is shot on a sapphire and shows its own color, its built-in variants (with their
+/// Estimated mark and source line), and a saved copy that can be renamed and deleted.
 ///
 /// # Errors
 ///
@@ -310,7 +312,8 @@ pub fn variants_section(sc: &mut Sc<'_, '_>) -> Result<Shot, String> {
 }
 
 /// `color_pattern_variant.png`: the Color Pattern window of a sapphire stone with the selected
-/// zone's Source set to Variant: the Variant menu and the Along and Across colors of the variant.
+/// layer's From variant dropdown set to a variant: its caption and the Along and Across colors of
+/// the variant.
 ///
 /// # Errors
 ///
@@ -330,23 +333,20 @@ pub fn pattern_variant(sc: &mut Sc<'_, '_>) -> Result<Shot, String> {
         .ok_or_else(|| "the Color Pattern window is gone".to_owned())?;
     pump(1500);
     let model = window.global::<ColorPatternModel>();
-    // The typical zoning of the species gives zones to look at; the selected zone then turns into
-    // a picked color first (a typical zone may hold a variant already) and into a variant of the
-    // material (its second entry, the first of the data file, when it has one).
-    if model.get_typical_labels().row_count() > 0 {
+    // The typical zoning of the species gives layers to look at (the gallery picks it and
+    // closes); the top layer then takes the first variant of the material, when it has one.
+    if model.get_typical_tiles().row_count() > 0 {
         model.invoke_typical_picked(0);
         pump(1000);
     }
-    model.invoke_color_source_changed(0);
-    pump(500);
-    model.invoke_color_source_changed(1);
-    pump(500);
-    if model.get_color_kind() != 3 {
-        return Err("the Source menu did not give the zone a color variant".to_owned());
-    }
+    model.invoke_select_row(0);
+    pump(300);
     if model.get_variant_labels().row_count() > 1 {
         model.invoke_variant_picked(1);
         pump(800);
+    }
+    if model.get_variant_index() != 1 {
+        return Err("the From variant dropdown did not give the layer a color variant".to_owned());
     }
     pump(1000);
     sc.snap_window("ColorPatternWindow", &window)

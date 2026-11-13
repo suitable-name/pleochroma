@@ -1,36 +1,30 @@
-//! UI-thread stall detector. [`stall_guard`] wraps a Slint callback body's work
-//! and logs a `tracing::warn!` naming the callback and its elapsed time whenever it
-//! runs longer than [`STALL_THRESHOLD`] (the frame budget a 60 Hz UI needs to stay
-//! responsive). The app's own `tracing` subscriber writes `pleochroma-cut.log`
-//! beside the executable, so a stall shows up there without any new UI surface.
+//! UI-thread stall detector. [`stall_guard`] logs a `tracing::warn!` naming the callback
+//! when its body runs longer than [`STALL_THRESHOLD`].
 //!
-//! # Why a plain wrapper function, not a macro or a `#[instrument]`-style attribute
+//! The threshold is one frame of a 60 Hz UI. The app's `tracing` subscriber writes
+//! `pleochroma-cut.log` beside the executable, so a stall shows up there with no new UI.
 //!
-//! Every callback is registered the same way: `ui.global::<...>()
-//! .on_some_callback(move |args| { ... })`. Wrapping the closure BODY in
-//! `stall_guard::stall_guard("name", || { ... })` needs no new syntax at each call
-//! site beyond the one added wrapper call, and keeps the callback's own early
-//! returns (`let Some(x) = ... else { return; }`) working exactly as before -- the
-//! closure `stall_guard` wraps still owns its own control flow, `stall_guard` only
-//! measures how long it took.
+//! # Why a plain wrapper function
 //!
-//! # Why not a stall reported for the WHOLE closure life, including a spawned worker
+//! Wrapping a callback body in `stall_guard::stall_guard("name", || { ... })` needs one
+//! added call per site and no new syntax. The closure keeps its own early returns, since
+//! `stall_guard` only measures how long the body took.
 //!
-//! A callback that dispatches work to a background thread (`SolveService`,
-//! `deep_solve`, `optimize_solve`, `auto_solve::dispatch_background_solve`) returns
-//! almost immediately once the dispatch itself is queued -- `stall_guard` measures
-//! exactly that return, never the eventual `Weak::upgrade_in_event_loop` completion
-//! closure's own (separately wrapped, if it is one) work.
+//! # Why a spawned worker is not measured
+//!
+//! A callback that hands work to a background thread (`SolveService`, `deep_solve`,
+//! `optimize_solve`, `auto_solve::dispatch_background_solve`) returns once the dispatch is
+//! queued. `stall_guard` measures that return only, not the later
+//! `Weak::upgrade_in_event_loop` completion closure.
 
 use std::time::{Duration, Instant};
 
-/// A callback body running longer than this on the UI/event-loop thread is a
-/// visible stall at 60 Hz (one frame is ~16.7 ms) -- see the module doc comment.
+/// A callback body longer than this on the UI thread is a visible stall at 60 Hz (one frame
+/// is about 16.7 ms).
 const STALL_THRESHOLD: Duration = Duration::from_millis(16);
 
-/// Runs `body`, logging a `tracing::warn!` naming `name` and the elapsed time if it
-/// took longer than [`STALL_THRESHOLD`]. Returns `body`'s own result unchanged --
-/// see the module doc comment for why this is a plain wrapper, not a macro.
+/// Runs `body`, logging a `tracing::warn!` naming `name` and the elapsed time if it took
+/// longer than [`STALL_THRESHOLD`]. Returns `body`'s own result unchanged.
 pub(super) fn stall_guard<R>(name: &str, body: impl FnOnce() -> R) -> R {
     let start = Instant::now();
     let result = body();

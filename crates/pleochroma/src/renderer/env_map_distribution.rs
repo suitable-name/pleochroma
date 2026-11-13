@@ -1,14 +1,12 @@
-//! Piecewise-constant 2D importance sampling (the `Distribution1D`/`Distribution2D`
-//! machinery popularised by PBRT), used by [`super::EnvironmentMap`] to draw
-//! directions proportional to an equirectangular image's (solid-angle-weighted)
-//! luminance.
+//! Piecewise-constant 2D importance sampling.
 //!
-//! This module is pure math over `f32` slices -- it knows nothing about images, HDR
-//! decoding, or 3D directions. That separation is deliberate: it is the piece most
-//! worth unit-testing in isolation (a 1D/2D piecewise-constant sampler is a
-//! self-contained, easily-checked algorithm), independent of the equirectangular
-//! direction mapping and `sin(theta)` weighting that [`super::EnvironmentMap`] layers on
-//! top.
+//! It is the `Distribution1D`/`Distribution2D` machinery popularised by PBRT, used by
+//! [`super::EnvironmentMap`] to draw directions proportional to an equirectangular image's
+//! (solid-angle-weighted) luminance.
+//!
+//! This module is pure math over `f32` slices: it knows nothing about images, HDR decoding or
+//! 3D directions. That keeps the sampler testable in isolation, apart from the equirectangular
+//! mapping and the `sin(theta)` weighting that [`super::EnvironmentMap`] adds.
 
 /// A piecewise-constant probability distribution over `[0, 1)`, built from `n` bucket
 /// weights, supporting inverse-CDF sampling and pdf lookup.
@@ -33,8 +31,8 @@ pub struct Distribution1D {
 }
 
 impl Distribution1D {
-    /// Builds a distribution from bucket weights. `func` must be non-empty; a
-    /// single-bucket slice is valid (see the module docs' degenerate-input coverage).
+    /// Builds a distribution from bucket weights. An empty slice acts as one zero bucket (see
+    /// the `# Degenerate input` section above).
     /// Negative weights are treated as `0.0` (radiance should never be negative, but a
     /// caller-supplied HDR texel with a decoding artifact should not panic or poison the
     /// whole distribution).
@@ -72,10 +70,8 @@ impl Distribution1D {
     /// Largest `i` such that `self.cdf[i] <= u`, clamped to a valid bucket index
     /// `[0, n-1]`. Standard binary search over a CDF (PBRT's `FindInterval`).
     ///
-    /// `pub(crate)`: `renderer::gpu::transport_check`'s Tier 2 ULP check for the GPU
-    /// port's `dist1d_find_bucket` calls this real function directly, mirroring every
-    /// other Tier 2 check's "compare against the REAL CPU function, never a
-    /// reimplementation" convention. Visibility only.
+    /// `pub(crate)` so `renderer::gpu::transport_check` can compare the GPU's
+    /// `dist1d_find_bucket` against this function.
     pub(crate) fn find_bucket(&self, u: f32) -> usize {
         let cdf = &self.cdf;
         let mut first = 0usize;
@@ -187,8 +183,9 @@ pub(super) fn bits_equal(a: &[f32], b: &[f32]) -> bool {
     a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.to_bits() == y.to_bits())
 }
 
-/// A piecewise-constant probability distribution over the unit square `[0,1) x [0,1)`,
-/// built as a marginal distribution over rows plus one conditional distribution per row
+/// A piecewise-constant probability distribution over the unit square `[0,1) x [0,1)`.
+///
+/// It is built as a marginal distribution over rows plus one conditional distribution per row
 /// (the standard two-stage construction: pick a row proportional to its total weight,
 /// then pick a column within that row proportional to the row's weights).
 ///
@@ -204,7 +201,8 @@ pub struct Distribution2D {
 }
 
 impl Distribution2D {
-    /// `func` is row-major, length `width * height`. Both dimensions must be `>= 1`.
+    /// `func` is row-major with `width * height` entries (checked in debug builds). A zero
+    /// dimension is raised to 1.
     pub fn new(func: &[f32], width: usize, height: usize) -> Self {
         debug_assert_eq!(func.len(), width * height);
         let height = height.max(1);

@@ -22,7 +22,7 @@ export global RemoteModel {
     in property <bool> installing: false;
     // True while Forget Server erases the stored pairing credentials (see `remote.rs`).
     in property <bool> forgetting: false;
-    // In-out: the `changed address` handler below resets them from inside this global.
+    // In-out because the `changed address` handler below writes it.
     in-out property <string> status: "Enroll this phone, then test the rendering address.";
     in-out property <string> identity;
     property <bool> active-page: Shell.destination == 3 && Shell.more-page == 4;

@@ -294,8 +294,8 @@ mod tests {
     }
 
     /// A background solve arrives with the finished stone: with no cut it is pushed as it
-    /// is, with a cut the truncated stone replaces it (the regression: the finished gem
-    /// overwrote the cut after every edit).
+    /// is, with a cut the truncated stone replaces it, so the finished stone never
+    /// overwrites a cut.
     #[test]
     fn a_background_solves_stone_is_cut_back_only_when_the_slider_is() {
         let design = round_brilliant();

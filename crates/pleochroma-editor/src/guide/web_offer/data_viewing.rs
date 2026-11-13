@@ -369,11 +369,11 @@ fn live_render() -> GuideOverlay {
                     "Click Settings above the picture to open the panel.",
                 )
                 .line(
-                    "It holds the lighting rig, the light direction, the exposure, the HDR map and backdrop, the observer's surface glare and head shadow, your saved lighting and the camera.",
+                    "It holds the lighting rig, the light direction, the exposure, the HDR map, backdrop and Stone Shadow, the observer's surface glare and head shadow, your saved lighting and the camera.",
                     "It holds the lighting rig, the light direction, the exposure, the HDR map and backdrop, the surface glare and the head shadow, and the render quality.",
                 )
                 .drop_line("The gem button (Ctrl+Alt+1) opens the Stone tab, and the gear button (Ctrl+Alt+3) the Render & Output tab. The same three buttons are in the Edit view.")
-                .drop_line("A saved lighting stores the whole look at once: the rig, the light direction, the exposure, the glare, the backdrop, the head shadow and the HDR map."),
+                .drop_line("A saved lighting stores the whole look at once: the rig, the light direction, the exposure, the glare, the backdrop, Stone Shadow, the head shadow and the HDR map."),
         )
         .step(
             StepOverlay::of("The stone's material")

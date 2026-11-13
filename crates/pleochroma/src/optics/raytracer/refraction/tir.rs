@@ -17,8 +17,8 @@ use glam::Vec3;
 /// extraordinary/mode-B eigenmode of a genuinely anisotropic material while inside it,
 /// by the walk-off angle (order 1-2 degrees for zircon-class birefringence). Snell's
 /// law and Fresnel phase matching apply to `k`, not `S`, so this module threads both
-/// through the bounce loop: `S` (== `Ray::dir` / `current_ray.dir` in `transport.rs`)
-/// for intersection/advancement and path length, `k` (== `current_k` in `transport.rs`)
+/// through the bounce loop: `S` (== `Ray::dir` / `current_ray.dir` in `transport`)
+/// for intersection/advancement and path length, `k` (== `current_k` in `transport`)
 /// for every index lookup, `cos_i`/`sin_i`, Snell refraction, Fresnel coefficients, the
 /// TIR decision and phase, and the Stokes plane-of-incidence frame. [`poynting_dir_for_mode`]
 /// recovers `S` from a freshly-reflected/refracted `k`.
@@ -62,18 +62,9 @@ pub(in crate::optics::raytracer) fn apply_tir_bounce(
     stokes: &mut [StokesVector; NUM_CHANNELS],
     path_pdf: &mut [f32; NUM_CHANNELS],
 ) -> (Vec3, Option<f32>) {
-    // The degenerate wave-normal-parallel-to-optic-axis guard the two
-    // sibling uniaxial dispatch sites (`apply_uniaxial_entry_bounce`'s own internal
-    // check, and `try_dispatch_uniaxial_bounce`'s internal-event dispatch) both have --
-    // without it, `internal_solve`'s boundary system singularizes exactly along the
-    // c-axis (its own `flux_inc` floors to the `1e-12` guard instead of the true
-    // nonzero value), which very nearly zeroed EVERY uniaxial internal bounce along a
-    // c-axis-aligned ray. This site is reachable only for a hero-forced TIR bounce
-    // (`geo.sin2_t > 1.0`), so it shares the exact same hazard whenever `c_axis = Y`
-    // (every uniaxial built-in but Tourmaline) and a top-view centre ray TIRs on a
-    // pavilion main. Falls through to the plain scalar per-channel loop below at this
-    // limit, exactly as the sibling sites do -- see their own doc comments for why that
-    // is the exact physics here, not an approximation.
+    // Degenerate wave normal parallel to the optic axis (`k x c_axis ~ 0`): the closed-form
+    // boundary system is singular there, so this falls through to the scalar per-channel
+    // loop below, as `dispatch::try_dispatch_uniaxial_bounce` does for internal events.
     if let Some(frame) = geo.uniaxial_frame
         && k_hat.cross(ctx.c_axis).length_squared() > 1e-6
     {
@@ -97,6 +88,12 @@ pub(in crate::optics::raytracer) fn apply_tir_bounce(
         // loop already runs for the energy accounting.
         let mut exact_p_o = None;
         for k in 0..NUM_CHANNELS {
+            // Past its own critical angle a channel reflects all of its energy (the
+            // transmitted wave is evanescent, so the solve's total reflectance is exactly
+            // 1): its solve is skipped. The hero still solves, for `exact_p_o`.
+            if geo.sin2_t_ch[k] > 1.0 && k != ctx.hero_idx {
+                continue;
+            }
             let n_inc = geo.n1_ch[k];
             let n_o_k = geo.n_o_ch[k];
             let n_e_k = ctx.material.extraordinary_index_at(ctx.lambdas[k], n_o_k);
@@ -112,11 +109,11 @@ pub(in crate::optics::raytracer) fn apply_tir_bounce(
             let ro_pow = sol.r_o.norm_sqr() * sol.flux_ro;
             let re_pow = sol.r_e.norm_sqr() * sol.flux_re;
             let r_total_k = ((ro_pow + re_pow) / flux_inc).min(1.0);
-            stokes[k] = stokes[k].scale(r_total_k);
             if geo.sin2_t_ch[k] <= 1.0 {
                 // Channel k is genuinely below its own critical angle here even though
                 // the hero forced a reflect -- under k's own technique, reflecting has
                 // probability r_total_k.
+                stokes[k] = stokes[k].scale(r_total_k);
                 path_pdf[k] *= r_total_k.clamp(R_UNPOL_PDF_MIN, R_UNPOL_PDF_MAX);
             }
             if k == ctx.hero_idx {

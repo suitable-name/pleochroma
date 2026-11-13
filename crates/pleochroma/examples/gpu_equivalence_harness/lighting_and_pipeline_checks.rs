@@ -3,14 +3,14 @@
 //! equivalence checks, and material-class kernel specialisation.
 
 use pleochroma::{
-    optics::raytracer::environment::LightingPreset,
+    geometry::{StandardGemCuts, tool::StoneGeometry},
+    optics::raytracer::environment::{LightingPreset, TrayMirror, tray_plane_y},
     renderer::gpu::{GpuContext, estimator_check},
 };
 
 use crate::common::report_image_comparison_material;
 
-/// Tier 3 image comparisons for the lighting models. Pulled out of `main` for the same
-/// function-length reason as [`run_phase2_checks`] -- returns whether every check here passed.
+/// Tier 3 image comparisons for the lighting models. Returns whether every check passed.
 pub fn run_lighting_model_checks(ctx: &GpuContext) -> bool {
     println!();
     println!("== Lighting models: Tier 3 statistical image comparisons ==");
@@ -49,7 +49,51 @@ pub fn run_lighting_model_checks(ctx: &GpuContext) -> bool {
         "Diamond, Daylight D65, surface glare 0.5",
         &estimator_check::run_image_comparison_surface_glare(ctx, 0.5),
     );
+    #[cfg(feature = "stone-shadow")]
+    let shadow_passed = report_image_comparison_material(
+        "Diamond, Stone Shadow",
+        &estimator_check::run_image_comparison_tray_shadow(
+            ctx,
+            &pleochroma::renderer::gpu::environment_check::build_tray_shadow_check_map(),
+        ),
+    );
+    #[cfg(not(feature = "stone-shadow"))]
+    let shadow_passed = {
+        println!("Diamond, Stone Shadow: skipped (built without stone-shadow)");
+        true
+    };
+    // The mirror plane is the stone's tray plane (the culet), which every gpu build computes,
+    // so this check does not need `stone-shadow`.
+    let planes = StandardGemCuts::standard_round_brilliant();
+    let plane_y = tray_plane_y(StoneGeometry::planes_only(&planes))
+        .expect("the standard round brilliant bounds a closed solid");
+    let mirror = TrayMirror::new(plane_y, 0.04).expect("a finite plane and a positive reflectance");
+    let mirror_passed = report_image_comparison_material(
+        "Diamond, Tray Reflection 4 %",
+        &estimator_check::run_image_comparison_tray_mirror(ctx, mirror, None),
+    );
+    // Its own line, so a failing mirror-only comparison still prints this one. The shadow map
+    // comes from `build_tray_shadow_check_map` (`stone-shadow`), and the mirror sits on the
+    // map's plane, as in production.
+    #[cfg(feature = "stone-shadow")]
+    let mirror_shadow_passed = {
+        let map = pleochroma::renderer::gpu::environment_check::build_tray_shadow_check_map();
+        let on_map_plane = TrayMirror::new(map.plane_y(), 0.04)
+            .expect("a finite plane and a positive reflectance");
+        report_image_comparison_material(
+            "Diamond, Tray Reflection 4 % with Stone Shadow",
+            &estimator_check::run_image_comparison_tray_mirror(ctx, on_map_plane, Some(&map)),
+        )
+    };
+    #[cfg(not(feature = "stone-shadow"))]
+    let mirror_shadow_passed = {
+        println!("Diamond, Tray Reflection + Stone Shadow: skipped (no stone-shadow)");
+        true
+    };
     iso_passed
+        && shadow_passed
+        && mirror_passed
+        && mirror_shadow_passed
         && light_tent_passed
         && daylight_dome_passed
         && daylight_sun_passed
@@ -90,8 +134,8 @@ pub fn run_chunk_check() -> bool {
     }
 }
 
-/// The wavefront transport pipeline's own checks -- bit-identical
-/// `out_xyz` against the megakernel on the same fixture
+/// The wavefront transport pipeline's own checks -- `out_xyz` equal to the megakernel's
+/// under the twin rule on the same fixture
 /// (`renderer::gpu::frame::run_pipeline_equivalence`), plus the wavefront pipeline's own
 /// two-runs-identical determinism check
 /// (`renderer::gpu::frame::run_wavefront_determinism`), the wavefront-pipeline
@@ -104,12 +148,12 @@ pub fn run_wavefront_pipeline_checks() -> bool {
         Ok(mut renderer) => {
             let equiv = pleochroma::renderer::gpu::frame::run_pipeline_equivalence(&mut renderer);
             println!(
-                "[Wavefront] megakernel vs wavefront, bit-exact ... {}",
+                "[Wavefront] megakernel vs wavefront, twin rule ... {}",
                 if equiv.passed() { "PASS" } else { "FAIL" }
             );
             println!(
-                "  {} / {} pixels differ, max |delta| = {:e}",
-                equiv.differing_pixels, equiv.total_pixels, equiv.max_abs_diff
+                "  {} / {} pixels differ, tier {:?}, max |delta| = {:e}",
+                equiv.differing_pixels, equiv.total_pixels, equiv.tier, equiv.max_abs_diff
             );
 
             let det = pleochroma::renderer::gpu::frame::run_wavefront_determinism(&mut renderer);
@@ -188,7 +232,8 @@ fn run_specialisation_image_comparison_check(ctx: &GpuContext) -> bool {
     ];
     let mut all_passed = true;
     for (name, class_label) in materials {
-        // Bare built-in on purpose (scale 1.0, no `material_for_stone`): this compares CPU against GPU on the same material, so only parity matters, not the render's colour scale.
+        // Bare built-in on purpose (scale 1.0, no `material_for_stone`): this compares CPU
+        // against GPU on the same material, so only parity matters, not the render's colour scale.
         let material =
             pleochroma::optics::materials::GemMaterial::by_name(name).unwrap_or_else(|| {
                 panic!("{name:?} is a built-in material in GemMaterial::all_materials()")

@@ -219,10 +219,9 @@ fn applying_through_the_session_makes_the_follower_follow_in_the_same_undo_step(
         .with_angles(&design, &angle_differences(&design, &attempt.design))
         .proposal();
     let edit = apply_with_anchors(&design, &proposal, &attempt.anchors).expect("preserved retarget");
-    // The checked edit carries the follower's settled angle. Every caller (the desktop's Apply,
-    // the CLI, the web app, mobile) hands it to the session through this conversion, which
-    // leaves the follower's angle to the session's own relation fold so that the edit does not
-    // read as a direct change of a driven tier.
+    // The checked edit carries the follower's settled angle. The conversion leaves that angle
+    // to the session's relation fold, so the edit does not read as a direct change of a driven
+    // tier.
     let edit = crate::optimize_view::edits_for_relation_session(&design, edit);
     session.apply(edit).expect("the retarget applies");
     assert_eq!(session.design.tiers, attempt.design.tiers);
@@ -336,8 +335,8 @@ fn every_option_carries_the_numbers_of_the_stone_that_is_delivered() {
 
 #[test]
 fn a_plan_says_when_a_relation_cannot_be_followed() {
-    // Lower Girdle = Pavilion Main + 47: 88 degrees now, but the shift to a lower index makes
-    // the pavilion main steeper than 43 degrees and the sum leaves the 90 degree limit.
+    // Lower Girdle = Pavilion Main + 47: 88 degrees at the start, but the shift to a lower
+    // index makes the pavilion main steeper than 43 degrees, so the sum passes 90 degrees.
     let mut design = brilliant_at_172();
     let lower = tier_named(&design, "Lower Girdle");
     design.tiers[lower].angle_deg = -88.0;

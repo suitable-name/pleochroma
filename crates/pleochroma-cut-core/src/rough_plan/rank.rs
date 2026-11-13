@@ -5,10 +5,9 @@
 //! then FEWER stones, then the composition, then the cut order. Layouts with
 //! the same composition (the `(entry_id, count)` multiset) collapse to the
 //! best one, and at most [`SAME_SET_CAP`] (three) layouts may share one design
-//! set (counts ignored), which keeps the list varied. That cap is the ONE
-//! per-set limit of every ranked list (per cut order, per pass and final), so a
-//! selection that uses a single design shows at most three layouts however many
-//! stone counts are feasible.
+//! set (counts ignored), which keeps the list varied. That cap is the one
+//! per-set limit of every ranked list, so a selection that uses a single design
+//! shows at most three layouts however many stone counts are feasible.
 //!
 //! Every ranked list keeps only the layouts within the planner's [`LayoutCaps`] (the design
 //! cap and the stone cap): the `_within` functions take both, the `_capped` ones the design

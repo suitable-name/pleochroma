@@ -13,12 +13,11 @@ const fn to_f32(value: f64) -> f32 {
 
 /// Bundled parameters for [`Database::save_custom_material`].
 ///
-/// See `crates/pleochroma/src/optics/raytracer/refraction.rs`'s `RayMaterialContext` for the
-/// established pattern this follows. Borrowed rather than reusing
-/// [`crate::model::material::CustomMaterialRow`] outright: that type owns its strings
-/// (it's what a *read* hands back), while a caller about to save a material usually
-/// already holds `&str`s -- forcing an allocation just to call this would be worse than
-/// the extra parameters it replaces.
+/// Follows the `RayMaterialContext` pattern in
+/// `crates/pleochroma/src/optics/raytracer/refraction/context.rs`. Borrows its strings rather
+/// than reusing [`crate::model::material::CustomMaterialRow`], which owns them (a read returns
+/// it): a caller about to save usually already holds `&str`s, and allocating just to call this
+/// would cost more than the extra parameters.
 pub struct CustomMaterialParams<'a> {
     /// Material name.
     pub name: &'a str,

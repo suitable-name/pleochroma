@@ -31,8 +31,9 @@
 //! the product of the null-collision ratios multiplies the result.
 //!
 //! In a zoned host the homogeneous part is the zoned estimator
-//! ([`super::oriented_zoned::maybe_scatter_oriented_zoned`]); the zones change only the absorption,
-//! so the same composition holds with the zoned optical depth in place of the linear one
+//! ([`super::oriented_zoned::maybe_scatter_oriented_zoned`]); the zones change only the
+//! absorption, so the same composition holds with the zoned optical depth in place of the
+//! linear one
 //! ([`bragg_reflect_weights`], [`super::oriented_zoned::maybe_scatter_oriented_zoned_bragg`]).
 //!
 //! A reflection is a specular event with a mosaic lobe: it takes no scattering-point next-event

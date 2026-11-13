@@ -1,7 +1,14 @@
 //! Deterministic worker tracing. Preparation is reused across a request's tap batches.
+use crate::assets::TrayRef;
 use glam::Vec3;
 use pleochroma::{
-    optics::raytracer::{Camera, DEFAULT_FOV_DEG, FacetFinish, add_finite_sample, build_plane_soa},
+    optics::raytracer::{
+        Camera, DEFAULT_FOV_DEG, FacetFinish, add_finite_sample, build_plane_soa,
+        environment::{
+            TrayMirror,
+            tray_shadow::{TrayShadowKey, TrayShadowMap},
+        },
+    },
     renderer::{
         frame_scene::FrameScene,
         gpu_backend::{
@@ -23,6 +30,11 @@ use std::{
 };
 
 struct Prepared {
+    /// The request's Stone Shadow map (a clone shares its texels), retained across tap batches
+    /// and GPU declines; CPU preparation owns the same map values.
+    shadow: Option<TrayShadowMap>,
+    /// The request's Tray Reflection mirror (plain data), retained with the shadow.
+    mirror: Option<TrayMirror>,
     camera: Camera,
     finishes: Vec<FacetFinish>,
     planes: PlanesSoA32,
@@ -30,9 +42,14 @@ struct Prepared {
     /// Frozen uploads belong to this immutable scene, never an address-based key.
     gpu: Mutex<Option<WhittedGpuPrepared>>,
 }
+/// What a preparation was made for: the scene and the Stone Shadow map it was lit with. The map
+/// is part of the key because the same scene prepares differently under the `Preview` and the
+/// `Final` map (the request's intent picks the quality).
+type PreparedKey = (SceneState, Option<TrayShadowKey>);
+
 thread_local! {
     // A request has one tracer thread; no unbounded process-wide scene/HDR cache.
-    static PREPARED: RefCell<Option<(SceneState, Arc<Prepared>)>> = const { RefCell::new(None) };
+    static PREPARED: RefCell<Option<(PreparedKey, Arc<Prepared>)>> = const { RefCell::new(None) };
 }
 static GPU: LazyLock<WhittedGpuBackend> = LazyLock::new(WhittedGpuBackend::acquire);
 
@@ -53,10 +70,14 @@ fn frame<'a>(
         environment,
     }
 }
-fn prepared(scene: &SceneState) -> Option<Arc<Prepared>> {
+/// The preparation of `scene` lit with the request's resolved `tray`, reused while the scene and
+/// the shadow map are the ones it was made for (the mirror is a function of the scene).
+fn prepared(scene: &SceneState, tray: TrayRef<'_>) -> Option<Arc<Prepared>> {
+    let shadow_key = tray.shadow.map(TrayShadowMap::key);
     PREPARED.with(|slot| {
-        if let Some((key, prep)) = slot.borrow().as_ref()
+        if let Some(((key, key_shadow), prep)) = slot.borrow().as_ref()
             && key == scene
+            && *key_shadow == shadow_key
         {
             return Some(Arc::clone(prep));
         }
@@ -64,7 +85,7 @@ fn prepared(scene: &SceneState) -> Option<Arc<Prepared>> {
             .with_roll(scene.camera_roll);
         let finishes = super::resolve_facet_finishes(scene);
         let hdr = crate::assets::resolved_hdr_map(scene);
-        let environment = crate::assets::environment_source(scene, hdr.as_deref());
+        let environment = crate::assets::environment_for(scene, hdr.as_deref(), tray);
         let prep = WhittedPrep::new(
             &frame(scene, &camera, &finishes, environment),
             &scene.fluorescence,
@@ -73,25 +94,36 @@ fn prepared(scene: &SceneState) -> Option<Arc<Prepared>> {
         .ok()?
         .into_owned_with_hdr(hdr.clone());
         let value = Arc::new(Prepared {
+            shadow: tray.shadow.cloned(),
+            mirror: tray.mirror,
             camera,
             finishes,
             planes: build_plane_soa(&scene.planes),
             prep,
             gpu: Mutex::new(None),
         });
-        *slot.borrow_mut() = Some((scene.clone(), Arc::clone(&value)));
+        *slot.borrow_mut() = Some(((scene.clone(), shadow_key), Arc::clone(&value)));
         Some(value)
     })
 }
 
-/// GPU-first or CPU-only with explicit intent, independent of the spectral adapter.
-/// Cancellation never exposes partial sums; every retried range starts at zero.
+/// Traces taps `first..first + samples` of `scene` into `out`: on the GPU when `prefer_gpu`
+/// is set and the backend takes it, else on the CPU. Cancellation never exposes partial sums.
+///
+/// `tray` is the request's resolved Stone Shadow and Tray Reflection (`shadow` is `Some` exactly
+/// when `scene.stone_shadow` is set, `mirror` exactly when `scene.tray_reflection > 0.0`). The
+/// preparation is reused only while the map is the same.
 #[expect(
     clippy::redundant_pub_crate,
     reason = "called from jobs::run and render_cmd outside render_core, so it cannot narrow to pub(super)"
 )]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the range, engine preference, cancellation, output and the request's resolved tray are independent inputs of one tap batch"
+)]
 pub(crate) fn trace(
     scene: &SceneState,
+    tray: TrayRef<'_>,
     first: u32,
     samples: u32,
     threads: usize,
@@ -118,7 +150,7 @@ pub(crate) fn trace(
     if samples == 0 {
         return true;
     }
-    let Some(prep) = prepared(scene) else {
+    let Some(prep) = prepared(scene, tray) else {
         return false;
     };
     let hdr = crate::assets::resolved_hdr_map(scene);
@@ -126,7 +158,14 @@ pub(crate) fn trace(
         scene,
         &prep.camera,
         &prep.finishes,
-        crate::assets::environment_source(scene, hdr.as_deref()),
+        crate::assets::environment_for(
+            scene,
+            hdr.as_deref(),
+            TrayRef {
+                shadow: prep.shadow.as_ref(),
+                mirror: prep.mirror,
+            },
+        ),
     );
     if prefer_gpu {
         match trace_prepared_gpu(&prep, &frame, scene, (first, samples), out, cancel) {
@@ -142,6 +181,35 @@ pub(crate) fn trace(
     };
     let _permits = super::PermitGuard(count);
     let mut scratch = vec![Vec3::ZERO; out.len()];
+    trace_rows_cpu(
+        scene,
+        &frame,
+        &prep,
+        count,
+        (first, end),
+        cancel,
+        &mut scratch,
+    );
+    if cancel.load(Ordering::Acquire) {
+        return false;
+    }
+    for (dst, src) in out.iter_mut().zip(scratch) {
+        *dst += src;
+    }
+    true
+}
+
+/// Traces taps `first..end` of every row on `count` threads into `scratch`. Each thread
+/// claims whole rows; a fired `cancel` stops it between rows and between pixels.
+fn trace_rows_cpu(
+    scene: &SceneState,
+    frame: &FrameScene<'_>,
+    prep: &Prepared,
+    count: usize,
+    (first, end): (u32, u32),
+    cancel: &AtomicBool,
+    scratch: &mut [Vec3],
+) {
     let rows = Mutex::new(
         scratch
             .chunks_mut(scene.width as usize)
@@ -151,7 +219,7 @@ pub(crate) fn trace(
     let next = AtomicUsize::new(0);
     thread::scope(|scope| {
         for _ in 0..count {
-            let (rows, next, frame, prep) = (&rows, &next, &frame, &prep);
+            let (rows, next) = (&rows, &next);
             scope.spawn(move || {
                 loop {
                     if cancel.load(Ordering::Acquire) {
@@ -190,17 +258,10 @@ pub(crate) fn trace(
             });
         }
     });
-    if cancel.load(Ordering::Acquire) {
-        return false;
-    }
-    for (dst, src) in out.iter_mut().zip(scratch) {
-        *dst += src;
-    }
-    true
 }
 
-/// Reuse uploads for every tap batch of this scene. A device-generation rejection
-/// drops the snapshot; the next call may prepare again after backend recovery.
+/// Reuses the GPU upload for every tap batch of the scene. A declined dispatch drops the
+/// upload, so the next call prepares again, which may succeed after backend recovery.
 fn trace_prepared_gpu(
     prepared: &Prepared,
     frame: &FrameScene<'_>,
@@ -251,15 +312,16 @@ mod tests {
     #[test]
     fn preparation_reuses_equal_scenes_and_replaces_changed_contents() {
         let mut scene = scene();
-        let original = prepared(&scene).unwrap();
-        assert!(Arc::ptr_eq(&original, &prepared(&scene).unwrap()));
+        let none = TrayRef::default();
+        let original = prepared(&scene, none).unwrap();
+        assert!(Arc::ptr_eq(&original, &prepared(&scene, none).unwrap()));
         // Reuse the SceneState allocation but change a frozen input.
         scene.exposure += 0.5;
-        let changed = prepared(&scene).unwrap();
+        let changed = prepared(&scene, none).unwrap();
         assert!(!Arc::ptr_eq(&original, &changed));
-        assert!(Arc::ptr_eq(&changed, &prepared(&scene).unwrap()));
+        assert!(Arc::ptr_eq(&changed, &prepared(&scene, none).unwrap()));
         scene.camera_roll = std::f32::consts::FRAC_PI_2;
-        let rolled = prepared(&scene).unwrap();
+        let rolled = prepared(&scene, none).unwrap();
         assert!(
             !Arc::ptr_eq(&changed, &rolled),
             "roll invalidates frozen CPU/GPU preparation"
@@ -271,8 +333,9 @@ mod tests {
         let scene = scene();
         let cancel = AtomicBool::new(false);
         let mut expected = vec![Vec3::ONE; (scene.width * scene.height) as usize];
-        assert!(trace(&scene, 0, 4, 1, false, &cancel, &mut expected));
-        let cached = prepared(&scene).unwrap();
+        let none = TrayRef::default();
+        assert!(trace(&scene, none, 0, 4, 1, false, &cancel, &mut expected));
+        let cached = prepared(&scene, none).unwrap();
         let poisoned = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _upload = cached.gpu.lock().unwrap();
             panic!("simulate a GPU call unwinding while holding its scene cache");
@@ -281,7 +344,7 @@ mod tests {
         assert!(cached.gpu.is_poisoned());
         let mut actual = vec![Vec3::ONE; expected.len()];
         // The poison check must precede touching the lazy GPU backend.
-        assert!(trace(&scene, 0, 4, 2, true, &cancel, &mut actual));
+        assert!(trace(&scene, none, 0, 4, 2, true, &cancel, &mut actual));
         assert_eq!(actual, expected);
         assert!(cached.gpu.is_poisoned());
     }

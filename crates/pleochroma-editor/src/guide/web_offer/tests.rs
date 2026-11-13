@@ -49,7 +49,7 @@ fn the_classes_have_the_audited_sizes() {
             count(WebClass::C),
             count(WebClass::D)
         ),
-        // The audited 11, 9, 40, 36 and the two desktop-only color variant lessons in class C.
+        // Class C also holds the two desktop-only color variant lessons.
         (11, 9, 42, 36)
     );
 }
@@ -276,7 +276,7 @@ fn the_desktop_guides_still_name_the_desktop_places() {
     // The phrases are real: the catalogue's own lessons do contain them.
     let catalogue = GuideCatalog::new();
     let tour = catalogue.get("welcome-tour").expect("the tour exists");
-    assert!(!web_text_problems(tour, true).is_empty());
+    assert_ne!(web_text_problems(tour, true), [] as [String; 0]);
 }
 
 #[test]

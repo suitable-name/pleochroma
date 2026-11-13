@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------------
-// optics::raytracer::Camera::generate_ray -- bit-exact per camera_check.
+// optics::raytracer::Camera::generate_ray. Bit-exact with the CPU (`gpu::camera_check`).
 // ---------------------------------------------------------------------------------
 
 struct RayGen {
@@ -20,16 +20,12 @@ fn generate_camera_ray(pixel: u32, jx: f32, jy: f32) -> RayGen {
     return result;
 }
 
-// optics::raytracer::apply_internal_mode_coupling -- stochastic o<->e re-coupling at an
-// INTERNAL reflection inside an anisotropic crystal. This is a RELABELING, not a SPLIT:
-// unlike the entry split (BIREFRINGENT_SPLIT_STREAM, where one incident ray genuinely
-// becomes two physically distinct rays each carrying its own ~0.5 energy share already
-// matched by its own 0.5 selection probability, needing no `1/p` scaling), this draw
-// only re-rolls which eigenmode label governs the index used for the path's next
-// bounce -- no new ray, no energy split, nothing for `stokes`/`path_pdf` to do. This
-// draw's own selection probability is polarization-weighted
-// (`entry_eigenmode_selection`) rather than a blanket 50/50, which is safe precisely
-// because `stokes`/`path_pdf` are never touched here.
+// optics::raytracer::apply_internal_mode_coupling: stochastic o/e re-coupling at an internal
+// reflection inside an anisotropic crystal. It only re-labels the eigenmode that sets the
+// index for the next bounce; it does not split the ray. Unlike the entry split
+// (`BIREFRINGENT_SPLIT_STREAM`), no energy is shared, so no `1/p` scaling applies. The
+// selection probability is polarization-weighted (`entry_eigenmode_selection`), not a flat
+// 50/50, which is safe because `stokes` and `path_pdf` are never touched here.
 
 // optics::raytracer::refraction::entry_eigenmode_selection -- polarization-weighted
 // probability that the uniaxial ORDINARY eigenmode is the physically correct label for
@@ -110,11 +106,11 @@ fn internal_mode_coupling_draw(
             p_o = sel.p_o;
         }
     }
-    let split_rand = f32(hash_u32(seed0 ^ hash_u32(bounce ^ MODE_COUPLING_STREAM))) / 4294967295.0;
+    let split_rand = f32(discrete_draw(seed0, bounce, MODE_COUPLING_STREAM)) / 4294967295.0;
     return split_rand >= p_o;
 }
 
-// One-bounce status codes -- see this file's header comment.
+// Return codes of one bounce step. `BOUNCE_STATUS_PARKED` is in `07b_bounce_phases_types.wgsl`.
 const BOUNCE_STATUS_CONTINUE: u32 = 0u;
 const BOUNCE_STATUS_TERMINATE: u32 = 1u;
 

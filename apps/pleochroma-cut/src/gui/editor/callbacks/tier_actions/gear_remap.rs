@@ -24,15 +24,10 @@ use crate::{
 };
 
 thread_local! {
-    /// The design generation (`EditorState::generation`) at the moment
-    /// [`setup_gear_apply_callback`] built the pending remap's preview --
-    /// compared against the LIVE generation in [`setup_gear_remap_confirm_callback`]
-    /// to refuse a stale Confirm. Uses the same guard shape `retarget_actions::
-    /// apply_pending_retarget`/`solve_actions`'s optimize-apply path already use
-    /// (`started_generation` compared via `AtomicU64::load`). Reimplemented here
-    /// rather than adding a field to `PendingGearRemap` or changing
-    /// `EditorState::pending_gear_remap`'s type. Cleared whenever nothing is
-    /// pending, so a stale leftover value can never be compared against by mistake.
+    /// The design generation (`EditorState::generation`) when [`setup_gear_apply_callback`]
+    /// built the pending remap's preview. [`setup_gear_remap_confirm_callback`] refuses a Confirm
+    /// whose generation has moved on. Kept beside `PendingGearRemap`, not inside it, and cleared
+    /// whenever nothing is pending.
     static PENDING_GEAR_REMAP_GENERATION: Cell<Option<u64>> = const { Cell::new(None) };
 }
 
@@ -75,10 +70,8 @@ pub(in crate::gui::editor) fn setup_gear_apply_callback(
                 mirror: st.design.meta.mirror,
                 rounding,
             });
-            // Records which generation this preview was built
-            // against, so `setup_gear_remap_confirm_callback` can refuse to apply a
-            // preview the design has since moved past -- see
-            // `PENDING_GEAR_REMAP_GENERATION`'s own doc comment.
+            // Records the generation the preview was built against; see
+            // `PENDING_GEAR_REMAP_GENERATION`.
             PENDING_GEAR_REMAP_GENERATION
                 .with(|cell| cell.set(Some(st.generation.load(Ordering::Relaxed))));
             drop(st);
@@ -88,15 +81,10 @@ pub(in crate::gui::editor) fn setup_gear_apply_callback(
         },
     );
 
-    // `EditorModel.gear_remap_set_rounding` (`ui/models/editor.slint`) is
-    // registered here, alongside `on_gear_apply` above, rather than as its own
-    // `setup_*` function: a new registration needs no new call site in
-    // `gui::editor::mod`'s hub, while a new function would. This is what lets the
-    // UI's own rounding choice reach `PendingGearRemap`'s existing `rounding`
-    // field and `gear_remap_preview`'s existing parameter for it. Re-runs the
-    // SAME dry-run preview `on_gear_apply` above computes, just with the newly
-    // chosen rounding, so the red/black preview rows stay honest about what
-    // Confirm will actually do.
+    // `EditorModel.gear_remap_set_rounding` (`ui/models/editor.slint`) is registered beside
+    // `on_gear_apply`, which shares its preview code. It stores the chosen rounding in
+    // `PendingGearRemap` and recomputes the same dry-run preview, so the preview rows show
+    // what Confirm will actually do.
     let state_rounding = Rc::clone(state);
     let ui_weak_rounding = ui.as_weak();
     ui.global::<EditorModel>()
@@ -126,14 +114,11 @@ pub(in crate::gui::editor) fn setup_gear_apply_callback(
         });
 }
 
-/// The gear-remap confirmation panel's "Apply" -- commits
-/// [`EditorState::pending_gear_remap`] as ONE undoable `History` step, an
-/// [`Edit::Batch`] of [`Edit::RemapIndices`] then [`Edit::SetSchedule`] -- as two
-/// separate, independently-undoable steps, one Undo after a gear change could
-/// leave indices remapped for the new gear while the schedule still named the old
-/// one. A no-op (closes the panel only) if
-/// nothing is pending -- defensive only, since this button only shows while a
-/// real remap is pending.
+/// The gear-remap confirmation panel's "Apply": commits [`EditorState::pending_gear_remap`] as
+/// one undoable `History` step, an [`Edit::Batch`] of [`Edit::RemapIndices`] then
+/// [`Edit::SetSchedule`]. Two separate steps would let a single Undo leave the indices remapped
+/// for the new gear while the schedule still named the old one. With nothing pending it only
+/// closes the panel, which is defensive: the button shows only while a remap is pending.
 pub(in crate::gui::editor) fn setup_gear_remap_confirm_callback(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -155,12 +140,9 @@ pub(in crate::gui::editor) fn setup_gear_remap_confirm_callback(
             ui.global::<EditorModel>().set_gear_remap_open(false);
             return;
         };
-        // Refuses a Confirm whose preview no longer describes
-        // the live design -- an edit landed (a tier add/edit, an Undo, another
-        // Apply) while the panel sat open, so `pending`'s from/to-gear rows may no
-        // longer match what `Edit::RemapIndices`/`Edit::SetSchedule` are about to do.
-        // Matches `retarget_actions::apply_pending_retarget`'s own stale-generation
-        // refusal shape.
+        // Refuses a Confirm whose preview no longer describes the live design: an edit, an
+        // Undo or another Apply landed while the panel was open, so the pending gears may no
+        // longer match what the batch will do.
         let started_generation = PENDING_GEAR_REMAP_GENERATION.with(Cell::take);
         if started_generation.is_some_and(|g| g != st.generation.load(Ordering::Relaxed)) {
             ui.global::<EditorModel>().set_gear_remap_open(false);
@@ -226,8 +208,7 @@ pub(in crate::gui::editor) fn setup_gear_remap_cancel_callback(
             return;
         };
         state.borrow_mut().pending_gear_remap = None;
-        // Matches the `take()` in `setup_gear_remap_confirm_callback` -- no pending
-        // remap should ever leave a stale recorded generation behind it.
+        // Clears the recorded generation together with the pending remap.
         PENDING_GEAR_REMAP_GENERATION.with(|cell| cell.set(None));
         ui.global::<EditorModel>().set_gear_remap_open(false);
     });

@@ -65,9 +65,8 @@ pub const SCINTILLATION_NOISE_POINTS: f32 = 3.0;
 
 /// Fire changes under this share of the "before" figure read "about the same".
 ///
-/// Fire is an index (about 20 for a round brilliant in diamond, see the fire scale in
-/// `pleochroma::color::metrics`), not a percentage, so its threshold is relative: 5 % of
-/// the "before" figure, which is about one index point for a typical stone.
+/// Fire is an index on a display scale (`pleochroma::color::metrics`), not a percentage, so its
+/// threshold is relative: 5 % of the "before" figure.
 pub const FIRE_NOISE_RELATIVE: f32 = 0.05;
 
 /// Fire changes under this many index points read "about the same", whatever the
@@ -127,8 +126,7 @@ impl From<GemOpticalMetrics> for OpticalFigures {
     }
 }
 
-/// Measures `planes` in `material` under `environment`, looking straight down on the
-/// table. About 2 ms for a round brilliant.
+/// Measures `planes` in `material` under `environment`, looking straight down on the table.
 #[must_use]
 pub fn measure_table_up(
     planes: &[GpuFacetPlane],
@@ -167,11 +165,10 @@ pub fn measure_table_up_finished(
         .into()
 }
 
-/// The tilt performance of `planes` averaged over the four axes and 181 angles, or
-/// `None` when `step` stopped the sweep.
+/// The tilt performance of `planes` averaged over the four axes and 181 angles, or `None`
+/// when `step` stopped the sweep.
 ///
-/// `step` is called before each of the 724 evaluations (about 1.4 s in all) and stops the
-/// sweep by answering `false`.
+/// `step` is called before each of the 724 evaluations and stops the sweep by answering `false`.
 #[must_use]
 pub fn measure_tilt_average(
     planes: &[GpuFacetPlane],

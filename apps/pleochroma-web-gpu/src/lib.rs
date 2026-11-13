@@ -28,6 +28,7 @@ mod entry {
     use js_sys::{Array, ArrayBuffer, Uint8Array};
     use pleochroma::{
         geometry::tool::ToolPrimitive,
+        optics::raytracer::{Estimator, set_default_estimator},
         renderer::{
             env_map::{EnvironmentMap, environment_from_hdr_bytes},
             gpu::{
@@ -393,10 +394,13 @@ mod entry {
         }
     }
 
-    /// Runs when the WebGPU worker module is instantiated: installs `onmessage` and posts `Loaded`.
+    /// Runs when the module is instantiated: installs `onmessage`, then posts `Loaded`.
     #[wasm_bindgen(start)]
     pub fn start() {
         console_error_panic_hook::set_once();
+        // This Worker is its own wasm instance with its own statics: exit collection is the
+        // app's estimator, set before the first frame is prepared.
+        set_default_estimator(Estimator::APP_DEFAULT);
         let closure = Closure::<dyn FnMut(MessageEvent)>::new(|event: MessageEvent| {
             on_message(&event);
         });

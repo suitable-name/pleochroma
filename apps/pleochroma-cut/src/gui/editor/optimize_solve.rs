@@ -1,72 +1,47 @@
-//! An explicit, off-thread, cancellable "Optimize" action, following `deep_solve.rs`'s
-//! own conventions (`thread::spawn` + `Arc<AtomicBool>` cancel +
-//! `Weak::upgrade_in_event_loop` progress) exactly -- see that module's own doc comment
-//! for why this shape (not `bridge::export_thread`'s, not a bespoke one) is the
-//! established pattern for a long-running, cancellable editor action in this crate.
+//! The cancellable "Optimize" action, run off the UI thread.
 //!
-//! [`spawn_optimize_run`] is the Optimize tab's entry point (a full [`OptimizeOptions`]
-//! request: anchored tiers, angle ranges, the girdle guard, several candidates, an
-//! [`OptimizeResult`] back). Retarget's Optimize mode has its own worker in
-//! `callbacks::retarget_actions::optimize_run`.
+//! It follows the shape of `deep_solve.rs`: `thread::spawn`, an `Arc<AtomicBool>` cancel
+//! flag and `Weak::upgrade_in_event_loop` progress.
 //!
-//! # Why this is not `gui::batch::tilt`/`gui::batch::batch_queue`'s shape
+//! [`spawn_optimize_run`] is the Optimize tab's entry point. Retarget's Optimize mode has
+//! its own worker in `callbacks::retarget_actions::optimize_run`.
 //!
-//! Those modules distribute independent whole-design work items (a catalogue design's
-//! render, or its tilt-curve sweep) across local lanes and a remote dispatcher. A
-//! single design's own coordinate search is a different shape: one design, one
-//! evolving state, sweeps that depend on each other's outcome. What is directly reused
-//! from that class of infrastructure is narrower and lives inside
-//! `pleochroma_cut_core::optimize` itself: `evaluate_candidate_pair`'s two-OS-thread
-//! parallel evaluation of a tier's `+step`/`-step` candidates -- remote dispatch
-//! (unlike the local parallelism) is not achievable without extending
-//! `pleochroma-net`'s wire protocol.
+//! # Why not the `gui::batch` shape
+//!
+//! `gui::batch::tilt` and `gui::batch::batch_queue` distribute independent whole-design
+//! work items across local lanes and a remote dispatcher. One design's coordinate search
+//! is a single evolving state whose sweeps depend on each other, so it reuses only what
+//! lives in `pleochroma_cut_core::optimize`: `evaluate_candidate_pair`'s two-thread
+//! evaluation of a tier's `+step`/`-step` candidates. Remote dispatch would need
+//! `pleochroma-net`'s wire protocol extended.
 //!
 //! # Real progress, not just elapsed time
 //!
-//! `deep_solve.rs`'s own [`deep_solve::DeepSolveProgress`](super::deep_solve::DeepSolveProgress)
-//! carries only elapsed wall time, because `solve_meet_points_verified`'s repair
-//! search has no caller-visible loop this crate controls.
-//! `pleochroma_cut_core::optimize::optimize_design` is the opposite: this crate wrote
-//! its own search loop, so [`OptimizeSolveProgress`] carries the real running
-//! evaluation count (via [`pleochroma_cut_core::optimize::SearchHooks::on_progress`])
-//! alongside elapsed time -- an honest "N of your M-evaluation budget so far", not an
-//! estimate.
+//! `deep_solve` reports only elapsed time, because its repair search has no loop this
+//! crate controls. `optimize_design` runs this crate's own loop, so
+//! [`OptimizeSolveProgress`] carries the real evaluation count (from
+//! [`pleochroma_cut_core::optimize::SearchHooks::on_progress`]) alongside elapsed time.
 //!
-//! A dedicated ticker thread still exists (same `TICK_INTERVAL` idea as
-//! `deep_solve.rs`), not to fabricate progress but to throttle how often the UI thread
-//! is asked to redraw: `on_progress` is called after every one of potentially hundreds
-//! of tier decisions, cheaply updating a shared [`AtomicUsize`] with no thread hop; the
-//! ticker reads that counter on its own schedule and is the only thing that ever calls
-//! `Weak::upgrade_in_event_loop`.
+//! A ticker thread throttles how often the UI thread is asked to redraw. `on_progress` runs
+//! after every tier decision and only stores into a shared [`AtomicUsize`]; the ticker
+//! alone calls `Weak::upgrade_in_event_loop`.
 //!
 //! # Hinges are measured on the worker
 //!
 //! A run that varies anchored tiers needs each tier's hinge, which needs a solved design.
-//! The worker solves once and measures them (see [`prepare_anchor_hinges`], which the
-//! command line's `optimize` shares) instead of the UI thread, which must never solve
-//! synchronously and whose cached solve may be a frame behind the design.
+//! The worker solves once and measures them, because the UI thread must never solve
+//! synchronously and its cached solve may be a frame behind the design.
 //!
 //! # Cancellation is a real mid-search checkpoint
 //!
-//! `optimize_design` polls `cancel` once per tier decision, so a cancellation here
-//! typically takes effect within one `evaluate_candidate_pair` call's latency
-//! (milliseconds to a few seconds) -- the same kind of real checkpoint
-//! `deep_solve::DeepSolveHandle::cancel` polls per pipeline run (see that module's
-//! own doc comment, "Cancellation is a real mid-search checkpoint"), just at a
-//! different grain. [`OptimizeRunOutcome::Cancelled`] differs from
-//! `deep_solve::DeepSolveOutcome::Cancelled` in what it carries, though: a real
-//! partial result (whatever the search found before the checkpoint fired), not
-//! `deep_solve`'s empty, discarded variant.
+//! `optimize_design` polls `cancel` once per tier decision, so cancelling takes effect
+//! within one `evaluate_candidate_pair` call. Unlike `deep_solve`, a cancelled run keeps
+//! its partial [`OptimizeRunOutcome::Cancelled`] result rather than discarding it.
 
-// Wired via `gui::editor::setup_optimize_callback`/`setup_optimize_cancel_callback`/
-// `setup_optimize_apply_callback`, which call `spawn_optimize_run` below the exact
-// same way `gui::editor`'s own `setup_deep_solve_callback` calls
-// `deep_solve::spawn_deep_solve`. Unlike `deep_solve` (a read-only diagnostic that
-// never mutates `Design`), an Optimize result the user chooses to keep is applied
-// through `pleochroma_editor::optimize_view::apply_candidate` (`History::apply`, one
-// `Edit::ModifyTier` per changed tier) by `setup_optimize_apply_callback`, never
-// straight into `Design` -- so it stays undoable exactly like every other edit this
-// crate makes, and `optimize_design` itself never needs to know `History` exists.
+// Started by the `setup_optimize_*` callbacks in `callbacks::solve_actions`. A kept result
+// goes through `pleochroma_editor::optimize_view::apply_candidate` (one undoable
+// `Edit::ModifyTier` per changed tier), never straight into `Design`, so it stays in the
+// undo history like every other edit.
 
 use super::material_lookup::{EditorMaterialLookup, resolved_gem_material};
 use pleochroma::optics::materials::GemMaterial;
@@ -92,36 +67,28 @@ use std::{
     time::{Duration, Instant},
 };
 
-/// Matches `deep_solve::TICK_INTERVAL`'s own value and rationale: cheap and infrequent
-/// enough to cost nothing against a computation already measured in the hundreds of
-/// milliseconds to hundreds of seconds (see `pleochroma_cut_core::optimize`'s own "Cost first" doc
-/// section).
+/// Progress redraw interval. Cheap next to a search that takes hundreds of milliseconds to
+/// hundreds of seconds (see `pleochroma_cut_core::optimize`'s "Cost first" section).
 const TICK_INTERVAL: Duration = Duration::from_millis(250);
 
-/// Handle returned by [`spawn_optimize_run`]. See the module
-/// doc comment's "Cancellation is a REAL mid-search checkpoint" section for exactly what
-/// cancelling does.
+/// Handle returned by [`spawn_optimize_run`]. Cancelling is a checkpoint inside the search, see
+/// the module docs.
 pub struct OptimizeSolveHandle {
     cancel: Arc<AtomicBool>,
 }
 
 impl OptimizeSolveHandle {
-    /// Requests cancellation -- see the module doc comment, "Cancellation is a
-    /// real mid-search checkpoint".
+    /// Requests cancellation. The search stops at its next checkpoint.
     pub fn cancel(&self) {
         self.cancel.store(true, Ordering::Relaxed);
     }
 }
 
-/// One progress tick posted while an optimize run is in progress -- see the module doc
-/// comment's "Real progress, not just elapsed time" section.
+/// One progress tick of an optimize run.
 ///
-/// `max_evaluations` is [`inclusive_max_evaluations_for`]'s figure (screening, coordinate
-/// stage PLUS the polish stages' own caps), not [`OptimizeConfig::max_evaluations`] alone.
-/// This prevents the evaluation counter sailing past `max_evaluations` once the
-/// polish stage starts. `stage` is the true search stage at each progress report,
-/// so a caller can show a stage name instead of a stalled fraction while
-/// [`SearchStage::BaselineFull`]/[`SearchStage::FinalFull`] are running.
+/// `max_evaluations` is [`inclusive_max_evaluations_for`]'s figure, which includes the polish
+/// stages' caps, so the count never passes it. `stage` lets a caller show a stage name instead
+/// of a stalled fraction during [`SearchStage::BaselineFull`] and [`SearchStage::FinalFull`].
 #[derive(Debug, Clone, Copy)]
 pub struct OptimizeSolveProgress {
     pub evaluations: usize,
@@ -179,44 +146,37 @@ const fn start_for_stage(
 pub enum OptimizeRunOutcome {
     /// The search finished.
     Completed { result: OptimizeResult },
-    /// The user cancelled before the search's own loop observed it; `result` is the real,
-    /// honest partial result (whatever was found before the checkpoint fired), never
-    /// discarded -- see the module doc comment's "Cancellation is a real mid-search
-    /// checkpoint" section.
+    /// Cancelled. `result` is the partial result found before the checkpoint fired.
     Cancelled { result: OptimizeResult },
-    /// `design` itself did not solve at all -- no
-    /// [`pleochroma_cut_core::design::MeetConstraint::ScaleReference`] anchor for one or
-    /// more blocks, or a [`pleochroma_cut_core::TierTarget`] could not be resolved -- so the
-    /// search was never even started.
+    /// `design` did not solve: a block lacks a
+    /// [`pleochroma_cut_core::design::MeetConstraint::ScaleReference`] anchor, or a
+    /// [`pleochroma_cut_core::TierTarget`] cannot be resolved. The search never started.
     Failed { error: DesignSolveError },
 }
 
-/// Everything [`spawn_optimize_run`]'s worker thread needs, cloned onto it -- bundled
-/// purely so the function signature itself stays short (the same reasoning
-/// `pleochroma::color::metrics`'s per-evaluation context structs document on themselves).
+/// Everything [`spawn_optimize_run`]'s worker thread needs, moved onto it. Bundled so the
+/// function signature stays short.
 pub struct OptimizeRunRequest {
     pub design: Design,
     pub material_selection: MaterialSelection,
-    /// The catalogue's own custom materials at the moment Optimize was launched -- so
-    /// the objective is scored against the same resolved material (built-ins,
-    /// customs, and any `refractive_index_override`, via [`resolved_gem_material`])
-    /// the viewport and tilt curves use for this exact design, not a built-ins-only,
-    /// override-blind fallback.
+    /// The catalogue's custom materials when Optimize was launched. The objective uses the
+    /// same resolved material as the viewport (via [`resolved_gem_material`]), including any
+    /// `refractive_index_override`.
     pub custom_materials: Vec<GemMaterial>,
     pub config: OptimizeConfig,
     /// What may change beyond the search knobs. With `vary_anchored` on, the worker fills
-    /// `anchor_hinges` itself (see [`prepare_anchor_hinges`]).
+    /// `anchor_hinges` itself.
     pub options: OptimizeOptions,
     /// The tiers anchored variation is limited to ("Only selected tiers"); `None` means
     /// every tier that may vary.
     pub only_tiers: Option<BTreeSet<usize>>,
 }
 
-/// Spawns the Optimize tab's worker (plus its progress ticker) off the UI thread.
-/// `on_progress` is invoked on the UI event loop roughly every [`TICK_INTERVAL`] while the
-/// search runs; `on_done` exactly once, with the final outcome. Mirrors
-/// `deep_solve::spawn_deep_solve`'s generic-handle shape exactly (same reasoning: no
-/// direct dependency on `crate::MainWindow`).
+/// Spawns the search worker and its progress ticker off the UI thread.
+///
+/// `on_progress` runs on the UI event loop about every [`TICK_INTERVAL`] while the search runs;
+/// `on_done` runs once with the final outcome. Generic over the UI handle so this module does not
+/// depend on `crate::MainWindow`, as in `deep_solve::spawn_deep_solve`.
 pub fn spawn_optimize_run<T, P, D>(
     ui_weak: Weak<T>,
     request: OptimizeRunRequest,
@@ -235,16 +195,14 @@ where
     let done_ticker = Arc::clone(&done_flag);
     let evaluations_done = Arc::new(AtomicUsize::new(0));
     let evaluations_ticker = Arc::clone(&evaluations_done);
-    // `SearchStage::BaselineFull` (`0`) is also the correct stage to show before
-    // the worker thread's first real report ever lands.
+    // Shown until the worker's first report arrives.
     let stage_done = Arc::new(AtomicU8::new(SearchStage::BaselineFull.to_code()));
     let stage_ticker = Arc::clone(&stage_done);
     let start_done = Arc::new(StartCell::default());
     let start_ticker = Arc::clone(&start_done);
     let ticker_ui = ui_weak.clone();
-    // Include screening, the coordinate stage and every kept start's polish in the reported
-    // cap, so the total never appears to exceed `max_evaluations`. The free-tier count is
-    // refined by the worker once the hinges are known.
+    // Covers screening, the coordinate stage and each kept start's polish. The worker
+    // refines the free-tier count once the hinges are known.
     let max_evaluations = Arc::new(AtomicUsize::new(inclusive_max_evaluations_for(
         &request.config,
         request.options.keep_candidates,
@@ -252,9 +210,7 @@ where
     )));
     let max_evaluations_ticker = Arc::clone(&max_evaluations);
 
-    // Ticker: throttles how often the UI thread is asked to redraw progress -- see the
-    // module doc comment's "Real progress, not just elapsed time" section for why this
-    // reads (never fabricates) the real running evaluation count.
+    // Ticker: throttles UI redraws. It reads the real evaluation count, never an estimate.
     thread::spawn(move || {
         let start = Instant::now();
         loop {
@@ -319,10 +275,10 @@ where
     OptimizeSolveHandle { cancel }
 }
 
-/// The worker's one solve: measures the hinges a run varying anchored tiers needs, and sizes
-/// `material` by the design's girdle diameter like the render does (see
-/// [`sized_material_for_optimize`]), so the face-up colour the tone objective works out
-/// matches the Live Render. The solve is skipped when neither is wanted.
+/// The worker's one solve. Measures the hinges a run varying anchored tiers needs, and sizes
+/// `material` by the design's girdle diameter as the render does (see
+/// [`sized_material_for_optimize`]), so the tone objective's face-up color matches the render.
+/// The solve is skipped when neither is needed.
 ///
 /// # Errors
 ///
@@ -338,11 +294,10 @@ fn prepare_run_inputs(
         .girdle_diameter_mm
         .is_some_and(|mm| mm > 0.0 && mm.is_finite());
     if !options.vary_anchored && !wants_size {
-        // No solve needed unless the material reads the model width: per-mm (millimetres per
-        // unit, even for the 7 mm default) and, since the reference-width rescale, per-model-unit
-        // too, so `optimize_needs_model_width` is now always true and this shortcut is never
-        // taken (kept, with its gate, should a unit ever stop needing the width). The stone's
-        // color pattern makes a material per-mm, so it is judged after the pattern.
+        // Skip the solve unless the material reads the model width. Every unit reads it today,
+        // so `optimize_needs_model_width` is always true and this shortcut is never taken; the
+        // gate stays for a unit that stops needing the width. A color pattern makes the
+        // material per-mm, so it is judged after the pattern.
         if !optimize_needs_model_width(&material, design) {
             return Ok(sized_material_for_optimize(material, design, &[]));
         }
@@ -355,11 +310,8 @@ fn prepare_run_inputs(
     Ok(sized_material_for_optimize(material, design, &planes))
 }
 
-/// What a finished worker-thread call becomes for the UI -- see [`OptimizeRunOutcome`]'s
-/// own doc comment. Unlike `deep_solve`'s `outcome_for`, a cancelled run's OWN partial
-/// [`OptimizeResult`] is preserved (see the module doc comment's "Cancellation is a
-/// REAL mid-search checkpoint" section), not discarded -- only a genuine solve failure
-/// (checked first, since it can happen regardless of `cancelled`) takes priority.
+/// Maps the worker's result to the UI outcome. A cancelled run keeps its partial
+/// [`OptimizeResult`]. A solve failure wins even when cancelled, since it was never searched.
 fn run_outcome_for(
     cancelled: bool,
     result: Result<OptimizeResult, DesignSolveError>,
@@ -496,9 +448,8 @@ mod tests {
         let unsized_material = prepare_run_inputs(&design, coloured(), &mut options, None)
             .expect("the fresh design solves");
         let face_up = f64::from(pleochroma::render_setup::MODEL_UNIT_FACE_UP_PATH);
-        // Every unit reads the design's own model width now: a per-model-unit scale is
-        // `(mm / 7) / K * (REFERENCE_MODEL_WIDTH / w)`, so the stone's measured width `w` (about,
-        // not exactly, the reference 2.0) sets the expectation instead of a bare `1 / K`.
+        // A per-model-unit scale is `(mm / 7) / K * (REFERENCE_MODEL_WIDTH / w)`. The measured
+        // width `w` (near the reference 2.0) sets the expectation, not a bare `1 / K`.
         let solved = design.solve().expect("the fresh design solves");
         let planes = design_to_gpu_planes_from_solved(&design, &solved);
         let width = pleochroma::render_setup::measure_model_width(&planes)
@@ -587,13 +538,9 @@ mod tests {
 
     #[test]
     fn optimize_job_resolves_no_material_selection_to_diamond() {
-        // Mirrors `material_lookup`'s own
-        // `resolved_gem_material_uses_the_real_dispersion_curve_with_no_override`
-        // fallback, exercised here through the exact path `spawn_optimize_run`'s
-        // worker thread now takes -- a brand-new design's `MaterialSelection::none()`
-        // has no name at all, so the objective must still resolve to SOMETHING
-        // real (diamond, via `MaterialSelection::resolve`'s own documented
-        // fallback), never fail the whole run over a display concern.
+        // A new design's `MaterialSelection::none()` has no name, so the objective must still
+        // resolve to a real material: diamond, via `MaterialSelection::resolve`'s fallback.
+        // The run must not fail over this.
         let lookup = EditorMaterialLookup::new(&[]);
         let material = resolved_gem_material(&MaterialSelection::none(), &lookup);
         assert_eq!(material.name, GemMaterial::diamond().name);

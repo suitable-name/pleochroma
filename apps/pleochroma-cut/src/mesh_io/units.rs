@@ -1,10 +1,10 @@
 //! The unit a mesh file's numbers are in, and the suggestion shown when a rough's size is
 //! not believable in the unit that was chosen.
 
-/// The largest side, in mm, a rough is typically (the suggestion looks here first).
+/// The range of the largest side, in mm, that a typical rough has; a suggestion tries it first.
 const TYPICAL_MM: (f64, f64) = (3.0, 200.0);
 
-/// The largest side, in mm, the planner accepts at all (1 mm to its 2000 mm limit).
+/// The range of the largest side, in mm, that the planner accepts at all.
 const BELIEVABLE_MM: (f64, f64) = (1.0, 2000.0);
 
 /// A length unit a mesh file may use. The planner works in millimetres, so the points are

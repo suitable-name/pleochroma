@@ -62,7 +62,7 @@ pub struct GeometryDiagnostics {
     pub unsupported_reasons: BTreeMap<String, u64>,
     /// Full production gates avoided by outward-rounded impossible-meet proofs.
     pub gpu_prefilter_refusals: u64,
-    /// Rejection-proof routing policy; independent of environment arithmetic/recovery identity.
+    /// Rejection-proof policy tag; does not affect environment arithmetic or recovery identity.
     pub arrangement_proof_policy: &'static str,
     /// Candidates considered for the budgeted interval triple proof.
     pub arrangement_probes: u64,
@@ -94,8 +94,8 @@ pub struct GeometryDiagnostics {
     /// Deferred trials left uncertified because their request reached the per-request
     /// certification cap. They are not refusals; the request reports its miss.
     pub deferred_trials_uncertified: u64,
-    /// Improving or terminal iterates whose residual rows exceed the limit every
-    /// accepted state satisfies, so no CPU gate was run for them.
+    /// Improving or terminal iterates whose residual rows exceed the limit that every
+    /// accepted state satisfies, so no CPU gate ran for them.
     pub residual_screened_gates: u64,
     /// Completed CPU gates called by the cached projection or explicit certification.
     /// The original fallback projection's internal gates remain in baseline telemetry.

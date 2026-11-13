@@ -22,7 +22,7 @@ pub struct DeterminismResult {
 }
 
 impl DeterminismResult {
-    /// Whether every compared value stayed within its budget.
+    /// Whether no value differs between the two runs.
     #[must_use]
     pub const fn passed(&self) -> bool {
         self.mismatches == 0

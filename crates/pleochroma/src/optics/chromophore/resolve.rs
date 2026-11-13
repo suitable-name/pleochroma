@@ -5,9 +5,10 @@
 //! - amounts clamped to `[0, conc_max]`, non-finite input rejected;
 //! - explicit unit conversion between concentration bases through number densities;
 //! - valence splits, treatments and centre intensities from the catalogue data;
-//! - pairing laws selectable per pair (`clustered_min`: `min`, `product`: `z * cA * cB * 1e-6` in
-//!   `ppm_site`; `clustered`/`random` are aliases), with an optional data-driven compensator
-//!   (`max(0, partner - compensator)`), active only when both partner elements are present;
+//! - pairing law per pair: `clustered` / `clustered_min` give `min(cA, cB)`, and `random` /
+//!   `product` give `z * cA * cB * 1e-6` (both in `ppm_site`), with an optional data-driven
+//!   compensator (`max(0, partner - compensator)`), active only when both partner elements are
+//!   present;
 //! - a data-driven quadratic term per band (`peak = k c + q c^2`, pair-enhanced Fe3+);
 //! - end-member fractions with sum <= 1 and a colorless remainder;
 //! - cm^-1 to mm^-1 unit conversion (divide by 10);
@@ -126,7 +127,7 @@ fn resolve_impl(
 
     warnings.extend(relation_warnings(host, &amounts, &treated));
 
-    // Step 2 merge: exact same centre and width; step 3: budget <= 8 per mode.
+    // Merge bands with the same centre and width, then budget each mode to <= 8 bands.
     let ref_path = f64::from(recipe.reference_path_mm);
     let fit = |raw: Vec<TaggedBand>, mode: &str| {
         let merged = merge_bands(sorted(raw));
@@ -154,28 +155,22 @@ fn resolve_impl(
 
 /// The chromophore of `host` that a catalogue `requires` / `excludes` entry names, if any.
 ///
-/// An entry names a chromophore only when it equals the id exactly, the rule the desktop
-/// editor's `impossible_reason` applies too. Entries that name no chromophore (`"oxidising
-/// melt"`, an element symbol, a qualified note such as `"Fe2+ (almandine) when x_Alm > 0.10"`)
-/// are documentation only. Prefix matching was dropped because it made qualified notes bind
-/// (tourmaline Cu2+ "requires Mn3+ for violet hues (optional)" warned on every Paraiba recipe)
-/// and depended on the sort order of the ids.
+/// Only an exact id names a chromophore. Other entries (`"oxidising melt"`, an element symbol,
+/// a qualified note such as `"Fe2+ (almandine) when x_Alm > 0.10"`) are documentation only:
+/// a prefix match would bind them to a chromophore they merely mention.
 fn named_chromophore<'a>(host: &'a HostData, text: &str) -> Option<&'a ChromophoreData> {
     host.chromophores.iter().find(|c| c.id == text)
 }
 
-/// Reports `requires` / `excludes` relations of the catalogue that the recipe violates: an
-/// active chromophore whose excluded partner is also active, or whose required partner is absent.
-/// Advisory only (the bands are untouched), because the relations are free text in the data.
+/// Reports `requires` / `excludes` relations that the recipe violates: an active chromophore
+/// whose excluded partner is also active, or whose required partner is absent. Advisory only
+/// (the bands are untouched), because the relations are free text in the data.
 ///
-/// A mutual exclusion (both chromophores list each other) is reported once, from the smaller
-/// id; an exclusion listed on one side only is reported from that side whatever the ids sort
-/// like (the old rule reported it only when the partner's id sorted higher, which silently
-/// dropped the glass Mn3+ / Fe2+ and zircon brown / blue centre exclusions).
+/// A mutual exclusion is reported once, from the smaller id. A one-sided exclusion is reported
+/// from the side that lists it, whatever the ids sort like.
 ///
-/// A chromophore whose bands are all removed by a treatment (a `remove_centre` with no band
-/// filter and factor 0) is not active: an amethyst centre created by irradiation and then removed
-/// by an anneal must not trigger the citrine / prasiolite exclusions.
+/// A chromophore whose bands a treatment removes entirely (`remove_centre` with no band filter
+/// and factor 0) is not active, so a centre annealed away triggers no exclusion.
 fn relation_warnings(
     host: &HostData,
     amounts: &BTreeMap<String, f64>,
@@ -230,11 +225,10 @@ fn relation_warnings(
     out
 }
 
-/// The recipe amounts keyed by selectable id, each clamped to `[0, conc_max]` of the host under
-/// the recipe's treatments (`HostData::element_conc_max_split` with the treated valence split),
-/// then scaled down together where the elements of a multi-element chromophore add up to more
-/// than its `conc_max` (`HostData::cap_summed_amounts`). Unselectable ids and clamped amounts are
-/// reported in `warnings`.
+/// The recipe amounts keyed by selectable id, each clamped to `[0, conc_max]` under the recipe's
+/// treatments (`HostData::element_conc_max_split`), then scaled down together where a
+/// multi-element chromophore's elements exceed its `conc_max` (`HostData::cap_summed_amounts`).
+/// Unselectable ids and clamped amounts are reported in `warnings`.
 pub(super) fn clamped_amounts(
     catalogue: &ChromophoreCatalogue,
     host: &HostData,
@@ -449,7 +443,7 @@ pub(super) fn apply_treatments(
 }
 
 /// Intensity of a centre created by `eff`, in the centre's own unit: a fraction of the precursor
-/// element's amount (converted between unit bases), or a fraction of `conc_max` without precursor.
+/// element's amount (converted between unit bases), or of `conc_max` without a precursor.
 fn created_intensity(
     host: &HostData,
     amounts: &BTreeMap<String, f64>,
@@ -566,7 +560,8 @@ fn cmp_tagged(a: &TaggedBand, b: &TaggedBand) -> std::cmp::Ordering {
         .then_with(|| a.1.cmp(&b.1))
 }
 
-/// Merges bands with identical centre and width by summing their peaks (the smallest id is kept).
+/// Merges bands whose centre and width agree within 0.1 nm and whose shapes match, summing their
+/// peaks; the earlier band keeps its id.
 fn merge_bands(bands: Vec<TaggedBand>) -> Vec<TaggedBand> {
     let mut out: Vec<TaggedBand> = Vec::new();
     for (b, id) in bands {

@@ -5,21 +5,20 @@
 //! pattern. This module turns the zones to the axis wherever the axis is known
 //! (`pleochroma_cut_core::material::pattern::follow_c_axis`: the zones' `+Y` goes onto the axis
 //! line). The mode is stored on the zones themselves (`ZonedAbsorption::follows_axis`, set by
-//! `ColorPattern::to_zoned`), so no library read and no process-wide note is needed and every
-//! surface (the CLI, the web app, the phone) turns the zones the same way.
+//! `ColorPattern::to_zoned`), so every surface turns the zones the same way, with no library
+//! read.
 //!
 //! # Where the zones are turned
 //!
-//! The axis is the resolved material's own `c_axis`, which is the design's setting when it has one,
-//! else the custom material's stored default, else the built-in's:
+//! The axis is the resolved material's own `c_axis`: the design's setting when it has one,
+//! else the custom material's stored default, else the built-in's.
 //!
-//! * [`reframe_material`]: a material whose axis is already resolved (every stored-zone install,
-//!   `rough_colour::store::apply_stored_zoning`, so the material list at startup and after a
-//!   save, the width rescale, the Color Pattern window and the catalogue thumbnails, whose
-//!   `sized` step calls it on the stone's own material).
-//! * [`axis_applied`]: the live render context, whenever the design's axis changes (the Stone tab,
-//!   its presets, the editor refresh that loads or undoes an axis, a Color Pattern save). It is the
-//!   hook the stone-width change has in `material_zones::stone_width_applied`.
+//! * [`reframe_material`]: a material whose axis is already resolved. This covers every
+//!   stored-zone install (`rough_colour::store::apply_stored_zoning`), the width rescale, the
+//!   Color Pattern window and the catalogue thumbnails.
+//! * [`axis_applied`]: the live render context, whenever the design's axis changes (the Stone
+//!   tab, its presets, the editor refresh, a Color Pattern save). The stone-width change
+//!   reaches it through `material_zones::stone_width_applied`.
 //! * The Current Design preview of the Color Pattern window re-frames the material it renders
 //!   (`preview::render_design`) with the same [`pleochroma_cut_core::material::pattern`] function.
 //!
@@ -30,12 +29,14 @@ use pleochroma::optics::materials::GemMaterial;
 use pleochroma_cut_core::material::pattern::{crystal_axis_frame, follow_noted_pattern};
 use std::sync::{Arc, Mutex};
 
-/// Turns the zones of every pattern that follows the Crystal Axis, in the render context's
-/// material list and in its material override, to the axis the context traces with (the
-/// design's override axis, else the material's own). Reads the mode off the zones
+/// Turns the zones of every pattern that follows the Crystal Axis to the axis the context
+/// traces with.
+///
+/// This covers the render context's material list and its material override. The axis is the
+/// design's override axis, else the material's own. The mode is read off the zones
 /// (`ZonedAbsorption::follows_axis`), so it needs no library and can run wherever the context is
-/// already locked: every path that changes the axis, installs a material or saves one. Returns how
-/// many materials moved; the context is marked dirty when any did.
+/// already locked. Every path that changes the axis, installs a material or saves one calls it.
+/// Returns how many materials moved; the context is marked dirty when any did.
 pub fn follow_context(ctx: &mut RenderContext) -> usize {
     let override_axis = ctx.c_axis_override;
     let mut moved = 0;

@@ -29,18 +29,11 @@ export component CuttingTableView inherits Rectangle {
     callback copy_table();
     copy_table => { LibraryModel.copy_cutting_table(); }
 
-    // Each pill shows its own per-mode row count via
-    // `LibraryModel.filtered_row_count(mode)` (Rust body:
-    // `gui::library::detail::count_angles_for_mode`, registered by
-    // `setup_filtered_row_count_callback` from `gui::mod::build_main_window`),
-    // matching `row_shown` below's own visibility predicate exactly (mode 0 ->
-    // every row, mode 1 -> `side < 0`, mode 2 -> `side > 0`). Slint's
-    // imperative statements have no general loop or array `.filter`/`.reduce`,
-    // and a `pure function` here cannot even recurse to fake one (confirmed by
-    // trying it -- `cargo clippy -p pleochroma-cut` reported "the binding for
-    // the property 'count-from' is part of a binding loop"), hence the
-    // Rust-side callback rather than a Slint helper. The keyboard cursor needs the same
-    // predicate, so it asks `CuttingTableModel.step_row` for the same reason.
+    // Pill counts come from Rust (`LibraryModel.filtered_row_count(mode)`, body
+    // `gui::library::detail::shared::count_angles_for_mode`). Slint has no loops or array
+    // filters, and a `pure function` cannot recurse. The count uses the same predicate as
+    // `row_shown` below: mode 0 every row, mode 1 `side < 0`, mode 2 `side > 0`. The keyboard
+    // cursor asks `CuttingTableModel.step_row` for the same reason.
     background: Theme.bg-darkest;
     border-radius: Theme.radius-md;
     border-width: 1px;
@@ -121,15 +114,12 @@ export component CuttingTableView inherits Rectangle {
 
                 // The three narrow columns have fixed widths; INDICES and the notes share the
                 // rest (1 : 2) and elide, so the table fits the narrowest window. No
-                // `alignment: start` here (it defeats the stretch factors and ran the two
-                // headings together); the row below uses the same spacing and a 12 px
-                // trailing cell for the copy icon, so the columns line up.
+                // `alignment: start`: it defeats the stretch factors. The row below uses the
+                // same spacing and a 12 px trailing cell, so the columns line up.
                 Text { width: 36px; text: "#"; font-size: 11px; font-weight: 700; color: Theme.text-muted; vertical-alignment: center; }
                 Text { width: 72px; text: "FACET"; font-size: 11px; font-weight: 700; color: Theme.text-muted; vertical-alignment: center; }
                 Text { width: 64px; text: "ANGLE"; font-size: 11px; font-weight: 700; color: Theme.text-muted; vertical-alignment: center; }
-                // "INDICES" here matches `editor_view.slint`'s own tier-list column
-                // for the same concept -- the shorter, already-used-elsewhere name,
-                // used for both.
+                // Same heading as the tier list in `editor_view.slint`.
                 Text { horizontal-stretch: 1; min-width: 0px; text: "INDICES"; font-size: 11px; font-weight: 700; color: Theme.text-muted; vertical-alignment: center; overflow: elide; }
                 Text { horizontal-stretch: 2; min-width: 0px; text: "INSTRUCTIONS / NOTES"; font-size: 11px; font-weight: 700; color: Theme.text-muted; vertical-alignment: center; overflow: elide; }
                 Rectangle { width: 12px; }
@@ -250,9 +240,9 @@ export component CuttingTableView inherits Rectangle {
                                     spacing: 8px;
 
                                     Text { width: 36px; text: row.order_idx + 1; font-size: 11px; color: Theme.text-muted; vertical-alignment: center; accessible-role: AccessibleRole.none; }
-                                    // The standard code (`P1`, `G1`, `C1`, `T`); a catalogue row that
-                                    // kept the old 123/ABC labels also shows its own label, small, as
-                                    // "was 3", so the original stays visible.
+                                    // The standard code (`P1`, `G1`, `C1`, `T`). A row whose
+                                    // original label differs (a catalogue row with 123/ABC labels)
+                                    // also shows it, small, as "was 3".
                                     Rectangle {
                                         width: 72px;
                                         clip: true;
@@ -266,11 +256,9 @@ export component CuttingTableView inherits Rectangle {
                                     Text { width: 64px; text: row.angle; font-size: 11px; font-weight: 600; color: Theme.accent-amber; vertical-alignment: center; accessible-role: AccessibleRole.none; }
                                     Text { horizontal-stretch: 1; min-width: 0px; text: row.index_val; font-size: 11px; color: Theme.text-primary; overflow: elide; vertical-alignment: center; accessible-role: AccessibleRole.none; }
                                     Text { horizontal-stretch: 2; min-width: 0px; text: row.notes; font-size: 11px; color: Theme.text-secondary; overflow: elide; vertical-alignment: center; accessible-role: AccessibleRole.none; }
-                                    // A clipboard icon on hover gives a copy-on-click row a
-                                    // visible affordance for that behaviour, instead of being a
-                                    // plain-looking row that happens to react to a click.
-                                    // Centred by a layout of its own: a fixed-size Image in the row
-                                    // sits at the top of its cell.
+                                    // The clipboard icon on hover shows that a click copies the
+                                    // row. Centred by a layout of its own: a fixed-size Image in
+                                    // the row sits at the top of its cell.
                                     VerticalLayout {
                                         alignment: center;
                                         Image {

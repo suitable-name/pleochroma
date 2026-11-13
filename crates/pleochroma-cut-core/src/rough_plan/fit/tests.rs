@@ -310,7 +310,7 @@ fn test_minimum_width_filter() {
     assert_eq!(fits.len(), 1);
     assert_eq!(fits[0].entry_id, 1);
 
-    // With no minimum the thin bar is kept, so it was the filter that dropped it.
+    // Without a minimum the thin bar is kept: the filter is what drops it.
     let lenient = PlanSettings {
         min_width_mm: 0.0,
         ..PlanSettings::default()

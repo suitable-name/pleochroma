@@ -1,5 +1,6 @@
-//! The Library destination's Rust side: the designs saved on this device as cards or
-//! rows, with search, filters, sort, tags, import, and opening a design from the list.
+//! The Library destination's Rust side: the saved designs as cards or rows, with search,
+//! filters, sort, tags, import and opening.
+//!
 //! The data layer is `pleochroma_mobile_core::library`; this module ties it to the
 //! `LibraryModel` global.
 //!

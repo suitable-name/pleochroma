@@ -9,8 +9,7 @@ use crate::design::{ConcaveTier, ConcaveTool, TierFrosting, ToolMotion, is_legac
 
 /// Width of the label column in [`CuttingSheet::to_text`] (the tier code).
 ///
-/// Hoisted so a concave tier's second line can start its tool code in the same column by
-/// construction instead of by a second hand-counted literal.
+/// Shared so a concave tier's tool line starts its code in the same column as the label.
 pub const SHEET_NAME_WIDTH: usize = 16;
 
 /// Width of the leading "`{sequence:>3}. `" block of a text-sheet row; the
@@ -34,13 +33,12 @@ const DISPLACEMENT_INDENT: usize = 6;
 /// widest value it prints, so the details column is straight on every row.
 const DISPLACEMENT_WIDTH: usize = 34;
 
-/// What a concave tier adds to its [`CutSheetRow`]: the tool line's raw values,
-/// for views that format them their own way.
+/// What a concave tier adds to its [`CutSheetRow`]: the tool line's raw values, for views that
+/// format them their own way (the HTML sheet shows millimetres beside the ratio).
 ///
-/// The HTML sheet shows millimetres beside the ratio. The text and HTML sheets get their strings from
-/// [`ConcaveRowInfo::second_line_fields`], which is
-/// [`crate::design::ConcaveTier::second_line_fields`], so no output can
-/// disagree with another.
+/// The text and HTML sheets get their strings from [`ConcaveRowInfo::second_line_fields`],
+/// which is [`crate::design::ConcaveTier::second_line_fields`], so no output can disagree
+/// with another.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConcaveRowInfo {
     /// Tool shape.
@@ -111,16 +109,23 @@ pub struct CutSheetRow {
     /// printed verbatim, else synthesizes text from its current `MeetConstraint`
     /// (`Meet P1, P2, G1`, each name written as its target tier's code). A tier placed by
     /// an explicit depth (`ScaleReference` without notes, `MeetExisting`) names nothing, so
-    /// its text is worked out from the finished stone in the fantasy-cut template's
-    /// convention, in this order:
+    /// its text is worked out from the stone as it is when the tier is cut
+    /// ([`crate::Design::cut_meets`]) in the fantasy-cut template's convention, in this order:
     /// - `Set stone size.` for [`crate::Design::sizing_tier`], the first explicit-depth girdle
     ///   tier in cutting order;
     /// - `Cut to centerpoint.` for the first tier whose facets all end in one point on the
-    ///   axis;
-    /// - `Set girdle width.` for the first crown tier where it reaches the girdle;
-    /// - else `Meet P1, P2, G1`, listing the tiers cut earlier whose facets share a vertex
-    ///   with its own;
-    /// - else (nothing earlier touches it) its depth.
+    ///   axis, unless it meets points already on the stone;
+    /// - `Set girdle width.` for the first crown tier where it reaches the girdle (the table,
+    ///   in a design with no other flat crown tier);
+    /// - `Set table size.` for a table that meets no point, when the stone cut so far has no
+    ///   point a table could meet (only the crown's apex and the girdle's corners);
+    /// - when the stone cut so far has no point to meet yet: `Set girdle line.` for a pavilion
+    ///   tier that reaches a girdle tier cut before it, else its depth (`Cut to depth 2.81 mm.`,
+    ///   or `Set to mast depth 0.6700` without millimetres);
+    /// - else `Meet P1, P2, G1`, listing the tiers cut earlier whose facets form the points its
+    ///   own facets pass through;
+    /// - else (a facet passes through no point) its depth alone, as above: the row stays
+    ///   short, and the editor's Checks name the tiers with no meet point.
     ///
     /// Never empty, unlike the raw `.asc` `G` field, since a blank entry on a printed sheet
     /// reads as "nothing recorded".
@@ -133,25 +138,21 @@ pub struct CutSheetRow {
     /// `MeetConstraint::MeetExisting`/`MeetConstraint::ScaleReference`, which
     /// have no named target.
     pub meets_tiers: Vec<usize>,
-    /// This row's own cheater/azimuth offset (degrees), from
-    /// [`crate::design::Design::cheater_offset_deg`] -- `None` when the tier has no recorded
-    /// offset (the common case). A cutter needs this printed alongside the
-    /// angle/index/mast figures. Since [`crate::design::export`]'s
-    /// `apply_cheater_offsets` rotates this tier's own facet plane(s) by this
-    /// figure, the printed sheet and the picture the solid/facet map/tracer show
-    /// agree.
+    /// This row's cheater/azimuth offset (degrees), from
+    /// [`crate::design::Design::cheater_offset_deg`]; `None` when the tier has no recorded
+    /// offset (the common case). `apply_cheater_offsets` in [`crate::design::export`] rotates
+    /// this tier's facet plane(s) by this figure, so the printed sheet and the solid, facet map
+    /// and tracer picture agree.
     pub cheater_offset_deg: Option<f64>,
     /// This facet's angle of elevation from the girdle plane, unsigned -- the
     /// magnitude of [`Self::angle_deg`], for a cutter reading a machine's dial
     /// (which has no notion of crown/pavilion sign, only "how far up from
     /// level").
     pub angle_of_elevation_deg: f64,
-    /// This facet's cutting depth in real millimetres, via
-    /// [`crate::yield_metrics::mm_per_unit`] -- `None` whenever
-    /// [`crate::design::Design::girdle_diameter_mm`] is unset or the design does not currently
-    /// measure as a closed solid (the same conditions
-    /// [`crate::yield_metrics::YieldReport::mm_per_unit`] itself returns `None`
-    /// under). The cut sheet shows "depth in mm and dial readings", not just the
+    /// This facet's cutting depth in real millimetres, via [`crate::yield_metrics::mm_per_unit`].
+    /// `None` whenever [`crate::design::Design::girdle_diameter_mm`] is unset or the design does
+    /// not currently measure as a closed solid (the same conditions under which
+    /// [`crate::yield_metrics::YieldReport::mm_per_unit`] returns `None`). Printed beside the
     /// dimensionless mast.
     pub depth_mm: Option<f64>,
     /// `Some` for a concave tier, whose tool line follows the facet line;

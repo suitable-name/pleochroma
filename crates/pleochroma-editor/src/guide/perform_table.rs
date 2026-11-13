@@ -2,20 +2,19 @@
 //!
 //! A goal like "Material is Diamond" says all there is to do; a goal like "tier G1 meets an exact
 //! scale value" does not say which value, and a `Check` goal is only a test. Those steps name
-//! their recipe here, written from the step's own action text: the same values the learner is
-//! told to type. A step listed as [`Action::SkipOnly`] is one that cannot be done for the learner
-//! (a drag, a tick box, a dialog of the operating system); it keeps its Skip step button even
-//! where its goal would have implied a recipe. A step that is not listed gets the recipe its goal
-//! implies, if any.
+//! their recipe here, written from the step's action text: the values the learner is told to
+//! type. A step listed as [`Action::SkipOnly`] cannot be done for the learner (a drag, a tick
+//! box, an operating-system dialog), so it keeps its Skip step button even where its goal
+//! implies a recipe. An unlisted step gets the recipe its goal implies, if any.
 //!
-//! The titles are matched against the guides when they are assembled, and a test fails when an
-//! entry names a step that does not exist, so a renamed step cannot silently lose its recipe.
+//! A test fails when an entry names a step that does not exist, so a renamed step cannot
+//! silently lose its recipe.
 
 mod tiers;
 
 use super::{Perform, TierEntry, WORKED_EXAMPLE_ID, lesson_start_spec};
 
-/// The eight main positions of a ring on a 96-tooth, 8-fold gear, as the Indices field shows them.
+/// The eight main ring positions on a 96-tooth, 8-fold gear, as the Indices field shows them.
 pub(super) const MAIN_RING: &str = "0, 12, 24, 36, 48, 60, 72, 84";
 
 /// What a listed step does.
@@ -69,7 +68,7 @@ pub(super) fn entries() -> Vec<TableEntry> {
     entries
 }
 
-/// The solving and optimizing lessons' steps whose goal is a `Check` (a test, not a value to read a recipe from).
+/// Recipes for the solving lessons' steps whose goal is a `Check`, which states no values.
 fn solving() -> Vec<TableEntry> {
     vec![
         recipe(

@@ -19,7 +19,7 @@
 //! summing a reduced-resolution buffer into a full-resolution one isn't even
 //! dimensionally sound. See `crate::messages`'s own module docs for the full argument.
 //!
-//! # Payload encodings (v14)
+//! # Payload encodings
 //!
 //! A `FRAME`/`PREVIEW` payload is decoded according to its OWN header's `encoding`
 //! (never the handshake's negotiated one), through the accumulator's reusable
@@ -29,13 +29,12 @@
 //! exactly `raw_len` bytes, and short or oversized output is an error. A compressed
 //! delta sums bit-identically to the same delta sent raw.
 //!
-//! The v14 picture events (`DISPLAY_FRAME`, `FINAL_IMAGE`) are epoch-gated the same way
-//! and kept ENCODED (see [`PictureSnapshot`]); decode them with `crate::display` when
-//! they are shown or saved. `PONG` and `CAPABILITY_CHANGED` carry no `request_id` and are
-//! always reported regardless of the epoch. `ERROR` (v15) is gated exactly like
-//! `FRAME`/`PREVIEW`/`DONE` when it carries a `request_id`, and reported unconditionally
-//! only when it doesn't (a connection-level refusal that precedes any request) -- see
-//! [`crate::messages::ErrorMsg`]'s doc comment.
+//! The picture events (`DISPLAY_FRAME`, `FINAL_IMAGE`) are epoch-gated the same way and
+//! kept ENCODED (see [`PictureSnapshot`]); decode them with `crate::display` when they are
+//! shown or saved. `PONG` and `CAPABILITY_CHANGED` carry no `request_id` and are always
+//! reported regardless of the epoch. `ERROR` is gated exactly like `FRAME`/`PREVIEW`/`DONE`
+//! when it carries a `request_id`, and reported unconditionally only when it doesn't (a
+//! connection-level refusal that precedes any request); see [`crate::messages::ErrorMsg`].
 //!
 //! # Expected sample range: containment, not contiguity
 //!
@@ -101,7 +100,7 @@ pub struct PreviewSnapshot {
     pub buffer: Vec<Vec3>,
 }
 
-/// An 8-bit picture event's payload (v14 `DISPLAY_FRAME` or `FINAL_IMAGE`), as received.
+/// An 8-bit picture event's payload (`DISPLAY_FRAME` or `FINAL_IMAGE`), as received.
 ///
 /// `bytes` is `encoding`-encoded RGBA8 -- decode it with
 /// `crate::display::decode_rgba8(encoding, width, height, &bytes)`.
@@ -142,17 +141,17 @@ pub enum ApplyOutcome {
     /// The event's `request_id` didn't match [`Accumulator::current_request_id`] --
     /// dropped without touching `buffer` or `last_preview`. See the module doc comment.
     StaleDropped,
-    /// v14: a `DISPLAY_FRAME` for the current epoch replaced
+    /// A `DISPLAY_FRAME` for the current epoch replaced
     /// [`Accumulator::last_display_frame`].
     DisplayFrameReplaced,
-    /// v14: the `FINAL_IMAGE` for the current epoch is in
+    /// The `FINAL_IMAGE` for the current epoch is in
     /// [`Accumulator::final_image`]; `DONE` follows.
     FinalImageReceived,
-    /// v14: a `PONG` (not epoch-gated) answering the `PING` with this `nonce`.
+    /// A `PONG` (not epoch-gated) answering the `PING` with this `nonce`.
     Pong { nonce: u64 },
-    /// v14: `CAPABILITY_CHANGED` (not epoch-gated); the new capability is in the event.
+    /// `CAPABILITY_CHANGED` (not epoch-gated); the new capability is in the event.
     CapabilityChanged,
-    /// v14: `NEED_ASSET` (not epoch-gated): the server asks for the asset with
+    /// `NEED_ASSET` (not epoch-gated): the server asks for the asset with
     /// this SHA-256 before it can proceed. The caller answers with
     /// `crate::client::send_asset` (or drops the connection).
     NeedAsset { content_hash: [u8; 32] },
@@ -160,9 +159,8 @@ pub enum ApplyOutcome {
 
 /// The epoch-gated radiance sum for one session's remote render.
 ///
-/// Owns a `width * height` buffer sized once at construction (the render resolution is
-/// session-wide, not per-request -- see the crate's `client` module docs), zeroed
-/// every time [`begin_request`](Self::begin_request) starts a new epoch.
+/// Owns a `width * height` buffer sized once at construction, zeroed every time
+/// [`begin_request`](Self::begin_request) starts a new epoch.
 pub struct Accumulator {
     width: u32,
     height: u32,
@@ -180,11 +178,11 @@ pub struct Accumulator {
     last_preview: Option<PreviewSnapshot>,
     last_display_frame: Option<PictureSnapshot>,
     final_image: Option<PictureSnapshot>,
-    /// v16: the current epoch's `DONE.stats`, once it arrived -- see [`Self::done_stats`].
+    /// The current epoch's `DONE.stats`, once it arrived -- see [`Self::done_stats`].
     done_stats: Option<Stats>,
     /// Pixels skipped this epoch for a non-finite or negative component.
     dropped_pixels: u64,
-    /// Reusable decompression scratch for compressed payloads (v14).
+    /// Reusable decompression scratch for compressed payloads.
     decoder: PayloadDecoder,
 }
 
@@ -224,11 +222,11 @@ impl Accumulator {
         }
     }
 
-    /// Starts a new epoch: `request_id` becomes [`current_request_id`](Self::current_request_id),
-    /// `buffer` is zeroed, `samples_done` resets to 0, and any pending
-    /// [`last_preview`](Self::last_preview) (and v14 picture) is cleared -- a preview from
-    /// the previous (now superseded) request is exactly as stale as a `FRAME` from it
-    /// would be.
+    /// Starts a new epoch: `request_id` becomes
+    /// [`current_request_id`](Self::current_request_id), `buffer` is zeroed, `samples_done`
+    /// resets to 0, and any pending [`last_preview`](Self::last_preview) (and picture) is
+    /// cleared -- a preview from the previous, superseded request is exactly as stale as a
+    /// `FRAME` from it would be.
     ///
     /// Call this the moment a new `RenderRequest` is sent, NOT when its reply starts
     /// arriving: any bytes for the OLD epoch still in flight on the wire must see the
@@ -288,19 +286,19 @@ impl Accumulator {
         self.last_preview.as_ref()
     }
 
-    /// The most recent `DISPLAY_FRAME` of the current epoch (v14), still encoded.
+    /// The most recent `DISPLAY_FRAME` of the current epoch, still encoded.
     #[must_use]
     pub const fn last_display_frame(&self) -> Option<&PictureSnapshot> {
         self.last_display_frame.as_ref()
     }
 
-    /// The current epoch's `FINAL_IMAGE` (v14), still encoded, once it arrived.
+    /// The current epoch's `FINAL_IMAGE`, still encoded, once it arrived.
     #[must_use]
     pub const fn final_image(&self) -> Option<&PictureSnapshot> {
         self.final_image.as_ref()
     }
 
-    /// The current epoch's `DONE.stats` (v16), once `DONE` arrived -- e.g.
+    /// The current epoch's `DONE.stats`, once `DONE` arrived -- e.g.
     /// `reclaimed_samples` for a final-picture export where the viewer's own
     /// contribution didn't arrive in time. Cleared by
     /// [`begin_request`](Self::begin_request).
@@ -329,7 +327,7 @@ impl Accumulator {
     /// [`StreamEvent::Pong`], [`StreamEvent::CapabilityChanged`] and
     /// [`StreamEvent::NeedAsset`] are never epoch-gated (they carry no `request_id`) and
     /// are always reported, regardless of what's currently current. [`StreamEvent::Error`]
-    /// (v15) is gated exactly like a `FRAME`/`PREVIEW`/`DONE` when it names a
+    /// is gated exactly like a `FRAME`/`PREVIEW`/`DONE` when it names a
     /// `request_id`, and reported unconditionally only when it doesn't.
     ///
     /// # Errors
@@ -396,15 +394,18 @@ impl Accumulator {
                 )?);
                 Ok(ApplyOutcome::FinalImageReceived)
             }
-            // v24 batch replies belong to a `BatchRenderRequest`, which has no
-            // accumulator (every item lands in its own PNG). One reaching a single-render
-            // accumulator is a stray from another request on a shared connection:
-            // dropped like any other stale reply. The viewer's batch client reads them
-            // itself.
+            // Batch replies belong to a `BatchRenderRequest`, which has no accumulator
+            // (every item lands in its own PNG). One reaching a single-render accumulator
+            // is a stray from another request on a shared connection: dropped like any
+            // other stale reply. The viewer's batch client reads them itself. The same
+            // holds for `LivePass`, the reply to a `LivePassRequest`, which the adaptive
+            // export's own live-pass client reads.
             StreamEvent::BatchItemProgress(_)
             | StreamEvent::BatchItemDone(_)
             | StreamEvent::BatchItemFailed(_)
-            | StreamEvent::BatchDone(_) => Ok(ApplyOutcome::StaleDropped),
+            | StreamEvent::BatchDone(_)
+            | StreamEvent::LivePass(_)
+            | StreamEvent::BeamTiles(_) => Ok(ApplyOutcome::StaleDropped),
         }
     }
 
@@ -530,12 +531,9 @@ fn picture(
     })
 }
 
-/// Decodes a `PREVIEW` header's declared dimensions.
+/// Returns a `PREVIEW` header's declared `(width, height)`, without decoding its payload.
 ///
-/// Exposed purely so callers that only want to know a preview's shape (without
-/// decoding its payload) don't have to reach into [`PreviewHeader`] themselves; used by
-/// `apps/pleochroma-cut`'s bridge layer when sizing a display buffer ahead of the first
-/// preview.
+/// Lets callers read a preview's shape without reaching into [`PreviewHeader`] themselves.
 #[must_use]
 pub const fn preview_dimensions(header: &PreviewHeader) -> (u32, u32) {
     (header.width, header.height)

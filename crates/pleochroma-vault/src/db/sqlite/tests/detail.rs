@@ -1,13 +1,15 @@
-//! `save_diagram_detail`/`update_diagram_metadata`/`get_derived_from_title`: a design's
+//! Tests of `save_diagram_detail`, `update_diagram_metadata` and `get_derived_from_title`.
+//!
+//! They cover a design's
 //! full detail row round-tripping its designer-split/competition fields, and the trap
 //! `update_diagram_metadata` exists to avoid (a narrow edit must never zero a column
 //! outside `MetadataUpdate` or disturb child rows).
 
 use super::{super::*, fixtures::temp_db_path};
 
-/// The five new fields must survive a `save_diagram_detail` round trip into their
-/// typed columns -- `shape_category` is `Option<String>` on `FacetingDiagramDetail`
-/// bound into an INTEGER column, so this pins down it lands as a number, not text.
+/// The designer, citation, file and category fields must survive a `save_diagram_detail`
+/// round trip into their typed columns. `shape_category` is an `Option<String>` bound into
+/// an INTEGER column, so this pins down that it lands as a number, not text.
 #[test]
 fn save_diagram_detail_persists_the_designer_split_and_competition_fields() {
     let path = temp_db_path("designer_split_roundtrip");
@@ -60,11 +62,9 @@ fn save_diagram_detail_persists_the_designer_split_and_competition_fields() {
     let _ = std::fs::remove_file(&path);
 }
 
-/// `get_derived_from_title` must resolve the recorded source row's own id and
-/// title,
-/// return `None` when nothing is recorded yet, and return `None` -- not an
-/// error -- when the recorded source row has since been deleted (no
-/// `FOREIGN KEY` backs this column; see `migrate_diagram_entries_provenance`).
+/// `get_derived_from_title` resolves the recorded source row's id and title, returns `None`
+/// when nothing is recorded, and returns `None` (not an error) when the source row has
+/// been deleted. No `FOREIGN KEY` backs this column; see `migrate_diagram_entries_provenance`.
 #[test]
 fn get_derived_from_title_resolves_the_source_rows_id_and_title() {
     let path = temp_db_path("derived_from_title");
@@ -110,8 +110,8 @@ fn get_derived_from_title_resolves_the_source_rows_id_and_title() {
     let _ = std::fs::remove_file(&path);
 }
 
-/// Every `diagram_details` column [`MetadataUpdate`] does NOT cover -- must survive a
-/// metadata edit byte-for-byte, including fields `FullDiagramRecord` can't even see.
+/// Every `diagram_details` column that [`MetadataUpdate`] does not cover. Each must survive
+/// a metadata edit byte for byte, including fields `FullDiagramRecord` does not expose.
 /// See `update_diagram_metadata`'s doc comment for the trap this guards against.
 type UntouchedDetailColumnsRow = (
     String,          // page_url
@@ -341,9 +341,8 @@ fn update_diagram_metadata_rejects_unknown_entry_id() {
     let _ = std::fs::remove_file(&path);
 }
 
-/// a hand-typed European-style decimal (comma, not dot) used to silently persist
-/// as TEXT in the REAL `refractive_index` column instead of being rejected. It must now
-/// be a hard error naming the field, and nothing must be written.
+/// A comma decimal (`1,76`) must be a hard error naming the field. It must never be stored
+/// as TEXT in the REAL `refractive_index` column, and nothing is written.
 #[test]
 fn update_diagram_metadata_rejects_unparsable_numeric_text_naming_the_field() {
     let path = temp_db_path("metadata_update_bad_numeric");

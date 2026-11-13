@@ -1,0 +1,268 @@
+import { Theme } from "../../theme.slint";
+import { KitIcon, KitIcons } from "icons.slint";
+
+// Small kit controls. Every interactive one has a tooltip (`hint`), an accessible label and a
+// keyboard path (Tab, then Space or Enter), and draws from `Theme` so high contrast keeps working.
+// Heights: 28 px for segments, 32 px for buttons and icon buttons.
+
+// A glass panel floating over a picture.
+export component KitGlass inherits Rectangle {
+    background: Theme.glass-bg;
+    border-radius: 10px;
+    border-width: 1px;
+    border-color: Theme.glass-edge;
+}
+
+// A 11 px secondary caption.
+export component KitCaption inherits Text {
+    font-size: 11px;
+    color: Theme.text-secondary;
+}
+
+// A pill with a short text, 20 px tall.
+export component KitBadge inherits Rectangle {
+    in property <string> text;
+    in property <color> fill: Theme.bg-elevated;
+    in property <color> ink: Theme.text-secondary;
+
+    height: 20px;
+    width: badge_text.preferred-width + 16px;
+    border-radius: 10px;
+    background: root.fill;
+    badge_text := Text {
+        x: 8px;
+        y: 0px;
+        height: parent.height;
+        text: root.text;
+        font-size: 11px;
+        font-weight: 600;
+        color: root.ink;
+        vertical-alignment: center;
+    }
+}
+
+// A color chip split on the diagonal (`a` top left, `b` bottom right) when `split` is on.
+export component KitSwatch inherits Rectangle {
+    in property <color> a: Theme.swatch-empty;
+    in property <color> b: Theme.swatch-empty;
+    in property <bool> split: true;
+    in property <length> size: 36px;
+    width: root.size;
+    height: root.size;
+    border-radius: 8px;
+    clip: true;
+    background: root.a;
+    if root.split: Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 10;
+        viewbox-height: 10;
+        commands: "M10 0 L10 10 L0 10 Z";
+        fill: root.b;
+        stroke-width: 0px;
+    }
+    Rectangle {
+        border-radius: 8px;
+        border-width: 1px;
+        border-color: Theme.chip-edge;
+    }
+}
+
+// A square icon button.
+export component KitIconButton inherits Rectangle {
+    in property <string> d;
+    // The tooltip; also the accessible description.
+    in property <string> hint;
+    // The accessible name.
+    in property <string> label;
+    in property <bool> enabled: true;
+    in property <bool> active: false;
+    in property <length> size: 32px;
+    in property <length> icon_size: 16px;
+    in property <color> ink: Theme.text-secondary;
+    in property <length> stroke: 1.7px;
+    callback clicked();
+
+    width: root.size;
+    height: root.size;
+    border-radius: 8px;
+    background: root.active ? Theme.accent-cyan-surface : (touch.has-hover && root.enabled ? Theme.bg-card-hover : transparent);
+    border-width: fs.has-focus ? 2px : 0px;
+    border-color: Theme.accent-cyan-hover;
+    accessible-role: AccessibleRole.button;
+    accessible-enabled: root.enabled;
+    accessible-label: root.label;
+    accessible-description: root.hint;
+    accessible-action-default => {
+        if root.enabled {
+            root.clicked();
+        }
+    }
+
+    if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
+    fs := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.clicked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    KitIcon {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        d: root.d;
+        size: root.icon_size;
+        stroke: root.stroke;
+        ink: root.enabled ? root.ink : Theme.text-disabled;
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+// A text button, optionally with a leading icon and a trailing chevron. `kind` is 0 normal,
+// 1 primary, 2 ghost.
+export component KitButton inherits Rectangle {
+    in property <string> text;
+    in property <string> icon;
+    in property <string> hint;
+    in property <int> kind: 0;
+    in property <bool> chevron: false;
+    in property <bool> enabled: true;
+    in property <bool> active: false;
+    in property <length> h: 32px;
+    callback clicked();
+
+    property <bool> is_primary: root.kind == 1;
+    property <bool> is_ghost: root.kind == 2;
+    property <color> ink: !root.enabled ? Theme.text-disabled : (root.is_primary ? Theme.text-on-accent : Theme.text-primary);
+
+    height: root.h;
+    width: blay.preferred-width;
+    border-radius: 8px;
+    background: !root.enabled
+        ? (root.is_primary ? Theme.surface-disabled : transparent)
+        : (root.is_primary
+            ? (touch.has-hover ? Theme.accent-cyan-hover : Theme.accent-cyan)
+            : (root.active || touch.has-hover ? Theme.bg-card-hover : (root.is_ghost ? transparent : Theme.bg-card)));
+    border-width: fs.has-focus ? 2px : (root.is_primary || root.is_ghost ? 0px : 1px);
+    border-color: fs.has-focus ? Theme.accent-cyan-hover : Theme.border-medium;
+    accessible-role: AccessibleRole.button;
+    accessible-enabled: root.enabled;
+    accessible-label: root.text;
+    accessible-description: root.hint;
+    accessible-action-default => {
+        if root.enabled {
+            root.clicked();
+        }
+    }
+
+    if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
+    fs := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.clicked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    blay := HorizontalLayout {
+        padding-left: 12px;
+        padding-right: root.chevron ? 8px : 12px;
+        spacing: 7px;
+        alignment: center;
+        if root.icon != "": VerticalLayout {
+            alignment: center;
+            KitIcon { d: root.icon; ink: root.ink; }
+        }
+        Text {
+            text: root.text;
+            font-size: 13px;
+            font-weight: root.is_primary ? 700 : 500;
+            color: root.ink;
+            vertical-alignment: center;
+            horizontal-stretch: 0;
+        }
+        if root.chevron: VerticalLayout {
+            alignment: center;
+            KitIcon { d: KitIcons.chevron-down; size: 14px; ink: root.ink; }
+        }
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+// The 32 px track that holds the segments of a segmented control; put a layout of `KitSegment`s
+// inside.
+export component KitSegmentBar inherits Rectangle {
+    height: 32px;
+    border-radius: 8px;
+    background: Theme.bg-input;
+    border-width: 1px;
+    border-color: Theme.border-subtle;
+}
+
+// One segment of a segmented control.
+export component KitSegment inherits Rectangle {
+    in property <string> text;
+    in property <string> hint;
+    in property <bool> on: false;
+    in property <bool> enabled: true;
+    callback picked();
+
+    height: 28px;
+    width: seg_text.preferred-width + 24px;
+    border-radius: 7px;
+    background: root.on ? Theme.bg-elevated : (touch.has-hover && root.enabled ? Theme.bg-card-hover : transparent);
+    border-width: fs.has-focus ? 2px : 0px;
+    border-color: Theme.accent-cyan-hover;
+    accessible-role: AccessibleRole.radio-button;
+    accessible-enabled: root.enabled;
+    accessible-label: root.text;
+    accessible-description: root.hint;
+    accessible-checkable: true;
+    accessible-checked: root.on;
+    accessible-action-default => {
+        if root.enabled {
+            root.picked();
+        }
+    }
+
+    if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
+    fs := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.picked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    seg_text := Text {
+        // Centred: a 12 px inset at natural width; a stretched segment centres its name.
+        x: (parent.width - self.preferred-width) / 2;
+        y: 0px;
+        height: parent.height;
+        text: root.text;
+        font-size: 12px;
+        font-weight: root.on ? 600 : 500;
+        color: !root.enabled ? Theme.text-disabled : (root.on ? Theme.text-primary : Theme.text-secondary);
+        vertical-alignment: center;
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.picked(); }
+    }
+}

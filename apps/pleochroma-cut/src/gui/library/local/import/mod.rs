@@ -1,18 +1,14 @@
-//! Importing `.asc`, `.gem` and `.gcs` files into the local database, including
-//! optional recursive subfolder import, off the UI thread and panic-isolated per
-//! file -- the "Import" side of `gui::library::local` (see this group's own `mod.rs`).
+//! Imports `.asc`, `.gem` and `.gcs` files into the local database, optionally including
+//! subfolders. The work runs off the UI thread, and each file is panic-isolated.
 //!
-//! Nothing here talks to the network or parses HTML/PDF; it operates only on files
-//! the user handed the app directly (`import_path`) or on rows already in the local
-//! SQLite catalogue. See `pleochroma_vault::local`'s doc comment for the underlying
-//! parse/reconstruct logic this module wires up to the UI.
+//! Nothing here touches the network or parses HTML or PDF. It works only on files the user
+//! hands the app (`import_path`) and on rows already in the local catalogue. The parsing
+//! and reconstruction live in `pleochroma_vault::local`.
 //!
-//! Split into [`scan`] (finding candidate files), [`foreign`] (converting a `.gem`/
-//! `.gcs` design to `.asc` cutting instructions), [`measure`] (deriving proportions/
-//! shape and merging a re-import's metadata), [`pipeline`] (the per-file parse-
-//! measure-save steps and the batch loop), [`confirm`] (the filename-collision
-//! pre-scan and confirmation dialog) and [`folder_memory`] (remembering where to
-//! import from next), all wired together by [`wiring`].
+//! [`scan`] finds candidate files, [`foreign`] converts `.gem`/`.gcs` designs to `.asc`,
+//! [`measure`] derives proportions and shape, [`pipeline`] runs the per-file steps and the
+//! batch loop, [`confirm`] handles filename collisions, and [`folder_memory`] remembers the
+//! import folder. [`wiring`] connects all of them to the UI.
 
 mod confirm;
 mod folder_memory;

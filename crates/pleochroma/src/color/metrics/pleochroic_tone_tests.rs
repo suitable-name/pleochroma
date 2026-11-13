@@ -1,5 +1,5 @@
-//! The face-up tone of a pleochroic stone: the per-ray principal paths, and the tone built on
-//! them (axis-aware, unlike the orientation-mean `(2 T_o + T_e) / 3` it replaced).
+//! Tests for the face-up tone of a pleochroic stone, built from the per-ray principal paths.
+//! The tone depends on the axis direction, unlike the orientation mean `(2 T_o + T_e) / 3`.
 
 use std::f32::consts::FRAC_PI_2;
 

@@ -1,9 +1,7 @@
-//! Local import/export for the user's own `.asc` files -- independent of any online
-//! source.
+//! Local import/export of the user's own design files, independent of any online source.
 //!
-//! Everything here only ever reads a file the user handed it directly. Nothing in
-//! this module touches the network -- see this crate's doc comment on why that
-//! boundary is deliberate.
+//! Everything here only reads a file the user handed it directly. Nothing in this module
+//! touches the network; see the crate doc for why that boundary is deliberate.
 
 use crate::model::{
     angle::AngleSetting, detail::FacetingDiagramDetail, entry::FacetingDiagramEntry,
@@ -60,25 +58,20 @@ pub use surface_finish::{surface_finish_of, surface_finish_of_bytes};
 /// dependency on whatever produces any other value for it.
 pub const LOCAL_SOURCE_ID: &str = "local-import";
 
-/// One `.asc` file, parsed and packaged for `db::sqlite::Database::save_diagram_entry`
-/// / `save_diagram_detail`.
+/// One design file (`.asc`, `.psdd`, or a converted `.gem`/`.gcs`), parsed and packaged for
+/// storage with `db::sqlite::Database::save_design`.
 pub struct ImportedAsc {
     /// Library entry metadata.
     pub entry: FacetingDiagramEntry,
     /// Full design detail.
     pub detail: FacetingDiagramDetail,
-    /// The catalogue row this file's own text says it was derived from -- recovered
-    /// from a [`SOURCE_ENTRY_FOOTNOTE_PREFIX`] footnote line, when the `.asc` was
-    /// written by `gui::editor::native_io`'s Save/Export .asc: an
-    /// export-then-reimport matches its source row and becomes a version rather than
-    /// a second same-titled duplicate. `None` for a `.asc` with no such
-    /// footnote -- an original hand-authored file, one scraped from another source, or
-    /// one exported before this stamp existed. The caller is responsible for verifying
-    /// the id still names a real row (it may have been deleted since) before recording
-    /// it via `db::sqlite::Database::set_derived_from_entry_id` -- this crate's own
-    /// hard rule against inventing provenance from anything OTHER than a recorded id
-    /// (never a title/filename match) stops at parsing the id out; it never guesses
-    /// one.
+    /// The catalogue row this file's own text says it was derived from.
+    ///
+    /// Read from a [`SOURCE_ENTRY_FOOTNOTE_PREFIX`] footnote, so a re-import becomes a version
+    /// of that row rather than a same-titled duplicate. `None` when there is no such footnote.
+    /// The id is never guessed from a title or file name, and it is not checked here: the
+    /// caller confirms the row still exists before recording it with
+    /// `db::sqlite::Database::set_derived_from_entry_id`.
     pub derived_from_entry_id: Option<i64>,
     /// Row state that lives outside the entry and detail rows (tags, the ignored mark,
     /// the Rough Planner exclusion, the frosting). Empty for a plain `.asc`; a design
@@ -101,7 +94,7 @@ pub struct ImportedExtras {
     /// The frosted tiers and facets the source file states, by tier position and facet slot
     /// (`.asc` has no notation for it): a `.gcs` file's, or a design file's own. Unlike the
     /// marks above, [`apply_imported_extras`] REPLACES the row's frosting with it, so a
-    /// re-import that no longer states frosting clears the old one.
+    /// re-import that states no frosting clears the old one.
     pub frosting: Vec<StoredTierFrosting>,
     /// The crystal axis the design file sets for its stone (`None` while its override is off,
     /// and for a source that has none). [`apply_imported_extras`] REPLACES the row's with it,
@@ -128,24 +121,19 @@ impl ImportedAsc {
     }
 }
 
-/// The footnote-line prefix a `.asc`'s recorded source-catalogue-row marker starts with.
+/// The footnote-line prefix that records the catalogue row a `.asc` was derived from.
 ///
-/// `gui::editor::native_io` (the `apps/pleochroma-cut` editor) writes it into an
-/// exported/saved `.asc`'s footnotes when the design in the editor has a known
-/// catalogue source row -- see [`ImportedAsc::derived_from_entry_id`]'s own doc
-/// comment for why this exists and [`format_source_entry_footnote`]/
-/// [`parse_source_entry_footnote`] for the two halves of the round trip. A plain `.asc`
-/// footnote (`pleochroma_formats::asc`'s `F` record) rather than a design-file field:
-/// it survives a bare "Export .asc" with no design file at all, which is exactly the case
-/// this item's own "export-then-reimport" scenario describes, and needs no schema
-/// change to the native TOML format (a different crate this one does not own).
+/// `gui::editor::native_io` writes it into a saved or exported `.asc`'s footnotes when the
+/// design has a known catalogue row; [`parse_source_entry_footnote`] reads it back. It is a
+/// plain `.asc` footnote (the `F` record of `pleochroma_formats::asc`) rather than a
+/// design-file field, so it survives a bare "Export .asc" and needs no change to the native
+/// design format.
 pub const SOURCE_ENTRY_FOOTNOTE_PREFIX: &str = "Pleochroma-Source-Entry-Id: ";
 
 /// Builds the one footnote line [`parse_source_entry_footnote`] reads back.
 ///
-/// `gui::editor::native_io` pushes this into `Design::meta.footnotes` (replacing any
-/// previous stamp; see that module's own doc comment) before writing a `.asc` for a
-/// design with a known `entry_id`.
+/// `gui::editor::native_io` pushes this into `Design::meta.footnotes`, replacing any earlier
+/// stamp, before writing a `.asc` for a design with a known `entry_id`.
 #[must_use]
 pub fn format_source_entry_footnote(entry_id: i64) -> String {
     format!("{SOURCE_ENTRY_FOOTNOTE_PREFIX}{entry_id}")
@@ -169,26 +157,22 @@ pub fn parse_source_entry_footnote(footnotes: &[String]) -> Option<i64> {
 /// does no file I/O of its own) into an [`ImportedAsc`] ready to save into the local
 /// library.
 ///
-/// The stored `.asc` attachment is the UTF-8 encoding of `content`. A caller that read
-/// the file from disk should call [`import_asc_bytes`] instead, which attaches the
-/// file's original bytes: a text-only caller (for example, the editor saving a design
-/// it just wrote itself) has no other bytes to keep.
+/// The stored `.asc` attachment is the UTF-8 encoding of `content`. A caller that read the
+/// file from disk should call [`import_asc_bytes`] instead, which keeps the file's original
+/// bytes. A text-only caller, such as the editor saving a design it just wrote, has no
+/// other bytes to keep.
 ///
-/// `file_name` is used only for the title fallback and the synthetic URL/attachment
-/// name.
+/// `file_name` is used only for the title fallback and the synthetic URL/attachment name.
 ///
-/// The synthetic `url` (`local://<file_name>`) is what `diagram_entries.url`'s
-/// `UNIQUE` constraint dedupes against, so re-importing a file with the same name
-/// updates that design in place -- mirroring how a remote source's real page URL
-/// dedupes a re-sync there.
+/// The synthetic `url` (`local://<file_name>`) is what `diagram_entries.url`'s `UNIQUE`
+/// constraint dedupes against, so re-importing a file with the same name updates that
+/// design in place, as a remote source's page URL does on a re-sync.
 ///
-/// `design_file`, when the caller found a `<stem>.psdd` design file sitting beside the `.asc` on disk, is attached as a SECOND
-/// [`AttachedFile`] alongside the `.asc` itself: without it, a design that goes through
-/// Import loses every field only the design file carries (authored meet constraints,
-/// preform, detached facets, material/RI override), since only the `.asc` would
-/// otherwise be stored. `gui::editor::loading::design_from_full_record` already prefers
-/// the attached design file whenever both attachments are present, so attaching it
-/// here is the only piece this crate needs to add.
+/// `design_file`, when the caller found a `<stem>.psdd` design file beside the `.asc` on
+/// disk, is attached as a second [`AttachedFile`]. Without it an import loses every field
+/// only the design file carries (authored meet constraints, preform, detached facets,
+/// material and RI override). `gui::editor::loading::design_from_full_record` prefers the
+/// attached design file when both attachments are present.
 ///
 /// # Errors
 ///
@@ -208,12 +192,11 @@ pub fn import_asc(
 /// The decoding strips a UTF-8 byte-order mark, accepts Windows-1252, and reads a lone
 /// carriage return as a line break.
 ///
-/// Keeping the file as it came off disk is what makes a later export byte-for-byte: a
-/// Windows-1252 file (about one real `.asc` in ten, a legacy `0xB0` degree sign in a
-/// header or footnote) would otherwise come back as a different UTF-8 file that
-/// `GemCad` renders with mojibake. Every reader of the attachment decodes it with
-/// [`asc::decode_asc_bytes`], which accepts both the original bytes and the UTF-8 text an
-/// earlier version of this crate stored.
+/// Keeping the file as it came off disk makes a later export byte-for-byte. A Windows-1252
+/// file (a legacy `0xB0` degree sign in a header, say) would otherwise come back as UTF-8
+/// that `GemCad` renders as mojibake. Every reader of the attachment decodes it with
+/// [`asc::decode_asc_bytes`], which accepts both the original bytes and the UTF-8 text that
+/// [`import_asc`] stores.
 ///
 /// # Errors
 ///
@@ -396,48 +379,32 @@ fn angle_settings_from_tiers(tiers: &[AscTier]) -> Vec<AngleSetting> {
         .collect()
 }
 
-/// Rebuilds an [`AscSchedule`] from a saved design's angle-settings table, for
-/// exporting a design that has no original `.asc` attachment.
+/// Rebuilds an [`AscSchedule`] from a saved design's angle-settings table.
 ///
-/// One example is a design whose schedule came from a scraped HTML table rather than
-/// a file.
+/// This is for exporting a design that has no original `.asc` attachment (for example one
+/// whose schedule came from a scraped HTML table).
 ///
-/// Mast distances are not recoverable from a plain angle/index table -- see
-/// `pleochroma_formats::asc`'s module doc comment: only a real `.asc` file's `a` records carry
-/// them -- so every tier's `mast` is left at `0.0`, and index-wheel/symmetry metadata
-/// beyond the gear-tooth count (`index_gear`) is defaulted too. The returned schedule
-/// is always marked via [`asc::mark_reconstructed`] so it can never be mistaken for a
-/// verified, hand-authored one.
+/// Mast distances are not recoverable from an angle/index table (only a real `.asc` file's
+/// `a` records carry them; see the `pleochroma_formats::asc` module doc). Every tier's `mast`
+/// is therefore `0.0`, and index-wheel and symmetry metadata beyond the gear-tooth count are
+/// defaulted. The schedule is always marked via [`asc::mark_reconstructed`], so it cannot
+/// pass for a verified, hand-authored one.
 ///
-/// Returns `Ok(None)` if `angle_settings` is empty (nothing to export) -- unchanged
-/// from before this function returned a plain `Option`.
+/// Returns `Ok(None)` when `angle_settings` is empty (nothing to export).
 ///
 /// # A tier's angle, and the refractive index, must parse or this errors out
 ///
-/// This used to fall back to a silent `0.0` for an unparsable tier angle or refractive
-/// index (`.unwrap_or(0.0)`), and only split a tier's `index` text on `,`/` `/`;` --
-/// missing the real catalogue's actual separator for scraped index-wheel data, a
-/// hyphen (`"96-08-16-24-32-40-48-56-64-72-80-88"`). Measured on the real catalogue:
-/// 48,559 of 50,817 `angle_settings.index_val` rows had no parsable index under the
-/// old separator set, and every tier of the 140 designs that reach this
-/// reconstruction path (no `.asc` attachment, so this is their ONLY export path) came
-/// out with a fabricated `0.0` angle -- a schedule that looks real but silently
-/// isn't. Now: `-` is a recognized index separator alongside `,`/` `/`;`, and an
-/// unparsable tier angle or refractive index is a hard [`Err`] naming the offending
-/// tier/facet (or the raw refractive-index text), never a fabricated `0.0`.
+/// An unparsable tier angle or refractive index is an error naming the tier or the text,
+/// never a silent `0.0`: a fabricated angle would give a schedule that looks real and is
+/// not. Index lists split on `,`, space, `;` and `-`, since scraped index wheels use `-`.
 ///
-/// The gear-tooth count fallback (`unwrap_or(96)`, `GemCad`'s near-universal default
-/// index wheel) is intentionally NOT promoted to an error: unlike a tier's angle or the
-/// design's refractive index, a wrong gear-tooth count only affects the (already
-/// explicitly placeholder, per [`asc::mark_reconstructed`]'s message below)
-/// index-wheel metadata this reconstruction can never fully recover anyway -- never
-/// the tier geometry itself, which is this function's actual job to get right.
+/// A missing (`None`) refractive index is a genuinely unknown value, not an error, and falls
+/// back to `0.0`. That is the same blank-is-not-an-error contract as
+/// `crate::model::metadata_update::parse_optional_numeric`.
 ///
-/// A missing (`None`) refractive index -- as opposed to text present but unparsable --
-/// still falls back to `0.0`: an absent RI is a genuinely unknown value on some
-/// designs, the same "a blank/absent field is not an error, only unparsable text is"
-/// contract `crate::model::metadata_update::parse_optional_numeric` uses elsewhere in
-/// this crate.
+/// The gear-tooth count falls back to `96` (`GemCad`'s usual index wheel) without an error.
+/// The index-wheel metadata is a placeholder anyway, and the tier geometry is what this
+/// function must get right.
 ///
 /// # Errors
 ///
@@ -694,10 +661,8 @@ a 41.000000 0.5 92 n T\n"
         );
     }
 
-    /// The real catalogue's scraped index-wheel text uses `-` as a separator
-    /// (`"96-08-16-24-32-40-48-56-64-72-80-88"`), which the old `[',', ' ', ';']`
-    /// separator set didn't recognize at all -- 48,559 of 50,817 real rows had no
-    /// parsable index under it.
+    /// Scraped index-wheel text separates its indices with `-`, as in
+    /// `"96-08-16-24-32-40-48-56-64-72-80-88"`.
     #[test]
     fn reconstruct_asc_schedule_splits_hyphen_separated_indices() {
         let settings = vec![AngleSetting {
@@ -719,8 +684,7 @@ a 41.000000 0.5 92 n T\n"
         );
     }
 
-    /// An unparsable tier angle used to silently become `0.0`; it must now be a
-    /// hard error naming the offending tier instead.
+    /// An unparsable tier angle is a hard error naming the tier, never a silent `0.0`.
     #[test]
     fn reconstruct_asc_schedule_errors_on_an_unparsable_angle_naming_the_tier() {
         let settings = vec![AngleSetting {
@@ -739,8 +703,8 @@ a 41.000000 0.5 92 n T\n"
         );
     }
 
-    /// An unparsable refractive index used to silently become `0.0`; it must now
-    /// be a hard error naming the offending text.
+    /// An unparsable refractive index is a hard error naming the offending text, never a
+    /// silent `0.0`.
     #[test]
     fn reconstruct_asc_schedule_errors_on_an_unparsable_refractive_index() {
         let settings = vec![AngleSetting {
@@ -759,9 +723,7 @@ a 41.000000 0.5 92 n T\n"
         );
     }
 
-    /// A missing (not merely unparsable) refractive index is a genuinely unknown
-    /// value, not an error -- same "blank/absent is not an error" contract as
-    /// `parse_optional_numeric`.
+    /// A missing (not merely unparsable) refractive index is an unknown value, not an error.
     #[test]
     fn reconstruct_asc_schedule_defaults_a_missing_refractive_index_to_zero() {
         let settings = vec![AngleSetting {

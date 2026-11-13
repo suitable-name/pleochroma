@@ -47,7 +47,7 @@ pub enum CameraFocus {
 }
 
 impl CameraFocus {
-    /// Yaw and pitch in radians according to S-D4.
+    /// Yaw and pitch in radians.
     #[must_use]
     pub const fn pose(self) -> Option<(f32, f32)> {
         match self {
@@ -74,7 +74,7 @@ pub struct Stage {
     pub expand_tier_table: bool,
     /// Whether the design settings section in the inspector should be expanded.
     pub expand_settings: bool,
-    /// Parameters dock tab ("stone", "lighting", "`render_output`").
+    /// Parameters dock tab (`stone`, `lighting`, `render_output`).
     pub parameters_tab: Option<&'static str>,
     /// Solid preview view mode (0 Solid, 1 Path, 2 Solid+Path, 3 Diagram, 4 Ray, 5 Solid+Ray).
     pub solid_view_mode: Option<i32>,
@@ -169,8 +169,7 @@ const fn ov_library(l: LibraryPanel) -> StageOverride {
 /// Order: specific step title overrides first, then guide-wide (`None`) overrides.
 #[rustfmt::skip]
 pub const OVERRIDES: &[(&str, Option<&str>, StageOverride)] = &[
-    // Importing a file and loading it are taught in the Edit view. Keep the library open,
-    // but let the export/load target assertions see the visible File command bar.
+    // Taught in the Edit view, with the library kept open so the File command bar stays visible.
     ("library-import", Some("Make a file to import"), ov_both(StageView::Edit, LibraryPanel::Shown)),
     ("library-load-design", Some("Load it"), ov_both(StageView::Edit, LibraryPanel::Shown)),
     // library-* guides show the library open throughout.
@@ -200,16 +199,15 @@ pub const OVERRIDES: &[(&str, Option<&str>, StageOverride)] = &[
     ("viewing-design-lighting", Some("Save it for this design"), ov_view(StageView::LiveRender)),
     ("viewing-design-lighting", Some("Forget it again"), ov_view(StageView::LiveRender)),
     ("viewing-design-lighting", Some("Where a design's lighting applies"), ov_view(StageView::LiveRender)),
-    // The render jobs lessons: the first step that needs Live Render clicks its pill, the export
-    // dialog and the Render Jobs window are then used from Live Render.
+    // The render jobs lessons start in Edit, where the first step clicks the Live Render pill;
+    // the export dialog and the Render Jobs window are used from Live Render.
     ("output-render-jobs", Some("Render now or render later"), ov_view(StageView::Edit)),
     ("output-render-jobs", Some("Open Live Render"), ov_view(StageView::Edit)),
     ("output-render-jobs", None, ov_view(StageView::LiveRender)),
     ("output-render-jobs-queue", Some("Queue a picture"), ov_view(StageView::Edit)),
     ("output-render-jobs-queue", None, ov_view(StageView::LiveRender)),
-    // Preference and dialog guides keep the library panel as is. They pin no view: a step that
-    // names a control of one view (the larger-handles step points at the solid picture) still
-    // gets that view from its highlight target, and the others stay in the current one.
+    // Preference and dialog guides keep the library panel as it is and pin no view: a step's
+    // highlight target still sets the view for the control it names.
     ("prefs-interface-mode", None, ov_library(LibraryPanel::Keep)),
     ("prefs-high-contrast", None, ov_library(LibraryPanel::Keep)),
     ("prefs-interface-scale", None, ov_library(LibraryPanel::Keep)),

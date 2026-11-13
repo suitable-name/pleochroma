@@ -67,7 +67,7 @@ impl<'a> StoneFitter<'a> {
     /// its stone here too.
     pub fn fit(&mut self, origin: [f64; 3], size: [f64; 3], leaf: &Leaf) -> Option<PlacedStone> {
         let design = self.pool.get(leaf.design)?;
-        // The true size of the stone: its weight never depends on its orientation rule.
+        // Weight uses the plain norm, so it never depends on the orientation rule.
         let norm = Norm::plain(design);
         let allowance = self.settings.allowance_mm;
         let usable = size.map(|s| 2.0f64.mul_add(-allowance, s).max(0.0));

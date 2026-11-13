@@ -1,17 +1,14 @@
 //! CPU software rasterizer for a design's [`SolidMesh`].
 //!
-//! Pure Rust, no GUI toolkit types anywhere in this crate -- the desktop's
-//! `gui::solid_preview::to_pixel_buffer` (`apps/pleochroma-cut`, a different crate)
-//! is the only place that touches a `slint::SharedPixelBuffer`, so
-//! [`SolidRasterizer`] stays fully unit-testable and reusable if a `wgpu` backend
-//! ever replaces it.
+//! Pure Rust with no GUI toolkit types. The only `slint::SharedPixelBuffer` conversion
+//! lives in the desktop app (`gui::solid_preview::to_pixel_buffer`), so [`SolidRasterizer`]
+//! stays unit-testable.
 //!
 //! # Camera derivation
 //!
-//! The solid view must line up pixel-for-pixel with the path tracer, so this
-//! module reuses [`pleochroma::optics::raytracer::Camera`] verbatim (the type every
-//! viewport builds via `Camera::new(yaw, pitch, distance, 42.0)`) rather than a
-//! locally redefined lookalike, so the two views can never drift apart.
+//! The solid view must line up pixel-for-pixel with the path tracer, so this module uses
+//! [`pleochroma::optics::raytracer::Camera`] directly, built as
+//! `Camera::new(yaw, pitch, distance, 42.0)`, rather than a lookalike.
 //!
 //! [`render::project`] is the exact algebraic inverse of `Camera::generate_ray`'s pixel ->
 //! ray mapping. `generate_ray` builds, for pixel `(screen_x, screen_y)` in image
@@ -44,14 +41,12 @@
 //!
 //! # Why facet polygons, not fan triangles
 //!
-//! `SolidMesh::indices` triangulates every facet as a centroid fan, and a
-//! bounding-box triangle fill tests roughly the whole facet's box once per
-//! fan triangle -- an `n`-fold overhead for an `n`-gon. Worse, the mesh
-//! builder does not merge near-coincident vertices from nearly-coplanar plane
-//! triples: the 103-tier benchmark design yields 202 facets but 210 553 ring
-//! points, and filling one fan triangle per ring point measured 59 ms/frame
-//! on it. [`simplify_ring`] collapses each ring to its true corners first, so
-//! the span fill costs one depth test per covered pixel regardless of ring size.
+//! `SolidMesh::indices` triangulates every facet as a centroid fan. A bounding-box fill
+//! tests roughly the whole facet's box once per fan triangle, an `n`-fold cost for an
+//! `n`-gon. The mesh builder also keeps near-coincident ring points from nearly coplanar
+//! planes: a 103-tier design has 202 facets but 210 553 ring points. [`simplify_ring`]
+//! collapses each ring to its true corners first, so the span fill costs one depth test
+//! per covered pixel whatever the ring size.
 
 use super::{diagram2d, mesh_cache::CachedMesh};
 use glam::{DVec3, Vec3};
@@ -75,9 +70,8 @@ const NEAR_EPS: f32 = 1e-4;
 /// [`SolidStyle::flagged`] facet.
 const HATCH_PERIOD: i32 = 6;
 
-/// Minimum on-screen span (either axis), in pixels, before [`SolidRasterizer::
-/// draw_facet_labels`] bothers stamping a facet's own label on it -- mirrors
-/// `diagram2d::MIN_LABEL_SPAN`'s own threshold and reasoning.
+/// Minimum on-screen span (either axis), in pixels, for a facet to get its label. A
+/// smaller facet's text would not be legible.
 const MIN_LABEL_SPAN: f32 = 26.0;
 
 /// Depth slack (view-space units, same as [`render::project`]'s `a`) an edge pixel may be
@@ -120,33 +114,26 @@ pub struct SolidStyle {
     /// 1px facet-boundary edge color (drawn over the fill).
     pub edge_color: [u8; 3],
     /// Edge color for a facet whose id is set in `pending` (re-solve missed budget).
-    /// Matches `ui/theme.slint`'s `accent-amber` (`#f59e0b`) so the viewport agrees
-    /// with any other amber "not yet resolved" indicator in the app.
+    /// Matches `ui/theme.slint`'s `accent-amber` (`#f59e0b`), so it agrees with the
+    /// app's other "not yet resolved" amber.
     pub pending_color: [u8; 3],
     /// Hatch stripe color for a facet whose id is set in `flagged`
     /// (critical-angle-risk overlay).
     pub hatch_color: [u8; 3],
     /// Edge color for a facet whose id is set in `selected`
     /// (`facet_map::OverlayFlags::selected`); lower precedence than `pending_color`.
-    /// Matches `ui/theme.slint`'s `primary` (`#3b82f6`), the same color the tier
-    /// table paints its own selected row with (`editor_tier_table.slint`'s
-    /// `primary-glow` background), so the two views read as one selection.
+    /// Matches `ui/theme.slint`'s `primary` (`#3b82f6`).
     pub selected_color: [u8; 3],
-    /// Outline color for the single facet named in `hovered` -- a light
-    /// neutral, distinct from every other overlay color so it never gets mistaken
-    /// for a selection.
+    /// Outline color for the single facet named in `hovered`: a light neutral, distinct
+    /// from every other overlay so it is not mistaken for a selection.
     pub hover_color: [u8; 3],
     /// Outline color for the single facet named in `selected_facet` --
     /// `ui/theme.slint`'s `accent-purple`, deliberately different from
     /// `selected_color` (a whole tier) so "this exact facet" and "this facet's
     /// tier" read as two different kinds of highlight.
     pub selected_facet_color: [u8; 3],
-    /// Outline color for every facet id listed in `multi_selected` --
-    /// `ui/theme.slint`'s `accent-cyan`. NOT the same color
-    /// `editor_tier_table.slint` uses for its own multi-selected row outline,
-    /// which is `Theme.accent-amber` (see that file's `row.multi_selected`
-    /// border-color binding) -- the 3D viewport and the tier table deliberately
-    /// disagree on this color today, this is not a shared convention.
+    /// Outline color for every facet id listed in `multi_selected`: `ui/theme.slint`'s
+    /// `accent-cyan`.
     pub multi_selected_color: [u8; 3],
     /// Outline color for every facet id listed in `provisional` (the slice tier not
     /// yet committed to the design) -- a green distinct from every other overlay,
@@ -166,19 +153,14 @@ pub struct SolidStyle {
     pub pending: Vec<bool>,
     /// Per-facet flag, indexed by facet id: facet belongs to a selected tier.
     pub selected: Vec<bool>,
-    /// The one facet under the cursor, or `None` -- set by
-    /// `preview_state::SolidPreviewState::request_facet_overlay`, never by a
-    /// fresh replan (a new plan always starts with no hover; the next mouse-move
-    /// request re-establishes it).
+    /// The one facet under the cursor, or `None`. Set by overlay updates only: a fresh
+    /// replan starts with none, and the next mouse move re-establishes it.
     pub hovered: Option<u32>,
     /// The one facet a click identified within its (possibly multi-facet) tier
     /// selection, or `None` -- same update path as `hovered`.
     pub selected_facet: Option<u32>,
-    /// Every facet id belonging to a multi-selected tier (table checkbox/ctrl-click
-    /// selection) -- same update path as `hovered`. A `Vec` rather than a
-    /// per-facet `bool` table since the caller already has the small set of ids
-    /// straight from `facet_map::FacetMap::facets_of_tier`, and multi-select sizes
-    /// are small enough that a linear scan per facet is not worth a second buffer.
+    /// Every facet id of a multi-selected tier, updated like `hovered`. A short list
+    /// rather than a per-facet table: multi-selections are small, so a linear scan is cheap.
     pub multi_selected: Vec<u32>,
     /// Every facet id of the provisional slice tier -- same update path as
     /// `hovered`, and like it cleared by a fresh replan (a new plan starts with
@@ -205,10 +187,9 @@ pub struct SolidStyle {
     /// tall, smaller ones keep the top-left corner). The viewports lay a toolbar over
     /// the raster's top edge, which hid or clipped the top-left caption.
     pub orientation_caption_bottom: bool,
-    /// Facet ids below this are the rough's own bounding (preform)
-    /// planes, in `Design::planes_from_solved`'s order (`facet_map::FacetMap::
-    /// preform_plane_count`). `0` (the default) means "no preform to
-    /// distinguish", matching every caller that never sets it.
+    /// Facet ids below this are the rough's own bounding (preform) planes, in
+    /// `Design::planes_from_solved`'s order (`facet_map::FacetMap::preform_plane_count`).
+    /// `0` (the default) means no preform to distinguish.
     pub preform_plane_count: usize,
     /// When `false`, a preform-plane facet is skipped entirely (culled,
     /// as if back-face-culled) instead of rendered, so a cutter can see through
@@ -216,10 +197,8 @@ pub struct SolidStyle {
     /// keeps every preform facet visible, tinted by [`Self::preform_tint_color`]
     /// rather than drawn as an ordinary cut facet.
     pub show_preform: bool,
-    /// Tint blended into a preform-plane facet's own shaded color so the
-    /// rough's bounding planes read as visually distinct from an ordinary cut
-    /// facet -- otherwise a preform plane looks and behaves (under hover/click)
-    /// exactly like a real facet with nothing marking it as the uncut rough.
+    /// Tint blended into a preform facet's shaded color, so the rough's bounding planes
+    /// read as distinct from cut facets.
     pub preform_tint_color: [u8; 3],
 }
 

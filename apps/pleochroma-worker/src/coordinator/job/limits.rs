@@ -1,7 +1,8 @@
-//! Coordinator job limits: a global memory budget for
-//! in-flight jobs ([`MemoryBudget`]) and the per-viewer limits ([`ViewerQueues`]): one
-//! active throughput job per viewer certificate, first in first out, and up to a cap of
-//! whole-image jobs at once.
+//! Coordinator job limits.
+//!
+//! They are a global memory budget for in-flight jobs ([`MemoryBudget`])
+//! and the per-viewer limits ([`ViewerQueues`]): one active throughput job per viewer
+//! certificate, first in first out, and a per-viewer cap on whole-image jobs.
 
 use super::Coordinator;
 use pleochroma_dispatch::ParkedBudget;
@@ -173,10 +174,11 @@ impl Drop for Reservation<'_> {
     }
 }
 
-/// Per-viewer limits: FIFO queues with at most one active throughput job per viewer
-/// (certificate), the rest waiting in arrival order (a fair queue across viewers is
-/// backlog), and a counted slot per running whole-image job, which do not queue behind
-/// each other up to the cap.
+/// Per-viewer limits.
+///
+/// Each viewer (certificate) runs at most one throughput job at a time, the rest waiting in arrival
+/// order; viewers do not wait on each other. Whole-image jobs take a counted slot instead and do
+/// not queue behind each other up to the cap.
 #[derive(Default)]
 pub struct ViewerQueues {
     queues: Mutex<(u64, Queues)>,
@@ -364,12 +366,11 @@ impl Drop for SlotGuard<'_> {
     }
 }
 
-/// Adapts [`MemoryBudget`] to [`pleochroma_dispatch::ParkedBudget`] so a job's
-/// [`pleochroma_dispatch::Merger`] charges its parked (full-frame) buffers against the
-/// same coordinator-wide cap [`job_bytes`]'s fixed [`FRAME_BUFFERS_PER_JOB`] charge
-/// uses: a stalled lane's straggling frontier would otherwise park an
-/// unbounded number of full-frame buffers even though the job's own fixed reservation
-/// never grows.
+/// Adapts [`MemoryBudget`] to [`pleochroma_dispatch::ParkedBudget`].
+///
+/// A job's [`pleochroma_dispatch::Merger`] charges its parked full-frame buffers against the same
+/// coordinator-wide cap. Without this, a stalled lane could park an unbounded number of
+/// buffers, since the job's fixed reservation ([`FRAME_BUFFERS_PER_JOB`]) never grows.
 pub struct JobParkedBudget(pub Arc<Coordinator>);
 
 impl fmt::Debug for JobParkedBudget {

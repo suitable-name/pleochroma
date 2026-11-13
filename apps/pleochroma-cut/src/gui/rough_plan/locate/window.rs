@@ -158,7 +158,7 @@ struct LocateHost {
 }
 
 thread_local! {
-    /// The one locate window of the app session, once it was opened.
+    /// The one locate window of the app session, created on first open.
     static LOCATE: RefCell<Option<Rc<LocateHost>>> = const { RefCell::new(None) };
 }
 

@@ -1,7 +1,8 @@
 //! The Inspector's Optimize tab: the objective preset, what may change, the angle ranges,
-//! the ranked candidate list and its selection. The pure rules (defaults, clamping, row
-//! text, applying a candidate) live in `pleochroma_editor::optimize_view`; this module is
-//! the glue between them and `ui/models/optimize.slint`.
+//! and the ranked candidates with their selection.
+//!
+//! The pure rules (defaults, clamping, row text, applying a candidate) live in
+//! `pleochroma_editor::optimize_view`. This module is the glue to `ui/models/optimize.slint`.
 //!
 //! - [`setup_optimize_panel`] registers the tab's callbacks (preset, "Vary anchored tiers",
 //!   the ranges table, picking a candidate).
@@ -14,9 +15,8 @@
 //!   for `callbacks::solve_actions::optimize_outcome`.
 //!
 //! Picking a candidate makes it the pending Optimize outcome (`EditorState::pending_optimize`),
-//! which is what the Preview toggle, the compare window and Apply already read -- so none of
-//! them needed to learn about candidates. They find the candidate's masts through
-//! [`candidate_for_outcome`].
+//! which the Preview toggle, the compare window and Apply read. They find the candidate's masts
+//! through [`candidate_for_outcome`].
 
 mod rows;
 mod simple_mode;
@@ -190,10 +190,9 @@ pub(in crate::gui::editor) fn setup_optimize_panel(
     });
 }
 
-/// The preset lists and the Simple interface's one question. The tab lists the presets in
-/// full in the Advanced interface and without "Custom" in the Simple one; and
-/// `OptimizeModel.settings_in_use` says whether a setting the Simple interface hides is away
-/// from its default (see [`simple_mode`]).
+/// Fills the preset lists (the Simple interface omits "Custom") and wires
+/// `OptimizeModel.settings_in_use`, which says whether a setting the Simple interface hides is
+/// away from its default (see [`simple_mode`]).
 fn setup_simple_mode(model: &OptimizeModel<'_>) {
     let labels = preset_labels();
     model.set_simple_preset_labels(ModelRc::new(VecModel::from(
@@ -338,16 +337,14 @@ fn refresh_with(ui: &MainWindow, state: &EditorState, rebuild_ranges: bool) {
     refresh_tone(ui, state);
 }
 
-/// The face-up colour objective's note and whether it applies: a tone preset is chosen or the
-/// Custom Tone slider is away from zero.
+/// The Tone note and its visibility: shown when a tone preset is chosen or the Custom Tone
+/// slider is away from zero.
 ///
-/// The note is worked out under the grading tray (`CANONICAL_LIGHTING_PRESET`), exactly what
-/// [`plan_from_ui`] hands the run. The custom materials are not at hand here (they live on
-/// the render context), so a design naming a custom catalogue material gets no note rather
-/// than a wrong "no body colour" one.
-///
-/// The material is resolved with the design's color pattern applied, so a stone with color zones
-/// is told the objective rates its base color only (see [`tone_note_for`]).
+/// The note is rated under the grading tray (`CANONICAL_LIGHTING_PRESET`), as [`plan_from_ui`]
+/// runs it. The custom materials live on the render context and are not at hand, so a design
+/// naming a custom catalogue material gets no note rather than a wrong one. The material's color
+/// pattern is applied, so a zoned stone's note says the objective rates its base color only (see
+/// [`tone_note_for`]).
 fn refresh_tone(ui: &MainWindow, state: &EditorState) {
     let model = ui.global::<OptimizeModel>();
     let editor = ui.global::<EditorModel>();
@@ -609,8 +606,8 @@ fn picked_candidate(
     selected.and_then(|position| result.candidates.get(position))
 }
 
-/// The result table of the picked candidate: the five objective rows, then the two face-up
-/// tone rows when the run measured the colour.
+/// The result table of the picked candidate: the objective rows, then the tone rows when the
+/// run measured the color.
 fn picked_result_rows(
     picked: &OptimizeOutcome,
     result: &OptimizeResult,
@@ -627,8 +624,8 @@ fn picked_result_rows(
     rows
 }
 
-/// The before and after face-up colour swatches of the picked candidate, as the screen shows
-/// the light. `has` is false without a measured colour on either side or without a pick.
+/// The before and after tone swatches of the picked candidate, as the screen shows the light.
+/// `has` is false without a measured color on either side or without a pick.
 fn tone_swatches(result: &OptimizeResult, selected: Option<usize>) -> OptimizeToneSwatches {
     let (Some(before), Some(after)) = (
         result.tone_before,

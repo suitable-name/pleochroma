@@ -6,6 +6,8 @@
 //! mapped to and from `SceneSnapshot`, `RemoteSelection`, `ColorSpace` and
 //! `LocalComputeTarget`, so the mapping cannot drift between the queue and the CLI.
 
+#[cfg(test)]
+use crate::bridge::export_thread::scene_state_for_job_with;
 use crate::{
     bridge::{
         export_thread::{
@@ -19,10 +21,17 @@ use crate::{
     },
     settings::{ExportTransfer, LocalComputeTarget, WorkerSettings},
 };
+#[cfg(feature = "adaptive-sampling")]
+use pleochroma::renderer::adaptive::{NoiseMetric, TARGET_NOISE_PRESETS};
 use pleochroma::{
     color::ColorSpace,
     geometry::{facet_finishes_with_frosted, girdle_facet_finishes},
-    renderer::env_map::EnvironmentMap,
+    renderer::{
+        accel::{PathCacheSettings, RenderAccel},
+        accel_beam::BeamSettings,
+        adaptive::AdaptiveSettings,
+        env_map::EnvironmentMap,
+    },
 };
 use pleochroma_net::{
     SceneState,
@@ -37,6 +46,57 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
+
+/// The words a job's detail line adds when adaptive sampling is on, with the leading separator:
+/// ` · adaptive (Standard)`, naming the "Target Noise" entry the settings match, or `Custom` for
+/// a target that is none of them (a job file written by hand or by the command line). Empty when
+/// adaptive sampling is off, so the line of an ordinary job is what it was.
+#[cfg(feature = "adaptive-sampling")]
+#[must_use]
+pub fn adaptive_detail(adaptive: Option<&AdaptiveSettings>) -> String {
+    let Some(settings) = adaptive else {
+        return String::new();
+    };
+    let name = if settings.metric == NoiseMetric::RelativeLstar {
+        TARGET_NOISE_PRESETS
+            .iter()
+            .find(|(_, target)| target.to_bits() == settings.target_noise.to_bits())
+            .map(|(label, _)| *label)
+    } else {
+        None
+    };
+    format!(" \u{b7} adaptive ({})", name.unwrap_or("Custom"))
+}
+
+/// Without the `adaptive-sampling` feature a build renders no adaptive pass, so the detail line
+/// never names it: always empty (a job file that asks for adaptive sampling renders without it).
+#[cfg(not(feature = "adaptive-sampling"))]
+#[must_use]
+pub const fn adaptive_detail(_adaptive: Option<&AdaptiveSettings>) -> String {
+    String::new()
+}
+
+/// The words a job's detail line adds when the path cache is on, with the leading separator:
+/// ` · path cache`. Empty when it is off, so the line of an ordinary job is what it was.
+#[must_use]
+pub fn path_cache_detail(path_cache: Option<&PathCacheSettings>) -> String {
+    path_cache.map_or_else(String::new, |_| " \u{b7} path cache".to_string())
+}
+
+/// The words a job's detail line adds when beam tracing is on, with the leading separator:
+/// ` · beams`. Empty when it is off, so the line of an ordinary job is what it was.
+#[cfg(feature = "beam")]
+#[must_use]
+pub fn beam_detail(beam: Option<&BeamSettings>) -> String {
+    beam.map_or_else(String::new, |_| super::rows::BEAM_DETAIL.to_string())
+}
+
+/// Without the `beam` feature no job of this build asks for beams, so its detail line names none.
+#[cfg(not(feature = "beam"))]
+#[must_use]
+pub const fn beam_detail(_beam: Option<&BeamSettings>) -> String {
+    String::new()
+}
 
 /// The job colour space for `cs`.
 ///
@@ -144,8 +204,20 @@ pub fn scene_from_snapshot(snapshot: &SceneSnapshot, width: u32, height: u32) ->
     scene_state_for_job(snapshot, width, height)
 }
 
+/// [`scene_from_snapshot`] for the scene's `estimator` instead of the process default.
+#[cfg(test)]
+pub fn scene_from_snapshot_with(
+    snapshot: &SceneSnapshot,
+    width: u32,
+    height: u32,
+    estimator: pleochroma::optics::raytracer::Estimator,
+) -> SceneState {
+    scene_state_for_job_with(snapshot, width, height, estimator)
+}
+
 /// The snapshot a job's scene describes, built field by field so it matches what
-/// `SceneSnapshot::capture_finished` made it from.
+/// `SceneSnapshot::capture_finished` made it from. The scene holds no color zones; a whole job
+/// goes through [`snapshot_from_job`], which puts them back.
 ///
 /// `env_map` is the decoded HDR map (see [`load_hdr`]) when the scene is lit by one.
 pub fn snapshot_from_scene(
@@ -153,10 +225,16 @@ pub fn snapshot_from_scene(
     env_map: Option<Arc<EnvironmentMap>>,
 ) -> SceneSnapshot {
     let active_planes = scene.planes.clone();
-    // The same derivation `capture_finished` uses: a frosted girdle is the classification
-    // of the planes, the design's frosted planes are marked on top, and an empty list means
-    // every facet is polished. A job without frosted planes (every job saved before they
-    // existed) takes the first two branches, exactly as it always did.
+    // Resolved once for the job's scene, as `capture_finished` does for a live one.
+    let stone_closed = SceneSnapshot::stone_closed_for(
+        scene.stone_shadow,
+        scene.tray_reflection,
+        &active_planes,
+        &scene.tools,
+    );
+    // The same derivation `capture_finished` uses: a frosted girdle is the classification of
+    // the planes, the design's frosted planes are marked on top, and an empty list means every
+    // facet is polished. A job without frosted planes takes the first two branches.
     let facet_finishes = if !scene.frosted_planes.is_empty() {
         facet_finishes_with_frosted(&active_planes, scene.girdle_frosted, &scene.frosted_planes)
     } else if scene.girdle_frosted {
@@ -184,11 +262,34 @@ pub fn snapshot_from_scene(
         tools: scene.tools.clone(),
         fluorescence: Arc::new(scene.fluorescence.clone()),
         head_shadow_deg: scene.head_shadow_deg,
+        stone_shadow: scene.stone_shadow,
+        tray_reflection: scene.tray_reflection,
+        stone_closed,
         facet_finishes,
         env_map,
+        // The map's yaw and follow switch as stored with the job (the default for a studio job).
+        hdr_orientation: scene.hdr_orientation,
         // The stone's render physics as stored with the job, machine included.
         effects: scene.effects.clone(),
     }
+}
+
+/// The snapshot a whole job describes: [`snapshot_from_scene`] of its scene, with the color
+/// zones the job file holds ([`RenderJobFile::zoning`]) put back on the material, where the
+/// scene itself cannot carry them. Zones already on the scene's material (set in memory after
+/// the file was read, as the command line does for a color pattern) win over the file's.
+///
+/// This is the one place a job becomes a renderable scene, for the queue, the command line and
+/// every script made from the queue alike.
+pub fn snapshot_from_job(
+    job: &RenderJobFile,
+    env_map: Option<Arc<EnvironmentMap>>,
+) -> SceneSnapshot {
+    let mut snapshot = snapshot_from_scene(&job.scene, env_map);
+    if snapshot.material.zoning.is_none() {
+        snapshot.material.zoning.clone_from(&job.zoning);
+    }
+    snapshot
 }
 
 /// Loads the HDR map a job names, checking it is still the file the job was made with.
@@ -265,6 +366,14 @@ pub struct StillJobInputs<'a> {
     pub design: DesignInfo,
     /// The lighting preset this picture was added with, empty for the current view.
     pub preset_label: String,
+    /// The export dialog's "Adaptive Sampling" choice; `None` freezes the ordinary job.
+    pub adaptive: Option<AdaptiveSettings>,
+    /// The export dialog's "Path Cache" choice (`persist` = "Keep for Re-Renders"); `None`
+    /// freezes the ordinary job.
+    pub path_cache: Option<PathCacheSettings>,
+    /// The export dialog's "Beam Tracing (Faceted Stones)" choice; `None` freezes the ordinary
+    /// job.
+    pub beam: Option<BeamSettings>,
 }
 
 /// Freezes one still picture as a job.
@@ -279,10 +388,11 @@ pub fn build_still_job(inputs: &StillJobInputs<'_>, now: i64) -> Result<RenderJo
     let mut scene = scene_from_snapshot(inputs.scene, inputs.params.width, inputs.params.height);
     scene.max_bounces = inputs.params.max_bounces;
     scene.engine = inputs.params.engine;
-    let job = RenderJobFile {
+    let mut job = RenderJobFile {
         engine: inputs.params.engine,
         optical_diagnostics: inputs.scene.optical_diagnostics.map(job_diagnostics),
-        format: pleochroma_render_jobs::job::format_for_engine(inputs.params.engine),
+        zoning: None,
+        format: 0,
         token: new_job_token(),
         label: inputs.label.clone(),
         created_at: now,
@@ -297,15 +407,25 @@ pub fn build_still_job(inputs: &StillJobInputs<'_>, now: i64) -> Result<RenderJo
             samples_per_pixel: inputs.params.samples_per_pixel,
             color_space,
             preset_label: inputs.preset_label.clone(),
+            accel: RenderAccel {
+                adaptive: inputs.adaptive,
+                path_cache: inputs.path_cache,
+                beam: inputs.beam,
+            },
         }),
     };
+    // The stone's color zones leave the scene's material (the wire form cannot hold them) for
+    // the job's own field, which makes the job format 5.
+    job.move_scene_zoning_to_file();
+    job.format = pleochroma_render_jobs::job::format_for(&job);
     job.validate().map_err(|e| e.to_string())?;
     Ok(job)
 }
 
 /// Freezes one tilt video as a job. The output is the frame folder, which is not created.
 ///
-/// The metric curves are stored only when an overlay is selected.
+/// The metric curves are stored only when an overlay is selected. The stone shadow and the tray
+/// reflection are cleared from the frozen scene (tilt videos do not show them yet).
 ///
 /// # Errors
 ///
@@ -320,7 +440,12 @@ pub fn build_video_job(
 ) -> Result<RenderJobFile, String> {
     let color_space = job_color_space(request.color_space)?;
     let hdr = hdr_source(&request.scene)?;
-    let scene = scene_from_snapshot(&request.scene, request.width, request.height);
+    let mut scene = scene_from_snapshot(&request.scene, request.width, request.height);
+    // The frame loop renders without the stone shadow, so the job is frozen without it. The
+    // job rules refuse a hand-edited tilt video that asks for one.
+    scene.stone_shadow = false;
+    // Likewise the tray reflection: a tilt video job carries none.
+    scene.tray_reflection = 0.0;
     let total_frames = u32::try_from(request.total_frames)
         .map_err(|_| "The tilt video has too many frames.".to_string())?;
     let overlay = OverlaySelection {
@@ -348,10 +473,11 @@ pub fn build_video_job(
         .map(|&axis| u32::try_from(axis).unwrap_or(0));
     let axis_index = axes.next().unwrap_or(0);
     let more_axes: Vec<u32> = axes.collect();
-    let job = RenderJobFile {
+    let mut job = RenderJobFile {
         engine: request.scene.engine,
         optical_diagnostics: request.scene.optical_diagnostics.map(job_diagnostics),
-        format: pleochroma_render_jobs::job::format_for_engine(request.scene.engine),
+        zoning: None,
+        format: 0,
         token: new_job_token(),
         label,
         created_at: now,
@@ -377,15 +503,24 @@ pub fn build_video_job(
             more_curves: all_curves,
             keep_frames: request.keep_frames,
             video_name,
+            accel: RenderAccel {
+                adaptive: request.adaptive,
+                path_cache: request.path_cache,
+                beam: request.beam,
+            },
+            // "Keep Path Cache for This Video": the frames' caches reach the disk.
+            keep_path_cache: request.path_cache.is_some_and(|cache| cache.persist),
         }),
     };
+    job.move_scene_zoning_to_file();
+    job.format = pleochroma_render_jobs::job::format_for(&job);
     job.validate().map_err(|e| e.to_string())?;
     Ok(job)
 }
 
 /// The frame loop's request for a tilt video job.
 ///
-/// `scene` is the job's scene rebuilt by [`snapshot_from_scene`]; `out_dir` is the
+/// `scene` is the job's scene rebuilt by [`snapshot_from_job`]; `out_dir` is the
 /// resolved frame folder; `remote` and `local_compute` are the machine's choices now.
 pub fn video_request_from_job(
     job: &RenderJobFile,
@@ -433,6 +568,16 @@ pub fn video_request_from_job(
         keep_frames: video.keep_frames,
         remote,
         local_compute,
+        adaptive: video.accel.adaptive.map(|settings| AdaptiveSettings {
+            max_spp: video.samples_per_pixel,
+            ..settings
+        }),
+        // A video's frame caches are written to disk only with `keep_path_cache`.
+        path_cache: video.accel.path_cache.map(|cache| PathCacheSettings {
+            persist: video.keep_path_cache,
+            ..cache
+        }),
+        beam: video.accel.beam,
     }
 }
 

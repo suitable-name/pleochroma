@@ -1,8 +1,8 @@
 //! The document's round trip with the library: opening an entry, saving into it, and the
 //! recent-items list on the More page.
 //!
-//! The database work (`load`, `save`) runs on a worker queue; the state is touched only on
-//! the UI thread, where [`open_library_entry`] and the save hand their results back.
+//! Database reads and writes run on a worker queue. The state is touched only on the UI
+//! thread, which receives their results.
 
 use std::cell::RefCell;
 
@@ -81,13 +81,12 @@ pub(super) fn load_and_open(window: &AppWindow, state: &Shared, id: EntryId) {
 const RESTORED_ENTRY_DELETED: &str =
     "Your last design was deleted from the Library. It is open as an unsaved design.";
 
-/// Checks the design the autosave brought back at start-up against the library: when its
-/// entry no longer exists (the app died between a delete and the clean-up that follows it,
-/// or the autosave was written by a build older than that clean-up), the design is
-/// detached from the entry and its autosave is deleted, so it is not restored again and a
-/// Save cannot silently create a new entry for a design the user deleted. The design stays
-/// open as an unsaved design. The library is asked on the worker queue, and an entry whose
-/// row cannot be read counts as existing.
+/// Checks the design restored from the autosave at start-up against the library. When its
+/// entry no longer exists (the app stopped between a delete and its clean-up), the design
+/// is detached from the entry and the autosave is deleted, so the design is not restored
+/// again and a Save cannot silently recreate an entry the user deleted. The design stays
+/// open as an unsaved design. The check runs on the worker queue; a row that cannot be
+/// read counts as existing.
 pub(super) fn settle_restored(window: &AppWindow, state: &Shared) {
     let prepared = {
         let mut app = state.borrow_mut();

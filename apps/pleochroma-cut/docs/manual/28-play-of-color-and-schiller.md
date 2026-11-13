@@ -88,7 +88,7 @@ A structure that names no kind is saved but not rendered; the section says so an
 - **Path-Traced, Solid + Path-Traced, exports, render jobs, remote workers, the web viewer and the command-line tool** draw it. The graphics card draws it as well.
 - **Ray-Traced** ignores it.
 - **The figures ignore it.** Brilliance, Fire, Scintillation, the Verdict, Compare, Optimize and the tilt curves treat the stone as if it had no play-of-color. When it is on, the Checks tooltip, the Verdict and the Compare header add "Figures ignore Play-of-Color." (or "Schiller", together with anything else that is on).
-- Following the light through many small patches may take longer than a plain stone to converge; the cost has not been measured yet. The graphics card and a remote worker are there for final renders.
+- Following the light through many small patches may take longer than a plain stone to converge. A graphics card or a remote worker helps with final renders.
 
 ## Files
 
@@ -100,14 +100,14 @@ A design's choice is saved in an optional `[render_effects.structure]` table: `p
 - Thin-film colors (the rainbow of a crack in a stone) and the glitter of sunstone are not modeled yet.
 - The lamella orientation of labradorite is approximate.
 - Black Opal is a dark body, not a separate zone: it does not get darker toward the pavilion.
-- Play-of-color and schiller work on a stone with color zones (Chapter 24): the zones color the body, the structure adds the flashes. The two were checked against each other on the CPU and the graphics card; the combination has not been compared with a real stone.
+- Play-of-color and schiller work on a stone with color zones (Chapter 24): the zones color the body, the structure adds the flashes. The combination has not been compared with a real stone.
 
 ## Troubleshooting
 
 | Symptom | Cause | What to do |
 |---|---|---|
 | The Stone tab has no **Play-of-Color** or **Schiller** group | The material has no structure. | Pick **Precious Opal (White)**, **Precious Opal (Black)** or **Labradorite**, or a custom material that imitates one. |
-| The group is there but the stone looks plain | **Show Play-of-Color** is off (a design that had the material before this version, or you switched it off), or the view is Ray-Traced. | Switch it on; use Path-Traced. |
+| The group is there but the stone looks plain | **Show Play-of-Color** is off, or the view is Ray-Traced. | Switch it on; use Path-Traced. |
 | The colors are washed out | **Purity** is high, or **Coverage** is low. | Lower the Purity number, raise the Coverage. |
 | The patches are too small or too large | The pattern does not suit the stone. | Try another **Pattern**, or **Set Patch Size**. |
 | A labradorite is dark from the front | The face-up direction is outside the flash cone. | Turn the Crystal Axis (Chapter 25), or tilt the stone. |

@@ -58,9 +58,8 @@ pub(super) struct Session {
 }
 
 impl Session {
-    /// Benchmark sequences must not leave a compiler/probe competing with the next
-    /// session. This wait is outside rendered-case timings; live UI teardown does
-    /// not use it.
+    /// Waits for background shader and probe work, so it cannot compete with the next
+    /// session. The wait is outside the timed case; live UI teardown does not call it.
     pub(super) fn drain_preparation(&mut self) {
         self.gpu.drain_background_preparation(&mut self.hybrid);
         self.engine.drain_background_preparation();
@@ -126,9 +125,9 @@ impl Session {
                 break "cancelled";
             }
         };
-        // Ray display no longer computes unused first-hit guides. Run the explicit
-        // visibility diagnostic after all timed rendering, so it cannot delay or
-        // inflate first-image latency, pass pacing or the case time limit.
+        // The Ray display computes no first-hit guides. The visibility diagnostic runs
+        // after all timed rendering, so it cannot inflate first-image latency, pass pacing
+        // or the case time limit.
         let total_case_ms = start.elapsed().as_secs_f64() * 1000.0;
         let (visible_hit_pixels, visibility_diagnostic_ms) =
             if self.samples > 0 && case.engine.is_ray() {
@@ -261,7 +260,7 @@ impl Session {
         let mut report = json!({ "sample_offset": frame.sample_offset, "requested_samples": samples,
             "samples_committed": 0, "cancelled": cancelled, "cancel_request_to_return_ms": cancel_drain_ms,
             "staging_reset_ms": staging_ms, "trace_ms": trace_ms, "backend": observation });
-        // Present only with PLEOCHROMA_GPU_TIMING set and a GPU request behind this pass.
+        // Present only with `PLEOCHROMA_GPU_TIMING` set and a GPU request behind this pass.
         #[cfg(feature = "gpu")]
         if let Some(timing) = pleochroma::renderer::gpu::timing::take_last_pass_summary() {
             report["gpu_timing"] = serde_json::to_value(timing)?;

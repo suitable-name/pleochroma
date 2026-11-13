@@ -1,4 +1,4 @@
-//! Apply uses the completed preservation check, not a legacy angle-only proposal.
+//! Apply commits only the geometry that a completed preservation check accepted.
 use super::{
     apply::{RetargetApplyError, apply_pending_retarget},
     check_run::set_check_for_test,
@@ -38,8 +38,8 @@ struct ShiftFixture {
     material: MaterialSelection,
 }
 
-/// The same 1.72 -> sapphire brilliant used by the shared Retarget regressions.
-/// It has real closed geometry and needs checked mast changes, including the table.
+/// A 1.72 to sapphire brilliant with closed geometry. It needs checked mast changes,
+/// including the table.
 fn checked_shift() -> ShiftFixture {
     let mut design = Design::new(
         PreformSpec::block(2.0, 1.0, 4.0),

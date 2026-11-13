@@ -31,11 +31,16 @@ use crate::{
     simd::PlanesSoA32,
 };
 
-use super::frame_scene::FrameScene;
+use super::{
+    adaptive::{AdaptiveImage, AdaptiveRun, AdaptiveSettings, AdaptiveSettingsError, LiveTiles},
+    frame_scene::FrameScene,
+    path_cache::PathCacheFrame,
+};
 
 /// One `(pixel, sample_num)` sample, traced through the real
 /// [`trace_spectral_ray_prepared`] -- never a reimplementation of the estimator,
-/// only of the per-sample seed/jitter construction around it.
+/// only of the per-sample seed/jitter construction around it. The sample's
+/// [`SampleDraws`](crate::optics::raytracer::SampleDraws) supplies the path's seed and hero value.
 ///
 /// Takes the batch's `plane_soa` arena (built once by the caller) rather than
 /// rebuilding it from `scene.planes` on every one of the many calls a batch makes.
@@ -225,6 +230,310 @@ pub fn trace_pixels_interleaved_surface(
     out
 }
 
+/// Traces one adaptive pass: samples `first_sample..first_sample + spp` for every pixel of the
+/// `live` tiles, added into the full-frame buffers `sum` and `half_b`.
+///
+/// `extras` is as in [`trace_pixels_interleaved_surface`]. `sum` receives every sample, `half_b`
+/// only the samples with an odd absolute index; pixels outside the live tiles are untouched in
+/// both. Each pixel's samples are the ones [`trace_pixels_interleaved_surface`] traces for the
+/// same pixel and sample indices, bit for bit, and are added in ascending sample order (a pixel's
+/// pass total is formed first, then added to the buffer, as [`scatter_interleaved`] does). A
+/// non-finite sample is dropped, like there.
+///
+/// Does nothing when the buffers are not `scene.width * scene.height` long or `live` was built
+/// for another frame size.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the scene, its extras, the live tiles, the sample range and the two accumulators \
+              are separate inputs so the GPU twin tests call it with the same shape"
+)]
+pub fn trace_live_tiles_surface(
+    scene: &FrameScene<'_>,
+    extras: (&[ToolPrimitive], &Fluorescence, SurfaceScene<'_>),
+    plane_soa: &PlanesSoA32,
+    live: &LiveTiles,
+    first_sample: u32,
+    spp: u32,
+    sum: &mut [Vec3],
+    half_b: &mut [Vec3],
+) {
+    let num_pixels = scene.width as usize * scene.height as usize;
+    if num_pixels == 0
+        || sum.len() != num_pixels
+        || half_b.len() != num_pixels
+        || live.width() != scene.width
+        || live.height() != scene.height
+    {
+        return;
+    }
+    let (tools, fluorescence, surface) = extras;
+    let merged_finishes = merged_facet_finishes(scene.facet_finishes, surface.facet_surfaces);
+    let extras = SceneExtras {
+        prepared: PreparedMaterial::new(scene.material),
+        tools,
+        fluorescence,
+        facet_finishes: &merged_finishes,
+        surface,
+    };
+
+    for &tile in live.indices() {
+        let (x0, y0, x1, y1) = live.tile_rect(tile);
+        for y in y0..y1 {
+            for x in x0..x1 {
+                let pixel = y * scene.width + x;
+                let rot = pixel_rotations(pixel);
+                let mut pass_sum = Vec3::ZERO;
+                let mut pass_odd = Vec3::ZERO;
+                for local_sample in 0..spp {
+                    let sample_num = first_sample + local_sample;
+                    let sample = cpu_sample_xyz(scene, &extras, plane_soa, pixel, &rot, sample_num);
+                    add_finite_sample(&mut pass_sum, sample);
+                    if !sample_num.is_multiple_of(2) {
+                        add_finite_sample(&mut pass_odd, sample);
+                    }
+                }
+                sum[pixel as usize] += pass_sum;
+                half_b[pixel as usize] += pass_odd;
+            }
+        }
+    }
+}
+
+/// Renders a whole frame with adaptive sampling on the CPU.
+///
+/// Drives an [`AdaptiveRun`] with [`trace_live_tiles_surface`]; `extras` is as in
+/// [`trace_pixels_interleaved_surface`], `sample_offset` the absolute index of the first sample
+/// and `scale` the display multiplier of the convergence check (see [`AdaptiveRun::finish_pass`]).
+/// The same inputs give a byte-identical image.
+///
+/// # Errors
+///
+/// Returns the rule `settings` breaks, see [`AdaptiveSettings::validate`].
+pub fn render_adaptive_surface(
+    scene: &FrameScene<'_>,
+    extras: (&[ToolPrimitive], &Fluorescence, SurfaceScene<'_>),
+    plane_soa: &PlanesSoA32,
+    settings: &AdaptiveSettings,
+    sample_offset: u32,
+    scale: f32,
+) -> Result<AdaptiveImage, AdaptiveSettingsError> {
+    let run =
+        AdaptiveRun::new(*settings, scene.width, scene.height)?.with_sample_offset(sample_offset);
+    Ok(run.run_with(scale, |pass, sum, half_b| {
+        trace_live_tiles_surface(
+            scene,
+            extras,
+            plane_soa,
+            &pass.live,
+            pass.first_sample,
+            pass.spp,
+            sum,
+            half_b,
+        );
+    }))
+}
+
+/// One sample of pixel `(x, y)`: shaded from the path cache when the pixel has cached positions,
+/// else traced exactly as [`cpu_sample_xyz`] does.
+fn cached_sample_xyz(
+    scene: &FrameScene<'_>,
+    extras: &SceneExtras<'_>,
+    plane_soa: &PlanesSoA32,
+    cache: &PathCacheFrame<'_, '_>,
+    (x, y): (u32, u32),
+    sample_num: u32,
+    rot: &PixelRotations,
+) -> Vec3 {
+    cache.shade_sample((x, y), sample_num, rot).map_or_else(
+        || {
+            cpu_sample_xyz(
+                scene,
+                extras,
+                plane_soa,
+                y * scene.width + x,
+                rot,
+                sample_num,
+            )
+        },
+        |parts| parts.total(),
+    )
+}
+
+/// [`trace_live_tiles_surface`] with an optional path cache.
+///
+/// With `cache` set (and built for this frame size), every pixel the cache has positions for is
+/// shaded from its records (`PathCacheFrame::shade_sample`), every other pixel is traced as
+/// before; the pass total and the odd-index total are formed and added exactly as there. With
+/// `None`, or a cache of another frame size, this is [`trace_live_tiles_surface`] itself, bit
+/// for bit.
+///
+/// `pass` is `(first_sample, spp)` and `buffers` the full-frame `(sum, half_b)`. A cache is only
+/// built for an eligible stone (see `PathCacheFrame::new`), so an ineligible render passes
+/// `None`.
+pub fn trace_live_tiles_surface_cached(
+    scene: &FrameScene<'_>,
+    extras: (&[ToolPrimitive], &Fluorescence, SurfaceScene<'_>),
+    plane_soa: &PlanesSoA32,
+    live: &LiveTiles,
+    pass: (u32, u32),
+    buffers: (&mut [Vec3], &mut [Vec3]),
+    cache: Option<&PathCacheFrame<'_, '_>>,
+) {
+    let (first_sample, spp) = pass;
+    let (sum, half_b) = buffers;
+    let Some(cache) = cache.filter(|cache| cache.matches(scene.width, scene.height)) else {
+        trace_live_tiles_surface(
+            scene,
+            extras,
+            plane_soa,
+            live,
+            first_sample,
+            spp,
+            sum,
+            half_b,
+        );
+        return;
+    };
+    let num_pixels = scene.width as usize * scene.height as usize;
+    if num_pixels == 0
+        || sum.len() != num_pixels
+        || half_b.len() != num_pixels
+        || live.width() != scene.width
+        || live.height() != scene.height
+    {
+        return;
+    }
+    let (tools, fluorescence, surface) = extras;
+    let merged_finishes = merged_facet_finishes(scene.facet_finishes, surface.facet_surfaces);
+    let extras = SceneExtras {
+        prepared: PreparedMaterial::new(scene.material),
+        tools,
+        fluorescence,
+        facet_finishes: &merged_finishes,
+        surface,
+    };
+
+    for &tile in live.indices() {
+        let (x0, y0, x1, y1) = live.tile_rect(tile);
+        for y in y0..y1 {
+            for x in x0..x1 {
+                let pixel = y * scene.width + x;
+                let rot = pixel_rotations(pixel);
+                let mut pass_sum = Vec3::ZERO;
+                let mut pass_odd = Vec3::ZERO;
+                for local_sample in 0..spp {
+                    let sample_num = first_sample + local_sample;
+                    let sample = cached_sample_xyz(
+                        scene,
+                        &extras,
+                        plane_soa,
+                        cache,
+                        (x, y),
+                        sample_num,
+                        &rot,
+                    );
+                    add_finite_sample(&mut pass_sum, sample);
+                    if !sample_num.is_multiple_of(2) {
+                        add_finite_sample(&mut pass_odd, sample);
+                    }
+                }
+                sum[pixel as usize] += pass_sum;
+                half_b[pixel as usize] += pass_odd;
+            }
+        }
+    }
+}
+
+/// [`trace_pixels_interleaved_surface`] with an optional path cache.
+///
+/// `partition` is `(first_pixel, stride)` and `samples` `(sample_offset, spp)`. Pixels with cached
+/// positions are shaded from the cache, the others traced; the sums are formed in the same order
+/// as there. With `None`, or a cache of another frame size, this is
+/// [`trace_pixels_interleaved_surface`] itself, bit for bit.
+#[must_use]
+pub fn trace_pixels_interleaved_surface_cached(
+    scene: &FrameScene<'_>,
+    extras: (&[ToolPrimitive], &Fluorescence, SurfaceScene<'_>),
+    plane_soa: &PlanesSoA32,
+    partition: (u32, u32),
+    samples: (u32, u32),
+    cache: Option<&PathCacheFrame<'_, '_>>,
+) -> Vec<Vec3> {
+    let (first_pixel, stride) = partition;
+    let (sample_offset, spp) = samples;
+    let Some(cache) = cache.filter(|cache| cache.matches(scene.width, scene.height)) else {
+        return trace_pixels_interleaved_surface(
+            scene,
+            extras,
+            plane_soa,
+            first_pixel,
+            stride,
+            sample_offset,
+            spp,
+        );
+    };
+    let num_pixels = scene.width as usize * scene.height as usize;
+    if stride == 0 || num_pixels == 0 {
+        return Vec::new();
+    }
+    let (tools, fluorescence, surface) = extras;
+    let merged_finishes = merged_facet_finishes(scene.facet_finishes, surface.facet_surfaces);
+    let extras = SceneExtras {
+        prepared: PreparedMaterial::new(scene.material),
+        tools,
+        fluorescence,
+        facet_finishes: &merged_finishes,
+        surface,
+    };
+
+    let mut out = Vec::new();
+    let mut pixel = first_pixel;
+    while (pixel as usize) < num_pixels {
+        let mut sum = Vec3::ZERO;
+        let rot = pixel_rotations(pixel);
+        let xy = (pixel % scene.width, pixel / scene.width);
+        for local_sample in 0..spp {
+            let sample_num = sample_offset + local_sample;
+            add_finite_sample(
+                &mut sum,
+                cached_sample_xyz(scene, &extras, plane_soa, cache, xy, sample_num, &rot),
+            );
+        }
+        out.push(sum);
+        pixel += stride;
+    }
+    out
+}
+
+/// [`render_adaptive_surface`] with an optional path cache, for the live passes of
+/// [`trace_live_tiles_surface_cached`].
+///
+/// # Errors
+///
+/// Returns the rule `settings` breaks, see [`AdaptiveSettings::validate`].
+pub fn render_adaptive_surface_cached(
+    scene: &FrameScene<'_>,
+    extras: (&[ToolPrimitive], &Fluorescence, SurfaceScene<'_>),
+    plane_soa: &PlanesSoA32,
+    settings: &AdaptiveSettings,
+    (sample_offset, scale): (u32, f32),
+    cache: Option<&PathCacheFrame<'_, '_>>,
+) -> Result<AdaptiveImage, AdaptiveSettingsError> {
+    let run =
+        AdaptiveRun::new(*settings, scene.width, scene.height)?.with_sample_offset(sample_offset);
+    Ok(run.run_with(scale, |pass, sum, half_b| {
+        trace_live_tiles_surface_cached(
+            scene,
+            extras,
+            plane_soa,
+            &pass.live,
+            (pass.first_sample, pass.spp),
+            (sum, half_b),
+            cache,
+        );
+    }))
+}
+
 /// Adds one partition's `sums` back into the full-frame buffer `dst`.
 ///
 /// `sums` must be in the same `first_pixel, first_pixel + stride, …` order
@@ -246,4 +555,111 @@ pub fn scatter_interleaved(dst: &mut [Vec3], first_pixel: u32, stride: u32, sums
         dst[pixel] += sum;
         pixel += stride as usize;
     }
+}
+
+/// The beam-traced hybrid render of a frame (see `renderer::beam`).
+///
+/// Beams for the stone, the residual through the engines, batches pipelined; the same output
+/// contract as [`render_adaptive_surface`] (`scale` is applied to the final pixels the same way).
+/// Polls `cancel` throughout and reports two-phase progress.
+///
+/// `run` carries the tile restriction (a remote worker renders only its tiles: the tree, the
+/// fragments and the residual run for those tiles alone), the progress callback, and the
+/// `on_batch` / `retain` hooks (`beam::BeamRun`).
+///
+/// # Errors
+///
+/// [`crate::renderer::accel_beam::BeamOff`] when the stone or the lighting is not beam traced;
+/// the caller then renders without beams (byte-identical to a render without them). That is also
+/// the answer for an `adaptive` that is not valid and for a stone with tools.
+///
+/// Returns the same [`AdaptiveImage`] as [`render_adaptive_surface`]: `pixels` hold the final
+/// pixels (white-balanced beam part plus the residual mean, clamped at zero once), `counts` the
+/// residual samples per pixel, `sum` and `half_b` the residual sums with the beam part added once
+/// per sample. A cancelled render returns what it finished; the caller checks the token. `engines`
+/// may be empty: the render then runs on its own CPU engine, which is also where a batch goes when
+/// every engine given has declined. See `beam::pipeline` for the batching, the failover and the
+/// progress rules.
+#[cfg(feature = "beam")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the adaptive entry's arguments plus beams, engines, cancel and progress"
+)]
+pub fn render_beam_hybrid_surface(
+    scene: &FrameScene<'_>,
+    extras: (&[ToolPrimitive], &Fluorescence, SurfaceScene<'_>),
+    plane_soa: &PlanesSoA32,
+    beam: &crate::renderer::accel_beam::BeamSettings,
+    adaptive: &AdaptiveSettings,
+    engines: &crate::renderer::beam::engines::EngineSet<'_>,
+    (sample_offset, scale): (u32, f32),
+    cancel: &std::sync::atomic::AtomicBool,
+    run: crate::renderer::beam::BeamRun<'_>,
+) -> Result<
+    (AdaptiveImage, crate::renderer::beam::stats::BeamStats),
+    crate::renderer::accel_beam::BeamOff,
+> {
+    crate::renderer::beam::pipeline::render_hybrid(
+        &crate::renderer::beam::pipeline::HybridInput {
+            scene,
+            extras,
+            plane_soa,
+            beam,
+            adaptive,
+            engines,
+            sample_offset,
+            scale,
+        },
+        cancel,
+        run,
+    )
+}
+
+/// The beam-traced hybrid render of the tiles of `run.tiles`, returned as a tiled image rather
+/// than a frame-sized one.
+///
+/// Everything is as for [`render_beam_hybrid_surface`] (the same arguments, the same pixels), but
+/// the returned `TiledImage` holds only the rendered tiles, ascending and row-major inside each
+/// tile, so a remote worker asked for one tile holds the memory of one tile. Without `run.tiles`
+/// it holds every tile of the frame.
+///
+/// # Errors
+///
+/// [`crate::renderer::accel_beam::BeamOff`] as for [`render_beam_hybrid_surface`].
+#[cfg(feature = "beam")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the adaptive entry's arguments plus beams, engines, cancel and progress"
+)]
+pub fn render_beam_hybrid_tiles_surface(
+    scene: &FrameScene<'_>,
+    extras: (&[ToolPrimitive], &Fluorescence, SurfaceScene<'_>),
+    plane_soa: &PlanesSoA32,
+    beam: &crate::renderer::accel_beam::BeamSettings,
+    adaptive: &AdaptiveSettings,
+    engines: &crate::renderer::beam::engines::EngineSet<'_>,
+    (sample_offset, scale): (u32, f32),
+    cancel: &std::sync::atomic::AtomicBool,
+    run: crate::renderer::beam::BeamRun<'_>,
+) -> Result<
+    (
+        crate::renderer::beam::pipeline::TiledImage,
+        crate::renderer::beam::stats::BeamStats,
+    ),
+    crate::renderer::accel_beam::BeamOff,
+> {
+    crate::renderer::beam::pipeline::render_hybrid_tiles(
+        &crate::renderer::beam::pipeline::HybridInput {
+            scene,
+            extras,
+            plane_soa,
+            beam,
+            adaptive,
+            engines,
+            sample_offset,
+            scale,
+        },
+        cancel,
+        run,
+    )
 }

@@ -50,9 +50,8 @@ fn a_linked_pavilion_series_steps_away_from_the_girdle() {
     assert_eq!(angles(&session), vec![-41.0, -43.0, -45.0]);
 }
 
-/// An Optimize outcome carries signed angles. Applied through the session to a pavilion
-/// ladder it moves the driver and the tier that follows it, in one undo step, and both stay
-/// on the pavilion side of zero.
+/// An Optimize outcome without operation provenance is refused on a pavilion ladder with a
+/// relation: a relation is not provenance, and the ladder keeps its signed angles.
 #[test]
 fn an_uncertified_optimize_outcome_cannot_move_a_pavilion_ladder() {
     use pleochroma_cut_core::{AngleChange, ObjectiveComponents, OptimizeOutcome};

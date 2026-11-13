@@ -1,9 +1,10 @@
-//! The coordinate-descent search itself: [`OptimizeConfig`]/[`SearchHooks`]
-//! (user-visible knobs and cancellation), the deterministic tour order
-//! ([`seeded_permutation`]), and [`optimize_design`] (with its
-//! [`OptimizeOptions`] sibling [`optimize_design_with`]) -- split into
-//! [`baseline_report`]/[`run_search`]/[`build_result`], see that function's
-//! own doc comment ("Why this is three functions, not one") for why.
+//! The coordinate-descent search.
+//!
+//! It holds [`OptimizeConfig`]/[`SearchHooks`] (user-visible knobs
+//! and cancellation), the deterministic tour order ([`seeded_permutation`]), and
+//! [`optimize_design`] with its [`OptimizeOptions`] sibling [`optimize_design_with`],
+//! which is split into [`baseline_report`], [`run_search`], [`run_polish_stage`] and
+//! [`build_result`] (see "Why this is more than one function" on [`optimize_design`]).
 
 use super::{
     candidate::{BaselineWarningCounts, SearchContext, preform_volume},
@@ -151,11 +152,8 @@ impl SearchHooks<'_> {
     }
 }
 
-/// A deterministic splitmix64 step -- the whole PRNG this module uses, for the one
-/// place it needs one: shuffling the free-tier visit order in [`seeded_permutation`].
-/// Not cryptographic; a tiny, dependency-free generator sufficient for "pick a
-/// deterministic tour order from a seed", avoiding a `rand` dependency for exactly
-/// one shuffle.
+/// One splitmix64 step, the PRNG behind [`seeded_permutation`]. Not cryptographic; it
+/// avoids a `rand` dependency for that one shuffle.
 pub(super) const fn splitmix64_next(state: &mut u64) -> u64 {
     *state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
     let mut z = *state;
@@ -164,11 +162,10 @@ pub(super) const fn splitmix64_next(state: &mut u64) -> u64 {
     z ^ (z >> 31)
 }
 
-/// A deterministic Fisher-Yates shuffle of `0..len`, seeded by `seed` -- the tour order
-/// [`optimize_design`]'s coordinate search visits free tiers in, each sweep (a fresh
-/// permutation per sweep, `seed` mixed with the sweep index so consecutive sweeps don't
-/// repeat the same order). Plain `Vec<usize>`, never a `HashMap`/`HashSet` -- see the
-/// module doc comment's "Determinism" section.
+/// A Fisher-Yates shuffle of `0..len` seeded by `seed`: the order in which
+/// [`optimize_design`]'s coordinate search visits free tiers. Each sweep gets its own
+/// permutation (the sweep index is mixed into `seed`). A plain `Vec` is used, never a hash
+/// collection, so the order is deterministic (see the parent module's "Determinism" section).
 pub(super) fn seeded_permutation(len: usize, seed: u64) -> Vec<usize> {
     let mut order: Vec<usize> = (0..len).collect();
     let mut state = seed;
@@ -181,8 +178,8 @@ pub(super) fn seeded_permutation(len: usize, seed: u64) -> Vec<usize> {
     order
 }
 
-/// User-visible search configuration -- see the module doc comment's "Determinism"
-/// section for why `seed` is required rather than defaulted from wall-clock time.
+/// User-visible search configuration. `seed` is required rather than taken from the clock,
+/// so one input always gives one result (see the parent module's "Determinism" section).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct OptimizeConfig {
     /// Weights blended into the objective score.
@@ -330,7 +327,7 @@ pub struct AngleChange {
 ///
 /// The before/after objective (always measured at [`ObjectiveFidelity::Full`],
 /// even though the search itself uses [`ObjectiveFidelity::Fast`] -- see the
-/// module doc comment's "Cost first" section), how many candidate evaluations it
+/// parent module's "Cost" section), how many candidate evaluations it
 /// spent getting there, and which tiers it would change.
 #[derive(Debug, Clone, PartialEq)]
 pub struct OptimizeOutcome {
@@ -350,10 +347,10 @@ pub struct OptimizeOutcome {
     pub before_yield_loss_pct: f32,
     /// Objective components after applying the changes.
     pub after: ObjectiveComponents,
-    /// Combined score (internal loss) after applying the changes. Never above [`Self::before_score`]:
-    /// when the search's end point does not measure as an improvement at
-    /// [`ObjectiveFidelity::Full`], the outcome proposes no change and `after` is
-    /// `before`.
+    /// Combined score (internal loss) after applying the changes. Never above
+    /// [`Self::before_score`]: when the search's end point does not measure as an
+    /// improvement at [`ObjectiveFidelity::Full`], the outcome proposes no change and
+    /// `after` is `before`.
     pub after_score: f32,
     /// [`Self::before_yield_loss_pct`]'s counterpart for the design
     /// [`Self::changes`] produced.
@@ -440,20 +437,18 @@ pub struct OptimizeOutcome {
 ///
 /// # Panics
 ///
-/// Never in practice: the final re-solve of `current` is `.expect()`ed rather than
-/// propagated, but `current` only ever advances to a state
-/// [`super::candidate::evaluate_candidate`] already proved solves (and closes, and
-/// does not regress manufacturability).
+/// Never in practice: `current` only advances to states that
+/// [`super::candidate::evaluate_candidate`] already proved solve, close and do not
+/// regress manufacturability.
 ///
 /// # Why this is more than one function
 ///
 /// Split into [`baseline_report`] (measure the starting point), [`run_search`] (the
-/// coordinate-descent stage), [`run_polish_stage`] (the Nelder-Mead hand-off), and
-/// [`build_result`] (measure the ending point and diff it against the start) to
-/// stay under clippy's `too_many_lines`, with the starting-point measurements
-/// bundled into one [`Baseline`] and the two stages' results bundled into
-/// [`SearchRunSummary`] so the split does not trade "one long function" for
-/// `too_many_arguments` -- no `#[allow]` added.
+/// coordinate-descent stage), [`run_polish_stage`] (the Nelder-Mead hand-off) and
+/// [`build_result`] (measure the ending point and diff it against the start). The
+/// starting-point measurements are bundled in [`Baseline`] and the stage results in
+/// [`SearchRunSummary`], which keeps every function under clippy's `too_many_lines`
+/// and `too_many_arguments` limits.
 pub fn optimize_design(
     design: &Design,
     material: &GemMaterial,
@@ -677,21 +672,15 @@ struct Baseline {
     preservation: std::sync::Arc<crate::meet_preservation::MeetPreservationBaseline>,
     before: ObjectiveComponents,
     before_score: f32,
-    /// The SAME starting design's score, but at [`ObjectiveFidelity::Fast`] --
-    /// what [`run_search`] actually seeds `current_score` from. Every
-    /// candidate [`super::candidate::evaluate_candidate`] scores is `Fast` too
-    /// (see the parent module's "Cost first" doc section), so comparing a
-    /// candidate's score against [`Self::before_score`] (`Full`) mixed
-    /// fidelities: a `Fast` candidate that merely reproduces the TRUE starting
-    /// point's own `Fast` score could still read as an "improvement" over the
-    /// `Full` figure whenever `Full` happened to score worse than `Fast` on the
-    /// same design (measured: RBC-445's Upper Girdle, `Full` 30.766 vs `Fast`
-    /// 21.926) -- accepting a candidate that changed nothing real.
+    /// The starting design scored at [`ObjectiveFidelity::Fast`]: what [`run_search`]
+    /// seeds its current score from. Every candidate is scored `Fast` too (see the
+    /// parent module's "Cost" section). Comparing against the `Full` figure
+    /// would mix fidelities, and the two can differ by a lot on the same design, so a
+    /// candidate that changes nothing could read as an improvement.
     before_score_fast: f32,
-    /// `weights.score_with_yield`
-    /// already computes this to fold into [`Self::before_score`] -- stored here
-    /// too (rather than recomputed) so [`OptimizeOutcome::before_yield_loss_pct`]
-    /// can report the same figure the score itself was blended from.
+    /// The yield loss that `weights.score_with_yield` blended into
+    /// [`Self::before_score`], kept so [`OptimizeOutcome::before_yield_loss_pct`]
+    /// reports the same figure.
     before_yield_loss_pct: f32,
     /// The starting design's face-up tone, from the `Full` baseline scoring (always
     /// measured, weighted or not).
@@ -705,11 +694,10 @@ struct Baseline {
     guard: Option<ShapeGuard>,
 }
 
-/// [`run_search`]'s return, bundled into one struct purely to keep
-/// [`run_polish_stage`]'s own argument count under clippy's `too_many_arguments`
-/// lint (see [`optimize_design`]'s "why this is more than one function" note): the
-/// design and score the coordinate stage ended on, how many evaluations it spent,
-/// whether [`SearchHooks::cancel`] cut it short, and the candidate pool so far.
+/// [`run_search`]'s return: the design and score the coordinate stage ended on, its
+/// evaluation count, whether [`SearchHooks::cancel`] cut it short, and the candidate
+/// pool so far. Bundled so [`run_polish_stage`] stays under clippy's
+/// `too_many_arguments` limit.
 struct CoordinateStageOutcome {
     design: Design,
     score: f32,
@@ -731,10 +719,8 @@ struct PolishStageOutcome {
     pool: CandidatePool,
 }
 
-/// Everything about a finished (both-stage) search run that [`build_result`] needs
-/// beyond the design it ended on -- bundled solely to keep that function's argument
-/// count reasonable (see [`optimize_design`]'s own "why this is more than one
-/// function" note).
+/// What a finished search run reports beyond the design it ended on, for
+/// [`build_result`].
 struct SearchRunSummary {
     evaluations: usize,
     cancelled: bool,

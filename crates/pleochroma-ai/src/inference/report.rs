@@ -36,7 +36,7 @@ pub(crate) struct DesignReport {
     pub(crate) tone: FaceUpTone,
 }
 
-/// Read-only, geometry-aware score for a materialized design; it does not create or recapture an environment.
+/// Read-only, geometry-aware score of a materialized design. Creates no environment.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ScoreReadout {
     /// Exact weighted objective score.
@@ -57,7 +57,8 @@ pub struct ScoreReadout {
     pub masts: Vec<f64>,
 }
 
-/// Score a finished design with the same shared carved-geometry, lighting and objective path used by environments.
+/// Scores a finished design with the carved-geometry, lighting and objective path the
+/// environments use.
 pub fn score_design_at_fidelity(
     design: &Design,
     gem: &GemMaterial,

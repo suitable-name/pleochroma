@@ -98,8 +98,8 @@ pub struct DbDesignRecord {
     pub title: String,
     /// Attachment file name.
     pub filename: String,
-    /// Raw attachment bytes. The historical field name is retained for GUI compatibility;
-    /// native files use UTF-8 and ASC uses its Windows-1252-aware reader.
+    /// Raw attachment bytes: UTF-8 text for native files, ASC bytes otherwise. The name is kept
+    /// for GUI compatibility.
     pub asc_bytes: Vec<u8>,
 }
 
@@ -171,7 +171,7 @@ fn split_bucket(id: i64, salt: u64) -> u64 {
 }
 
 impl DatasetSplit {
-    /// Parses the records and splits them deterministically by entry id.
+    /// Parses the records and splits them deterministically, keeping connected designs together.
     ///
     /// Designs with more than `max_tiers_cap` tiers (at most [`MAX_TIERS_LIMIT`]) are skipped
     /// and listed in [`Self::skipped`].
@@ -308,10 +308,8 @@ impl DatasetSplit {
     }
 }
 
-/// Canonical geometry identity, independent of entry id, title, material, comments and tier
-/// labels. Named meet references are encoded by their resolved tier positions, not their text.
-/// Keeps at least one complete group for training. Held-out splits remain empty when there
-/// are too few independent groups; validation/test never borrow sibling records.
+/// Moves whole groups so training is never empty and, with three or more groups, each split
+/// gets one. Held-out splits stay empty when there are too few independent groups.
 fn rebalance_splits(
     assignments: &mut [(usize, Vec<usize>)],
     group_counts: &mut [usize; 3],
@@ -463,7 +461,7 @@ pub fn load_db_designs() -> Result<Vec<DbDesignRecord>, DatasetError> {
 /// # Errors
 ///
 /// [`DatasetError`] for a missing database, an SQLite failure, or an empty library.
-// The CLI binary shares this module and only calls `load_db_designs`.
+// Both binaries compile this module; the GUI worker and the CLI pass an explicit path.
 #[allow(dead_code)]
 pub fn load_db_designs_from(path: &std::path::Path) -> Result<Vec<DbDesignRecord>, DatasetError> {
     if !path.is_file() {

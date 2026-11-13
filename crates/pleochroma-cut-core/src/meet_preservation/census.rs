@@ -1,4 +1,4 @@
-//! Read-only measurement for the census (follow-ups plan 2026-10-19, section 4.3).
+//! Read-only measurement for the census.
 //!
 //! Nothing here judges a candidate or changes a verdict: the product never calls it. The
 //! module is a child of `network` (declared there with `#[path]`) so it can read the

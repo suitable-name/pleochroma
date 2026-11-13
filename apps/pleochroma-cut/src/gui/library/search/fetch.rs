@@ -21,10 +21,10 @@ use std::{
 };
 use tracing::warn;
 
-/// The synthetic URL scheme every locally-imported design is saved under (see
-/// `pleochroma_vault::local::import_asc`) -- shared by [`to_diagram_item`] and
-/// [`apply_diagram_list_to_ui`] so a design's "Mine" badge is
-/// decided identically for the local and remote-browsed paths.
+/// Whether `url` is the synthetic `local://` URL of a locally imported design.
+///
+/// Shared by [`to_diagram_item`] and [`row_to_item`], so the "Mine" badge is decided the same
+/// way for local and remote rows.
 fn is_local_url(url: &str) -> bool {
     url.starts_with("local://")
 }
@@ -37,17 +37,13 @@ pub(super) fn slint_id(id: i64) -> i32 {
 }
 
 /// Converts a result count to the `i32` a Slint count property holds (saturating; the
-/// counts are `SEARCH_RESULT_CAP`-bounded and nowhere near `i32::MAX`).
+/// counts are capped by the query and nowhere near `i32::MAX`).
 pub(super) fn slint_count(count: usize) -> i32 {
     i32::try_from(count).unwrap_or(i32::MAX)
 }
 
-/// Reads [`DesignSummary::ignored`] straight off the row, giving a remote-sourced row
-/// the same ignored flag a local-sourced
-/// [`pleochroma_vault::model::entry::DiagramListItem::ignored`] already carries. Same
-/// treatment for [`is_local_url`]/`DiagramItem::is_local`: a
-/// remote-browsed row is exactly as able to say "the far end's own local import" as a
-/// local one, from the same `url` field.
+/// Converts a remote [`DesignSummary`] to a list item. The ignored flag and `is_local` come
+/// from the same fields a local row carries, so a remote row is classified the same way.
 pub(super) fn to_diagram_item(item: &DesignSummary) -> DiagramItem {
     DiagramItem {
         id: slint_id(item.entry_id),
@@ -60,13 +56,9 @@ pub(super) fn to_diagram_item(item: &DesignSummary) -> DiagramItem {
         ri: item.refractive_index.clone().unwrap_or_default().into(),
         ignored: item.ignored,
         is_local: is_local_url(&item.url),
-        // The planner exclusion mark lives in the local database only (see
-        // `Database::set_planner_excluded`) and the remote library protocol carries
-        // none, so a remote-browsed row is never shown as excluded.
+        // The planner mark and tags exist only in the local database, and the remote
+        // protocol carries neither, so a remote row shows neither.
         planner_excluded: false,
-        // Tags are a purely local-catalogue concept (see
-        // `Database::migrate_tag_tables`'s doc comment) -- the remote library
-        // protocol carries no tag data, so a remote-browsed row always shows none.
         tags: ModelRc::new(VecModel::from(Vec::<slint::SharedString>::new())),
     }
 }
@@ -84,9 +76,8 @@ pub struct DiagramListRow {
     /// (`Database::planner_excluded_among`). Independent of `ignored`: an excluded
     /// design is listed and searchable like any other.
     pub planner_excluded: bool,
-    /// This row's tag names, alphabetical -- looked up in bulk by
-    /// [`fetch_diagram_list_with_options`] via `Database::tags_by_entry` rather than
-    /// one query per row.
+    /// This row's tag names. [`fetch_diagram_list_with_options`] fetches them for all rows in
+    /// one query (`Database::tags_for_entries`).
     pub tags: Vec<String>,
 }
 
@@ -118,10 +109,8 @@ pub struct FetchedDiagramList {
 /// The `Database` read half of `super::dispatch::refresh_diagram_list`, with no
 /// sort/"My designs" preference.
 ///
-/// Exactly [`fetch_diagram_list_with_options`] at [`SortOrder::CatalogueOrder`]/
-/// `local_only: false`, kept as its own function so this crate's existing call sites (a
-/// post-import/rename/delete background refresh, see `gui::library::local::helpers`)
-/// keep compiling and behaving exactly as before.
+/// [`fetch_diagram_list_with_options`] at [`SortOrder::CatalogueOrder`] and
+/// `local_only: false`. Used by the post-write refresh in `gui::library::local::helpers`.
 ///
 /// # Errors
 ///
@@ -143,12 +132,8 @@ pub fn fetch_diagram_list(
     )
 }
 
-/// [`fetch_diagram_list_with_options`]'s sort/restriction options.
-///
-/// Bundled into one value purely to keep that function under clippy's
-/// `too_many_arguments` lint -- same reasoning as
-/// `pleochroma_vault::db::sqlite::DisplayFilters`, which this expands into once
-/// `tag_filter` is resolved to an id.
+/// [`fetch_diagram_list_with_options`]'s sort and restriction options. They are bundled to
+/// keep that function within clippy's `too_many_arguments` limit.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct DisplaySearchOptions<'a> {
     pub order: SortOrder,
@@ -162,21 +147,13 @@ pub struct DisplaySearchOptions<'a> {
     pub id_filter: Option<&'a [i64]>,
 }
 
-/// [`fetch_diagram_list`], plus a caller-chosen [`SortOrder`] and "My designs"/tag/
-/// batch-id restriction.
+/// [`fetch_diagram_list`] with a caller-chosen sort and restrictions.
 ///
-/// What `super::dispatch::refresh_diagram_list` actually calls, reading every field of
-/// `options` off `ui` via `super::filters::{read_sort_order, read_local_only,
-/// read_tag_filter, read_id_filter}`.
+/// What `super::dispatch::refresh_diagram_list` calls, with the options read off the UI via
+/// `super::filters`.
 ///
-/// Has no `ui` dependency beyond the already-resolved `range`/`options` -- split out
-/// so `gui::library`'s post-import/rename/delete/shape-change refresh can run this on
-/// a background thread (re-running an unfiltered search against a several-thousand-
-/// design catalogue synchronously on the UI thread is itself a perceptible freeze) and
-/// only marshal the cheap [`apply_diagram_list_to_ui`] step back onto the UI thread.
-/// Every other caller (search box edits, filter slider drags) stays on the synchronous
-/// `super::dispatch::refresh_diagram_list` below, which a filter that must feel
-/// immediate as you type actually needs.
+/// It takes no `ui`, so it can run on a background thread. Only the cheap
+/// [`apply_diagram_list_to_ui`] step needs the UI thread.
 ///
 /// # Errors
 ///
@@ -191,15 +168,11 @@ pub fn fetch_diagram_list_with_options(
     range: &RangeFilter,
     options: DisplaySearchOptions<'_>,
 ) -> Result<FetchedDiagramList> {
-    // Scoped so the guard drops before this returns: this runs on a background thread
-    // where any extra time holding the database lock is time a UI-thread callback can
-    // block on it.
+    // Holds the lock only for the query: a UI-thread callback may be waiting on it.
     let db = db_mutex
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let result = fetch_diagram_list_from_db(&db, search, shape_filter, gear_filter, range, options);
-    // Explicit: the rest of this function needs no lock, and the UI thread may be
-    // waiting on this same mutex.
     drop(db);
     result
 }
@@ -240,12 +213,8 @@ fn fetch_diagram_list_from_db(
         tag_filter: tag_filter_id,
         id_filter: options.id_filter,
     };
-    // One candidate walk for both the display page and
-    // the real match count, instead of `search_diagrams_display` +
-    // `count_matching_diagrams` separately -- see
-    // `Database::search_diagrams_display_with_count`'s own doc comment for why
-    // decoding every active-performance-filter candidate's tilt-curve blob twice
-    // would cost.
+    // One candidate walk gives both the page and the match count. Decoding the tilt
+    // curves twice would cost time (see `Database::search_diagrams_display_with_count`).
     let (result, matched_count) =
         db.search_diagrams_display_with_count(search, clean_shape, clean_gear, range, filters)?;
 
@@ -260,10 +229,8 @@ fn fetch_diagram_list_from_db(
         result.items.len()
     });
 
-    // One bulk query for every entry's tags rather than one
-    // `tags_for_entry` call per row -- see `Database::tags_for_entries`'s own doc
-    // comment. A failed lookup degrades to "no tags shown" rather than failing
-    // the whole list fetch. An empty result has no rows to label, so it skips the query.
+    // One query for all rows' tags. A failed lookup shows no tags rather than failing the
+    // whole fetch. An empty result skips the query.
     let ids: Vec<i64> = result.items.iter().map(|item| item.id).collect();
     let mut tags_by_entry = if ids.is_empty() {
         HashMap::new()
@@ -303,27 +270,14 @@ fn fetch_diagram_list_from_db(
     })
 }
 
-/// Runs [`fetch_diagram_list_from_db`] against a FRESH, dedicated read-only connection
-/// to `crate::gui::db_path()` instead of the shared `db_mutex` -- the shared
-/// `Mutex<Database>` every UI-thread read/write in this crate also locks is held for
-/// the whole performance-filtered query (measured against the real catalogue: ~540ms),
-/// so a background search that still used it would only move the freeze off the
-/// keystroke, not remove it -- a row click or the synchronous branch of
-/// `super::dispatch::refresh_diagram_list` could still block on it for that long. WAL
-/// (see `pleochroma_vault::db::sqlite`'s own module doc comment) lets a second,
-/// independent connection read concurrently with the writer instead of queuing
-/// behind it.
+/// Runs [`fetch_diagram_list_from_db`] on a fresh, dedicated read-only connection.
 ///
-/// `crate::gui::db_path` is private to `gui`, not `pub(crate)` -- reachable here
-/// unchanged because `gui::library::search::fetch` is one of `gui`'s own descendant
-/// modules (plain Rust module-privacy, no visibility bump needed).
+/// A slow performance-filtered query holds the shared `db_mutex` for its whole run, which would
+/// block UI-thread reads too. WAL lets a second connection read alongside the writer.
 ///
-/// Falls back to [`fetch_diagram_list_with_options`] (the shared-lock, pre-fix
-/// behaviour) when a dedicated connection can't be opened -- the one real case being
-/// `gui::run_gui`'s `:memory:` fallback database (started when the real file at
-/// `db_path()` itself failed to open at startup): there is no second connection to open
-/// to a database that only exists inside the already-open one, and that session must
-/// keep working rather than erroring out of every performance-filtered search.
+/// Falls back to the shared handle (see [`with_read_db`]) when no second connection can be
+/// opened. That is the case for the `:memory:` fallback database of `gui::run_gui`, which
+/// exists only inside the open connection.
 pub(super) fn fetch_diagram_list_with_own_connection(
     db_mutex: &Arc<Mutex<Database>>,
     search: &str,
@@ -337,10 +291,10 @@ pub(super) fn fetch_diagram_list_with_own_connection(
     })
 }
 
-/// [`fetch_diagram_list_with_own_connection`] plus the catalogue's attribute ranges, both
-/// read through ONE dedicated read-only connection -- the whole post-write refresh
-/// ([`crate::gui::library::local::helpers::refresh_after_library_change`], the metadata
-/// save) in a single open, with no hold on the shared `Mutex<Database>` (DB-1).
+/// [`fetch_diagram_list_with_own_connection`] plus the attribute ranges, on one connection.
+///
+/// Used by the post-write refresh (`gui::library::local::helpers`), so that it does not hold
+/// the shared `Mutex<Database>`.
 pub(in crate::gui) fn fetch_list_and_ranges_with_own_connection(
     db_mutex: &Arc<Mutex<Database>>,
     search: &str,
@@ -419,19 +373,13 @@ fn text_matches(shown: &SharedString, value: Option<&str>) -> bool {
     shown.as_str() == value.unwrap_or_default()
 }
 
-/// The `ui.set_*` half of `super::dispatch::refresh_diagram_list` -- see
-/// [`fetch_diagram_list`]'s doc comment for why these are split.
+/// Applies a fetched list to the window, on the UI thread.
 ///
-/// Before applying the new list, reconciles `LibraryModel.selected_entry_id`
-/// against it -- a previously-selected design that no longer appears in the new result
-/// set (a search/filter change, not a delete: the design itself still exists) must not
-/// be left "selected" with nothing on screen to show for it. Clears the detail pane via
-/// [`clear_current_detail_display`] in that case; `diagram_list.slint`'s
-/// own `keyboard_focus_index` resets separately, on every `diagram_list` change (not
-/// only a length change), so the two together drop both halves of stale selection.
+/// A selected design that the new result no longer contains is deselected, and its detail
+/// pane is cleared. The design still exists, so nothing else on screen should show it.
 ///
-/// The list model itself is replaced only when `fetched` differs from what is shown
-/// (see [`list_unchanged`]); the counts and the other properties are always updated.
+/// The list model is replaced only when `fetched` differs from what is shown (see
+/// [`list_unchanged`]). The counts and the other properties are always updated.
 pub fn apply_diagram_list_to_ui(ui: &MainWindow, fetched: FetchedDiagramList) {
     let selected_id = ui.global::<LibraryModel>().get_selected_entry_id();
     if selected_id >= 0
@@ -458,19 +406,14 @@ pub fn apply_diagram_list_to_ui(ui: &MainWindow, fetched: FetchedDiagramList) {
     }
     ui.global::<LibraryModel>()
         .set_total_count(slint_count(fetched.total));
-    // Real match count for the active search/filters -- see
-    // `FetchedDiagramList::matched_count`'s doc comment. Nowhere near `i32::MAX` for
-    // the same reason `total`/`excluded_for_missing_curves` below aren't.
     ui.global::<LibraryModel>()
         .set_matched_count(slint_count(fetched.matched_count));
-    // Counts designs within one query's result set (`SEARCH_RESULT_CAP`-bounded,
-    // currently 1000), nowhere near `i32::MAX`.
+    // Counts designs in one query's result set, which the query caps.
     ui.global::<LibraryModel>()
         .set_performance_excluded_count(slint_count(fetched.excluded_for_missing_curves));
 
-    // Say so, in plain text, rather than quietly showing a fallback total
-    // that happens to equal the page size -- the rows above are still rendered
-    // either way.
+    // Shown in plain text, so a fallback total is not mistaken for the real one. The rows
+    // are still rendered.
     if count_unavailable {
         ui.global::<LibraryModel>()
             .set_status_message("Count unavailable.".into());

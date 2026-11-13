@@ -37,15 +37,13 @@ const fn wholly_inside(outer: &Spot, inner: &Spot) -> bool {
         && inner.y + inner.h <= outer.y + outer.h + 1.0
 }
 
-/// A clipped `ScrollView` area with actual visible bars removed. Fluent 1.18.1 sets the vertical
-/// bar width and horizontal bar height to 14px in `widgets/fluent/scrollview.slint` (lines 190,
-/// 204); use those measured theme dimensions as conservative fallbacks, with a 2px inset.
+/// A clipped `ScrollView` area with the visible bars removed. A bar missing from the tree is
+/// covered by a fixed reserve: the 14 px Fluent bar plus a 2 px inset.
 ///
-/// `sideways_possible` says whether the area can ever show a sideways bar: the bottom 16 px are
-/// kept clear for a bar missing from the tree only then. The chip strip lays its chips out to the
-/// strip's width less its own gutter, so it never scrolls sideways and its bottom row is whole
-/// right to the edge; reserving 16 px there made every icon of the last row look cut off, and the
-/// wheel turns meant to bring it in only bubbled up and scrolled the inspector instead.
+/// `sideways_possible` says whether the area can show a sideways bar at all; only then is the
+/// bottom reserve kept. The chip strip wraps its chips to its own width and never scrolls
+/// sideways, so its bottom row keeps its full height: a reserve there would clip that row and
+/// send the wheel turns meant for the strip to the inspector.
 fn safe_scroll_area(
     scroll: &uiprobe::ElementHandle,
     clip: &Spot,
@@ -123,9 +121,9 @@ struct ChipPlace {
 enum ChipMiss {
     /// The strip or the inspector's area is outside the window: scroll and retry.
     NotInView,
-    /// The strip is on view but the chip's row is not in it: the strip scrolls (vertically, past
-    /// three rows), down when the chip comes after the chips shown (`down`) or up when it comes
-    /// before them. `seen` are the labels of the chips shown now.
+    /// The strip is on view but the chip's row is not in it: the strip scrolls vertically (it
+    /// shows three rows at most), down when the chip comes after the chips shown (`down`) or up
+    /// when it comes before them. `seen` are the labels of the rows shown now.
     StripScroll {
         down: bool,
         chip_safe: Spot,
@@ -225,8 +223,8 @@ impl Film<'_> {
         Ok(())
     }
 
-    /// Films typing `teeth` in the teeth box under Facets and clicking the first Rotate button
-    /// (up to higher index numbers), then requires the chips to have moved.
+    /// Films typing `teeth` in the teeth box under Facets and clicking Rotate Up (towards higher
+    /// index numbers), then requires the chips to have moved.
     pub(super) fn rotate_chips_up(&mut self, tier: &str, teeth: &str) -> Result<(), String> {
         self.open_tier_chips(tier, false)?;
         let before = self.chip_positions();
@@ -474,7 +472,7 @@ impl Film<'_> {
                 }
                 Err(ChipMiss::NotInView) => {
                     // The Facets strip is not wholly in the inspector viewport: scroll towards it
-                    // (down while it is below or not yet in the tree, up once a turn went past it).
+                    // (down while it is below or not yet in the tree, up once a turn passed it).
                     let (viewport, strip) = {
                         let view = self.view();
                         let inspector = view

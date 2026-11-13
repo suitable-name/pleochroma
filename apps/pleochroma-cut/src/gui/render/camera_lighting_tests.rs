@@ -30,9 +30,8 @@ fn wider_render_than_viewport_shrinks_height_to_the_letterboxed_rectangle() {
 
 #[test]
 fn narrower_render_than_viewport_is_already_the_on_screen_size() {
-    // A 4:3 render in a wider viewport: `contain` fits the height here and the
-    // two layers already agree pixel-for-pixel, so this is a no-op beyond
-    // reproducing the exact viewport height.
+    // A 4:3 render in a wider viewport: `contain` fits the height, so the raster already
+    // matches the on-screen image and only the width is rounded.
     let (width, height) = contained_request_size(1, (900, 500), (640, 480));
     assert_eq!(height, 500);
     assert_eq!(width, 667);
@@ -87,11 +86,8 @@ fn fit_distance_grows_with_the_bounding_radius() {
 
 #[test]
 fn fit_distance_stays_within_the_matching_orbit_clamp() {
-    // The "Fit" pose (`setup_set_view_callback`) always clamps its own
-    // result through `orbit_distance_bounds` of the SAME radius -- this
-    // confirms that combination lands inside a sensible range rather than,
-    // say, the unclamped `fit_distance_for_radius` output being clamped
-    // down to something that no longer frames the mesh at all.
+    // The Fit pose (`setup_set_view_callback`) clamps `fit_distance_for_radius` with the bounds
+    // of the same radius. This checks that the result lands in range.
     let radius = 1.5_f64;
     let (min, max) = orbit_distance_bounds(radius);
     let fit = fit_distance_for_radius(radius).clamp(min, max);

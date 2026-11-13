@@ -12,10 +12,9 @@ export struct DiagramItem {
     // the result set entirely in that case. `diagram_list.slint` uses this to render
     // an ignored row visually distinct from a normal one.
     ignored: bool,
-    // Whether this design is one of the cutter's own locally-imported designs (a
-    // synthetic `local://...` url) rather than part of the wider scraped catalogue --
-    // see `gui::library::search::is_local_url`. `diagram_list.slint` renders this as a
-    // "Mine" badge next to the shape/Ignored badges.
+    // Whether this is one of the cutter's own imported designs (a synthetic `local://...` url),
+    // not a scraped catalogue row (`pleochroma_vault::local::search::is_local_url`). Shown as a
+    // "Mine" badge by `diagram_list.slint`.
     is_local: bool,
     // Whether the Rough Planner leaves this design out of its candidate set. Read from
     // the library's own side table (`Database::planner_excluded_among`), independent of
@@ -24,8 +23,8 @@ export struct DiagramItem {
     // planned" marker from it. Always `false` for a remote-browsed row.
     planner_excluded: bool,
     // Tag names attached to this design, alphabetical.
-    // Filled in bulk by `gui::library::search` via `Database::tags_by_entry`
-    // rather than one query per row -- the catalogue is ~3187 rows.
+    // Filled in bulk by `gui::library::search` via `Database::tags_by_entry`, not one query per
+    // row.
     tags: [string],
 }
 
@@ -36,7 +35,7 @@ export struct DiagramItem {
 //
 // Every field is a plain index/float rather than an enum -- Slint structs have no
 // enum fields, so the index<->enum mapping happens once, in Rust, at
-// `gui::search::read_range_filter`.
+// `gui::library::search::filters::read_range_filter`.
 export struct PerformanceFilterRow {
     // 0 = Brilliance, 1 = Extinction, 2 = Windowing.
     metric_index: int,
@@ -52,7 +51,7 @@ export struct PerformanceFilterRow {
 }
 
 // Decoded catalogue-preview thumbnails for one diagram-list row, returned by
-// `MainWindow.get_preview_thumbnails(id)` -- see `gui::preview_cache`'s module doc
+// `MainWindow.get_preview_thumbnails(id)` -- see `gui::batch::preview_cache`'s module doc
 // comment for why this is a synchronous lookup callback rather than fields on
 // `DiagramItem` itself. `has_front`/`has_top` are independently `false` for a view
 // never generated or still decoding -- `diagram_list.slint` shows a fixed-size
@@ -99,19 +98,12 @@ export struct FileItem {
     size_str: string,
 }
 
-// One gear-position chip in the SELECTED tier's index list --
-// built in Rust (`gui::editor::view::selected_tier_chips`) from `ConstraintTier::
-// indices`/`detached` directly, so `editor_inspector.slint` never has to parse
-// `EditorTierItem::indices`' own comma-joined display string itself (Slint's
-// `string` has no split/substring operation -- see `EditorModel.
-// tier_matches_filter`'s own doc comment for the same limitation elsewhere in
-// this app). Pushed as its own top-level `EditorModel.selected_tier_chips`
-// rather than a field on `EditorTierItem` -- that struct's `Vec` is built on a
-// BACKGROUND thread for a large design (`gui::editor::auto_solve`) and shipped
-// to the UI thread inside `BackgroundSolveResult`, which must stay `Send`; a
-// `[IndexChipItem]` field is `ModelRc`-backed (`Rc`, not `Send`) and broke that.
-// Computing chips only for the one tier actually being edited also means never
-// building this for tiers that aren't shown.
+// One gear-position chip of the selected tier's index list, built in Rust
+// (`gui::editor::view::inspector::selected_tier_chips`) from `ConstraintTier::indices` and
+// `detached`. Slint has no string split, so the chips are not parsed from the comma-joined
+// `EditorTierItem::indices`. They are pushed as the top-level `EditorModel.selected_tier_chips`,
+// not as a field of `EditorTierItem`: rows are built on a background thread and must stay `Send`,
+// which a `[IndexChipItem]` model field is not. Only the tier being edited gets chips.
 export struct IndexChipItem {
     // The gear-position value itself, passed back to `EditorModel.facet_remove`/
     // `facet_toggle_detach` exactly as `ConstraintTier::indices`/`detached` store it.
@@ -120,9 +112,8 @@ export struct IndexChipItem {
     // case) shows with no decimal noise, matching the plain `EditorTierItem::
     // indices` column's own formatting.
     label: string,
-    // Whether THIS occurrence is in `ConstraintTier::detached` -- unlike
-    // `EditorTierItem::is_detached` (true whenever the tier has ANY detached
-    // occurrence at all), this is the real per-position state, because
+    // Whether THIS occurrence is in `ConstraintTier::detached`. Unlike
+    // `EditorTierItem::is_detached` (any occurrence of the tier), this is per position:
     // `EditorModel.facet_toggle_detach` acts on one chip at a time.
     detached: bool,
     // Whether THIS occurrence is frosted: the tier is frosted as a whole, or this facet is one
@@ -131,92 +122,59 @@ export struct IndexChipItem {
     frosted: bool,
 }
 
-// One row of the Edit sub-tab's tier list -- the Slint-facing mirror of an
-// `pleochroma-cut-core`/`lapidary::asc::AscTier`, converted at the `gui::editor`
-// boundary (`pleochroma`/`pleochroma-cut-core`/`lapidary` must not depend on Slint).
+// One row of the Edit sub-tab's tier list: the Slint-facing mirror of a design tier, converted
+// at the `gui::editor` boundary so the core crates do not depend on Slint.
 // `index` is this tier's position in `Design::tiers`, round-tripped back to Rust by
-// `EditorView.save_tier`/`remove_tier` -- the same "list index is the identity"
-// convention `WorkerItem`/`LightingPresetItem` use.
+// `EditorView.save_tier`/`remove_tier`; the list index identifies the tier.
 //
-// `mast` is not authored -- it is `Design::solve`'s derived output, formatted
-// read-only for display. What the user actually authors is the constraint:
+// `mast` is derived by `Design::solve` and shown read-only. The user authors the constraint:
 // `constraint_kind` (0 = meet an unspecified vertex / `MeetConstraint::MeetExisting`,
-// 1 = meet named facets / `MeetConstraint::MeetNamed`, 2 = an exact authored scale
-// value / `MeetConstraint::ScaleReference`) plus `constraint_text` (comma-separated
-// facet names for kind 1, the numeric value for kind 2, unused for kind 0). `strategy`
-// is `SolveStrategy`'s human-readable label for this tier's solved mast -- shown per
-// tier because a real derived value and an estimate/untrusted placeholder are very
-// different confidence levels a user must be able to tell apart at a glance.
+// 1 = meet named facets / `MeetConstraint::MeetNamed`, 2 = an exact scale value /
+// `MeetConstraint::ScaleReference`) plus `constraint_text` (comma-separated facet names for
+// kind 1, the value for kind 2, unused for kind 0). `strategy` labels how the solved mast was
+// obtained, shown per tier since a derived value and an estimate differ in confidence.
 export struct EditorTierItem {
     index: int,
     angle_deg: string,
-    // The same angle unrounded (plain `{}` `Display` of the `f64`, like
-    // `mast_full` below) -- `angle_deg` is display-rounded to 2 decimals
-    // (`format_angle_cell`), so seeding an editable field from it and saving
-    // right back without changing anything is not actually a no-op: the
-    // rounded text parses to a different value than the tier's real angle,
-    // which spends an undo step and can even reclassify a tier at a near-zero
-    // angle (see `EditorInspector.apply_load`/`TierAngleCell`'s own seeding
-    // for where this is used instead of `angle_deg`).
+    // The angle unrounded, for seeding an editable field. `angle_deg` is rounded to 2 decimals
+    // (`format_angle_cell`); saving that text back would change the angle, spend an undo step
+    // and could reclassify a near-zero tier.
     angle_full: string,
     name: string,
     indices: string,
-    // The same indices unrounded, comma-and-space-joined like `indices` above
-    // (plain `{}` `Display` per value) -- `indices` rounds a fractional
-    // position (a gear "x7" shorthand, say) to 2 decimals, which is exactly
-    // the same lossy-reseed problem `angle_full` documents, just for the
-    // Indices field.
+    // The indices unrounded, for seeding the Indices field: `indices` rounds fractional positions
+    // to 2 decimals, the same lossy reseed as `angle_full`.
     indices_full: string,
     constraint_kind: int,
     constraint_text: string,
     mast: string,
-    // The same mast in millimetres, `""` when the design has no girdle diameter to
-    // anchor a real scale. Shown in the MAST cell's
-    // tooltip rather than the cell itself: the column is 50px and the model-unit
-    // figure is what the solver's own constraints are expressed in, but mm is what
-    // a cutter actually dials into a mast gauge.
+    // The mast in millimetres, `""` without a girdle diameter to anchor the scale. Shown in the
+    // MAST cell's tooltip, since the cell is narrow and mm is what a cutter dials into a gauge.
     mast_mm: string,
-    // The same mast unrounded. The MAST cell deliberately shows
-    // 4 decimals -- more is noise in a 50px column -- but "Pin to mast" applies the
-    // full value, so its tooltip must quote the full value rather than the rounded
-    // one it happens to sit next to.
+    // The mast unrounded: "Pin to mast" applies this value, so its tooltip quotes it, not the
+    // cell's rounded figure.
     mast_full: string,
     strategy: string,
-    // `true` for `LeastSquaresFallback`/`Failed` (or "no anchor yet"/"not solved
-    // yet" -- `tier_items_stale` sets `mast`/`strategy` to placeholders and this to
-    // `true` after every edit that isn't the explicit "Solve" action) -- exactly the
-    // cases where `mast` is not a real vertex-derived value right now, so
-    // `EditorView` can flag the row instead of showing it identically to a trusted
-    // solve.
+    // `true` when `mast` is not a real vertex-derived value: `LeastSquaresFallback`, `Failed`, or
+    // a stale row after an edit (`tier_items_stale` sets this until the next explicit Solve).
+    // `EditorView` flags the row.
     strategy_is_uncertain: bool,
-    // What the source `.asc` file's `G` field actually claimed this facet meets
-    // (`ConstraintTier::imported_meet`, formatted like `constraint_text`), or `""`
-    // when there is nothing to adopt. Doubles as the "show the Adopt button"
-    // condition in `EditorView`: import pins every tier's constraint to its real
-    // recorded mast, so this is the only place a user can still see -- and act on
-    // via `adopt_meet` -- what the file's geometry actually implied.
+    // The meet the source `.asc` file's `G` field records for this facet (`ConstraintTier::
+    // imported_meet`, formatted like `constraint_text`), or `""`. Non-empty shows the Adopt button
+    // (`adopt_meet`): import pins the constraint to the recorded mast, so this is the only place
+    // the file's geometry stays visible.
     imported_meet_text: string,
-    // A short label for what `orbit::orbit_units` derived from this tier's `indices`
-    // against the schedule's `symmetry_order`/`mirror`/`gear_teeth_abs` -- e.g.
-    // "orbit x4" (one complete orbit), "2 orbits" (a clean multi-facet fold, every
-    // unit complete), "2 orbits (1 incomplete)" (a fold where at least one but not
-    // every unit is complete), "3/4 orbit" (a single partial unit -- usually just
-    // one occurrence missing at the edge of the schedule), or "not symmetric"
-    // (`mixed_fold` -- several units, but NONE of them complete, the
-    // genuinely inconsistent case the corpus study in `orbit::mod`'s own doc
-    // comment calls out separately from a merely partial fold). "" for a trivial
-    // <=1-index tier. Makes "editing this row affects more than one facet" visible
-    // before the user clicks Save.
+    // Label of the orbit that `orbit::orbit_units` derives from this tier's `indices` and the
+    // schedule's symmetry: "orbit x4" (one complete orbit), "2 orbits", "2 orbits (1 incomplete)",
+    // "3/4 orbit" (a single partial unit), or "not symmetric" (several units, none complete).
+    // "" for a tier with at most one index. Shows that an edit touches more than one facet.
     orbit_status: string,
-    // `true` iff `orbit_status` describes an incomplete/inconsistent orbit --
-    // `EditorView` flags this the same amber `strategy_is_uncertain` uses, rather
-    // than a third ad hoc color.
+    // `true` when `orbit_status` describes an incomplete or inconsistent orbit. Shown in amber,
+    // like `strategy_is_uncertain`.
     orbit_incomplete: bool,
-    // `true` iff every occurrence in this tier has been explicitly detached from
-    // orbit-wide propagation (`ConstraintTier::detached` covers the whole tier, since
-    // the UI's one-button-per-row granularity uses the tier-wide convenience rather
-    // than a per-position picker). Drives both the row's "Detached" badge and which
-    // action `toggle_detach` performs next.
+    // `true` when any occurrence in this tier is detached from orbit-wide propagation
+    // (`ConstraintTier::detached`). Drives the "Detached" badge and the action `toggle_detach`
+    // performs next.
     is_detached: bool,
     // "Crown" / "Pavilion" / "Girdle" -- `pleochroma::geometry::meet_solver::
     // classify_blocks` applied to the whole design's tiers, so the unsigned-zero
@@ -242,70 +200,37 @@ export struct EditorTierItem {
     // -1 = not applicable (crown/girdle, or no material resolved), 0 = Safe,
     // 1 = Marginal, 2 = Windows -- see `optics_hints::Risk`.
     risk_level: int,
-    // `true` iff this row is currently Ctrl+click-toggled into the tier list's
-    // multi-select group (angle-nudge batching -- see `EditorView`'s
-    // `toggle_multi_select` callback and `gui::editor::callbacks::tier_actions::
-    // setup_nudge_angle_callback`). Always `false` right after a real edit's refresh
-    // (`gui::editor::state::tier_items`/`tier_items_stale` never set it) --
-    // `setup_toggle_multi_select_callback` patches it onto the already-pushed row
-    // list in place instead, so toggling a selection never re-labels the design "not
-    // solved" the way a real edit's stale-refresh does.
+    // `true` while the row is Ctrl+click-selected for a batched angle nudge (`toggle_multi_select`,
+    // `setup_nudge_angle_callback`). Patched in place by `setup_toggle_multi_select_callback`, so
+    // toggling a selection does not mark the design as not solved, as a real edit does.
     multi_selected: bool,
-    // The per-row tooltip for the SOLVE column, depending on why `strategy`/`mast`
-    // read the way they do (`gui::editor::state::tier_items`):
-    // - The design does not solve, and THIS tier is one of the unanchored block's
-    //   own tiers (`needs_anchor` below is `true`): the one-block remedy sentence
-    //   for that exact block (`pleochroma_cut_core::MissingAnchor::block_sentence`,
-    //   e.g. "Pavilion has no anchor: add a tier with an exact scale value.").
-    // - The design does not solve, but this tier belongs to a DIFFERENT, already-
-    //   anchored block (blocked only because some other block has no anchor): a
-    //   short explanatory note pointing at the validation banner instead.
-    // - The design solves: `SolvedTier::detail`'s free-form prose naming how this
-    //   tier's mast was actually obtained (vertex incidence, which candidate level,
-    //   the least-squares fallback, ...) -- never parsed, shown verbatim.
-    // `""` for a stale row (`tier_items_stale` never solves, so there is nothing to
-    // report yet) -- the tier table hides the tooltip entirely in that case.
+    // Tooltip of the SOLVE column:
+    // - Unsolved, and this tier is in the unanchored block (`needs_anchor`): the block's remedy
+    //   sentence (`pleochroma_cut_core::MissingAnchor::block_sentence`).
+    // - Unsolved, but in another, anchored block: a note pointing at the validation banner.
+    // - Solved: `SolvedTier::detail`, how the mast was obtained, shown verbatim.
+    // "" for a stale row, which never solves; the tier table hides the tooltip then.
     strategy_detail: string,
-    // `true` iff this tier belongs to one of the blocks `MissingAnchor` currently
-    // names (`MissingAnchor::block_details`) -- drives the tier table's "Add Anchor"
-    // action, shown only on exactly the unanchored tiers rather than every tier in
-    // an unsolved design. Always `false` once the design solves, and always `false`
-    // for a stale row (same reasoning as `strategy_detail`).
+    // `true` for tiers in a block that `MissingAnchor` names (`MissingAnchor::block_details`).
+    // Drives the tier table's "Add Anchor" action. Always `false` once solved and for stale rows.
     needs_anchor: bool,
-    // The tier(s) `Design::facet_meets` actually resolved this tier's meet
-    // constraint against, pre-formatted (e.g. "meets tier 3 (C1)"), or "" when
-    // it resolves to nothing (a `ScaleReference`/`MeetExisting` tier, or an
-    // unresolved `MeetNamed` one). The real solver-grade resolution, not a
-    // guess from `constraint_text` -- shown in the inspector's read-only
-    // "Solved" section (`gui::editor::state::meet_partners_text`).
+    // The tier(s) that `Design::facet_meets` resolves this tier's meet constraint to, formatted
+    // (e.g. "meets tier 3 (C1)"), or "" when it resolves to nothing. Shown in the inspector's
+    // read-only "Solved" section (`pleochroma_editor::view_model::rows`).
     meet_partners_text: string,
-    // This tier's `ManufacturabilityWarning`(s), joined with "; " when more
-    // than one applies, or "" when none do -- `gui::editor::state::
-    // warning_text_by_tier` groups `ManufacturabilityWarning::tier_index`'s
-    // findings by row so the tier table can badge the exact offending tier
-    // instead of only listing warnings, unattributed, in the status strip's
-    // Log popup. Prefixed "(pre-solve) " whenever it was computed without a
-    // completed solve (`gui::editor::state::manufacturability_warnings_tagged`).
+    // This tier's `ManufacturabilityWarning`s joined with "; ", or "". Grouped by tier so the
+    // table can badge the offending row. Prefixed "(pre-solve) " when computed without a
+    // completed solve (`pleochroma_editor::view_model::rows::warnings`).
     warning_text: string,
-    // What a pending Optimize outcome (still
-    // applicable to this design's current generation -- see `EditorModel.
-    // optimize_can_apply`'s own doc comment for that check) would set THIS
-    // tier's angle to, formatted like `angle_deg`, or `""` when Optimize
-    // proposes no change for this row -- `gui::editor::state::
-    // apply_proposed_angles` patches it onto the already-built row list, the
-    // same "patch in place" shape `multi_selected` above already uses. Lets the
-    // tier table show a per-row ghost of the proposed angle beside the real
-    // one, alongside (not only through) the Optimize "Preview" toggle's whole-
-    // viewport ghost.
+    // The angle a pending Optimize outcome would set this tier to (formatted like `angle_deg`), or
+    // "" for no change. Only while the outcome still applies (`EditorModel.optimize_can_apply`).
+    // Patched in by `apply_proposed_angles`; the tier table shows it as a ghost beside the angle.
     proposed_angle: string,
-    // 0 = a flat tier (`design.tiers`), 1 = a concave tier (`design.concave_tiers`,
-    // cut with a tool). A concave row is read-only in the table -- its angle cell,
-    // Pin/Detach/Adopt/Complete-orbit actions and multi-select are all off -- and is
-    // authored in the inspector's concave form instead. Its `index` is the row's
-    // POSITION in the table (flat rows first, then concave ones), so every
-    // `item.index == selected_tier_index` comparison and the keyboard cursor keep
-    // working unchanged; Rust maps a position past the flat count back to the concave
-    // tier (`gui::editor::callbacks::tier_actions::concave_tier`).
+    // 0 = a flat tier (`design.tiers`), 1 = a concave tier (`design.concave_tiers`, cut with a
+    // tool). A concave row is read-only in the table (no angle edits, pin, detach, adopt or
+    // multi-select) and is authored in the inspector's concave form. Its `index` is its position
+    // in the table, flat rows first, so selection and the keyboard cursor work unchanged. Rust
+    // maps a position past the flat count back to the concave tier.
     kind: int,
     // A concave row's tool line (the cutting sheet's second line: tool code, theta,
     // displacement, `D/W` and motion, joined with two spaces), "" for a flat row.
@@ -359,22 +284,17 @@ export struct GearRemapRow {
     non_integral: bool,
 }
 
-// One row of the Edit sub-tab's Optimize result table -- one objective component's
-// before/after values, kept separate per component rather than folded into the
-// blended score alone, so an optimizer that improved windowing by wrecking extinction
-// is visibly doing that. `gui::editor::optimize_result_rows` builds exactly four of
-// these from an `OptimizeOutcome` -- windowing, extinction, and tilt brilliance, then
-// the blended score last (shown as `100 - ObjectiveWeights::score`, higher is better).
+// One row of the Optimize result table: one objective component's before and after values,
+// kept apart so a gain in one figure at the cost of another is visible. Built by
+// `pleochroma_editor::optimize_view::optimize_result_rows` as four rows: windowing, extinction,
+// tilt brilliance, then the blended score (`100 - ObjectiveWeights::score`, higher is better).
 export struct OptimizeResultRow {
     label: string,
     before: string,
     after: string,
-    // Which way this metric moved, so the row can be colored rather than leaving
-    // the cutter to read a sign out of the text: -1 worse,
-    // 0 unchanged, 1 better. "Better" is per-metric, not per-sign -- windowing
-    // going DOWN is an improvement, brilliance going down is not -- so this is
-    // computed alongside the figure in `gui::editor::view::after_with_delta`
-    // rather than derived from the numbers here.
+    // -1 worse, 0 unchanged, 1 better. "Better" depends on the metric (windowing going down is an
+    // improvement, brilliance going down is not), so it is computed beside the figure in
+    // `pleochroma_editor::optimize_view`.
     direction: int,
 }
 
@@ -390,13 +310,10 @@ export struct OptimizeToneSwatches {
     lighting: string,
 }
 
-// One tier Deep Solve's externally-verified repair actually disagreed with the
-// design's plain solve on -- built from
-// `gui::editor::deep_solve::TierMastDelta`, already filtered to only the tiers
-// whose mast moved by more than a small epsilon (see that type's own doc
-// comment). Shown as a real table in the inspector alongside the aggregate
-// verdict `EditorModel.deep_solve_status` already renders; `name` and the
-// pre-formatted mast/delta text come from `gui::editor::view::deep_solve_tier_rows`.
+// One tier where the externally verified Deep Solve repair disagreed with the plain solve. Built
+// from `pleochroma_editor::deep_solve::TierMastDelta`, only for tiers whose mast moved by more
+// than a small epsilon. Shown beside `EditorModel.deep_solve_status`; built by
+// `gui::editor::view::solve_results::deep_solve_tier_rows`.
 export struct DeepSolveTierRow {
     // Pre-formatted 1-based, e.g. "#4" -- matches every other 1-based tier
     // reference in this app (the tier table's own "#" column).
@@ -408,11 +325,9 @@ export struct DeepSolveTierRow {
     delta: string,
 }
 
-// One tier Optimize would change if its result were applied --
-// built from `pleochroma_cut_core::OptimizeOutcome::changes`
-// (`gui::editor::view::optimize_change_rows`), shown as a second table alongside
-// the existing four-component `EditorModel.optimize_result_rows` so a cutter can
-// see WHICH tiers move, not only the blended before/after scores.
+// One tier that the Optimize result would change, built from
+// `pleochroma_cut_core::OptimizeOutcome::changes` (`gui::editor::view::solve_results`). Shown
+// beside `EditorModel.optimize_result_rows`, so the cutter sees which tiers move.
 export struct OptimizeChangeRow {
     tier_number: string,
     name: string,
@@ -449,16 +364,16 @@ export struct LightingPresetItem {
     selected: bool,
 }
 
-// Remote rendering: the "Remote coordinator" form (exactly one remote endpoint). Rust owns the real `settings::RemoteEndpoint` -- this is just
+// Remote rendering: the "Remote coordinator" form (exactly one remote endpoint). Rust owns the
+// real `settings::RemoteEndpoint`; this is just
 // enough to show and edit it and round-trip an edit back to Rust.
 export struct WorkerItem {
     name: string,
     address: string,
     cert_dir: string,
-    // The merged live transfer: 0 = LiveProgressive, 1 = FinalOnly (both with full data, matching
+    // Live transfer: 0 = LiveProgressive, 1 = FinalOnly (both with full data, matching
     // `pleochroma_net::messages::TransferMode`), 2 = final picture (`settings::LiveTransfer::
-    // FinalPicture`, finished denoised frames). The old "Live stream" and "Live transfer"
-    // controls are this one value.
+    // FinalPicture`, finished denoised frames).
     transfer_mode_index: int,
     cadence_ms: int,
     // 0 = Full, 1 = Half, 2 = Quarter, 3 = Custom -- matches `settings::PreviewScale`.
@@ -488,10 +403,9 @@ export struct DiagramDetailData {
     // rather than a real page on the web -- gates the "Open on Web"/"Copy Link"
     // affordances in `detail_header.slint`.
     is_local: bool,
-    // Proportions `apply_measured_metadata` derives alongside `lw_ratio`/`volume`
-    // above, shown in the same metric grid, formatted to 3 decimal places (see
-    // `gui::detail`'s `format_proportion`). Empty string means "not known for this
-    // design" and hides the chip entirely.
+    // Proportions `apply_measured_metadata` derives alongside `lw_ratio`/`volume`, shown in the
+    // same grid, formatted to 3 decimals (`gui::library::detail::shared::format_proportion`).
+    // Empty means not known, and hides the chip.
     hw_ratio: string,
     cw_ratio: string,
     pw_ratio: string,
@@ -501,18 +415,15 @@ export struct DiagramDetailData {
     // otherwise never plumbs an "unknown" sentinel through an `int` field.
     symmetry_order: string,
     mirror_symmetry: bool,
-    // Inferred material, shown as a guess and never as a fact: a catalogue row
-    // records only a refractive index, never a species name, so `gui::library::detail`
-    // computes the SAME nearest-n_D guess the editor's own material-guess
-    // badge shows (`gui::editor::material_lookup::material_for_refractive_index`),
-    // formatted identically ("Sapphire? (from RI 1.76)"). `""` when nothing
-    // built in is close enough to guess at all -- hides the chip entirely,
-    // same convention as every other optional field on this struct.
+    // Inferred material, shown as a guess: a catalogue row records only a refractive index. The
+    // same nearest-n_D guess as the editor's material badge
+    // (`pleochroma_editor::material_lookup::material_for_refractive_index`), e.g.
+    // "Sapphire? (from RI 1.76)". `""` hides the chip.
     material_guess: string,
 }
 
 // "Retarget for material" dialog row: one per pavilion/crown tier; girdle tiers are
-// never listed (see `gui::editor::retarget`'s own doc comment).
+// never listed (see `pleochroma_editor::retarget`).
 export struct RetargetRowItem {
     tier_index: int,
     // "Crown" / "Pavilion" -- girdle tiers are never included, so this dialog never

@@ -1,14 +1,15 @@
-//! MIT source: pleochroma/color/metrics/tone.rs. Production finishes compact GPU summaries
-//! and spectra with the reference CIE transform; ordered CPU accumulation is test-only.
+//! MIT source: pleochroma/color/metrics/tone.rs.
+//!
 //! The face-up tone: the CIELAB colour of the light a stone returns to the observer at one
-//! pose.
+//! pose. Production finishes compact GPU summaries and spectra with the reference CIE
+//! transform; ordered CPU accumulation is test-only.
 //!
 //! Each visibly returned ray carries a Fresnel weight `w_i` and an internal path `L_i`
 //! (model units). The mean transmittance spectrum of the returned light is the mixture
 //! `T(lambda) = sum_i w_i exp(-alpha(lambda) s L_i) / sum_i w_i`, not Beer-Lambert of the
-//! mean path (the mixture is lighter and less saturated, which is physically right: short
-//! paths dominate the brightness). `s` is [`GemMaterial::absorption_path_scale`], the same
-//! size rule the renderer uses.
+//! mean path: short paths dominate the brightness, so the mixture is lighter and less
+//! saturated. `s` is [`GemMaterial::absorption_path_scale`], the same size rule the renderer
+//! uses.
 //!
 //! The mixture is linear in the rays, so [`ToneAccumulator`] only keeps a fixed
 //! [`PATH_BINS`]-bin histogram of the weights over `0 ..= MAX_PATH_HALF_WIDTHS` girdle
@@ -111,10 +112,8 @@ impl ToneAccumulator {
         }
     }
 
-    /// An empty accumulator for a pleochroic material: it keeps every returned ray with its
-    /// per-axis path (at most 18 x 18 x 5 entries) instead of the histogram, and
-    /// The spectrum evaluates `T(lambda) = sum_i w_i exp(-s sum_p alpha_p(lambda) D_ip) /
-    /// sum_i w_i`. Feed it with [`Self::offer_principal`].
+    /// An empty accumulator for a pleochroic material. It keeps every returned ray with its
+    /// per-axis path instead of the histogram. Feed it with [`Self::offer_principal`].
     #[cfg(test)]
     pub(super) fn with_principal_paths(half_width: f32) -> Self {
         Self {
@@ -130,8 +129,8 @@ impl ToneAccumulator {
         self.rays.as_deref().unwrap_or_default()
     }
 
-    /// Adds one returned ray: [`Self::offer`] for a histogram accumulator (`principal_path`
-    /// ignored, bit for bit the old behaviour), else the ray joins the per-axis list.
+    /// Adds one returned ray. A histogram accumulator ignores `principal_path` and defers to
+    /// [`Self::offer`]; otherwise the ray joins the per-axis list.
     #[cfg(test)]
     pub(super) fn offer_principal(
         &mut self,
@@ -170,8 +169,9 @@ impl ToneAccumulator {
         self.returned += 1;
     }
 
-    /// Preserve the reference ray/bin order and host absorption-band evaluation. Principal
-    /// rays normalize by their f64 weight sum; occupied bins retain the reference's f32 sum.
+    /// Packs the accumulator for the CUDA spectrum, keeping the reference ray and bin order.
+    /// Absorption bands are evaluated on the host. Principal rays normalise by their f64
+    /// weight sum; histogram bins keep the reference f32 sum.
     #[cfg(test)]
     pub(super) fn cuda_input(&self, material: &GemMaterial) -> ToneInput {
         let scale = f64::from(material.absorption_path_scale.max(0.0));
@@ -247,8 +247,8 @@ impl ToneAccumulator {
         }
     }
 
-    /// Finish the returned CUDA spectrum with the exact existing illuminant/CIE transform.
-    /// The caller propagates GPU errors before invoking this; there is no CPU spectral retry.
+    /// Turns a CUDA spectrum into the tone under `illuminant`. The caller propagates GPU
+    /// errors first; there is no CPU spectral fallback.
     pub(super) fn finish_from_spectrum(
         &self,
         spectrum: &ToneSpectrum,
@@ -350,7 +350,7 @@ impl ToneAccumulator {
             )
         };
 
-        // A pleochroic material's list of rays replaces the (then empty) histogram.
+        // For a pleochroic material the ray list replaces the histogram.
         let colour = self.rays.as_ref().map_or_else(
             || {
                 body_color_from_spectra(

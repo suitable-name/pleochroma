@@ -1,10 +1,11 @@
 //! Colors of a pattern: the swatches the lists and previews draw, and the background solves that
 //! turn a picked `[L*, C*, h]` into the band rows a pattern stores.
 //!
-//! A solve is `pleochroma_editor::lch_color::solve_lch`, the same cancellable solver the body-color
+//! A solve is `pleochroma_editor::lch_color::solve_lch`, the cancellable solver the body-color
 //! editor uses. Solved colors are remembered by their `[L*, C*, h]` ([`SolveCache`]), so an undo
 //! back to a template whose colors were solved once needs no new solve.
 
+use super::form::SwatchPart;
 use crate::gui::latest_worker::LatestWorker;
 use pleochroma::{
     color::{Illuminant, body_color::lch_to_lab, body_colors},
@@ -111,6 +112,16 @@ pub(super) struct ZoneSwatch {
 }
 
 impl ZoneSwatch {
+    /// The color of `part` of the zone.
+    pub(super) const fn part(self, part: SwatchPart) -> Rgb {
+        match part {
+            SwatchPart::Blend => self.blend,
+            SwatchPart::Primary => self.primary,
+            SwatchPart::Beta => self.beta,
+            SwatchPart::Across => self.across,
+        }
+    }
+
     /// A zone of one color.
     pub(super) const fn uniform(rgb: Rgb) -> Self {
         Self {
@@ -125,10 +136,10 @@ impl ZoneSwatch {
 
 /// The stone a swatch is drawn for.
 ///
-/// A picked color is shown at the solver's light path. A color variant is shown the way the
-/// variant lists show it (lead decisions D-A and D-G): per-millimeter numbers calibrated for a
-/// stone `width_mm` wide, read at `variants::face_up_swatch_path`, and its overall color is the
-/// oriented face-up color of the stone.
+/// A picked color is shown at the solver's light path. A color variant is shown as the
+/// variant lists show it: per-millimeter numbers read at `variants::face_up_swatch_path` for
+/// a stone `width_mm` wide, and an overall color that is the oriented face-up color of the
+/// stone.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct SwatchStone<'a> {
     /// The light path the picked colors are shown at, millimeters.
@@ -303,10 +314,12 @@ pub(super) struct SolveWorker {
 }
 
 impl SolveWorker {
-    /// Starts the thread; `deliver` is called ON THE WORKER THREAD with each finished request
-    /// (the colors solved, and whether a solve failed for a reason other than a cancel), so it
-    /// must hop to the UI thread itself and recheck the supplied cancellation token there.
-    /// A close or a newer request may cancel a result already queued for UI delivery.
+    /// Starts the thread.
+    ///
+    /// `deliver` runs ON THE WORKER THREAD with each finished request: the colors solved, and
+    /// whether a solve failed for a reason other than a cancel. It must hop to the UI thread
+    /// itself and recheck the supplied cancellation token there, since a close or a newer
+    /// request may cancel a result already queued for UI delivery.
     pub(super) fn new(
         deliver: impl Fn(Solved, bool, Arc<AtomicBool>) + Send + Sync + 'static,
     ) -> Self {

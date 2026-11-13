@@ -1,6 +1,7 @@
-//! The solve-and-judge entry points of [`MeetPreservationBaseline`]: the geometry gate on a
-//! design it solves itself, with the solve handed back when the caller needs the tiers of the
-//! design it just certified.
+//! The solve-and-judge entry points of [`MeetPreservationBaseline`].
+//!
+//! The geometry gate solves the design it judges itself, and can hand that solve back when the
+//! caller needs the tiers of the design it just certified.
 
 use super::{MeetPreservationBaseline, blame_candidate};
 use crate::{

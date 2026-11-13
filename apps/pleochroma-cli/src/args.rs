@@ -3,9 +3,9 @@
 //!
 //! # Why `Result<_, String>`, not a typed error
 //!
-//! Like the worker's parser, every error here is terminal, user-facing text: `main` prints it
-//! after `error: ` with the exit code 1 and nothing ever matches on the kind of a parse
-//! failure. A typed enum would add a variant per malformed flag for no caller that needs one.
+//! Every error here is terminal, user-facing text: `main` prints it after `error: ` with exit
+//! code 1, and no caller matches on the kind of a parse failure. A typed enum would add a
+//! variant per malformed flag for no caller that needs one.
 //!
 //! Nothing here reads a file or runs a solve. Numbers are checked for being numbers, and for
 //! the ranges that need no design to judge (a refractive index above 1, a candidate count of
@@ -25,25 +25,47 @@
 //! turns several design files into one command each.
 
 mod batch;
+mod image_compare;
 mod parsers;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod tests_batch;
+#[cfg(test)]
+#[cfg(all(feature = "beam", beam_tests))]
+mod tests_beam;
+#[cfg(test)]
+mod tests_image_compare;
+#[cfg(test)]
+mod tests_optics_tables;
+#[cfg(test)]
+mod tests_path_cache;
+#[cfg(test)]
+mod tests_render_accel;
+#[cfg(test)]
+mod tests_snap_meets;
 mod types;
 mod values;
 
+use image_compare::parse_image_compare;
 use parsers::{
     parse_census, parse_export, parse_info, parse_metrics, parse_optimize, parse_render_job,
-    parse_retarget, parse_solve, parse_sweep, parse_validate,
-};
-pub use types::{
-    Batch, CensusArgs, Command, ExportArgs, ExportFormat, Exposure, InfoArgs, JobCommandKind,
-    MaterialArg, MetricsArgs, Mode, OptimizeArgs, RenderJobArgs, ReportFormat, ReportStyle,
-    RetargetArgs, SolveArgs, SweepArgs, Topic, ValidateArgs, lighting_name, preset_name,
+    parse_retarget, parse_snap_meets, parse_solve, parse_sweep, parse_validate,
 };
 #[cfg(test)]
-pub use types::{CensusBuiltins, CensusOutput};
+#[cfg(feature = "adaptive-sampling")]
+pub use types::AdaptiveArgs;
+#[cfg(test)]
+#[cfg(feature = "beam")]
+pub use types::BeamArgs;
+pub use types::{
+    Batch, CensusArgs, Command, ExportArgs, ExportFormat, Exposure, ImageCompareArgs, InfoArgs,
+    JobCommandKind, MaterialArg, MetricsArgs, Mode, OptimizeArgs, RenderJobArgs, ReportFormat,
+    ReportStyle, RetargetArgs, SnapLimit, SnapMeetsArgs, SolveArgs, SweepArgs, Topic, ValidateArgs,
+    lighting_name, preset_name,
+};
+#[cfg(test)]
+pub use types::{CensusBuiltins, CensusOutput, PathCacheArgs};
 
 /// Parses `argv` (without the program name).
 ///
@@ -73,13 +95,16 @@ pub fn parse(argv: &[String]) -> Result<Command, String> {
         "optimize" => parse_optimize(rest),
         "retarget" => parse_retarget(rest),
         "sweep" => parse_sweep(rest),
+        "snap-meets" => parse_snap_meets(rest),
         "export" => parse_export(rest),
         "census" => parse_census(rest),
         "render" => parse_render_job(JobCommandKind::Render, rest).map(Command::Render),
         "tilt-video" => parse_render_job(JobCommandKind::TiltVideo, rest).map(Command::TiltVideo),
+        "image-compare" => parse_image_compare(rest),
         other => Err(format!(
             "unknown command {other:?} (expected info, solve, metrics, validate, optimize, \
-             retarget, sweep, export, census, render or tilt-video; see --help)"
+             retarget, sweep, snap-meets, export, census, render, tilt-video or image-compare; \
+             see --help)"
         )),
     }
 }

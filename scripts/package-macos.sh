@@ -42,6 +42,14 @@ fi
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
+# Each app carries its own license file, so packaging does not depend on a root LICENSE.
+license="apps/$binary_name/LICENSE"
+
+# fail MESSAGE: print why the packaging stops (a bare `test` under `set -e` exits silently).
+fail() {
+    echo "$1" >&2
+    exit 1
+}
 
 binary_architectures() {
     # Apple's -verify_arch consumes every following argument as an architecture.
@@ -52,21 +60,22 @@ binary_architectures() {
 
 if [[ "$preflight" == true ]]; then
     for tool in xcrun ditto install awk mktemp mkdir rm cat; do
-        command -v "$tool" >/dev/null
+        command -v "$tool" >/dev/null || fail "Packaging tool not found: $tool"
     done
     if [[ "$product" == cut ]]; then
         for tool in sips iconutil plutil; do
-            command -v "$tool" >/dev/null
+            command -v "$tool" >/dev/null || fail "Packaging tool not found: $tool"
         done
-        test -r apps/pleochroma-cut/assets/icon.png
+        [[ -r apps/pleochroma-cut/assets/icon.png ]] ||
+            fail "Missing the app icon: apps/pleochroma-cut/assets/icon.png"
     fi
     xcrun --find lipo
     xcrun --find otool
-    test -r LICENSE
+    [[ -r "$license" ]] || fail "Missing the license file: $license"
     # Exercise the same query used below on a real Mach-O without building one.
     # A system executable may be universal or arm64e, regardless of our target.
     probe_archs="$(binary_architectures /usr/bin/true)"
-    test -n "$probe_archs"
+    [[ -n "$probe_archs" ]] || fail "lipo -archs printed no architecture for /usr/bin/true"
     printf 'Packaging preflight passed: product=%s target=%s version=%s system-slices=%s\n' \
         "$product" "$target" "$version" "$probe_archs"
     exit 0
@@ -98,7 +107,7 @@ if [[ "$product" == worker ]]; then
     package="$stage_dir/${binary_name}-${version}-macos-${arch}"
     mkdir -p "$package"
     install -m 755 "$binary" "$package/$binary_name"
-    install -m 644 LICENSE "$package/LICENSE.txt"
+    install -m 644 "$license" "$package/LICENSE.txt"
     # Worker is a terminal application. Its operator-provided inputs and runtime
     # HDR cache are not installation assets, so no .app or resource bundle is needed.
     cat > "$package/README.txt" <<README
@@ -137,7 +146,7 @@ else
     resources="$app/Contents/Resources"
     mkdir -p "$app/Contents/MacOS" "$resources"
     install -m 755 "$binary" "$app/Contents/MacOS/pleochroma-cut"
-    install -m 644 LICENSE "$resources/LICENSE.txt"
+    install -m 644 "$license" "$resources/LICENSE.txt"
 
     # Slint embeds its UI, images and manual at compile time. The bundle needs only
     # the native application icon; derive an iconset from the committed desktop PNG.

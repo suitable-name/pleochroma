@@ -24,10 +24,8 @@ use crate::{
 
 /// Arithmetic identity for geometry, projection and optical CUDA execution.
 ///
-/// Persisted validation and oracle caches must not mix this route with older math.
-///
-/// v7 (2026-11-02): a stalled projection certifies at most four deferred line trials,
-/// smallest residual first, so some requests that v6 rescued late now report a miss.
+/// Persisted validation and oracle caches must not mix this route with older math. A stalled
+/// projection certifies at most four deferred line trials, the smallest residual first.
 pub const CUDA_ENVIRONMENT_MATH: &str = "cuda-env-v7";
 
 /// The physical execution route and cumulative work of one training run.

@@ -5,8 +5,7 @@
 //! module exports the few private things it needs, and nothing else:
 //!
 //! * a **file-picker answer queue**, the **clipboard** and **opener** captures: one-line
-//!   forwards to the published `uiprobe-hooks` crate (`picker`, `clipboard`, `opener`),
-//!   kept under their old names so no production call site and no scenario changes. With the
+//!   forwards to the `uiprobe-hooks` crate (`picker`, `clipboard`, `opener`). With the
 //!   feature on, `gui::pickers::pick` never opens an OS dialog: it takes the next queued answer
 //!   ([`queue_picker_answer`]) instead. A picker call with an empty queue answers "cancelled"
 //!   and records an "unexpected file dialog" failure that the harness reads back with
@@ -62,11 +61,9 @@ static SEAMS_DISARMED: AtomicBool = AtomicBool::new(false);
 /// File dialogs open, the clipboard and the OS opener are used, the library is found where the
 /// app always finds it, and a RADV restart really restarts.
 ///
-/// The binary's `main` calls it. The harness drives the library in-process and never runs
-/// `main`, so a scenario still gets every seam, while a `ui-harness` build started as the app
-/// (an `.exe` built by `cargo test --features ui-harness` or an `--all-features` build) no
-/// longer answers every file dialog with "cancelled" or opens its library in the working
-/// directory.
+/// The binary's `main` calls it, so a `ui-harness` build started as the app behaves like any
+/// other. The harness drives the library in-process and never runs `main`, so its scenarios keep
+/// every seam.
 pub fn disarm_seams() {
     SEAMS_DISARMED.store(true, Ordering::Relaxed);
 }
@@ -102,11 +99,9 @@ pub fn startup_preview_scan_pending() -> bool {
 /// Makes every later launch skip the live viewport's ray tracing.
 ///
 /// No GPU adapter is acquired and no frame is traced, as if the 3D view were an invisible tab
-/// (the gemological metrics still update). A harness relaunches the app hundreds of times per
-/// process, in up to 16 processes at once. With the GPU, creating and dropping that many Vulkan
-/// devices crashed the AMD driver (`amdvlk64.dll`, exit 0xc0000409); with the CPU tracer
-/// instead, 16 viewports tracing at once starved the planner and the library loads of CPU. The
-/// harness never judges rendered pixels, so nothing it checks depends on the traced image.
+/// (the gemological metrics still update). Harness runs go in parallel: device churn crashed the
+/// GPU driver, and parallel CPU tracing starved the planner. The harness never judges rendered
+/// pixels, so nothing it checks depends on the traced image.
 pub fn disable_viewport_rendering() {
     VIEWPORT_RENDERING_DISABLED.store(true, Ordering::Relaxed);
 }
@@ -238,8 +233,9 @@ pub const ROUGH_COLOR_SEED_PLAN_NAME: &str = crate::gui::HARNESS_SEED_PLAN_NAME;
 /// goes in the design library database ([`database_path`]), for the Rough Color tutorial videos.
 ///
 /// The rows are the ones the planner's Save and the wizard's Accept write (see
-/// `gui::rough_plan::saved::harness_seed`); the designs are the first library designs with
-/// measured extents. Call it while the app is shut down, after the library is in place.
+/// `gui::rough_plan::saved::harness_seed::seed_rough_color_plan`); the designs are the first
+/// library designs with measured extents. Call it while the app is shut down, after the library is
+/// in place.
 ///
 /// # Errors
 ///
@@ -305,6 +301,13 @@ pub fn compare_window() -> Option<crate::CompareWindow> {
 #[must_use]
 pub fn rough_planner_window() -> Option<crate::RoughPlannerWindow> {
     shown(crate::gui::harness_planner_window())
+}
+
+/// Why the Rough Planner's 3D view does not show its final picture yet, or `None` when it does:
+/// the newest frame is on screen at full size and no result scene is still being built.
+#[must_use]
+pub fn rough_planner_view_unsettled() -> Option<String> {
+    crate::gui::harness_planner_view_unsettled()
 }
 
 /// A clone of the live locate window, or `None` when never created or closed.

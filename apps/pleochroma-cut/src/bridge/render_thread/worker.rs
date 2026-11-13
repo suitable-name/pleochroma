@@ -1,14 +1,20 @@
 //! Progressive live worker; preview lifetimes never enter the final sample epoch.
 
+#[cfg(feature = "adaptive-sampling")]
+use super::adaptive_view;
 use super::{
     FirstHitSnapshot, MaterialOverrides, MaterialSources, RenderContext, context, display_thread,
     engine, frame_helpers, gpu_backend, interactive, live_split, local_preview, metrics_worker,
-    pacing,
+    pacing, remote_lane, reshade_view, tray_shadow_worker, viewport_cache,
 };
+#[cfg(feature = "beam")]
+use super::{ray_beams, still_beams};
 use crate::bridge::{
     frame_cache::{girdle_finish::GirdleFinishCache, stone_width::StoneWidthCache},
     sample_cursor::LiveEpoch,
 };
+#[cfg(feature = "adaptive-sampling")]
+use adaptive_view::{AdaptiveView, PassOutcome, Wanted};
 use context::{FrameInputs, resolve_frame_material, snapshot_frame_inputs};
 use display_thread::spawn_display_thread;
 use glam::Vec3;
@@ -25,12 +31,18 @@ use pleochroma::{
     },
 };
 use pleochroma_net::scene::effects::SceneEffects;
+#[cfg(feature = "beam")]
+use ray_beams::{RayBeamStep, RayBeamWanted, RayBeams, RayLaunch};
+use reshade_view::{RayView, Relight, RelightJob, ReshadeView, ReshadeWanted};
 use slint::Weak;
 use std::{
     sync::{Arc, Mutex, atomic::Ordering},
     thread,
     time::Instant,
 };
+#[cfg(feature = "beam")]
+use still_beams::{BeamStep, BeamWanted, Launch, StillBeams};
+use viewport_cache::{CacheOutcome, CacheWanted, ViewportCache};
 
 use pacing::{DENOISE_MIN_INTERVAL, FRAME_PACE};
 
@@ -39,6 +51,45 @@ use frame_helpers::{
     push_trace_progress, remote_suspends_local, resolve_remote_ownership, should_combine_remote,
     update_accumulation_state,
 };
+
+/// The adaptive view of a build without the `adaptive-sampling` feature: it never engages, so the
+/// viewport accumulates as usual whatever the saved "Adaptive Sampling in the Viewport" switch
+/// says.
+#[cfg(not(feature = "adaptive-sampling"))]
+struct AdaptiveView;
+
+#[cfg(not(feature = "adaptive-sampling"))]
+#[expect(
+    clippy::unused_self,
+    reason = "the same calls as the real view's, which answer from its run"
+)]
+impl AdaptiveView {
+    /// No run is ever engaged, so none has finished.
+    const fn is_finished(&self) -> bool {
+        false
+    }
+
+    /// No run is ever engaged, so it has shown no samples.
+    const fn samples_shown(&self) -> u32 {
+        0
+    }
+
+    /// No run is ever engaged, so there are no per-pixel means.
+    const fn means(&self) -> Option<&[Vec3]> {
+        None
+    }
+}
+
+/// The Tray Reflection resolved for one scene generation: the glossy plane under the stone, or
+/// the reason the requested reflection is not available.
+struct TrayMirrorPlan {
+    /// The scene generation the plane was resolved for.
+    generation: u64,
+    /// The plane and its head-on reflectance; `None` when the reflection is off or declined.
+    mirror: Option<pleochroma::optics::raytracer::environment::TrayMirror>,
+    /// The note that says why a requested reflection is not available.
+    refusal: Option<&'static str>,
+}
 
 /// The finish of each of the frame's facets: the authored frosted planes and the frosted
 /// girdle. `&[]` means all-polished, which is every design that frosts nothing.
@@ -60,20 +111,21 @@ fn frame_finishes<'c>(
     }
 }
 
-/// Spawns the live render thread and returns its handle.
+/// Spawns the live render thread. It runs until `running` is cleared.
 #[expect(
     clippy::too_many_lines,
     reason = "the render worker thread's full loop (resize/dirty handling, sampling, \
               progressive accumulation, UI callbacks); splitting it apart risks changing \
               GUI render-thread behaviour verifiable only by launching the app"
 )]
-pub fn spawn_render_thread<T, F, M, S, R>(
+pub fn spawn_render_thread<T, F, M, S, R, N>(
     ui_weak: Weak<T>,
     ctx: Arc<Mutex<RenderContext>>,
     update_image: F,
     update_metrics: M,
     update_gpu_status: S,
     update_trace_refusal: R,
+    update_trace_note: N,
 ) where
     // `TraceActivitySink` lets this function stay generic over `T`.
     T: TraceActivitySink + 'static,
@@ -86,9 +138,12 @@ pub fn spawn_render_thread<T, F, M, S, R>(
     // outlive the `upgrade_in_event_loop` closure.
     S: Fn(&T, slint::SharedString) + Send + 'static + Clone,
     // Callback to push `RenderContext::material_unresolved`'s cutter-facing reason (or
-    // an empty string once resolved) to `ViewportModel.trace_refusal` -- see this
-    // function's own `last_trace_refusal` doc comment for when it fires.
+    // an empty string once resolved) to `ViewportModel.trace_refusal`.
     R: Fn(&T, slint::SharedString) + Send + 'static + Clone,
+    // Callback to push the non-blocking trace note (the Stone Shadow's, the Tray Reflection's and
+    // the accelerators' soft notes, empty when none) to `ViewportModel.trace_note`; the picture
+    // stays valid.
+    N: Fn(&T, slint::SharedString) + Send + 'static + Clone,
 {
     thread::spawn(move || {
         let mut last_width = 0;
@@ -113,6 +168,15 @@ pub fn spawn_render_thread<T, F, M, S, R>(
         let mut last_denoise_at: Option<Instant> = None;
         // Metrics run independently of interactive tracing.
         let mut metrics_worker = MetricsWorker::spawn();
+        let mut shadow_worker = tray_shadow_worker::TrayShadowWorker::spawn();
+        let mut last_shadow_key = None;
+        // The shadow request of the scene generation it was built for (`None` inside: no
+        // shadow wanted), so the idle loop does not re-resolve the material or re-hash keys.
+        let mut shadow_plan: Option<(u64, Option<tray_shadow_worker::Planned>)> = None;
+        // The Tray Reflection's plane of the scene generation it was resolved for, and the
+        // reason a requested reflection is not available. The plane is a few vertex reads, so
+        // it is computed here on the render thread, once per scene generation.
+        let mut mirror_plan: Option<TrayMirrorPlan> = None;
         // Publish each metrics version once, including while idle.
         let mut pushed_metrics_version: u64 = 0;
         let mut last_pushed_pitch_deg: Option<f32> = None;
@@ -122,9 +186,30 @@ pub fn spawn_render_thread<T, F, M, S, R>(
         let mut last_gpu_status: Option<String> = None;
         // None ensures the initial refusal status is published once.
         let mut last_trace_refusal: Option<String> = None;
+        // The non-blocking trace note last pushed; same convention as `last_trace_refusal`.
+        let mut last_trace_note: Option<String> = None;
         let mut hybrid_pacing = HybridPacing::new();
         let mut engine_cache = engine::EngineAccumulator::default();
         let mut pass_budget = PassBudget::default();
+        // The opt-in adaptive sampling of a still view; idle while the preference is off.
+        #[cfg(feature = "adaptive-sampling")]
+        let mut adaptive_view = AdaptiveView::default();
+        #[cfg(not(feature = "adaptive-sampling"))]
+        let adaptive_view = AdaptiveView;
+        // The opt-in path cache of a still view (memory only); idle while the preference is off.
+        let mut viewport_cache = ViewportCache::default();
+        // The opt-in stored light paths of a still Ray-Traced view: a lighting-only change
+        // re-lights them at once; idle while the preference is off.
+        let mut reshade_view = ReshadeView::default();
+        // The opt-in beam job of a still view; inert while the preference is off.
+        #[cfg(feature = "beam")]
+        let mut still_beams = StillBeams::default();
+        // The opt-in beam job of a still Ray-Traced view (instant lighting with beams); inert
+        // while the preference is off.
+        #[cfg(feature = "beam")]
+        let mut ray_beams = RayBeams::default();
+        // Half-buffer B of the cached GPU pass, which the viewport has no use for.
+        let mut cache_scratch: Vec<Vec3> = Vec::new();
         // Recomputed only when the active design's geometry actually changes.
         let mut girdle_cache = GirdleFinishCache::new();
         let mut stone_width_cache = StoneWidthCache::new();
@@ -160,6 +245,8 @@ pub fn spawn_render_thread<T, F, M, S, R>(
                 backdrop,
                 surface_glare,
                 head_shadow_deg,
+                stone_shadow,
+                tray_reflection,
                 target_samples,
                 max_bounces,
                 exposure,
@@ -187,17 +274,145 @@ pub fn spawn_render_thread<T, F, M, S, R>(
                 live_compute_target,
                 local_compute_target,
                 local_preview_scale,
+                adaptive_viewport,
+                path_cache_viewport,
+                instant_lighting,
+                #[cfg(feature = "beam")]
+                beam_viewport,
+                #[cfg(feature = "beam")]
+                beam_instant_lighting,
                 camera_moving,
                 camera_drag_held,
                 env_map,
+                hdr_orientation,
                 scene_generation,
+                pose_generation,
             } = snapshot_frame_inputs(&ctx);
+            // A build without the `adaptive-sampling` feature keeps the saved switch but never
+            // samples adaptively, whatever it says.
+            #[cfg(not(feature = "adaptive-sampling"))]
+            let _ = adaptive_viewport;
             let camera_moving =
                 drag_gesture.moving(camera_moving, camera_drag_held, scene_generation);
+            // Exit collection, the default estimator, does not use beam tracing: the
+            // Path-Traced view never beam traces while the app collects. The Ray-Traced view
+            // has no estimator and keeps its beams.
+            #[cfg(feature = "beam")]
+            let beams_collect_refused = beam_viewport
+                && pleochroma::optics::raytracer::default_estimator()
+                    == pleochroma::optics::raytracer::Estimator::ExitCollection;
 
             if !running {
                 break;
             }
+
+            // Poll before suspension and convergence exits, including remote-only views.
+            // The request (resolved material and both keys) is rebuilt only when the scene
+            // generation moves: every input of it is part of the scene key, so an idle or
+            // converged loop pays nothing for it.
+            if shadow_plan
+                .as_ref()
+                .is_none_or(|(generation, _)| *generation != scene_generation)
+            {
+                let plan = (stone_shadow && env_map.is_none()).then(|| {
+                    let material = resolve_frame_material(
+                        &MaterialSources {
+                            materials: &materials,
+                            custom_materials: &custom_materials,
+                            material_override: material_override.as_ref(),
+                            material_name: &material_name,
+                        },
+                        &MaterialOverrides {
+                            inclusion_sigma_s,
+                            c_axis_override,
+                            alpha_axis_override,
+                            edge_rounding_radius,
+                            stone_width_mm,
+                        },
+                        &active_planes,
+                        &mut stone_width_cache,
+                    );
+                    let material = match scene_effects.apply_to_material(&material) {
+                        std::borrow::Cow::Borrowed(_) => material,
+                        std::borrow::Cow::Owned(traced) => traced,
+                    };
+                    tray_shadow_worker::Planned::new(tray_shadow_worker::Request {
+                        planes: Arc::clone(&active_planes),
+                        tools: Arc::clone(&active_tools),
+                        material,
+                        preset: lighting_preset,
+                        yaw: light_yaw,
+                        pitch: light_pitch,
+                        backdrop: backdrop.resolve(lighting_preset, light_yaw, light_pitch),
+                        max_bounces,
+                    })
+                });
+                shadow_plan = Some((scene_generation, plan));
+            }
+            let shadow_request = shadow_plan.as_ref().and_then(|(_, plan)| plan.as_ref());
+            // A hidden, paused, exporting or unresolved view traces nothing, so it starts no new
+            // build either (the ready map stays). A remote render does not count: it needs the map.
+            let shadow_builds_allowed =
+                !(paused || !tab_visible || export_active || material_unresolved.is_some());
+            let remote_shadow = remote_active_snapshot
+                || live_epoch_snapshot.is_some()
+                || matches!(
+                    live_compute_target,
+                    crate::settings::model::LiveComputeTarget::RemoteOnly
+                );
+            let shadow_eligible = stone_shadow
+                && env_map.is_none()
+                && lighting_preset != pleochroma::optics::raytracer::LightingPreset::Aset
+                && !lighting_preset.is_uv_lamp()
+                && backdrop.resolve(lighting_preset, light_yaw, light_pitch) > 0.0;
+            let (shadow_map, _) =
+                shadow_worker.update(shadow_request, remote_shadow, shadow_builds_allowed);
+            let map_key = shadow_map.as_ref().map(|map| map.key());
+            let shadow_reset = map_key != last_shadow_key;
+            last_shadow_key = map_key;
+
+            // The tray reflection: the plane under the stone, resolved when the scene generation
+            // moves (every input of it is part of the scene key). A scope the reflection does not
+            // reach (HDR, ASET, an ultraviolet lamp, no backdrop) leaves it off with a note.
+            if mirror_plan
+                .as_ref()
+                .is_none_or(|plan| plan.generation != scene_generation)
+            {
+                let scope = env_map.as_deref().map_or_else(
+                    || {
+                        lighting_preset
+                            .studio(exposure, light_yaw, light_pitch)
+                            .with_backdrop(backdrop.resolve(
+                                lighting_preset,
+                                light_yaw,
+                                light_pitch,
+                            ))
+                    },
+                    |map| {
+                        EnvironmentSource::hdr_at(map, exposure)
+                            .with_hdr_rotation(hdr_orientation.rotation_for(yaw))
+                    },
+                );
+                let (mirror, refusal) = match pleochroma::render_setup::tray_mirror_for(
+                    tray_reflection,
+                    scope,
+                    pleochroma::geometry::tool::StoneGeometry {
+                        planes: &active_planes,
+                        tools: &active_tools,
+                    },
+                ) {
+                    Ok(mirror) => (mirror, None),
+                    Err(reason) => (None, Some(reason.message())),
+                };
+                mirror_plan = Some(TrayMirrorPlan {
+                    generation: scene_generation,
+                    mirror,
+                    refusal,
+                });
+            }
+            let (tray_mirror, mirror_refusal) = mirror_plan
+                .as_ref()
+                .map_or((None, None), |plan| (plan.mirror, plan.refusal));
 
             // Release stale remote-image ownership the instant a fresh `dirty` arrives
             // for a reason other than the handoff's own start -- see
@@ -262,12 +477,28 @@ pub fn spawn_render_thread<T, F, M, S, R>(
                 continue;
             }
 
-            let (phase, phase_changed) = preview.select(
+            // Instant lighting changes: a still Ray-Traced view that holds the light paths of
+            // exactly this pose re-lights straight to the final picture. Only the lighting
+            // moved (the pose is the cached one), so a light drag is not camera motion either,
+            // and the quarter-resolution bootstrap is skipped.
+            let relight_possible = reshade_view::possible(
+                instant_lighting && !shadow_eligible && tray_mirror.is_none(),
+                engine.is_ray(),
+                remote_lane::remote_involved(
+                    remote_active,
+                    live_epoch.is_some(),
+                    live_compute_target,
+                ),
+            );
+            let relight_held = relight_possible && reshade_view.holds(pose_generation);
+            let camera_moving = camera_moving && !relight_held;
+            let (phase, phase_changed) = preview.select_keeping(
                 scene_generation,
                 camera_moving,
                 remote_active,
                 live_compute_target,
                 !display.busy(),
+                local_preview::AfterFinal::from_keep(relight_held),
             );
             let (width, height) =
                 local_preview::phase_dimensions(width, height, local_preview_scale, phase);
@@ -278,7 +509,7 @@ pub fn spawn_render_thread<T, F, M, S, R>(
             };
             // The phase boundary invalidates radiance even for identical dimensions.
             // Preview sample zero never consumes the final epoch's sample zero.
-            let dirty = dirty || phase_changed;
+            let dirty = dirty || phase_changed || shadow_reset;
 
             // Captured before `update_accumulation_state` overwrites `last_width`/
             // `last_height` -- invalidates the denoise cadence cache immediately on any
@@ -324,6 +555,136 @@ pub fn spawn_render_thread<T, F, M, S, R>(
                 display.bump_generation();
             }
 
+            // Adaptive sampling of a still view (the preference; off keeps `adaptive_on`
+            // false on every frame and the accumulation below untouched). Synced before the
+            // suspension `continue`, so a reset that lands on a suspended frame still drops
+            // the run -- `dirty` was consumed by the snapshot.
+            #[cfg(feature = "adaptive-sampling")]
+            let adaptive_on = adaptive_view.sync(Wanted {
+                applies: adaptive_view::applies(
+                    adaptive_viewport,
+                    engine.is_ray(),
+                    remote_lane::remote_involved(
+                        remote_active,
+                        live_epoch.is_some(),
+                        live_compute_target,
+                    ),
+                    phase,
+                    trace_target,
+                ),
+                reset: accumulation_reset,
+                first_pass_done: accum_samples > 0,
+                size: (width, height),
+                cap: trace_target,
+            });
+            #[cfg(not(feature = "adaptive-sampling"))]
+            let adaptive_on = false;
+            // The path cache of a still view: wanted once the pose has refined for
+            // `VIEWPORT_CACHE_AFTER_SPP` samples (an adaptive run's samples count, its
+            // accumulation stays at the first pass), dropped by the same reset that restarts
+            // the accumulation.
+            let cache_wanted = viewport_cache.sync(CacheWanted {
+                applies: viewport_cache::applies(
+                    path_cache_viewport && !shadow_eligible && tray_mirror.is_none(),
+                    engine.is_ray(),
+                    phase,
+                ),
+                reset: accumulation_reset,
+                samples: if adaptive_on {
+                    adaptive_view.samples_shown()
+                } else {
+                    accum_samples
+                },
+                size: (width, height),
+            });
+            // The beam-traced picture of a still view: a background job that starts once the pose
+            // has refined for `VIEWPORT_BEAMS_AFTER_SPP` samples and is cancelled by any change of
+            // pose, size or engine, or by the view going away. Beams win over the path cache on
+            // the stone they draw. With the preference off the state stays inert.
+            #[cfg(feature = "beam")]
+            let beam_step = still_beams.sync(BeamWanted {
+                applies: still_beams::applies(
+                    beam_viewport
+                        && !beams_collect_refused
+                        && !shadow_eligible
+                        && tray_mirror.is_none(),
+                    engine.is_ray(),
+                    remote_lane::remote_involved(
+                        remote_active,
+                        live_epoch.is_some(),
+                        live_compute_target,
+                    ),
+                    phase,
+                ) && tab_visible
+                    && !paused
+                    && !export_active
+                    && material_unresolved.is_none(),
+                pose: pose_generation,
+                scene: scene_generation,
+                size: (width, height),
+                samples: if adaptive_on {
+                    adaptive_view.samples_shown()
+                } else {
+                    accum_samples
+                },
+                instant_lighting: beam_instant_lighting,
+            });
+            #[cfg(feature = "beam")]
+            let cache_wanted = cache_wanted && !still_beams.owns_stone();
+            #[cfg(feature = "beam")]
+            if still_beams.take_news() {
+                publication_pending = true;
+            }
+            // The stored light paths of a still Ray-Traced view: wanted once its taps are all in,
+            // dropped by any change of pose (and by the preference or the phase going away); a
+            // change of lighting alone keeps them.
+            let relight_build_due = reshade_view.sync(ReshadeWanted {
+                applies: relight_possible && reshade_view::in_final(phase),
+                pose: pose_generation,
+                converged: !accumulation_reset && accum_samples >= trace_target,
+                size: (width, height),
+            });
+            // The beam-traced stone of a still Ray-Traced view: a background job once the
+            // Ray-Traced picture of this lighting is finished (its sum of taps is the Whitted
+            // background), cancelled by any change of pose, size or engine; a lighting change
+            // keeps the leaves. With the preference off the state stays inert.
+            #[cfg(feature = "beam")]
+            let ray_beam_step = ray_beams.sync(RayBeamWanted {
+                applies: ray_beams::applies(
+                    // The switch is greyed out while Beam Tracing in Still Views is off.
+                    beam_viewport
+                        && beam_instant_lighting
+                        && !shadow_eligible
+                        && tray_mirror.is_none(),
+                    engine.is_ray(),
+                    remote_lane::remote_involved(
+                        remote_active,
+                        live_epoch.is_some(),
+                        live_compute_target,
+                    ),
+                    phase,
+                ) && tab_visible
+                    && !paused
+                    && !export_active
+                    && material_unresolved.is_none(),
+                pose: pose_generation,
+                scene: scene_generation,
+                size: (width, height),
+                converged: !accumulation_reset
+                    && accum_samples > 0
+                    && accum_samples >= trace_target,
+            });
+            #[cfg(feature = "beam")]
+            if ray_beams.take_news() {
+                publication_pending = true;
+            }
+            // Whether the Ray-Traced beam job has nothing to do this frame; always so without the
+            // `beam` feature (beam tracing is retired).
+            #[cfg(feature = "beam")]
+            let ray_beam_idle = ray_beam_step == RayBeamStep::Idle;
+            #[cfg(not(feature = "beam"))]
+            let ray_beam_idle = true;
+
             if redisplay_requested {
                 publication_pending = true;
             }
@@ -350,20 +711,101 @@ pub fn spawn_render_thread<T, F, M, S, R>(
             // tracing resumes -- not one suspended-branch iteration later. Compared as
             // `&str` so an unchanged refusal (or an unchanged healthy `None`) costs one
             // comparison, not a clone, on every iteration -- same convention as
-            // `last_gpu_status` just above.
-            if material_unresolved.as_deref() != last_trace_refusal.as_deref() {
-                last_trace_refusal.clone_from(&material_unresolved);
+            // `last_gpu_status`.
+            let shadow_refusal = if !stone_shadow {
+                None
+            } else if env_map.is_some() {
+                Some(
+                    pleochroma::optics::raytracer::environment::tray_shadow::TrayShadowOff::Hdr
+                        .message(),
+                )
+            } else {
+                shadow_worker
+                    .refusal
+                    .map(tray_shadow_worker::Refusal::message)
+            };
+            let accelerator_refusal = if path_cache_viewport
+                && !engine.is_ray()
+                && pleochroma::optics::raytracer::default_estimator()
+                    == pleochroma::optics::raytracer::Estimator::ExitCollection
+            {
+                Some("Path cache off: exit collection, the default estimator, does not use it.")
+            } else if shadow_eligible && path_cache_viewport {
+                Some(
+                    "Path cache off: the stone shadow needs exit positions the cache does not keep.",
+                )
+            } else {
+                None
+            };
+            // The beams' note comes first: with the preference on, beams would have taken the stone.
+            #[cfg(feature = "beam")]
+            let accelerator_refusal = if shadow_eligible && beam_viewport {
+                Some("Beam tracing off: the stone shadow is traced without beams.")
+            } else {
+                accelerator_refusal
+            };
+            // The tray reflection declines the accelerators the same way; the shadow's note, when
+            // both are on, already names the accelerator.
+            let accelerator_refusal =
+                if accelerator_refusal.is_none() && tray_mirror.is_some() && path_cache_viewport {
+                    Some("Path cache off: the tray reflection needs paths the cache does not keep.")
+                } else {
+                    accelerator_refusal
+                };
+            #[cfg(feature = "beam")]
+            let accelerator_refusal = if tray_mirror.is_some() && beam_viewport && !shadow_eligible
+            {
+                Some("Beam tracing off: the tray reflection is traced without beams.")
+            } else {
+                accelerator_refusal
+            };
+            // Under exit collection the Path-Traced view's beams are off whatever else applies;
+            // the Ray-Traced view keeps them and shows no such note.
+            #[cfg(feature = "beam")]
+            let accelerator_refusal = if beams_collect_refused && !engine.is_ray() {
+                Some("Beam tracing off: exit collection, the default estimator, does not use it.")
+            } else {
+                accelerator_refusal
+            };
+            // Only an untraceable design is a refusal (it dims the picture and shows the
+            // banner); the shadow's and the accelerators' notes leave the picture valid and go
+            // to their own line.
+            let refusal = material_unresolved.as_deref();
+            if refusal != last_trace_refusal.as_deref() {
+                last_trace_refusal = refusal.map(str::to_owned);
                 let text: slint::SharedString = last_trace_refusal.as_deref().unwrap_or("").into();
                 let update_trace_refusal = update_trace_refusal.clone();
                 let _ = ui_weak_metrics_only.upgrade_in_event_loop(move |ui| {
                     update_trace_refusal(&ui, text);
                 });
             }
+            // With both effects refused, both reasons show (the shadow's first); the joined text
+            // is built only then.
+            let both_refusals = shadow_refusal
+                .zip(mirror_refusal)
+                .map(|(shadow, mirror)| format!("{shadow} {mirror}"));
+            let note = both_refusals
+                .as_deref()
+                .or(shadow_refusal)
+                .or(mirror_refusal)
+                .or(accelerator_refusal);
+            if note != last_trace_note.as_deref() {
+                last_trace_note = note.map(str::to_owned);
+                let text: slint::SharedString = last_trace_note.as_deref().unwrap_or("").into();
+                let update_trace_note = update_trace_note.clone();
+                let _ = ui_weak_metrics_only.upgrade_in_event_loop(move |ui| {
+                    update_trace_note(&ui, text);
+                });
+            }
+
+            // The loaded map with its turn at this camera yaw: what the metrics are scored under.
+            let metrics_env = env_map
+                .as_ref()
+                .map(|map| (map, hdr_orientation.rotation_for(yaw)));
 
             if suspension.tracing_suspended() {
-                // An invisible tab alone (the Edit tab's default
-                // Solid view mode) must not also freeze the gemological HUD/tilt-dialog
-                // metrics while the cutter keeps editing -- only a hard suspend does
+                // An invisible tab alone must not also freeze the gemological HUD and tilt-dialog
+                // metrics while the cutter keeps editing; only a hard suspend does
                 // (see `SuspensionFlags::metrics_suspended`). The worker request is a
                 // no-op whenever planes/material/pose haven't moved since the last one,
                 // so this costs nothing extra in the common case. Pushed directly via
@@ -404,7 +846,7 @@ pub fn spawn_render_thread<T, F, M, S, R>(
                         &current_mat,
                         [yaw, pitch, light_yaw, light_pitch],
                         lighting_preset,
-                        env_map.as_ref(),
+                        metrics_env,
                         head_shadow_deg,
                     );
                     // Only a newer evaluation or a moved pitch marker reaches the UI.
@@ -460,8 +902,7 @@ pub fn spawn_render_thread<T, F, M, S, R>(
             );
 
             // Optical metrics: analytical raytracing from the camera PoV accounting for
-            // light direction. Expensive (single-threaded, twenty evaluations after a
-            // light/cut/material change), and dependent only on (active_planes,
+            // light direction. Expensive (single-threaded), and dependent only on (active_planes,
             // current_mat, yaw, pitch, light_yaw, light_pitch, lighting_preset, env_map),
             // so it runs on the metrics worker: this only queues a request when one of
             // those moved, and the frame shows the last published values until the
@@ -482,7 +923,7 @@ pub fn spawn_render_thread<T, F, M, S, R>(
                 &current_mat,
                 [yaw, pitch, light_yaw, light_pitch],
                 lighting_preset,
-                env_map.as_ref(),
+                metrics_env,
                 head_shadow_deg,
             );
             let cam_pitch_deg = pitch.to_degrees();
@@ -503,14 +944,24 @@ pub fn spawn_render_thread<T, F, M, S, R>(
             // sleep only when local is converged AND remote has nothing new to show.
             let remote_advanced =
                 live_epoch.is_some() && remote_samples_done_now > last_displayed_remote_samples;
-            let local_converged =
-                accum_samples.saturating_add(remote_samples_done_now) >= trace_target;
+            // An adaptive run is converged when every tile has stopped or the cap is reached.
+            let local_converged = if adaptive_on {
+                adaptive_view.is_finished()
+            } else {
+                accum_samples.saturating_add(remote_samples_done_now) >= trace_target
+            };
             // `redisplay_requested` (the denoise toggle) is treated exactly like
             // `remote_advanced` here -- see `RenderContext::redisplay_requested`'s own
             // doc comment: it must fall through to a display cycle below even though
             // nothing new was traced, rather than taking this early sleep and never
             // re-tonemapping the already-converged buffer at all.
-            if local_converged && !dirty && !remote_advanced && !publication_pending {
+            if local_converged
+                && !dirty
+                && !remote_advanced
+                && !publication_pending
+                && !relight_build_due
+                && ray_beam_idle
+            {
                 // No display cycle will carry a metrics evaluation that finished after
                 // the converged picture was shown, so send it on its own.
                 push_if_fresh(
@@ -533,7 +984,12 @@ pub fn spawn_render_thread<T, F, M, S, R>(
                 accumulation_reset,
                 trace_target.saturating_sub(accum_samples.saturating_add(remote_samples_done_now)),
             );
-            let local_claim = if local_converged && !dirty {
+            let waiting_for_remote_shadow = remote_shadow
+                && stone_shadow
+                && env_map.is_none()
+                && shadow_map.is_none()
+                && shadow_worker.refusal.is_none();
+            let local_claim = if (local_converged && !dirty) || waiting_for_remote_shadow {
                 None
             } else {
                 live_split::local_frame_claim(live_epoch.as_deref(), accum_samples, spp)
@@ -542,6 +998,8 @@ pub fn spawn_render_thread<T, F, M, S, R>(
                 && !remote_advanced
                 && !publication_pending
                 && !accumulation_reset
+                && !relight_build_due
+                && ray_beam_idle
             {
                 // Waiting on the remote chunk that holds the last unclaimed indices --
                 // nothing new to trace or show yet.
@@ -558,23 +1016,74 @@ pub fn spawn_render_thread<T, F, M, S, R>(
             }
             let camera = Camera::new(yaw, pitch, distance, DEFAULT_FOV_DEG).with_roll(camera_roll);
 
-            // A loaded HDR panorama replaces the analytic studio rig as this frame's
-            // environment source. The GPU megakernel has its own `env_mode` for
+            // A loaded HDR panorama, lit at `exposure`, replaces the analytic studio rig as
+            // this frame's environment source. The GPU megakernel has its own `env_mode` for
             // `HdrMap` and renders it directly; `accumulate_frame_samples` still falls
             // through to the CPU path (`render_frame_scanlines`) on a decline, but that
             // is the same generic per-frame fallback every other scene gets (no
             // adapter, device lost, `gpu` feature off, or a map past the adapter's
             // storage-buffer limit), not an HDR-specific one.
-            let environment = env_map.as_deref().map_or_else(
-                || {
-                    lighting_preset
-                        .studio(exposure, light_yaw, light_pitch)
-                        .with_backdrop(backdrop.resolve(lighting_preset, light_yaw, light_pitch))
-                        .with_surface_glare(surface_glare)
-                        .with_head_shadow(head_shadow_deg)
-                },
-                EnvironmentSource::HdrMap,
-            );
+            let environment = env_map
+                .as_deref()
+                .map_or_else(
+                    || {
+                        lighting_preset
+                            .studio(exposure, light_yaw, light_pitch)
+                            .with_backdrop(backdrop.resolve(
+                                lighting_preset,
+                                light_yaw,
+                                light_pitch,
+                            ))
+                            .with_surface_glare(surface_glare)
+                            .with_head_shadow(head_shadow_deg)
+                    },
+                    |map| {
+                        EnvironmentSource::hdr_at(map, exposure)
+                            .with_hdr_rotation(hdr_orientation.rotation_for(yaw))
+                    },
+                )
+                .with_tray_shadow(shadow_map.as_deref())
+                .with_tray_mirror(tray_mirror);
+
+            // The frame a Ray-Traced view traces; only the instant-lighting code reads it.
+            let ray_view = RayView {
+                width,
+                height,
+                yaw,
+                pitch,
+                distance,
+                camera: &camera,
+                planes: &active_planes,
+                tools: &active_tools,
+                fluorescence: fluorescence
+                    .as_deref()
+                    .unwrap_or_else(|| Fluorescence::none()),
+                facet_finishes,
+                material: &current_mat,
+                max_bounces,
+                environment,
+            };
+            if relight_build_due {
+                // Phase A of every tile of the finished still pose. The Ray-Traced picture stays
+                // on screen meanwhile; a cancel (any edit) abandons the build.
+                reshade_view.build(&ray_view, &cancel);
+                continue;
+            }
+            #[cfg(feature = "beam")]
+            if ray_beam_step != RayBeamStep::Idle {
+                // The stone of the finished Ray-Traced picture from beams: the job starts in the
+                // background and the picture stays on screen until it lands.
+                let launch = RayLaunch {
+                    hdr: env_map.as_ref(),
+                    frame_cancel: &cancel,
+                    accum: accum_buffer.as_slice(),
+                    taps: accum_samples,
+                };
+                ray_view.with_frame((1, 0), |frame| {
+                    ray_beams.launch(ray_beam_step, frame, &launch);
+                });
+                continue;
+            }
 
             // Skipped when this iteration exists only to refresh the display with
             // remote's latest contribution -- see `local_claim`'s own comment above.
@@ -613,71 +1122,193 @@ pub fn spawn_render_thread<T, F, M, S, R>(
                     max_bounces,
                     environment,
                     spp: frame_spp,
-                    // The claimed range's first absolute index -- the disjointness
-                    // guarantee: while combining, the epoch's cursor never hands
-                    // this range to the remote lane too. See this module's doc
-                    // comment.
+                    // The claimed range's first absolute index. While combining, the epoch's
+                    // cursor never hands this range to the remote lane too.
                     sample_offset,
                 };
-                // Told before the frame so the guide prepass skips the signature walk
-                // that `sync_path_sig` below would discard (UI-1 a).
-                let path_sig_wanted = denoise_enabled && !phase.is_preview();
-                gpu_backend.set_path_sig_wanted(path_sig_wanted);
-                let completed = engine::accumulate_engine_samples(
-                    &mut engine_cache,
-                    engine,
-                    scene_generation,
-                    env_map.as_ref(),
-                    &mut gpu_backend,
-                    &backend_frame,
-                    &mut pass_budget.begin(accum_buffer.len()),
-                    &mut hybrid_pacing,
-                    phase.compute(local_compute_target),
-                    &cancel,
-                );
-                match completed {
-                    Ok(true) if !cancel.load(Ordering::Acquire) => {}
-                    Ok(_) => continue,
-                    Err(reason) => {
-                        tracing::warn!(
-                            reason = reason.message(),
-                            "image engine declined the scene"
-                        );
-                        continue;
-                    }
+                // The beam job of this still pose (or the re-light of its leaves) starts here, in
+                // the background; the pass below goes on as usual.
+                #[cfg(feature = "beam")]
+                if beam_step != BeamStep::Idle {
+                    still_beams.launch(
+                        beam_step,
+                        &backend_frame,
+                        &Launch {
+                            hdr: env_map.as_ref(),
+                            cap: trace_target,
+                            frame_cancel: &cancel,
+                        },
+                    );
                 }
-                // The signature costs a prepass per pose and material, so it is skipped
-                // (zeroed) while the denoiser is off or the camera is moving.
-                if !gpu_backend.sync_path_sig(
-                    &backend_frame,
-                    &mut first_hit_path_sig,
-                    path_sig_wanted,
-                    &cancel,
-                ) || cancel.load(Ordering::Acquire)
+                // Instant lighting changes: the light paths of this very pose are held and only the
+                // lighting moved, so the picture is drawn from them instead of traced.
+                let relit = if relight_held && accumulation_reset && reshade_view::in_final(phase) {
+                    let job = RelightJob {
+                        engine,
+                        generation: scene_generation,
+                        shared_hdr: env_map.as_ref(),
+                        taps: trace_target,
+                    };
+                    match reshade_view.relight(
+                        &ray_view,
+                        &mut engine_cache,
+                        &job,
+                        accum_buffer.as_mut_slice(),
+                        &cancel,
+                    ) {
+                        Relight::Cancelled => continue,
+                        Relight::Done => true,
+                        Relight::Unavailable => false,
+                    }
+                } else {
+                    false
+                };
+                // A still pose that has stood long enough gets its path cache here (phase A
+                // of every tile, once); a cancel during the build abandons the frame.
+                if cache_wanted
+                    && !viewport_cache.ensure_built(&backend_frame, &cancel)
+                    && cancel.load(Ordering::Acquire)
                 {
                     continue;
                 }
-                pass_budget.commit(
-                    &mut FrameOutputs {
-                        accum: &mut accum_buffer,
-                        depth: &mut first_hit_depth,
-                        normal: &mut first_hit_normal,
-                        facet_id: &mut first_hit_facet_id,
-                    },
-                    frame_spp,
-                    pass_start.elapsed(),
-                );
-                last_pass_elapsed = pass_start.elapsed();
-                publication_pending = true;
-                accum_samples += frame_spp;
-                claim.commit();
-                tracing::debug!(
-                    samples = frame_spp,
-                    width,
-                    height,
-                    elapsed_ms = pass_start.elapsed().as_millis(),
-                    "live render pass completed"
-                );
+                // One ordinary-accumulation pass shaded from the cache, when there is one.
+                let cached_pass = if !adaptive_on && viewport_cache.is_built() {
+                    match viewport_cache.accumulate_on(
+                        &mut gpu_backend,
+                        phase.compute(local_compute_target),
+                        &backend_frame,
+                        (accum_buffer.as_mut_slice(), &mut cache_scratch),
+                        &cancel,
+                    ) {
+                        CacheOutcome::Cancelled => continue,
+                        CacheOutcome::Done => true,
+                        CacheOutcome::Unavailable => false,
+                    }
+                } else {
+                    false
+                };
+                if relit {
+                    // The picture is in the accumulator already: the stone from the stored light
+                    // paths, the rest from the Ray-Traced engine, summed over all the taps.
+                    last_pass_elapsed = pass_start.elapsed();
+                    publication_pending = true;
+                    accum_samples = trace_target;
+                    claim.commit();
+                    tracing::debug!(
+                        taps = trace_target,
+                        width,
+                        height,
+                        elapsed_ms = pass_start.elapsed().as_millis(),
+                        "instant lighting: re-lit from the stored light paths"
+                    );
+                } else if adaptive_on {
+                    #[cfg(feature = "adaptive-sampling")]
+                    {
+                        // One adaptive pass over the live tiles, traced by one engine (the
+                        // CPU+GPU split is not used here). The guides of the denoiser stay
+                        // those of the ordinary first pass of this accumulation, and the
+                        // ordinary sum and sample count are left alone: the display reads
+                        // the run's per-pixel means instead. With a path cache the stone
+                        // pixels shade from it.
+                        let compute = phase.compute(local_compute_target);
+                        let outcome = viewport_cache.with_pass_frame(&backend_frame, |cache| {
+                            adaptive_view.trace_pass_cached(
+                                &mut gpu_backend,
+                                compute,
+                                &backend_frame,
+                                cache,
+                                &cancel,
+                            )
+                        });
+                        if outcome == PassOutcome::Cancelled {
+                            continue;
+                        }
+                        last_pass_elapsed = pass_start.elapsed();
+                        publication_pending = true;
+                        claim.commit();
+                        tracing::debug!(
+                            samples = adaptive_view.samples_shown(),
+                            width,
+                            height,
+                            elapsed_ms = pass_start.elapsed().as_millis(),
+                            "adaptive live render pass completed"
+                        );
+                    }
+                } else if cached_pass {
+                    // The pass is in the accumulator already, the stone shaded from the path
+                    // cache. The denoiser's guides stay those of the pass that built them.
+                    last_pass_elapsed = pass_start.elapsed();
+                    publication_pending = true;
+                    accum_samples += frame_spp;
+                    claim.commit();
+                    tracing::debug!(
+                        samples = frame_spp,
+                        width,
+                        height,
+                        elapsed_ms = pass_start.elapsed().as_millis(),
+                        "cached live render pass completed"
+                    );
+                } else {
+                    // Told before the frame so the guide prepass skips the path-signature walk
+                    // that `sync_path_sig` below would discard.
+                    let path_sig_wanted = denoise_enabled && !phase.is_preview();
+                    gpu_backend.set_path_sig_wanted(path_sig_wanted);
+                    let completed = engine::accumulate_engine_samples(
+                        &mut engine_cache,
+                        engine,
+                        scene_generation,
+                        env_map.as_ref(),
+                        &mut gpu_backend,
+                        &backend_frame,
+                        &mut pass_budget.begin(accum_buffer.len()),
+                        &mut hybrid_pacing,
+                        phase.compute(local_compute_target),
+                        &cancel,
+                    );
+                    match completed {
+                        Ok(true) if !cancel.load(Ordering::Acquire) => {}
+                        Ok(_) => continue,
+                        Err(reason) => {
+                            tracing::warn!(
+                                reason = reason.message(),
+                                "image engine declined the scene"
+                            );
+                            continue;
+                        }
+                    }
+                    // The signature costs a prepass per pose and material, so it is skipped
+                    // (zeroed) while the denoiser is off or the camera is moving.
+                    if !gpu_backend.sync_path_sig(
+                        &backend_frame,
+                        &mut first_hit_path_sig,
+                        path_sig_wanted,
+                        &cancel,
+                    ) || cancel.load(Ordering::Acquire)
+                    {
+                        continue;
+                    }
+                    pass_budget.commit(
+                        &mut FrameOutputs {
+                            accum: &mut accum_buffer,
+                            depth: &mut first_hit_depth,
+                            normal: &mut first_hit_normal,
+                            facet_id: &mut first_hit_facet_id,
+                        },
+                        frame_spp,
+                        pass_start.elapsed(),
+                    );
+                    last_pass_elapsed = pass_start.elapsed();
+                    publication_pending = true;
+                    accum_samples += frame_spp;
+                    claim.commit();
+                    tracing::debug!(
+                        samples = frame_spp,
+                        width,
+                        height,
+                        elapsed_ms = pass_start.elapsed().as_millis(),
+                        "live render pass completed"
+                    );
+                }
             }
 
             if cancel.load(Ordering::Acquire) {
@@ -689,7 +1320,35 @@ pub fn spawn_render_thread<T, F, M, S, R>(
                 thread::sleep(std::time::Duration::from_millis(16));
                 continue;
             }
-            let current_sample_count = accum_samples;
+            // The picture to show: an adaptive run's per-pixel means once it has traced a
+            // pass, as a running sum of ONE sample (the display divides by its count, and
+            // each mean already is its own pixel's); else the ordinary running sum.
+            let (shown_accum, shown_count): (&[Vec3], u32) = if adaptive_on {
+                adaptive_view
+                    .means()
+                    .map_or((accum_buffer.as_slice(), accum_samples), |means| (means, 1))
+            } else {
+                (accum_buffer.as_slice(), accum_samples)
+            };
+            // Beams draw their finished tiles over that picture (again a running sum of one
+            // sample); without a beam job this is the picture above, untouched.
+            #[cfg(feature = "beam")]
+            let (display_accum, current_sample_count) =
+                if still_beams.owns_stone() && still_beams.compose_into(shown_accum, shown_count) {
+                    (still_beams.composite(), 1)
+                } else if ray_beams.shows() && ray_beams.compose_into(shown_accum, shown_count) {
+                    (ray_beams.composite(), 1)
+                } else {
+                    (shown_accum, shown_count)
+                };
+            #[cfg(not(feature = "beam"))]
+            let (display_accum, current_sample_count) = (shown_accum, shown_count);
+            // The samples per pixel the progress bar reports against the cap.
+            let shown_samples = if adaptive_on {
+                adaptive_view.samples_shown()
+            } else {
+                accum_samples.saturating_add(remote_samples_done_now)
+            };
 
             // Push `ViewportGpu`'s current self-healing
             // status to the UI whenever it actually changed -- see
@@ -722,7 +1381,11 @@ pub fn spawn_render_thread<T, F, M, S, R>(
             // cycle regardless of the gap, since each is the last send before settling
             // or the first after invalidation.
             let converged_now = !phase.is_preview()
-                && accum_samples.saturating_add(remote_samples_done_now) >= target_samples;
+                && if adaptive_on {
+                    adaptive_view.is_finished()
+                } else {
+                    accum_samples.saturating_add(remote_samples_done_now) >= target_samples
+                };
             let denoise_due = !denoise_enabled
                 || accumulation_reset
                 || redisplay_requested
@@ -758,7 +1421,7 @@ pub fn spawn_render_thread<T, F, M, S, R>(
                             width,
                             height,
                             current_sample_count,
-                            accum_buffer: &accum_buffer,
+                            accum_buffer: display_accum,
                             first_hit_depth: &first_hit_depth,
                             first_hit_normal: &first_hit_normal,
                             first_hit_facet_id: &first_hit_facet_id,
@@ -773,11 +1436,7 @@ pub fn spawn_render_thread<T, F, M, S, R>(
                             phase,
                             camera_moving,
                             converged: converged_now,
-                            samples: if phase.is_preview() {
-                                0
-                            } else {
-                                accum_samples.saturating_add(remote_samples_done_now)
-                            },
+                            samples: if phase.is_preview() { 0 } else { shown_samples },
                             target_samples,
                             pass_elapsed: last_pass_elapsed,
                         },

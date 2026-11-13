@@ -1,22 +1,14 @@
 //! Parallel batched CIE XYZ -> sRGB tone-mapping.
 //!
-//! `xyz_to_srgb_gamma` is not cheap, and three call sites
-//! (`frame_denoise::denoise_and_tonemap_frame`, `render_thread::tonemap_running_average`,
-//! `export_thread::tonemap_to_rgba`) each tone-map a full frame; doing so in a
-//! single-threaded loop on the UI thread is a visible synchronous stall on every
-//! progressive redraw (measured at 3840x2160, ~392ms).
+//! `xyz_to_srgb_gamma` is costly and a full frame is tone-mapped on every progressive redraw,
+//! so the conversion runs on parallel slice chunks rather than on one thread.
 //!
-//! This module factors the three call sites' identical inner loop into one parallel
-//! implementation, following the same row/slice-chunked `std::thread::scope` pattern
-//! `renderer::denoise::atrous_pass` and `pleochroma-worker::render_core::trace_samples`
-//! use. Unlike the A-Trous denoiser, tone-mapping has no stencil -- each output pixel
-//! is a pure function of exactly one input pixel -- so flat contiguous slice chunks
-//! are simpler and equally valid, and the result is trivially bit-identical for any
-//! chunking or thread count.
+//! Each output pixel is a pure function of one input pixel (there is no stencil, unlike the
+//! A-Trous denoiser), so flat contiguous slice chunks under `std::thread::scope` give
+//! bit-identical output for any chunking or thread count.
 //!
-//! The three call sites differ only in what scale factor is applied to each XYZ value
-//! before tone-mapping, so [`tonemap_to_rgba_with_threads`] takes that scale as a
-//! parameter rather than three near-duplicate functions.
+//! The scale applied to each XYZ value before tone-mapping is a parameter of
+//! [`tonemap_to_rgba_with_threads`].
 //!
 //! A live view converts a frame many times a second, so [`tonemap_to_rgba_into`] and
 //! [`tonemap_to_rgba_with_threads_into`] write into a buffer the caller keeps (or straight
@@ -24,18 +16,15 @@
 //!
 //! # The export's final 8-bit conversion
 //!
-//! [`tonemap_accumulation`] (float sum -> RGBA8 for an export's color space) lives here,
-//! not in the viewer, so the viewer's still export and tilt video and a server rendering
-//! a "final picture only" request (`FinalImageRequest`) run the SAME code: the PNG a
-//! server sends is then byte-identical to the one the viewer would have written from the
-//! same float sum. It moved here from `pleochroma-cut`'s `export_thread::tonemap_png`
-//! unchanged; `tests::tonemap_accumulation_matches_the_pre_move_export_code` pins that.
+//! [`tonemap_accumulation`] (float sum -> RGBA8 for an export's color space) lives here so the
+//! viewer's still export and tilt video and a server's "final picture only" request share one
+//! code path: the same float sum gives byte-identical PNGs in both.
 
 #[path = "live_cpu_budget.rs"]
 pub mod live_cpu_budget;
 
 use crate::{
-    color::{ColorSpace, ToneMap},
+    color::{ColorSpace, ToneMap, highlight_rule},
     optics::raytracer::xyz_to_srgb_gamma,
 };
 use glam::Vec3;
@@ -43,17 +32,11 @@ use glam::Vec3;
 /// Resolves a `--threads`-style argument to an actual thread count (`0` meaning "let
 /// the OS decide").
 ///
-/// The one definition the tone-mapper, the A-Trous denoiser and the worker's tracer all
-/// share, so every independent `thread::scope` site agrees on what "auto" means (the
-/// OS's available parallelism, falling back to 8).
+/// Shared by the tone-mapper and the A-Trous denoiser, so both agree on what "auto" means.
 ///
-/// `wasm32-unknown-unknown` has no OS thread to spawn: `std::thread::Scope::spawn` panics
-/// at runtime on this target, so this returns `1` unconditionally rather than merely
-/// capping `threads` -- that makes [`tonemap_to_rgba_with_threads`]'s "whole buffer fits
-/// in one chunk" fast path always taken, so `std::thread::scope` is never reached on this
-/// target at all. A separate `cfg`-gated definition (rather than one function with an
-/// internal `#[cfg]` block) so this wasm32 body can be `const fn`, since the native arm
-/// calls `std::thread::available_parallelism`, which is not `const`-compatible.
+/// `wasm32-unknown-unknown` has no OS threads (`std::thread::Scope::spawn` panics there), so
+/// this always returns `1`. It is a separate `cfg`-gated `const fn` because the native body
+/// calls `std::thread::available_parallelism`, which is not const.
 #[cfg(target_arch = "wasm32")]
 #[must_use]
 pub const fn effective_thread_count(_threads: usize) -> usize {
@@ -62,9 +45,8 @@ pub const fn effective_thread_count(_threads: usize) -> usize {
 
 /// Resolves a `--threads`-style argument to an actual thread count.
 ///
-/// `0` ("let the OS decide") becomes the OS's available parallelism (falling back to 8);
-/// any other value is returned unchanged. See the wasm32 definition above for the shared
-/// rationale.
+/// `0` ("let the OS decide") becomes the OS's available parallelism (falling back to 8). The
+/// result is capped by `live_cpu_budget::limit`.
 #[cfg(not(target_arch = "wasm32"))]
 #[must_use]
 pub fn effective_thread_count(threads: usize) -> usize {
@@ -77,6 +59,27 @@ pub fn effective_thread_count(threads: usize) -> usize {
     }
 }
 
+/// Tone-maps one pixel (`xyz` first multiplied by `scale`) to sRGB RGBA8.
+///
+/// The per-pixel step every sRGB function in this module runs; the adaptive-sampling error
+/// metric calls it too, so it judges noise on exactly what the picture shows.
+#[must_use]
+pub fn tonemap_pixel(xyz: Vec3, scale: f32) -> [u8; 4] {
+    xyz_to_srgb_gamma(xyz * scale)
+}
+
+/// [`tonemap_pixel`] before the 8-bit rounding: sRGB channels transfer-encoded in `0..=1`.
+///
+/// The adaptive-sampling error metric uses it, so noise below one display step still counts.
+#[must_use]
+pub fn tonemap_pixel_unquantized(xyz: Vec3, scale: f32) -> [f32; 3] {
+    ColorSpace::Srgb.encode_unquantized_with(
+        xyz * scale,
+        ToneMap::AcesFilmic { exposure: 1.0 },
+        highlight_rule(),
+    )
+}
+
 /// Tone-maps one contiguous slice of `colors` (each value first multiplied by `scale`)
 /// into the corresponding `dst` byte slice. `dst` must be exactly `colors.len() * 4`
 /// bytes. Pure function of its inputs -- no cross-pixel state -- which is what makes
@@ -85,7 +88,7 @@ pub fn effective_thread_count(threads: usize) -> usize {
 fn tonemap_chunk(colors: &[Vec3], dst: &mut [u8], scale: f32) {
     debug_assert_eq!(dst.len(), colors.len() * 4);
     for (i, xyz) in colors.iter().enumerate() {
-        let rgba = xyz_to_srgb_gamma(*xyz * scale);
+        let rgba = tonemap_pixel(*xyz, scale);
         let p = i * 4;
         dst[p] = rgba[0];
         dst[p + 1] = rgba[1];
@@ -158,9 +161,8 @@ pub fn tonemap_to_rgba_with_threads(colors: &[Vec3], scale: f32, threads: usize)
 
 /// Same as [`tonemap_to_rgba_with_threads`] with the OS-decided ("auto") thread count.
 ///
-/// The entry point every real call site that needs a fresh buffer should use; the
-/// explicit-thread-count form exists mainly for tests and callers that already manage
-/// their own thread budget.
+/// The usual entry point for a fresh buffer. The explicit-thread-count form is for tests and
+/// callers that manage their own thread budget.
 #[must_use]
 pub fn tonemap_to_rgba(colors: &[Vec3], scale: f32) -> Vec<u8> {
     tonemap_to_rgba_with_threads(colors, scale, 0)
@@ -241,9 +243,7 @@ pub fn tonemap_accumulation(
 mod tests {
     use super::*;
 
-    /// Deterministic xorshift32 PRNG, matching the one in `renderer::denoise`'s own
-    /// tests (kept separate rather than shared -- test-only helper, not worth a shared
-    /// dependency).
+    /// Deterministic test-only xorshift32 PRNG, a copy of the one in `renderer::denoise`'s tests.
     struct Xorshift32(u32);
     impl Xorshift32 {
         const fn new(seed: u32) -> Self {
@@ -368,9 +368,8 @@ mod tests {
         assert_eq!(long[40..], [0xCD; 8]);
     }
 
-    /// The export's tone-mapping exactly as `pleochroma-cut`'s
-    /// `export_thread::tonemap_png::tonemap_accumulation` wrote it before it moved here,
-    /// serial and unrefactored: the "before" side of the byte-identity pin.
+    /// Serial, unrefactored reference of [`tonemap_accumulation`]: the baseline of the
+    /// byte-identity pins below.
     fn pre_move_export_tonemap(
         samples_per_pixel: u32,
         accum: &[Vec3],
@@ -403,8 +402,8 @@ mod tests {
         ColorSpace::AcesCg,
     ];
 
-    /// The moved function is byte-identical to the pre-move export code for every
-    /// color space, on a buffer big enough to be split across threads.
+    /// [`tonemap_accumulation`] matches [`pre_move_export_tonemap`] for every color space, on a
+    /// buffer big enough to be split across threads.
     #[test]
     fn tonemap_accumulation_matches_the_pre_move_export_code() {
         let (width, height) = (97_u32, 61_u32);
@@ -425,10 +424,9 @@ mod tests {
         }
     }
 
-    /// Pins the output bytes for a small fixed buffer, per color space, so a later
-    /// change to the shared tone curve (which would silently change every export AND
-    /// every server-side final picture) fails here first. The hashes were taken from
-    /// [`pre_move_export_tonemap`], i.e. the code as it was before the move.
+    /// Pins the output bytes of a small fixed buffer per color space, so a change to the shared
+    /// tone curve (which would silently change every export and final picture) fails here first.
+    /// The hashes are those of [`pre_move_export_tonemap`].
     #[test]
     fn tonemap_accumulation_output_is_pinned() {
         // Pinned with the sRGB encode's final 8-bit quantisation at round-to-nearest.

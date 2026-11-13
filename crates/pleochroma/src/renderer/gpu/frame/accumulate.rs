@@ -24,7 +24,7 @@ use super::{
     bind_groups::wavefront_pixel_cap,
     classify_material,
     dispatch::{chunk_pixels_for, environment_params},
-    renderer::GpuFrameRenderer,
+    renderer::{GpuFrameRenderer, collect_applies, resolve_estimator},
     scene_buffers::{FrameSceneBuffers, SceneBufferInputs},
 };
 
@@ -44,6 +44,9 @@ impl GpuFrameRenderer {
     /// [`GpuFrameError::UnsupportedEnvironment`] if the scene uses an environment the
     /// megakernel has no `env_mode` for -- currently unreachable (see that variant's own
     /// doc comment; HDR maps render on the GPU).
+    /// [`GpuFrameError::TrayVariant`] if the scene carries a Stone Shadow or a Tray Reflection
+    /// this renderer cannot bind (the legacy wavefront, or a device short of buffer bindings);
+    /// nothing is written.
     /// [`GpuFrameError::DeviceLost`] if the device stops making forward progress
     /// mid-frame -- see that variant's own doc comment; `renderer::gpu_backend::GpuBackend`
     /// is the caller expected to react to it by suspending GPU rendering, then replacing
@@ -59,26 +62,20 @@ impl GpuFrameRenderer {
         spp: u32,
         accum: &mut [Vec3],
     ) -> Result<(), GpuFrameError> {
-        // classify_material is the ONE place this decision is made -- see the parent
-        // module's doc comment's "Material-class kernel specialisation" section.
-        // accumulate_via_pipeline is parameterised on which pipeline to dispatch through,
-        // so run_specialisation_equivalence can force a class directly and compare
-        // against what this wrapper picks. cancel: None -- this entry point never stops
-        // early.
+        // classify_material makes the class decision. accumulate_via_pipeline takes the class
+        // as a parameter so run_specialisation_equivalence can force other classes. No cancel
+        // flag: this entry point never stops early.
         let pipeline_class = classify_material(scene.material);
         self.accumulate_via_pipeline(scene, pipeline_class, sample_offset, spp, accum, None)?;
         Ok(())
     }
 
-    /// Like [`Self::accumulate`], but checked for cancellation between chunks.
+    /// Like [`Self::accumulate`], but stops between chunks once `cancel` is set.
     ///
-    /// `cancel` is polled once per loop iteration, between one chunk's dispatch and the
-    /// next's (never mid-chunk) -- once it fires, `accum` keeps the chunks already summed
-    /// and the chunk then in flight is waited on but not summed; see
-    /// [`AccumulateOutcome::Cancelled`]'s doc comment. Intended
-    /// caller: `renderer::gpu_backend::GpuBackend::try_accumulate_cancellable`, for a long
-    /// dispatch whose caller no longer needs the result (e.g. a disconnected client) and
-    /// would rather reclaim the GPU/CPU than wait it out.
+    /// `cancel` is polled between chunks, never mid-chunk. Chunks already summed stay in `accum`;
+    /// the chunk in flight is waited on but not summed (see [`AccumulateOutcome::Cancelled`]).
+    /// Used by `renderer::gpu_backend::GpuBackend::try_accumulate_cancellable` so that an
+    /// abandoned request, such as a disconnected client, frees the GPU.
     ///
     /// # Errors
     ///
@@ -142,24 +139,16 @@ impl GpuFrameRenderer {
         Ok(())
     }
 
-    /// The body [`Self::accumulate`]/[`Self::accumulate_cancellable`] delegate to,
-    /// parameterised on `pipeline_class` (one of `super::material_class`'s values) rather
-    /// than deriving it from `scene.material` -- lets
-    /// [`super::equivalence::run_specialisation_equivalence`] force the GENERIC pipeline
-    /// for a material [`classify_material`] would otherwise route to a specialised one,
-    /// and vice versa, which is what proves the two pipelines agree.
+    /// The body behind [`Self::accumulate`] and [`Self::accumulate_cancellable`].
     ///
-    /// A thin driver over [`Self::accumulate_turn`]: runs turns of unlimited chunk budget
-    /// (`max_chunks: usize::MAX`) back to back, starting from a fresh [`ChunkCursor`],
-    /// until the whole request is `Done`/`Cancelled` -- i.e. this function alone never
-    /// yields the renderer mid-request, exactly its pre-chunk-fairness behaviour. See
-    /// [`Self::accumulate_turn`]'s own doc comment for the turn-granular entry point
-    /// `renderer::gpu_backend::GpuBackend` actually drives for fairness across concurrent
-    /// requests.
+    /// The pipeline class (one of `super::material_class`'s values) is passed in rather than
+    /// derived from `scene.material`. [`super::equivalence::run_specialisation_equivalence`]
+    /// uses this to force the GENERIC pipeline for a material that [`classify_material`] would
+    /// route elsewhere, and the reverse, which is what shows the pipelines agree.
     ///
-    /// `cancel`, when `Some`, is [`Self::accumulate_cancellable`]'s cooperative
-    /// cancellation flag; `None` (every self-test, and [`Self::accumulate`]) means "never
-    /// cancel".
+    /// Drives [`Self::accumulate_turn`] with an unlimited chunk budget, so the request runs
+    /// to `Done` or `Cancelled` without yielding the renderer. `cancel` is `None` for every
+    /// self-test and for [`Self::accumulate`].
     ///
     /// # Errors
     ///
@@ -222,51 +211,35 @@ impl GpuFrameRenderer {
             cancel,
             max_chunks: usize::MAX,
             surface: None,
+            estimator: None,
         };
         loop {
             match self.accumulate_turn(&request, accum, &mut cursor)? {
                 ChunkTurnOutcome::Done => return Ok(AccumulateOutcome::Done),
                 ChunkTurnOutcome::Cancelled => return Ok(AccumulateOutcome::Cancelled),
-                // Unreachable with an unlimited turn budget (the turn loop below only
-                // stops early on `max_chunks`, never hit here) -- kept rather than
-                // `unreachable!()` so this driver stays correct even if that invariant
-                // ever changes.
+                // Unreachable with an unlimited turn budget. Matched rather than
+                // `unreachable!()` so this driver stays correct if that budget changes.
                 ChunkTurnOutcome::MoreWork => {}
             }
         }
     }
 
-    /// One fairness "turn" through the chunk loop: dispatches at most
-    /// `request.max_chunks` chunks starting from `cursor`'s progress, updates `cursor` in
-    /// place, and returns without leaving anything in-flight on the GPU -- see
-    /// [`ChunkTurnOutcome::MoreWork`]'s doc comment for exactly what "nothing in flight"
-    /// guarantees for a caller that hands this same renderer to a DIFFERENT request's
-    /// turn next.
+    /// One fairness turn: dispatches up to `request.max_chunks` chunks, advancing `cursor`.
     ///
-    /// Every turn -- including a RESUMED one -- re-verifies and re-uploads
-    /// `self.scene_buffers` via [`FrameSceneBuffers::ensure`] before dispatching anything
-    /// (see [`Self::prepare_turn`]). That upload is cheap (four small buffers) relative
-    /// to a chunk's own GPU work, and it is what makes resuming correct: a different
-    /// request's turn may have run in between and overwritten those same persistent
-    /// buffers with ITS scene, and this call has no other way to know. See
-    /// `renderer::gpu_backend`'s module doc comment ("Scene re-upload: the fairness
-    /// cost") for the resulting overhead.
+    /// Returns with no GPU work in flight (see [`ChunkTurnOutcome::MoreWork`]).
     ///
-    /// Split into [`Self::prepare_turn`] (setup) and [`Self::run_turn_chunks`] (the
-    /// dispatch/drain loop) purely to keep this function under clippy's function-length
-    /// limit; [`TurnRequest`] bundles the arguments both this function and
-    /// [`Self::accumulate_via_pipeline`] (its `max_chunks: usize::MAX` driver) share, to
-    /// stay under the argument-count limit too.
+    /// Every turn, resumed or not, re-verifies and re-uploads `self.scene_buffers` via
+    /// [`FrameSceneBuffers::ensure`] (see [`Self::prepare_turn`]). Another request's turn may
+    /// have overwritten those persistent buffers in between, and this is the only way to know.
     ///
-    /// This is a thin poisoning wrapper around [`Self::accumulate_turn_body`],
-    /// which does the actual work -- split out so every early return in the body (there
-    /// are several) doesn't also need to remember to clear `self.turn_in_progress`.
-    /// Checks `self.poisoned` first (a renderer `abandon_in_flight` already gave up
-    /// on declines immediately, without touching the GPU again), then
-    /// `self.turn_in_progress`: still `true` here means the PREVIOUS call into this
-    /// function never reached its own clearing step below, i.e. it unwound mid-turn,
-    /// which can leave a staging buffer mapped exactly like a returned `Err` would -- see
-    /// that field's own doc comment.
+    /// Split into [`Self::prepare_turn`] and [`Self::run_turn_chunks`] to stay under clippy's
+    /// function-length limit. [`TurnRequest`] bundles the arguments shared with
+    /// [`Self::accumulate_via_pipeline`] to stay under the argument-count limit.
+    ///
+    /// A thin poisoning wrapper around [`Self::accumulate_turn_body`], so no early return in
+    /// the body needs to clear `self.turn_in_progress`. A poisoned renderer declines at once.
+    /// `turn_in_progress` still set on entry means a previous call unwound mid-turn, which can
+    /// leave a staging buffer mapped; see that field's doc comment.
     ///
     /// # Errors
     ///
@@ -342,17 +315,9 @@ impl GpuFrameRenderer {
         } = self.prepare_turn(request)?;
         prepare_mark.lap_turn(TurnSlot::Prepare);
 
-        // frame_buffers is threaded through by value (not `&mut self.scene_buffers`
-        // directly) so `run_turn_chunks` can keep borrowing `self` mutably for
-        // `dispatch_chunk`/`drain_pending_chunk` without an overlapping borrow -- see
-        // `FrameSceneBuffers::ensure`'s own doc comment. Not put back into
-        // `self.scene_buffers` on an `Err` from below (a `?`-propagated `DeviceLost`, or
-        // `prepare_turn`'s own possible `UnsupportedEnvironment`): the former means this
-        // whole renderer is about to be discarded (see `GpuFrameError::DeviceLost`'s doc
-        // comment), and the latter has already taken `self.scene_buffers` out via
-        // `FrameSceneBuffers::ensure` before failing -- either way leaving
-        // `self.scene_buffers` as `None` there is harmless, just an extra rebuild next
-        // call.
+        // frame_buffers is passed by value so run_turn_chunks can borrow self mutably. On an
+        // Err it is not put back: a DeviceLost discards this renderer, and an early error has
+        // already taken the buffers out, so the next call just rebuilds them.
         let (frame_buffers, cancelled) = self.run_turn_chunks(
             request,
             &state,
@@ -362,9 +327,7 @@ impl GpuFrameRenderer {
             cursor,
         )?;
 
-        // Put the (possibly newly-created) persistent scene buffers back for the next
-        // turn -- this request's own resumption, or a completely different request's --
-        // to reuse.
+        // Put the scene buffers back for the next turn, from this request or another.
         self.scene_buffers = Some(frame_buffers);
 
         self.check_uncaptured_error()?;
@@ -378,22 +341,20 @@ impl GpuFrameRenderer {
         Ok(ChunkTurnOutcome::MoreWork)
     }
 
-    /// The setup [`Self::accumulate_turn`] must redo on EVERY turn before it can
-    /// dispatch a single chunk -- see that function's own doc comment for why a resumed
-    /// turn cannot skip this. Split out purely to keep `accumulate_turn` under clippy's
-    /// function-length limit.
+    /// The setup [`Self::accumulate_turn`] redoes on every turn before dispatching a chunk.
+    /// Split out to keep `accumulate_turn` under clippy's function-length limit.
     ///
-    /// Fallible: every `EnvironmentSource` variant maps to
-    /// an `env_mode` (see [`environment_params`]), but [`FrameSceneBuffers::ensure`] can
-    /// fail to (re)build the HDR
-    /// environment buffers for an oversized map, so a genuine `Err` path remains below.
-    /// [`GpuFrameError::UnsupportedMaterial`]
-    /// is still checked by [`Self::accumulate_turn_body`] itself, before this is called.
+    /// Fallible: [`FrameSceneBuffers::ensure`] can fail to (re)build the HDR environment
+    /// buffers for an oversized map. Every `EnvironmentSource` maps to an `env_mode` (see
+    /// [`environment_params`]). [`GpuFrameError::UnsupportedMaterial`] is checked by
+    /// [`Self::accumulate_turn_body`] before this is called.
     ///
     /// # Errors
     ///
     /// [`GpuFrameError::UnsupportedEnvironment`] -- see [`FrameSceneBuffers::ensure`]'s
-    /// `# Errors`.
+    /// `# Errors`. [`GpuFrameError::TrayVariant`] -- the scene carries a Stone Shadow or a Tray
+    /// Reflection this renderer cannot bind (the legacy wavefront, or a device short of buffer
+    /// bindings). [`GpuFrameError::LegacyWavefrontCollect`] -- see [`Self::turn_estimator`].
     pub(super) fn prepare_turn<'a>(
         &mut self,
         request: &TurnRequest<'a>,
@@ -426,33 +387,21 @@ impl GpuFrameRenderer {
         // ever indexes the first `planes + tools` of them -- the rest are never read.
         let gpu_finishes = surface.encode_finishes(scene.facet_finishes, packed.len());
 
-        let scene_key = super::workload::workload_key(
-            request,
-            self.pipeline_kind,
-            &packed,
-            &gpu_material,
-            &gpu_finishes,
-        );
-        if self.last_scene_key != Some(scene_key) {
-            self.ns_per_tuple_ema = None;
-            self.measured_chunk_tuples = None;
-            self.last_scene_key = Some(scene_key);
-        }
+        // Exit collection needs the surface the CPU tracer calls ideal; the estimator is the
+        // request's, else the renderer's. Both are part of what the frame costs (`note_workload`).
+        let ideal_surface = surface.is_ideal_for_cpu();
+        let estimator = self.turn_estimator(request, env_mode, studio_model, ideal_surface)?;
+        self.note_workload(request, &packed, &gpu_material, &gpu_finishes, estimator);
 
-        self.check_uncaptured_error()?;
-        self.ensure_transport_pipeline(request.pipeline_class);
-        self.check_uncaptured_error()?;
+        let pipeline_class = self.prepare_turn_pipeline(request, &gpu_material)?;
 
         // byte_budget_pixels is chunk_budget_bytes's hard ceiling in pixels -- output
         // buffers are sized against it ONCE, up front, so every dispatch below fits
         // without growing buffers mid-frame. See next_chunk_pixels for why the actual
         // per-chunk pixel count is computed fresh every iteration instead.
         let byte_budget_pixels = chunk_pixels_for(self.chunk_budget_bytes, request.spp, num_pixels);
-        // chunk_pixels_for's own ceiling is sized off FLOATS_PER_TUPLE (this
-        // module tree's production XYZ-only output, 12 bytes/tuple) -- it has no notion
-        // of GpuPipelineKind::Wavefront's much larger per-tuple footprint (its widest
-        // buffer, `ray_stokes`, is 128 bytes/tuple). A no-op for Megakernel; see
-        // Self::cap_byte_budget_for_wavefront's own doc comment.
+        // chunk_pixels_for sizes its ceiling for the XYZ-only output (12 bytes per tuple), not
+        // for the wavefront's larger per-tuple footprint. See cap_byte_budget_for_wavefront.
         let byte_budget_pixels =
             self.cap_byte_budget_for_wavefront(byte_budget_pixels, request.spp);
         self.ensure_capacity(byte_budget_pixels * request.spp as usize);
@@ -461,13 +410,9 @@ impl GpuFrameRenderer {
         self.ensure_params_buffers();
         self.ensure_reduce_params_buffers();
 
-        // camera/material/geometry/facet-finishes are PERSISTENT across every
-        // `accumulate` call (see FrameSceneBuffers::ensure), not merely uploaded
-        // once per call -- camera_params carries the FULL frame's dimensions, not a
-        // chunk-local one. Every chunk below reuses these same four buffers via
-        // build_chunk_bind_group, writing only GpuTransportParams's persistent per-slot
-        // buffer per chunk. See the parent module's doc comment's "Per-frame uploads,
-        // persistent staging" section.
+        // The camera, material, geometry and facet-finish buffers persist across chunks and
+        // calls (see FrameSceneBuffers::ensure). camera_params carries the full frame's size,
+        // not a chunk's.
         let camera_params = GpuCameraParams {
             origin: scene.camera.origin.to_array(),
             fov_tan: scene.camera.fov_tan,
@@ -478,15 +423,9 @@ impl GpuFrameRenderer {
             up: scene.camera.up.to_array(),
             num_samples: request.spp,
         };
-        // Taken out of `self.scene_buffers` and returned as an OWNED value rather than a
-        // `&FrameSceneBuffers` borrowed from `self` -- see `FrameSceneBuffers::ensure`'s
-        // doc comment for why: it lets `self.dispatch_chunk`/`self.drain_pending_chunk`
-        // keep borrowing `self` freely without conflicting with a borrow this would
-        // otherwise be holding from `self.scene_buffers`. The caller
-        // ([`Self::accumulate_turn`], via [`Self::run_turn_chunks`]) is responsible for
-        // putting it back into `self.scene_buffers` once done. Called EVERY turn, resumed
-        // or not -- see `accumulate_turn`'s own doc comment for why that's required now
-        // that a different request's turn can run in between two of this one's.
+        // Taken out of `self.scene_buffers` and returned by value, so dispatch_chunk and
+        // drain_pending_chunk can borrow `self` freely. The caller puts it back once the turn
+        // is done. Called on every turn (see `accumulate_turn`).
         let mut upload_mark = timing::Mark::now();
         let frame_buffers = FrameSceneBuffers::ensure(
             self.scene_buffers.take(),
@@ -507,7 +446,7 @@ impl GpuFrameRenderer {
             packed_len: packed.len(),
             tool_count: u32::try_from(request.tools.len())
                 .expect("a stone's tool count is bounded far below u32::MAX"),
-            pipeline_class: request.pipeline_class,
+            pipeline_class,
             sample_offset: request.sample_offset,
             spp: request.spp,
             env_mode,
@@ -520,6 +459,8 @@ impl GpuFrameRenderer {
             use_d65,
             studio_model,
             backdrop,
+            estimator,
+            ideal_surface,
         };
 
         Ok(TurnSetup {
@@ -529,28 +470,106 @@ impl GpuFrameRenderer {
         })
     }
 
-    /// Extra ceiling on `byte_budget_pixels` applied only for
-    /// [`GpuPipelineKind::Wavefront`] -- a no-op (returns `byte_budget_pixels` unchanged)
-    /// for [`GpuPipelineKind::Megakernel`].
+    /// The estimator this turn's frame asks for: the request's own, else the renderer's, else the
+    /// process default ([`Self::frame_estimator_for`]). A Tray Reflection turns exit collection
+    /// off on the GPU as on the CPU (a collected leaf cannot follow a floor bounce), so such a
+    /// frame asks for the branching estimator. Part of [`Self::prepare_turn`].
     ///
-    /// `dispatch_chunk_wavefront`'s `WavefrontRayBuffers` sizes its widest field,
-    /// `stokes`, at `tuples * 8 * 16` bytes -- 128 bytes per (pixel, sample) tuple, an
-    /// 8-channel field of `[f32; 4]`s. `chunk_pixels_for`'s own byte budget has no notion
-    /// of this: it is sized against `FLOATS_PER_TUPLE` (12 bytes/tuple, this module
-    /// tree's XYZ-only production output), which every OTHER per-chunk buffer this module
-    /// allocates for the megakernel path stays within. Left uncapped, a chunk near
-    /// `chunk_pixels_for`'s dispatch-limited ceiling (`MAX_WORKGROUPS_PER_DIMENSION *
-    /// WORKGROUP_SIZE`, ~4.19M tuples) would ask `stokes` alone for ~537 MB -- comfortably
-    /// past the WebGPU baseline `max_storage_buffer_binding_size` of 128 MiB -- which
-    /// `create_buffer` rejects at validation. Without the `on_uncaptured_error` handler
-    /// (see `GpuContext::acquire_async`'s doc comment) that failure panics the calling
-    /// thread mid-`dispatch_chunk`, straight into a state where the previous chunk's
-    /// staging buffer is never unmapped; with the handler installed, this cap is what
-    /// avoids relying on it to catch an entirely predictable and preventable size
-    /// mismatch in the first place.
+    /// # Errors
     ///
-    /// Queried from the device rather than hard-coded: the WebGPU baseline is 128 MiB,
-    /// but a real adapter can advertise more (or, rarely, request a smaller one).
+    /// [`GpuFrameError::LegacyWavefrontCollect`] when the frame would collect (the request's
+    /// own estimator, else the renderer's, else the process default, which the apps set to
+    /// exit collection), where collection applies to it, on a renderer running the legacy
+    /// bounce wavefront, which never collects: the frame is traced elsewhere (the CPU collects)
+    /// rather than with the other estimator.
+    fn turn_estimator(
+        &self,
+        request: &TurnRequest<'_>,
+        env_mode: u32,
+        studio_model: u32,
+        ideal_surface: bool,
+    ) -> Result<crate::optics::raytracer::Estimator, GpuFrameError> {
+        let tray_mirror = request.scene.environment.tray_mirror().is_some();
+        // What the frame would run on an engine that collects: the precedence of
+        // `resolve_estimator` without the legacy wavefront's own answer.
+        let collect_asked = resolve_estimator(
+            request.estimator,
+            self.estimator,
+            crate::optics::raytracer::default_estimator(),
+            GpuPipelineKind::Megakernel,
+        ) == crate::optics::raytracer::Estimator::ExitCollection;
+        if collect_asked
+            && matches!(self.pipeline_kind, GpuPipelineKind::Wavefront)
+            && collect_applies(
+                env_mode,
+                studio_model,
+                ideal_surface,
+                request.tools.len(),
+                tray_mirror,
+            )
+        {
+            return Err(GpuFrameError::LegacyWavefrontCollect);
+        }
+        Ok(if tray_mirror {
+            crate::optics::raytracer::Estimator::Branching
+        } else {
+            self.frame_estimator_for(request.estimator)
+        })
+    }
+
+    /// The pipeline class of this turn, with its resources ready: the class as this renderer can
+    /// run it (the optics-table bit dropped when it cannot, the tray bits set when the scene
+    /// carries a Stone Shadow or a Tray Reflection), the tray and table buffers prepared and the
+    /// transport pipeline built. Part of [`Self::prepare_turn`].
+    ///
+    /// # Errors
+    ///
+    /// [`GpuFrameError::TrayVariant`] when this renderer cannot bind the scene's Stone Shadow or
+    /// Tray Reflection; [`GpuFrameError::DeviceLost`] when the device reported an error.
+    fn prepare_turn_pipeline(
+        &mut self,
+        request: &TurnRequest<'_>,
+        gpu_material: &GpuGemMaterial,
+    ) -> Result<u32, GpuFrameError> {
+        let scene = request.scene;
+        let mut pipeline_class = self.effective_class(
+            request.pipeline_class
+                & !(super::material_class::TRAY_SHADOW | super::material_class::TRAY_MIRROR),
+        );
+        let shadow = scene.environment.tray_shadow();
+        let mirror = scene.environment.tray_mirror();
+        if shadow.is_some() {
+            pipeline_class |= super::material_class::TRAY_SHADOW;
+        }
+        if mirror.is_some() {
+            pipeline_class |= super::material_class::TRAY_MIRROR;
+        }
+        if super::material_class::uses_tray_variant(pipeline_class)
+            && !self.supports_tray_shadow_class(pipeline_class, false)
+        {
+            return Err(GpuFrameError::TrayVariant);
+        }
+        self.prepare_tray_shadow(shadow, mirror);
+        self.prepare_tables(pipeline_class, scene.material, gpu_material);
+
+        self.check_uncaptured_error()?;
+        self.ensure_transport_pipeline(pipeline_class);
+        self.check_uncaptured_error()?;
+        Ok(pipeline_class)
+    }
+
+    /// Extra ceiling on `byte_budget_pixels` for [`GpuPipelineKind::Wavefront`] only; a
+    /// no-op for [`GpuPipelineKind::Megakernel`].
+    ///
+    /// The wavefront's widest per-chunk buffer, `stokes`, takes 128 bytes per (pixel, sample)
+    /// tuple, while [`chunk_pixels_for`] budgets 12 bytes per tuple. Uncapped, a chunk near the
+    /// dispatch limit would request about 537 MB for `stokes` alone, above the WebGPU baseline
+    /// `max_storage_buffer_binding_size` of 128 MiB, and `create_buffer` would reject it. The
+    /// cap prevents that size error instead of relying on the uncaptured-error handler (see
+    /// `GpuContext::acquire_async`).
+    ///
+    /// The limit is read from the device, since adapters can advertise more or less than the
+    /// baseline.
     pub(super) fn cap_byte_budget_for_wavefront(
         &self,
         byte_budget_pixels: usize,
@@ -590,13 +609,9 @@ impl GpuFrameRenderer {
     ) -> Result<(FrameSceneBuffers, bool), GpuFrameError> {
         let num_pixels = state.scene.width as usize * state.scene.height as usize;
 
-        // One chunk's dispatch+copy is submitted, then (if a PREVIOUS chunk is still
-        // pending) that older chunk is mapped/read/summed -- so by the time the CPU
-        // blocks on chunk i's result, chunk i+1's GPU work is already queued behind it.
-        // See the parent module's doc comment's "Overlapped chunk pipeline" section.
-        // Resumed from `cursor`'s progress rather than always starting at pixel 0/chunk
-        // 0, so a turn picks up exactly where the previous one (on this same request)
-        // left off.
+        // Each chunk is dispatched before the previous one is drained, so the GPU has the next
+        // chunk queued while the CPU waits on the previous readback. Starts from `cursor`'s
+        // progress, so a resumed turn continues where the last one stopped.
         let mut pending: Option<PendingChunk> = None;
         let mut first_pixel = cursor.first_pixel;
         let mut chunk_index = cursor.chunk_index;
@@ -626,11 +641,12 @@ impl GpuFrameRenderer {
                 num_pixels,
             );
             let pixels_this_chunk = chunk_pixels.min(num_pixels - first_pixel);
+            // The sorted wavefront's or the staged megakernel's pipelines and buffers for this
+            // chunk (a no-op while both switches are off).
+            self.ensure_chunk_engine(state, pixels_this_chunk);
 
-            // Dispatch THEN drain, in that order -- so chunk i+1's GPU work is already
-            // queued by the time this call blocks (inside `drain_pending_chunk`) on
-            // chunk i's readback. See this function's own "R4" note above and the parent
-            // module's doc comment's "Overlapped chunk pipeline" section.
+            // Dispatch, then drain: chunk i+1 is queued before this call blocks on chunk i's
+            // readback inside `drain_pending_chunk`.
             let new_pending = self.dispatch_chunk(
                 state,
                 &frame_buffers,
@@ -639,14 +655,9 @@ impl GpuFrameRenderer {
                 chunk_index,
             )?;
             if let Some(prev) = pending.take() {
-                // Chunk i+1's dispatch (above) is already queued on the GPU
-                // by the time this blocks on chunk i's readback -- so if THIS drain
-                // fails, chunk i+1's own eventual drain would try to map a slot whose
-                // sibling never finished, and any later chunk reusing chunk i's slot
-                // would submit into a still-mapped buffer. Draining
-                // that still-pending chunk i+1 first is not safe either: the device may
-                // already have stopped making forward progress, so its own drain could
-                // fail (or hang) too. Abandon both slots now instead of trying.
+                // Chunk i+1 is already queued. If this drain fails, abandon both slots now:
+                // draining chunk i+1 could fail or hang too, and a later chunk reusing chunk
+                // i's slot would submit into a still-mapped buffer.
                 if let Err(err) = self.drain_pending_chunk(prev, state.spp, Some(&mut *accum)) {
                     self.abandon_in_flight();
                     return Err(err);
@@ -659,16 +670,10 @@ impl GpuFrameRenderer {
             chunks_this_turn += 1;
         }
 
-        // Whatever this turn ends with -- done, cancelled, or its chunk budget merely
-        // spent -- the ONE chunk the overlapped pipeline may still have in flight is
-        // drained right here, unconditionally, before this function returns control to
-        // the caller. This is the invariant `ChunkTurnOutcome::MoreWork`'s doc comment
-        // promises: a turn never returns with GPU work still outstanding, which is what
-        // lets a completely different request safely take the next turn on this same
-        // renderer. `cancelled` still waits for the in-flight chunk but does not sum its
-        // samples (see `AccumulateOutcome::Cancelled`'s doc comment);
-        // reaching the pixel budget or this turn's chunk budget both keep them --
-        // neither is a cancellation, so nothing traced this turn is thrown away.
+        // The chunk still in flight is drained here whatever ends the turn (done, cancelled or
+        // out of chunk budget), so no GPU work outlives the turn (see
+        // `ChunkTurnOutcome::MoreWork`). A cancelled chunk is waited on but not summed (see
+        // `AccumulateOutcome::Cancelled`). Every other exit keeps its samples.
         if let Some(chunk) = pending.take() {
             let mut tail_mark = timing::Mark::now();
             let drain_result = if cancelled {
@@ -677,10 +682,8 @@ impl GpuFrameRenderer {
                 self.drain_pending_chunk(chunk, state.spp, Some(&mut *accum))
             };
             tail_mark.lap_turn(TurnSlot::TailDrain);
-            // Identical reasoning to the mid-loop drain above -- a failure
-            // here means this renderer's staging slot is stuck mapped, so the next
-            // caller (a resumed turn on THIS request, or a completely different one)
-            // must never be allowed to dispatch into it.
+            // As above: a failed drain leaves a staging slot mapped, so the renderer must not
+            // dispatch again.
             if let Err(err) = drain_result {
                 self.abandon_in_flight();
                 return Err(err);

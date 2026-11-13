@@ -1,5 +1,5 @@
-//! The inclusion, play-of-color and abraded-edge choices of a design: the three optional parts of
-//! [`super::StoneRenderEffects`] that the render-physics features add.
+//! The inclusion, play-of-color and abraded-edge choices of a design: the three optional parts
+//! of [`super::StoneRenderEffects`].
 //!
 //! Each is `Copy` (like the rest of the effects) and converts to the renderer's own spec type
 //! with a `to_spec` method: [`InclusionEffects::to_spec`] gives the [`InclusionSpec`],

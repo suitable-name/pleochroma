@@ -198,9 +198,9 @@ impl WhittedGpuBackend {
         }
     }
 
-    /// Each bounded pair of chunks takes a FIFO turn. A request owns its frozen uploads, so another
-    /// request can interleave safely. Commit only after all chunks and cancellation
-    /// checks succeed. Limits and accumulator shape are checked on every call.
+    /// Each bounded pair of chunks takes a FIFO turn. The frozen uploads belong to the
+    /// request, so other requests can interleave. `accum` is written only after all chunks
+    /// and cancellation checks succeed. Limits and accumulator shape are checked on each call.
     ///
     /// # Panics
     ///

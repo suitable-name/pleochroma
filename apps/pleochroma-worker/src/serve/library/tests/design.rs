@@ -125,12 +125,9 @@ fn fetch_design_carries_the_stored_ratio_and_symmetry_fields() {
     std::fs::remove_file(&path).ok();
 }
 
-/// `source_citation`/`pdf_file`/`gem_file`/`shape_category` (added to `DesignRecord`
-/// under `PROTOCOL_VERSION` v15, see that constant's doc comment) must reach a remote
-/// client the same way the ratio/symmetry fields above do -- pins that
-/// `Database::get_diagram_full_meta` actually selects these four columns (a gap
-/// `get_diagram_full`, the local-only counterpart, did not have) and that
-/// `convert::to_record` maps them through.
+/// `source_citation`/`pdf_file`/`gem_file`/`shape_category` must reach a remote client the
+/// same way the ratio/symmetry fields above do. Pins that `Database::get_diagram_full_meta`
+/// selects these four columns and that `convert::to_record` maps them through.
 #[test]
 fn fetch_design_carries_the_stored_citation_and_shape_category_fields() {
     let path = std::env::temp_dir().join(format!(
@@ -259,9 +256,8 @@ fn filter_options_reports_the_seeded_shape_alongside_the_canonical_vocabulary() 
     std::fs::remove_file(&path).ok();
 }
 
-/// [`LibraryRequest::FetchDesignSource`] against the seeded fixture's real attached
-/// `.asc` file (`populated_temp_db` names it `schedule.pdf`, NOT `.asc` -- see the
-/// dedicated fixture built below) returns that attachment's exact text.
+/// [`LibraryRequest::FetchDesignSource`] returns the exact text of a design's attached `.asc`
+/// file. The entry is built here, since `populated_temp_db` attaches only `schedule.pdf`.
 #[test]
 fn fetch_design_source_returns_the_attached_asc_files_exact_text() {
     let path = std::env::temp_dir().join(format!(

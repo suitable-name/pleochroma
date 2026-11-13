@@ -58,14 +58,9 @@ thread_local! {
 /// area can exceed roughly `1/k` of the face's -- bounded regardless of how
 /// thin the polygon is.
 ///
-/// Internally normalises every plane offset by `pow2_scale_norm` of
-/// the arrangement's own representative scale before running any of the
-/// vertex-arrangement geometry below (the same absolute, order-1-tuned
-/// epsilons [`measure_solid`](super::measure_solid) shares), then scales
-/// every returned position and volume figure back up by the same factor --
-/// see that function's doc comment for the full reasoning (identical here).
-/// A design whose own scale already rounds to `2^0` builds a bit-identical
-/// mesh to before this normalisation existed.
+/// Plane offsets are normalised by `pow2_scale_norm` before the vertex
+/// geometry, and positions and volume are scaled back, as in
+/// [`measure_solid`](super::measure_solid).
 ///
 /// # Panics
 ///
@@ -139,10 +134,8 @@ pub(super) fn mesh_from_arrangement(arr: &Arrangement, rings: &[FaceRing]) -> So
 /// when fewer than three vertices lie on the plane -- the facet was cut away
 /// entirely, the same case [`face_area`] reports as zero area.
 ///
-/// This is the vertex-collection-and-ordering half of `face_area`'s work,
-/// factored out so [`build_solid_mesh`] can reuse the
-/// ring itself (for triangulation, and for an edge/picking pass) instead of
-/// only the scalar area `face_area` shoelaces it down to.
+/// Shared by [`build_solid_mesh`] (triangulation) and [`face_area`], which
+/// shoelaces it down to a scalar.
 pub(super) fn face_ring(normal: DVec3, offset: f64, verts: &[SolidVertex]) -> FaceRing {
     #[cfg(test)]
     FACE_RING_CALLS.with(|c| c.set(c.get() + 1));
@@ -185,18 +178,12 @@ pub(super) fn face_ring(normal: DVec3, offset: f64, verts: &[SolidVertex]) -> Fa
 /// was cut away entirely).
 ///
 /// Takes the centroid from [`face_ring`] rather than recomputing it from the
-/// returned ring. That is not a convenience: `face_ring` sorts the ring by
-/// angle, and float addition is not associative, so summing the same points
-/// in post-sort order can differ in the last bit from the pre-sort
-/// (as-filtered) order this function used before `face_ring` was split out.
-/// [`measure_solid`](super::measure_solid)'s volume is a sum of `offset *
-/// face_area(...) / 3` over every plane, so that last bit is observable -- the
-/// volume is contractually byte-identical across that refactor (see this
-/// module's tests). `face_ring` computing the centroid before it sorts is
-/// what preserves the order for free; recomputing it here from the sorted
-/// ring would silently break the guarantee, and recomputing it from a second
-/// filter pass would cost an extra scan and allocation per face on a function
-/// that runs over every plane of every design in the catalogue.
+/// returned ring. `face_ring` computes it before sorting the ring by angle, and
+/// float addition is not associative: summing the points in post-sort order can
+/// differ in the last bit. [`measure_solid`](super::measure_solid)'s volume sums
+/// `offset * face_area(...) / 3` over every plane, so that bit is observable, and
+/// this module's tests pin the volume bit for bit. A second filter pass for the
+/// centroid would cost an extra scan and allocation per face.
 pub(super) fn face_area(normal: DVec3, offset: f64, verts: &[SolidVertex]) -> f64 {
     face_ring(normal, offset, verts)
         .map_or(0.0, |(ring, centroid)| ring_area(normal, &ring, centroid))

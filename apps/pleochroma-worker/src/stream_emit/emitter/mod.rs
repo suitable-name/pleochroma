@@ -47,10 +47,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-// Re-exported (at their original `pub(super)`-equivalent scope, `crate::stream_emit`)
-// so `crate::stream_emit::emitter::{PendingDelta, EmitterAccum, ClientPoll,
-// poll_for_client_message, effective_cadence_ms, emit_tick}` keep resolving for
-// `stream_emit`'s own tests, exactly as when this was one flat `emitter.rs` file.
+// Crate-visible re-exports, so `stream_emit`'s tests can name these through `emitter`.
 pub(in crate::stream_emit) use accum::{EmitterAccum, PendingDelta};
 pub(in crate::stream_emit) use emit::effective_cadence_ms;
 #[cfg(test)]
@@ -68,14 +65,13 @@ const EMITTER_POLL: Duration = Duration::from_millis(20);
 /// latency per request) in the client-message poll before noticing.
 const FINISHED_POLL: Duration = Duration::from_millis(1);
 
-/// Caps how long any single `write()` inside this request's streaming phase may block --
-/// see [`TimeoutWrite`] for the stall/stuck-cancellation bug this closes.
+/// Caps how long one `write()` in this request's streaming phase may block; see
+/// [`TimeoutWrite`].
 ///
-/// Generous relative to [`EMITTER_POLL`]/[`super::MIN_CADENCE_FLOOR_MS`], which bound
-/// how often this worker wants to check in; this bounds the worst case for a genuinely
-/// quiet peer, with slack for a merely slow (not stuck) network -- a `FRAME` payload is
-/// the full scene resolution regardless of cadence, so a healthy connection over a
-/// constrained link can legitimately take real time to drain one.
+/// Generous relative to [`EMITTER_POLL`] and [`super::MIN_CADENCE_FLOOR_MS`], which bound
+/// how often this worker checks in. The bound covers a quiet peer with slack for a slow
+/// link: a `FRAME` payload is the full scene resolution whatever the cadence, so a healthy
+/// connection on a constrained link can take real time to drain one.
 const WRITE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Spawns `producer` on its own thread against a freshly built [`SharedState`], per
@@ -102,15 +98,13 @@ fn spawn_producer(
         pixel_count,
     );
     // A real `std::thread::spawn` (needs `'static`), not a scoped thread: the producer
-    // owns clones of everything it touches (the renderer is acquired once at
-    // `serve::run` startup and shared by every connection).
+    // owns clones of everything it touches.
     let handle = std::thread::spawn(move || producer(sink));
     (state, cancel, progress_rx, handle)
 }
 
-/// Writes the `DONE { cancelled: true, .. }` reply for a cancelled request -- the sole
-/// payload it ever carries, per [`run_stream`]'s doc comment on why an unsent buffer is
-/// discarded rather than flushed on cancellation.
+/// Writes the `DONE { cancelled: true }` reply for a cancelled request. Unsent buffers are
+/// discarded, not flushed; see [`run_stream`].
 fn write_cancelled_done<S: Write>(
     stream: &mut S,
     request: &RenderRequest,
@@ -142,7 +136,7 @@ fn write_cancelled_done<S: Write>(
     )
 }
 
-/// Answers a mid-stream `PING` (v14) with its `PONG` right away, passing every poll
+/// Answers a mid-stream `PING` with its `PONG` right away, passing every poll
 /// result through unchanged so [`run_stream_loop`] needs no extra arm for it.
 fn answer_ping<S: Write>(stream: &mut S, polled: ClientPoll) -> Result<ClientPoll, NetError> {
     if let ClientPoll::Ping(nonce) = polled {
@@ -151,10 +145,10 @@ fn answer_ping<S: Write>(stream: &mut S, polled: ClientPoll) -> Result<ClientPol
     Ok(polled)
 }
 
-/// Routes one `CONTRIBUTION` (v16, its header already read): into `spec.contribution`
-/// when it's this request's own reserved slot, else discarded (a stale/mismatched
-/// `request_id`, or a request with no reserved share at all) -- either way the payload
-/// frame that follows is always consumed, keeping the stream in sync.
+/// Routes one `CONTRIBUTION` whose header is already read: into `spec.contribution` when
+/// it is this request's own reserved slot, else discarded (a stale or mismatched
+/// `request_id`, or a request with no reserved share). Either way the payload frame that
+/// follows is consumed, keeping the stream in sync.
 ///
 /// # Errors
 ///
@@ -214,8 +208,7 @@ fn poll_once<S: Read + Write + TimeoutRead>(
             cancel.store(true, Ordering::Relaxed);
             *flags.peer_closed = true;
         }
-        // v16: routed into this request's reserved slot, or discarded -- see
-        // `route_contribution`.
+        // Routed into this request's reserved slot, or discarded -- see `route_contribution`.
         Ok(ClientPoll::Contribution(header)) => {
             if let Err(e) = route_contribution(stream, spec, request, &header, timeouts) {
                 cancel.store(true, Ordering::Relaxed);
@@ -315,13 +308,9 @@ fn finished_outcome<S: Write>(
         return Ok(StreamOutcome::TracePanicked);
     }
     if let Some(error) = failed {
-        // Whatever set `guard.failed` (the tracer thread, via
-        // `SharedState::failed`) may not have known this request's own id --
-        // stamp it here, at the one place every such error passes through on
-        // its way to the wire, so a late `ERROR` for a request the client has
-        // already moved on from is epoch-gated exactly like a stale `FRAME`
-        // (see `crate::client::accumulate::Accumulator::apply`) instead of
-        // failing whatever request happens to be current.
+        // The producer may not know this request's id, so it is stamped here, on the one
+        // path every producer error takes to the wire. A late `ERROR` then carries the id
+        // of the request it belongs to.
         return Ok(StreamOutcome::Failed(ErrorMsg {
             request_id: Some(spec.request.request_id),
             ..error
@@ -521,12 +510,14 @@ fn run_stream_loop<S: Read + Write + TimeoutRead + TimeoutWrite>(
     }
 }
 
-/// Streams one `RenderRequest`'s samples over `stream`, per `serve`'s module docs:
-/// spawns a tracer thread (`super::tracer::run_tracer`) that never touches `stream`, then this
-/// function -- the emitter -- owns `stream` for the rest of the request, interleaving
-/// cadence-paced `FRAME`/`PREVIEW`/`PROGRESS` writes with short-timeout polls (via
-/// [`poll_for_client_message`]) for an incoming `CANCEL` or pipelined `RenderRequest`.
-/// The tracer is decoupled so a slow `write()` never stalls sample production.
+/// Streams one `RenderRequest`'s samples over `stream`.
+///
+/// A tracer thread (`super::tracer::run_tracer`) never touches `stream`. This function, the
+/// emitter, owns `stream` for the rest of the request. It interleaves cadence-paced
+/// `FRAME`/`PREVIEW`/`PROGRESS` writes with short-timeout polls for a `CANCEL` or a
+/// pipelined `RenderRequest` (see [`poll_for_client_message`]). The decoupling keeps a
+/// slow `write()` from stalling sample production. See `serve`'s module docs for the
+/// architecture.
 ///
 /// On a normal finish, sends a final `FRAME` (the whole request for
 /// `TransferMode::FinalOnly`; whatever's left un-coalesced for
@@ -561,13 +552,10 @@ fn run_stream_loop<S: Read + Write + TimeoutRead + TimeoutWrite>(
 ///
 /// # A pipelined `RenderRequest` is queued, not rejected
 ///
-/// [`poll_for_client_message`] can hand back [`ClientPoll::NextRequest`] -- the client's
-/// next `RenderRequest`, sent without waiting for `DONE`. This function treats it as an
-/// implicit `CANCEL` of the current request followed by the new one, matching how the
-/// viewer actually behaves; forcing a `DONE` round trip or bouncing it back as an error
-/// would only add latency. The superseded request's [`SharedState`] is simply dropped
-/// once this call returns, since the caller starts the new request with a brand-new
-/// [`run_stream`] call and a brand-new [`SharedState`] -- the two never coexist.
+/// [`poll_for_client_message`] can hand back [`ClientPoll::NextRequest`], the client's next
+/// `RenderRequest` sent before `DONE`. It is treated as an implicit `CANCEL` followed by
+/// the new request, matching how the viewer behaves. The superseded [`SharedState`] is
+/// dropped when this call returns; the caller starts the new request with a fresh call.
 ///
 /// Returns the pipelined request (if any) as the second tuple element, for the caller to
 /// start immediately instead of blocking on another read.
@@ -577,7 +565,7 @@ fn run_stream_loop<S: Read + Write + TimeoutRead + TimeoutWrite>(
 /// adaptively-sized sub-batch; `compute_mode` threads through to the tracer job, one
 /// connection-wide choice applied to every request.
 ///
-/// `payload_encoding` is the connection's negotiated encoding (v14) and `link` its
+/// `payload_encoding` is the connection's negotiated encoding and `link` its
 /// adaptive-compression state: with a `link`, every `FRAME`, `PREVIEW` and display picture
 /// is encoded for the connection's measured write speed and its blocking write is timed
 /// (see [`PeerLink`]); without one every payload uses `payload_encoding`. Encoding runs on
@@ -607,8 +595,8 @@ pub fn run_stream<S: Read + Write + TimeoutRead + TimeoutWrite>(
             payload_encoding,
             link,
             output: Output::Radiance,
-            // A plain `RENDER` never reserves a viewer contribution -- only a
-            // coordinator's `FinalImageRequest` job does (see `coordinator::job::mod`).
+            // A plain `RENDER` never reserves a viewer contribution; only a coordinator's
+            // `FinalImageRequest` job does (see `coordinator::job`).
             contribution: None,
             // A plain worker's tracer is its only producer, so no progress for the
             // whole window means it is wedged (see `StreamSpec::stall_timeout`).
@@ -618,13 +606,14 @@ pub fn run_stream<S: Read + Write + TimeoutRead + TimeoutWrite>(
     )
 }
 
-/// [`run_stream`] with any producer in place of the local tracer: `producer` runs on its
-/// own thread with a [`ProducerSink`] (add chunks, watch the cancel flag, finish) while
-/// this thread emits exactly as [`run_stream`] documents -- cadence-paced events,
+/// [`run_stream`] with any producer in place of the local tracer.
+///
+/// `producer` runs on its own thread with a [`ProducerSink`] (add chunks, watch the cancel
+/// flag, finish). This thread emits as [`run_stream`] documents: cadence-paced events,
 /// `PROGRESS` heartbeats at least every [`super::HEARTBEAT_INTERVAL`] however long the
-/// producer takes (a coordinator job waiting for a worker included), cancellation and
-/// pipelining. `spec.output` selects the final event ([`Output`]); a producer that
-/// finishes with `ProducerOutcome::Failed` yields [`StreamOutcome::Failed`] (no `DONE`).
+/// producer takes, cancellation and pipelining. `spec.output` selects the final event
+/// ([`Output`]). A producer that finishes with `ProducerOutcome::Failed` yields
+/// [`StreamOutcome::Failed`] (no `DONE`).
 ///
 /// # Errors
 ///

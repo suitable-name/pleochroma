@@ -86,8 +86,11 @@ impl GpuBackend {
             cancel: Some(cancel),
             max_chunks: 0,
             surface: Some(&encoded_surface),
+            estimator: None,
         };
         let result = renderer.prepare_without_dispatch(&request);
+        // Beam kernels are not compiled here: they compile on the first beam batch
+        // (`gpu::beam::fragments`).
         drop(renderer);
         if let Err(error) = result {
             self.note_error(error);

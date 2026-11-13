@@ -225,7 +225,7 @@ impl ViewportState {
         Outcome::redraw()
     }
 
-    /// Commits the provisional tier as ONE `Edit::AddTier`.
+    /// Commits the provisional tier as one `Edit::AddTier`.
     pub fn slice_keep(&mut self, env: &mut Env<'_>) -> Outcome {
         if self.drag.is_some() {
             return Outcome::default();
@@ -242,8 +242,8 @@ impl ViewportState {
         }) else {
             return Outcome::default();
         };
-        // A freshly sliced tier sits at the tangency mast: its facet has no area, so
-        // keeping it would add a tier that cuts nothing.
+        // A slice still at the tangency mast has no facet on the stone: keeping it
+        // would add a tier that cuts nothing.
         if !may_keep {
             text::SLICE_NO_DEPTH_HINT.clone_into(&mut self.hint);
             return Outcome {

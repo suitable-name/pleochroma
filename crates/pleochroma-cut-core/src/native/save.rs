@@ -1,8 +1,8 @@
-//! [`catalogue_asc`]: building the catalogue `.asc` text a "Save" action writes
-//! (or hands to the library), and the [`SaveError`]/[`CatalogueAsc`] types around it.
-//! The design file itself is built by [`super::design_to_string`]. See the parent
-//! module's doc comment ("Preserving the original `.asc` text") for the
-//! preserve-vs-regenerate decision this makes.
+//! [`catalogue_asc`] builds the catalogue `.asc` text that a "Save" action writes, with its
+//! [`SaveError`] and [`CatalogueAsc`] types.
+//!
+//! The design file itself is built by [`super::design_to_string`]. The parent module describes
+//! when the original `.asc` text is kept.
 
 use super::convert::SaveExtras;
 use crate::design::{Design, DesignSolveError};
@@ -53,24 +53,16 @@ pub enum DraftReason {
     /// a [`crate::design::TierTarget`] could not be resolved. See
     /// [`DesignSolveError`].
     Unsolved(DesignSolveError),
-    /// `design.tiers` is empty. There is no [`DesignSolveError`] here -- a tier-less
-    /// design's [`Design::to_asc_schedule`] actually succeeds, trivially, with zero
-    /// facet records -- but `pleochroma_formats::asc::parse_asc` refuses to parse any
-    /// `.asc` with no `a` (facet) records at all, so an ordinary `.asc` would be a
-    /// file nothing could reopen. Handled the same way as [`Self::Unsolved`]: the
-    /// `.asc` is a placeholder with one dummy facet record, present only so the text
-    /// parses at all (the design file carries the empty tier list itself).
+    /// `design.tiers` is empty. `to_asc_schedule` would succeed with zero facet records, but
+    /// `pleochroma_formats::asc::parse_asc` rejects an `.asc` with no facet (`a`) records. The
+    /// `.asc` is therefore a placeholder with one dummy facet. The design file holds the empty
+    /// tier list.
     NoTiers,
-    /// `design.solve()` returned `Ok`, but at least one tier that is NOT itself a
-    /// [`pleochroma::geometry::meet_solver::MeetConstraint::ScaleReference`] came
-    /// back with [`SolveStrategy::Failed`] -- `Design::solve`'s own legacy
-    /// above-`MAX_PLANES` fallback (see that method's doc comment) turns a real
-    /// solver error into an `Ok` result full of fabricated masts (each
-    /// [`SolveStrategy::Failed`]'s own doc comment already says "should not be
-    /// trusted") instead of propagating it, so this case has to be detected here
-    /// from the solved masts themselves rather than from `design.solve()`'s
-    /// `Result`. Handled exactly like [`Self::Unsolved`]: none of these masts is a
-    /// real cut instruction, so this is a draft too.
+    /// `design.solve()` returned `Ok`, but a tier that is not a
+    /// [`pleochroma::geometry::meet_solver::MeetConstraint::ScaleReference`] came back
+    /// [`SolveStrategy::Failed`]. The over-`MAX_PLANES` fallback in `Design::solve` returns `Ok`
+    /// with fabricated masts instead of an error, so the solved masts are checked here. Treated
+    /// as a draft, like [`Self::Unsolved`].
     TooManyPlanes,
 }
 
@@ -101,13 +93,10 @@ impl std::error::Error for DraftReason {
     }
 }
 
-/// `true` iff `solved` (a [`Design::solve`] result already known to be `Ok`)
-/// contains at least one tier that is not itself a
-/// [`pleochroma::geometry::meet_solver::MeetConstraint::ScaleReference`] yet came
-/// back with [`SolveStrategy::Failed`] -- the legacy above-`MAX_PLANES` fallback
-/// `Design::solve`'s own doc comment describes (see [`DraftReason::TooManyPlanes`]).
-/// A `ScaleReference` tier is excluded: its own mast is authored, never solved, so
-/// it is never itself the thing this check is trying to catch.
+/// `true` iff `solved` (a [`Design::solve`] result already known to be `Ok`) has a tier that
+/// is not a [`pleochroma::geometry::meet_solver::MeetConstraint::ScaleReference`] but came
+/// back [`SolveStrategy::Failed`] (see [`DraftReason::TooManyPlanes`]). A `ScaleReference`
+/// tier is excluded, because its mast is authored, not solved.
 #[must_use]
 fn is_too_many_planes(design: &Design, solved: &[SolvedTier]) -> bool {
     design.tiers.iter().zip(solved).any(|(tier, solved_tier)| {
@@ -126,54 +115,36 @@ fn is_too_many_planes(design: &Design, solved: &[SolvedTier]) -> bool {
 pub struct CatalogueAsc {
     /// Text of the `.asc` file.
     pub asc_text: String,
-    /// `true` iff `asc_text` is `original_asc_text` unchanged; `false` iff it was
-    /// freshly regenerated -- see [`catalogue_asc`]'s doc comment for exactly when
-    /// each happens. Exposed so a caller can report which one happened (e.g. "saved,
-    /// schedule unchanged" vs. "saved, schedule updated") rather than guessing from
-    /// the text itself. Always `false` for a draft (see [`Self::draft_reason`]) -- a
-    /// placeholder-mast `.asc` is never the caller's own preserved text.
+    /// `true` iff `asc_text` is `original_asc_text` unchanged, `false` iff it was regenerated
+    /// (see [`catalogue_asc`]). Lets a caller report whether the schedule changed. Always
+    /// `false` for a draft, whose placeholder text is never the caller's own.
     pub asc_preserved: bool,
-    /// `Some(reason)` iff this fell back to a draft instead of an ordinary `.asc` --
-    /// either `design` did not currently solve (see [`Design::solve`]) or
-    /// `design.tiers` was empty (see [`DraftReason::NoTiers`]). Either way `asc_text`
-    /// is placeholder-mast `.asc` text, never a real cut instruction, and the design
-    /// file's `draft` flag ([`pleochroma_formats::native::design::DesignFile::draft`])
-    /// should be set. `None` for an ordinary `.asc`. A caller uses this to report
-    /// e.g. "saved as draft ({reason})" rather than the ordinary saved-successfully
-    /// toast.
+    /// `Some(reason)` iff a draft was written instead of an ordinary `.asc`, because `design`
+    /// does not solve or has no tiers. `asc_text` is then placeholder text, and the design
+    /// file's `draft` flag ([`pleochroma_formats::native::design::DesignFile::draft`]) should
+    /// be set. `None` for an ordinary `.asc`.
     pub draft_reason: Option<DraftReason>,
 }
 
 /// Builds the catalogue `.asc` text a "Save" action should store.
 ///
-/// `original_asc_text`, when given, is preserved verbatim in `asc_text` whenever
-/// `design`'s current [`Design::to_asc_schedule`] is semantically equal to what
-/// `original_asc_text` itself parses to -- see the module doc comment's "Preserving
-/// the original `.asc` text" section. Text that fails to parse, or is absent (a
-/// brand-new design with no prior `.asc`), falls straight through to a fresh export.
+/// `original_asc_text`, when given, is kept verbatim in `asc_text` while `design`'s schedule
+/// still equals what that text parses to (see the parent module). Text that fails to parse,
+/// or is absent, gets a fresh export.
 ///
-/// `placeholder_note`, when `Some`, marks the written `.asc` (via
-/// [`pleochroma_formats::asc::mark_reconstructed`]) as derived rather than authored --
-/// use this when `design` itself came from a placeholder reconstruction (e.g. a
-/// catalogue entry with no attached `.asc`, only an angle table, so every mast is a
-/// fabricated `0.0`) so the file this writes can never be mistaken for a real,
-/// verified cutting instructions. Skips the preserve-original-text path entirely when
-/// set: a placeholder-derived design's masts are never worth preserving verbatim even
-/// if they happen to already be marked.
+/// `placeholder_note`, when `Some`, marks the `.asc` as derived via
+/// [`pleochroma_formats::asc::mark_reconstructed`]. Use it for a design built from a
+/// placeholder, such as a catalogue entry with only an angle table and fabricated `0.0`
+/// masts, so the output is never mistaken for verified cutting instructions. It also skips
+/// the preserve path, since such masts are never worth keeping.
 ///
 /// # Unsolved or tier-less designs: drafts
 ///
-/// Two cases produce a draft instead of a failure: `design` not currently solving
-/// (see [`Design::solve`] -- a block missing its one required
-/// [`pleochroma::geometry::meet_solver::MeetConstraint::ScaleReference`] tier, the
-/// ordinary state of an in-progress crown with no anchor authored yet), and
-/// `design.tiers` being empty (a brand-new design before its first tier -- see
-/// [`DraftReason::NoTiers`]: `to_asc_schedule` actually succeeds here, but the result
-/// has no facet records at all, which `pleochroma_formats::asc::parse_asc` refuses to
-/// parse back). Either way [`CatalogueAsc::draft_reason`] is `Some(reason)` and
-/// `asc_text` is a placeholder (real angle/indices/index-wheel positions for the
-/// unsolved case, via [`draft_asc_schedule`]; one dummy facet record for the
-/// tier-less case, via [`draft_asc_schedule_for_no_tiers`]) never to be trusted as a
+/// A design that does not solve (for example a block without its
+/// [`pleochroma::geometry::meet_solver::MeetConstraint::ScaleReference`] tier) or has no tiers
+/// gives a draft, not an error. [`CatalogueAsc::draft_reason`] is then `Some`, and `asc_text`
+/// is a placeholder: real angles and indices with unsolved masts ([`draft_asc_schedule`]), or
+/// one dummy facet for a tier-less design ([`draft_asc_schedule_for_no_tiers`]). Neither is a
 /// cut instruction.
 ///
 /// # Errors
@@ -194,10 +165,8 @@ pub fn catalogue_asc(
 
 /// Like [`catalogue_asc`], but also takes [`SaveExtras`].
 ///
-/// Only `extras.custom_catalogue` (see [`SaveExtras::custom_catalogue`], the
-/// wrong-`I`-line fix) matters here: it is consulted for the written `I` line.
-/// `SaveExtras::default()` (`custom_catalogue: &[]` included) reproduces
-/// [`catalogue_asc`]'s own built-ins-only behaviour exactly.
+/// Only `extras.custom_catalogue` matters here: it is consulted for the written `I` line.
+/// With `SaveExtras::default()` the output equals [`catalogue_asc`]'s built-ins-only output.
 ///
 /// # Errors
 ///
@@ -234,24 +203,13 @@ pub fn catalogue_asc_extended(
     }
 }
 
-/// [`catalogue_asc_extended`]'s "design currently solves" half.
+/// [`catalogue_asc_extended`]'s "design solves" branch.
 ///
-/// Takes an already-[`Design::solve`]'d (or [`Design::resolve_dirty`]'d) mast list
-/// instead of solving `design` again -- a caller that already solved
-/// once (e.g. `apps/pleochroma-cut`'s `confirm_status_before_write`, which must
-/// solve anyway to report a save-time status) must not pay for a second
-/// multi-second solve just to write the file.
-///
-/// Uses [`Design::to_asc_schedule_from_solved_with`] (`extras.custom_catalogue`,
-/// see [`SaveExtras::custom_catalogue`]'s own doc comment) where
-/// [`catalogue_asc_extended`] uses [`Design::to_asc_schedule`] -- everything else
-/// (the placeholder-note marking, the preserve-original-text comparison) is
-/// identical, so the two functions can never drift apart in behaviour for a design
-/// that solves.
-///
-/// Only handles that one case: the tier-less and does-not-solve draft branches stay
-/// in [`catalogue_asc_extended`], which calls this exactly once it has a `solved`
-/// list in hand.
+/// Takes an already solved mast list (from [`Design::solve`] or [`Design::resolve_dirty`]),
+/// so a caller that has solved already does not pay for a second solve. Writes the schedule
+/// with cheater offsets folded in ([`Design::to_asc_schedule_from_solved_with_cheater_offsets`])
+/// and the custom catalogue for the `I` line. The placeholder marking and the preserve test
+/// are the same as in [`catalogue_asc_extended`]. The draft branches stay there.
 ///
 /// # Panics
 ///
@@ -269,11 +227,8 @@ pub fn catalogue_asc_extended_from_solved(
     placeholder_note: Option<&str>,
     extras: &SaveExtras<'_>,
 ) -> Result<CatalogueAsc, SaveError> {
-    // The cheater-offset-baking variant, not the plain `_with` this design's own
-    // internal render/measurement path uses -- see
-    // `Design::to_asc_schedule_from_solved_with_cheater_offsets`'s own doc
-    // comment: only the real file-writing path (here) should fold an authored
-    // offset into the exported indices at all.
+    // Only this file-writing path folds an authored cheater offset into the exported indices.
+    // The plain `_with` variant used for rendering and measurement does not.
     let mut current_schedule =
         design.to_asc_schedule_from_solved_with_cheater_offsets(solved, extras.custom_catalogue);
     // `.asc` cannot hold a concave tier: it is carried as two footnotes per tier
@@ -313,33 +268,19 @@ pub fn catalogue_asc_extended_from_solved(
     })
 }
 
-/// `true` iff `original` and `current` are equal once `current`'s own
-/// `refractive_index` is replaced with `original`'s -- the preservation test
-/// [`catalogue_asc_extended`] actually applies, so that picking a different
-/// material alone (which changes [`Design::effective_refractive_index`], and
-/// therefore [`Design::to_asc_schedule`]'s `refractive_index` field, without
-/// touching any tier/preform data `.asc` itself carries) does not, by itself,
-/// force a fresh export of a hand-authored file. The design file's `[material]`
-/// table already records the real selection, so the exported `.asc`'s `I` line
-/// staying at the file's original value costs nothing -- it is not lost, only not
-/// rewritten. See the parent module's doc comment ("Preserving the original `.asc`
-/// text").
+/// `true` iff `original` and `current` are equal once `current`'s `refractive_index` is
+/// replaced by `original`'s. This is the preserve test of [`catalogue_asc_extended`]. Picking
+/// another material changes the effective `I` line alone, and must not force a rewrite of a
+/// hand-authored file. The design file's `[material]` table keeps the real selection.
 #[must_use]
 fn schedules_equal_ignoring_refractive_index(
     original: &AscSchedule,
     current: &AscSchedule,
 ) -> bool {
-    // The `.asc` on disk can only ever carry the writer's sanitised tier names
-    // (`pleochroma_formats::asc::asc_safe_tier_name`: "Crown Main" is written as
-    // `Crown_Main`), and its parser-side `warnings` describe that text, not the
-    // design -- so both are normalised to the original's form before comparing.
-    //
-    // Two more fields describe the original TEXT rather than the design and are
-    // masked the same way: `line_ending` (the parser records LF or CRLF; a design
-    // export defaults to CRLF, so an untouched LF catalogue file would otherwise
-    // never count as untouched) and each tier's `index_names` (the per-index name
-    // positions the parser recorded; a design export leaves them empty and lets the
-    // writer place the tier name after the first index).
+    // The `.asc` text holds the writer's sanitised tier names (`asc_safe_tier_name`: "Crown
+    // Main" is written as `Crown_Main`), and the parser's `warnings` describe that text. Both
+    // are normalised to the original's form. So are `line_ending` (an untouched LF file must
+    // still count as untouched) and each tier's `index_names`, which an export leaves empty.
     let mut masked_current = AscSchedule {
         refractive_index: original.refractive_index,
         warnings: original.warnings.clone(),
@@ -359,10 +300,9 @@ fn schedules_equal_ignoring_refractive_index(
 }
 
 /// The shared tail of [`catalogue_asc_extended`]'s draft paths (unsolved, tier-less,
-/// too-many-planes): builds `asc_text` from `draft_schedule` -- marked
-/// [`pleochroma_formats::asc::mark_reconstructed`] with `reason`'s own
-/// [`DraftReason`] message, so the written `.asc` is unmistakably a placeholder even
-/// to software that has never heard of the design file's `draft` flag.
+/// too-many-planes). Builds `asc_text` from `draft_schedule`, marked with `reason`'s message
+/// via [`pleochroma_formats::asc::mark_reconstructed`], so the `.asc` reads as a placeholder
+/// even to software that does not know the design file's `draft` flag.
 fn draft_asc(draft_schedule: &AscSchedule, reason: DraftReason) -> Result<CatalogueAsc, SaveError> {
     let mut schedule = draft_schedule.clone();
     pleochroma_formats::asc::mark_reconstructed(&mut schedule, &reason.to_string());
@@ -375,28 +315,19 @@ fn draft_asc(draft_schedule: &AscSchedule, reason: DraftReason) -> Result<Catalo
     })
 }
 
-/// The placeholder mast a draft writes for a tier with no better number to fall
-/// back on -- see [`draft_asc_schedule`]. Mirrors, in spirit only, the meet solver's
-/// own last-resort "no scale reference anywhere" default: not a real dimension
-/// either way, always paired with [`SolveStrategy::Failed`] (whose own doc comment
-/// already says the mast it carries "should not be trusted"), never shown to a
-/// cutter as a cut instruction.
+/// The placeholder mast a draft writes for a tier with no better number (see
+/// [`draft_asc_schedule`]). It is not a real dimension. It is always paired with
+/// [`SolveStrategy::Failed`], whose mast should not be trusted.
 const DRAFT_PLACEHOLDER_MAST: f64 = 1.0;
 
-/// Builds the placeholder-mast [`AscSchedule`] a draft writes as `asc_text`,
-/// real angles/names/indices/index-wheel positions and all -- only the masts (and
-/// therefore the notes `constraint_notes` derives a `ScaleReference` tier's text
-/// from) are not to be trusted. Per tier, prefers `original_asc_text`'s own
-/// previously-recorded mast at the same position when that text still parses AND
-/// still has exactly `design`'s current tier count (the same alignment precondition
-/// [`Design::to_asc_schedule_from_solved`] documents), falling back to
-/// [`DRAFT_PLACEHOLDER_MAST`] for any tier without one -- e.g. a brand-new tier
-/// added after the block lost its anchor.
+/// Builds the placeholder [`AscSchedule`] a draft writes as `asc_text`. Angles, names,
+/// indices and index-wheel positions are real. Only the masts, and the notes derived from
+/// them, are not to be trusted. A tier takes its mast from `original_asc_text` at the same
+/// position, when that text parses and has `design`'s current tier count
+/// ([`Design::to_asc_schedule_from_solved`] needs the same alignment). Otherwise it gets
+/// [`DRAFT_PLACEHOLDER_MAST`], for example a tier added after its block lost its anchor.
 ///
-/// `custom` -- a caller's own resolved catalogue materials -- is consulted for the
-/// written `I` line exactly like [`Design::to_asc_schedule_from_solved_with`]; an
-/// empty slice behaves exactly like [`Design::to_asc_schedule_from_solved`]'s own
-/// built-ins-only resolution.
+/// `custom` is consulted for the `I` line as in [`Design::to_asc_schedule_from_solved_with`].
 fn draft_asc_schedule(
     design: &Design,
     original_asc_text: Option<&str>,
@@ -429,20 +360,15 @@ fn draft_asc_schedule(
     schedule
 }
 
-/// A placeholder facet name/mast for the ONE dummy record
-/// [`draft_asc_schedule_for_no_tiers`] writes -- see that function's own doc comment
-/// for why a tier-less design needs one at all.
+/// The name of the one dummy facet record [`draft_asc_schedule_for_no_tiers`] writes.
 const NO_TIERS_PLACEHOLDER_NAME: &str = "placeholder";
 
-/// Builds the placeholder [`AscSchedule`] a tier-less draft writes as `asc_text`.
-/// `design.tiers` is empty, so unlike [`draft_asc_schedule`] there is no real
-/// angle/index/name data to carry over -- this exists purely so
-/// `pleochroma_formats::asc::parse_asc` (which refuses to parse any file with no `a`
-/// facet records at all) can still open the text.
+/// Builds the placeholder [`AscSchedule`] a tier-less draft writes as `asc_text`. There are
+/// no tiers to carry over. The one dummy facet exists only so that
+/// `pleochroma_formats::asc::parse_asc`, which refuses a file with no facet records, can read
+/// the text.
 ///
-/// `custom` is consulted for the written `I` line exactly like
-/// [`Design::effective_refractive_index_with`]; an empty slice behaves exactly like
-/// [`Design::effective_refractive_index`]'s own built-ins-only resolution.
+/// `custom` is consulted for the `I` line as in [`Design::effective_refractive_index_with`].
 fn draft_asc_schedule_for_no_tiers(design: &Design, custom: &[GemMaterial]) -> AscSchedule {
     let mut schedule = AscSchedule {
         gemcad_version: design.meta.gemcad_version.clone(),

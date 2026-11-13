@@ -1,11 +1,11 @@
 //! The storage API of rough colour.
 //!
-//! Every function the Rough colour UI calls to save, load and delete a plan's colour, photos, pose choices, a material's zones and a
-//! render job's zones.
+//! Every function the Rough colour UI calls to save, load and delete a plan's colour, photos,
+//! pose choices, a material's zones and a render job's zones.
 //!
 //! All functions take the vault [`Database`] (callers hold the `Mutex` guard) and return an
 //! `anyhow::Result`; "nothing stored" is `Ok(None)` / an empty collection, never an error, and a
-//! stored text that no longer parses is an `Err` with a sentence the UI can show. Reads work on a
+//! stored text that does not parse is an `Err` with a sentence the UI can show. Reads work on a
 //! read-only database (and on one no build has written to yet, which simply has nothing).
 //!
 //! The vault tables are opaque to the vault; the formats are those of
@@ -16,13 +16,18 @@
 //!
 //! | area | functions |
 //! |---|---|
-//! | rough colour | [`save_rough_colour`], [`save_rough_colour_with_photos`], [`load_rough_colour`], [`delete_rough_colour`] |
-//! | photos | [`load_view_photos`], [`cached_views`] (written by [`save_rough_colour_with_photos`], removed by [`delete_rough_colour`]) |
-//! | pose choice | [`choose_and_save_poses`], [`save_layout_pose_choices`], [`load_pose_choices`], [`posed_stone_pose`] |
+//! | rough colour | [`save_rough_colour`], [`save_rough_colour_with_photos`] |
+//! | rough colour | [`load_rough_colour`], [`delete_rough_colour`] (also photos and poses) |
+//! | photos | [`load_view_photos`], [`cached_views`] (written with the colour) |
+//! | pose choice | [`choose_and_save_poses`], [`save_layout_pose_choices`] |
+//! | pose choice | [`load_pose_choices`], [`posed_stone_pose`] |
 //! | planner preview | [`planner_stone_material`] |
-//! | material zones | [`save_material_zoning`], [`load_material_zoning`], [`delete_material_zoning`], [`attach_zoning`], [`attach_zoning_reporting`], [`apply_stored_zoning`], [`with_stored_zoning`] |
+//! | material zones | [`save_material_zoning`], [`load_material_zoning`] |
+//! | material zones | [`delete_material_zoning`], [`with_stored_zoning`] |
+//! | material zones | [`attach_zoning`], [`attach_zoning_reporting`], [`apply_stored_zoning`] |
 //! | adopt | [`adopt_stone`] |
-//! | render jobs | [`save_job_zoning`], [`attach_job_zoning`], [`delete_job_zoning`] |
+//! | render jobs | [`save_job_zoning`], [`attach_job_zoning`] |
+//! | render jobs | [`complete_job_zoning`], [`delete_job_zoning`] |
 //! | housekeeping | [`prune_orphans`] |
 
 use crate::gui::optics::crystal_optics::gem_material_from_row;
@@ -54,6 +59,7 @@ use pleochroma_cut_core::{
     },
 };
 use pleochroma_net::SceneState;
+use pleochroma_render_jobs::{RenderJobFile, format_for};
 use pleochroma_vault::{
     db::sqlite::{CustomMaterialParams, Database},
     model::{
@@ -352,9 +358,8 @@ pub fn save_material_zoning(
     })
 }
 
-/// Stores a library zoned material whose zones scale with the stone's width (owner decision 4):
-/// `zoning_mm` is the geometry for a stone `stone_width_mm` wide, stored as that of a stone one
-/// unit wide.
+/// Stores a library zoned material whose zones scale with the stone's width: `zoning_mm` is the
+/// geometry for a stone `stone_width_mm` wide, stored as that of a stone one unit wide.
 ///
 /// # Errors
 ///
@@ -629,9 +634,9 @@ fn adopted_row(name: &str, host: HostMaterial<'_>, adopted: &AdoptedColour) -> C
 /// Adopts one planned stone as a design's material.
 ///
 /// Creates the custom material `"<plan> - <design> color"` (its row holds the BASE zone, so a
-/// build that ignores zones still renders it) and its `material_zoning` row (the zones in the stone frame, mm, not
-/// relative to stone), replacing both when the name exists. Returns the render-ready material and
-/// the real stone width.
+/// build that ignores zones still renders it) and its `material_zoning` row (the zones in the
+/// stone frame, mm, not relative to stone), replacing both when the name exists. Returns the
+/// render-ready material and the real stone width.
 ///
 /// # Errors
 ///
@@ -709,11 +714,14 @@ pub fn adopt_stone(db: &Database, request: &AdoptRequest<'_>) -> Result<AdoptOut
 
 // ---- render jobs -----------------------------------------------------------------------------
 
-/// Persists the zones of `material` beside queued render job `job_id`, because the job's frozen
-/// scene (the wire's `SceneState`) carries none.
+/// Stores the zones of `material` beside queued render job `job_id`, whose frozen scene (the
+/// wire's `SceneState`) carries none.
 ///
-/// Returns whether anything was stored (`false` for
-/// a material without zones). Call right after the job is added.
+/// Job files now carry their own zones ([`RenderJobFile::zoning`]), so the app does not call
+/// this. It is kept for the side-table rows that [`complete_job_zoning`] still reads.
+///
+/// Returns whether anything was stored (`false` for a material without zones). Call right
+/// after the job is added.
 ///
 /// # Errors
 ///
@@ -746,6 +754,31 @@ pub fn attach_job_zoning(db: &Database, job_id: i64, scene: &mut SceneState) -> 
     Ok(true)
 }
 
+/// Completes `job` (queue row `job_id`) with the zones a legacy queue row kept in the side
+/// table.
+///
+/// Those rows kept their zones only in the side table, and a job file made from them would
+/// render the base zone alone.
+///
+/// A job that already holds its zones ([`RenderJobFile::zoning`]) is left as it is. Otherwise
+/// the side table's zones, if any, move into the job's own field and its format follows, so
+/// the job renders (and is exported) with them. Returns whether zones were attached.
+///
+/// # Errors
+///
+/// The vault read fails or the stored zones are unusable; the caller should fail the job with
+/// the message rather than render it without its zones.
+pub fn complete_job_zoning(db: &Database, job_id: i64, job: &mut RenderJobFile) -> Result<bool> {
+    if job.zoning.is_some() {
+        return Ok(false);
+    }
+    let attached = attach_job_zoning(db, job_id, &mut job.scene)?;
+    job.move_scene_zoning_to_file();
+    job.format = format_for(job);
+    // A Ray-Traced job drops the zones it was given, so nothing was attached to it.
+    Ok(attached && job.zoning.is_some())
+}
+
 /// Forgets the zones of job `job_id`.
 ///
 /// # Errors
@@ -757,8 +790,7 @@ pub fn delete_job_zoning(db: &Database, job_id: i64) -> Result<usize> {
 
 // ---- housekeeping ----------------------------------------------------------------------------
 
-/// Removes the side-table rows whose owner (saved plan, custom material, render job) no longer
-/// exists.
+/// Removes the side-table rows whose owner (saved plan, custom material, render job) is gone.
 ///
 /// The side tables carry no foreign keys, so deleting an owner cannot
 /// cascade into them; call this at startup. Returns how many rows went.

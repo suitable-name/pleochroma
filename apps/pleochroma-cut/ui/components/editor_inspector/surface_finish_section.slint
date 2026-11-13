@@ -2,14 +2,14 @@ import { CheckBox, ComboBox, Slider } from "std-widgets.slint";
 import { Theme } from "../../theme.slint";
 import { SurfaceModel } from "../../models/surface.slint";
 
-// The Tier tab's Surface Finish: how well the loaded tier is polished, or how coarsely it is ground,
-// and the same for a single facet of it. Shown only for a saved tier, in Advanced
-// (`TierFacetsSection` instantiates it). Everything here applies at once and is one undo step (the
-// sliders apply when they are let go). The grades are the tier table's right-click menu list; Custom
+// The Tier tab's Surface Finish: how well the loaded tier is polished, or how coarsely it is
+// ground, and the same for one facet of it. Shown only for a saved tier, in Advanced
+// (`TierFacetsSection` instantiates it). Everything applies at once as one undo step (the
+// sliders apply when let go). The grades are the tier table's right-click menu list; Custom
 // opens the values below the combo.
 //
-// The scratch direction is not authored here: it comes from the Faceting Machine preference. Custom
-// Angle fixes one direction for this tier, No Sweep gives the stone no motion across the lap.
+// The scratch direction is not set here: it comes from the Faceting Machine preference. Custom
+// Angle fixes one direction for this tier; No Sweep gives the stone no motion across the lap.
 export component SurfaceFinishSection inherits VerticalLayout {
     // `false` while the worked-example guide locks the Tier tab.
     in property <bool> unlocked: true;

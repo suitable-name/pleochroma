@@ -1,8 +1,9 @@
-//! Frosted tiers and facets through the public API of `pleochroma-cut-core`: the undoable edit,
-//! the native `.psdd` round trip, the `.gcs` import and writer, the planes the renderer is told
-//! to frost and the cutting sheet. The oracle for "a design without frosting changes nothing" is
-//! byte equality with what the same design produced before frosting existed: an empty frosting
-//! map must add no key, no plane, no attribute and no word.
+//! Frosted tiers and facets through the public API of `pleochroma-cut-core`.
+//!
+//! Covered are the undoable edit, the native `.psdd` round trip, the `.gcs` import and
+//! writer, the planes the renderer frosts, and the cutting sheet. A design without frosting must
+//! write byte-identical output: an empty frosting map adds no key, no plane, no attribute and no
+//! word.
 
 use pleochroma_cut_core::{
     CutSheetRow, Design, Edit, History, MaterialSelection, PreformSpec, RemapRounding,
@@ -297,7 +298,7 @@ fn a_file_from_before_frosting_reads_unfrosted() {
     set(&mut design, 1, Some(TierFrosting::Tier));
     set(&mut design, 4, Some(TierFrosting::Facets(vec![2.0])));
     let text = native_text(&design);
-    // What a build that predates the keys wrote: the same file without them.
+    // The same file without the frosting keys, as an older build wrote it.
     let old: String = text
         .lines()
         .filter(|line| !line.trim_start().starts_with("frosted"))
@@ -340,7 +341,8 @@ fn a_scene_marks_exactly_the_planes_of_the_frosted_tier() {
     let y1 = abs_y(tier1[0]);
     assert!(tier1.iter().all(|&i| (abs_y(i) - y1).abs() < 1e-9));
     // And they are the planes of THE frosted tier, the `-42` degree pavilion one: its `y` is
-    // `-cos 42`, its horizontal length `sin 42` (the planes are `f32` data, so to `f32` precision).
+    // `-cos 42`, its horizontal length `sin 42` (the planes are `f32` data, so to `f32`
+    // precision).
     let t1 = 42.0_f64.to_radians();
     assert!(
         tier1.iter().all(|&i| {

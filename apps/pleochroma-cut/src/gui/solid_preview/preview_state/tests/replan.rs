@@ -1,6 +1,5 @@
-//! Unit tests for the replan/plan-worker path: [`super::super::plan_worker::
-//! build_planned_frame`] and its round trip through
-//! [`super::super::render::render_request`].
+//! Unit tests for the replan path: [`super::super::plan_worker::build_planned_frame`] and
+//! its round trip through [`super::super::render::render_request`].
 
 use super::{
     super::{
@@ -171,8 +170,8 @@ fn build_planned_frame_carries_the_same_design_allocation_through_to_planned_fra
     );
 }
 
-/// Same fixture ("RBC-445"-style, the standard round-brilliant `closed_design`
-/// this module's other `PlannedFrame` tests already use), proving the
+/// Same fixture as the other `PlannedFrame` tests here (the round-brilliant `closed_design`),
+/// proving the
 /// `Arc<Design>` plumbing above changed nothing about what actually gets
 /// planned: a real closed solid, all 8 tiers solved, never stale -- byte-
 /// for-byte the same shape [`render_request_carries_solved_and_freshness_
@@ -222,8 +221,8 @@ fn a_zero_budget_forces_stale_and_marks_the_dirty_tier_pending() {
         frame.solved.is_some(),
         "the fresh (late) result must still be chained forward"
     );
-    // Built from the SAME (new) solved masts `build_planned_frame` used
-    // internally -- a `FacetMap` built from the OLD masts is not
+    // Built from the SAME solved masts `build_planned_frame` used
+    // internally -- a `FacetMap` built from the older masts is not
     // guaranteed to assign the same facet ids.
     let facet_map = FacetMap::from_design(
         &design_for_facet_map,
@@ -253,9 +252,9 @@ fn unsolvable_design() -> Design {
     )
 }
 
-/// F4-8: an unsolvable plan carries NO masts. It used to chain the previous list forward,
-/// and the sink filed that list under the plan's NEW generation, so an export asking for the
-/// masts "of exactly this generation" got the new angles on the old masts.
+/// An unsolvable plan carries no masts. Carrying the previous list forward would file old
+/// masts under the plan's new generation, so a lookup of that generation would get the wrong
+/// masts.
 #[test]
 fn an_unsolvable_plan_carries_no_masts_not_the_previous_ones() {
     let previous = vec![SolvedTier {
@@ -289,7 +288,7 @@ fn escaping_tier_label_names_the_owning_tier() {
     let design = pinned_design();
     let solved = design.solve().expect("every tier is pinned");
     let preform_plane_count = design.preform.planes().len();
-    // The first plane past the preform's own is tier 0's ("Table")
+    // The first plane past the preform's own is tier 0's
     // facet -- `Design::tier_for_plane_index`'s own doc comment: it
     // subtracts `preform.planes().len()` before mapping into the
     // schedule tiers, which are laid out in tier order.
@@ -542,9 +541,8 @@ fn a_plan_made_at_another_view_mode_is_drawn_at_the_noted_one() {
     );
 }
 
-/// The freeze behind "the Cut slider stopped following": an unsolvable design planned
-/// against masts left over from before an add or remove used to panic inside the plan
-/// worker, which then ignored every later replan. The next replan must still land.
+/// An unsolvable design planned against masts left over from before a tier add or remove
+/// must not panic the plan worker, which would then ignore every later replan.
 #[test]
 fn a_stale_mast_list_on_an_unsolvable_design_does_not_kill_the_plan_worker() {
     let sink = FakeSink::new();
@@ -868,7 +866,7 @@ fn replan_frame_carries_geometry_at_the_request_size_and_pose() {
         .expect("a closed design always carries geometry");
     assert_eq!(geometry.size, (24, 20));
     assert_eq!(geometry.camera, CAMERA);
-    assert!(!geometry.corner_points.is_empty());
+    assert_ne!(geometry.corner_points.as_slice(), [] as [Vec3; 0]);
     assert_eq!(geometry.facet_centroids.len(), frame.planes.len());
     assert!((geometry.bounding_radius - frame.mesh_bounding_radius).abs() < 1e-12);
 }
@@ -910,7 +908,7 @@ fn reproject_frame_carries_geometry_at_the_new_pose_and_size() {
         .expect("a Reproject frame carries geometry too");
     assert_eq!(geometry.size, (32, 24));
     assert_eq!(geometry.camera, turned);
-    assert!(!geometry.corner_points.is_empty());
+    assert_ne!(geometry.corner_points.as_slice(), [] as [Vec3; 0]);
 }
 
 /// A `Reproject`/`UpdateFacetOverlay` frame carries no generation of its

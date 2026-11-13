@@ -1,6 +1,8 @@
-//! [`Edit::SetTierSurface`]'s apply/inverse half, the undo step a removed tier's surface needs,
-//! and the gear-remap step that moves the facet positions of a surface finished facet by facet.
-//! Split from `apply` to keep that file readable; it sits beside `apply_frosting`.
+//! The surface edits split out of `apply`.
+//!
+//! They are [`Edit::SetTierSurface`]'s apply/inverse half, the undo step a removed tier's
+//! surface needs, and the gear-remap step that moves the facet positions of a surface finished
+//! facet by facet. Split from `apply` to keep that file readable.
 
 use super::{
     apply::remap_index,

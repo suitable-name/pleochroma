@@ -33,8 +33,8 @@
 //! | `rough_colour` | `plan_id` | zoned absorption JSON, fit report JSON, format version, time |
 //! | `rough_colour_photo` | `(plan_id, view, kind)` | working-resolution image bytes (BLOB last) |
 //! | `stone_pose_choice` | `(plan_id, layout_index, stone_index)` | pose index |
-//! | `material_zoning` | `material_name` | zoned absorption JSON, relative-to-stone flag, version |
-//! | `render_job_zoning` | `job_id` | zoned absorption JSON of a queued render job, format version |
+//! | `material_zoning` | `material_name` | zoned absorption JSON, relative flag, version |
+//! | `render_job_zoning` | `job_id` | zoned absorption JSON, format version |
 //!
 //! `material_zoning` is keyed by the custom material's NAME, the key the material table itself is
 //! unique on (`custom_gem_materials.name`), and `stone_pose_choice` carries a `layout_index`
@@ -95,9 +95,9 @@ pub(in crate::db::sqlite) const ZONING_TABLES_SQL: &str = "
     );
 ";
 
-/// `ALTER TABLE` that adds the format `version` to a `render_job_zoning` table created before the
-/// column existed (the `CREATE TABLE IF NOT EXISTS` above does not touch an existing table).
-/// Rows written by those builds are version 1, the only version there was.
+/// `ALTER TABLE` that adds the format `version` to a `render_job_zoning` table that lacks it
+/// (`CREATE TABLE IF NOT EXISTS` does not change an existing table). Existing rows count as
+/// version 1.
 const RENDER_JOB_VERSION_COLUMN_SQL: &str =
     "ALTER TABLE render_job_zoning ADD COLUMN version INTEGER NOT NULL DEFAULT 1";
 
@@ -630,8 +630,7 @@ impl Database {
 
     /// The `(format version, zones JSON)` of render job `job_id`, or `None`.
     ///
-    /// A table created before the version column existed and opened read-only (no migration)
-    /// answers version 1, the only version those builds wrote.
+    /// A read-only database whose table lacks the `version` column reads every row as version 1.
     ///
     /// # Errors
     ///

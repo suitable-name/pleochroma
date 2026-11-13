@@ -1,7 +1,8 @@
-//! Pushing the design settings dialog's state (the desktop's
-//! `view::inspector::refresh_design_settings`): the combo option lists, the RI
-//! readouts and the material guess every push; the editable fields of one group (material,
-//! gear, symmetry, details) only when that group changed in the design.
+//! Pushes the design settings dialog's state.
+//!
+//! The combo option lists, the RI readouts and the material guess are pushed every time; the
+//! editable fields of one group (material, gear, symmetry, details) only when that group
+//! changed in the design.
 
 use super::colors;
 use crate::{AppWindow, DesignSettingsModel, app::state::DesignState, editor::inspector::PushCtx};

@@ -1,11 +1,11 @@
 //! The History tab's "Variants" view: named copies of the open design that live in the local
 //! library, keyed by the design's UUID (never in the design file).
 //!
-//! A cutter tries something, likes it, saves it as a variant, tries something else, and can
-//! come back: **Save** from the design as it is or from any history step, **Open** a variant
-//! (the open design becomes the variant, as one undo step), **Rename**, change the **note**,
-//! **Delete**, and **compare** any two of the current design and the variants as pictures (the
-//! compare window) or as text (the cutting instructions, line by line).
+//! Named copies of the open design that a cutter keeps and returns to: **Save** the design as
+//! it is or from any history step, **Open** a variant (the open design becomes the variant, as
+//! one undo step), **Rename**, change the **note**, **Delete**, and **compare** any two of the
+//! current design and the variants as pictures (the compare window) or as text (the cutting
+//! instructions, line by line).
 //!
 //! # Where things live
 //!

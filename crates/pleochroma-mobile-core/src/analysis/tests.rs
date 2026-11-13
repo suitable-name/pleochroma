@@ -59,6 +59,33 @@ fn nudge_light(state: &mut AppState) {
     set_light_values(state, values);
 }
 
+/// The HDR map's turn is an input of the metrics, not of the tilt sweep (which never uses the
+/// map): turning it, or switching it to follow the camera, stales the metrics only.
+#[test]
+fn the_map_turn_is_part_of_the_metrics_key_only() {
+    let (mut state, _mock) = solved_state();
+    let metrics = Key::new(&state, Kind::Metrics).expect("a solve is current");
+    let tilt = Key::new(&state, Kind::Tilt).expect("a solve is current");
+
+    state.update_settings(|settings| settings.lighting.hdr_yaw_deg = 30.0);
+    let turned = Key::new(&state, Kind::Metrics).expect("a solve is current");
+    assert_ne!(turned, metrics);
+    assert_eq!(
+        Key::new(&state, Kind::Tilt).expect("a solve is current"),
+        tilt
+    );
+
+    state.update_settings(|settings| settings.lighting.hdr_follows_camera = true);
+    assert_ne!(
+        Key::new(&state, Kind::Metrics).expect("a solve is current"),
+        turned
+    );
+    assert_eq!(
+        Key::new(&state, Kind::Tilt).expect("a solve is current"),
+        tilt
+    );
+}
+
 fn synthetic_axis(azimuth_deg: f32, offset: f32) -> TiltAxisData {
     let curve = |scale: f32| -> Vec<f32> {
         (0..TILT_POINTS)
@@ -326,7 +353,7 @@ fn doubling_is_listed_only_for_a_birefringent_stone() {
         under_hdr: false,
         doubling_arcmin,
     };
-    // An isotropic stone measures zero: the five rows as before.
+    // An isotropic stone measures zero, so only the five light-return rows are listed.
     assert_eq!(metric_rows(&reading(0.0)).len(), 5);
     let rows = metric_rows(&reading(3.46));
     assert_eq!(rows.len(), 6);

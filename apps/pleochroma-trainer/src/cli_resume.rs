@@ -76,8 +76,8 @@ impl RecoverySession {
 
     /// Mutable evaluation journal, separate from immutable training generations.
     pub(super) fn validation_directory(&self, iteration: usize, backend: &str) -> PathBuf {
-        // An upgraded physics/policy route must never mix completed cases with an
-        // older journal. Retain old directories and start a separate namespace.
+        // A physics or policy route change must not mix completed cases into an older journal,
+        // so each route gets its own namespace and older directories are kept.
         let route = match backend {
             crate::runner::CUDA_LABEL => pleochroma_ai::env::CUDA_ENVIRONMENT_MATH,
             crate::runner::GPU_LABEL => "wgpu-cpu-env-v1",

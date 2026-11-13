@@ -1,44 +1,71 @@
 //! Built-in "New Design" templates.
 //!
-//! A small, curated gallery of classic faceting designs, each described by a
-//! static [`TemplateSpec`] entry in [`TEMPLATES`] instead of hard-coded in
-//! `apps/pleochroma-cut/src/gui/editor/callbacks/tier_actions/new_design.rs`'s
-//! `do_new_design_create`.
+//! A curated gallery of classic faceting designs. Each is a static [`TemplateSpec`] entry in
+//! [`TEMPLATES`], built by the constructors of this module.
 //!
-//! Every template here is built from the exact same proven, tested topology
-//! [`crate::design::ConstraintTier::standard_round_brilliant`] already uses:
-//! a 96-tooth index gear, 8-fold mirrored symmetry, and every tier pinned via
-//! [`pleochroma::geometry::meet_solver::MeetConstraint::ScaleReference`] (an
-//! authored exact depth), never a [`pleochroma::geometry::meet_solver::MeetConstraint::MeetNamed`]/
-//! `MeetExisting` reference to another tier. That restriction is deliberate: this
-//! module's own tests are the only verification these designs get before shipping
-//! (one batched `cargo test` run, not iterative solver-tuning), and a
-//! `ScaleReference`-only design's
-//! closure depends only on its own masts, never on another tier's solved
-//! position, so it is the one construction this crate's test suite can verify
-//! with confidence in a single pass.
+//! Every template uses the topology of
+//! [`crate::design::ConstraintTier::standard_round_brilliant`]: a 96-tooth index gear, symmetric
+//! repeats (8-fold, or 2- and 4-fold for the non-round shapes), and every tier pinned by
+//! [`pleochroma::geometry::meet_solver::MeetConstraint::ScaleReference`] (an authored exact
+//! depth). No tier refers to another tier (`MeetNamed` or `MeetExisting`), so each tier's
+//! position depends only on the design's own masts, and the tests of this module can verify
+//! every design directly.
 //!
-//! **Scope note (deliberately not "a dozen classic designs"):** this module ships
-//! nine designs. The "top five shapes" (the standard round brilliant, an oval, a
-//! cushion, an emerald step cut and a princess) form the featured group; the
-//! round-brilliant variants and the two teaching designs form the second group.
-//! The four newer shapes are authored as plain tier tables (`Row`) whose masts
-//! were fitted so that every facet is alive, no facet is too small to cut, and the
-//! outline has the intended length-to-width ratio -- on the template's own default
-//! preform AND after a remap to each gear [`TemplateSpec::allowed_gears_among`]
-//! offers. A trillion (3-fold layout) is not shipped: it needs an unproven
-//! gear/symmetry/index combination. See this crate's own `#[cfg(test)]` module
-//! below for the verification every entry gets.
+//! This module ships nine designs: the five featured shapes (round brilliant, oval, cushion,
+//! emerald step cut, princess) and four round-brilliant and teaching variants. The oval,
+//! cushion, emerald and princess are tier tables (`Row`) with full-precision masts, worked out
+//! so that each is a meet-point design (below) whose every facet is alive and large enough to
+//! cut, at the intended length-to-width ratio, on its default preform and after a remap to each
+//! gear [`TemplateSpec::allowed_gears_among`] offers. The `#[cfg(test)]` module checks each entry.
 //!
 //! # Tier order
 //!
-//! Every tier list is stored in the order it is cut ([`crate::design::Design::cutting_order`]):
-//! the pavilion mains, the girdle, the lower girdle and the culet, then the crown mains, the
-//! stars and the upper girdle, and the table last, so the tier table, the Cut slider and the
-//! printed cutting sheet all start with the same tier. The emerald step cut keeps its
-//! authored order inside each section (its cutting order already puts the pavilion first).
-//! Only [`crate::design::ConstraintTier::standard_round_brilliant`], the fixture about 160
-//! tests build on, stays top-down.
+//! Every tier list is stored in the order it is cut ([`crate::design::Design::cutting_order`]),
+//! so the tier table, the Cut slider and the printed cutting sheet all start with the same tier:
+//! the pavilion section (the girdle tiers belong to it), then the crown, and the table last.
+//! Only [`crate::design::ConstraintTier::standard_round_brilliant`], the fixture about 160 tests
+//! build on, stays top-down.
+//!
+//! - The round brilliants and the teaching designs cut the pavilion mains first, then the girdle;
+//!   the round brilliants then cut the lower girdle and the culet, and their crown upper girdle
+//!   first, then the crown mains and the stars (see `round_brilliant_crown`).
+//! - The oval, cushion, emerald and princess cut their girdle outline first (the first girdle
+//!   tier sets the stone size, the others are cut to depth before any facet leaves a point).
+//!   The oval, the cushion and the princess have no culet tier: their pavilion mains meet in a
+//!   point, or, on the oval, the side mains in a short keel. The oval, the princess and the cushion
+//!   cut their breaks before the mains they meet, the emerald leads each half with its end steps.
+//!
+//! # Meet points
+//!
+//! Every template is a meet-point design: cut in order on its own rough, every tier either fixes
+//! a dimension or reaches a point already on the stone ([`crate::design::Design::cut_meets`]),
+//! and the girdle is level at its corners ([`crate::design::Design::girdle_level`]). The masts
+//! that meet are full-precision values worked out that way, each commented with what it meets; a
+//! rounded mast floats off its point.
+//!
+//! - The round brilliants' star is at 27 degrees (the fixture's is 15) so that the meet-point
+//!   crown has a 55.5 % table; their culet is a pin-prick that meets the mains' point.
+//! - The teaching designs are anchored at every tier: the pavilion mains are cut to the
+//!   centerpoint and the girdle sets the stone size; the Simple design's table, its only crown
+//!   tier, sets the girdle width, and the Rich design's table, above crown mains that meet only
+//!   in one point, sets the table size.
+//! - The oval's pavilion tiers each meet a point on the girdle that a retarget turns them about:
+//!   a girdle corner, or the V a pair of lower girdles leaves in the middle of a girdle face; the
+//!   side mains meet in a short keel. Its crown's diagonal mains meet in the crown's point and
+//!   the side and end mains meet it at the angles that put each level on its own girdle face.
+//! - The cushion's second breaks and corner mains run level along the rounding and corner faces,
+//!   so its girdle line is level whatever the angles.
+//! - The emerald's table meets the tops of its third corner steps, so it is a rectangle.
+//!
+//! Every template can be created in another material: the retarget that adapts its angles keeps
+//! every meet, since each point a tier meets is formed by planes that keep clear angles between
+//! them (`templates::tests` in the editor checks Quartz, Sapphire, Diamond and Emerald).
+//!
+//! A remap to another gear keeps a meet only where every index lands on a whole tooth: the
+//! emerald (indices in steps of 12) keeps them all on every gear it offers; the oval, the cushion
+//! and the princess keep their stones intact on gears 80 and 64, but some of their breaks, mains
+//! and stars float there, by at most about 0.1 mm at 10 mm, inside the default reach of Snap to
+//! Meets. Their girdle line is then not level.
 //!
 //! # Metadata
 //!
@@ -98,10 +125,8 @@ type Row = (&'static str, f64, &'static [f64], f64);
 
 /// One gallery entry: display metadata plus a pure constructor for its tier table.
 ///
-/// `build` is a plain function pointer (not a closure) so [`TEMPLATES`]
-/// can be a `const` table -- the same "static data, not a builder object" shape
-/// [`crate::design::ConstraintTier::standard_round_brilliant`] already uses for
-/// the one template that predates this module.
+/// `build` is a plain function pointer, not a closure, so that [`TEMPLATES`] can be a `const`
+/// table of static data.
 #[derive(Debug, Clone)]
 pub struct TemplateSpec {
     /// Shown as the gallery card's title and the "Start From" selection text.
@@ -134,10 +159,7 @@ pub struct TemplateSpec {
     /// The preform the dialog cuts this template from. Tall enough that the finished
     /// stone is never clipped by the rough's own bottom or walls.
     pub preform: PreformSpec,
-    /// Builds this template's tier table. Called once per selection, not
-    /// cached -- these are all cheap, small `Vec` literals (the same cost
-    /// [`crate::design::ConstraintTier::standard_round_brilliant`] already pays
-    /// on every "Create").
+    /// Builds this template's tier table on each call (not cached; the tables are small).
     build: fn() -> Vec<ConstraintTier>,
 }
 
@@ -231,9 +253,7 @@ impl TemplateSpec {
         gears
     }
 
-    /// Builds this template's tier table -- see [`Self::build`]'s own doc
-    /// comment for why this is a method wrapping a function pointer rather than
-    /// the field being called directly (a private field needs an accessor).
+    /// Builds this template's tier table.
     #[must_use]
     pub fn tiers(&self) -> Vec<ConstraintTier> {
         (self.build)()
@@ -246,9 +266,8 @@ impl TemplateSpec {
     #[must_use]
     pub fn schedule_meta(&self) -> ScheduleMeta {
         ScheduleMeta {
-            // Just the version number -- see `ConstraintTier::standard_round_brilliant`'s
-            // matching field for why the `"GemCad "` prefix does not belong here
-            // too (`pleochroma_formats::asc::to_asc_string` already writes it).
+            // The version number only: `pleochroma_formats::asc::to_asc_string` writes the
+            // `GemCad ` prefix.
             gemcad_version: "5.0".to_string(),
             gear_teeth: self.gear_teeth,
             gear_reference_angle: 0.0,
@@ -261,10 +280,9 @@ impl TemplateSpec {
     }
 }
 
-/// Index-wheel positions shared by every template in this module -- the same
-/// 96-tooth, 8-fold layout [`ConstraintTier::standard_round_brilliant`] uses,
-/// reproduced here (rather than exported from that function, which keeps its
-/// own copies private) since every template below needs at least one of them.
+/// Index-wheel positions of the 96-tooth, 8-fold layout of
+/// [`ConstraintTier::standard_round_brilliant`], copied because that function keeps its own
+/// copies private.
 mod indices {
     /// The 16 girdle-band facet positions on a 96-tooth wheel.
     pub const GIRDLE: [f64; 16] = [
@@ -282,10 +300,8 @@ mod indices {
     pub const STAR: [f64; 8] = [6.0, 18.0, 30.0, 42.0, 54.0, 66.0, 78.0, 90.0];
 }
 
-/// Builds one `ScaleReference`-pinned tier -- the same small helper
-/// [`ConstraintTier::standard_round_brilliant`] declares privately for itself,
-/// reproduced here for the same reason [`indices`] is: every template below
-/// needs it and that copy is not exported.
+/// Builds one `ScaleReference`-pinned tier. A copy of the private helper of
+/// [`ConstraintTier::standard_round_brilliant`].
 fn scale_tier(name: &str, angle_deg: f64, indices: &[f64], mast: f64) -> ConstraintTier {
     ConstraintTier {
         angle_deg,
@@ -298,56 +314,156 @@ fn scale_tier(name: &str, angle_deg: f64, indices: &[f64], mast: f64) -> Constra
     }
 }
 
-/// Every template is stored in the order it is cut ([`crate::design::Design::cutting_order`]):
-/// the pavilion mains, the girdle, the lower girdle and the culet, then the crown mains, the
-/// stars and the upper girdle, and the table last. The tiers, angles, indices and masts are
-/// the ones [`ConstraintTier::standard_round_brilliant`] has; only the order differs, so the
-/// first step a new design shows is the first step a cutter takes. (The fixture itself stays
-/// top-down: about 160 tests build on it.)
-fn round_brilliant_tiers() -> Vec<ConstraintTier> {
-    vec![
-        scale_tier("Pavilion Main", -41.0, &indices::MAIN, 0.67),
-        scale_tier("Girdle", 90.0, &indices::GIRDLE, 1.0),
-        scale_tier("Lower Girdle", -42.5, &indices::BREAK, 0.68),
-        scale_tier("Culet", -0.0, &[], 0.88),
-        scale_tier("Crown Main", 34.5, &indices::MAIN, 0.59),
-        scale_tier("Star", 15.0, &indices::STAR, 0.45),
-        scale_tier("Upper Girdle", 41.0, &indices::BREAK, 0.67),
-        scale_tier("Table", 0.0, &[], 0.32),
+/// The meet-point crown every round brilliant template shares, in the order it is cut, above the
+/// girdle.
+///
+/// - The upper girdle facets come first and set the girdle width. Each pair either side of a
+///   main meets on the main's girdle face, in the V a brilliant's girdle has, and each facet runs
+///   through a corner where two girdle faces meet, so the top of the girdle is level at its
+///   corners. Their mast puts those corners 0.055 above the standard's pavilion line: the girdle
+///   is 2.75 % of the width thick at its corners.
+/// - The crown mains meet the girdle and the upper girdles at the bottom of those V's: the kite's
+///   lower point.
+/// - The stars meet the crown mains and the upper girdles where two kites and two upper girdles
+///   meet: the star's point.
+/// - The table meets the crown mains and the stars at the top of each kite.
+///
+/// The crown mains cannot come first: an upper girdle facet 41 degrees steep, one tooth from a
+/// main at 34.5 degrees, that reaches a crown main's corner on the girdle cuts nothing, and a star
+/// cut before the upper girdles has no point to meet. In this order the star points stand 96 %
+/// of the way out to the girdle whatever the masts, so the star angle alone sets the table: at
+/// 27 degrees the table is 55.5 % of the width (a 15-degree star would leave 80 %).
+fn round_brilliant_crown() -> [ConstraintTier; 4] {
+    [
+        // Set girdle width.
+        scale_tier(
+            "Upper Girdle",
+            41.0,
+            &indices::BREAK,
+            0.690_757_432_895_065_9,
+        ),
+        // Meets Girdle and Upper Girdle at the kite's lower point.
+        scale_tier("Crown Main", 34.5, &indices::MAIN, 0.605_830_002_977_678_6),
+        // Meets Upper Girdle and Crown Main at the star's point.
+        scale_tier("Star", 27.0, &indices::STAR, 0.548_005_339_109_188_4),
+        // Meets Crown Main and Star at the top of each kite.
+        scale_tier("Table", 0.0, &[], 0.354_003_743_907_870_76),
     ]
 }
 
-/// A shallower pavilion (mains at -38 instead of -41, lower girdle following at
-/// -40) -- closes the same way the standard template does, but with less
-/// pavilion angle margin over a typical critical angle, useful for
-/// demonstrating windowing risk in the guide/inspector's margin readout.
-fn shallow_pavilion_tiers() -> Vec<ConstraintTier> {
-    vec![
-        scale_tier("Pavilion Main", -38.0, &indices::MAIN, 0.67),
+/// How far the culet's plane sits above the point where the pavilion mains meet: half the meet
+/// tolerance (`crate::MEET_TOLERANCE_FRACTION`) of a stone 2.0 across. The culet then meets that
+/// point and stays a facet of its own, a pin-prick.
+const CULET_ABOVE_THE_MAINS_POINT: f64 = 5e-5;
+
+/// The standard round brilliant, a meet-point design stored in the order it is cut
+/// ([`crate::design::Design::cutting_order`]).
+///
+/// - The pavilion mains (mast `0.67`) are cut first, then the girdle sets the stone size.
+/// - The lower girdle facets meet the pavilion mains and the girdle at the corners where two
+///   girdle faces meet, so the bottom of the girdle is level; each pair meets in a V on the
+///   girdle face between two mains.
+/// - The culet meets the point where the mains meet (see [`CULET_ABOVE_THE_MAINS_POINT`]).
+/// - Then the crown, [`round_brilliant_crown`].
+///
+/// The tiers, indices and angles are those of [`ConstraintTier::standard_round_brilliant`],
+/// except the star (27 degrees instead of 15, see [`round_brilliant_crown`]). The masts and the
+/// cut order are this template's own; the fixture keeps its round masts and top-down order
+/// because about 160 tests build on it.
+fn round_brilliant_tiers() -> Vec<ConstraintTier> {
+    let mut tiers = vec![
+        // Nothing to meet yet: the first tier.
+        scale_tier("Pavilion Main", -41.0, &indices::MAIN, 0.67),
+        // Set stone size.
         scale_tier("Girdle", 90.0, &indices::GIRDLE, 1.0),
-        scale_tier("Lower Girdle", -40.0, &indices::BREAK, 0.68),
-        scale_tier("Culet", -0.0, &[], 0.88),
-        scale_tier("Crown Main", 34.5, &indices::MAIN, 0.59),
-        scale_tier("Star", 15.0, &indices::STAR, 0.45),
-        scale_tier("Upper Girdle", 41.0, &indices::BREAK, 0.67),
-        scale_tier("Table", 0.0, &[], 0.32),
-    ]
+        // Meets Pavilion Main and Girdle at the girdle-face corners.
+        scale_tier(
+            "Lower Girdle",
+            -42.5,
+            &indices::BREAK,
+            0.696_551_802_061_467_2,
+        ),
+        // Meets Pavilion Main where the mains meet.
+        scale_tier(
+            "Culet",
+            -0.0,
+            &[],
+            0.887_758_702_743_958_7 - CULET_ABOVE_THE_MAINS_POINT,
+        ),
+    ];
+    tiers.extend(round_brilliant_crown());
+    tiers
+}
+
+/// A shallower pavilion (mains at -38 instead of -41, lower girdle following at
+/// -40) -- the same meet-point design as the standard template, but with less
+/// pavilion angle margin over a typical critical angle, useful for
+/// demonstrating windowing risk in the guide/inspector's margin readout. The
+/// pavilion mains are cut to the standard's girdle line, so the girdle and the
+/// crown are the standard's.
+fn shallow_pavilion_tiers() -> Vec<ConstraintTier> {
+    let mut tiers = vec![
+        // Nothing to meet yet: the first tier, cut to the standard template's girdle line.
+        scale_tier(
+            "Pavilion Main",
+            -38.0,
+            &indices::MAIN,
+            0.630_217_613_472_574_4,
+        ),
+        // Set stone size.
+        scale_tier("Girdle", 90.0, &indices::GIRDLE, 1.0),
+        // Meets Pavilion Main and Girdle at the girdle-face corners.
+        scale_tier(
+            "Lower Girdle",
+            -40.0,
+            &indices::BREAK,
+            0.663_924_057_952_181_6,
+        ),
+        // Meets Pavilion Main where the mains meet.
+        scale_tier(
+            "Culet",
+            -0.0,
+            &[],
+            0.799_757_606_050_000_3 - CULET_ABOVE_THE_MAINS_POINT,
+        ),
+    ];
+    tiers.extend(round_brilliant_crown());
+    tiers
 }
 
 /// A deeper pavilion (mains at -43.5, lower girdle at -44.5) -- closer to a
 /// typical critical angle than the standard template, useful for demonstrating
-/// a "Marginal"/"Windows" risk band in the guide/inspector.
+/// a "Marginal"/"Windows" risk band in the guide/inspector. The same meet-point
+/// design as the standard template; the pavilion mains are cut to the standard's
+/// girdle line, so the girdle and the crown are the standard's.
 fn deep_pavilion_tiers() -> Vec<ConstraintTier> {
-    vec![
-        scale_tier("Pavilion Main", -43.5, &indices::MAIN, 0.67),
+    let mut tiers = vec![
+        // Nothing to meet yet: the first tier, cut to the standard template's girdle line.
+        scale_tier(
+            "Pavilion Main",
+            -43.5,
+            &indices::MAIN,
+            0.701_753_705_723_322,
+        ),
+        // Set stone size.
         scale_tier("Girdle", 90.0, &indices::GIRDLE, 1.0),
-        scale_tier("Lower Girdle", -44.5, &indices::BREAK, 0.68),
-        scale_tier("Culet", -0.0, &[], 0.88),
-        scale_tier("Crown Main", 34.5, &indices::MAIN, 0.59),
-        scale_tier("Star", 15.0, &indices::STAR, 0.45),
-        scale_tier("Upper Girdle", 41.0, &indices::BREAK, 0.67),
-        scale_tier("Table", 0.0, &[], 0.32),
-    ]
+        // Meets Pavilion Main and Girdle at the girdle-face corners.
+        scale_tier(
+            "Lower Girdle",
+            -44.5,
+            &indices::BREAK,
+            0.721_702_178_718_296_9,
+        ),
+        // Meets Pavilion Main where the mains meet.
+        scale_tier(
+            "Culet",
+            -0.0,
+            &[],
+            0.967_436_506_364_174_6 - CULET_ABOVE_THE_MAINS_POINT,
+        ),
+    ];
+    tiers.extend(round_brilliant_crown());
+    tiers
 }
 
 /// The simplest possible closed design on this layout: a table, a girdle band,
@@ -407,15 +523,29 @@ fn princess_tiers() -> Vec<ConstraintTier> {
 const RI_DIAMOND: f64 = 2.417;
 /// Sapphire (corundum), `n_D` 1.76808.
 const RI_SAPPHIRE: f64 = 1.768;
-/// Quartz, `n_D` 1.54421 -- also the 1.54 the teaching designs always assumed.
+/// Quartz, `n_D` 1.54421 -- also the 1.54 that the teaching designs assume.
 const RI_QUARTZ: f64 = 1.544;
 /// Emerald (beryl), `n_D` 1.5791.
 const RI_BERYL: f64 = 1.579;
 
 /// The preform every template is cut from: a 96-sided cylinder of half-width 1.5, `l_over_w`
-/// long, and tall enough (2.2) that no finished stone touches the rough's own bottom.
+/// long, and tall enough (2.2) that no finished stone touches the rough's own bottom. The
+/// Standard Round Brilliant is cut from a taller one, [`tall_rough`].
 const fn rough(l_over_w: f64) -> PreformSpec {
     PreformSpec::cylinder(96, 1.5, l_over_w, 2.2)
+}
+
+/// The Standard Round Brilliant's rough: the [`rough`] cylinder, 3.4 tall instead of 2.2.
+///
+/// The template is designed for diamond. In another material the pavilion angles move with the
+/// critical angle (+10.0 degrees for sapphire, +14.9 for emerald, +15.9 for quartz) and the mains
+/// turn about the girdle line, so their point drops from 0.89 below the middle of the stone to
+/// 1.25, 1.49 and 1.55. A 2.2-tall rough ends 1.1 down and would cut that point away, so the
+/// retarget refuses the change. At 3.4 the quartz stone clears the bottom by 0.15, and the stone
+/// fits every built-in material down to Glass (N-BK7, n 1.517); opal (n 1.45) would need 3.6 or
+/// more.
+const fn tall_rough(l_over_w: f64) -> PreformSpec {
+    PreformSpec::cylinder(96, 1.5, l_over_w, 3.4)
 }
 
 /// The built-in template gallery.
@@ -437,7 +567,7 @@ pub const TEMPLATES: &[TemplateSpec] = &[
         featured: true,
         design_ri: RI_DIAMOND,
         default_material: "Diamond",
-        preform: rough(1.0),
+        preform: tall_rough(1.0),
         build: round_brilliant_tiers,
     },
     TemplateSpec {
@@ -502,7 +632,7 @@ pub const TEMPLATES: &[TemplateSpec] = &[
         gear_teeth: 96,
         symmetry_order: 2,
         mirror: true,
-        description: "An elongated brilliant with a length-to-width ratio of 1.35, cut for corundum-like stones (sapphire, ruby): crown 35, pavilion 41 degrees.",
+        description: "An elongated brilliant with a length-to-width ratio of 1.35, cut for corundum-like stones (sapphire, ruby): the side mains meet in a short keel, pavilion mains 40.5 to 41.5 degrees, crown 32 to 40.",
         family: ShapeFamily::Oval,
         featured: true,
         design_ri: RI_SAPPHIRE,
@@ -516,7 +646,7 @@ pub const TEMPLATES: &[TemplateSpec] = &[
         gear_teeth: 96,
         symmetry_order: 4,
         mirror: true,
-        description: "A rounded-square brilliant with a deeper pavilion, cut for quartz-like stones (quartz, citrine, amethyst): crown 38, pavilion 43 degrees.",
+        description: "A rounded-square brilliant with a deeper pavilion, cut for quartz-like stones (quartz, citrine, amethyst): crown 38, pavilion 42 degrees.",
         family: ShapeFamily::Cushion,
         featured: true,
         design_ri: RI_QUARTZ,
@@ -555,19 +685,18 @@ pub const TEMPLATES: &[TemplateSpec] = &[
 ];
 
 impl Design {
-    /// The concave-facet fixture later work packages pin their numbers against:
-    /// a five-tier 16-tooth round brilliant on a 2 x 1 x 2 block (the same
-    /// schedule the cut-core edit round-trip tests use), plus two concave tiers,
+    /// The concave-facet fixture that tests pin their numbers against.
+    ///
+    /// A five-tier 16-tooth round brilliant on a 2 x 1 x 2 block, plus two concave tiers:
     ///
     /// - `Groove`: `CYL`, φ = −42, the eight even indices, θ = 0,
     ///   X = 0, Y = 0.15, Z = 0.03, D = 0.25, reciprocating;
     /// - `Dimple`: `SPH`, φ = +36, indices 0/4/8/12, X = Y = 0, Z = 0.02,
     ///   D = 0.1, plunge (a crown-side dimple).
     ///
-    /// **Frozen once published**: tests in other crates pin geometry, hashes and
-    /// text against these exact numbers, so change them only by adding a second
-    /// fixture. Not a template for users, and the concave tiers carry the
-    /// provisional `v0` frame conventions (plan §11a).
+    /// **Frozen**: tests in other crates pin geometry, hashes and text against these exact
+    /// numbers, so change them only by adding a second fixture. Not a template for users. The
+    /// concave tiers use the provisional `v0` frame conventions.
     ///
     /// # Panics
     ///

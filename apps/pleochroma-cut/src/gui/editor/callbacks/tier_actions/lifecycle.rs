@@ -36,20 +36,12 @@ use crate::{
     },
 };
 
-/// "Solve": the explicit re-solve action -- see this group's `mod.rs` doc comment for
-/// why every other edit callback deliberately does NOT do this. The only callback
-/// here besides `New`/`Load Selected` that calls `refresh_all` (a real `Design::solve`,
-/// potentially multi-second) rather than [`refresh_editor_panel_stale`].
+/// "Solve": the explicit re-solve action. It calls `refresh_all`, a real `Design::solve` that can
+/// take seconds, rather than [`refresh_editor_panel_stale`].
 ///
-/// Guards against Deep Solve or Optimize already running, not only a
-/// re-entrant Solve click. Solve, Deep Solve and Optimize each
-/// guard only their OWN `*_running` flag, so any two of the three could be launched
-/// at once (each roughly doubling the others' runtime). `EditorModel.busy_action`
-/// (`ui/models/editor.slint`) is the single Slint-side derived source of truth for
-/// all three, shown in `EditorCommandBar`/`EditorStatusStrip`; this reads the three
-/// flags it is built from directly (equivalent to checking `busy_action != ""`)
-/// since that is what every other `on_*` guard in this module already reads, and
-/// pulling in a fourth (derived) getter here would buy nothing.
+/// Refuses to run while Deep Solve or Optimize is running, not only during another Solve. Solve,
+/// Deep Solve and Optimize each guard only their own `*_running` flag, so any two could run at
+/// once. The three flags are read directly; `EditorModel.busy_action` is derived from them.
 pub(in crate::gui::editor) fn setup_solve_callback(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -82,33 +74,22 @@ pub(in crate::gui::editor) fn setup_solve_callback(
                 &state,
                 false,
             );
-            // The Solve button was pressed and the solve has landed (the tutorials' event).
+            // Tells the tutorial guide that a solve has landed.
             raise(&ui, SOLVE_REQUESTED);
         });
     });
 }
 
 thread_local! {
-    /// The live `EditorState`, stashed here purely so
-    /// [`setup_load_selected_callback`]'s remote branch can still reach it once
-    /// control is back on the UI thread. `gui::library::remote::fetch_remote_design_source`
-    /// (itself wrapping `bridge::library::source::spawn_library_request`) requires its
-    /// completion callback to be `Send + 'static`, because that callback's value is
-    /// physically moved through a `std::thread::spawn` closure before being handed to
-    /// `Weak::upgrade_in_event_loop` -- and an `Rc<RefCell<EditorState>>` capture can
-    /// never satisfy `Send` (Rc's ref-count is non-atomic), no matter that the
-    /// callback only ever actually RUNS back on the UI thread. Mirrors
-    /// `auto_solve::RUNTIME`'s own `thread_local!` for the identical reason (see that
-    /// module's doc comment). Set once, the first time [`setup_load_selected_callback`]
-    /// runs -- there is only ever one `EditorState` for the app's lifetime -- and read
-    /// back (never cleared) inside the remote branch's completion closure, which never
-    /// captures the `Rc` itself.
+    /// The live `EditorState`, for the remote branch of [`setup_load_selected_callback`]. The
+    /// download's completion callback must be `Send`, and an `Rc` is not, so the callback reads
+    /// the state from here on the UI thread instead of capturing it. Set once, when that
+    /// callback is first registered; there is only ever one `EditorState`.
     static REMOTE_LOAD_TARGET: RefCell<Option<Rc<RefCell<EditorState>>>> = const { RefCell::new(None) };
 }
 
-/// Bundles [`apply_loaded_design`]'s per-call payload -- kept as one struct (rather
-/// than three more parameters) purely to keep that function under clippy's
-/// argument-count lint, the same reasoning `auto_solve::BackgroundSolveResult` uses.
+/// The per-load payload of [`apply_loaded_design`], bundled to keep its argument count within
+/// clippy's limit.
 struct LoadedDesignOutcome<'a> {
     loaded: loading::LoadedDesign,
     printed_proportions: Option<pleochroma::geometry::stone_metrics::ExternalProportions>,
@@ -119,18 +100,13 @@ struct LoadedDesignOutcome<'a> {
     /// What the success toast calls the design -- see [`apply_loaded_design`]'s own
     /// doc comment.
     label: &'a str,
-    /// The catalogue row this design was loaded from -- `Some(full.entry_id)` for a
-    /// LOCAL load, `None` for a remote one (see `EditorState::source_entry_id`'s own
-    /// doc comment for why a remote entry id must never land here). Threaded through
-    /// unconditionally rather than defaulted to `None` here: every
-    /// `LoadedDesignOutcome` construction site, including `native_io.rs`'s own, must
-    /// supply the correct value for this field rather than rely on a default.
+    /// The catalogue row this design was loaded from: `Some` for a local load, `None` for a
+    /// remote one. A remote entry id is a separate id space and never lands here (see
+    /// `EditorState::source_entry_id`).
     source_entry_id: Option<i64>,
-    /// The catalogue entry's `url` for a LOCAL load, `None` for a remote one. A catalogue
-    /// design whose attached file has no `[meta].id` is named by the UUID derived from
-    /// this `url`, so reopening the same entry finds its saved variants again (see
-    /// `state::design_identity`). A remote design gets a fresh UUID instead: its `.asc`
-    /// file name says nothing stable about which design it is.
+    /// The catalogue entry's `url` for a local load, `None` for a remote one. A design whose file
+    /// has no `[meta].id` takes the UUID derived from this `url`, so reopening the entry finds its
+    /// saved variants. A remote design gets a fresh UUID: its `.asc` file name is not stable.
     catalogue_url: Option<&'a str>,
 }
 
@@ -183,24 +159,16 @@ fn apply_loaded_design(
     };
     let design_names_material = loaded.design.material.name.is_some();
     let mut st = state.borrow_mut();
-    // `replace_wholesale`, not a plain `*st = ...` -- see `do_new_design_create`'s
-    // matching comment and `EditorState::replace_wholesale`'s own doc comment: this
-    // carries the OLD `generation` `Arc` (and bumps it) across the replacement so a
-    // background Deep Solve/Optimize/auto-solve dispatched against the design being
-    // replaced still observes the change instead of comparing against a counter
-    // nobody increments anymore.
+    // `replace_wholesale` keeps the state's `generation` counter (and bumps it), so a
+    // background solve started against the replaced design still sees the change.
     st.replace_wholesale(EditorState {
-        // Read before `loaded.design` moves below -- a bare bool/i64 field read
-        // never conflicts with a later partial move of a DIFFERENT field of the
-        // same `loaded`/`outcome`, but keeping the "used for something else"
-        // fields together here (rather than scattered) is easier to audit.
         used_placeholder: loaded.used_placeholder,
         // The design file's `[meta]` and attachments (empty for a bare `.asc`), kept so
         // the next Save writes them back unchanged.
         file_extras: DesignFileExtras::new(loaded.metadata, loaded.attachments)
             .with_design_uuid_assigned(catalogue_url),
         source_entry_id,
-        // See `EditorState::fresh`'s matching comment on the coalescing window.
+        // Same coalescing window as `EditorState::fresh`.
         session: EditorSession::with_history(
             loaded.design,
             History::with_coalesce_window(ANGLE_NUDGE_COALESCE_WINDOW),
@@ -217,20 +185,15 @@ fn apply_loaded_design(
         original_asc_text: loaded.original_asc_text,
         pending_gear_remap: None,
         pending_retarget: None,
-        // A freshly replaced `EditorState` has never pushed anything yet -- matches
-        // `EditorState::fresh_from_spec`'s own construction (`state/mod.rs`); every
-        // other `EditorState` construction site, including `native_io.rs`'s own,
-        // must set this field the same way.
+        // A replaced state has pushed nothing to the panel yet.
         last_pushed_scratch: RefCell::new(PushedScratch::default()),
-        // Same reasoning as `last_pushed_scratch` immediately above -- a freshly
-        // replaced `EditorState` has no cached material-combo options yet either.
+        // Likewise, no material combo options are cached yet.
         material_combo_cache: RefCell::new(MaterialComboCache::default()),
         applied_library_material,
         has_design: true,
     });
-    // A Deep Solve/Optimize verdict computed against the design just replaced no
-    // longer describes anything on screen -- see `clear_analysis_results`'s own
-    // doc comment.
+    // Analysis results of the replaced design no longer describe the screen; see
+    // `clear_analysis_results`.
     clear_analysis_results(ui);
     // Captured before dropping the borrow below -- `refresh_all_now` needs to
     // borrow `state` itself, so `st` cannot still be held across that call.
@@ -244,16 +207,12 @@ fn apply_loaded_design(
         state,
         true,
     );
-    // The whole `EditorState` above was just replaced -- any previously selected
-    // tier index now names (at best) an unrelated row in the NEWLY loaded design, so
-    // both halves of the selection reset unconditionally: the property (for the
-    // Solid/Diagram overlay tint) and the pulse (so `EditorView`'s form-reset watcher
-    // fires even when the selection happened to already be `-1`; see
-    // `EditorModel::form_reset_pulse`'s own doc comment).
+    // The `EditorState` above was replaced, so a selected tier index names at best an
+    // unrelated row. Both halves of the selection reset: the property (for the overlay tint)
+    // and the pulse (so `EditorView`'s form blanks even when the index was already `-1`).
     ui.global::<EditorModel>().set_selected_tier_index(-1);
     bump_form_reset_pulse(ui);
-    // Explicit, same reasoning as `native_io::commit_loaded_native`'s own matching
-    // line: a freshly replaced `EditorState` is clean by construction.
+    // A freshly replaced state is clean by construction.
     ui.global::<EditorModel>().set_is_dirty(false);
     // A loaded design is a real design: the empty-state card grid gives way to it.
     push_has_design(ui, &state.borrow());
@@ -286,9 +245,7 @@ fn apply_loaded_design(
     if let Some((name, ri)) =
         nearest_built_in_material(schedule_ri, 0.01).filter(|_| !design_names_material)
     {
-        // Unrelated pre-existing build break fixed in passing (not part of this
-        // session's GPU/display-thread work): the suggestion text is built BEFORE
-        // `name` moves into `set_material_suggestion_name` below, not after.
+        // Built before `name` moves into `set_material_suggestion_name` below.
         let suggestion_text = format!("Set material to {name} (RI {ri:.4})?");
         ui.global::<EditorModel>()
             .set_material_suggestion_name(name.into());
@@ -300,9 +257,8 @@ fn apply_loaded_design(
         ui.global::<EditorModel>()
             .set_material_suggestion_text("".into());
     }
-    // A stone the Rough Planner asked to open (`planned_stone`): the design it was computed for
-    // is on the bench now, so its planned piece, real width and colour are applied as one
-    // undoable edit. Any other load drops the request. The state borrow is long released.
+    // A stone the Rough Planner asked to open (`planned_stone`) is applied as one undoable edit
+    // when the design it was computed for is the one that landed. Any other load drops it.
     if let Some(request) = planned_stone::take_for(source_entry_id) {
         planned_stone::apply_pending(
             ui,
@@ -326,13 +282,11 @@ fn apply_loaded_design(
 /// to the angle-table placeholder (a remote entry with no attached `.asc` reports
 /// `DesignSourceNotAvailable`, surfaced as a toast instead).
 ///
-/// Checks `entry_id` first (a plain, no-dialog-needed validation -- nothing
-/// destructive would happen anyway), THEN [`EditorState::is_dirty`]: a dirty design
-/// stashes [`PendingUnsavedAction::LoadSelected`] and opens the Save/Discard/Cancel
-/// guard instead of replacing anything, resumed by [`setup_unsaved_guard_dispatch`]
-/// (also wired up here -- see that function's own doc comment for why this is its
-/// one call site) once "Save"/"Discard" is chosen. Everything past that point is
-/// [`do_load_selected`], run either directly or as that resume.
+/// Checks `entry_id` first, then [`EditorState::is_dirty`]. A dirty design stashes
+/// [`PendingUnsavedAction::LoadSelected`] and opens the Save/Discard/Cancel guard instead of
+/// replacing anything. [`setup_unsaved_guard_dispatch`], registered here, resumes the load once
+/// "Save" or "Discard" is chosen. Everything past that point is [`do_load_selected`], run either
+/// directly or as that resume.
 pub(in crate::gui::editor) fn setup_load_selected_callback(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -423,12 +377,10 @@ fn ask_again_before_load(ui: &MainWindow, state: &Rc<RefCell<EditorState>>) {
     model.set_unsaved_dialog_open(true);
 }
 
-/// The actual "Load Selected" work -- see [`setup_load_selected_callback`]'s own doc
-/// comment for why the dirty check runs before this is ever called, not inside it.
-/// `entry_id` is re-read from [`LibraryModel::get_selected_entry_id`] here rather than
-/// threaded through as a parameter: the guard dialog blocks every other interaction
-/// while it is up, so the selection cannot have changed by the time this runs, and
-/// re-reading it is one line versus a parameter every other caller would also need.
+/// The actual "Load Selected" work. The dirty check runs before this is called (see
+/// [`setup_load_selected_callback`]). `entry_id` is read from
+/// [`LibraryModel::get_selected_entry_id`] rather than passed in: the guard dialog blocks other
+/// interaction while it is open, so the selection cannot have changed.
 fn do_load_selected(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -449,13 +401,9 @@ fn do_load_selected(
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .clone();
     if let Some(worker) = current_source.worker().cloned() {
-        // Remote: fetch this entry's own `.asc` text off the UI thread. The
-        // completion closure below must be `Send + 'static` (see
-        // `REMOTE_LOAD_TARGET`'s own doc comment for why it deliberately never
-        // captures `state` directly) -- everything it DOES capture
-        // (`render_ctx`/`preview_state`/`solid_last_solved`) is already `Arc`-
-        // wrapped Send-safe data this crate moves across thread boundaries
-        // elsewhere (e.g. `auto_solve::dispatch_background_solve`).
+        // Remote: fetch this entry's `.asc` text off the UI thread. The completion closure must
+        // be `Send + 'static`, so it captures only `Arc` handles and reads the state through
+        // `REMOTE_LOAD_TARGET`.
         let render_ctx = Arc::clone(render_ctx);
         let preview_state = Arc::clone(preview_state);
         let solid_last_solved = Arc::clone(solid_last_solved);
@@ -537,11 +485,10 @@ fn do_load_selected(
     );
 }
 
-/// [`do_load_selected`]'s local branch: the full record (every angle row and file BLOB)
-/// and its parse are read on a worker over a read-only connection, like the remote
-/// branch (perf review UI-5); only the apply -- gated by the solve policy inside
-/// `apply_loaded_design` -- runs on the UI thread. The edit-since check is the remote
-/// branch's, for the same reason: the load is now asynchronous.
+/// [`do_load_selected`]'s local branch. The full record (every angle row and file BLOB) and
+/// its parse run on a worker over a read-only connection, like the remote branch. Only the
+/// apply runs on the UI thread, gated by the solve policy in `apply_loaded_design`. The
+/// edit-since check is the remote branch's, since the load is asynchronous.
 fn load_local_entry(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -617,11 +564,8 @@ fn load_local_entry(
     }
 }
 
-/// The render/preview plumbing [`run_pending_unsaved_action`]'s three resumable
-/// actions (New/Load Selected/Open) all need alongside `ui`/`state` --
-/// bundled purely to keep that function's own argument count under clippy's
-/// `too_many_arguments` lint; each field is unpacked back to its own `do_*`
-/// parameter at the call, so no callee's signature changes.
+/// The render and preview handles that [`run_pending_unsaved_action`]'s three resumable actions
+/// need. Bundled to keep that function within clippy's `too_many_arguments` limit.
 #[derive(Clone, Copy)]
 struct RenderPreviewHandles<'a> {
     render_ctx: &'a Arc<Mutex<RenderContext>>,
@@ -629,17 +573,10 @@ struct RenderPreviewHandles<'a> {
     solid_last_solved: &'a SolidLastSolved,
 }
 
-/// Runs whichever [`PendingUnsavedAction`] `pending` holds, or does nothing for
-/// `None`. Shared by [`setup_unsaved_guard_dispatch`]'s "Discard" handler (which
-/// takes it straight off `state` itself, immediately) and the [`AfterSave::Resume`]
-/// listener registered in that same function (which takes it out of `after_save`
-/// instead, once the "Save" resolution's own save actually lands -- see
-/// [`AfterSave`]'s own doc comment) -- the only two ways to reach past the
-/// Save/Discard/Cancel guard. Takes `pending` by value (already taken out of
-/// wherever it lived) rather than reading `state.pending_unsaved_action` itself:
-/// every arm below calls back into a `do_*` function that itself starts with its
-/// own `state.borrow_mut()`, so this must never itself be holding that guard's
-/// `RefMut` across the call.
+/// Runs whichever [`PendingUnsavedAction`] `pending` holds, or nothing for `None`. It is called
+/// from the "Discard" handler and from the [`AfterSave::Resume`] listener, the only two ways past
+/// the Save/Discard/Cancel guard. `pending` is taken by value: each arm calls a `do_*` function
+/// that borrows `state` itself, so the caller must not hold that borrow.
 fn run_pending_unsaved_action(
     pending: Option<PendingUnsavedAction>,
     ui: &MainWindow,
@@ -686,26 +623,16 @@ fn run_pending_unsaved_action(
     }
 }
 
-/// The Save/Discard/Cancel unsaved-changes guard's three resolution callbacks --
-/// shared by New/Load Selected/Open (see [`PendingUnsavedAction`]), since only
-/// one of them can ever be pending at a time and Slint only keeps the LAST handler
-/// registered for a given callback. Registered once, from
-/// [`setup_load_selected_callback`] -- the one owned function with every one of
-/// `db`/`source` (needed to resume Load Selected) alongside the render/preview
-/// plumbing New and Open also need, so it is the natural single home for this
-/// rather than splitting it across the files that own each individual action.
+/// The Save/Discard/Cancel unsaved-changes guard's resolution callbacks, shared by New, Load
+/// Selected and Open (see [`PendingUnsavedAction`]). Only one of them can be pending at a time,
+/// and Slint keeps only the last handler registered for a callback, so these are registered once,
+/// from [`setup_load_selected_callback`], which also owns `db` and `source`.
 ///
-/// "Save" invokes `EditorModel.save_native` (whatever handler is registered for it --
-/// `native_io::setup_save_native_callback`, wired up independently of this function)
-/// and only resumes the pending action once that save actually lands -- via the
-/// [`AfterSave::Resume`] listener registered below, not a synchronous `is_dirty`
-/// check run right after `invoke_save_native` returns: Save is
-/// asynchronous end to end, so that check used to read the state from BEFORE the
-/// save even started, silently dropping the pending action instead of ever resuming
-/// it. A cancelled or failed save (already toasted by `save_native` itself, and
-/// always clearing `after_save` -- see that enum's own doc comment) simply never
-/// fires the listener, leaving the pending action untouched -- so it is dropped
-/// here anyway, consistently with "Save" always ending the guard one way or another.
+/// "Save" invokes `EditorModel.save_native` and marks [`AfterSave::Resume`]. The pending action
+/// then runs only once that save lands (see the listener below). Save is asynchronous, so an
+/// `is_dirty` check right after the invoke would read the state from before the save. A failed
+/// or cancelled save never fires the listener, and the pending action is dropped, since "Save"
+/// always ends the guard.
 fn setup_unsaved_guard_dispatch(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -715,11 +642,9 @@ fn setup_unsaved_guard_dispatch(
     db: &Arc<Mutex<Database>>,
     source: &Arc<Mutex<LibrarySource>>,
 ) {
-    // Runs once the save this guard's own "Save" resolution triggered actually
-    // completes -- see [`AfterSave::Resume`]'s own doc comment. A listener
-    // that finds `after_save` holding the OTHER guard's own `CloseWindow` (or
-    // `None`) must leave it untouched -- see `native_io::on_save_completed`'s own
-    // doc comment; only one listener may ever actually consume a given value.
+    // Runs when the save started by this guard's "Save" completes (see [`AfterSave::Resume`]).
+    // A listener that finds another value in `after_save` leaves it alone, since only one
+    // listener may consume a value (see `native_io::on_save_completed`).
     let render_ctx_listener = Arc::clone(render_ctx);
     let preview_state_listener = Arc::clone(preview_state);
     let solid_last_solved_listener = Arc::clone(solid_last_solved);

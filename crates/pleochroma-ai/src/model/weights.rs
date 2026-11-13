@@ -1,8 +1,8 @@
 //! Serialization, persistence, and loading of neural network weights.
 //!
-//! Bare-network JSON (`save_json`, `load_json`, `to_json_string`, `from_json_str`) always validates the
-//! network structure on load. Training runs persist a [`Checkpoint`](super::checkpoint::Checkpoint) instead,
-//! which wraps the network in a schema-versioned header.
+//! Bare-network JSON (`save_json`, `load_json`, `to_json_string`, `from_json_str`) validates the
+//! network structure on load. Training runs persist a
+//! [`Checkpoint`](super::checkpoint::Checkpoint) instead, which adds a schema-versioned header.
 
 use super::{GemstoneSetAttentionNetwork, checkpoint::TrainingMode};
 use crate::env::{MOBILITY_INDEX, N_COMPONENTS, WEIGHT_FRACTION_INDEX};
@@ -110,15 +110,18 @@ impl From<serde_json::Error> for WeightError {
 }
 
 impl GemstoneSetAttentionNetwork {
-    /// Check every layer shape against the network's declared `d_model`, `num_heads`, `d_tier` and
-    /// `d_global`, and reject non-finite parameters. Called by every loader; a network that passes cannot
-    /// make `forward` index out of bounds.
+    /// Check every layer shape against the declared `d_model`, `num_heads`, `d_tier` and
+    /// `d_global`,
+    /// and reject non-finite parameters.
+    ///
+    /// Every loader calls this; a network that passes cannot make `forward` index out of bounds.
     ///
     /// The heads must be the critic (`d_model -> 1`), the sensitivity head (`d_model ->
     /// N_COMPONENTS`), the action residual and the gain head (both `d_model -> 1`).
     ///
     /// # Errors
-    /// [`WeightError::DimensionMismatch`] or [`WeightError::Invalid`] naming the first offending layer.
+    /// [`WeightError::DimensionMismatch`] or [`WeightError::Invalid`] naming the first offending
+    /// layer.
     pub fn validate(&self) -> Result<(), WeightError> {
         if self.d_model == 0
             || self.num_heads == 0
@@ -223,7 +226,7 @@ impl GemstoneSetAttentionNetwork {
     /// Serialize the bare network as compact JSON.
     ///
     /// # Errors
-    /// [`WeightError::Json`] if serialization fails (it does not return an empty string).
+    /// [`WeightError::Json`] if serialization fails.
     pub fn to_json_string(&self) -> Result<String, WeightError> {
         Ok(serde_json::to_string(self)?)
     }

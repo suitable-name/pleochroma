@@ -1,21 +1,15 @@
-//! `intersect_polyhedron` GPU self-test -- a case-bank check, not a bare ULP sweep,
-//! since this function's output is a discrete `Option<HitRecord>` (a facet index), not
-//! a smooth scalar.
+//! `intersect_polyhedron` GPU self-test: a case-bank check, because the output is a discrete
+//! `Option<HitRecord>` (a facet index), not a smooth scalar.
 //!
-//! Dispatches `shaders/intersect_polyhedron.wgsl` against the real 57-facet Standard
-//! Round Brilliant plane set (`geometry::cuts::StandardGemCuts::standard_round_brilliant`,
-//! called directly -- not a hand-copied plane list) with a directional sweep of rays
-//! from OUTSIDE the stone and, separately, from INSIDE it (the critical exit-branch
-//! case: see `optics::raytracer::intersect_polyhedron`'s own doc comment on why the
-//! retired first-draft shader got this wrong), plus adversarial cases (rays exactly on a facet
-//! plane, rays perpendicular to the girdle facets' normals, near-silhouette grazing
-//! rays).
+//! Dispatches `shaders/intersect_polyhedron.wgsl` against the 57-facet Standard Round Brilliant
+//! plane set, taken from `geometry::cuts::StandardGemCuts::standard_round_brilliant`. Rays come
+//! from outside the stone, and separately from inside it (the exit branch), plus adversarial
+//! cases: rays exactly on a facet plane, rays perpendicular to the girdle facets' normals, and
+//! near-silhouette grazing rays.
 //!
-//! Edge-grazing rays where two facets are within tolerance of the same `t` legitimately
-//! disagree on which facet CPU vs GPU picked (a tie-break that depends on
-//! sub-ULP-scale rounding in the running `t_near`/`t_far` comparison) -- these are
-//! whitelisted (counted, not failed) rather than reported as bugs. See
-//! [`PolyhedronCheckResult`]'s doc comment for the exact whitelisting rule.
+//! Grazing rays where two facets have the same `t` within rounding can legitimately pick
+//! different facets on CPU and GPU. These are counted as whitelisted ties, not failures; see
+//! [`CaseOutcome`].
 
 use crate::{
     geometry::{GpuFacetPlane, cuts::StandardGemCuts},
@@ -33,31 +27,19 @@ const SHADER_SRC: &str = include_str!("../shaders/intersect_polyhedron.wgsl");
 /// [`PolyhedronMismatch`]'s `cpu_hit`/`gpu_hit` fields and [`classify_case`]'s return.
 type HitSummary = Option<(f32, i64, Vec3)>;
 
-/// `t`-difference below which two different facet picks are treated as a legitimate
-/// grazing tie rather than a bug. Matches `intersect_polyhedron`'s own `1e-4`
-/// near-origin epsilon -- the same order of magnitude the algorithm itself already
-/// treats as "effectively at the surface" for the entry/exit branch decision, so two
-/// facets whose `t` values agree to within it are, by the algorithm's own standard,
-/// indistinguishable.
+/// `t` difference below which two different facet picks count as a grazing tie, not a bug.
+/// It is the same order as the `1e-4` that `intersect_polyhedron` uses for "effectively at
+/// the surface" in its entry/exit decision, so such facets are indistinguishable by its own
+/// standard.
 const TIE_EPS: f32 = 1e-4;
 
 /// ULP budget for `t` and `normal` components once facet identity is established (an
 /// exact facet match, or a whitelisted tie).
 ///
-/// Both CPU and GPU perform the identical sequence of dot-product/division arithmetic
-/// over up to 57 planes, so a real disagreement here (rather than driver-level float
-/// noise) would indicate a genuine porting bug in the arithmetic itself, not merely
-/// which facet won a tie.
-///
-/// # Where this number comes from
-///
-/// Measured on this workspace's dev hardware (AMD Radeon 680M-class RDNA2 iGPU, Vulkan
-/// backend): see the harness output for the measured max over the case bank in
-/// [`build_cases`]. Set generously above the single-operation 1-2 ULP driver-noise
-/// floor `rng_check`/`camera_check` established, to absorb the accumulation across up
-/// to 57 sequential plane evaluations, while remaining far below the magnitude a wrong
-/// epsilon or a dropped branch would produce (those move `t` by geometry-scale amounts,
-/// not a handful of ULP).
+/// CPU and GPU run the same dot-product and division sequence over up to 57 planes, so a
+/// difference beyond this budget points at the arithmetic, not at which facet won a tie. The
+/// budget absorbs the rounding accumulated over those planes, and stays far below the change a
+/// wrong epsilon or a dropped branch makes (geometry-scale changes of `t`).
 pub const HIT_ULP_BUDGET: u32 = 512;
 
 /// One ray case: origin + direction, plus a human-readable label for diagnostics.
@@ -71,8 +53,8 @@ pub struct PolyhedronCase {
     pub dir: Vec3,
 }
 
-/// 55 well-spaced directions on the unit sphere (a simple Fibonacci-sphere lattice) --
-/// used both to build outside-looking-in rays and inside-looking-out rays.
+/// `n` well-spaced directions on the unit sphere (a Fibonacci-sphere lattice), used to build
+/// both outside-looking-in and inside-looking-out rays.
 fn fibonacci_sphere(n: usize) -> Vec<Vec3> {
     let golden_angle = std::f32::consts::PI * (3.0 - 5.0_f32.sqrt());
     (0..n)
@@ -194,7 +176,7 @@ pub enum CaseOutcome {
     WhitelistedTie,
     /// A genuine disagreement: hit-status differed, or `t`/`normal` differed by more
     /// than [`HIT_ULP_BUDGET`], or facet indices differed with `t` values more than
-    /// [`TIE_EPS]` apart.
+    /// [`TIE_EPS`] apart.
     Mismatch,
 }
 
@@ -216,7 +198,7 @@ pub struct PolyhedronMismatch {
     pub detail: String,
 }
 
-/// Outcome of the polyhedron check check.
+/// Outcome of the `intersect_polyhedron` self-test.
 #[derive(Debug, Clone)]
 pub struct PolyhedronCheckResult {
     /// Total number of cases run.

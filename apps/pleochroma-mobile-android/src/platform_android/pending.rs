@@ -239,11 +239,9 @@ mod tests {
             let _ = tx.send(result);
         }));
         finish_documents(id, None);
-        assert!(
-            rx.recv()
-                .expect("callback ran")
-                .expect("no error")
-                .is_empty()
+        assert_eq!(
+            rx.recv().expect("callback ran").expect("no error"),
+            [] as [PickedFile; 0]
         );
     }
 

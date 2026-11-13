@@ -25,8 +25,8 @@
 //! - [`search`]: the desktop dialog's Optimize mode. It starts from the Shift result and
 //!   searches every crown and pavilion angle inside a range (pinned facets included, each
 //!   turning about its girdle corners), then runs the validity gate on the ranked results.
-//!   [`RetargetMode::Optimize`] below is the older, simpler path the web app still uses
-//!   for designs with nothing pinned.
+//!   [`RetargetMode::Optimize`] below is the simpler angle-only path the web app uses for
+//!   designs with nothing pinned.
 //!
 //! # The two algorithms
 //!
@@ -65,6 +65,7 @@ use pleochroma_cut_core::{
 
 pub mod anchors;
 pub mod check;
+pub mod keep_meets;
 pub mod metrics;
 pub mod plan;
 pub mod refit;
@@ -110,8 +111,7 @@ pub struct CrownShift {
 }
 
 impl CrownShift {
-    /// The policy that leaves every crown angle where it is ("the crown stays"): the
-    /// behaviour before the crown followed the pavilion.
+    /// The policy that leaves every crown angle where it is.
     #[must_use]
     pub const fn fixed() -> Self {
         Self {
@@ -251,7 +251,7 @@ fn shifted_angle(
 /// The scope only ever holds positions in `design.tiers`: concave tiers (their own list,
 /// `design.concave_tiers`) have no angle the material retarget could shift (a concave
 /// tier's angle is authored against the tool, not a critical-angle margin), so they are
-/// never part of it and the returned `Block` list has one entry per FLAT tier.
+/// never part of it. The returned `Block` list has one entry per tier of `design.tiers`.
 #[must_use]
 pub fn retarget_scope(design: &Design) -> (Vec<usize>, Vec<Block>) {
     let blocks = classify_blocks(&design.meet_tier_inputs());
@@ -308,9 +308,8 @@ pub fn seed_shift_design(
 ///
 /// `seeded`'s own angle for every `scope` tier, overridden by whichever tiers `changes`
 /// actually touched, with each row's `old_angle` read from `original` (the design as it
-/// stood before any shift/search ran) -- exactly [`build_optimized_angles`]'s own
-/// post-processing, factored out so `callbacks::retarget_actions`'s off-thread completion
-/// handler can build the same rows a synchronous call would have.
+/// stood before any shift/search ran). The same post-processing [`build_optimized_angles`]
+/// uses, so the desktop's off-thread completion builds identical rows.
 #[must_use]
 pub fn rows_from_outcome(
     original: &Design,
@@ -337,9 +336,8 @@ pub fn rows_from_outcome(
 /// A one-line summary of the material move, plus (for `Optimize`) a note that
 /// the search only ever touches free tiers.
 ///
-/// `pub` so
-/// `callbacks::retarget_actions`'s off-thread completion handler can build the
-/// identical notes a synchronous [`build_proposal`] call would have.
+/// Public so the desktop's off-thread completion handler builds the same notes as
+/// [`build_proposal`].
 ///
 /// `stretch` is the design's [`plan::pavilion_stretch`]; when the crown follows the pavilion
 /// ([`CrownShift::follow_pavilion`], and `scale_by_ratio` is not set) and the stretch is not
@@ -417,10 +415,8 @@ pub fn build_proposal(
     )
 }
 
-/// The shared body of [`build_proposal`] --
-/// everything past resolving `n_from`, which is now the caller's job (see
-/// [`build_proposal`]'s own doc comment for why the catalogue is threaded in
-/// callers instead of one taking a `MaterialLookup`).
+/// The shared body of [`build_proposal`], taking `n_from` already resolved (see
+/// [`build_proposal`] for why the catalogue is passed in rather than a `MaterialLookup`).
 fn build_proposal_impl(
     design: &Design,
     n_from: f64,

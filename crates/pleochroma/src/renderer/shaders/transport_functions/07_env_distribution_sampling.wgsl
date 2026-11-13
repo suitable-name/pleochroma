@@ -21,13 +21,10 @@ fn tf_dist1d_find_bucket(cdf_start: u32, count: u32, u: f32) -> u32 {
             len = half;
         }
     }
-    // `first` saturates at 0 here (NOT `clamp(first - 1u, 0u, count - 1u)`,
-    // which wraps to `u32::MAX` then clamps to `count - 1u` -- the WORST bucket,
-    // exactly backwards -- whenever `first == 0u`), matching
-    // `renderer::env_map_distribution::Distribution1D::find_bucket`'s own
-    // `first.saturating_sub(1).min(self.n() - 1)` and the megakernel's own
-    // `dist1d_find_bucket` (`transport_bounce/06_nee_sampling.wgsl`), which already
-    // guards this with `if (first > 0u) { offset = first - 1u; }` before its `min`.
+    // Saturate `first - 1` at 0. Clamping `first - 1u` directly would wrap to `u32::MAX`
+    // when `first == 0u` and select the last bucket. Matches
+    // `renderer::env_map_distribution::Distribution1D::find_bucket` and the megakernel's
+    // `dist1d_find_bucket` in `transport_bounce/06_nee_sampling.wgsl`.
     var offset: u32 = 0u;
     if (first > 0u) {
         offset = first - 1u;
@@ -98,15 +95,18 @@ fn tf_hdr_env_sample_bilinear(u_in: f32, v_in: f32) -> vec3<f32> {
     let p01 = dist_test_hdr_texels[u32(y1i) * width + u32(x0i)].xyz;
     let p11 = dist_test_hdr_texels[u32(y1i) * width + u32(x1i)].xyz;
 
-    // Same blend order as `hdr_env_sample_bilinear` in transport_bounce.wgsl and
-    // `EnvironmentMap::radiance_at`; a different formula here would hide a real
-    // production mismatch behind an unrelated harness one.
+    // Same blend order as `hdr_env_sample_bilinear` in the megakernel and
+    // `EnvironmentMap::radiance_at`, so a mismatch can only come from the shared math.
     let top = fma(p10, vec3<f32>(tx), p00 * (1.0 - tx));
     let bottom = fma(p11, vec3<f32>(tx), p01 * (1.0 - tx));
     return fma(bottom, vec3<f32>(ty), top * (1.0 - ty));
 }
 
-fn tf_dist2d_sample(u0: f32, u1: f32) -> Dist2dSample {
+// The HDR map's yaw as (cos, sin) -- the twin of the megakernel's `hdr_rot()`, passed in because
+// these standalone checks have no transport uniform. (1, 0) is the identity.
+const TF_HDR_IDENTITY_ROT = vec2<f32>(1.0, 0.0);
+
+fn tf_dist2d_sample(u0: f32, u1: f32, rot: vec2<f32>) -> Dist2dSample {
     let width = dist_test_dims.width;
     let height = dist_test_dims.height;
     let marginal_func_start = width * height;
@@ -121,7 +121,7 @@ fn tf_dist2d_sample(u0: f32, u1: f32) -> Dist2dSample {
     let cond_func_int = dist_test_func[marginal_func_start + row];
     let u_sample = tf_dist1d_sample_continuous(cond_func_start, cond_cdf_start, width, cond_func_int, u0);
 
-    let dir = hdr_uv_to_direction(u_sample.sample, v_sample.sample);
+    let dir = hdr_map_to_world(hdr_uv_to_direction(u_sample.sample, v_sample.sample), rot);
     let rgb = tf_hdr_env_sample_bilinear(u_sample.sample, v_sample.sample);
     let pdf_uv = u_sample.pdf * v_sample.pdf;
     let pdf = pdf_uv_to_solid_angle(pdf_uv, v_sample.sample);
@@ -149,12 +149,12 @@ fn tf_dist2d_pdf_uv(u: f32, v: f32) -> f32 {
     return pdf_u * pdf_v;
 }
 
-// Same `sin(theta)`-off-the-direction form as transport_bounce.wgsl's `dist2d_pdf` and
-// `EnvironmentMap::pdf` -- see the latter's own comment.
-fn tf_dist2d_pdf(dir: vec3<f32>) -> f32 {
-    let uv = hdr_direction_to_uv(dir);
+// Same sin(theta) form as the megakernel's `dist2d_pdf` and `EnvironmentMap::pdf`.
+fn tf_dist2d_pdf(dir: vec3<f32>, rot: vec2<f32>) -> f32 {
+    let m = hdr_world_to_map(dir, rot);
+    let uv = hdr_direction_to_uv(m);
     let pdf_uv = tf_dist2d_pdf_uv(uv.x, uv.y);
-    let d = normalize(dir);
+    let d = normalize(m);
     let sin_theta = length(vec2<f32>(d.x, d.z));
     return pdf_uv_to_solid_angle_from_sin(pdf_uv, sin_theta);
 }
@@ -190,8 +190,9 @@ fn dist1d_find_bucket_main(@builtin(global_invocation_id) gid: vec3<u32>) {
 struct Dist2dSampleCase {
     u0: f32,
     u1: f32,
-    _pad0: f32,
-    _pad1: f32,
+    // The HDR map's yaw (cos, sin); (1, 0) is the identity.
+    rot_cos: f32,
+    rot_sin: f32,
 }
 
 @group(0) @binding(69) var<storage, read> dist2d_sample_cases: array<Dist2dSampleCase>;
@@ -204,7 +205,7 @@ fn dist2d_sample_main(@builtin(global_invocation_id) gid: vec3<u32>) {
         return;
     }
     let c = dist2d_sample_cases[idx];
-    let sample = tf_dist2d_sample(c.u0, c.u1);
+    let sample = tf_dist2d_sample(c.u0, c.u1, vec2<f32>(c.rot_cos, c.rot_sin));
     let base = idx * 7u;
     dist2d_sample_out[base + 0u] = sample.dir.x;
     dist2d_sample_out[base + 1u] = sample.dir.y;
@@ -222,6 +223,8 @@ fn dist2d_sample_main(@builtin(global_invocation_id) gid: vec3<u32>) {
 struct Dist2dPdfCase {
     dir: vec3<f32>,
     _pad0: f32,
+    // The HDR map's yaw as (cos, sin, 0, 0); (1, 0) is the identity.
+    rot: vec4<f32>,
 }
 
 @group(0) @binding(71) var<storage, read> dist2d_pdf_cases: array<Dist2dPdfCase>;
@@ -234,6 +237,6 @@ fn dist2d_pdf_main(@builtin(global_invocation_id) gid: vec3<u32>) {
         return;
     }
     let c = dist2d_pdf_cases[idx];
-    dist2d_pdf_out[idx] = tf_dist2d_pdf(c.dir);
+    dist2d_pdf_out[idx] = tf_dist2d_pdf(c.dir, c.rot.xy);
 }
 

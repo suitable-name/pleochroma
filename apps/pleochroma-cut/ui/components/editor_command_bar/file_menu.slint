@@ -82,9 +82,9 @@ component FileMenuItem inherits Rectangle {
 }
 
 // The bar's single File menu: New Design..., Open, Load Selected, Save and the exports,
-// each with its own guide gating. Structure and keyboard handling follow the old
-// "Export..." split button: Tab reaches the button, Space, Enter or Down opens the menu and
-// puts the focus on its first item, Tab walks the items, Space or Enter runs one, Escape
+// each with its own guide gating. Keyboard: Tab reaches the button, Space, Enter or Down opens
+// the menu and puts the focus on its first item, Tab walks the items, Space or Enter runs one,
+// Escape
 // closes the menu and brings the focus back to the button.
 //
 // "Will Ask Before Saving" is a small amber warning icon inside the button with an amber
@@ -92,7 +92,7 @@ component FileMenuItem inherits Rectangle {
 // visible where those actions live. It takes no room of its own: the bar's width must not
 // depend on a transient state, or the dock widens while the verdict shows.
 export component FileMenu inherits HorizontalLayout {
-    // 32 px like every other button of the bar (it was 34 and sat lower than its row).
+    // 32 px, like every other button of the bar.
     height: 32px;
     spacing: 8px;
     alignment: end;
@@ -132,8 +132,7 @@ export component FileMenu inherits HorizontalLayout {
                 // 42px = the 6px gap, 18px of padding each side (the left one holds the
                 // warning icon while it shows, with a 4 px gap before the label).
                 width: main_txt.preferred-width + chevron.width + 42px;
-                // The look of the bar's other buttons: a lighter fill than the old input
-                // colour (it read as a darker block) and a hairline border.
+                // Matches the bar's other buttons: a hairline border and a lighter fill.
                 background: main_touch.has-hover ? Theme.bg-elevated : Theme.bg-card-hover;
                 border-radius: Theme.radius-sm;
                 border-width: main_focus.has-focus || root.guided ? 2px : 1px;
@@ -257,8 +256,7 @@ export component FileMenu inherits HorizontalLayout {
                     activated => { anchor.close_menu(); EditorModel.new_dialog_open = true; }
                     dismissed => { anchor.close_menu(); }
                 }
-                // The id: the accessible name is "Open", so the site is not recognisable by its
-                // label ("Open...") when the harness's coverage gate matches a press to a site.
+                // The accessible name drops the ellipsis, so it reads "Open".
                 open_item := FileMenuItem {
                     label: "Open...";
                     access_label: "Open";
@@ -294,10 +292,9 @@ export component FileMenu inherits HorizontalLayout {
                     dismissed => { anchor.close_menu(); }
                 }
                 Rectangle { height: 1px; background: Theme.border-subtle; }
-                // The exports never register anything in, or change anything about, the
-                // library. "Export .asc" exports the design AS EDITED in this tab, distinct
-                // from `detail_header.slint`'s catalogue-original export.
-                // The id, for the same reason as `open_item` (the accessible name is "Export .asc").
+                // Exports never change the library. "Export .asc" writes the design as edited
+                // here, unlike `detail_header.slint`'s export of the catalogue original. The
+                // accessible name drops the ellipsis, as for `open_item`.
                 export_asc_item := FileMenuItem {
                     label: "Export .asc...";
                     access_label: "Export .asc";

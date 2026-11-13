@@ -10,36 +10,30 @@
 //!
 //! # What the registry keeps
 //!
-//! A base is a plain number, so nothing can tell the registry which ids are still in use
-//! (an undo history, a saved plan, a job in flight all hold them). It therefore never
-//! drops an id, and instead keeps what it must cheap:
+//! A base is a plain number, so the registry cannot tell which ids are still held (an undo
+//! step, a saved plan or a job in flight may name one). It therefore never drops an id:
 //!
-//! - A hull registered by import or load (a ROOT) stays, one per distinct file the session
-//!   has read.
-//! - A scaled copy (what Fit to weight makes, a new one for every weight tried) is not
-//!   stored. The registry keeps its recipe, the root's id and the total factor, a few
-//!   bytes, and builds the copy again from the root whenever it is asked for and no one
-//!   holds a built one. Only the few most recently built copies are kept
-//!   ([`BUILT_SCALED_CAP`]), so repeated fitting on a 50,000-triangle scan costs a bounded
-//!   amount of memory, while every id ever handed out stays valid. A least-recently-used
-//!   cap on the shapes themselves would free more, but would break the undo step that
-//!   still names an evicted id; a weak reference would need a holder the plain base does
-//!   not have.
+//! - A hull registered by import or load (a root) stays, one per distinct file read.
+//! - A scaled copy (for example each weight tried by Fit to weight) is stored as a recipe:
+//!   the root's id and the total factor. It is built again from the root when asked for and
+//!   no one holds a built one. Only the [`BUILT_SCALED_CAP`] most recently built copies are
+//!   kept, which bounds the memory of repeated fitting on a large scan while every id stays
+//!   valid. A cap on the shapes themselves would break an undo step that names an evicted id.
 //!
-//! The recipe fixes the copy exactly (the root scaled once by the total factor), so a
-//! rebuilt copy is bit-for-bit the copy it replaces and the results of a plan never
-//! depend on whether a copy happened to be cached.
+//! The recipe fixes the copy exactly (the root scaled once by the total factor), so a rebuilt
+//! copy is bit-for-bit the copy it replaces, and a plan never depends on whether a copy was
+//! cached.
 //!
 //! # Smooth scans
 //!
-//! A convex outline with more than [`MAX_HULL_PLANES`] distinct planes (a smooth scan has
-//! about one per hull triangle) is not refused by [`import_mesh`]: its outline is replaced by
-//! a simplified OUTER outline (see [`simplify`]) of at most [`OUTLINE_PLANES`] supporting
-//! planes, which contains every point, and the mesh is always kept beside it as the authority
-//! on where the material is. The outline then only bounds the grid and seeds the LP; pieces
-//! inside it but outside the true hull are air by the mesh. An outline made this way is never
-//! registered without its mesh. It is built from the mesh's own welded vertices (the mesh is
-//! built first), so the hull of a scan is computed once.
+//! A convex outline with more than [`MAX_HULL_PLANES`] distinct planes (a smooth scan has about
+//! one per hull triangle) is not refused by [`import_mesh`]: it is replaced by a simplified
+//! OUTER outline (see [`simplify`]) of at most [`OUTLINE_PLANES`] supporting planes, which
+//! contains every point. The mesh is always kept beside it, as the authority on where the
+//! material is: the outline only bounds the grid and seeds the LP, and pieces inside it but
+//! outside the true hull are air by the mesh. An outline made this way is never registered
+//! without its mesh. It is built from the mesh's own welded vertices, so the hull of a scan is
+//! computed once.
 //!
 //! [`RoughBase::Hull`]: super::RoughBase::Hull
 
@@ -82,18 +76,17 @@ pub const MAX_HULL_PLANES: usize = 400;
 
 /// The budget of a simplified outer outline: 6 axis planes and at most 58 clusters.
 ///
-/// The outline only bounds the grid and seeds the LP; the mesh kept beside it is the
-/// authority on where the material is. Every plane of the outline that a piece box crosses
-/// becomes an LP row in every partial piece, and the dense simplex costs about `J^2` per
-/// pivot over `~0.4 J` pivots, so a few dozen planes keep a piece solve cheap where 400
-/// would cost a thousand times a convex piece. The convex pebble gets by with 162 planes in
-/// its fine region and 42 in its coarse one (`shape/base.rs`); 64 is a little richer than
-/// the coarse one. [`MAX_HULL_PLANES`] keeps its meaning: the count above which an outline is
-/// simplified, and the cap of an exact hull.
+/// The outline only bounds the grid and seeds the LP; the mesh kept beside it decides where
+/// the material is. Every outline plane that a piece box crosses becomes an LP row of that
+/// piece, and the dense simplex cost grows quickly with the row count, so a few dozen planes
+/// keep a piece solve cheap. The convex pebble uses 162 planes in its fine region and 42 in
+/// its coarse one (`shape/base.rs`); this budget is a little richer than the coarse one.
+/// [`MAX_HULL_PLANES`] is the count above which an outline is simplified, and the cap of an
+/// exact hull.
 pub const OUTLINE_PLANES: usize = 64;
 
 /// The welded vertex count above which an outline is first built with the fast quickhull
-/// (see `quick`); every fixture below it takes the exact incremental hull as before.
+/// (see `quick`); below it the exact incremental hull is used.
 const QUICK_HULL_POINTS: usize = 4096;
 
 /// Why a point cloud is not a usable rough.
@@ -643,7 +636,7 @@ struct Outline {
 /// Above [`QUICK_HULL_POINTS`] points the hull of a scan is first built by the fast
 /// quickhull; only when its planes are too many (so the outline is simplified anyway, and no
 /// bit of an exact outline depends on it) is that hull used. A hull with few planes is always
-/// rebuilt by the exact algorithm, so every exact outline is bit for bit the old one.
+/// rebuilt by the exact algorithm, so every exact outline comes from [`hull_triangles`].
 fn hull_outline(points: &[DVec3]) -> Result<Outline, HullError> {
     if points.len() > QUICK_HULL_POINTS {
         let eps = quick::tolerance(points)?;
@@ -688,33 +681,28 @@ pub(in crate::rough_plan) fn convex_planes(points: &[DVec3]) -> Option<Vec<(DVec
 
 /// The rough of a triangle mesh: `points` and triangles `tris` indexing them (mm).
 ///
-/// A closed mesh that is genuinely smaller than its own convex hull (volume under
-/// `1 - 1e-6` of it) is KEPT beside that hull, so a notch or hollow is respected by the
-/// planner. The hull and the frame (bounding box, origin) are then those of the mesh's own
-/// welded, referenced vertices, which is all a saved plan stores: a stray or unreferenced
-/// `v` line does not change the rough, before or after a save. A convex mesh is not kept
-/// and returns the very base [`import_hull`] returns for ALL of `points` (same id), so
-/// convex roughs plan as they always did.
+/// A closed mesh that is genuinely smaller than its own convex hull (volume under `1 - 1e-6`
+/// of it) is KEPT beside that hull, so a notch or hollow is respected by the planner. The hull
+/// and the frame (bounding box, origin) are those of the mesh's own welded, referenced
+/// vertices, which is all a saved plan stores: a stray or unreferenced `v` line does not
+/// change the rough. A convex mesh is not kept and gives the base [`import_hull`] returns for
+/// ALL of `points` (same id), so convex roughs plan on the plain hull.
 ///
-/// A mesh that cannot be used (open, inconsistently wound, too many triangles, ...) is not
-/// an error: the rough falls back to the hull and the second value is a note saying why,
-/// for the app to show. No faces at all is a plain point cloud and gives no note.
+/// A mesh that cannot be used (open, inconsistently wound, too many triangles, ...) is not an
+/// error: the rough falls back to the hull and the second value is a note saying why, for the
+/// app to show. No faces at all is a plain point cloud and gives no note.
 ///
-/// # Errors
-///
-/// A convex outline with more than [`MAX_HULL_PLANES`] planes (a smooth scan) is replaced by
-/// a simplified outer outline of at most [`OUTLINE_PLANES`] planes (built from the mesh's own
-/// welded vertices) and the mesh is ALWAYS kept, even a convex one, because the
-/// outline then holds air and only the mesh knows where the material is. The note for that
-/// is not returned here (a saved plan must reload without one): ask
-/// [`outline_note`] for the base. If such a scan's mesh cannot be used, nothing sound
-/// stands in for it and the import is refused.
+/// A convex outline with more than [`MAX_HULL_PLANES`] planes (a smooth scan) is replaced by a
+/// simplified outer outline of at most [`OUTLINE_PLANES`] planes, built from the mesh's own
+/// welded vertices, and the mesh is ALWAYS kept, even a convex one, because the outline holds
+/// air and only the mesh knows where the material is. No note is returned for that (a saved
+/// plan must reload without one): ask [`outline_note`] for the base.
 ///
 /// # Errors
 ///
-/// Returns [`HullError`] when [`import_hull`] does for `points` for any reason but the
-/// plane count, and [`HullError::TooComplex`] or [`HullError::ScanUnusable`] when the
-/// outline is too complex and there is no usable mesh.
+/// Returns [`HullError`] when [`import_hull`] does for `points` for any reason but the plane
+/// count, and [`HullError::TooComplex`] or [`HullError::ScanUnusable`] when the outline is too
+/// complex and no usable mesh stands in for it.
 pub fn import_mesh(
     points: &[DVec3],
     tris: &[[u32; 3]],
@@ -923,8 +911,8 @@ fn scaled_extents(id: u64) -> Option<DVec3> {
 /// registered or `factor` is not a usable scale.
 ///
 /// The copy is registered as a recipe (the root and the total factor, see the module
-/// documentation), so a hundred scalings of a big mesh do not keep a hundred meshes. Its id
-/// follows from the recipe alone: scaling by the same factor again names the same copy.
+/// documentation), so repeated scalings of a large mesh do not keep a mesh each. Its id follows
+/// from the recipe alone: scaling by the same factor again names the same copy.
 pub(super) fn scaled(base: RoughBase, id: u64, factor: f64) -> RoughBase {
     if !(factor.is_finite() && factor > 0.0) {
         return base;

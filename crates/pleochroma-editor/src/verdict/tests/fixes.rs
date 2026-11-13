@@ -1,5 +1,5 @@
 //! Tests for the verdict's fixes: every fix gives the edit it promises as ONE undo step.
-//! (Split from `tests.rs` to keep both files under 800 lines; the fixtures it shares live there.)
+//! The fixtures it shares live in `tests.rs`.
 
 use super::{brilliant, brilliant_keeping, deep_and_table, design_with, tier};
 use crate::{
@@ -260,8 +260,7 @@ fn moving_a_tier_behind_its_target_is_one_undo_step_and_clears_the_warning() {
     let plan = plan_fix(&design, &FixAction::MoveAfter { tier: 0, after: 1 }, 1.62).expect("plans");
     assert_eq!(plan.edit, Edit::MoveTier { from: 0, to: 1 });
     assert_eq!(plan.select, Some(1));
-    // The tiers carry old-style names (`A`, `B`), so the message calls them by the standard
-    // codes the tier table shows.
+    // The tiers are named `A` and `B`; the message uses the codes the tier table shows.
     let codes = pleochroma_cut_core::compute_tier_labels(&design.tiers);
     let expected = format!("Moved {} to just after {}", codes[0].code, codes[1].code);
     assert!(plan.message.contains(&expected), "{}", plan.message);
@@ -285,9 +284,9 @@ fn moving_refuses_a_move_that_does_not_help_or_a_stale_position() {
     assert!(plan_fix(&design, &FixAction::MoveAfter { tier: 0, after: 7 }, 1.62).is_err());
 }
 
-/// The girdle OUTLINE is the contract (owner decision, 2026-10-19): the steepened facet
-/// turns about its girdle corners, the product's own gate accepts the result, and the
-/// measured band moves by at most half a percentage point.
+/// The girdle outline is the contract: the steepened facet turns about its girdle corners,
+/// the product's own gate accepts the result, and the measured band moves by at most half a
+/// percentage point.
 #[test]
 fn steepening_a_pavilion_keeps_the_girdle_and_removes_the_windowing() {
     // A small, easy-to-reason-about stone: table, crown mains, girdle, pavilion mains, culet.
@@ -333,10 +332,10 @@ fn steepening_a_pavilion_keeps_the_girdle_and_removes_the_windowing() {
     assert_eq!(session.history.len_undo(), 1, "one undo step");
     assert!((session.design.tiers[main].angle_deg + target).abs() < 1e-9);
 
-    // The girdle OUTLINE is the contract (owner decision, 2026-10-19): the facet turns about
-    // its girdle corners, so the pivot has not moved, the fix passes the product's own
-    // meet-preservation gate, and the measured band (read at the ridge points, which move
-    // when the corners stay) changes by no more than half a percentage point.
+    // The girdle outline is the contract: the facet turns about its girdle corners, so the
+    // pivot has not moved, the fix passes the product's meet-preservation gate, and the
+    // measured band (read at the ridge points, which move when the corners stay) changes by
+    // no more than half a percentage point.
     let after_solved = session.design.solve().expect("still solves");
     let before_pivot = tier_hinge_points(&design, &solved)[&main];
     let after_pivot = tier_hinge_points(&session.design, &after_solved)[&main];

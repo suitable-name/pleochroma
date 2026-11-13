@@ -1,6 +1,8 @@
-//! Tests of the two-mode (doubling) metric tracer: the isotropic fast path stays exactly what it
-//! was, the ordinary mode is the plain trace, the extraordinary mode's walk-off follows the
-//! analytic plate geometry, and the Doubling figure behaves like the optics says it must.
+//! Tests of the two-mode (doubling) metric tracer.
+//!
+//! They compare the isotropic fast path against the integer
+//! reference, the ordinary mode against the plain trace, the extraordinary walk-off against the
+//! analytic plate geometry, and the Doubling figure against the optics.
 
 use std::f32::consts::FRAC_PI_2;
 
@@ -81,8 +83,8 @@ fn fate_bits(fate: &RayFate) -> (u8, [u32; 6]) {
     }
 }
 
-/// Brilliance / windowing / extinction (percent) the way the integer path counted them before the
-/// two-mode tracer existed: a plain loop over `classify_aperture_sample` and integer counters.
+/// Brilliance, windowing and extinction (percent) counted with integer counters over
+/// `classify_aperture_sample`: the reference the isotropic fast path must match.
 fn integer_reference(prepared: &PreparedEval<'_>, yaw: f32, pitch: f32) -> [f32; 3] {
     let (cam_forward, cam_right, cam_up) = camera_view_basis(yaw, pitch);
     let ctx = ApertureSampleContext {
@@ -263,7 +265,8 @@ fn the_extraordinary_walk_off_matches_the_analytic_plate() {
     let ctx = ModeCtx::new(modes, Line::D, Mode::Extraordinary);
     let start = ctx.enter(entry).expect("refracts");
 
-    // The refracted wave normal lies in the plane of incidence and `c`: k = (sin phi, -cos phi, 0).
+    // The refracted wave normal lies in the plane of incidence and `c`:
+    // k = (sin phi, -cos phi, 0).
     let phi = f64::from(start.k.x).atan2(f64::from(-start.k.y));
     let sin_theta = phi.cos();
     let cos_theta = phi.sin();

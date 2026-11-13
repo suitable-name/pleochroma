@@ -1,37 +1,28 @@
-//! Hybrid CPU+GPU tracing for one `stream_emit::tracer::run_tracer` job: concurrently
-//! runs the GPU and CPU tracers over disjoint sample sub-ranges of a batch (summed
-//! together, since disjoint sample ranges are additive), rather than
-//! [`super::trace_samples_with_gpu`]'s either/or choice of one engine for the whole
-//! batch.
+//! Hybrid CPU+GPU tracing for one `stream_emit::tracer::run_tracer` job.
 //!
-//! Ported from `apps/pleochroma-cut/src/bridge/export_thread/batch.rs`'s
-//! `calibrate_split`/`hybrid_batch` pattern (this crate cannot depend on that app):
+//! The GPU and CPU tracers run concurrently over disjoint sample sub-ranges of a batch, whose sums
+//! are additive. This differs from [`super::trace_samples_with_gpu`], which picks one engine for
+//! the whole batch.
+//!
 //! [`calibrate`] times one real sample per pixel on each engine to seed an initial GPU
-//! throughput share, and [`hybrid_trace`] re-measures its own split every call, blending
-//! it into the running estimate with a 0.7-old/0.3-new exponential moving average so the
-//! split keeps tracking the machine's actual throughput across a long-running stream.
+//! throughput share. [`hybrid_trace`] re-measures its split on every call and blends the
+//! result into the running estimate with a 0.7-old/0.3-new exponential moving average, so
+//! the split tracks the machine's throughput over a long stream.
 //!
-//! # Caching the calibration decision (not the split itself)
+//! # Caching the calibration decision
 //!
-//! [`calibrate`] is a real measurement: two extra GPU dispatches plus a full-frame CPU
-//! trace, thrown away once the decision is made. Nothing above stops a caller running it
-//! once per job -- and `stream_emit::tracer::run_tracer` does exactly that, once per
-//! `RenderRequest`, per coordinator lane chunk, and per live Direct request. On a
-//! long-running stream that repeats every ~1.5s per chunk, re-measuring an answer that
-//! only depends on this process's hardware (not the request) every time.
-//!
-//! [`calibrate_cached`] fixes this: a process-wide cache, keyed by [`JobKey`] (everything
-//! the measured ratio actually depends on -- see that type's own doc comment), of the
-//! DECISION [`calibrate`] reached, not the raw measurement. A cache hit skips the probe
-//! entirely. [`finalize_split_cache`] writes the job's own final blended `gpu_frac` back
-//! into the cache when it ends, so the seed keeps improving across jobs exactly as
-//! [`hybrid_trace`]'s EMA improves it within one job.
+//! [`calibrate`] costs two GPU dispatches and a CPU trace, and its result depends on the
+//! resource profile captured by [`JobKey`], not on the request's material or geometry.
+//! [`calibrate_cached`] therefore caches the DECISION per [`JobKey`], not the raw
+//! measurement, so jobs with the same profile skip the probe. [`finalize_split_cache`]
+//! writes each job's final blended `gpu_frac` back when the job ends, so the seed improves
+//! across jobs as [`hybrid_trace`]'s EMA improves it within one job.
 
 use super::{resolve_facet_finishes, scene_uses_gpu, trace_into};
-use crate::cli::ComputeMode;
+use crate::{assets::TrayRef, cli::ComputeMode};
 use glam::Vec3;
 use pleochroma::{
-    optics::raytracer::{Camera, DEFAULT_FOV_DEG},
+    optics::raytracer::{Camera, DEFAULT_FOV_DEG, Estimator},
     renderer::gpu_backend::{GpuAccumulate, GpuBackend, GpuSceneRef},
 };
 use pleochroma_dispatch::SampleRange;
@@ -46,8 +37,7 @@ use std::{
 };
 
 mod split;
-// The steady-state sub-batch lives in `split.rs`; re-exported so every path under
-// `render_core::hybrid` stays as it was.
+// Sub-batch splitting lives in `split.rs`; re-exported here.
 #[cfg(test)]
 pub use split::hybrid_trace;
 pub use split::{HybridBuffers, hybrid_trace_into};
@@ -67,22 +57,14 @@ fn cpu_threads_beside_gpu(threads: usize) -> usize {
         .max(1)
 }
 
-/// Above this GPU throughput share, splitting work with the CPU costs more than it can
-/// possibly save, so the job goes GPU-only for the rest of its life.
+/// Above this GPU throughput share, splitting work with the CPU costs more than it saves,
+/// so the job goes GPU-only for the rest of its life.
 ///
-/// # Measured, not guessed
-///
-/// On a real Vulkan adapter (800x600, 6 bounces): GPU-only 79.5 samples/s, CPU-only 7.7
-/// samples/s -- GPU 10.3x faster, a theoretical 13% ceiling for splitting. Measured
-/// result splitting anyway: **0.58x, a 42% loss**, despite the EMA converging correctly
-/// (`gpu_frac` 0.884 vs. a theoretical optimum of 0.912) -- per-sub-batch
-/// synchronisation plus the CPU tracer stealing cores/bandwidth from the GPU's
-/// submit-and-poll thread costs far more than the theoretical gain.
-///
-/// `0.7` sits well above break-even: it admits hybrid only when the CPU is within
-/// roughly 2.3x of the GPU (~1.43x theoretical gain), leaving headroom for that
-/// overhead. A strong CPU beside a weak integrated GPU still benefits; a discrete GPU
-/// beside any CPU does not, and now correctly declines to try.
+/// Measured on a Vulkan adapter (800x600, 6 bounces) with the GPU about 10x faster than the
+/// CPU, a split ran at 0.58x the GPU-only speed. Per-sub-batch synchronisation and the CPU
+/// tracer competing with the GPU's submit thread cost more than the split gains. `0.7`
+/// admits hybrid only when the CPU is within roughly 2.3x of the GPU, which leaves headroom
+/// for that overhead.
 const HYBRID_MAX_GPU_SHARE: f64 = 0.7;
 
 /// Whether a measured GPU share still leaves the CPU enough of a contribution to be
@@ -91,10 +73,8 @@ fn cpu_is_worth_splitting_with(gpu_share_frac: f64) -> bool {
     gpu_share_frac < HYBRID_MAX_GPU_SHARE
 }
 
-/// What [`calibrate`] found. A caller can tell the two decline reasons apart: the GPU
-/// itself declining the probe dispatch is unremarkable, but `GpuDominates` is
-/// [`HYBRID_MAX_GPU_SHARE`] firing -- a deliberate, measurement-backed cutoff worth
-/// logging (see `run_tracer`'s handling of this variant).
+/// What [`calibrate`] found. `GpuDeclined` means the GPU refused the probe, while
+/// `GpuDominates` means the [`HYBRID_MAX_GPU_SHARE`] cutoff fired.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum CalibrationOutcome {
     /// The GPU offered a share worth splitting for: `(gpu_share_frac, samples_consumed)`.
@@ -104,24 +84,19 @@ pub enum CalibrationOutcome {
     /// either/or behavior for the whole job.
     GpuDeclined,
     /// The GPU accepted the probe, but its measured throughput share meets or exceeds
-    /// [`HYBRID_MAX_GPU_SHARE`]. Carries the measured share so the caller can log it;
-    /// the job still runs GPU-only, exactly as `GpuDeclined` does.
+    /// [`HYBRID_MAX_GPU_SHARE`]. Carries the measured share for logging; the job runs
+    /// GPU-only.
     GpuDominates { gpu_share_frac: f64 },
-    /// `cancel` was observed set before calibration finished: a caller-supplied scene
-    /// can make even the tiny 3-sample probe take real wall time, so calibration needs
-    /// the same cooperative cancellation every other sub-batch gets.
+    /// `cancel` was observed set during calibration. A scene can make the 3-sample probe
+    /// slow, so it honours cancellation like every other sub-batch.
     ///
-    /// `consumed` is exactly how many of the 3 probe samples were fully traced and
-    /// already folded into `out` before `cancel` was noticed (0, 1, or 2). These are
-    /// real, already-spent samples -- the caller must fold them into its own accounting
-    /// exactly as [`Self::Split`]'s `consumed` is, before stopping the job.
+    /// `consumed` is how many of the 3 probe samples were traced and already folded into
+    /// `out` (0, 1 or 2). The caller must count them, as with [`Self::Split`].
     Cancelled { consumed: u32 },
 }
 
-/// Rebuilds the per-call scene pieces [`GpuSceneRef`]/`trace_into` both need from
-/// `scene` alone -- cheap enough to recompute fresh each call rather than threading a
-/// persistent struct through the job's lifetime, avoiding lifetime entanglement with
-/// `run_tracer`'s loop.
+/// Rebuilds the per-call scene pieces that [`GpuSceneRef`] and `trace_into` need. This is
+/// cheap, so nothing has to outlive the caller's loop.
 fn scene_pieces(scene: &SceneState) -> (Camera, Vec<pleochroma::optics::raytracer::FacetFinish>) {
     let camera = Camera::new(scene.yaw, scene.pitch, scene.distance, DEFAULT_FOV_DEG)
         .with_roll(scene.camera_roll);
@@ -132,18 +107,22 @@ fn scene_pieces(scene: &SceneState) -> (Camera, Vec<pleochroma::optics::raytrace
 /// [`CalibrationOutcome`].
 ///
 /// Spends exactly 3 real samples from the front of `[first_sample, first_sample +
-/// samples)`, folding their contribution into `out` like any other sub-batch -- the
-/// caller accounts for them the same way. Requires `samples >= 3`; callers gating on
-/// [`HYBRID_MIN_SPP`] never hit that floor.
+/// samples)` and folds them into `out` like any sub-batch. Requires `samples >= 3`, which
+/// callers gating on [`HYBRID_MIN_SPP`] always satisfy.
 ///
-/// The GPU side dispatches two 1-spp samples, not one: the first pays one-time
-/// adapter/pipeline warm-up, which would otherwise inflate the estimate into a
-/// pessimistic read of steady-state throughput. Timing the second sample instead lands
-/// that cost on the untimed (but still real and counted) first one.
+/// The GPU side dispatches two 1-spp samples. The first pays one-time adapter and pipeline
+/// warm-up, so only the second is timed, which keeps the estimate a steady-state read.
 ///
-/// `cancel` is checked before each of the 3 probe samples -- see
-/// [`CalibrationOutcome::Cancelled`] for what `consumed` means when it fires.
+/// `cancel` is checked before each of the 3 probe samples. See
+/// [`CalibrationOutcome::Cancelled`] for what `consumed` means.
+///
+/// `tray` is the request's resolved Stone Shadow and Tray Reflection. The probe samples
+/// carry it like every other sub-batch.
 #[must_use]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the probe's range, engines' inputs, cancellation, output and the request's resolved tray are independent"
+)]
 pub fn calibrate(
     gpu: &GpuBackend,
     scene: &SceneState,
@@ -152,10 +131,11 @@ pub fn calibrate(
     threads: usize,
     out: &mut [Vec3],
     cancel: &AtomicBool,
+    tray: TrayRef<'_>,
 ) -> CalibrationOutcome {
     // A scene the GPU cannot trace (see `scene_uses_gpu`) is CPU-only: there is nothing to
     // calibrate a split against.
-    if samples < 3 || !scene_uses_gpu(scene) {
+    if samples < 3 || !scene_uses_gpu(scene, gpu) {
         return CalibrationOutcome::GpuDeclined;
     }
     if cancel.load(Ordering::Relaxed) {
@@ -165,7 +145,7 @@ pub fn calibrate(
     // The studio rig, or the HDR map the request path resolved -- see
     // `crate::assets::resolved_hdr_map`.
     let hdr_map = crate::assets::resolved_hdr_map(scene);
-    let environment = crate::assets::environment_source(scene, hdr_map.as_deref());
+    let environment = crate::assets::environment_for(scene, hdr_map.as_deref(), tray);
     let traced_material = scene.traced_material();
     let gpu_scene = GpuSceneRef {
         camera: &camera,
@@ -176,6 +156,7 @@ pub fn calibrate(
         material: &traced_material,
         max_bounces: scene.max_bounces,
         environment,
+        estimator: Some(scene.estimator),
     };
 
     let surfaces = scene.effects.surfaces();
@@ -221,9 +202,8 @@ pub fn calibrate(
     }
 
     let start = Instant::now();
-    // A `false` return (cancelled while queued for CPU permits) is not separately
-    // checked here: the next iteration of the caller's own loop re-checks `cancel`
-    // before dispatching another sub-batch, same as any other probe timing artifact.
+    // A `false` return (cancelled while queued for CPU permits) is not checked here: the
+    // caller re-checks `cancel` before its next sub-batch.
     let _ = trace_into(
         scene,
         SampleRange::new(first_sample + 2, 1),
@@ -237,13 +217,11 @@ pub fn calibrate(
 
     // GPU share proportional to measured throughput (1/time per engine).
     let frac = (cpu_time / (gpu_time + cpu_time)).clamp(0.0, 1.0);
-    // Decline the split outright when the GPU already dominates (HYBRID_MAX_GPU_SHARE).
-    // Returning GpuDominates (not Split(1.0, 3)) sends the caller down
-    // trace_samples_with_gpu's plain path, so a dominant GPU never pays split overhead.
+    // A dominant GPU runs GPU-only, with no split overhead. This returns GpuDominates rather
+    // than Split(1.0, 3) so the caller takes the plain path.
     //
-    // The three probe samples traced into `out` are discarded on this path:
-    // run_tracer only folds `out` in on Split, then re-traces the full range from
-    // first_sample -- three wasted samples, once per job, cheap against HYBRID_MIN_SPP.
+    // On this path the three probe samples in `out` are discarded: the caller re-traces the
+    // full range from first_sample. That is three samples once per job.
     if !cpu_is_worth_splitting_with(frac) {
         return CalibrationOutcome::GpuDominates {
             gpu_share_frac: frac,
@@ -252,38 +230,41 @@ pub fn calibrate(
     CalibrationOutcome::Split(frac, 3)
 }
 
-/// A resource profile: everything a hybrid calibration decision ([`calibrate_cached`]) or
-/// a converged sub-batch size (`stream_emit::sizing`) depends on, and nothing either one
-/// ignores. See [`job_key`]'s own doc comment for what each field means and why the
-/// omitted axes (scene material/geometry/lighting, which samples are being traced) don't
-/// need one.
+/// A resource profile: what a hybrid calibration decision ([`calibrate_cached`]) or a converged
+/// sub-batch size (`stream_emit::sizing`) depends on.
+///
+/// See [`job_key`] for why material, geometry and lighting are left out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct JobKey {
     /// [`ComputeMode`]'s discriminant, reduced to a small ordered tag (that type derives
     /// neither `Ord` nor `Hash`) -- see [`compute_mode_tag`].
     compute_mode: u8,
-    /// `gpu`'s own address: stable for this process's lifetime once acquired (see
-    /// `pleochroma::renderer::gpu_backend`'s module doc comment on sharing one
-    /// `Arc<GpuBackend>` across every connection), so this distinguishes "no adapter"
-    /// from a real one, and one real adapter from another if a process ever held more
-    /// than one.
+    /// The address of `gpu`. The backend is one shared `Arc` for the process lifetime, so
+    /// this tells "no adapter" from a real one.
     gpu_id: usize,
-    /// The REALIZED thread count (`0`, "let the OS decide", resolved through
-    /// [`super::effective_thread_count`]) -- so a request that spelled `0` and one that
-    /// spelled out this machine's actual core count share the same entry.
+    /// The realized thread count (`0` resolved through [`super::effective_thread_count`]),
+    /// so `0` and the machine's actual core count share an entry.
     threads: usize,
-    /// `scene.width * scene.height`, bucketed to its enclosing power of two. See
-    /// [`job_key`]'s doc comment for why resolution shifts the GPU/CPU throughput ratio.
+    /// `scene.width * scene.height`, bucketed to its enclosing power of two.
     resolution_bucket: u32,
-    /// The stone's concave-tool count, bucketed by [`tool_bucket`]: `0` for a stone without
-    /// tools, so the key (and so every cached split) of a plain stone is exactly what it was
-    /// before concave stones ran on the GPU. See [`job_key`]'s doc comment.
+    /// The concave-tool count, bucketed by [`tool_bucket`]. `0` for a stone without tools.
     tool_bucket: u8,
+    /// The scene's estimator as a small ordered tag (see [`estimator_tag`]). The two
+    /// estimators reach different throughput on both engines.
+    estimator: u8,
 }
 
-/// The tool-count tag of [`JobKey`]: `0` for no tools, else `1 + floor(log2(count))`
-/// (1 tool: 1; 2-3: 2; 4-7: 3; ... 64: 7; 128: 8), so stones whose tool cost is of the same
-/// order share a calibration and a one-tool groove is not split from a two-tool one.
+/// Reduces `estimator` to a small, totally-ordered tag for [`JobKey`], since the type derives
+/// no `Ord`.
+const fn estimator_tag(estimator: Estimator) -> u8 {
+    match estimator {
+        Estimator::Branching => 0,
+        Estimator::ExitCollection => 1,
+    }
+}
+
+/// The tool-count tag of [`JobKey`]: `0` for no tools, else `1 + floor(log2(count))` (1 tool:
+/// 1; 2-3: 2; 4-7: 3; and so on). Stones with a similar tool cost share a calibration.
 #[must_use]
 pub fn tool_bucket(tool_count: usize) -> u8 {
     if tool_count == 0 {
@@ -304,30 +285,26 @@ const fn compute_mode_tag(mode: ComputeMode) -> u8 {
     }
 }
 
-/// Builds the [`JobKey`] for `gpu`/`scene`/`threads`/`compute_mode`'s resource profile.
+/// Builds the [`JobKey`] for `gpu`, `scene`, `threads` and `compute_mode`.
 ///
-/// Deliberately keyed on only five things:
-/// - `compute_mode`: `OnlyGpu`/`OnlyCpu`/`Hybrid` reach entirely different throughput (and
-///   only `Hybrid` ever calibrates a split at all), so they must never share an entry.
-/// - `gpu`'s identity: a different physical adapter (or none) has different throughput.
+/// It is keyed on six things:
+/// - `compute_mode`: the three modes reach different throughput, and only `Hybrid`
+///   calibrates a split at all.
+/// - `gpu`'s identity: a different adapter, or none, has different throughput.
 /// - the realized `threads` count.
-/// - `scene`'s resolution, bucketed to the enclosing power of two: [`calibrate`]'s
-///   measurement folds in fixed per-dispatch/per-call overhead (GPU turnstile admission;
-///   the CPU tracer's per-call `build_plane_soa`) that a small preview amortizes far worse
-///   than a full-size export, so the measured GPU/CPU ratio genuinely shifts with
-///   resolution. Bucketed, not exact, so requests a few pixels apart still share a
-///   decision.
-/// - `scene`'s concave-tool count ([`tool_bucket`]): the tool carve costs the GPU kernels and
-///   the CPU tracer differently (a divergent per-ray scan against a per-ray interval walk), so
-///   a tool-heavy stone's GPU/CPU split is not a plain stone's, and a split measured on one
-///   must not seed the other. A stone without tools has bucket `0`, which leaves its key
-///   unchanged.
+/// - `scene`'s resolution, bucketed to the enclosing power of two. [`calibrate`] includes
+///   fixed per-dispatch and per-call overhead, which a small preview amortizes far worse
+///   than a full-size frame, so the GPU/CPU ratio shifts with resolution. Bucketing lets
+///   nearby sizes share a decision.
+/// - `scene`'s concave-tool count ([`tool_bucket`]). The tool carve costs the GPU kernels
+///   and the CPU tracer differently, so a split measured on one stone must not seed another.
+/// - `scene`'s estimator ([`estimator_tag`]). The two estimators cost the engines
+///   differently.
 ///
-/// Deliberately NOT keyed on `scene`'s material, the planes, lighting, environment, or which
-/// samples are being traced: those shift both engines' per-sample cost together, not
-/// their relative split, and both [`calibrate`] and `stream_emit`'s adaptive ramp already
-/// re-measure per JOB regardless -- a wrong guess there self-corrects within one job
-/// rather than needing a cache dimension of its own.
+/// Material, planes, lighting, environment and the sampled range are not keyed. They shift
+/// both engines' per-sample cost together, not their relative split. [`calibrate`] and
+/// `stream_emit`'s adaptive ramp re-measure per job anyway, so a wrong guess self-corrects
+/// within one job.
 #[must_use]
 pub fn job_key(
     gpu: &GpuBackend,
@@ -342,14 +319,13 @@ pub fn job_key(
         threads: super::effective_thread_count(threads),
         resolution_bucket: pixels.max(1).ilog2(),
         tool_bucket: tool_bucket(scene.tools.len()),
+        estimator: estimator_tag(scene.estimator),
     }
 }
 
-/// What [`calibrate_cached`]'s process-wide cache stores per [`JobKey`] -- the DECISION a
-/// job should start from, not the raw measurement. Never holds
-/// [`CalibrationOutcome::GpuDeclined`] (see that variant's own doc comment: a decline can
-/// be per-request-material, not a property of the resource profile a [`JobKey`]
-/// captures) or `Cancelled` (not a steady-state decision at all).
+/// What [`calibrate_cached`]'s cache stores per [`JobKey`]: the DECISION a job starts from,
+/// not the raw measurement. It never holds [`CalibrationOutcome::GpuDeclined`], since a
+/// decline can depend on the request's material, or `Cancelled`, which is not a decision.
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum CachedDecision {
     /// [`CalibrationOutcome::GpuDominates`] fired: this resource profile's GPU share
@@ -405,25 +381,27 @@ pub enum CachedCalibration {
     },
 }
 
-/// Wraps [`calibrate`] with a process-wide, per-[`JobKey`] cache of the calibration
-/// DECISION: a cache hit skips the 3-sample probe entirely and returns the cached
-/// split/GPU-only choice immediately, so a long-running stream's many jobs (one per
-/// `RenderRequest`, per coordinator lane chunk, or per live Direct request -- see this
-/// module's own top doc comment) each pay the probe once per resource profile rather than
-/// once per job.
+/// Wraps [`calibrate`] with a process-wide cache of the calibration DECISION per [`JobKey`].
 ///
-/// `key` must be exactly the result of calling [`job_key`] with this same
-/// `gpu`/`scene`/`threads`/`compute_mode` -- taken as a parameter (not recomputed here)
-/// so a caller that also needs it for `stream_emit::sizing`'s own cache, or for
-/// [`finalize_split_cache`] at job end, builds it exactly once.
+/// A cache hit skips the 3-sample probe and returns the cached split or GPU-only choice, so jobs
+/// with the same resource profile pay the probe once.
 ///
-/// `range` bundles `first_sample`/`samples` purely to keep this function's argument
-/// count under clippy's limit; only `range.samples` (`>= 3`, see [`calibrate`]'s own
-/// floor) matters to the probe itself.
+/// `key` must be the result of [`job_key`] for the same `gpu`, `scene`, `threads` and
+/// `compute_mode`. It is passed in so the caller builds it once and reuses it for
+/// [`finalize_split_cache`].
 ///
-/// Logs the decision at `info` the first time a [`JobKey`] is calibrated (cache fill),
-/// and at `debug` on every later cache hit for the same key.
+/// `range` bundles `first_sample` and `samples`. Only `range.samples` (`>= 3`) matters to
+/// the probe.
+///
+/// The decision is logged at `info` when a [`JobKey`] is calibrated, and at `debug` on
+/// each later cache hit.
+///
+/// `tray` is the request's resolved Stone Shadow and Tray Reflection, passed to [`calibrate`].
 #[must_use]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the cache key, engines' inputs, range, cancellation, output and the request's resolved tray are independent"
+)]
 pub fn calibrate_cached(
     key: JobKey,
     gpu: &GpuBackend,
@@ -432,6 +410,7 @@ pub fn calibrate_cached(
     threads: usize,
     out: &mut [Vec3],
     cancel: &AtomicBool,
+    tray: TrayRef<'_>,
 ) -> CachedCalibration {
     let cached = CALIBRATION_CACHE
         .lock()
@@ -457,7 +436,16 @@ pub fn calibrate_cached(
         first_sample,
         samples,
     } = range;
-    match calibrate(gpu, scene, first_sample, samples, threads, out, cancel) {
+    match calibrate(
+        gpu,
+        scene,
+        first_sample,
+        samples,
+        threads,
+        out,
+        cancel,
+        tray,
+    ) {
         CalibrationOutcome::Split(gpu_frac, consumed) => {
             CALIBRATION_CACHE
                 .lock()
@@ -489,23 +477,18 @@ pub fn calibrate_cached(
     }
 }
 
-/// Writes back what a job that started on the hybrid split path converged to, once the
-/// job ends. Callers only invoke this when [`calibrate_cached`] actually returned
-/// `Split` for this job (never for `GpuOnly`/`GpuDeclined`/`Cancelled`, and never for
-/// `OnlyGpu`/`OnlyCpu` jobs, which never calibrate at all) -- see
-/// `stream_emit::tracer::run_tracer`'s own use.
+/// Writes back what a job that ran on the hybrid split path converged to, when the job ends.
 ///
-/// `Some(frac)`: the job ended (finished or was cancelled) still on a live split --
-/// overwrites the cache with this job's own final EMA-blended fraction (see
-/// [`hybrid_trace`]'s `blend_gpu_frac`), so the next job with the same [`JobKey`] seeds
-/// from an estimate that keeps tracking the machine's real throughput.
+/// Callers invoke it only after [`calibrate_cached`] returned `Split` for the job, not for
+/// `GpuOnly`, `GpuDeclined`, `Cancelled`, or the `OnlyGpu` and `OnlyCpu` modes. See
+/// `stream_emit::tracer::run_tracer`.
 ///
-/// `None`: the GPU declined mid-job (device loss -- see [`hybrid_trace`]'s handling of
-/// [`GpuAccumulate::Declined`], which clears its caller's `gpu_frac` for exactly this
-/// reason) and the job fell back to CPU-only for the rest of its life. The cached
-/// decision is EVICTED rather than overwritten with a now-stale split, so the next job
-/// recalibrates fresh -- cheaply rediscovering the same decline, since a lost GPU device
-/// never recovers within one process.
+/// `Some(frac)`: the job ended still on a live split. The cache gets this job's final
+/// EMA-blended fraction (see [`hybrid_trace`]), so the next job seeds from it.
+///
+/// `None`: the GPU declined mid-job (device loss, where [`hybrid_trace`] clears `gpu_frac`
+/// on [`GpuAccumulate::Declined`]), and the job fell back to CPU-only. The cached decision
+/// is evicted rather than overwritten with a stale split, so the next job recalibrates.
 pub fn finalize_split_cache(key: JobKey, gpu_frac: Option<f64>) {
     let mut cache = CALIBRATION_CACHE
         .lock()
@@ -520,21 +503,15 @@ pub fn finalize_split_cache(key: JobKey, gpu_frac: Option<f64>) {
     }
 }
 
-/// Pre-warms [`calibrate_cached`]'s process-wide cache for `gpu`/`scene`/`threads`/
-/// `compute_mode` before any real request needs the answer -- e.g. `serve`/`join`'s own
-/// start-up, once either has a representative scene (the default preview resolution is a
-/// reasonable choice -- see [`job_key`]'s doc comment on why resolution BUCKETS, not exact
-/// dimensions, share a decision) to probe with.
+/// Pre-warms [`calibrate_cached`]'s cache for `gpu`, `scene`, `threads` and `compute_mode`
+/// before any request needs it. `serve` and `join` call it at start-up with a representative
+/// scene.
 ///
-/// Called from `serve`'s and `join`'s own start-up sequencing once the compute mode is
-/// `Hybrid` and a GPU adapter is present. Discards the probe's own contribution (a
-/// throwaway buffer, never folded into anything a real caller is accumulating) and never
-/// cancels early (`cancel` is fixed `false`), so this is meant for a quiet moment before
-/// real traffic, not mid-request.
+/// The probe's contribution goes to a throwaway buffer, and cancellation is never requested.
+/// Run it at a quiet moment, not mid-request.
 ///
-/// A no-op (besides a `debug` log from [`calibrate_cached`]) if this resource profile is
-/// already cached; otherwise runs the same real 3-sample probe a first live
-/// [`calibrate_cached`] call would.
+/// If the resource profile is already cached this does nothing. Otherwise it runs the same
+/// 3-sample probe that a first [`calibrate_cached`] call would.
 pub fn calibrate_now(
     gpu: &GpuBackend,
     scene: &SceneState,
@@ -553,6 +530,8 @@ pub fn calibrate_now(
         threads,
         &mut throwaway,
         &never_cancel,
+        // The start-up probe scene has no Stone Shadow and no Tray Reflection.
+        TrayRef::default(),
     );
 }
 

@@ -3,8 +3,8 @@ import { Theme } from "theme.slint";
 import { ColorPicker } from "color_picker.slint";
 import { AppModel } from "../models/app_model.slint";
 
-// One labelled slider with a readout. `moved` fires when the slider is let go (the web solves
-// on the UI thread, so it does not solve at every step of a drag).
+// One labelled slider with a readout. `moved` fires on release: solving runs on the UI
+// thread, so a drag must not solve at every step.
 component LchRow inherits HorizontalLayout {
     in property <string> label;
     in property <string> value-text;
@@ -41,13 +41,11 @@ component LchRow inherits HorizontalLayout {
     }
 }
 
-// The path-aware body-colour editor (port of the desktop's
-// `apps/pleochroma-cut/ui/components/material_editor/lch_editor.slint`): Tone (L*), Saturation
-// (C*) and Hue (h) sliders, the hue/saturation/brightness picker as an alternative input, a
-// reachability badge and swatches of the solved colour at 3 mm, 5 mm, 10 mm and the open
-// stone's own path. The caller owns the state (`DesignSettingsModel.lch-*`) and does the
-// solving; this component only shows it and reports `edited` (a slider was let go),
-// `picked` (the picker's colour), `applied` and `cancelled`.
+// Body-colour editor for the design settings: Tone (L*), Saturation (C*) and Hue (h)
+// sliders, a picker as an alternative input, a reachability badge and swatches of the
+// solved colour at 3 mm, 5 mm, 10 mm and the stone's own path. The caller owns the state
+// (`DesignSettingsModel.lch-*`) and does the solving; this component shows it and reports
+// `edited` (a slider was let go), `picked`, `applied` and `cancelled`.
 //
 // A stone that shows a different color in each direction (a two- or three-color material:
 // Along / Across the Axis, or Alpha / Beta / Gamma) gets one chip per direction above the

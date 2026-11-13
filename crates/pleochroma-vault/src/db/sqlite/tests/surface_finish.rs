@@ -261,7 +261,7 @@ fn a_current_database_that_lacks_the_tables_gets_them_back_on_open() {
         db.conn
             .execute_batch("DROP TABLE diagram_surface_finish; DROP TABLE diagram_edge_abrasion;")
             .expect("drop the tables");
-        // The state of a read-only open of an older file: no tables, every design ideal.
+        // A file without the tables reads every design as ideal, as a read-only open does.
         assert!(db.diagram_surface_finish(1).unwrap().is_empty());
         assert!(db.all_diagram_surface_finish().unwrap().is_empty());
     }
@@ -307,8 +307,8 @@ fn a_read_only_connection_to_a_database_without_the_tables_reads_as_ideal() {
 }
 
 /// A design file's tier finish and edge abrasion are stored with the row on import, a re-import
-/// of a file that states none clears them, and a library saved before the tables existed is
-/// filled once from its stored design files.
+/// of a file that states none clears them, and a library without the tables is filled from its
+/// stored design files when they are migrated.
 #[test]
 fn the_finish_follows_the_design_file_and_old_libraries_are_backfilled() {
     let db = in_memory_db();

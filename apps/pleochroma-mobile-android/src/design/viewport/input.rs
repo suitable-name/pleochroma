@@ -221,8 +221,8 @@ fn note_pointer(state: &Shared, kind: i32) {
         0 => app.viewport.touch.set_pointer(true),
         1 | 3 => {
             app.viewport.touch.set_pointer(false);
-            // A drag that moved the camera owes a trace: have it start once the pose rests.
-            // (The light drag asks for itself, after its final refresh.)
+            // A camera drag owes a trace, started once the pose rests. The light drag
+            // requests its own after its final refresh.
             if !app.viewport.light_drag.on {
                 crate::design::render::on_touch_released(&app);
             }
@@ -255,9 +255,8 @@ fn light_drag(window: &AppWindow, state: &Shared, kind: i32, x: f32, y: f32) -> 
     };
     if let Some((dx, dy)) = moved {
         render_view::drag_light(&mut state.borrow_mut(), dx, dy);
-        // Only the render view's overlay while the finger moves: the core cancels the
-        // trace and starts nothing until the finger lifts, and the last traced picture
-        // stays. Refreshing every surface per move is what the release does, once.
+        // While the finger moves only the render view's overlay is pushed: the core cancels
+        // the running trace and starts none until the finger lifts; the last picture stays.
         crate::design::render::push(window, &state.borrow());
     } else if matches!(kind, 1 | 3) {
         // The finger lifted: the Light tab and the trace follow the final light.

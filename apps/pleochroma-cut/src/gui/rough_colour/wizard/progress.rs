@@ -55,7 +55,8 @@ pub const fn stage_label(stage: FitStage) -> &'static str {
     }
 }
 
-/// The line under the Start button: `"Fitting the colours - 43 % - about 2 min left"`.
+/// The progress line of a running fit under the Start Fit button, e.g.
+/// `"Fitting the colors - 43 % - about 2 min left"`.
 #[must_use]
 pub fn progress_line(stage: FitStage, overall: f32, eta: Option<Duration>) -> String {
     #[expect(

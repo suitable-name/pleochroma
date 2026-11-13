@@ -1,14 +1,13 @@
 //! Shared facet-overlay state resubmitted by every hover/select/multi-select path.
 //!
 //! [`resubmit_facet_overlay`] and [`facet_map_from_aligned_solve`] are the two
-//! primitives every selection, per-facet, and solid-picking callback in this
-//! module group goes through so the merge-then-resubmit sequence (and the "never
-//! trust a stale solve" guard) is never duplicated or done slightly differently at
-//! two call sites.
+//! primitives every selection, per-facet and solid-picking callback in this module
+//! group goes through, so the merge-then-resubmit sequence and the "never trust a
+//! stale solve" guard live in one place.
 //!
-//! The overlay state itself lives in `gui::solid_preview::facet_selection`, below the
-//! editor, because the Diagram view's pointer callbacks merge into the very same overlay
-//! (a diagram hover used to replace it and wipe the clicked facet's outline).
+//! The overlay state lives in `gui::solid_preview::facet_selection`, below the editor,
+//! because the Diagram view's pointer callbacks merge into the same overlay: a diagram
+//! hover must not replace the clicked facet's outline.
 
 use pleochroma::geometry::meet_solver::SolvedTier;
 use pleochroma_cut_core::Design;
@@ -20,16 +19,11 @@ use crate::gui::{
 
 pub(in crate::gui::editor) use facet_selection::{resubmit_facet_overlay, set_hovered_facet};
 
-/// Builds a [`FacetMap`] from `design` and the last-solved mast cache, but only
-/// when that cache is aligned with `design`'s CURRENT tier count. An unfiltered
-/// `solid_last_solved().unwrap_or_default()` here fed
-/// `FacetMap::from_design` a stale solve (wrong length) whenever a tier had just
-/// been added or removed and the background solve had not caught up yet;
-/// `facet_map.rs`'s own fallback for a missing tier is mast 0, so every
-/// highlight/hover/pick landed on the wrong facet until the next frame. Falls
-/// back to `FacetMap::default()` (no facets) rather than a stale solve, same
-/// reasoning `retarget_actions::setup_snapshot_callbacks`'s length filter uses
-/// for its own `solid_last_solved` read.
+/// Builds a [`FacetMap`] from `design` and the last solve, but only when that solve matches
+/// `design`'s current tier count. A stale solve of the wrong length, left over after a tier was
+/// added or removed, would put every highlight, hover and pick on the wrong facet. Falls back to
+/// `FacetMap::default()` (no facets) instead, as `retarget_actions::setup_snapshot_callbacks`
+/// does for its own read.
 ///
 /// The map numbers the facets of the frame on screen: with the Cut slider cutting a design
 /// back, that frame holds only some of the tiers' planes and the finished stone's
@@ -42,8 +36,7 @@ pub(super) fn facet_map_from_aligned_solve(design: &Design) -> FacetMap {
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .clone()
         })
-        // the shared cache is now generation-tagged
-        // (`(u64, Vec<SolvedTier>)`) -- only the masts themselves matter here.
+        // The cache is tagged with its generation; only the masts matter here.
         .filter(|(_, solved)| solved.len() == design.tiers.len())
         .map(|(_, solved)| solved)
         .unwrap_or_default();

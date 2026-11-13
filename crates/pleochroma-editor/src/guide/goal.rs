@@ -78,9 +78,10 @@ pub enum Goal {
     SolvedClosed,
     /// The yield inputs were applied: the design has a girdle diameter.
     YieldApplied,
-    /// The Solid viewport is in this view mode (0 Solid, 1 Path, 2 Solid+Path, 3 Diagram, 4 Ray, 5 Solid+Ray).
+    /// The Solid viewport is in this view mode: 0 Solid, 1 Path-Traced, 2 Solid + Path-Traced,
+    /// 3 Diagram, 4 Ray-Traced, 5 Solid + Ray-Traced.
     ViewMode(i32),
-    /// The inspector shows this tab (0 Tier, 1 Preform, 2 Optimize, 3 Schedule, 4 History).
+    /// The inspector shows this tab: 0 Tier, 1 Preform, 2 Optimize, 3 Schedule, 4 History.
     InspectorTab(i32),
     /// The design is a fresh start for a rebuild: no tiers yet (flat or concave) and this
     /// gear, symmetry and mirror setting.
@@ -315,9 +316,8 @@ pub struct GoalContext<'a> {
     pub inspector_tab: Option<i32>,
     /// The material the user sees applied, when that is not simply the design's own.
     pub material: Option<&'a str>,
-    /// The solved masts of `design`, parallel to its tiers, if the UI has them; otherwise
-    /// a goal that needs them is not met yet (no goal solves the design on the caller's
-    /// thread).
+    /// The solved masts of `design`, parallel to its tiers, if the UI has them. A goal that
+    /// needs them is not met without them: no goal solves the design itself.
     pub solved_masts: Option<&'a [f64]>,
 }
 

@@ -8,10 +8,10 @@
 //! Reason; the rest of the `[axis]` table, the rules, is part of the payload). An export keeps
 //! them and an import brings them back:
 //!
-//! - **load** ([`check_sections`], called by the loader): both sections are checked against the
+//! - **load** ([`check_sections`], called by the loader): the sections are checked against the
 //!   plan they are in;
 //! - **export** (`stored_sections`, `payload_with_sections`): the side tables are read and the
-//!   stored payload is written again with the sections added, as a version 4 document;
+//!   stored payload is written again with the sections added, at the version its content needs;
 //! - **import** ([`stored_payload`], `restore_sections`): the sections are taken out of the
 //!   file's document before it is stored, and written to the new plan's side tables.
 //!
@@ -40,11 +40,11 @@ use std::{
     sync::{Mutex, PoisonError},
 };
 
-/// Fails when the sections of a plan document do not belong to it: a version older than 4 that
-/// has a section, a colour this build cannot use (a format version it does not read, or zones
-/// that do not decode and validate), or a stone orientation
-/// that names a layout or stone the plan does not have, a pose that does not exist, or a stone
-/// twice. `layouts` are the plan's layouts as the loader returns them.
+/// Fails when the sections of a plan document do not belong to it: a colour or pose table in a
+/// version older than 4, a colour this build cannot use (a format version it does not read, or
+/// zones that do not decode and validate), a pose or stone choice that names a layout or stone
+/// the plan does not have, a pose that does not exist, or a stone chosen twice. `layouts` are the
+/// plan's layouts as the loader returns them.
 pub(super) fn check_sections(
     version: u32,
     colour: Option<&RoughColourDto>,
@@ -136,8 +136,7 @@ fn document_of(text: &str) -> Result<SavedPlanDto, String> {
     toml::from_str(text).map_err(|e| format!("The plan cannot be read: {}", e.message()))
 }
 
-/// `text` without its sections, with the version its remaining content needs: a plan whose
-/// colour is taken out is a version 3, 2 or 1 plan again.
+/// `text` without its sections, at the version its remaining content needs.
 fn payload_without_sections(text: &str) -> Result<String, String> {
     let mut dto = document_of(text)?;
     dto.colour = None;
@@ -154,8 +153,8 @@ fn payload_without_sections(text: &str) -> Result<String, String> {
 }
 
 /// The text an import stores for the file `text` that loaded as `plan`: the file itself when
-/// it has no sections and is no version 4 file (so unknown keys and comments stay, as they
-/// always did), and otherwise the document without its sections, written again.
+/// it has no sections and predates version 4 (so its unknown keys and comments stay), and
+/// otherwise the document without its sections, written again.
 pub(super) fn stored_payload<'a>(text: &'a str, plan: &LoadedPlan) -> Result<Cow<'a, str>, String> {
     let has_sections = plan.colour.is_some() || !plan.pose_choices.is_empty();
     if has_sections || plan.version >= COLOUR_SCHEMA_VERSION {
@@ -175,7 +174,7 @@ pub(super) struct StoredSections {
     pub(super) stone_choices: Vec<StoneChoiceDto>,
 }
 
-/// The colour and orientation choices stored for plan `plan_id`, or `None` when it has neither.
+/// The colour and stone choices stored for plan `plan_id`, or `None` when it has neither.
 ///
 /// # Errors
 ///
@@ -216,7 +215,7 @@ fn colour_dto(colour: &RoughColour) -> Result<RoughColourDto, String> {
 }
 
 /// The stored plan `payload` under `name` with `sections` added, as the text an export writes
-/// (version 4 by content).
+/// (at the version its content needs).
 ///
 /// # Errors
 ///

@@ -6,9 +6,9 @@ import { WarningLine } from "../warning_line.slint";
 import { CompactIcon, TipButton } from "../compact_controls.slint";
 import { SurfaceFinishSection } from "surface_finish_section.slint";
 
-// A `TipButton` in a fixed-width cell, for the Set and Clear buttons beside a text field: the
-// field takes the spare width and the buttons stay buttons (a bare `TipButton` in a row shares
-// the spare width with the field, which left the field 70 px and the last button cut at the edge).
+// A `TipButton` in a fixed-width cell, for the Set and Clear buttons beside a text field. A
+// bare `TipButton` in the row would share the spare width with the field and could cut the
+// last button off at the edge.
 component FixedTip inherits Rectangle {
     in property <string> text;
     in property <string> reader_label;
@@ -89,8 +89,8 @@ export component TierFacetsSection inherits VerticalLayout {
     }
 
     spacing: 8px;
-    // Per-facet editing with chips: one chip per facet, actions
-    // (toggle detach, remove, add). Only shown for saved tiers.
+    // One chip per facet, with detach, frost and remove actions. Adding and mirroring are the
+    // row below the strip. Only for saved tiers.
     VerticalLayout {
         spacing: 4px;
         Text {
@@ -106,16 +106,12 @@ export component TierFacetsSection inherits VerticalLayout {
                         + ", the tier selected in the table.")
                 + " Save or discard your draft of Tier #" + (root.loaded_tier_index + 1) + " to edit them.";
         }
-        // `EditorModel.selected_tier_chips` -- NOT a field on
-        // `EditorModel.tiers[root.loaded_tier_index]` -- see that
-        // property's own doc comment (`ui/models/editor.slint`)
-        // for why: a per-row `[IndexChipItem]` field would be
-        // `ModelRc`-backed (`Rc`, not `Send`) and cannot cross the
-        // background thread `tiers` itself is sometimes built on.
+        // Chips come from `EditorModel.selected_tier_chips`, not from the tier row: a per-row
+        // `[IndexChipItem]` would be `ModelRc`-backed (`Rc`, not `Send`) and could not cross the
+        // background thread that builds `tiers`. See that property's doc comment.
         //
-        // A real (if large) gear can carry many facets in one complete orbit: the chips wrap at
-        // the strip's width (cells placed by hand, `chip_cols`) and, past three rows, the strip
-        // scrolls vertically, so it never forces the WHOLE inspector wider.
+        // The chips wrap at the strip's width (cells placed by hand, `chip_cols`). Past three rows
+        // the strip scrolls vertically, so a large gear never widens the whole inspector.
         //
         // The strip is one Tab stop; its keys are in `key-pressed` below.
         chip_strip := FocusScope {
@@ -164,10 +160,7 @@ export component TierFacetsSection inherits VerticalLayout {
                     y: Math.floor(idx / root.chip_cols) * (root.chip_h + root.chip_gap);
                     width: root.chip_w;
                     height: root.chip_h;
-                    // `@markdown(...)` needs a string literal, not an
-                    // arbitrary expression -- the ternary is computed
-                    // here first, then interpolated as a single value
-                    // below.
+                    // `@markdown` takes a literal, so the ternary goes into a property first.
                     property <string> chip_tooltip: (chip.detached
                         ? "Position " + chip.label + ", detached from its symmetric family."
                         : "Position " + chip.label + ".")
@@ -177,11 +170,8 @@ export component TierFacetsSection inherits VerticalLayout {
                     background: chip.detached ? Theme.bg-input : Theme.bg-card-hover;
                     border-radius: Theme.radius-sm;
                     border-width: self.ringed ? 2px : ((chip.detached || chip.frosted) ? 1px : 0px);
-                    // Dashed-looking (via a muted, thin border) and
-                    // dimmed text is the "looks different" a
-                    // detached facet needs -- Slint has no native
-                    // dashed-stroke property, so a solid but
-                    // visually distinct treatment stands in for it.
+                    // Slint has no dashed stroke: a thin muted border stands in for the
+                    // "looks different" of a detached facet.
                     border-color: self.ringed ? Theme.accent-cyan-hover : (chip.frosted ? Theme.accent-cyan : Theme.text-muted);
                     accessible-role: AccessibleRole.list-item;
                     accessible-label: self.chip_tooltip;
@@ -310,9 +300,8 @@ export component TierFacetsSection inherits VerticalLayout {
         }
     }
 
-    // Finish of this tier: applies immediately, not staged, and is one undo step. Only shown for
-    // saved tiers. A tier frosted facet by facet (Advanced, the chips' frost buttons) shows its
-    // facets on the chips and says so under the tick box.
+    // Tier finish: applies at once and is one undo step. A tier with some frosted facets (set on
+    // the chips, Advanced) says so under the tick box.
     VerticalLayout {
         spacing: 4px;
         Rectangle {
@@ -337,15 +326,14 @@ export component TierFacetsSection inherits VerticalLayout {
         }
     }
 
-    // Surface finish of the tier and of single facets (Advanced): applies immediately, one undo step.
+    // Surface finish of the tier and of single facets (Advanced). Applies at once, one undo step.
     if root.advanced: SurfaceFinishSection {
         unlocked: root.unlocked;
         selection_is_loaded: root.selection_is_loaded;
         loaded_tier_index: root.loaded_tier_index;
     }
 
-    // Cheater/azimuth offset (GCS style): applies immediately,
-    // not staged. Only shown for saved tiers, and only in Advanced.
+    // Cheater/azimuth offset (as in Gem Cut Studio): applies at once, not staged. Advanced only.
     if root.advanced: VerticalLayout {
         spacing: 4px;
         Rectangle {

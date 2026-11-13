@@ -139,8 +139,8 @@ pub fn film(ctx: &mut Ctx<'_>, cfg: &Config, id: &str) -> Result<(), String> {
     crate::startup::dismiss_batch_offers(&ui)?;
     pump(500);
     // A lesson on "the design you have open" gets its design by filmed clicks (see
-    // `Film::film_design_setup`). The imported-meets lesson starts from such a design too: its
-    // first step films replacing it with an imported design from the library
+    // `Film::film_design_setup`). The Adopt Imported Meets lesson starts from such a design too:
+    // its first step films replacing it with an imported library design
     // (`Film::open_imported_library_design`).
     let needs_design = matches!(guide.starting_state, StartingState::RequiresOpenDesign);
     let opening = opening_stage(guide);
@@ -237,9 +237,8 @@ impl Film<'_> {
         self.hold(pacing::INTRO_HOLD)?;
         self.advanced_prelude(&guide.id)?;
         if needs_design {
-            // Deep Solve is dim on a template design, which has no printed proportions, and on a
-            // design whose tiers are all pinned; its first step tells the learner to load a
-            // catalogue design and adopt a tier first, so that lesson's Setup films exactly that.
+            // Deep Solve is dim on a template design (no printed proportions) and on a design with
+            // all tiers pinned: this lesson films loading a catalogue design and adopting a tier.
             let catalogue = guide.id == CATALOGUE_GUIDE;
             if catalogue {
                 self.film_catalogue_setup()?;
@@ -408,7 +407,7 @@ impl Film<'_> {
             return self.verify_advanced(n, total);
         }
         let step_perform = guide.steps.get(n).and_then(|step| step.perform.as_ref());
-        // Skip hovering the outer tab pill when a filmed recipe is about to drive the controls inside it.
+        // Skip hovering the outer tab pill when a recipe drives the controls inside it.
         let skip_point = step_perform.is_some()
             && !now.done
             && matches!(

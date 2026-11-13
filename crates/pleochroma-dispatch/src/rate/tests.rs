@@ -182,11 +182,9 @@ fn the_moving_average_converges_to_a_new_steady_rate() {
     assert_eq!(model.observations(), 25);
 }
 
-/// While `remaining` is plentiful (far larger than the target-duration chunk), a
-/// single lane's tail-aware size matches [`ChunkPolicy::samples_for_rate`] exactly --
-/// the share term (`remaining` itself, since `sum_rates == rate` for one lane) never
-/// binds until the run's genuine tail. Chunk sizing is therefore unaffected for a
-/// single lane outside that tail.
+/// With plenty remaining, a single lane's tail-aware size equals
+/// [`ChunkPolicy::samples_for_rate`]: the share term (`remaining`, since `sum_rates ==
+/// rate` for one lane) only binds in the run's tail.
 #[test]
 fn tail_aware_samples_matches_plain_sizing_for_one_lane_with_plenty_of_room() {
     let policy = ChunkPolicy::EXPORT;
@@ -209,10 +207,9 @@ fn tail_aware_samples_caps_a_single_lanes_own_tail_at_what_remains() {
     assert_eq!(policy.tail_aware_samples(rate, remaining, rate), remaining);
 }
 
-/// Two lanes at a 10:1 rate ratio sharing a small tail: each one's want, converted
-/// back to the TIME it would take that lane to trace it (`want / rate`), lands within
-/// about one fast-lane chunk duration of the other's -- the fast lane can no longer be
-/// starved by a slow lane grabbing an oversized share of what is left.
+/// Two lanes at a 10:1 rate ratio sharing a small tail: each one's want, converted to the
+/// time that lane needs for it (`want / rate`), lands within about one fast-lane chunk
+/// duration of the other's, so the slow lane does not take an oversized share.
 #[test]
 fn tail_aware_samples_shares_a_small_tail_close_to_proportionally() {
     let policy = ChunkPolicy {
@@ -222,7 +219,7 @@ fn tail_aware_samples_shares_a_small_tail_close_to_proportionally() {
         calibration_samples: 1,
     };
     let fast_rate = 1000.0;
-    let slow_rate = 100.0; // 10:1, as the coordinator's A100-vs-780M report.
+    let slow_rate = 100.0;
     let sum_rates = fast_rate + slow_rate;
     // Small relative to either lane's own target-duration chunk (300 and 30 samples).
     let remaining = 20;

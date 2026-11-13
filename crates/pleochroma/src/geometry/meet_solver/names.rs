@@ -1,6 +1,6 @@
 //! Resolving stated `"Meet <names>"` text against a design's tiers.
 //!
-//! [`MeetNameResolver`] is the one place the corpus's informal reference styles
+//! [`MeetNameResolver`] is the one place the informal reference styles
 //! (unnamed girdle/culet/table references, compound `"1-2-G1"` vertex specs,
 //! connective prose, case and side-prefix mismatches) get handled, so the solve
 //! pipeline itself only ever deals with resolved tier indices.
@@ -14,7 +14,7 @@ use super::{
 /// Outcome of resolving one stated `"Meet ..."` token against a design's tiers.
 ///
 /// Produced by [`MeetNameResolver::resolve_token`]; see that type's doc comment for
-/// the rule set and the corpus measurements each rule rests on.
+/// the rule set.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TokenResolution {
     /// The token names one or more real tiers. A simple token (`"P1"`) names one; a
@@ -51,10 +51,8 @@ pub struct ResolvedNames {
 /// kinds: meet-*point* references that name a point rather than a facet
 /// (`"PCP"` = pavilion culet point, `"TCP"` = table center point, `"apex"`,
 /// `"keel"`), and connective prose (`"Meet at corner of 1-2-G1"`, `"Meet 1 and
-/// 2 at index 96"`). Matched case-insensitively, only after exact and
-/// case-insensitive *name* matching has already failed -- none of these words
-/// is ever a real facet name in the corpus, so the name-match-first order
-/// keeps even a future collision safe.
+/// 2 at index 96"`). Matched case-insensitively, only after name matching
+/// has failed, so a real tier name always wins.
 const IGNORABLE_MEET_WORDS: &[&str] = &[
     "all",
     "and",
@@ -101,11 +99,9 @@ const IGNORABLE_MEET_WORDS: &[&str] = &[
 /// Resolves the hand-typed facet-name tokens of `"Meet <names>"` instructions
 /// against a design's tiers.
 ///
-/// Real `.asc` meet text is free prose, and a majority of its name tokens do not
-/// literally match any stored tier name. The failing tokens are dominated by a
-/// few systematic forms, each of which gets a rule here (applied in order, most
-/// literal first -- an exact match always wins, so none of the fallbacks can ever
-/// shadow a real name):
+/// Meet text is free prose, and many name tokens do not match a stored tier name
+/// literally. Each common failing form gets a rule here, applied in order. An exact
+/// match always wins, so no fallback shadows a real name:
 ///
 /// 1. **Exact name match** (first tier in file order), then
 ///    **ASCII-case-insensitive** match (`"b"` vs a tier named `"B"`).
@@ -238,8 +234,8 @@ impl<'a> MeetNameResolver<'a> {
         {
             return TokenResolution::Tiers(vec![i]);
         }
-        // Legacy 123-ABC resolution: "1" -> pavilion tier named "P1" (or "PF1");
-        // "A" -> crown tier named "C1", "B" -> "C2".
+        // Bare labels: "1" -> pavilion tier named "P1" (or "PF1"); "A" -> crown tier
+        // named "C1", "B" -> "C2".
         if !token.is_empty() && token.chars().all(|c| c.is_ascii_digit()) {
             let pavilion_name = format!("P{token}");
             if let Some(i) = self.name_match(&pavilion_name)
@@ -347,7 +343,7 @@ mod tests {
         }
     }
 
-    /// A small letters-and-girdle design shaped like the corpus's common case:
+    /// A small letters-and-girdle design:
     /// pavilion tiers named "1"/"2", an unnamed girdle wall, crown tiers "A"/"B",
     /// and a flat table tier named "T".
     fn resolver_fixture() -> Vec<MeetTierInput> {
@@ -452,18 +448,18 @@ mod tests {
     #[test]
     fn resolver_matches_legacy_123_abc_to_modern_labels() {
         let mut tiers = resolver_fixture();
-        // Rename tiers to modern PF-P-G-C conventions:
+        // Rename tiers to the P/C-prefixed labels:
         tiers[0].names = vec!["P1".to_string()];
         tiers[2].names = vec!["P2".to_string()];
         tiers[3].names = vec!["C1".to_string()];
         tiers[4].names = vec!["C2".to_string()];
         let r = MeetNameResolver::new(&tiers);
 
-        // Legacy meet instructions "1" and "2" resolve to P1 and P2
+        // Bare labels "1" and "2" resolve to P1 and P2
         assert_eq!(r.resolve_token("1"), TokenResolution::Tiers(vec![0]));
         assert_eq!(r.resolve_token("2"), TokenResolution::Tiers(vec![2]));
 
-        // Legacy crown letters "A" and "B" resolve to C1 and C2
+        // Letters "A" and "B" resolve to C1 and C2
         assert_eq!(r.resolve_token("A"), TokenResolution::Tiers(vec![3]));
         assert_eq!(r.resolve_token("a"), TokenResolution::Tiers(vec![3]));
         assert_eq!(r.resolve_token("B"), TokenResolution::Tiers(vec![4]));

@@ -8,7 +8,7 @@
 //! `var(t) = (var_s + (1 - t)^2 var_d / n_d + t^2 var_w / n_w) / D^2`, with the frame variances
 //! from the view's [`NoiseModel`] and `n_w`, `n_d` the numbers of averaged frames.
 //!
-//! # The JPEG block-DC error (S2)
+//! # The JPEG block-DC error
 //!
 //! The stone frame's compression error of an 8-bit JPEG has two parts (see
 //! [`estimate_stone_compression`]): the per-pixel AC error, independent from pixel to pixel, and
@@ -272,7 +272,7 @@ impl ViewCalibration {
             });
         }
         let (n_w, n_d) = (n_white as f32, n_dark as f32);
-        // The compression error of an 8-bit source (ZC-3). The stone's own term comes from the
+        // The compression error of an 8-bit source. The stone's own term comes from the
         // stone frame (a robust Laplacian: a flat frame compresses almost perfectly, a textured
         // stone does not); the white and dark frames use the local variance of the first white
         // frame, which is correctly tiny for a flat frame. The assumed constant only where the
@@ -322,7 +322,7 @@ impl ViewCalibration {
                 }
                 let span = w[c] - d[c];
                 // The sensor noise plus, for a source that went through an assumed transfer
-                // curve, the quantisation and compression variance of the encoding (round 2, C4).
+                // curve, the quantisation and compression variance of the encoding.
                 let var_s = stone.variance.as_ref().map_or_else(
                     || {
                         self.noise.variance(c, s[c])
@@ -361,7 +361,7 @@ impl ViewCalibration {
                     var[c] = (one_minus * one_minus)
                         .mul_add(var_d, (t[c] * t[c]).mul_add(var_w, var_s))
                         / (span * span);
-                    // The stone frame's block-DC error (S2), divided by the span like the rest.
+                    // The stone frame's block-DC error, divided by the span like the rest.
                     let dc = block_dc_variance(
                         stone.source,
                         stone.non_linear_source,

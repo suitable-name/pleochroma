@@ -32,10 +32,12 @@ pub fn run_event_wavefront_pipeline_checks(ctx: &GpuContext) -> bool {
             if passed { "PASS" } else { "FAIL" }
         );
         println!(
-            "  {} / {} pixels differ, {} tol-failing, max |delta| = {:e}",
+            "  {} / {} pixels differ, {} beyond golden, {} beyond rounding, weakest tier {:?}, max |delta| = {:e}",
             equiv.differing_pixels,
             equiv.total_pixels,
             equiv.tol_failing_pixels,
+            equiv.rounding_failing_pixels,
+            equiv.tier,
             equiv.max_abs_diff
         );
         if !passed {

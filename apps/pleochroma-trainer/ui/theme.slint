@@ -56,7 +56,7 @@ export global TrainerTheme {
         return sev-info;
     }
 
-    // Status pill colors: Idle, Training, Paused, Stopping, Stopped.
+    // Status pill colors: Training, Paused, Stopping, Stopped. Any other status (Idle) is muted.
     pure public function status-color(status: string) -> color {
         if status == "Training" { return accent-green; }
         if status == "Paused" { return accent-amber; }

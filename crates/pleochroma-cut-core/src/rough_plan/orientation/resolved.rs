@@ -285,9 +285,9 @@ impl ResolvedRule {
     /// tight cone.
     ///
     /// The table normal makes the rule's target tilt with the rough's Crystal Axis line `a`: `0`
-    /// for Table Across, `90` for In Plane, the folded tilt for Custom Angle, and a few rings for a
-    /// color-named rule (whose through-table direction depends on the spin). A target tilt of `0`
-    /// is `a` itself; any other tilt is a ring of twelve normals around `a`.
+    /// for Table Across, `90` for In Plane, the folded tilt for Custom Angle, and rings for a
+    /// color-named rule (whose through-table direction depends on the spin). A target tilt of
+    /// `0` is `a` itself; any other tilt is a ring of twelve normals around `a`.
     #[must_use]
     pub(crate) fn table_directions(&self) -> Vec<[f64; 3]> {
         const RING: u32 = 12;

@@ -1,27 +1,14 @@
-// Phase 1: furnace-anchor kernel -- driven by `renderer::gpu::furnace_check`.
+// Furnace-anchor kernel, driven by `renderer::gpu::furnace_check`.
 //
-// Glues together every Phase-1 ported function into one end-to-end pipeline (camera ray
-// generation with RNG-derived jitter, the hero-wavelength comb, CIE 1931 CMF
-// integration) with a deliberately UNIFORM constant-radiance "environment" (independent
-// of both direction and wavelength) and, implicitly, zero gemstone facets -- so the
-// resulting XYZ is analytically computable from the CMF integral alone, checking this
-// pipeline against TRUE values rather than merely against the CPU (a shared porting
-// mistake could otherwise self-certify a CPU-vs-GPU-only comparison).
+// Runs camera ray generation, the hero-wavelength comb and CIE 1931 CMF integration against a
+// uniform constant-radiance environment (independent of direction and wavelength) with no
+// facets. The XYZ is then analytic from the CMF integral alone, so the pipeline is checked
+// against true values and not only against the CPU, where a shared porting mistake would hide.
 //
-// # Why this kernel never calls `intersect_polyhedron`
-//
-// `optics::raytracer::intersect_polyhedron(ray, &[])` (zero facet planes) does NOT
-// return `None` -- its `t_near`/`t_far` sentinels (`-1e30`/`+1e30`) fall through to the
-// "origin is inside the solid" EXIT branch (vacuously true: with zero half-space
-// constraints, every point satisfies all of them), producing
-// `Some(HitRecord { t: 1e30, normal: Vec3::ZERO, facet_idx: 0 })`. See
-// `renderer::gpu::furnace_check`'s own doc comment and its
-// `empty_planes_intersect_returns_the_sentinel_hit_not_a_miss` test, which pins this
-// exact CPU behavior down. Functionally this IS "the ray reaches the environment
-// unobstructed" (there is no real geometry at `t = 1e30` to interact with), which is
-// the property this kernel's "uniform environment, unconditionally sampled" design
-// relies on -- it does not need to branch on the `Option` wrapper at all, because with
-// zero planes by construction there is nothing that could ever block a ray.
+// The kernel never calls `intersect_polyhedron`: with zero planes the CPU returns a sentinel hit
+// at `t = 1e30` (the "inside" exit branch), not a miss. Every ray therefore reaches the
+// environment, so the environment is sampled unconditionally. The CPU behavior is pinned by
+// `empty_planes_intersect_returns_the_sentinel_hit_not_a_miss` in `renderer::gpu::furnace_check`.
 
 struct GpuCameraParams {
     origin: vec3<f32>,
@@ -49,13 +36,8 @@ struct FurnaceExtra {
 const SPECTRUM_MIN: f32 = 380.0;
 const SPECTRUM_SPAN: f32 = 400.0;
 const NUM_CHANNELS: u32 = 8u;
-// (400.0 / 8) / 106.856 -- must match `optics::raytracer::integrate_channels_to_xyz`'s
-// `norm_factor` exactly. Computed via the SAME division WGSL will perform at
-// const-evaluation time, deliberately not a hand-rounded decimal literal: an earlier
-// version of this constant was hand-computed as 0.4680704632214494 (a transcription
-// error -- the correct value is ~0.4679194), which produced a ~0.03% systematic bias
-// caught by this module's own per-tuple ULP check (see `furnace_check`'s negative
-// control / this bug's own discovery for how that showed up in practice).
+// `norm_factor` of `optics::raytracer::integrate_channels_to_xyz`. Written as the same division
+// rather than a decimal literal, so the f32 value is exactly the one the CPU computes.
 const NORM_FACTOR: f32 = (400.0 / 8.0) / 106.856;
 
 fn hash_u32(x_in: u32) -> u32 {
@@ -67,23 +49,17 @@ fn hash_u32(x_in: u32) -> u32 {
     return x;
 }
 
-// CIE 1931 2-degree observer, tabulated at 5nm (CIE 15:2004 Table T.4, 380-780nm)
-// and linearly interpolated -- ported identically to shaders/environment.wgsl and the
-// CMF region of shaders/spectral_transport.wgsl (all three copies transcribed by hand
-// from `color::cie1931::CIE_1931_TABLE`, so an edit to one must be mirrored into the
-// other two by hand too). Uses the real tabulated observer rather than a
-// Wyman/Sloan/Shirley Gaussian-lobe fit, which carries 1-3% XYZ error against it -- see
-// `color::cie1931`'s module doc comment. Deliberately plain f32 arithmetic in the same
-// fixed order as that Rust function (floor, fraction, `lo + (hi - lo) * t`), no
-// mul_add/fma, no f64 intermediate anywhere, so this reproduces it bit-for-bit modulo
-// ordinary driver-level f32 rounding.
+// CIE 1931 2-degree observer, tabulated at 5 nm (CIE 15:2004 Table T.4, 380-780 nm), linearly
+// interpolated. The real tabulated observer is used, not a Gaussian fit (1-3 % XYZ error).
+// The same table is copied by hand into `shaders/environment.wgsl` and
+// `transport_physics/05_nee_env_sampling.wgsl` (from `color::cie1931::CIE_1931_TABLE`); keep all
+// copies identical. Plain f32 in the same order
+// as the Rust function (no fma, no f64), so the results match up to driver-level rounding.
 
 const CIE_15_2004_CMF_START_NM: f32 = 380.0;
 const CIE_15_2004_CMF_STEP_NM: f32 = 5.0;
 const CIE_15_2004_CMF_LAST_INDEX: u32 = 80u;
-// CIE_15_2004_CMF_START_NM + 80.0 * CIE_15_2004_CMF_STEP_NM, precomputed since WGSL
-// `const` initializers can't call CIE_15_2004_CMF_TABLE.length() the way Rust's
-// `CIE_1931_TABLE.len()` can.
+// START + 80 * STEP, written out because WGSL const initializers cannot take the table length.
 const CIE_15_2004_CMF_END_NM: f32 = 780.0;
 
 const CIE_15_2004_CMF_TABLE: array<vec3<f32>, 81> = array<vec3<f32>, 81>(
@@ -183,10 +159,8 @@ fn cie_1931_cmf(l: f32) -> vec3<f32> {
     return lo + (hi - lo) * t;
 }
 
-/// One (pixel, sample) tuple's furnace XYZ estimate: camera ray generation (with
-/// RNG-derived jitter, bit-exact per Phase 0) + the hero-wavelength comb + CMF
-/// integration against the uniform constant-radiance environment. Shared by both entry
-/// points below.
+/// XYZ estimate of one (pixel, sample) tuple: jittered camera ray, hero-wavelength comb and CMF
+/// integration against the uniform environment. Used by both entry points below.
 fn furnace_sample_xyz(pixel: u32, sample: u32) -> vec3<f32> {
     let x = f32(pixel % u32(camera.width));
     let y = f32(pixel / u32(camera.width));
@@ -195,15 +169,12 @@ fn furnace_sample_xyz(pixel: u32, sample: u32) -> vec3<f32> {
     let jx = f32(hash_u32(seed) % 10000u) / 10000.0 - 0.5;
     let jy = f32(hash_u32(seed + 0x7feb352du) % 10000u) / 10000.0 - 0.5;
 
-    // Camera::generate_ray -- exercised for pipeline fidelity even though this
-    // furnace's environment is direction-independent (see the file header): `dir` is
-    // computed exactly as the real ray-generation path would, it just happens not to
-    // affect this particular environment's radiance.
+    // Camera ray generation as in the real path, kept for pipeline fidelity; the environment
+    // ignores `dir`.
     let aspect = camera.width / camera.height;
     let u = ((x + jx) / camera.width - 0.5) * 2.0 * aspect * camera.fov_tan;
     let v = (0.5 - (y + jy) / camera.height) * 2.0 * camera.fov_tan;
     let dir = normalize(camera.forward + camera.right * u + camera.up * v);
-    // `dir` deliberately unused beyond this point -- see above.
     _ = dir;
 
     let hero_hash = hash_u32(seed);
@@ -216,10 +187,8 @@ fn furnace_sample_xyz(pixel: u32, sample: u32) -> vec3<f32> {
         let offset = fma(f32(k), channel_width, lambda_hero - SPECTRUM_MIN);
         let wrapped = offset % SPECTRUM_SPAN;
         let lambda = SPECTRUM_MIN + wrapped;
-        // Uniform environment: `extra.l0` regardless of `lambda`/`dir`. `mis_weight` is
-        // exactly 1.0 here (every channel shares the same, uniform path_pdf), matching
-        // `integrate_channels_to_xyz`'s `spectral_mis_weight` degenerating to 1.0 when
-        // every channel's technique agrees.
+        // Uniform environment: `extra.l0` for every `lambda`. The spectral MIS weight is 1.0,
+        // as in `integrate_channels_to_xyz` when all channels share one path pdf.
         xyz = xyz + cie_1931_cmf(lambda) * (extra.l0 * NORM_FACTOR);
     }
     return xyz;
@@ -240,10 +209,8 @@ fn furnace_samples_main(@builtin(global_invocation_id) gid: vec3<u32>) {
     out_persample[idx * 3u + 2u] = xyz.z;
 }
 
-// Strictly sequential, this-thread-only accumulation across `camera.num_samples` --
-// exactly `self_determinism.wgsl`'s proven-safe pattern (see that file's own doc
-// comment): no atomics, no cross-thread reduction, so the result is bit-for-bit
-// reproducible run to run regardless of GPU scheduling.
+// Sequential per-thread sum over `camera.num_samples`, the pattern of `self_determinism.wgsl`:
+// no atomics or cross-thread reduction, so the sum is bit-reproducible under any scheduling.
 @compute @workgroup_size(64)
 fn furnace_accumulate_main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let pixel = gid.x;

@@ -1,11 +1,10 @@
 import { Theme } from "../../theme.slint";
 
-// A soft fade at the bottom edge of a scroll area, drawn while there is more content below, so a
-// control that is cut off at the edge reads as "scroll for more" and not as a layout bug. Place
-// it over the bottom of the area (`y: parent.height - self.height`, `width: parent.width`) and
-// bind `active` to "the content is taller than what shows and not at its end" (or, with `top`,
-// to "scrolled away from the start"). It takes no
-// clicks: the pointer goes through it to what is underneath.
+// A soft fade at the edge of a scroll area, shown while more content lies beyond it, so a
+// cut-off control reads as "scroll for more". Place it over the bottom of the area
+// (`y: parent.height - self.height`, `width: parent.width`) and bind `active` to "the content
+// is taller than what shows and not at its end" (or, with `top`, to "scrolled away from the
+// start"). It takes no clicks: the pointer goes through it.
 export component ScrollFade inherits Rectangle {
     in property <bool> active: false;
     // The colour of the surface under the scroll area, which the content fades into.

@@ -7,15 +7,11 @@ pub(super) struct SolidVertex {
     pub(super) v: DVec3,
 }
 
-/// Accepted vertices, in first-seen order, plus an index over them sorted by
-/// `x` so a new candidate's duplicate check only has to scan the vertices
-/// that could possibly be within [`VERTEX_DEDUP`] of it on every axis instead
-/// of the full accepted set.
+/// Accepted vertices in first-seen order, with an `x`-sorted index that
+/// narrows the duplicate check.
 ///
-/// `verts`' order is exactly the push order of [`insert_if_new`](Self::insert_if_new)
-/// calls (the divergence-theorem sum in production `measure_solid`
-/// depends on it); `by_x` is a lookup structure only, never observed by
-/// callers.
+/// `verts` keeps the push order of [`insert_if_new`](Self::insert_if_new),
+/// which the divergence-theorem sum depends on. `by_x` is internal.
 #[derive(Default)]
 pub(super) struct VertexAccumulator {
     pub(super) verts: Vec<SolidVertex>,
@@ -24,13 +20,11 @@ pub(super) struct VertexAccumulator {
 }
 
 impl VertexAccumulator {
-    /// Inserts `v` unless some already-accepted vertex is within
-    /// [`VERTEX_DEDUP`] of it on every axis -- identical to a linear scan
-    /// testing `(s.v - v).abs().max_element() < VERTEX_DEDUP` against every
-    /// prior vertex, just restricted up front to the `x`-sorted window that
-    /// could possibly match (any vertex outside `[v.x - VERTEX_DEDUP, v.x +
-    /// VERTEX_DEDUP]` fails the `x`-axis check alone, so narrowing to that
-    /// window changes no accept/reject decision).
+    /// Inserts `v` unless an accepted vertex lies within [`VERTEX_DEDUP`] of it
+    /// on every axis.
+    ///
+    /// Same result as a linear scan: a vertex outside the `x` window fails the
+    /// `x` check alone, so only the window is compared.
     pub(super) fn insert_if_new(&mut self, v: DVec3) {
         let verts = &self.verts;
         let lo = self
@@ -51,13 +45,12 @@ impl VertexAccumulator {
     }
 }
 
-/// Drops duplicate planes so a tier that lists the same index twice can't
-/// double-count its face's area. The first occurrence wins.
+/// Drops duplicate planes so a repeated plane cannot double-count its face
+/// area. The first occurrence wins.
 ///
 /// Two planes are duplicates when their normals coincide under
-/// [`normals_coincide`] (the rule the `.asc` plane builder uses, which holds for
-/// `f32`-normalised inputs widened to `f64`) and their offsets differ by less
-/// than `1e-9`.
+/// [`normals_coincide`] (the `.asc` plane builder's rule) and their offsets
+/// differ by less than `1e-9`.
 pub(super) fn dedup_planes(planes: &[(DVec3, f64)]) -> Vec<(DVec3, f64)> {
     let mut out: Vec<(DVec3, f64)> = Vec::with_capacity(planes.len());
     for &(n, m) in planes {
@@ -87,11 +80,8 @@ pub(super) fn dedup_origin_indices(
         while cursor < original.len() && !same(original[cursor], d) {
             cursor += 1;
         }
-        // `cursor == original.len()` here would mean `deduped` contains a
-        // plane `dedup_planes` could not have produced from `original` --
-        // an invariant violation, not a real runtime case. Clamping instead
-        // of panicking keeps this diagnostic helper infallible even if that
-        // invariant is ever broken by a future edit to `dedup_planes`.
+        // `cursor == original.len()` would mean `deduped` holds a plane that
+        // `dedup_planes` could not have produced. Clamp rather than panic.
         out.push(cursor.min(original.len().saturating_sub(1)));
         cursor += 1;
     }

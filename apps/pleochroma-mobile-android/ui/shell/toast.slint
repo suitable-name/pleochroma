@@ -1,6 +1,6 @@
-// A snackbar. `AppWindow` places it above the navigation bar; Rust shows it by
-// setting `Shell.toast-text` / `Shell.toast-visible` and hides it again after four
-// seconds. A tap or the close button dismisses it early.
+// A snackbar. `AppWindow` positions it above the bottom bar (at the bottom edge when
+// there is none). Rust shows it by setting `Shell.toast-text` and `Shell.toast-visible`
+// and it hides after four seconds; a tap or the close button dismisses it earlier.
 import { Theme } from "../theme.slint";
 import { Icons } from "../icons.slint";
 import { IconButton } from "icon_button.slint";

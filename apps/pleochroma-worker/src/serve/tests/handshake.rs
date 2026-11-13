@@ -53,12 +53,10 @@ fn handle_connection_accepts_a_matching_build_hash_and_sends_welcome() {
     ));
 }
 
-/// A `HELLO` declaring no `pleochroma` build at all
-/// (`build_hash == UNKNOWN_BUILD_HASH`, e.g. a library-only client) must not be refused
-/// by `verify_compatible`'s "an unknown build is never compatible with anything" rule --
-/// it is paired as library-only instead: `WELCOME::render` is `None`, and a later
-/// `RenderRequest` on that same connection is refused with `NO_RENDER_CAPACITY_CODE`
-/// rather than reaching the tracer.
+/// A `HELLO` declaring no `pleochroma` build (`build_hash == UNKNOWN_BUILD_HASH`, e.g. a
+/// library-only client) is not refused as a build mismatch. It is paired as library-only:
+/// `WELCOME::render` is `None`, and a later `RenderRequest` on that connection is refused
+/// with `NO_RENDER_CAPACITY_CODE` rather than reaching the tracer.
 #[test]
 fn handle_connection_pairs_an_unknown_build_hash_as_library_only_and_refuses_a_later_render() {
     let mut input = Vec::new();

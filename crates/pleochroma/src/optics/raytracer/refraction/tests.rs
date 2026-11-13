@@ -32,12 +32,9 @@ use glam::Vec3;
 mod tir_phase_retardation_tests {
     use super::*;
 
-    /// The partial-reflection branch's "channel k is past its own critical
-    /// angle" case now applies `tir_phase_delta` (via `MuellerMatrix::tir_retardation`)
-    /// instead of the phase-blind `fresnel_reflection(1.0, 1.0)`. This checks the
-    /// shared helper reproduces the same delta the dedicated (hero-is-past-critical)
-    /// TIR branch computes inline, for a channel genuinely past its critical angle --
-    /// i.e. the two sites are guaranteed to agree because they now share one formula.
+    /// The partial-reflection branch applies `tir_phase_delta` (via
+    /// `MuellerMatrix::tir_retardation`) to a channel past its own critical angle. This checks
+    /// that the delta is nonzero there and turns linear polarization into circular.
     #[test]
     fn tir_phase_delta_is_nonzero_past_critical_angle() {
         // n1 = 2.42 (diamond-like), incidence well past the ~24.4 degree critical angle.
@@ -80,13 +77,10 @@ mod tir_phase_retardation_tests {
     }
 }
 
-/// `apply_partial_fresnel_bounce` computes the reflect-vs-transmit decision's
-/// `r_unpol` from the SAME mode's own refractive index the transmit branch
-/// (`apply_refract_channel`) uses for that mode, rather than always mode B's -- these
-/// tests check the resulting `R + T == 1` identity directly against the same Fresnel
-/// algebra those two sites share (`r_s`/`r_p`/`t_s`/`t_p`, `MuellerMatrix::
-/// fresnel_reflection`/`fresnel_transmission`'s own "a" coefficients), at both the
-/// ordinary and extraordinary index, across a spread of incidence angles.
+/// The reflect-vs-transmit `r_unpol` uses the same mode's refractive index as the transmit
+/// branch (`apply_refract_channel`). These tests check `R + T == 1` against the Fresnel
+/// algebra both sites share (the `[0][0]` entries of `MuellerMatrix::fresnel_*`), at the
+/// ordinary and extraordinary index across several incidence angles.
 #[cfg(test)]
 mod p2_fresnel_energy_conservation_tests {
     use crate::optics::{materials::GemMaterial, polarization::MuellerMatrix};
@@ -177,13 +171,9 @@ mod p2_uniaxial_internal_wiring_energy_conservation_tests {
     /// sub-critical for BOTH modes -- the closed-form solver's own TIR-inclusive
     /// conservation is already covered, at a looser tolerance, by
     /// `internal_exit_energy_conservation_holds_including_tir`); swept across
-    /// `r_branch` in `[0.2, 0.5, 0.83]` (a fixed 0.5 alone cannot distinguish the two
-    /// branches' own `1/r_branch` vs `1/(1-r_branch)` divisions from an accidentally
-    /// swapped pair, since both divide by the same value at 0.5) -- measured
-    /// `worst_err` over this sweep is `~3.6e-7`, comfortably inside the required
-    /// `1e-6` target -- asserted at `5e-6` (a >10x margin over the measured worst
-    /// case) rather than the raw measured value, so the test does not flake on an
-    /// unrelated few-ULP shift from an unrelated future change.
+    /// `r_branch` in `[0.2, 0.5, 0.83]`: a fixed 0.5 cannot tell the two branches'
+    /// `1/r_branch` and `1/(1-r_branch)` divisions from a swapped pair. The worst error over
+    /// the sweep is about `4e-7` in f32; the assertion allows `5e-6` for unrelated rounding.
     #[test]
     #[expect(
         clippy::too_many_lines,
@@ -297,6 +287,8 @@ mod p2_uniaxial_internal_wiring_energy_conservation_tests {
                                 light_pitch: 0.85,
                                 backdrop: 0.0,
                                 surface_glare: 1.0,
+                                tray_shadow: None,
+                                tray_mirror: None,
                                 head_shadow_deg: crate::optics::raytracer::DEFAULT_HEAD_SHADOW_DEG,
                             },
                             studio_rig: None,
@@ -305,6 +297,8 @@ mod p2_uniaxial_internal_wiring_energy_conservation_tests {
                             enabled: false,
                             compat: [u8::MAX; NUM_CHANNELS],
                             split_mis_weight: 1.0,
+                            direction_match:
+                                crate::optics::raytracer::refraction::DirectionMatch::default(),
                         };
                         let mut state_t = BounceState {
                             stokes: &mut stokes_t,
@@ -409,17 +403,10 @@ mod entry_eigenmode_selection_tests {
     }
 }
 
-/// The two properties `apply_refract_channel`'s entry-eigenmode projection relies
-/// on -- now checked by actually DRIVING `apply_refract_channel` (via
-/// `apply_refract_bounce`, the only entry point this test module can reach it
-/// through: `apply_refract_channel` itself is private to `reflect_refract.rs`,
-/// visible only within that file) instead of re-deriving its projection formula
-/// inline. `entry_eigenmode_selection` (`entry_eigenmode_selection_tests` above pins
-/// `p_o`/azimuth at `DoP` 0 and 1) is still called directly to produce this test's
-/// own `p_o`/azimuth inputs -- it already IS the real production function, not a
-/// re-implementation of anything -- but the projected Stokes vector and the
-/// mode-dependent transmitted intensity below are now read back from the real
-/// bounce-dispatch call, not rebuilt by hand:
+/// The two properties `apply_refract_channel`'s entry-eigenmode projection relies on, checked
+/// by driving `apply_refract_channel` through `apply_refract_bounce` (the only entry point this
+/// module can reach). `entry_eigenmode_selection` supplies `p_o` and the azimuth. The projected
+/// Stokes vector and mode-dependent intensity are read back from that call:
 ///
 /// 1. The projected Stokes vector `apply_refract_channel` builds for whichever mode is
 ///    actually selected is fully linearly polarized -- `Q^2 + U^2 == I^2` (up to float
@@ -427,7 +414,7 @@ mod entry_eigenmode_selection_tests {
 ///    every `DoP` tested (a non-trivial frame where BOTH `cos_2psi_o` and `sin_2psi_o`
 ///    are nonzero, not just the axis-aligned special case already covered above).
 /// 2. The mode-selection draw is an unbiased estimator of the true polarization-weighted
-///    mixture. The per-mode transmittance is now the REAL transmitted intensity read
+///    mixture. The per-mode transmittance is the real transmitted intensity read
 ///    back from two separate (deterministic, not sampled) `apply_refract_channel`
 ///    calls -- one forcing the ordinary mode, one the extraordinary -- rather than a
 ///    synthetic stand-in, so this also exercises the real Fresnel-transmission Mueller
@@ -513,6 +500,8 @@ mod entry_mode_projection_tests {
                 light_pitch: 0.85,
                 backdrop: 0.0,
                 surface_glare: 1.0,
+                tray_shadow: None,
+                tray_mirror: None,
                 head_shadow_deg: crate::optics::raytracer::DEFAULT_HEAD_SHADOW_DEG,
             },
             studio_rig: None,
@@ -521,6 +510,7 @@ mod entry_mode_projection_tests {
             enabled: false,
             compat: [u8::MAX; NUM_CHANNELS],
             split_mis_weight: 1.0,
+            direction_match: crate::optics::raytracer::refraction::DirectionMatch::default(),
         };
         let mut exit_event = ExitEvent {
             exit: &mut exit_ctx,
@@ -705,5 +695,46 @@ mod entry_mode_projection_tests {
                  Monte Carlo mean={mean} over {TRIALS} trials"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod directions_match_tests {
+    use super::super::{DIRECTION_MATCH_COS_TOL, DIRECTION_MATCH_DISTANCE_SQ, directions_match};
+    use glam::Vec3;
+
+    /// A unit direction `mrad` milliradians off +Z.
+    fn off_axis(mrad: f32) -> Vec3 {
+        let angle = mrad * 1e-3;
+        Vec3::new(angle.sin(), 0.0, angle.cos())
+    }
+
+    #[test]
+    fn the_squared_distance_is_the_cosine_tolerance() {
+        // |a - b|^2 = 2 (1 - cos) for unit vectors. The f32 cosine constant is itself 1.3 % off
+        // 1 - 1e-6 (it is 17 steps of 2^-24 below 1).
+        let from_cosine = 2.0 * (1.0 - f64::from(DIRECTION_MATCH_COS_TOL));
+        let relative = (f64::from(DIRECTION_MATCH_DISTANCE_SQ) - from_cosine).abs() / from_cosine;
+        assert!(relative < 0.02, "relative difference {relative}");
+    }
+
+    #[test]
+    fn a_direction_matches_inside_the_tolerance_and_not_outside() {
+        // The tolerance is 1.414 mrad.
+        let hero = Vec3::Z;
+        assert!(directions_match(hero, hero));
+        for mrad in [0.1f32, 1.0, 1.40] {
+            assert!(directions_match(off_axis(mrad), hero), "{mrad} mrad");
+            assert!(
+                directions_match(hero, off_axis(mrad)),
+                "{mrad} mrad, swapped"
+            );
+        }
+        for mrad in [1.43f32, 2.0, 10.0] {
+            assert!(!directions_match(off_axis(mrad), hero), "{mrad} mrad");
+        }
+        // A channel without a direction and a non-finite one never match.
+        assert!(!directions_match(Vec3::ZERO, hero));
+        assert!(!directions_match(Vec3::splat(f32::NAN), hero));
     }
 }

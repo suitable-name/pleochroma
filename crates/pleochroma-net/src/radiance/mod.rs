@@ -14,7 +14,7 @@
 //! exactly `3 * size_of::<f32>()` bytes, `f32`-aligned, no padding (unlike the
 //! SIMD-aligned `Vec3A`), so the cast is a straight reinterpretation.
 //!
-//! # v14 payload encodings
+//! # Payload encodings
 //!
 //! On the wire a payload may also be byte-shuffled and compressed losslessly
 //! ([`payload`], [`shuffle`]); the functions in this file handle the raw form only.
@@ -39,13 +39,9 @@ pub const BYTES_PER_PIXEL: usize = size_of::<Vec3>();
 
 /// Reinterprets a radiance buffer as raw little-endian POD bytes -- no allocation, no copy.
 ///
-/// Ready to hand straight to a writer as a `FRAME`/`PREVIEW` message's payload: just a
+/// Ready to hand straight to a writer as a `FRAME`/`PREVIEW` message's payload: a
 /// reinterpreted view over `buffer`'s own storage. The zero-copy counterpart of
-/// [`encode`]: `encode` exists only as a thin `.to_vec()` wrapper over this now, kept
-/// for callers (and tests) that genuinely need an owned buffer. A hot path writing a
-/// fresh delta every tick (`stream_emit::emitter`) should call this directly instead --
-/// `encode` there meant a full-frame `Vec<u8>` allocation and `memcpy` per tick purely
-/// to hand the bytes to a writer and drop them immediately after.
+/// [`encode`], which copies. A hot path that writes a delta every tick should use this.
 #[must_use]
 pub fn as_bytes(buffer: &[Vec3]) -> &[u8] {
     bytemuck::cast_slice(buffer)
@@ -77,10 +73,10 @@ pub enum RadianceError {
     /// Rejected rather than worked around: reinterpreting misaligned bytes as `Vec3`
     /// would be UB.
     Misaligned,
-    /// v14: `width * height * 12` exceeds `framing::MAX_FRAME_LEN`, the cap every raw
+    /// `width * height * 12` exceeds `framing::MAX_FRAME_LEN`, the cap every raw
     /// payload is already held to -- rejected before allocating anything.
     TooLarge { width: u32, height: u32 },
-    /// v14: the header's `raw_len` disagrees with `width * height * 12` (a lying or
+    /// The header's `raw_len` disagrees with `width * height * 12` (a lying or
     /// mismatched header) -- rejected before any decompression starts.
     RawLenMismatch {
         width: u32,
@@ -88,13 +84,13 @@ pub enum RadianceError {
         expected_bytes: usize,
         raw_len: u32,
     },
-    /// v14: the header names an encoding this build cannot decode (built without the
+    /// The header names an encoding this build cannot decode (built without the
     /// `compression` feature).
     UnsupportedEncoding(PayloadEncoding),
-    /// v14: the codec rejected the payload -- corrupt data, or output that would exceed
+    /// The codec rejected the payload -- corrupt data, or output that would exceed
     /// `raw_len` (a decompression bomb). The codec's own message is logged at `warn!`.
     DecompressFailed(PayloadEncoding),
-    /// v14: the payload decompressed to fewer than `raw_len` bytes.
+    /// The payload decompressed to fewer than `raw_len` bytes.
     ShortOutput {
         expected_bytes: usize,
         got_bytes: usize,

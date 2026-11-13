@@ -1,4 +1,4 @@
-//! Tests of the zone geometry (written, not run, by lane G1).
+//! Tests of the zone geometry.
 //!
 //! The primitive fits on noisy synthetic points with fixed seeds, the editing backend, the
 //! overlay on a cube, and the Gauss-Newton loop of the refinement with an analytic residual. The

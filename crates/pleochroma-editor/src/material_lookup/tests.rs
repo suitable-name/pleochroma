@@ -71,10 +71,9 @@ fn lookup_falls_back_to_a_built_in_when_no_custom_material_matches() {
     assert!(lookup.lookup("Not A Real Material").is_none());
 }
 
-/// The catalogue's own case: a library row records a refractive index and no
-/// species, so this is what names the stone for its preview. The four values are the
-/// owner's actual catalogue's four most common (1,789 / 571 / 195 / 115 of 3,098
-/// designs), so a regression here would mis-render most of the library.
+/// A library row records a refractive index and no species, so these values must name their
+/// stones. They are the most common species in the library, so a regression would mis-render
+/// most of it.
 #[test]
 fn material_for_refractive_index_names_the_catalogues_common_stones() {
     for (n_d, expected) in [
@@ -98,10 +97,8 @@ fn material_for_refractive_index_refuses_when_nothing_is_close() {
     assert!(material_for_refractive_index(1.90).is_none());
 }
 
-/// A design with no material name (every untouched import) must trace as the
-/// material `view::traced_material_for` picked, not as diamond (the fallback for
-/// unnamed selections). Diamond's empty absorption bands caused every imported
-/// design to render colorless regardless of its RI.
+/// An unnamed selection traces as the material the traced name picks, not as diamond, whose
+/// empty absorption bands would render the stone colorless.
 #[test]
 fn traced_gem_material_honours_the_traced_name_for_an_unnamed_selection() {
     let custom_list: [GemMaterial; 0] = [];
@@ -340,15 +337,9 @@ fn nearest_built_in_material_picks_the_closest_when_two_are_within_tolerance() {
 // --- Selection round trip: every `MaterialCatalogue` entry must resolve to
 // a `GemMaterial` of the SAME name and RI on the render side ---
 
-/// `EditorMaterialLookup::lookup` and `bridge::render_thread::context::
-/// resolve_material` implement the EXACT same precedence: a custom material by
-/// case-insensitive name first, then `GemMaterial::by_name`/a linear built-in
-/// scan, unconditionally (see `EditorMaterialLookup::lookup`'s own doc comment
-/// and `resolve_material`'s body) -- there is no difference in behaviour for a
-/// name `MaterialCatalogue` actually lists to exercise here that a direct call
-/// into `bridge::render_thread` would catch and this wouldn't. This is
-/// therefore the same round trip a design's `MaterialSelection::name` takes
-/// from "listed in a picker" to "traced in Live Render".
+/// `EditorMaterialLookup::lookup` and the render's `resolve_material` share one precedence: a
+/// custom material by case-insensitive name first, then the built-ins. This is the round trip a
+/// design's `MaterialSelection::name` takes from a picker to the traced render.
 #[test]
 fn every_catalogue_entry_resolves_to_a_gem_material_of_its_own_name_and_ri() {
     let mut custom = GemMaterial::diamond();
@@ -410,10 +401,7 @@ fn every_catalogue_entry_traces_as_a_gem_material_of_its_own_name() {
     }
 }
 
-// --- traced_material_for (the missing-name case must refuse with a reason,
-// never fall through to a by-name lookup that returns `None` -- no
-// materials[0]/Diamond fallback -- and leave the viewport empty without an
-// explanation) ---
+// --- traced_material_for: an unresolvable name refuses with a reason ---
 
 fn fresh_design() -> Design {
     crate::EditorSession::fresh().design
@@ -439,10 +427,8 @@ fn traced_material_for_names_a_resolvable_custom_selection() {
     assert_eq!(unresolved, None);
 }
 
-/// The actual bug case this guards against: a design naming a material that
-/// resolves through NEITHER the built-in table NOR the live custom-material
-/// list (a deleted custom material, or a typo'd/hand-edited name) must refuse
-/// -- not report itself resolved.
+/// A name that resolves through neither the built-in table nor the custom materials (a deleted
+/// custom material, or a hand-edited name) must refuse, not report itself resolved.
 #[test]
 fn traced_material_for_refuses_a_name_no_catalogue_resolves() {
     let mut design = fresh_design();

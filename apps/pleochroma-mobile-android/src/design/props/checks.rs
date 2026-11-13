@@ -3,6 +3,13 @@
 //!
 //! A fix is planned on a worker thread (planning solves candidate designs) and applied on
 //! the UI thread as one undoable edit, unless the design moved on meanwhile.
+//!
+//! A removal asks its question on its row before it is planned. The snap to meet points is
+//! planned first: its question names the facets it would cut away, which only planning finds,
+//! so the planned fix waits behind the shell's dialog ([`DIALOG_FIX_CONFIRM`]) and is applied
+//! only when the user agrees. A refused plan shows its sentence as a toast instead.
+
+use std::cell::RefCell;
 
 use pleochroma_mobile_core::{
     app_state::AppState,
@@ -14,10 +21,19 @@ use slint::{ComponentHandle, ModelRc, VecModel};
 
 use super::{HANDLE, Pushed, bind1, string_model};
 use crate::{
-    AppWindow, ProportionItem, PropsModel, WarningItem,
+    AppWindow, ProportionItem, PropsModel, Shell, WarningItem,
     design::{Shared, after_edit, refresh},
     push::toast,
 };
+
+/// The dialog id of a planned fix's question (the snap to meet points). The Checks tab owns
+/// the shell's ids 5000-5099 (`design::dialog_owner`).
+const DIALOG_FIX_CONFIRM: i32 = 5001;
+
+thread_local! {
+    /// The planned fix waiting behind [`DIALOG_FIX_CONFIRM`].
+    static PENDING_FIX: RefCell<Option<PlannedFix>> = const { RefCell::new(None) };
+}
 
 /// Connects the Checks tab's callbacks.
 pub(super) fn wire(window: &AppWindow, state: &Shared) {
@@ -47,16 +63,60 @@ fn fix_warning(window: &AppWindow, state: &Shared, index: i32) {
     }
 }
 
-/// The planner's answer, back on the UI thread: apply it when it still fits the design.
+/// The planner's answer, back on the UI thread: a refusal is a toast; a plan that carries a
+/// question waits behind the shell's dialog; any other plan is applied when it still fits the
+/// design.
 fn finish_fix(window: &AppWindow, planned: Result<PlannedFix, String>) {
     let Some(state) = HANDLE.with(|handle| handle.borrow().clone()) else {
         return;
     };
-    let applied = planned.and_then(|plan| apply_planned_fix(&mut state.borrow_mut(), plan));
+    let planned = match planned {
+        Ok(planned) => planned,
+        Err(message) => {
+            toast::show(window, &message);
+            return;
+        }
+    };
+    if let Some(question) = planned.question() {
+        PENDING_FIX.with(|slot| *slot.borrow_mut() = Some(planned));
+        window.global::<Shell>().invoke_show_dialog(
+            DIALOG_FIX_CONFIRM,
+            question.title.into(),
+            question.body.into(),
+            question.confirm.into(),
+            "Cancel".into(),
+        );
+        return;
+    }
+    apply(window, &state, planned);
+}
+
+/// Handles the answer to [`DIALOG_FIX_CONFIRM`]: the waiting fix is applied when the user
+/// agreed and dropped otherwise. Returns false for any other dialog id.
+pub(super) fn handle_dialog_result(
+    window: &AppWindow,
+    state: &Shared,
+    id: i32,
+    confirmed: bool,
+) -> bool {
+    if id != DIALOG_FIX_CONFIRM {
+        return false;
+    }
+    let pending = PENDING_FIX.with(|slot| slot.borrow_mut().take());
+    if let (true, Some(planned)) = (confirmed, pending) {
+        apply(window, state, planned);
+    }
+    true
+}
+
+/// Applies `planned` as one undoable edit (refused when the design moved on since it was
+/// planned, even while its question was open), then says what changed.
+fn apply(window: &AppWindow, state: &Shared, planned: PlannedFix) {
+    let applied = apply_planned_fix(&mut state.borrow_mut(), planned);
     match applied {
         Ok(applied) => {
             toast::show(window, &format!("{} Undo puts it back.", applied.message));
-            after_edit(window, &state);
+            after_edit(window, state);
         }
         Err(message) => toast::show(window, &message),
     }

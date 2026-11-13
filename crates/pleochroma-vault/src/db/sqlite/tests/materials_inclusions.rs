@@ -1,6 +1,8 @@
-//! `custom_gem_materials`' default crystal-axis columns and its inclusion columns
-//! (`inclusion_families_json`, `structure_json`), plus the per-axis dispersion text, through the
-//! migration and the `save_custom_material`/`get_custom_materials` round trip.
+//! Tests of the `custom_gem_materials` table's later columns.
+//!
+//! They cover its default crystal-axis columns, its inclusion columns
+//! (`inclusion_families_json`, `structure_json`) and the per-axis dispersion text: the
+//! migrations and the `save_custom_material`/`get_custom_materials` round trip.
 
 use super::{super::*, fixtures::temp_db_path, materials::seed_pre_color_recipe_custom_material};
 
@@ -89,8 +91,8 @@ fn crystal_axis_columns_round_trip_and_none_stays_null() {
     assert_eq!(stored("Oriented").c_axis_tilt_deg, None);
 }
 
-/// A database from before the inclusion columns existed opens unchanged: both columns are added
-/// as `NULL` on every row (no inclusions, no structure), the row still reads, and a second open
+/// A database from before the inclusion columns opens unchanged: both columns are added as
+/// `NULL` on every row (no inclusions, no structure), the row still reads, and a second open
 /// is a no-op.
 #[test]
 fn inclusion_migration_adds_the_columns_and_leaves_existing_rows_null() {
@@ -131,9 +133,9 @@ fn a_fresh_database_already_has_the_inclusion_columns() {
     }
 }
 
-/// The per-axis dispersion text, the inclusion families and the structure come back byte for byte
-/// (the columns are opaque text to this crate), a row saved without them reads `None`, and a
-/// re-save replaces or clears each.
+/// The per-axis dispersion text, the inclusion families and the structure come back byte for
+/// byte (the columns are opaque text to this crate). A row saved without them reads `None`,
+/// and a re-save replaces or clears each.
 #[test]
 fn render_physics_columns_round_trip_and_none_stays_null() {
     let db = Database::new(Some(":memory:")).expect("create db");

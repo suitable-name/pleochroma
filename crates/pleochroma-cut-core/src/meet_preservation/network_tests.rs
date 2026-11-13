@@ -25,7 +25,7 @@ fn residuals_detect_an_original_junction_clipped_by_another_plane() {
         .unwrap();
     culet.constraint = MeetConstraint::ScaleReference(1.2);
     let residual = baseline.residuals(&clipped, &control).unwrap();
-    // The old support triples still intersect algebraically, but outside the solid.
+    // The original support triples still intersect algebraically, but outside the solid.
     // Basis equalities alone cannot give the correction a direction to restore them.
     assert_eq!(
         residual.len(),

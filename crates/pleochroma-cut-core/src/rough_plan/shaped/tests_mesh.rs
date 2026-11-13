@@ -394,9 +394,8 @@ fn clipped_with_mesh(
 
 #[test]
 fn a_noisy_scanned_notch_keeps_stones_beside_it_and_none_in_it_on_a_small_grid() {
-    // The fast sibling of the ignored full plan above: the same noisy fixture and the same
-    // cutting-plane rows (the walls of the notch are a thicket of planes), but a 3 x 3 x 3
-    // grid, which takes a moment where the full plan takes minutes.
+    // The fast sibling of the full plan above: the same noisy fixture and cutting-plane rows
+    // (the notch walls are a thicket of planes), on a 3 x 3 x 3 grid.
     let (points, tris) = noisy_c_shape(2, 0.8);
     let model = RoughModel::new(import_parts(&points, &tris), Vec::new());
     assert!(model.mesh().is_some(), "the noisy C is still not convex");

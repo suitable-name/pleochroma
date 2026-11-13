@@ -3,11 +3,11 @@
 //! It decides which lessons the browser offers, what a step hands the panel, which controls a
 //! step leaves open, and the launch of a lesson that waits for its starting design.
 //!
-//! `editor::guide` (the runner in the page) holds an [`Offers`], builds the panel's rows from
+//! The page's `editor::guide` module holds an [`Offers`], builds the panel's rows from
 //! [`step_view`] and keeps a [`Launch`]; everything it decides here is tested natively.
 //!
 //! - [`Offers`]: the shared catalogue and the browser's [`WebFeatures`] (every shared feature
-//!   that exists in the browser, and the library once its lane has landed), so the page asks
+//!   that exists in the browser, and the library once it is available), so the page asks
 //!   one object which lessons it offers and how it shows each.
 //! - [`StepView`] / [`AllowFlags`]: one step as the panel renders it, and the lock groups a step
 //!   leaves open, as plain values the page copies into Slint's `GuideStepData` / `GuideAllow`.
@@ -54,7 +54,7 @@ impl Offers {
     }
 
     /// The features of this build: every shared one that exists in the browser (Deep Solve,
-    /// concave editing and cutting mode), and the library once its lane has landed.
+    /// concave editing and cutting mode), and the library once it is available.
     #[must_use]
     pub const fn features(&self) -> WebFeatures {
         WebFeatures {
@@ -205,8 +205,8 @@ pub struct Launch {
 
 /// What a UI sees while a lesson waits for its starting design.
 ///
-/// The grace counts from the moment no question is on screen, so an answer of Save (whose download and continuation take
-/// a moment) is waited for, and a Cancel gives up soon after.
+/// The grace counts from the moment no question is on screen. An answer of Save (whose download
+/// and continuation take a moment) is waited for; a Cancel gives up soon after.
 #[must_use]
 pub const fn observe(launch: &Launch, dialog_open: bool) -> LaunchObservation {
     LaunchObservation {

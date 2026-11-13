@@ -126,15 +126,11 @@ impl Database {
         Ok(())
     }
 
-    /// How many `library_mirror_state` rows now have no matching `diagram_entries.url`
-    /// -- designs the user deleted locally after they were pulled from a remote
-    /// mirror. `library_mirror_state` deliberately has no `FOREIGN KEY`/
-    /// `ON DELETE CASCADE` back to `diagram_entries` (see this module's doc comment),
-    /// so `Database::delete_diagram_entry` keeps the row and tombstones it
-    /// (`deleted_locally`) -- see that method's own doc comment for why that's the
-    /// intended "local delete wins" semantics, not an oversight. This count is what
-    /// lets a sync UI surface "N designs skipped" instead of that orphaning being
-    /// entirely invisible.
+    /// How many `library_mirror_state` rows have no matching `diagram_entries.url`: designs the
+    /// user deleted locally after they were pulled from a remote mirror. The table has no
+    /// `FOREIGN KEY` back to `diagram_entries`, so `Database::delete_diagram_entry` keeps the row
+    /// and tombstones it (`deleted_locally`), under the "local delete wins" rule. This count lets
+    /// a sync UI report the skipped designs.
     ///
     /// # Errors
     ///
@@ -169,11 +165,8 @@ mod tests {
     use super::*;
 
     fn temp_db() -> (Database, std::path::PathBuf) {
-        // A plain `process::id() + nanos` name (as several sibling crates' tests use)
-        // can collide when two tests in this same file happen to build their names in
-        // the same clock tick under `cargo test`'s default parallel-thread execution --
-        // observed in practice here. An additional monotonic counter makes every call
-        // within this process unique regardless of clock resolution.
+        // Parallel tests can build the same process-id and clock-nanos name in one tick,
+        // so a monotonic counter makes each call's name unique.
         static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let path = std::env::temp_dir().join(format!(

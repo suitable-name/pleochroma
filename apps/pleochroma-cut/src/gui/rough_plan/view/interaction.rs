@@ -1,14 +1,14 @@
 //! The pointer and button handlers of the view: orbit, zoom, presets, hover and click.
 //!
 //! Picking works from what the render thread last drew: the block's edges and corners are
-//! projected here (they are twenty points), a facet or a stone is read from the published
-//! pick buffer of the frame on screen.
+//! projected here, a facet or a stone is read from the published pick buffer of the frame on
+//! screen.
 //!
-//! A click that would add a cut does not add it at once: the second click of a double-click
-//! would otherwise land on a model the first had already changed. The click waits for the
-//! double-click interval (see [`ClickAdds`](super::state::ClickAdds)) and the cut is added
-//! when a timer finds it still alone, or at once when the gesture turns out to be a
-//! double-click. A double-click on empty space resets the view instead.
+//! A click that would add a cut waits for the double-click interval (see
+//! [`ClickAdds`](super::state::ClickAdds)) before it adds the cut, so the second click of a
+//! double-click does not land on a model the first had already changed. The cut is added
+//! when a timer finds the click still alone, or at once when the gesture is a double-click.
+//! A double-click on empty space resets the view instead.
 
 use super::{
     RESIZE_QUIET, ViewState, WHEEL_QUIET,
@@ -72,9 +72,11 @@ struct ClickContext {
     group_selected: bool,
 }
 
-/// The action of a click: edge, corner and facet clicks edit the model, so they need an
-/// idle planner; the rest only selects. While a result is being built nothing is clicked,
-/// because the scene on screen is not the one being asked for.
+/// The action of a click.
+///
+/// Edge, corner and facet clicks edit the model, so they need an idle planner; the rest only
+/// selects. While a result is being built nothing is clicked, because the scene on screen is
+/// not the one being asked for.
 #[must_use]
 const fn click_action(context: &ClickContext) -> ClickAction {
     if context.building {
@@ -123,7 +125,7 @@ pub(super) fn register(host: &Rc<Host>) {
     model.on_view_click(|x, y| on_host(|host| click(host, x, y)));
     model.on_view_double_click(|x, y| on_host(|host| double_click(host, x, y)));
     model.on_view_preset(|kind| on_host(|host| preset(host, kind)));
-    model.on_view_toggles_changed(|| on_host(request_render));
+    model.on_view_toggles_changed(|| on_host(|host| request_render(host)));
     model.on_cut_selected(|_row| on_host(super::cut_selected));
 }
 
@@ -143,9 +145,10 @@ fn aspect_of(size: (f32, f32)) -> f32 {
     if size.1 > 0.0 { size.0 / size.1 } else { 1.5 }
 }
 
-/// The image area was laid out or resized (logical pixels). A size that keeps changing is
-/// drawn at half size until it has been still for [`RESIZE_QUIET`], and the camera is
-/// pulled back or in so the scene still fits the new shape.
+/// The image area was laid out or resized (logical pixels).
+///
+/// A size that keeps changing is drawn at half size until it has been still for
+/// [`RESIZE_QUIET`], and the camera is pulled back or in so the scene still fits the new shape.
 fn resized(host: &Rc<Host>, width: f32, height: f32) {
     if !(width > 0.0 && height > 0.0) {
         return;
@@ -174,9 +177,10 @@ fn resize_settled(host: &Rc<Host>) {
     request_render(host);
 }
 
-/// Reads the size of the image area off the window and adopts it. The area's own change
-/// notifications miss the size it has when it is first laid out (and its mount-time push
-/// comes before any callback is registered), so showing the window pulls it.
+/// Reads the size of the image area off the window and adopts it.
+///
+/// The area's own change notifications miss the size it has when it is first laid out (and
+/// its mount-time push comes before any callback is registered), so showing the window pulls it.
 pub(super) fn sync_size(host: &Rc<Host>) {
     resized(
         host,
@@ -231,6 +235,7 @@ fn drag_begin(host: &Rc<Host>) {
     host.window
         .global::<RoughPlanModel>()
         .set_view_hint("".into());
+    super::scan::show_tip(host, None, (0.0, 0.0));
     // A drag that starts on a zone handle edits the zone.
     super::zoning_view::drag_begin(host);
     // A drag that starts on the crystal axis turns it, or turns the stone being turned by hand.
@@ -288,9 +293,10 @@ fn facet_under(view: &ViewState, serial: u64, cursor: (f32, f32)) -> Option<usiz
     snapshot.facet_at(cursor.0 / view.view_size.0, cursor.1 / view.view_size.1)
 }
 
-/// What is under `cursor` (logical pixels) in the shown scene. The stones of a result are
-/// not offered while another result's scene is being built: the scene on screen is the
-/// previous one.
+/// What is under `cursor` (logical pixels) in the shown scene.
+///
+/// The stones of a result are not offered while another result's scene is being built: the
+/// scene on screen is the previous one.
 fn pick_at(view: &ViewState, cursor: (f32, f32), armed: bool) -> Picked {
     let Some(scene) = &view.scene else {
         return Picked::Nothing;
@@ -368,18 +374,23 @@ fn hover(host: &Rc<Host>, x: f32, y: f32) {
     let armed = model.get_face_from_view_armed();
     let editable = !model.get_running();
     let inside = x >= 0.0 && y >= 0.0;
-    let (mark, hint) = {
+    let (mark, hint, tip) = {
         let mut guard = host.session.borrow_mut();
-        let view = &mut guard.view;
+        let session = &mut *guard;
+        let view = &mut session.view;
         view.pointer = inside.then_some((x, y));
         if !inside || view.dragging {
-            (Hover::None, String::new())
+            (Hover::None, String::new(), None)
         } else if model_shown(view) && !editable {
-            (Hover::None, LOCKED_HINT.to_string())
+            (Hover::None, LOCKED_HINT.to_string(), None)
         } else {
-            describe(view, pick_at(view, (x, y), armed))
+            let picked = pick_at(view, (x, y), armed);
+            let (mark, hint) = describe(view, picked);
+            let tip = super::scan::tip_for(view, &session.run.layouts, picked, &hint);
+            (mark, hint, tip)
         }
     };
+    super::scan::show_tip(host, tip.as_ref(), (x, y));
     if model.get_view_hint().as_str() != hint {
         model.set_view_hint(hint.into());
     }
@@ -480,11 +491,11 @@ fn perform_add(host: &Rc<Host>, picked: Picked) {
     raise_weak(&host.main, ROUGH_CUT_FROM_VIEW);
 }
 
-/// A double-click on the image at `(x, y)`. The click waiting to add a cut (the first half
-/// of the gesture, or the second, which replaced it) is added now rather than after the
-/// interval, and the camera stays where it is. Without a waiting click, a double-click on
-/// empty space resets the view; one on a cut face or a stone does nothing beyond what its
-/// two clicks did.
+/// A double-click on the image at `(x, y)`.
+///
+/// A click waiting to add a cut is added now rather than after the interval, and the camera
+/// stays where it is. Without a waiting click, a double-click on empty space resets the view;
+/// one on a cut face or a stone does nothing beyond what its two clicks did.
 fn double_click(host: &Rc<Host>, x: f32, y: f32) {
     let model = host.window.global::<RoughPlanModel>();
     let running = model.get_running();
@@ -520,9 +531,10 @@ fn cut_from_facet(host: &Rc<Host>, facet: usize) -> Option<RoughCut> {
     ))
 }
 
-/// A click on the image: in the model view it asks for the cut under the pointer (added
-/// after the double-click interval), in a result it selects the design of the stone under
-/// the pointer.
+/// A click on the image.
+///
+/// In the model view it asks for the cut under the pointer, which is added after the
+/// double-click interval; in a result it selects the design of the stone under the pointer.
 fn click(host: &Rc<Host>, x: f32, y: f32) {
     // A click on a zone handle is not a click on the model, and while the wizard
     // paints polished windows a click on the mesh paints.

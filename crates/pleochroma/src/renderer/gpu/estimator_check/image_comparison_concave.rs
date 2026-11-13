@@ -126,6 +126,8 @@ pub fn run_image_comparison_concave(
             planes: &packed[..],
             facet_finishes: &gpu_finishes,
             hdr_env: None,
+            tray_shadow: None,
+            tray_mirror: None,
         },
         total_gpu,
     );

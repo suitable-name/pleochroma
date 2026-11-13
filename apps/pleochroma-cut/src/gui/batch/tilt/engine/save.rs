@@ -9,17 +9,16 @@ use std::{
 };
 use tracing::warn;
 
-/// Persists `curves` for `entry_id`, stored with the fingerprint of the sweep
-/// (`material` being the material, stone size and provenance it was swept with). Shared
-/// by both `process_local_entry` and `process_remote_entry` -- whichever lane actually
-/// produced the curves, the save itself is identical. Returns whether the curves were
-/// stored.
+/// Persists `curves` for `entry_id` under the fingerprint of the sweep.
 ///
-/// `expected_updated_at` is the catalogue row's revision stamp the design was resolved
-/// at (`ResolvedDesign::updated_at`): the write is refused, and logged, when the row
-/// has moved on since -- the sweep took seconds with the lock released, and a re-import
-/// or metadata edit in that time made its curves describe a design that no longer
-/// exists.
+/// `material` gives the material, stone size and provenance the sweep used. Both
+/// `process_local_entry` and `process_remote_entry` save through it. Returns whether the curves
+/// were stored.
+///
+/// `expected_updated_at` is the catalogue row's revision stamp the design was resolved at
+/// (`ResolvedDesign::updated_at`). The write is refused and logged when the row has moved
+/// on: the sweep runs with the lock released, so a re-import or edit during it would leave
+/// curves for a design that no longer exists.
 pub(super) fn save_curves(
     db: &Mutex<Database>,
     entry_id: i64,
@@ -69,16 +68,14 @@ pub(super) fn save_curves(
     }
 }
 
-/// [`save_curves`], exposed for a caller outside this module -- the single-design
-/// counterpart the Edit tab needs (its own "save tilt curves for this design" action,
-/// once a design has been saved into the catalogue and so has a real `entry_id` to
-/// save against).
+/// [`save_curves`] for a caller outside this module.
 ///
-/// The editor computed `curves` from its own in-memory design, not from the catalogue
-/// row, so there is no record read to compare against: the save is checked against the
-/// row's revision as of this call (which only fails for an entry that does not exist),
-/// and the curves are labelled with the design's persisted preview material, stone size
-/// and provenance -- the ones the batch sweeps use.
+/// The Edit tab uses it to save a design's curves once the design has a catalogue `entry_id`.
+///
+/// The curves come from the editor's in-memory design, not from a record read, so the save
+/// is checked against the row's revision as of this call. That only fails for an entry that
+/// does not exist. The curves are labelled with the design's persisted preview material,
+/// stone size and provenance, as the batch sweeps label theirs.
 #[must_use]
 pub fn save_tilt_curves_for_entry(
     db: &Mutex<Database>,
@@ -157,9 +154,9 @@ mod tests {
     }
 
     /// A design whose file names Sapphire at a 9 mm girdle diameter is swept in that
-    /// material at that size; its curves are stored under a fingerprint the scan rebuilds
-    /// from the persisted row, so the scan finds them current, and the fingerprint the
-    /// design had before the size and the source were tracked reads as stale.
+    /// material at that size. Its curves are stored under the fingerprint the scan rebuilds
+    /// from the persisted row, so the scan finds them current. A fingerprint without the
+    /// size and source reads as stale.
     #[test]
     fn a_design_files_material_and_size_are_part_of_the_stored_fingerprint() {
         let db = Mutex::new(Database::new(Some(":memory:")).expect("in-memory database opens"));
@@ -284,8 +281,8 @@ mod tests {
     }
 
     /// A design whose file names no material and no size keeps the refractive-index pick,
-    /// unsized, and the exact fingerprint its curves had before the size and the source
-    /// were tracked -- so those curves are not computed again.
+    /// unsized. Its fingerprint is the plain picked-material one, so the stored curves match
+    /// the unsized scan and are not computed again.
     #[test]
     fn an_unnamed_unsized_design_keeps_the_old_fingerprint() {
         let db = Mutex::new(Database::new(Some(":memory:")).expect("in-memory database opens"));

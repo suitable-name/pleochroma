@@ -211,7 +211,7 @@ fn hull_signed_distance(hull: &[DVec2], point: DVec2) -> f64 {
     if inside { -best } else { best }
 }
 
-/// Points along the closed outline about `target` in number, including every outline vertex.
+/// About `target` points spread along the closed outline, including every outline vertex.
 fn resample_outline(outline: &[DVec2], target: usize) -> Vec<DVec2> {
     let count = outline.len();
     let perimeter: f64 = (0..count)

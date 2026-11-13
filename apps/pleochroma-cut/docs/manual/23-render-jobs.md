@@ -17,20 +17,47 @@ You can add a job from two places:
 
 A job also freezes **Renderer**, and either the Path-Traced sample count or the
 Ray-Traced AA tap count and Fire option. Ray-Traced stills and tilt-video frames
-finish after their fixed taps and use no denoiser. Local, GPU and protocol-29
+finish after their fixed taps and use no denoiser. Local, GPU and protocol-42
 remote routes honor the frozen engine. Later viewport or output-setting changes
 do not replace it.
 
-Path-Traced files retain `format: 1`; Ray-Traced files use `format: 2` and an
-explicit `engine` object. A legacy file without that field loads as Path-Traced.
-An older reader refuses a format-2 job instead of silently producing a spectral
-picture. The top-level job engine is authoritative and is copied to the wire scene.
+With "Stone Shadow" off and "Tray Reflection" at 0, Path-Traced files use `format: 1` and
+Ray-Traced files use `format: 2` with an explicit `engine` object. Legacy files without an
+engine load as Path-Traced. The shadow alone makes a still use `format: 3`, so an older
+reader refuses the job. Any still with "Tray Reflection" above 0 uses `format: 4`, with or
+without the shadow (the job keeps the reflection as `tray_reflection`, from 0 to 1), which
+an older reader also refuses.
+A Path-Traced job of a stone with color zones (Chapter 24) uses `format: 5` whatever else it holds
+(a turned HDR map still makes it `format: 6`): the zones are
+saved in the job file as `zoning`, so a script made with **Export Script...** and the command line
+render them, and an older reader refuses the job instead of rendering the base color alone. A
+Ray-Traced job never carries zones, because that engine renders the base color. A job queued by an
+older version keeps its zones in the app; **Export Script...** adds them to the job file.
+The job supplies the same engine, shadow and reflection settings to a remote worker.
+
+The shadow requires a studio light and a backdrop. HDR maps, As Lit,
+"Contrast view (ASET-style)" and tilt videos cannot use it. The renderer builds a Final
+quality map before the first sample. The Tray Reflection has the same scope and
+works together with the shadow. In the app its row dims with the Stone Shadow row's notes
+("(not used with an HDR map)", "(needs a backdrop)", "(not used with this light)"); a job
+or worker that cannot serve it says "Tray reflection needs a studio light with a
+backdrop." Tilt videos do not show it.
 
 A job keeps a frozen copy of everything it needs: the finished stone, its width and material effects, the material and its color (the preview material, if you were previewing one), the lighting, the camera, the size, the samples and the other export settings. If you change the design afterwards, the job still renders what you saw when you added it.
 
 The job does not freeze the remote worker. Its address and certificates are read from Settings when the job runs (see Limitations). The job does remember your choices about where to render: local only, local and remote, or remote only, and the transfer.
 
 A tilt video has the same **Compute** pills as a still picture. **Remote Only** keeps this computer free: the video's frames are drawn entirely by the remote worker, and this computer only receives and saves them and encodes the video, using almost no CPU or GPU. If the remote is missing or stops answering, the job fails with a message instead of drawing the frames here; resume it once the remote is back and it continues with its first missing frame. On the command line, `pleochroma-cli tilt-video` takes the same choice from the job file, or from `--compute local`, `remote` or `both`.
+
+A job also keeps the **Adaptive Sampling** choice and its **Target Noise** (Chapter 9). Adaptive sampling stops each part of the picture once it is clean enough; the samples setting is the most any part gets. A job that uses it says so in its detail line, for example `· adaptive (Standard)`, and a job without it reads as before. Jobs saved by an older version have no such choice and render every pixel to the full sample count. Adaptive sampling renders on this computer only for now, so a job that uses it needs **Local Only** under Compute. Adaptive sampling is an optional build feature (`adaptive-sampling`). The job file keeps its `accel.adaptive` choice and loads and validates in every build. A standard build renders such a job at the job's own samples per pixel, without adaptive sampling, and its progress note says "Adaptive sampling off: this build has no adaptive sampling."
+
+A job also keeps the **Path Cache** choice (Chapter 9). The path cache is a preview that reuses the stone's light paths when a kept view is drawn again; a job that asks for it says so in its detail line with `· path cache`. For a still picture, **Keep for Re-Renders** is saved in the job: the cache is written to disk and a later render of the same view starts from it. A tilt video writes its frames' caches to disk only when **Keep Path Cache for This Video** was ticked when it was added. A job that asks for the cache without keeping it is drawn as without it, and a note says so. Kept caches live in the cache folder that Preferences shows (Chapter 17). Jobs saved by an older version have no such choice and render without the cache.
+
+A job also records its **estimator**, the way a stone sample is drawn (Chapter 9, "Exit Collection"). The app renders with exit collection. A job recorded with the branching estimator, such as one from an older version, is re-rendered with exit collection under a new token, so its pictures and frames are never mixed with the old ones. Under exit collection the path cache is off, and a job that asks for it says "Path cache off: exit collection, the default estimator, does not use it." A tilt video started with the branching estimator is not resumed: its folder is refused with a message that names the change, and you use **Restart** in the Render Jobs window to render it again.
+
+A job also keeps the **Beam Tracing (Faceted Stones)** choice (Chapter 9). Beam tracing follows the light through a faceted stone as beams, so the stone settles much faster, and the result equals the path-traced picture within noise. It applies to a convex stone with flat, polished facets and sharp edges; for any other stone the job draws as without it and says why in a note. A job that uses it says so in its detail line with `· beams`, and while it runs the progress line names the phase, `tracing beams` and then `finishing`. For a still picture, **Keep Beams for Re-Renders** is saved in the job too: the beams are written to the cache folder when the picture is done, and a later render of the same view, even with other lighting, starts from them. For a tilt video every frame builds its own beams, and they are written to disk only when **Keep Path Cache for This Video** was ticked when the job was added. A job with beam tracing uses the compute choice it was added with: a remote worker draws its share of the beam tiles (Chapter 9), and when no worker is set up the job renders on this computer and says so in a note ("Beam tracing renders on this computer"). The Ray-Traced renderer cannot use beams, so a job added with Ray-Traced selected carries no beam choice. Jobs saved by an older version have no such choice and render without beams.
+
+Beam tracing is retired and is an optional build feature (`beam`). The standard build never adds a job with beams, but a job file that asks for beams still loads and renders there, without them. Its progress note says "Beam tracing off: this build has no beam tracer." A job that also asks for the path cache and keeps it uses the cache. The paragraph above describes a build with the `beam` feature.
 
 ### One Job per Picture
 
@@ -50,6 +77,7 @@ Open it in one of two ways:
 - the **Jobs** button at the top of the main window. It appears while a job is waiting or running, or while a started queue is running. It reads, for example, `Jobs: 3 waiting`, or `Rendering 2 of 5 · 42%` with a thin progress bar while a job renders. Click it to open the window.
 
 Each row shows the job's number, its name, its state and what it renders, then its progress. The states are **Queued**, **Running**, **Paused**, **Done**, **Failed** and **Cancelled**. The list is kept in your library, so the jobs are still there the next time you start the program. The window has a round **?** button that opens this chapter, and **Close**. Closing the window does not stop a job that is rendering.
+
 
 ## Starting and Pausing the Queue
 
@@ -148,14 +176,23 @@ pleochroma-cli tilt-video FILE.job.json
 | `--contribute-local` | With `--transfer final`: this computer renders a share too. |
 | `--out FILE.png` | `render` only: write the picture somewhere else than the job says. |
 | `--out-dir FOLDER` | `tilt-video` only: use another frame folder. |
-| `--restart` | `tilt-video` only: start again from the first frame. Without it a video resumes. |
+| `--restart` | `tilt-video` only: start again from the first frame. Without it a video resumes. A video made with another estimator than the one this run uses is refused: run the way the video was made to resume it (the message says how), or use `--restart` to start again. |
 | `--quiet` | No progress lines. Notes and errors are still printed. |
 | `--material NAME` | Render the stone in another built-in material (any letter case), at the job's stone size. An unknown name is refused with the list of materials. |
 | `--color-pattern NAME` | Render the stone in one of its material's typical color patterns (Chapter 29), built on the material's own color as the Color Pattern window builds it: `hexagonal-banding`, `watermelon`, `"Parti Color"` and so on. A Watermelon or Reverse Watermelon also turns the Crystal Axis through the table, as the app does. Not together with `--color-variant`. |
 | `--color-variant KEY` | Render the job's material in one of its built-in color variants, at the job's stone size: the full key (`ruby.thai`) or the part after the dot (`thai`). An unknown key is refused, and the message lists the material's keys. |
-| `--highlights whiten` or `keep-color` | How colors too bright for the screen are shown. `keep-color` (the default) keeps their hue and saturation and dims them; only light brighter than white turns white. `whiten`, the rule of earlier versions, keeps their brightness and makes them paler, so a bright ruby can look pink. With a remote worker, `whiten` needs `--transfer full`. |
+| `--adaptive` | Use adaptive sampling with the standard Target Noise: each part of the picture stops once it is clean enough, and the job's samples are the most any part gets. A job that was saved with Adaptive Sampling ticked uses it without this option. Only in a build with the `adaptive-sampling` feature; otherwise an unknown flag. |
+| `--target-noise X` | Stop at a cleaner or rougher picture than the standard one. `X` is a fraction of the brightness: `0.005` is Fine, `0.01` is Standard and `0.02` is Draft. It turns adaptive sampling on. Only in a build with the `adaptive-sampling` feature; otherwise an unknown flag. |
+| `--min-spp N` | The fewest samples any part gets before it may stop. It must be a multiple of 16 and not above the job's samples. It turns adaptive sampling on. Only in a build with the `adaptive-sampling` feature; otherwise an unknown flag. |
+| `--noise-metric relative` or `absolute` | Measure `--target-noise` as a fraction of the brightness (`relative`, the default) or as a color difference (`absolute`, where `1` is a difference that is just visible). It turns adaptive sampling on. Only in a build with the `adaptive-sampling` feature; otherwise an unknown flag. |
+| `--path-cache` | Ask for the path cache: the stone is shaded from its stored light paths, a preview with approximate facet edges. It is used only together with `--persist-cache`; alone, the picture is drawn as without it and a note says so. A job that was saved with Path Cache ticked asks for it without this option. This run renders with the branching estimator, which the path cache needs, and says so. |
+| `--persist-cache` | Also keep the cache on disk for later renders of the same view. It turns the path cache on. For a tilt video it keeps the cache of every frame. |
+| `--cache-dir FOLDER` | Keep the caches in another folder than the one Preferences shows. |
+| `--highlights whiten` or `keep-color` | How colors too bright for the screen are shown. `keep-color` (the default) keeps their hue and saturation and dims them; only light brighter than white turns white. `whiten` keeps their brightness and makes them paler, so a bright ruby can look pink. With a remote worker, `whiten` needs `--transfer full`. |
 
-`--material`, `--color-pattern`, `--color-variant` and `--highlights whiten` make a different picture than the job describes. A tilt video run with either one needs its own `--out-dir`: the folder of the plain run belongs to another job.
+Adaptive sampling does not combine with `--engine ray`, or with a remote worker for now (`--compute local`). The path cache does not combine with `--engine ray` either. The options above win over what the job file says. A job saved with adaptive sampling or the path cache, and a run without these options, uses the job's own choice. A standard build, without the `adaptive-sampling` feature, renders a job saved with adaptive sampling at the job's own samples per pixel, with the note "Adaptive sampling off: this build has no adaptive sampling."
+
+`--material`, `--color-pattern`, `--color-variant`, `--highlights whiten` and the adaptive sampling options (only in a build with the `adaptive-sampling` feature) make a different picture than the job describes. The first three, and `--engine ray`, also drop the color zones of the job file (the Ray-Traced engine renders the base color), and the job's format follows. A tilt video run with any of them needs its own `--out-dir`: the folder of the plain run belongs to another job.
 
 The tool prints one line on standard output: the path of the finished file (for a video, the MP4 or GIF, or the frame folder when no video could be made). Progress, notes and the line `wrote PATH` go to standard error.
 

@@ -9,8 +9,7 @@ use crate::optics::raytracer::DEFAULT_HEAD_SHADOW_DEG;
 
 /// Cosine of the half-angle of the observer's head-shadow cone at the default size (16
 /// degrees): an exit direction closer than this to the eye direction is lost to the
-/// observer's own shadow. A literal, not `cos(16 deg)`, so the default stays bit-identical
-/// to the metrics before the cone followed the scene.
+/// observer's own shadow. A literal, not `cos(16 deg)`, so the default is an exact bit pattern.
 pub(super) const HEAD_SHADOW_COS: f32 = 0.96;
 
 /// A cosine no dot product of unit vectors exceeds: the cone is switched off.
@@ -24,9 +23,6 @@ const NO_HEAD_SHADOW_COS: f32 = 2.0;
 /// less) switches the cone off, anything else is `cos(deg + (acos(0.96) - 16 deg))`
 /// (hard edge, at the render's centre of the smoothstep fall-off; the shift keeps the cone
 /// continuous through the default). NaN is the default.
-///
-/// The optimizer builds its environment from a preset with the default head shadow, so
-/// it always scores under 0.96.
 #[must_use]
 pub(super) fn head_shadow_cone_cos(studio_rig: bool, head_shadow_deg: f32) -> f32 {
     if studio_rig
@@ -39,8 +35,7 @@ pub(super) fn head_shadow_cone_cos(studio_rig: bool, head_shadow_deg: f32) -> f3
         return NO_HEAD_SHADOW_COS;
     }
     // `0.96` is not exactly `cos(16 deg)` (it is `cos(16.2602 deg)`): shift every other size
-    // by the same angle so the cone is continuous through the default instead of stepping
-    // 0.26 degrees there.
+    // by the same angle so the cone stays continuous through the default.
     let offset = HEAD_SHADOW_COS.acos() - 16.0f32.to_radians();
     (head_shadow_deg.clamp(1.0, 89.0).to_radians() + offset).cos()
 }
@@ -151,8 +146,8 @@ mod tests {
         );
     }
 
-    /// The helper decides exactly as the pre-refactor expression did, for every direction
-    /// of a grid and every lighting family: the legacy callers' scores stay bit-identical.
+    /// The helper agrees bit for bit with the plain predicate (not shadowed, and lit), for
+    /// every direction of a grid and every lighting family.
     #[test]
     fn the_shared_helper_matches_the_original_predicate_bitwise() {
         use crate::optics::raytracer::LightingPreset;

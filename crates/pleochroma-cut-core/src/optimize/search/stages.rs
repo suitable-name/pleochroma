@@ -1,8 +1,9 @@
-//! The first two stages of [`optimize_design_with`](super::optimize_design_with): measuring
+//! The first two stages of [`optimize_design_with`](super::optimize_design_with).
+//!
+//! They are measuring
 //! the starting point ([`baseline_report`]), the coordinate-descent stage ([`run_search`]) and
-//! the Nelder-Mead hand-off ([`run_polish_stage`]). Split from the parent module so the file
-//! stays readable; the three functions were moved here, not rewritten. Their proposals go
-//! through the meet-preserving projection when the request carries one.
+//! the Nelder-Mead hand-off ([`run_polish_stage`]). Proposals go through the meet-preserving
+//! projection when the request carries one.
 
 use super::{
     Baseline, CoordinateStageOutcome, OptimizeConfig, PolishStageOutcome, SearchHooks, SearchStage,
@@ -46,12 +47,11 @@ pub(super) struct StartRun {
 
 /// Builds [`optimize_design`]'s [`Baseline`].
 ///
-/// Reports [`SearchStage::BaselineFull`] (evaluations `0`, since none of
-/// `config`'s budget is spent here) through `hooks` before running the one
-/// [`ObjectiveFidelity::Full`] scoring this function performs -- that scoring
-/// alone measures ~1.3s on a small real design (see the parent
-/// module's "Cost first" doc section); without this report, a caller's progress
-/// display would read as a frozen counter before the search had even started.
+/// Reports [`SearchStage::BaselineFull`] (evaluations `0`, since none of `config`'s budget
+/// is spent here) through `hooks` before the one [`ObjectiveFidelity::Full`] scoring this
+/// function performs. That scoring is the expensive part (see the parent module's
+/// "Cost" section), and without the report a progress display would sit on a frozen
+/// counter before the search had started.
 ///
 /// # Errors
 ///
@@ -122,10 +122,8 @@ pub(super) fn baseline_report(
     );
     let before_score =
         weights.score_with_tone(&before, before_yield_loss_pct, before_tone_loss) + before_penalty;
-    // Same planes, same yield figure -- just re-scored at `Fast` so `run_search`
-    // has a same-fidelity baseline to compare its `Fast`-scored candidates
-    // against (see `Baseline::before_score_fast`'s own doc comment). The tone is
-    // measured here only when it is weighted, exactly like every candidate's.
+    // Same planes and yield, re-scored at `Fast` so `run_search` compares like with like
+    // (see `Baseline::before_score_fast`). The tone is measured only when it is weighted.
     let fast_timer = preservation.telemetry.phase(4);
     let (before_fast, _, before_fast_tone_loss) = measure_with_tone(
         baseline_stone.finished(),
@@ -175,11 +173,9 @@ pub(super) fn baseline_report(
 /// have to re-evaluate the point it starts from), how many candidate evaluations
 /// were spent, and whether [`SearchHooks::cancel`] cut it short.
 ///
-/// When [`OptimizeConfig::polish_start_step_deg`] is disabled (`None` or
-/// non-positive), this behaves bit-for-bit as it did before the polish stage
-/// existed: the one extra check this function performs (below the `if
-/// !improved_this_sweep` halving) is a no-op in that case, never changing which
-/// candidates are tried or accepted.
+/// When [`OptimizeConfig::polish_start_step_deg`] is disabled (`None` or non-positive),
+/// the hand-off check below never fires, so the candidates tried and accepted are the
+/// same as the plain coordinate search.
 ///
 /// `pool` collects every accepted candidate that beats the starting design's own
 /// `Fast` score (see [`CandidatePool`]): the candidates the request keeps plus the
@@ -201,15 +197,10 @@ pub(super) fn run_search(
 ) -> CoordinateStageOutcome {
     let free = &baseline.free;
     let mut current = design.clone();
-    // Mirrors `current`'s free angles, in `free` order, so a pool entry can be built
-    // without re-reading the design.
-    // Seeded from the `Fast`-fidelity baseline, not `baseline.before_score`
-    // (`Full`) -- every candidate this loop compares against `current_score` is
-    // itself scored at `Fast` (see `evaluate_candidate`), so mixing in a `Full`
-    // starting figure could accept a candidate that only reproduces the true
-    // starting point, never actually improving anything. See
-    // `Baseline::before_score_fast`'s own doc comment for the measured case this
-    // fixes.
+    // Seeded from the `Fast` baseline, never `baseline.before_score` (`Full`): every
+    // candidate compared against `current_score` is scored at `Fast`, so a `Full` start
+    // could accept a candidate that only reproduces the starting point (see
+    // `Baseline::before_score_fast`).
     let mut current_score = start.initial_score;
     let mut evaluations = 0usize;
     let mut step_deg = config.initial_step_deg;
@@ -224,9 +215,8 @@ pub(super) fn run_search(
         sweep_index += 1;
         let mut improved_this_sweep = false;
 
-        // A global feasible family is tried within the same attempted-candidate budget.
-        // In particular, a multi-way meet need not wait for one coordinate to cross an
-        // infeasible region. Identity is the already-scored current state.
+        // The axial family is tried first, within the same evaluation budget: a multi-way
+        // meet need not wait for one coordinate to cross an infeasible region.
         for sign in [1.0_f64, -1.0] {
             if hooks.is_cancelled() {
                 cancelled = true;
@@ -289,10 +279,8 @@ pub(super) fn run_search(
 
         if !improved_this_sweep {
             step_deg /= 2.0;
-            // Hand off to the polish stage once the coordinate stage's own step has
-            // become fine enough that further axis-aligned halving is exactly the
-            // grinding-on-a-ridge behavior `optimize_design`'s "Two stages" doc
-            // section describes -- a no-op check when polishing is disabled.
+            // Once the step is this fine, further axis-aligned halving only grinds on a
+            // ridge, so hand off to the polish stage (see `optimize_design`'s "Two stages").
             let should_hand_off = config
                 .polish_start_step_deg
                 .is_some_and(|threshold| threshold > 0.0 && step_deg < threshold);
@@ -311,27 +299,19 @@ pub(super) fn run_search(
     }
 }
 
-/// [`optimize_design`]'s "best point in, best point out" half for the polish stage:
-/// builds the Fast-fidelity scoring closure [`polish::run_polish`] needs (via
-/// [`build_free_angle_candidate`]/[`evaluate_in_context`] -- the exact same
-/// solve/close/guard/manufacturability gate the coordinate stage's candidates go
-/// through) and, if the polish stage's own result strictly improves on
-/// `current_score`, applies it to `current`'s free tiers. Never touches a tier outside
-/// the free set (`baseline.free`). Every point the closure scores finite and below the
+/// The polish stage: runs [`polish::run_polish`] from the coordinate stage's end point and
+/// applies its result to `current`'s free tiers if it strictly improves on `current_score`.
+/// The scoring closure goes through [`build_free_angle_candidate`] and [`evaluate_in_context`],
+/// the same solve, closure, guard and manufacturability gate as the coordinate stage. Only
+/// free tiers (`baseline.free`) are ever written. Every finite point scored below the
 /// starting design's `Fast` score is also offered to the candidate pool.
 ///
-/// Disabled ([`OptimizeConfig::polish_start_step_deg`] is `None` or non-positive)
-/// short-circuits to a zero-evaluation, unchanged [`PolishStageOutcome`] before ever
-/// building the closure or calling [`polish::run_polish`].
+/// Disabled ([`OptimizeConfig::polish_start_step_deg`] is `None` or non-positive) it returns
+/// at once with zero evaluations.
 ///
-/// `coord`'s own `evaluations` is only for progress reporting: each call the
-/// `evaluate` closure below makes reports `hooks.report` with
-/// [`SearchStage::Polish`] and a running total that STARTS from
-/// `coord.evaluations` rather than from zero, so a caller's own evaluation
-/// counter keeps climbing smoothly across the coordinate-to-polish hand-off
-/// instead of resetting or freezing for the whole polish stage. Only ever
-/// called with `coord.cancelled == false` -- see [`optimize_design`]'s own call
-/// site.
+/// Each evaluation reports [`SearchStage::Polish`] with a running total that starts at
+/// `coord.evaluations`, so a caller's counter keeps climbing across the hand-off. Only
+/// called with `coord.cancelled == false`.
 pub(super) fn run_polish_stage(
     _design: &Design,
     baseline: &Baseline,

@@ -13,8 +13,8 @@ use glam::Vec3;
 fn tanzanite_absorption() -> AbsorptionTensor {
     AbsorptionTensor::biaxial(
         vec![
-            // alpha (o_ray) -- red-violet direction, the darkest ray after heating; b-ray
-            // x 2.119 (see the comment at the entry)
+            // alpha (o_ray) -- red-violet direction, the darkest ray after heating; scaled
+            // x 2.119 (see the entry)
             AbsorptionBand::energy(350.0, 5_083.0, 4.81),
             AbsorptionBand::energy(505.0, 5_500.0, 2.11),
             AbsorptionBand::energy(577.0, 3_037.0, 2.36),
@@ -40,9 +40,8 @@ fn tanzanite_absorption() -> AbsorptionTensor {
 }
 
 impl GemMaterial {
-    /// Fourth quarter of the built-in material table (Tanzanite through Cubic
-    /// Zirconia). See `built_in_materials_diamond_through_emerald` for why the table is
-    /// split into several functions.
+    /// Tanzanite, Synthetic Moissanite and Cubic Zirconia. The table is split across builder
+    /// functions (see `built_in_materials_diamond_through_emerald`).
     pub(super) fn built_in_materials_tanzanite_through_cubic_zirconia() -> Vec<Self> {
         vec![
             // Tanzanite (HEATED, Zoisite, Ca2Al3(SiO4)3(OH):V -- see the CHOICE note
@@ -54,16 +53,15 @@ impl GemMaterial {
             // fallback for the dispersion SHAPE; the index LEVEL is measured.
             //
             // n_beta(D) = 1.6943, Hurlbut 1969 (minimum deviation, Na light), one
-            // measured triplet; the earlier 1.700858 was a two-point construction
-            // slightly above the IGS range. The base curve is n_beta (the biaxial
+            // measured triplet. The base curve is n_beta (the biaxial
             // convention of `GemMaterial::biaxial_indicatrix`). Dispersion shape:
             // IGS's cited "dispersion .030" is the Fraunhofer B-G interval, not F-C.
-            // Converted via the same physically-derived B-G->F-C ratio as Emerald's
-            // comment above (0.579): Delta n(F-C) = 0.0301*0.579 = 0.01743, B =
+            // Converted via the same B-G->F-C ratio (0.579) as the Emerald entry:
+            // Delta n(F-C) = 0.0301*0.579 = 0.01743, B =
             // 0.009123 (unchanged). A = 1.6943 - 0.009123/0.5893^2 = 1.6943 -
             // 0.026271 = 1.668029. Verified: n_d = 1.6943, Delta n(F-C) = 0.017422,
-            // Abbe V_d = 0.6943/0.017422 = 39.85 (was 40.21). LOWER CONFIDENCE than a
-            // primary-literature entry for the shape -- flagged for human cross-check.
+            // Abbe V_d = 0.6943/0.017422 = 39.85. Lower confidence than a primary-literature
+            // entry, for the dispersion shape only.
             Self {
                 name: "Tanzanite".to_string(),
                 crystal_system: CrystalSystem::Orthorhombic,
@@ -73,7 +71,7 @@ impl GemMaterial {
                     b: 0.009_123,
                     c: 0.0,
                 },
-                // gamma - alpha = 1.7015 - 1.6925 (Hurlbut 1969, see below); was 0.0130.
+                // gamma - alpha = 1.7015 - 1.6925 (Hurlbut 1969, see below).
                 birefringence_delta: 0.0090,
                 // PLEOCHROISM: a genuine three-set `AbsorptionTensor::biaxial`
                 // (`o_ray`=alpha/`beta_ray`=beta/`e_ray`=gamma). This entry models
@@ -105,15 +103,13 @@ impl GemMaterial {
                 // (Hurlbut: Z = a, Y = c); the field named `c_axis` here is the
                 // optical gamma direction, not the crystallographic c.
                 //
-                // CHOICE (changed 2026-10-19): "Tanzanite" is the HEATED stone, the
-                // form sold as "tanzanite" almost universally (the unheated trichroic
-                // stone, whose gamma ray carries a strong 455nm band, mixes to a
-                // near-grey and was the previous model; an "(unheated)" entry would
-                // be appended to `all_materials` later, an owner decision).
+                // CHOICE: "Tanzanite" is the HEATED stone, the form sold as "tanzanite" almost
+                // universally. The unheated trichroic stone, whose gamma ray carries a strong
+                // 455nm band, mixes to a near-grey and is not this entry.
                 //
-                // FITTED 2026-10-19 by bounded
-                // least-squares energy-Gaussian fits (log residual, 380-780 nm) to
-                // the three polarised Caltech Mineral Spectroscopy Server spectra of
+                // FITTED by bounded least-squares energy-Gaussian fits (log residual,
+                // 380-780 nm) to the three polarised Caltech Mineral Spectroscopy Server
+                // spectra of
                 // zoisite GRR 2292, blue zone (Arusha, Tanzania; E||a = gamma and
                 // E||c = beta from a 3.150 mm piece, E||b = alpha from a 5.142 mm
                 // piece; NIR baselines removed), the files
@@ -129,41 +125,20 @@ impl GemMaterial {
                 // alpha(540 nm)/gamma(600 nm) = 1.48, the ratio measured on single
                 // crystals (GRR 1265: 1.49, GRR 3045: 1.47; the two-piece 2292 pair
                 // gives 0.70).
-                // NORMALISATION of the GRR 2292 files (unresolved; NO factor applied;
-                // effect bounded at 5 % on beta/gamma, none on alpha): the Caltech
-                // zoisite page says every listed spectrum is "normalized to 3.0 mm",
-                // GRR 2292 included, but the 2292 file headers give 3.150 mm (a, c),
-                // 5.142 mm (b) and no "normalized", while the GRR 1265 header says
-                // "3.00 mm (normalized)". (a) The alpha ray's absolute strength is NOT
-                // taken from the 5.142 mm b-file: it is anchored to gamma through the
-                // single-crystal ratio above, so the b-file's thickness never reaches
-                // the rendered stone. (b) For the a/c files the two readings differ by
-                // 3.150/3.0 = 5 %, below the fit's other uncertainties (unknown
-                // concentration, NIR baseline removal). (c) The evidence leans to the
-                // page's reading: under "normalized to 3.0 mm" the two-piece raw ratio
-                // 0.70 becomes 0.70 x (5.142/3.0) / (3.150/3.0) = 1.14, most of the way
-                // to the single-crystal 1.48, and the ad-hoc factor would be 1.30
-                // rather than 2.119, so 2.119 reads as "1.3 of real ratio correction
-                // plus the normalisation the files already carry". (d) The GRR 1265
-                // header convention ("(normalized)" written when it applies) points the
-                // other way. Only G. R. Rossman can close it; see
-                // `docs/chromophores/primary-2026-10/data/tanzanite/NOTES.md`. The ten
-                // rows of the b-file restored afterwards (a data-lane step) were
-                // inserted without re-running this fit.
+                // NORMALISATION (unresolved; no factor applied, effect bounded at 5 % on
+                // beta/gamma): the Caltech page says GRR 2292 is "normalized to 3.0 mm", but
+                // its file headers give 3.150 mm (a, c) and 5.142 mm (b). The alpha ray is
+                // anchored to gamma through the single-crystal ratio, so the b-file thickness
+                // does not reach the stone. Only G. R. Rossman can close it; see
+                // `docs/chromophores/primary-2026-10/data/tanzanite/NOTES.md`.
                 // Calibration record: docs/chromophores/calibration-records.md#tanzanite-grr-2292-normalisation
-                // Concentration: the crystal's own (about 0.6 wt%
-                // V2O3, a top-colour blue) over the 8.8 mm face-up path of a 7 mm
-                // stone. V3+ bands at ~540 and ~600 nm in all rays, an NIR band at
-                // 740-770 nm (beta, gamma), UV edges. Swatch (7 mm, D65): L*45 C*49
-                // h=292; p = 1.5: h 296, p = 2: h 301. Alpha is the darkest and most
-                // purplish ray (L*31 h 317), beta blue (L*45 h 291), gamma the
-                // lightest (L*54 h 268).
+                // Concentration: the crystal's own (about 0.6 wt% V2O3, a top-colour blue) over
+                // the face-up path of a 7 mm stone. V3+ bands at ~540 and ~600 nm in all rays,
+                // an NIR band at 740-770 nm (beta, gamma), UV edges. Alpha is the darkest and
+                // most purplish ray, gamma the lightest.
                 // Calibration record: docs/chromophores/calibration-records.md#tanzanite
-                // 2026-11-04 (owner: "The render seems to err toward saturated"): x 0.7 of the
-                // crystal (about 0.4 wt% V2O3). Colored-pixel saturation s_uv: the faceted dealer
-                // photos 0.79, the Commons photos 0.84 and 1.76, the x 1 render 1.57 (x 0.5: 0.84 at
-                // h 295); the factor takes half the gap to the dealer photos in log terms. Swatch
-                // L*56 C*40 h 290; alpha L*44 h 315, beta L*58 h 286, gamma L*65 h 263.
+                // Strength 0.7 of the crystal (about 0.4 wt% V2O3): the x 1 render read as more
+                // saturated than the dealer photos.
                 // Calibration record: docs/chromophores/calibration-records.md#saturation-round-2026-11-04
                 absorption: tanzanite_absorption().scaled(0.7),
                 c_axis: Vec3::Y,
@@ -176,18 +151,15 @@ impl GemMaterial {
                 // n_beta - n_alpha = 1.6943 - 1.6925 = 0.0018, stored below;
                 // n_gamma - n_alpha = 0.0090, the birefringence_delta above.
                 // Consistency: tan^2 V_z = (1/alpha^2 - 1/beta^2) / (1/beta^2 -
-                // 1/gamma^2) = 0.00074 / 0.00294, so 2V = 53 deg, exactly Hurlbut's
-                // measured value. (The earlier 1.6915 / 1.6935 / 1.7020 triplet was not
-                // Hurlbut's; it gives 2V about 52 deg.)
+                // 1/gamma^2) = 0.00074 / 0.00294, so 2V = 53 deg, Hurlbut's measured value.
                 // Calibration record: docs/chromophores/calibration-records.md#tanzanite-indices
                 //
                 // SIGN CHECK: `optical_character` above is `BiaxialPositive`, which
                 // requires (n_beta - n_alpha) < (n_gamma - n_beta) -- beta sits closer
                 // to alpha than to gamma. 0.0018 < (0.0090 - 0.0018) = 0.0072 holds. A
-                // value that instead put beta closer to GAMMA would be optically
-                // NEGATIVE, contradicting the declared sign; see
-                // `biaxial_sign_matches_optical_character` below, which pins this
-                // relationship for every biaxial built-in.
+                // value that put beta closer to GAMMA would be optically negative. See
+                // `biaxial_sign_matches_optical_character` in `tests/biaxial.rs`, which
+                // checks this for every biaxial built-in.
                 biaxial_delta_beta_alpha: Some(0.0018),
                 alpha_axis: None,
                 scattering_sigma_s: 0.0,
@@ -209,8 +181,7 @@ impl GemMaterial {
             // predominantly cut from, and this is a dedicated 6H measurement (not 4H
             // despite the paper's title):
             //   n^2 = 6.57232 + 0.1401/(l^2-0.03178) - 0.02153*l^2
-            // Represented exactly as Sellmeier3 using the same distant-pole /
-            // folded-constant technique as Alexandrite's comment above (the
+            // Represented exactly as Sellmeier3, with the constant term folded in (the
             // "0.1401/(l^2-0.03178)" term expanded via the pole identity
             // b*l^2/(l^2-c) - b = A/(l^2-c) for b=A/c, so it becomes an exact pole):
             //   pole0 (constant): b=1.163887, c=0
@@ -241,10 +212,8 @@ impl GemMaterial {
                 },
                 birefringence_delta: 0.0415,
                 // colorless (no chromophore): empty band sets, zero absorption at
-                // every wavelength -- must render identically to before. With no
-                // absorption in any direction there is no pleochroism to keep, so the
-                // empty isotropic tensor stays (lead decision 2026-10-27: the
-                // "anisotropic host, per-axis tensor" rule applies to colored stones). The
+                // every wavelength. Without absorption there is no pleochroism to keep, so
+                // the empty isotropic tensor stays. The
                 // real stones' 425nm absorption edge (Nassau et al., G&G 33(4), 260
                 // (1997): "a distinct increase in absorption at about 425nm",
                 // near-colorless to light yellow / green / gray) is the "Near Colorless"
@@ -293,7 +262,7 @@ impl GemMaterial {
                 },
                 birefringence_delta: 0.0,
                 // colorless (no chromophore): empty band set, zero absorption at
-                // every wavelength -- must render identically to before.
+                // every wavelength.
                 absorption: AbsorptionTensor::isotropic(vec![]),
                 c_axis: Vec3::Y,
                 biaxial_delta_beta_alpha: None,

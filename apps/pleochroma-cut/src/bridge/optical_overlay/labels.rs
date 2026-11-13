@@ -1,4 +1,4 @@
-//! Facet names registered by the solid worker, bound to the exact geometry they describe.
+//! Facet names for the optical overlay, bound to the exact geometry they describe.
 use super::snapshot::OpticalSnapshot;
 use crate::bridge::render_thread::{PlanesOwner, RenderContext};
 use pleochroma::geometry::{GpuFacetPlane, tool::ToolPrimitive};

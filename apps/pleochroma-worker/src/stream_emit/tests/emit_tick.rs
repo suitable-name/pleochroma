@@ -1,5 +1,5 @@
 //! Tests for [`emit_tick`]: no zero-sample `PREVIEW`, skipping a redundant full-scale
-//! `PREVIEW` alongside a `FRAME` delta, and (S1) double-buffer swap correctness.
+//! `PREVIEW` alongside a `FRAME` delta, and double-buffer swap correctness.
 
 use super::fixtures::{
     decode_events, decode_payload, render_request_with_preview, shared_state,

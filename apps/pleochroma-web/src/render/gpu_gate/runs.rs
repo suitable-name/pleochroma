@@ -86,9 +86,9 @@ pub(super) fn begin_test(ctx: &Ctx, pool: &WorkerPool, class: u32) {
         when: iso8601_utc_from_epoch_ms(js_sys::Date::now()),
         ..AdmissionRecord::default()
     };
-    // Save probing state into storage BEFORE sending any compile request (section 6.5).
+    // Save the probing state before any compile request is sent.
     admission::save(&key, &rec);
-    // The adapter's own marker is in place: the start-up one is not needed any more.
+    // The adapter's own marker replaces the start-up one.
     startup::clear_marker();
     GATE.with(|gate| {
         let mut g = gate.borrow_mut();
@@ -115,9 +115,9 @@ pub(super) fn on_test_success(ctx: &Ctx) {
     finish_run(ctx, class, true);
 }
 
-/// The `admit(scene)` step (section 6.5): with a stored `ok` record, the worker compiles
-/// the kernel list of `class` under the same `Probing` marker and deadlines as "Test GPU"
-/// before the first real pass. Only then is the GPU admitted.
+/// The `admit` step: with a stored `ok` record, the worker compiles the kernel list of
+/// `class` under the same `Probing` marker and deadlines as "Test GPU", before the first
+/// real pass. Only then is the GPU admitted.
 pub(super) fn start_admit_compile(ctx: &Ctx, pool: &WorkerPool, class: u32) {
     let key = GATE.with(|gate| gate.borrow().keys.get(&class).cloned());
     let Some(key) = key else {

@@ -1,12 +1,12 @@
-//! The RADV shader workaround's UI (lane RW of the 2026-10-28 campaign): the one-time question and
-//! the Preferences "Graphics Driver" section.
+//! The RADV shader workaround's UI: the one-time question and the Preferences "Graphics Driver"
+//! section.
 //!
 //! Neither is reachable in a harness run by its normal route. The question appears when the GPU
-//! adapter turns out to be Mesa's RADV driver and the user was never asked (the adapter watch of
-//! `gui::radv_workaround` is off under the `ui-harness` feature: a harness run must never depend
-//! on the GPU of the machine it runs on), and the Preferences section exists on Linux only (a
-//! Windows run shows no section). The states below therefore raise both the way Rust would:
-//! `RadvWorkaroundModel.prompt_pending` with a driver text, and `available`.
+//! adapter turns out to be Mesa's RADV driver and the user was never asked. The adapter watch of
+//! `gui::radv_workaround` is off while the harness seams are active, so a harness run never
+//! depends on the GPU of the machine it runs on. The Preferences section exists on Linux only.
+//! The states below raise both the way Rust would: `RadvWorkaroundModel.prompt_pending` with a
+//! driver text, and `available`.
 //!
 //! The restart is faked: in the harness build `request_restart` only records the request
 //! (`harness_support::take_radv_restart_request`), it never closes the window and never starts a
@@ -15,7 +15,7 @@
 //! Proves:
 //! * click-through states (every control pressed once): the question's four ways out and the
 //!   Preferences switch and "Restart Now";
-//! * the `radv_workaround_question` scenario: "Not Now" stores nothing, "Don't Use It" stores
+//! * the `radv_workaround_question` piece: "Not Now" stores nothing, "Don't Use It" stores
 //!   `off`, "Restart With Workaround" stores `on` and asks for the restart, Escape is "Not Now".
 
 use super::{
@@ -34,7 +34,7 @@ use pleochroma_cut::{PreferencesModel, RadvWorkaroundModel, harness_support};
 use slint::ComponentHandle;
 use std::time::Duration;
 
-/// The driver text Rust would hand the question for the owner's server.
+/// The driver text handed to the question, as Rust passes it (the adapter's driver string).
 const DRIVER_TEXT: &str = "Mesa 26.2.5 (RADV)";
 
 /// The settings key the answer is stored under.

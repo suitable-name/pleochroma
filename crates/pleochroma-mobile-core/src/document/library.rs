@@ -135,9 +135,10 @@ pub fn write_library_save(
     }
 }
 
-/// Records that `plan` was written as library entry `entry_id`: the document is that
-/// entry now, the recent items list it, and the session reads saved unless the design
-/// changed since the plan was made.
+/// Records that `plan` was written as library entry `entry_id`.
+///
+/// The document is that entry now, the recent items list it, and the session reads saved
+/// unless the design changed since the plan was made.
 pub fn finish_library_save(state: &mut AppState, plan: &LibrarySavePlan, entry_id: EntryId) {
     if state.session.current_generation() == plan.generation {
         state.session.mark_saved();

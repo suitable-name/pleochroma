@@ -1,9 +1,10 @@
-//! [`run_export`]: the still-image export's thin wrapper around
+//! [`run_export_tapped`]: the still-image export's thin wrapper around
 //! [`super::final_picture::render_image_rgba`] -- render to RGBA8 (either transfer),
-//! then PNG/ICC write.
+//! then PNG/ICC write. `run_export` is the same with no taps, for the tests.
 
 use super::{
     final_picture::{RenderedImage, render_image_rgba},
+    taps::RenderTaps,
     types::AccumulationCarry,
 };
 use crate::{
@@ -17,14 +18,19 @@ use crate::{
 use pleochroma::{color::ColorSpace, renderer::gpu_backend::GpuBackend};
 use std::{path::Path, sync::atomic::AtomicBool};
 
-/// Renders one still image: acquires this export's own [`GpuBackend`] and a fresh
-/// [`AccumulationCarry`] (a still export is always a single call, so there is nothing
-/// to carry calibration between), delegates the render to [`render_image_rgba`] (the
-/// local+remote full-data core, or the remote's own final picture), then writes the RGBA as PNG through [`save_png`], so ICC embedding is the same
-/// whichever side tone-mapped. The tilt performance video (`gui::tilt::video_export`)
-/// calls [`render_image_rgba`] directly instead, reusing ONE
-/// [`GpuBackend`]/[`AccumulationCarry`] pair across every frame of the sweep -- see that
-/// module's own doc comment.
+/// Renders one still image and writes it as PNG.
+///
+/// It acquires this export's own [`GpuBackend`] and a fresh [`AccumulationCarry`] (a still export
+/// is always a single call, so there is nothing to carry calibration between), delegates the render
+/// to [`render_image_rgba`] (the local+remote full-data core, or the remote's own final picture),
+/// then writes the RGBA as PNG through [`save_png`], so ICC embedding is the same whichever side
+/// tone-mapped. The tilt performance video (`gui::tilt::video_export`) calls [`render_image_rgba`]
+/// directly instead, reusing ONE [`GpuBackend`]/[`AccumulationCarry`] pair across every frame of
+/// the sweep (see that module's own doc comment).
+///
+/// Test-only: the app always renders through [`run_export_tapped`] (`spawn_export` and the
+/// render jobs pass their taps), which is this with [`RenderTaps::default`].
+#[cfg(test)]
 #[expect(
     clippy::too_many_arguments,
     reason = "every argument is a distinct piece of one export request's own identity \
@@ -40,6 +46,55 @@ pub fn run_export(
     output_path: &Path,
     remote: &RemoteSelection,
     local_compute: LocalComputeTarget,
+    cancel: &AtomicBool,
+    report_progress: impl FnMut(ExportProgress),
+) -> ExportOutcome {
+    run_export_tapped(
+        scene,
+        params,
+        color_space,
+        output_path,
+        remote,
+        local_compute,
+        &RenderTaps::default(),
+        cancel,
+        report_progress,
+    )
+}
+
+/// Applies the measurement switch `PLEOCHROMA_GPU_PIPELINE=wavefront` to the export's backend.
+///
+/// Not a user option: the export then traces through the legacy compacting wavefront kernels
+/// instead of the megakernel, so the two can be timed on one job
+/// (`scripts/eng_speed_experiments.sh`). A no-op without a GPU.
+fn apply_gpu_pipeline_switch(gpu: &GpuBackend) {
+    if matches!(
+        std::env::var("PLEOCHROMA_GPU_PIPELINE").as_deref(),
+        Ok("wavefront")
+    ) {
+        gpu.set_pipeline_kind(pleochroma::renderer::gpu_backend::GpuPipelineKind::Wavefront);
+        tracing::info!(
+            target: "pleochroma_cut::render_bench",
+            "gpu pipeline: legacy wavefront requested by PLEOCHROMA_GPU_PIPELINE"
+        );
+    }
+}
+
+/// The still-image export with the optional [`RenderTaps`]: the render starts at
+/// `taps.sample_offset` and publishes its linear image to `taps.sink`. With
+/// [`RenderTaps::default`] it is the plain export (`run_export`), byte for byte.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "run_export's own arguments plus the taps; bundling would only move the count"
+)]
+pub fn run_export_tapped(
+    scene: &SceneSnapshot,
+    params: ExportParams,
+    color_space: ColorSpace,
+    output_path: &Path,
+    remote: &RemoteSelection,
+    local_compute: LocalComputeTarget,
+    taps: &RenderTaps,
     cancel: &AtomicBool,
     mut report_progress: impl FnMut(ExportProgress),
 ) -> ExportOutcome {
@@ -77,7 +132,8 @@ pub fn run_export(
             LocalComputeTarget::CpuGpu | LocalComputeTarget::Gpu => GpuBackend::acquire(),
         }
     };
-    let mut carry = AccumulationCarry::default();
+    apply_gpu_pipeline_switch(&gpu);
+    let mut carry = AccumulationCarry::with_taps(taps.clone());
     // With diagnostics the beauty render fills the first half of the bar and the
     // diagnostic pass the second half.
     let beauty_share = if scene.optical_diagnostics.is_some() {
@@ -124,6 +180,8 @@ pub fn run_export(
             samples_total: params.samples_per_pixel,
             preview: None,
             note,
+            #[cfg(feature = "beam")]
+            beam: None,
         });
     };
     let metadata = match crate::bridge::optical_overlay::export::apply(

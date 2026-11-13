@@ -1,5 +1,5 @@
-//! Tests of the non-convex mesh rough in the plan file: schema version 2, the reload by
-//! import, the refusals, and that every other plan is written exactly as before.
+//! Tests of the non-convex mesh rough in a plan file (schema version 2): the reload by import,
+//! the refusals, and that plans without a mesh keep their bytes.
 
 use super::{
     dto::{MeshDto, SavedPlanDto},
@@ -101,7 +101,7 @@ fn version_1_files_still_load() {
     assert!(error.contains("rough.mesh"), "{error}");
 }
 
-/// The plan of the 20 x 12 x 10 mm block with no layouts, as it has always been written.
+/// The plan of the 20 x 12 x 10 mm block with no layouts, in the version 1 format.
 const BLOCK_PLAN_V1: &str = "\
 format = \"pleochroma-rough-plan\"
 version = 1
@@ -133,11 +133,10 @@ candidate_source = \"library\"
 #[test]
 fn saved_plan_bytes_unchanged_for_convex() {
     let block = write(&plain_block(), &[]);
-    // The whole document as the code before the mesh schema wrote it: the `mesh` key is
-    // skipped when empty and the version stays 1. The key order and layout are those of
-    // the unchanged `SavedPlanDto` and `RoughDto` (base commit 9a0f59e).
+    // The whole document: the `mesh` key is skipped when absent and the version stays 1.
+    // The key order is that of `SavedPlanDto` and `RoughDto`.
     assert_eq!(block, BLOCK_PLAN_V1);
-    // A hull rough writes its corners under `hull`, exactly as before the mesh schema.
+    // A hull rough writes its corners under `hull`, with no mesh.
     let (points, _) = parse_obj_mesh(CUBE_OBJ).expect("parses");
     let hull_model = RoughModel::new(import_hull(&points).expect("hull"), Vec::new());
     let text = write(&hull_model, &[]);
@@ -151,8 +150,8 @@ fn saved_plan_bytes_unchanged_for_convex() {
     assert_eq!(write(&convex_mesh, &[]), text);
     assert_same_rough(&convex_mesh, &hull_model);
 
-    // A mesh rough without inclusions is still the version 2 plan it always was: the whole
-    // mesh under `rough.mesh` and no `inclusions` key.
+    // A mesh rough without inclusions is a version 2 plan: the whole mesh under `rough.mesh`
+    // and no `inclusions` key.
     let c_text = write(&c_shape(), &[]);
     assert!(c_text.contains("version = 2\n"), "{c_text}");
     assert!(!c_text.contains("inclusions"), "{c_text}");

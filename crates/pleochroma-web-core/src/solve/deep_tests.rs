@@ -319,7 +319,7 @@ fn a_running_search_reports_progress_and_still_finishes() {
     assert_eq!(deep_solved(response), deep_solved(answer(&design)));
 }
 
-/// A concave design is verified on its flat stone (C1): the answer is the flat design's.
+/// A concave design is verified on its flat stone, so the answer is the flat design's.
 #[test]
 fn a_concave_design_is_verified_on_its_flat_stone() {
     let concave = deep_solved(answer(&concave_design()));

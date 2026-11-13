@@ -95,7 +95,7 @@ impl GuideCategory {
 
 /// The program a guide is shown in.
 ///
-/// The catalogue holds one set of lessons, written for the desktop; the browser build shows the
+/// The catalogue holds one set of lessons, written for the desktop. The browser build shows the
 /// same lessons through a per-lesson overlay of its own wording (see [`Guide::for_platform`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Platform {
@@ -333,8 +333,8 @@ impl Guide {
     ///
     /// On the desktop that is the guide itself, unchanged. On the web it is the guide with
     /// the web overlay applied: reworded lines, omitted steps, replaced goals, aliased
-    /// highlight targets and fixed lock groups (see [`super::web_view`]). The catalogue is never
-    /// filtered or edited; every lesson stays in it once.
+    /// highlight targets and fixed lock groups (see [`super::web_view`]). The catalogue is
+    /// never filtered or edited; every lesson stays in it once.
     #[must_use]
     pub fn for_platform(&self, platform: Platform) -> Self {
         match platform {

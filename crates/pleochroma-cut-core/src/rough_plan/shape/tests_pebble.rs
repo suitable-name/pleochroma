@@ -1,8 +1,7 @@
 //! Tests of the pebble's geodesic directions and of its pinned plane offsets.
 //!
-//! The offsets are the fixed point of an iteration implemented once here
-//! ([`fixed_point_offsets`]); the ignored generator test prints its result and the regular
-//! test checks the pinned tables against it.
+//! The offsets are the fixed point of the iteration in [`fixed_point_offsets`]. The ignored
+//! generator test prints them; the regular test checks the pinned tables against them.
 
 use std::f64::consts::PI;
 
@@ -59,10 +58,9 @@ fn geodesic_directions_are_unit_vectors() {
 
 #[test]
 fn geodesic_directions_are_evenly_spaced() {
-    // The nearest-neighbour angle of every direction at frequency 4 runs from 14.5 to 17.2
-    // degrees (the icosahedron corners have five neighbours, the lattice interior six), a
-    // ratio of 0.847; the octahedral lattice this set replaced varies far more. The bound
-    // 0.8 keeps that evenness without pinning the exact figure.
+    // At frequency 4 the nearest-neighbour angle runs from 14.5 to 17.2 degrees (the
+    // icosahedron corners have five neighbours, the lattice interior six), a ratio of 0.847.
+    // The bound 0.8 checks that evenness without pinning the exact figure.
     let dirs = pebble_directions(4);
     let nearest: Vec<f64> = dirs
         .iter()
@@ -193,10 +191,6 @@ fn fixed_point_offsets(frequency: usize) -> (Vec<f64>, usize) {
     (offsets, rounds)
 }
 
-/// Prints the two pinned offset tables as Rust array literals.
-///
-/// Run `cargo test --release -p pleochroma-cut-core -- regenerate_pebble_offsets --ignored
-/// --nocapture` and paste the output over the constants in `pebble_offsets.rs`.
 /// `value` as a Rust literal with the fractional digits in groups of three (`0.984_820_7`),
 /// the form the pinned tables use.
 fn grouped_literal(value: f64) -> String {
@@ -212,6 +206,10 @@ fn grouped_literal(value: f64) -> String {
     format!("{whole}.{}", groups.join("_"))
 }
 
+/// Prints the two pinned offset tables as Rust array literals.
+///
+/// Run `cargo test --release -p pleochroma-cut-core -- regenerate_pebble_offsets --ignored
+/// --nocapture` and paste the output over the constants in `pebble_offsets.rs`.
 #[test]
 #[ignore = "prints the pinned offset tables; run it with --ignored --nocapture"]
 fn regenerate_pebble_offsets() {

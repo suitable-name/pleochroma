@@ -1,16 +1,16 @@
 //! [`EffectsSpec`]: the render physics of a design, riding beside the unchanged
 //! [`SceneSpec`](super::SceneSpec).
 //!
-//! The browser is view-only for these effects (decision D17): the page reads the design's
-//! `[render_effects]` keys and sends them with `ToWorker::SetEffects`; there are no editing
-//! controls. The record has the same shape as the desktop remote protocol's `SceneEffects`
+//! The browser is view-only for these effects: the page reads the design's `[render_effects]`
+//! keys and sends them with `ToWorker::SetEffects`; there are no editing controls. The record
+//! has the same shape as the desktop remote protocol's `SceneEffects`
 //! (`pleochroma_net::scene::effects`), which this crate cannot depend on, so a design renders
 //! identically on the desktop, a remote worker and in the browser.
 //!
 //! Inclusions and play-of-color are applied to the scene's material
-//! ([`OwnedScene::set_effects`]); the facet surface words, the sender's faceting machine and the
-//! abraded edge become the trace's surface input ([`OwnedScene::surface_scene`]). An empty record
-//! changes nothing, bit for bit.
+//! ([`OwnedScene::set_effects`]). The facet surface words, the sender's faceting machine and
+//! the abraded edge become the trace's surface input ([`OwnedScene::surface_scene`]). An empty
+//! record changes nothing, bit for bit.
 
 use std::borrow::Cow;
 
@@ -179,7 +179,7 @@ impl EffectsSpec {
             .collect()
     }
 
-    /// Refuses a record no honest sender produces. `planes` is the scene's plane count.
+    /// Rejects values out of range or non-finite. `planes` is the scene's plane count.
     ///
     /// # Errors
     ///

@@ -10,8 +10,7 @@ use crate::geometry::{brep::GemPolyhedron, plane::GpuFacetPlane};
 
 impl StandardGemCuts {
     /// Classifies whether a `FacetSpec` row belongs to the crown (true) or pavilion (false)
-    /// side of the stone, using markers that are actually present in the scraped
-    /// facetdiagrams.org data (verified against `facet_diagrams.sqlite`):
+    /// side of the stone, using only the markers present in the scraped facetdiagrams.org rows:
     fn classify_is_crown(item: &FacetSpec, angle_deg: f32, tier_idx: usize, total: usize) -> bool {
         let index_val = item.index.trim();
         if index_val.eq_ignore_ascii_case("table") {
@@ -87,7 +86,7 @@ impl StandardGemCuts {
         trimmed.split_whitespace().next()?.parse::<u32>().ok()
     }
 
-    /// Reconstructs facet planes from parsed Angle items in database with realistic gemological proportions.
+    /// Reconstructs facet planes from parsed angle rows, with realistic gemological proportions.
     ///
     /// Azimuth uses [`Self::index_to_azimuth`] with a reference angle of `0.0`:
     /// `angle_settings`-sourced [`FacetSpec`] rows (angle + index text, scraped
@@ -134,7 +133,7 @@ impl StandardGemCuts {
             let theta = angle_deg.to_radians();
             let is_crown = Self::classify_is_crown(item, angle_deg, tier_idx, angles.len());
 
-            // Exact proportional plane offset matching realistic cutting geometry
+            // Table, culet and girdle-plane entries are flat; other facets taper from the girdle.
             let offset = if angle_deg >= 88.0 {
                 -1.0
             } else if is_crown {

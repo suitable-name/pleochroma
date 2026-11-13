@@ -1,10 +1,10 @@
-//! Tests for [`super::hg_nee`]: the shadow ray of the Henyey-Greenstein NEE pays the
-//! assigned mode's extinction AT THE SHADOW DIRECTION ([`ShadowAlphas`]), over the full
-//! distance from the scattering point. Regression for the NEE-on-darker bias
+//! Tests for [`super::hg_nee`], the Henyey-Greenstein NEE.
+//!
+//! The shadow ray of the Henyey-Greenstein NEE pays the
+//! assigned mode's extinction at the shadow direction ([`ShadowAlphas`]), over the full
+//! distance from the scattering point. The NEE-on/NEE-off agreement check
 //! `transport::tests::nee_tests::ruby_scattering_nee_on_and_off_agree_within_half_a_percent`
-//! measured on the refit ruby (NEE-on 0.6 % darker in X, 0.45 % in Y than NEE-off): the
-//! deposit used to pay the alphas of the segment that led INTO the scattering point, over
-//! a length `1e-4` short of the continuation's.
+//! depends on this.
 
 use super::{
     super::{
@@ -322,11 +322,10 @@ fn run(call: &Call<'_>, alphas: ShadowAlphas<'_>) -> [f32; NUM_CHANNELS] {
 }
 
 /// From a scattering point at the centre of a cube of ruby, each NEE deposit equals the
-/// closed form built from the assigned mode's coefficients AT THE SAMPLED SHADOW
-/// DIRECTION and the full distance from the scattering point to the face -- and differs
-/// by far more than the tolerance from the old estimator's (the incoming direction's
-/// coefficients over the probe's own, `1e-4` shorter, length). The `Fixed` arm pays its
-/// array as it is, over the same full length.
+/// closed form built from the assigned mode's coefficients at the sampled shadow direction
+/// and the full distance from the scattering point to the face. The incoming direction's
+/// coefficients over the probe's own, `1e-4` shorter, length differ well beyond the
+/// tolerance. The `Fixed` arm pays its array as it is, over the same full length.
 #[test]
 fn deposit_pays_the_shadow_direction_alphas_over_the_full_distance() {
     const HALF: f32 = 0.25;
@@ -336,7 +335,7 @@ fn deposit_pays_the_shadow_direction_alphas_over_the_full_distance() {
     let planes = cube_planes(HALF);
     let soa = build_plane_soa(&planes);
     let env_map = EnvironmentMap::uniform(4, 2, [2.0, 2.0, 2.0]);
-    let environment = EnvironmentSource::HdrMap(&env_map);
+    let environment = EnvironmentSource::hdr(&env_map);
     let nee = NeeContext {
         environment,
         plane_soa: &soa,
@@ -388,7 +387,7 @@ fn deposit_pays_the_shadow_direction_alphas_over_the_full_distance() {
         };
         valid += 1;
         assert_close(&got, &expected, 2e-5, &format!("seed {}", call.rng_seed));
-        // The old estimator: the incoming direction's alphas over the probe's own `hit.t`.
+        // The incoming direction's alphas over the probe's own length (`distance - 1e-4`).
         let old = oracle
             .deposit(k_in, draw, &old_alphas, distance - 1e-4)
             .expect("same face, same Fresnel verdict");

@@ -1,9 +1,8 @@
 //! The `render` subcommand: trace a scene straight to a PNG, no networking.
 //!
-//! Deliberately built and tested BEFORE `serve` -- it exercises the whole
-//! trace-and-encode path (scene loading, validation, parallel tracing, tone-mapping,
-//! PNG output) with nothing networked to debug at the same time, and it has standalone
-//! value of its own: batch 4K stills without running the interactive viewer at all.
+//! Runs the whole trace-and-encode path (scene loading, validation, parallel tracing,
+//! tone-mapping, PNG output) with no networking, so it can batch-render stills without the
+//! interactive viewer.
 
 use crate::{
     cli::{ComputeMode, RenderArgs},
@@ -54,14 +53,16 @@ pub fn validate_render_params(width: u32, height: u32, samples: u32) -> Result<(
 /// Validates flags, loads and validates the scene, traces `args.samples` total samples
 /// across the whole frame, tone-maps, and writes a PNG to `args.out`.
 ///
-/// Acquires a [`GpuBackend`] once for this invocation (`OnlyCpu` forces
-/// [`GpuBackend::disabled`]) and traces through [`render_core::trace_samples_with_gpu`],
-/// which falls back to the CPU tracer whenever the GPU declines.
+/// The scene keeps the estimator its file carries (absent means branching), not the process
+/// default.
 ///
-/// `render` traces its whole sample budget as one call with no adaptive sub-batching --
-/// there's no concurrent hybrid CPU+GPU split to calibrate here (that exists for
-/// `serve`'s long-running streamed jobs via `render_core::hybrid`), so
-/// [`ComputeMode::Hybrid`] and [`ComputeMode::OnlyGpu`] resolve identically here.
+/// Acquires a [`GpuBackend`] once (`OnlyCpu` forces [`GpuBackend::disabled`]) and traces
+/// through [`render_core::trace_samples_with_gpu_cancellable`], which falls back to the CPU
+/// tracer whenever the GPU declines.
+///
+/// The whole sample budget is traced in one call, with no hybrid CPU+GPU split (that is for
+/// `serve`'s streamed jobs, see `render_core::hybrid`). So [`ComputeMode::Hybrid`] and
+/// [`ComputeMode::OnlyGpu`] behave the same here.
 ///
 /// # Errors
 ///
@@ -105,12 +106,9 @@ pub fn run(args: &RenderArgs) -> Result<(), String> {
 
     validate::validate_scene(&scene)?;
 
-    // An HDR scene names its map only by content hash + declared dimensions (see
-    // `pleochroma_net::scene::HdrEnvironment`); resolving the actual bytes only ever
-    // happens over the network (`NEED_ASSET`/`ASSET`, `crate::assets::fetch`). `render`
-    // is a standalone, no-network CLI with no way to supply them, so tracing an HDR
-    // scene here used to panic deep inside `render_core` (`assets::decoded::resolved_hdr_map`)
-    // instead of failing cleanly at the top.
+    // An HDR scene names its map only by content hash and size (see
+    // `pleochroma_net::scene::HdrEnvironment`); the bytes come only over the network
+    // (`crate::assets::fetch`). This CLI cannot supply them, so the scene is refused here.
     if let Some(hdr) = scene.hdr() {
         return Err(format!(
             "scene {} is lit by an HDR environment map (hash {}, {}x{}), but `render` has no \
@@ -145,11 +143,16 @@ pub fn run(args: &RenderArgs) -> Result<(), String> {
         args.out.display()
     );
 
+    // Stone shadow and tray reflection are resolved once for the whole picture (the final
+    // map). A scene whose shadow or mirror cannot be built is refused, not rendered without it.
+    let cancel = std::sync::atomic::AtomicBool::new(false);
+    let tray = crate::assets::resolve_tray(&scene, None, &cancel)
+        .map_err(|stop| stop.message().to_owned())?;
     let sums = if scene.engine.is_ray() {
         let mut out = vec![glam::Vec3::ZERO; args.width as usize * args.height as usize];
-        let cancel = std::sync::atomic::AtomicBool::new(false);
         if !render_core::whitted::trace(
             &scene,
+            tray.view(),
             0,
             args.samples,
             args.threads,
@@ -161,7 +164,15 @@ pub fn run(args: &RenderArgs) -> Result<(), String> {
         }
         out
     } else {
-        render_core::trace_samples_with_gpu(&gpu, &scene, 0, args.samples, args.threads)
+        render_core::trace_samples_with_gpu_cancellable(
+            &gpu,
+            &scene,
+            (0, args.samples),
+            args.threads,
+            &cancel,
+            tray.view(),
+        )
+        .ok_or_else(|| "rendering was cancelled".to_owned())?
     };
     let rgba = png_out::tonemap_to_rgba(args.width, args.height, args.samples, &sums);
     png_out::write_png(args.width, args.height, rgba, &args.out)?;
@@ -212,6 +223,10 @@ mod tests {
             height: 999,
             yaw: 0.4,
             camera_roll: 0.0,
+            stone_shadow: false,
+            tray_reflection: 0.0,
+            hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
+            estimator: pleochroma::optics::raytracer::Estimator::Branching,
             pitch: 0.3,
             distance: 3.0,
             light_yaw: 0.85,
@@ -236,8 +251,8 @@ mod tests {
         path
     }
 
-    /// A `scene.json` written before `surface_glare` existed loads with the unscaled
-    /// `1.0`, and a written value survives the file round trip.
+    /// A `scene.json` without `surface_glare` loads as the unscaled `1.0`, and a written
+    /// value survives the round trip.
     #[test]
     fn a_scene_json_without_surface_glare_loads_as_unscaled() {
         let dir = std::env::temp_dir().join(format!(
@@ -258,8 +273,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// A `scene.json` written before `head_shadow_deg` existed loads with the 16 degree
-    /// default, and a written value survives.
+    /// A `scene.json` without `head_shadow_deg` loads with the 16 degree default, and a
+    /// written value survives.
     #[test]
     fn a_scene_json_without_head_shadow_loads_as_sixteen_degrees() {
         let dir = std::env::temp_dir().join(format!(
@@ -349,6 +364,10 @@ mod tests {
             height: 8,
             yaw: 0.4,
             camera_roll: 0.0,
+            stone_shadow: false,
+            tray_reflection: 0.0,
+            hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
+            estimator: pleochroma::optics::raytracer::Estimator::Branching,
             pitch: 0.3,
             distance: 3.0,
             light_yaw: 0.85,
@@ -411,6 +430,10 @@ mod tests {
             height: 8,
             yaw: 0.0,
             camera_roll: 0.0,
+            stone_shadow: false,
+            tray_reflection: 0.0,
+            hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
+            estimator: pleochroma::optics::raytracer::Estimator::Branching,
             pitch: 0.0,
             distance: 3.0,
             light_yaw: 0.0,

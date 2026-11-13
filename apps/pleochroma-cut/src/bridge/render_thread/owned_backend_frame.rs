@@ -5,7 +5,7 @@ use super::{
 };
 use pleochroma::{
     optics::raytracer::surface::{EdgeAbrasion, FacetSurface, FacetingMachine},
-    renderer::env_map::EnvironmentMap,
+    renderer::env_map::{EnvRotation, EnvironmentMap},
 };
 use std::sync::Arc;
 
@@ -20,7 +20,10 @@ pub(in crate::bridge::render_thread) struct OwnedFrame {
     machine: FacetingMachine,
     edge: EdgeAbrasion,
     environment: EnvironmentSource<'static>,
-    hdr: Option<Arc<EnvironmentMap>>,
+    /// The frame's HDR map, the exposure it is lit at and its rotation (`environment` is then a
+    /// placeholder).
+    hdr: Option<(Arc<EnvironmentMap>, f32, EnvRotation)>,
+    tray_shadow: Option<pleochroma::optics::raytracer::environment::TrayShadowMap>,
     dimensions: (u32, u32),
     pose: (f32, f32, f32),
     max_bounces: u32,
@@ -34,14 +37,20 @@ impl OwnedFrame {
         shared_hdr: Option<&Arc<EnvironmentMap>>,
     ) -> Self {
         let (environment, hdr) = match frame.environment {
-            EnvironmentSource::HdrMap(map) => (
+            EnvironmentSource::HdrMap {
+                map,
+                exposure,
+                rotation,
+            } => (
                 pleochroma::optics::raytracer::LightingPreset::Daylight.studio(1.0, 0.0, 0.0),
-                Some(
+                Some((
                     shared_hdr
                         .filter(|shared| std::ptr::eq(shared.as_ref(), map))
                         .cloned()
                         .unwrap_or_else(|| Arc::new(map.clone())),
-                ),
+                    exposure,
+                    rotation,
+                )),
             ),
             EnvironmentSource::Studio {
                 preset,
@@ -51,7 +60,11 @@ impl OwnedFrame {
                 backdrop,
                 surface_glare,
                 head_shadow_deg,
+                tray_mirror,
+                ..
             } => (
+                // The tray mirror is a plain `Copy` plane, so it rides in the owned
+                // environment itself; only the shadow map needs the owned copy below.
                 EnvironmentSource::Studio {
                     preset,
                     exposure,
@@ -60,6 +73,8 @@ impl OwnedFrame {
                     backdrop,
                     surface_glare,
                     head_shadow_deg,
+                    tray_shadow: None,
+                    tray_mirror,
                 },
                 None,
             ),
@@ -81,6 +96,7 @@ impl OwnedFrame {
             machine: frame.surface.machine,
             edge: frame.surface.edge,
             environment,
+            tray_shadow: frame.environment.tray_shadow().cloned(),
             hdr,
             dimensions: (frame.width, frame.height),
             pose: (frame.yaw, frame.pitch, frame.distance),
@@ -109,10 +125,12 @@ impl OwnedFrame {
             },
             material: &self.material,
             max_bounces: self.max_bounces,
-            environment: self
-                .hdr
-                .as_deref()
-                .map_or(self.environment, EnvironmentSource::HdrMap),
+            environment: self.hdr.as_ref().map_or_else(
+                || self.environment.with_tray_shadow(self.tray_shadow.as_ref()),
+                |(map, exposure, rotation)| {
+                    EnvironmentSource::hdr_at(map, *exposure).with_hdr_rotation(*rotation)
+                },
+            ),
             spp: self.spp,
             sample_offset: self.sample_offset,
         }

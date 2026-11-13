@@ -53,8 +53,8 @@ pub fn wire(window: &AppWindow, shared: &Shared) {
     });
     let weak = window.as_weak();
     window.global::<VariantsModel>().on_close(move || {
-        // Persist explicitly submitted saves, but never apply an Open after Back.
-        // A later visit has its own request; queued answers from this visit are stale.
+        // Bumping the request id makes answers still queued from this visit stale, so an
+        // Open cannot land after Back. Saves already submitted still persist.
         RUNTIME.with(|value| {
             if let Some(runtime) = value.borrow_mut().as_mut() {
                 runtime.request = runtime

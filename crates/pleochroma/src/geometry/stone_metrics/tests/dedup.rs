@@ -49,9 +49,8 @@ fn dedup_matches_linear_scan_reference_on_module_fixtures() {
 
 #[test]
 fn dedup_matches_linear_scan_reference_on_real_schedules() {
-    // Same fixture text as `examples/simd_bench.rs`'s solver benchmark
-    // ("Bench design" / pgo_train.rs's "Train A"): a 96-tooth round with
-    // two crown tiers, table, and two pavilion tiers plus culet.
+    // The "Train A" design of `examples/pgo_train`: a 96-tooth round with two
+    // crown tiers, a table, and two pavilion tiers plus a culet.
     assert_dedup_matches_reference(
         &planes_from_asc_schedule(
             "GemCad 5.0\n\
@@ -68,8 +67,8 @@ fn dedup_matches_linear_scan_reference_on_real_schedules() {
         ),
         "real schedule: Train A (96-tooth round)",
     );
-    // pgo_train.rs's "Train B": mixed 96/6-tooth tiers, a heavier real
-    // schedule with a different symmetry split.
+    // The "Train B" design of `examples/pgo_train`: mixed 96/6-tooth tiers, a
+    // heavier schedule with a different symmetry split.
     assert_dedup_matches_reference(
         &planes_from_asc_schedule(
             "GemCad 5.0\ng 96 0.0\ny 8 y\nI 1.54\nH Train B\n\
@@ -83,7 +82,7 @@ fn dedup_matches_linear_scan_reference_on_real_schedules() {
         ),
         "real schedule: Train B (mixed 96/6-tooth)",
     );
-    // pgo_train.rs's "Train C": a simpler 4-fold real schedule.
+    // The "Train C" design of `examples/pgo_train`: a simpler 4-fold schedule.
     assert_dedup_matches_reference(
         &planes_from_asc_schedule(
             "GemCad 5.0\ng 96 0.0\ny 4 y\nI 1.62\nH Train C\n\

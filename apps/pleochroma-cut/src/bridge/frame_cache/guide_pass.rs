@@ -1,17 +1,16 @@
 //! The GUI's cache over the primary-ray-only guide-buffer prepass.
 //!
-//! A remote-sourced image (radiance only, no guide buffers over the wire) can still be denoised by the
-//! same edge-avoiding À-Trous filter the local path uses.
+//! A remote-sourced image (radiance only, no guide buffers over the wire) can still be denoised
+//! by the same edge-avoiding À-Trous filter the local path uses.
 //!
 //! # Where the prepass lives
 //!
 //! The prepass itself ([`generate_guide_buffers_into_geom_with_index`],
-//! [`generate_guide_buffers_cancellable_geom_with_index`], [`GuideBuffers`]) is
-//! `pleochroma::renderer::guide_pass` -- moved there unchanged so a
-//! coordinator can compute the identical guides for its denoised `DISPLAY_FRAME`s -- and
-//! re-exported here, so every GUI call site keeps this module's path. Only the cache
-//! stays GUI-side: its key hashes the planes with `render_thread::hash_planes`, which the
-//! GUI's other frame caches share.
+//! [`generate_guide_buffers_cancellable_geom_with_index`], [`GuideBuffers`]) lives in
+//! `pleochroma::renderer::guide_pass`, so a coordinator can compute the identical guides for
+//! its denoised `DISPLAY_FRAME`s. It is re-exported here so every GUI call site keeps this
+//! module's path. Only the cache stays GUI-side: its key hashes the planes with
+//! `render_thread::hash_planes`, which the GUI's other frame caches share.
 //!
 //! # Why caching, and on what key
 //!
@@ -25,20 +24,17 @@
 //!
 //! # Why it runs off the UI thread
 //!
-//! One prepass costs ~82ms at 1920x1080 and ~288ms at 3840x2160 (see the `pleochroma`
-//! module) -- large enough at 4K to freeze the UI thread if run synchronously from the
-//! Slint event loop. `gui::remote::start_remote_render` therefore kicks the prepass off
-//! on a background thread as soon as the `RenderRequest` is dispatched, via
-//! [`generate_guide_buffers_cancellable_geom_with_index`], overlapping it with the network round trip.
-//! Cancellation is cooperative, via an `Arc<AtomicBool>` checked between rows: if the
-//! pose changes again before a background generation finishes, `gui::remote` abandons
-//! it and starts a fresh one. [`GuideCache::ensure_geom_cancellable`] runs synchronously
-//! on its caller's thread. Background results enter the cache through [`GuideCache::adopt`]
-//! once `gui::remote` confirms, via
-//! [`GuideCache::key_for_camera`]/[`GuideCache::matches_key`], that they match
-//! the pose currently on screen. A frame arriving before its background generation
-//! finishes is rendered with a plain tonemap instead; a later redraw denoises once
-//! ready.
+//! One prepass costs ~82 ms at 1920x1080 and ~288 ms at 3840x2160. At 4K that is enough to
+//! freeze the Slint event loop, so the remote render start runs it on a background thread via
+//! [`generate_guide_buffers_cancellable_geom_with_index`], overlapping it with the network
+//! round trip.
+//! Cancellation is cooperative, through an `Arc<AtomicBool>` checked between rows. If the pose
+//! changes before a background run finishes, `gui::remote` abandons it and starts a new one.
+//! [`GuideCache::ensure_geom_cancellable`] runs synchronously on its caller's thread.
+//! `gui::remote` hands a background result to [`GuideCache::adopt`] only after it checks, with
+//! [`GuideCache::key_for_camera`]/[`GuideCache::matches_key`], that the result matches the pose
+//! on screen. A frame that arrives before its background run finishes gets a plain tonemap; a
+//! later redraw denoises it.
 
 use pleochroma::{
     geometry::tool::StoneGeometry, optics::raytracer::Camera, render_setup::hash_geometry,
@@ -61,13 +57,13 @@ pub use pleochroma::renderer::guide_pass::generate_guide_buffers;
 
 /// The guide-buffer identity: resolution, camera, geometry, and refractive index.
 ///
-/// Lighting and exposure are excluded. `planes_hash` is `pleochroma::render_setup::hash_geometry` of the
-/// planes and tools, which for a planar stone is exactly the `hash_planes` every other
-/// per-design cache keys on, rather than a second, parallel implementation.
+/// Lighting and exposure are excluded. `planes_hash` is
+/// `pleochroma::render_setup::hash_geometry` of the planes and tools; for a planar stone it equals
+/// the `hash_planes` key the other per-design caches use.
 ///
 /// `pub`, not private: `gui::remote`'s background guide-generation path tags its result
 /// with this same key (via [`GuideCache::key_for_camera`]). Fields stay private so a
-/// `GuideKey` can only be constructed through the cache's key builders, never hand-assembled with a
+/// `GuideKey` can only be built by the cache's key builders, never hand-assembled with a
 /// mismatched or stale hash.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GuideKey {
@@ -120,9 +116,7 @@ impl GuideCache {
         }
     }
 
-    /// How many times [`Self::ensure`] has actually regenerated the guide buffers.
-    /// Test-only hook -- `#[cfg(test)]` rather than plain `pub` to avoid an
-    /// `#[allow(dead_code)]` where nothing outside tests calls it.
+    /// How many times the guide buffers were regenerated. Test-only hook.
     #[cfg(test)]
     #[must_use]
     pub const fn generation(&self) -> u64 {
@@ -223,13 +217,10 @@ impl GuideCache {
         Some(&self.buffers)
     }
 
-    /// Computes the [`GuideKey`] for `(width, height, yaw, pitch, distance, planes)` --
-    /// the same identity [`Self::ensure`] uses internally. Exposed so a caller that
-    /// generates guide buffers outside this cache (`gui::remote`'s background prepass)
-    /// can tag its result with the exact key [`Self::matches_key`]/[`Self::adopt`] will
-    /// compare against.
+    /// Computes the [`GuideKey`] for `(width, height, yaw, pitch, distance, planes)`, the
+    /// identity [`Self::ensure`] uses. Test-only: live code uses [`Self::key_for_camera`].
     ///
-    /// Test-only, like [`Self::ensure`]: `n_d = 0.0`.
+    /// Uses `n_d = 0.0`.
     #[cfg(test)]
     #[must_use]
     pub fn key_for(
@@ -363,9 +354,7 @@ mod tests {
         cache.ensure(8, 8, 0.60, 0.45, 2.4, &planes);
         assert_eq!(cache.generation(), 1);
 
-        // Same width/height/pose/geometry -- must be a cache hit (generation
-        // unchanged), which is the whole "recompute on pose/gem change, not per
-        // frame" contract this module exists for.
+        // Same size, pose and geometry: a cache hit, the generation is unchanged.
         cache.ensure(8, 8, 0.60, 0.45, 2.4, &planes);
         assert_eq!(
             cache.generation(),
@@ -455,11 +444,8 @@ mod tests {
         );
     }
 
-    /// The cache is keyed on camera pose and geometry ONLY -- light direction is not
-    /// part of the key, because a primary-ray-only prepass never samples lighting at
-    /// all. This isn't something a caller could get wrong by passing a light angle in
-    /// (there is no such parameter), but it's worth pinning as the documented design
-    /// decision: reusing guides across a light-only change must never regenerate them.
+    /// Light direction is not part of the key: the primary-ray prepass never samples lighting,
+    /// so a light-only change must not regenerate the guides.
     #[test]
     fn ensure_signature_has_no_light_parameters() {
         let planes = StandardGemCuts::standard_round_brilliant();

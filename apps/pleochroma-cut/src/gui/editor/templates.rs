@@ -134,9 +134,8 @@ fn missing_thumbnails(ui: &MainWindow) -> Vec<i32> {
         .collect()
 }
 
-/// The material combo's entries: the built-in materials, then the custom ones -- the
-/// Edit tab's material list without its "(none)" first entry and its trailing "Custom
-/// RI..." sentinel (a template is cut from a named material).
+/// The material combo's entries: the design material list without its "(none)" first entry
+/// and its trailing "Custom RI…" sentinel (a template is cut from a named material).
 fn material_labels(custom: &[GemMaterial]) -> Vec<String> {
     let mut options = design_material_options(custom);
     options.pop();
@@ -279,7 +278,7 @@ fn build_choice(
 /// The dialog's template side: answers `TemplateGalleryModel`'s callbacks. One per window,
 /// shared by the callback closures.
 pub(in crate::gui::editor) struct GalleryDialog {
-    /// For the custom materials the combo lists after the built-in ones.
+    /// Source of the custom materials the material combo lists.
     render_ctx: Arc<Mutex<RenderContext>>,
     /// The thumbnail worker, started the first time the dialog opens.
     thumbnails: OnceCell<thumbnails::Thumbnails>,

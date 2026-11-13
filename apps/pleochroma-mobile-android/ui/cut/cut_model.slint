@@ -2,7 +2,7 @@
 //
 // Direction rule (as in `models.slint`): Rust -> Slint is properties (`in`, or `in-out`
 // when the UI also writes them), Slint -> Rust is callbacks. The `mode-*` members belong
-// to Cutting Mode (`cutting_mode.slint`, lane M3-b); the rest to the Cut page.
+// to Cutting Mode (`cutting_mode.slint`); the rest to the Cut page.
 //
 // This file must not import `theme.slint` (nothing here draws).
 
@@ -67,7 +67,7 @@ export global CutModel {
     callback reset-progress();
 
     // ---- Cutting Mode ----
-    // The lead shows `CuttingModeScreen` over everything while this is true.
+    // `app.slint` shows `CuttingModeScreen` over everything while this is true.
     in-out property <bool> mode-open: false;
     // The step on screen, from 0, and how many there are.
     in property <int> mode-step: 0;

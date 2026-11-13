@@ -1,13 +1,11 @@
-//! The PLAN worker's own half of a replan: [`build_planned_frame`] (the only
-//! function that ever calls the potentially multi-second `live_update::
-//! plan_preview`), plus the [`super::SolidPreviewState`] methods that spawn and
-//! feed that worker thread. See the parent module's doc comment ("Two workers:
-//! planning vs. rendering") for why this is split from the RENDER worker.
+//! The plan worker thread of the solid preview.
 //!
-//! The planner itself moved to `pleochroma_solid::preview::build_planned_frame`
-//! (shared with the web app, which runs it on its main thread with a
-//! `performance.now()` clock); [`build_planned_frame`] here is the thin wrapper
-//! passing this desktop's `Instant`-backed clock.
+//! It holds [`build_planned_frame`], the only caller of the multi-second
+//! `live_update::plan_preview`, and the [`super::SolidPreviewState`] methods that spawn and
+//! feed this thread. See the parent module for why it is separate from the render worker.
+//!
+//! The planner is `pleochroma_solid::preview::build_planned_frame`, shared with the web app.
+//! [`build_planned_frame`] here passes the desktop's `Instant`-based clock.
 
 use super::{
     RedrawGate, SolidPreviewState,
@@ -200,12 +198,9 @@ pub fn build_planned_frame(job: PlanJob, budget: std::time::Duration) -> Planned
 }
 
 impl SolidPreviewState {
-    /// [`super::SolidPreviewState::submit`]'s counterpart for the PLAN worker: lazily spawns it, then
-    /// pushes `job` through `self.plan_gate` (coalescing
-    /// exactly like a `Reproject`/overlay update -- a burst of edits against a
-    /// slow design collapses to "whichever solve is running, then the latest one
-    /// queued behind it," never a pile of concurrent solves) and wakes it if this
-    /// call won the race.
+    /// The PLAN worker's counterpart of [`super::SolidPreviewState::submit`]: lazily spawns
+    /// the worker, then pushes `job` through `self.plan_gate` and wakes it if this call won
+    /// the race. A burst of edits collapses to the running solve plus the latest queued one.
     pub(super) fn submit_plan(&self, job: PlanJob) {
         let tx = {
             let mut guard = self
@@ -224,13 +219,11 @@ impl SolidPreviewState {
         }
     }
 
-    /// Spawns the PLAN worker thread. Called at most once, guarded by `plan_wake`.
-    /// This is the only thread that calls [`build_planned_frame`], so render
-    /// requests never block on slow solves.
+    /// Spawns the PLAN worker thread. Called at most once, guarded by `plan_wake`. This is the
+    /// only thread that calls [`build_planned_frame`], so render requests never wait on a solve.
     ///
-    /// Hands each finished [`PlannedFrame`] to the RENDER worker through
-    /// [`super::SolidPreviewState::submit`] via `self_weak` -- see that field's own doc comment for
-    /// why a weak handle rather than capturing `self` directly.
+    /// Each finished [`PlannedFrame`] goes to the RENDER worker through
+    /// [`super::SolidPreviewState::submit`], reached via `self_weak`.
     fn spawn_plan_worker(&self) -> Sender<()> {
         let (tx, rx) = mpsc::channel::<()>();
         let plan_gate = Arc::clone(&self.plan_gate);

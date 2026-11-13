@@ -52,11 +52,9 @@ struct Junction {
 /// points within it are one junction and a plane within it belongs to the junction.
 ///
 /// The reproduction bar stays `2e-6` of the stone. `GemCad` 4.x files carry 5-decimal masts
-/// whose meets miss by `2e-6 .. 2e-5` of the stone (`shah.asc`; `texasstar`, `trichecker12`
-/// and `forfun` written by `GemCad` 5 stay below `2e-7` in `f64` and below `2e-6` in `f32`);
-/// identifying at the reproduction bar split those meets or refused 54 of the first 100
-/// library designs (census 2026-10-20). `5e-5` is the meet solver's own incidence scale,
-/// 0.5 micrometres on a 10 mm stone.
+/// whose meets miss by `2e-6 .. 2e-5` of the stone; identifying at the reproduction bar
+/// split those meets or refused 54 of the first 100 library designs. `5e-5` is the meet
+/// solver's own incidence scale, 0.5 micrometres on a 10 mm stone.
 const IDENTIFY: f64 = 5e-5;
 
 /// Immutable, operation-start geometry. Uses production f32-converted planes and mesh rings.
@@ -396,7 +394,7 @@ impl MeetPreservationBaseline {
     ///
     /// `turn` has one tangent change per tier ([`super::tangent_changes`]); the reaches were
     /// read by [`Self::capture`] in the original solved geometry. A tier whose reach could not
-    /// be read is granted the owner's fallback, half the stone's length. Pure arithmetic: the
+    /// be read is granted a fallback of half the stone's length. Pure arithmetic: the
     /// fallback grants are counted by [`Self::turn_allowance`].
     pub(crate) fn turn_travel(&self, turn: &[f64]) -> f64 {
         let half_length = 0.5 * self.shape.aspect * self.width;

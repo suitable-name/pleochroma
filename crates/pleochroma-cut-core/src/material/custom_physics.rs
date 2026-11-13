@@ -2,13 +2,12 @@
 //! per-axis dispersion curves, the oriented inclusion families and the play-of-color structure.
 //!
 //! `pleochroma-vault` keeps all three as opaque text columns (`per_axis_dispersion_json`,
-//! `inclusion_families_json`, `structure_json`); this module is the one place their spelling is
-//! written down, shared by the desktop editor, the command line and the design file's material
-//! snapshot. Every reader is lenient in the way [`super::absorption_bands_from_json`] is: text
-//! that is blank, malformed or describes something the renderer cannot use reads as `None`, and
-//! the caller then builds the material exactly as it did before the column existed. One biaxial
-//! curve without the other is ignored, and a pair that crosses the base (beta) curve inside
-//! 380-780 nm is ignored too.
+//! `inclusion_families_json`, `structure_json`). This module is the one place their format is
+//! defined, shared by the desktop editor, the command line and the design file's material
+//! snapshot. Readers are lenient like [`super::absorption_bands_from_json`]: text that is
+//! blank, malformed or unusable by the renderer reads as `None`, and the material is then
+//! built without that data. One biaxial curve without the other is ignored, and a pair that
+//! crosses the base (beta) curve inside 380-780 nm is ignored too.
 
 use crate::{
     crystal_axis::CrystalOrientation,
@@ -291,26 +290,26 @@ pub fn biaxial_curves_are_ordered(
 /// `material` with the render-physics data of a custom material applied: the per-axis curves,
 /// then the inclusion families resolved into the material's own crystal frame.
 ///
-/// This is the one place a stored custom material's curves and families reach the stone, shared
-/// by the library row ([`super::LibraryMaterial::gem_material`]) and a design file's snapshot,
-/// so both build the same stone. Call it AFTER the default orientation has been baked in
+/// This is the one place a stored custom material's curves and families reach the stone. The
+/// library row ([`super::LibraryMaterial::gem_material`]) and a design file's snapshot both
+/// call it, so they build the same stone. Call it after the default orientation is baked in
 /// ([`super::with_default_orientation`]): the families live in that frame, whose second
 /// direction is the biaxial `alpha_axis` or, for a uniaxial stone, the stored Second Axis of
 /// `orientation` (the Silk Turn).
 ///
-/// Each curve is applied only to the optical character that reads it (the extraordinary curve to
-/// a uniaxial stone, the `n_alpha`/`n_gamma` pair to a biaxial one), so a leftover curve of a
-/// material switched to another character never reaches the optics. Nothing to apply returns the
-/// material untouched.
+/// Each curve applies only to the optical character that reads it (the extraordinary curve to
+/// a uniaxial stone, the `n_alpha`/`n_gamma` pair to a biaxial one), so a leftover curve after
+/// a change of character never reaches the optics. Nothing to apply returns the material
+/// unchanged.
 ///
-/// One biaxial curve without the other is ignored (the readers already refuse it); a pair that
+/// One biaxial curve without the other is ignored (the readers already refuse it). A pair that
 /// crosses the base curve inside the visible band, or touches it, is ignored too (see
-/// [`biaxial_curves_are_ordered`]). The achromatic `n_alpha`/`n_gamma` spreads then apply.
+/// [`biaxial_curves_are_ordered`]). The achromatic `n_alpha`/`n_gamma` spreads still apply.
 ///
-/// The families are resolved in the frame the material has HERE. A design's own Crystal Axis does
-/// not change them in this function, but the render setup turns them afterwards: when the design's
-/// axis moves the material's, `render_setup::apply_material_overrides_with_inclusions` rebases the
-/// resolved families into the new frame, so they follow the stone's axes.
+/// The families resolve in the frame the material has here. A design's Crystal Axis does not
+/// change them in this function. The render setup rebases them afterwards when the axis moves
+/// the material's (`render_setup::apply_material_overrides_with_inclusions`), so they follow the
+/// stone's axes.
 #[must_use]
 pub fn with_custom_physics(
     mut material: GemMaterial,

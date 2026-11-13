@@ -81,9 +81,9 @@ fn frame_hashes(pipeline: &PreviewPipeline, frame: &super::RenderedFrame) -> [u6
     ]
 }
 
-/// Golden hashes of [`concave_fixture`] for the three standard views, per
-/// [`CONCAVE_VIEWS`]. Like the planar pins they hold the platform math library's bits,
-/// so they are only compared on Windows; `None` until they are recorded there.
+/// Golden hashes of [`concave_fixture`] per view in [`CONCAVE_VIEWS`]. Like the planar
+/// pins they hold platform math-library bits, so they are compared only on Windows.
+/// `None` means not recorded yet, so nothing is compared.
 const CONCAVE_PINS: Option<[[u64; 4]; 3]> = None;
 
 /// The three standard views: Solid, the three-panel Diagram and a square Diagram

@@ -26,11 +26,10 @@ impl DatasetSplit {
     }
 
     /// Field-level corpus identity for recovery: every sampling-relevant input under a stable
-    /// field name. Skipped records are identified by position and title only. Why a record was
-    /// skipped is message text, so a reworded or reclassified reason cannot strand a run, while a
-    /// record that starts or stops loading still changes `records`. The parsed design and the
-    /// authored material are compared through digests of their complete parsed values; the
-    /// provenance flag `physical_size_augmented` is reporting metadata and is left out.
+    /// field name. Skipped records count by position and title only, so a reworded skip reason
+    /// keeps a run valid, while a record that starts or stops loading changes `records`. Designs
+    /// and authored materials are compared by digest; `physical_size_augmented` is reporting
+    /// metadata and is excluded.
     #[must_use]
     pub fn semantic_identity_fields(&self) -> BTreeMap<String, String> {
         let list = |indices: &[usize]| {
@@ -166,7 +165,7 @@ mod tests {
     fn corpus_identity_keeps_the_legacy_debug_wire_shape() {
         let split = DatasetSplit::fixture();
         let entry = &split.entries[0];
-        // Spell out the pre-provenance layout rather than deriving it from the new entry.
+        // Spell out the layout without provenance rather than deriving it from the entry.
         let legacy_entry = format!(
             "DesignEntry {{ id: {:?}, title: {:?}, filename: {:?}, design: {:?}, authored_material: {:?} }}",
             entry.id, entry.title, entry.filename, entry.design, entry.authored_material,

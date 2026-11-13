@@ -37,23 +37,11 @@ impl StokesVector {
         Vec4::new(self.i, self.q, self.u, self.v)
     }
 
-    /// Not `const fn`, and cannot be on this workspace's primary target -- see the
-    /// `cfg_attr` below.
+    /// Not `const fn`: glam's `Vec4` is reached through a `Deref` on `x86_64`, which a const
+    /// fn cannot use (E0015). Only glam's wasm32 scalar layout is const-eligible.
     #[must_use]
-    // `missing_const_for_fn` fires ONLY under `target_arch = "wasm32"`, and taking its
-    // advice would break every other target. glam picks its `Vec4` representation per
-    // architecture: on `x86_64` it is a SIMD vector whose `.x`/`.y`/`.z`/`.w` are reached
-    // through a `Deref` to a scalar struct, and `cannot perform non-const deref coercion
-    // on Vec4 in constant functions` (E0015) is a hard compile error -- verified, 5
-    // instances, one per field access plus the call. On `wasm32` glam falls back to a
-    // plain scalar struct with real fields, no deref, so the same body IS const-eligible
-    // and clippy notices.
-    //
-    // So this is a genuine target-dependent divergence in a dependency's type layout, not
-    // a missed `const`. Marking it `const` for wasm only would mean `cfg`-duplicating the
-    // whole function to satisfy a lint about a two-line constructor -- strictly worse than
-    // one narrowly-scoped, explained suppression. Same situation `simd::detect_level`
-    // already documents for its own `x86_64`-gated branches.
+    // `missing_const_for_fn` fires only under `target_arch = "wasm32"`. A `const` body there
+    // would need a `cfg`-duplicated function, so the lint is allowed for that target alone.
     #[cfg_attr(
         target_arch = "wasm32",
         allow(
@@ -117,23 +105,13 @@ impl StokesVector {
 pub struct MuellerMatrix;
 
 impl MuellerMatrix {
-    /// Frame rotation operator R(psi) to align reference plane of incidence between consecutive facet bounces.
+    /// Frame rotation R(psi): rotates the (Q, U) plane of a Stokes vector by `2 psi`, aligning
+    /// the reference plane of incidence between consecutive facet bounces.
     ///
-    /// `glam::Mat4::from_cols_array` reads its flat argument as COLUMN-major
-    /// (four consecutive elements = one column), but the array below was written out
-    /// textbook ROW-major (`[[1,0,0,0],[0,c2,s2,0],[0,-s2,c2,0],[0,0,0,1]]`, read row by
-    /// row). Feeding a row-major layout to a column-major constructor builds the
-    /// TRANSPOSE of the intended matrix -- i.e. `R(-psi)` instead of `R(psi)`, since a
-    /// 2D rotation's transpose is its inverse. This was invisible to every existing
-    /// test because the affected 2x2 rotation block only ever appears sandwiched
-    /// between Fresnel matrices (symmetric, so transpose-invariant) and the TIR
-    /// retarder (sign-symmetric in this same way, so the chain's net effect on
-    /// intensity is unchanged either way) -- so `I` transport was exactly unaffected.
-    /// It is NOT invisible to `polarization_azimuth`/`electric_field_direction`, which
-    /// read the rotated Q/U components directly to recover which way the electric
-    /// field itself points: with the transpose, that reconstructed field is mirrored
-    /// about the propagation axis relative to the physically correct one. See
-    /// `polarization_tests::frame_rotation_round_trip_recovers_the_original_field_direction`.
+    /// `Mat4::from_cols_array` reads the array column by column, so the array lists the
+    /// columns of `[[1,0,0,0],[0,c,s,0],[0,-s,c,0],[0,0,0,1]]` with `c = cos(2 psi)` and
+    /// `s = sin(2 psi)`. Its transpose is R(-psi), which would mirror the field decoded by
+    /// `electric_field_direction`; see `frame_rotation_tests` for the round trip.
     #[must_use]
     pub fn frame_rotation(psi: f32) -> Mat4 {
         let c2 = (2.0 * psi).cos();
@@ -337,14 +315,10 @@ mod electric_field_direction_tests {
 mod frame_rotation_tests {
     use super::*;
 
-    /// `MuellerMatrix::frame_rotation(psi)` transforms a Stokes vector out of a
-    /// reference frame into a SECOND frame whose axis is the first rotated by `+psi`
-    /// about the propagation direction -- so decoding the rotated Stokes vector against
-    /// that second (equally rotated) axis must recover exactly the ORIGINAL, physically
-    /// unchanged electric-field direction. This is precisely the round trip the
-    /// pre-fix transposed matrix broke: light polarized along the original `s_axis`,
-    /// with the frame then rotated +30 degrees, reconstructed the MIRROR field
-    /// (effectively `2*psi` away) instead of the true, unrotated field direction.
+    /// `MuellerMatrix::frame_rotation(psi)` maps a Stokes vector into a frame rotated by
+    /// `+psi` about the propagation direction, so decoding it against that rotated axis must
+    /// recover the original, unchanged field direction. A transposed matrix would instead
+    /// reconstruct the mirror field, about `2 psi` away.
     #[test]
     fn frame_rotation_round_trip_recovers_the_original_field_direction() {
         let k_hat = Vec3::new(0.3, 0.5, 0.81).normalize();
@@ -382,19 +356,10 @@ mod fresnel_tir_pleochroism_sign_convention_tests {
     use super::*;
     use crate::optics::birefringence::AbsorptionTensor3;
 
-    /// `MuellerMatrix::fresnel_reflection`'s own doc comment states its sign convention
-    /// directly: "Q=+1 IS the `s_axis` direction". This test pins that claim against BOTH
-    /// halves of the pipeline that convention has to survive intact through: reflecting a
-    /// purely s- (then p-) polarized wave off a dielectric interface and decoding the
-    /// result back to a world-space field direction via `electric_field_direction` must
-    /// reconstruct `s_axis` (resp. `p_axis`) -- AND, since a strongly dichroic material's
-    /// absorption depends on that exact same reconstructed direction
-    /// (`birefringence::AbsorptionTensor3::quadratic_form`), setting the tensor's c-axis
-    /// to `s_axis` itself must make the s-polarized reflection read the EXTRAORDINARY
-    /// coefficient and the p-polarized reflection read the ORDINARY one. A convention
-    /// mismatch between the Fresnel matrices and the pleochroism tensor -- even if each
-    /// were self-consistent on its own -- would show up here as reading the wrong
-    /// principal coefficient, not merely the wrong axis label.
+    /// `MuellerMatrix::fresnel_reflection` takes Q=+1 as the `s_axis` direction. This checks
+    /// that the reflected field decodes to `s_axis` / `p_axis`, and that a dichroic tensor
+    /// with its c-axis on `s_axis` reads the extraordinary coefficient for s and the ordinary
+    /// one for p. A convention mismatch shows up as the wrong principal coefficient.
     #[test]
     fn fresnel_reflection_sign_convention_agrees_with_pleochroic_axis_convention() {
         let s_axis = Vec3::X;
@@ -504,33 +469,14 @@ mod fresnel_tir_pleochroism_sign_convention_tests {
         }
     }
 
-    /// `tir_retardation`'s U-V handedness was pinned only by the
-    /// degree-of-polarization test above, which is invariant under the SIGN of
-    /// `delta` (and so cannot catch a future convention flip, e.g. accidentally
-    /// negating `delta` or swapping the `sin_d`/`-sin_d` placement in the matrix
-    /// literal). Pins it instead with a physical Fresnel rhomb: two total-internal-
-    /// reflection bounces at `n=1.51`, `i=54.62deg` -- the classic BK7-glass rhomb
-    /// design -- each contribute a retardation `delta` from the crate's own
-    /// `tir_phase_delta` (`tan(delta/2) = cos_i*sqrt(n^2*sin_i^2 - 1)/(n*sin_i^2)`,
-    /// called directly here rather than reimplemented, so this test tracks the real
-    /// production formula) that comes out to ~45 degrees, so two bounces sum to a
-    /// 90-degree quarter-wave retardation and must turn +45-degree linear light
-    /// circular.
+    /// Pins the U-V handedness of `tir_retardation`, which the degree-of-polarization test
+    /// cannot (it is invariant under the sign of `delta`). Two TIR bounces at `n = 1.51`,
+    /// `i = 54.62 deg` (the classic BK7 Fresnel rhomb) each give a retardation of about 45
+    /// degrees from `tir_phase_delta`, so the pair is a quarter-wave retarder.
     ///
-    /// `tir_retardation(delta)`'s matrix (see its own doc comment / the
-    /// `from_cols_array` column-major layout worked out there) applies
-    /// `U' = cos(delta)*U + sin(delta)*V`, `V' = -sin(delta)*U + cos(delta)*V` to an
-    /// incoming `(Q=0, U=1, V=0)` state. Working that through two applications with
-    /// `delta ~= 45deg` (so `2*delta ~= 90deg`) gives `U'' = cos(2*delta) ~= 0`,
-    /// `V'' = -sin(2*delta) ~= -1` -- i.e. under this crate's convention a +45-degree
-    /// linear Fresnel rhomb comes out LEFT circular (`V = -1`), not right circular.
-    /// That sign (verified numerically below, not just algebraically) is the pin: a
-    /// future change to the retarder convention that flips it should fail this test.
-    ///
-    /// A second rhomb (four TIR bounces total, `4*delta ~= 180deg`, a half-wave
-    /// retardation) must then rotate the linear axis by 90 degrees, returning -45-
-    /// degree linear light (`U ~= -1`, `V ~= 0`) -- the standard double-Fresnel-rhomb
-    /// polarization rotator.
+    /// With `U' = cos(delta) U + sin(delta) V` and `V' = -sin(delta) U + cos(delta) V`, +45
+    /// degree linear light becomes left circular (`V = -1`) after one rhomb. A second rhomb
+    /// is a half-wave retarder that returns -45 degree linear light (`U = -1`).
     #[test]
     fn tir_retardation_fresnel_rhomb_pins_circular_handedness() {
         let n = 1.51_f32;

@@ -21,13 +21,8 @@ pub enum EncodeOutcome {
     Mp4(PathBuf),
     Gif {
         path: PathBuf,
-        /// `None` when ffmpeg was simply never found on `PATH` (the common,
-        /// unremarkable reason this fallback ran at all); `Some(reason)` when
-        /// ffmpeg WAS found but [`mux_mp4`] itself failed (stderr-augmented, see
-        /// [`last_stderr_line`]) -- so the caller's status message can say what
-        /// actually went wrong instead of always blaming a missing ffmpeg even
-        /// when one was found and failed for some other reason (an odd
-        /// dimension, an unsupported codec, a permissions error).
+        /// `None` when ffmpeg is not on `PATH`; `Some(reason)` when it was found but [`mux_mp4`]
+        /// failed, so the status message can name the actual failure (see [`last_stderr_line`]).
         mp4_failure_reason: Option<String>,
     },
     FramesOnly {
@@ -35,9 +30,8 @@ pub enum EncodeOutcome {
     },
 }
 
-/// Whether an `ffmpeg` executable answers on `PATH` -- probed by actually trying to run
-/// it (`-version`) rather than walking `PATH` by hand, so this behaves identically on
-/// Windows (`ffmpeg.exe`) and Unix without platform-specific path-joining.
+/// Whether an `ffmpeg` executable runs. Probed by running `-version`, which behaves the same on
+/// Windows and Unix without walking `PATH` by hand.
 #[must_use]
 pub fn ffmpeg_available() -> bool {
     Command::new("ffmpeg")
@@ -61,12 +55,10 @@ pub fn ffmpeg_command_line(digits: usize, fps: u32, out_name: &str) -> String {
 
 /// Muxes the PNG sequence in `frame_dir` (named `frame_%0{digits}d.png`, see
 /// `params::frame_file_name`) into an H.264 MP4 at `fps`, written to `out_path`.
-/// Writes to a `.partial` sibling first and renames on success only, so a run that
-/// fails partway through (or is killed) never leaves a broken/incomplete file at the
-/// final `.mp4` name. ffmpeg chooses the container from the output file's extension and
-/// knows no `.partial`, so the container is named with `-f mp4`; without it every run
-/// failed with "Error opening output files: Invalid argument" (exit -22, EINVAL) and the
-/// export fell back to a GIF.
+///
+/// Writes to a `.partial` sibling first and renames on success only, so a failed or killed run
+/// never leaves an incomplete file at the final `.mp4` name. ffmpeg picks the container from the
+/// extension and does not know `.partial`, so the format is given explicitly with `-f mp4`.
 ///
 /// # Errors
 ///
@@ -75,10 +67,8 @@ pub fn ffmpeg_command_line(digits: usize, fps: u32, out_name: &str) -> String {
 pub fn mux_mp4(frame_dir: &Path, digits: usize, fps: u32, out_path: &Path) -> Result<(), String> {
     let partial = out_path.with_extension("mp4.partial");
     let pattern = format!("frame_%0{digits}d.png");
-    // `.output()`, not `.status()`, and stderr `piped()` rather than `null()`: ffmpeg's
-    // own diagnostic (the actual codec/pixel-format/permissions reason a mux failed)
-    // goes to stderr, and a bare exit status told a cutter reading the fallback
-    // warning/toast nothing actionable -- see `last_stderr_line`'s own doc comment.
+    // `.output()` with stderr piped keeps ffmpeg's own diagnostic, the actual reason a mux
+    // failed (see `last_stderr_line`).
     let output = Command::new("ffmpeg")
         .current_dir(frame_dir)
         .arg("-y")

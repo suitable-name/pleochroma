@@ -1,9 +1,9 @@
 // ---------------------------------------------------------------------------------
-// P1 (assigned-mode absorption): optics::birefringence::assigned_mode_alpha, combined
-// with assigned_mode_e_field_uniaxial / BiaxialIndicatrix::assigned_mode_e_field via
-// transport_physics.wgsl's assigned_mode_alpha_uniaxial / assigned_mode_alpha_biaxial --
-// see renderer::gpu::transport_check::absorption_pleochroism / eigenmodes_biaxial for the
-// CPU-side runners these compare against.
+// Assigned-mode absorption: `optics::birefringence::assigned_mode_alpha`, combined with
+// `assigned_mode_e_field_uniaxial` / `BiaxialIndicatrix::assigned_mode_e_field`, via the
+// `transport_physics.wgsl` functions `assigned_mode_alpha_uniaxial` and
+// `assigned_mode_alpha_biaxial`. The CPU runners are in
+// `renderer::gpu::transport_check::{absorption_pleochroism, eigenmodes_biaxial}`.
 // ---------------------------------------------------------------------------------
 
 struct AssignedModeAlphaUniaxialCase {

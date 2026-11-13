@@ -2,11 +2,11 @@
 //! page for what the main window shows.
 //!
 //! The window has no single "focused panel" the program could ask, and a key press inside a
-//! text field must not depend on which widget happens to hold the focus. So the page follows
-//! what is on screen: the library's tab, the Live Render / Edit pill and, in the editor, the
-//! open inspector tab. An open Parameters panel wins on the 3D Spectral Preview tab, because it is
-//! what the person is looking at. [`context_topic`] is the whole rule and a pure function of those
-//! facts, so a test can pin it. Anything it does not know opens the contents page.
+//! text field must not depend on which widget holds the focus. So the page follows what is
+//! on screen: the library's tab, the Live Render / Edit pill and, in the editor, the open
+//! inspector tab. An open Parameters panel wins on the 3D Spectral Preview tab, since it is
+//! what the person is looking at. [`context_topic`] is the whole rule, a pure function of
+//! those facts, so a test can pin it. Anything it does not know opens the contents page.
 
 use slint::ComponentHandle;
 

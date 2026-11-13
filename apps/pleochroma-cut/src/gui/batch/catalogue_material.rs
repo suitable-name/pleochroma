@@ -13,7 +13,7 @@
 //!    OVERWRITING (the file is the authority).
 //! 2. Otherwise -- no name, or a name that resolves nowhere (the viewport would refuse
 //!    such a design; a batch has to render SOMETHING) -- the refractive-index pick of
-//!    `super::material_choice::ensure_balanced_material`, unchanged and write-once.
+//!    `super::material_choice::ensure_balanced_material`, written once.
 //! 3. Either way the material is SIZED by the design's girdle diameter
 //!    (`pleochroma::render_setup::material_for_stone`; `0.0` is "not set", the 7 mm
 //!    calibration), measured on the design's whole plane list, preform planes included,
@@ -105,7 +105,7 @@ pub fn design_file_material(
 /// (`Database::clear_design_preview_material`), and only the size is recorded beside it.
 ///
 /// `Ok(None)` when the refractive-index pick finds nothing that fits (no candidates, or
-/// the persisted name is not a built-in material), as before.
+/// the persisted name is not a built-in material).
 ///
 /// # Errors
 ///
@@ -440,10 +440,9 @@ mod tests {
         );
     }
 
-    /// A design that names no material falls back to the refractive-index pick, unsized,
-    /// exactly as the batches resolved every design before: the persisted name, the
-    /// material and the width are what `ensure_balanced_material` and `material_for_stone`
-    /// at width 0 gave.
+    /// A design that names no material falls back to the refractive-index pick, unsized:
+    /// the persisted name, material and width are those of `ensure_balanced_material` and
+    /// `material_for_stone` at width 0.
     #[test]
     fn a_design_without_a_material_name_keeps_the_refractive_index_pick() {
         let (db, entry_id) = db_with_one_entry();
@@ -491,9 +490,8 @@ mod tests {
         assert_eq!(again.name, got.name);
     }
 
-    /// Acceptance 4 / 3: a design file that sets no Crystal Axis gets the very material the
-    /// plain size rule gives (a Tourmaline stays at its built-in axis, byte for byte); a file
-    /// that sets one orients the thumbnail's stone with it.
+    /// A design file that sets no Crystal Axis gets the plain size rule's material unchanged
+    /// (a Tourmaline keeps its built-in axis); one that sets an axis orients the stone with it.
     #[test]
     fn a_design_files_crystal_axis_orients_its_thumbnail_material() {
         let (db, entry_id) = db_with_one_entry();

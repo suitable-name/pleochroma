@@ -7,7 +7,7 @@
 use glam::Vec3;
 
 /// A ray with an origin and a direction.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Ray {
     /// Ray origin.
     pub origin: Vec3,
@@ -26,31 +26,21 @@ pub struct HitRecord {
     pub facet_idx: usize,
 }
 
-/// Girdle finish: a facet's surface finish.
+/// A facet's surface finish, looked up per hit via `HitRecord::facet_idx` in a slice
+/// parallel to the facet planes.
 ///
-/// Looked up per-hit via `HitRecord::facet_idx` into a `&[FacetFinish]` slice parallel to
-/// `&[GpuFacetPlane]` (not a new field on `GpuFacetPlane` itself, to avoid disturbing that
-/// struct's byte layout, its GPU echo test, or the Tier 2 `intersect_polyhedron` kernel
-/// that reads it -- none of which need to know about finish at all). See
-/// `apply_frosted_bounce`'s doc comment for what `Frosted` actually models, and
-/// `trace_spectral_ray_with_finish`'s doc comment for why this is a distinct CPU entry
-/// point from `trace_spectral_ray` rather than a new parameter on it.
+/// It is a separate slice rather than a field on `GpuFacetPlane`, so that struct's byte
+/// layout and the GPU intersection kernel stay unchanged. See `apply_frosted_bounce` for what
+/// `Frosted` models, and `trace_spectral_ray_with_finish` for why it has its own entry point.
 ///
-/// The GPU megakernel has a full frosted-finish counterpart, not merely a Tier 2
-/// self-test: `renderer::gpu::frame::TransportScene::facet_finishes` accepts a
-/// `&[FacetFinish]` slice exactly like this one, `renderer::buffers::encode_facet_finishes`
-/// packs it into the same `facet_finishes` GPU buffer `shaders/spectral_transport.wgsl`
-/// reads (binding 8), and that kernel routes a `Frosted` hit through a bit-for-bit WGSL
-/// translation of `apply_frosted_bounce` (in `shaders/transport_physics.wgsl`) instead of
-/// the polished TIR/reflect/refract dispatch -- verified against this real CPU function by
-/// `renderer::gpu::transport_check`'s Tier 2 `run_frosted_bounce` self-test. Unlike biaxial
-/// materials (`GemMaterial::gpu_supported`), which remain a genuine CPU-only restriction,
-/// `FacetFinish::Frosted` is not missing anything on the GPU side.
+/// The GPU megakernel handles `Frosted` too: `apply_frosted_bounce` has a WGSL translation in
+/// `shaders/transport_physics/03_dispersion_absorption_frosted.wgsl`, checked against the CPU
+/// function by the Tier 2 `run_frosted_bounce` self-test. Biaxial materials
+/// (`GemMaterial::gpu_supported`) are the CPU-only case, not frosted facets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FacetFinish {
-    /// A smooth optical interface: the existing Dirac-delta specular Fresnel machinery,
-    /// completely unchanged. Every scene rendered before girdle finish was added (and every scene calling
-    /// the unmodified `trace_spectral_ray`) is implicitly all-`Polished`.
+    /// A smooth optical interface: specular Dirac-delta Fresnel. Scenes that call the
+    /// unmodified `trace_spectral_ray` are all `Polished`.
     #[default]
     Polished,
     /// A ground/lapped ("bruted") surface: diffusely scattering rather than mirror-like.
@@ -103,7 +93,8 @@ pub struct Camera {
 }
 
 impl Camera {
-    /// Builds an orbit camera from yaw, pitch, distance to the origin and vertical field of view in degrees.
+    /// Builds an orbit camera from yaw and pitch in radians, distance in scene units and
+    /// vertical field of view in degrees.
     #[must_use]
     pub fn new(yaw: f32, pitch: f32, distance: f32, fov_deg: f32) -> Self {
         let cos_p = pitch.cos();
@@ -119,14 +110,11 @@ impl Camera {
         );
 
         let forward = (-origin).normalize();
-        // Past +/-90 deg of pitch the camera is over the pole and `+Y` would flip
-        // `right`; using `-Y` there keeps `right = (cos_yaw, 0, -sin_yaw)` continuous
-        // through the pole, so a free orbit never mirrors the image. Exactly at the
-        // pole the cross product degenerates, so `right` is that same yaw circle's
-        // tangent (signed by the pole): the Top and Bottom views turn with the yaw like
-        // every other view, which Turn 90 and a sideways drag rely on. At yaw 0 this is
-        // the fixed orientation the batch previews' top view always had (`forward x -Z`).
-        // `cos_p > 0` is bit-identical to before.
+        // Past +/-90 deg of pitch the camera is over the pole, so `world_up` flips to `-Y`
+        // to keep `right = (cos_yaw, 0, -sin_yaw)` continuous and the image unmirrored.
+        // Exactly at the pole the cross product degenerates; `right` then follows the yaw
+        // circle's tangent (signed by the pole), so the Top and Bottom views turn with yaw
+        // like every other view. At yaw 0 this equals `forward x -Z`.
         let right = if cos_p.abs() < 1e-4 {
             Vec3::new(cos_y, 0.0, -sin_y) * sin_p.signum()
         } else {
@@ -227,8 +215,8 @@ mod tests {
     }
 
     /// Exactly at the pole the picture turns with the yaw (a quarter turn of yaw is a
-    /// quarter turn of the image), matches the view just short of the pole, and keeps
-    /// the yaw-0 orientation the top-view previews have always used.
+    /// quarter turn of the image), matches the view just short of the pole, and keeps the
+    /// yaw-0 orientation of the top view.
     #[test]
     fn the_pole_views_turn_with_the_yaw() {
         for pitch in [FRAC_PI_2, -FRAC_PI_2] {

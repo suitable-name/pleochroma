@@ -89,8 +89,8 @@ pub enum PinCheck {
 /// Decides a Pin of `tier`.
 ///
 /// The result must still describe the design (`shown` is the generation it was computed for
-/// or last pinned at, `current` the design's now) and name the tier. The verdict itself is not consulted, as on the desktop: a Pin is the cutter's
-/// own opt-in.
+/// or last pinned at, `current` the design's now) and name the tier. The verdict is not
+/// consulted, as on the desktop: a Pin is the cutter's own opt-in.
 #[must_use]
 pub fn pin_check(
     shown: Option<u64>,
@@ -194,7 +194,7 @@ mod tests {
             &empty_design(),
             false,
         );
-        assert!(summary.rows.is_empty());
+        assert_eq!(summary.rows, [] as [RowEntry; 0]);
         assert!(
             summary
                 .status

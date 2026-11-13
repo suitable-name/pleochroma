@@ -6,9 +6,8 @@
 
 use glam::Vec3;
 
-/// Minimal complex-number type (this crate has no `num-complex` dependency, and the
-/// WGSL mirror needs the exact same explicit re/im arithmetic -- a `vec2<f32>`-based
-/// complex type there, hand-written `add`/`mul`/`div`/`sqrt`, exactly mirrors this).
+/// Minimal complex number. Hand-written so the WGSL `vec2<f32>` mirror can match it
+/// operation for operation.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Cplx {
     pub re: f32,
@@ -68,13 +67,8 @@ impl Cplx {
         self.im.mul_add(self.im, self.re * self.re)
     }
 
-    /// Complex division. Guards an exactly-zero divisor (never expected on any path
-    /// this module's callers reach -- the boundary-matching determinant is bounded
-    /// away from zero for every physical `(n_o, n_e, c_axis, angle)` combination this
-    /// crate's built-in materials exercise -- see the k-parallel-c degenerate case's own
-    /// dedicated fallback in [`entry_solve`](super::entry_solve)/
-    /// [`internal_solve`](super::internal_solve)) with a `1e-20` floor on the
-    /// denominator's magnitude rather than panicking or producing NaN.
+    /// Complex division. The squared divisor magnitude is floored at `1e-20`, so a zero
+    /// divisor gives a finite result instead of NaN.
     #[inline]
     pub(crate) fn div(self, o: Self) -> Self {
         let denom = o.im.mul_add(o.im, o.re * o.re).max(1e-20);
@@ -84,33 +78,29 @@ impl Cplx {
         }
     }
 
-    /// Principal-branch complex square root, with the branch cut chosen so a root fed
-    /// a NEGATIVE real input (the evanescent/TIR case) comes back with `im > 0` --
-    /// i.e. `exp(i*q*z)` decays (rather than grows) as `z -> +infinity`, matching this
-    /// module's `zhat` = "forward, away from the interface" convention.
+    /// Principal square root with the branch chosen so a negative real input returns
+    /// `im > 0`: the evanescent root then decays as `z -> +infinity`, matching the
+    /// forward `zhat` convention.
     ///
-    /// GPU-parity fix: a PURE negative-real input (`im == 0.0` exactly -- the common
-    /// case at ordinary-mode internal TIR, where `qo2 = Cplx::re(n_o2 - k2)` is always
-    /// constructed with `im` exactly `0.0`) makes `theta = atan2(0.0, re) * 0.5` land
-    /// at EXACTLY `pi/2`, where `out.re = r * cos(theta)` is a near-zero value whose
-    /// SIGN is pure floating-point rounding noise on `cos` of the nearest
-    /// representable `pi/2` -- not a meaningful quantity. The `out.re < 0.0`
-    /// branch-cut check below then silently follows that noise, which can pick the
-    /// WRONG (`im < 0`) branch, violating this function's own contract above, and
-    /// diverges between platforms whose `atan2`/`cos` implementations round that noise
-    /// differently (this is what made `shaders/transport_physics.wgsl`'s WGSL mirror
-    /// disagree with this function on real GPU hardware at Rutile-scale birefringence
-    /// internal TIR, caught by `renderer::gpu::transport_check::p2_uniaxial_fresnel`'s
-    /// `run_internal_solve` check). Bypassing the `atan2`/`cos`/`sin` round-trip
-    /// entirely for this one input shape (`sqrt(-re)` directly) makes the result
-    /// exact, matches the documented contract unconditionally, and is
-    /// platform-independent.
+    /// A pure negative-real input (`im == 0.0`, the usual internal-TIR case) takes the
+    /// direct `sqrt(-re)` path. Through `atan2` the sign of the near-zero real part is
+    /// rounding noise, which can pick the wrong branch and differ between CPU and GPU
+    /// transcendental implementations.
     #[inline]
     pub(crate) fn sqrt_forward_branch(self) -> Self {
         if self.im == 0.0 && self.re < 0.0 {
             return Self {
                 re: 0.0,
                 im: (-self.re).sqrt(),
+            };
+        }
+        if self.im == 0.0 {
+            // Real non-negative argument: the general path below gives these same bits
+            // (`atan2(0, x) = 0`, `cos 0 = 1`, `sin 0 = 0`) at the cost of three
+            // transcendental calls.
+            return Self {
+                re: self.norm_sqr().sqrt().sqrt(),
+                im: 0.0,
             };
         }
         let r = self.norm_sqr().sqrt().sqrt();

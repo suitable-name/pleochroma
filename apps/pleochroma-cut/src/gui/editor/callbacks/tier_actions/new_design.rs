@@ -12,8 +12,8 @@
 //!   `pleochroma_editor::templates::create_from_template` -- remapped to the gear, at the
 //!   chosen width, with the facet angles adapted to the material when its refractive
 //!   index differs from the template's -- and tells the cutter what happened to the
-//!   angles. The stash keeps the unsaved-changes resume
-//!   (`PendingUnsavedAction::New { spec, template_index }`) untouched.
+//!   angles. The stash also survives the unsaved-changes guard, which resumes with
+//!   `PendingUnsavedAction::New { spec, template_index }`.
 
 use std::{
     cell::RefCell,
@@ -190,21 +190,16 @@ fn setup_template_dialog_callbacks(
     );
 }
 
-/// "Create" on the New Design dialog -- replaces the editor state with a brand-new
-/// design built from the dialog's preform/gear/symmetry/mirror/material fields, via
-/// `Design::fresh_from_spec`. Discards the previous design and its undo/redo history
-/// entirely -- there is nothing to preserve across a deliberate "start over", so once
-/// the fields parse, this checks [`EditorState::is_dirty`] before actually discarding
-/// anything: a dirty design stashes [`PendingUnsavedAction::New`] and opens the
-/// Save/Discard/Cancel guard instead of proceeding straight to [`do_new_design_create`]
-/// -- see `setup_unsaved_guard_dispatch` for how "Save"/"Discard" resume it.
-/// Validation runs BEFORE that check (matching `native_io::do_open_native`'s own
-/// ordering) so a form error still surfaces immediately rather than behind a
-/// confirmation dialog for a create that was never going to succeed anyway.
-/// Opening/closing the dialog is pure Slint state; this only fires on "Create".
+/// "Create" on the New Design dialog's Empty form. Replaces the editor state with a new design
+/// built from the form's preform, gear, symmetry, mirror and material fields, via
+/// [`install_new_design`]. The previous design and its history are discarded.
+/// Validation runs first, so a form error shows at once and not behind the unsaved-changes guard.
+/// A design with unsaved changes stashes [`PendingUnsavedAction::New`] and opens that guard; see
+/// `setup_unsaved_guard_dispatch` for how "Save" and "Discard" resume it. Opening and closing the
+/// dialog is Slint-only; this fires on "Create" alone.
 ///
-/// This is the Empty form's callback (and the guides' route); a template card's Create
-/// goes through [`setup_template_dialog_callbacks`], registered here too.
+/// The guides also use this route. A template card's Create goes through
+/// [`setup_template_dialog_callbacks`], registered here too.
 pub(in crate::gui::editor) fn setup_new_design_create_callback(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -279,13 +274,11 @@ pub(in crate::gui::editor) fn setup_new_design_create_callback(
     );
 }
 
-/// The actual "New" work, run either directly (a clean design) or as
-/// [`PendingUnsavedAction::New`]'s resume once the Save/Discard/Cancel guard clears --
-/// see [`setup_new_design_create_callback`]'s own doc comment for why the dirty check
-/// runs before this is ever called, not inside it.
+/// The actual "New" work, run directly for a clean design or as the resume of
+/// [`PendingUnsavedAction::New`] once the guard clears. The dirty check runs first, in
+/// `create_or_ask`.
 ///
-/// `pub(super)` since [`super::lifecycle::resume_pending_unsaved_action`] is the
-/// other call site.
+/// `pub(super)` since [`super::lifecycle`]'s unsaved-changes guard resumes it too.
 pub(super) fn do_new_design_create(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -293,13 +286,11 @@ pub(super) fn do_new_design_create(
     preview_state: &Arc<SolidPreviewState>,
     solid_last_solved: &SolidLastSolved,
     spec: FreshDesignSpec,
-    // The "Start from" choice -- see [`install_new_design`].
+    // The gallery's template index (0 is "Empty"); see [`install_new_design`].
     template_index: i32,
 ) {
-    // The dialog's template path left its choice in `TEMPLATE_CHOICE`: build that design
-    // (remapped, sized, angles adapted to the material). A refused build keeps the
-    // dialog open with its values and says why. Everything else -- the Empty form, the
-    // guides, a resumed legacy create -- builds from `spec` as before.
+    // A template choice in `TEMPLATE_CHOICE` builds that design, remapped and sized. A refused
+    // build keeps the dialog open and says why. Otherwise the design is built from `spec`.
     let prepared = match take_template_choice(template_index) {
         Some(choice) => match create_from_template(&choice) {
             Ok(created) => Some(created),
@@ -317,16 +308,11 @@ pub(super) fn do_new_design_create(
         install_new_design(&mut state.borrow_mut(), spec, template_index);
         None
     };
-    // A Deep Solve/Optimize verdict computed against the design just replaced no
-    // longer describes anything on screen -- see `clear_analysis_results`'s own
-    // doc comment.
+    // Analysis results of the replaced design no longer describe the screen; see
+    // `clear_analysis_results`.
     clear_analysis_results(ui);
-    // a material-suggestion banner (or an accepted/dismissed one's
-    // leftover text) describes the design "New" just replaced -- see
-    // `native_io::open_commit::finish_state_replace`'s matching fix for Open.
-    // `tier_actions::apply_loaded_design`'s own Load Selected path
-    // sets/clears this from the newly loaded design's schedule RI; "New" has
-    // no schedule RI of its own to suggest against, so it simply clears it.
+    // The material suggestion banner describes the replaced design, so it is cleared. Unlike Load
+    // Selected, "New" has no schedule RI to suggest a material from.
     ui.global::<EditorModel>()
         .set_material_suggestion_name("".into());
     ui.global::<EditorModel>()
@@ -339,8 +325,7 @@ pub(super) fn do_new_design_create(
         state,
         true,
     );
-    // See `apply_loaded_design`'s matching reset -- "New" replaces the
-    // whole `EditorState` exactly the same way.
+    // The same selection reset as `apply_loaded_design`.
     ui.global::<EditorModel>().set_selected_tier_index(-1);
     bump_form_reset_pulse(ui);
     ui.global::<EditorModel>().set_new_dialog_open(false);
@@ -398,23 +383,14 @@ pub(super) fn install_prepared_design(st: &mut EditorState, session: EditorSessi
 /// empty rather than panicking -- the combo/gallery is the only producer, but a
 /// stale index must not lose a design.
 pub(super) fn install_new_design(st: &mut EditorState, spec: FreshDesignSpec, template_index: i32) {
-    // `replace_wholesale`, not a plain `*st = ...`: carries this state's own
-    // `generation` `Arc` across the replacement (and bumps it) instead of letting
-    // `fresh_from_spec` hand back a brand-new one, so a background Deep
-    // Solve/Optimize/auto-solve dispatched against the design being replaced still
-    // observes that it changed (see that method's own doc comment).
-    // Seeded directly on the fresh design, not through `History`: this is the
-    // design's starting state, not an edit to it, so it must not be undoable back to
-    // an empty schedule the cutter never saw (see
-    // `pleochroma_editor::EditorSession::from_template`, which also refuses a
-    // negative/stale index instead of panicking). `replace_wholesale` marks the
-    // replacement saved; it is then marked UNSAVED again, because a design the user
-    // created has no file yet (closing, replacing or quitting asks first). It also
-    // arrives with its own fresh design UUID (`EditorState::design_uuid`), which the
-    // first Save writes to the file.
+    // `replace_wholesale` keeps this state's `generation` counter (and bumps it), so a background
+    // solve against the replaced design still sees the change.
+    // Seeded on the fresh design, not through `History`: it is the starting state, not an edit,
+    // so it must not undo back to an empty schedule. `EditorSession::from_template` also refuses
+    // a negative or stale index. `replace_wholesale` marks the replacement saved, so the design is
+    // marked unsaved again: a new design has no file until its first Save.
     st.replace_wholesale(EditorState::fresh_from_template(spec, template_index));
     st.session.mark_unsaved();
-    // `fresh_from_spec` already says so; restated here because this is the promise
-    // the empty-state overlay depends on.
+    // The empty-state overlay depends on this.
     st.has_design = true;
 }

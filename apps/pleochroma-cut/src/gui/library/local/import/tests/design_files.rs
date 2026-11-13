@@ -56,8 +56,9 @@ fn file_names(paths: &[std::path::PathBuf]) -> Vec<String> {
     names
 }
 
-/// A `.psdd` file with nothing beside it is a design of its own: the folder scan
-/// finds it, and it becomes a row holding the file itself and the angle table read
+/// A `.psdd` with nothing beside it is a design of its own.
+///
+/// The folder scan finds it, and it becomes a row holding the file and the angle table read
 /// from its tiers.
 #[test]
 fn a_standalone_design_file_is_imported_as_a_design_of_its_own() {
@@ -149,9 +150,10 @@ fn the_design_file_beside_an_asc_is_found_only_if_it_is_a_design() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// Extension handling in the scan: `.psdd` is recognised (any case) next to the other
-/// design kinds, and picking a file directly accepts a stand-alone design file and
-/// redirects to the `.asc` beside an attached one.
+/// Extension handling in the scan.
+///
+/// `.psdd` is recognised in any case, next to the other design kinds. Picking a file directly
+/// accepts a stand-alone design file, and redirects to the `.asc` beside an attached one.
 #[test]
 fn the_scan_recognises_design_files() {
     let dir = temp_dir_for_test("design_scan");

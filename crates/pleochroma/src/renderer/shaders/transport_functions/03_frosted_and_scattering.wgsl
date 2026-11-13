@@ -1,14 +1,11 @@
 // ---------------------------------------------------------------------------------
-// Frosted-facet GPU port: optics::raytracer::cosine_weighted_hemisphere -- the
-// frosted-bounce direction sampler (Malley's method).
+// Frosted-facet direction sampler: optics::raytracer::cosine_weighted_hemisphere
+// (Malley's method).
 // ---------------------------------------------------------------------------------
 
-// Field order matters here: `n` (a vec3, needing 16-byte WGSL alignment) is placed
-// FIRST so it lands at offset 0 with no implicit leading padding, then `u1`/`u2` pack
-// into its trailing 4 bytes plus one more (the same "vec3 + scalar(s)" pattern this
-// crate's struct-layout doc comments describe elsewhere) -- `renderer::gpu::
-// transport_check::CosineHemisphereCase` mirrors this EXACT field order for that
-// reason; reordering either side without the other would silently misalign every case.
+// `n` comes first, so the vec3 sits at offset 0 with no leading padding. The Rust
+// `renderer::gpu::transport_check::CosineHemisphereCase` mirrors this exact field order;
+// reordering one side alone would misalign every case.
 struct CosineHemisphereCase {
     n: vec3<f32>,
     u1: f32,
@@ -35,11 +32,9 @@ fn cosine_hemisphere_main(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 
 // ---------------------------------------------------------------------------------
-// Frosted-facet GPU port: optics::raytracer::apply_frosted_bounce -- the full
-// frosted-facet bounce dispatch (TIR-forced / reflect / transmit branch selection, the broadband
-// hero-only r_unpol split, Stokes depolarization, path_pdf scaling). Calls the SAME
-// `transport_physics.wgsl` function `spectral_transport.wgsl`'s megakernel calls for a
-// `FacetFinish::Frosted` facet -- see that shared function's own doc comment.
+// optics::raytracer::apply_frosted_bounce: branch selection (TIR-forced, reflect, transmit),
+// the hero-only r_unpol split, Stokes depolarization and path_pdf scaling. Calls the same
+// `transport_physics.wgsl` function the megakernel uses for `FacetFinish::Frosted`.
 // ---------------------------------------------------------------------------------
 
 struct FrostedBounceCase {
@@ -100,10 +95,9 @@ fn frosted_bounce_main(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 
 // ---------------------------------------------------------------------------------
-// Inclusion/subsurface scattering GPU port: optics::raytracer::{henyey_greenstein_phase,
-// sample_henyey_greenstein_direction, maybe_scatter_or_extinguish}. Calls the SAME
-// `transport_physics.wgsl` functions `spectral_transport.wgsl`'s megakernel calls for a
-// scattering-active material -- see that shared file's own doc comment.
+// Inclusion scattering: optics::raytracer::{henyey_greenstein_phase,
+// sample_henyey_greenstein_direction, maybe_scatter_or_extinguish}. Calls the same
+// `transport_physics.wgsl` functions the megakernel uses for scattering materials.
 // ---------------------------------------------------------------------------------
 
 struct HgPhaseCase {

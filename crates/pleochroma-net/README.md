@@ -20,8 +20,8 @@ more than a `std::io::Cursor`, and its tests do exactly that. `apps/pleochroma-w
 | `messages` | The render protocol, `HELLO`/`WELCOME` (with peer roles), the `ClientMessage` envelope, payload-encoding negotiation, and content-addressed assets (`NEED_ASSET`/`ASSET`) |
 | `library` | The read-only design-library protocol |
 | `scene` | `SceneState` — a fully-resolved scene (`render` feature) |
-| `radiance` | The raw radiance-buffer encoding and the v14 lossless payload encodings (shuffle + zstd/LZ4) |
-| `display` | The v14 8-bit picture payloads (raw RGBA8 or PNG) |
+| `radiance` | The raw radiance-buffer encoding and the lossless payload encodings (shuffle + zstd/LZ4) |
+| `display` | The 8-bit picture payloads (raw RGBA8 or PNG) |
 | `framing` / `handshake` | Length-prefixed framing; the version and build-hash gate |
 | `tls` | Mutual-TLS config, the fingerprint allowlist, restricted-permission key writes |
 | `enroll` / `token` | One-time enrollment tokens and the CA-pinning claim client |
@@ -61,10 +61,20 @@ it.
 
 ## Protocol version and message set
 
-`messages::PROTOCOL_VERSION: u16 = 35`. Three protocols share one authenticated
+`messages::PROTOCOL_VERSION: u16 = 42` (see its doc comment for the history). Three protocols share one authenticated
 connection: **render** (offload sample tracing), **tilt curves** (offload one design's
 full tilt-performance sweep), and **library** (read a design catalogue). A peer may
 serve any subset, and — for a viewer — consume all three.
+
+**Beam tiles.** `BEAM_TILE_REQUEST` and `BEAM_TILES` are part of every `render` build so
+that indices and decoding agree between builds; only builds with the apps' retired `beam`
+features send or serve them; a worker or coordinator built without the feature answers
+`UNSUPPORTED_REQUEST` (code 5) and keeps the connection.
+
+**Live passes.** `LIVE_PASS_REQUEST` and `LIVE_PASS` stay in every `render` build for the
+same reason. Adaptive sampling is an optional build feature of the apps (`adaptive-sampling`); a
+worker or coordinator built without it answers a `LivePassRequest` with `UNSUPPORTED_REQUEST`
+(code 5) and keeps the connection, and a viewer treats that as a refusal.
 
 ```text
 -> HELLO    { protocol_version, build_hash, source_hash, role: Viewer | Worker,
@@ -87,7 +97,7 @@ protocol version is refused with a message naming both versions
 (`handshake::read_hello`, and the client's own check of the reply) rather than a
 decode error. **Every machine must run the same build.**
 
-**Payload encodings (v14).** The viewer lists what it can decode
+**Payload encodings.** The viewer lists what it can decode
 (`accept_encodings`); the server picks the first entry of its own preference the viewer
 accepts (`messages::negotiate`), else `Raw`. Default server preference:
 `ShuffleZstd { level: 1 }`, `ShuffleLz4`, `Raw`; loopback peers get `Raw`. Every
@@ -101,7 +111,7 @@ encodings and the PNG display codec sit behind the default-on `compression` feat
 `WELCOME` is where a peer says what it can actually do. **Check it before sending
 anything**: `render` is `None` on a library-only server (one built without
 `pleochroma-worker`'s `worker` feature), `tilt_curves` is `false` on that same server (it
-tracks `render.is_some()` in this phase -- see `messages::Welcome::tilt_curves`'s own
+tracks `render.is_some()` -- see `messages::Welcome::tilt_curves`'s own
 doc comment), and `library` is `false` on a server that only renders. Discovering the
 absence by having a request rejected is the wrong shape — `bridge::remote_render`'s
 `NoRenderCapacity` and `bridge::library_client`'s `NoLibraryCapacity` are the
@@ -115,18 +125,18 @@ client-side counterparts.
 <- PREVIEW  { request_id, width, height, samples_done, payload_len, encoding, raw_len } + payload -- CUMULATIVE, reduced-res
 <- PROGRESS { request_id, samples_done }
 -> CANCEL   { request_id }
-<- DONE     { request_id, cancelled, stats: Stats }             -- Stats gained reclaimed_samples in v16
+<- DONE     { request_id, cancelled, stats: Stats }             -- Stats.reclaimed_samples counts reclaimed samples
 <- ERROR    { code, message }                                 -- codes: messages::error_codes
--> PING     { nonce }                    <- PONG { nonce }     -- v14 liveness
+-> PING     { nonce }                    <- PONG { nonce }     -- liveness
 -> FINAL_IMAGE_REQUEST { request_id, scene, first_sample, samples, width, height, color_space, output,
                           viewer_samples }
-<- FINAL_IMAGE   { request_id, width, height, samples_done, encoding, payload_len } + PNG   -- v14
+<- FINAL_IMAGE   { request_id, width, height, samples_done, encoding, payload_len } + PNG
 <- DISPLAY_FRAME { request_id, samples_done, width, height, encoding, payload_len } + RGBA8/PNG (TransferMode::DisplayOnly)
 <- CAPABILITY_CHANGED { render: Option<RenderCapability> }
-<- NEED_ASSET { content_hash }                               -- v14: "send me this HDR map"
+<- NEED_ASSET { content_hash }                               -- "send me this HDR map"
 -> ASSET      { content_hash, len } + bytes                    -- the map's exact file bytes
 -> CONTRIBUTION { request_id, first_sample, samples, width, height, encoding, payload_len, raw_len } + payload
-                                                                 -- v16: the viewer's own share of a
+                                                                 -- the viewer's own share of a
                                                                     FINAL_IMAGE_REQUEST's reserved tail
 ```
 
@@ -140,7 +150,7 @@ only ever sends it radiance chunks. `DISPLAY_FRAME`s are averaged, denoised
 (`pleochroma::renderer::frame_denoise`) and tone-mapped exactly as the viewer would
 have done it itself.
 
-**HDR environments (v14).** `SceneState::environment` is either the analytic studio
+**HDR environments.** `SceneState::environment` is either the analytic studio
 rig or `SceneEnvironment::Hdr { content_hash, width, height }` — an HDR panorama named
 by the SHA-256 of its `.hdr` file, never by path. A server that lacks the bytes answers
 the request with `NEED_ASSET`; the client sends `ASSET` (at most
@@ -208,96 +218,13 @@ one narrow fallback path).
 **This is pre-release software: every peer runs its own private build, so there is no
 deployed fleet to stay wire-compatible with.** There is no compatibility shim between
 versions — `handshake::verify_compatible` simply refuses to pair peers speaking
-different ones. Version history in brief — `messages::PROTOCOL_VERSION`'s own doc
-comment details v9 onward — (v1 initial, v2 widened `RangeFilterWire`, v3 added `TILT_CURVES`, v4 widened
-`library::DesignSummary`/`LibraryResponse::SearchResults`/`SearchResultsPage` so
-remote-browsed catalogue rows carry `ignored` and a missing-tilt-curves exclusion
-count, v5 widened `library::DesignRecord` with `preview_material`, v6 widened
-`library::DesignRecord` again with `hw_ratio`/`tw_ratio`/`uw_ratio`/`pw_ratio`/
-`cw_ratio`/`symmetry_order`/`mirror_symmetry`/`designer` so a remote design's detail
-chips stop blanking out, v7 widened `GemMaterial` with `absorption_path_scale` and
-documents `StreamEvent::Progress` as doubling as this stream's liveness heartbeat,
-v9/v10 changed `LightingPreset`, v11 appended `SceneState::backdrop`, v12 added
-`source_hash` to `HELLO`/`WELCOME`, v13 added sort order and tag filter to library
-search, v14 added coordinator mode (peer roles, worker
-registration, `Backend::Coordinator`, request intent, `PING`/`PONG`,
-`FINAL_IMAGE_REQUEST`, `DISPLAY_FRAME`, `CAPABILITY_CHANGED`), negotiated lossless
-payload compression, and HDR environments by content hash (`NEED_ASSET`/`ASSET`), and
-v15 added `request_id` to `ErrorMsg` so a late error can be
-matched to (or dropped for) the request/epoch it concerns instead of failing whatever
-request happens to be current, plus new `library::DesignRecord` fields under the same
-bump, v16 added viewer contribution to final pictures:
-`FinalImageRequest.viewer_samples` reserves a tail of samples for the viewer to render
-and upload itself as `ClientMessage::Contribution` (index 7, `messages::contribution`),
-and `Stats.reclaimed_samples` reports how many of those the server ended up rendering
-anyway because the contribution didn't arrive in time or was invalid, v17 appended
-`library::DesignSummary::design_version` (the design's
-revision token, so a mirror re-fetches a design whose edit left the search summary
-unchanged) and made `library::DesignRecord::version` carry that same token instead of a
-content hash, v18 appended `SceneState::surface_glare`
-(the scale of the first-surface reflection of the analytic lighting presets), v19 added
-concave facets: `SceneState::tools` (`Vec<ToolPrimitive>`,
-convex tool volumes subtracted from the plane polyhedron; always on the wire, empty for
-a convex stone, because postcard cannot omit a trailing field), `library::DesignSummary::
-concave_tiers`, `library::AngleSettingWire::tool_line`, and `LibraryRequest::
-FetchDesignNative` with its `DesignNative`/`DesignNativeNotAvailable` replies. The
-worker's summary `version` hash now also covers `concave_tiers`, so the stamp of every
-design (planar ones included) changes once and each mirror re-syncs its catalogue one
-time. (At v19 a scene with tools was traced on the CPU only; the GPU kernels now trace
-concave stones too, up to 128 tools, see `crates/pleochroma/docs/gpu.md`.) v20 extended the scene with fields that always travel on the wire and
-that only the CPU path uses. v21 appended
-`SceneState::head_shadow_deg` (`f32`, the head-shadow radius of the lit presets), v22 appended
-more `LightingPreset` variants (enum indices 9 to 14) and the `LightingModel::{Aset,
-DaylightSun}` ids, and v23 added `GemMaterial::absorption_unit` (`PerMm` or `ModelUnit`)
-with the rule that inclusion scattering is no longer scaled by the absorption path scale
-(`PROTOCOL_VERSION`'s own doc comment has the details). v24 added batched preview
-requests: `ClientMessage::BatchRenderRequest` (index 8, `messages::batch`) asks for up to
-32 finished pictures at once on one persistent connection, and the worker answers each
-with `StreamEvent::BatchItemDone` (a raw PNG payload frame, byte-identical to the
-viewer's own preview path), `BatchItemFailed`, per-item `BatchItemProgress`, and a final
-`BatchDone`; two batches may be in flight per connection. v25 added two things. First, the
-float environment-map asset (`messages::envmap_asset`): an asset named by
-`SceneEnvironment::Hdr` may now be an `IXENVMAP` v1 file (magic, version, width, height,
-then little-endian `f32` texels; the byte layout of the Android app's stored map) as well
-as a Radiance `.hdr`, told apart by its magic, so a client can send the exact effective
-map it renders with. The scene's `content_hash` is the SHA-256 of those bytes, the worker
-decodes it bit for bit, and `RenderCapability.hdr` keeps meaning "this endpoint resolves
-HDR assets"; a client that wants the float form requires v25 (the handshake refuses
-anything older). Second, durable server jobs (`ClientMessage::Job`, index 10,
-`messages::job`, `render` feature): `Submit` / `PutAsset` / `Status` / `Fetch` / `Cancel` /
-`Delete` / `List`, answered by `JobResponse` on the same connection. The job id is derived
-by the server from the client certificate fingerprint and a client token, jobs are stored
-durably per owner by the worker (`pleochroma-worker`'s `jobs` module, directory
-`PLEOCHROMA_JOB_DIR`, retention `PLEOCHROMA_JOB_RETENTION_HOURS`, default 168), and a
-finished picture can be fetched from any later connection until it expires. New error
-codes: `JOB_UNKNOWN`, `JOB_LIMIT`, `JOB_STATE`.
-v26 appended `SceneState::frosted_planes` (`Vec<u32>`, the ascending indices of the planes a design
-frosts, empty for a design without frosting): the worker marks exactly those planes frosted, on top of the
-girdle band when `girdle_frosted` is set. A job file embeds the scene with a serde default, so a job saved
-before v26 reads as unfrosted. The same version carries the frosting of library designs: `library::DesignRecord::frosting`
-and `library::LibraryResponse::DesignSource::frosting` (both `Vec<FrostedTierWire>`, appended last: a tier's position in the
-design's schedule and the slots of its frosted facets, empty slots for a whole tier), so a mirror and a remote editor open
-keep what a `.gcs` import or a saved design file states. `.asc` cannot carry it, so it travels beside the text.
-v27 (owner decisions 2026-10-19) moved together with the browser worker protocol's 22 for the
-turn-aware Retarget bounds (`pleochroma_cut_core::meet_preservation::PreservationPolicy::bounds_follow_turn`,
-the allowance measured from the requested facet turn): no message of this protocol changed shape, the bump
-pairs peers built on the same side of that rule.
-v28 appends `SceneState::engine` (`EngineSpec`) as the final field. Path-Traced
-remains the default; Ray-Traced carries its fixed AA tap count and Fire setting.
-Sample ranges mean AA tap ranges for Ray-Traced, and display-only frames bypass
-denoising. Update viewers, coordinators and workers together: older postcard peers
-cannot safely read the extended scene layout.
-v29 (backdrop-consistency campaign, 2026-10-20) changes the meaning of `SceneState::backdrop`, not any
-shape: it is the radiance at exposure 1 of the lit tray below the girdle plane, seen by every escape
-(`0.0` = the preset's own ground), where it used to be a card only the camera ray saw. The bump pairs
-peers on the same side of the tray rule; it moves with the browser worker protocol's 24.
-postcard lays structs out as bare fields in order, so every appended field shifts the byte
-layout of every `SceneState`: the bump turns a silent misread into a clear handshake
-refusal (the build-hash check would refuse a peer on a different build anyway, but
-the version names the cause).
+different ones. The changes made in each version are listed in `messages::PROTOCOL_VERSION`'s
+doc comment; the rules for bumping are these.
 
-What matters is knowing when to bump it, and that follows entirely from postcard
-being **not self-describing**:
+Appending a field shifts the byte layout of every message that embeds it, so the bump turns a
+silent misread into a clear handshake refusal (the build hash would refuse a peer on another
+build anyway, but the version names the cause). The rules follow from postcard being
+**not self-describing**:
 
 - **Enums are encoded by declaration-order index, not by name.** Appending a variant
   leaves every existing message byte-identical, but a peer that predates the new
@@ -471,12 +398,35 @@ pub struct SceneState {
     pub tools: Vec<ToolPrimitive>,        // concave-facet tool volumes in cutting order; empty for a convex stone
     pub head_shadow_deg: f32,             // head-shadow radius of the lit presets, 0.0..=30.0, 16.0 default
     pub frosted_planes: Vec<u32>,         // ascending indices of the planes a design frosts; empty = none
-    pub engine: EngineSpec,              // final wire field; default Path-Traced, or Ray-Traced options
+    pub engine: EngineSpec,              // default Path-Traced, or Ray-Traced options
+    pub effects: SceneEffects,            // optional material and surface effects
+    pub camera_roll: f32,                 // camera image-plane roll in radians
+    pub stone_shadow: bool,               // false by default
+    pub tray_reflection: f32,             // 0.0..=1.0 head-on reflectance of the tray, 0.0 = off
+    pub hdr_orientation: HdrOrientation,  // yaw in radians + turns-with-camera flag, default = map as decoded
+    pub estimator: Estimator,             // last wire field; Branching (0) | ExitCollection (1), the viewer's choice
 }
 ```
 
 Every field from `girdle_frosted` on is `#[serde(default)]` so an older on-disk
-`scene.json` still loads; on the wire (postcard) every field is always present.
+`scene.json` still loads; on the wire (postcard) every field is always present. Human-readable output omits
+`stone_shadow` when false, `tray_reflection` when 0, `hdr_orientation` when it is the default (yaw 0, not following the camera) and `estimator` when it is `Branching`, preserving shadow-free, reflection-free, unturned-map and branching JSON. Each worker computes its own
+map; no map bytes are transmitted. `tray_reflection` is the "Tray Reflection" setting: the head-on
+reflectance `R0` of the surface under the stone, rising towards 1 at glancing angles. A worker
+validates it as finite and within `0.0..=1.0`, and builds the mirror from the stone's own geometry.
+The same studio-backdrop scope as the Stone Shadow applies.
+
+`hdr_orientation` turns an HDR environment map: the map's own yaw in radians and a flag for whether
+it also turns with the camera (the worker lights the scene with the rotation
+`HdrOrientation::rotation_for(scene.yaw)`). It is ignored unless `environment` is an HDR map, and a
+worker refuses a non-finite yaw. `HdrEnvironment` still names the map asset alone.
+
+`estimator` is the stone estimator of the frame: `Branching` (wire byte 0) or `ExitCollection`
+(wire byte 1), one postcard varint at the very end of the scene. The viewer fills it from its own
+default and a worker traces with it, never with its own process default, so a frame split between
+the viewer and workers runs one estimator. The protocol version stays 42. A JSON scene or job
+written before the field has no key and reads as `Branching`, which is what it was rendered
+with; the variant order is part of the wire format, so new variants are appended only.
 
 A viewer stores a material as a name plus a list of custom materials loaded from
 its own local SQLite database, and stores a diagram as an id looked up against
@@ -601,3 +551,14 @@ or an in-memory `Vec<u8>` (the enrollment claim client's TCP path is exercised f
 - Extensive inline `#[cfg(test)]` unit tests in every `src/*.rs` module covering
   round-trips, malformed-payload rejection, epoch-gating, and partial/dribbling
   reads.
+
+The beam tile tests (`messages::beam_tiles`) compile only with `--cfg beam_tests`, never under
+`cargo test` or `--all-features`. Run them with `bash scripts/run_beam_tests.sh`, or by hand with:
+
+```
+RUSTFLAGS="-C target-cpu=x86-64-v3 --cfg beam_tests" CARGO_TARGET_DIR=target/beam-tests cargo test -p pleochroma-net --features render -- messages::beam_tiles
+```
+
+An explicit `RUSTFLAGS` replaces `.cargo/config.toml`'s flags, so the line restates its x86-64
+baseline (on another architecture leave `-C target-cpu=...` out); the own target dir keeps the
+regular build cache.

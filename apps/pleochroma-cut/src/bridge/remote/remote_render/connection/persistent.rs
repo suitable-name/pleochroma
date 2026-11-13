@@ -17,13 +17,13 @@ use std::{
     time::{Duration, Instant},
 };
 
-/// Spawns a background thread that owns one persistent mutual-TLS connection to
-/// `worker`, reused across every [`RemoteConnectionHandle::render`] call against the
-/// returned handle -- see the module doc comment's "Two connection lifecycles" section.
+/// Spawns a background thread that owns one persistent mutual-TLS connection to `worker`, reused by
+/// every [`RemoteConnectionHandle::render`] call on the returned handle.
 ///
-/// Connects lazily: no socket is opened, and no handshake cost paid, until the first
-/// [`RemoteConnectionHandle::render`] call actually needs one -- a worker configured but
-/// never used in a session costs nothing beyond one idle channel and one idle thread.
+/// See the "Two connection lifecycles" section of the parent module's docs.
+///
+/// Connects lazily, on the first render call, so a worker that is configured but never used
+/// costs only an idle thread and channel.
 #[must_use]
 pub fn spawn_remote_connection(worker: WorkerSettings) -> RemoteConnectionHandle {
     let (tx, rx) = mpsc::channel();
@@ -54,16 +54,12 @@ fn run_connection(
     let mut stream: Option<RemoteStream> = None;
     let mut welcome: Option<pleochroma_net::messages::Welcome> = None;
     let mut current: Option<CurrentRequest> = None;
-    // Reset on every received `StreamEvent` and every fresh dispatch (a reconnect or a
-    // request sent on a reused connection both count as a sign of life) -- see
-    // `LIVENESS_TIMEOUT`'s own doc comment.
+    // Reset on every received event and every dispatch (a reconnect or a request on a reused
+    // connection both count as a sign of life); see `LIVENESS_TIMEOUT`.
     let mut last_event = Instant::now();
-    // Whether the CURRENT request (if any) has produced any stream event yet -- selects
-    // `FIRST_EVENT_TIMEOUT` (before) or `liveness_timeout` (after) via
-    // `liveness_deadline`, exactly like `run_with_liveness_timeout`'s own
-    // `seen_first_event`. Reset alongside `last_event` on every fresh dispatch: a
-    // persistent connection serves many requests over its life, and each one gets its
-    // own full first-event grace, not whatever was left over from the last one.
+    // Whether the current request has produced an event yet. Selects `FIRST_EVENT_TIMEOUT`
+    // or `liveness_timeout` via `liveness_deadline`, as in `one_shot::run`. Reset on every
+    // dispatch, so each request gets its own first-event grace.
     let mut seen_first_event = false;
 
     loop {
@@ -87,11 +83,8 @@ fn run_connection(
                 }
             }
             Err(TryRecvError::Empty) => {}
-            // The handle was dropped -- `RemoteConnectionHandle`'s own doc comment
-            // commits to tearing this connection down (window close, a worker
-            // address/cert_dir edit, removal from the list), so this exits immediately
-            // rather than `super::one_shot::run`'s one-shot "drain until DONE" courtesy:
-            // there is no caller left to observe a DONE even if this waited for one.
+            // The handle was dropped, so no caller can observe a reply: exit at once
+            // instead of draining as `super::one_shot::run` does.
             Err(TryRecvError::Disconnected) => return,
         }
 
@@ -118,9 +111,8 @@ fn run_connection(
                     last_event = Instant::now();
                     continue;
                 }
-                // v14: a coordinator re-advertises its capacity mid-connection. Keep
-                // the cached WELCOME current, so the next dispatch's render-capacity
-                // check sees the new capability rather than the one from connect time.
+                // A coordinator re-advertises its capacity mid-connection. Keep the cached
+                // WELCOME current so the next dispatch checks the new capability.
                 if let pleochroma_net::messages::StreamEvent::CapabilityChanged { render } = &event
                     && let Some(w) = welcome.as_mut()
                 {
@@ -180,10 +172,10 @@ fn answer_need_asset(
     false
 }
 
-/// The live view's stream configuration: the worker's own [`WorkerSettings::stream_config`]
-/// for full-data transfer, or -- final-picture transfer, `display_only` -- the same cadence
-/// with `TransferMode::DisplayOnly` and no preview stream (the finished display frames
-/// ARE the preview).
+/// The live view's stream configuration: the worker's [`WorkerSettings::stream_config`] for
+/// full-data transfer. With `display_only` (final-picture transfer) it keeps the same cadence
+/// but uses `TransferMode::DisplayOnly` and no preview stream, since the display frames are
+/// the preview.
 pub(super) fn live_stream_config(
     worker: &WorkerSettings,
     min_cadence_ms: u32,
@@ -218,11 +210,9 @@ fn dispatch_render(
     } = cmd;
     let request_id = request.request_id;
 
-    // Supersede whatever was still in flight: best-effort CANCEL on the wire (best
-    // -effort because a dead connection is about to be recreated below regardless, and
-    // because the REAL correctness guard is the new accumulator's own epoch -- see
-    // `RemoteConnectionHandle::render`'s doc comment), then drop the old on_update/
-    // accumulator so nothing reachable from here ever reports for it again.
+    // Supersede whatever is still in flight: a best-effort CANCEL on the wire, then drop the
+    // old `on_update` and accumulator so nothing reports for it again. The new accumulator's
+    // epoch is what actually rejects late replies (see `RemoteConnectionHandle::render`).
     if let Some(previous) = current.take()
         && let Some(s) = stream.as_mut()
     {

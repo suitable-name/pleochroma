@@ -15,19 +15,44 @@ pub(super) fn trace_batch(env: &TraceEnv, batch: &QueuedBatch) {
 
     let mut gpu_items: Vec<(usize, &BatchItem)> = Vec::new();
     let mut cpu_items: Vec<(usize, &BatchItem)> = Vec::new();
+    // Each item's Stone Shadow and Tray Reflection (by item index), resolved once here, up front,
+    // and held for the whole batch: a batch item is a finished picture, so it takes the Final
+    // map. An item whose map or mirror cannot be built fails by itself with the reason; the
+    // others are traced.
+    let mut trays: Vec<assets::Tray> = vec![
+        assets::Tray {
+            shadow: None,
+            mirror: None,
+        };
+        batch.request.items.len()
+    ];
     for (index, item) in batch.request.items.iter().enumerate() {
-        match check_item(item) {
-            Err(reason) => env.fail(request_id, item.item_id, reason),
-            Ok(()) if render_core::scene_uses_gpu(&item.scene) => gpu_items.push((index, item)),
-            Ok(()) => cpu_items.push((index, item)),
+        if let Err(reason) = check_item(item) {
+            env.fail(request_id, item.item_id, reason);
+            continue;
+        }
+        match assets::resolve_tray(&item.scene, None, cancel) {
+            Ok(tray) => trays[index] = tray,
+            // `cancel` was raised: the batch ends as cancelled below.
+            Err(assets::TrayStop::Cancelled) => continue,
+            Err(assets::TrayStop::Refused(message)) => {
+                env.fail(request_id, item.item_id, message);
+                continue;
+            }
+        }
+        render_core::note_tray_route(&item.scene, &env.gpu);
+        if render_core::scene_uses_gpu(&item.scene, &env.gpu) {
+            gpu_items.push((index, item));
+        } else {
+            cpu_items.push((index, item));
         }
     }
 
     if !cancel.load(Ordering::Relaxed) {
-        let declined = trace_on_gpu(env, request_id, &gpu_items, cancel);
+        let declined = trace_on_gpu(env, request_id, &gpu_items, &trays, cancel);
         cpu_items.extend(declined);
         cpu_items.sort_by_key(|(index, _)| *index);
-        trace_on_cpu(env, request_id, &cpu_items, cancel);
+        trace_on_cpu(env, request_id, &cpu_items, &trays, cancel);
     }
 
     let cancelled = cancel.load(Ordering::Relaxed);
@@ -54,6 +79,7 @@ fn trace_on_gpu<'a>(
     env: &TraceEnv,
     request_id: u32,
     items: &[(usize, &'a BatchItem)],
+    trays: &[assets::Tray],
     cancel: &AtomicBool,
 ) -> Vec<(usize, &'a BatchItem)> {
     if items.is_empty() {
@@ -98,7 +124,7 @@ fn trace_on_gpu<'a>(
             .zip(&surfaces)
             .zip(outs.iter_mut())
             .map(
-                |(((((&(_, item), camera), finish), material), surface), out)| GpuBatchItem {
+                |(((((&(index, item), camera), finish), material), surface), out)| GpuBatchItem {
                     scene: GpuSceneRef {
                         camera,
                         width: item.scene.width,
@@ -107,7 +133,12 @@ fn trace_on_gpu<'a>(
                         facet_finishes: finish,
                         material,
                         max_bounces: item.scene.max_bounces,
-                        environment: assets::environment_source(&item.scene, None),
+                        environment: assets::environment_for(
+                            &item.scene,
+                            None,
+                            trays[index].view(),
+                        ),
+                        estimator: Some(item.scene.estimator),
                     },
                     tools: &item.scene.tools,
                     surface: item.scene.effects.surface_scene(surface),
@@ -155,18 +186,21 @@ fn trace_on_cpu(
     env: &TraceEnv,
     request_id: u32,
     items: &[(usize, &BatchItem)],
+    trays: &[assets::Tray],
     cancel: &AtomicBool,
 ) {
-    for &(_, item) in items {
+    for &(index, item) in items {
         if cancel.load(Ordering::Relaxed) {
             return;
         }
+        let tray = trays[index].view();
         let traced = catch_unwind(AssertUnwindSafe(|| {
             if item.scene.engine.is_ray() {
                 let mut out =
                     vec![Vec3::ZERO; item.scene.width as usize * item.scene.height as usize];
                 return render_core::whitted::trace(
                     &item.scene,
+                    tray,
                     item.first_sample,
                     item.samples,
                     env.threads,
@@ -179,10 +213,10 @@ fn trace_on_cpu(
             render_core::trace_samples_with_gpu_cancellable(
                 &env.cpu,
                 &item.scene,
-                item.first_sample,
-                item.samples,
+                (item.first_sample, item.samples),
                 env.threads,
                 cancel,
+                tray,
             )
         }));
         match traced {

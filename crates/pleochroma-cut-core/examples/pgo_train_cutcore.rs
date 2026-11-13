@@ -1,36 +1,27 @@
 //! Profile-guided-optimization training workload for `pleochroma-cut-core` itself.
 //!
-//! Run alongside `crates/pleochroma/examples/pgo_train/main.rs` by `scripts/pgo-build.ps1` /
-//! `scripts/pgo-bolt-build.sh` inside an instrumented build -- see this crate's own
-//! doc comment (`src/lib.rs`) for "the pieces" this exercises. `pleochroma`'s own
-//! `pgo_train` example trains the geometry/solver/renderer crate directly; this one
-//! trains the editor-core layer built on top of it: [`Design`] construction,
-//! [`Design::solve`], `.asc` export, the `.psdd` design file save/load round
-//! trip, [`resolve_after_edit`], and [`optimize_design`]'s search loop.
+//! Run alongside `crates/pleochroma/examples/pgo_train/main.rs` by `scripts/pgo-build.ps1` and
+//! `scripts/pgo-bolt-build.sh` in an instrumented build. `pleochroma`'s own `pgo_train` example
+//! trains the geometry, solver and renderer crate directly. This one trains the editor-core
+//! layer built on it: [`Design`] construction, [`Design::solve`], `.asc` export, the `.psdd`
+//! design file save/load round trip, [`resolve_after_edit`], and [`optimize_design`]'s search.
 //!
-//! For each built-in template in [`templates::TEMPLATES`] (five small designs, all
-//! pinned `MeetConstraint::ScaleReference`-only -- see that module's own doc comment)
-//! AND the crate's own CrackOtto-Step cost-probe `.asc` fixture (103 tiers, 205
-//! facet-plane instances, the one real, heavily meet-derived design this crate ships
-//! -- see `pleochroma_cut_core::optimize`'s own measured cost table for why this one
-//! design dominates this whole file's runtime): `Design::solve` ->
-//! `to_asc_schedule_from_solved` -> `pleochroma_formats::asc::to_asc_string` ->
-//! `native::catalogue_asc` (the catalogue's `.asc`) -> `native::design_to_string` ->
-//! `native::design_from_str` -> `resolve_after_edit` for one
+//! For each built-in template in [`templates::TEMPLATES`] (small designs, all pinned to
+//! `MeetConstraint::ScaleReference`, see that module's doc comment) and the CrackOtto-Step
+//! cost-probe `.asc` fixture (103 tiers, the one real, heavily meet-derived design this crate
+//! ships), the pipeline is: `Design::solve` -> `to_asc_schedule_from_solved` ->
+//! `pleochroma_formats::asc::to_asc_string` -> `native::catalogue_asc` ->
+//! `native::design_to_string` -> `native::design_from_str` -> `resolve_after_edit` for one
 //! `Edit::MoveTier` -> `optimize_design` with a tiny evaluation budget.
 //!
-//! Every `Design::solve` call on CrackOtto-Step costs over a second on its own (no
-//! incremental resolve helps here -- `optimize`'s module docs explain why), so this
-//! file only ever solves it directly, never repeatedly: `optimize_design` runs
-//! against it too, but without a free (non-`ScaleReference`) tier forced onto it the
-//! way the templates get, so it exercises the baseline-scoring and zero-free-tiers
-//! early-return code paths rather than the coordinate-search loop's own
-//! repeated-solve cost -- the search loop itself gets real coverage from the
-//! templates instead (each solve is still a real fraction of a second on these --
-//! see `pick_adoptable_free_tier`'s own doc comment for why not every template can
-//! safely be forced into the search loop either). Deterministic: every stage prints
-//! a checksum folded from solved masts, exported text lengths, and search outcomes;
-//! run twice, the checksums are identical. Keeps the whole run under roughly 30 s.
+//! Each `Design::solve` on CrackOtto-Step takes over a second, and `optimize`'s module docs
+//! explain why no incremental resolve helps. So this file solves it directly and never
+//! repeatedly. `optimize_design` runs on it without a forced free tier, which exercises the
+//! baseline-scoring and zero-free-tiers early return. The coordinate-search loop gets its
+//! coverage from the templates, where [`pick_adoptable_free_tier`] frees one tier. Not every
+//! template can take that safely. Deterministic: every stage folds a checksum from solved
+//! masts, exported text lengths and search outcomes, so two runs print identical checksums.
+//! The whole run keeps under roughly 30 s.
 
 use pleochroma::{
     geometry::meet_solver::{self, Block, MeetConstraint},
@@ -43,29 +34,23 @@ use pleochroma_cut_core::{
 };
 use std::time::Instant;
 
-/// The crate's own CrackOtto-Step cost-probe fixture -- see this file's module doc
-/// comment. `include_str!`'d directly (not duplicated) from the same file
-/// `optimize::cost_probe`'s doc comment measures against.
+/// The CrackOtto-Step cost-probe fixture, included directly (not copied) from the file the
+/// `optimize` cost probe measures.
 const CRACKOTTO_ASC: &str = include_str!("../src/optimize_cost_probe_crackotto_step.asc");
 
 /// Picks one tier `train_one_design` can safely adopt away from
 /// `MeetConstraint::ScaleReference` so `optimize_design`'s free-tier coordinate-search
 /// loop has something to move.
 ///
-/// Not just "any non-girdle tier": every tier here starts pinned `ScaleReference`
-/// (see [`templates`]'s and `Design::from_asc_schedule`'s own doc comments), and
-/// `Design::solve`'s own missing-anchor check requires at least one `ScaleReference`
-/// tier per crown/pavilion/girdle block that has any tiers at all (see
-/// `crate::design`'s module docs, "Scale anchoring") -- freeing a block's ONLY
-/// anchor makes `optimize_design`'s baseline solve fail outright instead of running
-/// the search (measured against this crate's own "Simple Teaching Design" template,
-/// whose crown block is exactly one tier). So this only ever picks a tier whose
-/// block has at least ONE OTHER `ScaleReference` tier left to anchor it, using
-/// [`meet_solver::classify_blocks`] (the same classification `Design::solve` itself
-/// checks against) rather than guessing from `angle_deg` alone. `None` when no tier
-/// qualifies (e.g. every block here has exactly one tier) -- the caller leaves
-/// `design` untouched and `optimize_design` takes its zero-free-tiers early return,
-/// same as it does for CrackOtto-Step.
+/// Not just any non-girdle tier. Every tier starts pinned `ScaleReference` (see [`templates`]
+/// and `Design::from_asc_schedule`), and `Design::solve` requires at least one `ScaleReference`
+/// tier per crown, pavilion and girdle block that has tiers (see `crate::design`'s module docs,
+/// "Scale anchoring"). Freeing a block's only anchor makes the baseline solve fail instead of
+/// running the search, as it does for the "Simple Teaching Design" template, whose crown block
+/// is a single tier. So this picks only a tier whose block keeps at least one other
+/// `ScaleReference` tier, classified with [`meet_solver::classify_blocks`] (the classification
+/// `Design::solve` checks against). `None` when no tier qualifies: the caller leaves `design`
+/// untouched and `optimize_design` takes its zero-free-tiers early return, as for CrackOtto-Step.
 fn pick_adoptable_free_tier(design: &Design) -> Option<usize> {
     let inputs = design.meet_tier_inputs();
     let blocks = meet_solver::classify_blocks(&inputs);
@@ -110,11 +95,9 @@ fn pick_adoptable_free_tier(design: &Design) -> Option<usize> {
 ///
 /// # Panics
 ///
-/// If any pipeline step fails -- this crate's own test suite already holds every
-/// step here to "must succeed" for a template or a real, well-formed design (see
-/// `templates::tests::every_template_solves_and_closes`), so a failure here means a
-/// real regression this training run should surface loudly rather than silently
-/// skip, exactly like `crates/pleochroma/examples/pgo_train/stages.rs`'s `train_brep`.
+/// If any pipeline step fails. Every step must succeed for a template or a well-formed design
+/// (see `templates::tests::every_template_solves_and_closes`), so a failure is a regression
+/// that this run reports loudly rather than skips.
 fn train_one_design(
     name: &str,
     design: &Design,

@@ -3,12 +3,12 @@
 use std::collections::HashMap;
 
 use super::kernels::EwKernel;
+use crate::renderer::gpu::frame::event_wavefront_source_for;
 
 /// Standalone reduce kernel source: sums `out_xyz` per-sample values into per-pixel XYZ.
 const REDUCE_SHADER_SRC: &str = include_str!("../../shaders/reduce_xyz.wgsl");
 
-/// Lazy pipeline cache mapping `(EwKernel, material_class)` pairs to compiled `wgpu::ComputePipeline`s,
-/// plus the eagerly built `reduce_pipeline`.
+/// Lazy cache of `(EwKernel, class)` compute pipelines, plus the eagerly built reduce pipeline.
 pub struct EwPipelines {
     pipelines: HashMap<(EwKernel, u32), wgpu::ComputePipeline>,
     reduce_pipeline: wgpu::ComputePipeline,
@@ -33,6 +33,9 @@ impl EwPipelines {
     }
 
     /// Ensures that the pipeline for `(kernel, class)` is compiled and returns a reference to it.
+    ///
+    /// A class carrying `material_class::OPTICS_TABLES` compiles the optics-table variant of the
+    /// kernel; the class is part of the key, so the two never share a pipeline.
     pub fn ensure(
         &mut self,
         device: &wgpu::Device,
@@ -44,7 +47,7 @@ impl EwPipelines {
                 device,
                 None,
                 kernel.entry_point(),
-                kernel.source(),
+                event_wavefront_source_for(kernel, class),
                 kernel.entry_point(),
                 &crate::renderer::gpu::frame::material_class::pipeline_constants(class),
             )

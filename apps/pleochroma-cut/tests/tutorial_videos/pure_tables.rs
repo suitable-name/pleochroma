@@ -1,8 +1,9 @@
-//! The video harness' own data tables and the checks that tie them to the guide catalogue. Pure
-//! (no window, no `crate::` paths), so that `tests/tutorial_videos_targets.rs` can include and
-//! unit-test them (`pure_tables_tests.rs`); `tutorial_videos` itself has `harness = false` and
-//! runs no `#[test]`. The recorder runs [`check_guide`] before it films a guide, so a stale table
-//! fails that video with the reason instead of going wrong half way.
+//! The video harness' own data tables and the checks that tie them to the guide catalogue.
+//!
+//! Pure (no window, no `crate::` paths), so that `tests/tutorial_videos_targets.rs` can include and
+//! unit-test them (`pure_tables_tests.rs`); `tutorial_videos` itself has `harness = false` and runs
+//! no `#[test]`. The recorder runs [`check_guide`] before it films a guide, so a stale table fails
+//! that video with the reason instead of going wrong halfway.
 
 use pleochroma_editor::guide::{
     CMD_ADOPT_ALL, CMD_COMPARE, CMD_DELETE, CMD_DUPLICATE, CMD_MOVE_DOWN, CMD_MOVE_UP, CMD_SOLVE,

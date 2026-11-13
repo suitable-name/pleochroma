@@ -1,15 +1,15 @@
-//! Wide-gamut color-space definitions.
+//! Wide-gamut color-space definitions: XYZ->RGB matrices, reference white points and transfer
+//! functions for sRGB, Display P3, Rec.2020 and `ACEScg`.
 //!
-//! XYZ->RGB matrices, reference white points, and transfer functions for sRGB, Display
-//! P3, Rec.2020, and `ACEScg`, plus [`ColorSpace::encode`] -- a single entry point
-//! carrying a CIE XYZ radiance sample to encoded 8-bit output.
+//! [`ColorSpace::encode`] is the entry point from a CIE XYZ radiance sample to encoded 8-bit
+//! output.
 //!
 //! # Wiring
 //!
-//! `optics::raytracer::xyz_to_srgb_gamma` (every render's actual output path, via
-//! `renderer::tonemap`) is a thin wrapper around `xyz_to_rgb_in_space`, which itself is
-//! exactly [`ColorSpace::Srgb.encode`](ColorSpace::encode) with ACES filmic tone
-//! mapping at `exposure: 1.0`:
+//! Every render's output goes through `optics::raytracer::xyz_to_srgb_gamma` (via
+//! `renderer::tonemap`), which wraps `xyz_to_rgb_in_space` and is exactly
+//! [`ColorSpace::Srgb.encode`](ColorSpace::encode) with ACES filmic tone mapping at
+//! `exposure: 1.0`:
 //!
 //! ```ignore
 //! pub fn xyz_to_srgb_gamma(xyz: Vec3) -> [u8; 4] {
@@ -17,12 +17,9 @@
 //! }
 //! ```
 //!
-//! So every pixel this crate renders already goes through [`ColorSpace::encode`] --
-//! this module is not a self-contained, unwired replacement. `xyz_to_srgb_gamma`'s
-//! caller-visible behavior is the true piecewise sRGB curve, not flat 1/2.2 gamma (see
-//! `tests/color_tests.rs` for the deviation); Display P3, Rec.2020 and `ACEScg` are
-//! reachable via `xyz_to_rgb_in_space` but no caller currently picks a `space` other
-//! than `Srgb` (see that function's own doc comment).
+//! The output uses the piecewise sRGB curve, not a plain 1/2.2 gamma (see
+//! `tests/color_tests.rs`). Display P3, Rec.2020 and `ACEScg` are reachable via
+//! `xyz_to_rgb_in_space`, but no caller picks a `space` other than `Srgb` yet.
 
 use std::sync::atomic::{AtomicU8, Ordering};
 
@@ -39,14 +36,16 @@ use super::gamut;
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum HighlightRule {
     /// Keep the luminance and walk the color toward white until it fits
-    /// ([`gamut::project_to_gamut_bounded`]): bright saturated colors turn pale (red to pink,
-    /// blue to pale blue, violet to lilac). The rule before 2026-11-03, kept for comparison
-    /// (`--highlights whiten`).
+    /// ([`gamut::project_to_gamut_bounded`]).
+    ///
+    /// Bright saturated colors turn pale (red to pink, blue to pale blue, violet to lilac).
+    /// Kept for comparison (`--highlights whiten`).
     Whiten,
-    /// Keep the hue and saturation and dim the color until it fits; only light brighter than
-    /// diffuse white blends toward white ([`gamut::fit_keeping_color`]). The rule every render
-    /// uses unless told otherwise: a three-design comparison (2026-11-03) gave the same
-    /// lightness and hue as [`Self::Whiten`] and up to 60 % more chroma on a bright sapphire.
+    /// Keep the hue and saturation and dim the color until it fits.
+    ///
+    /// Only light brighter than diffuse white blends toward white
+    /// ([`gamut::fit_keeping_color`]). The default: against [`Self::Whiten`] it keeps the same
+    /// lightness and hue and up to 60 % more chroma on a bright sapphire.
     #[default]
     KeepColor,
 }
@@ -101,7 +100,7 @@ pub fn highlight_rule() -> HighlightRule {
 /// A transfer function (opto-electronic encoding curve) mapping a scene-linear value in
 /// `[0, 1]` to its encoded, display-ready counterpart, and back.
 ///
-/// Each variant is a genuinely distinct curve -- see below for constants and rationale.
+/// Each variant is a distinct curve; the constants are noted on each variant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransferFunction {
     /// Piecewise sRGB curve (IEC 61966-2-1): `12.92 * x` for `x <= 0.0031308`,
@@ -110,7 +109,7 @@ pub enum TransferFunction {
     Srgb,
     /// Piecewise Rec.2020 curve (ITU-R BT.2020-2, Table 4): `4.5 * x` below `beta`,
     /// `alpha * x^0.45 - (alpha - 1)` above, `alpha ~= 1.0992968`, `beta ~= 0.01805397`.
-    /// Distinct exponent (0.45, not 1/2.4) from sRGB -- not the same curve.
+    /// The exponent is 0.45, not the 1/2.4 of sRGB.
     Rec2020,
     /// No encoding curve: `ACEScg` is a scene-linear working space (for compositing,
     /// not direct display), so `encode`/`decode` are the identity function.
@@ -310,9 +309,30 @@ impl ColorSpace {
     /// [`Self::encode`] under an explicit [`HighlightRule`] instead of the process's one.
     #[must_use]
     pub fn encode_with(self, xyz: Vec3, tonemap: ToneMap, highlights: HighlightRule) -> [u8; 4] {
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "the encoded value is clamped to 0..=1, so encoded * 255 + 0.5 lies in 0.5..=255.5 and truncates to 0..=255"
+        )]
+        let quantize = |encoded: f32| -> u8 { encoded.mul_add(255.0, 0.5) as u8 };
+        let [r, g, b] = self.encode_unquantized_with(xyz, tonemap, highlights);
+        [quantize(r), quantize(g), quantize(b), 255]
+    }
+
+    /// [`Self::encode_with`] before the 8-bit rounding: each channel transfer-encoded in `0..=1`.
+    ///
+    /// Rounding `encoded * 255 + 0.5` down gives exactly the bytes of [`Self::encode_with`]. The
+    /// adaptive-sampling noise check uses it, so noise below one display step still counts.
+    #[must_use]
+    pub fn encode_unquantized_with(
+        self,
+        xyz: Vec3,
+        tonemap: ToneMap,
+        highlights: HighlightRule,
+    ) -> [f32; 3] {
         let sum = xyz.x + xyz.y + xyz.z;
         if !sum.is_finite() || sum <= 1e-6 {
-            return [0, 0, 0, 255];
+            return [0.0; 3];
         }
 
         let toned_rgb = match tonemap {
@@ -335,26 +355,19 @@ impl ColorSpace {
         };
 
         let tf = self.transfer_function();
-        #[expect(
-            clippy::cast_possible_truncation,
-            clippy::cast_sign_loss,
-            reason = "the encoded value is clamped to 0..=1, so encoded * 255 + 0.5 lies in 0.5..=255.5 and truncates to 0..=255"
-        )]
-        let encode_channel = |c: f32| -> u8 {
+        let encode_channel = |c: f32| -> f32 {
             let linear = if c.is_finite() {
                 c.clamp(0.0, 1.0)
             } else {
                 0.0
             };
-            let encoded = tf.encode(linear).clamp(0.0, 1.0);
-            encoded.mul_add(255.0, 0.5) as u8
+            tf.encode(linear).clamp(0.0, 1.0)
         };
 
         [
             encode_channel(toned_rgb.x),
             encode_channel(toned_rgb.y),
             encode_channel(toned_rgb.z),
-            255,
         ]
     }
 }

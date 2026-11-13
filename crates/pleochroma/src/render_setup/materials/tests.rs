@@ -17,10 +17,10 @@ fn sized(width_mm: f32) -> MaterialOverrides {
     }
 }
 
-/// Every `ModelUnit` built-in (all but the zoned Ametrine, which is
-/// `PerMm`) and every legacy-triple color: scale `(W / 7 / K) * (2.0 / w)` for the stone width `W`
-/// (7 mm while unset) and the design's model width `w` (`K = MODEL_UNIT_FACE_UP_PATH`; `None`
-/// is taken as the reference width 2.0).
+/// Every `ModelUnit` built-in (all but the zoned Ametrine, which is `PerMm`) and every
+/// legacy-triple color: scale `(W / 7 / K) * (2.0 / w)` for the stone width `W` (7 mm while
+/// unset) and the design's model width `w` (`K = MODEL_UNIT_FACE_UP_PATH`; `None` is taken as
+/// the reference width 2.0).
 #[test]
 fn model_unit_materials_scale_with_the_width_over_seven_mm() {
     let mut materials: Vec<GemMaterial> = GemMaterial::all_materials()
@@ -85,13 +85,13 @@ fn per_mm_materials_scale_with_the_width_over_the_model_width() {
         banded.absorption_path_scale
     );
     assert!(needs_model_width(&banded));
-    // Every material reads the model width now: a `ModelUnit` one for the reference-width rescale.
+    // Every material reads the model width: a `ModelUnit` one for the reference-width rescale.
     assert!(needs_model_width(&GemMaterial::sapphire()));
 }
 
-/// An unmeasurable arrangement leaves a `ModelUnit` material at today's calibrated look (taken
-/// as the reference width), never at the raw scale 1.0 (the 2026-10-08 black stone); a degenerate
-/// width (zero, negative, NaN) does the same.
+/// An unmeasurable arrangement leaves a `ModelUnit` material at the calibrated look (taken as
+/// the reference width), never at the raw scale 1.0; a degenerate width (zero, negative, NaN)
+/// does the same.
 #[test]
 fn a_model_unit_material_without_a_measurable_width_keeps_the_reference_look() {
     for width_mm in [0.0_f32, 7.0, 10.87] {
@@ -132,7 +132,7 @@ fn effective_width_defaults_to_seven_mm() {
     assert_eq!(effective_stone_width_mm(5.0), 5.0);
 }
 
-// ---- regression locks (lane AU) ----
+// ---- regression locks ----
 
 /// The unit decision of every built-in, written out. A new material fails
 /// `every_built_in_has_a_deliberate_absorption_unit` until it is added here (or to
@@ -293,20 +293,14 @@ fn one_unit_swatch_transmittance(material: &GemMaterial, lambda_nm: f32) -> f64 
     transmittance(&bare(material.clone()), lambda_nm, 1.0)
 }
 
-/// 2026-10-08 photo-vs-render bug: a real green cubic zirconia, 10.87 mm across the girdle,
-/// is vivid green in daylight, but the render was black because the per-model-unit absorption
-/// (which the swatch shows over ONE unit) was integrated over the several-unit face-up path.
+/// A 10.87 mm green cubic zirconia must not render black. The swatch shows the absorption over
+/// one model unit; the render integrates it over the face-up path (`K` units, scale
+/// `10.87 / 7 / K`).
 ///
-/// Arithmetic (green preset `[2.2, 0.2, 2.0]`, the three Gaussian bands overlap so the
-/// stone's alpha at 550 nm is about 1.34 per unit, not 0.2): the 1-unit swatch has
-/// `T1 = exp(-1.34) = 0.26`. The scale at 10.87 mm on a design of the reference width 2.0 is
-/// `10.87 / 7 / K` (K = 2.52, but the result does not depend on K), so over K units the density is
-/// `1.34 * 10.87 / 7 = 2.08` and `T = T1^(10.87/7) = 0.125`; a design of model width `w` raises
-/// that exponent by `2.0 / w` (the same physical stone, so a smaller model is a longer path per
-/// model unit). The old behaviour (scale `10.87 / 7 = 1.55` over the same
-/// K units) had density `1.34 * 1.55 * K`: 3.3e-5 at the original estimate K = 5 (density
-/// 10.4), 5e-3 at K = 2.52. The floor 0.05 is 2.5 times below the new value and 10 times
-/// above the old one at the measured K (still above it at model width 1.8, exponent 1.73).
+/// Arithmetic (green preset `[2.2, 0.2, 2.0]`: the stone's alpha at 550 nm is about 1.34 per
+/// unit): the 1-unit swatch has `T1 = exp(-1.34) = 0.26`, so the face-up transmittance is
+/// `T = T1^(10.87/7) = 0.125`. A design of model width `w` raises that exponent by `2.0 / w`,
+/// since the same physical stone is a longer path per model unit. The floor 0.05 is well below.
 #[test]
 fn regression_green_cubic_zirconia_at_10_87_mm_is_not_black() {
     let green = GemMaterial::by_name("Cubic Zirconia")
@@ -330,14 +324,12 @@ fn regression_green_cubic_zirconia_at_10_87_mm_is_not_black() {
     }
 }
 
-/// Same lock for plain Emerald and Ruby at 10.87 mm: the face-up transmittance equals the
-/// 1-unit swatch raised to `10.87 / 7` and the own colour channel stays above the opposite one.
+/// Same check for plain Emerald and Ruby at 10.87 mm: the face-up transmittance equals the
+/// 1-unit swatch raised to `10.87 / 7`, and the own color channel stays above the opposite one.
 ///
-/// Emerald (alpha at 530 nm about 0.57 per unit): new `T = exp(-0.57 * 1.553) = 0.41`, old
-/// (scale 1.553 over K units) `exp(-0.885 * K)`: 0.012 at the original estimate K = 5, 0.107
-/// at the measured K = 2.52; the floor 0.2 is half the new value and 1.9 times the old one at
-/// the measured K. Ruby has no separate absolute floor beyond 0.05: its swatch T is
-/// already high, and the analytic equality is the real check.
+/// Emerald (alpha at 530 nm about 0.57 per unit) gives `T = exp(-0.57 * 1.553) = 0.41`, and the
+/// 0.2 floor is well below it. Ruby has no absolute floor beyond 0.05: its swatch T is already
+/// high, so the analytic equality is the real check.
 #[test]
 fn regression_emerald_and_ruby_at_10_87_mm_stay_coloured() {
     let factor = f64::from(10.87_f32 / 7.0);
@@ -733,9 +725,9 @@ fn print_model_widths_of_bundled_asc_fixtures() {
     }
 }
 
-/// B5: a stone sized for scoring outside the render loop (`material_for_stone`: tone,
-/// tilt, comparisons, the optimizer) is the very material the render uses, for a built-in,
-/// a legacy triple and a per-mm material.
+/// A stone sized for scoring outside the render loop (`material_for_stone`: tone, tilt,
+/// comparisons, the optimizer) is the very material the render uses, for a built-in, a legacy
+/// triple and a per-mm material.
 #[test]
 fn the_scoring_material_equals_the_render_material_for_a_sized_stone() {
     use crate::{geometry::cuts::StandardGemCuts, render_setup::measure_model_width};
@@ -826,8 +818,8 @@ fn custom_families_follow_the_design_crystal_axis() {
     assert!((needle - Vec3::X).length() < 1e-5, "{needle:?}");
 }
 
-/// A custom labradorite's lamella normal turns with the design's Crystal Axis like a family
-/// direction does (it was copied unchanged before, with the families alone rebased).
+/// A custom labradorite's lamella normal turns with the design's Crystal Axis, as a family
+/// direction does.
 #[test]
 fn a_custom_lamella_normal_follows_the_design_crystal_axis() {
     use crate::optics::inclusions::bragg::{LABRADORITE_NORMAL, StructureKind, StructureSpec};
@@ -861,8 +853,7 @@ fn a_custom_lamella_normal_follows_the_design_crystal_axis() {
 }
 
 /// The built-in Ametrine's sector boundary follows the design's Crystal Axis: with the axis in
-/// the girdle plane the boundary still runs straight down through the table, along the axis line
-/// (it stayed the fixed `x = 0` plane before, whatever the axis).
+/// the girdle plane the boundary still runs straight down through the table, along the axis line.
 #[test]
 fn the_ametrine_boundary_follows_the_design_crystal_axis() {
     use glam::DVec3;

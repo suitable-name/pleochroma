@@ -1,10 +1,9 @@
 //! What the library tutorials wait for: a state, not "something changed".
 //!
 //! "Clear it" asks for an empty search box, and "Put everything back" for a library that no
-//! search or filter narrows any more. Reporting "the search was edited" or "a filter changed"
-//! would finish those steps when the learner types one more letter or picks a second shape, so
-//! the library handlers ask [`library_is_narrowed`] after every change and report the reset only
-//! when [`NarrowingMemory`] sees the library go from narrowed to not narrowed.
+//! search or filter narrows. Reporting every edit would finish those steps too early. So the
+//! handlers ask [`library_is_narrowed`] after each change, and report the reset only when
+//! [`NarrowingMemory`] sees the library go from narrowed to not narrowed.
 
 use super::search::{read_local_only, read_range_filter, read_tag_filter};
 use crate::MainWindow;
@@ -46,10 +45,11 @@ impl Narrowing<'_> {
     }
 }
 
-/// Whether the library's search or a filter narrows the list now: the search box and the Shape
-/// and Gear drop-downs as the caller has them (a handler passes the value it was just given,
-/// because the model property may not have caught up with it yet), and the range, "My designs"
-/// and tag filters read off the window (UI thread only).
+/// Whether the library's search or a filter narrows the list now.
+///
+/// The search box and the Shape and Gear drop-downs come from the caller, because the model
+/// property may not have caught up yet. The range, "My designs" and tag filters are read off
+/// the window (UI thread only).
 pub(super) fn library_is_narrowed(ui: &MainWindow, search: &str, shape: &str, gear: &str) -> bool {
     let range = read_range_filter(ui);
     Narrowing {

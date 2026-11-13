@@ -1,11 +1,11 @@
 //! Tests of the mesh-to-rig alignment and of the beam-splitter-cube calibration, on synthetic
 //! photos (projected points and lines with noise, no rendering).
 //!
-//! Tolerances from the geometry. At 150 mm with a 4000 px focal length one pixel is 0.0375 mm at the
-//! stone, and a rotation of 0.1 degree moves the image by 7 px. A camera shifted sideways by `t` and
-//! turned by `t / D` looks the same, so the fit can only pin a camera's position to the prior's
-//! width (here 0.5 mm) while its rotation is good to about `0.5 / 150 = 0.2` degrees at the very
-//! worst and normally to a few hundredths of a degree.
+//! Tolerances from the geometry. At 150 mm with a 4000 px focal length one pixel is 0.0375 mm at
+//! the stone, and a rotation of 0.1 degree moves the image by 7 px. A camera shifted sideways by
+//! `t` and turned by `t / D` looks the same, so the fit can only pin a camera's position to the
+//! prior's width (here 0.5 mm) while its rotation is good to about `0.5 / 150 = 0.2` degrees at
+//! the very worst and normally to a few hundredths of a degree.
 
 use glam::{DQuat, DVec2, DVec3};
 
@@ -33,7 +33,7 @@ fn rotation_error_deg(left: &Rigid, right: &Rigid) -> f64 {
 
 /// The outline of the box with `half` extents under `truth`, as every view would photograph it.
 ///
-/// It is the hull of the projected corners with every edge cut in six, and `sigma` pixels of noise.
+/// The hull of the projected corners, each edge cut in six, with `sigma` pixels of noise.
 fn box_outlines(
     rig: &RigProfile,
     half: DVec3,
@@ -142,10 +142,11 @@ fn unusable_outlines_are_refused_before_any_fitting() {
     assert!(align_mesh_to_rig(&mesh, &rig, &missing_view, Rigid::IDENTITY, &options).is_err());
 }
 
-/// Eight cameras around the cube, four azimuths in two elevation bands.
+/// Eight cameras around the cube, 40 to 50 degrees of azimuth apart, alternately above and below
+/// the equator.
 ///
-/// None is on a diagonal plane of the cube. Every coated-diagonal edge is seen through the glass by at least two of
-/// them, and no two of those lie in one plane with the edge.
+/// None lies on a diagonal plane of the cube. Every coated-diagonal edge is seen through the glass
+/// by at least two of them, and no two of those lie in one plane with the edge.
 fn calibration_views() -> Vec<ViewPose> {
     let table = [
         (25.0_f64, 35.0_f64),

@@ -7,24 +7,11 @@
 //! speed without changing that order (see [`enumerate_candidate_vertices_cancellable`]'s
 //! doc comment).
 //!
-//! NOTE -- tried caching each triple's mast-independent 3x3 inverse across
-//! phase-3 sweeps: the feasibility scan dominates, not the triple solve, so it
-//! saved nothing measurable while regressing single-sweep time ~25%; rejected.
-//!
-//! NOTE -- tried threading [`enumerate_candidate_vertices_cancellable`] itself (sharding the
-//! outer loop across OS threads, verified bit-exact with the sequential scan):
-//! measured flat-to-regressed on a real 103-tier design (up to ~9.6s vs.
-//! 5.5-6.1s single-threaded), since the feasibility scan is a fixed-size,
-//! already-cache-resident scan with no cross-thread work to share; reverted.
-//! Coarser-grained parallelism (across whole independent designs) is more
-//! likely to pay than per-triple fan-out.
-//!
-//! NOTE -- tried an owner-move-invalidated persistent cache of phase 3's whole
-//! candidate evaluation (skip re-classifying a candidate whose three defining
-//! planes haven't moved since the last sweep): measured a 27% regression on a
-//! real 103-tier design, because 97-100 of its 103 tiers move on every sweep
-//! (it never converges within the cap), so almost nothing ever qualified for
-//! the cheap path and the cache's own bookkeeping was pure overhead; reverted.
+//! Deliberately not done: caching triple inverses or candidate evaluations across
+//! phase-3 sweeps, and threading the enumeration. The feasibility scan dominates a
+//! sweep, and nearly every tier moves on each sweep, so caches cost more than they
+//! save. Parallelism across independent designs is more likely to pay than per-triple
+//! fan-out.
 
 use super::{
     BLANK_HALF_EXTENT, EPS_FEAS, LEVEL_TOL, MIN_TRIPLE_DET, MeetTierInput, blocks::tier_sides,
@@ -49,10 +36,11 @@ pub(super) struct CandidateVertex {
     pub(super) owners: [usize; 3],
 }
 
-/// Unit facet-plane normals for one tier's index instances, matching
-/// [`super::super::cuts::StandardGemCuts::from_asc_schedule`]'s azimuth/crown
-/// convention (`phi = 2*pi*index/gear_teeth_abs`, crown normals tilt toward `+y`,
-/// pavilion toward `-y`), computed in `f64`.
+/// Unit facet-plane normals for one tier's index instances, in `f64`. Azimuths follow
+/// [`super::super::cuts::StandardGemCuts::from_asc_schedule`]
+/// (`phi = 2*pi*index/gear_teeth_abs`) without its reference-angle offset, which rotates
+/// every tier alike and leaves masts unchanged. Crown normals tilt toward `+y`, pavilion
+/// toward `-y`.
 pub(super) fn tier_normals(
     gear_teeth_abs: u32,
     angle_deg: f64,
@@ -156,29 +144,20 @@ fn flush_candidate_batch(
 /// Enumerates every candidate meet vertex of the arrangement: all triples of real
 /// planes with `|det| >=` [`MIN_TRIPLE_DET`], solved in `f64`, kept when the point
 /// violates the half-spaces of at most one tier (and never the bounding blank).
-/// Deterministic by construction: plain nested loops over a fixed plane order,
-/// no hashing, no convex-hull library.
+/// Plain nested loops over a fixed plane order, with no hashing, so the output order
+/// is deterministic.
 ///
-/// Batched through `crate::simd`: the plane arena (`PlanesSoA64`) is built once
-/// up front, and every triple's determinant/inverse solve runs through
-/// `solve_triple_batch` via [`flush_candidate_batch`] (SIMD-dispatched,
-/// bit-identical per lane to the `glam` `DMat3` sequence it replaces -- see the
-/// determinism contract at the top of `src/simd/mod.rs`), draining lanes in
-/// ascending order, so results are byte-for-byte identical to the unbatched
-/// scalar solve this replaces.
+/// Batched through `crate::simd`: the plane arena (`PlanesSoA64`) is built once, and
+/// each triple is solved by `solve_triple_batch` via [`flush_candidate_batch`]. Each
+/// lane is bit-identical to the `glam` `DMat3` solve (see the determinism contract in
+/// `src/simd/mod.rs`). Lanes drain in ascending order, so the result matches an
+/// unbatched scalar solve.
 ///
-/// `cancel` is checked once per outer `a` iteration AND once per middle `b`
-/// iteration -- bounding the largest uninterrupted unit of work to one
-/// `O(P)` inner `c` loop, not the whole `O(P^2)` `a`-chunk (measured
-/// necessary on the real 103-tier fixture in an unoptimized build: the
-/// `a = first_real` chunk alone, checked only per-`a`, could still exceed a
-/// caller's cancel-latency budget -- see the module docs, "Cancellation and
-/// progress") -- and this returns `None` the first time `cancel` is observed
-/// set, discarding whatever candidates that partial scan already found (a
-/// cancelled solve has no use for a partial arrangement). `cancel` is `None`
-/// for every caller with no [`super::SolveControl`] in hand (e.g. this
-/// module's own tests), which costs one cheap `Option::is_some` check per
-/// iteration and never returns `None`.
+/// `cancel` is checked once per outer `a` iteration and once per middle `b` iteration,
+/// so the longest uninterrupted work is one `O(P)` inner `c` loop. Checking only per `a`
+/// would leave a whole `O(P^2)` chunk unobserved. On a set flag this returns `None` and
+/// discards the partial scan. `cancel` is `None` for callers without a
+/// [`super::SolveControl`]; that costs one `Option::is_some` check per iteration.
 pub(super) fn enumerate_candidate_vertices_cancellable(
     planes: &[SolvePlane],
     first_real: usize,
@@ -229,16 +208,9 @@ pub(super) fn enumerate_candidate_vertices_cancellable(
     Some(out)
 }
 
-/// Sorts `vals` ascending in [`f64::total_cmp`] order -- the exact sequence
-/// `vals.sort_by(f64::total_cmp)` produces -- via the unstable sort, which yields
-/// identical bit patterns (a total order on bits leaves no freedom for "equal"
-/// elements to differ) and measured ~20% faster on phase 3's ~10^4-10^5-value
-/// inputs. Tried an 8-bit LSD radix sort on the 64-bit keys: no faster, eight
-/// passes cost as much as the comparisons; rejected. Tried a two-pass radix sort
-/// on a coarse `floor(v / LEVEL_TOL)` key finished by per-run comparison sorts:
-/// real candidate values cluster into a few dozen `LEVEL_TOL`-wide runs, so the
-/// run sorts cost as much as the full sort and the fixed per-call bucket
-/// overhead slowed phase 1's many small calls 2x; rejected.
+/// Sorts `vals` ascending in [`f64::total_cmp`] order, the same bits that
+/// `vals.sort_by(f64::total_cmp)` gives. An unstable sort suffices, because a total
+/// order on bit patterns leaves equal elements indistinguishable.
 pub(super) fn sort_total_order(vals: &mut [f64]) {
     vals.sort_unstable_by(f64::total_cmp);
 }
@@ -246,10 +218,9 @@ pub(super) fn sort_total_order(vals: &mut [f64]) {
 /// Groups candidate `n . v` values into distinct "levels" (descending; values within
 /// [`LEVEL_TOL`] of a level's head belong to it).
 ///
-/// Callers only ever pass positive finite values (both call sites filter
-/// `> 1e-9` first), for which descending `partial_cmp` order and reversed
-/// [`f64::total_cmp`] order are the same sequence -- so [`sort_total_order`]
-/// replaces the comparison sort with byte-identical output.
+/// Callers pass only positive finite values (they filter `> 1e-9` first). For those,
+/// descending `partial_cmp` order and reversed [`f64::total_cmp`] order coincide, so
+/// [`sort_total_order`] gives the same output.
 pub(super) fn group_levels(mut vals: Vec<f64>) -> Vec<f64> {
     sort_total_order(&mut vals);
     let mut levels: Vec<f64> = Vec::new();
@@ -262,17 +233,14 @@ pub(super) fn group_levels(mut vals: Vec<f64>) -> Vec<f64> {
     levels
 }
 
-/// Keeps only the levels realizable for *every* index instance of the tier: a
-/// level (derived from instance 0's values) survives if each other instance
-/// also has a candidate value within tolerance of it -- true for 95% of tiers
-/// (measured) at the true configuration, pruning levels that would place the
-/// tier's symmetric copies off any meet vertex. Falls back to the unfiltered
-/// list when the filter would empty it.
+/// Keeps only the levels realizable for *every* index instance of the tier. A level
+/// (derived from instance 0) survives if each other instance also has a candidate value
+/// within tolerance of it. This prunes levels that would place the tier's symmetric
+/// copies off any meet vertex. Falls back to the unfiltered list when the filter would
+/// empty it.
 ///
-/// Per other-instance `j`, `usable`'s `n_j . v` values are sorted once so
-/// membership is a binary search instead of a per-level scan: same result set
-/// and order, O((instances-1)*usable*log(usable)) instead of
-/// O(levels*instances*usable).
+/// Each other instance's `n_j . v` values are sorted once, so membership is a binary
+/// search per level.
 pub(super) fn filter_levels_by_instance_support(
     levels: Vec<f64>,
     normals_i: &[DVec3],
@@ -389,8 +357,7 @@ mod tests {
     }
 
     /// `sort_total_order` must produce exactly the sequence `sort_by(f64::total_cmp)`
-    /// does -- including negative values, `-0.0`/`+0.0`, duplicates, and inputs
-    /// both below and above the radix threshold.
+    /// does, including negative values, `-0.0`/`+0.0`, duplicates, and several lengths.
     #[test]
     fn sort_total_order_matches_std_total_cmp_sort() {
         let mut state = 7u64;

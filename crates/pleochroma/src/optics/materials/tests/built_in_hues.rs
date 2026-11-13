@@ -1,7 +1,8 @@
-//! Hue and shape relations of the built-in colored materials in the default (per model unit)
-//! color mode, from the 2026-10-19 color check: the fits, the measured spectra they use
-//! (`crates/pleochroma/data/reference_spectra/*.csv`) and the swatch values are documented in each
-//! material's entry comment (`crates/pleochroma/src/optics/materials/*.rs`).
+//! Hue and shape relations of the built-in colored materials in the default (per model unit) color
+//! mode.
+//!
+//! The fits, their measured spectra (`crates/pleochroma/data/reference_spectra/`) and the swatch
+//! values are documented in each material's entry comment.
 //!
 //! No pixel is pinned: every assertion is a relation (a hue class, an ordering of two rays, a
 //! path-length trend) on the 7 mm swatch. The swatch is the tensor's transmission over ONE model
@@ -73,8 +74,7 @@ fn transmission(bands: &[AbsorptionBand], lambda_nm: f32) -> f64 {
     (-alpha(bands, lambda_nm)).exp()
 }
 
-/// Since 2026-11-04 x 0.6 of the San Carlos crystal (the dealer photos' saturation): the Python
-/// replica of the app's colorimetry, not a run, gives L* 84 C* 48 h 113 (it was L* 76 C* 63 h 111).
+/// Peridot at 0.6 of the San Carlos crystal's strength, to match the dealer photos' saturation.
 #[test]
 fn peridot_swatch_is_yellow_green() {
     let [l, c, h] = unpolarised(PERIDOT, 1.0);
@@ -83,7 +83,7 @@ fn peridot_swatch_is_yellow_green() {
     assert!((76.0..=90.0).contains(&l), "Peridot lightness {l:.1}");
 }
 
-/// Caltech GRR 418 gives h 114 / 113 / 111 at 3 / 5 / 8.8 mm: yellow-green at every size.
+/// The hue holds across path lengths (Caltech GRR 418 spectrum): yellow-green at every size.
 #[test]
 fn peridot_hue_is_stable_with_path() {
     let h1 = unpolarised(PERIDOT, 1.0)[2];
@@ -94,8 +94,7 @@ fn peridot_hue_is_stable_with_path() {
     );
 }
 
-/// Fitted to Caltech GRR 43 (Fe-poor, "Mandarin" orange): the measured 7 mm swatch is a light
-/// vivid orange (L* 77, C* 72, h 66), not the darker, over-saturated tuned stone.
+/// Fitted to Caltech GRR 43 (Fe-poor, "Mandarin" orange): a light, vivid orange.
 #[test]
 fn spessartine_swatch_is_orange() {
     let [l, c, h] = unpolarised(SPESSARTINE, 1.0);
@@ -104,11 +103,10 @@ fn spessartine_swatch_is_orange() {
     assert!((70.0..=85.0).contains(&l), "Spessartine lightness {l:.1}");
 }
 
-/// Heated tanzanite, fitted to Caltech GRR 2292 (blue zone): violet-blue, and the three rays are
+/// Heated tanzanite, fitted to Caltech GRR 2292 (blue zone): violet-blue. The three rays are
 /// ordered as in every measured crystal (GRR 1265, GRR 2292, GRR 3045 after heating): gamma
 /// (the `e_ray`) is the lightest and bluest, alpha (the `o_ray`) the darkest and most purplish.
-/// Since 2026-11-04 x 0.7 of the crystal (the dealer photos' saturation): replica L* 56 C* 40 h 290
-/// (it was L* 45 C* 49 h 292); alpha L* 44 h 315, beta L* 58 h 286, gamma L* 65 h 263.
+/// Strength 0.7 of the crystal, to match the dealer photos' saturation.
 #[test]
 fn tanzanite_swatch_is_violet_blue() {
     let colors = swatch(TANZANITE, 1.0);
@@ -128,9 +126,8 @@ fn tanzanite_swatch_is_violet_blue() {
     );
 }
 
-/// Since 2026-11-03 the GIA Cr3+ + Fe3+ ruby (Cr 400, Fe 1000 ppma*cm): unpolarised swatch
-/// L* 46 C* 53 h 19 (Python replica of the app's colorimetry, not a run), a red that renders like
-/// the clean faceted-ruby photo (h 14) instead of the pure-Cr3+ magenta-pink (h 356 swatch).
+/// The GIA Cr3+ + Fe3+ ruby (Cr 400, Fe 1000 ppma*cm): a red, not the magenta-pink of Cr3+
+/// alone (hue about 356).
 #[test]
 fn ruby_swatch_is_red_not_mauve() {
     let [l, c, h] = unpolarised(RUBY, 1.0);
@@ -142,9 +139,7 @@ fn ruby_swatch_is_red_not_mauve() {
     assert!((38.0..=54.0).contains(&l), "Ruby lightness {l:.1}");
 }
 
-/// GIA Appendix 2: the unpolarised hue goes 348 -> 1 -> 11 with growing density (Cr3+ alone).
-/// With the Fe3+ of the 2026-11-03 default it turns from 19 to 26 between one and two swatch
-/// paths.
+/// The hue turns toward red with path length, as in GIA's Cr3+ data (Appendix 2).
 #[test]
 fn ruby_hue_rotates_toward_red_with_path() {
     let h1 = unpolarised(RUBY, 1.0)[2];
@@ -168,12 +163,9 @@ fn ruby_o_ray_absorbs_more_than_e_ray_in_the_green() {
     );
 }
 
-/// Fitted to Caltech GRR 1488: the e-ray (E parallel to c) is a deep violet-blue and the o-ray is
-/// nearly colorless, so the unpolarised (2 o + e) / 3 swatch is a light blue, not cyan. Since
-/// 2026-11-03 0.6 x GRR 1488 plus 0.4 x the Greenish variant (the dealer photos, median hue 241):
-/// swatch L* 84 C* 15 h 235, o-ray L* 94 C* 12 (the variant's Fe3+ tints it a little).
-/// Since 2026-11-04 x 0.3 of that mix (the dealer and Commons photos' saturation, a pale
-/// aquamarine): replica L* 92 C* 10 h 233, o-ray L* 98 C* 4, e-ray L* 78 C* 35 h 245.
+/// Fitted to Caltech GRR 1488 and mixed with the Greenish variant to match the dealer photos.
+/// The e-ray (E parallel to c) is a violet-blue and the o-ray nearly colorless, so the
+/// unpolarised (2 o + e) / 3 swatch is a pale blue, not cyan.
 #[test]
 fn aquamarine_swatch_is_light_blue_with_a_colorless_o_ray() {
     let colors = swatch(AQUAMARINE, 1.0);
@@ -202,15 +194,10 @@ fn aquamarine_swatch_is_light_blue_with_a_colorless_o_ray() {
     );
 }
 
-/// Fitted to Caltech GRR 229 (tsavorite) and GIA 2952 (demantoid): both green stones absorb at 650 nm
-/// (the 606 nm V3+ band, the 629 nm Cr3+ band) and keep a measured deep-red window beyond 700 nm;
-/// demantoid is the yellower. Since 2026-11-03 (the dealer photos: median hues 139 and 117)
-/// tsavorite is at half its strength (swatch h 140, T(650) 0.30) and demantoid is 0.15 x GIA 2952
-/// plus the Fe3+ andradite GRR 48 (swatch h 115, T(650) 0.34): lighter stones, so the 650 nm
-/// absorption no longer closes the window, it only dims it. Since 2026-11-04 (the photos'
-/// saturation) tsavorite is x 0.7 of that (replica h 137, T(650) 0.44) and demantoid x 0.35
-/// (h 115, T(650) 0.68): the 650 nm dip is shallower but still well below the deep-red window
-/// (T(740) 0.96 and 0.97).
+/// Fitted to Caltech GRR 229 (tsavorite) and GIA 2952 (demantoid). Both absorb at 650 nm (the
+/// 606 nm V3+ band, the 629 nm Cr3+ band) and keep a deep-red window beyond 700 nm. Tsavorite
+/// and demantoid are scaled down to match the lighter dealer photos, so the 650 nm dip only
+/// dims the window. Demantoid is the yellower.
 #[test]
 fn demantoid_and_tsavorite_are_green_with_no_window_at_650_nm() {
     let [_, _, h_demantoid] = unpolarised(DEMANTOID, 1.0);
@@ -240,13 +227,13 @@ fn demantoid_and_tsavorite_are_green_with_no_window_at_650_nm() {
     );
 }
 
-/// The measured-shape refits (owner decision 2026-10-19): the hue class stays blue / green and the
-/// refits add the measured o/e dichroism.
+/// The measured-shape fits keep the hue class (blue sapphire, green emerald) and add the
+/// measured o/e dichroism.
 #[test]
 fn sapphire_and_emerald_refits_keep_their_hue_class() {
     let [l, _, h] = unpolarised(SAPPHIRE, 1.0);
     assert!((275.0..=292.0).contains(&h), "Sapphire hue {h:.1}");
-    // The royal blue default (12.5 ppma*cm, 2026-11-03): L* 49.9; it was 56.7 at 10 ppma*cm.
+    // The royal blue default (12.5 ppma*cm).
     assert!((44.0..=56.0).contains(&l), "Sapphire lightness {l:.1}");
 
     let colors = swatch(EMERALD, 1.0);
@@ -261,15 +248,8 @@ fn sapphire_and_emerald_refits_keep_their_hue_class() {
     );
 }
 
-/// The refitted and rewritten entries are energy-domain (wavenumber Gaussian) band sets, as
-/// fitted to the measured spectra; the entries the owner kept are still wavelength Gaussians.
-///
-/// 2026-10-27: Amethyst, Citrine, Morganite, Chrysoberyl (Yellow), Topaz, Zircon, Tourmaline and
-/// Andalusite moved to the first list when they got their per-axis tensors (they were wavelength
-/// Gaussians, and Amethyst, Citrine and Tourmaline were the "kept" ones of this test).
-/// 2026-11-03: Pyrope and Almandine moved too, measured Caltech spectra in place of tuned bands,
-/// and Spinel the same day (the measured JQ-13 spectrum, after the dealer photos), the last kept
-/// entry: every colored built-in now carries energy-domain bands.
+/// The colored built-ins carry energy-domain (wavenumber Gaussian) band sets, as fitted to
+/// their measured spectra.
 #[test]
 fn refitted_entries_use_energy_bands_and_kept_entries_do_not() {
     let all_energy = |name: &str| {
@@ -306,8 +286,8 @@ fn refitted_entries_use_energy_bands_and_kept_entries_do_not() {
     }
 }
 
-/// Benitoite is cut with its c axis in the table (2026-11-03): its blue is the e-ray, so a c axis
-/// along the table normal would show face-up only the nearly colorless o-ray.
+/// Benitoite is cut with its c axis in the table: its blue is the e-ray, so a c axis along the
+/// table normal would show face-up only the nearly colorless o-ray.
 #[test]
 fn benitoite_lies_with_its_c_axis_in_the_table() {
     let c = material(BENITOITE).c_axis;
@@ -318,12 +298,9 @@ fn benitoite_lies_with_its_c_axis_in_the_table() {
     );
 }
 
-/// Pyrope (Caltech GRR 1055) and Almandine (GRR 1776), measured since 2026-11-03: a deep red,
-/// never the hot magenta of the tuned green-only bands they replaced (swatch h about 330), and
-/// the blue must stay closed (the ultraviolet edge) while the red window stays open. The same day
-/// both took the Mn2+ of the Spessartine built-in (0.6 and 0.3), a slightly orange red like the
-/// dealer photos: swatch h 25 and 36. Since 2026-11-04 Pyrope is x 0.45 of that (the photos'
-/// saturation): replica L* 46 C* 36 h 16, T(450) 0.10 against T(650) 0.75.
+/// Pyrope (Caltech GRR 1055) and Almandine (GRR 1776) are a deep red, slightly orange (they
+/// carry the Mn2+ of the Spessartine built-in). The ultraviolet edge keeps the blue closed while
+/// the red window stays open.
 #[test]
 fn pyrope_and_almandine_swatches_are_deep_red_not_magenta() {
     for name in [PYROPE, ALMANDINE] {
@@ -358,11 +335,9 @@ enum Ray {
     Beta,
 }
 
-/// Amethyst (2026-10-27, per-axis): the free four-band fit of the Caltech Anahi o-ray spectrum at one
-/// factor 2.47 (model / data 0.98-1.02), the e-ray at the Report's weights; since 2026-11-04 the
-/// main band sits at 549 nm (the dealer photos' bluer purple). The swatch stays purple (the Python
-/// replica of the app's colorimetry, not a run, gives unpolarised L* 53 C* 36 h 315, o-ray L* 49
-/// C* 43 h 314, e-ray L* 60 C* 27 h 317), and the weaker-absorbing e-ray is the lighter one.
+/// Amethyst: a free four-band fit of the Caltech Anahi o-ray spectrum (model / data 0.98-1.02),
+/// with its main band at 549 nm to match the bluer dealer purple. The swatch is purple, and the
+/// weaker-absorbing e-ray is the lighter one.
 #[test]
 fn amethyst_is_purple_and_its_e_ray_is_the_lighter_ray() {
     let colors = swatch(AMETHYST, 1.0);
@@ -380,10 +355,8 @@ fn amethyst_is_purple_and_its_e_ray_is_the_lighter_ray() {
     assert_eq!((t.o_ray.len(), t.e_ray.len()), (4, 4));
 }
 
-/// Citrine (2026-10-27, per-axis): the Fe3+ charge-transfer edge of the citrine table, equal in
-/// both rays (the pleochroism of citrine is negligible) but stored pleochroic. Hand evaluation, not
-/// a run: L* 92 C* 51 h 94 against the old L* 93 C* 49 h 91. Since 2026-11-04 x 2 (the dealer
-/// and Commons photos' saturation, a golden citrine): replica L* 85 C* 77 h 87.
+/// Citrine: the Fe3+ charge-transfer edge, equal in both rays (the pleochroism of citrine is
+/// negligible) but stored pleochroic. The strength matches golden dealer photos.
 #[test]
 fn citrine_is_golden_yellow_with_equal_rays_stored_pleochroic() {
     let [l, c, h] = unpolarised(CITRINE, 1.0);
@@ -396,18 +369,13 @@ fn citrine_is_golden_yellow_with_equal_rays_stored_pleochroic() {
     assert!(t.beta_ray.is_none());
 }
 
-/// Morganite (2026-10-27, per-axis): the free fit of the Caltech red beryl GRR 602 (UV edge and the
-/// 440 / 496 / 555 nm Mn3+ structure in the o-ray, 440 / 544 nm in the e-ray) at one factor 0.202,
-/// which is the documented "light red to light violet" pleochroism: the o-ray is the pinker one.
-/// Python replica of the app's colorimetry, not a run: unpolarised L* 79 C* 32 h 342 (the old swatch
-/// was L* 77 C* 47 h 325), o-ray L* 81 C* 33 h 347 (what the stone shows with c along the view),
-/// e-ray L* 75 C* 31 h 332.
+/// Morganite: the free fit of the Caltech red beryl GRR 602 (UV edge and the 440 / 496 / 555 nm
+/// Mn3+ structure in the o-ray, 440 / 544 nm in the e-ray), which gives the documented light red
+/// to light violet pleochroism. The o-ray is the pinker one.
 #[test]
 fn morganite_is_pink_and_its_o_ray_is_pinker_than_its_e_ray() {
-    // Since 2026-11-03 0.35 x this pink set plus 0.65 x the Peach variant (the dealer photos, a
-    // salmon pink, median hue 24): unpolarised L* 83 C* 20 h 15, o-ray h 2 (pink), e-ray h 54
-    // (peach). Since 2026-11-04 x 0.6 of that (the photos' saturation): L* 89 C* 12 h 18, o-ray
-    // h 0, e-ray h 62.
+    // Mixed with the Peach variant (the dealer photos, a salmon pink) and scaled to the photos'
+    // saturation: the unpolarised color is a salmon pink, the o-ray pink and the e-ray peach.
     let colors = swatch(MORGANITE, 1.0);
     let [l, c, h] = lch(&colors.unpolarised);
     assert!(
@@ -428,18 +396,13 @@ fn morganite_is_pink_and_its_o_ray_is_pinker_than_its_e_ray() {
     assert_eq!((t.o_ray.len(), t.e_ray.len()), (6, 6));
 }
 
-/// Chrysoberyl (Yellow) (2026-10-27, per-axis, biaxial): the Fe3+ bands of Caltech GRR 171 on beta
-/// (E par a) and gamma (E par b), the alpha ray (E par c) estimated as their mean, at ONE factor 0.7
-/// over every band (owner decision 2026-10-27: a golden yellow; the earlier 0.25 duplicated the
-/// Greenish Yellow variant). Python replica of the app's colorimetry, not a run: unpolarised
-/// L* 72 C* 53 h 83 (old tuned swatch L* 97 C* 56 h 103), alpha L* 72 C* 56, beta L* 76 C* 42,
-/// gamma L* 69 C* 67; with gamma along the view the stone shows alpha and beta, L* 74 C* 48 h 88.
-/// The gamma ray, with the strong 441 nm band, is the most saturated.
+/// Chrysoberyl (Yellow), biaxial: the Fe3+ bands of Caltech GRR 171 on beta (E par a) and gamma
+/// (E par b), with the alpha ray (E par c) estimated as their mean, all at one factor 0.7 (a
+/// golden yellow). The gamma ray, with the strong 441 nm band, is the most saturated.
 #[test]
 fn chrysoberyl_yellow_is_a_trichroic_greenish_yellow() {
-    // Since 2026-11-03 0.5 x the former Greenish Yellow variant (0.3 x GRR 171) plus 0.15 x the
-    // Alexandrite Cr3+ (the dealer photos, median hue 109): unpolarised L* 82 C* 26 h 118, the
-    // gamma ray green (h 149). The golden 0.7 x set above is the Golden variant.
+    // Mixed from the Greenish Yellow variant and a little Alexandrite Cr3+ to match the dealer
+    // photos (median hue 109): a greenish yellow, with the gamma ray green.
     let colors = swatch(CHRYSOBERYL, 1.0);
     let [l, c, h] = lch(&colors.unpolarised);
     assert!((108.0..=130.0).contains(&h), "Chrysoberyl hue {h:.1}");
@@ -455,14 +418,10 @@ fn chrysoberyl_yellow_is_a_trichroic_greenish_yellow() {
     assert!(t.is_pleochroic);
 }
 
-/// Topaz (since 2026-11-03 the electron-irradiated blue topaz GRR 825c, the Swiss and sky blue
-/// type, in place of the neutron-irradiated GRR 1632): the O- hole-centre band peaks near 626 nm
-/// and is strongest along ALPHA, about 2.2 x beta at 660 nm; beta is measured, gamma is taken equal
-/// to beta (no spectrum). The irradiation brown centre (a broad 400 nm band) is left out, as the
-/// heating of commercial blue topaz removes it. Hand evaluation, not a run: alpha L* 78 C* 48
-/// h 227, beta = gamma L* 82 C* 33 h 248, unpolarised L* 80 C* 37 h 240. Since 2026-11-04 x 0.7
-/// (the photos' saturation): alpha L* 83 C* 39 h 225, beta = gamma L* 86 C* 24 h 246,
-/// unpolarised L* 85 C* 29 h 238.
+/// Topaz: the electron-irradiated blue topaz GRR 825c (the Swiss and sky blue type). The O-
+/// hole-centre band peaks near 626 nm and is strongest along ALPHA, about 2.2 x beta at 660 nm.
+/// Beta is measured; gamma is taken equal to beta (no spectrum). The brown irradiation centre
+/// near 400 nm is left out, since heating of commercial blue topaz removes it.
 #[test]
 fn topaz_alpha_is_the_deep_blue_ray() {
     let colors = swatch(TOPAZ, 1.0);
@@ -493,10 +452,8 @@ fn topaz_alpha_is_the_deep_blue_ray() {
     );
 }
 
-/// Zircon (2026-10-27, per-axis): the U4+ lines are measured per ray (Caltech GRR 3106), and the
-/// two rays differ: 653 nm is about twice as strong along o, the 691 nm line is o only, the 616 nm
-/// line e only. Hand evaluation, not a run: unpolarised L* 93 C* 12 h 303 (the old swatch was
-/// L* 93 C* 13 h 279), o-ray h 318, e-ray h 256.
+/// Zircon: the U4+ lines are measured per ray (Caltech GRR 3106). The two rays differ: 653 nm is
+/// about twice as strong along o, the 691 nm line is o only, the 616 nm line e only.
 #[test]
 fn zircon_carries_the_measured_o_and_e_line_split() {
     let t = material(ZIRCON).absorption;
@@ -511,9 +468,8 @@ fn zircon_carries_the_measured_o_and_e_line_split() {
         o_653 > 1.5 * e_653,
         "653 nm: o {o_653:.2} against e {e_653:.2}"
     );
-    // Every line x 0.05 since 2026-11-03 (the dealer photos of white zircon are colorless; a
-    // colorless zircon holds about a twentieth of the green Mogok crystal's uranium): the split
-    // stays, the stone is nearly colorless (swatch L* 99 C* 1).
+    // Lines scaled to 0.05 of the green Mogok crystal, as the dealer photos of white zircon are
+    // colorless. The split stays, and the stone is nearly colorless.
     assert!(ray_alpha(ZIRCON, Ray::O, 690.9) > 0.25);
     assert!(ray_alpha(ZIRCON, Ray::E, 690.9) < 0.005);
     assert!(ray_alpha(ZIRCON, Ray::E, 616.0) > 0.15);
@@ -523,12 +479,9 @@ fn zircon_carries_the_measured_o_and_e_line_split() {
     assert!(c <= 3.0, "Zircon chroma {c:.1} must be nearly colorless");
 }
 
-/// Tourmaline (2026-10-27, refitted to the Caltech elbaite GRR 1935): the Fe2+ band at 711 nm is
-/// NOT strongly dichroic (o : e about 1.2, not the old 3 : 1; blue GRR 1935, GRR 3770 and the
-/// green crystal all measure o : e about 1), the polarisation lives in the UV / blue edge (o about
-/// 3 x e at 400 nm). Every band at the measured spectrum's one strength (owner 2026-10-27: measured
-/// values win). Python replica of the pipeline, not a run: unpolarised L* 91.4 C* 20.4 h 148.1 (the
-/// old swatch was L* 93 C* 49 h 121), o-ray L* 89.9 C* 27.2 h 142.3, e-ray L* 94.2 C* 9.8 h 174.9.
+/// Tourmaline: the Fe2+ band at 711 nm is NOT strongly dichroic (o : e about 1.2; the blue and
+/// green Caltech crystals all measure o : e about 1). The polarisation lives in the UV / blue
+/// edge (o about 3 x e at 400 nm).
 #[test]
 fn tourmaline_iron_band_is_not_dichroic_but_the_blue_edge_is() {
     let fe_ratio = ray_alpha(TOURMALINE, Ray::O, 711.0) / ray_alpha(TOURMALINE, Ray::E, 711.0);
@@ -541,9 +494,8 @@ fn tourmaline_iron_band_is_not_dichroic_but_the_blue_edge_is() {
         (2.0..=4.0).contains(&edge_ratio),
         "edge o : e at 400 nm is {edge_ratio:.2}, measured about 2"
     );
-    // Since 2026-11-03 the elbaite (x 3.5 x 1.45), the Yellow variant (x 5.5 x 0.9) and the Pink
-    // variant's Mn3+ (x 0.7), refitted (the dealer photos of green tourmaline, a dark olive to
-    // yellowish green, median hue 121, L* 52): unpolarised L* 52 C* 46 h 124.
+    // A mix of the elbaite, Yellow and Pink variant bands, matched to the dealer photos of green
+    // tourmaline (a dark olive to yellowish green, median hue 121, L* 52).
     let colors = swatch(TOURMALINE, 1.0);
     let [l, c, h] = lch(&colors.unpolarised);
     assert!((116.0..=130.0).contains(&h), "Tourmaline hue {h:.1}");
@@ -555,11 +507,8 @@ fn tourmaline_iron_band_is_not_dichroic_but_the_blue_edge_is() {
     assert!(t.is_pleochroic && t.beta_ray.is_none());
 }
 
-/// Andalusite (2026-10-27, refitted to the Caltech Fe-Ti crystal): ALPHA (E par c, the `o_ray`
-/// slot, `n_alpha`) carries the Fe2+-Ti4+ colour, beta and gamma are nearly colorless. The old
-/// qualitative entry had its strongest band on beta. Hand evaluation, not a run: alpha L* 63 C* 39
-/// h 41 (brownish red), beta L* 98 C* 7 h 108, gamma L* 99 C* 3 h 111, unpolarised L* 89 C* 9 h 60
-/// (the old swatch was L* 82 C* 22 h 356, a pink: the research shows it was wrong).
+/// Andalusite: ALPHA (E par c, the `o_ray` slot, `n_alpha`) carries the Fe2+-Ti4+ color, a
+/// brownish red, while beta and gamma are nearly colorless.
 #[test]
 fn andalusite_alpha_carries_the_iron_titanium_color() {
     let (alpha_486, beta_486, gamma_486) = (
@@ -577,8 +526,8 @@ fn andalusite_alpha_carries_the_iron_titanium_color() {
         (15.0..=70.0).contains(&h_alpha) && c_alpha > 25.0,
         "alpha must be a brownish red, got C* {c_alpha:.1} h {h_alpha:.1}"
     );
-    // Since 2026-11-03 0.65 x the crystal plus 0.35 x the Greener variant (the dealer photos,
-    // median hue 71): beta and gamma are a pale yellow-green (swatch C* 29 / 22, h 116 / 122).
+    // Mixed from the crystal and the Greener variant to match the dealer photos (median hue
+    // 71): beta and gamma are a pale yellow-green.
     let beta = colors.beta_ray.expect("Andalusite is biaxial");
     for (name, ray) in [("beta", lch(&beta)), ("gamma", lch(&colors.e_ray))] {
         assert!(
@@ -591,9 +540,9 @@ fn andalusite_alpha_carries_the_iron_titanium_color() {
     }
 }
 
-/// A colored stone on an anisotropic host never carries an isotropic tensor (owner decision
-/// 2026-10-27): every colored built-in on a uniaxial host has a pleochroic `o_ray` / `e_ray`
-/// tensor and no `beta_ray`, every one on a biaxial host a pleochroic tensor with a `beta_ray`.
+/// A colored stone on an anisotropic host never carries an isotropic tensor: every colored
+/// built-in on a uniaxial host has a pleochroic `o_ray` / `e_ray` tensor and no `beta_ray`,
+/// every one on a biaxial host a pleochroic tensor with a `beta_ray`.
 /// A colorless stone (all band sets empty) has no pleochroism to keep and stays the empty
 /// isotropic tensor, so its render path is unchanged. Isotropic hosts keep the isotropic tensor.
 /// The zoned Ametrine's color is its zones and is checked by its own tests.
@@ -634,8 +583,7 @@ fn every_built_in_on_an_anisotropic_host_has_a_pleochroic_tensor() {
 
 /// The colorless stones on anisotropic hosts keep the empty isotropic tensor (no stand-in bands,
 /// no pleochroic flag): Quartz (rock crystal), Synthetic Moissanite and the feldspar Moonstone.
-/// Their render path and every pin that uses them stay as they were. (Labradorite has had an
-/// olive-grey body since 2026-11-04: see the next test.)
+/// Labradorite is the olive-grey exception, see the next test.
 #[test]
 fn colorless_stones_on_anisotropic_hosts_stay_empty_and_isotropic() {
     for name in ["Quartz", "Synthetic Moissanite", "Moonstone"] {
@@ -648,7 +596,7 @@ fn colorless_stones_on_anisotropic_hosts_stay_empty_and_isotropic() {
     }
 }
 
-/// Labradorite's olive-grey body (the dealer photos, 2026-11-04) is the same in all three
+/// Labradorite's olive-grey body is the same in all three
 /// directions, in the per-axis form of a colored biaxial stone: no body pleochroism was found.
 /// It absorbs the blue end most (the yellow edge that tints the grey toward olive).
 #[test]
@@ -713,12 +661,8 @@ fn per_mm_built_ins_keep_their_unit_and_zoning() {
     );
 }
 
-/// Benitoite (Caltech GRR 561-D4, refitted 2026-10-26): the e-ray (E parallel to c) is blue, the
-/// o-ray (E perpendicular to c) is nearly colorless and lighter, and the unpolarised mix is blue.
-///
-/// Expected on the 7 mm swatch (a hand evaluation of the fitted bands, not a run), at the 2026-11-03
-/// strength (both peaks x 2): e-ray L* 53, C* 70, h 278; o-ray L* 93, C* 8; unpolarised
-/// (2 o + e) / 3 L* 83, C* 22, h 277.
+/// Benitoite (Caltech GRR 561-D4): the e-ray (E parallel to c) is blue, the o-ray (E
+/// perpendicular to c) is nearly colorless and lighter, and the unpolarised mix is blue.
 #[test]
 fn benitoite_e_ray_is_blue_and_o_ray_is_nearly_colorless() {
     let colors = swatch(BENITOITE, 1.0);
@@ -768,14 +712,8 @@ fn benitoite_band_shape_is_the_measured_one() {
     );
 }
 
-/// Red spinel (Caltech JQ-13, second Cr3+ band added 2026-10-26): the 4A2 -> 4T1 band near 395 nm
-/// closes the violet leak that the one-band preset had (the unpolarised swatch was mauve, h about
-/// 325, because blue and violet passed with the red), so the swatch is a red, and the absorption
-/// at 400 nm exceeds the valley at 470 nm, which the one-band preset (0.09 against 1.07) fails.
-///
-/// Expected (a hand evaluation, not a run): L* 50, C* 45, h 345; the absorption is 3.87 at 400 nm
-/// against 1.15 at 470 nm. Since 2026-11-03 the measured JQ-13 spectrum, since 2026-11-04 at
-/// x 0.45 (the dealer photos' saturation): replica L* 61 C* 50 h 7.
+/// Red spinel (Caltech JQ-13): the 4A2 -> 4T1 band near 400 nm closes the violet leak, so the
+/// swatch is red, and the absorption at 400 nm exceeds the valley at 470 nm.
 #[test]
 fn red_spinel_swatch_is_red_with_the_violet_leak_closed() {
     let [_, c, h] = unpolarised(SPINEL, 1.0);

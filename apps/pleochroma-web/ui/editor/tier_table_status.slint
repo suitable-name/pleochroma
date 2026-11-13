@@ -50,8 +50,7 @@ component StaleSolveBadge inherits Rectangle {
     }
 }
 
-// The dock's solve status, modelled on the desktop's `editor_status_strip.slint`: a
-// state dot and word (Solved / Stale / Solving / Failed / Problem), the tier count, the
+// The dock's solve status: a state dot and label (one per `status-kind`), the tier count, the
 // solver's own sentence (which names the tiers behind an "Unbounded" or "Degenerate"
 // result, or the missing anchor), and -- when there are any -- the manufacturability
 // warnings, one line each; a click on a line selects its tier.

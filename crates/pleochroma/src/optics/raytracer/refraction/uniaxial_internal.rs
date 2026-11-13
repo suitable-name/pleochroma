@@ -2,16 +2,16 @@
 //! uniaxial->isotropic exit transmission -- via `uniaxial_fresnel::internal_solve`.
 
 use super::{
-    DIRECTION_MATCH_COS_TOL, R_UNPOL_PDF_MAX, R_UNPOL_PDF_MIN, R_UNPOL_SELECT_MAX,
-    R_UNPOL_SELECT_MIN,
+    ExactExtra, R_UNPOL_PDF_MAX, R_UNPOL_PDF_MIN, R_UNPOL_SELECT_MAX, R_UNPOL_SELECT_MIN,
     context::{BounceRay, BounceState, ExitEvent, RngDraw, UniaxialBounceContext},
+    direction_matches, exit_leaves_via_floor,
     exit_split::try_split_exit_channel,
 };
 use crate::optics::{
     polarization::StokesVector,
     raytracer::{
         NUM_CHANNELS,
-        sampling::{FRESNEL_BRANCH_STREAM, hash_u32},
+        sampling::{FRESNEL_BRANCH_STREAM, discrete_draw},
         uniaxial_fresnel,
     },
 };
@@ -61,10 +61,6 @@ use glam::Vec3;
 /// last element is `Some` only on the reflect branch (o<->e coupling is a
 /// reflection-time event only): the hero channel's own `R_o / (R_o + R_e)`, fed to
 /// `transport::apply_internal_mode_coupling` as its o<->e relabeling probability.
-#[expect(
-    clippy::similar_names,
-    reason = "n_o/n_e are the established ordinary/extraordinary index names; ro_pow/re_pow are the established ordinary/extraordinary reflected-power names"
-)]
 pub(super) fn apply_uniaxial_internal_bounce(
     ubctx: &UniaxialBounceContext<'_, '_>,
     is_extraordinary: bool,
@@ -73,42 +69,16 @@ pub(super) fn apply_uniaxial_internal_bounce(
     state: &mut BounceState<'_>,
     exit_event: &mut ExitEvent<'_, '_>,
 ) -> (Vec3, Vec3, bool, Option<bool>, Option<f32>) {
-    let (ctx, geo, frame) = (ubctx.ctx, ubctx.geo, ubctx.frame);
+    let geo = ubctx.geo;
     let BounceRay { k_hat, normal } = ray;
     let RngDraw { rng_seed, bounce } = rng;
 
-    let hero = ctx.hero_idx;
-    let c_axis = ctx.c_axis;
-    let n_inc_hero = geo.n1_ch[hero];
-    let n_o_hero = geo.n_o_ch[hero];
-    let n_e_hero = ctx
-        .material
-        .extraordinary_index_at(ctx.lambdas[hero], n_o_hero);
-
-    let sol_hero = uniaxial_fresnel::internal_solve(
-        n_inc_hero,
-        n_o_hero,
-        n_e_hero,
-        c_axis,
-        frame,
-        !is_extraordinary,
-    );
-    let flux_inc_hero = sol_hero.flux_inc.max(1e-12);
-    let ro_pow = sol_hero.r_o.norm_sqr() * sol_hero.flux_ro;
-    let re_pow = sol_hero.r_e.norm_sqr() * sol_hero.flux_re;
-    let r_branch =
-        ((ro_pow + re_pow) / flux_inc_hero).clamp(R_UNPOL_SELECT_MIN, R_UNPOL_SELECT_MAX);
-    let p_o_exact = ro_pow / (ro_pow + re_pow).max(1e-12);
+    let (hero_solve, p_o_exact) = solve_hero_internal(ubctx, is_extraordinary);
+    let r_branch = hero_solve.r_branch;
 
     let rng_bounce =
-        (hash_u32(rng_seed ^ hash_u32(bounce ^ FRESNEL_BRANCH_STREAM)) as f32) / 4_294_967_295.0;
+        (discrete_draw(rng_seed, bounce, FRESNEL_BRANCH_STREAM) as f32) / 4_294_967_295.0;
 
-    let hero_solve = HeroInternalSolve {
-        hero,
-        is_extraordinary,
-        sol_hero,
-        r_branch,
-    };
     if rng_bounce < r_branch {
         apply_uniaxial_internal_reflect_channels(ubctx, &hero_solve, state);
         let new_k = k_hat - 2.0 * k_hat.dot(normal) * normal;
@@ -138,6 +108,101 @@ pub(super) struct HeroInternalSolve {
     pub(super) is_extraordinary: bool,
     pub(super) sol_hero: uniaxial_fresnel::InternalPolarizationSolution,
     pub(super) r_branch: f32,
+}
+
+/// Solves the hero channel's internal boundary system once.
+///
+/// Returns the [`HeroInternalSolve`] (with `r_branch`, the clamped reflect/transmit selection
+/// probability) and the hero's `R_o / (R_o + R_e)`, the o<->e relabeling probability of a
+/// reflection. Also used by the exit-collection path, which solves the same system without
+/// drawing a branch.
+#[expect(
+    clippy::similar_names,
+    reason = "ro_pow/re_pow are the established ordinary/extraordinary reflected-power names"
+)]
+pub(super) fn solve_hero_internal(
+    ubctx: &UniaxialBounceContext<'_, '_>,
+    is_extraordinary: bool,
+) -> (HeroInternalSolve, f32) {
+    let (ctx, geo, frame) = (ubctx.ctx, ubctx.geo, ubctx.frame);
+    let hero = ctx.hero_idx;
+    let c_axis = ctx.c_axis;
+    let n_inc_hero = geo.n1_ch[hero];
+    let n_o_hero = geo.n_o_ch[hero];
+    let n_e_hero = ctx
+        .material
+        .extraordinary_index_at(ctx.lambdas[hero], n_o_hero);
+
+    let sol_hero = uniaxial_fresnel::internal_solve(
+        n_inc_hero,
+        n_o_hero,
+        n_e_hero,
+        c_axis,
+        frame,
+        !is_extraordinary,
+    );
+    let flux_inc_hero = sol_hero.flux_inc.max(1e-12);
+    let ro_pow = sol_hero.r_o.norm_sqr() * sol_hero.flux_ro;
+    let re_pow = sol_hero.r_e.norm_sqr() * sol_hero.flux_re;
+    let r_branch =
+        ((ro_pow + re_pow) / flux_inc_hero).clamp(R_UNPOL_SELECT_MIN, R_UNPOL_SELECT_MAX);
+    let p_o_exact = ro_pow / (ro_pow + re_pow).max(1e-12);
+    (
+        HeroInternalSolve {
+            hero,
+            is_extraordinary,
+            sol_hero,
+            r_branch,
+        },
+        p_o_exact,
+    )
+}
+
+/// Each channel's transmitted intensity out of the gem at a uniaxial internal event, with no
+/// selection probability divided out: the leaf the exit-collection estimator collects.
+///
+/// `0.0` for a channel that cannot transmit at this angle (`sin2_t_ch > 1`). The same per-channel
+/// `internal_solve` and [`compute_uniaxial_exit_transmission`] the exit branch of
+/// [`apply_uniaxial_internal_transmit_channels`] runs, called with `r_branch = 0`.
+#[expect(
+    clippy::similar_names,
+    reason = "n_o/n_e are the established ordinary/extraordinary index names"
+)]
+pub(super) fn uniaxial_exit_leaf_intensities(
+    ubctx: &UniaxialBounceContext<'_, '_>,
+    hero_solve: &HeroInternalSolve,
+    stokes: &[StokesVector; NUM_CHANNELS],
+) -> [f32; NUM_CHANNELS] {
+    let (ctx, geo, frame) = (ubctx.ctx, ubctx.geo, ubctx.frame);
+    let &HeroInternalSolve {
+        hero,
+        is_extraordinary,
+        sol_hero,
+        ..
+    } = hero_solve;
+    let mut intensities = [0.0f32; NUM_CHANNELS];
+    for k in 0..NUM_CHANNELS {
+        if geo.sin2_t_ch[k] > 1.0 {
+            continue;
+        }
+        let sol = if k == hero {
+            sol_hero
+        } else {
+            let n_o_k = geo.n_o_ch[k];
+            let n_e_k = ctx.material.extraordinary_index_at(ctx.lambdas[k], n_o_k);
+            uniaxial_fresnel::internal_solve(
+                geo.n1_ch[k],
+                n_o_k,
+                n_e_k,
+                ctx.c_axis,
+                frame,
+                !is_extraordinary,
+            )
+        };
+        let (transmitted, _) = compute_uniaxial_exit_transmission(sol, 0.0, stokes[k].i);
+        intensities[k] = transmitted.intensity();
+    }
+    intensities
 }
 
 /// The reflect branch's per-channel loop for [`apply_uniaxial_internal_bounce`] --
@@ -290,7 +355,22 @@ pub(super) fn apply_uniaxial_internal_transmit_channels(
         let eta_dir_k = n_inc_k / n2k;
         let refr_wave_dir_k =
             (eta_dir_k * k_hat + f32::mul_add(eta_dir_k, geo.cos_i, -cos_t_k) * normal).normalize();
-        let direction_matches = refr_wave_dir_k.dot(hero_refr_dir) >= DIRECTION_MATCH_COS_TOL;
+        let direction_matches = direction_matches(
+            exit.direction_match,
+            refr_wave_dir_k,
+            hero_refr_dir,
+            k == hero,
+            // The exit's twin in WGSL (`08e`) compares the incident (medium) index only; the
+            // transmitted index is the outside medium's, equal for every channel.
+            [n_inc_k, n2k, 0.0],
+            [geo.n1_ch[hero], geo.n2_ch[hero], 0.0],
+            ExactExtra {
+                material: ctx.material,
+                lambdas: (ctx.lambdas[k], ctx.lambdas[hero]),
+                uniaxial_e: false,
+                biaxial: false,
+            },
+        );
 
         // Reuse the caller's already-solved hero channel instead of re-solving the
         // identical boundary system. Needed by both branches below (the matching one
@@ -322,7 +402,17 @@ pub(super) fn apply_uniaxial_internal_transmit_channels(
             stokes[k] = stokes[k].scale(0.0);
             path_pdf[k] = 0.0;
 
-            if exit.enabled {
+            // Tray-floor termination: a channel whose direction, or the hero's, meets
+            // the glossy tray stays plainly terminated (both zero, no probe) -- see
+            // `refraction`'s "Exit-event spectral splitting" doc. This is always an exit.
+            let floor_bound = exit.enabled
+                && exit_leaves_via_floor(
+                    exit.environment.tray_mirror(),
+                    hit_point,
+                    hero_refr_dir,
+                    refr_wave_dir_k,
+                );
+            if exit.enabled && !floor_bound {
                 let (transmitted, i_unit) =
                     compute_uniaxial_exit_transmission(sol, r_branch, original_stokes_i);
                 let t_unpol_k = i_unit.clamp(R_UNPOL_PDF_MIN, R_UNPOL_PDF_MAX);

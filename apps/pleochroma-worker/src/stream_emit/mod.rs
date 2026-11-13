@@ -13,8 +13,6 @@ use std::{
     time::Duration,
 };
 
-/// The viewer's own share of a `FinalImageRequest` (v16): [`ContributionSlot`] and its
-/// `await_until`/`receive` rendezvous -- see this module's own doc comment.
 mod contribution;
 mod downsample;
 mod emitter;
@@ -29,10 +27,9 @@ pub use emitter::{RawPoll, poll_raw_client_message, run_stream, run_stream_with}
 pub use producer::{Output, ProducerOutcome, ProducerSink, local_tracer};
 pub use tracer::trace_range;
 
-/// What [`run_stream_with`] streams: the request (its id, scene, range and
-/// `StreamConfig`), the connection's negotiated payload encoding, what the request
-/// turns into at the end ([`Output`]), and (v16) the viewer's own reserved share of a
-/// final picture, if any.
+/// What [`run_stream_with`] streams: the request, the negotiated payload encoding, what
+/// the request becomes at the end ([`Output`]), and the viewer's reserved share of a final
+/// picture, if any.
 #[derive(Debug, Clone, Copy)]
 pub struct StreamSpec<'a> {
     /// The request being streamed (a `FinalImageRequest` is carried as an equivalent
@@ -48,7 +45,7 @@ pub struct StreamSpec<'a> {
     pub link: Option<&'a std::sync::Arc<pleochroma_net::messages::adaptive::PeerLink>>,
     /// Radiance or a final picture.
     pub output: Output,
-    /// v16: the viewer's reserved tail of a `FinalImageRequest`, if it asked to
+    /// The viewer's reserved tail of a `FinalImageRequest`, if it asked to
     /// contribute one -- `None` for every `RENDER` and for a `FinalImageRequest` with
     /// `viewer_samples == 0`. The emitter loop routes an incoming `CONTRIBUTION` here
     /// (see `emitter::run_stream_loop`); the coordinator job's producer thread waits on
@@ -69,21 +66,21 @@ pub struct StreamSpec<'a> {
 /// plain worker and a coordinator's own-lane route.
 ///
 /// Generous on purpose. The first sample lands only after the tracer's calibration probe
-/// and, on a cold GPU, a pipeline compile; a huge export sub-batch is sized to about a
-/// second of work. Two minutes is far past either, yet short enough that a wedged lane
-/// stops holding a batch client's slot for good.
+/// and, on a cold GPU, a pipeline compile, and a large sub-batch is sized to about a second
+/// of work. Two minutes is well past either, yet short enough that a wedged lane does not
+/// hold a batch client's slot for long.
 pub const PRODUCER_STALL_TIMEOUT: Duration = Duration::from_secs(120);
 
-/// This worker's cadence FLOOR, advertised in `WELCOME::min_cadence_ms` -- see that
-/// field's doc comment. Matches [`TARGET_SUBBATCH`], the sub-batch duration
-/// [`next_batch_size`] targets: emitting faster than one sub-batch completes is not
+/// This worker's cadence floor, advertised in `WELCOME::min_cadence_ms`.
+///
+/// It matches [`TARGET_SUBBATCH`]: emitting faster than one sub-batch completes is not
 /// meaningful, since there is nothing new to send in between.
 pub const MIN_CADENCE_FLOOR_MS: u32 = 100;
 
 /// How long `emitter::poll_for_client_message` and `crate::serve::tilt::poll_for_cancel`
-/// wait for the REMAINDER of a message once its first byte has arrived, instead of
-/// blocking forever. Shared here so the two independent implementations of this pattern
-/// can't drift to different bounds.
+/// wait for the remainder of a message once its first byte has arrived.
+///
+/// Shared so the two implementations of this pattern cannot drift to different bounds.
 ///
 /// Both read a message's length-prefix first byte with a raw, timeout-tolerant `read()`
 /// so a timeout can only land BEFORE any byte has arrived. Once a byte arrives, the
@@ -97,9 +94,10 @@ pub const MIN_CADENCE_FLOOR_MS: u32 = 100;
 /// leaving a stalled connection blocking indefinitely.
 pub const FRAME_REMAINDER_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// The hard, client-`cadence_ms`-independent ceiling on how long [`run_stream`]'s
-/// emitter may go without writing some `StreamEvent` (a bare `Progress` heartbeat, if
-/// nothing else was due) while a request is streaming.
+/// Hard ceiling, independent of `cadence_ms`, on the gap between two `StreamEvent`s while a
+/// request streams.
+///
+/// A bare `Progress` heartbeat fills the gap when nothing else is due.
 ///
 /// The editor's remote-render connection declares a worker dead after its own
 /// `LIVENESS_TIMEOUT` (8s) with no `StreamEvent` received (30s grace before the first
@@ -114,10 +112,11 @@ pub const FRAME_REMAINDER_TIMEOUT: Duration = Duration::from_secs(5);
 /// delayed by this.
 pub const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(2);
 
-/// True if `e` is what a stream-level timeout looks like on this crate's two real
-/// transports (a raw `TcpStream`, and TLS via `rustls::StreamOwned`) -- the single place
-/// both `emitter::poll_for_client_message` and `crate::serve::tilt::poll_for_cancel`
-/// decide "nothing pending yet" from a genuine protocol error.
+/// True if `e` is a stream-level timeout on this crate's transports (a raw `TcpStream`, or
+/// TLS via `rustls::StreamOwned`).
+///
+/// Both `emitter::poll_for_client_message` and `crate::serve::tilt::poll_for_cancel` use
+/// this to tell "nothing pending yet" from a genuine protocol error.
 ///
 /// A raw socket's timeout elapsing surfaces as [`std::io::ErrorKind::WouldBlock`] or
 /// [`std::io::ErrorKind::TimedOut`] depending on platform.
@@ -143,7 +142,7 @@ pub fn is_stream_timeout(e: &std::io::Error) -> bool {
 /// Implemented for the real transports (`TcpStream`, and `rustls::StreamOwned` wrapping
 /// one) by delegating to the underlying socket. A test double can implement this to
 /// toggle its own "exhausted input means `WouldBlock`, not EOF" behavior -- see
-/// `serve`'s `tests::DuplexHalf`.
+/// `serve::tests::fixtures::DuplexHalf`.
 pub trait TimeoutRead {
     /// # Errors
     ///
@@ -164,33 +163,13 @@ impl<C, T: TimeoutRead + Read + Write> TimeoutRead for rustls::StreamOwned<C, T>
 }
 
 /// Mirrors `std::io::Read`/`Write`'s blanket impls for `&mut T`, so a test can drive
-/// `run_stream` through a `&mut SomeTestDouble` and still inspect it afterward.
+/// `run_stream` through a `&mut` test double and still inspect it afterward.
 impl<T: TimeoutRead + ?Sized> TimeoutRead for &mut T {
     fn set_read_timeout(&mut self, duration: Option<Duration>) -> std::io::Result<()> {
         (**self).set_read_timeout(duration)
     }
 }
 
-/// Caches the last read-timeout value applied to a stream through
-/// [`TimeoutCache::apply`], so a caller that (like [`emitter::run_stream`]'s loop) asks
-/// for the same value on every poll only pays the underlying `set_read_timeout`
-/// syscall once, not every time.
-///
-/// # Why this exists
-///
-/// `run_stream`'s emitter calls [`emitter::poll_for_client_message`] every
-/// [`emitter::EMITTER_POLL`] (20ms), which calls `set_read_timeout` up to twice per
-/// call (once for the poll window, once more after the first byte of a message
-/// arrives). On an idle streaming connection (no `CANCEL`, no pipelined
-/// `RenderRequest` ever arriving) that would be ~100 setsockopt syscalls/s for no
-/// behavioral benefit, since the value being set is identical to what's already on the
-/// socket. [`Self::apply`] makes the second call a no-op whenever the requested value
-/// hasn't changed since the last one this cache actually applied.
-///
-/// Owned by `run_stream` for the life of one request and passed by `&mut` into
-/// `poll_for_client_message`; a fresh cache per request means a new request never
-/// trusts an assumption inherited from a previous one about what's currently on the
-/// socket -- see [`Self::new`].
 /// Whether [`TimeoutCache`] has applied a read timeout yet, and if so, the last value
 /// it applied -- a named alternative to `Option<Option<Duration>>` (flagged by
 /// `clippy::option_option`, and less self-explanatory at every call site than a type
@@ -207,7 +186,24 @@ enum LastTimeout {
     Applied(Option<Duration>),
 }
 
-/// Remembers the last socket timeout applied so repeat settings skip the syscall.
+/// Caches the last read timeout applied through [`TimeoutCache::apply`], so repeat settings
+/// skip the `set_read_timeout` syscall.
+///
+/// # Why this exists
+///
+/// `run_stream`'s emitter calls [`emitter::poll_for_client_message`] every
+/// [`emitter::EMITTER_POLL`] (20ms), which calls `set_read_timeout` up to twice per
+/// call (once for the poll window, once more after the first byte of a message
+/// arrives). On an idle streaming connection (no `CANCEL`, no pipelined
+/// `RenderRequest` ever arriving) that would be ~100 setsockopt syscalls/s for no
+/// behavioral benefit, since the value being set is identical to what's already on the
+/// socket. [`Self::apply`] makes the second call a no-op whenever the requested value
+/// hasn't changed since the last one this cache actually applied.
+///
+/// Owned by `run_stream` for the life of one request and passed by `&mut` into
+/// `poll_for_client_message`; a fresh cache per request means a new request never
+/// trusts an assumption inherited from a previous one about what's currently on the
+/// socket -- see [`Self::new`].
 #[derive(Debug, Default)]
 pub struct TimeoutCache {
     last: LastTimeout,
@@ -244,16 +240,13 @@ impl TimeoutCache {
     }
 }
 
-/// A stream that can have a write timeout applied, so [`run_stream`]'s emitter can never
-/// block on a single `write()` call for longer than [`emitter::WRITE_TIMEOUT`] --
-/// confirmed root cause of two real-world reports (the worker appearing to "stop sending
-/// data" mid-render, and a `CANCEL` not taking effect promptly). [`run_stream`]'s
-/// emitter both writes payloads and polls for `CANCEL` sequentially in one loop;
-/// without a write timeout, a peer whose read loop falls behind blocks that thread
-/// indefinitely. A bounded timeout turns that into "blocks for at most one timeout,
-/// then this connection ends" -- the only safe option, since a `write_all` that has
-/// already pushed part of a length-prefixed frame cannot be abandoned mid-message
-/// without desyncing the peer's framing. Implemented the same way as [`TimeoutRead`].
+/// A stream that can have a write timeout applied.
+///
+/// It lets [`run_stream`]'s emitter stop blocking on one `write()` after
+/// [`emitter::WRITE_TIMEOUT`]. The emitter writes payloads and polls for `CANCEL` in one
+/// loop, so a peer that stops reading would block it indefinitely. The timeout ends the
+/// connection instead, since a partly written length-prefixed frame cannot be abandoned
+/// without desyncing the peer. Implemented the same way as [`TimeoutRead`].
 pub trait TimeoutWrite {
     /// # Errors
     ///
@@ -279,13 +272,15 @@ impl<T: TimeoutWrite + ?Sized> TimeoutWrite for &mut T {
     }
 }
 
-/// How [`run_stream`] ended, for `handle_connection`'s caller to decide what (if
-/// anything) still needs to be written. `run_stream` has already sent every
-/// `StreamEvent` for [`Completed`](StreamOutcome::Completed) (normal finish or
-/// cancellation both produce a `DONE`, just with a different `cancelled` flag); only
-/// [`TracePanicked`](StreamOutcome::TracePanicked) requires the caller to send
-/// `StreamEvent::Error` itself. Only half of what [`run_stream`] returns -- see its own
-/// doc comment for the `Option<RenderRequest>` alongside it.
+/// How [`run_stream`] ended, so the caller knows what (if anything) is still to be written.
+///
+/// For [`Completed`](StreamOutcome::Completed), every `StreamEvent` is already sent (a normal
+/// finish and a cancellation both end with a `DONE`). Only [`TracePanicked`] and [`Failed`]
+/// need the caller to send `StreamEvent::Error`. [`run_stream`] returns this alongside an
+/// `Option<RenderRequest>` for a pipelined request.
+///
+/// [`TracePanicked`]: StreamOutcome::TracePanicked
+/// [`Failed`]: StreamOutcome::Failed
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StreamOutcome {
     /// The request ran to completion (`DONE { cancelled: false }`) or was cancelled
@@ -300,8 +295,8 @@ pub enum StreamOutcome {
     /// The producer could not complete the request (a coordinator that lost every lane:
     /// `error_codes::ALL_WORKERS_LOST`; a producer that made no progress for
     /// [`StreamSpec::stall_timeout`]: `error_codes::PRODUCER_STALLED`), or its final
-    /// picture could not be encoded. No
-    /// `DONE` was written; the caller sends this `ErrorMsg` as `StreamEvent::Error`.
+    /// picture could not be encoded. No `DONE` was written; the caller sends this
+    /// `ErrorMsg` as `StreamEvent::Error`.
     Failed(pleochroma_net::messages::ErrorMsg),
 }
 

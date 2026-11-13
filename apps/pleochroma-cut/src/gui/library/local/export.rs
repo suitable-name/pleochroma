@@ -1,7 +1,5 @@
-//! Exporting a local design back out to an `.asc` file -- the "Export .asc" half of
-//! `gui::library::local` (see this group's own `mod.rs`) -- or, experimentally, to
-//! a Gem Cut Studio `.gcs` file; import and organize live in their own sibling
-//! modules.
+//! Exports a local design to an `.asc` file, or experimentally to a Gem Cut Studio `.gcs`
+//! file. Import and organize live in their own sibling modules.
 
 use crate::{LibraryModel, MainWindow, bridge::library::source::LibrarySource, gui::show_toast};
 use pleochroma_vault::{db::sqlite::Database, local};
@@ -16,9 +14,8 @@ fn concave_row_count(full: &pleochroma_vault::model::entry::FullDiagramRecord) -
         .count()
 }
 
-/// What exporting `full` as a tier list loses, as one confirm-dialog paragraph; `None`
-/// for a planar design. The same words the editor's export says
-/// (`ManufacturabilityWarning::ConcaveTiersOmittedFromExport`), so the two never drift.
+/// What exporting `full` as a tier list loses, as one dialog paragraph; `None` for a planar
+/// design. The wording comes from the editor's `ManufacturabilityWarning`, so the two match.
 fn concave_export_notice(
     full: &pleochroma_vault::model::entry::FullDiagramRecord,
 ) -> Option<String> {
@@ -29,13 +26,10 @@ fn concave_export_notice(
     })
 }
 
-/// `full`'s schedule rows split for a reconstructed `.asc`: the flat rows (the tier
-/// list) and one footnote pair per concave row, in the shape
-/// `Design::append_concave_footnotes` writes (facet line, then the tool line; ASCII, each
-/// ending in the concave-footnote marker). Without the split a concave row would be written
-/// as a flat tier with a placeholder mast, a facet the stone does not have.
-///
-/// The lines come from cut-core's own footnote writer, so the shape is defined in one place.
+/// Splits `full`'s schedule for a reconstructed `.asc`. The flat rows form the tier list.
+/// Each concave row becomes footnote lines, written by cut-core's own footnote writer. Without
+/// the split, a concave row would be a flat tier with a placeholder mast, which is a facet the
+/// stone does not have.
 fn split_concave_rows(
     full: &pleochroma_vault::model::entry::FullDiagramRecord,
 ) -> (
@@ -61,9 +55,9 @@ fn split_concave_rows(
 }
 
 /// The sentence a `.asc` export of `full` shows when the design is frosted; `None` for a
-/// polished design. `.asc` has no notation for frosting (the library keeps it in a side
-/// table, `Database::diagram_frosting`), so every `.asc` written from the entry is polished.
-/// The same words the editor's export says (`Design::asc_frosting_note`).
+/// polished design. `.asc` cannot hold frosting, which the library keeps in a side table, so
+/// every `.asc` written from an entry is polished. The wording matches
+/// `Design::asc_frosting_note`.
 fn frosting_export_notice(
     full: &pleochroma_vault::model::entry::FullDiagramRecord,
 ) -> Option<String> {
@@ -77,9 +71,8 @@ fn frosting_export_notice(
     })
 }
 
-/// The confirm dialog's title and paragraph for what an export loses: the concave tiers
-/// and/or the frosting. `None` when nothing is lost. The titles are the editor's
-/// (`gui::editor::native_io::export`'s `export_notice`).
+/// The confirm dialog's title and paragraph for what an export loses: the concave tiers,
+/// the frosting, or both. `None` when nothing is lost. The titles match the editor's.
 fn loss_notice(
     concave: Option<String>,
     frosting: Option<String>,
@@ -95,9 +88,9 @@ fn loss_notice(
     }
 }
 
-/// Runs `proceed` straight away when nothing is lost, and after the cutter accepts the
-/// loss (`notice`, see [`loss_notice`]: the concave tiers and/or the frosting) otherwise --
-/// before any picker opens, so declining writes nothing.
+/// Runs `proceed` at once when nothing is lost. Otherwise it runs after the cutter accepts
+/// the loss in `notice` (see [`loss_notice`]). This happens before any picker opens, so
+/// declining writes nothing.
 fn confirm_loss_then(
     ui: &MainWindow,
     notice: Option<(&'static str, String)>,
@@ -116,25 +109,19 @@ fn confirm_loss_then(
     }
 }
 
-/// Wires up "Export .asc": for a design with an original `.asc` attachment, exports
-/// the stored attachment byte-for-byte (delegates to
-/// `gui::library::detail::export_diagram_file`, the same path the Attachments tab's
-/// per-file export button already uses). What is stored is the file as it was imported
-/// (`pleochroma_vault::local::import_asc_bytes` keeps the raw bytes, so a Windows-1252
-/// file exports as Windows-1252); a design imported by an earlier version holds the UTF-8
-/// text it was decoded to instead, and exports that. Every reader of the attachment
-/// decodes it with `pleochroma_formats::asc::decode_asc_bytes`, which accepts both.
-/// Otherwise rebuilds one from the stored angle-settings table via
-/// `pleochroma_vault::local::reconstruct_asc_schedule` + `pleochroma_formats::asc::to_asc_string`
-/// -- see that function's doc comment on why the result is marked `RECONSTRUCTED`.
+/// Wires "Export .asc".
 ///
-/// Refuses outright while a remote library is being browsed -- same reasoning as
-/// `super::organize::setup_rename_callback`/`setup_delete_callback`: the selected
-/// entry id names a row in the remote catalogue, and `Database::get_diagram_full`
-/// below must never be called with it against the LOCAL database.
+/// A design with an original `.asc` attachment exports the stored bytes unchanged, through the
+/// same path as the Attachments tab. The stored bytes are the file as imported, so a
+/// Windows-1252 file stays Windows-1252. Readers decode both the raw bytes and older UTF-8
+/// copies with `pleochroma_formats::asc::decode_asc_bytes`. Otherwise the `.asc` is rebuilt
+/// from the angle table, and the result is marked `RECONSTRUCTED`.
 ///
-/// Also wires up the experimental "Export as Gem Cut Studio (.gcs)..." beside it
-/// (see [`setup_export_gcs_callback`]).
+/// Refuses while a remote library is browsed. The selected id names a row on the remote
+/// catalogue, so it must never be looked up in the local database.
+///
+/// Also wires the experimental "Export as Gem Cut Studio (.gcs)..." (see
+/// [`setup_export_gcs_callback`]).
 pub fn setup_export_asc_callback(
     ui: &MainWindow,
     db: &Arc<Mutex<Database>>,
@@ -176,10 +163,8 @@ pub fn setup_export_asc_callback(
     setup_export_gcs_callback(ui, db, source);
 }
 
-/// Reads `entry_id`'s full record (every attachment's bytes) on a worker thread over a
-/// read-only connection, then runs `then` with it on the UI thread -- or toasts "not
-/// found". The export callbacks used to take the record on the UI thread under the
-/// shared database lock (perf review UI-5).
+/// Reads `entry_id`'s full record, with every attachment's bytes, on a worker over a
+/// read-only connection. Then it runs `then` on the UI thread, or toasts "not found".
 fn read_full_record_then(
     ui: &MainWindow,
     db: &Arc<Mutex<Database>>,
@@ -207,13 +192,8 @@ fn start_asc_export(
     entry_id: i32,
     full: pleochroma_vault::model::entry::FullDiagramRecord,
 ) {
-    // Whether a stored `.asc` attachment exists (exported unchanged, same path
-    // `gui::library::detail::export_diagram_file` uses for the
-    // Attachments tab) or one has to be reconstructed below, both branches now
-    // write to a user-chosen destination rather than silently into `./exports/`
-    // -- one Save As dialog shared by both, prompted BEFORE either does any work,
-    // so cancelling writes nothing either way (same cancel rule as
-    // `gui::library::detail::export_diagram_file_via_source`).
+    // Every branch writes to a user-chosen destination. One Save As dialog serves them all,
+    // and it opens before any work starts, so cancelling writes nothing.
     let existing_name = full
         .attached_files
         .iter()
@@ -229,14 +209,11 @@ fn start_asc_export(
             )
     });
 
-    // The save-as picker runs off the UI thread via `gui::pickers::pick` --
-    // everything below (the stored-bytes export or the reconstruct-and-write
-    // path) runs once the picker's continuation lands back on the UI thread.
+    // The picker runs off the UI thread. The export itself runs in its continuation.
     let default_dir = std::path::Path::new("exports");
     let db_for_pick = Arc::clone(db_export);
-    // Only the reconstruction loses anything: a stored `.asc` is exported as it
-    // is (its concave tiers already are footnotes) and a `.gem`/`.gcs` cannot
-    // hold a concave tier to begin with.
+    // Only the reconstruction loses concave tiers. A stored `.asc` already holds them as
+    // footnotes, and a `.gem` or `.gcs` cannot hold one.
     let concave = (existing_name.is_none()
         && local::design_attachment_position(full.attached_files.iter().map(|f| f.name.as_str()))
             .is_none())
@@ -264,11 +241,10 @@ fn start_asc_export(
     });
 }
 
-/// "Export as Gem Cut Studio (.gcs)..." (experimental) for the selected catalogue
-/// design, registered by [`setup_export_asc_callback`] beside its `.asc`
-/// counterpart and refusing a remote library for the same reason. The file text
-/// comes from [`gcs_export_for_record`]; a design it cannot build is reported
-/// before any picker opens.
+/// "Export as Gem Cut Studio (.gcs)..." (experimental) for the selected design. It is
+/// registered by [`setup_export_asc_callback`] and refuses a remote library. The file comes
+/// from [`gcs_export_for_record`]. A design that cannot be built is reported before any
+/// picker opens.
 fn setup_export_gcs_callback(
     ui: &MainWindow,
     db: &Arc<Mutex<Database>>,
@@ -317,9 +293,8 @@ fn start_gcs_export(ui: &MainWindow, full: &pleochroma_vault::model::entry::Full
         }
     };
     let default_dir = std::path::Path::new("exports");
-    // An original `.gcs` attachment is written byte for byte; one rebuilt from the
-    // design's schedule has no place for a concave tier.
-    // A `.gcs` keeps the frosting, so only the concave tiers can be lost here.
+    // An original `.gcs` is written byte for byte. A rebuilt one has no place for concave
+    // tiers. A `.gcs` keeps the frosting, so only the concave tiers can be lost.
     let notice = loss_notice(
         (!export.is_original)
             .then(|| concave_export_notice(full))
@@ -356,13 +331,9 @@ struct GcsExport {
     is_original: bool,
 }
 
-/// The `.gcs` file for a catalogue design: its own original `.gcs` attachment
-/// byte-for-byte when it was imported from one, otherwise the cutting
-/// instructions of its design-file attachment ([`design_attachment_as_asc`]: a
-/// `.asc`, else a `.gem`, read as text with `pleochroma_formats::asc::decode_asc_bytes`
-/// so a Windows-1252 `.asc` works) written by
-/// `pleochroma_formats::gcs::to_gcs_string_with_frosting` with the frosting the library stored
-/// for the design (experimental).
+/// The `.gcs` file for a design. If the design was imported from a `.gcs`, its original
+/// bytes are used. Otherwise the file is written from the design-file attachment
+/// ([`design_attachment_as_asc`]), with the frosting the library stored for it.
 ///
 /// # Errors
 ///
@@ -396,8 +367,8 @@ fn gcs_export_for_record(
             file.asc_file_name
         )
     })?;
-    // `.asc` cannot state frosting; the rows the library stored with the design can, and the
-    // `.gcs` writer keeps them (an empty list writes exactly what `to_gcs_string` does).
+    // `.asc` cannot state frosting, so the stored rows supply it. An empty list writes the
+    // same file as `to_gcs_string`.
     let frosting = pleochroma_vault::model::frosting::StoredTierFrosting::to_gcs(&full.frosting);
     let gcs = pleochroma_formats::gcs::to_gcs_string_with_frosting(&schedule, &frosting)
         .map_err(|e| format!("Cannot write this design as .gcs: {e}"))?;
@@ -411,11 +382,10 @@ fn gcs_export_for_record(
     })
 }
 
-/// `full`'s design-file attachment, picked by
-/// `pleochroma_vault::local::design_attachment_position` (the first `.asc`, else
-/// the first `.gem`, else the first `.gcs` -- the rule every reader of a stored
-/// design shares) and read as `.asc` text inside [`super::catch_file_panic`], the
-/// importer's per-file guard.
+/// `full`'s design-file attachment, chosen by
+/// `pleochroma_vault::local::design_attachment_position` (the first `.asc`, else `.gem`, else
+/// `.gcs`). It is read as `.asc` text inside
+/// [`super::catch_file_panic`].
 ///
 /// `None` when the record has no design-file attachment; `Some(Err)` (a ready
 /// message naming the attachment) when a `.gem`/`.gcs` does not read.
@@ -514,10 +484,8 @@ fn write_converted_asc(
     }
 }
 
-/// [`setup_export_asc_callback`]'s own picker continuation -- split out purely
-/// to keep that function under clippy's function-length lint. `dest_path` is
-/// `None` for a cancelled/dismissed picker; every other parameter is exactly
-/// what the callback body already had in scope before this split.
+/// The picker continuation of [`setup_export_asc_callback`], split out to keep that function
+/// under clippy's length lint. `dest_path` is `None` when the picker was cancelled.
 fn finish_export_asc(
     ui: &MainWindow,
     db: &Arc<Mutex<Database>>,
@@ -625,16 +593,12 @@ fn finish_export_asc(
     }
 }
 
-/// Strips characters Windows (and, incidentally, every other common filesystem)
-/// disallows in a file name, so an arbitrary design title is always a safe file name.
+/// Replaces the characters that Windows disallows in file names, so any design title makes a
+/// safe file name.
 ///
-/// `pub`, not private (`export` is itself a private module, so this stays
-/// crate-internal regardless -- `clippy::redundant_pub_crate` prefers plain `pub`
-/// here over `pub(crate)` for exactly that reason): `gui::editor::native_io`'s own
-/// Export/Save-Native dialogs reuse this exact rule for a slugged-first-
-/// header default file name, so a title with a `:` or `/` in it (a real `GemCad`
-/// header, e.g. "Round Brilliant: 57 facets") sanitizes identically whichever dialog
-/// offered it.
+/// This is `pub` rather than `pub(crate)`, as `clippy::redundant_pub_crate` prefers inside a
+/// private module. The editor's Export and Save dialogs use the same rule, so a title sanitizes
+/// the same way in each.
 pub fn sanitize_filename(title: &str) -> String {
     let cleaned: String = title
         .chars()

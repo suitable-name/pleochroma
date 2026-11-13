@@ -10,9 +10,7 @@
 //!   the desktop (the vault crate links SQLite, so a browser build cannot call it).
 //! - [`suggested_asc_file_name`], [`cutting_sheet_file_name`],
 //!   [`cutting_sheet_pdf_file_name`], [`diagram_file_name`]: the desktop's default save
-//!   names (`apps/pleochroma-cut`'s `native_io::picker::suggested_file_name` and its
-//!   export callbacks), so a download is named the way the desktop's save dialog
-//!   would propose.
+//!   names, so a download is named as the desktop's save dialog proposes it.
 //! - [`degenerate_marker_header`]: the "NOT A CLOSED SOLID" header line the desktop
 //!   stamps into a written schedule once the cutter confirms writing a design that
 //!   does not close.
@@ -188,9 +186,8 @@ fn flatten_line_breaks(schedule: &mut AscSchedule) {
     }
 }
 
-/// Replaces the characters Windows forbids in a file name (`\ / : * ? " < > |`) with
-/// `_` and trims; `"design"` for a title with nothing left. The desktop's
-/// `sanitize_filename`, character for character.
+/// Replaces the characters Windows forbids in a file name (`\ / : * ? " < > |`) with `_`
+/// and trims; `"design"` when nothing is left. The desktop's `sanitize_filename` rule.
 #[must_use]
 pub fn sanitize_file_name(title: &str) -> String {
     let cleaned: String = title
@@ -211,11 +208,8 @@ pub fn sanitize_file_name(title: &str) -> String {
     }
 }
 
-/// The `.asc` name a save proposes.
-///
-/// It is the design's own recorded name when it has one,
-/// else its first non-blank header sanitized plus `.asc`, else
-/// `"edited_design.asc"` -- the desktop's `suggested_file_name` rule.
+/// The `.asc` name a save proposes: the design's recorded name if it has one, else its
+/// first non-blank header sanitized plus `.asc`, else `"edited_design.asc"`.
 #[must_use]
 pub fn suggested_asc_file_name(asc_filename: Option<&str>, headers: &[String]) -> String {
     if let Some(name) = asc_filename {

@@ -38,7 +38,7 @@ use pleochroma::{
         materials::GemMaterial,
         raytracer::{LightingPreset, surface::FacetingMachine},
     },
-    renderer::env_map::EnvironmentMap,
+    renderer::env_map::{EnvironmentMap, HdrOrientation},
 };
 use pleochroma_net::scene::effects::SceneEffects;
 use std::sync::{
@@ -54,14 +54,12 @@ use std::sync::{
 pub struct RenderContext {
     /// Image renderer and deterministic anti-aliasing options, separate from compute.
     pub engine: pleochroma::renderer::engine::EngineSpec,
-    /// Live render resolution, set via the Parameters panel's pill selector
-    /// (`gui::mod::on_resolution_changed`). Restricted to fixed choices (640x480 ...
-    /// 1920x1080) because Slint has no way to report a widget's rendered size back to
-    /// Rust. Always the CONFIGURED resolution -- `local_preview_scale`/`camera_moving`
-    /// shadow a reduced copy per-frame (see `local_preview::effective_dimensions`) but
-    /// never mutate these, so export/remote-render sizing is unaffected by preview
-    /// scaling. A change here is picked up by `update_accumulation_state`, which resets
-    /// accumulation and the guide/framebuffer transfer on the next frame.
+    /// Live render resolution, set by the Parameters panel's resolution pills
+    /// (`gui::render::quality`). Limited to fixed choices (640x480 ... 1920x1080) because
+    /// Slint cannot report a widget's rendered size to Rust. This is always the configured
+    /// resolution: `local_preview_scale` and `camera_moving` shadow a reduced copy per frame
+    /// (see `local_preview::effective_dimensions`) and never change it, so export and remote
+    /// sizing ignore preview scaling. A change resets accumulation on the next frame.
     pub width: u32,
     /// Image height in pixels.
     pub height: u32,
@@ -79,13 +77,11 @@ pub struct RenderContext {
     pub light_pitch: f32,
     /// Name of the selected material.
     pub material_name: String,
-    /// A fully-resolved material that, when present, takes priority over
-    /// `material_name` in [`resolve_material_with_override`]. Plain by-name lookup
-    /// cannot represent designs with no material name or unlisted RI overrides,
-    /// which would (before [`resolve_material`] dropped its Diamond fallback) have
-    /// silently substituted a different stone. The intended writer is
-    /// `gui::editor::view::inspector::sync_viewport_material_link`. `None` (default)
-    /// reproduces by-name-only resolution.
+    /// A fully-resolved material that, when set, takes priority over `material_name` in
+    /// [`resolve_material_with_override`]. A by-name lookup cannot represent a design with
+    /// no material name or unlisted RI overrides. The writer is
+    /// `gui::editor::view::inspector::sync_viewport_material_link`. `None` (default) means
+    /// by-name resolution only.
     pub material_override: Option<GemMaterial>,
     /// The Live Render toolbar's view-only body colour ([`ViewColor`]: an absorption triple, see
     /// `GemMaterial::with_body_color`, plus the L*C*h editor's seven-band rows when it came
@@ -98,9 +94,9 @@ pub struct RenderContext {
     /// The current preview stone's color pattern, scoped to its geometry owner and material.
     /// Use [`Self::set_view_color_pattern`] to change it; it is never written to a material.
     pub view_color_pattern: Option<ViewColorPattern>,
-    /// Mirror of `ViewportModel.viewport_material_linked` (the view is linked to the design's material), kept by
-    /// `gui::render::render_body_color` so the render pipeline can tell a design-driven
-    /// view from a free one without reading the UI. `true` (following the design) is the default.
+    /// Mirror of `ViewportModel.viewport_material_linked` (the view follows the design's
+    /// material), kept by `gui::render::render_body_color` so the render pipeline can tell a
+    /// design-driven view from a free one. `true` (following the design) is the default.
     pub material_linked: bool,
     /// Lighting preset the render uses.
     pub lighting_preset: LightingPreset,
@@ -117,11 +113,22 @@ pub struct RenderContext {
     /// product-photography presets ignore it. Scene identity includes it, so a change restarts
     /// accumulation (local and remote).
     pub head_shadow_deg: f32,
-    /// Progressive-accumulation target -- the single global target for the live image:
-    /// the render loop stops once local plus (while combining) the live epoch's remote
-    /// samples reach this, and a settled epoch's shared cursor covers exactly
-    /// `[0, target_samples)`. Samples-per-frame is derived from it, not chosen directly
-    /// -- see `resolve_frame_material`.
+    /// Whether the stone casts its spectral shadow and colored light onto the backdrop paper
+    /// (`AppSettings::stone_shadow`). Studio lights with a lit backdrop only; an HDR map, the
+    /// contrast light and the ultraviolet lamps decline it with a note. Scene identity includes
+    /// it, so a change restarts accumulation (local and remote); the map itself is built in the
+    /// background (`tray_shadow_worker`).
+    pub stone_shadow: bool,
+    /// Head-on reflectance of the glossy tray under the stone, `0.0..=1.0`
+    /// (`AppSettings::tray_reflection`, `0.0` = off). Studio lights with a backdrop only;
+    /// other lighting declines it with a note. Scene identity includes it, so a change
+    /// restarts accumulation (local and remote); the plane is cheap and resolved once per scene
+    /// generation (`TrayMirrorPlan` in the render worker).
+    pub tray_reflection: f32,
+    /// Progressive-accumulation target for the live image. The render loop stops once local
+    /// plus (while combining) the live epoch's remote samples reach it, and a settled
+    /// epoch's shared cursor covers exactly `[0, target_samples)`. Passed through
+    /// `EngineSpec::target_samples` each frame.
     pub target_samples: u32,
     /// Maximum number of ray bounces per path.
     pub max_bounces: u32,
@@ -204,29 +211,16 @@ pub struct RenderContext {
     /// re-issues the geometry (`gui::render::camera_lighting`). Not scene-defining, so
     /// it is not part of the scene identity.
     pub active_placements: Vec<(usize, usize)>,
-    /// The active design's gear tooth count and reference angle -- meant to be kept
-    /// in sync with `active_planes` by every one of its writers (Grep `active_planes
-    /// =` for the current list: `gui::editor::view::refresh_viewport`, `gui::editor::
-    /// auto_solve`'s background-solve resubmit, `gui::library::detail::
-    /// apply_reconstructed_planes`, `gui::library::local::organize`'s delete-reset).
+    /// The gear tooth count and reference angle of the design whose planes are in
+    /// `active_planes`. Writers set it together with the planes.
     ///
-    /// Exists so `gui::render::camera_lighting::resubmit_at_current_pose`'s Diagram-
-    /// mode `Reproject` requests (a camera-drag redraw, which carries no `Design` of
-    /// its own) can hand the solid-preview worker the CURRENTLY loaded design's gear
-    /// info, rather than whatever a previous editor `Replan` happened to leave behind
-    /// in the worker's own `solid_preview::preview_state::DiagramMemory` -- which, for
-    /// a design loaded via the library (never replanned through the editor), would be
-    /// a stale/unrelated design's gear info, not this one's.
-    ///
-    /// `None` until a writer sets it -- a `Reproject` request built from `None` leaves
-    /// the worker's own last-known gear info untouched (see
-    /// `solid_preview::preview_state::SolidPreviewState::request_redraw`'s doc
-    /// comment), which is a fine default for callers that have no design of their own
-    /// to report (the built-in placeholder cut, a deleted-selection reset).
+    /// A camera-drag `Reproject` request carries no `Design`, so it takes the gear info
+    /// from here. Without it the solid preview would reuse the gear info of its last
+    /// replan, which may belong to another design. `None` leaves the solid preview's
+    /// last gear info untouched, as for the built-in placeholder cut.
     pub design_gear: Option<(u32, f32)>,
-    /// Which of `active_planes`'s four writers most recently claimed the slot.
-    /// Currently records the claim only; enforcement is partial. See
-    /// [`Self::claim_active_planes`] for the intended single point of mutation.
+    /// Which writer last claimed the `active_planes` slot. Arbitration uses it, see
+    /// [`Self::may_claim_active_planes`]. Writes go through [`Self::claim_active_planes`].
     pub planes_owner: PlanesOwner,
     /// The editor's design generation counter (`EditorState` keeps the one `Arc` for its whole
     /// life), registered by the editor's setup; `None` before that.
@@ -234,45 +228,39 @@ pub struct RenderContext {
     /// The editor generation that was current when a Library selection last claimed the slot;
     /// `None` while anything else owns it. See [`Self::library_took_over_since`].
     pub catalogue_over_generation: Option<u64>,
-    /// Why the design cannot be traced honestly, as a cutter-facing message.
-    /// `None` when tracing is valid. Set both when a design has no material name and
-    /// its refractive index matches no built-in preset, and when it names a material
-    /// that is neither a built-in preset nor a saved custom material; refusal to
-    /// substitute is the chosen behaviour over silent fallback to Diamond. Surfaced
-    /// to the cutter via `ViewportModel.trace_refusal` (`gem_viewport.slint`'s
-    /// banner), and consulted by [`resolve_material`]'s callers -- `SceneSnapshot::
-    /// capture`, the remote dispatch tick, and the tilt-video export -- which all
-    /// refuse rather than trace/export the wrong stone while this is set.
+    /// Why the design cannot be traced honestly, as a cutter-facing message. `None` when
+    /// tracing is valid. Set when a design has no material name and its refractive index
+    /// matches no built-in preset, or when it names a material that is neither a built-in
+    /// nor a saved custom material. The render is refused rather than substituting Diamond.
+    /// Shown in the viewport banner (`ViewportModel.trace_refusal`). `SceneSnapshot::capture`,
+    /// the remote dispatch tick and the tilt-video export also refuse while this is set.
     pub material_unresolved: Option<String>,
-    /// The editor's viewport material as it was when a Library selection took the
-    /// planes slot over from it, so the editor gets it back when it claims the slot
-    /// again. Without it a Library row that resolves no material would leave the
-    /// refusal in [`Self::material_unresolved`] behind and tracing suspended.
+    /// The editor's viewport material while a Library selection holds the planes slot,
+    /// restored when the editor claims the slot back. Without it, a Library row with no
+    /// material would leave its refusal in [`Self::material_unresolved`] and tracing
+    /// suspended.
     pub editor_material_stash: Option<MaterialStash>,
     /// User-defined gem materials.
     pub custom_materials: Arc<Vec<GemMaterial>>,
-    /// Name -> specific gravity for custom catalogue materials. A parallel side
-    /// channel to [`Self::custom_materials`], not on `GemMaterial` itself (SG is
-    /// gemological data unrelated to optical tracing). Kept in lock-step by
-    /// `gui::optics::custom_materials`'s callbacks and `gui::mod`'s startup load.
+    /// Name -> specific gravity for custom catalogue materials. A side channel to
+    /// [`Self::custom_materials`], not on `GemMaterial`, since SG does not affect optical
+    /// tracing. Kept in lock-step by `gui::optics::custom_materials` and the startup load.
     /// `Arc<Vec<..>>` for cheap cloning into per-frame snapshots.
     pub custom_material_specific_gravity: Arc<Vec<(String, f64)>>,
     /// Names of the custom materials whose active color mode is Physics (a recipe renders
-    /// them), a side channel to [`Self::custom_materials`] like the specific gravity above:
-    /// `GemMaterial` carries no color-mode field (the net format is unchanged). Kept in
-    /// lock-step by `gui::optics::custom_materials`'s save/delete callbacks, the startup load and
-    /// the native-file restore. Read through [`Self::physics_color`].
+    /// them). A side channel to [`Self::custom_materials`] like the specific gravity above,
+    /// since `GemMaterial` has no color-mode field. Kept in lock-step by
+    /// `gui::optics::custom_materials`. Read through [`Self::physics_color`].
     pub custom_material_physics: Arc<Vec<String>>,
-    /// The fluorescent emitters of the custom materials whose active color mode is Physics,
-    /// resolved from their recipes (`ColorMode::fluorescence`): a side channel beside
-    /// [`Self::custom_material_physics`], never inside `GemMaterial`, so every non-fluorescent
-    /// material (and every fantasy one, which has no entry) renders bit-identically to a build
-    /// without it. Only materials with at least one emitter are listed. Kept in lock-step with
-    /// the physics list by the same writers. Read through [`Self::active_fluorescence`].
+    /// The fluorescent emitters of the custom materials whose color mode is Physics,
+    /// resolved from their recipes (`ColorMode::fluorescence`). A side channel beside
+    /// [`Self::custom_material_physics`], never inside `GemMaterial`, so every other
+    /// material renders unchanged. Only materials with at least one emitter are listed.
+    /// Read through [`Self::active_fluorescence`].
     pub custom_material_fluorescence: Arc<Vec<(String, Arc<Fluorescence>)>>,
-    /// A native file whose top-level color was edited by an older build (its physics recipe
-    /// is still stored): the material the recipe would restore, held until the user answers
-    /// "keep physics recipe / use edited color" (`PhysicscolorModel.color_conflict_*`).
+    /// A native file whose top-level color was edited while its physics recipe was still
+    /// stored: the material the recipe would restore, held until the user picks "keep
+    /// physics recipe" or "use edited color" (`PhysicscolorModel.color_conflict_*`).
     /// The recipe's fluorescence rides along (see [`Self::custom_material_fluorescence`]).
     pub pending_color_choice: Option<(String, GemMaterial, Fluorescence)>,
     /// Shutdown signal for the render thread. Setting this `false` ends the loop
@@ -364,6 +352,28 @@ pub struct RenderContext {
     /// moving. `Off` (default) makes `local_preview::effective_dimensions` return
     /// `width`/`height` unchanged regardless of `camera_moving`.
     pub local_preview_scale: LocalPreviewScale,
+    /// "Adaptive Sampling in the Viewport": while the view is still, clean tiles stop
+    /// receiving samples (see `render_thread::adaptive_view`). Off by default. A change
+    /// must set `dirty` so the accumulation restarts.
+    pub adaptive_viewport: bool,
+    /// "Speed Up Still Views With a Path Cache": once a still view has refined for
+    /// `render_thread::viewport_cache::VIEWPORT_CACHE_AFTER_SPP` samples, its stone is shaded
+    /// from an in-memory path cache (see `render_thread::viewport_cache`). Off by default. A
+    /// change must set `dirty` so the accumulation restarts.
+    pub path_cache_viewport: bool,
+    /// "Instant Lighting Changes in the Ray-Traced View": a still Ray-Traced view keeps the
+    /// stone's light paths in memory (see `render_thread::reshade_view`), and a lighting or
+    /// exposure change re-lights them at once instead of tracing again. Off by default. A
+    /// change must set `dirty`.
+    pub instant_lighting: bool,
+    /// "Beam Tracing in Still Views" (see `render_thread::still_beams`). Off by default. A
+    /// change must set `dirty`.
+    #[cfg(feature = "beam")]
+    pub beam_viewport: bool,
+    /// "Instant Lighting Changes" for beam tracing: a lighting-only change of a beam-traced
+    /// still view re-lights the kept beams instead of tracing again. Off by default.
+    #[cfg(feature = "beam")]
+    pub beam_instant_lighting: bool,
     /// Whether the camera is CURRENTLY moving -- mirrors
     /// `HandoffState::Previewing`, written once per poll tick from the same
     /// `HandoffMachine` that drives the remote handoff, so there's one definition of
@@ -384,15 +394,21 @@ pub struct RenderContext {
     /// held drag as camera motion only once the scene changed under it (a plain press
     /// keeps the converged image). Not a scene field: `scene_identity` ignores it.
     pub camera_drag_held: bool,
-    /// HDR environment maps: `Some(map)` replaces the analytic studio rig with a
-    /// loaded Radiance `.hdr` panorama as the render loop's `EnvironmentSource` -- see
-    /// `pleochroma::renderer::env_map`. `None` (default) is the studio-rig-only path.
+    /// HDR environment maps: `Some(map)` replaces the analytic studio rig with a loaded
+    /// Radiance `.hdr` panorama as the render loop's `EnvironmentSource` (see
+    /// `pleochroma::renderer::env_map`). `None` (default) is the studio rig.
     ///
-    /// `Arc`, not a bare `EnvironmentMap`: a decoded panorama can be tens of megabytes,
-    /// and `snapshot_frame_inputs` clones every field under the lock every frame -- an
-    /// `Arc` clone is one atomic increment vs. re-copying the buffer 60x/second.
-    /// `gui::mod`'s load/clear callbacks are the only writers.
+    /// `Arc`, not a bare `EnvironmentMap`: `snapshot_frame_inputs` clones this field every
+    /// frame, and a decoded panorama can be tens of megabytes.
+    /// Written by the environment-map load and clear callbacks and by the lighting presets.
     pub env_map: Option<Arc<EnvironmentMap>>,
+    /// Yaw of the HDR map in radians, `0..TAU` (`0.0` is the map as loaded). Read only
+    /// while [`Self::env_map`] is `Some`; the light controls turn it then. Written by
+    /// `gui::render::camera_lighting`, the map loader (which resets it) and the settings.
+    pub hdr_yaw: f32,
+    /// Whether the HDR map turns with the camera: the map's yaw then gets the camera yaw
+    /// added, so the map stays fixed relative to the view and the stone orbits under it.
+    pub hdr_follows_camera: bool,
     /// The content-derived scene generation counter behind
     /// [`Self::scene_generation`] -- see [`scene_identity`]. Never written directly;
     /// `Default::default()` is the only sensible initial value.
@@ -441,17 +457,14 @@ pub enum PlanesOwner {
 }
 
 impl RenderContext {
-    /// Whether a write tagged `new_owner` may overwrite the slot's CURRENT owner --
-    /// the arbitration rule, factored out so every writer
-    /// applies the same policy instead of five copies of an `if` chain.
+    /// Whether a write tagged `new_owner` may overwrite the slot's current owner. Every
+    /// writer uses this one rule.
     ///
-    /// Two `Editor` claims arbitrate by generation, so a background auto-solve that
-    /// was already stale when it finished can't clobber a newer edit's planes.
-    /// Every other claim is allowed, a catalogue selection over an `Editor` owner
-    /// included: picking a row in the Library is an explicit request to look at that
-    /// design, and the editor loads a design only on its own button click and takes
-    /// the slot back with its next load or edit. Refusing the click used to leave the
-    /// whole Library unable to preview anything for the rest of the session.
+    /// Two `Editor` claims arbitrate by generation, so a background auto-solve that was
+    /// already stale when it finished cannot overwrite a newer edit's planes. Every other
+    /// claim is allowed, including a catalogue selection over an `Editor` owner: picking a
+    /// Library row is an explicit request, and the editor takes the slot back with its next
+    /// load or edit.
     #[must_use]
     pub const fn may_claim_active_planes(&self, new_owner: PlanesOwner) -> bool {
         match (self.planes_owner, new_owner) {
@@ -465,15 +478,13 @@ impl RenderContext {
         }
     }
 
-    /// The single intended write path for `active_planes`/`design_gear`/
-    /// `planes_owner` together. Returns `false` (and leaves
-    /// every field untouched) when [`Self::may_claim_active_planes`] refuses the
-    /// claim, so a caller can tell a stale write from an accepted one.
+    /// The write path for `active_planes`, `design_gear` and `planes_owner` together.
+    /// Returns `false` and leaves every field untouched when
+    /// [`Self::may_claim_active_planes`] refuses the claim, so a caller can tell a stale
+    /// write from an accepted one.
     ///
-    /// Does NOT set `dirty` -- callers already do that themselves alongside
-    /// whatever else a plane-set change requires (a `Reproject`/`Replan` request,
-    /// a tilt-sweep re-request, etc.), and folding it in here would
-    /// make a refused claim's caller have to remember to skip that too.
+    /// Does NOT set `dirty`: callers set it with their own request, so a refused claim
+    /// needs no extra handling.
     pub fn claim_active_planes(
         &mut self,
         planes: Arc<Vec<GpuFacetPlane>>,
@@ -504,14 +515,9 @@ impl RenderContext {
         if self.planes_owner != owner {
             self.view_color_pattern = None;
         }
-        // A new owner is about to take over `active_planes`,
-        // and `stone_width_mm` (never itself reset by a plane-slot change -- see
-        // that field's own doc comment) is still on. Nothing here can tell
-        // whether the figure was actually meant for THIS new owner or is simply
-        // left over from whichever design was active when it was typed, so this
-        // only logs -- an outright reset would just as often clear a value the
-        // cutter deliberately wants to keep applying (e.g. re-measuring the same
-        // physical rough across two catalogue rows).
+        // `stone_width_mm` survives an owner change. It may belong to the new owner or be
+        // left over from the previous one, and a reset would also clear a width the cutter
+        // means to keep, so this only logs.
         if self.stone_width_mm > 0.0 && self.planes_owner != owner {
             tracing::warn!(
                 stone_width_mm = self.stone_width_mm,
@@ -550,10 +556,10 @@ impl RenderContext {
         true
     }
 
-    /// Whether a Library selection took the slot while the editor's design was at generation
-    /// `started_generation` or later: a background solve of that design that finishes now must
-    /// leave the Library row on the viewport (the solid sink keeps it there too). The editor's
-    /// next load or edit is a newer generation and claims the slot back.
+    /// Whether a Library selection took the slot after the editor's design reached
+    /// `started_generation`. A background solve of that design that finishes now must leave
+    /// the Library row on the viewport. The editor's next load or edit has a newer
+    /// generation and claims the slot back.
     #[must_use]
     pub fn library_took_over_since(&self, started_generation: u64) -> bool {
         matches!(self.planes_owner, PlanesOwner::Catalogue { .. })
@@ -602,20 +608,13 @@ impl RenderContext {
         }
     }
 
-    /// Whether the currently traced/rasterized `active_planes`
-    /// describe an OLDER edit than `current_generation` -- the "render is stale"
-    /// signal. No `planes_generation`/`trace_stale` property exists anywhere else in
-    /// the app.
-    /// [`PlanesOwner::Editor`] already carries exactly the generation
-    /// `active_planes` was last claimed at, so this is a
-    /// direct comparison against it rather than a new field -- `false` whenever
-    /// the slot is not even owned by the editor (`Builtin`/`Catalogue`), since
-    /// "stale relative to an edit" only means something while the editor owns the
-    /// slot at all.
+    /// Whether the planes in `active_planes` come from an older edit than
+    /// `current_generation`. [`PlanesOwner::Editor`] carries the generation the planes were
+    /// claimed at, so this is a direct comparison. It is `false` when the editor does not own
+    /// the slot, since staleness only applies to editor edits.
     ///
-    /// This alone does not surface staleness to the cutter: a caller still needs to call
-    /// it with `EditorState::generation`'s live value and push the result into a new
-    /// Slint property with an amber overlay in the Path-traced/Both viewport (`ui/**`).
+    /// This only computes the flag. A caller passes the live `EditorState::generation` and
+    /// shows the result in the viewport.
     #[must_use]
     pub const fn traced_planes_are_stale(&self, current_generation: u64) -> bool {
         matches!(
@@ -625,9 +624,8 @@ impl RenderContext {
     }
 
     /// Looks up `name`'s specific gravity in [`Self::custom_material_specific_gravity`],
-    /// case-insensitively -- the same matching convention every
-    /// other name lookup this struct's fields feed uses (see [`resolve_material`]).
-    /// `None` when no custom material by that name has a recorded SG.
+    /// ignoring ASCII case like the other name lookups (see [`resolve_material`]). `None`
+    /// when no custom material by that name has a recorded SG.
     #[must_use]
     pub fn custom_specific_gravity(&self, name: &str) -> Option<f64> {
         self.custom_material_specific_gravity
@@ -637,11 +635,10 @@ impl RenderContext {
     }
 
     /// Whether the material being traced (the editor's override when set, else the selected
-    /// name) is a custom material whose active color mode is Physics. It selects the 7 mm
-    /// default stone width (`effective_stone_width_mm`) and is derived from the explicit
-    /// [`Self::custom_material_physics`] list, never from the shape of the material's bands
-    /// (a pure-host recipe has none). The render thread, export and the remote scene all read
-    /// this one answer wherever the material is resolved.
+    /// name) is a custom material whose active color mode is Physics. It is read from the
+    /// explicit [`Self::custom_material_physics`] list, not from the material's bands (a
+    /// pure-host recipe has none). The render thread, export and the remote scene all use
+    /// this answer. It also selects the default stone width (`effective_stone_width_mm`).
     #[must_use]
     pub fn physics_color(&self) -> bool {
         let active = self
@@ -674,9 +671,9 @@ impl RenderContext {
     /// The exposure the renderers get: [`Self::exposure`] (the cutter's compensation) on top of
     /// the incident-light meter of the lighting rig at the light pose
     /// (`pleochroma::optics::raytracer::metered_exposure`), so every rig shows white paper at the
-    /// same level. A loaded HDR map is its own light and keeps the plain exposure. The live
-    /// frame, exports, render jobs, the remote scene and the file name placeholder `{exposure}`
-    /// all read this one value.
+    /// same level. A loaded HDR map is its own light, unmetered: the plain exposure scales its
+    /// radiance (`EnvironmentSource::HdrMap::exposure`). The live frame, exports, render jobs,
+    /// the remote scene and the file name placeholder `{exposure}` all read this one value.
     #[must_use]
     pub fn effective_exposure(&self) -> f32 {
         if self.env_map.is_some() {
@@ -688,6 +685,17 @@ impl RenderContext {
                 self.light_yaw,
                 self.light_pitch,
             )
+        }
+    }
+
+    /// How the loaded HDR map is turned: [`Self::hdr_yaw`] and [`Self::hdr_follows_camera`]
+    /// as the one value the renderers take (`HdrOrientation::rotation_for` at the camera
+    /// yaw gives the rotation). Meaningless without a map.
+    #[must_use]
+    pub const fn hdr_orientation(&self) -> HdrOrientation {
+        HdrOrientation {
+            yaw: self.hdr_yaw,
+            follows_camera: self.hdr_follows_camera,
         }
     }
 

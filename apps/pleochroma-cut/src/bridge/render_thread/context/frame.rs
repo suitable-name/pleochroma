@@ -10,19 +10,18 @@ use glam::Vec3;
 use pleochroma::{
     geometry::{plane::GpuFacetPlane, tool::ToolPrimitive},
     optics::{fluorescence::Fluorescence, materials::GemMaterial, raytracer::LightingPreset},
-    renderer::env_map::EnvironmentMap,
+    renderer::env_map::{EnvironmentMap, HdrOrientation},
 };
 use pleochroma_net::scene::effects::SceneEffects;
 use std::sync::{Arc, Mutex, atomic::AtomicBool};
 
-/// Decodes a Radiance `.hdr` file at `path` into an [`EnvironmentMap`], wrapped in the
-/// `Arc` `RenderContext::env_map` stores. `gui::mod`'s load callback shows an `Err` via
-/// the toast mechanism and never assigns into `env_map`, so a bad file leaves the
-/// previously active environment untouched.
+/// Decodes a Radiance `.hdr` file at `path` into an [`EnvironmentMap`], wrapped in the `Arc` that
+/// `RenderContext::env_map` stores.
 ///
-/// Goes through `bridge::remote::hdr_asset::load_hdr_file`: the map is decoded with the
-/// builder every render worker shares, and registered as a content-addressed asset so an
-/// HDR-capable remote can be sent its exact bytes (protocol v14 HDR map transfer).
+/// On `Err` the caller leaves `env_map` untouched, so the previous environment stays active.
+///
+/// Decodes through `bridge::remote::hdr_asset::load_hdr_file`, which also registers the
+/// map as a content-addressed asset so an HDR-capable remote receives its exact bytes.
 ///
 /// # Errors
 ///
@@ -58,6 +57,12 @@ pub(in crate::bridge::render_thread) struct FrameInputs {
     pub(in crate::bridge::render_thread) backdrop: crate::settings::model::Backdrop,
     pub(in crate::bridge::render_thread) surface_glare: f32,
     pub(in crate::bridge::render_thread) head_shadow_deg: f32,
+    /// Whether this accumulation requests the stone shadow on the paper: the snapshot of
+    /// [`RenderContext::stone_shadow`], still subject to the lighting declining it.
+    pub(in crate::bridge::render_thread) stone_shadow: bool,
+    /// The snapshot of [`RenderContext::tray_reflection`], still subject to the lighting
+    /// declining it.
+    pub(in crate::bridge::render_thread) tray_reflection: f32,
     pub(in crate::bridge::render_thread) target_samples: u32,
     pub(in crate::bridge::render_thread) max_bounces: u32,
     pub(in crate::bridge::render_thread) exposure: f32,
@@ -92,16 +97,32 @@ pub(in crate::bridge::render_thread) struct FrameInputs {
     pub(in crate::bridge::render_thread) live_compute_target: LiveComputeTarget,
     pub(in crate::bridge::render_thread) local_compute_target: LocalComputeTarget,
     pub(in crate::bridge::render_thread) local_preview_scale: LocalPreviewScale,
+    /// See [`RenderContext::adaptive_viewport`].
+    pub(in crate::bridge::render_thread) adaptive_viewport: bool,
+    /// See [`RenderContext::path_cache_viewport`].
+    pub(in crate::bridge::render_thread) path_cache_viewport: bool,
+    /// See [`RenderContext::instant_lighting`].
+    pub(in crate::bridge::render_thread) instant_lighting: bool,
+    /// See [`RenderContext::beam_viewport`].
+    #[cfg(feature = "beam")]
+    pub(in crate::bridge::render_thread) beam_viewport: bool,
+    /// See [`RenderContext::beam_instant_lighting`].
+    #[cfg(feature = "beam")]
+    pub(in crate::bridge::render_thread) beam_instant_lighting: bool,
     pub(in crate::bridge::render_thread) camera_moving: bool,
     /// See [`RenderContext::camera_drag_held`]; the render loop turns it into motion
     /// only once the scene changed under the held button (`local_preview::DragGesture`).
     pub(in crate::bridge::render_thread) camera_drag_held: bool,
     pub(in crate::bridge::render_thread) env_map: Option<Arc<EnvironmentMap>>,
+    /// The snapshot of [`RenderContext::hdr_orientation`]; read only with an `env_map`.
+    pub(in crate::bridge::render_thread) hdr_orientation: HdrOrientation,
     /// [`RenderContext::scene_generation`] of exactly the fields in this snapshot
     /// (read under the same lock) -- compared against the live epoch's own
     /// generation so a frame never claims from or merges with an epoch that was
     /// dispatched for a different scene.
     pub(in crate::bridge::render_thread) scene_generation: u64,
+    /// [`RenderContext::pose_generation`] of the same snapshot: unchanged by a lighting edit.
+    pub(in crate::bridge::render_thread) pose_generation: u64,
 }
 
 impl RenderContext {
@@ -118,20 +139,15 @@ impl RenderContext {
 pub(in crate::bridge::render_thread) fn snapshot_frame_inputs(
     ctx: &Arc<Mutex<RenderContext>>,
 ) -> FrameInputs {
-    // Recovers from a poisoned lock rather than panicking, matching every other
-    // `RenderContext` lock in this crate. This runs once per frame on the render
-    // thread, so panicking here would permanently kill rendering while the UI thread
-    // (recovering the same way) keeps servicing the window -- indistinguishable from a
-    // hang, with no console in a release build to show why. Every field is a plain
-    // value written under this same lock, so the worst a poisoning writer leaves
-    // behind is a stale-but-valid frame, overwritten next tick anyway.
+    // Recovers from a poisoned lock like every other `RenderContext` lock. A panic here
+    // would stop rendering while the window keeps answering, which looks like a hang.
+    // A poisoning writer can only leave a stale but valid frame, replaced next tick.
     let mut ctx = RenderContext::lock(ctx);
     let dirty = ctx.dirty;
     let cancel = ctx.frame_cancellation();
     ctx.dirty = false;
-    // Consumed the same way as `dirty` -- read and cleared in this one locked
-    // section, so a request set by a callback between the read and the clear is
-    // never lost. See `RenderContext::redisplay_requested`'s own doc comment.
+    // Read and cleared with `dirty` in this one locked section, so a request set in
+    // between is not lost.
     let redisplay_requested = ctx.redisplay_requested;
     ctx.redisplay_requested = false;
     let scene_generation = ctx.scene_generation();
@@ -171,6 +187,8 @@ pub(in crate::bridge::render_thread) fn snapshot_frame_inputs(
         backdrop: ctx.backdrop,
         surface_glare: ctx.surface_glare,
         head_shadow_deg: ctx.head_shadow_deg,
+        stone_shadow: ctx.stone_shadow,
+        tray_reflection: ctx.tray_reflection,
         target_samples,
         max_bounces: ctx.max_bounces,
         exposure: ctx.effective_exposure(),
@@ -210,13 +228,22 @@ pub(in crate::bridge::render_thread) fn snapshot_frame_inputs(
         },
         local_compute_target: ctx.local_compute_target,
         local_preview_scale: ctx.local_preview_scale,
+        adaptive_viewport: ctx.adaptive_viewport,
+        path_cache_viewport: ctx.path_cache_viewport,
+        instant_lighting: ctx.instant_lighting,
+        #[cfg(feature = "beam")]
+        beam_viewport: ctx.beam_viewport,
+        #[cfg(feature = "beam")]
+        beam_instant_lighting: ctx.beam_instant_lighting,
         camera_moving: ctx.camera_moving,
         // A held drag enters preview as soon as the pose moves, before the handoff
         // timer's tick -- but a press that never moves stays Final.
         camera_drag_held: ctx.camera_drag_held,
         // `Arc::clone`, not a deep copy of the decoded panorama -- see `env_map`'s doc comment.
         env_map: ctx.env_map.clone(),
+        hdr_orientation: ctx.hdr_orientation(),
         scene_generation,
+        pose_generation: ctx.pose_generation(),
     }
 }
 

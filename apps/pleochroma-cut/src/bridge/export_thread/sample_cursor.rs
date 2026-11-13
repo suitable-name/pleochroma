@@ -1,5 +1,3 @@
-//! Path-compatibility shim: [`SampleCursor`] moved to `bridge::sample_cursor` so the
-//! live viewport's hybrid path can share it. Re-exported here so every export-side
-//! `super::sample_cursor::SampleCursor` import keeps compiling unchanged.
+//! Re-export of [`SampleCursor`] from `bridge::sample_cursor`, which the live viewport shares.
 
 pub(in crate::bridge::export_thread) use crate::bridge::sample_cursor::SampleCursor;

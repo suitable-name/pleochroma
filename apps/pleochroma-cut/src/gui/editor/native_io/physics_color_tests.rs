@@ -129,7 +129,7 @@ fn an_older_build_opening_the_saved_file_is_within_delta_e_15() {
     assert!(de <= 15.0, "DeltaE00 {de:.1}");
 }
 
-/// The older build edited the color and saved: detected as fantasy-edited on open.
+/// An older build's edit of the top-level color is detected on open (`EditedElsewhere`).
 #[test]
 fn an_edit_by_an_older_build_is_detected_on_open() {
     let mode = ruby_mode();

@@ -1,6 +1,6 @@
-//! Reads the library panel's search box, sliders, dropdowns and filter chips off
-//! `ui` into the plain filter values the rest of this module's fetch/search paths
-//! consume.
+//! Reads the library panel's search and filter state off `ui`.
+//!
+//! It produces the plain values that the fetch and search paths consume.
 
 use crate::{LibraryModel, MainWindow};
 use anyhow::Result;
@@ -25,11 +25,11 @@ const fn round_to_i64(value: f64) -> i64 {
     value.round() as i64
 }
 
-/// A slider value that sits exactly on its data-bounds edge means "not filtering on
-/// this side" -- returns `None` so `search_diagrams` skips the predicate entirely
-/// (which also means rows with no value at all for that attribute stay visible, same
-/// as the unfiltered "All" state of the existing shape/gear dropdowns). Any other
-/// value is an active bound.
+/// The active bound for a slider value, or `None` when it sits on its data-bounds edge.
+///
+/// `None` means "not filtering on this side", so `search_diagrams` skips the predicate. Rows
+/// with no value for that attribute stay visible, as with the "All" dropdown entries.
+/// Any other value is an active bound.
 fn active_bound(value: f32, bound_edge: f32) -> Option<f64> {
     let moved_off_edge = (value - bound_edge).abs() >= 1e-6;
     moved_off_edge.then_some(f64::from(value))
@@ -98,12 +98,7 @@ pub fn read_range_filter(ui: &MainWindow) -> RangeFilter {
 }
 
 /// Maps `LibraryModel.sort_order_index` (the header toolbar's sort selector) onto a
-/// [`SortOrder`].
-///
-/// Index<->variant mapping happens here, once, the same convention
-/// [`read_performance_filters`] uses for its own index-coded fields. An out-of-range
-/// index (should not happen; the combo box's own model bounds it) falls back to
-/// [`SortOrder::CatalogueOrder`] rather than panicking.
+/// [`SortOrder`]. An out-of-range index falls back to [`SortOrder::CatalogueOrder`].
 #[must_use]
 pub fn read_sort_order(ui: &MainWindow) -> SortOrder {
     match ui.global::<LibraryModel>().get_sort_order_index() {
@@ -121,28 +116,23 @@ pub fn read_local_only(ui: &MainWindow) -> bool {
     ui.global::<LibraryModel>().get_local_only_filter()
 }
 
-/// Reads the library panel's tag chip filter (`filter_panel.slint`) --
-/// `LibraryModel.active_tag_filter_name` is `""` when no chip is
-/// selected.
+/// Reads the library panel's tag chip filter (`filter_panel.slint`).
+/// `LibraryModel.active_tag_filter_name` is `""` when no chip is selected.
 ///
-/// Returns the tag's NAME, not its id: resolving a name to a `tags.id` is
-/// a database read (`Database::tag_id_by_name`), so that resolution happens in
-/// [`super::fetch::fetch_diagram_list_with_options`], the one place in this path that
-/// already holds the `Database` lock -- this function stays a pure `ui` read like every
-/// other `read_*` in this module.
+/// Returns the tag's name, not its id. Resolving the name is a database read, so it is left
+/// to [`super::fetch::fetch_diagram_list_with_options`], where the database is open.
 #[must_use]
 pub fn read_tag_filter(ui: &MainWindow) -> Option<String> {
     let name = ui.global::<LibraryModel>().get_active_tag_filter_name();
     (!name.is_empty()).then(|| name.to_string())
 }
 
-/// Reads the "show these N" restriction a batch import leaves behind
-/// (`LibraryModel.recent_import_filter`) -- an
-/// empty list (the ordinary case) means no restriction.
+/// Reads the "show these N" restriction a batch import leaves behind.
 ///
-/// Cleared by `gui::library::diagram_list::setup_search_and_filter_callbacks`'s four
-/// handlers the moment the cutter makes any real search/filter change, so it never
-/// outlives the view it was created for.
+/// It is `LibraryModel.recent_import_filter`, and an empty list means no restriction.
+///
+/// `gui::library::diagram_list::setup_search_and_filter_callbacks` clears it on the first
+/// real search or filter change, so it does not outlive the view it was made for.
 #[must_use]
 pub fn read_id_filter(ui: &MainWindow) -> Option<Vec<i64>> {
     let model = ui.global::<LibraryModel>().get_recent_import_filter();
@@ -152,17 +142,14 @@ pub fn read_id_filter(ui: &MainWindow) -> Option<Vec<i64>> {
     Some(model.iter().map(i64::from).collect())
 }
 
-/// Reads `ui.global::<LibraryModel>().get_performance_filters()` (the tilt-performance filter panel's rows,
-/// `PerformanceFilterRow` -- see that Slint struct's doc comment for the index<->enum
-/// mapping this function applies) and builds the `Vec<PerformanceFilter>`
-/// `read_range_filter` embeds in the `RangeFilter` it returns.
+/// Builds the `Vec<PerformanceFilter>` for `read_range_filter`.
 ///
-/// Every row is validated through `PerformanceFilter::new` rather than hand-built:
-/// `filter_panel.slint`'s radius slider is already bounded to `0.0..=90.0`, so
-/// rejection should never actually happen in practice, but this is still the one
-/// boundary where a raw `tilt_radius_deg` becomes a real `PerformanceFilter`. A
-/// rejected row is dropped from the query (never silently clamped into range) and
-/// reported through `ui.set_status_message`.
+/// It reads the tilt-performance rows (`LibraryModel.performance_filters`, a
+/// `PerformanceFilterRow`) and applies the index-to-enum mapping.
+///
+/// Each row goes through `PerformanceFilter::new`, the one boundary where a raw tilt radius
+/// becomes a `PerformanceFilter`. A rejected row is dropped, never clamped into range, and
+/// reported through the status message.
 fn read_performance_filters(ui: &MainWindow) -> Vec<PerformanceFilter> {
     let rows = ui.global::<LibraryModel>().get_performance_filters();
     let mut filters = Vec::with_capacity(rows.row_count());
@@ -200,8 +187,9 @@ fn read_performance_filters(ui: &MainWindow) -> Vec<PerformanceFilter> {
     filters
 }
 
-/// The library panel's search/filter state as plain owned values: everything
-/// [`resolve_filtered_entry_ids`] needs, captured on the UI thread so the query itself
+/// The library panel's search and filter state as plain owned values.
+///
+/// It holds what [`resolve_filtered_entry_ids`] needs, captured on the UI thread so the query
 /// can run on a worker.
 ///
 /// Compared with `==` at apply time to tell whether the panel changed while the worker
@@ -226,8 +214,7 @@ pub struct FilterSnapshot {
 }
 
 impl FilterSnapshot {
-    /// Reads the panel's current filter state off `ui` -- the UI reads
-    /// [`current_filtered_entry_ids`] always did, and nothing else.
+    /// Reads the panel's current filter state off `ui`.
     #[must_use]
     pub fn capture(ui: &MainWindow) -> Self {
         let search = ui.global::<LibraryModel>().get_search_text();
@@ -269,12 +256,11 @@ impl FilterSnapshot {
 
 /// Every entry id matching `snapshot` in `db`: the real, uncapped "filtered set".
 ///
-/// The owner's "regenerate previews/tilt curves for the filtered set" batch actions need it;
-/// it covers search text, shape/gear dropdowns, and every range/tag/local-only filter, via
+/// Used by the batch actions that act on the filtered set. It covers the search text, the
+/// shape and gear dropdowns, and every range, tag and local-only filter, via
 /// [`Database::matching_entry_ids`].
 ///
-/// Pure over `(db, snapshot)`, so it runs on any thread with any connection to the
-/// catalogue.
+/// Pure over `(db, snapshot)`, so it runs on any thread with any connection to the catalogue.
 ///
 /// # Errors
 ///
@@ -305,16 +291,11 @@ pub fn resolve_filtered_entry_ids(db: &Database, snapshot: &FilterSnapshot) -> R
 
 /// Every entry id matching the library panel's current search/filter state.
 ///
-/// Synchronous: captures [`FilterSnapshot`], takes the SHARED WRITER lock and runs the
-/// uncapped query on the calling thread. Prefer the async route
-/// (`gui::library::diagram_list`'s filtered-set resolver, which resolves on a worker
-/// over a read-only connection); this wrapper stays for callers that are already off the
-/// UI thread or need the result inline.
+/// Captures a [`FilterSnapshot`] and runs the uncapped query on the calling thread.
 ///
-/// Local-catalogue only: there is no remote equivalent of
-/// [`Database::matching_entry_ids`] (a `LibrarySource::Remote` session has no local
-/// `Database` at all) -- a caller under a remote source should refuse this action
-/// rather than call it.
+/// It holds the shared lock for the query. UI-thread callers should prefer the worker-based
+/// resolver in `gui::library::diagram_list`. This is local catalogue only: a remote library
+/// session has no local `Database`, so a caller under a remote source must refuse the action.
 ///
 /// # Errors
 ///

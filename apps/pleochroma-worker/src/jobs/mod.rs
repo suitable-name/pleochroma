@@ -1,5 +1,5 @@
-//! Durable server jobs (protocol v25): a still picture the server renders on its own
-//! schedule and keeps for its owner to fetch later, from any later connection.
+//! Durable server jobs: a still picture the server renders on its own schedule and keeps for
+//! its owner to fetch later, from any later connection.
 //!
 //! The wire side is `pleochroma_net::messages::job` (read its module doc first); this module
 //! is the server side:
@@ -285,8 +285,8 @@ pub fn serve_job<S: Read + Write + TimeoutRead>(
     write_job_response(stream, &response)
 }
 
-/// Checks that the asset `environment` names decodes to the declared size, decoding it into the
-/// process-wide registry (so the executor finds it there).
+/// Checks that the asset `environment` names decodes to the declared size, decoding it into
+/// the process-wide registry so the executor finds it there.
 fn check_asset(cache: &AssetCache, environment: &HdrEnvironment) -> Result<(), String> {
     if assets::lookup(&environment.content_hash).is_some() {
         return Ok(());

@@ -1,7 +1,5 @@
 //! The "manufacturability must not regress" gate: the baseline's warning counts and the
-//! comparison every candidate passes before it is scored. Split out of
-//! [`super`] (the candidate module) to keep that file under its size limit; the items are
-//! re-exported there under their old paths.
+//! comparison every candidate passes before it is scored. Re-exported by [`super`].
 
 use crate::manufacturability::ManufacturabilityWarning;
 
@@ -41,11 +39,10 @@ impl BaselineWarningCounts {
     }
 }
 
-/// `true` iff `candidate` has strictly more vanishing OR undersized facets than
-/// `baseline` -- the "must not regress" gate [`super::evaluate_candidate_controlled`]
-/// applies to every candidate. Equal or fewer warnings than baseline is accepted (an
-/// optimizer that only ever matches the starting design's manufacturability is not a
-/// regression, even if it does not improve it either).
+/// `true` iff `candidate` has strictly more vanishing or undersized facets than `baseline`.
+///
+/// [`super::evaluate_candidate_controlled`] applies this gate to every candidate. Matching
+/// the starting design is not a regression.
 pub(in crate::optimize) fn manufacturability_regressed(
     baseline: &BaselineWarningCounts,
     candidate_warnings: &[ManufacturabilityWarning],

@@ -1,9 +1,7 @@
-//! The GPU Worker's `GpuCompile` handling: one test dispatch per kernel under error scopes,
-//! so a shader that does not compile, or a driver that stalls, is reported to the page
-//! instead of taking the GPU down silently.
+//! The GPU Worker's `GpuCompile` handling: a test dispatch per kernel under error scopes,
+//! so a bad shader or a stalling driver is reported to the page.
 //!
-//! Split out of `lib.rs` (the message handler grew past the lint's line limit); the shared
-//! state, `post` and `timeout_race` live in the parent module.
+//! The shared state, `post` and `timeout_race` live in the parent module.
 
 use std::{
     cell::{Cell, RefCell},
@@ -37,8 +35,7 @@ fn parse_kernel_name(name: &str) -> Option<WorkerKernel> {
 /// The name the page and the Worker's ledger use for `kernel`: its variant name (`Tail`).
 ///
 /// This is the one mapping between [`EwKernel`] and kernel names in the Worker, so a kernel
-/// added to the enum needs no list kept here; the page's own name tables are pinned to the
-/// desktop's kernel selection by a native test in `pleochroma_web_core::gpu_admission`.
+/// added to the enum needs no list kept here.
 pub(super) fn ew_kernel_name(kernel: EwKernel) -> String {
     format!("{kernel:?}")
 }

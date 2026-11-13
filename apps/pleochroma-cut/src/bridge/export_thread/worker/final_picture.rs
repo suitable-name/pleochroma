@@ -2,11 +2,11 @@
 //! video, through whichever transfer applies:
 //!
 //! - **Full data**: [`render_accumulation`] (local CPU/GPU plus the remote's float
-//!   radiance, merged), then `tonemap_accumulation` -- unchanged behaviour.
+//!   radiance, merged), then `tonemap_accumulation`.
 //! - **Final picture only**: one `FinalImageRequest`; the remote renders and tone-maps
 //!   with the same `pleochroma::renderer::tonemap::tonemap_accumulation`, the viewer
 //!   decodes the PNG to RGBA8. The local lanes do not take part -- UNLESS `contribution_allowed`
-//!   says the viewer may contribute its own reserved-tail share (v16), in which case
+//!   says the viewer may contribute its own reserved-tail share (protocol v16), in which case
 //!   [`final_picture`] forks: the local lanes trace that tail concurrently while the
 //!   remote handles the rest, and the sum is uploaded for the server to fold in before
 //!   tone-mapping. Either way one finished PNG comes back.
@@ -16,7 +16,8 @@
 
 use super::{
     core::{render_accumulation, render_local_share},
-    types::{Accumulation, AccumulationCarry, AccumulationOutcome},
+    taps::LinearImageKind,
+    types::{Accumulation, AccumulationCarry, AccumulationOutcome, FinalPictureTransferMemory},
 };
 use crate::{
     bridge::{
@@ -57,12 +58,12 @@ pub enum RenderedImage {
     Failed(String),
 }
 
-/// Renders one image at `(cam_yaw, cam_pitch)` to RGBA8 for `color_space` -- see the
-/// module doc comment for the two transfers and [`plan_export_transfer`] /
-/// [`final_picture_follow_up`] for how one is chosen and what a failed final picture
-/// falls back to. `gpu`/`carry` are the caller's, exactly as for
-/// [`render_accumulation`], so a multi-frame video keeps its calibration AND its
-/// "this remote refused final pictures" memory across frames.
+/// Renders one image at `(cam_yaw, cam_pitch)` to RGBA8 for `color_space`.
+///
+/// [`plan_export_transfer`] chooses the transfer and [`final_picture_follow_up`] says what a
+/// failed final picture falls back to. `gpu` and `carry` are the caller's, as for
+/// [`render_accumulation`], so a multi-frame video keeps its calibration and its record that a
+/// remote refused final pictures.
 #[expect(
     clippy::too_many_arguments,
     reason = "the same per-image identity `render_accumulation` takes (scene, pose, \
@@ -105,6 +106,24 @@ pub fn render_image_rgba(
     if let Some(reason) = super::export_ray::refusal(scene) {
         return RenderedImage::Failed(reason);
     }
+    // An adaptive render runs its own pass loop (`render_adaptive_on_ctx`, which also drives the
+    // remote lane through live passes, protocol v37). A finished picture from the remote would be
+    // rendered without the adaptive taps altogether, so it never takes that transfer. The same
+    // goes for beam tracing, whose tiles are split over the workers instead.
+    if carry.taps.adaptive.is_some() || carry.taps.beam.is_some() {
+        return full_data(
+            scene,
+            (cam_yaw, cam_pitch),
+            params,
+            color_space,
+            remote,
+            gpu,
+            local_compute,
+            carry,
+            cancel,
+            report_progress,
+        );
+    }
     let worker = remote.worker.as_ref();
     let plan = plan_export_transfer(
         remote.transfer,
@@ -115,7 +134,7 @@ pub fn render_image_rgba(
         // dispatched (a remote without it fails the attempt, which falls back).
         remote_can_render(scene.env_map.as_ref(), true).is_err()
             || inclusions_refusal(scene.engine.is_ray(), &scene.material, &scene.effects).is_err(),
-        carry.final_picture_declined || worker.is_some_and(final_picture_refused),
+        carry.final_picture_transfer.declined() || worker.is_some_and(final_picture_refused),
     );
     match (plan, worker) {
         (TransferPlan::FinalPicture, Some(worker)) => {
@@ -141,14 +160,13 @@ pub fn render_image_rgba(
                     if remember {
                         remember_final_picture_refused(worker);
                     }
-                    carry.final_picture_declined = true;
-                    carry.transfer_noted = true;
+                    carry.final_picture_transfer = FinalPictureTransferMemory::Declined;
                     report_note(&mut report_progress, params.samples_per_pixel, note);
                 }
             }
         }
-        (TransferPlan::FullDataRefusedBefore, _) if !carry.transfer_noted => {
-            carry.transfer_noted = true;
+        (TransferPlan::FullDataRefusedBefore, _) if !carry.final_picture_transfer.noted() => {
+            carry.final_picture_transfer = FinalPictureTransferMemory::RefusalNoted;
             report_note(
                 &mut report_progress,
                 params.samples_per_pixel,
@@ -206,8 +224,35 @@ fn full_data(
         AccumulationOutcome::Completed(Accumulation {
             accum,
             samples_per_pixel,
+            #[cfg(feature = "adaptive-sampling")]
+            adaptive,
         }) => {
             dump_linear_xyz(params.width, params.height, samples_per_pixel, &accum);
+            // An adaptive render's samples per pixel and per-pixel counts (only a build with
+            // the `adaptive-sampling` feature runs one).
+            #[cfg(feature = "adaptive-sampling")]
+            let counted = adaptive
+                .as_ref()
+                .map(|stats| (stats.samples_done, stats.counts.as_slice()));
+            #[cfg(not(feature = "adaptive-sampling"))]
+            let counted: Option<(u32, &[u32])> = None;
+            match counted {
+                // Each pixel's mean with its own count; the tone map below divides by the
+                // `samples_per_pixel` of 1 an adaptive accumulation carries.
+                Some((samples_done, counts)) => carry.taps.publish_counted(
+                    LinearImageKind::Final,
+                    (params.width, params.height),
+                    samples_done,
+                    &accum,
+                    counts,
+                ),
+                None => carry.taps.publish(
+                    LinearImageKind::Final,
+                    (params.width, params.height),
+                    samples_per_pixel,
+                    &accum,
+                ),
+            }
             RenderedImage::Rgba(tonemap_accumulation(
                 params.width,
                 params.height,
@@ -253,7 +298,7 @@ fn dump_linear_xyz(width: u32, height: u32, samples_per_pixel: u32, accum: &[gla
 /// slot the full-data transfer's `PreviewThrottle` fills, so the export dialog shows a
 /// live look either way.
 ///
-/// # v16: the viewer's own contribution
+/// # The viewer's own contribution (protocol v16)
 ///
 /// When [`contribution_allowed`] says yes, this reserves a tail of the sample budget
 /// for the viewer's own local lanes ([`viewer_share`]) and forks: one thread traces that
@@ -410,7 +455,7 @@ fn contribution_allowed(
     state.environment == hdr_asset::scene_environment(scene.env_map.as_ref())
 }
 
-/// The v16 fork: the viewer's own local lanes trace the reserved tail
+/// The viewer's own contribution forks the request: its local lanes trace the reserved tail
 /// (`samples_per_pixel - viewer`..`samples_per_pixel`) on a scoped thread while this one
 /// dispatches the `FinalImageRequest` for the server's own share, uploading the local
 /// sum the moment it's ready. Also records this attempt's measured local/remote rates
@@ -506,10 +551,10 @@ fn final_picture_with_local_share(
     outcome
 }
 
-/// Combines the remote lane's own `PROGRESS`/`PREVIEW`-reported count with a v16 local
+/// Combines the remote lane's own `PROGRESS`/`PREVIEW`-reported count with a local
 /// share's running total into ONE progress tick. `min` covers the very end of a request
-/// with a local share in play: the coordinator's own `PROGRESS` only includes the folded
-/// -in contribution once it has actually merged, so the raw sum can transiently exceed
+/// with a local share in play: the coordinator's own `PROGRESS` only includes the folded-in
+/// contribution once it has actually merged, so the raw sum can transiently exceed
 /// `samples` right at completion. Reduces to `remote_done` alone (already `<= samples`)
 /// whenever there is no local share (`local_done` is always `0` then).
 fn report_combined_progress(
@@ -526,6 +571,8 @@ fn report_combined_progress(
         samples_total: samples,
         preview,
         note: None,
+        #[cfg(feature = "beam")]
+        beam: None,
     });
 }
 
@@ -537,6 +584,8 @@ fn report_note(report_progress: &mut impl FnMut(ExportProgress), total: u32, not
         samples_total: total,
         preview: None,
         note: Some(note),
+        #[cfg(feature = "beam")]
+        beam: None,
     });
 }
 
@@ -550,13 +599,10 @@ mod tests {
         SceneSnapshot::capture(&Mutex::new(RenderContext::default())).expect("Diamond resolves")
     }
 
-    /// (a) `RemoteOnly` and the settings toggle being off must each refuse outright
-    /// (no local lane to contribute from, or the cutter turned it off); (c) a request
-    /// `SceneState` whose `environment` disagrees with what the local tracer resolves
-    /// for this scene (a stale/foreign HDR content hash) must also refuse -- a viewer-
-    /// rendered tail lit by the wrong map would silently corrupt the picture. A plain,
-    /// matching, HDR-free scene under `Both` with the toggle on is the one case that's
-    /// actually allowed.
+    /// A Remote Only render and a switched-off toggle are both refused, and so is a request whose
+    /// `environment` differs from the one the local tracer resolves for this scene (a stale or
+    /// foreign HDR content hash). A viewer-rendered tail lit by the wrong map would corrupt the
+    /// picture. Only a matching, HDR-free `Both` render with the toggle on is allowed.
     #[test]
     fn contribution_guard_refuses_remote_only_toggle_off_and_mismatched_hdr_hash() {
         let scene = scene();

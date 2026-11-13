@@ -54,6 +54,7 @@ fn a_cancelled_ray_worker_never_commits_a_partial_sum() {
     let mut out = vec![Vec3::ONE; 64];
     assert!(!whitted::trace(
         &scene,
+        TrayRef::default(),
         0,
         4,
         1,
@@ -71,6 +72,7 @@ fn invalid_ray_ranges_or_buffers_leave_the_output_untouched() {
         let mut out = vec![Vec3::ONE; len];
         assert!(!whitted::trace(
             &scene,
+            TrayRef::default(),
             first,
             count,
             1,

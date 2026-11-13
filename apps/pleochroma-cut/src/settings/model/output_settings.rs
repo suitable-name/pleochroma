@@ -2,8 +2,8 @@
 //! export and the tilt-video export ([`OutputSettings`], `AppSettings::output`), the one
 //! bounce ladder, the named sample ranges, and [`RemoteAvailability`].
 //!
-//! Pure data and logic (no Slint). Later waves read the constants and push them to Slint
-//! through a global model property, so no Slint file keeps a literal copy.
+//! Pure data and logic (no Slint). The UI reads these constants through a model property,
+//! so no Slint file keeps its own copy.
 
 use super::remote_endpoint::{ExportTransfer, TiltVideoCompute};
 use serde::{Deserialize, Serialize};
@@ -13,12 +13,13 @@ use serde::{Deserialize, Serialize};
 // ---------------------------------------------------------------------------------------
 
 /// The bounce-count rungs of every bounce picker (live view, still export, tilt video), in
-/// pill order. Raised from the old 4/8/12/16/24 ladder per the `bounce_cost.rs` benchmark.
+/// pill order.
 pub const BOUNCE_LADDER: [u32; 6] = [4, 8, 12, 24, 64, 128];
 
-/// The index of the rung nearest to `bounces`. Exact matches map directly; anything else
-/// (a retired 16-bounce rung, a hand-edited value) picks the nearest rung by absolute
-/// distance, the lower rung on a tie. Never used to clamp the stored value itself.
+/// The index of the rung nearest to `bounces`.
+///
+/// Exact matches map directly; anything else (such as 16, or a hand-edited value) picks the nearest
+/// rung by absolute distance, the lower rung on a tie. It never clamps the stored value itself.
 #[must_use]
 pub const fn bounce_index(bounces: u32) -> usize {
     let mut best_idx = 0usize;
@@ -82,15 +83,11 @@ pub const fn clamp_exponent(exponent: u32, range: (u32, u32)) -> u32 {
 // Remote availability.
 // ---------------------------------------------------------------------------------------
 
-/// What the app knows about the remote, replacing the three ad-hoc flags
-/// (`RemoteWorkerModel.live_remote_available` = configured, `ExportModel.remote_available` =
-/// probed reachable and render-capable, `TiltVideoExportModel.remote_configured` =
-/// configured; the job script's remote option now reads `configured` too).
+/// What the app knows about the remote.
 ///
-/// Each surface uses the right half: pickers that only need a target to exist (live
-/// compute, the tilt-video pill, job scripts) read [`Self::configured`]; the still export
-/// (which probes before it starts) also requires [`Self::reachable_render_capable`]; see
-/// [`Self::disabled_reason`].
+/// Pickers that only need a target to exist (live compute, the tilt-video pill, job scripts)
+/// read [`Self::configured`]. The still export probes before it starts, so it also requires
+/// [`Self::reachable_render_capable`]; see [`Self::disabled_reason`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct RemoteAvailability {
     /// A remote endpoint is set up in the settings.
@@ -140,6 +137,10 @@ impl RemoteAvailability {
 /// The still export dialog's persisted values: it seeds its controls from them when it
 /// opens and writes the values back when an export starts and when the dialog closes ("last
 /// used").
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "independent switches of the dialog, not a state machine"
+)]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct StillOutput {
@@ -162,6 +163,21 @@ pub struct StillOutput {
     pub compute: TiltVideoCompute,
     /// Transfer choice; `None` follows the remote endpoint's own `export_transfer`.
     pub transfer: Option<ExportTransfer>,
+    /// "Adaptive Sampling" check box (`ExportModel.adaptive_sampling`).
+    pub adaptive_sampling: bool,
+    /// "Target Noise" combo (`ExportModel.target_noise_index`): an index into
+    /// `pleochroma::renderer::adaptive::TARGET_NOISE_PRESETS` (Fine, Standard, Draft).
+    pub target_noise_index: i32,
+    /// "Path Cache" check box (`ExportModel.path_cache`).
+    pub path_cache: bool,
+    /// "Keep for Re-Renders" check box (`ExportModel.keep_path_cache`): write the cache to disk.
+    pub keep_path_cache: bool,
+    /// "Beam Tracing (Faceted Stones)" check box (`ExportModel.beam`). Read and written in every
+    /// build; only a build with the `beam` feature offers the box and acts on it.
+    pub beam: bool,
+    /// "Keep Beams for Re-Renders" check box (`ExportModel.keep_beams`): store the beams on disk.
+    /// Read and written in every build; only a build with the `beam` feature acts on it.
+    pub keep_beams: bool,
 }
 
 impl Default for StillOutput {
@@ -182,8 +198,28 @@ impl Default for StillOutput {
             color_space_index: 0,
             compute: TiltVideoCompute::Both,
             transfer: None,
+            adaptive_sampling: false,
+            target_noise_index: default_target_noise_index(),
+            path_cache: false,
+            keep_path_cache: false,
+            beam: false,
+            keep_beams: false,
         }
     }
+}
+
+/// The "Target Noise" index a fresh install starts with: Standard.
+#[must_use]
+pub fn default_target_noise_index() -> i32 {
+    i32::try_from(pleochroma::renderer::adaptive::DEFAULT_TARGET_NOISE_PRESET).unwrap_or(0)
+}
+
+/// `index` limited to the "Target Noise" choices (a hand-edited value cannot select a fourth).
+#[must_use]
+pub fn clamp_target_noise_index(index: i32) -> i32 {
+    let last =
+        i32::try_from(pleochroma::renderer::adaptive::TARGET_NOISE_PRESETS.len() - 1).unwrap_or(0);
+    index.clamp(0, last)
 }
 
 /// The tilt-video export section's persisted values (same seed-and-write-back rule: a video
@@ -227,9 +263,8 @@ pub struct TiltVideoOutput {
     pub step_hundredths_deg: u32,
     /// `TiltVideoExportModel.fps_index`: 0 = 24, 1 = 30, 2 = 60 frames per second.
     pub fps_index: i32,
-    /// The chosen axis chips, as indices into `PROFILE_AZIMUTHS_DEG` in the order the video
-    /// plays them (the order they were chosen; files written before 2026-11-04 hold them in
-    /// ascending order). Empty means the axis selected in the chart, alone.
+    /// The chosen axis chips, as indices into `PROFILE_AZIMUTHS_DEG`, in the order the video
+    /// plays them. Empty means the axis selected in the chart, alone.
     pub axes: Vec<u8>,
     /// "Turn Stone 90°": every frame turned a quarter turn, so a long stone lies the other way
     /// in the picture.
@@ -248,6 +283,17 @@ pub struct TiltVideoOutput {
     pub metric_angle: bool,
     /// "Keep PNG Frames After Muxing".
     pub keep_frames: bool,
+    /// "Adaptive Sampling" check box (`TiltVideoExportModel.adaptive_sampling`).
+    pub adaptive_sampling: bool,
+    /// "Target Noise" combo, as [`StillOutput::target_noise_index`].
+    pub target_noise_index: i32,
+    /// "Path Cache" check box (`TiltVideoExportModel.path_cache`).
+    pub path_cache: bool,
+    /// "Keep Path Cache for This Video" check box (`TiltVideoExportModel.keep_video_cache`).
+    pub keep_video_cache: bool,
+    /// "Beam Tracing (Faceted Stones)" check box (`TiltVideoExportModel.beam`). Read and
+    /// written in every build; only a build with the `beam` feature acts on it.
+    pub beam: bool,
 }
 
 /// The tilt video's step field limits in hundredths of a degree (0.01..=5.0 degrees, the
@@ -289,6 +335,11 @@ impl Default for TiltVideoOutput {
             metric_tilt_brilliance: false,
             metric_angle: true,
             keep_frames: false,
+            adaptive_sampling: false,
+            target_noise_index: default_target_noise_index(),
+            path_cache: false,
+            keep_video_cache: false,
+            beam: false,
         }
     }
 }
@@ -319,6 +370,9 @@ impl OutputSettings {
             clamp_exponent(self.still.sample_exponent, EXPORT_SAMPLES_EXPONENT_RANGE);
         self.still.bounces = self.still.bounces.max(1);
         self.still.color_space_index = self.still.color_space_index.clamp(0, 2);
+        self.still.target_noise_index = clamp_target_noise_index(self.still.target_noise_index);
+        self.tilt_video.target_noise_index =
+            clamp_target_noise_index(self.tilt_video.target_noise_index);
 
         self.tilt_video.resolution_preset = self.tilt_video.resolution_preset.max(0);
         self.tilt_video.custom_width = self.tilt_video.custom_width.clamp(128, 8192);

@@ -1,13 +1,12 @@
 //! Arithmetic in the editor's number fields: `41 + 0.5`, `(90 - 41) / 2`, `-2 * 3`.
 //!
 //! [`eval_number`] is the one entry point every numeric form parser calls instead of
-//! `str::parse::<f64>`. The rule that keeps every existing behaviour unchanged: text
-//! that `str::parse::<f64>` accepts is returned exactly as that parse gives it (even
-//! `NaN` or `inf`, which the callers' own finite checks then refuse as before), and
-//! text without an operator or parenthesis is [`NumberExprError::NotANumber`], which
-//! [`NumberExprError::message`] words exactly like the old "... is not a number."
-//! error. Only text that really contains `+ - * / ( )` is calculated, with the same
-//! parser a tier relation uses (see `pleochroma_cut_core::design::Expr`).
+//! `str::parse::<f64>`. Text that `str::parse::<f64>` accepts is returned exactly as that
+//! parse gives it, even `NaN` or `inf`, so the callers' own finite checks still refuse it.
+//! Text with no operator or parenthesis is [`NumberExprError::NotANumber`], worded by
+//! [`NumberExprError::message`] as "... is not a number." Only text containing
+//! `+ - * / ( )` is calculated, with the parser a tier relation uses
+//! (`pleochroma_cut_core::design::Expr`).
 
 use pleochroma_cut_core::design::{Expr, ExprError, MAX_RELATION_CHARS, RawName, snap_noise};
 use std::fmt;
@@ -24,10 +23,11 @@ pub enum NumberExprError {
 }
 
 impl NumberExprError {
-    /// The message for a field called `label` that held `text`: the historical
-    /// "`label` 'text' is not a number." for [`Self::NotANumber`], and
-    /// "`label` 'text' cannot be calculated: reason." otherwise. Both start with
-    /// `label`, which `tier_form_error_field` relies on to find the offending field.
+    /// The message for a field called `label` that held `text`.
+    ///
+    /// It is "`label` 'text' is not a number." for [`Self::NotANumber`] and
+    /// "`label` 'text' cannot be calculated: reason." otherwise. Both start with `label`,
+    /// which `tier_form_error_field` relies on to find the offending field.
     #[must_use]
     pub fn message(&self, label: &str, text: &str) -> String {
         let text = text.trim();

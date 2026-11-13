@@ -16,6 +16,12 @@
 //! [`FixRequest::plan`] does the work (call it on a worker thread) and
 //! [`apply_planned_fix`] applies the plan as one undoable edit -- unless the design moved
 //! on meanwhile, which refuses the plan instead of applying it to the wrong design.
+//!
+//! A fix whose question is known up front (a removal) carries it on its row
+//! ([`WarningRow::confirm`]), and the tab asks it before planning. The snap to meet points
+//! asks after planning instead, because its question names the facets it would cut away and
+//! only planning finds them: its row has no question, and [`PlannedFix::question`] gives the
+//! one to ask before [`apply_planned_fix`] runs.
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
@@ -59,7 +65,8 @@ pub struct WarningRow {
     pub fix_label: Option<String>,
     /// What the fix does, for the info sheet.
     pub fix_hint: Option<String>,
-    /// A question to ask before the fix runs (a removal), `None` when it needs none.
+    /// A question to ask before the fix is planned (a removal), `None` when it needs none or
+    /// when its plan asks one instead ([`PlannedFix::question`], the snap to meet points).
     pub confirm: Option<String>,
 }
 
@@ -169,7 +176,13 @@ fn warning_row(reason: &Reason) -> WarningRow {
         level: reason.level.code(),
         fix_label: reason.fix.as_ref().map(|fix| fix.label().to_owned()),
         fix_hint: reason.fix.as_ref().map(|fix| fix.hint().to_owned()),
-        confirm: reason.confirm.clone(),
+        // A fix whose plan asks the question (the snap) is planned first, so its row asks none.
+        confirm: reason.confirm.clone().filter(|_| {
+            !reason
+                .fix
+                .as_ref()
+                .is_some_and(FixAction::asks_after_planning)
+        }),
     }
 }
 
@@ -184,7 +197,7 @@ fn proportion_rows(design: &Design, solved: &[SolvedTier], n_d: f64) -> Vec<Prop
         girdle_and_ratio_texts_from_solved(design, solved);
     let [table_v, crown_v, pavilion_v, depth_v, girdle_v] = design
         .stone_proportions(solved)
-        .map(|proportions| proportion_verdicts(design, &proportions, n_d))
+        .map(|proportions| proportion_verdicts(design, solved, &proportions, n_d))
         .map_or_else(
             || std::array::from_fn(|_| (-1, String::new())),
             |v| {
@@ -463,11 +476,38 @@ pub struct FixRequest {
     reference: Vec<ConstraintTier>,
 }
 
-/// A planned fix: the edit, and the tiers of the design it was planned for.
+/// A planned fix: the edit, what it fixes, and the tiers of the design it was planned for.
 #[derive(Debug)]
 pub struct PlannedFix {
     reference: Vec<ConstraintTier>,
+    action: FixAction,
     plan: FixPlan,
+}
+
+/// The question to ask before a planned fix is applied ([`PlannedFix::question`]): the dialog's
+/// title, its text and the button that applies the fix (the other one cancels).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FixQuestion {
+    /// The heading (`Move Depths to Meet Points?`).
+    pub title: String,
+    /// The question, naming what the fix would cut away.
+    pub body: String,
+    /// The label of the button that applies the fix (`Move`).
+    pub confirm: String,
+}
+
+impl PlannedFix {
+    /// The question to ask before [`apply_planned_fix`] applies this fix, when its plan
+    /// carries one (the snap to meet points names the facets it would cut away). `None` when
+    /// the fix may be applied at once.
+    #[must_use]
+    pub fn question(&self) -> Option<FixQuestion> {
+        self.plan.confirm.as_ref().map(|body| FixQuestion {
+            title: self.action.confirm_heading().to_owned(),
+            body: body.clone(),
+            confirm: self.action.confirm_button().to_owned(),
+        })
+    }
 }
 
 /// What an applied fix reports.
@@ -526,11 +566,16 @@ impl FixRequest {
         } = self;
         let plan = catch_unwind(AssertUnwindSafe(|| plan_fix(&design, &action, n_d)))
             .unwrap_or_else(|_| Err(PLANNER_FAILED.to_owned()))?;
-        Ok(PlannedFix { reference, plan })
+        Ok(PlannedFix {
+            reference,
+            action,
+            plan,
+        })
     }
 }
 
-/// Applies a planned fix as one undoable edit and selects the tier it names.
+/// Applies a planned fix as one undoable edit and selects the tier it names. A plan with a
+/// [`PlannedFix::question`] is applied only once the user has agreed to it.
 ///
 /// # Errors
 ///
@@ -542,10 +587,13 @@ pub fn apply_planned_fix(state: &mut AppState, planned: PlannedFix) -> Result<Fi
             "The design changed while the fix was being planned. Nothing was changed.".to_owned(),
         );
     }
+    // The plan's own question (`FixPlan::confirm`) was asked by the caller, through
+    // `PlannedFix::question`, before it called this.
     let FixPlan {
         edit,
         message,
         select,
+        ..
     } = planned.plan;
     state
         .session
@@ -561,9 +609,27 @@ pub fn apply_planned_fix(state: &mut AppState, planned: PlannedFix) -> Result<Fi
 pub(super) mod test_support {
     //! Entry points for the tests in `super::tests`, which cannot reach the private items.
 
-    use super::{ChecksView, Computed, FixRequest, compute, request_from};
+    use super::{ChecksView, Computed, FixAction, FixRequest, WarningRow, compute, request_from};
     use pleochroma::{geometry::meet_solver::SolvedTier, optics::materials::GemMaterial};
     use pleochroma_cut_core::Design;
+
+    /// A fix request for the finding of a solved design whose fix is `action`, with the row
+    /// the tab shows for it, if the design has such a finding.
+    pub fn fix_request_for(
+        design: &Design,
+        solved: &[SolvedTier],
+        action: &FixAction,
+    ) -> Option<(FixRequest, WarningRow)> {
+        let custom: Vec<GemMaterial> = Vec::new();
+        let Computed {
+            view, reasons, n_d, ..
+        } = compute(design, solved, &custom, &[]);
+        let index = reasons
+            .iter()
+            .position(|reason| reason.fix.as_ref() == Some(action))?;
+        let row = view.warnings.get(index)?.clone();
+        Some((request_from(design, &reasons, n_d, index).ok()?, row))
+    }
 
     /// The checks of a solved design, with the reasons behind its warning rows.
     pub fn compute_view(design: &Design, solved: &[SolvedTier]) -> (ChecksView, usize) {

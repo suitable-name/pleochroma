@@ -1,7 +1,7 @@
 //! Deterministic compression of the path records of one (pixel, bin) to at most `R` records.
 //!
-//! Plan section 5.3. The records are points in length space (one coordinate per zone) with a
-//! weight. The compression
+//! The records are points in length space (one coordinate per zone) with a weight. The
+//! compression
 //!
 //! 1. sorts them lexicographically (so the result does not depend on the order the samples were
 //!    taken in) and merges exact duplicates, which is all a polished pixel needs;
@@ -12,16 +12,16 @@
 //!    keeps the result when it is not wider than the median-cut one;
 //! 4. replaces every cluster by one record at its weighted mean length with the summed weight.
 //!
-//! The per-channel colour of the light (`PathRecord::chroma`, ZC-13) is merged so that the
+//! The per-channel colour of the light (`PathRecord::chroma`) is merged so that the
 //! weight of every colour channel (`weight * chroma[c]`) is preserved as well: a cluster's chroma
 //! is the weight-averaged chroma of its members. The colour plays no part in the clustering.
 //!
 //! Total weight and the weighted first moment of every zone length are preserved exactly. The
 //! second moment is not stored: a cluster whose zone-length range is `r` has a transmittance
 //! error of about `(alpha r / 2)^2 / 2` (relative) for the absorption `alpha`, so the tolerance
-//! `r <= 0.1 / alpha_ref` keeps the error under 0.13 % for `alpha <= alpha_ref` (the plan's
-//! bound is 0.5 % at `alpha * range <= 0.1`). When `R` clusters are not narrow enough, the
-//! widest range reached is returned and ends up in the trace statistics.
+//! `r <= 0.1 / alpha_ref` keeps the error under 0.13 % for `alpha <= alpha_ref`. When `R`
+//! clusters are not narrow enough, the widest range reached is returned and ends up in the
+//! trace statistics.
 
 use std::cmp::Ordering;
 
@@ -191,8 +191,8 @@ fn max_extent(clusters: &[Vec<Point>], dims: usize) -> f32 {
 /// Compresses `raw` (any order) into at most `max_records` records using the first `dims` zone
 /// lengths for distances, appending them to `out`.
 ///
-/// Returns the widest zone-length range inside
-/// one resulting cluster, in mm (0 when everything merged exactly).
+/// Returns the widest zone-length range inside one resulting cluster, in mm (0 when
+/// everything merged exactly).
 ///
 /// `raw` is sorted in place.
 pub fn compress(

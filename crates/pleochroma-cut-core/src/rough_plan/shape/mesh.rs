@@ -82,14 +82,11 @@ use intersect::first_self_intersections;
 pub use ray::RayHit;
 use repair::repair;
 
-/// The most triangles a mesh may have. The planner asks the mesh for every candidate
-/// piece, so a very fine scan has to be decimated first.
+/// The most triangles a mesh may have.
 ///
-/// Set from the release timing (`tests_mesh_perf::mesh_scaling_timings`, 2026-10-07, 16
-/// lanes): importing stays under 2 s up to 330k triangles, but planning grows with the
-/// triangle count. A smooth pebble scan at K = 10 projects to 23 s at 82k triangles and 75 s
-/// at 328k on 16 lanes; 200k is about 50 s there, inside the default scan time limit on
-/// eight cores and more.
+/// The planner asks the mesh for every candidate piece, and planning time grows with the triangle
+/// count (about 50 s at this limit for a smooth pebble scan on 16 threads), so a finer scan has to
+/// be decimated first.
 pub const MAX_MESH_TRIANGLES: usize = 200_000;
 
 /// Vertices closer than this fraction of the mesh's size are one vertex.
@@ -320,9 +317,9 @@ impl RoughMesh {
         Self::new_phased(points, tris, &mut |_| {})
     }
 
-    /// [`new`](Self::new) with the time of each phase, for the owner's timing run: the
-    /// weld, compaction and closed check (with any repair), the self-intersection check, and
-    /// the orientation plus the BVH. A refused mesh reports the phases it got through.
+    /// [`new`](Self::new) with the duration of each phase: the weld, compaction and closed
+    /// check (with any repair), the self-intersection check, and the orientation plus the BVH.
+    /// A refused mesh reports the phases it got through.
     #[cfg(test)]
     pub(crate) fn new_timed(
         points: &[DVec3],
@@ -664,16 +661,12 @@ impl RoughMesh {
     }
 
     /// Removes from `blockers` the triangles whose plane the stone already clears by the
-    /// inset: `violation(n, d) <= eps` says the stone's support along `n`, plus the inset,
-    /// stays on the material side of the plane `n . p = d`.
+    /// inset (`violation(n, d) <= eps`).
     ///
-    /// The blocker queries grow the stone by the inset in every axis (a cube, or the planes
-    /// moved outward), which reaches up to `sqrt(3)` times the inset along an oblique normal,
-    /// while a row keeps the stone the inset clear of the plane. A stone resting on its rows
-    /// at a corner of a smooth cap would then be blocked for ever by a triangle whose row it
-    /// satisfies. Clear of the triangle's plane by the inset is clear of the triangle by the
-    /// inset, which is the clearance the outline planes promise, so such a triangle is no
-    /// blocker.
+    /// The blocker query grows the stone by the inset on every axis, which reaches up to
+    /// `sqrt(3)` times the inset along an oblique normal, while a row keeps only the inset
+    /// clear of the plane. Without this a stone resting on its rows at the corner of a smooth
+    /// cap stays blocked by a triangle whose row it already satisfies.
     pub(crate) fn drop_cleared(
         &self,
         blockers: &mut Vec<u32>,
@@ -719,23 +712,18 @@ impl RoughMesh {
         best.map(|(_, plane)| plane)
     }
 
-    /// The rows the cutting-plane fit adds next: the plane
-    /// [`least_violated_blocker`](Self::least_violated_blocker) chooses, then every other
-    /// unknown blocker plane that faces the same way within 5 degrees of the chosen one,
-    /// then, for each other contact direction (within about 32 degrees), the least-violated unknown blocker plane that
-    /// the stone's centre is on the material side of (`centre_inside(n, d)`: the centre
-    /// satisfies `n . c <= d - inset`). At most 64 rows in all, the chosen one first, the
-    /// same-wall ones in triangle order, then one per direction in order of first sight.
+    /// The rows the cutting-plane fit adds next, at most [`MAX_ROWS_PER_ROUND`]: the plane
+    /// [`least_violated_blocker`](Self::least_violated_blocker) chooses, then the unknown
+    /// blocker planes of the same wall (within 5 degrees of it), then one least-violated plane
+    /// for each other contact direction (within about 32 degrees) that the stone's centre
+    /// satisfies (`centre_inside`).
     ///
-    /// A plane the centre satisfies cannot make the LP infeasible together with the others
-    /// the centre satisfies (the centre at scale 0 is feasible for all of them), so a
-    /// smooth cap's contact directions can be added in one round. Only one plane per
-    /// direction: a noisy wall the centre sits on gives dozens of tilted planes, and
-    /// taking all of them carves the block far inside the wall. A facing wall of a notch
-    /// has the centre on its air side, so it is never added except as the least-violated
-    /// choice, which is the one-wall-per-round behaviour that keeps notches feasible. A
-    /// noisy scanned wall is a thousand slightly different planes; the 5 degree rule adds
-    /// the ones the centre does not satisfy yet. Empty when every blocker's plane is known.
+    /// A plane the centre satisfies cannot make the LP infeasible with the others it
+    /// satisfies, so a smooth cap's contact directions are added in one round. Only one plane
+    /// per direction: a noisy wall gives dozens of tilted planes, and taking all of them
+    /// carves the block far inside the wall. A facing wall of a notch has the centre on its
+    /// air side, so it is added only as the least-violated choice, one wall per round, which
+    /// keeps notches feasible. Empty when every blocker's plane is known.
     pub(crate) fn blocker_rows(
         &self,
         blockers: &[u32],

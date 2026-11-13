@@ -1,15 +1,15 @@
 //! The bounded worker behind the local detail loads.
 //!
-//! One long-lived thread runs one request at a time, and at most ONE further request waits
-//! for it: [`Worker::submit`] replaces whatever was waiting, because a request that a newer
-//! click superseded before the thread reached it has nothing left to do. So a user who
-//! clicks through a hundred rows leaves behind at most one running load and one pending
-//! one, not a hundred threads each reading a design's attachments and solving it.
+//! A bounded worker: one long-lived thread runs one request at a time, with at most one
+//! more waiting.
 //!
-//! The thread is started lazily on the first submit and is never joined (the history
-//! thumbnail worker works the same way); dropping a [`Worker`] makes the thread exit after
-//! the request it is on. If the OS refuses the thread, [`Worker::submit`] hands the request
-//! back so the caller can run it inline, as the loader did before it had a worker.
+//! [`Worker::submit`] replaces a waiting request, because a request that a newer click
+//! superseded has nothing left to do. So clicking through a hundred rows leaves at most one
+//! running load and one pending one.
+//!
+//! The thread starts lazily on the first submit and is never joined. Dropping a [`Worker`]
+//! makes the thread exit after the request it is running. If the OS refuses the thread,
+//! [`Worker::submit`] hands the request back so the caller can run it inline.
 //!
 //! What a request does, and how it recognises itself as stale between its stages, is the
 //! handler's business (`local_load`): this module only owns the queueing and the
@@ -157,7 +157,7 @@ impl<R: Send + 'static> Worker<R> {
         Ok(())
     }
 
-    /// Starts the thread if it is not running; whether it is.
+    /// Starts the thread if it is not running. Returns whether it is running.
     fn ensure_thread(&self) -> bool {
         let mut started = self
             .thread_started

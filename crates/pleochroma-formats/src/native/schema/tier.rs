@@ -1,6 +1,5 @@
 //! The per-tier tables of the native document: [`TierTable`] (one `[[tiers]]` entry) and
-//! [`ConcaveTierTable`] (one concave tier of a self-contained design file). Split from
-//! the parent module so the file stays readable; the types are unchanged.
+//! [`ConcaveTierTable`] (one concave tier of a self-contained design file).
 
 use super::{NativeMeetConstraint, NativeTierTarget};
 
@@ -9,12 +8,10 @@ use super::PreformTable;
 
 /// One `[[tiers]]` entry of a design file: a tier in full, in cutting order.
 ///
-/// `angle_deg`/`indices` are optional in the type only so a record written without
-/// them parses; the design file's validation refuses a tier that lacks them. `name` is
-/// a human-readable label for raw-TOML readers (e.g. `git diff`); the other fields
-/// carry what a catalogue `.asc` cannot express (the authored [`NativeMeetConstraint`],
-/// which orbit members are detached, and the meet instruction and raw notes text a real
-/// `.asc` file's `G` field stated at import time).
+/// `angle_deg` and `indices` are optional in the type so a record missing them still
+/// parses; the design file's validation refuses such a tier. The other fields carry what
+/// a catalogue `.asc` cannot express: the authored [`NativeMeetConstraint`], the detached
+/// parameter values, and the meet and notes text an imported `.asc` `G` field stated.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TierTable {
     /// Display name.
@@ -24,92 +21,67 @@ pub struct TierTable {
     /// Detached parameter values.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub detached: Vec<f64>,
-    /// Mirrors `pleochroma_cut_core::design::ConstraintTier::angle_deg`. `#[serde(default)]`
-    /// so a record without it still parses; the design file's validation then refuses
-    /// it.
+    /// Mirrors `pleochroma_cut_core::design::ConstraintTier::angle_deg`. Validation refuses
+    /// a tier that lacks it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub angle_deg: Option<f64>,
-    /// Mirrors `pleochroma_cut_core::design::ConstraintTier::indices`. See
-    /// [`Self::angle_deg`]'s own doc comment -- same rule.
+    /// Mirrors `pleochroma_cut_core::design::ConstraintTier::indices`. Same rule as
+    /// [`Self::angle_deg`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub indices: Option<Vec<f64>>,
     /// Mirrors `pleochroma_cut_core::design::ConstraintTier::imported_meet`: the meet
-    /// instruction a real `.asc` file's `G` field actually stated for this tier at
-    /// import time, preserved so a native reload can restore the editor's one-click
-    /// "Adopt" action without needing to re-derive it from `.asc` text that (for a
-    /// draft save) may not even be trustworthy. `#[serde(default)]` so a file saved
-    /// before this field existed still loads, as `None` (nothing to adopt on
-    /// reload from such a file, same as a tier `pleochroma_cut_core` never imported).
+    /// instruction the `.asc` `G` field stated for this tier at import. Kept so a reload
+    /// can offer the editor's "Adopt" action without re-deriving it from `.asc` text, which
+    /// a draft save may not hold reliably. Absent loads as `None`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub imported_meet: Option<NativeMeetConstraint>,
-    /// Mirrors `pleochroma_cut_core::design::ConstraintTier::original_notes`: the raw
-    /// `.asc` `G`-field text this tier's file actually carried at import time,
-    /// verbatim. `#[serde(default)]` for the same before-this-field-existed reason as
-    /// [`Self::imported_meet`].
+    /// Mirrors `pleochroma_cut_core::design::ConstraintTier::original_notes`: the raw `.asc`
+    /// `G`-field text of this tier, verbatim, as imported. Absent loads as `None`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub original_notes: Option<String>,
-    /// A cutter-authored free-text note for this tier --
-    /// unlike [`Self::original_notes`] (read-only imported `.asc` `G`-field text),
-    /// this is a new authoring surface with no `.asc` counterpart to round-trip
-    /// through, so it lives only here. `#[serde(default)]` so a file saved before
-    /// this field existed still loads, as `None` (no note yet).
+    /// A cutter-authored free-text note for this tier. Unlike [`Self::original_notes`], it
+    /// has no `.asc` counterpart, so it lives only here. Absent loads as `None`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
-    /// A per-tier "cheater"/azimuth-offset annotation, in degrees -- mirrors
-    /// `pleochroma_cut_core::design::Design::cheater_offsets_deg`'s own map, keyed
-    /// by this tier's array position. Like [`Self::note`],
-    /// this is authored, undoable data with no `.asc` counterpart to round-trip
-    /// through, so it lives only here. `#[serde(default)]` so a file saved before
-    /// this field existed still loads, as `None` (no cheater offset recorded).
+    /// A per-tier "cheater" azimuth offset in degrees, keyed by array position. Mirrors
+    /// `pleochroma_cut_core::design::Design::cheater_offsets_deg`. Like [`Self::note`], it has
+    /// no `.asc` counterpart. Absent loads as `None`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cheater_offset_deg: Option<f64>,
-    /// A stable per-tier identity, mirroring
-    /// `pleochroma_cut_core::design::TierId::value` --
-    /// `cheater_offset_deg`/`note` above are keyed by ARRAY POSITION
-    /// (this whole table already documents that), which renumbers on add/remove/
-    /// move; a `TierId` does not. `#[serde(default)]` so a file saved before this
-    /// field existed still loads, as `None` -- the loader is expected to assign a
-    /// fresh id to every such tier on load (old files have no stable identity to
-    /// recover, only a fresh one to start from).
+    /// A stable per-tier identity, mirroring `pleochroma_cut_core::design::TierId::value`.
+    /// `cheater_offset_deg` and `note` are keyed by array position, which renumbers on add,
+    /// remove and move; a `TierId` does not. Absent loads as `None`, and the loader then
+    /// assigns a fresh id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tier_id: Option<u64>,
-    /// This tier's authoring-level target, if any -- see [`NativeTierTarget`].
-    /// `#[serde(default)]` so a file saved before this field existed still loads,
-    /// as `None` (no target authored).
+    /// The tier's authoring-level target, if any (see [`NativeTierTarget`]). Absent loads
+    /// as `None`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target: Option<NativeTierTarget>,
-    /// The relation driving this tier's angle, in canonical text (`@3 - 2`: tiers by
-    /// stable id, so a rename never breaks it) -- mirrors
-    /// `pleochroma_cut_core::design::Design::tier_relations` one-to-one, and this
-    /// crate does not interpret the text. `angle_deg` still holds the angle the
-    /// relation gives. `#[serde(default, skip_serializing_if = ...)]` so a file with
-    /// no relation never grows the key (its bytes do not change) and a file saved
-    /// before relations existed loads as `None`.
+    /// The relation driving this tier's angle, in canonical text (`@3 - 2`, naming tiers by
+    /// stable id so a rename does not break it). Mirrors
+    /// `pleochroma_cut_core::design::Design::tier_relations` one-to-one; this crate does not
+    /// interpret the text. `angle_deg` still holds the angle the relation gives. A tier
+    /// without a relation writes no key.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub angle_relation: Option<String>,
-    /// Whether every facet of this tier is frosted (a diffusely scattering finish instead of
-    /// a polished one) -- mirrors `pleochroma_cut_core::design::TierFrosting::Tier`.
-    /// `#[serde(default, skip_serializing_if = ...)]` so a polished tier never grows the
-    /// key (a design without frosting keeps its bytes) and a file saved before frosting
-    /// could be authored loads as polished. No version bump: a build that predates the key
-    /// parks it in [`Self::unknown`] and writes it back unchanged, exactly as it does for
-    /// [`ConcaveTierTable::concave_tier_id`].
+    /// Whether every facet of this tier is frosted, a diffuse finish instead of a polished
+    /// one. Mirrors `pleochroma_cut_core::design::TierFrosting::Tier`. A polished tier
+    /// writes no key. No version bump: an older build keeps the key in [`Self::unknown`]
+    /// and writes it back unchanged.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub frosted: bool,
-    /// The index-wheel positions of the frosted facets of a tier that is frosted only in
-    /// part -- mirrors `pleochroma_cut_core::design::TierFrosting::Facets`. Empty when the
-    /// tier is polished or [`Self::frosted`] as a whole (then not written). Same serde and
-    /// version rules as [`Self::frosted`].
+    /// Index-wheel positions of the frosted facets when only some are frosted. Mirrors
+    /// `pleochroma_cut_core::design::TierFrosting::Facets`. Empty when the tier is polished
+    /// or frosted as a whole, and then not written. Same rules as [`Self::frosted`].
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub frosted_facets: Vec<f64>,
     /// The surface finish of the tier: `"Mirror"`, `"Fine"`, `"Commercial"`, `"Prepolish"`,
-    /// `"Ground (Fine)"`, `"Ground (Coarse)"` or `"Custom"`. Absent for an ideal (perfectly
-    /// polished) tier. Mirrors `pleochroma_cut_core::design::TierSurface`; the key set
+    /// `"Ground (Fine)"`, `"Ground (Coarse)"` or `"Custom"`. Absent for an ideal polish.
+    /// Mirrors `pleochroma_cut_core::design::TierSurface`. The companion keys
     /// ([`Self::surface_rq_nm`], [`Self::surface_lap_deg`], [`Self::surface_aniso`],
-    /// [`Self::surface_no_sweep`], [`Self::ground_alpha`], [`Self::surface_facets`]) follows the
-    /// frosting precedent: each key is skipped at its default, so a design without a surface
-    /// finish keeps its bytes, and there is no version bump (a build that predates the keys parks
-    /// them in [`Self::unknown`] and writes them back unchanged).
+    /// [`Self::surface_no_sweep`], [`Self::ground_alpha`], [`Self::surface_facets`]) are
+    /// skipped at their defaults and need no version bump, as for [`Self::frosted`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub surface: Option<String>,
     /// The RMS roughness in nanometres of a `"Custom"` polish.
@@ -131,7 +103,7 @@ pub struct TierTable {
     /// Facets whose surface differs from the tier's, by index-wheel position.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub surface_facets: Vec<SurfaceFacetTable>,
-    /// See [`PreformTable::unknown`]'s doc comment -- the same rule, per tier.
+    /// Carries unknown keys through a save, as [`PreformTable::unknown`] does.
     #[serde(flatten, default)]
     pub unknown: toml::Table,
 }
@@ -184,19 +156,16 @@ pub struct SurfaceColumns {
     pub facets: Vec<SurfaceFacetTable>,
 }
 
-/// One concave (fantasy-cut) tier of a self-contained design file: the two-line
-/// faceting-diagram standard's facet line plus its tool line, stored in the
-/// authored form so nothing is lost (plan §6.1).
+/// One concave (fantasy-cut) tier of a self-contained design file: the facet line and tool
+/// line of the two-line faceting-diagram standard, kept in authored form so nothing is lost.
 ///
-/// A separate table from [`TierTable`] on purpose: a concave tier has no meet
-/// constraint, mast or target, and keeping it apart means a build that predates
-/// concave tiers cannot mistake one for a flat tier (it refuses the file by
-/// version instead). Tool and motion are the standard's own strings so the file
-/// reads like the diagram: `tool` is `"CYL"`, `"CON"`, `"CIR"`, `"DSC"` or
-/// `"SPH"`, `motion` is `"reciprocating"` or `"plunge"`. This crate does not
-/// interpret them; the loader in `pleochroma-cut-core` does and refuses a
-/// string it does not know. `tool`, `diameter_ratio` and `motion` have no serde
-/// default, so a record missing one is an error rather than a guessed tool.
+/// A separate table from [`TierTable`]: a concave tier has no meet constraint, mast or
+/// target, and an older build refuses the file by version rather than mistaking a concave
+/// tier for a flat one. Tool and motion keep the standard's strings: `tool` is `"CYL"`,
+/// `"CON"`, `"CIR"`, `"DSC"` or `"SPH"`, `motion` is `"reciprocating"` or `"plunge"`.
+/// This crate does not interpret them; the loader in `pleochroma-cut-core` refuses a string
+/// it does not know. `tool`, `diameter_ratio` and `motion` have no serde default, so a
+/// record missing one is an error rather than a guessed tool.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ConcaveTierTable {
     /// Facet name, free text.
@@ -221,27 +190,23 @@ pub struct ConcaveTierTable {
     pub tool_angle_deg: Option<f64>,
     /// How the tool moves while it cuts.
     pub motion: String,
-    /// A stable per-tier identity, the concave counterpart of [`TierTable::tier_id`]: the
-    /// cutting-mode marks of a concave step hang on it, so it must survive a save and a
-    /// reopen (the position in this list does not: tiers get reordered). Drawn from the
-    /// same counter as the flat ids, so a value never repeats within a file.
-    /// `#[serde(default, skip_serializing_if = ...)]` so a file saved before this key
-    /// existed still loads, as `None` (the loader hands such a tier a fresh id), and a
-    /// record without an id never grows the key. No version bump is needed: a build that
-    /// predates the key parks it in [`Self::unknown`] and writes it back unchanged.
+    /// A stable per-tier identity, the concave counterpart of [`TierTable::tier_id`]. The
+    /// cutting-mode marks of a concave step hang on it, so it survives a save and a reopen,
+    /// unlike the list position. Drawn from the same counter as the flat ids, so a value
+    /// never repeats within a file. Absent loads as `None` (the loader then assigns a fresh
+    /// id). No version bump is needed: an older build keeps the key in [`Self::unknown`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub concave_tier_id: Option<u64>,
-    /// See [`PreformTable::unknown`]'s doc comment -- the same rule, per concave tier.
+    /// Carries unknown keys through a save, as [`PreformTable::unknown`] does.
     #[serde(flatten, default)]
     pub unknown: toml::Table,
 }
 
 impl TierTable {
-    /// Builds a fresh entry with no unknown/future fields, and no `angle_deg`/
-    /// `indices`/`imported_meet`/`original_notes`/`cheater_offset_deg` (all `None`)
-    /// carried over -- see [`PreformTable::new`]'s own doc comment for why this
-    /// lives here rather than in `pleochroma-cut-core`. A caller with one of those
-    /// five to attach uses the matching `with_*` method afterward.
+    /// Builds an entry with no unknown keys and every optional field unset, including
+    /// `angle_deg`, `indices`, `imported_meet`, `original_notes` and `cheater_offset_deg`.
+    /// A caller sets those with the matching `with_*` method. Construction lives here so
+    /// callers need not name `toml::Table` to fill `unknown` (see [`PreformTable::new`]).
     #[must_use]
     pub fn new(
         name: impl Into<String>,

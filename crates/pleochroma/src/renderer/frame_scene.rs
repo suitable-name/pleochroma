@@ -1,11 +1,8 @@
-//! [`FrameScene`]: everything a frame tracer needs to render a scene, independent of
-//! which backend traces it.
+//! [`FrameScene`]: the scene a frame tracer renders, independent of which backend traces it.
 //!
-//! Lives outside the `gpu` feature (unlike the code that dispatches it on the GPU)
-//! because the wasm-safe CPU tracer in [`super::cpu_frame`] needs this exact struct
-//! with no `gpu` feature enabled -- see that module's doc comment. The GPU megakernel
-//! path (`renderer::gpu::frame`) re-exports this same type as `GpuFrameScene` so every
-//! existing `GpuFrameScene { .. }` construction and import keeps compiling unchanged.
+//! Compiled without the `gpu` feature because the wasm-safe CPU tracer in [`super::cpu_frame`]
+//! uses this struct in that build. The GPU path reaches it as the alias `GpuFrameScene`
+//! (`renderer::gpu::frame`), so existing construction and import sites keep working.
 
 use crate::{
     geometry::GpuFacetPlane,
@@ -22,9 +19,9 @@ use crate::{
 pub struct FrameScene<'a> {
     /// Camera the frame is rendered from.
     pub camera: &'a Camera,
-    /// Width.
+    /// Width in pixels.
     pub width: u32,
-    /// Height.
+    /// Height in pixels.
     pub height: u32,
     /// Facet planes of the stone.
     pub planes: &'a [GpuFacetPlane],

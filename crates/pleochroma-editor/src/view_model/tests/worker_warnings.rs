@@ -1,4 +1,5 @@
-//! The manufacturability findings a worker computes and a UI thread only displays:
+//! Manufacturability findings that a worker computes and the UI thread only displays.
+//!
 //! [`solved_manufacturability_warnings`], [`tier_items_from_solved_with_warnings`] and
 //! [`manufacturability_warnings_tagged_with`] must show what the inline pass shows.
 
@@ -25,7 +26,7 @@ fn precomputed_findings_give_the_rows_and_banner_the_inline_pass_gives() {
     }
 }
 
-/// Without a worker pass a design WITHOUT concave tools gets the inline pass it always had.
+/// Without a worker pass, a design with no concave tools uses the inline pass.
 #[test]
 fn without_a_worker_pass_a_planar_design_keeps_the_inline_findings() {
     let mut design = Design::concave_fixture();
@@ -43,9 +44,8 @@ fn without_a_worker_pass_a_planar_design_keeps_the_inline_findings() {
     );
 }
 
-/// Without a worker pass the rows of a design WITH concave tools show only the mast-free
-/// findings, tagged as pre-solve, and never build a mesh: identical to the stale path's own
-/// findings.
+/// Without a worker pass, the rows of a design with concave tools show only the mast-free
+/// findings, tagged `(pre-solve)`, and match `manufacturability_warnings_tagged(&design, None)`.
 #[test]
 fn without_a_worker_pass_only_the_mast_free_findings_show_tagged() {
     let mut design = Design::concave_fixture();

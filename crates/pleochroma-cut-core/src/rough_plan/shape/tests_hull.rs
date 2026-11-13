@@ -239,9 +239,8 @@ fn a_large_scan_takes_the_quick_hull_and_a_small_one_the_exact_one() {
         }
     }
 
-    // A cube with 5,000 more points ON its faces: more than the threshold, but the exact
-    // hull has six planes, so the outline is the old algorithm's, bit for bit, and a convex
-    // mesh is not kept.
+    // A cube with 5,000 more points ON its faces: above the threshold, yet its outline is
+    // the exact hull's (six planes, bit for bit), so a convex mesh keeps no mesh.
     let (mut points, tris) = parse_obj(CUBE_OBJ);
     for axis in 0..3 {
         for side in [0.0, 20.0] {

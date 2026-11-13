@@ -11,9 +11,9 @@
 //! which holds more of the ball than one global shrink of an `{ h_j = 1 }` polytope.
 //!
 //! The tables are pinned so the pebble is the same on every machine and run. To regenerate
-//! them run
-//! `cargo test --release -p pleochroma-cut-core -- regenerate_pebble_offsets --ignored --nocapture`
-//! and paste the printed arrays over the constants below.
+//! them run `cargo test --release -p pleochroma-cut-core --
+//! regenerate_pebble_offsets --ignored --nocapture` and paste the printed arrays over the
+//! constants below.
 
 /// The offsets `h_j` for the 162 directions of `pebble_directions(4)`, in that order.
 pub(super) const PEBBLE_OFFSETS_FINE: [f64; 162] = [

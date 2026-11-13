@@ -23,18 +23,11 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-/// "Cancel" (shown only while a Deep Solve is running): see
-/// [`deep_solve::DeepSolveHandle::cancel`] for exactly what the low-level
-/// cancellation call does and doesn't stop.
-///
-/// Unlike that call alone, THIS is what actually gives the user their editor back:
-/// it flips `editor_deep_solve_running`/`deep_solve_status` immediately, on the same
-/// click, rather than waiting even for the checkpoint-based cancellation's own fast
-/// (typically single-digit-millisecond, see `deep_solve`'s module doc comment)
-/// `on_done` to arrive -- the completion handler is otherwise the only place
-/// either gets reset, so without this the strip would stay busy on "Deep
-/// solving... X.Xs elapsed" for that stretch, with no way to start a new Deep
-/// Solve until it did.
+/// "Cancel", shown only while a Deep Solve runs. [`deep_solve::DeepSolveHandle::cancel`] stops
+/// the search itself. This callback also resets `editor_deep_solve_running` and the status on
+/// the same click, without waiting for the worker's `on_done`. The completion handler is
+/// otherwise the only place those are reset, so the strip would stay busy until the worker
+/// reported back.
 pub(in crate::gui::editor) fn setup_deep_solve_cancel_callback(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -48,10 +41,8 @@ pub(in crate::gui::editor) fn setup_deep_solve_cancel_callback(
         if let Some(handle) = state.borrow().deep_solve.as_ref() {
             handle.cancel();
         }
-        // The activity is finished and
-        // removed from the activity
-        // list on THIS click, not whenever the abandoned worker eventually reports
-        // back -- see `DEEP_SOLVE_ACTIVITY_ID`'s own doc comment.
+        // Finish the activity now, not when the abandoned worker reports back (see
+        // `DEEP_SOLVE_ACTIVITY_ID`).
         if let Some(id) = DEEP_SOLVE_ACTIVITY_ID.with(RefCell::take)
             && let Some(activity) = auto_solve::activity()
         {
@@ -91,21 +82,16 @@ fn verified_mast_for(deltas: &[deep_solve::TierMastDelta], tier_index: usize) ->
         .map(|d| d.after_mast)
 }
 
-/// Registers an opt-in, per-tier "Pin to verified mast"
-/// action alongside Deep Solve's per-tier disagreement table
-/// (`EditorModel.deep_solve_tier_rows`). Takes the SAME `"#N"` tier-number text that
-/// table already prints (see [`tier_index_from_row_number`]) rather than a raw
-/// index, so the button (`editor_status_strip.slint` calls
-/// `EditorModel.pin_verified_mast`) needs no extra field on `DeepSolveTierRow`.
+/// The per-tier "Pin to verified mast" action in Deep Solve's disagreement table
+/// (`EditorModel.deep_solve_tier_rows`). It takes the `"#N"` tier number the table prints (see
+/// [`tier_index_from_row_number`]), so the button calling `EditorModel.pin_verified_mast` needs
+/// no extra field on `DeepSolveTierRow`.
 ///
-/// Applies through [`EditorState::apply`] like every other edit in this crate --
-/// `Edit::SetConstraint(ScaleReference(verified_mast))`, never a wholesale "apply
-/// the verified configuration": `deep_solve`'s module doc comment explains why that
-/// larger action isn't representable (the repair search's OTHER wins are
-/// vertex-level picks with no `MeetConstraint` of their own). A no-op (with an
-/// explanatory toast) when [`LAST_DEEP_SOLVE_DELTAS`] no longer names `tier_index`
-/// -- stale after a fresh Deep Solve run, a design replacement, or an edit that
-/// changed tier count out from under an old run's row.
+/// It applies through [`EditorState::apply`] as `Edit::SetConstraint(ScaleReference(mast))`. It
+/// never applies the whole verified configuration: the repair's other wins are vertex-level
+/// picks with no `MeetConstraint` (see `deep_solve`'s module doc). If [`LAST_DEEP_SOLVE_DELTAS`]
+/// no longer names the tier (a new run, a replaced design, or a tier-count change), it shows a
+/// toast and does nothing.
 pub(in crate::gui::editor) fn setup_deep_solve_pin_callback(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -142,10 +128,7 @@ pub(in crate::gui::editor) fn setup_deep_solve_pin_callback(
                 constraint: MeetConstraint::ScaleReference(mast),
             }) {
                 Ok(()) => {
-                    // `refresh_all`
-                    // now takes `Rc<RefCell<EditorState>>` (see `view::
-                    // refresh_all_now`'s own doc comment) -- this call site's own
-                    // logic is otherwise untouched.
+                    // `refresh_all_now` takes the shared state, so release the borrow first.
                     drop(st);
                     refresh_all_now(
                         &ui,

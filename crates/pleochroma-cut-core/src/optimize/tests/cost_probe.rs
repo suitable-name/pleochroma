@@ -1,11 +1,9 @@
 //! Cost probe: ignored by default, run explicitly --
 //! `cargo test -p pleochroma-cut-core --release --ignored --nocapture cost_probe`
 //!
-//! Measures one full objective evaluation (`Design::solve` + `evaluate_objective`)
-//! end to end, at both fidelities, on a small real meet-derived design (RBC-445, 12
-//! tiers) and the large one `design.rs`'s own benchmark already measured a 5.9s full
-//! solve against (CrackOtto-Step, 103 tiers) -- see the parent module doc comment's
-//! "Cost first" section for the numbers from the run this was written against.
+//! Times one full objective evaluation (`Design::solve` + `evaluate_objective`) at both
+//! fidelities, on RBC-445 (12 tiers) and CrackOtto-Step (103 tiers). The figures are
+//! discussed in the parent module's "Cost" section.
 
 use super::{
     super::{ObjectiveFidelity, evaluate_objective, objective},
@@ -59,9 +57,8 @@ fn report(name: &str, design: &Design) {
 
 /// One line per call `evaluate_candidate` makes around the metrics, each timed alone:
 /// the plane list, the mesh, the manufacturability check given that geometry, the solid
-/// measurement and the (per-run) preform measure. Before the candidate shared its
-/// geometry the first four ran 2-3 times per evaluation; the sum of one of each is what
-/// the evaluation pays now.
+/// measurement and the (per-run) preform measure. An evaluation builds the mesh and the
+/// measurement in one pass, so their sum here overstates it.
 fn report_geometry(name: &str, design: &Design, solved: &[SolvedTier]) {
     let start = Instant::now();
     let planes = design.planes_from_solved(solved);

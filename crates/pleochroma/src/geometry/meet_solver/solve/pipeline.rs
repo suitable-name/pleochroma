@@ -23,10 +23,9 @@ fn progress_count(count: usize) -> u32 {
     u32::try_from(count).unwrap_or(u32::MAX)
 }
 
-// NOTE: tried an annihilation guard ("a pick must not erase any other facet's
-// corners", physically justified since every tier has positive final-stone area):
-// it presumes the surrounding facets are already near-correct, so from a wrong
-// intermediate configuration it just entrenches the wrong values; rejected.
+// NOTE: no annihilation guard ("a pick must not erase another facet's corners"). It
+// presumes the surrounding facets are already correct, so from a wrong intermediate
+// configuration it would entrench the wrong values.
 
 /// How a tier's current value was last established, for strategy/detail reporting.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -100,30 +99,21 @@ pub(in crate::geometry::meet_solver) struct PipelineResult {
 }
 
 impl SolveContext<'_> {
-    // The three-phase pipeline. The constructive pass honors strict file order
-    // (Gauss-Seidel): `.asc` file order is overwhelmingly cutting order, and the
-    // prefix arrangement is exactly what a cutter's meet points existed on. Tried
-    // a free-running variant (any tier that can settle in a sweep does): trades a
-    // slightly better blended median for a much worse per-design success rate;
-    // rejected.
+    // Phase 1 walks tiers in strict file order (Gauss-Seidel). `.asc` order is normally
+    // the cutting order, and each tier's meet points lie on the arrangement of the tiers
+    // before it. A free-running order was rejected: it gave a worse per-design success rate.
     //
-    // `overrides` (tier index -> vertex-level index) forces specific phase-1
-    // picks, bypassing the named rule and rank-1 prior; phase 3 then refines an
-    // overridden tier by nearest-level only. Empty overrides reproduce the plain
-    // solve exactly -- the knob
-    // [`solve_meet_points_verified`](super::super::solve_meet_points_verified)'s repair
-    // search turns.
-    // `anchor_values` (anchor tier index -> mast) substitutes a different value
-    // for a [`MeetConstraint::ScaleReference`] anchor without mutating the tier
-    // list -- the knob the calibrated search turns to adjust an estimated anchor.
-    // Empty maps reproduce the plain solve exactly.
+    // `overrides` (tier index -> vertex-level index) forces phase-1 picks, bypassing the
+    // named rule and the rank-1 prior. Phase 3 then refines an overridden tier by nearest
+    // level only. Empty overrides give the plain solve.
+    // The knob the repair search of
+    // [`solve_meet_points_verified`](super::super::solve_meet_points_verified) turns.
+    // `anchor_values` (anchor tier index -> mast) replaces a `ScaleReference` value without
+    // changing the tier list. Empty maps give the plain solve.
     //
-    // `control` (see the module docs, "Cancellation and progress") is checked
-    // once per constructive-pass sweep, once per candidate-enumeration chunk
-    // inside phase 3's `enumerate_candidate_vertices_cancellable` call (the
-    // measured long pole), and once per refinement sweep; an unused
-    // (`SolveControl::default`) control never observes cancel and this
-    // reproduces the old infallible pipeline's result exactly.
+    // `control` is checked once per constructive sweep, once per unsettled tier, once per
+    // refinement sweep, and inside phase 3's candidate enumeration. An unused control never
+    // cancels, so the result is the infallible one.
     #[expect(
         clippy::too_many_lines,
         reason = "three sequential phases of one algorithm (constructive pass, \
@@ -205,13 +195,8 @@ impl SolveContext<'_> {
                 if settled[i] {
                     continue;
                 }
-                // Also checked per unsettled tier, not just once per pass:
-                // measured necessary on the real 103-tier fixture in an
-                // unoptimized build -- a single pass's cumulative
-                // `phase1_cache` filtering cost across every still-unsettled
-                // tier can itself exceed a caller's cancel-latency budget
-                // even though phase 1 as a whole is the cheap, non-cubic
-                // path (see the module docs, "Cancellation and progress").
+                // Also checked per unsettled tier: one pass's filtering over all of them
+                // can be long enough to matter for cancel latency.
                 if control.is_cancelled() {
                     return Err(SolveError::Cancelled);
                 }
@@ -239,16 +224,10 @@ impl SolveContext<'_> {
                     continue;
                 }
 
-                // Named rule: shallowest level with a candidate incident to every
-                // settled reference. Deliberately all-or-nothing: tried a
-                // best-partial-incidence variant (most refs incident wins,
-                // shallowest breaking ties), which measured worse (MeetNamed-
-                // resolved median rel. err 0.0828 -> 0.1076) -- a weak partial
-                // match is evidence the constraint isn't really satisfied there,
-                // not a lead worth following; rejected.
-                // Stores the *index* into `levels`, not the value, so `last_pick`
-                // can be recovered by indexing once at the end instead of an
-                // exact-value re-search.
+                // Named rule: shallowest level with a candidate incident to every settled
+                // reference. All-or-nothing on purpose: a partial match is weak evidence that
+                // the constraint does not hold there, and a best-partial variant performs worse.
+                // Stores the *index* into `levels`, so `last_pick` needs no value re-search.
                 let mut choice: Option<(usize, Origin)> = None;
                 if let Some(&forced) = overrides.get(&i) {
                     // Repair-search override: force this tier's pick to the given
@@ -268,15 +247,8 @@ impl SolveContext<'_> {
                     if let Some(idx) = found {
                         choice = Some((idx, Origin::ConstructiveNamed));
                     }
-                    // Tried two "rescue" variants for the fallback case (refs all
-                    // settled, no feasible level incident to them all): accepting
-                    // the shallowest candidate incident to all refs that violates
-                    // at most one other tier measured worse (MeetNamed-resolved
-                    // median rel. err 0.0828 -> 0.0862); building the corner
-                    // directly from ref-plane triples under a feasibility slack
-                    // measured worse still (0.0897). Same pattern as the
-                    // annihilation guard above: weakening the acceptance
-                    // test admits self-consistent wrong corners; both rejected.
+                    // No rescue when no level is incident to all refs: weakening the
+                    // acceptance test admits self-consistent wrong corners.
                 }
                 let (li, orig) = choice
                     .unwrap_or_else(|| (usize::from(levels.len() >= 2), Origin::ConstructiveRank1));
@@ -366,9 +338,7 @@ impl SolveContext<'_> {
                 blocks_total: progress_count(n),
             });
             refine_sweeps += 1;
-            // Re-enumerated from scratch every sweep: caching the triples (either
-            // just their inverses, or the whole candidate evaluation) was tried
-            // and rejected -- see the NOTEs at the top of `candidates.rs`.
+            // Re-enumerated from scratch each sweep; caching does not pay (see `candidates`).
             let mut planes = blank_planes();
             for (i, ns) in normals.iter().enumerate() {
                 for &nv in ns {
@@ -379,9 +349,8 @@ impl SolveContext<'_> {
                     });
                 }
             }
-            // The measured long pole (see the module docs): checks `control`
-            // once per outer-plane chunk internally, so a cancel lands well
-            // before this whole `O(P^3)` scan finishes.
+            // The dominant cost. The enumeration checks `control` per outer and middle
+            // plane, so a cancel lands before the whole `O(P^3)` scan finishes.
             let Some(cands) = enumerate_candidate_vertices_cancellable(&planes, 6, control.cancel)
             else {
                 return Err(SolveError::Cancelled);
@@ -392,9 +361,7 @@ impl SolveContext<'_> {
                 if is_anchor[i] {
                     continue;
                 }
-                // Reserved up front: on a large design nearly every candidate is
-                // usable for nearly every tier (~10^5 entries), and growing the
-                // vector by doubling measured as a visible share of per-tier cost.
+                // Pre-sized: on large designs nearly every candidate is usable (~10^5 entries).
                 let mut usable: Vec<&CandidateVertex> = Vec::with_capacity(cands.len());
                 usable.extend(cands.iter().filter(|c| {
                     !c.owners.contains(&i) && (c.violated.is_none() || c.violated == Some(i))
@@ -410,11 +377,8 @@ impl SolveContext<'_> {
                     continue;
                 }
 
-                // Prefer the *shallowest* level incident to every resolved named
-                // reference (same rule as phase 1's, and the oracle-measured best
-                // pick -- "nearest the current value" would keep a wrong
-                // self-consistent value in place); else the level nearest the
-                // current value. No annihilation guard (see the NOTE above).
+                // Prefer the shallowest level incident to every resolved named reference, as in
+                // phase 1. Otherwise take the level nearest the current value.
                 let refs = &resolved_named[i];
                 // Index into `levels`, not the value -- see phase 1's named rule
                 // comment for why.
@@ -430,11 +394,8 @@ impl SolveContext<'_> {
                         })
                         .map(|(idx, _)| idx)
                 };
-                // All-or-nothing incidence, for the same measured reason as phase
-                // 1's named rule (see the comment there). An overridden tier
-                // refines by nearest-level only, so the sweeps polish the forced
-                // pick instead of yanking it back to the named level it was
-                // deliberately steered away from.
+                // All-or-nothing, as in phase 1. An overridden tier refines by nearest level
+                // only, so the sweeps polish the forced pick instead of moving it back.
                 let named_pool: Vec<usize> = if refs.is_empty() || overrides.contains_key(&i) {
                     Vec::new()
                 } else {
@@ -474,16 +435,8 @@ impl SolveContext<'_> {
                 blocks_total: progress_count(n),
             });
 
-            // NaN-propagating fold, not a plain `.fold(0.0, f64::max)`: IEEE 754
-            // `max` returns the *other* (finite) argument when one side is NaN, so
-            // a single non-finite mast among many converged ones would otherwise
-            // be silently dropped from `max_rel_change` and the sweep could
-            // declare convergence with a NaN tier still present. Callers are
-            // expected to have already rejected non-finite input up front (see
-            // `first_non_finite_tier` in `entry.rs`/`verify.rs`), but this fold
-            // does not depend on that: a NaN here makes `max_rel_change` itself
-            // NaN, so the `< 1e-12` convergence test below is false (every
-            // ordered comparison with NaN is), never a false "converged".
+            // NaN-propagating fold: a plain `f64::max` would drop a NaN mast and could
+            // declare false convergence. A NaN here makes the `< 1e-12` test below false.
             let max_rel_change = mast
                 .iter()
                 .zip(&new_mast)

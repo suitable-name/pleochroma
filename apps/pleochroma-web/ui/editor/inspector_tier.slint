@@ -14,10 +14,9 @@ component FieldFrame inherits Rectangle {
     @children
 }
 
-// The Tier tab's per-tier add / edit form (modelled on the desktop's
-// `editor_inspector/tier_form_tab.slint`). The scratch fields and the dirty tracking live
-// in `InspectorModel`; nothing commits until Save Tier / Add Tier. The button row is
-// pinned outside the scroll view by `Inspector`.
+// The Tier tab's per-tier add / edit form. The scratch fields and the dirty tracking live in
+// `InspectorModel`; nothing commits until Save Tier / Add Tier. The button row is pinned
+// outside the scroll view by `Inspector`.
 export component TierFormTab inherits VerticalLayout {
     // Up / Down step the angle text by 0.1 (Shift 1, Ctrl 0.01), purely as local text:
     // this form is a staging area.
@@ -200,7 +199,7 @@ export component TierFormTab inherits VerticalLayout {
         text: "Depth: this facet's plane offset in mm, converted through the design's girdle diameter (set one in the Preform tab).";
     }
     if InspectorModel.tier-constraint-kind == 4: InfoLine {
-        text: "Girdle thickness: this tier's mast is searched until the solved girdle thickness matches this value in mm (needs a girdle diameter; costs several solves).";
+        text: "Girdle thickness: this tier's mast is searched until the girdle is this many mm thick at its girdle line, at the thinnest point there (needs a girdle diameter; costs several solves).";
     }
     if InspectorModel.tier-constraint-kind == 5: InfoLine {
         text: "Table width: this tier's mast is searched until the table facet's width matches this value in mm (needs a girdle diameter; costs several solves).";

@@ -2,10 +2,10 @@
 //!
 //! The axis is a line through the stone's centre (the model origin), as long as 60 percent of
 //! the shown stone's bounding radius on each side, with a handle at its upper end; a biaxial
-//! stone also shows the Second Axis. It is drawn in the Solid, Path-Traced, Ray-Traced and Both
-//! views (the solid raster's camera, which the path tracer shares) and on the Diagram's profile
-//! panel. Dragging a handle edits the Stone-tab controls live (the same path as the sliders: one
-//! debounced commit, one undo step) and Escape puts the axis back.
+//! stone also shows the Second Axis. It is drawn in every view that has a rendered frame (the
+//! solid raster's camera, which the path tracer shares) and on the Diagram's profile panel.
+//! Dragging a handle edits the Stone-tab controls live (the same path as the sliders: one debounced
+//! commit, one undo step) and Escape puts the axis back.
 //!
 //! All positions go to the model in the viewport's LOGICAL coordinates (UNZOOMED in the Diagram
 //! view, like the facet handles).
@@ -312,7 +312,8 @@ pub(super) fn drag_begin(ui: &MainWindow, ctx: &Shared, kind: i32) {
     axis_model.set_dragging(true);
 }
 
-/// The unit direction the pointer (logical `(x, y)`) asks for, on the sphere the handle moves on.
+/// The unit direction the pointer (logical `(x, y)`) asks for, on the sphere the handle
+/// moves on.
 #[expect(
     clippy::many_single_char_names,
     reason = "pointer and sphere coordinates use their geometric names"
@@ -376,10 +377,12 @@ fn direction_at(
 /// material's plain completion, which the controls' "not set" already stands for.
 const MIN_COPIED_TURN_DEG: f32 = 0.01;
 
-/// The Second Axis turn, degrees in `[0, 180)`, that brings the completion of `gamma` (turn
-/// zero) onto `direction`, seen in the plane perpendicular to `gamma`; `None` when `direction`
-/// lies along `gamma` and names no direction in that plane. A turn within
-/// [`MIN_COPIED_TURN_DEG`] of a half turn reads as zero (the second axis is a line).
+/// The Second Axis turn, in degrees in `[0, 180)`, that brings the completion of `gamma` (turn
+/// zero) onto `direction`.
+///
+/// It is seen in the plane perpendicular to `gamma`; `None` when `direction` lies along `gamma`.
+/// A turn within [`MIN_COPIED_TURN_DEG`] of a half turn reads as zero:
+/// the second axis is a line.
 fn second_turn_deg(gamma: Vec3, direction: Vec3) -> Option<f32> {
     let reference = alpha_axis_from_turn(gamma, 0.0);
     // A pointer (nearly) along the Crystal Axis names no direction in the plane: the rounding

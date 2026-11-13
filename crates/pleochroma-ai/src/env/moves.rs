@@ -29,9 +29,10 @@ use std::{
     sync::Arc,
 };
 
-/// Smallest angle magnitude (degrees) a movable tier may be written at. Below one degree a
-/// facet is practically horizontal: the meet solver loses the crown/pavilion side and the
-/// plane approaches the degenerate table/culet plane.
+/// Smallest angle magnitude (degrees) a movable tier may be written at.
+///
+/// Below one degree a facet is practically horizontal: the meet solver loses the crown/pavilion
+/// side and the plane approaches the degenerate table/culet plane.
 pub const MIN_SAFE_CANDIDATE_ANGLE_DEG: f64 = 1.0;
 /// Largest signed-angle magnitude accepted by cut-core's safe authoring range.
 pub const MAX_SAFE_CANDIDATE_ANGLE_DEG: f64 = CORE_MAX_SAFE_CANDIDATE_ANGLE_DEG;
@@ -39,9 +40,9 @@ pub const MAX_SAFE_CANDIDATE_ANGLE_DEG: f64 = CORE_MAX_SAFE_CANDIDATE_ANGLE_DEG;
 /// A hinge-anchored tier needs a mast above this to be a plane at all.
 const MIN_HINGE_MAST: f64 = 1e-9;
 
-/// Whether moving a tier from `old` to `new` degrees is safe: finite, magnitude within
-/// `[MIN_SAFE_ANGLE_DEG, MAX_SAFE_CANDIDATE_ANGLE_DEG]`, and on the same side of the girdle
-/// (the sign bit decides crown or pavilion in the meet solver).
+/// Whether moving a tier from `old` to `new` degrees is safe: finite, its magnitude within
+/// `[MIN_SAFE_CANDIDATE_ANGLE_DEG, MAX_SAFE_CANDIDATE_ANGLE_DEG]`, and on the same side of the
+/// girdle (the sign bit decides crown or pavilion in the meet solver).
 fn angle_is_safe(old: f64, new: f64) -> bool {
     new.is_finite()
         && (MIN_SAFE_CANDIDATE_ANGLE_DEG..=MAX_SAFE_CANDIDATE_ANGLE_DEG).contains(&new.abs())
@@ -324,7 +325,7 @@ pub(crate) fn preservation_refusal(
 }
 
 /// The proposal of `action` on `design` before the meet-preserving projection: the movable
-/// tiers at their clamped new angles with the masts through their hinges, relations settled.
+/// tiers at their clamped new angles, with masts through their hinges and relations settled.
 /// A zero action proposes `design` itself.
 pub(super) fn propose(
     space: &MoveSpace,

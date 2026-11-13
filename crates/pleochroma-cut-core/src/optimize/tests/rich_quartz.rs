@@ -149,11 +149,9 @@ fn the_quick_score_rewards_a_pavilion_turned_past_the_critical_angle() {
 /// 2. The full score: a candidate is only kept when this does not read worse than the start.
 ///
 /// It is the mean over the whole tilt sweep (four axes, -90 to 90 degrees), which the extreme
-/// tilts dominate: for Quartz it stays within a point of the start over the whole 37 to 43
-/// degree range (windowing 50 to 53 % everywhere) while the table-up figure swings by 15. Just
-/// past the critical angle, at 41 degrees, it does read better than the start; at 42 it is
-/// already worse again (measured: 45.94 at 41, 46.09 at 40, 46.28 at 42), so the claim is for
-/// 41, not for every steeper pavilion.
+/// tilts dominate, so it moves far less than the table-up figure. Just past the critical
+/// angle, at 41 degrees, it reads better than the start; at 42 it is worse again, so the claim
+/// is for 41 only, not for every steeper pavilion.
 #[test]
 fn the_full_score_rewards_a_pavilion_turned_just_past_the_critical_angle() {
     let design = rich_in_quartz();
@@ -175,10 +173,10 @@ fn the_full_score_rewards_a_pavilion_turned_just_past_the_critical_angle() {
 }
 
 /// 3. The two scores disagree about the quick optimum: the state the lesson's search descends
-///    to (pavilion about 42.5 degrees, the crown main lowered nearly to the edge of its range) is far
-///    better than the start table-up and worse than the start over the tilt sweep. A pool that
-///    held only the states the search likes best would give the full-fidelity gate nothing it
-///    can pass, which is what the gate's reserve of fallbacks is for.
+///    to (pavilion about 42.5 degrees, the crown main lowered nearly to the edge of its range)
+///    is far better than the start table-up and worse than the start over the tilt sweep. A
+///    pool that held only the states the search likes best would give the full-fidelity gate
+///    nothing it can pass, which is what the gate's reserve of fallbacks is for.
 #[test]
 fn the_quick_and_full_scores_disagree_on_the_quick_optimum() {
     let design = rich_in_quartz();

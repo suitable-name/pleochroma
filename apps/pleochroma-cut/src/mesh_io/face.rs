@@ -1,6 +1,6 @@
 //! Splitting a polygon face of an OBJ file into triangles.
 //!
-//! A convex polygon is fanned from its first vertex, as always. A non-convex (or skew)
+//! A convex polygon is fanned from its first vertex. A non-convex (or skew)
 //! polygon, whose fan would overlap itself and could still pass the mesh's closedness check,
 //! is ear-clipped in its own plane instead.
 
@@ -24,7 +24,7 @@ pub(super) fn triangulate_face(points: &[DVec3], corners: &[u32]) -> Option<Vec<
         .iter()
         .fold(0.0_f64, |m, p| m.max(p.abs().max_element()));
     // A polygon with no area, or a coordinate that is not a number, is left to the mesh
-    // check, which drops or refuses it as it always did.
+    // check, which drops or refuses it.
     if !(normal.length() > 0.0 && normal.is_finite()) {
         return Some(fan());
     }

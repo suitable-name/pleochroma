@@ -17,11 +17,11 @@ export global RenderModel {
     in property <string> status-text: "";
     // How far the trace is, 0 to 1.
     in property <float> progress: 0.0;
-    // Pause is shown as Resume.
+    // True while paused; the chip then reads Resume.
     in property <bool> paused: false;
     // A trace exists that Pause can act on.
     in property <bool> can-pause: false;
-    // Path sample choices depend on the connected backend; Ray uses quality tiers.
+    // Sample counts for the path tracer, quality tiers for the ray tracer.
     in property <[string]> quality-choices: ["32 samples", "64 samples"];
     in property <int> quality: 1;
     in property <bool> denoise: true;

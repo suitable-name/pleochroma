@@ -12,8 +12,8 @@
 //! 4. it works out the strip and pushes it when it changed.
 //!
 //! The strip never solves. The masts come from the solves the editor already runs
-//! (`baseline::on_solved`); a design whose solve does not come (auto-solve off or over its budget) leaves
-//! the strip showing its last figures, dimmed, with "Out of Date: Press Solve".
+//! (`baseline::on_solved`). When a design is not solved (auto-solve off or over its
+//! budget), the strip keeps its last figures, dimmed, with "Out of Date: Press Solve".
 
 use super::{
     present::{self, CellView, View},

@@ -10,14 +10,13 @@
 //!   gate penalties when the girdle or manufacturability gate failed, minus the shape drift
 //!   penalty. The score term is `score_improvement_scale * Δ` for `Δ >= 0` (linear: a bigger
 //!   gain is a bigger reward) and `-worse_clip * tanh(|Δ| * score_improvement_scale /
-//!   worse_clip)` for `Δ < 0`. A proposal that scores worse than the current stone yields a
-//!   negative signal while the state stays put, but the loss saturates at `worse_clip`: at a
-//!   one-degree joint move of every tier the measured loss is 2 to 11 points in the median
-//!   and up to 20, and unbounded it owned every batch (run 1 averaged -4.6 per step). The
-//!   map is monotone, so the ORDER of candidates is kept (a 1-point loss is -0.92, a 15-point
-//!   loss -2.0 with the default `worse_clip`). A candidate that failed a gate is charged no
-//!   `Δ` at all (the environment hands the evaluator `score_before` for it): it pays the
-//!   gate penalty and the step cost and nothing else;
+//!   worse_clip)` for `Δ < 0`. A worse proposal yields a negative signal while the state stays
+//!   put. The loss saturates at `worse_clip`, so one bad proposal cannot dominate a batch
+//!   (a one-degree joint move of every tier loses 2 to 11 points in the median, up to 20).
+//!   The map is monotone, so the order of candidates is kept (a 1-point loss is -0.92, a
+//!   15-point loss -2.0 with the default `worse_clip`). A candidate that failed a gate is
+//!   charged no `Δ` at all (the environment hands the evaluator `score_before` for it): it pays
+//!   the gate penalty and the step cost and nothing else;
 //! - plus `new_best_bonus` ONCE, on the last step of an episode that ended below the base
 //!   design's score (not on every accepted step, which would reward the count of tiny
 //!   improvements instead of their size). The default is `0.0`: the per-step gains already
@@ -30,8 +29,8 @@
 
 use serde::{Deserialize, Serialize};
 
-/// The serde default of [`RewardConfig::worse_clip`], so reward configurations saved before
-/// the field existed still load.
+/// Serde default of [`RewardConfig::worse_clip`], so configurations saved without the field
+/// still load.
 const fn default_worse_clip() -> f32 {
     2.0
 }
@@ -53,10 +52,16 @@ pub struct RewardConfig {
     pub knife_edge_penalty: f32,
     /// Weight on drift from the base design's silhouette. The drift handed to the evaluator
     /// is in percent (`100 *` the relative drift of table size and crown-to-pavilion ratio).
+    ///
+    /// This term is only charged when the episode defines a shape target
+    /// (`CoreSettings::shape_target`): the environment passes a drift of `0.0` otherwise, so the
+    /// scalar reward always matches the objective the run reports and evaluates. Keep the
+    /// weight non-negative; it is not a safety gate (the girdle and manufacturability gates
+    /// are), so it can only shape the reward, never accept an invalid stone.
     pub shape_drift_weight: f32,
     /// Penalty applied when manufacturability checks regress (more vanishing or undersized
-    /// facets than the base design). Default `-1.0`; the gate failed on 50 to 80 % of the
-    /// random one-degree proposals on a 24-free-tier design and on none at 0.25 degrees.
+    /// facets than the base design). Default `-1.0`: the gate failed on 50 to 80 % of random
+    /// one-degree proposals of a 24-free-tier design.
     pub manufacturability_regression_penalty: f32,
     /// Small cost per step to encourage finding efficient, short improvement trajectories.
     /// Default `-0.02`.
@@ -296,7 +301,7 @@ mod tests {
     #[test]
     fn reward_is_clipped() {
         // A 100-point gain is 99.98 after the step cost: the default bound of 10 caps it. The
-        // terminal bonus defaults to 0 and no longer adds to it.
+        // terminal bonus is 0 by default, so it adds nothing here.
         let evaluator = RewardEvaluator::new(RewardConfig::default());
         let best = StepFlags {
             is_new_best: true,

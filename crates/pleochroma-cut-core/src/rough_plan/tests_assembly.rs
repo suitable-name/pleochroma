@@ -283,9 +283,8 @@ fn flatten_groups_remembers_the_group_of_every_layout() {
 
 #[test]
 fn volumes_one_ulp_either_side_of_the_old_bucket_edge_tie() {
-    // The volume key used to round the low 20 mantissa bits, so two adjacent doubles with
-    // low bits 0x7_FFFF and 0x8_0000 (100.0 has all-zero low mantissa bits) landed in
-    // different buckets and the larger always won, however the stone counts compared.
+    // Ulp-adjacent volumes that a rounding bucket would split (low bits 0x7_FFFF and 0x8_0000
+    // of 100.0) must still tie: equality is the relative tolerance, not a bucket.
     let low = f64::from_bits(100.0_f64.to_bits() + 0x7_FFFF);
     let high = f64::from_bits(100.0_f64.to_bits() + 0x8_0000);
     assert_eq!(high.to_bits() - low.to_bits(), 1);

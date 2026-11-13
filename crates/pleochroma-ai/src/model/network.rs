@@ -1,7 +1,8 @@
-//! Neural network primitives, dense layers, and attention mechanisms for geometric policy networks.
+//! Neural network primitives: dense layers, layer norm, MLP and multi-head attention.
 //!
-//! Every fallible operation returns a `Result`: a dimension disagreement between a layer and its input
-//! (or between a layer's own fields, for example after hand-editing a checkpoint) is an error, never a panic.
+//! Fallible operations return `Result`: a shape mismatch between a layer and its input, or
+//! between a layer's own fields (for example after hand-editing a checkpoint), is an error,
+//! never a panic.
 
 use super::{rng::Prng, weights::WeightError};
 use serde::{Deserialize, Serialize};
@@ -82,7 +83,8 @@ impl Linear {
     ///
     /// # Errors
     /// [`WeightError::Invalid`] for zero dimensions or non-finite parameters,
-    /// [`WeightError::DimensionMismatch`] when the parameter vectors disagree with the declared shape.
+    /// [`WeightError::DimensionMismatch`] when the parameter vectors disagree with the declared
+    /// shape.
     pub fn validate(&self, name: &str) -> Result<(), WeightError> {
         if self.in_features == 0 || self.out_features == 0 {
             return Err(WeightError::Invalid(format!("{name}: zero-sized layer")));
@@ -134,9 +136,8 @@ impl Linear {
 
     /// Xavier/Glorot weights multiplied by `gain` (zero biases), deterministic from `seed`.
     ///
-    /// The draws and their order are those of [`Self::init_xavier`], which is this function with
-    /// `gain = 1.0` (the result is bit-identical: multiplying the scale by 1.0 is exact). A small gain
-    /// such as 0.01 gives the "small policy head" start: its output begins near zero.
+    /// With `gain = 1.0` the result is bit-identical to [`Self::init_xavier`]. A small gain such as
+    /// 0.01 starts a policy head with its output near zero.
     #[must_use]
     pub fn init_xavier_scaled(
         in_features: usize,
@@ -160,8 +161,8 @@ impl Linear {
     /// Forward pass computing `y = W * x + b`.
     ///
     /// # Errors
-    /// [`ModelError::Dimension`] when `input.len() != in_features` or the parameter vectors do not match
-    /// the declared shape.
+    /// [`ModelError::Dimension`] when `input.len() != in_features` or the parameter vectors do not
+    /// match the declared shape.
     pub fn forward(&self, input: &[f32]) -> Result<Vec<f32>, ModelError> {
         if self.in_features == 0 {
             return Err(ModelError::Structure(
@@ -208,8 +209,8 @@ impl Linear {
 
 /// Gaussian Error Linear Unit (GELU), tanh approximation.
 ///
-/// This is the same function as `burn::tensor::activation::gelu_approximate`, which the Burn training twin
-/// uses; the exact (erf) GELU would make the two forward passes disagree.
+/// Same function as `burn::tensor::activation::gelu_approximate`, used by the Burn twin; the
+/// exact (erf) GELU would make the two forward passes disagree.
 #[inline]
 #[must_use]
 #[allow(
@@ -222,8 +223,8 @@ pub fn gelu(x: f32) -> f32 {
 
 /// Two-layer feed-forward block: `fc2(gelu(fc1(x)))`.
 ///
-/// The block carries no residual connection; the caller adds the skip (pre-LN transformer layout), exactly
-/// as the Burn twin does.
+/// The block has no residual connection: the caller adds the skip (pre-LN layout), as the
+/// Burn twin does.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MlpBlock {
     /// First projection layer.
@@ -233,7 +234,7 @@ pub struct MlpBlock {
 }
 
 impl MlpBlock {
-    /// Construct MLP block with hidden expansion dimension.
+    /// Construct an MLP block with hidden width `hidden_dim`.
     #[must_use]
     pub fn new(dim: usize, hidden_dim: usize, seed: u64) -> Self {
         Self {
@@ -266,7 +267,7 @@ pub struct LayerNorm {
     pub gamma: Vec<f32>,
     /// Learnable shift parameter.
     pub beta: Vec<f32>,
-    /// Numerical stability epsilon.
+    /// Added to the variance before the square root, for numerical stability.
     pub eps: f32,
 }
 
@@ -359,7 +360,7 @@ pub struct InferenceScratch {
     exps: Vec<f32>,
 }
 
-/// Multi-Head Self-Attention over sequence of vectors (such as gemstone tiers).
+/// Multi-head self-attention over a sequence of vectors (such as gemstone tiers).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MultiHeadAttention {
     /// Query projection.
@@ -377,7 +378,7 @@ pub struct MultiHeadAttention {
 }
 
 impl MultiHeadAttention {
-    /// Construct multi-head attention module.
+    /// Construct a multi-head attention module.
     ///
     /// # Errors
     /// [`WeightError::Invalid`] when `num_heads` is zero or `dim` is not divisible by `num_heads`.
@@ -405,8 +406,8 @@ impl MultiHeadAttention {
     /// Check the module's internal consistency against the expected model width.
     ///
     /// # Errors
-    /// Propagates the layer validation errors, plus [`WeightError::Invalid`] for a head count that does
-    /// not divide the width.
+    /// Propagates the layer validation errors, plus [`WeightError::Invalid`] for a head count that
+    /// does not divide the width.
     pub fn validate(
         &self,
         name: &str,
@@ -462,8 +463,8 @@ impl MultiHeadAttention {
         self.forward_with_scratch(tokens, &mut InferenceScratch::default())
     }
 
-    /// Same as [`Self::forward`] but reuses the caller's softmax buffers, so a hot loop that
-    /// calls it per observation allocates them once instead of once per token and head.
+    /// Like [`Self::forward`], but reuses the caller's softmax buffers so a hot loop allocates them
+    /// once.
     ///
     /// # Errors
     /// [`ModelError`] when the head configuration is inconsistent or a token has the wrong width.
@@ -516,7 +517,6 @@ impl MultiHeadAttention {
             for i in 0..n_tokens {
                 let q_h = &queries[i][offset..offset + head_dim];
 
-                // Compute dot products with all K_j
                 scratch.scores.clear();
                 let mut max_score = f32::NEG_INFINITY;
                 for kj in &keys {
@@ -547,7 +547,6 @@ impl MultiHeadAttention {
             }
         }
 
-        // Final output linear projection
         out.iter().map(|vec| self.out_proj.forward(vec)).collect()
     }
 }
@@ -587,7 +586,7 @@ mod tests {
 
     #[test]
     fn init_xavier_keeps_its_draws_and_the_scaled_init_multiplies_the_scale() {
-        // The historical formula written out: one signed draw per weight times sqrt(6 / (in + out)).
+        // Expected values: one signed draw per weight, scaled by sqrt(6 / (in + out)).
         let mut rng = Prng::new(9);
         let scale = (6.0f32 / 7.0).sqrt();
         let expected: Vec<f32> = (0..12).map(|_| rng.next_signed_f32() * scale).collect();

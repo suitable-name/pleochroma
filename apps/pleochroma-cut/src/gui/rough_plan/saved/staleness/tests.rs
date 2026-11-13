@@ -9,7 +9,7 @@ use pleochroma_vault::model::{
 
 const SAVED: [f64; 3] = [1.3912, 0.67512, 0.4123];
 
-/// A shape with the given ratios, no width and the current rule version.
+/// A shape with the given ratios, no width and no rule version (0 counts as the current one).
 fn ratios(fingerprint: [f64; 3]) -> DesignShape {
     DesignShape {
         fingerprint,
@@ -93,8 +93,8 @@ fn figures_of_another_measuring_rule_cannot_be_compared() {
 
 #[test]
 fn adding_a_concave_tier_turns_an_unchanged_design_into_a_changed_one() {
-    // The fingerprint's third ratio is V / W^3, and V is now the carved volume: the same
-    // facets with a tool cut out of them have a smaller V at the same W, L and H.
+    // The fingerprint's third ratio is V / W^3, and V is the carved volume: the same facets
+    // with a tool cut out of them have a smaller V at the same W, L and H.
     let flat = extents(0.7, 0.9, 1.0);
     let mut carved = flat;
     carved.volume *= 0.97;
@@ -119,8 +119,8 @@ fn adding_a_concave_tier_turns_an_unchanged_design_into_a_changed_one() {
 
 #[test]
 fn a_plan_saved_under_the_convex_volume_rule_is_not_compared() {
-    // A version-2 plan holds the convex V/W^3. The current rule cannot compare against
-    // it, so the design is neither flagged nor trusted as measured identically.
+    // Figures of measuring rule version 2 hold the convex V/W^3. The current rule cannot compare
+    // against them, so the design is not flagged.
     let flat = extents(0.7, 0.9, 1.0);
     let mut carved = flat;
     carved.volume *= 0.97;

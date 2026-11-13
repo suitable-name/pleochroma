@@ -1,8 +1,7 @@
 //! Small dense linear algebra for the calibration: Cholesky, non-negative least squares on the
 //! normal equations (Lawson-Hanson active set), and a condition estimate.
 //!
-//! Row-major flat
-//! matrices, deterministic.
+//! Matrices are row-major flat slices; every routine is deterministic.
 
 #![allow(
     clippy::many_single_char_names,

@@ -8,8 +8,8 @@
 //! channel and the light of each block of the frame.
 //!
 //! Plain `[f32; 3]` sums and no browser types, so the whole comparison is tested natively
-//! (the Worker itself is wasm-only). The tolerances are the first guess of the lane that wrote
-//! this; the owner tunes them against the numbers [`Comparison::describe`] prints.
+//! (the Worker itself is wasm-only). The tolerances are empirical; [`Comparison::describe`]
+//! prints the numbers they judge.
 
 /// Blocks per side of the frame the comparison looks at (a 4 x 4 grid).
 pub const BLOCKS_PER_SIDE: u32 = 4;

@@ -282,7 +282,7 @@ impl Clipping {
                 for w in ring[1..].windows(2) {
                     area += (w[0] - p0).cross(w[1] - p0);
                 }
-                // Preserve the production area test before clipping to stone.
+                // Same area threshold as the CPU path, so the faces match it.
                 if (0.5 * area).length() > 1e-14 * radius * radius {
                     faces.push(ring);
                 }
@@ -294,8 +294,8 @@ impl Clipping {
 
 fn face_seeds(planes: &[(DVec3, f64)], centre: DVec3, radius: f64) -> Vec<f64> {
     let count = planes.len();
-    // Exact production seed arithmetic. Four seed corners define one face;
-    // all O(tool_planes^2 * polygon_vertices) clipping runs on the device.
+    // Four seed corners per plane, using the CPU arithmetic bit for bit.
+    // The clipping itself runs on the device.
     let mut seeds = Vec::with_capacity(count * 12);
     for &(normal, offset) in planes {
         let u = normal.any_orthonormal_vector();

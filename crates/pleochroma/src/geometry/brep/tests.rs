@@ -294,10 +294,9 @@ fn from_planes_rejects_nan_and_inf_planes() {
 
 #[test]
 fn coincident_check_is_scale_invariant() {
-    // The coincidence test used to take an absolute `max(1.0)` floor,
-    // so a cube at scale 1e12 had its opposite faces called coincident and a plane
-    // 0.005 % outside a face was "coincident" at scale 1000. Both are now judged
-    // purely relatively, after pow2 normalisation.
+    // Coincidence is judged purely relatively, after pow2 normalisation: opposite faces of a
+    // cube at scale 1e12 are not coincident, and a plane 0.005 % outside a face is not
+    // coincident at scale 1000.
     for k in [1e-3_f32, 1.0, 1e3, 1e6, 1e12] {
         let hull = GemPolyhedron::from_planes(cube_planes(k))
             .unwrap_or_else(|e| panic!("cube at scale {k} must reconstruct: {e}"));
@@ -326,9 +325,8 @@ fn coincident_check_is_scale_invariant() {
 
 #[test]
 fn origin_near_a_facet_still_reconstructs() {
-    // chull's absolute degeneracy thresholds rejected these (P1-2): the nearest
-    // plane's dual point dominated the dual cloud. The primal enumeration has no
-    // dependence on where the origin sits inside the solid.
+    // An origin close to one facet must still reconstruct: nothing depends on where the
+    // origin sits inside the solid.
     let mut planes = cube_planes(1.0);
     planes[0].d = -0.01;
     let hull = GemPolyhedron::from_planes(planes).expect("off-centre cube must reconstruct");
@@ -339,8 +337,7 @@ fn origin_near_a_facet_still_reconstructs() {
         hull.volume()
     );
 
-    // SRB with its table pushed toward the origin until min|d| / max|d| = 0.06
-    // (chull failed from 0.080 down).
+    // SRB with its table pushed toward the origin: the table's |d| is 0.06 of the largest.
     let mut srb = StandardGemCuts::standard_round_brilliant();
     let max_d = srb.iter().map(|p| -p.d).fold(0.0_f32, f32::max);
     for p in srb.iter_mut().filter(|p| p.normal[1] > 0.999) {
@@ -352,15 +349,12 @@ fn origin_near_a_facet_still_reconstructs() {
 
 #[test]
 fn non_manifold_error_payload_is_deterministic() {
-    // P3-7: the edge count used to live in a `HashMap`, so the reported edge was
-    // whichever the per-process hasher visited first. This open patch has nine
-    // bad edges ((0, 1) and (2, 3) are fine, each used twice); in every facet
-    // order the smallest bad edge, (0, 3), is reported.
+    // This open patch has nine bad edges ((0, 1) and (2, 3) are fine, each used twice); in
+    // every facet order the smallest bad edge, (0, 3), is reported.
     //
-    // Driven through `check_euler` directly: with incidence restricted to exact
-    // polytope vertices and edges collapsing only under the weld, no plane input
-    // tried here reaches a non-manifold mesh any more (the old reachable case, a
-    // near-duplicate plane claiming a facet twice, is now simply untouched).
+    // Driven through `check_euler` directly: incidence is restricted to exact polytope
+    // vertices and edges collapse only under the weld, so no plane input tried here
+    // reaches a non-manifold mesh.
     let facets: Vec<Vec<u32>> = vec![
         vec![0, 1, 2, 3],
         vec![4, 5, 6],
@@ -380,7 +374,7 @@ fn non_manifold_error_payload_is_deterministic() {
         }
     }
 
-    // The formerly non-manifold input: a second +X plane 2e-6 further out.
+    // A second +X plane 2e-6 further out is a near-duplicate that touches no vertex.
     let mut planes = cube_planes(1.0);
     planes.push(GpuFacetPlane::new(Vec3::X, -1.000_002));
     let hull = GemPolyhedron::from_planes(planes).expect("near-duplicate plane");
@@ -400,7 +394,7 @@ fn redundant_plane_touching_a_vertex_is_untouched() {
     assert!(hull.vertices.contains(&Vec3::ONE));
     assert_eq!(hull.volume(), 8.0);
 
-    // One a relative 1e-6 deeper cuts off a corner tetrahedron with legs of 3e-6,
+    // A plane a relative 1e-6 deeper cuts off a corner tetrahedron with legs of 3e-6,
     // far below the weld radius: its three vertices weld into one (a documented
     // meet-tolerance effect), so the plane touches a single vertex and is still
     // reported untouched. The welded vertex sits on the cut, not at the old corner.
@@ -441,7 +435,7 @@ fn vertices_are_feasible_for_every_plane() {
 
 #[test]
 fn volume_floor_is_scale_relative() {
-    // The old absolute `volume < 1e-9` floor rejected a cube of half-extent 1e-4.
+    // The volume floor is relative, so a cube of half-extent 1e-4 is accepted.
     for k in [1e-6_f32, 1e-4] {
         let hull = GemPolyhedron::from_planes(cube_planes(k))
             .unwrap_or_else(|e| panic!("cube of half-extent {k} must reconstruct: {e}"));
@@ -469,7 +463,7 @@ fn cube_facet_areas_and_volume_are_exact() {
 
 #[test]
 fn girdle_outline_of_cube_is_its_square_at_any_scale() {
-    // The old absolute 1e-6 dedup collapsed a cube of half-extent 1e-7 to one point.
+    // The dedup is relative, so a cube of half-extent 1e-7 keeps its four corners.
     for k in [1.0_f32, 1e-7] {
         let hull = GemPolyhedron::from_planes(cube_planes(k)).expect("cube");
         let outline = hull.girdle_outline();
@@ -506,8 +500,7 @@ fn vertex_meet_groups_order_is_stable() {
 
 #[test]
 fn fibonacci_sphere_600_planes_is_ok_and_deterministic() {
-    // chull returned non-convex hulls and flipped between Ok and Err from ~500 planes
-    // up (600 always failed). The primal enumeration is exact about convexity.
+    // A dense input must reconstruct as a convex closed solid, identically on every call.
     let planes = fibonacci_sphere(600);
     let first = GemPolyhedron::from_planes(planes.clone()).expect("600-plane sphere");
     let second = GemPolyhedron::from_planes(planes).expect("600-plane sphere");

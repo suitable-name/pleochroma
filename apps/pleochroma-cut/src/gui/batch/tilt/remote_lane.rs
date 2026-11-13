@@ -1,12 +1,11 @@
-//! The tilt batch's REMOTE dispatchers -- split from `engine.rs` (which keeps the
-//! resolve/compute/dispatch of one design and the shared bookkeeping) so each file stays
-//! readable.
+//! The tilt batch's remote dispatchers, split from `engine.rs` (which keeps the resolve,
+//! compute and dispatch of one design).
 //!
 //! `AppSettings::remote_batch_lanes` dispatchers run [`run_remote_lane`] at once over the
 //! batch's one shared queue (`gui::batch::remote_dispatch`), each keeping one whole
 //! design's four-axis sweep in flight. A design stays all-or-nothing: one request, one
-//! reply, never split between dispatchers, so a design is either saved with all four
-//! axes or handed to the local lane (or counted failed) as a whole.
+//! reply, never split between dispatchers. It is either saved with all four axes, handed
+//! to the local lane, or counted failed as a whole.
 
 use super::engine::{
     LaneShared, increment_completed, panic_message, process_remote_entry, push_progress,
@@ -24,11 +23,11 @@ use std::{
 };
 use tracing::warn;
 
-/// Dispatches one claimed design to the remote and returns whether its curves were
-/// computed and saved. A panic anywhere in the attempt counts as a failure of this one
-/// design. The design is counted in flight on the remote from the moment its title is
-/// known (it resolved) until the attempt ends; a design that never resolved was never
-/// sent, so it never counts.
+/// Dispatches one claimed design to the remote and returns whether its curves were saved.
+///
+/// A panic anywhere in the attempt counts as a failure of this one design. The design counts
+/// as in flight on the remote from the moment its title is known (it resolved) until the
+/// attempt ends. A design that never resolved was never sent, so it never counts.
 fn dispatch_design(
     shared: &LaneShared<'_>,
     ui_weak: &Weak<MainWindow>,
@@ -71,10 +70,8 @@ fn settle_design(shared: &LaneShared<'_>, entry_id: i64, saved: bool, fallback_t
         shared.tally.computed.fetch_add(1, Ordering::Relaxed);
         increment_completed(shared.progress);
     } else if fallback_to_local {
-        // Not accounted for yet -- the local lane will attempt this exact design
-        // next, and IT is the one that finally tallies/completes it. See
-        // `gui::batch::batch_queue`'s module doc comment for why this never goes
-        // back to the shared pool.
+        // Not tallied yet: the local lane retries this design and tallies it. It never
+        // goes back to the shared pool (see `gui::batch::batch_queue`'s module doc).
         shared.queue.return_to_local(entry_id);
     } else {
         // `RemoteOnly`: no local fallback exists, so this failure is final.
@@ -83,18 +80,17 @@ fn settle_design(shared: &LaneShared<'_>, entry_id: i64, saved: bool, fallback_t
     }
 }
 
-/// Runs ONE remote dispatcher: claims fresh designs via `WorkQueue::claim_shared` only
-/// (never a local-retried one -- that pile is reserved for the local lane, see
-/// `gui::batch::batch_queue`'s doc comment) until the shared pool is empty. The batch
-/// runs `shared.remote_lane_total` of these at once; when the LAST one ends,
-/// `dispatchers` raises `remote_lane_done` so the local lane knows no further requeues
+/// Runs ONE remote dispatcher.
+///
+/// It claims fresh designs via `WorkQueue::claim_shared` only, never a local-retried one (that
+/// pile is reserved for the local lane, see `gui::batch::batch_queue`), until the shared pool
+/// is empty. The batch runs `shared.remote_lane_total` of these at once. When the LAST one
+/// ends, `dispatchers` raises `remote_lane_done` so the local lane knows no further requeues
 /// are coming.
 ///
-/// `worker` is `None` only for `RemoteOnly` with no worker configured (see
-/// [`process_remote_entry`]'s own doc comment); `fallback_to_local` is `true` only for
-/// `LiveComputeTarget::Both` -- for `RemoteOnly` every failure is final and tallied
-/// `failed` directly: a remote failure is reported as failed and never silently
-/// re-rendered locally.
+/// `worker` is `None` when no worker is configured (see [`process_remote_entry`]).
+/// `fallback_to_local` is `true` only for `LiveComputeTarget::Both`. Under `RemoteOnly`
+/// every failure is final and tallied `failed`, never silently re-computed locally.
 pub(super) fn run_remote_lane(
     shared: &LaneShared<'_>,
     ui_weak: &Weak<MainWindow>,

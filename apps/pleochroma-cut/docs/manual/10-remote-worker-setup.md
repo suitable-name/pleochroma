@@ -22,16 +22,49 @@ version that listed several workers keep the **first** one — the one the
 app was already rendering with — and drop the rest; the log names what was
 dropped.)
 
+## Update the App and Every Worker Together
+
+The app and its workers must run the same version. The current version of the wire protocol
+is 42, which carries Stone Shadow, Tray Reflection, the HDR map's turn and the stone estimator. Each worker builds its own map: a Preview map for the live
+viewport, a Final map for everything else (exports, jobs, final images, batches and adaptive
+passes); map bytes are never sent over the wire. The Tray Reflection travels as one number
+(the surface's head-on reflectance), and each worker builds the mirror from the stone itself. A worker can render whole beam tiles of a
+beam-traced stone (Chapter 9), and the finished tiles come back to the app; this
+needs protocol 38 or later. A worker on an older version, such as one
+still running protocol 41, is **refused** when the app connects, for every remote render
+whether beam tracing is on or not. After you update the app, update every worker (and every
+coordinator that workers join) to the same release and restart them, then use **Test
+Connection** to check each one.
+
+Every worker must be on protocol 42 (version 0.11). The app sends the estimator with the scene
+(Chapter 9, "Exit Collection"), and a worker renders with the estimator the app sends, never
+with one of its own, so a picture shared between this computer and the workers is drawn with
+one estimator.
+
+Beam tracing is retired and is an optional build feature (`beam`). A worker or coordinator
+built without it answers every beam-tile request with "unsupported request" (code 5) and
+keeps the connection; a standard coordinator does not forward beam tiles. A beam build of
+the app then draws those tiles on this computer or on another worker, as it does for a lost
+worker (Chapter 9), and with Remote Only the export fails.
+A beam build and a standard build of one version still pair at the handshake (protocol 42).
+
+Adaptive sampling is an optional build feature too (`adaptive-sampling`, which a `beam` build
+includes). A worker or coordinator built without it answers every adaptive live-pass request
+with "unsupported request" (code 5) and keeps the connection; a standard coordinator does not
+forward live passes. A viewer then traces those tiles on this computer when Compute is Local +
+Remote, and with Remote Only the export reports the failure. The request stays in the wire
+protocol of every build, so an adaptive build and a standard build of one version still pair.
+
 ## Why Use a Remote Worker
 
-Both Path-Traced and Ray-Traced images can be sent to protocol-29 peers. Ray-Traced
+Both Path-Traced and Ray-Traced images can be sent to protocol-42 peers. Ray-Traced
 work carries its engine, AA count and Fire option with the resolved scene; tap ranges
 travel as sample ranges and are never merged with Path-Traced samples. Display-only
 Ray-Traced pictures are tone-mapped without the spectral denoiser. Older peers are
 refused during the handshake; update the viewer, coordinator and joined workers together.
-Protocol 29 also changed how the backdrop is rendered (a lit tray seen through the
-stone's windows, Chapter 2): a peer on the old rule would produce samples that cannot be
-merged with new ones, so it is refused the same way.
+A peer that renders the backdrop by an older rule (a lit tray seen through the
+stone's windows, Chapter 2) would produce samples that cannot be merged with new ones,
+so it is refused the same way.
 
 Rendering — especially a high-resolution export, or a live view with many
 samples per pixel — is faster on a more powerful machine. A remote worker
@@ -98,10 +131,8 @@ In the **Remote Coordinator** panel, fill in the form:
 - **Live Transfer** — one choice for how the remote's share comes back while you look
   at the stone: **Progressive (Full Data)** streams improving previews,
   **Full Data, When Finished** waits for the finished samples, and **Final Picture
-  (Denoised)** sends only finished, denoised frames. (Earlier versions had a separate
-  "Live stream" and "Live Transfer"; a remote saved with either keeps its meaning and
-  they are now this one control.) The Render & Output tab shows it read-only in its
-  Compute section, with an **Open Remote Settings...** link to this form.
+  (Denoised)** sends only finished, denoised frames. The Render & Output tab shows it
+  read-only in its Compute section, with an **Open Remote Settings...** link to this form.
 - **Cadence (ms)** — how often the remote sends an updated preview during
   a live render (default 500ms; the remote may enforce a slower floor than
   you ask for).
@@ -161,7 +192,7 @@ Where the choice lives:
 
 Click **Test Connection**. While it runs, the button shows "Testing...".
 On success you'll see something like "Compatible -- coordinator (3
-workers) (protocol v27)" (or "CPU, 16 threads" / a GPU description for a
+workers) (protocol v42)" (or "CPU, 16 threads" / a GPU description for a
 coordinator that renders on its own with `--render` and has no workers
 joined yet, or "library only (no render capacity)" if the remote only
 serves the design library — a coordinator with no joined workers and no

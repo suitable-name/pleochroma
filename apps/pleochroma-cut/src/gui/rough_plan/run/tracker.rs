@@ -12,17 +12,45 @@ use pleochroma_cut_core::rough_plan::{CutOrder, FitStage, PlanPath, PlanProgress
 use std::{
     sync::{
         OnceLock,
-        atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering},
     },
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 /// How many cut orders the plan runs.
 pub(super) const ORDER_COUNT: usize = CutOrder::ALL.len();
 
+/// The line under the progress bar while a plan runs: how many layouts the plan has found so
+/// far and the weight of the best, then the time left when the run has a time limit ("6
+/// layouts so far · best 29.43 ct · 1:40 left"). Empty when the plan has nothing to say yet.
+#[must_use]
+pub(super) fn best_so_far_text(layouts: usize, best_ct: f64, left: Option<Duration>) -> String {
+    let mut parts = Vec::new();
+    if layouts > 0 {
+        let plural = if layouts == 1 { "" } else { "s" };
+        parts.push(format!("{layouts} layout{plural} so far"));
+        parts.push(format!("best {best_ct:.2} ct"));
+    }
+    if let Some(left) = left {
+        parts.push(format!("{} left", remaining_text(left)));
+    }
+    let text = parts.join(" \u{b7} ");
+    let mut chars = text.chars();
+    chars.next().map_or_else(String::new, |first| {
+        first.to_uppercase().collect::<String>() + chars.as_str()
+    })
+}
+
 /// What the driver tells the progress sink about the work ahead.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) enum Note {
+    /// The six cut orders found `layouts` layouts, the best of them `best_ct` carat.
+    Found {
+        /// How many layouts the cut orders found.
+        layouts: usize,
+        /// The weight of the heaviest of them.
+        best_ct: f64,
+    },
     /// The piece-table stages will report this many `Grid` events in all.
     Grid(usize),
     /// The cut-order DPs will report this many `Dp` ticks in all.
@@ -165,6 +193,11 @@ pub(super) struct Tracker<'a> {
     /// The highest fraction pushed so far, as `f32` bits (non-negative floats order like
     /// their bits), so parallel lanes can never make the bar step back.
     high: AtomicU32,
+    /// How many layouts the cut orders found (see [`Note::Found`]).
+    found_layouts: AtomicUsize,
+    /// The weight of the heaviest of them as `f64` bits (non-negative floats order like their
+    /// bits).
+    found_best_bits: AtomicU64,
     /// The scan plan time limit in seconds, `0` for none. It only runs once armed.
     limit_secs: u32,
     /// The deadline, set by [`Progress::arm_deadline`] (a mesh rough only).
@@ -192,6 +225,8 @@ impl<'a> Tracker<'a> {
             fit_total: [1, 1, 1].map(AtomicUsize::new),
             fit_done: [0, 0, 0].map(AtomicUsize::new),
             high: AtomicU32::new(0),
+            found_layouts: AtomicUsize::new(0),
+            found_best_bits: AtomicU64::new(0),
             limit_secs: 0,
             deadline: OnceLock::new(),
             stopped: AtomicBool::new(false),
@@ -285,6 +320,16 @@ impl<'a> Tracker<'a> {
         )
     }
 
+    /// The line under the bar: what the cut orders found so far and `left`, the time left
+    /// before the limit (see [`best_so_far_text`]).
+    fn best_text(&self, left: Option<Duration>) -> String {
+        best_so_far_text(
+            self.found_layouts.load(Ordering::Relaxed),
+            f64::from_bits(self.found_best_bits.load(Ordering::Relaxed)),
+            left,
+        )
+    }
+
     /// The bar position for `within` (`0..=1` of the planning share), never below an
     /// earlier push.
     fn monotone_fraction(&self, within: f32) -> f32 {
@@ -299,6 +344,7 @@ impl Progress for Tracker<'_> {
     fn event(&self, event: PlanProgress) -> bool {
         let (stage, within) = self.describe(event);
         let fraction = self.monotone_fraction(within);
+        let mut left = None;
         let stage = match self.deadline.get() {
             Some(deadline) => {
                 let now = Instant::now();
@@ -306,17 +352,26 @@ impl Progress for Tracker<'_> {
                     self.stopped.store(true, Ordering::Relaxed);
                     "Stopping at the time limit...".to_string()
                 } else {
-                    format!("{stage} - {} left", remaining_text(deadline.remaining(now)))
+                    let remaining = deadline.remaining(now);
+                    left = Some(remaining);
+                    format!("{stage} - {} left", remaining_text(remaining))
                 }
             }
             None => stage,
         };
+        self.reporter.set_best_text(self.best_text(left));
         self.reporter.report(&stage, fraction, false);
         !self.reporter.cancelled() && !self.stopped.load(Ordering::Relaxed)
     }
 
     fn note(&self, note: Note) {
         match note {
+            Note::Found { layouts, best_ct } => {
+                self.found_layouts.store(layouts, Ordering::Relaxed);
+                // A weight is never negative, so the bits of the heaviest sort last.
+                self.found_best_bits
+                    .fetch_max(best_ct.max(0.0).to_bits(), Ordering::Relaxed);
+            }
             Note::Grid(total) => self.grid_total.store(total.max(1), Ordering::Relaxed),
             Note::Dp(total) => self.dp_total.store(total.max(1), Ordering::Relaxed),
             Note::Fit(stage, total) => {
@@ -456,6 +511,44 @@ mod tests {
         }
         assert_eq!(tracker.grid_steps.load(Ordering::Relaxed), 1);
         assert_eq!(tracker.dp_steps.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn the_line_under_the_bar_names_the_layouts_the_best_weight_and_the_time_left() {
+        let left = Some(Duration::from_secs(100));
+        assert_eq!(
+            best_so_far_text(6, 29.431, left),
+            "6 layouts so far \u{b7} best 29.43 ct \u{b7} 1:40 left"
+        );
+        assert_eq!(
+            best_so_far_text(1, 2.0, None),
+            "1 layout so far \u{b7} best 2.00 ct"
+        );
+        // Without layouts the line only has the time left, and without that nothing.
+        assert_eq!(best_so_far_text(0, 0.0, left), "1:40 left");
+        assert_eq!(
+            best_so_far_text(0, 0.0, Some(Duration::from_secs(45))),
+            "45 s left"
+        );
+        assert_eq!(best_so_far_text(0, 0.0, None), "");
+    }
+
+    #[test]
+    fn the_cut_orders_set_the_count_and_the_heaviest_weight_never_goes_down() {
+        let tracker = tracker(PlanPath::PlainBlock);
+        assert_eq!(tracker.best_text(None), "");
+        tracker.note(Note::Found {
+            layouts: 6,
+            best_ct: 12.5,
+        });
+        tracker.note(Note::Found {
+            layouts: 7,
+            best_ct: 9.0,
+        });
+        assert_eq!(
+            tracker.best_text(None),
+            "7 layouts so far \u{b7} best 12.50 ct"
+        );
     }
 
     #[test]

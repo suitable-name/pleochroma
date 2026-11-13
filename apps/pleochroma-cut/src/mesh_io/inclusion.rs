@@ -1,8 +1,9 @@
-//! Reading a mesh file as an inclusion: the same parsers and the same unit choice as a
-//! rough, and little else. The file's numbers come out in millimetres, in the file's own
-//! coordinates; the planner then moves them into the rough's frame and checks them against
-//! the rough (`RoughModel::with_inclusions_added` in the core), so this module has no window,
-//! no file access and no rough, and its tests run with the rest of the workspace.
+//! Reads a mesh file as an inclusion, with the same parsers and unit choice as a rough.
+//!
+//! The numbers come out in millimetres, in the file's own coordinates. The planner then moves
+//! them into the rough's frame and checks them against the rough (see
+//! `RoughModel::with_inclusions_added` in the core). This module has no window, no file
+//! access and no rough.
 //!
 //! An imported mesh rough shares its file's coordinates with an inclusion file. A block, a
 //! cylinder or a pebble has no file, so an inclusion is placed by typed numbers instead (see
@@ -30,9 +31,9 @@ pub const DEFAULT_MARGIN_MM: f64 = 0.3;
 /// The largest margin the field takes, in mm.
 pub const MAX_MARGIN_MM: f64 = 10.0;
 
-/// Shown when a tool that needs a mesh to trace on (an inclusion located from photos) is asked
-/// for on a rough that is not an imported mesh. Typed inclusions and mesh files need no such
-/// rough: they go into a block, a cylinder or a pebble as well.
+/// Shown when a photo-located inclusion is asked for on a rough that is not an imported mesh.
+///
+/// Typed inclusions and mesh files also work on a block, a cylinder or a pebble.
 pub const NOT_A_MESH_ROUGH: &str = "Locating an inclusion from photos needs a rough imported from \
      a mesh file. Choose the Mesh rough and import one first.";
 
@@ -103,7 +104,7 @@ fn refusal_text(error: &HullError, base: &RoughBase) -> String {
 /// mesh in the rough's own frame.
 ///
 /// For an imported mesh the file's coordinates are moved the way the import moved the rough
-/// (and Fit to weight scaled it), and `placement` is not used. A rough read back from a saved
+/// (and Fit to Weight scaled it), and `placement` is not used. A rough read back from a saved
 /// plan that did not keep that frame is its own. For a block, a cylinder or a pebble the
 /// mesh is moved so that the centre of its bounding box is at `placement` (an empty axis is
 /// the rough's centre).

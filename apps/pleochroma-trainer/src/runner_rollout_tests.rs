@@ -1,4 +1,4 @@
-//! Collection policy regressions using synthetic outcomes without candidate scoring.
+//! Tests of the collection policy on synthetic step outcomes, without candidate scoring.
 
 use super::*;
 use crate::runner::tests::fixture_runner_with;

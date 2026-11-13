@@ -1,8 +1,10 @@
-//! Tests for the uniaxial Fresnel closed-form solution: the isotropic limit against
-//! this crate's existing scalar Fresnel formula, energy conservation (including TIR)
-//! at both interfaces, the normal-incidence special case, Rutile's divergence from the
-//! old effective-index approximation, the Mueller-matrix conversion, and the batched
-//! entry-solve path's bitwise equivalence to the unbatched one.
+//! Tests of the uniaxial Fresnel closed form.
+//!
+//! They cover the isotropic limit against the scalar Fresnel
+//! formulas, energy conservation (including TIR) at both interfaces, the normal-incidence
+//! special case, the divergence from the scalar effective-index approximation for Rutile,
+//! the Mueller-matrix conversion, and the batched entry solve, which must match the
+//! unbatched one bit for bit.
 
 use super::{
     complex::Cplx,
@@ -26,11 +28,8 @@ fn frame_for(ang_deg: f32, c_axis: Vec3) -> UniaxialFrame {
     UniaxialFrame::build(k_hat, normal, c_axis, cos_i, sin_i)
 }
 
-/// The isotropic limit of this module's own boundary-matching machinery (feed it
-/// `n_o == n_e`, no coupling should remain) must reproduce this crate's EXISTING
-/// scalar `r_s`/`r_p` Fresnel formula (`refraction.rs`'s `r_s_k`/`r_p_k`) exactly,
-/// including its sign convention -- this is the same check the isotropic-to-isotropic
-/// check run against the reference prototype before the Rust implementation existed.
+/// With `n_o == n_e` the boundary solve must reproduce the scalar `r_s`/`r_p` Fresnel
+/// formulas, including their sign convention, and leave no cross-polarized reflection.
 #[test]
 fn entry_solve_matches_existing_scalar_fresnel_at_zero_birefringence() {
     let n = 1.7f32;
@@ -63,10 +62,8 @@ fn entry_solve_matches_existing_scalar_fresnel_at_zero_birefringence() {
     }
 }
 
-/// R + T == 1 (Poynting-projected) at an entry interface, across materials,
-/// optic-axis orientations and angles -- the Rust-side re-derivation of the Python
-/// prototype's `entry_energy_conservation_test` (which found `worst_err = 5.6e-16`
-/// across the same sweep).
+/// R + T == 1 (Poynting-projected) at an entry interface, across materials, optic-axis
+/// orientations and angles.
 #[test]
 fn entry_energy_conservation_holds_across_materials_axes_and_angles() {
     let materials = [(1.925f32, 1.984f32), (2.65, 2.67), (2.616, 2.903)];
@@ -84,7 +81,7 @@ fn entry_energy_conservation_holds_across_materials_axes_and_angles() {
                 let frame = frame_for(ang, c_axis);
                 let k_hat = Vec3::new(frame.sin_i, 0.0, frame.cos_i);
                 if k_hat.dot(c_axis).abs() > 0.999_999 {
-                    continue; // degenerate k-parallel-c normal incidence, see module docs
+                    continue; // wave normal parallel to the optic axis: degenerate
                 }
                 for incident_s in [true, false] {
                     let sol = entry_solve(1.0, n_o, n_e, c_axis, &frame, incident_s);
@@ -106,10 +103,8 @@ fn entry_energy_conservation_holds_across_materials_axes_and_angles() {
                         frame.sin_i,
                         roots.qe_plus,
                     );
-                    // amplitude-1 isotropic mode flux == 0.5*cos_i (poynting_z's own
-                    // 0.5 time-average factor), NOT bare cos_i -- must stay
-                    // consistent with sz_o/sz_e below, which both come from the same
-                    // `poynting_z` (and so both already carry that same 0.5).
+                    // Incident flux with `poynting_z`'s 0.5 time-average factor, matching
+                    // sz_o and sz_e, which come from the same function.
                     let inc_flux = 0.5 * frame.cos_i;
                     let sz_o = poynting_z(&fo, sol.t_o, frame.zhat);
                     let sz_e = poynting_z(&fe, sol.t_e, frame.zhat);
@@ -127,10 +122,8 @@ fn entry_energy_conservation_holds_across_materials_axes_and_angles() {
     );
 }
 
-/// The internal-reflection/exit interface's own R + T == 1 check, including genuine
-/// TIR (complex, evanescent transmitted wave) cases -- re-derives the Python
-/// prototype's `internal_exit_energy_conservation_test` (204 TIR cases,
-/// `worst_err = 2.7e-15`).
+/// R + T == 1 (Poynting-projected) at the internal-reflection/exit interface, including
+/// TIR cases with an evanescent transmitted wave.
 #[test]
 fn internal_exit_energy_conservation_holds_including_tir() {
     let materials = [(1.925f32, 1.984f32), (2.65, 2.67), (2.616, 2.903)];
@@ -163,13 +156,9 @@ fn internal_exit_energy_conservation_holds_including_tir() {
                     if big_k > 1.0 {
                         tir_cases += 1;
                     }
-                    // `sol.flux_inc` is the incident mode's own intrinsic Poynting
-                    // flux -- NOT assumed equal to `n_inc*cos_i` (that
-                    // isotropic-looking shortcut is only exactly right for a mode
-                    // whose Poynting vector is parallel to its wave normal, i.e. the
-                    // ordinary mode or an isotropic mode -- the extraordinary mode
-                    // walks off, so its true flux differs; see `flux_inc`'s own doc
-                    // comment, added after this exact test caught the bug).
+                    // `sol.flux_inc` is the incident mode's own Poynting flux. It is not
+                    // `n_inc * cos_i` in general: the extraordinary Poynting vector walks
+                    // off the wave normal (see `flux_inc`).
                     let inc_flux = sol.flux_inc;
                     let sz_ro = sol.r_o.norm_sqr() * sol.flux_ro;
                     let sz_ext = sol.r_e.norm_sqr() * sol.flux_re;
@@ -195,6 +184,62 @@ fn internal_exit_energy_conservation_holds_including_tir() {
     );
 }
 
+/// Past the incident wave's own critical angle (`n_inc * sin_i > 1`) the transmitted wave is
+/// evanescent and the two reflected modes carry all of the incident flux, so
+/// `internal_solve`'s total reflectance is 1. The TIR bounce relies on this identity to skip
+/// the solve for every non-hero channel, so this bounds the image change of that shortcut. The
+/// bound is the f32 solve's own, as in `internal_exit_energy_conservation_holds_including_tir`
+/// (the cases here reach 89 degrees and a birefringence of 0.3).
+#[expect(
+    clippy::similar_names,
+    reason = "ro_pow/re_pow are the ordinary/extraordinary reflected powers, named as in apply_tir_bounce"
+)]
+#[test]
+fn internal_total_reflectance_is_one_past_the_critical_angle() {
+    let mut state = 11u64;
+    let mut worst = 0.0f32;
+    let mut cases = 0u32;
+    for _ in 0..4000 {
+        let ang_deg = 89.0 * lcg(&mut state).abs();
+        let c_axis = Vec3::new(lcg(&mut state), lcg(&mut state), lcg(&mut state))
+            .try_normalize()
+            .unwrap_or(Vec3::Y);
+        let n_o = 1.2f32.mul_add(lcg(&mut state).abs(), 1.5);
+        let n_e = 0.3f32.mul_add(lcg(&mut state), n_o);
+        let frame = frame_for(ang_deg, c_axis);
+        let k_hat = Vec3::new(frame.sin_i, 0.0, frame.cos_i);
+        if k_hat.dot(c_axis).abs() > 0.999 || (n_o - n_e).abs() < 1e-3 {
+            continue;
+        }
+        for incident_is_ordinary in [true, false] {
+            let n_inc = if incident_is_ordinary {
+                n_o
+            } else {
+                let cos_kc = frame.gamma.mul_add(frame.cos_i, frame.alpha * frame.sin_i);
+                let sin2 = cos_kc.mul_add(-cos_kc, 1.0).max(0.0);
+                1.0 / (cos_kc * cos_kc / (n_o * n_o) + sin2 / (n_e * n_e)).sqrt()
+            };
+            if n_inc * frame.sin_i <= 1.0 {
+                continue;
+            }
+            let sol = internal_solve(n_inc, n_o, n_e, c_axis, &frame, incident_is_ordinary);
+            let ro_pow = sol.r_o.norm_sqr() * sol.flux_ro;
+            let re_pow = sol.r_e.norm_sqr() * sol.flux_re;
+            let r_total = (ro_pow + re_pow) / sol.flux_inc.max(1e-12);
+            worst = worst.max((r_total - 1.0).abs());
+            cases += 1;
+        }
+    }
+    assert!(
+        cases > 500,
+        "test setup should exercise many TIR cases, got {cases}"
+    );
+    assert!(
+        worst < 1e-3,
+        "total reflectance past the critical angle should be 1, worst deviation {worst}"
+    );
+}
+
 /// Normal incidence, optic axis in the surface plane: the closed form must reduce
 /// to the pure ordinary/extraordinary Fresnel identities (matching this crate's own
 /// `r_s`/`r_p` sign convention -- see the zero-birefringence test above for why
@@ -215,34 +260,16 @@ fn normal_incidence_inplane_axis_gives_pure_ordinary_extraordinary_fresnel() {
     assert!(sol_p.r_s.norm_sqr().sqrt() < 1e-4);
 }
 
-/// Requirement 9: Rutile's extreme birefringence (`+0.2957`, the highest of any
-/// built-in) should make the new closed-form entry Fresnel reflectance visibly
-/// diverge from the OLD "effective index" scalar approximation (a single
-/// isotropic-style Fresnel evaluated at `BirefringenceParams::
-/// effective_extraordinary_index`) at an oblique incidence with the optic axis NOT
-/// confined to the
-/// plane of incidence (the general case where s/p<->o/e coupling is genuinely
-/// present, per this module tree's own top-level doc comment). Proves the new
-/// closed-form path is materially different physics, not a no-op refactor.
+/// Rutile's birefringence is large enough that the closed-form entry reflectance differs
+/// clearly from the scalar effective-index approximation (a single isotropic Fresnel
+/// evaluated at `BirefringenceParams::effective_extraordinary_index`). The geometry is
+/// oblique, with the optic axis out of the plane of incidence, so s/p and o/e coupling is
+/// present.
 ///
-/// Compares the p-INCIDENT reflectance specifically (`|r_pp|^2` vs. the old
-/// isotropic `r_p^2` at the same effective index) rather than the unpolarized
-/// average: the coupling correction partially cancels between s- and p-incidence
-/// in the unpolarized average (each channel's own `r_sp`/`r_ps` cross-leakage adds
-/// intensity the old scalar formula didn't have, but the DIAGONAL `r_ss`/`r_pp`
-/// terms drop correspondingly, since energy is conserved) -- the single-
-/// polarization reflectance is where the ~15% deviation is
-/// actually visible; this geometry (20 degrees incidence, optic axis close to the
-/// surface plane but with a genuine out-of-plane `beta` component) was found, by a
-/// small sweep over angle/axis combinations, to land closest to that figure.
-///
-/// Bound derivation: the geometry (20 degrees, `c_axis`) is fixed, so the deviation
-/// depends on the indices only through the relative anisotropy `(n_e - n_o) / n_o`.
-/// That is `0.2957 / 2.6129 = 0.1132` for the Sellmeier-3 Rutile fit (`n_o = 2.6129`,
-/// `n_e = 2.9086` at 589.3 nm) against `0.1097` for the earlier Cauchy pair
-/// (`0.287 / 2.616`), a 3% increase, which moves a ~15% deviation by well under one
-/// percentage point even if it scaled quadratically. The `0.08..=0.25` window is
-/// therefore unchanged.
+/// The comparison uses the p-incident reflectance `|r_pp|^2`. In the unpolarized average
+/// the coupling terms partly cancel, which hides the deviation. At this fixed geometry the
+/// deviation depends on the indices only through `(n_e - n_o) / n_o`; the window of 8 to 25
+/// percent brackets the roughly 15 percent expected for Rutile.
 #[test]
 fn rutile_fresnel_diverges_from_isotropic_effective_index_approximation_by_about_15_percent() {
     use crate::optics::{birefringence::BirefringenceParams, materials::GemMaterial};
@@ -260,7 +287,7 @@ fn rutile_fresnel_diverges_from_isotropic_effective_index_approximation_by_about
     let frame = frame_for(20.0, c_axis);
     let k_hat = Vec3::new(frame.sin_i, 0.0, frame.cos_i);
 
-    // OLD approximation: a single scalar "effective index"
+    // Scalar approximation: a single "effective index"
     // (`effective_extraordinary_index`), plain isotropic p-polarized Fresnel
     // reflectance at that one index.
     let theta_c = k_hat.dot(c_axis).clamp(-1.0, 1.0).abs().acos();
@@ -272,7 +299,7 @@ fn rutile_fresnel_diverges_from_isotropic_effective_index_approximation_by_about
     let r_p_old = n_eff.mul_add(frame.cos_i, -cos_t_old) / n_eff.mul_add(frame.cos_i, cos_t_old);
     let r_pp_old_sq = r_p_old * r_p_old;
 
-    // NEW closed-form: the true p-incident, p-reflected power `|r_pp|^2`.
+    // Closed form: the true p-incident, p-reflected power `|r_pp|^2`.
     let sol_p = entry_solve(1.0, n_o, n_e, c_axis, &frame, false);
     let r_pp_new_sq = sol_p.r_p.norm_sqr();
 
@@ -304,8 +331,7 @@ fn jones_to_mueller_matches_existing_diagonal_fresnel_reflection() {
     }
 }
 
-/// Small deterministic LCG (no external RNG dependency), matching the convention
-/// `geometry::meet_solver::candidates`'s own bitwise-equivalence tests use.
+/// Small deterministic LCG, so the tests need no RNG dependency.
 fn lcg(state: &mut u64) -> f32 {
     *state = state
         .wrapping_mul(6_364_136_223_846_793_005)
@@ -313,19 +339,11 @@ fn lcg(state: &mut u64) -> f32 {
     (((*state >> 33) as f32) / u32::MAX as f32).mul_add(2.0, -1.0)
 }
 
-/// Performance (requirement 7, batching): [`entry_solve_pair_with_incidence`] fed a
-/// shared [`super::EntryIncidenceFrame`] (the "batched" path every uniaxial entry call
-/// site uses -- see `refraction::apply_uniaxial_entry_bounce`) must be
-/// BIT-IDENTICAL, field for field, to [`entry_solve_pair`] called completely fresh
-/// (the "scalar" path, computing its own `EntryIncidenceFrame` from scratch every
-/// time) -- across random angles, optic-axis
-/// orientations and `(n_o, n_e)` pairs, mirroring
-/// `geometry::meet_solver::candidates::batched_enumeration_matches_glam_reference_
-/// bitwise`'s own convention for this exact kind of claim. `entry_incidence_frame`
-/// only hoists a computation that never depended on `n_o`/`n_e` in the first place
-/// (see that function's own doc comment) -- no floating-point operation is
-/// reordered or approximated, so this is not expected to merely be CLOSE, it must
-/// be EXACT.
+/// [`entry_solve_pair_with_incidence`] with a shared [`super::EntryIncidenceFrame`] must be
+/// bit-identical, field for field, to [`entry_solve_pair`], which builds its own frame. The
+/// check covers random angles, optic-axis orientations and `(n_o, n_e)` pairs. No
+/// floating-point operation is reordered, so the results must match exactly, not just
+/// closely.
 #[test]
 fn batched_entry_solve_pair_matches_scalar_bitwise() {
     let mut state = 7u64;
@@ -338,14 +356,11 @@ fn batched_entry_solve_pair_matches_scalar_bitwise() {
         let n_e = 0.3f32.mul_add(lcg(&mut state), n_o);
         let frame = frame_for(ang_deg, c_axis);
 
-        // "Scalar": entry_solve_pair rebuilds its own EntryIncidenceFrame
-        // internally on every call, exactly as every call site did before this
-        // task's batching change.
+        // Scalar: `entry_solve_pair` builds its own EntryIncidenceFrame on every call.
         let (scalar_s, scalar_p) = entry_solve_pair(1.0, n_o, n_e, c_axis, &frame);
 
-        // "Batched": one EntryIncidenceFrame shared across (here) a single call,
-        // exactly as `apply_uniaxial_entry_bounce` now shares it across all 8
-        // hero channels of one bounce.
+        // Batched: one EntryIncidenceFrame shared by the channels, as in
+        // `apply_uniaxial_entry_bounce`.
         let inc = entry_incidence_frame(1.0, &frame);
         let (batched_s, batched_p) =
             entry_solve_pair_with_incidence(&inc, 1.0, n_o, n_e, c_axis, &frame);

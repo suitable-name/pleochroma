@@ -1,6 +1,5 @@
-//! Organizing an existing local design: ignore/un-ignore, rename, shape edit, and
-//! delete -- the "Organize" half of `gui::library::local` (see this group's own
-//! `mod.rs`); import and export live in their own sibling modules.
+//! Organizing an existing local design: ignore, planner exclusion, rename, shape, tags and
+//! delete. Import and export live in their own sibling modules.
 
 use super::helpers::refresh_after_library_change;
 use crate::{
@@ -16,12 +15,10 @@ use pleochroma_vault::{db::sqlite::Database, model::metadata_update::MetadataUpd
 use slint::{ComponentHandle, Model, SharedString};
 use std::sync::{Arc, Mutex};
 
-/// Wires the per-design "Ignore"/"Un-ignore" context-menu toggle --
-/// `diagram_list.slint`'s `ContextMenuArea`, alongside "Generate Previews"/"Compute
-/// Tilt Curves". Refuses outright while a remote library is being browsed, same
-/// reasoning as [`setup_rename_callback`]'s own doc comment: `Database::set_diagram_ignored`
-/// is a local-database write, and the remote library protocol has no write request for
-/// it even if this wanted to send one.
+/// Wires the per-design "Ignore" toggle in `diagram_list.slint`.
+///
+/// Refuses while a remote library is browsed: `Database::set_diagram_ignored` writes the
+/// local database, and the remote protocol has no request for it.
 pub fn setup_ignore_toggle_callback(
     ui: &MainWindow,
     db: &Arc<Mutex<Database>>,
@@ -47,15 +44,10 @@ pub fn setup_ignore_toggle_callback(
                 );
                 return;
             }
-            // The currently-visible list already carries whether this row is ignored
-            // (`DiagramItem.ignored`, populated by `gui::library::search::fetch_diagram_list` --
-            // see that function's own doc comment for how, since
-            // `pleochroma_vault::model::entry::DiagramListItem` itself has no such field).
-            // Reading it back off the list avoids a database round trip just to answer
-            // "is this currently ignored" before flipping it. A row not found in the
-            // currently-visible list (a stale click racing a refresh) falls back to
-            // `true` -- ignoring is the more common direction this action is used for,
-            // and a mistaken ignore is one more click to undo.
+            // The visible list carries the ignored state (`DiagramItem.ignored`, set by
+            // `gui::library::search::fetch_diagram_list`), so no database read is needed.
+            // A row missing from the list (a stale click) counts as not ignored, so the
+            // click ignores it: ignoring is the common direction, and undoing is one click.
             let currently_ignored = ui
                 .global::<LibraryModel>()
                 .get_diagram_list()
@@ -87,16 +79,14 @@ pub fn setup_ignore_toggle_callback(
         });
 }
 
-/// Wires the per-design "Exclude from planner"/"Include in planner" context-menu toggle
-/// (`diagram_list.slint`, beside "Ignore"). The mark only keeps the design out of the
-/// Rough Planner's candidate set; unlike "Ignore" the design stays in the list and in
-/// every other batch. Refuses outright while a remote library is being browsed, same
-/// reasoning as [`setup_ignore_toggle_callback`]: `Database::set_planner_excluded` is a
-/// local-database write and the remote library protocol has no request for it.
+/// Wires the per-design "Exclude from planner" toggle in `diagram_list.slint`.
 ///
-/// After the write the library list is refreshed (the row's "not planned" marker and the
-/// menu wording follow the database) and the planner window, when it exists, re-reads its
-/// excluded-designs list and counts through `rough_plan::exclusions_changed`.
+/// The mark only keeps the design out of the Rough Planner's candidates. Unlike "Ignore", the
+/// design stays in the list and in every other batch. Refuses while a remote library is
+/// browsed, as [`setup_ignore_toggle_callback`] does.
+///
+/// After the write the library list is refreshed, and `rough_plan::exclusions_changed`
+/// tells an open planner window to re-read its excluded designs.
 pub fn setup_planner_exclusion_toggle_callback(
     ui: &MainWindow,
     db: &Arc<Mutex<Database>>,
@@ -122,12 +112,9 @@ pub fn setup_planner_exclusion_toggle_callback(
                 );
                 return;
             }
-            // The visible row already carries the current state (`DiagramItem.
-            // planner_excluded`) and the title the toast quotes, so no database round
-            // trip is needed to answer "is this excluded now". A row missing from the
-            // visible list (a stale click racing a refresh) counts as not excluded, so
-            // the click excludes it, which is the direction this item is mostly used
-            // for and costs one more click to undo.
+            // The visible row carries the current state (`DiagramItem.planner_excluded`), so no
+            // database read is needed. A row missing from the list (a stale click) counts as
+            // not excluded, so the click excludes it.
             let shown = ui
                 .global::<LibraryModel>()
                 .get_diagram_list()
@@ -163,13 +150,9 @@ pub fn setup_planner_exclusion_toggle_callback(
 
 /// Wires up the detail header's inline rename (pencil icon -> `rename_diagram`).
 ///
-/// Refuses outright while a remote library is being browsed: the selected entry id in
-/// that case names a row in the REMOTE server's catalogue, not this process's local
-/// database, and the library protocol is read-only in any case (see
-/// `pleochroma_net::library`'s module doc comment -- there is no write request to send even
-/// if this wanted to act on the remote row instead). Renaming a LOCAL row while
-/// browsing remote is not offered either -- the visible list, and so the selection,
-/// is the remote one.
+/// Refuses while a remote library is browsed. The selected id then names a row in the
+/// remote catalogue, and the remote protocol is read-only. Renaming a local row is not
+/// offered either, since the selection is the remote one.
 pub fn setup_rename_callback(
     ui: &MainWindow,
     db: &Arc<Mutex<Database>>,
@@ -220,20 +203,15 @@ pub fn setup_rename_callback(
 
 /// Sets `entry_id`'s shape to `new_shape`, called by [`setup_set_shape_callback`].
 ///
-/// Edits exactly one column. `Database::update_diagram_metadata` issues a narrow
-/// `UPDATE diagram_details SET ...` naming only the fields handed to it, so every
-/// other column keeps whatever it already held -- unlike
-/// `Database::save_diagram_detail`, which fully REPLACES a design's detail row and
-/// would therefore zero anything the caller failed to carry across.
+/// Edits exactly one column. `Database::update_diagram_metadata` issues a narrow `UPDATE`
+/// naming only the fields it is given. `Database::save_diagram_detail` would replace the
+/// whole detail row, zeroing anything not carried across.
 ///
-/// The rest of the [`MetadataUpdate`] below is read straight back out of the design's
-/// current record and passed through unchanged, so the net effect is `shape` and
-/// nothing else. The record carries each stored double as the shortest text that parses
-/// back to exactly that double, so the numbers survive the trip to the last digit.
-/// In particular the proportions are NOT recomputed: they are measured
-/// data (see `super::import::apply_measured_metadata`, which derives them once at
-/// import from the design's own geometry), and re-deriving them on an unrelated shape
-/// edit would be both wasted work and a chance to disagree with the stored value.
+/// The other fields of the [`MetadataUpdate`] are read back from the current record and
+/// passed through unchanged. Stored doubles come back as the shortest text that parses to
+/// the same value, so they survive exactly. The proportions are not recomputed: they are
+/// measured at import (see `super::import::apply_measured_metadata`), and re-deriving them
+/// on a shape edit could disagree with the stored values.
 fn set_diagram_shape(db: &Database, entry_id: i64, new_shape: &str) -> Result<(), String> {
     let full = db
         .get_diagram_full(entry_id)
@@ -259,19 +237,14 @@ fn set_diagram_shape(db: &Database, entry_id: i64, new_shape: &str) -> Result<()
         .map_err(|e| e.to_string())
 }
 
-/// Builds the shape picker's option list and the index within it that matches
-/// `current` (the selected design's own `shape`, `None`/empty for an unclassified
-/// import). Called from `gui::library::detail::load_diagram_detail` every time a LOCAL
-/// design is opened, so the dropdown always reflects this design and the library's
-/// present vocabulary.
+/// Builds the shape picker's options and the index of `current` within them.
 ///
-/// `Database::get_unique_shapes` already unions the seeded `DEFAULT_SHAPES` with
-/// every distinct scraped value actually present, alphabetically -- this only adds
-/// one more thing: if `current` itself isn't in that union for some reason (should be
-/// rare -- it would mean this design's own `shape` value was written by something
-/// other than `save_diagram_detail`/the seeded vocabulary), it's inserted too, so
-/// opening the picker can never silently drop the design's existing value out of the
-/// list before the user has touched anything.
+/// `current` is `None` or empty for an unclassified design, which gives index -1. Called from
+/// `gui::library::detail::load_diagram_detail` whenever a local design opens.
+///
+/// `Database::get_unique_shapes` already returns the seeded `DEFAULT_SHAPES` plus every
+/// shape present in the library, sorted. A `current` value missing from that list is added
+/// too, so opening the picker never drops the design's own shape.
 pub fn build_shape_picker_options(
     db: &Database,
     current: Option<&str>,
@@ -293,13 +266,11 @@ pub fn build_shape_picker_options(
     (shapes.into_iter().map(SharedString::from).collect(), index)
 }
 
-/// Wires up the detail header's shape picker (pencil icon next to the "Shape:" chip,
-/// same idiom as [`setup_rename_callback`]'s title pencil) -> `set_shape`.
+/// Wires up the detail header's shape picker (pencil icon next to the "Shape:" chip) to
+/// `set_shape`.
 ///
-/// Refuses outright while a remote library is being browsed -- see
-/// `setup_rename_callback`'s own doc comment; `detail_header.slint` additionally only
-/// shows the pencil for `root.detail.is_local`, so this guard is a backstop, not the
-/// only thing standing between a remote-sourced id and the local database.
+/// Refuses while a remote library is browsed. `detail_header.slint` also shows the pencil
+/// only for local designs, so this check is a backstop.
 pub fn setup_set_shape_callback(
     ui: &MainWindow,
     db: &Arc<Mutex<Database>>,
@@ -348,15 +319,12 @@ pub fn setup_set_shape_callback(
         });
 }
 
-/// Wires up the "Add tag..." context-menu entry (`diagram_list.slint`)
-/// -> `add_tag_to_entry`. Creates the tag if it doesn't already exist
-/// (case-insensitively) and attaches it to `entry_id` -- see
-/// `Database::add_tag_to_entry`'s own doc comment for the exact create-or-reuse
-/// rule. A blank name (whitespace-only) is rejected with a toast rather than
-/// silently creating an empty tag.
+/// Wires up the "Add tag..." context-menu entry (`diagram_list.slint`) to `add_tag_to_entry`.
 ///
-/// Refuses outright while a remote library is being browsed, same reasoning as
-/// [`setup_rename_callback`]'s own doc comment.
+/// That creates the tag if needed and attaches it to `entry_id`. A blank name is rejected by
+/// the database and shown as a toast.
+///
+/// Refuses while a remote library is browsed.
 pub fn setup_add_tag_callback(
     ui: &MainWindow,
     db: &Arc<Mutex<Database>>,
@@ -395,17 +363,13 @@ pub fn setup_add_tag_callback(
     );
 }
 
-/// Wires up a tag chip's remove control (`diagram_list.slint`) -> `remove_tag_from_entry`.
-/// Takes the tag's NAME rather than its id -- the card only ever carries
-/// `DiagramItem.tags: [string]` (see `gui::library::diagram_list::
-/// sync_tag_vocabulary_to_ui`'s own doc comment for why the Slint side never
-/// handles a tag id directly), so this resolves the name to an id via
-/// `Database::tag_id_by_name` itself. A name that no longer resolves (the tag was
-/// deleted from elsewhere between the chip rendering and this click) is a silent
-/// no-op, not an error -- there is nothing left to remove.
+/// Wires up a tag chip's remove control (`diagram_list.slint`) to `remove_tag_from_entry`.
 ///
-/// Refuses outright while a remote library is being browsed, same reasoning as
-/// [`setup_rename_callback`]'s own doc comment.
+/// The chip carries the tag's name, not its id, so the name is resolved with
+/// `Database::tag_id_by_name`. A name that no longer resolves (the tag was deleted meanwhile)
+/// is a no-op: there is nothing left to remove.
+///
+/// Refuses while a remote library is browsed.
 pub fn setup_remove_tag_callback(
     ui: &MainWindow,
     db: &Arc<Mutex<Database>>,
@@ -449,15 +413,14 @@ pub fn setup_remove_tag_callback(
     );
 }
 
-/// Wires up the two ways to delete a design: the detail header's delete confirm ->
-/// `delete_diagram` (the selected row, already confirmed inline), and the list's
-/// context menu / Library menu -> `delete_entry(id, title)` (any row, confirmed here in
-/// the shared in-window dialog first). Both end in [`delete_entry_now`].
+/// Wires up the two ways to delete a design.
 ///
-/// Refuses outright while a remote library is being browsed -- see
-/// `setup_rename_callback`'s own doc comment; the same reasoning applies verbatim
-/// (and matters even more here, since a mistaken delete against the wrong local row by
-/// a remote-sourced id would be destructive, not just cosmetically wrong).
+/// The detail header's `delete_diagram` acts on the selected row, already confirmed inline.
+/// The list's `delete_entry(id, title)` acts on any row, after a confirm dialog. Both end in
+/// [`delete_entry_now`].
+///
+/// Refuses while a remote library is browsed. A remote id applied to the local database
+/// would delete the wrong row.
 pub fn setup_delete_callback(
     ui: &MainWindow,
     db: &Arc<Mutex<Database>>,
@@ -543,9 +506,11 @@ fn refuse_delete_while_remote(ui: &MainWindow, source: &Arc<Mutex<LibrarySource>
     remote
 }
 
-/// Removes the entry (cascading to its detail/angle-settings/attached-files rows, see
-/// `Database::delete_diagram_entry`) and clears whatever still shows it: the detail
-/// pane when it is the selected row, the 3D viewport when its planes are loaded.
+/// Removes the entry and clears whatever still shows it.
+///
+/// `Database::delete_diagram_entry` cascades to the detail, angle and attachment rows. The
+/// detail pane is cleared when the entry is selected, and the 3D viewport when its planes are
+/// loaded.
 fn delete_entry_now(
     ui: &MainWindow,
     db: &Arc<Mutex<Database>>,
@@ -562,11 +527,8 @@ fn delete_entry_now(
     };
     match result {
         Ok(()) => {
-            // This design is genuinely gone, not merely filtered out
-            // of the current list -- see
-            // `crate::gui::library::detail::clear_current_detail_display`'s own doc
-            // comment for the (narrower) case that function was pulled out for. A
-            // context-menu delete of another row leaves the selected design on screen.
+            // Only the selected design's detail pane is cleared. Deleting another row
+            // leaves the selected design on screen.
             if ui.global::<LibraryModel>().get_selected_entry_id() == entry_id {
                 crate::gui::library::detail::clear_current_detail_display(ui);
             }
@@ -601,13 +563,11 @@ mod tests {
     use crate::gui::library::local::helpers::test_support::{open_temp_db, temp_db_path_for_test};
     use pleochroma_vault::model::detail::FacetingDiagramDetail;
 
-    /// `set_diagram_shape` must edit `shape` and NOTHING else.
+    /// `set_diagram_shape` must edit `shape` and nothing else.
     ///
-    /// `pleochroma-vault` already proves `update_diagram_metadata` writes only the
-    /// columns it is handed; this proves the wiring on THIS side hands it all of them.
-    /// Omitting one field from the `MetadataUpdate` literal would compile fine and
-    /// silently blank that column on every shape edit -- the kind of data loss a
-    /// narrow, explicit `UPDATE` is designed to prevent.
+    /// The vault tests show that `update_diagram_metadata` writes only the columns it is
+    /// given. This checks that the wiring passes all of them: a field omitted from the
+    /// `MetadataUpdate` literal would compile and silently blank that column.
     #[test]
     fn set_diagram_shape_changes_only_the_shape() {
         let path = temp_db_path_for_test("set_shape");
@@ -647,10 +607,7 @@ mod tests {
             .expect("read back")
             .expect("row exists");
         assert_eq!(after.shape.as_deref(), Some("Cushion"), "shape must change");
-        // Every other field must be exactly what it was; `pw_ratio`/`cw_ratio`/
-        // `hw_ratio`/`symmetry_order`/`mirror_symmetry` are the load-bearing
-        // assertions here since a narrow `UPDATE` must preserve every column it
-        // wasn't asked to change.
+        // Every other field must be unchanged.
         assert_eq!(after.refractive_index.as_deref(), Some("1.762"));
         assert_eq!(after.index_gear.as_deref(), Some("96"));
         assert_eq!(after.facets_count.as_deref(), Some("57"));
@@ -671,10 +628,9 @@ mod tests {
         std::fs::remove_file(&path).ok();
     }
 
-    /// The round trip behind a shape edit must not change a stored ratio by even its
-    /// last digit. The record used to be read through `CAST(real AS TEXT)`, which keeps
-    /// 15 significant digits, so `0.30000000000000004` came back as `0.3` and the
-    /// edit wrote that back.
+    /// A shape edit must not change a stored double, not even its last digit.
+    ///
+    /// Text with only 15 significant digits would turn `0.30000000000000004` into `0.3`.
     #[test]
     fn set_diagram_shape_keeps_every_digit_of_a_stored_double() {
         let path = temp_db_path_for_test("set_shape_digits");

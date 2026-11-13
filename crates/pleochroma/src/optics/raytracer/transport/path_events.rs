@@ -7,7 +7,13 @@
 //! `color::metrics::attribution`).
 
 use super::PathTermination;
-use crate::optics::raytracer::camera::HitRecord;
+use crate::{
+    optics::raytracer::camera::HitRecord,
+    renderer::path_cache::{
+        bounce::EventKind,
+        signature::{BRANCH_SIG_SEED, branch_step},
+    },
+};
 use glam::Vec3;
 
 /// The first inside-to-outside transition of a path.
@@ -24,7 +30,7 @@ pub struct ExitEvent {
 }
 
 /// What one traced path did, as the bounce loop saw it.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug)]
 pub struct PathEvents {
     /// The first facet event: `(facet, entered)`. `entered` is `false` for the specular
     /// reflection off the outside of the stone (surface glare).
@@ -45,20 +51,47 @@ pub struct PathEvents {
     /// The ray direction when the path missed the stone (after an exit, or the camera ray
     /// that never hit).
     pub escaped_dir: Option<Vec3>,
+    /// The two-lane branch signature of the facet events so far (`signature::branch_step`): the
+    /// path cache's cover test compares its fold with a record's.
+    pub signature: [u32; 2],
+}
+
+impl Default for PathEvents {
+    fn default() -> Self {
+        Self {
+            first_facet: None,
+            first_exit: None,
+            bounces_before_exit: 0,
+            scattered: false,
+            fluoresced: false,
+            reentered: false,
+            termination: None,
+            escaped_dir: None,
+            signature: BRANCH_SIG_SEED,
+        }
+    }
 }
 
 impl PathEvents {
     /// One facet event. `inside_before` is the geometric truth just before the event,
     /// `inside_after` the state after the reflect/refract decision, `dir_after` the ray
-    /// direction after it.
-    pub(crate) const fn facet(
+    /// direction after it and `is_ext_after` the eigenmode after it.
+    pub(crate) fn facet(
         &mut self,
         bounce: u32,
         hit: HitRecord,
         inside_before: bool,
         inside_after: bool,
         dir_after: Vec3,
+        is_ext_after: bool,
     ) {
+        let kind = if inside_before == inside_after {
+            EventKind::Reflect
+        } else {
+            EventKind::Transmit
+        };
+        let facet = u32::try_from(hit.facet_idx).unwrap_or(u32::MAX);
+        self.signature = branch_step(self.signature, facet, kind, is_ext_after);
         if self.first_facet.is_none() {
             self.first_facet = Some((hit.facet_idx, inside_after));
         }
@@ -80,10 +113,10 @@ impl PathEvents {
 
     /// The path's ray missed everything; `dir` is its direction.
     ///
-    /// The debug assertion relies on a loop invariant this recorder cannot see: at bounce 0
-    /// the ray is outside the stone, so a miss after bounce 0 is always preceded by a facet
-    /// event. If a later change lets a scattered or fluoresced continuation escape without
-    /// one, debug builds of the attributed path panic here and the invariant needs revisiting.
+    /// The debug assertion relies on the loop invariant that a miss after bounce 0 always
+    /// follows a facet event, since the ray starts outside the stone. A continuation that
+    /// escapes without a facet event would break it. A bounce off a Tray Reflection's floor
+    /// breaks it too, so the path cache that drives this recorder declines a Tray Reflection.
     pub(crate) const fn miss(&mut self, bounce: u32, dir: Vec3) {
         debug_assert!(
             bounce == 0 || self.first_facet.is_some(),
@@ -123,7 +156,7 @@ mod tests {
     #[test]
     fn an_outside_reflection_is_a_first_facet_that_did_not_enter() {
         let mut events = PathEvents::default();
-        events.facet(0, hit(3, Vec3::Y), false, false, Vec3::Y);
+        events.facet(0, hit(3, Vec3::Y), false, false, Vec3::Y, false);
         assert_eq!(events.first_facet, Some((3, false)));
         assert!(events.first_exit.is_none());
     }
@@ -131,18 +164,33 @@ mod tests {
     #[test]
     fn entry_reflections_exit_and_reentry_are_told_apart() {
         let mut events = PathEvents::default();
-        events.facet(0, hit(1, Vec3::Y), false, true, -Vec3::Y);
-        events.facet(1, hit(2, -Vec3::Y), true, true, Vec3::Y);
-        events.facet(2, hit(4, Vec3::X), true, false, Vec3::X);
+        events.facet(0, hit(1, Vec3::Y), false, true, -Vec3::Y, false);
+        events.facet(1, hit(2, -Vec3::Y), true, true, Vec3::Y, false);
+        events.facet(2, hit(4, Vec3::X), true, false, Vec3::X, false);
         // Later interior events do not move the first exit or the count.
-        events.facet(3, hit(5, Vec3::Z), false, true, Vec3::Z);
-        events.facet(4, hit(6, Vec3::X), true, true, Vec3::Z);
-        events.facet(5, hit(7, Vec3::X), true, false, Vec3::X);
+        events.facet(3, hit(5, Vec3::Z), false, true, Vec3::Z, false);
+        events.facet(4, hit(6, Vec3::X), true, true, Vec3::Z, false);
+        events.facet(5, hit(7, Vec3::X), true, false, Vec3::X, false);
         assert_eq!(events.first_facet, Some((1, true)));
         let exit = events.first_exit.expect("the path exited");
         assert_eq!((exit.facet, exit.bounce), (4, 2));
         assert_eq!(events.bounces_before_exit, 1);
         assert!(events.reentered);
+    }
+
+    #[test]
+    fn facet_events_fold_into_the_branch_signature() {
+        let mut events = PathEvents::default();
+        assert_eq!(events.signature, BRANCH_SIG_SEED);
+        events.facet(0, hit(1, Vec3::Y), false, true, -Vec3::Y, true);
+        events.facet(1, hit(2, -Vec3::Y), true, true, Vec3::Y, false);
+        let expected = branch_step(
+            branch_step(BRANCH_SIG_SEED, 1, EventKind::Transmit, true),
+            2,
+            EventKind::Reflect,
+            false,
+        );
+        assert_eq!(events.signature, expected);
     }
 
     #[test]

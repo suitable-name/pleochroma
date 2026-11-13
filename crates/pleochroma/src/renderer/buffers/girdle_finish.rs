@@ -1,9 +1,9 @@
-//! Girdle finish (bruted/frosted facets): `FacetFinish` is looked up per-hit via
-//! `HitRecord::facet_idx` into a `&[FacetFinish]` slice PARALLEL to `&[GpuFacetPlane]` on
-//! the CPU -- extending `GpuFacetPlane` itself would disturb that struct's layout, echo
-//! test, and the `intersect_polyhedron` kernel, none of which need to know about finish.
-//! The GPU encoding mirrors that with a SEPARATE storage buffer (one u32 per facet).
-//! Still gets its own struct-echo test (`layout_check::run_facet_finish`).
+//! Girdle finish (bruted/frosted facets).
+//!
+//! On the CPU, `FacetFinish` is looked up per hit via `HitRecord::facet_idx` in a `&[FacetFinish]`
+//! slice parallel to `&[GpuFacetPlane]`. It is kept out of `GpuFacetPlane` to leave that struct's
+//! layout and the `intersect_polyhedron` kernel unchanged. The GPU reads a separate storage buffer
+//! of one u32 per facet, checked by `layout_check::run_facet_finish`.
 
 use crate::optics::raytracer::{FacetFinish, surface::FacetSurface};
 
@@ -11,7 +11,7 @@ use crate::optics::raytracer::{FacetFinish, surface::FacetSurface};
 ///
 /// The per-facet word is `surface::FacetSurface`'s packed `u32`: bits 0-1 are the kind, the
 /// rest carry the roughness and the scratch parameters. Words `0` and `1` are the polished
-/// and frosted facets of old. A frosted test must therefore compare the masked kind
+/// and frosted kinds. A frosted test must compare the masked kind
 /// (`word & KIND_MASK == FROSTED`), never the whole word; `shaders/transport_bounce`'s
 /// `FACET_FINISH_KIND_MASK` is the WGSL twin of [`KIND_MASK`].
 pub mod facet_finish {

@@ -36,6 +36,17 @@ export struct RoughPlanStoneGroup {
     status_level: int,    // 0 none, 1 info, 2 warn, 3 error
     linkable: bool,       // false for a deleted design; a remote library is `links_enabled`, and a link is live only when both hold
     excluded: bool,       // display copy of "this design is excluded from the planner"; change it only by calling `toggle_exclude`
+    short_name: string,   // the legend's name of the design in the 3D view ("Oval")
+}
+
+// One line of the import report of a 3D scan (an OBJ, STL or PLY rough): what the import found and
+// did. `level` colors the line's icon; `has_place` says the finding sits at a place in the scan, so
+// the line offers Show, which turns the 3D view to it (`finding_show`).
+export struct RoughFinding {
+    level: int,           // 0 ok, 1 info, 2 repaired, 3 problem
+    text: string,         // the finding in one line ("Repaired: 3 small holes filled")
+    detail: string,       // what follows from it, "" for none
+    has_place: bool,      // the finding has a place in the scan that Show can turn the view to
 }
 
 // One ranked layout.
@@ -51,7 +62,9 @@ export struct RoughPlanResult {
     thumbnail: image,
     has_thumbnail: bool,
     label: string,        // "", or what an alternative layout is (Best Yield (Unrefined), Best Orientation (Unrefined), Balanced (Unrefined))
-    keep: bool,           // display copy of the Rust-owned save tick; change it only by calling `toggle_keep`
+    badge: string,        // the short form of `label` for the list row ("Best orientation"); `label` in full is its tooltip
+    yield_fraction: float, // 0..1, this layout's weight relative to the best layout: the length of the yield bar
+    keep: bool,           // display copy of the Rust-owned save tick (the star); change it only by calling `toggle_keep`
 }
 
 // One stone of the selected result and what the Crystal Axis says about it.
@@ -98,6 +111,44 @@ export global RoughPlanModel {
     in property <bool> running: false;                // a plan is running: the model and the saved-plan actions are locked
     in property <bool> mesh_busy: false;              // an OBJ file is being read or a mesh scaled in the background: the rough shapes, Fit to weight and Plan are locked
     in property <string> mesh_busy_text: "";          // what that work is called ("Reading the OBJ file..."), "" when none runs
+
+    // layout and the four steps of the left column
+    in-out property <bool> narrow: false;             // the window is under 1180 px wide: narrower columns, no legend, icon layer toggles; the window sets it from its own width (the window's size does not depend on the layout, so this cannot loop)
+    in-out property <int> open_step: 0;               // the open step of the left column: 0 Rough, 1 Crystal Axis, 2 Shape Cuts, 3 Plan Settings, -1 none; the window sets it on a header click
+    in property <[bool]> step_done: [false, false, false, false];   // a step is complete (its number turns into a check); Rust fills the four entries
+    in property <[string]> step_summary: ["", "", "", ""];           // the one-line summary of each closed step; Rust fills it
+    in property <[string]> step_error: ["", "", "", ""];             // the error line of a step, "" for none (a red dot marks the header); Rust fills it
+    in property <string> rough_subtitle: "";          // the header's line under the title ("Tourmaline block · 30 × 60 × 20 mm · 94.40 ct · 4 shape cuts")
+
+    // 3D scan (an imported OBJ, STL or PLY rough)
+    in property <string> scan_file: "";               // the scan's file name
+    in property <string> scan_stats: "";              // "48,212 triangles · 1 cavity"
+    in property <string> scan_size_text: "";          // the bounding box in mm ("30.1 × 58.7 × 21.4 mm")
+    in property <int> scan_verdict: -1;               // -1 no scan, 0 planned on the scan itself, 1 planned on its convex outline, 2 refused
+    in property <string> scan_verdict_text: "";       // the words of the verdict badge, or the reason of a refusal
+    in property <[RoughFinding]> scan_findings;       // the import report's lines
+    in property <float> scan_progress: -1;            // 0..1 while the file is read, -1 when the parser cannot count
+    in-out property <bool> show_problems: true;       // the view colors the repaired and crossing places of the scan
+    in-out property <bool> show_outline: false;       // the view draws the outline the planner uses as a ghost
+    callback finding_show(int);                       // Show on a finding of `scan_findings`: turn the view to its place
+    callback rescan_units(int);                       // read the same scan file again in the unit at this index of the unit list (the order of `mesh_unit_index`)
+
+    // view tooltip (Rust fills it from the hover pick; positions are in the view area's coordinates)
+    in property <bool> hover_tip_visible: false;
+    in property <length> hover_tip_x: 0px;
+    in property <length> hover_tip_y: 0px;
+    in property <string> hover_tip_title: "";
+    in property <[string]> hover_tip_lines;
+    in property <color> hover_tip_color: #888888;
+    in property <int> legend_selected: -1;            // the design row picked in the view legend, -1 for none
+    callback legend_picked(int);                      // a legend entry (design group) was clicked
+
+    // running, results tabs
+    in property <string> best_so_far_text: "";        // "6 layouts so far · best 29.43 ct · about 3 s left"
+    in-out property <int> results_tab: 0;             // the right column's tab: 0 Layouts, 1 Saved Plans (it replaces `saved_open`)
+    in property <bool> stopped_at_limit: false;       // the last plan stopped at the scan time limit
+    callback plan_more_time();                        // Plan Again with More Time: double the limit and plan again
+    callback saved_menu(int, int);                    // saved plan row, action: 0 open, 1 rename (the window opens the inline rename), 2 export, 3 delete (after the card's own question)
 
     // inputs (strings parsed in Rust; invalid input -> error_text)
     in-out property <string> rough_x: "";
@@ -173,7 +224,6 @@ export global RoughPlanModel {
 
     // saved plans
     in property <[SavedRoughPlanRow]> saved_plans;
-    in-out property <bool> saved_open: false;
     in property <string> loaded_banner;            // "" when not showing a saved plan
     in-out property <bool> save_name_open: false;
     in-out property <string> save_name;

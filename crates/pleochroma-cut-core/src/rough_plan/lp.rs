@@ -10,7 +10,7 @@
 //! stone in direction `n_j` at unit scale.
 //!
 //! The module is private to `rough_plan`: [`ScaleRow`], [`LpScratch`] and the solvers are
-//! reachable only inside the crate.
+//! reachable only inside it.
 
 /// One constraint `normal · t + scale * support <= offset`.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -23,7 +23,7 @@ pub struct ScaleRow {
     pub offset: f64,
 }
 
-/// Reusable tableau and workspace for the LP solver to eliminate per-call allocations.
+/// Tableau and basis storage of the LP solver, reused so repeated solves do not reallocate.
 #[derive(Default, Debug)]
 pub struct LpScratch {
     pub(crate) tableau: Vec<f64>,
@@ -38,9 +38,9 @@ impl LpScratch {
     }
 }
 
-/// Solves for the maximum scale `k` and stone position `t` using an ephemeral scratchpad.
+/// Solves for the maximum scale `k` and stone position `t` with a fresh workspace.
 ///
-/// Returns `None` if the region is empty / infeasible even at `k = 0` or if the iteration cap is hit.
+/// Returns `None` when the region is infeasible even at `k = 0`, or the iteration cap is hit.
 /// Only tests solve one-off problems; production callers reuse a scratch through
 /// [`max_scale_with_scratch`].
 #[cfg(test)]
@@ -97,8 +97,8 @@ pub(super) fn solve(
     let num_rows = j_count + 1;
     let total_cells = num_rows * num_cols;
 
-    // `clear` then `resize` zero-fills every cell (a bare `resize` would keep the pivoted
-    // values of the previous solve in the first `len` cells) and keeps the allocation.
+    // `clear` then `resize` zero-fills every cell (a bare `resize` keeps the previous solve's
+    // pivoted values) and keeps the allocation.
     scratch.tableau.clear();
     scratch.tableau.resize(total_cells, 0.0);
     scratch.basic_vars.clear();

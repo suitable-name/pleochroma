@@ -4,7 +4,7 @@
 //! # Why one function
 //!
 //! A remote render worker lights a scene with an HDR panorama it received as raw file
-//! bytes (protocol v14, `pleochroma_net`'s content-addressed assets), while the viewer
+//! bytes (`pleochroma_net`'s content-addressed assets), while the viewer
 //! lights the same scene from the file it loaded. Their samples are only mergeable if
 //! both sides build the identical map -- the same texels AND the same marginal and
 //! conditional CDFs, bit for bit. Every node therefore decodes through this one
@@ -57,8 +57,7 @@ pub struct HdrLimits {
 impl HdrLimits {
     /// The limits every node applies, viewer and worker alike, so a map the viewer can
     /// load is always one a worker accepts: at most 16384 x 8192 texels and at most
-    /// 512 MiB decoded -- the decoded cap the `image` crate's default `Limits` already
-    /// imposed on the viewer's loader before this function existed.
+    /// 512 MiB decoded, matching the decoded cap of the `image` crate's default `Limits`.
     pub const DEFAULT: Self = Self {
         max_width: 16_384,
         max_height: 8_192,
@@ -132,9 +131,9 @@ pub fn environment_from_hdr_bytes_with_info(
     }
     // `from_decoder` consumes the decoder, so the header is read first.
     let meta = decoder.metadata();
-    // `from_decoder` is exactly what `image::load_from_memory_with_format(.., Hdr)` (the
-    // loader this replaced) runs after its own header parse: one `Rgb32F` buffer filled
-    // scanline by scanline. `into_rgb32f` is a no-op move for an `Rgb32F` image.
+    // `from_decoder` is what `image::load_from_memory_with_format(.., Hdr)` runs after its own
+    // header parse: one `Rgb32F` buffer filled scanline by scanline. `into_rgb32f` is a no-op
+    // move for an `Rgb32F` image.
     let rgb = image::DynamicImage::from_decoder(decoder)
         .map_err(|e| EnvMapError::Decode(e.to_string()))?
         .into_rgb32f();
@@ -249,8 +248,7 @@ mod tests {
         assert_eq!((local.width(), local.height()), (64, 32));
     }
 
-    /// The shared builder reproduces the pre-E loader (`load_from_memory_with_format`
-    /// then `from_rgb`) bit for bit, so a viewer upgraded to it renders exactly as before.
+    /// The shared builder matches `load_from_memory_with_format` then `from_rgb`, bit for bit.
     #[test]
     fn the_shared_builder_matches_the_previous_loader_bit_for_bit() {
         let bytes = synthetic_hdr(48, 24);
@@ -317,8 +315,8 @@ mod tests {
         ));
     }
 
-    /// A file without header lines reports the neutral info and builds the same map as
-    /// the previous loader, bit for bit.
+    /// A file without header lines reports the neutral info and builds the same map as the plain
+    /// `image` decode, bit for bit.
     #[test]
     fn default_headers_stay_bit_identical() {
         let bytes = synthetic_hdr(32, 16);
@@ -443,8 +441,7 @@ mod tests {
         assert!(map.bitwise_eq(&plain));
     }
 
-    /// The transfer test again on a file that carries `EXPOSURE=0.5`: both nodes apply
-    /// the header and build the identical map.
+    /// A file that carries `EXPOSURE=0.5` builds the identical map on both nodes.
     #[test]
     fn a_transferred_copy_with_headers_builds_the_same_map() {
         let plain_bytes = synthetic_hdr(64, 32);

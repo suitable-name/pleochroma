@@ -92,8 +92,7 @@ pub(super) fn spawn_build_worker(
         "rough-view-scene",
         move |request: BuildRequest| {
             meshes.refresh(request.epoch);
-            // The cutter's pose choice is applied and the stones are coloured by the plan's rough
-            // colour.
+            // The cutter's pose choice is applied and the stones take the plan's rough colour.
             let (posed, colours) =
                 super::zoning_view::prepare(&request.layout, request.colour.as_ref(), &meshes);
             let layout = &posed;

@@ -30,16 +30,13 @@ use std::{
 /// `thread::spawn` worker, an `Arc<AtomicBool>` cancel flag, results marshalled back via
 /// `Weak::upgrade_in_event_loop`).
 ///
-/// `db` is locked only for the duration of each individual database call inside the
-/// sync loop (see [`pass::run_mirror_sync`]), never for the whole sync -- so the local
-/// library UI (search, detail, import) stays responsive on the SAME database while a
-/// multi-minute sync runs in the background.
+/// `db` is locked only for each individual database call inside the sync loop (see
+/// `pass::run_mirror_sync`), never for the whole sync, so the local library UI stays
+/// responsive on the same database during a multi-minute sync.
 ///
-/// Drives the sync against one [`LibrarySession`] -- built here, from `worker`, and held
-/// for the whole sync -- rather than reconnecting per request, the whole point of this
-/// module's held-connection task; see [`LibrarySession`]'s own doc comment for what that
-/// buys (one handshake instead of thousands for a real catalogue) and how it behaves when
-/// that held connection drops mid-sync.
+/// The sync runs over one [`LibrarySession`], built here from `worker` and held for the whole
+/// sync. A real catalogue thus costs one handshake instead of thousands. See
+/// [`LibrarySession`] for what happens when that connection drops mid-sync.
 pub fn spawn_mirror_sync<T, P, D>(
     ui_weak: Weak<T>,
     db: Arc<Mutex<Database>>,

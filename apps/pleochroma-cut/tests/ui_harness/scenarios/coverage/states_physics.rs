@@ -1,22 +1,22 @@
 //! States of the click-through passes for the Render Physics controls: the Stone tab's Inclusions,
 //! Play-of-Color and Abraded Edges groups, the Tier tab's Surface Finish section, the Show Surface
-//! Finish overlay's toolbar pill, the Preferences dialog's Faceting Machine section and the Gem
-//! Material Editor's Per-Axis Curves, Inclusion Families and Play-of-Color sections.
+//! Finish overlay's toolbar pill, the Preferences dialog's Faceting Machine, path cache and Direct
+//! Manipulation sections, the Stone tab's Lay Axis in Table Plane hint and the Gem Material
+//! Editor's Per-Axis Curves, Inclusion Families and Play-of-Color sections.
 //!
 //! Proves: in each state every enabled button, tab, pill, check box, combo box and slider of the
 //! scope is pressed once and every field touched (the engine of `overlays.rs`), after the state's
 //! `open` function reached the page the way a user does: a material pick, a preset, a grade.
 //!
-//! What kept the controls unreached: the Inclusions controls exist only while a preset is chosen,
-//! the Play-of-Color controls only for a precious opal or a labradorite with the group on, the
-//! Abraded Edges wear only with a width, the Custom Surface Finish values only with the Custom
-//! grade, the Mast Position and the Sweep radii only with a mast to the side and a custom sweep,
-//! and the material editor's curve fields, family rows and structure controls only after their
-//! switch is on. The Stone tab and the dialogs are `ScrollView`s whose scrolled-out controls are not
-//! enumerated ([`scroll_scope`]).
+//! Some controls exist only after a choice: the Inclusions controls need a chosen preset, the
+//! Play-of-Color controls a precious opal or a labradorite with the group on, the Abraded Edges
+//! wear a width, the Custom Surface Finish values the Custom grade, the Mast Position and the
+//! Sweep radii a mast to the side and a custom sweep, and the material editor's curve fields,
+//! family rows and structure controls their switch. The Stone tab and the dialogs are
+//! `ScrollView`s whose scrolled-out controls are not enumerated ([`scroll_scope`]).
 //!
-//! Not here: the tier table's right-click Surface Finish menu (native menu entries are not elements
-//! of the window); its callbacks have direct-invoke rows in `rows_physics.rs`.
+//! Not here: the tier table's right-click Surface Finish menu (native menu entries are not
+//! elements of the window); its callbacks have direct-invoke rows in `rows_physics.rs`.
 
 use super::{
     super::{Piece, existing_install},
@@ -32,8 +32,8 @@ use crate::support::{
     smoke::{DenyMatch, DenyRule},
 };
 use pleochroma_cut::{
-    AxisCurvesModel, FacetingMachineModel, InclusionFamiliesModel, PreferencesModel,
-    RenderEffectsModel, StructureParamsModel, SurfaceModel,
+    AxisCurvesModel, EditorModel, FacetingMachineModel, InclusionFamiliesModel, PreferencesModel,
+    RenderEffectsModel, StructureParamsModel, SurfaceModel, Zoning,
 };
 use slint::{ComponentHandle, Model};
 use std::time::Duration;
@@ -118,8 +118,8 @@ fn custom_surface_finish(a: &HarnessApp) {
     pump(300);
 }
 
-/// The Edit view with tier 0 on a Fine finish and Show Surface Finish on: the toolbar's pill
-/// is pressed in its on state, and the overlay is asked for its marks.
+/// The Edit view with tier 0 on a Fine finish and Show Surface Finish on: the toolbar pill
+/// shows its on state and the overlay is asked for its marks.
 fn surface_overlay_on(a: &HarnessApp) {
     edit_tab(a);
     let surface = a.ui().global::<SurfaceModel>();
@@ -131,6 +131,64 @@ fn surface_overlay_on(a: &HarnessApp) {
     surface.set_show_overlay(true);
     surface.invoke_overlay_changed();
     pump(500);
+}
+
+/// Scrolls the largest scroll area of `scope` by `step` wheel units at a time, from where it
+/// stands, until a control labelled `label` is enumerable (a control scrolled out of a
+/// `ScrollView` is not).
+fn scroll_to_label(a: &HarnessApp, scope: &str, label: &str, step: f32) {
+    for _ in 0..40 {
+        if a.main_view().has(label) {
+            return;
+        }
+        scroll_scope(a, scope, 0.0, -step);
+    }
+}
+
+/// The Preferences dialog scrolled to the path cache buttons (Open Folder, Clear Path Cache).
+fn preferences_path_cache(a: &HarnessApp) {
+    a.ui().global::<PreferencesModel>().set_dialog_open(true);
+    pump(250);
+    scroll_to_label(a, "PreferencesDialog", "Clear Path Cache", 200.0);
+}
+
+/// The Preferences dialog scrolled to the Direct Manipulation switches (Larger Handles, Snap to
+/// Gear Steps When Dragging).
+fn preferences_manipulation(a: &HarnessApp) {
+    a.ui().global::<PreferencesModel>().set_dialog_open(true);
+    pump(250);
+    scroll_to_label(
+        a,
+        "PreferencesDialog",
+        "Snap to Gear Steps When Dragging",
+        200.0,
+    );
+}
+
+/// The Stone tab of a stone whose color layers lie across the Crystal Axis while the axis runs
+/// through the table: the hint and the Lay Axis in Table Plane button show. Rust sets the flag
+/// from the stone's pattern at every color refresh, which the design's first solve can trigger,
+/// so the state waits for that solve and sets the flag again (from the top of the panel) when a
+/// late refresh cleared it.
+fn layers_across_axis(a: &HarnessApp) {
+    parameters(a, 0);
+    let editor = a.ui().global::<EditorModel>();
+    let _ = wait_until(Duration::from_secs(15), || !editor.get_solve_running());
+    let zoning = a.ui().global::<Zoning>();
+    let _ = wait_until(Duration::from_secs(10), || {
+        zoning.get_stone_pattern_enabled()
+    });
+    for _ in 0..3 {
+        zoning.set_pattern_layers_across_axis(true);
+        zoning.set_material_axis_tilt_deg(0.0);
+        pump(250);
+        // Positive scrolls towards the start: first to the top, then down to the label.
+        scroll_scope(a, "ParametersPanel", 0.0, -STONE_END);
+        scroll_to_label(a, "ParametersPanel", "Lay Axis in Table Plane", 300.0);
+        if a.main_view().has("Lay Axis in Table Plane") {
+            break;
+        }
+    }
 }
 
 /// The Preferences dialog with the mast to the side and a custom sweep, scrolled to the Faceting
@@ -209,6 +267,27 @@ fn physics_states() -> Vec<State> {
             scope: Some("ParametersPanel"),
             deny: NONE,
             open: |a| stone_tab(a, "labradorite", structure_on, STONE_END),
+        },
+        State {
+            name: "Parameters: Stone, color layers across the Crystal Axis",
+            base: Base::Design,
+            scope: Some("ParametersPanel"),
+            deny: NONE,
+            open: layers_across_axis,
+        },
+        State {
+            name: "Preferences, path cache",
+            base: Base::Startup,
+            scope: Some("PreferencesDialog"),
+            deny: DENY_PREFERENCES,
+            open: preferences_path_cache,
+        },
+        State {
+            name: "Preferences, direct manipulation",
+            base: Base::Startup,
+            scope: Some("PreferencesDialog"),
+            deny: DENY_PREFERENCES,
+            open: preferences_manipulation,
         },
         State {
             name: "Inspector: Tier, custom surface finish",

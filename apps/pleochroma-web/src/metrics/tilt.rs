@@ -23,9 +23,8 @@
 //!
 //! # What differs from the desktop
 //!
-//! No hover preview thumbnail (a render of the stone at the hovered tilt): the render pool
-//! is busy with the live view, and a second scene per hover would stall it. No "Copy data
-//! table" and no tilt-video export.
+//! Not ported: the hover preview thumbnail (a render per hovered tilt would stall the live
+//! view's render pool), "Copy data table", and the tilt-video export.
 
 use super::hud;
 use crate::{AppWindow, TiltModel, app::Ctx, workers};

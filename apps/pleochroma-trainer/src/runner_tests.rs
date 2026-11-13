@@ -1,4 +1,6 @@
-//! Unit tests of the training runner: configuration, the learning-rate schedule, the rejection
+//! Unit tests of the training runner.
+//!
+//! They cover configuration, the learning-rate schedule, the rejection
 //! and label counters, the target and weight draws, and the runner on the built-in fixture (an
 //! imitation round, a PPO round, the three-way validation, the threaded evaluation). The
 //! labelling schedule is tested in `runner_teacher.rs`, the labelled aggregate in
@@ -615,7 +617,8 @@ fn hyperparameters_are_the_imitation_ones_in_imitation_mode() {
     assert_eq!(cfg.imitation.epochs_per_round, 3);
     assert_eq!(cfg.imitation.learning_rate, 1e-3);
     assert_eq!(cfg.rollout_size, 64);
-    // The PPO settings the GUI has no field for in this mode stay; the two PPO-only fields move.
+    // The PPO mini-batch, epochs and learning rate stay; clip epsilon and GAE lambda always come
+    // from `Hyperparams`.
     assert_eq!(cfg.ppo.mini_batch_size, ppo_before.mini_batch_size);
     assert_eq!(cfg.ppo.epochs_per_batch, ppo_before.epochs_per_batch);
     assert_eq!(cfg.ppo.learning_rate, ppo_before.learning_rate);
@@ -788,9 +791,8 @@ fn one_ppo_round_trains_the_policy_and_leaves_the_aggregate_alone() {
     assert_eq!(point.labelled_samples, 0);
 }
 
-/// Three 60-step episodes of the fixture at `Fast` fidelity per design and pass (model, sampled,
-/// oracle): about 0.26 s per candidate evaluation with the geometry crates optimised in the test
-/// profile, so the test takes a few minutes. It is the only check that the passes, the line
+/// Three 60-step episodes of the fixture per design and pass (model, sampled, oracle) at `Fast`
+/// fidelity. It is slow in the test profile, and it is the only check that the passes, the line
 /// search and the oracle cache work together on a real episode.
 #[test]
 fn validation_reports_the_model_the_sampled_and_the_oracle_drop_and_caches_the_oracle() {
@@ -838,8 +840,8 @@ fn validation_reports_the_model_the_sampled_and_the_oracle_drop_and_caches_the_o
         Some(second.mean_evaluations_per_step)
     );
 
-    // The runner kept the oracle drop under the key of what it depends on (the key itself is
-    // tested in `runner_eval.rs`).
+    // The runner keeps the oracle drop under the key of what it depends on (the key itself is
+    // tested in `runner_eval_tests.rs`).
     let cache = runner
         .oracle_cache
         .as_ref()
@@ -847,12 +849,9 @@ fn validation_reports_the_model_the_sampled_and_the_oracle_drop_and_caches_the_o
     assert_eq!(cache.drop, Some(oracle));
 }
 
-/// Five 60-step episodes of the fixture at `Fast` fidelity: about 0.26 s per step with the
-/// geometry crates optimised in the test profile (measured 2026-10-12: one episode 16 s, four
-/// copies on four threads 23 s; the runner itself builds in a quarter of a second), so the test
-/// takes 75-90 s per binary. It is the only check that the threaded evaluation reports the
-/// figures of the serial one. The line search has the single unit scale, as the runs of that
-/// measurement had.
+/// Five 60-step episodes of the fixture at `Fast` fidelity; the test is slow in the test profile.
+/// It is the only check that the threaded evaluation reports the figures of the serial one. The
+/// line search has the single unit scale.
 #[test]
 fn evaluation_gives_the_same_figures_for_one_and_for_four_copies_of_a_design() {
     let runner = fixture_runner_with(|c| c.line_search = vec![1.0]);

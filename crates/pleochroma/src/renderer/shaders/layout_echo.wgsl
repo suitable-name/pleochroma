@@ -1,18 +1,11 @@
-// GPU struct-layout self-test kernel (Phase 0 deliverable 2) -- driven by
-// `renderer::gpu::layout_check`, NOT a physics kernel.
+// GPU struct-layout self-test kernel, driven by `renderer::gpu::layout_check`. Not a physics
+// kernel.
 //
-// This shader's struct definitions must be kept field-for-field in sync with their
-// Rust counterparts in `renderer::buffers` -- that correspondence is exactly what this
-// kernel exists to verify. It deliberately does NOT declare any of the `_pad*` fields
-// that appear in the Rust structs: WGSL computes member offsets (and the padding
-// between them) purely from the declared field order and types, per
-// https://www.w3.org/TR/WGSL/#alignment-and-size -- the Rust `_pad*` fields exist only
-// so `#[repr(C)]` (which does NOT auto-insert alignment padding the way WGSL does)
-// reproduces those same implicit offsets explicitly. If the two ever disagree, this
-// kernel echoing every named field straight through to an independent output buffer and
-// `layout_check` comparing the two buffers' raw bytes (padding included) is what catches
-// it -- see `renderer::buffers`' module doc comment for the bug class this is built to
-// catch mechanically, forever.
+// The structs must match their Rust counterparts in `renderer::buffers` field for field. The
+// `_pad*` fields of the Rust structs are not declared here: WGSL derives offsets and padding from
+// field order and types (https://www.w3.org/TR/WGSL/#alignment-and-size), while `#[repr(C)]`
+// needs the padding written out. The kernel echoes every field to an output buffer, and
+// `layout_check` compares the raw bytes, padding included, which catches any mismatch.
 
 struct DispersionParams {
     model_type: u32,
@@ -23,8 +16,7 @@ struct DispersionParams {
     is_anisotropic: u32,
     biaxial_delta_beta_alpha: f32,
     has_biaxial_delta: u32,
-    // `.xyz` = `GemMaterial::alpha_axis`, `.w` = 1.0 when set (else all zero): see
-    // `renderer::buffers::DispersionParams::a_axis_and_flag`. Read only by `biaxial_axes`.
+    // `.xyz` = `GemMaterial::alpha_axis`, `.w` = 1.0 when set, else 0. Read by `biaxial_axes` only.
     a_axis_and_flag: vec4<f32>,
 }
 
@@ -32,8 +24,7 @@ struct AbsorptionBand {
     center_nm: f32,
     width_nm: f32,
     peak: f32,
-    // P6: which domain this band is Gaussian in (0 = wavelength, 1 = energy) -- see
-    // `renderer::buffers::band_shape`/`optics::absorption::BandShape`.
+    // Domain this band is Gaussian in: 0 = wavelength, 1 = energy. See `optics::absorption`.
     shape: u32,
 }
 
@@ -68,26 +59,18 @@ struct GpuGemMaterial {
     scattering_sigma_s: f32,
     scattering_g: f32,
     edge_rounding_radius: f32,
-    // Phase 4 (biaxial GPU port): see `renderer::buffers::GpuGemMaterial`'s own doc
-    // comment for why these are appended here rather than inserted alongside
-    // `o_ray_band_count`/`e_ray_band_count`.
+    // Appended after the earlier fields so that no existing offset shifts. See
+    // `renderer::buffers::GpuGemMaterial`.
     has_beta_ray: u32,
     beta_ray_band_count: u32,
     beta_ray_bands: array<AbsorptionBand, 8>,
-    // P1 (absorption path scale): see `renderer::buffers::GpuGemMaterial`'s own doc
-    // comment -- appended after `beta_ray_bands` for the same "no shift for any
-    // earlier field" reason.
     absorption_path_scale: f32,
-    // P3 (extraordinary-ray dispersion GPU port): see
-    // `renderer::buffers::GpuGemMaterial`'s own doc comment -- appended after
-    // `absorption_path_scale` for the same "no shift for any earlier field" reason.
     has_extraordinary_dispersion: u32,
     extraordinary_model_type: u32,
     extraordinary_param_a: vec4<f32>,
     extraordinary_param_b: vec4<f32>,
-    // The zone table (592..2720) is echoed by its own shader (`zoning/zone_table_echo.wgsl`);
-    // here it is a 2128-byte placeholder (133 vec4) that only places the blocks after it. The
-    // sample material keeps the table zero, so the placeholder reads and writes zero.
+    // The zone table (592..2720) is echoed by `zoning/zone_table_echo.wgsl`. Here it is a
+    // 2128-byte placeholder (133 vec4) that only places the blocks after it, and it stays zero.
     zones_skip: array<vec4<u32>, 133>,
     biaxial_curves: GpuBiaxialCurves,
     inclusions: GpuInclusionBlock,

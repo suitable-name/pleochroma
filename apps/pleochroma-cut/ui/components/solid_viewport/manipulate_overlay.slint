@@ -64,12 +64,10 @@ component HandleMarker inherits Rectangle {
         Close { }
     }
 
-    // The letter grows at half the marker's rate, so it stays readable without crowding. It sits
-    // on a dark backplate (an amber "I" on the light-blue selected facets was nearly invisible
-    // as bare 11 px text) and each shape keeps its own corner, so the three letters of
-    // markers a few pixels apart do not land on each other: circle (A) up and right, square
-    // (D) down and right, diamond (I) up and left. The index marker is drawn last, so its
-    // letter is on top of a neighbouring circle.
+    // The letter grows at half the marker's rate. It sits on a dark backplate, since bare text
+    // is hard to read on the light facet colours. Each shape keeps its own corner, so the
+    // letters of nearby markers do not overlap: circle (A) up and right, square (D) down and
+    // right, diamond (I) up and left. The index marker is drawn last, on top.
     property <float> letter_grow: 1.0 + (ManipulateModel.handle_scale - 1.0) * 0.5;
     property <length> plate_w: 17px * root.letter_grow;
     property <length> plate_h: 18px * root.letter_grow;

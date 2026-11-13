@@ -25,10 +25,8 @@ pub(crate) struct EntryPolarizationSolution {
     pub r_p: Cplx,
     pub t_o: Cplx,
     pub t_e: Cplx,
-    /// The o/e transmitted modes' own intrinsic (amplitude-1) Poynting flux --
-    /// identical for `incident_s == true` and `false` (a property of the crystal-side
-    /// modes alone), redundantly recomputed on each call purely so callers get a
-    /// self-contained result without a second function to call.
+    /// Intrinsic (amplitude-1) Poynting flux of the transmitted o and e modes. It does not
+    /// depend on the incident polarization.
     pub flux_o: f32,
     pub flux_e: f32,
     /// World-space real E-field directions of the transmitted o/e modes -- always
@@ -39,23 +37,9 @@ pub(crate) struct EntryPolarizationSolution {
     pub e_hat: Vec3,
 }
 
-/// Requirement 7 (performance): [`entry_solve`] is a thin wrapper around
-/// [`entry_solve_pair`] that discards whichever of the (s, p) pair the caller didn't
-/// ask for -- kept only for the tests and call sites that only need one incident
-/// polarization; every production call site in `refraction.rs` needs BOTH (s and p
-/// incidence are the two rows of the reflected/transmitted Jones matrices this
-/// module's callers build), and calling `entry_solve` twice recomputed
-/// `uniaxial_q_roots` (two [`Cplx::sqrt_forward_branch`] calls, each an `atan2` plus
-/// two `sqrt` calls plus a `sin`/`cos` pair -- by far the most expensive part of this
-/// function per call) and both mode fields TWICE for identical inputs (`incident_s`
-/// never affects them, only the boundary-matching right-hand side does) -- measured to
-/// roughly double this module's own share of a uniaxial bounce's cost.
-/// `entry_solve_pair` shares that work once and solves both right-hand sides through
-/// one Gaussian elimination. No production call site uses `entry_solve` any more (all
-/// converted to `entry_solve_pair`) -- genuinely dead outside this module's own tests,
-/// hence the `cfg_attr`'d expectation rather than a bare one (see the identical
-/// pattern, and its own doc comment, on `InternalPolarizationSolution`'s `t_s` field
-/// in `internal.rs`).
+/// Single-polarization form of [`entry_solve_pair`]: returns the solution for `incident_s`
+/// and discards the other. Production code needs both polarizations, so it calls
+/// [`entry_solve_pair`] directly.
 #[must_use]
 #[cfg_attr(
     not(test),
@@ -76,21 +60,9 @@ pub(crate) fn entry_solve(
     if incident_s { s_sol } else { p_sol }
 }
 
-/// Performance (requirement 7, batching): the part of [`entry_solve_pair`]'s work that
-/// depends ONLY on `n1` and `frame` -- the incidence-side isotropic (s, p) modes
-/// (forward = incident, backward = reflected) and their tangential boundary
-/// components -- and NOT on `n_o(lambda)`/`n_e(lambda)` at all. At an air->crystal
-/// entry, `n1 == 1.0` for EVERY channel (air does not disperse), so `frame`'s own
-/// `sin_i`/`cos_i` make `k_tan = n1 * frame.sin_i` and everything built from it
-/// IDENTICAL across all 8 hero channels of one bounce -- every current call site
-/// (`apply_uniaxial_entry_bounce`/`_reflect_channels`/`_transmit_channels`) was
-/// recomputing this exact same block from scratch on each of its (up to 9, including
-/// the hero's own initial branch-decision call) `entry_solve_pair` calls per bounce.
-/// Building it ONCE per bounce via this function and feeding the result to
-/// [`entry_solve_pair_with_incidence`] for each channel is BIT-IDENTICAL to calling
-/// [`entry_solve_pair`] fresh every time (same deterministic floating-point
-/// expressions, evaluated once instead of up to 9 times, not reordered or
-/// approximated) -- see `batched_entry_solve_pair_matches_scalar_bitwise` below.
+/// The incidence-side isotropic (s, p) modes and their tangential components, which depend
+/// only on `n1` and `frame`, not on the crystal indices. Built once per bounce and shared
+/// by all hero channels; the result is bit-identical to building it per channel.
 #[derive(Clone, Copy)]
 pub(crate) struct EntryIncidenceFrame {
     incident_s: [Cplx; 4],
@@ -106,9 +78,8 @@ pub(crate) struct EntryIncidenceFrame {
 )]
 pub(crate) fn entry_incidence_frame(n1: f32, frame: &UniaxialFrame) -> EntryIncidenceFrame {
     let k_tan = n1 * frame.sin_i;
-    // Isotropic incidence-side modes (forward = incident, backward = reflected),
-    // matching this crate's existing r_s/r_p sign convention exactly (see this file's
-    // `iso_iso_matches_existing_scalar_fresnel_sign_convention` test).
+    // Isotropic incidence-side modes (forward = incident, backward = reflected), with the
+    // scalar r_s/r_p sign convention, checked by the zero-birefringence test in `tests.rs`.
     let k_fwd = CVec3::wavevector(frame.that, frame.zhat, k_tan, Cplx::re(n1 * frame.cos_i));
     let k_bwd = CVec3::wavevector(frame.that, frame.zhat, k_tan, Cplx::re(-n1 * frame.cos_i));
     let s_axis_c = CVec3::from_real(frame.s_axis);
@@ -146,11 +117,9 @@ pub(crate) fn entry_incidence_frame(n1: f32, frame: &UniaxialFrame) -> EntryInci
     }
 }
 
-/// The shared-work form of [`entry_solve`] -- see that function's own doc comment for
-/// why this exists and what it saves. Returns `(s_incident, p_incident)`. A thin
-/// wrapper around [`entry_incidence_frame`] + [`entry_solve_pair_with_incidence`],
-/// kept for tests and any single-call site that has no shared `EntryIncidenceFrame` to
-/// reuse across channels -- bit-identical to calling those two directly.
+/// Solves the entry interface for both incident polarizations, returning
+/// `(s_incident, p_incident)`. Equivalent to [`entry_incidence_frame`] followed by
+/// [`entry_solve_pair_with_incidence`].
 #[must_use]
 pub(crate) fn entry_solve_pair(
     n1: f32,
@@ -163,12 +132,9 @@ pub(crate) fn entry_solve_pair(
     entry_solve_pair_with_incidence(&inc, n1, n_o, n_e, c_axis, frame)
 }
 
-/// [`entry_solve_pair`]'s per-channel remainder: the part of the work that genuinely
-/// depends on this channel's own `n_o(lambda)`/`n_e(lambda)` (the q-roots, the crystal-
-/// side mode fields, and the boundary-matching solve itself), given an
-/// [`EntryIncidenceFrame`] built ONCE per bounce by the caller. See
-/// [`entry_incidence_frame`]'s own doc comment for why sharing it is exact, not an
-/// approximation.
+/// The per-channel part of [`entry_solve_pair`]: the q-roots, the crystal-side mode fields
+/// and the boundary solve, which depend on this channel's `n_o` and `n_e`. Takes an
+/// [`EntryIncidenceFrame`] already built for the bounce.
 #[must_use]
 pub(crate) fn entry_solve_pair_with_incidence(
     inc: &EntryIncidenceFrame,

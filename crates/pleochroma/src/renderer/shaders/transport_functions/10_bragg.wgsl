@@ -1,9 +1,9 @@
 // ---------------------------------------------------------------------------------
-// Tier 2 kernel for the Bragg domain port (`transport_physics/12_bragg_domains.wgsl`): the domain
-// at a point, the reflection coefficient of every channel there, the delta tracker, the mosaic
-// mirror and `maybe_scatter_oriented_bragg` (haze-only medium), each compared against the CPU
-// functions of `optics::inclusions::{domains, bragg}` and
-// `optics::raytracer::scattering::delta_tracking` by `renderer::gpu::transport_check::bragg`.
+// Tier 2 kernel for `transport_physics/12_bragg_domains.wgsl`: the domain at a point, the
+// reflection coefficient of every channel there, the delta tracker, the mosaic mirror and
+// `maybe_scatter_oriented_bragg` (haze-only medium). Each is checked against
+// `optics::inclusions::{domains, bragg}` and `optics::raytracer::scattering::delta_tracking`
+// by `renderer::gpu::transport_check::bragg`.
 // ---------------------------------------------------------------------------------
 
 // One case: the structure as `structure_rows` encodes it, a point to query the domain map at, a

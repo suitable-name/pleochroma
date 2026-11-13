@@ -36,13 +36,16 @@ pub struct FrameRotationCase {
     _pad2: f32,
 }
 
-/// ULP budget for `frame_rotation` + `apply_matrix`.
-///
-/// One `sin`/`cos` pair and a 4x4 matrix-vector multiply -- comparable single-driver-op
-/// budget to `rng_check`/`camera_check`'s established 1-2 ULP floor, widened modestly
-/// for the multiply-accumulate chain across four output components.
+/// ULP budget for `frame_rotation` + `apply_matrix`: one `sin`/`cos` pair and a 4x4
+/// matrix-vector multiply, widened modestly for the multiply-accumulate chain.
 const FRAME_ROTATION_ULP_BUDGET: u32 = 16;
-const FRAME_ROTATION_ABS_FLOOR: f32 = 1e-6;
+/// Absolute floor of the same check.
+///
+/// WGSL bounds `sin`/`cos` only absolutely (2^-11, and only inside `[-PI, PI]`), and the
+/// sweep's `2 * psi` reaches `+-4 PI`. Measured
+/// differences stay below 9.3e-6, while a wrong matrix (a transposed rotation, a swapped
+/// sign) is off by up to `2 * |sin(2 * psi)|`, far above this floor.
+const FRAME_ROTATION_ABS_FLOOR: f32 = 1e-5;
 
 fn build_frame_rotation_cases() -> Vec<FrameRotationCase> {
     let mut cases = Vec::new();
@@ -317,19 +320,12 @@ pub struct TirPhaseDeltaCase {
 }
 
 const TIR_PHASE_DELTA_ULP_BUDGET: u32 = 32;
-/// Measured: at exactly the critical angle (`n1k * sin_i == 1` to within input
-/// rounding), `tir_phase_delta`'s `sqrt(max(n1k^2*sin_i^2 - 1, 0))` term sits on a
-/// genuine mathematical kink (infinite derivative at the clamp boundary), so a
-/// sub-ULP difference in the SHARED f32 input `sin_i`/`cos_i` (the adversarial case
-/// bank uploads bit-identical floats to both sides, so this is not a CPU/GPU
-/// arithmetic disagreement -- it's the formula itself being ill-conditioned exactly at
-/// this single point) can push `n1k^2*sin_i^2 - 1` to either side of zero, giving
-/// `delta = 0` on one side and a small nonzero `delta` on the other. Observed: CPU
-/// `3.860202e-4` vs GPU `0.0` exactly AT `n1k=1.5`'s critical angle -- ~1e-4 rad
-/// (~0.02 degrees) of phase retardation, physically negligible (a genuine TIR event
-/// well past critical angle produces phase retardation of order 0.1-3 rad). `2e-3` is
-/// comfortably above that measured knife-edge magnitude while staying far below any
-/// physically meaningful phase retardation.
+/// Absolute floor of the phase-delta check.
+///
+/// At the critical angle, `tir_phase_delta`'s `sqrt(max(n1k^2 sin_i^2 - 1, 0))` term has an
+/// infinite slope. A sub-ULP difference in the shared input can therefore give `delta = 0` on
+/// one side and about 4e-4 rad on the other. That is negligible next to real TIR retardation
+/// (0.1 to 3 rad), and 2e-3 covers it.
 const TIR_PHASE_DELTA_ABS_FLOOR: f32 = 2e-3;
 
 fn build_tir_phase_delta_cases() -> Vec<TirPhaseDeltaCase> {
@@ -337,10 +333,7 @@ fn build_tir_phase_delta_cases() -> Vec<TirPhaseDeltaCase> {
     let n_vals = [1.3f32, 1.5, 1.77, 2.0, 2.42];
     let steps = 60;
     for &n1k in &n_vals {
-        // Sweep cos_i from 0 (grazing) to the exact critical angle and beyond, so both
-        // "past critical" and "not past critical" regions -- and the boundary itself --
-        // are covered (see this module doc comment's "near each channel's critical
-        // angle" requirement).
+        // Sweep from grazing incidence past the critical angle, covering both regions.
         let sin_c = (1.0 / n1k).min(1.0);
         let theta_c = sin_c.asin();
         for i in 0..=steps {

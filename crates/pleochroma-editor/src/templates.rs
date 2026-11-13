@@ -13,7 +13,10 @@
 //!   chosen stone width -- with the pavilion angles adapted by the retarget engine
 //!   (its default policy: the crown stays as authored) when the material's index
 //!   differs from the one the template was designed for, and kept as authored when
-//!   the adapted stone would not be valid.
+//!   the adapted stone would not be valid. An adapted template keeps its meet points:
+//!   the retarget engine puts every tier that met a point back on the point of the same
+//!   planes and judges that stone (`retarget::keep_meets`), and `adapt_keeping_meets` says
+//!   so when it could not.
 //!
 //! Everything here is pure (no window, no thread), so the decisions are unit tested.
 
@@ -23,6 +26,7 @@ use crate::{
     retarget::{
         CrownShift,
         check::{CheckInputs, check_retarget},
+        keep_meets::meets_kept,
         plan::build_plan_from,
         validity::ValidityStatus,
         view::resolved_material_from_selection,
@@ -30,7 +34,8 @@ use crate::{
 };
 use pleochroma::optics::{LightingPreset, materials::GemMaterial};
 use pleochroma_cut_core::{
-    Design, Edit, FreshDesignSpec, MaterialSelection, PreformSpec, RemapRounding, ResolvedMaterial,
+    Design, Edit, FreshDesignSpec, MaterialSelection, MeetTarget, PreformSpec, RemapRounding,
+    ResolvedMaterial,
     templates::{TEMPLATES, TemplateSpec},
 };
 
@@ -74,7 +79,7 @@ pub fn template_cards() -> Vec<TemplateCard> {
 pub enum GalleryGroup {
     /// The "Empty" card on its own: no tiers, every setting typed by hand.
     Blank,
-    /// "Shapes": the top five -- round brilliant, oval, cushion, emerald, princess.
+    /// "Shapes": the featured templates (round brilliant, oval, cushion, emerald, princess).
     Shapes,
     /// "Round variants and teaching designs".
     Variants,
@@ -395,6 +400,42 @@ fn adapt_angles(
     Ok(check.validity.headline())
 }
 
+/// What an adapted design's headline adds when its meet points could not be kept: the angles
+/// moved, but some tiers no longer reach the point they met.
+pub const MEETS_NOT_KEPT: &str =
+    "The meet points could not be kept: some tiers no longer reach the point they met.";
+
+/// [`adapt_angles`], keeping the template's meet points.
+///
+/// Every template is a meet-point design: each tier that is not an anchor reaches a point
+/// already on the stone when it is cut (`Design::cut_meets`). Moving the angles moves those
+/// points, so the retarget engine puts each such tier back at its distance from the point of
+/// the same planes and judges that stone with its validity gate (`retarget::keep_meets`).
+/// The tiers change in place, with no history: the result is the starting state.
+///
+/// The points are recorded (`Design::meet_targets`) only to tell whether they were kept.
+/// When they cannot be recorded, or a tier no longer meets its point (the new angles leave
+/// a point degenerate, or the re-anchored stone was refused and the adapted stone kept as
+/// it was), the headline ends with [`MEETS_NOT_KEPT`]. `Err` is [`adapt_angles`]'s refusal,
+/// with `design` unchanged.
+fn adapt_keeping_meets(
+    design: &mut Design,
+    n_from: f64,
+    target: &ResolvedMaterial,
+) -> Result<String, String> {
+    let targets: Option<Vec<MeetTarget>> = design
+        .solve()
+        .ok()
+        .and_then(|solved| design.meet_targets(&solved));
+    let headline = adapt_angles(design, n_from, target)?;
+    let kept = targets.is_some_and(|targets| meets_kept(design, &targets));
+    Ok(if kept {
+        headline
+    } else {
+        format!("{headline} {MEETS_NOT_KEPT}")
+    })
+}
+
 /// The refractive index and resolved material a design cut from `material` has: the
 /// named material's `n_D`, an override's, or -- for "(none)" -- the design's own legacy
 /// fallback index, so "no material" is never mistaken for diamond.
@@ -417,7 +458,10 @@ fn target_material(design: &Design, custom: &[GemMaterial]) -> ResolvedMaterial 
 ///    ([`TemplateSpec::design_ri`]) by more than [`RI_TOLERANCE`], the facet angles are
 ///    shifted with the retarget engine and the result is kept only when its validity
 ///    gate says the stone is valid; otherwise the template's angles stay
-///    ([`AngleAdaptation::KeptTemplateAngles`]).
+///    ([`AngleAdaptation::KeptTemplateAngles`]). An adapted design keeps the template's
+///    meet points: every tier that met a point when it was cut is put back through the
+///    point of the same planes, or the headline says the points could not be kept
+///    ([`MEETS_NOT_KEPT`]).
 ///
 /// # Errors
 ///
@@ -469,7 +513,7 @@ pub fn create_from_template(choice: &NewDesignChoice) -> Result<CreatedDesign, S
         .filter(|mm| mm.is_finite() && *mm > 0.0);
     let target = target_material(&session.design, &choice.custom_materials);
     let adaptation = settle_adaptation(spec.design_ri, target.n_d, || {
-        adapt_angles(&mut session.design, spec.design_ri, &target)
+        adapt_keeping_meets(&mut session.design, spec.design_ri, &target)
     });
     Ok(CreatedDesign {
         session,

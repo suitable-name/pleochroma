@@ -173,8 +173,9 @@ pub(super) fn to_image(thumbnail: &Thumbnail) -> Option<Image> {
 }
 
 /// The wishes for the cards `first..=last` (the visible range) and a margin around it,
-/// skipping the cards that already have an image or failed. The result is ordered for
-/// [`ThumbPool::set_wanted`]: the card nearest to `first` comes last.
+/// skipping cards that already have an image or failed.
+///
+/// The result is ordered for [`ThumbPool::set_wanted`]: the card nearest to `first` comes last.
 pub(super) fn wishes(
     len: usize,
     id_at: &dyn Fn(usize) -> EntryId,
@@ -225,7 +226,7 @@ mod tests {
         let jobs = wishes(cards.len(), &|i| cards[i], (10, 14), &never, GRID_EDGE);
         assert_eq!(jobs.last().map(|job| job.index), Some(10));
         assert_eq!(jobs[jobs.len() - 5].index, 14);
-        // The margin comes first (made last): 8 above and 8 below the range.
+        // The margin comes first (made last): PREFETCH cards above and below the range.
         assert_eq!(jobs.len(), 5 + 2 * PREFETCH);
         assert!(jobs.iter().all(|job| (2..=22).contains(&job.index)));
         assert!(jobs.iter().all(|job| job.id == cards[job.index]));

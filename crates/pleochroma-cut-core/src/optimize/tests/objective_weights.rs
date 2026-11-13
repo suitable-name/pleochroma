@@ -99,9 +99,8 @@ fn display_score_is_monotone_decreasing_and_keeps_nan() {
 
 // --- ObjectiveWeights::score_with_yield ---
 
-/// With the default `yield_weight` (`0.0`), `score_with_yield` must reproduce
-/// `score`'s own output bit for bit, REGARDLESS of what `yield_loss_pct` is
-/// passed -- a zero-weight term must never perturb the result.
+/// With the default `yield_weight` (`0.0`), `score_with_yield` reproduces `score` bit for
+/// bit whatever `yield_loss_pct` is: a zero-weight term must not perturb the result.
 #[test]
 fn score_with_yield_at_default_weight_matches_score_bit_for_bit() {
     let weights = ObjectiveWeights::default();

@@ -11,7 +11,7 @@ use crate::MainWindow;
 
 /// The group a command is listed under in the palette.
 ///
-/// The variants are in menu order; the palette's own listing sorts by the label.
+/// The variants are in menu order; an empty palette query lists by this order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Category {
     /// Opening, saving and exporting.
@@ -50,8 +50,8 @@ impl Category {
 pub struct Command {
     /// A stable dotted name such as `file.save`. Unique; used to remember recent commands.
     pub id: &'static str,
-    /// The name shown in the palette. Plain English; menu and button names are reused so a
-    /// command is found under the name the user already knows.
+    /// The name shown in the palette: plain English, and the menu or button name where there
+    /// is one, so the user finds the command under the name they already know.
     pub title: &'static str,
     /// The group it is listed under.
     pub category: Category,

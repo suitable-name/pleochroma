@@ -6,91 +6,54 @@ import { IconButton } from "icon_button.slint";
 import { TipButton } from "compact_controls.slint";
 import { ToggleRow } from "toggle_switch.slint";
 
-// "Import" popup: brings the user's own `.psdd`/`.asc`/`.gem`/`.gcs` file(s) into the local library.
-// Picking a file or folder runs the import immediately -- there is no path field to
-// edit and no separate "Import" button to confirm through; `pick_asc_file`/
-// `pick_asc_folder` (handled in Rust with `rfd::FileDialog`, see
-// `gui::library::setup_import_callback`'s doc comment) pick AND import in one step,
-// off the UI thread. Cancelling either native dialog does nothing at all -- no
-// import, no error, this popup just stays open. Two buttons rather than one because
-// a folder import (every design file directly inside it) and a single-file import are
-// both genuinely useful, and one native dialog can't offer both at once.
+// "Import" popup for the user's own `.psdd`/`.asc`/`.gem`/`.gcs` files. Picking a file or folder
+// imports it at once: there is no path field and no confirm button. Rust (`pick_asc_file` and
+// `pick_asc_folder`, via `rfd::FileDialog`) picks and imports off the UI thread. Cancelling a
+// native dialog does nothing and the popup stays open. Separate file and folder buttons, since
+// one native dialog cannot offer both.
 //
-// When a picked file/folder would replace an existing catalogue row by filename,
-// Rust shows a synchronous native confirm dialog (a plain `rfd::MessageDialog`,
-// the same "no `.slint` file owns a place to put a new modal for a decision it
-// alone knows needs asking" precedent `gui::editor::native_io::
-// confirm_status_before_write` already uses) BEFORE running
-// `pick_asc_file`/`pick_asc_folder`'s import -- see
-// `gui::library::local::import::confirm_collisions_if_any`. Nothing in this file
-// changes for that: the picker buttons below still just fire-and-forget the same two
-// callbacks either way.
+// A pick that would replace a catalogue row of the same filename is confirmed by Rust with a
+// native dialog before the import (`confirm_collisions_then` in `gui::library::local::import`).
+// The buttons here do not change for that.
 //
-// Inherits `PopupWindow` -- same reasoning as `filter_panel.slint`: renders in
-// Slint's dedicated popup layer, always on top, and must be instantiated
-// unconditionally and driven via show()/close() (see `header.slint`'s
-// `import_popup` instantiation).
+// Inherits `PopupWindow`: it renders in Slint's popup layer, above everything, so it is
+// instantiated unconditionally and driven by show()/close() (see `header.slint`'s `import_popup`).
 export component ImportDialog inherits PopupWindow {
     in property <string> result_text: LibraryModel.import_result_text;
     in property <bool> importing: LibraryModel.is_busy;
-    // Whether this import produced something worth reading -- it replaced an
-    // existing catalogue row by filename-only dedup, or some files failed.
-    // `result_text` already carries that sentence, but showing it requires
-    // keeping the popup open past `importing` going false -- see `changed
-    // importing` below, which is driven by the real signal the import completion
-    // handler sets rather than closing unconditionally.
+    // True when the import replaced an existing row or some files failed. The popup then stays
+    // open after the import so `result_text` can be read (see `changed importing`).
     in property <bool> had_collision: LibraryModel.import_should_stay_open;
-    // Overall progress for the import currently running -- 0.0..1.0, only meaningful
-    // while `importing` is true. `import_done`/`import_total` are the raw file counts
-    // behind it (`import_total` is 0 before the first file finishes), shown as
-    // "file N / M" for a folder import; see `gui::library::spawn_import`'s progress
-    // callback, the only place these are set.
+    // Progress of the running import, 0.0..1.0, meaningful while `importing`. `import_done` and
+    // `import_total` are the raw file counts (`import_total` is 0 until the first file reports),
+    // shown as "file N / M". Set only in `spawn_import` (`gui::library::local::import::wiring`).
     in property <int> import_done: LibraryModel.import_done;
     in property <int> import_total: LibraryModel.import_total;
     in property <float> import_progress: LibraryModel.import_progress;
 
-    // Whether the NEXT folder pick should also walk subfolders.
-    // Read at the moment "Choose folder..." is clicked and handed to
-    // `pick_asc_folder` as its argument -- NOT polled afterwards. This has to be set
-    // BEFORE that click: picking a folder starts the import in the same step (see
-    // this component's own doc comment above), so there is no later point at which
-    // toggling this would still have anything left to affect. The toggle sits above
-    // the buttons, in click order, for exactly that reason.
+    // Whether the NEXT folder pick also walks subfolders. Read when "Choose folder..." is clicked,
+    // not polled: picking a folder starts the import at once, so this must be set before that
+    // click.
     property <bool> recurse_subfolders: false;
 
-    // The default `close-policy` (`close-on-click`) would close the popup on the
-    // very first click anywhere inside it -- including a press on "Choose file..."
-    // itself, before that click could ever reach the button, making the whole
-    // import flow unreachable. `filter_panel.slint`/`remote_worker_dialog.slint`
-    // make the same choice for the same reason. Closing is handled explicitly
-    // instead: the '×' button below calls the inherited `close()`.
+    // Not `close-on-click`, which would close the popup on the press of "Choose file..." itself.
+    // Closing is explicit: the × button and Escape.
     close-policy: PopupClosePolicy.no-auto-close;
 
-    // A `PopupWindow` is modal: while it is open, Slint routes every click to the
-    // popup layer, so an in-window overlay such as `preview_batch_dialog.slint`'s
-    // "Generate preview images?" confirm step (opened by the import completion
-    // handler, `z: 400` in `app.slint`) can be seen but not clicked. Closing this
-    // popup the moment the import finishes hands input back to that dialog; the
-    // toast already carries the import summary.
+    // A `PopupWindow` is modal and takes every click while open. Closing it as the import ends
+    // hands input back to the preview confirm that the import completion opens in `app.slint`;
+    // the toast already carries the summary.
     changed importing => {
         if (!self.importing) {
-            // Stays open when this import replaced an existing row, so
-            // `result_text`'s warning about it is actually reachable instead of
-            // vanishing with the popup the same instant it appears. Every other
-            // outcome still auto-closes, so the import completion handler's own
-            // preview-generation confirm step (see this component's doc comment
-            // above) still gets the popup layer handed back to it immediately.
+            // Stay open after a replacement, so the warning in `result_text` can be read.
             if (!root.had_collision) {
                 root.close();
             }
         }
     }
 
-    // Neither takes nor returns a path -- there's no field left to seed a starting
-    // directory from or to receive a result into. Each just runs a native picker and,
-    // if the user didn't cancel it, the import. `pick_asc_folder` additionally
-    // carries `recurse_subfolders`'s current value -- see that property's own doc
-    // comment.
+    // Neither takes nor returns a path: each runs a native picker and, unless cancelled, the
+    // import. `pick_asc_folder` also gets the current `recurse_subfolders`.
     callback pick_asc_file();
     pick_asc_file => { LibraryModel.pick_asc_file(); }
     callback pick_asc_folder(bool);
@@ -107,10 +70,8 @@ export component ImportDialog inherits PopupWindow {
         drop-shadow-color: Theme.shadow-medium;
         drop-shadow-offset-y: 6px;
 
-        // Escape closes the panel (an import in progress carries on in the background, so
-        // closing never loses work), and Tab moves between the buttons below.
-        // The panel takes the keyboard as it is built (as the filter panel does), so Esc
-        // reaches it without a click first.
+        // Escape closes the panel; an import in progress carries on in the background. The panel
+        // takes focus when built, so Escape works without a click first.
         FocusScope {
             width: 100%;
             height: 100%;
@@ -163,10 +124,8 @@ export component ImportDialog inherits PopupWindow {
                 wrap: word-wrap;
                 accessible-role: AccessibleRole.text;
             }
-            // `.gem` (GemCAD) and `.gcs` (Gem Cut Studio) files are converted to
-            // `.asc` cutting instructions on import
-            // (`gui::library::local::import::foreign`); the original file is kept
-            // as an attachment, and converter notes are listed in `result_text`.
+            // `.gem` and `.gcs` files are converted to `.asc` on import
+            // (`gui::library::local::import::foreign`); the original is kept as an attachment.
             Text {
                 text: ".gem (GemCAD) and .gcs (Gem Cut Studio) files are converted to .asc cutting instructions; the original file stays attached to the design.";
                 font-size: 10px;
@@ -175,10 +134,8 @@ export component ImportDialog inherits PopupWindow {
                 accessible-role: AccessibleRole.text;
             }
 
-            // Must be set BEFORE "Choose folder..." below is clicked -- see
-            // `recurse_subfolders`'s own doc comment. Placed above the buttons, in
-            // the order the user actually needs to use them, rather than next to
-            // "Choose folder..." where it would read as a same-click option.
+            // Set BEFORE "Choose folder..." is clicked (see `recurse_subfolders`). Placed above the
+            // buttons, in the order the user needs them.
             ToggleRow {
                 text: "Include Subfolders (Set This First)";
                 hint: "Also import the designs in the folders inside the one you pick. Turn this on BEFORE you press Choose folder, because the import starts as soon as you pick.";
@@ -216,11 +173,8 @@ export component ImportDialog inherits PopupWindow {
                     accessible-role: AccessibleRole.text;
                 }
 
-                // Only shown for a folder import once the first file has reported in
-                // (`import_total > 1`, i.e. more than the single file a lone-file
-                // import always reports as `1 / 1`) -- for one file there's no
-                // meaningful "N / M" to show, and the bar would just jump straight to
-                // 100% too fast to read.
+                // Folder imports only: a lone file always reports `1 / 1`, which gives no useful
+                // count and would jump to 100% too fast to read.
                 if root.import_total > 1: VerticalLayout {
                     spacing: 4px;
                     HorizontalLayout {

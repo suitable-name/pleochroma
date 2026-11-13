@@ -17,10 +17,9 @@ fn scale_reference_tier(value: f64) -> ConstraintTier {
     }
 }
 
-/// A hand-built [`OptimizeOutcome`] whose `after` deliberately makes extinction
-/// WORSE while windowing and tilt brilliance improve -- proving
-/// [`optimize_result_rows`] reports every component's real number rather than
-/// only the still-improved blended score.
+/// A hand-built [`OptimizeOutcome`] whose `after` makes extinction worse while windowing
+/// and tilt brilliance improve. [`optimize_result_rows`] must report each component, not
+/// only the blended score.
 fn sample_outcome(changed: bool, cancelled: bool) -> OptimizeOutcome {
     OptimizeOutcome {
         provenance: None,
@@ -63,7 +62,7 @@ fn optimize_result_rows_reports_each_component_separately_never_collapsed() {
     assert_eq!(rows[0].before.as_str(), "12.50%");
     // Lower windowing is better -- a negative delta reads as "better".
     assert_eq!(rows[0].after.as_str(), "9.25% (-3.25%, better)");
-    // Extinction got WORSE -- shown honestly, not hidden by the improved score.
+    // Worse extinction is shown as worse, even when the blended score improves.
     assert_eq!(rows[1].label.as_str(), "Extinction");
     assert_eq!(rows[1].before.as_str(), "8.00%");
     assert_eq!(rows[1].after.as_str(), "11.00% (+3.00%, worse)");
@@ -71,16 +70,13 @@ fn optimize_result_rows_reports_each_component_separately_never_collapsed() {
     assert_eq!(rows[2].before.as_str(), "60.00%");
     // Higher tilt brilliance is better -- a positive delta reads as "better".
     assert_eq!(rows[2].after.as_str(), "65.00% (+5.00%, better)");
-    // Yield loss went DOWN (less preform thrown away) -- reads as "better",
-    // same polarity as windowing/extinction, even though this fixture's
-    // `ObjectiveWeights` (implicit -- `OptimizeOutcome` carries no weights of
-    // its own) never actually weighed it into the blended score.
+    // Less yield loss (less preform thrown away) reads as better.
     assert_eq!(rows[3].label.as_str(), "Yield loss");
     assert_eq!(rows[3].before.as_str(), "30.00%");
     assert_eq!(rows[3].after.as_str(), "25.00% (-5.00%, better)");
     assert_eq!(rows[4].label.as_str(), "Blended score");
-    // The blended score is shown as 100 minus the internal loss (20 and 15), higher is better,
-    // so a better candidate prints a POSITIVE delta; the colour still follows the loss.
+    // The blended score shows 100 minus the internal loss, so a better candidate has a
+    // positive delta; the verdict still follows the loss.
     assert_eq!(rows[4].before.as_str(), "80.00");
     assert_eq!(rows[4].after.as_str(), "85.00 (+5.00, better)");
     assert_eq!(rows[4].direction, 1);
@@ -142,9 +138,8 @@ fn build_optimize_preview_design_rejects_an_uncertified_outcome() {
 
 #[test]
 fn build_optimize_preview_design_refuses_an_out_of_range_change_index() {
-    // A design edited between when Optimize ran and when the preview toggle is
-    // flipped can shrink the tier list out from under a stale outcome -- this
-    // must be refused with an error (a change is never silently skipped), never panic.
+    // A design edited after the run can shrink the tier list under a stale outcome. The
+    // change must be refused with an error, never skipped or panicked on.
     let design = Design::new(
         pleochroma_cut_core::PreformSpec::block(2.0, 1.0, 2.0),
         pleochroma_cut_core::ScheduleMeta::default(),
@@ -179,8 +174,8 @@ fn optimize_status_text_reports_no_improving_move_when_nothing_changed() {
 
 #[test]
 fn optimize_status_text_notes_cancellation_without_hiding_the_partial_result() {
-    // `after`/`changes` still reflect the best REAL partial result found, never
-    // discarded -- the cancellation note must be additive, not replace the summary.
+    // The partial result stays in `after` and `changes`; the cancellation note is added to
+    // the summary, not in its place.
     let text = optimize_status_text(&sample_outcome(true, true));
     assert!(text.contains("cancelled"));
     assert!(text.contains("1 tier(s)"));
@@ -188,9 +183,7 @@ fn optimize_status_text_notes_cancellation_without_hiding_the_partial_result() {
 
 #[test]
 fn optimize_status_text_names_the_polish_stages_own_contribution_when_it_ran() {
-    // Without this reader, `polish_evaluations`/`polish_improvement` would
-    // have no consumer anywhere in this crate -- whether the ridge-following
-    // polish stage did anything at all would be invisible to a cutter.
+    // The polish stage's own contribution must be visible to the cutter.
     let mut outcome = sample_outcome(true, false);
     outcome.polish_evaluations = 31;
     outcome.polish_improvement = 0.42;
@@ -261,8 +254,8 @@ fn fresh_design() -> Design {
 
 #[test]
 fn optimize_hint_is_unavailable_when_every_tier_is_pinned() {
-    // A design with only `ScaleReference` tiers has zero free tiers. Must read
-    // as "nothing to optimize yet, and that's expected," never as broken.
+    // With only `ScaleReference` tiers there is no free tier; the hint explains this rather
+    // than reporting an error.
     let mut design = fresh_design();
     design.tiers.push(scale_reference_tier(0.5));
     design.tiers.push(scale_reference_tier(0.8));
@@ -321,8 +314,7 @@ fn design_with_named_tiers(names: &[&str]) -> Design {
 
 #[test]
 fn facet_count_from_solved_excludes_the_preform_s_own_planes() {
-    // An EMPTY design (zero tiers, nothing cut yet) must show zero facets, not the
-    // bare preform's own plane count.
+    // A design with no tiers must show zero facets, not the preform's own plane count.
     let design = fresh_design();
     let solved = design.solve().expect("a tierless design still solves");
     assert_eq!(
@@ -492,8 +484,7 @@ fn parse_optimize_weights_accepts_arithmetic_in_a_weight_box() {
 
 #[test]
 fn parse_optimize_weights_reads_a_plain_number_exactly_as_the_f32_parse_does() {
-    // Weights feed the score directly, so a run with plain boxes must stay bit-identical
-    // to what it was before the boxes took arithmetic.
+    // Weights feed the score directly, so a plain number must parse to the same bits as `f32`.
     let weights = parse_optimize_weights("0.1", "0.3", "1e0", 0.0, 0.0).unwrap();
     assert_eq!(
         weights.windowing.to_bits(),
@@ -730,8 +721,8 @@ fn a_stone_size_scales_the_material_to_the_design_width() {
     let width = pleochroma::render_setup::measure_model_width(&planes).expect("SRB measures");
     let mut design = crate::EditorSession::fresh().design;
 
-    // A per-model-unit colour (the triple of a body-colour preset) is tuned for 7 mm: the face-up
-    // calibration `1 / K` while no size is set, `mm / 7 / K` once one is -- the renderer's own rule.
+    // A per-model-unit colour (the triple of a body-colour preset) is tuned for 7 mm. The
+    // path scale is `1 / K` with no size set and `mm / 7 / K` once one is, as the renderer does.
     let face_up = pleochroma::render_setup::MODEL_UNIT_FACE_UP_PATH;
     let unsized_material =
         crate::material_lookup::sized_material_for_optimize(blue_sapphire(), &design, &planes);

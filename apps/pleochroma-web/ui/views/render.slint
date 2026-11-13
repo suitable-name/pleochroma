@@ -47,8 +47,7 @@ component ViewPill inherits Rectangle {
 //   clamps (DPR-aware) into a render-target size.
 // - Orbit: dragging writes `AppModel.yaw/pitch` with the desktop's signs, factor and
 //   pitch clamp, and reports every change through `AppModel.camera-changed`; the
-//   renderer keeps accumulating progressively at every pose (no low-resolution
-//   preview, like the desktop's default).
+//   renderer keeps accumulating at every pose (no low-resolution preview while orbiting).
 export component RenderView inherits Rectangle {
     background: #101014;
     border-radius: Theme.radius-md;
@@ -56,9 +55,8 @@ export component RenderView inherits Rectangle {
     border-color: Theme.border-subtle;
     clip: true;
 
-    // Also on mount: `changed` does not fire for the size a view is created with, so without
-    // this the raster stayed at the 800 x 600 start-up default (a 4:3 picture, letterboxed)
-    // until the window was first resized.
+    // Also on mount: `changed` does not fire for the initial size, and the raster would
+    // otherwise keep its 800 x 600 start-up default.
     init => { AppModel.render-size-changed(self.width, self.height); }
     changed width => { AppModel.render-size-changed(self.width, self.height); }
     changed height => { AppModel.render-size-changed(self.width, self.height); }
@@ -82,8 +80,9 @@ export component RenderView inherits Rectangle {
         }
         moved => {
             if (self.pressed) {
-                // The desktop's `gui::camera_lighting::on_camera_orbit` signs and
-                // factor: the drag rotates the stone, hence the negative yaw.
+                // Signs and factor follow the desktop's `on_camera_orbit` (pleochroma-cut,
+                // `src/gui/render/camera_lighting.rs`): the drag rotates the stone, hence the
+                // negative yaw.
                 AppModel.yaw -= (self.mouse-x - self.last-x) / 1px * 0.008;
                 AppModel.pitch += (self.mouse-y - self.last-y) / 1px * 0.008;
                 AppModel.pitch = Math.max(-1.48, Math.min(1.48, AppModel.pitch));
@@ -117,7 +116,7 @@ export component RenderView inherits Rectangle {
     }
 
     // Progress, top left; on a view too narrow to hold it beside the toolbar buttons
-    // (about 270px), it drops to the row under them instead of running beneath them.
+    // (270px), it drops to the row under them instead of running beneath them.
     if RenderModel.progress-text != "": Rectangle {
         x: 8px;
         y: root.width < progress.preferred-width + 16px + 8px + 270px + 8px ? 38px : 8px;
@@ -126,8 +125,7 @@ export component RenderView inherits Rectangle {
         background: #000000a0;
         border-radius: 4px;
         progress := Text {
-            // A Text does not fill its parent by itself: without a width the long line
-            // ("... denoised (0.6 s)") overflowed a phone-width view on both sides instead of eliding.
+            // A Text does not fill its parent by itself; the width lets a long line elide.
             x: 4px;
             width: parent.width - 8px;
             height: parent.height;

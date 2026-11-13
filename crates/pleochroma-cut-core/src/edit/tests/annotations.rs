@@ -62,9 +62,9 @@ fn set_cheater_offset_then_undo_restores_the_previous_value() {
 }
 
 /// `AddTier` before a tier with a recorded cheater offset must shift that
-/// offset's key along with the tier itself, and `RemoveTier` on the OFFSET
-/// tier must both remove the offset and restore it on undo (a `Batch` inverse
-/// under the hood -- see `Design::apply_edit`'s own `RemoveTier` arm).
+/// offset's key along with the tier itself. `RemoveTier` on the OFFSET tier must
+/// drop the offset and restore it on undo (the inverse is a `Batch`; see
+/// `apply_remove_tier`).
 #[test]
 fn add_and_remove_tier_renumber_cheater_offsets() {
     let mut design = fresh_design();
@@ -159,11 +159,9 @@ fn move_tier_relocates_its_own_cheater_offset() {
     assert_eq!(design.cheater_offset_deg(1), Some(3.0));
 }
 
-/// `SetTierNote` then undo must set/restore exactly one tier's own note,
-/// leaving every other tier's `None` untouched, and clearing it (`note: None`)
-/// must undo back to a real previous value when one was set -- the same
-/// contract `set_cheater_offset_then_undo_restores_the_previous_value` already
-/// covers for `SetCheaterOffset`.
+/// `SetTierNote` then undo must set/restore exactly one tier's own note, leaving every
+/// other tier's `None` untouched, and clearing it (`note: None`) must undo back to a real
+/// previous value when one was set.
 #[test]
 fn set_tier_note_then_undo_restores_the_previous_value() {
     let mut design = fresh_design();
@@ -216,11 +214,9 @@ fn set_tier_note_then_undo_restores_the_previous_value() {
     assert_eq!(design.tier_note(1), Some("check meet here"));
 }
 
-/// `AddTier` before a tier with a recorded note must shift that note's key
-/// along with the tier itself, and `RemoveTier` on the NOTE tier must both
-/// remove the note and restore it on undo (a `Batch` inverse under the hood --
-/// see `Design::apply_edit`'s own `RemoveTier` arm). Mirrors
-/// `add_and_remove_tier_renumber_cheater_offsets` for `tier_notes`.
+/// `AddTier` before a tier with a recorded note must shift that note's key along with the
+/// tier itself. `RemoveTier` on the NOTE tier must drop the note and restore it on undo
+/// (the inverse is a `Batch`; see `apply_remove_tier`).
 #[test]
 fn add_and_remove_tier_renumber_tier_notes() {
     let mut design = fresh_design();
@@ -317,9 +313,7 @@ fn remove_tier_undo_restores_both_cheater_offset_and_note_together() {
 }
 
 /// `MoveTier` must relocate the moved tier's OWN note along with it, not just
-/// shift everyone else's -- and undo (the exact inverse move) must put it
-/// back. Mirrors `move_tier_relocates_its_own_cheater_offset` for
-/// `tier_notes`.
+/// shift everyone else's -- and undo (the exact inverse move) must put it back.
 #[test]
 fn move_tier_relocates_its_own_note() {
     let mut design = fresh_design();

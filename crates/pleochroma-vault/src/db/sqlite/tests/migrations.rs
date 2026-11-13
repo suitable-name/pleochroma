@@ -1,5 +1,6 @@
-//! Column-retype and column-add migrations against `diagram_entries`/`diagram_details`:
-//! the TEXT-to-numeric retype plus `facets_count` split, `source_id` backfill, and the
+//! Column-retype and column-add migrations against `diagram_entries`/`diagram_details`.
+//!
+//! They are the TEXT-to-numeric retype plus `facets_count` split, `source_id` backfill, and the
 //! designer/attachment column additions -- each proven against data shaped like the
 //! pre-migration schema, and idempotent across a second open.
 
@@ -181,15 +182,10 @@ fn migration_retypes_columns_and_splits_facets_count() {
     let _ = std::fs::remove_file(&path);
 }
 
-/// A FRESH database's `diagram_details` (via
-/// `create_tables_if_not_exist`) already declares `refractive_index`/`lw_ratio`/
-/// `volume`/`index_gear` as REAL/INTEGER and already has `facets`/`girdle_facets` --
-/// `migrate_numeric_columns` must detect that from the column's actual type and skip
-/// its DROP-COLUMN/RENAME-COLUMN retype cycle entirely, never running it against
-/// columns that were never TEXT. Also proves the migration logic is safe to invoke
-/// twice in a row on the same already-typed database (idempotency), since production
-/// code runs it on every `Database::new` regardless of how many times the process has
-/// opened this file before.
+/// A fresh `diagram_details` already declares `refractive_index`/`lw_ratio`/`volume`/
+/// `index_gear` as REAL/INTEGER and has `facets`/`girdle_facets`. `migrate_numeric_columns`
+/// must detect the real column type and skip its DROP/RENAME retype cycle. Running it again
+/// on the same database must also change nothing, since every `Database::new` runs it.
 #[test]
 fn fresh_database_columns_are_already_typed_and_the_numeric_migration_is_a_no_op() {
     let db = Database::new(Some(":memory:")).expect("create in-memory db");
@@ -217,10 +213,8 @@ fn fresh_database_columns_are_already_typed_and_the_numeric_migration_is_a_no_op
     assert!(Database::column_exists(&db.conn, "diagram_details", "facets").unwrap());
     assert!(Database::column_exists(&db.conn, "diagram_details", "girdle_facets").unwrap());
 
-    // `Database::new` (above) already ran `migrate_numeric_columns` once as part of
-    // opening. Running the exact same migration logic a second time, directly, proves
-    // it is a genuine no-op against an already-typed table rather than merely "ran
-    // without erroring the first time because the table happened to be fresh."
+    // Opening already ran `migrate_numeric_columns` once. Running it again proves it is a
+    // no-op on an already-typed table.
     db.migrate_numeric_columns()
         .expect("re-running the migration against an already-typed table must not error");
 
@@ -344,7 +338,7 @@ fn source_id_migration_backfills_legacy_rows_and_is_idempotent_across_two_opens(
                 .flatten()
                 .collect()
         };
-        // Backfilled with the legacy source -- could only have come from facetdiagrams.org.
+        // Backfilled with `LEGACY_SOURCE_ID`, the only origin before `source_id` existed.
         assert_eq!(
             ids,
             vec![LEGACY_SOURCE_ID.to_string(), LEGACY_SOURCE_ID.to_string()]
@@ -363,10 +357,7 @@ fn source_id_migration_backfills_legacy_rows_and_is_idempotent_across_two_opens(
         .unwrap();
     assert_eq!(count, 2);
 
-    // The exact column set, not a bare count: the point of this assertion is that
-    // a re-run of the migration leaves no duplicate column behind, and comparing
-    // names catches that (a duplicate shows up twice) while also saying which
-    // columns the migration is expected to have produced.
+    // Compares the exact column set: a duplicate column left by a re-run would show up twice.
     let mut type_stmt = db2
         .conn
         .prepare("PRAGMA table_info(diagram_entries)")
@@ -447,9 +438,8 @@ fn designer_and_attachment_migration_adds_the_columns_and_is_idempotent() {
         }
         // designer_info is kept, not dropped -- other callers still read it.
         assert!(Database::column_exists(&db.conn, "diagram_details", "designer_info").unwrap());
-        // idx_diagram_details_designer used to be created here too, but
-        // nothing ever queries it -- see `Database::migrate_drop_unused_designer_index`.
-        // It must be gone, not merely absent from this migration's own CREATE list.
+        // The unused `idx_diagram_details_designer` index is dropped by
+        // `Database::migrate_drop_unused_designer_index`, and must not exist after open.
         let indexed: i64 = db
             .conn
             .query_row(
@@ -498,9 +488,8 @@ fn migrate_drop_unused_designer_index_removes_a_pre_existing_index() {
     let path = temp_db_path("drop_designer_index");
     seed_pre_migration_db(&path, &[("A", "url-a", None, None, None, None, None)]);
     {
-        // Simulate a database from a build old enough to still have the now-removed
-        // index (indexed column doesn't matter -- this only proves ANY pre-existing
-        // index of this name gets dropped).
+        // A database that still carries the removed index. Only the name matters here,
+        // so the indexed column is arbitrary.
         let conn = Connection::open(&path).unwrap();
         conn.execute_batch(
             "CREATE INDEX idx_diagram_details_designer ON diagram_details (designer_info);",

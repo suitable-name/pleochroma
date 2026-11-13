@@ -1,4 +1,4 @@
-//! The v14 lossless payload codecs for `FRAME`/`PREVIEW` radiance.
+//! Lossless payload codecs for `FRAME`/`PREVIEW` radiance.
 //!
 //! [`PayloadEncoder`] on the sending side, [`PayloadDecoder`] on the receiving side. See
 //! `crate::messages::encoding` for how a connection picks its [`PayloadEncoding`].

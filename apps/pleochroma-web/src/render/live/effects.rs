@@ -1,8 +1,9 @@
-//! The design's render physics for the live view and the export: inclusions, play-of-color,
-//! surface finish and abraded edge, read from the design file (view-only in the browser, so the
-//! page has no controls for them). A design that sets none gives `EffectsSpec::default()`, which
-//! changes nothing, bit for bit. The faceting machine is the default one: the browser has no
-//! machine preference. The record itself is built by
+//! The design's render physics for the live view and the export.
+//!
+//! They are inclusions, play-of-color, surface finish and abraded edge, read from the design
+//! file (view-only in the browser, so the page has no controls for them). A design that sets none
+//! gives `EffectsSpec::default()`, which changes nothing, bit for bit. The faceting machine is the
+//! default one: the browser has no machine preference. The record itself is built by
 //! `pleochroma_web_core::scene::design_effects_spec`, which the phone app calls too.
 
 use crate::app::Ctx;

@@ -13,10 +13,10 @@
 //!   "Legacy Color: No Pleochroism" flag, and the rule that turns a picked row into a
 //!   [`MaterialSelection`] ([`DesignColors::material_for_apply`]).
 //! - [`AxisEditor`]: the Custom editor's state. One L*C*h row per direction of the host (one,
-//!   two or three), each solved by the shared 7-band solver; the page runs the solves (in the
-//!   analysis Worker) and feeds the answers back; [`AxisEditor::applied_to`] stores all rows as one
-//!   edit, [`AxisEditor::variant_to_save`] builds the variant "Save as Variant..." keeps and
-//!   [`applied_variant`] puts that saved variant on the design as one edit.
+//!   two or three), each solved by the shared 7-band solver. The page runs the solves in the
+//!   analysis Worker and feeds the answers back. [`AxisEditor::applied_to`] stores all rows as
+//!   one edit, [`AxisEditor::variant_to_save`] builds the variant "Save as Variant..." keeps,
+//!   and [`applied_variant`] puts that saved variant on the design as one edit.
 //! - [`ColorVariantRecord`]: a saved variant as the browser stores it: the same JSON as the
 //!   desktop vault's `variant_json` (`{"unit","reference_path_mm","absorption"}`) beside the
 //!   material name, label and key.
@@ -55,7 +55,7 @@ use crate::design_meta::uuid_v4_from_bytes;
 // Saved variants as stored records
 // ---------------------------------------------------------------------------------------
 
-/// The format version of a stored variant record (the vault's `COLOR_VARIANT_FORMAT_VERSION`).
+/// The format version written with every stored variant record.
 pub const RECORD_VERSION: u32 = 1;
 
 /// The prefix of a saved variant's key (`"user.<uuid>"`); built-in keys never start with it.
@@ -200,10 +200,10 @@ pub fn variant_from_record(record: &ColorVariantRecord) -> Result<ColorVariant, 
 
 /// The design's material as the host of its color, without any color override.
 ///
-/// It is the material the design traces (`traced_material_for`), so its rank and its own tensor
-/// are the host's. `None` when the design names no resolvable material, and for a design with no
-/// material name at all: a refractive-index guess is not a host (a later index change could guess
-/// a material of another rank), so a nameless design gets the plain list and no variant.
+/// It is the material the design traces (`traced_material_for`), so its rank and its own
+/// tensor are the host's. `None` when the design names no resolvable material, and for a design
+/// with no material name: a refractive-index guess is not a host (a later index change could
+/// guess a material of another rank), so a nameless design gets the plain list and no variant.
 #[must_use]
 pub fn host_material(design: &Design, custom: &[GemMaterial]) -> Option<GemMaterial> {
     if design
@@ -236,7 +236,7 @@ struct ListKey {
     host_absorption: pleochroma::optics::absorption::AbsorptionTensor,
     /// The legacy preset triple of the design (the "Legacy" row exists only for it).
     legacy_triple: Option<[f32; 3]>,
-    /// Whether the design stores the old L*C*h bands (the "Legacy" row exists only without them).
+    /// Whether the design stores legacy L*C*h bands (the "Legacy" row exists only without them).
     legacy_bands: bool,
     /// The keys of the saved variants of the host's material.
     saved_keys: Vec<String>,
@@ -260,10 +260,12 @@ pub struct DesignColors {
 }
 
 impl DesignColors {
-    /// The combo for `design`. `previous` is the list shown last time: when nothing the rows
-    /// depend on changed (host, legacy color, saved variants of the material) its rows are kept
-    /// instead of recomputing every swatch. `saved` is every saved variant of the browser; the
-    /// ones of another material or that the host does not accept are skipped by the list.
+    /// The combo for `design`, reusing the rows of `previous` when nothing they depend on changed.
+    ///
+    /// The rows depend on the host, the legacy color and the saved variants of the material, so
+    /// an unchanged set keeps the swatches instead of recomputing them. `saved` is every saved
+    /// variant of the browser; the ones of another material or that the host does not accept
+    /// are skipped by the list.
     #[must_use]
     pub fn for_design(
         previous: Option<&Self>,
@@ -426,6 +428,7 @@ impl AxisEditor {
     /// The editor for the design selection `material`, whose resolved host is `host` (`None`:
     /// the material does not resolve, one legacy color), for a stone `stone_width_mm` wide
     /// ([`stone_width_mm`]) at the design's solver `path_mm`.
+    ///
     /// The rows start on the stored color of each direction (see `seed_axis_lch`).
     #[must_use]
     pub fn open(
@@ -525,7 +528,7 @@ impl AxisEditor {
         self.rows.get(self.active).copied().unwrap_or(DEFAULT_LCH)
     }
 
-    /// The sliders (or the picker) set the active row; the editor no longer counts as untouched.
+    /// The sliders (or the picker) set the active row, which makes the editor touched.
     pub fn set_active_lch(&mut self, lch: [f64; 3]) {
         self.opened = None;
         if let Some(row) = self.rows.get_mut(self.active) {
@@ -664,9 +667,9 @@ impl AxisEditor {
     /// number of rows), or `None` when there is nothing to change: the editor is still on the
     /// seed it opened with, a row is not solved yet, or the design already has exactly that.
     ///
-    /// A host that did not resolve keeps the old single legacy color (bands plus triple). A legacy
-    /// single color on a pleochroic host is converted even when no slider moved: the rows are its
-    /// color in every direction, stored as a per-axis Custom Color.
+    /// A host that did not resolve keeps its single legacy color (bands plus triple). A legacy
+    /// single color on a pleochroic host is converted even when no slider moved: the rows are
+    /// its color in every direction, stored as a per-axis Custom Color.
     #[must_use]
     pub fn applied_to(&self, material: &MaterialSelection) -> Option<MaterialSelection> {
         if self.opened.is_some() {

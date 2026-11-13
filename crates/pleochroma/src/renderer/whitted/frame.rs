@@ -37,9 +37,8 @@ pub fn whitted_primary_hit(
 
 /// One absolute tap of one pixel.
 ///
-/// The first tap is the pixel centre. The camera ray is
-/// intersected once per tap and that hit is handed to every chain, so Fire's three
-/// indices share the first geometric hit; each chain then traces its own later branches.
+/// Tap 0 is the pixel centre. The camera ray is intersected once per tap and the hit is
+/// shared by all chains (Fire's three indices); each chain then traces its own later branches.
 #[must_use]
 pub fn whitted_tap_xyz(
     scene: &FrameScene<'_>,

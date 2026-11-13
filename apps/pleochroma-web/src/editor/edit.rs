@@ -2,9 +2,9 @@
 //! multi-select batch actions, the step generator, mirror to the other block, Solve and
 //! the auto-solve toggle -- and [`finish_edit`], the one path every edit ends in.
 //!
-//! Every action goes through a `pleochroma_editor::EditorSession` method (the same ones
-//! the desktop's tier-list callbacks call), inside a short `borrow_mut()`; the borrow is
-//! over before anything is pushed. Quick-add lives in [`super::edit_add`].
+//! Every action goes through a `pleochroma_editor::EditorSession` method, inside a short
+//! `borrow_mut()`; the borrow is over before anything is pushed. Quick-add lives in
+//! [`super::edit_add`].
 
 use super::{table, unsaved::confirm_action};
 use crate::{
@@ -27,10 +27,11 @@ use pleochroma_editor::{
 use pleochroma_web_core::guide_events::auto_solve_event;
 use std::collections::BTreeSet;
 
-/// Which tiers an edit made untrustworthy, for the rows' solved masts
-/// (`pleochroma_editor::view_model::rows::tier_items_stale_with_last_solved`): the tiers
-/// it touched, or every tier when its blast radius is not tracked (undo, redo, move,
-/// remove -- the desktop's rule).
+/// Which tiers an edit made untrustworthy, for the rows' solved masts.
+///
+/// See `pleochroma_editor::view_model::rows::tier_items_stale_with_last_solved`. The value is
+/// the tiers the edit touched, or every tier when its blast radius is not tracked (undo, redo,
+/// move, remove).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Dirty {
     /// Every tier.
@@ -422,8 +423,7 @@ fn flip_block(ctx: &Ctx, index: i32, to_crown: bool) {
 }
 
 /// The missing-anchor row's "Add Anchor": selects the tier and opens the inspector's Tier
-/// tab on it with "Exact scale value" chosen and the cursor in the value field (the
-/// desktop's `suggested_constraint_kind` route).
+/// tab on it with "Exact scale value" chosen and the cursor in the value field.
 fn add_anchor(ctx: &Ctx, index: i32) {
     let Some(index) = table::editable_tier(ctx, index, "Add Anchor") else {
         return;
@@ -571,9 +571,9 @@ fn mirror_to_other_block(ctx: &Ctx, index: i32, suffix: &str) {
 
 /// The command bar's Solve (and the stale badge's Recompute).
 ///
-/// The press is a lesson event (`SOLVE_REQUESTED`, as on the desktop): raised once the answer
-/// is in, whether it is a solved stone, a failure the status strip explains or "already
-/// solved", so a step that asks for a press of Solve counts it whatever the design says.
+/// The press is a lesson event (`SOLVE_REQUESTED`): raised once the answer is in, whether it
+/// is a solved stone, a failure the status strip explains or "already solved", so a step
+/// that asks for a press of Solve counts it whatever the design says.
 fn solve(ctx: &Ctx) {
     if with_app(ctx, |app| app.current_solved().is_some()) {
         show_message(ctx, MessageKind::Info, "The design is already solved.");
@@ -594,9 +594,8 @@ fn solve(ctx: &Ctx) {
 /// The auto-solve budget combo (Off, 150 ms, 300 ms, 1 s, 3 s): switching auto-solve on,
 /// or raising the budget, solves a stale design at once when the new budget allows it.
 ///
-/// The choice is a lesson event, also when it repeats the current setting: the auto-solve
-/// lessons wait for "Off" or "a time" and tell a learner who is already on Off to pick another
-/// value first, so a repeated pick must count too.
+/// The choice raises its lesson event even when it repeats the current value: a lesson
+/// waiting for "Off" or a time must accept a repeated pick.
 fn set_auto_solve_budget(ctx: &Ctx, budget_ms: i32) {
     let budget_ms = u32::try_from(budget_ms).unwrap_or(0);
     let changed = with_app(ctx, |app| {

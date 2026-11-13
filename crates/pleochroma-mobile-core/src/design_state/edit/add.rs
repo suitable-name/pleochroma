@@ -145,7 +145,7 @@ fn finish_add(state: &mut AppState, result: Result<Added, String>) -> (EditOutco
 }
 
 /// Adds a crown tier at 40 degrees with a full orbit of indices right after the selected
-/// tier (else at the end), and selects it. The cutter then sets the angle on the sheet.
+/// tier (else at the end), and selects it. The 40 degrees is a starting value.
 ///
 /// # Errors
 /// The form's parse error or the apply error, as text.

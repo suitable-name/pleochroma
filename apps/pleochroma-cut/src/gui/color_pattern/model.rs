@@ -1,5 +1,5 @@
 //! The pure half of the Color Pattern editor: how a zone is named and worded, the parameter and
-//! Size rows of the selected zone, the axis choices and the numbers behind the sliders.
+//! size rows of the selected zone, the axis choices and the numbers behind the sliders.
 //!
 //! No Slint here, so the rules are unit-testable without a window.
 //!
@@ -387,8 +387,8 @@ pub(super) struct SizeSpec {
 
 /// The Size slider of `shape`, or `None` for a shape that has none.
 ///
-/// The size is the outer radius (or apothem) of a rod, the thickness of a stripe, the position of a
-/// plane and the angle span of a wedge.
+/// The size is the outer radius (or apothem) of a rod, the thickness of a stripe, the position
+/// of a plane and the angle span of a wedge.
 pub(super) fn size_spec(shape: &ZoneShape, relative: bool, width_mm: f64) -> Option<SizeSpec> {
     let scale = length_scale(relative);
     let reach = reach(relative, width_mm);
@@ -554,7 +554,7 @@ pub(super) fn zone_summary(index: usize, zone: &PatternZone, relative: bool) -> 
     }
 }
 
-/// The text of the pattern in the material dialog: "Watermelon · 2 zones · scales with stone size".
+/// The pattern's text in the material dialog: "Watermelon · 2 zones · scales with stone size".
 pub(super) fn pattern_summary(pattern: &ColorPattern) -> String {
     let name = pattern
         .template
@@ -654,6 +654,31 @@ pub(super) const fn tilt_turn_deg(axis: &PatternAxis) -> (f64, f64) {
         PatternAxis::Fixed { tilt_rad, turn_rad } => (tilt_rad.to_degrees(), turn_rad.to_degrees()),
         PatternAxis::Frame { .. } | PatternAxis::FollowsCrystalAxis => (0.0, 0.0),
     }
+}
+
+/// The axis as the header's subtitle says it: "along the table normal", "across the stone".
+pub(super) fn axis_phrase(axis: &PatternAxis) -> String {
+    match axis_index(axis) {
+        0 => "along the table normal".to_owned(),
+        1 => "across the stone".to_owned(),
+        2 => "across the stone, turned".to_owned(),
+        AXIS_FOLLOWS => "following the crystal axis".to_owned(),
+        AXIS_IMPORTED => "imported from the Rough Color wizard".to_owned(),
+        _ => {
+            let (tilt, turn) = tilt_turn_deg(axis);
+            format!("tilted {tilt:.0}\u{b0}, turned {turn:.0}\u{b0}")
+        }
+    }
+}
+
+/// The header's subtitle: "Color pattern · 3 layers · pattern axis along the table normal".
+pub(super) fn subtitle(pattern: &ColorPattern) -> String {
+    let layers = pattern.zones.len() + 1;
+    format!(
+        "Color pattern \u{b7} {layers} layer{} \u{b7} pattern axis {}",
+        if layers == 1 { "" } else { "s" },
+        axis_phrase(&pattern.axis)
+    )
 }
 
 /// The axis with the given tilt and turn in degrees.
@@ -779,6 +804,24 @@ mod tests {
         assert_eq!(axis_for_index(AXIS_CUSTOM), None, "Custom is not a preset");
         assert_eq!(axis_for_index(AXIS_IMPORTED), None);
         assert_eq!(tilt_turn_deg(&PatternAxis::FollowsCrystalAxis), (0.0, 0.0));
+    }
+
+    #[test]
+    fn the_subtitle_counts_the_layers_and_names_the_axis() {
+        let pattern = template(TemplateId::Watermelon, PatternAxis::TABLE_NORMAL);
+        assert_eq!(
+            subtitle(&pattern),
+            "Color pattern \u{b7} 2 layers \u{b7} pattern axis along the table normal"
+        );
+        let uniform = template(TemplateId::Uniform, PatternAxis::FollowsCrystalAxis);
+        assert_eq!(
+            subtitle(&uniform),
+            "Color pattern \u{b7} 1 layer \u{b7} pattern axis following the crystal axis"
+        );
+        assert_eq!(
+            axis_phrase(&axis_from_deg(10.0, 20.0)),
+            "tilted 10\u{b0}, turned 20\u{b0}"
+        );
     }
 
     #[test]

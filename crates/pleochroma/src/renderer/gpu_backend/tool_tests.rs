@@ -37,6 +37,7 @@ const fn scene<'a>(
         material,
         max_bounces: 4,
         environment: LightingPreset::Daylight.studio(1.0, 0.4, 0.35),
+        estimator: None,
     }
 }
 

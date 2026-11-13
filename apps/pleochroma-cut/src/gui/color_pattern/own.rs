@@ -1,10 +1,10 @@
 //! The color a stone has without a pattern, per direction: what a typical pattern is built on.
 //!
-//! A typical pattern on a uniaxial or biaxial stone never has a one-color zone (FABLE ui finding
-//! 3, lead decision D-E): the stone's own color is its variant (the design's snapshot, else the
-//! Material Default) and the shades of it are built direction by direction. `cut-core` cannot call
-//! the color editor, so this module computes the `[L*, C*, h]` of each direction with
-//! `lch_color::axis_lch_from_tensor` and hands them to `OwnColor`.
+//! A typical pattern on a uniaxial or biaxial stone never has a one-color zone: the stone's own
+//! color is its variant (the design's snapshot, else the Material Default) and the shades of it
+//! are built direction by direction. `cut-core` cannot call the color editor, so this module
+//! computes the `[L*, C*, h]` of each direction with `lch_color::axis_lch_from_tensor` and hands
+//! them to `OwnColor`.
 
 use pleochroma::optics::materials::{
     GemMaterial,

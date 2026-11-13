@@ -1,6 +1,8 @@
-//! Tests of the built-in Ametrine: the zoning it carries, that the two zones
-//! are the catalogue's quartz iron recipes, the color of each half, the optical depth across the
-//! boundary, that a color variant drops the zones, and the quartz optics it shares with Citrine.
+//! Tests of the built-in Ametrine.
+//!
+//! They cover its zoning, that the two zones are the catalogue's quartz
+//! iron recipes, the color of each half, the optical depth across the boundary, that a color
+//! change drops the zones, and the quartz optics it shares with Citrine.
 
 use crate::{
     color::{Illuminant, body_colors},
@@ -88,9 +90,9 @@ fn ametrine_is_a_zoned_per_mm_quartz() {
     assert!(ametrine.gpu_supported(), "the GPU zone table renders it");
 }
 
-/// The two zone tensors are the quartz host's iron recipes, the amethyst one after irradiation and
-/// the citrine one after irradiation and the 450 C anneal. The amethyst iron is the 80 ppmw of the
-/// Anahi amethyst expressed in ppma of all atoms; the citrine half holds less (2026-11-03, see
+/// The two zone tensors are the quartz host's iron recipes, the amethyst one after irradiation
+/// and the citrine one after irradiation and the 450 C anneal. The amethyst iron is the 80 ppmw
+/// of the Anahi amethyst expressed in ppma of all atoms; the citrine half holds less (see
 /// `AMETRINE_CITRINE_FE_PPMA`).
 #[test]
 fn ametrine_zones_follow_the_catalogue_recipes() {
@@ -133,9 +135,8 @@ fn ametrine_halves_are_purple_and_yellow() {
     let swatches = zone_swatches(&ametrine, 0.0);
     assert_eq!(swatches.len(), 2, "the base zone and one shaped zone");
 
-    // The path `zone_swatches` uses for an unsized material: `MODEL_UNIT_FACE_UP_PATH` (2.83 since
-    // 2026-10-27) model units of face-up path at 7 mm over the fallback model width of 2.0,
-    // i.e. about 9.91 mm.
+    // The path `zone_swatches` uses for an unsized material: `MODEL_UNIT_FACE_UP_PATH` model
+    // units of face-up path at 7 mm over the fallback model width of 2.0, i.e. about 9.91 mm.
     let mm_per_unit = f64::from(effective_stone_width_mm(0.0)) / ZONE_SWATCH_FALLBACK_MODEL_WIDTH;
     let path_mm = f64::from(MODEL_UNIT_FACE_UP_PATH) * mm_per_unit;
     let zoning = ametrine
@@ -175,15 +176,12 @@ fn ametrine_halves_are_purple_and_yellow() {
     }
 }
 
-/// The citrine half shows the Citrine built-in's color and the amethyst half the Amethyst
-/// built-in's (2026-11-03): an Ametrine is the two materials side by side, not the deep golden
-/// orange the equal-iron citrine half gave, which turned every crossing path orange.
+/// The citrine half reads like the Citrine built-in and the amethyst half like the Amethyst
+/// built-in, so an Ametrine shows the two materials side by side.
 ///
-/// The amethyst half is the Anahi (Bolivia) amethyst its stones come from, which reads redder
-/// than the Amethyst built-in since that moved to the bluer commercial purple (2026-11-04): the
-/// ametrine photos' purple has a median hue of 337, the amethyst photos 316, and the replica gives
-/// the Anahi recipe h 331-333 against the built-in's 315. So its hue may differ by up to 25 deg;
-/// the citrine half keeps 10.
+/// The amethyst half is the Anahi (Bolivia) amethyst of its stones, which reads redder than the
+/// commercial Amethyst built-in (the ametrine photos' purple has a median hue of 337, the
+/// amethyst photos 316). So its hue may differ by up to 25 deg; the citrine half keeps 10.
 #[test]
 fn ametrine_halves_match_the_citrine_and_amethyst_built_ins() {
     let mm_per_unit = f64::from(effective_stone_width_mm(0.0)) / ZONE_SWATCH_FALLBACK_MODEL_WIDTH;
@@ -251,8 +249,8 @@ fn a_segment_on_each_side_of_the_boundary_takes_that_halfs_absorption() {
     );
 }
 
-/// A color variant replaces the color, and a zoned material's color is its zones: both setters
-/// drop the zones, and keep their own unit.
+/// The body-color setters drop the zones (a zoned material's color is its zones) and set their
+/// own unit.
 #[test]
 fn a_body_colour_drops_the_zones() {
     let triple = GemMaterial::ametrine().with_body_color([0.2, 0.3, 0.1]);
@@ -264,8 +262,7 @@ fn a_body_colour_drops_the_zones() {
     assert_eq!(banded.absorption_unit, AbsorptionUnit::PerMm);
 }
 
-/// The quartz targets of the other two quartz built-ins hold here too (instead of adding the
-/// name to the fixed tables of `dispersion.rs` and `biaxial.rs`): `n_d` 1.544 and a
+/// Ametrine has the quartz targets of its Citrine and Amethyst built-ins: `n_d` 1.544 and a
 /// birefringence of 0.0091.
 #[test]
 fn ametrine_matches_the_quartz_targets() {

@@ -15,7 +15,6 @@
 //! | `create` | [`new_from_template`], [`new_from_form`], [`template_cards`] |
 //! | `save` | [`save_bytes`], [`asc_bytes`], [`mark_saved`] |
 //! | `autosave` | [`autosave`], [`restore`] |
-//!
 //! | `library` | [`open_library`], [`save_to_library`], [`record_library_recent`] |
 //!
 //! A design opened from the library database (or saved to it) has the origin
@@ -59,9 +58,9 @@ pub use save::{SaveError, SavedFile, asc_bytes, mark_saved, save_bytes};
 /// The title shown for a design with no title line and no file name.
 const UNTITLED: &str = "Untitled Design";
 
-/// Gives unsaved documents one durable variant family before their first variant.
-/// Later file/library saves reuse this metadata UUID; no duplicate catalogue entry
-/// is inserted merely to hold variants.
+/// Stamps an unsaved document with a metadata id, the family its color variants are kept under.
+///
+/// Later saves reuse that id. No catalogue entry is added just to hold variants.
 pub fn ensure_document_id(state: &mut AppState) {
     if state.document.metadata.id.trim().is_empty() {
         state.document.metadata = stamp::stamped(&state.document.metadata);
@@ -120,8 +119,8 @@ pub struct DocumentState {
     pub metadata: DesignMetadata,
     /// The attachments a design file carried, kept byte for byte and written back.
     pub attachments: Vec<AttachmentBlob>,
-    /// Custom materials restored from opened design files, by name; consulted by every
-    /// export and offered after the built-ins in the material picker.
+    /// Custom materials carried by opened design files, by name. [`custom_catalogue`] merges
+    /// them with the session's own.
     pub custom_materials: Vec<GemMaterial>,
     /// What the autosave last wrote, see the `autosave` module.
     pub(crate) autosaved: autosave::Mark,
@@ -196,9 +195,9 @@ pub fn display_title(state: &AppState) -> String {
 
 /// The custom-material snapshot a native save of `state`'s design carries.
 ///
-/// Resolve by name from the session catalogue, which includes restored files and
-/// newly created materials. The opened document's unkeyed recipe may belong to a
-/// material that the working design no longer uses.
+/// Resolved by name from the session catalogue, which holds the materials of opened files
+/// and the ones made in the Stone tab. The opened document's own snapshot is not used: it
+/// may belong to a material the working design no longer uses.
 #[must_use]
 pub fn save_snapshot(state: &AppState) -> Option<CustomMaterialSnapshot> {
     let design = &state.session.design;
@@ -263,11 +262,11 @@ pub(crate) fn install(
 /// Closes the open design.
 ///
 /// The session returns to the empty start-up design (its undo history goes with the old
-/// one), the document forgets where the design came from, the
-/// old solve and tier selection are dropped, and every long operation for the old design is
-/// cancelled (the same replacement `install` does for a new design). The autosave is
-/// removed so the design does not come back at the next start. Unsaved changes are the
-/// caller's question; this discards them.
+/// one), the document forgets where the design came from, the old solve and tier selection
+/// are dropped, and every long operation for the old design is cancelled (the same
+/// replacement `install` does for a new design). The autosave is removed so the design does
+/// not come back at the next start. Unsaved changes are the caller's question; this discards
+/// them.
 ///
 /// Afterwards [`DocumentState::has_design`] is false and the Design page offers
 /// "Start a Design" again. Custom materials registered in the session stay available.

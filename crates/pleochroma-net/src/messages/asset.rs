@@ -1,4 +1,4 @@
-//! Content-addressed assets (v14): the raw bytes of an HDR environment map a
+//! Content-addressed assets: the raw bytes of an HDR environment map a
 //! scene references by hash.
 //!
 //! ```text

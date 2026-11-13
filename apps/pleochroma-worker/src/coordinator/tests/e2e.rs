@@ -91,8 +91,8 @@ fn a_joined_worker_registers_and_turns_a_bare_coordinator_into_a_render_endpoint
     );
     let workers = registry.workers();
     assert_eq!(workers[0].0.capability.backend, Backend::Cpu { threads: 2 });
-    // Pin identity (`--pin-interactive-worker`): the label comes from the real worker certificate's
-    // `worker:box` Common Name, parsed at registration.
+    // The label is the `worker:box` Common Name of the worker certificate, parsed at
+    // registration (it is what `--pin-interactive-worker` matches).
     assert_eq!(workers[0].0.label.as_deref(), Some("box"));
 
     let (welcome, mut client) = viewer_welcome(handle.viewer_addr, &viewer);
@@ -263,8 +263,8 @@ fn a_silent_worker_is_dropped_by_liveness_while_a_live_one_stays() {
     drop(silent);
 }
 
-/// `serve --render` (here `--only-cpu`) still renders a request end to end exactly like
-/// the plain worker it replaces: plain `Backend::Cpu` in `WELCOME`, a full FRAME, DONE.
+/// `serve --render` (here `--only-cpu`) renders a request end to end: plain `Backend::Cpu`
+/// in `WELCOME`, a full FRAME, then DONE.
 #[test]
 fn serve_with_render_still_renders_a_request_end_to_end() {
     let pki = pki_with_server("render");

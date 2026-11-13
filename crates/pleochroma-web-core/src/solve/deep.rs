@@ -152,7 +152,7 @@ pub struct DeepSolveResultData {
 /// The status line of a running Deep Solve.
 ///
 /// It names the phase of the pipeline run in flight and the elapsed time. There is no
-/// fraction to show (see the module doc comment).
+/// fraction to show (see the module docs).
 #[must_use]
 pub fn deep_progress_status(progress: SolveProgress, elapsed_secs: f32) -> String {
     let stage = match progress.phase {
@@ -193,7 +193,7 @@ fn failed_solve(error: &DesignSolveError) -> SolveResponse {
 
 /// Runs Deep Solve on `design` against `params.targets`.
 ///
-/// See the module doc comment. `cancel` is polled at every solver checkpoint; a set flag answers
+/// See the module docs. `cancel` is polled at every solver checkpoint; a set flag answers
 /// [`SolveResponse::Cancelled`]. `on_progress` receives every checkpoint's report (the
 /// Worker throttles and formats them; pass `&|_| {}` for none). A design Deep Solve
 /// declines (no usable printed figures, nothing to repair, no gear) answers

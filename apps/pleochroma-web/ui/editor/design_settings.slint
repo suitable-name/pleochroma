@@ -12,10 +12,9 @@ export struct GearRemapRow {
     non-integral: bool,
 }
 
-// The design's schedule-wide settings (modelled on the desktop's
-// `editor_design_settings.slint`): material, RI override and color, index gear (with
-// the remap confirmation), symmetry and mirror, title / headers / footnotes, printed
-// proportions. Pushed by `src/editor/settings`.
+// The design's schedule-wide settings: material, RI override and color, index gear (with the
+// remap confirmation), symmetry and mirror, title, headers and footnotes, printed proportions.
+// Pushed by `src/editor/settings`.
 export global DesignSettingsModel {
     in-out property <bool> open: false;
 
@@ -185,8 +184,8 @@ component TextField inherits VerticalLayout {
     spacing: 3px;
     Lbl { text: root.label; }
     LineEdit {
-        // The style's LineEdit is at least 160px wide, which stretched every row that holds
-        // two or more fields past the dialog and made its whole body scroll sideways.
+        // The style's LineEdit is at least 160px wide; without this, rows of two or more fields
+        // overflow the dialog and the whole body scrolls sideways.
         min-width: 0px;
         text <=> root.value;
         placeholder-text: root.placeholder;
@@ -196,7 +195,7 @@ component TextField inherits VerticalLayout {
     }
 }
 
-// The schedule-wide settings as a modal, opened by Design > Design settings...
+// The schedule-wide settings as a modal, opened by Design > Design Settings...
 // (`DesignSettingsModel.open`); mounted by `app.slint`.
 export component DesignSettingsDialog inherits Rectangle {
     background: Theme.overlay-backdrop;
@@ -580,8 +579,7 @@ export component DesignSettingsDialog inherits Rectangle {
                             preferred-width: 110px;
                             min-width: 70px;
                             spacing: 3px;
-                            // Short on a phone-width dialog: the full label plus the Apply
-                            // button ran past the content width.
+                            // Short on a phone-width dialog, where the full label does not fit.
                             Lbl { text: root.width < 520px ? "Sym. order" : "Symmetry order"; }
                             LineEdit {
                                 min-width: 0px;
@@ -630,8 +628,8 @@ export component DesignSettingsDialog inherits Rectangle {
                             }
                         }
                     }
-                    // On a phone-width dialog the button gets its own row: beside the two
-                    // fields it ran past the content's right edge.
+                    // On a phone-width dialog the button gets its own row; beside the two
+                    // fields it does not fit.
                     if root.width < 520px: HorizontalLayout {
                         Button {
                             text: DesignSettingsModel.symmetry-pending ? "Apply Symmetry *" : "Apply Symmetry";

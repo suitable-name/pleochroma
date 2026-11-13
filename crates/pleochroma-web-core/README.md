@@ -13,11 +13,11 @@ Ray-Traced engine selection travels beside the unchanged scene message. Its CPU 
 cache tint, environment and frost preparation per scene. Its small WebGPU kernel accepts
 every material class, with independent admission keyed by the whitted shader hash; the
 existing event-wavefront keys and records stay valid. The GPU worker compares a 16×16,
-four-tap render with the CPU under G-D10 before admitting the small kernel. Oversized HDR maps and more than 128 tools (more than a scene can hold) decline the GPU route.
+four-tap render with the CPU before admitting the small kernel. Oversized HDR maps and more than 128 tools (more than a scene can hold) decline the GPU route.
 
 | Module | What it holds |
 |---|---|
-| `protocol` | `ToWorker` / `FromWorker`, postcard-encoded into a transferred `ArrayBuffer`; `PROTOCOL_VERSION` (28), checked on `Init`. Requests: trace a chunk, trace a full GPU pass, compile GPU kernels, make a picture, set or clear an HDR map, select an engine (`SetEngine`, index 12) or apply the design's render physics (`SetEffects`, index 13) beside the unchanged scene payload, and the solve-role jobs. New variants are appended; protocol version 28 adds per-stone color patterns to material records |
+| `protocol` | `ToWorker` / `FromWorker`, postcard-encoded into a transferred `ArrayBuffer`; `PROTOCOL_VERSION` (32), checked on `Init`. Requests: trace a chunk, trace a full GPU pass, compile GPU kernels, make a picture, set or clear an HDR map, select an engine (`SetEngine`, index 12) or apply the design's render physics (`SetEffects`, index 13) beside the unchanged scene payload, and the solve-role jobs. New variants are appended |
 | `scene` | `SceneSpec` (planes, finishes, material, camera, lighting, bounces, size, HDR id) and `OwnedScene`, which builds exactly the desktop's scene for the same settings |
 | `render` | `handle_trace_chunk` (one interleaved partition over a sample range), `Accumulator` (merges complete passes in order), `ChunkPlanner` (sizes passes to about 200 ms per Worker chunk), the live (64 to 1024) and export (16 to 4096) sample bounds |
 | `solve` | `handle_solve`: a native-TOML design in, solved masts, planes, status and warnings out, like the desktop's background solve. `analysis` is Optimize and Retarget (cooperatively cancellable, with progress), `optical` is the current-view metrics (scored under the HDR map the Worker holds when the request names it, else the lighting preset) and the four-axis tilt sweep (always under the preset, as on the desktop), all the desktop's own functions; both score a concave stone with its tools (`SolveRequest::metrics` / `tilt` send `MetricsWithTools` / `TiltWithTools`, and the planar variants, bytes unchanged, when there are none) |

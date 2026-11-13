@@ -1,8 +1,8 @@
 //! Durable validation cases and finer-grained continuation records.
 //!
 //! The caller owns the directory exclusively. A case is published only after its payload is
-//! synced; temporary files left by interruption are never read as completed work. The original
-//! version-3 whole-case records remain readable. Separate versioned fragments preserve passes,
+//! synced; temporary files left by interruption are never read as completed work. Version-3
+//! whole-case records stay readable. Separate versioned fragments preserve passes,
 //! episode steps and teacher searches without rewriting training replay or model weights.
 
 use std::{

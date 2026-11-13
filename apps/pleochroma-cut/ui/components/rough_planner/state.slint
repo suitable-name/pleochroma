@@ -1,0 +1,33 @@
+// UI-only state of the Rough Planner window and the icons the kit does not have. Nothing here is
+// known to Rust: the planner's own state lives in `RoughPlanModel`.
+export global RoughUi {
+    // The one open menu, drawn by the window at a computed place (a popup cannot be placed
+    // reliably from inside a layout, and the scrolling lists would clip it): 0 none, 1 Find the
+    // Axis, 2 the scan card's menu, 3 a saved plan's menu, 4 a design card's menu, 5 the edge or
+    // corner choice of a cut row.
+    in-out property <int> menu_kind: 0;
+    // The window position the menu hangs from (the clicked button's corner) and whether that is
+    // the menu's right edge (a "..." button) or its left edge.
+    in-out property <length> menu_x: 0px;
+    in-out property <length> menu_y: 0px;
+    in-out property <bool> menu_right: false;
+    // What the menu acts on: a saved plan's row, a cut row, or a result row with its design group.
+    in-out property <int> menu_row: -1;
+    in-out property <int> menu_group: -1;
+
+    // The inline forms and folds.
+    in-out property <bool> add_open: false;          // the new-inclusion form of step 1
+    in-out property <bool> rule_open: false;         // the plan's orientation rule editor of step 2
+    in-out property <bool> design_rule_open: false;  // the selected design's rule editor in the layout detail
+    in-out property <bool> figures_open: false;      // "All figures" of the selected layout
+    in-out property <bool> stones_open: false;       // the stones list of the selected layout
+    in-out property <int> rename_row: -1;            // the saved plan being renamed in its card
+    in-out property <int> delete_row: -1;            // the saved plan whose delete is being confirmed
+}
+
+// Icons that are not in the kit, as 24 x 24 `Path` strokes for `KitIcon`.
+export global RoughIcons {
+    out property <string> saw: "M3 15 L6 11 L9 15 L12 11 L15 15 L18 11 L21 15 M3 20 H21";
+    out property <string> stone: "M12 3 L20 10 L12 21 L4 10 Z M4 10 H20";
+    out property <string> gem: "M7 4 H17 L21 10 L12 21 L3 10 Z M3 10 H21 M9 4 L12 10 L15 4 M12 10 V21";
+}

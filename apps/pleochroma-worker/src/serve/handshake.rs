@@ -1,4 +1,4 @@
-//! The v14 `HELLO` gate shared by both build modes and both listener ports.
+//! The `HELLO` gate shared by both build modes and both listener ports.
 //!
 //! Reads the peer's `HELLO` version first (so an older or newer peer gets a refusal
 //! naming both protocol versions instead of a decode error), then refuses any role this
@@ -40,13 +40,10 @@ pub fn read_and_check_hello<S: Read>(
     port: PeerRole,
     cert_role: Option<PeerRole>,
 ) -> Result<HelloCheck, NetError> {
-    // A TOTAL deadline for this read (not the per-read idle timeout the accept loop
-    // already applied to the raw socket) -- see `DeadlineIo`'s doc comment and F-06a: a
-    // peer that keeps the connection alive by trickling a byte at a time, always inside
-    // whatever idle window is configured, must still be cut off once this whole budget
-    // elapses. `DeadlineIo` only needs `S: Read`, so this wraps generically regardless
-    // of whether `stream` is a plain `TcpStream`, a `TlsStream`, or (in this module's own
-    // tests) an in-memory `Cursor`.
+    // A total deadline for the whole read, on top of the per-read idle timeout: a peer that
+    // trickles one byte at a time inside that window must still be cut off (see
+    // `DeadlineIo`). It needs only `S: Read`, so a `TcpStream`, a TLS stream or a test
+    // cursor all work.
     let deadline = std::time::Instant::now() + crate::serve::HANDSHAKE_TIMEOUT;
     let mut guarded = crate::serve::socket::DeadlineIo::new(stream, deadline);
     let hello = match handshake::read_hello(&mut guarded) {
@@ -158,7 +155,7 @@ mod tests {
         }
     }
 
-    /// A v13 peer's three-field `HELLO` (`protocol_version`, `build_hash`, `source_hash`;
+    /// An older peer's three-field `HELLO` (`protocol_version`, `build_hash`, `source_hash`;
     /// postcard encodes a tuple exactly like that struct) is refused with a message naming
     /// both versions.
     #[test]

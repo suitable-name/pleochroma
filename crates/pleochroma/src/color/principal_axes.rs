@@ -384,8 +384,7 @@ mod tests {
             (t - mean_of_transmittances).abs() < 1e-4,
             "{t} vs {mean_of_transmittances}"
         );
-        // The old mean-weight shortcut, exp of the mean depth, is 0.1353 and is not what is
-        // returned.
+        // The mean-weight shortcut (exp of the mean depth, 0.1353) is not what is returned.
         assert!((t - (-2.0_f64).exp()).abs() > 0.3, "{t}");
     }
 

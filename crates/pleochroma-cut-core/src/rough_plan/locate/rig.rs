@@ -198,7 +198,8 @@ impl Rigid {
 
     /// A coarse starting transform from two mesh axes.
     ///
-    /// Mesh axis `z_axis` points along rig +Z, and the part of `x_axis` perpendicular to it along rig +X (right-handed), then `translation` is added.
+    /// The mesh direction `z_axis` maps to rig +Z, and the part of `x_axis` perpendicular to it
+    /// maps to rig +X (right-handed). `translation` is then added.
     /// `None` when the two axes are zero or parallel.
     #[must_use]
     pub fn from_axes(z_axis: DVec3, x_axis: DVec3, translation: DVec3) -> Option<Self> {
@@ -301,9 +302,9 @@ impl RigProfile {
 
     /// The default eight-camera layout around the origin.
     ///
-    /// For each of the four directions +X, -X, +Y, -Y one camera `elevation_deg` above the horizontal and one the same
-    /// angle below it, so both ends of the stone are seen. All look at the origin from
-    /// `distance_mm`, with +Z up.
+    /// For each of the four directions +X, -X, +Y, -Y one camera `elevation_deg` above the
+    /// horizontal and one the same angle below it, so both ends of the stone are seen. All look
+    /// at the origin from `distance_mm`, with +Z up.
     #[must_use]
     pub fn side_layout(
         distance_mm: f64,

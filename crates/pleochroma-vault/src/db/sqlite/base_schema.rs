@@ -1,7 +1,8 @@
-//! The `CREATE TABLE` statements of the tables `Database::create_tables_if_not_exist`
-//! defines itself, one constant per table. The side tables shared with the migrations
-//! (`diagram_previews`, `diagram_tilt_curves`, the solid caches, the tags and the search
-//! indexes) keep their single definition in `migrations`.
+//! The `CREATE TABLE` statements of the tables `Database::create_tables_if_not_exist` defines.
+//!
+//! One constant per table. The side tables shared with the migrations (`diagram_previews`,
+//! `diagram_tilt_curves`, the solid caches, the tags and the search indexes) keep their single
+//! definition in `migrations`.
 
 /// The `diagram_entries` table: one row per design, keyed by its unique `url`.
 pub(super) const DIAGRAM_ENTRIES_TABLE_SQL: &str = "

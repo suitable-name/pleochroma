@@ -1,7 +1,9 @@
-//! Forward model versus the main CPU tracer (plan section 10.1, "cross-check"): the same cube,
-//! the same zoned absorption, the same uniform white furnace, the mean relative radiance within
-//! 1 percent. This catches drift between the two tracers' twins (Fresnel, path lengths per zone,
-//! the unit chain from model units to millimetres, the zone kernels).
+//! Forward model versus the main CPU tracer in a white furnace.
+//!
+//! Both see the same cube, the same zoned absorption and the same uniform light, with the
+//! mean relative radiance within 1 percent. This catches drift between the two tracers' twins
+//! (Fresnel, path lengths per zone, the unit chain from model units to millimetres, the zone
+//! kernels).
 //!
 //! The absorption is wavelength independent (a very wide band) so that the different spectral
 //! integration of the two (camera channels against CIE functions) does not enter; the camera and
@@ -14,7 +16,7 @@ use crate::synth::{
     furnace_camera_rgb,
 };
 
-/// Section 10.1: the mean relative radiance difference.
+/// The limit on the mean relative radiance difference.
 const LIMIT: f64 = 0.01;
 
 /// The starting samples of the forward model per pixel and of the main tracer per working pixel.
@@ -23,19 +25,15 @@ const START_SAMPLES: (usize, u32) = (256, 400);
 /// last one, for both tracers).
 const MAX_FORWARD_SAMPLES: usize = 4096;
 
-/// Round 3, D5: a miss of `LIMIT` that is within two combined Monte-Carlo standard errors is
-/// noise, not bias, and is settled by tracing more paths (up to `MAX_FORWARD_SAMPLES`); a miss
-/// beyond two standard errors is a bias and is reported as it is.
+/// A miss of `LIMIT` within two combined Monte-Carlo standard errors is noise, not bias, and
+/// is settled by tracing more paths (up to `MAX_FORWARD_SAMPLES`). A miss beyond two standard
+/// errors is a bias and is reported as it is.
 ///
-/// Round 5 (ZC-2, ZC-15): the forward model's standard error is now the records' error of the
-/// CLEAR-stone transmittance times the prediction (`Agreement::forward_se`), not the error at
-/// 0.3 per mm, which was 5 to 10 times too large for a pale stone and let a real bias pass as
-/// noise. The forward wavelength grid of the furnace scene is 2.5 nm (`Spectrum::
-/// EnvironmentWhite`, 40 bins of 4 points) so that forward and main tracer weigh every
-/// wavelength alike. The midpoint rule's error for a 23 nm sigma band is nil at any spacing
-/// used here (aliasing `2 exp(-2 pi^2 sigma^2 / h^2)`, see `forward/mod.rs` "Spectral
-/// quadrature"), so a persistent cross-check bias is a transport question, not a quadrature
-/// one.
+/// The forward model's standard error is the records' error of the clear-stone transmittance
+/// times the prediction (`Agreement::forward_se`). The forward wavelength grid of the furnace
+/// scene is 2.5 nm, so that the two tracers weigh every wavelength alike. The quadrature error
+/// of a 23 nm sigma band is negligible at that spacing, so a persistent bias is a transport
+/// difference, not a quadrature one.
 fn needs_more_samples(a: &Agreement) -> bool {
     a.relative_difference() > LIMIT && a.z_score() <= 2.0
 }
@@ -102,9 +100,8 @@ fn forward_model_and_main_tracer_agree_in_the_white_furnace() {
     check("bicolour", &Truth::neutral(0.05, Some(0.25), 0.3));
 }
 
-/// Round 2, C5: the main-tracer photos showed common gains of +3 to +15 percent. A clear stone
-/// cannot show a colour-dependent calibration offset, a coloured one can, so the agreement is
-/// checked per camera channel for the two uniform colours.
+/// A clear stone cannot show a colour-dependent calibration offset, a coloured one can, so the
+/// agreement is checked per camera channel for the two uniform colours.
 #[test]
 fn coloured_stones_agree_per_camera_channel_in_the_white_furnace() {
     for case in [ColourCase::UniformPale, ColourCase::UniformSaturated] {
@@ -140,7 +137,7 @@ fn coloured_stones_agree_per_camera_channel_in_the_white_furnace() {
 }
 
 /// The two references of the empty furnace, the camera-response one the photos are normalised
-/// with and the 1 nm CMF reconstruction the first version used, must be the same quantity.
+/// with and the 1 nm CMF reconstruction, must be the same quantity.
 #[test]
 fn the_two_furnace_references_are_the_same_quantity() {
     let setup = crate::synth::Setup::new(&crate::synth::SetupSpec::default());

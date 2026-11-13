@@ -100,8 +100,7 @@ pub struct DesignFileText {
 
 /// `file_name`'s stem plus `.asc` (`round.gem` -> `round.asc`).
 ///
-/// It is the name a
-/// converted `.gem`/`.gcs` design is stored and offered for saving under, so a
+/// A converted `.gem`/`.gcs` design is stored and offered for saving under this name, so a
 /// later save never proposes overwriting the file it came from.
 #[must_use]
 pub fn converted_asc_file_name(file_name: &str) -> String {

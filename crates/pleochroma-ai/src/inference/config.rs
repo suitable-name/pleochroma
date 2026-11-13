@@ -7,8 +7,7 @@ use pleochroma_cut_core::ObjectiveFidelity;
 use pleochroma_cut_core::ShapeTarget;
 use std::collections::{BTreeMap, BTreeSet};
 
-/// Policy steps per inference run (the environments' default episode length: 60 steps of
-/// 0.5 degrees reach 30 degrees).
+/// Policy steps per inference run, matching the environments' default episode length.
 pub const DEFAULT_STEPS: usize = 60;
 /// Largest angle change per step, degrees, for the optimizer (the optimizer environment's default).
 pub const DEFAULT_OPTIMIZER_STEP_DEG: f64 = 0.5;
@@ -30,10 +29,10 @@ pub struct InferenceConfig {
     /// Largest angle change per step, degrees (finite, positive).
     pub max_step_deg: f64,
     /// Fidelity the environment scores candidates at while the policy runs. The networks are
-    /// trained under `Fast`; `Full` is about a thousand times slower per step.
+    /// trained under `Fast`, the cheap setting.
     pub rollout_fidelity: ObjectiveFidelity,
     /// Fidelity of the before/after figures in the returned report. `Full` is what the editor
-    /// shows the user (cut-core: `Fast` carries no tilt information and is never for a report).
+    /// shows the user, since `Fast` carries no tilt information.
     pub report_fidelity: ObjectiveFidelity,
     /// The line-search scales of every step, tried in this order: the policy proposes a
     /// direction (the steepest tier at 95 % of `max_step_deg`) and the environment keeps the

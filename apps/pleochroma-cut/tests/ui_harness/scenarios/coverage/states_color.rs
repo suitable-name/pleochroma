@@ -1,20 +1,21 @@
-//! States of the click-through passes for the color variants: the Stone tab's Body Color group on a
-//! sapphire (variants, no generic colors), with the per-direction Custom editor open (two rows on a
-//! sapphire, three on a tanzanite, with the "Save as Variant..." name row), with an old single
-//! color (the legacy note, "Convert..." and "Nearest Variant") and with a saved variant that
-//! changed (the "Update" line); the material editor's Color Variants section with a saved copy
-//! (plain, renaming, asking before a delete); and the Color pill's popup on a library design shown as
-//! a sapphire, plain and with a typical zoning of its own ("Edit Zones..." and "Remove Zoning" are
-//! offered); the popup with an old single color has no pill to press (see `legacy_popup`). The
-//! Stone tab is also shown on a sapphire design with a typical zoning, where "Reset to Material
-//! Pattern" is offered.
+//! States of the click-through passes for the color variants.
+//!
+//! The Stone tab's Body Color group on a sapphire (variants, no generic colors), with the
+//! per-direction Custom editor open (two rows on a sapphire, three on a tanzanite, with the
+//! "Save as Variant..." name row), with an old single color (the legacy note, "Convert..." and
+//! "Nearest Variant") and with a saved variant that changed (the "Update" line); the material
+//! editor's Color Variants section with a saved copy (plain, renaming, asking before a delete);
+//! and the Color pill's popup on a library design shown as a sapphire, plain and with a typical
+//! zoning of its own ("Edit Zones..." and "Remove Zoning" are offered); the popup with an old
+//! single color has no pill to press (see `legacy_popup`). The Stone tab is also shown on a
+//! sapphire design with a typical zoning, where "Reset to Material Pattern" is offered.
 //!
 //! Proves: in each state every enabled button, chip and field of the scope is pressed once and
-//! every field touched (the engine of `overlays.rs`), after the state's `open` function reached the
-//! page the way a user does: the Stone tab's material pick, then the Custom row, a name or a click
-//! on the control that reveals the next row. A control that only exists after another press (the
-//! name row's Save and Cancel, the rename row, the delete question) is shown by the state's own
-//! press, because the engine presses each control once per restore.
+//! every field touched (the engine of `overlays.rs`), after the state's `open` function reached
+//! the page the way a user does: the Stone tab's material pick, then the Custom row, a name or a
+//! click on the control that reveals the next row. A control that only exists after another press
+//! (the name row's Save and Cancel, the rename row, the delete question) is shown by the state's
+//! own press, because the engine presses each control once per restore.
 
 use super::{
     super::{Piece, existing_install},
@@ -49,7 +50,7 @@ fn editor_solved(a: &HarnessApp) -> bool {
 }
 
 /// The design on `material`, shown in the Live Render view with the Parameters dock on its Stone
-/// tab. A step that fails leaves the state as far as it got: the pass then reports what is missing.
+/// tab. A failed step leaves the state as far as it got; the pass then reports what is missing.
 fn stone_tab(a: &HarnessApp, material: &str) {
     if let Err(message) = design_on(a.ui(), material) {
         println!("states_color: {message}");
@@ -113,9 +114,10 @@ fn variants_section(a: &HarnessApp) {
     scroll_scope(a, "MaterialEditorDialog", 0.0, -4000.0);
 }
 
-/// The Live Render view of the design on a sapphire with an old single color, with the Color pill's
-/// popup open. A design in the editor has the Body Color group on its Stone tab, not the pill: the
-/// press finds nothing and the state reports it (an old single color exists only on a design).
+/// The Live Render view of the design on a sapphire with an old single color, with the Color
+/// pill's popup open. A design in the editor has the Body Color group on its Stone tab, not the
+/// pill: the press finds nothing and the state reports it (an old single color exists only on a
+/// design).
 fn legacy_popup(a: &HarnessApp) {
     edit_tab(a);
     if let Err(message) = legacy_on_sapphire(a.ui()) {
@@ -124,8 +126,8 @@ fn legacy_popup(a: &HarnessApp) {
     open_color_pill(a);
 }
 
-/// The Stone tab of a library design shown as a sapphire (zoned with its first typical pattern when
-/// `zoned`) with the Color pill's popup open. The pill is the Stone tab's color control of a
+/// The Stone tab of a library design shown as a sapphire (zoned with its first typical pattern
+/// when `zoned`) with the Color pill's popup open. The pill is the Stone tab's color control of a
 /// library design (and of a material preview): a design in the editor has the Body Color group
 /// instead, so its Live Render view has no pill to press.
 fn library_popup(a: &HarnessApp, zoned: bool) {
@@ -231,12 +233,11 @@ fn stone_tab_states() -> Vec<State> {
                 if !saved_variant(a, "Harness Variant") {
                     println!("states_color: the saved variant was not made");
                 }
-                // A saved variant edited elsewhere makes the design's copy stale; Rust raises the
-                // flag when the stored numbers (or the name) differ, and no control of the window
-                // can change a stored variant, so the flag is raised the way Rust does. This
-                // state therefore only shows and presses the "Variant Changed: Update" line; the
-                // Update path itself (the copy, the label refresh) is unit-tested in
-                // `render_color/color_variants.rs` and `body_color_combo.rs`.
+                // Rust flags a stale saved variant when the stored numbers or the name differ.
+                // No control here can change a stored variant, so the flag is set directly, and
+                // the state shows and presses the "Variant Changed: Update" line. The Update path
+                // itself is unit-tested in `render_color/color_variants.rs` and
+                // `body_color_combo.rs`.
                 a.ui()
                     .global::<EditorModel>()
                     .set_body_color_variant_stale(true);

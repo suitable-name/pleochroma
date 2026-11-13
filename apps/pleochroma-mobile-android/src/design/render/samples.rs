@@ -16,7 +16,8 @@ pub(super) const fn choices(remote: bool) -> &'static [u32] {
     if remote { REMOTE } else { LOCAL }
 }
 
-/// Migrates old quality-based targets and clamps saved tablet settings before rendering.
+/// Clamps the sample targets to the backend's cap. The quality setting is mapped onto a
+/// sample target for the sample-based engines.
 pub(super) fn normalize(settings: &mut RenderSettings, remote: bool) {
     let cap = if remote { 256 } else { 64 };
     if settings.engine_spec().is_ray() {
@@ -77,7 +78,8 @@ pub(super) const fn local_path_gpu(settings: &RenderSettings) -> bool {
         )
 }
 
-/// Use the core's compact render budget without changing the tablet's UI layout.
+/// Runs the core's maintenance with the compact window class on local GPU paths, then
+/// restores the real window class, so the budget does not change the tablet's layout.
 pub(super) fn maintain(
     app: &mut AppState,
     now: std::time::Duration,

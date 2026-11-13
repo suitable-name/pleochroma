@@ -1,15 +1,14 @@
-//! The caller-facing half of one batch run ([`BatchOutput`]), split out of `backend.rs` to
-//! keep that file within its size budget. A child module of `backend` so it reaches the
-//! backend's private scratch pool.
+//! The caller-facing half of one batch run ([`BatchOutput`]).
+//!
+//! A child module of `backend`, so it can reach the backend's private scratch pool.
 
 use glam::Vec3;
 
 use super::{GpuAccumulate, GpuBackend};
 use crate::renderer::{gpu::frame::BatchEvent, gpu_backend::GpuBatchItem};
 
-/// The caller-facing half of one batch run: the output buffers, the per-picture scratch
-/// buffers and the `on_done` sink, with the bookkeeping that every picture is reported
-/// exactly once and in input order.
+/// Output buffers, per-picture scratch and the `on_done` sink of one batch run. Every
+/// picture is reported exactly once, in input order.
 pub(super) struct BatchOutput<'b, 'a> {
     pub(super) items: &'b mut [GpuBatchItem<'a>],
     /// One scratch per picture: empty until the picture starts, taken back when it is
@@ -21,8 +20,8 @@ pub(super) struct BatchOutput<'b, 'a> {
 }
 
 impl BatchOutput<'_, '_> {
-    /// Reports picture `index`: on `Done` its scratch is added into the caller's buffer
-    /// first (the single path's final `+=`), then the scratch goes back to the pool.
+    /// Reports picture `index`. On `Done` its scratch is added into the caller's buffer
+    /// (the same final `+=` as the single-picture path), then the scratch returns to the pool.
     pub(super) fn report(&mut self, backend: &GpuBackend, index: usize, outcome: GpuAccumulate) {
         debug_assert_eq!(
             index, self.reported,

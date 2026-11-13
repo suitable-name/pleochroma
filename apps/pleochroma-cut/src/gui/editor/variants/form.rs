@@ -1,5 +1,6 @@
-//! The small form above the variants list: what it is for and the words it shows. No Slint
-//! types, so the tests cover it directly.
+//! The form above the variants list: what it is for and the words it shows.
+//!
+//! No Slint types, so the tests cover it directly.
 
 use pleochroma_vault::model::design_variant::VariantSummary;
 

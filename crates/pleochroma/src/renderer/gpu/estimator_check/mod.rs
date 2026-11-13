@@ -5,7 +5,7 @@
 //! - [`run_furnace`]: energy-conservation furnace anchor -- a colorless, non-dispersive,
 //!   non-absorbing cubic gem (Standard Round Brilliant) inside a uniform environment
 //!   must return exactly that uniform radiance in expectation, exercising
-//!   Fresnel/TIR/Russian-roulette/spectral-MIS against a TRUTH anchor (not just
+//!   Fresnel/TIR/Russian-roulette/spectral-MIS against the analytic target (not just
 //!   CPU-vs-GPU).
 //! - [`run_image_comparison`]: Tier 3 statistical image equivalence -- Welford mean/M2
 //!   on CPU and GPU DISJOINT sample ranges, per-pixel z-score, and connected-component
@@ -75,8 +75,8 @@ pub use image_comparison::{
     run_image_comparison_light_tent, run_image_comparison_quartz, run_image_comparison_rutile,
     run_image_comparison_scattering, run_image_comparison_surface_glare,
     run_image_comparison_synthetic_moissanite, run_image_comparison_tanzanite,
-    run_image_comparison_topaz, run_image_comparison_tourmaline, run_image_comparison_zircon,
-    run_image_comparison_zoned,
+    run_image_comparison_topaz, run_image_comparison_tourmaline, run_image_comparison_tray_mirror,
+    run_image_comparison_tray_shadow, run_image_comparison_zircon, run_image_comparison_zoned,
 };
 pub use image_comparison_specialisation::{
     SpecialisationFeatureCase, run_specialisation_feature_image_comparison,
@@ -97,7 +97,7 @@ pub use spectral_debug::{SpectralDebugResult, run_spectral_debug};
 // concatenates the two into `$OUT_DIR/spectral_transport.generated.wgsl`, compiled here
 // via `frame::SHADER_SRC` (re-exported, not `include_str!`d again) so this check and the
 // renderer provably compile the same source text.
-use crate::renderer::gpu::frame::{self, SHADER_SRC};
+use crate::renderer::gpu::frame;
 
 // ---------------------------------------------------------------------------------
 // Test scenes.
@@ -107,9 +107,7 @@ use crate::renderer::gpu::frame::{self, SHADER_SRC};
 /// (`Cauchy { a, b: 0, c: 0 }` reduces to bare `a`), cubic (`birefringence_delta:
 /// 0.0`).
 ///
-/// `n = 1.5` is well above 1.0 (Fresnel reflection/TIR genuinely exercised)
-/// and below any real gem's critical-angle edge cases (covered by this module's
-/// Tier 2 sibling).
+/// `n = 1.5` gives genuine Fresnel reflection and total internal reflection.
 #[must_use]
 pub fn furnace_material() -> GemMaterial {
     GemMaterial {
@@ -248,11 +246,9 @@ pub fn tourmaline_material() -> GemMaterial {
 /// Rutile (full uniaxial Fresnel, Lekner 1991): this crate's most extreme
 /// birefringence built-in (`birefringence_delta = +0.2957`).
 ///
-/// Its closed-form Fresnel reflectance diverges from the interim single-effective-index
-/// approximation by ~15% (see
-/// `uniaxial_fresnel::tests::rutile_fresnel_diverges_from_isotropic_effective_index_approximation_by_about_15_percent`).
-/// A CPU/GPU image comparison here is the strongest Tier 3 check of the closed-form
-/// solve, catching divergence before weaker-birefringence materials would.
+/// Its closed-form Fresnel reflectance differs from the single-effective-index approximation
+/// by ~15% (see the rutile divergence test in `uniaxial_fresnel::tests`). A CPU/GPU image
+/// comparison here is the strongest Tier 3 check of the closed-form solve.
 ///
 /// # Panics
 ///
@@ -335,21 +331,22 @@ struct TransportDispatch {
     compat: Vec<u32>,
 }
 
-/// Dispatches `transport_main` once over `total_tuples` (pixel, sample) threads and
-/// reads back all four output buffers (final XYZ plus pre-integration per-channel debug
-/// arrays -- see `spectral_transport.wgsl`'s doc for why one entry point writes all four).
-///
-/// Always the GENERIC (`MATERIAL_CLASS = 0`) pipeline; see
-/// [`dispatch_transport_for_class`] for the specialised-pipeline variant Tier 3's image
-/// comparisons use. Every other caller here deliberately exercises the general
-/// runtime-dispatch kernel, not a specialised pipeline.
+/// Scene inputs of one `transport_main` dispatch, as the GPU buffers they are uploaded to.
 #[derive(Clone, Copy)]
 struct SceneBuffersForDispatch<'a> {
     planes: &'a [GpuFacetPlane],
     facet_finishes: &'a [u32],
     hdr_env: Option<&'a crate::renderer::env_map_gpu::HdrEnvGpuData>,
+    tray_shadow: Option<&'a crate::optics::raytracer::environment::TrayShadowMap>,
+    /// The Tray Reflection of the scene; with or without a shadow it selects the tray variant and
+    /// sets header words 10 through 12 of binding 190.
+    tray_mirror: Option<crate::optics::raytracer::environment::TrayMirror>,
 }
 
+/// Dispatches `transport_main` with the GENERIC (`MATERIAL_CLASS = 0`) pipeline.
+///
+/// Self-tests use it to exercise the general runtime-dispatch kernel rather than a specialised
+/// pipeline; see [`dispatch_transport_for_class`].
 fn dispatch_transport(
     ctx: &crate::renderer::gpu::GpuContext,
     camera_params: &GpuCameraParams,
@@ -371,31 +368,30 @@ fn dispatch_transport(
             planes,
             facet_finishes,
             hdr_env: None,
+            tray_shadow: None,
+            tray_mirror: None,
         },
         total_tuples,
     )
 }
 
-/// Bundles an encoded material with the `MATERIAL_CLASS` pipeline-overridable constant
-/// its dispatch should use, keeping [`dispatch_transport_for_class`]'s argument count
-/// within clippy's `too_many_arguments` limit.
+/// An encoded material with the `MATERIAL_CLASS` pipeline constant its dispatch uses.
 ///
-/// `Copy`: a reference plus a `u32`, so passing by value is as cheap as a reference to
-/// it (clippy's own suggested fix), and reads as "here is the material to dispatch".
+/// Bundling keeps [`dispatch_transport_for_class`] within clippy's `too_many_arguments`
+/// limit. `Copy`: a reference and a `u32`, cheap to pass by value.
 #[derive(Clone, Copy)]
 struct MaterialForDispatch<'a> {
     encoded: &'a GpuGemMaterial,
     class: u32,
 }
 
-/// Like [`dispatch_transport`], but compiles the pipeline with `MATERIAL_CLASS` fixed to
-/// `material.class` rather than the GENERIC default -- [`dispatch_transport`] is this
-/// function called with `frame::material_class::GENERIC`.
+/// Like [`dispatch_transport`], but compiles the pipeline with `MATERIAL_CLASS` set to
+/// `material.class` rather than GENERIC. [`dispatch_transport`] is this function with
+/// `frame::material_class::GENERIC`.
 ///
-/// [`image_comparison::run_image_comparison_for`] is the only caller with a non-GENERIC
-/// class: routing Tier 3's comparisons through the same specialised pipeline
-/// `GpuFrameRenderer::accumulate` would pick makes those checks exercise the production
-/// path, not a lookalike GENERIC dispatch.
+/// The Tier 3 and specialisation checks pass the class from `frame::classify_material`, the
+/// pipeline `GpuFrameRenderer::accumulate` picks, so they exercise the production path
+/// rather than a lookalike GENERIC dispatch.
 fn dispatch_transport_for_class(
     ctx: &crate::renderer::gpu::GpuContext,
     camera_params: &GpuCameraParams,
@@ -408,7 +404,17 @@ fn dispatch_transport_for_class(
     // `classify_material` decides for a production render (GENERIC included, so the
     // self-tests run the same kernel shape as production).
     let class = (material.class & frame::material_class::KIND_MASK)
-        | frame::material_class::feature_bits(material.encoded);
+        | frame::material_class::feature_bits(material.encoded)
+        | if scene.tray_shadow.is_some() {
+            frame::material_class::TRAY_SHADOW
+        } else {
+            0
+        }
+        | if scene.tray_mirror.is_some() {
+            frame::material_class::TRAY_MIRROR
+        } else {
+            0
+        };
     dispatch_transport_with_pipeline_class(
         ctx,
         camera_params,
@@ -434,10 +440,25 @@ fn dispatch_transport_with_pipeline_class(
     total_tuples: usize,
 ) -> TransportDispatch {
     let (material, class) = encoded_and_class;
+    let source =
+        frame::tray_shadow_source::megakernel_source_for(class).expect("variant anchors match");
+    // Binding 190: the shadow map, the mirror header words or both (`pack_gpu_words_with_mirror`
+    // is `pack_gpu_words` exactly when there is no mirror).
+    let shadow_buffer = (scene.tray_shadow.is_some() || scene.tray_mirror.is_some()).then(|| {
+        compute::upload(
+            &ctx.device,
+            "tray frame twin buffer",
+            &crate::optics::raytracer::environment::tray_shadow::pack_gpu_words_with_mirror(
+                scene.tray_shadow,
+                scene.tray_mirror,
+            ),
+            wgpu::BufferUsages::STORAGE,
+        )
+    });
     let pipeline = compute::create_compute_pipeline_with_constants(
         &ctx.device,
         "transport_main",
-        SHADER_SRC,
+        &source,
         "transport_main",
         &frame::material_class::pipeline_constants(class),
     );
@@ -450,11 +471,11 @@ fn dispatch_transport_with_pipeline_class(
         .or(dummy_hdr.as_ref())
         .expect("dummy HDR allocated when scene.hdr_env is None");
 
-    // In pieces of whole pixels, like a production frame (`params.pixel_offset`): one
-    // dispatch of a whole Tier 3 image (48 x 48 pixels x 500 samples) of a stone with oriented
-    // inclusions in a zoned host ran long enough for Windows to reset the GPU (2026-10-22).
-    // Every (pixel, sample) seeds from its global indices, so the pieces add up to the same
-    // image (`frame::run_chunk_equivalence` checks this for the production path).
+    // Dispatched in pieces of whole pixels, like a production frame (`params.pixel_offset`):
+    // one dispatch of a whole Tier 3 image of an oriented, zoned stone ran long enough for
+    // Windows to reset the GPU. Every (pixel, sample) seeds from its global indices, so the
+    // pieces add up to the same image (`frame::run_chunk_equivalence` checks this for the
+    // production path).
     let spp = camera_params.num_samples.max(1) as usize;
     // Only a dispatch that covers exactly `params.num_pixels` whole pixels is split.
     let whole_pixels = params.num_pixels as usize * spp == total_tuples;
@@ -493,6 +514,7 @@ fn dispatch_transport_with_pipeline_class(
                 facet_finishes: scene.facet_finishes,
                 outputs: &outputs,
                 hdr_env,
+                tray_shadow: shadow_buffer.as_ref(),
             },
             tuples,
         );
@@ -537,9 +559,9 @@ const fn camera_params_for(
 }
 
 // ---------------------------------------------------------------------------------
-// CPU reference sample generation: mirrors `render_core.rs`'s seed/jitter/hero-
-// wavelength derivation (stratified, not plain-uniform), calling the real
-// `trace_spectral_ray` directly.
+// CPU reference sample generation: mirrors the seed, jitter and hero-wavelength derivation
+// of `apps/pleochroma-worker`'s `render_core::trace_samples` (stratified), and calls
+// `trace_spectral_ray_with_finish` directly.
 // ---------------------------------------------------------------------------------
 
 /// Bundles the fixed-for-a-run scene inputs [`cpu_sample_xyz`] needs, keeping its
@@ -577,8 +599,7 @@ fn cpu_sample_xyz(
     let y = pixel / width;
     let seed = hash_u32(pixel.wrapping_mul(0x9e37_79b9) ^ sample_num.wrapping_mul(0x85eb_ca6b));
 
-    // Stratified pixel jitter and hero wavelength; mirrors
-    // `render_core.rs::trace_samples`.
+    // Stratified pixel jitter and hero wavelength, as `render_core::trace_samples` derives them.
     let rot_across = low_discrepancy_base2(hash_u32(pixel ^ PIXEL_JITTER_X_ROTATION_STREAM));
     let rot_down = low_discrepancy_base2(hash_u32(pixel ^ PIXEL_JITTER_Y_ROTATION_STREAM));
     let rot_hero = low_discrepancy_base2(hash_u32(pixel ^ HERO_WAVELENGTH_ROTATION_STREAM));
@@ -600,9 +621,9 @@ fn cpu_sample_xyz(
     )
 }
 
-/// Threaded CPU reference: `num_pixels * samples_per_pixel` samples, pixel-major order
-/// (matching the GPU output buffer's `idx = pixel * samples_per_dispatch + local_sample`
-/// layout), sample indices `[sample_offset, sample_offset + samples_per_pixel)`.
+/// Threaded CPU reference: `num_pixels * samples_per_pixel` samples in pixel-major order
+/// (the GPU readback layout, `idx = pixel * samples_per_pixel + sample`), with sample
+/// indices `[sample_offset, sample_offset + samples_per_pixel)`.
 fn cpu_samples<F>(
     width: u32,
     height: u32,

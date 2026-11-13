@@ -53,7 +53,7 @@ pub(super) struct Network {
 /// Exact production plane conversion for pinned masts.
 ///
 /// No authoring solve is needed:
-/// every SolvedTier value is the supplied ScaleReference, as in solve/context.rs.
+/// every SolvedTier value is the supplied ScaleReference, as in meet_solver/solve/context.rs.
 /// Named meets and dimensional targets retain their exact authored CPU solve;
 /// the resulting plane batches use the same GPU residual network.
 pub(super) fn surfaces(design: &Design) -> Option<Vec<Plane>> {
@@ -165,8 +165,8 @@ pub(super) fn direct_masts(design: &Design) -> bool {
             .all(|t| matches!(t.constraint, MeetConstraint::ScaleReference(_)))
 }
 
-/// Exact checked authored solve from meet_preservation/mod.rs; a failed strategy
-/// is an invalid residual probe, never a usable approximate mast.
+/// Exact checked authored solve (`Design::solve_with`). A failed strategy is an
+/// invalid residual probe, never a usable approximate mast.
 fn checked_solve(design: &Design) -> Option<Vec<SolvedTier>> {
     let solved = design.solve_with(&SolveControl::default()).ok()?;
     (solved.len() == design.tiers.len()

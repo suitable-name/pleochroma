@@ -6,13 +6,15 @@
 //! (the desktop in a thin adapter over its generated Slint structs).
 //!
 //! Split by responsibility: [`curve_path`] (tilt curves as SVG path data),
-//! [`live_margin`] (the Angle field's live critical-angle bar),
+//! [`girdle_reading`] (the girdle thickness at the girdle line, for every girdle figure a
+//! person reads), [`live_margin`] (the Angle field's live critical-angle bar),
 //! [`row_format`] (per-tier text/formatting helpers),
 //! [`rows`] (the tier-row builders), [`yield_report`] (yield/proportion texts,
 //! proportion verdicts, the cut-order rows) and [`solid_status`] (the
 //! validation-banner text and the viewport-plane conversion).
 
 pub mod curve_path;
+pub mod girdle_reading;
 pub mod live_margin;
 pub mod row_format;
 pub mod rows;

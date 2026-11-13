@@ -2,7 +2,8 @@
 //!
 //! Production band evaluation, path compaction, exponentials and ordered f64 FMA sums
 //! remain on CUDA. Only compact summaries and spectra return for the reference CIE
-//! transform. Persistent scratch bounds each exponential tile to about 26 MiB.
+//! transform. Persistent scratch bounds each exponential tile to about 26 MB of f64 output
+//! (8192 rows of 401 wavelengths).
 
 use std::sync::Arc;
 

@@ -101,9 +101,8 @@ export global CompareModel {
     callback size_changed(length, length);
 
     // --- main window only ----------------------------------------------------
-    // Bumped by Rust on an Optimize "Discard"; `EditorInspector` watches it to
-    // untick its local "Preview" checkbox (a callback-only surface Rust cannot
-    // otherwise reach).
+    // Bumped by Rust when an Optimize "Discard" happens; `EditorInspector` watches it to
+    // untick its "Preview" checkbox.
     in property <int> optimize_preview_reset_serial: 0;
     callback open_optimize();
     callback open_snapshot();

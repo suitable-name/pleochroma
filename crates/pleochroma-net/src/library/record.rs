@@ -49,8 +49,8 @@ pub struct DesignSummary {
     /// every other field of this summary stays the same, and is all zero bytes when the
     /// server could not read the design's revision (a client must then re-fetch).
     pub design_version: [u8; 32],
-    /// How many of the design's tiers are concave (tool-cut); `0` for a planar design
-    /// (v19). What a library row needs to flag a design that a plane-only reader would
+    /// How many of the design's tiers are concave (tool-cut); `0` for a planar design.
+    /// A library row uses this to flag a design that a plane-only reader would
     /// render without its concave cuts. Covered by [`Self::version`], so a design that
     /// gains or loses a concave tier re-syncs even if every text field is unchanged.
     pub concave_tiers: u32,
@@ -69,8 +69,8 @@ pub struct AngleSettingWire {
     pub index: String,
     /// Free-form cutting notes.
     pub notes: String,
-    /// The formatted second line of a concave tier's cutting-sheet row (v19: the tool's
-    /// shape, size and stroke), `None` for a flat tier. Wire counterpart of
+    /// The formatted second line of a concave tier's cutting-sheet row (the tool's shape,
+    /// size and stroke), `None` for a flat tier. Wire counterpart of
     /// `pleochroma_vault::model::angle::AngleSetting::tool_line`.
     pub tool_line: Option<String>,
 }
@@ -140,7 +140,7 @@ pub struct DesignRecord {
     /// -- the `pleochroma` material preset the cached previews/tilt-curve were generated
     /// with, or `None` if nothing's generated yet. Lets `apps/pleochroma-cut`'s Tilt
     /// Performance dialog detect a stale cached curve
-    /// (`gui::tilt_profile::cached_curve_material_is_stale`) for a remote design too.
+    /// (`gui::tilt::tilt_profile::cached_curve_material_is_stale`) for a remote design too.
     pub preview_material: Option<String>,
     /// Wire counterpart of `pleochroma_vault::model::entry::FullDiagramMeta::hw_ratio`.
     /// This and the seven fields below (`tw_ratio` through `designer`) back
@@ -163,7 +163,7 @@ pub struct DesignRecord {
     pub designer: Option<String>,
     /// Wire counterpart of `pleochroma_vault::model::entry::FullDiagramMeta::source_citation`
     /// -- the publication-citation half of `designer_info` (see that field's own doc
-    /// comment). Added under `PROTOCOL_VERSION` v15, alongside the three fields below.
+    /// comment).
     pub source_citation: Option<String>,
     /// Wire counterpart of `FullDiagramMeta::pdf_file` -- a competition entry's `PDF:`
     /// attachment file name.
@@ -181,7 +181,7 @@ pub struct DesignRecord {
     /// one design needs a re-fetch; all zero bytes when the server could not read the
     /// revision. See the module docs' "Staleness" section.
     pub version: [u8; 32],
-    /// The frosted tiers and facets of the design (v26), wire counterpart of
+    /// The frosted tiers and facets of the design, wire counterpart of
     /// `pleochroma_vault::model::entry::FullDiagramMeta::frosting`: `.asc` has no notation
     /// for frosting, so a mirror stores this beside the design's rows. Tiers ascending;
     /// empty for a design without frosting. Appended last so every earlier field keeps its

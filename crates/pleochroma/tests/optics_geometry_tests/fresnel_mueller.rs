@@ -1,14 +1,12 @@
-//! `fresnel_transmission` Mueller-matrix regression -- at normal incidence
-//! there is no polarization effect, so element (1,1) and element (3,3)/(4,4) of the
-//! transmission Mueller matrix must be equal (no spurious `sqrt()`).
+//! Regression test for `MuellerMatrix::fresnel_transmission` at normal incidence.
+//!
+//! With no polarization effect there, the (1,1) and (3,3) elements must be equal.
 
 use pleochroma::optics::polarization::MuellerMatrix;
 
 // ---------------------------------------------------------------------------
-// fresnel_transmission must not apply a spurious sqrt() to the (3,3)/(4,4)
-// element. At normal incidence there is no polarization effect, so element
-// (1,1) [top-left, "m11"] and element (3,3) ["m33"] of the Mueller matrix must
-// be equal.
+// fresnel_transmission must not apply a sqrt() to the (3,3) element. At normal incidence
+// m11 and m33 of the Mueller matrix must be equal.
 // ---------------------------------------------------------------------------
 #[test]
 fn fresnel_transmission_normal_incidence_m11_equals_m33() {
@@ -31,7 +29,7 @@ fn fresnel_transmission_normal_incidence_m11_equals_m33() {
     let m11 = m.x_axis.x;
     let m33 = m.z_axis.z;
 
-    // Independently cross-check against the value quoted in the bug report.
+    // Reference value for this index pair.
     assert!(
         (m11 - 0.8279).abs() < 1e-3,
         "expected m11 ~= 0.8279, got {m11}"
@@ -42,8 +40,7 @@ fn fresnel_transmission_normal_incidence_m11_equals_m33() {
         "at normal incidence m11 and m33 must agree (no polarization effect): m11={m11}, m33={m33}"
     );
 
-    // The buggy version (with .sqrt() on m33) produced ~0.9099, a 9.9% deviation --
-    // make sure we are nowhere near that.
+    // Guard against an extra sqrt() on m33, which would give about 0.9099.
     assert!(
         (m33 - 0.9099).abs() > 0.01,
         "m33 looks like the old, buggy sqrt() value: {m33}"

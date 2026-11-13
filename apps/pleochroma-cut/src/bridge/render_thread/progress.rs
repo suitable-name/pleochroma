@@ -14,9 +14,10 @@ thread_local! {
     static DRAG_HELD: Cell<bool> = const { Cell::new(false) };
 }
 
-/// The viewport's orbit or light drag started (`held`) or ended. The bar is hidden only once
-/// the drag actually restarts a render (a plain click leaves it alone); on release it shows
-/// again whatever the latest render reported, and the next update takes over.
+/// Records the start (`held`) or the end of an orbit or light drag.
+///
+/// During a drag the bar hides on the next render update, so a plain click that starts no render
+/// leaves it alone. On release it shows again with the values the latest render reported.
 pub fn set_camera_drag(ui: &MainWindow, held: bool) {
     let was_held = DRAG_HELD.replace(held);
     if was_held && !held {

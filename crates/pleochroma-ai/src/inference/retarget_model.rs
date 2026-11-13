@@ -10,7 +10,8 @@
 //! exact certified geometry.
 //!
 //! Both tone goals and optional shape/yield terms use the shared environment scorer. Use
-//! [`RlRetargetModel::retarget_certified`] when the exact materialized angles and masts are needed.
+//! [`RlRetargetModel::retarget_certified`] when the exact materialized angles and masts are
+//! needed.
 
 #[cfg(test)]
 use super::report::report_design;
@@ -344,12 +345,13 @@ mod tests {
     }
 
     /// A network that gives every tier the same sensitivity, whatever it is shown: the
-    /// sensitivity head ignores its input (all weights zero) and its bias starts `[bias, 0, ...]`,
+    /// sensitivity head ignores its input (all weights zero) and its bias is `[bias, 0, ...]`,
     /// so every tier has the windowing sensitivity `bias` and none to the other components.
-    /// With its zero-initialized action residual, the composed mean is `-MEAN_BOUND` for `bias > 0` and `+MEAN_BOUND`
-    /// for `bias < 0` (the objective's windowing fraction is positive for the default
-    /// weights), and zero for `bias == 0`. The projection then turns the tiers it lets move
-    /// by `tanh(+-MEAN_BOUND) * max_step_deg`, 95 % of the step limit, in one direction.
+    /// With its zero-initialized action residual, the composed mean is `-MEAN_BOUND` for
+    /// `bias > 0`, `+MEAN_BOUND` for `bias < 0` (the objective's windowing fraction is positive
+    /// for the default weights) and zero for `bias == 0`. The projection then turns the tiers
+    /// it lets move by `tanh(+-MEAN_BOUND) * max_step_deg`, 95 % of the step limit, in one
+    /// direction.
     fn constant_network(bias: f32) -> GemstoneSetAttentionNetwork {
         let mut network = ModelTier::Small.init_network(21);
         network.sens_head.weights.fill(0.0);
@@ -381,7 +383,7 @@ mod tests {
     /// The fixture with every free tier turned `TURN_AWAY_DEG` away from its authored angle,
     /// re-anchored on its hinge exactly as an environment step does it. The fixture itself
     /// sits at a local optimum of the `Fast` score in sapphire (a uniform turn in either
-    /// direction scores worse, measured 2026-10-12), so the adoption test starts from this
+    /// direction scores worse), so the adoption test starts from this
     /// turned-away stone, for which the uniform turn back (a negative delta, a positive bias)
     /// is an improving policy.
     const TURN_AWAY_DEG: f64 = 1.5;

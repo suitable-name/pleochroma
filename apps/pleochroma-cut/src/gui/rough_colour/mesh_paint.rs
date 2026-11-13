@@ -2,7 +2,7 @@
 //!
 //! The wizard's Surfaces step paints on the photo (a brush back-projected through each pixel's
 //! first mesh hit). This module is the same brush on the 3D view: a click in the view becomes a
-//! ray in the rough frame (`gui::rough_plan::zoning_hooks::view_ray`), the first hit of that ray
+//! ray in the rough frame (built by the planner's zoning view), the first hit of that ray
 //! on the mesh is a triangle, and the brush paints the triangles around the hit point that face
 //! the same way. The painted triangles go into the wizard's one set of window triangles
 //! (`State::windows`, which `fitwork::surface_map` turns into the `SurfaceMap`), so the photo

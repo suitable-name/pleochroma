@@ -21,27 +21,22 @@ component SectionCaption inherits Rectangle {
     }
 }
 
-// Compute target (Local/Remote/Local+Remote) and Max Ray Bounces -- split out
-// of `export_dialog.slint` to keep that file under its line budget. The pill
-// selections live in `ExportModel` (`compute_target_index`, `bounce_index`): they are seeded
-// from the last-used values (`AppSettings::output.still`) every time the dialog opens and
-// written back when an export starts, so a click in this component writes straight into the
-// model and the dialog reads the same values.
+// Compute target (Local, Remote, Local + Remote) and Max Ray Bounces, split out of
+// `export_dialog.slint`. The selections live in `ExportModel` (`compute_target_index`,
+// `bounce_index`). They are seeded from the last-used values (`AppSettings::output.still`) on
+// each open and saved when an export starts, so a click here writes straight into the model.
 //
-// The dialog shows this whole component only in Advanced mode (or while a tutorial step
-// unlocks it): the defaults (local plus remote when a worker is reachable, and the last-used
-// bounce cap) are what most exports want.
+// The dialog shows this component only in Advanced mode, or while a tutorial step unlocks it.
+// The defaults (local plus remote when a worker is reachable, and the last-used bounce cap)
+// suit most exports.
 export component ExportComputeAndBounces inherits VerticalLayout {
     spacing: 14px;
 
-    // 2c. Compute target: which engine(s) trace this export. Same segmented-
-    // pill idiom as "Output Size"/"color Space" in `export_dialog.slint` --
-    // the Remote/Local+Remote pills are disabled (not hidden) with
-    // `remote_unavailable_reason` shown beneath whenever the remote is not
-    // usable (`RemoteWorkerModel.availability.reachable_render_capable`), so a user without a
-    // worker configured always sees WHY those choices aren't offered right now. The pill that
-    // shows as selected is the effective one: Local only while the remote is unusable, the
-    // remembered choice otherwise.
+    // 2c. Compute target: which engine(s) trace this export. Remote and Local + Remote are
+    // disabled, not hidden, while the remote is unusable
+    // (`RemoteWorkerModel.availability.reachable_render_capable`). The reason shows beneath, so a
+    // user always sees why. The selected pill is the effective target: Local only while the
+    // remote is unusable, the remembered choice otherwise.
     VerticalLayout {
         spacing: 6px;
         SectionCaption {
@@ -127,11 +122,9 @@ export component ExportComputeAndBounces inherits VerticalLayout {
         }
     }
 
-    // 2d. Max Ray Bounces -- the export's OWN cap, independent of the live
-    // viewport's. Same segmented-pill idiom as the Render & Output tab's "Max Ray Bounces",
-    // and the same ladder: Rust publishes it once (`settings::model::BOUNCE_LADDER` ->
-    // `SettingsModel.bounce_ladder`), so there is no second copy here. See the Rust
-    // constant's doc comment for the `bounce_cost.rs` measurements behind the rungs.
+    // 2d. Max Ray Bounces: the export's own cap, separate from the live viewport's. The ladder
+    // comes from Rust (`SettingsModel.bounce_ladder`, from `settings::model::BOUNCE_LADDER`), so
+    // there is no second copy here. The Rust constant's doc comment explains the rungs.
     VerticalLayout {
         spacing: 6px;
         SectionCaption {
@@ -151,11 +144,8 @@ export component ExportComputeAndBounces inherits VerticalLayout {
             }
         }
 
-        // Same wording/measurement basis as the live view's bounce-ladder hint: flat cost on
-        // CPU (the `bounce_cost.rs` benchmark measured only a 1.3-1.4x spread from a cap of
-        // 12 all the way to 1024), but GPU threads run in lockstep, so the few long paths in
-        // the tail stall the whole workgroup and this rung range costs noticeably more there
-        // than on CPU.
+        // CPU cost is nearly flat across the rungs, but GPU threads run in lockstep. The few long
+        // paths stall the whole workgroup, so the high rungs cost more on GPU.
         if ExportModel.bounce_index >= 4: WrappedNote {
             text: "Cheap on CPU, but noticeably steeper on GPU -- lockstep execution makes long paths expensive there.";
             font-size: 11px;

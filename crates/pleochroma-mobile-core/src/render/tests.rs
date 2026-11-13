@@ -27,7 +27,8 @@ use crate::{
     settings::{RenderQuality, ThemeChoice},
 };
 
-/// Remote is cancelled/retried, so a previous local pause must not follow it.
+/// Choosing the remote backend clears a local user pause: a remote render is cancelled and
+/// retried, so the pause must not carry over.
 #[test]
 fn selecting_remote_does_not_inherit_a_local_render_pause() {
     let mut render = super::RenderState::default();
@@ -48,7 +49,7 @@ const SMALL: RenderView = RenderView {
 const WAIT: Duration = Duration::from_secs(120);
 
 /// The Crown Main tier of the template.
-const CROWN: usize = 4;
+const CROWN: usize = 5;
 
 // ---- helpers -----------------------------------------------------------------------------
 

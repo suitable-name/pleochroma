@@ -17,7 +17,7 @@
 //!   per design, a Reason for each, and the stone choices. The planner window keeps it beside the
 //!   model in one undo entry.
 //! - [`choices`]: per-stone choices ([`StoneChoice`]: one of the four box poses, a free pose,
-//!   Lock, Reason) and the single-piece re-fit ("Re-fit This Piece").
+//!   Lock, Reason) and the single-piece re-fit ("Re-Fit").
 //! - [`lock`]: Lock, the piece of a locked stone kept out of the next plan.
 //! - [`report`]: what the results show for a stone: the TRUE orientation from its actual pose
 //!   (never the rule's target), and the row data (angle to the table, followed or off,

@@ -1,8 +1,6 @@
 //! The per-item render engine and the local/remote lane runners that pull from a
-//! shared [`WorkQueue`] -- see this group's own `mod.rs` doc comment's "Local +
-//! remote" and "Why per-item resolve" sections for the design behind this file's
-//! shape, and "Progress with N local lanes (plus remote) in flight" for the
-//! [`LiveProgress`]/[`push_progress`] bookkeeping below.
+//! shared [`WorkQueue`]. The design behind this shape is in `gui::batch::preview`'s
+//! module doc.
 
 use super::remote_lane::run_remote_lane;
 use crate::{
@@ -46,53 +44,37 @@ use accumulator::{FinishedViews, record_item_result};
 pub(super) use resolve::record_planes_with_frosting;
 pub(super) use resolve::{ResolvedDesign, resolve_design};
 
-/// Every preview render's bounce cap -- fixed, not a settings-file field the way
-/// `preview_size`/`preview_spp` are (see `bridge::preview_render`'s module doc comment
-/// for why those two ARE exposed). It is the raytracer's [`DEFAULT_MAX_BOUNCES`] (this
-/// app's own fresh-install live-viewport default) and the bounce count the sizing table
-/// in `bridge::preview_render`'s doc comment was measured at, so the measured cost
-/// figures there stay accurate.
+/// Every preview render's bounce cap. Unlike `preview_size`/`preview_spp` it is not a
+/// setting: it is the raytracer's [`DEFAULT_MAX_BOUNCES`], the live viewport's default.
 pub(super) const PREVIEW_MAX_BOUNCES: u32 = DEFAULT_MAX_BOUNCES;
 
-/// How close (absolute refractive-index difference) a `GemMaterial` preset must be to a
-/// design's own scraped RI to count as a match for
-/// `Database::ensure_preview_material`/`pick_ri_preset`. Chosen loosely rather than
-/// measured: most named gem-species RI bands in `GemMaterial::all_materials()` are
-/// separated by well over this (e.g. Quartz ~1.55 vs. Beryl ~1.58), while a handful of
-/// distinct color varieties of the SAME species intentionally share (near-)identical
-/// RI and are meant to tie (resolved by `gui::batch::material_choice`'s balanced
-/// measure, not by chance) -- `0.02` sits comfortably inside a single species' natural RI spread
-/// without being wide enough to blur two visually and physically distinct species
-/// together.
+/// How close a `GemMaterial` preset's RI must be to a design's own RI to count as a match.
 ///
-/// `pub` (effectively crate-visible only, since this module tree is private -- clippy's
-/// `redundant_pub_crate` prefers plain `pub` over `pub(crate)` here): `gui::batch::tilt`
-/// resolves each design's material through `Database::ensure_preview_material`
-/// too, and reuses this exact tolerance rather than an independently-tuned copy -- both
-/// batches are picking a material for the SAME design via the SAME persisted-once-
-/// reused-forever column (`Database::ensure_preview_material`'s own doc comment), so a
-/// design's assigned material must not depend on which batch happened to run first.
+/// The closeness is an absolute refractive-index difference, used by
+/// `Database::ensure_preview_material` and `pick_ri_preset`. A judgement, not a
+/// measurement: most named species' RI bands are
+/// separated by well over this (Quartz ~1.55, Beryl ~1.58), while color varieties of one
+/// species deliberately tie and are settled by `gui::batch::material_choice`. `0.02` covers
+/// one species' RI spread without merging two species.
+///
+/// `pub` because `gui::batch::tilt` uses the same tolerance: both batches must pick the same
+/// material for a design, since the choice is persisted once and reused.
 pub const RI_MATCH_TOLERANCE: f64 = 0.02;
 
-/// The refractive index a design with no parseable `refractive_index` on file is
-/// matched against, so it still gets a stable, persisted preview material instead of
-/// being skipped outright -- Diamond's own well-known sodium-D RI. A design's own
-/// scraped RI (when present) always takes priority; this only ever applies to the
-/// (rare, in the real ~3,187-design catalogue) rows where that field is missing or
-/// unparseable.
+/// The refractive index a design with no parseable `refractive_index` is matched against.
 ///
-/// `pub` (see [`RI_MATCH_TOLERANCE`]'s own note on why plain `pub` over `pub(crate)`
-/// here): shared with `gui::batch::tilt` via `target_ri_for_design` below, same
-/// reasoning as that constant's own doc comment.
+/// It is Diamond's sodium-D RI, so such a design still gets a stable, persisted preview
+/// material instead of being skipped. A design's own RI always takes priority; this applies
+/// only when that field is missing or unparseable.
+///
+/// `pub` because `gui::batch::tilt` shares it via [`target_ri_for_design`].
 pub const FALLBACK_TARGET_RI: f64 = 2.417;
 
-/// A design's target refractive index for `Database::ensure_preview_material` matching
-/// -- its own scraped `refractive_index` field when that parses as a finite, physically
-/// plausible (`> 1.0`) number, [`FALLBACK_TARGET_RI`] otherwise. Factored out of
-/// [`resolve_design`] (this module's own caller) so `gui::batch::tilt` computes a
-/// design's target RI the identical way rather than re-deriving the parse/filter/
-/// fallback chain a second time -- see [`RI_MATCH_TOLERANCE`]'s own doc comment for why
-/// the two batches must agree on this.
+/// A design's target refractive index for `Database::ensure_preview_material` matching.
+///
+/// It is the design's own `refractive_index` when that parses as a finite number above `1.0`,
+/// else [`FALLBACK_TARGET_RI`]. Shared with `gui::batch::tilt`, so both batches match a design
+/// the same way (see [`RI_MATCH_TOLERANCE`]).
 #[must_use]
 pub fn target_ri_for_design(full: &pleochroma_vault::model::entry::FullDiagramRecord) -> f64 {
     full.refractive_index
@@ -102,23 +84,17 @@ pub fn target_ri_for_design(full: &pleochroma_vault::model::entry::FullDiagramRe
         .unwrap_or(FALLBACK_TARGET_RI)
 }
 
-/// How long the local lane sleeps before re-checking the queue when it finds nothing to
-/// claim but the remote lane has not yet signalled it is done -- see `gui::batch::batch_queue`'s
-/// module doc comment's "How the local lane knows the batch is truly finished" section.
-/// Item durations here are ~1-2s, so a 15ms poll is immaterial to total batch time; it
-/// only ever matters in the closing moments while local waits out the last item(s)
-/// still in flight remotely.
+/// How long the local lane sleeps before re-checking the queue when it finds nothing to claim
+/// but the remote lane is not yet done (see `gui::batch::batch_queue`). Items take ~1-2 s, so
+/// this poll only matters while local waits out the last items still in flight remotely.
 const LOCAL_IDLE_POLL: Duration = Duration::from_millis(15);
 
-/// Everything shared, read-only, across every design a batch processes AND safe to
-/// share by plain reference into both the local and remote lanes -- deliberately holds
-/// no `GpuBackend`: only the local lane ever touches a GPU adapter, and keeping it OUT
-/// of this struct (passed as its own separate parameter to the local lane instead)
-/// means this struct never needs to answer whether `GpuBackend` is `Sync` to be
-/// borrowed across `std::thread::scope`. `db`/`material_candidates`/`custom_materials` are
-/// each acquired exactly ONCE per batch (see `super::spawn_preview_batch`'s own doc comment
-/// for why), and `preview_size`/`preview_spp` are the settings snapshot the WHOLE batch was
-/// started with.
+/// Everything shared, read-only, across every design a batch processes, borrowed by both
+/// lanes. It deliberately holds no `GpuBackend`: only the local lanes use the GPU, and
+/// keeping it out (passed to them separately) means this struct need not be `Sync` for
+/// `std::thread::scope`. `db`, `material_candidates` and `custom_materials` are acquired once
+/// per batch (see `super::spawn_preview_batch`); `preview_size`/`preview_spp` are the settings
+/// snapshot the whole batch started with.
 pub(super) struct BatchContext<'a> {
     pub(super) db: &'a Mutex<Database>,
     pub(super) material_candidates:
@@ -135,34 +111,25 @@ pub(super) struct BatchContext<'a> {
     /// chosen, no GPU or remote lane is used, and the pictures are stored under a
     /// fingerprint that still counts the design as missing its traced preview.
     pub(super) solid: bool,
-    /// Set once a caught local-render panic names a wgpu/mapped-buffer
-    /// failure (see [`catch_local_render`]) and never cleared for the rest of this
-    /// batch -- every local lane shares ONE `GpuBackend` (see this struct's own doc
-    /// comment on why it deliberately holds no `GpuBackend` itself), so a panic that
-    /// may have left the renderer's staging buffers mapped must stop EVERY lane from
-    /// dispatching into it again, not just the lane it happened on. A plain
-    /// `AtomicBool` (not a `GpuBackend::retire`/`mark_lost` call): `GpuBackend` itself
-    /// exposes no such method, and its own internal `lost` flag is set only on a
-    /// cleanly-reported `DeviceLost`, which a raw panic never reaches.
+    /// Set once a caught local render panic names a wgpu or mapped-buffer failure (see
+    /// [`catch_local_render`]). Never cleared for this batch: every local lane shares one
+    /// `GpuBackend`, whose staging buffers may still be mapped, so none may dispatch into it
+    /// again. A plain flag, since `GpuBackend` has no retire method.
     pub(super) gpu_retired: &'a AtomicBool,
-    /// The designs whose geometry came from the angle table rather than a design
-    /// file -- see `gui::batch::record_planes_with_frosting_for_batch`. Read once at the end for
-    /// the batch's summary line.
+    /// The designs whose geometry came from the angle table rather than a design file (see
+    /// `gui::batch::record_planes_with_frosting_for_batch`). Read once for the summary line.
     pub(super) angle_table_entries: &'a Mutex<BTreeSet<i64>>,
 }
 
-/// One claimable unit of work: ONE view of ONE design -- see this group's `mod.rs` doc
-/// comment's "Local + remote" section for why this is the item granularity (finer than
-/// `gui::batch::tilt`'s own, which is a whole design).
+/// One claimable unit of work: one view of one design, finer than the tilt batch's
+/// whole-design item (see `gui::batch::preview`'s module doc).
 #[derive(Debug, Clone, Copy)]
 pub(super) struct PreviewItem {
     pub(super) entry_id: i64,
     pub(super) view: PreviewView,
 }
 
-/// Downcasts a `catch_unwind` payload to a human-readable message -- the exact same
-/// convention `gui::library::local::import::catch_file_panic` and
-/// `bridge::export_thread::spawn_export` already use for this.
+/// Turns a `catch_unwind` payload into a message, as `catch_file_panic` does for imports.
 pub(super) fn panic_message(payload: &(dyn Any + Send)) -> String {
     payload
         .downcast_ref::<&str>()
@@ -171,18 +138,11 @@ pub(super) fn panic_message(payload: &(dyn Any + Send)) -> String {
         .unwrap_or_else(|| "unknown panic".to_string())
 }
 
-/// Runs `f` (one LOCAL view's render) under `catch_unwind`, so a panic tracing this one
-/// view can never take the rest of the batch down with it -- see this group's `mod.rs`
-/// doc comment's "Panic isolation" section -- and ALSO retires the shared `GpuBackend`
-/// for the rest of this batch when the panic message names a wgpu/mapped-buffer failure
-/// -- the exact class of panic traced to a failed GPU chunk readback
-/// leaving a persistent staging buffer mapped, after which every LATER caller of the
-/// same renderer hits `Queue::submit ... is still mapped` too. Every local lane shares
-/// ONE `GpuBackend` for the whole batch (see [`BatchContext`]'s own doc comment), so
-/// without this, a second lane taking its own turn right after the first one panicked
-/// would dispatch straight into the same mapped state and panic again -- repeating for
-/// every remaining item, which is exactly the "N identical panic-log entries" shape
-/// a real crash log takes without this guard.
+/// Runs `f` (one local view's render) under `catch_unwind`, so a panic cannot take the rest of
+/// the batch down (see `gui::batch::preview`'s module doc). A panic whose message names a wgpu
+/// or mapped-buffer failure also retires the shared `GpuBackend` for the rest of the batch: a
+/// failed readback can leave a staging buffer mapped, and every later dispatch on that
+/// renderer would fail the same way (see [`BatchContext`]).
 fn catch_local_render(
     view: PreviewView,
     gpu_retired: &AtomicBool,
@@ -203,11 +163,9 @@ fn catch_local_render(
     })
 }
 
-/// Renders `resolved`'s `view` on the LOCAL engine (GPU with CPU scanline fallback --
-/// `bridge::preview_render::render_view`'s own doc comment). Declines outright, without
-/// dispatching anything, once [`BatchContext::gpu_retired`] is set -- see
-/// [`catch_local_render`]'s own doc comment for why calling back into the renderer at
-/// that point risks repeating the same panic.
+/// Renders `resolved`'s `view` on the local engine (GPU, with CPU scanline fallback; see
+/// `bridge::preview_render::render_view`). Declines without dispatching once
+/// [`BatchContext::gpu_retired`] is set (see [`catch_local_render`]).
 fn render_item_local(
     ctx: &BatchContext<'_>,
     gpu: &GpuBackend,
@@ -252,10 +210,9 @@ pub(super) struct Tally {
     pub(super) failed: AtomicU32,
 }
 
-/// Live status all lanes update as they claim/finish items, and [`push_progress`] reads
-/// to send one coherent snapshot to the UI thread -- see this group's `mod.rs` doc
-/// comment's "Progress with N local lanes (plus remote) in flight" section for why
-/// LOCAL is now a plain busy-count rather than a single title/image-index pair.
+/// Live status all lanes update as they claim and finish items. [`push_progress`] sends one
+/// coherent snapshot of it to the UI thread. Local lanes are a busy count, not one current
+/// title, because several run at once.
 #[derive(Default, Clone)]
 pub(super) struct LiveProgress {
     /// Designs whose BOTH views are fully accounted for so far, by any lane.
@@ -274,11 +231,9 @@ pub(super) struct LiveProgress {
     eta: EtaEstimator,
 }
 
-/// Pushes a snapshot of `progress` to the UI thread. Called by every lane after any
-/// change to its own status. `local_lane_total` is fixed for the whole batch (the lane
-/// count `super::spawn_preview_batch` decided via `batch_queue::local_lane_count`), so
-/// it travels as a plain parameter here rather than living inside the per-update
-/// [`LiveProgress`] -- the same reason `design_total` already does.
+/// Pushes a snapshot of `progress` to the UI thread after any lane's status change.
+/// `local_lane_total` (from `batch_queue::local_lane_count`) is fixed for the batch, so it is
+/// a parameter here rather than a [`LiveProgress`] field, like `design_total`.
 pub(super) fn push_progress(
     ui_weak: &Weak<MainWindow>,
     design_total: u32,
@@ -315,8 +270,7 @@ pub(super) fn push_progress(
     });
 }
 
-/// A `u32` count as the `int` a Slint property holds, saturating (a count that large is
-/// never reached; saturating keeps the display sane instead of wrapping negative).
+/// A `u32` count as the `int` a Slint property holds, saturating instead of wrapping negative.
 fn slint_count(count: u32) -> i32 {
     i32::try_from(count).unwrap_or(i32::MAX)
 }
@@ -342,21 +296,17 @@ fn increment_completed(progress: &Mutex<LiveProgress>) {
         .completed += 1;
 }
 
-/// Marks one local lane as having just claimed an item (`+1`) or having just finished
-/// one (`-1`) -- see `gui::batch::tilt::adjust_local_active`'s identical doc comment for
-/// why a signed step rather than two near-identical increment/decrement functions.
+/// Marks one local lane as having just claimed an item (`+1`) or finished one (`-1`). A signed
+/// step, not separate increment and decrement functions (as in the tilt batch).
 fn adjust_local_active(progress: &Mutex<LiveProgress>, delta: i32) {
     let mut p = progress.lock().unwrap_or_else(PoisonError::into_inner);
     p.local_active = p.local_active.saturating_add_signed(delta);
 }
 
-/// Everything both lane-runner functions need that is safe to share by plain reference
-/// across the `std::thread::scope` in `super::spawn_preview_batch` -- deliberately
-/// excludes `GpuBackend` (see [`BatchContext`]'s own doc comment) and
-/// `Weak<MainWindow>` (each lane gets its own owned clone instead, passed separately,
-/// so this struct never needs to answer whether Slint's `Weak` is `Sync`). Also bundles
-/// the arguments [`finish_item`] needs, keeping that function (called from every lane)
-/// under clippy's argument-count limit.
+/// What both lane runners share by plain reference across the `std::thread::scope` in
+/// `super::spawn_preview_batch`. It excludes `GpuBackend` (see [`BatchContext`]) and
+/// `Weak<MainWindow>`, which each lane takes as its own clone. It also bundles the arguments
+/// [`finish_item`] needs, to keep that call short.
 pub(super) struct LaneShared<'a> {
     pub(super) ctx: &'a BatchContext<'a>,
     pub(super) queue: &'a WorkQueue<PreviewItem>,
@@ -373,8 +323,8 @@ pub(super) struct LaneShared<'a> {
     /// How many remote dispatchers this batch spawns -- see
     /// `batch_queue::remote_lane_count`. `0` when no remote lane runs (`LocalOnly`).
     pub(super) remote_lane_total: u32,
-    /// Pictures one batched remote request carries (`AppSettings::remote_preview_batch_size`,
-    /// protocol v24); `remote_lane::remote_batch` claims that many at a time.
+    /// Pictures one batched remote request carries (`AppSettings::remote_preview_batch_size`);
+    /// `remote_lane::remote_batch` claims that many at a time.
     pub(super) remote_batch_size: usize,
     /// Set by the first remote dispatcher to start sitting a failing remote out, so the
     /// "remote lane paused" toast shows once per batch however many dispatchers (each
@@ -550,17 +500,11 @@ pub(super) fn finish_item_at_revision(
     );
 }
 
-/// Runs one LOCAL lane out of `shared.local_lane_total`: claims items via
-/// `WorkQueue::claim_local` (retried-after-remote-failure items first, then fresh ones)
-/// until both the retry pile and the shared pool are empty AND `remote_lane_done`
-/// confirms no more work is coming -- see `gui::batch::batch_queue`'s module doc
-/// comment for why that combination, not just "queue empty", is the correct stop
-/// condition. Called once per local lane by `super::spawn_preview_batch` (see this
-/// group's `mod.rs` doc comment's "Local + remote" section); `gpu` is one `GpuBackend`
-/// shared by EVERY local lane (acquired once for the whole batch -- see
-/// `super::spawn_preview_batch`'s own comment on why one adapter, not one per lane),
-/// safe to call concurrently because its dispatches serialize on the GPU's own queue
-/// (`GpuBackend`'s own module doc comment's "Concurrency" section).
+/// Runs one local lane: claims items via `WorkQueue::claim_local` (remote-failed items
+/// first, then fresh ones) until both piles are empty and `remote_lane_done` says no more
+/// requeues are coming (see `gui::batch::batch_queue`). `gpu` is the one `GpuBackend` every
+/// local lane shares, acquired once per batch; concurrent use is safe because the GPU queue
+/// serializes the dispatches.
 pub(super) fn run_local_lane(
     shared: &LaneShared<'_>,
     gpu: &GpuBackend,
@@ -629,13 +573,8 @@ pub(super) fn build_items(entry_ids: &[i64]) -> Vec<PreviewItem> {
         .collect()
 }
 
-/// Runs every lane for one batch attempt inside a `std::thread::scope`, blocking until
-/// all of them finish. Factored out of `super::spawn_preview_batch` purely to keep
-/// that function under clippy's line-count limit -- every parameter here is already a
-/// reference (or `Copy`), so each `scope.spawn(move || ...)` closure below simply moves
-/// a cheap copy of it, with no further indirection needed the way `spawn_preview_batch`
-/// itself would have needed had it kept this block inline (see `gui::batch::tilt`'s
-/// identical helper for the full reasoning).
+/// Runs every lane of one batch attempt inside a `std::thread::scope`, blocking until all of
+/// them finish. Kept out of `super::spawn_preview_batch` to keep that function short.
 ///
 /// `shared.remote_lane_total` remote dispatchers run at once, all claiming from the same
 /// queue; `remote_lane_done` is raised when the last of them ends.
@@ -668,11 +607,8 @@ pub(super) fn run_batch_lanes(
             }
         }
         if plan.run_local {
-            // N independently-claiming local lanes, all sharing the one `gpu` acquired
-            // by the caller -- see `run_local_lane`'s own doc comment for why sharing
-            // one `GpuBackend` across lanes is safe, and this group's `mod.rs` doc
-            // comment's "Local + remote" section for why running more than one local
-            // lane needed no new coordination beyond `WorkQueue` itself.
+            // The local lanes all share the one `gpu` acquired by the caller (see
+            // `run_local_lane`); the queue is their only coordination.
             for _ in 0..local_lane_total {
                 let local_ui_weak = ui_weak.clone();
                 scope.spawn(move || {

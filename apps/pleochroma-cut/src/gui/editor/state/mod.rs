@@ -1,15 +1,14 @@
-//! [`EditorState`] -- the editor's live state (the shared
-//! [`pleochroma_editor::EditorSession`] plus the desktop's own bookkeeping) -- and
-//! the view-model helpers that read a `Design` into the strings/flags `EditorView`
-//! (`types.slint`'s `EditorTierItem`) and the validation banner need. See this
-//! group's `mod.rs` doc comment for the "`History` is the only thing that mutates
-//! `Design`" rule [`EditorState::apply`]/[`apply_coalescing`](EditorState::apply_coalescing)/
-//! [`undo`](EditorState::undo)/[`redo`](EditorState::redo)/`apply_optimize_outcome`
-//! uphold, all routed through the session.
+//! [`EditorState`] is the editor's live state, plus the view-model helpers for `Design`.
+//!
+//! The state is the shared [`pleochroma_editor::EditorSession`] plus the desktop's own
+//! bookkeeping. The helpers read a `Design` into the strings and flags `EditorView`
+//! (`types.slint`'s `EditorTierItem`) and the validation banner need. `History` is the
+//! only thing that mutates `Design`: [`EditorState::apply`] and [`EditorState::undo`] route
+//! through the session, as do the coalescing apply and `EditorState::redo`.
 //!
 //! The pure view-model logic (row builders, formatting, yield/proportion texts, the
 //! banner, material/gear helpers) lives in `pleochroma_editor` and is shared with the
-//! web app; this module re-exports it at the old paths and keeps only the
+//! web app; this module re-exports it under the desktop's paths and keeps only the
 //! desktop's adapters to its Slint row types. Split into sibling files: [`core`]
 //! ([`EditorState`] itself plus construction/replacement), [`history`] (the
 //! session-routed edit entry points with the desktop's clock), [`material`] (the
@@ -35,15 +34,13 @@ pub(super) use core::{
 pub(in crate::gui) use core::{AfterSave, EditorState, PendingUnsavedAction};
 pub(in crate::gui) use design_identity::fresh_design_uuid;
 pub(super) use file_extras::DesignFileExtras;
-// The nudge coalescing key: the desktop's production nudge goes through
-// `EditorState::nudge_angles`, so only the tests (and the identity pins) name it.
 pub(super) use history::coalesce_timestamp;
+pub(super) use material::gear_remap_preview;
 #[cfg(test)]
 pub(super) use pleochroma_editor::material::material_name_from_index;
+// Production nudges go through `EditorState::nudge_angles`; only tests name the key.
 #[cfg(test)]
 pub(super) use pleochroma_editor::session::angle_nudge_coalesce_key;
-// The live margin bar reads it through `angle_live_margin`; only the identity pins name it.
-pub(super) use material::gear_remap_preview;
 #[cfg(test)]
 pub(super) use pleochroma_editor::view_model::row_format::representative_crown_and_pavilion_angles_deg;
 pub(super) use pleochroma_editor::{

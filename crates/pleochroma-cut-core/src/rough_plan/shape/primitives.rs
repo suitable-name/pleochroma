@@ -1,6 +1,6 @@
 //! Posed primitives for inclusions: a sphere, an ellipsoid or a box.
 //!
-//! A block, a cylinder or a pebble has no file to take an inclusion from, so the owner types a
+//! A block, a cylinder or a pebble has no file to take an inclusion from, so the user enters a
 //! shape, its size and where it sits. Each primitive is a closed [`RoughMesh`] in the frame of
 //! the uncut base (see [`InclusionSet`](super::InclusionSet)), ready for
 //! [`RoughModel::with_inclusions_added`](super::RoughModel::with_inclusions_added). They are

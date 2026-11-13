@@ -100,6 +100,9 @@ pub struct Key {
     light: [u32; 2],
     /// [`crate::hdr::HdrState::identity`] (metrics only).
     hdr: usize,
+    /// The HDR map's turn in degrees (as bits) and whether it follows the camera (metrics
+    /// only: the tilt sweep never uses the map).
+    hdr_turn: [u32; 2],
     /// The frosted-girdle toggle and the design's frosted planes (both measurements score the
     /// frosted stone, so both keys carry them).
     frosting: (bool, Vec<u32>),
@@ -109,11 +112,11 @@ pub struct Key {
 impl Key {
     /// The key of `kind` for the app as it stands, `None` while no solve is current.
     ///
-    /// The tilt sweep ignores inclusions, edge rounding and the HDR map, so those parts of its
-    /// key stay zero and changing them does not stale its curves. It does honour the crystal
-    /// orientation (the axis and the Second Axis), so those are part of the tilt key too. The
-    /// frosting is part of both keys: the metrics pass scores the frosted stone as the tilt
-    /// sweep does.
+    /// The tilt sweep ignores inclusions, edge rounding, the HDR map and its turn, so those
+    /// parts of its key stay zero and changing them does not stale its curves. It does honour
+    /// the crystal orientation (the axis and the Second Axis), so those are part of the tilt
+    /// key too. The frosting is part of both keys: the metrics pass scores the frosted stone
+    /// as the tilt sweep does.
     pub(super) fn new(state: &AppState, kind: Kind) -> Option<Self> {
         let generation = state.session.current_generation();
         state.solve.current_planes(generation)?;
@@ -147,6 +150,14 @@ impl Key {
                 settings.light_pitch_deg.to_bits(),
             ],
             hdr: if metrics { state.hdr.identity() } else { 0 },
+            hdr_turn: if metrics {
+                [
+                    settings.hdr_yaw_deg.to_bits(),
+                    u32::from(settings.hdr_follows_camera),
+                ]
+            } else {
+                [0, 0]
+            },
             frosting: (
                 settings.frosted_girdle,
                 state.session.design.frosted_planes_from_solved(tiers),

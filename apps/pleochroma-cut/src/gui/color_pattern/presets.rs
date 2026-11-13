@@ -1,6 +1,7 @@
-//! The Presets menu of the Color Pattern window: the built-in presets (the templates, "Ametrine" and
+//! The presets of the Color Pattern window: the built-in presets (the templates, "Ametrine" and
 //! "Watermelon Tourmaline"), written in code, and the ones the cutter saved (the vault's
-//! `color_pattern_presets`, see `store`).
+//! `color_pattern_presets`, see `store`). The gallery's My Presets section lists the built-in
+//! ones that are not templates, then the saved ones, and only a saved one can be deleted.
 //!
 //! A preset carries the band rows solved for the reference path of the material it was made on.
 //! Applied to another material it keeps those rows and does not solve again.
@@ -9,23 +10,20 @@ use pleochroma_cut_core::material::pattern::{
     ColorPattern, PatternAxis, PatternColor, TemplateId, ZoneColor, template,
 };
 
-/// The menu's own first entry: it prompts and picks nothing.
-pub(super) const MENU_PROMPT: &str = "My Presets";
-
 /// Amethyst purple, `[L*, C*, h]`; the typical patterns' Split and Sectors take the same seed.
-/// Deeper since 2026-11-03 (it was L* 48 C* 42), after dealer photos of ametrine.
 const AMETHYST: [f64; 3] = [46.0, 45.0, 305.0];
 /// Citrine yellow, `[L*, C*, h]`; the typical patterns' Split and Sectors take the same seed.
-/// Softer and more golden since 2026-11-03 (it was L* 82 C* 72 h 88), after the same photos.
 const CITRINE: [f64; 3] = [84.0, 58.0, 85.0];
 
-/// One entry of the menu.
+/// One preset.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct Preset {
-    /// The name shown in the menu.
+    /// The name shown in the gallery.
     pub name: String,
     /// The pattern it applies.
     pub pattern: ColorPattern,
+    /// It ships with the program, so it cannot be deleted.
+    pub built_in: bool,
 }
 
 /// A one-color zone with `lch` and no band rows yet.
@@ -41,6 +39,7 @@ pub(super) fn built_in_presets() -> Vec<Preset> {
         .map(|id| Preset {
             name: id.label().to_owned(),
             pattern: template(id, PatternAxis::TABLE_NORMAL),
+            built_in: true,
         })
         .collect();
     let mut ametrine = template(TemplateId::Split, PatternAxis::TABLE_NORMAL);
@@ -53,35 +52,40 @@ pub(super) fn built_in_presets() -> Vec<Preset> {
     presets.push(Preset {
         name: "Ametrine".to_owned(),
         pattern: ametrine,
+        built_in: true,
     });
     presets.push(Preset {
         name: "Watermelon Tourmaline".to_owned(),
         pattern: template(TemplateId::Watermelon, PatternAxis::TABLE_NORMAL),
+        built_in: true,
     });
     presets
 }
 
-/// Every entry of the menu below its prompt: the built-in presets, then the saved ones.
-pub(super) fn all_presets(saved: &[(String, ColorPattern)]) -> Vec<Preset> {
-    let mut all = built_in_presets();
+/// The presets of the gallery's My Presets section: the built-in ones that are no template (the
+/// templates have their own section, so a preset that is one would show twice), then the saved
+/// ones. A tile index of the gallery is an index into this list.
+pub(super) fn gallery_presets(saved: &[(String, ColorPattern)]) -> Vec<Preset> {
+    let templates: Vec<ColorPattern> = TemplateId::ALL
+        .into_iter()
+        .map(|id| template(id, PatternAxis::TABLE_NORMAL))
+        .collect();
+    let mut all: Vec<Preset> = built_in_presets()
+        .into_iter()
+        .filter(|preset| !templates.contains(&preset.pattern))
+        .collect();
     all.extend(saved.iter().map(|(name, pattern)| Preset {
         name: name.clone(),
         pattern: pattern.clone(),
+        built_in: false,
     }));
     all
 }
 
-/// The labels of the menu: the prompt, then every preset.
-pub(super) fn menu_labels(saved: &[(String, ColorPattern)]) -> Vec<String> {
-    std::iter::once(MENU_PROMPT.to_owned())
-        .chain(all_presets(saved).into_iter().map(|preset| preset.name))
-        .collect()
-}
-
-/// The preset at menu index `index` (0 is the prompt and picks nothing).
-pub(super) fn preset_at(saved: &[(String, ColorPattern)], index: i32) -> Option<Preset> {
-    let at = usize::try_from(index).ok()?.checked_sub(1)?;
-    all_presets(saved).into_iter().nth(at)
+/// The preset of gallery tile `index`.
+pub(super) fn gallery_preset_at(saved: &[(String, ColorPattern)], index: i32) -> Option<Preset> {
+    let at = usize::try_from(index).ok()?;
+    gallery_presets(saved).into_iter().nth(at)
 }
 
 /// Whether `name` is the name of a built-in preset (ASCII case ignored): a saved preset may not
@@ -116,33 +120,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_menu_lists_the_prompt_the_built_ins_and_the_saved_presets() {
+    fn the_gallery_lists_the_built_ins_that_are_no_template_then_the_saved_presets() {
         let saved = vec![(
             "Mine".to_owned(),
             template(TemplateId::Banded, PatternAxis::TABLE_NORMAL),
         )];
-        let labels = menu_labels(&saved);
-        assert_eq!(labels[0], MENU_PROMPT);
-        assert_eq!(labels.len(), 1 + TemplateId::ALL.len() + 2 + 1);
-        assert_eq!(labels.last().map(String::as_str), Some("Mine"));
-        assert!(labels.contains(&"Ametrine".to_owned()));
-        assert!(labels.contains(&"Watermelon Tourmaline".to_owned()));
+        let presets = gallery_presets(&saved);
+        let names: Vec<&str> = presets.iter().map(|preset| preset.name.as_str()).collect();
+        // Watermelon Tourmaline is the Watermelon template, which has its own section.
+        assert_eq!(names, ["Ametrine", "Mine"]);
+        assert!(presets[0].built_in);
+        assert!(!presets[1].built_in);
     }
 
     #[test]
-    fn the_prompt_picks_nothing_and_a_label_picks_its_preset() {
-        let saved = Vec::new();
-        assert!(preset_at(&saved, 0).is_none());
-        assert!(preset_at(&saved, -1).is_none());
-        let first = preset_at(&saved, 1).unwrap();
-        assert_eq!(first.name, TemplateId::ALL[0].label());
-        let last = preset_at(
-            &saved,
-            i32::try_from(menu_labels(&saved).len() - 1).unwrap(),
-        )
-        .unwrap();
-        assert_eq!(last.name, "Watermelon Tourmaline");
-        assert!(preset_at(&saved, 99).is_none());
+    fn a_tile_index_picks_its_preset() {
+        let saved = vec![(
+            "Mine".to_owned(),
+            template(TemplateId::Banded, PatternAxis::TABLE_NORMAL),
+        )];
+        assert_eq!(gallery_preset_at(&saved, 0).unwrap().name, "Ametrine");
+        assert_eq!(gallery_preset_at(&saved, 1).unwrap().name, "Mine");
+        assert!(gallery_preset_at(&saved, 2).is_none());
+        assert!(gallery_preset_at(&saved, -1).is_none());
     }
 
     #[test]

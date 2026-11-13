@@ -51,7 +51,7 @@ fn furnace_mean_and_target(material: &GemMaterial, salt: u32) -> (Vec3, Vec3) {
                     &planes,
                     material,
                     MAX_BOUNCES,
-                    EnvironmentSource::HdrMap(&env_map),
+                    EnvironmentSource::hdr(&env_map),
                     seed,
                     (hash_u32(seed) as f32) / 4_294_967_295.0,
                     None,

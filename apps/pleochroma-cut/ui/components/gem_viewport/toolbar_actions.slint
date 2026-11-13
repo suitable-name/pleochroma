@@ -12,12 +12,9 @@ import { PhysicscolorModel } from "../../models/physics_color.slint";
 import { StaleBadge } from "../stale_badge.slint";
 import { SaveNameRow } from "../settings_dialog/lighting_presets_section.slint";
 import { PreviewBadge } from "../material_chip.slint";
-// A running catalogue-wide batch (tilt sweep or preview render) sets
-// `ctx.export_active`, which suspends the live tracer exactly like an explicit
-// pause -- read here to fold the same suspended-display treatment into the
-// pause pill below, so a frozen Path-traced image during a batch still reads
-// as paused rather than "Live". Mirrors `solid_viewport.slint`'s identical
-// `batch_suspends_tracer` property.
+// A running catalogue batch (tilt sweep or preview render) suspends the live tracer like an
+// explicit pause. The pause pill reads it so a frozen picture shows as paused, not "Live".
+// The same property is `batch_suspends_tracer` in `solid_viewport/toolbar.slint`.
 import { BatchModel } from "../../models/batch.slint";
 
 // One button of the Live Render toolbar: 32 px tall, an icon and/or a label. With a label it
@@ -49,9 +46,8 @@ component ToolbarButton inherits Rectangle {
     property <color> ink: root.lit ? root.lit_ink : (root.has_text ? Theme.text-primary : Theme.text-secondary);
 
     height: 32px;
-    // Sized to its content, never stretched: a Rectangle in a HorizontalLayout has
-    // horizontal-stretch 1 by default and would otherwise absorb the width the capped
-    // ComboBoxes no longer take.
+    // Sized to its content, never stretched: a Rectangle in a HorizontalLayout stretches by
+    // default and would take the width the capped ComboBoxes leave.
     width: root.has_text ? tb_row.preferred-width : 32px;
     background: root.lit ? root.lit_fill : (tb_touch.has-hover && root.enabled ? Theme.bg-elevated : Theme.hint-surface);
     border-radius: Theme.radius-sm;
@@ -162,28 +158,14 @@ component ToolbarTail inherits HorizontalLayout {
         }
     }
 
-    // Pause / Resume Render Button -- explicit user pause control (Task: render pause/stop).
-    // Also reflects `is_exporting` for DISPLAY purposes only, the same amber
-    // "suspended" treatment `render_paused` already gets -- see
-    // `RenderContext::export_active`'s own doc comment for why an export
-    // suspends local tracing without touching `render_paused` itself. The
-    // touch area is disabled while exporting so a click can't flip the
-    // user's real pause state out from under them while its displayed state
-    // is showing something else (it would otherwise toggle `render_paused`
-    // from whatever the user actually left it at, not from what's on screen).
+    // Pause / Resume button of the tracer. An export or a batch holds the tracer still too; the
+    // button shows that in the same amber "suspended" look as a user pause, but is disabled then,
+    // so a click cannot change the user's own pause state behind the displayed one.
     //
-    // Belongs to the tracer -- only shown in Path-traced mode
-    // (`live_view_mode == 1`); Solid mode has nothing of the tracer's to
-    // pause.
-    // The traced image is only re-rendered on a solve, so after an
-    // ordinary tier edit it still shows the design as it was -- said
-    // plainly here rather than left to be noticed.
-    // Sits beside the pause pill, in the tracer's own mode only, for
-    // the same reason that pill does: it is a fact about the trace.
-    // Uses the shared `StaleBadge` (every other analysis panel's
-    // own "stale" marker) for the same condition, with a one-click
-    // "Recompute" (`EditorModel.solve()`) instead of only a hint to
-    // solve manually.
+    // Path-traced mode only (`live_view_mode == 1`): Solid mode has no tracer to pause.
+    //
+    // The traced image is re-rendered only on a solve, so after a tier edit it can still show
+    // the old design. The shared `StaleBadge` says so and offers a one-click "Recompute".
     if ViewportModel.live_view_mode == 1 && ViewportModel.trace_stale: StaleBadge {
         // A Solve like any other: locked with the Solve button while the
         // worked-example guide runs.
@@ -210,16 +192,10 @@ component ToolbarTail inherits HorizontalLayout {
         }
     }
 
-    // GPU status pill -- surfaces a lost GPU device instead of
-    // leaving the viewport silently stuck with nothing on screen
-    // saying why it stopped updating. `ViewportModel.
-    // gpu_status_text`'s own doc comment (models/viewport.slint) has
-    // the exact sequence this reflects: empty while healthy (hidden),
-    // "reacquiring" text during the brief self-heal attempt, or a
-    // "CPU fallback: <reason>" message once that attempt has also
-    // failed. Same amber-pill styling as the "Trace is from an
-    // earlier edit" pill above -- both are "something's not showing
-    // what Live normally means" facts about the trace.
+    // GPU status pill: shows a lost GPU device instead of a viewport that silently stops updating.
+    // Hidden while healthy, "reacquiring" during the self-heal attempt, then "CPU fallback:
+    // <reason>" if that fails. Amber like the stale-trace badge: the picture is not what Live
+    // means.
     if ViewportModel.live_view_mode == 1 && ViewportModel.gpu_status_text != "": Rectangle {
         height: 32px;
         border-radius: Theme.radius-sm;
@@ -239,6 +215,20 @@ component ToolbarTail inherits HorizontalLayout {
             }
         }
         width: gpu_status_layout.preferred-width;
+    }
+
+    // Non-blocking trace note (`ViewportModel.trace_note`): a shortcut the picture skipped, such
+    // as the stone shadow or the tray reflection being off for this light, or beam tracing yielding
+    // to either. Plain dim text, not the amber pill: the picture is valid and stays on screen.
+    if ViewportModel.live_view_mode == 1 && ViewportModel.trace_note != "": Text {
+        text: ViewportModel.trace_note;
+        font-size: 10px;
+        color: Theme.text-disabled;
+        vertical-alignment: center;
+        overflow: elide;
+        max-width: 280px;
+        accessible-role: AccessibleRole.text;
+        accessible-label: "Note: " + ViewportModel.trace_note;
     }
 
     // High-Resolution Export Trigger Button
@@ -299,11 +289,8 @@ component PoseButtons inherits HorizontalLayout {
         clicked => { ViewportModel.set_view(6); }
     }
 
-    // "Save as preset" button -- captures the FULL current view (lighting
-    // AND camera pose) as a new named preset, unlike the Parameters panel's
-    // own lighting-only save button. See `app.slint`'s `save_view_preset`
-    // doc comment, and `settings::model::LightingPreset`'s for why the
-    // camera is captured here specifically. Advanced: hidden in Simple mode.
+    // Saves the full current view (lighting and camera pose) as a named preset; the Parameters
+    // panel's save button stores lighting only. Advanced: hidden in Simple mode.
     if GuideModel.shows_advanced(): ToolbarButton {
         icon: @image-url("../../icons/save.svg");
         icon_size: 14px;
@@ -319,18 +306,15 @@ component PoseButtons inherits HorizontalLayout {
     }
 }
 
-// The Live Render viewport's Material/Lighting selectors and action-button row
-// (Edit Material, Tilt Curve, Reset Camera, Front/Top, Save View Preset,
-// Pause/Resume, GPU status, Export) -- split out of
-// `gem_viewport.slint` to keep that file under its line budget. The save button's state
-// (`saving_view_preset`/`new_view_preset_name`) is local to this row alone.
+// The Live Render viewport's action-button row: material and lighting selectors, the camera
+// buttons, Tilt Curve, Optical Diagnostics, pause and Export. The save button's state
+// (`saving_view_preset`/`new_view_preset_name`) is local to this row.
 //
-// One row while the viewport is wide enough (`wrap` off, from 860 px of viewport width, or 1090 px
-// while the Previewing badge shows, see `gem_viewport.slint`); narrower, the right-hand end (pause,
-// Export) and the badge drop to a second row so nothing is ever clipped.
+// One row while `wrap` is off. Wrapped, the camera buttons and the right-hand end (pause,
+// Export, the preview badge) take rows of their own, so nothing is clipped.
 //
 // Simple mode hides the Tilt Curve button and Save View Preset (`GuideModel.shows_advanced()`).
-// A hidden control keeps its state; the Parameters panel says when advanced settings are in use.
+// A hidden control keeps its state.
 export component GemViewportToolbarActions inherits VerticalLayout {
     spacing: 8px;
 
@@ -358,11 +342,8 @@ export component GemViewportToolbarActions inherits VerticalLayout {
     // Another material is tried through the sidebar Stone tab's "Preview as...";
     // the Previewing badge below ends it with "Back to design".
 
-    // Shown while the picture uses a preview material instead of the design's own.
-    // While the tail wraps to its own row the badge goes there with it (a 700px viewport's
-    // first row could not hold it), see the bottom of this component. There the name cap follows
-    // the row: 280px (the name reads in full up to ~218px, "Previewing " is ~62px of it) normally,
-    // 64px while the save-name row is open ("Previewing..." only, row ~693px at 700px).
+    // Shown while the picture uses a preview material instead of the design's own. Its name cap
+    // is 280px, or 64px while the save-name row is open (see the wrapped row below).
     if ViewportModel.previewing && !root.wrap: PreviewBadge {
         compact: root.compact;
     }
@@ -436,9 +417,8 @@ export component GemViewportToolbarActions inherits VerticalLayout {
                 : "How the stone is lit: a studio rig, a lit model or the contrast view.";
             model: ViewportModel.lighting_options;
             current-index <=> ViewportModel.selected_lighting_index;
-            // Emits the INDEX (already synced into
-            // `selected_lighting_index` via the two-way binding above by
-            // the time `selected` fires), not the display string `val`.
+            // `selected` fires after the two-way binding has synced the index, so this
+            // passes the index, not the display string `val`.
             selected(val) => { ViewportModel.lighting_changed(ViewportModel.selected_lighting_index); }
         }
     }
@@ -452,9 +432,8 @@ export component GemViewportToolbarActions inherits VerticalLayout {
         icon_size: 13px;
         show_text: !root.compact;
         name: "Tilt Curve";
-        // Lives on `TiltModel` itself (`ui/models/tilt.slint`) so `SolidViewportView`'s own
-        // Tilt Curve pill can share the exact same open/close + stale-cache-check sequence
-        // instead of a second copy.
+        // The open/close and stale-cache check live on `TiltModel` (`ui/models/tilt.slint`), shared
+        // with the Solid view's Tilt Curve pill.
         hint: GuideModel.allows_advanced()
             ? "Open the tilt-performance chart: brilliance, windowing and extinction as the stone tilts. See the glossary."
             : GuideModel.locked_hint;

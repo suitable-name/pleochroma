@@ -1,17 +1,12 @@
 //! The pose pills' "Fit" (`ViewportModel.set_view(5)`): the orbit distance that shows the
-//! whole stone in the picture on screen.
+//! whole stone in the picture on screen. It takes two inputs:
 //!
-//! Two inputs used to make Fit frame the wrong size:
-//!
-//! - The radius. The solid worker's last frame (`SlintSolidSink::mesh_bounding_radius`)
-//!   is only current while the solid raster is on screen. The Live view's path-traced
-//!   image draws `RenderContext::active_planes` directly, and a library selection there
-//!   redraws no solid frame (`resubmit_live_solid` runs in Solid mode only), so the
-//!   stored radius still described whatever stone the worker drew last. Fit therefore
-//!   measures the stone the tracer holds now ([`planar_bounding_radius`]) and, where the
-//!   solid raster is on screen, keeps the drawn frame's radius when that is larger (the
-//!   Cut slider and Cutting mode draw the partly cut stone, which can be bigger than the
-//!   finished one the tracer holds).
+//! - The radius. The Live view's path-traced image draws `RenderContext::active_planes`
+//!   directly, and no solid frame is redrawn for it, so the solid worker's last frame radius
+//!   (`SlintSolidSink::mesh_bounding_radius`) can describe another stone. Fit therefore
+//!   measures the stone the tracer holds ([`planar_bounding_radius`]). Where the solid raster
+//!   is on screen it keeps the drawn frame's radius when that is larger, since Cutting mode
+//!   and the Cut slider draw the partly cut stone, which can be bigger than the finished one.
 //! - The image. The camera's field of view is the vertical one, so a picture taller than
 //!   wide needs the stone further away ([`fit_distance_for_view`]).
 
@@ -137,10 +132,10 @@ pub fn fit_distance(
 
 /// Frames the built-in stand-in stone like Fit does, once at startup.
 ///
-/// Before any design is opened the viewport shows the built-in round brilliant (radius
-/// about 1.04) from the default pose distance (`DEFAULT_POSE.distance`, 2.4), which
-/// is closer than the stone's own Fit distance (about 3.3) and showed it cut by the frame on
-/// all sides. This sets the distance to the stand-in's Fit distance, only while
+/// Before any design is opened the viewport shows the built-in round brilliant from the
+/// default pose distance (`DEFAULT_POSE.distance`), which is closer than the stone's Fit
+/// distance and would cut it by the frame on all sides. This sets the distance to the
+/// stand-in's Fit distance, only while
 ///
 /// - the stand-in is still what the render context holds ([`PlanesOwner::Builtin`]), and
 /// - the distance still is the default pose distance (a saved, customised zoom is the
@@ -148,10 +143,9 @@ pub fn fit_distance(
 ///   which is the very framing this replaces).
 ///
 /// The value is not written back to the settings file: the persisted zoom stays the
-/// default, so every start frames the stand-in again until the cutter zooms. Fit's own
-/// measuring ([`planar_bounding_radius`]) sizes the stone, not the solid worker's frame
-/// radius, which is still the 1.5 placeholder at startup and would push the camera too far
-/// out.
+/// default, so every start frames the stand-in again until the cutter zooms. The stone is
+/// measured from its planes ([`planar_bounding_radius`]), not from the solid worker's frame
+/// radius, which is still the `DEFAULT_MESH_BOUNDING_RADIUS` placeholder at startup.
 pub fn frame_stand_in_stone(ui: &MainWindow, render_ctx: &Arc<Mutex<RenderContext>>) {
     let planes = {
         let ctx = RenderContext::lock(render_ctx);
@@ -194,9 +188,9 @@ fn is_unframed_stand_in(owner: PlanesOwner, distance: f32) -> bool {
 
 thread_local! {
     /// A radius [`fit_distance`] never fits below (UI thread only): `0.0` normally, the rough's
-    /// radius while Cutting mode is open, because its picture shows the stone after each step
-    /// (the rough minus the steps so far, bigger than the finished stone Fit measures) and a
-    /// Fit to the finished stone cut the early steps off at the frame.
+    /// radius while Cutting mode is open. Its picture shows the stone after each step, which
+    /// is bigger than the finished stone Fit measures, so a Fit to the finished stone would
+    /// cut the early steps off at the frame.
     static RADIUS_FLOOR: Cell<f64> = const { Cell::new(0.0) };
 }
 
@@ -222,14 +216,13 @@ pub fn is_unzoomed(distance: f32) -> bool {
             .is_some_and(|framed| (distance - framed).abs() < 1e-4)
 }
 
-/// The distance that frames a newly loaded stone (`planes`, the plane set about to be claimed
-/// for the render context) in the picture on screen, or `None` when the cutter's own zoom is
-/// to be kept ([`is_unzoomed`]) or the planes close no solid.
+/// The distance that frames a newly loaded stone in the picture on screen.
 ///
-/// A design from the library or a file used to appear at whatever distance the previous stone
-/// left, and a larger stone was cut by the frame on every side (only the built-in stand-in was
-/// framed, [`frame_stand_in_stone`]). The caller sets the returned distance on the render
-/// context in the same lock that installs the planes and passes it to [`note_auto_framed`].
+/// `planes` is the plane set about to be claimed for the render context. Returns `None` when
+/// the cutter's own zoom is to be kept ([`is_unzoomed`]) or the planes close no solid. Without
+/// framing, a larger stone would be cut by the frame on every side. The caller sets the
+/// returned distance on the render context in the same lock that installs the planes, and
+/// passes it to [`note_auto_framed`].
 ///
 /// Measures the stone, which builds its solid: call it outside the `RenderContext` lock, once
 /// per load, not per edit.
@@ -270,15 +263,13 @@ pub fn note_auto_framed(distance: f32) {
     AUTO_FRAMED.set(Some(distance));
 }
 
-/// Frames the stone again for the viewport's size now, when the app placed the camera
+/// Frames the stone again for the viewport's current size, when the app placed the camera
 /// itself ([`note_auto_framed`]) and the cutter has not zoomed since.
 ///
-/// A design is framed at load for the size the viewport has at that instant. A load that
-/// opens or closes a side list (the Catalog beside the viewport) frames for the size from
-/// before the layout settles, and the stone then showed cut by the frame on the narrower
-/// picture. The viewport's own resize signal calls this once the new size is known; a
-/// camera the cutter zoomed (wheel, Fit, Reset Camera) is left alone, and so is one where the
-/// size change does not change the fit.
+/// A load frames for the viewport size at that instant, but a side list (the Catalog) can
+/// still change the layout afterwards. The viewport's resize signal calls this once the new
+/// size is known. A camera the cutter moved (wheel, Fit, Reset Camera) is left alone, and so
+/// is one where the size change does not change the fit.
 pub fn reframe_for_viewport(ui: &MainWindow, render_ctx: &Arc<Mutex<RenderContext>>) {
     let Some(framed) = AUTO_FRAMED.get() else {
         return;

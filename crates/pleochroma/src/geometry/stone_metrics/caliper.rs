@@ -1,8 +1,7 @@
 //! Rotating-caliper extents over a 2D outline.
 //!
-//! Used by
-//! [`measure_solid`](super::measure_solid) as the cross-check against the
-//! axis-aligned width/length convention the printed proportions actually use.
+//! Used by [`measure_solid`](super::measure_solid) to report the rotating-caliper
+//! width and length next to the axis-aligned ones.
 
 /// Rotating-caliper width and length of a 2D point set: the smallest directional
 /// extent over all convex-outline edge directions, and the extent along the

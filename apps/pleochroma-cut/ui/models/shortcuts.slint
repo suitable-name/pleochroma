@@ -13,7 +13,7 @@ export struct ShortcutItem {
     /// What the shortcut does.
     action: string,
     /// The display heading for this shortcut's group -- "Global", "The tier list",
-    /// "The Solid viewport" or "Angle fields" today
+    /// "The Solid viewport" or "Angle fields".
     /// (`gui::editor::shortcuts::Context::heading`). Rows of one group are adjacent.
     context: string,
     /// A short hint shown after the group's heading, e.g. "click into it first"; empty
@@ -38,11 +38,7 @@ export global ShortcutsModel {
         root.open = false;
     }
 
-    // Copies the SAME Markdown
-    // table `docs/manual/appendix-b-keyboard-shortcuts.md`'s generated blocks
-    // are checked against (`gui::editor::shortcuts::render_markdown_section`)
-    // to the system clipboard, so a cutter can paste the current shortcut list
-    // into their own notes without retyping it -- a real, non-test caller for
-    // that function.
+    // Copies the Markdown table that `docs/manual/appendix-b-keyboard-shortcuts.md` is checked
+    // against (`gui::editor::shortcuts::render_markdown_section`) to the clipboard.
     callback copy_markdown();
 }

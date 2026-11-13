@@ -1,6 +1,7 @@
 //! The Crystal Axis in the Rough Planner: setting the rough's axis, reading the orientation rule,
-//! overriding and locking one stone, planning again and opening the stone in the editor (manual
-//! chapters "Crystal Axis" and "Planning from the Rough").
+//! overriding and locking one stone, planning again and opening the stone in the editor.
+//!
+//! Manual chapters: "Crystal Axis" and "Planning from the Rough".
 //!
 //! The planner is a window of its own, so none of its controls can be outlined from the guide
 //! panel; every step names the control in words. What happens in the planner leaves no trace in

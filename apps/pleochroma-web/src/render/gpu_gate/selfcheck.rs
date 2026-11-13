@@ -2,9 +2,8 @@
 //!
 //! The isotropic class keeps the Spinel scene of `gpu_admission::self_check_scene`; a uniaxial
 //! and a biaxial class get the same stone, camera and light with a built-in material of their
-//! class. The GPU Worker compares those two renders with the CPU's (`pleochroma_web_gpu`'s
-//! `self_check`) before the class is admitted, because a polarization bug draws a plausible
-//! picture.
+//! class. The GPU Worker compares those renders with the CPU's before the class is admitted,
+//! because a polarization bug draws a plausible picture.
 
 use pleochroma::optics::materials::GemMaterial;
 use pleochroma_web_core::{
@@ -16,7 +15,7 @@ use pleochroma_web_core::{
 
 /// The uniaxial stone of the self-check.
 const UNIAXIAL_STONE: &str = "Zircon";
-/// The biaxial stone of the self-check, when the built-ins still hold it.
+/// The preferred biaxial stone of the self-check.
 const BIAXIAL_STONE: &str = "Topaz";
 /// Samples per pixel of an anisotropic self-check: enough that the frame totals of the GPU
 /// and the CPU render agree within the tolerances of the Worker's comparison.

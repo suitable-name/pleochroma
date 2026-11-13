@@ -7,8 +7,8 @@
 //!
 //! - **Sensitivities** (`sens_head`, `d_model -> N_COMPONENTS`, one prediction per tier): how much
 //!   each objective component changes per degree of that tier, in the order windowing, extinction,
-//!   brilliance loss, yield loss, lighter-tone loss, deeper-tone loss, and unweighted shape distance
-//!   times 100. The values are raw head outputs (no activation).
+//!   brilliance loss, yield loss, lighter-tone loss, deeper-tone loss, and unweighted shape
+//!   distance times 100. The values are raw head outputs (no activation).
 //! - **Action residual** (`action_head`, `d_model -> 1`, per tier): a learned pre-squash correction
 //!   to the sensitivity direction, initially zero. It can express useful coordinated moves even
 //!   when every local derivative is zero, without falsifying the physical sensitivity targets.
@@ -17,16 +17,16 @@
 //!   the gain is the predicted score drop (points) of the oracle step at this state.
 //! - **Log-std**: three raw values (crown, pavilion, girdle or other), state-independent.
 //!
-//! The sensitivity part of the policy mean is composed: the global token carries the objective's weight
-//! fractions at [`WEIGHT_FRACTION_INDEX`], and [`compose_mean`] weights the sensitivities of each
-//! tier with them (`g_k = sum_c frac[c] * sens[k][c]`) and normalizes by the steepest mobile tier,
-//! with a documented score-slope floor so nearly flat predictions produce proportionally small
+//! The sensitivity part of the policy mean is composed: the global token carries the objective's
+//! weight fractions at [`WEIGHT_FRACTION_INDEX`], and [`compose_mean`] weights each tier's
+//! sensitivities with them (`g_k = sum_c frac[c] * sens[k][c]`) and normalizes by the steepest
+//! mobile tier. A score-slope floor keeps nearly flat predictions producing proportionally small
 //! actions rather than an unstable full-scale direction. Above the floor the steepest tier sits at
 //! `-MEAN_BOUND` or `+MEAN_BOUND` in pre-squash units. The action residual is then added on mobile
 //! tiers only; the final mean is unbounded, while the environment's `tanh` still bounds the step.
-//! One optimizer network serves every objective preset and any
-//! custom weighting. Retarget and optimizer artifacts remain distinct capabilities. The Burn twin
-//! (`training::burn_model`) composes the same way with the same operation order.
+//! One optimizer network serves every objective preset and any custom weighting. Retarget and
+//! optimizer artifacts remain distinct capabilities. The Burn twin (`training::burn_model`)
+//! composes the same way with the same operation order.
 //!
 //! Conventions shared with the environments and the trainer: angles are in degrees and **signed**
 //! (crown tiers positive, pavilion tiers negative); the sampler draws a raw value around the mean
@@ -46,7 +46,7 @@ use crate::env::{
 };
 use serde::{Deserialize, Serialize};
 
-// The policy distribution lives in `policy`; these re-exports keep the historical item paths.
+// The policy distribution lives in `policy`; these re-exports keep its items reachable here.
 pub use super::policy::{
     BLOCK_TYPE_INDEX, GaussianPolicy, HALF_LN_2PI, HALF_LN_2PI_E, LOG_STD_INIT, LOG_STD_MAX,
     LOG_STD_MIN, LOG_STD_SLOTS, block_slot, bounded_log_std, compose_mean_masked, log_std_raw_init,
@@ -85,24 +85,24 @@ pub struct GemstoneSetAttentionNetwork {
     pub post_attn_norms: Vec<LayerNorm>,
     /// MLP feedforward blocks.
     pub mlp_blocks: Vec<MlpBlock>,
-    /// `LayerNorm` applied to every token (context token included) after the last transformer block.
+    /// `LayerNorm` applied to every token (context token included) after the last block.
     ///
-    /// A pre-LN stack leaves the residual stream un-normalised, so without it the heads read a scale
-    /// that grows with depth and training.
+    /// A pre-LN stack leaves the residual stream un-normalised; without this norm the heads
+    /// would read a scale that grows with depth and training.
     pub final_norm: LayerNorm,
     /// Value function head predicting scalar state baseline V(s) from the pooled vector.
     pub critic_head: Linear,
-    /// Sensitivity head (`d_model -> N_COMPONENTS`): per tier, the predicted slope of each objective
-    /// component per degree of that tier. These define the sensitivity part of the policy mean;
-    /// the residual action head supplies its separate correction.
+    /// Sensitivity head (`d_model -> N_COMPONENTS`): per tier, the predicted slope of each
+    /// objective component per degree of that tier. These define the sensitivity part of the
+    /// policy mean; the residual action head supplies its separate correction.
     pub sens_head: Linear,
     /// Per-tier pre-squash action residual, initialized to zero and masked on immobile tiers.
     pub action_head: Linear,
-    /// Gain head (`d_model -> 1`) on the same pooled vector as the critic: the predicted score drop
-    /// of the oracle step at this state, in points.
+    /// Gain head (`d_model -> 1`) on the same pooled vector as the critic: the predicted score
+    /// drop of the oracle step at this state, in points.
     pub gain_head: Linear,
-    /// Raw state-independent log standard deviation per block: crown, pavilion, girdle or other (see
-    /// [`block_slot`]). The policy uses [`bounded_log_std`] of each value.
+    /// Raw state-independent log standard deviation per block: crown, pavilion, girdle or other
+    /// (see [`block_slot`]). The policy uses [`bounded_log_std`] of each value.
     pub log_std_raw: [f32; LOG_STD_SLOTS],
     /// Model hidden dimension.
     pub d_model: usize,
@@ -147,8 +147,8 @@ fn sensitivity_row(out: &[f32]) -> Result<[f32; N_COMPONENTS], ModelError> {
     })
 }
 
-/// The objective's six normalized optical, yield and selected-tone coefficients followed by the
-/// raw shape coefficient, read from the global token at [`WEIGHT_FRACTION_INDEX`].
+/// The objective's six normalized optical, yield and selected-tone coefficients followed by
+/// the raw shape coefficient, read from the global token at [`WEIGHT_FRACTION_INDEX`].
 fn weight_fractions(global_token: &[f32]) -> Result<[f32; N_COMPONENTS], ModelError> {
     let end = WEIGHT_FRACTION_INDEX + N_COMPONENTS;
     global_token
@@ -178,7 +178,8 @@ impl GemstoneSetAttentionNetwork {
     /// Construct a Xavier-initialized network with a zero-initialized action residual head.
     ///
     /// # Errors
-    /// [`WeightError::Invalid`] when a dimension is zero or `d_model` is not divisible by `num_heads`.
+    /// [`WeightError::Invalid`] when a dimension is zero or `d_model` is not divisible by
+    /// `num_heads`.
     pub fn new(
         d_tier: usize,
         d_global: usize,
@@ -258,12 +259,12 @@ impl GemstoneSetAttentionNetwork {
         }
     }
 
-    /// Total number of trainable parameters (weights, biases, layer-norm scales/shifts including the
-    /// final norm, and the three raw log-std values).
+    /// Total number of trainable parameters: weights, biases, layer-norm scales and shifts
+    /// (the final norm included), and the three raw log-std values.
     ///
     /// Closed form for `d = d_model`, `L` layers: `(d_tier + 1) d + (d_global + 1) d +
-    /// L (8 d^2 + 11 d) + (d + 1)` critic `+ (d + 1) N_COMPONENTS` sensitivity head `+ (d + 1)` gain
-    /// head `+ (d + 1)` action residual `+ 2 d` final norm `+ 3` raw log-std values.
+    /// L (8 d^2 + 11 d) + (d + 1)` critic `+ (d + 1) N_COMPONENTS` sensitivity head
+    /// `+ (d + 1)` gain head `+ (d + 1)` action residual `+ 2 d` final norm `+ 3` raw log-std.
     #[must_use]
     pub fn param_count(&self) -> usize {
         self.tier_proj.param_count()
@@ -296,8 +297,8 @@ impl GemstoneSetAttentionNetwork {
                 .sum::<usize>()
     }
 
-    /// Forward pass through the Set Attention network for an arbitrary number of tiers (zero tiers is
-    /// valid: the policy is then empty and the value is computed from the context token alone).
+    /// Forward pass for any number of tiers. Zero tiers is valid: the policy is then empty and
+    /// the value comes from the context token alone.
     ///
     /// - `tier_tokens`: per-tier feature vectors, shape `[N, d_tier]`.
     /// - `global_token`: global context feature vector, shape `[d_global]`; its entries from
@@ -310,8 +311,8 @@ impl GemstoneSetAttentionNetwork {
     /// [`Self::forward_full`] for the sensitivities and the gain as well.
     ///
     /// # Errors
-    /// [`ModelError::Dimension`] when a token's length is not `d_tier` / `d_global`, the global token
-    /// is too short to carry the weight fractions, or the layer widths disagree with each other.
+    /// [`ModelError::Dimension`] when a token's length is not `d_tier` or `d_global`, the global
+    /// token is too short to carry the weight fractions, or the layer widths disagree.
     pub fn forward(
         &self,
         tier_tokens: &[Vec<f32>],
@@ -365,7 +366,8 @@ impl GemstoneSetAttentionNetwork {
         // 2. Multi-Head Attention and MLP Transformer layers (pre-LN, residual owned here)
         self.run_blocks(&mut tokens, scratch)?;
 
-        // 3. Final LayerNorm on every token (context included); the heads read the normalised stream
+        // 3. Final LayerNorm on every token (context included); the heads read the normalised
+        //    stream
         for tok in &mut tokens {
             *tok = self.final_norm.forward(tok)?;
         }
@@ -444,7 +446,8 @@ impl GemstoneSetAttentionNetwork {
         Ok(tokens)
     }
 
-    /// The pre-LN transformer stack over `tokens` (`[1 + N, d_model]`, context token first), in place.
+    /// The pre-LN transformer stack over `tokens` (`[1 + N, d_model]`, context token first), in
+/// place.
     fn run_blocks(
         &self,
         tokens: &mut [Vec<f32>],
@@ -477,10 +480,10 @@ impl GemstoneSetAttentionNetwork {
         Ok(())
     }
 
-    /// Clamp proposed deltas to the shared sign-preserving angle and step limits. Mobility comes from
-    /// the observation token, so pinned/flat/projected-away coordinates stay visible to attention but
-    /// receive neither a policy mean nor an action. The target critical angle remains in this public
-    /// signature for source compatibility; material score determines whether a safe pavilion move helps.
+    /// Clamps proposed deltas to the sign-preserving angle and step limits. Mobility comes from
+    /// the observation token: pinned, flat and projected-away tiers stay visible to attention but
+    /// get neither a policy mean nor an action. The target critical angle is unused and kept in
+    /// the signature; the material score decides whether a safe pavilion move helps.
     pub fn project_actions(
         action: &mut ContinuousTierAction,
         tiers: &[TierFeature],
@@ -543,16 +546,16 @@ impl GemstoneSetAttentionNetwork {
 /// Predefined model sizing tiers for gemstone set attention policies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum ModelTier {
-    /// Small (S): ~42k parameters.
+    /// Small (S): ~239k parameters.
     Small,
-    /// Medium (M): ~106k parameters - the default balanced tier.
+    /// Medium (M): ~368k parameters, the default balanced tier.
     #[default]
     Medium,
-    /// Large (L): ~540k parameters.
+    /// Large (L): ~1.06M parameters.
     Large,
-    /// Extra Large (XL): ~3.2M parameters.
+    /// Extra Large (XL): ~4.23M parameters.
     ExtraLarge,
-    /// Extra Extra Large (XXL): ~9.5M parameters.
+    /// Extra Extra Large (XXL): ~11.08M parameters.
     ExtraExtraLarge,
 }
 
@@ -614,10 +617,9 @@ impl ModelTier {
         }
     }
 
-    /// Instantiate a Geometric Set Attention network initialized with Xavier weights for this tier.
+    /// Instantiates a network with Xavier weights for this tier.
     ///
-    /// Infallible: every tier configuration satisfies the network's structural rules (a unit test builds
-    /// and validates all five).
+    /// Infallible: every tier configuration satisfies the network's structural rules.
     #[must_use]
     pub fn init_network(self, seed: u64) -> GemstoneSetAttentionNetwork {
         let (d_model, num_heads, num_layers) = self.config();

@@ -98,11 +98,10 @@ fn wire_camera(ui: &AppWindow, ctx: &Ctx) {
     });
 }
 
-/// Tells the running lesson where the Cut slider now sits, when it moved: the slider reports
-/// `cut-slider-moved`, which stores the new `SolidModel.tier-cutoff` and then comes here, as do
-/// the Preform pill and the Diagram's panel pills (through `options-changed`; they leave the
-/// cutoff alone and so raise nothing here). Moves that Cutting Mode makes on its own never come
-/// through either callback.
+/// Reports a moved Cut slider to the running lesson. The slider's `cut-slider-moved` callback
+/// and `options-changed` (Preform and Diagram panel pills) both come here. The pills leave the
+/// cutoff alone, so nothing is raised for them. Cutting Mode's own moves do not use either
+/// callback.
 fn report_cut_slider(ctx: &Ctx) {
     let Some(ui) = ctx.ui.upgrade() else {
         return;
@@ -110,7 +109,7 @@ fn report_cut_slider(ctx: &Ctx) {
     let cutoff = ui.global::<SolidModel>().get_tier_cutoff();
     let shown = VIEWS.with(|cell| cell.borrow().seen.as_ref().map(|seen| seen.tier_cutoff));
     if shown.unwrap_or(MODEL_FINISHED) != cutoff {
-        // The three events, by name (as `viewing_events::cut_slider_event` maps them).
+        // The event for the new position (see `viewing_events::cut_slider_event`).
         let event = match cutoff {
             MODEL_ROUGH => events::CUT_SLIDER_ROUGH,
             MODEL_FINISHED => events::CUT_SLIDER_FINISHED,

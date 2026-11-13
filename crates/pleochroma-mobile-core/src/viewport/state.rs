@@ -1,4 +1,4 @@
-// ViewportState operations, mechanically split to keep modules below 800 lines.
+// ViewportState operations, kept in their own file to stay under 800 lines.
 impl ViewportState {
     // ---- configuration -------------------------------------------------------------
 
@@ -18,11 +18,10 @@ impl ViewportState {
         changed
     }
 
-    /// Notes the display's scale factor as the window reports it now. The window may
-    /// learn its real scale after the first layout (and a resize does not always follow),
-    /// and a raster drawn at the wrong scale is blurry, so the push path calls this on
-    /// every push. Returns whether the scale changed (the raster size then changes, which
-    /// the next frame key picks up).
+    /// Notes the display's scale factor as the window reports it now. The window can learn
+    /// its real scale after the first layout without a later resize, and a raster at the
+    /// wrong scale is blurry, so every push calls this. Returns whether the scale changed
+    /// (the next frame key then picks up the new raster size).
     pub fn note_scale_factor(&self, scale_factor: f32) -> bool {
         let scale = sane_scale(scale_factor);
         let changed = (self.scale_factor.get() - scale).abs() > f32::EPSILON;

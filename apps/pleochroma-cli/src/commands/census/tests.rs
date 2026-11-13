@@ -1,4 +1,4 @@
-//! Tests of the census command (follow-ups plan 2026-10-19, section 8.1).
+//! Tests of the census command.
 
 use super::{
     collect,
@@ -26,8 +26,8 @@ use std::path::PathBuf;
 
 const TINY_ASC: &str = "GemCad 5.0\ng 96 0.0\ny 4 y\nI 1.54\na -41.000000 0.64991234 92 n 1 84\n";
 
-/// A `GemCad` 4.51 schedule: its masts have five decimals, which open its designed meets by a
-/// few millionths of the stone. The former near-incidence rule refused its capture.
+/// A `GemCad` 4.51 schedule with five-decimal masts: its designed meets open by a few
+/// millionths of the stone, and the capture must still accept it.
 const SHAH_ASC: &[u8] = include_bytes!("../../../tests/fixtures/shah.asc");
 
 /// A census of nothing yet: the tests set what they measure.
@@ -386,8 +386,8 @@ fn the_fixtures_are_measured_and_the_timing_columns_are_opt_in() {
     assert!(keys.contains(&"brilliant_172"), "{keys:?}");
 }
 
-/// The diamond-to-sapphire brilliant of the plan: the ten-degree pavilion shift that deepens
-/// the stone by far more than the Retarget constant, which only the turn's travel can admit.
+/// The diamond-to-sapphire brilliant: a ten-degree pavilion shift that deepens the stone past
+/// the Retarget constant, which only the turn's travel can admit.
 #[test]
 fn the_diamond_to_sapphire_brilliant_is_measured_under_the_census_policy() {
     let path = testing::write_design("census-sapphire.psdd", &testing::template());
@@ -440,7 +440,7 @@ fn a_five_decimal_schedule_captures_and_reports_its_quantisation() {
     assert_eq!(row.text("capture"), "ok");
     assert_eq!(row.text("gemcad_version"), "4.51");
     assert_eq!(row.num("mast_decimals"), Some(5.0));
-    // Recorded, and within the identification radius (50 millionths of the stone).
+    // The slack stays within the identification radius (50 millionths of the stone).
     let slack = row
         .num("max_slack_ppm")
         .expect("a captured network has a slack");

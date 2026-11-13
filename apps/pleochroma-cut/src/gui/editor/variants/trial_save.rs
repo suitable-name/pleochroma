@@ -1,11 +1,8 @@
-//! Saving a trial's design as a variant: the Trials view's "Save as Variant...". The design saved
-//! is the trial's, not the open design's (the Variants view's own save form always keeps the
-//! design as it is now, or as it was at a history step).
+//! Saves a trial's design as a variant, from the Trials view's "Save as Variant...".
 //!
-//! The name is "Trial N" (a numbered "Variant N" when that name is taken) and the trial's note
-//! becomes the variant's note, so the button saves in one click and the Variants view's Rename
-//! and Note buttons change them afterwards. Like every other save here, the library is written on
-//! a worker thread and the list is read again when it is done.
+//! The saved design is the trial's, not the open design's. The name is "Trial N", or a numbered
+//! "Variant N" when that name is taken. The trial's note becomes the variant's note. The library
+//! is written on a worker thread, as for every save here.
 
 use super::{
     Deps,

@@ -2,7 +2,8 @@
 //! a design from a bare `.asc` text.
 //!
 //! [`tier_form`] parses the tier-edit form's text/enum fields (including the index
-//! shorthand); [`preform_and_new_design`] parses the preform and New Design dialog
+//! shorthand); [`concave_form`] parses the concave tier form; [`preform_and_new_design`]
+//! parses the preform and New Design dialog
 //! forms; [`material`] holds the RI-preservation rule shared by the catalogue-load
 //! material suggestion and a plain in-editor material pick; [`design`] builds a
 //! design from `.asc` text; [`naming`] picks the auto-name of a brand-new tier and

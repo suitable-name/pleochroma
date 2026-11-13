@@ -269,7 +269,7 @@ fn ensure_current(tiers: &[ConstraintTier]) -> Result<(), String> {
 }
 
 /// The fix behind reason `index` of the verdict on screen, and the question to ask before
-/// applying it (`Some` where it removes something).
+/// applying it (`Some` where it removes something or moves depths).
 ///
 /// # Errors
 ///

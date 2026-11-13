@@ -17,7 +17,7 @@ things:
 2. It is a **spectral renderer**: it can show a physically based 3D render of
    any design in the library, in a chosen gem material and lighting, and
    report optical performance figures such as brilliance and fire.
-3. It is a **cutting-design editor**: in every build it
+3. It is a **cutting-design editor**: it
    also lets you build a new design from scratch, edit an existing one facet
    tier by facet tier, solve it (work out the actual cutting depths), and
    check or improve its optical performance before you ever touch a lap.
@@ -162,14 +162,10 @@ starts as that template: undoing does not take it back to an empty schedule.
 ## Whether the Editor Is Available to You
 
 The cutting-design editor (the Edit sub-tab, and everything in Chapters
-3–8 of this manual) ships in every build of the application, always present.
-(`EditorModel.enabled`, which the app's own code still guards every
-editor-only control on, is unconditionally `true`; it stays in place as a
-single point of control.)
+3–8 of this manual) is always available.
 
-Similarly, GPU-accelerated rendering (Chapter 2 and `docs/gpu.md`-derived
-material) is **off in an ordinary build** and only present in a build
-compiled with GPU support turned on. If your copy has it, an extra "Local
+GPU-accelerated rendering (Chapter 2) is **off in an ordinary build** and
+only present in a build compiled with GPU support. If your copy has it, an extra "Local
 Compute" choice appears in the Render & Output tab; if not, rendering always uses the CPU.
 
 ## The Design Library and Where It Lives

@@ -5,10 +5,8 @@
 //! mutates `Design`" rule every callback here that edits the design upholds via
 //! `EditorState::apply`.
 //!
-//! Split purely to keep this file from growing further -- along the same seam the two
-//! files' own doc comments already draw: the everyday tier/history editing callbacks
-//! versus the two off-thread, cancellable, explicit actions (Deep Solve, Optimize) and
-//! the "Adopt" action tied to Deep Solve's own suggestions.
+//! [`tier_actions`] holds the everyday tier and history editing. [`solve_actions`] holds
+//! the off-thread, cancellable actions: Deep Solve, Optimize and Adopt.
 
 mod retarget_actions;
 mod solve_actions;

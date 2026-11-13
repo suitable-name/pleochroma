@@ -2,10 +2,9 @@
 //! Jobs window's commands.
 //!
 //! One job renders at a time, on its own thread, through the shared executor
-//! ([`super::execute::execute_job_catching`]). Everything else happens on the UI thread: the
-//! controller lives in a thread-local ([`with_controller`], the pattern of
-//! `gui::rough_plan::host`), and the render thread reaches it only through
-//! `Weak::upgrade_in_event_loop`.
+//! ([`super::execute::execute_job_catching`]). Everything else happens on the UI thread. The
+//! controller lives in a thread-local ([`with_controller`]), and the render thread reaches it
+//! only through `Weak::upgrade_in_event_loop`.
 //!
 //! **Re-entrancy rule.** A `RefCell` borrow is never held across anything that can re-enter:
 //! a Slint property write, a toast, a database call or a picker. Every method copies what it
@@ -206,8 +205,8 @@ impl JobController {
         }
     }
 
-    /// Drops the colour zones stored beside the deleted job `id`, so they do not
-    /// wait for the next startup prune. A failure is logged only; the prune removes the row later.
+    /// Drops the color zones stored beside the deleted job `id`. A failure is only logged: the
+    /// startup prune removes the leftover rows later.
     fn forget_job_zoning(&self, id: i64) {
         let outcome = crate::gui::rough_colour::store::delete_job_zoning(&self.db(), id);
         if let Err(error) = outcome {
@@ -318,8 +317,8 @@ impl JobController {
             }
             guard.local_compute_target
         };
-        // Not cancellable from the status strip: that chip's cancel has a single handler,
-        // owned by the tilt video export. Pause and Cancel are in the Jobs window.
+        // Not cancellable from the status strip, whose cancel is handled by the tilt video
+        // export. Pause and Cancel are in the Jobs window.
         let activity_id = ui.global::<ActivityModel>().invoke_start_external(
             "render_job".into(),
             label.as_str().into(),
@@ -382,13 +381,13 @@ impl JobController {
                 return None;
             }
         };
-        // The frozen scene carries no colour zones; they were stored beside the
-        // job when it was queued and are put back here. Unreadable zones fail the job instead of
-        // rendering the stone in its base colour.
+        // Format 5 job files hold their color zones. Older rows keep them in a side table, which
+        // is moved into the job here. Unreadable zones fail the job rather than render the stone
+        // in its base color.
         let job = {
             let mut job = job;
             let attached =
-                crate::gui::rough_colour::store::attach_job_zoning(&self.db(), id, &mut job.scene);
+                crate::gui::rough_colour::store::complete_job_zoning(&self.db(), id, &mut job);
             if let Err(error) = attached {
                 self.fail_before_start(id, &label, &format!("{error:#}"));
                 return None;

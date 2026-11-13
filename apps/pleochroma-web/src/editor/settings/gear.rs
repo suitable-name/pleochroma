@@ -1,7 +1,8 @@
-//! The gear change and its remap confirmation (the desktop's
-//! `tier_actions::gear_remap`): Apply Gear previews what every tier's indices would become
-//! on the new gear and waits for Confirm; Confirm applies the remap and the new schedule as
-//! ONE undo step, and refuses a preview the design has since moved past.
+//! The gear change and its remap confirmation.
+//!
+//! Apply Gear previews what every tier's indices would become on the new gear and waits for
+//! Confirm; Confirm applies the remap and the new schedule as ONE undo step, and refuses a
+//! preview the design has since moved past.
 
 use crate::{
     DesignSettingsModel, GearRemapRow,

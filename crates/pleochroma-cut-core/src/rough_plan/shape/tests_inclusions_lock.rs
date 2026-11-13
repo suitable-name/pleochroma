@@ -137,7 +137,7 @@ fn a_locked_piece_that_meets_an_inclusion_is_refused() {
 
 #[test]
 fn a_block_without_inclusions_locks_as_it_always_did() {
-    // The hull route, offset and frame included, is untouched.
+    // Such a block still takes the hull route, with its offset and frame.
     let model = block_model(Vec::new());
     let locked = rough_with_locked_pieces(&model, &[stone_at([1.0; 3], 2.0)]).expect("locks");
     assert!(matches!(locked.model.base, RoughBase::Hull { .. }));

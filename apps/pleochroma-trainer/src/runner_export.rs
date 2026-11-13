@@ -253,19 +253,19 @@ impl TrainingRunner {
         Ok(())
     }
 
-    /// Loads weight-only metadata through the legacy GUI checkpoint operation.
+    /// Loads a weight-only checkpoint into this run and continues its counters.
     ///
-    /// This is not complete CLI recovery ([`Self::restore_recovery`]) or a fresh CLI warm start
+    /// This is not complete recovery ([`Self::restore_recovery`]) or a fresh warm start
     /// ([`Self::warm_start_checkpoint`]). It refuses a different mode, tier or observation
-    /// layout. The iteration counter continues from the checkpoint. A PPO run also continues the learning-rate
-    /// schedule position (a linear schedule is read as the steps still to run, so its end moves
-    /// out by the steps already done); the Adam moments and the reward scale start over (the
-    /// scale is re-estimated from the first rollout of the resumed run). An imitation run keeps
-    /// its schedule as configured: the number of optimizer steps a round takes depends on the
-    /// size of the aggregate, which is not saved. The run statistics (episodes, best score,
-    /// validation) start over too, because they describe the replaced model, and the
-    /// environments are rebuilt so that no episode mixes the two models. A differing
-    /// `max_tiers` or seed is raised as a warning.
+    /// layout. The iteration counter continues from the checkpoint. A PPO run also continues
+    /// the learning-rate schedule position (a linear schedule is read as the steps still to run,
+    /// so its end moves out by the steps already done); the Adam moments and the reward scale
+    /// start over (the scale is re-estimated from the first rollout of the resumed run). An
+    /// imitation run keeps its schedule as configured: the number of optimizer steps a round
+    /// takes depends on the size of the aggregate, which is not saved. The run statistics
+    /// (episodes, best score, validation) start over too, because they describe the replaced
+    /// model, and the environments are rebuilt so that no episode mixes the two models. A
+    /// differing `max_tiers` or seed is raised as a warning.
     ///
     /// Loading weights also re-synchronises a failed run ([`Self::needs_resync`]): both trainers
     /// take the loaded weights, a failed update in flight is dropped with a warning, and once the
@@ -332,9 +332,8 @@ impl TrainingRunner {
                  episodes finish under the loaded model"
             )),
         }
-        // The reward scale is not part of a checkpoint (review TQ-21): the resumed run
-        // re-estimates it from its own first rollout, which its first update already uses. The
-        // rebuild above resets it too; this covers the failed rebuild.
+        // The reward scale is not part of a checkpoint: the resumed run re-estimates it from its
+        // own first rollout. The rebuild above resets it too; this covers the failed rebuild.
         self.normalizer.reset();
         if self.cfg.algo == Algorithm::Ppo {
             self.resume_ppo_schedule(iteration);

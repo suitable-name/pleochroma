@@ -149,13 +149,10 @@ fn measurement_is_deterministic() {
 
 /// Every figure `measure_solid` reports must scale exactly with the
 /// arrangement's own absolute scale -- `volume` as `k^3`, every length as
-/// `k` -- across many orders of magnitude, not just near `k = 1`. Before
-/// `measure_solid`'s internal normalisation, this real RBC arrangement's
-/// `volume / k^3` drifted (+81% at k=1e-3) and `measure_solid` returned
-/// `None` above k=~65 (a real vertex escaping to the absolute-`64`-unit
-/// blank box, `BLANK_HALF_EXTENT`, once the design's own masts approached
-/// it) -- because every internal epsilon here is an absolute constant tuned
-/// for masts of order 1. Regression coverage for that measured divergence.
+/// `k` -- across many orders of magnitude, not just near `k = 1`. Without the
+/// normalisation, this real RBC arrangement drifts (+81 % at `k = 1e-3`) and
+/// returns `None` above `k` of about 65, since its internal epsilons are absolute
+/// and tuned for masts of order 1.
 #[test]
 fn measure_solid_scales_every_figure_with_the_arrangements_own_scale() {
     let base: Vec<(DVec3, f64)> = StandardGemCuts::standard_round_brilliant()
@@ -240,9 +237,7 @@ fn golden_fixtures() -> Vec<(&'static str, Vec<(DVec3, f64)>)> {
 /// the three hand-built fixtures to literal bit patterns. Unlike a comparison
 /// between two calls of the same code path, this fails when the measuring rule
 /// (and with it the cached `SOLID_EXTENTS_VERSION` contract) changes.
-// Must be re-pinned after the caliper hypot/tie-break and pow2_scale_norm
-// exponent-extraction change (last-bit movement of width_caliper and volume).
-// Brilliant volume re-pinned for glam 0.34.1 (DMat3 determinant reorder, 1 ULP).
+// A changed literal means the measuring rule or its arithmetic changed.
 #[test]
 fn measure_solid_figures_are_pinned_bit_for_bit() {
     let golden: [(&str, u64, u64, u64); 4] = [

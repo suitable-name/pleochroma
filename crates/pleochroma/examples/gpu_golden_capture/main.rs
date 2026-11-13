@@ -1,7 +1,6 @@
 //! GPU Golden Capture Tool (`gpu_golden_capture`).
 //!
-//! Captures and compares GPU frame outputs across kernel revisions according to the §7.2
-//! golden rule (G-D10).
+//! Captures and compares GPU frame outputs across kernel revisions by the §7.2 golden rule.
 //!
 //! # Usage
 //!
@@ -235,6 +234,8 @@ fn build_megakernel_renderer(adapter_info: &wgpu::AdapterInfo) -> GpuFrameRender
         }
     };
     r.set_pipeline_kind(GpuPipelineKind::Megakernel);
+    // An empty stage list: one megakernel dispatch, not the default staged split.
+    r.set_stage_ends(Some(Vec::new()));
     if !r.adapter_label().contains(adapter_info.name.as_str()) {
         eprintln!(
             "gpu_golden_capture: WARNING: the megakernel renderer uses adapter '{}' but meta.json will record '{}'; the capture is mislabelled. Re-run with a single GPU visible.",

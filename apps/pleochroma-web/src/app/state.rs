@@ -81,9 +81,8 @@ pub struct WebApp {
     pub view: ViewState,
     /// An uploaded environment map, if any.
     pub hdr: Option<HdrUpload>,
-    /// The tier selected in the tier list / Solid / Diagram views (the desktop's
-    /// `EditorModel.selected_tier_index`, `None` for -1). A plain selection also
-    /// empties `EditorSession::multi_selected` (the desktop's rule). The views
+    /// The tier selected in the tier list and the Solid / Diagram views. A plain selection
+    /// also empties `EditorSession::multi_selected`. The views
     /// redraw on their own when this or the multi-selection changes; call
     /// `crate::views::request_refresh` for an immediate redraw.
     pub selected_tier: Option<usize>,

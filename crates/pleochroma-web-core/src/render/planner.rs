@@ -85,9 +85,9 @@ pub struct ChunkAssignment {
 /// milliseconds per pixel-sample). A new pass gets the samples that make the SLOWEST
 /// measured Worker's chunk take about [`TARGET_CHUNK_MS`], capped at
 /// [`MAX_CHUNK_SPP`] and at [`MAX_GROWTH`] times the previous pass. The first pass of
-/// every scene is 1 spp, so a new scene shows at once. Faster Workers are not held back: they may
-/// start the next passes (up to [`LOOKAHEAD_PASSES`] ahead of the merged ones), so the
-/// pool stays busy while a slow Worker finishes.
+/// every scene is 1 spp, so a new scene shows at once. Faster Workers are not held back:
+/// they may start the next passes (up to [`LOOKAHEAD_PASSES`] ahead of the merged ones),
+/// so the pool stays busy while a slow Worker finishes.
 ///
 /// The last pass is cut so the planned total lands exactly on the target.
 #[derive(Debug, Clone)]
@@ -286,7 +286,7 @@ impl ChunkPlanner {
 
     /// Updates the exponential moving average of the GPU rate.
     ///
-    /// `samples` is the total samples traced across the frame, `elapsed_ms` is duration in milliseconds.
+    /// `samples` is the total traced across the frame, `elapsed_ms` the time it took.
     pub fn record_gpu_rate(&mut self, samples: u64, elapsed_ms: f64) {
         if samples == 0 || !elapsed_ms.is_finite() || elapsed_ms <= 0.0 {
             return;

@@ -2,8 +2,8 @@
 //! PLY (ASCII and binary, either byte order), plus the unit the file's numbers are in.
 //!
 //! The parsers are plain functions from bytes to points and triangles, with no window and
-//! no file access, so their tests run with the rest of the workspace. They all return the
-//! same [`NotedMesh`] and agree on what happens past the planner's triangle limit: the
+//! no file access. They all return the same [`NotedMesh`] and agree on what happens past
+//! the planner's triangle limit: the
 //! vertices are kept (their convex hull is the rough), the triangles are dropped, and the
 //! note says why.
 //!
@@ -14,6 +14,8 @@ mod face;
 mod inclusion;
 mod obj;
 mod ply;
+mod report;
+mod scan;
 mod stl;
 mod units;
 
@@ -22,12 +24,16 @@ pub mod fixtures;
 
 #[cfg(test)]
 pub use self::obj::{parse_obj_mesh, parse_obj_noted};
+#[cfg(test)]
+pub use self::report::{FindingKind, ImportNotes, LEVEL_INFO, crossing_place};
 pub use self::{
     inclusion::{
         InclusionKind, NOT_A_MESH_ROUGH, Placement, add_inclusion, centre_text, including_text,
         inclusion_in_rough_frame, inclusion_parts, inclusion_row_text, parse_margin_mm,
         parse_placement, primitive_in_rough, remove_inclusion,
     },
+    report::{ImportReport, LEVEL_OK, LEVEL_PROBLEM, LEVEL_REPAIRED, ScanVerdict},
+    scan::{ReadProgress, ScanImport, ScanLayers, count_cavities, import_scan},
     units::MeshUnit,
 };
 
@@ -48,9 +54,8 @@ pub enum MeshFormat {
     Ply,
 }
 
-/// The note for a mesh with more triangles than the planner takes: the same words the mesh
-/// check gives, so a file that is counted out while it is read says what one that is
-/// counted out afterwards would.
+/// The note for a mesh with more triangles than the planner takes, worded as the mesh check
+/// words it.
 pub fn too_many_triangles_note(count: usize) -> String {
     format!(
         "The mesh could not be used as it is ({}); its convex outline is used instead.",
@@ -84,8 +89,27 @@ pub fn detect_format(bytes: &[u8], extension: Option<&str>) -> MeshFormat {
 ///
 /// Returns the message for a file that is truncated, malformed or has no vertices.
 pub fn parse_mesh(bytes: &[u8], extension: Option<&str>) -> Result<NotedMesh, String> {
+    parse_mesh_progress(bytes, extension, &ReadProgress::default())
+}
+
+/// [`parse_mesh`], counting the triangles into `progress` while the file is read, for the
+/// formats whose parser can: OBJ (its triangles are counted in a quick pass first, so the
+/// fraction is exact). STL and PLY leave `progress` without a total, which reads as unknown.
+///
+/// # Errors
+///
+/// As [`parse_mesh`].
+pub fn parse_mesh_progress(
+    bytes: &[u8],
+    extension: Option<&str>,
+    progress: &ReadProgress,
+) -> Result<NotedMesh, String> {
     match detect_format(bytes, extension) {
-        MeshFormat::Obj => obj::parse_obj_noted(&String::from_utf8_lossy(bytes)),
+        MeshFormat::Obj => {
+            let text = String::from_utf8_lossy(bytes);
+            progress.expect_triangles(obj::count_triangles(&text));
+            obj::parse_obj_progress(&text, progress)
+        }
         MeshFormat::Stl => stl::parse_stl(bytes),
         MeshFormat::Ply => ply::parse_ply(bytes),
     }
@@ -93,3 +117,6 @@ pub fn parse_mesh(bytes: &[u8], extension: Option<&str>) -> Result<NotedMesh, St
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod tests_report;

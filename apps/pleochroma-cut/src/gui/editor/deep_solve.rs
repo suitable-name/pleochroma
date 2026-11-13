@@ -1,60 +1,42 @@
-//! "Deep Solve" -- an explicit, off-thread, cancellable action layered next to the
-//! ordinary "Solve" button (which only calls the cheap `solve_meet_points`). This one
-//! calls `solve_meet_points_verified_with` instead: the externally-verified repair
-//! search that scores candidate mast configurations against a design's own printed
-//! proportions rather than trusting every self-consistent meet vertex is right --
-//! median relative error 0.2110 -> 0.1278, within-10% designs 10.8% -> 23.7%, at a
-//! mean cost of 68.4 pipeline runs per design.
+//! "Deep Solve": an explicit, cancellable diagnostic that runs next to the ordinary "Solve" button
+//! (which only calls the cheap `solve_meet_points`).
 //!
-//! # This is a read-only diagnostic, not a mutator
+//! It calls `solve_meet_points_verified_with` instead, which scores candidate mast configurations
+//! against the design's printed proportions rather than trusting every self-consistent meet vertex.
 //!
-//! The repair search improves a solve by overriding individual tiers' internal
-//! vertex-level picks -- a decision with no representation in `MeetConstraint` at
-//! all, so it can only ever be shown as a report, never written back to a
-//! `ConstraintTier`. This module never calls `History::apply`/`Design::apply_edit`
-//! and holds no reference to the live `EditorState` (just a plain snapshot), keeping
-//! `History` the sole mutator of `Design` trivially. [`DeepSolveOutcome::Completed`]
-//! does carry the search's own solved masts (`solved`) out to the caller -- purely
-//! for a per-tier DISPLAY comparison against the design's last plain solve (see
-//! [`tier_mast_deltas`]), never applied to anything.
+//! # Read-only diagnostic
 //!
-//! # Why this needs its own thread
+//! The repair search overrides individual tiers' vertex-level picks. `MeetConstraint` cannot
+//! express that, so the result is only ever shown and never written back to a `ConstraintTier`.
+//! This module never calls `History::apply` or `Design::apply_edit` and holds no reference to
+//! the live `EditorState`, which keeps `History` the only mutator of `Design`.
+//! [`DeepSolveOutcome::Completed`] carries the searched masts (`solved`) out for display only,
+//! as a per-tier comparison with the design's last plain solve (see [`tier_mast_deltas`]).
 //!
-//! At a mean 68.4 pipeline runs per design, on a design whose plain `solve_meet_points`
-//! already takes 5.9 seconds, that's on the order of seven minutes -- would freeze the
-//! UI thread outright. Runs on [`super::solve_service::SolveService`]'s single worker
-//! thread rather than a bespoke `thread::spawn` -- one `SolveService` per
-//! [`spawn_deep_solve`] call, since each Deep Solve run has its own caller-supplied
-//! `on_progress`/`on_done` closures; see that type's own doc comment for the
-//! mailbox/cancellation machinery this reuses.
+//! # Off the UI thread
+//!
+//! A run is about 68 pipeline runs per design, which takes minutes on a large design and would
+//! freeze the UI thread. It runs on a [`super::solve_service::SolveService`] worker. Each run
+//! gets its own service, because each run has its own `on_progress`/`on_done` closures.
 //!
 //! # `adjustable_anchors` is always empty
 //!
-//! `solve_meet_points_verified_with` is explicit that passing real recorded-mast
-//! anchors as `adjustable_anchors` is wrong, and measurably weaker even when used as
-//! intended (24.2% pass rate vs. 90.4% for the fixed-anchor mode this module uses).
-//! Every `ScaleReference` tier here is a real recorded mast or authored dimension,
-//! never an estimate, so [`super::solve_service::SolveKind::Verified`] always passes
-//! `&[]` for that parameter.
+//! Passing recorded-mast anchors as `adjustable_anchors` is wrong, and measurably weaker (24%
+//! pass rate against 90% for the fixed-anchor mode used here). Every `ScaleReference` tier is
+//! a recorded mast or an authored dimension, so [`super::solve_service::SolveKind::Verified`]
+//! always passes `&[]`.
 //!
-//! # No true progress fraction
+//! # No progress fraction
 //!
-//! The repair search has no caller-visible loop of its own (every pipeline run
-//! forwards whichever plain-solve-shaped [`pleochroma::geometry::meet_solver::SolveProgress`]
-//! its current run is at -- see `solve_meet_points_verified_with`'s own doc
-//! comment), so [`DeepSolveProgress`] still carries only elapsed wall time, exactly
-//! as before: a caller wanting the raw `SolveProgress` can read it from
-//! `SolveService` directly, but this module's own `EditorModel.deep_solve_status`
-//! consumer only ever wanted "still working, N seconds in."
+//! The search has no caller-visible loop, so [`DeepSolveProgress`] carries only elapsed time.
+//! A fraction would be invented.
 //!
-//! # Cancellation is a real mid-search checkpoint
+//! # Cancellation is a mid-search checkpoint
 //!
-//! [`DeepSolveHandle::cancel`] sets the SAME `SolveControl::with_cancel` flag
-//! `solve_meet_points_verified_with` checks from inside whichever pipeline run is
-//! in flight -- typically single-digit milliseconds, matching `solve_service`'s
-//! own cancellation guarantee, not whenever the in-flight OS thread happens to
-//! finish its multi-minute run. A cancelled run's [`DeepSolveOutcome::Cancelled`]
-//! carries nothing to show -- see [`outcome_for`]'s own doc comment for why.
+//! [`DeepSolveHandle::cancel`] sets the `SolveControl::with_cancel` flag that the search checks
+//! inside each pipeline run. A cancel therefore takes effect within milliseconds, not when the
+//! run finishes. A cancelled run's [`DeepSolveOutcome::Cancelled`] carries nothing; see
+//! [`outcome_for`].
 
 use super::solve_service::{
     SolveKind, SolveOutcome, SolveRequest, SolveResult, SolveService, VerifiedSolve,
@@ -70,65 +52,46 @@ use std::{
     time::{Duration, Instant},
 };
 
-/// Handle returned by [`spawn_deep_solve`]. See the module doc comment,
-/// "Cancellation is a real mid-search checkpoint".
+/// Handle to a running Deep Solve, returned by [`spawn_deep_solve`].
 pub struct DeepSolveHandle {
     handle: super::solve_service::SolveHandle,
-    /// Keeps this run's dedicated [`SolveService`] (and its one worker thread)
-    /// alive for as long as anything could still call [`Self::cancel`] -- see the
-    /// module doc comment, "Why this needs its own thread". Dropping this field
-    /// (with the handle) now runs [`SolveService`]'s own `Drop` impl, which signals
-    /// the worker to exit its mailbox wait for real -- it does not merely
-    /// let the still-parked thread "be reclaimed like any other" the way an
-    /// ordinary drop would, since nothing else was ever asked to stop that thread
-    /// otherwise; see `SolveService::drop`'s own doc comment.
+    /// Owns this run's [`SolveService`], so its worker lives while the handle can cancel it.
+    /// Dropping it stops the worker (see `SolveService`'s `Drop`).
     _service: SolveService,
 }
 
 impl DeepSolveHandle {
-    /// Requests cancellation -- see the module doc comment, "Cancellation is a
-    /// real mid-search checkpoint".
+    /// Requests cancellation; the running search stops at its next checkpoint.
     pub fn cancel(&self) {
         self.handle.cancel();
     }
 }
 
-/// One elapsed-time tick posted while a deep solve runs -- carries no completion
-/// fraction, see the module doc comment.
+/// One elapsed-time tick while a deep solve runs. It carries no completion fraction.
 #[derive(Debug, Clone, Copy)]
 pub struct DeepSolveProgress {
     pub elapsed: Duration,
 }
 
-/// What a deep solve produced, or that the UI gave up waiting on it. `Completed`
-/// carries the [`VerifiedSolveReport`] to DISPLAY, plus the [`SolvedTier`]s the
-/// verified repair search actually settled on (`solved`) -- still never applied to a
-/// `Design` (this module remains a read-only diagnostic, see the module doc comment),
-/// but now available to a caller that wants a per-tier comparison against the
-/// design's own last plain solve. [`tier_mast_deltas`] is that comparison;
-/// [`setup_deep_solve_callback`](super::super::callbacks::setup_deep_solve_callback)
-/// (in `callbacks::solve_actions`) is its one caller today, folding the result into
-/// the deep-solve status line via [`format_tier_mast_deltas`]. A dedicated per-tier
-/// TABLE (like Optimize's own result rows) would need more than that one-line
-/// summary: a display slot on `EditorModel`/a Slint model type to hold rows, and a
-/// declared callback or property for the inspector to read it from (see
-/// `ui/models/editor.slint`).
+/// What a deep solve produced, or that the UI gave up waiting on it.
+///
+/// `Completed` carries the [`VerifiedSolveReport`] to display and the [`SolvedTier`]s the search
+/// settled on. Those masts are never applied to a `Design`. They feed the per-tier comparison
+/// [`tier_mast_deltas`], which the deep-solve status line summarises with
+/// [`format_tier_mast_deltas`]. A per-tier table would need a display slot on `EditorModel` and a
+/// Slint model, so the status line keeps the one-line summary.
 pub enum DeepSolveOutcome {
     Completed {
-        /// The verified repair search's own solved masts, in the same tier order as
-        /// `Design::tiers`/`Design::solve`'s output -- see [`tier_mast_deltas`].
+        /// The searched masts, in the same tier order as `Design::solve`. See
+        /// [`tier_mast_deltas`].
         solved: Vec<SolvedTier>,
-        /// The aggregate verdict to DISPLAY -- see `format_deep_solve_report`
-        /// (`gui::editor::view`).
+        /// The aggregate verdict to display, formatted by
+        /// `pleochroma_editor::deep_solve::format_deep_solve_report`.
         report: VerifiedSolveReport,
-        /// This design's own plain solve, computed on the background worker
-        /// alongside `solved` when [`spawn_deep_solve`]'s caller had no valid
-        /// cached one -- `None` either because the caller already had one (nothing
-        /// to compute) or because the plain solve itself failed. Whichever it is,
-        /// `callbacks::solve_actions::apply_deep_solve_outcome` falls back to its
-        /// own cached copy first and only reads this when that cache was missing,
-        /// so exactly one of the two is ever `Some` for a given run -- see that
-        /// function's own comment.
+        /// The plain solve of this design, computed on the worker when the caller had no valid
+        /// cached one. `None` when the caller already had one, or when the plain solve failed.
+        /// `apply_deep_solve_outcome` prefers its own cache and reads this only when that is
+        /// missing.
         baseline: Option<Vec<SolvedTier>>,
     },
     /// The user cancelled before the search returned -- it may still be running in
@@ -138,19 +101,14 @@ pub enum DeepSolveOutcome {
 
 pub use pleochroma_editor::deep_solve::{TierMastDelta, format_tier_mast_deltas, tier_mast_deltas};
 
-/// The five printed proportions Deep Solve verified against, formatted for the
-/// status line. Only the ones the catalogue actually printed are shown --
-/// `ExternalProportions`' fields are each independently optional -- so a design
-/// missing, say, `C/W` simply omits it rather than showing a placeholder. Empty
-/// string (nothing appended) only if every field is `None`, which cannot happen on
-/// [`setup_deep_solve_callback`](super::super::callbacks::setup_deep_solve_callback)'s
-/// one call site (it already requires `Some(targets)` to launch Deep Solve at all)
-/// but keeps this safe to call generally.
+/// The printed proportions Deep Solve verified against, formatted for the status line.
 ///
-/// `source` is `EditorState::asc_filename` at the moment Deep Solve was launched.
-/// `printed_proportions` is captured once at catalogue load and never re-derived,
-/// so the paired `.asc`'s own file name is the honest source for output formatting --
-/// `None` prints no source clause at all rather than inventing one.
+/// Each field is optional, and only the ones the catalogue printed are listed, so a missing `C/W`
+/// is omitted rather than shown as a placeholder. The result is empty only when every field is
+/// `None`. The caller already requires `Some(targets)` to start a run, so that is defensive.
+///
+/// `source` is `EditorState::asc_filename` at launch: the printed figures come from that file.
+/// `None` prints no source clause.
 #[must_use]
 pub fn format_verification_targets(targets: &ExternalProportions, source: Option<&str>) -> String {
     let mut parts = Vec::new();
@@ -179,17 +137,12 @@ pub fn format_verification_targets(targets: &ExternalProportions, source: Option
     )
 }
 
-/// `EditorState::printed_proportions` is captured once, at catalogue-load time,
-/// and never re-derived from the design's own edits -- so a Deep Solve verdict
-/// against it after any edit is a verdict against what the design was when printed,
-/// not what it is now. `edited_since_load` should be the caller's
-/// `EditorState::history.can_undo()` at the moment the run was launched: a fresh
-/// `History` is created on every load/new/replace, so "can undo" means "at least one
-/// edit has landed since load". Deliberately NOT `EditorState::is_dirty`
-/// (`generation` vs. `saved_generation`): that goes back to `false` when the cutter
-/// saves, even though the printed-proportions targets still describe the design as
-/// it was when printed, not what it is post-edit -- saving does not un-invalidate
-/// them.
+/// The printed targets describe the design as it was printed, not as it is after edits.
+///
+/// `edited_since_load` is the caller's `EditorState::history.can_undo()` at launch: a fresh
+/// `History` is made on every load, so "can undo" means an edit has landed since load. It is
+/// deliberately not `EditorState::is_dirty`, which saving clears while the targets still describe
+/// the printed design.
 #[must_use]
 pub const fn edited_since_load_caveat(edited_since_load: bool) -> &'static str {
     if edited_since_load {
@@ -200,20 +153,14 @@ pub const fn edited_since_load_caveat(edited_since_load: bool) -> &'static str {
     }
 }
 
-/// Spawns a dedicated [`SolveService`] and submits one `Verified` request to it --
-/// see the module doc comment, "Why this needs its own thread". `on_progress` is
-/// invoked on the UI event loop, throttled to `solve_service`'s own ~10 Hz (an
-/// honest "still working, N seconds in", not a fabricated percentage -- see "No
-/// true progress fraction"); `on_done` exactly once, with the final outcome.
+/// Spawns a dedicated [`SolveService`] and submits one `Verified` request to it.
 ///
-/// `need_baseline` is the caller's own answer to "do I already have a valid plain
-/// solve for this design cached?" (`false` when it does) -- forwarded unchanged as
-/// [`SolveKind::Verified::compute_baseline`], so a caller whose cache was missing
-/// or stale gets that baseline computed on THIS worker thread, alongside the
-/// verified search, rather than falling back to a synchronous `Design::solve` on
-/// the UI thread. See [`DeepSolveOutcome::Completed::baseline`]'s own doc comment
-/// for how the two possible sources reconcile at the one call site that reads
-/// either.
+/// `on_progress` runs on the UI event loop at the service's ~10 Hz throttle. `on_done` runs exactly
+/// once, with the final outcome.
+///
+/// `need_baseline` says whether the caller still lacks a valid plain solve of this design. When
+/// it does, the worker computes one alongside the verified search, so the UI thread never runs a
+/// synchronous `Design::solve`. See [`DeepSolveOutcome::Completed::baseline`].
 pub fn spawn_deep_solve<T, P, D>(
     ui_weak: Weak<T>,
     design: Design,
@@ -228,12 +175,8 @@ where
     D: FnOnce(&T, DeepSolveOutcome) + Send + 'static,
 {
     let start = Instant::now();
-    // `on_done` is a one-shot `FnOnce`, but `SolveService::new` needs a `Fn` it can
-    // clone onto every completion (this module's own `SolveService` only ever
-    // completes once -- see the module doc comment -- but the type itself does not
-    // know that). `Mutex<Option<D>>` lets the single real call `.take()` it; a
-    // second call (which cannot happen here) would silently do nothing rather than
-    // panic, the safer failure mode for a bound this loose.
+    // `SolveService::new` takes a `Fn`, but `on_done` is `FnOnce`. The `Mutex<Option<_>>`
+    // lets the single completion `take()` it; a second call would do nothing rather than panic.
     let on_done = Arc::new(Mutex::new(Some(on_done)));
     let service = SolveService::new(
         ui_weak,
@@ -242,10 +185,8 @@ where
                 report.generation, 0,
                 "this module always submits generation 0"
             );
-            // An honest trace of which pipeline-run phase/sweep the search is
-            // currently on, at `solve_service`'s own ~10 Hz throttle -- cheap, and
-            // the only place this module ever sees the raw `SolveProgress`. The module
-            // uses only elapsed time, not a progress fraction (see doc comment).
+            // Traces the pipeline phase and sweep: the only place this module sees the raw
+            // `SolveProgress`.
             tracing::trace!(
                 phase = ?report.progress.phase,
                 sweep = report.progress.sweep,
@@ -280,9 +221,7 @@ where
             }
         },
     );
-    // `adjustable_anchors: &[]` (inside `SolveKind::Verified`'s handling) -- every
-    // `ScaleReference` tier here is a real recorded mast or authored dimension,
-    // never an estimate safe to adjust. `generation: 0` -- see the closure above.
+    // `adjustable_anchors` is always `&[]` (see the module doc).
     let handle = service.submit(SolveRequest {
         design: Arc::new(design),
         generation: 0,
@@ -301,11 +240,9 @@ where
     }
 }
 
-/// What a finished run becomes for the UI: a cancelled run's `solved`/`report` are
-/// discarded unconditionally, regardless of what they say, since the user has
-/// already been told the editor stopped waiting. Pulled out of [`spawn_deep_solve`]
-/// so this decision -- the one genuinely testable piece of behavior in an otherwise
-/// thread-plumbing module -- has something a test can call directly.
+/// What a finished run becomes for the UI. A cancelled run is `Cancelled` whatever the search
+/// returned, since the user has already been told the editor stopped waiting. Kept apart from
+/// [`spawn_deep_solve`] so a test can call it directly.
 fn outcome_for(result: Result<VerifiedSolve, SolveError>) -> DeepSolveOutcome {
     match result {
         Ok(VerifiedSolve {
@@ -317,15 +254,10 @@ fn outcome_for(result: Result<VerifiedSolve, SolveError>) -> DeepSolveOutcome {
             report,
             baseline,
         },
-        // `TooManyPlanes` cannot occur in practice: Deep Solve is only offered once
-        // the ordinary "Solve" button has already solved this SAME design
-        // successfully, and the verified search never adds planes of its own -- so
-        // the plane count already cleared `pleochroma::geometry::meet_solver::MAX_PLANES`
-        // before this run started. Reported the same as a real cancellation
-        // (nothing to show) rather than adding a third `DeepSolveOutcome` variant
-        // for a case this module's one call site cannot reach.
-        // `NonFiniteInput` is unreachable here for the same reason: the ordinary
-        // "Solve" already rejected any NaN/inf tier before Deep Solve was offered.
+        // `TooManyPlanes` and `NonFiniteInput` cannot occur here: the ordinary Solve already
+        // accepted this design (its plane count is within `MAX_PLANES`, no tier is NaN or
+        // infinite), and the verified search adds no planes. They map to `Cancelled` rather
+        // than a third variant.
         Err(
             SolveError::Cancelled
             | SolveError::TooManyPlanes { .. }
@@ -392,11 +324,8 @@ mod tests {
         }
     }
 
-    // The baseline plain solve `solve_service::run_solve` computes on the
-    // background worker (never on the UI thread -- see `spawn_deep_solve`'s own
-    // doc comment) must reach `DeepSolveOutcome::Completed` unchanged, so the
-    // completion handler can use it in place of a missing cache without any
-    // further solving of its own.
+    // The baseline computed on the background worker must reach `DeepSolveOutcome::Completed`
+    // unchanged, so the completion handler can use it in place of a missing cache.
     #[test]
     fn outcome_for_carries_a_worker_computed_baseline_through_to_completed() {
         let report = dummy_report(true);

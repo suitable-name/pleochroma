@@ -1,10 +1,10 @@
 //! What an inclusion of a block, cylinder or pebble is, and where it sits.
 //!
 //! A mesh rough has a file whose coordinates an inclusion file shares. A block, a cylinder or a
-//! pebble has none, so the owner types the position (the centre of the inclusion, in mm from the
+//! pebble has none, so the user types the position (the centre of the inclusion, in mm from the
 //! corner of the uncut rough, an empty field meaning the rough's centre on that axis) and, for a
-//! sphere, an ellipsoid or a box, its size. Everything here is plain functions on strings and
-//! numbers, so the tests run with the rest of the workspace.
+//! sphere, an ellipsoid or a box, its size. Everything here is a plain function on strings and
+//! numbers.
 
 use glam::DVec3;
 use pleochroma_cut_core::rough_plan::{

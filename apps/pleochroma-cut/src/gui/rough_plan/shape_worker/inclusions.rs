@@ -12,9 +12,8 @@ use pleochroma::geometry::stone_metrics::SolidMesh;
 use pleochroma_cut_core::rough_plan::RoughModel;
 
 /// The sharpest crease between two triangles of one shell that is still drawn without an
-/// edge line (in degrees). A shell is faceted by construction (an 80-face sphere has about
-/// 20 degrees between its faces), so this only hides the seams of a flat run: the diagonal
-/// of a box face.
+/// edge line (in degrees). A shell is faceted by construction, so this only hides the seams
+/// of a flat run: the diagonal of a box face.
 pub(super) const INCLUSION_CREASE_DEGREES: f64 = 12.0;
 
 /// Appends `part` (a mesh built by `mesh_of_surface`, so it has per-ring normals and edge

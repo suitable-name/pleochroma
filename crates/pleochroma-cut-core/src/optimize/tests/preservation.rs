@@ -1,4 +1,4 @@
-//! Representative authored-state reproduction checks; run by the owner, never by this task.
+//! Reproduction checks of the meet-preserving projection on authored states.
 use super::fixtures::{imported_rbc, rbc_445};
 use crate::{
     Design, OptimizeOptions,
@@ -8,11 +8,10 @@ use crate::{
 };
 use pleochroma::geometry::meet_solver::MeetConstraint;
 
-/// The capture of a design must accept that same design: capture and validation share one
+/// The capture of a design must accept that same design. Capture and validation share one
 /// definition of a junction (`network_topology::arrangement_junctions`), so an unchanged
-/// design reproduces every original meet with nothing added and nothing moved. A
-/// junction with a second candidate point carrying its whole support (a many-plane meet
-/// clustered twice) used to refuse it as `DetachedJunction`.
+/// design reproduces every original meet with nothing added or moved, including a junction
+/// with two candidate points that carry its whole support.
 fn assert_unchanged_design_validates(name: &str, design: &Design) {
     let baseline = MeetPreservationBaseline::capture(design)
         .unwrap_or_else(|error| panic!("{name} must capture: {error}"));

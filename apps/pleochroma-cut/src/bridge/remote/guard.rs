@@ -4,11 +4,11 @@
 //!
 //! # Why this is a correctness rule, not a performance one
 //!
-//! Merging backends is only sound when every backend renders the IDENTICAL scene (see
-//! the hybrid guide's invariant 2): per-pixel sums of different scenes are a physically
-//! meaningless composite, not a noisier estimate of either.
+//! Merging backends is only sound when every backend renders the identical scene: per-pixel
+//! sums of different scenes are a physically meaningless composite, not a noisier estimate
+//! of either.
 //!
-//! Since protocol v14 an HDR-lit scene travels by content hash: a remote that
+//! An HDR-lit scene travels by content hash: a remote that
 //! advertises `RenderCapability::hdr` fetches the map's bytes (`NEED_ASSET`) and decodes
 //! them with the same builder the viewer uses, so its samples are lit identically. The
 //! rule is therefore PER CAPABILITY: an HDR scene may go to a remote exactly when that
@@ -112,13 +112,15 @@ pub const fn zoned_scene_refusal(zoned: bool, remote_zoning: bool) -> Result<(),
     }
 }
 
-/// Whether a remote may contribute samples to a scene whose material is `material` and whose
-/// render physics travel as `effects`. A material that scatters with oriented inclusions
-/// (`GemMaterial::inclusions`, which the material's own wire bytes skip) must have them carried in
-/// `effects.material_inclusions`; the capture leaves them out only when the wire cannot represent
-/// them (`MaterialInclusions::of_material`), and a remote that traced the stone without them
-/// would be summed into the same buffer as the correct local half (the module doc's rule). The
-/// plain Ray-Traced engine (`ray`) ignores inclusions, so it is never refused.
+/// Whether a remote may contribute samples to a scene whose material is `material` and whose render
+/// physics travel as `effects`.
+///
+/// A material that scatters with oriented inclusions (`GemMaterial::oriented_inclusions`, which the
+/// material's own wire bytes skip) must have them carried in `effects.material_inclusions`. The
+/// capture leaves them out only when the wire cannot represent them
+/// (`MaterialInclusions::of_material`), and a remote that traced the stone without them would be
+/// summed into the same buffer as the correct local half (the module doc's rule). The plain
+/// Ray-Traced engine (`ray`) ignores inclusions, so it is never refused.
 ///
 /// # Errors
 ///

@@ -1,8 +1,7 @@
 //! The picture Cutting Mode shows beside the numerals.
 //!
-//! One panel of the faceting diagram
-//! (crown, pavilion or profile, whichever shows the step), enlarged, with the tier being
-//! cut highlighted and labelled.
+//! One panel of the faceting diagram (crown, pavilion or profile, whichever shows the step),
+//! enlarged, with the tier being cut highlighted and labelled.
 //!
 //! [`DiagramScene`] holds everything that does not change from step to step (the solid
 //! mesh, the facet map and the labels), so stepping through a design only redraws. It is

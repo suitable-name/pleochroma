@@ -1,10 +1,9 @@
 //! A fast, deterministic convex hull for the large point sets of a scan.
 //!
 //! [`hull_faces`](super::hull_faces) inserts the points one at a time and scans EVERY face
-//! of the growing hull for each of them (and rebuilds the face list), so on a scan, where
-//! almost every point is a hull vertex, it costs about `P^2`: seconds at 10,000 points,
-//! minutes at 160,000. This is quickhull with conflict lists, which touches only the faces
-//! around each new point: about `P log P`.
+//! of the growing hull for each of them, so on a scan, where almost every point is a hull
+//! vertex, it costs about `P^2`. This is quickhull with conflict lists, which touches only the
+//! faces around each new point: about `P log P`.
 //!
 //! # What it may NOT be used for
 //!

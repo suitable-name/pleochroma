@@ -283,22 +283,18 @@ pub fn try_build_optimize_preview_design(
         .map_err(|error| error.to_string())
 }
 
-/// Parses the Optimize weight form's three text fields (plus the yield slider's own
-/// already-numeric `0..1` value and the tone slider's signed `-3..=3` value) into an
+/// Parses the Optimize weight form's text fields and its yield and tone values into an
 /// [`ObjectiveWeights`].
 ///
 /// `tone` is signed: negative asks for a lighter stone face-up ([`ToneGoal::Lighter`]),
 /// positive for a stronger colour ([`ToneGoal::Deeper`]), the magnitude is the weight and
 /// `0` leaves the tone out (bit-identical results). A non-finite value is an error.
 ///
-/// The three text fields
-/// must parse, be finite, and be non-negative: only the RATIOS between them matter,
-/// so a negative one would silently invert that component's polarity.
+/// The three text fields must be finite and non-negative. Only their ratios matter, and a
+/// negative one would silently invert that component's polarity.
 ///
-/// A field may hold arithmetic (`1 + 0.5`, `4 / 2`) like every number field: text the
-/// plain `f32` parse accepts is read exactly as before (so the weights, and with them
-/// a run's result, stay bit-identical), anything else goes through
-/// [`crate::loading::eval_number`].
+/// A field may hold arithmetic (`1 + 0.5`, `4 / 2`). Plain numbers parse exactly as before,
+/// and anything else goes through [`crate::loading::eval_number`].
 ///
 /// # Errors
 ///
@@ -573,8 +569,6 @@ pub fn facet_count_from_solved(design: &Design, solved: &[SolvedTier]) -> usize 
 /// design on a CUSTOM material defaults to that material's own real `n_D` -- rather than
 /// the built-ins-only `Design::effective_refractive_index()`, which silently falls
 /// through to the legacy schedule RI for any design naming a custom catalogue material.
-///
-/// Moved from the desktop's `solve_actions::optimize_run`.
 #[must_use]
 pub fn default_optimize_material_ri(
     design: &Design,
@@ -601,8 +595,6 @@ pub fn default_optimize_material_ri(
 /// values from a search run against it stay valid against the CALLER's own original
 /// design with no translation needed. `solved` must have one entry per `design.tiers` in
 /// the same order (a shorter list leaves the tiers past its end alone, never a panic).
-///
-/// Moved from the desktop's `solve_actions::optimize_run`.
 #[must_use]
 pub fn pin_non_selected_free_tiers(
     design: &Design,
@@ -628,8 +620,6 @@ pub fn pin_non_selected_free_tiers(
 ///
 /// Names the defaulted RI (see [`default_optimize_material_ri`]) when one was applied so
 /// the assumption is visible from the very first frame.
-///
-/// Moved from the desktop's `solve_actions::optimize_run`.
 #[must_use]
 pub fn optimize_start_status(defaulted_ri: Option<f64>) -> String {
     defaulted_ri.map_or_else(
@@ -645,10 +635,8 @@ pub fn optimize_start_status(defaulted_ri: Option<f64>) -> String {
 
 /// The running "Optimizing..." status line for one progress tick.
 ///
-/// Names `stage` explicitly instead of always showing an evaluation fraction: the two
-/// full-fidelity
-/// scorings that bracket every run report zero-progress ticks of their own, which would
-/// otherwise leave the counter frozen for over a second each, reading as a hang. The
+/// Names `stage` explicitly: the two full-fidelity scorings report no progress ticks, so an
+/// evaluation fraction would sit frozen and read as a hang. The
 /// coordinate and polish stages show `max_evaluations` (a single combined figure, the
 /// coordinate cap plus the polish stage's own, `inclusive_max_evaluations`) so the polish
 /// stage's evaluations climbing does not read as sailing past the run's own stated
@@ -658,8 +646,6 @@ pub fn optimize_start_status(defaulted_ri: Option<f64>) -> String {
 /// start): the coordinate and polish lines then read "start 3 of 8, best 87.59, 412 of ~983
 /// evaluations", the best score on the person's scale ([`display_score`], higher is better).
 /// `max_evaluations` must then be `inclusive_max_evaluations_for`.
-///
-/// Moved from the desktop's `solve_actions::optimize_run`.
 #[must_use]
 pub fn optimize_progress_status(
     stage: SearchStage,
@@ -710,14 +696,11 @@ pub fn optimize_progress_status(
     }
 }
 
-/// Whether Optimize is available for `design`, and the explanatory hint shown next
-/// to its button either way.
+/// Whether Optimize is available for `design`, and the hint shown next to its button.
 ///
-/// Genuinely unavailable (not merely caveated) when
-/// nothing is free to move: `free_tier_indices` empty means `optimize_design` would
-/// return its input unchanged. A design fresh off the catalogue pins EVERY tier on
-/// import, which is correct and expected -- the hint says so rather than leaving a
-/// disabled button to read as broken.
+/// Unavailable when nothing is free to move (`free_tier_indices` is empty, so `optimize_design`
+/// would return its input unchanged). A freshly imported design pins every tier, which is
+/// expected, so the hint says so.
 ///
 /// `max_evaluations` is the CONFIGURED coordinate-stage budget, quoted so the hint
 /// reflects what a run would actually use. The hint also names the fixed canonical

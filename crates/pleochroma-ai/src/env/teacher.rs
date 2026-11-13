@@ -47,7 +47,7 @@
 //! central differences cancel or a simultaneous gradient move is infeasible. A separate
 //! behavior target teaches such moves without falsifying sensitivity labels. Every target
 //! uses exactly the raw action measured by the teacher, at unit execution scale.
-//! [`assemble_label`] and [`OracleOutcome`] remain the legacy slope-only interfaces.
+//! [`assemble_label`] and [`OracleOutcome`] are the slope-only interfaces, without a target.
 
 use super::{
     action::ContinuousTierAction,
@@ -83,7 +83,7 @@ pub const COMPONENT_SHAPE_DISTANCE: usize = 6;
 pub const MEAN_BOUND: f32 = 1.831_78;
 /// Minimum score-slope scale (points/degree) before composing a policy direction.
 pub const SLOPE_NORM_FLOOR: f32 = 0.05;
-/// Compatibility constant retained for source users; direction normalization uses the floor.
+/// Public constant kept for callers; the direction normalization uses [`SLOPE_NORM_FLOOR`].
 pub const SLOPE_EPS: f32 = 1e-6;
 /// Default line-search scales of a step, tried in this order.
 pub const DEFAULT_LINE_SEARCH: [f64; 3] = [1.0, 0.5, 0.25];
@@ -116,7 +116,8 @@ pub struct TeacherLabel {
     /// Score drop of the best measured target (points, >= 0), `None` when no search
     /// was requested or possible. `Some(0.0)` means the bounded search found no improvement.
     pub oracle_gain: Option<f32>,
-    /// Nominal gradient-search scale, or one for a coordinate/paired target; `None` without a winner.
+    /// Nominal gradient-search scale, or one for a coordinate or paired target; `None` without
+    /// a winner.
     ///
     /// This is provenance only: replay `action_target` at unit scale, not this scale.
     pub oracle_scale: Option<f32>,
@@ -169,8 +170,10 @@ pub struct OracleOutcome {
     pub evaluations: usize,
 }
 
-/// The pre-squash direction of slopes `score` (points per degree, `None` = no slope):
-/// `-MEAN_BOUND * (s_k / max(max_j |s_j|, SLOPE_NORM_FLOOR))`, `0.0` for a tier without a slope.
+/// The pre-squash direction of the slopes `score`.
+///
+/// The slopes are in points per degree, `None` = no slope. Each tier with a slope `s_k` gets
+/// `-MEAN_BOUND * (s_k / max(max_j |s_j|, SLOPE_NORM_FLOOR))`, a tier without one `0.0`.
 ///
 /// A slope that is NaN or infinite counts as "no slope" (it is excluded from the maximum and
 /// its entry is `0.0`). When no tier has a slope every entry is `0.0`. The output is never
@@ -204,8 +207,8 @@ pub fn action_from_direction(direction: &[f32], max_step_deg: f64) -> Continuous
 }
 
 /// The score slope of every tier of a label (`None` for a tier without a measurement): the
-/// input of the oracle step ([`RetargetEnv::oracle_outcome`](super::RetargetEnv::oracle_outcome)
-/// and its twin on the optimizer environment).
+/// input of the oracle steps of [`RetargetEnv`](super::RetargetEnv) and
+/// [`OptimizerEnv`](super::OptimizerEnv).
 #[must_use]
 pub fn score_slopes(tiers: &[Option<TierSensitivity>]) -> Vec<Option<f32>> {
     tiers
@@ -220,8 +223,8 @@ pub fn score_slopes(tiers: &[Option<TierSensitivity>]) -> Vec<Option<f32>> {
 /// `tiers` holds one entry per tier of the design (`None` for a tier that was not probed or
 /// whose probes failed), `probe_evaluations` the sum of the [`TierProbe::evaluations`] that
 /// produced them. The label's `evaluations` is `probe_evaluations + oracle.evaluations`.
-/// Nothing is recomputed. This legacy slope-only assembly has no behavior target; use the
-/// environment's `teacher_label_from_probes` to retain coordinate winners and bounded rescue.
+/// Nothing is recomputed. This slope-only assembly has no behavior target; use the
+/// environment's `teacher_label_from_probes` to keep coordinate winners and bounded rescue.
 #[must_use]
 pub const fn assemble_label(
     tiers: Vec<Option<TierSensitivity>>,
@@ -264,19 +267,19 @@ impl EnvCore {
     /// What the teacher measures at the current design.
     ///
     /// For each free tier, candidates are built as a step builds them ([`apply_action`], so
-    /// hinge re-anchoring and tier relations apply) and evaluated at configured fidelity. Feasible
-    /// probes are taken on both sides when possible; clipped one-sided probes are used at bounds.
-    /// Two-sided labels use a nonuniform three-point derivative about the current score. The
-    /// denominator is the actual requested input displacement after safe/user-bound clipping,
-    /// not a post-projection coordinate delta. A full projected no-op is not scored. Lower is
-    /// better, so a negative score slope means "increase this tier's signed angle". Yield is NaN
-    /// when unavailable.
+    /// hinge re-anchoring and tier relations apply) and evaluated at configured fidelity.
+    /// Feasible probes are taken on both sides when possible; clipped one-sided probes are
+    /// used at bounds. Two-sided labels use a nonuniform three-point derivative about the
+    /// current score. The denominator is the actual requested input displacement after
+    /// safe/user-bound clipping, not a post-projection coordinate delta. A full projected
+    /// no-op is not scored. Lower is better, so a negative score slope means "increase this
+    /// tier's signed angle". Yield is NaN when unavailable.
     ///
     /// The finalizer retains the best verified coordinate or canonical gradient-scale
-    /// candidate. If neither improves, it tries at most eight additional coordinate or paired actions.
-    /// Empty or unusable `scales` asks for sensitivities only, unlike `step_scaled` where an
-    /// empty list means unit scale. This is exactly the serial composition of `probe_tier`
-    /// and `teacher_label_from_probes_adaptive`.
+    /// candidate. If neither improves, it tries at most eight additional coordinate or
+    /// paired actions. Empty or unusable `scales` asks for sensitivities only, unlike
+    /// `step_scaled` where an empty list means unit scale. This is exactly the serial
+    /// composition of `probe_tier` and `teacher_label_from_probes_adaptive`.
     ///
     /// Pure: nothing changes and no step is counted. Cost is at most two evaluations per
     /// free tier plus `scales.len()` plus eight rescue attempts. Invalid `h_deg` returns an
@@ -301,12 +304,12 @@ impl EnvCore {
     /// The probe of one tier: the unit of work of [`Self::teacher_label`].
     ///
     /// The positive and negative probes for `tier`, measured against the current design (see
-    /// [`Self::teacher_label`] for the derivative and gates). The result has `sensitivity: None` and `evaluations: 0` for a
-    /// tier that is not a free tier of the environment (pinned, or an index beyond the
-    /// design's tiers) and for an `h_deg` that is not finite and positive; it has
-    /// `sensitivity: None` and the evaluations actually spent when neither side is usable. Pure:
-    /// nothing in the core changes, and any number of threads may probe the
-    /// same environment at once.
+    /// [`Self::teacher_label`] for the derivative and gates). The result has
+    /// `sensitivity: None` and `evaluations: 0` for a tier that is not a free tier of the
+    /// environment (pinned, or an index beyond the design's tiers) and for an `h_deg` that is
+    /// not finite and positive; it has `sensitivity: None` and the evaluations actually spent
+    /// when neither side is usable. Pure: nothing in the core changes, and any number of
+    /// threads may probe the same environment at once.
     pub(crate) fn probe_tier(&self, tier: usize, h_deg: f64) -> TierProbe {
         if !(h_deg.is_finite() && h_deg > 0.0) || !self.policy_coordinate(tier).mobile {
             return TierProbe::default();
@@ -335,10 +338,9 @@ impl EnvCore {
         self.oracle_outcome_with(slopes, scales, false)
     }
 
-    /// [`Self::oracle_outcome`]; `parallel` is retained for source compatibility.
-    ///
-    /// The line search is sequential: a smaller scale is evaluated only after the larger
-    /// one was rejected, so no candidate is computed and then discarded.
+    /// [`Self::oracle_outcome`]; `parallel` has no effect. The line search is sequential: a
+    /// smaller scale is evaluated only after the larger one was rejected, so no candidate is
+    /// computed and then discarded.
     pub(crate) fn oracle_outcome_with(
         &self,
         slopes: &[Option<f32>],

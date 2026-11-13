@@ -3,8 +3,7 @@
 // queue controller (`gui::render_jobs::controller`) owns what runs, the database holds the
 // jobs, and `gui::render_jobs::rows` turns each job into the plain row below.
 //
-// A global of its own so `ui/models/export.slint` and `ui/models/tilt.slint` stay untouched.
-// It is only a Rust type because `app.slint`'s export block names it.
+// Exported from `app.slint` so Rust can reach it.
 
 // One job as the list shows it. Every text is computed in Rust (`rows::row_view`), so the
 // window only lays it out. `progress` is -1 for "no bar".

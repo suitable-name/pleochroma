@@ -30,12 +30,10 @@ export component ShortcutScope inherits FocusScope {
 
     init => { self.focus(); }
     key-pressed(event) => {
-        // Shift-modified first: the plain branch below excludes Shift, so the
-        // order is not load-bearing, but reading them adjacently is. Slint
-        // reports a shifted letter in upper case, hence "S" here and "s" below.
-        // Every action arm also checks the same `GuideModel.allows_*()` helper
-        // as its button, so a control the worked-example guide locks stays
-        // locked from the keyboard too (the key is still swallowed).
+        // Slint reports a shifted letter in upper case, hence "S" here and "s" below.
+        // Every action arm checks the same `GuideModel.allows_*()` helper as its button,
+        // so a control the worked-example guide locks stays locked from the keyboard too
+        // (the key is still swallowed).
         // Cutting mode covers the window and takes every key; its own screen handles them
         // first, this is the fallback when the keyboard focus is somewhere else.
         if CuttingModeModel.open {

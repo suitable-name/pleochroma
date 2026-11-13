@@ -6,11 +6,10 @@ use std::fmt;
 /// The line terminator an `.asc` file uses, recorded by [`super::parse_asc`] and
 /// reproduced by [`super::to_asc_string`].
 ///
-/// `GemCAD` itself writes CRLF, and Gem Cut Studio 1.1 reportedly misreads the last
-/// facet name of an LF-only file, so a schedule built from scratch (the
-/// [`Default`]) writes CRLF. A parsed file keeps whatever it used: the real
-/// catalogue is almost entirely LF (5,757 of 5,759 files, measured 2026-09-28), and
-/// re-exporting it unchanged must not rewrite every line.
+/// `GemCAD` itself writes CRLF, and Gem Cut Studio 1.1 reportedly misreads the last facet
+/// name of an LF-only file, so a schedule built from scratch (the [`Default`])
+/// writes CRLF. A parsed file keeps its own ending, since most catalogue files are LF and
+/// re-exporting them must not rewrite every line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AscLineEnding {
     /// A bare line feed.
@@ -67,17 +66,12 @@ pub struct AscSchedule {
     pub footnotes: Vec<String>,
     /// Every facet tier, in file order.
     pub tiers: Vec<AscTier>,
-    /// Lenient-parse diagnostics [`super::parse_asc`] collected instead of failing
-    /// outright: free text after the last facet tier that was not folded in as a
-    /// continuation, an unrecognised line anywhere else, a stray index-position
-    /// token that could not be classified as a number, a name, or a marker, a
-    /// keyword glued to its value (`g96`), a negative mast on a nonzero-angle tier,
-    /// and a duplicate `g` (gear) line whose value overrode an earlier one. Empty
-    /// for a clean file. Never round-trips back into
-    /// `.asc` text -- these describe what the *source* file looked like, not
-    /// anything [`super::to_asc_string`] would ever reproduce -- so a schedule built
-    /// by hand (e.g. from a `Design`) should simply leave this `Vec::new()`, its
-    /// [`Default`].
+    /// Lenient-parse diagnostics collected by [`super::parse_asc`] instead of failing:
+    /// free text after the last facet tier, an unrecognised line, a stray token that is
+    /// neither a number nor a marker, a keyword glued to its value (`g96`), a negative
+    /// mast on a nonzero-angle tier, and a duplicate `g` line. Empty for a clean file.
+    /// These describe the source file and are never written back by
+    /// [`super::to_asc_string`]; a hand-built schedule leaves this empty.
     pub warnings: Vec<String>,
     /// The line terminator the source file used (see [`AscLineEnding`]);
     /// [`super::to_asc_string`] writes every line with it. [`Default`] is

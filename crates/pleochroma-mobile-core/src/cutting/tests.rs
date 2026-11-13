@@ -1,8 +1,8 @@
 //! Tests for the instructions, the done marks, the sheet and the diagram.
 //!
 //! They run on the standard round brilliant template, whose eight tiers are, in tier
-//! order: 0 Pavilion Main, 1 Girdle, 2 Lower Girdle, 3 Culet, 4 Crown Main, 5 Star,
-//! 6 Upper Girdle, 7 Table.
+//! order: 0 Pavilion Main, 1 Girdle, 2 Lower Girdle, 3 Culet, 4 Upper Girdle, 5 Crown Main,
+//! 6 Star, 7 Table.
 
 use std::{
     sync::{Arc, atomic::AtomicBool},
@@ -20,7 +20,7 @@ use crate::{
 };
 
 /// The Crown Main tier.
-const CROWN: usize = 4;
+const CROWN: usize = 5;
 
 /// A state over the round brilliant template, titled "Test Stone", not solved yet.
 fn unsolved_template() -> AppState {
@@ -405,7 +405,7 @@ fn the_sheet_names_the_design_and_every_tier_code() {
     }
 }
 
-/// The sheet says how the rough must sit once (one Orientation block), and a stone that keeps its
+/// The sheet says how the rough must sit once (one Orientation block). A stone that keeps its
 /// material's own axis has no block at all.
 #[test]
 fn the_sheet_has_one_orientation_block_for_a_stone_with_an_axis() {
@@ -430,7 +430,8 @@ fn the_sheet_has_one_orientation_block_for_a_stone_with_an_axis() {
 }
 
 /// A custom material whose stored default is "Set, tilt 0" has the same baked axes as a plain
-/// one: the sheet and the Cutting Mode plan print its Orientation only through the stored default.
+/// one, so the sheet and the Cutting Mode plan print its Orientation only through the stored
+/// default.
 #[test]
 fn a_custom_materials_stored_default_prints_the_orientation_block() {
     use pleochroma::optics::materials::{GemMaterial, OpticalCharacter};

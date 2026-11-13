@@ -1,16 +1,14 @@
-//! The research reports' tabulated spectra and STATED CIELAB (`data/reference_spectra/*.csv`)
-//! against the primary data (GIA 2020 cross-sections, Caltech spectra) and the `data_version` 4
-//! recipes.
+//! Reference tables in `data/reference_spectra/*.csv` against the primary data (GIA 2020
+//! cross-sections, Caltech spectra) and the catalogue recipes.
 //!
-//! The reports' stated "measured" colors are not usable as targets: no sample anywhere has both
-//! a measured spectrum and a measured color (`research-2026-10-primary-data.md` section 0), and
-//! the stated CIELAB of the ruby, alexandrite, tanzanite, peridot, emerald and citrine rows
-//! disagree with their own spectra by dE00 10-38 (`reference_validation`). The recipes are fitted
-//! to the primary data (`primary_data_tests`); these tests state where the research tables and
-//! stated colors differ from them, so that the discredited values are not used again.
+//! The tables' stated "measured" CIELAB values are not valid targets. No sample has both a
+//! measured spectrum and a measured color (`docs/chromophores/research-2026-10-primary-data.md`
+//! section 0), and the stated colors of several rows disagree with their own spectra by
+//! dE00 10-38 (`reference_validation`). The recipes are fitted to the primary data
+//! (`primary_data_tests`). These tests record where the tables and stated colors differ.
 //!
-//! The composition of every recipe is the research's own, converted to the catalogue's input
-//! units through the host number densities (ppmw -> ppm of cation sites, wt% oxide as is).
+//! Recipe compositions are converted to catalogue units through the host number densities
+//! (ppmw -> ppm of cation sites, wt% oxide as is).
 
 #![expect(
     clippy::doc_markdown,
@@ -102,10 +100,9 @@ fn stated(s: &Spectrum, spec: &str, ill: &str, path: f64) -> LabRef {
 // Ruby
 // ---------------------------------------------------------------------------------------------
 
-/// The report-1 ruby table R-1 (0.05 wt% Cr2O3, E_perp_c) IS the GIA sample-1110 cross-section
-/// (134 ppma = 0.050 wt%): alpha(555 nm) 2.56 cm^-1 in both, and the table is within 25 % of the
-/// GIA sigma at 420-575 nm. Its stated CIELAB (b* +5.4) is not: the GIA colors of the same
-/// absorber are purplish red (b* -20).
+/// The ruby table R-1 (0.05 wt% Cr2O3, E_perp_c) matches the GIA sample-1110 cross-section
+/// within 25 % at 420-575 nm (alpha(555 nm) 2.56 cm^-1 in both). Its stated CIELAB (b* +5.4)
+/// does not: the GIA colors of the same absorber are purplish red (b* -20).
 #[test]
 fn research_ruby_r1_table_is_the_gia_cross_section_but_its_stated_color_is_not() {
     let r1 = fixture("ruby_r1_synthetic_verneuil_0p05wt");
@@ -131,10 +128,9 @@ fn research_ruby_r1_table_is_the_gia_cross_section_but_its_stated_color_is_not()
     assert!(gia[2] < -5.0, "GIA color {gia:.1?}");
 }
 
-/// R-2 (0.25 wt% Cr2O3, 0.5 cm = 335 ppma*cm; this test replaces the ignored R-2 comparison with
-/// the stated CIELAB 37.8 / 69.5 / 24.8, which is 55 away in b* from the GIA color): the recipe
-/// gives GIA's purplish red, within dE00 2.5 of the color of the GIA cross-section, and is
-/// > 15 dE00 from the stated orange-red.
+/// The ruby table R-2 (0.25 wt% Cr2O3, 0.5 cm = 335 ppma*cm) has a stated CIELAB of
+/// 37.8 / 69.5 / 24.8, an orange-red far from GIA's color. The recipe gives GIA's purplish
+/// red: within dE00 2.5 of the GIA cross-section color, and over 15 dE00 from the stated one.
 #[test]
 fn ruby_r2_composition_gives_the_gia_purplish_red_not_the_stated_orange_red() {
     let r2 = fixture("ruby_r2_synthetic_flux_0p25wt");
@@ -162,7 +158,7 @@ fn ruby_r2_composition_gives_the_gia_purplish_red_not_the_stated_orange_red() {
         delta_e_2000(unpol, gia)
     );
     assert!(delta_e_2000(unpol, stated.lab) > 15.0);
-    // The hue: purplish red (hue < 360 deg), the stated one is orange-red (hue > 0).
+    // Hue near 360 deg (purplish red) for the recipe; near 0 deg (orange-red) for the stated one.
     assert!(hue_deg(unpol) > 330.0 && hue_deg(stated.lab) < 30.0);
 }
 
@@ -170,12 +166,11 @@ fn ruby_r2_composition_gives_the_gia_purplish_red_not_the_stated_orange_red() {
 // Sapphire and V-corundum
 // ---------------------------------------------------------------------------------------------
 
-/// The sapphire tables S-Met / S-Bas (composition in ppmw, Ti_active = Ti - Mg = 145 / 155 ppm of
-/// Al sites) imply a Fe2+-Ti4+ cross-section per pair of 1.0e-18 / 1.2e-18 cm^2 (net 578 nm peak
-/// over the 500 nm continuum), 0.5-0.6 of GIA's 1.98e-18 +- 25 %, within 25 % of each other (the
-/// pairing law is linear in Ti_active). The GIA cross-section is the value of the
-/// catalogue; the tables' pair counts would be 40-60 % of the available Ti. GIA notes that
-/// non-Yogo stones deviate by factors 2-3 (annealing, Fe clustering), so this is no contradiction.
+/// The sapphire tables S-Met and S-Bas imply a Fe2+-Ti4+ cross-section of 0.4-0.7 of the GIA
+/// value (1.98e-18 cm^2 +- 25 %), from the net 578 nm peak over the 500 nm continuum per
+/// Ti_active (Ti - Mg, in ppm of Al sites). The pair law is linear in Ti_active, so the two
+/// tables should agree within 25 %. The catalogue uses the GIA value. GIA reports that non-Yogo
+/// stones deviate by factors 2-3, so the gap is not a contradiction.
 #[test]
 fn sapphire_tables_imply_a_smaller_pair_cross_section_than_gia() {
     let host = cat().host("corundum").expect("corundum");
@@ -208,10 +203,9 @@ fn sapphire_tables_imply_a_smaller_pair_cross_section_than_gia() {
     assert!((ours / gia - 1.0).abs() < 0.03);
 }
 
-/// The report-1 V-corundum table follows the paper TEXT sigma (1.0e-19 cm^2 at 580 nm) at the
-/// label composition 0.26 wt% V2O3 = 706 ppma: sigma(575 nm) 8.9e-20, 2.6 times the xlsx value
-/// (3.4e-20) the catalogue uses, while its 400 nm peak agrees with the xlsx (0.92). The
-/// report-1 color change (2.9-5.8) follows the strong 575 nm band; the xlsx color change is 8-25.
+/// The V-corundum table follows the paper text sigma (1.0e-19 cm^2 at 580 nm) at its label
+/// composition, 0.26 wt% V2O3 = 706 ppma. At 575 nm it is more than twice the xlsx value the
+/// catalogue uses, while its 400 nm peak agrees with the xlsx.
 #[test]
 fn v_corundum_report_table_follows_the_paper_text_not_the_xlsx() {
     let v = fixture("corundum_v_0p26wt_v2o3");
@@ -240,10 +234,10 @@ fn v_corundum_report_table_follows_the_paper_text_not_the_xlsx() {
 // Alexandrite
 // ---------------------------------------------------------------------------------------------
 
-/// The report's alexandrite rays disagree with Caltech GRR 874 in the U/Y ratio of the 4T2 and
+/// The alexandrite table's rays disagree with Caltech GRR 874 in the U/Y ratio of the 4T2 and
 /// 4T1 peaks: beta 0.65 and gamma 0.81 in the table against 0.18 and 1.6 in the primary
-/// spectrum (net of the pedestal), so the beta ray of the table is not yellow and its stated
-/// colors are not those of its spectrum (dE00 20-38). The recipe follows Caltech.
+/// spectrum (net of the pedestal). Its stated colors do not match its spectrum (dE00 20-38).
+/// The recipe is checked to follow Caltech.
 #[test]
 fn alexandrite_table_rays_disagree_with_the_caltech_u_over_y_ratio() {
     let tab = fixture("alexandrite_natural_russian");
@@ -292,9 +286,8 @@ fn alexandrite_table_rays_disagree_with_the_caltech_u_over_y_ratio() {
 // Amethyst
 // ---------------------------------------------------------------------------------------------
 
-/// Fe 80 ppmw; gamma irradiation turns 10 % of it into [FeO4]0. The amethyst row is the one
-/// whose stated CIELAB agrees with its own spectrum (dE00 3.4), and the Caltech-shaped recipe
-/// (refitted to the Anahi spectrum) stays within dE00 5 of it.
+/// Fe 80 ppmw, with gamma irradiation turning 10 % of it into [FeO4]0. The stated CIELAB
+/// agrees with the table's own spectrum (dE00 3.4), and the recipe stays within dE00 5 of it.
 #[test]
 fn recipe_vs_measured_amethyst_e_perp_c() {
     let s = fixture("amethyst_80ppmw_fe");

@@ -19,8 +19,7 @@
 //!   replace a design with unsaved changes ([`unsaved::confirm_discard`]).
 //!
 //! The inspector, design settings, New Design dialog, Optimize, Retarget and snapshot
-//! panels, and the Solid view's mouse manipulation (`crate::views::manip`), live in their
-//! own modules, declared below:
+//! panels live in their own modules, declared below:
 //!
 //! - [`inspector`]: the Tier / Preform / Optimize / Schedule tabs and the refresh of every
 //!   one of these panels ([`inspector::refresh`]);

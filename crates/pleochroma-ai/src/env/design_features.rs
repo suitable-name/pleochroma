@@ -1,9 +1,9 @@
-//! Bounded, explicit geometry and constraint context for the policy.
+//! Bounded geometry and constraint context for the policy.
 //!
-//! The original signed planes, full facet orbits and preform identify the operation-start
-//! arrangement on which meet preservation depends. They are not a low-order moment sketch.
-//! Values are converted to f32 for training: this is not a bit-exact encoding of f64 geometry.
-//! Static suffixes are shared across rollout observations; padding is created only when packing.
+//! The original signed planes, facet orbits and preform identify the operation-start
+//! arrangement that meet preservation depends on. Values are stored as f32 for training, so
+//! the encoding is not bit-exact with the f64 geometry. Static suffixes are shared across
+//! rollout observations; padding is added only when packing.
 
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -83,7 +83,7 @@ impl TierDesignFeatures {
     /// Geometry, dependencies, authored facet frosting, and two live masts.
     pub const FEATURE_DIM: usize = TIER_STATIC_DIM + 2;
 
-    /// Whether this suffix is absent (legacy/default synthetic observation) or complete.
+    /// Whether this suffix is absent (default synthetic observation) or complete.
     #[must_use]
     pub fn valid_width(&self) -> bool {
         self.static_features.is_empty() || self.static_features.len() == TIER_STATIC_DIM
@@ -162,8 +162,8 @@ impl GlobalDesignFeatures {
 
 /// Rejects geometry or constraint programs that cannot be completely represented.
 ///
-/// This check does not solve geometry and is usable by the corpus loader before scheduling
-/// expensive evaluations. Native metadata with no effect on the objective or action is omitted.
+/// This check does not solve geometry, so callers can run it before scheduling expensive
+/// evaluations. Native metadata with no effect on the objective or action is omitted.
 ///
 /// # Errors
 /// Returns an explicit capacity or invalid-input reason; nothing is silently truncated.

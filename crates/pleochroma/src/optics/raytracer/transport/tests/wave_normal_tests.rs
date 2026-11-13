@@ -27,9 +27,8 @@ use crate::{
 };
 use glam::Vec3;
 
-/// Two real slab faces (`+-Y`, `y` in `[-HALF_THICKNESS, HALF_THICKNESS]`) plus
-/// four far blank planes so `intersect_polyhedron` sees a bounded polyhedron --
-/// the measured walk-off displacement never reaches them.
+/// Two real slab faces (`+-Y`, `y` in `[-HALF_THICKNESS, HALF_THICKNESS]`) plus four far
+/// planes so `intersect_polyhedron` sees a bounded polyhedron; the walk-off never reaches them.
 const HALF_THICKNESS: f32 = 1.0;
 fn slab_planes() -> Vec<GpuFacetPlane> {
     vec![
@@ -95,6 +94,8 @@ fn trace_forced_extraordinary_slab(
             light_pitch: 0.85,
             backdrop: 0.0,
             surface_glare: 1.0,
+            tray_shadow: None,
+            tray_mirror: None,
             head_shadow_deg: crate::optics::raytracer::DEFAULT_HEAD_SHADOW_DEG,
         },
         studio_rig: None,
@@ -103,6 +104,7 @@ fn trace_forced_extraordinary_slab(
         enabled: false,
         compat: [u8::MAX; NUM_CHANNELS],
         split_mis_weight: 1.0,
+        direction_match: crate::optics::raytracer::refraction::DirectionMatch::default(),
     };
 
     for seed in 0..SEED_SEARCH_LIMIT {
@@ -121,7 +123,7 @@ fn trace_forced_extraordinary_slab(
             false,
         );
         if geo0.sin2_t > 1.0 {
-            continue; // TIR is geometrically unreachable entering from air (n1==1), but stay defensive.
+            continue; // TIR cannot occur entering from air; kept as a guard.
         }
         // `stokes` is unpolarized here, so `entry_eigenmode_selection` returns
         // `None` regardless -- computed properly anyway for clarity.
@@ -159,7 +161,7 @@ fn trace_forced_extraordinary_slab(
         );
         let entered_extraordinary = is_extraordinary_update == Some(true);
         if !inside_gem_1 || !entered_extraordinary {
-            continue; // reflected off the top face, or entered the ORDINARY mode -- keep searching.
+            continue; // Reflected at the top face, or entered the ordinary mode.
         }
 
         // Advance geometrically along S (k1/s1 as computed) to the exit facet.
@@ -216,7 +218,7 @@ fn trace_forced_extraordinary_slab(
             &mut exit_event1,
         );
         if inside_gem_2 {
-            continue; // Reflected back into the slab instead of transmitting out -- keep searching.
+            continue; // Reflected back into the slab rather than leaving it.
         }
 
         // Lateral displacement: perpendicular distance from exit_point to the
@@ -234,13 +236,11 @@ fn trace_forced_extraordinary_slab(
     );
 }
 
-/// The decisive correctness check: for a plane-parallel uniaxial slab with a
-/// tilted c-axis, the extraordinary ray's exit wave normal `k` (and `S == k` once
-/// back in air) must come out parallel to the incident ray within 1e-5 -- the
-/// classical "parallel slab" Snell's-law result applied twice to the same `k` (see
-/// `refraction.rs`'s design note, rule 4). The exit point must also be laterally
-/// displaced by a nonzero amount -- the walk-off did something real, it just
-/// didn't change the outgoing direction.
+/// For a plane-parallel uniaxial slab with a tilted c-axis, the extraordinary ray's exit
+/// wave normal `k` (and `S == k` once back in air) must come out parallel to the incident
+/// ray within 1e-5: Snell's law at both faces of a parallel slab returns the original
+/// direction. The exit point must also be laterally displaced by a nonzero amount, so the
+/// walk-off is real even though it does not change the outgoing direction.
 #[test]
 fn plane_parallel_uniaxial_slab_extraordinary_ray_exits_parallel_and_displaced() {
     let mut material = GemMaterial::by_name("Zircon")

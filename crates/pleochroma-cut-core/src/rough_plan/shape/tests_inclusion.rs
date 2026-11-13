@@ -224,8 +224,7 @@ fn an_inclusion_and_a_cavity_of_one_shape_are_two_different_roughs() {
     let weight = |base: RoughBase| model(base).measure().expect("measures").volume_mm3;
     assert!((weight(hollow_base) - 7936.0).abs() < 1e-6);
     assert!((weight(with) - 8000.0).abs() < 1e-6);
-    // And they do not share a registry id (the hull module tests the hash on identical
-    // content).
+    // Registry ids are a hash of the content, so the two differ.
     assert_ne!(id_of(&hollow_base), id_of(&with));
 }
 

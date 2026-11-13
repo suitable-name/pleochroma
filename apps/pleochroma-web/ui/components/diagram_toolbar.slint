@@ -48,10 +48,9 @@ component PanelPills inherits HorizontalLayout {
     }
 }
 
-// The Diagram tab's overlay toolbar, modelled on the desktop's
-// `solid_viewport/toolbar.slint` in its Diagram view mode: "Reset View" (zoom and
-// pan), the Crown/Pavilion/Profile enlarge pills, and the status line. The four pills
-// take about 370px, so a narrower view wraps the enlarge pills under "Reset View".
+// The Diagram tab's overlay toolbar: Reset View (zoom and pan), the Crown / Pavilion /
+// Profile enlarge pills and the status line. The four pills need about 370px, so a view
+// narrower than 400px wraps the enlarge pills under Reset View.
 export component DiagramToolbar inherits VerticalLayout {
     x: 0px;
     y: 0px;

@@ -24,13 +24,11 @@ use crate::{
     },
 };
 
-/// The material-suggestion banner's "Set Material" action -- see
-/// `setup_load_selected_callback` for when this banner is populated. Applies
-/// [`loading::material_selection_for_accepted_suggestion`]'s
-/// [`pleochroma_cut_core::MaterialSelection`] (pinning `refractive_index_override` to
-/// the schedule's own recorded RI whenever the suggested built-in's `n_D` would
-/// otherwise silently move it by more than 0.01) as one undoable
-/// [`Edit::SetMaterial`], then clears the banner.
+/// The material-suggestion banner's "Set Material" action. See `setup_load_selected_callback`
+/// for when the banner is shown. Applies [`loading::material_selection_for_accepted_suggestion`]
+/// as one undoable [`Edit::SetMaterial`], then clears the banner. The selection pins the
+/// schedule's recorded RI as `refractive_index_override` when the suggested built-in's `n_D`
+/// would otherwise move it by more than 0.01.
 pub(in crate::gui::editor) fn setup_material_suggestion_accept_callback(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -82,10 +80,8 @@ pub(in crate::gui::editor) fn setup_material_suggestion_accept_callback(
         });
 }
 
-/// The material-suggestion banner's dismiss ("No thanks") action -- just clears the
-/// banner; the schedule's material/RI stay exactly as loaded.
-///
-/// Just clears the banner; mirrors the Accept path's own clearing above.
+/// The banner's dismiss ("No thanks") action. It only clears the banner; the schedule's material
+/// and RI stay as loaded.
 pub(in crate::gui::editor) fn setup_material_suggestion_dismiss_callback(ui: &MainWindow) {
     let ui_weak = ui.as_weak();
     ui.global::<EditorModel>()

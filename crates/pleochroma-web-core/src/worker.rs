@@ -86,15 +86,12 @@ pub struct WorkerHandler {
     hdr: Option<(u64, Arc<EnvironmentMap>)>,
     denoiser: Denoiser,
     /// One more than the newest solve job id a [`ToWorker::Cancel`] named (`0`: none).
-    /// Atomic because a running job polls it from its progress hooks: where the Worker
-    /// can be handed a message mid-job this is how a job learns of a cancel without a
-    /// readable cancel URL; in a single-threaded browser Worker a message is only read
-    /// between jobs, so there it skips queued jobs.
+    /// Atomic so a running job can poll it from its progress hooks. A browser Worker reads
+    /// messages only between jobs, so there a cancel skips the queued jobs.
     cancel_mark: Arc<AtomicU64>,
     /// The `(job, URL)` a [`ToWorker::WatchCancel`] named for the job about to run.
     cancel_watch: Option<(u64, String)>,
-    /// The current-view metrics of the last `SolveRequest::Metrics`, so a pose it already
-    /// holds is answered without evaluating (the desktop render loop's cache).
+    /// The current-view metrics cache: a pose it already holds is answered without evaluating.
     metrics_cache: Option<MetricsCache>,
 }
 
@@ -133,10 +130,9 @@ impl WorkerHandler {
     }
 
     /// [`Self::handle`], with `emit` called for every intermediate message a long job
-    /// posts before its reply -- today the [`FromWorker::Progress`] reports of an Optimize
-    /// or Retarget search, at most one per [`PROGRESS_INTERVAL_MS`]. The Worker entry
-    /// point posts each one as it is emitted (a Worker cannot be interrupted, but it can
-    /// post while it computes).
+    /// posts before its reply: the [`FromWorker::Progress`] reports of an Optimize or
+    /// Retarget search, at most one per [`PROGRESS_INTERVAL_MS`]. The Worker entry point
+    /// posts each one as it is emitted, so the page sees progress while the job runs.
     pub fn handle_streaming(
         &mut self,
         message: ToWorker,
@@ -664,8 +660,8 @@ impl<'a> CancelWatch<'a> {
 }
 
 /// Runs one Deep Solve job: the verified search with a progress hook that shows the phase
-/// and the elapsed time (throttled to [`PROGRESS_INTERVAL_MS`], no fraction), and that
-/// looks at the job's cancel URL, which is the one place a busy Worker can.
+/// and the elapsed time (throttled to [`PROGRESS_INTERVAL_MS`], no fraction). The hook also
+/// polls the job's cancel URL.
 fn run_deep_job(
     job_id: u64,
     design_toml: &str,
@@ -729,8 +725,7 @@ fn run_solve_job(
     } = *env;
     let last_ms = Cell::new(f64::NEG_INFINITY);
     let last_stage = Cell::new(None::<SearchStage>);
-    // Set from the progress hook below, which the search runs between tier decisions and
-    // which is therefore the one place a busy Worker can look at the outside world.
+    // Set by the progress hooks below, which the search calls between tier decisions.
     let cancel = AtomicBool::new(false);
     let watch = CancelWatch::new(watch, probe, Some((mark, job_id)));
     let on_progress = |report: ProgressReport| {
@@ -768,8 +763,8 @@ fn run_solve_job(
             fraction,
         });
     };
-    // A tilt sweep reports before every evaluation (about every 2 ms): the same throttle,
-    // and the same look at the cancel URL, as a search's progress hook.
+    // A tilt sweep reports before every evaluation, so it uses the same throttle and cancel
+    // poll as a search's progress hook.
     let last_axis = Cell::new(None::<usize>);
     let on_sweep = |progress: SweepProgress| {
         let now = now_ms();

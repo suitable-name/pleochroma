@@ -25,7 +25,7 @@ use std::time::Duration;
 /// A tier whose solved mast moved by more than this counts as following the drag.
 pub const MOVED_TOLERANCE: f64 = 1e-6;
 
-/// The handle `kind` int the UI globals use (`0` angle, `1` depth, `2` index).
+/// The handle kind for an integer the UI globals use (`0` angle, `1` depth, `2` index).
 #[must_use]
 pub const fn kind_from_int(kind: i32) -> Option<HandleKind> {
     match kind {

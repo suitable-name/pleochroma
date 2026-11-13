@@ -23,8 +23,9 @@ use crate::{
 };
 use std::sync::atomic::AtomicBool;
 
-/// Everything [`run_multi_start`] needs from [`optimize_design_with`](super::optimize_design_with),
-/// bundled to keep the argument count down.
+/// Everything [`run_multi_start`] needs from
+/// [`optimize_design_with`](super::optimize_design_with), bundled to keep the argument count
+/// down.
 pub(super) struct MultiRun<'a> {
     pub(super) design: &'a Design,
     pub(super) config: &'a OptimizeConfig,
@@ -103,8 +104,8 @@ impl StartEngine for DesignEngine<'_> {
         progress: &dyn Fn(usize, SearchStage),
     ) -> StartState {
         let run = self.run;
-        // Start 0 is the incumbent itself: hand over the design untouched, exactly as the
-        // single-start path does, instead of re-writing every angle and mast.
+        // Start 0 is the incumbent itself: hand over the design untouched rather than
+        // rewriting every angle and mast.
         let is_incumbent = descent.angles.len() == self.incumbent.len()
             && descent
                 .angles

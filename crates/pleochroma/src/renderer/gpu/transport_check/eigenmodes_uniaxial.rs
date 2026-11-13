@@ -184,22 +184,12 @@ pub struct ThetaCCase {
 
 /// ULP budget for the two-iteration `theta_c` fixed point.
 ///
-/// Measured against a real GPU adapter (see `examples/gpu_equivalence_harness.rs`):
-/// max genuine ULP = 0 across all 2324 comparisons (the dense sweep AND the adversarial
-/// near-parallel/near-perpendicular cases) -- CPU and GPU converge to the exact SAME
-/// iterate at every case tried, not merely a few ULP apart. The 19 "exempted near-zero"
-/// cases are the near-parallel adversarial inputs, where `theta_c` itself is near 0 and
-/// a sub-ULP input difference can appear as a large relative ULP distance while staying
-/// far below `THETA_C_ABS_FLOOR` in absolute terms -- exactly what the abs-floor
-/// exemption exists for (see `ulp::within_tolerance`), not a sign of divergence. The
-/// budget itself is set well above the measured 0, matching this file's existing
-/// convention (e.g. `FRAME_ROTATION_ULP_BUDGET`, `EIGEN_POLARIZATION_ULP_BUDGET`) of
-/// leaving headroom rather than pinning to the exact observed maximum, which would make
-/// the check brittle to legitimate compiler/driver-version float-codegen differences
-/// that do not indicate a porting bug. If CPU and GPU ever converged to genuinely
-/// DIFFERENT iterates (not just a few ULP apart at the same iterate), that would show up
-/// as a large, non-noise-shaped ULP spike in this check's reported argmax -- that has not
-/// been observed.
+/// CPU and GPU converge to the same iterate (measured worst case 0 ULP). The budget is
+/// headroom for compiler and driver float-codegen differences, not the measured maximum.
+/// Near-parallel inputs have `theta_c` near 0, where a sub-ULP input difference is a large
+/// relative ULP distance but stays below `THETA_C_ABS_FLOOR`, so the abs-floor exemption
+/// covers them (see `ulp::within_tolerance`). A genuinely different iterate would show up as
+/// a large, non-noise ULP spike in the reported argmax.
 const THETA_C_ULP_BUDGET: u32 = 96;
 const THETA_C_ABS_FLOOR: f32 = 1e-5;
 
@@ -257,9 +247,8 @@ fn build_theta_c_cases() -> Vec<ThetaCCase> {
 
     // Adversarial: wave normal near-parallel to c_axis (theta_c near 0, where the
     // extraordinary index is nearly degenerate with the ordinary one) and near
-    // perpendicular (theta_c near pi/2, the maximum-birefringence direction) -- the
-    // iteration's own near-degenerate ends, per this phase's explicit requirement to
-    // sweep both.
+    // perpendicular (theta_c near pi/2, the maximum-birefringence direction). These are
+    // the iteration's near-degenerate ends.
     for &c_axis in &[Vec3::Y, Vec3::X] {
         let near_parallel = Vec3::new(c_axis.x + 1e-4, c_axis.y + 1e-4, c_axis.z).normalize();
         let near_perp = c_axis.cross(Vec3::new(0.3, 0.4, 0.5)).normalize_or_zero();
@@ -384,10 +373,8 @@ pub struct WalkOffCase {
     _pad3: f32,
 }
 
-/// Measured: max genuine ULP = 0 across 504 comparisons (dense sweep plus the
-/// near-parallel/near-perpendicular adversarial cases), 0 exempted -- comparable
-/// single-function budget to `EIGEN_POLARIZATION_ULP_BUDGET`, which this function's
-/// shape (a handful of trig calls plus a `normalize`) closely resembles.
+/// Walk-off is a few trig calls and a `normalize`, so it gets the same budget as
+/// `EIGEN_POLARIZATION_ULP_BUDGET`. The measured worst case is 0 ULP.
 const WALK_OFF_ULP_BUDGET: u32 = 32;
 const WALK_OFF_ABS_FLOOR: f32 = 1e-5;
 
@@ -543,18 +530,14 @@ pub struct PerModeIndexCase {
     _pad2: f32,
 }
 
-/// Measured: max genuine ULP = 0 across 1512 comparisons (both the `n_o` and `n_eff`
-/// components, both materials, the full `lambda`/`theta_c` sweep, both `is_anisotropic`
-/// settings), 0 exempted -- comparable to `DISPERSION_ULP_BUDGET` (24), which this
-/// function directly wraps and adds one more `effective_extraordinary_index` call on
-/// top of.
+/// Wraps `DispersionModel::evaluate` (budget 24) and adds one `effective_extraordinary_index`
+/// call, so it gets a slightly larger budget. The measured worst case is 0 ULP.
 const PER_MODE_INDEX_ULP_BUDGET: u32 = 32;
 const PER_MODE_INDEX_ABS_FLOOR: f32 = 1e-6;
 
 fn build_per_mode_index_cases() -> Vec<(PerModeIndexCase, DispersionModel)> {
     // Zircon (largest birefringence in the material set) and Tourmaline (strongly
-    // negative) -- the same two Tier 3 uses, so a Tier 2 disagreement here would
-    // pre-diagnose exactly the material a Tier 3 failure would otherwise be found on.
+    // negative), the same two the Tier 3 checks use.
     let materials = [
         (
             DispersionModel::Cauchy {

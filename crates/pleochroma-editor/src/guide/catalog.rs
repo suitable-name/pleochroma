@@ -1,10 +1,10 @@
 //! The registry of guides: the built-in ones, any generated at run time, and the lists
 //! that keep a guide's highlight targets and event names honest.
 //!
-//! **Adding a tutorial** is one function that returns a [`Guide`] (built with
-//! [`Guide::new`] and [`GuideStep::new`]) and one line in [`BUILDERS`]. A test checks that
-//! every built-in guide is fit to run: unique ids, known highlight targets and events,
-//! steps that say what they wait for.
+//! **Adding a lesson** means building a [`Guide`] (with [`Guide::new`] and
+//! [`GuideStep::new`]) in an area's `guides()` under `tutorials`, or in a builder listed in
+//! [`BUILDERS`] for a standalone guide. A test checks that every built-in guide is fit to
+//! run: unique ids, known highlight targets and events, steps that say what they wait for.
 
 use super::{
     ANGLE_TOLERANCE_DEG, MANUAL, NEW_DESIGN_CREATED,
@@ -18,7 +18,7 @@ use super::{
     tutorials,
 };
 
-/// The id of the worked example (Chapter 7): the guide `GuideModel.start()` opens.
+/// The id of the worked example, the guide `GuideModel.start()` opens.
 pub const WORKED_EXAMPLE_ID: &str = "new-design-walkthrough";
 
 /// Every `highlight_target` some `.slint` component actually checks for, or `""` for none.
@@ -33,9 +33,8 @@ pub const HIGHLIGHT_TARGETS: &[&str] = &[
     "new_design_dialog",
     // The inspector's Tier tab.
     "inspector_tier",
-    // The Design Settings panel. On the desktop the design's material lives in the Stone tab of the
-    // Parameters dock, so the worked example's material step (shared with the web app, where this
-    // is the Design Settings panel) outlines and opens that tab as well.
+    // The Design Settings panel. On the desktop the material is in the Stone tab of the
+    // Parameters dock, which the worked example's material step outlines and opens as well.
     "design_settings",
     // The Solve button on the command bar.
     "solve_button",
@@ -58,10 +57,10 @@ pub const HIGHLIGHT_TARGETS: &[&str] = &[
     "history_tab",
     // The Set Baseline button of the command bar (the id keeps its "snapshot" name).
     "snapshot_button",
-    // The Compare (to the Baseline) button of the command bar.
+    // The Compare button of the command bar, which compares against the Baseline.
     "compare_button",
-    // The Two Tiers | One Tier switch of the Angle Sweep dialog's header, the Keep as Trial buttons
-    // (the figures strip and the Trials view) and the Tune view's Accept button.
+    // The Two Tiers | One Tier switch of the Angle Sweep dialog's header, the Keep as Trial
+    // buttons (the figures strip and the Trials view) and the Tune view's Accept button.
     "sweep_two_tiers",
     "keep_trial_button",
     "tune_accept_button",
@@ -91,16 +90,12 @@ pub const HIGHLIGHT_TARGETS: &[&str] = &[
     "render_output_tab",
     // The Cut Mode button of the command bar.
     "cutting_mode_button",
-    // The five targets below outline the command bar's File button and, once its menu is
-    // open, the matching item: Export .asc,
+    // The File menu's items, outlined on the command bar's File button and, once the menu
+    // is open, on the matching item: Export .asc, the export menu, Save, Open and Load Selected.
     "export_asc_button",
-    // the cutting sheet / diagram / .gcs exports,
     "export_menu",
-    // Save,
     "save_button",
-    // Open
     "open_button",
-    // and Load Selected.
     "load_button",
     // The library search box in the header.
     "library_search",
@@ -321,7 +316,8 @@ pub fn worked_example_guide() -> Guide {
     guide
 }
 
-/// The built-in guides, each made by one function. Add a tutorial by adding its function.
+/// The standalone built-in guides, one builder each. Per-function lessons come from
+/// [`tutorials::all`] instead.
 const BUILDERS: &[fn() -> Guide] = &[welcome_tour_guide, worked_example_guide];
 
 /// Every built-in guide, in browser order: the ones in [`BUILDERS`] and the per-function

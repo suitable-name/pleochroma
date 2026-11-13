@@ -11,8 +11,8 @@ import { ImportSlot, ViewRow, ZoneListRow, ParamEditRow, ChipItem, LegendRow } f
 // them from here.
 export { ImportSlot, ViewRow, ZoneListRow, ParamEditRow, ChipItem, LegendRow }
 
-// "Rough colour...": the Rough planner's colour wizard. Photos of a
-// mesh rough on a fixed rig become a colour for the stone and, if needed, for zones inside it. All
+// "Rough Color...": the Rough planner's color wizard. Photos of a
+// mesh rough on a fixed rig become a color for the stone and, if needed, for zones inside it. All
 // state is pushed from Rust (`gui::rough_colour::wizard`); the window holds only what is typed.
 export component RoughColourWindow inherits Window {
     title: "Rough Color from Photos \u{2014} Pleochroma Cut";
@@ -186,9 +186,8 @@ export component RoughColourWindow inherits Window {
                     text: root.busy ? root.busy_text : (root.error_text != "" ? root.error_text : root.status_text);
                     font-size: 11px;
                     color: root.busy ? Theme.text-secondary : (root.error_text != "" ? Theme.danger : Theme.text-secondary);
-                    // Top-aligned in the 32 px strip, so the sentence starts at its first
-                    // word (a centred block of three lines lost its start above the strip).
-                    // Two lines fit; only the end of the second is elided.
+                    // Top-aligned, so the text starts at the top of the 32 px strip. Two lines
+                    // fit; only the end of the second is elided.
                     vertical-alignment: top;
                     wrap: word-wrap;
                     overflow: elide;

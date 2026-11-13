@@ -1,9 +1,9 @@
 import { Button } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 
-// The state behind the unsaved-changes dialog (`src/editor/unsaved.rs`): Rust opens it
-// with a heading, a message and the two action labels, and hears which button was
-// pressed. Named in `app.slint`'s export block, which is what makes it a Rust type.
+// State of the unsaved-changes dialog (`src/editor/unsaved.rs`). Rust sets the heading,
+// message and button labels, and is told which button was pressed. Exported from
+// `app.slint` so Rust can use it as a type.
 export global ConfirmModel {
     in-out property <bool> open: false;
     in property <string> heading: "Unsaved Changes";
@@ -16,14 +16,12 @@ export global ConfirmModel {
     callback cancel();
 }
 
-// A modal Save / Discard / Cancel confirmation, modelled on the desktop's
-// `confirm_action_dialog.slint`: a full-window backdrop and a centred card. Clicking the
-// backdrop counts as Cancel (a stray click must never pick the destructive option),
-// Escape cancels, Return picks the primary action, and every other key is swallowed so
-// the global shortcuts (Ctrl+Z/S/O) cannot act on the design underneath while the
-// dialog is up. Tab is let through so the buttons stay reachable from the keyboard.
+// Modal Save / Discard / Cancel confirmation over a full-window backdrop. A backdrop click
+// cancels, so a stray click never picks the destructive option. Escape cancels, Return
+// picks the primary action, and other keys are swallowed so the global shortcuts cannot
+// act on the design underneath. Tab passes through so the buttons stay reachable.
 //
-// Bound to nothing but its own properties, so any call site can drive it.
+// Bound only to its own properties, so any call site can drive it.
 export component ConfirmDialog inherits Rectangle {
     in property <string> heading: "Unsaved Changes";
     in property <string> message: "";

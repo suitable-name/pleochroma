@@ -32,8 +32,7 @@ pub(super) fn mean(env: &WhittedEnv<'_>, normal: Vec3, observer: Vec3) -> Vec3 {
     let mut weights = 0.0;
     for k in 0..DIRECTIONS {
         let y = 1.0 - 2.0 * (f32::from(k) + 0.5) / f32::from(DIRECTIONS);
-        // Operation order mirrors the WGSL twin whitted/00_bindings.wgsl: the square is its
-        // own binding so no clippy version suggests a fused multiply-add.
+        // `square` is a separate binding so that no fused multiply-add is formed.
         let square = y * y;
         let radius = (1.0 - square).max(0.0).sqrt();
         let angle = f32::from(k) * GOLDEN_ANGLE;

@@ -1,10 +1,8 @@
-//! The pipeline's request-resolution state machine: its remembered
-//! [`WorkerMemory`] (including the Diagram-mode [`DiagramMemory`] half), and
-//! [`resolve_request_state`], which turns one incoming [`RedrawRequest`] into the
-//! plane/camera/style tuple [`super::render_request`] draws.
+//! The pipeline's request-resolution state machine: the remembered [`WorkerMemory`]
+//! (with its [`DiagramMemory`] half) and [`resolve_request_state`].
 //!
-//! Moved verbatim from the desktop's `gui::solid_preview::preview_state::state`,
-//! which re-exports it.
+//! [`resolve_request_state`] turns one [`RedrawRequest`] into the plane, camera and
+//! style tuple that [`super::render_request`] draws.
 
 use super::{
     request::{PlannedFrame, RedrawRequest, panel_kind_from_index},
@@ -20,8 +18,8 @@ use glam::Vec3;
 use pleochroma::geometry::{ToolPrimitive, meet_solver::SolvedTier, stone_metrics::SolidStatus};
 use std::sync::{Arc, Mutex, PoisonError};
 
-/// Largest per-component plane difference [`WorkerMemory::same_stone`] still calls the same
-/// stone; the desktop sink's republish tolerance, orders of magnitude below any edit.
+/// Largest per-component plane difference [`WorkerMemory::same_stone`] still treats as the
+/// same stone: far above one `f32` ULP of round-trip noise, far below any real edit.
 pub const SAME_STONE_EPSILON: f32 = 1e-5;
 
 /// Facet outlines an embedding app owns OUTSIDE the request stream: the Slice tool's
@@ -46,21 +44,16 @@ pub type SharedOutlines = Arc<Mutex<Outlines>>;
 
 /// The pipeline's memory of the last diagram-relevant data it computed.
 ///
-/// Carried across a [`RedrawRequest::Reproject`] request, which has no `Design`
-/// to recompute gear info/labels from, exactly like [`WorkerMemory::style`] is
-/// carried forward for the ordinary solid render.
-///
-/// Defaults to a 96-tooth gear
-/// with no reference angle and no labels -- a reasonable "nothing solved into the
-/// diagram yet" starting point.
+/// Carried across a [`RedrawRequest::Reproject`], which has no `Design` to rebuild the
+/// gear info and labels from. The default, a 96-tooth gear with no labels, is the
+/// starting point before anything is solved.
 pub struct DiagramMemory {
     /// The index wheel's tooth count.
     pub gear_teeth: u32,
     /// The index wheel's reference angle.
     pub gear_reference_angle: f32,
-    /// The schedule's own rotational symmetry order (`ScheduleMeta::
-    /// symmetry_order`), carried forward like `gear_teeth` -- see
-    /// [`crate::diagram2d::DiagramConfig::symmetry_order`].
+    /// The schedule's rotational symmetry order (`ScheduleMeta::symmetry_order`), carried
+    /// forward like `gear_teeth`; see [`crate::diagram2d::DiagramConfig::symmetry_order`].
     pub symmetry_order: u32,
     /// The schedule's own mirror flag (`ScheduleMeta::mirror`) -- see
     /// [`crate::diagram2d::DiagramConfig::mirror`].
@@ -86,9 +79,8 @@ impl Default for DiagramMemory {
         Self {
             gear_teeth: 96,
             gear_reference_angle: 0.0,
-            // Matches `pleochroma_cut_core::ScheduleMeta::standard_round_brilliant`'s
-            // own 8-fold mirrored symmetry -- a reasonable "nothing solved into the
-            // diagram yet" starting point, same spirit as `gear_teeth: 96` above.
+            // Matches `pleochroma_cut_core::ScheduleMeta::standard_round_brilliant`:
+            // 8-fold mirrored symmetry, a plausible starting point before any solve.
             symmetry_order: 8,
             mirror: true,
             enlarged_panel: None,
@@ -166,15 +158,13 @@ impl WorkerMemory {
         })
     }
 
-    /// Whether `planes` and `tools` are the stone last rendered, planes compared within
-    /// [`SAME_STONE_EPSILON`] per component and tools exactly.
+    /// Whether `planes` and `tools` are the stone last rendered: planes within
+    /// [`SAME_STONE_EPSILON`] per component, tools exactly.
     ///
-    /// The desktop feeds a camera-follow `Reproject` the planes it holds in its render
-    /// context, which are the last `Planned` frame's planes round-tripped through
-    /// `GpuFacetPlane::new`; that `normalize()` is not idempotent in `f32`, so a normal
-    /// moves by one ULP now and then. An exact compare called such a pose change "a
-    /// different design" and wiped the selection, hover and labels (the tier highlight
-    /// vanished after turning the stone over). A real edit moves a plane by far more.
+    /// The desktop's camera-follow `Reproject` carries planes round-tripped through
+    /// `GpuFacetPlane::new`, whose `normalize()` is not idempotent in `f32`, so a normal
+    /// can move by one ULP. An exact compare would read that as a new design and wipe the
+    /// selection, hover and labels.
     #[must_use]
     pub fn same_stone(&self, planes: &[(Vec3, f32)], tools: &[ToolPrimitive]) -> bool {
         self.tools == tools
@@ -308,7 +298,7 @@ const fn apply_reproject_gear(last_diagram: &mut DiagramMemory, gear: Option<(u3
 /// stale flag, the ready-to-show unsolvable/unbounded status (always `None` for a
 /// [`RedrawRequest::Reproject`], which never plans), the generation, and the stone's
 /// mesh-cache key when this call already hashed it (`Planned` only), so the render step
-/// need not hash the plane list again (perf review UI-7).
+/// need not hash the plane list again.
 pub type RequestState = (
     StoneGeometryBuf,
     CameraPose,
@@ -342,14 +332,11 @@ pub fn resolve_request_state(
             gear,
         } => {
             apply_reproject_gear(&mut memory.diagram, gear);
-            // A `Reproject` also carries every New/Load/explicit-Solve redraw on the
-            // desktop, not only a camera drag/zoom -- so when the incoming plane
-            // arrangement differs from the pipeline's last-known one, a genuinely
-            // different geometry just replaced the old one. Reset the leftover
-            // flagged/pending/selected style and diagram labels rather than let
-            // them leak onto a design that never produced them. An ordinary
-            // orbit/zoom always resubmits the SAME planes, so this never fires
-            // mid-drag.
+            // A `Reproject` also carries New, Load and explicit-Solve redraws, not only
+            // camera drags. A changed plane arrangement is a different stone: reset the
+            // leftover flagged/pending/selected style and the diagram labels rather than
+            // let them leak onto a design that never produced them. An orbit or zoom
+            // always resubmits the same planes, so this never fires mid-drag.
             let planes = geometry.halfspaces();
             if !memory.same_stone(&planes, &geometry.tools) {
                 memory.style = SolidStyle::viewport();
@@ -530,11 +517,8 @@ fn resolve_planned_state(
     memory.diagram.symmetry_order = design.meta.symmetry_order;
     memory.diagram.mirror = design.meta.mirror;
     memory.diagram.enlarged_panel = panel_kind_from_index(enlarged_panel);
-    // Unconditional -- not gated on `view_mode == 3`: an edit made while
-    // Solid/Both is on screen must still leave the diagram's label/hover/tier
-    // tables fresh, so switching to Diagram mode afterward (a `Reproject`, which
-    // has no `Design` to rebuild them from) shows a live, correct diagram
-    // immediately.
+    // Unconditional, not gated on `view_mode == 3`: a `Reproject` has no `Design` to
+    // rebuild the diagram tables from, so they must stay fresh while Solid or Both shows.
     update_diagram_memory_from_design(
         &mut memory.diagram,
         &design,

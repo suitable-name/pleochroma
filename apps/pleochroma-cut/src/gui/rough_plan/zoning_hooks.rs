@@ -1,5 +1,5 @@
 //! Rough colour in the Rough Planner's results: the coloured previews, the
-//! "Stone orientation" option and "Use Color" (adopt).
+//! "Stone Orientation" option and "Use Color" (adopt).
 //!
 //! The planner's host, session and results are private to `gui::rough_plan`, so this thin file
 //! reads them and calls `gui::rough_colour`, where the logic and its tests live
@@ -119,7 +119,7 @@ pub(super) fn refresh(host: &Rc<Host>) {
     INPUTS.with(|cell| *cell.borrow_mut() = inputs);
 }
 
-/// "Stone orientation" was picked: the choice is stored for every result of the plan and the
+/// "Stone Orientation" was picked: the choice is stored for every result of the plan and the
 /// previews are drawn again with it.
 fn pose_option_changed(host: &Rc<Host>, index: i32) {
     let Some(option) = PoseOption::from_index(index) else {
@@ -163,10 +163,11 @@ fn pose_option_changed(host: &Rc<Host>, index: i32) {
     }
 }
 
-/// The pose of stone `stone_index` of result `layout_index` as the color wizard's stored choice has
-/// it: the stored "Stone orientation" choice (`store::posed_stone_pose`, what `preview::adopt`
-/// reads), or the stone's own pose when the results carry no colour. A pose the cutter set up in
-/// the planner itself wins over this one (`editor_link::pick_stone` puts it in the layout).
+/// The pose of stone `stone_index` of result `layout_index` as the color wizard's stored
+/// choice has it: the stored "Stone Orientation" choice (`store::posed_stone_pose`, what
+/// `preview::adopt` reads), or the stone's own pose when the results carry no colour. A pose
+/// the cutter set up in the planner itself wins over this one (`editor_link::pick_stone` puts
+/// it in the layout).
 pub(super) fn chosen_pose(layout_index: u32, stone_index: u32, stone: &PlacedStone) -> StonePose {
     INPUTS
         .with(|cell| cell.borrow().clone())

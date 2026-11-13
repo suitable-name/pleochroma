@@ -10,9 +10,9 @@
 //! The weights `w_c` fold the camera sensitivity, the backlight spectrum and the wavelength step
 //! and sum to 1 per channel, so the result is the camera RGB of the stone relative to the empty
 //! backlit rig, which is what the transmittance images hold. `chroma_rc` is the record's
-//! per-channel factor of the light (ZC-13), a table lookup of its one-byte code; a view whose
-//! light is grey stores no codes and the factor is 1 (the evaluation is then the same arithmetic
-//! as without colour).
+//! per-channel factor of the light, a table lookup of its one-byte code; a view whose light is
+//! grey stores no codes and the factor is 1 (the evaluation is then the same arithmetic as without
+//! colour).
 //!
 //! The derivative with respect to a model parameter `j` is
 //! `-sum_pt w_c(pt) sum_z (sum_r e_rc lengths_rz) dalpha_z(lambda_pt)/dp_j` with
@@ -361,10 +361,10 @@ pub fn evaluate_with_jacobian(
 
 /// Folds every valid pixel into per-chunk partials on up to `threads` threads.
 ///
-/// Returns the partials in chunk order (view by view, `chunk_pixels` pixels each, the last chunk of a view
-/// shorter). Each chunk is visited serially in pixel order starting from `new_partial()`, so the
-/// partials depend on `chunk_pixels` only, never on `threads`: a caller that combines them in
-/// order gets the same answer for any thread count. This is the parallel form of
+/// Returns the partials in chunk order: view by view, `chunk_pixels` pixels per partial (the last
+/// of a view may be shorter). Each chunk is visited serially in pixel order from `new_partial()`,
+/// so the partials depend on `chunk_pixels` only, never on `threads`: a caller that combines them
+/// in order gets the same answer for any thread count. This is the parallel form of
 /// [`for_each_pixel_jacobian`] for the normal equations, which cost about a second serially at
 /// full size.
 ///

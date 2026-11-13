@@ -23,7 +23,7 @@ const NUM_SAMPLES: u32 = 64;
 const DET_PIXELS: u32 = 65_536;
 const DET_SAMPLES: u32 = 256;
 
-/// Tier 1a: the mandatory struct-layout GPU echo test. Returns whether it passed.
+/// Tier 1: the struct-layout GPU echo test for `GpuGemMaterial`. Returns whether it passed.
 fn report_layout_check(ctx: &GpuContext) -> bool {
     print!(
         "[Tier 1] struct-layout echo test (GpuGemMaterial, {} bytes) ... ",
@@ -390,9 +390,8 @@ fn report_furnace_check(ctx: &GpuContext) -> bool {
     passed
 }
 
-/// RNG / struct-layout / self-determinism and geometry/environment checks. Pulled out
-/// of `main` for the same function-length reason as
-/// [`run_phase2_checks`]/[`run_phase3_checks`] -- returns whether every one passed.
+/// RNG, struct-layout, self-determinism and geometry/environment checks. Returns whether
+/// every one passed.
 pub fn run_phase0_and_phase1_checks(ctx: &GpuContext) -> bool {
     println!();
     println!("== Phase 0: RNG / struct-layout / self-determinism ==");
@@ -418,6 +417,27 @@ pub fn run_phase0_and_phase1_checks(ctx: &GpuContext) -> bool {
     let studio_env_passed = report_ulp_check("sample_studio_environment", &studio_env_result);
     let sun_nee_result = environment_check::run_sun_nee(ctx);
     let sun_nee_passed = report_ulp_check("daylight_sun_nee", &sun_nee_result);
+    #[cfg(feature = "stone-shadow")]
+    let shadow_lookup_passed = report_ulp_check(
+        "tray shadow lookup",
+        &environment_check::run_tray_shadow_lookup(
+            ctx,
+            &environment_check::build_tray_shadow_check_map(),
+        ),
+    );
+    #[cfg(not(feature = "stone-shadow"))]
+    let shadow_lookup_passed = {
+        println!("tray shadow lookup: skipped (built without stone-shadow)");
+        true
+    };
+    let mirror_floor_passed = report_ulp_check(
+        "tray mirror floor",
+        &environment_check::run_tray_mirror_floor(
+            ctx,
+            pleochroma::optics::raytracer::environment::TrayMirror::new(0.3, 0.04)
+                .expect("a finite plane and a positive reflectance"),
+        ),
+    );
     let white_balance_result = environment_check::run_white_balance(ctx);
     let white_balance_passed =
         report_ulp_check("compute_illuminant_white_balance", &white_balance_result);
@@ -434,6 +454,8 @@ pub fn run_phase0_and_phase1_checks(ctx: &GpuContext) -> bool {
         && blackbody_passed
         && studio_env_passed
         && sun_nee_passed
+        && shadow_lookup_passed
+        && mirror_floor_passed
         && white_balance_passed
         && furnace_passed
 }

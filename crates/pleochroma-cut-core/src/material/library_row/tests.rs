@@ -64,7 +64,7 @@ fn the_stored_names_read_back_and_an_unknown_name_is_none() {
     assert_eq!(crystal_system_from_name("Amorphous"), None);
     assert_eq!(crystal_system_from_name(""), None);
     assert_eq!(optical_character_from_name("Isotropy"), None);
-    // The spelling is the variant's `Debug` name, which is what older rows hold.
+    // The spelling is the variant's `Debug` name, which stored rows hold.
     assert_eq!(crystal_system_name(CrystalSystem::Trigonal), "Trigonal");
     assert_eq!(
         optical_character_name(OpticalCharacter::UniaxialNegative),
@@ -187,7 +187,7 @@ fn the_snapshot_holds_the_typed_numbers_and_the_names_as_text() {
     assert!(snapshot.dispersion_model.is_none());
     assert!(snapshot.color_recipe.is_none());
 
-    // A row with no crystal optics writes empty text, as rows always did.
+    // A row with no crystal optics writes empty text.
     let bare = plain("Bare").snapshot();
     assert_eq!(bare.crystal_system, "");
     assert_eq!(bare.optical_character, "");
@@ -224,8 +224,8 @@ fn a_biaxial_rows_snapshot_restores_its_crystal_optics() {
     assert!(plain("Bare").snapshot().biaxial_delta_beta_alpha.is_none());
 }
 
-/// A row that stores a biaxial delta but no readable names (a row written before the names were
-/// stored) is biaxial by the optic-sign rule, directly and through the snapshot it writes.
+/// A row that stores a biaxial delta but no readable names (older rows) is biaxial by the
+/// optic-sign rule, directly and through the snapshot it writes.
 #[test]
 fn a_row_with_a_delta_and_no_names_is_biaxial_by_the_optic_sign_rule() {
     // Topaz-like (beta nearer alpha: positive) and andalusite-like (beta nearer gamma: negative).
@@ -361,7 +361,7 @@ fn the_snapshot_carries_a_stored_model_and_a_recipe_with_its_fallback_colour() {
         Some(model)
     );
     let dto = snapshot.color_recipe.expect("a recipe is carried");
-    // The fallback colour is recorded exactly as the top-level colour was written.
+    // The fallback color is the top-level color as written.
     assert_eq!(Some(dto.fallback_rgb), snapshot.absorption_rgb);
     assert_eq!(ColorMode::from_json(&dto.recipe_json), Some(mode));
 
@@ -417,7 +417,7 @@ fn a_row_with_bands_is_coloured_by_them_and_without_bands_by_the_triple() {
         triple_only.gem_material().absorption
     );
     assert!(banded.gem_material().absorption_path_scale > 1.0);
-    // Unusable text falls back to the triple, exactly as a row without the column.
+    // Unusable text falls back to the triple, as a row without the column does.
     let broken = LibraryMaterial {
         absorption_bands_json: Some("[[460.0,0.0,0.25]]"),
         ..triple_only
@@ -460,11 +460,7 @@ fn ray_rows_round_trip_through_their_json() {
         let json = absorption_ray_bands_to_json(&rays).expect("rows serialise");
         assert_eq!(absorption_ray_bands_from_json(&json), Some(rays));
     }
-    assert!(
-        !absorption_ray_bands_to_json(&three_rays())
-            .unwrap()
-            .is_empty()
-    );
+    assert_ne!(absorption_ray_bands_to_json(&three_rays()).unwrap(), "");
     // A ray without usable rows, blank and malformed text are refused.
     let mut empty = two_rays();
     empty.e.clear();
@@ -570,7 +566,7 @@ fn a_banded_row_carries_its_bands_into_the_file_snapshot() {
     assert!(plain("Plain").snapshot().absorption_bands().is_none());
 }
 
-// ---- absorption units (lane AU) ----
+// ---- absorption units ----
 
 fn sized(width_mm: f32) -> pleochroma::render_setup::MaterialOverrides {
     pleochroma::render_setup::MaterialOverrides {
@@ -582,9 +578,9 @@ fn sized(width_mm: f32) -> pleochroma::render_setup::MaterialOverrides {
     }
 }
 
-/// B3: the vault row and the design file's custom-material snapshot of the same banded custom material
-/// build the identical material (absorption, unit and scale), and the render setup gives both
-/// `W / model_width` (7 mm while no size is set).
+/// The vault row and the design file's snapshot of the same banded material build the identical
+/// material (absorption, unit and scale). The render setup gives both `W / model_width`, with
+/// W = 7 mm while no size is set.
 #[test]
 fn a_banded_row_and_its_snapshot_build_the_same_per_mm_material() {
     let json = absorption_bands_to_json(&BANDS).expect("rows serialise");
@@ -710,10 +706,10 @@ fn stored_per_axis_curves_reach_only_the_character_that_reads_them() {
     };
     assert_eq!(isotropic.gem_material(), plain("Glass-like").gem_material());
 
-    // The row's own base curve is Cauchy a = 1.745 - 0.030145 = 1.714855, b = 0.010468 (nd 1.745,
-    // dispersion 0.02), i.e. 1.7423 at 380 nm and 1.7320 at 780 nm. The pair is a constant
-    // 0.0099 below and 0.0201 above it (b differs by only 3e-5), so alpha < beta < gamma holds at
-    // every sample of 380-780 nm.
+    // The row's base curve (nd 1.745, dispersion 0.02) is Cauchy a = 1.714855, b = 0.010468:
+    // 1.7423 at 380 nm and 1.7320 at 780 nm. The pair sits a constant 0.0099 below and 0.0201
+    // above it (b differs by only 3e-5), so alpha < beta < gamma holds at every sample of
+    // 380-780 nm.
     let pair = [cauchy(1.705, 0.0105), cauchy(1.735, 0.0105)];
     let pair_json = per_axis_dispersion_to_json(&PerAxisDispersion::Biaxial(pair)).unwrap();
     let biaxial = LibraryMaterial {

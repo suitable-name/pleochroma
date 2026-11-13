@@ -1,6 +1,5 @@
-//! Symmetric second-rank absorption tensor [`AbsorptionTensor3`] (pleochroism)
-//! and the assigned-mode/effective pleochroic absorption coefficient functions
-//! built on it.
+//! Symmetric second-rank absorption tensor [`AbsorptionTensor3`] (pleochroism) and the
+//! pleochroic absorption coefficient functions built on it.
 
 use super::{helpers::stable_orthonormal_basis, uniaxial::BirefringenceParams};
 use crate::optics::polarization::{StokesVector, electric_field_direction};
@@ -85,32 +84,21 @@ impl AbsorptionTensor3 {
 
 /// Assigned-mode pleochroic absorption coefficient: `alpha = e_mode_hat . A . e_mode_hat`.
 ///
-/// For light KNOWN to occupy exactly one eigenmode (`e_mode_hat`), with no
-/// degree-of-polarization blending against a Stokes vector at all.
+/// For light known to occupy exactly one eigenmode (`e_mode_hat`). No Stokes vector is read.
 ///
-/// # Why this replaces [`effective_pleochroic_alpha`] for the interior transport path
+/// # Why not [`effective_pleochroic_alpha`] on the interior transport path
 ///
-/// Inside a birefringent crystal, `trace_spectral_ray_inner` assigns each traced path to
-/// ONE eigenmode (`is_extraordinary`) at its air->crystal entry, and that mode's
-/// polarization is known EXACTLY from the geometry (wave normal, c-axis/indicatrix) --
-/// it never needs to be read off the light's own Stokes vector. Using the Stokes-derived
-/// `electric_field_direction` instead (as [`effective_pleochroic_alpha`] does) has two
-/// problems: (a) on a camera-traced path the Stokes vector represents IMPORTANCE, not
-/// the light's physical state, and the old function's degree-of-polarization blend is
-/// non-linear, so the adjoint identity that justifies camera-side Mueller products does
-/// not hold through it; (b) after internal reflections the Stokes azimuth drifts away
-/// from the assigned mode's own axis (`apply_tir_bounce`'s uniaxial branch only scales
-/// magnitude by `r_total_k`, it does not re-align the azimuth), so the old function's
-/// `e_hat` stops matching the mode `is_extraordinary` actually names. Calling this
-/// function with the mode's own geometric E-field direction (see
-/// `assigned_mode_e_field_uniaxial`/`BiaxialIndicatrix::assigned_mode_e_field`) sidesteps
-/// both: no Stokes vector is read at all.
+/// A traced path is assigned to ONE eigenmode (`is_extraordinary`) at its air->crystal entry,
+/// and that mode's E-field follows from the geometry, so it need not come from the Stokes
+/// vector. The Stokes-based direction fails in two ways: on camera-traced paths the Stokes
+/// vector carries importance rather than the physical state, and its degree-of-polarization
+/// blend is non-linear, which breaks the adjoint identity behind camera-side Mueller
+/// products; and after internal reflections its azimuth drifts off the assigned mode's axis,
+/// because `apply_tir_bounce` scales only the magnitude.
 ///
-/// See `raytracer::absorption::channel_absorption_alphas_assigned` for the per-channel
-/// driver that calls this once per spectral channel, and that function's own doc comment
-/// for the isotropic-by-symmetry special case (no single eigenmode assignment is
-/// meaningful for an isotropic material, so that case is handled separately, without this
-/// function).
+/// The per-channel driver is `raytracer::absorption::channel_absorption_alphas_assigned`.
+/// An isotropic material has no meaningful eigenmode assignment, so that driver handles it
+/// without this function.
 #[must_use]
 pub fn assigned_mode_alpha(tensor: &AbsorptionTensor3, e_mode_hat: Vec3) -> f32 {
     tensor.quadratic_form(e_mode_hat)
@@ -171,12 +159,9 @@ pub fn assigned_mode_e_field_uniaxial(
 /// coefficients equal) returns the same value regardless of direction, so isotropic
 /// materials are automatically azimuth-independent with no special case needed here.
 ///
-/// No longer used by the interior transport path (`apply_absorption`/
-/// `maybe_scatter_or_extinguish` now call [`assigned_mode_alpha`] instead, via
-/// `raytracer::absorption::channel_absorption_alphas_assigned`) -- kept for its own unit
-/// tests below and the Tier 2 GPU harness (`renderer::gpu::transport_check::
-/// absorption_pleochroism`/`eigenmodes_biaxial`), which still pin `pleochroic_channel_alpha`
-/// (built on this) against its WGSL translation.
+/// Not used by the interior transport path, which calls [`assigned_mode_alpha`] instead.
+/// Kept for the unit tests and the Tier 2 GPU harness (`renderer::gpu::transport_check`),
+/// which pin [`pleochroic_channel_alpha`] (built on this) against its WGSL translation.
 #[must_use]
 pub fn effective_pleochroic_alpha(
     tensor: &AbsorptionTensor3,
@@ -194,26 +179,18 @@ pub fn effective_pleochroic_alpha(
     p.mul_add(alpha_polarized - alpha_unpolarized, alpha_unpolarized)
 }
 
-/// All-in-one pleochroic Beer-Lambert coefficient for one spectral channel.
+/// Beer-Lambert absorption coefficient for one spectral channel, from its own Stokes vector.
 ///
-/// Derives the channel's own electric-field direction from its own `stokes` vector
-/// (see `electric_field_direction`), builds this channel's `AbsorptionTensor3` from
-/// `alpha_o`/`alpha_e` (and, for a genuinely biaxial material with a third band set,
-/// `alpha_beta`), and combines with the two eigenmode directions via
-/// `effective_pleochroic_alpha`. The single call site `trace_spectral_ray`'s
-/// per-channel absorption loop needs.
+/// The channel's electric-field direction comes from `stokes` (see
+/// `electric_field_direction`); the tensor is built from `alpha_o`/`alpha_e` and, when
+/// `alpha_beta` is `Some`, a biaxial third coefficient; the two eigenmode directions are
+/// combined via [`effective_pleochroic_alpha`].
 ///
-/// `alpha_beta` is `Some` only when the caller has confirmed both that the material is
-/// genuinely biaxial (`eigenmode_a`/`eigenmode_b` came from
-/// `BiaxialIndicatrix::eigen_polarizations`, not the uniaxial approximation) and that
-/// it carries a third band set (`AbsorptionTensor::beta_ray.is_some()`); see
-/// `raytracer::apply_absorption`. `None` takes the `AbsorptionTensor3::uniaxial` path.
+/// `alpha_beta` is `Some` only for a genuinely biaxial material, whose eigenmodes come from
+/// `BiaxialIndicatrix::eigen_polarizations`. `None` builds the uniaxial tensor.
 ///
-/// No longer used by the interior transport path for an anisotropic material -- see
-/// [`effective_pleochroic_alpha`]'s doc comment. Still used by the transport path's
-/// ISOTROPIC branch (`raytracer::absorption::channel_absorption_alphas_assigned`'s own
-/// doc comment explains why that branch alone keeps the Stokes-based call, on the GPU
-/// side only), by this file's own unit tests, and by the Tier 2 GPU harness.
+/// Not used by the interior transport path (see [`effective_pleochroic_alpha`]). Kept for the
+/// unit tests and the Tier 2 GPU harness.
 #[must_use]
 #[expect(
     clippy::too_many_arguments,

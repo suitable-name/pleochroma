@@ -209,7 +209,7 @@ impl Film<'_> {
         Ok(())
     }
 
-    /// Films opening the Steps / Mirror toolbar panel, typing each step series field, and clicking Generate.
+    /// Films the Steps / Mirror panel: opens it, types each series field and clicks Generate.
     pub(crate) fn film_steps(&mut self, series: &StepSeries) -> Result<(), String> {
         if self.ui.global::<EditorModel>().get_tier_table_collapsed() {
             let header = targets::run_label_start(&self.view(), "TIERS (")
@@ -611,8 +611,8 @@ impl Film<'_> {
             if shown == mode {
                 return Ok(());
             }
-            // Selected tracer toggles off in a combined view; Solid toggles
-            // its overlay. Never look for the removed Both button.
+            // Selected tracer toggles off in a combined view; Solid toggles its overlay.
+            // There is no Both button.
             let button = match (mode, shown) {
                 (0, 2) => 1,
                 (0, 5) => 4,
@@ -769,12 +769,11 @@ impl Film<'_> {
 
     /// Films clicking the trash button of the selected tier's row, the last column of the table.
     ///
-    /// The button sits in the pinned ACTIONS group at the right edge of the table, so it is on
-    /// view without scrolling ([`Self::reveal_table_button`] turns the table sideways only if it
-    /// is not), the button is clicked, and any turns are undone. The row must be on screen and the
-    /// button must sit on it (within one row height, and wholly inside the table's scrolling
-    /// area); anything else fails, so a click can never land on another tier's button or beside
-    /// the table. The goal of the step (the tier is gone) is checked by the director afterwards.
+    /// The button sits in the pinned ACTIONS group at the table's right edge.
+    /// [`Self::reveal_table_button`] turns the table sideways when it is off view, and the turns
+    /// are undone after the click. The button must lie on the selected row (within one row height
+    /// and inside the table's scrolling area), so a click never lands on another tier's button.
+    /// The director checks that the tier is gone afterwards.
     fn click_selected_row_remove(&mut self) -> Result<(), String> {
         let selected = self.ui.global::<EditorModel>().get_selected_tier_index();
         if selected < 0 {

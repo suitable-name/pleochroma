@@ -490,8 +490,8 @@ fn deleting_a_catalogue_entry_leaves_its_side_data_alone() {
     assert!(db.design_lighting(&uuid).unwrap().is_some());
 }
 
-/// Like the planner mark, none of this may bump `diagram_entries.updated_at`: it is the
-/// revision stamp every cache and compare-and-swap write keys on.
+/// None of these writes may bump `diagram_entries.updated_at`: it is the revision stamp
+/// every cache and compare-and-swap write keys on.
 #[test]
 fn writing_side_data_does_not_bump_updated_at() {
     let db = in_memory_db();

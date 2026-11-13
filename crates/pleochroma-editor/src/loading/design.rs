@@ -1,25 +1,23 @@
 //! Builds a [`Design`] from a bare `.asc` file's own text, with the default preform
 //! that bounds it.
 //!
-//! The desktop's catalogue-record path (a vault record, possibly
-//! with a design file attached) stays with the desktop and calls into this.
+//! The desktop's catalogue-record path (a vault record, possibly with a design file
+//! attached) stays in the desktop, which calls into this.
 
 use pleochroma_cut_core::{
     Design, PreformSpec,
     native::{AttachmentBlob, DesignMetadata},
 };
 
-/// A preform sized to bound a design that may already fully specify its own closed shape
-/// (a real `.asc` file's tiers, or a placeholder reconstruction).
+/// A preform sized to bound a design whose schedule may already close its own shape (a
+/// real `.asc`'s tiers, or a placeholder reconstruction).
 ///
-/// Generously large relative to the "mast order 1" scale every facet offset uses (see
-/// `pleochroma_cut_core::preform`'s module doc comment), so this backstop rough does not
-/// itself clip a single facet of an already-complete design -- only a schedule that's
-/// missing a closing facet in some direction would ever touch its walls.
+/// It is generous relative to the "masts of order 1" scale of `pleochroma_cut_core::preform`,
+/// so a complete design's facets never clip it; only a schedule missing a closing facet
+/// would touch its walls.
 ///
-/// `length_over_width` is read from `lw_ratio` (a catalogue's recorded L/W) when it
-/// parses as a positive finite number, so an oval design's preform isn't needlessly
-/// round; `1.0` (round/square) otherwise.
+/// `length_over_width` is read from `lw_ratio` (a catalogue's recorded L/W) when it is a
+/// positive finite number, so an oval design is not needlessly round; `1.0` otherwise.
 #[must_use]
 pub fn default_preform_for_schedule(
     schedule: &pleochroma_formats::asc::AscSchedule,

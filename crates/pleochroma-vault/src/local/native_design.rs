@@ -239,9 +239,10 @@ fn preview_axis_of(file: &DesignFile) -> Option<PreviewAxis> {
     )
 }
 
-/// The crystal axis a stored design file (`.psdd` bytes) sets, as
-/// [`preview_axis_of`] reads it; `None` for bytes that are not a readable design file. Used to
-/// backfill `diagram_preview_axes` for a library that predates the table.
+/// The crystal axis a stored design file (`.psdd` bytes) sets, as [`preview_axis_of`] reads it;
+/// `None` for bytes that are not a readable design file.
+///
+/// Used to backfill `diagram_preview_axes` for existing rows.
 #[cfg(feature = "sqlite")]
 pub fn preview_axis_of_bytes(bytes: &[u8]) -> Option<PreviewAxis> {
     let text = std::str::from_utf8(bytes).ok()?;
@@ -254,7 +255,7 @@ pub fn preview_axis_of_bytes(bytes: &[u8]) -> Option<PreviewAxis> {
 /// That is the tags, the ignored mark, the Rough Planner exclusion, the frosting, the design's
 /// own crystal axis and its surface finish. The marks only set: an unset mark never clears one
 /// the row already has, and a tag the row already carries is a no-op. The frosting, the axis and
-/// the surface finish REPLACE the row's (an import that no longer states them clears them),
+/// the surface finish REPLACE the row's (an import that states none clears them),
 /// since they describe the design the import just wrote.
 ///
 /// # Errors

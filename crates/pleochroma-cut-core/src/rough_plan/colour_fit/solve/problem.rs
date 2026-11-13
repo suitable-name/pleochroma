@@ -15,7 +15,7 @@
 //! interpolated linearly in the optical depth `tau_c = -ln(obs_c / mc_mean_clear)` clamped to
 //! `0..=1` (the channel-mean clear estimate; the error this puts into the interpolated weight is
 //! `ln` of the panel's colour factor, a few percent of a term that is itself about 1e-4
-//! relative), so pale and saturated stones are weighted by the error they really have (ZC-7). The
+//! relative), so pale and saturated stones are weighted by the error they really have. The
 //! Monte-Carlo term is scaled by the observation, not the prediction, so the weights do not move
 //! during the iteration and the objective stays comparable between steps.
 //!
@@ -45,8 +45,8 @@ use crate::rough_plan::{
 /// The bound on a log-gain: gains between `e^-1` and `e`.
 pub(super) const GAIN_LOG_LIMIT: f64 = 1.0;
 
-/// The photo of one view on the working grid of its records: the transmittance image of
-/// lane P1, area-averaged.
+/// The photo of one view on the working grid of its records: the area-averaged transmittance
+/// image of the photo pipeline.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ObservedView {
     /// The rig view index.
@@ -87,8 +87,7 @@ pub(super) struct ViewData {
     pub used_pixels: usize,
 }
 
-/// The prior part of the objective, split by term (round 3, D1.3), so a report can name the term
-/// that dominates when the fit sits above the truth.
+/// The prior part of the objective, split by term, so a report can name the dominant term.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub(super) struct PriorTerms {
     /// The gain prior (common mode and deviations).
@@ -146,7 +145,7 @@ pub(super) struct Normal {
     pub prior: PriorTerms,
     /// `sum u^2` of the data.
     pub chi2: f64,
-    /// `sum w u^2` of the data with the Huber weights `w = min(1, k / |u|)` (round 5, ZC-18):
+    /// `sum w u^2` of the data with the Huber weights `w = min(1, k / |u|)`:
     /// `sum min(u^2, k |u|)`, which an outlier contributes linearly instead of quadratically.
     pub chi2_robust: f64,
     /// The residuals in the data term.
@@ -503,7 +502,7 @@ impl<'a> Problem<'a> {
         })
     }
 
-    /// The constraint function of the colour search (round 5, ZC-4) at `x`: the plain data
+    /// The constraint function of the colour search at `x`: the plain data
     /// chi-square plus twice the cost of the gain prior (all views active, the common mode pinned
     /// by `config.fix_common_gain`), i.e. `-2 ln` of the likelihood with the calibration
     /// knowledge about the gains but without the priors of the spectral model.
@@ -558,7 +557,7 @@ impl<'a> Problem<'a> {
     }
 
     /// The plain chi-square of the data term, `sum u^2`, at `x` over all views: the evaluation of
-    /// a candidate without any derivative (the metamer verification, round 3, D3).
+    /// a candidate without any derivative (the metamer verification).
     pub(super) fn data_chi2(&self, model: &dyn FitModel, x: &[f64]) -> Result<f64, FitError> {
         let np = model.n_params();
         let frozen = Frozen {
@@ -598,12 +597,12 @@ impl<'a> Problem<'a> {
     /// cost.
     ///
     /// The gains of the `active` views split into a common mode `m = mean(gamma)` with the prior
-    /// `N(0, sigma_m^2)` and the deviations `gamma_v - m` with `N(0, sigma_d^2)` each (round 2,
-    /// C1): `0.5 (m^2 / sigma_m^2 + sum (gamma_v - m)^2 / sigma_d^2)`. The common gain is
-    /// degenerate with a wavelength-flat absorption whenever the path length hardly varies across
-    /// the pixels, and P1 normalises every photo to its own white frame, so its common mode is 1
-    /// by construction. A view that is not active (held out) only keeps `N(0, sigma_d^2)` so the
-    /// matrix stays regular.
+    /// `N(0, sigma_m^2)` and the deviations `gamma_v - m` with `N(0, sigma_d^2)` each:
+    /// `0.5 (m^2 / sigma_m^2 + sum (gamma_v - m)^2 / sigma_d^2)`. The common gain is degenerate
+    /// with a wavelength-flat absorption whenever the path length hardly varies across the
+    /// pixels. The photo pipeline normalises every photo to its own white frame, so the common
+    /// mode is 1 by construction. A view that is not active (held out) only keeps
+    /// `N(0, sigma_d^2)` so the matrix stays regular.
     fn add_gain_prior(
         &self,
         x: &[f64],

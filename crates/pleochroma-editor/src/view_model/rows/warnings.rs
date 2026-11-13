@@ -21,12 +21,10 @@ impl TierWarnings {
         Self::from_findings(tagged_findings(design, solved))
     }
 
-    /// The same split for findings that were already worked out: `Some` is a full pass a
-    /// worker ran against `design` and `solved` (its texts carry no `(pre-solve)` tag).
-    /// `None` -- no such pass is available -- runs the pass inline for a design without
-    /// concave tools (its mesh checks are cheap, and that is what a caller had before
-    /// workers computed it), and for one WITH tools falls back to the mast-free checks
-    /// alone, tagged, which never build a mesh.
+    /// The same split for findings already computed. `Some` is a full pass a worker ran
+    /// against `design` and `solved`, with no `(pre-solve)` tag. `None` runs the pass inline
+    /// for a design without concave tools, where its mesh checks are cheap; for one with
+    /// tools it runs only the mast-free checks, tagged.
     pub(super) fn from_precomputed(
         design: &Design,
         solved: &[SolvedTier],
@@ -70,16 +68,10 @@ struct Finding {
     text: String,
 }
 
-/// [`pleochroma_cut_core::manufacturability::check_manufacturability_available`]'s
-/// findings against `design`'s current state, each attributed to the flat tier, the
-/// concave tier or the design it is about -- lets a caller badge a row
-/// instead of only showing a flattened `String`. `solved` is an already-[`Design::solve`]'d
-/// mast list when one is available; passing `None` still runs the two
-/// mast-free checks (gear quantization, cut order) -- see
-/// [`check_manufacturability_available`](pleochroma_cut_core::manufacturability::check_manufacturability_available)'s
-/// own doc comment: a design that has never solved, or no
-/// longer does, must not lose every finding, only the two that genuinely need
-/// a mesh.
+/// [`pleochroma_cut_core::manufacturability::check_manufacturability_available`]'s findings
+/// for `design`, each attributed to the flat tier, the concave tier or the design it is about,
+/// so a caller can badge a row. `solved` is the solve's mast list; `None` runs only the two
+/// mast-free checks (gear quantization, cut order), so an unsolved design keeps those findings.
 ///
 /// `ManufacturabilityWarning::tier_index` reads `0` for every concave variant, so
 /// attributing by it alone would badge flat tier 0 with a tool's warning; the
@@ -183,10 +175,8 @@ pub fn manufacturability_warnings_tagged(
 /// [`manufacturability_warnings_tagged`] for a caller on a UI thread.
 ///
 /// The findings about FLAT tiers come from `warnings`, the full pass a worker ran
-/// ([`solved_manufacturability_warnings`]), with no mesh built here. `None` -- no pass is
-/// available -- gives what
-/// [`super::tier_items_from_solved_with_warnings`] shows then: the inline pass over `solved` for a
-/// design without concave tools, the mast-free findings tagged `(pre-solve)` for one with.
+/// ([`solved_manufacturability_warnings`]), with no mesh built here. `None` (no pass available)
+/// gives the same findings as [`super::tier_items_from_solved_with_warnings`] with `None`.
 #[must_use]
 pub fn manufacturability_warnings_tagged_with(
     design: &Design,
@@ -205,9 +195,8 @@ pub fn manufacturability_warnings_tagged_with(
         .collect()
 }
 
-/// Groups [`manufacturability_warnings_tagged`]'s
-/// pairs by tier index, joining more than one finding for the same tier with
-/// `"; "` -- what [`super::tier_items`]/[`super::tier_items_stale`] feed into each row's
+/// Groups the pairs from [`manufacturability_warnings_tagged`] by tier index, joining several
+/// findings for one tier with `"; "`. The result fills each row's
 /// [`TierRow::warning_text`](crate::view_model::TierRow::warning_text).
 fn warning_text_by_tier(pairs: &[(usize, String)]) -> BTreeMap<usize, String> {
     let mut grouped: BTreeMap<usize, Vec<String>> = BTreeMap::new();

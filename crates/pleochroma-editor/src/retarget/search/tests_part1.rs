@@ -30,8 +30,8 @@ fn target_at(n_d: f64) -> ResolvedMaterial {
     selection_at(n_d).resolve(&BuiltinMaterials)
 }
 
-/// The standard brilliant as a 1.72 stone: the owner's starting point for the sapphire and
-/// emerald cases. Every tier is a pinned (`ScaleReference`) tier, like an imported design.
+/// The standard brilliant as a 1.72 stone, the start of the sapphire and emerald cases.
+/// Every tier is pinned (`ScaleReference`), like an imported design.
 fn brilliant_at_172() -> Design {
     let mut design = Design::new(
         PreformSpec::block(2.0, 1.0, 4.0),
@@ -417,11 +417,10 @@ fn the_owners_emerald_case_ends_valid_in_one_way_or_another() {
 
 #[test]
 fn the_owners_emerald_shift_with_the_girdle_allowance_never_loses_its_corners_silently() {
-    // With the allowance on (the dialog's default) the Shift may climb the girdle ladder. Under
-    // the owner's girdle OUTLINE contract (2026-10-19) the corners are kept, so the Shift is
-    // usually valid at rung 0 and nothing is thickened. Either a rung makes it valid, and then
-    // the verdict names the rung, the band is thicker and the table keeps its size; or no rung
-    // is enough and the old refusal stands.
+    // With the allowance on (the dialog's default) the Shift may climb the girdle ladder. The
+    // girdle outline hinge keeps the corners, so the Shift is usually valid at rung 0 and
+    // nothing is thickened. Otherwise a rung makes it valid, the verdict names the rung, the
+    // band is thicker and the table keeps its size; or no rung is enough and the refusal stands.
     let design = brilliant_at_172();
     let plan = build_plan(&design, &target_at(1.5791), EMERALD_CROWN, &[]);
     let settings = SearchSettings {
@@ -432,8 +431,7 @@ fn the_owners_emerald_shift_with_the_girdle_allowance_never_loses_its_corners_si
     let figures = report.shift_validity.figures;
     if report.shift_validity.status == ValidityStatus::Valid {
         assert_eq!(report.start, StartPoint::Shift);
-        // `None` means valid at rung 0: the outline hinge kept the corners and nothing was
-        // thickened (owner's girdle OUTLINE contract, 2026-10-19).
+        // `None` means valid at rung 0: the outline hinge kept the corners, nothing thickened.
         if let Some(percent) = figures.girdle_thickened_percent {
             assert!(
                 (percent - 5.0).abs() < 1e-9 || (percent - 10.0).abs() < 1e-9,
@@ -507,10 +505,9 @@ fn a_girdle_failure_climbs_the_ladder_and_other_stones_do_not() {
 
 #[test]
 fn the_owners_emerald_shift_keeps_its_corners_and_the_search_starts_from_it_when_it_is_valid() {
-    // The Shift turns both break facets steeper about their girdle OUTLINE corners (owner
-    // decision, 2026-10-19): the corners keep their thickness, so the gate no longer refuses
-    // the Shift for them. When the Shift is valid the search starts from it; otherwise
-    // (another reason) the old note stands.
+    // The Shift turns both break facets steeper about their girdle outline corners, which keep
+    // their thickness, so the gate does not refuse the Shift for them. When the Shift is valid
+    // the search starts from it; otherwise (for another reason) the refusal note stands.
     let design = brilliant_at_172();
     let plan = build_plan(&design, &target_at(1.5791), EMERALD_CROWN, &[]);
     let report = run(&design, &plan, &quick()).expect("the search runs");

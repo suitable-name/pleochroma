@@ -164,10 +164,8 @@ fn set_preform_then_undo_restores_the_old_preform() {
     assert_eq!(design, before);
 }
 
-/// `SetGirdleDiameterMm` then undo must restore the previous scale
-/// anchor (`None`, for a fresh design) exactly, the same round-trip
-/// `set_preform_then_undo_restores_the_old_preform` above already checks for
-/// `SetPreform`.
+/// `SetGirdleDiameterMm` then undo must restore the previous scale anchor (`None`, for a
+/// fresh design) exactly.
 #[test]
 fn set_girdle_diameter_mm_then_undo_restores_the_old_value() {
     let mut design = fresh_design();

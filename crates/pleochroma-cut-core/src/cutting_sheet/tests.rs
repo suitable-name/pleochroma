@@ -8,8 +8,8 @@ use super::{
 };
 use crate::{
     design::{
-        ConcaveTool, ConstraintTier, Design, ScheduleMeta, TierRef, ToolMotion,
-        compute_tier_labels, cutting_order::meet_inputs,
+        ConcaveTool, ConstraintTier, CutMeet, CutMeetAnchor, Design, ScheduleMeta, TierRef,
+        ToolMotion, compute_tier_labels, cutting_order::meet_inputs,
     },
     material::MaterialSelection,
     preform::PreformSpec,
@@ -38,10 +38,9 @@ fn custom_garnet(n_d: f32) -> GemMaterial {
     gem
 }
 
-/// A design on a CUSTOM catalogue material must print that material's own
-/// `n_D` in the "Refractive index" header line via `cutting_sheet_with` -- the
-/// bug this module fixes. The built-ins-only `cutting_sheet` must still print
-/// the legacy schedule RI for the exact same design.
+/// A design on a CUSTOM catalogue material prints that material's own `n_D` in the
+/// "Refractive index" header line via `cutting_sheet_with`. The built-ins-only `cutting_sheet`
+/// keeps the schedule's RI for the same design.
 #[test]
 fn cutting_sheet_with_resolves_a_custom_materials_own_refractive_index() {
     let mut design = round_brilliant_design();
@@ -294,96 +293,76 @@ fn to_text_renders_header_and_rows() {
         girdle.ends_with("meet: Girdle: Set stone size."),
         "{girdle}"
     );
-    // The culet is named like its code, so its instruction carries no name; in the finished
-    // stone it touches only the pavilion mains.
+    // The culet is named like its code, so its instruction carries no name. The template's
+    // masts are round figures, so it passes through no point the pavilion left (see
+    // `depth_placed_rows_follow_the_stone_cut_so_far`).
     let culet = lines[7];
     assert!(culet.starts_with("  4. Culet "), "{culet}");
     assert!(culet.contains("indices [-]"), "{culet}");
-    assert!(culet.ends_with("meet: Meet P1"), "{culet}");
-    // The table is cut last, its code is T, and its corners are the stars' and crown mains'.
+    assert!(culet.ends_with("meet: Set to mast depth 0.8800"), "{culet}");
+    // The table is cut last, its code is T, and it misses the crown's points too.
     let table = lines[11];
     assert!(table.starts_with("  8. T "), "{table}");
-    assert!(table.ends_with("meet: Table: Meet C1, C2"), "{table}");
+    assert!(
+        table.ends_with("meet: Table: Set to mast depth 0.3200"),
+        "{table}"
+    );
 }
 
-/// A design whose tiers are all placed by an explicit depth gets an instruction on every row,
-/// worked out from the finished stone: the girdle (cut first here) sets the stone size, every
-/// later one meets the tiers cut before it whose facets share a vertex with its own, by code
-/// and in cutting order, without a full stop. A tier that nothing cut earlier touches prints
-/// its depth: in this fixture the lower girdles (P2) cut away the pavilion mains' meets with
-/// the girdle, and the stars (C1) are cut before the crown mains, so P1 and C1 print "Cut to
-/// depth .. mm." once a girdle diameter gives millimetres, else their mast. The stars do not
-/// reach the girdle, so no row says "Set girdle width.", and the culet keeps the mains from
+/// An explicit-depth design gets an instruction on every row, worked out from the stone as it is
+/// when each tier is cut ([`Design::cut_meets`]). The girdle, cut first here, sets the stone size.
+/// The pavilion mains, cut while the girdle's vertical facets form no point yet, print their depth
+/// ("Cut to depth .. mm." once a girdle diameter gives millimetres, else their mast). Later tiers
+/// pass through none of the points left by earlier ones, so they print their depth alone. The
+/// lower girdles cut away the mains' corners, so the mains never "Set girdle line."; the stars do
+/// not reach the girdle, so no row says "Set girdle width."; and the culet keeps the mains from
 /// ending in one point, so none says "Cut to centerpoint.".
 #[test]
-fn depth_placed_rows_meet_the_tiers_cut_before_them() {
+fn depth_placed_rows_follow_the_stone_cut_so_far() {
     let mut design = round_brilliant_design();
     let solved = design
         .solve()
         .expect("every tier is pinned via ScaleReference");
+    let meets = design.cut_meets(&solved).expect("the stone closes");
+    // Stored order: table, star, crown main, upper girdle, girdle, pavilion main, lower
+    // girdle, culet.
+    assert_eq!(meets.tiers[4], CutMeet::Anchor(CutMeetAnchor::SetStoneSize));
+    assert_eq!(
+        meets.tiers[5],
+        CutMeet::Anchor(CutMeetAnchor::NothingToMeet)
+    );
+    let floating: Vec<usize> = meets
+        .floating(&design)
+        .into_iter()
+        .map(|(tier, _)| tier)
+        .collect();
+    assert_eq!(floating, [6, 7, 1, 2, 3, 0], "in cutting order");
+
     let unanchored = design.cutting_sheet(&solved);
     assert_eq!(unanchored.rows[1].code, "P1");
     assert_eq!(
         unanchored.rows[1].meet_instruction,
         "Set to mast depth 0.6700"
     );
+    assert_eq!(unanchored.rows[2].code, "P2");
+    assert_eq!(
+        unanchored.rows[2].meet_instruction,
+        "Set to mast depth 0.6800"
+    );
 
     design.girdle_diameter_mm = Some(6.5);
     let sheet = design.cutting_sheet(&solved);
-    assert_eq!(sheet.rows[0].meet_instruction, "Set stone size.");
-    for (position, row) in sheet.rows.iter().enumerate().skip(1) {
+    let codes: Vec<&str> = sheet.rows.iter().map(|row| row.code.as_str()).collect();
+    assert_eq!(codes, ["G1", "P1", "P2", "Culet", "C1", "C2", "C3", "T"]);
+    for row in &sheet.rows {
         assert!(row.concave.is_none(), "a planar design");
-        if let Some(list) = row.meet_instruction.strip_prefix("Meet ") {
-            assert!(!list.ends_with('.'), "{}", row.meet_instruction);
-            let earlier: Vec<&str> = sheet.rows[..position]
-                .iter()
-                .map(|earlier| earlier.code.as_str())
-                .collect();
-            for code in list.split(", ") {
-                assert!(
-                    earlier.contains(&code),
-                    "{}: {code} is not cut before it",
-                    row.code
-                );
-            }
-        } else {
-            let mm = row.depth_mm.expect("a girdle diameter gives millimetres");
-            assert_eq!(
-                row.meet_instruction,
-                format!("Cut to depth {mm:.2} mm."),
-                "{}",
-                row.code
-            );
-        }
+        let mm = row.depth_mm.expect("a girdle diameter gives millimetres");
+        let expected = match row.code.as_str() {
+            "G1" => "Set stone size.".to_string(),
+            _ => format!("Cut to depth {mm:.2} mm."),
+        };
+        assert_eq!(row.meet_instruction, expected, "{}", row.code);
     }
-
-    let depth = |code: &str| {
-        let row = sheet
-            .rows
-            .iter()
-            .find(|row| row.code == code)
-            .expect("the row is printed");
-        format!("Cut to depth {:.2} mm.", row.depth_mm.expect("millimetres"))
-    };
-    let (p1, c1) = (depth("P1"), depth("C1"));
-    let texts: Vec<(&str, &str)> = sheet
-        .rows
-        .iter()
-        .map(|row| (row.code.as_str(), row.meet_instruction.as_str()))
-        .collect();
-    assert_eq!(
-        texts,
-        [
-            ("G1", "Set stone size."),
-            ("P1", p1.as_str()),
-            ("P2", "Meet G1, P1"),
-            ("Culet", "Meet P1"),
-            ("C1", c1.as_str()),
-            ("C2", "Meet C1"),
-            ("C3", "Meet G1, C2"),
-            ("T", "Meet C1, C2"),
-        ]
-    );
     // Computed meets are text only: `meets_tiers` stays the named meets, empty here.
     assert!(sheet.rows.iter().all(|row| row.meets_tiers.is_empty()));
 }
@@ -425,7 +404,9 @@ fn instructions(sheet: &CuttingSheet) -> Vec<(&str, &str)> {
 /// The first tier in cutting order whose facets all end in one point on the axis (pavilion
 /// mains without a culet) is cut to the centerpoint; the girdle sets the stone size, and the
 /// crown mains, which reach the girdle, set the girdle width. Here the girdle is stored and
-/// cut first.
+/// cut first. The only points on the stone when the table is cut are the crown's apex, on the
+/// axis, and the corners the crown mains form with the girdle, so a table has no point to meet
+/// and its depth sets the table size.
 #[test]
 fn pavilion_mains_ending_in_one_point_are_cut_to_the_centerpoint() {
     let design = pointed_design(true);
@@ -437,15 +418,15 @@ fn pavilion_mains_ending_in_one_point_are_cut_to_the_centerpoint() {
             ("G1", "Set stone size."),
             ("P1", "Cut to centerpoint."),
             ("C1", "Set girdle width."),
-            ("T", "Meet C1"),
+            ("T", "Set table size."),
         ]
     );
 }
 
 /// The fantasy-cut template's convention with the pavilion cut first, as in the template
 /// itself: P1 is cut to the centerpoint, the girdle after it sets the stone size, the first
-/// crown tier sets the girdle width. The `.asc` export names the same sizing tier, so a
-/// re-imported file prints the same rows.
+/// crown tier sets the girdle width and the table the table size. The `.asc` export names the
+/// same sizing tier, so a re-imported file prints the same rows.
 #[test]
 fn the_girdle_sets_the_stone_size_after_a_pavilion_cut_to_the_centerpoint() {
     let design = pointed_design(false);
@@ -462,7 +443,7 @@ fn the_girdle_sets_the_stone_size_after_a_pavilion_cut_to_the_centerpoint() {
             ("P1", "Cut to centerpoint."),
             ("G1", "Set stone size."),
             ("C1", "Set girdle width."),
-            ("T", "Meet C1"),
+            ("T", "Set table size."),
         ]
     );
     let notes: Vec<String> = design
@@ -476,7 +457,7 @@ fn the_girdle_sets_the_stone_size_after_a_pavilion_cut_to_the_centerpoint() {
 
 /// Each placement prints as the cutting-instructions template writes it: full stops on
 /// "Set stone size." and "Cut to centerpoint.", none on a meet list, the depth in millimetres
-/// when known, else the mast.
+/// when known, else the mast; a tier with no meet point prints its depth alone, the same way.
 #[test]
 fn depth_placements_print_like_the_template() {
     let tiers = vec![
@@ -495,8 +476,29 @@ fn depth_placements_print_like_the_template() {
         "Set girdle width."
     );
     assert_eq!(
+        DepthPlacement::SetGirdleLine.text(&codes),
+        "Set girdle line."
+    );
+    assert_eq!(DepthPlacement::SetTableSize.text(&codes), "Set table size.");
+    assert_eq!(
         DepthPlacement::Meets(vec![0, 1, 2]).text(&codes),
         "Meet P1, G1, C1"
+    );
+    assert_eq!(
+        DepthPlacement::NoMeetPoint {
+            mast: 0.5,
+            depth_mm: Some(2.5)
+        }
+        .text(&codes),
+        "Cut to depth 2.50 mm."
+    );
+    assert_eq!(
+        DepthPlacement::NoMeetPoint {
+            mast: 0.67,
+            depth_mm: None
+        }
+        .text(&codes),
+        "Set to mast depth 0.6700"
     );
     assert_eq!(
         DepthPlacement::Depth {
@@ -723,12 +725,9 @@ fn diff_tiers_ignores_a_mismatched_solved_length() {
     assert!(deltas[0].mast_after.is_none());
 }
 
-/// `try_cutting_sheet` must return [`crate::design::SolveMismatch`] (naming both the
-/// expected and the actual tier count) instead of panicking when
-/// `solved` is the wrong length; `cutting_sheet` itself must still
-/// `panic!` on the exact same input (Finding: the four solved-list
-/// alignment `panic!`s stay in place for `apps/**` callers, with a
-/// `try_*`/`_with` fallible sibling next to each).
+/// `try_cutting_sheet` returns [`crate::design::SolveMismatch`] (naming the expected and actual
+/// tier counts) instead of panicking when `solved` is the wrong length. `cutting_sheet` keeps
+/// panicking on the same input for its existing callers.
 #[test]
 fn try_cutting_sheet_reports_a_mismatch_instead_of_panicking() {
     let design = round_brilliant_design();
@@ -740,9 +739,7 @@ fn try_cutting_sheet_reports_a_mismatch_instead_of_panicking() {
     assert_eq!(err.got_tiers, 0);
 }
 
-/// `cutting_sheet` (the original, panicking entry point) must still
-/// panic on the exact misalignment `try_cutting_sheet` now reports as
-/// an error -- no behavior change for existing callers.
+/// `cutting_sheet` panics on the misalignment that `try_cutting_sheet` reports as an error.
 #[test]
 #[should_panic(expected = "cutting_sheet: `solved`")]
 fn cutting_sheet_still_panics_on_a_mismatch() {

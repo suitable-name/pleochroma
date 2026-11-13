@@ -17,11 +17,10 @@ use pleochroma::{
 /// tools cut out of them, and the finish of each facet.
 ///
 /// Every scoring path of the optimizer measures this, so the figures describe the stone
-/// the Compare window draws and not its flat shell. A design with no concave tiers (or
-/// whose tiers do not resolve, see [`Design::tools_for_scoring`]) has no tools, and then
-/// the geometry is the planes alone, bit for bit what the optimizer always scored. A design
-/// with no frosted facet has no finishes (the empty, all-polished list), and then the
-/// tracer takes the polished path, bit for bit as well.
+/// the Compare window draws and not its flat shell. A design with no concave tools (none
+/// authored, or tiers that do not resolve, see [`Design::tools_for_scoring`]) is measured as
+/// planes alone. A design with no frosted facet has no finishes (the empty, all-polished
+/// list), and the tracer takes its polished path.
 pub(super) struct ScoredStone {
     planes: Vec<GpuFacetPlane>,
     tools: Vec<ToolPrimitive>,

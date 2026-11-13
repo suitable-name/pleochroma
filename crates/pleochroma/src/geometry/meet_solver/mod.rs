@@ -1,39 +1,30 @@
 //! Meet-point solver.
 //!
-//! Derives `GemCAD` "mast" (facet plane offset) distances from angles, index
-//! positions, gear, and meet constraints alone -- the inverse of the forward
-//! `from_asc_schedule` plane construction in [`super::cuts`].
+//! Derives `GemCAD` "mast" (facet plane offset) distances from angles, index positions,
+//! gear, and meet constraints. This is the inverse of the forward plane construction in
+//! [`super::cuts`].
 //!
 //! # The meet model: vertex incidence, not tangency
 //!
-//! Every facet plane is `n . x = mast` with `n` fixed by angle, index and gear, and
-//! `mast` the unknown. The format's semantics is **vertex incidence**, not
-//! *tangency* (cutting inward until first touching the solid, `mast = max_v n . v`,
-//! the support function): the recorded mast is essentially never that maximum
-//! (0.7% of ~39,000 measured tiers across 2,881 real designs). Instead the facet is
-//! cut *past* first touch until its plane passes exactly through a vertex of the
-//! arrangement formed by the other facets' planes -- true for 96.2% of tiers
-//! (within 0.5% relative, every other tier pinned at its true mast). Among the
-//! arrangement's candidate vertex "levels" ordered by `n . v` descending, the true
-//! one is level 1 (first past first touch) for 77.5% of tiers, within the first
-//! three for 94.4%.
+//! Every facet plane is `n . x = mast`, with `n` fixed by angle, index and gear. The
+//! format means **vertex incidence**, not tangency (cutting inward until first touch,
+//! `mast = max_v n . v`). The recorded mast is almost never that maximum. Instead, each
+//! facet is cut past first touch until its plane passes through a vertex of the other
+//! facets' arrangement. Among the candidate vertex levels ordered by `n . v` descending,
+//! the true one is usually the first level past first touch, and within the first three
+//! in most cases.
 //!
 //! # What meets alone cannot determine: per-block anchors
 //!
-//! A design's plane arrangement has continuous degrees of freedom that preserve
-//! *every* vertex incidence: girdle planes are vertical (`n.y = 0`), so shifting a
-//! whole crown or pavilion block, or the girdle's own radial scale, coherently is
-//! undetectable from meets alone (verified empirically: a stable fixed point of
-//! this solver's refinement stage). These free parameters are exactly the
-//! dimensions a designer chooses and a printed diagram states (the `C/W`, `P/W`,
-//! `H/W` numbers on every `GemCAD` printout). A caller must therefore supply one
-//! [`MeetConstraint::ScaleReference`] per block that the schedule itself doesn't
-//! anchor; masts within each block are then meet-derived from that anchor.
-//! [`meet_tier_inputs_from_asc`] classifies stated anchors, and
-//! [`apply_ratio_anchors`] fills in whatever's left unanchored from a design's
-//! printed `C/W`/`P/W` proportions -- the only source available with no `.asc`
-//! file, and one with real residual error (see its own doc comment); a caller with
-//! real recorded masts to bootstrap from should prefer those.
+//! Some continuous degrees of freedom preserve every vertex incidence. Girdle planes are
+//! vertical (`n.y = 0`), so shifting a whole crown or pavilion block, or scaling the
+//! girdle radius, coherently is invisible to meets. These are the dimensions a designer
+//! chooses and a printed diagram states (`C/W`, `P/W`, `H/W`). A caller must therefore
+//! supply one [`MeetConstraint::ScaleReference`] per block that the schedule does not
+//! anchor; the masts within each block are then meet-derived from that anchor.
+//! [`meet_tier_inputs_from_asc`] classifies stated anchors. [`apply_ratio_anchors`] fills
+//! in the rest from printed `C/W`/`P/W` proportions. That source has real residual error,
+//! so prefer real recorded masts when available.
 //!
 //! # Solving strategy
 //!
@@ -58,7 +49,7 @@
 //!    mutually-dependent groups and polish phase-1 values.
 //!
 //! `"Meet <names>"` references are resolved by [`MeetNameResolver`], which handles
-//! the corpus's informal reference styles (unnamed girdle/culet/table references,
+//! informal reference styles (unnamed girdle/culet/table references,
 //! compound `"1-2-G1"` vertex specs, connective prose, case and side-prefix
 //! mismatches).
 //!
@@ -68,16 +59,14 @@
 //!
 //! # External verification: printed proportions
 //!
-//! A wrong solve is *self-consistent* -- every tier still lands on a real meet
-//! vertex -- so nothing internal to the arrangement separates it from the truth
-//! (several internal discriminators were tried and rejected; see the NOTE
-//! comments in this module and in `candidates`, `solve`, `verify`). What does
-//! separate them is **external**: the proportion figures printed on every real
-//! diagram (`Vol/W^3`, `L/W`, `C/W`, `P/W`, `H/W`). The true configuration
-//! reproduces them to ~0.1% median while a wrong solve is off by ~30%
-//! ([`super::stone_metrics`] holds the calibration). [`solve_meet_points_verified`]
-//! exploits this with a greedy repair search over phase-1 vertex-level picks,
-//! scored by [`ExternalProportions::combined_deviation`].
+//! A wrong solve is self-consistent: every tier still lands on a real meet vertex. So
+//! nothing internal to the arrangement separates it from the truth. What does separate
+//! them is external: the proportion figures printed on a diagram (`Vol/W^3`, `L/W`,
+//! `C/W`, `P/W`, `H/W`). The true configuration reproduces them to about 0.1 % (median),
+//! while a wrong solve is typically off by about 30 % (calibration in
+//! [`super::stone_metrics`]). [`solve_meet_points_verified`] uses this with a greedy
+//! repair search over phase-1 vertex-level picks, scored by
+//! [`ExternalProportions::combined_deviation`].
 //!
 //! # Validating a schedule (forward direction)
 //!
@@ -87,90 +76,36 @@
 //!
 //! # Cost envelope
 //!
-//! [`candidates::enumerate_candidate_vertices_cancellable`] -- every
-//! well-conditioned triple of the arrangement's `P` planes, solved and
-//! feasibility-tested -- is
-//! `O(P^3)` per call. Phase 1 (the constructive pass) avoids paying that per
-//! tier via `phase1_cache`'s incremental candidate set, but phase 3
-//! (refinement) re-enumerates the *entire* arrangement from scratch every
-//! sweep, up to [`MAX_REFINE_SWEEPS`] times -- a deliberate choice, not an
-//! oversight: an owner-move-invalidated persistent cache across phase-3 sweeps
-//! was implemented and measured, and rejected (see the NOTE at the top of
-//! `candidates`) -- on a real 103-tier design, 97-100 of its 103 tiers move on
-//! *every* sweep (it never converges within the cap), so almost nothing ever
-//! qualified for the cheap path and the cache's own bookkeeping cost more than
-//! it saved (a measured 27% regression). Do not reintroduce that cache without
-//! new evidence the corpus's move pattern has changed.
+//! [`candidates::enumerate_candidate_vertices_cancellable`] tests every well-conditioned
+//! triple of the `P` planes, which is `O(P^3)` per call. Phase 1 avoids paying that per
+//! tier through `phase1_cache`'s incremental candidate set. Phase 3 re-enumerates the
+//! whole arrangement from scratch on each sweep, up to [`MAX_REFINE_SWEEPS`] times. This
+//! is deliberate: most tiers move on every sweep, so a persistent cache costs more in
+//! bookkeeping than it saves (see the note in `candidates`).
 //!
-//! [`MAX_PLANES`] (400) hard-caps what gets solved at all -- above it,
-//! [`solve_meet_points`] and [`solve_meet_points_verified`] both return
-//! immediately with [`SolveStrategy::Failed`] tiers rather than attempting a
-//! solve. No design in the 2,881-design corpus this crate is calibrated
-//! against comes anywhere near that cap. [`solve_meet_points_verified`]'s own
-//! repair search documents its per-design cost model directly (see
-//! `VERIFY_RUN_BUDGET` in `verify`): one pipeline run costs roughly
-//! `tiers * planes^3`, and since tier count itself grows with plane count,
-//! that is effectively `planes^4` -- which is why the verified search's
-//! per-design run budget is `VERIFY_RUN_BUDGET / total_planes^4` (clamped to
-//! `[1, VERIFY_MAX_RUNS]`, `VERIFY_MAX_RUNS_CALIBRATED` with adjustable
-//! anchors): a ~60-plane design gets the search's full budget (up to 120
-//! runs), a ~150-plane design gets roughly 20, and a 300+-plane design is left
-//! with essentially the one plain-solve run -- the budget itself is what keeps
-//! a large design from spending minutes in the repair search rather than any
-//! change in per-run cost.
+//! [`MAX_PLANES`] (400) caps what is solved at all. Above it, [`solve_meet_points`] and
+//! [`solve_meet_points_verified`] return immediately with [`SolveStrategy::Failed`] tiers.
+//! The repair search budgets its pipeline runs per design (see `VERIFY_RUN_BUDGET` in
+//! `verify`), since one run costs roughly `planes^4` once tier count is included. Large
+//! designs therefore get little or no repair search.
 //!
-//! Measured figures, not modeled estimates: [`solve_meet_points_verified`]'s
-//! own corpus probe (see that function's doc comment) ran a mean of
-//! 68.4 pipeline runs per design over the full 2,881-design corpus (fixed
-//! anchors) in about 29 minutes at 16 threads -- averaging on the order of
-//! **~0.1 s per pipeline run** across the corpus's real, heavily
-//! small-plane-count-weighted distribution (the run-budget scaling above is
-//! exactly what keeps that average low despite the heavy tail: without it,
-//! the ~190 corpus designs above 100 planes would each burn many core-minutes
-//! per design, per that same comment). The one measured single-design,
-//! single-run-class data point at the heavy end: the real 103-tier design
-//! used in the threading and caching experiments above took 5.5-6.1 s
-//! single-threaded end to end (see the NOTE at the top of `candidates`).
-//!
-//! Practical expectation for a caller: a design in the roughly 60-150-plane
-//! range (typical of the corpus) solves in a small fraction of a second to
-//! low seconds even under [`solve_meet_points_verified`]'s repair search;
-//! a design pushing into the 300+-plane range should be expected to take
-//! several seconds and to receive little or no repair search regardless (the
-//! budget above has already reduced it near to the plain solve). A caller
-//! driving this from an interactive UI should still run it off the main
-//! thread and size any timeout to the plane count, not assume a fixed budget.
+//! Practical expectation: a design of roughly 60-150 planes solves in a fraction of a
+//! second to a few seconds, including the repair search. A 300+-plane design takes
+//! several seconds and gets little or no repair search. A caller on an interactive UI
+//! should run the solve off the main thread and size any timeout to the plane count.
 //!
 //! # Cancellation and progress
 //!
-//! [`solve_meet_points_with`] and [`solve_meet_points_verified_with`] accept a
-//! [`SolveControl`], the cancellation/progress-reporting sibling of
-//! [`solve_meet_points`]/[`solve_meet_points_verified`] (which pass a no-op
-//! control and stay infallible -- an unused [`SolveControl`] costs one
-//! `Option::is_some` check per cancel point and changes no output). Cancel
-//! points, from coarsest to finest: once per constructive-pass sweep AND once
-//! per still-unsettled tier within a sweep (phase 1 -- `phase1_cache`-backed,
-//! not the cubic path, but one sweep's cumulative filtering cost across every
-//! unsettled tier was measured able to exceed the budget below in an
-//! unoptimized build on its own, hence the per-tier check too), once per
-//! refinement sweep (phase 3, up to [`MAX_REFINE_SWEEPS`] times), and --
-//! since phase 3's [`candidates::enumerate_candidate_vertices_cancellable`]
-//! call is the measured long pole (it dominates the real 103-tier design's
-//! 5.5-6.1 s total, see above) -- twice within its candidate-triple
-//! enumeration itself: once per outer-plane iteration and once per
-//! middle-plane iteration, bounding the largest uninterrupted unit of work to
-//! one `O(P)` inner loop rather than a whole `O(P^2)` outer-plane "chunk" (an
-//! outer-only check was tried first and measured insufficient -- the first,
-//! largest chunk alone could still miss the budget below in an unoptimized
-//! build; see that function's own doc comment). Measured on that same
-//! 103-tier design (dev profile, the same build `cargo test` uses):
-//! cancelling 50 ms into a solve started on a background thread is observed
-//! within 500 ms -- see `pleochroma-cut-core`'s
-//! `design::tests::cancel_stops_a_large_real_solve_quickly`.
-//! [`solve_meet_points_verified_with`]'s own repair-search pipeline runs each
-//! go through the same [`SolveControl`], so a cancel or progress report from
-//! deep inside one repair-search run surfaces exactly the same way a plain
-//! solve's does -- no separate progress model for the verified path.
+//! [`solve_meet_points_with`] and [`solve_meet_points_verified_with`] take a
+//! [`SolveControl`]. The plain entry points pass a no-op control, which costs one
+//! `Option::is_some` check per cancel point and changes no output. Cancel points run from
+//! coarse to fine: once per constructive sweep and once per unsettled tier within it, once
+//! per refinement sweep, and twice inside the candidate enumeration (per outer and per
+//! middle plane). That last pair bounds the longest uninterrupted work to one `O(P)` loop.
+//! A cancel on a 103-tier design is observed within 500 ms (see
+//! `pleochroma-cut-core`'s `design::tests::cancel_stops_a_large_real_solve_quickly`).
+//! The repair search's pipeline runs use the same control, so a cancel or progress report
+//! from inside them surfaces like a plain solve's.
 //!
 //! # Module layout
 //!
@@ -234,9 +169,8 @@ const LEVEL_TOL: f64 = 1e-5;
 /// vertex. Shared with [`super::stone_metrics`] and [`super::brep`].
 pub(crate) const MIN_TRIPLE_DET: f64 = 1e-6;
 
-/// Designs with more facet planes than this are not solved (the candidate
-/// enumeration is cubic in the plane count). No design in the 2,881-design corpus
-/// comes anywhere near it.
+/// Designs with more facet planes than this are not solved (the candidate enumeration
+/// is cubic in the plane count). Real designs stay far below it.
 const MAX_PLANES: usize = 400;
 
 /// Maximum constructive sweeps (phase 1). Values snap onto exact vertex levels,
@@ -245,14 +179,11 @@ const MAX_CONSTRUCTIVE_SWEEPS: usize = 64;
 
 /// Maximum nearest-level refinement sweeps (phase 3).
 ///
-/// Many runs never satisfy the `1e-12` convergence test -- masts drift or
-/// oscillate between vertex levels instead of contracting -- so extra sweeps
-/// mostly waste time rather than improve accuracy; convergent runs typically
-/// settle within one or two sweeps anyway. Capping at 4 measured better on every
-/// corpus accuracy metric than higher caps while cutting phase-3 CPU time by
-/// roughly 2.7x. Tried a fixed-point acceleration of the vertex map instead: it
-/// mostly failed to converge within 20,000 iterations, and slightly worsened
-/// accuracy on the corpus median when it did; rejected.
+/// Many runs never meet the `1e-12` convergence test: masts oscillate between vertex
+/// levels instead of contracting. Extra sweeps mostly cost time, and convergent runs
+/// usually settle within one or two sweeps. Higher caps mostly add time without
+/// improving accuracy. A fixed-point acceleration of the vertex map was
+/// rejected for the same reason.
 const MAX_REFINE_SWEEPS: usize = 4;
 
 /// Which of the three solve phases (see the module docs' "Solving strategy") a
@@ -296,8 +227,8 @@ pub struct SolveProgress {
 /// [`solve_meet_points_verified_with`]) returned early instead of a solved result.
 ///
 /// The plain (non-`_with`) entry points never produce this: an unused
-/// [`SolveControl`] never cancels, and they keep the legacy
-/// all-[`SolveStrategy::Failed`] behavior for [`Self::TooManyPlanes`] instead
+/// [`SolveControl`] never cancels, and they return an
+/// all-[`SolveStrategy::Failed`] result for [`Self::TooManyPlanes`] instead
 /// of erroring (see each variant's doc comment).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SolveError {
@@ -316,14 +247,10 @@ pub enum SolveError {
     },
     /// Tier `tier` (file order) carries a non-finite (NaN or infinite) `field`.
     ///
-    /// Checked up front, before any candidate-vertex geometry runs: a non-finite
-    /// input doesn't fail loudly on its own downstream (a NaN determinant fails
-    /// every `<`/`>` comparison, so a naive threshold check silently treats it as
-    /// "not degenerate" and a NaN or infinite mast can otherwise report a
-    /// plausible-looking `Closed` solid with a facet silently missing). The
-    /// `.asc` parser separately rejects `nan`/`inf` tokens in its own format, but
-    /// this solver does not rely on that -- a caller building [`MeetTierInput`]
-    /// from any other source gets the same guarantee.
+    /// Checked before any candidate-vertex geometry runs. A NaN determinant fails every
+    /// `<` comparison, so a threshold check would treat it as non-degenerate, and a NaN
+    /// or infinite mast could yield a plausible solid with a facet missing. The `.asc`
+    /// parser also rejects `nan`/`inf` tokens, but this solver does not rely on that.
     NonFiniteInput {
         /// Index (file order) of the first tier found with a non-finite value.
         tier: usize,
@@ -523,8 +450,8 @@ pub struct MeetTierInput {
 
 /// How a tier's mast distance is determined.
 ///
-/// `PartialEq` is derived for `pleochroma-cut-core`'s benefit: `pleochroma_cut_core::design::ConstraintTier`
-/// stores this as editable state and needs it for undo/redo round-trip tests.
+/// `PartialEq` is derived for `pleochroma_cut_core::design::ConstraintTier`, which stores
+/// this as editable state and needs it for undo/redo round-trip tests.
 #[derive(Debug, Clone, PartialEq)]
 pub enum MeetConstraint {
     /// Cut past first touch until the plane passes through a meet vertex of the

@@ -1,7 +1,8 @@
-//! Tests of the Titanite (Sphene) built-in (2026-11-03): its index curves follow Busz's measured
-//! values and stay ordered, its fire is above diamond's, its 2V is the measured one, refraction
-//! into it converges at its birefringence (the check it waited for), and its three rays have the
-//! published pleochroic order.
+//! Tests of the Titanite (Sphene) built-in.
+//!
+//! Its index curves follow Busz's measured values and
+//! stay ordered, its fire is above diamond's, its 2V is the measured one, refraction into it
+//! converges at its birefringence, and its three rays have the published pleochroic order.
 
 use crate::{
     color::{
@@ -101,7 +102,8 @@ fn titanite_two_v_is_the_measured_one() {
 }
 
 /// Refraction into the stone: the two-step fixed point of `resolve_entry_mode` against the same
-/// iteration run to convergence, for both modes over a fan of incidences, at the F line where the
+/// iteration run to convergence, for both modes over a fan of incidences, at the F line where
+/// the
 /// indices spread most. At titanite's birefringence each step shrinks the error by about
 /// `delta_n tan(theta) / n`, so two steps leave far less than the dispersion that shows as fire.
 #[test]

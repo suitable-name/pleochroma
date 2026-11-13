@@ -1,6 +1,5 @@
-//! Color variants and per-axis colors as zone colors: the stored rows of a variant color
-//! ([`PatternTensorRows`]), the per-millimeter rule ([`per_mm_rows`]) and how a zone color fits the
-//! host's rank ([`zone_rank_fit`]).
+//! Color variants and per-axis colors as zone colors: the stored rows ([`PatternTensorRows`]),
+//! the per-millimeter rule ([`per_mm_rows`]) and the rank fit ([`zone_rank_fit`]).
 //!
 //! # Per millimeter only
 //!
@@ -11,8 +10,8 @@
 //! `(W / 7) / K * (R / model_width)` and a `PerMm` one `W / model_width` (`render_setup::
 //! absorption_path_scale_for`; `K` = `MODEL_UNIT_FACE_UP_PATH`, `R` = `REFERENCE_MODEL_WIDTH`,
 //! `W` the stone width), so the same stone shows the same color when the per-millimeter numbers
-//! are the model-unit ones times `R / (7 * K)`. The stone width and the design's model width cancel
-//! out, which is why [`per_mm_factor`] takes no size.
+//! are the model-unit ones times `R / (7 * K)`. The stone width and the design's model width
+//! cancel out, which is why [`per_mm_factor`] takes no size.
 //!
 //! # The wire form
 //!
@@ -175,8 +174,8 @@ pub fn per_mm_rows(variant: &ColorVariant) -> PatternTensorRows {
 pub enum ZoneRankFit {
     /// The color has the rank the host asks for (or a rank the host accepts).
     Fits,
-    /// A one-color zone on a pleochroic host: it renders as saved but has no pleochroism
-    /// ("Legacy: No Pleochroism"; owner decision D2).
+    /// A one-color zone on a pleochroic host: it renders as saved, without pleochroism (a
+    /// legacy color).
     Legacy,
     /// More axes than the host has (three colors on a uniaxial host, two on an isotropic one).
     TooRich,

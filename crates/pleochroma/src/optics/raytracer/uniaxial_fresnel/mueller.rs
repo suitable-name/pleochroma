@@ -22,13 +22,9 @@ pub(crate) fn azimuth2_in_frame(dir: Vec3, s_axis: Vec3, p_axis: Vec3) -> (f32, 
     (cos_2psi, sin_2psi)
 }
 
-/// General complex-Jones-matrix -> real-Mueller-matrix conversion, in this crate's
-/// EXACT `(I, Q, U, V)` convention (`Q = |Es|^2 - |Ep|^2`, `U = 2*Re(Es*Ep_conj)`, `V =
-/// -2*Im(Es*Ep_conj)` -- independently re-derived from, and verified bit-for-bit
-/// against, `MuellerMatrix::fresnel_reflection`/`fresnel_transmission`/
-/// `tir_retardation`'s own already-shipped sign convention: for a real diagonal Jones
-/// matrix `diag(r_s, r_p)` this reduces EXACTLY to `fresnel_reflection`'s own `a, b, c`
-/// formula -- see `jones_to_mueller_matches_existing_diagonal_fresnel_reflection` below.
+/// Complex Jones matrix to real Mueller matrix, in this crate's `(I, Q, U, V)` convention
+/// (`Q = |Es|^2 - |Ep|^2`, `U = 2*Re(Es*Ep_conj)`, `V = -2*Im(Es*Ep_conj)`). For a real
+/// diagonal Jones matrix `diag(r_s, r_p)` it matches `MuellerMatrix::fresnel_reflection`.
 /// `j = [[j_ss, j_sp], [j_ps, j_pp]]` maps incident `(E_s, E_p)` to outgoing `(E_s',
 /// E_p')`.
 #[must_use]
@@ -83,21 +79,12 @@ pub(crate) fn jones_to_mueller(j_ss: Cplx, j_sp: Cplx, j_ps: Cplx, j_pp: Cplx) -
     ])
 }
 
-/// The transmitted POWER FRACTION (dimensionless, in `[0, 1]` for a physical state) a
-/// SINGLE output mode receives from a 2-component `(s, p)` input: `T_mode(stokes) =
-/// (mode_flux / inc_flux) * [|t_s|^2*(I+Q)/2 + |t_p|^2*(I-Q)/2 + Re(t_s*conj(t_p))*U +
-/// Im(t_s*conj(t_p))*V]` -- the same construction [`jones_to_mueller`]'s row-I
-/// derivation uses, specialised to a single output row (see this module tree's
-/// top-level doc comment, "Stokes/Mueller integration"), divided by the INCIDENT mode's
-/// own intrinsic flux so the result is a true power fraction, not merely `power *
-/// mode_flux` (dividing by `inc_flux` here, rather than leaving it to the caller, is
-/// deliberate -- an earlier version of this function omitted it entirely, which an
-/// `apply_uniaxial_entry_bounce` integration test caught: summed reflectance +
-/// transmittance came out around 0.43 instead of 1.0, tracked down to exactly this
-/// missing division). This is what the mode-selection probability in
-/// `apply_partial_fresnel_bounce` (replacing an earlier `entry_eigenmode_selection`
-/// heuristic) is built from: the TRUE Poynting-weighted power fraction this specific
-/// incident polarization state sends into this one mode.
+/// The transmitted power fraction, in `[0, 1]` for a physical state, that a single output
+/// mode receives from a 2-component `(s, p)` input: `T_mode(stokes) = (mode_flux /
+/// inc_flux) * [|t_s|^2*(I+Q)/2 + |t_p|^2*(I-Q)/2 + Re(t_s*conj(t_p))*U +
+/// Im(t_s*conj(t_p))*V]`. The division by the incident mode's own flux is what makes the
+/// result a true power fraction. It drives the mode-selection probability in
+/// `apply_partial_fresnel_bounce`.
 #[must_use]
 pub(crate) fn mode_power(
     t_s: Cplx,

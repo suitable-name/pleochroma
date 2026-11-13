@@ -2,7 +2,7 @@
 //! step's stage ("Show Me Where").
 //!
 //! Pure functions over plain values, so they are tested natively; `editor::guide` reads the
-//! window and the app state and passes the numbers in.
+//! window and the app state and passes the numbers in (the page's `editor::guide` module).
 //!
 //! # The web's tabs, in the lessons' numbers
 //!
@@ -58,8 +58,8 @@ pub fn tab_for_view_mode(mode: i32) -> Option<i32> {
 
 /// Whether a goal can be judged with no design open.
 ///
-/// Such a goal reads only events and the tabs. Any other goal is not met without a design (a placeholder design would match a goal such as
-/// `Goal::FreshDesign` by accident).
+/// Such a goal reads only events and the tabs. Any other goal is not met without a design:
+/// a placeholder design would match a goal such as `Goal::FreshDesign` by accident.
 #[must_use]
 pub fn is_design_free(goal: &Goal) -> bool {
     match goal {
@@ -180,7 +180,7 @@ fn reads_inspector_tab(goal: &Goal) -> bool {
     }
 }
 
-/// The inspector tab a highlight target lives on in the browser when the shared stage names none:
+/// The inspector tab of a highlight target in the browser, when the shared stage names none:
 /// the desktop's Deep Solve button sits in the command bar, the web's in the Optimize tab.
 fn web_inspector_tab_of(target: &str) -> Option<i32> {
     match target {
@@ -189,7 +189,7 @@ fn web_inspector_tab_of(target: &str) -> Option<i32> {
     }
 }
 
-/// The view and inspector tab the stage `stage` of `step` asks for. The desktop's library panel,
+/// The view and inspector tab that `stage` of `step` asks for. The desktop's library panel,
 /// accordion sections, Parameters dock and camera pose have no web counterpart and are ignored.
 #[must_use]
 pub fn wanted_of(stage: &Stage, step: &GuideStep) -> Wanted {
@@ -455,7 +455,7 @@ mod tests {
         assert_eq!(web.steps.len(), STEPS.len());
         for (index, (step, shared)) in web.steps.iter().zip(STEPS).enumerate() {
             assert_eq!(step.title, shared.title, "step {index}");
-            // The web may only add a lock group's worth of freedom (the Render tab), never lock more.
+            // The web may add freedom (the Render tab) but never locks more.
             assert!(
                 shared.allow.iter().all(|group| step.allow.contains(group)),
                 "the locks of step {index}"

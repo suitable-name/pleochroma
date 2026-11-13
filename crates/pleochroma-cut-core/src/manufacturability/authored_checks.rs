@@ -7,13 +7,10 @@ use super::warning::ManufacturabilityWarning;
 use crate::design::{Design, meet_name_is_asc_safe};
 use pleochroma::geometry::meet_solver::{MeetConstraint, MeetNameResolver};
 
-/// An index within this absolute distance of an integer counts as landing on
-/// a real gear tooth. Real `.asc` index tokens are written as plain decimal
-/// literals (`0`, `24`, `47.5`) that parse to exact or near-exact `f64`
-/// values, so this only needs to absorb text/float round-trip noise, not
-/// measurement error -- `1e-9` is generous for that while still catching a
-/// genuine half-tooth position like `47.5` (error `0.5`, eleven orders of
-/// magnitude over the threshold).
+/// An index within this absolute distance of an integer counts as landing on a real gear
+/// tooth. `.asc` index tokens are plain decimal literals (`0`, `24`, `47.5`), so this only
+/// absorbs text and float round-trip noise. A genuine half-tooth position such as `47.5`
+/// is far above it.
 const GEAR_QUANTIZATION_EPS: f64 = 1e-9;
 
 /// Check 3: an authored index-wheel position does not land on a real gear
@@ -22,12 +19,9 @@ const GEAR_QUANTIZATION_EPS: f64 = 1e-9;
 /// Needs no mast at all, so this runs off `design`'s raw authored `indices`
 /// regardless of whether the design has ever been solved.
 ///
-/// Reports nothing at all when `design.meta.gear_teeth_abs() == 0`: a
-/// `.max(1)` fallback would compute an `azimuth_error_deg` as if this design had
-/// a real one-tooth wheel (`360 * delta`), which is not a gear any lapidary owns
-/// and is not a meaningful figure to show -- with no real gear stated, there is
-/// nothing to quantize against, so the honest answer is no warning rather than a
-/// fabricated one.
+/// Reports nothing when `design.meta.gear_teeth_abs() == 0`. With no real gear stated
+/// there is nothing to quantize against, and a `.max(1)` fallback would invent a
+/// one-tooth wheel and a meaningless `azimuth_error_deg`.
 #[must_use]
 pub fn check_gear_quantization(design: &Design) -> Vec<ManufacturabilityWarning> {
     let gear_teeth_abs = design.meta.gear_teeth_abs();
@@ -58,15 +52,11 @@ pub fn check_gear_quantization(design: &Design) -> Vec<ManufacturabilityWarning>
 /// Check 4: a tier's stated meet target comes at or after the tier itself in
 /// the schedule -- see the module docs.
 ///
-/// Needs no mast either: this resolves
-/// `design`'s own authored [`MeetConstraint::MeetNamed`] references via the
-/// exact same [`MeetNameResolver`] `pleochroma::geometry::meet_solver::solve_meet_points`
-/// itself uses (reused, not reimplemented, so this check's notion of "which
-/// tier does this name" can never disagree with what the solver actually
-/// solved against), and only reports a resolved reference whose target index
-/// is `>=` the referencing tier's own index -- a self-reference (index equal
-/// to `tier_index`) is included too, since a tier obviously cannot meet a
-/// facet that is itself not yet cut.
+/// Needs no mast either. It resolves `design`'s authored [`MeetConstraint::MeetNamed`]
+/// references with the same [`MeetNameResolver`] the solver uses, so the two cannot
+/// disagree about which tier a name means. It reports a resolved target whose index is
+/// `>=` the tier's own index. A self-reference counts too, since a tier cannot meet a
+/// facet it has not cut yet.
 ///
 /// An unresolved name, or one the schedule states as [`MeetConstraint::MeetExisting`]/
 /// [`MeetConstraint::ScaleReference`], is out of scope here -- this check is

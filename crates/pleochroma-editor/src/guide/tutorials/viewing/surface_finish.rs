@@ -1,6 +1,7 @@
 //! Surface Finish in the editor: how well the facets are polished, how that differs from the
-//! haze inside a stone, and which way the polishing scratches point (manual chapter "Surface
-//! Finish").
+//! haze inside a stone, and which way the polishing scratches point.
+//!
+//! Manual chapter: "Surface Finish".
 //!
 //! Every lesson starts from the Rich Teaching Design. A grade is a design edit, so the steps wait
 //! for it with a [`check`] on the design (see `effects_common.rs`). What only changes the view,

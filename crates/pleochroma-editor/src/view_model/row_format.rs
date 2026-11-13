@@ -1,10 +1,7 @@
 //! Small per-tier text/formatting helpers.
 //!
-//! The pieces [`super::rows`]'s row builders share, plus the handful other editor actions
-//! reach directly (multi-select, the symmetry-preview and meet-name-resolution checks).
-//!
-//! The
-//! desktop's Slint model push helpers stay with the desktop.
+//! The pieces [`super::rows`]'s row builders share, plus the helpers other editor actions
+//! call directly (multi-select, the symmetry-preview and meet-name-resolution checks).
 
 use super::{IndexChip, TierRow};
 use pleochroma::geometry::meet_solver::{
@@ -18,11 +15,8 @@ use pleochroma_cut_core::{Design, OrbitUnit, TierTarget};
 /// `super::loading::parse_tier_form`'s constraint parsing and
 /// `super::loading::parse_tier_target`'s target parsing, combined.
 ///
-/// `target` wins whenever it is `Some`: `Design::resolved_meet_tier_inputs`
-/// always leaves `constraint` as a `ScaleReference(0.0)` PLACEHOLDER on a
-/// target-bearing tier (`pleochroma_cut_core::design::targets`'s module docs),
-/// so reading `constraint` directly would show kind `2` with a meaningless
-/// "0" rather than the target the cutter actually authored.
+/// `target` wins whenever it is `Some`. A target-bearing tier stores a `ScaleReference(0.0)`
+/// placeholder as its constraint, so reading the constraint would show a meaningless "0".
 pub(super) fn constraint_kind_and_text(
     constraint: &MeetConstraint,
     target: Option<TierTarget>,
@@ -44,37 +38,21 @@ pub(super) fn constraint_kind_and_text(
     }
 }
 
-/// The tier table's ANGLE cell text.
+/// The tier table's ANGLE cell text, always two decimals.
 ///
-/// Always two decimals: a wheel/keyboard nudge accumulates plain `f64` noise (e.g.
-/// `-40.300000000000004`), and showing that raw `Display` output read as a cut-off,
-/// broken number rather than a rounding artifact.
-///
-/// A cutter compares
-/// this against a 2-decimal gauge anyway, so truncating the DISPLAY (never the
-/// stored value) is honest and matches every other angle readout in this app
-/// (`view::refresh_design_settings`'s critical-angle text, the margin column,
-/// ...).
-///
-/// This returned string IS rounded -- the inline editor and the tier-edit form
-/// do NOT re-seed from it: both read `EditorTierItem::angle_full` instead (the
-/// full, unrounded `Display`, see that field's own doc comment in
-/// `ui/types.slint`), precisely so a re-save can never silently round a value
-/// the design itself still holds exactly (the form does not
-/// read the full, unrounded value back from this string).
+/// A nudge leaves `f64` noise (e.g. `-40.300000000000004`) that would read as a broken number.
+/// Only the display is rounded, never the stored value. The inline editor and the tier-edit form
+/// re-seed from [`TierRow::angle_full`] instead, so a re-save cannot round a value the design
+/// holds exactly.
 #[must_use]
 pub fn format_angle_cell(angle_deg: f64) -> String {
     format!("{angle_deg:.2}")
 }
 
-/// One index-wheel position's display text -- an integer when it lands exactly
-/// on a whole tooth (the overwhelming common case), else two decimals.
+/// One index-wheel position's display text: an integer on a whole tooth, else two decimals.
 ///
-/// Mirrors
-/// [`format_angle_cell`]'s reasoning for the same nudge-noise problem, but
-/// integral-aware: `"24"` reads better than `"24.00"` for the ordinary case,
-/// while a genuinely fractional index (rare, but real -- see
-/// `ManufacturabilityWarning::FractionalIndex`) still shows its non-integral part.
+/// Integral-aware like [`format_angle_cell`], so `"24"` rather than `"24.00"`. A genuinely
+/// fractional index (see `ManufacturabilityWarning::FractionalIndex`) keeps its fraction.
 #[must_use]
 pub fn format_index_value(value: f64) -> String {
     if value.fract().abs() < 1e-9 {
@@ -84,21 +62,14 @@ pub fn format_index_value(value: f64) -> String {
     }
 }
 
-/// Builds one [`IndexChip`] per entry in `indices`, flagging exactly the occurrences also
-/// present in `detached`.
+/// Builds one [`IndexChip`] per entry in `indices`, flagging the occurrences also present in
+/// `detached`.
 ///
-/// The inspector's per-facet chip row, kept separate from [`TierRow`] (the desktop builds
-/// tier rows on a background thread for a large design and ships them across threads; its
-/// Slint chip model is `Rc`-backed and must not ride along).
+/// The chip row is kept apart from [`TierRow`], which the desktop builds on a worker thread;
+/// the Slint chip model is `Rc`-backed and cannot cross threads.
 ///
-/// A plain epsilon-equality scan against `detached` (not `crate::orbit::edit`'s
-/// private, gear-wraparound-aware `same_index`, unreachable from here) is correct
-/// for this: both `Vec`s are the SAME tier's own values, `detached` entries are
-/// always pushed from `indices` verbatim (`Design::detach_orbit_member`/
-/// `detach_all_in_tier`), never independently authored or wrapped, so no
-/// wraparound normalization is ever needed to tell them apart -- only real edits
-/// (`facet_toggle_detach`'s Rust handler) need the wraparound-aware comparison,
-/// and those already go through core's own helpers.
+/// A plain epsilon comparison is enough: `detached` holds values copied verbatim from `indices`,
+/// never wrapped, so no gear-wraparound normalization is needed.
 #[must_use]
 #[expect(
     clippy::cast_possible_truncation,
@@ -115,10 +86,8 @@ pub fn index_chip_items(indices: &[f64], detached: &[f64]) -> Vec<IndexChip> {
         .collect()
 }
 
-/// Display text for a tier's `imported_meet` -- what the source `.asc` file's `G`
-/// field claimed this facet meets, kept alongside the pinned `constraint` import now
-/// writes instead. `""` when there's nothing to adopt, which `EditorView` also uses
-/// as its "show the Adopt button" condition.
+/// Display text for a tier's `imported_meet`: what the source `.asc` file's `G` field claimed.
+/// `""` when there is nothing to adopt, which also decides whether the Adopt button shows.
 pub(super) fn imported_meet_text(imported_meet: Option<&MeetConstraint>) -> String {
     match imported_meet {
         Some(MeetConstraint::MeetExisting) => "meets an unspecified vertex".to_string(),
@@ -147,13 +116,8 @@ pub(super) fn orbit_status_text(units: &[OrbitUnit]) -> (String, bool) {
                 )
             }
         }
-        // Reports which of the two cases this actually is -- a clean multi-facet
-        // fold with one unit short a member, vs a `mixed_fold` where NOTHING
-        // resembles a complete orbit -- rather than folding both into one "N
-        // orbits" label indistinguishable except by the amber tint.
-        // `orbit::mod`'s own corpus-measurement doc comment treats those
-        // as different findings (a `partial` occurrence is common and benign;
-        // `mixed_fold` -- every unit incomplete -- is "real incoherence").
+        // Every unit incomplete is a `mixed_fold` (not symmetric); a partly complete set is
+        // a common, benign partial orbit, so it keeps its count.
         many => {
             let incomplete = many.iter().filter(|u| !u.is_complete()).count();
             if incomplete == 0 {
@@ -170,18 +134,11 @@ pub(super) fn orbit_status_text(units: &[OrbitUnit]) -> (String, bool) {
     }
 }
 
-/// Previews a proposed Symmetry Order/Mirror change's effect on every tier's orbit BEFORE
-/// `setup_apply_symmetry_callback` actually applies it.
+/// Counts the tiers that would have incomplete orbits under a proposed symmetry order and mirror.
 ///
-/// Mirroring the gear-remap path's own dry-run preview (`gear_remap_preview`), which
-/// likewise never mutates `design` to compute its summary.
-///
-/// Clones
-/// `design.meta` and swaps in only the two fields Apply Symmetry can change --
-/// never `design` itself -- then counts a tier the same way its own "orbit"
-/// table badge would ([`orbit_status_text`]'s second return value), so "N tiers
-/// would become incomplete" always agrees with what those rows will show once
-/// applied.
+/// Works on a copy of `design.meta` with only the two symmetry fields replaced, so `design` is
+/// not touched. Each tier is counted by the same rule as its orbit badge ([`orbit_status_text`]),
+/// so the count agrees with the rows once the change is applied.
 #[must_use]
 pub fn tiers_incomplete_under_proposed_symmetry(
     design: &Design,
@@ -221,21 +178,11 @@ pub fn tier_label(design: &Design, tier_index: usize) -> String {
     }
 }
 
-/// Patches [`TierRow::multi_selected`] onto every row in `rows` from `multi_selected`.
+/// Sets [`TierRow::multi_selected`] on every row from `multi_selected`.
 ///
-/// The post-pass a full tier-list rebuild ([`super::rows::
-/// tier_items`]/[`super::rows::tier_items_stale`]) needs to survive with the live
-/// multi-select highlight intact, since neither builder itself knows about
-/// `EditorState::multi_selected` (both always set the flag to `false`; see their own doc
-/// comments).
-///
-/// Every call site that replaces the WHOLE `editor_tiers` model
-/// applies this immediately afterward: `view::refresh_editor_panel`/
-/// `push_stale_content`, and `auto_solve`'s background-solve completion.
-/// `setup_toggle_multi_select_callback` is the one exception -- it patches the
-/// flag onto an ALREADY-pushed model in place instead, using this same function,
-/// since toggling a selection changes nothing about `Design` and must never
-/// re-run a full tier-list rebuild.
+/// The row builders always clear the flag, so a caller that rebuilds the whole tier list applies
+/// this afterwards. Toggling a selection changes nothing in `Design`, so the rows already shown
+/// are patched rather than rebuilt.
 pub fn apply_multi_selection(
     rows: &mut [TierRow],
     multi_selected: &std::collections::BTreeSet<usize>,
@@ -249,13 +196,10 @@ pub fn apply_multi_selection(
 /// The first name in `names` (a `MeetConstraint::MeetNamed` constraint's typed list) that
 /// does not resolve against `design`'s current tiers.
 ///
-/// Built from the SAME [`MeetNameResolver`] `pleochroma::geometry::meet_solver::solve`
-/// itself uses, so a name that would otherwise silently degrade to a dropped token inside
-/// the solver (see that module's own doc comment) is instead caught at Save Tier time
-/// with a specific, actionable message.
+/// Uses the same [`MeetNameResolver`] as the solver, so a name the solver would silently drop
+/// is caught when the tier is saved.
 ///
-/// `None` when every name resolves to a
-/// real tier or is a recognized meet-point word/connective prose
+/// `None` when every name resolves to a tier or is a meet-point word or connective
 /// (`TokenResolution::Ignorable`).
 #[must_use]
 pub fn first_unresolved_meet_name(design: &Design, names: &[String]) -> Option<String> {
@@ -269,28 +213,15 @@ pub fn first_unresolved_meet_name(design: &Design, names: &[String]) -> Option<S
 
 /// The design's own representative crown/pavilion facet angles, in degrees (magnitudes).
 ///
-/// For the crown-window-estimate margin ([`tier_margin_and_risk`]) and the
-/// proportion-verdict angle metrics (`view::push_yield_and_proportions`): the tier whose
-/// name contains "main" (case-insensitive) on each side, or -- when no tier is named that
-/// way -- the tier with the largest magnitude on that side.
+/// For the crown-window margin ([`tier_margin_and_risk`]) and the proportion verdict's angle
+/// metrics: the tier whose name contains "main" (case-insensitive) on each side, or else the
+/// tier with the largest magnitude on that side. `None` on a side with no tier.
 ///
-/// "Crown Main"/"Pavilion
-/// Main" is this crate's own template naming convention
-/// ([`pleochroma_cut_core::ConstraintTier::standard_round_brilliant`] and every
-/// [`pleochroma_cut_core::templates::TEMPLATES`] entry), so this reads the
-/// real main facet for every template-derived design and falls back to a
-/// reasonable guess for a hand-authored one using different names. `None` on
-/// either side when the design has no tier on that side at all.
+/// The standard templates name their main facets "Crown Main" and "Pavilion Main", so they
+/// resolve to the main facet; a hand-authored design falls back to the largest.
 ///
-/// Classifies each tier by [`classify_blocks`] (the SAME classification
-/// [`pleochroma_cut_core::design::export::planes`]/`super::rows::
-/// cutting_instructions_rows`'s own "side" column already use), not by the sign of
-/// `angle_deg` alone -- a girdle tier's own angle sits at magnitude 90 degrees,
-/// not `0.0`, and is a real, signed, nonzero value that a bare `angle > 0.0`/
-/// `angle < 0.0` test would otherwise fold into "crown"/"pavilion" as though it
-/// were a real crown/pavilion facet. A design whose only "crown" tier is a
-/// +90-degree girdle used to judge 90 degrees as the crown's representative
-/// angle for the proportion-verdict chips.
+/// Sides come from [`classify_blocks`], not the sign of `angle_deg`: a girdle tier's angle is
+/// about 90 degrees, so a sign test would read it as a crown or pavilion facet.
 #[must_use]
 pub fn representative_crown_and_pavilion_angles_deg(design: &Design) -> (Option<f64>, Option<f64>) {
     let blocks = classify_blocks(&design.meet_tier_inputs());
@@ -327,31 +258,17 @@ pub fn representative_crown_and_pavilion_angles_deg(design: &Design) -> (Option<
 /// A tier flatter than this (in degrees) is a table or culet, not a windowing question.
 pub(super) const FLAT_TIER_DEG: f64 = 0.5;
 
-/// [`EditorTierItem::margin_text`]/`risk_level` for one tier, classified by
-/// `block` -- pavilion tiers ([`Block::Pavilion`]) read the plain table-only
-/// critical-angle margin ([`pleochroma_cut_core::tier_margin_deg`]/
-/// [`pleochroma_cut_core::windowing_risk`]); crown tiers ([`Block::Crown`])
-/// read the crown-window ESTIMATE ([`pleochroma_cut_core::
-/// crown_window_margin_deg`]/[`pleochroma_cut_core::crown_windowing_risk`])
-/// against `pavilion_partner_deg`, suffixed `" (est.)"` so it is
-/// never mistaken for the same table-only certainty a pavilion row's margin
-/// carries -- see that function's own doc comment for exactly what the
-/// estimate does and does not model. A girdle tier ([`Block::Girdle`]), a flat
-/// table or culet (magnitude below [`FLAT_TIER_DEG`]: light crossing it
-/// straight leaves by design, so a red margin there is only noise), or a
-/// crown tier when no pavilion angle could be found at all, always reads
-/// `("", -1)`, "nothing to show," not a wrong badge. `n_d` is the design's
-/// effective refractive index, the same value the design settings panel's
-/// RI/critical-angle readouts show.
+/// The margin text and risk level for one tier, by `block`.
 ///
-/// `block` is the caller's own [`classify_blocks`] result for this tier
-/// (`super::rows::RowContext::tier_blocks`, computed once per design refresh),
-/// not inferred from `tier_angle_deg`'s own sign/magnitude here -- a girdle
-/// tier's angle sits at magnitude 90 degrees, not `0.0`. The previous
-/// `angle == 0.0` check both mis-classified an exact table/culet tier (a real
-/// crown/pavilion facet, angle `0.0`) as girdle, AND mis-classified a real
-/// +/-90-degree girdle tier as crown/pavilion, giving it a meaningless
-/// crown-window badge.
+/// Pavilion tiers read the table-only critical-angle margin. Crown tiers read the crown-window
+/// estimate against `pavilion_partner_deg`, suffixed `" (est.)"` so it is not taken for the
+/// table-only certainty of a pavilion margin. A girdle tier, a flat table or culet (magnitude
+/// below [`FLAT_TIER_DEG`], where light leaves straight by design), or a crown tier with no
+/// pavilion angle reads `("", -1)`: nothing to show. `n_d` is the design's effective refractive
+/// index.
+///
+/// `block` is the caller's [`classify_blocks`] result, not inferred from the angle: a girdle
+/// tier's angle is about 90 degrees, so its size does not say which side it is on.
 pub(super) fn tier_margin_and_risk(
     tier_angle_deg: f64,
     block: Block,

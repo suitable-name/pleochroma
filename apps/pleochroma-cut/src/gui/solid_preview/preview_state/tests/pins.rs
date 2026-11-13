@@ -1,21 +1,15 @@
-//! Identity pins for the solid-preview frame pipeline (`build_planned_frame` ->
-//! `render_request`), recorded BEFORE its pure half moved into
-//! `pleochroma_solid::preview`, so the move is provably
-//! byte-identical: every hash below is FNV-1a over the exact bytes the desktop
-//! hands its sink (RGBA image, facet pick buffer, diagram tooth buffer).
+//! Identity pins for the solid-preview frame pipeline (`build_planned_frame` -> `render_request`).
 //!
-//! If one of these fails, the desktop's Solid/Diagram pixels changed -- that is
-//! only acceptable as a deliberate rendering change, never as a side effect of a
-//! refactor.
+//! Every hash is FNV-1a over the exact bytes the desktop hands its sink (RGBA image, facet pick
+//! buffer, diagram tooth buffer).
 //!
-//! The hashes are Windows bits. The rasteriser's projection (`tan` of the field of view)
-//! and the facet map's directions (`sin`, `cos`), and the diagram layout's teeth and
-//! labels (`sin_cos`), all run through the platform math library, and glibc rounds a
-//! few of those arguments differently from the Windows runtime, so a boundary pixel or
-//! tooth moves and every hash here differs on Linux (seen 2026-10-01: the solid image
-//! and the edge layer, and both diagram frames; only the facet pick buffer agreed). The
-//! four tests are therefore ignored off Windows; running them there with `--ignored`
-//! prints that platform's hashes, which is all a per-platform table would need.
+//! If one of these fails, the desktop's Solid/Diagram pixels changed. That is acceptable
+//! only as a deliberate rendering change.
+//!
+//! The hashes are Windows bits. The projection and the diagram layout use the platform math
+//! library, and glibc rounds some arguments differently, so on other platforms boundary
+//! pixels move and the hashes differ. The four tests are therefore ignored off Windows;
+//! `--ignored` prints that platform's hashes.
 
 use super::super::{
     CameraPose, FacetOverlay, MeshCache, SolidRasterizer, live_update,
@@ -209,8 +203,7 @@ fn pin_single_panel_diagram_frame() {
     assert_eq!(hashes, PIN_SINGLE_PANEL);
 }
 
-// Recorded 2026-09-29 from the pre-move desktop pipeline. The same
-// values are asserted by `pleochroma_solid::preview`'s own identity test, through
+// The same values are asserted by `pleochroma_solid::preview`'s own identity test, through
 // the web app's pipeline entry points.
 const PIN_SOLID: [u64; 6] = [0x0f10_7ca8_5f93_74bf, 0x5f3d_a2da_7a33_a030, 0, 0, 0, 0];
 const PIN_BOTH: [u64; 6] = [
@@ -221,18 +214,10 @@ const PIN_BOTH: [u64; 6] = [
     0,
     0,
 ];
-// Slot 3 (the diagram's colour image) of both diagram pins was re-recorded 2026-10-05: since
-// 2026-10-04 the diagram labels its facets with the canonical tier codes
-// (`pleochroma_cut_core::design::labelling`, "Pavilion Main 0" is now "P1 0"), which changes
-// text pixels only. The solid image, both pick buffers and the tooth buffers did not move
-// (slots 0, 1, 2, 4 and 5 equal the pins recorded 2026-09-29). The same values are pinned in
-// `pleochroma_solid::preview`'s identity test.
-//
-// Re-pinned 2026-10-06 (cutting-order lane): the table's code became `T`, so its diagram
-// label is `T` where it was `Table`. Slot 3 (the diagram's colour image) of `PIN_DIAGRAM`
-// moved by the pixels of that one label and nothing else did; `PIN_SINGLE_PANEL` is
-// unchanged because its enlarged panel is the pavilion panel, which never draws the table.
-// The same constants live in `pleochroma_solid::preview`'s identity test (lane F1 updates it).
+// Slot 3 (the diagram's colour image) of the diagram pins holds the facet labels in the
+// canonical tier codes (`pleochroma_cut_core::design::labelling`). Slots 0, 1, 2, 4 and 5
+// are the solid image, the pick buffers and the tooth buffers. The same constants live in
+// `pleochroma_solid::preview`'s identity test, which must change with them.
 const PIN_DIAGRAM: [u64; 6] = [
     0x20dd_549d_dad6_8174,
     0xa8f1_2ee3_d05d_e3be,

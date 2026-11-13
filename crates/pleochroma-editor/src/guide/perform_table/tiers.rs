@@ -18,8 +18,8 @@ fn ladder(linked: bool) -> Perform {
     })
 }
 
-/// A concave tier the way the lessons type it: the facet line, the tool and its D/W, with theta
-/// and the displacement left blank (0).
+/// A concave tier as the lessons type it: the facet line, the tool with its optional cone angle,
+/// diameter ratio and motion, and a zero displacement.
 fn groove(
     name: &str,
     angle_deg: f64,
@@ -180,8 +180,8 @@ fn meets() -> Vec<TableEntry> {
             "Set the girdle thickness",
             Perform::Tier(TierEntry::of("Girdle").meets(4, "0.3")),
         ),
-        // The design to adopt from is one the learner opens from a file or loads from the library;
-        // the tutorial videos film the library route (`open_routes.rs` of the video harness).
+        // The adopt source is a design the learner opens from a file or the library; the
+        // tutorial videos film the library route (`open_routes.rs`).
         skip(adopt, "Open an imported design"),
         skip(adopt, "Adopt one tier"),
         recipe(

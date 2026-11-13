@@ -1,6 +1,5 @@
 //! The overall verdict badge (Good / Check / Problem), its popover of reasons and the
-//! one-edit Fix, over the shared `pleochroma_editor::verdict` -- the desktop's
-//! `gui::editor::verdict`, minus the worker threads.
+//! one-edit Fix, over the shared `pleochroma_editor::verdict`.
 //!
 //! What a verdict IS (thresholds, reasons, wording, fixes) is `pleochroma_editor::verdict`.
 //! This module is the glue:
@@ -9,21 +8,21 @@
 //!   the solve that goes with it (no extra solve: the masts are the cached ones), `evaluate`
 //!   turns the inputs into a [`Verdict`], and the result is written to `VerdictModel`. It runs
 //!   from a 250 ms poll and compares a small key first, so a quiet app costs a few
-//!   comparisons and a changed design costs one `gather` (a few milliseconds of geometry).
+//!   comparisons and a changed design costs one `gather`.
 //!   While the design has no current solve, the verdict on screen stays, dimmed, with its Fix
 //!   buttons waiting; with no design or no tiers the badge is hidden.
-//! - A Fix press ([`fix_reason`]) asks for the question the verdict carries (a removal), then
-//!   plans the edit with `plan_fix`, applies it through the session as ONE undo step and ends
-//!   in [`finish_edit`] (refresh, persist, auto-solve). `plan_fix` solves candidates on the
-//!   page thread: it runs one event-loop turn after the press, so "Working on the fix..."
-//!   paints first, but a very large design can hold the page for a moment (the desktop plans
-//!   on a worker thread).
-//! - The measured optical figures (windowing, extinction, brilliance) are not gathered: the
-//!   desktop measures them on a worker thread, and the page would have to trace on its own
-//!   thread. The structural, windowing-by-angle and proportion findings are all here.
+//! - A Fix press ([`fix_reason`]) asks for the question the verdict carries (a removal, a snap
+//!   to meet points), then plans the edit with `plan_fix` and applies it through the session
+//!   as ONE undo step, ending in [`finish_edit`] (refresh, persist, auto-solve). `plan_fix`
+//!   solves candidates on the page thread: it runs one event-loop turn after the press, so
+//!   "Working on the fix..." paints first, but a very large design can hold the page for a
+//!   moment.
+//! - The measured optical figures (windowing, extinction, brilliance) are not gathered:
+//!   measuring them would trace on the page thread. The structural, windowing-by-angle and
+//!   proportion findings are all here.
 //!
 //! The reasons name tiers by position, so a Fix runs only while the verdict on screen
-//! describes the design as it is now (its generation), exactly the desktop's rule.
+//! describes the design as it is now (its generation).
 
 use crate::{
     AppWindow, InspectorModel, VerdictModel, VerdictReasonData,
@@ -54,12 +53,6 @@ const OUT_OF_DATE: &str =
 
 /// Said when a Fix is pressed while another is still running.
 const FIX_RUNNING: &str = "Another fix is still running.";
-
-/// The confirmation dialog's heading for a fix that removes facets.
-const CONFIRM_HEADING: &str = "Remove What Is Cut Away?";
-
-/// The confirmation dialog's button for it.
-const CONFIRM_BUTTON: &str = "Remove";
 
 /// What the verdict was worked out from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -263,7 +256,7 @@ fn ensure_current(ctx: &Ctx) -> Result<(), String> {
 }
 
 /// The fix behind reason `index` of the verdict on screen, and the question to ask before
-/// applying it (`Some` where it removes something).
+/// applying it (`Some` where it removes something or moves depths).
 ///
 /// # Errors
 ///
@@ -296,13 +289,17 @@ fn set_busy(ctx: &Ctx, busy: bool) {
 /// `VerdictModel.fix-reason(index)`: the Fix button of reason `index` was pressed.
 fn fix_reason(ctx: &Ctx, index: i32) {
     match pending_fix(ctx, index) {
-        Ok((action, Some(question))) => {
+        // A fix whose plan asks its own question is planned first (see `run_fix`).
+        Ok((action, Some(question))) if !action.asks_after_planning() => {
             let c = ctx.clone();
-            confirm_action(ctx, CONFIRM_HEADING, &question, CONFIRM_BUTTON, move || {
+            // The heading and the button name what the fix does (a removal, ...).
+            let heading = action.confirm_heading();
+            let button = action.confirm_button();
+            confirm_action(ctx, heading, &question, button, move || {
                 start_fix(&c, action);
             });
         }
-        Ok((action, None)) => start_fix(ctx, action),
+        Ok((action, _)) => start_fix(ctx, action),
         Err(message) => show_message(ctx, MessageKind::Info, &message),
     }
 }
@@ -320,7 +317,9 @@ fn start_fix(ctx: &Ctx, action: FixAction) {
     Timer::single_shot(PLAN_DELAY, move || run_fix(&c, &action));
 }
 
-/// Plans `action` against the design as it is and applies the plan when it still fits.
+/// Plans `action` against the design as it is and applies the plan when it still fits. A plan
+/// that carries a question (the snap to meet points names the facets it would cut away) asks it
+/// first, and nothing is applied unless the cutter agrees.
 fn run_fix(ctx: &Ctx, action: &FixAction) {
     let n_d = SLOT.with(|cell| cell.borrow().n_d);
     let planned = {
@@ -335,17 +334,32 @@ fn run_fix(ctx: &Ctx, action: &FixAction) {
     set_busy(ctx, false);
     match planned {
         None => {}
-        Some((generation, Ok(plan))) => apply_plan(ctx, generation, plan),
+        Some((generation, Ok(plan))) => {
+            if let Some(question) = plan.confirm.clone() {
+                let c = ctx.clone();
+                confirm_action(
+                    ctx,
+                    action.confirm_heading(),
+                    &question,
+                    action.confirm_button(),
+                    move || apply_plan(&c, generation, plan),
+                );
+            } else {
+                apply_plan(ctx, generation, plan);
+            }
+        }
         Some((_, Err(message))) => show_message(ctx, MessageKind::Error, &message),
     }
 }
 
-/// Applies `plan` (made for design generation `generation`) as one undo step.
+/// Applies `plan` (made for design generation `generation`) as one undo step. A design edited
+/// since, even while the plan's question was open, voids it.
 fn apply_plan(ctx: &Ctx, generation: u64, plan: FixPlan) {
     let FixPlan {
         edit,
         message,
         select,
+        ..
     } = plan;
     let outcome = {
         let mut guard = ctx.state.borrow_mut();

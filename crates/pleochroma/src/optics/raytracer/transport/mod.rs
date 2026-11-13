@@ -21,11 +21,16 @@
 //! traces every sample through it. [`trace_spectral_ray_with_finish_soa_geom_surface`] is the same
 //! trace with a material prepared per call, for tests and one-off callers.
 //!
-//! Split from a single `transport.rs` into this module tree by seam: [`bounce`] holds
-//! the per-bounce facet dispatch and Russian-roulette/mode-coupling machinery,
-//! [`inner`] holds the shared bounce loop itself, and this file keeps the public entry
-//! points and the module docs. Every path reachable as `transport::X` before the split
-//! stays reachable at exactly that path via the re-export below.
+//! The prepared entry is also the only one that can run the exit-collection estimator
+//! ([`Estimator::ExitCollection`](super::Estimator), set per material with
+//! [`PreparedMaterial::with_estimator`] or per process with
+//! [`set_default_estimator`](super::set_default_estimator)): at each partial Fresnel event it
+//! collects the transmitted leaf and follows the reflection, instead of drawing a branch. Every
+//! other entry point, and the prepared one with [`Estimator::Branching`](super::Estimator) (the
+//! default), is the branching estimator, bit for bit.
+//!
+//! [`bounce`] holds the per-bounce facet dispatch and the Russian-roulette and mode-coupling
+//! machinery, and [`inner`] the shared bounce loop. This file holds the public entry points.
 
 use super::{
     camera::{FacetFinish, HitRecord, Ray},
@@ -44,10 +49,19 @@ mod bounce;
 mod inner;
 mod path_events;
 mod prepared;
+// The reference tracer. It is compiled in every build because the bounce loop hooks it.
+pub mod reference;
 #[cfg(test)]
 mod tests;
-// A sibling of `tests` rather than a child of `tests/mod.rs`: kept here so the new file needs no
-// edit to the shared test index.
+// The reference tracer's tests; they need the `beam` feature and `--cfg beam_tests`.
+#[cfg(test)]
+#[cfg(all(feature = "beam", beam_tests))]
+#[path = "tests/reference_tests.rs"]
+mod reference_tests;
+// Siblings of `tests`, declared here so the shared test index stays unchanged.
+#[cfg(test)]
+#[path = "tests/optics_tables_tests.rs"]
+mod optics_tables_tests;
 #[cfg(test)]
 #[path = "tests/zoned_prepared_tests.rs"]
 mod zoned_prepared_tests;
@@ -56,11 +70,11 @@ pub use attributed::{
     trace_spectral_ray_attributed_soa_geom, trace_spectral_ray_attributed_soa_geom_surface,
 };
 pub use path_events::{ExitEvent, PathEvents};
-pub use prepared::{PreparedMaterial, trace_spectral_ray_prepared};
+pub use prepared::{
+    PreparedMaterial, trace_spectral_ray_attributed_prepared, trace_spectral_ray_prepared,
+};
 
-// bounce.rs -- `scattering::try_scatter_step`'s own trailing Russian-roulette call
-// needs this too, so it is re-exported at `pub(super)` (raytracer + descendants),
-// exactly the scope it had directly in `transport.rs` before the split.
+// Re-exported for `scattering::try_scatter_step`, which runs its own trailing roulette draw.
 pub(super) use bounce::apply_russian_roulette;
 
 /// Builds the `N`-member wrapped hero-wavelength comb from a single `hero_rand`.
@@ -111,7 +125,7 @@ pub enum PathTermination {
 
 /// Traces a single spectral ray through the 3D gemstone polyhedron with:
 /// 1. 8-Channel Stratified Hero Wavelength Spectral Sampling (HWSS)
-/// 2. Full 4D Stokes-Mueller Polarized Wave Tracking (with TIR phase shift and Brewster extinction)
+/// 2. Full 4D Stokes-Mueller polarized wave tracking (TIR phase shift, Brewster extinction)
 /// 3. Birefringent Extraordinary Ray Walk-Off & Optical Doubling
 /// 4. Directional Pleochroic Beer-Lambert Absorption Tensors
 ///
@@ -122,8 +136,8 @@ pub enum PathTermination {
 /// call site) compute it via `low_discrepancy_base2` + `cranley_patterson_rotate` from
 /// the sample and pixel index separately -- information a single opaque `rng_seed`
 /// cannot carry. Callers that don't care about stratification can pass
-/// `(hash_u32(rng_seed) as f32) / 4_294_967_295.0`. `rng_seed` itself still seeds every
-/// per-bounce draw (Fresnel branch, Russian roulette, birefringent split) unchanged.
+/// `(hash_u32(rng_seed) as f32) / 4_294_967_295.0`. `rng_seed` seeds every other per-bounce
+/// draw (Fresnel branch, Russian roulette, birefringent split).
 #[expect(
     clippy::too_many_arguments,
     reason = "the crate's public raytracing entry point: each parameter is one \
@@ -145,8 +159,7 @@ pub fn trace_spectral_ray(
     // Internal o<->e mode re-coupling is always on for the public entry point; the
     // bool parameter exists only so this module's `#[cfg(test)]` tests can A/B it (see
     // `tests::mode_coupling_tests::internal_mode_coupling_changes_zircon_render`).
-    // Girdle finish: `&[]` for `facet_finishes` looks up `FacetFinish::default() ==
-    // Polished` for every facet, reproducing all-polished behaviour.
+    // `&[]` for `facet_finishes` gives every facet the default finish, `Polished`.
     //
     // A single traced ray is not a hot per-sample batch loop, so the `PlanesSoA32`
     // arena is built fresh here -- see [`trace_spectral_ray_with_finish_soa`] for the
@@ -214,12 +227,10 @@ pub fn trace_spectral_ray_with_finish(
 /// [`trace_spectral_ray_with_finish`] with the [`crate::simd::PlanesSoA32`] arena built
 /// by the CALLER and passed in, rather than rebuilt from `planes` on every call.
 ///
-/// For a batch/frame tracing many samples against the same `planes` (measured:
-/// ~10-20% of per-sample cost on a 57-plane cut), build `plane_soa` via
-/// [`build_plane_soa`] once outside the sample loop. `planes` must be the exact slice
-/// `plane_soa` was built from -- this function does not cheaply verify that itself.
-/// Results are bit-identical to [`trace_spectral_ray_with_finish`]'s
-/// rebuild-every-call behaviour.
+/// For a batch or frame tracing many samples against the same `planes`, build `plane_soa` once
+/// with [`build_plane_soa`] outside the sample loop: rebuilding it per call is a measurable share
+/// of the cost. `planes` must be the exact slice `plane_soa` was built from; this function does
+/// not verify that. Results are bit-identical to [`trace_spectral_ray_with_finish`].
 #[expect(
     clippy::too_many_arguments,
     reason = "see trace_spectral_ray's own reason, plus the per-facet finish slice and \
@@ -299,15 +310,13 @@ pub fn trace_spectral_ray_geom(
 
 /// [`trace_spectral_ray_with_finish_soa`] for a stone with tools.
 ///
-/// `plane_soa` is built
-/// from `geom.planes` alone (tools have no arena: the kernel scans them directly), and a
-/// tool facet `k` has finish index `planes.len() + k`, which `facet_finishes` leaves
-/// polished unless it says otherwise.
+/// `plane_soa` is built from `geom.planes` alone, since the kernel scans tools directly. A tool
+/// facet `k` has finish index `planes.len() + k`, which `facet_finishes` leaves polished unless
+/// it says otherwise.
 ///
-/// `fluorescence` rides beside `material` the way the tools ride beside the planes: an
-/// empty one (see [`Fluorescence::none`]) is this function's old behaviour bit for bit,
-/// with no extra RNG draw; a non-empty one traces single-wavelength paths with the
-/// in-medium fluorescence vertex (see `inner`'s module doc and `optics::fluorescence`).
+/// An empty `fluorescence` (see [`Fluorescence::none`]) leaves the trace unchanged, with no
+/// extra RNG draw. A non-empty one traces single-wavelength paths with the in-medium
+/// fluorescence vertex (see `optics::fluorescence`).
 #[expect(
     clippy::too_many_arguments,
     reason = "see trace_spectral_ray_with_finish_soa's own reason"

@@ -128,8 +128,8 @@ fn eigen_symmetric(m: [[f64; 3]; 3]) -> ([f64; 3], [DVec3; 3]) {
 
 /// Fit to Crystal Length: the principal axis of `points`, with its confidence.
 ///
-/// The points are the rough's corners or its mesh vertices, in the rough frame. `None` for fewer than two points, a point that
-/// is not finite, or points with no spread.
+/// The points are the rough's corners or its mesh vertices, in the rough frame. `None` for fewer
+/// than two points, a point that is not finite, or points with no spread.
 #[must_use]
 pub fn fit_to_crystal_length(
     points: &[DVec3],

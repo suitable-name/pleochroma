@@ -1,22 +1,21 @@
-//! The Design settings color editor's callbacks (the desktop's
-//! `gui::editor::render_color::setup_lch_editor`): Tone / Saturation / Hue sliders and the
-//! hue-saturation-brightness picker edit one color row at a time, and "Apply Color" stores all
-//! rows as ONE undoable `SetMaterial`.
+//! The Design settings color editor's callbacks: the sliders and the picker edit one color
+//! row at a time, and "Apply Color" stores all rows as ONE undoable `SetMaterial`.
 //!
 //! The rows are the host's directions: one for a stone that looks the same in every direction,
 //! "Along the Axis" / "Across the Axis" for a two-color stone, "Alpha" / "Beta" / "Gamma" for a
 //! three-color one (`pleochroma_web_core::design_color::AxisEditor`, on the shared
-//! `pleochroma_editor::lch_color` rows). The swatches show the face-up color and each direction's.
+//! `pleochroma_editor::lch_color` rows). The swatches show the face-up color and each
+//! direction's.
 //! "Save as Variant..." keeps the solved rows for the design's material in `IndexedDB`
 //! (`storage::color_variants`), where the color combo lists them, and puts the saved variant on
-//! the design as one undoable edit, as the desktop does.
+//! the design as one undoable edit.
 //!
 //! A solve is a 2187-point grid plus a short Levenberg-Marquardt polish in pure `f64`, so it
 //! runs in the analysis Worker (`SolveRequest::BodyColor`) when a slider is let go, when the
 //! picker returns a color and when the editor opens; the rows that changed are solved one after
-//! the other, and the newest request wins (an older answer is dropped by its epoch). While a tilt
-//! sweep holds that Worker, or when no Worker is available or it fails, the solve runs on the UI
-//! thread instead, as it did before the request existed.
+//! the other, and the newest request wins (an older answer is dropped by its epoch). While a
+//! tilt sweep holds that Worker, or when no Worker is available or it fails, the solve runs on
+//! the UI thread instead.
 
 use std::{
     cell::{Cell, RefCell},
@@ -256,9 +255,9 @@ fn apply(ctx: &Ctx, editor: &Editor) {
     }
 }
 
-/// Puts the saved `variant` on the open design as ONE `SetMaterial`, like the desktop's "Save as
-/// Variant". `true` when the design now uses it (also when it already did); `false` when there
-/// is no design or the editor refused the edit (then the sentence is shown).
+/// Puts the saved `variant` on the open design as ONE `SetMaterial`. `true` when the design
+/// now uses it (also when it already did); `false` when there is no design or the editor
+/// refused the edit (then the message is shown).
 fn use_saved_variant(ctx: &Ctx, variant: &ColorVariant) -> bool {
     let outcome = {
         let mut app = ctx.state.borrow_mut();
@@ -324,11 +323,13 @@ fn save_variant(ctx: &Ctx, editor: &Editor, name: &str) {
                 crate::editor::inspector::refresh(&ctx);
                 let sentence = if used {
                     format!(
-                        "'{label}' saved and used by this design. It is listed in the Color                          list of every {material} design in this browser."
+                        "'{label}' saved and used by this design. It is listed in the Color \
+                         list of every {material} design in this browser."
                     )
                 } else {
                     format!(
-                        "'{label}' saved. It is listed in the Color list of every {material}                          design in this browser."
+                        "'{label}' saved. It is listed in the Color list of every {material} \
+                         design in this browser."
                     )
                 };
                 show_message(&ctx, MessageKind::Success, &sentence);

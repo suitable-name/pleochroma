@@ -51,14 +51,11 @@ component SectionCaption inherits Rectangle {
 // Advanced: a hidden choice keeps its value, and the "advanced settings are in use" note says
 // so when one is off its default.
 export component ExportDialog inherits Rectangle {
-    // Compute target: 0 = Local only, 1 = Remote only, 2 = Local + Remote. The person's
-    // choice lives in `ExportModel.compute_target_index` (seeded from the last-used value
-    // every time the dialog opens); what the export uses is `ExportModel.
-    // effective_compute_target`, which is Local only whenever no usable worker exists
-    // (`RemoteWorkerModel.availability.reachable_render_capable`) -- matching
-    // `bridge::export_thread::run_export`'s own default split behaviour (see
-    // `gui::render_export`'s doc comment). It re-evaluates when the dialog's background
-    // probe (`check_remote_availability`) reports back.
+    // Compute target: 0 = Local only, 1 = Remote only, 2 = Local + Remote. The choice is
+    // `ExportModel.compute_target_index`, seeded from the last-used value on each open. The export
+    // uses `ExportModel.effective_compute_target`, which is Local only while no usable worker is
+    // reachable (`RemoteWorkerModel.availability.reachable_render_capable`). The Rust side applies
+    // the same rule (see `gui::render::render_export`). It re-evaluates when the probe reports.
     property <int> compute_target: ExportModel.effective_compute_target;
 
     // Max ray bounces: the export's OWN cap, independent of the live viewport's --
@@ -85,11 +82,7 @@ export component ExportDialog inherits Rectangle {
     property <bool> advanced_note_visible: !GuideModel.shows_advanced()
         && ExportModel.advanced_in_use(ExportModel.selected_color_space_index, ExportModel.transfer_index, RemoteWorkerModel.availability.reachable_render_capable);
 
-    // `ExportModel` used to carry its own `close()` callback here too, invoked
-    // with no Rust `on_close` ever registered for it (dead wiring -- `is_open`
-    // below is the whole close contract; nothing else needs to run). Deleted
-    // along with that callback rather than adding a handler that would only
-    // duplicate the assignment already right here.
+    // Closing only clears `ExportModel.is_open`; nothing else runs on close.
     callback close();
     close => { ExportModel.is_open = false; }
     // width, height, samples-per-pixel, color-space index (see
@@ -116,19 +109,11 @@ export component ExportDialog inherits Rectangle {
         scroll-event(event) => { accept }
     }
 
-    // Escape/Enter/focus handling. Mounted with `if ExportModel.
-    // is_open: ExportDialog { ... }` (`app/global_dialogs.slint`), i.e. freshly
-    // instantiated every time it opens (unlike `RetargetDialog`, which stays
-    // instantiated and toggles `visible`), so the plain `init => { self.focus(); }`
-    // idiom `material_editor_dialog.slint`/`new_design_dialog.slint` already use is
-    // enough here -- no `changed`-on-a-mirrored-property re-focus trick needed.
-    // Escape closes (unless an export is running, matching the header X/backdrop's
-    // own guard); Return starts the export, same guard. Every other key is
-    // swallowed (`accept`) so it cannot bubble to `global_shortcuts` and fire a
-    // shortcut (Ctrl+S, etc.) on the design underneath. Tab is let through so focus
-    // moves between the dialog's own controls. The card is INSIDE the scope, so a key
-    // pressed while a control has focus still reaches it (a text field keeps its own
-    // Enter).
+    // Keys. The dialog is mounted fresh each time it opens (`app/global_dialogs.slint`), so
+    // focusing in `init` is enough. Escape closes and Return starts the export, both not while an
+    // export runs. Every other key is swallowed so it cannot reach `global_shortcuts` and fire a
+    // shortcut on the design underneath. Tab passes through to move between controls. The card
+    // sits inside this scope, so a focused control still gets its own Enter.
     key_scope := FocusScope {
         init => { self.focus(); }
         key-pressed(event) => {
@@ -152,13 +137,10 @@ export component ExportDialog inherits Rectangle {
             // 420px, but never wider than the viewport it opens over less a 12px margin each
             // side (the minimum window leaves the Live Render viewport about 380px).
             width: min(420px, max(240px, root.width - 24px));
-            // Content-driven height: without this, `Rectangle`'s default sizing ("expand to
-            // fill the parent" when width/height aren't both set explicitly) makes this card
-            // inherit the full-viewport backdrop's height -- i.e. it stretches to the bottom
-            // of the window instead of sizing to its content. Same idiom, and same reason, as
-            // `import_dialog.slint` and the material editor. Capped at the backdrop's
-            // height less a 20px margin top and bottom: the body ScrollView below takes
-            // the overflow so the header and Start/Cancel footer stay reachable.
+            // Content-driven height. Without an explicit height a `Rectangle` fills its parent, so
+            // the card would stretch to the bottom of the window. Capped at the backdrop's height
+            // less 20px top and bottom: the body ScrollView takes the overflow, so the header and
+            // the Start/Cancel footer stay reachable.
             height: min(content.preferred-height, root.height - 40px);
             background: Theme.surface-dialog;
             border-radius: Theme.radius-md;
@@ -222,14 +204,11 @@ export component ExportDialog inherits Rectangle {
 
                 Rectangle { height: 1px; background: Theme.surface-raised; }
 
-                // Scrollable body: everything between the fixed header above and the
-                // fixed Start/Cancel footer below. `vertical-stretch: 1` lets it take
-                // whatever room the card's capped `height` leaves, and scrolls the rest
-                // -- the footer buttons can never be clipped, even while an export is
-                // running and the progress section makes the body much taller. Its
-                // `preferred-height` is stated from the inner layout so the card still
-                // sizes to its content when there is room (`content.preferred-height`
-                // above needs a real preferred height from this ScrollView).
+                // Scrollable body between the fixed header and the fixed footer.
+                // `vertical-stretch` takes the room the capped card height leaves, so the footer
+                // buttons are never clipped, even while the progress section makes the body
+                // taller. `preferred-height` comes from the inner layout, so the card still sizes
+                // to its content.
                 body := ScrollView {
                     vertical-stretch: 1;
                     content-width: self.visible-width;
@@ -331,18 +310,12 @@ export component ExportDialog inherits Rectangle {
                             Text { text: root.effective_width + " x " + root.effective_height + " px"; font-size: 10px; color: Theme.text-muted; accessible-role: AccessibleRole.text; }
                         }
 
-                        // 2b. Color Space: sRGB stays the default -- untagged, and the
-                        // only choice byte-identical to an export made before this control
-                        // existed. Display P3 / Rec.2020 are wider gamuts (particularly red/green,
-                        // exactly where gemstone dispersion "fire" lands) tagged with an embedded
-                        // ICC profile so they display correctly instead of looking washed-out (an
-                        // untagged wide-gamut PNG is read as sRGB by every viewer). `ACEScg` is
-                        // deliberately not offered: it is scene-linear with no transfer function,
-                        // meant for further compositing in a floating-point/high-bit-depth
-                        // pipeline -- quantizing scene-linear light straight to 8-bit PNG would
-                        // concentrate almost the whole visible range into a handful of the darkest
-                        // code values, severe banding that a transfer curve like sRGB's or
-                        // Rec.2020's exists specifically to avoid. Advanced mode only.
+                        // 2b. Color Space. sRGB is the default: untagged, and the only choice
+                        // whose bytes match earlier exports. Display P3 and Rec.2020 are wider
+                        // gamuts, tagged with an embedded ICC profile so they show correctly. An
+                        // untagged wide-gamut PNG would be read as sRGB and look washed out.
+                        // ACEScg is not offered: it is scene-linear with no transfer curve, and
+                        // quantizing it to 8-bit PNG would band badly. Advanced mode only.
                         if GuideModel.shows_advanced(): VerticalLayout {
                             spacing: 6px;
                             SectionCaption {
@@ -385,20 +358,16 @@ export component ExportDialog inherits Rectangle {
                             }
                         }
 
-                        // 2c/2d. Compute target and Max Ray Bounces -- see
-                        // `ExportComputeAndBounces`'s own doc comment
-                        // (`export_dialog/compute_and_bounces.slint`) for why this is split
-                        // out. A click in there writes straight into `ExportModel`
-                        // (`compute_target_index`, `bounce_index`), which this dialog's
-                        // `compute_target`/`selected_bounce_index` above read. Advanced mode only.
+                        // 2c/2d. Compute target and Max Ray Bounces
+                        // (`export_dialog/compute_and_bounces.slint`). Clicks write into
+                        // `ExportModel`, which `compute_target` and `selected_bounce_index` above
+                        // read. Advanced mode only.
                         if GuideModel.shows_advanced(): ExportComputeAndBounces { }
 
-                        // 3/3b. Sample Count and preset fan-out -- see
-                        // `ExportSamplesAndPresets`'s own doc comment
-                        // (`export_dialog/samples_and_presets.slint`) for why this is split
-                        // out. `effective_samples`/`sample_exponent` stay computed on THIS
-                        // dialog (the footer/key handler below need them too) and are
-                        // passed in read-only.
+                        // 3/3b. Sample Count and preset fan-out
+                        // (`export_dialog/samples_and_presets.slint`). `effective_samples` and
+                        // `sample_exponent` stay computed here, since the footer and key handler
+                        // need them too, and are passed in read-only.
                         OutputRendererPicker {
                             engine_index <=> ExportModel.engine_index;
                             ray_taps <=> ExportModel.ray_taps;
@@ -414,17 +383,14 @@ export component ExportDialog inherits Rectangle {
 
                         Rectangle { height: 1px; background: Theme.surface-raised; }
 
-                        // 4. Progress (visible only while exporting) -- keeps the user informed
-                        // during what can be a multi-minute render (Task: "a frozen UI with no
-                        // feedback is unacceptable").
+                        // 4. Progress, shown only while exporting. A render can take minutes, so
+                        // the user needs feedback.
                         if ExportModel.is_exporting: VerticalLayout {
                             spacing: 6px;
 
-                            // Live preview -- fixed-height reserved slot (present for the whole
-                            // "is_exporting" section, not just once a thumbnail exists) so the card
-                            // never resizes when the first preview tick lands; `image-fit: contain`
-                            // keeps the thumbnail at the export's own aspect ratio inside it rather
-                            // than stretching to the box's (usually different) aspect ratio.
+                            // Live preview in a fixed-height slot, so the card does not resize
+                            // when the first preview lands. `image-fit: contain` keeps the
+                            // export's own aspect ratio.
                             Rectangle {
                                 height: 200px;
                                 border-radius: Theme.radius-sm;
@@ -485,6 +451,13 @@ export component ExportDialog inherits Rectangle {
                                 font-size: 10px;
                                 color: Theme.text-muted;
                                 horizontal-alignment: right;
+                                accessible-role: AccessibleRole.text;
+                            }
+                            if ExportModel.progress_note != "": Text {
+                                text: ExportModel.progress_note;
+                                font-size: 10px;
+                                color: Theme.text-muted;
+                                wrap: word-wrap;
                                 accessible-role: AccessibleRole.text;
                             }
                             Rectangle {

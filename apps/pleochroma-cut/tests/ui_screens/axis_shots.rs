@@ -7,10 +7,10 @@
 //! (`gui::editor::cut_sheet`), not a window of the app, so the harness has nothing to photograph.
 
 use crate::{
-    kit::{Rect, Sc, find_inherits, rect_of, size_window},
+    kit::{Rect, Sc, click_first, find_inherits, rect_of, size_window},
     nav::{FVS, STUDIO},
     support::{WindowView, app::pump},
-    window_shots::planner_with_block,
+    window_shots::{planner_with_block, wait_planner_view},
 };
 use pleochroma_cut::{
     CrystalAxisModel, CuttingModeModel, EditorModel, MainWindow, ParametersModel, RoughPlanModel,
@@ -160,8 +160,8 @@ fn stone_tab(sc: &mut Sc<'_, '_>, material: &str, how: Orient) -> Result<Shot, S
     Ok(panel.crop(&shot))
 }
 
-/// `crystal_axis_stone_tab.png`: the Stone tab of a sapphire with "Set for This Stone" on and In
-/// the Table Plane chosen.
+/// `crystal_axis_stone_tab.png`: the Stone tab of a sapphire with the In the Table Plane geometry
+/// preset chosen.
 ///
 /// # Errors
 ///
@@ -268,6 +268,8 @@ fn planner_with_axis(sc: &mut Sc<'_, '_>) -> Result<RoughPlannerWindow, String> 
             model.get_axis_note()
         ));
     }
+    // The axis panel is the second step of the left column; a closed step shows only its summary.
+    model.set_open_step(1);
     pump(800);
     if model.get_rule_line().is_empty() {
         sc.note("the planner shows no rule line for the sapphire; photographed anyway");
@@ -284,7 +286,7 @@ fn planner_with_axis(sc: &mut Sc<'_, '_>) -> Result<RoughPlannerWindow, String> 
 /// The planner does not open, or the axis cannot be set.
 pub fn planner_axis(sc: &mut Sc<'_, '_>) -> Result<Shot, String> {
     let window = planner_with_axis(sc)?;
-    pump(1000);
+    wait_planner_view()?;
     sc.snap_window("RoughPlannerWindow", &window)
 }
 
@@ -318,7 +320,13 @@ fn planned_with_axis(sc: &mut Sc<'_, '_>) -> Result<RoughPlannerWindow, String> 
     if !Sc::wait(30, || model.get_stone_rows().row_count() > 0) {
         return Err("the selected layout lists no stone rows".to_owned());
     }
+    // The stone rows sit in the layout's "Stones" fold, closed until its link is pressed.
+    let view = WindowView::of("RoughPlannerWindow", &window);
+    if !click_first(&view, "Stones and the Crystal Axis") {
+        return Err("the selected layout has no Stones fold to open".to_owned());
+    }
     pump(1500);
+    wait_planner_view()?;
     Ok(window)
 }
 

@@ -1,6 +1,7 @@
-//! Yield/weight and proportion view-model text, the proportion verdicts, and the
-//! Edit tab's cut-order schedule rows. The logic lives in
-//! `pleochroma_editor::view_model::yield_report` (shared with the web app); this
+//! Yield/weight and proportion view-model text, the proportion verdicts, and the Edit tab's
+//! cut-order schedule rows.
+//!
+//! The logic lives in `pleochroma_editor::view_model::yield_report` (shared with the web app); this
 //! file re-exports it and maps the plain cut-order rows to the Slint `AngleItem`.
 
 use crate::AngleItem;

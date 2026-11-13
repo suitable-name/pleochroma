@@ -1,8 +1,8 @@
 //! Planner integration of rough colour.
 //!
-//! Moving a rough's colour zones into the frame of each planned stone, choosing the pose that shows the wanted colour face-up, adopting
-//! a stone as a design with a zoned custom material, and the text and byte formats the vault's
-//! side tables hold.
+//! Moves a rough's colour zones into the frame of each planned stone, chooses the pose that
+//! shows the wanted colour face-up, adopts a stone as a design with a zoned custom material,
+//! and holds the text and byte formats of the vault's side tables.
 //!
 //! Pure data and geometry: no database, no UI. The application layer
 //! (`pleochroma-cut`'s `gui::rough_colour::store`) reads and writes the vault tables with these

@@ -16,19 +16,18 @@ manages the private CA that `serve`'s mutual TLS depends on, including one-time
 enrollment tokens so a viewer never needs a bundle copied to it by hand. `join`
 (`worker` builds) turns a machine into a render worker that dials OUT to a coordinator.
 
-> **Release note (coordinator mode): `serve` no longer renders by default.** `serve`
-> is now the *coordinator*: it always serves the library and accepts `join`ing workers
-> on a separate worker port, but it renders with its own CPU/GPU only when started
-> with **`--render`** (or `--only-gpu` / `--only-cpu`, which imply it). An existing
-> single-worker setup must add `--render` to keep rendering. Viewer allowlists move to
-> `allowlist-viewers.txt`; an existing `allowlist.txt` keeps working as the viewers
-> list until that file exists.
+> **Coordinator mode.** `serve` is the coordinator: it always serves the library and accepts
+> `join`ing workers on a separate worker port. It renders with its own CPU/GPU only with
+> **`--render`** (or `--only-gpu` / `--only-cpu`, which imply it). Viewers are listed in
+> `allowlist-viewers.txt`; a pre-role `allowlist.txt` is read as that list until the new file exists.
 
 | Feature | Default | Adds |
 |---|---|---|
 | *(none)* | ✅ | Library server, `cert`, mutual TLS, enrollment |
 | `worker` | off | Render capacity — `RenderRequest`, `render`, `join`, the coordinator's worker port, `Backend` advertisement |
 | `gpu` | off | GPU tracing; implies `worker`, since GPU without render capacity is meaningless |
+| `adaptive-sampling` | off | Adaptive live passes of protocol v37 on the own lane and through a coordinator; implies `worker`; an optional, parked feature. Without it a render connection answers every `LivePassRequest` `UNSUPPORTED_REQUEST` and keeps serving, and a coordinator refuses them instead of forwarding. `beam` implies it |
+| `beam` | off | Whole beam tiles of protocol v38 on the own lane and through a coordinator; implies `worker`; retired. Without it a render connection answers every beam-tile request `UNSUPPORTED_REQUEST` and keeps serving, and a coordinator does not forward them |
 
 A default build does not compile `pleochroma` in at all — see [GPU](#gpu).
 
@@ -67,6 +66,12 @@ cargo build -p pleochroma-worker --release
 Produces `target/release/pleochroma-worker(.exe)`. All examples below assume you're
 running from the workspace root via `cargo run -p pleochroma-worker --`; substitute
 the built binary directly if you prefer.
+
+A worker that also serves adaptive live passes (optional, see the feature table) builds with
+`--features adaptive-sampling`, or `--features gpu,adaptive-sampling` for the GPU live passes.
+
+A worker that also serves beam tiles (retired, see the feature table) builds with
+`--features beam`, or `--features gpu,beam` for the GPU beam engine.
 
 ## Command reference
 
@@ -149,23 +154,28 @@ let scene = SceneState {
     tools: Vec::new(), // concave-facet tool primitives; empty for a convex stone
     head_shadow_deg: default_head_shadow_deg(), // 0.0..=30.0 degrees; 16.0 by default
     frosted_planes: Vec::new(), // indices into `planes` of authored frosted facets
+    stone_shadow: false, // optional shadow and colored caustics on a studio backdrop
+    tray_reflection: 0.0, // 0.0..=1.0 head-on reflectance of the tray under the stone; 0.0 = off
 };
 std::fs::write("scene.json", serde_json::to_string_pretty(&scene)?)?;
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
-Verified end-to-end example (real command, run against a scene built the way
-above):
+Example, with a scene built as above:
 
 ```
 pleochroma-worker render --scene scene.json --out render.png --width 800 --height 600 --samples 16
 ```
 
-produces a real 800x600 PNG at the given path (confirmed by running it).
+writes an 800x600 PNG to the given path.
+
+`render` traces the scene as written, with the estimator the file carries
+(`estimator`: `"Branching"` or `"ExitCollection"`; a file without the field is
+branching). It never uses a process default.
 
 ### `serve` — the coordinator: library, joined workers, and (with `--render`) rendering
 
-**`serve` no longer renders by default** — see the release note at the top. Ports:
+**`serve` renders only with `--render`** (see the note at the top). Ports:
 viewers on `--bind` (7878) plus the viewer enrollment listener (7879); joining workers
 on the worker port (7880) plus the worker enrollment listener (7881). Two TLS
 listeners, two allowlists: a viewer certificate is never accepted on the worker port
@@ -230,7 +240,7 @@ each on its own worker connection, so a desktop batch that keeps several picture
 flight keeps several workers busy. They still count against `--max-job-memory-mib`.
 `--whole-image-secs 0 --whole-image-pixel-samples 0` turns the routing off.
 
-**Batched previews (added in protocol v24; the current protocol is v29).** A plain worker (and a coordinator's own render lane)
+**Batched previews.** A plain worker (and a coordinator's own render lane)
 also serves `BatchRenderRequest`: up to 32 pictures per request on one persistent
 connection, two requests in flight, each picture answered with a finished sRGB PNG
 (byte-identical to the desktop's own preview). GPU-eligible pictures of a request go to
@@ -258,7 +268,7 @@ one regardless of what was advertised.
 | `--threads <n>` | `0` (all cores) | CPU threads used **per render request**. Governs only the CPU tracer — the GPU path is a single dispatch, not a thread fan-out — but still applies to its CPU fallback. `worker` builds only. |
 | `--db <path>` | `facet_diagrams.sqlite` in the working directory | The design library to serve. Opened **read-only**; this role never writes. The default is deliberate — it matches where the viewer looks — and `--db` exists for long-running servers that shouldn't depend on their launch directory. |
 | `--only-gpu` | off | Implies `--render`. GPU only — never splits work onto the CPU tracer for any request, even when the hybrid split would otherwise have been offered one. Still falls back to the CPU tracer for a request/sub-batch the GPU itself declines. Rejected at parse time on a binary built without the `gpu` feature. Mutually exclusive with `--only-cpu`. |
-| `--only-cpu` | off | Implies `--render`. Force the CPU tracer even on a `gpu` build with a working adapter. For A/B comparison, or routing around a misbehaving one. `WELCOME` then honestly reports `Backend::Cpu`. Mutually exclusive with `--only-gpu`. What `--no-gpu` (removed) used to do. Default (neither flag given): hybrid CPU+GPU — CPU and GPU trace concurrently whenever the measured split is worth it, automatically falling back to GPU-only when it isn't (see [Architecture](docs/architecture.md#gpu)). |
+| `--only-cpu` | off | Implies `--render`. Force the CPU tracer even on a `gpu` build with a working adapter. For A/B comparison, or routing around a misbehaving one. `WELCOME` then honestly reports `Backend::Cpu`. Mutually exclusive with `--only-gpu`. Default (neither flag given): hybrid CPU+GPU — CPU and GPU trace concurrently whenever the measured split is worth it, automatically falling back to GPU-only when it isn't (see [Architecture](docs/architecture.md#gpu)). |
 | `--enroll-bind <host:port>` | `--bind`'s host, one port up | Listener for token enrollment (see `cert issue-token` / `cert claim`). Same loopback / `--allow-remote` gate as `--bind`. Ignored with `--insecure-no-tls` — there is no CA to enroll against. |
 | `--no-enroll` | off | Open neither enrollment listener (viewer or worker). The manual `cert issue-client` bundle-copy path still works. |
 | `--worker-bind <host:port>` | `--bind`'s host, two ports up (7880) | The worker port `join` dials. Worker certificates only. Same loopback / `--allow-remote` gate as `--bind`. |
@@ -661,6 +671,15 @@ Run it once per feature set (`cargo test -p pleochroma-worker --features worker`
 `--features gpu` on a machine with an adapter) — most of the crate only compiles with
 `worker`. A few tests are `#[ignore]`d because they need a real GPU adapter or are
 long-running reproductions; `cargo test` skips them unless you pass `--ignored`.
+The live-pass tests (`serve::tests::live_pass`, `coordinator::tests::live_pass`,
+`render_core::live`, `render_core::live_cache`) compile and run with
+`--features worker,adaptive-sampling`; a build without that feature runs
+`serve::tests::live_pass_off` and the `live_pass_refusal_tests` of `serve::connection::requests`
+instead, which check that every live pass is refused.
+The beam-tile tests (`serve::tests::beam_tiles`, `coordinator::tests::beam_tiles`,
+`coordinator::beam_tiles`, `render_core::beam`) compile only with `--features beam` and
+`RUSTFLAGS="--cfg beam_tests"` (`scripts/run_beam_tests.sh`), so not even
+`--all-features` runs them.
 Coverage is inline `#[cfg(test)]` throughout the crate, not concentrated in one or two
 files:
 
@@ -680,8 +699,8 @@ files:
 | `enroll_client/` | all | real loopback-TLS round trips through the actual pinning verifier — one successful claim, one refusing a token whose CA fingerprint does not match the server |
 | `png_out/` | `worker` | PNG encoding of a traced buffer |
 
-The `GW1-` token codec and the CA-pinning claim client moved to `crates/pleochroma-net`
-(`token`, `enroll`) when the viewer needed them too — their tests went with them.
+The `GW1-` token codec and the CA-pinning claim client live in `crates/pleochroma-net`
+(`token`, `enroll`), shared with the viewer, and are tested there.
 
 Much of this needs no real I/O: `serve/`'s tests mostly drive `handle_connection` over
 an in-memory duplex double or a loopback `TcpStream` with TLS skipped, and `pki/`
@@ -703,10 +722,23 @@ path tracer. Without `--engine`, the scene JSON choice is preserved. Legacy JSON
 without `engine` keeps Path-Traced. Ray-Traced approximates tint and frost, and omits polarization, double images,
 scattering, zones and rounding. Optical metrics keep their own spectral tracer.
 
-The network protocol (version 29; the engine was added in 28) carries the engine beside
-each scene. Old peers are refused
+Each scene carries the engine, "Stone Shadow" and "Tray Reflection" settings (protocol 41). Older peers are refused
 at the handshake. Ray-Traced uses the independent four-storage-buffer GPU kernel
 when permitted, with complete CPU fallback; `--only-cpu` never probes that kernel.
 It skips spectral hybrid calibration and denoising. Remote live views, exports,
 preview batches and durable still jobs use disjoint absolute AA tap ranges.
-Durable Ray-Traced jobs use file format 2; Path-Traced jobs retain format 1.
+With "Stone Shadow" off and "Tray Reflection" at 0, durable Ray-Traced jobs use format 2 and Path-Traced jobs use format 1.
+The shadow alone makes a still job use format 3; any job with "Tray Reflection" above 0 uses format 4, with or without the shadow.
+A job whose stone has color zones uses format 5 (the zones travel in the job file). Durable worker jobs never carry zones, so format 5 belongs to the desktop app's queue and its exported scripts; a Ray-Traced job never carries zones.
+A job lit by a turned HDR map (a map rotation above 0 or "Turns with the Camera" on) uses format 6, whatever else it carries; an unturned HDR job keeps its format.
+
+The stone estimator travels with each scene (`SceneState::estimator`, protocol 42). The worker renders with the estimator the viewer sends, never with its own process default,
+on every CPU and GPU path (live view, final images, batches, jobs, live passes, tilt, the coordinator's lanes and `render`),
+so a frame split between the viewer and workers runs one estimator. The apps send exit collection; a scene without the field
+reads as branching. Where exit collection does not apply (an HDR map, Daylight with a Sun, a non-ideal surface,
+the Tray Reflection, a stone with tools) the library renders branching on both engines. A worker's own path cache is not used
+for a scene that runs exit collection, and the hybrid calibration cache keeps the two estimators apart.
+
+"Stone Shadow" is off by default. Workers build the map locally, once per request, at the quality the request's intent picks: Preview for a `RenderRequest` with the `Interactive` intent (the live viewport, whose samples are summed with the viewer's own Preview half) and Final for a `RenderRequest` with the `Batch` intent, final images, batch items, jobs and live passes (the adaptive export's chunks). The requesting render retains the map while tracing; the protocol carries only the setting. It requires studio lighting with a backdrop, and a stone that is closed: a request whose map cannot be built is refused with an error naming the reason, never rendered without the shadow. A graphics card that cannot sample the map leaves the render to the CPU. Beam tracing refuses the stone shadow (in a `beam` build; a worker without the feature refuses every beam-tile request), and the path cache declines it (the pass is still rendered, with the shadow, only without the cache).
+
+"Tray Reflection" (`tray_reflection`, 0 to 1, default 0 = off) is the head-on reflectance of the surface under the stone; about 0.04 looks like black acrylic with the Black backdrop, 1 is a mirror, and glancing views reflect more. It works together with the Stone Shadow and has the same scope: a studio light with a backdrop, a closed stone. The worker validates the value as finite and within 0 to 1, builds the mirror from the stone's own geometry once per request, and refuses a request it cannot serve with an error naming the reason ("Tray reflection needs a studio light with a backdrop." or "Tray reflection needs a closed, nondegenerate stone."). Beam tracing refuses it (in a `beam` build; "Beam tracing off: the tray reflection is traced without beams."), the path cache declines it ("Path cache off: the tray reflection needs paths the cache does not keep."), and with the Spectral GPU renderer a graphics card that cannot run it leaves the render to the CPU ("Tray reflection is traced on the CPU on this graphics card."); Ray-Traced GPU rendering always runs it.

@@ -1,7 +1,8 @@
-//! The cached working-resolution photos of a rough colour (owner decision 7).
+//! The cached working-resolution photos of a rough colour.
 //!
-//! Packing the per-view [`ResampledImage`] the fit works on into a few byte blobs the vault stores, and
-//! back, so a saved plan reopens its colour fit without the original RAW or JPEG files.
+//! Packs the per-view [`ResampledImage`] the fit works on into a few byte blobs the vault
+//! stores, and unpacks them, so a saved plan reopens its colour fit without the original RAW or
+//! JPEG files.
 //!
 //! # Layout
 //!
@@ -15,12 +16,10 @@
 //! | `mask` | 1 | `u8` | the pixel flags (`photometry::flag`) |
 //! | `grid` | - | `json` | the working grid (size, origin, scale) |
 //!
-//! The vault has no compressor (its only dependencies are SQLite and serde), so the blobs are
-//! stored as they are: a 384 x 384 view is about 0.9 MB for the transmittance, 1.8 MB for the
-//! variance and 0.3 MB for coverage, mask and grid, the "about 2 MB per view" of the owner
-//! decision when the variance is dropped by the caller (the fit can rebuild it from the noise
-//! model), or about 3 MB with it. Half precision costs at most 0.05 % relative error on a
-//! transmittance in `[0, 1]`, far below the photo noise.
+//! The blobs are stored uncompressed (the vault has no compressor): a 384 x 384 view is about
+//! 0.9 MB for the transmittance, 1.8 MB for the variance, 0.3 MB for the coverage and 0.1 MB
+//! for the mask. Half precision costs at most 0.05 % relative error on a transmittance in
+//! `[0, 1]`, far below the photo noise.
 
 use crate::rough_plan::photometry::{PixelMask, ResampledImage, WorkingGrid};
 use std::fmt;

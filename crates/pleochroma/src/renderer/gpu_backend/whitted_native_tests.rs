@@ -1,4 +1,4 @@
-//! Real-kernel checks of frozen uploads and transactional reuse (owner-run).
+//! Real-kernel checks of frozen uploads and transactional reuse. They need a GPU adapter.
 use super::*;
 use crate::{
     optics::{
@@ -75,7 +75,7 @@ fn prepared_uploads_are_frozen_reusable_and_transactional() {
         facet_finishes: &[],
         material: &material,
         max_bounces: 16,
-        environment: EnvironmentSource::HdrMap(&env),
+        environment: EnvironmentSource::hdr(&env),
     };
     let mut prep =
         WhittedPrep::new(&scene, Fluorescence::none(), RayOptions::default()).expect("prep");

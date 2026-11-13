@@ -9,8 +9,8 @@
 //! observation are real.
 //!
 //! The episode mechanics (greedy acceptance, girdle and manufacturability gates, hinge
-//! anchoring of pinned tiers, the line search of [`RetargetEnv::step_scaled`], the yield term of
-//! the score and the measurement of face-up tone) are the optimizer environment's; see
+//! anchoring of pinned tiers, the line search of [`RetargetEnv::step_scaled`], the yield term
+//! of the score and the measurement of face-up tone) are the optimizer environment's; see
 //! `optimizer_env`. The optimizer is this task with the target equal to the source material.
 
 use super::{
@@ -41,8 +41,8 @@ pub struct RetargetEnvConfig {
     /// episode (`max_steps * max_step_deg`) stays 30 degrees at the default step.
     pub max_steps: usize,
     /// Maximum angle delta per step, degrees (finite, positive). Default 0.5: a joint
-    /// one-degree move of every tier failed the manufacturability gate on 50 to 80 % of the
-    /// random proposals of a 24-free-tier design, a quarter degree on none.
+    /// one-degree move of every tier failed the manufacturability gate on 50 to 80 % of
+    /// random proposals of a 24-free-tier design.
     pub max_step_deg: f64,
     /// Reward calculation hyperparameters.
     pub reward_config: RewardConfig,
@@ -60,7 +60,7 @@ pub struct RetargetEnvConfig {
     pub only_tiers: Option<BTreeSet<usize>>,
     /// Inclusive authored-angle bounds by tier index.
     pub angle_bounds: BTreeMap<usize, (f64, f64)>,
-    /// Optional source metadata override (for deterministic material augmentation).
+    /// Optional source material override (for deterministic material augmentation).
     pub source_material_override: Option<ResolvedMaterial>,
     /// Target material the design is being adapted towards.
     pub target_material: ResolvedMaterial,
@@ -210,7 +210,7 @@ impl RetargetEnv {
         &self.source
     }
 
-    /// Return the list of movable tier indices.
+    /// Indices of the movable tiers.
     #[must_use]
     pub fn movable_tier_indices(&self) -> &[usize] {
         self.core.free_tiers()
@@ -237,7 +237,7 @@ impl RetargetEnv {
         self.core.certify_design(design)
     }
 
-    /// The best design accepted so far in this episode (the state never gets worse).
+    /// The design accepted so far in this episode; its score never rises.
     #[must_use]
     pub const fn current_design(&self) -> &Design {
         self.core.current_design()
@@ -310,12 +310,10 @@ impl RetargetEnv {
     ///
     /// One entry per tier of the design: `None` for a tier the environment does not move, and
     /// for a free tier whose `+h_deg` and `-h_deg` candidates are both refused (unsafe, open,
-    /// unscorable, or failing a gate); otherwise the two-sided derivative (nonuniform when
-    /// clipped) of the
-    /// score over `h_deg` degrees (the score slopes of [`Self::teacher_label`]). Cost: one or
-    /// two candidate evaluations per free tier. The environment is left exactly as it was (no
-    /// step counted, no state change). An `h_deg` that is not finite and positive gives all
-    /// `None`.
+    /// unscorable, or failing a gate). Otherwise it is the two-sided derivative over `h_deg`
+    /// degrees (nonuniform when clipped), the score slopes of [`Self::teacher_label`]. Cost: one
+    /// or two candidate evaluations per free tier. The environment is left unchanged (no step
+    /// counted). An `h_deg` that is not finite and positive gives all `None`.
     #[must_use]
     pub fn score_gradient_fd(&self, h_deg: f64) -> Vec<Option<f32>> {
         self.core.score_gradient_fd(h_deg)
@@ -323,9 +321,9 @@ impl RetargetEnv {
 
     /// Measure component sensitivities and a verified improving behavior target.
     ///
-    /// Probes retain their true finite differences. The target is the best measured
-    /// coordinate or gradient-scale action, with at most eight additional rescue attempts
-    /// when neither improves. No winner is not proof of a local optimum. Empty `scales`
+    /// The target is the best measured coordinate or gradient-scale action, with at most
+    /// eight additional rescue attempts when neither improves. No winner is not proof of a
+    /// local optimum. Empty `scales`
     /// requests sensitivities only; an invalid `h_deg` gives an empty label. Pure: no state
     /// changes or steps are counted. See [`TeacherLabel`].
     #[must_use]
@@ -336,13 +334,13 @@ impl RetargetEnv {
     /// The probe of one tier: the unit of work of [`Self::teacher_label`], for a caller that
     /// schedules the probes of many environments itself.
     ///
-    /// Both `+h_deg` and `-h_deg`, measured against the current design
-    /// exactly as the label measures each free tier; see [`TierProbe`]. `sensitivity: None` with
-    /// `evaluations: 0` for a tier that is not free (pinned, or an index beyond the design's
-    /// tiers) and for an `h_deg` that is not finite and positive; `sensitivity: None` with the
-    /// evaluations actually spent when both candidates are refused. Pure and `&self`: no state
-    /// changes, and probes of different tiers may run on different threads at once. Join the
-    /// probes with [`Self::teacher_label_from_probes`] from this exact unchanged state.
+    /// Both `+h_deg` and `-h_deg`, measured against the current design as the label measures
+    /// each free tier; see [`TierProbe`]. `sensitivity: None` with `evaluations: 0` for a tier
+    /// that is not free (pinned, or an index beyond the design's tiers) and for an `h_deg` that
+    /// is not finite and positive; `sensitivity: None` with the evaluations actually spent when
+    /// both candidates are refused. Pure and `&self`: no state changes, and probes of different
+    /// tiers may run on different threads at once. Join the probes with
+    /// [`Self::teacher_label_from_probes`] from this exact unchanged state.
     #[must_use]
     pub fn probe_tier(&self, tier: usize, h_deg: f64) -> TierProbe {
         self.core.probe_tier(tier, h_deg)
@@ -395,8 +393,8 @@ impl RetargetEnv {
     }
 
     /// [`Self::oracle_outcome`] with the candidates of the line search evaluated concurrently
-    /// when `parallel` is set (using the installed Rayon pool). The outcome is bit-identical to the
-    /// sequential one, `evaluations` included.
+    /// when `parallel` is set (using the installed Rayon pool). The outcome is bit-identical
+    /// to the sequential one, `evaluations` included.
     #[must_use]
     pub fn oracle_outcome_with(
         &self,

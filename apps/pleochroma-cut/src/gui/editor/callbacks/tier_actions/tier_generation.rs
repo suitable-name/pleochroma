@@ -1,9 +1,9 @@
 //! Generated tier series ("Generate steps") and mirroring a tier to the other block.
 //!
-//! Both edits live on `pleochroma_editor::EditorSession`
-//! (`generate_step_series`, `mirror_tier_to_other_block`), shared with the web app's tier
-//! table; the callbacks here only refresh and announce. The name-generation helpers they
-//! (and Duplicate/Save Tier) share moved to `pleochroma_editor::loading`.
+//! Both edits live on `pleochroma_editor::EditorSession` (`generate_step_series`,
+//! `mirror_tier_to_other_block`), shared with the web app's tier table; the callbacks here
+//! only refresh and announce. The name-generation helpers they share with Duplicate and
+//! Save Tier live in `pleochroma_editor::loading`.
 
 use std::{
     cell::RefCell,
@@ -27,11 +27,6 @@ use crate::{
     },
 };
 
-// The Duplicate naming helpers (`unique_duplicate_name`, `split_duplicate_suffix`) and the
-// "Generate steps" form parser (`parse_step_series_form`) moved to
-// `pleochroma_editor::loading`, where `EditorSession::duplicate_tier` and
-// `generate_step_series` (shared with the web app's tier table) use them.
-
 /// "Generate steps": builds `count` tiers via `ConstraintTier::step_series` and
 /// applies them as one `Edit::Batch` of `Edit::AddTier`s, appended after the design's
 /// current last tier -- see `pleochroma_editor::EditorSession::generate_step_series`
@@ -39,8 +34,7 @@ use crate::{
 /// site's argument order: name prefix, start-angle text, angle-step text, tier count, a
 /// comma-separated index list shared by every generated tier, and an optional anchor.
 ///
-/// `pub(super)` since [`super::tier_crud::setup_toggle_detach_callback`] is the one
-/// call site that registers it.
+/// `pub(super)` since it is registered from `super::tier_crud::setup_toggle_detach_callback`.
 ///
 /// Also registers `RelationModel.generate_step_series_linked`, the Steps panel's Generate
 /// with "Keep linked" ticked: the same form, but every tier after the first follows the
@@ -249,9 +243,7 @@ pub(super) fn setup_mirror_tier_to_other_block_callback(
     );
 }
 
-// `setup_save_tier_callback`'s auto-name for a brand-new tier saved with a blank Name
-// field (`unique_duplicate_name` does not cover this case -- that one only ever runs
-// against an already-named source). The function now lives in
-// `pleochroma_editor::loading` (the mouse-driven slice tool names its provisional tier
-// the same way); this re-export keeps the old path for `super::tier_form`.
+// Auto-name for a new tier saved with a blank Name field, from `pleochroma_editor::loading`
+// (the mouse-driven slice tool names its provisional tier the same way). Unlike
+// `unique_duplicate_name`, it has no already-named source. Re-exported for `super::tier_form`.
 pub(super) use pleochroma_editor::loading::next_free_block_name;

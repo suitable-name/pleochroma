@@ -84,8 +84,7 @@ export component WindowState {
     // `edit_row` in `tab_3d_content.slint`. Floating, it is the panel's own x.
     out property <bool> guide_docked: root.active_tab == 0 && root.params_in_edit_row && root.edit_wide;
     // The floating guide's default spot keeps clear of the Parameters dock at the window's
-    // right edge (the open panel, or its rail): it used to float over the Stone dock.
-    // The catalogue tabs have no dock.
+    // right edge (the open panel, or its rail). The catalogue tabs have no dock.
     out property <length> guide_float_reserve: root.active_tab != 0
         ? 0px
         : (ParametersModel.open ? min(ParametersDockMetrics.open_width, root.window_width - 24px) : ParametersDockMetrics.rail_width);
@@ -95,7 +94,7 @@ export component WindowState {
             ? clamp(GuideModel.float_x, 0px, max(0px, root.window_width - 260px))
             : max(0px, root.window_width - 260px - 20px - root.guide_float_reserve));
 
-    // --- Dialogs and the open guide (round 4) --------------------------------------------
+    // --- Dialogs and the open guide --------------------------------------------------------
     // A dialog is centred on the WHOLE window. While a guide panel is open, a lesson still
     // has to reach its step text and Back/Next, so the guide is "lifted": it is drawn as a
     // card at the window's right edge ABOVE every scrim (`GuideOverlayLayer`'s `parked`
@@ -106,7 +105,7 @@ export component WindowState {
     // meanwhile (`Tab3dContent.guide_parked`).
     // A window too narrow to leave a 640px dialog area between the gutters keeps the guide
     // under the scrim instead (the dialog needs the room more). The native menu bar is drawn
-    // by the OS outside the window content, so no scrim reaches it (nothing to fix there).
+    // by the OS outside the window content, so no scrim reaches it.
     out property <length> guide_gutter: 284px; // 260px card + a 12px margin each side
     // The questions that must answer before anything else: the guide stays under their scrim.
     out property <bool> confirm_open: EditorModel.unsaved_dialog_open || EditorModel.write_confirm_open
@@ -147,7 +146,7 @@ export component WindowState {
     // Cutting mode covers the whole window with its own screen: the toast takes the window.
     out property <bool> toast_cutting: CuttingModeModel.open;
     // While a dialog is up the toast leaves its card alone: the dialogs area, at the TOP,
-    // where no dialog footer ever is (an Export or Retarget footer used to lie under it).
+    // where no dialog footer is.
     out property <bool> toast_at_top: !root.toast_cutting
         && (root.other_overlay_open || EditorModel.write_confirm_open || root.confirm_open);
     out property <length> toast_area_x: root.toast_cutting
@@ -172,24 +171,19 @@ export component WindowState {
 
     // Whether `LibraryModel.panel_collapsed` is currently `true`
     // because THIS reaction collapsed it for lack of width, as opposed to the user
-    // having collapsed it themselves via `diagram_list.slint`'s own rail toggle.
-    // Only that first case is ever auto-restored below -- a manual collapse must
-    // never be silently reopened just because the window happened to grow again.
-    // Deliberately does NOT call `LibraryModel.panel_collapsed_changed` (the manual
-    // toggle's own persistence hook, `gui::mod::build_main_window`'s
-    // `on_panel_collapsed_changed`): a width-driven collapse is a transient display
-    // adjustment, not a change to the user's saved preference, and firing that
-    // callback here would silently overwrite it on every resize.
+    // having collapsed it via `diagram_list.slint`'s rail toggle. Only the first case is
+    // auto-restored below: a manual collapse is never reopened because the window grew.
+    // This does NOT call `LibraryModel.panel_collapsed_changed` (the manual toggle's
+    // persistence hook, `on_panel_collapsed_changed` in `gui::main_window`): a width-driven
+    // collapse is transient and must not overwrite the saved preference on every resize.
     property <bool> library_auto_collapsed_by_width: false;
     //
     // When the library is folded for lack of width:
-    //  * Edit view: the inspector dock (min 600) and a 380px viewport (+ the Parameters dock when
-    //    the window can dock it with the library on its rail, i.e. from 1458px + guide) must fit
-    //    with the library open (340 + 12): 24 + 352 + 1010 + guide [+ 372 + ... dock] -> the
-    //    library folds below 1386px (+272px guide), or below 1758px (+272px) where the dock could
-    //    dock. At or below 1200px it always folds (the narrow stack).
-    //  * Live Render: while the window could dock the Parameters dock (viewport >= 700px) only
-    //    with the library on its rail -- widths 1144px to 1443px.
+    //  * Edit view: the library folds when the window cannot hold it open beside the 380px
+    //    viewport, the inspector dock (min 600px), the guide column and, where the Parameters
+    //    dock could dock, its open width. Below 1200px it always folds (the narrow stack).
+    //  * Live Render: in the band where the Parameters dock could dock only with the library
+    //    on its rail, the library folds (see `params_docked_live`).
     // Both rules read the window width and the OPEN dock width only -- never `ParametersModel.open`
     // and never the library's own state -- so folding the dock (it leaves its rail mounted) or the
     // library never feeds back into them. Cost: in those bands the library is on its rail as soon
@@ -211,7 +205,7 @@ export component WindowState {
     property <bool> library_auto_rule_active: false;
     function sync_library_auto_collapse() {
         if root.library_wants_auto_collapse == root.library_auto_rule_active {
-            // Opened by hand while the rule applies: no longer ours to reopen later.
+            // Opened by hand while the rule applies: not ours to reopen later.
             if !LibraryModel.panel_collapsed {
                 root.library_auto_collapsed_by_width = false;
             }
@@ -238,12 +232,12 @@ export component WindowState {
     changed active_tab => { root.sync_library_auto_collapse(); }
 
     // A tutorial step that points at a tab of the Parameters dock ("stone_tab", "lighting_tab",
-    // "render_output_tab") needs that tab showing, so the step opens it (`ParametersModel.show_tab`,
-    // the one tab opener the toolbar, the View menu and the palette use). The tab's pill
-    // draws the outline (`parameters_panel.slint`). The learner can still fold the panel afterwards. The worked
-    // example, shared with the web app, still names "design_settings" for its material step; on
-    // the desktop the design's material lives in the Stone tab, so that target opens and outlines
-    // the Stone tab as well (the DESIGN panel keeps its own outline).
+    // "render_output_tab") opens that tab (`ParametersModel.show_tab`, the same opener the
+    // toolbar, the View menu and the palette use). The tab's pill draws the outline
+    // (`parameters_panel.slint`). The learner can still fold the panel afterwards. The shared
+    // worked example names "design_settings" for its material step; on the desktop that
+    // material lives in the Stone tab, so that target opens the Stone tab too (the DESIGN
+    // panel keeps its own outline).
     property <string> guide_parameters_target: GuideModel.highlight_target;
     changed guide_parameters_target => {
         if root.guide_parameters_target == "stone_tab" || root.guide_parameters_target == "design_settings" {
@@ -346,9 +340,8 @@ export component WindowState {
     // and silence every shortcut until the next click. Whichever of them closes last hands the
     // keyboard back, unless one of the other dialogs (or the unsaved-changes question) is still
     // up and keeps it.
-    // The command palette is one of them (its scrim used to stop at the guide's edge); so are
-    // the Retarget dialog's Compare-only mode and the colour-conflict question, which draw a
-    // scrim of their own too.
+    // The command palette is one of them, and so are the Retarget dialog's Compare-only mode
+    // and the colour-conflict question, which draw a scrim of their own.
     out property <bool> other_overlay_open: EditorModel.new_dialog_open || EditorModel.gear_remap_open
         || EditorModel.anchor_explainer_open || EditorModel.unsaved_dialog_open
         || CommandPaletteModel.open || RetargetModel.compare_open

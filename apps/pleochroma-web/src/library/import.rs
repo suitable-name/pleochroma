@@ -269,8 +269,8 @@ pub(super) fn import_files(ctx: &Ctx, files: Vec<IncomingFile>) {
             notify(&ctx, kind, &report.summary());
         }
         reload(&ctx).await;
-        // A tutorial step may wait for designs to be imported: something was stored (added or
-        // replaced), as on the desktop; a skipped identical file or a refusal is not an import.
+        // A tutorial step may wait for an import: a stored file (added or replaced) counts; a
+        // skipped identical file or a refusal does not.
         if report.added + report.updated > 0 {
             crate::editor::guide::raise(&ctx, events::LIBRARY_IMPORTED);
         }
@@ -325,8 +325,8 @@ async fn run(ctx: &Ctx, files: Vec<IncomingFile>) -> ImportReport {
     report
 }
 
-/// Save to Library, second half: stores the open design's `.psdd` (`built`) with the solve
-/// already in hand (`tiers`), so nothing is solved again.
+/// Stores the open design's `.psdd` (`built`), reusing the solve in hand (`tiers`) so that
+/// nothing is solved again.
 pub fn add_open_design(ctx: &Ctx, built: BuiltDesign, tiers: Option<Vec<SolvedTier>>) {
     let BuiltDesign {
         text,

@@ -1,3 +1,5 @@
+//! Mirror-sync types: options, counts, progress, outcome, handle and the transport trait.
+//!
 //! [`MirrorOptions`]/[`MirrorCounts`]/[`MirrorProgress`]/[`MirrorOutcome`]/
 //! [`MirrorHandle`], and the [`LibraryTransport`] abstraction [`super::sync`]'s
 //! algorithm runs generically over. See this group's own `mod.rs` doc comment.
@@ -19,15 +21,12 @@ pub fn mirror_source_id(worker: &WorkerSettings) -> String {
     format!("remote-library:{}", worker.address)
 }
 
-/// Tuning knobs for one mirror sync. `Default` is the sensible "just mirror everything
-/// reasonable" choice a UI trigger with no advanced options needs.
+/// Tuning knobs for one mirror sync. `Default` suits a UI trigger without advanced options.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MirrorOptions {
     /// An attachment whose advertised [`pleochroma_net::library::AttachedFileMeta::size`]
-    /// exceeds this is skipped (the design itself is still saved without it) -- see the
-    /// module doc comment's "Attachments" section. `50 MiB` comfortably exceeds any real
-    /// competition-results PDF or diagram image in this catalogue while still catching a
-    /// genuinely anomalous file.
+    /// exceeds this is skipped; the design is still saved without it. `50 MiB` is far above
+    /// a typical PDF or diagram image, so it only catches anomalous files.
     pub max_attachment_bytes: u64,
 }
 
@@ -39,9 +38,10 @@ impl Default for MirrorOptions {
     }
 }
 
-/// Running/final tallies for one mirror sync -- both [`MirrorProgress::counts`] (a live
-/// snapshot, after each design) and [`MirrorOutcome`]'s completed/cancelled payload (the
-/// final snapshot) use this same shape.
+/// Running/final tallies for one mirror sync.
+///
+/// Both [`MirrorProgress::counts`] (a live snapshot, after each design) and
+/// [`MirrorOutcome`]'s completed/cancelled payload (the final snapshot) use this same shape.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct MirrorCounts {
     /// Total designs the remote catalogue reported, across every `SearchPage` page.
@@ -57,9 +57,9 @@ pub struct MirrorCounts {
     /// Skipped because the user deleted the mirrored design locally (tombstone); never fetched.
     pub skipped_deleted: usize,
     /// A design whose fetch or local save failed for any reason (network error,
-    /// database error, or it vanished server-side between `Search` and `FetchDesign`).
-    /// Left exactly as it was locally before this sync (if it existed at all) -- never
-    /// marked as synced, so the next sync retries it.
+    /// database error, or it vanished server-side between `SearchPage` and `FetchDesign`).
+    /// Left as it was locally (if it existed at all), never marked as synced, so the next sync
+    /// retries it.
     pub failed: usize,
     /// Attachment files downloaded by this sync.
     pub attachments_fetched: usize,
@@ -68,24 +68,15 @@ pub struct MirrorCounts {
     pub attachments_skipped_too_large: usize,
     /// Total bytes of attachments downloaded by this sync.
     pub attachment_bytes_fetched: u64,
-    /// A remote design whose `url` already names a LOCAL row this sync has never
-    /// mirrored (no `library_mirror_state` entry for it) -- left completely untouched
-    /// rather than overwritten, per the "additive/update-only" rule in the mirror
-    /// module's own doc comment (a worker serving its own `local://` imports, or
-    /// a hand-imported design that happens to collide with a remote page URL, must
-    /// never lose its data to a sync). Counted separately from [`Self::failed`] --
-    /// this is not an error, and retrying it on the next sync would only skip it
-    /// again the same way.
+    /// A remote design whose `url` names a local row this sync never mirrored (no
+    /// `library_mirror_state` entry). The local row is left untouched; see the mirror module's
+    /// safety rule. This is not an error, so it is counted apart from [`Self::failed`], and a
+    /// retry would skip it again.
     pub local_conflicts_skipped: usize,
-    /// How many `library_mirror_state` rows have no matching local design left
-    /// (`Database::count_mirror_states_without_entry`) -- designs this sync (or an
-    /// earlier one) mirrored, that the user then deleted locally. "Local delete wins"
-    /// is the intended semantics (owner decision, see the mirror module's own doc
-    /// comment): a mirror sync never resurrects a design the user deleted, and never
-    /// will, so this count is what lets the sync summary say so instead of that
-    /// orphaning being entirely invisible. Populated once, at the end of a sync
-    /// ([`super::sync::run_mirror_sync`]'s return, whether completed or cancelled) --
-    /// not a per-design running tally like the fields above.
+    /// How many `library_mirror_state` rows have no local design left
+    /// (`Database::count_mirror_states_without_entry`): designs mirrored earlier and then
+    /// deleted locally. Set once at the end of a sync, whether completed or cancelled, not a
+    /// running tally. See the mirror module's "Local delete wins" section.
     pub orphaned_mirror_states: u64,
 }
 
@@ -115,9 +106,8 @@ pub enum MirrorOutcome {
     Failed(String),
 }
 
-/// Handle returned by [`super::sync::spawn_mirror_sync`]. Cancelling is cooperative --
-/// see the module doc comment's "Cancellation" section -- matching
-/// `bridge::export_thread::ExportHandle`'s existing shape.
+/// Handle returned by [`super::sync::spawn_mirror_sync`]. Cancelling is cooperative: the sync
+/// stops at its next per-design check.
 pub struct MirrorHandle {
     pub(super) cancel: Arc<AtomicBool>,
 }
@@ -131,16 +121,11 @@ impl MirrorHandle {
 
 /// A source of [`LibraryResponse`]s for exactly one [`LibraryRequest`] at a time.
 ///
-/// Exists so [`super::sync::run_mirror_sync`] can be unit-tested against a scripted
-/// in-memory fake (`sync::tests::FakeTransport`) with no live socket or TLS handshake.
-/// [`LibrarySession`]'s implementation is what production uses: one connect+handshake
-/// for the whole sync, reused across every request, reconnecting-and-retrying once per
-/// request if the held connection drops -- see that type's own doc comment.
-/// [`WorkerSettings`]'s implementation (one real connect+handshake+request+response per
-/// call) is not used by [`super::sync::spawn_mirror_sync`], which needs the reused
-/// connection instead; it remains available for the interactive remote-browse path
-/// (`bridge::library::source`), which calls the same one-shot `request` directly and
-/// has no reason to hold a connection open.
+/// Lets the sync run against a scripted in-memory fake (`sync::tests::fixtures::FakeTransport`)
+/// with no socket or TLS handshake. Production uses [`LibrarySession`], which holds one
+/// connection for the whole sync and reconnects once per request if it drops. The
+/// [`WorkerSettings`] impl makes a new connection per call; the sync does not use it, but the
+/// interactive remote browse does, through the same one-shot `request`.
 pub trait LibraryTransport {
     /// # Errors
     ///

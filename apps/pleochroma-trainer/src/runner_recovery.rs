@@ -215,8 +215,8 @@ const fn legacy_imitation_objective_revision() -> u32 {
 }
 
 fn legacy_environment_math() -> String {
-    // Old snapshots did not record the environment backend. Do not assume their
-    // labels were produced by CPU arithmetic when resuming on a CPU device.
+    // Snapshots without this field do not say which arithmetic made their labels. Their labels
+    // are not assumed to come from CPU arithmetic, even on a CPU resume.
     "legacy-unknown".to_owned()
 }
 
@@ -244,7 +244,7 @@ fn read_state<T: DeserializeOwned>(path: &Path) -> Result<T, RunnerError> {
     rmp_serde::from_read(BufReader::new(file)).map_err(|e| error("decode recovery payload", e))
 }
 
-/// The legacy `Debug` identity a bundle records. The device is normalised: a resume may move to
+/// The `Debug` identity string a bundle records. The device is normalised: a resume may move to
 /// other hardware.
 fn config_identity(runner: &TrainingRunner) -> String {
     let mut config = runner.cfg.clone();
@@ -252,9 +252,10 @@ fn config_identity(runner: &TrainingRunner) -> String {
     format!("{config:?}")
 }
 
-/// The legacy comparison with the explicit resume overrides ignored: besides the device, the
-/// imitation learning rate and gradient-norm cap may differ, so the current configuration is
-/// rendered with the values the saved identity recorded for those two before comparing.
+/// Compares a saved `Debug` identity with the current configuration, ignoring the explicit
+/// resume overrides: besides the device, the imitation learning rate and gradient-norm cap may
+/// differ, so the current configuration is rendered with the values the saved identity recorded
+/// for those two before comparing.
 fn matches_legacy_config(saved: &str, cfg: &RunConfig) -> bool {
     let mut config = cfg.clone();
     config.device = DeviceChoice::Auto;
@@ -268,7 +269,7 @@ fn matches_legacy_config(saved: &str, cfg: &RunConfig) -> bool {
     matches_config_identity(saved, &format!("{config:?}"), cfg.label_memory_mib)
 }
 
-/// Accepts a saved identity when the legacy form matches or the field-level form has no
+/// Accepts a saved identity when its `Debug` form matches or its field-level form has no
 /// changes; otherwise the refusal names the changed fields when the bundle recorded them.
 fn check_identity(
     legacy_matches: bool,
@@ -297,9 +298,9 @@ fn matches_config_identity(saved: &str, current: &str, label_memory_mib: usize) 
     if saved == current {
         return true;
     }
-    // Before the host budget existed, its effective value was always 512 MiB.
-    // Remove precisely that one field from the current identity; all other fields
-    // remain part of the exact comparison and non-default budgets cannot migrate.
+    // Identities written without `label_memory_mib` implied 512 MiB. Remove exactly that field
+    // from the current identity; all other fields stay part of the exact comparison, and
+    // non-default budgets cannot migrate.
     let field = ", label_memory_mib: 512";
     label_memory_mib == 512
         && current.contains(field)
@@ -381,7 +382,7 @@ impl TrainingRunner {
     /// environment arithmetic project actions differently: a bundle that carries any is refused
     /// unless [`Self::set_allow_environment_relabel`] allowed dropping them.
     ///
-    /// The configuration and the corpus must match either the bundle's legacy identities or its
+    /// The configuration and the corpus must match either the bundle's `Debug` identities or its
     /// field-level ones; a refusal names the differing fields when the bundle recorded them.
     ///
     /// # Errors

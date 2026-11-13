@@ -3,18 +3,14 @@
 //! [`format_eta`] to turn its result into the short string those bars show next to
 //! their percentage.
 //!
-//! # Why regression over a window, not "seconds since last tick / delta fraction"
+//! # Why regression over a window, not the rate between two observations
 //!
-//! The wire progress a running job reports is step-like, not smooth: a fan-out
-//! export job's own progress advances in coordinator-sized chunks (each merge can be
-//! tens of seconds apart), and a tilt video only reports once per completed frame.
-//! An estimator built from the single most recent pair of observations would swing
-//! wildly between updates -- near-zero right after a chunk lands (the "instantaneous
-//! rate" looks huge), then rising sharply as the next chunk takes its full time to
-//! arrive. Fitting a least-squares line across a whole rolling window of
-//! `(time, fraction_done)` observations instead smooths over that noise: a handful of
-//! irregular steps still describe a fairly steady average rate, which is what a
-//! cutter actually wants from a "how much longer" readout.
+//! A job's reported progress is step-like: a fan-out export advances in
+//! coordinator-sized chunks, and a tilt video reports once per frame. The rate between
+//! the last two observations would swing wildly (near zero just after a chunk lands,
+//! high just before the next one). A least-squares line over a rolling window of
+//! `(time, fraction_done)` observations averages the steps into a steady rate, which is
+//! what a "how much longer" readout needs.
 
 use std::{
     collections::VecDeque,
@@ -25,16 +21,11 @@ use std::{
 /// [`MAX_OBSERVATIONS`] entries -- see [`EtaEstimator::observe`]'s own doc comment.
 const MIN_WINDOW: Duration = Duration::from_secs(30);
 
-/// Hard cap on how many observations [`EtaEstimator`] keeps, once the 30-second
-/// window (`MIN_WINDOW`) is already satisfied -- bounds the regression's own cost and
-/// stops a very long, very chatty run from growing this unboundedly.
+/// Cap on the observations kept once [`MIN_WINDOW`] is covered; bounds the cost of the fit.
 const MAX_OBSERVATIONS: usize = 64;
 
-/// [`EtaEstimator::eta`] refuses to guess from less than this much observed history
-/// -- a five-second span is enough for even a single coordinator chunk landing twice
-/// to give a slope that means something, whereas two observations a fraction of a
-/// second apart (e.g. two ticks of the same batch) would extrapolate a noise-sized
-/// slope into a wildly wrong estimate.
+/// The shortest observed span [`EtaEstimator::eta`] estimates from. Shorter spans
+/// extrapolate noise (two ticks of the same batch) into a wildly wrong slope.
 const MIN_SPAN_FOR_ESTIMATE: Duration = Duration::from_secs(5);
 
 /// A rolling window of `(time, fraction_done)` observations for one running job,
@@ -50,19 +41,17 @@ const MIN_SPAN_FOR_ESTIMATE: Duration = Duration::from_secs(5);
 #[derive(Debug, Default, Clone)]
 pub struct EtaEstimator {
     observations: VecDeque<(Instant, f64)>,
+    /// Whether the latest [`Self::observe_stretch`] report belonged to the opening stretch.
+    #[cfg(feature = "beam")]
+    opening: bool,
 }
 
 impl EtaEstimator {
-    /// Records one `(now, fraction_done)` observation, trimming the window
-    /// afterward.
+    /// Records one `(now, fraction_done)` observation, trimming the window afterward.
     ///
-    /// The window keeps AT LEAST the last [`MIN_WINDOW`] (30s) of history
-    /// regardless of how many observations that takes, and separately caps at
-    /// [`MAX_OBSERVATIONS`] (64) once that 30-second requirement is already met --
-    /// so a job reporting many ticks per second still bounds this struct's memory,
-    /// while a job reporting only a handful of ticks total (a fan-out export's
-    /// coordinator-chunk cadence) still keeps enough history to fit a meaningful
-    /// line.
+    /// Keeps at least the last [`MIN_WINDOW`] of history, and at most
+    /// [`MAX_OBSERVATIONS`] once that span is covered: a chatty job stays bounded, and
+    /// a sparse one keeps enough points to fit a line.
     pub fn observe(&mut self, now: Instant, fraction_done: f64) {
         self.observations
             .push_back((now, fraction_done.clamp(0.0, 1.0)));
@@ -77,6 +66,21 @@ impl EtaEstimator {
             }
             self.observations.pop_front();
         }
+    }
+
+    /// [`Self::observe`] for a job whose reports come in two unrelated stretches: an opening one
+    /// (`opening` true: a beam render, whose probe may give the render up) and the render proper.
+    ///
+    /// The first report after the opening stretch clears the history, so one line never fits
+    /// both: a silent probe followed by the render would predict a far too long remaining time.
+    /// A job without an opening stretch uses [`Self::observe`].
+    #[cfg(feature = "beam")]
+    pub fn observe_stretch(&mut self, now: Instant, fraction_done: f64, opening: bool) {
+        if self.opening && !opening {
+            self.observations.clear();
+        }
+        self.opening = opening;
+        self.observe(now, fraction_done);
     }
 
     /// Fits a least-squares line across the current window and reads off the
@@ -140,14 +144,19 @@ impl EtaEstimator {
     /// estimate. See this struct's own doc comment.
     pub fn reset(&mut self) {
         self.observations.clear();
+        #[cfg(feature = "beam")]
+        {
+            self.opening = false;
+        }
     }
 }
 
-/// Formats an [`EtaEstimator::eta`] result as the short string a progress bar shows
-/// next to its percentage: `""` for `None` (hides the estimate entirely), otherwise
+/// Formats an [`EtaEstimator::eta`] result as the short string a progress bar shows.
+///
+/// It is shown next to the percentage: `""` for `None` (hides the estimate entirely), otherwise
 /// `"about 5 s left"` / `"about 2 min left"` / `"about 1 h 20 min left"`, rounded to
 /// the coarsest unit that still reads as informative -- never a sub-second reading,
-/// and never a bare `"0 s"` for a durations that rounds down to nothing.
+/// and never a bare `"0 s"` for a duration that rounds down to nothing.
 #[must_use]
 pub fn format_eta(eta: Option<Duration>) -> String {
     let Some(remaining) = eta else {
@@ -221,11 +230,9 @@ mod tests {
         );
     }
 
-    /// A coordinator-style step cadence (a jump every 20s, matching this task's own
-    /// "up to ~22s per step" note) must still land within 25% of the true remaining
-    /// time once a handful of steps have been observed -- the whole reason this
-    /// estimator fits a line across the window instead of reading the single most
-    /// recent step's own instantaneous rate.
+    /// A coordinator-style step cadence (a jump every 20 s) must still land within 25% of
+    /// the true remaining time once a few steps are observed: the estimator fits a line
+    /// across the window instead of reading the latest step's own rate.
     #[test]
     fn step_like_progress_is_within_a_quarter_of_the_truth_after_three_steps() {
         let start = Instant::now();
@@ -277,6 +284,39 @@ mod tests {
             eta.eta(start + Duration::from_secs(9)).is_none(),
             "a single observation right after reset must not yet produce an estimate"
         );
+    }
+
+    /// The render after an opening stretch (a beam probe that gave up) gets its own estimate;
+    /// without the stretch flag the same reports fit one line through both and overestimate.
+    #[cfg(all(feature = "beam", beam_tests))]
+    #[test]
+    fn the_stretch_after_an_opening_starts_its_own_estimate() {
+        let start = Instant::now();
+        let mut eta = EtaEstimator::default();
+        // Six seconds of an opening stretch that does not advance.
+        for t in 0..=6u64 {
+            eta.observe_stretch(start + Duration::from_secs(t), 0.0, true);
+        }
+        // The render proper: 0.05 per second from t = 6 s.
+        for t in 7..=16u64 {
+            eta.observe_stretch(start + Duration::from_secs(t), 0.05 * (t - 6) as f64, false);
+        }
+        let now = start + Duration::from_secs(16);
+        let remaining = eta.eta(now).expect("nine seconds of the render");
+        // At t = 16 s the render is at 0.5: ten seconds left at 0.05 per second.
+        assert!(
+            (remaining.as_secs_f64() - 10.0).abs() < 1e-6,
+            "expected 10 s, got {remaining:?}"
+        );
+        let mut mixed = EtaEstimator::default();
+        for t in 0..=6u64 {
+            mixed.observe(start + Duration::from_secs(t), 0.0);
+        }
+        for t in 7..=16u64 {
+            mixed.observe(start + Duration::from_secs(t), 0.05 * (t - 6) as f64);
+        }
+        // One line through both stretches: slope 0.0337 per second, 16.9 s left.
+        assert!(mixed.eta(now).expect("history").as_secs_f64() > 11.0);
     }
 
     #[test]

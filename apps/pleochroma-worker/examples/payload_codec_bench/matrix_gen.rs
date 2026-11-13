@@ -5,8 +5,8 @@
 //! is the one with the smallest geometric-mean frame time, relative to each case's own
 //! winner, over the data kinds measured in that class. The frame time is the serial model
 //! (compress + transfer + decompress) by default, because a coordinator that also traces
-//! cannot overlap compression for free. A class nothing was measured for copies the next
-//! smaller class and says so in the file.
+//! cannot overlap compression for free. A class nothing was measured for copies the nearest
+//! measured class (the smaller one first) and says so in the file.
 
 use crate::{
     link::{Model, Rank, geomean},
@@ -58,7 +58,7 @@ struct ClassCells {
 fn group(records: &[Record], kind: Kind) -> Grouped<'_> {
     let mut out = Grouped::new();
     for r in records.iter().filter(|r| r.kind == kind) {
-        // A display case is classified by the radiance payload of the same view.
+        // Classified by pixel count, which a display record shares with its radiance payload.
         let pixels = r.width * r.height;
         out.entry(SizeClass::of_pixels(pixels))
             .or_default()

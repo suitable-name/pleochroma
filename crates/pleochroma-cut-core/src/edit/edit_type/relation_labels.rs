@@ -1,7 +1,8 @@
-//! The cutter-facing sentences of the edits that involve tier relations: a single
-//! [`super::Edit::SetTierRelation`], and the batches an editor session builds around one (a tier
-//! form save that also sets the relation, an edit plus the angle updates that follow it). Split
-//! from `edit_type` to keep that file readable; the wording is unchanged.
+//! The cutter-facing sentences of the edits that involve tier relations.
+//!
+//! They cover a single [`super::Edit::SetTierRelation`], and the batches an editor session
+//! builds around one (a tier form save that also sets the relation, an edit plus the angle
+//! updates that follow it). Split from `edit_type` to keep that file readable.
 
 use super::{Design, Edit, TierRelation, raw_tier_name_at, tier_display_name, tier_label_at};
 

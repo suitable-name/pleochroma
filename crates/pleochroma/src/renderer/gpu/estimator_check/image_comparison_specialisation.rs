@@ -1,5 +1,4 @@
-//! Tier 3: the GENERIC-vs-specialised statistical image comparison, split out of
-//! `image_comparison` for length.
+//! Tier 3: the GENERIC-vs-specialised statistical image comparison.
 //!
 //! Two different things are checked here, and they are separate functions on purpose:
 //!
@@ -42,28 +41,22 @@ use super::{
 
 /// The GENERIC-vs-specialised correctness gate for the pipeline KIND.
 ///
-/// `renderer::gpu::frame::run_specialisation_equivalence` documents why the GENERIC and
-/// specialised pipelines are not guaranteed byte-identical on the same input
-/// (dead-code elimination can flip a stochastic-branch threshold comparison by 1 ULP).
-/// That is the same class of divergence this module already tolerates statistically
-/// between the CPU and GPU estimators, so this function verifies it the same way: two
-/// GPU dispatches of `material` over DISJOINT sample ranges (mirroring
-/// [`super::image_comparison::run_image_comparison_for`]'s CPU/GPU split, both sides now GPU) -- one through the
-/// GENERIC pipeline, one through whichever specialised pipeline [`classify_material`]
-/// picks -- compared via the same Welford mean/M2, per-pixel z-score, and
-/// connected-component clustering [`ImageComparisonResult`] already carries. A wrong
-/// specialisation guard would bias the whole image, not flip isolated pixels, so
-/// [`ImageComparisonResult::passed`]'s existing criteria apply unchanged.
+/// The GENERIC and specialised pipelines need not be byte-identical on the same input:
+/// dead-code elimination can flip a stochastic-branch threshold by 1 ULP (see
+/// `renderer::gpu::frame::run_specialisation_equivalence`). That divergence is tolerated
+/// statistically, as between the CPU and GPU estimators. So two GPU dispatches of `material`
+/// over DISJOINT sample ranges are compared: one through the GENERIC pipeline, one through the
+/// specialised pipeline [`classify_material`] picks. A wrong specialisation guard biases the
+/// whole image rather than flipping isolated pixels, so [`ImageComparisonResult::passed`]'s
+/// criteria apply unchanged.
 ///
-/// The GENERIC side carries the material's own feature bits (see the module doc), so a wrong
-/// FEATURE bit is [`run_specialisation_feature_image_comparison`]'s to catch, not this
-/// function's.
+/// The GENERIC side carries the material's own feature bits, so a wrong FEATURE bit is
+/// [`run_specialisation_feature_image_comparison`]'s to catch, not this function's.
 ///
 /// # Panics
 ///
-/// Panics if `material.gpu_supported()` is false for `material` -- self-test scaffolding
-/// callers always pass a GPU-supported built-in. Also panics if a pixel index does not fit
-/// `u32`, which `width * height` in `u32` rules out.
+/// Panics if a pixel index does not fit `u32`, which `width * height` in `u32` rules out.
+/// `material` must be GPU-supported (`gpu_supported()`); this is not checked.
 #[must_use]
 pub fn run_specialisation_image_comparison(
     ctx: &crate::renderer::gpu::GpuContext,
@@ -84,9 +77,9 @@ pub enum SpecialisationFeatureCase {
     /// Quartz: a genuine extraordinary-ray dispersion curve (`EXTRAORDINARY_DISPERSION`),
     /// and no inclusions or zones (so `ORIENTED_INCLUSIONS` and `ZONED_ORIENTED` are off).
     ///
-    /// The all-features GENERIC side of this case is the pipeline shape that broke uniaxial
-    /// stones on AMD's RADV (reachable oriented code, 2026-10-22): a failure there on such a
-    /// driver is that fault, not a drifted feature bit; compare with an NVIDIA adapter.
+    /// The all-features GENERIC side compiles the reachable oriented code, which has broken
+    /// uniaxial stones on some drivers (AMD RADV). A failure on such a driver is that fault
+    /// rather than a feature bit; confirm on another adapter.
     ExtraordinaryCurve,
     /// Ruby with Star Silk under an HDR map: the scattering-point next-event estimate
     /// (`SCATTER_NEE`) and the oriented estimator are needed, only `ZONED_ORIENTED` is off.
@@ -141,11 +134,11 @@ impl SpecialisationFeatureCase {
     }
 }
 
-/// The FEATURE-bit gate: `case`'s material through the pipeline [`classify_material`] picks.
+/// The FEATURE-bit gate of the specialised pipeline for `case`'s material.
 ///
-/// The pipeline is picked by kind and feature bits, and compared
-/// against the GENERIC pipeline with EVERY feature compiled in, over
-/// disjoint sample ranges, on the X, Y and Z components in that order.
+/// The material runs through the pipeline [`classify_material`] picks, compared over disjoint
+/// sample ranges with the GENERIC pipeline that has EVERY feature compiled in, on the X, Y and
+/// Z components in that order.
 ///
 /// All three components are compared because a feature that is wrongly compiled out (a missing
 /// extraordinary curve, an index error) can move the hue and leave the luminance alone. Each
@@ -183,6 +176,30 @@ struct SpecialisationImages {
     specialised_xyz: Vec<f32>,
 }
 
+/// Transport parameters for the Daylight studio rig at `sample_offset`.
+fn daylight_studio_params(pixels: u32, max_bounces: u32, sample_offset: u32) -> GpuTransportParams {
+    let preset = LightingPreset::Daylight;
+    let (exposure, light_yaw, light_pitch) = (1.0f32, 0.4f32, 0.35f32);
+    let temp_k = illuminant_temperature_k(preset);
+    let wb = environment_white_balance(preset.studio(exposure, light_yaw, light_pitch));
+    GpuTransportParams::new(
+        pixels,
+        max_bounces,
+        sample_offset,
+        transport_env_mode::STUDIO_RIG,
+        0.0,
+        temp_k,
+        preset.params().spot_mult,
+        exposure,
+        light_yaw,
+        light_pitch,
+        wb.to_array(),
+    )
+    .with_studio_use_d65(preset.uses_d65())
+    .with_studio_model(preset.model().gpu_id())
+    .with_tent(preset.params().tent)
+}
+
 impl SpecialisationComparison<'_> {
     /// The comparison on the `channel` component (0 = X, 1 = Y, 2 = Z).
     fn run(&self, ctx: &crate::renderer::gpu::GpuContext, channel: usize) -> ImageComparisonResult {
@@ -199,6 +216,7 @@ impl SpecialisationComparison<'_> {
         [0, 1, 2].map(|channel| compare_dispatch_images(&images, channel))
     }
 
+    /// Dispatches the GENERIC and specialised pipelines over disjoint sample ranges.
     fn dispatch(&self, ctx: &crate::renderer::gpu::GpuContext) -> SpecialisationImages {
         let material = self.material;
         let camera = test_camera();
@@ -207,10 +225,6 @@ impl SpecialisationComparison<'_> {
         let gpu_material = GpuGemMaterial::encode(material);
         let gpu_finishes = encode_facet_finishes(&[], planes.len());
         let max_bounces = 10u32;
-        let preset = LightingPreset::Daylight;
-        let (exposure, light_yaw, light_pitch) = (1.0f32, 0.4f32, 0.35f32);
-        let temp_k = illuminant_temperature_k(preset);
-        let wb = environment_white_balance(preset.studio(exposure, light_yaw, light_pitch));
 
         let samples_per_pixel = 500u32;
         let camera_params = camera_params_for(&camera, width, height, samples_per_pixel);
@@ -236,22 +250,7 @@ impl SpecialisationComparison<'_> {
                     [1.0, 1.0, 1.0],
                 )
             } else {
-                GpuTransportParams::new(
-                    width * height,
-                    max_bounces,
-                    sample_offset,
-                    transport_env_mode::STUDIO_RIG,
-                    0.0,
-                    temp_k,
-                    preset.params().spot_mult,
-                    exposure,
-                    light_yaw,
-                    light_pitch,
-                    wb.to_array(),
-                )
-                .with_studio_use_d65(preset.uses_d65())
-                .with_studio_model(preset.model().gpu_id())
-                .with_tent(preset.params().tent)
+                daylight_studio_params(width * height, max_bounces, sample_offset)
             }
         };
         let env_map = hdr.then(synthetic_image_comparison_hdr_map);
@@ -262,6 +261,8 @@ impl SpecialisationComparison<'_> {
             planes: &planes,
             facet_finishes: &gpu_finishes,
             hdr_env: gpu_hdr.as_ref(),
+            tray_shadow: None,
+            tray_mirror: None,
         };
 
         // GENERIC pipeline: samples [0, samples_per_pixel).
@@ -365,12 +366,8 @@ fn compare_dispatch_images(images: &SpecialisationImages, channel: usize) -> Ima
     }
 }
 
-/// One pixel's z-score between a GENERIC-pipeline and a specialised-pipeline sample set
-/// on the XYZ component `channel`
-/// -- factored out of [`run_specialisation_image_comparison`] so that function's own
-/// per-pixel loop stays a plain `enumerate()` over the result (clippy's function-length
-/// and index-loop lints both want this split out, and it also documents the per-pixel
-/// Welford construction as its own named step).
+/// One pixel's z-score between a GENERIC-pipeline and a specialised-pipeline sample set on
+/// the XYZ component `channel`, from one Welford accumulator per sample set.
 ///
 /// `xyz` is `(generic, specialised)`.
 fn pixel_specialisation_z_score(

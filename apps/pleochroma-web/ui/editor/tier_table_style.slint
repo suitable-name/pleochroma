@@ -3,9 +3,9 @@ import { Theme } from "../components/theme.slint";
 import { AppModel } from "../models/app_model.slint";
 import { GuideModel } from "../models/guide_model.slint";
 
-// The dock's own color tokens and its small button, kept next to the tier table so the
-// shared `Theme` (edited by several lanes) does not have to grow. Same values as the
-// desktop's `theme.slint`.
+// The dock's own color tokens and its compact button, kept beside the tier table so the
+// shared `Theme` does not have to grow. The base colors are the desktop's `theme.slint`
+// accents; the glow and tint alphas are this dock's own.
 export global TableStyle {
     out property <color> ruby: #f43f5e;
     out property <color> ruby-glow: #f43f5e26;

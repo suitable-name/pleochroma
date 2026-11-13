@@ -6,9 +6,8 @@
 //! toasts after it.
 //!
 //! To add a scenario file: create `scenarios/<name>.rs` with a `pub fn scenarios() ->
-//! Vec<Scenario>`, add `mod <name>;` below and one `all.extend(<name>::scenarios());` line in
-//! [`all`]. Nothing else (in particular not `main.rs`) needs to change. The scenario lanes'
-//! files are pre-registered as empty stubs, so a lane only edits its own files.
+//! Vec<Scenario>`, add `mod <name>;` below and one `all.extend(...)` line in [`all`]. Nothing
+//! else (in particular not `main.rs`) needs to change.
 
 use crate::support::{Ctx, SettingsSeed};
 
@@ -37,10 +36,11 @@ pub struct Scenario {
 /// The boxed journey of a [`Piece`].
 pub type RunFn = Box<dyn Fn(&mut Ctx<'_>)>;
 
-/// One unit of scheduling: what the runner registers with the crate. A [`Scenario`] converts into
-/// one; the split scenarios (one per overlay state, per coverage-invoke chunk, per click-everything
-/// part) build their own with a closure, a computed name and the optional flags below. A worker
-/// takes a whole piece, so the pieces are sized to run for a minute or two at most.
+/// One unit of scheduling: what the runner registers with the crate.
+///
+/// A [`Scenario`] converts into one; the split scenarios (one per overlay state, per coverage
+/// chunk, per click-everything part) build their own with a closure, a computed name and the
+/// optional flags below. A worker takes a whole piece, so the pieces run a minute or two at most.
 pub struct Piece {
     /// Name shown in the report and usable as a command-line filter.
     pub name: String,
@@ -51,8 +51,7 @@ pub struct Piece {
     /// Runs after every ordinary piece and, in a parallel run, sees the coverage every worker
     /// recorded (`Harness::scenario_last`).
     pub last: bool,
-    /// Click-everything passes of this piece press only the controls of part `index` of `of`
-    /// (see `support::part`).
+    /// Click-everything passes of this piece press only the controls of part `index` of `of`.
     pub part: Option<(usize, usize)>,
     /// Asked before the app is relaunched; `false` skips the piece without starting the app.
     pub needed: Option<Box<dyn Fn() -> bool>>,

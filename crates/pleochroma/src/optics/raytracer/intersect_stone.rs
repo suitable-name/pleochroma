@@ -5,7 +5,7 @@
 //! [`intersect_polyhedron`] / [`intersect_polyhedron_soa`] return, so a design
 //! without concave facets is bit-identical to before. With tools the slab
 //! interval `[a, b]` of the polyhedron is computed by the same loop (copied
-//! here as `slab_interval`, because `intersect.rs` is deliberately untouched),
+//! here as `slab_interval`, so `intersect.rs` keeps its exact scalar path),
 //! each tool contributes its analytic interval `[c, d]`, and the hit is the
 //! first boundary of `[a, b] \ (union of [c, d])` past the `1e-4` floor.
 
@@ -170,7 +170,7 @@ fn carve(
 /// With no tools the result is `intersect_polyhedron`'s, bit for bit,
 /// including the `t = 1e30` sentinel hit for an empty plane list. A tool hit
 /// has `facet_idx == planes.len() + k`. A boundary is reported without saying
-/// whether it is an entry or an exit, matching [`HitRecord`] today.
+/// whether it is an entry or an exit, as [`HitRecord`] does.
 #[must_use]
 pub fn intersect_stone(ray: Ray, geom: StoneGeometry<'_>) -> Option<HitRecord> {
     if geom.is_convex() {
@@ -185,8 +185,8 @@ pub fn intersect_stone(ray: Ray, geom: StoneGeometry<'_>) -> Option<HitRecord> {
 
 /// `SoA` twin used by transport: identical result to [`intersect_stone`].
 ///
-/// Step 1 is the (bit-identical) SIMD `slab_scan`, so only the tool pass is
-/// scalar; tools are few and a SIMD twin waits for a profile that asks for it.
+/// The slab pass is the bit-identical SIMD `slab_scan`; the tool pass stays
+/// scalar because tools are few.
 pub(crate) fn intersect_stone_soa(
     ray: Ray,
     plane_soa: &PlanesSoA32,

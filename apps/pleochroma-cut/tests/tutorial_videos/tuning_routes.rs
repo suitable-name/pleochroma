@@ -15,7 +15,7 @@ use pleochroma_cut::{SweepModel, TuneModel};
 use slint::ComponentHandle;
 use std::time::Duration;
 
-/// How long a two-tier sweep of the default grid (81 pairs) may take.
+/// How long a two-tier sweep of the default grid may take.
 const SWEEP_TIMEOUT: Duration = Duration::from_secs(240);
 
 /// How many wheel turns bring a row or a button of the Trials view into its visible area.
@@ -92,11 +92,10 @@ impl Film<'_> {
         self.press_label("Trials")
     }
 
-    /// The Trials view scrolls as a whole when the Inspector is short (the list keeps two rows
-    /// and the buttons of a chosen trial sit below it), so a row or a button can lie under the
-    /// dock's lower edge. Turns the wheel over the view's own scroll bar, as a learner would,
-    /// until the control found by `find` lies wholly inside the view's visible area, and returns
-    /// where it is then.
+    /// The Trials view scrolls as a whole when the Inspector is short, so a row or a button can
+    /// lie under the dock's lower edge. Turns the wheel over the view's own scroll bar, as a
+    /// learner would, until the control found by `find` lies wholly inside the visible area, and
+    /// returns where it is then.
     fn reveal_in_trials_view(
         &mut self,
         what: &str,
@@ -283,9 +282,9 @@ impl Film<'_> {
         self.hold(pacing::RESULT_HOLD)
     }
 
-    /// The last, reading step: the mini sweep's chart (below Accept, Pair With and the Objective
-    /// list) is scrolled wholly into the inspector's view and held, so the picture the text
-    /// describes is on screen. Nothing is clicked: a click on the chart would set an angle.
+    /// The last, reading step: the mini sweep's chart is scrolled wholly into the inspector's
+    /// view and held, so the picture the text describes is on screen. Nothing is clicked: a
+    /// click on the chart would set an angle.
     pub(super) fn film_tune_show_chart(&mut self) -> Result<(), String> {
         self.inspector_form_control("Tune Metric Curves", uiprobe::AccessibleRole::Image)?
             .ok_or("the Tune chart is not on screen (the mini sweep is drawn in Advanced only)")?;

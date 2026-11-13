@@ -380,7 +380,7 @@ fn zoned_scattering_matches_the_homogeneous_estimator_for_a_single_zone() {
 }
 
 /// Through the whole tracer: a scattering stone whose zones are all identical renders like the
-/// unzoned stone (the studio rig has no NEE, so only the free-flight inversion differs).
+/// unzoned stone (only the free-flight inversion differs).
 #[test]
 fn identical_zones_with_scattering_render_like_the_unzoned_stone() {
     const GRID: usize = 10;

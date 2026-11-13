@@ -1,6 +1,7 @@
-//! Saving a design's full detail row -- and its angle-setting/attached-file children
-//! -- in one transaction, plus the cheap existence check a caller uses to decide
-//! whether a detail fetch is even needed.
+//! Saves a design's full detail row, with its angle-setting and attached-file children, in one
+//! transaction.
+//!
+//! Also the cheap existence check a caller uses to decide whether a detail fetch is needed.
 
 use super::Database;
 use crate::model::{detail::FacetingDiagramDetail, facets::parse_facets_count};
@@ -20,15 +21,13 @@ impl Database {
     ///
     /// # Performance: one transaction per design, not one per row
     ///
-    /// Lookup, delete, detail insert, and every child insert below run inside a
-    /// single [`Connection::unchecked_transaction`] ("unchecked" only means the type
-    /// system won't stop a nested one). Without it, each `execute` -- 50+ per
-    /// competition design -- was its own autocommit transaction with its own fsync.
-    /// Measured on this database's real row distribution (3027 designs, 44259 angle
-    /// rows, 6428 attachments): no-transaction 625.99s vs this version's 26.17s
-    /// (23.9x). Batching inserts on top of the transaction was tried and lost (see
-    /// [`Self::save_angle_settings`]). On any error partway through, the transaction
-    /// rolls back on drop -- never leaves old data deleted with new data half-written.
+    /// Lookup, delete, detail insert and every child insert run inside a single
+    /// [`Connection::unchecked_transaction`] ("unchecked" only means the type system won't stop
+    /// a nested one). Without it each `execute` is its own autocommit transaction with its own
+    /// fsync, which dominates the cost of a design save (measured about 24x slower). Batching
+    /// the inserts on top of the transaction measured slower (see
+    /// [`Self::save_angle_settings`]). On any error the transaction rolls back on drop, so old
+    /// data is never left deleted beside a half-written new one.
     ///
     /// # Errors
     ///
@@ -176,14 +175,11 @@ impl Database {
         Ok(())
     }
 
-    /// Inserts every angle-setting row for `detail_id`. Split out of
-    /// `save_diagram_detail` to stay under clippy's function-length lint; takes
-    /// `conn: &Connection` (not `&self`) so it can run against the in-progress
-    /// `Transaction` from [`Self::save_diagram_detail`]. Deliberately one `execute`
-    /// per row, not a batched multi-row `INSERT`: tried batching against this
-    /// database's real distribution (3027 designs, 44259 rows) and it was slower
-    /// (40-42s vs 26.17s) -- SQLite is in-process, so there's no round trip to
-    /// amortize, while a variable-shape batch thrashes the `prepare_cached` cache.
+    /// Inserts every angle-setting row for `detail_id`. Split out of `save_diagram_detail` for
+    /// clippy's function-length lint; takes `conn: &Connection` so it runs inside that
+    /// transaction. One `execute` per row, not a batched multi-row `INSERT`: batching measured
+    /// slower, because SQLite is in-process (no round trip to amortize) and a variable-shape
+    /// batch thrashes the `prepare_cached` cache.
     ///
     /// # Errors
     ///

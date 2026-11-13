@@ -31,6 +31,10 @@ pub mod raytracer;
 ///
 /// Shared by the CPU and GPU environment sampling paths.
 pub mod studio_rig;
+/// Optional lookup tables for the Fresnel amplitudes and the absorption exponential.
+///
+/// Off by default; with them off every result is identical to the closed forms.
+pub mod tables;
 /// Colour zoning.
 ///
 /// Zone types, path-length kernels and the zoned segment optical depth.

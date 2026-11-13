@@ -31,11 +31,11 @@ use crate::{
     },
 };
 
-/// A design-wide number field (the preform Y-offset, the gear reference angle): a plain
-/// number or arithmetic over numbers (`1.5 - 0.25`, see `pleochroma_editor::loading::
-/// eval_number`). `Err` is the toast text: "<label> '<text>' is not a number." for text that
-/// is no number (unchanged), "... cannot be calculated: <reason>." for a broken calculation,
-/// "<label> must be a finite number." for `inf` or `NaN`.
+/// A design-wide number field (the preform Y-offset, the gear reference angle): a plain number
+/// or arithmetic over numbers (`1.5 - 0.25`, see `pleochroma_editor::loading::eval_number`).
+/// `Err` is the toast text: "<label> '<text>' is not a number." for text that is no number,
+/// "... cannot be calculated: <reason>." for a broken calculation, and "<label> must be a
+/// finite number." for `inf` or `NaN`.
 fn finite_number_field(label: &str, text: &str) -> Result<f64, String> {
     let value = eval_number(text, None).map_err(|error| error.message(label, text))?;
     if value.is_finite() {
@@ -135,11 +135,9 @@ pub(in crate::gui::editor) fn setup_apply_preform_callback(
     );
 }
 
-/// "Apply Yield Inputs": parses the form and, on success, applies both halves
-/// through `EditorState::apply` as ONE [`Edit::Batch`] of [`Edit::
-/// SetGirdleDiameterMm`] then [`Edit::SetMaterial`] -- two separate,
-/// independently-undoable edits would cost a single Apply Yield Inputs click two
-/// Ctrl+Z presses to undo, and could be undone out of order.
+/// "Apply Yield Inputs": parses the form and applies both halves through `EditorState::apply`
+/// as ONE [`Edit::Batch`] of [`Edit::SetGirdleDiameterMm`] then [`Edit::SetMaterial`]. Two
+/// separate edits would need two undo steps for one click, and could be undone out of order.
 pub(in crate::gui::editor) fn setup_apply_yield_inputs_callback(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -198,16 +196,12 @@ pub(in crate::gui::editor) fn setup_apply_yield_inputs_callback(
     );
 }
 
-/// "Apply Y-Offset". `Design::preform_y_offset`/
-/// `Edit::SetPreformYOffset` are real, applied, mast-preserving edits, but nothing in
-/// this app ever set them away from `0.0` until this callback -- see `EditorModel.
-/// preform_y_offset_mm`'s own doc comment (`ui/models/editor.slint`) for why the field
-/// is typed in millimetres (the cutter's own rough measurement) rather than model
-/// units. Converts through the design's own mm-per-unit factor
-/// (`Design::yield_report(&solved).mm_per_unit`, the same anchor
-/// `state::preform_mm_texts` already reads) before building the
-/// `Edit`; toasts instead of applying anything when the field does not parse, or
-/// when no girdle diameter/solve has anchored that factor yet.
+/// "Apply Y-Offset". `Edit::SetPreformYOffset` is a mast-preserving edit. The field is typed in
+/// millimetres, the cutter's own measurement, not model units (see
+/// `EditorModel.preform_y_offset_mm` in `ui/models/editor.slint`). It is converted through the
+/// design's mm-per-unit factor (`Design::yield_report(&solved).mm_per_unit`, as
+/// `state::preform_mm_texts` reads it). It toasts instead of applying when the field does not
+/// parse, or when no girdle diameter or solve has set that factor yet.
 pub(in crate::gui::editor) fn setup_apply_preform_y_offset_callback(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -235,14 +229,9 @@ pub(in crate::gui::editor) fn setup_apply_preform_y_offset_callback(
                     }
                 };
                 let mut st = state.borrow_mut();
-                // The UI thread never solves -- this reuses the last
-                // background/synchronous solve's cached masts (same cache
-                // `deep_solve`'s own setup reads) instead of
-                // a fresh `Design::solve()` while `state.borrow_mut()` is held. When
-                // no cached solve matches this design's current tier count (a design
-                // that has never solved yet, or an edit landed since the cache was
-                // last populated), this asks for one explicitly rather than solving
-                // inline.
+                // The UI thread never solves here. This reuses the cached masts of the last
+                // solve instead of a fresh `Design::solve()` while the state is borrowed. If no
+                // cached solve matches the current tier count, the cutter is asked to solve first.
                 let Some(solved) = auto_solve::solid_last_solved()
                     .and_then(|cache| {
                         cache
@@ -250,8 +239,7 @@ pub(in crate::gui::editor) fn setup_apply_preform_y_offset_callback(
                             .unwrap_or_else(std::sync::PoisonError::into_inner)
                             .clone()
                     })
-                    // the shared cache is now generation-tagged -- only
-                    // the masts themselves matter here.
+                    // The cache is generation-tagged; only the masts matter here.
                     .filter(|(_, solved)| solved.len() == st.design.tiers.len())
                     .map(|(_, solved)| solved)
                 else {
@@ -268,15 +256,9 @@ pub(in crate::gui::editor) fn setup_apply_preform_y_offset_callback(
                     return;
                 };
                 let y_offset = mm / mm_per_unit;
-                // Mast-preserving (see `Edit::SetPreformYOffset`'s own doc comment) --
-                // no tier is dirty, same reasoning `setup_apply_preform_callback` uses.
-                //
-                // A failed apply left the field showing a value that was never
-                // actually recorded, with nothing telling the cutter why.
-                // `Edit::SetPreformYOffset` is mast-preserving and takes no tier index,
-                // so `EditorState::apply` can only fail here on an internal invariant
-                // violation, not a cutter mistake -- still surfaced rather than assumed
-                // impossible.
+                // Mast-preserving, so no tier is dirty, as in `setup_apply_preform_callback`.
+                // The edit names no tier index, so `apply` can fail here only on an internal
+                // invariant violation. The error is still shown rather than assumed impossible.
                 if let Err(e) = st.apply(Edit::SetPreformYOffset { y_offset }) {
                     show_toast(&ui, &e.to_string(), "error");
                     return;
@@ -295,11 +277,9 @@ pub(in crate::gui::editor) fn setup_apply_preform_y_offset_callback(
         });
 }
 
-/// "Apply Cheater Offset". Sets (or, for a blank field,
-/// clears) one tier's own cheater/azimuth offset via [`Edit::SetCheaterOffset`], a
-/// cutting-sheet annotation with no geometric effect (see that variant's own doc
-/// comment) -- so unlike every other tier edit in this module, this never calls
-/// [`submit_preview_replan`]: there is nothing for the solid preview to redraw.
+/// "Apply Cheater Offset". Sets, or for a blank field clears, one tier's cheater/azimuth offset
+/// via [`Edit::SetCheaterOffset`]. It is a cutting-sheet annotation with no geometric effect, so
+/// unlike the other tier edits here it never calls [`submit_preview_replan`].
 pub(in crate::gui::editor) fn setup_apply_cheater_offset_callback(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -336,15 +316,10 @@ pub(in crate::gui::editor) fn setup_apply_cheater_offset_callback(
         });
 }
 
-/// "Apply Tier Note". Sets (or, for a
-/// blank field, clears) one tier's own cutter-authored free-text note via
-/// [`Edit::SetTierNote`], a cutting-sheet annotation with no geometric effect
-/// (see that variant's own doc comment) -- so exactly like
-/// [`setup_apply_cheater_offset_callback`], this never calls
-/// [`submit_preview_replan`]: there is nothing for the solid preview to redraw.
-///
-/// Unlike the cheater offset (a number that fails to parse), any text is a
-/// valid note, so there is no error-toast branch here -- blank just clears it.
+/// "Apply Tier Note". Sets, or for a blank field clears, one tier's free-text note via
+/// [`Edit::SetTierNote`]. It is a cutting-sheet annotation with no geometric effect, so like
+/// [`setup_apply_cheater_offset_callback`] it never calls [`submit_preview_replan`]. Any text is
+/// a valid note, so there is no error branch: blank just clears it.
 pub(in crate::gui::editor) fn setup_apply_tier_note_callback(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -377,15 +352,12 @@ pub(in crate::gui::editor) fn setup_apply_tier_note_callback(
         });
 }
 
-/// Replaces the design's title (the
-/// first `H` header), any further header lines, footnotes, and the index wheel's
-/// zero-tooth reference angle as ONE undoable [`Edit::SetMeta`], mirroring
-/// [`setup_apply_yield_inputs_callback`]'s own "one form, one undo step" shape.
-/// `title`/`extra_headers`/`footnotes` are each split on `';'` into individual
-/// header/footnote lines (`extra_headers` following the title as further `H`
-/// lines) -- see `EditorModel.design_title`'s own doc comment (`ui/models/
-/// editor.slint`) for the exact field layout this mirrors. An unparseable
-/// `gear_ref` toasts instead of applying anything.
+/// Replaces the design's title (the first `H` header), any further header lines, the footnotes
+/// and the index wheel's zero-tooth reference angle as ONE undoable [`Edit::SetMeta`], as in
+/// [`setup_apply_yield_inputs_callback`]. `title`, `extra_headers` and `footnotes` are each split
+/// on `';'` into lines. The extra headers follow the title as further `H` lines (see
+/// `EditorModel.design_title` in `ui/models/editor.slint`). An unparseable `gear_ref` toasts
+/// instead of applying anything.
 pub(in crate::gui::editor) fn setup_apply_design_meta_callback(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -429,13 +401,9 @@ pub(in crate::gui::editor) fn setup_apply_design_meta_callback(
                 }
             };
             let mut st = state.borrow_mut();
-            // Mast-preserving (see `Edit::SetMeta`'s own doc comment) -- no tier is
-            // dirty, but the gear reference angle can rotate the rendered index
-            // wheel, so the solid preview still needs a fresh (non-blocking) replan.
-            // `SetMeta` names no tier index (design-wide headers/footnotes/gear
-            // angle only), so -- like `Edit::SetPreform` above -- `EditorState::apply`
-            // cannot fail on it in practice; kept `let _ =`, not surfaced, for the
-            // same reason.
+            // Mast-preserving, so no tier is dirty. The gear reference angle can rotate the
+            // rendered index wheel, so the solid preview still needs a replan. `SetMeta` names no
+            // tier index, so `apply` cannot fail on it in practice, and the result is ignored.
             let _ = st.apply(Edit::SetMeta {
                 headers,
                 footnotes,

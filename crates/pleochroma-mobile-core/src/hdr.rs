@@ -20,9 +20,9 @@
 //!
 //! # Memory
 //!
-//! Files larger than 4096 x 2048 texels are refused before any pixel is decoded: the
-//! decoder holds 12 bytes per texel and the sampler another 8, and a phone cannot hold an
-//! 8k map next to the renderer.
+//! Files larger than 4096 x 2048 texels are refused before any pixel is decoded. The
+//! decoded map takes 12 bytes per texel, which a phone cannot spare next to the renderer
+//! at a larger size.
 
 mod file;
 mod scale;
@@ -357,8 +357,10 @@ pub fn prepare(dirs: &AppDirs, file: &PickedFile) -> Result<PreparedHdr, String>
     })
 }
 
-/// Makes a [`prepare`]d map the current one and the chosen lighting. Returns the line to
-/// show ("2048 x 1024 HDR map").
+/// Makes a [`prepare`]d map the current one and the chosen lighting, unturned.
+///
+/// A different map starts at rotation zero; the follow-camera setting stays as it was.
+/// Returns the line to show ("2048 x 1024 HDR map").
 pub fn install(state: &mut AppState, prepared: PreparedHdr) -> String {
     let description = prepared.description();
     let dirs = state.platform().app_dirs().clone();
@@ -369,6 +371,7 @@ pub fn install(state: &mut AppState, prepared: PreparedHdr) -> String {
         slot.size = Some((prepared.width, prepared.height));
         slot.loaded = true;
     }
+    state.update_settings(|settings| settings.lighting.hdr_yaw_deg = 0.0);
     if let Err(message) = set_selected(state, true) {
         tracing::warn!(%message, "the HDR map is imported but could not be chosen");
     }

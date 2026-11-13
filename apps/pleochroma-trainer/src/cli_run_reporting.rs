@@ -28,9 +28,8 @@ pub(super) struct RunRecords {
     /// identity's file with a worse model.
     #[serde(default)]
     retired_validation_bests: BTreeMap<String, f32>,
-    /// Whether the current identity's best weights use the fixed file name of runs recorded
-    /// before per-identity names existed (the field is absent there, and the default `true`
-    /// keeps their file), until that identity changes.
+    /// Whether the current identity's best weights use the fixed file name of older runs. The
+    /// default `true` keeps those runs' file until the identity changes.
     #[serde(default = "fixed_best_name")]
     best_validation_fixed_name: bool,
     pub(super) skips: crate::SkipLog,

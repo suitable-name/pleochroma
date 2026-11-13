@@ -169,7 +169,7 @@ impl BurnTrainer {
         model.pre_attn_eps = state.pre_attn_eps;
         model.post_attn_eps = state.post_attn_eps;
         model.final_eps = state.final_eps;
-        // Also check finite weights using the existing pure-network validation.
+        // Also check finite weights through the pure-network validation.
         model
             .export_to_set_attention()?
             .validate()

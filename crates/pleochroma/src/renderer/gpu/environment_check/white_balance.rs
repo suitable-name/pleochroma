@@ -19,25 +19,17 @@ struct WhiteBalanceCase {
 
 /// ULP budget for `compute_illuminant_white_balance`.
 ///
-/// Wider than the per-lambda [`super::CMF_ULP_BUDGET`]/[`super::BLACKBODY_ULP_BUDGET`]
-/// budgets since this is those two functions' PRODUCT, summed over 401 wavelength steps
-/// -- 401 independent roundings' worth of accumulated driver-level floating-point
-/// noise, not just one. The Bradford-space rework adds two more 3x3 matrix-vector
-/// products (source white and target white) and a per-component division on top of that
-/// same 401-step sum; those contribute only a handful of ULP each, well inside the
-/// existing budget, so it is left unchanged rather than widened.
+/// Wider than the per-lambda budgets because it is their product summed over 401 wavelength
+/// steps, each adding rounding noise. The Bradford LMS matrix products and divisions add only
+/// a few ULP on top.
 pub const WHITE_BALANCE_ULP_BUDGET: u32 = 4096;
 
 /// Absolute-difference floor for `compute_illuminant_white_balance` comparisons.
 ///
-/// See [`super::CMF_ABS_FLOOR`]'s doc comment for the rationale. Since the diagonal
-/// scale this function returns is now computed in Bradford LMS space rather than raw
-/// XYZ, none of the three components is pinned to exactly `1.0` by construction any
-/// more (the old XYZ-space `y` component was, since Y was left unscaled) -- all three
-/// are `LMS_target / LMS_source`-style ratios, and can range more widely than the old
-/// `x`/`z` (measured: roughly `0.8`-`2.6` across this crate's four lighting presets,
-/// widest for the 3200K incandescent preset's blue channel). A floor several orders of
-/// magnitude below that range still cannot mask a real divergence.
+/// The diagonal scale is computed in Bradford LMS space, so no component is `1.0` by
+/// construction. Across the four presets the components range about `0.8`-`2.6` (widest for
+/// the 3200 K preset's blue channel), and a floor this far below that cannot mask a real
+/// divergence.
 pub const WHITE_BALANCE_ABS_FLOOR: f32 = 1e-5;
 
 /// Runs the `compute_illuminant_white_balance` self-test against a live GPU, for all

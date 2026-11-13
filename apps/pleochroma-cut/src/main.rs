@@ -1,37 +1,24 @@
-// No console window in a release build. Without this, launching the `.exe` directly
-// (from Explorer, a shortcut, or the Start menu) opens an empty console alongside the
-// window, because Rust binaries default to the Windows CONSOLE subsystem.
+// No console window in a release build: Rust binaries default to the Windows CONSOLE
+// subsystem, and a launch of the `.exe` (Explorer, a shortcut, the Start menu) would open
+// an empty console beside the window.
 //
-// `not(debug_assertions)` rather than unconditional: a debug build keeps its console so
-// `cargo run` still shows panics and any `tracing` output during development. A release
-// build's stderr goes nowhere with no console attached -- `install_tracing_subscriber`
-// below also writes to a FILE for exactly that reason, the same "beside the exe, or
-// temp dir" pattern `install_panic_logger` already uses.
+// Debug builds keep the console so `cargo run` shows panics and `tracing` output. A release
+// build has no stderr, which is why `install_tracing_subscriber` and `install_panic_logger`
+// also write to files.
 //
-// A no-op on every non-Windows target: the attribute is Windows-specific and simply
-// ignored elsewhere.
+// No effect on non-Windows targets: the attribute is Windows-specific.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-/// Installs a `tracing` subscriber writing to stderr and, when the app was started with
-/// `--log`, also a log file. Without one, every
-/// `tracing::warn!`/`error!`/`debug!` call anywhere in this crate or `pleochroma` --
-/// including the GPU backend's own "device lost"/"uncaptured wgpu error" diagnostics --
-/// goes nowhere, and `RUST_LOG` has no effect whatsoever: a background-thread failure
-/// would be undiagnosable from this app's own logs, since there wouldn't be any.
+/// Installs the `tracing` subscriber: stderr, plus a log file when the app was started with
+/// `--log`.
 ///
-/// Default filter (overridden by `RUST_LOG` when set, exactly like
-/// `apps/pleochroma-worker`'s own subscriber): `warn` everywhere, `info` for
-/// `pleochroma`/`pleochroma_cut` specifically -- enough to see a device loss, a
-/// self-heal, or a caught display-thread panic without paying for a per-sample or
-/// per-frame log line anywhere on the hot path (none of this crate's `tracing` calls
-/// are per-frame; the busiest is per accumulation-turn, already rare).
+/// Without a subscriber every `tracing` event is lost, the GPU backend's device-lost messages
+/// included, and `RUST_LOG` has no effect. The default filter is `warn`, with `info` for
+/// `pleochroma` and `pleochroma_cut`; `RUST_LOG` overrides it.
 ///
-/// Without `--log` no log file is created or touched. The file candidates mirror `install_panic_logger`'s exactly: next to the executable
-/// first (findable from a shortcut or an unzipped folder), falling back to the temp
-/// directory when that location is not writable. Missing/unwritable log locations are
-/// not fatal: `try_init` (not `init`) and a missing file both just mean stderr-only (or,
-/// worst case, no subscriber at all) rather than refusing to start the app over
-/// diagnostics infrastructure.
+/// Without `--log` no file is created. The file goes beside the executable, or into the temp
+/// directory when that is not writable. A failed setup never stops the app: it falls back to
+/// stderr.
 fn install_tracing_subscriber() {
     use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt as _};
 
@@ -75,29 +62,16 @@ fn install_tracing_subscriber() {
         .try_init();
 }
 
-/// Writes panics to a file, because in a release build there is nowhere else for them
-/// to go.
+/// Writes panics to a file: a release build has no console for them.
 ///
-/// `windows_subsystem = "windows"` above means a release build has no console, and a
-/// panic is not a `tracing` event (`install_tracing_subscriber`'s subscriber never sees
-/// one) -- so without this, a panic on a BACKGROUND thread (the render thread, an
-/// export worker, a batch lane, a remote-connection thread) would produce no output
-/// whatsoever. The visible result is an app that keeps responding to the window
-/// manager while some part of it has silently stopped, which is indistinguishable from
-/// a hang and effectively undiagnosable from a bug report.
-///
-/// Chains to the previous hook rather than replacing it, so a debug build still prints
-/// to the console it kept.
-///
-/// Failing to write the log is deliberately ignored: a panic handler that panics (or
-/// that refuses to let the default handler run because a directory was read-only) would
-/// be strictly worse than the silence it is here to fix.
+/// A panic is not a `tracing` event, so a panic on a background thread would otherwise leave
+/// no trace. Chains to the previous hook, so a debug build still prints to its console.
+/// Failing to write the log is ignored: a panic handler that panics is worse than silence.
 fn install_panic_logger() {
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        // Next to the executable first -- this is the path a user can actually find
-        // from a shortcut or an unzipped folder -- falling back to the temp directory
-        // when that location is not writable (Program Files, a read-only mount).
+        // Beside the executable first, where a user finds it; then the temp directory, for
+        // an install location that is not writable.
         let file_name = "pleochroma-cut-panic.log";
         let beside_exe = std::env::current_exe()
             .ok()
@@ -127,13 +101,15 @@ fn install_panic_logger() {
     }));
 }
 
-/// Hands the saved UI scale (Edit > Preferences...) to the windowing layer as
-/// `SLINT_SCALE_FACTOR`, which it reads when it creates the first window -- so a changed
-/// scale takes effect on the next start. Does nothing for the Automatic setting, and
-/// leaves a `SLINT_SCALE_FACTOR` the user set themselves alone.
+/// Passes the saved UI scale (Edit > Preferences...) to the windowing layer as
+/// `SLINT_SCALE_FACTOR`.
 ///
-/// Every picking and raster path in the app reads the window's real scale factor, so one
-/// value set here keeps them all consistent.
+/// The windowing layer reads it when the first window is created, so a change takes effect at
+/// the next start. Does nothing for the Automatic setting, and leaves a `SLINT_SCALE_FACTOR`
+/// the user set.
+///
+/// Every picking and raster path reads the window's real scale factor, so one value here
+/// keeps them consistent.
 fn apply_saved_ui_scale() {
     if let Some(factor) = pleochroma_cut::gui::preferences::saved_ui_scale_factor() {
         // SAFETY: this is the first thing `main` does, before the tracing subscriber, the
@@ -159,13 +135,14 @@ fn platform_cache_dir() -> Option<std::path::PathBuf> {
     }
 }
 
-/// Points the GPU renderer's driver pipeline cache at `<cache>/pleochroma/pipeline_cache`
-/// (review item GPU-1): without it every start recompiles the megakernel before the first
-/// pixel. Must run before the first renderer is created; a no-op without a cache folder.
+/// Points the GPU driver's pipeline cache at `<cache>/pleochroma/pipeline_cache`.
 ///
-/// While the RADV scheduler workaround is in force (`ACO_DEBUG` names it, set by the start-up
-/// step or by the user) the folder is `pipeline_cache-<value>` instead, so a pipeline compiled
-/// with the driver's stock scheduler is never served to a run with the workaround.
+/// Without it every start recompiles the megakernel before the first pixel. Must run before the
+/// first renderer is created; a no-op without a cache folder.
+///
+/// While the RADV scheduler workaround is active (`ACO_DEBUG` names it) the folder is
+/// `pipeline_cache-<value>`, so a pipeline compiled with the stock scheduler is never reused
+/// with the workaround.
 #[cfg(feature = "gpu")]
 fn enable_gpu_pipeline_cache() {
     use pleochroma::renderer::gpu_driver::{pipeline_cache_folder, workaround_active};
@@ -186,6 +163,10 @@ fn main() -> anyhow::Result<()> {
     // is created. The RADV scheduler workaround comes first of all: when this instance
     // replaces another one (a restart) it also waits here until that one is gone.
     let radv_status = pleochroma_cut::gui::radv_workaround::apply_at_startup();
+    // The app's estimator is `Estimator::APP_DEFAULT`, set before any GPU work, warm-up or frame.
+    pleochroma::optics::raytracer::set_default_estimator(
+        pleochroma::optics::raytracer::Estimator::APP_DEFAULT,
+    );
     // A `ui-harness` build started as the app: real file dialogs, clipboard, opener and
     // library (the harness itself never runs `main`). Before anything reads the library path.
     #[cfg(feature = "ui-harness")]

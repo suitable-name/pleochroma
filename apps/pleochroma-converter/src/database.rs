@@ -31,8 +31,8 @@ impl Library {
         let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
             .with_context(|| format!("cannot open database read-only: {}", path.display()))?;
         conn.busy_timeout(Duration::from_secs(5))?;
-        // One read transaction makes the listing and all later source reads refer to
-        // the same catalogue revision even when the application is open beside us.
+        // One read transaction keeps the listing and all later source reads on one
+        // catalogue revision, even while the application writes to the same file.
         conn.execute_batch("PRAGMA query_only = ON; BEGIN DEFERRED TRANSACTION;")?;
         Ok(Self { conn })
     }
@@ -117,8 +117,8 @@ impl Library {
 
 fn optional_column(alias: &str, column: &str, available: &BTreeSet<String>) -> String {
     if available.contains(column) {
-        // Metadata columns have changed from TEXT to numeric in older catalogues.
-        // These fields are descriptive strings or integer category ids, not geometry.
+        // Older catalogues store some metadata as numbers. Cast to text so every field
+        // reads as a string; these fields are descriptive, not geometry.
         format!("CAST({alias}.{column} AS TEXT)")
     } else {
         "NULL".to_owned()
@@ -185,9 +185,9 @@ mod tests {
             [2, 9]
         );
         assert_eq!(entries[0].metadata.source_url, "https://example.org/design");
-        assert!(entries[0].metadata.designer.is_empty());
+        assert_eq!(entries[0].metadata.designer, "");
         assert!(entries[1].metadata.ignored);
-        assert!(entries[1].metadata.source_url.is_empty());
+        assert_eq!(entries[1].metadata.source_url, "");
         assert_eq!(entries[1].metadata.designer, "Designer");
     }
 
@@ -209,7 +209,7 @@ mod tests {
         );
         assert_eq!(sources[0].bytes, [1, 2]);
         assert_eq!(sources[1].bytes, b"text");
-        assert!(sources[2].bytes.is_empty());
+        assert_eq!(sources[2].bytes, [] as [u8; 0]);
         assert!(library.sources(2).unwrap().is_empty());
     }
 }

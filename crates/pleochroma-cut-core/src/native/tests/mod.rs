@@ -1,7 +1,8 @@
-//! Tests for [`super`], split by topic: shared fixtures, per-tier field
-//! round-trips, refractive index, history/notes, imported-meet/draft handling,
-//! catalogue `.asc` preserve-vs-regenerate, untouched `.asc` notes, printed
-//! proportions, custom materials, and the preform offset / whole-design round trip.
+//! Tests of the native design file, split by topic.
+//!
+//! The topics are per-tier field round trips, refractive index, history and notes, imported
+//! meet and drafts, `.asc` preserve and regenerate, untouched `.asc` notes, printed
+//! proportions, custom materials, and the preform offset with the whole-design round trip.
 
 mod fixtures;
 

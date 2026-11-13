@@ -1,11 +1,10 @@
-//! One loader per design file kind, each producing a [`DesignState`] plus the
-//! notes the open message should carry. Every loader goes through the same
-//! shared-crate entry point the desktop's Open uses:
+//! One loader per design file kind, each producing a [`DesignState`] and the notes its open
+//! message carries. Every loader goes through a shared-crate entry point:
 //!
 //! | Kind | Path |
 //! |---|---|
-//! | `.asc` | `pleochroma_formats::asc::decode_asc_bytes` -> `pleochroma_editor::loading::design_from_asc_text` |
-//! | `.psdd` | `pleochroma_cut_core::native::design_from_str` (its `[meta]` table and attachments stay with the design) |
+//! | `.asc` | `pleochroma_formats::asc::decode_asc_bytes` -> `loading::design_from_asc_text` |
+//! | `.psdd` | `pleochroma_cut_core::native::design_from_str` (keeps `[meta]` and attachments) |
 //! | `.gem` / `.gcs` | `pleochroma_editor::files::convert_foreign_design` -> the `.asc` path |
 //!
 //! Nothing here panics on bad input: every failure is a readable `Err(String)`.
@@ -35,8 +34,7 @@ pub struct Opened {
     pub needs_attention: bool,
 }
 
-/// A session over a freshly loaded design, with the desktop's plain history (the
-/// desktop's Open paths build `History::new()` too).
+/// A session over a freshly loaded design, with an empty undo history.
 fn session(design: pleochroma_cut_core::Design) -> EditorSession {
     EditorSession::with_history(design, History::new())
 }
@@ -99,8 +97,7 @@ pub fn load_converted(
 
 /// Registers a design file's custom-material snapshot (when its material is not a
 /// built-in) and returns the note to show, plus whether the material is still
-/// unresolved -- the desktop's `open_native_self_contained`/`commit_loaded_native`
-/// rule.
+/// unresolved.
 fn restore_material(
     app: &mut WebApp,
     design: &mut DesignState,

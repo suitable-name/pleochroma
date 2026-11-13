@@ -337,10 +337,10 @@ fn drawn_width(scene: &FitScene) -> f64 {
 
 #[test]
 fn a_changed_design_is_drawn_at_the_width_the_plan_recorded() {
-    // The plan cut a 2 mm wide stone (unit cube at 2 mm per unit). The design has since
-    // become a cube of side 4: at the old scale it would be 8 mm wide, scaled to the
-    // recorded width (0.5 mm per unit) it is 2 mm wide. The block is 3 mm, whose
-    // world scale is 1 / (sqrt(27) / 2).
+    // The plan cut a 2 mm wide stone (unit cube at 2 mm per unit). The design here is a cube
+    // of side 4: at the plan's scale it would be 8 mm wide, but scaled to the recorded width
+    // (0.5 mm per unit) it is 2 mm wide. The block is 3 mm, whose world scale is
+    // 1 / (sqrt(27) / 2).
     let layout = layout(vec![stone(5, [1.5; 3])], &[1]);
     let rough = RoughMesh::new(block(3.0, 3.0, 3.0));
     let scale = 2.0 / 27.0_f64.sqrt();
@@ -531,6 +531,6 @@ fn the_inclusion_layer_is_a_separate_mesh_the_pick_data_never_names() {
             .iter()
             .all(|&id| id < scene.base_facets + scene.cut_count)
     );
-    assert!(plain.inclusions.rings.is_empty());
+    assert_eq!(plain.inclusions.rings, [] as [(usize, Vec<DVec3>); 0]);
     assert_eq!(scene.facet_colors(true).len(), 6);
 }

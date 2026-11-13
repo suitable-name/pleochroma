@@ -324,10 +324,9 @@ fn combining_persists_past_a_successful_remote_completion() {
     assert!(should_combine_remote(true, LiveComputeTarget::Both));
 }
 
-/// Verify requirement: "a settled combined render is not overwritten by either
-/// engine" -- local's growing sample count only ever ADDS to what
-/// the live epoch's remote sum already holds, so the combined image can only converge
-/// further, never regress to a from-scratch restart.
+/// A settled combined render is not overwritten by either engine: local's sample count only
+/// adds to the live epoch's remote sum, so the combined image converges further and never
+/// restarts from scratch.
 #[test]
 fn a_settled_combined_render_keeps_combining_rather_than_being_overwritten() {
     for _quiet_frame in 0..5 {
@@ -337,10 +336,8 @@ fn a_settled_combined_render_keeps_combining_rather_than_being_overwritten() {
     }
 }
 
-/// Verify requirement: "a scene change during a combined render restarts
-/// accumulation correctly" -- must stop folding a now-stale-scene remote
-/// contribution into the display, the same release `update_accumulation_state`'s
-/// `dirty` handling already resets `accum_buffer` for.
+/// A scene change during a combined render stops folding the now-stale remote contribution
+/// into the display. The same `dirty` resets `accum` in `update_accumulation_state`.
 #[test]
 fn a_scene_change_during_a_combined_render_stops_combining_a_now_stale_contribution() {
     let resolved = resolve_remote_ownership(true, true, true);
@@ -356,9 +353,7 @@ fn a_scene_change_during_a_combined_render_stops_combining_a_now_stale_contribut
     );
 }
 
-// ---- resolve_remote_ownership: every dirty/remote_active transition it must
-// resolve correctly (hand-off start, ownership release, steady states) -- see its
-// own doc comment for the full reasoning these tests hold it to. ----------------
+// ---- resolve_remote_ownership: hand-off start, ownership release, steady states ----
 
 #[test]
 fn nothing_active_and_no_dirty_stays_inactive() {
@@ -378,9 +373,9 @@ fn the_handoffs_own_settling_entry_does_not_release_ownership() {
 
 #[test]
 fn a_completed_remote_render_is_not_overwritten_by_local_tracing() {
-    // Steady state after `RemoteUpdate::Done`: `remote_active` stays `true`, and
-    // every quiet frame (`dirty == false`) must leave it alone -- the regression
-    // test for local tracing restarting and overwriting a finished remote image.
+    // Steady state after `RemoteUpdate::Done`: `remote_active` stays `true`, and every
+    // quiet frame (`dirty == false`) leaves it alone, so local tracing does not restart
+    // over a finished remote image.
     assert!(resolve_remote_ownership(false, true, true));
 }
 

@@ -1,12 +1,12 @@
 import { Theme } from "../../theme.slint";
 import { LineEdit } from "std-widgets.slint";
 import { RoughPlanModel } from "../../models/rough_plan.slint";
-import { RoughPill } from "fields.slint";
-import { TipBox } from "../tip_box.slint";
+import { KitButton } from "../kit/kit.slint";
+import { WrapText } from "fields.slint";
 
-// Inline save naming row at the top of the right column. Its title says how many
-// results the save will take: the ticked ones when it was opened from a "Save
-// selected" control, every result when it was opened from "Save all".
+// Inline save naming row above the footer of the Layouts tab. Its title says how many layouts the
+// save will take: the starred ones when it was opened from "Save Starred", every layout when it
+// was opened from "Save All".
 export component SaveNameRow inherits Rectangle {
     property <int> count: RoughPlanModel.save_selected_only ? RoughPlanModel.keep_count
         : RoughPlanModel.results.length;
@@ -21,35 +21,42 @@ export component SaveNameRow inherits Rectangle {
         }
     }
 
-    background: Theme.surface-raised;
-    border-radius: Theme.radius-sm;
+    background: Theme.bg-card;
+    border-radius: 10px;
     border-width: 1px;
     border-color: Theme.accent-cyan;
+    min-height: save_lay.preferred-height;
 
-    VerticalLayout {
-        padding: 8px;
-        spacing: 6px;
+    save_lay := VerticalLayout {
+        padding: 10px;
+        spacing: 8px;
 
         Text {
             text: RoughPlanModel.save_selected_only
-                ? (root.count == 1 ? "Save 1 result" : "Save " + root.count + " results")
-                : (root.count == 1 ? "Save the 1 result" : "Save all " + root.count + " results");
-            font-size: 11px;
-            font-weight: 700;
+                ? (root.count == 1 ? "Save 1 starred layout" : "Save " + root.count + " starred layouts")
+                : (root.count == 1 ? "Save the 1 layout" : "Save all " + root.count + " layouts");
+            font-size: 12px;
+            font-weight: 600;
             color: Theme.text-primary;
         }
 
         HorizontalLayout {
             spacing: 6px;
-            // Stretch (not `center`): a centred row gives the name field its preferred
-            // width, which left it a 40 px stub.
+            // Stretch, not `center`: a centred row sizes the name field to its preferred
+            // width, which is too narrow.
             alignment: stretch;
 
-            TipBox {
+            Rectangle {
                 horizontal-stretch: 1;
-                hint: "The name to save the plan under. Enter saves it.";
+                min-width: 0px;
+                height: 30px;
+                Tooltip { text: @markdown("The name to save the plan under. Enter saves it."); }
                 name_input := LineEdit {
-                    min-width: 0px;
+                    x: 0px;
+                    y: 0px;
+                    width: parent.width;
+                    height: parent.height;
+                    font-size: 13px;
                     text <=> RoughPlanModel.save_name;
                     placeholder-text: "Plan name...";
                     accessible-label: "Plan Name";
@@ -62,19 +69,132 @@ export component SaveNameRow inherits Rectangle {
                 }
             }
 
-            RoughPill {
+            KitButton {
                 text: "Save";
+                kind: 1;
+                h: 30px;
                 hint: RoughPlanModel.running ? "Wait for the plan to finish: saving reads the results it is producing."
                     : "Save the layouts under this name. Enter does the same.";
-                active: true;
                 enabled: !RoughPlanModel.running && !RoughPlanModel.confirm_overwrite_open;
                 clicked => { RoughPlanModel.confirm_save(); }
             }
 
-            RoughPill {
+            KitButton {
                 text: "Cancel";
+                h: 30px;
                 hint: "Do not save. Escape does the same.";
                 clicked => { RoughPlanModel.save_name_open = false; }
+            }
+        }
+    }
+}
+
+// The question shown when a new plan or a new model would discard layouts that were never saved.
+// The answer goes to Rust, and the row closes with it.
+export component ConfirmReplaceRow inherits Rectangle {
+    background: Theme.surface-warning;
+    border-radius: 10px;
+    border-width: 1px;
+    border-color: Theme.accent-amber;
+    min-height: replace_lay.preferred-height;
+
+    replace_lay := VerticalLayout {
+        padding: 10px;
+        spacing: 6px;
+
+        WrapText {
+            text: RoughPlanModel.confirm_replace_count == 1 ? "Replace 1 Unsaved Layout?"
+                : "Replace " + RoughPlanModel.confirm_replace_count + " Unsaved Layouts?";
+            font_size: 12px;
+            font_weight: 700;
+            text_color: Theme.text-primary;
+        }
+
+        WrapText {
+            text: "They have not been saved anywhere. Keep them to save them first.";
+            font_size: 11px;
+            text_color: Theme.text-secondary;
+        }
+
+        HorizontalLayout {
+            spacing: 6px;
+            alignment: end;
+
+            KitButton {
+                text: "Keep";
+                h: 28px;
+                hint: "Do not replace anything, so you can save the unsaved layouts first. Escape does the same.";
+                clicked => {
+                    RoughPlanModel.confirm_replace(false);
+                    RoughPlanModel.confirm_replace_open = false;
+                }
+            }
+
+            KitButton {
+                text: "Replace";
+                kind: 1;
+                h: 28px;
+                hint: "Throw the unsaved layouts away and go on.";
+                clicked => {
+                    RoughPlanModel.confirm_replace(true);
+                    RoughPlanModel.confirm_replace_open = false;
+                }
+            }
+        }
+    }
+}
+
+// The question shown when the typed save name already belongs to a saved plan: saving would
+// replace that plan. Cancel keeps the save name row open with the name selected.
+export component ConfirmOverwriteRow inherits Rectangle {
+    background: Theme.surface-warning;
+    border-radius: 10px;
+    border-width: 1px;
+    border-color: Theme.accent-amber;
+    min-height: over_lay.preferred-height;
+    accessible-role: AccessibleRole.groupbox;
+    accessible-label: "Replace Saved Plan?";
+
+    over_lay := VerticalLayout {
+        padding: 10px;
+        spacing: 6px;
+
+        WrapText {
+            text: "Replace Saved Plan?";
+            font_size: 12px;
+            font_weight: 700;
+            text_color: Theme.text-primary;
+        }
+
+        WrapText {
+            text: "A saved plan called \"" + RoughPlanModel.confirm_overwrite_name + "\" already exists. Saving replaces it with these results.";
+            font_size: 11px;
+            text_color: Theme.text-secondary;
+        }
+
+        HorizontalLayout {
+            spacing: 6px;
+            alignment: end;
+
+            KitButton {
+                text: "Cancel";
+                h: 28px;
+                hint: "Do not replace the saved plan. You can pick another name. Escape does the same.";
+                clicked => {
+                    RoughPlanModel.confirm_overwrite(false);
+                    RoughPlanModel.confirm_overwrite_open = false;
+                }
+            }
+
+            KitButton {
+                text: "Replace";
+                kind: 1;
+                h: 28px;
+                hint: "Overwrite the saved plan with these results.";
+                clicked => {
+                    RoughPlanModel.confirm_overwrite(true);
+                    RoughPlanModel.confirm_overwrite_open = false;
+                }
             }
         }
     }

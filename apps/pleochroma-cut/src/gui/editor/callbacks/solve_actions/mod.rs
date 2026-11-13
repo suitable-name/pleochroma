@@ -1,18 +1,16 @@
-//! The tier list's "Adopt" action, and the Deep Solve/Optimize/batch-tilt
-//! start/cancel/apply callbacks -- one `setup_*` function per Slint callback. See
-//! this group's own `mod.rs` (one level up, in `callbacks`) doc comment for the
-//! "`History` is the only thing that mutates `Design`" rule every callback here
-//! upholds via `EditorState::apply`.
+//! The Deep Solve, Optimize, batch-tilt and tier "Adopt" callbacks: one `setup_*` per callback.
 //!
-//! Split by concern, along the seams the original single file already drew in its
-//! own section comments: [`adopt`] (the tier list's "Adopt" action),
-//! [`deep_solve_run`]/[`deep_solve_pin`] (Deep Solve's dispatch+outcome and its
-//! per-tier "Pin to verified mast" action), [`optimize_run`]/[`optimize_outcome`]
-//! (Optimize's dispatch and its outcome+cancel+apply+preview), and [`batch_tilt`]
-//! ("Compute Tilt Curves" for the open design). [`RunProvenance`] and the three
-//! `thread_local!`s below are shared infrastructure every run-dispatching sibling
-//! needs -- private items defined here are visible to every descendant module of
-//! this one, so no further visibility is needed for that sharing.
+//! Every callback here changes `Design` only through `EditorState::apply`, so `History` stays the
+//! single writer.
+//!
+//! - [`adopt`]: the tier list's "Adopt" action.
+//! - [`deep_solve_run`] and [`deep_solve_pin`]: Deep Solve's run and outcome, and the per-tier
+//!   "Pin to verified mast" action.
+//! - [`optimize_run`] and [`optimize_outcome`]: Optimize's run, outcome, apply and preview.
+//! - [`batch_tilt`]: "Compute Tilt Curves" for the open design.
+//!
+//! [`RunProvenance`] and the `thread_local!`s below are shared by every run-dispatching
+//! submodule. Private items are visible to descendants, so no extra visibility is needed.
 
 mod adopt;
 mod batch_tilt;
@@ -44,30 +42,20 @@ use std::{
 };
 
 thread_local! {
-    /// The most recently completed Deep Solve's per-tier mast disagreement, read by
-    /// the "Pin to verified mast" action ([`deep_solve_pin::setup_deep_solve_pin_callback`]).
-    /// A module-local `thread_local!` rather than a new `EditorState` field,
-    /// matching `callbacks::retarget_actions::RETARGET_ASYNC`'s own precedent for
-    /// exactly this situation. Sound here for the same reason that one is: Slint's event
-    /// loop is single-threaded, so this never crosses a thread boundary. Cleared
-    /// whenever a new Deep Solve run starts and whenever [`clear_analysis_results`]
-    /// runs, so a pin action can never fire against a stale run's tier indices.
+    /// The per-tier mast disagreement of the last finished Deep Solve, read by the "Pin to
+    /// verified mast" action ([`deep_solve_pin::setup_deep_solve_pin_callback`]). Thread-local,
+    /// not an `EditorState` field, because Slint's event loop is single-threaded (as with
+    /// `retarget_actions::RETARGET_ASYNC`). Cleared when a Deep Solve run starts and in
+    /// [`clear_analysis_results`], so a pin never acts on a stale run's tier indices.
     static LAST_DEEP_SOLVE_DELTAS: RefCell<Vec<deep_solve::TierMastDelta>> =
         const { RefCell::new(Vec::new()) };
 
-    /// The [`ActivityRegistry`] id of
-    /// the currently running Deep Solve, if any -- shared between
-    /// [`deep_solve_run::setup_deep_solve_callback`] (which registers it) and
-    /// [`deep_solve_pin::setup_deep_solve_cancel_callback`] (which must finish that SAME id
-    /// immediately on cancel, rather than waiting even for the checkpoint-based
-    /// cancellation's own fast `on_done` to arrive -- see `deep_solve`'s module doc
-    /// comment). A module-local `thread_local!` for the
-    /// identical single-threaded-event-loop reason [`LAST_DEEP_SOLVE_DELTAS`]
-    /// documents just above.
+    /// The [`ActivityRegistry`] id of the running Deep Solve, if any. The run registers it, and
+    /// the cancel finishes it at once, without waiting for the worker. Thread-local for the same
+    /// reason as [`LAST_DEEP_SOLVE_DELTAS`].
     static DEEP_SOLVE_ACTIVITY_ID: RefCell<Option<u64>> = const { RefCell::new(None) };
 
-    /// [`DEEP_SOLVE_ACTIVITY_ID`]'s Deep-Solve-shaped counterpart for
-    /// [`optimize_run::setup_optimize_callback`]/[`optimize_outcome::setup_optimize_cancel_callback`].
+    /// The Optimize run's counterpart of [`DEEP_SOLVE_ACTIVITY_ID`].
     static OPTIMIZE_ACTIVITY_ID: RefCell<Option<u64>> = const { RefCell::new(None) };
 }
 
@@ -117,34 +105,23 @@ impl RunProvenance {
     }
 }
 
-/// Clears every on-screen Deep Solve/Optimize result: both status lines and their
-/// `_is_problem` flags, all three result tables (`deep_solve_tier_rows`,
-/// `optimize_result_rows`, `optimize_change_rows`) and `optimize_can_apply`.
+/// Clears every on-screen Deep Solve and Optimize result: both status lines and their problem
+/// flags, the three result tables and `optimize_can_apply`. It also finishes any outstanding
+/// Deep Solve or Optimize activity entry.
 ///
-/// Called from two places, for the same reason -- a verdict must never outlive the
-/// design it describes:
+/// Called from two places, since a verdict must never outlive the design it describes:
 ///
-/// - right after New / Load Selected / Open / Open plain `.asc` replace the
-///   live [`EditorState`] wholesale
-///   (`tier_actions::do_new_design_create`, `tier_actions::apply_loaded_design`, and
-///   `native_io::finish_state_replace` for both native paths), and
-/// - from the Deep Solve and Optimize completion handlers themselves when
-///   [`RunProvenance::design_replaced`] says the swap happened WHILE the run was in
-///   flight. Neither cancellation actually stops the in-flight work (Deep Solve's is
-///   UI-level abandonment outright -- see `deep_solve`'s module doc comment), so the
-///   abandoned run still arrives, still holds a report about the replaced design,
-///   and would otherwise repaint it over the fresh design's deliberately blank
-///   panel. Calling this there rather than simply returning also covers the live
-///   progress text both status fields carry during a run.
+/// - right after New / Load Selected / Open / Open plain `.asc` replace the live
+///   [`EditorState`] wholesale (`tier_actions::do_new_design_create`,
+///   `tier_actions::apply_loaded_design`, and `native_io::finish_state_replace`), and
+/// - from the Deep Solve and Optimize completion handlers when
+///   [`RunProvenance::design_replaced`] is true. Neither cancel stops the in-flight work
+///   (Deep Solve's is abandonment only, see `deep_solve`'s module doc), so the abandoned run
+///   still arrives with a report on the replaced design. Calling this there clears that report
+///   and the live progress text, rather than repainting it over the fresh design's blank panel.
 ///
-/// Also finishes any Deep Solve/
-/// Optimize `ActivityRegistry` entry
-/// still outstanding -- both callers above can fire while a run is genuinely still
-/// in flight (a New/Load Selected while Deep Solve is abandoning in the
-/// background), and without this that activity would otherwise sit in the status
-/// strip's list, seemingly still running, until the orphaned worker eventually
-/// reports back (which, per `deep_solve`'s own module doc comment, may not be for
-/// minutes).
+/// The activity entry is finished here because an orphaned worker may take minutes to report,
+/// and the status strip would otherwise show the run as still going.
 pub(in crate::gui::editor) fn clear_analysis_results(ui: &MainWindow) {
     if let Some(activity) = auto_solve::activity() {
         if let Some(id) = DEEP_SOLVE_ACTIVITY_ID.with(RefCell::take) {
@@ -154,14 +131,10 @@ pub(in crate::gui::editor) fn clear_analysis_results(ui: &MainWindow) {
             activity.finish(id);
         }
     }
-    // a Deep Solve/Optimize run abandoned by a New/Load Selected/Open
-    // replacement is cancelled by `EditorState::replace_wholesale`
-    // (real, checkpoint-based cancellation -- see that method's own doc
-    // comment) right before every one of this function's own call sites, but
-    // that method has no `MainWindow` handle to reset the busy flags with.
-    // Without this, either flag stayed stuck at `true` -- and its own Deep
-    // Solve/Optimize button stayed disabled -- until the abandoned run's own
-    // completion handler eventually reset it, which could be minutes away.
+    // A Deep Solve or Optimize run abandoned by a replacement is cancelled by
+    // `EditorState::replace_wholesale` before these calls, but that method has no `MainWindow`
+    // to reset the busy flags. Without the resets below, the flags and their buttons stay
+    // disabled until the abandoned run reports back, which can take minutes.
     ui.global::<EditorModel>().set_deep_solve_running(false);
     ui.global::<EditorModel>().set_optimize_running(false);
     ui.global::<EditorModel>().set_deep_solve_status("".into());
@@ -185,16 +158,10 @@ pub(in crate::gui::editor) fn clear_analysis_results(ui: &MainWindow) {
     ui.global::<EditorModel>().set_optimize_can_apply(false);
     // The Optimize tab's candidate list and picked candidate described the old design too.
     crate::gui::editor::optimize_panel::clear_results(ui);
-    // A replaced design has no
-    // Deep Solve/Optimize result of its own yet (`EditorState::
-    // deep_solve_result_generation`/`pending_optimize` both reset to `None` by
-    // `EditorState::replace_wholesale`, see each field's own doc comment) --
-    // reset here too so the badge cannot keep showing the OLD design's staleness
-    // for the one frame before the new design's first `push_stale_content` runs.
+    // A replaced design has no result yet, so the stale badges are reset too, rather than
+    // showing the old design's staleness for a frame.
     ui.global::<EditorModel>().set_deep_solve_stale(false);
     ui.global::<EditorModel>().set_optimize_stale(false);
-    // A "Pin to verified mast" click against a run that described a
-    // since-replaced design must find nothing to pin, not old tier indices
-    // reinterpreted against the new design.
+    // A pin against a replaced design's run must find nothing, not reuse old tier indices.
     LAST_DEEP_SOLVE_DELTAS.with(|cell| cell.borrow_mut().clear());
 }

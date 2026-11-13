@@ -11,7 +11,6 @@ mod branch;
 mod census;
 /// Imported meets opened by five-decimal masts: identified, with their slack recorded.
 mod quantised;
-/// The travel a requested facet turn implies, which the Retarget policy grants.
 mod turn;
 
 fn octahedron() -> Design {
@@ -191,7 +190,7 @@ fn a_candidate_that_loses_a_facet_does_not_blame_the_original() {
     let design = octahedron();
     let baseline = MeetPreservationBaseline::capture(&design).unwrap();
     let mut candidate = design;
-    // Pinned five units out, the crown facet no longer touches the stone.
+    // Pinned five units out, the crown facet does not touch the stone.
     candidate.tiers[0].constraint = MeetConstraint::ScaleReference(5.0);
     let error = baseline
         .validate(&candidate, PreservationPolicy::OPTIMIZE)

@@ -7,9 +7,8 @@ export struct GuideSectionText {
     body: string,
 }
 
-// Whether the user guide (Help > User guide) is open, and its text. The text is plain,
-// short and specific to the browser build; the guided walkthrough (Help > Guided
-// walkthrough) is the hands-on introduction, this is the reference card.
+// Whether the user guide (Help > User Guide) is open, and its text: a reference card for the
+// browser build. The guided walkthrough (Help > Guided Walkthrough) is the hands-on intro.
 export global UserGuideModel {
     in-out property <bool> open: false;
 

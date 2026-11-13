@@ -2,12 +2,12 @@
 //!
 //! This is the editor's Angle Sweep with the same engine (`pleochroma_editor::sweep`): the
 //! design is cloned once per angle, the tier is set to it, the clone is solved, checked and
-//! scored with Optimize's quick table-up score (and with `--tilt` the tilt averages, about a
-//! second and a half a row), and the figures come back as a table. The rows run from the
-//! flattest angle to the steepest and do not depend on how many threads ran them. The design's
-//! own angle is always a row. A design with concave tiers is scored as the stone with its tools
-//! (the engine's `evaluate_step` places them on every swept stone), and its yield is the carved
-//! volume's; a design without them is scored on its planes alone, as before.
+//! scored with Optimize's quick table-up score (and with `--tilt` the tilt averages), and the
+//! figures come back as a table. The rows run from the flattest angle to the steepest and do not
+//! depend on how many threads ran them. The design's own angle is always a row. A design with
+//! concave tiers is scored as the stone with its tools (the engine's `evaluate_step` places them
+//! on every swept stone), and its yield is the carved volume's; a design without them is scored
+//! on its planes alone.
 //!
 //! Angles are degrees from flat, as positive numbers: `--from 39 --to 43` for a pavilion tier
 //! (a sign typed in front is ignored, and the side of the girdle comes from the tier). The text

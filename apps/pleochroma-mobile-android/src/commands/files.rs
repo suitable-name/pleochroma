@@ -45,9 +45,9 @@ pub(super) fn wire(window: &AppWindow, state: &Rc<RefCell<AppState>>) {
     });
 }
 
-/// Registers the receiver of files other apps send ("Open with", "Share to"). The
-/// platform may call it from any thread, so the work hops to the UI thread, where the
-/// files become the current design after the unsaved-changes question.
+/// Registers the receiver for files other apps send ("Open with", "Share to").
+///
+/// The platform may call it from any thread, so the work hops to the UI thread.
 pub fn register_incoming(window: &AppWindow, platform: &Arc<dyn Platform>) {
     let weak = window.as_weak();
     platform.set_incoming_handler(Box::new(move |files| {

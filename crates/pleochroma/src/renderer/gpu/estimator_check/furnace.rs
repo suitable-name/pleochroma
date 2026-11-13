@@ -1,7 +1,9 @@
-//! The energy-conservation furnace anchors: a colorless, non-dispersive, non-absorbing
+//! The energy-conservation furnace anchors.
+//!
+//! A colorless, non-dispersive, non-absorbing
 //! cubic gem inside a uniform (direction-independent) environment must return exactly
-//! that uniform radiance in expectation, on both CPU and GPU -- against a TRUTH anchor,
-//! not merely CPU-vs-GPU. See [`run_furnace`]'s doc comment.
+//! that uniform radiance in expectation, on both CPU and GPU, checked against the analytic
+//! target and not merely CPU against GPU. See [`run_furnace`].
 
 use crate::{
     color::cie1931::cie_1931_cmf,
@@ -55,12 +57,11 @@ pub struct FurnaceResult {
 /// The relative-error-vs-analytic-target tolerance of the polished furnace anchor,
 /// [`run_furnace`].
 ///
-/// Measured on 2026-10-01 by `furnace_measurement` on this adapter (four independent
-/// sample ranges, 614,400 samples per side and run): the bounce cap of 12 drops paths
-/// still inside the gem with their energy, so both sides read 1.1 percent low, and at
-/// cap 256 both agree with the target within a standard error of 0.01 percent. The
-/// budget is that truncation loss plus five standard deviations of the measured noise,
-/// rounded up to 0.005. A branch mis-weighted by a few percent fails it.
+/// Measured by `furnace_measurement` (four sample ranges, 614,400 samples per side and run):
+/// the bounce cap of 12 drops paths still inside the gem with their energy, so both sides
+/// read 1.1 percent low; at cap 256 both agree with the target within a standard error of
+/// 0.01 percent. The budget is that truncation loss plus five standard deviations of the
+/// noise, rounded up to 0.005. A branch mis-weighted by a few percent fails it.
 pub(super) const FURNACE_CONVERGENCE_TOLERANCE: f32 = 0.015;
 /// Aggregate z-score gate: with tens of thousands of pooled samples per side, a
 /// genuine porting bug moves this by many standard errors; `4.0` leaves headroom above
@@ -70,77 +71,60 @@ const FURNACE_Z_GATE: f64 = 4.0;
 /// The relative-error-vs-analytic-target tolerance for [`run_furnace_frosted_girdle`]
 /// and [`run_furnace_nee_equality_frosted`].
 ///
-/// Measured on 2026-10-01 by `furnace_measurement` on this adapter, like
-/// [`FURNACE_CONVERGENCE_TOLERANCE`]: the cap-12 truncation loss is 1.3 percent on both
-/// sides, with and without NEE, the noise 0.02 percent, and at cap 256 both sides meet
-/// the target within a standard error. The budget is the loss plus five standard
-/// deviations, rounded up to 0.005.
+/// Measured like [`FURNACE_CONVERGENCE_TOLERANCE`]: the cap-12 truncation loss is 1.3
+/// percent on both sides, with and without NEE, the noise 0.02 percent, and at cap 256
+/// both sides meet the target within a standard error. The budget is the loss plus five
+/// standard deviations, rounded up to 0.005.
 ///
-/// History: before the `apply_frosted_bounce` reflect/transmit throughput fix this
-/// tolerance was `0.9` and hid a real, biased +5-6% energy gain per frosted event (the
-/// branch's intensity was divided by its own selection probability on top of
-/// `path_pdf`, double-counting the branch's energy fraction); the [`FURNACE_Z_GATE`]
-/// cross-check below only confirms CPU/GPU agreement with each other, not agreement
-/// with the analytic target, so it could not have caught that bias. At the measured
-/// budget that error would fail by a factor of four.
+/// The budget must stay this tight: [`FURNACE_Z_GATE`] compares CPU with GPU only, so it
+/// cannot see an energy bias that both sides share against the analytic target.
 pub(super) const FROSTED_FURNACE_CONVERGENCE_TOLERANCE: f32 = 0.015;
 
 /// The relative-error-vs-analytic-target tolerance for [`run_furnace_scattering`] and
 /// [`run_furnace_nee_equality_scattering`].
 ///
-/// Measured on 2026-10-01 by `furnace_measurement` on this adapter, like
-/// [`FURNACE_CONVERGENCE_TOLERANCE`]: at [`SCATTERING_FURNACE_MAX_BOUNCES`] the
-/// truncation loss is already below 0.01 percent on both sides, with and without NEE,
-/// and the noise 0.06 percent on the CPU side; the budget is five standard deviations,
-/// rounded up to 0.005. The scattering medium's heavier-tailed estimator is why the
-/// noise is larger than the polished furnace's, not a reason for a wider budget.
+/// Measured by `furnace_measurement`, like [`FURNACE_CONVERGENCE_TOLERANCE`]: at
+/// [`SCATTERING_FURNACE_MAX_BOUNCES`] the truncation loss is below 0.01 percent on both
+/// sides, with and without NEE, and the CPU noise is 0.06 percent. The budget is five
+/// standard deviations, rounded up to 0.005. The noise exceeds the polished furnace's
+/// because the scattering estimator has heavier tails; the budget is not widened for it.
 pub(super) const SCATTERING_FURNACE_CONVERGENCE_TOLERANCE: f32 = 0.005;
 
 /// The relative-error-vs-analytic-target tolerance for [`run_furnace_edge_rounding`].
 ///
-/// Measured on 2026-10-01 by `furnace_measurement` on this adapter, like
-/// [`FURNACE_CONVERGENCE_TOLERANCE`]: the cap-12 truncation loss is 0.9 percent on both
-/// sides, the noise 0.02 percent, and at cap 256 both sides meet the target within a
-/// standard error. The loss plus five standard deviations rounds to 0.010; the budget
-/// takes one more step for margin on other adapters, the same value as the two anchors
-/// above.
+/// Measured by `furnace_measurement`, like [`FURNACE_CONVERGENCE_TOLERANCE`]: the cap-12
+/// truncation loss is 0.9 percent on both sides, the noise 0.02 percent, and at cap 256 both
+/// sides meet the target within a standard error. The loss plus five standard deviations
+/// rounds to 0.010; the budget is 0.015, the value of the two anchors above, for margin.
 pub(super) const EDGE_ROUNDING_FURNACE_CONVERGENCE_TOLERANCE: f32 = 0.015;
 
-/// Every furnace anchor except the lossless-scattering ones below runs at this bounce
-/// budget -- see [`SCATTERING_FURNACE_MAX_BOUNCES`]'s doc comment for the bounce-cap
-/// measurement this budget is sized against. A separately measured constant: it happens
-/// to equal `optics::raytracer::DEFAULT_MAX_BOUNCES` but does not track it, so the
-/// furnace anchors keep their budget if that default ever changes.
+/// Bounce budget of the furnace anchors other than the lossless-scattering ones.
+///
+/// Sized against the truncation in [`SCATTERING_FURNACE_MAX_BOUNCES`]. Separate from
+/// `optics::raytracer::DEFAULT_MAX_BOUNCES`, which it equals today but does not track.
 pub(super) const FURNACE_DEFAULT_MAX_BOUNCES: u32 = 12;
 
-/// [`run_furnace_scattering`] and
-/// [`run_furnace_nee_equality_scattering`] both trace `furnace_material().with_scattering(1.2,
-/// 0.4)` -- `sigma_a == 0.0`, so nothing along the path is ever absorbed, only redirected;
-/// a path only stops via a direct escape or hitting [`FURNACE_DEFAULT_MAX_BOUNCES`]. That
-/// makes the bounce cap itself a real, if unsurprising, truncation of the estimator (not a
-/// CPU/WGSL twin bug) -- and, because CPU and GPU truncate at slightly different points
-/// along the SAME nominally-identical-but-not-bit-identical-after-thousands-of-ops paths,
-/// the truncation bias also shows up as a CPU-vs-GPU divergence, not just an
-/// undershoot-vs-analytic-target one.
+/// Bounce budget of the lossless-scattering furnace anchors.
 ///
-/// Measured on this adapter (AMD Radeon(TM) Graphics, Vulkan), `sigma_s=1.2, g=0.4`,
-/// 614400 samples/side:
+/// [`run_furnace_scattering`] and [`run_furnace_nee_equality_scattering`] trace
+/// `furnace_material().with_scattering(1.2, 0.4)`: `sigma_a == 0.0`, so nothing along a path
+/// is absorbed, only redirected. A path stops only at a direct escape or at the bounce cap,
+/// so the cap truncates the estimator. CPU and GPU truncate at slightly different points of
+/// nominally identical paths, so the truncation also shows as a CPU-vs-GPU divergence.
+///
+/// Measured with `sigma_s=1.2, g=0.4`, 614400 samples per side:
 ///
 /// | `max_bounces` | CPU rel. err | GPU rel. err | CPU-vs-GPU pooled `z` (X,Y,Z) |
 /// | --- | --- | --- | --- |
 /// | 12 (`FURNACE_DEFAULT_MAX_BOUNCES`) | 0.0402 | 0.0447 | (-10.89, -10.92, -10.80) |
 /// | 48 (this constant) | 0.00015 | 0.00003 | (0.28, 0.25, 0.30) |
 ///
-/// Both engines' relative error shrinks by ~270x and the pooled `z` drops from "off the
-/// scale" to well inside [`FURNACE_Z_GATE`] as the bounce budget grows -- exactly the
-/// signature of bounce-cap truncation, not a remaining energy bug in either twin (a real
-/// twin divergence would not shrink like this; see this constant's own doc comment,
-/// which is the read-back-later record of that measurement). `48` (4x the default) is
-/// itself generous, not the minimum that works -- picked to leave headroom rather than
-/// chase the exact convergence knee.
+/// Both relative errors shrink about 270 times and the pooled `z` falls well inside
+/// [`FURNACE_Z_GATE`] as the budget grows: the signature of truncation, not an energy bug in
+/// either engine. 48 (4x the default) leaves headroom above the convergence knee.
 pub(super) const SCATTERING_FURNACE_MAX_BOUNCES: u32 = 48;
 
-/// Runs the furnace check against the CPU reference.
+/// Runs the polished furnace anchor: CPU and GPU means against the analytic target.
 #[must_use]
 pub fn run_furnace(ctx: &crate::renderer::gpu::GpuContext) -> FurnaceResult {
     run_furnace_for(ctx, &furnace_material(), &[], FURNACE_DEFAULT_MAX_BOUNCES)
@@ -149,11 +133,11 @@ pub fn run_furnace(ctx: &crate::renderer::gpu::GpuContext) -> FurnaceResult {
 /// Same energy-conservation furnace anchor as [`run_furnace`], but with the girdle
 /// band bruted.
 ///
-/// GPU mirror of `tests/raytracer_tests.rs`'s
-/// `frosted_girdle_white_furnace_energy_conservation_still_holds`:
-/// `apply_frosted_bounce`'s `r_unpol`/`1-r_unpol` split carries the same total energy
-/// budget as the polished Fresnel formula, just redirected diffusely, so this proves
-/// the GPU port is actually energy-conserving, not merely "doesn't crash".
+/// GPU mirror of `tests/raytracer_tests/material_equivalence_finish.rs`'s
+/// `frosted_girdle_white_furnace_energy_conservation_still_holds`. The frosted split in
+/// `apply_frosted_bounce` (`r_unpol` and `1 - r_unpol`) carries the same energy as the
+/// polished Fresnel formula, only redirected diffusely, so this checks the GPU energy
+/// against the analytic target.
 #[must_use]
 pub fn run_furnace_frosted_girdle(ctx: &crate::renderer::gpu::GpuContext) -> FurnaceResult {
     let num_planes = round_brilliant_planes().len();
@@ -168,16 +152,13 @@ pub fn run_furnace_frosted_girdle(ctx: &crate::renderer::gpu::GpuContext) -> Fur
 /// Same furnace anchor as [`run_furnace`], but with a lossless scattering medium
 /// (`sigma_a == 0`, `sigma_s > 0` via [`furnace_material`]).
 ///
-/// GPU mirror of
-/// `scattering_tests::lossless_scattering_white_furnace_energy_conservation_holds`:
-/// scattering redirects energy via the free-path sampler's albedo/unity-survival
-/// identities (`maybe_scatter_or_extinguish`'s doc, hazard 2) but must never create or
-/// destroy it, on either engine.
+/// GPU mirror of the CPU test `lossless_scattering_white_furnace_energy_conservation_holds`:
+/// scattering redirects energy via the free-path sampler's albedo and unity-survival
+/// identities (`maybe_scatter_or_extinguish`), but must never create or destroy it, on
+/// either engine.
 ///
-/// Uses [`SCATTERING_FURNACE_MAX_BOUNCES`], not [`FURNACE_DEFAULT_MAX_BOUNCES`] -- see
-/// that constant's own doc comment (T3) for the measurement establishing why a lossless
-/// scattering medium needs the wider bounce budget to converge tightly enough for
-/// [`FURNACE_Z_GATE`], on EITHER engine, let alone to agree with each other.
+/// Uses [`SCATTERING_FURNACE_MAX_BOUNCES`], not [`FURNACE_DEFAULT_MAX_BOUNCES`]: a lossless
+/// medium needs the wider bounce budget to converge within [`FURNACE_Z_GATE`] on either engine.
 #[must_use]
 pub fn run_furnace_scattering(ctx: &crate::renderer::gpu::GpuContext) -> FurnaceResult {
     let material = furnace_material().with_scattering(1.2, 0.4);
@@ -186,10 +167,9 @@ pub fn run_furnace_scattering(ctx: &crate::renderer::gpu::GpuContext) -> Furnace
 
 /// Same furnace anchor as [`run_furnace`], but with a nonzero `edge_rounding_radius`.
 ///
-/// GPU mirror of
-/// `edge_rounding_tests::edge_rounding_white_furnace_energy_conservation_holds`: edge
-/// rounding only perturbs the shading normal fed into the already energy-conserving
-/// Fresnel reflect/transmit split, so it must not create or destroy energy either.
+/// GPU mirror of `edge_rounding_tests::edge_rounding_white_furnace_energy_conservation_holds`
+/// in the CPU raytracer tests. Edge rounding only perturbs the shading normal fed into the
+/// energy-conserving Fresnel reflect/transmit split, so it must not create or destroy energy.
 #[must_use]
 pub fn run_furnace_edge_rounding(ctx: &crate::renderer::gpu::GpuContext) -> FurnaceResult {
     let material = furnace_material().with_edge_rounding(0.03);
@@ -198,14 +178,12 @@ pub fn run_furnace_edge_rounding(ctx: &crate::renderer::gpu::GpuContext) -> Furn
 
 /// Same furnace anchor as [`run_furnace_scattering`] with NEE explicitly enabled.
 ///
-/// Dispatched on the GPU (`env_mode = HDR_MAP`) against a uniform HDR environment map,
-/// proving that the GPU's next-event estimation with balance-heuristic MIS preserves energy
-/// conservation on scattering media.
+/// Dispatched on the GPU (`env_mode = HDR_MAP`) against a uniform HDR environment map. It
+/// checks that next-event estimation with balance-heuristic MIS preserves energy on
+/// scattering media.
 ///
-/// Also uses [`SCATTERING_FURNACE_MAX_BOUNCES`] -- see that constant's own doc comment;
-/// the same lossless-medium truncation applies whether or not NEE is enabled, since NEE
-/// only adds a direct-light estimate alongside the phase-sampled continuation, it does
-/// not change how many bounces that continuation itself needs to converge.
+/// Uses [`SCATTERING_FURNACE_MAX_BOUNCES`]: NEE adds a direct-light estimate beside the
+/// phase-sampled continuation and does not change how many bounces the continuation needs.
 #[must_use]
 pub fn run_furnace_nee_equality_scattering(
     ctx: &crate::renderer::gpu::GpuContext,
@@ -216,9 +194,9 @@ pub fn run_furnace_nee_equality_scattering(
 
 /// Same furnace anchor as [`run_furnace_frosted_girdle`] with NEE explicitly enabled.
 ///
-/// Dispatched on the GPU (`env_mode = HDR_MAP`) against a uniform HDR environment map,
-/// proving that the GPU's next-event estimation with balance-heuristic MIS preserves energy
-/// conservation on frosted-facet boundaries.
+/// Dispatched on the GPU (`env_mode = HDR_MAP`) against a uniform HDR environment map. It
+/// checks that next-event estimation with balance-heuristic MIS preserves energy on
+/// frosted-facet boundaries.
 #[must_use]
 pub fn run_furnace_nee_equality_frosted(ctx: &crate::renderer::gpu::GpuContext) -> FurnaceResult {
     let num_planes = round_brilliant_planes().len();
@@ -273,7 +251,7 @@ pub(super) fn run_furnace_for_run(
     let gpu_sample_offset = cpu_sample_offset + cpu_samples_per_pixel;
 
     let env_map = EnvironmentMap::uniform(4, 4, [l0, l0, l0]);
-    let environment = EnvironmentSource::HdrMap(&env_map);
+    let environment = EnvironmentSource::hdr(&env_map);
     let scene = CpuScene {
         camera: &camera,
         width,
@@ -325,6 +303,8 @@ pub(super) fn run_furnace_for_run(
                 planes: &planes,
                 facet_finishes: &gpu_finishes,
                 hdr_env: Some(&gpu_hdr),
+                tray_shadow: None,
+                tray_mirror: None,
             },
             total_gpu,
         )
@@ -409,9 +389,8 @@ impl FurnaceResult {
         self.passed_with_tolerance(FURNACE_CONVERGENCE_TOLERANCE)
     }
 
-    /// Like [`Self::passed`], against an explicit relative-error tolerance; see
-    /// [`FROSTED_FURNACE_CONVERGENCE_TOLERANCE`] for why some callers need one wider
-    /// than the default. The CPU-vs-GPU z-score gate is unaffected -- always
+    /// Like [`Self::passed`], against an explicit relative-error tolerance, such as one of
+    /// the per-anchor budgets above. The CPU-vs-GPU z-score gate is unaffected: it is always
     /// [`FURNACE_Z_GATE`].
     #[must_use]
     pub fn passed_with_tolerance(&self, relative_error_tolerance: f32) -> bool {
@@ -424,25 +403,23 @@ impl FurnaceResult {
                 .is_none_or(super::FurnaceComponents::valid)
     }
 
-    /// GPU port: [`Self::passed_with_tolerance`] against
-    /// [`FROSTED_FURNACE_CONVERGENCE_TOLERANCE`] -- what [`run_furnace_frosted_girdle`]'s
-    /// result should be checked with.
+    /// [`Self::passed_with_tolerance`] against [`FROSTED_FURNACE_CONVERGENCE_TOLERANCE`],
+    /// the check for [`run_furnace_frosted_girdle`]'s result.
     #[must_use]
     pub fn passed_frosted_girdle(&self) -> bool {
         self.passed_with_tolerance(FROSTED_FURNACE_CONVERGENCE_TOLERANCE)
     }
 
-    /// [`Self::passed_with_tolerance`] against
-    /// [`SCATTERING_FURNACE_CONVERGENCE_TOLERANCE`] -- what [`run_furnace_scattering`]'s
-    /// result should be checked with.
+    /// [`Self::passed_with_tolerance`] against [`SCATTERING_FURNACE_CONVERGENCE_TOLERANCE`],
+    /// the check for [`run_furnace_scattering`]'s result.
     #[must_use]
     pub fn passed_scattering(&self) -> bool {
         self.passed_with_tolerance(SCATTERING_FURNACE_CONVERGENCE_TOLERANCE)
     }
 
     /// [`Self::passed_with_tolerance`] against
-    /// [`EDGE_ROUNDING_FURNACE_CONVERGENCE_TOLERANCE`] -- what
-    /// [`run_furnace_edge_rounding`]'s result should be checked with.
+    /// [`EDGE_ROUNDING_FURNACE_CONVERGENCE_TOLERANCE`], the check for
+    /// [`run_furnace_edge_rounding`]'s result.
     #[must_use]
     pub fn passed_edge_rounding(&self) -> bool {
         self.passed_with_tolerance(EDGE_ROUNDING_FURNACE_CONVERGENCE_TOLERANCE)

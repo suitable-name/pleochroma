@@ -11,11 +11,8 @@
 //! The runner's own files (`src/editor/guide.rs` and `src/editor/guide/`) are not raise sites:
 //! they mention event names to judge steps, not because a user acted.
 //!
-//! It only reads the sources as text, like `apps/pleochroma-cut/tests/guide_highlights.rs`. The
-//! two catalogue-wide tests (`every_event_of_an_offered_lesson_is_raised_by_the_browser`,
-//! `every_target_of_an_offered_lesson_is_drawn_by_the_browser`) stay red until every lane of the
-//! tutorial wiring has landed; each failure message lists everything still missing. The
-//! `the_tier_selection_*` test is green as soon as the tier-editing lane has landed.
+//! It only reads the sources as text, like `apps/pleochroma-cut/tests/guide_highlights.rs`.
+//! Each failure message lists every missing event or target with the first lesson that needs it.
 //!
 //! The sources are found next to this crate (`../../apps/pleochroma-web`); a copy of the crate
 //! without them (a packaged crate) skips the checks.

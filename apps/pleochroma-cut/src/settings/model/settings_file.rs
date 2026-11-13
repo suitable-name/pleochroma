@@ -17,7 +17,7 @@ pub struct SettingsFile {
     /// Lighting presets.
     pub presets: Vec<LightingPreset>,
     /// The named camera rigs (views, refractive indices, calibration). An additive section:
-    /// a settings file saved before it existed has none and still loads, and a file without
+    /// a settings file without it has none and still loads, and a file without
     /// rigs is written without the section's entries.
     pub rig_profiles: Vec<RigProfile>,
 }
@@ -33,23 +33,15 @@ impl Default for SettingsFile {
 }
 
 impl SettingsFile {
-    /// Adds any built-in preset missing from `self.presets` (matched by name) --
-    /// covers a brand-new file and an older file saved before a given built-in
-    /// existed -- and REFRESHES an already-present one whose own `built_in` flag is
-    /// still `true` from the CURRENT [`built_in_presets`] table, rather than leaving
-    /// whatever was persisted permanently stuck. Without the refresh half, a preset
-    /// saved before a change to this app's own built-in definitions (e.g. the
-    /// 2026-09-16 lighting rework, which redefined several) kept its stale light/
-    /// camera/rig values forever, on every future load, even across an app update
-    /// that changed what that preset is SUPPOSED to be.
+    /// Adds any built-in preset missing from `self.presets` (matched by name), and refreshes
+    /// an already-present one whose `built_in` flag is still `true` from the current
+    /// [`built_in_presets`] table. The refresh keeps a stored built-in from holding stale
+    /// values after the table changes.
     ///
-    /// Every field is refreshed except `export_usable`: that is the one thing about
-    /// a built-in the Parameters panel lets a user customize per install (see
-    /// [`LightingPreset::export_usable`]'s own doc comment), so a refresh must not
-    /// silently undo that choice. A user preset (`built_in: false`), or one a user
-    /// has renamed to no longer match any current built-in's name, is never touched
-    /// here -- only an EXACT name match against a CURRENTLY `built_in: true` entry
-    /// refreshes. Idempotent.
+    /// Every field is refreshed except `export_usable`, the one per-install choice on a
+    /// built-in (see [`LightingPreset::export_usable`]). A user preset (`built_in: false`),
+    /// or one renamed away from every built-in name, is never touched: only an exact name
+    /// match against a `built_in: true` entry refreshes. Idempotent.
     pub fn ensure_built_in_presets(&mut self) {
         for builtin in built_in_presets() {
             if let Some(existing) = self.presets.iter_mut().find(|p| p.name == builtin.name) {
@@ -156,9 +148,8 @@ mod tests {
         }
     }
 
-    /// The built-in trays of 2026-10-20 reach existing settings files: a stored "Dramatic
-    /// Spotlight" that still carries White comes back Black on load, while a user preset keeps
-    /// whatever tray its owner chose.
+    /// A stored "Dramatic Spotlight" with the old White tray comes back Black on load, while a
+    /// user preset keeps its own tray.
     #[test]
     fn ensure_built_in_presets_brings_the_dramatic_spotlight_tray_to_old_files() {
         let mut old = built_in_presets()
@@ -196,10 +187,8 @@ mod tests {
         assert_eq!(file.presets.len(), built_in_presets().len());
     }
 
-    /// The refresh half: a built-in preset saved before this app's own definition of
-    /// it changed (e.g. the 2026-09-16 lighting rework) must pick up the CURRENT
-    /// definition on load, not stay stuck at whatever was persisted -- while still
-    /// keeping the per-install `export_usable` choice.
+    /// A built-in preset whose stored definition differs from the current one picks up the
+    /// current definition on load, while keeping the per-install `export_usable` choice.
     #[test]
     fn ensure_built_in_presets_refreshes_a_stale_built_in_but_keeps_export_usable() {
         let current = built_in_presets()
@@ -227,7 +216,7 @@ mod tests {
         );
     }
 
-    /// A settings file saved before the rig section existed still loads, with no rigs.
+    /// A settings file without the rig section still loads, with no rigs.
     #[test]
     fn a_settings_file_without_rig_profiles_loads_with_none() {
         let parsed: SettingsFile = toml::from_str("[settings]\nexposure = 1.1\n").expect("parse");
@@ -235,7 +224,7 @@ mod tests {
     }
 
     /// A rig with an uncalibrated and a calibrated profile survives the TOML round trip, and the
-    /// rest of the document is untouched by the new section.
+    /// rest of the document is untouched by the rig section.
     #[test]
     fn rig_profiles_round_trip_through_toml() {
         use pleochroma_cut_core::rough_plan::locate::{Projection, RigProfile};
@@ -259,10 +248,8 @@ mod tests {
         assert_eq!(parsed.rig_profiles[0].views.len(), 8);
     }
 
-    /// A USER preset (`built_in: false`) must never be overwritten by this, even if
-    /// it happens to share a name with a built-in -- `upsert_user_preset` already
-    /// refuses to create such a collision, but this guards the refresh path itself
-    /// against ever clobbering something the user actually owns.
+    /// A user preset (`built_in: false`) is never overwritten, even under a built-in's name.
+    /// `upsert_user_preset` refuses to create such a collision; this guards the refresh path.
     #[test]
     fn ensure_built_in_presets_never_touches_a_same_named_user_preset() {
         let current = built_in_presets()

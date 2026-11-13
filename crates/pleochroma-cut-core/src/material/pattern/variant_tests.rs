@@ -1,5 +1,5 @@
 //! Tests of the variant and three-color zone colors, the per-millimeter rule, the format version
-//! and the rank rule (written, not run, by lane P1).
+//! and the rank rule.
 
 use super::{
     ColorForm, ColorPattern, ColorRef, ColorSlot, PATTERN_BASE_FORMAT_VERSION,
@@ -28,8 +28,8 @@ const ROWS: [[f32; 3]; 2] = [[480.0, 2100.0, 0.22], [560.0, 1500.0, 0.11]];
 const OTHER_ROWS: [[f32; 3]; 2] = [[430.0, 2600.0, 0.4], [520.0, 1800.0, 0.07]];
 const THIRD_ROWS: [[f32; 3]; 1] = [[640.0, 44.0, 0.31]];
 
-/// A pattern stored by the first release (format version 1): a one-color base and a two-color
-/// zone, no new color kind.
+/// A version 1 pattern file: a one-color base and a two-color zone, no variant or trichroic
+/// color.
 const STORED_V1: &str = r#"{"version":1,"template":null,"base":{"name":"Body","shape":{"HalfSpace":{"normal":[0.0,1.0,0.0],"offset":0.0}},"color":{"Single":{"lch":[50.0,40.0,310.0],"bands":[[480.0,2100.0,0.22]],"solved":true}}},"zones":[{"name":"Core","shape":{"HalfSpace":{"normal":[1.0,0.0,0.0],"offset":0.0}},"color":{"Dichroic":{"along":{"lch":[50.0,40.0,310.0],"bands":[[480.0,2100.0,0.22]],"solved":true},"across":{"lch":[60.0,30.0,90.0],"bands":[[430.0,2600.0,0.4]],"solved":true}}}}],"softness":0.0,"axis":{"Fixed":{"tilt_rad":0.0,"turn_rad":0.0}},"relative_to_stone":true}"#;
 
 fn filled(mut pattern: ColorPattern) -> ColorPattern {
@@ -141,7 +141,7 @@ fn only_a_pattern_with_a_new_color_kind_is_written_as_version_two() {
         with_variant.required_format_version(),
         PATTERN_FORMAT_VERSION
     );
-    // The pattern was loaded as version 1 and then edited: the file is still written as 2.
+    // `version` keeps the loaded value; the encoder writes the version the colors require.
     assert_eq!(with_variant.version, PATTERN_BASE_FORMAT_VERSION);
     let text = encode_pattern(&with_variant).expect("encodes");
     assert!(text.starts_with(r#"{"version":2,"#), "{text}");
@@ -151,7 +151,7 @@ fn only_a_pattern_with_a_new_color_kind_is_written_as_version_two() {
     with_three.base.color = trichroic();
     assert_eq!(with_three.format_version(), PATTERN_FORMAT_VERSION);
 
-    // A text with a newer version than this build reads is refused with the version sentence.
+    // A text with a newer version than this build reads is refused.
     let newer = text.replacen(r#""version":2"#, r#""version":3"#, 1);
     assert_eq!(
         decode_pattern(&newer),
@@ -171,7 +171,7 @@ fn variant_and_trichroic_colors_round_trip_the_codec_bit_exactly() {
     pattern.zones[1].color = PatternColor::from_variant(&pink);
     let pattern = pattern.with_required_version();
     assert_eq!(pattern.version, PATTERN_FORMAT_VERSION);
-    assert!(pattern.unsolved_colors().is_empty());
+    assert_eq!(pattern.unsolved_colors(), [] as [ColorRef; 0]);
 
     let text = encode_pattern(&pattern).expect("encodes");
     assert!(
@@ -292,7 +292,7 @@ fn an_unsolved_third_color_is_refused_and_listed_by_slot() {
         slot: ColorSlot::Beta,
     };
     assert!(pattern.set_color_bands(at, OTHER_ROWS.to_vec()));
-    assert!(pattern.unsolved_colors().is_empty());
+    assert_eq!(pattern.unsolved_colors(), [] as [ColorRef; 0]);
     assert_eq!(
         pattern.color(at).map(|c| c.bands.clone()),
         Some(OTHER_ROWS.to_vec())
@@ -332,7 +332,7 @@ fn importing_a_biaxial_zone_keeps_its_third_color() {
     assert_eq!(beta.bands, vec![[540.0, 30.0, 0.17]]);
     assert_eq!(gamma.bands, vec![[460.0, 39.9, 0.55]]);
     assert_eq!(imported.version, PATTERN_FORMAT_VERSION);
-    assert!(imported.unsolved_colors().is_empty());
+    assert_eq!(imported.unsolved_colors(), [] as [ColorRef; 0]);
     assert_eq!(imported.to_zoned().expect("valid"), Some(original));
 }
 
@@ -340,8 +340,7 @@ fn importing_a_biaxial_zone_keeps_its_third_color() {
 
 #[test]
 fn a_model_unit_variant_becomes_per_millimeter_by_the_render_rule() {
-    // The Sapphire's Material Default is per model unit and pleochroic (the measured Pink of
-    // 2026-10-27 is per millimetre).
+    // The Sapphire's Material Default is per model unit and pleochroic.
     let pink = sapphire("sapphire.default");
     assert_eq!(pink.unit, AbsorptionUnit::ModelUnit, "the premise");
 
@@ -550,7 +549,7 @@ fn a_variant_becomes_a_picked_color_of_the_same_rank() {
     // A picked color is its own custom form.
     assert_eq!(custom.to_custom(|_| [0.0; 3], |_| Vec::new()), custom);
     assert_eq!(custom.zone_colors().len(), 2);
-    assert!(variant.zone_colors().is_empty());
+    assert_eq!(variant.zone_colors(), [] as [&ZoneColor; 0]);
 }
 
 /// A pleochroic tensor with an energy band of sigma 301 cm^-1, which a row (width at most 500

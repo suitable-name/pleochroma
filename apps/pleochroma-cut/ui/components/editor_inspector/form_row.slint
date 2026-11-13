@@ -18,26 +18,23 @@ export global FormRowMetrics {
     out property <length> scroll_gutter: 16px;
 }
 
-// One labelled row of the Inspector's Tier form: a fixed-width label cell on the
-// left, the input on the right, and the row's own error message underneath.
+// One labelled row of an Inspector form: a fixed-width label cell on the left, the input
+// on the right, and the row's error message underneath.
 //
-// Every geometry decision lives in layouts. The input goes in a layout of its
-// own inside the bordered `Rectangle` (the same shape the Meets row always had),
-// so the field is sized by the layout rather than by Slint's default size for an
-// element in a plain `Rectangle`, and nothing draws over the label or above the
-// field. The label cell has an explicit width and elides, so a long label can
-// never be clipped on its left edge.
+// The input sits in its own layout inside the bordered `Rectangle`. The layout sizes it;
+// a bare child of a `Rectangle` would get Slint's default size and be centred. The label
+// cell has an explicit width and elides, so a long label is never clipped.
 //
-// The red border is drawn by the `Rectangle`, and a `LineEdit` paints an opaque
-// background over whatever lies under it, so the inner layout keeps a 1px
-// padding (always, so the field does not jump when the border appears).
+// The red border is drawn by the `Rectangle`, and a `LineEdit` paints an opaque background
+// over whatever lies under it, so the inner layout keeps a 1px padding at all times: the
+// field does not jump when the border appears.
 //
-// The tooltip shows over the label and over the input. A screen reader reads the label
-// of the input from the input itself (each caller sets `accessible-label` on its
-// `LineEdit` or `ComboBox`), because a `LineEdit` takes no label from the text beside it.
+// The tooltip shows over the label and the input. A screen reader reads the input's label
+// from the input itself (callers set `accessible-label` on it), since a `LineEdit` takes no
+// label from the text beside it.
 //
-// Children of this component become the input (a `LineEdit`, a `ComboBox`, or a
-// `LineEdit` plus a unit label); they share one row, 4px apart.
+// Children become the input (a `LineEdit`, a `ComboBox`, or a `LineEdit` plus a unit label)
+// and share one row, 4px apart.
 export component FormRow inherits VerticalLayout {
     // The label, one line, elided when the cell is too narrow.
     in property <string> label;

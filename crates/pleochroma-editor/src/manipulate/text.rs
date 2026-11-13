@@ -200,9 +200,8 @@ fn replaced_clause(replaced: &MeetConstraint) -> String {
     }
 }
 
-/// The toast after a drag gesture ends: what was set, and that Undo restores it. For a
-/// depth drag that replaced a meet constraint (`replaced_meet`), it also says what the
-/// tier used to meet.
+/// The toast after a drag gesture ends: what was set, and that Undo restores it. For a depth
+/// drag that replaced a meet constraint (`replaced_meet`), it also names the meet it replaced.
 #[must_use]
 pub fn drag_done_toast(
     kind: HandleKind,

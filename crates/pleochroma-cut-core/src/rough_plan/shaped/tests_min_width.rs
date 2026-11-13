@@ -1,5 +1,6 @@
-//! The shaped twin of `a_stone_at_the_minimum_width_is_feasible_on_every_path`: a stone
-//! exactly at the minimum width must be feasible for the layout builder as it is for every
+//! The shaped twin of `a_stone_at_the_minimum_width_is_feasible_on_every_path`.
+//!
+//! A stone exactly at the minimum width must be feasible for the layout builder as it is for every
 //! valuation (the table, the uniform pass, the refinement), all of which accept it down to
 //! [`min_width_floor`](crate::rough_plan::piece::min_width_floor).
 

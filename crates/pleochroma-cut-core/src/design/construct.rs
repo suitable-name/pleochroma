@@ -1,7 +1,7 @@
-//! [`Design`]'s three constructors -- see the parent module's doc comment for
-//! the constraints-not-masts model these build against, and
-//! [`Design::from_asc_schedule`]'s own doc comment for the "pin every tier"
-//! import policy this crate settled on.
+//! [`Design`]'s constructors.
+//!
+//! See the parent module's doc comment for the constraints-not-masts model they build against,
+//! and [`Design::from_asc_schedule`]'s doc comment for the "pin every tier" import policy.
 
 use super::{ConstraintTier, Design, ScheduleMeta};
 use crate::{material::MaterialSelection, preform::PreformSpec};
@@ -11,11 +11,9 @@ use std::collections::BTreeMap;
 
 /// Everything [`Design::fresh_from_spec`] needs to build a brand-new design.
 ///
-/// The index-gear/symmetry/mirror settings a real `.asc` file would open with, the
-/// starting material selection, and the preform to cut it from. Replaces
-/// [`Design::fresh`]'s four positional parameters with named fields wide enough to
-/// also carry a starting material; the editor's "New" dialog fills one of these
-/// directly.
+/// That is the index-gear, symmetry and mirror settings a real `.asc` file would open with, the
+/// starting material selection, and the preform to cut it from. The editor's "New" dialog fills one
+/// of these directly. [`Design::fresh`] takes positional parameters and cannot set a material.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FreshDesignSpec {
     /// Number of teeth on the index gear.
@@ -31,14 +29,12 @@ pub struct FreshDesignSpec {
 }
 
 impl Design {
-    /// The legacy default [`ScheduleMeta::refractive_index`] a fresh design with no
-    /// material selection starts with -- the same `1.54` [`Design::fresh`] always
-    /// hard-coded before a real material model existed. Only read by
-    /// [`Design::effective_refractive_index`] once a design has neither an RI
-    /// override nor a material name that resolves.
+    /// The placeholder [`ScheduleMeta::refractive_index`] of a fresh design: `1.54`. Read by
+    /// [`Design::effective_refractive_index`] only once a design has neither an RI override nor
+    /// a material name that resolves.
     ///
-    /// Public so a material pick can tell this placeholder (no recorded figure) from an
-    /// `I` line a design really carries.
+    /// Public so a material pick can tell this placeholder (no recorded figure) from an `I`
+    /// line a design really carries.
     pub const LEGACY_DEFAULT_REFRACTIVE_INDEX: f64 = 1.54;
 
     /// Pairs an existing preform, schedule metadata and constraint-tier list, with no
@@ -72,13 +68,11 @@ impl Design {
         }
     }
 
-    /// A brand-new design from a full [`FreshDesignSpec`] -- gear, symmetry, mirror
-    /// and starting material all named up front ([`Design::fresh`] is kept as a thin
-    /// wrapper over this for source compatibility). No tiers yet; the schedule's
-    /// legacy [`ScheduleMeta::refractive_index`] starts at
-    /// [`Self::LEGACY_DEFAULT_REFRACTIVE_INDEX`], only read as a fallback by
-    /// [`Design::effective_refractive_index`] since a resolved material's `n_D`
-    /// already wins over it.
+    /// A brand-new design from a full [`FreshDesignSpec`]: gear, symmetry, mirror and starting
+    /// material are all set up front. There are no tiers yet. The schedule's
+    /// [`ScheduleMeta::refractive_index`] starts at [`Self::LEGACY_DEFAULT_REFRACTIVE_INDEX`],
+    /// which [`Design::effective_refractive_index`] reads only as a fallback, since a resolved
+    /// material's `n_D` takes precedence.
     #[must_use]
     pub fn fresh_from_spec(spec: FreshDesignSpec) -> Self {
         Self {
@@ -146,23 +140,15 @@ impl Design {
     /// tolerance): opening a catalogue design in the editor must show the same
     /// stone the file records, not a solver's reconstruction of it.
     ///
-    /// # Why this replaced discard-and-rederive
+    /// # Why every tier is pinned
     ///
-    /// Rejected: anchoring only one tier per crown/pavilion/girdle block and
-    /// re-deriving every other tier's mast from constraints alone via
-    /// `solve_meet_points`. Measured on the full 2,881-design corpus, only **312
-    /// designs (10.8%)** had every meet-derived tier within 10% of its real recorded
-    /// mast -- opening an ordinary catalogue design would have silently moved its
-    /// geometry for roughly nine designs in ten the moment someone clicked "Solve"
-    /// (see `discard_and_resolve_gate_on_real_fixtures` below).
-    ///
-    /// Pinning every tier makes adopting a meet-constraint a **deliberate, per-tier,
-    /// undoable act** instead: [`ConstraintTier::imported_meet`] preserves the
-    /// file's own stated meet instruction alongside the pinned constraint, so the
-    /// editor can show what the file *claims* a facet meets and let the user switch
-    /// that tier over to it with one click (`Edit::SetConstraint`) like any other
-    /// edit. A tier with an explicit scale-reference instruction has nothing to
-    /// adopt, so `imported_meet` is `None` there.
+    /// Re-deriving every mast from its meet constraints does not reliably reproduce the recorded
+    /// geometry: about 11 % of the catalogue lands more than 10 % off its recorded masts (see
+    /// `discard_and_resolve_gate_on_real_fixtures`). So adopting a meet is a deliberate,
+    /// per-tier, undoable act. [`ConstraintTier::imported_meet`] keeps the file's own meet
+    /// instruction beside the pinned constraint, and the editor switches a tier over to it with
+    /// one edit (`Edit::SetConstraint`). A tier with an explicit scale-reference instruction has
+    /// nothing to adopt, so `imported_meet` is `None` there.
     ///
     /// [`ConstraintTier::original_notes`] separately preserves the file's raw `G`
     /// text verbatim (whatever it said, not just the three instructions this crate
@@ -189,9 +175,9 @@ impl Design {
                     indices: input.indices,
                     constraint: MeetConstraint::ScaleReference(original.mast),
                     imported_meet,
-                    // Verbatim, even when empty -- see `ConstraintTier::original_notes`'s
-                    // own doc comment for why export needs this to undo the "every tier
-                    // pinned to ScaleReference" policy's flattening effect on `G` text.
+                    // Kept verbatim, even when empty: export needs it to undo the flattening
+                    // that pinning every tier to `ScaleReference` applies to `G` text (see
+                    // `ConstraintTier::original_notes`).
                     original_notes: Some(original.notes.clone()),
                     detached: Vec::new(),
                 }
@@ -213,16 +199,14 @@ impl Design {
                 footnotes: schedule.footnotes.clone(),
             },
             tiers,
-            // `.asc` has no field for either -- see `Self::girdle_diameter_mm`'s own
-            // doc comment ("This does NOT round-trip through `.asc`").
+            // `.asc` has no field for either; see `Self::girdle_diameter_mm`.
             girdle_diameter_mm: None,
             preform_y_offset: 0.0,
             cheater_offsets_deg: BTreeMap::new(),
             tier_notes: BTreeMap::new(),
             material: MaterialSelection::none(),
-            // A fresh id per imported tier -- see `Design::from_asc_schedule`'s own
-            // doc comment note under `TierId`'s module docs: `.asc` import assigns
-            // fresh ids (the format has no concept of a stable tier identity).
+            // A fresh id per imported tier: the `.asc` format has no stable tier identity
+            // (see `TierId`).
             tier_ids,
             next_tier_id,
             tier_targets: BTreeMap::new(),

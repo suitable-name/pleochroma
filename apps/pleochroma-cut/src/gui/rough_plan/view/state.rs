@@ -8,6 +8,7 @@
 use super::{
     interaction::Picked,
     render::{Hover, RenderRequest, SharedPick, reset_pose},
+    scan::ScanState,
     scene::{RoughMesh, Scene},
     thumbnails::ThumbnailWorker,
     workers::BuildRequest,
@@ -21,9 +22,10 @@ use std::{
     time::{Duration, Instant},
 };
 
-/// How long after a click that asks for a cut a second click still counts as the other
-/// half of a double-click (Slint's own default interval, which its API does not expose).
-/// The cut is added when this has passed without one, or at once by the double-click.
+/// How long after a click that asks for a cut a second click still counts as its double-click.
+///
+/// This is Slint's own default interval, which its API does not expose. The cut is added when
+/// this has passed without one, or at once by the double-click.
 pub(super) const DOUBLE_CLICK_INTERVAL: Duration = Duration::from_millis(500);
 
 /// How close, in logical pixels, a second click must be to the first to be a
@@ -88,10 +90,12 @@ impl<T> Default for ClickAdds<T> {
 }
 
 impl<T: Copy> ClickAdds<T> {
-    /// A click at `at`, `now`, is about to be stored: takes the earlier pending click
-    /// this one does not belong to, which is due now. Returns what it asked for, unless
-    /// the model changed since (`revision` is the model's now). A click that continues the
-    /// earlier one's gesture replaces it (the pair is a double-click).
+    /// Takes the earlier pending click when the click at `at`, `now` does not continue its
+    /// gesture, and returns what that click asked for.
+    ///
+    /// Returns `None` when the model changed since (`revision` is the model's now). A click
+    /// that continues the gesture leaves the pending one in place and returns `None`: the
+    /// pair is a double-click and the next `click` replaces the pending one.
     pub(super) fn settle(&mut self, at: (f32, f32), now: Instant, revision: u64) -> Option<T> {
         let pending = self.pending?;
         if pending.continued_by(at, now) {
@@ -198,6 +202,8 @@ pub(in crate::gui::rough_plan) struct ViewState {
     pub(super) resize_timer: Timer,
     /// The threads, once the window exists.
     pub(super) runtime: Option<Runtime>,
+    /// The scan the rough was imported from: its report and what the view draws for it.
+    pub(super) scan: ScanState,
 }
 
 impl Default for ViewState {
@@ -229,11 +235,18 @@ impl Default for ViewState {
             wheel_timer: Timer::default(),
             resize_timer: Timer::default(),
             runtime: None,
+            scan: ScanState::default(),
         }
     }
 }
 
 impl ViewState {
+    /// The file the scan was read from, if one is remembered.
+    #[must_use]
+    pub(in crate::gui::rough_plan) fn scan_path(&self) -> Option<std::path::PathBuf> {
+        self.scan.path.clone()
+    }
+
     /// Whether the view is being moved, so frames are drawn at half size: a drag, wheel
     /// ticks that keep coming, or a window resize.
     #[must_use]
@@ -241,9 +254,10 @@ impl ViewState {
         self.dragging || self.wheeling || self.resizing
     }
 
-    /// Whether the stones of the shown result scene can be picked. While a new result is
-    /// being built the scene on screen is the previous one, and its stones belong to
-    /// another result.
+    /// Whether the stones of the shown result scene can be picked.
+    ///
+    /// While a new result is being built the scene on screen is the previous one, and its
+    /// stones belong to another result.
     #[must_use]
     pub(super) const fn fit_pickable(&self) -> bool {
         !self.building

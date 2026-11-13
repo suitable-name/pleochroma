@@ -24,11 +24,9 @@ use pleochroma::{
 use std::sync::{Mutex, atomic::AtomicBool};
 
 /// The shared core's CPU-only path (`ComputeTarget::LocalOnly`,
-/// `LocalComputeTarget::Cpu`) must trace EXACTLY the samples `batch::render_batch`
-/// itself would for the same scene/pose/seed -- proving the tilt video's reuse of
-/// [`render_accumulation`] for its local CPU frames doesn't take a different,
-/// tracer-adjacent path than the still export always has. Both start from an
-/// all-zero accumulation buffer and the same `samples_already_done == 0` seed.
+/// `LocalComputeTarget::Cpu`) must trace exactly the samples `batch::render_batch` traces for
+/// the same scene, pose and seed. Both start from an all-zero accumulation buffer and
+/// `samples_already_done == 0`.
 #[test]
 fn render_accumulation_cpu_only_path_matches_render_batch_directly() {
     let scene =
@@ -78,7 +76,7 @@ fn render_accumulation_cpu_only_path_matches_render_batch_directly() {
     );
 }
 
-/// Final-picture contributions and remote retries keep absolute AA tap identity.
+/// Ray export parts with absolute AA tap indices sum to the whole render.
 #[test]
 fn ray_export_parts_reassemble_the_whole_without_hybrid_calibration() {
     use pleochroma::renderer::engine::{EngineSpec, RayOptions, RenderEngine};

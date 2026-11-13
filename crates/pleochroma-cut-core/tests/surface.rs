@@ -1,9 +1,11 @@
 //! Surface finish and the render-physics effects through the public API of
-//! `pleochroma-cut-core`: the undoable tier edit, the native `.psdd` round trip, the packed
+//! `pleochroma-cut-core`.
+//!
+//! Covered are the undoable tier edit, the native `.psdd` round trip, the packed
 //! facet words the renderer is handed, and the `[render_effects]` subtables for inclusions,
-//! play-of-color and abraded edges. The oracle for "a design that does not use them changes
-//! nothing" is byte equality with what the same design wrote before: an empty surface map and
-//! default effects must add no key, no table, no plane word and no version bump.
+//! play-of-color and abraded edges. A design that does not use them must write byte-identical
+//! output: an empty surface map and default effects add no key, no table, no plane word and no
+//! version bump.
 
 use pleochroma::optics::{
     inclusions::bragg::{DEFAULT_SEED, StructurePattern},
@@ -16,7 +18,7 @@ use pleochroma_cut_core::{
     native::{DesignExtras, design_from_str, design_to_string},
 };
 
-/// The five-tier round brilliant of the frosting tests: tier 1 is `-42` degrees at `0 4 8 12`,
+/// The five-tier round brilliant these tests use: tier 1 is `-42` degrees at `0 4 8 12`,
 /// tier 2 is `-38` at `2 6 10 14`, tier 3 is `32` at `0 4 8 12`, tier 4 is `40` at `2 6 10 14`.
 fn fixture() -> Design {
     const ASC: &str = "GemCad 5.0\n\
@@ -356,7 +358,7 @@ fn a_file_from_before_surface_finish_reads_ideal() {
         ),
     );
     let text = native_text(&design);
-    // What a build that predates the keys wrote: the same file without them.
+    // The same file without the surface keys, as an older build wrote it.
     let mut table: toml::Table = toml::from_str(&text).expect("the file is TOML");
     let tiers = table
         .get_mut("tiers")

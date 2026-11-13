@@ -1,7 +1,8 @@
-//! Cross-backend merge tests (implementation guide A7): an image whose samples come
-//! from two backends over DISJOINT absolute sample ranges, merged the production way --
-//! per-pixel sum buffers added together, divided by the summed sample count -- must be
-//! indistinguishable from a single-backend render.
+//! Cross-backend merge tests.
+//!
+//! An image whose samples come from two backends over DISJOINT
+//! absolute sample ranges, merged the production way (per-pixel sum buffers added together,
+//! divided by the summed sample count), must be indistinguishable from a single-backend render.
 //!
 //! A sample's identity is `(global pixel index, absolute sample number)` and nothing
 //! else, on the CPU ([`cpu_accumulate`]) and the GPU ([`GpuFrameRenderer::accumulate`])
@@ -72,6 +73,22 @@ const REQUIRE_GPU_ENV: &str = "PLEOCHROMA_REQUIRE_GPU";
 /// Whether the environment demands a real adapter ([`REQUIRE_GPU_ENV`] set to `1`).
 fn gpu_required() -> bool {
     std::env::var(REQUIRE_GPU_ENV).is_ok_and(|value| value == "1")
+}
+
+/// Acquires a [`super::GpuContext`] for a test that needs real hardware, with
+/// [`renderer_or_skip`]'s skip rule.
+pub(super) fn context_or_skip(test_name: &str) -> Option<super::GpuContext> {
+    match super::GpuContext::acquire() {
+        Ok(ctx) => Some(ctx),
+        Err(error) => {
+            assert!(
+                !gpu_required(),
+                "{test_name}: {REQUIRE_GPU_ENV}=1 but no usable GPU adapter: {error}"
+            );
+            println!("skipping {test_name}: no GPU adapter");
+            None
+        }
+    }
 }
 
 /// Acquires a [`GpuFrameRenderer`] for a test that needs real hardware.

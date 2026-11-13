@@ -20,6 +20,9 @@ use std::sync::{
     )
 )]
 pub(in crate::renderer::gpu) async fn acquire() -> Result<GpuContext, GpuAcquireError> {
+    // One thread at a time creates an instance, an adapter and a device (`gpu::lifecycle`).
+    #[cfg(not(target_arch = "wasm32"))]
+    let turn = crate::renderer::gpu::lifecycle::enter();
     let instance = wgpu::Instance::new(crate::renderer::gpu::instance_descriptor());
     let adapter = instance
         .request_adapter(&wgpu::RequestAdapterOptions {
@@ -74,12 +77,24 @@ pub(in crate::renderer::gpu) async fn acquire() -> Result<GpuContext, GpuAcquire
             .unwrap_or_else(std::sync::PoisonError::into_inner) =
             Some(format!("device lost ({reason:?}): {message}"));
     });
+    // The turn ends before the teardown fields exist: dropping them takes the turn again.
+    #[cfg(not(target_arch = "wasm32"))]
+    let (teardown_begin, teardown_end) = {
+        drop(turn);
+        crate::renderer::gpu::lifecycle::teardown_pair()
+    };
     Ok(GpuContext {
+        #[cfg(not(target_arch = "wasm32"))]
+        _teardown_begin: teardown_begin,
         instance,
         adapter,
         device,
         queue,
         validation_error_seen,
         last_uncaptured_error,
+        #[cfg(feature = "beam")]
+        beam_caches: Arc::default(),
+        #[cfg(not(target_arch = "wasm32"))]
+        _teardown_end: teardown_end,
     })
 }

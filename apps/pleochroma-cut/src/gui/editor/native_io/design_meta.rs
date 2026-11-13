@@ -164,8 +164,8 @@ fn role_for_name(name: &str) -> AttachmentRole {
     }
 }
 
-/// `true` for a design file (`.psdd`): the file being
-/// written replaces it, so it is never nested inside it.
+/// `true` for a design file (`.psdd`). Such files are never attached: the file being
+/// written replaces them, so nesting one inside it would embed an older copy.
 fn is_design_file_name(name: &str) -> bool {
     is_native_design_name(name)
 }

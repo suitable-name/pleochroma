@@ -1,5 +1,4 @@
-//! Colour zoning: absorption that changes from place to place inside one stone or rough
-//! (plan 2026-10-09 sections 7.1, 7.2 and 8).
+//! Colour zoning: absorption that changes from place to place inside one stone or rough.
 //!
 //! A [`ZonedAbsorption`] is a base zone plus up to [`MAX_ZONES`] shaped zones. Each zone has its
 //! own [`AbsorptionTensor`] in per-millimetre units ([`ZoneAbsorption`]). Later zones override
@@ -13,20 +12,17 @@
 //!   millimetres in the zone's own frame. [`ZonedAbsorption::frame`] maps that frame into the
 //!   frame of the segments you ask about (rough frame, then stone frame after
 //!   [`ZonedAbsorption::transformed`]). A segment is always given in the OUTER frame.
-//! * The tracer works in model units. Multiply model-unit points by the model-unit to millimetre
-//!   scale before calling the kernels here, or use [`ZonedAbsorption::scaled`] to bring the
-//!   geometry into model units (the "zone geometry relative to stone" rule for library
-//!   materials). Absorption coefficients are per millimetre and are never touched by `scaled`.
+//! * The tracer works in model units. Convert points to millimetres before calling the kernels,
+//!   or use [`ZonedAbsorption::scaled`] to bring the geometry into model units. Absorption
+//!   coefficients are per millimetre and `scaled` never touches them.
 //!
 //! # Contents
 //!
-//! * the types of plan section 7.1 and [`ZonedAbsorption::validate`];
+//! * the zone types and [`ZonedAbsorption::validate`];
 //! * path-length kernels: [`zone_lengths`] (f64 reference), [`zone_lengths_f32`] (the f32 twin
 //!   whose operation order a WGSL port copies), and the reusable [`ZoneKernel`] /
 //!   [`ZoneKernelF32`] that skip the per-call set-up;
-//! * [`segment_optical_depth`], the one function the CPU tracer will call per segment.
-//!
-//! Nothing here is wired into the tracer, the GPU layout or `GemMaterial`.
+//! * [`segment_optical_depth`], the optical depth of one straight segment.
 
 mod kernels;
 mod mesh;
@@ -51,15 +47,14 @@ use crate::optics::{
 };
 use glam::{DQuat, DVec3, Vec3};
 
-/// The most zones (besides the base) a [`ZonedAbsorption`] may hold (owner decision 3).
+/// The most shaped zones (besides the base) a [`ZonedAbsorption`] may hold.
 pub const MAX_ZONES: usize = 4;
 /// The fewest sides of a [`ZoneShape::CoaxialPrism`].
 pub const MIN_PRISM_SIDES: u32 = 3;
 /// The most sides of a [`ZoneShape::CoaxialPrism`].
 pub const MAX_PRISM_SIDES: u32 = 12;
-/// The most triangles a [`ZoneShape::MeshShell`] may hold. The shell is tested by brute force
-/// (every triangle against the segment line), which at this size costs far less than a BVH
-/// would save.
+/// The most triangles a [`ZoneShape::MeshShell`] may hold. Shells are tested by brute force,
+/// which is cheap at this size compared with building a BVH.
 pub const MAX_MESH_TRIANGLES: usize = 512;
 
 /// A rigid transform: rotate by `rotation`, then add `translation` (millimetres).
@@ -87,12 +82,10 @@ impl ZoneFrame {
     /// `+Y` the table normal): the zones' own `+Y` goes onto the axis, and their `+X` stays in
     /// the girdle plane.
     ///
-    /// The turn about the axis is not free: a boundary drawn in the zones' `x = 0` plane (the
-    /// Ametrine split, a two-color pattern) then contains both the axis and the table normal, so
-    /// face up it runs along the axis line the view draws, whichever way the axis lies. The
-    /// smallest turn onto the axis would instead lay that boundary flat in the girdle plane for
-    /// an axis along `X` (crown one color, pavilion the other), and face up the halves would
-    /// blend.
+    /// The turn about the axis is fixed so that a boundary in the zones' `x = 0` plane (an
+    /// Ametrine split) contains both the axis and the table normal, so it runs along the axis
+    /// when seen face up. The smallest turn would lay that boundary flat for an axis along `X`,
+    /// and the two halves would blend face up.
     ///
     /// The sign of the line does not matter, a vector that is not a usable direction gives the
     /// table normal, and an axis through the table is the identity, exactly.
@@ -279,8 +272,8 @@ pub struct ZoneAbsorption {
 
 /// How a pleochroic zone tensor is evaluated along a segment.
 ///
-/// The electric-field direction of the ray's assigned eigenmode and the host crystal's c axis,
-/// exactly what the tracer feeds `birefringence::assigned_mode_alpha` (see
+/// The assigned eigenmode's E-field direction and the host crystal axes, the inputs the tracer
+/// gives `birefringence::assigned_mode_alpha` (see
 /// `raytracer::absorption::channel_absorption_alphas_assigned`).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PleochroicMode {
@@ -307,11 +300,11 @@ impl ZoneAbsorption {
     ///
     /// * Not pleochroic: the `o_ray` band sum (`o_ray == e_ray` for such tensors).
     /// * Pleochroic and `mode == Some`: the same evaluation the tracer uses on an anisotropic
-    ///   host, `AbsorptionTensor3::{uniaxial, biaxial}(..., c_axis).quadratic_form(e_mode_hat)`.
+    ///   host: `AbsorptionTensor3::{uniaxial, biaxial_oriented}(..., c_axis)` then
+    ///   `.quadratic_form(e_mode_hat)`.
     /// * Pleochroic and `mode == None`: the orientation mean of the principal coefficients,
-    ///   `(2 o + e) / 3` (uniaxial) or `(o + beta + e) / 3` (biaxial). This is the value for a
-    ///   randomly oriented crystal or an unpolarised average; it is NOT what the tracer does
-    ///   per bounce, so the tracer passes `Some`.
+    ///   `(2 o + e) / 3` (uniaxial) or `(o + beta + e) / 3` (biaxial), the value for a randomly
+    ///   oriented crystal or an unpolarised average. The tracer passes `Some`.
     ///
     /// Bands are evaluated in `f32`, like the tracer.
     #[must_use]
@@ -445,12 +438,11 @@ pub struct ZonedAbsorption {
     /// 0 for sharp boundaries; otherwise the width in mm of the smoothstep blend centred on
     /// each boundary. Must be 0 when a [`ZoneShape::MeshShell`] is present.
     pub boundary_softness_mm: f32,
-    /// Whether the pattern these zones came from follows the stone's Crystal Axis: the
-    /// application then turns [`Self::frame`] onto the stone's axis wherever it resolves the
-    /// axis. The renderers never read it. A self-describing file (JSON, TOML) omits it when
-    /// `false`, so every old file and fingerprint is byte-identical; postcard always carries
-    /// it (the net and web protocol versions moved with it). Declared last: the custom
-    /// `Serialize` below writes it last.
+    /// Whether the pattern follows the stone's Crystal Axis. The application then turns
+    /// [`Self::frame`] onto the axis wherever it resolves the axis; the renderers never read
+    /// this flag. Human-readable formats omit it when `false`, so existing files stay
+    /// byte-identical; postcard always writes it. Declared last, as the custom `Serialize`
+    /// below writes it last.
     #[cfg_attr(feature = "serde", serde(default))]
     pub follows_axis: bool,
 }
@@ -547,9 +539,9 @@ impl ZonedAbsorption {
     }
 
     /// The same zoning with every length multiplied by `factor` (frame translation, offsets,
-    /// radii, axis points, mesh vertices and the softness width). Used for "zone geometry
-    /// relative to stone" library materials: the geometry is stored for a unit-width stone and
-    /// scaled by the stone width. Angles and the per-millimetre coefficients are unchanged.
+    /// radii, axis points, mesh vertices and the softness width). Library materials store their
+    /// geometry for a unit-width stone and scale it by the stone width. Angles and the
+    /// per-millimetre coefficients are unchanged.
     /// `factor` must be finite and positive ([`Self::validate`] catches the negative radii
     /// that a bad factor produces).
     #[must_use]

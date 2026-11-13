@@ -305,12 +305,12 @@ pub(super) fn resolved_gem(state: &AppState) -> Option<GemMaterial> {
     EditorMaterialLookup::new(&state.props.custom_materials).lookup(&name)
 }
 
-/// The host the picker and the Stone tab's color label are worked out against.
+/// The host the color picker and the Stone tab's color label are worked out against.
 ///
-/// A named design's own material (`None` when it resolves to nothing). A design with no material
-/// name gets an isotropic stand-in, so it is offered the plain list (Material Default, the
-/// presets, Custom Color) and never a variant: a refractive-index guess is not a host, and a
-/// variant stored on a guessed one would be applied to another rank after the next index change.
+/// A named design's own material (`None` when it resolves to nothing). A design with no
+/// material name gets an isotropic stand-in: it is offered the plain list (Material Default,
+/// the presets, Custom Color) and never a variant, because a variant stored on a guessed host
+/// would apply to another rank after the next index change.
 fn color_host(state: &AppState) -> Option<GemMaterial> {
     let named = state
         .session
@@ -674,8 +674,7 @@ pub fn add_custom_material(
                 .custom_snapshots
                 .retain(|(known, _)| !known.eq_ignore_ascii_case(&name));
             if let Some((material, snapshot)) = previous {
-                // The name was a custom material's before; registering it again cannot be
-                // refused (it passed once).
+                // Re-registering the previous entry cannot be refused: it was accepted before.
                 let _ = state.props.register_custom(material, snapshot);
             }
             Err(message)

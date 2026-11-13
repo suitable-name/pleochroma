@@ -1,7 +1,7 @@
 // optics::raytracer::environment -- the lit lighting models (`LightingModel::
 // IsoHemisphere` / `LightTent` / `DaylightDome`), transcribed operation for operation
 // (`fma` for `mul_add`, explicit squarings where the CPU squares, the literal
-// `smoothstep`) so Tier 2's `run_studio_env` holds at its ULP budget. The cone cosines
+// `smoothstep`) so the `run_studio_env` GPU test holds at its ULP budget. The cone cosines
 // are the same decimal literals as the Rust constants. The head-shadow cone is a scene
 // parameter (`EnvironmentSource::Studio::head_shadow_deg`), evaluated to two cosines on the
 // CPU (`head_shadow_cosines`) and threaded in as `shadow` = (outer, inner).
@@ -164,7 +164,7 @@ fn daylight_sun_radiance(
 
 // `rig::sun_cone_direction`: a direction uniform over the sun disc about `key_dir`
 // (equal-area cone sampling) from two uniform [0, 1) randoms. Self-contained (no other
-// piece's basis helper) so the Tier-2 copy in `environment.wgsl` is textually identical.
+// piece's basis helper) so the copy in `environment.wgsl` is textually identical.
 fn daylight_sun_cone_direction(key_dir: vec3<f32>, u0: f32, u1: f32) -> vec3<f32> {
     let one_minus_cos = u0 * SUN_ONE_MINUS_COS;
     let cos_t = 1.0 - one_minus_cos;

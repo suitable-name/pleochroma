@@ -213,7 +213,7 @@ impl Default for PlanSettings {
 /// The two limits every ranked list of layouts keeps: how many different designs and how
 /// many stones in all a layout may hold ([`PlanSettings::caps`]).
 ///
-/// [`LayoutCaps::admits`] is the ONE test of both, applied before a ranking sorts,
+/// [`LayoutCaps::admits`] is the single test of both, applied before a ranking sorts,
 /// deduplicates and applies its per-set limit, so every slot goes to a qualifying layout.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LayoutCaps {

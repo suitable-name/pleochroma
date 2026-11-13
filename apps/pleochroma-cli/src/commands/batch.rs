@@ -22,7 +22,8 @@
 //!   when another file failed: a file that was refused never leaves one behind, but its
 //!   neighbours' stay.
 //! - **Exit code.** 0 when every file worked. Otherwise the code of the first file that failed
-//!   (1, 2, 3 or 5), else 4 when no file failed but one is a `validate` Problem.
+//!   (1, 2, 3 or 5), else 4 when no file failed but one is a `validate` Problem or a
+//!   `snap-meets` run that left a tier with no meet point or cut facets away.
 
 use super::dispatch;
 use crate::{

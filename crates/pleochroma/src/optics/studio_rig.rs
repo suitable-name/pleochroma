@@ -97,8 +97,7 @@ mod tests {
     }
 
     /// The key sits at the requested yaw, ring slot 0 shares that azimuth, and slot 4 (a
-    /// quarter turn round) is at `yaw + 90 deg` -- so the light tent's black cards,
-    /// which are placed by ring slot, are at 90/180/270 degrees from the key.
+    /// quarter turn round) is at `yaw + 90 deg`.
     #[test]
     fn ring_azimuths_follow_the_key_yaw_and_rotate_in_its_sense() {
         let light_pitch = 0.95f32;

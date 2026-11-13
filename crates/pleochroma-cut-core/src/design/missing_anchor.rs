@@ -7,11 +7,11 @@ use pleochroma::geometry::meet_solver::{Block, classify_blocks};
 
 /// One or more blocks [`super::Design::solve`] could not produce masts for.
 ///
-/// Each named [`Block`] has at least one tier but none of them carry an explicit
-/// [`pleochroma::geometry::meet_solver::MeetConstraint::ScaleReference`], so the block's translation along its own
-/// normal is genuinely undetermined (see the module docs). Never fabricated past
-/// this point -- the caller (the editor UI) must ask the user for a real
-/// scale-reference tier on each named block.
+/// Each named [`Block`] has at least one tier but none of them carries an explicit
+/// [`pleochroma::geometry::meet_solver::MeetConstraint::ScaleReference`], so the block's
+/// translation along its own normal is undetermined (see the module docs). No value is
+/// invented here: the caller (the editor UI) must ask for a real scale-reference tier on
+/// each named block.
 ///
 /// [`std::fmt::Display`] gives the actionable remedy sentence for every named
 /// block (e.g. `"Pavilion has no anchor: add a tier with an exact scale
@@ -40,16 +40,12 @@ impl std::fmt::Display for MissingAnchor {
 impl std::error::Error for MissingAnchor {}
 
 impl MissingAnchor {
-    /// [`Self::blocks`], each paired with the indices into `design.tiers`
-    /// that [`classify_blocks`] puts in that block -- so a caller (the
-    /// editor) can mark exactly the tiers responsible for each named block
-    /// without re-deriving the crown/pavilion/girdle classification itself.
+    /// [`Self::blocks`], each paired with the indices into `design.tiers` that
+    /// [`classify_blocks`] puts in that block, so a caller can mark exactly the tiers
+    /// responsible for each named block.
     ///
-    /// `design` must be the design [`super::Design::solve`] or
-    /// [`super::Design::resolve_dirty`] actually returned this error for --
-    /// this recomputes the same classification (over
-    /// [`super::Design::meet_tier_inputs`]) that raised the error in the
-    /// first place, so it always agrees with `self.blocks`.
+    /// `design` must be the design that returned this error. The classification is
+    /// recomputed from [`super::Design::meet_tier_inputs`], so it agrees with `self.blocks`.
     #[must_use]
     pub fn block_details(&self, design: &super::Design) -> Vec<(Block, Vec<usize>)> {
         let inputs = design.meet_tier_inputs();
@@ -60,11 +56,8 @@ impl MissingAnchor {
             .collect()
     }
 
-    /// The one-sentence remedy for a single block, independent of whether
-    /// this particular [`MissingAnchor`] actually names it -- e.g. a per-row
-    /// tooltip keyed off one of [`Self::block_details`]'s [`Block`]s, without
-    /// wrapping it back into a whole [`MissingAnchor`] just to read its
-    /// [`std::fmt::Display`] text.
+    /// The one-sentence remedy for a single block, whether or not this error names it.
+    /// For example, a tooltip keyed off one of [`Self::block_details`]'s [`Block`]s.
     #[must_use]
     pub fn block_sentence(block: Block) -> String {
         BlockSentence(block).to_string()

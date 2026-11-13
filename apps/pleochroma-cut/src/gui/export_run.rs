@@ -1,13 +1,12 @@
-//! "Is an export running?" for the Rust side, the header export indicator's wording, and the
+//! The "is an export running?" check for the Rust side, the header indicator's wording and the
 //! close guard's sentence for an export started from a dialog.
 //!
-//! Three things can export: the still-image export, the tilt video export (both started from a
-//! dialog, the "direct" exports) and a render-queue job. Only one runs at a time. The Slint side
-//! derives the same answer for the controls it disables (`ExportRunModel.running`,
-//! `ui/models/export_run.slint`); [`ExportActivity`] is the Rust mirror over the same three
-//! flags, used by every start guard. The progress itself stays on `ExportModel` and
-//! `TiltVideoExportModel`, which outlive their popups, so "Run in background" is only closing the
-//! popup.
+//! Three things can export: the still-image export and the tilt video export (both started
+//! from a dialog, the "direct" exports), and a render-queue job. Only one runs at a time.
+//! The Slint side derives the same answer for the controls it disables (`ExportRunModel.running`,
+//! `ui/models/export_run.slint`). [`ExportActivity`] is the Rust mirror over the same three
+//! flags, used by every start guard. The progress stays on `ExportModel` and
+//! `TiltVideoExportModel`, which outlive their popups, so closing a popup loses nothing.
 
 use crate::{ExportModel, ExportRunModel, MainWindow, RenderJobsModel, TiltVideoExportModel};
 use slint::ComponentHandle;

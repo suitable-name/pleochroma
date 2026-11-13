@@ -21,13 +21,13 @@ fn platform_cache_dir() -> Option<std::path::PathBuf> {
     }
 }
 
-/// Points the GPU renderer's driver pipeline cache at `<cache>/pleochroma/pipeline_cache`
-/// (review item GPU-1): without it every start recompiles the megakernel before the first
-/// frame. Must run before the first renderer is created; a no-op without a cache folder.
+/// Points the GPU driver's pipeline cache at `<cache>/pleochroma/pipeline_cache`, so the
+/// megakernel is not recompiled on every start. Must run before the first renderer is
+/// created; a no-op without a cache folder.
 ///
-/// While the RADV scheduler workaround is in force the folder is `pipeline_cache-<value>`
-/// instead, so a pipeline compiled with the driver's stock scheduler is never served to a run
-/// with the workaround.
+/// While the RADV scheduler workaround is in force the folder is `pipeline_cache-<value>`,
+/// so a pipeline compiled with the stock scheduler is never served to a run with the
+/// workaround.
 #[cfg(feature = "gpu")]
 fn enable_gpu_pipeline_cache() {
     use pleochroma::renderer::gpu_driver::{pipeline_cache_folder, workaround_active};
@@ -42,13 +42,12 @@ fn enable_gpu_pipeline_cache() {
     }
 }
 
-/// The RADV scheduler workaround (Mesa's AMD driver mis-schedules the GPU kernel).
+/// Applies the RADV scheduler workaround (Mesa's AMD driver mis-schedules the GPU kernel).
 ///
-/// See `pleochroma::renderer::gpu_driver`. Sets `ACO_DEBUG` and the Mesa shader-cache folder unless
-/// the switch (`--radv-workaround`, `PLEOCHROMA_RADV_WORKAROUND`) says off or the user set
-/// `ACO_DEBUG` themselves. Without the switch (`setting` is `None`) it is on only when the
-/// machine has an AMD GPU on the `amdgpu` kernel driver. Must run before any thread starts
-/// and before the GPU is touched.
+/// See `pleochroma::renderer::gpu_driver`. It sets `ACO_DEBUG` and the Mesa shader-cache
+/// folder unless the switch says off or the user set `ACO_DEBUG` themselves. Without a
+/// switch value (`setting` is `None`) it is on only when an AMD GPU on the `amdgpu` kernel
+/// driver is present. Must run before any thread starts and before the GPU is touched.
 #[cfg(feature = "gpu")]
 fn apply_radv_workaround(setting: Option<bool>) {
     let wanted = setting.unwrap_or_else(|| {
@@ -95,8 +94,7 @@ fn main() {
     let _ = fmt().with_env_filter(filter).with_target(true).try_init();
 
     let mut argv: Vec<String> = std::env::args().skip(1).collect();
-    // First: the RADV switch is removed from `argv` before parsing, like `--no-update-check`
-    // below.
+    // The RADV switch is removed from `argv` before parsing, as `--no-update-check` is below.
     start_gpu_environment(&mut argv);
     // The first log line names a newer release, if any (one GitHub request, at most 2 s);
     // `--no-update-check` (removed here, before parsing) or PLEOCHROMA_NO_UPDATE_CHECK skip it.

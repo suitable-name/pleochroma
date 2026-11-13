@@ -1,15 +1,15 @@
-//! The Rough Planner state for the elements run 8 left uncovered in the Crystal Axis panel (lane
-//! H5 of the 2026-10-28 findings): "Second Axis (deg)" and the Orientation Rule editor's own
-//! controls ("Kind of Orientation Rule", "Preferred", "Required", "Tolerance (deg)", "Weight (%
-//! per deg)").
+//! The Rough Planner state for the Crystal Axis panel's controls that no other state reaches.
 //!
-//! What kept them unreached, by control:
+//! "Second Axis (deg)" and the Orientation Rule editor's own controls ("Kind of Orientation
+//! Rule", "Preferred", "Required", "Tolerance (deg)", "Weight (% per deg)").
 //!
-//! * "Second Axis (deg)" exists only for a BIAXIAL material (`axis_biaxial`); the earlier axis
-//!   states (`planner_axis.rs`) pick a sapphire, which is uniaxial;
+//! Some controls exist only in some shapes:
+//!
+//! * "Second Axis (deg)" exists only for a BIAXIAL material (`axis_biaxial`); the states of
+//!   `planner_axis.rs` pick a sapphire, which is uniaxial;
 //! * the rule's kind combo, its two pills and its two fields exist only while the rule is the
-//!   cutter's own (`plan_rule_choice == 2`, the rule editor's "Set" pill); every earlier state
-//!   left it on "Material Default";
+//!   cutter's own (`plan_rule_choice == 2`, the rule editor's "Set" pill); the other states leave
+//!   it on "Material Default";
 //! * "From Color Zones" is enabled only when the saved plan's stored rough color has a zone that
 //!   runs along the crystal; no state can store one (see `coverage_allow.rs`).
 //!
@@ -127,7 +127,8 @@ fn prepare(app: &mut HarnessApp, profile: &Profile) {
         return;
     }
     // The rule editor's own "Set" pill: the plan's rule (entry -1), field 0 (the choice), value 2.
-    // The axis panel has a "Set" pill too, so the callback is called as the pill calls it.
+    // The axis panel has a "Known" segment too (it was a "Set" pill), so the callback is called as
+    // the rule editor's pill calls it.
     model.invoke_rule_edit(-1, 0, "2".into());
     let _ = wait_until(Duration::from_secs(10), || {
         model.get_plan_rule_choice() == 2
@@ -135,5 +136,10 @@ fn prepare(app: &mut HarnessApp, profile: &Profile) {
     let _ = wait_until(Duration::from_secs(10), || {
         !model.get_running() && !model.get_mesh_busy()
     });
+    // The axis panel is the second step of the left column, and its rule editor folds open from
+    // the "Change" link of the rule line.
+    model.set_open_step(1);
+    pump(300);
+    super::windows_more::press_in(SecondaryWindow::RoughPlanner, "Change the Orientation Rule");
     pump(300);
 }

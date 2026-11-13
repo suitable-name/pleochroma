@@ -1,13 +1,14 @@
-//! The free-running tracer: [`run_tracer`] traces the requested sample range in
-//! adaptively-sized sub-batches, folding each into a shared accumulation buffer --
-//! never touching the socket itself. See `crate::serve`'s module docs for why that
-//! separation is the whole point.
+//! The free-running tracer: [`run_tracer`] traces a sample range in adaptive sub-batches.
+//!
+//! Each sub-batch is folded into a shared buffer and never touches the socket; see
+//! `crate::serve`'s module docs for why that separation matters.
 
 use super::{
     emitter::PendingDelta,
     sizing::{next_batch_size, remember_converged_subbatch, seeded_batch_size},
 };
 use crate::{
+    assets::{self, TrayRef, TrayStop},
     cli::ComputeMode,
     render_core,
     render_core::hybrid::{CachedCalibration, HybridBuffers, JobKey},
@@ -28,38 +29,28 @@ use std::{
     time::Instant,
 };
 
-/// Shared between `run_tracer` (the sole writer) and `run_stream`'s emitter (the sole
-/// reader) via a `Mutex` -- a lock held only for brief updates/drains never stalls
-/// either side for long.
+/// State shared by `run_tracer` (the writer) and the emitter in `run_stream` (the reader),
+/// behind a `Mutex`. The lock is held only for brief updates and drains.
 ///
 /// # The double-buffer swap protocol
 ///
-/// `pending_delta` is the only per-pixel buffer this struct carries. The emitter
-/// (`emitter::EmitterAccum`) keeps its own `running_total`, built by folding in every
-/// delta it takes from `pending_delta` -- the tracer never populates or knows about it.
-/// `PendingDelta::swap_with` exchanges its buffer with a spare one the emitter already
-/// owns via `mem::swap` (O(1), not a per-pixel copy), so the only work done while this
-/// `Mutex` is held is the swap and reading `samples_done`; building the `FRAME` payload,
-/// folding into the running total, downsampling, and every socket write happen after
-/// the lock is released.
+/// `pending_delta` is the only per-pixel buffer here. The emitter (`emitter::EmitterAccum`)
+/// keeps the running total, so the tracer never touches it. `PendingDelta::swap_with`
+/// exchanges buffers in O(1) under the lock; the frame build, the fold, downsampling and
+/// all socket writes happen after the lock is released.
 ///
-/// The buffer left behind after a swap holds stale data, never re-zeroed -- safe since
-/// [`PendingDelta::add`]'s first call after a swap always `copy_from_slice`s its
-/// contribution over the entire buffer rather than accumulating into it.
+/// A buffer left behind by a swap holds stale data and is never re-zeroed: the next
+/// [`PendingDelta::add`] overwrites it entirely rather than accumulating.
 pub(super) struct SharedState {
     pub(super) pending_delta: PendingDelta,
     pub(super) samples_done: u32,
     pub(super) finished: bool,
-    /// A caller-supplied but validation-passing scene can still make `pleochroma`'s
-    /// tracer panic on pathological geometry; tracing runs inside `catch_unwind` as
-    /// defense in depth. `run_stream` checks this once `finished` is set and reports
-    /// [`StreamOutcome::TracePanicked`] instead of a normal `FRAME`+`DONE` sequence.
+    /// Set when tracing panics. Pathological geometry can get past validation, so tracing
+    /// runs inside `catch_unwind`. `run_stream` reports [`StreamOutcome::TracePanicked`].
     pub(super) panicked: bool,
-    /// A producer other than [`run_tracer`] (the coordinator's lane pool, see
-    /// [`super::ProducerSink`]) ended without completing and without being cancelled:
-    /// `run_stream` sends this as a stream `ERROR` (no `DONE`) via
-    /// [`super::StreamOutcome::Failed`]. Also set when the tracer stops short
-    /// without cancellation or a panic.
+    /// Set when the producer ends early without completion or cancellation (see
+    /// [`super::ProducerSink`]). `run_stream` sends it as an `ERROR` with no `DONE`, via
+    /// [`super::StreamOutcome::Failed`].
     pub(super) failed: Option<ErrorMsg>,
     /// The producer's own final sum of the whole request, when it has a better one than
     /// the emitter's running total (the coordinator's deterministic chunk-order merge,
@@ -67,10 +58,9 @@ pub(super) struct SharedState {
     /// `TransferMode::FinalOnly`, the final `DISPLAY_FRAME`, and `FINAL_IMAGE`; `None`
     /// falls back to the running total. Always `None` for [`run_tracer`].
     pub(super) final_total: Option<Vec<Vec3>>,
-    /// v16: samples of a `FinalImageRequest`'s viewer-reserved range the coordinator
-    /// ended up rendering itself, because the viewer's `CONTRIBUTION` didn't arrive in
-    /// time or was invalid. `0` otherwise, and always for [`run_tracer`] (a plain
-    /// worker never reserves a viewer share).
+    /// Samples of a `FinalImageRequest`'s viewer-reserved range that the coordinator rendered
+    /// itself, because the viewer's `CONTRIBUTION` was late or invalid. Always `0` for
+    /// [`run_tracer`].
     pub(super) reclaimed_samples: u32,
 }
 
@@ -89,66 +79,53 @@ impl SharedState {
     }
 }
 
-/// One tracer job's fixed inputs, bundled so [`run_tracer`] stays within clippy's
-/// argument-count limit.
+/// One tracer job's fixed inputs, bundled to keep [`run_tracer`] within clippy's argument
+/// limit.
 pub(super) struct TracerJob {
     pub(super) scene: SceneState,
     pub(super) first_sample: u32,
     pub(super) samples: u32,
     pub(super) threads: usize,
-    /// `--only-gpu`/`--only-cpu`/hybrid (default). Gates whether [`run_tracer`] ever
-    /// attempts [`render_core::hybrid::calibrate`] at all.
+    /// `--only-gpu`, `--only-cpu` or the hybrid default. Only hybrid attempts a split
+    /// calibration.
     pub(super) compute_mode: ComputeMode,
+    /// The request's Stone Shadow and Tray Reflection, resolved by [`run_tracer`] before its
+    /// first sub-batch and held for the whole run. A coordinator lane shares one pin across
+    /// the chunks of a job, so the map and mirror are built once per job, not per chunk.
+    pub(super) pin: Arc<assets::TrayPin>,
 }
 
-/// Runs the tracer side: free-runs over `[job.first_sample, job.first_sample +
-/// job.samples)` in adaptively-sized sub-batches (see [`next_batch_size`]), folding each
-/// into `state.pending_delta`, checking `cancel` between sub-batches and mid-dispatch
-/// for whichever share of a sub-batch runs on the GPU. Never touches the socket.
+/// Traces `[job.first_sample, job.first_sample + job.samples)` in adaptive sub-batches (see
+/// [`next_batch_size`]) and folds each into `state.pending_delta`. Never touches the socket.
 ///
-/// Each sub-batch traces through [`render_core::hybrid::hybrid_trace_into`] (one
-/// [`HybridBuffers`] kept across sub-batches) once this job has
-/// calibrated a GPU throughput share, or
-/// [`render_core::trace_samples_with_gpu_cancellable`] otherwise (prefers `gpu`, falls
-/// back to CPU when it declines). A `None` outcome means `cancel` fired mid-dispatch
-/// (nothing to fold in), bounding cancellation latency to the GPU's own chunk size
-/// rather than a whole sub-batch.
+/// `cancel` is checked between sub-batches and mid-dispatch, so cancellation latency is bounded
+/// by the GPU's chunk size rather than a whole sub-batch. A cancelled dispatch folds nothing.
+/// Ray-Traced scenes take the deterministic path in [`trace_all_batches`] instead.
 ///
-/// # Hybrid CPU+GPU, and `--only-gpu`/`--only-cpu`
+/// # Hybrid CPU+GPU
 ///
-/// `job.compute_mode` decides whether this even attempts a hybrid split:
-/// [`render_core::hybrid::calibrate`] is only called for [`ComputeMode::Hybrid`] with
-/// `job.samples >= render_core::hybrid::HYBRID_MIN_SPP`. `OnlyGpu`/`OnlyCpu` skip
-/// calibration entirely (`gpu_frac` stays `None`), taking the single-engine path
-/// (GPU-first with per-frame CPU fallback for `OnlyGpu`; CPU-only for `OnlyCpu`, via a
-/// [`GpuBackend::disabled`] backend).
+/// Only `ComputeMode::Hybrid` with `samples >= render_core::hybrid::HYBRID_MIN_SPP` on a
+/// scene the GPU can trace (`render_core::scene_uses_gpu`) attempts a split, through
+/// [`render_core::hybrid::calibrate_cached`]. `OnlyGpu` and `OnlyCpu` use a single engine:
+/// GPU-first with per-frame CPU fallback, or CPU only through [`GpuBackend::disabled`].
 ///
-/// For `Hybrid`, calibration goes through [`render_core::hybrid::calibrate_cached`]:
-/// a process-wide cache keyed on this job's [`JobKey`] (resource profile -- compute
-/// mode, GPU identity, thread count, resolution bucket; see that type's own doc comment)
-/// skips the real 3-sample probe entirely once a decision for that profile is already
-/// known, so a long-running stream's many jobs pay it once per profile rather than once
-/// per job. Four outcomes (see [`CachedCalibration`]): `Split` calibrates (or reuses) a
-/// concurrent hybrid split; `GpuDeclined` (no adapter, or an unsupported material) falls
-/// back to the either/or behavior for the whole job, and is never cached, since a decline
-/// can depend on the request's own material; `GpuOnly` is `HYBRID_MAX_GPU_SHARE` firing
-/// (measured GPU share so far ahead that splitting would cost more than it saves, fresh
-/// or replayed from the cache) and falls back similarly; `Cancelled` folds in whatever
-/// probe samples completed, then leaves `gpu_frac` at `None` (moot, since the sub-batch
-/// loop stops on the same flag immediately). Once calibrated, every subsequent sub-batch
-/// runs GPU and CPU concurrently over disjoint sample sub-ranges, re-measuring and
-/// blending the split as the job runs; [`render_core::hybrid::finalize_split_cache`]
-/// writes the job's own final blend back into the cache when the job ends, so later jobs
-/// seed from an estimate that keeps tracking the machine's real throughput.
+/// The calibration cache is keyed on the job's [`JobKey`], so later jobs with the same resource
+/// profile reuse the decision instead of probing again. See [`CachedCalibration`] for the
+/// outcomes. A job that ran a split writes its final blend back through
+/// [`render_core::hybrid::finalize_split_cache`]. The sub-batch size is cached the same way, via
+/// [`seeded_batch_size`] and [`remember_converged_subbatch`], for every compute mode.
 ///
-/// The adaptive sub-batch size (see [`next_batch_size`]) is cached the same way, via
-/// [`seeded_batch_size`]/[`remember_converged_subbatch`] keyed on the same [`JobKey`] --
-/// for every `compute_mode`, not just `Hybrid`, since the ramp-up cost is the same
-/// regardless of which engine(s) are tracing.
+/// Runs inside `catch_unwind`: a panic in the tracer sets `state.panicked` rather than
+/// silently ending this thread.
 ///
-/// Runs the whole loop inside `catch_unwind`, so a panic anywhere in `pleochroma`'s
-/// tracer on pathological geometry sets `state.panicked` for `run_stream` to notice
-/// rather than taking down this thread silently.
+/// # The Stone Shadow and the Tray Reflection
+///
+/// The map and the mirror are resolved through `job.pin` before the first sub-batch and held
+/// until the run ends, so the build is not timed as part of a sub-batch. A map or mirror that
+/// cannot be built ends the run with `state.failed` set to a `VALIDATION_FAILED` error carrying
+/// `TrayShadowOff::message()` or `TrayMirrorOff::message()`. A cancellation during the build
+/// ends it like any other cancellation. Nothing is traced without the shadow or the mirror the
+/// scene asked for.
 pub(super) fn run_tracer(
     job: &TracerJob,
     gpu: &GpuBackend,
@@ -157,12 +134,19 @@ pub(super) fn run_tracer(
     progress_tx: &mpsc::Sender<()>,
 ) {
     let reporter = Reporter { state, progress_tx };
-    // Every job's resource profile -- shared by the hybrid calibration cache and the
-    // sub-batch sizing cache, computed once so both read exactly the same key (see
-    // `render_core::hybrid::job_key`'s own doc comment for what it depends on).
+    // Computed once so the calibration and sub-batch sizing caches share one key (see
+    // `render_core::hybrid::job_key`).
     let key = render_core::hybrid::job_key(gpu, &job.scene, job.threads, job.compute_mode);
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        trace_all_batches(key, job, gpu, &reporter, cancel);
+        match job.pin.resolve(&job.scene, cancel) {
+            Ok(tray) => {
+                render_core::note_tray_route(&job.scene, gpu);
+                trace_all_batches(key, job, tray.view(), gpu, &reporter, cancel);
+                None
+            }
+            Err(TrayStop::Cancelled) => None,
+            Err(TrayStop::Refused(message)) => Some(message),
+        }
     }));
 
     let mut guard = state
@@ -170,7 +154,15 @@ pub(super) fn run_tracer(
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     guard.finished = true;
     guard.panicked = result.is_err();
+    if let Ok(Some(message)) = &result {
+        guard.failed = Some(ErrorMsg {
+            code: error_codes::VALIDATION_FAILED,
+            request_id: None,
+            message: (*message).to_owned(),
+        });
+    }
     if job.scene.engine.is_ray()
+        && guard.failed.is_none()
         && !guard.panicked
         && !cancel.load(Ordering::Acquire)
         && guard.samples_done != job.samples
@@ -185,16 +177,15 @@ pub(super) fn run_tracer(
     let _ = progress_tx.send(());
 }
 
-/// The body of [`run_tracer`]'s `catch_unwind`: calibrates a hybrid split when the job
-/// qualifies, then free-runs the adaptive sub-batch loop, folding each result in via
-/// `reporter`, and finally writes the job's converged state back to the two caches.
+/// Traces the whole job against the resolved `tray`: a hybrid split when the job qualifies,
+/// then the adaptive sub-batch loop, folding each result in through `reporter`.
 ///
-/// The cache write-back is skipped entirely on a panic (this whole function unwinds before
-/// reaching it), so a partially-completed, panicking job never poisons either cache with a
-/// bogus value.
+/// The caches are written back only on normal completion. A panic unwinds past that step, so
+/// a partial job never stores a bogus value.
 fn trace_all_batches(
     key: JobKey,
     job: &TracerJob,
+    tray: TrayRef<'_>,
     gpu: &GpuBackend,
     reporter: &Reporter<'_>,
     cancel: &AtomicBool,
@@ -212,6 +203,7 @@ fn trace_all_batches(
             let mut part = vec![Vec3::ZERO; job.scene.width as usize * job.scene.height as usize];
             if !render_core::whitted::trace(
                 &job.scene,
+                tray,
                 first,
                 count,
                 job.threads,
@@ -227,28 +219,23 @@ fn trace_all_batches(
     }
     let mut batch_size: u32 = seeded_batch_size(key);
 
-    // Only `Hybrid` ever attempts a split -- `OnlyGpu`/`OnlyCpu` leave `gpu_frac`
-    // `None` for the whole job.
-    // A scene the GPU cannot trace (`render_core::scene_uses_gpu`: fluorescence, a UV lamp,
-    // more tools than the kernels trace) is CPU-only, so it never calibrates a split either.
+    // Only `Hybrid` attempts a split. A scene the GPU cannot trace is CPU-only and never
+    // calibrates one either.
     let mut gpu_frac: Option<f64> = if matches!(job.compute_mode, ComputeMode::Hybrid)
         && job.samples >= render_core::hybrid::HYBRID_MIN_SPP
-        && render_core::scene_uses_gpu(&job.scene)
+        && render_core::scene_uses_gpu(&job.scene, gpu)
     {
-        calibrate_hybrid_split(key, gpu, job, reporter, cancel, &mut produced)
+        calibrate_hybrid_split(key, gpu, (job, tray), reporter, cancel, &mut produced)
     } else {
         None
     };
-    // Whether this job actually started on the hybrid split path -- only then does
-    // `finalize_split_cache` get called below, so a `GpuOnly`/`GpuDeclined`/
-    // `Cancelled` outcome (or an `OnlyGpu`/`OnlyCpu` job that never calibrates at
-    // all) never evicts a cache entry it didn't itself create.
+    // Only a job that started on the split path finalizes the split cache, so it never
+    // evicts an entry it did not create.
     let started_on_split_path = gpu_frac.is_some();
 
     let pixel_count = job.scene.width as usize * job.scene.height as usize;
     let mut scratch: Vec<Vec3> = Vec::new();
-    // The hybrid path's two full-frame buffers, kept across sub-batches (re-zeroed inside
-    // `hybrid_trace_into` to the same state as a fresh allocation).
+    // Kept across sub-batches; `hybrid_trace_into` re-zeroes them.
     let mut hybrid_bufs = HybridBuffers::default();
     while produced < job.samples {
         if cancel.load(Ordering::Relaxed) {
@@ -267,13 +254,12 @@ fn trace_all_batches(
                 &mut gpu_frac,
                 cancel,
                 &mut hybrid_bufs,
+                tray,
             )
             .then_some(hybrid_bufs.sum.as_slice())
         } else {
-            // One buffer reused across sub-batches (re-zeroed here, since both
-            // backends add into it) instead of a fresh ~25 MB allocation per
-            // ~100 ms sub-batch at 1080p; `fold_and_notify` copies/adds out of it
-            // under the lock, so it is free again once that returns.
+            // Reused across sub-batches and re-zeroed here, since both backends add into
+            // it. `fold_and_notify` copies out of it under the lock.
             scratch.clear();
             scratch.resize(pixel_count, Vec3::ZERO);
             render_core::trace_samples_with_gpu_into(
@@ -283,13 +269,12 @@ fn trace_all_batches(
                 job.threads,
                 cancel,
                 &mut scratch,
+                tray,
             )
             .then_some(scratch.as_slice())
         };
-        // `None` means `cancel` was observed mid-dispatch; nothing was added for
-        // this sub-batch, so this stops the job immediately without touching
-        // `produced`/`state`, same as a between-sub-batches cancellation just
-        // noticed earlier.
+        // `None` means `cancel` was seen mid-dispatch. Nothing was added for this
+        // sub-batch, so the job stops without touching `produced` or `state`.
         let Some(buf) = dispatch_outcome else {
             break;
         };
@@ -300,8 +285,7 @@ fn trace_all_batches(
         batch_size = next_batch_size(batch_size, elapsed);
     }
 
-    // Write back this job's own converged state for the next job/chunk with the same
-    // resource profile -- see `run_tracer`'s own doc comment.
+    // Store the converged state for later jobs with the same resource profile.
     remember_converged_subbatch(key, batch_size);
     if started_on_split_path {
         render_core::hybrid::finalize_split_cache(key, gpu_frac);
@@ -320,11 +304,14 @@ pub struct TracedRange {
     pub failed: Option<ErrorMsg>,
 }
 
-/// Traces `[first_sample, first_sample + samples)` of `scene` synchronously on this
-/// thread with exactly the tracer a streamed request uses ([`run_tracer`]: adaptive
-/// sub-batches, the `compute_mode` hybrid split, `gpu` taking its FIFO turn), stopping
-/// between sub-batches once `cancel` is set. What a coordinator's own lane runs per
-/// chunk.
+/// Traces `[first_sample, first_sample + samples)` of `scene` synchronously on this thread, with
+/// the same tracer a streamed request uses ([`run_tracer`]).
+///
+/// It stops between sub-batches once `cancel` is set. A coordinator lane runs this per chunk.
+///
+/// `pin` is the chunk's job's Stone Shadow and Tray Reflection pin ([`TracerJob::pin`]).
+/// A lane keeps one per job, so every chunk reads the map and mirror the first chunk
+/// resolved. A map or mirror that cannot be built comes back as `failed`, as in [`run_tracer`].
 pub fn trace_range(
     scene: &SceneState,
     (first_sample, samples): (u32, u32),
@@ -332,6 +319,7 @@ pub fn trace_range(
     compute_mode: ComputeMode,
     gpu: &GpuBackend,
     cancel: &AtomicBool,
+    pin: &Arc<assets::TrayPin>,
 ) -> TracedRange {
     let pixel_count = scene.width as usize * scene.height as usize;
     let state = Arc::new(Mutex::new(SharedState::new(pixel_count)));
@@ -342,6 +330,7 @@ pub fn trace_range(
         samples,
         threads,
         compute_mode,
+        pin: Arc::clone(pin),
     };
     run_tracer(&job, gpu, &state, cancel, &progress_tx);
     let mut guard = state
@@ -369,13 +358,10 @@ struct Reporter<'a> {
 }
 
 impl Reporter<'_> {
-    /// Folds `contribution` (produced for the sample sub-range starting at
-    /// `first_sample`, `consumed` samples long) into `state.pending_delta`, advances
-    /// `*produced`, and wakes the emitter -- the fold-then-notify sequence every
-    /// sub-batch and calibration outcome performs, pulled into one place.
+    /// Folds `contribution` (the `consumed` samples starting at `first_sample`) into
+    /// `state.pending_delta`, advances `*produced` and wakes the emitter.
     ///
-    /// Does not maintain a running total here -- that's the emitter's job (see
-    /// [`SharedState`]), built by folding in whatever it takes out of `pending_delta`.
+    /// The running total is not kept here; the emitter builds it (see [`SharedState`]).
     fn fold_and_notify(
         &self,
         first_sample: u32,
@@ -397,17 +383,15 @@ impl Reporter<'_> {
     }
 }
 
-/// Runs [`render_core::hybrid::calibrate_cached`] for a job that has already cleared
-/// `job.compute_mode == ComputeMode::Hybrid && job.samples >= HYBRID_MIN_SPP` (checked
-/// by [`run_tracer`], not re-checked here). Folds whatever real samples were produced
-/// (`0` on a cache hit -- see [`CachedCalibration`]'s own doc comment) via `reporter`,
-/// advances `*produced`, and returns the initial `gpu_frac` the sub-batch loop should
-/// start from (`Some` only for `Split`; every other outcome leaves the job on the
-/// single-engine path).
+/// Calibrates a hybrid split for a job that already qualifies for one (see [`run_tracer`]).
+///
+/// Folds the samples the probe produced (`0` on a cache hit; see [`CachedCalibration`]) and
+/// returns the initial `gpu_frac` for the sub-batch loop. Only `Split` returns `Some`; every
+/// other outcome leaves the job on the single-engine path.
 fn calibrate_hybrid_split(
     key: JobKey,
     gpu: &GpuBackend,
-    job: &TracerJob,
+    (job, tray): (&TracerJob, TrayRef<'_>),
     reporter: &Reporter<'_>,
     cancel: &AtomicBool,
     produced: &mut u32,
@@ -422,6 +406,7 @@ fn calibrate_hybrid_split(
         job.threads,
         &mut calib_buf,
         cancel,
+        tray,
     ) {
         CachedCalibration::Split { gpu_frac, consumed } => {
             if consumed > 0 {
@@ -429,9 +414,7 @@ fn calibrate_hybrid_split(
             }
             Some(gpu_frac)
         }
-        // Falls through to the single-engine path below. Any `info`/`debug` logging for
-        // this decision already happened inside `calibrate_cached` itself (fresh
-        // calibration vs. cache hit), not here.
+        // Single-engine path. `calibrate_cached` logs the decision itself.
         CachedCalibration::GpuOnly { consumed } => {
             if consumed > 0 {
                 reporter.fold_and_notify(job.first_sample, consumed, &calib_buf, produced);
@@ -440,10 +423,8 @@ fn calibrate_hybrid_split(
         }
         CachedCalibration::GpuDeclined => None,
         CachedCalibration::Cancelled { consumed } => {
-            // Cancelled during calibration itself -- consumed samples are folded in
-            // like Split's accounting, so progress is never silently dropped.
-            // Returning `None` is moot: the sub-batch loop checks the same flag on its
-            // first iteration and breaks immediately regardless.
+            // Fold consumed samples as for `Split`, so progress is not lost. `None` is
+            // fine: the sub-batch loop sees the same flag and stops.
             if consumed > 0 {
                 reporter.fold_and_notify(job.first_sample, consumed, &calib_buf, produced);
             }

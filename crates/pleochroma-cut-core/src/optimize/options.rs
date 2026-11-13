@@ -1,18 +1,19 @@
-//! The optimizer's extended request and result types: [`OptimizeOptions`] (what
-//! [`super::optimize_design_with`] may vary beyond [`super::OptimizeConfig`]'s search
-//! knobs, and the guards it keeps) and [`OptimizeResult`] (the plain
-//! [`super::OptimizeOutcome`] plus the mast changes and the ranked alternatives).
+//! The extended request and result types of the optimizer.
+//!
+//! [`OptimizeOptions`] is what [`super::optimize_design_with`] may vary beyond
+//! [`super::OptimizeConfig`]'s search knobs, and the guards it keeps. [`OptimizeResult`] is
+//! the plain [`super::OptimizeOutcome`] plus the mast changes and the ranked alternatives.
 //!
 //! # Why a second struct and not more fields on `OptimizeConfig`
 //!
 //! [`super::OptimizeConfig`] is `Copy` and is stored inside `RetargetMode`
 //! (`pleochroma-editor`), which is `Copy` too; and `OptimizeOutcome` is built by full
 //! struct literal in the web crates. Putting a `BTreeMap` into the first, or two more
-//! fields into the second, would break those crates for no gain. So every new request
-//! lives here, every new answer lives in [`OptimizeResult`], and the old types, the
-//! old entry point ([`super::optimize_design`]) and the old apply function
-//! ([`super::apply_optimize_outcome`]) keep their signatures. Their behaviour follows
-//! the meet-preserving gate: an outcome is only applied when it carries provenance.
+//! fields into the second, would break those crates for no gain. So the extra request
+//! lives here, the extra answer lives in [`OptimizeResult`], and the older types, the
+//! entry point ([`super::optimize_design`]) and the apply function
+//! ([`super::apply_optimize_outcome`]) keep their signatures. An outcome is only applied
+//! when it carries provenance.
 
 use super::{
     objective::{ObjectiveComponents, ToneGoal},
@@ -73,13 +74,13 @@ pub struct OptimizeOptions {
     /// `None` (the default) keeps none of these guards. `Some(0.5)` means "at least
     /// half the girdle thickness".
     pub min_girdle_fraction: Option<f64>,
-    /// The fraction the band's THINNEST point must keep, when it is not the same as
+    /// The fraction the band's THINNEST point must keep, when it differs from
     /// [`Self::min_girdle_fraction`]. `None` (the default) applies `min_girdle_fraction` to
     /// both figures, the overall band and its thinnest point. Only read when
     /// `min_girdle_fraction` is `Some`.
     ///
-    /// A caller whose two floors differ (the retarget's gate holds each to half of its own
-    /// figure on the live design) sets both, so neither figure is held to the stricter floor.
+    /// A caller whose two floors differ (such as a retarget gate) sets both, so neither
+    /// figure is held to the stricter floor.
     pub min_girdle_thinnest_fraction: Option<f64>,
     /// How many ranked alternatives to return in [`OptimizeResult::candidates`].
     /// `0` and `1` (the default) both mean the best one only. Each alternative beyond
@@ -99,21 +100,20 @@ pub struct OptimizeOptions {
     /// score only. A target whose weight is not positive adds nothing either and counts as
     /// `None` everywhere, the run's provenance included.
     pub shape_target: Option<ShapeTarget>,
-    /// The facet turn a projection is judged by, when it is not the proposal's own: one
+    /// The facet turn a projection is judged by, when it differs from the proposal's own: one
     /// slope-tangent change per tier ([`crate::meet_preservation::tangent_changes`] of the
     /// request against the original).
     ///
     /// A policy whose bounds follow the turn
     /// ([`crate::meet_preservation::PreservationPolicy::bounds_follow_turn`]) grants the
-    /// travel of the REQUEST, never more. A Retarget projects its anchored candidate and then
-    /// projects a refit built on that projected state; without this the refit's seed would
-    /// carry the first projection's repaired angles, and a repair that turned a tier further
-    /// than the request would enlarge the allowance the refit is judged by. The editor's
-    /// check sets it to the anchored candidate's turn for both projections. `None` (the
-    /// default) reads the turn from the projection's own seed, which for a plain proposal is
-    /// the request itself. A vector whose length is not the tier count is ignored like
-    /// `None`. It is not part of the scoring identity: it never reaches an Optimize search
-    /// (`optimize_design_with` leaves it `None`), and the policy it widens is in the identity.
+    /// travel of this request and no more. A Retarget projects its anchored candidate and then
+    /// a refit built on that result. Without this field the refit would start from the first
+    /// projection's repaired angles, and a repair that turned a tier further than requested
+    /// would enlarge the allowance the refit is judged by. The editor sets it to the anchored
+    /// candidate's turn for both projections. `None` (the default) reads the turn from the
+    /// seed, which for a plain proposal is the request itself. A vector whose length is not
+    /// the tier count is ignored like `None`. It is not part of the scoring identity: an
+    /// Optimize search never sets it, and the policy it widens is in the identity.
     pub turn_request: Option<std::sync::Arc<[f64]>>,
 }
 
@@ -224,15 +224,11 @@ impl OptimizeOptions {
     /// How many distinct `Fast`-good states a run keeps for the full-fidelity gate: the
     /// candidates wanted plus [`FULL_GATE_RESERVE`] fallbacks.
     ///
-    /// The search accepts on the `Fast` (table-up) objective and the result is gated on
-    /// the `Full` (tilt-sweep) one, and the two can disagree: on the Rich Teaching Design
-    /// in Quartz the `Fast` optimum (pavilion 42.6, crown lowered 5 degrees) measures
-    /// 24.4 against the start's 46.8 at `Fast` but 47.7 against 46.1 at `Full`. A pool
-    /// of just `keep_candidates` states then holds nothing the gate can pass, and the
-    /// run proposes no change although `Full`-better states were accepted on the way.
-    /// The reserve gives the gate more distinct states to try; they are scored only when
-    /// the better-ranked ones fail (see `build_result`), so a run whose states pass pays
-    /// nothing for it.
+    /// The search accepts on the `Fast` (table-up) objective and the result is gated on the
+    /// `Full` (tilt-sweep) one, and the two can disagree. With only `keep_candidates` states a
+    /// run could then propose no change. The reserve gives the gate more distinct states to
+    /// try. They are scored only when the better-ranked ones fail (see
+    /// `search::result::build_result`), so a run whose states pass pays nothing for it.
     #[must_use]
     pub fn pool_capacity(&self) -> usize {
         self.candidate_capacity() + FULL_GATE_RESERVE

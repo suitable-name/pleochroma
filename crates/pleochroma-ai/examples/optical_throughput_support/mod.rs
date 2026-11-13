@@ -1,4 +1,4 @@
-//! Output, fixtures and parity budgets for the standalone optical probe.
+//! Output, fixtures and comparison budgets for the optical probe.
 mod config;
 mod runner;
 pub use config::{Config, HELP};

@@ -1,10 +1,7 @@
-// State for the Solid view's direct-manipulation tools (`SolidView`): the three drag
-// handles (angle, depth, index) on the selected facet, the hint line under the
-// toolbar, the Snap pill and the Slice tool. The web counterpart of the desktop's
-// `ManipulateModel` (`apps/pleochroma-cut/ui/models/manipulate.slint`); Rust reaches it
-// through `ui.global::<ManipulateModel>()` (`src/views/manip/`), and the math behind it
-// is `pleochroma_editor::manipulate`. Named in `app.slint`'s export block, which is what
-// makes it a Rust type.
+// Direct-manipulation state for the Solid view (`SolidView`): the angle, depth and index
+// handles on the selected facet, the hint line, the Snap pill and the Slice tool. Rust
+// drives it through `ui.global::<ManipulateModel>()` (`src/views/manip/`); the math is in
+// `pleochroma_editor::manipulate`. Exported from `app.slint` so Rust can use it as a type.
 //
 // Every position here is in the view's LOGICAL coordinates (the same space the pointer
 // events use): Rust converts from the raster's pick frame through the `image-fit:

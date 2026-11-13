@@ -14,9 +14,8 @@ const SENTINEL: f64 = -99_999.0;
 /// the seven bytes `preform`.
 const PREFORM_TAG: &[u8] = b"\x07preform";
 
-/// How many `preform` sections may be entered, one inside the other: a file holds
-/// at most one, directly after the main design, so a second tag is malformed
-/// rather than a reason to keep descending.
+/// Nesting limit for `preform` sections. A file holds at most one, directly after
+/// the main design, so a second tag is malformed rather than a reason to descend.
 const MAX_PREFORM_DEPTH: usize = 1;
 
 /// How a string's length prefix is read.

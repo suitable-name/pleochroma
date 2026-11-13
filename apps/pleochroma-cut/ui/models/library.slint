@@ -32,10 +32,9 @@ export global LibraryModel {
 
     in-out property <bool> show_ignored: false;
 
-    // "My designs" toggle (`filter_panel.slint`) -- restricts the catalogue to the
-    // cutter's own locally-imported designs. Setting this and
-    // calling `filters_changed()` is exactly how `show_ignored` above already drives a
-    // re-search; see `gui::library::search::read_local_only`.
+    // "My designs" toggle (`filter_panel.slint`): limits the catalogue to the cutter's own
+    // imported designs. Set it and call `filters_changed()` to re-search, as `show_ignored`
+    // does; see `gui::library::search::read_local_only`.
     in-out property <bool> local_only_filter: false;
 
     // Sort selector (`header.slint`'s toolbar) -- index<->`SortOrder` mapping happens
@@ -43,27 +42,23 @@ export global LibraryModel {
     // 0 = catalogue order, 1 = title, 2 = newest, 3 = recently edited.
     in-out property <int> sort_order_index: 0;
 
-    // The tag chip filter. `all_tags` is the whole vocabulary,
-    // refreshed by `sync_tag_vocabulary_to_ui`; `active_tag_filter_name` is the one
-    // chip currently narrowing the list ("" for none). Tags are addressed by NAME
-    // rather than id here because the Slint side never sees ids, and a name that no
-    // longer resolves is a silent no-op on the Rust side rather than an error.
+    // The tag chip filter. `all_tags` is the whole vocabulary, refreshed by
+    // `sync_tag_vocabulary_to_ui`; `active_tag_filter_name` is the chip narrowing the list
+    // ("" for none). Tags are addressed by name because Slint never sees ids; a name that
+    // no longer resolves is a no-op in Rust.
     in property <[string]> all_tags: [];
     in-out property <string> active_tag_filter_name: "";
     callback add_tag_to_entry(int, string);
     callback remove_tag_from_entry(int, string);
 
-    // The ids a batch import just created, so the list can
-    // narrow to "show these N". Set BEFORE the refresh the import triggers, so that
-    // refresh already applies it -- setting it afterwards raced the async reload.
-    // Cleared the moment the cutter makes any real search or filter change.
+    // The ids a batch import just created, so the list can narrow to "show these N". Set
+    // before the refresh the import triggers (it applies them); set afterwards, it races the
+    // async reload. Cleared by any real search or filter change.
     in-out property <[int]> recent_import_filter: [];
     in-out property <string> id_filter_label: "";
 
-    // Keeps the import popup open on completion instead of
-    // auto-closing into a 3.5s toast, when the import either replaced an existing
-    // row by filename or had per-file failures -- the two cases whose report is
-    // worth reading.
+    // Keeps the import popup open after completion when the import replaced a row by
+    // filename or had per-file failures, so the report can be read.
     in property <bool> import_should_stay_open: false;
 
     in property <[PerformanceFilterRow]> performance_filters: [];
@@ -74,15 +69,11 @@ export global LibraryModel {
     in property <int> performance_excluded_count: 0;
     callback compute_missing_tilt_curves();
 
-    // Regenerates library preview images/tilt
-    // curves for every design matching the panel's CURRENT search/filter set, e.g.
-    // after a renderer or material change makes the catalogue's cached previews or
-    // curves stale. Each opens the same confirm-step dialog
-    // (`preview_batch_dialog.slint`/`tilt_batch_dialog.slint`) every other trigger of
-    // that batch already uses -- see `gui::library::diagram_list::
-    // setup_regenerate_filtered_set_callbacks` (the Rust side of this boundary) for
-    // exactly which id set "filtered set" means and why a remote-browsed session
-    // refuses instead of silently acting on the wrong catalogue.
+    // Regenerates preview images or tilt curves for every design matching the current
+    // search and filters, e.g. after a renderer or material change makes them stale. Each
+    // opens the batch confirm dialog (`preview_batch_dialog.slint`, `tilt_batch_dialog.slint`).
+    // See `gui::library::diagram_list::setup_regenerate_filtered_set_callbacks` for the id set;
+    // a remote-browsed session refuses rather than act on the wrong catalogue.
     callback regenerate_previews_for_filtered_set();
     callback regenerate_tilt_curves_for_filtered_set();
     // The Library menu's whole-catalogue counterparts (`gui::batch::regenerate_all`).
@@ -97,11 +88,9 @@ export global LibraryModel {
 
     in property <[DiagramItem]> diagram_list: [];
     in property <int> total_count: 0;
-    // The real, uncapped count of designs matching the active search/filters --
-    // distinct from `total_count` (the whole catalogue) and `diagram_list.length`
-    // (capped at `SEARCH_RESULT_CAP`, currently 1000). Fixes "N of M designs match"
-    // comparing the shown page against the whole catalogue instead of the actual match
-    // count. See `gui::library::search::FetchedDiagramList::matched_count`.
+    // The uncapped count of designs matching the active search and filters. Distinct from
+    // `total_count` (the whole catalogue) and `diagram_list.length` (capped at 1000 results).
+    // See `gui::library::search::FetchedDiagramList::matched_count`.
     in property <int> matched_count: 0;
     in property <DiagramDetailData> current_detail;
 
@@ -121,17 +110,11 @@ export global LibraryModel {
 
     in property <[AngleItem]> current_angles: [];
     in property <[FileItem]> current_files: [];
-    // `cutting_table.slint`'s "All Steps (N)"/Pavilion/Crown pills
-    // want a per-mode row count over `current_angles`, which Slint itself cannot
-    // compute (no general loop/`.filter`/`.reduce`, and a recursive `pure function`
-    // is rejected as a binding loop) -- see that file's own handoff note. `mode` is
-    // 0 = All, 1 = Pavilion, 2 = Crown, matching `CuttingTableView.filter_mode` and
-    // counted by `AngleItem.side` exactly the way that view's own `row_shown`
-    // decides visibility (side < 0 pavilion, side > 0 crown). Reading
-    // `current_angles` from inside the Rust body (rather than taking it as a second
-    // argument) still keeps this reactive: Slint's property dependency tracking
-    // follows every `Property::get()` evaluated while this callback runs, not just
-    // reads written directly in the calling `.slint` expression.
+    // Row count per mode over `current_angles`, for the cutting table's All/Pavilion/Crown
+    // pills. Slint cannot count it (no general loops, and a recursive pure function is a
+    // binding loop). `mode` is 0 All, 1 Pavilion, 2 Crown, counted as `CuttingTableView`
+    // shows rows (`AngleItem.side` < 0 pavilion, > 0 crown). Reading `current_angles` inside
+    // the Rust body keeps it reactive.
     pure callback filtered_row_count(int) -> int;
 
     in-out property <bool> panel_collapsed: false;

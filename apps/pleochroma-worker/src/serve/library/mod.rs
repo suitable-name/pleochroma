@@ -36,8 +36,8 @@
 //! # Module layout
 //!
 //! - [`handle`]: [`LibraryHandle`], one connection's lazily opened database.
-//! - [`handlers`]: one function per [`LibraryRequest`] variant, plus the shared
-//!   [`handlers::db_error`] helper and the two `<- ERROR` codes this module owns.
+//! - [`handlers`]: the database-backed request handlers, the shared
+//!   [`handlers::db_error`] helper, and the two error codes this module owns.
 //! - [`convert`]: wire conversions in both directions between `pleochroma_net::library`
 //!   and `pleochroma_vault`'s local storage-layer types.
 //! - [`version_hash`]: the summary hash and the revision token backing the version

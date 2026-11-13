@@ -1,8 +1,7 @@
-//! Integration tests for `pleochroma`'s Fresnel/Mueller polarization math,
-//! `StandardGemCuts::from_database_angles` angle-parsing/classification, B-Rep
-//! reconstruction, and real `.asc`-design end-to-end geometry. Split by topic
-//! across the sibling modules below; `fixtures` holds helpers shared across more
-//! than one topic module.
+//! Integration tests for `pleochroma`'s Fresnel/Mueller math, facet-angle classification,
+//! B-Rep reconstruction and real `.asc`-design geometry.
+//!
+//! Each topic is a sibling module below; `fixtures` holds helpers shared between them.
 
 mod asc_designs;
 mod brep_reconstruction;

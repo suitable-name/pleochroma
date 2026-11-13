@@ -613,7 +613,7 @@ fn check_scenario(
     }
 }
 
-/// Whether every shading probe point is clear (by `1e-3` in any axis nudge) of a tool
+/// Whether every shading probe point is clear (by `1e-4` in any axis nudge) of a tool
 /// boundary, i.e. whether the tool-proximity decision is stable.
 fn tools_clear_of_probes(tools: &[ToolPrimitive], point: Vec3, normal: Vec3) -> bool {
     let a = if normal.x.abs() > 0.9 {
@@ -723,10 +723,10 @@ pub fn run_image_comparison(
         max_bounces: 8,
         environment: LightingPreset::LightTent
             .studio(1.0, 0.4, 0.35)
-            // As Lit, explicitly: this scene measures the TOOLS' effect on the light that
-            // leaks through the pavilion, which must meet the Light tent's own dark ground.
-            // A lit tray (the default backdrop since 2026-10-20) replaces that ground with a
-            // grey close to the stone's own mean radiance and washes the effect out.
+            // The backdrop is set to 0.0 explicitly: this scene measures the tools' effect on
+            // the light that leaks through the pavilion, which must meet the Light tent's own
+            // dark ground. A lit tray would replace that ground with a grey close to the
+            // stone's own mean radiance and wash the effect out.
             .with_backdrop(0.0),
     };
     let soa = build_plane_soa(&planes);

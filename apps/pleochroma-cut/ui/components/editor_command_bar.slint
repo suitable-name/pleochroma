@@ -31,9 +31,7 @@ export { UndoRedoLabels } from "editor_command_bar/edit_groups.slint";
 //
 // Wide dock (`EditorModel.dock_width` of `wide_dock` or more): one row. Narrower: two rows,
 // [Undo/Redo | Solve, Auto-Solve ... File ?] over [Deep Solve | Retarget group | Snapshot
-// group]. The dock is clamped to 600-1000px (`app.slint`), so there is no horizontal
-// overflow at either end; `FlexboxLayout`, which would wrap by itself, is not enabled in
-// this Slint build.
+// group]. Both rows are fixed layouts sized to fit the dock, so neither overflows it.
 //
 // The bar's minimum width must never depend on a transient state (a solve running, the Save
 // warning), because the dock grows to it: Solve and Abandon Solve share one fixed slot
@@ -123,11 +121,9 @@ export component EditorCommandBar inherits Rectangle {
 
     }
 
-    // The hover hint: an overlay under the bar that takes NO room of its own. It used to be a
-    // reserved 28 px line, an empty ~45 px band under the second row whenever nothing was hovered
-    // (that is the dock height the inspector needs). Shown only while there is a hint, over the
-    // top of the DESIGN header below, on an opaque card so it reads there; it wraps to up to three
-    // lines (`overflow: clip` for anything longer). It ignores the pointer.
+    // The hover hint: an overlay under the bar that takes no room of its own. Shown only while
+    // there is a hint, on an opaque card over the content below the bar. It wraps to three lines
+    // and clips anything longer. It ignores the pointer.
     if EditorModel.hover_hint != "": Rectangle {
         y: root.height + 2px;
         width: root.width;

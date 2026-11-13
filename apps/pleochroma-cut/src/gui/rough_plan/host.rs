@@ -10,10 +10,10 @@ use super::{
     exclusions::{self, ExclusionWorker},
     format::to_i32,
     inputs::{built_in_choices, material_choices},
-    library_link, run, saved,
+    legend, library_link, run, saved,
     session::{DEFAULT_MATERIAL, MaterialChoice, Session},
     shape_worker::ShapeWorker,
-    view,
+    steps, view,
 };
 use crate::{
     MainWindow, RoughPlanModel, RoughPlannerWindow,
@@ -46,6 +46,9 @@ const MAX_WIDTH_FRACTION: f32 = 0.94;
 /// no cross-platform work-area query.
 const MAX_HEIGHT_FRACTION: f32 = 0.88;
 
+/// How often the open window refreshes its step lines and legend.
+const TICK: Duration = Duration::from_millis(250);
+
 /// Everything the planner window's callbacks reach on the UI thread.
 pub(super) struct Host {
     /// The window itself.
@@ -53,6 +56,8 @@ pub(super) struct Host {
     /// Notices a change of the library filter while the window is open and asks for fresh
     /// design counts (they are a display hint; a plan resolves its candidates itself).
     filter_watch: Timer,
+    /// Keeps the step lines and the legend's pick up to date while the window is open.
+    size_watch: Timer,
     /// Whether the window was fitted to its monitor, which happens once, on the first show.
     size_fitted: Cell<bool>,
     /// The main window (library links and the filter snapshot need it).
@@ -312,13 +317,14 @@ fn create_host(
             return None;
         }
     };
-    // Starts in the current palette (high contrast) and follows later changes.
+    // Follows the high-contrast preference, from the first show on.
     crate::gui::preferences::bind_planner_window_theme(&window);
     let host = Rc::new(Host {
         shape: ShapeWorker::new(window.as_weak()),
         exclusions: ExclusionWorker::new(window.as_weak(), Arc::clone(db)),
         window,
         filter_watch: Timer::default(),
+        size_watch: Timer::default(),
         size_fitted: Cell::new(false),
         main: main.as_weak(),
         db: Arc::clone(db),
@@ -338,6 +344,8 @@ fn create_host(
     axis::setup(&host);
     super::colour_link::setup(&host);
     view::setup_view_callbacks(&host);
+    view::wire_scan_and_view(&host);
+    legend::setup(&host);
     run::setup_run_callbacks(&host);
     saved::setup_saved_callbacks(&host);
     library_link::setup_link_callbacks(&host);
@@ -347,8 +355,21 @@ fn create_host(
         .start(TimerMode::Repeated, FILTER_POLL, || {
             on_host(recount_on_filter_change);
         });
+    host.size_watch
+        .start(TimerMode::Repeated, TICK, || on_host(tick));
     PLANNER.with(|cell| *cell.borrow_mut() = Some(Rc::clone(&host)));
     Some(host)
+}
+
+/// The window watches itself: the step lines and the legend's pick follow the session. Does
+/// nothing while the window is hidden. (The `narrow` flag follows the window's width in the
+/// window's own markup, not here.)
+fn tick(host: &Rc<Host>) {
+    if !host.window.window().is_visible() {
+        return;
+    }
+    steps::refresh(host);
+    legend::sync(host);
 }
 
 /// Opens the planner window: creates it on the first call, otherwise shows and raises
@@ -370,6 +391,7 @@ pub(in crate::gui) fn open_planner(
     }
     host.window.window().set_minimized(false);
     fit_on_first_show(&host);
+    tick(&host);
     // The 3D view's size: its own change notifications miss the size of the first layout.
     view::sync_view_size(&host);
     // A tutorial step may wait for the planner to open.

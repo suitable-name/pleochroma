@@ -1,13 +1,12 @@
 //! The bounce loop's inside/outside state on a concave stone.
 //!
-//! `inside_gem` is toggled at every crossing, and the loop restarts a ray `1e-4` past the
-//! surface it crossed. Where a tool meets a facet or another tool (a rim, a crease) a
-//! second surface can lie within that `1e-4`: the restart then lands in the other medium
-//! and the toggle names the wrong one for the whole next stretch. The debug check in
-//! `inner::debug_assert_inside_gem_matches_geometry` caught this on a brilliant with a ball
-//! dimple on the table and a cylinder tunnel through the crown (about one path in 10^5 hits
-//! the rim), which is the stone below. The loop now takes the state from the intersection
-//! (`intersect_stone_soa_side`), so the check holds for every path.
+//! `inside_gem` toggles at every crossing, and each ray restarts `1e-4` past the surface it
+//! crossed. Where a tool meets a facet or another tool (a rim or a crease), a second surface can
+//! lie within that `1e-4`. The restart then lands in the other medium, and the toggle names the
+//! wrong one for the rest of the stretch. The loop takes the state from the intersection
+//! (`intersect_stone_soa_side`), and `inner::debug_assert_inside_gem_matches_geometry` checks it
+//! against the geometry in debug builds. The stone in the test below has a ball dimple on the
+//! table and a cylinder tunnel through the crown; about one path in 10^5 hits the rim.
 
 use crate::{
     geometry::{cuts::StandardGemCuts, tool::ToolPrimitive},
@@ -37,11 +36,9 @@ fn dimple_and_tunnel() -> [ToolPrimitive; 2] {
     ]
 }
 
-/// 48 x 48 pixels at 48 samples each, the workload of the GPU image checks' CPU reference.
-/// In a debug build every bounce checks the loop's state against a point classification;
-/// before the loop adopted the intersection's state this panicked ("`inside_gem` = true
-/// disagrees with the point classification false") on a path whose reflection off the
-/// table landed inside the dimple.
+/// 48 x 48 pixels at 48 samples each. In a debug build every bounce checks the loop's state
+/// against a point classification, which panics if the two disagree (for example after a
+/// reflection off the table lands inside the dimple).
 #[test]
 fn a_dimple_and_tunnel_trace_without_losing_track_of_the_medium() {
     let planes = StandardGemCuts::standard_round_brilliant();

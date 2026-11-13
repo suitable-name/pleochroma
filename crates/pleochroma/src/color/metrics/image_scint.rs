@@ -245,9 +245,9 @@ pub fn scintillation_spatial_at(image: &OpticalImage, i: usize) -> f32 {
 
 /// The scintillation index of pixel `i`, 0 to 100.
 ///
-/// It is the module's 60/40 combination of the pixel's spatial term (`spatial[i]`, from [`scintillation_spatial`]) and its temporal
-/// term (the Bernoulli variance of the five poses over the achievable 0.24). `None` where
-/// the temporal term was not computed.
+/// The 60/40 combination of the pixel's spatial term (`spatial[i]`, from
+/// [`scintillation_spatial`]) and its temporal term (see [`OpticalImage::temporal_variance`]).
+/// `None` where the temporal term was not computed.
 #[must_use]
 pub fn scintillation_index(image: &OpticalImage, spatial: &[f32], i: usize) -> Option<f32> {
     let variance = image.temporal_variance(i)?;

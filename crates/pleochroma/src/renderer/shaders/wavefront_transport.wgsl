@@ -8,14 +8,14 @@
 // rays instead of idling until their warp's slowest ray finishes. See
 // `renderer::gpu::frame`'s module doc comment ("Wavefront pipeline") for the buffer
 // layout, per-bounce traffic estimate, and when to prefer this over the megakernel;
-// `renderer::gpu_backend`/`renderer::gpu::frame::GpuPipelineKind` select it, default
-// `Megakernel` until measured.
+// `renderer::gpu_backend`/`renderer::gpu::frame::GpuPipelineKind` select it; the default is
+// `Megakernel`.
 //
 // # Kernel sequence (driven by `renderer::gpu::frame`'s host dispatch loop)
 //
 // 1. `wavefront_generate`: one invocation per (pixel, sample) tuple in the chunk (same
 //    domain as the megakernel's own dispatch). Draws the exact same RNG sequence as the
-//    megakernel's prologue (`transport_generate_ray`, `shaders/transport_bounce.wgsl`)
+//    megakernel's prologue (`transport_generate_ray`, `shaders/transport_bounce/`)
 //    and writes the ray's initial state into the SoA buffers below, plus seeds
 //    `active_ray_indices` with the identity permutation (every ray starts alive).
 // 2. `wavefront_bounce`, called once per bounce round over the CURRENT active list:
@@ -23,7 +23,7 @@
 //    hoisted constants (`transport_hoist_ray_constants`) fresh from its own stored
 //    `lambdas` -- see that function's own doc comment for why this is cheap-enough and
 //    bit-identical -- calls the SAME `transport_bounce_step`
-//    (`shaders/transport_bounce.wgsl`) the megakernel's loop calls, and either writes
+//    (`shaders/transport_bounce/`) the megakernel's loop calls, and either writes
 //    the ray's state back (still alive) or finalizes it via `transport_finalize_ray`
 //    (miss or Russian-roulette death) and clears its alive flag.
 // 3. `wavefront_compact_scan` + `wavefront_compact_scatter`: order-preserving stream
@@ -36,10 +36,10 @@
 //    the megakernel's own unconditional tail -- a ray that survives every bounce without
 //    ever escaping or dying still gets exactly one `out_xyz` write, with whatever
 //    `radiance` it accumulated (typically from NEE contributions along the way, or zero).
-// 6. `reduce_xyz.wgsl`'s existing `reduce_xyz_main`, UNCHANGED: every finalize site
+// 6. `reduce_xyz.wgsl`'s `reduce_xyz_main`: every finalize site
 //    above (`wavefront_bounce`'s death branch, `wavefront_finalize_survivors`) writes
 //    into the SAME `out_xyz`/`out_radiance`/`out_lambdas`/`out_path_pdf`/`out_compat`
-//    bindings (inherited from `transport_bounce.wgsl`'s shared prelude, bindings 4-7/9)
+//    bindings (from the shared `transport_bounce/` pieces, bindings 4-7/9)
 //    the megakernel writes into, at the SAME `idx` a ray would have used in the
 //    megakernel (`pixel_in_chunk * camera.num_samples + sample_in_chunk`) -- so no
 //    wavefront-specific output buffer or reduction kernel is needed at all.
@@ -58,15 +58,14 @@
 // is likewise a PURE function of the (fixed-order) alive-flag array, not of scheduling,
 // so re-running the whole pipeline on identical input reproduces identical active-list
 // orderings and identical `out_xyz` contents every time -- see
-// `renderer::gpu::transport_check::run_wavefront_determinism` (or
-// `determinism_check.rs`) for the two-runs-identical check, and
-// `run_pipeline_equivalence` for the megakernel-vs-wavefront bit-identity check.
+// `renderer::gpu::frame::equivalence::run_wavefront_determinism` (two identical runs) and
+// `run_pipeline_equivalence` (megakernel vs wavefront, bit identity).
 //
 // # Ray-state SoA buffer layout
 //
 // Bindings 0-14 (camera/params/material/planes/output buffers/facet finishes/HDR
-// environment) are `transport_bounce.wgsl`'s shared scene bindings, unchanged --
-// EXACTLY the megakernel's own binding shapes, so `renderer::gpu::frame`'s host code
+// environment) are the shared scene bindings of `transport_bounce/02_scene_bindings.wgsl`,
+// with the megakernel's binding shapes, so `renderer::gpu::frame`'s host code
 // builds this pipeline's scene bind group with the same buffers/helper
 // (`build_chunk_bind_group`-style) it already uses for the megakernel. Bindings 15+
 // below are wavefront-only. Every per-ray array is flat: a scalar field is indexed by
@@ -132,7 +131,7 @@ struct WavefrontParams {
 @group(0) @binding(33) var<storage, read> compact_block_offset: array<u32>;
 // The interior direction `ray_pending_light_mis`'s phase pdf was evaluated
 // at -- see `transport_bounce_step`'s own doc comment on its matching
-// `pending_light_mis_dir` parameter (`shaders/transport_bounce.wgsl`). `vec4` (not
+// `pending_light_mis_dir` parameter (`shaders/transport_bounce/`). `vec4` (not
 // `vec3`) for the same storage-buffer-alignment reason `ray_origin`/`ray_dir`/`ray_k`/
 // `ray_prev_plane_normal` above already use; `.w` is always `0.0` and unread.
 //
@@ -177,7 +176,7 @@ fn wavefront_generate(@builtin(global_invocation_id) gid: vec3<u32>) {
     }
 
     // Identical RNG draws to the megakernel's own prologue -- see
-    // `transport_generate_ray`'s doc comment (`shaders/transport_bounce.wgsl`).
+    // `transport_generate_ray`'s doc comment (`shaders/transport_bounce/`).
     let gen = transport_generate_ray(idx);
 
     ray_origin[idx] = vec4<f32>(gen.origin, 0.0);
@@ -219,7 +218,7 @@ fn wavefront_bounce(
 ) {
     // The workgroup-shared plane cache applies here exactly as in the
     // megakernel -- `transport_bounce_step` (via `intersect_ray`,
-    // `shaders/transport_bounce.wgsl`) reads `planes_shared`/`planes` the same way
+    // `shaders/transport_bounce/`) reads `planes_shared`/`planes` the same way
     // regardless of which entry point filled it, so this dispatch fills it itself,
     // before the out-of-range early return below, for the same
     // every-invocation-reaches-the-barrier reason `transport_main` does.
@@ -253,6 +252,8 @@ fn wavefront_bounce(
     let rc = transport_hoist_ray_constants(lambdas);
     // The megakernel's `observer = -gen.dir` (`spectral_transport.wgsl`): recomputed from
     // this ray's own deterministic generation rather than stored, like `rc`.
+    // This call also binds the ray's estimator (`collect_bind`), so it must come before
+    // `transport_bounce_step`.
     let observer = -transport_generate_ray(ray_idx).dir;
 
     var current_origin = ray_origin[ray_idx].xyz;
@@ -282,7 +283,7 @@ fn wavefront_bounce(
     var nee_xyz = ray_nee_xyz[ray_idx].xyz;
 
     // One bounce of the SAME shared body `transport_main`'s loop calls -- see
-    // `transport_bounce_step`'s own doc comment (`shaders/transport_bounce.wgsl`).
+    // `transport_bounce_step`'s own doc comment (`shaders/transport_bounce/`).
     let status = transport_bounce_step(
         wf_params.bounce, seed0, &lambdas, rc.c_axis, rc.birefringence_delta, rc.is_anisotropic, rc.is_biaxial,
         rc.biax_ax0, rc.biax_ax1, rc.biax_ax2, rc.n_o_hero_seed, rc.n_beta_hero, rc.n_alpha_hero, rc.n_gamma_hero,

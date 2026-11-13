@@ -125,8 +125,8 @@ export component CutPage inherits Rectangle {
     VerticalLayout {
         TopBar {
             title: "Cut";
-            // The menu holds "Share Cutting Sheet (PDF)" and "Share Diagram", and also "Delete
-            // All Cutting Progress", which needs no solved design.
+            // The overflow menu's Reset Progress and Delete All Cutting Progress need no solved
+            // design; the two share items do.
             show-overflow: true;
             actions: [
                 { icon: Icons.share, label: "Share Cutting Sheet (HTML)", enabled: root.ready },

@@ -1,7 +1,8 @@
-//! A design's material choice ([`MaterialSelection`]), how it resolves to a real
-//! [`GemMaterial`] plus refractive index ([`MaterialSelection::resolve`]), and the
-//! [`MaterialLookup`] seam that resolution goes through -- see [`crate::material`]'s
-//! module doc comment for the full picture.
+//! A design's material choice ([`MaterialSelection`]) and how it resolves to a real
+//! [`GemMaterial`] plus refractive index ([`MaterialSelection::resolve`]).
+//!
+//! Resolution goes through the [`MaterialLookup`] seam; see [`crate::material`]'s module doc
+//! for the full picture.
 
 use super::{
     pattern::{ColorPattern, apply_color_pattern},
@@ -46,11 +47,11 @@ pub struct MaterialSelection {
     /// is not modelled while this is set). [`Self::color_variant_override`] is the
     /// pleochroism-keeping replacement and wins over this field.
     pub body_color_override: Option<[f32; 3]>,
-    /// The N-band form of the per-design body color (path-aware L*C*h editor): one
-    /// `[centre_nm, width_nm, amplitude_per_mm]` row per non-zero band
-    /// (`pleochroma::optics::absorption::body_color_bands`). Written NEXT TO the nearest
-    /// `body_color_override` triple so an older build still shows a close colour; when
-    /// present (and non-empty) the bands win over the triple in [`Self::apply_overrides`].
+    /// The N-band form of the per-design body color: one `[centre_nm, width_nm,
+    /// amplitude_per_mm]` row per non-zero band
+    /// (`pleochroma::optics::absorption::body_color_bands`). Stored next to the nearest
+    /// `body_color_override` triple, which a build without the bands reads; when non-empty
+    /// the bands win over the triple in [`Self::apply_overrides`].
     pub body_color_bands_override: Option<Vec<[f32; 3]>>,
     /// Millimetres per model unit the bands' amplitudes were solved for
     /// (`GemMaterial::absorption_path_scale`); only meaningful with
@@ -73,10 +74,9 @@ pub struct MaterialSelection {
     pub color_variant_override: Option<VariantChoice>,
 }
 
-/// Hand-written rather than derived so a selection WITHOUT a body-color override
-/// prints exactly as it did before that field existed (the desktop's identity pins
-/// hash these `Debug` dumps); the field is printed only when it is set. The color-variant
-/// field follows the same rule.
+/// Hand-written so that an unset color field is left out of the output: the desktop's
+/// identity pins hash these `Debug` dumps. A color field is printed only when it is set,
+/// and the color-variant field follows the same rule.
 impl std::fmt::Debug for MaterialSelection {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut out = f.debug_struct("MaterialSelection");
@@ -103,11 +103,8 @@ impl std::fmt::Debug for MaterialSelection {
 }
 
 impl MaterialSelection {
-    /// No preset selected and no override -- a brand-new design's starting point.
-    /// `const` (the derived `Default` impl is not) for a cheap, allocation-free
-    /// default; [`crate::design::Design::new`] itself stopped being `const fn`
-    /// once it started allocating a fresh `Vec<TierId>` per call, but every other
-    /// caller of this constructor still benefits.
+    /// No preset selected and no override: a brand-new design's starting point. Unlike the
+    /// derived `Default`, this is `const`.
     #[must_use]
     pub const fn none() -> Self {
         Self {
@@ -221,12 +218,11 @@ impl MaterialSelection {
     /// Relative patterns use the default 7 mm width here; render callers that know the
     /// stone's size use [`Self::apply_overrides_at_width`].
     ///
-    /// The ONE place a design's selection turns a looked-up material into the stone
-    /// the optimizer, tilt curve, live render and export all see -- every
-    /// "selection -> `GemMaterial`" helper routes through this, so an override can
-    /// never reach one consumer and miss another. An RI override is, by
-    /// construction, a single typed index with no accompanying dispersion data, so
-    /// "flat at the override" is the only honest curve to draw.
+    /// The one place a selection turns a looked-up material into the stone that the
+    /// optimizer, tilt curve, live render and export see: every "selection -> `GemMaterial`"
+    /// helper routes through it, so an override cannot reach one consumer and miss another.
+    /// An RI override is one typed index with no dispersion data, so "flat at the override"
+    /// is the only honest curve.
     ///
     /// The contract is flat at the override for ALL principal indices, with the
     /// spreads at the D line kept. The ordinary (or biaxial `n_beta`) curve becomes the
@@ -303,11 +299,10 @@ impl MaterialSelection {
                 .unwrap_or(gem.absorption_path_scale);
             gem = gem.with_body_color_bands(bands, scale);
         } else if let Some(rgb) = self.body_color_override {
-            // Note: with_body_color replaces the entire absorption tensor with 3 isotropic
-            // legacy bands, which replaces any physics chromophore absorption. The desktop
-            // therefore greys the override control out for a physics material
-            // ("replaces the physical color", `EditorModel.design_material_is_physics`) and
-            // warns when one is already set; a physics override is a follow-up.
+            // with_body_color replaces the entire absorption tensor with three isotropic
+            // legacy bands, which would discard a physics material's chromophore absorption.
+            // The desktop therefore disables the override control for a physics material
+            // (`EditorModel.design_material_is_physics`).
             gem = gem.with_body_color(rgb);
         }
         gem

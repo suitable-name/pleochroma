@@ -1,9 +1,8 @@
-//! The Tilt Performance dialog's whole sweep: the full-axis profile
-//! ([`super::profile::evaluate_full_axis_profile_at_azimuth`]) at every [`PROFILE_AZIMUTHS_DEG`] axis.
+//! The tilt sweep: the full-axis profile of every [`PROFILE_AZIMUTHS_DEG`] axis, from
+//! [`super::profile::evaluate_full_axis_profile_at_azimuth`].
 //!
-//! This is the loop the desktop's `gui::tilt::tilt_profile` used to hold itself; both apps
-//! now call it from here. [`evaluate_all_axes_profiles_stepped`] is the same sweep with a
-//! progress/cancel hook between the raytrace evaluations, for the browser app's Worker.
+//! [`evaluate_all_axes_profiles_stepped`] is the same sweep with a progress and cancel hook
+//! between the evaluations, for callers that report progress or cancel.
 
 use super::{
     finished::FinishedStone,
@@ -69,7 +68,7 @@ pub const fn total_evaluations() -> usize {
 /// Axis 0 is swept too, rather than reusing the live render's own value: that one covers
 /// only the positive half and cannot supply the negative half a full-axis sweep needs.
 /// About 724 raytrace evaluations; ~1.4 s on one core, spread over the machine's cores
-/// (at most 16) since the sweep became parallel.
+/// (at most 16).
 #[must_use]
 pub fn evaluate_all_axes_profiles(
     planes: &[GpuFacetPlane],
@@ -115,9 +114,9 @@ pub fn evaluate_all_axes_profiles_geom_threaded(
 
 /// [`evaluate_all_axes_profiles_geom_threaded`] for a stone with facet finishes.
 ///
-/// A frosted facet scatters light diffusely, so a frosted design's tilt curves differ from its polished
-/// ones (see [`evaluate_full_axis_profile_at_azimuth_finished_threaded`]). Without a frosted
-/// facet in `stone.finishes` this is the polished sweep, bit for bit.
+/// A frosted facet scatters light diffusely, so a frosted design's tilt curves differ from its
+/// polished ones (see [`evaluate_full_axis_profile_at_azimuth_finished_threaded`]). Without a
+/// frosted facet in `stone.finishes` this is the polished sweep, bit for bit.
 ///
 /// [`evaluate_full_axis_profile_at_azimuth_finished_threaded`]: super::profile::evaluate_full_axis_profile_at_azimuth_finished_threaded
 #[must_use]

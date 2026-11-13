@@ -97,7 +97,7 @@ fn within_cone(
         let mut extra = orientations_for(&cone.table_directions(), top_up_spins);
         extra.retain(|orient| cone.factor_for_axes(&orient.axes) > 0.0);
         if !cone.needs_azimuth() {
-            // The tilt rules do not care about the spin: a normal the table already has adds nothing.
+            // Tilt rules ignore the spin: a normal the table already has adds nothing.
             let has = |orient: &Orientation, known: &[Orientation]| {
                 known.iter().any(|other| other.axes[1] == orient.axes[1])
             };
@@ -389,8 +389,7 @@ pub fn fit_single_stones_by_rule(
     Some(merge_fits_scored(all, keep, rule_of))
 }
 
-/// The largest stone of `hull` that fits `region` in the orientation `axes`: one scaling LP, at
-/// once.
+/// The largest stone of `hull` that fits `region` in the orientation `axes`: one scaling LP.
 ///
 /// The axes are the caliper-frame axes in the rough frame, `axes[1]` the table normal. This is the
 /// re-scale behind Free Orientation: the cutter turns the stone, the planner answers with the

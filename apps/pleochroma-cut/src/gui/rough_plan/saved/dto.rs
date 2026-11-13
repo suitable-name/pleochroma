@@ -10,24 +10,22 @@ use serde::{Deserialize, Serialize};
 /// The expected format identifier in the header of a plan file.
 pub const ROUGH_PLAN_FORMAT: &str = "pleochroma-rough-plan";
 
-/// The `format` value of rough plans saved before the rename to Pleochroma; read like
+/// The `format` value of plans written under the old product name; read like
 /// [`ROUGH_PLAN_FORMAT`], never written.
 pub const LEGACY_ROUGH_PLAN_FORMAT: &str = "indicatrix-rough-plan";
 
-/// The newest schema version this build reads. A plan with inclusions in a block, cylinder or
-/// pebble is written with this version ([`ANALYTIC_INCLUSION_SCHEMA_VERSION`]), a plan with a rough
-/// orientation, a rule or a stone choice of the Crystal Axis with [`CRYSTAL_AXIS_SCHEMA_VERSION`],
-/// a plan with a rough colour or stone pose choices with [`COLOUR_SCHEMA_VERSION`], a plan with
-/// inclusions in a mesh with [`INCLUSION_SCHEMA_VERSION`], a plan with a non-convex mesh rough and
-/// no inclusions with [`MESH_SCHEMA_VERSION`], and every other plan with [`BASE_SCHEMA_VERSION`],
-/// so the plans of convex roughs, of meshes without inclusions and of plans without a colour are
-/// byte for byte what they always were (see [`SavedPlanDto::content_version`]).
+/// The newest schema version this build reads.
+///
+/// A plan is written with the oldest version that holds its content (see
+/// [`SavedPlanDto::content_version`]), so a plan without the newer sections keeps
+/// [`BASE_SCHEMA_VERSION`].
 pub const CURRENT_SCHEMA_VERSION: u32 = ANALYTIC_INCLUSION_SCHEMA_VERSION;
 
 /// The schema version that introduced inclusions in a block, cylinder or pebble
-/// (`rough.inclusions` without `rough.mesh`). A build that does not know them would load the
-/// plain block and drop the inclusions without a word, so a plan that has them carries a version
-/// such a build refuses.
+/// (`rough.inclusions` without `rough.mesh`).
+///
+/// An older build would load the plain block and drop the inclusions silently, so a plan that
+/// has them carries a version such a build refuses.
 pub const ANALYTIC_INCLUSION_SCHEMA_VERSION: u32 = 6;
 
 /// The schema version that introduced the `rough.mesh` table.
@@ -40,17 +38,19 @@ pub const INCLUSION_SCHEMA_VERSION: u32 = 3;
 /// exported plan carries the plan's rough colour and the cutter's stone orientation choices.
 pub const COLOUR_SCHEMA_VERSION: u32 = 4;
 
-/// The schema version that introduced the Crystal Axis: `rough.orientation`, the `axis` table
-/// (the plan's rule, the rules of single designs, the stones the cutter locked or gave a free
-/// pose or a Reason). See `super::axis`.
+/// The schema version that introduced the Crystal Axis.
+///
+/// Adds `rough.orientation` and the `axis` table (the plan's rule, the rules of single designs,
+/// and the stones the cutter locked, gave a free pose or a Reason). See `super::axis`.
 pub const CRYSTAL_AXIS_SCHEMA_VERSION: u32 = 5;
 
 /// The schema version of a plan without a mesh rough (version 1; also the oldest this
 /// build reads).
 pub const BASE_SCHEMA_VERSION: u32 = 1;
 
-/// The largest plan document that is parsed, in bytes. A plan with 99 stones in ten
-/// layouts is well under 1 MiB; anything near this limit is not a plan.
+/// The largest plan document that is parsed, in bytes.
+///
+/// A plan of 99 stones in ten layouts is well under 1 MiB; anything near the limit is not a plan.
 pub const MAX_PAYLOAD_BYTES: usize = 16 * 1024 * 1024;
 
 /// Most layouts a plan holds: the planner's final list has ten.
@@ -59,8 +59,7 @@ pub const MAX_LAYOUTS: usize = 10;
 /// Longest plan name, in characters.
 pub const MAX_NAME_CHARS: usize = 200;
 
-/// Most stones in a layout. The planner places stones freely, one per piece, and its finest
-/// grid has 48 units per axis, so no layout holds more than one stone per unit cell.
+/// Most stones in a layout: one per unit cell of the planner's finest grid (48 units per axis).
 pub const MAX_STONES_PER_LAYOUT: usize = 48 * 48 * 48;
 
 /// Most different designs in one layout: the planner's design cap.
@@ -118,36 +117,35 @@ pub struct SavedPlanDto {
     #[serde(default)]
     pub layouts: Vec<SavedLayoutDto>,
     /// The plan's rough colour (schema version 4), written by an export when the plan has one.
-    /// The library keeps it beside the plan, not in the stored payload, so an import takes it
-    /// out of the document again.
     ///
-    /// The field comes after `layouts` on purpose: the writer puts plain values first and then
-    /// the tables in field order, so the long JSON texts end the file instead of sitting
-    /// between its readable parts. The order is not needed for correctness: a TOML table header
-    /// is absolute, so `[colour]` after the last `[[layouts]]` is this document's own table and
-    /// never part of that layout.
+    /// The library keeps it beside the plan, not in the stored payload, so an import takes it
+    /// out of the document again. It is declared after `layouts` so the long JSON texts end the
+    /// file; the order is not needed for correctness, as a TOML table header is absolute.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub colour: Option<RoughColourDto>,
-    /// The cutter's stone orientation choices (schema version 4), one table per stone whose
-    /// pose is not the planner's own. Written and taken out like `colour`.
+    /// The cutter's stone pose choices (schema version 4), one table per stone whose pose is not
+    /// the planner's own.
+    ///
+    /// Written and taken out like `colour`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pose_choices: Vec<PoseChoiceDto>,
-    /// The Crystal Axis rules and stone choices (schema version 5): the plan's rule setting,
-    /// the rules of single designs and the stones the cutter locked or gave a free pose or a
-    /// Reason. Absent in every plan that never used them, so those plans are what they always
-    /// were. The stones are written like `pose_choices` (see `super::sections`).
+    /// The Crystal Axis rules and stone choices (schema version 5).
+    ///
+    /// Holds the plan's rule, the rules of single designs, and the stones the cutter locked,
+    /// gave a free pose or a Reason. Absent when unused. The stones are written like
+    /// `pose_choices` (see `super::sections`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub axis: Option<AxisDto>,
 }
 
 impl SavedPlanDto {
-    /// The oldest schema version that can hold this document's content: inclusions in a block,
-    /// cylinder or pebble need [`ANALYTIC_INCLUSION_SCHEMA_VERSION`], a rough orientation or
-    /// an `axis` table [`CRYSTAL_AXIS_SCHEMA_VERSION`], a `colour` section or
-    /// a stone pose choice [`COLOUR_SCHEMA_VERSION`], inclusions in a mesh
-    /// [`INCLUSION_SCHEMA_VERSION`], a mesh [`MESH_SCHEMA_VERSION`], and anything else is a
-    /// [`BASE_SCHEMA_VERSION`] plan. This is the rule a written plan's `version` follows, so a
-    /// document that gains or loses a section also gains or loses the version it needs.
+    /// The oldest schema version that can hold this document's content.
+    ///
+    /// Inclusions in a block, cylinder or pebble need [`ANALYTIC_INCLUSION_SCHEMA_VERSION`], a
+    /// rough orientation or an `axis` table [`CRYSTAL_AXIS_SCHEMA_VERSION`], a `colour` section
+    /// or a pose choice [`COLOUR_SCHEMA_VERSION`], inclusions in a mesh
+    /// [`INCLUSION_SCHEMA_VERSION`], a mesh [`MESH_SCHEMA_VERSION`], and anything else
+    /// [`BASE_SCHEMA_VERSION`]. A written plan's `version` follows this rule.
     #[must_use]
     pub const fn content_version(&self) -> u32 {
         if self.rough.analytic_inclusions() {
@@ -166,10 +164,11 @@ impl SavedPlanDto {
     }
 }
 
-/// The rough colour of a plan: the same encoding the library's `rough_colour` table stores
-/// (the table's columns without the plan id), so a file carries the zones and the fit report
-/// of the plan it was exported from. It is validated on import
-/// (`check_version`, `decode_zoned`). The cached rig photos are not part of it: they are a cache the wizard rebuilds.
+/// The rough colour of a plan, in the encoding of the library's `rough_colour` table (its
+/// columns without the plan id).
+///
+/// It carries the zones and the fit report; the loader validates both (`check_version`,
+/// `decode_zoned`). The cached rig photos are not part of it: the wizard rebuilds them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RoughColourDto {
     /// The format version of both texts (`ZONING_FORMAT_VERSION` when they were written).
@@ -225,21 +224,22 @@ pub struct RoughDto {
     /// Corners in mm of an imported mesh's convex outline (hull).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub hull: Vec<[f64; 3]>,
-    /// The closed triangle mesh of a non-convex imported rough (schema version 2). The
-    /// hull is derived from it, so `hull` is empty then.
+    /// The closed triangle mesh of a non-convex imported rough (schema version 2); `hull` is
+    /// empty then.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mesh: Option<MeshDto>,
-    /// The inclusions of a mesh rough (schema version 3), each a closed solid wound outward
-    /// with its margin already applied, in the frame of `mesh`. `mesh` is then the rough's
-    /// own mesh without them.
+    /// The inclusions of a mesh rough (schema version 3): closed solids wound outward, with
+    /// their margin applied, in the frame of `mesh`.
     ///
-    /// A block, cylinder or pebble keeps them here too (schema version 6), in the frame of its
-    /// uncut base (the corner at the origin), with no `mesh`, `hull` or `source_frame`.
+    /// `mesh` is then the rough's own mesh without them. A block, cylinder or pebble keeps them
+    /// here too (schema version 6), in the frame of its uncut base (the corner at the origin),
+    /// with no `mesh`, `hull` or `source_frame`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub inclusions: Vec<MeshDto>,
-    /// How the coordinates of the file the rough was imported from map into the frame of
-    /// `mesh` (schema version 3, written with inclusions only), so that more inclusions can
-    /// still be added in that file's coordinates after the plan is opened again.
+    /// The map from the import file's coordinates into the frame of `mesh` (schema version 3,
+    /// written with inclusions only).
+    ///
+    /// It lets more inclusions be added in the file's own coordinates after the plan is reopened.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_frame: Option<SourceFrameDto>,
     /// The rough's crystal orientation (schema version 5); absent while it is Unknown.
@@ -306,19 +306,19 @@ pub struct CutDto {
 /// Planning settings and kerf losses.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SettingsDto {
-    /// The design cap (`1..=99`): the most different designs a layout may use. Read as a
-    /// wide integer so a wrong value is reported instead of failing the parse. The key stays
-    /// `count`, so plans saved when it was the stone cap still open (their number now reads
-    /// as the design cap).
+    /// The design cap (`1..=99`): the most different designs a layout may use.
+    ///
+    /// The key stays `count` for older files, where it held the stone cap. Read as a wide
+    /// integer so a wrong value is reported instead of failing the parse.
     pub count: i64,
-    /// The stone cap (`1..=99`): the most stones a layout may hold in all. Absent means no
-    /// cap, which is what every plan saved before the cap existed holds; never written when
-    /// the plan has no cap (0). Read as a wide integer so a wrong value is reported instead
-    /// of failing the parse.
+    /// The stone cap (`1..=99`): the most stones a layout may hold in all.
+    ///
+    /// Absent means no cap, and a plan without one (0) never writes it. Read as a wide integer
+    /// so a wrong value is reported instead of failing the parse.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_stones: Option<i64>,
-    /// The stone-count floor of plans saved before the planner placed stones freely. Read and
-    /// ignored (every layout from one stone up is shown now); never written.
+    /// The stone-count floor of older files: read and ignored, since every layout from one stone
+    /// up is shown; never written.
     #[serde(default, skip_serializing)]
     pub min_count: Option<i64>,
     /// Saw blade kerf width in mm.
@@ -344,9 +344,10 @@ pub struct SavedDesignDto {
     pub title: String,
     /// Ratios `[L/W, H/W, V/W^3]` from the design extents cache; all zero means unknown.
     pub fingerprint: [f64; 3],
-    /// The design's width (the smaller caliper extent) in model units, which the ratios
-    /// alone cannot tell: a design drawn twice as large has the same ratios. Absent in
-    /// older files and when the design was not measured; the size is then not compared.
+    /// The design's width (the smaller caliper extent) in model units.
+    ///
+    /// The ratios cannot tell a design drawn twice as large, so the width is kept as well.
+    /// Absent in older files and when the design was not measured; the size is then not compared.
     #[serde(default)]
     pub width_caliper: Option<f64>,
     /// The measuring rule version the figures come from (`SOLID_EXTENTS_VERSION`);
@@ -397,8 +398,8 @@ pub struct SavedLayoutDto {
     /// Placed stone details including 3D poses.
     #[serde(default)]
     pub stones: Vec<StoneDto>,
-    /// Whether the layout is an exact single-stone fit (no saw stages). Absent in files
-    /// written before the marker existed, which read as a sawn layout.
+    /// Whether the layout is an exact single-stone fit (no saw stages).
+    /// Absent means a sawn layout.
     #[serde(default)]
     pub exact_fit: bool,
 }

@@ -54,10 +54,8 @@ const SIDEWAYS_TURNS: usize = 8;
 const VERTICAL_TURNS: usize = 6;
 
 impl Film<'_> {
-    /// Safe click/wheel area clipped to the dock/window and clear of overlay scrollbars. Fluent
-    /// 1.18.1's fallback is 14px: `widgets/fluent/scrollview.slint` gives each bar a 14px cross
-    /// dimension. Keep an extra 2px margin (16px on the vertical edge); actual queried bar bounds
-    /// take precedence whenever available.
+    /// Safe click and wheel area of the tier table: its scroll view clipped to the editor dock and
+    /// kept 2 px clear of the left edge and of each scroll bar in the tree.
     pub(crate) fn safe_tier_table_viewport(&self) -> Result<Spot, String> {
         let view = self.view();
         let table = view
@@ -199,18 +197,16 @@ impl Film<'_> {
         Ok(control)
     }
 
-    /// Turns the wheel sideways over the tier table, one turn at a time, until `find` names a
-    /// button that is on view, and returns that button with the number of turns it took. `find`
-    /// is given the scrolling area of the table and picks from what is on screen (usually with
-    /// [`Self::tier_row_control`], which checks the button is on view). The table is looked at before the first turn, so a button that is on
-    /// view already costs no scrolling. The buttons (Adopt, Pin, Detach, Add Anchor, Move,
-    /// Duplicate, Remove) sit in the pinned ACTIONS group at the right edge of the table and are
-    /// on view without scrolling, so no turn is normally needed.
+    /// Turns the wheel over the tier table until `find` names a button that is on view, and
+    /// returns that button with the number of turns it took. `find` gets the table's safe area
+    /// and usually calls [`Self::tier_row_control`], which checks the button is on view. The
+    /// table is looked at before the first turn, so a visible button costs no scrolling; the
+    /// pinned ACTIONS buttons normally need none.
     ///
-    /// `row` is the tier row the button belongs to. The pinned buttons never scroll sideways, so a
-    /// button that is not on view belongs to a row that is cut off at the top or bottom of the
-    /// table's scrolling area (a row half under the sideways bar, say): the wheel is then turned
-    /// vertically, by about the cut-off distance, until the row is whole, before any sideways turn.
+    /// `row` is the tier row the button belongs to. The pinned buttons never scroll sideways, so
+    /// a button that is not on view may belong to a row cut off at the top or bottom of the
+    /// table (under the sideways bar, say): the wheel is then turned vertically, by about the
+    /// cut-off distance, until the row is whole, before any sideways turn.
     pub(crate) fn reveal_table_button(
         &mut self,
         row: i32,

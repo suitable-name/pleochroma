@@ -60,9 +60,8 @@ use std::{
 };
 use tracing::error;
 
-/// Samples per pixel for a traced comparison -- modest and fixed: enough to read
-/// brightness and windowing differences between the two sides, cheap enough to
-/// finish in about a second per side on a desktop CPU at [`TRACED_MAX_EDGE`].
+/// Samples per pixel for a traced comparison: modest and fixed, enough to read brightness
+/// and windowing differences at [`TRACED_MAX_EDGE`] without a long wait.
 pub(super) const TRACED_SPP: u32 = 48;
 
 /// The traced image's longest edge, in pixels -- see [`traced_size`].
@@ -541,8 +540,8 @@ fn solid_frame(
     }
 }
 
-/// Spawns a session's solid worker. `post` hands a finished report to the UI
-/// thread (see `super::wiring::post_frame`).
+/// Spawns a session's solid worker. `post` hands a finished report to the UI thread
+/// (see `super::host`).
 #[must_use]
 pub(super) fn spawn_solid_worker(
     session_id: u64,

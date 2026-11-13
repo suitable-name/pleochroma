@@ -5,10 +5,6 @@
 //! jitter_y)` cases -- including adversarial ones -- and compares every output ray's
 //! `origin`/`dir` against `optics::raytracer::Camera::new` +
 //! `Camera::generate_ray`, called directly (never re-derived) on the CPU.
-//!
-//! This is a fresh translation of `Camera::new`/`Camera::generate_ray` as they exist in
-//! `raytracer.rs` today -- see that module's own doc comment on why any port is a fresh
-//! translation, never a repair of the retired first-draft shader.
 
 use crate::{
     optics::raytracer::Camera,
@@ -53,9 +49,8 @@ pub struct CameraRayCase {
 
 const _: () = assert!(size_of::<CameraRayCase>() == 48);
 
-/// The `(yaw, pitch, distance, fov_deg)` a [`CameraRayCase`] feeds to `Camera::new`.
-/// Grouped into its own small struct purely so [`CameraRayCase::new`] takes 2
-/// arguments instead of 10.
+/// The `(yaw, pitch, distance, fov_deg)` a [`CameraRayCase`] feeds to `Camera::new`, grouped so
+/// that [`CameraRayCase::new`] takes two arguments instead of ten.
 #[derive(Clone, Copy)]
 struct CameraPose {
     yaw: f32,
@@ -64,9 +59,8 @@ struct CameraPose {
     fov_deg: f32,
 }
 
-/// The `(screen_x, screen_y, width, height, jitter_x, jitter_y)` a [`CameraRayCase`]
-/// feeds to `Camera::generate_ray`. See [`CameraPose`]'s doc comment for why this is
-/// split out.
+/// The `(screen_x, screen_y, width, height, jitter_x, jitter_y)` a [`CameraRayCase`] feeds to
+/// `Camera::generate_ray`, grouped like [`CameraPose`].
 #[derive(Clone, Copy)]
 struct ScreenSample {
     screen_x: f32,
@@ -135,8 +129,7 @@ pub fn build_cases() -> Vec<CameraRayCase> {
 }
 
 /// The dense `9 x 9 x 3 x 4` pose grid, each paired with 5 screen positions x 3 jitter
-/// combinations -- see [`build_cases`]'s doc comment. Split out purely to keep
-/// [`build_cases`] itself short; see [`adversarial_cases`] for the other half.
+/// combinations. See [`adversarial_cases`] for the other half.
 fn dense_cases() -> Vec<CameraRayCase> {
     let mut cases = Vec::new();
 
@@ -190,9 +183,8 @@ fn dense_cases() -> Vec<CameraRayCase> {
     cases
 }
 
-/// The three adversarial case groups appended to the dense grid -- see
-/// [`build_cases`]'s doc comment for what each targets. Split out purely to keep
-/// [`build_cases`] itself short; see [`dense_cases`] for the other half.
+/// The three adversarial case groups appended to the dense grid (see [`build_cases`] for what
+/// each targets).
 fn adversarial_cases() -> Vec<CameraRayCase> {
     let mut cases = Vec::new();
 
@@ -283,7 +275,7 @@ pub struct CameraRayUlpArgmax {
     pub ulp: u32,
 }
 
-/// Outcome of the camera ray check check.
+/// Outcome of the camera ray check.
 #[derive(Debug, Clone, Copy)]
 pub struct CameraRayCheckResult {
     /// Total number of cases run.
@@ -320,37 +312,22 @@ impl CameraRayCheckResult {
 /// `dir`, which chains `cos`/`sin`/`tan`/`normalize`/`cross` through several
 /// intermediate roundings.
 ///
-/// # Where this number comes from
-///
-/// Measured on this workspace's dev hardware (AMD Radeon 680M-class RDNA2 iGPU, Vulkan
-/// backend) over the case grid in [`build_cases`] (14,600+ cases, 6 components each):
-/// see the harness output for the actual measured max. `rng_check::FLOAT_ULP_BUDGET`'s
-/// doc comment established the calibration this budget reuses: driver float noise
-/// (differing `fma`/transcendental lowering between the CPU's libm and the GPU shader
-/// compiler) measures at 1-2 ULP per operation; a chain of several such operations
-/// (`cos`, `sin`, `tan`, two `normalize`s, two `cross`es) can accumulate a handful more
-/// without indicating a porting bug. 64 ULP is generous enough to absorb that
-/// accumulation across the whole `Camera::new` -> `generate_ray` chain on a different
-/// GPU/driver, while staying many orders of magnitude below the injected-fault
-/// magnitude a real algebra error produces (calibration: 8,552,444 ULP for a
-/// deliberately wrong formula) -- see this crate's negative-control run for an instance
-/// of that same magnitude gap.
+/// Driver float noise (`fma` and transcendental lowering differ from the CPU's libm) is 1-2 ULP
+/// per operation, and a chain such as `cos`, `sin`, `tan`, two `normalize`s and two `cross`es
+/// accumulates a handful more. 64 ULP absorbs that across the whole `Camera::new` ->
+/// `generate_ray` chain on another GPU or driver. It stays far below the 8,552,444 ULP that a
+/// deliberately wrong formula produces (see `rng_check::FLOAT_ULP_BUDGET` for the same
+/// calibration approach).
 pub const CAMERA_RAY_ULP_BUDGET: u32 = 64;
 
 /// Absolute-difference floor exempting comparisons near a trig zero-crossing from
-/// [`CAMERA_RAY_ULP_BUDGET`] entirely.
+/// [`CAMERA_RAY_ULP_BUDGET`] entirely (see [`crate::renderer::gpu::ulp::within_tolerance`]).
 ///
-/// See
-/// [`crate::renderer::gpu::ulp::within_tolerance`]'s doc comment for the general
-/// rationale). Measured concretely on this workspace's dev hardware: `yaw = PI` (an
-/// adversarial case in [`build_cases`]) makes `origin.x = distance * cos(pitch) *
-/// sin(yaw)`, and `sin(PI_as_f32)` is only ~8.7e-8 away from its mathematically exact
-/// (but unrepresentable) zero to begin with -- the CPU and GPU trig implementations
-/// round that already-tiny value to *opposite sides* of exactly `0.0`, which an
-/// ULP-distance-through-zero metric reports as billions of ULP even though the absolute
-/// disagreement is a few millionths. `1e-4` stays far below any position/direction
-/// component's meaningful scale in this crate's scenes (camera distances of 1-8 units,
-/// unit-length directions) while comfortably covering that measured noise floor.
+/// At `yaw = PI` (an adversarial case in [`build_cases`]), `origin.x` is a product with
+/// `sin(PI_as_f32)`, which is about 8.7e-8 rather than zero. CPU and GPU trig round it to
+/// opposite sides of `0.0`, and an ULP distance through zero reports billions of ULP for a
+/// few millionths of absolute error. `1e-4` stays far below the scale of any position or
+/// direction component in the crate's scenes (camera distances of 1-8 units, unit directions).
 pub const CAMERA_RAY_ABS_FLOOR: f32 = 1e-4;
 
 /// Runs the camera ray-generation self-test against a live GPU.
@@ -420,6 +397,8 @@ pub fn run(ctx: &crate::renderer::gpu::GpuContext) -> CameraRayCheckResult {
             if within_tolerance(cpu, gpu, CAMERA_RAY_ULP_BUDGET, CAMERA_RAY_ABS_FLOOR) {
                 if ulp > CAMERA_RAY_ULP_BUDGET {
                     exempted_count += 1;
+                } else {
+                    max_ulp = max_ulp.max(ulp);
                 }
             } else {
                 over_budget_count += 1;

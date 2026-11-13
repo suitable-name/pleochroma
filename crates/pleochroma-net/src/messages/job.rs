@@ -1,4 +1,4 @@
-//! Durable server jobs (v25, `render` feature only): a still picture the server renders on its
+//! Durable server jobs (`render` feature only): a still picture the server renders on its
 //! own schedule.
 //!
 //! The server keeps the finished picture for the client to fetch later, from this connection
@@ -125,7 +125,7 @@ pub struct JobInfo {
     pub expires_unix: Option<i64>,
     /// The PNG's size in bytes, once the job is `Done`.
     pub result_len: Option<u32>,
-    /// A sentence: why it failed, or that a restart re-queued it. Empty when there is nothing to say.
+    /// Why the job failed, or that a restart re-queued it. Empty when there is nothing to say.
     pub note: String,
 }
 
@@ -416,6 +416,10 @@ mod tests {
             height: 6,
             yaw: 0.4,
             camera_roll: 0.0,
+            stone_shadow: false,
+            tray_reflection: 0.0,
+            hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
+            estimator: pleochroma::optics::raytracer::Estimator::Branching,
             pitch: 0.3,
             distance: 3.0,
             light_yaw: 0.85,

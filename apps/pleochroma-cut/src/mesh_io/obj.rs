@@ -1,6 +1,6 @@
 //! Wavefront OBJ: vertices (`v`) and faces (`f`); everything else is ignored.
 
-use super::{NotedMesh, face::triangulate_face, too_many_triangles_note};
+use super::{NotedMesh, ReadProgress, face::triangulate_face, too_many_triangles_note};
 use glam::DVec3;
 use pleochroma_cut_core::rough_plan::MAX_MESH_TRIANGLES;
 
@@ -23,20 +23,43 @@ pub fn parse_obj_mesh(text: &str) -> Result<(Vec<DVec3>, Vec<[u32; 3]>), String>
     parse_obj_noted(text).map(|(points, triangles, _)| (points, triangles))
 }
 
-/// The points and triangles of an OBJ file, and a note when the triangles are not used: a
-/// non-convex polygon face could not be split into triangles, or the file has more triangles
-/// than the planner takes. The triangles are then empty (the file is a point cloud, whose
-/// convex hull is the rough) because a mesh with that face left out would be open or wrong.
+/// The points and triangles of an OBJ file, with a note when the triangles are not used.
 ///
-/// The triangles are counted while the file is read (a face of `n` corners gives `n - 2`).
+/// A non-convex polygon face that cannot be split, or more triangles than the planner takes,
+/// leaves the triangles empty: the rough is then the convex hull of the points, because a mesh
+/// with that face left out would be open or wrong.
+///
 /// Past [`MAX_MESH_TRIANGLES`] the faces already read are dropped and the rest of the file
-/// is only counted, so a scan of millions of triangles costs no memory beyond its vertices;
-/// those faces are not checked any more, because the mesh is not used anyway.
+/// is only counted, so a scan of millions of triangles costs no memory beyond its vertices.
 ///
 /// # Errors
 ///
 /// As [`parse_obj_mesh`].
+#[cfg(test)]
 pub fn parse_obj_noted(text: &str) -> Result<NotedMesh, String> {
+    parse_obj_progress(text, &ReadProgress::default())
+}
+
+/// How many triangles the faces of the OBJ text `text` give (a face of `n` corners gives
+/// `n - 2`), counted in a quick pass without parsing a number: the total a read's progress is
+/// measured against.
+#[must_use]
+pub fn count_triangles(text: &str) -> usize {
+    text.lines()
+        .filter(|line| line.starts_with("f ") || line.starts_with("f\t"))
+        .map(|line| line.split_whitespace().count().saturating_sub(3))
+        .sum()
+}
+
+/// Parses the OBJ text as [`super::parse_mesh`] does, reporting to `progress`.
+///
+/// The triangles of every face are added to `progress` as the face is read. Faces past the
+/// planner's limit are counted too.
+///
+/// # Errors
+///
+/// As [`super::parse_mesh`].
+pub fn parse_obj_progress(text: &str, progress: &ReadProgress) -> Result<NotedMesh, String> {
     let mut points = Vec::new();
     // Faces as signed indices, negative ones already made absolute; positive ones are
     // checked against the final vertex count (a face may name a later vertex).
@@ -56,7 +79,9 @@ pub fn parse_obj_noted(text: &str) -> Result<NotedMesh, String> {
                 points.push(DVec3::new(coordinate()?, coordinate()?, coordinate()?));
             }
             Some("f") if triangle_count > MAX_MESH_TRIANGLES => {
-                triangle_count += words.count().saturating_sub(2);
+                let more = words.count().saturating_sub(2);
+                triangle_count += more;
+                progress.add_triangles(more);
             }
             Some("f") => {
                 let count = i64::try_from(points.len()).unwrap_or(i64::MAX);
@@ -80,6 +105,7 @@ pub fn parse_obj_noted(text: &str) -> Result<NotedMesh, String> {
                     ));
                 }
                 triangle_count += corners.len() - 2;
+                progress.add_triangles(corners.len() - 2);
                 if triangle_count > MAX_MESH_TRIANGLES {
                     faces = Vec::new();
                 } else {

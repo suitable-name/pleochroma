@@ -1,17 +1,12 @@
 #[cfg(feature = "sqlite")]
 use anyhow::Result;
 
-/// Parses a hand-typed optional numeric field (`refractive_index`, `lw_ratio`, etc. on
-/// [`MetadataUpdate`]) into `T`, treating `None` and a blank/whitespace-only string
-/// identically as "leave unset" (`Ok(None)`) -- the same "no separate leave-unchanged
-/// state, a blank field clears it" contract [`MetadataUpdate`]'s own doc comment
-/// promises. Anything else that fails to parse as `T` is a hard error naming
-/// `field_name` and the offending text, never silently coerced to `0`/dropped -- see
-/// [`crate::db::sqlite::Database::update_diagram_metadata`]'s doc comment for the
-/// bug this closes: SQLite's REAL/INTEGER column type affinity only converts a TEXT
-/// value that already looks like a plain number, so e.g. a hand-typed European
-/// `"1,76"` used to silently persist as TEXT in a REAL column instead of being
-/// rejected, and then sort/filter wrong forever after.
+/// Parses a hand-typed optional numeric field into `T`.
+///
+/// Fields such as `refractive_index` and `lw_ratio` on [`MetadataUpdate`] use it. `None`
+/// and blank text both give `Ok(None)`, so a blank field clears the value. Other text that
+/// fails to parse is an error, never coerced or dropped: a REAL or INTEGER column would
+/// keep it as TEXT (a European `"1,76"`) and then sort or filter it wrongly.
 ///
 /// # Errors
 ///
@@ -34,10 +29,11 @@ where
 
 /// Fields a user might legitimately hand-correct on an already-imported design.
 ///
-/// Used by the detail view's metadata editor (see `apps/pleochroma-cut`'s `gui::detail`/
-/// `detail_header.slint`). Deliberately NOT title -- that lives in `diagram_entries`,
-/// not `diagram_details`, with its own setter
-/// ([`crate::db::sqlite::Database::rename_diagram_entry`]).
+/// Used by the detail view's metadata editor (see `apps/pleochroma-cut`'s
+/// `gui/library/detail` and `ui/components/detail_header.slint`).
+///
+/// Deliberately NOT title: that lives in `diagram_entries`, not `diagram_details`, with
+/// its own setter ([`crate::db::sqlite::Database::rename_diagram_entry`]).
 ///
 /// Every field is `Option<...>` because the underlying column is nullable and a blank
 /// field in the editor is a valid edit (clears that value); there is no separate "leave
@@ -51,10 +47,9 @@ where
 /// `update_diagram_metadata`'s doc for what a naive read-modify-write through
 /// [`crate::model::detail::FacetingDiagramDetail`] would silently zero instead.
 ///
-/// `designer` here is the free-text `designer_info` column (what `detail_header.slint`
-/// displays as "Designed by ...") -- not the separate machine-split `designer`/
-/// `source_citation` pair `FacetingDiagramDetail` also carries; there's no UI for editing
-/// that split, and this update path leaves it as the original import produced it.
+/// `designer` here is the free-text `designer_info` column, not the machine-split
+/// `designer`/`source_citation` pair `FacetingDiagramDetail` also carries. There is no UI
+/// for editing that split, and this update path leaves it as the import produced it.
 ///
 /// Every numeric-looking field here (`refractive_index`, `index_gear`,
 /// `symmetry_order`, `lw_ratio`/`hw_ratio`/`cw_ratio`/`pw_ratio`, `volume`) is still
@@ -82,7 +77,8 @@ pub struct MetadataUpdate {
     /// The scraped-style `"55+6"` facet-count text; re-split into `facets`/
     /// `girdle_facets` by [`crate::model::facets::parse_facets_count`] at save time.
     pub facets_count: Option<String>,
-    /// Hand-typed rotational-fold-count text, parsed to `INTEGER` -- see [`parse_optional_numeric`].
+    /// Hand-typed rotational-fold-count text, parsed to `INTEGER` -- see
+    /// [`parse_optional_numeric`].
     pub symmetry_order: Option<String>,
     /// Whether the sheet additionally declares mirror-image symmetry -- already typed,
     /// no parsing needed.

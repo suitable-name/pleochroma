@@ -72,8 +72,8 @@ pub struct PoolConfig {
 }
 
 impl PoolConfig {
-    /// Still export / tilt video: 22 s chunks, pause from the 2nd consecutive failure
-    /// (15 s doubling to 120 s, the desktop export's schedule), retire after 5.
+    /// Offline export and tilt video: 22 s chunks, pause from the 2nd consecutive failure
+    /// (15 s doubling to 120 s), retire after 5.
     pub const EXPORT: Self = Self {
         policy: ChunkPolicy::EXPORT,
         pause_after_failures: 2,

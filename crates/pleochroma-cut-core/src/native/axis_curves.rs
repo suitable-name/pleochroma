@@ -1,10 +1,9 @@
 //! A custom material's render-physics data (per-axis dispersion curves, inclusion families and
 //! play-of-color structure), between a [`GemMaterial`] and a [`CustomMaterialSnapshot`].
 //!
-//! The reading and gating live in [`crate::material`] (`with_custom_physics`,
-//! `per_axis_dispersion_of_snapshot`): this module only feeds them the snapshot's tables, so a
-//! library row and a design file's snapshot build the same stone. Without the tables the material
-//! is bit-identical to one that never had them. A table that fails
+//! The reading and gating live in [`crate::material`]: this module only feeds them the snapshot's
+//! tables, so a library row and a design file's snapshot build the same stone. Without the tables
+//! the material is bit-identical to one that never had them. A table that fails
 //! [`pleochroma::optics::dispersion::DispersionModel::validate`] reads as absent, like the main
 //! one, and one biaxial curve without the other is ignored.
 

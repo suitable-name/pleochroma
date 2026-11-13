@@ -38,7 +38,6 @@ impl Film<'_> {
             .caption("Create a design to work on: File, New Design, a template, Create.");
         let editor = self.ui.global::<EditorModel>();
         if !editor.get_new_dialog_open() {
-            // The app starts on Live Render; the File menu is in the Edit view's command bar.
             self.ensure_edit_view()?;
             let file = targets::file_button(&self.view()).ok_or("File menu is missing")?;
             self.click_and_invoke(&file)?;

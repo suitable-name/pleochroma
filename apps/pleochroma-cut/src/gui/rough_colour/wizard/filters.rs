@@ -1,4 +1,4 @@
-//! The reference filter set of the camera calibration (plan 4.3, tier 2).
+//! The reference filter set of the camera calibration.
 //!
 //! The set is one small text file. Every line that is not empty and does not start with `#` is
 //!
@@ -29,9 +29,10 @@ pub struct FilterEntry {
 /// Why a set could not be read.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FilterSetError {
-    /// A line has fewer than five fields, or a number that is not one (1-based line).
+    /// A malformed line: too few fields, a non-number where `r`, `g` or `b` belongs, or an empty
+    /// name or spectrum file.
     Line {
-        /// The line number.
+        /// The 1-based line number.
         line: usize,
         /// What is wrong.
         message: &'static str,

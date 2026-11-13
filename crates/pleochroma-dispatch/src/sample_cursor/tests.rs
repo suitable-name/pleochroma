@@ -1,5 +1,4 @@
-//! Tests for [`SampleCursor`] (moved with it from `pleochroma-cut`), plus the
-//! pool-side `requeue`/`claim_any` pile.
+//! Tests for [`SampleCursor`], including the `requeue`/`claim_any` pile.
 
 use super::SampleCursor;
 use std::{collections::HashSet, thread};
@@ -20,8 +19,7 @@ fn claim_never_exceeds_the_budget_even_when_a_smaller_amount_remains() {
 
 #[test]
 fn claim_starts_from_a_nonzero_offset() {
-    // Mirrors a cursor built after some sequential calibration already advanced
-    // `samples_done` past 0 before the concurrent phase begins.
+    // A cursor whose range starts past 0, as when earlier samples were already traced.
     let cursor = SampleCursor::new(500, 600);
     assert_eq!(cursor.claim(50), Some((500, 50)));
     assert_eq!(cursor.claim(50), Some((550, 50)));

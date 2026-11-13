@@ -285,8 +285,8 @@ fn with_design<R>(read: impl FnOnce(&pleochroma_cut_core::Design) -> R) -> Resul
     Ok(read(&st.design))
 }
 
-/// The Tier form: "+ Add Tier" or the picked row, then Add Tier or Save Tier with the six
-/// fields `entry` describes.
+/// The Tier form: "+ Add Tier" or the picked row, then Add Tier or Save Tier with the fields
+/// `entry` describes.
 fn save_tier(ui: &MainWindow, entry: &TierEntry) -> Result<(), String> {
     let save = with_design(|design| resolve_tier(design, entry))??;
     if save.index < 0 {

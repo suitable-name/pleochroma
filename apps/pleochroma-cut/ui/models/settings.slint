@@ -26,6 +26,14 @@ export global SettingsModel {
     in-out property <float> exposure_val: 1.0;
     // Backdrop pill index: 0 = as lit, 1 = grey, 2 = white (default), 3 = black.
     in-out property <int> backdrop_index: 2;
+    // Stone Shadow switch: the stone casts its shadow and colored light onto the backdrop in the
+    // path-traced view (studio lights only). Pushed from the saved setting at startup and flipped
+    // by the Lighting tab's switch.
+    in-out property <bool> stone_shadow: false;
+    // Tray reflection, percent (0-100, default 0 = off): the head-on reflectance of the glossy
+    // tray under the stone in the path-traced view and exports. Studio lights with a backdrop
+    // only; the Lighting tab dims the slider elsewhere.
+    in-out property <float> tray_reflection_pct: 0.0;
     // Surface glare, percent (0-100, default 100 = unscaled): the share of the white
     // mirror image of the light kept in the path-traced view and exports. Built-in
     // lighting presets only; the Parameters panel greys it out for an HDR map.
@@ -35,6 +43,11 @@ export global SettingsModel {
     in-out property <float> head_shadow_deg: 16.0;
     in-out property <float> light_yaw_deg: 48.0;
     in-out property <float> light_pitch_deg: 72.0;
+    // The loaded HDR map's yaw in degrees (0 to 360, 0 = the map as loaded) and whether it
+    // turns with the camera. While a map is loaded the Lighting tab shows these in place of the
+    // light direction; Rust keeps both in step with the render context and the settings file.
+    in-out property <float> env_map_yaw_deg: 0.0;
+    in property <bool> env_map_follows_camera: false;
     // The lighting sliders' ranges. Fed at startup by `gui::render::parameter_constants` from
     // `settings::model::EXPOSURE_RANGE` and `PITCH_RANGE_RAD` (in degrees), so the slider can
     // reach exactly what the render context accepts; the literals only matter before that runs.
@@ -105,7 +118,7 @@ export global SettingsModel {
     // the settled image is remote-only). Persisted on the remote endpoint; Rust mirrors it
     // here (`gui::remote::refresh_remote_ui`).
     in property <int> live_transfer_index: 0;
-    // v16: whether this machine's own idle CPU/GPU traces a share of a "final picture
+    // Whether this machine's own idle CPU/GPU traces a share of a "final picture
     // only" export/tilt-frame alongside the remote -- on by default. Only meaningful
     // with a remote configured; the picker greys it out otherwise (see
     // `RemoteWorkerModel.availability.configured`).
@@ -117,6 +130,14 @@ export global SettingsModel {
     // Whether this build has the `gpu` feature -- Rust-driven (`cfg!(feature =
     // "gpu")`), set once at startup, never user-settable.
     in property <bool> gpu_build: false;
+    // Whether this build has the retired `beam` feature -- Rust-driven (`cfg!(feature = "beam")`),
+    // set once at startup, never user-settable. False hides every beam control: the export dialog's
+    // and the tilt video's "Beam Tracing" boxes and the two Preferences switches.
+    in property <bool> beam_build: false;
+    // Whether this build has the optional `adaptive-sampling` feature -- Rust-driven
+    // (`cfg!(feature = "adaptive-sampling")`), set once at startup, never user-settable.
+    // False hides the "Adaptive Sampling" boxes of the export dialog and the tilt video.
+    in property <bool> adaptive_sampling_build: false;
 
     // HDR environment map: `env_map_path` is the typed path field's live text;
     // `env_map_status`/`env_map_loaded` are Rust-driven read-outs.
@@ -157,6 +178,11 @@ export global SettingsModel {
     callback exposure_changed(float);
     // Carries the pill's clicked index directly (`Backdrop::from_index`).
     callback backdrop_changed(int);
+    // Carries the switch's new state; `gui::render::quality` stores and applies it.
+    callback stone_shadow_changed(bool);
+    // Carries the snapped percent (0-100); `settings::model::tray_reflection_from_percent`
+    // limits the reflectance Rust derives from it.
+    callback tray_reflection_changed(float);
     // Carries the snapped percent (0-100); `settings::model::clamp_surface_glare` limits
     // the fraction Rust derives from it.
     callback surface_glare_changed(float);
@@ -183,7 +209,7 @@ export global SettingsModel {
     // shows "Some advanced settings are in use" in Simple mode while this is true.
     pure callback advanced_in_use(int, int, int, int, bool, int, int) -> bool;
 
-    // Render & Output tab (lane R4): the persisted output defaults, as one line each. The Export
+    // Render & Output tab: the persisted output defaults, as one line each. The Export
     // and Tilt Video dialogs open with these values and write the ones they used back when a run
     // starts; Rust formats the lines (`gui::render::output_defaults`) and refreshes them on
     // every write-back and after a tab reset.

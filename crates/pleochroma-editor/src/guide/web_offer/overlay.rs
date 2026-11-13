@@ -12,7 +12,7 @@
 use crate::guide::{Goal, Group, Guide, GuideStep, Perform, default_perform};
 use std::sync::OnceLock;
 
-/// Highlight targets only the browser build has. A web guide may name them; a desktop guide may not.
+/// Highlight targets only the browser build has; a desktop guide may not name them.
 ///
 /// `schedule_cutting_sheet` and `schedule_diagram` are the Cutting Sheet (HTML) and Diagram (PNG)
 /// buttons of the Schedule tab: the nearest controls that can be outlined, since the File menu
@@ -192,7 +192,7 @@ impl StepOverlay {
         self
     }
 
-    /// Replaces the step's goal and its "waiting for" text; Next then does what the new goal implies.
+    /// Replaces the step's goal and its "waiting for" text; Next then does what the goal implies.
     #[must_use]
     pub fn goal(mut self, goal: Goal, waiting: impl Into<String>) -> Self {
         self.goal = Some(GoalFix {
@@ -569,7 +569,7 @@ mod tests {
         assert_eq!(step.check, "Z shows.");
         assert_eq!(step.why, "Because Z.");
         assert_eq!(step.intro, "Click the Edit tab.");
-        assert!(unmatched.is_empty());
+        assert_eq!(unmatched, [] as [String; 0]);
         assert_eq!(guide.steps[1].actions, ["Click D."]);
     }
 
@@ -579,7 +579,7 @@ mod tests {
             .edit(TextEdit::sub("Click", "Press"))
             .omit("Second");
         let (guide, unmatched) = adapt_with(&overlay);
-        assert!(unmatched.is_empty());
+        assert_eq!(unmatched, [] as [String; 0]);
         assert_eq!(guide.steps.len(), 1);
         assert_eq!(guide.steps[0].intro, "Press the Edit tab.");
         assert_eq!(guide.steps[0].actions, ["Press A.", "Press B.", "Press C."]);
@@ -593,7 +593,7 @@ mod tests {
                 .drop_line("Because A."),
         );
         let (guide, unmatched) = adapt_with(&overlay);
-        assert!(unmatched.is_empty());
+        assert_eq!(unmatched, [] as [String; 0]);
         assert_eq!(guide.steps[0].actions, ["Click A.", "Click C."]);
         assert_eq!(guide.steps[0].why, "");
     }
@@ -617,7 +617,7 @@ mod tests {
         let overlay = GuideOverlay::new("sample")
             .step(StepOverlay::of("Second").goal(Goal::ViewMode(3), "The Diagram view"));
         let (guide, unmatched) = adapt_with(&overlay);
-        assert!(unmatched.is_empty());
+        assert_eq!(unmatched, [] as [String; 0]);
         let step = &guide.steps[1];
         assert!(matches!(step.goal, Goal::ViewMode(3)));
         assert_eq!(step.waiting, "The Diagram view");

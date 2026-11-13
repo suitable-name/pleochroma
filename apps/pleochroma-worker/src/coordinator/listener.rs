@@ -52,7 +52,8 @@ pub fn spawn_worker_listener(config: WorkerListenerConfig) -> Result<SocketAddr,
         "pleochroma-worker serve: worker port on {bound} (`pleochroma-worker join {bound}`; worker certificates only)"
     );
     let config = Arc::new(config);
-    // Bare, not-yet-authenticated connections, like the viewer port's second limiter.
+    // Caps unauthenticated connections: the slot is taken at accept and held until
+    // `accept_worker` returns, independent of the post-TLS `config.limiter`.
     let handshake_limiter = ConnectionLimiter::new(
         config
             .max_connections
@@ -162,7 +163,7 @@ fn register_worker(
     let worker_id = registry.allocate_id();
     // A worker connection is not a viewer: nothing to advertise to it (`Welcome::new` sets
     // the zoning bit false). The coordinator still sends zones ahead of a zoned chunk: the
-    // worker runs the same protocol version and release, so it reads them (v36).
+    // worker runs the same protocol version and release, so it reads them.
     let welcome = Welcome::new(
         local_hello.build_hash,
         local_hello.source_hash,

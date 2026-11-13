@@ -8,11 +8,11 @@
 //! per-plane polygon rings both consumers read, so a caller that wants the mesh
 //! *and* the figures
 //! ([`build_solid_mesh_and_measure`](super::build_solid_mesh_and_measure))
-//! pays for one enumeration and one ring per plane instead of two and three.
+//! pays for one enumeration and one ring per plane.
 //!
-//! The call order and arguments of the shared steps are exactly those the two
-//! entry points always used, so every figure and every mesh position is
-//! bit-identical to the separate calls. An arrangement and its rings live for
+//! The shared steps run in the same order, with the same arguments, as the
+//! separate entry points, so every figure and mesh position is bit-identical to
+//! the separate calls. An arrangement and its rings live for
 //! the duration of one call; nothing here is cached across calls.
 
 use glam::DVec3;
@@ -57,7 +57,7 @@ pub(super) enum ArrangeFailure {
 ///
 /// The measures use this directly: on an unbounded arrangement they only need
 /// to know it failed, and skipping [`escaping_plane_indices`] keeps their
-/// failure path as cheap as it always was.
+/// failure path cheap.
 pub(super) fn try_arrange(planes: &[(DVec3, f64)]) -> Result<Arrangement, ArrangeFailure> {
     let deduped = dedup_planes(planes);
     let origin = dedup_origin_indices(planes, &deduped);
@@ -114,7 +114,7 @@ pub(super) fn face_rings(arr: &Arrangement) -> Vec<FaceRing> {
 
 /// The divergence-theorem volume `sum(m * area / 3)` over the planes, in
 /// normalised units, from rings already built. Summed in plane order with
-/// `Iterator::sum`, the same expression the separate entry points always used.
+/// `Iterator::sum`, so the result matches the separate entry points bit for bit.
 pub(super) fn volume_from_rings(arr: &Arrangement, rings: &[FaceRing]) -> f64 {
     arr.deduped
         .iter()

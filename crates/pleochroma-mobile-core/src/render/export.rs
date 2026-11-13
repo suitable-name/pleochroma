@@ -55,7 +55,7 @@ pub struct ExportJob {
 }
 
 impl ExportJob {
-    /// A job over `scene` (already built at `width` x `height`).
+    /// A job over `scene`, which is built only when the job runs.
     #[expect(
         clippy::too_many_arguments,
         reason = "the snapshot of one export: scene, its material recipe, lighting map, sample plan, thread plan, compute budget, backend choice, GPU probe and remote endpoint; a bag struct would only rename them"
@@ -134,8 +134,9 @@ impl ExportJob {
         self.remote.is_some()
     }
 
-    /// Hands the picture to the endpoint as a durable server job instead of waiting for it:
-    /// the server stores the scene, renders it on its own schedule and keeps the PNG, so the
+    /// Hands the export to the endpoint as a durable server job instead of waiting for it.
+    ///
+    /// The server stores the scene, renders it on its own schedule and keeps the PNG, so the
     /// phone may disconnect, sleep or be closed and fetch it later (`remote::jobs`). Blocks
     /// for the upload only.
     ///
@@ -243,9 +244,11 @@ impl ExportJob {
         encode_png_with_icc(&rgba, self.width, self.height, self.color_space)
     }
 
-    /// Traces the picture and encodes it. Blocks; run it on a thread of its own. It uses
-    /// the render thread count and reports the fraction done (0.0 to 1.0) after every pass.
-    /// Setting `cancel` ends it within a fraction of a second.
+    /// Traces the picture and encodes it as a PNG.
+    ///
+    /// Blocks; run it on a thread of its own. It uses the render thread count, reports the
+    /// fraction done (0.0 to 1.0) after every pass, and setting `cancel` ends it within a
+    /// fraction of a second.
     ///
     /// # Errors
     ///

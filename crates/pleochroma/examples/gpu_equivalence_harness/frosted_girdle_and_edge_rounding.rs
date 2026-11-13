@@ -23,13 +23,10 @@ fn report_furnace_frosted_girdle(ctx: &GpuContext) -> bool {
          energy-conserving) ... "
     );
     let result = estimator_check::run_furnace_frosted_girdle(ctx);
-    // A WIDER relative-error-vs-analytic-target tolerance than the polished furnace
-    // anchor -- see `FurnaceResult::passed_frosted_girdle`'s and
-    // `FROSTED_FURNACE_CONVERGENCE_TOLERANCE`'s doc comments for why: a frosted facet's
-    // diffuse scattering interacts with Russian Roulette's rescaling to produce a
-    // heavier-tailed estimator than the polished furnace's, converging to the analytic
-    // target more slowly at a practical sample budget -- identically on CPU and GPU
-    // (the z-score gate below stays tight and confirms that).
+    // Wider relative-error tolerance than the polished furnace anchor: a frosted facet's
+    // diffuse scattering makes the estimator heavier-tailed under Russian roulette, so it
+    // converges more slowly. See `FurnaceResult::passed_frosted_girdle` and
+    // `FROSTED_FURNACE_CONVERGENCE_TOLERANCE`. The z-score gate below stays tight.
     let passed = result.passed_frosted_girdle();
     println!("{}", if passed { "PASS" } else { "FAIL" });
     println!(
@@ -59,8 +56,8 @@ fn report_furnace_frosted_girdle(ctx: &GpuContext) -> bool {
     passed
 }
 
-/// Every check exercising the frosted girdle finish port. Pulled out of `main`
-/// for the same function-length reason as [`run_phase2_checks`]/[`run_phase3_checks`].
+/// Every check exercising the frosted girdle finish port. Split out of `main` to keep it
+/// under clippy's function-length lint.
 pub fn run_task2_frosted_girdle_checks(ctx: &GpuContext) -> bool {
     println!();
     println!("== GPU port: frosted (bruted) girdle finish ==");
@@ -88,10 +85,8 @@ pub fn run_task2_frosted_girdle_checks(ctx: &GpuContext) -> bool {
 // GPU port: facet edge rounding (shading-normal perturbation).
 // ---------------------------------------------------------------------------------
 
-/// Edge rounding, Tier 2: the SAME energy-conservation furnace anchor as
-/// [`report_furnace_anchor_v2`], but with a nonzero
-/// `edge_rounding_radius` -- see [`estimator_check::run_furnace_edge_rounding`]'s doc
-/// comment.
+/// Edge rounding, Tier 2: the energy-conservation furnace anchor with a nonzero
+/// `edge_rounding_radius`; see [`estimator_check::run_furnace_edge_rounding`].
 fn report_furnace_edge_rounding(ctx: &GpuContext) -> bool {
     print!(
         "[Furnace, edge rounding] furnace anchor (rounded meet edges, still \
@@ -156,9 +151,8 @@ fn report_shading_normal_check(ctx: &GpuContext) -> bool {
     passed
 }
 
-/// Edge rounding: every check exercising the facet edge-rounding port. Pulled
-/// out of `main` for the same function-length reason as
-/// [`run_phase2_checks`]/[`run_phase3_checks`].
+/// Edge rounding: every check exercising the facet edge-rounding port. Split out of `main`
+/// to keep it under clippy's function-length lint.
 pub fn run_task2_edge_rounding_checks(ctx: &GpuContext) -> bool {
     println!();
     println!("== GPU port: facet edge rounding ==");

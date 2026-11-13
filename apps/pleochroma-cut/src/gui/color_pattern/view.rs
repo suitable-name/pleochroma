@@ -1,28 +1,34 @@
 //! Pushes the session into the Color Pattern window's `ColorPatternModel`.
 //!
-//! Everything the window shows comes from here; it holds only what is typed. [`present`] sets every
-//! property from the session, so a handler changes the session and calls it once. The preview's
-//! picture, busy flag and handles are set by `preview.rs`.
+//! Everything the window shows comes from here; it holds only what is typed. [`present`] sets
+//! every property from the session, so a handler changes the session and calls it once. The
+//! stage's pictures, the render state and the handles are set by `preview.rs`, the picker's values
+//! by `picker.rs` and the gallery's tiles by `gallery.rs`.
+//!
+//! The layer list shows the top layer first and the base last, the mirror of the stored order
+//! (`order.rs`); `selected_row` and every row index the window sends are list rows.
 
 use super::{
     colors::{ZoneSwatch, pattern_swatches},
-    form::{form_hint, form_options, kind_of as color_kind_of},
+    form::{is_legacy, rank_text, tile_specs},
+    gallery::typical_section,
     model::{
         ADD_ZONE_HINT, axis_labels, f32_of, kind_of, param_specs, shape_label, size_spec,
-        softness_to_slider, tilt_turn_deg, zone_summary, zone_title,
+        softness_to_slider, subtitle, tilt_turn_deg, zone_summary, zone_title,
     },
-    presets::menu_labels,
-    session::{PREVIEW_NOTE, Session},
+    order::{flip, stored_to_row},
+    session::Session,
     variants::variant_menu,
 };
 use crate::{
-    ColorPatternModel, ColorPatternWindow, PatternParamRow, PatternZoneRow,
+    ColorPatternModel, ColorPatternWindow, PatternColorTile, PatternParamRow, PatternZoneRow,
     gui::rough_colour::wizard::zone_rows::ShapeKind,
 };
-use pleochroma_cut_core::material::pattern::{
-    EXACT_COLOR_KEY, MAX_PATTERN_ZONES, PatternColor, TemplateId, typical_patterns,
-};
+use pleochroma_cut_core::material::pattern::{MAX_PATTERN_ZONES, PatternColor};
 use slint::{Color, ComponentHandle, ModelRc, SharedString, VecModel};
+
+/// The window is `narrow` below this width, logical pixels.
+const NARROW_BELOW: f64 = 1060.0;
 
 /// The model of a list of texts.
 fn strings<S: AsRef<str>>(items: impl IntoIterator<Item = S>) -> ModelRc<SharedString> {
@@ -39,45 +45,42 @@ const fn paint(rgb: [u8; 3]) -> Color {
     Color::from_rgb_u8(rgb[0], rgb[1], rgb[2])
 }
 
-/// The label of the row of typical patterns ("Typical for Sapphire:"); empty when the species
-/// has none.
-fn typical_title(species: &str, none: bool) -> String {
-    if none {
-        String::new()
-    } else {
-        format!("Typical for {}:", species.trim())
-    }
+/// Whether a window `width_px` physical pixels wide at `scale` is narrow (below 1060 logical
+/// pixels). A window that has no size yet is not.
+pub(super) fn is_narrow(width_px: u32, scale: f32) -> bool {
+    width_px > 0 && f64::from(width_px) / f64::from(scale.max(0.1)) < NARROW_BELOW
 }
 
-/// The sentence under the Variant menu of a zone holding `color`: what the copy means; empty for
-/// a picked color.
-fn variant_hint(session: &Session, color: &PatternColor) -> String {
-    let PatternColor::Variant { key, .. } = color else {
-        return String::new();
-    };
-    if key == EXACT_COLOR_KEY {
-        return "This is the color the stone has, kept exactly. Pick a variant to replace it, or Custom to pick a color.".to_owned();
-    }
-    let Some(listed) = session.variants.iter().find(|variant| variant.key == *key) else {
-        return "This variant is not listed for this material any more. The zone keeps its own copy."
-            .to_owned();
-    };
-    let copy = "The zone keeps its own copy of this variant, so it does not change when the variant is edited later.";
-    // An estimated built-in variant says where its numbers come from.
-    super::variants::estimated_line(listed).map_or_else(
-        || copy.to_owned(),
-        |estimated| format!("{copy} {estimated}"),
-    )
+/// Whether `window` is narrow right now.
+pub(super) fn window_narrow(window: &ColorPatternWindow) -> bool {
+    is_narrow(window.window().size().width, window.window().scale_factor())
 }
 
-/// The rows of the zone list.
+/// The position of the shape of `zone` among `ShapeKind::ALL`; -1 for the base and for a shape
+/// the editor has no icon for.
+fn shape_icon(index: usize, zone: &pleochroma_cut_core::material::pattern::PatternZone) -> i32 {
+    if index == 0 {
+        return -1;
+    }
+    kind_of(&zone.shape)
+        .and_then(|kind| {
+            ShapeKind::ALL
+                .iter()
+                .position(|candidate| *candidate == kind)
+        })
+        .and_then(|at| i32::try_from(at).ok())
+        .unwrap_or(-1)
+}
+
+/// The rows of the layer list: the top layer first, the base last.
 fn zone_rows(session: &Session, swatches: &[ZoneSwatch]) -> Vec<PatternZoneRow> {
     let pattern = &session.pattern;
     let selected = session.selected();
-    std::iter::once(&pattern.base)
-        .chain(&pattern.zones)
-        .enumerate()
-        .map(|(index, zone)| {
+    let zones = pattern.zones.len();
+    (0..=zones)
+        .map(|row| {
+            let index = flip(row, zones);
+            let zone = pattern.zone(index).unwrap_or(&pattern.base);
             let swatch = swatches
                 .get(index)
                 .copied()
@@ -89,8 +92,12 @@ fn zone_rows(session: &Session, swatches: &[ZoneSwatch]) -> Vec<PatternZoneRow> 
                 summary: zone_summary(index, zone, pattern.relative_to_stone).into(),
                 swatch: paint(swatch.primary),
                 swatch_across: paint(swatch.across),
+                swatch_mid: paint(swatch.beta),
                 dichroic: swatch.dichroic,
                 selected: index == selected,
+                hidden: session.hidden.contains(index),
+                shape_icon: shape_icon(index, zone),
+                is_base: index == 0,
             }
         })
         .collect()
@@ -125,69 +132,63 @@ fn param_rows(session: &Session) -> Vec<PatternParamRow> {
     .collect()
 }
 
-/// The header: title, mode flags and what the window may offer.
-fn present_header(model: &ColorPatternModel<'_>, session: &Session, advanced: bool) {
-    model.set_title(format!("Color Pattern \u{2014} {}", session.material_name).into());
+/// The header: title, subtitle, the swatch chip, mode flags and what the window may offer.
+fn present_header(
+    model: &ColorPatternModel<'_>,
+    window: &ColorPatternWindow,
+    session: &Session,
+    swatches: &[ZoneSwatch],
+    advanced: bool,
+) {
+    // The bare name: the window adds "Color Pattern \u{2014}" itself.
+    model.set_title(session.material_name.as_str().into());
+    model.set_subtitle(subtitle(&session.pattern).into());
+    // The chip: the base color and the first zone's.
+    let base = swatches.first().map_or([128; 3], |swatch| swatch.blend);
+    let first = swatches.get(1).map_or(base, |swatch| swatch.blend);
+    model.set_header_along(paint(base));
+    model.set_header_across(paint(first));
     model.set_show_advanced(advanced);
     model.set_dirty(session.dirty());
     model.set_solving_colors(session.solving);
     model.set_confirm_discard(session.confirm_discard);
-    model.set_preset_naming(session.naming_preset);
-    let is_stone = session.stone_apply.is_some();
-    model.set_stone_target(is_stone);
+    model.set_narrow(window_narrow(window));
+    model.set_stone_target(session.stone_apply.is_some());
     model.set_targets_design(session.targets_design);
     model.set_design_preview_available(session.preview_design.is_some());
-    model.set_picker_open(is_stone && session.pending_pick.is_some());
 }
 
-/// The templates, the stone's typical patterns, the presets and the preview's mode (the picture
-/// itself is `preview.rs`'s).
-fn present_templates_and_preview(model: &ColorPatternModel<'_>, session: &Session) {
-    model.set_template_labels(strings(TemplateId::ALL.iter().map(|id| id.label())));
-    let typical = typical_patterns(&session.base_material.name);
-    model.set_typical_title(typical_title(&session.base_material.name, typical.is_empty()).into());
-    model.set_typical_labels(strings(typical.iter().map(|entry| entry.label)));
-    model.set_preset_labels(strings(menu_labels(&session.saved_presets)));
-
-    model.set_preview_mode(session.preview_mode);
+/// The gallery's state (its tile lists are `gallery.rs`'s) and the stage's view and hint.
+fn present_gallery_and_stage(model: &ColorPatternModel<'_>, session: &Session) {
+    model.set_gallery_open(session.gallery_open);
+    model.set_preset_naming(session.naming_preset);
+    model.set_typical_section(typical_section(&session.base_material.name).into());
+    model.set_view(session.view);
     model.set_slice_pos(session.slice_pos);
-    let note = session.import_note.as_ref().map_or_else(
-        || PREVIEW_NOTE.to_owned(),
-        |note| format!("{note} {PREVIEW_NOTE}"),
-    );
-    model.set_preview_note(note.into());
+    model.set_render_hint(session.render_hint().into());
 }
 
-/// The zone list and the buttons that change it.
-fn present_zone_list(model: &ColorPatternModel<'_>, session: &Session, swatches: &[ZoneSwatch]) {
+/// The layer list and the buttons that change it.
+fn present_layers(model: &ColorPatternModel<'_>, session: &Session, swatches: &[ZoneSwatch]) {
     let pattern = &session.pattern;
-    let selected = session.selected();
+    let zones = pattern.zones.len();
     model.set_zone_rows(ModelRc::new(VecModel::from(zone_rows(session, swatches))));
-    model.set_selected_zone(i32::try_from(selected).unwrap_or(0));
-    let can_add = pattern.zones.len() < MAX_PATTERN_ZONES;
+    let row = stored_to_row(session.selected(), zones);
+    model.set_selected_row(i32::try_from(row).unwrap_or(0));
+    let can_add = zones < MAX_PATTERN_ZONES;
     model.set_can_add_zone(can_add);
     let add_hint = if can_add { "" } else { ADD_ZONE_HINT };
     model.set_add_zone_hint(add_hint.into());
-    model.set_can_edit_zone(selected > 0);
 }
 
-/// The name, shape and size controls of the selected zone.
+/// The shape and size controls of the selected zone.
 fn present_zone_geometry(model: &ColorPatternModel<'_>, session: &Session) {
     let pattern = &session.pattern;
     let relative = pattern.relative_to_stone;
     let selected = session.selected();
     let zone = pattern.zone(selected).unwrap_or(&pattern.base);
-    model.set_zone_name(zone.name.as_str().into());
     model.set_shape_options(strings(ShapeKind::ALL.iter().map(|kind| kind.name())));
-    let shape_index = kind_of(&zone.shape)
-        .and_then(|kind| {
-            ShapeKind::ALL
-                .iter()
-                .position(|candidate| *candidate == kind)
-        })
-        .and_then(|at| i32::try_from(at).ok())
-        .unwrap_or(0);
-    model.set_shape_index(shape_index);
+    model.set_shape_index(shape_icon(selected, zone).max(0));
     model.set_shape_enabled(selected > 0);
     model.set_param_rows(ModelRc::new(VecModel::from(param_rows(session))));
     if let Some(size) = (selected > 0)
@@ -206,7 +207,21 @@ fn present_zone_geometry(model: &ColorPatternModel<'_>, session: &Session) {
     }
 }
 
-/// The color of the selected zone: its form, its variant and its swatches.
+/// The color tiles of the selected zone, by what its color has.
+fn color_tiles(color: &PatternColor, swatch: ZoneSwatch) -> Vec<PatternColorTile> {
+    let from_variant = matches!(color, PatternColor::Variant { .. });
+    tile_specs(color)
+        .into_iter()
+        .map(|spec| PatternColorTile {
+            caption: spec.caption.into(),
+            color: paint(swatch.part(spec.part)),
+            slot: spec.slot,
+            from_variant,
+        })
+        .collect()
+}
+
+/// The color of the selected zone: its tiles, its variant and the legacy notice.
 fn present_zone_color(
     model: &ColorPatternModel<'_>,
     session: &Session,
@@ -217,32 +232,21 @@ fn present_zone_color(
         .zone(session.selected())
         .unwrap_or(&pattern.base)
         .color;
-    model.set_color_kind(color_kind_of(color));
-    // A picked color: the forms the material's rank offers, and the one the zone has.
-    let options = form_options(session.rank, color);
-    model.set_color_form_options(strings(
-        options.iter().flat_map(|options| options.labels.iter()),
+    let swatch = swatch.unwrap_or(ZoneSwatch::uniform([128; 3]));
+    model.set_color_tiles(ModelRc::new(VecModel::from(color_tiles(color, swatch))));
+    model.set_rank_text(rank_text(session.rank).into());
+    model.set_legacy_notice(is_legacy(session.rank, color));
+    // "Custom color" first, then the material's variants; the entry the zone has is selected.
+    let (labels, index) = variant_menu(&session.variants, color);
+    model.set_variant_labels(strings(
+        std::iter::once("Custom color".to_owned()).chain(labels),
     ));
-    model.set_color_form_index(
-        options
-            .as_ref()
-            .and_then(|options| i32::try_from(options.index).ok())
-            .unwrap_or(0),
-    );
-    model.set_color_form_hint(form_hint(session.rank, color).into());
-    // A variant of the material.
-    let (variant_labels, variant_index) = variant_menu(&session.variants, color);
-    model.set_variants_available(!session.variants.is_empty() || !color.is_custom());
-    model.set_color_source_index(i32::from(!color.is_custom()));
-    model.set_variant_labels(strings(variant_labels));
-    model.set_variant_index(variant_index);
-    model.set_variant_hint(variant_hint(session, color).into());
-    if let Some(swatch) = swatch {
-        model.set_single_swatch(paint(swatch.blend));
-        model.set_along_swatch(paint(swatch.primary));
-        model.set_beta_swatch(paint(swatch.beta));
-        model.set_across_swatch(paint(swatch.across));
-    }
+    model.set_variant_index(if index < 0 { 0 } else { index + 1 });
+    let caption = match color {
+        PatternColor::Variant { label, .. } => format!("From {label}"),
+        _ => String::new(),
+    };
+    model.set_variant_caption(caption.into());
 }
 
 /// The pattern's own settings: axis, size rule and softness.
@@ -263,20 +267,38 @@ fn present_pattern_settings(model: &ColorPatternModel<'_>, session: &Session) {
 }
 
 /// Sets every property of `window`'s `ColorPatternModel` that follows from `session`.
-/// `advanced` is whether the Advanced controls are shown (`GuideModel.shows_advanced()` of the main
-/// window).
+/// `advanced` is whether the Advanced controls are shown (`GuideModel.shows_advanced()` of the
+/// main window).
 pub(super) fn present(window: &ColorPatternWindow, session: &Session, advanced: bool) {
     let model = window.global::<ColorPatternModel>();
-    present_header(&model, session, advanced);
-    present_templates_and_preview(&model, session);
     let swatches = pattern_swatches(&session.pattern, &session.swatch_stone());
-    present_zone_list(&model, session, &swatches);
+    present_header(&model, window, session, &swatches, advanced);
+    present_gallery_and_stage(&model, session);
+    present_layers(&model, session, &swatches);
     present_zone_geometry(&model, session);
     present_zone_color(&model, session, swatches.get(session.selected()).copied());
     present_pattern_settings(&model, session);
+    model.set_picker_open(session.picker.is_some());
 
     // Validation and history.
     model.set_message(session.message().into());
     model.set_can_undo(session.undo.can_undo());
     model.set_can_redo(session.undo.can_redo());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_window_below_1060_logical_pixels_is_narrow() {
+        assert!(is_narrow(960, 1.0));
+        assert!(!is_narrow(1120, 1.0));
+        assert!(!is_narrow(1060, 1.0));
+        // At a scale of 2 the window is half as wide in logical pixels.
+        assert!(is_narrow(2000, 2.0));
+        assert!(!is_narrow(2200, 2.0));
+        // A window with no size yet is not narrow.
+        assert!(!is_narrow(0, 1.0));
+    }
 }

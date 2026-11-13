@@ -114,7 +114,6 @@ component TiltChart inherits Rectangle {
             stroke-width: 2.5px;
         }
 
-        // The cursor.
         Rectangle {
             x: root.scrub * parent.width - 1px;
             width: 2px;
@@ -137,7 +136,7 @@ component TiltChart inherits Rectangle {
     }
 }
 
-// A colored swatch and a name, for the legend and the readout.
+// A colored dot for the readout lines.
 component Swatch inherits Rectangle {
     in property <color> tone;
 

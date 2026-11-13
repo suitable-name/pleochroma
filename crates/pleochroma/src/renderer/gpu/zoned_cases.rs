@@ -4,10 +4,10 @@
 //! (`estimator_check::run_image_comparison_zoned`), the GPU harness and the `gpu_backend`
 //! tests, so each of them exercises the same shapes.
 //!
-//! Every stone (except [`zoned_opal_material`]) is a colourless diamond whose absorption is replaced by zones, sized to
-//! [`ZONED_PATH_SCALE`] millimetres per model unit (a round brilliant of model girdle radius
-//! about 1 is then about 6 mm wide). Zone geometry is in stone millimetres, origin at the model
-//! origin, the stone's axis along +Y.
+//! Every stone (except [`zoned_opal_material`]) is a colourless diamond whose absorption is
+//! replaced by zones. Each is sized to [`ZONED_PATH_SCALE`] millimetres per model unit, so a
+//! round brilliant of model girdle radius about 1 is about 6 mm wide. Zone geometry is in stone
+//! millimetres, with the origin at the model origin and the stone's axis along +Y.
 
 use glam::{DVec3, Vec3};
 
@@ -24,7 +24,7 @@ pub const ZONED_PATH_SCALE: f32 = 3.0;
 /// One zoned test stone.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ZonedImageCase {
-    /// Two halves split by the plane `x = 0`: absorbs red / absorbs blue. Exercises the half space.
+    /// Halves split by the plane `x = 0`: red-absorbing on one side, blue on the other.
     Bicolour,
     /// Watermelon: a trigonal prism tube (axis +Y) inside a base zone, capped by a half space.
     /// Exercises the prism and a second override.
@@ -100,8 +100,8 @@ impl ZonedImageCase {
 }
 
 /// The diamond with a uniaxial trigonal optical description: crystal system Trigonal,
-/// birefringence 0.02 and the c axis along +Y (the stone axis), so the tracers' host test
-/// (`crystal_system != Cubic && |birefringence| > 1e-4`) is an anisotropic host.
+/// birefringence 0.02, and the c axis along +Y (the stone axis). The host therefore counts as
+/// anisotropic (`crystal_system != Cubic` and `|birefringence| > 1e-4`).
 fn trigonal_host() -> GemMaterial {
     let mut host = GemMaterial::diamond();
     host.crystal_system = CrystalSystem::Trigonal;
@@ -161,10 +161,9 @@ fn bicolour(softness_mm: f32) -> ZonedAbsorption {
 
 /// The bicolour fixture written the other way round.
 ///
-/// The BLUE band is the base and the RED band is the override on the `-X` half space. Physically
-/// the same stone as
-/// [`ZonedImageCase::Bicolour`] (red for `x < 0`, blue for `x > 0`), so a renderer that handles
-/// zone-crossing segments consistently renders both identically.
+/// The BLUE band is the base and the RED band is the override on the `-X` half space. This is
+/// the same stone as [`ZonedImageCase::Bicolour`] (red for `x < 0`, blue for `x > 0`), so a
+/// renderer that handles zone crossings consistently renders both identically.
 #[must_use]
 pub fn mirrored_bicolour_material() -> GemMaterial {
     GemMaterial::diamond()
@@ -184,9 +183,10 @@ pub fn mirrored_bicolour_material() -> GemMaterial {
 
 /// Precious Opal (White) with the bicolour zones and its default play-of-color structure.
 ///
-/// A zoned host that also holds a Bragg domain structure, the stone `bounce_scatter_sample_zoned_bragg`
-/// renders. Deliberately not in [`ZonedImageCase::ALL`]: that list drives the per-segment echo
-/// baselines and the mean-relative-tolerance loop, and a Bragg stone's noise is another question.
+/// A zoned host that also holds a Bragg domain structure, rendered by
+/// `bounce_scatter_sample_zoned_bragg`. Deliberately not in [`ZonedImageCase::ALL`]: that
+/// list drives the per-segment echo baselines and the mean-relative-tolerance loop, and a
+/// Bragg stone's noise is another question.
 ///
 /// # Panics
 ///

@@ -1,18 +1,13 @@
-//! `shading_normal_near_edge` GPU
-//! self-test.
+//! `shading_normal_near_edge` GPU self-test.
 //!
-//! Driven by `shaders/shading_normal.wgsl`, a standalone Tier 2 kernel file with its
-//! OWN `planes` binding (bound to the SAME real 57-facet Standard Round Brilliant
-//! plane set `polyhedron_check` already uses), mirroring that module's own precedent
-//! for a function whose only extra input beyond scalars/vectors is the polyhedron's
-//! plane list itself.
+//! Driven by `shaders/shading_normal.wgsl`, a standalone kernel with its own `planes` binding,
+//! bound to the same 57-facet Standard Round Brilliant plane set that `polyhedron_check` uses.
 //!
-//! Every case's `(hit_point, hit_facet_idx, hit_normal)` triple comes from actually
-//! calling the REAL CPU `optics::raytracer::intersect_polyhedron` against real rays
-//! through the real geometry (never hand-picked synthetic points), crossed with a
-//! sweep of `rounding_radius` values spanning "smaller than any real gap" through
-//! "large enough to blend deep into most facets" -- so the case bank exercises the
-//! full flat-interior / partial-blend / at-the-edge regime this function has.
+//! Every case's `(hit_point, hit_facet_idx, hit_normal)` triple comes from the CPU
+//! `optics::raytracer::intersect_polyhedron` on real rays through the real geometry, crossed with
+//! a sweep of `rounding_radius` values from smaller than any real gap up to large enough to blend
+//! deep into most facets. The case bank thus covers the flat-interior, partial-blend and
+//! at-the-edge regimes.
 
 use crate::{
     geometry::{GpuFacetPlane, cuts::StandardGemCuts},
@@ -40,11 +35,8 @@ const _: () = assert!(size_of::<ShadingNormalCase>() == 32);
 
 /// ULP budget for `shading_normal_near_edge`.
 ///
-/// A per-plane loop over up to 57 planes (each a dot product and a subtraction), a
-/// division, a `clamp`, a `fma`-based smoothstep, and two `normalize`s -- comparable
-/// composite shape to `polyhedron_check::HIT_ULP_BUDGET` (512) for a similarly-sized
-/// per-plane loop, with extra headroom for the additional normalize/blend arithmetic on
-/// top.
+/// The up-to-57-plane loop is comparable to the one behind `polyhedron_check::HIT_ULP_BUDGET`
+/// (512). The extra `normalize` and smoothstep blend arithmetic on top gets the doubled budget.
 pub const SHADING_NORMAL_ULP_BUDGET: u32 = 1024;
 /// Absolute-difference floor, per `crate::renderer::gpu::ulp::within_tolerance`'s doc
 /// comment.
@@ -53,11 +45,10 @@ pub const SHADING_NORMAL_ULP_BUDGET: u32 = 1024;
 /// facet orientations, where ULP distance alone is a poor metric.
 pub const SHADING_NORMAL_ABS_FLOOR: f32 = 1e-5;
 
-/// 89 well-spaced directions on the unit sphere (a simple Fibonacci-sphere lattice).
+/// `n` well-spaced directions on the unit sphere (a Fibonacci-sphere lattice).
 ///
-/// Mirrors `polyhedron_check::fibonacci_sphere`'s identical construction (duplicated
-/// here rather than shared, matching that module's own `pub(crate)`-free, self-contained
-/// style -- this is plain deterministic case-generation data, not physics under test).
+/// The same construction as `polyhedron_check::fibonacci_sphere`, duplicated so that each check
+/// module stays self-contained.
 fn fibonacci_sphere(n: usize) -> Vec<Vec3> {
     let golden_angle = std::f32::consts::PI * (3.0 - 5.0_f32.sqrt());
     (0..n)
@@ -208,6 +199,8 @@ pub fn run(ctx: &crate::renderer::gpu::GpuContext) -> ShadingNormalResult {
             ) {
                 if ulp > SHADING_NORMAL_ULP_BUDGET {
                     exempted += 1;
+                } else {
+                    max_genuine_ulp = max_genuine_ulp.max(ulp);
                 }
                 continue;
             }

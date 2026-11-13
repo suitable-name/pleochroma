@@ -6,17 +6,17 @@
 //! <id>.png          the result, once the job is done
 //! ```
 //!
-//! `<id>` is the 32-hex job id. The job file is exactly what the desktop render queue
-//! stores for a still picture, so the same validation (`RenderJobFile::validate`) and the
-//! same states (`pleochroma_render_jobs::JobState`) apply; only the owner and the progress
-//! are new, and they live in the state file. The state file is the commit point of a
-//! submission: a job file without one (a crash between the two writes) is removed at start-up.
+//! `<id>` is the 32-hex job id. The job file is the desktop render queue's still-picture job,
+//! so the same validation (`RenderJobFile::validate`) and the same states
+//! (`pleochroma_render_jobs::JobState`) apply. The owner and progress live in the state file,
+//! the commit point of a submission: a job file without one (a crash between the two writes)
+//! is removed at start-up.
 //!
 //! # Recovery
 //!
-//! `open` reads every state file. A job that was `Running` when the server stopped goes back
-//! to `Queued` from sample 0 with an explanatory note (a render is deterministic, so the
-//! picture is the same). `Done` jobs whose PNG is missing become `Failed`. Terminal states are
+//! `open` reads every state file. A job that was `Running` or `Paused` when the server stopped
+//! goes back to `Queued` from sample 0 with an explanatory note (a render is deterministic, so
+//! the picture is the same). `Done` jobs whose PNG is missing become `Failed`. Terminal states are
 //! left as they are. A job whose files do not parse is deleted with a warning, not served.
 //!
 //! # Retention and limits
@@ -52,12 +52,11 @@ use std::{
 const STATE_SUFFIX: &str = ".state.json";
 /// The suffix of a job's result.
 const RESULT_SUFFIX: &str = ".png";
-/// The state file format this build writes. 2: the backdrop is the lit tray (nothing in the
-/// state file changed shape; an old worker refuses the store instead of replaying it wrongly).
+/// The state file format this build writes. Format 2 marks the lit-tray backdrop, so older
+/// builds refuse the store rather than replay it with the wrong backdrop.
 const STATE_FORMAT: u64 = 2;
-/// The oldest state format still read. A format-1 job was frozen under the card rule: its job
-/// file has no `scene_backdrop_model` marker, so `load_job` converts its card level (`0.23`,
-/// `8.0`) to the tray of the file's own preset and pose.
+/// The oldest state format still read. Its job file has no `scene_backdrop_model` marker, so
+/// reading it (`from_text`) converts the card backdrop level to the tray.
 const OLDEST_STATE_FORMAT: u64 = 1;
 
 /// The note left on a job a restart put back in the queue.
@@ -138,7 +137,7 @@ struct Inner {
     running: Option<(JobId, Arc<AtomicBool>)>,
 }
 
-/// The store: see the module doc comment.
+/// The durable job store (see the module docs).
 pub struct JobStore {
     dir: PathBuf,
     limits: Limits,
@@ -238,8 +237,7 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 }
 
 impl JobStore {
-    /// Opens (creating it if needed) the store at `dir` and recovers what a previous run left;
-    /// see the module doc comment.
+    /// Opens (creating it if needed) the store at `dir` and recovers what a previous run left.
     ///
     /// # Errors
     ///
@@ -676,7 +674,7 @@ impl JobStore {
             inner.running = None;
         }
         let Some(record) = inner.records.get_mut(id) else {
-            // Deleted while it ran (cannot happen through the API, but never panic).
+            // Only reachable if the job was deleted while it ran; never panic here.
             let _ = fs::remove_file(self.dir.join(result_file_name(id)));
             return;
         };
@@ -767,9 +765,9 @@ fn job_file(id: &JobId, request: &JobSubmit, now: i64) -> Result<RenderJobFile, 
         path: format!("{}.hdr", hash_hex(&environment.content_hash)),
         sha256_hex: hash_hex(&environment.content_hash),
     });
-    Ok(RenderJobFile {
+    let mut job = RenderJobFile {
         engine: request.scene.engine,
-        format: pleochroma_render_jobs::format_for_engine(request.scene.engine),
+        format: 0,
         token: job_id_hex(id),
         label: request.label.clone(),
         created_at: now,
@@ -790,9 +788,13 @@ fn job_file(id: &JobId, request: &JobSubmit, now: i64) -> Result<RenderJobFile, 
             samples_per_pixel: request.samples,
             color_space,
             preset_label: String::new(),
+            accel: pleochroma::renderer::accel::RenderAccel::default(),
         }),
         optical_diagnostics: None,
-    })
+        zoning: None,
+    };
+    job.format = pleochroma_render_jobs::format_for(&job);
+    Ok(job)
 }
 
 #[cfg(test)]

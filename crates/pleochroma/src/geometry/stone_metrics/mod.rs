@@ -1,16 +1,14 @@
 //! Deterministic physical measurement of a faceted stone from its plane
 //! arrangement.
 //!
-//! [`super::meet_solver`]'s corpus work established that wrong mast
-//! configurations are *self-consistent*: every tier of a wrong solve is still
-//! vertex-incident, so nothing internal to the arrangement separates right from
+//! Wrong mast configurations are *self-consistent*: every tier of a wrong solve is
+//! still vertex-incident, so nothing inside the arrangement separates right from
 //! wrong. The proportions printed on a real diagram (`Vol/W^3`, `L/W`, `C/W`,
 //! `P/W`, `H/W`) are **external** constraints: a candidate configuration either
 //! reproduces them or it does not. [`measure_solid`] computes those same figures
 //! from a plane arrangement -- deterministically, in `f64`, with no convex-hull
-//! library. (Since 2026-09-28 [`super::brep`] no longer uses one either: it is
-//! built on this module's own [`vertices`] arrangement walk. The meet solver
-//! still must not depend on `brep`.)
+//! library. [`super::brep`] uses this module's [`vertices`] walk for the same
+//! reason; the meet solver must not depend on `brep`.
 //!
 //! The mechanism: enumerate the solid's vertices as feasible triple
 //! intersections of the planes (the same primitive `meet_solver` uses), then
@@ -18,9 +16,9 @@
 //! ordering them by angle. Volume comes from the divergence theorem
 //! (`V = (1/3) * sum over faces of offset * area`, exact for outward-oriented
 //! planes), heights from vertex `y` extents against the girdle band, and
-//! width/length from the girdle outline's `x`/`z` extents (both axis-aligned
-//! and rotating-caliper are computed; corpus measurement settled that the
-//! printed figures use the axis convention -- see [`ExternalProportions`]).
+//! width/length from the girdle outline's `x`/`z` extents (axis-aligned, and
+//! rotating-caliper as a cross-check; the printed figures use the axis convention,
+//! see [`ExternalProportions`]).
 //!
 //! Entry points: [`measure_solid`] / [`measure_solid_with_vertices`] for the figures,
 //! [`build_solid_mesh`] for the mesh, and [`build_solid_mesh_and_measure`] /
@@ -72,14 +70,12 @@ use super::girdle::GIRDLE_NORMAL_Y_EPSILON;
 ///
 /// Bit for bit equal to `(build_solid_mesh(planes), measure_solid(planes))`, but the
 /// plane dedup, the vertex enumeration (the expensive step) and each plane's face ring
-/// run once instead of twice and three times. The second element is `None` exactly
+/// run once. The second element is `None` exactly
 /// when [`measure_solid`] would return `None`.
 ///
 /// Use this wherever both are wanted for the same planes: optimizer candidate
 /// evaluation, result scoring, Retarget analysis. A caller that needs only one of the
 /// two should keep calling [`build_solid_mesh`] or [`measure_solid`].
-///
-/// Does not alter the measuring rule (no `SOLID_EXTENTS_VERSION` bump).
 #[must_use]
 pub fn build_solid_mesh_and_measure(
     planes: &[(glam::DVec3, f64)],
@@ -164,18 +160,11 @@ const VERTEX_DEDUP: f64 = 1e-6;
 
 /// `|normal.y|` at or below this means a vertical (girdle) plane.
 ///
-/// Purpose: classify `f32`-derived plane normals widened to `f64`, hence the
-/// `1e-3` noise floor; `meet_solver::classify_blocks` works on exact `f64`
-/// schedule angles (`1e-6`) and `meet_solver::names` picks its girdle tier by an
-/// 85 degree naming heuristic, so the three thresholds answer different questions.
+/// Classifies `f32`-derived normals widened to `f64`, hence the `1e-3` noise
+/// floor. The meet solver classifies exact `f64` schedule angles with `1e-6`.
 ///
-/// Shares [`super::girdle::GIRDLE_NORMAL_Y_EPSILON`] rather than defining its own
-/// separate threshold -- see that constant's doc comment for why a second,
-/// independently-tuned value here would be wrong: this module's planes carry the
-/// same f32-normalize rounding noise `girdle::is_girdle_plane`'s planes do, not the
-/// exact-angle precision `meet_solver::classify_blocks` operates on, so a threshold
-/// tuned for that exact-angle case could disagree with this one and classify a facet
-/// as girdle in one module but not the other.
+/// Shares [`super::girdle::GIRDLE_NORMAL_Y_EPSILON`]: this module's planes carry
+/// the same `f32` normalisation noise, so both must classify a facet alike.
 const GIRDLE_NY: f64 = GIRDLE_NORMAL_Y_EPSILON as f64;
 
 /// `normal.y` at or above this counts as a flat table facet: an outward
@@ -189,9 +178,8 @@ const TABLE_NY: f64 = 1.0 - 1e-6;
 /// vertex-arrangement geometry, and multiply their length/volume results back
 /// by it afterward -- [`EPS_FEAS`], [`EPS_FACE`], [`VERTEX_DEDUP`] and
 /// `BLANK_HALF_EXTENT` are all absolute constants tuned for masts of order 1,
-/// so a design authored at a very different absolute scale (see
-/// [`super::meet_solver`]'s sibling fix in `SolveContext::new`, same
-/// mechanism, same reasoning) would otherwise make them too tight or too
+/// so a design at a very different absolute scale would otherwise make them too
+/// tight or too
 /// loose. Non-finite or non-positive input (an empty plane list, or every
 /// offset exactly `0.0`) falls back to `1.0`, i.e. no normalisation.
 /// `scale == 1.0` (or already an exact power of two) makes this `1.0` exactly,

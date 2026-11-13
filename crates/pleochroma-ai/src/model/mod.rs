@@ -1,6 +1,7 @@
 //! Neural network architectures, policy heads, value estimators, and weight persistence.
 //!
-//! - [`actor_critic`]: the set-attention network with sensitivity, residual action, value and gain heads.
+//! - [`actor_critic`]: the set-attention network with sensitivity, residual action, value and
+//!   gain heads.
 //! - [`policy`]: the Gaussian policy distribution and the composed policy mean.
 //! - [`network`]: the layer primitives, [`weights`]: validation and bare-network JSON,
 //!   [`checkpoint`]: the schema-versioned training checkpoint, [`rng`]: the deterministic PRNG.

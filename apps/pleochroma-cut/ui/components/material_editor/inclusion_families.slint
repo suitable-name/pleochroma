@@ -26,16 +26,17 @@ export struct FamilyRow {
     forward: float,
 }
 
-// The state of the Inclusion Families section. It lives in this global: Rust fills `rows` when
-// the dialog's pre-fill is pushed and reads them when Save runs, and Rust owns every edit (the
-// callbacks below), so the same rules apply to the screen and to a test.
+// State of the Inclusion Families section. Rust fills `rows` when the dialog's pre-fill is pushed,
+// reads them on Save, and owns every edit (the callbacks below), so the screen and a test follow
+// the same rules.
 export global InclusionFamiliesModel {
     in-out property <[FamilyRow]> rows: [];
     // The most families a stone carries.
     out property <int> max_families: 4;
     callback add_family();
     callback remove_family(int);
-    // index, field (0 kind, 1 direction, 2 color, 3 turn, 4 tilt, 5 density, 6 cone, 7 forward), value.
+    // (row index, field, value). Fields: 0 kind, 1 direction, 2 color, 3 turn, 4 tilt,
+    // 5 density, 6 cone, 7 forward.
     callback edit_family(int, int, float);
     // Plain-sentence notes for the families (character index of the dialog's combo).
     pure callback notes([FamilyRow], int) -> string;

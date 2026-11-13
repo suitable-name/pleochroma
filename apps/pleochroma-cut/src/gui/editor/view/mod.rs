@@ -1,21 +1,15 @@
-//! Pushing [`EditorState`](super::state::EditorState) into `EditorView`/the shared
-//! viewport ([`refresh_editor_panel`]/`refresh_viewport`/[`refresh_all`]/
-//! [`refresh_editor_panel_stale`]), and the Deep Solve/Optimize hint and result-
-//! formatting helpers. See this group's own `mod.rs` doc comment for the "Solve on
-//! explicit action, not on every edit" reasoning [`refresh_editor_panel_stale`] exists
-//! to honour.
+//! Pushes [`EditorState`](super::state::EditorState) into the editor panels and the viewport.
 //!
-//! Split into sibling files by responsibility: [`panel`] (the "real solve" panel
-//! refresh and its `_from_solved` proportion/yield mirrors), [`panel_stale`] (the
-//! no-solve counterpart, plus the Deep Solve/Optimize availability pushes both
-//! paths share), [`inspector`] (the design-settings panel, the viewport material
-//! link, and the Tier tab's facet-chip row), [`viewport`] (feeding the shared GPU/
-//! solid-preview viewport, and the paint-first `refresh_all_now`/`refresh_all`
-//! entry points), [`solve_results`] (Deep Solve/Optimize availability hints and
-//! per-tier result tables), and [`optimize_apply`] (the Optimize result summary
-//! table, its ghost-preview candidate, and the weight-form parser). This file only
-//! re-declares the modules and re-exports what the rest of `gui::editor` reaches
-//! through `view::*`.
+//! Solving runs on an explicit action, not on every edit: [`refresh_editor_panel_stale`]
+//! shows an edited design without solving it.
+//!
+//! The submodules: [`panel`] (the solved panel and its proportion and yield texts),
+//! [`panel_stale`] (the unsolved counterpart and the Deep Solve and Optimize availability),
+//! [`inspector`] (the design settings, the viewport material link and the Tier tab's facet
+//! chips), [`viewport`] (the shared GPU and solid-preview viewport), [`solve_results`]
+//! (per-tier Deep Solve and Optimize tables) and [`optimize_apply`] (the Optimize summary,
+//! its ghost preview and the weight parser). This file re-exports what the rest of
+//! `gui::editor` reaches through `view::*`.
 
 mod design_label;
 mod inspector;
@@ -41,7 +35,7 @@ pub(in crate::gui::editor) use optimize_apply::{
     optimize_result_rows, result_row, submit_design_ghost_preview,
     try_build_optimize_preview_design,
 };
-// Only the identity pins read these two at their old path now.
+// Test-only paths to these helpers.
 #[cfg(test)]
 pub(in crate::gui::editor) use optimize_apply::{
     build_optimize_preview_design, optimize_status_text, parse_optimize_weights,
@@ -59,7 +53,6 @@ pub(in crate::gui::editor) use viewport::{
     refresh_all_now, submit_preview_replan, submit_preview_replan_chained,
     submit_preview_replan_for,
 };
-// `push_solved_preview` is the one push function `editor::apply_matching_preview_frame`
-// (this group's other public entry point) also needs -- `push_stale_content` stays
-// `pub(super)` in `panel_stale`, reachable only from within `view` itself.
+// `push_solved_preview` is also used by `editor::apply_matching_preview_frame`.
+// `push_stale_content` stays `pub(super)` in `panel_stale`.
 pub(in crate::gui::editor) use viewport::{push_late_findings, push_solved_preview};

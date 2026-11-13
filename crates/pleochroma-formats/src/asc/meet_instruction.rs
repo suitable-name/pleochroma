@@ -32,9 +32,9 @@ pub enum MeetInstruction {
     /// cuts made, before anything else exists to meet against, so its mast is a
     /// directly chosen/measured value rather than a meet-derived one.
     LevelGirdle,
-    /// `"Set girdle width"` / `"Set girdle thickness"` / `"Establish girdle
-    /// thickness"` / `"Set stone size"` -- an externally supplied scale choice, not
-    /// derivable from other facets.
+    /// `"Set girdle width"` / `"Set girdle thickness"` / `"Set girdle line"` /
+    /// `"Establish girdle thickness"` / `"Set stone size"` / `"Set table size"` -- an
+    /// externally supplied scale choice, not derivable from other facets.
     ScaleReference,
     /// Any other free-text note that doesn't match a recognized instruction verb
     /// (e.g. `"Cut to mast depth X."`, `"Or continuous girdle"`, a stray comment).
@@ -72,6 +72,7 @@ pub(super) fn parse_meet_instruction(notes: &str) -> Option<MeetInstruction> {
     }
     if lower.contains("set girdle")
         || lower.contains("set stone size")
+        || lower.contains("set table size")
         || lower.contains("girdle thickness")
         || lower.contains("girdle width")
         || lower.contains("establish girdle")
@@ -85,13 +86,10 @@ pub(super) fn parse_meet_instruction(notes: &str) -> Option<MeetInstruction> {
 /// preserved). Tolerant of both comma- and whitespace-separated lists, and strips
 /// stray leading/trailing punctuation from each name.
 ///
-/// Also drops lowercase English connector words ("Meet 2 and the culet" -> `["2",
-/// "culet"]`): measured against the corpus, these were 17% of every unresolved name
-/// token, and since a caller resolving a `Meet` instruction typically requires every
-/// listed name to resolve, one spurious "and" was silently sinking the whole tier.
-/// Case-sensitive and restricted to unambiguous, multi-letter connector words only --
-/// lowercase single-letter facet names are common here, so "a"/"an" are never
-/// filtered despite also being articles.
+/// Also drops lowercase English connector words ("Meet 2 and the culet" -> `["2", "culet"]`).
+/// A caller resolving a `Meet` instruction usually needs every listed name to resolve, so
+/// one stray "and" would fail the whole tier. Only multi-letter connectors are listed,
+/// since lowercase single-letter facet names are common; "a" and "an" are kept.
 fn extract_meet_names(text: &str) -> Vec<String> {
     // `text` is known (by the caller) to start with an ASCII case-insensitive match
     // of "meet", which is 4 ASCII bytes, so this slice is always on a char boundary.
@@ -104,9 +102,9 @@ fn extract_meet_names(text: &str) -> Vec<String> {
         .collect()
 }
 
-/// Lowercase-only English connector words that appear in hand-typed `"Meet ..."`
-/// prose but are never a facet name -- see [`extract_meet_names`]. Case-sensitive:
-/// an uppercase `"And"`/`"THE"` never occurs in the sampled corpus's connector usage.
+/// Lowercase English connector words that appear in hand-typed `"Meet ..."` prose but
+/// are never a facet name (see [`extract_meet_names`]). Case-sensitive, so capitalised
+/// words are kept.
 fn is_connector_word(token: &str) -> bool {
     matches!(token, "and" | "the" | "or")
 }

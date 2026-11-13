@@ -1,6 +1,7 @@
 //! Tests of the Burn twin: equivalence with the pure-Rust network, the composed mean, the heads,
-//! the conversions both ways and the padding invariance. The trainers' tests live with the
-//! trainers.
+//! the conversions both ways and the padding invariance.
+//!
+//! The trainers' tests live with the trainers.
 
 use super::*;
 use crate::{

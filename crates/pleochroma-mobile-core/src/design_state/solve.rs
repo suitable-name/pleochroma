@@ -13,10 +13,10 @@
 //! # Stale rows
 //!
 //! After an edit the tier list keeps the previous solve's masts for the tiers the edit
-//! did not touch (marked stale) and blanks the touched ones, exactly as the desktop and
-//! web tier tables do. [`SolveState::note_edit`] keeps that dirty set: it is exact while
-//! every edit goes through [`crate::design_state`]'s edit functions, and any edit it did
-//! not see (another lane's drag, a file replacing the design) makes every tier dirty.
+//! did not touch (marked stale) and blanks the touched ones, as the desktop and web tier
+//! tables do. [`SolveState::note_edit`] keeps that dirty set: it is exact while every edit
+//! goes through [`crate::design_state`]'s edit functions, and any edit it did not see (for
+//! example a design replaced from a file) makes every tier dirty.
 
 use std::{collections::BTreeSet, sync::atomic::AtomicBool, time::Duration};
 

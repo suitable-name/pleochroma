@@ -10,34 +10,21 @@ use pleochroma_vault::{db::sqlite::Database, model::metadata_update::MetadataUpd
 use slint::{ComponentHandle, SharedString};
 use std::sync::{Arc, Mutex};
 
-/// Wires up the detail header's metadata editor modal (see
-/// `metadata_editor_dialog.slint`) -> `save_metadata`.
+/// Wires the detail header's metadata editor (`metadata_editor_dialog.slint`) to
+/// `save_metadata`.
 ///
-/// Local designs only, same guard and same reasoning as
-/// `library::setup_rename_callback`/`setup_set_shape_callback`: a remote-sourced
-/// `selected_entry_id` names a row in a REMOTE server's catalogue, not this process's
-/// local database, and the library-sync protocol is read-only besides.
-/// `detail_header.slint` additionally only offers the editor for `root.detail.is_local`,
-/// so this is a backstop, not the only thing standing between a remote id and the
-/// local database.
+/// Local designs only. A remote `selected_entry_id` names a row on the remote server, not
+/// in this database, and the library-sync protocol is read-only. The header also hides the
+/// editor for remote designs, so this guard is a backstop.
 ///
-/// Title and metadata are saved together through
-/// [`Database::rename_and_update_metadata`], one transaction. The title lives in
-/// `diagram_entries`, not `diagram_details`, and is renamed with none of the subset
-/// trap `update_diagram_metadata` exists for. Every other field goes through that
-/// method's `UPDATE`, which -- unlike `save_diagram_detail` -- touches only the twelve
-/// columns it's given and leaves everything else untouched; see its own doc comment for
-/// the full story.
+/// Title and metadata save in one transaction through
+/// [`Database::rename_and_update_metadata`]. The title lives in `diagram_entries`. The
+/// metadata `UPDATE` touches only the twelve fields given, unlike `save_diagram_detail`.
 ///
-/// On success, reloads the design from the database via
-/// [`super::local_load::load_diagram_detail`] rather than hand-patching
-/// `current_detail`'s dozen fields in place -- the reload picks up SQLite's own
-/// numeric normalisation (e.g. `"1.760"` reads back `"1.76"`) and this module's own
-/// 3-decimal display formatting for exactly the same reason opening the design fresh
-/// would, with one implementation instead of two that could drift apart. Also
-/// re-reconstructs the 3D viewport's planes, which matters when the edit changed
-/// `shape` (the one field here that feeds `reconstruct_planes`' emerald/baguette/rect
-/// special case).
+/// On success the design is reloaded from the database rather than patched in place. The
+/// reload picks up SQLite's numeric normalisation (`"1.760"` reads back `"1.76"`) and the
+/// 3-decimal display formatting, so the header matches a fresh open. The planes are also
+/// reconstructed, because `shape` feeds `reconstruct_planes`.
 pub fn setup_save_metadata_callback(
     ui: &MainWindow,
     db_mutex: &Arc<Mutex<Database>>,
@@ -98,13 +85,10 @@ pub fn setup_save_metadata_callback(
                 volume: non_empty(&volume),
             };
             // Title and metadata in one transaction: a rejected numeric field must not
-            // leave the new title applied while the toast below reports a failure.
+            // leave the new title applied while the toast reports a failure.
             //
-            // The write, the three cache deletes and everything after run on a worker
-            // (the same shape as `refresh_after_library_change`): they used to run on
-            // the UI thread behind the shared database lock, followed by two more
-            // synchronous reads. Only the toast, the dirty flag and the reloads that
-            // touch `ui` come back through the event loop.
+            // The write and the cache deletes run on a worker, as in
+            // `refresh_after_library_change`. The UI work returns through the event loop.
             let db = Arc::clone(&db_meta);
             let source = Arc::clone(&source_meta);
             let render_ctx = Arc::clone(&render_ctx_meta);
@@ -134,11 +118,10 @@ pub fn setup_save_metadata_callback(
     );
 }
 
-/// The UI half of the metadata save, run from the event loop once the worker's write
-/// has finished: the toast, the editor's dirty flag, the detail reload and the list /
-/// range refresh (the latter on its own worker, through
-/// [`refresh_after_library_change`], whose range handling preserves the cutter's
-/// narrowed range filters -- a metadata correction is not a request to clear them).
+/// The UI half of the metadata save, run on the event loop after the write finishes.
+///
+/// Shows the toast, sets the editor's dirty flag, reloads the detail and refreshes the list.
+/// The refresh keeps the narrowed range filters, since a metadata edit should not clear them.
 fn finish_save_metadata(
     ui: &MainWindow,
     db: &Arc<Mutex<Database>>,
@@ -166,10 +149,10 @@ fn finish_save_metadata(
     }
 }
 
-/// Deletes `entry_id`'s cached previews, tilt curves and solid extents after a metadata
-/// edit: the edited fields (shape, index, gear) feed those renders and sweeps, so the
-/// cached results no longer describe the design. Logged, not propagated: the edit
-/// itself succeeded.
+/// Deletes `entry_id`'s cached previews, tilt curves and solid extents after a metadata edit.
+///
+/// The edited fields (shape, index, gear) feed those renders and sweeps. Errors are logged,
+/// not propagated, since the edit itself succeeded.
 fn invalidate_derived_caches(db: &Database, entry_id: i64) {
     if let Err(e) = db.delete_preview_images(entry_id) {
         tracing::warn!("Metadata edit: failed to drop cached previews for #{entry_id}: {e}");

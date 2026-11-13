@@ -370,9 +370,7 @@ fn fixture_design() -> Design {
 
 #[test]
 fn take_matching_design_returns_none_when_nothing_stashed() {
-    // `reset_for_new_design` (not just letting the field default) since this
-    // module's `RUNTIME` is a `thread_local!` a prior test on the same pooled
-    // test thread may have already stashed into.
+    // `RUNTIME` is thread-local and may hold a stash from an earlier test on this thread.
     reset_for_new_design(0);
     assert!(take_matching_design(1).is_none());
 }
@@ -390,13 +388,9 @@ fn take_matching_design_returns_the_stash_for_its_own_generation() {
 
 #[test]
 fn take_matching_design_only_matches_once_per_stash() {
-    // A camera-drag `Reproject` frame carries the SAME generation/masts
-    // forward as the `Replan` that produced them (see
-    // `solid_preview::preview_state::WorkerMemory::generation`'s own doc
-    // comment) -- so a second call for the identical generation, with no
-    // new `stash_current_design` in between, must find nothing left to
-    // give, or every orbit frame after an edit would re-trigger a full
-    // tier-table rebuild.
+    // A camera-drag `Reproject` frame repeats the generation of its `Replan`. A second
+    // call for that generation must find nothing, or each orbit frame would rebuild the
+    // tier table.
     stash_current_design(11, Arc::new(fixture_design()), BTreeSet::new());
     assert!(
         take_matching_design(11).is_some(),
@@ -408,11 +402,10 @@ fn take_matching_design_only_matches_once_per_stash() {
     );
 }
 
-/// F3-19: two replans of ONE generation submitted before the first frame lands (a tier click
-/// or a second Cut slider move) stash twice, and the first frame to land takes the stash. The
-/// second frame therefore pushes no rows -- which `apply_matching_preview_frame` reports as
-/// `false` (it returns `true` exactly when this claim matches), and the sink then must not
-/// record that frame as having shown anything.
+/// Two replans of one generation, submitted before the first frame lands, stash twice.
+/// The first frame to land takes the stash, so the second frame pushes no rows.
+/// `apply_matching_preview_frame` reports that as `false`, and the sink must not record
+/// the frame as shown.
 #[test]
 fn a_second_frame_of_the_same_generation_finds_the_stash_taken() {
     stash_current_design(9, Arc::new(fixture_design()), BTreeSet::new());
@@ -441,11 +434,8 @@ fn take_matching_design_rejects_a_superseded_generation() {
 
 #[test]
 fn stash_current_design_shares_the_arc_rather_than_deep_cloning() {
-    // `stash_current_design`
-    // must accept the CALLER's own `Arc<Design>` snapshot (an `Arc::clone`,
-    // cheap) rather than taking ownership of a value the caller had to deep-
-    // clone again just to hand over -- `Arc::strong_count` rising by exactly
-    // one confirms no hidden deep clone happened inside this function.
+    // `stash_current_design` must share the caller's `Arc<Design>` rather than deep-clone
+    // it. A strong count rising by one confirms that.
     let snapshot = Arc::new(fixture_design());
     assert_eq!(Arc::strong_count(&snapshot), 1);
     stash_current_design(7, Arc::clone(&snapshot), BTreeSet::new());
@@ -510,10 +500,8 @@ fn crackotto_step_with_real_meet_structure() -> Design {
 
 #[test]
 fn solve_cancellably_stops_within_100ms_on_the_largest_real_fixture() {
-    // This test encodes the "Abandon
-    // stops the worker (test: cancel flag set -> worker returns within
-    // 100 ms)" acceptance criterion. `dispatch_background_solve`'s worker calls exactly this
-    // function; `cancel_in_flight_solve` is what flips the flag it reads.
+    // "Abandon Solve" must stop the worker within 100 ms. The dispatch worker calls
+    // `solve_cancellably`, and `cancel_in_flight_solve` sets the flag it reads.
     let design = crackotto_step_with_real_meet_structure();
     let cancel = Arc::new(AtomicBool::new(false));
     let cancel_for_thread = Arc::clone(&cancel);

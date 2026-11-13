@@ -119,7 +119,7 @@ fn inclusive_max_evaluations_ignores_starts_the_budget_cannot_afford() {
         starts: 8,
         ..OptimizeConfig::default()
     };
-    // 10 free tiers need 80 evaluations per start: one start, today's figure.
+    // 10 free tiers need 80 evaluations per start, so only one start fits the budget.
     assert_eq!(effective_starts(&config, 10), 1);
     assert_eq!(inclusive_max_evaluations_for(&config, 3, 10), 70 + 50);
 }

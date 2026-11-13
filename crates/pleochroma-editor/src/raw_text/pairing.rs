@@ -69,15 +69,12 @@ fn concave_tiers_phrase(design: &Design) -> String {
     format!("the concave {noun} {}", list(&names))
 }
 
-/// Refuses any change of the gear while the design has concave tiers, at the gear line.
+/// Refuses a gear change, at the gear line, while the design has concave tiers.
 ///
-/// The concave tiers are not in the text (they are footnotes), so nothing the text says can
-/// move their tooth numbers, and a numbered tooth is a different angle on a different gear
-/// (index 24 is 90 degrees on 96 teeth and 45 on 192). A smaller gear can push them off the
-/// wheel, a bigger one leaves them turned against the flat facets with nothing to say so.
-/// The design settings remap the concave tiers with the flat ones, so the refusal points
-/// there. A design that has no concave tier takes the new gear as written, and the same
-/// gear never refuses (even when a design is already off its wheel).
+/// Concave tiers are footnotes, not text, so the text cannot move their tooth numbers. A tooth
+/// number is a different angle on a different gear (index 24 is 90 degrees on 96 teeth and 45
+/// on 192), so a new gear would leave them misplaced or off the wheel. The design settings
+/// remap them together with the flat tiers, so the refusal points there.
 fn check_concave_gear(
     design: &Design,
     base: &ParsedText,

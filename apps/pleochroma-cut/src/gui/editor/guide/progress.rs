@@ -55,8 +55,8 @@ pub(super) fn guide_event(ui: &MainWindow, name: &str) {
     check_now(ui);
 }
 
-/// [`guide_event`] for the event the New Design action reports (the only one a caller used
-/// to report by name). The key is an event name, not a step's completion key.
+/// [`guide_event`] for the event the New Design action reports. The key is an event name, not
+/// a step's completion key.
 pub(in crate::gui::editor) fn notify(ui: &MainWindow, key: &str) {
     guide_event(ui, key);
 }

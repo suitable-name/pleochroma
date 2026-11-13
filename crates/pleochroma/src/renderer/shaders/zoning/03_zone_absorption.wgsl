@@ -8,7 +8,8 @@
 //     exp(-sum_z alpha_z * len_z)        (alpha_z per channel, len_z in mm)
 //
 // `build.rs` makes `transport_bounce_step` call it (instead of the homogeneous absorption
-// block) when `material.zones.zone_count > 0`; see the anchor patches in `build.rs`.
+// block) when `material.zones.header.zone_count > 0u && !material_scatters()`; see the anchor
+// patches in `build.rs`.
 //
 // Frame / unit chain (identical to the CPU, see the header of `raytracer/zoned.rs`):
 //   model units --x absorption_path_scale--> stone mm --zone frame inverse (inside

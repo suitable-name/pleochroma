@@ -1,11 +1,8 @@
 import { TiltModel } from "../../models/tilt.slint";
 import { Theme } from "../../theme.slint";
 
-// High-Resolution 181-Point (±90°, 1°-step) Performance Chart Canvas, the
-// graph panel of `PerformanceGraphDialog`. Tilt angle is continuous, so this
-// draws each channel as a line (via `Path`'s SVG `commands`, Slint has no
-// polyline element) rather than discrete bars -- bars would hide the curve
-// shape a reader is here for.
+// Graph panel of `PerformanceGraphDialog`: 181 points (±90°, 1° steps). Each channel is a line
+// (`Path` `commands`; Slint has no polyline element), since bars would hide the curve.
 export component TiltCurveChart inherits Rectangle {
     // True once all four full-axis sweeps have arrived -- guards the chart
     // canvas and its hover tooltip; nothing here has an always-available
@@ -37,14 +34,12 @@ export component TiltCurveChart inherits Rectangle {
     in property <[float]> active_brilliance_values;
     in property <[float]> active_extinction_values;
     in property <[float]> active_windowing_values;
-    // Mini stone preview at the hovered angle: rendered off the UI thread by
-    // `gui::tilt_hover_preview` for whichever point the user is hovering/
-    // scrubbing. Retains its last value while the tooltip isn't hovered
-    // (harmless: the preview panel is only shown while hovering).
+    // Mini stone preview at the hovered angle, rendered off the UI thread by
+    // `gui::tilt::tilt_hover_preview`. It keeps its last value while the tooltip is not
+    // hovered; the preview is only shown while hovering.
     in property <image> tilt_hover_preview_image;
-    // Requests a fresh preview for `(axis_index, tilt_deg)`; `gui::
-    // tilt_hover_preview` debounces on its own end, so firing this on every
-    // hovered pixel is safe.
+    // Requests a preview for `(axis_index, tilt_deg)`. `gui::tilt::tilt_hover_preview` debounces,
+    // so calling this on every hovered pixel is safe.
     callback request_tilt_hover_preview(int, float);
 
     // X-axis tick labels for the chart canvas's +-90 deg (tilt-from-table-up)
@@ -240,20 +235,10 @@ export component TiltCurveChart inherits Rectangle {
         }
     }
 
-    // Floating tooltip card. Positioned in `plot`'s coordinate space but
-    // drawn as `chart_content`'s own child (a sibling of `plot`, not a
-    // child of it) so it draws on top of every line/crosshair inside
-    // `plot` -- clamped to stay within `plot`'s bounds on both axes
-    // (flipping to the cursor's left once it would overflow the right
-    // edge) rather than relying on the outer chart Rectangle's `clip:
-    // true` to hide an overflow, per the "must not be clipped"
-    // requirement.
-    //
-    // Stacked layout: a tilt-angle heading, then one row per
-    // currently-visible channel (color swatch + name + value). `card_h`
-    // grows with `visible_channel_count` instead of being fixed, and
-    // `card_w` shrinks accordingly (a stacked row only has to fit ONE
-    // channel's label+value, not all of them end to end).
+    // Floating tooltip card. It is a sibling of `plot` (not a child), so it draws over every line
+    // and the crosshair. It is clamped inside `plot` on both axes and flips to the cursor's left
+    // near the right edge. Stacked: a tilt heading, one row per visible channel, then the mini
+    // preview; the height follows the number of visible channels.
     if tooltip_area.has-hover: tooltip_card := Rectangle {
         property <float> tilt_deg: root.snap_tilt_deg(tooltip_area.mouse-x, plot.width);
         // -90..+90 domain -- same `(tilt_deg + 90) / 180` remapping as
@@ -278,10 +263,8 @@ export component TiltCurveChart inherits Rectangle {
         border-width: 1px;
         border-color: Theme.border-dialog;
 
-        // Requests a fresh mini preview render for exactly this hovered
-        // pose whenever the snapped tilt angle changes; `gui::
-        // tilt_hover_preview` debounces on its own end, so firing this
-        // per changed pixel does NOT mean one render per pixel.
+        // Requests a mini preview for the hovered pose whenever the snapped tilt angle changes.
+        // `gui::tilt::tilt_hover_preview` debounces, so this is not one render per pixel.
         changed tilt_deg => {
             root.request_tilt_hover_preview(root.selected_axis_index, self.tilt_deg);
         }

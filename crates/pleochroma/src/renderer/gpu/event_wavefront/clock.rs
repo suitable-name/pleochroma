@@ -5,9 +5,8 @@
 //! chunk-time EMA and the ~30 ms chunk target therefore work in the browser exactly as
 //! they do natively.
 //!
-//! The deadline half ([`race_deadline`]) exists for wasm32 only in effect: native
-//! readback is already bounded by `compute::GPU_WAIT_TIMEOUT`'s poll loop, so there the
-//! race degrades to a plain `await`.
+//! [`race_deadline`] only takes effect on wasm32: native readback is already bounded by
+//! `compute::GPU_WAIT_TIMEOUT`'s poll loop, so there it is a plain `await`.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -18,7 +17,7 @@ pub use std::time::Instant;
 #[cfg(target_arch = "wasm32")]
 pub use web_time::Instant;
 
-/// Floor of the per-chunk deadline in milliseconds (plan 6.2: `max(2000 ms, 20 x EMA)`).
+/// Floor of the per-chunk deadline in milliseconds, see [`chunk_deadline_ms`].
 pub const MIN_CHUNK_DEADLINE_MS: f64 = 2000.0;
 
 /// Multiple of the EMA-predicted chunk time that is still accepted as "slow but alive".
@@ -49,7 +48,7 @@ pub fn blend_ema(previous: Option<f64>, ns_per_tuple: f64) -> f64 {
 }
 
 /// Readback deadline (milliseconds, `f64` bits) the next `readback::map_read` honours.
-/// `accumulate` sets it before every chunk, because `chunk::execute_chunk` calls
+/// The accumulation loops set it before every chunk, because `chunk::execute_chunk` calls
 /// `map_read` without a deadline parameter.
 static READBACK_DEADLINE_MS_BITS: AtomicU64 = AtomicU64::new(FIRST_CHUNK_DEADLINE_MS.to_bits());
 

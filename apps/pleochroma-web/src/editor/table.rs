@@ -1,13 +1,12 @@
-//! The tier table's data: builds the rows, the solve status and the warning list from
-//! [`WebApp`] and keeps `TierTableModel` (the Slint global behind the Design dock) in step
-//! with them.
+//! The tier table's data: builds the rows, solve status and warnings from [`WebApp`] and
+//! keeps `TierTableModel` (the Slint global behind the Design dock) in step with them.
 //!
 //! # When the table is pushed
 //!
 //! [`sync`] compares what the table last showed with the app's state now and pushes only
 //! what changed:
 //!
-//! - the **rows** (`pleochroma_editor::view_model::rows`, the desktop's own builders) when
+//! - the **rows** (`pleochroma_editor::view_model::rows`) when
 //!   the design, the solve or the set of tiers an edit made untrustworthy changed;
 //! - the **selection** (`WebApp::selected_tier`, `EditorSession::multi_selected`) -- cheap,
 //!   it only patches the rows' multi-select flags;
@@ -36,7 +35,7 @@
 //! - a solve of the current design: `tier_items_from_solved`;
 //! - after an edit, before the next solve: `tier_items_stale_with_last_solved`, which keeps
 //!   the previous solve's mast (marked "stale") for every tier the edits did not touch and
-//!   blanks the touched ones, exactly as the desktop's `refresh_editor_panel_stale` does.
+//!   blanks the touched ones.
 //!   The touched set ([`Dirty`]) accumulates until the next solve lands;
 //! - a design that failed to solve (a missing scale anchor, ...): `tier_items`, which
 //!   names the tiers responsible -- only for a design small enough to solve on the page,
@@ -377,7 +376,7 @@ impl TableState {
 }
 
 /// Whether a design is small enough to re-solve on the page to name the tiers behind a
-/// failed solve (the desktop's own "solve synchronously" rule).
+/// failed solve (see `should_solve_synchronously_for`).
 fn small_enough_to_resolve(app: &WebApp) -> bool {
     let Some(design) = &app.design else {
         return false;

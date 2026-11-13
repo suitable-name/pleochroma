@@ -12,7 +12,7 @@ pub struct FacetingDiagramEntry {
     /// saving the same `url` again upserts the existing row rather than creating a
     /// second one. A real page URL for a scraped source, or a synthetic
     /// `local://<file_name>` for a locally-imported `.asc` (see
-    /// `crate::local::LOCAL_SOURCE_ID`).
+    /// `crate::local::import_asc`).
     pub url: String,
     /// The scraped source's own design-id text, if any.
     pub design_id: String,
@@ -51,9 +51,9 @@ pub struct DiagramListItem {
     /// The competition-entry class/label, for a competition-sourced design.
     pub competition_diagram: Option<String>,
     /// Whether the user has marked this design ignored (`diagram_entries.ignored`).
-    /// Carried on the row itself rather than left for a caller to discover by running
-    /// the same search twice (with `RangeFilter::include_ignored` on and off) and
-    /// diffing id sets, which would double every search's query cost.
+    /// Carried on the row, so a caller need not run the search twice (with
+    /// `RangeFilter::include_ignored` on and off) and diff the ids, which would double
+    /// the query cost.
     pub ignored: bool,
 }
 
@@ -84,9 +84,8 @@ pub struct AttachedFileMeta {
 /// `mirror_symmetry`/`designer`/`source_citation`/`pdf_file`/`gem_file`/`shape_category`:
 /// `pleochroma_net::library::DesignRecord` is built from this type (never
 /// [`FullDiagramRecord`], since it must never carry attachment content), so dropping
-/// these fields here would blank the corresponding `apps/pleochroma-cut` detail-pane
-/// chips (and, for the last four, a mirrored design's own metadata -- see that
-/// protocol's `PROTOCOL_VERSION` v15 history) for every remote-browsed design.
+/// these fields here would blank the matching `apps/pleochroma-cut` detail-pane chips
+/// for every remote-browsed design.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FullDiagramMeta {
     /// Identifier of the library entry.
@@ -155,11 +154,10 @@ pub struct FullDiagramMeta {
 
 /// Carries every `diagram_details` column [`crate::model::detail::FacetingDiagramDetail`] has.
 ///
-/// Must stay in sync with that struct: a caller building a fresh `FacetingDiagramDetail`
-/// from a `FullDiagramRecord` (to feed `Database::save_diagram_detail`, which fully
-/// replaces a design's detail row) would silently zero any field missing here on every
-/// such save -- see `Database::update_diagram_metadata`'s doc comment for the
-/// narrow-`UPDATE` method that exists so a metadata edit never needs that path at all.
+/// Must stay in sync with `FacetingDiagramDetail`: a detail built from this record for
+/// `Database::save_diagram_detail`, which replaces the whole detail row, would zero any
+/// field missing here. `Database::update_diagram_metadata` edits metadata without that
+/// path.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FullDiagramRecord {
     /// Identifier of the library entry.

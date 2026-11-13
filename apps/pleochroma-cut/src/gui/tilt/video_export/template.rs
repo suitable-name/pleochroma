@@ -1,16 +1,14 @@
-//! Resolves the video export's own folder-name template (`{design}`, `{material}`,
-//! `{axis}`, `{fps}`, ... -- see [`substitute_video_only`] for the video-specific
-//! variables) into a sanitised folder name.
+//! Resolves the video export's folder-name template into a sanitised folder name.
 //!
-//! Deliberately its own small resolver rather than a reuse of
-//! `bridge::export_thread::filename_template::resolve_export_path`: that function
-//! always appends `.png` and resolves a FILE path inside a directory it asserts already
-//! exists, where this needs a FOLDER name (the parent of the numbered PNG frames plus
-//! the muxed video) -- and its sanitiser/collision-avoider are private to that
-//! module. It reuses that module's fully public
-//! [`filename_template::render`]/[`TemplateContext`] for every variable the two share
-//! (`{design}`, `{material}`, `{width}`, ...), pre-substituting the video-only
-//! variables in a first pass.
+//! The template uses `{design}`, `{material}`, `{axis}`, `{fps}` and so on. The video-only
+//! variables are handled by `substitute_video_only`.
+//!
+//! This is a separate resolver rather than `filename_template::resolve_export_path`. That
+//! one appends `.png` and resolves a file path, while a video needs a folder name (the
+//! parent of the numbered frames and the muxed video). Its sanitiser and collision check
+//! are private. This module reuses the public `filename_template::render` and
+//! `TemplateContext` for the variables both share, and substitutes the video-only
+//! variables first.
 
 use crate::bridge::export_thread::filename_template::{self, TemplateContext};
 use std::{
@@ -18,19 +16,19 @@ use std::{
     time::SystemTime,
 };
 
-/// The default folder-name template for a tilt video export -- mirrors
-/// `TiltVideoExportModel.filename_template`'s own Slint-side default; the two are kept
-/// in sync by hand since a Slint property default cannot reference a Rust constant.
+/// The default folder-name template for a tilt video export.
+///
+/// The Slint default (`TiltVideoExportModel.filename_template`) and the settings default
+/// (`DEFAULT_TILT_VIDEO_FILENAME_TEMPLATE`) repeat this string, because a Slint property
+/// default cannot reference a Rust constant. Keep all three equal.
 pub const DEFAULT_VIDEO_TEMPLATE: &str =
     "tilt_video_{design}_{material}_axis{axis}_{width}x{height}_{timestamp}";
 
-/// Video-only template variables `filename_template::render` doesn't know about --
-/// substituted in a first pass before handing the result to `render` for every
-/// variable the still-image export already supports.
+/// Video-only template variables, which `filename_template::render` does not know. They
+/// are substituted first, and the result goes to `render` for the shared variables.
 #[derive(Debug, Clone)]
 pub struct VideoTemplateExtras {
-    /// The swept axis's own label, e.g. `"0"`/`"45"`/`"90"`/`"135"` (degrees) --
-    /// `{axis}`.
+    /// `{axis}`: the axes' label, as `axes_label` builds it (e.g. `"45"` or `"0+90"`).
     pub axis_label: String,
     pub fps: u32,
     pub step_deg: f64,
@@ -53,14 +51,12 @@ const fn is_forbidden_char(c: char) -> bool {
     matches!(c, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*') || (c as u32) < 0x20
 }
 
-/// Sanitises a rendered folder name against the same forbidden-character/trailing-dot
-/// rules `filename_template::sanitize_filename` applies to a file stem -- that function
-/// is private to its own module, so this is a small, deliberate duplicate for a FOLDER
-/// name rather than a `.png` file stem (no Windows-reserved-device-name check: unlike a
-/// bare `CON.png`, `CON` is not itself a device name once other template text is almost
-/// always adjacent, and a folder named exactly `CON` is vanishingly unlikely given this
-/// template's own defaults -- accepted as a minor, documented gap rather than
-/// duplicating that whole table too).
+/// Sanitises a rendered folder name with `filename_template`'s forbidden-character and
+/// trailing-dot rules.
+///
+/// That sanitiser is private, so the rules are copied here. Unlike it, there is no reserved
+/// device-name check (`CON`, `LPT1`): a folder name built from a template is not
+/// realistically one of those, and copying the table is not worth it.
 fn sanitize_folder_name(raw: &str) -> String {
     let mut cleaned: String = raw
         .chars()
@@ -75,11 +71,12 @@ fn sanitize_folder_name(raw: &str) -> String {
     cleaned
 }
 
-/// Renders and sanitises `template` against `ctx`/`extras`, without resolving
-/// collisions against the filesystem. Used both for the real export (via
-/// [`unique_folder_path`]) and the dialog's live "Resolves to" preview, which has no
-/// filesystem to check collisions against -- matching `ExportModel.preview_filename_template`'s
-/// own "preview against a fixed example, not a real collision check" convention.
+/// Renders and sanitises `template` against `ctx` and `extras`, without checking for
+/// existing folders.
+///
+/// The export adds that check with [`unique_folder_path`]. The dialog's live "Resolves to"
+/// preview calls this directly, as `ExportModel.preview_filename_template` does: a preview
+/// has no collision check.
 #[must_use]
 pub fn resolve_folder_name(
     template: &str,
@@ -91,9 +88,8 @@ pub fn resolve_folder_name(
     sanitize_folder_name(&rendered)
 }
 
-/// Finds a folder name inside `export_dir` that doesn't already exist, appending
-/// ` (2)`, ` (3)`, ... -- the folder counterpart of `filename_template`'s own
-/// `unique_path`.
+/// Finds a folder path under `export_dir` that does not exist yet, appending ` (2)`, ` (3)`,
+/// ... on collision. The folder version of `filename_template`'s `unique_path`.
 #[must_use]
 pub fn unique_folder_path(export_dir: &Path, name: &str) -> PathBuf {
     let mut candidate = export_dir.join(name);

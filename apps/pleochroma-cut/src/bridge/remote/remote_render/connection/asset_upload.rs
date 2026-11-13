@@ -1,4 +1,6 @@
-//! Answering a server's `NEED_ASSET` (protocol v14): the scene names an HDR map
+//! Answering a server's `NEED_ASSET`.
+//!
+//! The scene names an HDR map
 //! by content hash and the server does not have it yet, so the connection thread that
 //! owns the stream sends the exact bytes (`pleochroma_net::client::send_asset`) before
 //! reading on. Both connection lifecycles (one-shot and persistent) answer through

@@ -97,8 +97,8 @@ fn write_atomic(path: &std::path::Path, data: &[u8]) -> std::io::Result<()> {
         .ok_or_else(|| std::io::Error::other("cache needs parent"))?;
     std::fs::create_dir_all(parent)?;
     let mut temporary = None;
-    // PID, timestamp and sequence prevent stale files or parallel writers from
-    // claiming the same temporary file. Retry collisions only a bounded number.
+    // PID, timestamp and sequence keep parallel writers off the same temporary file.
+    // Collisions are retried a bounded number of times.
     for _ in 0..8 {
         let sequence = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
         let nanos = std::time::SystemTime::now()

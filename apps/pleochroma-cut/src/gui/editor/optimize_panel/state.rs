@@ -3,9 +3,8 @@
 //! last finished run (so a candidate can be previewed, compared and applied) and the
 //! measured speed of the last run (so the next time estimate is better).
 //!
-//! Slint-free, so the rules are tested without a window. The state is thread-local: every
-//! reader and writer runs on the Slint event-loop thread, the same reasoning as
-//! `callbacks::retarget_actions::RETARGET_ASYNC`.
+//! Slint-free, so the rules are tested without a window. The state is thread-local because
+//! every reader and writer runs on the Slint event-loop thread.
 
 use pleochroma_cut_core::{Design, OptimizeCandidate, OptimizeOutcome, OptimizeResult};
 use pleochroma_editor::optimize_view::{RangeInput, candidate_outcome, range_rows};

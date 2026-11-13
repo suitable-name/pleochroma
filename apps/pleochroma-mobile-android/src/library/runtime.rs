@@ -99,9 +99,11 @@ pub(super) fn install(runtime: Runtime) {
     RUNTIME.with(|slot| *slot.borrow_mut() = Some(runtime));
 }
 
-/// Runs `job` on the runtime. `None` when there is no runtime (before `wire`, after
-/// `shutdown`) or when it is already in use further up the stack; the latter is a bug
-/// and is logged.
+/// Runs `job` on the runtime, or returns `None` when there is none (before `wire`, after
+/// `shutdown`).
+///
+/// A runtime that is already borrowed further up the stack is a bug: the call is skipped
+/// and logged.
 pub(super) fn with<R>(job: impl FnOnce(&mut Runtime) -> R) -> Option<R> {
     RUNTIME.with(|slot| {
         slot.try_borrow_mut().map_or_else(

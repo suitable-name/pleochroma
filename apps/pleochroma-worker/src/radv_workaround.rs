@@ -32,8 +32,9 @@ fn parse_switch(text: &str) -> Option<bool> {
 
 /// Removes every [`FLAG`] from `args` and says whether the workaround is wanted.
 ///
-/// The flag is `--radv-workaround on` or `--radv-workaround=on`; the last flag wins, then `env_value` (the value of
-/// [`ENV`]). `None` when neither is given: the caller then decides by the hardware.
+/// The flag is `--radv-workaround on` or `--radv-workaround=on`; the last flag wins over
+/// `env_value` (the value of [`ENV`]). `None` when neither is given: the caller then decides
+/// by the hardware.
 ///
 /// # Errors
 ///

@@ -1,7 +1,8 @@
-//! Fluorescence and UV-lamp tests (`docs/fluorescence-plan.md` section 6): the empty
-//! `Fluorescence` is the old renderer bit for bit, the transport conserves energy, a
-//! ruby glows red under the 365 nm lamp (and not when quenched), the 395 nm lamp lights a
-//! non-fluorescent stone only faintly, and a fluorescent trace is deterministic.
+//! Fluorescence and UV-lamp tests.
+//!
+//! An empty `Fluorescence` traces bit-identically to the plain path, the transport conserves
+//! energy, a ruby glows red under the 365 nm lamp (and not when quenched), the 395 nm lamp
+//! lights a non-fluorescent stone only faintly, and a fluorescent trace is deterministic.
 //!
 //! The emitters are hand-built (a ruby-like Cr3+ emitter: excitation bands at 410 nm and
 //! 556 nm of 3500 and 2800 cm^-1 FWHM, the 694 nm R line of 2 nm FWHM, `Phi = 0.9`); the
@@ -100,9 +101,9 @@ fn render_mean(
     .0
 }
 
-/// Plan item 2: an empty `Fluorescence` (the shared one, a default one, or a `new` of no
-/// emitters) traces bit-identically to the plain entry point, for the comb and a lamp
-/// alike; and `scene_routes_to_gpu` is unchanged for every existing preset.
+/// An empty `Fluorescence` (the shared one, a default one, or a `new` of no emitters) traces
+/// bit-identically to the plain entry point, for the comb and a lamp alike. The GPU route
+/// is taken for every non-UV preset the material supports.
 #[test]
 fn empty_fluorescence_is_bit_identical_and_routes_as_before() {
     let planes = StandardGemCuts::standard_round_brilliant();
@@ -168,20 +169,16 @@ fn empty_fluorescence_is_bit_identical_and_routes_as_before() {
     }
 }
 
-/// Plan item 3: energy. A colorless n = 1 stone (no refraction or Fresnel losses: the
-/// camera ray goes straight through, so the measurement is clean) absorbs through a
-/// 450 nm band, sits in a uniform furnace, and carries a `Phi = 1` emitter whose emission
-/// spectrum equals its excitation spectrum. At each camera wavelength the traced radiance
-/// exceeds the non-fluorescent radiance by the emission the transport estimates; in the
-/// optically thin limit that excess is
-/// `chord * Phi f(l_em) Int_{300}^{l_em} alpha(l) (l / l_em) L(l) dl`, the absorbed
-/// energy times the `lambda_ex / lambda_em` Stokes factor. The measured spectral sum must
-/// match that to 12 % (sampling noise about 4 %, thin-limit bias about 3 %).
+/// Energy balance: the emitted light matches the absorbed energy times the Stokes factor.
 ///
-/// A transport that doubled the vertex weight would measure about twice the expectation,
-/// and fails: with `energy_ratio` temporarily doubled in `fluorescence::sample_vertex` this
-/// test read +103 % (the measured sum 0.174 against 0.0857) and the estimator-level
-/// furnace test in `optics::fluorescence` read +100 %; undoubled they read +1 %.
+/// A colorless n = 1 stone absorbs through a 450 nm band in a uniform furnace. It has no
+/// refraction or Fresnel losses, so the camera ray goes straight through. Its `Phi = 1` emitter
+/// has an emission spectrum equal to its excitation. In the optically thin limit the excess
+/// radiance over the non-fluorescent render is
+/// `chord * Phi f(l_em) Int_{300}^{l_em} alpha(l) (l / l_em) L(l) dl`, the absorbed energy times
+/// the `lambda_ex / lambda_em` Stokes factor. The measured sum must match that to 12 % (sampling
+/// noise about 4 %, thin-limit bias about 3 %). A transport that doubled the vertex weight would
+/// measure about twice the expectation and fail this test.
 #[test]
 fn furnace_emission_energy_matches_absorbed_energy_times_the_stokes_factor() {
     const ALPHA_PEAK: f32 = 0.02;
@@ -198,7 +195,7 @@ fn furnace_emission_energy_matches_absorbed_energy_times_the_stokes_factor() {
     let glowing = Fluorescence::new(vec![emitter(1.0)]);
     let dark = Fluorescence::new(vec![emitter(0.0)]);
     let env_map = EnvironmentMap::uniform(1, 1, [1.0, 1.0, 1.0]);
-    let environment = EnvironmentSource::HdrMap(&env_map);
+    let environment = EnvironmentSource::hdr(&env_map);
     let planes = StandardGemCuts::standard_round_brilliant();
     let geom = StoneGeometry::planes_only(&planes);
 
@@ -292,12 +289,11 @@ fn furnace_emission_energy_matches_absorbed_energy_times_the_stokes_factor() {
     );
 }
 
-/// Plan item 4: ruby under the 365 nm lamp. The ruby-like stone with its emitter renders
-/// with hue `h_ab` in [0, 40] degrees (the red R line), and more than ten times the
-/// luminance of the same stone with `Phi = 0`; with the emitter quenched as the plan's Fe
-/// law gives (`Phi_eff = Phi_0 / (1 + (c / c_half)^n)`, 1.0 wt% `FeO` against
-/// `c_half = 0.2`, `n = 2`: 3.5 % of the yield) the luminance falls below 10 % of the
-/// unquenched render.
+/// Ruby under the 365 nm lamp. The ruby-like stone with its emitter renders with hue `h_ab`
+/// in [0, 40] degrees (the red R line) and more than ten times the luminance of the same stone
+/// with `Phi = 0`. Quenching by Fe follows `Phi_eff = Phi_0 / (1 + (c / c_half)^n)`: 1.0 wt%
+/// `FeO` against `c_half = 0.2`, `n = 2` leaves 3.5 % of the yield, and the luminance falls
+/// below 10 % of the unquenched render.
 #[test]
 fn ruby_glows_red_under_the_365nm_lamp_and_quenching_dims_it() {
     const SPP: u32 = 640;
@@ -367,7 +363,7 @@ fn without_yield(fluorescence: &Fluorescence) -> Fluorescence {
     )
 }
 
-/// Plan item 4 through the recipe route: corundum + 0.5 wt% `Cr2O3`, resolved by
+/// Ruby through the recipe route: corundum + 0.5 wt% `Cr2O3`, resolved by
 /// `resolve_fluorescence`, glows red under the 365 nm lamp (hue `h_ab` in [0, 40] degrees,
 /// more than ten times the luminance of the `Phi = 0` render), and 1.0 wt% `FeO` added to
 /// the recipe takes the glow below 10 % of the unquenched render.
@@ -401,7 +397,7 @@ fn recipe_ruby_glows_red_under_the_365nm_lamp_and_iron_quenches_it() {
     assert!(dimmed.y < 0.1 * with.y, "{} vs {}", dimmed.y, with.y);
 }
 
-/// Plan item 6: a diamond with the N3 centre (nitrogen aggregates, the recipe's `N`) under
+/// A diamond with the N3 centre (nitrogen aggregates, the recipe's `N`) under
 /// the 365 nm lamp glows blue: hue `h_ab` in [230, 290] degrees.
 #[test]
 #[ignore = "slow in debug: 12 x 12 pixels x 1024 samples of a weakly absorbing, weakly glowing stone"]
@@ -425,7 +421,7 @@ fn recipe_diamond_n3_glows_blue_under_the_365nm_lamp() {
     assert!((230.0..=290.0).contains(&hue), "hue {hue}");
 }
 
-/// Plan item 5: the 395 nm LED lights a non-fluorescent stone faintly (its tail reaches
+/// The 395 nm LED lights a non-fluorescent stone faintly (its tail reaches
 /// 380-420 nm): the mean luminance is positive, below 5 % of Daylight's, and violet.
 #[test]
 fn uv395_lamp_lights_a_non_fluorescent_stone_only_faintly() {
@@ -444,8 +440,7 @@ fn uv395_lamp_lights_a_non_fluorescent_stone_only_faintly() {
     assert!(uv.z > uv.y && uv.z > uv.x, "violet, not white: {uv:?}");
 }
 
-/// Plan item 7: the same seed gives the same bits, fluorescent or not; another seed does
-/// not.
+/// The same seed gives the same bits, fluorescent or not; another seed does not.
 #[test]
 fn fluorescent_traces_are_deterministic() {
     let planes = StandardGemCuts::standard_round_brilliant();

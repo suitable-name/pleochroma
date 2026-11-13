@@ -18,7 +18,7 @@ fn parses_cert_init() {
     );
 }
 
-/// A bare `cert` names every sub-subcommand it accepts, not just the original three.
+/// A bare `cert` names every sub-subcommand it accepts.
 #[test]
 fn bare_cert_lists_every_sub_subcommand() {
     let err = parse(&["cert".to_string()]).unwrap_err();

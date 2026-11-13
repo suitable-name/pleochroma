@@ -16,10 +16,59 @@ use crate::renderer::gpu::{
 use super::{
     CHUNK_BUDGET_BYTES, GpuFrameError, GpuPipelineKind, REDUCE_SHADER_SRC,
     bind_groups::WavefrontPipelines,
+    live::LiveState,
     readback::{GpuReduceParams, PixelXyzOutput, StagingSlot, staging_needs_growth},
     scene_buffers::{FrameSceneBuffers, TransportOutputs},
+    tables_buffer::OpticsTablesGpu,
 };
-use crate::renderer::{buffers::GpuSurfaceScene, gpu::compute};
+use crate::{
+    optics::raytracer::Estimator,
+    renderer::{
+        buffers::{GpuSurfaceScene, studio_model, transport_env_mode},
+        gpu::compute,
+    },
+};
+
+/// The estimator a frame asks for, in order of precedence: the request's own (`asked`), this
+/// renderer's own choice (`own`), the process default (`process`).
+///
+/// Only the megakernel family implements exit collection, so the legacy bounce wavefront
+/// (`kind`) always resolves to [`Estimator::Branching`]; a frame that would collect there
+/// (asked, own or process) is declined by the turn preparation instead (see
+/// `collect_applies`). Whether the
+/// resolved estimator is honoured is decided per dispatch by
+/// `GpuTransportParams::with_estimator`.
+pub const fn resolve_estimator(
+    asked: Option<Estimator>,
+    own: Option<Estimator>,
+    process: Estimator,
+    kind: GpuPipelineKind,
+) -> Estimator {
+    if matches!(kind, GpuPipelineKind::Wavefront) {
+        return Estimator::Branching;
+    }
+    match (asked, own) {
+        (Some(estimator), _) | (None, Some(estimator)) => estimator,
+        (None, None) => process,
+    }
+}
+
+/// Whether exit collection applies to a frame with these properties, by the rule
+/// `GpuTransportParams::with_estimator` and the CPU tracer share: over an ideal surface, without
+/// a light-sampling technique (neither an HDR map nor the Daylight + Sun rig), for a convex stone
+/// (`tool_count` zero) and without a Tray Reflection (`tray_mirror`).
+pub const fn collect_applies(
+    env_mode: u32,
+    studio_model: u32,
+    ideal_surface: bool,
+    tool_count: usize,
+    tray_mirror: bool,
+) -> bool {
+    let no_light_sampling = env_mode != transport_env_mode::HDR_MAP
+        && !(env_mode == transport_env_mode::STUDIO_RIG
+            && studio_model == studio_model::DAYLIGHT_SUN);
+    ideal_surface && no_light_sampling && tool_count == 0 && !tray_mirror
+}
 
 /// A GPU-backed renderer for arbitrary scenes, owning its device and pipeline across
 /// frames.
@@ -28,7 +77,6 @@ use crate::renderer::{buffers::GpuSurfaceScene, gpu::compute};
 /// compiles the small reduction kernel; the megakernel for a material class compiles on
 /// that class's first frame. Both take long enough to be worth doing off the frame loop.
 pub struct GpuFrameRenderer {
-    pub(super) ctx: GpuContext,
     /// The GENERIC (`MATERIAL_CLASS = 0`) pipeline, compiled on first request through
     /// [`Self::pipeline_for_class`](super::specialisation): only the self-tests and the
     /// equivalence checks ask for it, because `classify_material` never returns GENERIC
@@ -128,9 +176,42 @@ pub struct GpuFrameRenderer {
     /// The surface finish (facet surfaces, faceting machine, abraded edge) every later frame
     /// is traced with; ideal until [`Self::set_surface_scene`].
     pub(super) surface: GpuSurfaceScene,
+    /// The pipelines and buffers of adaptive (live-tile) passes -- see `super::live`. Empty
+    /// (nothing allocated, nothing compiled) until the first such pass, so a session that
+    /// never asks for adaptive sampling is untouched by it.
+    pub(super) live: LiveState,
+    /// The optics lookup table buffer of the material being rendered -- empty (nothing built)
+    /// until a class with `material_class::OPTICS_TABLES` is prepared, see `super::tables_buffer`.
+    pub(super) optics_tables: OpticsTablesGpu,
+    /// Whether the most recently prepared turn used the optics lookup tables.
+    pub(super) tables_in_use: bool,
+    /// Cached tray buffer of the scene (the shadow map and the mirror words), empty until a turn
+    /// with a Stone Shadow or a Tray Reflection.
+    pub(super) tray_shadow: super::tray_shadow_buffer::TrayShadowGpu,
+    /// The estimator of every later frame; `None` follows the process default
+    /// (`optics::raytracer::default_estimator`). See [`Self::set_estimator`].
+    pub(super) estimator: Option<Estimator>,
+    /// The staged megakernel's pipelines and buffers -- see `super::staged`. Empty until a chunk
+    /// runs with stage ends: the default ends (except in the browser, on Android and on Apple
+    /// systems), `PLEOCHROMA_STAGED` or [`Self::set_stage_ends`].
+    pub(super) staged: super::staged::StagedState,
+    /// The sorted wavefront's switch, pipelines and buffers -- see `super::sorted`. Empty until a
+    /// chunk runs sorted (`PLEOCHROMA_SORTED` or [`Self::set_sorted`]).
+    pub(super) sorted: super::sorted::SortedState,
+    /// The device. Declared last on purpose: fields drop in declaration order, so every
+    /// pipeline and buffer above is gone when the context's last clone tears the device down
+    /// inside its lifecycle turn (`gpu::lifecycle`).
+    pub(super) ctx: GpuContext,
 }
 
 impl GpuFrameRenderer {
+    /// The device this renderer runs on, for the beam tracer's kernels (they share the
+    /// renderer's device, queue and lost-device handling).
+    #[must_use]
+    pub const fn context(&self) -> &GpuContext {
+        &self.ctx
+    }
+
     /// Acquires a GPU device and compiles `reduce_xyz_main`; `transport_main` compiles
     /// lazily per material class (see [`Self::pipeline_generic`]'s field doc comment).
     ///
@@ -179,6 +260,13 @@ impl GpuFrameRenderer {
             poisoned: false,
             turn_in_progress: false,
             surface: GpuSurfaceScene::default(),
+            live: LiveState::default(),
+            optics_tables: OpticsTablesGpu::default(),
+            tables_in_use: false,
+            tray_shadow: super::tray_shadow_buffer::TrayShadowGpu::default(),
+            estimator: None,
+            staged: super::staged::StagedState::default(),
+            sorted: super::sorted::SortedState::default(),
         })
     }
 
@@ -194,6 +282,39 @@ impl GpuFrameRenderer {
         self.surface = GpuSurfaceScene::from_scene(scene);
     }
 
+    /// Chooses the estimator of every LATER frame at the partial Fresnel events: the GPU twin
+    /// of `PreparedMaterial::with_estimator`. `None` (the default) follows the process default,
+    /// `optics::raytracer::default_estimator`, which the applications and the command line set at
+    /// start-up.
+    /// [`Estimator::ExitCollection`] runs on the megakernel and its live, table and
+    /// tray-shadow variants, for a convex stone over an ideal surface without a
+    /// light-sampling technique (`GpuTransportParams::with_estimator`); every other frame, the
+    /// bounce wavefront, the path cache's passes, a beam residual pass and every frame with a
+    /// Tray Reflection (a collected leaf cannot follow a floor bounce) run
+    /// [`Estimator::Branching`].
+    pub const fn set_estimator(&mut self, estimator: Option<Estimator>) {
+        self.estimator = estimator;
+    }
+
+    /// The estimator the next frame asks for when the request names none: this renderer's own
+    /// choice, else the process default. Only the megakernel implements exit collection.
+    /// Native frames go through [`Self::frame_estimator_for`] with the request's own estimator.
+    #[cfg(target_arch = "wasm32")]
+    pub(super) fn frame_estimator(&self) -> Estimator {
+        self.frame_estimator_for(None)
+    }
+
+    /// The estimator a frame asks for: the request's own (`asked`) wins over this renderer's
+    /// choice, which wins over the process default; see [`resolve_estimator`].
+    pub(super) fn frame_estimator_for(&self, asked: Option<Estimator>) -> Estimator {
+        resolve_estimator(
+            asked,
+            self.estimator,
+            crate::optics::raytracer::default_estimator(),
+            self.pipeline_kind,
+        )
+    }
+
     /// Overrides the per-dispatch output-buffer budget (default [`CHUNK_BUDGET_BYTES`]).
     ///
     /// Exists so a check can force a frame through many small chunks and confirm the
@@ -207,23 +328,20 @@ impl GpuFrameRenderer {
     /// Selects which kernel every LATER chunk dispatches through --
     /// see [`GpuPipelineKind`]'s own doc comment. Takes effect from the next
     /// `dispatch_chunk` call onward; a chunk already dispatched (or in flight in the
-    /// overlapped pipeline) is unaffected. Existing signatures
-    /// (`Self::accumulate`/`Self::accumulate_cancellable`/etc.) are unchanged --
-    /// this is the caller's opt-in, not a new required argument.
+    /// overlapped pipeline) is unaffected. The accumulate entry points
+    /// (`Self::accumulate`, `Self::accumulate_cancellable`) take no kind argument; the kind is
+    /// an opt-in setter.
     ///
     /// Checks device limits here. Pipeline compilation is deferred until scene preparation,
     /// when the complete material/feature key is known.
     pub fn set_pipeline_kind(&mut self, kind: GpuPipelineKind) {
         let device_limits = self.ctx.device.limits();
         let available = device_limits.max_storage_buffers_per_shader_stage;
-        // A device that granted enough
-        // storage-buffer bindings can still fall short of the COMBINED
-        // uniform+storage+acceleration-structure count `wavefront_bounce`'s auto-derived
-        // pipeline layout needs -- see `WAVEFRONT_BOUNCE_TOTAL_BUFFERS`'s doc comment.
-        // Checked here, before `WavefrontPipelines::new` ever calls
-        // `Device::create_compute_pipeline`, so a device that genuinely cannot support
-        // it declines gracefully (falls back to the megakernel) instead of that call
-        // itself failing with "Unable to derive an implicit layout".
+        // A device can grant enough storage bindings and still fall short of the combined
+        // uniform+storage+acceleration-structure count that `wavefront_bounce`'s derived
+        // pipeline layout needs (see `WAVEFRONT_BOUNCE_TOTAL_BUFFERS`). Checked here, before
+        // `WavefrontPipelines::new` can fail with "Unable to derive an implicit layout", so
+        // such a device falls back to the megakernel.
         let available_total =
             device_limits.max_buffers_and_acceleration_structures_per_shader_stage;
         if kind == GpuPipelineKind::Wavefront

@@ -307,10 +307,9 @@ fn search_reports_an_ignored_design_as_ignored_when_include_ignored_is_set() {
     std::fs::remove_file(&path).ok();
 }
 
-/// A `Search` with `order: Title` must return results sorted by title,
-/// not the catalogue's insertion (id) order -- `populated_temp_db` seeds "Round
-/// Brilliant" first, so two more titles are added here specifically out of
-/// alphabetical order to prove the sort, not just pass by coincidence.
+/// A `Search` with `order: Title` must return results sorted by title, not in the
+/// catalogue's insertion order. `populated_temp_db` seeds "Round Brilliant" first, so the two
+/// extra titles are inserted out of alphabetical order to make the sort observable.
 #[test]
 fn search_with_title_order_returns_titles_sorted() {
     let path = populated_temp_db();

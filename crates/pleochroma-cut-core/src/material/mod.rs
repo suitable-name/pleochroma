@@ -1,55 +1,40 @@
-//! Specific gravity (density) data for the carat-weight estimate.
+//! The material model of a design: built-in and custom materials, their optical and
+//! render-physics data, and the specific-gravity table behind the carat estimate.
 //!
-//! See [`crate::yield_metrics`]'s module docs for how this feeds that estimate, and
-//! for why it is kept strictly separate from volumetric yield (which needs no
-//! material data at all).
-//!
-//! # This is new data
-//!
-//! Neither `pleochroma::optics::materials` (optical properties only: dispersion,
-//! absorption, birefringence) nor the `.asc`/catalogue schema carries specific
-//! gravity, density, or carat figures anywhere -- the table below is genuinely new
-//! data, not a rewiring of something that already existed.
+//! Specific gravity feeds [`crate::yield_metrics`]' carat estimate. It is kept apart from
+//! volumetric yield, which needs no material data.
 //!
 //! # Provenance
 //!
-//! Unlike `pleochroma::optics::materials`'s single-paper-traceable dispersion fits,
-//! specific gravity has no equivalent primary literature for most gem species --
-//! these are textbook constants from standard gemological reference tables (Mineral
-//! Data Publishing's "Handbook of Mineralogy" and the International Gem Society
-//! property tables, both already cited elsewhere in `pleochroma::optics::materials`).
-//!
-//! Keyed by exactly the strings `pleochroma::optics::materials::GemMaterial::name`
-//! uses, so a caller already holding one of those names can look its SG up directly.
+//! Neither `pleochroma::optics::materials` (dispersion, absorption, birefringence) nor the
+//! `.asc` catalogue carries specific gravity, so the SG table is its own data. Unlike the
+//! single-paper dispersion fits, SG has no primary literature for most gem species; the
+//! values are textbook constants from the Handbook of Mineralogy and the International Gem
+//! Society property tables. Keys are the exact `GemMaterial::name` strings, so a caller
+//! holding one of those names can look its SG up directly.
 //!
 //! # Resolving a selection to a real material and refractive index
 //!
-//! [`MaterialSelection::resolve`] turns this module's preset-name-plus-overrides model
-//! into a real `pleochroma::optics::materials::GemMaterial` plus its refractive index
-//! at the sodium D line (`n_d`) and the critical angle that follows from it. It takes
-//! the lookup as a [`MaterialLookup`] trait object rather than depending on
-//! `pleochroma-vault` directly, with [`BuiltinMaterials`] as the built-ins-only
-//! implementation available with no full catalogue wired up.
+//! [`MaterialSelection::resolve`] turns a preset name plus overrides into a
+//! `pleochroma::optics::materials::GemMaterial`, its refractive index at the sodium D line
+//! (`n_d`), and the critical angle that follows from it. The lookup goes through a
+//! [`MaterialLookup`] trait object, so this crate does not depend on `pleochroma-vault`;
+//! [`BuiltinMaterials`] covers the built-ins only.
 //!
 //! # Ranges
 //!
-//! Unlike refractive index, SG is often substantially sensitive to trace/major-element
-//! substitution across a compositional solid-solution series. Two entries carry a
-//! real cited range for that reason: **Zircon** (ordinary crystalline "high" zircon
-//! ~4.6-4.7; radiation-damaged "low"/metamict as low as ~3.90) and **Tourmaline**
-//! (the elbaite entry `pleochroma::optics::materials` models optically is one
-//! composition in a larger dravite/schorl solid-solution family; SG climbs with iron
-//! content across it). [`SpecificGravity::representative`] is always the midpoint of
-//! the cited spread, not a blind average of the family's theoretical extremes.
+//! Unlike refractive index, SG often varies substantially with substitution across a
+//! solid-solution series. Two entries carry a cited range for that reason: **Zircon**
+//! (crystalline "high" ~4.6-4.7; metamict "low" down to ~3.90) and **Tourmaline** (the
+//! elbaite entry the optics model uses is one composition in the dravite/schorl family,
+//! and SG rises with iron). [`SpecificGravity::representative`] is the midpoint of the
+//! cited spread, not an average of the family's theoretical extremes.
 //!
-//! The SG table covers fourteen species (Rutile, the synthetic reference material, has
-//! its own row), a subset of `GemMaterial::all_materials`: the optical list also holds
-//! species (the individual garnets among them) that have no SG row yet. There is no
-//! generic "Garnet" preset, and an SG row with no corresponding optical entry would let
-//! a material picker offer a species it can never actually render.
-//! [`MaterialSelection::specific_gravity_override`] exists precisely so a user cutting
-//! a species this table has no entry for can type their own specimen's known or
-//! estimated SG directly.
+//! The table covers fourteen species, a subset of `GemMaterial::all_materials`. Optical
+//! entries without an SG row (the individual garnets among them) are left out on purpose:
+//! an SG row with no optical entry would let a picker offer a species it cannot render.
+//! [`MaterialSelection::specific_gravity_override`] lets a user enter the SG of a species
+//! this table does not cover.
 
 mod catalogue;
 pub mod color;

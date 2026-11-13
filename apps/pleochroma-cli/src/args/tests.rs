@@ -1,9 +1,16 @@
+#[cfg(feature = "adaptive-sampling")]
+use super::AdaptiveArgs;
+#[cfg(feature = "beam")]
+use super::BeamArgs;
 use super::{
-    Command, ExportFormat, Exposure, JobCommandKind, MaterialArg, Mode, RenderJobArgs,
-    ReportFormat, Topic, parse,
+    Command, ExportFormat, Exposure, JobCommandKind, MaterialArg, Mode, PathCacheArgs,
+    RenderJobArgs, ReportFormat, Topic, parse,
     types::{LIGHTING_NAMES, PRESET_NAMES},
 };
-use pleochroma::{color::HighlightRule, optics::LightingPreset};
+use pleochroma::{
+    color::HighlightRule,
+    optics::{LightingPreset, tables::OpticsTables},
+};
 use pleochroma_cut_core::{CANONICAL_LIGHTING_PRESET, ObjectivePreset};
 use pleochroma_editor::{
     optimize_view::{DEFAULT_BUDGET, DEFAULT_CANDIDATES, DEFAULT_STARTS},
@@ -408,6 +415,20 @@ fn render_args(line: &str) -> RenderJobArgs {
 }
 
 #[test]
+fn verbose_is_off_by_default_and_a_flag_of_both_job_commands() {
+    for line in ["render a.job.json", "tilt-video v.job.json"] {
+        assert!(!render_args(line).verbose, "{line}");
+    }
+    for line in [
+        "render a.job.json --verbose",
+        "tilt-video --verbose v.job.json",
+    ] {
+        assert!(render_args(line).verbose, "{line}");
+    }
+    assert_ne!(error("solve --verbose"), "");
+}
+
+#[test]
 fn render_defaults_to_both_engines_and_the_jobs_own_choices() {
     let args = render_args("render a.job.json");
     assert_eq!(args.kind, JobCommandKind::Render);
@@ -441,6 +462,8 @@ fn render_takes_every_flag() {
     assert_eq!(
         args,
         RenderJobArgs {
+            stone_shadow: None,
+            tray_reflection: None,
             engine: None,
             kind: JobCommandKind::Render,
             job: PathBuf::from("a.job.json"),
@@ -458,6 +481,16 @@ fn render_takes_every_flag() {
             color_variant: Some("ruby.thai".to_string()),
             color_pattern: Some("hexagonal-banding".to_string()),
             exposure: Exposure::Metered,
+            raw_out: None,
+            progress_raw: None,
+            sample_offset: 0,
+            #[cfg(feature = "adaptive-sampling")]
+            adaptive: AdaptiveArgs::default(),
+            path_cache: PathCacheArgs::default(),
+            optics_tables: OpticsTables::Off,
+            #[cfg(feature = "beam")]
+            beam: BeamArgs::default(),
+            verbose: false,
         }
     );
 }
@@ -471,6 +504,8 @@ fn tilt_video_takes_every_flag() {
     assert_eq!(
         args,
         RenderJobArgs {
+            stone_shadow: None,
+            tray_reflection: None,
             engine: None,
             kind: JobCommandKind::TiltVideo,
             job: PathBuf::from("v.job.json"),
@@ -488,8 +523,60 @@ fn tilt_video_takes_every_flag() {
             color_variant: None,
             color_pattern: None,
             exposure: Exposure::AsJob,
+            raw_out: None,
+            progress_raw: None,
+            sample_offset: 0,
+            #[cfg(feature = "adaptive-sampling")]
+            adaptive: AdaptiveArgs::default(),
+            path_cache: PathCacheArgs::default(),
+            optics_tables: OpticsTables::Off,
+            #[cfg(feature = "beam")]
+            beam: BeamArgs::default(),
+            verbose: false,
         }
     );
+}
+
+/// Without the `adaptive-sampling` feature the adaptive flags are not flags: every one is an
+/// unknown word of both job commands.
+#[cfg(not(feature = "adaptive-sampling"))]
+#[test]
+fn the_adaptive_flags_are_unknown_words_without_the_feature() {
+    for flag in [
+        "--adaptive",
+        "--gpu-convergence",
+        "--target-noise 0.02",
+        "--min-spp 64",
+        "--noise-metric relative",
+    ] {
+        for command in ["render a.job.json", "tilt-video v.job.json"] {
+            let message = error(&format!("{command} {flag}"));
+            let word = flag.split_whitespace().next().unwrap_or(flag);
+            assert!(
+                message.contains("unknown flag"),
+                "{command} {flag}: {message}"
+            );
+            assert!(message.contains(word), "{command} {flag}: {message}");
+        }
+    }
+}
+
+#[test]
+fn the_estimator_flag_is_an_unknown_option() {
+    for command in ["render a.job.json", "tilt-video v.job.json"] {
+        let name = command.split_whitespace().next().unwrap_or(command);
+        assert_eq!(
+            error(&format!("{command} --estimator collect")),
+            format!("unknown flag \"--estimator\" for \"{name}\" (see --help)"),
+            "{command}"
+        );
+    }
+    for command in ["solve", "optimize", "info"] {
+        assert!(
+            !error(&format!("{command} --estimator collect")).is_empty(),
+            "{command}"
+        );
+    }
 }
 
 #[test]
@@ -631,7 +718,10 @@ fn the_help_pages_of_the_render_commands() {
     assert!(crate::help::text(Topic::Render).contains("--out FILE.png"));
     assert!(crate::help::text(Topic::TiltVideo).contains("--restart"));
     let message = error("frobnicate x");
-    assert!(message.contains("render or tilt-video"), "{message}");
+    assert!(
+        message.contains("render, tilt-video or image-compare"),
+        "{message}"
+    );
 }
 
 #[test]
@@ -707,4 +797,59 @@ fn render_engine_is_an_explicit_override_and_unknown_words_are_refused() {
         );
         assert!(error(&format!("{command} a.job.json --engine unknown")).contains("--engine"));
     }
+}
+
+#[test]
+fn stone_shadow_is_an_explicit_still_render_override() {
+    assert_eq!(render_args("render a.job.json").stone_shadow, None);
+    assert_eq!(
+        render_args("render a.job.json --stone-shadow on").stone_shadow,
+        Some(true)
+    );
+    assert_eq!(
+        render_args("render a.job.json --stone-shadow off").stone_shadow,
+        Some(false)
+    );
+    assert!(parse(&argv("render a.job.json --stone-shadow maybe")).is_err());
+    let refusal = error("tilt-video a.job.json --stone-shadow on");
+    assert!(
+        refusal.contains("Tilt videos do not show the stone shadow yet."),
+        "{refusal}"
+    );
+}
+
+/// `--tray-reflection` takes the percent of the app's slider and keeps the fraction the scene
+/// carries; it is a still-render override only.
+#[test]
+fn tray_reflection_is_a_percent_still_render_override() {
+    assert_eq!(render_args("render a.job.json").tray_reflection, None);
+    assert_eq!(
+        render_args("render a.job.json --tray-reflection 0").tray_reflection,
+        Some(0.0)
+    );
+    assert_eq!(
+        render_args("render a.job.json --tray-reflection 4").tray_reflection,
+        Some(0.04)
+    );
+    assert_eq!(
+        render_args("render a.job.json --tray-reflection 12.5").tray_reflection,
+        Some(0.125)
+    );
+    assert_eq!(
+        render_args("render a.job.json --tray-reflection 100").tray_reflection,
+        Some(1.0)
+    );
+    for bad in ["-1", "100.5", "nan", "inf", "much"] {
+        let refusal = error(&format!("render a.job.json --tray-reflection {bad}"));
+        assert!(
+            refusal.contains("--tray-reflection needs a percent from 0 to 100"),
+            "{bad}: {refusal}"
+        );
+    }
+    assert!(parse(&argv("render a.job.json --tray-reflection")).is_err());
+    let refusal = error("tilt-video a.job.json --tray-reflection 4");
+    assert!(
+        refusal.contains("Tilt videos do not show the tray reflection yet."),
+        "{refusal}"
+    );
 }

@@ -34,34 +34,29 @@ component FieldError inherits Text {
 
 // New Design dialog, in two modes picked by the gallery:
 //
-// - A template (a card with a picture): the guided mode. Pick a shape, then say what to
-//   cut it from -- material, index gear (only the gears the shape's facets still land
-//   on) and stone width in millimetres. Rust (`gui::editor::callbacks::tier_actions::
-//   new_design`, via `TemplateGalleryModel.create`) builds the template on its own
-//   preform, remaps it to the gear, sets the width and, when the material's refractive
-//   index differs from the one the template was designed for, adapts the facet angles
-//   with the retarget engine -- keeping the template's angles, and saying so, if the
-//   adapted stone would not be valid.
-// - Empty: the full form (preform, gear, symmetry, mirror, material), fed straight to
-//   `pleochroma_cut_core::Design::fresh_from_spec` via
-//   `gui::editor::loading::parse_new_design_form`
-//   (`EditorModel.new_design_create`). The worked-example guide starts here.
+// - A template (a card with a picture): pick a shape, then the material, index gear (only the
+//   gears the shape's facets still land on) and stone width in millimetres. Rust
+//   (`TemplateGalleryModel.create`, `gui::editor::callbacks::tier_actions::new_design`) builds the
+//   template on its own preform, remaps it to the gear and sets the width. If the material's
+//   refractive index differs from the template's, the facet angles are adapted with the retarget
+//   engine. The template's angles are kept, with a note, when the adapted stone would be invalid.
+// - Empty: the full form (preform, gear, symmetry, mirror, material), parsed by
+//   `pleochroma_editor::loading::parse_new_design_form` on `EditorModel.new_design_create`.
+//   The worked-example guide starts here.
 //
-// Same full-viewport modal backdrop + centred card convention as
-// metadata_editor_dialog.slint/material_editor_dialog.slint/export_dialog.slint.
+// Same full-viewport modal backdrop and centred card as `metadata_editor_dialog.slint`,
+// `material_editor_dialog.slint` and `export_dialog.slint`.
 //
-// The dialog shows every field in Simple mode as well: the Empty form is what the
-// worked-example guide walks through, and a template needs no advanced field.
+// Every field shows in Simple mode too: the Empty form is what the worked-example guide walks
+// through, and a template needs no advanced field.
 export component NewDesignDialog inherits Rectangle {
-    // Whether a template (any index >= 1; `0` is Empty) is selected. Nothing about the
-    // schedule is locked any more: the template is remapped onto the chosen gear.
+    // Whether a template (index 1 or more; `0` is Empty) is selected.
     property <bool> from_template: EditorModel.new_template_index >= 1;
 
-    // Slint-side validity for the free-text numeric fields -- full parsing still lives
-    // in Rust (`gui::editor::loading::parse_preform_form`/`parse_new_design_form` for
-    // the Empty form, the create callback for the stone width) and is surfaced there via
-    // a toast on Create; these mirror those rules so a cutter sees the offending field
-    // highlighted before clicking Create.
+    // Slint-side validity for the free-text numeric fields. Full parsing stays in Rust
+    // (`pleochroma_editor::loading::parse_preform_form` and `parse_new_design_form` for the Empty
+    // form, the create callback for the stone width), which reports failures in a toast on
+    // Create. These mirror those rules so the offending field is marked before Create.
     property <bool> half_width_valid: EditorModel.new_preform_half_width.to-float() > 0;
     property <bool> length_over_width_valid: EditorModel.new_preform_length_over_width.to-float() > 0;
     property <bool> depth_valid: EditorModel.new_preform_depth.to-float() > 0;
@@ -89,11 +84,9 @@ export component NewDesignDialog inherits Rectangle {
         if !root.form_valid {
             return;
         }
-        // Closes only via the Rust callback's own success path
-        // (`tier_actions::do_new_design_create`) -- not here -- so a refused form (a
-        // whole-number symmetry order, a gear the template cannot use) reopens with
-        // the typed values intact and the toast naming the field, rather than a bad
-        // field yielding a toast with the dialog already gone.
+        // Closes only on Rust's success path (`do_new_design_create`). A refused form, such as a
+        // symmetry order that is not a whole number, keeps the typed values and the toast names
+        // the field.
         if root.from_template {
             TemplateGalleryModel.create(
                 EditorModel.new_template_index,
@@ -134,16 +127,8 @@ export component NewDesignDialog inherits Rectangle {
     // New Design... card carry the same outline until the dialog is open).
     property <bool> guide_highlighted: GuideModel.highlight_target == "new_design_dialog";
 
-    // Enter = Create (while the form validates), Escape = Cancel -- same
-    // `init => { self.focus(); }` + `key-pressed` idiom `ui/app.slint`'s
-    // `global_shortcuts` and `editor_tier_table.slint`'s row editor already use.
-    //
-    // Every other key must `accept`, not `reject`: `reject` would let it bubble
-    // past this dialog to `ui/app.slint`'s `global_shortcuts` FocusScope -- so
-    // Ctrl+S while this dialog is open (freshly opened, before any field has
-    // stolen focus) would fire Save on the design underneath it. `accept`
-    // for everything else swallows the key here instead, exactly like a native
-    // modal would.
+    // Enter creates (while the form is valid), Escape cancels. Every other key is `accept`ed so it
+    // cannot reach the design's shortcuts: Ctrl+S would otherwise save the design underneath.
     key_scope := FocusScope {
         init => { self.focus(); }
         key-pressed(event) => {
@@ -492,12 +477,9 @@ export component NewDesignDialog inherits Rectangle {
                             hint: "The material the new design starts with. You can change it later in Design Settings.";
                             ComboBox {
                                 accessible-label: "Starting Material";
-                                // `EditorModel.new_material_options` is pushed from
-                                // `gui::editor::state::builtin_preset_names` (built from
-                                // `pleochroma_cut_core::MaterialCatalogue`, so it covers every
-                                // renderer built-in) the same way `view.rs`'s existing
-                                // `design_material_options` already is -- not a hard-coded literal
-                                // that could drift from the real list.
+                                // `EditorModel.new_material_options` comes from
+                                // `pleochroma_editor::material::builtin_preset_names`, which covers
+                                // every renderer built-in, so it cannot drift from the real list.
                                 model: EditorModel.new_material_options;
                                 current-index <=> EditorModel.new_material_index;
                             }

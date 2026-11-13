@@ -1,8 +1,8 @@
 // ---------------------------------------------------------------------------------
-// Tier 2 kernel for the oriented scattering port (`transport_physics/11_oriented_scattering.wgsl`):
-// per-channel scattering coefficient, the mixture phase of every channel, the mixture direction
-// sampler and `maybe_scatter_oriented`, each compared against the CPU functions of
-// `optics::raytracer::scattering::oriented` by `renderer::gpu::transport_check::oriented`.
+// Tier 2 kernel for `transport_physics/11_oriented_scattering.wgsl`: per-channel scattering
+// coefficient, the mixture phase of every channel, the mixture direction sampler and
+// `maybe_scatter_oriented`. Each is checked against `optics::raytracer::scattering::oriented`
+// by `renderer::gpu::transport_check::oriented`.
 // ---------------------------------------------------------------------------------
 
 // One case: the medium as `GpuInclusionBlock` encodes it, an incoming direction, a scattered

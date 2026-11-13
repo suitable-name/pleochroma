@@ -1,28 +1,23 @@
-//! Per-frame rendering for the tilt performance video: shares
-//! `bridge::export_thread`'s per-image entry point (`render_image_rgba`) with the
-//! still-image export, rather than a private CPU-only tracer. The whole video pauses the
-//! live viewport for its own duration (`run`'s own doc comment), exactly as a still-image
-//! export does, so it is safe to share the GPU adapter the same way -- the video is a
-//! sequence of calls into the SAME core the still export uses for one image, not a
-//! second, divergent renderer.
+//! Per-frame rendering for the tilt performance video.
 //!
-//! [`VideoComputeConfig`] carries the SAME compute configuration a still-image export
-//! reads: the app's local CPU/GPU/hybrid setting (`RenderContext::local_compute_target`,
-//! a persisted general setting) and the configured remote endpoint
-//! (`AppSettings::remote`) with the video section's own "Transfer" choice -- see
-//! `mod::build_request`'s own doc comment for where these are read from. The section's
-//! own "Compute" pill (like the still-image export dialog's) picks `compute_target`:
-//! under `Both`, `render_image_rgba`'s graceful remote-unavailable fallback decides,
-//! frame to frame, whether the remote is actually reachable; under `RemoteOnly` there is
-//! no fallback and an unreachable remote fails the frame.
+//! Each frame goes through `bridge::export_thread::render_image_rgba`, the per-image entry
+//! point the still-image export uses too, so both share one render core (local CPU/GPU/hybrid
+//! and remote) and cannot drift apart.
+//!
+//! [`VideoComputeConfig`] holds the compute settings a still-image export reads: the
+//! local CPU/GPU/hybrid setting (`RenderContext::local_compute_target`) and the remote
+//! endpoint (`AppSettings::remote`), plus the section's "Transfer" choice. The section's
+//! "Compute" pill sets `compute_target`. Under `Both`, the remote-unavailable fallback in
+//! `render_image_rgba` decides frame by frame whether the remote is reachable. Under
+//! `RemoteOnly` there is no fallback, so an unreachable remote fails the frame.
 //!
 //! # Final picture only
 //!
-//! With "Transfer: Final picture only" each frame is ONE `FinalImageRequest`: the remote
-//! renders and tone-maps the frame, the viewer decodes the PNG to RGBA8, then overlays
-//! and writes it exactly like a locally rendered frame. A remote that answers
-//! `UNSUPPORTED_REQUEST` is remembered for the rest of the sweep (via the shared
-//! `AccumulationCarry`) and every later frame uses full data.
+//! With "Transfer: Final picture only" each frame is one `FinalImageRequest`: the remote
+//! renders and tone-maps the frame, and the viewer decodes the PNG to RGBA8 and overlays
+//! it like a local frame. A remote that answers `UNSUPPORTED_REQUEST` is remembered for
+//! the rest of the sweep (through the shared `AccumulationCarry`), and later frames use
+//! full data.
 
 use crate::{
     bridge::export_thread::{
@@ -34,43 +29,38 @@ use crate::{
 use pleochroma::{color::ColorSpace, renderer::gpu_backend::GpuBackend};
 use std::sync::atomic::AtomicBool;
 
-/// The compute configuration for a WHOLE video, read once from the same settings
-/// source a still-image export reads (see this module's own doc comment) and reused
-/// unchanged for every frame of the sweep.
+/// The compute configuration of one whole video, read once when it starts and reused
+/// for every frame of the sweep.
 pub(super) struct VideoComputeConfig {
-    /// The section's "Compute" choice, the configured remote endpoint snapshotted once
-    /// for the whole video, and the section's "Transfer" choice.
+    /// The "Compute" choice, the remote endpoint (snapshotted once per video) and the
+    /// "Transfer" choice.
     pub(super) remote: RemoteSelection,
-    /// `RenderContext::local_compute_target` at the moment the video started -- the
-    /// SAME persisted CPU/CPU+GPU/GPU setting the still-image export and the live
-    /// viewport both use.
+    /// The persisted CPU/CPU+GPU/GPU setting, as it was when the video started.
     pub(super) local_compute: LocalComputeTarget,
 }
 
-/// One frame's outcome from [`render_frame_rgba`] -- tone-mapped RGBA8 on the
-/// `Rendered` path (whichever side tone-mapped it), since a video frame has no PNG/ICC
-/// step of its own to defer that to (the overlay draws directly onto the RGBA buffer
-/// next, in `run.rs`).
+/// One frame's outcome from [`render_frame_rgba`].
+///
+/// `Rendered` is tone-mapped RGBA8 whichever side did the tone-mapping: a video frame has
+/// no PNG or ICC step, and the overlay draws straight onto this buffer in `run.rs`.
 pub(super) enum FrameOutcome {
     /// Tone-mapped RGBA8 bytes, `width * height * 4` long.
     Rendered(Vec<u8>),
     /// `cancel` was observed before this frame finished.
     Cancelled,
-    /// The frame's render failed outright (only reachable via `ComputeTarget::RemoteOnly`
-    /// with no local fallback -- see `AccumulationOutcome::Failed`'s own doc comment).
+    /// The render failed outright. Only reachable under `ComputeTarget::RemoteOnly`,
+    /// which has no local fallback (see `AccumulationOutcome::Failed`).
     Failed(String),
 }
 
-/// Renders one frame at `(cam_yaw, cam_pitch)` through the SAME per-image entry point
-/// the still-image export uses (`bridge::export_thread::render_image_rgba`: the local
-/// CPU/GPU/hybrid + remote full-data core with `tonemap_accumulation`, or the remote's
-/// own final picture) -- no separate video-only path. Everything else -- material,
-/// geometry, light, exposure, bounce cap -- comes from `scene`; only the camera pose
-/// changes frame to frame.
+/// Renders one frame at `(cam_yaw, cam_pitch)` through `render_image_rgba`.
 ///
-/// `gpu`/`carry` are owned by the WHOLE video (see `run::render_all_frames`), not
-/// reacquired/recalibrated per frame -- `config`'s compute settings are likewise fixed
-/// for the whole sweep.
+/// This is the per-image entry point the still-image export uses. Only the camera pose
+/// changes per frame: material, geometry, light, exposure and bounce cap come from `scene`.
+///
+/// `gpu` and `carry` belong to the whole video (owned by `frames::render_frames`), not to
+/// one frame, so the accumulation carry is reused across frames. `config` is fixed for the
+/// sweep.
 #[expect(
     clippy::too_many_arguments,
     reason = "every argument is a distinct piece of one frame's own render request \
@@ -126,11 +116,10 @@ mod tests {
     use crate::bridge::render_thread::RenderContext;
     use std::sync::Mutex;
 
-    /// A CPU-only, local-only smoke test: one frame at a tiny size/sample count must
-    /// produce a full, opaque RGBA buffer of the right length, through the SAME
-    /// `render_accumulation` core path the still-image export's CPU-only mode uses.
-    /// `run.rs`'s own end-to-end test covers the whole multi-frame pipeline; this
-    /// isolates just the render+tonemap step.
+    /// CPU-only smoke test: one tiny frame must come back as a full, opaque RGBA buffer.
+    ///
+    /// The multi-frame pipeline is covered by the end-to-end test in `tests.rs`; this
+    /// isolates the render and tone-map step.
     #[test]
     fn render_frame_rgba_produces_a_full_opaque_buffer() {
         let scene = SceneSnapshot::capture(&Mutex::new(RenderContext::default()))
@@ -197,13 +186,12 @@ mod tests {
         assert_eq!(rgba.len(), 4 * 4 * 4);
     }
 
-    /// `AccumulationCarry` must actually be REUSED across frames, not silently reset --
-    /// this is the whole point of threading it through from `run::render_all_frames`
-    /// instead of building a fresh one per frame. `ComputeTarget::Both` with NO worker
-    /// configured probes remote once, fails immediately (no network call needed -- see
-    /// `probe_remote`'s `NoWorkerConfigured` case), and surfaces a "rendering locally
-    /// only" note; a caller reusing the SAME carry across frames must see that note
-    /// exactly ONCE, not once per frame, proving the probe itself was not repeated.
+    /// The `AccumulationCarry` is reused across frames, not reset.
+    ///
+    /// With `Both` and no worker configured, the remote probe fails at once, without a
+    /// network call (see `probe_remote`'s `NoWorkerConfigured` case), and emits one note.
+    /// That note must appear once for the whole sweep, which shows the probe was not
+    /// repeated per frame.
     #[test]
     fn a_no_worker_configured_note_is_surfaced_once_not_once_per_frame() {
         let scene = SceneSnapshot::capture(&Mutex::new(RenderContext::default()))
@@ -249,10 +237,10 @@ mod tests {
         );
     }
 
-    /// "Final picture only" against a remote that cannot deliver (here: no certificate
-    /// bundle, so it fails before touching the network) falls back to full data under
-    /// `Both` -- every frame still renders -- and is not retried on later frames: the
-    /// final-picture note and the full-data "rendering locally" note each appear once.
+    /// A "Final picture only" remote that cannot deliver falls back to full data under `Both`.
+    ///
+    /// The remote here has no certificate bundle, so it fails before any network call. Every
+    /// frame still renders, and the fallback is not retried: each note appears once.
     #[test]
     fn a_failing_final_picture_falls_back_to_full_data_once_per_sweep() {
         let scene = SceneSnapshot::capture(&Mutex::new(RenderContext::default()))

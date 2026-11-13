@@ -8,7 +8,7 @@
 //! [`TierId`] exactly like [`Design::tier_targets`] (so it survives add, remove, move
 //! and undo). Its [`RelationExpr`] is a small syntax tree of numbers, tier references,
 //! `+ - * /` and unary minus. Parentheses only group while parsing; they are not nodes.
-//! Version 1 drives angles only.
+//! Relations drive angles only.
 //!
 //! The values are angle MAGNITUDES in degrees: a pavilion angle is stored negative,
 //! but a reference to it yields its absolute value, and the result must lie in

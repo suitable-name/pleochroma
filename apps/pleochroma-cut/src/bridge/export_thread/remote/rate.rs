@@ -1,10 +1,9 @@
-//! Sizing a remote chunk from a measured throughput ([`remote_chunk_samples`], held to
-//! what one request may carry by [`remote_request_samples`]), the pure
-//! throughput-from-elapsed-time arithmetic ([`remote_marginal_rate`]), which span of a
-//! finished request that throughput is measured over ([`remote_request_rate`]), how
-//! much of an assigned chunk never got traced ([`shortfall`]), and the calibration
-//! probe that seeds the very first chunk's rate estimate ([`calibrate_remote_rate`]/
-//! [`RemoteCalibration`]). See this group's own `mod.rs` doc comment.
+//! Remote chunk sizing and throughput measurement.
+//!
+//! [`remote_chunk_samples`] and
+//! [`remote_request_samples`] size a chunk, [`remote_marginal_rate`] and
+//! [`remote_request_rate`] measure throughput, [`shortfall`] counts untraced samples, and
+//! [`calibrate_remote_rate`] seeds the first chunk's rate. See the `mod.rs` doc.
 
 use super::{
     capability::{REMOTE_MIN_SPP, RemoteCapability},
@@ -18,51 +17,41 @@ use std::{
     time::{Duration, Instant},
 };
 
-/// Sample count for the remote calibration probe -- see [`calibrate_remote_rate`].
-/// Large enough to amortize one TLS/network round trip's fixed overhead against real
-/// tracing time; small enough not to waste meaningful export time on a measurement.
+/// Sample count for the remote calibration probe, see [`calibrate_remote_rate`]. Large enough
+/// that one network round trip is small against the tracing time, small enough to cost little.
 pub(in crate::bridge::export_thread) const REMOTE_CALIBRATION_SAMPLES: u32 = 8;
 
-/// Target wall-clock duration for one request to a plain remote worker -- long enough
-/// that per-request handshake/transfer overhead (~2.5ms locally, more over a real
-/// network) is negligible against it; short enough that a slow/loaded worker never
-/// holds the tail of the export hostage for minutes while every other engine sits idle.
+/// Target wall-clock duration for one request to a plain remote worker. Long enough that
+/// per-request overhead is negligible against it, short enough that a slow worker never
+/// holds the export's tail for minutes.
 ///
-/// Sizing by TIME rather than a fixed sample count makes both ends self-correcting: a
-/// slow worker's measured rate is small, so `rate * REMOTE_CHUNK_TARGET_SECS` (see
-/// [`remote_chunk_samples`]) comes out small too, automatically; a fast worker gets
-/// bigger chunks.
+/// Sizing by time rather than by a fixed sample count scales chunks with the measured rate:
+/// a slow worker gets small chunks and a fast one gets big chunks, see [`remote_chunk_samples`].
 const REMOTE_CHUNK_TARGET_SECS: f64 = 22.0;
 
 /// Target wall-clock duration for one request to a coordinator
 /// ([`RemoteCapability::coordinator`]).
 ///
-/// A coordinator cuts every request into chunks of its own (the same 22 second policy)
-/// and keeps its lanes busy on them while the merged result streams back, so a long
-/// request costs this side no responsiveness; the fixed cost of a request (connection,
-/// scene upload, job set-up, the transfer after the last chunk) is paid once per 90
-/// seconds of work instead of once per 22.
+/// A coordinator cuts each request into its own chunks, so a long request costs this side
+/// no responsiveness. The fixed cost of a request (connection, scene upload, job set-up,
+/// final transfer) is then paid once per 90 seconds of work instead of once per 22.
 const COORDINATOR_CHUNK_TARGET_SECS: f64 = 90.0;
 
 /// Floor for [`remote_chunk_samples`] -- reuses [`REMOTE_MIN_SPP`] rather than a second
 /// independent number the two could drift apart on.
 const REMOTE_CHUNK_MIN_SPP: u32 = REMOTE_MIN_SPP;
 
-/// The most samples one request may ask for: the per-request limit an
-/// `pleochroma-worker` (a plain worker or a coordinator) validates every `RenderRequest`
-/// against, answering anything above it with a validation error.
+/// The most samples one request may ask for. A `pleochroma-worker` (plain or coordinator)
+/// answers anything above this limit with a validation error.
 const REMOTE_MAX_REQUEST_SAMPLES: u32 = DEFAULT_MAX_CHUNK_SAMPLES;
 
-/// How many samples one remote request should cover to take about the target time for
-/// its peer ([`REMOTE_CHUNK_TARGET_SECS`] for a plain worker,
-/// [`COORDINATOR_CHUNK_TARGET_SECS`] when `coordinator`), given the CURRENT best
-/// estimate of remote's throughput.
+/// How many samples one remote request should cover to take about the target time for its
+/// peer ([`REMOTE_CHUNK_TARGET_SECS`] for a plain worker, [`COORDINATOR_CHUNK_TARGET_SECS`]
+/// when `coordinator`), given the current throughput estimate.
 ///
-/// Never below [`REMOTE_CHUNK_MIN_SPP`]: a non-finite, zero, or implausibly small rate
-/// must not collapse the chunk size to something per-request overhead would dominate.
-/// Not held to the per-request limit and not clamped to the budget remaining: callers
-/// size a real request with [`remote_request_samples`], and `SampleCursor::claim`
-/// clamps that to what is left.
+/// Never below [`REMOTE_CHUNK_MIN_SPP`]: a non-finite, zero or tiny rate must not shrink
+/// the chunk until per-request overhead dominates. Not held to the per-request limit; use
+/// [`remote_request_samples`] for a real request. `SampleCursor::claim` clamps to the budget.
 #[must_use]
 #[expect(
     clippy::cast_possible_truncation,
@@ -108,12 +97,10 @@ pub(in crate::bridge::export_thread) const fn shortfall(assigned: u32, completed
     assigned.saturating_sub(completed)
 }
 
-/// The pure arithmetic behind [`remote_request_rate`]: `delta_samples` traced over
-/// `elapsed` wall time. Takes a plain `Duration` rather than a pair of `Instant`s so
-/// it's directly unit-testable.
+/// The arithmetic behind [`remote_request_rate`]: `delta_samples` traced over `elapsed`.
+/// Takes a `Duration`, not two `Instant`s, so it is unit-testable.
 ///
-/// `None` when `delta_samples` is `0` (no progress update arrived, or the span was
-/// instantaneous) or `elapsed` is zero/negative.
+/// `None` when `delta_samples` is `0` or `elapsed` is not positive.
 #[must_use]
 pub(in crate::bridge::export_thread) fn remote_marginal_rate(
     delta_samples: u32,
@@ -129,25 +116,18 @@ pub(in crate::bridge::export_thread) fn remote_marginal_rate(
     Some(f64::from(delta_samples) / secs)
 }
 
-/// The throughput one finished request measured, in samples/sec -- the figure
-/// `super::dispatch::run_remote_batch` returns and [`calibrate_remote_rate`] and every
-/// later chunk size their next request from.
+/// The throughput one finished request measured, in samples/sec.
 ///
-/// `samples_done` over `request_elapsed`, the WHOLE request from sending it to its
-/// `DONE`, is the rate of a coordinator peer and the fallback for a plain worker. It
-/// counts every fixed cost of a request (connection, scene upload, job set-up, the
-/// transfer after the last chunk), which is what a chunk sized to a target duration has
-/// to be measured against to take that long. A window that opens at the first progress
-/// report and closes at `DONE` would measure neither rendering nor the whole request:
-/// against a coordinator, progress advances only when one of its lanes' chunks merges,
-/// so such a window opens after the first chunk's work is done and closes after the
-/// last chunk's transfer.
+/// `samples_done` over `request_elapsed` (the whole request, send to `DONE`) is the rate of
+/// a coordinator peer and the fallback for a plain worker. It includes every fixed cost of
+/// a request, which is what a chunk sized to a target duration must be measured against.
+/// A window from the first progress report to `DONE` would not: a coordinator reports
+/// progress only when a lane's chunk merges, so that window misses the first chunk's work
+/// and the last chunk's transfer.
 ///
-/// A plain worker with at least two distinct progress reports is measured from them
-/// instead: `advance` is the samples gained and the time elapsed between its first and
-/// its last report, which is rendering plus the ongoing per-`FRAME` transfer, without
-/// the one-time setup and the tail. A worker that reported progress once (`advance` is
-/// `None`) gets the whole-request figure.
+/// A plain worker with at least two progress reports is measured over the span between its
+/// first and last report: rendering plus the ongoing per-`FRAME` transfer, without the
+/// one-time setup and tail. With one report (`advance` is `None`) it gets the whole request.
 #[must_use]
 pub(in crate::bridge::export_thread) fn remote_request_rate(
     coordinator: bool,
@@ -164,13 +144,10 @@ pub(in crate::bridge::export_thread) fn remote_request_rate(
         .or_else(whole_request)
 }
 
-/// The outcome of [`calibrate_remote_rate`]'s probe -- carries WHY a probe didn't
-/// produce a trustworthy rate, not just that it didn't, so `run_export` can show the
-/// user what happened instead of silently dropping remote. `run_export` matches on
-/// every variant: `Ready` seeds the first chunk; `Failed`/`Short` become a
-/// `pending_note` (or, under `ComputeTarget::RemoteOnly`, an outright
-/// `ExportOutcome::Failed`); `Cancelled` gets no note since `run_export`'s own `cancel`
-/// check bails out immediately after.
+/// The outcome of [`calibrate_remote_rate`]'s probe, saying why it did not yield a trustworthy
+/// rate, so `run_export` can show the user what happened. `Ready` seeds the first chunk;
+/// `Failed` and `Short` become a note (or an `ExportOutcome::Failed` under
+/// `ComputeTarget::RemoteOnly`); `Cancelled` gets no note.
 #[derive(Debug)]
 pub(in crate::bridge::export_thread) enum RemoteCalibration {
     /// The probe succeeded and measured a usable throughput estimate, in samples/sec,
@@ -179,8 +156,8 @@ pub(in crate::bridge::export_thread) enum RemoteCalibration {
     /// The export was cancelled during the probe. No user-facing note is warranted --
     /// `run_export` bails out via its own `cancel` check immediately after.
     Cancelled,
-    /// The probe request itself failed outright -- a connection/protocol error, or a
-    /// worker-side `ERROR`. Carries the worker's/transport's message text VERBATIM.
+    /// The probe failed outright (connection, protocol, or worker `ERROR`). Carries the
+    /// message verbatim.
     Failed(String),
     /// The probe connected but ended before tracing a single sample -- nothing to
     /// measure a rate from, and no evidence the worker can deliver at this resolution.
@@ -192,33 +169,24 @@ pub(in crate::bridge::export_thread) enum RemoteCalibration {
     Partial { rate: f64, done: u32, expected: u32 },
 }
 
-/// Times a [`REMOTE_CALIBRATION_SAMPLES`]-sample probe against the remote worker and
-/// returns its measured throughput in samples/sec -- the initial rate estimate
-/// `super::dispatch::run_remote_lane` sizes its first chunk from, before any chunk of
-/// its own reports a fresher measurement. Anything other than
-/// [`RemoteCalibration::Ready`] means "decline remote for this export": the probe
-/// failed, was cancelled, or completed short, with no trustworthy rate to size even a
-/// first chunk from.
+/// Times a [`REMOTE_CALIBRATION_SAMPLES`]-sample probe against the remote worker and returns
+/// its throughput in samples/sec, the initial estimate `super::dispatch::run_remote_lane`
+/// sizes its first chunk from. Anything other than [`RemoteCalibration::Ready`] means remote
+/// is declined for this export, since there is no trustworthy rate.
 ///
-/// No local probe is timed alongside this one: remote runs as a continuously
-/// re-claiming lane drawing from a shared `SampleCursor` rather than a fixed split, so
-/// only an initial throughput estimate is needed (`batch::hybrid_batch` re-measures its
-/// own CPU/GPU split independently every batch).
+/// No local probe runs alongside: remote is a continuously re-claiming lane on a shared
+/// `SampleCursor`, so only an initial estimate is needed.
 ///
-/// The probe's radiance is folded into `accum` for real (never `gpu_accum` -- remote's
-/// contribution always lands in the CPU-side buffer), and `*samples_done` is advanced
-/// past it.
+/// The probe's radiance is folded into `accum` (never `gpu_accum`: remote contributions
+/// always land in the CPU-side buffer), and `*samples_done` is advanced past it.
 ///
 /// # What the rate measurement covers
 ///
-/// The rate is `super::dispatch::run_remote_batch`'s measured `rate_samples_per_sec`
-/// when one came back ([`remote_request_rate`]), falling back to plain `probe /
-/// elapsed` otherwise. Against a coordinator, and against a worker that reported
-/// progress only once, that is the whole request, connection setup, upload and result
-/// transfer included: a probe of a few samples reads low, so the first chunk is small,
-/// and the next chunk is sized from its own, longer measurement. Against a worker with
-/// two or more progress reports it is the span between the first and the last report,
-/// which excludes the one-time costs but includes the ongoing per-`FRAME` transfer.
+/// The rate is `super::dispatch::run_remote_batch`'s `rate_samples_per_sec` when one came
+/// back ([`remote_request_rate`]), else `probe / elapsed`. Against a coordinator, or a worker
+/// with one progress report, that includes connection, upload and transfer, so a short probe
+/// reads low and the first chunk comes out small. Against a worker with two or more reports
+/// it covers the span between the first and last report only.
 pub(in crate::bridge::export_thread) fn calibrate_remote_rate(
     capability: &RemoteCapability,
     scene_state: &SceneState,

@@ -37,29 +37,19 @@ pub const ANALYSIS_INACTIVITY_TIMEOUT_MS: u32 = 300_000;
 /// How long a superseded job may have run before its Worker is terminated.
 ///
 /// An older job is abandoned by terminating the Worker, rather than letting it finish
-/// while the new request waits. The threshold is the desktop's synchronous-solve limit
+/// while the new request waits. The threshold is the editor's synchronous-solve limit
 /// (`solve_policy::SYNC_SOLVE_TIME_LIMIT`, 500 ms). A younger job is left to finish
 /// (its answer is discarded), since a restart costs more than the wait.
 pub const SUPERSEDE_RESPAWN_AFTER_MS: f64 = 500.0;
 
-/// How long a cancelled search may take to stop and answer with its best result so far
-/// before its Worker is terminated instead: 30 s.
+/// How long a cancelled search may take to answer with its best result so far before its
+/// Worker is terminated instead: 30 s.
 ///
-/// A cancelled search does not answer at once: the Worker sees the revoked cancel URL at
-/// its next progress report (one evaluation of the design), then scores the design before
-/// and after at full fidelity (two evaluations of over a second each natively), on one
-/// wasm thread. Measured in the browser on a 12-tier design (`rbc445`, 3 free tiers): the
-/// starting-point scoring takes 10.7-11.9 s and the closing one about 10 s, so
-///
-/// - a cancel in the middle of the search answers after ~11 s (12 s left 0.9 s of margin,
-///   and lost the partial result whenever the closing scoring ran a little slow), and
-/// - a cancel while the STARTING point is still being scored (the first ~11 s of a run)
-///   answers after ~21 s: the Worker cannot look at the cancel flag before that scoring
-///   ends, and then still owes the closing one. A 12 s grace period ended every such
-///   cancel in the hard fallback and lost the partial result.
-///
-/// 30 s covers both with room for a slower machine. The page offers "Stop now" (the hard
-/// cancel) the whole time it waits.
+/// The Worker sees the revoked cancel URL only at its next progress report, and it still
+/// scores the starting and the closing design at full fidelity (about 11 s each on a
+/// 12-tier design, on one wasm thread). A cancel during the starting scoring therefore
+/// takes about twice that to answer. 30 s covers this with room for a slower machine. The
+/// page offers "Stop now" (the hard cancel) the whole time it waits.
 pub const GRACEFUL_CANCEL_MS: u32 = 30_000;
 
 /// Restarts allowed for a Worker that crashes before it ever reports ready.

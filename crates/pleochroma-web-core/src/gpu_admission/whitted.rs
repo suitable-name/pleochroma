@@ -36,7 +36,7 @@ pub fn engine_ineligibility_reason(
     )
 }
 
-/// Every optical material class is admitted; the reduced model uses scalar indices.
+/// Every optical material class is admitted; only the scene-level refusals below apply.
 #[must_use]
 pub fn whitted_ineligibility_reason(
     spec: &SceneSpec,
@@ -65,7 +65,8 @@ pub fn whitted_ineligibility_reason(
     (tool_count > GPU_MAX_TOOL_PRIMITIVES).then_some(REASON_TOO_MANY_TOOLS)
 }
 
-/// Does not alter any existing event-wavefront adapter key or admission record.
+/// The Ray-Traced record's key. The hash text carries `whitted:`, so it never equals an
+/// event-wavefront key.
 #[must_use]
 pub fn whitted_adapter_key(facts: &AdapterFacts<'_>, browser_major: &str, hash: &str) -> String {
     adapter_key(facts, browser_major, format!("whitted:{hash}"))

@@ -89,7 +89,7 @@ fn moments(v: &[f64]) -> (f64, f64, f64) {
 }
 
 /// The mean of the paired differences `a - b` and its standard error `sqrt(var(d) / n)`.
-fn paired_mean_diff(a: &[f64], b: &[f64]) -> (f64, f64) {
+pub(super) fn paired_mean_diff(a: &[f64], b: &[f64]) -> (f64, f64) {
     let d: Vec<f64> = a.iter().zip(b).map(|(x, y)| x - y).collect();
     let (mean, var, _) = moments(&d);
     (mean, (var / d.len() as f64).sqrt())
@@ -112,13 +112,11 @@ fn paired_var_diff(a: &[f64], b: &[f64]) -> (f64, f64) {
     (diff, (var / d.len() as f64).sqrt())
 }
 
-/// Regression guard for a bounce-budget truncation asymmetry (see
-/// [`super::super::super::refraction::ExitSplitCtx::split_radiance`]'s doc comment):
-/// a split channel resolves inline (one bounded intersect test) while the shared/hero
-/// path needs a whole extra loop iteration to discover its own miss, so at a low
-/// `max_bounces` cap splitting-on/off means diverged sharply (up to 2.6x for Synthetic
-/// Moissanite at `max_bounces = 4`) before `split_radiance` staging + conditional
-/// commit fixed it. Pins the on/off ratio close to 1 across a range of caps.
+/// Guards the bounce-budget truncation asymmetry (see `ExitSplitCtx::split_radiance`): a split
+/// channel resolves inline with one bounded intersect test, while the hero path needs a whole
+/// extra loop iteration to discover its own miss. The staging of `split_radiance` and its
+/// conditional commit prevent the resulting divergence (up to 2.6x for Synthetic Moissanite at
+/// `max_bounces = 4` without them). The test pins the on/off ratio near 1 across a range of caps.
 #[test]
 fn exit_splitting_respects_bounce_budget_truncation() {
     const SAMPLES: u32 = 6_000;
@@ -200,29 +198,20 @@ fn exit_splitting_respects_bounce_budget_truncation() {
 /// channel noisier: Y is the channel every visible render weights by (CIE luminous
 /// efficiency).
 ///
-/// Means: the paired per-sample differences may move each XYZ mean by one percent plus
-/// 3.5 standard errors. Both arms ride every companion channel on the hero's geometry
-/// while its own refracted direction stays within `DIRECTION_MATCH_COS_TOL` of the
-/// hero's, and splitting leans on that approximation harder (a companion contributes
-/// past the exit from every hero in its family, not only from the heroes whose exit
-/// direction it shares), so the arms differ by a small systematic amount that scales
-/// with the tolerance: at 1,048,576 paired draws Rutile reads +0.4% in X and Y and -0.9%
-/// in Z, Zircon and Synthetic Moissanite +0.2 to +0.7%, Diamond nothing; a tolerance of
-/// 1e-7 shrinks Rutile to +0.1% in every component (and the variance benefit with it),
-/// 1e-5 widens it to +2.4% / -2.3%. The one-percent allowance covers that, a true
-/// accounting error would not stay under it.
+/// Means: the paired differences may move each XYZ mean by one percent plus 3.5 standard
+/// errors. Both arms ride every companion channel on the hero's geometry while its refracted
+/// direction stays within `DIRECTION_MATCH_COS_TOL` of the hero's. Splitting leans on that
+/// approximation harder, so the arms differ by a small systematic amount that scales with the
+/// tolerance. The one-percent allowance covers it; a real accounting error would not.
 ///
-/// Variance: the bound is statistical, not a fixed ratio. With splitting on, every
-/// companion channel that is still alive at the exit adds its own environment lookup, a
-/// second correlated estimate folded into the same sample, so the Y variance drops
-/// clearly for Zircon and Synthetic Moissanite (by 30% and 80% at these counts). Rutile's
-/// paths are heavy-tailed under the ring lights and its variance estimate carries a 15%
-/// standard error even at 65,536 samples; read as an unpaired ratio it swung between 0.59
-/// and 0.89 from one seed range to the next, while the paired difference sits within one
-/// standard error of zero. Only a regression that multiplies the variance (the
-/// bounce-budget asymmetry guarded above was 2.6x) can fail the three-standard-error
-/// bound.
+/// Variance: the bound is statistical, not a fixed ratio. With splitting on, every companion
+/// channel still alive at the exit adds its own environment lookup, a second correlated estimate
+/// in the same sample, so the Y variance drops for the dispersive stones. Rutile's paths are
+/// heavy-tailed under the ring lights, so its unpaired variance ratio is too noisy to read; the
+/// paired difference is the test. Only a change that multiplies the variance can fail the
+/// three-standard-error bound.
 #[test]
+#[ignore = "over 60 s in the workspace run (2026-11-08); run on request: scripts/run_tests_on_request.sh"]
 fn exit_splitting_keeps_the_mean_within_a_percent_and_does_not_add_variance() {
     const SAMPLES: u32 = 65_536;
     let planes = StandardGemCuts::standard_round_brilliant();

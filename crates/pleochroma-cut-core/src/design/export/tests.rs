@@ -1,4 +1,6 @@
-//! Tests for [`super::planes`]'s plane arrangement/cheater-offset behaviour,
+//! Tests for the design export modules.
+//!
+//! They cover [`super::planes`]'s plane arrangement/cheater-offset behaviour,
 //! [`super::refractive`]'s catalogue-aware refractive index, and
 //! [`super::schedule`]'s `.asc` export -- including the panic-to-error
 //! (`SolveMismatch`) conversions all three share.
@@ -196,11 +198,8 @@ fn cheater_offset_rotation_matches_the_exported_index_shift() {
     );
 }
 
-/// A cheater offset of exactly `0.0` (the default -- no offset actually
-/// recorded, or one explicitly cleared back to zero) must leave every plane
-/// unchanged, matching "never print a value the picture ignores" the other
-/// way around: a zero offset the picture DOES apply is indistinguishable
-/// from no offset at all.
+/// A cheater offset of exactly `0.0` (the default: no offset recorded, or one cleared back
+/// to zero) must leave every plane unchanged.
 #[test]
 fn zero_cheater_offset_changes_nothing() {
     let mut design = round_brilliant_design();
@@ -300,10 +299,9 @@ fn effective_refractive_index_with_prefers_the_override_over_a_custom_entry() {
     assert_eq!(design.effective_refractive_index_with(&custom), 1.70);
 }
 
-/// A design named after a CUSTOM catalogue entry (not one of the thirteen
-/// built-ins) must resolve to that entry's own `n_D` -- the bug
-/// `effective_refractive_index` alone cannot fix, since it only ever consults
-/// the built-in table.
+/// A design named after a CUSTOM catalogue entry (not one of the built-ins) must resolve
+/// to that entry's own `n_D`. `effective_refractive_index` alone cannot do this, since it
+/// only consults the built-in table.
 #[test]
 fn effective_refractive_index_with_resolves_a_custom_material_by_name() {
     let mut design = round_brilliant_design();
@@ -364,11 +362,10 @@ fn effective_refractive_index_with_falls_back_to_the_legacy_value_when_nothing_r
 
 // --- to_asc_schedule_with / to_asc_schedule_from_solved_with (custom-material `I` line) ---
 
-/// A design on a CUSTOM catalogue material must export an `I` line matching
-/// that material's own `n_D` through the `_with` entry points -- the bug this
-/// module fixes. `to_asc_schedule` (built-ins-only) must still fall back to the
-/// legacy schedule RI for the exact same design, proving the two really do
-/// differ only in whether a custom catalogue was supplied.
+/// A design on a CUSTOM catalogue material must export an `I` line matching that
+/// material's own `n_D` through the `_with` entry points. `to_asc_schedule` (built-ins-only)
+/// must still fall back to the legacy schedule RI for the same design, so the two differ
+/// only in whether a custom catalogue was supplied.
 #[test]
 fn to_asc_schedule_with_resolves_a_custom_materials_own_refractive_index() {
     let mut design = round_brilliant_design();
@@ -451,9 +448,8 @@ fn to_asc_schedule_with_matches_the_old_entry_point_byte_for_byte_on_a_built_in(
         color_pattern_override: None,
         color_variant_override: None,
     };
-    // A custom catalogue with an unrelated entry must not perturb a design named
-    // after a built-in -- built-ins take precedence over nothing here, since
-    // `custom` has no "Diamond" entry of its own to shadow it with.
+    // A custom catalogue with an unrelated entry must not change a design named after a
+    // built-in, since `custom` has no "Diamond" entry to shadow it.
     let custom = [custom_garnet(1.9)];
 
     let old = design

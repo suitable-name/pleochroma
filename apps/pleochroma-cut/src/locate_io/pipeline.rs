@@ -19,8 +19,9 @@ use super::{
     report::status_words,
 };
 
-/// A ghost-image prediction keeps the images whose ray passes within this many mm of the point,
-/// at least; it grows with the point's uncertainty (three times its RMS).
+/// The least miss distance, in mm, that keeps a predicted ghost image.
+///
+/// The prediction widens it to three times the point's RMS when that is larger.
 const GHOST_MISS_FLOOR_MM: f64 = 0.25;
 
 /// What was located.

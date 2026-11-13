@@ -1,11 +1,8 @@
-// Phase 1: `intersect_polyhedron` kernel -- driven by `renderer::gpu::polyhedron_check`.
+// `intersect_polyhedron` kernel, driven by `renderer::gpu::polyhedron_check`.
 //
-// Fresh translation of `optics::raytracer::intersect_polyhedron` as it exists in
-// `raytracer.rs` today. The exit branch (an origin-inside-the-solid ray reports the FAR
-// facet, not a miss) is the critical part this port must get right -- the retired
-// first-draft shader had only an entry test, so an interior ray (e.g. after a refraction, in a
-// future phase) would report a miss and escape to the environment. Both branches are
-// ported here, in the same order, with the same `1e-4`/`1e-7` epsilons as the CPU.
+// Translation of `optics::raytracer::intersect_polyhedron`, with the same branch order and the
+// same `1e-4` / `1e-7` epsilons. Both the entry and the exit branch are needed: a ray that starts
+// inside the solid must report its exit facet, not a miss.
 
 struct FacetPlane {
     normal: vec3<f32>,
@@ -66,9 +63,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
                 far_normal = n;
             }
         } else if (side > 0.0) {
-            // Fix 3: ray (near-)parallel to this plane, origin already outside its
-            // half-space -- the polyhedron intersection is empty for this ray. See
-            // optics::raytracer::intersect_polyhedron's matching comment.
+            // Ray (near-)parallel to this plane with the origin outside its half-space: the
+            // intersection is empty.
             result.hit = 0u;
             result.t = 0.0;
             result.facet_idx = -1;
@@ -91,10 +87,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         result.facet_idx = select(0, near_facet, near_facet >= 0);
         result.normal = near_normal;
     } else if (t_far > 1e-4) {
-        // Origin is inside the solid (every entry plane lies behind the ray): the ray
-        // exits through the far (exit) plane. This is the critical branch: without it,
-        // any ray currently inside the gem would never find its exit facet and this
-        // kernel would incorrectly report a miss.
+        // Origin inside the solid (every entry plane lies behind the ray): the ray leaves
+        // through the far plane.
         result.hit = 1u;
         result.t = t_far;
         result.facet_idx = select(0, far_facet, far_facet >= 0);

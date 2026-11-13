@@ -2,12 +2,12 @@
 //! conversion to the zoned absorption the tracers render.
 //!
 //! A [`ColorPattern`] is a base zone plus up to [`MAX_PATTERN_ZONES`] shaped zones, each with a
-//! color. The color is stored as the picked `[L*, C*, h]` next to the seven-band rows the
-//! body-color editor solved for it ([`ZoneColor`]); [`ColorPattern::to_zoned`] never solves, it
-//! wraps the stored rows as per-millimeter tensors ([`bands_from_rows`], the same rule as
-//! `GemMaterial::with_body_color_bands`). A zone can hold two colors ([`PatternColor::Dichroic`]):
-//! the zone tensor is then uniaxial, `o_ray` = the Along color and `e_ray` = the Across color. A
-//! zone of a biaxial stone can hold three ([`PatternColor::Trichroic`]), or a color variant of the
+//! color. A color is stored as its picked `[L*, C*, h]` next to the band rows solved for it
+//! ([`ZoneColor`]). [`ColorPattern::to_zoned`] never solves. It wraps the stored rows as
+//! per-millimeter tensors ([`bands_from_rows`], the same rule as
+//! `GemMaterial::with_body_color_bands`). A zone can hold two colors ([`PatternColor::Dichroic`]),
+//! giving a uniaxial zone tensor: `o_ray` is the Along color and `e_ray` the Across color. A zone
+//! of a biaxial stone can hold three ([`PatternColor::Trichroic`]), or a color variant of the
 //! stone's material ([`PatternColor::Variant`], a per-millimeter snapshot of its tensor).
 //!
 //! # Geometry
@@ -17,7 +17,7 @@
 //! the tilt first rotates `+Y` about `+X` (towards `+Z`), then the turn rotates the result about
 //! `+Y` (`+Z` towards `+X`). `0 / 0` is the table normal, which is also every custom material's
 //! c axis. With `relative_to_stone` the lengths are for a stone one unit wide and resolve to
-//! millimeters through the existing `rough_plan::zoned_plan::resolve_relative`.
+//! millimeters through `rough_plan::zoned_plan::resolve_relative`.
 //!
 //! # What this module does not do
 //!
@@ -75,14 +75,13 @@ use std::f64::consts::FRAC_PI_2;
 /// Version 2 added [`PatternColor::Variant`] and [`PatternColor::Trichroic`]. Serde reads a file
 /// written before them unchanged (the old variants keep their positions), so a pattern only
 /// carries version 2 while it holds one of them ([`ColorPattern::required_format_version`]); every
-/// other pattern is still written as version 1 and an older build still reads it.
+/// other pattern is still written as version 1, which older readers accept.
 pub const PATTERN_FORMAT_VERSION: u32 = 2;
 
 /// The format version of a pattern that holds only [`PatternColor::Single`] and
 /// [`PatternColor::Dichroic`] colors.
 ///
-/// It is the first release's, which every template, typical pattern and import without a new
-/// color kind carries.
+/// Written by every template, typical pattern and import that has no variant or trichroic color.
 pub const PATTERN_BASE_FORMAT_VERSION: u32 = 1;
 
 /// The `[L*, C*, h]` that stands in for a [`PatternColor::Variant`] where a slider seed is needed
@@ -112,7 +111,7 @@ pub struct ColorPattern {
     /// How the pattern is oriented in the stone.
     pub axis: PatternAxis,
     /// Whether the zone lengths are for a stone one unit wide ("Scales With Stone Size") or in
-    /// millimeters ("Fixed in mm"). This is the existing `material_zoning` flag.
+    /// millimeters ("Fixed in mm"). This is the `material_zoning` flag.
     pub relative_to_stone: bool,
 }
 
@@ -142,9 +141,7 @@ pub enum PatternColor {
         /// The extraordinary-ray color.
         across: ZoneColor,
     },
-    // The variants below were added with format version 2, so they stay last: the wire form of
-    // the two above (a variant index) does not move, and a stored pattern that holds only them
-    // reads and writes exactly as it did.
+    // Kept after the two kinds above so that their wire form (the variant index) does not move.
     /// A color variant of the stone's material, copied into the pattern (a snapshot, like the
     /// design's `VariantChoice`, so the pattern renders without the variant library).
     /// `absorption` is per millimeter: a variant stored per model unit is converted when it
@@ -238,8 +235,7 @@ pub enum PatternAxis {
     /// normal, for every consumer that does not know the stone's axis; the application
     /// re-frames them wherever it does ([`follow_c_axis`]).
     ///
-    /// A pattern file written before this mode existed never holds it, so every old pattern
-    /// reads and writes exactly as it did.
+    /// Older pattern files never hold this mode.
     FollowsCrystalAxis,
 }
 
@@ -325,9 +321,7 @@ pub enum TemplateId {
     Split,
     /// Two wedges around the axis.
     Sectors,
-    // The variants below were added after the first release, so they stay last: the wire form
-    // of the earlier ones (a variant index) does not move, and a stored pattern that names one
-    // of them (`"template":"Watermelon"`) reads as it always did.
+    // Kept last so that the wire form of the earlier ones (their variant index) does not move.
     /// Concentric 6-sided growth zones around the axis (corundum, beryl). Not in [`Self::ALL`]:
     /// it is offered as typical zoning of the species ([`typical_patterns`]).
     HexagonalBanding,
@@ -589,7 +583,7 @@ impl ColorPattern {
 
     /// The lowest format version that can hold this pattern: [`PATTERN_FORMAT_VERSION`] while a
     /// zone holds a [`PatternColor::Variant`] or [`PatternColor::Trichroic`] color (an older
-    /// build refuses it with the "newer version" sentence instead of failing to parse),
+    /// build then reports a newer version rather than failing to parse),
     /// [`PATTERN_BASE_FORMAT_VERSION`] otherwise.
     #[must_use]
     pub fn required_format_version(&self) -> u32 {

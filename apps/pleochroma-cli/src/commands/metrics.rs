@@ -1,9 +1,8 @@
 //! `metrics`: the optical and geometric figures of a design, as text, JSON or one CSV row.
 //!
 //! The optical figures are the ones the Optimize tab and the sweep score with: one table-up
-//! measurement (about 2 ms) under the lighting preset at the canonical light pose, and with
-//! `--tilt` the mean over four axes and 181 tilt angles (about a second and a half). The
-//! proportions and the yield come from the solid.
+//! measurement under the lighting preset at the canonical light pose, and with `--tilt` the mean
+//! over four axes and 181 tilt angles. The proportions and the yield come from the solid.
 //!
 //! A design with concave tiers is measured as the stone with its tools, the stone the Compare
 //! window draws and Optimize scores (`Design::tools_for_scoring`, `StoneGeometry`): the optics
@@ -16,6 +15,13 @@
 //! they scatter the traced light as they do in the render. A frosted stone's figures are a
 //! sampled estimate, repeatable for the same design but not smooth in the angles. A design
 //! without frosting is exactly the polished stone's.
+//!
+//! The girdle is given twice. `girdle_pct_of_width` is the band, the full height of the girdle
+//! faces (`StoneProportions`), the figure the total depth adds up with. `girdle_line_pct_of_width`
+//! is the girdle read at its line, as the editor's proportion verdict and the cutting sheet read
+//! it (`pleochroma_editor::view_model::girdle_reading::GirdleReading`, its thinnest end), and is
+//! empty without a girdle line. It is the last CSV column ([`APPENDED_CSV_KEYS`]), so the older
+//! columns keep their place.
 
 use super::{deliver, key_values, list_block, open};
 use crate::{
@@ -45,6 +51,7 @@ use pleochroma_cut_core::{
 };
 use pleochroma_editor::{
     optimize_view::facet_count_from_solved, solve_policy::design_to_gpu_planes_from_solved,
+    view_model::girdle_reading::GirdleReading,
 };
 use serde_json::{Map, Value, json};
 use std::fmt::Write as _;
@@ -64,6 +71,13 @@ const GROUP_STONE: &str = "Stone";
 /// The camera pitch of the table-up figures (90 degrees): looking straight down on the table,
 /// as the sweep and Optimize's fast score do.
 const TABLE_UP_PITCH: f32 = std::f32::consts::FRAC_PI_2;
+
+/// The key of the girdle read at its line (see [`girdle_line_percent`]).
+const GIRDLE_LINE_KEY: &str = "girdle_line_pct_of_width";
+
+/// Figures placed last in the CSV row, in this order and after every older column, so a script
+/// that reads the columns by position keeps working. Text and JSON keep them beside their kin.
+const APPENDED_CSV_KEYS: [&str; 1] = [GIRDLE_LINE_KEY];
 
 /// What one figure reads as.
 enum Reading {
@@ -175,6 +189,8 @@ struct Measured {
     table_up: GemOpticalMetrics,
     tilt: Option<ObjectiveComponents>,
     proportions: StoneProportions,
+    /// The thinnest girdle thickness at its line, percent of the width ([`girdle_line_percent`]).
+    girdle_line_pct: Option<f64>,
     vol_w3: Option<f64>,
     depth_pct: Option<f64>,
     yield_pct: Option<f64>,
@@ -234,10 +250,13 @@ fn measure(
     let yield_pct = measure_solid(&design.preform.planes())
         .and_then(|rough| volumetric_yield(volume, rough.volume))
         .map(|fraction| fraction * 100.0);
+    let proportions = StoneProportions::from_solid(&solid, mesh, &planes);
+    let girdle_line_pct = girdle_line_percent(GirdleReading::of(design, solved, &proportions));
     Ok(Measured {
         table_up,
         tilt,
-        proportions: StoneProportions::from_solid(&solid, mesh, &planes),
+        proportions,
+        girdle_line_pct,
         vol_w3,
         depth_pct,
         yield_pct,
@@ -245,6 +264,18 @@ fn measure(
         tiers: design.tiers.len(),
         warnings: analysis.warnings.len(),
     })
+}
+
+/// The girdle's thinnest thickness at its LINE as a percentage of the width: the corners where
+/// the girdle faces meet and the ends of level edges, where the editor's proportion verdict and
+/// the cutting sheet read it (`GirdleReading::Line`, its thinnest end). `None` when `reading`
+/// has no girdle line (no girdle tier, or no crown or pavilion facet reaching the girdle faces):
+/// the reading's band fallback is what `girdle_pct_of_width` already gives.
+fn girdle_line_percent(reading: Option<GirdleReading>) -> Option<f64> {
+    match reading? {
+        line @ GirdleReading::Line { .. } => Some(line.judged_percent()),
+        GirdleReading::Band { .. } => None,
+    }
 }
 
 /// The figures of `measured`, in report order.
@@ -341,6 +372,12 @@ fn shape_figures(measured: &Measured) -> Vec<Figure> {
             "girdle_pct_of_width",
             "Girdle thickness, of width",
             proportions.girdle_to_width_percent,
+        ),
+        Figure::percent(
+            GROUP_PROPORTIONS,
+            GIRDLE_LINE_KEY,
+            "Girdle line, of width",
+            measured.girdle_line_pct,
         ),
         Figure::percent(
             GROUP_PROPORTIONS,
@@ -481,7 +518,8 @@ fn json_report(built: &Built) -> String {
 }
 
 /// The CSV report: a header line and one row. A figure the stone has no value for is left
-/// empty. Notes are not part of it (they go to standard error).
+/// empty. The figures of [`APPENDED_CSV_KEYS`] come last, after every older column. Notes are
+/// not part of it (they go to standard error).
 fn csv_report(built: &Built) -> String {
     let mut header: Vec<String> = ["design", "material", "refractive_index", "lighting"]
         .iter()
@@ -493,7 +531,14 @@ fn csv_report(built: &Built) -> String {
         fixed(built.n_d, INDEX_DECIMALS),
         built.lighting.to_string(),
     ];
-    for figure in &built.figures {
+    let older = built
+        .figures
+        .iter()
+        .filter(|figure| !APPENDED_CSV_KEYS.contains(&figure.key));
+    let appended = APPENDED_CSV_KEYS
+        .iter()
+        .filter_map(|key| built.figures.iter().find(|figure| figure.key == *key));
+    for figure in older.chain(appended) {
         header.push(figure.key.to_string());
         row.push(figure.csv());
     }
@@ -660,6 +705,107 @@ mod tests {
         assert_eq!(row[2], "1.7600");
         assert_eq!(row[3], lighting_name(CANONICAL_LIGHTING_PRESET));
         assert!(header.contains(&"table_up_brilliance_pct"));
+    }
+
+    fn built_from(loaded: &Loaded) -> Built {
+        build(
+            loaded,
+            &Catalogue::default(),
+            &args(false, ReportFormat::Text),
+        )
+        .expect("measures")
+    }
+
+    fn number(built: &Built, key: &str) -> Option<f64> {
+        match figure(built, key).reading {
+            Reading::Number { value, .. } => value,
+            Reading::Count(_) => None,
+        }
+    }
+
+    /// The band runs the full height of the girdle faces; the line is where the editor and the
+    /// cutting sheet read the girdle. Pentalume's tiny P3 and C3 thin its line at the corners of
+    /// the clipped pentagon; Cam's Portuguese has a level line of about 2.9 %.
+    #[test]
+    fn the_girdle_is_read_at_its_line_beside_the_band() {
+        let pentalume = built_from(&testing::asc("pentalume.asc", testing::PENTALUME_ASC));
+        let line = number(&pentalume, GIRDLE_LINE_KEY).expect("Pentalume has a girdle line");
+        let band = number(&pentalume, "girdle_pct_of_width").expect("and a band");
+        assert!(
+            (2.0..3.0).contains(&line),
+            "the thinnest end of the line: {line}"
+        );
+        assert!(line < band, "line {line}, band {band}");
+        let cams = built_from(&testing::asc("cams.asc", testing::CAMS_ASC));
+        let level = number(&cams, GIRDLE_LINE_KEY).expect("Cam's Portuguese has a girdle line");
+        assert!((2.85..2.95).contains(&level), "{level}");
+    }
+
+    #[test]
+    fn the_girdle_line_figure_is_empty_without_a_girdle_line() {
+        assert_eq!(girdle_line_percent(None), None);
+        assert_eq!(
+            girdle_line_percent(Some(GirdleReading::Band {
+                thickness: 0.1,
+                percent: 5.0
+            })),
+            None,
+            "the band fallback is not a line"
+        );
+        let line = girdle_line_percent(Some(GirdleReading::Line {
+            thinnest: 0.05,
+            thickest: 0.08,
+            width: 2.0,
+            level: false,
+        }))
+        .expect("a line");
+        assert!((line - 2.5).abs() < 1e-12, "the thinnest end: {line}");
+        let missing = Figure::percent(GROUP_PROPORTIONS, GIRDLE_LINE_KEY, "Girdle line", None);
+        assert_eq!(missing.csv(), "");
+        assert_eq!(missing.json(), Value::Null);
+    }
+
+    /// Scripts that read the CSV by position keep working: the new column is the last one, and
+    /// every older column keeps its place. Text keeps it beside the band.
+    #[test]
+    fn the_girdle_line_column_comes_last_in_the_csv_and_beside_the_band_in_text() {
+        let built = built(false);
+        let text = csv_report(&built);
+        let lines: Vec<&str> = text.lines().collect();
+        let header: Vec<&str> = lines[0].split(',').collect();
+        assert_eq!(header.len(), lines[1].split(',').count(), "{text}");
+        assert_eq!(header.last(), Some(&GIRDLE_LINE_KEY), "{text}");
+        let at = |key: &str| {
+            header
+                .iter()
+                .position(|column| *column == key)
+                .unwrap_or_else(|| panic!("no column {key}: {text}"))
+        };
+        assert_eq!(
+            at("total_depth_pct_of_width"),
+            at("girdle_pct_of_width") + 1
+        );
+        assert_eq!(at(GIRDLE_LINE_KEY), at("warnings") + 1);
+        assert_eq!(
+            header
+                .iter()
+                .filter(|column| **column == GIRDLE_LINE_KEY)
+                .count(),
+            1
+        );
+
+        let report = text_report(&built);
+        let position = |label: &str| {
+            report
+                .find(label)
+                .unwrap_or_else(|| panic!("no {label}: {report}"))
+        };
+        assert!(position("Girdle thickness, of width") < position("Girdle line, of width"));
+        assert!(position("Girdle line, of width") < position("Total depth, of width"));
+
+        let value: Value = serde_json::from_str(&json_report(&built)).expect("valid JSON");
+        let figure = &value["figures"][GIRDLE_LINE_KEY];
+        assert!(figure.is_number() || figure.is_null(), "{figure}");
     }
 
     #[test]

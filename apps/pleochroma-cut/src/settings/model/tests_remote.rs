@@ -6,7 +6,7 @@ use super::{
     AppSettings, ExportTransfer, LiveTransfer, RemoteEndpoint, SettingsFile, WorkerSettings,
 };
 
-/// An old (multi-worker era) settings file carrying TWO workers.
+/// A settings file whose legacy worker list holds two entries.
 const OLD_FILE_WITH_TWO_WORKERS: &str = r#"
 [settings]
 exposure = 1.3
@@ -84,8 +84,8 @@ fn nothing_to_migrate_reports_none() {
     assert_eq!(AppSettings::default().migrate_legacy_remote_workers(), None);
 }
 
-/// Both transfer preferences default to full data (today's behaviour, and the only
-/// transfer a plain worker supports); the pill indices round-trip.
+/// Both transfer preferences default to full data, the only transfer a plain worker supports;
+/// the pill indices round-trip.
 #[test]
 fn transfer_choices_default_to_full_data_and_their_indices_round_trip() {
     let endpoint = RemoteEndpoint::default();

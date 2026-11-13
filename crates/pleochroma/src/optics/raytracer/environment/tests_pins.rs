@@ -1,23 +1,16 @@
-//! Bit pins of the "As Lit" environment lookup (backdrop 0), recorded from the code as it was
-//! before the backdrop-tray campaign.
+//! Bit pins of the "As Lit" environment lookup (backdrop 0).
 //!
-//! The tray changes only the `tray > 0.0` branch of every lighting model; with no backdrop the
-//! radiance of every direction must stay exactly the bits it has today. This file is the guard:
-//! for every [`LightingPreset`], two light poses, the observer off and on, three head-shadow
-//! sizes and 48 directions (16 clearly above the horizon, 16 inside the +-0.05 horizon band,
-//! 16 clearly below), the radiance bits at 450, 550 and 650 nm are folded into one FNV-1a hash
-//! per row and compared with the literals in [`PINS`].
+//! The tray changes only the `tray > 0.0` branch of every lighting model, so with no backdrop
+//! the radiance of every direction must stay exactly the same bits. For every
+//! [`LightingPreset`], two light poses, the observer off and on, three head-shadow sizes and
+//! 48 directions (16 clearly above the horizon, 16 inside the +-0.05 horizon band, 16 clearly
+//! below), the radiance bits at 450, 550 and 650 nm are folded into one FNV-1a hash per row and
+//! compared with the literals in [`PINS`]. The test names the failing (preset, pose, observer,
+//! head shadow) row.
 //!
-//! The literals are not guessed: [`PINS`] starts as all zeros ("unpinned") and the test is
-//! `#[ignore]`d until the owner has run it once at Gate A:
-//!
-//! ```text
-//! cargo test -p pleochroma --lib as_lit_is_bit_identical -- --ignored --nocapture
-//! ```
-//!
-//! The run prints the whole table in paste-ready form; the lead copies it into [`PINS`] and
-//! removes the `#[ignore]`. From then on a zero table is not accepted: the test compares every
-//! row and names the failing (preset, pose, observer, head shadow) combination.
+//! To re-pin after an intended change, run
+//! `cargo test -p pleochroma --lib as_lit_is_bit_identical -- --nocapture`, which prints the
+//! table in paste-ready form.
 
 use super::*;
 use crate::optics::studio_rig::StudioRig;
@@ -44,7 +37,7 @@ const FNV_PRIME: u64 = 0x0100_0000_01b3;
 
 /// One FNV-1a hash per (preset, pose, observer, head shadow) row, in the order the test
 /// enumerates them: `LightingPreset::ALL`, then pose, then observer off/on, then head shadow.
-/// All zeros until Gate A.
+/// An all-zero table makes the test print the table and skip the comparison.
 const PINS: [u64; 180] = [
     0x4bbf_4f01_a2ac_4d0d, // LightTent pose 0 observer 0 head shadow 0
     0x4bbf_4f01_a2ac_4d0d, // LightTent pose 0 observer 0 head shadow 16
@@ -277,12 +270,22 @@ fn row_hash(
         .with_backdrop(0.0);
     let cosines = head_shadow_cosines(environment.head_shadow_deg());
     let mut hash = FNV_OFFSET;
+    // The wavelengths are run-time values in every render. As compile-time constants LLVM may
+    // fold `powi`/`exp` in one entry and not the other (it depends on inlining, which changes
+    // with the build's feature set), so the test hides them from the optimizer like a render.
+    let lambdas = std::hint::black_box(LAMBDAS);
     for &dir in dirs {
         let channels =
-            sample_environment_channels(environment, dir, &LAMBDAS, Some(&rig), observer);
-        for (&lambda, &value) in LAMBDAS.iter().zip(&channels) {
+            sample_environment_channels(environment, dir, &lambdas, Some(&rig), observer);
+        for (&lambda, &value) in lambdas.iter().zip(&channels) {
             let single = sample_studio_environment_with_rig_shadow(
-                dir, lambda, preset, EXPOSURE, &rig, observer, cosines,
+                dir,
+                std::hint::black_box(lambda),
+                preset,
+                EXPOSURE,
+                &rig,
+                observer,
+                cosines,
             );
             assert_eq!(
                 value.to_bits(),
@@ -295,8 +298,8 @@ fn row_hash(
     hash
 }
 
-/// With no backdrop (As Lit) the environment is bit-identical to the pre-tray code for every
-/// preset, direction, light pose, observer and head shadow. `B0` records, `B1` keeps.
+/// With no backdrop (As Lit) the environment must stay bit-identical for every preset,
+/// direction, light pose, observer and head shadow.
 #[test]
 fn as_lit_is_bit_identical() {
     let dirs = directions();

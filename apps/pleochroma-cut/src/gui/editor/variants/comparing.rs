@@ -30,7 +30,7 @@ use pleochroma_vault::model::design_variant::VariantSummary;
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 use std::{rc::Rc, sync::Arc};
 
-// --- comparing -----------------------------------------------------------------------------------
+// --- comparing ---------------------------------------------------------------------------
 
 /// One of the two designs being compared.
 #[derive(Clone)]
@@ -233,7 +233,7 @@ fn finish_compare(ui: &MainWindow, deps: &Rc<Deps>, token: u64, answer: Result<C
     }
 }
 
-// --- the text comparison page ------------------------------------------------------------------
+// --- the text comparison page ----------------------------------------------------------
 
 /// Swaps the variants for the comparison page, empty and marked busy. Returns the token the
 /// answer must bring back.

@@ -1,6 +1,5 @@
-//! The genuinely biaxial optical indicatrix [`BiaxialIndicatrix`] (Fresnel's
-//! equation of the wave normals, eigenvector extraction, walk-off) and the
-//! general (uniaxial-or-biaxial) Poynting-direction formula it builds on.
+//! The biaxial optical indicatrix [`BiaxialIndicatrix`] (Fresnel's equation of the wave
+//! normals, eigenvector extraction, walk-off) and the general Poynting-direction formula.
 
 use super::{
     helpers::{canonicalize_eigenvector_sign, cross_fma, dot_fma, stable_orthonormal_basis},
@@ -56,8 +55,7 @@ impl BiaxialIndicatrix {
     /// `stable_orthonormal_basis` -- the same placeholder-orientation convention used
     /// for every uniaxial material's `c_axis` (it does not model a gem's
     /// crystallographic orientation relative to its cut). See
-    /// `materials::GemMaterial::biaxial_indicatrix` for the built-in Alexandrite, Topaz
-    /// and Tanzanite entries that feed this.
+    /// `materials::GemMaterial::biaxial_indicatrix` for the built-in entries that use this.
     #[must_use]
     pub fn from_gamma_axis(n_alpha: f32, n_beta: f32, n_gamma: f32, gamma_axis: Vec3) -> Self {
         let g = gamma_axis.normalize_or_zero();
@@ -212,54 +210,33 @@ impl BiaxialIndicatrix {
 
     /// Shared body of `eigen_polarizations` for a single root `x`.
     ///
-    /// Builds the eigenvector via the symmetric "transverse impermeability" matrix
-    /// `Gamma = P . B . P` (`P = I - k k^T` projects onto the plane perpendicular to
-    /// the wave normal; `B = diag(b_alpha, b_beta, b_gamma)`), in the principal-axis
-    /// frame (`local` is `k_hat`'s direction cosines there). `k` is always exactly
-    /// `Gamma`'s zero-eigenvalue eigenvector, and its other two eigenvalues are exactly
-    /// `x_slow`/`x_fast` (Yariv & Yeh, *Optical Waves in Crystals*) -- algebraically
-    /// equivalent to the `D_i (x-b_i) = -k_i (k . E)` relation a "cleared-denominator"
-    /// form (`v_i = local_i * prod_{j!=i}(x-b_j)`) also satisfies, via `E_j = b_j D_j`.
+    /// Builds the eigenvector from the symmetric transverse impermeability matrix
+    /// `Gamma = P . B . P` (`P = I - k k^T`, `B = diag(b_alpha, b_beta, b_gamma)`) in the
+    /// principal-axis frame (`local` is `k_hat`'s direction cosines there). `k` is
+    /// `Gamma`'s zero-eigenvalue eigenvector and the other two eigenvalues are `x_slow` and
+    /// `x_fast` (Yariv & Yeh, *Optical Waves in Crystals*).
     ///
-    /// Reformulated for numerical conditioning: the cleared-denominator form's
-    /// pre-normalization magnitude collapses toward zero whenever `x` sits close to a
-    /// principal `b_i`, which happens across a wide swath of directions for any weakly
-    /// birefringent gem (the common case -- real gemstone birefringence is often only a
-    /// few thousandths). A near-zero pre-normalization vector means a 1-ULP difference
-    /// in `x` (CPU vs. GPU evaluation order) is amplified through `normalize` into a
-    /// materially different unit vector -- the root cause of the GPU port's Tier-2
-    /// mismatches (up to ~3.5M ULP before this fix).
+    /// The "cleared-denominator" form `v_i = local_i * prod_{j!=i}(x-b_j)` is avoided: its
+    /// magnitude collapses near a principal `b_i`, which is common for weakly birefringent
+    /// gems. There a 1-ULP difference in `x` between CPU and GPU is amplified by `normalize`
+    /// into a different unit vector.
     ///
-    /// Given `M = Gamma - x*I` (singular by construction), a robust null space for a
-    /// rank-<=2 symmetric 3x3 matrix is the cross product of whichever pair of `M`'s
-    /// rows has the largest cross-product magnitude. Tried: a hard `argmax` over the
-    /// three pairs -- still failed GPU parity by up to ~640K ULP, since a few-ULP
-    /// disagreement in `x` can flip which pair "wins" between two candidate directions
-    /// that are not close in this near-degenerate regime; rejected in favor of the
-    /// smooth combination below.
-    ///
-    /// For a true rank-2 `M`, all three row-pair cross products are (anti)parallel, so
-    /// rather than selecting the largest, `c02`/`c12` are sign-aligned to `c01` via the
-    /// robust sign of their dot products and all three summed (`c01 +
-    /// sign(c01.c02)*c02 + sign(c01.c12)*c12`) -- always a positive multiple of the
-    /// true null direction, continuous under a few-ULP perturbation of `x`. Falls back
-    /// to `stable_orthonormal_basis` on the wave normal only at true degeneracy (`M`
-    /// rank <=1, the uniaxial ordinary-ray case, where any perpendicular direction is
-    /// an equally valid answer).
+    /// Given `M = Gamma - x*I` (singular by construction), its null direction is the cross
+    /// product of any pair of rows. For a rank-2 `M` all three row-pair cross products are
+    /// (anti)parallel, so `c02`/`c12` are sign-aligned to `c01` and all three are summed.
+    /// The sum is a positive multiple of the null direction and, unlike a hard
+    /// largest-pair selection, varies continuously under a few-ULP change in `x`.
+    /// Falls back to `stable_orthonormal_basis` on the wave normal only when `M` has rank
+    /// <= 1 (the uniaxial ordinary ray), where any perpendicular direction is valid.
     ///
     /// Sign convention (an eigenvector is only defined up to an overall sign): the
     /// returned vector's largest-magnitude component is made positive, deterministically
     /// -- see `canonicalize_eigenvector_sign`. The WGSL port (`biaxial_eigenvector_world`
-    /// in `transport_physics.wgsl`) mirrors every operation here op-for-op, including
+    /// in `transport_physics/02_biaxial_eigenmodes.wgsl`) mirrors every operation, including
     /// this sign policy, so CPU and GPU agree on which of the two valid signs to return.
     ///
-    /// Even with branch-free null-vector extraction, near-degenerate directions still
-    /// amplify upstream noise: eigenvector perturbation theory says sensitivity to the
-    /// eigenvalue scales as `1/gap`, so `precise_root_near` below recomputes the same
-    /// quadratic's discriminant via an algebraically-exact reformulation (avoiding the
-    /// `B^2-4C` cancellation) to recover the precision that matters for the
-    /// smallest-gap directions -- see that function's own doc comment for the
-    /// derivation.
+    /// Near-degenerate directions amplify error in `x` by roughly `1/gap`, so
+    /// `precise_root_near` re-derives the root without the `B^2-4C` cancellation.
     fn eigenvector_world(&self, local: Vec3, b: [f32; 3], x: f32, k_hat: Vec3) -> Vec3 {
         let x = Self::precise_root_near(local, b, x);
 
@@ -289,8 +266,7 @@ impl BiaxialIndicatrix {
         let c02 = cross_fma(row0, row2);
         let c12 = cross_fma(row1, row2);
 
-        // Sign-align c02/c12 to c01 and sum -- see this method's doc comment for why
-        // this replaced a hard "largest of three" selection.
+        // Sign-align c02/c12 to c01 and sum (see this method's doc comment).
         let sign02 = if dot_fma(c01, c02) < 0.0 { -1.0 } else { 1.0 };
         let sign12 = if dot_fma(c01, c12) < 0.0 { -1.0 } else { 1.0 };
         let v_local = c01 + c02 * sign02 + c12 * sign12;
@@ -303,32 +279,19 @@ impl BiaxialIndicatrix {
         }
     }
 
-    /// Recomputes the general biaxial Fresnel quadratic's discriminant via an
-    /// algebraically-exact reformulation, then returns whichever of its two roots
-    /// (`x_lo`, `x_hi`) is nearest the `x` this was handed (see `eigenvector_world`'s
-    /// doc comment for why: the input `x`, from `wave_indices`, is already accurate
-    /// enough -- gap-relative error a few percent at worst, always far less than 100%
-    /// -- to unambiguously identify WHICH of the two roots it was meant to be, even
-    /// though it is not accurate enough for the eigenvector built from it).
+    /// Recomputes the biaxial Fresnel discriminant without the `B^2-4C` cancellation and
+    /// returns the root (`x_lo` or `x_hi`) nearest the input `x`.
     ///
-    /// Derivation: writing `a = local.x^2`, `bb = local.y^2`, `cc = local.z^2` (so
-    /// `a+bb+cc = 1`) and `p,q,r = b[0],b[1],b[2]`, the naive discriminant is
-    /// `disc^2 = B^2 - 4C` with `B = a(q+r)+bb(p+r)+cc(p+q)`, `C = aqr+bb*pr+cc*pq` --
-    /// exactly what `wave_indices` computes. Expanding and eliminating `cc = 1-a-bb`
-    /// gives, EXACTLY (verified symbolically and pinned by
-    /// `discriminant_reformulation_matches_naive_b2_minus_4c` below):
+    /// The input `x` from `wave_indices` is accurate enough to identify which root is meant
+    /// (its error is a few percent of the root gap at worst), though not for the eigenvector.
+    ///
+    /// With `a = local.x^2`, `bb = local.y^2`, `cc = local.z^2` (`a+bb+cc = 1`) and
+    /// `p, q, r = b`, the discriminant satisfies, after eliminating `cc = 1-a-bb`:
     ///   `disc^2 = (a+cc)^2 * X^2  +  2*(a - bb*cc) * X*Y  +  (a+bb)^2 * Y^2`
-    /// where `X = p-q` (`b_alpha - b_beta`) and `Y = r-p` (`b_gamma - b_alpha`) are
-    /// DIRECT differences of the principal `1/n^2` values rather than the original
-    /// formula's difference of two ~1-magnitude sums `B^2` and `4C`. Since any two
-    /// principal indices of a realistic gem material sit within a factor of 2 of each
-    /// other (indices cluster in roughly the 1.4-2.5 range, so `1/n^2` does too), `X`
-    /// and `Y` are each computed via a Sterbenz-exact subtraction -- no rounding error
-    /// at all beyond what `p`, `q`, `r` already carried from their own `1/n^2`. That
-    /// makes this reformulation's cancellation benign (the three terms above are each
-    /// already `O(disc^2)`, not `O(B^2)` collapsing down to `O(disc^2)`), where the
-    /// naive `B^2-4C` loses essentially all its precision resolving a `disc` far
-    /// smaller than either operand.
+    /// with `X = p-q` and `Y = r-p`. These are direct differences of the `1/n^2` values, each
+    /// exact by Sterbenz's lemma for realistic indices, so no precision is lost to
+    /// cancellation. Pinned against the naive form by
+    /// `discriminant_reformulation_matches_naive_b2_minus_4c`.
     fn precise_root_near(local: Vec3, b: [f32; 3], x: f32) -> f32 {
         let a = local.x * local.x;
         let bb = local.y * local.y;
@@ -378,20 +341,14 @@ impl BiaxialIndicatrix {
     /// one eigenmode (`want_slow`: the `n_slow` root if true, `n_fast` if false) at an
     /// air->crystal entry into a biaxial material.
     ///
-    /// Generalizes `trace_spectral_ray`'s existing uniaxial `theta_c` iteration (see
-    /// that call site's doc comment) from a single angle-to-c-axis to a full 3D
-    /// direction: a biaxial mode's index depends on the FULL wave-normal direction (not
-    /// just the angle to one fixed axis, since there is no single optic axis), which
-    /// itself depends on the index via Snell's law -- the same circularity, resolved
-    /// with the same two-iteration fixed point seeded from an isotropic first guess
-    /// `n_seed` (in practice the material's own base dispersion curve value, i.e.
-    /// `n_beta` -- exactly correct for neither root individually, but a reasonable
-    /// starting point, mirroring how the uniaxial iteration seeds from `n_o` even
-    /// though that is only exactly correct for the ordinary root).
+    /// Two-iteration fixed point for the refracted wave normal of one mode at an air->crystal
+    /// entry: the uniaxial `theta_c` iteration (`theta_c_for_bounce`) generalized to a full
+    /// 3D direction. A biaxial index depends on the whole wave-normal direction, and that
+    /// direction depends on the index through Snell's law. The iteration is seeded from
+    /// `n_seed` (the material's base dispersion value, `n_beta` in practice), which is exact
+    /// for neither root but is a reasonable start.
     ///
-    /// Unlike the uniaxial case, NEITHER root has a direction-independent index to fall
-    /// back on without iterating -- there is no "ordinary ray" in a biaxial crystal --
-    /// so this is called once per mode, not just for the extraordinary-like one.
+    /// Neither root has a direction-independent index, so this runs once per mode.
     ///
     /// Returns `(n, wave_normal)`: the converged index for the requested root and the
     /// wave-normal direction it was evaluated at.
@@ -421,16 +378,13 @@ impl BiaxialIndicatrix {
         (n_guess, wave_dir)
     }
 
-    /// The Poynting (walk-off) energy-propagation direction for one
-    /// eigenmode at `wave_normal`, generalizing
-    /// `BirefringenceParams::extraordinary_poynting_dir` (uniaxial-only, and only ever
-    /// applied to the extraordinary mode -- the ordinary ray never walks off) to the
-    /// biaxial case where BOTH eigenmodes walk off, since neither is ever exactly
-    /// perpendicular to the D-field in general.
+    /// The Poynting (walk-off) energy-propagation direction for one eigenmode at
+    /// `wave_normal`. Both biaxial modes walk off, since neither is exactly perpendicular to
+    /// the D-field in general. The uniaxial analogue is
+    /// `BirefringenceParams::extraordinary_poynting_dir`.
     ///
-    /// Builds the requested mode's D-field eigenvector via `eigen_polarizations`,
-    /// converts it to the corresponding E-field direction via `d_to_e_direction`, and
-    /// feeds both into the general `poynting_direction` (S = E x H) formula above.
+    /// Takes the mode's D-field eigenvector, converts it to E via `d_to_e_direction`, and
+    /// passes both to [`poynting_direction`].
     #[must_use]
     pub fn mode_poynting_dir(&self, wave_normal: Vec3, want_slow: bool) -> Vec3 {
         let (d_slow, d_fast) = self.eigen_polarizations(wave_normal);
@@ -440,14 +394,12 @@ impl BiaxialIndicatrix {
     }
 
     /// The assigned biaxial eigenmode's world-space electric-field direction at
-    /// `wave_normal`: mode B (`is_extraordinary`, matching the uniaxial
-    /// extraordinary-mode slot in `raytracer::absorption::
-    /// channel_absorption_alphas_assigned`'s two-valued convention) selects the SLOW
-    /// D-eigenvector, mode A the FAST one -- the same `want_slow` convention
-    /// [`Self::mode_poynting_dir`] uses -- converted D -> E via [`Self::d_to_e_direction`].
+    /// `wave_normal`. `is_extraordinary` selects the SLOW D-eigenvector, otherwise the FAST
+    /// one: the same `want_slow` convention as [`Self::mode_poynting_dir`]. The result is
+    /// converted D -> E via [`Self::d_to_e_direction`].
     ///
-    /// See [`assigned_mode_e_field_uniaxial`]'s doc comment for why this is evaluated
-    /// fresh from the CURRENT wave normal rather than derived from a Stokes vector.
+    /// Evaluated from the current wave normal, not from a Stokes vector; see
+    /// [`assigned_mode_e_field_uniaxial`].
     #[must_use]
     pub fn assigned_mode_e_field(&self, wave_normal: Vec3, is_extraordinary: bool) -> Vec3 {
         let (d_slow, d_fast) = self.eigen_polarizations(wave_normal);
@@ -459,18 +411,12 @@ impl BiaxialIndicatrix {
 /// The Poynting (ray/walk-off) energy-propagation direction for an eigenmode.
 ///
 /// Takes the wave normal `wave_normal` and the world-space electric-FIELD direction
-/// `e_field_hat` (see `BiaxialIndicatrix::d_to_e_direction`) -- the general
-/// (uniaxial-or-biaxial) counterpart of `extraordinary_poynting_dir` above, "the ray
-/// direction is the gradient of the index surface" in its equivalent Poynting-vector
-/// form: `S = E x H`, and for a plane wave `H` is parallel to `k_hat x E` (from
-/// Maxwell's `curl E = -dB/dt`), so
-///   S ~ E x (`k_hat` x E) = `k_hat`*(E.E) - E*(E.`k_hat`)
-/// which for unit `E` reduces to the component of `k_hat` perpendicular to
-/// `e_field_hat` -- i.e. `k_hat` tilted just enough to become exactly perpendicular to
-/// E (S is always perpendicular to E, the same way D is always perpendicular to
-/// `k_hat`). Falls back to `k_hat` itself (no walk-off) in the degenerate case where
-/// `e_field_hat` is parallel to `k_hat` (should not occur for a genuine eigenmode, but
-/// guarded rather than risking a zero-length normalize).
+/// `e_field_hat` (see `BiaxialIndicatrix::d_to_e_direction`). This is the general
+/// (uniaxial-or-biaxial) form of `BirefringenceParams::extraordinary_poynting_dir`.
+/// From `S = E x H` with `H` parallel to `k_hat x E`, `S ~ k_hat - E (E.k_hat)` for unit
+/// `E`: the wave normal tilted just enough to be perpendicular to `E`.
+/// Falls back to `k_hat` (no walk-off) when `e_field_hat` is parallel to `k_hat`, which
+/// should not happen for a genuine eigenmode; the guard avoids a zero-length normalize.
 #[must_use]
 pub fn poynting_direction(wave_normal: Vec3, e_field_hat: Vec3) -> Vec3 {
     let k_hat = wave_normal.normalize_or_zero();

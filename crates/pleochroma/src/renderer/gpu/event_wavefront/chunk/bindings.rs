@@ -1,13 +1,21 @@
 //! Per-kernel bind group slots of the event wavefront kernels.
 //!
 //! [`kernel_slots`] is the single table of which `@group(0)` bindings each kernel's entry point
-//! reaches (the pipeline layout is derived from the shader, so a slot bound but unused, or used
-//! but not bound, is a wgpu validation error). `shader_validation_tests` compares this table
-//! with naga's per-entry-point binding usage, so a lost or extra binding fails a test instead
-//! of producing a silent black frame.
+//! reaches. The pipeline layout is derived from the shader, so a slot bound but unused, or used
+//! but not bound, is a wgpu validation error. The test
+//! `host_slots_equal_the_bindings_each_entry_point_reaches` compares this table with naga's
+//! per-entry-point binding usage, so a lost or extra binding fails a test instead of producing
+//! a silent black frame.
 
 use super::{ChunkRayBuffers, SceneBuffers};
-use crate::renderer::gpu::{compute, event_wavefront::EwKernel};
+use crate::{
+    optics::tables::OPTICS_TABLES_BINDING,
+    renderer::gpu::{
+        compute,
+        event_wavefront::EwKernel,
+        frame::{LIVE_PIXELS_BINDING, event_wavefront_uses_tables},
+    },
+};
 
 /// The `@binding` numbers of `@group(0)` that `kernel` binds, ascending.
 ///
@@ -69,24 +77,73 @@ fn slot_buffer<'a>(
     }
 }
 
+/// The optics lookup table buffer `kernel` of `class` must hold at [`OPTICS_TABLES_BINDING`];
+/// `None` when the pipeline is the shipped kernel (the class carries no table bit) or the scene
+/// has built no table buffer.
+///
+/// [`kernel_slots`] is the table of the shipped kernels. A table variant reaches exactly one more
+/// binding, this one; only the shipped kernels are checked against naga.
+fn tables_buffer(scene: &SceneBuffers, kernel: EwKernel, class: u32) -> Option<&wgpu::Buffer> {
+    if event_wavefront_uses_tables(kernel, class) {
+        scene.optics_tables.buffer()
+    } else {
+        None
+    }
+}
+
 /// Builds the bind group for `kernel` from `scene` and `chunk` buffers.
+///
+/// `class` is the material class the kernel's pipeline was compiled for: with
+/// `material_class::OPTICS_TABLES` in it the pipeline is the table variant and the scene's table
+/// buffer is bound as well; without it the bind group is exactly [`kernel_slots`].
 pub fn bind_kernel(
     device: &wgpu::Device,
     pipeline: &wgpu::ComputePipeline,
     kernel: EwKernel,
     scene: &SceneBuffers,
     chunk: &ChunkRayBuffers,
-    planes_bytes: wgpu::BufferAddress,
-    finishes_bytes: wgpu::BufferAddress,
+    (planes_bytes, finishes_bytes): (wgpu::BufferAddress, wgpu::BufferAddress),
+    class: u32,
 ) -> wgpu::BindGroup {
-    let entries: Vec<(u32, &wgpu::Buffer, Option<wgpu::BufferAddress>)> = kernel_slots(kernel)
+    let mut entries: Vec<(u32, &wgpu::Buffer, Option<wgpu::BufferAddress>)> = kernel_slots(kernel)
         .iter()
         .map(|&slot| {
             let (buffer, size) = slot_buffer(slot, scene, chunk, planes_bytes, finishes_bytes);
             (slot, buffer, size)
         })
         .collect();
+    if let Some(table_buffer) = tables_buffer(scene, kernel, class) {
+        entries.push((OPTICS_TABLES_BINDING, table_buffer, None));
+    }
     compute::bind_buffers_sized(device, kernel.entry_point(), pipeline, &entries)
+}
+
+/// The bind group of the LIVE `ew_generate` of an adaptive pass: the ordinary
+/// [`kernel_slots`] of [`EwKernel::Generate`] plus the live pixel list (real pixel indices) at
+/// [`LIVE_PIXELS_BINDING`], which only the live variant of the kernel reaches, and the optics
+/// table buffer when `class` carries `material_class::OPTICS_TABLES`. Ordinary passes never call
+/// this, and [`kernel_slots`] is unchanged.
+pub fn bind_generate_live(
+    device: &wgpu::Device,
+    pipeline: &wgpu::ComputePipeline,
+    (scene, chunk): (&SceneBuffers, &ChunkRayBuffers),
+    live_pixels: &wgpu::Buffer,
+    class: u32,
+) -> wgpu::BindGroup {
+    let mut entries: Vec<(u32, &wgpu::Buffer, Option<wgpu::BufferAddress>)> =
+        kernel_slots(EwKernel::Generate)
+            .iter()
+            .map(|&slot| {
+                // `Generate` binds neither unsized scene array, so the sizes are not read.
+                let (buffer, size) = slot_buffer(slot, scene, chunk, 0, 0);
+                (slot, buffer, size)
+            })
+            .collect();
+    entries.push((LIVE_PIXELS_BINDING, live_pixels, None));
+    if let Some(table_buffer) = tables_buffer(scene, EwKernel::Generate, class) {
+        entries.push((OPTICS_TABLES_BINDING, table_buffer, None));
+    }
+    compute::bind_buffers_sized(device, "ew_generate live", pipeline, &entries)
 }
 
 #[cfg(test)]

@@ -1,6 +1,7 @@
-//! The multi-start driver: several descents from different starting points of the
-//! search box, run side by side, merged into one result. See the parent module's
-//! "Several starts" section for the strategy; this file is the generic machinery.
+//! The multi-start driver: several descents from different starting points, merged.
+//!
+//! The parent module's "Several starts" section gives the strategy; this file is the generic
+//! machinery.
 //!
 //! The driver knows nothing about [`crate::design::Design`]: it works on free-angle
 //! vectors (in the run's free-tier order) and asks a [`StartEngine`] to score a point,

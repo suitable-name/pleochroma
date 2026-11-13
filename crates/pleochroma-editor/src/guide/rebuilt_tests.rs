@@ -69,7 +69,7 @@ fn a_fresh_design_goal_wants_no_tiers_and_this_gear() {
     assert!(!met(&goal(96, 4, true), &fresh, None));
     assert!(!met(&goal(96, 8, false), &fresh, None));
 
-    // A tier, flat or concave, means it is no longer a fresh start.
+    // A tier, flat or concave, means the design is not a fresh start.
     assert!(!met(&goal(96, 8, true), &original(), None));
     let mut with_tool = design_with(&[]);
     with_tool.concave_tiers.push(concave("Groove"));

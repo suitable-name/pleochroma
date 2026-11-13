@@ -37,9 +37,9 @@ pub(super) fn initial(args: &Args) -> Value {
     })
 }
 
-/// Do not serialize Git output containing paths, remote URLs, identities, or status entries.
-/// A relocated standalone binary may have no source checkout; that is explicit rather than
-/// borrowing a revision from an unrelated current working directory.
+/// Records only the HEAD revision and a dirty flag, never paths, remote URLs, identities or
+/// status entries. A relocated binary may have no source checkout; that is reported as
+/// unavailable rather than borrowing the revision of an unrelated repository.
 fn runtime_source_checkout() -> Value {
     let git = |args: &[&str]| {
         let output = std::process::Command::new("git")

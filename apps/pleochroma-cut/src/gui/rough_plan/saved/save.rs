@@ -5,7 +5,7 @@
 //! the shapes of the used designs, runs on a worker thread.
 
 use super::{
-    LoadedFingerprints, announce,
+    LoadedFingerprints, RESULTS_TAB_LAYOUTS, announce,
     convert::CandidateSource,
     dto::{DesignShape, SavedDesignDto},
     format::{RankedLayout, SerializeInput, design_shape, serialize_checked_plan_with_planned},
@@ -67,7 +67,7 @@ pub(super) struct Snapshot {
     library: LibraryId,
     /// The Crystal Axis settings the plan is saved with: its rule, the rules of its designs and
     /// the choices for its stones (by the result row on screen). The default for a plan that
-    /// never used the axis, which is then written as it always was.
+    /// never used the axis.
     overrides: PlanSettingsOverrides,
     /// The rules the layouts were planned with (`run.plan_overrides`), when the snapshot knows
     /// them: written beside `overrides` only when they differ from it, so a reopened plan
@@ -111,10 +111,8 @@ pub(super) fn stored_shapes_and_library(
 /// Copies what a save writes off the session.
 pub(super) fn snapshot(session: &Session, selected_only: bool) -> Result<Snapshot, String> {
     let mut taken = snapshot_of(&session.run, session.saved.loaded.as_ref(), selected_only)?;
-    // The cutter's settings are saved as they are now: the plan's rule, the rules of its designs
-    // and the choices for its stones with their Reasons. A rule edited after planning is not lost
-    // by a save (the window keeps warning "Rules changed since planning" against
-    // `run.plan_overrides` for as long as the results are on screen).
+    // The cutter's settings are taken as they are now, so a rule edited after planning is kept;
+    // the window keeps warning "Rules changed since planning" against `run.plan_overrides`.
     taken.overrides = session.overrides.clone();
     taken.planned = Some(session.run.plan_overrides.clone());
     Ok(taken)
@@ -179,7 +177,7 @@ pub(super) fn begin_save(host: &Rc<Host>, selected_only: bool) {
     };
     show_error(host, "");
     model.set_save_name(name.into());
-    model.set_saved_open(false);
+    model.set_results_tab(RESULTS_TAB_LAYOUTS);
     model.set_save_name_open(true);
 }
 

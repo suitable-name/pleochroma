@@ -2,8 +2,8 @@
 //! under the Inspector's tabs that shows the design now next to it
 //! (`ui/components/editor_inspector/baseline_strip.slint`, state in `ui/models/baseline.slint`).
 //!
-//! The Baseline is the holder `retarget_actions::snapshot` keeps (what "Snapshot Design" took
-//! before it was renamed Set Baseline): a design and its solved masts. It is replaced by
+//! The Baseline is the holder `retarget_actions::snapshot` keeps: a design and its solved
+//! masts. It is replaced by
 //!
 //! - Set Baseline ([`set_baseline_to`]; the strip's button and the command bar's),
 //! - a design opening (`EditorState::replace_wholesale`, which every New, Open and Load path

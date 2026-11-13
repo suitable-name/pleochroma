@@ -20,9 +20,8 @@ use crate::rough_plan::{
 /// Most times [`PartialSolver::solve_in_mesh`] adds the planes of the triangles that block
 /// the solution so far and solves again, before it gives up.
 ///
-/// The loop clears a smooth
-/// cap's contacts in a few rounds (every wall the centre is on the material side of goes in
-/// together); 12 is a safety cap.
+/// The loop clears a smooth cap's contacts in a few rounds (every wall the centre is on the
+/// material side of goes in together); 12 is a safety cap.
 pub const MESH_ROUNDS: usize = 12;
 
 /// The caliper extents of a stone of `norm`, in units of its width, along the
@@ -131,11 +130,11 @@ impl PartialSolver {
     /// the box passes least far (its outward side kept, `inset_mm` clear) is added as a
     /// row and the LP is solved again, at most [`MESH_ROUNDS`] times. One wall per round,
     /// plus every plane the stone's centre is on the material side of: the walls of a notch
-    /// face each other, so all of them together would leave no stone. Rows only shrink the feasible set, so
-    /// every stone returned has been checked against the mesh (no triangle meets its box
-    /// and its centre is in the material): the answer is valid, if conservative near a
-    /// notch, because a blocking triangle's plane also forbids the air side far beyond the
-    /// triangle.
+    /// face each other, so all of them together would leave no stone. Rows only shrink the
+    /// feasible set, so every stone returned has been checked against the mesh (no triangle
+    /// meets its box and its centre is in the material). The answer is valid, if
+    /// conservative near a notch, because a blocking triangle's plane also forbids the air
+    /// side far beyond the triangle.
     pub fn solve_in_mesh(
         &mut self,
         region: &ClipRegion<'_>,
@@ -193,10 +192,8 @@ impl PartialSolver {
     /// `offset - n . centre` and the centre is added back to the stone position.
     ///
     /// Every row the centre satisfies gets a non-negative offset, so the simplex needs no
-    /// artificial variables for it (one pivot each in phase 1, `lp.rs`), which is where a
-    /// 200-row LP spends its time. The post-check in `lp.rs` accepts `1e-9 (1 + |offset|)`
-    /// per row; the shifted offsets are smaller, so the check is a little stricter, never
-    /// looser.
+    /// artificial variables for it (see `lp.rs`). The post-check in `lp.rs` accepts a
+    /// residual of `1e-9 (1 + |offset|)` per row, applied to the shifted offsets.
     fn solve_about(&mut self, centre: DVec3) -> Option<(f64, [f64; 3])> {
         self.shifted.clear();
         let c = [centre.x, centre.y, centre.z];

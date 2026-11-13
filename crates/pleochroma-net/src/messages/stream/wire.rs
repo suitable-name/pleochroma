@@ -16,7 +16,8 @@ use super::types::{FrameHeader, PreviewHeader, StreamEvent};
 /// # Errors
 ///
 /// Returns [`crate::messages::codec::NetError::PayloadPresenceMismatch`] if `payload`'s
-/// presence disagrees with the event's variant, and returns [`crate::messages::codec::NetError::Postcard`] or
+/// presence disagrees with the event's variant, and returns
+/// [`crate::messages::codec::NetError::Postcard`] or
 /// [`crate::messages::codec::NetError::Framing`] under the same conditions as
 /// [`crate::messages::codec::write_message`] (for the event) and
 /// [`crate::framing::write_frame`] (for the raw payload, when present).
@@ -71,10 +72,9 @@ pub fn read_stream_event<R: std::io::Read>(
 }
 
 /// Writes a `<- FRAME` message: a `postcard`-encoded [`FrameHeader`] frame, followed by
-/// a second frame carrying `xyz_bytes` completely raw.
+/// a second, raw frame carrying `xyz_bytes`.
 ///
-/// `header.payload_len` must equal `xyz_bytes.len()`, asserted by the caller's
-/// construction rather than re-derived here -- use [`FrameHeader::for_payload`] to build
+/// `header.payload_len` must equal `xyz_bytes.len()`; [`FrameHeader::for_payload`] builds
 /// a consistent pair.
 ///
 /// # Errors
@@ -116,10 +116,10 @@ pub fn read_frame_message<R: std::io::Read>(
 }
 
 /// Writes a `<- PREVIEW` message: a `postcard`-encoded [`PreviewHeader`] frame, followed
-/// by a second frame carrying `xyz_bytes` completely raw.
+/// by a second, raw frame carrying `xyz_bytes`.
 ///
-/// `xyz_bytes` is a reduced-resolution radiance buffer, encoded via
-/// [`crate::radiance::encode`]. See the module docs for why a `PREVIEW` payload is
+/// `xyz_bytes` is the reduced-resolution radiance payload, encoded as the header says (see
+/// [`crate::radiance::payload`]). See the module docs for why a `PREVIEW` payload is
 /// CUMULATIVE, never summed the way a `FRAME` payload is.
 ///
 /// # Errors

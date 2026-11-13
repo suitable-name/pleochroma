@@ -1,9 +1,10 @@
 //! Storage for the Color Patterns of custom materials and the saved pattern presets.
 //!
-//! Two more side tables next to the ones in `zoning_store`, with the same rules: created by
-//! `CREATE TABLE IF NOT EXISTS`, no foreign keys (an older build never reads or deletes them, and
-//! this build removes the rows whose material is gone with [`Database::prune_pattern_orphans`]),
-//! and a read-only database of a file this build has not opened answers "nothing stored".
+//! Two side tables with the same rules as those in `zoning_store`: created by
+//! `CREATE TABLE IF NOT EXISTS`, no foreign keys (an older build never reads or deletes them,
+//! and this build removes the rows whose material is gone with
+//! [`Database::prune_pattern_orphans`]), and a read-only database of a file this build has not
+//! opened answers "nothing stored".
 //!
 //! | table | key | content |
 //! |---|---|---|

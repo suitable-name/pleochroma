@@ -1,8 +1,8 @@
-//! A culet (a sign-negative zero angle -- see
-//! `pleochroma_formats::asc::AscTier::angle_deg`) must stay a culet through `.asc`
-//! import, `.asc` export, the design file save/load and the catalogue `.asc` a save
-//! stores; if the sign were lost anywhere, the shared side rule would put it on the
-//! crown as a second table.
+//! A culet (a sign-negative zero angle) must stay a culet through `.asc` import and
+//! export, the design file and the catalogue `.asc` of a save.
+//!
+//! A lost sign would put it on the crown as a second table. The angle convention is
+//! documented on `pleochroma_formats::asc::AscTier::angle_deg`.
 
 use crate::{
     design::Design,

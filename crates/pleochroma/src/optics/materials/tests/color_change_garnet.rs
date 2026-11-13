@@ -47,9 +47,8 @@ fn color_change_garnet_resolves_by_name_and_is_isotropic() {
     );
 }
 
-/// The common Tanzanian type (since 2026-11-03, after dealer photos): the Mn2+ edge closes the
-/// violet and blue, the weak V3+/Cr3+ band at 581 nm holds the yellow-green well below the open
-/// red window, which the lamp then favours.
+/// The common Tanzanian type: the Mn2+ edge closes the violet and blue, and the weak V3+/Cr3+
+/// band at 581 nm holds the yellow-green well below the open red window, which the lamp favours.
 #[test]
 fn color_change_garnet_closes_the_blue_and_holds_the_yellow_green_below_the_red() {
     let m = material();

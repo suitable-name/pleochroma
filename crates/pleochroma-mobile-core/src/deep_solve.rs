@@ -178,7 +178,7 @@ mod tests {
     use super::*;
     use crate::{operations::OperationPhase, platform_mock::MockPlatform};
     use pleochroma::geometry::meet_solver::MeetConstraint;
-    use pleochroma_cut_core::templates::TEMPLATES;
+    use pleochroma_cut_core::{design::ConcaveTier, templates::TEMPLATES};
     use pleochroma_editor::EditorSession;
 
     fn printed() -> ExternalProportions {
@@ -201,9 +201,9 @@ mod tests {
         state
     }
 
-    /// [`state_with`] after "Adopt" on the first tier: it now follows a meet instead of
-    /// being pinned to a fixed mast, which is what gives Deep Solve something to repair.
-    /// A freshly built template has every tier pinned, and Deep Solve declines that.
+    /// [`state_with`] with the first tier following a meet (as after "Adopt") instead of
+    /// pinned to a fixed mast, which is what gives Deep Solve something to repair. A freshly
+    /// built template pins every tier, and Deep Solve declines that.
     fn adopted_state() -> AppState {
         let mut state = state_with(Some(printed()));
         state.session.design.tiers[0].constraint = MeetConstraint::MeetExisting;
@@ -270,7 +270,7 @@ mod tests {
     #[test]
     fn a_concave_design_captures_a_job_that_verifies_the_flat_stone() {
         let mut state = concave_adopted_state();
-        assert!(!state.session.design.concave_tiers.is_empty());
+        assert_ne!(state.session.design.concave_tiers, [] as [ConcaveTier; 0]);
         let job = DeepSolveJob::capture(&mut state).expect("a concave design is available");
         assert_eq!(
             job.token.identity.generation,

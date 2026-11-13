@@ -17,11 +17,12 @@ use pleochroma_solid::{
     raster::{SolidRasterizer, SolidStyle},
 };
 
-/// The camera distance that fits the stone `planes` into the square catalogue preview, as
-/// the viewport's Fit does: the stone's bounding sphere at the vertical field of view, with
-/// Fit's margin. One distance per design, so its front and top views share a scale. The
-/// fixed default pose distance for planes that do not close a solid. Concave tools only
-/// remove material, so the planes alone bound the stone.
+/// The camera distance that fits the stone `planes` into the square catalogue preview.
+///
+/// Matches the viewport's Fit: the bounding sphere at the vertical field of view, with Fit's
+/// margin. One distance per design, so its front and top views share a scale. Planes that do
+/// not close a solid fall back to the fixed default pose distance. Concave tools only remove
+/// material, so the planes alone bound the stone.
 #[must_use]
 pub fn preview_distance(planes: &[GpuFacetPlane]) -> f32 {
     planar_bounding_radius(&StoneGeometryBuf {

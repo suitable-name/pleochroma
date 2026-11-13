@@ -1,5 +1,4 @@
-//! More main-window states of the click-through passes (run 6 left 399 elements uncovered; this
-//! file is the part of the answer that sets model properties and presses openers).
+//! Main-window states of the click-through passes that set model properties and press openers.
 //!
 //! A control that only exists after another control was pressed (an edit form, a menu, a hint
 //! bar) is not enumerated by the engine unless the state's `open` function has pressed the
@@ -110,7 +109,7 @@ fn state(
     }
 }
 
-/// Runs the states of this file (called by the scenarios of `overlays_more`).
+/// Runs the states of this file (registered by `windows_more.rs`).
 pub fn dialog_states() -> Vec<State> {
     let mut states = dialog_states_first();
     states.extend(dialog_states_rest());
@@ -340,7 +339,7 @@ fn panel_states_first() -> Vec<State> {
             |a| {
                 inspector(a, 2);
                 a.ui().global::<TuneModel>().set_active(true);
-                // The mini sweep behind the chart runs on workers; a pause lets its first result in.
+                // The mini sweep runs on workers; a pause lets its first result in.
                 pump(600);
             },
         ),
@@ -396,10 +395,11 @@ fn panel_states_rest() -> Vec<State> {
             Some("ParametersPanel"),
             NONE,
             |a| {
-                // Clear shows only while a map is loaded; the flag is Rust-owned, set directly.
-                a.ui()
-                    .global::<pleochroma_cut::SettingsModel>()
-                    .set_env_map_loaded(true);
+                // Clear, the Map Rotation slider and the Turns with the Camera switch show only
+                // while a map is loaded; the flag is Rust-owned, set directly.
+                let settings = a.ui().global::<pleochroma_cut::SettingsModel>();
+                settings.set_env_map_loaded(true);
+                settings.set_env_map_yaw_deg(120.0);
                 parameters(a, 1);
             },
         ),
@@ -448,13 +448,11 @@ fn retarget(a: &HarnessApp, optimize: bool) {
     wait_retarget_checked(a);
 }
 
-/// The Retarget dialog on the proposal `open` itself builds: the design's own material as the
-/// target (no typed index of refraction, so `target_ri_override_text` is not read), which moves
-/// no mast and is the retarget the check tests pin as valid
-/// (`a_same_material_retarget_is_valid_and_changes_no_mast`). A real index change on this
-/// template (a shallow-pavilion quartz design) is refused as "invalid" (3), which leaves Apply
-/// dimmed. `open` builds the plan synchronously and starts the one check after its 120 ms
-/// debounce, so the single wait is for the dialog's own `can_apply`.
+/// The Retarget dialog on the proposal `open` builds: the design's own material as the target
+/// (`target_ri_override_text` is not read), which moves no mast and is pinned as valid by
+/// `a_same_material_retarget_is_valid_and_changes_no_mast`. A real index change on this template
+/// (a shallow-pavilion quartz design) is refused as invalid (3), which leaves Apply dimmed. The
+/// check starts after `open`'s 120 ms debounce, so the wait is for the dialog's `can_apply`.
 fn retarget_valid(a: &HarnessApp) {
     edit_tab(a);
     let model = a.ui().global::<RetargetModel>();
@@ -632,8 +630,7 @@ fn variants_saved(a: &HarnessApp, step: u8) {
     let variants = a.ui().global::<VariantsModel>();
     variants.set_view(1);
     pump(300);
-    // Each save costs about two seconds of real time and the pass restores the state a dozen
-    // times, so only the steps that need two variants (the list, the comparison) save two.
+    // A save takes about two seconds, so only the steps that show two variants save two.
     let saves = if matches!(step, 0 | 3) { 2 } else { 1 };
     for (index, name) in ["Harness A", "Harness B"]
         .into_iter()

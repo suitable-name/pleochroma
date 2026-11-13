@@ -1,5 +1,5 @@
 //! Angle editing in the tier table: the inline angle cell's commit and the nudge (Up /
-//! Down in the open editor, the wheel), exactly as the desktop does them.
+//! Down in the open editor, the wheel).
 //!
 //! - **Commit** (`EditorSession::set_tier_angle_from_text`): the text is parsed like the
 //!   tier form's Angle field; a bit-identical value spends no undo step ("No change.").
@@ -11,7 +11,7 @@
 //!
 //! Wheel ticks and key repeats arrive faster than a frame, so they are also coalesced at
 //! the source ([`EditIntent`]): ticks on the same targets are summed and applied once per
-//! [`DRAIN_INTERVAL`], the same queue the desktop keeps.
+//! [`DRAIN_INTERVAL`].
 
 use super::{
     edit::{Dirty, finish_edit, with_app},
@@ -165,7 +165,7 @@ fn drain(ctx: &Ctx) {
         return;
     }
     // The delta moves the number the row SHOWS (a pavilion angle is printed without its
-    // minus sign), like the desktop's nudge.
+    // minus sign).
     let result = with_app(ctx, |app| {
         Some(app.design.as_mut()?.session.nudge_displayed_angles(
             &targets,

@@ -34,19 +34,12 @@ pub fn interpolated_value(values: &[f32], tilt_deg: f64) -> f32 {
     values[lower_idx].mul_add(1.0 - frac, values[lower_idx + 1] * frac)
 }
 
-/// "Tilt brilliance" for the video overlay: the mean of the swept axis's full ±90°
-/// brilliance curve -- how well the stone stays bright across the WHOLE sweep, not
-/// just face-up.
+/// "Tilt brilliance" for the video overlay: the mean of the swept axis's full ±90° brilliance
+/// curve, so it covers the whole sweep, not just face-up.
 ///
-/// Deliberately a different number from `pleochroma_cut_core::optimize::objective`'s
-/// own `tilt_brilliance_pct` (that one averages a small fixed set of Optimize's own
-/// measurement poses, and is not read from here) -- named the same because it
-/// answers the same question ("how well does this stone stay bright off face-up")
-/// for a video that already has this dialog's own 181-point sweep on hand, not
-/// because the two are computed identically or will ever agree pixel-for-pixel.
-/// Callers surfacing both numbers side by side should say so, the same honesty
-/// convention `performance_graph_dialog.slint`'s own captions already follow for
-/// its brilliance-vs-Optimize distinction.
+/// Not the same computation as `pleochroma_cut_core::optimize::objective`'s `tilt_brilliance_pct`,
+/// which averages a few fixed Optimize poses. The name is shared because both answer how bright
+/// the stone stays off face-up; callers showing both side by side should say they differ.
 #[must_use]
 pub fn mean_tilt_brilliance(brilliance_values: &[f32]) -> f32 {
     if brilliance_values.is_empty() {

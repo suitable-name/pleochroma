@@ -244,7 +244,8 @@ fn close(window: &AppWindow) {
     EXPORT.with(|export| export.borrow_mut().file = None);
 }
 
-/// Cancel the old snapshot before any new callback can publish into this sheet.
+/// Cancels the running job and bumps the run id, so callbacks queued by an earlier run are
+/// ignored.
 fn invalidate() {
     EXPORT.with(|export| {
         let mut export = export.borrow_mut();

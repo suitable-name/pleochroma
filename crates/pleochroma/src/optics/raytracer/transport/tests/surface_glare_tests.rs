@@ -16,9 +16,9 @@ use glam::Vec3;
 const SAMPLES: u32 = 512;
 
 /// Traces `SAMPLES` seeded paths of one fixed oblique ray at the table of a round
-/// brilliant Diamond under the classic studio rig with `glare` applied, returning each
-/// sample's XYZ. The same seeds are used for every `glare`, so the stochastic decisions
-/// (reflect or refract, scatter, roulette) are identical across calls.
+/// brilliant Diamond under the ring-light studio preset with `glare` applied, returning
+/// each sample's XYZ. The same seeds are used for every `glare`, so the stochastic
+/// decisions (reflect or refract, scatter, roulette) are identical across calls.
 fn samples_with_glare(glare: f32) -> Vec<Vec3> {
     let planes = StandardGemCuts::standard_round_brilliant();
     let plane_soa = build_plane_soa(&planes);
@@ -100,7 +100,7 @@ fn surface_glare_default_is_bit_identical() {
         origin: Vec3::new(0.0, 2.5, 0.0),
         dir: Vec3::new(0.18, -1.0, 0.07).normalize(),
     };
-    // The environment exactly as it was built before the control existed.
+    // The studio environment without any glare setting, which the default must reproduce.
     let plain = LightingPreset::RingLights.studio(1.0, 0.85, 0.95);
     for (i, expected) in (0..SAMPLES).zip(&default_bits) {
         let seed = 4000 + i;

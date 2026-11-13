@@ -43,8 +43,7 @@ fn peridot_absorption() -> AbsorptionTensor {
 }
 
 impl GemMaterial {
-    /// Third quarter: Peridot (the one biaxial addition in this quarter), YAG, GGG
-    /// and Benitoite.
+    /// Peridot (biaxial), YAG, GGG and Benitoite.
     #[expect(clippy::too_many_lines, reason = "a data table of built-in materials")]
     pub(super) fn built_in_materials_peridot_through_benitoite() -> Vec<Self> {
         vec![
@@ -53,7 +52,7 @@ impl GemMaterial {
             // 1.690 follow from the spreads below); B-G 0.020 -> Delta n(F-C) =
             // 0.01158, B = 0.006062, A = 1.669 - B/0.5893^2 = 1.651549.
             // Abbe V_d~56.49. No primary Sellmeier fit available; LOWER CONFIDENCE
-            // Cauchy fallback, same convention as the garnets above.
+            // Cauchy fallback, same convention as the garnet entries.
             Self {
                 name: "Peridot".to_string(),
                 crystal_system: CrystalSystem::Orthorhombic,
@@ -71,28 +70,22 @@ impl GemMaterial {
                 // Server San Carlos olivine spectra GRR 418 alpha/beta/gamma (G. R.
                 // Rossman; CSVs `crates/pleochroma/data/reference_spectra/
                 // caltech_olivine_grr418_{alpha,beta,gamma}.csv`, URLs in their
-                // headers), scaled to 0.88 cm = the 8.8 mm face-up path of a 7 mm
-                // stone (fitted 2026-10-19; GIA Sardinia peridot
-                // characterisation [S4]: 473/490 nm Fe2+ bands, total absorption
-                // below ~440 nm, broad ~1050 nm band with an 830 nm shoulder). The
-                // 345/341/376 nm bands stand in for the UV edge; the 840/1000 nm
-                // bands for the Fe2+ NIR pair (fitted amplitudes sat on the fit
-                // bound, only their 650-780 nm tails matter inside the 380-780 nm
-                // sampling). Swatch (7 mm, D65): L*76 C*63 h=111 yellow-green; the
-                // previous blue-only 450/475/495 nm triplet let red pass and
-                // drifted to amber (h=81). Fitted, not hand-tuned.
+                // headers), scaled to a 0.88 cm path. GIA's peridot characterisation [S4] places
+                // the 473/490 nm Fe2+ bands, the total absorption below ~440 nm and a broad ~1050
+                // nm band. The 345/341/376 nm bands stand in for the UV edge; the
+                // 840/1000 nm bands for the Fe2+ NIR pair (their 650-780 nm tails matter
+                // inside the sampling). The blue-only 450/475/495 nm triplet this
+                // replaced let red pass and drifted to amber.
                 // Calibration record: docs/chromophores/calibration-records.md#peridot
-                // 2026-11-04 (owner: "The render seems to err toward saturated"): x 0.6 of the San
-                // Carlos crystal. Colored-pixel saturation s_uv: the faceted dealer photos 0.79, the
-                // Commons photos 0.54-0.94, the x 1 render 0.96 (x 0.5: 0.72 at h 114, L* 71 against
-                // the photos' 71). Swatch L*84 C*48 h 113 (at two units L*72 C*68 h 111).
+                // Saturation at 0.6 of the crystal: the x 1 render read as oversaturated
+                // against the dealer and Commons photos.
                 // Calibration record: docs/chromophores/calibration-records.md#saturation-round-2026-11-04
                 absorption: peridot_absorption().scaled(0.6),
                 c_axis: Vec3::Y,
-                // Same fractional-position method as Alexandrite/Topaz/Tanzanite/
-                // Chrysoberyl above: real olivine/peridot principal indices are
-                // commonly tabulated (e.g. Deer, Howie & Zussman, *An Introduction to
-                // the Rock-Forming Minerals*) around n_alpha~1.654, n_beta~1.669,
+                // Same fractional-position method as the other biaxial built-ins: real
+                // olivine/peridot principal indices are commonly tabulated (e.g. Deer, Howie &
+                // Zussman, *An Introduction to the Rock-Forming Minerals*) around
+                // n_alpha~1.654, n_beta~1.669,
                 // n_gamma~1.690 for gem-quality (Fo~90) peridot -- fraction
                 // (1.669-1.654)/(1.690-1.654) = 0.417 -- applied to this entry's own
                 // birefringence_delta: 0.417 * 0.036 = 0.01501, rounded to 0.0150.
@@ -115,11 +108,9 @@ impl GemMaterial {
             // Appl. Opt. 37, 4933-4935 (1998), as tabulated by refractiveindex.info
             // ("Y3Al5O12: Zelmon"):
             //   n^2-1 = 2.28200*l^2/(l^2-0.01185) + 3.27644*l^2/(l^2-282.734)
-            // Encoded via Sellmeier3 with the unused 3rd pole zeroed (b=0, c=1.0 um^2,
-            // same technique as Diamond/Spinel above). Verified: n_d = 1.83263, Delta
-            // n(F-C) = 0.01600, Abbe V_d = 52.04 -- matching YAG's widely-cited real
-            // Abbe number (~52); a commonly quoted "0.028" dispersion figure for this
-            // row is not reproduced by this primary Sellmeier fit and is not used.
+            // Encoded via Sellmeier3 with the unused 3rd pole zeroed (b=0, c=1.0 um^2),
+            // as the Spinel entry does. Verified: n_d = 1.83263, Delta n(F-C) = 0.01600,
+            // Abbe V_d = 52.04.
             Self {
                 name: "YAG".to_string(),
                 crystal_system: CrystalSystem::Cubic,
@@ -150,17 +141,13 @@ impl GemMaterial {
             //
             // Source (primary): D.L. Wood & K. Nassau, "Optical properties of
             // gadolinium gallium garnet," Appl. Opt. 29, 3704-3707 (1990), Table I,
-            // the average of four crystals; the journal's abstract page was read,
-            // the full text was not (transparent 0.36-6.0 um, three-term Sellmeier
-            // agreeing with experiment to better than 2 parts in the 4th decimal):
+            // the average of four crystals (transparent 0.36-6.0 um):
             //   n^2 = 1 + sum_i A_i*l^2/(l^2 - L_i^2),  l and L_i in um,
             //   A = (1.7727, 0.9767, 4.9668), L = (0.1567, 0.01375, 22.715).
-            // The form is not printed on that page; it was verified numerically (the
-            // L_i read as resonance wavelengths reproduce the paper's Table II He-Ne
-            // value 1.96515 exactly; reading them as squared wavelengths gives
-            // 2.199 and is wrong). Encoded via Sellmeier3 with c_i = L_i^2 in um^2,
-            // the convention of the Spinel entry: 0.1567^2 = 0.024555, 0.01375^2 =
-            // 0.000189, 22.715^2 = 515.971.
+            // The form is not printed on that page. The L_i are resonance wavelengths: only
+            // that reading reproduces the paper's He-Ne value 1.96515. Encoded via
+            // Sellmeier3 with c_i = L_i^2 in um^2 (as the Spinel entry does): 0.024555,
+            // 0.000189, 515.971.
             // Verified: n_F(486.13) = 1.98833, n_d(587.56) = 1.97036, n_D(589.3) =
             // 1.97014, n(632.8) = 1.96515, n_C(656.27) = 1.96287, Delta n(F-C) =
             // 0.02546, Abbe V_d = 38.11.
@@ -174,10 +161,6 @@ impl GemMaterial {
             // numerical floor (both UV poles are below it, 5 % above them is under
             // 300 nm). That floor is NOT the measured range: the data cover 0.36-6.0
             // um, so 300-360 nm is extrapolation.
-            // History: the entry was a 2-parameter Cauchy (n_d 1.970, Delta n(F-C)
-            // 0.026055 = the gemological B-G 0.045 x the file's 0.579 ratio, A =
-            // 1.930726, B = 0.013639). That conversion held up: 0.026055 is 2.3 %
-            // above the measured 0.02546.
             // Calibration record: docs/chromophores/calibration-records.md#ggg-dispersion
             Self {
                 name: "GGG".to_string(),
@@ -215,8 +198,7 @@ impl GemMaterial {
             //   e-ray: B = 0.046/3.268 = 0.014076, A = 1.804 - B/0.5893^2 = 1.763466
             //          (Delta n(F-C) = 0.02688, Abbe V_d = 29.9)
             // so n_e - n_o at D is 0.047, the stored birefringence_delta. SECONDARY
-            // confidence (a gemological table, no primary Sellmeier fit). The earlier
-            // single curve (A 1.717734, B 0.013639, B-G 0.045) served both rays.
+            // confidence (a gemological table, no primary Sellmeier fit).
             Self {
                 name: "Benitoite".to_string(),
                 crystal_system: CrystalSystem::Hexagonal,
@@ -252,27 +234,20 @@ impl GemMaterial {
                 // infrared, and a weak E-perp-c curve) state that the cause is not
                 // established; Fe2+-Ti4+ or Fe2+-Fe3+ charge transfer and Zr in the Ti
                 // site have been proposed, none confirmed. No chromophore is asserted.
-                // STRENGTH (tuned): the measured 2.73 net absorbance over 0.997 mm is
-                // 6.3 /mm natural; over 7 mm that is A = 2.73 x 7 / 0.997 = 19
-                // (decadic) at 700 nm along c -- opaque. GRR 561-D4 is a dark-blue zone of a crystal, gem benitoite is
-                // far lighter, and no concentration is published. The e-ray peak was
-                // the earlier 2.0 (model units) and the o-ray peak followed the measured
-                // ratio, 2.0 x 0.053 = 0.106, written 0.11. 2026-11-03 (owner: "make the
-                // benitoite a bit more saturated") both peaks x 2, 4.0 and 0.22 (the ratio
-                // kept), chosen from renders of the Pentalume Sapphire design: Light Tent
-                // L*69 C*17 h 264 at x 1, L*65 C*22 at x 1.5, L*61 C*27 h 274 at x 2, L*55
-                // C*33 at x 3 (Studio Softbox C*13 -> C*22 at x 2). Swatch (7 mm, D65):
-                // e-ray L*53 C*70 h 278, o-ray L*93 C*8, unpolarised L*83 C*22 h 277.
+                // STRENGTH (tuned): the measured 2.73 absorbance over 0.997 mm would be 19
+                // (decadic) along c over a 7 mm stone, which is opaque. GRR 561-D4 is a dark
+                // zone and gem benitoite is far lighter, and no concentration is published,
+                // so the peaks are tuned by eye: e-ray 4.0, o-ray 0.22, keeping the measured
+                // o : e ratio of about 0.05.
                 // Calibration record: docs/chromophores/calibration-records.md#benitoite
                 absorption: AbsorptionTensor::uniaxial(
                     vec![AbsorptionBand::energy(603.0, 8_630.0, 0.22)], // o-ray (E-perp-c)
                     vec![AbsorptionBand::energy(698.0, 7_100.0, 4.0)],  // e-ray (E-parallel-c)
                 ),
-                // The c axis lies in the table (2026-11-03), the way benitoite is cut: the blue
-                // is the e-ray's (E parallel to c) and the o-ray is nearly colorless, so a stone
-                // with c along the table normal shows face-up only the o-ray and looks almost
-                // clear (Pentalume Sapphire, Light Tent: L* 69 C* 15). With c in the table,
-                // face-up light vibrates both along and across c and the stone shows its blue.
+                // The c axis lies in the table, the way benitoite is cut: the blue is the
+                // e-ray's (E parallel to c) and the o-ray is nearly colorless, so with c along
+                // the table normal only the o-ray shows face-up and the stone looks almost
+                // clear. With c in the table, face-up light vibrates along and across c.
                 // The Crystal Axis of a design still turns it anywhere.
                 c_axis: Vec3::X,
                 biaxial_delta_beta_alpha: None,

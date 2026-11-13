@@ -12,5 +12,6 @@ pleochroma*.log
 dist
 build
 videos
+benchmarks/render_accel/out
 *.rar
 .VSCodeCounter

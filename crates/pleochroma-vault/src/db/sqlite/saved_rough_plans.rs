@@ -5,8 +5,8 @@
 //! design's deletion and report it), and `crate::model::saved_rough_plan` for the models.
 //!
 //! The second `impl` block holds the library lookups a saved plan's staleness check needs
-//! (design titles by id, designs by title, the library's identity stamp): they are small,
-//! read the catalogue without its `ignored` filter, and have no other caller.
+//! (design titles by id, designs by title, the library's identity stamp). They read the
+//! catalogue without its `ignored` filter.
 
 use super::Database;
 use crate::model::saved_rough_plan::{SavedRoughPlan, SavedRoughPlanMeta};

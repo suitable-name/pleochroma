@@ -77,24 +77,22 @@ pub struct FingerprintMaterial<'a> {
     /// refractive-index pick.
     pub from_design_file: bool,
     /// [`frosting_hash`] of the design's stored frosting; `0` for a polished design, which
-    /// keeps the text it had before frosting was tracked. Not part of the persisted
-    /// material state: a caller adds it with [`Self::with_frosting`].
+    /// adds nothing to the text. Not part of the persisted material state: a caller adds it
+    /// with [`Self::with_frosting`].
     pub frosting: u64,
     /// [`zones_hash`] of the material's persisted zones (`material_zoning.zoned_json`);
-    /// `0` for a material without any, which keeps the text it had before color patterns.
-    /// Not part of the persisted material state: a caller adds it with [`Self::with_zones`].
+    /// `0` for a material without any, which adds nothing to the text. Not part of the
+    /// persisted material state: a caller adds it with [`Self::with_zones`].
     pub zones: u64,
     /// The crystal axis the stone is drawn with when it is not the material's built-in one:
     /// the design's own axis when its file turns the override on, else the custom material's
-    /// stored default ([`AxisKey`]). `None` keeps the text every material had before the
-    /// Crystal Axis (a built-in, and a custom material with no stored default, in a design
-    /// that sets none). Not part of the persisted material state: a caller adds it with
-    /// [`Self::with_axis`].
+    /// stored default ([`AxisKey`]). `None` adds nothing to the text: a built-in material, or
+    /// a custom material with no stored default in a design that sets none. Not part of the
+    /// persisted material state: a caller adds it with [`Self::with_axis`].
     pub axis: Option<AxisKey>,
     /// The design's render physics ([`EffectsKey`]): inclusions and play-of-color, the surface
-    /// finish and the abraded edge. [`EffectsKey::NONE`] keeps the text every design had before
-    /// they existed. Not part of the persisted material state: a caller adds it with
-    /// [`Self::with_effects`].
+    /// finish and the abraded edge. [`EffectsKey::NONE`] adds nothing to the text. Not part of
+    /// the persisted material state: a caller adds it with [`Self::with_effects`].
     pub effects: EffectsKey,
 }
 
@@ -155,8 +153,7 @@ impl AxisKey {
 
 impl<'a> FingerprintMaterial<'a> {
     /// A refractive-index pick: `name` (`None` before one has been picked), no size, not
-    /// from the design file. The material part of every fingerprint written before the
-    /// size and the source were tracked.
+    /// from the design file.
     #[cfg(test)]
     #[must_use]
     pub const fn picked(name: Option<&'a str>) -> Self {
@@ -171,9 +168,9 @@ impl<'a> FingerprintMaterial<'a> {
         }
     }
 
-    /// The material of a persisted `diagram_previews` row (`Database::
-    /// get_preview_material_state`, or the state a scan is handed). Polished: add the
-    /// design's frosting with [`Self::with_frosting`].
+    /// The material of a persisted `diagram_previews` row, as read by
+    /// `Database::get_preview_material_state` or handed to a scan. Polished: add the design's
+    /// frosting with [`Self::with_frosting`].
     #[must_use]
     pub fn from_state(state: &'a PreviewMaterialState) -> Self {
         Self {
@@ -224,7 +221,7 @@ impl<'a> FingerprintMaterial<'a> {
     /// The material part of a fingerprint: `material=<name>` (`none` before one is
     /// picked), then `;size=<girdle, two decimals>` only when a size is set and
     /// `;source=design` only when the design's file decided it, so a design with neither
-    /// keeps the exact text it had before they were tracked.
+    /// adds nothing.
     fn fingerprint_part(&self) -> String {
         let mut part = format!("material={}", self.name.unwrap_or("none"));
         if self.girdle_mm.is_finite() && self.girdle_mm > 0.0 {
@@ -251,18 +248,18 @@ impl<'a> FingerprintMaterial<'a> {
 }
 
 /// A hash of a material's persisted zones: FNV-1a 64 of the stored `zoned_json` text, as
-/// stored (not re-encoded). `0` for no zones, never `0` for any text, so an unpatterned
-/// material's fingerprint is unchanged.
+/// stored (not re-encoded). `0` for no zones; any text hashes to a non-zero value.
 #[must_use]
 pub fn zones_hash(zoned_json: &str) -> u64 {
     fnv1a(zoned_json.as_bytes()).max(1)
 }
 
-/// A hash of a design's stored frosting (`Database::diagram_frosting`): the tiers and facet
-/// slots it states. `0` for no frosting (so a polished design's fingerprint is unchanged),
-/// never `0` for any frosting. The rows are hashed as given; the vault stores them
-/// normalised (one row per tier, ascending), so the writer and the staleness scan, which
-/// both read them from the vault, agree.
+/// A hash of a design's stored frosting (`Database::diagram_frosting`): the tiers and facet slots
+/// it states.
+///
+/// `0` for no frosting; any frosting hashes to a non-zero value. The rows are hashed as given; the
+/// vault stores them normalised (one row per tier, ascending), so the writer and the staleness
+/// scan, which both read them from the vault, agree.
 #[must_use]
 pub fn frosting_hash(rows: &[StoredTierFrosting]) -> u64 {
     if rows.is_empty() {
@@ -278,46 +275,40 @@ pub fn frosting_hash(rows: &[StoredTierFrosting]) -> u64 {
 /// The fingerprint stored beside a cached catalogue artefact: a stable string naming
 /// everything that decides what the artefact looks like.
 ///
-/// It lives in `diagram_previews.params_fingerprint` / `diagram_tilt_curves.params_fingerprint`,
-/// so `Database::entry_ids_missing_previews` / `entry_ids_missing_tilt_curves` can tell a
-/// current artefact from one made by a different renderer or with different settings.
+/// It is stored in `diagram_previews.params_fingerprint` and
+/// `diagram_tilt_curves.params_fingerprint`, which `Database::entry_ids_missing_previews` and
+/// `entry_ids_missing_tilt_curves` compare to tell a current artefact from one made by
+/// another renderer or with other settings.
 ///
-/// It carries the tracer's [`pleochroma::BUILD_ID`] (bumped with any change to what the
-/// tracer produces), the `kind`'s own parameters (size, samples and bounce cap for a
-/// preview), the lighting (the preset's label for each artefact -- the preview rig or the
-/// tilt scoring preset -- and the light pose both share) and the material the design was
-/// rendered in. The same function serves both batches, so the two can never drift in
-/// which parameters they track; it is pure and stable across runs, which is what a
-/// stored comparison needs.
+/// It names the tracer's [`pleochroma::BUILD_ID`], the `kind`'s own parameters (size, samples
+/// and bounce cap for a preview), the lighting (the label of the preset each artefact is lit
+/// with, and the light pose both share) and the material the design was rendered in. Both
+/// batches use this one function, so they cannot drift in which parameters they track. It is
+/// pure and stable across runs, which a stored comparison needs.
 ///
-/// `material` is the design's persisted preview material ([`FingerprintMaterial`]): its
-/// name (`None` before one has been picked), and -- only when the design's own file
-/// decided them -- the stone size it is drawn at and the source. A design the refractive
-/// index decided keeps the text it always had; a design whose file names a material or a
-/// girdle diameter gets `;size=<mm>` and/or `;source=design` appended after the name
-/// (so the `size=` of the stone size follows the material, never the image size of a
-/// preview).
+/// `material` is the design's persisted preview material ([`FingerprintMaterial`]): its name
+/// and, only when the design's own file decided them, the stone size and the source. A design
+/// the refractive index decided adds nothing. A design whose file names a material or a girdle
+/// diameter gets `;size=<mm>` and/or `;source=design` after the name, so `size=` is always the
+/// stone size, never the image size of a preview.
 ///
-/// A PREVIEW fingerprint also names the scene settings that are not the lighting preset
-/// (the exposure, the head shadow, the backdrop and the surface glare, `PreviewScene`). Both a preview and a tilt
-/// fingerprint name, for a built-in material, a hash of its band data
-/// (`material_bands_hash`; both are computed through the material's absorption) and, for a
-/// frosted design, a hash of its frosting ([`FingerprintMaterial::frosting`]): changed scene
-/// settings, changed built-in color data or changed frosting make the stored previews and
-/// curves stale on their own, without a version bump. The tilt fingerprint does not name
-/// the preview scene (the tilt sweep is scored under its own preset).
+/// A preview fingerprint also names the scene settings besides the lighting preset and the
+/// light pose (`PreviewScene`). Both a preview and a tilt fingerprint name, for a built-in
+/// material, a hash of its band data ([`material_bands_hash`]) and, for a frosted design, a
+/// hash of its frosting ([`FingerprintMaterial::frosting`]). Changed scene settings, built-in
+/// color data or frosting therefore make stored previews and curves stale without a version
+/// bump. The tilt fingerprint does not name the preview scene: the tilt sweep is scored under
+/// its own preset.
 #[must_use]
 pub fn cache_fingerprint(kind: CacheKind, material: FingerprintMaterial<'_>) -> String {
     let bands = material.name.and_then(built_in_bands_hash);
     fingerprint_with(kind, material, PreviewScene::current(), bands)
 }
 
-/// The preview scene settings a preview fingerprint names besides the lighting preset and
-/// the light pose: what the renderer takes from `PREVIEW_EXPOSURE`,
-/// `PREVIEW_HEAD_SHADOW_DEG`, the thumbnail tray's name (with the tray model's version) and
-/// `PREVIEW_SURFACE_GLARE`. A struct
-/// (rather than the constants read inline) so a test can change one and see the fingerprint
-/// move.
+/// The preview scene settings a preview fingerprint names besides the lighting preset and the
+/// light pose: `PREVIEW_EXPOSURE`, `PREVIEW_HEAD_SHADOW_DEG`, the thumbnail tray (its name and
+/// model version) and `PREVIEW_SURFACE_GLARE`. A struct, not inline constants, so a test can
+/// change one and see the fingerprint move.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct PreviewScene {
     /// Exposure the preview is rendered with.
@@ -328,7 +319,7 @@ struct PreviewScene {
     /// preview rig and pose, which the fingerprint names on their own).
     backdrop: &'static str,
     /// Version of the tray model (`TRAY_MODEL_VERSION`): a change of how the backdrop is lit
-    /// makes every stored preview stale once.
+    /// makes stored previews stale.
     tray_model: u32,
     /// Surface glare the preview is rendered with.
     surface_glare: f32,
@@ -337,12 +328,12 @@ struct PreviewScene {
 }
 
 /// How a catalogue preview frames its stone: `fit`, the camera distance fitted to each
-/// design's size (`solid::preview_distance`). Previews made at the old fixed distance carry
-/// no framing in their fingerprint, so they read stale once and are regenerated.
+/// design's size (`solid::preview_distance`). Named so that a differently framed picture never
+/// matches.
 const PREVIEW_FRAMING: &str = "fit";
 
 impl PreviewScene {
-    /// The scene every catalogue preview is rendered in now (the tray is the user's
+    /// The scene every catalogue preview is rendered in (the tray is the user's
     /// Thumbnail Backdrop).
     fn current() -> Self {
         Self {

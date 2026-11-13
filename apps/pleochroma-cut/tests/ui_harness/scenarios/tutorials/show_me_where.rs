@@ -22,7 +22,8 @@ fn has_show_me_where_button(ctx: &Ctx<'_>) -> bool {
         .any(|e| e.accessible_role().is_some_and(is_clickable_role))
 }
 
-/// Runs the `tutorial:show_me_where` scenario.
+/// Drives the Show Me Where button from a mismatched stage back to the guide's stage, then
+/// checks the view, the panel and the camera, and the button again after a manual tab change.
 #[expect(
     clippy::too_many_lines,
     reason = "sequential 5-phase UI scenario covering mismatch, click, recovery, and drift"

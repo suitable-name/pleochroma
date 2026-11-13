@@ -49,14 +49,11 @@ pub(super) fn material_key(selection: &MaterialSelection) -> String {
 /// Where a trial key's orientation part starts (see [`trial_key`]).
 const AXIS_MARK: &str = ";caxis=";
 
-/// The key trial figures are filed under: [`material_key`] and, when the design's own Crystal
-/// Axis is on, that axis (tilt and azimuth, and the Second Axis turn when set), so figures
-/// scored for one orientation are never read as the figures of another. With the design's axis
-/// off, the custom material's stored default (`material_default`, resolved by the caller before
-/// anything is borrowed) is the orientation the stone renders with and is named the same way.
-/// A design that sets no axis of its own on a material with no stored default keeps exactly
-/// the [`material_key`] text, and so does one that sets no inclusions, play-of-color or abraded
-/// edge (those add an `;fx=` part to the material part, see [`effects_part`]).
+/// The key trial figures are filed under: [`material_key`], the [`effects_part`], and the
+/// orientation the stone renders with (the design's own Crystal Axis when it is on, else the
+/// custom material's stored default, `material_default`, which the caller resolves before
+/// anything is borrowed). Figures scored in one orientation are never read as another's; a
+/// design with none of these keeps the plain [`material_key`] text.
 #[must_use]
 pub(super) fn trial_key(
     selection: &MaterialSelection,

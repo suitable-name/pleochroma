@@ -13,11 +13,10 @@ import { StoneTab } from "stone_tab.slint";
 import { LightingTab } from "lighting_tab.slint";
 import { RenderOutputTab } from "render_output_tab.slint";
 
-// The Parameters panel: the three tabs -- Stone, Lighting & Environment, Render & Output -- under
-// a header (title, manual "?" and collapse button), with a "Reset this tab" footer. It is the
-// card that replaced the Live Render view's old "Rendering Settings" dialog and it shows in both
-// views: docked beside the viewport (`ParametersDock`), or floating over the window where there
-// is no room to dock (`floating`, mounted by `app.slint`).
+// The Parameters panel: the Stone, Lighting & Environment and Render & Output tabs under a header
+// (title, manual "?" and collapse button), with a "Reset this tab" footer. It shows in both views:
+// docked beside the viewport (`ParametersDock`), or floating over the window where there is no
+// room to dock (`floating`, set by `app.slint`).
 //
 // The open tab and whether the panel is expanded live in `ParametersModel` and persist. Each
 // tab is its own `ScrollView`, so switching tabs also puts the scroll position back to the top.
@@ -61,7 +60,7 @@ export component ParametersPanel inherits Rectangle {
     // HDR map; Render & Output: quality, compute, output defaults and thumbnails).
     function reset_active() {
         if root.tab == 1 {
-            // The Lighting lane's own reset (handler in `gui/render/camera_lighting.rs`).
+            // Lighting has its own reset (`gui/render/camera_lighting.rs`).
             ViewportModel.reset_lighting_tab();
         } else {
             // Stone (0) and Render & Output (2): Rust's `reset_tab` dispatch.
@@ -131,8 +130,8 @@ export component ParametersPanel inherits Rectangle {
             }
         }
 
-        // The three tabs. The 10 px on the right is the scroll area's own gutter, so the pills end
-        // where the controls below them do (the row ran 9 px wider than its content).
+        // The three tabs. The 10 px right padding matches the scroll area's gutter, so the
+        // pills end where the controls below end.
         HorizontalLayout {
             spacing: 4px;
             padding-right: 10px;
@@ -173,13 +172,9 @@ export component ParametersPanel inherits Rectangle {
                 width: 100%;
                 height: 100%;
                 tint: root.floating ? Theme.popup-surface : Theme.bg-card;
-                // The extra room at the bottom lets the last row (a toggle or a preset button) scroll
-                // fully clear of the edge. Slint layouts size a word-wrapped note by its first line (no
-                // height-for-width), so the scrolled height falls short by about one line per two-line
-                // note (measured 28 px with the Crystal Axis and Color Zoning notes: the last toggle was
-                // cut by 4 px at 24 px of padding). The Edges, Inclusions and Structure groups added
-                // more notes, and the last preset row was cut above "Reset This Tab" at 64 px:
-                // 120 px leaves room for about five more wrapped notes.
+                // Extra bottom room so the last row scrolls clear of the edge. Slint sizes a
+                // word-wrapped note by its first line only, so the scrolled height falls short by
+                // about a line per wrapped note; 120 px leaves room for the notes in this tab.
                 StoneTab { padding-right: 10px; padding-bottom: 120px; }
             }
             if root.tab == 1: FadedScroll {

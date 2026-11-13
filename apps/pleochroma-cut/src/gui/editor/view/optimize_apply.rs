@@ -1,11 +1,10 @@
-//! The Optimize result SUMMARY table as Slint rows ([`optimize_result_rows`]) and
-//! the ghost preview ([`submit_design_ghost_preview`]): a candidate design shown in
-//! the solid viewport in place of the real one, solved on a background worker so a
-//! Retarget slider drag or the Optimize "Preview" toggle never blocks the UI thread.
-//! The status line, the preview candidate design and the weight-form parser live in
-//! `pleochroma_editor::optimize_view` (shared with the web app) and are re-exported
-//! here at their old paths. See [`super::solve_results`] for the per-tier result
-//! tables and the Deep Solve/Optimize availability hints.
+//! The Optimize result table and the ghost preview of a candidate design.
+//!
+//! The ghost is a candidate drawn in the solid viewport in place of the real design. It is
+//! solved on a worker, so a Retarget slider drag or the Optimize "Preview" toggle never blocks
+//! the UI thread. The status text, the candidate builders and the weight parser live in
+//! `pleochroma_editor::optimize_view`, which the web app shares. The per-tier tables are in
+//! [`super::solve_results`].
 
 use super::viewport::planned_frame_size;
 use crate::{
@@ -34,8 +33,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-// The identity pins still pin these two at their old paths; the tab itself now builds its
-// run through `optimize_panel::plan_from_ui` and words the result in `optimize_run_status`.
+// Test-only paths to these helpers.
 #[cfg(test)]
 pub(in crate::gui::editor) use pleochroma_editor::optimize_view::{
     optimize_status_text, parse_optimize_weights,
@@ -191,34 +189,25 @@ pub(super) fn cancel_ghost_preview() {
     GHOST.with(|cell| cell.borrow_mut().cancel());
 }
 
-/// Queues `design` -- a candidate, not the real design -- to be solved on a
-/// background worker and drawn in the shared solid viewport at the camera pose of
-/// the moment it lands: a raw, generation-independent reproject
-/// (`SolidPreviewState::request_redraw_geometry`, the same call
-/// `gui::render::camera_lighting::resubmit_at_current_pose` uses for a camera
-/// drag), cut back to the Cut slider's position, deliberately NOT [`super::viewport::submit_preview_replan`]'s
-/// worker-queued `ReplanRequest` path: a ghost preview must never stamp
-/// `solid_last_solved`/the design-generation stash with a CANDIDATE design's own
-/// solved masts, which would corrupt the next real edit's `resolve_dirty`
-/// baseline and the next landed worker frame's tier-table push
-/// (`super::viewport::push_solved_preview`) into showing the ghost's numbers
-/// instead of the live design's.
+/// Queues `design`, a candidate rather than the real design, to be solved on a worker and
+/// drawn in the solid viewport at the camera pose of the moment it lands, cut to the Cut
+/// slider's position.
 ///
-/// Never blocks: a newer call supersedes an older one whose solve has not landed
-/// (the running solve is cancelled, a result that still arrives is dropped), and a
-/// later real-design replan does the same through [`cancel_ghost_preview`].
+/// The ghost is drawn with a direct geometry redraw, not through
+/// [`super::viewport::submit_preview_replan`]. That path would store the candidate's masts as
+/// the baseline of the next real edit (`solid_last_solved`), and the live tier table would then
+/// show the candidate's numbers.
 ///
-/// Returns whether the request was queued. `true` means the ghost will appear when
-/// its solve lands, so the caller must not submit the real design over it; a
-/// candidate that turns out not to solve leaves the viewport showing whatever it
-/// already had, since there is no honest candidate geometry to draw for a design
-/// that does not close.
+/// Never blocks: a newer call supersedes an older one whose solve has not landed, and the
+/// running solve is cancelled. A later real-design replan cancels it through
+/// [`cancel_ghost_preview`].
 ///
-/// Used by both Optimize's own "Preview" toggle (via
-/// [`try_build_optimize_preview_design`]) and Retarget's live ghost overlay
-/// (`callbacks::retarget_actions`), so the two features share one implementation of
-/// "show this candidate, without disturbing anything the REAL design's next edit
-/// depends on."
+/// Returns whether the request was queued. `true` means the ghost will appear when its solve
+/// lands, so the caller must not submit the real design over it. A candidate that does not
+/// solve leaves the viewport as it was.
+///
+/// Used by Optimize's "Preview" toggle (via [`try_build_optimize_preview_design`]) and by
+/// Retarget's live ghost overlay (`callbacks::retarget_actions`).
 #[must_use]
 pub(in crate::gui::editor) fn submit_design_ghost_preview(
     ui: &MainWindow,

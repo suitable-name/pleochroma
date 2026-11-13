@@ -1,7 +1,5 @@
-//! `StandardGemCuts::from_asc_schedule` / `reconstruct_validated_brep_from_asc`
-//! tests, backed by real `.asc` files pulled verbatim from `facet_diagrams.sqlite`
-//! so the sign/offset conventions are checked against real designs whose published
-//! `lw_ratio` / `facets_count` are known independently.
+//! Tests for `StandardGemCuts::from_asc_schedule` and `reconstruct_validated_brep_from_asc`,
+//! run on real `.asc` designs whose published `lw_ratio` and facet count are known.
 
 use glam::Vec3;
 use pleochroma::{
@@ -15,48 +13,38 @@ use crate::fixtures::assert_euler_formula;
 // ---------------------------------------------------------------------------
 // `StandardGemCuts::from_asc_schedule` / `reconstruct_validated_brep_from_asc`.
 //
-// These fixtures are real `.asc` files pulled verbatim from `facet_diagrams.sqlite`
-// (via `pleochroma_formats::asc::parse_asc`), not hand-authored test data, so that the
-// tests exercise the actual empirically-determined sign/offset conventions against
-// real designs whose published `lw_ratio` / `facets_count` (from `diagram_details`)
-// are known independently. The same cross-check
-// run across the full corpus lives in `examples/meet_solver_validation/main.rs`.
+// The fixtures are real designs, not hand-authored, so the sign and offset conventions are
+// checked against published `lw_ratio` and facet counts. The full-corpus cross-check is in
+// `examples/meet_solver_validation/main.rs`.
 // ---------------------------------------------------------------------------
 
 /// `attached_files` id 4208 ("pc45149.asc") -- "PC 45.149 Round Trichecker-12" by Fred
 /// W. Van Sant. Published: `lw_ratio` = 1.000, `facets_count` = "36+12" (48 total).
 ///
-/// Lives in `tests/fixtures/asc/trichecker12.asc` (`include_str!`'d, not inlined) so
-/// `crates/pleochroma/examples/pgo_train/stages.rs`'s solver-training stage can train against
-/// the exact same real design without duplicating this text.
+/// Kept as a file (`include_str!`) so `examples/pgo_train/stages.rs` trains on the same design.
 const ASC_ROUND_TRICHECKER_12: &str = include_str!("../fixtures/asc/trichecker12.asc");
 
 /// `attached_files` id 4210 ("pc46019.asc") -- "PC 46.019 For Fun" by Michiko Huyhn.
 /// Published: `lw_ratio` = 1.631, `facets_count` = "48+8" (56 total). Exercises an unsigned
 /// zero-angle culet-like tier ("U") with no explicit crown/pavilion marker.
 ///
-/// Lives in `tests/fixtures/asc/forfun.asc` (`include_str!`'d, not inlined) -- see
-/// [`ASC_ROUND_TRICHECKER_12`]'s doc comment for why.
+/// Stored as `tests/fixtures/asc/forfun.asc`.
 const ASC_FOR_FUN: &str = include_str!("../fixtures/asc/forfun.asc");
 
 /// `attached_files` id 4430 ("pc42060.asc") -- "PC 42.060 Large Texas Star" by
-/// Charles `McCoy`. Published: `lw_ratio` = 1.051, `facets_count` = "41+10" (51 total). Gear=80 (not
-/// the far more common 96), symmetry order 5 -- exercises both away from the
-/// dominant convention, plus an explicit table tier at unsigned zero.
+/// Charles `McCoy`. Published: `lw_ratio` = 1.051, `facets_count` = "41+10" (51 total).
+/// Gear 80 (not the common 96) and symmetry order 5, plus an explicit table tier at
+/// unsigned zero.
 ///
-/// Lives in `tests/fixtures/asc/texasstar.asc` (`include_str!`'d, not inlined) -- see
-/// [`ASC_ROUND_TRICHECKER_12`]'s doc comment for why.
+/// Stored as `tests/fixtures/asc/texasstar.asc`.
 const ASC_LARGE_TEXAS_STAR: &str = include_str!("../fixtures/asc/texasstar.asc");
 
 /// `attached_files` id 4422 ("pc43001a.asc") -- "PC 43.001A Shah (Replica)". No facet
-/// names anywhere, a rare negative-mast tier at an unsigned zero angle, and two
-/// tiers (`-90 ... 0 32` and a later `-90 ... 0`) that share an index and mast,
-/// producing a literal duplicate half-space plane. Exercises `dedup_planes` and the
-/// "no name at all" parsing path, not the L/W or facet-count cross-check (this
-/// design's own footnote flags it as disagreeing with the reference it's replicating).
+/// names, a negative-mast tier at an unsigned zero angle, and two tiers that give a literal
+/// duplicate half-space plane. Exercises `dedup_planes` and the unnamed parsing path. It is
+/// not checked against L/W or facet count, since the design disagrees with its reference.
 ///
-/// Lives in `tests/fixtures/asc/shah.asc` (`include_str!`'d, not inlined) -- see
-/// [`ASC_ROUND_TRICHECKER_12`]'s doc comment for why.
+/// Stored as `tests/fixtures/asc/shah.asc`.
 const ASC_SHAH_REPLICA_NO_NAMES: &str = include_str!("../fixtures/asc/shah.asc");
 
 /// Length/width measure: the longest chord across the reconstructed
@@ -121,9 +109,7 @@ fn asc_round_trichecker_12_matches_published_lw_ratio_and_facet_count() {
         "published facets_count is \"36+12\" = 48"
     );
     let lw = length_width_ratio(&hull);
-    // Measured: 1.00090015 (diff 0.0009 from published) -- tightened from the original
-    // +/-0.02 (a bound loose enough to pass even a badly broken reconstruction) down to
-    // the tightest round bound this real fixture's measured diff still clears.
+    // Measured 1.00090 (0.0009 from published); the bound is the tightest round one that clears it.
     assert!(
         (lw - 1.000).abs() < 0.001,
         "published lw_ratio is 1.000, got {lw:.4}"
@@ -132,9 +118,8 @@ fn asc_round_trichecker_12_matches_published_lw_ratio_and_facet_count() {
 
 #[test]
 fn asc_for_fun_matches_published_lw_ratio_and_facet_count() {
-    // Tier-count/angle/distance assertions on top of pleochroma_formats::asc's own
-    // parser-level unit tests: 28 tiers (10 pavilion/girdle + 17 crown + 1 culet), the
-    // P1 tier's angle and mast distance, and the geometry this schedule produces.
+    // Tier count (10 pavilion and girdle, 17 crown, 1 culet), the first tier's angle and mast,
+    // and the resulting geometry; the parser's own unit tests cover the rest.
     let schedule = asc::parse_asc(ASC_FOR_FUN).unwrap();
     assert_eq!(schedule.tiers.len(), 28);
     assert_eq!(schedule.gear_teeth, 96);
@@ -149,12 +134,9 @@ fn asc_for_fun_matches_published_lw_ratio_and_facet_count() {
         "published facets_count is \"48+8\" = 56"
     );
     let lw = length_width_ratio(&hull);
-    // Measured: 1.63310838 (diff 0.00211 from published). Until 2026-09-28 this
-    // fixture's reconstruction was NOT run-to-run deterministic: `chull`'s randomly
-    // seeded hash sets picked which of several nearly coincident meet solutions became
-    // the welded vertex, and repeated runs landed in two clusters, ~1.63064 and ~1.63311.
-    // `from_planes` is now byte-identical run to run and always gives the second value,
-    // so the bound is the tightest round one that clears the measured diff.
+    // Measured 1.63311 (0.00211 from published). The reconstruction must stay deterministic:
+    // `chull`'s hash sets can pick either of two nearly coincident meet solutions (about
+    // 1.63064 or 1.63311) as the welded vertex.
     assert!(
         (lw - 1.631).abs() < 0.0025,
         "published lw_ratio is 1.631, got {lw:.4}"
@@ -163,8 +145,7 @@ fn asc_for_fun_matches_published_lw_ratio_and_facet_count() {
 
 #[test]
 fn asc_large_texas_star_matches_published_lw_ratio_and_facet_count() {
-    // gear=80 (not 96) and an explicit unsigned-zero table tier ("T") -- both away
-    // from the more common case the other fixtures exercise.
+    // Gear 80 and an explicit unsigned-zero table tier ("T"), both unlike the other fixtures.
     let schedule = asc::parse_asc(ASC_LARGE_TEXAS_STAR).unwrap();
     assert_eq!(schedule.gear_teeth, 80);
     assert_eq!(schedule.symmetry_order, 5);
@@ -176,12 +157,8 @@ fn asc_large_texas_star_matches_published_lw_ratio_and_facet_count() {
         "published facets_count is \"41+10\" = 51"
     );
     let lw = length_width_ratio(&hull);
-    // Measured: 1.05231798 (diff 0.00232 from published) -- this fixture's own diff does
-    // NOT clear +/-0.001 (unlike the other two `.asc` fixtures in this file), so it keeps
-    // a looser, but still 8x tighter than the original +/-0.02, bound; a small margin
-    // over the measured diff, not the tightest possible one, since this fixture's own
-    // gear=80 / explicit-zero-tier shape (see the comment above) is already called out
-    // as unlike the more common case the other two fixtures exercise.
+    // Measured 1.05232 (0.00232 from published). Its diff does not clear the +/-0.001 of the
+    // other fixtures, so this bound is looser, with a small margin over the measured diff.
     assert!(
         (lw - 1.051).abs() < 0.0025,
         "published lw_ratio is 1.051, got {lw:.4}"
@@ -209,11 +186,9 @@ fn asc_schedules_always_satisfy_from_planes_d_negative_precondition() {
 
 #[test]
 fn asc_schedule_negative_mast_and_duplicate_tiers_do_not_panic_or_break_geometry() {
-    // ASC_SHAH_REPLICA_NO_NAMES has a negative-mast tier ("0.00 -0.36800 0") and two
-    // tiers that produce a literal duplicate half-space plane (index 0 at angle -90,
-    // mast 0.44700, listed on two separate rows). Neither should panic, and the
-    // duplicate should be silently absorbed by dedup_planes rather than tripping
-    // GemPolyhedron::from_planes's "coincident planes" rejection.
+    // ASC_SHAH_REPLICA_NO_NAMES has a negative-mast tier ("0.00 -0.36800 0") and two tiers
+    // that give one duplicate half-space plane. Neither may panic, and the duplicate must be
+    // absorbed by `dedup_planes`, not rejected by `GemPolyhedron::from_planes` as coincident.
     let schedule = asc::parse_asc(ASC_SHAH_REPLICA_NO_NAMES).unwrap();
     let planes = StandardGemCuts::from_asc_schedule(&schedule);
     for p in &planes {
@@ -230,9 +205,8 @@ fn asc_schedule_negative_mast_and_duplicate_tiers_do_not_panic_or_break_geometry
 
 #[test]
 fn asc_geometry_falls_back_cleanly_when_no_asc_is_available() {
-    // Designs without an attached .asc (about 4.8% of the catalog) must still render
-    // via the existing angle_settings-based path -- from_asc_schedule/
-    // reconstruct_validated_brep_from_asc are purely additive.
+    // Designs without an attached .asc must still render via the angle_settings path.
+    // `from_asc_schedule` and `reconstruct_validated_brep_from_asc` are additive only.
     let angles = vec![FacetSpec {
         facet: "C1".into(),
         angle: "40.00\u{b0}".into(),

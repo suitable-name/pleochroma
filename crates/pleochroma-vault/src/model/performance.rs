@@ -3,25 +3,17 @@
 //!
 //! # Where the predicate actually runs: Rust, not SQL -- and why
 //!
-//! An earlier version limited [`PerformanceFilter`] to four selectable tilt radii
-//! (+/-15/30/45/90 degrees) so the predicate could be answered by 36 precomputed SQL
-//! columns (3 metrics x 4 radii x {min, max, mean}). Wrong: the feature's own phrasing --
-//! "only x% windowing in a tilt radius of y%" -- makes both numbers inputs, and a fixed
-//! ladder can't express an arbitrary radius. [`PerformanceFilter::tilt_radius_deg`] is
-//! now a plain `f32`, validated to `0.0..=90.0` (see [`PerformanceFilter::new`]).
-//!
-//! An arbitrary radius also can't be precomputed per-R, so
+//! The radius is a plain `f32` in `0.0..=90.0` (see [`PerformanceFilter::new`]). A fixed
+//! ladder of precomputed SQL columns cannot express an arbitrary radius, so
 //! [`crate::model::tilt_curves::TiltPerformanceCurves::matches_performance_filter`]
-//! evaluates it directly in Rust over a decoded curve. Cost is negligible: the whole
-//! corpus is 3,187 designs x 8,688 bytes = ~27.7 MB, and one filter against one decoded
-//! curve is at most 4*181 = 724 `f32` comparisons.
+//! evaluates the predicate in Rust over a decoded curve.
 //!
-//! # SQL still does the narrowing -- just less of it
+//! # SQL does the narrowing first
 //!
-//! `crate::db::sqlite::search::build_search_predicate` still applies the cheap
-//! predicates in SQL first (text, shape, gear, RI, L/W, volume, facets, ignored). For a
-//! [`PerformanceFilter`], exactly SIX derived columns survive from the old 36: the
-//! global min/max of each metric across the full sweep (see
+//! `crate::db::sqlite::search::build_search_predicate` applies the cheap predicates in
+//! SQL first (text, shape, gear, RI, L/W, volume, facets, ignored). For a
+//! [`PerformanceFilter`] it adds six derived columns: the global min/max of each metric
+//! across the full sweep (see
 //! [`crate::model::tilt_curves::TiltPerformanceCurves::global_extremes`] and
 //! [`global_extreme_column_name`]). A global extreme bounds every narrower window's same
 //! extreme, making it a SOUND pruning predicate without decoding a BLOB -- see
@@ -83,7 +75,7 @@ impl PerformanceMetric {
 }
 
 /// Which extreme of a metric's global range [`global_extreme_column_name`] names --
-/// `Min`/`Max` only (there is no "mean" column any more; see this module's doc).
+/// `Min` or `Max`, the two bounds the SQL narrowing uses.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Extreme {
     /// The metric's global minimum sampled value.
@@ -181,9 +173,8 @@ pub const MAX_TILT_RADIUS_DEG: f32 = 90.0;
 /// Fields are `pub`, but [`Self::new`] is the recommended constructor: it validates
 /// `tilt_radius_deg` against [`MIN_TILT_RADIUS_DEG`]/[`MAX_TILT_RADIUS_DEG`] at the
 /// boundary where external input (a GUI field, a value off the wire) becomes a
-/// `PerformanceFilter`. A struct literal bypassing `new` with an out-of-range radius
-/// won't panic -- the evaluator treats a negative radius as matching no points -- but
-/// only `new`'s path guarantees the `0.0..=90.0` contract.
+/// `PerformanceFilter`. A struct literal skips that check, so only `new` guarantees the
+/// `0.0..=90.0` range.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PerformanceFilter {
     /// Which metric this predicate constrains.

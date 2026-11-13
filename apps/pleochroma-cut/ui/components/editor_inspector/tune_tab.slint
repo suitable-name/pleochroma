@@ -363,12 +363,9 @@ export component TuneTab inherits VerticalLayout {
         ink: Theme.text-primary;
     }
 
-    // What a step of the lesson uses comes first, right under the title: the nudges and the angle
-    // box, Pair With, then Accept, Revert This Tier and Next Tier. The mini sweep (a chart of
-    // about 250 px with its legend) follows them, so a short inspector shows the controls and
-    // the chart is a scroll away.
-    //
-    // The nudges and the angle box.
+    // The nudges and the angle box come first under the title, then Pair With, then Accept,
+    // Revert This Tier and Next Tier. The mini sweep follows, so on a short inspector the
+    // controls show and the chart is a scroll away.
     if TuneModel.has_selection: HorizontalLayout {
         spacing: 4px;
         height: 28px;

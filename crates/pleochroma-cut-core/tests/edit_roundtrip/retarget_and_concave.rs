@@ -1,7 +1,6 @@
 use super::*;
 
-/// This item's own named target #2: [`Edit::RetargetAngles`], single- and
-/// multi-tier.
+/// [`Edit::RetargetAngles`], with one tier and with several.
 #[test]
 fn retarget_angles_round_trips() {
     for &seed in &SEEDS {
@@ -73,11 +72,8 @@ fn retarget_angles_same_tier_twice_round_trips() {
     }
 }
 
-/// [`Edit::Batch`]: this crate's own only real-world composite (a retarget's
-/// angle changes plus the material change it implies -- see
-/// `Edit::describe`'s own `describe_batch` special case) exercised directly,
-/// on top of `edit/tests.rs`'s own existing `Batch` coverage for the
-/// error/rollback half.
+/// [`Edit::Batch`] of a retarget and the material change it implies, round-tripped as one
+/// edit. The error and rollback paths are tested in `src/edit/tests/`.
 #[test]
 fn batch_retarget_and_material_round_trips() {
     for &seed in &SEEDS {

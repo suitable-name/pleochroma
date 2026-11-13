@@ -298,8 +298,8 @@ fn a_chromatic_family_beside_haze_gives_a_phase_ratio() {
 }
 
 /// An ideal cone (needle lobe 0) is floored to a small positive lobe by `InclusionSet`, so the
-/// phase density at a sampled direction is positive and can serve as the MIS partner. Before the
-/// floor the sampled direction lay exactly on the cone, where `needle_pdf` returns 0.
+/// phase density at a sampled direction is positive and can serve as the MIS partner. Without the
+/// floor a sampled direction lies on the cone, where `needle_pdf` is 0.
 #[test]
 fn an_ideal_cone_lobe_is_floored_and_keeps_a_positive_phase() {
     let set = InclusionSet::new(&[family(FamilyKind::Needle, Vec3::Y, 0.8, 0, 0.0, 0.0)]);

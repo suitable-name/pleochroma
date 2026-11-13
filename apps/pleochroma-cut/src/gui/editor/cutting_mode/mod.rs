@@ -13,8 +13,8 @@
 //! - **marking** (Space or D, the button, a click on an index chip): stores the change in the
 //!   library ([`store`]) before the page shows it, so what the page shows is what is stored;
 //! - **design changes** (Undo, Open, an edit made while the screen is up): a timer compares the
-//!   design's identity and generation with the ones the steps were built from and rebuilds, staying
-//!   on the same tier when it still exists;
+//!   design's identity and generation with those the steps were built from, and rebuilds,
+//!   staying on the same tier when it still exists;
 //! - **closing** puts the Cut slider, the selection and the view mode back.
 //!
 //! Everything runs on the UI thread except the solve. The state lives in a thread-local session

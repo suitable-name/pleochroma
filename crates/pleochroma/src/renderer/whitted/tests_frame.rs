@@ -41,10 +41,9 @@ fn taps_are_centre_first_and_inside_the_pixel() {
         assert!((-0.5..0.5).contains(&x) && (-0.5..0.5).contains(&y));
         for (actual, base) in [(x, 2), (y, 3)] {
             let expected = (inverse(index, base) + 0.5).fract() - 0.5;
-            // The f32 table sums at most three terms of `digit * place`, where `place` is the
-            // repeated product of the rounded reciprocal (relative error (k + 1) * 2^-24 at
-            // place k). The terms contribute at most 2.4 * 2^-24, the three sum roundings at most
-            // 1.5 * 2^-24 and the `+ 0.5` shift at most 2^-24: 5 * 2^-24 bounds the error.
+            // The f32 table sums at most three `digit * place` terms, `place` being a repeated
+            // product of the rounded reciprocal (relative error (k + 1) * 2^-24 at place k).
+            // Terms, sum roundings and the `+ 0.5` shift add up to at most 5 * 2^-24.
             assert!((f64::from(actual) - expected).abs() <= 5.0 * 2.0_f64.powi(-24));
         }
         for taps in [1u8, 4, 8, 16] {
@@ -70,7 +69,7 @@ fn partitions_recombine_bit_exactly() {
         facet_finishes: &[],
         material: &material,
         max_bounces: 64,
-        environment: EnvironmentSource::HdrMap(&env),
+        environment: EnvironmentSource::hdr(&env),
     };
     let soa = build_plane_soa(&planes);
     let prep = WhittedPrep::for_tests(
@@ -113,7 +112,7 @@ fn a_uniform_environment_gives_a_uniform_picture() {
         facet_finishes: &[],
         material: &material,
         max_bounces: 64,
-        environment: EnvironmentSource::HdrMap(&env),
+        environment: EnvironmentSource::hdr(&env),
     };
     let prep = WhittedPrep::for_tests(1.5, Vec3::ZERO, Vec3::new(0.7, 0.5, 0.3), 64, 4);
     let expected = prep.rgb_to_xyz * Vec3::new(0.7, 0.5, 0.3);
@@ -141,7 +140,7 @@ fn the_primary_hit_is_reported_once_and_a_miss_clears_it() {
         facet_finishes: &[],
         material: &material,
         max_bounces: 64,
-        environment: EnvironmentSource::HdrMap(&env),
+        environment: EnvironmentSource::hdr(&env),
     };
     let soa = build_plane_soa(&planes);
     let prep = WhittedPrep::for_tests(1.5, Vec3::ZERO, Vec3::ONE, 64, 1);
@@ -180,7 +179,7 @@ fn fire_splits_the_channels_by_snell() {
         facet_finishes: &[],
         material: &material,
         max_bounces: 64,
-        environment: EnvironmentSource::HdrMap(&env),
+        environment: EnvironmentSource::hdr(&env),
     };
     let mut prep = WhittedPrep::new(
         &scene,
@@ -229,8 +228,7 @@ fn fire_splits_the_channels_by_snell() {
     );
 }
 
-/// One tap intersects the camera ray once, outside the chains; every chain reuses it.
-/// Before the shared hit each of the three Fire chains intersected it again (delta 3 per tap).
+/// Each tap intersects the camera ray once, outside the chains; the three Fire chains reuse it.
 #[test]
 fn fire_chains_share_one_primary_intersection_and_sum_bit_exactly() {
     let planes = StandardGemCuts::standard_round_brilliant();
@@ -245,7 +243,7 @@ fn fire_chains_share_one_primary_intersection_and_sum_bit_exactly() {
         facet_finishes: &[],
         material: &material,
         max_bounces: 64,
-        environment: EnvironmentSource::HdrMap(&env),
+        environment: EnvironmentSource::hdr(&env),
     };
     let prep = WhittedPrep::new(
         &scene,
@@ -309,7 +307,7 @@ fn pinned_tiny_frame() {
         facet_finishes: &[],
         material: &material,
         max_bounces: 64,
-        environment: EnvironmentSource::HdrMap(&env),
+        environment: EnvironmentSource::hdr(&env),
     };
     let prep = WhittedPrep::for_tests(
         1.5,

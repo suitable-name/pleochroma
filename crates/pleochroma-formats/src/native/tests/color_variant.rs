@@ -47,8 +47,7 @@ fn a_color_variant_round_trips_through_toml_text() {
     }
 }
 
-/// No variant: the table is not written at all, and a file without it (every file written
-/// before the table existed) loads back as `None`.
+/// No variant: the table is not written at all, and a file without it loads as `None`.
 #[test]
 fn a_material_without_a_color_variant_omits_the_table_and_loads_as_none() {
     let text = write(&sample_file());
@@ -71,7 +70,7 @@ fn a_sparse_hand_written_variant_table_reads() {
     assert_eq!(variant.unit, COLOR_VARIANT_UNIT_MODEL_UNIT);
     assert!(variant.o_ray.is_empty() && variant.e_ray.is_empty());
     assert_eq!(variant.beta_ray, None);
-    // A table from before the fallback triple was recorded inside it reads as "no record".
+    // A table without `fallback_rgb` reads as having no recorded fallback.
     assert_eq!(variant.fallback_rgb, None);
 }
 

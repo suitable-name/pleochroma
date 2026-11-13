@@ -1,16 +1,13 @@
-//! [`ManufacturabilityWarning`] itself -- the one type every check reports
-//! through. See the parent module's doc comment for the four checks and why each
-//! is a warning, never a silent correction.
+//! [`ManufacturabilityWarning`], the one type every check reports through. See the parent
+//! module's doc comment for the checks and why each is a warning.
 
 use crate::design::TierId;
 
-/// One manufacturability problem found in an (already-solved, for the two
-/// mesh-based variants) [`crate::design::Design`].
+/// One manufacturability problem found in a [`crate::design::Design`]. The mesh-based
+/// variants need an already-solved design.
 ///
-/// See the module docs for what each check looks for. Always a warning to
-/// surface to the user, never something this crate acts on itself: `History`
-/// stays the sole mutator of `Design`, and nothing in this module touches a
-/// `Design` at all.
+/// Always a warning for the user, never acted on by this crate: `History` is the sole
+/// mutator of `Design`, and this module does not touch one.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ManufacturabilityWarning {
     /// A facet plane this tier describes never reaches the solid's surface --
@@ -67,12 +64,9 @@ pub enum ManufacturabilityWarning {
         azimuth_error_deg: f64,
     },
     /// This tier's [`pleochroma::geometry::meet_solver::MeetConstraint::MeetNamed`] resolves
-    /// (see [`pleochroma::geometry::meet_solver::MeetNameResolver`]) to a target tier that
-    /// comes at or after this
-    /// tier's own position in the schedule -- a geometrically valid solve
-    /// (the solver has no notion of file order) that is physically
-    /// uncuttable in that order, since the target facet doesn't exist yet
-    /// when this tier would be cut.
+    /// (see [`pleochroma::geometry::meet_solver::MeetNameResolver`]) to a target at or after
+    /// this tier in the schedule. The solve is valid, since the solver ignores file order,
+    /// but the target facet does not exist yet when this tier is cut.
     OutOfOrderMeet {
         tier_index: usize,
         /// See [`Self::VanishingFacet`]'s own `tier_id` doc comment.
@@ -81,15 +75,10 @@ pub enum ManufacturabilityWarning {
         target_tier_index: usize,
         target_tier_name: String,
     },
-    /// This tier's [`pleochroma::geometry::meet_solver::MeetConstraint::MeetNamed`]
-    /// names at least one target that
-    /// [`crate::design::meet_name_is_asc_safe`] rejects -- a name that would not
-    /// re-parse back to itself from a plain `.asc` `"Meet <names>"` export (see that
-    /// function's own doc comment for exactly which names fail and why). A pure
-    /// `.asc` re-export/re-import loses or mis-targets this meet
-    /// reference even though the design solves and exports without any other
-    /// complaint today. `unsafe_names` is the exact subset of this tier's authored
-    /// names that fail the check, in authored order.
+    /// This tier's [`pleochroma::geometry::meet_solver::MeetConstraint::MeetNamed`] names at
+    /// least one target that [`crate::design::meet_name_is_asc_safe`] rejects. Such a name
+    /// would not re-parse to itself from a plain `.asc` `"Meet <names>"` export (see that
+    /// function's doc for the rules). `unsafe_names` lists the failures in authored order.
     MeetNameNotAscSafe {
         tier_index: usize,
         /// See [`Self::VanishingFacet`]'s own `tier_id` doc comment.
@@ -152,12 +141,9 @@ pub enum ManufacturabilityWarning {
 }
 
 impl ManufacturabilityWarning {
-    /// The tier this warning is about -- every variant carries one. Lets a caller
-    /// (e.g. the editor's tier table) attribute a warning to a row without
-    /// matching on the specific variant itself -- see "warnings are not
-    /// attributed to rows or facets": today a warning only ever reaches the UI
-    /// flattened to a `String` (via `Display`, below), with nothing keeping this
-    /// index alongside the text for a caller that wants to badge a row.
+    /// The flat tier this warning is about, so a caller such as the editor's tier table can
+    /// attribute it to a row. Concave-tool and export warnings report `0`; see
+    /// [`Self::concave_tier`].
     #[must_use]
     pub const fn tier_index(&self) -> usize {
         match self {
@@ -177,11 +163,9 @@ impl ManufacturabilityWarning {
         }
     }
 
-    /// The stable [`TierId`] of the tier this warning is about, as of the solve
-    /// this warning was built from -- lets the tier table badge a row directly
-    /// by id (stable across add/remove/move/undo) instead of matching
-    /// [`Self::tier_index`] against a position that may have shifted since, or
-    /// parsing "tier N" back out of [`Self`]'s own `Display` text.
+    /// The stable [`TierId`] of the flat tier this warning is about, as of the solve it was
+    /// built from. Unlike a position, it survives add, remove, move and undo, so a row can be
+    /// badged by id. Concave-tool and export warnings report `TierId(0)`.
     #[must_use]
     pub const fn tier_id(&self) -> TierId {
         match self {
@@ -260,12 +244,8 @@ impl std::fmt::Display for ManufacturabilityWarning {
         reason = "one arm per warning variant; splitting would only scatter the user-facing texts"
     )]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // Every tier number below is `+ 1`: `tier_index`/`target_tier_index` stay
-        // 0-based (this crate's tier list is always indexed that way, and
-        // `Self::tier_index` must keep returning the raw index so a caller can use
-        // it to index `Design::tiers`), but the tier TABLE the cutter actually
-        // reads numbers its rows from 1 -- these strings are user-facing text, not
-        // an index, so they follow the table rather than the storage convention.
+        // Tier numbers in these strings are 1-based, as the tier table shows them. The
+        // fields and `Self::tier_index` stay 0-based, since they index `Design::tiers`.
         match self {
             Self::VanishingFacet {
                 tier_index,
@@ -287,11 +267,8 @@ impl std::fmt::Display for ManufacturabilityWarning {
                 width_axis,
                 ..
             } => {
-                // Both expressed as a percentage of the stone's own measured width
-                // (`sqrt(area) / width_axis`) rather than the raw, design-scale
-                // area/threshold: a cutter has no way to judge whether `0.000241`
-                // "mast units squared" is a sliver or a real facet, but "0.4% of
-                // stone width" (below a 1% minimum) means something on any design.
+                // Shown as a percentage of stone width (`sqrt(area) / width_axis`), since a raw
+                // design-scale area means nothing to a cutter.
                 let facet_pct = if *width_axis > 0.0 {
                     100.0 * area.sqrt() / width_axis
                 } else {

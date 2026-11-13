@@ -1,4 +1,6 @@
-//! [`Orchestrator`]'s own state: the pose snapshot compared every poll tick
+//! [`Orchestrator`]'s own state.
+//!
+//! It holds the pose snapshot compared every poll tick
 //! ([`Pose`]/[`current_pose`]), and the [`lock`] helper every other file in this group
 //! uses to reach it. See this group's own `mod.rs` doc comment.
 
@@ -57,21 +59,12 @@ pub(super) fn current_drag_held(ctx: &Mutex<RenderContext>) -> bool {
         .camera_drag_held
 }
 
-/// State shared by the orchestrator's timer tick (always on the Slint event loop) and
-/// its `on_update` closure (constructed there, but must be `Send` to cross into
-/// `bridge::remote::remote_render`'s worker thread as the closure argument). `Arc<Mutex<_>>`
-/// rather than the `Rc<RefCell<_>>` most other UI-thread-only state in this crate uses,
-/// for exactly that reason.
+/// State shared by the timer tick and the remote update callbacks. It is `Arc<Mutex<_>>`
+/// because the callbacks must be `Send` to run on the connection thread.
 ///
-/// One access does NOT happen on the Slint event loop: `tick::update::
-/// handle_remote_update`'s rate-limit/gate check for a `Frame`/`Preview` event takes
-/// this lock synchronously on the connection thread, before it ever queues a UI-thread
-/// closure (see `bridge::remote::remote_render::connection::mod`'s module doc comment,
-/// "Why a busy consumer can never make either deadline fire early"). That access is an
-/// O(1) check-and-mutate, so it is only ever held briefly -- which is exactly why
-/// `redraw_from_epoch` (the Slint-event-loop side) must never hold this SAME lock
-/// across its own tonemap/denoise work: doing so would stall that connection-thread
-/// access for however long the redraw took.
+/// `update::handle_remote_update` takes this lock on the connection thread for its O(1)
+/// rate-limit and gate check, before it queues any UI-thread work. So `redraw_from_epoch`
+/// must never hold this lock across its tonemap or denoise work, or that check stalls.
 #[expect(
     clippy::struct_excessive_bools,
     reason = "poll-tick state; the flags are independent latches, not a mode"
@@ -117,7 +110,7 @@ pub(super) struct Orchestrator {
     /// The persistent mutual-TLS connection to whatever worker `poll_tick` last
     /// dispatched against, reused across settles instead of a fresh handshake each
     /// time. `None` before the first dispatch, or once `connection_is_stale` decides
-    /// the cached identity no longer matches what's configured (dropping the `Some`
+    /// the cached identity does not match what is configured (dropping the `Some`
     /// tears the old connection down). Window close tears it down too, for free, when
     /// the owning `Orchestrator` is dropped along with its `slint::Timer`.
     pub(super) remote_connection: Option<RemoteConnectionHandle>,
@@ -126,7 +119,7 @@ pub(super) struct Orchestrator {
     /// back to full data -- with ONE note -- until the connection is replaced (reset
     /// wherever `remote_connection` is dropped for staleness).
     pub(super) display_only_refused: bool,
-    /// The live remote's `RenderCapability::hdr` (protocol v14) from its last `WELCOME`
+    /// The live remote's `RenderCapability::hdr` from its last `WELCOME`
     /// or `CAPABILITY_CHANGED`; `None` before the connection first reported one. The
     /// settle decision (`bridge::remote::live_remote_dispatch`) keeps HDR scenes local
     /// once this says `Some(false)`. Reset wherever `remote_connection` is replaced.
@@ -174,10 +167,9 @@ pub(super) struct Orchestrator {
     pub(super) redraw_gate: RedrawGate<()>,
     /// The `Instant` of the last redraw `redraw_from_epoch` actually performed --
     /// `None` before the first one this session. Used to rate-limit Frame/Preview-
-    /// triggered redraws to at most once per `REMOTE_REDRAW_MIN_INTERVAL`, mirroring
-    /// `render_thread::DENOISE_MIN_INTERVAL`'s role for the local path: a plain
-    /// tonemap is "tens of milliseconds" at 1080p+, not free, and a fast remote stream
-    /// can otherwise arrive faster than any human can perceive a redraw changing.
+    /// triggered redraws to at most once per `REMOTE_REDRAW_MIN_INTERVAL`. A plain tonemap
+    /// at 1080p and above is not free, and a fast remote stream can arrive faster than a
+    /// redraw can be perceived.
     pub(super) last_redraw_at: Option<Instant>,
     /// `decisions::live_remote_may_run`'s value as of the PREVIOUS poll tick --
     /// compared every tick by `poll::update_live_remote_suspension` purely to catch its

@@ -203,7 +203,7 @@ A viewer's request is planned before anything is streamed (`job/plan.rs`):
   (`pleochroma_dispatch::ChunkPolicy::tail_aware_samples`, driven from
   `Epoch::want`): each lane's next chunk is the smaller of the plain
   target-duration chunk and that lane's proportional share (by rate) of the run's
-  remaining samples, so a slow lane can no longer claim an oversized slice of what
+  remaining samples, so a slow lane does not claim an oversized slice of what
   is left and leave a fast joined worker idling for the whole of one chunk near
   the end of a run.
 
@@ -396,8 +396,8 @@ environment map, say) still falls back silently for that request alone.
 summed, not averaged, so the split changes nothing about correctness, only wall
 time. That split is automatically declined (falling back to GPU-only for the rest
 of the job, with one `info`-level log line naming the measured share) whenever the
-GPU's measured throughput share exceeds a fixed cutoff: on this project's own
-reference hardware, splitting measured **42% slower** than GPU-only, because each
+GPU's measured throughput share exceeds a fixed cutoff, because splitting measured
+**42% slower** than GPU-only, and each
 sub-batch has to wait for both engines to finish (`max(gpu_time, cpu_time)`, not a
 weighted average) and a ~10x-faster GPU leaves little room for that synchronisation
 cost to pay for itself. `render`'s single one-shot dispatch never calibrates at all
@@ -419,11 +419,16 @@ real request normally hits the cache too.
 Each job still re-measures its own split from there via the 0.7-old/0.3-new moving
 average above, and the job's own final blended `gpu_frac` is written back into the
 cache when it ends (`finalize_split_cache`), so the seed keeps improving across jobs.
+The key also carries the scene's estimator (`SceneState::estimator`, protocol 42): exit
+collection and branching cost the two engines differently, so a split measured under one
+never seeds the other. The worker traces every frame, CPU and GPU, with the estimator the
+viewer sends (`PreparedMaterial::with_estimator`, `GpuSceneRef::estimator`), never with its
+own process default, so a frame split between the viewer and workers runs one estimator.
 Deliberately not keyed on the scene's material/geometry/lighting or which samples are
 traced — those shift both engines' per-sample cost together, not their relative
 split, so a wrong guess there self-corrects within one job.
 
-**Cancellation latency is unchanged.** GPU dispatches ride the same adaptive
+**Cancellation latency.** GPU dispatches ride the same adaptive
 `TARGET_SUBBATCH` (~100 ms) loop that already bounded the CPU tracer, with the
 cancel flag checked *between* sub-batches — a GPU dispatch is simply one more
 blocking way to produce one sub-batch, not a new latency class. Inside a GPU

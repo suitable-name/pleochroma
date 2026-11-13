@@ -104,6 +104,7 @@ pub(super) fn input_error(host: &Rc<Host>, message: &str) {
     host.window
         .global::<RoughPlanModel>()
         .set_model_error(message.into());
+    super::steps::refresh(host);
 }
 
 /// Clears the error line when it holds a message about the inputs (see

@@ -1,4 +1,6 @@
-//! Console-report formatting for one strategy's aggregate results: per-`SolveStrategy`
+//! Console-report formatting for one strategy's aggregate results.
+//!
+//! It prints a per-`SolveStrategy`
 //! breakdown, exact/fallback rates by `ConstraintKind` and named-resolution bucket,
 //! relative-error percentiles, and small median/percentage helpers shared with
 //! `verified_extras`.

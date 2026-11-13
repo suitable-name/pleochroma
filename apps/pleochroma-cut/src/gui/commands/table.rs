@@ -549,9 +549,9 @@ pub static COMMANDS: &[Command] = &[
         MATERIAL_EDITOR,
         set!(ViewportModel.set_material_editor_open(true)),
     ),
-    // The Parameters dock (Stone / Lighting & Environment / Render & Output), in the Live
-    // Render and the Edit view alike. "Render Settings..." is kept as the old name of the
-    // Render & Output tab, so the palette still finds it under the name people know.
+    // The Parameters dock (Stone / Lighting & Environment / Render & Output), in both the
+    // Live Render and the Edit view. "Render Settings..." is an alias of Render & Output, so
+    // the palette finds it under the name people know.
     command(
         "tools.stone_properties",
         "Stone Properties...",

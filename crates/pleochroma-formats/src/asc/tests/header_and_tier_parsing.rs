@@ -97,8 +97,7 @@ fn handles_n_name_continuation_line() {
 
 #[test]
 fn tolerates_missing_g_keyword_prefix() {
-    // Real quirk seen once in the corpus (attached_files "Astryx Star" file): the
-    // gear line lost its leading "g" and reads as a bare "96 0.0".
+    // Real corpus file ("Astryx Star") whose gear line lacks the leading "g".
     let content = "GemCad 5.0\n\
                     96 0.0\n\
                     y 8 n\n\

@@ -1,7 +1,7 @@
-//! Storage for the catalogue's flat tag set (`tags`/`diagram_tag_links`). See
-//! [`Database::migrate_tag_tables`](super::Database::migrate_tag_tables)'s doc
-//! comment for the schema and why this is a side-table pair rather than a column on
-//! `diagram_entries`.
+//! Storage for the catalogue's flat tag set (`tags`/`diagram_tag_links`).
+//!
+//! See [`Database::migrate_tag_tables`](super::Database::migrate_tag_tables)'s doc comment for the
+//! schema and why this is a side-table pair rather than a column on `diagram_entries`.
 
 use super::Database;
 use crate::model::tag::Tag;
@@ -138,15 +138,11 @@ impl Database {
         Ok(rows)
     }
 
-    /// Attaches `tag_name` to `entry_id`, creating the tag itself first if no tag
-    /// with that name (case-insensitively) exists yet -- this is the ONLY way a new
-    /// tag is ever created, matching the house rule that adding a tag must be
-    /// reachable without a modal redesign: a cutter just types a name into an
-    /// existing inline-entry control and this call does the rest.
+    /// Attaches `tag_name` to `entry_id`, creating the tag first if no tag with that name
+    /// (case-insensitively) exists. This is the only place a tag is created.
     ///
-    /// Trims `tag_name` and rejects a blank one outright (never creates an empty-name
-    /// tag). Idempotent: attaching a tag the entry already carries is a no-op, not an
-    /// error.
+    /// Trims `tag_name` and rejects a blank one (no empty-name tag is ever created).
+    /// Idempotent: attaching a tag the entry already carries is not an error.
     ///
     /// # Errors
     ///
@@ -181,10 +177,8 @@ impl Database {
             )
             .context("Failed to link tag to diagram entry")?;
 
-        // Re-read the tag's OWN stored name/casing rather than echoing back
-        // `name` -- if this tag already existed under different casing (e.g.
-        // "Competition" already on file, this call passed "competition"), the chip
-        // must show the name the catalogue has actually settled on.
+        // Re-read the stored name: an existing tag keeps its casing ("Competition" stays
+        // "Competition" when "competition" is passed).
         self.conn
             .query_row(
                 "SELECT id, name FROM tags WHERE id = ?1",
@@ -199,13 +193,10 @@ impl Database {
             .context("Failed to re-read tag after linking")
     }
 
-    /// Detaches `tag_id` from `entry_id`. Leaves the tag row itself in place even if
-    /// this was its last attachment -- an unused tag still shows up (with nothing
-    /// tagged) in [`Self::list_tags`] rather than vanishing, so a cutter who created
-    /// "Competition 2027" ahead of time doesn't lose it the moment they untag the
-    /// one design they'd tentatively tried it on.
+    /// Detaches `tag_id` from `entry_id`. The tag row stays even after its last attachment,
+    /// so it still appears in [`Self::list_tags`].
     ///
-    /// Not an error if the link didn't exist.
+    /// Not an error if the link does not exist.
     ///
     /// # Errors
     ///
@@ -220,10 +211,8 @@ impl Database {
         Ok(())
     }
 
-    /// The tag id matching `name` (case-insensitively), if one exists -- used to
-    /// resolve the chip filter row's selection into the id [`super::search::
-    /// build_search_predicate`]'s `tag_filter` parameter wants, without the caller
-    /// needing to keep its own name-to-id map in sync with [`Self::list_tags`].
+    /// The tag id matching `name` (case-insensitively), if one exists. Resolves the chip
+    /// filter's selection into the `tag_filter` id the search predicate takes.
     ///
     /// # Errors
     ///

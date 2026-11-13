@@ -1,10 +1,14 @@
-//! The steady-state hybrid sub-batch: [`hybrid_trace_into`] runs the GPU and CPU tracers
-//! concurrently over disjoint sample sub-ranges and sums them, re-measuring the split
-//! every call. Split out of `hybrid.rs` (calibration and its cache stay there) to keep
-//! both files under the house length limit.
+//! The steady-state hybrid sub-batch.
+//!
+//! [`hybrid_trace_into`] runs the GPU and CPU tracers
+//! concurrently over disjoint sample sub-ranges and sums them, re-measuring the split every
+//! call. Calibration and its cache stay in `hybrid.rs`.
 
 use super::{cpu_is_worth_splitting_with, cpu_threads_beside_gpu, scene_pieces};
-use crate::render_core::{scene_uses_gpu, trace_into};
+use crate::{
+    assets::TrayRef,
+    render_core::{scene_uses_gpu, trace_into},
+};
 use glam::Vec3;
 use pleochroma::{
     optics::raytracer::{Camera, EnvironmentSource, FacetFinish},
@@ -31,36 +35,36 @@ use std::{
 /// batch exercising only one engine leaves `*gpu_frac` untouched: no second engine's
 /// timing to compare against.
 ///
-/// Returns `None` if the GPU's share was cancelled mid-dispatch, or if the CPU-only
-/// (`gpu_share == 0`) or GPU-declined-retrace path was still queued for CPU permits when
-/// `cancel` fired (`trace_into` now observes cancellation while blocked in
-/// `ThreadPermits::acquire`). The whole sub-batch is discarded in that case, including
-/// whatever the CPU already traced for its own disjoint share: `samples_done` only
-/// advances by a whole sub-batch uniformly covering every pixel, and a partial share
-/// would otherwise leave a subset of pixels under-sampled relative to the rest of the
-/// frame. The concurrent-dispatch path's own CPU share (inside
-/// [`dispatch_concurrently`]) is the one exception: that `trace_into` call's
-/// cancellation is not separately observed -- the GPU thread it runs beside is the one
-/// under real time pressure, and `run_tracer`'s between-sub-batches check still bounds
-/// the CPU side's staleness.
+/// Returns `false` if the sub-batch was cancelled. The whole sub-batch is then discarded,
+/// including the CPU's disjoint share. `samples_done` advances only by whole sub-batches
+/// that cover every pixel, so a partial share would leave some pixels under-sampled.
+/// The CPU share of the concurrent path is the exception: its `trace_into` call does not
+/// observe cancellation separately, since the GPU thread beside it is under time pressure
+/// and `run_tracer`'s between-sub-batch check bounds the CPU side's staleness.
 ///
 /// # One core reserved for the GPU submitter
 ///
-/// Whenever `cpu_share > 0` (both engines dispatch concurrently), the CPU tracer gets
-/// `threads` minus one (see [`cpu_threads_beside_gpu`]): a CPU thread has to submit and
-/// poll the GPU dispatch, and if every core is busy tracing, that submitter gets
-/// descheduled -- `gpu_elapsed` would then measure the wait, and the EMA would read
-/// that as "the GPU is slow", shifting more work onto the CPU and starving the
-/// submitter further. That feedback loop would drive the split CPU-heavy on exactly the
-/// many-core machines where the GPU should dominate. `gpu_share == 0` and a
-/// GPU-declined retrace have no concurrent dispatch to protect and get every core.
+/// When `cpu_share > 0` both engines run concurrently, and the CPU tracer gets `threads`
+/// minus one (see [`cpu_threads_beside_gpu`]). The submitter thread must poll the GPU. If
+/// every core is tracing, it gets descheduled, and the EMA would read the wait as a slow
+/// GPU and push more work onto the CPU. That loop would starve the GPU on many-core
+/// machines. A GPU-only batch or a GPU-declined retrace has no concurrent dispatch to
+/// protect, so it uses every core.
 ///
 /// # Reused buffers
 ///
-/// The summed radiance lands in `bufs.sum` and the GPU's share is staged in `bufs.gpu`;
-/// both are re-zeroed here (both backends ADD into their buffer) but keep their capacity,
-/// so a stream's ~100 ms sub-batches stop allocating two ~25 MB buffers each at 1080p.
+/// The summed radiance lands in `bufs.sum` and the GPU's share is staged in `bufs.gpu`.
+/// Both are re-zeroed here, since the backends add into their buffer, but keep their
+/// capacity. This avoids allocating two full-frame buffers (about 25 MB each at 1080p) on
+/// every sub-batch.
 /// Returns `false` for a discarded (cancelled) sub-batch; `bufs.sum` is then unspecified.
+///
+/// `tray` is the request's resolved Stone Shadow and Tray Reflection. The caller holds it
+/// for every sub-batch and it is never rebuilt here.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the sub-batch's range, split state, cancellation, buffers and the request's resolved tray are independent"
+)]
 pub fn hybrid_trace_into(
     gpu: &GpuBackend,
     scene: &SceneState,
@@ -69,6 +73,7 @@ pub fn hybrid_trace_into(
     gpu_frac: &mut Option<f64>,
     cancel: &AtomicBool,
     bufs: &mut HybridBuffers,
+    tray: TrayRef<'_>,
 ) -> bool {
     let width = scene.width;
     let height = scene.height;
@@ -85,7 +90,7 @@ pub fn hybrid_trace_into(
 
     // A cached `Split` decision is keyed by hardware, not geometry, so it can arrive here
     // for a scene the GPU cannot trace (see `scene_uses_gpu`): drop it and go CPU-only.
-    if !scene_uses_gpu(scene) {
+    if !scene_uses_gpu(scene, gpu) {
         *gpu_frac = None;
     }
     let frac = gpu_frac.unwrap_or(0.0);
@@ -101,7 +106,7 @@ pub fn hybrid_trace_into(
     // The studio rig, or the HDR map the request path resolved -- see
     // `crate::assets::resolved_hdr_map`.
     let hdr_map = crate::assets::resolved_hdr_map(scene);
-    let environment = crate::assets::environment_source(scene, hdr_map.as_deref());
+    let environment = crate::assets::environment_for(scene, hdr_map.as_deref(), tray);
 
     if gpu_share == 0 {
         return trace_into(
@@ -151,6 +156,8 @@ pub struct HybridBuffers {
         reason = "the one-shot form; the streaming tracer uses `hybrid_trace_into`, the tests this"
     )
 )]
+///
+/// Traces a scene without the Stone Shadow or the Tray Reflection. It passes neither.
 pub fn hybrid_trace(
     gpu: &GpuBackend,
     scene: &SceneState,
@@ -169,6 +176,7 @@ pub fn hybrid_trace(
         gpu_frac,
         cancel,
         &mut bufs,
+        TrayRef::default(),
     )
     .then_some(bufs.sum)
 }
@@ -223,6 +231,7 @@ impl SplitBatch<'_> {
             material: &traced_material,
             max_bounces: scene.max_bounces,
             environment,
+            estimator: Some(scene.estimator),
         };
         gpu_buf.clear();
         gpu_buf.resize(pixel_count, Vec3::ZERO);
@@ -266,9 +275,8 @@ impl SplitBatch<'_> {
             GpuAccumulate::Declined => {
                 // Retrace the GPU's share on the CPU so the sample count stays exact, and
                 // stop offering it work. A `false` return means `cancel` fired while queued
-                // for CPU permits: discard the sub-batch exactly as a mid-dispatch GPU
-                // cancellation does above, rather than reporting a buffer missing the
-                // retraced share.
+                // for CPU permits: discard the sub-batch like a GPU cancellation, rather than
+                // report a buffer that lacks the retraced share.
                 if !trace_into(
                     scene,
                     SampleRange::new(first_sample, gpu_share),
@@ -357,10 +365,9 @@ fn dispatch_concurrently(
             (outcome, start.elapsed())
         });
         let cpu_start = Instant::now();
-        // `cancel` plays no finer-grained role here than the between-sub-batches check
-        // `run_tracer`'s loop already performs (see `hybrid_trace_into`'s doc comment);
-        // a `false` return only means CPU permits never freed before cancellation, and
-        // the joined GPU outcome below is what this call site actually acts on.
+        // `cancel` is checked only between sub-batches (see `hybrid_trace_into`). A `false`
+        // return means CPU permits never freed before cancellation; the joined GPU outcome
+        // below decides the result.
         let _ = trace_into(
             cpu.scene,
             SampleRange::new(cpu.first_sample, cpu.samples),
@@ -378,13 +385,12 @@ fn dispatch_concurrently(
     })
 }
 
-/// Blends the just-measured throughput split into the running `gpu_frac` estimate via
-/// the 0.7-old/0.3-new EMA, pulled out of [`SplitBatch::run`] to keep it short.
+/// Blends the just-measured throughput split into the running `gpu_frac` estimate with the
+/// 0.7-old/0.3-new EMA.
 ///
-/// Pins to `1.0` (not the raw blended value) once the GPU so outclasses the CPU that
-/// splitting can no longer pay for its synchronisation (see `HYBRID_MAX_GPU_SHARE`) --
-/// keeps the decision stable: `1.0` drives `cpu_share` to 0 on every later call, taking
-/// the GPU-only branch and skipping this blend from then on.
+/// Returns `1.0` once the GPU outclasses the CPU so much that splitting no longer pays (see
+/// `HYBRID_MAX_GPU_SHARE`). That keeps the decision stable: later calls send everything to
+/// the GPU and skip this blend.
 fn blend_gpu_frac(
     frac: f64,
     gpu_share: u32,

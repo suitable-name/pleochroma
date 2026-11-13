@@ -8,5 +8,5 @@ Copy-Item .\bin\pleochroma-cut-windows-scalar-gpu.exe .\msix_build\pleochroma-cu
 Copy-Item .\msix\AppxManifest.xml .\msix_build\
 Copy-Item .\msix\assets\StoreLogo.png, .\msix\assets\Square44x44Logo.png, .\msix\assets\Square150x150Logo.png .\msix_build\assets\
 
-# 3. Pack the MSIX using your 10.0.22621.0 SDK
+# 3. Pack the MSIX with makeappx from the Windows 10.0.22621.0 SDK
 & "C:\Program Files (x86)\Windows Kits\10\bin\10.0.22621.0\x64\makeappx.exe" pack /d .\msix_build /p .\pleochroma-cut.msix /o

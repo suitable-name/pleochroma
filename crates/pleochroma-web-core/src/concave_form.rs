@@ -8,8 +8,8 @@
 //! `InspectorModel`); what a draft is, whether it is stale and what a save does to the design
 //! are these plain functions over an `EditorSession`.
 //!
-//! A save is `parse_concave_tier_form` -> `concave_name_clash_message` -> `concave_tier_save_edit`
-//! -> `EditorSession::apply`.
+//! A save is `parse_concave_tier_form` -> `concave_name_clash_message` ->
+//! `concave_tier_save_edit` -> `EditorSession::apply`.
 
 use pleochroma_cut_core::design::{ConcaveTool, Design};
 use pleochroma_editor::{
@@ -196,6 +196,7 @@ mod tests {
     //! The tool mapping, the labels, the save path and the stale guard.
 
     use super::*;
+    use pleochroma_cut_core::design::ConcaveTier;
     use pleochroma_editor::loading::{parse_new_design_form, parse_preform_form};
 
     /// An empty design (96 index gear) with no tiers, built the way New Design builds one.
@@ -257,7 +258,7 @@ mod tests {
         let fields = blank_fields();
         assert_eq!(fields.tool, "CYL");
         assert!(fields.reciprocating);
-        assert!(fields.angle_deg.is_empty());
+        assert_eq!(fields.angle_deg, "");
         let error = parse_concave_tier_form(&fields, 96).unwrap_err();
         assert_eq!(tier_form_error_field(&error), "angle", "{error}");
     }
@@ -414,6 +415,6 @@ mod tests {
             .err()
             .unwrap();
         assert_eq!(error.message, GONE_MESSAGE);
-        assert!(session.design.concave_tiers.is_empty());
+        assert_eq!(session.design.concave_tiers, [] as [ConcaveTier; 0]);
     }
 }

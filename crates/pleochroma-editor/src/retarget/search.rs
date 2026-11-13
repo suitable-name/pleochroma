@@ -250,10 +250,10 @@ fn thinnest_fraction(original: &StoneAnalysis, start: &StoneAnalysis) -> f64 {
     }
 }
 
-/// The two floors the optimizer's guard takes, each applied to its own figure: the overall girdle
-/// ([`girdle_fraction`]) and its thinnest point ([`thinnest_fraction`]). The gate holds each to
-/// half of the live design's figure, so a result under either would be refused afterwards, and a
-/// result over both is never refused by the guard for the other's sake.
+/// The two floors the optimizer's guard takes, each applied to its own figure: the overall
+/// girdle ([`girdle_fraction`]) and its thinnest point ([`thinnest_fraction`]). The gate holds
+/// each to half of the live design's figure, so a result under either would be refused
+/// afterwards.
 fn guard_fractions(original: &StoneAnalysis, start: &StoneAnalysis) -> GuardFractions {
     GuardFractions {
         overall: girdle_fraction(original, start),
@@ -282,9 +282,9 @@ fn free_candidates(design: &Design) -> Vec<usize> {
 
 /// The least magnitude a pavilion angle may take in the target material.
 ///
-/// Its critical angle plus the margin the live angle has over the critical angle of the current material, at most
-/// [`PAVILION_MARGIN_CAP_DEG`] of it. A pavilion that was safe stays as safe as that in the
-/// target, so a search cannot trade a window for brilliance.
+/// Its critical angle plus the margin the live angle has over the critical angle of the
+/// current material, at most [`PAVILION_MARGIN_CAP_DEG`] of it. A pavilion that was safe
+/// stays as safe as that in the target, so a search cannot trade a window for brilliance.
 #[must_use]
 pub fn pavilion_floor_deg(live_angle_deg: f64, n_from: f64, n_to: f64) -> f64 {
     critical_angle_deg(n_to) + tier_margin_deg(live_angle_deg, n_from).min(PAVILION_MARGIN_CAP_DEG)

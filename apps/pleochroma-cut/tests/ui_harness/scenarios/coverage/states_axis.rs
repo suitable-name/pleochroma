@@ -1,15 +1,16 @@
-//! States of the click-through passes for the Crystal Axis: the Stone tab's section with an axis
-//! set for the stone (a sapphire, and a tanzanite with its Second Axis), the Edit view's "Crystal
-//! Axis" toolbar toggle with the axis drawn, and Cutting Mode's first step with the picture of
-//! the axis.
+//! States of the click-through passes for the Crystal Axis.
+//!
+//! The Stone tab's section with an axis set for the stone (a sapphire, and a tanzanite with its
+//! Second Axis), the Edit view's "Crystal Axis" toolbar toggle with the axis drawn, and Cutting
+//! Mode's first step with the picture of the axis.
 //!
 //! Proves: in each state every enabled button, tab, pill and slider of the scope is pressed once
 //! and every field touched (the engine of `overlays.rs`), after the state's `open` function
 //! reached the page the way a user does: the Stone tab's material pick, then a preset.
 //!
-//! What kept the controls unreached: the section's Tilt, Azimuth and Second Axis controls exist
+//! Some controls exist only in some shapes: the section's Tilt, Azimuth and Second Axis controls
 //! only while "Set for This Stone" is on, the color-named presets only for a material that has
-//! them, the Second Axis only for a biaxial one, and the Stone tab is a `ScrollView` whose
+//! them, the Second Axis only for a biaxial one. The Stone tab is a `ScrollView`, and its
 //! scrolled-out controls are not enumerated ([`scroll_scope`]).
 
 use super::{

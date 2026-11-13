@@ -18,8 +18,8 @@ fn rejects_a_zero_gear_tooth_count_on_the_g_line() {
     );
 }
 
-/// Zero gear teeth must also be rejected through the bare-gear-line fallback,
-/// using the same `require_nonzero_gear_teeth` path as the keyworded `g` line.
+/// The bare-gear-line fallback applies the same zero-tooth check as the `g` line, so
+/// a zero count is never accepted as a gear.
 #[test]
 fn rejects_a_zero_gear_tooth_count_on_a_bare_gear_line() {
     let content = "GemCad 5.0\n\
@@ -177,8 +177,7 @@ fn rejects_fractional_symmetry_order_with_the_line_number_and_token() {
 
 #[test]
 fn rejects_garbage_gear_reference_angle_with_the_line_number_and_token() {
-    // Line 2 (1-indexed): the 'g' line itself. Previously this silently defaulted
-    // to 0.0 via `unwrap_or`; it must now error like the other numeric fields.
+    // Line 2 (1-indexed): the 'g' line itself. Like the other numeric fields, it is an error.
     let content =
         "GemCad 5.0\ng 96 not-a-number\ny 1 y\nI 1.54\nH Test\na -41.000000 0.5 92 n P1\n";
     let err = parse_asc(content)

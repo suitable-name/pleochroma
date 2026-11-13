@@ -1,11 +1,12 @@
-//! Data version 4: the physics recipes against the PRIMARY data of
-//! `docs/chromophores/research-2026-10-primary-data.md` (`data/reference_spectra/gia_*` and
-//! `caltech_*`), replacing the comparisons with the research's discredited stated CIELAB.
+//! Checks the physics recipes against the chromophore research's primary data.
+//!
+//! The data is `docs/chromophores/research-2026-10-primary-data.md`
+//! (`data/reference_spectra/gia_*` and `caltech_*`), not the research's stated CIELAB.
 //!
 //! Method (as `reference_validation`): `T = exp(-alpha L)`, D65 or A (Planckian 2856 K),
 //! 380-780 nm at 1 nm, CIE 1931 2 degrees, Lab relative to the illuminant's own white, through
 //! `color::body_color`. The GIA cross-sections sigma (cm^2 per ion, Napierian) become
-//! `alpha = sigma N` with `N = areal density x 1.178e17 cm^-3 per ppma of all atoms`.
+//! `alpha = sigma N` with `N = ppma x PPMA_CM3` cm^-3 for ppma of all atoms.
 //!
 //! - GIA: the pipeline reproduces GIA's published Appendix 2 colors (dE00 1-2.5), the Cr3+, V3+
 //!   and Fe2+-Ti4+ recipes reproduce the GIA cross-sections (shape and magnitude).
@@ -340,10 +341,9 @@ fn primary_fixtures_carry_metadata_and_caltech_files_are_marked_shape_only() {
 // GIA pipeline and the Cr3+ recipe
 // ---------------------------------------------------------------------------------------------
 
-/// Pipeline validation of the primary-data report section 1a: our color code applied to the GIA
-/// sample-1110 cross-sections reproduces GIA's Appendix 2 colors. Single polarisations to
-/// dE00 <= 1.7 up to 375 ppma*cm; the "both" column (2 E_perp + E_par) / 3 to ~2.5 (GIA does not
-/// state its exact mix); the residual grows for very dark colors (L* < 35, 1500+ ppma*cm).
+/// The GIA sample-1110 cross-sections through the color code reproduce GIA's Appendix 2 colors.
+/// Up to 375 ppma*cm: dE00 <= 2 per polarisation, and <= 3 for the "both" column
+/// (2 E_perp + E_par) / 3, since GIA does not state its exact mix.
 #[test]
 fn gia_sigma_through_our_color_code_reproduces_appendix_2() {
     let t = table("gia_cr3plus_sample1110_sigma");
@@ -368,9 +368,8 @@ fn gia_sigma_through_our_color_code_reproduces_appendix_2() {
     assert!(worst > 0.5, "the check compares real colors: {worst}");
 }
 
-/// Task D: the corundum Cr3+ recipe at 100 and 375 ppma*cm reproduces GIA's Appendix 2
-/// calculated colors (E_perp_c, E_par_c; D65 and A) within dE00 3 (measured: <= 1.8); the
-/// unpolarised mix (GIA's "both") within 4 (the data themselves are 2.5 off, see above).
+/// The corundum Cr3+ recipe at 100 and 375 ppma*cm reproduces GIA's Appendix 2 colors
+/// (E_perp_c, E_par_c; D65 and A) within dE00 3, and the unpolarised "both" mix within 4.
 #[test]
 fn cr_recipe_reproduces_gia_appendix_2_colors() {
     let t = table("gia_cr3plus_sample1110_sigma");
@@ -402,9 +401,9 @@ fn cr_recipe_reproduces_gia_appendix_2_colors() {
     }
 }
 
-/// The recipe follows the GIA cross-section itself (not only the published colors) from 100 to
-/// 3000 ppma*cm: dE00 <= 3 per polarisation (measured <= 2.6, <= 1.4 up to 750 ppma*cm), including the dark colors
-/// where Appendix 2 and the cross-section differ.
+/// The recipe follows the GIA cross-section itself (not only the published colors) from 30 to
+/// 3000 ppma*cm: dE00 <= 3 per polarisation, including the dark colors where Appendix 2 and the
+/// cross-section differ.
 #[test]
 fn cr_recipe_tracks_the_gia_sigma_color_up_to_3000_ppma_cm() {
     let t = table("gia_cr3plus_sample1110_sigma");
@@ -423,11 +422,9 @@ fn cr_recipe_tracks_the_gia_sigma_color_up_to_3000_ppma_cm() {
     }
 }
 
-/// The 450-500 nm window is real and the data_version 3 "LMCT / Urbach" band that filled it is
-/// gone: the recipe's Cr absorption at 450 / 475 / 500 nm is the GIA value (E_perp_c sigma
-/// 3.1e-20 / 1.5e-20 / 3.6e-20 cm^2) within 25 %, no Cr3+ band is centred in 430-520 nm with a
-/// width above 4500 cm^-1 (the removed one: 454.55 nm, 16000 cm^-1), and the only charge-transfer
-/// bands are the UV edge tails below 380 nm.
+/// The recipe's Cr absorption at 450, 475 and 500 nm follows the GIA cross-section within 25 %.
+/// Every Cr3+ band centred in 430-520 nm is narrower than 4500 cm^-1, and the charge-transfer
+/// bands are UV edge tails below 380 nm.
 #[test]
 fn ruby_window_is_open_and_the_lmct_window_band_is_removed() {
     let t = table("gia_cr3plus_sample1110_sigma");
@@ -467,9 +464,8 @@ fn ruby_window_is_open_and_the_lmct_window_band_is_removed() {
     }
 }
 
-/// Ruby E_perp_c is purplish red (negative b*) at moderate Cr*L with GIA's hue: 100-750 ppma*cm
-/// have b* < 0, the hue is within 4 degrees of Appendix 2 (D65), and b* turns positive only
-/// near 1500+ ppma*cm (GIA: 2.6 at 1500, 23.8 at 3000).
+/// Ruby E_perp_c is purplish red at moderate Cr*L: from 50 to 750 ppma*cm b* is negative, and
+/// the hue is within 4 degrees of Appendix 2 (D65). b* turns positive only at high Cr*L.
 #[test]
 fn ruby_e_perp_c_is_purplish_red_with_gia_hue() {
     let t = table("gia_cr3plus_sample1110_sigma");
@@ -514,8 +510,8 @@ fn ruby_e_perp_c_is_purplish_red_with_gia_hue() {
 // ---------------------------------------------------------------------------------------------
 
 /// V3+ sigma: the recipe's E_perp_c absorption at 580 nm is the GIA xlsx value 3.4e-20 cm^2 per
-/// ion (the paper text quotes 1.0e-19, which the xlsx contradicts), and the 400 nm / 405 nm
-/// peaks of both polarisations follow the xlsx within 10 %.
+/// ion (the paper text's 1.0e-19 is not used), and the 400 nm / 405 nm peaks of both
+/// polarisations follow the xlsx within 10 %.
 #[test]
 fn v3_sigma_follows_the_gia_xlsx_not_the_paper_text() {
     let t = table("gia_v3plus_fe2plus_ti4plus_sigma_5nm");
@@ -541,9 +537,9 @@ fn v3_sigma_follows_the_gia_xlsx_not_the_paper_text() {
     assert!((sigma("e", 405.0) / t.at(ve, 405.0) - 1.0).abs() < 0.1);
 }
 
-/// V-corundum color change from the GIA xlsx sigma: D65 vs A dE00 is 8-25 (the report-1 table's
-/// 2.9-5.8 is wrong). The recipe reproduces the sigma-derived color change (<= 0.8 apart) at
-/// V*L = 110 and 340 ppma*cm and is >= 8 for E_par_c at 340 ppma*cm (24.8).
+/// The V-corundum D65 vs A color change from the GIA xlsx sigma is 8-25 dE00. The recipe
+/// reproduces it (within 0.8 dE00) at V*L = 110 and 340 ppma*cm, and is at least 8 for E_par_c
+/// at 340 ppma*cm.
 #[test]
 fn v_corundum_color_change_matches_the_gia_derived_range() {
     let t = table("gia_v3plus_fe2plus_ti4plus_sigma_5nm");
@@ -623,7 +619,7 @@ fn pair_peak(fe: f64, ti: f64, mg: f64) -> f64 {
         .map_or(0.0, |b| f64::from(b.peak))
 }
 
-/// GIA 2020 / Emmett 2003 (primary-data report section 7): the Fe2+-Ti4+ pair count is linear
+/// GIA 2020 / Emmett 2003: the Fe2+-Ti4+ pair count is linear
 /// in the available Ti = Ti - Mg with Fe in excess (no Fe x Ti product), and a Mg >= Ti
 /// compensation zeroes the band.
 #[test]
@@ -661,13 +657,12 @@ fn fe_ti_pairs_are_linear_in_available_ti_with_fe_in_excess() {
     assert!((pair_peak(3000.0, 90.0, 0.0) / pair_peak(3000.0, 30.0, 0.0) - 3.0).abs() < 1e-4);
 }
 
-/// The Fe2+-Ti4+ bands are the GIA cross-section per pair (shape and magnitude): sigma(580 nm,
-/// E_perp_c) = 1.98e-18 cm^2 within 3 %, sigma(700 nm, E_par_c) = 1.25e-18 within 3 %, i.e.
-/// 0.23 cm^-1 per ppma of all atoms (0.091 per ppm of Al sites) and not the 0.05 per ppm of
-/// data_version 3. Shape: E_perp_c within 8 % of the cross-section over 400-660 nm and E_par_c
-/// over 400-780 nm. The E_perp_c red tail beyond 670 nm is up to 50 % low at 780 nm (two
-/// Gaussians fitted in color terms: the tail carries no color weight, the fit's color error
-/// against the sigma is <= 0.5 dE00).
+/// The Fe2+-Ti4+ bands are the GIA cross-section per pair in shape and magnitude:
+/// sigma(580 nm, E_perp_c) = 1.98e-18 cm^2 within 3 %, sigma(700 nm, E_par_c) = 1.25e-18 within
+/// 3 %, i.e. 0.23 cm^-1 per ppma of all atoms. E_perp_c stays within 8 % of the cross-section
+/// over 400-660 nm and E_par_c over 400-780 nm. Beyond 670 nm the E_perp_c red tail is low by up
+/// to 50 % at 780 nm; it carries little color weight, and the color error against the sigma is
+/// <= 0.5 dE00.
 #[test]
 fn fe_ti_follows_the_gia_cross_section_in_shape_and_magnitude() {
     let t = table("gia_v3plus_fe2plus_ti4plus_sigma_5nm");
@@ -799,8 +794,8 @@ fn alexandrite_rays_have_the_right_colors_by_axis_length() {
     assert!(cc > 8.0, "alexandrite color change {cc:.1}");
 }
 
-/// Caltech GRR 874 itself through the recipe at the stone that matches the gamma 4T2 magnitude
-/// (1.05 wt% Cr2O3 equivalent, 0.717 mm): beta yellow (hue 100 +- 15), gamma blue-green.
+/// Caltech GRR 874 rays through the recipe at 1.05 wt% Cr2O3 equivalent and 0.717 mm. Each ray
+/// stays within dE00 12 of the Caltech spectrum, which keeps its pedestal.
 #[test]
 fn alexandrite_recipe_reproduces_the_caltech_ray_colors() {
     let cal = table("caltech_chrysoberyl_grr874_5nm");
@@ -828,8 +823,8 @@ fn alexandrite_recipe_reproduces_the_caltech_ray_colors() {
 }
 
 /// Tanzanite (unheated, V 7670 ppm of Al sites, 4 mm): alpha (5.55 A axis) red-violet, beta
-/// (10.0 A) blue, gamma (16.2 A) yellow-green, as the Caltech GRR 1265 rays; heating bleaches
-/// the 440 nm band that makes gamma yellow-green, and gamma turns blue-violet.
+/// (10.0 A) blue, gamma (16.2 A) yellow-green, as the Caltech GRR 1265 rays; heating turns gamma
+/// blue-violet and leaves alpha and beta unchanged.
 #[test]
 fn tanzanite_rays_have_the_right_colors_by_axis_length() {
     let mk = |heated: bool| {
@@ -874,8 +869,7 @@ fn tanzanite_rays_have_the_right_colors_by_axis_length() {
     assert!((h(&heated, 'b') - h(&raw, 'b')).abs() < 1e-9);
 }
 
-/// Peridot: all three rays yellow-green; beta is the strongest absorber (Caltech GRR 418: A at
-/// 450 nm 3.9 against 2.2 / 2.1 cm^-1 for alpha / gamma).
+/// Peridot: all three rays yellow-green, and beta is the darkest, the strongest absorber.
 #[test]
 fn peridot_rays_are_yellow_green_and_beta_absorbs_most() {
     let mut r = ColorRecipe::new("peridot", cat().data_version);
@@ -1138,9 +1132,9 @@ fn caltech_ruby_e_perp_c_is_purplish_red_too() {
     assert!(lab[1] > 25.0 && lab[2] < -5.0, "{lab:.1?}");
 }
 
-/// The Caltech blue sapphire GRR 1020a has the Fe2+-Fe3+ maximum at 870-890 nm and E_par_c
-/// weaker than E_perp_c at 580 nm, as the recipe's Fe2+-Ti4+ cross-sections (E_par_c / E_perp_c
-/// = 0.42 at 580 nm); the file's pedestal makes the absolute ratio unusable.
+/// The Caltech blue sapphire GRR 1020a has its Fe2+-Fe3+ maximum at 870-890 nm and E_par_c
+/// weaker than E_perp_c at 580 nm, as the recipe's Fe2+-Ti4+ cross-sections are. The file's
+/// pedestal makes the absolute ratio unusable.
 #[test]
 fn caltech_sapphire_has_the_expected_pleochroism() {
     let o = table("caltech_sapphire_grr1020a_eperpc_4p289mm");

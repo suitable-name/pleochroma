@@ -11,6 +11,10 @@ fn tiny_scene() -> SceneState {
         height: 8,
         yaw: 0.4,
         camera_roll: 0.0,
+        stone_shadow: false,
+        tray_reflection: 0.0,
+        hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
+        estimator: pleochroma::optics::raytracer::Estimator::Branching,
         pitch: 0.3,
         distance: 3.0,
         light_yaw: 0.85,
@@ -32,8 +36,7 @@ fn tiny_scene() -> SceneState {
     }
 }
 
-/// Never set -- a stand-in for callers with no cancellation to exercise, mirroring
-/// `render_core::trace_samples_with_gpu`'s own `never_cancel`.
+/// A cancel flag that is never set, for callers with no cancellation to exercise.
 fn never_cancel() -> AtomicBool {
     AtomicBool::new(false)
 }
@@ -44,7 +47,16 @@ fn calibrate_declines_when_the_gpu_declines() {
     let gpu = GpuBackend::disabled();
     let mut out = vec![Vec3::ZERO; 64];
     assert_eq!(
-        calibrate(&gpu, &scene, 0, 8, 1, &mut out, &never_cancel()),
+        calibrate(
+            &gpu,
+            &scene,
+            0,
+            8,
+            1,
+            &mut out,
+            &never_cancel(),
+            TrayRef::default()
+        ),
         CalibrationOutcome::GpuDeclined
     );
     // Nothing written -- decline never touches `out`, so a caller bailing out on
@@ -60,18 +72,24 @@ fn calibrate_declines_when_there_are_too_few_samples_to_probe_with() {
     let gpu = GpuBackend::disabled();
     let mut out = vec![Vec3::ZERO; 64];
     assert_eq!(
-        calibrate(&gpu, &scene, 0, 2, 1, &mut out, &never_cancel()),
+        calibrate(
+            &gpu,
+            &scene,
+            0,
+            2,
+            1,
+            &mut out,
+            &never_cancel(),
+            TrayRef::default()
+        ),
         CalibrationOutcome::GpuDeclined
     );
 }
 
-/// A `cancel` already set before `calibrate` dispatches a probe sample must be
-/// honored immediately -- `consumed: 0`, `out` untouched. The one calibration
-/// cancellation checkpoint testable without real GPU hardware: with
-/// `GpuBackend::disabled`, every dispatch declines immediately regardless of
-/// `cancel`, so the between-probes checkpoints need a real adapter; no automated test
-/// covers them, and the `#[ignore]`d `measure_hybrid_speedup_against_gpu_only` only
-/// exercises them incidentally on a machine with one.
+/// A `cancel` already set before the first probe sample is honoured at once: `consumed` is
+/// 0 and `out` is untouched. The checks between probes need a real adapter, since a
+/// disabled backend declines regardless of `cancel`. The `#[ignore]`d
+/// `measure_hybrid_speedup_against_gpu_only` exercises them on a machine with one.
 #[test]
 fn calibrate_honors_a_cancel_already_set_before_the_first_probe_sample() {
     let scene = tiny_scene();
@@ -79,7 +97,7 @@ fn calibrate_honors_a_cancel_already_set_before_the_first_probe_sample() {
     let mut out = vec![Vec3::ZERO; 64];
     let cancel = AtomicBool::new(true);
     assert_eq!(
-        calibrate(&gpu, &scene, 0, 8, 1, &mut out, &cancel),
+        calibrate(&gpu, &scene, 0, 8, 1, &mut out, &cancel, TrayRef::default()),
         CalibrationOutcome::Cancelled { consumed: 0 }
     );
     assert!(out.iter().all(|v| *v == Vec3::ZERO));
@@ -98,12 +116,10 @@ fn hybrid_trace_falls_back_to_cpu_only_when_gpu_frac_is_none() {
     assert_eq!(gpu_frac, None);
 }
 
-/// CPU against CPU, not a GPU comparison: with the GPU disabled the GPU share is always
-/// 0, so `hybrid_trace` degenerates to the CPU tracer over the whole range and this only
-/// pins that degenerate path (and that a stale `gpu_frac` is ignored). It says nothing
-/// about a real CPU/GPU split; the only test that drives a real adapter through the
-/// hybrid path is the `#[ignore]`d `measure_hybrid_speedup_against_gpu_only`, which
-/// reports throughput and does not compare sums.
+/// Compares CPU with CPU. With the GPU disabled the GPU share is always 0, so this only
+/// pins the degenerate path and that a stale `gpu_frac` is ignored. A real CPU/GPU split is
+/// covered only by the `#[ignore]`d `measure_hybrid_speedup_against_gpu_only`, which reports
+/// throughput and compares no sums.
 #[test]
 fn hybrid_trace_equals_the_whole_range_on_cpu_with_the_gpu_share_disabled() {
     let scene = tiny_scene();
@@ -124,10 +140,9 @@ fn render_core_trace_samples(
     super::super::trace_samples(scene, first, samples, threads)
 }
 
-/// A local stand-in for `stream_emit::sizing::next_batch_size` (not reachable from
-/// here, `pub(super)` to `stream_emit` only), same formula, so this module's
-/// throughput measurement drives GPU-only and hybrid through the identical loop
-/// `run_tracer` itself uses.
+/// A copy of `stream_emit::sizing::next_batch_size`, which is visible only inside
+/// `stream_emit`. It lets the measurement below drive GPU-only and hybrid through the same
+/// loop `run_tracer` uses.
 #[expect(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
@@ -145,10 +160,9 @@ fn adaptive_next_batch_size(prev: u32, elapsed: std::time::Duration) -> u32 {
     scaled.clamp(1.0, max_growth).round() as u32
 }
 
-/// Runs `trace` over `total` samples in adaptively-sized sub-batches -- the same
-/// control loop `run_tracer` uses -- and returns the wall time. Shared by the
-/// GPU-only and CPU-only legs of the measurement below so all three configurations
-/// are timed under an identical batching regime.
+/// Runs `trace` over `total` samples in adaptively sized sub-batches, as `run_tracer` does,
+/// and returns the wall time. The measurement legs share it, so all configurations are
+/// timed under the same batching.
 fn time_adaptive_loop(total: u32, mut trace: impl FnMut(u32, u32)) -> std::time::Duration {
     let overall = Instant::now();
     let mut produced = 0u32;
@@ -164,20 +178,14 @@ fn time_adaptive_loop(total: u32, mut trace: impl FnMut(u32, u32)) -> std::time:
     overall.elapsed()
 }
 
-/// Manual measurement, not a correctness check: reports GPU-only vs. hybrid
-/// throughput for a realistic scene on whatever real adapter this machine has,
-/// running both through the same adaptive sub-batch loop `run_tracer` uses rather
-/// than one giant dispatch -- a single huge `hybrid_trace` call would lock in
-/// whatever the first, dispatch-overhead-dominated calibration measured for the
-/// entire batch, while real usage gets many small batches re-measuring and
-/// blending their split, correcting toward the GPU's true bulk throughput within
-/// the first few batches. Requires `--features gpu` and real hardware, so
-/// `#[ignore]`d; it is the only place this module measures a real GPU (and a real
-/// GPU/CPU split) against CPU tracing, and it compares throughput, not sums.
+/// Manual measurement, not a correctness check. It reports GPU-only against hybrid
+/// throughput on this machine's real adapter, both through the adaptive sub-batch loop of
+/// `run_tracer`. A single huge `hybrid_trace` call would keep the first calibration for the
+/// whole batch, while real use re-measures per batch. Needs `--features gpu` and real
+/// hardware, so it is `#[ignore]`d. It compares throughput, not sums.
 ///
-/// One untimed 1-spp dispatch, purely to pay the GPU's one-time warm-up cost before
-/// a measurement starts -- pulled out to keep the caller under clippy's line-count
-/// limit.
+/// One untimed 1-spp dispatch that pays the GPU's one-time warm-up cost before a
+/// measurement starts.
 fn warm_up_gpu(gpu: &GpuBackend, scene: &SceneState) {
     let mut warm = vec![Vec3::ZERO; scene.width as usize * scene.height as usize];
     let _ = gpu.try_accumulate(
@@ -194,6 +202,7 @@ fn warm_up_gpu(gpu: &GpuBackend, scene: &SceneState) {
                 .lighting_preset
                 .studio(scene.exposure, scene.light_yaw, scene.light_pitch)
                 .with_backdrop(scene.backdrop),
+            estimator: Some(scene.estimator),
         },
         0,
         1,
@@ -223,16 +232,15 @@ fn measure_hybrid_speedup_against_gpu_only() {
     // neither one unfairly eats that one-time cost.
     warm_up_gpu(&gpu, &scene);
 
-    // GPU-only baseline, adaptively sub-batched exactly like `run_tracer` without
-    // hybrid: repeated `trace_samples_with_gpu` calls, batch size chasing
-    // `TARGET_SUBBATCH` via the crate's own `next_batch_size`.
+    // GPU-only baseline, adaptively sub-batched like `run_tracer` without hybrid: repeated
+    // `trace_samples_with_gpu` calls, with the batch size chasing the 100 ms target via
+    // `adaptive_next_batch_size`.
     let gpu_only_elapsed = time_adaptive_loop(total_samples, |first, n| {
         let _ = super::super::trace_samples_with_gpu(&gpu, &scene, first, n, threads);
     });
 
-    // Hybrid, same adaptive sub-batching, but calibrating once up front and then
-    // splitting/blending every subsequent sub-batch -- exactly what `run_tracer`
-    // itself does once a job clears `HYBRID_MIN_SPP`.
+    // Hybrid, with the same sub-batching: it calibrates once up front, then splits and
+    // blends every sub-batch, as `run_tracer` does once a job clears `HYBRID_MIN_SPP`.
     let hybrid_start = Instant::now();
     {
         let mut calib_buf = vec![Vec3::ZERO; scene.width as usize * scene.height as usize];
@@ -244,6 +252,7 @@ fn measure_hybrid_speedup_against_gpu_only() {
             threads,
             &mut calib_buf,
             &never_cancel(),
+            TrayRef::default(),
         ) {
             CalibrationOutcome::Split(frac, consumed) => (frac, consumed),
             other => panic!("gpu available, expected a Split outcome, got {other:?}"),
@@ -271,10 +280,9 @@ fn measure_hybrid_speedup_against_gpu_only() {
     }
     let hybrid_elapsed = hybrid_start.elapsed();
 
-    // CPU-only reference, same adaptive loop, no GPU involved -- explains why
-    // hybrid does or doesn't help: total wall time per hybrid batch is
-    // max(gpu_time, cpu_time), not a weighted average.
-    let cpu_only_samples: u32 = 200; // smaller: CPU-only is far slower per sample here.
+    // CPU-only reference, same adaptive loop, no GPU involved. It shows why hybrid helps or
+    // not: the wall time per hybrid batch is max(gpu_time, cpu_time), not a weighted average.
+    let cpu_only_samples: u32 = 200; // fewer: the CPU is much slower per sample here.
     let cpu_only_elapsed = time_adaptive_loop(cpu_only_samples, |first, n| {
         let _ = super::super::trace_samples(&scene, first, n, threads);
     });
@@ -330,18 +338,13 @@ fn cpu_threads_beside_gpu_reserves_exactly_one_core() {
 
 // -- calibrate_cached / JobKey / finalize_split_cache -----------------------------
 //
-// A disabled `GpuBackend` always declines, so none of these can exercise a REAL
-// `Split`/`GpuDominates` calibration (that needs `--features gpu` and real hardware;
-// only the `#[ignore]`d `measure_hybrid_speedup_against_gpu_only` above reaches one,
-// and it checks only that calibration yields a `Split`). Every test below either
-// confirms a decline is never cached, or drives the cache type directly -- a
-// synthetic `JobKey` with a sentinel `gpu_id` no real pointer will ever collide with,
-// pre-seeded by hand -- which needs no GPU at all.
+// A disabled `GpuBackend` always declines, so these tests cannot reach a real `Split` or
+// `GpuDominates`. Only the `#[ignore]`d `measure_hybrid_speedup_against_gpu_only` does. The
+// others confirm that a decline is never cached, or drive the cache directly with a
+// synthetic `JobKey` whose sentinel `gpu_id` no real pointer takes.
 
-/// A decline (no adapter here) must never be cached: it can depend on the request's
-/// own material, not just the resource profile a [`JobKey`] captures -- see
-/// [`CachedDecision`]'s own doc comment. Called twice to confirm a decline never
-/// somehow answers from a phantom hit either.
+/// A decline must never be cached, since it can depend on the request's material and not
+/// only on the [`JobKey`]. It is called twice, so a phantom hit would show up.
 #[test]
 fn calibrate_cached_never_caches_a_gpu_decline() {
     let gpu = GpuBackend::disabled();
@@ -352,6 +355,7 @@ fn calibrate_cached_never_caches_a_gpu_decline() {
         threads: 1,
         resolution_bucket: 6,
         tool_bucket: 0,
+        estimator: 0,
     };
     let mut out = vec![Vec3::ZERO; 64];
     for _ in 0..2 {
@@ -363,6 +367,7 @@ fn calibrate_cached_never_caches_a_gpu_decline() {
             1,
             &mut out,
             &never_cancel(),
+            TrayRef::default(),
         );
         assert_eq!(outcome, CachedCalibration::GpuDeclined);
     }
@@ -386,6 +391,7 @@ fn calibrate_cached_hits_without_reprobing() {
         threads: 2,
         resolution_bucket: 8,
         tool_bucket: 0,
+        estimator: 0,
     };
     CALIBRATION_CACHE
         .lock()
@@ -401,6 +407,7 @@ fn calibrate_cached_hits_without_reprobing() {
         2,
         &mut out,
         &never_cancel(),
+        TrayRef::default(),
     );
     assert_eq!(
         outcome,
@@ -428,6 +435,7 @@ fn calibrate_cached_hits_gpu_only_the_same_way() {
         threads: 4,
         resolution_bucket: 10,
         tool_bucket: 0,
+        estimator: 0,
     };
     CALIBRATION_CACHE
         .lock()
@@ -443,6 +451,7 @@ fn calibrate_cached_hits_gpu_only_the_same_way() {
         4,
         &mut out,
         &never_cancel(),
+        TrayRef::default(),
     );
     assert_eq!(outcome, CachedCalibration::GpuOnly { consumed: 0 });
 
@@ -459,6 +468,7 @@ fn finalize_split_cache_overwrites_on_some_and_evicts_on_none() {
         threads: 1,
         resolution_bucket: 12,
         tool_bucket: 0,
+        estimator: 0,
     };
     CALIBRATION_CACHE
         .lock()
@@ -516,8 +526,8 @@ fn job_key_distinguishes_compute_modes_and_resolutions() {
     );
 }
 
-/// The tool-count tag: none is `0` (so a plain stone's key is what it was before concave
-/// stones ran on the GPU), then one step per power of two up to the GPU limit.
+/// The tool-count tag: `0` for no tools, then one step per power of two up to the maximum
+/// tool count.
 #[test]
 fn tool_bucket_is_zero_for_no_tools_and_steps_by_powers_of_two() {
     assert_eq!(tool_bucket(0), 0);
@@ -576,9 +586,8 @@ fn job_key_separates_a_tool_heavy_stone_from_a_plain_one() {
     );
 }
 
-/// The key of a tool-free scene is exactly what it was before the tool bucket existed:
-/// bucket `0`, every other field as before (`job_key_distinguishes_compute_modes_and_resolutions`
-/// and the sizing cache tests pin the rest).
+/// A tool-free scene has tool bucket `0`, and its other key fields are as [`JobKey`]
+/// describes.
 #[test]
 fn job_key_of_a_tool_free_scene_has_tool_bucket_zero() {
     let gpu = GpuBackend::disabled();
@@ -592,16 +601,14 @@ fn job_key_of_a_tool_free_scene_has_tool_bucket_zero() {
             threads: super::super::effective_thread_count(3),
             resolution_bucket: 6,
             tool_bucket: 0,
+            estimator: 0,
         }
     );
 }
 
-/// [`calibrate_now`] is also called from `serve`'s and `join`'s start-up sequencing
-/// (see its own doc comment), but a disabled `GpuBackend` there never reaches this
-/// path since neither calls it without a live adapter -- confirms it runs without
-/// panicking and, since a disabled backend always declines, that it leaves no cache
-/// entry behind either (the same never-cache-a-decline invariant [`calibrate_cached`]
-/// itself upholds).
+/// [`calibrate_now`] runs at start-up in `serve` and `join`, but only with a live adapter.
+/// This checks that it runs without panicking on a disabled backend, and that it leaves no
+/// cache entry, since a decline is never cached.
 #[test]
 fn calibrate_now_is_callable_and_never_caches_a_decline() {
     let gpu = GpuBackend::disabled();

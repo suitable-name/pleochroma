@@ -47,18 +47,14 @@ use pleochroma_cut_core::{CrystalOrientation, CutSheetRow, Design};
 use pleochroma_solid::diagram2d::{VectorView, view_to_svg};
 use std::fmt::Write as _;
 
-/// The standard (RFC 4648) base64 alphabet, padded -- this crate's own encoder
-/// rather than a new dependency (`base64` is not a workspace dependency
-/// anywhere in this repo). A `data:` URI is the only place this codebase needs base64 at all,
-/// so a ~20-line hand-rolled encoder is simpler than justifying a new crate for it.
+/// The standard (RFC 4648) base64 alphabet, padded. Hand-rolled because the only use is the
+/// `data:` URI of the embedded pictures, so a crate dependency is not worth it.
 const BASE64_ALPHABET: &[u8; 64] =
     b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-/// Encodes `data` as base64 with `=` padding, per RFC 4648 -- see
-/// [`BASE64_ALPHABET`]'s own doc comment for why this is hand-rolled.
+/// Encodes `data` as base64 with `=` padding, per RFC 4648.
 ///
-/// `pub(super)` so this module's own tests (`cut_sheet::tests`) can check the
-/// encoder directly against known vectors.
+/// `pub(super)` so the tests can check it against known vectors.
 #[must_use]
 pub(super) fn base64_encode(data: &[u8]) -> String {
     let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
@@ -83,18 +79,15 @@ pub(super) fn base64_encode(data: &[u8]) -> String {
     out
 }
 
-/// Builds `image`'s `data:` URI -- what keeps the sheet a single self-contained file, rather
-/// than an HTML file plus sibling PNGs that a cutter could separate or lose.
+/// Builds `image`'s `data:` URI, so the sheet stays one self-contained file.
 fn png_data_uri(image: &DiagramImage) -> String {
     format!("data:image/png;base64,{}", base64_encode(&image.png_bytes))
 }
 
-/// Escapes `s` for safe interpolation into HTML text/attribute content -- a
-/// tier name or meet note is free text a cutter authored (or a `.asc` file's own
-/// `G`-field text, verbatim -- see `CutSheetRow::meet_instruction`'s doc
-/// comment), never assumed free of `&`/`<`/`>`/quote characters.
+/// Escapes `s` for HTML text and attribute content. Tier names and meet notes are free text
+/// (a `.asc` file's `G`-field text is copied verbatim), so any of `&<>"'` may occur.
 ///
-/// `pub(super)` so this module's own tests can check the escaping directly.
+/// `pub(super)` so the tests can check the escaping directly.
 pub(super) fn html_escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
@@ -139,18 +132,12 @@ enum Renderings<'a> {
 /// with the header words from [`SheetDetails::from_design`].
 ///
 /// The template's four line drawings are drawn from `design` itself. `diagram` is one
-/// already-rendered shaded picture (build one via [`super::diagram::render_cut_diagram`]),
-/// printed in the additional information; `None` prints none. The four shaded views come from
-/// [`cutting_sheet_html_with`].
+/// pre-rendered picture (see [`super::diagram::render_cut_diagram`]) for the additional
+/// information; `None` prints none.
 ///
-/// Pure: same `design`/`solved`/`diagram`/`custom` in always produces the same
-/// string out, no file/dialog/clock access -- see this module's own doc comment.
-///
-/// `custom` -- a caller's own resolved catalogue materials, e.g.
-/// `RenderContext::custom_materials` -- is consulted for the printed "RI range" line exactly
-/// like [`Design::cutting_sheet_with`]/[`Design::effective_refractive_index_with`], so a design
-/// on a CUSTOM catalogue material (not one of the built-ins) prints that material's own `n_D`
-/// rather than the legacy schedule RI. Pass `&[]` for a caller with no catalogue on hand.
+/// `custom` is the caller's catalogue materials. The printed "RI range" uses the custom
+/// material's own `n_D` when the design is on one, so pass `&[]` only when no catalogue is at
+/// hand.
 ///
 /// # Panics
 ///

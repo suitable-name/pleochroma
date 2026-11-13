@@ -1,5 +1,7 @@
-//! The blob-columns-last rebuild migrations (`diagram_details`, `diagram_previews`,
-//! `diagram_tilt_curves`): column order after the rebuild, byte-for-byte row
+//! Tests of the blob-columns-last rebuild migrations.
+//!
+//! The migrations cover `diagram_details`, `diagram_previews` and `diagram_tilt_curves`: column
+//! order after the rebuild, byte-for-byte row
 //! preservation, child rows, the AUTOINCREMENT sequence and idempotence -- proven
 //! against a fixture seeded in the pre-rebuild column order.
 
@@ -8,16 +10,13 @@ use super::{
     fixtures::{seed_pre_migration_db, temp_db_path},
 };
 
-/// Builds a fresh database file at a pre-fix, blob-first shape for
-/// `diagram_details` (via the standard [`seed_pre_migration_db`] fixture, plus one
-/// `angle_settings` pair and one `attached_files` row) AND `diagram_previews`/
-/// `diagram_tilt_curves` (seeded directly here in their own historical blob-first
-/// column order -- `create_tables_if_not_exist` only ever runs `CREATE TABLE IF NOT
-/// EXISTS`, so a table already present when `Database::new` runs below is left exactly
-/// as seeded until `Database::migrate_blob_columns_last` reshapes it). One design,
-/// `entry_id`/`diagram_previews.entry_id`/`diagram_tilt_curves.entry_id` all `1`.
-/// Shared by every `migrate_blob_columns_last_*` test in this file, so each can assert
-/// one aspect of the rebuild without repeating this setup.
+/// Builds a database file in the old blob-first column order: `diagram_details` (via the
+/// [`seed_pre_migration_db`] fixture, plus one `angle_settings` pair and one
+/// `attached_files` row), and `diagram_previews`/`diagram_tilt_curves` seeded directly.
+/// `create_tables_if_not_exist` uses `CREATE TABLE IF NOT EXISTS`, so a table present
+/// before `Database::new` stays as seeded until `Database::migrate_blob_columns_last`
+/// rebuilds it. One design, with `entry_id` `1` in all three tables. Each
+/// `migrate_blob_columns_last_*` test asserts one aspect of the rebuild.
 fn seed_blob_columns_last_fixture(label: &str) -> std::path::PathBuf {
     let path = temp_db_path(label);
     seed_pre_migration_db(
@@ -141,8 +140,8 @@ fn migrate_blob_columns_last_moves_generated_at_before_the_curve_blobs() {
     let _ = std::fs::remove_file(&path);
 }
 
-/// every byte of every rebuilt row must survive -- the preview images/material/
-/// timestamp, the tilt-curve image, and the detail row's own data.
+/// Every byte of every rebuilt row must survive: the preview images, material and timestamp,
+/// the tilt-curve image, and the detail row's own data.
 #[test]
 fn migrate_blob_columns_last_preserves_every_rebuilt_row_byte_for_byte() {
     let path = seed_blob_columns_last_fixture("blob_last_data_survives");
@@ -171,9 +170,9 @@ fn migrate_blob_columns_last_preserves_every_rebuilt_row_byte_for_byte() {
     let _ = std::fs::remove_file(&path);
 }
 
-/// House rule: rebuilding `diagram_details` must never cascade-delete its
-/// `angle_settings`/`attached_files` children -- exactly the wipe a `DROP TABLE
-/// diagram_details` with `foreign_keys = ON` would otherwise cause.
+/// Rebuilding `diagram_details` must never cascade-delete its `angle_settings` and
+/// `attached_files` children. A `DROP TABLE diagram_details` with `foreign_keys = ON`
+/// would cause exactly that wipe.
 #[test]
 fn migrate_blob_columns_last_never_loses_child_rows() {
     let path = seed_blob_columns_last_fixture("blob_last_child_rows");
@@ -210,12 +209,9 @@ fn migrate_blob_columns_last_never_loses_child_rows() {
     let _ = std::fs::remove_file(&path);
 }
 
-/// The rebuilt `diagram_details`' `AUTOINCREMENT` sequence must still hand out fresh,
-/// never-reused ids afterward -- not reset to the highest surviving id (or `1`) by the
-/// rebuild's own `CREATE TABLE`/`DROP TABLE`/`RENAME` sequence bookkeeping. The fixture
-/// advances the sequence past the highest live id first (a row inserted at id 50 and
-/// deleted), so a rebuild that merely recomputes the sequence from the surviving rows
-/// yields 1, not 50.
+/// The rebuilt `diagram_details` must keep its `AUTOINCREMENT` sequence, so new ids are
+/// never reused. The fixture advances the sequence to 50 with a deleted row. A rebuild that
+/// recomputed the sequence from the surviving rows would restart it at 1.
 #[test]
 fn migrate_blob_columns_last_preserves_the_autoincrement_sequence() {
     const ADVANCED_SEQUENCE: i64 = 50;
@@ -290,8 +286,7 @@ fn migrate_blob_columns_last_preserves_the_autoincrement_sequence() {
     let _ = std::fs::remove_file(&path);
 }
 
-/// opening a database twice must not re-shuffle anything the second time, and
-/// must not error.
+/// Opening a database twice must not reorder anything the second time, and must not error.
 #[test]
 fn migrate_blob_columns_last_is_idempotent_across_a_second_open() {
     let path = seed_blob_columns_last_fixture("blob_last_idempotent");
@@ -311,8 +306,8 @@ fn migrate_blob_columns_last_is_idempotent_across_a_second_open() {
     let _ = std::fs::remove_file(&path);
 }
 
-/// An older build autocommitted each `ALTER` of the proportions batch, so a crash could
-/// leave only `hw_ratio`: the next open must add the other six, not skip the batch.
+/// Each `ALTER` of the proportions batch autocommits, so an interrupted run can leave only
+/// `hw_ratio` behind. The next open must add the rest rather than skip the batch.
 #[test]
 fn a_partly_applied_proportions_migration_is_completed_on_open() {
     let path = temp_db_path("partial_proportions");

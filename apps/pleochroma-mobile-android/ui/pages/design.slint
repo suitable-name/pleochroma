@@ -9,7 +9,7 @@
 //                     the same status row, switcher and tab
 //
 // Without a design the page offers to start one. The tab components, their globals and
-// `DocumentModel` belong to the other Design lanes (`ui/design/**`); this page only
+// `DocumentModel` live under `ui/design/**`; this page only
 // places them.
 import { ProgressIndicator } from "std-widgets.slint";
 import { Theme } from "../theme.slint";
@@ -195,10 +195,9 @@ component TabHost inherits Rectangle {
     }
 }
 
-// The Tiers / Stone / Light / Checks switcher: a segmented control whose four segments
-// are equally wide and always exactly as wide as the space it is given (the shared
-// `Segmented` sizes its segments by their labels, which overflowed the tablet's side
-// pane), with the label elided when a segment is too narrow for it.
+// The Tiers / Stone / Light / Checks switcher. Unlike the shared `Segmented`, its four
+// segments are equal and always fill the width they are given; a label is elided when
+// its segment is too narrow for it.
 component TabSwitcher inherits Rectangle {
     in property <int> current: 0;
     callback selected(int);

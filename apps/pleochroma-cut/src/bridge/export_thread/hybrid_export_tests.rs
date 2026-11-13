@@ -1,6 +1,4 @@
-//! End-to-end smoke test of the hybrid CPU+GPU export path, kept separate from
-//! [`super::tests`] and moved out of `mod.rs` alongside [`super::worker::run_export`]
-//! to keep that file from growing further.
+//! Smoke and equivalence tests of the hybrid CPU+GPU export path.
 
 use super::{
     worker::{Accumulation, AccumulationOutcome, render_accumulation, render_local_share},
@@ -18,13 +16,11 @@ use pleochroma::{
 };
 use std::sync::{Mutex, atomic::AtomicU32};
 
-/// End-to-end smoke test of the hybrid export path: a small frame rendered
-/// through the real `run_export` (calibration, batching, merge, PNG write).
-/// Without a GPU adapter or the `gpu` feature this exercises the CPU-only
-/// path; with both, it exercises calibration plus concurrent hybrid
-/// batches. Asserts completion and a non-empty file, not pixel values (the
-/// hybrid sample-to-engine assignment is calibration-dependent by design).
+/// Renders a small frame through `run_export` (calibration, batching, merge, PNG write) and
+/// checks that it completes with a non-empty file. Without a GPU adapter this runs CPU only.
+/// Pixel values are not checked, because the sample split depends on calibration.
 #[test]
+#[ignore = "over 60 s in the workspace run (2026-11-08); run on request: scripts/run_tests_on_request.sh"]
 fn export_completes_via_hybrid_or_cpu_path() {
     let scene = SceneSnapshot {
         camera_roll: 0.0,
@@ -46,8 +42,12 @@ fn export_completes_via_hybrid_or_cpu_path() {
         fluorescence: std::sync::Arc::default(),
         facet_finishes: Vec::new(),
         env_map: None,
+        hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
         surface_glare: 1.0,
         head_shadow_deg: 16.0,
+        stone_shadow: false,
+        tray_reflection: 0.0,
+        stone_closed: true,
     };
     let params = ExportParams {
         engine: pleochroma::renderer::engine::EngineSpec::default(),
@@ -79,16 +79,12 @@ fn export_completes_via_hybrid_or_cpu_path() {
     }
 }
 
-// ---- v16: `worker::render_local_share` -- the viewer's own local-share render -------
+// ---- `worker::render_local_share` ------------------------------------------------
 
-/// `render_local_share`'s reserved-tail sum, added to a plain `render_batch` trace of
-/// the COMPLEMENT range `[0, first)`, must match a single `render_accumulation` call
-/// over the WHOLE range `[0, first + viewer)` -- within a RELATIVE tolerance, not bit
-/// for bit: `render_accumulation` claims its local chunks from a `SampleCursor` in a
-/// different batch/thread order than this test's own head-then-tail split, so the two
-/// sides fold the same per-sample values together in a different order, and IEEE 754
-/// float addition is not perfectly associative. CPU-only (`GpuBackend::disabled()`),
-/// per this lane's own rule against ever touching a real GPU adapter in a test.
+/// The tail sum of `render_local_share`, added to a plain `render_batch` trace of the head
+/// `[0, first)`, must match one `render_accumulation` over the whole range within a relative
+/// tolerance. The two sides sum the same samples in a different order, and float addition is
+/// not associative. CPU only (`GpuBackend::disabled()`).
 #[test]
 fn a_local_share_plus_its_complement_matches_render_accumulation() {
     let scene =
@@ -104,9 +100,7 @@ fn a_local_share_plus_its_complement_matches_render_accumulation() {
     };
     let gpu = GpuBackend::disabled();
 
-    // The reference: the whole range, traced by `render_accumulation` itself
-    // (`LocalOnly`/`Cpu`, so no remote and no GPU split to introduce non-determinism of
-    // its own beyond ordinary chunked summation).
+    // The reference: the whole range traced by `render_accumulation` (local CPU only).
     let mut carry = AccumulationCarry::default();
     let cancel = AtomicBool::new(false);
     let whole = match render_accumulation(
@@ -128,10 +122,8 @@ fn a_local_share_plus_its_complement_matches_render_accumulation() {
         }
     };
 
-    // The SAME samples, split into a head range `[0, first)` traced directly with
-    // `render_batch` (standing in for "everything before the reserved tail") and a
-    // tail range `[first, spp)` traced through `render_local_share`, exactly as
-    // `worker::final_picture::final_picture` forks a v16 contribution.
+    // The same samples, split into a head `[0, first)` traced with `render_batch` and a tail
+    // `[first, spp)` traced with `render_local_share`, as `final_picture` splits a contribution.
     let viewer = 5u32;
     let first = spp - viewer;
     let camera = Camera::new(cam_yaw, cam_pitch, scene.distance, DEFAULT_FOV_DEG)
@@ -175,10 +167,9 @@ fn a_local_share_plus_its_complement_matches_render_accumulation() {
     }
 }
 
-/// `stop` already raised before the first batch is claimed must end the render with
-/// `None`, not a partial `Some` -- the reclaim path (`run_final_image_request` raising
-/// `LocalShare::stop` the moment the remote's own `DONE` arrives first) depends on this:
-/// a local render cut short must never be mistaken for a finished contribution.
+/// A `stop` raised before the first batch must end the render with `None`, never a partial
+/// `Some`. `run_final_image_request` raises `stop` when the remote finishes first, so a cut-short
+/// local render must never count as a finished contribution.
 #[test]
 fn render_local_share_returns_none_when_stopped() {
     let scene =
@@ -208,4 +199,60 @@ fn render_local_share_returns_none_when_stopped() {
         &done,
     );
     assert!(result.is_none());
+}
+
+/// A carried split under the limit runs concurrent batches: the GPU thread beside the CPU tracer.
+/// Calibration on a fast GPU settles on the GPU alone, so this test is the only one that reaches
+/// that branch on such a machine.
+///
+/// The render must count every sample and produce a finite, lit image. The returned share must be
+/// `None` (the GPU declined), below 0.7, or exactly `1.0`. `PLEOCHROMA_REQUIRE_GPU=1` makes a GPU
+/// decline a failure.
+#[test]
+#[ignore = "over 60 s in the workspace run (2026-11-10); run on request: scripts/run_tests_on_request.sh"]
+fn a_carried_split_runs_concurrent_batches_and_settles_on_a_valid_share() {
+    let scene =
+        SceneSnapshot::capture(&Mutex::new(RenderContext::default())).expect("Diamond resolves");
+    // 160 samples: batches of 4, so a share of 0.5 gives each engine 2 samples per batch.
+    let (width, height, spp) = (48u32, 48u32, 160u32);
+    let params = ExportParams {
+        engine: pleochroma::renderer::engine::EngineSpec::default(),
+        width,
+        height,
+        samples_per_pixel: spp,
+        max_bounces: scene.max_bounces,
+    };
+    let gpu = GpuBackend::acquire();
+    let mut hybrid_frac = Some(0.5);
+    let stop = AtomicBool::new(false);
+    let done = AtomicU32::new(0);
+    let sum = render_local_share(
+        &scene,
+        (0.3, 0.2),
+        params,
+        0,
+        spp,
+        &gpu,
+        LocalComputeTarget::CpuGpu,
+        &mut hybrid_frac,
+        &stop,
+        &done,
+    )
+    .expect("not stopped");
+
+    assert_eq!(done.load(Ordering::Relaxed), spp, "every sample is counted");
+    assert_eq!(sum.len(), (width * height) as usize);
+    assert!(sum.iter().all(|px| px.is_finite()), "a non-finite pixel");
+    assert!(sum.iter().any(|px| px.length() > 0.0), "a black image");
+    assert!(
+        hybrid_frac.is_none_or(|frac| frac < 0.7 || frac == 1.0),
+        "the share must be under the limit or exactly 1.0, got {hybrid_frac:?}"
+    );
+    if std::env::var("PLEOCHROMA_REQUIRE_GPU").is_ok_and(|value| value == "1") {
+        assert!(
+            hybrid_frac.is_some(),
+            "PLEOCHROMA_REQUIRE_GPU=1 but the GPU declined the render (no adapter, or the app was \
+             built without the gpu feature)"
+        );
+    }
 }

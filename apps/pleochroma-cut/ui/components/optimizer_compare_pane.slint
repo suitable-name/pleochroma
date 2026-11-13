@@ -7,8 +7,8 @@ import { ActionButton } from "chip_toggle.slint";
 
 export component OptimizerComparePane inherits Rectangle {
     background: Theme.bg-darkest;
-    // The pane is mounted only while the comparison is open (`if` in `app.slint`), so `init` runs
-    // each time it opens. Taking the keyboard here makes Escape close it without a click first.
+    // Mounted only while the comparison is open (`if` in `tab_3d_content.slint`), so `init` runs
+    // each time it opens. Taking the keyboard here makes Escape close it without a click.
     init => { pane_keys.focus(); }
     // A stacked editor can leave very little viewport height. Explicit content bounds
     // keep the window minimum unchanged while all controls remain scrollable.

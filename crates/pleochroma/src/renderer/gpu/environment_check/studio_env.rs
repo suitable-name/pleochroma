@@ -25,14 +25,12 @@ pub struct StudioEnvCase {
     light_yaw: f32,
     light_pitch: f32,
     model: f32,
-    /// The backdrop tray radiance at exposure 1 (`EnvironmentSource::Studio::backdrop`;
-    /// was `_pad1`); `0.0` = As Lit, the preset's own ground. The twin of the CPU `_tray`
-    /// entry points' `tray` argument.
+    /// The backdrop tray radiance at exposure 1 (`EnvironmentSource::Studio::backdrop`); `0.0`
+    /// is As Lit, the preset's own ground. The twin of the CPU `_tray` entry points' `tray`
+    /// argument.
     tray: f32,
-    /// Was `_pad2` -- nonzero for a case built from a preset where [`LightingPreset::uses_d65`]
-    /// is true, mirroring
-    /// `optics::raytracer::environment::sample_studio_environment_with_rig`'s own
-    /// `preset.uses_d65()` branch. See
+    /// Nonzero for a case built from a preset where [`LightingPreset::uses_d65`] is true, as in
+    /// the `preset.uses_d65()` branch of `sample_studio_environment_with_rig`. See
     /// [`build_studio_env_cases`].
     use_d65: f32,
     /// Unit direction towards the eye for the lit models' head shadow (`[0.0; 3]`
@@ -71,7 +69,7 @@ const _: () = assert!(size_of::<StudioEnvCase>() == 100);
 /// The light tent's own parameters, for every case that is not a tent variant.
 const DEFAULT_TENT: [f32; 4] = TentParams::DEFAULT.to_array();
 
-/// Default-cone fields shared by every case constructor below: the 16 degree literals.
+/// The default head-shadow cone (outer and inner cosines, and degrees) for every case below.
 const DEFAULT_SHADOW: (f32, f32, f32) = (
     DEFAULT_HEAD_SHADOW_COSINES[0],
     DEFAULT_HEAD_SHADOW_COSINES[1],
@@ -80,39 +78,25 @@ const DEFAULT_SHADOW: (f32, f32, f32) = (
 
 /// ULP budget for `sample_studio_environment`.
 ///
-/// The largest of the four Phase-1 environment budgets: it chains `sin`/`cos` (twice,
-/// for `StudioRig`'s key/fill/ring directions), `blackbody_spectrum` itself,
-/// `normalize`/`dot`/`cross`, and `powi_u(_, 28)`/`powi_u(_, 18)`/`powi_u(_, 6)` -- more
-/// accumulated transcendental rounding than any other single Phase-1 function. See
-/// [`super::CMF_ULP_BUDGET`]'s doc comment for the calibration philosophy.
+/// The largest of the environment budgets: it chains `sin`/`cos` (for `StudioRig`'s key, fill
+/// and ring directions), `blackbody_spectrum`, `normalize`/`dot`/`cross`, and `powi_u(_, 28)`,
+/// `powi_u(_, 18)` and `powi_u(_, 6)`.
 ///
-/// # Measured amplification via `powi_u(_, 28)`
-///
-/// The FIRST measured run on this workspace's dev hardware found up to 1086 ULP, on
-/// cases whose sampled direction sits very close to the key light's own axis (`key_dot`
-/// near `1.0`). This is expected amplification, not a bug: `key_dot` itself is built
-/// from `sin`/`cos`/`normalize`/`dot`, each contributing a handful of ULP of ordinary
-/// driver-level rounding noise (the SAME 1-2 ULP floor `rng_check` measured per
-/// operation); raising a value near `1.0` to the 28th power amplifies its RELATIVE
-/// error by a factor of ~28 (`d(x^n)/x^n = n * dx/x`), which is exactly the multiplier
-/// that turns a few-ULP `key_dot` disagreement into ~1000 ULP in the final radiance.
-/// Set well above that measured figure with margin for a different driver.
+/// The 28th power multiplies relative error by about 28. A few-ULP disagreement in `key_dot`
+/// near `1.0`, which is driver rounding of `sin`/`cos`/`normalize`/`dot`, therefore reaches
+/// about 1000 ULP in the radiance (measured up to 1086 ULP). The budget sits well above that.
 pub const STUDIO_ENV_ULP_BUDGET: u32 = 8192;
 
 /// Absolute-difference floor for `sample_studio_environment` comparisons.
 ///
-/// See [`super::CMF_ABS_FLOOR`]'s doc comment for the rationale -- this covers the
-/// ring-light spark threshold's `> 0.96` branch edge, where radiance can be arbitrarily
-/// close to the ambient backdrop floor (`~0.005`-`0.03`) on one side of the threshold
-/// and jump sharply on the other; a genuine algebra bug (a wrong lobe constant, a
-/// dropped `spot_mult`/`exposure` factor, or a mis-set power exponent) moves radiance by
-/// orders of magnitude more than this floor, as confirmed by this crate's
-/// negative-control run.
+/// Covers the ring-light spark threshold's `> 0.96` branch edge, where radiance is close to the
+/// ambient backdrop floor (`~0.005`-`0.03`) on one side and jumps on the other. A real algebra
+/// bug (a wrong lobe constant, a dropped `spot_mult` or `exposure` factor, a wrong power)
+/// moves radiance by far more than this floor.
 pub const STUDIO_ENV_ABS_FLOOR: f32 = 1e-4;
 
-/// Presets the case generator does not cover yet. None: the direct-sun model (GPU id 5) has
-/// its cases now (the dense sweep plus [`push_sun_cases`]'s disc-edge points), as do the
-/// tent variants (the case row carries their tent parameters) and the contrast view.
+/// Presets the case generator skips. Empty: every non-UV-lamp preset has cases, including the
+/// direct-sun model (see [`push_sun_cases`]).
 const PRESETS_WITHOUT_CASES_YET: [LightingPreset; 0] = [];
 
 /// Builds the studio env cases for the check.
@@ -315,8 +299,7 @@ fn push_adversarial_rig_cases(cases: &mut Vec<StudioEnvCase>, poses: &[(f32, f32
     // 1.0`), and exactly at the ring lights' `0.96` spark threshold on both sides.
     for &(light_yaw, light_pitch) in poses {
         let rig = crate::optics::studio_rig::StudioRig::new(light_yaw, light_pitch);
-        // Daylight preset params (index 0 is `LightTent` since the ALL reorder),
-        // `LightTent`), so these cases need `use_d65 = 1.0` too.
+        // Daylight's temperature, with `use_d65 = 1.0`.
         for dir in [rig.key_dir, rig.fill_dir].into_iter().chain(rig.ring_dirs) {
             cases.push(StudioEnvCase {
                 dir: dir.to_array(),
@@ -447,10 +430,9 @@ fn push_sun_cases(cases: &mut Vec<StudioEnvCase>) {
     }
 }
 
-/// Adversarial head-shadow cases for one lit preset: exactly at the eye, and at 12 /
-/// 16 / 20 degrees off it -- inside, across and outside the 14..18 degree fade -- for the
-/// default 16 degree shadow, plus the same angles under a shadow that is off (`0`) and
-/// one 25 degrees wide (so the GPU twin is checked off-default too).
+/// Adversarial head-shadow cases for one lit preset: at 0, 12, 16, 20, 24 and 28 degrees off
+/// the eye, where the 12-20 degree points cross the 14..18 degree fade. Run for the default
+/// 16 degree shadow, and for a shadow that is off (`0`) and one 25 degrees wide.
 fn push_head_shadow_cases(cases: &mut Vec<StudioEnvCase>, preset: LightingPreset, observer: Vec3) {
     let params = preset.params();
     let perp = observer.cross(Vec3::X).normalize();
@@ -590,8 +572,8 @@ fn tent_preset_for(case: &StudioEnvCase) -> LightingPreset {
 }
 
 /// Recovers which Studio-model preset a case's `temp_k` / `use_d65` came from, so
-/// `run_studio_env` can call `sample_studio_environment` with the real `LightingPreset`
-/// enum rather than a hand-reconstructed `(temp_k, spot_mult)` pair. Only presets whose
+/// `run_studio_env` can pass the real `LightingPreset` to the CPU reference rather than a
+/// reconstructed `(temp_k, spot_mult)` pair. Only presets whose
 /// model is `Studio` are candidates: `LightingPreset::ALL` lists the lit presets first and
 /// `IsoHemisphere` / `DaylightDome` share Daylight's 6500 K, so a bare temperature match
 /// would resolve a model-0 Daylight case to the head-shadowed hemisphere.

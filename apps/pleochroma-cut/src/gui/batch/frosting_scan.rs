@@ -14,17 +14,18 @@ use pleochroma::optics::raytracer::surface::FacetingMachine;
 use pleochroma_vault::{db::sqlite::Database, model::preview::PreviewMaterialState};
 use std::collections::{BTreeMap, BTreeSet};
 
-/// The [`frosting_hash`] of `entry_id`'s stored frosting; `0` for a polished design (and for
-/// a read that fails, which is the polished fingerprint, the one every earlier row has).
+/// The [`frosting_hash`] of `entry_id`'s stored frosting; `0` for a polished design and for
+/// a failed read.
 #[must_use]
 pub fn stored_frosting_hash(db: &Database, entry_id: i64) -> u64 {
     frosting_hash(&db.diagram_frosting(entry_id).unwrap_or_default())
 }
 
-/// The [`EffectsKey`] of the surface finish, abraded edge, inclusions and play-of-color
-/// `entry_id` states in the library ([`EffectsKey::of_stored`] and
-/// [`EffectsKey::with_stored_inclusions`], with the user's faceting machine); [`EffectsKey::NONE`] for a
-/// design that states none and for a read that fails (the fingerprint every earlier row has).
+/// The [`EffectsKey`] of the effects that `entry_id` states in the library.
+///
+/// The effects are the surface finish, abraded edge, inclusions and play-of-color
+/// ([`EffectsKey::of_stored`] and [`EffectsKey::with_stored_inclusions`], with the user's
+/// faceting machine); [`EffectsKey::NONE`] for a design that states none and for a failed read.
 #[must_use]
 pub fn stored_effects_key(db: &Database, entry_id: i64) -> EffectsKey {
     let surfaces = db
@@ -40,8 +41,7 @@ pub fn stored_effects_key(db: &Database, entry_id: i64) -> EffectsKey {
 }
 
 /// The [`zones_hash`] of the stored zones (`material_zoning.zoned_json`, the raw stored
-/// text) of custom material `name`; `0` for no name, no zones or a failed read (the
-/// unpatterned fingerprint, the one every earlier row has).
+/// text) of custom material `name`; `0` for no name, no zones or a failed read.
 #[must_use]
 pub fn stored_zones_hash(db: &Database, name: Option<&str>) -> u64 {
     name.and_then(|name| db.load_material_zoning(name).ok().flatten())
@@ -72,10 +72,10 @@ pub fn zones_hash_in(table: &BTreeMap<String, u64>, name: Option<&str>) -> u64 {
         .unwrap_or(0)
 }
 
-/// The default crystal axis of every custom material that stores one, keyed by lower-cased
-/// name: what a staleness scan and a save consult, as they consult [`zones_hash_table`]. A
-/// material without a stored axis (both angles) is not listed, which is the fingerprint every
-/// earlier row has.
+/// The default crystal axis of every custom material that stores one, keyed by lower-cased name.
+///
+/// A staleness scan and a save consult it, as they consult [`zones_hash_table`]. A material
+/// without a stored axis (both angles) is not listed.
 #[must_use]
 pub fn axis_key_table(db: &Database) -> BTreeMap<String, AxisKey> {
     db.get_custom_materials()
@@ -107,8 +107,7 @@ pub fn stored_axis_key(db: &Database, name: Option<&str>) -> Option<AxisKey> {
 }
 
 /// The crystal axis design `entry_id`'s own file sets (`Database::preview_axis`); `None` when
-/// its override is off, for a design that never set one, and for a read that fails (the
-/// fingerprint every earlier row has).
+/// its override is off, for a design that never set one, and for a failed read.
 #[must_use]
 pub fn stored_design_axis_key(db: &Database, entry_id: i64) -> Option<AxisKey> {
     db.preview_axis(entry_id)
@@ -159,12 +158,13 @@ pub fn outdated_ids(
     )
 }
 
-/// [`outdated_ids`] for a picture whose fingerprint also names the render physics a design
-/// states in the library (`machine` is `Some`): the surface finish and abraded edge the vault
-/// keeps in its side tables ([`EffectsKey::of_stored`], with the user's faceting machine).
-/// `fingerprint` receives that key as its fourth argument; a design that states none gets
-/// [`EffectsKey::NONE`], and so the text it had before the effects existed. With `machine`
-/// `None` no effects are read and the key is always `NONE`.
+/// [`outdated_ids`] for a picture whose fingerprint also names the stored render physics.
+///
+/// That is the render physics a design states in the library (`machine` is `Some`): the surface
+/// finish and abraded edge the vault keeps in its side tables ([`EffectsKey::of_stored`], with
+/// the user's faceting machine). `fingerprint` receives that key as its fourth argument; a design
+/// that states none gets [`EffectsKey::NONE`], which adds nothing to the fingerprint text. With
+/// `machine` `None` no effects are read and the key is always `NONE`.
 pub fn outdated_ids_with_effects(
     db: &Database,
     machine: Option<&FacetingMachine>,
@@ -287,7 +287,7 @@ mod tests {
 
     /// A frosted design does not reuse an unfrosted cached preview, one stored under its own
     /// frosting is current, a different frosting is outdated again, and polished designs are
-    /// judged exactly as before.
+    /// judged exactly as a polished design is.
     #[test]
     fn a_frosted_design_is_outdated_until_its_preview_names_its_frosting() {
         let db = Database::new(Some(":memory:")).expect("in-memory database opens");
@@ -358,8 +358,8 @@ mod tests {
 
     /// A design whose own file sets the crystal axis is outdated until its preview names that
     /// axis, goes outdated again when only the axis changes, and is current again once the
-    /// override is off and the preview is stored without it; a design with no axis of its own
-    /// is judged exactly as before throughout, and the texts of the two never collide.
+    /// override is off and the preview is stored without it. A design with no axis of its own
+    /// is judged as a polished design is, and the texts of the two never collide.
     #[test]
     fn a_designs_own_crystal_axis_is_part_of_its_fingerprint() {
         use pleochroma_vault::model::preview::PreviewAxis;

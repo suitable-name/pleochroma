@@ -86,17 +86,16 @@ column(s) after every other column, both in `create_tables_if_not_exist` and (fo
 database created before this convention existed) via the idempotent
 `migrate_blob_columns_last` rebuild. SQLite reads a row's columns in physical storage
 order, so a query that never touches a BLOB still pays to skip its bytes if it sits
-earlier — measured on the real catalogue: a `diagram_details` text search cost
-40.9/39.2 ms with `diagram_image_data` at its original column 5, 16.5 ms with it moved
-last.
+earlier — measured: a `diagram_details` text search took 40.9 ms with `diagram_image_data` at
+column 5 and 16.5 ms with it last.
 
 ### Search indexes
 
 `idx_angle_settings_detail_id`, `idx_diagram_tag_links_tag_id`, and
 `idx_attached_files_detail_id` back the library search predicate's notes/tag-chip/
 attachment lookups — see `SEARCH_INDEXES_SQL`'s own doc comment for the measurements
-that motivated each. `idx_diagram_details_designer` (an equality index for an "every
-design by X" lookup nothing in this workspace ever calls) was dropped.
+that motivated each. `idx_diagram_details_designer` is dropped by `migrate_drop_unused_designer_index`, since
+nothing in this workspace calls the lookup it served.
 
 ## Migrations
 
@@ -183,20 +182,15 @@ pub const DEFAULT_SHAPES: &[&str] = &[
 ];
 ```
 
-`"Cushion"`, `"Trillion"`, `"Barion"`, `"Briolette"`, and `"Rhombus"` were dropped from
-the seed list: the shape filter (`build_search_predicate`) matches `dd.shape` with a
-plain `=`, never a substring/prefix match, and none of these five ever appears as an
-*exact* scraped `shape` string on the real catalogue — offering them in a picker
-silently returns zero results. A hand-edited or already-seeded row for one of these
-five is left in place on an existing install; this only changes what a fresh seed
-offers.
+The seed list omits `"Cushion"`, `"Trillion"`, `"Barion"`, `"Briolette"` and `"Rhombus"`: the
+shape filter (`build_search_predicate`) matches `dd.shape` with a plain `=`, and none of
+these appears as an exact scraped `shape` string, so offering one in a picker silently
+returns zero results. A row already seeded for one of them is left in place.
 
-`Database::get_unique_shapes()` used to be a plain `SELECT DISTINCT shape FROM
-diagram_details` — on a fresh database, with no design yet imported, that returned
-nothing, leaving a shape picker with no vocabulary to offer. `migrate_shape_vocabulary`
-seeds a `shape_vocabulary` table (`name TEXT PRIMARY KEY`, `sort_order INTEGER`)
-from `DEFAULT_SHAPES` on every open, fresh database included, and `get_unique_shapes`
-now returns the **union** of that seeded vocabulary with whatever `shape` values
+A shape picker needs a vocabulary even before any design is imported, so
+`migrate_shape_vocabulary` seeds a `shape_vocabulary` table (`name TEXT PRIMARY KEY`,
+`sort_order INTEGER`) from `DEFAULT_SHAPES` on every open, fresh database included, and
+`get_unique_shapes` returns the **union** of that seeded vocabulary with whatever `shape` values
 actually appear in `diagram_details`, deduplicated and sorted alphabetically. Plain
 alphabetical (not canonical-list-first) is deliberate: the real catalogue holds
 scraped shape strings `DEFAULT_SHAPES` doesn't and never will exhaustively cover
@@ -244,13 +238,13 @@ stripped), and synthesizes `url: "local://{file_name}"` — this is what the
 file against. The parsed tiers become `angle_settings` rows, and the raw file
 bytes are stored as received (`import_asc_bytes` keeps the file's raw bytes, not a re-encoded
 UTF-8 copy) as an `attached_files` entry, so the original can be re-exported exactly later.
-Rows imported by earlier versions hold the already-decoded UTF-8 text instead; readers
+Rows stored before raw bytes were kept hold decoded UTF-8 text instead; readers
 decode either form with `decode_asc_bytes`. `design_file`, when the caller found a
 `.psdd` design file
 beside the `.asc` on disk, is attached as a second `attached_files` entry, so a
 design round-tripped through Save and back through Import doesn't lose the fields
 only the design file carries. `derived_from_entry_id` recovers the
-catalogue row id an exported `.asc` recorded itself as derived from (an
+catalogue row id an exported `.asc` recorded itself as derived from (a
 `Pleochroma-Source-Entry-Id:` footnote written by `gui::editor::native_io`), so an
 export-then-reimport can be linked back to its source row instead of landing as an
 unrelated duplicate — the caller is responsible for verifying that id still names a
@@ -317,8 +311,8 @@ typed by a user is matched as text, not read as a SQL wildcard.
 
 `entry_ids_missing_previews`/`entry_ids_missing_tilt_curves` return every
 non-ignored entry id with no cached preview render / tilt curve yet, via a
-`LEFT JOIN` that never selects a BLOB column — for a startup batch pass that used to
-load both cached images for every catalogue entry just to test one timestamp. Each takes a
+`LEFT JOIN` that never selects a BLOB column, so a startup batch pass does not load both
+cached images for every entry just to test one timestamp. Each takes a
 fingerprint closure (material in, current `params_fingerprint` out) and also lists a row
 whose stored fingerprint differs, so a changed renderer or setting marks old results
 outdated.
@@ -326,16 +320,15 @@ outdated.
 `save_preview_images`/`save_tilt_curves` take the caller's `params_fingerprint` and an
 `expected_updated_at` (read with `Database::entry_updated_at` together with the record that
 was rendered) and return `Ok(false)` without writing when the entry changed in between.
-`Database::tags_for_entries(ids)` is `tags_by_entry` restricted to the given entries. The
-separate `get_tilt_curve_image` accessor has been removed (the `curve_image` column is never written).
+`Database::tags_for_entries(ids)` is `tags_by_entry` restricted to the given entries.
 
 `Database::diagram_entry_id_for_url(url)` looks up an entry's id by its dedup `url`
-alone (undocumented until now), without touching `diagram_details` or committing to
+alone, without touching `diagram_details` or committing to
 `save_diagram_entry`'s upsert-and-report-id shape — for a caller (e.g. a mirror sync)
 that only needs to know whether a row already exists. `Database::diagram_entry_for_url`
 returns the owner's `(id, title)` instead, for a caller that declines to write over a
 row it does not own and wants to name it (Save's catalogue write-back does). `Database::get_preview_material
-(entry_id)` (also undocumented until now) is the plain read half of the preview-material
+(entry_id)` is the plain read half of the preview-material
 pair: it returns `entry_id`'s persisted `preview_material`, if any, without running
 `ensure_preview_material`'s RNG/candidate-selection logic — for a caller (e.g. a batch
 preview scan) that only wants to know what's already on file.
@@ -390,8 +383,7 @@ in place.
 `Database::save_design(entry, detail, source_id) -> Result<i64>` runs
 `save_diagram_entry` and `save_diagram_detail` in a single transaction, returning the
 saved `diagram_entries.id`. Calling the two separately risked leaving a new entry
-row with no matching detail row if the process died in between (observed on the
-real catalogue); `save_design` is the atomic replacement for that pattern, and the
+row with no matching detail row if the process died in between; `save_design` is the atomic replacement for that pattern, and the
 desktop app's three catalogue writers (Save's write-back, the mirror sync and
 the `.asc` import) all use it.
 

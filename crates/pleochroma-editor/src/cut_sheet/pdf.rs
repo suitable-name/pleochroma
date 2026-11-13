@@ -443,7 +443,13 @@ fn draw_vector_view(canvas: &mut Canvas, view: &VectorView, cell: (f32, f32, f32
     let map = |(px, py): (f32, f32)| (px.mul_add(scale, left), py.mul_add(scale, top));
 
     canvas.content.set_line_cap(LineCapStyle::RoundCap);
-    for weight in [LineWeight::Tick, LineWeight::Edge, LineWeight::Outline] {
+    // The leaders first, so every other line is drawn over them, as in the SVG.
+    for weight in [
+        LineWeight::Leader,
+        LineWeight::Tick,
+        LineWeight::Edge,
+        LineWeight::Outline,
+    ] {
         let mut any = false;
         for line in view.lines.iter().filter(|line| line.weight == weight) {
             if !any {

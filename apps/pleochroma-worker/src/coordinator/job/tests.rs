@@ -44,11 +44,9 @@ fn for_worker_prefers_the_certificate_label_over_the_ephemeral_id() {
     );
 }
 
-/// Task: coordinator load balancing -- the book behind `Coordinator::rates` is one
-/// shared instance, not a fresh one per caller: a rate set through one clone (as one
-/// viewer connection would hold) is visible through another (as a later viewer
-/// connection, or a GUI export's next one-shot connection, would hold). The old
-/// per-connection `Arc::default()` started every connection from an empty book.
+/// The book behind `Coordinator::rates` is one shared instance: a rate set through one
+/// clone is visible through another, as a later viewer connection or a GUI export's next
+/// one-shot connection sees it.
 #[test]
 fn the_coordinators_rate_book_is_shared_across_connections() {
     let coordinator = Coordinator::new(None, None, 0, 1 << 30);
@@ -234,7 +232,7 @@ fn a_small_batch_request_with_an_idle_gpu_worker_plans_whole_image() {
     assert_eq!(planned.pool, coordinator.job_config().batch);
 }
 
-/// A 1080p x 512 request is real work: it keeps the old fan-out over every lane and the
+/// A 1080p x 512 request is real work: it fans out over every lane and waits in the
 /// viewer's FIFO.
 #[test]
 fn a_large_batch_request_is_split_over_every_lane() {
@@ -326,7 +324,7 @@ fn the_thresholds_come_from_the_job_config() {
 }
 
 /// The live view takes every idle joined worker besides the own lane by default; `0` is
-/// the old own-lane-only route, and a count caps it.
+/// the own lane alone, and a count caps it.
 #[test]
 fn an_interactive_request_takes_every_idle_worker_unless_configured_otherwise() {
     let (registry, _far) = idle_registry(&[(gpu(), "a6000")]);

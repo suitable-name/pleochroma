@@ -1,6 +1,7 @@
-//! Illuminant-dependent color shift tests: ruby and alexandrite must render
-//! measurably redder under warm incandescent light than under D65 daylight, driven
-//! by their narrow chromophore transmission windows.
+//! Illuminant-dependent color shift tests.
+//!
+//! Ruby and alexandrite must render measurably redder under warm incandescent light than
+//! under D65 daylight, driven by their narrow chromophore transmission windows.
 
 use glam::Vec3;
 use pleochroma::{
@@ -11,12 +12,11 @@ use pleochroma::{
     },
 };
 
-/// Renders `material` under `lighting_preset`, averaged over `samples` independent
-/// spectral ray samples (each with its own hashed seed) through the same fixed ray, and
-/// returns the CIE xy chromaticity of the averaged XYZ. Averaging suppresses per-sample
-/// Monte Carlo noise so the comparison below isolates the illuminant-driven color
-/// shift rather than sampling variance, following the same pattern used by
-/// `render_pixel_grid_chromaticities` and the birefringence-split test above.
+/// Returns the CIE xy chromaticity of `material` under `lighting_preset`, averaged over
+/// `samples` spectral samples through the same fixed ray.
+///
+/// Averaging suppresses Monte Carlo noise, so the comparison isolates the illuminant-driven
+/// shift rather than sampling variance.
 fn render_chromaticity_under_preset(
     material: &GemMaterial,
     planes: &[GpuFacetPlane],
@@ -44,18 +44,13 @@ fn render_chromaticity_under_preset(
     (xyz_avg.x / sum, xyz_avg.y / sum)
 }
 
-/// The decisive test: real ruby shifts noticeably REDDER under warm
-/// incandescent (3200K) light than under daylight (D65), because tungsten's blackbody
-/// spectrum emits little energy in the blue where ruby's SMALLER of its two
-/// transmission windows sits (see the Ruby entry's doc comment in
-/// `GemMaterial::all_materials` for the cited Cr3+ band positions, 410nm/550nm, that
-/// produce this narrow-window structure) -- daylight's relatively stronger blue content
-/// lets more of that blue window through, pulling the daylight-rendered color slightly
-/// toward blue/away from red relative to incandescent. A three-broad-fixed-lobe
-/// absorption model has no such narrow window to begin
-/// with, so it cannot reproduce this shift; this test is what actually discriminates
-/// the new banded model from the old one, rather than merely checking R > B in
-/// isolation (which the old model already passed).
+/// Real ruby renders noticeably REDDER under warm incandescent (3200 K) light than under
+/// daylight (D65). Tungsten emits little blue, where ruby's narrower transmission window sits
+/// (the Cr3+ bands at 410 nm and 550 nm, cited on the Ruby entry in
+/// `GemMaterial::all_materials`).
+/// Daylight's stronger blue lets more of that window through, so its color sits slightly
+/// further toward blue. A model of broad fixed lobes has no such narrow window and cannot
+/// reproduce the shift, so this test checks banded absorption beyond a bare R > B comparison.
 #[test]
 fn ruby_shifts_redder_under_incandescent_than_d65() {
     const SAMPLES: u32 = 192;
@@ -97,26 +92,15 @@ fn ruby_shifts_redder_under_incandescent_than_d65() {
     );
 }
 
-/// Alexandrite counterpart of the ruby illuminant-shift test above -- the color
-/// change (daylight green / incandescent red) is alexandrite's DEFINING trait, driven
-/// by the same narrow-transmission-window mechanism as ruby's shift (two Cr3+ bands
-/// straddling the ~580/415nm Neuhaus critical values -- see the Alexandrite entry's
-/// comment in `GemMaterial::all_materials`). Added alongside the trichroic
-/// (three-band-set) absorption upgrade for Alexandrite specifically so that upgrade,
-/// and any future per-axis amplitude retune, cannot silently weaken the color change:
-/// trichroism ADDS direction-dependence on top of the illuminant-dependence, and this
-/// test pins that the illuminant-dependence survives at the face-up view (propagation
-/// down `c_axis` = the n_gamma/crystal-b axis, so the ray mixes the alpha/red and
-/// beta/yellow principal spectra).
+/// Alexandrite's defining color change (daylight green, incandescent red) comes from the same
+/// narrow-window mechanism as ruby's shift: two Cr3+ bands straddle the ~580 nm and 415 nm
+/// Neuhaus critical values (see the Alexandrite entry in `GemMaterial::all_materials`). The
+/// trichroic absorption adds direction dependence on top of the illuminant dependence. At the
+/// face-up view the ray runs down `c_axis`, mixing the alpha and beta principal spectra, and
+/// this test checks that the illuminant dependence survives.
 ///
-/// Margin note (measured at this test's sample count during the trichroic upgrade):
-/// the previous cited-isotropic entry measured dx = +0.0125; the trichroic entry
-/// measures dx = +0.0104 at the same rays/seeds -- a mild (~17%) softening from
-/// averaging direction-dependent band positions, same order of magnitude, comfortably
-/// above the +0.003 assertion floor shared with the ruby test above. Since 2026-11-03 the
-/// entry carries the measured GRR 874 rays (the former Strong Change variant), whose
-/// change runs from a bluish green to a purplish red instead of the tuned data's
-/// yellowish green to orange; the margin has not been re-measured.
+/// The margin over the +0.003 floor was last measured at dx = +0.0104 for the trichroic data,
+/// before the GRR 874 entry change. That margin has not been re-measured since.
 #[test]
 fn alexandrite_shifts_redder_under_incandescent_than_d65() {
     const SAMPLES: u32 = 192;

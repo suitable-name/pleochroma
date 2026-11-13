@@ -13,13 +13,12 @@ use std::sync::{
 const TILE: usize = 262_144;
 const MAX_PLANES: usize = 4096;
 const BLOCK: usize = 256;
-/// Independent scratch sets, each with its own stream, so concurrent arrangements overlap
-/// on the device instead of queueing behind one lock. A set is allocated only when every
-/// earlier set is busy, so retained device memory stays bounded by four sets.
+/// Independent scratch sets, each with its own stream, so concurrent arrangements
+/// overlap on the device. A set is allocated only when all earlier sets are busy,
+/// which bounds retained device memory to four sets.
 const SCRATCH_SETS: usize = 4;
-/// Compacted candidate coordinates (three per vertex, one tile's worth) whose host
-/// post-processing may wait until the scratch set is released. A larger arrangement
-/// processes the excess under the lock, in the same order, keeping host memory bounded.
+/// Host coordinates that may wait until the scratch set is released. Beyond this
+/// many, the excess is processed under the lock, in the same order.
 const DEFERRED_VALUES: usize = 3 * TILE;
 
 pub(super) struct Runtime {
@@ -220,9 +219,9 @@ impl Runtime {
         ] {
             input.extend([n.x, n.y, n.z, 64.0]);
         }
-        // Submission and readback hold one scratch set. Host copies of the compacted
-        // tiles are post-processed in tile order after its release (or under it, only
-        // beyond DEFERRED_VALUES); face rings, calipers and meshes follow later still.
+        // Submission and readback hold one scratch set. Compacted tiles are copied
+        // to the host and processed in tile order, after release unless beyond
+        // DEFERRED_VALUES.
         let mut guard = self.scratch_set()?;
         if guard.as_ref().is_none_or(|s| s.capacity < count) {
             // Release the old buffers before allocating their replacement.

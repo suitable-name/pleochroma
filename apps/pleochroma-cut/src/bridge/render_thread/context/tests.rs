@@ -126,15 +126,11 @@ fn two_catalogue_claims_freely_replace_each_other() {
     assert_eq!(ctx.planes_owner, PlanesOwner::Catalogue { entry_id: 2 });
 }
 
-// ---- claim_active_planes's stone_width_mm warning -----------
+// ---- claim_active_planes and stone_width_mm ------------------
 //
-// The warning itself is a `tracing::warn!` inside `claim_active_planes` -- this crate
-// has no test-capturing `tracing` subscriber wired up, so its exact text isn't
-// asserted here. These instead pin the CONDITION the warning fires under
-// (`stone_width_mm > 0.0` and the owner actually changing) by checking that a
-// claim under each circumstance still behaves exactly like the plain ownership
-// tests above -- accepted/refused per `may_claim_active_planes`, with
-// `stone_width_mm` itself always left untouched, warning or not.
+// The owner-change warning is a `tracing::warn!` with no test subscriber, so these tests
+// check that a claim under the warning's condition is accepted or refused as usual and
+// that `stone_width_mm` is never changed.
 
 #[test]
 fn a_zero_stone_width_claim_is_unaffected_by_an_owner_change() {
@@ -153,11 +149,8 @@ fn a_nonzero_stone_width_survives_an_owner_change_the_claim_still_accepts() {
         stone_width_mm: 6.5,
         ..RenderContext::default()
     };
-    // A catalogue browse taking the slot from `Builtin` is an ordinary accepted
-    // claim -- this is exactly the scenario the warning
-    // flags, but the claim itself must still succeed and must never reset the
-    // control on the caller's behalf (see `stone_width_mm`'s own doc comment for
-    // why an automatic reset was not chosen).
+    // A catalogue browse taking the slot from `Builtin` is accepted, and the claim never
+    // resets `stone_width_mm` (see that field's doc comment).
     assert!(ctx.claim_active_planes(
         Arc::new(Vec::new()),
         None,
@@ -177,9 +170,8 @@ fn a_nonzero_stone_width_claim_for_the_same_owner_is_not_an_owner_change() {
         None,
         PlanesOwner::Editor { generation: 1 },
     ));
-    // A second claim at the SAME (or a newer) generation is the ordinary
-    // "design re-solved" case, not a switch to a different stone -- ordinary
-    // `claim_active_planes` behaviour, with the warning above never firing.
+    // A second claim at the same or a newer generation is a re-solved design, not a
+    // different stone, so the warning does not fire.
     assert!(ctx.claim_active_planes(
         Arc::new(Vec::new()),
         None,
@@ -258,7 +250,10 @@ fn a_refused_claim_leaves_every_field_untouched() {
 #[test]
 fn default_context_has_no_custom_specific_gravity_entries() {
     let ctx = RenderContext::default();
-    assert!(ctx.custom_material_specific_gravity.is_empty());
+    assert_eq!(
+        ctx.custom_material_specific_gravity.as_slice(),
+        [] as [(String, f64); 0]
+    );
     assert_eq!(ctx.custom_specific_gravity("My Garnet"), None);
 }
 
@@ -310,10 +305,8 @@ fn an_override_wins_regardless_of_what_material_name_says() {
 
 #[test]
 fn an_unrecognized_name_refuses_rather_than_substituting_diamond() {
-    // The whole point of `resolve_material` dropping its old `materials[0]`
-    // fallback -- see that function's own doc comment. A design naming a
-    // deleted custom material, or an unrecognized/typo'd name, must be told
-    // apart from a real, resolved Diamond.
+    // `resolve_material` never falls back to Diamond (see its doc comment), so a deleted
+    // or misspelled name is told apart from a real Diamond.
     let materials = GemMaterial::all_materials();
     assert_eq!(
         resolve_material(&materials, &[], "no such stone"),
@@ -421,7 +414,10 @@ fn a_planes_only_claim_clears_the_previous_designs_tools() {
         None,
         PlanesOwner::Catalogue { entry_id: 5 },
     ));
-    assert!(ctx.active_tools.is_empty());
+    assert_eq!(
+        ctx.active_tools.as_slice(),
+        [] as [pleochroma::geometry::tool::ToolPrimitive; 0]
+    );
     assert_eq!(
         ctx.active_placements.len(),
         0,

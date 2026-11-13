@@ -1,4 +1,4 @@
-//! Branch diagnosis of a refused candidate (follow-up plan 2026-10-19, section 4.3).
+//! Branch diagnosis of a refused candidate.
 //!
 //! A meet-derived tier (`MeetExisting` / `MeetNamed`) has no projection variable: its mast is
 //! whatever the authoring solve picks, and after the shell moves that pick can flip to another

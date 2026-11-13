@@ -1,9 +1,6 @@
 // ---------------------------------------------------------------------------------
-// Per-bounce phase functions and transport_bounce_step composition.
-//
-// Refactored per plan_web_gpu_2026-10-16.md §4.1: splits the single monolithic
-// bounce step into pure index setup, extend, scatter, surface, 5 interaction arms,
-// deferred exit-split resolution, and tail phases.
+// Per-bounce index setup. The extend, scatter, surface, arm, split and tail phases are in the
+// neighbouring 08 files, and `transport_bounce_step` (08f) composes them.
 // ---------------------------------------------------------------------------------
 
 struct IndexSetup {
@@ -58,51 +55,44 @@ fn bounce_index_setup(
     let n_beta_hero = rc.n_beta_hero;
     let n_gamma_hero = rc.n_gamma_hero;
 
-    // angle of incidence measured against the WAVE NORMAL `k`
-    // (`wave_dir_at_bounce`), not the Poynting/energy direction `S` -- see this
-    // block's own design note above.
+    // Incidence angle is measured against the wave normal `k` (`wave_dir_at_bounce`), not the
+    // Poynting direction `S`.
     let cos_i = clamp(dot(-wave_dir_at_bounce, normal), 0.0, 1.0);
     let sin_i = sqrt(max(fma(-cos_i, cos_i, 1.0), 0.0));
 
-    // theta_c fixed-point iteration (optics::raytracer::theta_c_for_bounce)
-    // plus the per-channel ordinary/effective-extraordinary index pair
-    // (optics::raytracer::per_channel_uniaxial_indices, called once per channel via
-    // per_channel_uniaxial_index -- see transport_physics.wgsl). For a cubic
-    // material (is_anisotropic == false) this reduces to n_eff_ch[k] == n_o_ch[k]
-    // for every k, reducing to the isotropic-only computation. For a biaxial
-    // material this is a DEAD (unused) computation -- see transport_physics.wgsl's
-    // `theta_c_for_bounce` doc comment. Fed `wave_dir_at_bounce` (`k`), not
-    // `(*current_dir)` (`S`).
+    // theta_c fixed-point iteration (optics::raytracer::theta_c_for_bounce). Per-channel
+    // effective extraordinary indices come from `per_channel_uniaxial_index` in
+    // transport_physics.wgsl. An isotropic material gives n_eff_ch[k] == n_o_ch[k]. For a
+    // biaxial material this result is unused. Fed `wave_dir_at_bounce` (`k`), not `S`.
     let theta_c = theta_c_for_bounce(normal, wave_dir_at_bounce, cos_i, (*s).inside_gem, is_anisotropic, c_axis, n_o_hero_seed, n_e_hero_seed);
 
-    // `n_o_ch[k]` is exactly `n_o_hoisted[k]` (both `dispersion_evaluate` on
-    // the same `(*lambdas)[k]`, hoisted above) -- only the theta_c-dependent
-    // `n_eff_k` half of `per_channel_uniaxial_index` still needs to run every
-    // bounce, so that's all this loop does now, reproducing that function's own
-    // `n_e_k`/`effective_extraordinary_index` body (see transport_physics.wgsl) on
-    // the hoisted `n_o_hoisted[k]` rather than calling the full function (which
-    // would redundantly re-evaluate dispersion) -- bit-identical either way.
+    // `n_o_ch[k]` equals the hoisted `n_o_hoisted[k]`, so only the theta_c-dependent half of
+    // `per_channel_uniaxial_index` runs per bounce. It is bit-identical to calling the full
+    // function.
     //
-    // n_e_k mirrors `GemMaterial::extraordinary_index_at` exactly: a genuine
-    // wavelength-dependent evaluation of the material's own extraordinary-ray
-    // curve when `material.has_extraordinary_dispersion != 0`
-    // (Quartz/Amethyst/Citrine), else the constant-offset
-    // `n_o_hoisted[k] + birefringence_delta` approximation.
+    // n_e_k matches `GemMaterial::extraordinary_index_at`: the material's own extraordinary
+    // curve when `material.has_extraordinary_dispersion != 0` (Quartz/Amethyst/Citrine),
+    // else `n_o_hoisted[k] + birefringence_delta`.
     var n_eff_ch: array<f32, 8>;
-    // RAW (not theta_c-projected) per-channel extraordinary index, hoisted here so
-    // the uniaxial entry/internal dispatch arms below can read it directly instead
-    // of recomputing the dispersion evaluation.
+    // Raw per-channel extraordinary index, before the theta_c projection. The uniaxial
+    // arms read it directly.
     var n_e_raw_ch: array<f32, 8>;
     for (var k: u32 = 0u; k < NUM_CHANNELS; k = k + 1u) {
         n_eff_ch[k] = 0.0;
         n_e_raw_ch[k] = 0.0;
     }
+    // sin and cos of theta_c, computed once for the channel loop.
+    var sin_theta_c: f32 = 0.0;
+    var cos_theta_c: f32 = 1.0;
+    if (is_anisotropic) {
+        sin_theta_c = sin(theta_c);
+        cos_theta_c = cos(theta_c);
+    }
     for (var k: u32 = 0u; k < NUM_CHANNELS; k = k + 1u) {
         var n_eff_k = n_o_hoisted[k];
         if (is_anisotropic) {
-            // Gated on the anisotropy flag (PERF-9): every read of `n_e_raw_ch` below
-            // sits under `uniaxial_nondegenerate` (which implies `is_anisotropic`);
-            // the isotropic path keeps zero-initialised entries it never reads.
+            // Gated on the anisotropy flag. Every read of `n_e_raw_ch` sits under
+            // `uniaxial_nondegenerate`, which implies `is_anisotropic`.
             var n_e_k: f32;
             if (EXTRAORDINARY_DISPERSION && material.has_extraordinary_dispersion != 0u) {
                 n_e_k = extraordinary_dispersion_evaluate(material.extraordinary_model_type, material.extraordinary_param_a, material.extraordinary_param_b, (*s).lambdas[k]);
@@ -110,35 +100,24 @@ fn bounce_index_setup(
                 n_e_k = n_o_hoisted[k] + birefringence_delta;
             }
             n_e_raw_ch[k] = n_e_k;
-            n_eff_k = effective_extraordinary_index(n_o_hoisted[k], n_e_k, theta_c);
+            n_eff_k = effective_extraordinary_index_sc(n_o_hoisted[k], n_e_k, sin_theta_c, cos_theta_c);
         }
         n_eff_ch[k] = n_eff_k;
     }
     let n_o_hero = n_o_hoisted[0];
-    // The hero's true extraordinary index -- the same `n_e_hero_seed` computed once per
-    // ray (`extraordinary_index_at` of the hero wavelength: the genuine e-ray curve when the
-    // material carries one, else `n_o + birefringence_delta`, the identical f32 sum). This
-    // `n_e_hero` feeds the walk-off/direction (Poynting) approximation
-    // (`extraordinary_poynting_dir` below) so the doubled images separate by color --
-    // mirrors `BounceRefractionGeometry::n_e_hero` on the CPU side
-    // (`optics::raytracer::refraction::geometry`). Materials without an e-ray curve are
-    // bit-identical to the old constant-offset form.
-    // Keep the no-curve expression local: the Windows Zircon EW bisect isolated the
-    // hoisted scalar's dataflow here. This sum is the material's exact fallback, not an
-    // approximation for materials that carry an independent curve.
+    // Hero extraordinary index: `n_e_hero_seed` (the material's e-ray curve when it has one,
+    // else `n_o + birefringence_delta`). It drives the walk-off direction
+    // (`extraordinary_poynting_dir`), so the doubled images separate by color. Mirrors
+    // `BounceRefractionGeometry::n_e_hero` on the CPU.
     var n_e_hero = n_o_hero + birefringence_delta;
     if (EXTRAORDINARY_DISPERSION && material.has_extraordinary_dispersion != 0u) {
         n_e_hero = n_e_hero_seed;
     }
 
-    // Shared local frame + optic-axis direction cosines `uniaxial_fresnel`'s
-    // closed-form solver needs (Lekner 1991), built once per bounce -- mirrors
-    // `BounceRefractionGeometry::uniaxial_frame`'s "Some only when genuinely
-    // uniaxial" contract. PERF-11: built only under `uniaxial_nondegenerate` (below),
-    // because every read of `uframe`/`uinc_frame` sits inside that guard; the
-    // zero-initialised values are never read otherwise. `entry_incidence_frame`
-    // (`n1 == 1.0` fixed for air->crystal entry) is built with it though only the
-    // entry arm consumes it.
+    // Local frame and optic-axis direction cosines for the closed-form uniaxial Fresnel solver
+    // (Lekner 1991). Built only under `uniaxial_nondegenerate`, since every read sits behind
+    // that guard. `entry_incidence_frame` (with `n1 == 1.0` for air to crystal) is built only
+    // for rays outside the gem, because only the entry arm uses it.
     var uframe: UniaxialFrameW;
     uframe.that = vec3<f32>(0.0, 0.0, 0.0);
     uframe.zhat = vec3<f32>(0.0, 0.0, 0.0);
@@ -163,24 +142,22 @@ fn bounce_index_setup(
     // with no degenerate-axis check of its own (see `uniaxial_nondegenerate` below
     // for that).
     let uniaxial_active = is_anisotropic && !is_biaxial;
-    // Degenerate wave-normal-parallel-to-optic-axis limit -- mirrors
-    // `apply_partial_fresnel_bounce`'s identical cross-product-length guard AND
-    // `apply_tir_bounce`'s own identical guard on its uniaxial branch
-    // (`refraction/tir.rs`): falling through to the existing scalar-at-`n_o`
-    // machinery is exact at this limit, not an approximation, on every dispatch
-    // arm below, including the forced-TIR one.
+    // Degenerate limit where the wave normal is parallel to the optic axis. Mirrors the
+    // cross-product guard in `apply_partial_fresnel_bounce` and `apply_tir_bounce`
+    // (`refraction/tir.rs`). Falling back to the scalar-at-`n_o` path is exact there, for
+    // every dispatch arm including forced TIR.
     let uniaxial_nondegenerate = uniaxial_active
         && dot(cross(wave_dir_at_bounce, c_axis), cross(wave_dir_at_bounce, c_axis)) > 1e-6;
     if (uniaxial_nondegenerate) {
         uframe = uniaxial_frame_build(wave_dir_at_bounce, normal, c_axis, cos_i, sin_i);
-        uinc_frame = entry_incidence_frame(1.0, uframe);
+        if (!(*s).inside_gem) {
+            uinc_frame = entry_incidence_frame(1.0, uframe);
+        }
     }
 
-    // optics::raytracer::{hero_biaxial_wave_dirs, per_channel_biaxial_indices}.
-    // "mode A" is the faster (lower-index) root, "mode B" the slower -- see this
-    // file's header comment. Zero-initialized and never consulted downstream unless
-    // `is_biaxial` guards the read, exactly mirroring the CPU arrays' own
-    // "computed unconditionally, only ever POPULATED when is_biaxial" contract.
+    // optics::raytracer::{hero_biaxial_wave_dirs, per_channel_biaxial_indices}. Mode A is the
+    // faster (lower-index) root, mode B the slower one. The arrays stay zero unless
+    // `is_biaxial`, and are read only under that guard.
     var wave_dir_a_hero = vec3<f32>(0.0, 0.0, 0.0);
     var wave_dir_b_hero = vec3<f32>(0.0, 0.0, 0.0);
     var n_biax_a_ch: array<f32, 8>;
@@ -197,8 +174,7 @@ fn bounce_index_setup(
     }
     if (is_biaxial) {
         if ((*s).inside_gem) {
-            // both biaxial modes walk off (see optics::raytracer::refraction's
-            // hero_biaxial_wave_dirs doc comment) -- k, not S.
+            // Inside the gem both biaxial modes walk off, so the wave direction is `k`, not S.
             wave_dir_a_hero = wave_dir_at_bounce;
             wave_dir_b_hero = wave_dir_at_bounce;
         } else {
@@ -208,11 +184,9 @@ fn bounce_index_setup(
             wave_dir_b_hero = res_b.wave_dir;
         }
         for (var k: u32 = 0u; k < NUM_CHANNELS; k = k + 1u) {
-            // optics::materials::GemMaterial::biaxial_indicatrix's per-channel
-            // n_alpha/n_beta/n_gamma. The base `n_beta` is bit-identical to
-            // n_o_hoisted[k] (both `dispersion.evaluate((*lambdas)[k])`, same inputs), so
-            // reused rather than recomputed. With per-axis curves the sorted triple's
-            // middle value can differ from it, so `n_beta_k` is read back from the triple.
+            // Per-channel n_alpha, n_beta and n_gamma, as `GemMaterial::biaxial_indicatrix`
+            // gives them. With per-axis curves the sorted middle value can differ from
+            // `n_o_hoisted[k]`, so `n_beta_k` is read from the triple.
             let principal_k = biaxial_principal_indices(
                 material.biaxial_curves.types.z != 0u,
                 material.biaxial_curves.types.x,
@@ -241,13 +215,10 @@ fn bounce_index_setup(
     let n_biax_a_hero = n_biax_a_ch[0];
     let n_biax_b_hero = n_biax_b_ch[0];
 
-    // While inside an anisotropic crystal, the medium
-    // index this ray is currently in is mode A or mode B depending on which
-    // eigenmode `(*is_extraordinary)` selected at the most recent entry; outside the
-    // crystal (or for an isotropic material) it is always the mode-B array, which
-    // for a cubic material equals n_o_hoisted exactly (see per_channel_uniaxial_index).
-    // `is_biaxial` selects which pair of arrays ("mode A"/"mode B") is consulted --
-    // the biaxial ones computed just above, or the uniaxial n_o_hoisted/n_eff_ch pair.
+    // Inside an anisotropic crystal the medium index is mode A or mode B, set by the eigenmode
+    // chosen at the most recent entry (`is_extraordinary`). Otherwise it is the mode-B array,
+    // which for a cubic material equals n_o_hoisted. `is_biaxial` selects the biaxial pair
+    // computed above, or the uniaxial n_o_hoisted / n_eff_ch pair.
     let use_mode_a_medium = is_anisotropic && (*s).inside_gem && !(*s).is_extraordinary;
     var n_medium_ch: array<f32, 8>;
     for (var k: u32 = 0u; k < NUM_CHANNELS; k = k + 1u) {
@@ -297,5 +268,19 @@ fn bounce_index_setup(
     idx.eta = eta;
     idx.sin2_t = sin2_t;
     return idx;
+}
+
+// The index setup an arm works from: the one `bounce_surface` stored in `h` when the megakernel's
+// surface phase ran (the same inputs, so the same value), else a fresh `bounce_index_setup` (the
+// event wavefront's arm kernels, and a parked bounce resumed by `transport_bounce_back`).
+fn bounce_arm_index(
+    s: ptr<function, BounceRay>,
+    h: ptr<function, BounceHit>,
+    rc: RayConstants,
+) -> IndexSetup {
+    if ((*h).idx_valid) {
+        return (*h).idx;
+    }
+    return bounce_index_setup(s, h, rc);
 }
 

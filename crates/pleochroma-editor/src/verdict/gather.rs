@@ -2,15 +2,18 @@
 //!
 //! [`gather`] does no solve of its own: the caller hands in the mast list it already has
 //! (or `None` when the design did not solve). What it does build is geometry -- the planes,
-//! the solid mesh and the manufacturability checks -- which takes a few milliseconds, so a
-//! desktop caller runs it on a worker thread with a clone of the design.
+//! the solid mesh, the manufacturability checks, and the stone cut so far at every tier for the
+//! meet points (`Design::cut_meets`) -- which takes a few milliseconds, so a desktop caller runs
+//! it on a worker thread with a clone of the design.
 
 use super::{
     ProportionFact, SolveFacts, TierWindowing, VerdictInputs,
     fix::{has_table, live_planes, steep_target_deg, vanished_positions_in},
+    meets::{girdle_fact, meet_facts},
 };
 use crate::view_model::{
-    row_format::representative_crown_and_pavilion_angles_deg, yield_report::proportion_verdicts,
+    girdle_reading::GirdleReading, row_format::representative_crown_and_pavilion_angles_deg,
+    yield_report::proportion_verdicts_with_girdle,
 };
 use pleochroma::geometry::{
     meet_solver::{Block, SolvedTier, classify_blocks},
@@ -21,6 +24,7 @@ use pleochroma_cut_core::{
     critical_angle_deg, crown_window_margin_deg, crown_windowing_risk,
     design::hinge::tier_plane_ranges,
     manufacturability::check_manufacturability_available,
+    mm_per_unit,
     optics_hints::{MAX_RETARGET_ANGLE_DEG, is_horizontal_angle_deg},
     tier_margin_deg, windowing_risk,
 };
@@ -106,9 +110,26 @@ pub fn gather(
         }
     }
 
-    if let Some(metrics) = measure_solid(&planes) {
+    let metrics = measure_solid(&planes);
+    // Millimetres as the yield report has them: the girdle diameter over the solid's width.
+    inputs.mm_per_unit = design
+        .girdle_diameter_mm
+        .zip(metrics.as_ref())
+        .and_then(|(girdle_mm, measured)| mm_per_unit(girdle_mm, measured.width_axis));
+    // The cutting checks the finished stone does not show: a tier with no point to cut to when
+    // it is cut, and a girdle that tiers cut into.
+    inputs.meets = design
+        .cut_meets(solved)
+        .map(|meets| meet_facts(design, &meets));
+    let girdle_level = design.girdle_level(solved);
+    inputs.girdle_level = girdle_level
+        .as_ref()
+        .and_then(|level| girdle_fact(design, level));
+    if let Some(metrics) = metrics {
         let proportions = StoneProportions::from_solid(&metrics, &mesh, &planes);
-        let verdicts = proportion_verdicts(design, &proportions, n_d);
+        // The girdle is judged at its line, like every girdle figure a person reads.
+        let girdle = GirdleReading::from_level(girdle_level.as_ref(), &proportions);
+        let verdicts = proportion_verdicts_with_girdle(design, &proportions, girdle, n_d);
         inputs.proportions = [
             ("The table width", verdicts.table_pct),
             ("The crown angle", verdicts.crown_angle),

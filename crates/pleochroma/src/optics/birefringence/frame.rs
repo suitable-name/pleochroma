@@ -1,13 +1,11 @@
 //! The full crystal frame of a biaxial material.
 //!
-//! It is the second principal direction (`alpha`) beside the `gamma` axis, and the framed
+//! The second principal direction (`alpha`) beside the `gamma` axis, and the framed
 //! constructors of [`BiaxialIndicatrix`] and [`AbsorptionTensor3`] that take it.
 //!
-//! Until the second direction existed, every biaxial construction site filled the
-//! frame in with `stable_orthonormal_basis(gamma)`: alpha and beta landed on an
-//! arbitrary pair perpendicular to gamma. The constructors here are the opt-in
-//! alternative (`GemMaterial::alpha_axis == Some`); the `None` path never reaches
-//! this file, so a material without a second direction renders bit-identically to before.
+//! Without a stated alpha direction, the frame is completed from `gamma` alone with
+//! `stable_orthonormal_basis`. The constructors here are used when `GemMaterial::alpha_axis`
+//! is `Some`.
 
 use super::{
     absorption_tensor::AbsorptionTensor3, biaxial::BiaxialIndicatrix,
@@ -17,12 +15,10 @@ use glam::{Mat3, Vec3};
 
 /// The alpha direction for a gamma axis turned by `turn_deg` about it.
 ///
-/// Turn `0.0` is exactly the alpha direction the gamma-only completion produces for
-/// `gamma` (`stable_orthonormal_basis(gamma).0`, the one
-/// `BiaxialIndicatrix::from_gamma_axis` and `AbsorptionTensor3::biaxial` both use), bit
-/// for bit; a positive turn is a right-handed rotation of that direction about `gamma`.
-/// A turn of 180 degrees gives the negated vector, the same line (the indicatrix
-/// ellipsoid is symmetric under `alpha -> -alpha`).
+/// Turn `0.0` is exactly the alpha direction of the gamma-only completion
+/// (`stable_orthonormal_basis(gamma).0`, as used by `BiaxialIndicatrix::from_gamma_axis`).
+/// A positive turn is a right-handed rotation about `gamma`. A turn of 180 degrees gives
+/// the negated vector, the same line, since the indicatrix is symmetric under `alpha -> -alpha`.
 ///
 /// `gamma` need not be normalised; the result is a unit vector perpendicular to it.
 #[must_use]
@@ -43,13 +39,11 @@ pub fn alpha_axis_from_turn(gamma: Vec3, turn_deg: f32) -> Vec3 {
 /// The orthonormal frame columns `(alpha, beta, gamma)` for a gamma axis and a requested
 /// alpha direction.
 ///
-/// `alpha_axis` that is already unit and perpendicular to `gamma_axis` (to `1e-6`, which
-/// is what [`alpha_axis_from_turn`] returns) is used as given; anything else is projected
-/// perpendicular to gamma and renormalised, so a stale second direction (the material's
-/// c-axis was overridden after it was set) still yields an orthonormal frame. A request
-/// that is parallel to gamma, or zero, falls back to the gamma-only completion.
-/// Beta is `gamma x alpha`, the same right-handed construction
-/// `stable_orthonormal_basis` uses.
+/// An `alpha_axis` that is already unit and perpendicular to `gamma_axis` (within `1e-6`, as
+/// [`alpha_axis_from_turn`] returns) is used as given. Anything else is projected
+/// perpendicular to gamma and renormalised, so a stale direction still yields an orthonormal
+/// frame. A request parallel to gamma, or zero, falls back to the gamma-only completion.
+/// Beta is `gamma x alpha`, as in `stable_orthonormal_basis`.
 fn framed_axes(gamma_axis: Vec3, alpha_axis: Vec3) -> Mat3 {
     let g = gamma_axis.normalize_or_zero();
     let along = g.dot(alpha_axis);
@@ -67,11 +61,9 @@ fn framed_axes(gamma_axis: Vec3, alpha_axis: Vec3) -> Mat3 {
 }
 
 impl BiaxialIndicatrix {
-    /// Builds a genuinely biaxial indicatrix from the three principal indices, the
-    /// `n_gamma` axis and the `n_alpha` direction (the full crystal frame): the
-    /// counterpart of [`Self::from_gamma_axis`] for a material that states its second
-    /// direction. `alpha_axis` is made perpendicular to `gamma_axis` if it is not
-    /// already; see `framed_axes`.
+    /// Builds a biaxial indicatrix in the full crystal frame, from the three principal
+    /// indices, the `n_gamma` axis and the `n_alpha` direction. The counterpart of
+    /// [`Self::from_gamma_axis`] for a material that states its second direction.
     #[must_use]
     pub fn from_frame(
         n_alpha: f32,
@@ -106,11 +98,9 @@ impl BiaxialIndicatrix {
 }
 
 impl AbsorptionTensor3 {
-    /// Trichroism with the full crystal frame: [`Self::biaxial`] with the alpha principal
-    /// axis given instead of completed arbitrarily. Builds its axes through the same
-    /// `framed_axes` as [`BiaxialIndicatrix::from_frame`], so the tensor frame and the
-    /// index frame stay identical bit for bit (the eigenmodes `quadratic_form` is
-    /// evaluated against live in the index frame).
+    /// [`Self::biaxial`] with the alpha principal axis given rather than completed from
+    /// gamma. The frame comes from the same `framed_axes` as [`BiaxialIndicatrix::from_frame`],
+    /// so the tensor and index frames stay identical, which the eigenmodes depend on.
     #[must_use]
     pub fn biaxial_framed(
         alpha: f32,

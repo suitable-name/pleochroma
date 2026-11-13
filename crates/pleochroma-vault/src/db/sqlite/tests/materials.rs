@@ -1,6 +1,8 @@
-//! `custom_gem_materials` column migrations (crystal-optics, per-axis dispersion,
-//! specific gravity) and the `save_custom_material`/`get_custom_materials` round trip
-//! through them.
+//! Tests of the `custom_gem_materials` column migrations.
+//!
+//! The columns are crystal optics, per-axis dispersion, specific
+//! gravity, colour recipe, dispersion model and absorption bands; the tests also cover the
+//! `save_custom_material`/`get_custom_materials` round trip through them.
 
 use super::{super::*, fixtures::temp_db_path};
 
@@ -206,8 +208,8 @@ fn save_custom_material_round_trips_crystal_optics_fields() {
     let _ = std::fs::remove_file(&path);
 }
 
-/// Mirrors `a_fresh_database_already_has_the_crystal_optics_columns` for the new
-/// `per_axis_dispersion_json` column.
+/// Mirrors `a_fresh_database_already_has_the_crystal_optics_columns` for
+/// `per_axis_dispersion_json`.
 #[test]
 fn a_fresh_database_already_has_the_per_axis_dispersion_column() {
     let path = temp_db_path("fresh_per_axis_dispersion");
@@ -249,8 +251,8 @@ fn seed_pre_per_axis_dispersion_custom_material(path: &std::path::Path) {
         .expect("create pre-per-axis-dispersion custom_gem_materials and seed a row");
 }
 
-/// Old schema (crystal-optics columns, no `per_axis_dispersion_json`) -> migrated ->
-/// readable, mirroring `crystal_optics_migration_adds_the_columns_and_leaves_existing_rows_nullable`.
+/// Old schema (crystal-optics columns, no `per_axis_dispersion_json`) is migrated and read
+/// back, with the new column `NULL`.
 #[test]
 fn per_axis_dispersion_migration_adds_the_column_and_leaves_existing_rows_nullable() {
     let path = temp_db_path("per_axis_dispersion_migration");
@@ -329,8 +331,8 @@ fn seed_pre_specific_gravity_custom_material(path: &std::path::Path) {
         .expect("create pre-specific-gravity custom_gem_materials and seed a row");
 }
 
-/// Old schema (per-axis dispersion column, no `specific_gravity`) -> migrated ->
-/// readable, mirroring `per_axis_dispersion_migration_adds_the_column_and_leaves_existing_rows_nullable`.
+/// Old schema (per-axis dispersion column, no `specific_gravity`) is migrated and read back,
+/// with the new column `NULL`.
 #[test]
 fn specific_gravity_migration_adds_the_column_and_leaves_existing_rows_nullable() {
     let path = temp_db_path("specific_gravity_migration");
@@ -450,7 +452,7 @@ fn custom_material_color_recipe_round_trip() {
     let path = temp_db_path("color_recipe_round_trip");
     let db = Database::new(Some(path.to_str().unwrap())).expect("create db");
 
-    // The real `ResolvedBands` field names (`o_ray`/`e_ray`/`beta_ray`/`is_pleochroic`).
+    // `ResolvedBands` field names; `beta_ray` is optional and left out.
     let recipe_json = r#"{"host":"corundum","data_version":2,"entries":[],"treatments":[],"strength":1.0,"reference_path_mm":5.0,"resolved_bands":{"o_ray":[],"e_ray":[],"is_pleochroic":true}}"#;
     assert!(
         serde_json::from_str::<pleochroma::optics::chromophore::ColorRecipe>(recipe_json).is_ok(),

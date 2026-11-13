@@ -18,11 +18,11 @@
   The documented default is `-Cpu avx2` and `-Cpu scalar` (two separate invocations) --
   avx512 remains available but is opt-in and auto-skipped/refused where unsupported.
 
-  Two-run tier training (BLD-1). The shipped binary runs with `PLEOCHROMA_SIMD` unset and
+  Two-run tier training. The shipped binary runs with `PLEOCHROMA_SIMD` unset and
   dispatches at run time (`simd::simd_level`) to the host's best kernels, so an `avx2` build
   on an AVX-512 machine runs the AVX-512 slab/feasibility/triple-solve kernels. Training
-  only under the tier's own cap (the old behaviour) left exactly those kernels with zero
-  counts, i.e. cold. Now, per tier build, the instrumented `pgo_train` is asked for the
+  only under the tier's own cap leaves exactly those kernels with zero
+  counts, i.e. cold. Per tier build, the instrumented `pgo_train` is asked for the
   host's native tier (`pgo_train --print-simd-tier`, PLEOCHROMA_SIMD unset) and, when that
   outranks the build's tier, is run TWICE: once unset (host-native dispatch: the AVX-512
   kernels) and once capped to the tier (the tier's own kernels); both runs' `.profraw`
@@ -89,8 +89,8 @@
        graph and cut-core's `-C metadata` (and every mangled symbol) matches. The distinct
        example name is required: two examples named `pgo_train` collide on Cargo's
        name-keyed example "pretty path" (target\<profile>\examples\<name>.exe). A separate
-       cut-core invocation, as used before 2026-10-06, had a different dependency graph
-       and its profile never applied. The worker target does not link cut-core and skips
+       cut-core invocation would have a different dependency graph, and its profile would
+       never apply. The worker target does not link cut-core and skips
        this step. See `Invoke-CutCoreTraining`.
     2c. build and run `pleochroma-net`'s `scene_roundtrip` integration test under the same
        instrumentation (postcard wire-protocol encode/decode of `SceneState`), through
@@ -170,7 +170,7 @@
   count (default 100000; see Test-ProfileWarnings) -- only consulted when
   Test-ProfileHashApplied could not verify the profile; once the crate-hash check has
   confirmed it applied, the count is reported and never fatal. pleochroma-cut measured
-  ~66,000 with a fully applied profile on 2026-09-28. This warning is EXPECTED in bulk for
+  ~66,000 with a fully applied profile. This warning is EXPECTED in bulk for
   `pleochroma-cut`/`pleochroma-worker`'s own GUI/server/CLI code -- `pgo_train` only
   exercises `pleochroma`'s tracer/solver/brep/tilt(/gpu) paths, never the desktop editor
   or the coordinator/worker networking code, so most of those two binaries' own functions
@@ -295,7 +295,7 @@ if (-not $Quick -and -not $Native -and $cpuList -contains 'avx512' -and -not (Ge
         "default pair. Pass -Cpu avx512 explicitly on AVX-512-capable hardware to opt back in.")
     $cpuList = @($cpuList | Where-Object { $_ -ne 'avx512' })
 }
-# -Native replaces the tier list (it used to append to it).
+# -Native replaces the tier list.
 if ($Native) {
     $cpuList = @('native')
 }
@@ -460,7 +460,7 @@ if ($Quick) {
     return
 }
 
-# The `PLEOCHROMA_SIMD` values `pgo_train` is run with for one tier build (BLD-1). The shipped
+# The `PLEOCHROMA_SIMD` values `pgo_train` is run with for one tier build. The shipped
 # binary runs with the variable UNSET and dispatches at run time to the host's best kernels
 # (`simd::simd_level`), so a tier build trained only under its own cap leaves the higher
 # tier's kernels (the AVX-512 slab/feasibility/triple-solve variants in an `avx2` build)
@@ -590,7 +590,7 @@ function Test-ProfileHashApplied([string]$Profdata, [string]$Tdir, [string]$Name
 # rlib of that crate. `$PackageDir` is the package's directory name under the cargo
 # build-dir layout, `$RlibStem` the rlib's crate-name stem (underscores).
 function Test-CrateHashToken([string]$Profdata, [string]$Tdir, [string]$Name, [string]$FuncName, [string]$TokenPattern, [string]$PackageDir, [string]$RlibStem) {
-    # Every manifest line that names the function, not just the first (BLD-1): a merged
+    # Every manifest line that names the function, not just the first: a merged
     # profile can hold the same symbol under more than one crate hash (e.g. the net test
     # build's differently-featured `pleochroma`), and the order of `show --all-functions`
     # decides which one comes first. All distinct tokens are collected; the rlib's token
@@ -705,7 +705,7 @@ if ($Parallel) {
 
         Set-Location $root
         Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue
-        # sccache OFF for the instrumented and the -Cprofile-use build alike (BLD-1; see
+        # sccache OFF for the instrumented and the -Cprofile-use build alike (see
         # the sequential branch's comment for why). This job is its own process, so the
         # setting dies with it and needs no restore.
         $env:RUSTC_WRAPPER = ''
@@ -725,7 +725,7 @@ if ($Parallel) {
 
             $env:LLVM_PROFILE_FILE = Join-Path $pdir 'train-%p-%m.profraw'
             $exe = Join-Path $tdir "$hostTarget\release\examples\pgo_train.exe"
-            # Two-run tier training (BLD-1). A job cannot call Get-SimdTrainingCaps, so the
+            # Two-run tier training. A job cannot call Get-SimdTrainingCaps, so the
             # same logic is inlined (keep the two in step).
             Remove-Item Env:PLEOCHROMA_SIMD -ErrorAction SilentlyContinue
             $runCaps = @($SimdCap)
@@ -918,13 +918,13 @@ else {
             Push-Location $root
             Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue
             # sccache OFF for every cargo call of this combination, i.e. the instrumented
-            # build(s) AND the final -Cprofile-use build (BLD-1). `.cargo/config.toml` sets
+            # build(s) AND the final -Cprofile-use build. `.cargo/config.toml` sets
             # `[build] rustc-wrapper = "sccache"`; an empty env value overrides it (cargo
             # treats an empty wrapper as none). With the wrapper on, an instrumented crate
             # can be served from the cache as an object compiled WITHOUT
             # `-Cprofile-generate` -> the training run writes empty profiles, and a
             # profile-use build can be served stale objects keyed on the profdata PATH --
-            # the documented root cause of "profiles never applied" (2026-09-28).
+            # the documented root cause of "profiles never applied".
             # Restored in the `finally` below.
             $env:RUSTC_WRAPPER = ''
             $env:CARGO_BUILD_RUSTC_WRAPPER = ''
@@ -940,7 +940,7 @@ else {
 
                 $env:LLVM_PROFILE_FILE = Join-Path $pdir 'train-%p-%m.profraw'
                 $exe = Join-Path $tdir "$hostTarget\release\examples\pgo_train.exe"
-                # Two-run tier training (BLD-1): see Get-SimdTrainingCaps.
+                # Two-run tier training: see Get-SimdTrainingCaps.
                 foreach ($runCap in (Get-SimdTrainingCaps $exe $SimdCap)) {
                     if ($runCap) { $env:PLEOCHROMA_SIMD = $runCap } else { Remove-Item Env:PLEOCHROMA_SIMD -ErrorAction SilentlyContinue }
                     Invoke-Checked "[$name] training run (PLEOCHROMA_SIMD='$runCap')" { & $exe } $logfile

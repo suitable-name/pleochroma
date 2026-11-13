@@ -1,7 +1,5 @@
-//! Group 3: file pickers off the UI thread. [`PickKind`]/[`pick_file`] are a thin
-//! translation over `gui::pickers::{PickerKind, PickerRequest, pick}` -- every
-//! save/open dialog this module's own write/export/open paths need builds a
-//! [`PickKind`] value and threads a continuation through [`pick_file`].
+//! File pickers off the UI thread. Every save and open dialog of this module builds a
+//! [`PickKind`] and passes a continuation to [`pick_file`].
 
 use super::design_paths::design_file_name_for;
 use crate::{MainWindow, gui::editor::state::EditorState};
@@ -12,16 +10,8 @@ use std::path::{Path, PathBuf};
 
 // --- Group 3: file pickers off the UI thread --------------------------------
 //
-// The picker machinery itself (a `PickKind`-flavoured native file-dialog
-// builder, the UI-thread rendezvous, and the `#[cfg(test)]` answer-injection
-// hook) lives in `gui::pickers` -- the one place the `rfd` crate's file dialog
-// is ever constructed anywhere in this app, so every OTHER module's own
-// picker uses the SAME worker instead of each spawning its own thread and
-// rendezvous. `PickKind`/`pick_file` here are a thin translation over
-// `gui::pickers::{PickerKind, PickerRequest, pick}` -- every call site below
-// builds a `PickKind` value and threads a continuation through it. See
-// `gui::pickers`'s own module doc comment for why a request enum/struct, not a
-// caller-supplied native-file-dialog builder closure.
+// The picker machinery lives in `gui::pickers`, the one place the `rfd` file dialog is
+// built. `PickKind`/`pick_file` translate into its `PickerRequest`.
 
 /// Which native picker [`pick_file`] should show -- one entry per save/open
 /// dialog this module's own write/export/open paths need, translated to a
@@ -29,7 +19,7 @@ use std::path::{Path, PathBuf};
 pub(super) enum PickKind {
     /// "Save" / "Save As...": the `.psdd` design-file save-as picker.
     SaveDesign { default_name: String },
-    /// "Export .asc": the `.asc` save-as picker.
+    /// "Export Edited .asc": the `.asc` save-as picker.
     SaveAsc { default_name: String },
     /// "Export as Gem Cut Studio (.gcs)...": the `.gcs` save-as picker.
     SaveGcs { default_name: String },
@@ -54,10 +44,8 @@ fn open_design_filter_label() -> String {
     format!("{DESIGN_FILE_DESCRIPTION} ({})", patterns.join(", "))
 }
 
-/// The `.asc design` filter every save/open dialog below that touches a
-/// `.asc` file shares -- a `fn`, not a `const`, since [`PickerFilter`] now
-/// owns its data (`String`/`Vec<String>`, see that type's own doc comment for
-/// why), which cannot be built in a `const` context.
+/// The `.asc` filter shared by the dialogs that open or save `.asc` files. A `fn` because
+/// [`PickerFilter`] owns its `String`s, which a `const` cannot build.
 fn asc_filter() -> crate::gui::pickers::PickerFilter {
     crate::gui::pickers::PickerFilter {
         label: ".asc Design".to_string(),
@@ -96,11 +84,7 @@ pub(super) fn pick_file(
             title: None,
             filters: vec![asc_filter()],
             default_file_name: Some(default_name),
-            // Seeds `./exports` as the starting directory when it exists, the same
-            // convention `gui::library::local::export::setup_export_asc_callback`/
-            // `gui::library::detail::export_diagram_file_via_source` already
-            // use -- a no-op (leaves the OS's own last-used-directory memory
-            // in place) when that folder doesn't exist yet.
+            // Starts in `./exports` when it exists, as the library's export paths do.
             starting_dir: default_export_dir(),
         },
         PickKind::SaveGcs { default_name } => PickerRequest {
@@ -170,14 +154,9 @@ pub(super) fn pick_file(
     pick(ui, request, on_done);
 }
 
-/// The file name an Export/Save dialog should default to. Prefers
-/// `asc_filename` (this design's own recorded/last-saved name -- see
-/// [`crate::gui::editor::state::EditorState::asc_filename`]'s own doc comment) when set, else a
-/// sanitized version of the schedule's own first free-text header line (the `GemCad`
-/// convention for a design's title/description), else `"edited_design.asc"` for a
-/// design with neither (a brand-new "New Design" with no header typed yet). Shared by
-/// [`setup_export_asc_callback`] and [`setup_save_native_callback`] so the two
-/// dialogs stay in sync instead of each proposing its own default name.
+/// The file name an Export or Save dialog defaults to: the design's `asc_filename` when set,
+/// else the sanitized first header line (the `GemCad` title convention), else
+/// `"edited_design.asc"`. Shared by the Export and Save dialogs so they propose the same name.
 pub(super) fn suggested_file_name(st: &EditorState) -> String {
     if let Some(name) = &st.asc_filename {
         return name.clone();
@@ -200,15 +179,9 @@ pub(super) fn suggested_design_file_name(st: &EditorState) -> String {
     design_file_name_for(&suggested_file_name(st))
 }
 
-/// `./exports` as a [`PickKind::SaveAsc`] picker's starting directory, when
-/// that folder exists -- the same convention
-/// `gui::library::local::export::setup_export_asc_callback`/
-/// `gui::library::detail::export_diagram_file_via_source` use (and the one
-/// `docs/manual/11-saving-and-file-formats.md` promises). `None` when the
-/// folder doesn't exist, so the OS's own last-used-directory memory still
-/// applies for a cutter who has never created one -- see
-/// [`crate::gui::pickers::PickerRequest::starting_dir`]'s own doc comment
-/// for what a `None` there means.
+/// The `./exports` folder as a starting directory, when it exists (the manual's
+/// `11-saving-and-file-formats.md` documents it). `None` otherwise, so the OS keeps its
+/// last-used directory. See [`crate::gui::pickers::PickerRequest::starting_dir`].
 fn default_export_dir() -> Option<PathBuf> {
     let default_dir = Path::new("exports");
     default_dir.is_dir().then(|| default_dir.to_path_buf())

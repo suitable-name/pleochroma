@@ -1,6 +1,7 @@
-//! The scan against an in-memory catalogue: what is saved, what a cancel leaves behind,
-//! and what happens to a measurement whose design changed or whose save failed. The
-//! geometry itself is stood in for by a fixed measurement per design.
+//! The scan against an in-memory catalogue: what is saved, what a cancel leaves behind, and what
+//! happens to a measurement whose design changed or whose save failed.
+//!
+//! The geometry itself is stood in for by a fixed measurement per design.
 
 use super::{
     BTreeMap, Database, Loaded, Measured, Mutex, Reporter, SolidExtents, SolidExtentsSource,

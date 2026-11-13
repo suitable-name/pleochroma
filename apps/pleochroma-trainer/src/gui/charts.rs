@@ -18,7 +18,7 @@ pub const MAX_POINTS: usize = 2000;
 pub const VIEW_W: f32 = 1000.0;
 /// Viewbox height of the chart paths.
 pub const VIEW_H: f32 = 400.0;
-/// Direction-cosine goal (README: above 0.7 within 50 rounds).
+/// Direction-cosine goal, drawn as the reference line of the cosine chart.
 pub const COSINE_GOAL: f32 = 0.7;
 /// Half the width of the tick drawn for a lone point.
 const TICK: f32 = 6.0;
@@ -547,7 +547,7 @@ mod tests {
         point.update_secs = 1.0;
         let text = phase_help(Some(&point));
         assert!(text.contains("rollout 2.0 s") && text.contains("update 1.0 s"));
-        // No update_of_iteration: a file from before the wait field, the old sum.
+        // Without update_of_iteration the update time adds to the rollout time.
         assert_eq!(iteration_secs(&point), Some(3.0));
         // An overlapping update: only the wait adds to the rollout.
         point.update_secs = 6.0;

@@ -43,8 +43,8 @@ pub const OPTIMIZE_PRESET_CHOSEN: &str = "optimize_preset_chosen";
 /// The Optimize tab's angle ranges were opened (`optimize_panel/mod.rs`).
 pub const OPTIMIZE_RANGES_OPENED: &str = "optimize_ranges_opened";
 
-/// An Optimize run finished with a result a candidate of which can be applied
-/// (`callbacks/solve_actions/optimize_outcome.rs`).
+/// An Optimize run finished on the current design and its result is shown; not raised for a stale
+/// result (`callbacks/solve_actions/optimize_outcome.rs`).
 pub const OPTIMIZE_FINISHED: &str = "optimize_finished";
 
 /// A row of the Optimize tab's candidate list was clicked (`optimize_panel/mod.rs`).

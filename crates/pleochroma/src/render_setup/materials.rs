@@ -2,9 +2,8 @@
 //!
 //! By-name lookup and every opt-in override layered on top of it
 //! (inclusion/subsurface scattering, crystal-axis orientation, facet edge rounding,
-//! physical stone size). Moved out of the desktop viewer unchanged so the browser app
-//! resolves a design's rendered material exactly the same way for the same settings --
-//! see `crate::render_setup`'s own doc comment.
+//! physical stone size). Shared by the desktop viewer and the browser app, so both resolve a
+//! design's rendered material the same way for the same settings -- see `crate::render_setup`.
 
 use super::stone_width::measure_model_width;
 use crate::{
@@ -78,18 +77,16 @@ pub struct MaterialOverrides {
     /// `0.0` is off (sharp edges).
     pub edge_rounding_radius: f32,
     /// Physical stone size: girdle width in millimetres for the absorption scale. `0.0` is
-    /// "not set": a [`AbsorptionUnit::ModelUnit`] material then renders as it was tuned (7 mm,
-    /// its swatch color face-up, see [`MODEL_UNIT_FACE_UP_PATH`]; for a design normalised to the
-    /// [`REFERENCE_MODEL_WIDTH`]) and a [`AbsorptionUnit::PerMm`] one assumes
-    /// [`PHYSICS_DEFAULT_STONE_WIDTH_MM`].
+    /// "not set": a [`AbsorptionUnit::ModelUnit`] material then renders as tuned (the
+    /// [`PHYSICS_DEFAULT_STONE_WIDTH_MM`] calibration) and a [`AbsorptionUnit::PerMm`] one
+    /// assumes [`PHYSICS_DEFAULT_STONE_WIDTH_MM`].
     pub stone_width_mm: f32,
 }
 
 /// Applies every [`MaterialOverrides`] field on top of a resolved base material.
 ///
-/// Each one is opt-in and skips its underlying `GemMaterial::with_*` call entirely at
-/// its off position, so a material with nothing dialled in renders bit-identical to
-/// before these controls existed.
+/// Each one is opt-in and skips its underlying `GemMaterial::with_*` call entirely at its off
+/// position. The stone-size step is the exception: it always applies the calibration (see below).
 ///
 /// # Absorption units
 ///
@@ -107,12 +104,10 @@ pub struct MaterialOverrides {
 /// needs the design's own width too: a design normalised twice as large has twice the model-space
 /// path for the same physical stone and must get half the scale to render the same color.
 ///
-/// `model_width` is the active design's own girdle width in model units, already
-/// resolved by the caller (see [`crate::render_setup::measure_model_width`]) -- this
-/// function does no plane-arrangement measurement of its own, so a caller with a
-/// persistent cache keyed on the design's geometry (the desktop's `StoneWidthCache`)
-/// only pays for a remeasure when the design actually changes, and a one-shot caller
-/// can just measure fresh and pass the result straight through. Every material reads it
+/// `model_width` is the design's girdle width in model units, resolved by the caller (see
+/// [`crate::render_setup::measure_model_width`]); this function measures nothing itself. A
+/// caller that caches the measurement (the desktop's `StoneWidthCache`) remeasures only when
+/// the design changes. Every material reads it
 /// ([`needs_model_width`] is always true); a `ModelUnit` material with no measurable width
 /// (`None`) is taken as [`REFERENCE_MODEL_WIDTH`] wide, a `PerMm` one keeps its scale.
 #[must_use]
@@ -169,9 +164,8 @@ pub fn apply_material_overrides_with_inclusions(
         material
     };
 
-    // An isotropic material's optic axis is physically meaningless (no birefringence
-    // to orient). This guard is what stops a leftover override from a previously
-    // selected anisotropic material reaching an isotropic one's `c_axis`.
+    // An isotropic material has no birefringence, so its optic axis is meaningless; the
+    // guard keeps a leftover override from an anisotropic material out of its `c_axis`.
     let mut material = material;
     let c_turned = if let Some(axis) = overrides.c_axis_override
         && material.optical_character != OpticalCharacter::Isotropic
@@ -303,35 +297,22 @@ pub const PHYSICS_DEFAULT_STONE_WIDTH_MM: f32 = 7.0;
 /// `REFERENCE_MODEL_WIDTH / model_width` so the same physical stone renders the same color.
 pub const REFERENCE_MODEL_WIDTH: f64 = 2.0;
 
-/// The representative face-up light path, in model units of a [`REFERENCE_MODEL_WIDTH`]-wide
-/// stone, that a [`AbsorptionUnit::ModelUnit`] absorption's "one unit" swatch stands for.
+/// The face-up light path, in model units of a [`REFERENCE_MODEL_WIDTH`]-wide stone, that a
+/// [`AbsorptionUnit::ModelUnit`] absorption's "one unit" swatch stands for.
 ///
-/// Built-in colored materials, the toolbar color presets, legacy `absorption_rgb` triples and
-/// fantasy customs are tuned so their swatch looks right over ONE model unit of path
-/// (`pleochroma_cut_core::material::color::FANTASY_PATH_UNITS`), a unit being one unit of a
-/// [`REFERENCE_MODEL_WIDTH`]-wide stone. Light that leaves a face-up stone
-/// has travelled several chords (the tone metric's `mean_path_units`, about 2.5 for a round
-/// brilliant), so rendering those numbers at scale 1.0 is several times too dark (the 2026-10-08
-/// 10.87 mm green cubic zirconia came out black). The `ModelUnit` scale is therefore divided by
-/// this constant: absorption is linear in the scale, so over `MODEL_UNIT_FACE_UP_PATH` units of
-/// path the stone shows exactly the color the swatch shows over one unit, at 7 mm or with no
-/// size set, and a larger or smaller stone scales physically from there (`width / 7`). A design
-/// whose own model width differs from the reference is rescaled by
-/// `REFERENCE_MODEL_WIDTH / model_width` on top, so a file's normalisation never changes the color.
+/// Built-in colored materials, toolbar color presets, legacy `absorption_rgb` triples and
+/// fantasy customs are tuned so their swatch looks right over one model unit of path
+/// (`pleochroma_cut_core::material::color::FANTASY_PATH_UNITS`). Light leaving a face-up stone
+/// has travelled several units, so without this divisor the stone renders several times too
+/// dark. The `ModelUnit` scale is divided by this constant: absorption is linear in the scale,
+/// so over this many units of path the stone shows the color the swatch shows over one unit.
+/// A larger or smaller stone then scales physically (`width / 7`).
 ///
-/// Chosen from the tone metric (`FaceUpTone::mean_path_units`, light tent, colorless stone) for
-/// the standard round brilliant and the emerald cut, each rescaled to the reference width; the test
-/// `model_unit_face_up_path_matches_the_measured_cuts` re-measures it and prints the values.
-/// Measured 2026-10-08 by that test (before the rescale, the emerald cut being 2.2 wide): round
-/// brilliant mean path 2.51 (mixture-equivalent 2.54), emerald cut 2.52 (equivalent 2.49), median
-/// 2.52. Re-pinned 2026-10-27 from the owner's Windows run with the rescale in place: round
-/// brilliant 2.510 (equivalent 2.54), emerald cut 3.152 at rescale 1.25 (equivalent 3.12), median
-/// 2.831 (equivalent median 2.831), so colored `ModelUnit` stones render about 11 % lighter than
-/// at 2.52.
-/// Stored numbers (vault `absorption_rgb`, `.toml` `body_color_override`, the built-in band peaks)
-/// are NOT changed: the constant is applied once, here. The color-to-triple solver
-/// (`nearest_legacy_rgb`) keeps solving at one unit, so its outputs stay comparable with stored
-/// triples and with the swatch.
+/// It is the median of the face-up mean path of the round brilliant and the emerald cut, each
+/// rescaled to the reference width. The test `model_unit_face_up_path_matches_the_measured_cuts`
+/// re-measures it. Stored absorption numbers are not changed; the constant is applied only in
+/// [`absorption_path_scale_for`], and the color-to-triple solver (`nearest_legacy_rgb`) keeps
+/// solving at one unit so its outputs stay comparable with stored triples and the swatch.
 pub const MODEL_UNIT_FACE_UP_PATH: f32 = 2.83;
 
 /// Returns the effective stone width in mm: the requested one, or the 7 mm default
@@ -348,10 +329,9 @@ pub fn effective_stone_width_mm(requested_mm: f32) -> f32 {
 /// Whether [`apply_material_overrides`] reads the design's model-unit girdle width for
 /// `material`.
 ///
-/// Every material does, a [`AbsorptionUnit::ModelUnit`] one for the
-/// [`REFERENCE_MODEL_WIDTH`] rescale and a [`AbsorptionUnit::PerMm`] one for millimetres per
-/// unit. Kept as a function so the callers that gate the plane measurement on it compile
-/// unchanged (the gate is now always open).
+/// Every material does: a [`AbsorptionUnit::ModelUnit`] one for the [`REFERENCE_MODEL_WIDTH`]
+/// rescale and a [`AbsorptionUnit::PerMm`] one for millimetres per unit. Kept as a function so
+/// callers that gate the plane measurement on it need no change.
 #[must_use]
 pub const fn needs_model_width(_material: &GemMaterial) -> bool {
     true
@@ -366,7 +346,7 @@ pub const fn needs_model_width(_material: &GemMaterial) -> bool {
 ///   constant is measured in the units of a [`REFERENCE_MODEL_WIDTH`]-wide stone, so the design's
 ///   own width rescales it: the same physical stone renders the same color however the file is
 ///   normalised. A missing or non-positive `model_width` is taken as [`REFERENCE_MODEL_WIDTH`]
-///   (today's calibrated look, never the raw scale 1.0 of the 2026-10-08 black stone). While no
+///   (never the raw scale 1.0, which renders far too dark). While no
 ///   width is set (`stone_width_mm <= 0`) the width factor is 1.0, so an unset size and 7 mm both
 ///   give `1 / MODEL_UNIT_FACE_UP_PATH` for a reference-width design: over the face-up path the
 ///   stone then shows the color the swatch shows over one model unit.
@@ -398,7 +378,7 @@ pub fn absorption_path_scale_for(
                 .filter(|w| *w > 1e-9)
                 .unwrap_or(REFERENCE_MODEL_WIDTH);
             // The width ratio is f64 and multiplies last: a model width of exactly 2.0 gives
-            // exactly 1.0, so a reference-width design's scale is bit-identical to before.
+            // exactly 1.0, so the ratio leaves a reference-width design's scale bit-identical.
             let base = width_mm / PHYSICS_DEFAULT_STONE_WIDTH_MM / MODEL_UNIT_FACE_UP_PATH;
             let ratio = REFERENCE_MODEL_WIDTH / model_width;
             (f64::from(base) * ratio) as f32

@@ -257,7 +257,9 @@ impl EnvCore {
     /// first such candidate stops the search. A candidate that fails the girdle or the
     /// manufacturability gate is a closed stone the environment refuses: it earns NO credit
     /// for its score (the reward sees `score_before` for it, so `Δ = 0`) and pays only the
-    /// gate penalty, the shape drift and the step cost. Its own score is still reported in
+    /// gate penalty and the step cost; the shape-drift term is charged only when the episode
+    /// defines a shape target (otherwise the reward would optimize a function the objective
+    /// does not measure). Its own score is still reported in
     /// [`StepInfo::candidate_score`], as is that of a valid candidate that did not improve.
     ///
     /// The reward and the [`StepInfo`] describe the accepted candidate or, when none was
@@ -275,10 +277,8 @@ impl EnvCore {
         self.finish_search(search)
     }
 
-    /// [`Self::step_scaled`]; `parallel` is retained for source compatibility.
-    ///
-    /// The line search is sequential (see the module documentation), so the step, the
-    /// reward and every field of the info are those of [`Self::step_scaled`].
+    /// [`Self::step_scaled`]; `parallel` has no effect because the line search is sequential
+    /// (see the module documentation), so every result is that of [`Self::step_scaled`].
     pub(crate) fn step_scaled_with(
         &mut self,
         action: &ContinuousTierAction,
@@ -339,6 +339,15 @@ impl EnvCore {
             rejection,
             Some(StepRejection::UnsafeAngle | StepRejection::NoUsableMast)
         );
+        // Reward = objective. Silhouette drift from the base design is a deliberate extra
+        // regularizer only when an episode actually defines a shape target; with `None` the
+        // objective's shape coefficient is zero, so charging drift here would make PPO optimize
+        // a different function than the one reported and evaluated.
+        let reward_shape_penalty = if self.settings.shape_target.is_some() {
+            shape_penalty
+        } else {
+            0.0
+        };
         let reward = self.reward.compute_step_reward(
             score_before,
             scored_after,
@@ -349,7 +358,7 @@ impl EnvCore {
                 manufacturability_ok: manufacturing_gate,
                 is_new_best: ended_improved,
             },
-            shape_penalty,
+            reward_shape_penalty,
         );
 
         let current = &self.current_eval;

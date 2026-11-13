@@ -3,14 +3,13 @@
 //! button, handing the keyboard back to the main window; the confirm questions, the header
 //! popups and the first-run questions are driven the way a user meets them.
 //!
-//! This file also holds the small helpers the other secondary-lane scenario files share
-//! (`pub(super)`): creating a design from a template, a tier signature, clicking a button by
-//! label prefix and clicking an element with the pointer.
+//! This file also holds the helpers the other scenario files share (`pub(super)`): creating a
+//! design from a template, a tier signature, clicking a button by label prefix and clicking an
+//! element with the pointer.
 //!
-//! GAPs (kept here so the report can name them): the colour-conflict, fingerprint-mismatch,
-//! write-confirm and start-up-restore questions need data the harness does not build (a file
-//! saved by an older version, a leftover autosave); the command palette and the Edit-as-Text
-//! "compare" sub-state have no separate close button.
+//! GAPs (named in the report): the colour-conflict and fingerprint-mismatch questions need data
+//! the harness does not build (a file saved by an older version); the command palette has no close
+//! button, so only Esc and a backdrop click close it.
 
 mod confirm;
 mod overlays;

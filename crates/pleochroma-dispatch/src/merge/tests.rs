@@ -44,18 +44,10 @@ impl ParkedBudget for FakeBudget {
 
 #[test]
 fn chunks_arriving_out_of_order_fold_in_start_order() {
-    // Chosen so the two fold orders give DIFFERENT, exactly known f32 results, not
-    // merely "some value both variants happen to agree on". Near 1e8 an f32 step is
-    // 8, so folding in START order (ascending first_sample: 1e8, 5, 5) gives
-    // 0 + 1e8 = 1e8, then 1e8 + 5 rounds up to 1e8 + 8, then (1e8 + 8) + 5 = 1e8 + 13
-    // rounds to 1e8 + 16 == 100_000_016.0 exactly. Folding in ARRIVAL order instead
-    // (the bug this guards: merging as chunks are handed to `add` rather than by
-    // first_sample) would compute (0 + 5 + 5) + 1e8 = 1e8 + 10, which rounds to
-    // 1e8 + 8 == 100_000_008.0. A test that only compared two Mergers to each other
-    // can't tell these apart: `Merger`'s frontier-based fold always merges by
-    // first_sample regardless of call order, so both variants always agree -- the
-    // point of asserting against the literal below is to also catch a regression that
-    // folds by arrival order. Every value is non-negative because `Merger::add` zeroes
+    // Near 1e8 an f32 step is 8, so the two fold orders give different results. Folding
+    // by ascending first_sample gives 100_000_016.0; folding by arrival order would give
+    // 100_000_008.0. Comparing two mergers alone cannot catch an arrival-order fold, so
+    // the test asserts the literal. Values are non-negative: `Merger::add` zeroes
     // negative radiance.
     let huge = chunk(1.0e8);
     let five = chunk(5.0);
@@ -137,10 +129,8 @@ fn an_empty_merger_yields_a_zero_buffer() {
     assert_eq!(count, 0);
 }
 
-/// A chunk that would have to park stays refused (not counted) once the budget
-/// is exhausted, and a chunk that fills the gap at the frontier -- folding the backlog
-/// away -- both never needs budget of its own AND releases what the folded chunk(s)
-/// had reserved, so a later chunk can park again.
+/// Once the budget is exhausted a chunk that must park is refused, and filling the gap at
+/// the frontier releases the folded chunks' charge so a later chunk can park again.
 #[test]
 fn parking_past_the_budget_is_refused_and_releases_once_the_frontier_catches_up() {
     // Each 2-pixel chunk costs 2 * size_of::<Vec3>() = 24 bytes; a cap of 24 admits

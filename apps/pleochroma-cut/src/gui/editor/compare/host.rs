@@ -7,8 +7,9 @@
 //! comparison pane embedded in the Retarget dialog (the main window's own
 //! `CompareModel` instance -- Slint instantiates every global once per top-level
 //! window). [`COMPARE`] holds the window (created on first use, then only hidden and
-//! re-shown -- a real OS window is expensive to spin up, so it is kept), a weak handle to the main window, and the
-//! ONE live session, which sits on exactly one surface at a time. A `thread_local!`
+//! re-shown, since a real OS window is expensive to create), a weak handle to the main
+//! window, and the ONE live session, which sits on exactly one surface at a time.
+//! A `thread_local!`
 //! for the same reason `callbacks::retarget_actions::RETARGET_ASYNC` is one: Slint's
 //! event loop is single-threaded. Opening while a session is live replaces it --
 //! dropping the old session drops its workers (their threads end) and its timer,
@@ -272,8 +273,8 @@ pub(super) fn window() -> Option<CompareWindow> {
     })
 }
 
-/// Drops the pop-out window, the main-window handle and the live session (workers and timer end
-/// with it). The cell is released before anything is dropped.
+/// Drops the pop-out window, the main-window handle and the live session (its workers and
+/// timer end with it). The cell is released before anything is dropped.
 pub(super) fn release() {
     let old = COMPARE.with(|cell| std::mem::replace(&mut *cell.borrow_mut(), Host::new()));
     if let Some(window) = &old.window {
@@ -710,7 +711,7 @@ pub(super) fn on_session_built(id: u64, session: CompareSession, metrics: Sessio
     let traced = render::spawn_traced_worker(id, sides(), Arc::clone(&latest), post_frame);
     let can_keep = session.can_keep();
     let labels = (session.before.label.clone(), session.after.label.clone());
-    // The figures ignore whatever either side has on of Inclusions, Surface Finish, Play-of-Color.
+    // The figures ignore Inclusions, Surface Finish and Play-of-Color, if either side has them.
     let figures_note = {
         let [inclusions, surface, structure] = std::array::from_fn::<bool, 3, _>(|i| {
             session.before.figures_ignored[i] || session.after.figures_ignored[i]
@@ -760,8 +761,7 @@ include!("host_tilt.rs");
 mod tests {
     use super::worker_failed_text;
 
-    /// The text names the failed preview and both ways back; the expectation is the
-    /// literal wording, so it is derived by reading `worker_failed_text`.
+    /// The failure text names the preview and says how to restart it.
     #[test]
     fn the_failure_text_names_the_preview_and_how_to_restart_it() {
         for worker in ["solid", "traced"] {

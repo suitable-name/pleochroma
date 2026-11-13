@@ -25,7 +25,8 @@ exporting a design of your own.
    form, per-facet and whole-tier detaching, reordering and removing
    tiers, and undo/redo.
 5. [Solving](05-solving.md) — what Solve does, every status message it can
-   show, and why it is a deliberate button press.
+   show, why it is a deliberate button press, and the overall verdict with
+   its reasons and fixes.
 6. [Adapting a Design for Another Material](06-materials-and-refractive-index.md)
    — the built-in material list, building a custom material, RI Override
    vs. Material, the Design Settings panel, and the automated Retarget
@@ -47,7 +48,8 @@ exporting a design of your own.
     final picture transfer, how many pictures a catalogue batch keeps in
     flight on it, HDR scenes, and troubleshooting a connection gone quiet.
 11. [Saving and File Formats](11-saving-and-file-formats.md) — `.asc`
-    versus this app's own `.psdd` design file, and where your files go.
+    versus this app's own `.psdd` design file, the cutting sheet and the meet
+    points it tells the cutter to cut to, and where your files go.
 12. [Troubleshooting and Limitations](12-troubleshooting-and-limitations.md)
     — a consolidated symptom/cause/fix table, where to find the app's log
     file and how to raise its verbosity, and every current limitation in
@@ -135,7 +137,8 @@ exporting a design of your own.
     Material Editor's fields, the dispersion coefficients, separate curves for the ordinary
     and the extraordinary ray, the body color, the Color Variants section, and Color
     Patterns: zones of different colors in a custom material, made in the Color Pattern
-    Editor.
+    Editor (Stone, Slice and Crystal views, layer cards, the color picker and the
+    Start From... gallery).
 
 ### Appendices
 

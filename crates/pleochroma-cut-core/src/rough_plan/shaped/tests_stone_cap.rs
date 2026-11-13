@@ -1,7 +1,8 @@
-//! The stone cap of the shaped planner: the positional count DP against a brute-force
-//! enumeration of every staged layout, a cap that does not bind changing nothing, the progress
-//! and cancel points of the second pass, the uniform pass, and the whole plan under one cap and
-//! under both.
+//! Stone-cap tests of the shaped planner.
+//!
+//! They cover the count DP against brute force, a loose cap
+//! changing nothing, progress and cancel points, the uniform pass, and whole plans under one
+//! cap and under both caps.
 
 use super::{
     clip::{CLASS_PARTIAL, ClippedTable},
@@ -84,8 +85,8 @@ fn spans(runs: &[usize]) -> Vec<(usize, usize)> {
 }
 
 /// Explicit enumeration of every positional staged layout of one cut order, by exact piece
-/// count: every composition of every axis, every piece read from the clipped table (see the
-/// block planner's `tests_brute` for the sums).
+/// count: every composition of every axis, every piece read from the clipped table (the sums
+/// are those of `rough_plan::tests_brute`).
 struct Brute<'a> {
     grid: &'a ShapedGrid,
     table: &'a ClippedTable,
@@ -397,7 +398,7 @@ fn a_stone_cap_bounds_every_shaped_layout_and_a_loose_cap_changes_nothing() {
         plan(&input, &mut |_| true).expect("not cancelled")
     };
 
-    // The free plan holds about five cubes in its best layout.
+    // The free plan holds more than two cubes in its best layout.
     let free = run(0);
     assert_ne!(free.len(), 0);
     assert!(
@@ -406,8 +407,9 @@ fn a_stone_cap_bounds_every_shaped_layout_and_a_loose_cap_changes_nothing() {
         free[0].stone_count()
     );
 
-    // A cap of two: every layout of the list fits. That the list is the best capped one and not
-    // the free list cut down is checked in `the_best_capped_shaped_layout_beats_a_truncated_...`.
+    // A cap of two: every layout of the list fits. The list being the best capped one, not
+    // the free list cut down, is checked by
+    // `the_best_capped_shaped_layout_beats_a_truncated_uncapped_one`.
     let capped = run(2);
     assert_ne!(capped.len(), 0);
     assert!(capped.iter().all(|l| l.stone_count() <= 2));
@@ -420,9 +422,9 @@ fn a_stone_cap_bounds_every_shaped_layout_and_a_loose_cap_changes_nothing() {
 
 #[test]
 fn the_capped_shaped_dp_beats_a_truncated_uncapped_layout_on_every_order() {
-    // 20 x 10 x 10 mm, no losses, on a grid of 5 mm cells: two cubes of 10 mm fill the block
-    // (2000 mm^3). With one stone the answer is NOT one of those cubes (1000 mm^3): the bar
-    // fills the whole block (1.8 x 10^3 = 1800 mm^3).
+    // 20 x 10 x 10 mm, no kerf or allowance, on a grid of 5 mm cells: two cubes of 10 mm
+    // fill the block (2000 mm^3). With one stone the answer is NOT one of those cubes
+    // (1000 mm^3): the bar fills the whole block (1.8 x 10^3 = 1800 mm^3).
     let free = settings_with(2, 0.0, 0.0, 0.01);
     let one_stone = PlanSettings {
         max_stones: 1,

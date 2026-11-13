@@ -1,4 +1,4 @@
-//! Small explicit CLI: lists expand only when requested, keeping the default short.
+//! Command-line options of the benchmark. The defaults keep a run short.
 
 use crate::settings::model::LocalComputeTarget;
 use anyhow::{Context, Result, bail, ensure};

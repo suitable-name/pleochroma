@@ -1,34 +1,27 @@
-//! [`ActivityRegistry`] is the single place any long-running background operation
-//! (background auto-solve, Deep Solve, Optimize, Retarget optimize, Snapshot
-//! compare, tilt curve/video export, trace generation) registers itself while it
-//! runs, instead of each feature writing its own `*_running` bool/`*_status` string
-//! pair on [`crate::EditorModel`] with no shared representation. The Slint side is
-//! [`crate::ActivityModel`] (`ui/models/activity.slint`); this module is its only
-//! writer.
+//! [`ActivityRegistry`] is the single place every long-running operation registers itself.
+//!
+//! Every long-running background operation
+//! (auto-solve, Deep Solve, Optimize, Retarget optimize, Snapshot compare, tilt
+//! curve/video export, trace generation) registers itself while it runs. The Slint
+//! side is [`crate::ActivityModel`] (`ui/models/activity.slint`); this module is its
+//! only writer.
 //!
 //! # Two layers, for testability
 //!
-//! [`ActivityList`] is the pure bookkeeping -- start/progress/finish over a plain
-//! `Vec`, no Slint or `Weak` handle involved -- so a test can exercise ordering,
-//! finishing, and progress updates directly (this crate's own house rule: no
-//! windowing backend in the test environment, the same constraint
-//! `solve_service`/`edit_intent`'s own test modules document). [`CancelMap`] is the
-//! matching pure bookkeeping for "which closure does cancelling activity N invoke."
-//! [`ActivityRegistry`] wraps both, plus a [`slint::Weak`] handle to push
-//! [`crate::ActivityItem`] rows into [`crate::ActivityModel`] and a one-second
-//! elapsed-time ticker -- this outer layer is exercised by the app itself, not unit
-//! tested, matching `SolveService`/`EditIntentQueue`'s own precedent.
+//! [`ActivityList`] is the pure bookkeeping (start/progress/finish over a plain `Vec`,
+//! no Slint handle), so tests can run without a windowing backend. [`CancelMap`] is
+//! the matching pure bookkeeping for "which closure does cancelling activity N
+//! invoke." [`ActivityRegistry`] wraps both with the [`slint::Weak`] handle that
+//! pushes [`crate::ActivityItem`] rows and the one-second elapsed-time ticker; only
+//! the app exercises this outer layer.
 //!
 //! # Why `started_ms`/`now_ms` are a per-registry epoch, not wall-clock time
 //!
-//! [`crate::ActivityItem::started_ms`] and [`crate::ActivityModel::now_ms`] are
-//! plain Slint `int` (`i32`) properties -- milliseconds since the Unix epoch would
-//! overflow that within about 25 days of any build date. Measuring instead from
-//! [`ActivityRegistry::epoch`] (an [`Instant`] captured once, at construction, i.e.
-//! effectively "when this editor session started") keeps every value comfortably
-//! inside `i32` for the entire life of one running process, and a `.slint` file only
-//! ever needs the DIFFERENCE between the two to show "N s elapsed" -- never the
-//! absolute value, so which epoch it is measured from is invisible to callers.
+//! [`crate::ActivityItem::started_ms`] and [`crate::ActivityModel::now_ms`] are Slint
+//! `int` (`i32`) properties; Unix-epoch milliseconds would overflow them within about
+//! 25 days. Values are measured from [`ActivityRegistry::epoch`] instead, which keeps
+//! them in `i32` for a whole process lifetime. The `.slint` side only shows the
+//! difference between the two, so the epoch itself is invisible to callers.
 
 use crate::{ActivityItem, ActivityModel, MainWindow};
 use slint::{ComponentHandle, ModelRc, VecModel, Weak};
@@ -40,10 +33,8 @@ use std::{
 };
 
 /// How often [`ActivityRegistry`]'s elapsed-time ticker refreshes
-/// [`crate::ActivityModel::now_ms`] while at least one activity is running --
-/// coarse on purpose (this only drives an "N s elapsed" label, never a progress
-/// fraction) so it never competes with `stall_guard::STALL_THRESHOLD`'s 16 ms frame
-/// budget for attention.
+/// [`crate::ActivityModel::now_ms`] while an activity runs. Coarse on purpose: it only
+/// drives an "N s elapsed" label, and must not compete with the 16 ms frame budget.
 const TICK_INTERVAL: Duration = Duration::from_secs(1);
 
 /// A negative "no fraction known" marker for [`ActivityEntry::progress`]/
@@ -76,9 +67,8 @@ struct ActivityList {
 }
 
 impl ActivityList {
-    /// Registers a new activity and returns its id -- always one more than the
-    /// previous id this list ever handed out, even across `finish` calls, so two
-    /// activities can never collide even if one finishes before another starts.
+    /// Registers a new activity and returns its id. Ids are never reused, even after
+    /// `finish`, so a stale id can never match a newer activity.
     fn start(&mut self, kind: String, label: String, cancellable: bool, started_ms: i64) -> u64 {
         self.next_id += 1;
         let id = self.next_id;
@@ -165,11 +155,8 @@ pub(in crate::gui::editor) struct ActivityRegistry {
     /// epoch".
     epoch: Instant,
     ticker: slint::Timer,
-    /// A weak handle back to this SAME [`ActivityRegistry`], for the ticker's own
-    /// `triggered` closure -- identical reasoning to
-    /// [`super::edit_intent::EditIntentQueue::self_weak`]'s own doc comment: a
-    /// strong `Rc` captured by a closure registered on `self.ticker` (a field this
-    /// struct itself owns) would be a permanent reference cycle.
+    /// Weak handle to this registry, for the ticker closure. A strong `Rc` here would
+    /// form a reference cycle through `ticker`, which this struct owns.
     self_weak: RcWeak<Self>,
 }
 
@@ -199,13 +186,9 @@ impl ActivityRegistry {
         registry
     }
 
-    /// Wires the four `start_external`/`progress_external`/`finish_external`/
-    /// `external_cancel` callbacks (`ui/models/activity.slint`'s own doc comment
-    /// explains why they exist) -- split out of [`Self::new`] purely to keep that
-    /// function under clippy's function-length lint. Takes `registry` as a plain
-    /// `&Rc<Self>` (rather than an exotic `self: &Rc<Self>` receiver) so `Self::new`
-    /// can call it right after `Rc::new_cyclic` returns, before `registry` has been
-    /// handed back to any caller.
+    /// Wires the `start_external`/`progress_external`/`finish_external` callbacks of
+    /// `ActivityModel` (see `ui/models/activity.slint`). Takes `&Rc<Self>` so it can
+    /// run right after `Rc::new_cyclic` in [`Self::new`].
     fn wire_external_bridge(registry: &Rc<Self>, ui: &MainWindow) {
         ui.global::<ActivityModel>().on_start_external({
             let registry = Rc::clone(registry);
@@ -232,13 +215,10 @@ impl ActivityRegistry {
         });
     }
 
-    /// The `start_external` callback's actual body -- see [`Self::start`] for the
-    /// Rust-closure-cancel path this is the Slint-bridge counterpart of. A
-    /// `cancellable` activity started this way has no local Rust closure to run on
-    /// cancel (a Slint callback carries only plain data, never a closure), so its
-    /// registered "cancel" is instead a closure that invokes `ActivityModel.
-    /// external_cancel(id)` -- see `ui/models/activity.slint`'s own doc comment on
-    /// that callback for who is expected to be listening.
+    /// Body of the `start_external` callback. A Slint callback carries only plain data,
+    /// so a cancellable external activity cannot hold a Rust closure; its registered
+    /// cancel instead invokes `ActivityModel.external_cancel(id)` (see
+    /// `ui/models/activity.slint`).
     pub(in crate::gui::editor) fn start_external(
         &self,
         kind: String,
@@ -270,20 +250,16 @@ impl ActivityRegistry {
         id
     }
 
-    /// Milliseconds since [`Self::epoch`], saturating rather than panicking on
-    /// overflow -- see the module doc comment for why this never actually
-    /// approaches `i32::MAX` in practice.
+    /// Milliseconds since [`Self::epoch`], saturating on overflow. See the module doc
+    /// for why `i32` is never approached in practice.
     fn elapsed_ms(&self) -> i64 {
         i64::try_from(self.epoch.elapsed().as_millis()).unwrap_or(i64::MAX)
     }
 
-    /// Registers a new activity, pushes it into [`crate::ActivityModel`], and
-    /// starts the elapsed-time ticker if this is the first one running. `cancel` is
-    /// `None` for an activity with no real cancellation handle (its
-    /// [`crate::ActivityItem::cancellable`] is then `false`, hiding the Cancel
-    /// affordance in the status strip); `Some` wraps a closure calling straight
-    /// into the underlying handle's own `cancel()` (`SolveHandle`/`DeepSolveHandle`/
-    /// `OptimizeHandle`, whichever the caller owns).
+    /// Registers a new activity, pushes it into [`crate::ActivityModel`], and starts
+    /// the elapsed-time ticker if it is the first one running. `cancel` is `None` for
+    /// an activity with no cancellation handle, which hides its Cancel button;
+    /// `Some` is called when the user cancels.
     pub(in crate::gui::editor) fn start(
         &self,
         kind: impl Into<String>,
@@ -315,10 +291,8 @@ impl ActivityRegistry {
         }
     }
 
-    /// Removes `id`, drops its cancel closure, and re-syncs the model -- called
-    /// exactly once per [`Self::start`] call, on whichever event loop turn the
-    /// activity's own completion/cancellation/error path lands on. Stops the
-    /// elapsed-time ticker once this empties the list entirely.
+    /// Removes `id`, drops its cancel closure, and re-syncs the model. Stops the
+    /// elapsed-time ticker once the list is empty.
     pub(in crate::gui::editor) fn finish(&self, id: u64) {
         self.cancels.borrow_mut().remove(id);
         if self.list.borrow_mut().finish(id) {
@@ -329,10 +303,8 @@ impl ActivityRegistry {
         }
     }
 
-    /// Starts the one-second elapsed-time ticker -- idempotent-in-effect the same
-    /// way `slint::Timer::start` always is (a running timer just gets a fresh
-    /// interval/closure), called only from [`Self::start`]'s own "was empty" guard
-    /// so it is not restarted redundantly on every subsequent activity.
+    /// Starts the one-second elapsed-time ticker. Called only when the list goes from
+    /// empty to non-empty, so the ticker is not restarted for every activity.
     fn start_ticker(&self) {
         let registry = self.self_weak.clone();
         self.ticker
@@ -348,11 +320,9 @@ impl ActivityRegistry {
             });
     }
 
-    /// Rebuilds [`crate::ActivityModel::activities`]/`now_ms` from [`Self::list`]'s
-    /// current entries -- the activity count is always small (at most a handful of
-    /// concurrent long-running operations), so rebuilding the whole `ModelRc` on
-    /// every change is cheap; there is no per-row incremental update path here the
-    /// way `state::push_tiers` has for the (much larger) tier table.
+    /// Rebuilds [`crate::ActivityModel::activities`] and `now_ms` from the current
+    /// entries. The count is always a handful, so rebuilding the whole model on each
+    /// change is cheap.
     fn sync_model(&self) {
         let Some(ui) = self.ui.upgrade() else {
             return;
@@ -512,11 +482,6 @@ mod tests {
         assert_eq!(*second_calls.borrow(), 1);
     }
 
-    // `ActivityRegistry` itself (as opposed to the two pure types above) is NOT
-    // exercised end-to-end here: `ActivityRegistry::new` requires a live
-    // `slint::ComponentHandle` (a real `MainWindow`), which needs a windowing
-    // backend this suite cannot start -- the identical constraint
-    // `solve_service`/`edit_intent`'s own test modules document. `ActivityList`/
-    // `CancelMap` cover every decision `ActivityRegistry::start`/`progress`/
-    // `finish`/`ActivityModel.cancel` make, without needing one.
+    // `ActivityRegistry` itself needs a live `MainWindow`, which the test suite cannot
+    // start; `ActivityList` and `CancelMap` cover every decision it makes.
 }

@@ -23,7 +23,7 @@ const TARGET_SCALE: f32 = 0.5;
 /// Balanced weight fractions (the three optical terms only).
 const BALANCED: [f32; N_COMPONENTS] = [1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0, 0.0, 0.0, 0.0, 0.0];
 
-/// A label row of the four hand-built components; the tone and shape components are unmeasured (NaN).
+/// A label row of the four hand-built components; the tone and shape components are NaN.
 fn component_row(values: [f32; 4]) -> [f32; N_COMPONENTS] {
     std::array::from_fn(|c| values.get(c).copied().unwrap_or(f32::NAN))
 }

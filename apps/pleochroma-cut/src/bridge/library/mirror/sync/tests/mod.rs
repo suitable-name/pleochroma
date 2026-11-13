@@ -1,5 +1,6 @@
 //! Tests for the mirror sync pipeline, built against [`fixtures::FakeTransport`], a
-//! scripted, in-memory [`LibraryTransport`](crate::bridge::library::mirror::options::LibraryTransport).
+//! scripted, in-memory
+//! [`LibraryTransport`](crate::bridge::library::mirror::options::LibraryTransport).
 
 mod fixtures;
 mod frosting;
@@ -21,8 +22,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 #[test]
 fn a_local_only_design_survives_a_mirror_sync() {
     let (db, path) = temp_db();
-    // A design that exists ONLY locally (a user's own `.asc` import) -- a synthetic
-    // `local://` URL, exactly `pleochroma_vault::local::import_asc`'s convention.
+    // A design that exists only locally (a user's `.asc` import), under a `local://` URL.
     let local_entry_id = {
         let guard = db.lock().unwrap();
         guard
@@ -83,13 +83,10 @@ fn a_local_only_design_survives_a_mirror_sync() {
     std::fs::remove_file(&path).ok();
 }
 
-/// unlike [`a_local_only_design_survives_a_mirror_sync`] (a local row and a
-/// remote design at DIFFERENT urls, which never touch each other regardless of any
-/// guard), this scripts a remote design whose `url` is IDENTICAL to a pre-existing
-/// local row's -- exactly the collision a worker serving its own `local://` imports
-/// (or a coincidentally-matching hand import) can produce. The local row must survive
-/// completely untouched, and the attempt must be counted as
-/// `local_conflicts_skipped`, never as `new_count`/`updated_count`/`failed`.
+/// Like [`a_local_only_design_survives_a_mirror_sync`], but the remote design's `url` equals an
+/// existing local row's url, as a worker serving its own `local://` imports can produce. The
+/// local row must survive untouched, and the attempt is counted as `local_conflicts_skipped`,
+/// never as `new_count`, `updated_count` or `failed`.
 #[test]
 fn a_remote_design_colliding_with_an_unmirrored_local_urls_identity_is_left_untouched() {
     let (db, path) = temp_db();
@@ -216,12 +213,9 @@ fn a_new_design_is_saved_with_its_attachment() {
     std::fs::remove_file(&path).ok();
 }
 
-/// `source_citation`/`pdf_file`/`gem_file`/`shape_category` (added to
-/// `DesignRecord` under `PROTOCOL_VERSION` v15) must survive a mirror sync into the
-/// local `diagram_details` row -- `save_diagram_detail` fully replaces that row on
-/// every sync, so leaving any of these four unmapped in `sync::design::build_detail`
-/// would silently blank them, exactly like the eight ratio/symmetry fields the
-/// pre-existing test coverage on this module already pins.
+/// `source_citation`, `pdf_file`, `gem_file` and `shape_category` must survive a mirror sync into
+/// the local `diagram_details` row. `save_diagram_detail` replaces that row on every sync, so an
+/// unmapped field in `sync::design::build_detail` would be blanked.
 #[test]
 fn a_synced_designs_citation_and_shape_category_fields_are_saved_locally() {
     let (db, path) = temp_db();
@@ -320,8 +314,7 @@ fn a_changed_design_is_refetched_and_updated_in_place() {
         |_| {},
     );
 
-    // The remote design's L/W ratio changed -- both its summary and design hashes
-    // move (see `design_summary`/`design_record`'s shared `content_hash` input).
+    // The remote design's L/W ratio changed, so the summary hash moves (see `design_summary`).
     let summary_v2 = design_summary(1, "Round Brilliant", "https://example.test/1", "v2-updated");
     let record_v2 = design_record(1, "Round Brilliant", "https://example.test/1", "v2-updated");
     let transport_v2 = FakeTransport::new(vec![summary_v2], vec![record_v2]);
@@ -502,18 +495,12 @@ fn a_failed_fetch_is_counted_and_never_marked_synced() {
     std::fs::remove_file(&path).ok();
 }
 
-/// The scenario the held-connection task exists to handle: a mid-sync connection
-/// drop. In production, `LibrarySession` (see `bridge::library::client`) hides a
-/// RECOVERABLE drop entirely -- it reconnects and retries the same request, so
-/// `run_mirror_sync` never even sees a failure (see
-/// `library_client::tests::request_with_reconnect_reconnects_once_after_a_dead_connection_and_succeeds`
-/// for that half, proven with no live socket). This test covers the other half: what
-/// `run_mirror_sync` itself does when a design's connection drop could NOT be
-/// recovered (the reconnect attempt also failed) -- exactly what
-/// `FakeTransport::with_fetch_design_failure` scripts. The sync must not abort: it
-/// counts that one design as failed, leaves it exactly as it was locally (so the next
-/// sync retries it, same as `a_failed_fetch_is_counted_and_never_marked_synced`), and
-/// keeps going to fetch and save every OTHER design in the catalogue.
+/// A mid-sync connection drop that could not be recovered: the reconnect attempt also failed,
+/// which `FakeTransport::with_fetch_design_failure` scripts as a transport error. The sync must
+/// not abort. It counts that design as failed, leaves it as it was locally (so the next sync
+/// retries it), and still fetches and saves every other design. A recoverable drop never
+/// reaches this function: `LibrarySession` reconnects and retries first (see
+/// `library_client::tests`).
 #[test]
 fn a_design_whose_connection_could_not_be_recovered_is_skipped_but_the_rest_of_the_sync_completes()
 {
@@ -656,9 +643,8 @@ fn a_multi_page_mirror_reaches_designs_beyond_the_first_page() {
     std::fs::remove_file(&path).ok();
 }
 
-/// "Local delete wins" must hold after the remote design CHANGES, not only while its
-/// hash still matches: deleting a mirrored design tombstones its mirror state, and a
-/// later pass skips the tombstoned url before fetching anything.
+/// Local delete wins after the remote design changes too: a tombstoned url is skipped before any
+/// fetch, even when its versions have moved.
 #[test]
 fn a_locally_deleted_design_is_not_resurrected_when_the_remote_changes() {
     let (db, path) = temp_db();

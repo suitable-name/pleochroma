@@ -122,8 +122,8 @@ fn start(
         return;
     }
     // The full-record read (every angle row and file BLOB) and its parse run on a worker, on
-    // a read-only connection that does not queue behind a writer holding the shared lock
-    // (perf review UI-5 / DB-1); `busy` stays set until the lesson is generated or fails.
+    // a read-only connection that does not queue behind a writer holding the shared lock.
+    // `busy` stays set until the lesson is generated or fails.
     model.set_busy(true);
     let db = Arc::clone(db);
     let ui_weak = ui.as_weak();

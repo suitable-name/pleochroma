@@ -13,7 +13,7 @@
 //! - `reason`: why the cutter overrode the rule, shown as "overridden (reason)" and printed on
 //!   the cutting sheet.
 //!
-//! # Re-fit This Piece
+//! # Re-Fit
 //!
 //! Another table axis is not a pose of the same box (it changes the stone's box, so the piece
 //! holds a different stone): [`refit_block_piece`] and [`refit_shaped_piece`] answer with the
@@ -69,10 +69,10 @@ impl StoneChoice {
 
 /// The pose index that puts each stone of `layout` nearest its design's azimuth target.
 ///
-/// It applies to the rules that have one (a Custom Angle with an azimuth); [`apply_suggested_poses`]
-/// turns the layout's stones into it. `designs` are the candidates the layout was planned with (they carry the resolved
-/// rules). `0` for every stone whose rule does not depend on the azimuth, whose design is not
-/// in `designs`, and for an exact single-stone fit (its pose is unique).
+/// Only a Custom Angle with an azimuth has one; see [`apply_suggested_poses`], which turns the
+/// layout's stones into it. `designs` are the candidates the layout was planned with (they carry
+/// the resolved rules). `0` for every stone whose rule does not depend on the azimuth, whose
+/// design is not in `designs`, and for an exact single-stone fit (its pose is unique).
 #[must_use]
 pub fn suggested_poses(layout: &RoughLayout, designs: &[CandidateDesign]) -> Vec<u8> {
     layout
@@ -117,7 +117,7 @@ fn with_suggested_pose(mut stone: PlacedStone, design: &CandidateDesign) -> Plac
 /// the stone's true orientation and nothing is recorded as a cutter's choice.
 ///
 /// It touches box stones only (an exact single-stone fit has one pose) and is safe to call again:
-/// a turned pose is no longer in the planner's own form (`orient_of_pose` is `None`), so its
+/// a turned pose is not in the planner's own form (`orient_of_pose` is `None`), so its
 /// suggested index is `0` and it stays as it is.
 pub fn apply_suggested_poses(layout: &mut RoughLayout, designs: &[CandidateDesign]) {
     let suggested = suggested_poses(layout, designs);
@@ -185,8 +185,9 @@ pub fn refit_block_piece(
 /// [`refit_block_piece`] for a shaped rough.
 ///
 /// The piece of `stone` is clipped by the rough's planes (and its mesh), so the stone is solved by
-/// the single-piece LP of the shaped planner (`StoneFitter`). `None` when no stone of at least the minimum width fits the piece under the
-/// assignment (or under any assignment the rule allows, for `orient == None`).
+/// the single-piece LP of the shaped planner (`StoneFitter`). `None` when no stone of at least
+/// the minimum width fits the piece under the assignment (or under any assignment the rule
+/// allows, for `orient == None`).
 #[must_use]
 pub fn refit_shaped_piece(
     ctx: &ShapedCtx,

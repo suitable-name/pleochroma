@@ -73,14 +73,13 @@ export component Pills inherits HorizontalLayout {
     }
 }
 
-// The render settings, a compact version of the desktop's settings dialog: lighting
-// (the preset combo shares `AppModel.lighting-index` with the header, so the two
-// stay in sync), exposure, light direction, backdrop, HDR, quality (bounces, target
-// samples, denoise), and the material controls. Every control writes its
-// `RenderModel` property and calls `RenderModel.settings-edited()`; Rust reads them
-// all back (`src/render/panel.rs`). Two controls are the exceptions: the Surface Glare slider
-// reports through `RenderModel.surface-glare-edited` (`src/app/callbacks.rs`), and the Body
-// Color combo is the Design Settings dialog's own state (`DesignSettingsModel`).
+// The render settings: lighting, exposure, light direction, backdrop, HDR, quality, GPU and
+// the material controls. Each control writes its `RenderModel` property and calls
+// `RenderModel.settings-edited()`; Rust reads them all back (`src/render/panel.rs`). Two
+// exceptions: the Surface Glare slider reports through `RenderModel.surface-glare-edited`
+// (`src/app/callbacks.rs`), and the Body Color combo is the Design Settings dialog's own
+// state (`DesignSettingsModel`). The lighting combo shares `AppModel.lighting-index` with
+// the header.
 export component RenderSettingsPanel inherits Rectangle {
     background: Theme.bg-card;
     border-radius: Theme.radius-md;
@@ -89,6 +88,10 @@ export component RenderSettingsPanel inherits Rectangle {
     drop-shadow-blur: 16px;
     drop-shadow-color: Theme.toast-shadow;
     clip: true;
+
+    // An uploaded HDR map lights the scene: it is its own world, so the key light's direction
+    // gives way to the map's rotation.
+    property <bool> hdr-lit: AppModel.hdr-name != "" && RenderModel.use-hdr;
 
     ScrollView {
         width: 100%;
@@ -172,29 +175,56 @@ export component RenderSettingsPanel inherits Rectangle {
                 value <=> RenderModel.surface-glare-percent;
                 changed => { RenderModel.surface-glare-edited(Math.round(self.value / 5) * 5); }
             }
-            ValueRow {
-                label: "Light Azimuth";
-                value: Math.round(RenderModel.light-yaw-deg) + "\u{b0}";
-                active: RenderModel.light-direction-used;
+            if !root.hdr-lit: VerticalLayout {
+                spacing: 6px;
+                ValueRow {
+                    label: "Light Azimuth";
+                    value: Math.round(RenderModel.light-yaw-deg) + "\u{b0}";
+                    active: RenderModel.light-direction-used;
+                }
+                Slider {
+                    enabled: RenderModel.light-direction-used;
+                    minimum: 0;
+                    maximum: 360;
+                    value <=> RenderModel.light-yaw-deg;
+                    changed => { RenderModel.settings-edited(); }
+                }
+                ValueRow {
+                    label: "Light Elevation";
+                    value: Math.round(RenderModel.light-pitch-deg) + "\u{b0}";
+                    active: RenderModel.light-direction-used;
+                }
+                Slider {
+                    enabled: RenderModel.light-direction-used;
+                    minimum: 10;
+                    maximum: 90;
+                    value <=> RenderModel.light-pitch-deg;
+                    changed => { RenderModel.settings-edited(); }
+                }
             }
-            Slider {
-                enabled: RenderModel.light-direction-used;
-                minimum: 0;
-                maximum: 360;
-                value <=> RenderModel.light-yaw-deg;
-                changed => { RenderModel.settings-edited(); }
-            }
-            ValueRow {
-                label: "Light Elevation";
-                value: Math.round(RenderModel.light-pitch-deg) + "\u{b0}";
-                active: RenderModel.light-direction-used;
-            }
-            Slider {
-                enabled: RenderModel.light-direction-used;
-                minimum: 10;
-                maximum: 90;
-                value <=> RenderModel.light-pitch-deg;
-                changed => { RenderModel.settings-edited(); }
+            // The map has no key light: its rotation turns it around the stone, and the switch
+            // makes it follow the camera instead of staying fixed in the room.
+            if root.hdr-lit: VerticalLayout {
+                spacing: 6px;
+                ValueRow {
+                    label: "Map Rotation";
+                    value: Math.round(RenderModel.hdr-yaw-deg) + "\u{b0}";
+                }
+                Slider {
+                    minimum: 0;
+                    maximum: 360;
+                    value <=> RenderModel.hdr-yaw-deg;
+                    changed => { RenderModel.settings-edited(); }
+                }
+                Switch {
+                    text: "Turns with the Camera";
+                    checked <=> RenderModel.hdr-follows-camera;
+                    toggled => { RenderModel.settings-edited(); }
+                }
+                Text {
+                    text: "Turns the HDR map around the stone. With the switch on, the map stays fixed relative to the camera.";
+                    font-size: 10px; color: Theme.text-muted; wrap: word-wrap;
+                }
             }
             Text {
                 text: "Backdrop";

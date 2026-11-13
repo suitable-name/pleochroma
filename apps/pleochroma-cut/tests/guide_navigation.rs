@@ -1,11 +1,12 @@
-//! Guards the navigation of the guide panel (`ui/models/guide.slint`, `ui/components/guide_panel.slint`):
+//! Guards the navigation of the guide panel (`ui/models/guide.slint` and
+//! `ui/components/guide_panel.slint`):
 //!
 //! - every way into a step (start, Next and the automatic advance, Back) fires `step_entered`,
-//!   which is where Rust forgets the events of the step before, holds the original of a "Build
-//!   this design" lesson for its compare step, and re-checks the step's goal. Back used to skip
-//!   it, so a step the learner went back to showed "Waiting for" although its goal held;
+//!   which clears the events of the step before, keeps the original of a "Build this design"
+//!   lesson for its compare step and re-checks the step's goal. Back must fire it too, or a
+//!   revisited step shows "Waiting for" although its goal holds;
 //! - after Back a step whose goal still holds stays on screen (`revisiting`) instead of moving
-//!   on again by itself after the short "Done" moment.
+//!   on by itself after the short "Done" moment.
 //!
 //! The Slint tree cannot be run in a test, so this reads the sources as text, like
 //! `guide_highlights.rs` and `theme_tokens.rs`.
@@ -77,8 +78,7 @@ fn a_revisited_step_does_not_advance_by_itself_and_offers_next() {
         .split(';')
         .find_map(|statement| statement.trim().strip_prefix("running:"))
         .expect("the advance timer must have a running condition");
-    // Additional AND guards (such as the recorder's presentation hold) must not
-    // invalidate the revisit check. Inspect the advance timer, not another timer.
+    // Extra AND guards (such as the recorder's presentation hold) may join these.
     let guards: Vec<_> = running.split("&&").map(str::trim).collect();
     for required in [
         "GuideModel.step_done",
@@ -98,8 +98,8 @@ fn a_revisited_step_does_not_advance_by_itself_and_offers_next() {
     assert!(panel.contains("text: GuideModel.offers_next ?"));
 }
 
-/// Next on an unfinished step does the step where the app can (`perform`), and the button waits
-/// while the recipe runs. Only a step the app cannot do keeps the plain "Skip step".
+/// Next on an unfinished step performs it where the app can (`perform`), and the button waits
+/// while the recipe runs. Only a step the app cannot perform keeps the plain "Skip step".
 #[test]
 fn next_on_an_unfinished_step_performs_it_and_waits_for_the_result() {
     let guide = read("ui/models/guide.slint");

@@ -6,19 +6,13 @@ use crate::gui::optics::crystal_optics::{
 };
 use pleochroma::optics::materials::GemMaterial;
 
-/// Converts one startup `get_custom_materials()` row read into BOTH
-/// `RenderContext::custom_materials` and `RenderContext::
-/// custom_material_specific_gravity` together -- pulled out
-/// of `super::main_window::build_main_window` purely so this pure conversion is
-/// unit-testable without constructing a whole `MainWindow`/`Database`.
+/// Converts the startup `get_custom_materials()` rows into both
+/// `RenderContext::custom_materials` and `RenderContext::custom_material_specific_gravity`.
 ///
-/// Both lists are derived from the same row read so they can never disagree:
-/// without deriving `custom_material_specific_gravity` here too,
-/// `RenderContext::custom_material_specific_gravity` would stay empty until this
-/// session's own save/delete callback (`gui::optics::custom_materials`) ran at
-/// least once -- a custom material's carat-weight estimate would read blank for
-/// the whole first browse of a freshly launched app, even for a material that
-/// already had a recorded specific gravity on disk.
+/// Both lists come from the same rows, so they never disagree. The specific-gravity list is
+/// filled at startup, not only after a save or delete, so a custom material's carat estimate
+/// is available from the first browse. Kept as a pure function so it can be unit-tested
+/// without a `MainWindow`.
 #[must_use]
 pub(super) fn initial_custom_materials_and_specific_gravity(
     rows: &[pleochroma_vault::model::material::CustomMaterialRow],
@@ -58,12 +52,8 @@ mod tests {
 
     // --- initial_custom_materials_and_specific_gravity ---
 
-    /// Every row becomes a `GemMaterial` regardless of whether it has a recorded
-    /// SG, but only the rows that DO have one contribute an entry to the second
-    /// tuple element -- the exact split `RenderContext::custom_materials`/
-    /// `custom_material_specific_gravity` themselves keep, now populated at
-    /// startup from the same read instead of staying empty until a save/delete
-    /// callback has run this session.
+    /// Every row becomes a `GemMaterial`; only rows with a recorded specific gravity add an
+    /// entry to the second list.
     #[test]
     fn startup_helper_populates_both_lists_from_one_row_read() {
         let rows = [
@@ -76,11 +66,8 @@ mod tests {
         assert!(materials.iter().any(|m| m.name == "My Garnet"));
         assert!(materials.iter().any(|m| m.name == "Custom Diamond"));
 
-        // Exact `f32` -> `f64` widening (no arithmetic in between), but not
-        // literal-equal to a directly-typed `f64` -- see `crystal_optics::
-        // custom_material_specific_gravity_from_rows`'s own tests for why this
-        // compares by name and by tolerance rather than a brittle `assert_eq!`
-        // against a `vec![...]` literal.
+        // The `f32` to `f64` widening is not exact for a literal, so compare by name and
+        // within a tolerance rather than with `assert_eq!` on a `vec![...]` literal.
         assert_eq!(
             specific_gravity.len(),
             1,
@@ -91,9 +78,7 @@ mod tests {
         assert!((specific_gravity[0].1 - 3.90_f64).abs() < 1e-6);
     }
 
-    /// An empty catalogue (fresh install, or a session with no custom materials
-    /// saved yet) must not panic and must produce two empty lists, never a
-    /// default/placeholder entry.
+    /// An empty catalogue gives two empty lists, with no placeholder entry.
     #[test]
     fn startup_helper_is_empty_for_no_custom_materials() {
         let (materials, specific_gravity) = initial_custom_materials_and_specific_gravity(&[]);

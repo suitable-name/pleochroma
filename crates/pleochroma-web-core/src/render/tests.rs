@@ -314,7 +314,7 @@ fn the_first_pass_is_one_sample_and_later_passes_are_sized_from_the_slowest_work
     // Slowest: 0.002 ms * 50_000 px = 100 ms per spp -> 2 spp for 200 ms.
     let c = planner.next_chunk(0, 0).expect("second pass");
     assert_eq!((c.pass_index, c.sample_offset, c.spp), (1, 1, 2));
-    // Lookahead: partition 0 is now two passes ahead of the merged count (0).
+    // Lookahead: partition 0 is two passes ahead of the merged count (0).
     assert_eq!(planner.next_chunk(0, 0), None);
     assert!(planner.next_chunk(0, 1).is_some());
 }
@@ -463,11 +463,11 @@ fn return_gpu_pass_leads_to_complete_merge_from_cpu_partitions_alone() {
     assert_eq!(spp, 1);
     assert_eq!(planner.pass_owner(0), Some(PassOwner::Gpu));
 
-    // Now return the GPU pass (e.g. after GPU failure or device loss).
+    // Return the GPU pass, e.g. after a GPU failure or device loss.
     planner.return_gpu_pass(pass_id);
     assert_eq!(planner.pass_owner(0), Some(PassOwner::Cpu));
 
-    // Now CPU partitions alone trace all passes until completion.
+    // CPU partitions alone trace all passes until completion.
     let mut acc = Accumulator::new(9, WIDTH, HEIGHT, partitions);
     let mut iterations = 0;
     while !planner.is_done(acc.completed_passes()) {

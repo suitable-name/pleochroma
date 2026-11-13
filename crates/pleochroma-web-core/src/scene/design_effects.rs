@@ -1,9 +1,10 @@
-//! [`design_effects_spec`]: a design's render physics as the [`EffectsSpec`] every consumer takes.
+//! [`design_effects_spec`]: a design's render physics as the [`EffectsSpec`] consumers take.
 //!
-//! The browser app and the phone app both read the design's `[render_effects]` keys (inclusions,
-//! play-of-color, abraded edge) and its tier surface finish and send them with the scene, so the
-//! record is built in one place: a design renders the same stone on the desktop, in the browser
-//! and on the phone, and a remote worker is sent the same record the local tracer applies.
+//! The browser app and the phone app both read the design's `[render_effects]` keys
+//! (inclusions, play-of-color, abraded edge) and its tier surface finish and send them with the
+//! scene. The record is built in one place, so a design renders the same stone on the desktop,
+//! in the browser and on the phone, and a remote worker gets the same record the local tracer
+//! applies.
 
 use pleochroma::{
     geometry::meet_solver::SolvedTier,

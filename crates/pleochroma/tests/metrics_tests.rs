@@ -17,15 +17,14 @@ const fn studio() -> EnvironmentSource<'static> {
     LightingPreset::RingLights.studio(1.0, 0.85, 0.95)
 }
 
-/// The tests that compare two stones or two materials look at several camera poses rather
-/// than one, so a single pose where both readings sit on the same floor cannot decide them.
+/// Comparison tests read several camera poses: one pose can put two stones on the same floor
+/// and decide nothing.
 const COMPARISON_POSES: [(f32, f32); 4] = [(0.0, 1.4), (0.0, 0.45), (0.6, 0.9), (0.8, 0.05)];
 
-/// The gemological metrics evaluate rays from an observer `PoV` basis that must exactly
-/// match the real render camera's basis (`Camera::new`), including the `world_up`
-/// fallback threshold and axis used near the poles. A mismatch there means
-/// `evaluate_gem_optical_metrics` / `evaluate_angular_profile` score a differently-rolled
-/// frame than what is actually rendered, most visibly at steep camera tilt.
+/// Checks that the metrics' observer basis matches the render camera's (`Camera::new`).
+///
+/// That includes the `world_up` choice near the poles. A mismatch scores a differently rolled
+/// frame, most visibly at steep tilt.
 fn assert_bases_match(yaw: f32, pitch: f32) {
     let camera = Camera::new(yaw, pitch, 2.4, 42.0);
     let (forward, right, up) = camera_view_basis(yaw, pitch);
@@ -61,9 +60,8 @@ fn metrics_camera_basis_matches_render_camera_at_shallow_and_typical_angles() {
 
 #[test]
 fn metrics_camera_basis_matches_render_camera_near_the_pole() {
-    // The user's own camera clamps pitch at roughly +/-1.48 rad (~85 deg), and
-    // evaluate_angular_profile sweeps all the way to 90 deg, so both the steep-but-clamped
-    // case and the exact-pole case must agree between the metrics basis and the render camera.
+    // The profile sweeps reach 90 deg, so both the steep case and the exact pole must agree
+    // between the metrics basis and the render camera.
     for &yaw in &[0.0f32, 0.6, 2.1] {
         assert_bases_match(yaw, 85f32.to_radians());
         assert_bases_match(yaw, 90f32.to_radians());
@@ -73,8 +71,8 @@ fn metrics_camera_basis_matches_render_camera_near_the_pole() {
 
 #[test]
 fn metrics_camera_basis_matches_render_camera_past_the_pole() {
-    // Past +/-90 deg of pitch the render camera switches its `world_up` so the image does
-    // not mirror; the metrics basis is that same camera's basis and must follow.
+    // Past +/-90 deg of pitch the render camera flips `world_up` so the image does not
+    // mirror; the metrics basis must follow.
     for &yaw in &[0.0f32, 0.6, 2.1] {
         assert_bases_match(yaw, 100f32.to_radians());
         assert_bases_match(yaw, 135f32.to_radians());
@@ -84,8 +82,7 @@ fn metrics_camera_basis_matches_render_camera_past_the_pole() {
 
 #[test]
 fn metrics_camera_basis_right_up_forward_are_orthonormal() {
-    // Sanity check on the shared basis helper itself: regardless of the world_up branch
-    // taken, the result should always be an orthonormal right-handed-ish basis.
+    // The shared basis helper must return an orthonormal set on every `world_up` branch.
     for &pitch_deg in &[0.0f32, 5.0, 45.0, 85.0, 90.0] {
         let (forward, right, up) = camera_view_basis(0.3, pitch_deg.to_radians());
         assert!((forward.length() - 1.0).abs() < 1e-4);
@@ -98,20 +95,15 @@ fn metrics_camera_basis_right_up_forward_are_orthonormal() {
 }
 
 // ---------------------------------------------------------------------------------------
-// Fire and Scintillation: these are genuinely measured from the traced facet geometry
-// (not closed-form fits), so both must respond to the *cut*, not just the material.
-// See src/color/metrics/mod.rs for the measurement methodology. The assertions below are
-// orderings and physical ranges, not pinned readings: the readings move with the lighting
-// model and the fan scale, the orderings are what the physics fixes.
+// Fire and Scintillation are measured from the traced facet geometry, so both must respond
+// to the cut, not just the material. See src/color/metrics/mod.rs for the method. The
+// assertions check orderings and physical ranges, not pinned readings.
 // ---------------------------------------------------------------------------------------
 
 #[test]
 fn fire_differs_between_two_cuts_of_the_same_material() {
-    // Under the old formula ((n_f - n_c) * 1800.0), fire_index depends ONLY on the
-    // material's dispersion, so every cut of a given material reports byte-identical
-    // fire. The measurement traces the actual facet geometry, so a genuinely different
-    // cut of the SAME material (round brilliant vs. emerald/step cut) must report a
-    // different fire_index at some pose.
+    // The measurement traces the facet geometry, so a different cut of the same material
+    // (round brilliant vs. emerald cut) must report a different fire_index at some pose.
     let srb = StandardGemCuts::standard_round_brilliant();
     let ec = StandardGemCuts::emerald_cut();
     let diamond = GemMaterial::diamond();
@@ -137,16 +129,10 @@ fn fire_differs_between_two_cuts_of_the_same_material() {
 
 #[test]
 fn fire_is_higher_for_a_high_dispersion_material_than_a_low_dispersion_one() {
-    // Holding the cut fixed, a material with genuinely higher dispersion (larger n_F -
-    // n_C) must still measure higher Fire than a low-dispersion material -- the cut-vs-
-    // material effects should not scramble this ordering for a clearly-separated pair.
+    // On a fixed cut, a material with higher dispersion (larger n_F - n_C) must measure
+    // higher fire than a low-dispersion one.
     let srb = StandardGemCuts::standard_round_brilliant();
-    // NOTE: deliberately NOT using `GemMaterial::by_name("Cubic Zirconia")` here --
-    // `by_name`'s substring fallback (`name.to_lowercase().contains(&m.name.to_lowercase())`)
-    // matches "Zircon" as a substring of "cubic zirconia" before it ever reaches the
-    // "Cubic Zirconia" entry later in `all_materials()`, so `by_name("Cubic Zirconia")`
-    // silently returns Zircon instead. Worked around here with an exact-name lookup so
-    // this test asserts what it says it asserts.
+    // Exact-name lookup, so the entry is certainly Cubic Zirconia.
     let cz = GemMaterial::all_materials()
         .into_iter()
         .find(|m| m.name == "Cubic Zirconia")
@@ -262,21 +248,17 @@ fn a_different_lighting_preset_changes_what_is_returned() {
     );
 }
 
-/// Ceiling used by the `cv / (1 + cv)` squash: `scintillation_pct` is mathematically
-/// bounded strictly below 100 (see the mapping comment in `scintillation.rs`), but f32
-/// rounding of a very large CV could in principle land a printed value at 100.0 without a
-/// margin. Tests below require staying comfortably clear of the ceiling, not just short of
-/// exact equality.
+/// Ceiling of the `cv / (1 + cv)` squash. `scintillation_pct` stays below 100 by construction
+/// (see `scintillation.rs`), but a printed value can round to 100.0, so tests keep this margin.
 const SCINTILLATION_CEILING_MARGIN: f32 = 0.5;
 
 #[test]
 fn scintillation_is_not_a_pure_function_of_windowing_and_extinction() {
-    // A pure arithmetic function of windowing_pct and extinction_pct (for example
-    // 100.0 - (windowing_pct * 0.6 + extinction_pct * 0.4)) would carry no independent
-    // information. Scintillation depends on *where* the light returns from, not just how
-    // much, so across a spread of stones and poses it must depart from any such formula
-    // for at least one of them -- while staying clear of the display ceiling, which would
-    // make the departure vacuous (a saturated 100 differs from everything below it).
+    // A fixed function of windowing_pct and extinction_pct (such as
+    // 100.0 - (0.6 * windowing + 0.4 * extinction)) would carry no information of its own.
+    // Scintillation depends on where the light returns from, so it must depart from such a
+    // formula somewhere, while staying clear of the ceiling (a saturated 100 would differ
+    // from everything trivially).
     let srb = StandardGemCuts::standard_round_brilliant();
     let ec = StandardGemCuts::emerald_cut();
     let cz = GemMaterial::all_materials()
@@ -314,12 +296,9 @@ fn scintillation_is_not_a_pure_function_of_windowing_and_extinction() {
 
 #[test]
 fn no_built_in_material_saturates_scintillation_on_either_cut() {
-    // The display mapping `cv / (1 + cv)` is a monotone bijection from [0, inf) onto
-    // [0, 1) -- it approaches 100% asymptotically but can never reach it. This test pins
-    // that property against every built-in material on both cuts at a representative
-    // viewing/lighting configuration, guarding against a straight `clamp(cv * 100, 0,
-    // 100)` mapping, which pinned most material/cut combinations at exactly 100.0,
-    // collapsing the metric's ability to tell most stones apart.
+    // The display mapping `cv / (1 + cv)` maps [0, inf) onto [0, 1), so it never reaches 100.
+    // A plain clamp of `cv * 100` would pin most stones at exactly 100 and stop them from
+    // being told apart.
     let srb = StandardGemCuts::standard_round_brilliant();
     let ec = StandardGemCuts::emerald_cut();
 
@@ -328,8 +307,7 @@ fn no_built_in_material_saturates_scintillation_on_either_cut() {
 
     for material in GemMaterial::all_materials() {
         for (cut_name, planes) in [("standard_round_brilliant", &srb), ("emerald_cut", &ec)] {
-            // Representative viewing/lighting angle matching the front-end's default
-            // render pose (camera yaw 0.60, pitch 0.45; light yaw 0.85, pitch 0.95).
+            // The editor's default render pose (camera yaw 0.60, pitch 0.45).
             let m = evaluate_gem_optical_metrics(planes, &material, 0.60, 0.45, studio());
 
             assert!(
@@ -373,10 +351,7 @@ fn fire_and_scintillation_are_finite_and_in_range_for_every_material_on_both_cut
                 cut_name,
                 m.fire_index
             );
-            // Generous sanity ceiling: other angles can read meaningfully higher than a
-            // face-up pose (fewer but steeper-exiting rays are weighted in for the most
-            // dispersive materials), so 1000 is kept as a loose ceiling across angles. A
-            // blow-up past this would indicate a bug, not real fire.
+            // Loose ceiling across all angles: a value past it is a bug, not fire.
             assert!(
                 m.fire_index < 1000.0,
                 "{} on {}: fire_index suspiciously large ({}), expected a measured value \
@@ -434,12 +409,8 @@ fn debug_investigate_diamond_vs_quartz_ec() {
     let _ = evaluate_gem_optical_metrics(&ec, &quartz, 0.0, 1.4, studio());
 }
 
-/// [`TILT_ANGLES_DEG`]'s own shape: 181 points, exact 1° steps, `-90..=90` inclusive,
-/// with the shared table-up (tilt = 0°) point (see
-/// `evaluate_full_axis_profile_at_azimuth`'s doc comment for why pitch-90/table-up is
-/// the pose that's actually shared, not pitch-0/edge-on) at the array's midpoint.
-/// Pure/no raytracing, so this stays fast regardless of the per-sample cost that
-/// motivated widening from 37 to 181 points.
+/// [`TILT_ANGLES_DEG`] has 181 points in exact 1 degree steps over `-90..=90`, with the
+/// shared table-up point (tilt 0, pitch 90) at the midpoint. No raytracing is involved.
 #[test]
 fn tilt_angles_deg_spans_the_full_axis_in_exact_one_degree_steps() {
     assert_eq!(TILT_ANGLES_DEG.len(), 181);
@@ -456,31 +427,18 @@ fn tilt_angles_deg_spans_the_full_axis_in_exact_one_degree_steps() {
     }
 }
 
-/// The full-axis (181-point, ±90° TILT-from-table-up) sweep and the original
-/// 19-point/5°-step `evaluate_angular_profile_at_azimuth` sweep (which is an ELEVATION
-/// sweep, `0..=90°` of camera pitch at a single fixed azimuth -- a different
-/// parameterisation of the same underlying machinery, see
-/// `evaluate_full_axis_profile_at_azimuth`'s doc comment) must agree EXACTLY once the
-/// tilt-to-pose formula is applied -- both ultimately run the identical
-/// `sample_elevation_sweep` loop over the identical `evaluate_gem_optical_metrics`
-/// call, so this is a determinism/wiring check (did the merge indexing land each half
-/// in the right slot, at the right pitch, with the right sign), not a physics check.
+/// The 181-point full-axis sweep (tilt -90..=90 from table-up) must agree exactly with the
+/// 19-point elevation sweep of `evaluate_angular_profile_at_azimuth` at every shared angle.
+/// Both run the same `sample_elevation_sweep` loop, so this checks the index mapping and
+/// signs, not the physics.
 ///
-/// The tilt-to-pose formula (see `evaluate_full_axis_profile_at_azimuth`'s doc
-/// comment): `pitch = 90 - |tilt|`, azimuth = positive for `tilt >= 0`, `+180°` for
-/// `tilt < 0`. So PITCH `deg` (a `PROFILE_ANGLES_DEG` entry) at the POSITIVE azimuth
-/// lands at TILT index `180 - deg` (`deg = 90` -> index 90, the pole; `deg = 0` ->
-/// index 180, positive-side edge-on), and the same pitch at the NEGATIVE azimuth lands
-/// at tilt index `deg` (`deg = 90` -> index 90 again; `deg = 0` -> index 0,
-/// negative-side edge-on).
+/// The map is `pitch = 90 - |tilt|`, with azimuth the positive one for `tilt >= 0` and
+/// +180 degrees for `tilt < 0`. A pitch `deg` at the positive azimuth is tilt index
+/// `180 - deg`; at the negative azimuth it is index `deg`.
 ///
-/// The pitch-90 (table-up) sample is skipped in the per-angle loop and checked once,
-/// separately, against ONLY the positive-azimuth sweep's own pitch-90 sample: the pole
-/// is evaluated at the positive azimuth by convention (see that function's doc comment
-/// for why azimuth is provably irrelevant there), so it need not -- and, since
-/// `Camera::new`'s trig at `pitch == 90°` is only azimuth-independent up to
-/// floating-point epsilon, should not -- be asserted bit-identical to the
-/// NEGATIVE-azimuth sweep's own separately-computed pitch-90 sample too.
+/// The pitch-90 pole is checked once, against the positive-azimuth sweep only: it is
+/// evaluated at the positive azimuth by convention, and `Camera::new` is only
+/// azimuth-independent there up to floating-point error.
 #[test]
 fn full_axis_profile_agrees_with_the_five_degree_sweep_at_every_shared_angle() {
     let planes = StandardGemCuts::standard_round_brilliant();
@@ -550,11 +508,8 @@ fn full_axis_profile_agrees_with_the_five_degree_sweep_at_every_shared_angle() {
     }
 }
 
-/// Every sample the full-axis sweep produces must land in the same `0..=100` percentage
-/// range the underlying per-pose metrics are already clamped to -- a basic sanity check
-/// that the 90/1/90 merge never leaves a slot uninitialized (which would show up as a
-/// stray `0.0` array-default that happens to also be in-range, so this test is a floor,
-/// not a substitute for the exact-agreement check above).
+/// Every sample of the full-axis sweep lies in `0..=100`. This is only a floor: an unfilled
+/// `0.0` slot passes it, so the exact-agreement test above does the real checking.
 #[test]
 fn full_axis_profile_values_are_in_range_for_every_axis() {
     use pleochroma::color::metrics::PROFILE_AZIMUTHS_DEG;

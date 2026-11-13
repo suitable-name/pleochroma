@@ -2,9 +2,9 @@
 //!
 //! One header row and one row per finished angle. The angle column is the magnitude, like
 //! the table the person saw: the tier's side of the girdle is not in the number. The
-//! decimal separator is always a
-//! point, numbers carry a fixed four decimals, a missing figure is an empty field, and a
-//! field holding a comma, a quote or a line break is quoted with its quotes doubled.
+//! decimal separator is always a point, numbers carry four decimals, a missing figure is an
+//! empty field, and a field holding a comma, a quote or a line break is quoted with its
+//! quotes doubled.
 //! Lines end with CRLF as RFC 4180 has it; spreadsheets read that and LF alike.
 
 use super::{SweepMetric, SweepOutcome, SweepRow};

@@ -1,13 +1,13 @@
-//! Click-through passes inside the overlays, panels and secondary windows the other scenarios'
-//! smoke passes never reached (`coverage` gate: elements).
+//! Click-through passes over the overlays, panels and secondary windows that no other scenario
+//! reaches (`coverage` gate: elements).
 //!
-//! Proves: in each state of `overlay_states.rs` (and in the Help, Rough Planner, Locate, Rig and
-//! Rough Colour windows) every enabled button, tab, check box and combo box inside the overlay is
-//! pressed once by the smoke engine, every text field, slider and spin box is touched (a field is
-//! set to the value it already holds, a slider is stepped up and back, which fires the real change
-//! callbacks), and none of it panics, opens an unexpected file dialog or raises an error toast.
-//! `coverage_export_menu` drives the File menu's three export items with a queued picker answer
-//! and looks for the file each one writes.
+//! Proves: in each state of `overlay_states.rs` (and in the Help, Compare, Rough Planner, Locate,
+//! Rig and Rough Colour windows) every enabled button, tab, check box and combo box inside the
+//! overlay is pressed once by the smoke engine, and every text field, slider and spin box is
+//! touched (a field is set to the value it holds, a slider is stepped up and back, which fires
+//! the real change callbacks). None of it may panic, open an unexpected file dialog or raise an
+//! error toast. `coverage_export_menu` presses the File menu's four export items with a queued
+//! picker answer and looks for the file each one writes.
 //!
 //! The engine is [`smoke::run`] with a host limited to the overlay's component: a restore
 //! relaunches the app, rebuilds the base (library, template design, edited design) and reopens the
@@ -41,7 +41,7 @@ use std::{
 use uiprobe::{AccessibleRole, backend::wait_until_labeled, report::Report, timing};
 
 /// Logical size of the main window during the overlay passes. Slint's `is_visible` is clip-aware:
-/// a control scrolled out of a `ScrollView` (an inspector tab, a long dialog) is not enumerated, so
+/// a control scrolled out of a `ScrollView` (an inspector tab, a dialog) is not enumerated, so
 /// the window is made tall enough that dialogs and panels show their whole content. The testing
 /// backend has no screen to exceed.
 pub(super) const TALL: (u32, u32) = (1366, 3200);
@@ -70,7 +70,7 @@ pub fn pieces() -> Vec<Piece> {
         existing_install,
         export_menu,
     ));
-    // The six passes of the old `coverage_secondary_windows`, one piece each.
+    // One piece per secondary-window pass.
     let passes: [super::Pass; 6] = [
         ("help", help_pass),
         ("help-after-back", help_back_pass),
@@ -125,13 +125,12 @@ pub(super) fn touch_fields(view: &WindowView, admit: &dyn Fn(&Control) -> bool) 
     touched
 }
 
-/// Records the ids of the elements around `field` that carry an id and have no interactive role
-/// of their own. That is the instantiation site of a field wrapper whose root is larger than the
-/// field it wraps (a caption above it or a label beside it: `RoughField`, `SweepNumberField`,
-/// `CoefficientField`, `SavedPlanCard`), which `coverage::record_wrappers` misses because it only
-/// looks at elements of the field's own rectangle. A wrapper holds exactly one interactive
-/// element, so the field being inside it is the site being used; the ids of plain containers on
-/// the way are recorded too and match no inventory entry.
+/// Records the ids of the enclosing elements of `field` that have an id and no interactive role.
+/// These are the sites of field wrappers whose root is larger than the field (a caption or a
+/// label beside it, as in `RoughField` or `SavedPlanCard`), which `coverage::record_wrappers`
+/// misses because it only looks inside the field's own rectangle. A wrapper holds one interactive
+/// element, so containing the field marks it as used. Plain containers on the way are recorded
+/// too; they match no inventory entry.
 pub(super) fn record_enclosing_sites(root: &ElementHandle, field: &ElementHandle) {
     let at = field.absolute_position();
     let size = field.size();

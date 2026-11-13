@@ -19,7 +19,7 @@ fn wt_powi_u(base: f32, exp: u32) -> f32 {
 // optics::raytracer::environment -- the lit lighting models (`LightingModel::
 // IsoHemisphere` / `LightTent` / `DaylightDome`), transcribed operation for operation
 // (`fma` for `mul_add`, explicit squarings where the CPU squares, the literal
-// `smoothstep`) so Tier 2's `run_studio_env` holds at its ULP budget. The cone cosines
+// `smoothstep`) so `run_studio_env` holds its ULP budget. The cone cosines
 // are the same decimal literals as the Rust constants. The head-shadow cone is a scene
 // parameter (`EnvironmentSource::Studio::head_shadow_deg`), evaluated to two cosines on the
 // CPU (`head_shadow_cosines`) and threaded in as `shadow` = (outer, inner).
@@ -86,7 +86,7 @@ fn wt_sample_daylight_dome(
     return (above + ground) * (spec_power * exposure);
 }
 
-// ASET-style contrast view (model id 4): `optics::raytracer::environment::rig::wt_aset_radiance`.
+// ASET-style contrast view (model id 4): `optics::raytracer::environment::rig::aset_radiance`.
 // `spec_power` is the wavelength in nm here (the callers pass it for model 4), not an
 // illuminant power. Zones by `d.y` = sin(elevation): green 0-45, red 45-75, blue 75-90.
 const wt_ASET_RED_NM: f32 = 610.0;
@@ -127,7 +127,7 @@ fn wt_aset_radiance(
 }
 
 // Daylight sky plus a physically bright direct sun (model id 5):
-// `optics::raytracer::environment::rig::wt_daylight_sun_radiance`, see the derivation of the
+// `optics::raytracer::environment::rig::daylight_sun_radiance`, see the derivation of the
 // disc constants above `wt_SUN_DISC_COS` there. The sky is `wt_sample_daylight_dome`'s, the sun a
 // hard-edged 0.27 degree disc of radiance 40000 (fading with the horizon at the key
 // direction, not with the head shadow). The constants are the same literals as the Rust
@@ -193,9 +193,8 @@ fn wt_studio_rig_ring_dir(i: u32, light_yaw: f32, sin_lp: f32) -> vec3<f32> {
     return wt.ring_dirs[i].xyz;
 }
 
-// optics::raytracer::environment::wt_sample_light_tent -- needs `wt_studio_rig_ring_dir` for
-// the three black cards on ring slots 4/8/12, so it lives here rather than in the shared
-// prelude with the other lit models.
+// Light-tent model (`LightingModel::LightTent`). Needs `wt_studio_rig_ring_dir` for the three
+// black cards on ring slots 4/8/12, so it lives here rather than in the shared lighting prelude.
 fn wt_sample_light_tent(
     d: vec3<f32>,
     spec_power: f32,

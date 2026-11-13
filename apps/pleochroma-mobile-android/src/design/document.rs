@@ -147,10 +147,10 @@ pub fn open_incoming(window: &AppWindow, state: &Shared, files: Vec<PickedFile>)
     guard::confirm_discard(window, state, Pending::Incoming(files));
 }
 
-/// Answers a dialog of the document (the unsaved-changes questions and "Clear Recent
-/// Items?"). Returns false for a dialog id that is not the document's. `Shell.dialog-result`
-/// has one handler; `wire` installs one that calls this, so a later lane that needs dialogs
-/// of its own either chains this function from its handler or asks the lead to merge them.
+/// Answers the document's dialogs (the unsaved-changes questions and "Clear Recent Items?").
+///
+/// Returns false for any other dialog id. The shell's `dialog-result` has a single handler,
+/// installed by `design::wire`, which passes every answer to this function.
 pub fn handle_dialog_result(window: &AppWindow, state: &Shared, id: i32, confirmed: bool) -> bool {
     guard::handle_dialog_result(window, state, id, confirmed)
         || library::handle_dialog_result(window, state, id, confirmed)
@@ -234,7 +234,7 @@ fn start_autosave(state: &Shared) {
 /// now (so the first push already shows it); the auto-solve and the toast follow on the
 /// first turn of the event loop, when every surface is wired. The toast is skipped when
 /// something replaced the restored session before that turn (the preview's `--template`,
-/// a file opened at launch): it would be a lie.
+/// a file opened at launch), because it would name a design that is no longer shown.
 fn restore_last_design(window: &AppWindow, state: &Shared) {
     let restored = document::restore(&mut state.borrow_mut());
     if restored.is_none() {

@@ -1,11 +1,9 @@
 import { Theme } from "theme.slint";
 import { GuideModel } from "../models/guide_model.slint";
 
-// The amber "Stale: Design Changed" chip for an analysis panel whose last result was
-// computed for an older design than the one on screen (the desktop's `stale_badge.slint`;
-// the Optimize tab uses it). It badges the EXISTING result rather than clearing it: a
-// result from two edits ago is still useful context, it just needs an honest "this may not
-// describe the design you are holding" marker beside it.
+// Amber "Stale: Design Changed" chip for an analysis panel whose result was computed for an
+// older design (used by the Optimize tab). It badges the existing result instead of clearing
+// it, since an older result is still useful context.
 export component StaleBadge inherits Rectangle {
     // Hides the "Recompute" action for a panel with no single re-run entry point.
     in property <bool> show-recompute: true;

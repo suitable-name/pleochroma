@@ -1,8 +1,8 @@
-//! [`crate::design::Design`]'s already-solved-to-output side: building an
-//! [`pleochroma_formats::asc::AscSchedule`], the full plane arrangement, and the meshed
-//! solid/its measurements -- see [`crate::design::Design::to_asc_schedule_from_solved`]'s doc
-//! comment for why each has an "already solved" variant alongside the
-//! solve-it-yourself convenience wrapper.
+//! The export side of [`crate::design::Design`]: the [`pleochroma_formats::asc::AscSchedule`], the
+//! full plane arrangement, and the meshed solid with its measurements.
+//!
+//! Each has an "already solved" variant next to the wrapper that solves first; see
+//! [`crate::design::Design::to_asc_schedule_from_solved`] for why.
 
 mod concave;
 pub mod concave_frame;

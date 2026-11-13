@@ -31,12 +31,10 @@ export component TabViewPillRow inherits HorizontalLayout {
     // ("3D (1)", "Cutting (2)", "Files (3)") and every pill's side padding shrinks, so
     // the row's minimum width no longer forces a clip beside a 340px library.
     in property <bool> compact: false;
-    // Set by `app.slint` below 800px: beside the 340px library the column is then under 424px, which
-    // the five pills only fit without their icons (about 316px against 344px at the 720px minimum
-    // window; with icons they need about 401px and the Edit pill ran off the window edge). The
-    // accessible labels stay the same, so a screen reader and the pointer lose nothing. The side
-    // padding and the gaps shrink too: with Linux fonts (DejaVu/Noto) the text alone is about 11px
-    // wider than with Segoe UI, which put the Edit pill past the window edge again.
+    // Set by `app.slint` below 800px. The five pills fit beside the 340px library only without
+    // their icons: with icons the Edit pill ran off the window edge. The accessible labels stay
+    // the same. Side padding and gaps shrink too, since Linux fonts (DejaVu, Noto) are wider
+    // than Segoe UI and would push the Edit pill past the edge again.
     in property <bool> tight: false;
 
     Rectangle {

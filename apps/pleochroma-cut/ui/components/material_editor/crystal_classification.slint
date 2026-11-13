@@ -3,16 +3,11 @@ import { Theme } from "../../theme.slint";
 import { GuideModel } from "../../models/guide.slint";
 import { TipBox, FieldCaption } from "../tip_box.slint";
 
-// Crystal Classification (crystal system / optical character / biaxial
-// n-beta-n-alpha) plus the optics-validity and built-in-name-collision
-// warning messages -- split out of `material_editor_dialog.slint` to keep
-// that file under its line budget. `selected_crystal_system_idx`/
-// `selected_optical_character_idx`/`biaxial_delta_beta_alpha_val` are
-// two-way bound back to `MaterialEditorDialog`'s own identically-named
-// properties; `biref_val`/`is_biaxial`/`optics_valid`/
-// `optics_validation_message`/`name_collides_with_builtin`/`mat_name` stay
-// computed/owned there (its own `can_save` needs `optics_valid` too) and are
-// passed in read-only.
+// Crystal classification (crystal system, optical character, biaxial n-beta minus n-alpha) and
+// the optics-validity and built-in-name warnings. `selected_crystal_system_idx`,
+// `selected_optical_character_idx` and `biaxial_delta_beta_alpha_val` are two-way bound to
+// `MaterialEditorDialog`'s properties of the same names. The others are owned there (`can_save`
+// needs `optics_valid` too) and passed in read-only.
 //
 // Simple mode hides the two combos and the biaxial slider (`GuideModel.shows_advanced()`). Their
 // values stay and still apply. The warnings below stay visible in both modes: a Save that is
@@ -32,29 +27,21 @@ export component MaterialCrystalClassification inherits VerticalLayout {
     in property <bool> name_collides_with_builtin: false;
     in property <string> mat_name: "";
 
-    // Crystal-optically complete custom materials: these three mirror
-    // `pleochroma::optics::materials::CrystalSystem`/`OpticalCharacter`/
-    // `GemMaterial::biaxial_delta_beta_alpha` -- see `gui::crystal_optics` (the Rust
-    // side of this boundary) for the index<->enum mapping these combo indices feed.
-    // Defaults (0, 0) are Cubic/Isotropic, matching what `GemMaterial::new_custom`
-    // itself infers for the dialog's own default (birefringence 0.000, "Custom
-    // Diamond") -- so a user who never touches either combo gets exactly today's
-    // inferred behaviour, unchanged.
+    // The crystal system and optical character mirror `CrystalSystem` and `OpticalCharacter`
+    // (`pleochroma::optics::materials`). The index-to-enum mapping of these combos is in
+    // `gui::optics::crystal_optics`. Defaults (0, 0) are Cubic and Isotropic, the same as
+    // `GemMaterial::new_custom` infers for the dialog's default birefringence of 0.000.
     property <[string]> crystal_system_options: [
         "Cubic", "Tetragonal", "Hexagonal", "Trigonal", "Orthorhombic", "Monoclinic", "Triclinic"
     ];
-    // Index 3/4 (Biaxial +/-) must stay last -- `is_biaxial` reads the index
-    // range, and `gui::crystal_optics::OPTICAL_CHARACTERS` on the Rust side lists the
-    // same five in this same order.
+    // Index 3/4 (Biaxial +/-) must stay last: `is_biaxial` reads the index range, and
+    // `OPTICAL_CHARACTERS` in `gui::optics::crystal_optics` lists the same five in this order.
     property <[string]> optical_character_options: [
         "Isotropic", "Uniaxial (+)", "Uniaxial (\u{2212})", "Biaxial (+)", "Biaxial (\u{2212})"
     ];
 
-    // 5b. Crystal Classification: lets the user set crystal_system/
-    // optical_character/biaxial_delta_beta_alpha explicitly instead of only
-    // ever getting `GemMaterial::new_custom`'s two-variant inference (Cubic-
-    // or-Trigonal, Isotropic-or-Uniaxial+/-). See `gui::crystal_optics` for
-    // the Rust-side index<->enum mapping these two combos feed.
+    // Sets crystal system, optical character and biaxial delta explicitly; without these
+    // combos `GemMaterial::new_custom` infers them. Hidden in Simple mode, see above.
     if GuideModel.shows_advanced() : HorizontalLayout {
         spacing: 10px;
 
@@ -121,12 +108,8 @@ export component MaterialCrystalClassification inherits VerticalLayout {
                 accessible-label: "Biaxial Index Difference, Beta Minus Alpha";
             }
         }
-        // No GPU consequence to warn about: the `BiaxialIndicatrix` machinery
-        // is ported to WGSL and verified at the same Tier 2 / Tier 3 bar as
-        // every other material, so `GemMaterial::gpu_supported()` is
-        // unconditionally true and a biaxial custom material is dispatched
-        // exactly like any other -- see `pleochroma::renderer::gpu_backend`'s
-        // module doc comment for the current decline list.
+        // No GPU limit applies: `GemMaterial::gpu_supported()` is true for biaxial materials too.
+        // See `pleochroma::renderer::gpu_backend` for the decline list.
     }
 
     if !root.optics_valid: Text {
@@ -137,9 +120,8 @@ export component MaterialCrystalClassification inherits VerticalLayout {
         wrap: word-wrap;
     }
 
-    // Proactive collision warning -- disables Save (see `MaterialEditorDialog.
-    // can_save`) rather than letting the cutter find out only from an error
-    // toast after clicking.
+    // Warns about a built-in name before Save is tried; the same condition disables Save
+    // (`can_save`).
     if root.name_collides_with_builtin: HorizontalLayout {
         spacing: 4px;
         Image {

@@ -1,9 +1,9 @@
-//! Decompose the existing HDR readback without changing or instrumenting the shader.
-//! Final XYZ minus CPU integration of the GPU's post-split spectral output estimates
-//! effective HG-scatter NEE. Surface NEE is already in the spectral output and
-//! remains in the reconstructed term. The residual also includes CPU/GPU integration
-//! roundoff and final clamping,
-//! so it is a diagnostic residual, not a direct measurement of `nee_xyz`.
+//! Host-side decomposition of the HDR furnace's GPU readback, without any shader change.
+//!
+//! Final XYZ minus the CPU integration of the GPU's post-split spectral output estimates
+//! the effective HG-scatter NEE. Surface NEE is already in that spectral output, so it stays
+//! in the reconstructed term. The residual also carries CPU/GPU integration roundoff and
+//! final clamping: a diagnostic residual, not a direct measurement of the shader's `nee_xyz`.
 
 use crate::optics::raytracer::integrate_channels_to_xyz_families;
 use glam::Vec3;
@@ -12,9 +12,8 @@ use super::{TransportDispatch, WelfordXyz};
 
 /// Absolute integration floor, matching the spectral debug comparison.
 const RESIDUAL_ABS_FLOOR: f32 = 1e-5;
-/// Relative roundoff allowance inspired by the spectral debug budget of 64 ULP.
-/// Unlike that check, this uses a conservative absolute-plus-relative allowance
-/// (64 f32 epsilons), not exact ULP distances. This never relaxes energy gates.
+/// Relative roundoff allowance of 64 f32 epsilons, not exact ULP distances. It never relaxes
+/// the energy gates.
 const RESIDUAL_REL_FLOOR: f32 = 64.0 * f32::EPSILON;
 
 /// A bounded representative tuple, identified in the original global sample space.

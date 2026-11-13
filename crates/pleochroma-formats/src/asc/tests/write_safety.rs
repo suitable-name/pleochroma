@@ -51,11 +51,9 @@ fn asc_safe_tier_name_leaves_already_safe_names_untouched() {
     }
 }
 
-/// The exact hazard: a tier name with embedded whitespace must not
-/// reach [`super::super::parse_asc`] as-is (silently truncated, or worse, misread
-/// as a marker) -- but per the corrected decision it is sanitised, not rejected,
-/// since every built-in template names tiers with spaces (e.g. `"Crown Main"`) and
-/// the native `.psdd` design file is what preserves the true name.
+/// A tier name with embedded whitespace is sanitised, not rejected: built-in templates
+/// name tiers with spaces (e.g. `"Crown Main"`), and the native design file keeps the
+/// true name.
 #[test]
 fn to_asc_string_sanitises_a_tier_name_with_embedded_whitespace() {
     let mut schedule = one_tier_schedule();
@@ -70,11 +68,8 @@ fn to_asc_string_sanitises_a_tier_name_with_embedded_whitespace() {
     assert_eq!(reparsed.tiers[0].name, "Crown_Main");
 }
 
-/// The specific corpus-observed corruption: a name containing an
-/// embedded `G` token used to split into a truncated name plus a bogus notes tail,
-/// which even changed the reparsed tier count when the split value was misread as a
-/// stray marker. Writing it sanitised (not rejected) must never let that
-/// corruption back in: the round trip must still preserve the tier count exactly.
+/// A name with an embedded `G` token must not split into a truncated name plus a notes
+/// tail, which would change the tier count on re-parse.
 #[test]
 fn to_asc_string_round_trip_preserves_tier_count_for_names_with_spaces() {
     let mut schedule = one_tier_schedule();
@@ -176,9 +171,9 @@ fn to_asc_string_rejects_a_lone_carriage_return_in_free_text() {
     ));
 }
 
-/// A name of only whitespace sanitises to nothing; written as ` n ` the next index
-/// would be read back as the name. It is written as a block letter plus the tier's
-/// 1-based position instead, and every index survives.
+/// A name of only whitespace sanitises to nothing; written as a bare ` n ` the next
+/// index would be read back as the name. It is written as an automatic label instead,
+/// and every index survives.
 #[test]
 fn to_asc_string_gives_a_whitespace_only_tier_name_an_automatic_name() {
     let mut schedule = one_tier_schedule();
@@ -268,9 +263,8 @@ fn to_asc_string_rejects_non_finite_numbers() {
     assert!(err.to_string().contains("inf"), "{err}");
 }
 
-/// A version that still carries the `GemCad` keyword (an older design file stored
-/// `GemCad 5.0`) is written once, not as `GemCad GemCad 5.0`, and parses back to the bare
-/// version.
+/// A version string that still carries the `GemCad` keyword is written once, not as
+/// `GemCad GemCad 5.0`, and parses back to the bare version.
 #[test]
 fn a_version_with_the_keyword_is_not_doubled() {
     let mut schedule = one_tier_schedule();

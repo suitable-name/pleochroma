@@ -354,8 +354,8 @@ fn the_design_cap_is_reported_never_clamped() {
 
 #[test]
 fn an_old_files_minimum_stone_count_is_accepted_and_ignored_and_never_written_back() {
-    // The key `count` now holds the design cap, and the stone-count floor of older files is
-    // read and ignored. It is never written, so the key is added after `count` by hand.
+    // `count` holds the design cap. The stone-count floor of older files (`min_count`) is read
+    // and ignored, and never written; the test adds it after `count` by hand.
     let line = "count = 6\n";
     let text = write_with(&plain_block(), &[], &[]);
     assert!(
@@ -367,7 +367,7 @@ fn an_old_files_minimum_stone_count_is_accepted_and_ignored_and_never_written_ba
     let loaded = parse_and_validate_plan(&text).expect("a file without the key loads");
     assert_eq!(loaded.settings.max_designs, 6);
 
-    // Whatever the old floor was, even one the old loader refused, it changes nothing.
+    // Any value of the old floor is read and changes nothing.
     for old in ["1", "3", "0", "7", "-1"] {
         let with_floor = text.replace(line, &format!("count = 6\nmin_count = {old}\n"));
         let loaded = parse_and_validate_plan(&with_floor)

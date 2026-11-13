@@ -12,8 +12,7 @@ use pleochroma::{
 use pleochroma_cut_core::MaterialSelection;
 use pleochroma_editor::material_lookup::{EditorMaterialLookup, traced_gem_material};
 
-/// A payload exactly as the first web build wrote it (before the link, denoise, HDR and
-/// auto-solve fields existed).
+/// A payload with only the first web build's keys (no link, denoise, HDR or auto-solve fields).
 const FIRST_BUILD_PAYLOAD: &str = r#"{"render":{"material":"Sapphire","lighting":"Light tent + black cards","exposure":1.25,"light_yaw_deg":30.0,"light_pitch_deg":60.0,"backdrop_index":2,"max_bounces":16,"target_spp":512,"camera_yaw":0.7,"camera_pitch":0.3,"camera_distance":3.0,"view_tab":1},"design_name":"round.asc","design_unsaved":true}"#;
 
 #[test]
@@ -36,7 +35,7 @@ fn a_first_build_payload_still_loads_with_the_same_values() {
     // Fields the first build did not write take the desktop defaults.
     let defaults = RenderSettings::default();
     assert!(r.link_material && r.denoise && r.use_hdr);
-    // GPU rendering is on by default (owner decision 2026-10-19; it was off before).
+    // GPU rendering is on by default.
     assert!(!r.frosted_girdle && !r.c_axis_override && r.gpu_enabled);
     assert_eq!(r.export, defaults.export);
     // Sanitising changes nothing that was in range.
@@ -176,7 +175,7 @@ fn the_glare_slider_percent_snaps_to_five() {
 
 #[test]
 fn the_auto_solve_budget_defaults_round_trips_and_is_capped() {
-    // A payload from before the budget existed takes the desktop's 300 ms.
+    // A payload without the budget takes the desktop's 300 ms.
     let old = SessionPayload::from_json(FIRST_BUILD_PAYLOAD).expect("parses");
     assert_eq!(old.auto_solve_budget_ms, DEFAULT_AUTO_SOLVE_BUDGET_MS);
     assert_eq!(old.auto_solve_budget(), 300);
@@ -398,7 +397,7 @@ fn the_option_lists_match_the_desktop() {
 
 #[test]
 fn gpu_enabled_defaults_to_true_and_round_trips() {
-    // Owner decision 2026-10-19: GPU rendering is on by default (it was off before).
+    // GPU rendering is on by default.
     assert!(RenderSettings::default().gpu_enabled);
     let payload = SessionPayload::from_json(FIRST_BUILD_PAYLOAD).expect("parses");
     assert!(payload.render.gpu_enabled);
@@ -413,8 +412,7 @@ fn gpu_enabled_defaults_to_true_and_round_trips() {
     assert_eq!(back, updated);
 }
 
-/// A record a build from before settings version 1 wrote, with GPU rendering explicitly off
-/// (every user who ever saved a setting has one like it) and no `settings_version`.
+/// A record from before settings version 1: GPU rendering explicitly off, no `settings_version`.
 const PRE_MIGRATION_OFF: &str =
     r#"{"render":{"material":"Sapphire","gpu_enabled":false,"target_spp":512},"design_name":null}"#;
 

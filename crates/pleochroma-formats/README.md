@@ -13,11 +13,9 @@ to parse text, and keeping it that way means every downstream crate that touches
 `.asc`/`.gcs`/`.gem` files (`pleochroma`, `pleochroma-vault`, `apps/pleochroma-cut`)
 pays nothing extra for it.
 
-> **Note on this document:** `pleochroma-formats`'s internals (`src/asc/`) are under
-> active development. This README describes the format's semantics and the
-> crate's public API shape at a conceptual level, verified against the source at
-> time of writing — treat exact struct layouts as the current state, not a frozen
-> contract, and re-check `src/asc/` itself for anything load-bearing.
+> **Note:** the internals (`src/asc/`) are still changing. This README describes the formats
+> and the public API at a conceptual level. Treat the struct layouts below as a summary and
+> check `src/asc/` for the exact fields.
 
 ## Formats
 
@@ -133,7 +131,7 @@ Each `a` record is one facet tier:
       CutToCenterpoint,    // "Cut to centerpoint" / "TCP" / "PCP"
       GirdleMeetPoint,     // "GMP" / "Girdle meet point"
       LevelGirdle,         // "Level girdle."
-      ScaleReference,      // "Set girdle width" / "Set stone size" / ...
+      ScaleReference,      // "Set girdle width" / "Set girdle line" / "Set stone size" / "Set table size" / ...
       Other(String),       // anything unrecognized, kept verbatim
   }
   ```
@@ -275,7 +273,11 @@ pub fn normal_from_index_angle(angle_deg: f64, index_angle_deg: f64) -> [f64; 3]
 ```rust
 use pleochroma_formats::asc::{self, AscSchedule, AscTier};
 
-pub fn import_asc(file_name: &str, content: &str) -> Result<ImportedAsc, String> {
+pub fn import_asc(
+    file_name: &str,
+    content: &str,
+    design_file: Option<(&str, &[u8])>,
+) -> Result<ImportedAsc, String> {
     let schedule = asc::parse_asc(content)?;
     // ... build a FacetingDiagramEntry/FacetingDiagramDetail from schedule.tiers,
     // schedule.refractive_index, schedule.gear_teeth_abs(), etc.
@@ -291,7 +293,7 @@ let schedule = local::reconstruct_asc_schedule(
     full.index_gear.as_deref(),
     &full.angle_settings,
 ).ok_or(/* ... */)?;
-let text = pleochroma_formats::asc::to_asc_string(&schedule);
+let text = pleochroma_formats::asc::to_asc_string(&schedule)?;
 ```
 
 **Turning a schedule into real renderable geometry** (`crates/pleochroma/src/geometry/cuts/asc_schedule.rs`):

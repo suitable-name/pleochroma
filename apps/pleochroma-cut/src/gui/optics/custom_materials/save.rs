@@ -38,12 +38,11 @@ use pleochroma_vault::db::sqlite::Database;
 use slint::SharedString;
 use std::sync::{Arc, Mutex};
 
-/// `name`'s real built-in [`GemMaterial`] name (`Some`) iff it collides
-/// case-insensitively with one -- saving a custom material under a built-in's own
-/// name would make `EditorMaterialLookup`/`resolve_material` (both of which prefer a
-/// same-named custom material over its built-in twin) silently return the custom
-/// optics everywhere the built-in name is selected, so this is checked before ANY
-/// save reaches the database.
+/// The built-in [`GemMaterial`] name that `name` collides with (ASCII case ignored), if any.
+///
+/// Checked before any save reaches the database: a custom material under a built-in's name
+/// would be preferred by `EditorMaterialLookup` and `resolve_material` wherever the built-in is
+/// selected, silently replacing its optics.
 pub(super) fn built_in_name_collision(name: &str) -> Option<String> {
     GemMaterial::all_materials()
         .into_iter()
@@ -62,13 +61,10 @@ pub(in crate::gui::optics) const CUSTOM_KEEP_COLOR_INDEX: i32 = 9;
 
 /// [`BODY_COLOR_PRESETS`]' index -> rgb direction, for [`apply_custom_material_save`].
 ///
-/// `MaterialColorPresets`' (`ui/components/material_editor/color_presets.slint`) nine
-/// fixed swatches, index 0 ("Clear") through 8 ("Amber Topaz"), are exactly that table in
-/// its own order -- the single source of truth both this function (index -> rgb, at
-/// save time) and [`color_index_for_absorption_rgb`] (rgb -> index, the dialog's
-/// pre-fill) resolve against, shared with the design's own body-color override.
-/// An out-of-range index (defensively -- the dialog's own combo can never actually
-/// produce one) falls back to Clear, matching the old bare `match`'s `_` arm.
+/// The nine swatches of `color_presets.slint` (index 0 "Clear" through 8 "Amber") are this
+/// table in the same order. Both this function and [`color_index_for_absorption_rgb`] resolve
+/// against it, as does the design's own body-color override. An out-of-range index falls back
+/// to Clear.
 pub(in crate::gui::optics) fn absorption_rgb_for_color_index(color_idx: i32) -> [f32; 3] {
     usize::try_from(color_idx)
         .ok()
@@ -76,12 +72,9 @@ pub(in crate::gui::optics) fn absorption_rgb_for_color_index(color_idx: i32) -> 
         .map_or([0.0, 0.0, 0.0], |preset| preset.absorption_rgb)
 }
 
-/// [`BODY_COLOR_PRESETS`]' rgb -> index direction (exact match, via
-/// [`preset_index_for_rgb`]), for `push_selected_custom_material_fields`'s pre-fill.
-/// `None` when `rgb` matches no preset -- the caller's cue to pre-fill
-/// [`CUSTOM_KEEP_COLOR_INDEX`] instead of defaulting to 0 ("Clear"), which is what
-/// used to silently flatten a re-saved colored custom material to colorless (see
-/// this module's own doc comment).
+/// [`BODY_COLOR_PRESETS`]' rgb -> index direction (exact match, via [`preset_index_for_rgb`]),
+/// for the pre-fill of `push_selected_custom_material_fields`. `None` when `rgb` matches no
+/// preset: the caller then pre-fills [`CUSTOM_KEEP_COLOR_INDEX`] instead of "Clear".
 #[must_use]
 pub(in crate::gui::optics) fn color_index_for_absorption_rgb(rgb: [f32; 3]) -> Option<i32> {
     preset_index_for_rgb(rgb).and_then(|i| i32::try_from(i).ok())
@@ -203,9 +196,9 @@ pub(super) struct SavedCustomMaterial {
     /// dialog's SG slider was left at its "not recorded" sentinel, in which
     /// case the toast says nothing about it.
     pub(super) specific_gravity: Option<f64>,
-    /// The sentence for a zone update that failed after the material row and the
-    /// render context were saved and in step (always `None` without the feature). The save
-    /// still succeeded, so the callback refreshes the pickers and shows this as a warning.
+    /// The sentence for a zone update that failed after the material row and the render context
+    /// were saved. The save still succeeded, so the callback refreshes the pickers and shows this
+    /// as a warning.
     pub(super) zones_warning: Option<String>,
 }
 
@@ -213,16 +206,10 @@ pub(super) struct SavedCustomMaterial {
 /// for [`CUSTOM_KEEP_COLOR_INDEX`] -- whatever the same-named row already stores.
 fn resolve_absorption_rgb(db: &Arc<Mutex<Database>>, name: &str, color_idx: i32) -> [f32; 3] {
     if color_idx == CUSTOM_KEEP_COLOR_INDEX {
-        // The swatch row was never touched (or "Custom (keep)" was picked
-        // deliberately) -- reuse whatever THIS name's previously saved
-        // `absorption_rgb` already was, rather than falling through to Clear.
-        // This is the fix for the sapphire-turns-colorless bug: the dialog's
-        // `init` (`material_editor_dialog.slint`) now pre-fills this index
-        // itself whenever a reopened custom material's color matches no
-        // fixed preset (see `color_index_for_absorption_rgb`'s own doc
-        // comment), so a plain re-save with nothing touched must actually
-        // keep it. A name with no existing row (nothing to keep) falls back
-        // to Clear -- there is no real "keep" case for a brand-new material.
+        // "Custom (keep)" leaves the color alone: reuse the `absorption_rgb` this name's saved
+        // row already holds. The dialog pre-fills this index for a stored color that matches no
+        // fixed preset (see `color_index_for_absorption_rgb`). A name with no saved row falls
+        // back to Clear.
         db.lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .get_custom_materials()
@@ -235,12 +222,10 @@ fn resolve_absorption_rgb(db: &Arc<Mutex<Database>>, name: &str, color_idx: i32)
     }
 }
 
-/// Validates `form` (blank name, or one colliding with a built-in material),
-/// saves it to the database, and updates the shared render context's in-memory
-/// custom-material list -- everything [`setup_custom_material_callbacks`]'s save
-/// callback does except showing the resulting toast, split out purely to keep
-/// that closure under clippy's function-length lint. `Err` carries the exact
-/// message to toast on a validation or database failure.
+/// Validates `form` (blank name, or one colliding with a built-in material), saves it to the
+/// database, and updates the render context's in-memory custom-material list. This is the save
+/// callback's work minus the toast, so the save can be tested without a window. `Err` carries
+/// the message to toast on a validation or database failure.
 #[expect(
     clippy::too_many_lines,
     reason = "one linear validate -> color -> persist -> publish sequence; the steps share the locals"
@@ -268,12 +253,9 @@ pub(super) fn apply_custom_material_save(
         default_axis,
         physics,
     } = form;
-    // A blank/whitespace-only name, or one that collides with a built-in
-    // material, is refused outright here -- the dialog's own `can_save`
-    // property only catches the exact-empty case (see
-    // `material_editor_dialog.slint`'s own doc comment), so this Rust-side
-    // check is the authoritative one, and the only one that knows the full
-    // built-in material list.
+    // A blank name, or one that collides with a built-in material, is refused here whatever the
+    // dialog checked: this is the authoritative check, and the only one that knows the full
+    // built-in list.
     let trimmed = name.trim().to_string();
     if trimmed.is_empty() {
         return Err("A material name is required.".to_string());
@@ -309,8 +291,8 @@ pub(super) fn apply_custom_material_save(
             mode.fantasy_rgb = absorption_rgb_for_color_index(color_idx);
         }
     }
-    // What an older build reads as `absorption_rgb`: the fantasy triple, or -- while physics is
-    // active -- the nearest legacy color of the recipe (spec 6).
+    // What an older build reads as `absorption_rgb`: the fantasy triple, or while physics is
+    // active the nearest legacy color of the recipe.
     let abs_rgb = mode.as_ref().map_or_else(
         || resolve_absorption_rgb(db, &trimmed, color_idx),
         ColorMode::fallback_rgb,
@@ -350,12 +332,9 @@ pub(super) fn apply_custom_material_save(
         new_mat = with_library_bands(new_mat, rows);
     }
 
-    // The dialog always sends a definite combo selection (its own
-    // defaults already mirror what `new_custom` above would infer -- see
-    // `material_editor_dialog.slint`'s initial property values), so an
-    // in-range index always overrides here; only a defensively-out-of-range
-    // index (which the combo itself can never actually produce) leaves
-    // `new_custom`'s own inference in place.
+    // The dialog always sends a definite combo selection (its initial values mirror what
+    // `new_custom` infers), so an in-range index overrides the inference. Only an out-of-range
+    // index, which the combo cannot produce, leaves `new_custom`'s inference in place.
     if let Some(cs) = crystal_system_from_index(crystal_system_idx) {
         new_mat.crystal_system = cs;
     }
@@ -380,12 +359,8 @@ pub(super) fn apply_custom_material_save(
     }
     let bands_json = ray_json.or(bands_json);
 
-    // Bound to a `let` first (rather than in the `if let` below) so the
-    // `MutexGuard` `db.lock()` produces is released as soon as this
-    // save call returns, not held for the rest of this function -- a
-    // significant-`Drop` temporary in an `if let` scrutinee stays alive for
-    // the whole arm, which has already caused one real panic in this codebase
-    // from a lock held longer than intended.
+    // The vault guard for the save below is a temporary that drops at the end of its statement;
+    // an `if let` scrutinee would keep it alive for the whole arm.
     // `0.0` (the slider's own "not recorded" sentinel, matching
     // `material_editor_dialog.slint`'s `sg_val` doc comment) is stored as `None`
     // rather than a literal zero-density material.
@@ -494,9 +469,8 @@ pub(super) fn apply_custom_material_save(
     // reference to it; mutates in place otherwise. Keeps the common case (no
     // outstanding snapshot) as cheap as the old bare `Vec`.
     let materials = Arc::make_mut(&mut ctx.custom_materials);
-    // Whether this save overwrites an existing custom material of the same
-    // name -- surfaced in the toast below rather than a single, silent
-    // "Saved" wording for both cases (see this module's own doc comment).
+    // Whether this save overwrites an existing custom material of the same name, so the toast
+    // does not say "Saved" for both cases.
     let overwrote_existing = materials
         .iter()
         .any(|m| m.name.eq_ignore_ascii_case(&trimmed));
@@ -516,11 +490,9 @@ pub(super) fn apply_custom_material_save(
         Arc::new(custom_material_specific_gravity_from_rows(&sg_rows));
     ctx.set_custom_material_physics(&trimmed, is_physics);
     ctx.set_custom_material_fluorescence(&trimmed, glow);
-    // Reads the just-saved SG back OUT of the side channel
-    // (rather than trusting the locally-computed `sg` above) so the toast confirms
-    // the FULL round trip -- dialog -> database -> `RenderContext`'s side channel --
-    // actually worked, the same lookup [`crate::gui::editor::material_lookup::
-    // EditorMaterialLookup::specific_gravity`] uses for the carat-weight estimate.
+    // Reads the just-saved SG back from the side channel, not the local `sg` above, so the toast
+    // confirms the whole round trip (dialog -> database -> side channel). This is the lookup
+    // [`crate::gui::editor::material_lookup::EditorMaterialLookup::specific_gravity`] uses.
     let saved_specific_gravity = ctx.custom_specific_gravity(&trimmed);
     let previous_trace = apply_to_live_render.then(|| PreviousTrace {
         name: ctx.material_name.clone(),
@@ -538,14 +510,11 @@ pub(super) fn apply_custom_material_save(
     });
     if apply_to_live_render {
         ctx.material_name.clone_from(&trimmed);
-        // Mirrors `gui::render::material_quality::setup_material_changed_callback`'s
-        // own clearing: `resolve_material_with_override` PREFERS `material_override`
-        // over the name just written above, and "linked to design" may have left one
-        // in place from the last editor refresh. Without this, "Save & Apply" moved
-        // the label and did nothing to the actual trace whenever an override was
-        // active -- exactly the bug this fix addresses. `material_unresolved` is
-        // cleared for the same reason `on_material_changed` clears it: naming a real
-        // material by hand is the way out of a refusal.
+        // Mirrors the clearing in `gui::render::material::setup_material_changed_callback`:
+        // `resolve_material_with_override` prefers `material_override` over the name just
+        // written, and "linked to design" may have left one in place from the last editor
+        // refresh. Without clearing it, the trace would keep the override. `material_unresolved`
+        // is cleared too: naming a real material by hand is the way out of a refusal.
         ctx.material_override = None;
         ctx.material_unresolved = None;
         ctx.dirty = true;
@@ -597,12 +566,10 @@ pub(super) struct DeletedCustomMaterial {
     pub(super) custom_list: Arc<Vec<GemMaterial>>,
 }
 
-/// Deletes the (already-trimmed) `name` from the database and the shared
-/// render context's in-memory custom-material list -- everything
-/// [`setup_custom_material_callbacks`]'s delete callback does except showing
-/// the resulting toast, split out for the same reason
-/// [`apply_custom_material_save`] is. `Err` carries the exact message to toast
-/// on a blank name or database failure.
+/// Deletes the (already-trimmed) `name` from the database and the render context's in-memory
+/// custom-material list. This is the delete callback's work minus the toast, for the same
+/// testability reason as [`apply_custom_material_save`]. `Err` carries the message to toast on
+/// a blank name or database failure.
 pub(super) fn apply_custom_material_delete(
     db: &Arc<Mutex<Database>>,
     render_ctx: &Arc<Mutex<RenderContext>>,
@@ -675,13 +642,11 @@ pub(super) fn apply_custom_material_delete(
     ctx.set_custom_material_fluorescence(name, Fluorescence::new(Vec::new()));
     ctx.custom_material_specific_gravity =
         Arc::new(custom_material_specific_gravity_from_rows(&sg_rows));
-    // The deleted material can be the live selection either by
-    // `material_name` OR by `material_override` (which `resolve_material_with_override`
-    // prefers over the name -- see `render::material_quality::setup_material_changed_callback`'s
-    // matching comment) -- checked here the same case-insensitive way, so a delete
-    // never leaves `material_override` pointing at a `GemMaterial` the custom-material
-    // list no longer has, which every downstream reader (viewport, HUD, tilt sweep,
-    // hover preview, export) would otherwise keep rendering.
+    // The deleted material can be the live selection by `material_name`, or by
+    // `material_override` (which `resolve_material_with_override` prefers; see
+    // `gui::render::material::setup_material_changed_callback`). Both are checked
+    // case-insensitively, so no reader (viewport, HUD, tilt sweep, hover preview, export)
+    // keeps rendering a material the list no longer has.
     let override_matches_deleted = ctx
         .material_override
         .as_ref()

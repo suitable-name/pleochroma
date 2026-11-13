@@ -1,9 +1,9 @@
-//! Orientation-sign pleochroism tests: Tourmaline/Ruby/Alexandrite face-up
-//! luminance must be darker or brighter depending on how their `c_axis` sits
-//! relative to the view axis, Aquamarine's face-up color must be blue only with `c_axis`
-//! in the table plane, and Sapphire's side-on hue must rotate toward green
-//! relative to face-up -- each sign-discriminating in a way a simple "looks dark"
-//! sanity check is not.
+//! Orientation-sign pleochroism tests.
+//!
+//! Tourmaline, Ruby and Alexandrite face-up luminance must be darker or brighter depending on
+//! how their `c_axis` sits relative to the view axis. Aquamarine's face-up color is blue only
+//! with `c_axis` in the table plane, and Sapphire's side-on hue rotates toward green relative
+//! to face-up. Each test discriminates the sign, which a simple "looks dark" check cannot.
 
 use glam::Vec3;
 use pleochroma::{
@@ -18,11 +18,9 @@ use pleochroma::{
     },
 };
 
-/// Average luminance (CIE Y) of `material` under `lighting_preset` through a FIXED ray,
-/// averaged over `samples` independent spectral samples -- the luminance analogue of
-/// `render_chromaticity_under_preset` above, used by the orientation-sign tests below
-/// where the signal of interest is overall brightness (how much a specific `c_axis`
-/// choice darkens or brightens the face-up view), not hue.
+/// Average CIE Y of `material` through a fixed ray under `lighting_preset`, over `samples`
+/// spectral samples. Used where the signal is overall brightness (how much a `c_axis` choice
+/// darkens or brightens the face-up view), not hue.
 fn average_luminance(
     material: &GemMaterial,
     planes: &[GpuFacetPlane],
@@ -49,30 +47,18 @@ fn average_luminance(
     y_sum / samples as f32
 }
 
-/// The DECISIVE orientation-sign test. Tourmaline's
-/// `c_axis` was deliberately set to `Vec3::X` (into the table plane) rather than the
-/// `Vec3::Y` default of every material without a cut-orientation override (Aquamarine is
-/// the only other material with one, `Vec3::X` as well; see the Tourmaline entry's comment in
-/// `GemMaterial::all_materials` and `test_gem_materials_default_c_axis_to_y`), because
-/// real tourmaline cutters orient the table PERPENDICULAR to the c-axis specifically
-/// because face-up down the closed ("dark ray"/o-ray) axis is tourmaline's worst
-/// viewing direction. This test is sign-discriminating in a way a simple "tourmaline is
-/// dark" sanity check is not: it collapses to no difference (or flips) if the o-ray/
-/// e-ray naming convention were ever swapped, or if the Mueller frame-rotation mirror
-/// bug ever regressed -- because both of those bugs change WHICH direction reads dark without
-/// necessarily changing THAT some direction reads dark.
+/// Tourmaline's `c_axis` is `Vec3::X` (in the table plane), unlike the `Vec3::Y` default (see
+/// `test_gem_materials_default_c_axis_to_y`). Cutters orient the table perpendicular to the
+/// c-axis, because face-up down the closed ("dark ray", o-ray) axis is its worst view.
 ///
-/// Compares the SAME cut, lighting and fixed face-up ray for two variants of Tourmaline
-/// differing only in `c_axis`: the real, as-shipped `Vec3::X`, versus a clone forced to
-/// `Vec3::Y` (the default of every material without an override -- i.e. "cut the wrong way",
-/// face-up straight down the closed/dark axis, where the wave normal is exactly parallel to
-/// `c_axis` and the polarization quadratic form degenerates to pure o-ray for every
-/// polarization state -- see `birefringence::AbsorptionTensor3::quadratic_form`).
-/// Luminance (CIE Y) is averaged over many independent seeds, following
-/// `render_chromaticity_under_preset`'s pattern, at a sample count (20,000) verified
-/// during this test's development to put the measured margin roughly 10x above the
-/// same setup's own seed-to-seed noise floor (~0.0002 luminance units, checked by
-/// re-averaging the `c_axis=X` case under an entirely different seed salt).
+/// The test discriminates sign: it collapses or flips if the o-ray and e-ray naming were
+/// swapped, or if the Mueller frame-rotation mirror regressed, since both change WHICH direction
+/// reads dark.
+///
+/// The same cut, lighting and face-up ray are used for the real material and a clone forced to
+/// `c_axis = Vec3::Y`. There the wave normal is parallel to `c_axis`, and the polarization
+/// quadratic form reduces to the o-ray (see `birefringence::AbsorptionTensor3::quadratic_form`).
+/// Luminance is averaged over 20,000 seeds, a margin about ten times the seed-to-seed noise.
 #[test]
 fn tourmaline_face_up_is_darker_with_c_axis_along_view_axis_than_in_table_plane() {
     const SAMPLES: u32 = 20_000;
@@ -160,37 +146,17 @@ fn face_up_lch(material: &GemMaterial, units: f32) -> [f64; 3] {
     lab_to_lch(xyz_to_lab(xyz, white))
 }
 
-/// The orientation-sign test for Aquamarine (owner decision 2026-10-19, the Caltech GRR 1488
-/// fit). Aquamarine's color is the e-ray (E parallel to c) while the o-ray is nearly colorless,
-/// so which ray a face-up view engages decides whether the stone reads blue. The D65 swatch
-/// quoted in the Aquamarine entry's comment (`aquamarine_through_citrine.rs`, one model unit of
-/// path, the swatch's own) gives the e-ray as a deep violet-blue, L* 44 C* 88 h 287 under D65,
-/// and the o-ray as nearly colorless, L* 97 C* 13 h 155 under D65. Like Tourmaline, the
-/// as-shipped `c_axis` is `Vec3::X` (c in the table plane, how aquamarine is cut): the face-up
-/// wave normal (`-Y`) is then perpendicular to c, the two eigenmodes are the o- and the e-ray,
-/// and the unpolarised mix is a light blue. A clone forced to `Vec3::Y` (the default of every
-/// material without a cut-orientation override, c along the view axis) has the wave normal
-/// parallel to c, where both eigenmodes collapse to the o-ray -- see
-/// `AbsorptionTensor3::quadratic_form` -- and reads practically colorless with a
-/// greenish-yellow cast.
+/// Aquamarine's color is its e-ray (E parallel to c), while its o-ray is nearly colorless. So the
+/// engaged ray decides whether the stone reads blue. As shipped, `c_axis` is `Vec3::X` (c in the
+/// table plane, as Aquamarine is cut): the face-up wave normal is perpendicular to c, both
+/// eigenmodes are engaged, and the unpolarized mix is light blue. A clone forced to `Vec3::Y`
+/// has the wave normal parallel to c, where both eigenmodes collapse to the o-ray. That reads
+/// practically colorless with a greenish cast.
 ///
-/// This is the first-segment (face-up wave normal) relation at one model unit, the path the
-/// swatch is quoted at. It is the hue and the lightness that discriminate; C* is compared only
-/// at this path, because over longer paths the o-ray alone gains chroma from its red cut-off
-/// (the Fe2+ band tail) and C* stops separating the two orientations.
-///
-/// The expected values below are the ones `face_up_lch` measures, against an EQUAL-ENERGY white
-/// (not the D65 of the swatch figures above), and for the unpolarised 50/50 mix of the two
-/// eigenmodes (the swatch mixes (2o + e)/3). So they differ from the swatch figures, and the
-/// o-ray's hue is not contradictory: it is h 155 under D65 and h 153 under the equal-energy
-/// white, the same greenish, near-colorless ray. Against an equal-energy white: c in the table
-/// plane (o- and e-ray) L* 77.5 C* 27.3 h 262; c along the view axis (o-ray only) L* 96.9 C* 13.3
-/// h 153.
-///
-/// Since 2026-11-04 the built-in is x 0.3 of the 2026-11-03 mix (a pale aquamarine, the dealer
-/// photos' saturation); a Python replica of the 50/50 mix (not a run) gives c in the table plane
-/// L* 89 C* 16 h 239 against the o-ray only L* 98 C* 4 h 150, so the lightness gap is about 9 and
-/// the bound is 5.
+/// This checks the face-up relation at one model unit of path. Hue and lightness discriminate.
+/// C* is compared only at this path, because over longer paths the o-ray gains chroma from the
+/// Fe2+ band tail and C* stops separating the two orientations. The expected values are measured
+/// against an equal-energy white for a 50/50 mix of the two eigenmodes.
 #[test]
 fn aquamarine_face_up_sees_the_blue_ray_with_c_axis_in_table_plane() {
     let real = GemMaterial::by_name("Aquamarine").expect("Aquamarine must be a built-in material");
@@ -232,15 +198,11 @@ fn aquamarine_face_up_sees_the_blue_ray_with_c_axis_in_table_plane() {
     );
 }
 
-/// Ruby variant of the orientation-sign test above, with a deliberately LOOSER bound:
-/// Ruby's `c_axis` stays at the every-material default `Vec3::Y` (Ruby was not given a
-/// cut-orientation override -- only Tourmaline and Aquamarine were), so this compares the real
-/// material against a clone with `c_axis` forced to `Vec3::X` instead, at the same fixed face-up
-/// ray. Ruby's o-ray/e-ray amplitude ratio (~1.8x, see the Ruby entry's comment in
-/// `GemMaterial::all_materials`) is far milder than Tourmaline's (~3x), so this test
-/// uses a looser (smaller required) margin than the decisive Tourmaline test above --
-/// still comfortably real (empirically ~15% at this sample count, well above the same
-/// noise floor characterised for the Tourmaline test), just not asserted as tightly.
+/// Ruby variant of the orientation-sign test, with a looser bound. Ruby keeps the `Vec3::Y`
+/// default, so the real material is compared with a clone forced to `c_axis = Vec3::X` at the
+/// same face-up ray. Ruby's o-ray to e-ray amplitude ratio (about 1.8, see the Ruby entry in
+/// `GemMaterial::all_materials`) is milder than Tourmaline's (about 3), so the required margin
+/// is smaller, while still well above the noise.
 #[test]
 fn ruby_face_up_is_darker_with_c_axis_along_view_axis_than_perpendicular_to_it() {
     const SAMPLES: u32 = 20_000;
@@ -292,27 +254,15 @@ fn ruby_face_up_is_darker_with_c_axis_along_view_axis_than_perpendicular_to_it()
     );
 }
 
-/// Alexandrite variant of the orientation-sign tests above, added with its trichroic
-/// (three-band-set) absorption data. Alexandrite's `c_axis` field is the `n_gamma`
-/// principal direction = the crystallographic b axis, the GREEN pleochroic direction
-/// carrying the strongest 4T2 absorption (585/615 nm in the measured GRR 874 gamma ray,
-/// against the weaker 578 nm alpha and 571 nm beta bands -- see the entry's comment in
-/// `GemMaterial::all_materials`). That band sits on the photopic luminance peak (CIE Y,
-/// ~555nm, with broad shoulders), so WHICH directions' spectra a view engages is
-/// directly visible in luminance: face-up down `c_axis = Vec3::Y` (the real, as-shipped
-/// orientation), transverse polarizations sample the alpha (red) and beta (yellow)
-/// principal spectra -- while a clone with `c_axis` forced to `Vec3::X` and its alpha
-/// axis set to `Vec3::Z` puts beta along the view and rotates the strong gamma
-/// direction INTO the table plane beside alpha, where face-up polarizations engage it
-/// directly, darkening the view. Sign-discriminating for the biaxial alpha/beta/gamma
-/// slot order the same way the Tourmaline test above is for the uniaxial o/e
-/// convention: swapping gamma's band set onto another slot flips or collapses the
-/// margin. The alpha axis is set explicitly since the 2026-11-03 measured data: with
-/// the default completion (alpha along the view, beta and gamma in the table) the very
-/// light beta ray (swatch Y 38 against alpha 12, gamma 15) makes the two views about
-/// equally bright (swatch alpha+beta Y 25.4, beta+gamma Y 26.7), while alpha+gamma is
-/// Y 13.6, about half. The earlier tuned data measured 5.08% darker with the default
-/// completion; the 1% bound is unchanged.
+/// Alexandrite variant of the orientation-sign tests. Its `c_axis` is the `n_gamma` direction,
+/// the crystallographic b axis, which carries the strongest (green) absorption band. That band
+/// lies on the photopic luminance peak, so which directions a view engages shows up directly in
+/// luminance. Face-up down `c_axis = Vec3::Y` (as shipped), the transverse polarizations sample
+/// the alpha (red) and beta (yellow) spectra. The clone with `c_axis = Vec3::X` rotates gamma
+/// into the table plane, where face-up polarizations engage it, and darkens the view. Its alpha
+/// axis is set to `Vec3::Z` so that beta lies along the view. Swapping gamma's band onto another
+/// slot flips or collapses the margin, which makes the test sign-discriminating for the alpha,
+/// beta and gamma order.
 #[test]
 fn alexandrite_face_up_is_brighter_than_with_green_gamma_axis_rotated_into_table_plane() {
     const SAMPLES: u32 = 20_000;
@@ -366,29 +316,21 @@ fn alexandrite_face_up_is_brighter_than_with_green_gamma_axis_rotated_into_table
     );
 }
 
-/// Pleochroism hue-shift test: Sapphire's face-up view is dominated by `alpha_o`
-/// (E-perp-c) -- with `c_axis` = `Vec3::Y`, straight-down propagation is exactly
-/// parallel to `c_axis`, the degenerate uniaxial direction where ordinary and
-/// extraordinary eigenmodes coincide and `AbsorptionTensor3::quadratic_form` evaluates
-/// to `alpha_o` for every polarization state. A side-on view (propagation perpendicular
-/// to `c_axis`) genuinely engages `alpha_e`.
+/// Sapphire's face-up view is dominated by `alpha_o` (E perpendicular to c). With `c_axis` =
+/// `Vec3::Y`, straight-down propagation is parallel to `c_axis`, the degenerate direction where
+/// the ordinary and extraordinary eigenmodes coincide, so `AbsorptionTensor3::quadratic_form`
+/// gives `alpha_o` for every polarization. A side-on view (propagation perpendicular to
+/// `c_axis`) engages `alpha_e`.
 ///
-/// Isolates that spectral mechanism directly by integrating the real
-/// `spectral_absorption` band-sum function against the CIE 1931 CMFs and a flat
-/// illuminant, rather than through a full multi-bounce faceted-polyhedron trace.
-/// Rejected a full raytraced side-on ray: birefringent walk-off displaces the
-/// extraordinary ray onto a different facet/bounce-count path than the ordinary ray,
-/// and Fresnel/background contributions dominate the material's own spectral signature
-/// at many entry angles, making an assertion pinned to one ray direction flaky. The
-/// direct spectral integration isolates the 580nm -> 700nm band-centre shift between
-/// o-ray and e-ray with no such confound, while still exercising the SAME
-/// `spectral_absorption` function `raytracer::apply_absorption` calls on every real
-/// bounce, at several representative internal path lengths.
+/// This integrates `spectral_absorption` against the CIE 1931 CMFs with a flat illuminant, rather
+/// than tracing a full polyhedron. A raytraced side-on ray is confounded: walk-off moves the
+/// extraordinary ray onto another facet path, and Fresnel and background terms dominate at many
+/// entry angles. The integral still uses the same `spectral_absorption` that
+/// `raytracer::apply_absorption` calls on every bounce, at several path lengths.
 ///
-/// The side-on transmission below uses the 50/50 o-ray/e-ray average rather than pure
-/// e-ray: this is exactly what `birefringence::effective_pleochroic_alpha` computes for
-/// UNPOLARIZED light propagating perpendicular to `c_axis`, and unpolarized is what
-/// light entering at normal incidence through a flat facet actually is.
+/// The side-on transmission uses the 50/50 o/e average, which
+/// `birefringence::effective_pleochroic_alpha` computes for unpolarized light perpendicular to
+/// `c_axis`. That is what light entering a flat facet at normal incidence is.
 #[test]
 fn sapphire_side_on_hue_rotates_toward_green_relative_to_face_up() {
     fn spectral_chroma(bands_alpha: impl Fn(f32) -> f32, path_len: f32) -> (f32, f32) {
@@ -425,24 +367,11 @@ fn sapphire_side_on_hue_rotates_toward_green_relative_to_face_up() {
             y_side - y_face
         );
 
-        // "Toward green" in CIE xy space: the green region of the diagram sits at
-        // markedly HIGHER y than the blue region (the green spectral locus peaks near
-        // x~0.0-0.3, y~0.6-0.8, versus blue's x~0.15, y~0.06) -- y is the discriminating
-        // coordinate here. Sapphire's transmission sits well below the green locus at
-        // every path length tested (it is, after all, still blue, not green), so the
-        // claim is about the DIRECTION of the shift, not the destination.
-        //
-        // x is NOT separately constrained: at short path lengths (little absorption,
-        // transmittance close to 1 everywhere) the chromaticity sits close to the
-        // equal-energy illuminant itself, where a modest x increase can accompany the
-        // dominant y increase (both bands' near-total transmittance leaves little
-        // spectral shape to move x independently) -- confirmed at path_len=0.5 above
-        // (dx=+0.004 alongside dy=+0.033, an order of magnitude smaller). At the
-        // renderer's more representative internal path lengths (>=1.0 unit) x decreases
-        // as expected for a green-ward rotation; asserting only on y keeps this test's
-        // claim exactly as strong as what the task's brief actually requires ("the side
-        // view must rotate toward green") without overfitting to incidental behaviour at
-        // the shortest, least absorption-dominated path length tested.
+        // "Toward green" is a higher CIE y: the green locus sits well above blue. Sapphire is
+        // still blue at every path length, so the claim is the direction of the shift, not the
+        // destination. x is not constrained: at the shortest path the chromaticity sits near the
+        // illuminant, where x can rise with y. Asserting on y alone keeps the claim to what the
+        // test needs.
         assert!(
             y_side > y_face + 0.01,
             "path_len={path_len}: side-on chromaticity y ({y_side:.5}) should be measurably \

@@ -1,7 +1,5 @@
-//! The Optimize tab (the desktop's `solve_actions::{optimize_run,optimize_outcome}`,
-//! `view::optimize_apply` and `optimize_solve.rs`): a coordinate search over the free tier
-//! angles for windowing, extinction and tilt brilliance, run in the solve Worker with live
-//! progress and applied as one undoable edit.
+//! The Optimize tab: a coordinate search over the free tier angles for windowing, extinction
+//! and tilt brilliance, applied as one undoable edit.
 //!
 //! # Flow
 //!
@@ -13,15 +11,12 @@
 //!
 //! # What differs from the desktop
 //!
-//! - Cancel is cooperative, as on the desktop: the page revokes the job's cancel URL, the
-//!   Worker sees that between tier decisions (`SolveClient::request_cancel`) and answers
-//!   with the best result found so far, which is shown and can be applied. The Worker needs
-//!   ~10 s to do that (one more evaluation, then the closing full-fidelity score), and twice
-//!   that when the cancel came during the starting-point score, so the wait is
-//!   `GRACEFUL_CANCEL_MS` (30 s); "Stop now" (a second press) or a search that does not stop
-//!   in time is terminated, and then keeps no partial result.
-//! - The Worker serves solves too: an edit's auto-solve supersedes a running search (the
-//!   search then reports "the design changed"), and Run waits for a running solve.
+//! - Cancel is cooperative: the Worker sees the request between tier decisions
+//!   (`SolveClient::request_cancel`) and answers with the best result found so far, which is
+//!   shown and can be applied. A search that has not answered within `GRACEFUL_CANCEL_MS`
+//!   (30 s), or a second press ("Stop now"), is terminated and keeps no partial result.
+//! - The Worker serves solves too: an edit's auto-solve supersedes a running search (which
+//!   then reports that the design changed), and Run refuses while a solve is running.
 //! - There is no viewport "Preview" of a pending result or "Compare" window.
 
 mod push;
@@ -73,8 +68,8 @@ thread_local! {
     static RUNTIME: RefCell<Runtime> = RefCell::new(Runtime::default());
 }
 
-/// The coordinate-stage evaluation budget the fields would run with now (the desktop's
-/// rule: blank, unparseable or zero means 200).
+/// The coordinate-stage evaluation budget the fields would run with now: blank, unparseable
+/// or zero means 200.
 fn configured_budget(model: &OptimizeModel<'_>) -> usize {
     model
         .get_budget_text()
@@ -117,10 +112,11 @@ fn build_params(
     })
 }
 
-/// The Optimize tab's WEIGHTS as Worker settings with everything else at its default --
-/// what Retarget's Optimize mode searches with (the desktop's `optimize_config_from_ui`).
-/// Best effort: a malformed weight field is not this caller's form to validate, so the
-/// default weights stand in for it.
+/// The Optimize tab's WEIGHTS as Worker settings with everything else at its default -- what
+/// Retarget's Optimize mode searches with.
+///
+/// Best effort: a malformed weight falls back to the default weights, since this caller has no form
+/// to report it in.
 pub fn params_or_default(ui: &AppWindow) -> OptimizeParams {
     let model = ui.global::<OptimizeModel>();
     let lighting_preset_index = ui.global::<AppModel>().get_lighting_index();
@@ -222,7 +218,7 @@ fn run(ctx: &Ctx) {
             return;
         }
     };
-    // The RI a design that names no material is scored against, named from the first frame.
+    // The RI scored against when the design names no material; the status line names it.
     let mut selection = start.design.material.clone();
     let defaulted_ri = default_optimize_material_ri(&start.design, &mut selection, &start.custom);
     let epoch = RUNTIME.with(|rt| {
@@ -266,7 +262,7 @@ fn run(ctx: &Ctx) {
     });
 }
 
-/// Puts a finished result on screen (`handle_optimize_outcome` on the desktop).
+/// Puts a finished result on screen.
 fn finish_run(
     ctx: &Ctx,
     epoch: u64,

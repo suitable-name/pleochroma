@@ -11,7 +11,7 @@
 //!
 //! # Panel conventions
 //!
-//! The stone's main axis is world `+Y` (see `facet_map.rs`'s candidate-normal
+//! The stone's main axis is world `+Y` (see `facet_map::build`'s candidate-normal
 //! construction: a tier's elevation fixes `normal.y`, azimuth splits the rest
 //! between `x`/`z`). Three fixed orthographic panels are drawn, none of them tied
 //! to the orbit camera (a 2D faceting diagram is not a perspective view of anything):
@@ -36,7 +36,7 @@
 //! [`StandardGemCuts::index_to_azimuth`](pleochroma::geometry::cuts::StandardGemCuts::index_to_azimuth)
 //! documents `phi = 2*pi*(index + gear_reference_angle) / gear_teeth`, and a
 //! facet's own outward horizontal direction is `(cos(phi), sin(phi))` in
-//! `(world_x, world_z)` (see `facet_map.rs`'s candidate normal construction: at
+//! `(world_x, world_z)` (see `facet_map::build`'s candidate normal construction: at
 //! `phi = 0` the horizontal part of the normal is pure `+X`). To put index `0` at
 //! the top of the crown panel, this module maps world `+X` to screen "up" and
 //! world `+Z` to screen "right": `screen_u (right) = world_z`, `screen_v (up) =
@@ -60,7 +60,8 @@
 //!
 //! The profile looks from world `+Z` towards `-Z`. [`render_diagram_end_view`] adds the
 //! second side view, from world `-X` towards `+X`, as a separate function (the stone turned
-//! a quarter turn about `+Y`, drawn as a profile panel) so [`PanelKind`] stays as it is.
+//! a quarter turn about `+Y`, drawn as a profile panel). This keeps [`PanelKind`] at its
+//! three variants.
 //!
 //! ## Line drawings
 //!
@@ -100,12 +101,10 @@ const NORMAL_EPS: f32 = 1e-3;
 /// (critical-angle-risk) facet -- mirrors `raster::HATCH_PERIOD`.
 const HATCH_PERIOD: i32 = 6;
 
-/// A facet's projected on-screen span (in either axis) must be at least this many
-/// pixels before [`labels::draw_panel_labels`] draws its label directly ON the facet. Kept
-/// low enough that most facets still get a label even at the crown/pavilion body
-/// radius typical of an 8-fold design in a ~700px-wide viewport. A facet still too
-/// small for this gets a leader line instead (see [`LEADER_LINE_MIN_SPAN`]) rather
-/// than being dropped silently.
+/// Minimum projected span (either axis, in pixels) for a facet to hold its label
+/// directly, drawn by [`labels::draw_panel_labels`]. Set low so most facets of an 8-fold
+/// design keep an on-facet label in a ~700 px viewport. Smaller facets get a leader line
+/// instead, down to [`LEADER_LINE_MIN_SPAN`].
 const MIN_LABEL_SPAN: f32 = 10.0;
 
 /// Below this on-screen span (in either axis) a facet is too small even to anchor
@@ -255,12 +254,12 @@ pub struct DiagramConfig {
 pub struct DiagramStyle {
     /// Fill color of an unhighlighted facet (RGB).
     pub base_color: [u8; 3],
-    /// color of facet edges (RGB).
+    /// Color of facet edges (RGB).
     pub edge_color: [u8; 3],
     /// Matches `raster::SolidStyle::pending_color` / `ui/theme.slint`'s
     /// `accent-amber` -- see that field's doc comment.
     pub pending_color: [u8; 3],
-    /// color of the hatch pattern overlay (RGB).
+    /// Color of the hatch pattern overlay (RGB).
     pub hatch_color: [u8; 3],
     /// Matches `raster::SolidStyle::selected_color` / `ui/theme.slint`'s `primary`
     /// -- see that field's doc comment.
@@ -321,10 +320,8 @@ pub struct DiagramStyle {
     /// `symmetry_line_color` so a mirrored design's own axis still stands out
     /// among the ordinary sector guides.
     pub mirror_line_color: [u8; 3],
-    /// Index-wheel ticks, tooth numbers and the panel captions -- drawn on the
-    /// dark `background`, so they need their own light, muted color rather than
-    /// `edge_color`, which is dark for contrast against the light facet fill and
-    /// all but vanished against the background.
+    /// Index-wheel ticks, tooth numbers and the panel captions, drawn on the dark
+    /// `background`: a light, muted color, since the dark `edge_color` would vanish there.
     pub wheel_color: [u8; 3],
     /// Facet id -> the block of a concave tool facet's tier (`Some` only for tool
     /// facets, whose ids lie above the plane count; flat facets and out-of-range ids
@@ -334,10 +331,9 @@ pub struct DiagramStyle {
     /// normal that the crown panel's predicate would accept.
     pub tool_facet_block: Vec<Option<Block>>,
     /// The pixel multiple the facet labels are drawn at (`0` counts as `1`). The label-room
-    /// thresholds and the leader line grow with it. `1` (the default) keeps the original
-    /// 5x7 labels, which every viewport and pinned picture uses. The printed sheet's large
-    /// renderings set it to [`text_scale`] of their height, so their labels match the tooth
-    /// numbers instead of shrinking to specks at 1600 x 1257.
+    /// thresholds and the leader line grow with it. `1` (the default) keeps the plain 5x7
+    /// labels. The printed sheet's large renderings set it to [`text_scale`] of their
+    /// height, so the labels match the tooth numbers.
     pub label_scale: u32,
 }
 
@@ -446,11 +442,9 @@ impl DiagramFrame {
     }
 
     /// Which panel (crown/pavilion/profile) painted pixel `(x, y)`, or `None` for
-    /// background/out-of-bounds. A click on the pavilion panel and a click on the
-    /// crown panel can never be confused with each other even though both may
-    /// paint the same `facet_id` space -- this is what lets a caller show
-    /// panel-aware feedback if it ever wants to, though [`Self::pick_at`] alone
-    /// already resolves to the correct globally-unique facet id regardless.
+    /// background/out-of-bounds. A facet can paint on more than one panel, so this says
+    /// which one a pixel came from. [`Self::pick_at`] alone already gives a globally
+    /// unique facet id.
     #[must_use]
     pub fn panel_at(&self, x: u32, y: u32) -> Option<PanelKind> {
         if x >= self.width || y >= self.height {

@@ -3,58 +3,31 @@
 //!
 //! # Concurrency model
 //!
-//! Exactly one process opens this file read-write at a time -- `apps/pleochroma-cut`,
-//! whose own mirror-sync writer thread and UI thread can both be issuing statements
-//! against that single read-write [`Connection`] concurrently (a `Connection` is `Send`
-//! but not `Sync`, so within that process access is already serialized by whatever
-//! `Mutex`/channel wraps it). Any number of *other* processes -- most notably
-//! `apps/pleochroma-worker`'s `serve`, one short-lived [`Database::open_read_only`]
-//! connection per accepted connection -- read the same file concurrently from outside
-//! that process.
+//! One process opens the file read-write at a time, `apps/pleochroma-cut`. Its mirror-sync
+//! writer thread and UI thread share that single [`Connection`], which is `Send` but not
+//! `Sync`, so a `Mutex` or channel around it serializes access. Other processes, most notably
+//! `apps/pleochroma-worker`'s `serve` with one short-lived [`Database::open_read_only`]
+//! connection per accepted connection, read the same file concurrently.
 //!
-//! [`Database::new`] enables `PRAGMA journal_mode=WAL` (skipped for `:memory:`, where
-//! the pragma is meaningless -- see [`is_memory_db`]) plus `PRAGMA synchronous=NORMAL`,
-//! which WAL makes safe (durable across an application crash; only an OS crash or power
-//! loss between the WAL commit and its later checkpoint can lose the last few commits --
-//! an acceptable trade for a local design-library file, not a system of record). WAL is
-//! what lets that one writer proceed without blocking every reader, and vice versa,
-//! instead of every reader colliding with the writer under the old rollback-journal
-//! mode. Both connections additionally set a 5s `busy_timeout` as a second line of
-//! defense against the write-lock acquisition itself (`BEGIN IMMEDIATE`/`COMMIT`), which
-//! WAL narrows to a much smaller window but doesn't eliminate.
+//! [`Database::new`] enables WAL journaling with `synchronous=NORMAL`, so the writer and the
+//! readers do not block each other. `NORMAL` survives an application crash; only an OS crash
+//! or power loss before the next checkpoint can lose the last commits. That is an accepted
+//! trade for a local design library, which is not a system of record. Both connections set a
+//! 5 s `busy_timeout` as a second guard around the writer's `BEGIN IMMEDIATE`/`COMMIT`, which
+//! WAL narrows but does not remove.
 //!
-//! [`Database::open_read_only`] tries the plain read-only open first. A WAL database
-//! additionally needs its `-shm` file to be creatable/writable (or already present) for
-//! *any* connection, reader included, to map the shared index that coordinates against
-//! the writer -- so a read-only connection into a WAL database sitting in a directory
-//! the reader's process can't write to (permissions, a read-only mount) fails with
-//! `SQLITE_CANTOPEN`/`SQLITE_READONLY` even though the connection itself only asked to
-//! read. On that specific failure -- the primary open's error code is `CannotOpen` or
-//! `ReadOnly`, AND no `-wal` file with un-checkpointed frames is sitting next to the
-//! database file -- [`Database::open_read_only`] retries once with the SQLite URI
-//! option `immutable=1`, which tells SQLite the file is guaranteed not to change for the
-//! life of the connection -- it then skips the `-shm`/locking machinery entirely and
-//! reads the main file directly. The trade-off: an `immutable=1` connection will not see
-//! writes committed by another connection after it was opened (no change detection --
-//! each new logical request needs a fresh connection to observe fresh data, which is
-//! already this crate's usage pattern: `pleochroma-worker` opens one connection per
-//! accepted connection rather than holding one open across requests), NOR any write
-//! still sitting in a `-wal` file that hasn't been checkpointed into the main file yet
-//! -- which is exactly why the fallback is refused outright (a hard error, not a silent
-//! stale read) whenever such a `-wal` file is present: `immutable=1` would otherwise
-//! read a database missing its most recent commits and never know it.
+//! [`Database::open_read_only`] first tries a plain read-only open. A reader of a WAL database
+//! needs the `-shm` file, so a reader in a directory it cannot write to fails with
+//! `CANTOPEN`/`READONLY`. Only then, and only when no `-wal` file holds un-checkpointed frames,
+//! does it retry with the `immutable=1` URI option, which skips the WAL machinery. Such a
+//! connection never sees later commits, so the retry is refused whenever a `-wal` file has
+//! pending frames: a stale read would otherwise go unnoticed.
 
 use anyhow::{Context, Result};
-// `Connection` is re-exported (not just `use`d) so a caller building a raw
-// pre-migration-schema fixture -- `apps/pleochroma-cut`'s own always-on
-// "Import survives a catalogue migrated from the old column layout" regression test
-// is the one caller today -- can open its own throwaway connection and hand-write the
-// old `CREATE TABLE`/`INSERT` statements this module's migrations exist to rebuild,
-// without this crate needing a `rusqlite` dependency of its own. A `#[cfg(test)]`
-// fixture here would not work for that: `--cfg test` is only set while THIS crate
-// compiles itself as a test binary, never for a dependent crate's own `cargo test`,
-// so anything gated on it is simply absent from the library `pleochroma-cut` links
-// against.
+// `Connection` is re-exported so a caller can build a raw pre-migration fixture: it opens its
+// own connection and hand-writes the old `CREATE TABLE`/`INSERT` statements that this module's
+// migrations rebuild, without a `rusqlite` dependency of its own. A `#[cfg(test)]` fixture would
+// not reach a dependent crate, because `--cfg test` is set only while this crate tests itself.
 pub use rusqlite::Connection;
 use rusqlite::OpenFlags;
 use tracing::{debug, info, warn};
@@ -92,11 +65,8 @@ mod zoning_store;
 pub use materials::CustomMaterialParams;
 pub use search::{DisplayFilters, SEARCH_RESULT_CAP, SortOrder};
 
-// The following imports have no production use *in this file* -- they exist solely so
-// that `tests`' `use super::*;` (see `tests.rs`, moved unaltered) resolves. Every name
-// below is used by production code in one of this module's submodules already; this is
-// an extra, test-only binding of the same items into this module's own namespace, gated
-// out of non-test builds so it can never trigger an unused-import warning there.
+// Test-only imports, so the `tests` module can `use super::*;`. Production code reaches these
+// names through the submodules, so they are unused in non-test builds and gated out of them.
 #[cfg(test)]
 use crate::model::{
     detail::FacetingDiagramDetail, entry::FacetingDiagramEntry, filter::RangeFilter,
@@ -129,9 +99,9 @@ pub const DEFAULT_DB_FILE: &str = "facet_diagrams.sqlite";
 /// it is visible.
 pub const LEGACY_SOURCE_ID: &str = "facetdiagrams.org";
 
-/// The canonical shape vocabulary, now defined in [`crate::model::DEFAULT_SHAPES`].
+/// The canonical shape vocabulary, defined in [`crate::model::DEFAULT_SHAPES`].
 ///
-/// Re-exported here so every existing `db::sqlite::DEFAULT_SHAPES` path keeps working.
+/// Re-exported so the `db::sqlite::DEFAULT_SHAPES` path resolves.
 pub use crate::model::DEFAULT_SHAPES;
 
 /// Whether `path` names SQLite's special in-memory database, for which
@@ -239,9 +209,8 @@ fn to_sqlite_immutable_uri(path: &str) -> String {
 
 /// A SQLite-backed connection to the design catalogue.
 ///
-/// See this module's own doc comment for the full concurrency model (WAL,
-/// `busy_timeout`, the `fold()` search function) and [`Database::new`]/
-/// [`Database::open_read_only`] for the two ways to open one.
+/// See this module's own doc comment for the concurrency model (WAL and `busy_timeout`), and
+/// [`Database::new`]/[`Database::open_read_only`] for the two ways to open one.
 pub struct Database {
     conn: Connection,
     /// Counts the invalidations of cached solid extents and hulls (see
@@ -250,13 +219,9 @@ pub struct Database {
 }
 
 impl Drop for Database {
-    /// Runs `PRAGMA optimize` on close -- SQLite's own recommended "run this every time
-    /// a connection is about to close" call: a cheap, sampled pass (not a full
-    /// `ANALYZE`) that refreshes the query planner's statistics so the NEXT time this
-    /// file is opened, `search`'s predicates have reasonably fresh stats to plan
-    /// against, rather than whatever was current the last time a full `ANALYZE` ran (or
-    /// never, on a database that has never had one). This catalogue had
-    /// never run either.
+    /// Runs `PRAGMA optimize` on close: SQLite's recommended call when a connection closes.
+    /// It is a cheap, sampled statistics refresh (not a full `ANALYZE`), so the next open plans
+    /// `search`'s predicates with reasonably fresh statistics.
     ///
     /// Best-effort: a failure here (e.g. this connection was opened read-only, or the
     /// underlying file has since vanished) is logged at debug and never propagated --
@@ -287,36 +252,20 @@ impl Database {
         info!("Connecting to database: {}", path);
         let conn = Connection::open(path).context(format!("Failed to open database at {path}"))?;
 
-        // Enable foreign key constraints. Crucial for data integrity.
+        // Enforce foreign keys: the `ON DELETE CASCADE` clauses depend on it.
         conn.execute("PRAGMA foreign_keys = ON;", [])
             .context("Failed to enable foreign keys")?;
 
-        // Set BEFORE the WAL switch below: `enable_wal` itself issues statements
-        // against this same connection (`PRAGMA journal_mode`/`synchronous`), and on a
-        // database another process currently holds the write lock on, those can hit
-        // SQLITE_BUSY too -- setting the timeout first means even the WAL switch
-        // itself benefits from it, instead of racing a concurrent writer with no
-        // retry at all for that first moment of the connection's life.
-        //
-        // The desktop app can have a mirror-sync writer thread active alongside UI
-        // reads on this same connection's process, so a query can hit SQLITE_BUSY
-        // rather than an immediate lock error. Retry internally for up to 5s instead
-        // of failing right away. WAL (below) already narrows this window a great deal
-        // by letting readers and a writer proceed concurrently; busy_timeout remains
-        // as a second line of defense around the writer's own `BEGIN IMMEDIATE`/
-        // `COMMIT`, which WAL doesn't make lock-free.
+        // Set before the WAL switch below: `enable_wal` issues statements on this connection
+        // that can hit SQLITE_BUSY while another process holds the write lock. Retry a locked
+        // statement for up to 5 s instead of failing at once.
         conn.busy_timeout(std::time::Duration::from_secs(5))
             .context("Failed to set busy timeout")?;
 
-        // WAL lets this connection's writes (this crate's own callers, plus the
-        // desktop app's mirror-sync writer thread on the same connection) proceed
-        // without blocking a concurrent reader -- including another *process*'s
-        // `Database::open_read_only`, e.g. `pleochroma-worker serve` -- instead of the
-        // rollback-journal mode's every-writer-blocks-every-reader behavior. See this
-        // module's doc comment for the full concurrency model. `:memory:` has no
-        // on-disk journal to speak of -- `journal_mode` there is always reported back
-        // as `memory` and cannot be changed -- so it's skipped rather than attempted
-        // and logged as a no-op every time.
+        // WAL lets this connection's writes proceed without blocking readers, including
+        // readers in other processes, which the rollback journal's every-writer-blocks-
+        // every-reader behavior would not allow. `:memory:` has no journal to change, so it
+        // is skipped.
         if is_memory_db(path) {
             debug!("journal_mode=WAL skipped: {path} is an in-memory database");
         } else {
@@ -485,19 +434,14 @@ impl Database {
     /// of [`base_schema`] first, then the side tables and indexes shared with `migrations`.
     fn create_tables_if_not_exist(&self) -> Result<()> {
         debug!("Ensuring database tables exist...");
-        // `diagram_previews`/`diagram_tilt_curves` are spliced in from `migrations` rather
-        // than hand-copied into `base_schema` a second time -- see
-        // `migrations::DIAGRAM_PREVIEWS_TABLE_SQL`/`migrations::
-        // diagram_tilt_curves_table_sql`'s own doc comments for why a fresh database's
-        // `CREATE TABLE` and an old database's migration must share the exact same SQL
-        // text for these two tables (the tilt-curves one in particular: its 6 generated
-        // derived-aggregate columns are not something to safely hand-transcribe twice).
+        // `diagram_previews` and `diagram_tilt_curves` come from `migrations`, not a second copy
+        // in `base_schema`: a fresh database and an old database's migration must run the same
+        // SQL text. The tilt-curve table's 6 generated aggregate columns are not safe to
+        // hand-transcribe twice.
         let diagram_tilt_curves_sql = migrations::diagram_tilt_curves_table_sql();
         let shared_sections: [&str; 13] = [
-            // Cached preview renders and cached tilt-performance curves -- see
-            // migrate_diagram_previews_table/migrate_diagram_tilt_curves_table's own
-            // doc comments for why both are side tables keyed by entry_id (surviving a
-            // diagram_details re-sync) rather than columns on diagram_details itself.
+            // Cached preview renders and tilt curves, keyed by entry_id so they survive a
+            // diagram_details re-sync; see migrate_diagram_previews_table.
             migrations::DIAGRAM_PREVIEWS_TABLE_SQL,
             &diagram_tilt_curves_sql,
             // Cached finished-solid extents for the Rough Planner; see
@@ -526,10 +470,8 @@ impl Database {
             // own doc comment for why this is a side table pair, not a column on
             // diagram_entries.
             migrations::TAG_TABLES_SQL,
-            // The library search predicate's supporting indexes; see
-            // SEARCH_INDEXES_SQL's own doc comment for why each is needed and what it
-            // was measured to be worth. Last, because one of them is on a table the
-            // block just above creates.
+            // The library search predicate's supporting indexes; see SEARCH_INDEXES_SQL for
+            // why each is needed. Last, because one of them is on a table the block above creates.
             migrations::SEARCH_INDEXES_SQL,
         ];
         let mut sql = String::from("BEGIN;\n\n");

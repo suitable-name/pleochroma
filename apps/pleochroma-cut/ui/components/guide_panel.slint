@@ -6,19 +6,16 @@ import { HelpButton } from "help_button.slint";
 import { IconButton } from "icon_button.slint";
 import { ActionButton } from "chip_toggle.slint";
 
-// The step panel of whichever guide is running (the worked example, the welcome tour, a
-// tutorial). Mounted two ways (never both at once): as a third column of the wide Edit
-// layout (`app.slint`'s `edit_row`), and floating at the window's right edge everywhere
-// else -- the narrow Edit stack, the Live Render tab, the catalogue tabs -- through
-// `GuideOverlayLayer` below, so the guide never disappears mid-walkthrough.
+// The step panel of whichever guide is running (worked example, welcome tour, tutorial).
+// Two mounts, never both at once: a third column of the wide Edit layout (`app.slint`'s
+// `edit_row`), or floating at the window's right edge through `GuideOverlayLayer` below,
+// wherever that column does not exist, so the guide stays up while the user moves around.
 //
-// The panel sets NO height of its own. Both mounts size it to its step text
-// (`natural_height`, at least 120px) up to the room they have: docked, the column slot of
-// `Tab3dContent` (a fixed height here used to cap the whole Edit row: a `HorizontalLayout`'s
-// maximum height is its smallest child's maximum, so a 480px panel left the status strip
-// two thirds of the way down the window, which is why the slot is a plain Rectangle with the
-// card positioned inside it); floating, `GuideOverlayLayer` sizes it against the window.
-// Either way a step longer than the room scrolls internally with the footer pinned.
+// The panel sets NO height of its own. Each mount sizes it to the step text (`natural_height`,
+// at least 120px) up to the room it has. A `HorizontalLayout` takes the smallest maximum height
+// of its children, so a fixed height here would cap the whole Edit row; the docked slot in
+// `Tab3dContent` is therefore a plain Rectangle with the card positioned inside it. A step
+// longer than the room scrolls inside the panel with the footer pinned.
 //
 // The header row drags the floating panel (`draggable`, reported through
 // `dragged`), and its collapse button shrinks either mount to a small
@@ -207,8 +204,7 @@ export component GuidePanel inherits Rectangle {
             }
         }
 
-        // The step body scrolls. While more of it lies below the visible part, a fade
-        // over the bottom edge says so -- the text used to stop mid-line with no cue.
+        // The step body scrolls. A fade over the bottom edge marks text lying below the view.
         Rectangle {
             vertical-stretch: 1;
             min-height: 40px;
@@ -392,8 +388,8 @@ export component GuidePanel inherits Rectangle {
         // Status chip: what the guide is waiting for, then a short "Done" before
         // the automatic move to the next step.
         Rectangle {
-            // The same minimum height for "Waiting for" and "Done", so the Back row does
-            // not lift when the chip changes; two wrapped lines get room to breathe.
+            // Same minimum height for "Waiting for" and "Done", so the Back row does not move
+            // when the chip changes.
             height: max(30px, chip_txt.preferred-height + 12px);
             border-radius: Theme.radius-sm;
             background: GuideModel.step_done ? Theme.toast-success-surface : Theme.bg-input;
@@ -482,8 +478,7 @@ export component GuideOverlayLayer inherits Rectangle {
     // `true` while the wide Edit layout mounts its own `GuidePanel` column, which
     // then replaces the floating one.
     in property <bool> docked: false;
-    // Width at the window's right edge the panel keeps clear in its default spot: the
-    // Parameters dock (or its rail) sits there, and the panel used to float over it.
+    // Width at the window's right edge that the default spot keeps clear (Parameters dock or rail).
     in property <length> right_reserve: 0px;
     // `true` while a dialog is up (`WindowState.guide_lifted`): the panel -- docked or
     // floating alike -- is drawn here as a fixed card at the window's right edge, above the
@@ -523,16 +518,13 @@ export component GuideOverlayLayer inherits Rectangle {
         triggered => { GuideModel.launch_tick(); }
     }
 
-    // Default spot: bottom-right but left of the Parameters dock (`right_reserve`), its
-    // bottom edge 50px above the window's (clear of the Edit tab's status strip) and its
-    // top well below the render toolbar. The height follows the step's text
-    // (`natural_height`, at least 120px) up to 720px / the window less 140px (the 480px
-    // cap of round 2 cut the last lines of a long step); a longer step scrolls inside the
-    // panel with the footer pinned.
-    // Once dragged, `GuideModel.float_x`/`float_y` hold the spot; both are clamped
-    // here on every read, so the panel always stays fully inside the window.
-    // `parked` (a dialog is up): the same panel at the window's top right, 12px from both
-    // edges, up to the window less 24px tall.
+    // Default spot: bottom right, left of the Parameters dock (`right_reserve`), its bottom edge
+    // 50px above the window's bottom (clear of the Edit tab's status strip). The height follows
+    // the step text (`natural_height`, at least 120px) up to 720px or the window less 140px; a
+    // longer step scrolls inside the panel with the footer pinned.
+    // Once dragged, `GuideModel.float_x`/`float_y` hold the spot, clamped on every read so the
+    // panel stays inside the window.
+    // `parked` (a dialog is up): the same panel at the top right, 12px from both edges.
     if GuideModel.open && (!root.docked || root.parked): GuidePanel {
         draggable: !root.parked;
         height: GuideModel.collapsed

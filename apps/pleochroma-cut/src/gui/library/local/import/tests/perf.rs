@@ -1,6 +1,7 @@
-//! Manual perf and crash-hunt probes (all `#[ignore]`d): the per-file parse-and-measure
-//! cost, and the stress imports against an adversarial corpus, a fresh database and a
-//! real-layout scratch catalogue.
+//! Manual perf and stress probes, all `#[ignore]`d.
+//!
+//! They time the per-file parse-and-measure cost, and import an adversarial corpus into a fresh
+//! database and into a scratch copy of a real catalogue.
 
 use super::{
     super::{apply_measured_metadata, confirm::count_pending_collisions},
@@ -12,12 +13,9 @@ use crate::gui::library::local::helpers::test_support::{
 use pleochroma_vault::{db::sqlite::Database, local, model::filter::RangeFilter};
 use std::sync::{Arc, Mutex};
 
-/// Manual perf probe: how long a single file's parse + geometry actually takes, to
-/// judge whether "parse -> geometry -> write" sub-steps would be visible to a
-/// human (roughly 100ms is the usual perceptible threshold) or just UI noise.
-/// `#[ignore]`d for the same reason as `perf_probe_refresh_after_library_change_cost`
-/// in `super::helpers`: a timing measurement, not a correctness test, doesn't
-/// belong in a normal CI run. Run explicitly with
+/// Perf probe: the cost of parsing and measuring one file, to judge whether the steps
+/// would be visible to a user (roughly 100 ms is the usual perceptible threshold).
+/// `#[ignore]`d because it is a timing measurement, not a correctness test. Run with
 /// `cargo test -p pleochroma-cut -- --ignored perf_probe --nocapture`.
 #[test]
 #[ignore = "manual perf probe, not for CI"]
@@ -36,20 +34,17 @@ fn perf_probe_single_file_parse_and_measure_cost() {
     );
 }
 
-// --- Manual stress probes against a real-layout scratch catalogue (crash hunt) ---
+// --- Manual stress probes against a scratch copy of a real catalogue ---
 //
-// The tests below are NOT part of the ordinary `cargo test -p pleochroma-cut --lib`
-// run (each is `#[ignore]`d) -- they read a real-layout copy of the user's own
-// catalogue from the `PLEOCHROMA_SCRATCH_DB` environment variable (never the real
-// `facet_diagrams.sqlite` itself -- see this crate's own domain rules) and exercise
-// the whole `import_path` batch loop against real, migrated data. Run explicitly
-// with, e.g.:
+// These tests are `#[ignore]`d and not part of the ordinary `cargo test -p pleochroma-cut
+// --lib` run. They read a copy of a real-layout catalogue named by the
+// `PLEOCHROMA_SCRATCH_DB` environment variable, never the real catalogue itself, and run the
+// whole `import_path` batch loop against that migrated data. Run explicitly with, e.g.:
 // `PLEOCHROMA_SCRATCH_DB=C:\path\to\scratch.sqlite cargo test -p pleochroma-cut --lib \
 //  -- --ignored --nocapture manual_import`
 
-/// Every one of `pleochroma_formats::asc::tests::adversarial`'s 17 inputs, copied
-/// here verbatim as importable files -- that module's own consts are `#[cfg(test)]`-
-/// private to `pleochroma-formats` and not reachable from this crate.
+/// The 17 adversarial inputs of `pleochroma_formats`' `asc::tests::adversarial`, copied as
+/// importable files. That module is `#[cfg(test)]` in its crate and not reachable from here.
 const ADVERSARIAL_ASC_INPUTS: &[(&str, &str)] = &[
     (
         "adversarial_01_bom_crlf.asc",
@@ -129,12 +124,11 @@ fn write_named_files(dir: &std::path::Path, files: &[(&str, &str)]) {
     }
 }
 
-/// Reconstructs up to ~300 `.asc` files spread across `db`'s own id range, straight
-/// from its stored angle-settings tables (`local::reconstruct_asc_schedule` +
-/// `pleochroma_formats::asc::to_asc_string`), skipping any entry that reconstructs to
-/// `Ok(None)` (no angle settings) or `Err` (unparsable stored data) -- exactly the
-/// corpus the crash hunt in this module's own doc history calls for. Returns how many
-/// files were actually written.
+/// Writes up to about 300 `.asc` files, rebuilt from the catalogue's stored angle settings.
+///
+/// The rebuild uses `local::reconstruct_asc_schedule` and `pleochroma_formats::asc`.
+///
+/// Entries that yield no schedule, or fail to rebuild, are skipped. Returns how many were written.
 fn write_catalogue_derived_corpus(db: &Arc<Mutex<Database>>, dir: &std::path::Path) -> usize {
     let items = {
         let conn = db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -171,10 +165,11 @@ fn write_catalogue_derived_corpus(db: &Arc<Mutex<Database>>, dir: &std::path::Pa
     written
 }
 
-/// Writes a couple of real `.asc` + `.psdd` design-file pairs: a solved
-/// [`pleochroma_cut_core::design::Design`] from one of `pleochroma_cut_core::templates::TEMPLATES`,
-/// the `.asc` built via `pleochroma_cut_core::native::catalogue_asc` and the design file
-/// via `pleochroma_cut_core::native::design_to_string`.
+/// Writes two `.asc` + `.psdd` design-file pairs, each from a solved template.
+///
+/// The templates are in `pleochroma_cut_core::templates::TEMPLATES`. The `.asc` comes from
+/// `pleochroma_cut_core::native::catalogue_asc`, the design file from
+/// `pleochroma_cut_core::native::design_to_string`.
 fn write_design_pairs(dir: &std::path::Path) {
     for (i, spec) in pleochroma_cut_core::templates::TEMPLATES
         .iter()
@@ -210,19 +205,15 @@ fn write_design_pairs(dir: &std::path::Path) {
     }
 }
 
-/// Probe (main): copies the real-layout scratch catalogue named by
-/// `PLEOCHROMA_SCRATCH_DB` to a throwaway temp file (never opens or writes the
-/// original), opens it with [`Database::new`] (running the real
-/// `migrate_blob_columns_last` 12-step rebuild against real pre-migration data),
-/// builds a corpus of catalogue-derived `.asc` files plus every adversarial input
-/// plus a couple of design-file pairs plus one garbage design file plus one 0-byte
-/// `.asc`, imports the whole directory recursively, verifies every imported row
-/// reads back through every path the library itself uses, then imports the SAME
-/// directory again to exercise the collision/merge path.
+/// Stress probe on a copy of the catalogue named by `PLEOCHROMA_SCRATCH_DB`.
 ///
-/// Skips itself (does not fail) when `PLEOCHROMA_SCRATCH_DB` is unset or names a
-/// missing file -- this workstation-specific probe must never fail CI or another
-/// developer's machine.
+/// The original is never opened or written. The copy is a throwaway temp file, opened with
+/// [`Database::new`]. The corpus holds catalogue-derived `.asc` files, the adversarial inputs,
+/// design-file pairs, one garbage design file and one 0-byte `.asc`. The directory is imported
+/// recursively and every imported row must read back. Then it is imported again, to exercise
+/// the collision path.
+///
+/// Skips itself, without failing, when `PLEOCHROMA_SCRATCH_DB` is unset or names a missing file.
 #[test]
 #[ignore = "manual: needs a real-layout scratch catalogue named by PLEOCHROMA_SCRATCH_DB"]
 fn manual_import_stress_against_the_migrated_scratch_catalogue() {
@@ -244,8 +235,7 @@ fn manual_import_stress_against_the_migrated_scratch_catalogue() {
     let db_path = temp_db_path_for_test("scratch_migrated");
     std::fs::copy(&scratch_path, &db_path)
         .unwrap_or_else(|e| panic!("copy the scratch catalogue to a scratch temp file: {e}"));
-    // `Database::new` runs every migration, including `migrate_blob_columns_last`,
-    // against this real pre-migration-layout copy.
+    // `Database::new` runs every migration against this copy.
     let db = open_temp_db(&db_path);
 
     let corpus_dir = temp_dir_for_test("scratch_corpus");
@@ -303,15 +293,12 @@ fn manual_import_stress_against_the_migrated_scratch_catalogue() {
     let _ = std::fs::remove_file(&db_path);
 }
 
-/// Probe (second): the exact same adversarial/design-pair/garbage/zero-byte
-/// corpus [`manual_import_stress_against_the_migrated_scratch_catalogue`] builds
-/// (minus the catalogue-derived files, since a fresh database has no rows to
-/// reconstruct them from), imported into a brand-new empty database instead of a
-/// real-layout catalogue -- so a crash specific to the migrated schema versus one
-/// present even on a fresh database can be told apart. Unlike the scratch-catalogue
-/// probes, this needs no external file and always runs when un-`--ignore`d; it stays
-/// `#[ignore]`d anyway to keep it out of the default fast test loop (template solving
-/// plus a worker-thread round trip is not free).
+/// Stress probe on a fresh empty database.
+///
+/// The corpus is that of [`manual_import_stress_against_the_migrated_scratch_catalogue`]
+/// without the catalogue-derived files, which need existing rows. A crash that only occurs on
+/// the migrated schema can then be told apart from one on a fresh database. Template solving
+/// and the worker thread make it slow, hence `#[ignore]`.
 #[test]
 #[ignore = "manual: template-solving + worker-thread stress probe, not for the default run"]
 fn manual_import_stress_against_a_fresh_empty_db() {
@@ -346,12 +333,11 @@ fn manual_import_stress_against_a_fresh_empty_db() {
     let _ = std::fs::remove_file(&db_path);
 }
 
-/// Probe (third): a migrated scratch catalogue opened
-/// [`Database::open_read_only`] (the same connection shape the app's own
-/// `immutable=1` fallback in `Database::new` can produce for a database on a
-/// read-only file) must surface every write failure as an ordinary
-/// [`super::super::pipeline::ImportOutcome::had_failures`] entry, never a panic and never a silently-empty
-/// success.
+/// Stress probe on a migrated scratch catalogue opened with [`Database::open_read_only`].
+///
+/// That is the connection shape `Database::new`'s `immutable=1` fallback can produce for a
+/// read-only file. Every write failure must surface as a `had_failures` entry, not as a panic
+/// or a silent success.
 #[test]
 #[ignore = "manual: needs a real-layout scratch catalogue named by PLEOCHROMA_SCRATCH_DB"]
 fn manual_import_against_a_read_only_scratch_catalogue_surfaces_errors_not_panics() {
@@ -380,12 +366,8 @@ fn manual_import_against_a_read_only_scratch_catalogue_surfaces_errors_not_panic
         drop(open_temp_db(&db_path));
     }
 
-    // `Database::open_read_only` (SQLITE_OPEN_READ_ONLY, no SQLITE_OPEN_CREATE) is
-    // the exact connection shape the app's own `immutable=1` fallback in
-    // `Database::new` can produce for a database sitting on a read-only file --
-    // exercised directly here rather than via the OS's own read-only file
-    // attribute, which this probe would then have to clear again before it could
-    // clean up its own temp file afterward.
+    // Opened without SQLITE_OPEN_CREATE, rather than by making the file read-only, which
+    // would have to be undone before the temp file could be removed.
     let db_path_str = db_path
         .to_str()
         .expect("temp path is valid UTF-8")

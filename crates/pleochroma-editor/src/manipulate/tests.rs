@@ -1,4 +1,6 @@
-//! Tests for the GUI-free direct-manipulation math: projection round trips, the facet
+//! Tests for the GUI-free direct-manipulation math.
+//!
+//! They cover projection round trips, the facet
 //! frame's bit-exact normals, handle layout and hit-testing, drag values and snapping,
 //! slice planes and provisional tiers, dependents and wording.
 
@@ -142,8 +144,8 @@ fn facet_frame_with_a_reference_angle_is_bit_identical_to_the_facet_map_construc
     }
 }
 
-/// The reason for the builder above: with a non-zero reference the plain index builder
-/// lands the frame on a different azimuth, by exactly the reference's share of a turn.
+/// The plain index builder ignores the reference angle, so with a non-zero reference it lands
+/// on a different azimuth, by exactly the reference's share of a turn.
 #[test]
 fn facet_frame_from_the_plain_index_misses_a_facet_by_the_reference_angle() {
     let t = tier("X", 34.5, &[12.0], MeetConstraint::MeetExisting);

@@ -16,9 +16,9 @@
 //!
 //! | area | functions |
 //! |---|---|
-//! | a material's pattern | [`save_pattern`], [`load_pattern`], [`remove_pattern`], [`copy_pattern`] |
+//! | material pattern | [`save_pattern`], [`load_pattern`], [`remove_pattern`], [`copy_pattern`] |
 //! | material dialog | [`write_back_pattern_base`] |
-//! | presets | [`save_preset`], [`load_presets`] |
+//! | presets | [`save_preset`], [`load_presets`], [`delete_preset`] |
 
 use anyhow::{Context, Result, bail};
 use pleochroma_cut_core::{
@@ -256,6 +256,15 @@ pub fn save_preset(db: &Database, name: &str, pattern: &ColorPattern) -> Result<
             .with_context(|| format!("The preset '{name}' could not be saved"))?,
         version: pattern.format_version(),
     })
+}
+
+/// Deletes the saved preset called `name`; returns whether there was one.
+///
+/// # Errors
+///
+/// The vault write fails.
+pub fn delete_preset(db: &Database, name: &str) -> Result<bool> {
+    Ok(db.delete_color_pattern_preset(name.trim())? > 0)
 }
 
 /// Every saved preset, by name. A preset that can no longer be read (a newer build wrote it, or

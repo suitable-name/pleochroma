@@ -7,11 +7,11 @@
 //! comment on why `render`, not `serve`/`join`, is what gets a scriptable BOLT profile),
 //! and `render` always needs a real `--scene` file on disk.
 //!
-//! Same construction as [`capture_frame_payloads`]'s `scene` helper: the GUI's default
-//! camera/light pose, a round brilliant diamond, studio lighting -- just serialized to
-//! disk instead of traced in-process.
+//! Built like the `scene` helper of `capture_frame_payloads`: the GUI's default camera and
+//! light pose, a round brilliant diamond, studio lighting -- serialized instead of traced.
 //!
-//! [`capture_frame_payloads`]: https://docs.rs/pleochroma-worker (see that example's source)
+//! The scene asks for exit collection (`estimator: ExitCollection`), so the PGO and BOLT
+//! profiles cover that estimator. `render` traces with the estimator its scene file carries.
 //!
 //! ```text
 //! cargo run --release -p pleochroma-worker --features worker --example write_pgo_scene -- <output.json>
@@ -45,6 +45,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         height: 360,
         yaw: 0.60,
         camera_roll: 0.0,
+        stone_shadow: false,
+        tray_reflection: 0.0,
+        hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
+        estimator: pleochroma::optics::raytracer::Estimator::ExitCollection,
         pitch: 0.45,
         distance: 2.4,
         light_yaw: 0.85,
@@ -55,9 +59,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         material: GemMaterial::diamond(),
         planes: StandardGemCuts::standard_round_brilliant(),
         girdle_frosted: false,
-        // Since protocol v29 the field is a tray radiance seen by every escape; the old Grey
-        // card level 0.23 is kept as a literal (a 0.23 tray). The owner regenerates PGO
-        // profiles on the owner's schedule.
+        // Tray radiance seen by every escape (`BACKDROP_GREY`, 0.23).
         backdrop: BACKDROP_GREY,
         environment: SceneEnvironment::Studio,
         surface_glare: 1.0,

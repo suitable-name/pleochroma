@@ -8,7 +8,7 @@
 //! reports. Before the action the step's goal must be unmet, so no step can complete by itself,
 //! and after it the goal must be met. A reading step has no action and must be a manual one.
 //!
-//! The submodules hold the walks, one file for each file of lessons.
+//! The submodules hold the walks, grouped by the lesson file they play.
 
 mod app;
 mod color_variants;
@@ -37,8 +37,9 @@ use crate::{
 use pleochroma_cut_core::Edit;
 use std::{collections::BTreeSet, time::Duration};
 
-/// Every viewing, output, library and app tutorial, in the order the browser lists them. A new
-/// lesson must be added here and given a walk in the submodule of its file.
+/// Every viewing, output, library and app tutorial, in the order the browser lists them.
+///
+/// A new lesson must be added here and given a walk in the submodule of its file.
 const IDS: [&str; 54] = [
     "viewing-solid-picking",
     "viewing-drag-handles",
@@ -139,8 +140,9 @@ fn template_session(card: usize) -> EditorSession {
 }
 
 /// The view mode after a click on the Path-Traced pill, as `SolidPreviewModel.toggle_path` in
-/// `solid_preview.slint` computes it (0 Solid, 1 Path, 2 Solid + Path, 3 Diagram, 4 Ray,
-/// 5 Solid + Ray).
+/// `solid_preview.slint` computes it.
+///
+/// Modes: 0 Solid, 1 Path, 2 Solid + Path, 3 Diagram, 4 Ray, 5 Solid + Ray.
 const fn toggle_path(mode: i32) -> i32 {
     let combined = mode == 2 || mode == 5;
     let solid_selected = mode == 0 || combined;
@@ -387,7 +389,7 @@ fn the_viewing_tutorials_are_registered_in_order() {
 
 #[test]
 fn each_lesson_is_listed_under_a_section_of_its_area() {
-    // The ids keep the area they were written in; the sections regroup them by topic (see
+    // The id prefix names the area; the sections regroup lessons by topic (see
     // `guide::curriculum`), so only the sections an area's lessons may sit in are checked.
     for guide in viewing::guides() {
         let allowed: &[GuideCategory] = match guide.id.split('-').next() {

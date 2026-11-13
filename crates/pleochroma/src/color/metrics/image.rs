@@ -149,7 +149,7 @@ impl PixelSampler<'_> {
             let observer = -ray.dir;
             // An anisotropic stone traces both eigenmodes of the camera ray (ordinary first),
             // each classified like an isotropic ray and counted once; an isotropic stone's ray
-            // is traced once, exactly as before the modes existed.
+            // is traced once.
             let pair;
             let single;
             let traces: &[RayClassification] = if self.ctx.stone.modes.is_some() {
@@ -350,7 +350,7 @@ pub fn evaluate_optical_image(
 /// with it the image total (summed afterwards, serially, in row-major order, see
 /// [`evaluate_with`]), does not depend on scheduling. `threads` is clamped to `1..=16` and to
 /// the row count; `1` (and `wasm32`, which cannot spawn) runs the serial loop. The caller owns
-/// the CPU budget: the live overlay passes the display share of the live partition.
+/// the CPU budget.
 ///
 /// Cancellation is checked per sample on every worker, exactly as in the serial pass, and the
 /// first worker to see it stops the others at their next row.

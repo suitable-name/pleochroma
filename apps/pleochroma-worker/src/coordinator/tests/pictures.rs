@@ -113,7 +113,7 @@ fn zoned_material() -> GemMaterial {
     GemMaterial::diamond().with_zoning(zoned)
 }
 
-/// v36: a zoned `FinalImageRequest` through a render-less coordinator keeps its zones. The
+/// A zoned `FinalImageRequest` through a render-less coordinator keeps its zones. The
 /// coordinator advertises the capability to a zoning viewer, re-attaches the zones the viewer
 /// sent ahead of the request and sends them again ahead of the joined worker's chunk: the
 /// picture is byte-identical to the GUI tonemap of the zoned scene traced here, and differs
@@ -168,7 +168,7 @@ fn a_zoned_final_image_through_a_joined_worker_keeps_its_zones() {
     assert_ne!(pixels, unzoned, "the zones change the picture");
 }
 
-/// v16: `viewer_samples` reserves the request's tail for the viewer; the server plans
+/// `viewer_samples` reserves the request's tail for the viewer; the server plans
 /// only the rest, the viewer uploads its own trace as `CONTRIBUTION`, and the merged
 /// `FINAL_IMAGE` is byte-identical to summing both halves directly -- the server's own
 /// share and the viewer's, exactly as each was traced.
@@ -248,7 +248,7 @@ fn a_viewer_contribution_completes_a_byte_identical_final_image() {
     assert_eq!(pixels, expected, "PNG differs from the server+viewer sum");
 }
 
-/// v16: when the viewer's `CONTRIBUTION` never arrives, the coordinator traces that
+/// When the viewer's `CONTRIBUTION` never arrives, the coordinator traces that
 /// range itself after `contribution_wait` elapses, reports it in
 /// `DONE.stats.reclaimed_samples`, and the export still succeeds -- with a picture
 /// equal to tracing the whole request server-side.
@@ -316,7 +316,7 @@ fn a_missing_contribution_is_reclaimed_and_reported_in_done_stats() {
     );
 }
 
-/// v16: `viewer_samples` over half of `samples` is refused with `VALIDATION_FAILED`,
+/// `viewer_samples` over half of `samples` is refused with `VALIDATION_FAILED`,
 /// before any route is planned -- no worker or own lane is even needed for this.
 #[test]
 fn viewer_samples_over_half_is_refused_with_validation_failed() {
@@ -366,11 +366,10 @@ fn display_only_streams_tone_mapped_display_frames() {
     assert!(wait_for(WAIT, || registry.capacity().workers == 1));
 
     let (welcome, mut client) = viewer(handle.viewer_addr, &viewer_bundle);
-    // 32x24 (same 4:3 framing as the old 8x6): the denoiser's path-signature guide
-    // rejects taps whose first-hit facet/TIR path differs from the centre's, so the
-    // picture needs facets spanning several pixels for equal-signature neighbours to
-    // exist. At 8x6 nearly every gem pixel had a unique signature and background
-    // pixels are copied through unfiltered, so the denoiser legitimately did nothing.
+    // The denoiser's path-signature guide rejects taps whose first-hit facet/TIR path
+    // differs from the centre's, so facets must span several pixels for equal-signature
+    // neighbours to exist. In a tiny picture almost every gem pixel has a unique signature
+    // and the denoiser has nothing to filter.
     let image = scene(W, H);
     let mode = TransferMode::DisplayOnly;
     send(
@@ -463,7 +462,7 @@ fn tilt_curves_are_forwarded_to_a_joined_worker() {
         .all(|(_, idle)| *idle)));
 }
 
-/// v14 `CAPABILITY_CHANGED`: an idle viewer of a bare coordinator (WELCOME.render
+/// `CAPABILITY_CHANGED`: an idle viewer of a bare coordinator (WELCOME.render
 /// `None`) is told as soon as a worker joins, without sending anything.
 #[test]
 fn an_idle_viewer_learns_about_a_joining_worker() {

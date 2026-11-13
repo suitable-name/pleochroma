@@ -13,6 +13,10 @@ fn valid_scene() -> SceneState {
         height: 64,
         yaw: 0.4,
         camera_roll: 0.0,
+        stone_shadow: false,
+        tray_reflection: 0.0,
+        hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
+        estimator: pleochroma::optics::raytracer::Estimator::Branching,
         pitch: 0.3,
         distance: 3.0,
         light_yaw: 0.85,
@@ -146,10 +150,9 @@ fn rejects_zero_and_excessive_max_bounces() {
     assert!(validate_scene(&scene).is_ok());
 }
 
-/// Pins the cross-crate contract with the GUI's bounce ladder
-/// (`apps/pleochroma-cut/src/bridge/export_thread/params.rs::MAX_EXPORT_BOUNCES`) as a
-/// literal so drift on either side trips this test instead of silently reintroducing
-/// the "remote export goes silent" bug.
+/// Pins the ceiling shared with the GUI's bounce ladder (`MAX_EXPORT_BOUNCES` in
+/// `apps/pleochroma-cut/src/bridge/export_thread/params.rs`) as a literal, so drift on
+/// either side fails here.
 #[test]
 fn max_bounces_matches_the_guis_own_ladder_ceiling() {
     assert_eq!(MAX_BOUNCES, 128);
@@ -506,7 +509,7 @@ fn ray_preparation_bounds_the_beta_absorption_band_list() {
     assert!(error.contains("beta_ray"), "{error}");
 }
 
-/// v32: the render physics record is bounded by the planes and by its own ranges.
+/// The render physics record is bounded by the plane count and by its own ranges.
 #[test]
 fn validate_scene_checks_the_effects_record() {
     use pleochroma::optics::{
@@ -540,7 +543,7 @@ fn validate_scene_checks_the_effects_record() {
     bad_machine.effects.machine.lap_radius_mm = -1.0;
     assert!(validate_scene(&bad_machine).is_err());
 
-    // v34: the material's own inclusions are bounded too (a NaN strength is refused).
+    // The material's own inclusions are bounded too: a NaN `sigma` is refused.
     let mut carried = scene;
     carried.effects.material_inclusions = Some(MaterialInclusions {
         families: vec![ResolvedFamily {
@@ -576,4 +579,101 @@ fn rejects_non_finite_camera_roll() {
                 .contains("camera_roll must be finite")
         );
     }
+}
+
+#[test]
+fn rejects_a_non_finite_hdr_map_yaw_and_accepts_any_finite_turn() {
+    use pleochroma::renderer::env_map::HdrOrientation;
+
+    for yaw in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+        let mut scene = valid_scene();
+        scene.hdr_orientation.yaw = yaw;
+        assert!(
+            validate_scene(&scene)
+                .unwrap_err()
+                .contains("hdr_orientation.yaw must be finite")
+        );
+    }
+    for yaw in [0.0, -3.0, 6.5, 1.0e30] {
+        let mut scene = valid_scene();
+        scene.hdr_orientation = HdrOrientation {
+            yaw,
+            follows_camera: true,
+        };
+        assert!(validate_scene(&scene).is_ok(), "yaw {yaw}");
+    }
+}
+
+#[test]
+fn a_reflective_scene_needs_a_supported_studio_backdrop_and_a_fraction() {
+    let mut scene = valid_scene();
+    scene.tray_reflection = 0.04;
+    scene.backdrop = 1.0;
+    scene.lighting_preset = LightingPreset::LightTent;
+    assert!(validate_scene(&scene).is_ok());
+    scene.tray_reflection = 1.0;
+    assert!(validate_scene(&scene).is_ok());
+    for bad in [f32::NAN, f32::INFINITY, -0.1, 1.5] {
+        scene.tray_reflection = bad;
+        assert!(
+            validate_scene(&scene)
+                .unwrap_err()
+                .contains("tray_reflection must be"),
+            "{bad}"
+        );
+    }
+    scene.tray_reflection = 0.04;
+    scene.backdrop = 0.0;
+    assert_eq!(
+        validate_scene(&scene).unwrap_err(),
+        "Tray reflection needs a studio light with a backdrop."
+    );
+    scene.backdrop = 1.0;
+    scene.lighting_preset = LightingPreset::Aset;
+    assert_eq!(
+        validate_scene(&scene).unwrap_err(),
+        "Tray reflection needs a studio light with a backdrop."
+    );
+    scene.lighting_preset = LightingPreset::LightTent;
+    scene.environment =
+        pleochroma_net::scene::SceneEnvironment::Hdr(pleochroma_net::scene::HdrEnvironment {
+            content_hash: [0; 32],
+            width: 8,
+            height: 4,
+        });
+    assert_eq!(
+        validate_scene(&scene).unwrap_err(),
+        "Tray reflection needs a studio light with a backdrop."
+    );
+}
+
+#[test]
+fn a_shadowed_scene_needs_a_supported_studio_backdrop() {
+    let mut scene = valid_scene();
+    scene.stone_shadow = true;
+    scene.backdrop = 1.0;
+    scene.lighting_preset = LightingPreset::LightTent;
+    assert!(validate_scene(&scene).is_ok());
+    scene.backdrop = 0.0;
+    assert_eq!(
+        validate_scene(&scene).unwrap_err(),
+        "Stone shadow needs a studio light with a backdrop."
+    );
+    scene.backdrop = 1.0;
+    scene.lighting_preset = LightingPreset::Aset;
+    assert_eq!(
+        validate_scene(&scene).unwrap_err(),
+        "Stone shadow needs a studio light with a backdrop."
+    );
+    scene.lighting_preset = LightingPreset::LightTent;
+    scene.environment =
+        pleochroma_net::scene::SceneEnvironment::Hdr(pleochroma_net::scene::HdrEnvironment {
+            content_hash: [0; 32],
+            width: 8,
+            height: 4,
+        });
+    assert_eq!(
+        validate_scene(&scene).unwrap_err(),
+        "Stone shadow needs a studio light with a backdrop."
+    );
 }

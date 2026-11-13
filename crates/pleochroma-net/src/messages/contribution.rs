@@ -1,4 +1,4 @@
-//! `-> CONTRIBUTION` (v16): the viewer's own share of a [`super::final_image`] export.
+//! `-> CONTRIBUTION`: the viewer's own share of a [`super::final_image`] export.
 //!
 //! When a `FinalImageRequest` reserves a tail of `viewer_samples` for itself
 //! ([`super::final_image::FinalImageRequest::reserved_range`]), the viewer renders that

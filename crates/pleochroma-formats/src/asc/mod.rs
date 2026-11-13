@@ -1,20 +1,15 @@
 //! Reader and writer for `GemCAD`-style `.asc` cutting-instructions files.
 //!
 //! `GemCAD` is Robert Strickland's faceting-design software; this module is not
-//! produced, endorsed, or affiliated with `GemCAD` or its author (see the crate-level
-//! docs for the full affiliation note). It exists because the `.asc` text format
-//! `GemCAD` popularized is a de facto standard across the faceting community --
-//! shared, archived, and re-published by many independent designers and sites -- and
-//! reading (or writing) cutting instructions shouldn't require pulling in any
-//! particular renderer, database, or GUI toolkit.
+//! produced, endorsed, or affiliated with `GemCAD` or its author (see the crate README
+//! for the affiliation note). The `.asc` text format is a de facto standard in the
+//! faceting community, so this module reads and writes it without any renderer,
+//! database or GUI dependency.
 //!
-//! An `.asc` file's `a` records are the only place a schedule's "mast" distance --
-//! how far a facet plane is cut from the stone's center -- actually lives; a
-//! design's angle/index metadata is sometimes available elsewhere (e.g. scraped from
-//! a catalog site) without the depth, which is exactly the gap this format fills.
+//! The `a` records are the only place a schedule's "mast" distance (how far a facet
+//! plane sits from the stone's center) is stored.
 //!
-//! # Format (as verified against a real-world corpus of 5,759 `.asc` files spanning
-//! 2,881 distinct designs, not just the format sketch)
+//! # Format
 //!
 //! ```text
 //! GemCad 5.0
@@ -31,11 +26,9 @@
 //! convention is negative = pavilion, positive = crown), the `mast` distance (the
 //! field this crate exists to extract reliably), then a mix of index-wheel positions
 //! (usually integers, occasionally fractional) and `n <name>` markers, and finally an
-//! optional `G <notes...>` free-text tail. A record can list its facet's indices in
-//! more than one `n <name>` group (e.g. `92 n c ... 94 n d ...` when a compact,
-//! single-tier encoding would otherwise need two rows at an identical angle/mast);
-//! all of them are folded into one [`AscTier`]'s `indices`, since every one of them
-//! wants a plane at the same angle and depth -- only the azimuth (index) differs.
+//! optional `G <notes...>` free-text tail. A record can list indices in more than one
+//! `n <name>` group (e.g. `92 n c ... 94 n d ...`). They are folded into one
+//! [`AscTier`]'s `indices`, since they share an angle and mast; only the azimuth differs.
 //!
 //! **Table and culet.** A zero angle is a flat facet. The file states the culet as
 //! angle `0` with a NEGATIVE distance (`a 0.00 -0.368 0`; the manual: "positive
@@ -61,42 +54,34 @@
 //! [`AscSchedule::line_ending`]; the writer reproduces it (a schedule built by hand
 //! defaults to CRLF, as `GemCAD` writes).
 //!
-//! Long index lists wrap onto continuation lines that do not start with `a` (verified
-//! against real files: continuation lines starting with a bare number, with `n`, or
-//! with `G`). [`parse_asc`] treats any line that doesn't start with one of the known
-//! record keywords (`GemCad`, `g`, `y`, `I`, `H`, `F`, `a`) as a continuation of
-//! whatever `a` record is currently open.
+//! Long index lists wrap onto continuation lines that do not start with `a`: they start
+//! with a bare number, `n` or `G`. [`parse_asc`] treats any line that does not start with
+//! a known record keyword (`GemCad`, `g`, `y`, `I`, `H`, `F`, `a`) as a continuation of
+//! the open `a` record.
 //!
-//! Beyond the read path, [`parse_asc`]'s lenient handling absorbs several corpus
-//! realities a naive reading of the format sketch would miss: continuation lines with
-//! no `a` prefix, facet names that are themselves plain numbers (name-vs-index told
-//! apart only by position right after an `n` marker), fractional index positions,
-//! negative gear-teeth counts (an internal handedness convention), one real file
-//! missing its `g` keyword entirely, and keywords glued to their values
+//! [`parse_asc`] is also lenient about: continuation lines with no `a` prefix, facet
+//! names that are plain numbers (told apart from indices only by position right after an
+//! `n` marker), fractional index positions, negative gear-teeth counts (a handedness
+//! convention), a bare `g` line without its keyword, and keywords glued to their values
 //! (`g96 0.0`).
 //!
 //! # Writing schedules
 //!
-//! [`to_asc_string`] serializes an [`AscSchedule`] back to `.asc` text. It is not
-//! byte-identical to hand-authored `GemCAD` output (whitespace and numeric
-//! formatting are normalized, wrapped tiers become one line, and a culet is always
-//! written in the `a -0 -<mast>` form), but it round-trips semantically: parsing its output reproduces an
-//! equal [`AscSchedule`]. See the `round_trip` tests in this module's own `tests`
-//! submodule, which exercise that property against real schedules pulled from the
-//! corpus.
+//! [`to_asc_string`] serializes an [`AscSchedule`] back to `.asc` text. Its output is not
+//! byte-identical to `GemCAD`'s: numbers are normalized, wrapped tiers become one line,
+//! and a culet is always written as `a -0 -<mast>`. It round-trips semantically, so
+//! parsing the output reproduces an equal [`AscSchedule`] (see `asc/tests/round_trip.rs`).
 //!
-//! Writing is fallible: [`to_asc_string`] returns [`AscWriteError`] for a header,
-//! footnote, or tier notes string containing a newline or carriage return (either
-//! splits the field across physical lines, so it would not survive the round trip),
-//! and for a non-finite number ([`AscWriteError::NonFiniteValue`]) -- see
-//! [`AscWriteError`]'s own doc comment. A tier name is never rejected: one with
-//! embedded whitespace (which would otherwise split into extra tokens on re-parse)
-//! is instead sanitised via [`asc_safe_tier_name`] before being written -- e.g.
-//! `"Crown Main"` is written as `Crown_Main` -- so a plain `.asc` export shows the
-//! sanitised form while the native `.psdd` design file keeps, and restores on
-//! load, the true name. A name that is only whitespace sanitises to nothing and is
-//! written as an automatic label (block letter plus position: `C1`, `P3`, ...). See
-//! [`is_asc_safe_tier_name`] and [`asc_safe_tier_name`]'s own doc comments.
+//! Writing is fallible. [`to_asc_string`] returns [`AscWriteError`] for a header,
+//! footnote or tier notes string containing a newline or carriage return, since that
+//! would split the field across lines, and for a non-finite number
+//! ([`AscWriteError::NonFiniteValue`]).
+//!
+//! A tier name is never rejected. One with whitespace would split into extra tokens on
+//! re-parse, so [`asc_safe_tier_name`] sanitises it (`"Crown Main"` is written as
+//! `Crown_Main`). The native `.psdd` design file keeps the true name. A name that
+//! sanitises to nothing is written as an automatic label (block letter plus position:
+//! `C1`, `P3`, ...). See [`is_asc_safe_tier_name`].
 //!
 //! Reading is bounded the same way: [`parse_asc`] rejects a gear with more than
 //! [`AscParseError::MAX_GEAR_TEETH`] (720) teeth with

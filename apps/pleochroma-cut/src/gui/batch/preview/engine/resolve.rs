@@ -15,10 +15,9 @@ use pleochroma_net::scene::effects::SceneEffects;
 use std::sync::PoisonError;
 use tracing::warn;
 
-/// One design's resolved geometry/material -- the shared prelude both
-/// `render_item_local` and `remote_lane::render_item_remote`'s callers need before rendering
-/// anything. See this group's `mod.rs` doc comment's "Why per-item resolve" section for
-/// why there is deliberately no cache sharing this between a design's two items.
+/// One design's resolved geometry and material: the prelude both lanes need before rendering.
+/// It is deliberately not cached between a design's two items (see `gui::batch::preview`'s
+/// module doc).
 pub(in crate::gui::batch::preview) struct ResolvedDesign {
     pub(in crate::gui::batch::preview) title: String,
     pub(in crate::gui::batch::preview) planes: Vec<GpuFacetPlane>,

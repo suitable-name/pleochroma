@@ -1,4 +1,4 @@
-//! Adapter-free checks of the actual generated small kernel and its Rust layout.
+//! Adapter-free checks of the generated Whitted kernel and its Rust layout.
 use crate::renderer::buffers::whitted::GpuWhittedParams;
 use core::mem::offset_of;
 use naga::{
@@ -68,6 +68,12 @@ fn whitted_layout_and_storage_budget_match_the_host() {
         ("depth_p", offset_of!(GpuWhittedParams, depth_p)),
         ("depth_q", offset_of!(GpuWhittedParams, depth_q)),
         ("bin_weights", offset_of!(GpuWhittedParams, bin_weights)),
+        ("tray_shadow", offset_of!(GpuWhittedParams, tray_shadow)),
+        (
+            "tray_shadow_layout",
+            offset_of!(GpuWhittedParams, tray_shadow_layout),
+        ),
+        ("tray_mirror", offset_of!(GpuWhittedParams, tray_mirror)),
     ];
     for (name, offset) in fields {
         assert_eq!(

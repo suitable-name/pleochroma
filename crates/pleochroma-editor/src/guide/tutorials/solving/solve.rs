@@ -20,7 +20,7 @@ pub fn guides() -> Vec<Guide> {
     ]
 }
 
-/// The crown main angle the lessons that need an edit move it to.
+/// The angle the lessons that need an edit give Crown Main.
 const EDITED_CROWN: f64 = 36.0;
 
 /// Whether no tier is called "Table".
@@ -492,7 +492,7 @@ fn verdict_fixes() -> Guide {
             "Click the trash button at the end of the Table row (or press Delete).",
         ])
         .check("the Table row is gone from the tier table.")
-        .why("You can undo it. The stone still closes: without a flat top the crown mains meet in a point.")
+        .why("You can undo it. The stone still closes: without a flat top the star facets meet in a point.")
         .goal(check("no tier called Table", table_is_gone), "the Table tier removed")
         .highlight("tier_table")
         .allow(FIX),

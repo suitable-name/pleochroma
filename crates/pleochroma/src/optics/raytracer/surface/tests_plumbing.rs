@@ -219,8 +219,7 @@ fn the_tis_boost_dulls_the_polish_next_to_the_band() {
     assert_eq!(event.normal_out, Vec3::Y);
 }
 
-/// With a ground band the boost does not apply inside it (the band is ground), and the band
-/// alone (no boost) is unchanged by the new field.
+/// Inside a ground band the TIS boost does not apply: the band takes the ground arm first.
 #[test]
 fn the_ground_band_still_wins_inside_the_band() {
     let material = GemMaterial::new_custom("surface", 1.8, 0.02, 0.0, [0.0; 3]);
@@ -257,7 +256,7 @@ fn the_hg_shadow_probe_drops_exits_through_the_ground_band() {
     let k_in = Vec3::new(0.05, -1.0, 0.02).normalize();
     let deposit = |edge_band: Option<EdgeBand<'_>>, seed: u32| {
         let nee = NeeContext {
-            environment: EnvironmentSource::HdrMap(&env_map),
+            environment: EnvironmentSource::hdr(&env_map),
             plane_soa: &soa,
             tools: &[],
             enabled: true,

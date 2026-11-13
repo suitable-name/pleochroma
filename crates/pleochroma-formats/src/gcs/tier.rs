@@ -29,11 +29,10 @@ pub struct GcsVertex {
 /// `phi = atan2(ny, nx)`, reduced into `[0, 360)`. `None` for a flat facet, whose
 /// `index_angle` is arbitrary.
 ///
-/// Measured on 4,836 of 4,836 non-flat corpus facets (2,159 crown, 2,677
-/// pavilion/girdle); the manual states only that "pav vs crown has opposite index
-/// ordering" (Gem Cut Studio User's Manual v1.1.0, p.59). The corpus has no chiral
-/// design, so the rule is verified on labels and normals, not on a design where
-/// crown and pavilion winding interact visibly.
+/// Matches the stored `index_angle` on every non-flat facet of the corpus. The manual
+/// only states that "pav vs crown has opposite index ordering" (Gem Cut Studio User's
+/// Manual v1.1.0, p.59). The corpus has no chiral design, so crown and pavilion
+/// winding are never tested where they interact.
 #[must_use]
 pub fn side_rule_index_angle(normal: [f64; 3]) -> Option<f64> {
     let [nx, ny, nz] = normal;
@@ -144,8 +143,8 @@ pub struct GcsTier {
     /// Show/Hide: a hidden tier is excluded from Gem Cut Studio's raytrace (manual
     /// p.9). Always `true` in the corpus.
     pub visible: bool,
-    /// Undocumented; probably the "Preform" tier flag (manual p.9). Always `false`
-    /// in the corpus.
+    /// Undocumented flag; the manual's "Preform" option (p.9) may be this one. Always
+    /// `false` in the corpus.
     pub guide: bool,
     /// The "Frosted" tier toggle, when stated: `0` clear, `0.5` frosted as Gem Cut
     /// Studio 1.1 writes it (manual p.9 and its p.58 example `frosting="0"`).

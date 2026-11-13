@@ -1,17 +1,13 @@
-// Phase 1: camera ray-generation kernel -- driven by `renderer::gpu::camera_check`.
+// Camera ray-generation kernel -- driven by `renderer::gpu::camera_check`.
 //
-// Fresh translation of `optics::raytracer::Camera::new` (pose -> screen-space basis)
-// and `Camera::generate_ray` (screen coordinates + jitter -> world-space ray), run back
-// to back per case exactly as the CPU renderer does per-frame/per-sample. See that
-// module's own doc comment: this is a translation of the CURRENT `raytracer.rs`, never
-// a repair of the retired first-draft shader.
+// Translation of `optics::raytracer::Camera::new` (pose -> screen-space basis) and
+// `Camera::generate_ray` (screen coordinates + jitter -> world-space ray), run per case as the
+// CPU renderer runs them per frame and sample.
 //
-// Each case is fully self-contained (no shared uniform state), so a single dispatch can
-// sweep a dense, independently-generated grid of `(yaw, pitch, distance, fov_deg,
-// screen_x, screen_y, width, height, jitter_x, jitter_y)` tuples -- including adversarial
-// ones (near-polar pitch where `Camera::new`'s `world_up` branch flips, screen corners,
-// jitter at its `[-0.5, 0.5)` extremes) generated on the CPU side in
-// `renderer::gpu::camera_check`.
+// Each case is self-contained (no shared uniform state), so one dispatch sweeps a grid of
+// `(yaw, pitch, distance, fov_deg, screen_x, screen_y, width, height, jitter_x, jitter_y)`
+// tuples, including adversarial ones (near-polar pitch where `Camera::new`'s `world_up` branch
+// flips, screen corners, jitter at its `[-0.5, 0.5)` extremes), generated on the CPU side.
 
 struct CameraRayCase {
     yaw: f32,

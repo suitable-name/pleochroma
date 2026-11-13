@@ -194,8 +194,7 @@ fn install(ctx: &Ctx, name: &str, bytes: &[u8], design_id: &str) {
     }
     auto_solve(ctx);
     schedule_save(ctx);
-    // A tutorial step may wait for a design to be loaded (once per Open Design). The event
-    // also re-checks the step, so no separate progress check follows.
+    // A tutorial step may wait for a design to be loaded. The event re-checks the step itself.
     crate::editor::guide::raise(ctx, events::DESIGN_REPLACED);
     let text = if notes.is_empty() {
         format!("Opened {name} from the library.")

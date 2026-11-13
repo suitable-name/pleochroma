@@ -263,8 +263,7 @@ fn pruning_leaves_the_search_result_bit_identical() {
         );
         if index == 0 {
             // A 12 unit bar along a coordinate axis (scale bound 10 / 12) cannot beat the
-            // four basins on the space diagonals (scale 1.2 or so), and the grid has such
-            // orientations late in its order.
+            // basins on the space diagonals, and the grid has such orientations late in its order.
             assert!(
                 pruned_solves < full_solves,
                 "nothing was pruned: {pruned_solves} solves"
@@ -355,8 +354,7 @@ fn the_polish_ends_within_half_a_step_of_a_ridge() {
     // beat the pure y move, so the search walks along y: a step of size h is repeated while
     // it reduces |theta|, i.e. while |theta| > h / 2, and the search stalls at |theta| <= h / 2.
     // From 0.03 rad it ends within half of the last step, 0.0016406 / 2 = 0.00082 rad:
-    // k >= 1 / (1 + 0.00082) = 0.99918. (With the old threshold the last step was 0.0033 and
-    // the bound 0.9984.)
+    // k >= 1 / (1 + 0.00082) = 0.99918.
     let hull = make_box_hull(1, 1.0, 1.0, 1.0);
     let region = block_halfspaces(1.0, 1.0, 1.0);
     let mut workspace = SupportWorkspace::new(region.len());
@@ -432,8 +430,8 @@ fn a_round_design_is_scored_by_the_stone_that_fits_not_by_its_proxy() {
         "score {score} above the inradius bound"
     );
 
-    // The proxy sits inside the stone, so its best scale is never below the outline's, and
-    // the old score (proxy scale cubed times the full volume) is an upper bound.
+    // The proxy sits inside the outline, so its best scale is never below the outline's, and
+    // the score is at most the proxy's scale cubed times the full volume.
     let proxy = compute_proxy_vertices(&hull.vertices);
     let mut workspace = SupportWorkspace::new(region.len());
     let proxy_k = screening_orientations()

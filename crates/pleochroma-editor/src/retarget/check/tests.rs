@@ -20,6 +20,8 @@ use pleochroma_cut_core::{
 /// The travel a retarget's facet turn implies, which the Retarget policy grants.
 mod turn;
 
+mod meets;
+
 fn selection(name: &str) -> MaterialSelection {
     MaterialSelection {
         name: Some(name.to_string()),
@@ -82,8 +84,7 @@ fn check_index(design: &Design, n_d: f64, crown: CrownShift) -> (RetargetPlan, R
     check_against_material(design, &target, crown)
 }
 
-/// The brilliant as a 1.72 stone, the owner's starting point for the emerald and
-/// sapphire cases.
+/// The brilliant as a 1.72 stone: the start of the emerald and sapphire cases.
 fn brilliant_at_172() -> Design {
     let mut design = brilliant();
     design.material = MaterialSelection {
@@ -201,8 +202,7 @@ fn level_brilliant_at_172() -> Design {
 
 #[test]
 fn diamond_to_sapphire_keeps_the_girdle_and_closes() {
-    // The owner's sapphire case in spirit: a higher-index to a lower-index material with
-    // part of the shift applied to the crown.
+    // A higher-index to a lower-index material, with part of the shift applied to the crown.
     let design = brilliant();
     let crown = CrownShift {
         fraction: 0.33,
@@ -220,13 +220,13 @@ fn diamond_to_sapphire_keeps_the_girdle_and_closes() {
         result.validity.reasons
     );
 
-    // The retargeted stone closes and its girdle figure drifts by exactly what the girdle
-    // OUTLINE contract implies (owner decision 2026-10-19: pin the drift, not a ceiling). Every
-    // facet turns about its outline corners, which are held, and the figure is read at the
-    // ridge points 0.064 R inside them along a break's axis, so it moves by that times the
-    // breaks' tangent change: 0.064 R x (tan 44.3 - tan 41 + tan 52.5 - tan 42.5) = 0.0316 R
-    // = 1.58 points of this 2 R wide stone (replica: 5.961 % to 7.539 %). Whether the corners
-    // keep their thickness is the gate's separate question, `assert_corners_kept`.
+    // The retargeted stone closes and its girdle figure moves by exactly what the girdle
+    // OUTLINE contract implies. Every facet turns about its outline corners, which are held,
+    // and the figure is read at the ridge points 0.064 R inside them along a break's axis, so
+    // it moves by that times the breaks' tangent change:
+    // 0.064 R x (tan 44.3 - tan 41 + tan 52.5 - tan 42.5) = 0.0316 R = 1.58 points of this
+    // 2 R wide stone. Whether the corners keep their thickness is the gate's separate
+    // question, `assert_corners_kept`.
     let figures = result.validity.figures;
     let was = figures.girdle_was.expect("the design has a girdle");
     let now = figures
@@ -274,8 +274,8 @@ fn assert_meets_survive_saving(result: &RetargetCheck, applied: &Design) {
 
 #[test]
 fn the_owners_sapphire_case_keeps_the_table_on_the_crown_side() {
-    // n_D 1.72 to 1.7681 with a third of the shift on the crown: the table used to go
-    // from 0.00 to -0.37 degrees and onto the pavilion side.
+    // n_D 1.72 to 1.7681 with a third of the shift on the crown: the table keeps its angle
+    // and stays on the crown side.
     let design = brilliant_at_172();
     let crown = CrownShift {
         fraction: 0.33,
@@ -306,8 +306,8 @@ fn the_owners_sapphire_case_keeps_the_table_on_the_crown_side() {
         "{:?}",
         result.validity.reasons
     );
-    // The headline reports the girdle's thinnest point next to its overall figure, so
-    // "girdle 6.0 % (was 6.0 %)" can no longer hide what happens between the walls.
+    // The headline reports the girdle's thinnest point next to its overall figure, so the
+    // overall figure cannot hide a thin spot between the walls.
     let figures = result.validity.figures;
     let (was, now) = (
         figures
@@ -453,8 +453,8 @@ fn follow_pavilion_moves_the_table_height_with_the_crown() {
 
 #[test]
 fn the_owners_emerald_case_keeps_a_live_girdle_and_closes() {
-    // n_D 1.72 to 1.5791 scaling the crown by the critical-angle ratio: the crown and
-    // pavilion went steeper at fixed masts and the girdle disappeared.
+    // n_D 1.72 to 1.5791 with the crown scaled by the critical-angle ratio: steeper facets at
+    // fixed masts must keep a live girdle.
     let design = brilliant_at_172();
     let crown = CrownShift {
         fraction: 0.0,
@@ -477,10 +477,10 @@ fn the_owners_emerald_case_keeps_a_live_girdle_and_closes() {
     );
 
     // The girdle is live in the retargeted stone and its overall figure stays within one
-    // percentage point. The girdle OUTLINE is the contract (owner decision, 2026-10-19):
-    // every facet turns about its outline corners and the gate holds the outline, so the
-    // Shift no longer thins the corners and the gate does not refuse it for them. The figure
-    // is read at the ridge points, which are not outline corners, so it may move a little.
+    // percentage point. The girdle OUTLINE is the contract: every facet turns about its
+    // outline corners and the gate holds the outline, so the Shift does not thin the corners.
+    // The figure is read at the ridge points, which are not outline corners, so it may move a
+    // little.
     let figures = result.validity.figures;
     let was = figures.girdle_was.expect("the design has a girdle");
     let now = figures.girdle_now.expect("the girdle stays alive");
@@ -531,7 +531,7 @@ fn a_valid_verdict_never_hides_a_pinched_girdle() {
 /// The planes are `f32`, so the corner vertices of a level girdle stand a few 1e-7 off the
 /// ideal level line (about 1.6e-5 % of this 2.0 wide stone, and the extreme vertices that the
 /// overall figure reads differ from the corners by that much). A thousandth of a percent is
-/// some 60 times that noise and still 2000 times under the 2.36 % being compared.
+/// some 60 times that noise and still far under the girdle thicknesses being compared.
 const LEVEL_NOISE_PERCENT: f64 = 1e-3;
 
 /// The girdle walls of `design` whose corners read under half of the thickest wall's, one per
@@ -607,8 +607,8 @@ fn a_level_girdle_keeps_its_thinnest_point_through_a_shift_either_way() {
     }
 }
 
-/// The owner's rule: a retarget ends valid in both modes. Shift is valid, or it is not
-/// and the dialog says to use Optimize, and Optimize then offers only valid options.
+/// A retarget ends valid in both modes: Shift is valid, or it is not and the dialog says to
+/// use Optimize, and Optimize then offers only valid options.
 fn assert_ends_valid(design: &Design, plan: &RetargetPlan, result: &RetargetCheck) {
     use crate::retarget::{
         search::{SearchInputs, SearchSettings, run_search},

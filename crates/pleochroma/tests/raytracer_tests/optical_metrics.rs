@@ -70,11 +70,9 @@ fn test_optical_metrics_vary_correctly_by_gem_material() {
     // Sapphire's (~0.0106) and ~2.3x Quartz's (~0.0093), so on a well-behaved pose Diamond
     // measuring the highest Fire of these three is physically expected.
     //
-    // Decision record: do NOT assert this at pitch=1.4 (this test's own pose above) --
-    // the ordering is false there (a near-grazing-exit, low-critical-angle-material
-    // effect, same class as the emerald-cut limitation noted on
-    // `evaluate_gem_optical_metrics`), not a regression. The ordering is measurable at
-    // yaw=0.0, pitch=0.45, so assert there instead.
+    // The ordering does not hold at pitch 1.4: a near-grazing exit effect for low critical
+    // angles, like the emerald-cut limitation on `evaluate_gem_optical_metrics`. It holds at
+    // yaw 0.0, pitch 0.45, so it is asserted there.
     let m_diamond_045 = evaluate_gem_optical_metrics(&planes, &diamond, 0.0, 0.45, studio());
     let m_sapphire_045 = evaluate_gem_optical_metrics(&planes, &sapphire, 0.0, 0.45, studio());
     let m_quartz_045 = evaluate_gem_optical_metrics(&planes, &quartz, 0.0, 0.45, studio());

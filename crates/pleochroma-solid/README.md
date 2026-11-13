@@ -34,7 +34,7 @@ filesystem access, so it links unchanged into a `wasm32-unknown-unknown` build.
   in the request gate, can neither drop nor resurrect them. `None` (the default, and the
   web app's) changes nothing.
 - **`edges_layer::render_edges_layer`** — the transparent-fill, opaque-edges render
-  used to composite solid edges over a path-traced image.
+  for compositing solid edges over a path-traced image.
 - **`live_update::plan_preview`** — chooses which geometry to draw after an edit
   (pinned / fresh / stale / unsolvable), budgeted via an injected
   **`live_update::Clock`** rather than `std::time::Instant` (which panics at runtime

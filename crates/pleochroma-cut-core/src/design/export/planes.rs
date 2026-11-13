@@ -30,8 +30,7 @@ impl Design {
     ///
     /// # Errors
     ///
-    /// Propagates [`Self::solve`]'s error -- see the module docs on why this crate
-    /// refuses to invent a scale rather than returning some plane arrangement anyway.
+    /// Propagates [`Self::solve`]'s error: no scale is invented to build a plane set.
     pub fn planes(&self) -> Result<Vec<(DVec3, f64)>, DesignSolveError> {
         let solved = self.solve()?;
         Ok(self.planes_from_solved(&solved))
@@ -105,9 +104,9 @@ impl Design {
     /// [`Self::measure`]'s concave twin for an already-solved design: the flat
     /// stone's metrics with `volume` replaced by the carved mesh's volume, which
     /// is what carat weight and yield must see. Width, length and heights stay
-    /// the flat stone's: concave cuts never add material, and `W` is defined on
-    /// the flat stone (plan §4.4). Equal to `measure_solid` of the planes when the
-    /// design has no concave tiers.
+    /// the flat stone's: concave cuts never add material, and `W` is defined on the
+    /// flat stone. Equal to `measure_solid` of the planes when the design has no concave
+    /// tiers.
     ///
     /// `Ok(None)` when the flat stone is not a closed solid, or when the tools
     /// remove all of it.
@@ -132,8 +131,8 @@ impl Design {
     }
 
     /// The flat stone's `flat` metrics ([`measure_solid`] of `planes`) with `volume`
-    /// replaced by the volume of the stone carved by `tools` ([`build_solid_mesh_geom`]):
-    /// the one carved measure every yield and carat figure reads
+    /// replaced by the volume of the stone carved by `tools` ([`build_solid_mesh_geom`]).
+    /// Every yield and carat figure reads this carved measure
     /// ([`Self::measure_from_solved_geom`] is this on a design's own geometry).
     ///
     /// With no tools this is `flat` itself, bit for bit, and without touching the
@@ -156,13 +155,9 @@ impl Design {
         }
     }
 
-    /// [`Self::planes_from_solved`] restricted to the first `through_tier + 1`
-    /// tiers (the preform's own planes, including [`Self::preform_y_offset`]'s
-    /// shift, are always included) -- the plane arrangement a "show through
-    /// tier N" viewport slider needs to preview
-    /// the stone as cut up to and including that tier, without a second
-    /// solve and without the caller re-deriving the schedule truncation
-    /// itself.
+    /// [`Self::planes_from_solved`] restricted to the first `through_tier + 1` tiers (the
+    /// preform's own planes, including [`Self::preform_y_offset`]'s shift, are always
+    /// included): the stone as cut up to and including that tier, without a second solve.
     ///
     /// `through_tier >= self.tiers.len()` means "every tier", identical to
     /// [`Self::planes_from_solved`] itself.
@@ -234,9 +229,8 @@ impl Design {
     /// planar design as well as one with concave tiers. Flat and concave tiers each count as
     /// one step.
     ///
-    /// A planar design's steps used to be its stored order, so the slider could show a
-    /// crown before the pavilion; the shown tiers of a step are now a stored prefix only by
-    /// accident, and [`Self::try_planes_after_steps`] builds them from the visible set.
+    /// The tiers shown at a step need not be a stored prefix; [`Self::try_planes_after_steps`]
+    /// builds them from the visible set.
     #[must_use]
     pub fn preview_steps(&self) -> Vec<TierRef> {
         self.cutting_order()
@@ -286,11 +280,11 @@ impl Design {
         Ok(planes)
     }
 
-    /// The plane arrangement of the stone after its first `steps`
-    /// [`Self::preview_steps`]: `0` is the preform alone (the rough), and a `steps` at
-    /// or past [`Self::preview_step_count`] is the finished stone, identical to
-    /// [`Self::planes_from_solved`]. A step that is a concave tier adds no flat plane
-    /// (its tool comes from [`Self::concave_tools_after_steps`]).
+    /// The plane arrangement of the stone after its first `steps` of
+    /// [`Self::preview_steps`]: `0` is the preform alone (the rough), and a `steps` at or
+    /// past [`Self::preview_step_count`] is the finished stone, identical to
+    /// [`Self::planes_from_solved`]. A concave step adds no flat plane (its tool comes from
+    /// [`Self::concave_tools_after_steps`]).
     ///
     /// The rough needs no masts, so `solved` is not checked for it.
     ///
@@ -358,11 +352,10 @@ impl Design {
     }
 
     /// Which tier (index into [`Self::tiers`]) contributed the facet plane at
-    /// `plane_index` of [`Self::planes_from_solved`]'s combined arrangement --
-    /// e.g. one of the escaping indices named by
-    /// [`pleochroma::geometry::stone_metrics::SolidStatus::Unbounded`]. Does
-    /// the `self.preform.planes().len()` offset once, here, rather than
-    /// leaving every caller to re-derive and subtract it themselves.
+    /// `plane_index` of [`Self::planes_from_solved`]'s combined arrangement, for example
+    /// one of the escaping indices named by
+    /// [`pleochroma::geometry::stone_metrics::SolidStatus::Unbounded`]. The preform's
+    /// plane count is subtracted here, so callers need not.
     ///
     /// Returns `None` for a preform plane (before any tier's own
     /// contribution starts) or an index past the end of the arrangement --
@@ -394,14 +387,10 @@ impl Design {
 /// [`StandardGemCuts::from_asc_schedule`]'s order, i.e. NOT including the
 /// preform's own planes) about the vertical axis by that tier's
 /// [`Design::cheater_offset_deg`], if any -- the geometric half of a
-/// "cheater"/azimuth-offset annotation. Without this rotation, an offset would
-/// be persisted and printed on the cut sheet but completely ignored by the
-/// solid, the tracer and the diagram; since [`Design::planes_from_solved`]/
-/// [`Design::planes_through_tier`] are the one production path the solid preview
-/// (`design_to_gpu_planes`), `solid_preview::facet_map` and the manufacturability
-/// checks all read planes from, applying the rotation HERE makes every one of
-/// those consumers agree with the cut sheet automatically, with no change needed
-/// in any of them.
+/// "cheater"/azimuth-offset annotation. Without it the offset would print on the cut
+/// sheet but be ignored by the solid. Rotating here keeps every consumer of these
+/// planes (`design_to_gpu_planes`, the facet map, the manufacturability checks) in
+/// agreement with the cut sheet.
 ///
 /// # Sign convention
 ///

@@ -88,8 +88,8 @@ static RANDOM_AXES: LazyLock<[Vec3; RANDOM_NEEDLE_AXES]> = LazyLock::new(|| {
     std::array::from_fn(|i| {
         let z = (i as f32 + 0.5) / RANDOM_NEEDLE_AXES as f32;
         // Separate multiply and subtract, as in the WGSL twins (`11_oriented_scattering.wgsl`,
-        // `12_bragg_domains.wgsl`); a fused `mul_add` would round differently. `allow`, not
-        // `expect`: older clippy does not raise it.
+        // `12_bragg_domains.wgsl`): a fused `mul_add` rounds differently. `allow`, not `expect`,
+        // because some clippy versions do not raise this lint.
         #[allow(clippy::suboptimal_flops)]
         let r = (1.0 - z * z).max(0.0).sqrt();
         let (sin, cos) = (i as f32 * GOLDEN_ANGLE).sin_cos();
@@ -314,10 +314,10 @@ pub(crate) struct OrientedScatter {
 
 /// The per-bounce extinction/scatter estimator for a medium with oriented inclusions.
 ///
-/// The same decisions as [`super::hg::maybe_scatter_or_extinguish`] (read its doc comment) with
-/// the per-channel coefficient `sigma_s,k(w)` in place of the scalar, and the mixture sampler in
-/// place of Henyey-Greenstein. `Some` if an event fired strictly before `hit_t`; `None` if the
-/// path survived to the facet (`stokes` and `path_pdf` then carry the survival weight).
+/// The decisions of [`super::hg::maybe_scatter_or_extinguish`] with the per-channel coefficient
+/// `sigma_s,k(w)` in place of the scalar, and the mixture sampler in place of Henyey-Greenstein.
+/// `Some` if an event fired strictly before `hit_t`; `None` if the path survived to the facet
+/// (`stokes` and `path_pdf` then carry the survival weight).
 ///
 /// `pub(crate)`: `renderer::gpu::transport_check`'s Tier 2 check of the WGSL twin calls it.
 #[expect(
@@ -583,7 +583,7 @@ pub(in super::super) fn try_scatter_step_oriented(
     current_ray.dir = scatter.new_dir;
     *current_k = scatter.new_dir;
     let phase_pdf_for_mis =
-        if nee.enabled && matches!(nee.environment, EnvironmentSource::HdrMap(_)) {
+        if nee.enabled && matches!(nee.environment, EnvironmentSource::HdrMap { .. }) {
             mis_phase_carry(scatter.hero_phase, scatter.new_dir)
         } else {
             None

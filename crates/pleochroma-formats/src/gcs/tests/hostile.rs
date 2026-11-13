@@ -97,8 +97,8 @@ fn non_finite_index_and_render_attributes_are_rejected() {
     ));
 }
 
-/// Looking for the `;` after every `&` used to scan to the end of the attribute, so
-/// a run of ampersands cost quadratic time. The search is bounded now.
+/// The search for the `;` ending an entity is bounded, so a run of ampersands decodes
+/// in linear time.
 #[test]
 fn a_hundred_thousand_ampersands_decode_in_linear_time() {
     let amps = "&".repeat(100_000);
@@ -204,9 +204,8 @@ fn a_refractive_index_not_above_one_is_defaulted_with_one_warning() {
     }
 }
 
-/// A `<facet>` element missing a required attribute must be rejected, not silently
-/// defaulted to `0.0` -- the module doc comment's `# Errors` section promises this
-/// for "a tier, facet, or vertex with a missing or non-numeric required attribute".
+/// A `<facet>` missing a required attribute is an error, not defaulted to `0.0`, as the
+/// `# Errors` section of [`parse_gcs`] states.
 #[test]
 fn rejects_a_facet_missing_a_required_attribute() {
     let content = r#"<GemCutStudio version="1000">

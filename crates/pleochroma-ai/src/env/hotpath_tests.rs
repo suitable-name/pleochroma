@@ -1,4 +1,4 @@
-//! Regressions for valid identity proposals and adaptive search scheduling.
+//! Regressions for unchanged-identity proposals and adaptive search scheduling.
 
 use super::*;
 use crate::env::{teacher::DEFAULT_LINE_SEARCH, test_fixtures::fixture_env, traits::GemstoneRlEnv};

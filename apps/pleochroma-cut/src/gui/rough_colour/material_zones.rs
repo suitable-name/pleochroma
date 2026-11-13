@@ -3,8 +3,9 @@
 //!
 //! Window-free except [`push_zone_rows`], the one function that touches the dialog's global.
 //!
-//! A zoned custom material (an adopted "<plan> - <design> color", or a zoned library material) is an
-//! ordinary row whose seven-band colour is the BASE zone, plus a `material_zoning` row holding all
+//! A zoned custom material (an adopted "<plan> - <design> color", or a zoned library
+//! material) is an ordinary row whose seven-band colour is the BASE zone, plus a
+//! `material_zoning` row holding all
 //! the zones. When the cutter edits the colour in the dialog, the dialog saves new band rows into
 //! the ordinary row; without the write-back the stored base zone would silently override them the
 //! next time the zones are attached (`with_stored_zoning` installs the stored base zone as the
@@ -114,13 +115,12 @@ pub fn rescaled_materials(
 
 /// The stone width setting is now `width_mm`: re-scales the zone geometry of library materials.
 ///
-/// Every "relative to stone" library material in the render context's list is re-scaled (owner
-/// decision 4), so the next render traces the zones at the new size. Returns how many materials
-/// changed.
+/// Every "relative to stone" library material in the render context's list is re-scaled, so the
+/// next render traces the zones at the new size. Returns how many materials changed.
 ///
 /// Called when the design's girdle diameter changes (`editor::view::inspector::push_stone_fields`)
-/// and when a library row takes the viewport (`library::detail::planes`, default width).
-/// Does nothing before [`register_vault`] ran. The vault and the context are locked one after the
+/// and when a library row takes the viewport (`library::detail::planes`, default width). Does
+/// nothing before [`register_vault`] ran. The vault and the context are locked one after the
 /// other, never nested.
 pub fn stone_width_applied(render_ctx: &Arc<Mutex<RenderContext>>, width_mm: f32) -> usize {
     let Some(db) = VAULT.with(|cell| cell.borrow().clone()) else {
@@ -330,11 +330,11 @@ pub fn write_back_base_colour(db: &Database, name: &str, bands: &[[f32; 3]]) -> 
     Ok(true)
 }
 
-/// Switches the stored zones of custom material `name` between absolute and relative geometry.
+/// Switches the stored zones of custom material `name` between absolute (mm) and "relative to
+/// stone" geometry.
 ///
-/// The choice is between absolute (mm) and "relative to stone" geometry. The geometry is
-/// converted at a stone `width_mm` wide (`0` means the default width) so the stone looks the
-/// same at that width.
+/// The geometry is converted at a stone `width_mm` wide (`0` means the default width), so the stone
+/// looks the same at that width.
 ///
 /// Returns whether the stored row changed (`false`: the material has no zones, or they already
 /// are in that form).
@@ -392,7 +392,7 @@ fn source_zoning(db: &Database, source: &str) -> Result<Option<StoredZoning>> {
     }))
 }
 
-/// Brings the stored zones in line with a material save, after the material row itself was written.
+/// Brings the stored zones in line with a material save, after the material row was written.
 ///
 /// What it does:
 /// 1. Saved under a new name, the zones of the material the dialog showed, stored or built in, are

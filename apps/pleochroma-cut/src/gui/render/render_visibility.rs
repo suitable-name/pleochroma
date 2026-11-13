@@ -4,12 +4,10 @@
 //! The answer combines several inputs: the outer tab, the Live Render/Edit sub-tab,
 //! each sub-tab's own view-mode toggle, and comparison visibility. While Retarget or
 //! the inline Optimize comparison is open, the main viewport is hidden and paused.
-//! [`render_is_visible`] is
-//! the pure function encoding it, and every writer (the two Slint signals wired inside
-//! [`setup_live_render_visibility_callbacks`], plus the two view-mode toggles' own
-//! settings-persistence callbacks in `gui::main_window` and the Retarget open/close
-//! handlers) recomputes it through the shared [`recompute_tab_visible`] helper, so no
-//! call site's formula can ever drift out of sync with another's.
+//! [`render_is_visible`] is the pure function encoding it. Every writer (the two Slint
+//! signals wired in [`setup_live_render_visibility_callbacks`], the two view-mode toggles'
+//! callbacks in `gui::main_window`, and the Retarget open/close handlers) recomputes it
+//! through [`recompute_tab_visible`], so no call site's formula can drift from another's.
 
 use crate::{
     CompareModel, MainWindow, RetargetModel, SolidPreviewModel, ViewportModel,
@@ -24,26 +22,22 @@ use pleochroma_editor::guide::viewing_events as events;
 use slint::ComponentHandle;
 use std::sync::{Arc, Mutex};
 
-/// Whether the live-rendered image is visible anywhere right now -- the render
-/// thread's `RenderContext::tab_visible` should be `true` exactly when this is. Pure
-/// and unit-tested directly rather than only exercised indirectly through the Slint
-/// callbacks that each recompute it.
+/// Whether the live-rendered image is visible anywhere right now. The render thread's
+/// `RenderContext::tab_visible` should be `true` exactly when this is. Pure, so it is
+/// unit-tested directly.
 ///
-/// The tracer only runs where it can actually be seen, which depends on the Live
-/// Render/Edit sub-tab's OWN view-mode toggle, not just which sub-tab is selected:
-/// - Live Render tab (`render_view_tab == 0`): visible in Path-traced (`1`) or
-///   Ray-Traced (`2`) mode (`ViewportModel.live_view_mode`, [`LiveViewMode`]). In
-///   Solid mode (`0`) the viewport shows the flat-shaded CPU rasterizer instead, and
-///   the tracers must not burn GPU/remote compute time on a frame nobody is looking
-///   at.
-/// - Edit tab (`render_view_tab == 1`): visible in Path-traced (`1`), Solid + Path-Traced (`2`),
-///   Ray-Traced (`4`) or Solid + Ray-Traced (`5`) (`SolidPreviewModel.view_mode`, [`EditViewMode`]), not
-///   Solid (`0`) or Diagram (`3`) -- `render_view_tab == 1` alone must not suspend
-///   tracing unconditionally, or the Edit tab's own traced pills would show a stale,
-///   frozen frame instead of a live one.
+/// The tracer runs only where it can be seen, which depends on the sub-tab's own view-mode
+/// toggle, not only on which sub-tab is selected:
+/// - Live Render tab (`render_view_tab == 0`): visible in Path-traced (`1`) or Ray-Traced (`2`)
+///   mode (`ViewportModel.live_view_mode`, [`LiveViewMode`]). Solid mode (`0`) shows the
+///   flat-shaded CPU rasterizer, and the tracers must not spend GPU or remote time on it.
+/// - Edit tab (`render_view_tab == 1`): visible in Path-traced (`1`), Solid + Path-Traced
+///   (`2`), Ray-Traced (`4`) or Solid + Ray-Traced (`5`) (`SolidPreviewModel.view_mode`,
+///   [`EditViewMode`]), not in Solid (`0`) or Diagram (`3`). The tab alone must not suspend
+///   tracing, or the Edit tab's traced pills would show a stale frame instead of a live one.
 ///
-/// `modal_compare_open` covers Retarget and the inline Optimize comparison: their
-/// own images replace the main viewport, so local and remote tracing pause there.
+/// `modal_compare_open` covers Retarget and the inline Optimize comparison: their own
+/// images replace the main viewport, so local and remote tracing pause there.
 #[must_use]
 const fn render_is_visible(
     active_tab: i32,
@@ -58,15 +52,11 @@ const fn render_is_visible(
             || (render_view_tab == 1 && EditViewMode::from_raw(solid_view_mode).is_traced()))
 }
 
-/// Reads the current signals off `ui` and writes the result into
-/// `render_ctx.tab_visible`. Called after every one of them changes, rather than each
-/// callback keeping its own partial condition, which is exactly the kind of
-/// duplication that could let one call site's formula silently disagree with another's.
+/// Reads the current signals off `ui` and writes the result into `render_ctx.tab_visible`.
+/// Every writer calls this, so the formula lives in one place.
 ///
-/// `pub(in crate::gui)`: also called directly from `gui::main_window`'s
-/// `on_live_view_mode_changed` handler and from its `SolidPreviewModel.
-/// on_view_mode_changed` handler -- both view-mode toggles [`render_is_visible`]
-/// depends on, alongside the two tab signals wired inside this module.
+/// `pub(in crate::gui)`: `gui::main_window`'s `on_live_view_mode_changed` and
+/// `SolidPreviewModel.on_view_mode_changed` handlers call it too.
 ///
 /// Also clears `RenderContext::camera_drag_held`: a tab, sub-tab or view-mode switch
 /// mid-drag must never leave the preview gate closed.
@@ -101,16 +91,13 @@ pub(in crate::gui) fn recompute_tab_visible(
     crate::bridge::render_thread::progress::set_camera_drag(ui, false);
 }
 
-/// Wires the outer `active_tab_changed` and the "Live Render"/"Edit" sub-tab change --
-/// two of the four signals [`render_is_visible`] combines (the other two,
-/// `ViewportModel.live_view_mode` and `SolidPreviewModel.view_mode`, are wired in
-/// `gui::main_window` itself, since both already have their own settings-persistence
-/// callback to hang [`recompute_tab_visible`] off).
+/// Wires the outer tab change and the Live Render/Edit sub-tab change, two of the four signals
+/// [`render_is_visible`] combines. The other two (`ViewportModel.live_view_mode` and
+/// `SolidPreviewModel.view_mode`) are wired in `gui::main_window`, which already persists them.
 ///
-/// `preview_state` is the solid-inspection preview controller -- the sub-tab change
-/// handler re-issues the last solved plane set at the new tab's own pose/view-mode
-/// (via `camera_lighting::resubmit_at_current_pose`) so switching tabs shows the right
-/// variant immediately rather than whatever the previous tab last rendered.
+/// `preview_state` is the solid-inspection preview controller. On a sub-tab change it
+/// re-issues the last solved plane set for the new tab, via
+/// `camera_lighting::resubmit_at_current_pose`.
 pub(in crate::gui) fn setup_live_render_visibility_callbacks(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
@@ -134,20 +121,13 @@ pub(in crate::gui) fn setup_live_render_visibility_callbacks(
             if idx == 0 {
                 raise(&ui, events::LIVE_RENDER_OPENED);
             }
-            // Re-request the right image for the newly selected sub-tab -- e.g.
-            // switching Edit -> Live Render while both are in Solid mode must show the
-            // Live tab's own (possibly differently sized) solid raster immediately,
-            // not whatever the Edit tab last rendered. `resubmit_at_current_pose`
-            // already encodes exactly this "which variant, and is it even visible"
-            // logic (see its own doc comment), so this reuses it rather than
-            // duplicating it.
+            // Re-request the image for the newly selected sub-tab, so Edit to Live Render
+            // shows the Live tab's own solid raster. `resubmit_at_current_pose` decides the
+            // variant and whether it is visible.
             //
-            // Deferred by one event-loop turn (`slint::Timer::single_shot`) rather
-            // than called synchronously right here -- resubmitting immediately would
-            // run before the newly instantiated `SolidViewportView`/`GemViewportView`
-            // has pushed its own `changed width`/`changed height` size, so the very
-            // first frame after a tab switch would be sized to whichever viewport's
-            // size properties happen to be left over from before.
+            // Deferred by one event-loop turn (`slint::Timer::single_shot`): a synchronous
+            // resubmit would run before the new viewport has pushed its `changed width` and
+            // `changed height`, so the first frame would be sized from the old viewport.
             let render_ctx_deferred = render_ctx_rv.clone();
             let preview_state_deferred = Arc::clone(&preview_state_rv);
             let ui_weak_deferred = ui.as_weak();

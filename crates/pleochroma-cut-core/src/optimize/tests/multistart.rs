@@ -286,9 +286,8 @@ impl StartEngine for CountingBasins {
     }
 }
 
-/// The run's evaluation figure pays for `min(effective starts, keep)` polishes. Descents
-/// that stop early leave budget for extra waves, so there can be more states than starts;
-/// never more than the effective start count are polished (which ones is decided by rank).
+/// A run polishes at most its effective start count of states. Descents that stop early
+/// leave budget for extra waves, so there can be more states than starts.
 #[test]
 fn no_more_starts_are_polished_than_the_run_has_effective_starts() {
     let engine = CountingBasins {
@@ -416,6 +415,7 @@ fn one_start_is_the_search_it_always_was() {
 }
 
 #[test]
+#[ignore = "over 60 s in the workspace run (2026-11-08); run on request: scripts/run_tests_on_request.sh"]
 fn the_result_does_not_depend_on_the_lane_count() {
     let fixture = fixture();
     let budget = 3 * 8 * fixture.free;
@@ -425,6 +425,7 @@ fn the_result_does_not_depend_on_the_lane_count() {
 }
 
 #[test]
+#[ignore = "over 60 s in the workspace run (2026-11-08); run on request: scripts/run_tests_on_request.sh"]
 fn a_multi_start_run_stays_inside_its_inclusive_budget_and_reports_its_starts() {
     let fixture = fixture();
     let budget = 3 * 8 * fixture.free;

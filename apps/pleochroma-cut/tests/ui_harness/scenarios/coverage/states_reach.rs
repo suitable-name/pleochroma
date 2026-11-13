@@ -1,18 +1,18 @@
-//! States of the click-through passes for the elements run 7 still left uncovered (lane E of the
-//! 2026-10-15 findings), plus the helpers the other state tables share for them.
+//! States of the click-through passes that reach controls only a user's route opens: the library
+//! list, dialogs and panels, plus the helpers the other state tables share for them.
 //!
 //! Proves: in each state every enabled button, tab, check box and combo box of the scope is
 //! pressed once and every field touched (the engine of `overlays.rs`), after the state's `open`
 //! function reached the page the way a user does: model flags first, then the opener.
 //!
-//! What kept the elements unreached, by state:
+//! Why the opener is needed, by state:
 //!
-//! * the library list folds onto its rail at the passes' 1366 px width, so no list row (and none
-//!   of its hover menu, tags or the filter bar) existed ([`library_list_open`]);
+//! * at the 1366 px window width the library folds onto its rail, so no list row (nor its hover
+//!   menu, tags or filter bar) exists until the list is unfolded ([`library_list_open`]);
 //! * dialogs whose body is a capped `ScrollView` (the tilt dialog, the material editor, the tier
 //!   table sideways): a control scrolled out of the clip is not enumerated ([`scroll_scope`]);
-//! * the export dialog reseeds its size and its lighting list every time it opens, so values set
-//!   before the opener were gone;
+//! * the export dialog reseeds its size and its lighting list when it opens, so values are set
+//!   after the opener;
 //! * private flags that only a press sets (the Parameters reset question, the cutting-mode reset
 //!   question, the video section) are reached by pressing their opener here.
 
@@ -33,8 +33,9 @@ use crate::support::{
 };
 use pleochroma_cut::{
     BodyColorEditorModel, CuttingModeModel, DeepSolveTierRow, EditorModel, ExportModel,
-    LibraryModel, LightingPresetItem, OptimizeModel, PerformanceFilterRow, RetargetModel,
-    SettingsModel, TiltModel, TiltVideoExportModel, VerdictModel, VerdictReasonData, ViewportModel,
+    LibraryModel, LightingPresetItem, MainWindow, OptimizeModel, PerformanceFilterRow,
+    RetargetModel, SettingsModel, TiltModel, TiltVideoExportModel, VerdictModel, VerdictReasonData,
+    ViewportModel,
 };
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use std::time::Duration;
@@ -106,11 +107,11 @@ fn press_in_scope(app: &HarnessApp, scope: &str, label: &str) -> bool {
     true
 }
 
-/// Unfolds the library list when the window put it on its rail. At the passes' 1366 px width the
-/// Edit view's auto-collapse rule (app.slint `library_wants_auto_collapse`) folds the library, and
-/// `DiagramListView` (rows, hover menu, tags, filter bar) is then not instantiated at all. The
-/// rail's own button is pressed (the property is the fallback), then the layout is nudged so the
-/// list's rows are instantiated.
+/// Unfolds the library list when the window put it on its rail. At 1366 px the Edit view's
+/// auto-collapse rule (`library_wants_auto_collapse` in `window_state.slint`) folds the library,
+/// and `DiagramListView` (rows, hover menu, tags, filter bar) is then not instantiated. The rail's
+/// own button is pressed (the property is the fallback), then the layout is nudged so the rows
+/// are instantiated.
 pub(super) fn library_list_open(app: &HarnessApp) {
     let library = app.ui().global::<LibraryModel>();
     if library.get_panel_collapsed() && !press(app, "Show the Library List", None) {
@@ -157,9 +158,9 @@ fn wait_solved(app: &HarnessApp) {
 // ---------------------------------------------------------------------------------------------
 
 /// The Optimize tab with the custom objective (the last preset: the three weight boxes and the
-/// Yield and Tone sliders) and the angle ranges open. The ranges table is built by Rust in
-/// `ranges_toggled`, which the button calls after flipping `ranges_open`; setting the flag alone
-/// left the table empty, so the Min and Max fields never existed.
+/// Yield and Tone sliders) and the angle ranges open. Rust builds the ranges table in
+/// `ranges_toggled`, which the button calls after flipping `ranges_open`; the flag alone leaves
+/// the table empty and the Min and Max fields absent.
 pub(super) fn optimize_ranges_custom(a: &HarnessApp) {
     inspector(a, 2);
     let optimize = a.ui().global::<OptimizeModel>();
@@ -174,10 +175,10 @@ pub(super) fn optimize_ranges_custom(a: &HarnessApp) {
 }
 
 /// The verdict popover with a reason about a tier (its "Show") and a reason with a Fix. The badge
-/// exists only once the first verdict landed (`VerdictModel.level >= 0`), which the old state did
-/// not wait for, so it pressed nothing. The template's own reasons are kept; the two kinds of row
-/// are added when the template has none (a Fix of a reason Rust does not hold answers with an
-/// info toast, "There is no such reason.").
+/// exists only once a first verdict landed (`VerdictModel.level >= 0`), so the state waits for
+/// it. The template's own reasons are kept; the two kinds of row are added when the template has
+/// none (a Fix of a reason Rust does not hold answers with an info toast, "There is no such
+/// reason.").
 pub(super) fn verdict_with_reasons(a: &HarnessApp) {
     edit_tab(a);
     wait_solved(a);
@@ -190,12 +191,10 @@ pub(super) fn verdict_with_reasons(a: &HarnessApp) {
     if press(a, &format!("Overall Verdict: {word}"), None) {
         coverage::record_site_id("EditorStatusStrip::verdict-badge-l628");
     }
-    // A new verdict can land at any moment: `verdict::on_solved` runs after every background solve
-    // AND after every finished solid-preview replan, which any redraw of the Edit view starts. It
-    // replaces the reasons (the Fix row goes) or marks them stale (the Fix button waits), also
-    // after this function returned and while the pass presses the popover's controls. Waiting for
-    // a quiet moment first was not enough, so a timer puts the rows back for as long as this
-    // window lives.
+    // A new verdict can land at any moment: `verdict::on_solved` runs after every background
+    // solve and after every finished solid-preview replan, and either can happen while the pass
+    // presses the popover's controls. It replaces the reasons (the Fix row goes) or marks them
+    // stale (the Fix button waits). A timer therefore puts the rows back while this window lives.
     keep_reasons(a);
     pump(300);
 }
@@ -207,10 +206,9 @@ thread_local! {
 }
 
 /// Every 100 ms, writes the two kinds of row back into the verdict when a newer verdict took them
-/// away, and marks it current. While the Fix row is still there only the flags are reset: a new
-/// reasons model rebuilds the popover's rows, and the pass then found its Fix button gone between
-/// finding and pressing it (Linux run 2026-10-29_140643, "not found again"). The timer holds a weak
-/// handle: once the window is gone (the next restore relaunches the app) it does nothing until the
+/// away, and marks it current. While the Fix row is still there only the flags are reset, because
+/// a new reasons model rebuilds the popover's rows and would drop a Fix button between its lookup
+/// and its press. The timer holds a weak handle: once the window is gone it does nothing until the
 /// next state replaces it.
 fn keep_reasons(a: &HarnessApp) {
     let ui = a.ui().as_weak();
@@ -276,15 +274,14 @@ pub(super) const DENY_PIN: &[DenyRule] = &[deny(
     "needs a finished Deep Solve run (long job); pressed once by the state's open function",
 )];
 
-/// The status strip's Details popup with every section it can show filled: the Deep Solve
-/// per-tier table (Pin), a manufacturability warning about tier 1 (a button that selects it), a
-/// material suggestion (Set Material, No Thanks), and a saved file in the strip (its chip reveals
-/// the folder; the harness build captures the opener). Rust fills these after a Deep Solve, a
-/// solve with warnings, a catalogue load and a save; they are written directly here.
-pub(super) fn status_details_filled(a: &HarnessApp) {
-    edit_tab(a);
-    wait_solved(a);
-    let editor = a.ui().global::<EditorModel>();
+/// The one manufacturability warning the status details state lists; it is also the label of
+/// the popup's warning button.
+const DETAILS_WARNING: &str = "Tier 1 has a facet narrower than 0.1 mm.";
+
+/// Fills the models behind the status details popup (deep-solve row, warning, suggestion and
+/// saved path). A solve that ends late rewrites some of them, so the state fills them again.
+fn fill_status_details(ui: &MainWindow) {
+    let editor = ui.global::<EditorModel>();
     editor.set_deep_solve_tier_rows(ModelRc::new(VecModel::from(vec![DeepSolveTierRow {
         tier_number: "#1".into(),
         name: "".into(),
@@ -292,10 +289,9 @@ pub(super) fn status_details_filled(a: &HarnessApp) {
         after_mast: "1.0213".into(),
         delta: "+0.0213".into(),
     }])));
-    editor.set_manufacturability_warnings(strings(&["Tier 1 has a facet narrower than 0.1 mm."]));
+    editor.set_manufacturability_warnings(strings(&[DETAILS_WARNING]));
     editor.set_manufacturability_warning_tiers(ModelRc::new(VecModel::from(vec![0])));
-    let material = a
-        .ui()
+    let material = ui
         .global::<ViewportModel>()
         .get_material_options()
         .row_data(1)
@@ -307,8 +303,50 @@ pub(super) fn status_details_filled(a: &HarnessApp) {
         editor.set_last_saved_path(saved.to_string_lossy().as_ref().into());
         editor.set_last_saved_label("harness_saved.psdd".into());
     }
+}
+
+thread_local! {
+    /// The timer of [`keep_status_details`]; replaced by every Details state that opens.
+    static DETAILS_KEEPER: std::cell::RefCell<Option<slint::Timer>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Every 100 ms, fills the status details models again when a solid-preview frame rewrote the
+/// warning list (`push_warning_list`) and took the warning button away. Like [`keep_reasons`] it
+/// holds a weak handle: once the window is gone (the next restore relaunches the app) it does
+/// nothing until the next Details state replaces it.
+fn keep_status_details(a: &HarnessApp) {
+    let ui = a.ui().as_weak();
+    let timer = slint::Timer::default();
+    timer.start(
+        slint::TimerMode::Repeated,
+        Duration::from_millis(100),
+        move || {
+            let Some(ui) = ui.upgrade() else {
+                return;
+            };
+            let warnings = ui.global::<EditorModel>().get_manufacturability_warnings();
+            if warnings.row_data(0).as_deref() != Some(DETAILS_WARNING) {
+                fill_status_details(&ui);
+            }
+        },
+    );
+    DETAILS_KEEPER.with(|keeper| *keeper.borrow_mut() = Some(timer));
+}
+
+/// The status strip's Details popup with every section it can show filled (see
+/// [`fill_status_details`]), open and listing the warning button and the Pin button.
+pub(super) fn status_details_filled(a: &HarnessApp) {
+    edit_tab(a);
+    // The design's own first solve can take long on a slow machine; its end rewrites the
+    // warning and the rows, so it comes first. The timer then keeps them for the pass.
+    wait_solved(a);
+    fill_status_details(a.ui());
+    keep_status_details(a);
     pump(250);
     press(a, "Details", None);
+    let listed = || a.main_view().has(DETAILS_WARNING) && a.main_view().has("Pin Tier #1");
+    let _ = wait_until(Duration::from_secs(10), listed);
     if press(a, "Pin Tier #1", None) {
         a.ui().set_toast_visible(false);
     }
@@ -349,8 +387,8 @@ fn library_states() -> Vec<State> {
 
 /// The Advanced Filters popup with the RI match on (its sliders and "Use Current Material"), a
 /// tag in the vocabulary (its chip) and one tilt-performance filter (its remove button). The
-/// header button says "Filters (A Filter Is On)" once a filter is on, which is why the old route
-/// (the label "Filters") could not open it in this state.
+/// header button reads "Filters (A Filter Is On)" once a filter is on, so it is pressed by that
+/// label first.
 fn filters_filled(a: &HarnessApp) {
     let library = a.ui().global::<LibraryModel>();
     if let Some(row) = library.get_diagram_list().row_data(0) {
@@ -394,24 +432,13 @@ const DENY_COMPARE_WINDOW: &[DenyRule] = &[deny(
 )];
 
 fn dialog_states() -> Vec<State> {
-    vec![
+    Vec::from([
         State {
             name: "Write question with Don't Ask Again",
             base: Base::Design,
             scope: Some("ConfirmActionDialog"),
             deny: NONE,
-            open: |a| {
-                // The "not a closed solid, write anyway?" kind of question; nothing waits on
-                // it, so Write Anyway and Cancel only close it.
-                edit_tab(a);
-                let editor = a.ui().global::<EditorModel>();
-                editor.set_write_confirm_heading("Write Anyway?".into());
-                editor.set_write_confirm_message("The stone is not a closed solid.".into());
-                editor.set_write_confirm_primary_label("Write Anyway".into());
-                editor.set_write_confirm_show_dont_ask(true);
-                editor.set_write_confirm_open(true);
-                pump(250);
-            },
+            open: write_question_dont_ask,
         },
         State {
             name: "Startup question about a leftover autosave",
@@ -445,6 +472,45 @@ fn dialog_states() -> Vec<State> {
             deny: NONE,
             open: export_custom_size,
         },
+        #[cfg(feature = "adaptive-sampling")]
+        State {
+            name: "Export dialog, adaptive sampling on",
+            base: Base::Design,
+            scope: Some("ExportDialog"),
+            deny: NONE,
+            open: export_adaptive,
+        },
+        State {
+            name: "Export dialog, path cache on",
+            base: Base::Design,
+            scope: Some("ExportDialog"),
+            deny: NONE,
+            open: export_path_cache,
+        },
+        #[cfg(feature = "beam")]
+        State {
+            name: "Export dialog, beam tracing on",
+            base: Base::Design,
+            scope: Some("ExportDialog"),
+            deny: NONE,
+            open: export_beam,
+        },
+        #[cfg(feature = "beam")]
+        State {
+            name: "Export dialog, beam tracing on, keep beams on",
+            base: Base::Design,
+            scope: Some("ExportDialog"),
+            deny: NONE,
+            open: export_keep_beams,
+        },
+        #[cfg(feature = "beam")]
+        State {
+            name: "Export dialog, Ray-Traced, beam tracing off for the renderer",
+            base: Base::Design,
+            scope: Some("ExportDialog"),
+            deny: NONE,
+            open: export_beam_ray_traced,
+        },
         State {
             name: "Compare to Baseline",
             base: Base::Design,
@@ -459,7 +525,20 @@ fn dialog_states() -> Vec<State> {
             deny: NONE,
             open: color_editor_solved,
         },
-    ]
+    ])
+}
+
+/// The "not a closed solid, write anyway?" kind of question, with its Don't Ask Again box.
+/// Nothing waits on it, so Write Anyway and Cancel only close it.
+fn write_question_dont_ask(a: &HarnessApp) {
+    edit_tab(a);
+    let editor = a.ui().global::<EditorModel>();
+    editor.set_write_confirm_heading("Write Anyway?".into());
+    editor.set_write_confirm_message("The stone is not a closed solid.".into());
+    editor.set_write_confirm_primary_label("Write Anyway".into());
+    editor.set_write_confirm_show_dont_ask(true);
+    editor.set_write_confirm_open(true);
+    pump(250);
 }
 
 /// Cutting mode on its second step (Previous is enabled from there). The reset question replaces
@@ -512,6 +591,72 @@ fn export_custom_size(a: &HarnessApp) {
     pump(250);
 }
 
+/// The still export dialog with "Adaptive Sampling" ticked, which shows the "Target Noise" combo.
+/// Opening the dialog reseeds its controls from the settings, so the box is ticked after the
+/// opener, as the size is in [`export_custom_size`].
+#[cfg(feature = "adaptive-sampling")]
+fn export_adaptive(a: &HarnessApp) {
+    live_tab(a);
+    let export = a.ui().global::<ExportModel>();
+    export.set_is_open(true);
+    pump(300);
+    export.set_adaptive_sampling(true);
+    pump(250);
+}
+
+/// The still export dialog with "Path Cache" ticked, which shows the "Keep for Re-Renders" box.
+/// Opening the dialog reseeds its controls from the settings, so the box is ticked after the
+/// opener, as in [`export_custom_size`].
+fn export_path_cache(a: &HarnessApp) {
+    live_tab(a);
+    let export = a.ui().global::<ExportModel>();
+    export.set_is_open(true);
+    pump(300);
+    export.set_path_cache_available(true);
+    export.set_path_cache(true);
+    pump(250);
+}
+
+/// The still export dialog with "Beam Tracing (Faceted Stones)" ticked. Opening the dialog
+/// reseeds its controls from the settings, so the box is ticked after the opener, as in
+/// [`export_custom_size`].
+#[cfg(feature = "beam")]
+fn export_beam(a: &HarnessApp) {
+    live_tab(a);
+    let export = a.ui().global::<ExportModel>();
+    export.set_is_open(true);
+    pump(300);
+    export.set_beam(true);
+    pump(250);
+}
+
+/// The still export dialog with "Beam Tracing (Faceted Stones)" and "Keep Beams for Re-Renders"
+/// both ticked (set after the opener, which reseeds the controls).
+#[cfg(feature = "beam")]
+fn export_keep_beams(a: &HarnessApp) {
+    live_tab(a);
+    let export = a.ui().global::<ExportModel>();
+    export.set_is_open(true);
+    pump(300);
+    export.set_beam_available(true);
+    export.set_beam(true);
+    export.set_keep_beams(true);
+    pump(250);
+}
+
+/// The still export dialog with the Ray-Traced renderer chosen and the beam box ticked: the box
+/// is greyed out and the note says it needs the Path-Traced renderer.
+#[cfg(feature = "beam")]
+fn export_beam_ray_traced(a: &HarnessApp) {
+    live_tab(a);
+    let export = a.ui().global::<ExportModel>();
+    export.set_is_open(true);
+    pump(300);
+    export.set_engine_index(1);
+    export.set_beam(true);
+    pump(250);
+}
+
 /// The "Compare to Baseline" panel (the Retarget dialog's other face): a Baseline set, one
 /// tier nudged, then the command bar's Compare to Baseline. The Baseline is stored after a
 /// background solve, so each step is waited for.
@@ -527,8 +672,7 @@ fn compare_to_snapshot(a: &HarnessApp) {
     wait_solved(a);
     let retarget = a.ui().global::<RetargetModel>();
     open_comparison(a);
-    // The panel's two header buttons: the scope is found by difference here, and the sweep did
-    // not credit them, so they are pressed the way a user does. The help button's accessible
+    // The panel's two header buttons are pressed as a user does: the help button's accessible
     // label is "Help: " plus its hint. Closing ends the panel, so it is opened again to leave it
     // open for the sweep.
     if retarget.get_compare_open() {
@@ -609,7 +753,7 @@ const DENY_VIDEO: &[DenyRule] = &[
 ];
 
 fn panel_states() -> Vec<State> {
-    vec![
+    Vec::from([
         State {
             name: "Parameters: Lighting, reset question",
             base: Base::Design,
@@ -634,12 +778,11 @@ fn panel_states() -> Vec<State> {
             deny: NONE,
             open: |a| {
                 // A viewport material that is not the design's is a preview: the amber badge
-                // with "Back to Design" and the preview's own color control. The body color on
-                // its last entry shows "Choose Color...": the list is the keyed one (the material's
-                // own color, its variants, the generic colors of an isotropic stone, then Custom),
-                // so the entry is the last row of the model, never a fixed number. The crystal-axis section is
-                // disabled for an isotropic material (the template's); Rust clears
-                // `c_axis_override_available` for those, so it is set for a birefringent one.
+                // with "Back to Design" and the preview's own color control. Its body color
+                // "Choose Color..." is the last row of the keyed list (the material's own color,
+                // its variants, the generic colors of an isotropic stone, then Custom), so the
+                // index is taken from the row count. Rust clears `c_axis_override_available` for
+                // an isotropic material, so it is set here for a birefringent one.
                 parameters(a, 0);
                 let settings = a.ui().global::<SettingsModel>();
                 settings.set_c_axis_override_available(true);
@@ -661,8 +804,8 @@ fn panel_states() -> Vec<State> {
             deny: NONE,
             open: |a| {
                 // The Stone tab's library branch ("Show the Library Design As", its color) is
-                // shown while the viewport shows a library design; Rust clears the flag when the
-                // library preview is drawn, which the passes never wait for, so it is set here.
+                // shown while the viewport shows a library design. Rust clears the flag when the
+                // library preview is drawn, so the state sets it after that.
                 parameters(a, 0);
                 a.ui()
                     .global::<ViewportModel>()
@@ -684,13 +827,35 @@ fn panel_states() -> Vec<State> {
             deny: DENY_VIDEO,
             open: |a| video_section_scrolled(a, -4000.0),
         },
-    ]
+        #[cfg(feature = "adaptive-sampling")]
+        State {
+            name: "Performance graph, video settings, adaptive sampling on",
+            base: Base::Design,
+            scope: Some("PerformanceGraphDialog"),
+            deny: DENY_VIDEO,
+            open: |a| video_section_adaptive(a, -1200.0),
+        },
+        State {
+            name: "Performance graph, video settings, path cache on",
+            base: Base::Design,
+            scope: Some("PerformanceGraphDialog"),
+            deny: DENY_VIDEO,
+            open: |a| video_section_path_cache(a, -1200.0),
+        },
+        #[cfg(feature = "beam")]
+        State {
+            name: "Performance graph, video settings, beam tracing on",
+            base: Base::Design,
+            scope: Some("PerformanceGraphDialog"),
+            deny: DENY_VIDEO,
+            open: |a| video_section_beam(a, -1200.0),
+        },
+    ])
 }
 
 /// The tilt dialog with "Export Tilt Video" expanded on the Custom resolution with the values
-/// overlay on, its body scrolled by `dy`. The dialog is capped at 720 px and its body scrolls:
-/// the start, end and step fields were reached by the older states, everything below them was
-/// outside the clip. The settings are written after the dialog opened.
+/// overlay on, its body scrolled by `dy`. The dialog's body scrolls, so the fields below its start
+/// are outside the clip until scrolled. The settings are written after the dialog opens.
 fn video_section_scrolled(a: &HarnessApp, dy: f32) {
     edit_tab(a);
     a.ui().global::<TiltModel>().invoke_toggle_dialog();
@@ -698,6 +863,50 @@ fn video_section_scrolled(a: &HarnessApp, dy: f32) {
     let video = a.ui().global::<TiltVideoExportModel>();
     video.set_resolution_preset(video.invoke_custom_resolution_index());
     video.set_show_values(true);
+    press_in_scope(a, "PerformanceGraphDialog", "Export Tilt Video");
+    pump(250);
+    scroll_scope(a, "PerformanceGraphDialog", 0.0, dy);
+}
+
+/// The tilt dialog with "Export Tilt Video" expanded and "Adaptive Sampling" ticked, which shows
+/// the "Target Noise" combo, its body scrolled by `dy` to the Quality block.
+#[cfg(feature = "adaptive-sampling")]
+fn video_section_adaptive(a: &HarnessApp, dy: f32) {
+    edit_tab(a);
+    a.ui().global::<TiltModel>().invoke_toggle_dialog();
+    pump(300);
+    let video = a.ui().global::<TiltVideoExportModel>();
+    video.set_adaptive_sampling(true);
+    press_in_scope(a, "PerformanceGraphDialog", "Export Tilt Video");
+    pump(250);
+    scroll_scope(a, "PerformanceGraphDialog", 0.0, dy);
+}
+
+/// The tilt dialog with "Export Tilt Video" expanded and "Beam Tracing (Faceted Stones)" ticked,
+/// its body scrolled by `dy` to the Quality block.
+#[cfg(feature = "beam")]
+fn video_section_beam(a: &HarnessApp, dy: f32) {
+    edit_tab(a);
+    a.ui().global::<TiltModel>().invoke_toggle_dialog();
+    pump(300);
+    let video = a.ui().global::<TiltVideoExportModel>();
+    video.set_path_cache_available(true);
+    video.set_beam_available(true);
+    video.set_beam(true);
+    press_in_scope(a, "PerformanceGraphDialog", "Export Tilt Video");
+    pump(250);
+    scroll_scope(a, "PerformanceGraphDialog", 0.0, dy);
+}
+
+/// The tilt dialog with "Export Tilt Video" expanded and "Path Cache" ticked, which shows the
+/// "Keep Path Cache for This Video" box, its body scrolled by `dy` to the Quality block.
+fn video_section_path_cache(a: &HarnessApp, dy: f32) {
+    edit_tab(a);
+    a.ui().global::<TiltModel>().invoke_toggle_dialog();
+    pump(300);
+    let video = a.ui().global::<TiltVideoExportModel>();
+    video.set_path_cache_available(true);
+    video.set_path_cache(true);
     press_in_scope(a, "PerformanceGraphDialog", "Export Tilt Video");
     pump(250);
     scroll_scope(a, "PerformanceGraphDialog", 0.0, dy);

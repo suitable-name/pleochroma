@@ -50,14 +50,13 @@ impl SheetFormat {
     }
 }
 
-/// Builds `design`/`solved`'s cutting sheet (with its four views, when the
-/// design currently closes -- see `pleochroma_editor::cut_sheet::
-/// cutting_sheet_document`) with the header words the design carries on its own
-/// ([`SheetDetails::from_design`]) and writes it to `dest` as HTML.
+/// Builds the cutting sheet of `design` and `solved` and writes it to `dest` as HTML.
 ///
-/// Only the tests and identity pins write a sheet without the open design's file details;
-/// the Export callback goes through [`write_cutting_sheet_with`]. `custom` is threaded
-/// straight through to the sheet's "RI range" line.
+/// The sheet carries its four views when the design closes, under the header words the design
+/// carries ([`SheetDetails::from_design`]).
+///
+/// Only tests write a sheet without the open design's file details; the Export callback goes
+/// through [`write_cutting_sheet_with`]. `custom` feeds the sheet's "RI range" line.
 ///
 /// # Errors
 ///
@@ -77,10 +76,9 @@ pub fn write_cutting_sheet_html(
 /// designer, shape and notes, and the export date) and writes it to `dest`: as a PDF when
 /// `dest` ends in `.pdf` ([`SheetFormat::of_path`]), else as the HTML page.
 ///
-/// The save-as file-picker dialog is handled by `native_io`'s own job
-/// (`native_io::pick_file`, on a background thread), so this stays callable with
-/// no `EditorState`/UI dependency at all, and safely callable from a background
-/// thread itself. The actual `std::fs::write` also belongs on a background thread.
+/// The save dialog belongs to `native_io` (`native_io::pick_file`), so this function needs no
+/// `EditorState` or UI and may run on a background thread. The write blocks; keep it off the
+/// UI thread.
 ///
 /// `stored_default` is the stored default orientation of the design's custom material, read from
 /// its library row (`None` for a built-in or a material that stores none).

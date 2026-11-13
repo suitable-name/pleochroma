@@ -1,10 +1,10 @@
 //! Bounded supervised imitation of the seven-component finite-difference teacher.
 //!
-//! Component sensitivities use a masked Huber regression. Raw masked MSE and per-component support
-//! remain telemetry. Verified actions use balanced Huber and bounded vector losses; oracle gain
-//! uses a separate Huber term. Immobile and padded tiers cannot receive action or label weight.
-//! Selected rows are packed once per bounded window and gathered into device mini-batches under a
-//! 32 MiB prepared-input payload bound. Unavailable metrics are masked out.
+//! Component sensitivities use a masked Huber regression. Raw masked MSE and per-component
+//! support remain telemetry. Verified actions use balanced Huber and bounded vector losses; oracle
+//! gain uses a separate Huber term. Immobile and padded tiers cannot receive action or label
+//! weight. Selected rows are packed once per bounded window and gathered into device mini-batches
+//! under a 32 MiB prepared-input payload bound. Unavailable metrics are masked out.
 
 use burn::{optim::GradientsParams, prelude::*, tensor::TensorData};
 use serde::{Deserialize, Serialize};
@@ -45,9 +45,12 @@ fn prepared_row_count(real: usize, needs_dummy: bool, capacity: usize) -> usize 
 /// Default of [`ImitationConfig::updates_per_round`]: 64 mini-batches of 256 samples per round.
 const DEFAULT_UPDATES_PER_ROUND: usize = 64;
 
-/// Training objective revision: robust component regression, balanced verified actions, and
-/// bounded direction discrepancy. Recovery may retain Adam while explicitly migrating here.
-pub const IMITATION_OBJECTIVE_REVISION: u32 = 2;
+/// Revision of the imitation objective: robust component regression, balanced verified actions,
+/// bounded direction discrepancy and gain regression, all averaged per sample.
+///
+/// Reported in [`ImitationMetrics::objective_revision`]. Bump it whenever the loss changes, so
+/// losses of different objectives are not compared as if they were one.
+pub const IMITATION_OBJECTIVE_REVISION: u32 = 3;
 
 /// Hyperparameters of the imitation trainer.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -62,16 +65,15 @@ pub struct ImitationConfig {
     /// Passes over the batch per call, reshuffled every pass. Used only when
     /// [`Self::updates_per_round`] is `0`.
     pub epochs_per_round: usize,
-    /// Optimizer updates per call. `0` restores the full-epoch behaviour (`epochs_per_round`
-    /// passes over the whole batch, a cost that grows with the batch). `n > 0` takes exactly `n`
-    /// mini-batches of `mini_batch_size` samples, each drawn uniformly without replacement from
-    /// the batch (mini-batches are independent of each other), so the cost of a call does not
-    /// depend on the batch size. A batch smaller than one mini-batch is used whole every time.
+    /// Optimizer updates per call. `0` runs `epochs_per_round` full passes over the batch (cost
+    /// grows with the batch). `n > 0` takes exactly `n` mini-batches of `mini_batch_size`
+    /// samples, each drawn uniformly without replacement, so the cost does not depend on the
+    /// batch size. A batch smaller than one mini-batch is used whole.
     pub updates_per_round: usize,
     /// Maximum **global** gradient L2 norm; a larger gradient is rescaled to it before the step.
     pub max_grad_norm: f32,
-    /// Weight of the bounded direction discrepancy. The field name is retained for saved configs;
-    /// cosine itself is reported as a diagnostic independently of the optimized loss.
+    /// Weight of the bounded direction discrepancy. The field name is kept for saved configs;
+    /// cosine is only a diagnostic and is not optimized.
     pub cosine_coeff: f32,
     /// Weight of the per-sample Huber regression on verified, squashed action fractions, balanced
     /// between moving and stationary coordinates.
@@ -147,7 +149,7 @@ impl ImitationConfig {
     }
 }
 
-/// Borrowed labelled states for one imitation call; all slices are parallel (one entry per sample).
+/// Borrowed labelled states for one imitation call. All slices are parallel, one entry per sample.
 #[derive(Debug, Clone, Copy)]
 pub struct ImitationBatch<'a> {
     /// Flat observations, `[global | tier tokens]`, either compact at `n_tiers[i]` or padded to
@@ -334,7 +336,8 @@ pub struct ImitationMetrics {
     /// No additional synchronization is inserted to collect these figures.
     #[serde(default)]
     pub stages: ImitationStageDiagnostics,
-    /// Loss definition of these figures: 0 for legacy/absent updates, 2 for balanced actions.
+    /// Objective revision the figures were computed under ([`IMITATION_OBJECTIVE_REVISION`]);
+    /// `0` when no update ran.
     #[serde(default)]
     pub objective_revision: u32,
 }

@@ -34,7 +34,7 @@
 //! frame (and so the video) with a message rather than falling back to local tracing.
 //! Because a `LocalOnly` or `Both` sweep shares the GPU adapter and remote workers with
 //! the rest of the app, it pauses the live viewport for its own duration exactly as a
-//! still-image export does (`RenderContext::export_active`, see `run`'s own doc comment)
+//! still-image export does (`RenderContext::export_active_count`, see `run`'s own doc comment)
 //! -- never running two GPU programs at once. `RemoteOnly` does NOT pause it
 //! (`ComputeTarget::pauses_live_viewport`): nothing local is traced, so the person keeps
 //! working in the app while the remote renders.
@@ -80,9 +80,7 @@ use std::{
 type CurrentExportRun = Arc<Mutex<Option<(i32, Arc<AtomicBool>)>>>;
 
 /// Wires `TiltVideoExportModel`'s callbacks. Called from
-/// `tilt_profile::setup_tilt_profile_callback` (both are wired from the same
-/// `gui::mod::run_gui` call site -- see this module's own `mod.rs`-adjacent doc
-/// comment in `tilt_profile.rs`) rather than directly from `gui::mod`.
+/// `tilt_profile::setup_tilt_profile_callback`, which the main-window callback setup calls.
 pub(in crate::gui) fn setup_video_export_callback(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
@@ -228,18 +226,12 @@ pub(in crate::gui) fn setup_video_export_callback(
 }
 
 /// `on_start_video_export`'s handler body: validates every setting, and either starts
-/// the background render (`run::spawn`) or reports why it couldn't. Split out of
-/// `setup_video_export_callback` purely to keep that function short.
+/// the background render (`run::spawn`) or reports why it couldn't.
 ///
-/// [`resolve_export_directory_then`]'s own folder picker (when the export
-/// folder isn't already remembered) runs off the UI thread, so this whole
-/// function is itself continuation-passing: the folder is resolved FIRST, and
-/// [`build_request`] (validating everything else -- angle range, the tilt
-/// curves being ready, resolution/fps settings) only runs once it's in hand.
-/// A cutter who has no remembered export folder therefore picks one before
-/// being told the sweep hasn't finished computing yet, rather than after -- a
-/// minor UX tradeoff accepted rather than adding a second, folder-independent
-/// validation pass purely to check that first.
+/// The folder picker of [`resolve_export_directory_then`] runs off the UI thread, so this
+/// function is continuation-passing: the folder is resolved first, then [`build_request`]
+/// validates everything else (angle range, curves ready, resolution and fps). A cutter with no
+/// remembered folder therefore picks one before learning that the sweep is still computing.
 fn handle_start_video_export(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
@@ -502,12 +494,9 @@ fn metric_selection(ui: &MainWindow) -> metrics::MetricSelection {
 }
 
 /// Gathers and validates every `TiltVideoExportModel` setting into a fully-resolved
-/// [`run::VideoExportRequest`], or an `Err` message for whichever setting made the
-/// request unrunnable (an empty sweep or a not-yet-computed curve). `export_dir`
-/// is already resolved by the caller ([`handle_start_video_export`], via
-/// [`resolve_export_directory_then`]): that picker runs off the UI thread, so it
-/// can no longer be resolved synchronously from inside this otherwise-synchronous
-/// builder.
+/// [`run::VideoExportRequest`], or an `Err` message for whichever setting made the request
+/// unrunnable (an empty sweep or a not-yet-computed curve). The caller resolves `export_dir`
+/// (see [`resolve_export_directory_then`]), because the folder picker runs off the UI thread.
 #[expect(
     clippy::too_many_lines,
     reason = "one flat read of UI properties into the request"
@@ -535,7 +524,7 @@ fn build_request(
     }
     if total_frames > params::CONFIRM_FRAME_THRESHOLD {
         // The dialog itself already made the user confirm a run this large
-        // (`confirmed_large_run`/`needs_confirmation` in `performance_graph_dialog.slint`)
+        // (`confirmed_large_run`/`needs_confirmation` in `tilt_video_export_section.slint`)
         // -- this is just an observability breadcrumb for whoever reads the log of a
         // multi-hour run, not a second gate.
         tracing::info!("Starting a large tilt video export: {total_frames} frames");
@@ -560,15 +549,16 @@ fn build_request(
     let max_bounces = params::resolve_max_bounces(model.get_selected_bounce_index());
     let color_space = crate::gui::color_space_from_index(model.get_selected_color_space_index());
 
-    // The export's OWN bounce cap, not whatever the live viewport happens to be set to
-    // -- same reasoning as `gui::render_export::apply_export_bounce_cap` (that helper
-    // itself is `pub(super)` to a different module, so this overrides the field
-    // directly rather than importing it).
+    // The export's own bounce cap, not the live viewport's: the same rule as the still
+    // export's `apply_export_bounce_cap` (`gui::render::render_export::queue`).
     //
     // The video shows the FINISHED gem whatever the Cut slider says (the tilt curves above
     // were swept for it too): `finished` is that stone, resolved by the caller (see
     // `gui::editor::finished_stone`).
-    let mut scene = SceneSnapshot::capture_finished(render_ctx, finished)?;
+    //
+    // The capture is taken for the video's own engine, so the render physics follow it and not
+    // the engine the view shows.
+    let mut scene = SceneSnapshot::capture_finished_for_engine(render_ctx, finished, engine)?;
     scene.max_bounces = max_bounces;
     scene.engine = engine;
     // "Turn Stone 90°": a quarter turn of the picture on top of the live view's own roll, for
@@ -584,12 +574,10 @@ fn build_request(
         return Err(reason.to_string());
     }
 
-    // The SAME compute configuration source the still-image export reads (see this
-    // module's own doc comment): `RenderContext::local_compute_target` is the app's
-    // persisted CPU/CPU+GPU/GPU setting (a second, short-lived lock -- the video's own
-    // scene capture above already released its lock, so this doesn't extend it), and
-    // `remote` is the same endpoint `gui::render::render_export::wiring` reads.
-    // `compute_target` is the section's own "Compute" pill (see this module's doc comment).
+    // The same compute configuration the still-image export reads (see this module's doc):
+    // the app's persisted CPU/CPU+GPU/GPU setting, and the one configured remote endpoint.
+    // The scene capture above has already released its lock, so this lock is short.
+    // `compute_target` is the section's own "Compute" pill.
     let local_compute = RenderContext::lock(render_ctx).local_compute_target;
     let worker = settings_store.snapshot().settings.remote_worker();
     let remote = RemoteSelection {
@@ -661,6 +649,12 @@ fn build_request(
         keep_frames: model.get_keep_frames(),
         remote,
         local_compute,
+        // "Adaptive Sampling" for every frame: the samples above are its cap.
+        adaptive: crate::gui::render::output_defaults::tilt_adaptive(ui, engine, samples_per_pixel),
+        // "Path Cache" for every frame; "Keep Path Cache for This Video" persists them.
+        path_cache: crate::gui::render::output_defaults::tilt_path_cache(ui, engine),
+        // "Beam Tracing (Faceted Stones)" for every frame.
+        beam: crate::gui::render::output_defaults::tilt_beam(ui, engine),
     })
 }
 
@@ -700,21 +694,11 @@ fn read_axis_curves(ui: &MainWindow, idx: usize) -> Option<metrics::MetricCurves
     })
 }
 
-/// The output directory: reuses `ExportModel.directory` (the still-image export's own
-/// remembered folder) when one is already set, or prompts a native folder picker and
-/// seeds it back into `ExportModel.directory` for consistency -- the exact same
-/// picker/flow `gui::render_export::wiring`'s own `on_start_export` uses, duplicated
-/// here rather than invoked cross-module since that helper is private to its own
-/// module. Not persisted to the on-disk settings store (unlike the still-image
-/// export's own directory): a documented, session-only scope simplification,
-/// since reaching the `SettingsStore` handle would mean touching `gui::mod`'s
-/// wiring call site.
-///
-/// The folder picker itself runs off the UI thread via `gui::pickers::pick` --
-/// `on_done`'s `None` is either "already had a remembered folder" turned into
-/// `Some` synchronously (no picker shown at all) or a real cancel/dismiss of
-/// the native dialog; [`handle_start_video_export`] treats both `None` cases
-/// identically, since its own caller cannot tell them apart.
+/// The output directory: `ExportModel.directory` (the still export's remembered folder) when one
+/// is set, otherwise a native folder picker whose choice is stored as the export folder, as in the
+/// still export dialog (`AppSettings::export_directory`). The picker runs off the UI thread via
+/// `gui::pickers::pick`. `on_done` gets `None` for a cancelled picker, and the callers then start
+/// no export.
 fn resolve_export_directory_then(
     ui: &MainWindow,
     settings_store: &Arc<SettingsPersister>,
@@ -726,8 +710,7 @@ fn resolve_export_directory_then(
         on_done(ui, Some(PathBuf::from(current.as_str())));
         return;
     }
-    // A folder chosen here is the export folder from now on, as one chosen in the still
-    // export dialog is (`AppSettings::export_directory`).
+    // Stored as the export folder, like a folder chosen in the still export dialog.
     let settings_store = Arc::clone(settings_store);
     crate::gui::pickers::pick(
         ui,
@@ -863,10 +846,7 @@ fn axes_label(axes: &[usize]) -> String {
     }
 }
 
-/// `ColorSpace`'s own display label -- mirrors
-/// `gui::render_export::queue::colorspace_label` (that one is `pub(super)` to a
-/// different module, so this is a small, deliberate duplicate rather than a
-/// shared call).
+/// `ColorSpace`'s display label, with the same names the still export uses. A local copy.
 const fn colorspace_label(cs: ColorSpace) -> &'static str {
     match cs {
         ColorSpace::Srgb => "sRGB",
@@ -876,9 +856,8 @@ const fn colorspace_label(cs: ColorSpace) -> &'static str {
     }
 }
 
-/// Plain, already-resolved settings for [`build_video_template_context`] -- grouped into
-/// one struct (rather than passed as individual arguments) purely to keep that
-/// function's own argument list under `clippy::too_many_arguments`'s default threshold.
+/// Plain, already-resolved settings for [`build_video_template_context`], grouped into one struct
+/// to keep that function's argument list short.
 #[derive(Debug, Clone)]
 struct VideoTemplateSettings {
     /// `{axis}`: [`axes_label`] of the video's axes.

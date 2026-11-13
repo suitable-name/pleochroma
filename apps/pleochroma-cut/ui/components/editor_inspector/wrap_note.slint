@@ -1,12 +1,10 @@
 import { Theme } from "../../theme.slint";
 
-// A word-wrapped note that is as tall as its wrapped text.
+// A word-wrapped note as tall as its wrapped text.
 //
-// Slint has no height-for-width: a `Text` with `wrap: word-wrap` that is a layout child reports
-// the height of ONE line, so the scrolled height of an inspector tab fell short by the extra
-// lines of every note and the last rows stayed under the end of the scroll area. Here the text
-// has an explicit width (this component's own), and its preferred height then is the wrapped
-// one, which the component takes as its height.
+// Slint has no height-for-width, so a wrapping `Text` in a layout reports the height of one
+// line. Here the text gets this component's explicit width, its preferred height is then the
+// wrapped one, and the component takes that as its own height.
 export component WrapNote inherits Rectangle {
     in property <string> text;
     in property <length> font_size: 10px;

@@ -1,7 +1,8 @@
-//! Side-by-side deterministic and spectral reference gallery; run explicitly by the owner.
+//! Side-by-side gallery of the deterministic (Whitted) and spectral (path-traced) renderers.
+//! Run it explicitly. It is not part of the test suite.
 //!
-//! `--out DIRECTORY` writes every built-in material under three studio presets.
-//! Both columns share geometry, material, camera, bounce limit and tone mapping.
+//! `--out DIRECTORY` writes every built-in material under three studio presets. Both columns
+//! share geometry, material, camera, bounce limit and tone mapping.
 
 use std::{error::Error, fmt::Write as _, fs, path::PathBuf};
 

@@ -4,10 +4,8 @@ import { IconButton } from "icon_button.slint";
 export component Toast inherits Rectangle {
     in property <string> text: "";
     in property <bool> is_visible: false;
-    // "warning" sits between info and error: like an error it never auto-dismisses
-    // (see `gui::mod::show_toast`), because it reports something the cutter has to
-    // act on -- a schedule saved with fabricated masts, say -- but it is not a
-    // failure, and coloring it as one would cry wolf.
+    // "warning" sits between info and error. Like an error it never auto-dismisses (see
+    // `show_toast` in `gui/mod.rs`), because the user must act on it, but it is not a failure.
     in property <string> toast_type: "info"; // info, success, warning, error
 
     callback dismiss();
@@ -53,10 +51,8 @@ export component Toast inherits Rectangle {
                 y: 1px;
             }
 
-            // Wraps rather than eliding a single-line row, so a long message stays
-            // fully readable instead of being silently truncated; the toast's own
-            // height (bound to `content.preferred-height` above) grows to fit the
-            // wrapped text.
+            // Wraps rather than elides, so a long message stays fully readable; the toast's
+            // height grows to fit it.
             Text {
                 text: root.text;
                 font-size: 12px;

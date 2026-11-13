@@ -184,9 +184,9 @@ pub(in crate::gui::editor) fn relation_cleared_sentence(notice: &RelationNotice)
 }
 
 /// The text a failed Tier form save shows and the form field it belongs to (see
-/// `report_tier_form_error`). A refusal that concerns tier angles (a loop, an angle out of
-/// range, a direct edit of a driven tier) is always the Angle field's, whatever tier it
-/// names; any other failure is classified by its wording as before.
+/// `report_tier_form_error`). A refusal about tier angles (a loop, an angle out of range, a
+/// direct edit of a driven tier) always names the Angle field. Other failures are classified
+/// by their wording.
 pub(in crate::gui::editor) fn save_error_text_and_field(
     error: &SessionEditError,
 ) -> (String, &'static str) {

@@ -26,9 +26,8 @@ impl Database {
     /// and a design with no stored tilt curves can never satisfy one (see
     /// [`Self::search_diagrams_with_performance_exclusions`] for the count of those).
     ///
-    /// Exactly `self.search_diagrams_page(query, shape_filter, gear_filter, range,
-    /// None, SEARCH_RESULT_CAP)`, kept as its own method so existing call sites keep
-    /// working unchanged. See [`Self::search_diagrams_page`] for the keyset-paginated
+    /// Equivalent to `search_diagrams_page(query, shape_filter, gear_filter, range, None,
+    /// SEARCH_RESULT_CAP)`. See [`Self::search_diagrams_page`] for the keyset-paginated
     /// form a mirror walking the whole catalogue needs.
     ///
     /// # Errors
@@ -184,8 +183,7 @@ impl Database {
     /// single foreground display fetch over an arbitrary
     /// [`super::types::SortOrder`], for which no single column is guaranteed both
     /// unique and monotonic across every order. The catalogue this ships against tops
-    /// out in the low thousands of rows, so the `OFFSET` cost this trades away is not
-    /// measurable in practice.
+    /// out in the low thousands of rows, so the `OFFSET` cost is negligible.
     ///
     /// `local_only` restricts the predicate to `diagram_entries.url` values written by
     /// [`crate::local::LOCAL_SOURCE_ID`] imports (`local://...`, see
@@ -271,12 +269,10 @@ impl Database {
     /// [`build_search_predicate`]): loads `entry_id`'s tilt curves and tests every
     /// filter in `filters` against them, `true` only if all pass.
     ///
-    /// A design with no stored curves, OR whose stored curve BLOB fails to decode
-    /// (e.g. a length mismatch -- see [`crate::model::tilt_curves::TiltPerformanceCurves::from_bytes`]),
-    /// is treated identically: `false`, logged at `warn!` in the decode-failure case so
-    /// the condition is visible without aborting the caller's whole search. A single
-    /// corrupt row failing every performance-filtered search outright (the previous
-    /// behaviour) would be far worse than that one row silently not matching.
+    /// A design with no stored curves, or whose curve BLOB fails to decode (e.g. a length
+    /// mismatch, see [`crate::model::tilt_curves::TiltPerformanceCurves::from_bytes`]),
+    /// yields `false`; a decode failure is logged at `warn!`. One corrupt row must not
+    /// abort the caller's whole search.
     pub(super) fn item_satisfies_performance_filters(
         &self,
         entry_id: i64,

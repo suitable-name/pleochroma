@@ -94,9 +94,8 @@ fn memory_db_still_works() {
     assert!(Database::column_exists(&db.conn, "diagram_entries", "source_id").unwrap());
 }
 
-/// `open_read_only`'s `immutable=1` fallback must only ever be attempted for the
-/// specific SQLite result codes its doc comment names -- any other failure means the
-/// fallback would not help.
+/// `open_read_only` retries with `immutable=1` only for CANTOPEN and READONLY: any other
+/// failure is not helped by the fallback.
 #[test]
 fn is_cantopen_or_readonly_matches_only_those_two_codes() {
     let cantopen = rusqlite::Error::SqliteFailure(
@@ -117,8 +116,8 @@ fn is_cantopen_or_readonly_matches_only_those_two_codes() {
     );
 }
 
-/// the `immutable=1` fallback must be gated on there being no pending `-wal`
-/// writes -- a nonexistent or zero-length `-wal` file both count as "none pending".
+/// The `immutable=1` fallback is gated on there being no pending `-wal` writes: a
+/// nonexistent or zero-length `-wal` file both count as "none pending".
 #[test]
 fn has_pending_wal_file_detects_only_a_nonempty_wal_sibling() {
     let path = temp_db_path("pending_wal_detection");

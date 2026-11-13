@@ -8,8 +8,8 @@ import { TouchButton } from "../touch_button.slint";
 // shows it only while `RenderJobsModel.chip_visible`, and sizes its cell from
 // `preferred-width`, so the chip never competes with the search box for room.
 export component JobsChip inherits Rectangle {
-    // A 176 px floor: the text changes from "Jobs: 3 waiting" to "Rendering 2 of 5 - 42%" as the
-    // queue runs, and a cell that follows the text width made the header row jump each time.
+    // A 176 px floor: the text changes as the queue runs, and a width that followed it made the
+    // header row jump.
     preferred-width: max(chip_text.preferred-width + 24px, 176px);
     height: 28px;
     background: chip_touch.has_hover ? Theme.bg-elevated : Theme.bg-input;

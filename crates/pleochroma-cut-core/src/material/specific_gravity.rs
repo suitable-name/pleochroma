@@ -1,12 +1,13 @@
-//! The built-in specific-gravity table, keyed by [`pleochroma::optics::materials::
-//! GemMaterial::name`] -- see [`crate::material`]'s module doc comment for provenance
-//! and the note on why Zircon/Tourmaline carry a real cited range.
+//! The built-in specific-gravity table, keyed by `GemMaterial::name`.
+//!
+//! Provenance and the cited ranges of Zircon and Tourmaline are described in
+//! [`crate::material`]'s module doc.
 
 /// One material's specific gravity.
 ///
 /// A representative point figure for [`crate::yield_metrics::carat_weight`], plus the
 /// real low/high bounds it simplifies away for a species with a genuine compositional
-/// range (see this module's doc comment). `range` equals `(representative,
+/// range (see [`crate::material`]'s module doc). `range` equals `(representative,
 /// representative)` when published sources agree to within rounding, not because no
 /// natural variation exists at all.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -28,13 +29,15 @@ pub struct SpecificGravity {
 /// fallback; see [`super::built_in_material_by_exact_name`]'s doc comment for the
 /// same distinction on the refractive-index side).
 ///
-/// See this module's doc comment for the full covered list and provenance. `None`
-/// for any name outside that list, notably "Garnet", which has no built-in preset.
+/// The covered names are the table inside this function; provenance is in
+/// [`crate::material`]'s module doc. `None` for any other name, notably "Garnet", which
+/// has no built-in preset.
 #[must_use]
 pub fn built_in_specific_gravity(material_name: &str) -> Option<SpecificGravity> {
     // Sources: Handbook of Mineralogy / IGS (see module doc comment), except where
-    // noted. Zircon/Tourmaline carry a real compositional range -- see "Ranges"
-    // above; representative there is a deliberate midpoint choice, not an average.
+    // noted. Zircon and Tourmaline carry a real compositional range (see the Ranges section
+    // of [`crate::material`]'s module doc); their representative is a deliberate choice
+    // within that range, not an average.
     const TABLE: &[(&str, f64, (f64, f64))] = &[
         ("Diamond", 3.52, (3.50, 3.53)),
         // Sapphire & Ruby: same corundum host lattice, same SG.

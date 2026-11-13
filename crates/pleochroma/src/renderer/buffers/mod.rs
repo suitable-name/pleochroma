@@ -15,9 +15,9 @@
 //! because its Rust-natural offset already happens to be a multiple of its WGSL
 //! alignment (documented per-struct), or via explicit `_pad*` fields reproducing WGSL's
 //! implicit padding byte-for-byte. Hand-derived offset comments are not trusted alone:
-//! `renderer::gpu::layout_check` is this file's actual authority -- it uploads a
-//! populated instance, has a compute shader echo every field back, and compares raw
-//! bytes. A comment can be wrong; the echo test cannot lie about what the GPU did.
+//! `renderer::gpu::layout_check` is the authority: it uploads a populated instance, has a
+//! compute shader echo every field back, and compares raw bytes. A comment can be wrong; the echo
+//! test cannot lie about what the GPU did.
 //!
 //! # Module layout
 //!
@@ -26,9 +26,8 @@
 //! (`GpuGemMaterial`/`DispersionParams`/`GpuAbsorptionBand` plus their `encode`
 //! constructors); [`transport`] the megakernel's per-dispatch uniform
 //! (`GpuTransportParams`); [`girdle_finish`] the parallel per-facet finish buffer; and
-//! [`wavefront`] the wavefront pipeline's per-round uniform. Every type below was
-//! previously declared directly in this file and is re-exported unchanged so
-//! `renderer::buffers::X` paths elsewhere in the workspace keep compiling.
+//! [`wavefront`] the wavefront pipeline's per-round uniform. The types are re-exported below, so
+//! `renderer::buffers::X` paths resolve to them.
 
 mod camera;
 mod event_wavefront;

@@ -1,20 +1,21 @@
 //! The stone menu: what the cutter can do with one stone of the selected result.
 //!
-//! - **Box poses**: turn the stone to another of its four box poses (a half turn about one of its
-//!   own axes). The piece and the weight stay; only the crystal axis angle changes.
+//! - **Box poses**: turn the stone to another of its four box poses (a half turn about one of
+//!   its own axes). The piece and the weight stay; only the crystal axis angle changes.
 //! - **Re-Fit This Piece**: fit the best stone of the design into the same piece again, under the
-//!   rule (`refit_*`), without moving the saw cuts.
-//! - **Free Orientation** (a single-stone exact fit only): turn the stone by dragging it in the 3D
-//!   view; the planner sizes the largest stone that fits the new position at once (`rescale_pose`).
-//! - **Lock / Unlock**: a locked stone is kept, and the next plan cuts the rest of the rough around
-//!   it (`rough_with_locked_pieces`, listed first with `LOCKED_FIRST_NOTE`).
+//!   rule (`run::refit`), without moving the saw cuts.
+//! - **Free Orientation** (a single-stone exact fit only): turn the stone by dragging it in the
+//!   3D view; the planner sizes the largest stone that fits the new position at once
+//!   (`rescale_pose`).
+//! - **Lock / Unlock**: a locked stone is kept, and the next plan cuts the rest of the rough
+//!   around it (`rough_with_locked_pieces`, listed first with `LOCKED_FIRST_NOTE`).
 //! - **Reason**: why the stone is set up differently, saved with the plan and printed on the
 //!   cutting sheet.
 //!
-//! Every action is one undo step of the planner's history (`Session::edit_stones`). A pose, a lock
-//! and a Reason are choices for the stone (`StoneChoice`); a re-fit and a turn by hand change the
-//! layout itself, kept as a changed layout beside the planned ones (`LayoutEdits`), so undo brings
-//! the planned stone back.
+//! Every action is one undo step of the planner's history (`Session::edit_stones`). A pose, a
+//! lock and a Reason are choices for the stone (`StoneChoice`); a re-fit and a turn by hand
+//! change the layout itself, kept as a changed layout beside the planned ones (`LayoutEdits`),
+//! so undo brings the planned stone back.
 
 use super::{
     layouts,
@@ -446,8 +447,8 @@ pub(in crate::gui::rough_plan) fn turn(
     Some(free.result)
 }
 
-/// The drag ended: the stone as it sits now is one undo step (a changed layout, and the pose as the
-/// choice for the stone so the row says "overridden").
+/// The drag ended: the stone as it sits now is one undo step (a changed layout, and the pose
+/// as the choice for the stone so the row says "overridden").
 pub(in crate::gui::rough_plan) fn finish_turn(host: &Rc<Host>) {
     {
         let mut guard = host.session.borrow_mut();
@@ -660,7 +661,8 @@ mod tests {
             turned_axes(identity, DVec3::X, DVec3::Y, 0.0, 0.0),
             identity
         );
-        // 180 pixels at half a degree each is a quarter turn about the up axis (+Y): +X goes to -Z.
+        // 180 pixels at half a degree each is a quarter turn about the up axis (+Y):
+        // +X goes to -Z.
         let turned = turned_axes(identity, DVec3::X, DVec3::Y, 180.0, 0.0);
         assert!(
             (DVec3::from_array(turned[0]) - DVec3::NEG_Z).length() < 1e-9,

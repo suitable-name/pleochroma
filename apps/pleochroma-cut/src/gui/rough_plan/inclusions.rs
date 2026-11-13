@@ -23,8 +23,8 @@
 //!
 //! [`add_inclusion_to_rough`] takes the inclusion as a [`RoughMesh`] in the rough's own frame
 //! (millimetres, the rough's bounding box at the origin), whatever found it, and a margin;
-//! it needs no file. A mesh built from points and triangles is `RoughMesh::new(&points,
-//! &triangles)`.
+//! it needs no file. A mesh from points and triangles is made with
+//! `RoughMesh::new(&points, &triangles)`, which returns a `Result`.
 
 use super::{
     editing::resync,

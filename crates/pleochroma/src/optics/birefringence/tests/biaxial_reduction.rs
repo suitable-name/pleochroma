@@ -12,11 +12,10 @@ use glam::{Mat3, Vec3};
 mod biaxial_reduction_tests {
     use super::*;
 
-    /// The decisive test: setting `n_alpha == n_beta` must reproduce the
-    /// existing uniaxial code path's index -- `BirefringenceParams::effective_extraordinary_index`
-    /// -- to within float tolerance, across many propagation directions and a
-    /// deliberately off-axis (non-axis-aligned) c-axis. This pins the biaxial Fresnel
-    /// equation's reduction and would catch most algebra errors in `wave_indices`.
+    /// Setting `n_alpha == n_beta` must reproduce
+    /// `BirefringenceParams::effective_extraordinary_index` to within float tolerance, across
+    /// many propagation directions and an off-axis c-axis. This pins the reduction of the
+    /// biaxial Fresnel equation.
     #[test]
     fn biaxial_wave_indices_reduce_to_uniaxial_formula() {
         let n_o = 1.65f32;
@@ -131,10 +130,9 @@ mod biaxial_reduction_tests {
 
     /// The well-conditioned `eigenvector_world` (cross-product-of-rows of the
     /// "transverse impermeability" matrix `Gamma - x*I`) must satisfy the
-    /// eigen-equation tightly across a DENSE direction sweep (not just the handful of
-    /// spot-checks above) for all three real biaxial built-ins (Alexandrite, Topaz,
-    /// Tanzanite -- exactly the materials whose small real-world birefringence makes a
-    /// cleared-denominator construction ill-conditioned).
+    /// eigen-equation tightly across a dense direction sweep for the biaxial built-ins
+    /// (Alexandrite, Topaz, Tanzanite), whose small birefringence makes a
+    /// cleared-denominator construction ill-conditioned.
     ///
     /// The residual checked is the textbook relation the eigenvector must satisfy
     /// independent of ANY particular matrix construction (so this is a genuine
@@ -221,14 +219,11 @@ mod biaxial_reduction_tests {
         }
     }
 
-    /// Pins `precise_root_near`'s discriminant reformulation (see its doc comment for
-    /// the derivation) against the NAIVE `B^2 - 4C` formula `wave_indices` itself uses,
-    /// in `f64` (so this test's own arithmetic doesn't share whatever `f32` rounding
-    /// is under scrutiny) -- a dense sweep of direction-cosine triples and principal
-    /// `1/n^2` triples, asserting the two formulas' discriminants agree to within a
-    /// tight `f64` tolerance. This is an ALGEBRAIC identity (verified symbolically
-    /// during development, not just spot-checked), so any real disagreement here would
-    /// mean a transcription bug in the reformulation, not mere floating-point noise.
+    /// Pins `precise_root_near`'s discriminant reformulation against the naive `B^2 - 4C`
+    /// formula that `wave_indices` uses. The comparison runs in `f64`, so this test's own
+    /// arithmetic does not share the `f32` rounding under scrutiny. It sweeps direction-cosine
+    /// and principal `1/n^2` triples and checks the discriminants agree to a tight `f64`
+    /// tolerance. The identity is algebraic, so a disagreement means a transcription error.
     #[test]
     fn discriminant_reformulation_matches_naive_b2_minus_4c() {
         fn naive_disc_sq(a: f64, bb: f64, cc: f64, p: f64, q: f64, r: f64) -> f64 {
@@ -329,16 +324,11 @@ mod biaxial_reduction_tests {
         );
     }
 
-    /// Trichroism -- THE decisive frame-identity test. `AbsorptionTensor3::
-    /// biaxial`'s doc comment claims its axis frame is bit-identical to
-    /// `BiaxialIndicatrix::from_gamma_axis`'s, not merely close: both call the exact
-    /// same `stable_orthonormal_basis` free function on the exact same `gamma_axis`
-    /// input. This pins that claim directly by comparing the two `Mat3`s column by
-    /// column, bit for bit (`to_bits()`), across several non-axis-aligned `gamma_axis`
-    /// directions -- getting this subtly wrong (e.g. re-deriving the completion via a
-    /// different but numerically-similar construction) would silently score absorption
-    /// against axes that drift from the ones `eigen_polarizations` computed its
-    /// eigenmodes in.
+    /// The axis frame of `AbsorptionTensor3::biaxial` is bit-identical to that of
+    /// `BiaxialIndicatrix::from_gamma_axis`, since both call `stable_orthonormal_basis` on the
+    /// same `gamma_axis`. The two `Mat3`s are compared column by column with `to_bits()`, over
+    /// several non-axis-aligned `gamma_axis` directions. A drifting completion would score
+    /// absorption against axes other than the eigenmodes' own.
     #[test]
     fn absorption_frame_is_bit_identical_to_index_frame() {
         let gamma_axes = [
@@ -458,7 +448,7 @@ mod biaxial_reduction_tests {
 
         // And, as a corollary, quadratic_form itself must agree bit-for-bit for any
         // direction (not just special ones), since it's computed purely from `alpha`
-        // and `axes`, which are now proven identical above.
+        // and `axes`, which the checks above show are identical.
         for d in [
             Vec3::X,
             Vec3::Y,

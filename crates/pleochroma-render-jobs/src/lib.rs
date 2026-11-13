@@ -17,8 +17,8 @@
 //!
 //! It is used by the desktop render queue (`pleochroma-cut`) and by the command-line
 //! renderer (`pleochroma-cli render` and `pleochroma-cli tilt-video`). It stays pure
-//! (no Slint, no vault, no I/O) so its tests run in seconds and both consumers can
-//! share one definition of the job file, the state rules and the script text.
+//! (no Slint, no vault, no I/O) so that both consumers share one definition of the job
+//! file, the state rules and the script text.
 
 pub mod codec;
 pub mod job;
@@ -31,7 +31,7 @@ pub mod state;
 pub use codec::{JobFileError, from_text, to_text};
 pub use job::{
     ComputeChoice, JobColorSpace, JobKind, LocalEngines, RenderJobFile, StillJob, TiltVideoJob,
-    TransferChoice, format_for_engine,
+    TransferChoice, format_for,
 };
 pub use run::{FailureKind, JobOutcome, JobProgress, JobSink};
 pub use state::JobState;

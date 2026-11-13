@@ -33,14 +33,13 @@ use slint::ComponentHandle;
 use std::sync::{Arc, Mutex};
 use tracing::info;
 
-/// What a catalogue design's own file says about the stone's material and size, carried
-/// from the planes resolution to [`apply_catalogue_material`] so the library detail view
-/// draws the stone as the editor's viewport and the exports do
-/// (`gui::batch::catalogue_material` is the rule the preview and tilt batches apply to the
-/// same three facts).
+/// The material and size a catalogue design's own file records.
 ///
-/// The remote route has no design file to read: it passes the [`Default`] -- no selection,
-/// no snapshot, no size -- and so keeps the persisted-material and refractive-index rules.
+/// The detail view draws the stone with them, as the editor and the exports do. The preview
+/// and tilt batches apply the same rule (`gui::batch::catalogue_material`).
+///
+/// The remote route has no design file and passes the [`Default`]: no selection, snapshot or
+/// size. The persisted-material and refractive-index rules then apply.
 #[derive(Debug, Clone, Default)]
 pub(super) struct DesignFileMaterial {
     /// The design file's material selection: the species name, and the refractive-index and
@@ -78,51 +77,38 @@ impl From<&CataloguePlanes> for DesignFileMaterial {
     }
 }
 
-/// Everything [`apply_reconstructed_planes`] needs for one design.
+/// The inputs to [`apply_reconstructed_planes`] for one design.
 ///
-/// `real_design` is [`crate::gui::editor::resolve_catalogue_planes`]'
-/// planes/gear-teeth/reference-angle for `entry_id` (`None` on the remote route -- see the
-/// call site in `local_load`): the design file's geometry when the record has a usable one,
-/// the angle table's otherwise. See [`planes_gear_and_reference_angle`] for exactly when each
-/// path is taken. `design_material` is what the same resolution found about the design's
-/// material and size ([`DesignFileMaterial`]).
+/// `real_design` holds the planes, gear teeth and reference angle from
+/// [`crate::gui::editor::resolve_catalogue_planes`], or `None` on the remote route. See
+/// [`planes_gear_and_reference_angle`] for the fallback to the angle table. `design_material`
+/// is what the same resolution found about the material and size.
 ///
-/// Bundled into [`ReconstructedPlanesInput`] purely to keep this function's argument
-/// count under clippy's `too_many_arguments` limit -- the `real_design` field is what
-/// pushed it over.
+/// Grouped into one struct to keep the function under clippy's `too_many_arguments` limit.
 ///
-/// This claims the shared plane slot exactly
-/// like `gui::editor::view::refresh_viewport` does for an in-editor edit -- if the
-/// Tilt Performance dialog is open over a PREVIOUS design's curves when a cutter
-/// picks a different catalogue entry, those curves and summary badges would
-/// otherwise go on describing geometry that no longer exists. `ui` is only needed
-/// for that re-sweep request (`TiltModel.dialog_open`/
-/// `invoke_request_tilt_profile_axes`), not for anything else this function does.
+/// Applying claims the shared plane slot, as `gui::editor::view::refresh_viewport` does. An
+/// open Tilt Performance dialog then does not keep showing the previous design's curves.
+/// `ui` is only needed for the resulting re-sweep request.
 pub(super) struct ReconstructedPlanesInput<'a> {
     pub(super) shape: Option<&'a str>,
     pub(super) index_gear: Option<&'a str>,
     pub(super) angle_items: &'a [AngleItem],
     pub(super) refractive_index: Option<&'a str>,
-    /// This design's own persisted preview material (`Database::
-    /// get_preview_images(entry_id).material` locally, `DesignRecord::preview_material`
-    /// remotely) -- already read by both callers into `TiltModel.cached_curve_material`
-    /// -- tried by [`apply_catalogue_material`] ahead of the refractive-index guess.
+    /// The design's persisted preview material, which both callers also set as
+    /// `TiltModel.cached_curve_material`. [`apply_catalogue_material`] tries it before the
+    /// refractive-index guess.
     pub(super) preview_material: Option<&'a str>,
     pub(super) real_design: Option<(Vec<GpuFacetPlane>, u32, f32)>,
-    /// The planes `real_design` frosts (ascending indices into its planes,
-    /// `resolve_catalogue_planes_with_frosting`); empty for a polished design and on the remote
-    /// route.
+    /// Ascending indices of the planes in `real_design` that are frosted. Empty for a
+    /// polished design and on the remote route.
     pub(super) frosted: Vec<u32>,
     pub(super) design_material: DesignFileMaterial,
-    /// The concave tools the stone is drawn with and their `(tier, placement)` list:
-    /// `CataloguePlanes::render_tools` on the local route, empty on the remote one (which
-    /// passes [`Self::concave_rows`] instead). Empty for a planar design, which claims exactly
-    /// the plane-only stone it always did.
+    /// The concave tools and their `(tier, placement)` list. Local route: from
+    /// `CataloguePlanes::render_tools`. Remote route: empty, and [`Self::concave_rows`] is used.
     pub(super) tools: Vec<ToolPrimitive>,
     pub(super) tool_placements: Vec<(usize, usize)>,
-    /// The record's concave angle-table rows, for the route that has no design file to place
-    /// tools from (the remote one): the tools are placed against the planes this function
-    /// rebuilds ([`remote_tools`]). Ignored when `tools` is not empty.
+    /// The concave angle-table rows, for the remote route, which has no design file. The
+    /// tools are placed on the rebuilt planes ([`remote_tools`]). Ignored when `tools` is set.
     pub(super) concave_rows: Vec<ConcaveRow>,
 }
 
@@ -159,9 +145,10 @@ impl ConcaveRow {
 }
 
 /// The tools the concave `rows` describe, placed on the flat stone `planes` of an index gear
-/// with `gear_teeth` teeth (the angle-table rule of `CataloguePlanes::render_tools`). The
-/// remote record carries only the rows, so this is the whole of what that route knows about a
-/// concave tier. Empty without rows, and the flat stone when they do not resolve.
+/// with `gear_teeth` teeth.
+///
+/// The remote record carries only the rows, so this is all that route knows about a concave
+/// tier. Empty without rows.
 pub(super) fn remote_tools(
     rows: &[ConcaveRow],
     planes: &[GpuFacetPlane],
@@ -190,13 +177,11 @@ pub(super) fn remote_tools(
     )
 }
 
-/// Falls back to [`reconstruct_planes`] (gear reference angle `0.0`, matching this
-/// route's long-standing "library records carry no reference angle" note) whenever
-/// `real_design` is `None` -- only the remote route (`apply_design_record_to_ui`'s own
-/// call site), which has no attached design-file bytes to parse yet and so never
-/// calls [`crate::gui::editor::resolve_catalogue_planes`]. The local route always
-/// passes that function's result, which applies the same angle-table fallback itself
-/// when the record has no usable design file.
+/// Builds the planes from the angle table when `real_design` is `None`.
+///
+/// That is the remote route only, which has no design-file bytes to parse. The gear reference
+/// angle is `0.0`, since library records carry none. The local route passes the result of
+/// [`crate::gui::editor::resolve_catalogue_planes`], which applies the same fallback itself.
 pub(super) fn planes_gear_and_reference_angle(
     real_design: Option<(Vec<GpuFacetPlane>, u32, f32)>,
     shape: Option<&str>,
@@ -221,14 +206,11 @@ pub(super) fn planes_gear_and_reference_angle(
     placeholder_planes_and_gear(shape, index_gear, &facet_specs)
 }
 
-/// The plain `FacetSpec`s of angle-table rows `(facet, angle, index, notes, has_tool_line)`:
-/// the one conversion both the Slint-row path ([`planes_gear_and_reference_angle`]) and the
-/// owned-wire path ([`prepare_remote_geometry`]) share, so the two can never disagree.
+/// The plain `FacetSpec`s of angle-table rows `(facet, angle, index, notes, has_tool_line)`.
+/// Both the Slint-row path and the wire path use this, so they cannot disagree.
 ///
-/// A concave tier (a row with a tool line) is no flat facet: reconstructing it as one would
-/// draw a facet the stone does not have, so it is left out of the placeholder. `angle` is
-/// taken as given: the table's cells drop the sign (`trim_start_matches('-')`) before they
-/// get here.
+/// A concave row (one with a tool line) is not a flat facet, so it is left out of the
+/// placeholder. `angle` is used as given: the callers have already dropped the sign.
 fn facet_specs_from_rows<'a>(
     rows: impl IntoIterator<Item = (&'a str, &'a str, &'a str, &'a str, bool)>,
 ) -> Vec<FacetSpec> {
@@ -275,11 +257,9 @@ pub(super) struct PreparedRemoteGeometry {
     pub(super) tool_placements: Vec<(usize, usize)>,
 }
 
-/// Rebuilds a remote record's stone: the angle-table placeholder planes
-/// ([`planes_gear_and_reference_angle`]'s rule, from the wire rows) and the concave tools
-/// placed on them ([`remote_tools`]) -- exactly what `apply_reconstructed_planes` computed on
-/// the UI thread for this route, moved off it. Pure over its arguments (no Slint, no
-/// render context), so it runs on any thread.
+/// Builds a remote record's stone: the angle-table placeholder planes from the wire rows and
+/// the concave tools placed on them ([`remote_tools`]). Pure over its arguments, so it runs
+/// on any thread.
 pub(super) fn prepare_remote_geometry(
     shape: Option<&str>,
     index_gear: Option<&str>,
@@ -310,10 +290,11 @@ pub(super) fn prepare_remote_geometry(
     }
 }
 
-/// Claims the viewport's stone for catalogue row `entry_id`: planes, tools and the frosted
-/// planes together, as the editor's viewport claims its own (`gui::editor::view::viewport`).
-/// `claim_active_geometry` resets the frosting, so it is set after an accepted claim and only
-/// then. Returns whether the claim was accepted.
+/// Claims the viewport's stone for catalogue row `entry_id`: planes, tools and frosted planes.
+///
+/// The editor's viewport claims its stone the same way. `claim_active_geometry` resets the
+/// frosting, so the frosted planes are set only after an accepted claim. Returns whether the
+/// claim was accepted.
 pub(super) fn claim_catalogue_stone(
     ctx: &mut RenderContext,
     entry_id: i64,
@@ -339,9 +320,8 @@ pub(super) fn claim_catalogue_stone(
     claimed
 }
 
-/// Shared by the local and remote detail-load paths: rebuilds the 3D viewport's facet
-/// planes from a design's shape/gear/angle-settings -- exactly one reconstruction
-/// implementation for both sources, so they can never drift apart.
+/// Rebuilds the viewport's facet planes for a design and claims the viewport for it. Shared
+/// by the local and remote detail loads, so both sources build the stone the same way.
 pub(super) fn apply_reconstructed_planes(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
@@ -375,15 +355,13 @@ pub(super) fn apply_reconstructed_planes(
         entry_id
     );
 
-    // A selected design is framed in the picture unless the cutter has zoomed (it used to
-    // appear at the previous stone's distance, cut by the frame on every side). Measured
-    // here, before the render context is locked: it builds the stone's solid.
+    // The stone is framed unless the cutter has zoomed. Measured before the render context
+    // is locked, since it builds the stone's solid.
     let framing = fit_view::auto_frame_distance(ui, render_ctx, &planes);
     let mut ctx = RenderContext::lock(render_ctx);
-    // An explicit Library selection takes the viewport, also from a design loaded in
-    // the editor: the editor's next load or edit claims it back.
-    // The planes and the tools go in together, so the view never shows this design's planes
-    // with the previous design's tools; a planar design claims no tools at all.
+    // An explicit Library selection takes the viewport, also from a design loaded in the
+    // editor, which reclaims it on its next load or edit. The planes and tools go in
+    // together, so they never mix two designs. A planar design claims no tools.
     let claimed = claim_catalogue_stone(
         &mut ctx,
         entry_id,
@@ -402,13 +380,10 @@ pub(super) fn apply_reconstructed_planes(
             preview_material,
             &design_material,
         );
-        // A library design is not editable and carries no stone effects of its own: the
-        // Stone tab's effects are view-only session values that start from the defaults
-        // for every library row (the editor design's values must not leak onto it). Its
-        // stone width is the design file's girdle diameter when the file has one
-        // (`apply_catalogue_material` set it, as the editor's viewport and the exports
-        // draw the stone), otherwise the default 7 mm. The editor's next load or edit
-        // claims the viewport back and its design's own values apply again.
+        // A library design is not editable and has no stone effects of its own. The Stone
+        // tab's effects reset to the defaults, so the editor design's values do not leak
+        // onto it. The width is the design file's girdle diameter when it has one (set by
+        // `apply_catalogue_material`), otherwise 7 mm.
         stone_effects::clear_live_edit_pending();
         stone_effects::apply_effects_to_context(&mut ctx, &StoneRenderEffects::default());
         // Re-checked under the lock: the cutter may have zoomed while the stone was measured.
@@ -445,14 +420,9 @@ pub(super) fn apply_reconstructed_planes(
         // targets the view (a library design is never edited).
         ui.global::<ViewportModel>().invoke_render_color_refresh();
     }
-    // The dropdown's own displayed selection, not just the material being traced: the
-    // two are separate pieces of state, and writing only `RenderContext` left the
-    // toolbar reading (say) "Quartz" while the stone on screen was already the newly
-    // selected design's sapphire. Same treatment `editor::view::refresh_design_settings`
-    // gives its own material sync, via the same helper. `find_option_index` returning
-    // `None` leaves the selection alone rather than guessing -- it cannot happen for a
-    // built-in (`refresh_material_options` lists every one of them), so that case only
-    // covers an options model not pushed yet.
+    // The dropdown's own selection is set as well as the traced material, since they are
+    // separate state. A missing option leaves the selection unchanged: built-in materials
+    // are always listed, so this only happens before the options are pushed.
     if let Some(name) = resolved_material {
         let options = ui.global::<ViewportModel>().get_material_options();
         if let Some(index) = crate::gui::startup_settings::find_option_index(&options, &name) {
@@ -464,21 +434,16 @@ pub(super) fn apply_reconstructed_planes(
         return;
     }
 
-    // See this function's own doc comment --
-    // `AxesCacheKey` (`gui::tilt::tilt_profile`) already hashes the planes, so this
-    // is a no-op resweep whenever nothing about them actually moved.
+    // A no-op re-sweep when the planes did not change: `AxesCacheKey` hashes them.
     if ui.global::<TiltModel>().get_dialog_open() {
         ui.global::<TiltModel>().invoke_request_tilt_profile_axes();
     }
 }
 
-/// Resolves `name` against the render context's own loaded custom materials first,
-/// falling back to the built-in table -- the same custom-over-built-in precedence
-/// `gui::editor::material_lookup::EditorMaterialLookup::lookup` already applies (that
-/// type isn't reachable from this module -- `pub(super)` to `gui::editor` -- so this is
-/// a narrower, local equivalent), kept in step so a persisted preview-material name
-/// never resolves differently depending on which of the two lookups happens to see it.
-/// Used only by [`apply_catalogue_material`]'s preview-material fast path.
+/// Resolves `name` to a custom material first, then to a built-in.
+///
+/// This matches `gui::editor::material_lookup`, so a saved name resolves the same way in both
+/// places. Used only by the preview-material path of [`apply_catalogue_material`].
 fn lookup_named_material(ctx: &RenderContext, name: &str) -> Option<GemMaterial> {
     ctx.custom_materials
         .iter()
@@ -487,11 +452,12 @@ fn lookup_named_material(ctx: &RenderContext, name: &str) -> Option<GemMaterial>
         .or_else(|| BuiltinMaterials.lookup(name))
 }
 
-/// The material `design`'s file names, resolved as the editor's viewport resolves it
-/// (`gui::batch::catalogue_material::design_file_material`: the render context's custom
-/// materials over the built-ins, the file's refractive-index and body-color overrides on top,
-/// the file's own custom-material snapshot when nothing answers to the name), written to
-/// both halves of the context's material -- `material_override` BEATS `material_name`.
+/// The material that `design`'s file names, resolved as the editor's viewport resolves it.
+///
+/// This is `gui::batch::catalogue_material::design_file_material`: custom materials first,
+/// then the built-ins, with the file's overrides on top and the file's own snapshot as a last
+/// resort. It is written to both halves of the material, since `material_override` beats
+/// `material_name`.
 ///
 /// `None`, with the context untouched, when the design has no file, the file names no
 /// material, or the name resolves nowhere (the viewport would refuse such a design; this view
@@ -512,11 +478,10 @@ fn apply_design_file_material(
     Some(name)
 }
 
-/// Points the viewport's material at the stone this catalogue row is -- the material half
-/// of a catalogue selection, and the size it is drawn at. Without it the
-/// preview would keep whatever the last editor refresh, the last material pick or
-/// the PREVIOUS catalogue row left behind, so clicking through the library would change
-/// the shape on screen and never the stone.
+/// Points the viewport's material and stone width at this catalogue row.
+///
+/// Without this, the preview would keep the material of whatever was shown before, so
+/// clicking through the library would change the shape on screen but never the stone.
 ///
 /// The material is the first of these that answers, the order the library batches use
 /// for the thumbnails and tilt curves of the same design
@@ -541,16 +506,10 @@ fn apply_design_file_material(
 /// the viewport then says why it will not trace rather than borrowing some other
 /// design's optics.
 ///
-/// `preview_material` -- this design's own persisted preview/tilt-curve
-/// material, when one is on file -- is tried before the refractive-index nearest-match below,
-/// via [`lookup_named_material`]. It is a recorded FACT (the exact
-/// material the cached thumbnail and tilt curves were actually rendered under), not a
-/// ±[`MATERIAL_MATCH_TOLERANCE`] nearest-preset GUESS that can tie-break two different
-/// ways in two different code paths (`gui::editor::material_lookup::
-/// material_for_refractive_index` here vs. `pleochroma_vault::model::material_match`'s
-/// own nearest-with-random-tie rule, which decided what the persisted preview material
-/// actually IS) -- preferring the fact closes the "unresolved in the viewport while the
-/// thumbnail was rendered as a real preset" seam that let those two rules disagree.
+/// `preview_material`, when on file, is tried before the refractive-index guess, via
+/// [`lookup_named_material`]. It is the material the cached thumbnail and tilt curves
+/// were rendered under, so it is preferred over a nearest-preset guess. That keeps the
+/// viewport in step with the thumbnail.
 ///
 /// Returns the material's name on success, so the caller can point the viewport's material
 /// list at it once the `RenderContext` lock is released; `None` on either refusal,
@@ -626,14 +585,10 @@ pub(super) fn apply_catalogue_material(
     Some(name)
 }
 
-/// Rebuilds a design's 3D facet planes from its shape/gear/angle-settings. Pulled out
-/// of [`apply_reconstructed_planes`] (which still owns the actual `RenderContext`
-/// write) so `gui::library`'s metadata-fill step for a freshly imported `.asc` --
-/// `measure_solid` needs the SAME planes the viewport would show, not a second,
-/// possibly-drifting re-parse -- can call exactly this and nothing more. `shape` is
-/// `None` at import time (it's the very thing not parsed yet), which is fine: the
-/// emerald-cut special case below just doesn't fire, same as it wouldn't for any other
-/// design whose `shape` isn't one of those three substrings.
+/// Builds a design's 3D facet planes from its shape, gear and facet specs.
+///
+/// Used by [`apply_reconstructed_planes`] and by the import measurement, so both see the same
+/// planes the viewport shows. `shape` may be `None` at import, which skips the emerald case.
 pub fn reconstruct_planes(
     shape: Option<&str>,
     index_gear: Option<&str>,
@@ -679,9 +634,8 @@ mod prepared_geometry_tests {
             .collect()
     }
 
-    /// A flat remote table: the prepared geometry is exactly the placeholder stone the UI
-    /// thread used to rebuild -- bit-equal planes, the gear 96, reference angle 0.0 --
-    /// and has no tools.
+    /// A flat remote table prepares the same placeholder stone as the Slint row path: equal
+    /// planes, gear 96, reference angle 0.0, and no tools.
     #[test]
     fn a_flat_table_prepares_the_same_stone_as_the_slint_row_path() {
         let wire: Vec<WireRow<'_>> = vec![

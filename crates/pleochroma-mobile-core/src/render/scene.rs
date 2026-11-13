@@ -1,10 +1,10 @@
-//! The render scene for the app as it stands: the solved planes, the material, the
-//! lighting, the camera of the Solid view and the HDR map, in the shape the shared
+//! The render scene of the app's current state, in the shape the shared
 //! `pleochroma_web_core` scene builder takes.
 //!
-//! The scene is assembled exactly like the web app's live view (`render_material`,
-//! `scene_spec`), with the phone's settings (`design_props::render_settings`) and the
-//! Solid view's orbit camera.
+//! It holds the solved planes, the material, the lighting, the camera of the Solid view and
+//! the HDR map. It is assembled like the web app's live view (`render_material`,
+//! `scene_spec_with_frosting`), with the phone's settings (`design_props::render_settings`)
+//! and the Solid view's orbit camera.
 
 use std::sync::Arc;
 
@@ -109,8 +109,7 @@ pub(super) fn prepare(state: &AppState, view: RenderView) -> Result<Prepared, St
     let custom = &state.props.custom_materials;
     let material = render_material(&settings, Some(&state.session.design), custom)?;
     let hdr = state.hdr.active();
-    // The planes the design frosts (empty for a design without frosting, which is then the
-    // scene it always was).
+    // The planes the design frosts; empty for a design without frosting.
     let frosted = state.session.design.frosted_planes_from_solved(tiers);
     let mut spec = scene_spec_with_frosting(
         &settings,

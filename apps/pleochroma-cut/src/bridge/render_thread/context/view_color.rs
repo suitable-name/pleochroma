@@ -3,15 +3,15 @@
 //! A cutter can recolour the rendered stone from the toolbar without making a custom
 //! material. When the view shows the editor's open design with the render material linked
 //! to it, the pick is the design's own colour override and already travels in
-//! `RenderContext::material_override` (see `gui::editor::view::sync_viewport_material_link`).
+//! `RenderContext::material_override` (see
+//! `gui::editor::view::inspector::sync_viewport_material_link`).
 //! In every other case (a library design, or the render material unlinked) the pick is
 //! only a view setting: [`RenderContext::view_body_color`]. It is never written to a design.
 //!
-//! The view color is a color variant of the viewed material (a picked variant or a per-axis Custom
-//! Color, [`ViewVariant`]) or, for the colors saved before variants, the legacy triple and
-//! seven-band rows. A variant is applied with `GemMaterial::with_color_variant_tensor`, so a
-//! pleochroic stone keeps its pleochroism; the legacy colors are single colors and flatten it
-//! exactly as they always did.
+//! The view color is a color variant of the viewed material (a picked variant or a per-axis
+//! Custom Color, [`ViewVariant`]) or a legacy color: the triple and seven-band rows. A variant
+//! is applied with `GemMaterial::with_color_variant_tensor`, so a pleochroic stone keeps its
+//! pleochroism. A legacy color is a single color and flattens it.
 //!
 //! [`RenderContext::tinted_material_override`] is the ONE hook that turns the view setting
 //! into the material every consumer renders: the render loop's frame snapshot, the export
@@ -143,11 +143,11 @@ impl ViewVariant {
     }
 }
 
-/// The Live Render toolbar's view-only color. A color variant ([`Self::variant`]: a picked
-/// variant or a per-axis Custom Color) keeps every direction of a pleochroic stone and wins
-/// over the legacy fields; the legacy triple every consumer can show, and the seven-band rows
-/// when the color came from the old L*C*h editor (they win over the triple), stay readable for
-/// the colors saved before variants and keep rendering as saved.
+/// The Live Render toolbar's view-only color.
+///
+/// A color variant ([`Self::variant`]: a picked variant or a per-axis Custom Color) keeps every
+/// direction of a pleochroic stone and wins over the legacy fields. The legacy triple is a single
+/// color. The seven-band rows, from the L*C*h editor, win over the triple.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ViewColor {
     /// The absorption triple `GemMaterial::with_body_color` takes. `[0.0; 3]` and unused while
@@ -209,10 +209,11 @@ impl ViewColor {
     }
 }
 
-/// The view colour that is in force: `view` only when picks go to the view
-/// ([`ColorTarget::View`]) and the traced material does not define its own colour
-/// (`physics`). A design's own override is never a view colour, and a material with a
-/// physics recipe is never recoloured.
+/// The view colour that is in force: `view` only when picks go to the view ([`ColorTarget::View`])
+/// and the traced material does not define its own colour (`physics`).
+///
+/// A design's own override is never a view colour, and a material with a physics recipe is never
+/// recoloured.
 #[must_use]
 pub fn effective_view_color<T>(view: Option<T>, target: ColorTarget, physics: bool) -> Option<T> {
     match (target, physics) {
@@ -297,16 +298,14 @@ impl RenderContext {
     /// [`Self::material_override`] with the view colour applied: the material every
     /// render of this context uses in place of the raw override.
     ///
-    /// With no view colour in force this is exactly `material_override.clone()`, so a
-    /// scene without the setting renders bit-identically to one made before it existed.
-    /// With one, the material that would have been rendered (the override, or the
-    /// by-name lookup) is recoloured the way a design's own colour override recolours
-    /// it (`GemMaterial::with_body_color`): same species, optics and name, isotropic
-    /// absorption of the chosen colour. A color that carries the L*C*h editor's band rows
-    /// takes them instead (`GemMaterial::with_body_color_bands`, per millimetre like a
-    /// design's own bands; the render setup then sizes the material from the stone width).
-    /// A name that resolves to nothing stays unresolved (`None` with no override), exactly
-    /// as before.
+    /// With no view colour in force this is exactly `material_override.clone()`. With one,
+    /// the material that would have been rendered (the override, or the by-name lookup) is
+    /// recoloured the way a design's own colour override recolours it
+    /// (`GemMaterial::with_body_color`): same species, optics and name, isotropic absorption
+    /// of the chosen colour. A color that carries the L*C*h editor's band rows takes them
+    /// instead (`GemMaterial::with_body_color_bands`, per millimetre like a design's own
+    /// bands; the render setup then sizes the material from the stone width). A name that
+    /// resolves to nothing stays unresolved (`None` with no override).
     /// A scoped preview pattern takes precedence over the view-only body color.
     #[must_use]
     pub fn tinted_material_override(&self) -> Option<GemMaterial> {
@@ -343,11 +342,11 @@ impl RenderContext {
 
 /// `material` with the view color `color` applied.
 ///
-/// A color variant replaces ONLY the absorption tensor and its unit
-/// (`GemMaterial::with_color_variant_tensor`), so a pleochroic stone keeps every direction; a
-/// variant that does not fit the material ([`ViewVariant::fits`]) leaves the material's own color.
-/// A legacy color is applied as it always was: the band rows (per millimetre, the material's path
-/// scale kept) when it has them, else the triple.
+/// A color variant replaces only the absorption tensor and its unit
+/// (`GemMaterial::with_color_variant_tensor`), so a pleochroic stone keeps every direction.
+/// A variant that does not fit the material ([`ViewVariant::fits`]) leaves its own color.
+/// A legacy color uses the band rows (per millimetre, keeping the material's path scale)
+/// when it has them, else the triple.
 fn recolored(material: GemMaterial, color: &ViewColor) -> GemMaterial {
     if let Some(variant) = &color.variant {
         return if variant.fits(&material) {

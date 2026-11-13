@@ -13,8 +13,7 @@ use crate::{
 
 /// Most bands a variant may carry per ray: the GPU material buffer's capacity.
 ///
-/// `renderer::buffers` is compiled without any feature, so this is the renderer's own constant,
-/// not a copy that could drift.
+/// The constant is the GPU layout's own (`renderer::buffers`), so it cannot drift from the buffer.
 pub const MAX_VARIANT_BANDS: usize = MAX_ABSORPTION_BANDS;
 
 /// The absorption rank of a material or a tensor.

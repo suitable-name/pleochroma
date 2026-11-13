@@ -183,7 +183,7 @@ fn the_scatter_fraction_follows_the_formula_and_its_limits() {
         tis_transmission(6.0, 1.77, 1.0, 0.2, 550.0),
         tis_reflection(6.0, 1.77, 0.2, 550.0)
     );
-    // The presets, at 550 nm and normal incidence (R0 table, without the Fresnel factor).
+    // The presets at 550 nm and normal incidence, without the Fresnel factor.
     let mirror = tis_reflection(PolishPreset::Mirror.rq_nm(), 1.0, 1.0, 550.0);
     assert!((mirror - 5.2e-4).abs() < 5e-5, "{mirror}");
 }
@@ -217,7 +217,8 @@ fn the_packed_word_keeps_ideal_and_frosted_and_round_trips_the_fields() {
         );
         assert!(surface.has_roughness());
     }
-    // Scratch Strength 0 is a round lobe; the default carries 30 % of the preset's ratio.
+    // Scratch Strength 0 is a round lobe; the default strength 0.3 takes 30 % of the preset's
+    // excess anisotropy.
     assert_eq!(
         FacetSurface::from_preset(PolishPreset::Commercial, 0.0).anisotropy(),
         1.0

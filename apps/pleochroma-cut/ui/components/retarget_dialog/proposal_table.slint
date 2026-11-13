@@ -27,11 +27,8 @@ export component ProposalTable inherits VerticalLayout {
     property <length> block_min_width: 330px;
     property <bool> show_block: root.avail_width >= root.block_min_width;
 
-    // Shown when this proposal was computed against a design generation
-    // that has since moved on (`RetargetModel.stale`, `gui::editor::stale`'s
-    // own doc comment) -- "Recompute" rebuilds against the live
-    // design/current controls, exactly what changing any control here
-    // already does.
+    // Shown when the proposal was computed for an older design (`RetargetModel.stale`).
+    // Recompute rebuilds it from the live design, as changing any control does.
     if RetargetModel.stale && !RetargetModel.is_busy: StaleBadge {
         recompute => { RetargetModel.proposal_changed(); }
     }
@@ -59,9 +56,8 @@ export component ProposalTable inherits VerticalLayout {
 
     ScrollView {
         vertical-stretch: 1;
-        // A real height floor/preference (not just stretch): this table now
-        // sits inside the dialog body's own ScrollView, which owns the
-        // overflow on a short window.
+        // A real height floor and preference, not just stretch: the dialog body's ScrollView
+        // owns the overflow on a short window.
         min-height: 96px;
         preferred-height: 240px;
         // Rows take the visible width, so the columns above line up and none runs past the edge.

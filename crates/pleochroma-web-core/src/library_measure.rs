@@ -111,7 +111,7 @@ impl SolidSource for SolvedSolid {
         self.measure
     }
 
-    /// Classified from the SAME planes, so the girdle outline is measured.
+    /// Classified from the same planes the figures were measured from.
     fn girdle_sides(&mut self) -> usize {
         girdle::classify_girdle_plane_indices(&self.planes).len()
     }

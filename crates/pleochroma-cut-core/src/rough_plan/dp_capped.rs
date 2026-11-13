@@ -42,15 +42,11 @@
 //! # Cost
 //!
 //! The bars cost about `gA * gB * gC^2 / 2 * kb` operations, the slabs
-//! `gA * gB^2 / 2 * ks * reach` and the root `gA^2 / 2 * kr * reach`, and the bar argmax
-//! tables take `gA * gB * (kb + 1) * (gC + 1)` bytes.
-//! [`choose_grid`](super::choose_grid) scales about 30 cells an axis to
-//! the rough's proportions (a product near 27,000 cells, `8..=48` an axis), so the grids it
-//! returns top out near `48 x 24 x 24` and `48 x 48 x 12`: with a cap of 99 the worst order of
-//! those costs about `1e8` operations before the reach pruning and takes about 1.4 MB of bar
-//! argmax. A grid of 48 cells an axis, which `choose_grid` never returns, would be the loose
-//! upper bound: about `4e8` and 6 MB. Only a cap the free optimum exceeds pays any of it (see
-//! [`plan_rough_for_order`](super::plan_rough_for_order)).
+//! `gA * gB^2 / 2 * ks * reach`, the root `gA^2 / 2 * kr * reach`, and the bar argmax tables
+//! `gA * gB * (kb + 1) * (gC + 1)` bytes. [`choose_grid`](super::choose_grid) scales about 30
+//! units per axis to the rough's proportions, clamped to `8..=48`; for the grids it returns and
+//! a cap of 99 the worst order costs about `1e8` operations and 1.4 MB of argmax. Only a cap the
+//! free optimum exceeds pays this (see [`plan_rough_for_order`](super::plan_rough_for_order)).
 
 use super::{
     NEG,

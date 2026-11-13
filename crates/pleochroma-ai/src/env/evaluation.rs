@@ -61,10 +61,10 @@ impl EnvCore {
 
 /// Solves, closes, scores and measures `design` in `gem`.
 ///
-/// `preform_volume` is [`super::common::preform_volume`] of `design`: the caller measures it once per
-/// base design. The plane list, mesh and solid measurement of the candidate are built once
-/// here and shared with the manufacturability check. The score uses the same core objective
-/// path as optimization, including measured yield when requested and available.
+/// `preform_volume` is the [`super::common::preform_volume`] of `design`, measured once by the
+/// caller per base design. The plane list, mesh and solid measurement are built once here and
+/// shared with the manufacturability check. The score uses the same core objective path as
+/// optimization, including measured yield when requested and available.
 pub(crate) fn evaluate_design(
     design: &Design,
     gem: &GemMaterial,
@@ -187,8 +187,8 @@ fn prepare(
         lighting,
         shape_target,
     } = input;
-    // Certificates are keyed by exact full Design equality, never a hash alone.
-    // Reuse the authored solve that the preservation gate already accepted.
+    // Certificates match by exact full `Design` equality, not by hash or tolerance. Reuse
+    // the authored solve that the preservation gate already accepted.
     let solved = match solved {
         Some(solved) => solved,
         None => design.solve().map_err(EvalFailure::Unsolvable)?,
@@ -221,8 +221,8 @@ fn prepare(
         return Err(EvalFailure::NotClosed);
     };
 
-    // The physical absorption scale uses this candidate's width. Reuse the solid
-    // measurement already built above instead of performing another plane arrangement.
+    // The absorption scale depends on this candidate's width, taken from the solid measured
+    // above.
     let prepared_material = material_for_design(
         design,
         gem,
@@ -290,8 +290,8 @@ impl DesignMeasurements {
         metrics: Option<&SolidMetrics>,
         preform_volume: Option<f64>,
     ) -> Self {
-        // Keep CPU geometry assembly on the preparing pool job. The continuation retains
-        // compact measurements only; candidate meshes and borrowed authoring inputs can drop.
+        // Runs on the preparing pool job. The continuation keeps only compact measurements,
+        // so the mesh and the borrowed inputs can be dropped.
         let (table_percent, crown_to_pavilion) = metrics.map_or((None, None), |metrics| {
             let proportions = StoneProportions::from_solid(metrics, mesh, planes);
             let ratio = match (proportions.crown_height, proportions.pavilion_depth) {

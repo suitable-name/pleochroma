@@ -216,8 +216,7 @@ pub fn join_once(target: &JoinTarget, setup: &WorkerSetup) -> Result<Session, Jo
         welcome.payload_encoding
     );
 
-    // Back to "blocking" -- which on this stream means the idle deadline (see
-    // `IdleDeadlineStream`).
+    // No fixed timeout: the idle deadline of `IdleDeadlineStream` applies.
     let _ = tls.set_read_timeout(None);
     let _ = tls.set_write_timeout(None);
     // One adaptive link per connection to the coordinator, keyed by its address. This

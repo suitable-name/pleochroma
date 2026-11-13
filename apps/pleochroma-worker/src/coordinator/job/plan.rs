@@ -239,11 +239,12 @@ fn refusal(workers: &[(WorkerInfo, bool)], need: LaneNeed) -> ErrorMsg {
     }
 }
 
-/// Orders `candidates` for an `Interactive` pick: workers never measured on this
-/// viewer connection first (GPU before CPU, more threads first -- each gets one chance
-/// to be measured), then measured ones by rate, fastest first. `pixels` is the current
-/// request's image size, used to read each worker's [`RateBook`] entry back at a
-/// comparable resolution (see [`RateBook`]'s doc comment).
+/// Orders `candidates` for an `Interactive` pick.
+///
+/// Workers without a measured rate come first
+/// (GPU before CPU, more threads first, so each gets one chance to be measured), then
+/// measured ones by rate, fastest first. `pixels` is the current request's image size,
+/// used to read each worker's [`RateBook`] entry back at a comparable resolution.
 pub fn rank_fastest(candidates: &mut [WorkerInfo], rates: &RateBook, pixels: u32) {
     candidates.sort_by(|a, b| {
         let key = |w: &WorkerInfo| {

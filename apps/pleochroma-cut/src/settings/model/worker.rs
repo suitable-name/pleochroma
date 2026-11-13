@@ -6,19 +6,18 @@ use pleochroma_net::messages::{PreviewConfig, StreamConfig, TransferMode};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-/// The reduced resolution a remote worker's `PREVIEW` stream is rendered at, relative
-/// to the session's full render resolution -- a per-worker setting distinct from
-/// [`WorkerSettings::transfer_mode`], which governs the FULL-resolution `FRAME`
-/// payload instead.
+/// The resolution a remote worker's `PREVIEW` stream is rendered at, relative to the session's full
+/// render resolution.
+///
+/// Unlike [`WorkerSettings::transfer_mode`], which governs the full-resolution `FRAME` payload,
+/// this only sizes the preview.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum PreviewScale {
     Full,
     Half,
-    /// The default -- a newly added worker starts asking for a QUARTER-resolution
-    /// preview stream, not full. At 1920x1080, a `Full` preview doubles per-tick
-    /// bandwidth to roughly 100 MB/s; `Quarter` cuts the preview's own share to
-    /// 1/16th, still plenty of detail for a live camera-drag preview about to be
-    /// replaced. A user on a fast link can still pick `Full` explicitly.
+    /// The default. A quarter-resolution preview has 1/16th of the pixels, which keeps
+    /// the stream cheap and is still enough detail for a camera-drag preview. A fast
+    /// link can pick `Full`.
     #[default]
     Quarter,
     /// A custom percentage of the session's full resolution, `1..=100`. Values outside
@@ -60,17 +59,15 @@ impl PreviewScale {
     }
 }
 
-/// The resolution reduction applied while the camera is moving, for local
-/// preview-then-settle rendering -- the same idea [`PreviewScale`] offers a remote
-/// worker's `PREVIEW` stream, applied to the LOCAL render loop instead (see
-/// `bridge::render_thread::local_preview::effective_dimensions`), deliberately without a
-/// [`PreviewScale::Custom`] equivalent since the settings-dialog control is a
-/// discrete pill choice, not a slider.
+/// The resolution reduction the local render loop applies while the camera moves (see
+/// `bridge::render_thread::local_preview::effective_dimensions`).
+///
+/// Unlike [`PreviewScale`], there is no custom percentage: the settings dialog offers a
+/// fixed pill choice, not a slider.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum LocalPreviewScale {
-    /// No reduction: traces at the full configured resolution regardless of camera
-    /// movement -- bit-identical to this crate's behaviour before this control
-    /// existed. The default.
+    /// No reduction: traces at the full configured resolution whatever the camera does.
+    /// The default.
     #[default]
     Off,
     Half,
@@ -91,16 +88,13 @@ impl LocalPreviewScale {
     }
 }
 
-/// Which engine(s) should contribute to the LIVE viewport once the camera settles --
-/// the live-rendering analogue of `bridge::export_thread::ComputeTarget`, offered as
-/// the same Local/Remote/Local+Remote choice but kept as a separate type since the two
-/// features' callers live in disjoint module trees.
+/// Which engine(s) contribute to the live viewport once the camera settles.
 ///
-/// Unlike the export dialog's `compute_target` (re-derived fresh every dialog open,
-/// never persisted), this IS a persisted `AppSettings` field: a standing preference,
-/// not a one-shot dialog default. `Both` is deliberately the `Default` -- see
-/// [`super::app_settings::DEFAULT_LIVE_COMPUTE_TARGET`] for why that's safe even
-/// before any worker is configured.
+/// Mirrors `bridge::export_thread::ComputeTarget`, but is a separate type because the
+/// live and export callers live in disjoint module trees. The export dialog's choice is
+/// not an `AppSettings` field; this one is a persisted `AppSettings` field. `Both` is the default;
+/// see [`super::app_settings::DEFAULT_LIVE_COMPUTE_TARGET`] for why that is safe with no worker
+/// configured.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum LiveComputeTarget {
     LocalOnly,
@@ -128,20 +122,19 @@ pub struct WorkerSettings {
     pub name: String,
     /// `host:port` this worker listens on (`pleochroma-worker serve --bind`/`--allow-remote`).
     pub address: String,
-    /// Path to the directory holding this worker's mutual-TLS certificate bundle --
-    /// `ca.pem`, `client.pem`, and `client.key`, as `pleochroma-worker cert
-    /// issue-client` produces them. See [`WorkerSettings::ca_path`] /
-    /// [`WorkerSettings::client_cert_path`] / [`WorkerSettings::client_key_path`].
+    /// Directory holding this worker's mutual-TLS bundle (`ca.pem`, `client.pem` and
+    /// `client.key`, as `pleochroma-worker cert issue-client` writes them).
     ///
-    /// A plain `String`, not `PathBuf` -- matches every other user-facing text field
-    /// in this file and keeps this struct trivially TOML-serializable.
+    /// A plain `String`, not `PathBuf`, to match the other text fields here and keep the
+    /// struct trivially TOML-serializable. See [`WorkerSettings::ca_path`] and the
+    /// sibling path methods.
     pub cert_dir: String,
     /// How images are transferred from the worker.
     pub transfer_mode: TransferMode,
     /// This worker's requested cadence, in milliseconds, before clamping to its own
     /// advertised floor -- see [`WorkerSettings::effective_cadence_ms`].
     pub cadence_ms: u32,
-    /// Scale factor applied to preview renders.
+    /// Resolution of the `PREVIEW` stream, see [`PreviewScale`].
     pub preview_scale: PreviewScale,
 }
 
@@ -207,34 +200,25 @@ impl WorkerSettings {
         }
     }
 
-    /// The export's own [`StreamConfig`]: differs from [`Self::stream_config`] in three
-    /// ways -- `preview: None`, a much larger export-specific cadence floor (see
-    /// [`EXPORT_CADENCE_MS`]), and ALWAYS [`TransferMode::FinalOnly`], whatever this
-    /// worker's own `transfer_mode` says. A separate method rather than a parameter on
-    /// `stream_config`, since the live viewport legitimately uses a preview stream and
-    /// progressive frames, and that caller must stay unchanged.
+    /// The export's [`StreamConfig`]: no preview, the export cadence floor, and always
+    /// [`TransferMode::FinalOnly`] whatever this worker's `transfer_mode` says.
     ///
-    /// # Why the transfer mode is forced, not inherited
+    /// Kept separate from [`Self::stream_config`], which the live viewport uses with a
+    /// preview stream and progressive frames.
     ///
-    /// A progressive `FRAME` delta is always the full `width * height * 12` bytes,
-    /// however few samples it carries: ~25 MB at 1080p, ~100 MB at 4K. Under
-    /// `LiveProgressive` the worker emits one every cadence tick, and while a 100 MB
-    /// write is draining over a wireless link (~5-8 s at 150 Mbit/s) the worker can
-    /// neither trace nor heartbeat. The export's chunk watchdog
-    /// (`export_thread::remote::dispatch`) then saw gaps at or past its 8 s steady-state
-    /// deadline, declared the worker silent, and the export finished locally -- while
-    /// 1080p, whose frames drain in ~1.5 s, worked. The export never displays those
-    /// intermediate frames anyway (its thumbnail is built from whatever has been
-    /// MERGED, chunk by chunk), so it only ever needs one `FRAME` per chunk: with
-    /// `FinalOnly` the worker traces continuously, sends the bare `PROGRESS` heartbeat
-    /// on every cadence tick, and transfers each chunk's radiance exactly once.
+    /// # Why the transfer mode is forced
     ///
-    /// The export never reads a preview stream: `export_thread::remote::run_remote_batch`
-    /// ignores every `RemoteUpdate::Preview`, building its progress thumbnail from the
-    /// FULL-resolution FRAME buffer instead. A worker-rendered preview would cost real
-    /// bandwidth (up to a second full-resolution payload per emission at
-    /// [`PreviewScale::Full`]) for a stream nothing reads, so `preview: None` removes
-    /// that waste for the export path only.
+    /// A progressive `FRAME` is always the full `width * height * 12` bytes, however few
+    /// samples it carries (~25 MB at 1080p, ~100 MB at 4K). Under `LiveProgressive` a
+    /// worker can neither trace nor send heartbeats while one drains over a slow link,
+    /// which can trip the export's chunk watchdog (`export_thread::remote::dispatch`).
+    /// The export only needs one `FRAME` per chunk, so `FinalOnly` lets the worker trace
+    /// continuously, send a bare `PROGRESS` heartbeat each cadence tick, and transfer
+    /// each chunk's radiance once.
+    ///
+    /// The export never reads a preview stream: `run_remote_batch` ignores every
+    /// `RemoteUpdate::Preview` and builds its thumbnail from the full-resolution `FRAME`
+    /// buffer, so a worker-rendered preview would only cost bandwidth.
     #[must_use]
     pub fn export_stream_config(&self, min_cadence_ms: u32) -> StreamConfig {
         StreamConfig {
@@ -247,15 +231,13 @@ impl WorkerSettings {
     }
 }
 
-/// A cadence floor for [`WorkerSettings::export_stream_config`] only, clamped up from
-/// whatever [`WorkerSettings::effective_cadence_ms`] would otherwise pick (tuned for
-/// the live viewport's smaller interactive payloads, not a full-resolution export).
+/// Minimum cadence for [`WorkerSettings::export_stream_config`]: it raises whatever
+/// [`WorkerSettings::effective_cadence_ms`] gives to at least this value.
 ///
-/// A `FRAME` payload is always `width * height * 12` bytes regardless of how few new
-/// samples it carries -- the emitter coalesces everything since the last emission into
-/// one fixed-size payload, so cadence here controls transfer count, not size. At
-/// 1920x1080 that's ~24.9 MB per `FRAME`; over a 200 Mbit/s link, one `FRAME` takes
-/// ~1 second to drain, making the live viewport's 100ms-scale cadence unreachable
-/// anyway -- so requesting a larger cadence up front is a straight win: 2000ms is 20x
-/// fewer full-resolution transfers for the same total samples delivered.
+/// The live viewport's cadence is tuned for small interactive payloads.
+///
+/// A `FRAME` is always `width * height * 12` bytes, so cadence sets the number of
+/// full-resolution transfers, not their size. At 1920x1080 one `FRAME` is ~24.9 MB and
+/// takes ~1 s to drain over a 200 Mbit/s link, so a 100 ms cadence cannot be reached
+/// anyway. At 2000 ms there are 20x fewer transfers for the same samples.
 pub const EXPORT_CADENCE_MS: u32 = 2000;

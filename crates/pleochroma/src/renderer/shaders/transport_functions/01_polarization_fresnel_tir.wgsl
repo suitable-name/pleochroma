@@ -1,20 +1,14 @@
-// Phase 2, Tier 2: standalone per-function ULP checks for the small pieces
-// `shaders/spectral_transport.wgsl`'s megakernel calls -- driven by
-// `renderer::gpu::transport_check`. Every kernel below calls the SAME shared function
-// the megakernel calls: both files consume `shaders/transport_physics.wgsl`,
-// concatenated ahead of each of them by `build.rs` (see that file's header comment for
-// the mechanism and why it exists). There is no manually-kept-in-sync copy here any
-// more -- a dense-grid sweep mismatch found by a kernel below now localizes to exactly
-// one named function in the ONE place it's defined, and -- because that place is also
-// what the megakernel calls -- it is necessarily testing the shipped code path, not a
-// duplicate of it.
+// Tier 2 kernels: per-function ULP checks for the small pieces the megakernel calls.
+// Driven by `renderer::gpu::transport_check`.
 //
-// Every case bank is dispatched against the REAL CPU function it was translated from
+// Each kernel calls the same shared function as the megakernel. Both consume
+// `transport_physics.wgsl`, which `build.rs` concatenates ahead of each unit, so a
+// mismatch localizes to one named function that the shipped path also uses.
+//
+// Case banks are checked against the CPU function each piece was translated from
 // (`optics::polarization::MuellerMatrix::*`, `optics::raytracer::{tir_phase_delta,
 // signed_frame_rotation_psi}`, `optics::dispersion::DispersionModel::evaluate`,
-// `optics::raytracer::spectral_absorption`, `optics::birefringence::pleochroic_channel_alpha`)
-// -- never a hand-written parallel reimplementation of the physics -- by
-// `renderer::gpu::transport_check`.
+// `optics::raytracer::spectral_absorption`, `optics::birefringence::pleochroic_channel_alpha`).
 
 // ---------------------------------------------------------------------------------
 // MuellerMatrix::frame_rotation + StokesVector::apply_matrix

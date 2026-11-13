@@ -1,9 +1,10 @@
-//! Tests for [`super`], split by topic: shared real-fixture data and the
+//! Tests for [`super`], split by topic.
+//!
+//! The topics are shared real-fixture data and the
 //! round-trip checker, header/tier parsing, header-field validation errors,
 //! tier-name/notes-marker quirks, the `to_asc_string` round-trip property,
-//! `MeetInstruction` parsing, the 17 adversarial-input regression cases pinned
-//! as regression tests, and `to_asc_string`'s own write-time safety
-//! rejections.
+//! `MeetInstruction` parsing, the adversarial-input cases, and `to_asc_string`'s
+//! write-time safety rejections.
 
 mod fixtures;
 

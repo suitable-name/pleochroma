@@ -128,7 +128,7 @@ pub(in crate::gui::editor) fn current_retarget_guard(
 /// A cutter-facing sentence when there is nothing honest to compare: no proposal is
 /// held, the design moved on since it was built (the same staleness Apply refuses), the
 /// validity check is still running (the candidate needs its re-anchored masts), or its
-/// retarget edit no longer applies to the live design. An INVALID change is compared:
+/// retarget edit does not apply to the live design. An INVALID change is compared:
 /// that is how the cutter sees what is wrong with it.
 pub(in crate::gui::editor) fn retarget_compare_inputs(
     ui: &MainWindow,
@@ -232,12 +232,9 @@ fn optimized_compare_inputs(
     })
 }
 
-/// The compare window's "Discard" for a Retarget comparison: switches the legacy viewport
-/// ghost preview (`RetargetModel.preview_enabled`, which the dialog no longer offers a
-/// toggle for) off and, when it was on, puts the live design back in the
-/// shared viewport through the close handler's own revert
-/// ([`revert_ghost_to_live_design`]). The proposal itself stays pending and the
-/// dialog stays open, so the cutter can adjust it and compare again.
+/// The compare window's "Discard" for a Retarget comparison. Turns the viewport ghost flag
+/// `RetargetModel.preview_enabled` off and, if it was on, restores the live design through
+/// [`revert_ghost_to_live_design`]. The proposal stays pending and the dialog stays open.
 pub(in crate::gui::editor) fn discard_retarget_preview(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,

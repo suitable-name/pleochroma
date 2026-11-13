@@ -4,7 +4,7 @@
 //!
 //! Everything that packs or unpacks an observation goes through this module:
 //!
-//! - [`GlobalFeature::to_feature_vector`] and [`TierFeature::to_feature_vector`] are the ONLY
+//! - [`GlobalFeature::to_feature_vector`] and [`TierFeature::to_feature_vector`] are the only
 //!   places a feature is normalised.
 //! - [`GemstoneObservation::global_token`] and [`GemstoneObservation::tier_tokens`] hand those
 //!   vectors to the pure-Rust set-attention network.
@@ -31,26 +31,9 @@ use pleochroma_cut_core::{ObjectiveWeights, optimize::MAX_SAFE_CANDIDATE_ANGLE_D
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-/// Version of the observation layout.
+/// Version of the observation layout, recorded in checkpoints, which refuse a mismatch.
 ///
-/// - `1`: original scaffold (constant placeholder features; `flatten` normalised differently
-///   from the tokens).
-/// - `2`: every feature is measured from the design; `flatten` is built from the tokens.
-///   Tier token entries 0 and 1 were both `angle_deg / 90`.
-/// - `3`: duplicate angle replaced by the episode-start angle; tier index and azimuth added;
-///   base score added. The tier token grows from 10 to 13 entries, the global token from 14
-///   to 15. Two tiers with the same angle in the same block are now told apart by their
-///   position and azimuth, and the policy sees how far a tier has already moved.
-/// - `4` (historical layout): four objective weight fractions were appended to the global token
-///   (entries 15 to 18: windowing, extinction, tilt brilliance and yield, each over their sum).
-///   The global token grew from 15 to 19 entries; layout 5 below has seven fractions.
-/// - `5`: seven objective coefficients and measured material, lighting, geometry, mobility,
-///   constraint and action-context features were added; the global and tier widths are 41 and 26.
-/// - `6`: facet azimuths include wheel-unit reference offsets and degree-valued cheaters,
-///   negative gears use their magnitude, and an empty index list denotes one facet at zero.
-///   Widths are unchanged; the corrected orientation semantics require new checkpoints.
-/// - `7`: complete bounded orbit/constraint/baseline context and source/target principal
-///   spectra on the scorer's grid; existing 26/41-entry prefixes retain their meanings.
+/// Bump it whenever the meaning or order of any feature changes.
 pub const OBS_LAYOUT_VERSION: u32 = 7;
 
 /// Width of the global token.
@@ -62,7 +45,7 @@ pub const TIER_DIM: usize = TierFeature::FEATURE_DIM;
 pub const WEIGHT_FRACTION_INDEX: usize = 34;
 /// Tier-token index of mobility (`1.0` movable, `0.0` otherwise).
 pub const MOBILITY_INDEX: usize = 13;
-/// Backwards-readable alias for the same token position; `0.0` means immobile.
+/// Alias of [`MOBILITY_INDEX`]; the token value there is `0.0` when the tier is immobile.
 pub const IMMOBILE_INDEX: usize = MOBILITY_INDEX;
 /// Global-token index of task kind (`0` optimizer, `1` retarget).
 pub const TASK_KIND_INDEX: usize = 15;
@@ -72,11 +55,10 @@ const _: () = assert!(
     "the objective coefficients end the stable global prefix"
 );
 
-/// What a non-positive weight sum falls back to: the three optical terms equally, no yield
-/// (the fallback `ObjectiveWeights::score_with_yield` applies).
+/// Seven objective coefficients of the global token, normalized to sum to one.
 ///
-/// Seven objective coefficients in sensitivity order. Yield is omitted from normalization when
-/// unavailable; tone goals are separate and shape remains additive, matching the shared scorer.
+/// When the weight sum is not positive, the three optical terms share equal weight and yield
+/// and tone get none. See [`objective_coefficients`].
 #[must_use]
 pub fn weight_fractions(weights: &ObjectiveWeights) -> [f32; 7] {
     objective_coefficients(weights, true, 0.0)
@@ -154,9 +136,9 @@ pub const CROWN_MAX_ANGLE_DEG: f32 = MAX_SAFE_CANDIDATE_ANGLE_DEG as f32;
 
 /// The signed `(min, max)` angle envelope the policy projection keeps a tier in.
 ///
-/// `block_type` is `TierFeature::block_type` (crown `+1`, pavilion `-1`, girdle `0`);
-/// The critical angle is retained as context but does not autonomously alter a coordinate.
-/// Crown: `(1, MAX_SAFE)`. Pavilion: `(-MAX_SAFE, -1)`. Anything else: `(0, 0)`.
+/// `block_type` is [`TierFeature::block_type`] (crown `+1`, pavilion `-1`, girdle `0`). The
+/// critical angle is observed as context and never alters a coordinate. Crown: `(1, MAX_SAFE)`.
+/// Pavilion: `(-MAX_SAFE, -1)`. Anything else: `(0, 0)`.
 #[must_use]
 pub const fn angle_envelope(block_type: f32, _critical_angle_deg: f32) -> (f32, f32) {
     if block_type < -0.5 {
@@ -168,13 +150,11 @@ pub const fn angle_envelope(block_type: f32, _critical_angle_deg: f32) -> (f32, 
     }
 }
 
-/// The `(lo, hi)` bounds on the angle MAGNITUDE the policy projection keeps a tier in, or `None`
-/// when the block has no envelope (girdle: only the step limit applies).
+/// The `(lo, hi)` bounds on the angle MAGNITUDE the policy projection keeps a tier in, or
+/// `None` when the block has no envelope (a girdle: only the step limit applies).
 ///
-/// Free coordinates stay within the shared sign-preserving candidate safety interval, then
-/// intersect that interval with caller bounds. Critical margin is observed but never enforced.
-/// `lo > hi` means no candidate is reachable.
-/// The projection ([`GemstoneSetAttentionNetwork::project_actions`]) and
+/// `lo > hi` means no candidate is reachable. The critical margin is observed but never
+/// enforced. The projection ([`GemstoneSetAttentionNetwork::project_actions`]) and
 /// [`GemstoneObservation::free_tier_mask`] both read the window from here.
 ///
 /// [`GemstoneSetAttentionNetwork::project_actions`]: crate::model::GemstoneSetAttentionNetwork::project_actions
@@ -192,11 +172,9 @@ pub fn magnitude_window(block_type: f32, target_critical_angle_deg: f32) -> Opti
 
 /// Whether the policy projection overrides this tier's action instead of using the sample.
 ///
-/// True for a tier outside its magnitude window (it is moved one step toward the window whatever
-/// the policy proposed) and for a tier whose window is empty (it is frozen). A tier without an
-/// envelope, or inside its window, keeps the sampled action. A tier within one step of the
-/// window edge is also masked: the mask does not know the step size, so it errs on the side of
-/// not training on an action the projection may replace.
+/// True for a tier outside its magnitude window (the projection moves it one step toward the
+/// window whatever the policy proposed) and for a tier whose window is empty (it is frozen).
+/// A tier without an envelope, or inside its window, keeps the sampled action.
 #[must_use]
 pub fn projection_overrides_tier(tier: &TierFeature, target_critical_angle_deg: f32) -> bool {
     let Some((lo, hi)) = magnitude_window(tier.block_type, target_critical_angle_deg) else {
@@ -238,11 +216,10 @@ pub struct TierFeature {
     /// same angle in the same block are different facets, and closure and facet survival
     /// depend on which one moves.
     pub index_frac: f32,
-    /// Sine of the azimuth of the tier's first facet index, `2π * indices[0] / gear_teeth`
-    /// (`design.meta.gear_teeth`); `0.0` for a tier without an index or a design without gear
-    /// teeth.
+    /// Sine of the facet azimuth of the tier's first index (an empty index list counts as
+    /// index zero, see [`azimuth_sin_cos`]); `0.0` when the design has no gear teeth.
     pub azimuth_sin: f32,
-    /// Cosine of the same azimuth; `1.0` for a tier without an index.
+    /// Cosine of the same azimuth; `1.0` when the design has no gear teeth.
     pub azimuth_cos: f32,
     /// Whether this coordinate can move (`1.0`) or is immobile (`0.0`).
     pub is_mobile: f32,
@@ -357,10 +334,10 @@ pub struct GlobalFeature {
     pub target_critical_angle_deg: f32,
     /// Dispersion of the target material: `n(486.1 nm) - n(656.3 nm)`.
     ///
-    /// Exactly `0.0` whenever the material is a flat index: a design without a material preset
-    /// (every `.asc` import, which carries only an `I`-line index) and the preset-less species
-    /// Fluorite, Beryl and Garnet. Overrides install a constant Cauchy term, so only a named
-    /// preset without an index override disperses.
+    /// Exactly `0.0` for a flat index: a design without a built-in material preset (every
+    /// `.asc` import, which carries only an `I`-line index, or a name such as Garnet that has
+    /// no preset). An index override installs a constant Cauchy term, so only a named preset
+    /// without an index override disperses.
     pub dispersion: f32,
     /// Windowing percentage of the current state (0 to 100).
     pub windowing_pct: f32,
@@ -518,7 +495,7 @@ pub const fn flat_len(max_tiers: usize) -> usize {
 }
 
 /// Splits a flat observation into `(global, tiers)` slices (`tiers` is `max_tiers * TIER_DIM`
-/// long). `None` when `flat` does not have exactly <code>[flat_len](max_tiers)</code> entries.
+/// long). `None` when `flat` does not have exactly `flat_len(max_tiers)` entries.
 #[must_use]
 pub fn split_flat(flat: &[f32], max_tiers: usize) -> Option<(&[f32], &[f32])> {
     (flat.len() == flat_len(max_tiers)).then(|| flat.split_at(GLOBAL_DIM))
@@ -570,13 +547,12 @@ impl GemstoneObservation {
         self.global.to_feature_vector()
     }
 
-    /// Per-tier mask of the tiers whose sampled action the environment will actually use: `true`
-    /// for a free tier, `false` otherwise. Not free: pinned tiers (`is_pinned`), flat and
-    /// vertical tiers, and tiers the projection overrides this step because they lie outside
-    /// their angle envelope (see [`projection_overrides_tier`], the rule `project_actions`
-    /// applies). Training masks the `false` entries out of log-prob, entropy and the action
-    /// sample, the same way it masks zero padding. A tier re-enters the mask once it is inside
-    /// its envelope.
+    /// Per-tier mask of the tiers whose sampled action the environment uses: `true` for a free
+    /// tier. Not free: pinned tiers, flat and vertical tiers, and tiers the projection overrides
+    /// this step because they lie outside their angle envelope (see
+    /// [`projection_overrides_tier`]). Training masks the `false` entries out of log-prob,
+    /// entropy and the action sample, as it masks zero padding. A tier re-enters the mask once
+    /// it is inside its envelope.
     #[must_use]
     pub fn free_tier_mask(&self) -> Vec<bool> {
         let crit = self.global.target_critical_angle_deg;
@@ -612,8 +588,7 @@ impl GemstoneObservation {
     }
 
     /// [`Self::try_flatten`] for a caller that has already checked [`Self::fits`]: tiers
-    /// beyond `max_tiers` are DROPPED, so check first (the trainer rejects such designs when
-    /// it loads the dataset).
+    /// beyond `max_tiers` are dropped, so check first.
     #[must_use]
     pub fn flatten(&self, max_tiers: usize) -> Vec<f32> {
         let mut out = Vec::with_capacity(flat_len(max_tiers));

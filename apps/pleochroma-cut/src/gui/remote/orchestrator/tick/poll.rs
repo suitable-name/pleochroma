@@ -1,6 +1,7 @@
-//! The repeating timer tick ([`setup_remote_rendering`]/[`poll_tick`]) that watches
-//! `RenderContext`'s camera/light pose, feeds `bridge::remote::handoff::HandoffMachine`, and
-//! carries out the actions it returns ([`apply_actions`]) -- deferring the one action
+//! The repeating timer tick ([`setup_remote_rendering`]/[`poll_tick`]) of the orchestrator.
+//!
+//! It watches `RenderContext`'s camera/light pose, feeds `bridge::remote::handoff::HandoffMachine`,
+//! and carries out the actions it returns ([`apply_actions`]) -- deferring the one action
 //! that actually dispatches to a remote worker to `super::dispatch::start_remote_render`,
 //! called right after by `poll_tick` itself. See this group's own `mod.rs` doc comment.
 
@@ -42,12 +43,10 @@ use std::{
 /// [`POSE_SETTLE_DEBOUNCE`]; see `bridge::remote::handoff`'s module docs on what
 /// "settled" means.
 const SETTLE_DEBOUNCE: Duration = Duration::from_millis(600);
-/// How long the pose must stay unchanged AFTER the last change or button release
-/// before the view settles (full resolution, remote handoff). Shorter than
-/// [`SETTLE_DEBOUNCE`]: a drag no longer needs a long quiet period to be told apart
-/// from a pause, because a held button blocks the settle outright
-/// (`decisions::pose_settle_due`). Counts from the release edge
-/// ([`observe_drag_edge`]) or, for a wheel zoom, from the last tick.
+/// How long the pose must stay unchanged after the last change or button release before
+/// the view settles (full resolution, remote handoff). A held button blocks the settle
+/// outright (`decisions::pose_settle_due`), so this can be short. Counts from the release
+/// edge ([`observe_drag_edge`]) or, for a wheel zoom, from the last tick.
 const POSE_SETTLE_DEBOUNCE: Duration = Duration::from_millis(250);
 /// A held-button flag with no pose change for this long is treated as released --
 /// bounds the cost of a release event that never reached the viewport
@@ -58,23 +57,18 @@ const DRAG_HELD_WATCHDOG: Duration = Duration::from_secs(20);
 /// a debounce itself.
 const POLL_INTERVAL_MS: u64 = 100;
 
-/// Opaque handle to the preview-then-handoff orchestrator's live state, returned by
-/// [`setup_remote_rendering`] alongside its timer -- lets
-/// `gui::remote::worker_callbacks`'s denoise toggle force a `RemoteOnly` redisplay
-/// ([`Self::request_redisplay`]) without this module exposing `Orchestrator` itself
-/// outside `gui::remote::orchestrator`.
+/// Handle to the orchestrator's live state, returned by [`setup_remote_rendering`] with its timer.
+///
+/// `gui::remote::worker_callbacks`' denoise toggle uses it to force a `RemoteOnly` redisplay
+/// ([`Self::request_redisplay`]) without exposing `Orchestrator` itself.
 #[derive(Clone)]
 pub struct RemoteOrchestratorHandle(Arc<Mutex<Orchestrator>>);
 
 impl RemoteOrchestratorHandle {
-    /// Forces a redraw of the current settled epoch's already-accumulated image --
-    /// the `RemoteOnly` counterpart of `RenderContext::redisplay_requested` (see that
-    /// field's own doc comment for the `Both`/local path): `RemoteOnly` suspends the
-    /// render thread's own loop entirely, so there is no frame-loop iteration left for
-    /// `redisplay_requested` to be read back on, and the toggle must reach the
-    /// display directly instead. Safe to call regardless of the current
-    /// live-compute-target or whether an epoch is even live --
-    /// `redraw_from_epoch` already no-ops while combining or with no live lane.
+    /// Redraws the settled epoch's accumulated image. This is the `RemoteOnly` counterpart of
+    /// `RenderContext::redisplay_requested`: `RemoteOnly` suspends the render thread's loop,
+    /// so the redraw must reach the display directly. Safe to call in any mode; it does
+    /// nothing while combining or with no live lane.
     pub fn request_redisplay(&self, ui: &MainWindow, render_ctx: &Arc<Mutex<RenderContext>>) {
         let Some((width, height)) = lock(&self.0)
             .live_lane
@@ -87,13 +81,14 @@ impl RemoteOrchestratorHandle {
     }
 }
 
-/// Wires up the preview-then-handoff orchestrator: a repeating `slint::Timer` polls
+/// Wires up the preview-then-handoff orchestrator.
+///
+/// A repeating `slint::Timer` polls
 /// `render_ctx`'s camera/light pose, feeds `bridge::remote::handoff::HandoffMachine`, and
-/// dispatches to `bridge::remote::remote_render` when the machine decides to hand off. Returns
-/// the `slint::Timer` -- the caller (`gui::mod::run_gui`) MUST keep it alive for the
-/// life of the window (a dropped `Timer` stops firing), the same requirement as any
-/// other `slint::Timer` used this way -- and a [`RemoteOrchestratorHandle`] onto the
-/// same live state, for `gui::remote::worker_callbacks`'s denoise toggle.
+/// dispatches to `bridge::remote::remote_render` when the machine decides to hand off.
+/// Returns the `slint::Timer`, which the caller (`gui::run_gui`) must keep alive for the
+/// life of the window: a dropped `Timer` stops firing. Also returns a
+/// [`RemoteOrchestratorHandle`] onto the same state, for `gui::remote::worker_callbacks`.
 #[must_use]
 pub fn setup_remote_rendering(
     ui: &MainWindow,
@@ -181,16 +176,11 @@ fn poll_tick(
     // preview resolution persist however long the pointer rests), unless the flag has
     // outlived `DRAG_HELD_WATCHDOG` with no pose change -- a lost release.
     let held = drag_held_effective(held_raw, quiet_for, DRAG_HELD_WATCHDOG);
-    // The rendered image isn't visible anywhere right now (Solid mode on the Live
-    // Render tab, the Edit tab's own Solid/Diagram mode, or the render column simply
-    // off-screen -- see `RenderContext::tab_visible`'s doc comment), live rendering is
-    // paused, or a high-resolution export/batch job is running (`remote_allowed`,
-    // computed once above -- see `live_remote_allowed`) -- a remote worker would
-    // otherwise start spending GPU/cloud time on a frame nobody can see or use, exactly
-    // what local tracing is already suspended for via these same flags (`frame_helpers::
-    // SuspensionFlags::tracing_suspended`). The handoff machine's own `Previewing`
-    // state and `last_change_at` are left untouched, so a real settle is simply
-    // re-evaluated on the next tick once remote is allowed again.
+    // Remote stays idle while `remote_allowed` is false: the image is not visible, live
+    // rendering is paused, or an export/batch job runs (see `live_remote_allowed`). A
+    // remote worker would otherwise spend GPU/cloud time on a frame nobody sees, as local
+    // tracing is suspended for the same flags (`frame_helpers::SuspensionFlags`). The
+    // handoff state is left untouched, so a settle is re-evaluated once allowed again.
     if pose_settle_due(previewing, held, quiet_for, POSE_SETTLE_DEBOUNCE) && remote_allowed {
         // `LocalOnly`, no configured worker, and a scene remote may not render (an HDR
         // environment -- see `bridge::remote::guard`) all count as "no worker" right
@@ -198,16 +188,12 @@ fn poll_tick(
         // available; `bridge::remote::handoff` itself stays unaware these choices exist, seeing
         // only `worker_available: bool`.
         let endpoint = settle_endpoint(ui, render_ctx, settings_store, state);
-        // `endpoint` is freshly read from settings right before a possible dispatch, so
-        // this is also the right place to notice the cached `remote_connection`'s
-        // identity no longer matches (address/`cert_dir` edited, remote removed, or
-        // remote compute switched off). Dropping it here, before `start_remote_render`
-        // could reuse it, guarantees the next dispatch never sends a `RenderRequest`
-        // over a connection authenticated under stale certificates. Never reached
-        // while a remote render is genuinely in flight: `pose_settle_due` requires
-        // `HandoffState::Previewing`, which only re-enters after any previous
-        // request's cleanup has run, so `remote_handle` is always already `None` here.
-        // (`pose_settle_due` requires `HandoffState::Previewing` and no held button.)
+        // Drop a cached connection whose identity does not match the freshly read
+        // endpoint (address, cert dir, remote removed or compute switched off), so no
+        // request is sent over a connection authenticated under stale certificates. A
+        // remote render is never in flight here: `pose_settle_due` requires `Previewing`,
+        // which only re-enters after the previous request's cleanup, so `remote_handle`
+        // is `None`.
         drop_stale_connection(state, endpoint.as_ref());
         let actions = lock(state).handoff.handle(HandoffEvent::SettleElapsed {
             worker_available: endpoint.is_some(),
@@ -217,9 +203,7 @@ fn poll_tick(
             start_remote_render(ui, render_ctx, endpoint, state);
         }
     }
-    // `RenderContext::camera_moving` must be kept in sync on every tick, not just the
-    // branches above that changed handoff state, since `Previewing` can also simply
-    // persist unchanged tick to tick while a drag continues.
+    // Synced every tick: `Previewing` can persist unchanged while a drag continues.
     sync_camera_moving_to_ctx(render_ctx, state);
     super::target::sync_target(render_ctx, state);
     reconcile_lane_with_ctx(render_ctx, state);
@@ -292,19 +276,12 @@ fn update_live_remote_suspension(
 /// Suspends the live remote lane the instant [`live_remote_allowed`] turns `false` (a
 /// Pause, an export/batch job starting, or the tab becoming invisible):
 ///
-/// - a display-only (final-picture) lane is abandoned outright, exactly like a drag
-///   cancel (`HandoffAction::SendCancelToWorker` + `HandoffAction::DiscardRemotePartial`,
-///   then `HandoffEvent::RemoteFailed` to bring the handoff machine back to `Idle`) --
-///   its one request already covers the whole budget and the wire protocol has no way
-///   to resume it mid-stream, so nothing about it is worth keeping; `maybe_redispatch`
-///   starts a fresh one once allowed again.
-/// - an accumulating lane just has its in-flight chunk cancelled on the wire
-///   (`HandoffAction::SendCancelToWorker` alone -- the lane and epoch are left in
-///   place, NOT abandoned). Its confirmed cancellation (`RemoteUpdate::Done{cancelled:
-///   true}`) is handled by `update::on_chunk_paused`, which merges the chunk's valid
-///   prefix through `LiveLane::chunk_paused` without counting a failure or touching the
-///   rate estimate, then leaves the lane idle for [`resume_idle_lane`] to continue once
-///   allowed again.
+/// - a display-only (final-picture) lane is abandoned: its single request covers the whole
+///   budget and cannot resume mid-stream. `maybe_redispatch` starts a fresh one once allowed.
+/// - an accumulating lane only has its in-flight chunk cancelled on the wire. The lane and
+///   epoch stay in place. The confirmed cancellation (`update::on_chunk_paused`) merges the
+///   chunk's valid prefix through `LiveLane::chunk_paused` without counting a failure, and
+///   the lane waits idle for [`resume_idle_lane`].
 ///
 /// A no-op when no lane is live (nothing dispatched yet, or the previous release
 /// already cleared it).
@@ -414,10 +391,10 @@ fn drop_stale_connection(state: &Arc<Mutex<Orchestrator>>, endpoint: Option<&Rem
     }
 }
 
-/// The remote endpoint this settle should dispatch to, or `None` to render locally --
-/// the live dispatch decision (`bridge::remote::live_remote_dispatch`: compute target,
-/// remote configured, HDR guard) applied to the one configured endpoint. A refusal shows its status note ONCE per refusal period (reset as soon as
-/// remote is allowed again).
+/// The remote endpoint this settle dispatches to, or `None` to render locally: the live
+/// dispatch decision (`bridge::remote::live_remote_dispatch`: compute target, remote
+/// configured, HDR guard) applied to the configured endpoint. A refusal shows its status
+/// note once per refusal period, reset when remote is allowed again.
 fn settle_endpoint(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
@@ -452,14 +429,13 @@ fn settle_endpoint(
     }
 }
 
-/// Turns a [`LiveDispatch::Remote`] decision into a refusal when the live
-/// remote is known NOT to accept zoned materials ([`Orchestrator::remote_zoning`] is
-/// `Some(false)`: a default-build worker, or a coordinator) and the stone being viewed has
-/// colour zones -- it would show only its base zone remotely. Before the connection first
-/// reported its capability (`None`) the decision stands: the connection layer refuses the first
-/// chunk against the live `WELCOME` (`RemoteError::ZoningUnsupported`), which also teaches this
-/// the answer. The scene is only captured when the remote is known not to accept zones, so a
-/// zoning worker costs nothing here.
+/// Turns a [`LiveDispatch::Remote`] decision into a refusal when the live remote is known
+/// NOT to accept zoned materials ([`Orchestrator::remote_zoning`] is `Some(false)`: a
+/// default-build worker or a coordinator) and the stone has colour zones, which it would
+/// show only as its base zone. Before the connection first reported its capability (`None`)
+/// the decision stands: the connection then refuses the first chunk with
+/// `RemoteError::ZoningUnsupported`, which also records the answer. The scene is captured
+/// only when the remote is known not to accept zones, so a zoning worker costs nothing here.
 fn keep_zoned_stone_local(
     decision: LiveDispatch,
     render_ctx: &Arc<Mutex<RenderContext>>,
@@ -476,14 +452,12 @@ fn keep_zoned_stone_local(
     }
 }
 
-/// Drops the orchestrator's lane the moment `RenderContext::live_epoch` no longer holds
-/// the lane's own epoch -- released elsewhere: by the render loop on a non-drag scene
-/// change (`resolve_remote_ownership`) or a scene-identity mismatch
-/// (`live_split::epoch_scene_mismatch`), or by a settings change (the live compute
-/// target). Cancels the chunk still on the wire (its samples would belong to a dead
-/// epoch) and, if the handoff machine still thinks a remote render is running, ends
-/// that attempt (back to `Idle`), so [`maybe_redispatch`] can start a fresh epoch for
-/// the new scene/mode once it is stable. A no-op otherwise.
+/// Drops the lane once `RenderContext::live_epoch` does not hold its epoch. The render
+/// loop releases the epoch on a scene change or a scene-identity mismatch
+/// (`resolve_remote_ownership`, `live_split::epoch_scene_mismatch`), and a live-compute-target
+/// change does the same. The chunk still on the wire is cancelled, since its samples belong
+/// to a dead epoch, and a remote attempt the handoff machine still thinks is running ends.
+/// [`maybe_redispatch`] starts a fresh epoch once the scene is stable. A no-op otherwise.
 fn reconcile_lane_with_ctx(
     render_ctx: &Arc<Mutex<RenderContext>>,
     state: &Arc<Mutex<Orchestrator>>,
@@ -531,15 +505,12 @@ fn resume_idle_lane(
     }
 }
 
-/// `render_thread::mod`'s `resolve_remote_ownership` can release `ctx.remote_active`
-/// entirely on its own, off this orchestrator's timer, whenever a non-drag scene
-/// change (material/lighting/quality/etc.) arrives while a completed remote render is
-/// still displayed. A real camera drag already keeps `HandoffMachine::served_by`
-/// truthful (the pose-changed branch above), but a non-drag release has no handoff
-/// event to ride along with, so this polls for it: whenever `served_by() == Remote`
-/// but the render loop has since cleared `ctx.remote_active`, local tracing has
-/// already silently taken back over -- feed `HandoffEvent::SceneInvalidated` so the
-/// "served by remote" indicator stops claiming otherwise. A no-op on every other tick.
+/// The render loop can clear `ctx.remote_active` on its own (`resolve_remote_ownership`)
+/// when a non-drag scene change (material, lighting, quality) arrives while a remote image
+/// is shown. A drag reports that through a handoff event; a non-drag change does not. So
+/// when `served_by()` is `Remote` but `remote_active` is cleared, this feeds
+/// `HandoffEvent::SceneInvalidated`, so the "served by remote" indicator does not claim a
+/// local image. A no-op on every other tick.
 fn reconcile_served_by_after_release(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
@@ -629,10 +600,9 @@ pub(super) fn apply_actions(
     for action in actions {
         match action {
             // `DiscardLocalPreview` and `SendRenderRequestToWorker` always fire together
-            // and are both deferred to the same call site: `start_remote_render`,
-            // called by `poll_tick` right after this. That is also where the
-            // `remote_active`/`dirty`/fresh-epoch hand-off
-            // has to land, in one locked mutation with the discard/dispatch.
+            // and are both handled by `start_remote_render`, which `poll_tick` calls right
+            // after this. There `remote_active`, `dirty` and the fresh epoch are set in one
+            // locked mutation with the discard and the dispatch.
             HandoffAction::DiscardLocalPreview | HandoffAction::SendRenderRequestToWorker => {}
             HandoffAction::SendCancelToWorker => {
                 if let Some(handle) = &lock(state).remote_handle {

@@ -1,5 +1,5 @@
-//! Plan-level tests with convex outlines of 100 or more vertices: the owner's timing run,
-//! a quick smoke run over the four model kinds, and a cancel sweep.
+//! Plan-level tests with convex outlines of 100 or more vertices: a timing run, a smoke run
+//! over the four model kinds, and a cancel sweep.
 
 use std::{collections::BTreeSet, num::NonZeroUsize, panic, thread, time::Instant};
 
@@ -76,12 +76,12 @@ fn hull_of(design: &CandidateDesign, kind: usize) -> DesignHull {
     let (w, h, l) = (design.width, design.height, design.length);
     let half = [0.5 * w, 0.5 * h, 0.5 * l];
     let smallest = w.min(h).min(l);
-    // Box: w h l. Octahedron with half extents a, b, c: 4/3 a b c = w h l / 6. The round
-    // outline contains that octahedron, so a b c = w h l / 8 is below its volume.
+    // Box: w h l. An octahedron with half extents a, b, c has 4/3 a b c = w h l / 6, and the
+    // round outline contains it, so w h l / 8 is safely below the round volume.
     let (vertices, volume, width) = match kind % 3 {
         0 => (box_points(half), w * h * l, smallest),
         1 => {
-            // The caliper width of the octahedron is 2 / sqrt(1/a^2 + 1/b^2 + 1/c^2) / 2.
+            // Width of the octahedron from its full extents: 1 / sqrt(1/w^2 + 1/h^2 + 1/l^2).
             let width = 1.0 / (1.0 / (w * w) + 1.0 / (h * h) + 1.0 / (l * l)).sqrt();
             (octahedron_points(half), w * h * l / 6.0, 0.9 * width)
         }

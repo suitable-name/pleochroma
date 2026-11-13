@@ -6,12 +6,12 @@
 //!
 //! | Module | What it holds |
 //! |---|---|
-//! | `progress` | [`ProgressStore`]: done marks per design and per step signature, in `<files>/cut_progress/<key>.json` |
+//! | `progress` | [`ProgressStore`]: done marks, in `<files>/cut_progress/<key>.json` |
 //! | `key` | which file a design's marks live in (its id, else a SHA-256 of its text) |
 //! | `rows` | [`instruction_rows`] and [`summary`]: the Cut page's list and progress card |
-//! | `sheet` | [`SheetJob`], [`cutting_sheet_html`], [`cutting_sheet_pdf`], [`diagram_png`]: the sheet (HTML or PDF) and the picture |
+//! | `sheet` | [`SheetJob`], [`cutting_sheet_html`], [`cutting_sheet_pdf`], [`diagram_png`] |
 //! | `diagram` | [`DiagramJob`]: the three-panel diagram with one tier highlighted |
-//! | `mode` | Cutting Mode's step state (its own lane) |
+//! | `mode` | Cutting Mode's step state |
 //!
 //! Every function that reads instructions needs a CURRENT solve
 //! (`state.solve.current_tiers(generation)`); without one it answers [`NotSolved`], and the

@@ -15,9 +15,10 @@ import { TipBox } from "tip_box.slint";
 // lose. Apply turns the text into the design as one undoable change; Revert writes the text
 // again. "Compare with..." shows the text against the saved file or the snapshot, line by line.
 //
-// Mounted by `app.slint` inside an Escape-handling `FocusScope`, like the other modal
-// dialogs. The state lives in `RawTextModel` and is driven by `gui::editor::raw_text`. A click
-// on the backdrop does nothing: edits are not thrown away by a stray click.
+// Mounted by `components/app/window_dialogs.slint`, inside an Escape-handling `FocusScope`,
+// like the other modal dialogs. The state lives in `RawTextModel`, driven by
+// `gui::editor::raw_text`. A click on the backdrop does nothing: a stray click must not discard
+// edits.
 export component RawTextDialog inherits Rectangle {
     background: Theme.overlay-backdrop;
 

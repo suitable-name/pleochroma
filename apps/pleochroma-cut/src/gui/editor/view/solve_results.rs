@@ -1,9 +1,8 @@
-//! Deep Solve's availability hint, status text and per-tier result table
-//! ([`deep_solve_hint`]/[`format_deep_solve_report`]/[`deep_solve_tier_rows`] --
-//! Deep Solve is desktop-only), and the Slint adapters over
-//! `pleochroma_editor::optimize_view`'s Optimize hint and change rows (shared with
-//! the web app, re-exported here at their old paths). See
-//! [`super::optimize_apply`] for the Optimize result SUMMARY table.
+//! Deep Solve and Optimize view adapters for the editor.
+//!
+//! They map the availability hints, the Deep Solve status text and per-tier rows, and the
+//! Optimize change rows to Slint structs. The formatting lives in `pleochroma_editor` (shared
+//! with the web app). The Optimize result summary table is in [`super::optimize_apply`].
 
 use super::state::EditorState;
 use crate::{DeepSolveTierRow, OptimizeChangeRow, gui::editor::deep_solve::TierMastDelta};
@@ -12,36 +11,28 @@ use pleochroma_editor::deep_solve::deep_solve_row_texts;
 
 pub(in crate::gui::editor) use pleochroma_editor::optimize_view::facet_count_from_solved;
 
-/// Whether Deep Solve is available for `state`'s current design, and the
-/// explanatory hint text `EditorView` shows next to its button either way:
+/// Whether Deep Solve is available for `state`'s current design, and the hint shown
+/// next to its button either way.
 ///
-/// - No printed proportions at all: disabled -- `solve_meet_points_verified` has no
-///   external signal to score against.
-/// - Printed proportions exist, but every tier is pinned to its recorded mast:
-///   **disabled** (a run against an all-pinned design cannot
-///   change the verdict, so offering it invites minutes of work for nothing),
-///   hinted that there's nothing to repair yet -- the user must first convert a
-///   tier to a meet constraint (the tier list's "Adopt" action) before Deep Solve
-///   has anything to search over.
-/// - Printed proportions exist and at least one tier is meet-derived: enabled,
-///   hinted with the cost/cancellability caveat instead.
+/// - No printed proportions: disabled, since there is no external signal to score
+///   against.
+/// - Every tier pinned to its recorded mast: disabled, since a run cannot change the
+///   verdict. The hint asks the user to adopt a tier first (the tier list's "Adopt").
+/// - At least one meet-derived tier: enabled, with the cost and cancellability caveat.
 ///
-/// `pub(super)`, not private: `panel_stale.rs` (a sibling file) calls this from
-/// its own availability push.
+/// `pub(super)`: `panel_stale.rs` calls this from its availability push.
 pub(super) fn deep_solve_hint(state: &EditorState) -> (bool, String) {
     pleochroma_editor::deep_solve::availability(&state.design, state.printed_proportions.as_ref())
 }
 
 /// Renders a completed Deep Solve's report as the status banner text.
 ///
-/// Honest by construction: it always shows the actual score movement and run count,
-/// never just a pass/fail badge, and never claims `accepted` proves the geometry is
-/// right. The report is a
+/// Always shows the actual score movement and run count, never a bare pass/fail badge,
+/// and never claims `accepted` proves the geometry is right. The report is a
 /// [`VerifiedSolveReport`](pleochroma::geometry::meet_solver::VerifiedSolveReport).
 ///
-/// The concave tier count comes from `design`, the snapshot the run was dispatched on:
-/// a concave design is verified as its flat stone, and the text says so. A design
-/// without concave tiers reads exactly as before.
+/// The concave tier count comes from `design`, the snapshot the run was dispatched on.
+/// A concave design is verified as its flat stone, and the text says so.
 #[must_use]
 pub(in crate::gui::editor) fn format_deep_solve_report(
     report: &pleochroma::geometry::meet_solver::VerifiedSolveReport,
@@ -55,23 +46,22 @@ pub(in crate::gui::editor) fn format_deep_solve_report(
     )
 }
 
-/// Builds one [`DeepSolveTierRow`] per [`TierMastDelta`] -- the per-tier table
-/// behind Deep Solve's aggregate verdict,
-/// additional to (never replacing) [`format_deep_solve_report`]'s status-line
-/// summary and `super::super::deep_solve::format_tier_mast_deltas`'s own
-/// one-line suffix. `deltas` is expected to already be
-/// `super::super::deep_solve::tier_mast_deltas`'s output -- already filtered to
-/// only the tiers whose mast actually moved.
+/// Builds one [`DeepSolveTierRow`] per [`TierMastDelta`]: the per-tier table behind
+/// Deep Solve's aggregate verdict. It complements the status line of
+/// [`format_deep_solve_report`] and the one-line suffix of
+/// `super::super::deep_solve::format_tier_mast_deltas`.
 ///
-/// The number formatting and tier names are
+/// `deltas` must already be filtered to the tiers whose mast moved
+/// (`super::super::deep_solve::tier_mast_deltas`).
+///
+/// Number formatting and tier names come from
 /// [`pleochroma_editor::deep_solve::deep_solve_row_texts`] (shared with the web page);
 /// this only maps them to the Slint struct.
 ///
 /// # Call site
-/// `callbacks::solve_actions::setup_deep_solve_callback` calls this at its own
-/// `DeepSolveOutcome::Completed` arm (see that function's doc comment) and pushes
-/// the result to `EditorModel.deep_solve_tier_rows`, rendered by the Log popup's
-/// per-tier table.
+/// `callbacks::solve_actions::setup_deep_solve_callback` calls this in its
+/// `DeepSolveOutcome::Completed` arm and pushes the result to
+/// `EditorModel.deep_solve_tier_rows`, shown in the Log popup's per-tier table.
 #[must_use]
 pub(in crate::gui::editor) fn deep_solve_tier_rows(
     deltas: &[TierMastDelta],
@@ -89,8 +79,8 @@ pub(in crate::gui::editor) fn deep_solve_tier_rows(
         .collect()
 }
 
-/// [`pleochroma_editor::optimize_view::optimize_change_rows`], mapped to the
-/// Optimize tab's "Tiers this would change" Slint rows.
+/// [`pleochroma_editor::optimize_view::optimize_change_rows`], mapped to the Optimize
+/// tab's change list.
 ///
 /// # Call site
 /// `callbacks::solve_actions::handle_optimize_outcome` calls this alongside
@@ -114,12 +104,11 @@ pub(in crate::gui::editor) fn optimize_change_rows(
 }
 
 /// Whether Optimize is available for `state`'s current design, and the hint shown
-/// next to its button either way -- see
-/// [`pleochroma_editor::optimize_view::optimize_hint`]. `max_evaluations` is the
-/// CONFIGURED budget (`super::panel_stale::configured_optimize_max_evaluations`).
+/// next to its button either way. See [`pleochroma_editor::optimize_view::optimize_hint`].
+/// `max_evaluations` is the configured budget
+/// (`super::panel_stale::configured_optimize_max_evaluations`).
 ///
-/// `pub(super)`, not private: `panel_stale.rs` (a sibling file) calls this from
-/// its own availability push.
+/// `pub(super)`: `panel_stale.rs` calls this from its availability push.
 pub(super) fn optimize_hint(state: &EditorState, max_evaluations: usize) -> (bool, String) {
     pleochroma_editor::optimize_view::optimize_hint(&state.design, max_evaluations)
 }
@@ -128,7 +117,7 @@ pub(super) fn optimize_hint(state: &EditorState, max_evaluations: usize) -> (boo
 mod tests {
     use super::*;
     use pleochroma::geometry::meet_solver::MeetConstraint;
-    use pleochroma_cut_core::ConstraintTier;
+    use pleochroma_cut_core::{ConstraintTier, design::ConcaveTier};
 
     fn some_proportions() -> pleochroma::geometry::stone_metrics::ExternalProportions {
         pleochroma::geometry::stone_metrics::ExternalProportions {
@@ -154,8 +143,8 @@ mod tests {
 
     #[test]
     fn deep_solve_hint_is_unavailable_for_a_fresh_design_with_no_printed_proportions() {
-        // A brand-new design has `printed_proportions: None` -- nothing to verify
-        // against, so this must read as unavailable, not "nothing to repair yet".
+        // No printed proportions: nothing to verify against, so unavailable, not
+        // "nothing to repair yet".
         let state = EditorState::fresh();
         let (available, hint) = deep_solve_hint(&state);
         assert!(!available);
@@ -164,10 +153,8 @@ mod tests {
 
     #[test]
     fn deep_solve_hint_is_unavailable_when_every_tier_is_pinned_with_nothing_to_repair() {
-        // Printed proportions exist, but every tier is pinned to a `ScaleReference`
-        // -- correct and expected for an untouched import, but a run cannot change
-        // the verdict either way, so the button must be DISABLED, with an
-        // explanatory hint rather than reading as broken or missing.
+        // Every tier pinned to a `ScaleReference`: a run cannot change the verdict, so
+        // the button is disabled, with a hint that says why.
         let mut state = EditorState::fresh();
         state.printed_proportions = Some(some_proportions());
         state.design.tiers.push(scale_reference_tier(0.5));
@@ -181,9 +168,8 @@ mod tests {
 
     #[test]
     fn deep_solve_hint_is_available_with_the_cost_caveat_when_a_tier_is_meet_derived() {
-        // At least one tier is not pinned to a recorded mast -- Deep Solve has
-        // something to search over, so the hint should be the cost/cancellability
-        // caveat, not "nothing to repair".
+        // A meet-derived tier gives Deep Solve something to search: the hint is the
+        // cost and cancellability caveat.
         let mut state = EditorState::fresh();
         state.printed_proportions = Some(some_proportions());
         state.design.tiers.push(scale_reference_tier(0.5));
@@ -214,10 +200,10 @@ mod tests {
 
     #[test]
     fn deep_solve_hint_is_available_for_a_concave_design_and_says_flat_stone() {
-        // Deep Solve verifies the flat stone against the printed figures; the
-        // concave tools are not part of them, so a concave design is no longer refused.
+        // Deep Solve verifies the flat stone against the printed figures; concave
+        // tools are not part of that check.
         let state = concave_state_with_a_meet_tier();
-        assert!(!state.design.concave_tiers.is_empty());
+        assert_ne!(state.design.concave_tiers, [] as [ConcaveTier; 0]);
         let (available, hint) = deep_solve_hint(&state);
         assert!(available, "{hint}");
         assert!(hint.contains("flat stone"), "{hint}");
@@ -312,9 +298,8 @@ mod tests {
 
     #[test]
     fn deep_solve_tier_rows_names_an_out_of_range_tier_blank_rather_than_panicking() {
-        // A design edited between Deep Solve's dispatch and its completion can
-        // shrink the tier list out from under a stale delta -- this must degrade
-        // gracefully, not panic or fabricate a name.
+        // The tier list can shrink between Deep Solve's dispatch and its completion;
+        // a stale delta must yield a blank name, not a panic or an invented one.
         let design = design_with_named_tiers(&["G1"]);
         let deltas = [TierMastDelta {
             tier_index: 5,

@@ -12,23 +12,21 @@
 //!   (the facet planes alone) are measured. If they close, the design is stored as
 //!   `DesignFile` along with its convex hull vertices; if not, it relies on its preform
 //!   to close and is stored as `Unbounded` with no extents or hull.
-//! - A design's concave tiers (curved-tool cuts) only ever remove material from the facet
-//!   stone, so the carved stone's outline is never larger than the flat one. A design WITH
-//!   tools is measured from its CARVED mesh (`build_solid_mesh_geom(..)`): `volume` is the
-//!   carved volume, and the vertices of the carved mesh are reduced to their convex hull
-//!   (`shape::hull::design_outline`, the rough planner's own incremental hull), which gives
-//!   the stored hull corners and the caliper extents (width, length, height). A tool that
-//!   removes a vertex setting the outline therefore lets the planner place the stone
-//!   tighter; a groove or dimple inside the outline changes nothing. Only the reduced hull
-//!   corners are stored, never the raw mesh vertices, so the fit stage stays as fast as for
-//!   a planar design. A design WITHOUT tools is measured from the flat facet planes exactly
-//!   as before, bit for bit. The tools are resolved against the facet stone
-//!   (`Design::facet_geometry_from_solved`), so the preform never moves them. Tools that
-//!   remove the whole stone leave nothing to measure: the design counts as unmeasurable,
-//!   like one that does not close. A design
-//!   whose concave tiers cannot be resolved is not measured at all (see
-//!   [`Loaded::ConcaveUnresolved`]): planning it as a flat stone would overstate its
-//!   yield and carat.
+//! - A design with concave tiers (curved-tool cuts) is measured from its CARVED mesh
+//!   (`build_solid_mesh_geom(..)`): `volume` is the carved volume, and the carved mesh's
+//!   vertices are reduced to their convex hull (`shape::hull::design_outline`), which gives
+//!   the stored hull corners and the caliper extents. The tools only remove material, so
+//!   the carved outline is never larger than the flat one: a tool that removes an outline
+//!   vertex lets the planner place the stone tighter, while a groove inside the outline
+//!   changes nothing. Only the hull corners are stored, never the raw mesh vertices, so the
+//!   fit stage is as fast as for a planar design. The tools are resolved against the facet
+//!   stone (`Design::facet_geometry_from_solved`), so the preform never moves them. Tools
+//!   that remove the whole stone leave nothing to measure, like a design that does not
+//!   close. A design without tools is measured from the flat facet planes alone, bit for
+//!   bit as `measure_solid_with_vertices` gives them.
+//! - A design whose concave tiers cannot be resolved is not measured at all (see
+//!   [`Loaded::ConcaveUnresolved`]): planning it as a flat stone would overstate its yield
+//!   and carat.
 //! - The angle-table fallback's planes are synthetic, so they are measured as they are
 //!   and stored as `AngleTable` with no hull; the planner excludes them. (The angle table
 //!   has no concave rows.)
@@ -348,8 +346,7 @@ pub(super) fn merge_measured(
 /// An id needs a scan when it has no extents row, or when it is a design-file row with
 /// usable extents but no cached hull. Unbounded and angle-table rows never get a hull,
 /// so a missing hull there is not a reason to measure again. The scan is "outlines
-/// only" when every id to measure already has its extents (the first run after the
-/// hull cache was introduced).
+/// only" when every id to measure already has its extents.
 pub(super) fn ids_needing_scan(
     ids: &[i64],
     extents: &BTreeMap<i64, StoredSolidExtents>,

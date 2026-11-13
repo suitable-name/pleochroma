@@ -483,7 +483,7 @@ fn op_and_piece_caps_hold() {
         let pieces = piece_count(grid.cells);
         let ops = shaped_op_estimate(grid.cells);
 
-        // The documented resolution: a 20 mm cube starts at 20 cells per
+        // The resolution: a 20 mm cube starts at 20 cells per
         // axis, and the 5 % shrink steps 20, 19, 18, 17, 16 stop at 16 because
         // 136^3 = 2,515,456 entries fit the cap while 153^3 = 3,581,577 (17 cells)
         // do not.

@@ -1,9 +1,9 @@
 // The Stone tab: the design's material, refractive index, body color, stone width and the
 // four material effects (inclusion haze, frosted girdle, edge rounding, crystal axis).
 //
-// The tab fills its parent (the sheet or side pane of the Design page) and holds its own
-// sub-pages, so no overlay is needed: 0 the settings, 1 the material picker (with a
-// search field), 2 the body-color picker, 3 the custom-material form. Rust owns the page
+// The tab fills its parent (the sheet or side pane of the Design page) and switches its
+// own sub-pages: 0 the settings, 1 the material picker (with a search field), 2 the
+// body-color picker, 3 the custom-material form. Rust owns the page
 // (`PropsModel.stone-page`, changed through `PropsModel.open-page`).
 //
 // Every value is a design edit and can be undone; the sliders apply when released.

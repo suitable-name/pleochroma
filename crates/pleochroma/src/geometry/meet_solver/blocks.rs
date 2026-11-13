@@ -1,4 +1,6 @@
-//! Tier/block classification: which of crown, pavilion or girdle each tier
+//! Tier/block classification of the meet solver.
+//!
+//! It decides which of crown, pavilion or girdle each tier
 //! belongs to, plus the crown/pavilion side convention ([`tier_sides`]) shared
 //! with the normal-vector construction in `candidates`.
 
@@ -27,12 +29,9 @@ pub fn classify_blocks(tiers: &[MeetTierInput]) -> Vec<Block> {
         .map(|(t, &crown)| {
             let theta = t.angle_deg.abs().to_radians();
             let y = if crown { theta.cos() } else { -theta.cos() };
-            // Purpose: classify an exact `f64` schedule angle (a 90 degree tier
-            // gives `|cos| ~ 6e-17`), so the threshold only has to absorb libm noise.
-            // Deliberately tighter than `girdle::GIRDLE_NORMAL_Y_EPSILON` (1e-3, for
-            // `f32` plane normals carrying normalize noise) and looser in kind than
-            // the 85 degree girdle-tier pick in `names` (a naming heuristic, not a
-            // geometric test).
+            // An exact `f64` 90 degree tier gives `|cos| ~ 6e-17`, so the threshold only
+            // absorbs libm noise. It is tighter than `girdle::GIRDLE_NORMAL_Y_EPSILON`,
+            // which covers the noisier `f32` plane normals.
             if y.abs() <= 1e-6 {
                 Block::Girdle
             } else if y > 0.0 {

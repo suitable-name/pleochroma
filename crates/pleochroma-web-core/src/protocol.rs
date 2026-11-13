@@ -19,8 +19,7 @@
 //!
 //! [`ToWorker::HdrMap`] and [`ToWorker::SetScene`] (or [`ToWorker::SetGeometryScene`], the
 //! same scene with concave tools; build either with [`ToWorker::scene`]) are cached by the
-//! Worker;
-//! [`ToWorker::TraceChunk`] traces against the cached scene and answers
+//! Worker. [`ToWorker::TraceChunk`] traces against the cached scene and answers
 //! [`FromWorker::ChunkResult`], or [`FromWorker::ChunkDropped`] when the Worker has no
 //! scene with that id (so the host never waits for a chunk that will not come). The
 //! host drops results whose `scene_id` is not current.
@@ -51,9 +50,9 @@
 //! `scored_under` says which it was. The tilt sweep and the searches are scored under the
 //! preset, as on the desktop.
 //!
-//! A Worker cannot read a message while it computes, so [`ToWorker::Cancel`] only stops
-//! jobs still queued behind the running one (and is what a build that can deliver
-//! messages mid-job would poll; see [`crate::worker::WorkerHandler`]). A running search
+//! A Worker cannot read a message while it computes, so [`ToWorker::Cancel`] stops the jobs
+//! still queued behind the running one and raises a mark that the running job polls when
+//! its cancel URL cannot be probed (see [`crate::worker::WorkerHandler`]). A running search
 //! is cancelled cooperatively through [`ToWorker::WatchCancel`]'s URL, which the Worker
 //! polls between tier decisions and which answers with the best partial result; the
 //! host terminates the Worker only when that does not answer in time. A browser that
@@ -69,156 +68,14 @@ use crate::{
     solve::{SolveRequest, SolveResponse},
 };
 
-/// Bumped whenever a message's encoding changes; checked on [`ToWorker::Init`].
+/// Version of the message encoding, checked on [`ToWorker::Init`].
 ///
-/// 2: custom materials travel as `GemMaterial`s; `Picture` / `PictureFailed` added.
-/// 3: `SolveRequest::{Optimize, Retarget}` and their `SolveResponse` payloads;
-/// `Progress` streams a running search's stage line.
-/// 4: `ToWorker::WatchCancel`, the cooperative-cancel probe of a running search.
-/// 5: `SolveRequest::{Metrics, Tilt}` and their `SolveResponse` payloads; `Progress`
-/// streams a running tilt sweep's stage line.
-/// 6: `FromWorker::ChunkAborted`; `WatchCancel` also names a render chunk's abort URL.
-/// 7: `OptimizeParams::lighting_preset_index`, the preset the optimizer scores under.
-/// 8: the solve role accepts `HdrMap` / `ClearHdr`; `MetricsParams::hdr_id` names the map
-/// the current-view metrics are scored under and `MetricsResultData::scored_under` says
-/// what they were scored under.
-/// 9: `CustomMaterialSpec::color_recipe`, the physics color recipe a custom material
-/// may carry (rendered from its stored resolved bands).
-/// 10: `RetargetParams::crown_follows_pavilion`, the crown policy that keeps the stone's
-/// silhouette (postcard has no field defaults, so the new field is a wire change).
-/// 11: `LightingSpec::head_shadow_deg` appended (the viewer's head-shadow radius), and
-/// the lighting combo reordered (`LightingPreset::index` now lists the lit presets first),
-/// so the preset index means something else than under 10.
-/// 12: the seven-band body colour of the path-aware L*C*h editor: `MaterialSelectionData` and
-/// `DesignMaterialOverrides` gain `body_color_bands` and `absorption_path_scale_override`,
-/// `CustomMaterialSpec` gains `absorption_bands` (postcard has no field defaults, so each is a
-/// wire change; an empty list and `None` are one byte each), and the solve role accepts
-/// `SolveRequest::BodyColor` (answered by `SolveResponse::BodyColor`), the editor's colour solve.
-/// 13: lighting wave. Six presets appended (`LightingPreset::{DaylightSun, Aset, ShopLights,
-/// WindowDaylight, WhiteTray, IlluminantA}`) and the lighting combo reordered, so
-/// `LightingPreset::index` (carried by `LightingSpec`) means something else than under 12.
-///
-/// 14: multi-start optimizer. `OptimizeParams::starts` appended (a `u32` varint, one byte
-/// for the web's 1; postcard has no field defaults, so it is a wire change).
-///
-/// 15: absorption units. `pleochroma::optics::materials::GemMaterial` (carried by
-/// `MaterialSpec::custom_materials`) gained `absorption_unit` (`AbsorptionUnit`, enum index
-/// 0 `ModelUnit` / 1 `PerMm`, one byte, after `absorption_path_scale`): the same stone size
-/// now scales per-model-unit and per-millimetre absorption differently, and inclusion
-/// scattering no longer scales with the size, so a Worker on 14 would render those scenes
-/// with the old rule.
-///
-/// 16: `CustomMaterialSpec` carries the crystal system, optical character and biaxial delta
-/// (`crystal_system` and `optical_character` as strings, `biaxial_delta_beta_alpha` as an
-/// `Option<f64>`, appended after `absorption_bands`; postcard has no field defaults, so it is
-/// a wire change): a biaxial custom material restored from a design file keeps its optics.
-///
-/// 17: `LightingSpec::surface_glare` appended (an `f32`, `00 00 80 3F` for the default 1.0;
-/// postcard has no field defaults, so it is a wire change): the cross-polarised scale of the
-/// first surface reflection that the render settings' "Surface Glare" slider dials in. The
-/// export color-space index also gained 2 = Rec.2020 (`PictureKind::Png::color_space`, no new
-/// bytes, but a Worker on 16 would write that export as sRGB).
-///
-/// 18: Web GPU rendering support: `WorkerRole::Gpu`, `ToWorker::GpuCompile`,
-/// `ToWorker::TraceFullPass`, `FromWorker::GpuAdapter`, `FromWorker::GpuUnavailable`,
-/// `FromWorker::GpuCompiled`, `FromWorker::GpuCompileFailed`, `FromWorker::FullPassResult`,
-/// and `FromWorker::GpuLost`.
-///
-/// 19: meet-preserving retarget. `RetargetResultData` gains `anchors` (the checked masts,
-/// `Vec<AnchorChangeData>`) and `validity_headline` (a `String`), because a Shift retarget of a
-/// design with pinned meets now runs the Worker-side check and the page applies the angles
-/// together with the masts; and `OptimizationProvenance::diagnostics` is no longer serialised
-/// (`#[serde(skip)]`), which shortens every `OptimizeResultData` that carries a provenance.
-/// Postcard has no field defaults, so both are wire changes.
-///
-/// 20: concave stones in the browser. `ToWorker::SetGeometryScene` (a scene with its cutting
-/// tools, appended last) and `SolveRequest::{MetricsWithTools, TiltWithTools}` (the analysis
-/// Worker's metrics and tilt jobs scored with the tools, appended last). All three are new
-/// variants, so no existing message's bytes moved: a planar stone still sends `SetScene`,
-/// `Metrics` and `Tilt` exactly as under 19 (see `ToWorker::scene`, `SolveRequest::metrics`,
-/// `SolveRequest::tilt`). The bump makes a stale cached worker script fail the `Init`
-/// handshake instead of failing to decode a new message.
-///
-/// 21: frosted tilt curves. `TiltParams` gains `finishes` (a `FinishSpec`, appended last; one
-/// byte for `AllPolished`, postcard has no field defaults, so it is a wire change for `Tilt`
-/// and `TiltWithTools`): the tilt sweep scores the stone with its frosted facets, as the
-/// desktop's Tilt Performance dialog does (owner decision 2026-10-19; a frosted facet scatters
-/// light, so a frosted design's curves are not its polished ones). A Worker on 20 would sweep
-/// every stone polished.
-///
-/// 22: turn-aware Retarget bounds. `pleochroma_cut_core::meet_preservation::PreservationPolicy`
-/// (inside `OptimizationProvenance::policy`, carried by `OptimizeResultData::provenance`)
-/// gained `bounds_follow_turn` (a `bool`, one byte, declared last; postcard has no field
-/// defaults, so every provenance on the wire is one byte longer), and the policy's meaning
-/// changed with it: a Retarget's depth, girdle and junction bounds now grow by the travel the
-/// REQUESTED facet turn implies (owner decisions 2026-10-19), and a provenance is re-validated
-/// under its policy on Apply. A Worker on 21 would misalign the provenance and refuse a valid
-/// turn as a shape limit.
-///
-/// A change to any message's bytes must bump this and update the pinned bytes in this
-/// module's `wire_format_is_pinned_to_worker` and `wire_format_is_pinned_from_worker` tests.
-/// 23: `SetEngine` appends renderer selection beside the unchanged scene payload.
-///
-/// 24: the backdrop is a lit tray. No shape change (`LightingSpec::backdrop_index` is still an
-/// `i32`, now 0 as lit, 1 grey, 2 white, 3 black), but the meaning moved: the backdrop is a
-/// matte surface of that albedo under the stone, lit by the preset at the light pose and seen by
-/// every ray that escapes the stone, not a card only the camera ray sees. A Worker on 23 would
-/// render dark windows beside a white surround and merge nothing consistent with the page's
-/// other peers. The net protocol's `SceneState::backdrop` moved with it (net 29).
-///
-/// 25: the full crystal frame. `scene::MaterialOverridesSpec` gains `c_axis_second` (an
-/// `Option<[f32; 3]>`, appended last; postcard has no field defaults, so it is one byte longer
-/// on every scene that carries overrides): the second crystal-axis direction of a biaxial
-/// stone, applied as `render_setup::MaterialOverrides::alpha_axis_override`. A Worker on 24
-/// would misalign the overrides that follow it and render every biaxial stone with the
-/// arbitrary second direction.
-///
-/// 26: `solve::MetricsResultData` gains `doubling_arcmin` (an `f32`, appended last, after
-/// `scored_under`; four bytes longer on every metrics result): the Doubling figure of a
-/// birefringent stone. A Worker on 25 would end the result four bytes early and refuse it.
-///
-/// 27: render physics (Render Physics campaign, 2026-10-22), one bump for four features.
-/// `pleochroma::optics::materials::GemMaterial` (carried by `MaterialSpec::custom_materials`)
-/// gained `biaxial_principal_dispersion` (an `Option<[DispersionModel; 2]>`, one `Option` tag
-/// byte when unset, declared after `uniaxial_extraordinary_dispersion`), and `ToWorker::SetEffects`
-/// was appended as the last variant (`scene::EffectsSpec`: the design's inclusion and
-/// play-of-color choices, packed facet surface words, the sender's faceting machine and the
-/// abraded edge, beside the unchanged scene payload like `SetEngine`). A Worker on 26 would
-/// misalign every custom material and refuse the new message.
-///
-/// 28: per-stone patterns. `DesignMaterialOverrides` and `MaterialSelectionData`
-/// append `color_pattern_override` (one Option tag even when unset). Patterns travel
-/// as positional serde data and are validated before a Worker accepts them. A v27
-/// Worker would stop the material record one field early.
-///
-/// 29: `MaterialSpec::custom_material_inclusions` appended (a
-/// `Vec<Option<MaterialInclusionsSpec>>`, one length byte when empty; postcard has no field
-/// defaults, so it is a wire change): a custom material's own silk families and play-of-color
-/// structure reach the Workers, which `GemMaterial`'s `serde(skip)` field dropped. A Worker on 28
-/// would end the material record one byte early and refuse every scene.
-///
-/// 30: `MetricsParams.finishes` (a `FinishSpec`, appended last, after `hdr_id`; one byte for
-/// `AllPolished`, postcard has no field defaults, so it is a wire change for `Metrics` and
-/// `MetricsWithTools`): the current-view metrics score the stone with its frosted facets, as
-/// the desktop's live Checks numbers do. A Worker on 29 would end the request one byte early
-/// and refuse it. `SolveRequest::DeepSolve` / `SolveResponse::DeepSolved` appended (the browser's
-/// Deep Solve; new variants, so no existing message's bytes moved for them; the lane that added
-/// them pins them in its own tests).
-///
-/// 31: color variants (Color Variants campaign, 2026-10-27). `DesignMaterialOverrides` and
-/// `MaterialSelectionData` append `color_variant` (an `Option<pleochroma_cut_core::material::
-/// VariantChoice>`: the key, the label, the whole per-axis absorption tensor, its unit and the
-/// reference path; one `Option` tag byte even when unset, appended after the pattern; postcard
-/// has no field defaults, so it is a wire change for every scene that carries overrides and for
-/// every Retarget request). A Worker on 30 would end the material record one byte early and
-/// refuse every linked scene. The same version also appends `absorption_ray_bands` to
-/// `scene::CustomMaterialSpec` (an `Option<scene::RayBandsSpec>`: the per-ray body-color rows of
-/// the custom material's snapshot, an `o`, an `e` and an optional `beta` list of `[f64; 3]` rows;
-/// one `Option` tag byte even when unset, appended last; a local mirror of the file's
-/// `RayBandsTable`, whose `skip_serializing_if` on `beta` postcard cannot decode). A Worker on 30
-/// would end every custom material one byte early, and without the rows a per-ray custom material
-/// would render isotropic.
-pub const PROTOCOL_VERSION: u32 = 31;
+/// Postcard has no field defaults, so any change to a message's bytes is a wire change and
+/// must bump this. A Worker on another version answers `Init` with an error, which keeps a
+/// stale cached Worker script from decoding a newer message. The pinned-bytes tests
+/// `wire_format_is_pinned_to_worker` and `wire_format_is_pinned_from_worker` must be updated
+/// with each bump.
+pub const PROTOCOL_VERSION: u32 = 32;
 
 /// What [`ToWorker::Picture`] makes of a sum (see `crate::display`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -355,10 +212,9 @@ pub enum ToWorker {
     },
     /// [`Self::SetScene`] for a concave stone: the scene is `spec`'s planes minus `tools`.
     ///
-    /// Sent instead of `SetScene` only when there are tools, so a planar scene's bytes are
-    /// what they were before concave stones reached the browser's Render tab (build one with
-    /// [`Self::scene`]). Appended as the last variant, which leaves every other message's
-    /// bytes unchanged. A render Worker builds it with
+    /// Sent instead of `SetScene` only when there are tools (build one with [`Self::scene`]).
+    /// Appended as the last variant, so the bytes of every other message are unchanged. A
+    /// render Worker builds it with
     /// [`GeometrySceneSpec::build`](crate::scene::GeometrySceneSpec::build), which refuses
     /// an invalid tool or more than `MAX_TOOL_PRIMITIVES`; the GPU Worker additionally
     /// declines more than `GPU_MAX_TOOL_PRIMITIVES` for itself.
@@ -378,9 +234,8 @@ pub enum ToWorker {
         engine: pleochroma::renderer::engine::EngineSpec,
     },
     /// Applies the design's render physics (inclusions, play-of-color, surface finish) to the
-    /// cached scene without changing `SceneSpec`'s bytes (v27). Sent after the scene, and only
-    /// when a design sets something (`EffectsSpec::is_none` is false), so an untouched design's
-    /// messages are what they were. Render Workers only.
+    /// cached scene without changing `SceneSpec`'s bytes. Sent after the scene, and only when
+    /// the design sets something (`EffectsSpec::is_none` is false). Render Workers only.
     SetEffects {
         /// The scene the record belongs to.
         scene_id: u64,

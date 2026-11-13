@@ -52,11 +52,6 @@ fn ri_override_for_material_pick_does_nothing_for_a_non_built_in_name() {
     );
 }
 
-// `next_free_block_name` and its tests moved to `pleochroma_editor::loading::naming`.
-
-// `unique_duplicate_name` / `split_duplicate_suffix` and their tests moved to
-// `pleochroma_editor::loading::naming`.
-
 // --- parse_printed_proportions_form/_field  ---
 
 #[test]
@@ -203,8 +198,7 @@ const fn shows_zero_tier_hint(enabled: bool, has_design: bool, tier_count: usize
     enabled && has_design && tier_count == 0
 }
 
-/// The "New Design never shows a design" bug: template 0 ("Empty") yields a
-/// zero-tier design, which must still count as a design.
+/// Template 0 ("Empty") yields a zero-tier design, which still counts as a design.
 #[test]
 fn creating_from_the_empty_template_marks_the_design_as_present() {
     let mut st = EditorState::fresh();

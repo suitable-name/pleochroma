@@ -120,9 +120,8 @@ pub(super) fn bound_correction(
 /// Computes a damped-QR step in the subspace allowed by active bounds.
 ///
 /// Zeroes Jacobian columns whose step components point outside an active boundary
-/// (room <= 1e-12), re-solving
-/// the coupled least-squares system on the remaining free variables, and then scaling
-/// the resulting feasible direction to the trust-region box.
+/// (room <= 1e-12), re-solves the coupled least-squares system on the remaining free
+/// variables, then scales the resulting feasible direction to the trust-region box.
 ///
 /// Returns `Ok(step)` on success, `Err(false)` for an invalid correction, and
 /// `Err(true)` when no feasible direction remains.
@@ -224,11 +223,10 @@ pub(super) fn difference_step(value: f64, nominal: f64, bounds: (f64, f64)) -> O
     .then_some(delta)
 }
 
-/// Ordered dyadic backtracking.
+/// Ordered dyadic backtracking factors (1, 1/2, 1/4, ...), tried in blocks of four.
 ///
-/// Additional small fractions are used only after
-/// the existing four candidates fail; bounded work and represented-state checks
-/// prevent an endless search below production-plane/f64 resolution.
+/// The bounded count and the represented-state checks keep the search from going below
+/// production-plane/f64 resolution.
 pub(super) const BACKTRACK_STEPS: usize = 24;
 
 pub(super) fn backtrack_factor(index: usize) -> f64 {

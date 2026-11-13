@@ -330,7 +330,7 @@ fn a_sapphire_custom_color_is_a_pleochroic_tensor_the_host_accepts() {
         editor.choice().is_none(),
         "no stored color before the rows are solved"
     );
-    // The sliders move the Across row: the editor is touched, and its answer is for the new target.
+    // The sliders move the Across row, so an answer for its old target is refused.
     editor.select(1);
     assert_eq!(editor.active(), 1);
     let stale = solve_lch(editor.active_lch(), 5.0, &AtomicBool::new(false)).expect("solves");

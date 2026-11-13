@@ -1,10 +1,10 @@
-//! The design detail panel: building its model from a design (local or remote),
-//! editing metadata, exporting attachments, and reconstructing the 3D viewport's
-//! planes -- split into [`local_load`]/[`remote_load`] (the two model-build
-//! sources), [`planes`] (their shared plane/material reconstruction), [`shared`]
-//! (formatting and angle-classification helpers used by both), `load_worker` (the
-//! bounded thread the local loads run on), [`metadata`]
-//! (the metadata editor callback) and [`attachments`] (attachment export).
+//! The design detail panel: builds the detail model for a local or remote design, edits
+//! metadata, exports attachments and reconstructs the 3D viewport's planes.
+//!
+//! [`local_load`] and [`remote_load`] build the model from each source. [`planes`] holds
+//! the plane and material reconstruction both share, [`shared`] the formatting and angle
+//! helpers, and `load_worker` the bounded thread the local loads run on. [`metadata`] and
+//! [`attachments`] hold the edit and export callbacks.
 
 mod attachments;
 mod load_worker;
@@ -34,22 +34,16 @@ use crate::{
 use pleochroma_vault::db::sqlite::Database;
 use std::sync::{Arc, Mutex};
 
-/// Dispatches to [`local_load::load_diagram_detail`] (the LOCAL database lookup,
-/// unchanged -- see this crate's requirement that local behaviour stay
-/// byte-for-byte identical) or [`remote_load::load_diagram_detail_remote`],
-/// depending on which library is currently active.
-/// Every call site calls this rather than the local loader directly,
-/// so `entry_id` is always interpreted against the SAME library it was listed
-/// from (a remote entry id and a local row id occupy independent id spaces -- see
-/// `bridge::library_mirror`'s module doc comment on identity -- so this dispatch is
-/// what keeps a remote-listed id from ever being looked up against the local database
-/// by mistake).
+/// Loads a design's detail from the active library: the local database
+/// ([`local_load::load_diagram_detail`]) or the remote server
+/// ([`remote_load::load_diagram_detail_remote`]).
 ///
-/// `preview_state` is only used by the REMOTE branch -- see
-/// [`remote_load::load_diagram_detail_remote`]'s own doc comment for why: the local
-/// branch hands its load to the bounded `load_worker` thread and redraws the Live Render
-/// tab's solid itself once its planes land, so the call site only resubmits what was
-/// already active (`gui::library::diagram_list::setup_diagram_selection_and_export_callbacks`).
+/// Call sites use this rather than either loader. A remote entry id and a local row id are
+/// independent id spaces (see `bridge::library::mirror`'s module doc on identity), so this
+/// keeps a remote id from being looked up in the local database.
+///
+/// `preview_state` is only used by the remote branch. The local branch hands its load to
+/// the `load_worker` thread and redraws the Live Render solid once its planes land.
 pub fn load_diagram_detail_via_source(
     ui: &MainWindow,
     db_mutex: &Arc<Mutex<Database>>,

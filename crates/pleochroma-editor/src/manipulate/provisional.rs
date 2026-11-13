@@ -1,6 +1,5 @@
-//! The Slice tool's PROVISIONAL tier: a line dragged across the stone becomes a facet
-//! that is tweaked with the same three handles, then kept (one `Edit::AddTier`) or
-//! discarded.
+//! The Slice tool's provisional tier: a facet from a line dragged across the stone, tweaked
+//! with the same three handles, then kept as one `Edit::AddTier` or discarded.
 //!
 //! [`ProvisionalSlice`] owns a clone of the committed design with the new tier appended
 //! at `len()`; it never touches the editor's session or undo history. The UI renders it
@@ -8,8 +7,8 @@
 //! cache that describes the committed design. While it exists the committed design must
 //! not change underneath it: [`session_outlives`] compares generations.
 //!
-//! Everything here is GUI-free. The web app runs it as is; the desktop's own copy in
-//! `apps/pleochroma-cut/src/gui/editor/manipulate/slice.rs` follows the same rules.
+//! Everything here is GUI-free: the web app runs it as is. The desktop has its own copy in
+//! `apps/pleochroma-cut/src/gui/editor/manipulate/slice/provisional.rs`, with the same rules.
 
 use super::{
     gesture::{AppliedEdit, GestureInputs, Step, tier_label},

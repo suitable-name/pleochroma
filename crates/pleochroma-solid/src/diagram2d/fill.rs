@@ -176,14 +176,15 @@ pub fn fill_polygon(
     }
 }
 
-/// Draws one edge segment `width` pixels wide (`1` for an ordinary facet
-/// boundary, `2` for a `selected`/`pending` highlight -- see `super::render::
-/// draw_panel_edges`), depth-tested against the fill pass -- see
-/// `raster::SolidRasterizer::draw_edge`'s doc comment for [`EDGE_DEPTH_BIAS`]'s
-/// purpose, reused here at the same value.
+/// Depth slack, in the fill pass's depth units, that an edge or marker pixel may sit behind
+/// the surface and still paint. Same value as `raster::SolidRasterizer::draw_edge`.
+///
 const EDGE_DEPTH_BIAS: f32 = 5e-2;
 
 /// Draws one depth-tested edge line into the diagram frame.
+///
+/// `width` is `1` for a facet boundary and `2` for the broadened `selected` and `pending`
+/// highlights (see `super::render::draw_panel_edges`).
 pub fn draw_edge(
     frame: &mut DiagramFrame,
     from: (f32, f32, f32),
@@ -256,18 +257,14 @@ fn try_paint_edge_pixel(
     }
 }
 
-/// Resolves [`DiagramStyle::meet_marker_pairs`] (facet-id pairs `Design::
-/// facet_meets`' tier-level resolution names) to actual world-space points: the
-/// vertex the two facets' mesh rings genuinely share, found by nearest-point
-/// matching rather than trusting index alignment -- `facet_meets` only says
-/// WHICH tiers meet, never where. A pair with no ring vertex closer than
-/// `tolerance` contributes nothing (a generously over-listed candidate pair,
-/// see `FacetMap::meeting_facet_pairs`'s own doc comment, not a real shared
-/// vertex).
+/// Resolves [`DiagramStyle::meet_marker_pairs`] to world-space points.
 ///
-/// `tolerance` should scale with the mesh's own size -- `render_diagram` uses
-/// a fraction of its bounding-box diagonal, mirroring `raster::simplify_ring`'s
-/// own scale-relative merge tolerance.
+/// Each facet-id pair (from `FacetMap::meeting_facet_pairs`) gives the vertex its two facets'
+/// mesh rings share, found by nearest-point matching, since the pairs say which tiers meet but
+/// not where. A pair with no ring vertex within `tolerance` contributes nothing.
+///
+/// `tolerance` should scale with the mesh's size: `render_diagram` uses a fraction of its
+/// bounding-box diagonal, as `raster::simplify_ring` scales its merge tolerance to the ring.
 pub fn meet_marker_points(mesh: &SolidMesh, pairs: &[(u32, u32)], tolerance: f64) -> Vec<DVec3> {
     if pairs.is_empty() {
         return Vec::new();

@@ -1,5 +1,4 @@
-//! The row/format, material-combo, proportions and proposed-angle helper tests that
-//! lived next to the desktop's `state` re-exports before the move.
+//! Tests for the row/format, material-combo, proportions and proposed-angle helpers.
 
 use crate::{
     material::{
@@ -97,10 +96,7 @@ fn external_proportions_note_is_empty_for_a_zero_width_solid() {
 
 #[test]
 fn external_proportions_note_appends_absolute_mm_when_a_scale_is_known() {
-    // Once a girdle diameter anchors a real scale, the
-    // banner should show absolute size alongside the dimensionless ratios --
-    // GemCad/GCS always show both, and the ratios alone still leave "how big
-    // is it really" unanswered.
+    // With a known scale the banner adds the absolute size to the dimensionless ratios.
     let m = metrics(2.0, 2.0, 1.2, None, None);
     let note = external_proportions_note(&m, Some(2.5));
     assert!(note.contains("5.00 x 3.00 mm"), "note was: {note}");
@@ -121,12 +117,9 @@ fn fixture_design() -> Design {
 
 #[test]
 fn girdle_and_ratio_texts_dashes_out_a_design_with_no_tiers() {
-    // A brand-new design (`Design::fresh`) has no tiers at all -- it still
-    // SOLVES (an empty mast list is a valid, closed, zero-plane solve), so
-    // only the explicit `tiers.is_empty()` guard, not a `Design::solve`
-    // failure, is what stops `stone_proportions` from measuring the bare
-    // preform block. Every one of the four figures must read "-", the same
-    // fallback `proportions_texts` uses, never a stale zero.
+    // A design with no tiers still solves (an empty mast list is closed), so only the explicit
+    // `tiers.is_empty()` guard stops `stone_proportions` measuring the bare preform. Every figure
+    // reads "-", as in `proportions_texts`.
     let design = fixture_design();
     assert_eq!(
         girdle_and_ratio_texts(&design),

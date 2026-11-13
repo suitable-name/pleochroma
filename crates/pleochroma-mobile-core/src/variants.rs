@@ -1,4 +1,5 @@
-//! Immutable variant captures and stale-safe atomic opening.
+//! Variant captures (an immutable copy of a design taken before any worker runs) and the
+//! stale-safe opening of a loaded variant.
 use crate::{app_state::AppState, design_state::DirtyScope, recipe_steps::Recipe};
 use pleochroma_cut_core::{
     Design,

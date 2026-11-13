@@ -105,7 +105,7 @@ export component VerdictBadge inherits Rectangle {
         mouse-cursor: pointer;
         clicked => {
             VerdictModel.open = !VerdictModel.open;
-            // The verdict lessons wait for the reasons to be opened (ignored when no lesson runs).
+            // Tells the guide the reasons were opened; ignored when no lesson runs.
             if VerdictModel.open {
                 GuideModel.event("verdict_opened");
             }
@@ -303,8 +303,8 @@ export component VerdictPopover inherits Rectangle {
         }
     }
 
-    // The close button, outside the Flickable: a tap inside the Flickable's content did not
-    // reach a TouchArea this small in the browser (the Show/Fix buttons there do work).
+    // Outside the Flickable: in the browser a tap on this small button does not register
+    // inside the Flickable's content.
     Rectangle {
         x: parent.width - 16px - self.width;
         y: 16px;

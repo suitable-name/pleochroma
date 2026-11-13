@@ -8,7 +8,8 @@ import { LibraryDetail } from "library_detail.slint";
 
 // The design library: search, filters and the list on the left, the selected design's detail
 // on the right (a window narrower than 760px shows one of the two). A full-window screen over
-// the editor, mounted by `app.slint` while `LibraryModel.open`; Escape closes it.
+// the editor, mounted by `app.slint` while `LibraryModel.open`. Escape closes it, or on a
+// narrow window first returns from the detail to the list.
 export component LibraryScreen inherits Rectangle {
     background: Theme.bg-darkest;
 

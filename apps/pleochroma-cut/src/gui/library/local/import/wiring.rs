@@ -25,22 +25,13 @@ use std::{
     thread,
 };
 
-/// Runs [`import_path`] on its own worker thread and marshals every UI update back
-/// through `upgrade_in_event_loop` -- the same idiom
-/// `bridge::export_thread::spawn_export` + `gui::render::render_export` use for a
-/// long-running operation with progress. `db`/`source` are cloned `Arc`s, cheap to
-/// move onto the thread.
+/// Runs [`import_path`] on its own worker thread and marshals UI updates back through
+/// `upgrade_in_event_loop`, as `bridge::export_thread::spawn_export` does.
 ///
-/// A `BusyGuard` local to this closure clears `is_busy` in its `Drop` impl,
-/// unconditionally, rather than only from the success closure below: that guarantees
-/// `is_busy` is cleared even if a panic somewhere in this thread skips past the normal
-/// completion path, so the UI can never get stuck busy forever. A `Drop` guard is used
-/// instead of `catch_unwind`-ing the whole closure or resetting on every return path
-/// because it can't be skipped by a `continue`/early `return`/panic added later --
-/// there is exactly one exit path. (`super::pipeline::catch_file_panic` inside
-/// `import_path` is a separate, complementary fix: it stops a bad file from reaching
-/// this point as a panic at all, so the batch keeps processing the rest of the files
-/// too.)
+/// A `BusyGuard` clears `is_busy` in its `Drop`, so the UI cannot stay busy if this thread
+/// panics. A `Drop` guard is used rather than a reset on each return path, so no later
+/// `continue`, early `return` or panic can skip it. `super::pipeline::catch_file_panic`
+/// inside `import_path` keeps a bad file from panicking this thread at all.
 fn spawn_import(
     ui_weak: Weak<MainWindow>,
     db: Arc<Mutex<Database>>,
@@ -84,32 +75,19 @@ fn spawn_import(
                 .set_import_result_text(message.clone().into());
             ui.global::<LibraryModel>()
                 .set_status_message(message.clone().into());
-            // Derived from the actual failure count, not from
-            // sniffing `message`'s text -- see `ImportOutcome::had_failures`'s own
-            // doc comment for why sniffing the text would misreport a partly-failed
-            // batch as a plain success.
+            // The toast kind comes from the failure count, not the message text (see
+            // `ImportOutcome::had_failures`).
             let toast_kind = if had_failures { "error" } else { "success" };
             show_toast(&ui, &message, toast_kind);
-            // Keep the import popup open on completion (instead
-            // of auto-closing into the toast, where a failure list becomes
-            // unreadable within 3.5s) whenever there is something worth reading --
-            // a failure list, a collision warning, or a `.gem`/`.gcs` converter
-            // note, all already in `message`/`import_result_text` above -- driving
-            // `import_dialog.slint`'s `changed importing` handler.
+            // Keeps the popup open while there is something to read: a failure list, a
+            // collision warning or a converter note. Auto-closing would turn that list
+            // into a toast that disappears. Drives `import_dialog.slint`'s `changed importing`.
             ui.global::<LibraryModel>()
                 .set_import_should_stay_open(had_failures || had_collision || had_notes);
-            // For more than one imported id, set
-            // `recent_import_filter` to exactly those ids BEFORE
-            // `refresh_after_library_change` runs, so the very refresh this import
-            // triggers already shows only the just-imported rows -- no separate
-            // "show these N" click needed, and no race against the async refresh
-            // that a later, separate mutation would have (see
-            // `gui::library::search::read_id_filter`'s own doc comment for how this
-            // property is cleared again the moment the cutter makes any real
-            // search/filter change). The single-id case is left alone: the full
-            // list stays visible and `invoke_select_diagram` below opens the one
-            // new row directly, which is more useful than narrowing the list to a
-            // single row.
+            // With more than one imported id, `recent_import_filter` is set to exactly those
+            // ids before `refresh_after_library_change`, so that refresh shows only the new
+            // rows. `gui::library::search::read_id_filter` drops the filter on the cutter's
+            // next real search or filter change. A single id is left to `invoke_select_diagram`.
             let imported_id_items: Vec<i32> = imported_ids
                 .iter()
                 .filter_map(|&id| i32::try_from(id).ok())
@@ -123,12 +101,9 @@ fn spawn_import(
                     .set_recent_import_filter(ModelRc::new(VecModel::from(Vec::<i32>::new())));
             }
             super::super::helpers::refresh_after_library_change(&ui, &db, &source);
-            // The common case (a single design file picked via "Choose file...")
-            // knows exactly which row it just created; without this, the cutter would
-            // have to scroll a possibly-large list looking for their own
-            // title. `invoke_select_diagram` re-runs the exact same path a click on
-            // the row itself takes (`setup_diagram_selection_and_export_callbacks`,
-            // `diagram_list.rs`), so the detail pane opens on it immediately.
+            // A single imported design opens at once, so the cutter need not find its row in
+            // a long list. `invoke_select_diagram` runs the same path as a click on the row
+            // (`setup_diagram_selection_and_export_callbacks` in `diagram_list.rs`).
             if let [only_id] = imported_ids.as_slice()
                 && let Ok(id) = i32::try_from(*only_id)
             {
@@ -138,43 +113,31 @@ fn spawn_import(
             if !imported_ids.is_empty() {
                 raise(&ui, events::LIBRARY_IMPORTED);
             }
-            // Asks whether to generate previews for what was just imported -- shares
-            // the same confirm-step dialog as the missing-previews library scan; see
-            // `preview::offer_batch_confirmation`'s doc comment. A no-op when nothing
-            // was actually imported.
+            // Offers preview generation for the new designs, with the same confirm dialog as
+            // the missing-previews scan. Does nothing when nothing was imported.
             crate::gui::batch::preview::offer_import_previews(&ui, &imported_ids);
         });
-        // `_busy_guard` drops here: on a normal return, right after the completion
-        // closure above is enqueued (not necessarily run yet), so the `is_busy` reset
-        // is queued right behind it; on an unwind, it drops during that unwind instead.
+        // `_busy_guard` drops at the end of this closure, queuing its `is_busy` reset behind
+        // the completion closure above.
     });
 }
 
 /// Wires up the "Import" popup's native pickers (`import_dialog.slint`'s "Choose
-/// file..."/"Choose folder..." buttons).
+/// file..." and "Choose folder..." buttons).
 ///
-/// Picking a target runs [`count_pending_collisions`] first: with no filename
-/// collision against the existing catalogue, [`begin_import`] starts immediately, off
-/// the UI thread (see [`spawn_import`]). When at
-/// least one candidate WOULD replace an existing row, [`confirm_collisions_then`]
-/// shows a synchronous native Yes/No dialog ("up-front confirmation before replacing")
-/// before anything is imported; declining leaves the
-/// catalogue untouched, same as cancelling the picker itself does. Cancelling the
-/// native picker does nothing at all: no import, no error, the popup stays open
-/// (`pick_file`/`pick_folder` return `None`, and both handlers just fall through).
-/// The folder picker also carries a `bool` -- whether to recurse into subfolders --
-/// from `import_dialog.slint`'s toggle at the moment the button was clicked.
+/// A pick first runs [`count_pending_collisions`]. With no filename collision,
+/// [`begin_import`] starts at once, off the UI thread (see [`spawn_import`]). Otherwise
+/// [`confirm_collisions_then`] asks a native Yes/No first, and declining leaves the
+/// catalogue untouched. Cancelling the picker does nothing and the popup stays open. The
+/// folder picker's `recurse` flag is the "Include subfolders" toggle, read when the button
+/// is clicked.
 ///
-/// Also kicks off [`spawn_save_folder_rescan`] --
-/// "once per session" falls out of this function itself only ever being called once,
-/// from `gui::build_main_window`, the same way `gui::batch::preview::setup_preview_batch_callbacks`'s
-/// own once-per-session missing-previews scan does.
+/// Also calls [`spawn_save_folder_rescan`]. It runs once per session because this
+/// function is only called once, from `gui::build_main_window`.
 ///
-/// Always writes to the LOCAL database regardless of which library is currently being
-/// browsed -- import is inherently a local-only operation, so it needs no `source`
-/// guard the way rename/delete do; `source` is only threaded through so
-/// `super::super::helpers::refresh_after_library_change` keeps showing whichever
-/// library was already on screen afterwards.
+/// Always writes to the local database, whichever library is being browsed. `source` is
+/// only passed to `super::super::helpers::refresh_after_library_change`, so the library on
+/// screen stays the same.
 pub fn setup_import_callback(
     ui: &MainWindow,
     db: &Arc<Mutex<Database>>,
@@ -189,9 +152,8 @@ pub fn setup_import_callback(
         let Some(ui) = ui_weak_file.upgrade() else {
             return;
         };
-        // The picker runs off the UI thread via `gui::pickers::pick` -- only its own
-        // continuation (collision pre-scan, confirm dialog, import dispatch)
-        // runs after; the import itself runs on its own thread regardless.
+        // The picker runs off the UI thread via `gui::pickers::pick`; its continuation runs
+        // the collision pre-scan, the confirm dialog and the import dispatch.
         let db_file = Arc::clone(&db_file);
         let source_file = Arc::clone(&source_file);
         let settings_file = Arc::clone(&settings_file);
@@ -201,8 +163,7 @@ pub fn setup_import_callback(
             crate::gui::pickers::PickerRequest {
                 kind: crate::gui::pickers::PickerKind::OpenFile,
                 title: None,
-                // The scan reads a picked `.psdd` too (stand-alone, or standing for the
-                // design beside it), so the filter offers it first.
+                // `.psdd` is listed first: the scan reads it stand-alone or beside a design.
                 filters: vec![crate::gui::pickers::PickerFilter {
                     label: "Faceting Design (.psdd, .asc, .gem, .gcs)".to_string(),
                     extensions: DESIGN_READ_EXTENSIONS
@@ -233,10 +194,8 @@ pub fn setup_import_callback(
     let source_folder = Arc::clone(source);
     let settings_folder = Arc::clone(settings_store);
     let ui_weak_folder = ui.as_weak();
-    // `recurse` is `import_dialog.slint`'s "Include subfolders" toggle, read at the
-    // moment "Choose folder..." was clicked -- it must be set before the click since
-    // the picker opens (and, absent a collision, the import starts) in this same
-    // callback.
+    // `recurse` is read when "Choose folder..." is clicked: the import may start in this
+    // same callback, so the toggle must already be set.
     ui.global::<LibraryModel>()
         .on_pick_asc_folder(move |recurse: bool| {
             let Some(ui) = ui_weak_folder.upgrade() else {
@@ -260,9 +219,8 @@ pub fn setup_import_callback(
                     let Some(path) = path else {
                         return;
                     };
-                    // The chosen folder itself, not its parent: the next import is far
-                    // more likely to be another file from inside it than a sibling
-                    // folder.
+                    // Remembers the folder itself, not its parent: the next import is more
+                    // likely to come from inside it.
                     remember_import_directory(&settings_folder, Some(path.as_path()));
                     let (collisions, total) = count_pending_collisions(&db_folder, &path, recurse);
                     let db_folder = Arc::clone(&db_folder);

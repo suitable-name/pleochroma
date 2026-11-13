@@ -1,10 +1,8 @@
-//! The planning half of a redraw: [`build_planned_frame`], the only function in
-//! the pipeline that calls the potentially multi-second
-//! [`live_update::plan_preview`].
+//! The planning half of a redraw: [`build_planned_frame`], the only pipeline function
+//! that calls the potentially multi-second [`live_update::plan_preview`].
 //!
-//! Moved from the desktop's `gui::solid_preview::preview_state::plan_worker`
-//! (which keeps its thread and a thin wrapper passing its `Instant`-backed clock);
-//! the web app calls it on the main thread with a `performance.now()` clock.
+//! Called by the desktop's plan worker and by the web app's main thread, each with its
+//! own clock (`Instant`-backed on the desktop, `performance.now()` on the web).
 
 use super::request::{PlanJob, PlannedFrame};
 use crate::{
@@ -25,12 +23,11 @@ use std::time::Duration;
 /// deterministically (`Duration::ZERO`); `clock` is the caller's monotonic clock
 /// (see [`live_update::Clock`]).
 ///
-/// The full `plan.freshness`'s `Stale.pending` set is forwarded unchanged.
-/// All tiers in a batch edit are outlined as pending.
+/// The `Stale` pending set is forwarded unchanged: every tier of a batch edit is
+/// outlined as pending.
 ///
-/// Deliberately does NOT decide `Unbounded` vs. closed -- that needs a
-/// [`crate::mesh_cache::MeshCache`]; see [`super::render_request`] for the half that
-/// finishes the job.
+/// Does not decide `Unbounded` vs. closed, which needs a
+/// [`crate::mesh_cache::MeshCache`]; [`super::render_request`] finishes that part.
 #[must_use]
 pub fn build_planned_frame(
     job: PlanJob,
@@ -62,18 +59,16 @@ pub fn build_planned_frame(
         clock,
         limit,
     );
-    // Use the WHOLE pending set, not just its first member. `empty_pending` gives
-    // the non-`Stale` arm something to borrow.
+    // The whole pending set is outlined. `empty_pending` gives the non-`Stale` arm
+    // something to borrow.
     let empty_pending = std::collections::BTreeSet::new();
     let pending_tiers = match &plan.freshness {
         live_update::Freshness::Stale { pending } => pending,
         _ => &empty_pending,
     };
-    // The masts the tools and the facet map are built from: the plan's own solve, or -- for an
-    // `Unsolvable` plan, which solved nothing -- the previous masts the held-over stone is
-    // drawn from. They follow the stone on screen, not the masts the frame carries: an
-    // unsolvable frame carries none (see `solved` below) yet still shows the previous stone,
-    // and that stone's concave tools and hover entries belong to it.
+    // The masts for the tools and the facet map: the plan's own solve, or for an
+    // `Unsolvable` plan the previous masts the held-over stone is drawn from. These follow
+    // the stone on screen; the frame itself carries no masts (see `solved` below).
     let drawn = drawn_masts(plan.solved.as_deref(), last_solved.as_deref(), &design);
     let (tools, placements) = concave_tools_for_display(&design, drawn, limit);
     // The planes of a partly cut stone are the finished stone's with the hidden tiers'
@@ -92,9 +87,8 @@ pub fn build_planned_frame(
         }
         _ => None,
     };
-    // No `MeshCache` here. The `Unbounded` check is done by the render step.
-    // `style` below is UNDIMMED regardless of whether this frame turns out
-    // unbounded.
+    // No `MeshCache` here: the render step makes the `Unbounded` check. `style` stays
+    // undimmed whatever that check finds.
     let preform_plane_count = facet_map.preform_plane_count();
     let style = SolidStyle {
         flagged: overlay.flagged,
@@ -105,16 +99,10 @@ pub fn build_planned_frame(
         ..SolidStyle::viewport()
     };
     let out_of_date = matches!(plan.freshness, live_update::Freshness::Stale { .. });
-    // An `Unsolvable` frame carries NO masts (`plan.solved` is always `None` on that path
-    // -- see `live_update::plan_preview`). It used to chain the previous masts forward
-    // unchanged, so the caller's `last_solved` cache was not wiped; but the frame is
-    // stamped with the NEW generation, so those masts then read as the solve of a design
-    // they do not describe: an export asking for the masts "of exactly this generation"
-    // got the new angles on the old masts, and the next edit's `resolve_dirty` diffed
-    // against masts that predate the edit that broke the solve. A caller keeps its own
-    // cache untouched when a frame brings no masts (the desktop sink and the web app both
-    // only file a frame's masts when it has some), so nothing is lost: the cache keeps
-    // the masts under the generation that really was solved.
+    // An `Unsolvable` plan carries no masts (`plan.solved` is `None`, see
+    // `live_update::plan_preview`). The frame is stamped with the new generation, so
+    // masts carried over from the previous solve would read as the solve of a design
+    // they do not describe. A caller keeps its own cache when a frame brings no masts.
     let solved = plan.solved;
     PlannedFrame {
         design,
@@ -200,7 +188,7 @@ mod tests {
         assert!(tools.is_empty() && placements.is_empty());
     }
 
-    /// F4-10: the plan's own masts win; without them the previous masts stand in, but only
+    /// The plan's own masts win; without them the previous masts stand in, but only
     /// while they line up with the design's tiers.
     #[test]
     fn a_plan_that_solved_nothing_draws_from_the_previous_masts() {
@@ -222,14 +210,14 @@ mod tests {
         assert!(drawn_masts(None, None, &design).is_none());
     }
 
-    /// F4-10: an unsolvable frame still shows the previous stone, so it keeps that stone's
-    /// concave tools: the grooves and dimples and their hover entries do not vanish for the
-    /// frames in between. The frame still carries no masts of its own.
+    /// An unsolvable frame still shows the previous stone, so it keeps that stone's
+    /// concave tools (grooves, dimples and their hover entries). The frame carries no
+    /// masts of its own.
     #[test]
     fn an_unsolvable_frame_keeps_the_concave_tools_of_the_stone_it_shows() {
         let fixture = Design::concave_fixture();
         let previous = fixture.solve().expect("the fixture solves");
-        // The same design with no tier anchored: it no longer solves.
+        // The same design with no tier anchored: it does not solve.
         let mut broken = fixture.clone();
         for tier in &mut broken.tiers {
             tier.constraint = MeetConstraint::MeetExisting;

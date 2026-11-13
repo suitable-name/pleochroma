@@ -1,5 +1,13 @@
-//! Execution routing above the exact shared scene. Automatic is strictly local.
+//! Routes each trace to the CPU or the device GPU, above the exact shared scene.
+//!
+//! Automatic never leaves the device. Mobile path tracing runs the split event-wavefront
+//! GPU kernels (`backend_ew.rs`), never the desktop megakernel: mobile Vulkan driver
+//! compilers reject that one ~500 KB compute shader (`VK_ERROR_UNKNOWN`, reported as
+//! "Unexpected error variant"), exactly as the browser's WebGPU budget does. Ray-Traced keeps
+//! its own small kernel (`backend_whitted.rs`).
 use super::RenderState;
+#[path = "backend_ew.rs"]
+mod ew;
 #[path = "backend_whitted.rs"]
 mod whitted;
 use crate::settings::RenderBackend;
@@ -8,8 +16,8 @@ use pleochroma::{
     geometry::tool::StoneGeometry,
     optics::{fluorescence::Fluorescence, materials::GemMaterial, raytracer::LightingPreset},
     renderer::gpu_backend::{
-        GpuAccumulate, GpuBackend, GpuRouteDecline, GpuSceneRef, GpuWorkLimits,
-        scene_decline_with_tools, whitted::WhittedGpuBackend,
+        GpuRouteDecline, GpuSceneRef, GpuWorkLimits, scene_decline_with_tools,
+        whitted::WhittedGpuBackend,
     },
 };
 use pleochroma_web_core::{
@@ -27,7 +35,8 @@ use std::{
 #[derive(Clone)]
 pub(super) enum TraceBackend {
     Cpu,
-    Gpu(Arc<GpuBackend>),
+    /// Path tracing on the device GPU through the event-wavefront kernels.
+    Gpu(Arc<ew::EwGpuSession>),
     RayGpu(Arc<whitted::RayGpuSession>),
 }
 
@@ -37,13 +46,17 @@ impl TraceBackend {
     }
 }
 
-/// The device GPU probe: the backend with its decline reason (or its absence). Acquiring an
-/// adapter and compiling the kernels is slow, so one probe is shared by the live render and
-/// every picture export of a [`RenderState`](super::RenderState); a failed probe is
-/// remembered too.
+/// The device GPU probe: the backend with its decline reason, or its absence.
+///
+/// Acquiring an adapter is slow, so one probe serves the live render and every picture export
+/// of a [`RenderState`](super::RenderState); a failed probe is remembered too. Path tracing
+/// probes the event-wavefront session, Ray-Traced its own small kernel.
 #[derive(Clone, Default)]
 pub(super) struct GpuProbe {
-    spectral: ProbeSlot<GpuBackend>,
+    spectral: ProbeSlot<ew::EwGpuSession>,
+    /// When a lost path-tracing session was last replaced by a fresh one, so a device that is
+    /// lost on every use is not re-acquired on every epoch.
+    spectral_replaced: Arc<Mutex<Option<Instant>>>,
     whitted: ProbeSlot<WhittedGpuBackend>,
     /// When a poisoned Ray-Traced backend was last replaced by a fresh one, so a kernel that
     /// panics every time is not re-acquired on every epoch.
@@ -58,9 +71,10 @@ fn replace_due(last: Option<Instant>, now: Instant) -> bool {
     last.is_none_or(|last| now.saturating_duration_since(last) >= REPLACE_COOL_DOWN)
 }
 
-/// The sentence the backend report shows for a decline `reason`. A panic inside a GPU turn
-/// leaves a poisoned lock behind; its technical text is replaced by what the user can act
-/// on (nothing: the renderer restarts itself).
+/// The sentence the backend report shows for a decline `reason`.
+///
+/// A panic inside a GPU turn leaves a poisoned lock behind; its technical text is replaced
+/// by what the user can act on (nothing: the renderer restarts itself).
 fn readable_reason(reason: &str) -> std::borrow::Cow<'_, str> {
     if reason.to_ascii_lowercase().contains("poison") {
         "the GPU renderer stopped unexpectedly and is restarting".into()
@@ -172,44 +186,16 @@ impl BackendManager {
             self.cpu_fallback(epoch, reason);
             return Ok(TraceBackend::Cpu);
         }
-        // One cached probe per process, including failed probes. Device-loss recovery
-        // uses the upstream bounded cooldown rather than rebuilding every UI tick.
-        // The lock covers only the (slow, once-per-process) probe itself; the answer is
-        // cloned out so that routing, recovery and reporting never hold it.
-        let (backend, decline) = self
-            .gpu
-            .spectral
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .get_or_insert_with(|| {
-                let (backend, decline) = GpuBackend::acquire_with_diagnostics();
-                backend.set_work_limits(GpuWorkLimits::MOBILE);
-                (Arc::new(backend), decline)
-            })
-            .clone();
-        if let Some(reason) = &decline {
-            self.cpu_fallback(epoch, reason);
-            return Ok(TraceBackend::Cpu);
-        }
-        // A restarted epoch must still give a lost device its bounded recovery
-        // opportunity; otherwise CPU routing would prevent any future GPU request.
-        let _recovered = backend.try_recover();
-        let Some(label) = backend.adapter_label() else {
-            self.cpu_fallback(
-                epoch,
-                &backend
-                    .last_lost_reason()
-                    .unwrap_or_else(|| "no usable device GPU adapter".into()),
-            );
-            return Ok(TraceBackend::Cpu);
-        };
-        self.set_report(epoch, format!("Device GPU · {label}"));
-        Ok(TraceBackend::Gpu(backend))
+        // The event-wavefront probe: the stone's kernel class, the once-per-process adapter
+        // acquisition and the bounded replacement of a lost device live in `backend_ew.rs`.
+        Ok(self.prepare_event_wavefront(scene, epoch))
     }
 
-    /// Whole-frame GPU work uses one planner partition. Every one-sample dispatch
-    /// is accumulated into a private transaction; decline/cancel discards that
-    /// transaction before CPU fallback or retry, so samples are never counted twice.
+    /// Traces `range` on `backend`, falling back to the exact CPU tracer when the GPU declines.
+    ///
+    /// The GPU paths take only a whole-frame range (`None` otherwise, and on cancel). A
+    /// declined GPU range discards its partial sums before the CPU retraces it, so no sample
+    /// is counted twice.
     pub(super) fn trace(
         &self,
         backend: &TraceBackend,
@@ -225,43 +211,7 @@ impl BackendManager {
         let TraceBackend::Gpu(gpu) = backend else {
             return trace_chunk_abortable(scene, range, aborted);
         };
-        if range.first_pixel != 0 || range.stride != 1 {
-            return None;
-        }
-        let mut sum =
-            vec![Vec3::ZERO; (scene.width() as usize).checked_mul(scene.height() as usize)?];
-        let input = gpu_scene(scene);
-        for sample in range.sample_offset..range.sample_offset.checked_add(range.spp)? {
-            if aborted() {
-                return None;
-            }
-            // The stone's concave tools travel with the call; the plane-only entry point
-            // would draw the stone flat.
-            match gpu.try_accumulate_geom_cancellable(
-                &input,
-                scene.tools(),
-                sample,
-                1,
-                &mut sum,
-                cancel,
-            ) {
-                GpuAccumulate::Done => {}
-                GpuAccumulate::Cancelled => return None,
-                GpuAccumulate::Declined => {
-                    self.cpu_fallback(
-                        epoch,
-                        &gpu.last_lost_reason().unwrap_or_else(|| {
-                            "GPU dispatch declined; restarting this sample range on CPU".into()
-                        }),
-                    );
-                    return trace_chunk_abortable(scene, range, aborted);
-                }
-            }
-            // Small duty gap between bounded submissions leaves the phone compositor
-            // and other GPU clients room. This never reduces requested samples.
-            std::thread::sleep(std::time::Duration::from_millis(2));
-        }
-        Some(sum)
+        self.trace_event_wavefront(gpu, scene, range, cancel, aborted, epoch)
     }
 }
 
@@ -269,7 +219,12 @@ impl BackendManager {
 ///
 /// Concave stones route to the GPU up to its tool limit (`GPU_MAX_TOOL_PRIMITIVES`); above
 /// it, with fluorescence or a UV lamp, or with a material the kernels cannot render, the
-/// exact CPU tracer takes over and the report says why. A pure function of the scene.
+/// exact CPU tracer takes over and the report says why. The result depends only on the
+/// material, geometry, fluorescence and lighting.
+///
+/// The stone-shadow and tray-reflection arm is unreachable here: `scene_decline_with_tools`
+/// never returns those declines, and this crate never attaches a shadow map or a tray mirror.
+/// The arm keeps the match exhaustive.
 fn cpu_only_reason(
     material: &GemMaterial,
     geometry: StoneGeometry<'_>,
@@ -278,6 +233,8 @@ fn cpu_only_reason(
 ) -> Option<String> {
     scene_decline_with_tools(material, geometry, fluorescence, lighting).map(
         |decline| match decline {
+            // Unreachable from `scene_decline_with_tools` (see above); kept exhaustive.
+            GpuRouteDecline::StoneShadow | GpuRouteDecline::TrayReflection => decline.to_string(),
             GpuRouteDecline::Material => {
                 "this material or zoning configuration requires CPU tracing".to_owned()
             }
@@ -302,6 +259,7 @@ fn gpu_scene(scene: &OwnedScene) -> GpuSceneRef<'_> {
         material: frame.material,
         max_bounces: frame.max_bounces,
         environment: frame.environment,
+        estimator: None,
     }
 }
 

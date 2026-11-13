@@ -98,20 +98,14 @@ pub(super) fn worker_error_update(request_id: u32, error: &ErrorMsg) -> RemoteUp
     }
 }
 
-/// Attempts to read one length-prefixed frame from `stream`, tolerating a
-/// `WouldBlock`/`TimedOut` I/O error (from the short read timeout this sets) as
-/// "nothing pending yet" rather than a fatal error -- mirrors
-/// `apps/pleochroma-worker/src/stream_emit.rs::poll_for_client_message`'s own approach on
-/// the server side (see that function's doc comment for why the timeout can only ever
-/// land BEFORE any byte of a new frame arrives, never mid-frame).
+/// Attempts to read one length-prefixed frame from `stream`. A `WouldBlock` or `TimedOut`
+/// error from the short read timeout set here means "nothing pending yet", not a failure.
+/// The worker's `poll_for_client_message` (`apps/pleochroma-worker/src/stream_emit/emitter/
+/// polling.rs`) works the same way.
 ///
-/// Once a byte is observed, the rest of that frame (the remaining length-prefix bytes,
-/// plus the whole payload, capped at `MAX_CONTROL_FRAME_LEN` since this reads an event
-/// header) is read under a bounded [`super::FRAME_REMAINDER_TIMEOUT`]
-/// rather than an unbounded blocking read -- a timeout there is a protocol error
-/// (surfaced as an `Err`, not `Ok(None)`): a frame already in flight never finishing
-/// arriving is itself the anomaly, not "nothing new yet". See
-/// [`super::FRAME_REMAINDER_TIMEOUT`]'s own doc comment for the hang this closes.
+/// Once a byte has arrived, the rest of the frame (the remaining length-prefix bytes and the
+/// payload, capped at `MAX_CONTROL_FRAME_LEN`) is read under [`super::FRAME_REMAINDER_TIMEOUT`].
+/// A timeout there is a protocol error, since a frame already in flight must finish.
 fn try_read_one_frame(
     stream: &mut RemoteStream,
     poll_timeout: std::time::Duration,

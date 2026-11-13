@@ -45,7 +45,7 @@ pub struct ColourMatrix {
     pub xyz_to_camera_or_forward: Vec<f32>,
 }
 
-/// What the camera says about its own colour, kept for the spectral calibration (lane P2).
+/// What the camera says about its own colour, for the spectral calibration.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CameraColour {
     /// The white-balance multipliers the file records, in R, G, B, E order (0 when absent).
@@ -57,14 +57,14 @@ pub struct CameraColour {
     /// The inverse direction as rawler computes it (`RawImage::cam_to_xyz`): camera to XYZ,
     /// three rows (X, Y, Z) of four camera channels (R, G, B, E). Use this with
     /// `CameraResponse::from_camera_to_xyz`; the white it is normalised to is rawler's
-    /// choice, so treat it as `MatrixXyzWhite::Native` unless the lane report says otherwise.
+    /// choice, so treat it as `MatrixXyzWhite::Native`.
     pub camera_to_xyz: [[f32; 4]; 3],
     /// The DNG `ColorMatrix` entries the file carries (direction XYZ to camera), ordered by
     /// illuminant code.
     pub color_matrices: Vec<ColourMatrix>,
     /// The DNG `ForwardMatrix` entries the file carries, ordered by illuminant code. Empty
     /// when the file has none; rawler 0.8 exposes them only as raw tag values, which this
-    /// version does not read (see the lane report).
+    /// version does not read.
     pub forward_matrices: Vec<ColourMatrix>,
 }
 

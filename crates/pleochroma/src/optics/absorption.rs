@@ -1,41 +1,30 @@
-/// Which domain an [`AbsorptionBand`] is Gaussian in.
+/// Domain in which an [`AbsorptionBand`] is Gaussian.
 ///
-/// Real chromophore absorption bands (electronic transitions broadened by
-/// vibronic/Frank-Condon coupling) are closer to Gaussian in PHOTON ENERGY (equivalently,
-/// wavenumber) than in wavelength -- the two only coincide exactly in the narrow-band
-/// limit. Spectroscopy papers commonly cite band widths in cm^-1 or eV (energy-domain
-/// units), which cannot be plugged into a wavelength-domain Gaussian's `width_nm`
-/// directly without distorting the line shape (the wavelength axis is a nonlinear
-/// reparametrization of the energy axis, so a Gaussian in one is not exactly Gaussian in
-/// the other away from the peak). This variant lets a band be authored directly in the
-/// domain its source data was measured in.
+/// Chromophore bands are broadened by vibronic coupling and sit closer to Gaussian in
+/// photon energy (wavenumber) than in wavelength; the two agree only for narrow bands.
+/// Papers cite widths in cm^-1 or eV, which a wavelength-domain Gaussian cannot take
+/// without distorting the line shape. The energy domain lets a band keep its source units.
 ///
-/// Defaults to [`Self::GaussianWavelength`] -- every existing built-in material keeps
-/// its historical wavelength-domain shape bit-identically (see [`AbsorptionBand::new`]).
+/// Defaults to [`Self::GaussianWavelength`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum BandShape {
     /// Gaussian in wavelength (nm): `peak * exp(-0.5 * ((lambda_nm - center_nm) /
-    /// width_nm)^2)`. The historical/default shape; `width_nm` is a standard deviation
-    /// in nanometers.
+    /// width_nm)^2)`, with `width_nm` a standard deviation in nanometers.
     #[default]
     GaussianWavelength,
     /// Gaussian in wavenumber (cm^-1), i.e. in photon energy: `peak * exp(-0.5 *
-    /// ((nu - nu0) / width_nm)^2)` where `nu = 1e7 / lambda_nm` and `nu0 = 1e7 /
-    /// center_nm` are wavenumbers in cm^-1. For THIS variant only,
-    /// [`width_nm`](AbsorptionBand::width_nm) is reinterpreted as a standard deviation in
-    /// cm^-1, not nanometers (the field is not renamed, to keep every existing
-    /// `GaussianWavelength` literal and the GPU band encoding untouched -- see
-    /// [`AbsorptionBand::energy`]'s doc comment for the constructor that fills it in
-    /// correctly).
+    /// ((nu - nu0) / width_nm)^2)` with `nu = 1e7 / lambda_nm` and `nu0 = 1e7 /
+    /// center_nm`. Here [`width_nm`](AbsorptionBand::width_nm) is a standard deviation in
+    /// cm^-1. The field keeps its name so the GPU band encoding is unchanged; use
+    /// [`AbsorptionBand::energy`] to build such a band.
     GaussianEnergy,
 }
 
-/// A single Gaussian absorption band: a chromophore electronic transition's
-/// contribution to the material's absorption coefficient, as a function of wavelength.
+/// A single Gaussian absorption band of a chromophore electronic transition.
 ///
-/// (Or, see [`BandShape::GaussianEnergy`], as a function of photon energy instead.) The
-/// form spectroscopic literature publishes gem chromophore data in (peak wavelength,
-/// width, peak intensity); cheap to evaluate per-channel in the ray loop.
+/// The band adds to the absorption coefficient as a function of wavelength, or of photon
+/// energy for [`BandShape::GaussianEnergy`]. Peak wavelength, width and peak intensity match
+/// how chromophore data is published, and evaluation is cheap per channel in the ray loop.
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct AbsorptionBand {
     /// Band centre wavelength, nanometers.
@@ -52,9 +41,7 @@ pub struct AbsorptionBand {
 }
 
 impl AbsorptionBand {
-    /// Builds a wavelength-domain (historical) band -- unchanged signature, so every
-    /// existing call site (every built-in material's literal band data) keeps compiling
-    /// and evaluating bit-identically to before `shape` was added.
+    /// Builds a wavelength-domain band, the default [`BandShape`].
     #[must_use]
     pub const fn new(center_nm: f32, width_nm: f32, peak: f32) -> Self {
         Self {
@@ -65,32 +52,21 @@ impl AbsorptionBand {
         }
     }
 
-    /// Builds an energy-domain band directly from spectroscopy-convention units: a
-    /// center wavelength in nanometers plus a FULL WIDTH AT HALF MAXIMUM in cm^-1
-    /// (`fwhm_cm_inv`) -- the form most cited gem chromophore papers actually publish,
-    /// rather than a raw standard deviation. Converted to the standard deviation
-    /// [`Self::evaluate`] needs via the standard Gaussian relation
-    /// `fwhm = 2 * sqrt(2 * ln(2)) * sigma`.
+    /// Builds an energy-domain band from a center wavelength in nanometers and a FULL WIDTH
+    /// AT HALF MAXIMUM in cm^-1 (`fwhm_cm_inv`), the form chromophore papers usually publish.
+    /// The standard deviation follows from `fwhm = 2 * sqrt(2 * ln(2)) * sigma`.
     ///
     /// # Converting an existing wavelength-domain width instead
     ///
-    /// A band already characterized by a wavelength-domain standard deviation
-    /// `sigma_lambda` (nm) at center `center_nm` converts to an approximately equivalent
-    /// energy-domain standard deviation via the local derivative of `nu = 1e7 /
-    /// lambda_nm`:
+    /// For a wavelength-domain standard deviation `sigma_lambda` (nm) at `center_nm`, the
+    /// first-order equivalent energy-domain standard deviation is:
     ///
     /// ```text
     /// sigma_nu (cm^-1) ~= sigma_lambda (nm) * 1e7 / center_nm^2
     /// ```
     ///
-    /// This is exact only in the limit `sigma_lambda << center_nm` (a first-order Taylor
-    /// expansion of `nu(lambda)` about `center_nm`); see this module's
-    /// `band_shape_tests::converted_energy_width_agrees_with_wavelength_width_near_center`
-    /// for how closely the two shapes actually track near the peak. This constructor
-    /// takes an FWHM directly rather than this converted sigma, since that is the form
-    /// the doc comment above (and most cited sources) actually starts from -- construct
-    /// [`Self`]'s fields directly (all `pub`) if a raw energy-domain sigma is already in
-    /// hand.
+    /// This holds only for `sigma_lambda << center_nm`. Set the fields directly when a raw
+    /// energy-domain sigma is already known.
     #[must_use]
     pub const fn energy(center_nm: f32, fwhm_cm_inv: f32, peak: f32) -> Self {
         // fwhm = 2*sqrt(2*ln(2))*sigma  =>  sigma = fwhm / (2*sqrt(2*ln(2))).
@@ -112,23 +88,11 @@ impl AbsorptionBand {
                 self.peak * (-0.5 * t * t).exp()
             }
             BandShape::GaussianEnergy => {
-                // Wavenumber DIFFERENCE in cm^-1, well-conditioned form: `nu - nu0 =
-                // 1e7/lambda_nm - 1e7/center_nm = 1e7*(center_nm - lambda_nm) /
-                // (lambda_nm*center_nm)`. The naive two-reciprocal form (subtracting
-                // `1e7/lambda_nm` and `1e7/center_nm`, each ~1e4..2e4 with a relative ULP
-                // of ~1e-7) loses ~4-5 decimal digits to catastrophic cancellation before
-                // dividing by `width_nm` and squaring into `exp`; on a GPU whose `/` is
-                // only guaranteed to 2.5 ULP (Vulkan spec), that cancellation amplifies a
-                // few-ULP division error into ~1000 ULP of output divergence between the
-                // CPU and WGSL twins. This form does ONE division of a well-conditioned
-                // quantity (numerator a few hundred nm, denominator
-                // `lambda_nm*center_nm` ~ 1e5) instead. Verified against an f64
-                // reference over the GPU equivalence harness's `spectral_absorption`
-                // case bank: this form's max relative error vs f64 truth is 2.1e-6,
-                // versus 4.6e-5 for the naive two-reciprocal form -- see
-                // `spectral_absorption`'s own module doc comment for the probe.
-                // Matches `transport_physics.wgsl`'s `spectral_absorption` translation
-                // (its `band.shape == 1u` branch) op-for-op; keep both in lock-step.
+                // Wavenumber difference `nu - nu0 = 1e7 * (center_nm - lambda_nm) /
+                // (lambda_nm * center_nm)`: one division of a well-conditioned value. The
+                // two-reciprocal form cancels catastrophically in f32, and a GPU `/` is only
+                // 2.5 ULP accurate, so the CPU and WGSL results would diverge. Matches the
+                // `band.shape == 1u` branch of `spectral_absorption` op for op.
                 let delta_nm = self.center_nm - lambda_nm;
                 let nu_diff = 1.0e7 * delta_nm / (lambda_nm * self.center_nm);
                 let t = nu_diff / self.width_nm;
@@ -142,46 +106,18 @@ impl AbsorptionBand {
 mod band_shape_tests {
     use super::*;
 
-    /// The default constructor must keep every existing (wavelength-domain) band
-    /// bit-identical: `shape` defaults to `GaussianWavelength`, so `evaluate` takes
-    /// exactly the old code path.
+    /// `new` builds the wavelength-domain shape, so existing band data keeps its meaning.
     #[test]
     fn new_defaults_to_gaussian_wavelength() {
         let band = AbsorptionBand::new(550.0, 20.0, 2.0);
         assert_eq!(band.shape, BandShape::GaussianWavelength);
     }
 
-    /// An energy-domain band is symmetric in WAVENUMBER, not wavelength: two
-    /// wavelengths equidistant in wavenumber from the center (not equidistant in
-    /// wavelength) must evaluate identically, and the small wavelength-domain asymmetry
-    /// this implies must match what the nonlinear `nu = 1e7 / lambda` mapping's own
-    /// curvature predicts for THIS band's `center_nm`/`delta_nu` -- not an arbitrary
-    /// nanometre count.
-    ///
-    /// The asymmetry bound must come from what the nonlinear `nu = 1e7 / lambda`
-    /// mapping's own curvature predicts, not from an arbitrary flat threshold:
-    /// `lambda(nu) = 1e7 / nu` is convex, so two points equally spaced in `nu` around
-    /// `nu0` land unequally spaced in `lambda`, with the leading-order gap given by a
-    /// second-order Taylor expansion of `lambda(nu)` around `nu0`: `2 * delta_nu^2 *
-    /// 1e7 / nu0^3`. For `center_nm = 500`, `delta_nu = 150` that works out to ~0.056
-    /// nm -- a genuine, correctly-signed effect, just over an order of magnitude below
-    /// a flat `1.0` nm bound, which would be the wrong number for these parameters.
-    ///
-    /// `response_plus`/`response_minus` use a `5e-6` absolute tolerance, not exact
-    /// equality: verified against an f64 reference (a standalone probe replicating
-    /// this exact test's inputs), the two responses are NOT perfectly equal even in
-    /// f64. `evaluate`'s `GaussianEnergy` branch computes `nu - nu0` via the
-    /// well-conditioned `nu - nu0 = 1e7 * (center_nm - lambda_nm) / (lambda_nm *
-    /// center_nm)` form (see that branch's own doc comment), and `lambda_plus`/
-    /// `lambda_minus` are themselves computed via `1.0e7 / (nu0 +/- delta_nu)` in
-    /// `f32` above, which is not perfectly symmetric about `nu0` to begin with, so the
-    /// true (f64) difference in response is `~2.98e-6`, not `0.0`. This `f32` code
-    /// reproduces that true difference to 7 significant figures (`2.9802322e-6`
-    /// measured vs `2.9809507e-6` true, relative error `~1.9e-8`); the naive
-    /// two-reciprocal form's `0.0` exact-cancellation result is a rounding
-    /// coincidence, not genuine accuracy -- its own per-point relative error against
-    /// the same f64 reference is `~1.7e-6`/`~2.7e-6`, two orders of magnitude worse
-    /// than this code's `~1.9e-8`/`~1.8e-8`.
+    /// An energy-domain band is symmetric in wavenumber, not wavelength. Points equally
+    /// spaced in `nu` around `nu0` are unequally spaced in lambda, by the leading-order gap
+    /// `2 * delta_nu^2 * 1e7 / nu0^3` (about 0.056 nm for `center_nm = 500`,
+    /// `delta_nu = 150`). The f64 reference itself differs by ~3e-6 between the two
+    /// points, so the response bound is `5e-6`, not exact equality.
     #[test]
     fn energy_domain_band_is_symmetric_in_wavenumber_not_wavelength() {
         let center_nm = 500.0f32;
@@ -191,8 +127,7 @@ mod band_shape_tests {
         let lambda_plus = 1.0e7 / (nu0 + delta_nu);
         let lambda_minus = 1.0e7 / (nu0 - delta_nu);
 
-        // Equidistant in wavenumber -> (near-)identical response -- see this test's own
-        // doc comment above for why `5e-6`, not `0.0`, is the physically-correct bound.
+        // Equidistant in wavenumber: near-identical response within the bound above.
         let response_plus = band.evaluate(lambda_plus);
         let response_minus = band.evaluate(lambda_minus);
         assert!(
@@ -201,9 +136,7 @@ mod band_shape_tests {
              {response_minus})"
         );
 
-        // The wavelength-domain asymmetry is real but small, and its SIZE is set by this
-        // band's own center/delta_nu via the mapping's curvature -- not a fixed nanometre
-        // count. See the doc comment above for the derivation.
+        // The wavelength asymmetry is real but small; its size follows from the curvature.
         let actual_asymmetry_nm =
             ((lambda_plus - center_nm).abs() - (center_nm - lambda_minus).abs()).abs();
         let leading_order_asymmetry_nm = 2.0 * delta_nu * delta_nu * 1.0e7 / (nu0 * nu0 * nu0);
@@ -215,9 +148,7 @@ mod band_shape_tests {
              ({leading_order_asymmetry_nm} nm) to within 5%"
         );
 
-        // ...and it must stay a small perturbation relative to center_nm, confirming this
-        // is the near-center Taylor regime the derivation above assumes, not some blown-up
-        // discrepancy that would actually indicate a bug.
+        // Still a small fraction of center_nm: the near-center Taylor regime holds.
         assert!(
             actual_asymmetry_nm < 0.001 * center_nm,
             "test premise: the wavelength asymmetry ({actual_asymmetry_nm} nm) must stay a \
@@ -274,22 +205,18 @@ mod band_shape_tests {
 /// A gem material's absorption spectrum, expressed as a sum of Gaussian
 /// [`AbsorptionBand`]s, one set per birefringent eigenmode (ordinary / extraordinary).
 ///
-/// Real gem color comes from specific, narrow electronic transitions of
-/// transition-metal-ion chromophores (Cr3+, Fe2+/Ti4+, etc.); three wide, fixed-position
-/// lobes on the sRGB primaries cannot represent a transmission window between two
-/// absorption peaks (e.g. ruby's narrow red window plus a smaller blue one) no matter
-/// how the RGB triple is tuned. See `materials::GemMaterial::all_materials` for the
-/// cited band sets per species.
+/// Gem color comes from narrow electronic transitions of transition-metal chromophores
+/// (Cr3+, Fe2+/Ti4+, etc.). Three wide, fixed lobes on the sRGB primaries cannot form a
+/// transmission window between two absorption peaks, e.g. ruby's red window, whatever the
+/// RGB triple. The cited band sets per species are in `materials::GemMaterial::all_materials`.
 ///
-/// `o_ray`/`e_ray` are kept as two independent band sets (rather than collapsed) so a
-/// polarization-aware blend can address each mode's bands independently.
+/// `o_ray`/`e_ray` are separate band sets so each eigenmode absorbs independently.
 ///
-/// `beta_ray` adds an optional third band set for genuinely biaxial (trichroic)
-/// materials, carrying three distinct principal absorption coefficients instead of the
-/// uniaxial ordinary/extraordinary pair. `None` is the two-set uniaxial representation
-/// (the default for `isotropic`/`uniaxial`, and every material except Alexandrite).
-/// Naming convention: `o_ray` -> `n_alpha`, `beta_ray` -> `n_beta`, `e_ray` -> `n_gamma`
-/// -- see `birefringence::AbsorptionTensor3::biaxial` for which world axis each lands on.
+/// `beta_ray` is an optional third band set for genuinely biaxial (trichroic) materials,
+/// with three distinct principal absorption coefficients. `None` is the two-set uniaxial
+/// representation used by `isotropic` and `uniaxial` materials.
+/// Naming: `o_ray` -> `n_alpha`, `beta_ray` -> `n_beta`, `e_ray` -> `n_gamma`; see
+/// `birefringence::AbsorptionTensor3::biaxial` for the world axis of each.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct AbsorptionTensor {
     /// Absorption bands for the ordinary ray (uniaxial) / the `n_alpha` principal
@@ -359,9 +286,8 @@ impl AbsorptionTensor {
     /// times the chromophore concentration (absorption is linear in it), the shapes, centres
     /// and widths unchanged.
     ///
-    /// The built-in materials use it for their strength calibration against photos of real
-    /// stones (2026-11-04), so the measured band sets stay as fitted and the factor reads as
-    /// one number in the entry.
+    /// The built-in materials use it for strength calibration, so each fitted band set stays
+    /// as measured and the factor reads as one number in the entry.
     #[must_use]
     pub fn scaled(mut self, factor: f32) -> Self {
         for band in self
@@ -379,15 +305,13 @@ impl AbsorptionTensor {
 /// Builds a 3-band absorption set from an `[R, G, B]` peak-coefficient triple, using
 /// band centres 620/540/450 nm, widths 55/45/45 nm.
 ///
-/// Kept `pub` because [`materials::GemMaterial::new_custom`](crate::optics::materials::GemMaterial::new_custom)
-/// -- the public API for user-authored custom materials -- calls it directly: a plain
-/// `[R, G, B]` triple is the right shape there since there's no chromophore
-/// spectroscopy to cite for an arbitrary user material.
+/// Kept `pub` because
+/// [`materials::GemMaterial::new_custom`](crate::optics::materials::GemMaterial::new_custom)
+/// calls it for user-authored materials, where a plain `[R, G, B]` triple is the right input
+/// since there is no chromophore spectroscopy to cite.
 ///
-/// Not numerically identical to the old normalized-blend model: this sums the three
-/// bands as independent contributions (consistent with how real absorption spectra
-/// combine), so overlapping bands compound rather than blend. Only the three
-/// colorless built-ins (empty `Vec`) render bit-identically to before.
+/// The three bands add as independent contributions, as real absorption spectra do, so
+/// overlapping bands compound rather than blend.
 #[must_use]
 pub fn legacy_rgb_bands(rgb: [f32; 3]) -> Vec<AbsorptionBand> {
     vec![
@@ -397,12 +321,11 @@ pub fn legacy_rgb_bands(rgb: [f32; 3]) -> Vec<AbsorptionBand> {
     ]
 }
 
-/// The fixed seven-band basis of the path-aware L*C*h body-colour editor.
+/// The fixed seven-band basis of the L*C*h body-color editor.
 ///
 /// `(centre_nm, width_nm)` of seven wavelength-domain Gaussians (width is the standard
 /// deviation, as for [`AbsorptionBand::new`]) spaced 40 nm apart across the visible range.
-/// Seven is the most a material can carry on the GPU (`MAX_ABSORPTION_BANDS = 8`, one slot
-/// spare).
+/// Seven leaves one of the GPU's `MAX_ABSORPTION_BANDS` (8) slots free.
 pub const BODY_COLOR_BASIS_NM: [(f32, f32); 7] = [
     (420.0, 55.0),
     (460.0, 45.0),

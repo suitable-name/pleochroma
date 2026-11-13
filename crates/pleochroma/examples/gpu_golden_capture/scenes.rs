@@ -76,12 +76,12 @@ pub struct SceneBundle {
 }
 
 impl SceneBundle {
-    /// Borrows the bundle fields into a [`FrameScene`] suitable for `GpuFrameRenderer::accumulate`.
+    /// Borrows the bundle fields into a [`FrameScene`] for `GpuFrameRenderer::accumulate`.
     #[must_use]
     pub fn as_frame_scene(&self) -> FrameScene<'_> {
         let environment = match &self.environment {
             SceneEnvironment::Studio(preset) => preset.studio(1.0, 0.4, 0.35),
-            SceneEnvironment::Hdr(hdr) => EnvironmentSource::HdrMap(hdr),
+            SceneEnvironment::Hdr(hdr) => EnvironmentSource::hdr(hdr),
         };
         FrameScene {
             camera: &self.camera,

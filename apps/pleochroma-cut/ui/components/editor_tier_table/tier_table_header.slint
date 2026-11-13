@@ -2,8 +2,7 @@ import { Theme } from "../../theme.slint";
 import { GuideModel } from "../../models/guide.slint";
 
 // One column heading with a tooltip saying what the column shows. `preferred-width` is the
-// label's own width, so a stretching column (NAME, INDICES) shares extra room the way a bare
-// `Text` did before the tooltip wrapper existed.
+// label's own width, so a stretching column (NAME, INDICES) shares spare room.
 component HeaderCell inherits Rectangle {
     in property <string> text;
     in property <string> tip;
@@ -37,11 +36,8 @@ component HeaderCell inherits Rectangle {
     }
 }
 
-// `EditorTierTable`'s column header row. Column widths are passed straight
-// through from `EditorTierTable`'s own `col_*_width` properties (see that
-// component's own top doc comment on why they live there, named, rather than
-// as literals repeated in header and row) so this header and `TierTableRow`
-// can never drift out of sync.
+// `EditorTierTable`'s column header row. Column widths come from its `col_*_width` properties,
+// the same ones `TierTableRow` uses, so the header and the rows cannot drift apart.
 //
 // The Simple interface leaves out the MAST, SOLVE and ORBIT headings, exactly the columns
 // `TierTableRow` leaves out. The action buttons of a row are a pinned group (`TierRowActions`)
@@ -147,7 +143,6 @@ export component TierTableHeader inherits Rectangle {
             text: "MAST";
             tip: "Solved mast depth, in the design's own model units (girdle\nhalf-width = 1), not millimetres. See the glossary.";
         }
-        // Header Tooltips reuse the row-cell wording from below.
         if root.advanced: HeaderCell {
             width: root.col_solve_width;
             height: 100%;
@@ -165,12 +160,8 @@ export component TierTableHeader inherits Rectangle {
             text: "MARGIN";
             tip: "Margin over the design's effective critical angle (pavilion\ntiers only), and the risk band it falls into. See the glossary.";
         }
-        // Whether this row is one orbit, several folded together,
-        // or partial/inconsistent (`EditorTierItem::orbit_status`)
-        // -- makes "editing this row moves more than one facet"
-        // visible before the user clicks Save. Also doubles as the
-        // "Complete orbit" action's hit target (see the row's own
-        // button).
+        // Whether a row is one orbit, several folded together, or partial
+        // (`EditorTierItem::orbit_status`). Shows when an edit moves more than one facet.
         if root.advanced: HeaderCell {
             width: root.col_orbit_width;
             height: 100%;

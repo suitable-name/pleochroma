@@ -23,21 +23,21 @@ export { RetargetRowItem }
 
 // "Retarget for material": reviews a proposal before it is applied as ONE undoable edit.
 // Shift moves every crown and pavilion angle by a formula; Optimize searches for better ones
-// inside a range. The same modal shell carries the "Compare to Snapshot" panel.
+// inside a range. The same modal shell also carries the "Compare to Baseline" panel.
 //
-// Simple and Advanced (`GuideModel.shows_advanced()`): the Simple interface keeps the target
-// material, the Shift/Optimize switch, Search, the options, the table, the verdict and Apply. It
-// hides Crown Handling and the Optimize objective, range and effort. They keep their values and
-// the search uses them; a line says so when one is off its default
+// Simple and Advanced (`GuideModel.shows_advanced()`): Simple keeps the target material, the
+// Stage switch, Search, the options, the table, the verdict and Apply. Crown Handling and the
+// Optimize objective, range and effort are Advanced only. Hidden values keep their settings and
+// the search still uses them; a note appears when one is off its default
 // (`RetargetModel.advanced_in_use`).
 //
 // Keyboard: Tab walks the controls, Escape closes (Cancel stops a running search instead), Return
-// applies when the proposal is ready. The option list is one Tab stop; Up and Down pick the
+// applies when the proposal is ready. The option list is one Tab stop: Up and Down pick the
 // previous or next option, Space picks the first.
 //
-// The sections live in `retarget_dialog/`: `BaselineComparePanel` (the Compare to Baseline
-// face), `TargetMaterialSection`, `OptimizeSection`, `CrownHandlingSection`, `ProposalTable`,
-// `VerdictBlock` and `OpticalComparison`, with the shared row and heading parts in `parts.slint`.
+// Sections live in `retarget_dialog/`: `BaselineComparePanel`, `TargetMaterialSection`,
+// `OptimizeSection`, `CrownHandlingSection`, `ProposalTable`, `VerdictBlock` and
+// `OpticalComparison`; shared rows and headings are in `parts.slint`.
 export component RetargetDialog inherits Rectangle {
     callback close();
     close => { RetargetModel.is_open = false; RetargetModel.close(); }
@@ -66,11 +66,8 @@ export component RetargetDialog inherits Rectangle {
     // A hidden (Simple mode) setting is off its default.
     property <bool> advanced_note_visible: !GuideModel.shows_advanced() && RetargetModel.advanced_in_use(RetargetModel.crown_fraction, RetargetModel.scale_crown_by_ratio, RetargetModel.objective_index, RetargetModel.range_index, RetargetModel.effort_index, RetargetModel.crown_follows_pavilion, RetargetModel.keep_look, RetargetModel.girdle_allowance);
 
-    // This same modal shell is reused for the "Compare to Snapshot" panel
-    // (`BaselineComparePanel` below) -- there is no `app.slint` export to wire up a
-    // second dialog component, and Compare needs no target-material machinery
-    // of its own, so it piggybacks on this one rather than inventing a second
-    // mechanism.
+    // Also hosts the Baseline comparison (`BaselineComparePanel`), which needs no target-material
+    // machinery, so it reuses this shell instead of a second dialog.
     visible: RetargetModel.is_open || RetargetModel.compare_open;
     background: Theme.overlay-backdrop;
 
@@ -84,20 +81,12 @@ export component RetargetDialog inherits Rectangle {
         }
     }
 
-    // This component stays instantiated the whole time (`visible: RetargetModel.
-    // is_open`, never wrapped in an `if`), so `init => { self.focus(); }` alone
-    // would only ever fire once, the first time the dialog is ever opened. Mirrors
-    // `RetargetModel.is_open` into a local property instead and watches THAT with
-    // `changed`, so this re-focuses every time the dialog reopens -- `self.…`,
-    // not `root.…`, in the handler, matching this codebase's own
-    // `changed`-handler trap (a global's own property can't be watched directly).
+    // Stays instantiated (`visible` toggles), so `init` would focus only once. The local
+    // `open_mirror` below is watched with `changed` to re-focus on each open. In the handler use
+    // `self`, not `root`: a global's property cannot be watched directly.
     //
-    // The card is a child of this scope, so Escape and Return reach it from whichever control
-    // holds the keyboard. Escape closes (unless a search is running, matching the header X/backdrop's
-    // own busy guard); Return applies when the proposal is ready. Every other key
-    // is swallowed (`accept`) so it cannot bubble to `global_shortcuts` and fire a
-    // shortcut on the design underneath -- except the keys a control inside has not used
-    // (Tab keeps walking: it is handled before it reaches the scope).
+    // Escape closes (unless a search runs, like the header X); Return applies when ready. Other
+    // keys are accepted so they do not reach `global_shortcuts`; Tab is rejected to keep walking.
     key_scope := FocusScope {
         property <bool> open_mirror: RetargetModel.is_open || RetargetModel.compare_open;
         changed open_mirror => {
@@ -127,21 +116,18 @@ export component RetargetDialog inherits Rectangle {
             accept
         }
 
-        // Sized from `root`, never from its content, so the wide Retarget card (proposal
-        // column plus the embedded comparison pane) cannot raise the window's minimum
-        // size. The Snapshot panel keeps its narrow single-column card.
+        // Sized from `root`, not its content: the wide card must not raise the window's
+        // minimum size.
         card := Rectangle {
-            // Below this card width the comparison pane no longer fits beside the controls
+            // Below this card width the comparison pane does not fit beside the controls
             // (controls need ~420 px, the pane ~240 px, plus padding and gap): the pane moves
             // behind an Options / Comparison switch and the controls take the whole card.
             property <length> side_by_side_min_width: 700px;
             property <bool> narrow: !RetargetModel.compare_open && self.width < self.side_by_side_min_width;
 
             width: RetargetModel.compare_open ? min(600px, root.width - 48px) : min(root.width - 48px, 1280px);
-            // The Baseline comparison card is as tall as its table: about 236 px of header, label,
-            // column headings and buttons plus 26 px a row (four rows measured 100 px of empty
-            // block above the buttons at a 320 px base), so a short table does not leave an
-            // empty block above the buttons (a longer table scrolls inside the 680 px cap).
+            // The Baseline card is as tall as its table: 236 px of header, labels and buttons plus
+            // 26 px a row, capped at 680 px (a longer table scrolls).
             height: RetargetModel.compare_open
                 ? min(680px, root.height - 40px, max(300px, 236px + RetargetModel.compare_rows.length * 26px))
                 : min(root.height - 48px, 820px);
@@ -180,9 +166,7 @@ export component RetargetDialog inherits Rectangle {
                         alignment: space-between;
                         HorizontalLayout {
                             spacing: 8px;
-                            // Uses the gem icon, not a save icon, since Retarget previews a
-                            // material swap that is applied only via the footer's own
-                            // explicit "Apply" button below.
+                            // Gem icon: the material swap is applied only by the footer's Apply.
                             VerticalLayout {
                                 alignment: center;
                                 Image { source: @image-url("../icons/gem.svg"); colorize: Theme.text-primary; width: 15px; height: 15px; }
@@ -356,11 +340,9 @@ export component RetargetDialog inherits Rectangle {
                     HorizontalLayout {
                         spacing: 8px;
 
-                        // While busy this cancels the running Optimize search instead of
-                        // closing the dialog -- see `RetargetModel.cancel_optimize`'s own
-                        // doc comment. Always enabled (unlike the header's X and the
-                        // backdrop click, which stay disabled while busy): this is the
-                        // one control that can actually stop a running search.
+                        // While busy this cancels the Optimize search instead of closing. It stays
+                        // enabled while busy (the header X and backdrop do not): the one control
+                        // that can stop a running search.
                         ActionButton {
                             width: 90px;
                             height: 32px;

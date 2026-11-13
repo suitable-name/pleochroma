@@ -37,10 +37,14 @@ toml = { workspace = true }
 # The progress-file key of a design without an id (`cutting::key`).
 sha2 = { workspace = true }
 tracing = { workspace = true }
+# Blocks on the event-wavefront renderer's async accumulate (device GPU builds only).
+pollster = { workspace = true, optional = true }
 
 [features]
 default = []
-device-gpu = ["pleochroma/gpu"]
+# Path tracing on the device GPU through the event-wavefront kernels (the desktop megakernel
+# is rejected by mobile drivers); Ray-Traced uses its own kernel from `pleochroma/gpu` too.
+device-gpu = ["pleochroma/gpu", "dep:pollster"]
 
 [lints]
 workspace = true

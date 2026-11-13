@@ -1,5 +1,5 @@
-//! The outer loops (plan section 6.4) and the full pipeline [`fit_colour`]: trace, optional skin
-//! roughness search, optional alignment refinement, then [`fit_records`].
+//! The outer loops and the full pipeline [`fit_colour`]: trace, optional skin roughness search,
+//! optional alignment refinement, then [`fit_records`].
 //!
 //! # Skin roughness
 //!

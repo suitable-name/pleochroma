@@ -264,6 +264,9 @@ mod tests {
             width: 32,
             height: 32,
         };
-        assert!(draw_all(&mut MeshCache::default(), &request).is_empty());
+        assert!(
+            draw_all(&mut MeshCache::default(), &request).is_empty(),
+            "an open stone draws no axis pictures"
+        );
     }
 }

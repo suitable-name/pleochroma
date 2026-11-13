@@ -1,7 +1,17 @@
+pub mod accel;
+// Beam-tracing settings and refusal reasons: compiled in every build (not behind the `beam`
+// feature), so jobs, settings and protocol messages that carry them read everywhere.
+pub mod accel_beam;
+pub mod adaptive;
 /// Per-pixel attribution of the spectral renderer's own samples.
 ///
 /// See the module's own doc comment.
 pub mod attribution_map;
+/// Beam tracing of faceted stones, compiled only with the `beam` feature.
+///
+/// See the module's own doc comment.
+#[cfg(feature = "beam")]
+pub mod beam;
 pub mod buffers;
 /// Wasm-safe, thread-free per-pixel CPU tracer.
 ///
@@ -20,16 +30,19 @@ pub mod optical_overlay;
 ///
 /// See the module's own doc comment.
 pub mod optical_overlay_spectral;
+pub mod path_cache;
+// CPU statistics helpers shared by the path-cache and beam tests.
+#[cfg(test)]
+pub mod test_stats;
 pub mod tonemap;
 pub mod whitted;
 
-// Parses and validates every WGSL shader with `naga` (a dev-dependency available
-// regardless of the `gpu` feature) so a shader syntax/type error is a `cargo test`
-// failure on any machine, GPU or not -- see that module's own doc comment. Declared
-// here, OUTSIDE the `#[cfg(feature = "gpu")]` gate below, so plain `cargo test` (no
-// `--features gpu`) actually runs it; the file itself still lives under `gpu/` (its
-// `include_str!("../shaders/...")` paths are relative to the file, not this
-// declaration, so they are unaffected by which module tree reaches it).
+// Parses and validates every WGSL shader with `naga`, so a shader error fails `cargo test`
+// on any machine. Declared outside the `gpu` gate so plain `cargo test` runs it. The files
+// stay under `gpu/` because their `include_str!` paths are relative to the file.
+#[cfg(test)]
+#[path = "gpu/shader_validation_sorted_tests.rs"]
+mod shader_validation_sorted_tests;
 #[cfg(test)]
 #[path = "gpu/shader_validation_tests.rs"]
 mod shader_validation_tests;
@@ -54,7 +67,6 @@ pub mod gpu;
 // configurations so callers' render loops need no `#[cfg]` of their own.
 pub mod gpu_backend;
 
-// The RADV scheduler workaround every GPU-running binary shares (the start-up environment
-// step, the recorded adapter identity); pure and compiled everywhere -- see the module's own
-// doc comment.
+// The RADV scheduler workaround shared by every GPU-running binary (start-up environment and
+// recorded adapter identity). Compiled in every build.
 pub mod gpu_driver;

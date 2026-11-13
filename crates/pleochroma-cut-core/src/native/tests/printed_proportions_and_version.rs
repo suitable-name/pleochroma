@@ -22,8 +22,7 @@ fn printed_proportions_round_trip_through_save_and_open() {
     );
 
     let loaded = design_from_str(&text).expect("must load back");
-    // `ExternalProportions` derives no `PartialEq`, so each field is checked
-    // individually.
+    // `ExternalProportions` has no `PartialEq`, so each field is checked individually.
     let restored = loaded
         .printed_proportions
         .expect("printed proportions must survive the round trip");
@@ -47,8 +46,7 @@ fn an_all_none_external_proportions_writes_no_source_table_at_all() {
 
 #[test]
 fn a_file_saved_without_source_loads_with_no_printed_proportions() {
-    // No `printed_proportions` at all -- the shape of a file saved before this
-    // table existed.
+    // No `printed_proportions` at all, so the file has no `[source]` table.
     let loaded = reopen(&simple_design());
     assert!(loaded.printed_proportions.is_none());
 }

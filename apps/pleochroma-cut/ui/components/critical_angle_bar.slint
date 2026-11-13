@@ -1,15 +1,11 @@
 import { Theme } from "../theme.slint";
 
-// A colored margin bar for
-// how far a facet's angle sits from the critical angle at the design's
-// effective refractive index -- pavilion tiers read the plain (table-only)
-// critical-angle margin; crown tiers read the crown-window ESTIMATE (see
-// `pleochroma_cut_core::crown_window_margin_deg`'s own doc comment for
-// exactly what that estimate does and does not model). `level` is `0` safe /
-// `1` marginal / `2` windows / `-1` nothing to show, matching
-// `gui::editor::state::tier_margin_and_risk`'s own convention -- the SAME
-// convention the tier table's MARGIN column already uses, so a bar shown here
-// and that column's cell never disagree about a saved tier.
+// A colored margin bar: how far a facet's angle sits from the critical angle at the design's
+// effective refractive index. Pavilion tiers show the table-only margin; crown tiers show the
+// crown-window ESTIMATE (see `pleochroma_cut_core::crown_window_margin_deg` for what it models).
+// `level` is `0` safe, `1` marginal, `2` windows, `-1` nothing to show. It follows
+// `tier_margin_and_risk` in `pleochroma-editor`, the same convention as the tier table's MARGIN
+// column, so the bar and the column agree.
 export component CriticalAngleBar inherits Rectangle {
     in property <string> margin_text: "";
     in property <int> level: -1;

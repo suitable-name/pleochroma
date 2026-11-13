@@ -16,9 +16,9 @@ export global UndoRedoLabels {
     in property <string> redo_label: "";
 }
 
-// `Button`/`ComboBox` in this Slint version expose no `has-hover` of their own,
-// so each control below is wrapped in a plain, passive `TouchArea` sized from its
-// child's own preferred size. That wrapper never wires `clicked`/`pointer-event`,
+// `Button` and `ComboBox` expose no `has-hover`, so each control below is wrapped in a
+// plain, passive `TouchArea` sized from its child's own preferred size. That wrapper never
+// wires `clicked`/`pointer-event`,
 // so it never consumes the press meant for the real control inside it; it only
 // observes `has-hover` for the hint line under the bar (`EditorModel.hover_hint`,
 // cleared on pointer-exit). Every control also ANDs the matching

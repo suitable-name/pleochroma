@@ -1,14 +1,14 @@
 //! Surface finish: the GGX lobe, total integrated scatter, the packed word with the scratch
 //! direction, the ground-arm energy compensation and the ground event.
 //!
-//! The WGSL twin is `shaders/transport_physics/13_surface_ggx.wgsl`, driven by
-//! `shaders/transport_functions/11_surface.wgsl`. Every expected value is computed by the CPU
-//! functions of [`crate::optics::raytracer::surface`] in the `cpu_*` functions below, never
-//! hard-coded. The words and flags (kind, packed halves, branch choices) are compared exactly: a
+//! The WGSL twins are `renderer/shaders/transport_physics/13_surface_ggx.wgsl`, driven by
+//! `renderer/shaders/transport_functions/11_surface.wgsl`. Expected values come from calling the
+//! CPU functions of [`crate::optics::raytracer::surface`] directly, never from hard-coded
+//! numbers. Words and flags (kind, packed halves, branch choices) are compared exactly: a
 //! mismatch is recorded as `0` against `1`, which no ULP budget can hide.
 //!
-//! The compensation table is bound at 116 from [`compensation::table_values`], the same values the
-//! shipped kernels read from the tail of the `dist_func` binding.
+//! The compensation table is bound at 116 from [`compensation::table_values`]. The shipped
+//! kernels read the same values from the tail of the `dist_func` binding.
 
 use crate::{
     optics::raytracer::surface::{
@@ -30,13 +30,11 @@ const SURFACE_ULP_BUDGET: u32 = 1024;
 /// The budget for the ground event: a micro-normal sample, a refraction and a table lookup chain.
 const GROUND_ULP_BUDGET: u32 = 2048;
 const SURFACE_ABS_FLOOR: f32 = 1e-5;
-/// The direction across the scratches is built from WGSL `sin`/`cos` of the scratch angle,
-/// which WGSL bounds only absolutely (2^-11); a near-zero component then counts thousands of
-/// ULPs for a 2e-5 difference (AMD RADV, 2026-10-22). 1e-4 is a 0.006 degree tilt.
+/// WGSL `sin`/`cos` are bounded only absolutely (2^-11), so a near-zero component of the scratch
+/// direction can differ by many ULP. 1e-4 is about 0.006 degrees of tilt.
 const DIRECTION_ABS_FLOOR: f32 = 1e-4;
-/// The sweep's scratch angle comes from WGSL inverse trigonometry, likewise bounded only
-/// absolutely: 0.0022 degrees apart near 30 degrees was 1174 ULPs on AMD RADV (2026-10-22).
-/// 0.01 degree is far below any setting a faceting machine has.
+/// WGSL inverse trigonometry is likewise bounded only absolutely. 0.01 degree is far below any
+/// setting a faceting machine has.
 const ANGLE_ABS_FLOOR_DEG: f32 = 1e-2;
 /// TIS of a fine polish is of order 1e-6; the floor stays far below it.
 const TIS_ABS_FLOOR: f32 = 1e-9;

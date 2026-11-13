@@ -2,20 +2,17 @@
 //!
 //! A design file can give a tier, or single facets of it, a surface finish other than the ideal
 //! polish (`surface = "Commercial"` and its companion keys), and can abrade the edges of every
-//! facet (`edge_abrasion_*`). The angle-table rows of a library design cannot hold either, so a
-//! design imported from a design file keeps them in the `diagram_surface_finish` and
-//! `diagram_edge_abrasion` side tables -- see `Database::set_diagram_surface_finish` and
-//! `Database::diagram_surface_finish`. A library thumbnail or batch render then draws the polish
-//! the cutter chose, and the cached-render fingerprints follow it, without opening the design
-//! file.
+//! facet (`edge_abrasion_*`). The angle-table rows of a library design cannot hold these, so
+//! they are kept in the `diagram_surface_finish` and `diagram_edge_abrasion` side tables (see
+//! `Database::set_diagram_surface_finish` and `Database::diagram_surface_finish`). Thumbnails
+//! and batch renders draw the stored polish.
 //!
 //! Like the frosting ([`super::frosting`]), a tier is named by its position in the design's
-//! schedule and a facet by its slot in the tier's index list. The grade is stored the way the
-//! file writes it (the grade name and its numbers as given): this crate neither knows the grades
-//! nor does any physics with them.
+//! schedule and a facet by its slot in the tier's index list. The grade is stored as the file
+//! writes it; this crate does no physics with it.
 
-/// One surface grade as the design file writes it. The default is the ideal polish, which is
-/// what a facet override with every field unset means ("restore the perfect polish here").
+/// One surface grade as the design file writes it. The default is the ideal polish; a facet
+/// override with every field unset restores it.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct StoredSurfaceGrade {
     /// The grade name (`"Commercial"`, `"Ground (Fine)"`, `"Custom"`, ...); `None` is ideal.
@@ -77,8 +74,8 @@ impl StoredEdgeAbrasion {
 
 /// Everything a stored design states about its surface finish.
 ///
-/// The default (no tiers, no edge) is a design that renders with the ideal polish everywhere,
-/// which is also what every design that predates the tables reads as.
+/// The default (no tiers, no edge) renders the ideal polish everywhere, which is also how a
+/// design with no stored finish reads.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct StoredSurfaceFinish {
     /// The tiers with a finish of their own or with facet overrides, ascending by position.

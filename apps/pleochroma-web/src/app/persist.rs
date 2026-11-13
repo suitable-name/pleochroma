@@ -4,13 +4,14 @@
 //! - [`SETTINGS_KEY`] (`pleochroma.settings.v1`, `localStorage`, JSON): a
 //!   [`SessionPayload`] (`pleochroma_web_core::settings`, where its format is tested) --
 //!   the render settings, shared by every tab. The guide's state (`editor::guide`) uses
-//!   the same small-key API ([`read`] / [`write`] / [`discard`]). A value an earlier build
-//!   left in `sessionStorage` is migrated once on first read; with `localStorage` blocked
-//!   the keys stay in `sessionStorage`.
+//!   the same small-key API ([`read`] / [`write`] / [`discard`]). A value found only in
+//!   `sessionStorage` is moved to `localStorage` on first read; with `localStorage`
+//!   blocked, the keys stay in `sessionStorage`.
 //! - [`TAB_KEY`] (`pleochroma.tab.v1`, `sessionStorage`, JSON): the two facts about the
 //!   design the design file cannot carry (its recorded `.asc` name, and whether it had
-//!   unsaved changes). They are per tab, so they are not in the shared payload; a payload
-//!   an earlier build wrote still supplies them when the tab has no entry of its own.
+//!   unsaved changes). They are per tab, so they are not in the shared payload; the
+//!   payload's legacy `design_name` / `design_unsaved` fields supply them when the tab has
+//!   no entry of its own.
 //! - [`DESIGN_KEY`] (`pleochroma.design.v1`, `sessionStorage`): the current design as a
 //!   `.psdd` design file (`pleochroma_cut_core::native::design_to_string`), the
 //!   same format "Save design" downloads, `[meta]` table and attachments included
@@ -108,8 +109,7 @@ fn restore_payload() -> SessionPayload {
 }
 
 /// This tab's design name and unsaved flag: its own `sessionStorage` entry
-/// ([`TAB_KEY`]), else (a tab that has none yet, or data an earlier build wrote) the
-/// fields of the settings payload.
+/// ([`TAB_KEY`]), else (a tab that has none yet) the legacy fields of the settings payload.
 fn restore_tab_state() -> TabState {
     if let Some(text) = storage::session::get(TAB_KEY) {
         match TabState::from_json(&text) {

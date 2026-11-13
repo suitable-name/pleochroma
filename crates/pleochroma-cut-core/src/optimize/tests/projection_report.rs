@@ -1,5 +1,4 @@
-//! `project_preserved_design_report` shares the projection of the plain entry points
-//! (follow-up plan 2026-10-19, section 8.1). Run by the owner.
+//! `project_preserved_design_report` shares the projection of the plain entry points.
 use super::fixtures::{imported_rbc, rbc_445};
 use crate::{
     Design, OptimizeOptions,

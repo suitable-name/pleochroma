@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Bisects the GPU-only uniaxial fault (2026-10-22: Zircon/Tourmaline/Quartz/Ruby... come back
-# ~1e38 on AMD RADV since the render-physics waves) by rebuilding the shaders with one revert at
-# a time (`PLEOCHROMA_WGSL_BISECT`, see `BISECT_PATCHES` in crates/pleochroma/build.rs) and
-# running the GPU equivalence harness for each.
+# Bisects the GPU-only uniaxial fault (Zircon, Tourmaline, Quartz, Ruby and others come back at
+# ~1e38 on AMD RADV) by rebuilding the shaders with one revert at a time
+# (`PLEOCHROMA_WGSL_BISECT`, see `BISECT_PATCHES` in crates/pleochroma/build.rs) and running the
+# GPU equivalence harness for each.
 #
 # Usage (from anywhere inside the repository, on the machine with the GPU):
 #   scripts/wgsl-bisect.sh                  # baseline, every key alone, then all keys together
@@ -14,6 +14,10 @@
 set -u
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root" || exit 1
+# Sources that differ from the last run's get the current time, so cargo rebuilds what changed
+# even when the copied files keep older times (scripts/fresh_sources.sh).
+. "$repo_root/scripts/fresh_sources.sh"
+fresh_sources
 out_dir="$repo_root/target/wgsl-bisect"
 mkdir -p "$out_dir"
 summary="$out_dir/summary.txt"

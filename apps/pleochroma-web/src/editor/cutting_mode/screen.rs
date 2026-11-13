@@ -1,7 +1,8 @@
 //! The Cutting Mode screen: wires `CuttingModeModel` to the model in the parent module.
 //!
-//! Slint owns whether the screen is open and what the keys do (`ui/models/cutting_mode_model.slint`);
-//! this module answers its callbacks. It opens the model for the design, pushes each page
+//! Slint owns whether the screen is open and what the keys do
+//! (`ui/models/cutting_mode_model.slint`); this module answers its callbacks. It opens the
+//! model for the design, pushes each page
 //! ([`super::push`]), shows the stone after the step through the Solid view
 //! (`crate::views::show_cut_step`), stores the marks (through the model) and rebuilds the steps
 //! when the design changes under the open screen.

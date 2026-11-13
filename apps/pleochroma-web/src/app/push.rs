@@ -77,8 +77,8 @@ pub fn push_settings(ui: &AppWindow, app: &WebApp) {
             .as_ref()
             .map_or_else(SharedString::new, |hdr| hdr.name.as_str().into()),
     );
-    // The settings panel's surface-glare slider reports through its own callback
-    // (`callbacks::wire_settings`), so it is seeded here with the stored value.
+    // The surface-glare slider reports through its own callback
+    // (`callbacks::wire_surface_glare`), so it is seeded here with the stored value.
     ui.global::<RenderModel>()
         .set_surface_glare_percent(app.settings.surface_glare_percent());
 }

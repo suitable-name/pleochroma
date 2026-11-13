@@ -9,7 +9,7 @@
 //!   failure;
 //! - a lost transport (socket reset, stalled link) is retried up to [`MAX_RECONNECTS`]
 //!   times with a growing pause;
-//! - a refusal or invalid data ends the epoch with the endpoint's sentence, as before;
+//! - a refusal or invalid data ends the epoch with the endpoint's sentence;
 //! - a superseded epoch ends silently.
 
 use std::{sync::Arc, time::Duration};

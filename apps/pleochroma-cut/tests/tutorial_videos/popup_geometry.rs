@@ -1,6 +1,7 @@
 //! Geometry and identity for controls in embedded popup windows on the tutorial testing backend.
-//! The harness keeps Slint's native popup mode disabled, so this helper intentionally rejects a
-//! popup whose adapter differs from the main window instead of guessing a screen coordinate.
+//!
+//! The harness keeps Slint's native popup mode disabled, so this helper rejects a popup whose
+//! adapter differs from the main window instead of guessing a screen coordinate.
 
 use crate::{support::ElementHandle, targets::Spot};
 use pleochroma_cut::MainWindow;

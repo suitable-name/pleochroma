@@ -42,9 +42,10 @@ pub struct Picture<'a> {
     pub rgba: &'a mut [u8],
 }
 
-/// Why `scene` cannot be exported with optical diagnostics, or `None` when it can (or when it
-/// does not ask for them). Check this before any beauty render is queued: [`apply`] repeats
-/// the check as its last line of defence, but by then the picture is already rendered.
+/// Why `scene` cannot be exported with optical diagnostics, or `None` when it can (or when it does
+/// not ask for them).
+///
+/// Check this before any beauty render is queued: [`apply`] checks again before it traces.
 #[must_use]
 pub fn refusal(scene: &SceneSnapshot) -> Option<&'static str> {
     let style = scene.optical_diagnostics?;
@@ -63,9 +64,10 @@ pub fn refusal(scene: &SceneSnapshot) -> Option<&'static str> {
 /// rig. The metrics probe at a fixed exposure, so exposure is not part of it. One definition
 /// for the live overlay, the tilt hover preview and the exports. The scene's tray radiance
 /// is carried through but never read by the metrics (a window stays a window whatever lies
-/// below the stone).
+/// below the stone). An HDR map is turned by the scene's orientation for the render's own
+/// camera yaw `cam_yaw`, so the classes are scored under the light the picture shows.
 #[must_use]
-pub fn diagnostic_environment(scene: &SceneSnapshot) -> EnvironmentSource<'_> {
+pub fn diagnostic_environment(scene: &SceneSnapshot, cam_yaw: f32) -> EnvironmentSource<'_> {
     scene.env_map.as_deref().map_or_else(
         || {
             scene
@@ -75,7 +77,10 @@ pub fn diagnostic_environment(scene: &SceneSnapshot) -> EnvironmentSource<'_> {
                 .with_surface_glare(scene.surface_glare)
                 .with_head_shadow(scene.head_shadow_deg)
         },
-        EnvironmentSource::HdrMap,
+        |map| {
+            EnvironmentSource::hdr(map)
+                .with_hdr_rotation(scene.hdr_orientation.rotation_for(cam_yaw))
+        },
     )
 }
 
@@ -170,7 +175,7 @@ fn apply_planned(
     }
     let camera =
         Camera::new(pose[0], pose[1], scene.distance, DEFAULT_FOV_DEG).with_roll(scene.camera_roll);
-    let environment = diagnostic_environment(scene);
+    let environment = diagnostic_environment(scene, pose[0]);
     let render_tile = |y: usize, tile: &mut [u8]| -> Result<(), String> {
         let rows = tile.len() / row_bytes;
         let above = margin.min(y);
@@ -213,9 +218,8 @@ fn apply_planned(
 
 /// Renders one tile: its first row index and its rows of the picture.
 ///
-/// The trait object carries an explicit lifetime: a bare `dyn Trait` in a type alias defaults
-/// to `'static`, which would demand that the renderer own everything it borrows (the scene,
-/// the cancel flag). The scoped worker threads only need it to outlive the scope.
+/// The explicit lifetime lets the renderer borrow the scene and the cancel flag. A bare
+/// `dyn Trait` here would default to `'static`.
 type TileRenderer<'a> = dyn Fn(usize, &mut [u8]) -> Result<(), String> + Sync + 'a;
 
 /// Runs `render_tile` for every tile on up to `workers` threads, reporting the finished
@@ -353,16 +357,14 @@ fn metadata(
             )
         },
     );
-    // Present only when the layer is on, so a legend without it (and the resume key a video
-    // folder derives from it) is byte for byte what it was.
+    // Present only when the layer is on: other legends and their video resume keys are unchanged.
     let scintillation_line = if style.scintillation {
         SCINTILLATION_LEGEND
     } else {
         ""
     };
-    // A stone with frosted facets or a frosted girdle is traced as drawn, so its legend says so
-    // instead of listing frosting as unreproduced; a polished stone's legend (and the resume
-    // key a video folder derives from it) is byte for byte what it was.
+    // A frosted stone is traced as drawn, so its legend says so instead of listing frosting as
+    // unreproduced. A polished stone's legend, and its resume key, are unchanged.
     let (unreproduced_frosting, frosted_note) = if scene
         .facet_finishes
         .contains(&FacetFinish::Frosted)
@@ -637,7 +639,7 @@ mod tests {
         let with = sweep_legend(&scene, 8, 8, "Sweep").unwrap();
         assert!(with.contains("Scintillation (violet diamonds)"), "{with}");
         assert!(with.contains("not the HUD value"), "{with}");
-        // Without the layer the legend (the video resume key) is exactly the former text.
+        // Without the layer the legend (the video resume key) has no scintillation line.
         scene.optical_diagnostics = Some(OpticalPresentation {
             layers: [false; 4],
             map_mode: true,

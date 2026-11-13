@@ -191,11 +191,9 @@ pub const fn font_scale(height: u32) -> u32 {
     if scaled < 2 { 2 } else { scaled }
 }
 
-/// The longest label any SINGLE metric can print at each layout tier -- the worst-case
-/// per-metric width [`select_overlay_layout`] budgets against, since the layout choice
-/// depends only on HOW MANY metrics are selected, never on which ones (this dialog's
-/// own rule: the same layout must be picked whether the two selected metrics are
-/// "Brilliance + Angle" or "Tilt Brilliance + Windowing").
+/// The longest label any single metric can print at each layout tier: the worst-case width
+/// [`select_overlay_layout`] budgets against. The layout depends only on how many metrics are
+/// selected, so "Brilliance + Angle" and "Tilt Brilliance + Windowing" get the same layout.
 const fn worst_case_sample(layout: OverlayLayout) -> &'static str {
     match layout {
         OverlayLayout::FullLabels => "TILT BRILLIANCE 100.0%",
@@ -216,11 +214,11 @@ fn layout_width(layout: OverlayLayout, metric_count: usize, scale: u32) -> u32 {
     per_metric * count + gap * (count - 1)
 }
 
-/// Picks the richest overlay layout whose worst-case text run fits within 90% of
-/// `width` at [`font_scale`], falling back to [`OverlayLayout::NumbersOnly`] (which is
-/// always the choice when `metric_count == 0`, though nothing is drawn in that case --
-/// see `overlay::draw_overlay`). Depends only on `(width, height, metric_count)`, never
-/// on which metrics are selected -- see [`worst_case_sample`]'s own doc comment.
+/// Picks the richest overlay layout whose worst-case text run fits within 90% of `width` at
+/// [`font_scale`], falling back to [`OverlayLayout::NumbersOnly`].
+///
+/// The choice depends only on `(width, height, metric_count)`, so which metrics are selected does
+/// not matter; see [`worst_case_sample`]. With no metric nothing is drawn (see [`draw_overlay`]).
 #[must_use]
 pub fn select_overlay_layout(width: u32, height: u32, metric_count: usize) -> OverlayLayout {
     if metric_count == 0 {

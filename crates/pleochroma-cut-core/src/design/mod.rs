@@ -38,11 +38,13 @@
 
 pub mod concave;
 mod construct;
+mod cut_meets;
 pub mod cutting_order;
 pub mod effects_spec;
 mod export;
 mod frosting;
 pub mod girdle_band;
+pub mod girdle_level;
 pub mod hinge;
 pub mod labelling;
 mod missing_anchor;
@@ -62,6 +64,10 @@ pub use concave::{
     UnknownToolCode,
 };
 pub use construct::FreshDesignSpec;
+pub use cut_meets::{
+    CutMeet, CutMeetAnchor, CutMeets, DEFAULT_SNAP_MAX_MOVE_FRACTION, MEET_TOLERANCE_FRACTION,
+    MeetTarget, SnapMove, SnapReport,
+};
 pub use effects_spec::{EdgeAbrasionEffects, InclusionEffects, StructureEffects};
 pub(crate) use export::meet_name_is_asc_safe;
 pub use export::{
@@ -112,82 +118,48 @@ pub struct Design {
     pub meta: ScheduleMeta,
     /// Authored constraint tiers, in cutting order.
     pub tiers: Vec<ConstraintTier>,
-    /// The design's real-world girdle diameter, in millimetres -- the one dimension
-    /// a lapidary actually measures with calipers on a finished stone, and this
-    /// crate's sole anchor from the otherwise-dimensionless "mast unit" scale every
-    /// plane offset uses (see `crate::preform`'s own module doc comment) to a real
-    /// physical size. `None` means "not anchored yet": every figure
-    /// `crate::yield_metrics` derives from it (mm-scale volume, carat weight) is
-    /// then unavailable, while [`crate::yield_metrics::volumetric_yield`] stays
-    /// available regardless -- it needs no mm scale at all.
+    /// The design's real-world girdle diameter, in millimetres: the one dimension a
+    /// cutter measures with calipers, and the only link from the dimensionless "mast
+    /// unit" scale of the plane offsets (see `crate::preform`) to a physical size.
+    /// `None` leaves every mm-scale figure (mm volume, carat weight) unavailable;
+    /// [`crate::yield_metrics::volumetric_yield`] needs no mm scale and stays available.
     ///
-    /// `crate::yield_metrics::mm_per_unit` is `girdle_diameter_mm` divided by the
-    /// SOLVED design's own measured `width_axis`
-    /// (`pleochroma::geometry::stone_metrics::SolidMetrics::width_axis`) -- the
-    /// finished solid's own widest extent, which is NOT always the girdle band's
-    /// width specifically: when the authored facets leave the preform's own side
-    /// walls standing (a stone not yet cut out to its rough), those surviving
-    /// walls are part of the finished solid too, so `width_axis` reads as the
-    /// PREFORM's width, not the actual (narrower) girdle -- see
-    /// [`crate::yield_metrics::YieldReport::mm_per_unit`]'s own doc comment for
-    /// the resulting understated carat weight this is a real, unfixed binding
-    /// for, not a bug in this field.
+    /// `crate::yield_metrics::mm_per_unit` is this value divided by the solved
+    /// `width_axis` (`pleochroma::geometry::stone_metrics::SolidMetrics::width_axis`).
+    /// That width is the preform's when the preform's side walls survive the cut, so
+    /// the mm scale and carat weight are then understated (see
+    /// [`crate::yield_metrics::YieldReport::mm_per_unit`]).
     ///
     /// # This does NOT round-trip through `.asc`
     ///
-    /// `pleochroma_formats::asc::AscSchedule` has no field for a real-world dimension anywhere
-    /// -- every number in a `.asc` file is a dimensionless mast. Exporting a design
-    /// to `.asc` drops `girdle_diameter_mm` silently, and importing never populates
-    /// it either. It lives only in this in-memory `Design` for now; the native
-    /// format (`crate::native`) is what carries it to disk.
+    /// `pleochroma_formats::asc::AscSchedule` has no field for a real-world dimension --
+    /// every number in a `.asc` file is a dimensionless mast. Exporting to `.asc` drops
+    /// this value, and importing never populates it. The native format (`crate::native`)
+    /// carries it to disk.
     pub girdle_diameter_mm: Option<f64>,
-    /// How far the preform's own vertical span is shifted from centred, in the
-    /// same mast-unit convention as every other plane offset -- see
-    /// [`crate::preform::PreformSpec::planes_offset`], which this feeds on every
-    /// [`Self::planes`]/[`Self::planes_from_solved`] call. `0.0` (the default)
-    /// reproduces [`PreformSpec::planes`]'s own always-centred span exactly.
-    ///
-    /// A real piece of rough is rarely centred on the girdle a cutter plans to
-    /// cut into it; this is the design-level anchor
-    /// `PreformSpec` deliberately does not carry itself (see that type's own
-    /// doc comment for why widening it would be a breaking change to several
-    /// struct-literal call sites this crate does not solely own).
+    /// How far the preform's vertical span is shifted from centred, in the same
+    /// mast-unit convention as the other plane offsets. See
+    /// [`crate::preform::PreformSpec::planes_offset`], which every
+    /// [`Self::planes`]/[`Self::planes_from_solved`] call feeds. `0.0` is the
+    /// always-centred span of [`PreformSpec::planes`]. A rough is rarely centred on the
+    /// girdle, so the offset is kept on the design rather than on the preform.
     ///
     /// # Round-tripping through the native format
     ///
-    /// Carried as `pleochroma_formats::native::PreformTable::y_offset` (a
-    /// `#[serde(default)]` field, so an older file with no such column loads as
-    /// `0.0` -- the same always-centred span it actually had); `crate::native`'s
-    /// `design_to_file`/`design_from_file` mirror it alongside `girdle_diameter_mm`. Like
-    /// `girdle_diameter_mm`, it still has no `.asc` counterpart at all -- every
-    /// number in a `.asc` file is a dimensionless mast, so exporting to `.asc`
-    /// drops this silently and re-importing never populates it.
+    /// Carried as `pleochroma_formats::native::PreformTable::y_offset`, a
+    /// `#[serde(default)]` field: a file without it loads as `0.0`. Like
+    /// `girdle_diameter_mm`, it has no `.asc` counterpart and is dropped on export.
     pub preform_y_offset: f64,
-    /// A per-tier "cheater"/azimuth-offset annotation (degrees), keyed by the
-    /// tier's CURRENT position in [`Self::tiers`] -- the same positional
-    /// addressing [`crate::edit::Edit::ModifyTier`]/`SetConstraint`/`SetIndices`
-    /// already use. Needed when cutting an off-tooth index or compensating a
-    /// specific machine's error; `GemCutStudio` calls the
+    /// A per-tier "cheater"/azimuth offset (degrees), keyed by the tier's CURRENT
+    /// position in [`Self::tiers`], like the tier edits in [`crate::edit`]. Used for
+    /// an off-tooth index or to compensate a machine's error; `GemCutStudio` calls the
     /// same concept a "cheater" angle.
     ///
     /// # Why this is a `Design`-level map, not a [`ConstraintTier`] field
     ///
-    /// The natural home is a field on [`ConstraintTier`] itself (every other
-    /// per-facet annotation lives there, and [`Edit::MoveTier`]'s own doc
-    /// comment leans on "nothing outside `tiers` stores a tier's positional
-    /// index" as an invariant). That field would be the right design, but
-    /// widening [`ConstraintTier`] would be a breaking change to roughly a
-    /// dozen struct-literal construction sites across `apps/pleochroma-cut` --
-    /// exactly the blast radius
-    /// [`crate::preform::PreformSpec::planes_offset`]'s own doc comment
-    /// already declined for the same reason. A `Design`-level map keeps this
-    /// entirely inside this crate; [`Design::apply_edit`]'s
-    /// `AddTier`/`RemoveTier`/`MoveTier` arms renumber this map's keys
-    /// alongside the tier list itself, so the "nothing else stores a
-    /// positional index" invariant still holds functionally (the map always
-    /// tracks the SAME tier a plain field on it would), just not
-    /// structurally. A future pass that widens `ConstraintTier` directly can
-    /// fold this map into it and drop the renumbering logic.
+    /// Keeping it here leaves the struct-literal construction sites of [`ConstraintTier`]
+    /// unchanged. [`Design::apply_edit`]'s `AddTier`/`RemoveTier`/`MoveTier` arms renumber
+    /// the keys with the tier list, so the offset stays with the same tier.
     ///
     /// **Rotates the facet's plane azimuth**: [`Design::planes`]/
     /// [`Design::planes_from_solved`] apply this offset (via
@@ -220,20 +192,14 @@ pub struct Design {
     ///
     /// # Why this is a `Design`-level map, not a [`ConstraintTier`] field
     ///
-    /// Exactly [`Self::cheater_offsets_deg`]'s own reasoning, reapplied: the natural
-    /// home is a field on [`ConstraintTier`] itself, but widening that struct would
-    /// be a breaking change to roughly 83 struct-literal construction sites across
-    /// 24 files. A `Design`-level map keeps this entirely
-    /// inside this crate; [`Design::apply_edit`]'s `AddTier`/`RemoveTier`/`MoveTier`
-    /// arms renumber this map's keys alongside [`Self::cheater_offsets_deg`]'s own,
-    /// so the "nothing else stores a positional index" invariant still holds
-    /// functionally. A future pass that widens `ConstraintTier` directly can fold
-    /// this map into it and drop the renumbering logic.
+    /// The same reason as [`Self::cheater_offsets_deg`]: [`ConstraintTier`] keeps its
+    /// struct-literal construction sites, and [`Design::apply_edit`]'s
+    /// `AddTier`/`RemoveTier`/`MoveTier` arms renumber this map's keys with the tier list.
     ///
     /// # Round-tripping through the native format
     ///
-    /// Carried as `pleochroma_formats::native::TierTable::note`, per tier, by
-    /// inside the tier's own record -- see `crate::native::design_to_file` and
+    /// Carried as `pleochroma_formats::native::TierTable::note`, per tier, inside the
+    /// tier's own record -- see `crate::native::design_to_file` and
     /// [`crate::native::design_from_file`]. Unlike `cheater_offsets_deg`, a note
     /// changes no geometry at all.
     pub tier_notes: BTreeMap<usize, String>,

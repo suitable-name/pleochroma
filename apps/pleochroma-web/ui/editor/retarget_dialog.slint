@@ -14,8 +14,8 @@ export struct RetargetRow {
     risk-color: color,
 }
 
-// "Retarget for material" (modelled on the desktop's `RetargetModel`): the target material,
-// the algorithm, the proposal rows and Apply. Pushed by `src/editor/retarget`.
+// "Retarget for material": the target material, the algorithm, the proposal rows and Apply.
+// Pushed by `src/editor/retarget`.
 export global RetargetModel {
     in-out property <bool> is-open: false;
     // 0 Shift (the deterministic critical-angle shift), 1 Optimize (shift, then search).
@@ -130,9 +130,8 @@ export component RetargetDialog inherits Rectangle {
                     spacing: 3px;
                     Lbl { text: "Target Material"; }
                     ComboBox {
-                        // (`min-width: 0px` on the fields of this dialog's rows: the style's
-                        // ComboBox / LineEdit are 160px wide at minimum, which pushed the RI
-                        // override field past the dialog's right edge.)
+                        // `min-width: 0px` on the fields of this dialog's rows: the style's
+                        // ComboBox and LineEdit are 160px wide at minimum.
                         min-width: 0px;
                         enabled: !RetargetModel.is-busy;
                         model: RetargetModel.material-options;
@@ -192,7 +191,7 @@ export component RetargetDialog inherits Rectangle {
                     horizontal-stretch: 1;
                     min-width: 0px;
                     spacing: 3px;
-                    // Short on a phone-width dialog: the full sentence ran past the card.
+                    // Short on a phone-width dialog, where the full sentence does not fit.
                     Lbl {
                         text: (root.narrow ? "Crown follows: " : "Crown follows the pavilion shift: ") + Math.round(RetargetModel.crown-fraction * 100) + "%";
                         overflow: elide;
@@ -298,10 +297,10 @@ export component RetargetDialog inherits Rectangle {
                 vertical-stretch: 1;
                 HorizontalLayout {
                     spacing: 6px;
-                    // The NAME column is dropped on a phone-width dialog: with it the fixed
-                    // columns ran past the card and MARGIN and RISK could not be seen.
-                    // Narrow, the columns share the width by stretch factor (# 1, the rest 3)
-                    // instead of fixed widths, so header and rows always end at the card's edge.
+                    // The NAME column is dropped on a phone-width dialog, where the fixed
+                    // columns would push MARGIN and RISK out of view. Narrow, the columns
+                    // share the width by stretch factor (# 1, the rest 3), so the header and
+                    // rows end at the card's edge.
                     Col { narrow: root.narrow; fixed: 28px; share: 1; text: "#"; font-size: 9px; font-weight: 700; color: Theme.text-muted; }
                     Col { narrow: root.narrow; fixed: 60px; text: "BLOCK"; font-size: 9px; font-weight: 700; color: Theme.text-muted; }
                     if !root.narrow: Text { horizontal-stretch: 1; text: "NAME"; font-size: 9px; font-weight: 700; color: Theme.text-muted; }

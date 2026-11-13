@@ -17,12 +17,13 @@
 //! eligible joined worker is under [`JobConfig::whole_image_secs`] (from the rate book),
 //! or, with no rate measured yet, its `pixels * samples` is at most
 //! [`JobConfig::whole_image_pixel_samples`] -- is a **whole-image** job: one lane renders
-//! the whole picture (one chunk once that lane's rate is known), the fastest idle joined
-//! worker (the own lane only while none is idle), because splitting a picture that takes
-//! milliseconds only waits for the slowest lane. Such jobs do not queue in the viewer's FIFO: one viewer runs up to
-//! [`JobConfig::jobs_per_viewer`] of them at once (a GUI batch keeps several pictures in
-//! flight on separate connections), each on its own worker connection, bounded by the
-//! memory budget. The request's log line says `whole_image` and the lanes it ran on.
+//! the whole picture (one chunk once that lane's rate is known) on the fastest idle joined
+//! worker, or on the own lane while none is idle. Splitting a picture that takes
+//! milliseconds would only wait for the slowest lane. Such jobs do not queue in the
+//! viewer's FIFO: one viewer runs up to [`JobConfig::jobs_per_viewer`] of them at once (a
+//! GUI batch keeps several pictures in flight on separate connections), each on its own
+//! worker connection, bounded by the memory budget. The request's log line says
+//! `whole_image` and the lanes it ran on.
 //!
 //! # What the viewer receives from a job
 //!
@@ -72,11 +73,10 @@
 //!
 //! # Load balancing across lanes of very different speed
 //!
-//! [`RateBook`] is now coordinator-PROCESS-wide ([`Coordinator::rates`]), not rebuilt
-//! per viewer connection: a GUI export's successive one-shot connections (a fresh
-//! `ViewerSession` per chunk, see `crate::serve::connection::worker`) share one book, so
-//! a joined worker's calibrated rate survives across them instead of restarting from an
-//! 8-sample calibration probe on every single chunk. Keyed by [`WorkerIdentity`] (a
+//! [`RateBook`] is shared coordinator-wide ([`Coordinator::rates`]), not per viewer
+//! connection, so a GUI export's successive one-shot connections (a fresh `ViewerSession`
+//! per chunk, see `crate::serve::connection::worker`) keep the calibrated rate of each
+//! joined worker instead of re-probing it on every chunk. Keyed by [`WorkerIdentity`] (a
 //! worker's certificate label when it has one, else its ephemeral registration id), so
 //! the rate also survives that worker's own reconnects.
 //!
@@ -84,10 +84,9 @@
 //! `pleochroma_dispatch::ChunkPolicy::tail_aware_samples`: the smaller of the plain
 //! target-duration chunk and that lane's proportional share of the run's remaining
 //! samples (by rate, summed over every lane of the job). Ordinary chunk sizing is
-//! unaffected while samples are plentiful; only a run's genuine tail shrinks, so a
-//! slow lane (the coordinator's own GPU, say) can no longer claim an oversized slice of
-//! what is left and leave a fast joined worker (an A100 dialed in over `join`) idling in
-//! `Epoch::claim` for the whole of that one chunk.
+//! unaffected while samples are plentiful; only the run's tail shrinks. This keeps a slow
+//! lane (the coordinator's own GPU, for example) from claiming an oversized last slice
+//! and leaving a fast joined worker idle in `Epoch::claim` for that whole chunk.
 
 mod late;
 mod limits;
@@ -146,12 +145,11 @@ pub struct JobConfig {
     pub lane_wait: Duration,
     /// Joined lanes' liveness deadlines.
     pub lane: LaneTimeouts,
-    /// v16: how long a `FinalImageRequest`'s reserved viewer range waits for its
+    /// How long a `FinalImageRequest`'s reserved viewer range waits for its
     /// `CONTRIBUTION` once the server's own lanes finish, before the coordinator
     /// renders that range itself (see `stream_emit::ContributionSlot::await_until`).
-    /// The wait only starts once the server side is done, and is extended for as long
-    /// as an upload is actually in flight, so this only needs to absorb the viewer's
-    /// own rate-estimate error, not the whole render.
+    /// The wait starts only once the server side is done and is extended while an
+    /// upload is in flight, so it only has to absorb the viewer's rate-estimate error.
     pub contribution_wait: Duration,
     /// A `Batch` request whose estimated render time on the fastest eligible joined worker
     /// is below this many seconds is rendered whole, as one chunk on one lane (see the
@@ -203,11 +201,10 @@ pub enum LaneKey {
 }
 
 impl LaneKey {
-    /// The lane key for a joined worker: its certificate label when it has one --
-    /// [`WorkerInfo::label`]'s own doc comment calls that "the one identity that
-    /// survives reconnects", exactly what a rate carried coordinator-wide (see
-    /// [`RateBook`]) needs -- else its ephemeral per-registration id (no TLS label),
-    /// which still lets one connection's own rate converge but starts over on reconnect.
+    /// The lane key for a joined worker: its certificate label when it has one (the
+    /// identity that survives reconnects, see [`WorkerInfo::label`]), else its ephemeral
+    /// per-registration id, which lets one connection's rate converge but starts over on
+    /// reconnect.
     #[must_use]
     pub fn for_worker(info: &WorkerInfo) -> Self {
         Self::Worker(
@@ -230,8 +227,7 @@ pub enum WorkerIdentity {
 /// Measured lane rates, shared coordinator-wide across every viewer connection.
 ///
 /// Kept in [`Coordinator::rates`] so a live view's chunk sizing converges and a GUI
-/// export's successive one-shot connections (one per ~22 s chunk) reuse calibration
-/// instead of re-probing from scratch on every single one.
+/// export's successive one-shot connections reuse calibration instead of re-probing.
 ///
 /// A `BTreeMap`, not a hash map, purely to keep iteration/debug output deterministic;
 /// lookups are by exact key equality either way.
@@ -392,11 +388,9 @@ impl Coordinator {
     }
 
     /// The process-wide lane rate book, shared by every viewer connection this
-    /// coordinator serves -- so a live view's chunk sizing converges across requests,
-    /// and a GUI export's successive one-shot connections (a fresh `ViewerSession` per
-    /// ~22 s chunk) reuse calibration instead of re-probing every single one from an
-    /// 8-sample calibration chunk. Callers clone the `Arc` into their own
-    /// `ViewerSession`/`Job`; nothing here is persisted to disk.
+    /// coordinator serves, so a live view's chunk sizing converges across requests and a
+    /// GUI export's one-shot connections reuse calibration. Callers clone the `Arc` into
+    /// their own `ViewerSession`/`Job`. Nothing here is persisted to disk.
     #[must_use]
     pub const fn rates(&self) -> &Arc<Mutex<RateBook>> {
         &self.rates
@@ -419,10 +413,7 @@ pub struct ViewerSession {
     pub advertised: Option<RenderCapability>,
     /// The own lane's capability, if any (for re-advertising).
     pub own_capability: Option<RenderCapability>,
-    /// The coordinator's process-wide lane rate book (see [`Coordinator::rates`]),
-    /// cloned in for this connection -- NOT a fresh book per connection, so a live
-    /// view's chunk sizing converges across requests and a GUI export's successive
-    /// one-shot connections reuse calibration instead of restarting it every chunk.
+    /// The coordinator's process-wide lane rate book (see [`Coordinator::rates`]).
     pub rates: Arc<Mutex<RateBook>>,
 }
 
@@ -441,9 +432,7 @@ fn report<S: Write>(stream: &mut S, outcome: StreamOutcome) -> Result<(), NetErr
             ErrorMsg {
                 code: error_codes::TRACE_PANIC,
                 message: "internal error while tracing this request".to_string(),
-                // `report`'s own callers don't currently thread a request_id through to
-                // here; `StreamOutcome::Failed`
-                // below already carries whatever its own producer stamped.
+                // No request id is in scope here; a `Failed` outcome carries its own.
                 request_id: None,
             },
         ),
@@ -551,9 +540,9 @@ pub fn serve_final_image<S: Read + Write + TimeoutRead + TimeoutWrite>(
         )?;
         return Ok(None);
     }
-    // v16: the viewer's own reserved tail, if any -- the server only plans
-    // `request.server_samples()` of the range, and the job's producer thread waits for
-    // this slot to fill once its own lanes finish (see `stream_request`/`producer::run`).
+    // The viewer's reserved tail, if any: the server plans only `request.server_samples()`
+    // of the range, and the job's producer thread waits for this slot to fill once its own
+    // lanes finish (see `stream_request` and `producer::run`).
     let slot = request.reserved_range().map(|(first, samples)| {
         Arc::new(stream_emit::ContributionSlot::new(
             SampleRange::new(first, samples),
@@ -563,13 +552,12 @@ pub fn serve_final_image<S: Read + Write + TimeoutRead + TimeoutWrite>(
     });
     // Carried through the emitter as the equivalent FinalOnly request: PROGRESS on a 1 s
     // cadence, no FRAME; `Output::FinalImage` replaces the final FRAME. A downsampled
-    // PREVIEW IS forced on, unlike a plain viewer's `RenderRequest` (whose `preview` is
-    // whatever it asked for): a `FinalImageRequest` caller has no `StreamConfig` of its
-    // own to set one on, and without this a "final picture only" export would otherwise
-    // show nothing at all until the whole job completes (the owner's report this fixes).
-    // See `final_image_preview_config` for the size and the emitter's own 1%-of-budget
-    // gating (`stream_emit::emitter::emit::emit_tick`) for why this doesn't spam the
-    // wire every cadence tick between a coordinator job's chunk merges.
+    // PREVIEW is always on, unlike a plain `RenderRequest` (whose `preview` is whatever it
+    // asked for), because a `FinalImageRequest` has no `StreamConfig` to set one on. Without
+    // it a final-picture-only export shows nothing until the whole job completes. See
+    // `final_image_preview_config` for the size, and `stream_emit::emitter::emit::emit_tick`
+    // for the 1%-of-budget gating that keeps the preview from being resent on every tick
+    // between chunk merges.
     let as_render = RenderRequest {
         request_id: request.request_id,
         scene: request.scene.clone(),
@@ -632,9 +620,9 @@ fn final_image_preview_config(width: u32, height: u32) -> PreviewConfig {
 /// Plans and streams one validated request (direct or as a job).
 ///
 /// `slot`, when `Some` (a `FinalImageRequest` that reserved a viewer share), always
-/// forces a job route (see the "own-lane-only" fix below) and is passed both to the
-/// emitter (which routes an incoming `CONTRIBUTION` into it) and the job's producer
-/// (which waits for it once its own lanes finish).
+/// forces a job route, because only a job has a `Merger` to fold the share into. It is
+/// passed both to the emitter (which routes an incoming `CONTRIBUTION` into it) and to the
+/// job's producer (which waits for it once its own lanes finish).
 fn stream_request<S: Read + Write + TimeoutRead + TimeoutWrite>(
     stream: &mut S,
     request: &RenderRequest,
@@ -714,6 +702,7 @@ fn stream_request<S: Read + Write + TimeoutRead + TimeoutWrite>(
                 rates: Arc::clone(&session.rates),
                 scene: request.scene.clone(),
                 range: SampleRange::new(request.first_sample, request.samples - viewer_samples),
+                intent: request.intent,
                 plan,
                 asset,
                 // `spec.contribution` (built above) borrows through `slot` for the
@@ -745,15 +734,14 @@ fn stream_request<S: Read + Write + TimeoutRead + TimeoutWrite>(
     Ok(next)
 }
 
-/// The refusal past the memory budget. There is no dedicated v14 code for "busy";
-/// `CONNECTION_LIMIT_REACHED` ("this server is at capacity") is the closest, and a
-/// viewer treats it as a failed remote request and falls back to local rendering.
+/// The refusal past the memory budget. The protocol has no dedicated "busy" code, so
+/// `CONNECTION_LIMIT_REACHED` ("this server is at capacity") is used; a viewer treats it
+/// as a failed remote request and falls back to local rendering.
 pub(super) fn over_budget(coordinator: &Coordinator, bytes: u64) -> ErrorMsg {
     const MIB: u64 = 1024 * 1024;
     ErrorMsg {
         code: error_codes::CONNECTION_LIMIT_REACHED,
-        // This helper has no
-        // request in scope; its one caller (`producer::run`) could thread one through.
+        // No request is in scope here; `producer::run`, the one caller, could pass one.
         request_id: None,
         message: format!(
             "coordinator busy: this job needs {} MiB of in-flight buffers but {} of {} MiB are already in \

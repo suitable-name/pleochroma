@@ -41,7 +41,7 @@ fn capitalize(s: &str) -> String {
     })
 }
 
-/// Formulates a human-readable hint string from a list of required staging actions.
+/// Joins the required staging actions into one hint sentence.
 fn format_hint(actions: &[String]) -> String {
     match actions.len() {
         0 => String::new(),
@@ -64,7 +64,7 @@ fn format_hint(actions: &[String]) -> String {
 
 /// Checks whether current application state matches the stage required for the current guide step.
 ///
-/// If mismatched, updates `GuideModel.stage_mismatched` to `true` and sets a descriptive `stage_hint`.
+/// If mismatched, sets `GuideModel.stage_mismatched` to `true` and a descriptive `stage_hint`.
 /// If aligned, resets `GuideModel.stage_mismatched` to `false`.
 pub(super) fn check_stage_alignment(ui: &MainWindow) {
     let guide_model = ui.global::<GuideModel>();

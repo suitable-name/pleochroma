@@ -34,10 +34,9 @@ fn the_render_context_derives_the_flag_from_the_explicit_list() {
 }
 
 /// The absorption scale follows the material's own `AbsorptionUnit` tag, not the physics-colour
-/// flag: a `ModelUnit` material (flagged or not) gets `1 / K` while no size is set, a `PerMm`
-/// one (what a physics recipe builds) takes the 7 mm default over the design's model width.
-/// The two values are NOT compared for inequality: with K = 2.52 and a ~17.6 model-unit
-/// width they nearly coincide (7 / 17.6 ~ 1 / 2.52), so only exact formulas are asserted.
+/// flag: a `ModelUnit` material (flagged or not) gets `1 / K`, a `PerMm` one (what a physics
+/// recipe builds) takes the 7 mm default over the design's model width. The two values nearly
+/// coincide (7 / 17.6 ~ 1 / 2.52), so the test asserts each exact formula instead.
 #[test]
 fn export_and_remote_snapshots_apply_the_default_width_to_a_physics_material() {
     use crate::bridge::export_thread::SceneSnapshot;

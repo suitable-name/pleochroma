@@ -1,4 +1,4 @@
-//! Debug mode's "during" screenshots: which dialogs, popups, overlays and secondary windows are up.
+//! Debug mode's "during" screenshots: what dialogs, popups, overlays and windows are up.
 //!
 //! A step often opens a dialog, an overlay or a window, uses it and closes it again before its
 //! "after" screenshots are taken, so nothing in the folder would show it. `debug_log` therefore

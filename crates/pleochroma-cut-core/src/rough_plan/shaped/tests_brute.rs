@@ -198,9 +198,10 @@ fn box_only_lp_scale_matches_the_interior_scale_for_every_assignment() {
     }
 }
 
-/// Rows of a unit cube stone (half extent `0.5` per axis at unit scale) in the corner
-/// tetrahedron `x, y, z >= 0`, `x + y + z <= 12`, the slanted face given as the unit
-/// normal `(1, 1, 1) / sqrt(3)`.
+/// Rows of a unit cube stone (half extent `0.5`) in the corner tetrahedron
+/// `x, y, z >= 0` and `x + y + z <= 12`.
+///
+/// The slanted face has the unit normal `(1, 1, 1) / sqrt(3)`.
 fn tetrahedron_rows() -> [ScaleRow; 4] {
     let inv_sqrt3 = 1.0 / 3.0_f64.sqrt();
     let wall = |axis: usize| {

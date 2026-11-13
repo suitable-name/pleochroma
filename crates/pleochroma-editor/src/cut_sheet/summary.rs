@@ -3,11 +3,12 @@
 //! and the carat estimate with how it scales with the width.
 //!
 //! The figures are the ones [`super::SheetLayout`] already has (Size Data and the yield report's
-//! carat estimate), plus the table width and girdle thickness of
-//! [`Design::stone_proportions`], the editor's own proportions readout. Nothing here reads a clock
-//! or a file, so the same design always gives the same summary.
+//! carat estimate), plus the table width of [`Design::stone_proportions`] and the girdle
+//! thickness at the girdle line ([`GirdleReading`]), the same readouts as the editor's proportions
+//! panel. Nothing here reads a clock or a file, so the same design always gives the same summary.
 
 use super::layout::{NO_VALUE, SizeData, material_label, trimmed};
+use crate::view_model::girdle_reading::GirdleReading;
 use pleochroma::geometry::meet_solver::SolvedTier;
 use pleochroma_cut_core::Design;
 use std::fmt::Write as _;
@@ -33,7 +34,7 @@ pub const CARAT_LABEL: &str = "Carat weight (estimate)";
 pub struct SummaryRow {
     /// What the line gives (`Size (W × L × D)`, `Table`).
     pub label: &'static str,
-    /// The figure (`6.50 × 6.50 × 3.93 mm`, `53.1% of width`).
+    /// The figure (`6.50 × 6.50 × 3.93 mm`, `53.1% of width`, `2.6–4.0% of width (not level)`).
     pub value: String,
     /// A caveat printed under the figure, in smaller type.
     pub note: Option<&'static str>,
@@ -66,8 +67,10 @@ pub struct StoneSummary {
     pub crown_percent: Option<f64>,
     /// Pavilion depth as a percentage of the width: `P/W` of Size Data.
     pub pavilion_percent: Option<f64>,
-    /// Girdle thickness as a percentage of the width (`Design::stone_proportions`).
-    pub girdle_percent: Option<f64>,
+    /// The girdle thickness at the girdle line, as a share of the width ([`GirdleReading`]): one
+    /// figure for a level girdle, a range for an unlevel one. The band's full height is used only
+    /// without a girdle line: facet scallops make it larger than the girdle a cutter measures.
+    pub girdle: Option<GirdleReading>,
     /// Total depth (table to culet) as a percentage of the width: `H/W` of Size Data.
     pub depth_percent: Option<f64>,
     /// The material as Design Data names it: the design's own, else a guess marked with a
@@ -84,9 +87,10 @@ impl StoneSummary {
     /// The summary of `design` from the figures its layout already has.
     ///
     /// Those are `sizes` (Size Data), `n_d` (the printed refractive index) and `carat_weight`
-    /// (the yield report's estimate). The table and girdle percentages come from [`Design::stone_proportions`], one flat mesh of
-    /// `solved` -- the readout the editor's proportions panel computes on every solve. A design
-    /// with no tiers has none: its preform block is not a stone.
+    /// (the yield report's estimate). The table percentage comes from
+    /// [`Design::stone_proportions`] (from one flat mesh of `solved`) and the girdle from
+    /// [`GirdleReading::of`], the same readouts as the editor's proportions panel. A design with
+    /// no tiers has none: its preform block is not a stone.
     ///
     /// # Panics
     ///
@@ -122,7 +126,7 @@ impl StoneSummary {
             table_percent: proportions.and_then(|figures| figures.table_percent),
             crown_percent: percent(sizes.crown_to_width),
             pavilion_percent: percent(sizes.pavilion_to_width),
-            girdle_percent: proportions.and_then(|figures| figures.girdle_to_width_percent),
+            girdle: proportions.and_then(|figures| GirdleReading::of(design, solved, &figures)),
             depth_percent: percent(sizes.height_to_width),
             material: material_label(design, n_d),
             refractive_index: n_d,
@@ -146,15 +150,21 @@ impl StoneSummary {
             (None, Some(width)) => rows.push(row("Girdle diameter", format!("{width:.2} mm"))),
             (None, None) => {}
         }
-        for (label, percent) in [
-            ("Table", self.table_percent),
-            ("Crown height", self.crown_percent),
-            ("Pavilion depth", self.pavilion_percent),
-            ("Girdle thickness", self.girdle_percent),
-            ("Total depth", self.depth_percent),
+        let of_width =
+            |percent: Option<f64>| percent.map(|percent| format!("{percent:.1}% of width"));
+        for (label, value) in [
+            ("Table", of_width(self.table_percent)),
+            ("Crown height", of_width(self.crown_percent)),
+            ("Pavilion depth", of_width(self.pavilion_percent)),
+            // `2.8% of width`, or `2.6–4.0% of width (not level)`.
+            (
+                "Girdle thickness",
+                self.girdle.map(GirdleReading::width_text),
+            ),
+            ("Total depth", of_width(self.depth_percent)),
         ] {
-            if let Some(percent) = percent {
-                rows.push(row(label, format!("{percent:.1}% of width")));
+            if let Some(value) = value {
+                rows.push(row(label, value));
             }
         }
         rows.push(row(

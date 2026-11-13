@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------------
-// Surface finish (lane RP-G2): the WGSL twin of `optics::raytracer::surface`.
+// Surface finish: the WGSL twin of `optics::raytracer::surface`.
 //
 // Pure functions only (no bindings), so the megakernel, the event wavefront and Tier 2's
 // `transport_functions.wgsl` call the SAME text. Each section names the CPU file it mirrors;
@@ -27,9 +27,8 @@ const SURFACE_SWEEP_STREAM: u32 = 0xa136aaadu;
 // `ggx::MIN_ALPHA` / `ggx::MIN_COSINE`.
 const SURF_MIN_ALPHA: f32 = 1e-3;
 const SURF_MIN_COSINE: f32 = 1e-4;
-// `R_UNPOL_PDF_MIN/MAX` (the technique densities of the halo) and `R_UNPOL_SELECT_MIN/MAX`
-// (the ground arm's branch probability); the bounce text owns the same numbers under
-// other names, Tier 2's text does not have them.
+// `SURF_PDF_MIN/MAX` clamp the halo's technique densities; `SURF_R_SEL_MIN/MAX` clamp the
+// ground arm's branch probability.
 const SURF_PDF_MIN: f32 = 1e-4;
 const SURF_PDF_MAX: f32 = 1.0 - 1e-4;
 const SURF_R_SEL_MIN: f32 = 0.02;

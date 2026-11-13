@@ -103,8 +103,8 @@ impl DatasetSplit {
                 notes.extend(material_scope_notes(d, &material.gem));
             }
         }
-        // Catalog augmentation also needs honest scope disclosure even when a native corpus
-        // happens not to contain these effects itself.
+        // Built-in catalog materials can be sampled for training, so their scope notes are
+        // listed even when no corpus entry uses those effects.
         if let Some(entry) = self.entries.first() {
             for gem in GemMaterial::built_in() {
                 notes.extend(material_scope_notes(&entry.design, gem));

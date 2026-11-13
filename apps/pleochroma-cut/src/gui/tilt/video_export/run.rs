@@ -1,26 +1,21 @@
-//! The background thread that renders every frame, overlays the selected metrics,
-//! writes the PNG sequence, and hands off to `encode` once the sweep finishes (or was
-//! cancelled). Kept separate from `mod.rs`'s UI-thread wiring so neither file grows
-//! past clippy's function-length lint.
+//! The background thread that renders every frame and writes the PNG sequence.
+//!
+//! It overlays the selected metrics and hands off to `encode` once the sweep finishes or is
+//! cancelled. Kept separate from `mod.rs`'s UI-thread wiring so neither file grows past
+//! clippy's function-length lint.
 //!
 //! # Pausing the live viewport for the whole video
 //!
-//! A video now shares the local GPU adapter and remote workers with the rest of the
-//! app (`render::render_frame_rgba`, via `bridge::export_thread::render_accumulation`)
-//! instead of tracing on the CPU alone, so this app's hard rule of one GPU program at a
-//! time on the single shared adapter applies here exactly as it does to a still-image
-//! export: [`spawn`] increments `RenderContext::export_active_count` before starting
-//! (in `mod.rs::handle_start_video_export`, mirroring `gui::render::render_export::
-//! wiring::finish_start_export`'s own increment), and [`finish_video_export`] is the
-//! ONE place that decrements it again -- called from every terminal path
-//! ([`report_cancelled`]/[`report_failure`]/[`report_done`]), and from [`spawn`]'s own
-//! `catch_unwind` when `run` panics outright, so the live viewport can never stay
-//! paused after a video export ends, mirroring `gui::render::render_export::queue::
-//! finish_export_queue`'s single decrement point and `bridge::export_thread::
-//! spawn_export`'s "`on_done` fires on every exit path, including a caught panic".
+//! A local video renders on the GPU adapter and CPU that the live viewport also uses
+//! (`render::render_frame_rgba`), so it follows the same rule as a still-image export:
+//! the app runs one GPU program at a time. The caller increments
+//! `RenderContext::export_active_count` before [`spawn`] (`mod.rs::start_video_run`), and
+//! [`finish_video_export`] is the one place that decrements it. It runs on every terminal
+//! path ([`report_cancelled`], [`report_failure`], [`report_done`]) and after a caught
+//! panic in [`spawn`], so the viewport cannot stay paused once the video ends.
 //!
-//! A `RemoteOnly` video claims no pause at all ([`pauses_viewport`]): it acquires no GPU
-//! adapter and runs no local lane, so the live viewport stays usable for the whole video.
+//! A `RemoteOnly` video claims no pause ([`pauses_viewport`]). It traces nothing locally,
+//! so the viewport stays usable for the whole video.
 
 use super::{
     encode,
@@ -36,7 +31,10 @@ use crate::{
     gui::progress_eta::{EtaEstimator, format_eta},
     settings::LocalComputeTarget,
 };
-use pleochroma::color::ColorSpace;
+use pleochroma::{
+    color::ColorSpace,
+    renderer::{accel::PathCacheSettings, accel_beam::BeamSettings, adaptive::AdaptiveSettings},
+};
 use slint::ComponentHandle;
 use std::{
     path::{Path, PathBuf},
@@ -44,18 +42,15 @@ use std::{
     time::Instant,
 };
 
-/// Everything one video export run needs, assembled once on the UI thread before the
-/// background thread takes over. `Send`: every field is already `Send` (a
-/// `SceneSnapshot`, plain numbers/strings, `Vec<f32>` curves, and a `RemoteSelection`),
-/// the same bar `bridge::export_thread::spawn_export` holds its own request state to.
+/// Everything one video export run needs, built once on the UI thread.
 ///
-/// Public inside this group: a render job builds the same request (`gui::render_jobs::convert`) and
-/// runs it through [`frames::render_frames`].
+/// Every field is `Send`, the same bar as `bridge::export_thread::spawn_export`'s request
+/// state. Render jobs build the same request (`gui::render_jobs::convert`) and run it through
+/// [`frames::render_frames`].
 pub struct VideoExportRequest {
     pub scene: SceneSnapshot,
-    /// The sweep axes in the order the video shows them (indices into
-    /// `PROFILE_AZIMUTHS_DEG`), never empty. One axis is one `start -> end` pass; several
-    /// rock through face-up one after the other (`params::frame_poses`).
+    /// The sweep axes in play order (indices into `PROFILE_AZIMUTHS_DEG`), never empty.
+    /// Each axis is one `start -> end` pass; several run back to back (`params::frame_poses`).
     pub axes: Vec<usize>,
     pub start_deg: f64,
     pub end_deg: f64,
@@ -72,14 +67,20 @@ pub struct VideoExportRequest {
     /// One set of curves per entry of `axes`, in the same order.
     pub curves: Vec<metrics::MetricCurves>,
     pub keep_frames: bool,
-    /// The remote side: the section's "Compute" choice (`Both` by default; `RemoteOnly`
-    /// traces nothing on this computer, see this group's own `mod.rs` doc comment), the
-    /// configured remote endpoint (`AppSettings::remote`, read from the SAME settings
-    /// store the still-image export reads), and the section's "Transfer" choice.
+    /// The "Compute" choice (`RemoteOnly` traces nothing locally, see the module doc), the
+    /// remote endpoint (`AppSettings::remote`) and the "Transfer" choice.
     pub remote: RemoteSelection,
-    /// `RenderContext::local_compute_target`, read from the SAME persisted setting the
-    /// still-image export and the live viewport both use.
+    /// The persisted CPU/CPU+GPU/GPU setting (`RenderContext::local_compute_target`).
     pub local_compute: LocalComputeTarget,
+    /// "Adaptive Sampling": each frame stops its tiles once they are clean enough, with
+    /// `samples_per_pixel` as the cap. `None` is the plain render.
+    pub adaptive: Option<AdaptiveSettings>,
+    /// "Path Cache": each frame shades its stone from cached light paths. `persist` is
+    /// "Keep Path Cache for This Video". `None` is the plain render.
+    pub path_cache: Option<PathCacheSettings>,
+    /// "Beam Tracing (Faceted Stones)": each frame beam-traces its eligible stone. `None`
+    /// is the plain render.
+    pub beam: Option<BeamSettings>,
 }
 
 impl VideoExportRequest {
@@ -90,17 +91,15 @@ impl VideoExportRequest {
     }
 }
 
-/// Spawns the background render loop for `request`. Never blocks the UI thread; checks
-/// `cancel` between frames (not mid-frame -- a frame's own trace is already
-/// parallelised internally, across local CPU/GPU and any remote worker, and not worth
-/// interrupting partway through).
+/// Spawns the background render loop for `request`, without blocking the UI thread.
 ///
-/// `activity_id` is the `crate::ActivityModel` id `handle_start_video_export`
-/// registered for this run -- finished on every exit path below
-/// (cancelled/failed/done), and given real progress (frames done / total) on
-/// every frame via `report_progress`. `render_ctx` is used ONLY to resume the live
-/// viewport once this run ends -- see this module's own doc comment; the caller has
-/// already incremented `export_active_count` before calling this.
+/// `cancel` is checked between frames, not mid-frame: a frame already runs in parallel
+/// across the local lanes and the remote worker, so stopping partway would waste it.
+///
+/// `activity_id` is the `crate::ActivityModel` id registered for this run. Every exit
+/// path finishes it, and each frame reports its progress to it. `render_ctx` is used only
+/// to resume the live viewport when the run ends (see the module doc). The caller has
+/// already incremented `export_active_count`.
 pub(super) fn spawn(
     ui_weak: slint::Weak<MainWindow>,
     render_ctx: Arc<Mutex<RenderContext>>,
@@ -114,10 +113,8 @@ pub(super) fn spawn(
             run(&ui_weak, &render_ctx, &request, &cancel, activity_id);
         }));
         if let Err(payload) = result {
-            // `run`'s own `report_cancelled`/`report_failure`/`report_done` all
-            // decrement `export_active_count` themselves -- a caught panic means NONE
-            // of them ran, so this is the one path that must do it here instead (via
-            // `report_failure`, which does both).
+            // `run`'s exit paths decrement `export_active_count` themselves. After a
+            // caught panic none of them ran, so `report_failure` does it here.
             let message = panic_message(&*payload);
             report_failure(
                 &ui_weak,
@@ -130,9 +127,9 @@ pub(super) fn spawn(
     });
 }
 
-/// Downcasts a `catch_unwind` payload to a human-readable message -- the exact same
-/// convention `gui::batch::preview::engine::panic_message` and
-/// `bridge::export_thread::spawn_export` already use for this.
+/// Turns a `catch_unwind` payload into text, the same way
+/// `gui::batch::preview::engine::panic_message` and `bridge::export_thread::spawn_export`
+/// do.
 fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
     payload
         .downcast_ref::<&str>()
@@ -141,12 +138,10 @@ fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
         .unwrap_or_else(|| "unknown panic".to_string())
 }
 
-/// Resumes the live viewport now that this run has fully ended -- the ONE place that
-/// decrements `export_active_count`, called from every terminal path
-/// ([`report_cancelled`]/[`report_failure`]/[`report_done`]). See this module's own
-/// doc comment.
+/// Decrements `export_active_count`, resuming the live viewport. The only place that
+/// decrements it; every terminal path calls it.
 ///
-/// `pausing` is [`pauses_viewport`] for this run: a Remote-only video never incremented
+/// `pausing` is [`pauses_viewport`] for this run. A `RemoteOnly` video never incremented
 /// the count, so it must not decrement it either.
 fn finish_video_export(render_ctx: &Arc<Mutex<RenderContext>>, pausing: bool) {
     if pausing {
@@ -154,10 +149,10 @@ fn finish_video_export(render_ctx: &Arc<Mutex<RenderContext>>, pausing: bool) {
     }
 }
 
-/// Whether `request`'s run holds the live-viewport pause for its duration -- false only
-/// under `RemoteOnly`, which traces nothing on this computer. The caller
-/// (`mod.rs::handle_start_video_export`) increments `export_active_count` exactly when
-/// this is true, and [`finish_video_export`] decrements exactly when it is.
+/// Whether `request`'s run holds the live-viewport pause: false only under `RemoteOnly`,
+/// which traces nothing on this computer. `mod.rs::start_video_run` increments
+/// `export_active_count` exactly when this is true, and [`finish_video_export`]
+/// decrements it exactly when this is true.
 pub(super) const fn pauses_viewport(request: &VideoExportRequest) -> bool {
     request.remote.compute_target.pauses_live_viewport()
 }
@@ -207,43 +202,72 @@ fn run(
         &request.out_dir,
         &outcome,
         activity_id,
+        tilt_views_note(&request.scene).as_deref(),
     );
 }
 
-/// Renders every frame of `request`'s sweep through [`frames::render_frames`] (every
-/// frame, never skipping one: the direct export always starts a fresh folder), reporting
-/// into the dialog and the status strip through a [`SlintFrameReporter`]. See
-/// [`frames::render_frames`] for the compute setup and this group's own `mod.rs` doc
-/// comment for where `request`'s compute configuration came from.
+/// Renders every frame of `request`'s sweep through [`frames::render_frames`].
+///
+/// Progress goes to the dialog and the status strip through a [`SlintFrameReporter`].
+/// Every frame is rendered: a direct export always starts a fresh folder. The compute
+/// setup is described on `frames::render_frames`.
 fn render_all_frames(
     ui_weak: &slint::Weak<MainWindow>,
     request: &VideoExportRequest,
     cancel: &AtomicBool,
     activity_id: i32,
 ) -> FramesOutcome {
-    // The whole sweep's own time-remaining estimator, fed once per completed frame
-    // (`frames_done / frames_total`) -- fresh for every call to this function, since a
-    // new run's render rate has nothing to do with a previous run's. See
-    // `gui::progress_eta`'s own module doc comment for why a rolling regression rather
-    // than "seconds since last frame".
+    // Time-remaining estimator, fed once per completed frame (`frames_done / frames_total`).
+    // Fresh for each call: a new run's render rate says nothing about the last one. See
+    // `gui::progress_eta` for why it is a rolling regression.
     let mut reporter = SlintFrameReporter {
         ui_weak: ui_weak.clone(),
         activity_id,
         eta: EtaEstimator::default(),
         work: None,
+        tilt_note: tilt_views_note(&request.scene),
     };
+    if let Some(note) = &reporter.tilt_note {
+        report_frame_progress(ui_weak, 0, 1, 0.0, Some(note.clone()), activity_id);
+    }
     frames::render_frames(request, false, cancel, &mut reporter)
 }
 
-/// Writes the frame loop's progress into `TiltVideoExportModel` and the status strip's
-/// `ActivityChip` -- exactly the two reports the loop made before it moved to `frames`.
+/// What a tilt view or video of `scene` leaves out.
+///
+/// One sentence per effect: the stone shadow and the tray reflection are not drawn by the
+/// frame loop. `None` when nothing is left out. The tilt dialog, the hover preview, video
+/// progress and queued jobs all use this wording.
+pub(in crate::gui) fn tilt_views_note(scene: &SceneSnapshot) -> Option<String> {
+    omitted_effects_note(
+        scene.stone_shadow_enabled(),
+        scene.tray_reflection_applies(),
+    )
+}
+
+/// The sentences of [`tilt_views_note`] for the effects that are on, joined by a space.
+fn omitted_effects_note(stone_shadow: bool, tray_reflection: bool) -> Option<String> {
+    let mut sentences = Vec::new();
+    if stone_shadow {
+        sentences.push("Tilt views do not show the stone shadow yet.");
+    }
+    if tray_reflection {
+        sentences.push("Tilt views don't show the tray reflection.");
+    }
+    (!sentences.is_empty()).then(|| sentences.join(" "))
+}
+
+/// Writes frame progress into `TiltVideoExportModel` and the status strip's `ActivityChip`.
 struct SlintFrameReporter {
     ui_weak: slint::Weak<MainWindow>,
     activity_id: i32,
     eta: EtaEstimator,
-    /// The rendering work done as of the next saved frame (`FrameReporter::work_done`): copied
-    /// frames cost nothing, so the time estimate follows this, not the frame count.
+    /// Rendering work done as of the next saved frame (`FrameReporter::work_done`). Copied
+    /// frames cost nothing, so the estimate follows this, not the frame count.
     work: Option<f64>,
+    /// What the frames leave out (the stone shadow, the tray reflection), added to every
+    /// frame's note. See [`tilt_views_note`].
+    tilt_note: Option<String>,
 }
 
 impl FrameReporter for SlintFrameReporter {
@@ -253,7 +277,12 @@ impl FrameReporter for SlintFrameReporter {
             index,
             total,
             fraction,
-            note,
+            match &self.tilt_note {
+                Some(tilt_note) => Some(
+                    note.map_or_else(|| tilt_note.clone(), |note| format!("{note} {tilt_note}")),
+                ),
+                None => note,
+            },
             self.activity_id,
         );
     }
@@ -278,16 +307,13 @@ impl FrameReporter for SlintFrameReporter {
     }
 }
 
-/// Reports one completed frame's progress: the dialog's own frame counter/last-frame
-/// timing, plus the SAME completion fraction the status strip's `ActivityChip` shows.
-/// `report_frame_progress` (below) additionally blends in WITHIN-frame sample progress
-/// on every batch tick, so the two together give a bar that moves continuously rather
-/// than jumping once per frame.
+/// Reports one completed frame: its counter, its time, and the status strip's fraction.
 ///
-/// `eta_text` is [`render_all_frames`]'s own `EtaEstimator` (fed `frames_done /
-/// frames_total` once per completed frame), already formatted by
-/// `gui::progress_eta::format_eta` -- computed at the call site rather than in here so
-/// this function stays a plain UI-thread setter, matching every other field it writes.
+/// [`report_frame_progress`] adds sample progress within the frame, so the bar moves
+/// continuously.
+///
+/// The caller formats `eta_text` (`gui::progress_eta::format_eta`), which keeps this a
+/// plain UI-thread setter.
 fn report_progress(
     ui_weak: &slint::Weak<MainWindow>,
     done: usize,
@@ -304,26 +330,20 @@ fn report_progress(
         model.set_progress(fraction);
         model.set_last_frame_seconds(last_frame_secs);
         model.set_eta_text(eta_text.into());
-        // `ActivityRegistry::progress`/`ActivityList::set_progress` real
-        // completion-fraction path -- `TiltVideoExportModel.progress` above
-        // already carries the same fraction for this dialog's own bar, this is
-        // the status strip's `ActivityChip` reading the identical number.
+        // Same fraction as the dialog bar above, for the status strip's `ActivityChip`.
         ui.global::<ActivityModel>()
             .invoke_progress_external(activity_id, fraction);
     });
 }
 
-/// Reports one WITHIN-frame progress tick from `render::render_frame_rgba`'s own
-/// `bridge::export_thread::ExportProgress` callback -- cheap (a couple of float ops
-/// plus a UI property set already being marshaled per sample batch, exactly like the
-/// still-image export's own per-batch progress) and blended with `frame_index`'s
-/// already-completed frames so the bar advances continuously through a frame instead
-/// of jumping only at frame boundaries.
+/// Reports one sample-batch tick from `ExportProgress` inside a frame.
 ///
-/// Surfaces a remote-lane fallback/failure `note` (a worker declined, dropped a chunk,
-/// or was paused after repeated failures) the same way the still-image export does via
-/// `ExportProgress::note` -- reused as this dialog's own `status_message` since
-/// `TiltVideoExportModel` has no separate note field of its own.
+/// The fraction is blended with the `frame_index` frames already done, so the bar advances
+/// through a frame instead of jumping at frame boundaries.
+///
+/// A remote-lane `note` (a worker declined, dropped a chunk, or was paused after repeated
+/// failures) goes to the status message, as the still-image export does with
+/// `ExportProgress::note`.
 fn report_frame_progress(
     ui_weak: &slint::Weak<MainWindow>,
     frame_index: usize,
@@ -382,8 +402,7 @@ fn report_failure(
         let model = ui.global::<TiltVideoExportModel>();
         model.set_is_exporting(false);
         model.set_has_error(true);
-        // A toast too: the popup may be closed (run in the background), and an error stays
-        // on screen until dismissed.
+        // A toast too: the dialog may be closed, and the error stays until dismissed.
         crate::gui::show_toast(&ui, &message, "error");
         model.set_status_message(message.into());
         model.set_eta_text(String::new().into());
@@ -399,9 +418,14 @@ fn report_done(
     out_dir: &Path,
     outcome: &encode::EncodeOutcome,
     activity_id: i32,
+    tilt_note: Option<&str>,
 ) {
     finish_video_export(render_ctx, pausing);
-    let (_, message) = frames::encode_outcome_message(outcome, out_dir);
+    let (_, mut message) = frames::encode_outcome_message(outcome, out_dir);
+    if let Some(note) = tilt_note {
+        message.push(' ');
+        message.push_str(note);
+    }
     let toast_kind = if matches!(outcome, encode::EncodeOutcome::Mp4(_)) {
         "success"
     } else {
@@ -435,17 +459,56 @@ mod tests {
         }
     }
 
-    /// Structural guarantee behind "cancel mid-run leaves no partial MP4": `run`'s own
-    /// body (above) only ever calls `encode::encode` with the `FramesOutcome::Done`
-    /// result of `render_all_frames` -- a cancelled sweep returns `FramesOutcome::
-    /// Cancelled` and `run` returns right after `report_cancelled` instead, so a video
-    /// file is never even ATTEMPTED for a cancelled run. This test exercises the same
-    /// per-frame render+save path `render_all_frames` uses (that function itself needs
-    /// a live `MainWindow` for its progress reporting, which a headless unit test has
-    /// no way to construct) and confirms a run stopped partway ("cancelled") leaves
-    /// exactly the frames written before the stop and, critically, no `.mp4`/`.gif`
-    /// alongside them -- nothing in this crate ever calls `encode::encode` before every
-    /// frame has saved successfully.
+    /// What a tilt view leaves out is named once per effect, the shadow first, and nothing is
+    /// said when nothing is left out.
+    #[test]
+    fn the_tilt_note_names_each_omitted_effect_and_is_silent_without_one() {
+        assert_eq!(omitted_effects_note(false, false), None);
+        assert_eq!(
+            omitted_effects_note(true, false).as_deref(),
+            Some("Tilt views do not show the stone shadow yet.")
+        );
+        assert_eq!(
+            omitted_effects_note(false, true).as_deref(),
+            Some("Tilt views don't show the tray reflection.")
+        );
+        assert_eq!(
+            omitted_effects_note(true, true).as_deref(),
+            Some(
+                "Tilt views do not show the stone shadow yet. \
+                 Tilt views don't show the tray reflection."
+            )
+        );
+    }
+
+    /// The note reads the scene's effective effects: a plain scene says nothing, a glossy tray
+    /// and a shadow each add their sentence.
+    #[test]
+    fn the_tilt_note_follows_the_scenes_effective_effects() {
+        let capture = |ctx: RenderContext| {
+            SceneSnapshot::capture(&Mutex::new(ctx)).expect("Diamond resolves")
+        };
+        assert_eq!(tilt_views_note(&capture(RenderContext::default())), None);
+        let both = capture(RenderContext {
+            stone_shadow: true,
+            tray_reflection: 0.04,
+            ..RenderContext::default()
+        });
+        assert_eq!(
+            tilt_views_note(&both).as_deref(),
+            Some(
+                "Tilt views do not show the stone shadow yet. \
+                 Tilt views don't show the tray reflection."
+            )
+        );
+    }
+
+    /// A run stopped partway leaves only the frames already written, and no video.
+    ///
+    /// `run` calls `encode::encode` only with the `FramesOutcome::Done` of
+    /// `render_all_frames`; a cancelled sweep returns before encoding. That function needs
+    /// a live `MainWindow`, so this drives the per-frame render and save steps directly and
+    /// checks that no `.mp4` or `.gif` exists beside the frames.
     #[test]
     fn a_run_stopped_partway_through_leaves_only_the_frames_already_written_and_no_video() {
         let scene = SceneSnapshot::capture(&Mutex::new(RenderContext::default()))
@@ -456,9 +519,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
 
-        // Simulate "cancel observed after the first frame": only frame 1 of 3 is ever
-        // rendered/saved, exactly like `render_all_frames`'s own cancel check would
-        // produce.
+        // Only frame 1 of 3 is saved, as after a cancel following the first frame.
         let path = dir.join(params::frame_file_name(1, total_frames));
         let config = test_config();
         let gpu = GpuBackend::disabled();

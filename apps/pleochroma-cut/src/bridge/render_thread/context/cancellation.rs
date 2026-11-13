@@ -85,6 +85,8 @@ impl RenderContext {
 struct Activity {
     dimensions: (u32, u32),
     pose: [u32; 6],
+    /// The HDR map's yaw bits and whether it follows the camera; zeros without a map.
+    hdr: [u32; 2],
     quality: (u32, u32),
     engine: EngineSpec,
     compute: (LiveComputeTarget, LocalComputeTarget),
@@ -97,6 +99,7 @@ impl Activity {
     fn scene_changed(&self, after: &Self) -> bool {
         self.dimensions != after.dimensions
             || self.pose != after.pose
+            || self.hdr != after.hdr
             || self.quality.1 != after.quality.1
             || self.engine != after.engine
             || self.buffers[..4] != after.buffers[..4]
@@ -129,6 +132,9 @@ impl Activity {
                 ctx.light_yaw.to_bits(),
                 ctx.light_pitch.to_bits(),
             ],
+            hdr: ctx.env_map.as_ref().map_or([0, 0], |_| {
+                [ctx.hdr_yaw.to_bits(), u32::from(ctx.hdr_follows_camera)]
+            }),
             quality: (ctx.target_samples, ctx.max_bounces),
             engine: ctx.engine,
             compute: (ctx.live_compute_target, ctx.local_compute_target),

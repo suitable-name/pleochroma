@@ -12,7 +12,7 @@ fn wt_intersect(origin: vec3<f32>, dir: vec3<f32>) -> WtHit {
     var near_i: u32 = 0u; var far_i: u32 = 0u;
     for (var i: u32 = 0u; i < wt.counts.x; i = i + 1u) {
         let plane = wt_planes[i];
-        // Intersection retains the existing non-fused geometry dot convention.
+        // Plain `dot`, not `fma`: the geometry convention of this intersection.
         let denominator = dot(plane.xyz, dir);
         let side = plane.w + dot(plane.xyz, origin);
         if (abs(denominator) > 1e-7) {

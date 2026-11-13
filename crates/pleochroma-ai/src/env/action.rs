@@ -16,7 +16,7 @@ pub struct ContinuousTierAction {
 }
 
 impl ContinuousTierAction {
-    /// Create a new continuous action from a slice of angle deltas.
+    /// Creates an action from per-tier angle deltas in degrees.
     #[must_use]
     pub const fn new(deltas_deg: Vec<f64>) -> Self {
         Self { deltas_deg }

@@ -1,5 +1,6 @@
-//! Tests for protocol v24 batched preview requests (`serve::connection::batch`): every
-//! item of a batch is answered with the PNG a local preview would produce from the same
+//! Tests for protocol v24 batched preview requests (`serve::connection::batch`).
+//!
+//! Every item of a batch is answered with the PNG a local preview would produce from the same
 //! sum, one bad item fails alone, a `CANCEL` ends a batch early, and a second batch sent
 //! while the first runs is queued and served on the same connection.
 

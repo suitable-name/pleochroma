@@ -29,14 +29,8 @@ use crate::rough_plan::{
     shape::RoughMesh,
 };
 
-/// The version of the binary format and of the key. Bump it when either changes.
-///
-/// Version 2: compact records (`n_zones + 1` floats each), the clear-stone Monte-Carlo
-/// statistics, `trace_dispersion` in the key.
-///
-/// Version 3 (ZC-13): the white frame holds three levels per cell (in the key), and a view stores
-/// its per-channel chroma codes after the records (a count, 0 for a grey light, else three bytes
-/// per record).
+/// The version of the binary format and of the key. Bump it when the layout or the set of
+/// keyed inputs changes.
 pub const FORMAT_VERSION: u32 = 3;
 
 const MAGIC: [u8; 4] = *b"ZFWD";

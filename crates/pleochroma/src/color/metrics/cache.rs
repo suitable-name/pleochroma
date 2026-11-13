@@ -17,7 +17,7 @@ use super::{
 use crate::{
     geometry::{plane::GpuFacetPlane, tool::StoneGeometry},
     optics::{
-        materials::GemMaterial,
+        materials::{GemMaterial, material_fingerprint},
         raytracer::{EnvironmentSource, FacetFinish, LightingModel, LightingPreset},
     },
     render_setup::hash_geometry,
@@ -25,35 +25,8 @@ use crate::{
 };
 use std::{
     collections::hash_map::DefaultHasher,
-    fmt::Write as _,
     hash::{Hash, Hasher},
 };
-
-/// A 64-bit fingerprint of everything a [`GemMaterial`] holds, so a cache key can stand for
-/// the material without owning a copy of it.
-///
-/// The fingerprint hashes the material's `Debug` rendering, which prints every field
-/// (floats in their shortest round-trip form, so two distinct `f32` values never print
-/// alike) and therefore keeps covering a field added to the struct later. The hasher is
-/// `DefaultHasher::new()`, whose keys are fixed, so the value is stable within a process.
-/// A collision (about 2^-64 per pair of materials) would serve one material's metrics for
-/// another.
-fn material_fingerprint(material: &GemMaterial) -> u64 {
-    /// Streams formatted text into a hasher without building the `String` first.
-    struct HashWriter(DefaultHasher);
-
-    impl std::fmt::Write for HashWriter {
-        fn write_str(&mut self, text: &str) -> std::fmt::Result {
-            self.0.write(text.as_bytes());
-            Ok(())
-        }
-    }
-
-    let mut writer = HashWriter(DefaultHasher::new());
-    // Writing into a hasher cannot fail; the `Result` is only the `fmt::Write` contract.
-    let _ = write!(writer, "{material:?}");
-    writer.0.finish()
-}
 
 /// The part of an [`EnvironmentSource`] the metrics depend on.
 ///
@@ -73,8 +46,13 @@ enum EnvironmentKey {
         /// Bits of `head_shadow_cone_cos` for this preset and head-shadow size.
         head_shadow_cos_bits: u32,
     },
-    /// A loaded HDR panorama, by [`map_fingerprint`].
-    Hdr(u64),
+    /// A loaded HDR panorama, by [`map_fingerprint`], turned by the bits of its
+    /// [`EnvRotation`](crate::renderer::env_map::EnvRotation) (`[cos, sin]`; an unturned map
+    /// carries the identity's bits), because the metrics look the map up along rotated directions.
+    Hdr {
+        fingerprint: u64,
+        rotation_bits: [u32; 2],
+    },
 }
 
 impl EnvironmentKey {
@@ -95,7 +73,10 @@ impl EnvironmentKey {
                 )
                 .to_bits(),
             },
-            EnvironmentSource::HdrMap(map) => Self::Hdr(map_fingerprint(map)),
+            EnvironmentSource::HdrMap { map, rotation, .. } => Self::Hdr {
+                fingerprint: map_fingerprint(map),
+                rotation_bits: rotation.bits(),
+            },
         }
     }
 }
@@ -117,10 +98,10 @@ fn map_fingerprint(map: &EnvironmentMap) -> u64 {
 
 /// A 64-bit fingerprint of which facets are frosted; `0` when none is.
 ///
-/// An empty list and an all-polished list alike (the polished stone) give `0`, any other list
-/// a non-zero hash. Only the frosted positions count, so lists that differ in length or trailing polished
-/// entries but mean the same stone hash alike. Callers that keep their own copy of a finish
-/// list (the live metrics worker's request) compare this beside the list.
+/// An empty list and an all-polished list give `0`, any other list a non-zero hash. Only the
+/// frosted positions count, so lists that differ in length or in trailing polished entries but
+/// mean the same stone hash alike. Callers that keep their own copy of a finish list (the live
+/// metrics worker's request) compare this beside the list.
 #[must_use]
 pub fn finishes_hash(finishes: &[FacetFinish]) -> u64 {
     if !finishes.contains(&FacetFinish::Frosted) {
@@ -158,8 +139,7 @@ pub struct MetricsCacheKey {
     planes_hash: u64,
     /// [`finishes_hash`] of the facet finishes, `0` for a stone with no frosted facet.
     ///
-    /// So a polished stone's key is what it was before finishes entered the key.
-    /// [`hash_geometry`] is deliberately not changed to carry this: other caches share it.
+    /// [`hash_geometry`] is not changed to carry this: other caches share it.
     finishes_hash: u64,
 }
 
@@ -536,16 +516,50 @@ mod tests {
 
         let same_content = dim.clone();
         assert_eq!(
-            key(EnvironmentSource::HdrMap(&dim)),
-            key(EnvironmentSource::HdrMap(&same_content))
+            key(EnvironmentSource::hdr(&dim)),
+            key(EnvironmentSource::hdr(&same_content))
         );
         assert_ne!(
-            key(EnvironmentSource::HdrMap(&dim)),
-            key(EnvironmentSource::HdrMap(&bright))
+            key(EnvironmentSource::hdr(&dim)),
+            key(EnvironmentSource::hdr(&bright))
         );
         assert_ne!(
-            key(EnvironmentSource::HdrMap(&dim)),
+            key(EnvironmentSource::hdr(&dim)),
             key_for(&diamond, &planes)
+        );
+    }
+
+    /// The map's yaw is part of the key by its bits: a turn invalidates the metrics, while every
+    /// way of spelling no turn keeps the entry.
+    #[test]
+    fn metrics_cache_key_follows_the_hdr_rotation() {
+        use crate::renderer::env_map::EnvRotation;
+
+        let planes = StandardGemCuts::standard_round_brilliant();
+        let diamond = GemMaterial::diamond();
+        let map = EnvironmentMap::uniform(8, 4, [0.1, 0.1, 0.1]);
+        let key = |rotation| {
+            MetricsCacheKey::new(
+                &planes,
+                &diamond,
+                0.60,
+                0.45,
+                EnvironmentSource::hdr(&map).with_hdr_rotation(rotation),
+            )
+        };
+
+        let plain =
+            MetricsCacheKey::new(&planes, &diamond, 0.60, 0.45, EnvironmentSource::hdr(&map));
+        assert_eq!(key(EnvRotation::IDENTITY), plain);
+        assert_eq!(key(EnvRotation::from_yaw(-0.0)), plain);
+        assert_ne!(key(EnvRotation::from_yaw(0.5)), plain);
+        assert_ne!(
+            key(EnvRotation::from_yaw(0.5)),
+            key(EnvRotation::from_yaw(0.6))
+        );
+        assert_eq!(
+            key(EnvRotation::from_yaw(0.5)),
+            key(EnvRotation::from_yaw(0.5))
         );
     }
 

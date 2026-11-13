@@ -2,7 +2,7 @@
 //!
 //! Layout summaries (weight, yield, saw work, cut order), the live model readout and
 //! weight check live here; the per-design metric list of a result card is in [`group`].
-//! Everything returns plain strings, so it can be built on any thread.
+//! Nothing here touches the UI thread, so the results can be built on any thread.
 
 mod group;
 
@@ -58,7 +58,8 @@ pub fn format_total_carat(carat: f64) -> String {
     format!("{carat:.2} ct")
 }
 
-/// Formats yield of weighed rough ("38.9 % of 9.54 ct weighed"), or empty when no weight was given.
+/// Formats yield of weighed rough ("38.9 % of 9.54 ct weighed"), or empty when no weight
+/// was given.
 #[must_use]
 pub fn format_weighed_yield(total_carat: f64, weighed_ct: Option<f64>) -> String {
     match weighed_ct {

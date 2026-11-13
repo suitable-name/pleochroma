@@ -1,15 +1,10 @@
 
-// hash_u32 -- optics::raytracer::hash_u32, bit-exact. Defined in
-// `transport_physics.wgsl` -- look there, not here.
+// `hash_u32` is defined in `transport_physics/01_prelude_polarization.wgsl`.
 //
-// optics::raytracer::{low_discrepancy_base2, radical_inverse_base,
-// cranley_patterson_rotate, PIXEL_JITTER_X_ROTATION_STREAM,
-// PIXEL_JITTER_Y_ROTATION_STREAM, HERO_WAVELENGTH_ROTATION_STREAM}, bit-exact (see
-// shaders/rng_equivalence.wgsl for the dedicated GPU/CPU RNG self-test).
-//
-// jx/jy/hero_rand use three different prime bases (2, 3, 5), not the same base rotated
-// three ways -- measured: same-base pairing made variance worse for the
-// highest-variance pixels.
+// The pixel-jitter and hero-wavelength draws and their rotation streams are bit-exact with
+// `optics::raytracer`. `shaders/rng_equivalence.wgsl` tests them against the CPU. jx, jy and
+// hero_rand use the prime bases 2, 3 and 5. One shared base gave higher variance on the noisiest
+// pixels.
 
 const PIXEL_JITTER_X_ROTATION_STREAM: u32 = 0xA511E9B3u;
 const PIXEL_JITTER_Y_ROTATION_STREAM: u32 = 0x63D81B23u;
@@ -19,10 +14,8 @@ fn low_discrepancy_base2(n: u32) -> f32 {
     return f32(reverseBits(n)) / 4294967296.0;
 }
 
-// optics::raytracer::radical_inverse_base -- general prime-base radical inverse (base 2
-// uses the faster bit-reversal path above instead). This uses `fma()`
-// (`val = fma(f32(digit), inv_base, val)` below), matching the CPU side's own
-// `(digit as f32).mul_add(inv_base, val)` exactly.
+// Prime-base radical inverse, as `optics::raytracer::radical_inverse_base`. Base 2 uses the
+// bit-reversal path above. `fma` matches the CPU's `mul_add`.
 fn radical_inverse_base(n_in: u32, base: u32) -> f32 {
     var n = n_in;
     var val: f32 = 0.0;
@@ -44,20 +37,12 @@ fn cranley_patterson_rotate(x: f32, offset: f32) -> f32 {
     return sum - floor(sum);
 }
 
-// The CIE 1931 color matching table, `cie_1931_cmf`, and
-// `integrate_channels_to_xyz_family` live in `transport_physics/05_nee_env_sampling.wgsl` so the
-// standalone transport-function kernels share them with the megakernel.
-
-// optics::renderer::env_map_spectrum::rgb_to_spectral_radiance -- used for the
-// direction-independent "uniform furnace" environment (env_mode == 0u): a grey
-// `EnvironmentMap::uniform(w, h, [l0, l0, l0])` that is still wavelength-dependent, so
-// this is deliberately not flattened to a bare `l0` return.
-
-// asymmetric_gaussian and rgb_to_spectral_radiance (neutral part on the wide bumps, chroma
-// remainder on the narrow bumps) are defined in transport_physics.wgsl.
-
-// optics::raytracer::sample_studio_environment (+ optics::studio_rig::StudioRig) --
-// ported identically to shaders/environment.wgsl.
+// The CIE 1931 color matching table, `cie_1931_cmf` and `integrate_channels_to_xyz_family` are in
+// `transport_physics/05_nee_env_sampling.wgsl`, shared with the transport-function kernels.
+//
+// The uniform furnace environment (env_mode 0) is grey but still wavelength-dependent, so its
+// radiance comes from `rgb_to_spectral_radiance` (`transport_physics/05_nee_env_sampling.wgsl`)
+// rather than a bare `l0`.
 
 fn powi_u(base: f32, exp: u32) -> f32 {
     var result: f32 = 1.0;
@@ -87,10 +72,8 @@ fn blackbody_spectrum(lambda_nm: f32, temp_k: f32) -> f32 {
     return clamp(powi_u(560.0 / lambda_nm, 5u) * ratio, 0.01, 20.0);
 }
 
-// optics::raytracer::environment::{CIE_D65_SPD_380_780_10NM, d65_relative_spectral_power}
-// (CIE 15:2004) -- the "D65 Daylight" preset's real measured table, used instead of
-// `blackbody_spectrum` above. A `const` array, not a uniform/storage buffer: 41 `f32`s
-// is small enough to inline directly, needing no extra bind-group slot or upload.
+// CIE 15:2004 D65 table of the "D65 Daylight" preset, used instead of `blackbody_spectrum` when
+// `studio_use_d65` is set. A `const` array: 41 `f32`s need no bind-group slot or upload.
 const CIE_D65_SPD_380_780_10NM: array<f32, 41> = array<f32, 41>(
     49.9755, 54.6482, 82.7549, 91.4860, 93.4318, 86.6823, 104.865, 117.008, 117.812, 114.861,
     115.923, 108.811, 109.354, 107.802, 104.790, 107.689, 104.405, 104.046, 100.000, 96.3342,
@@ -99,9 +82,9 @@ const CIE_D65_SPD_380_780_10NM: array<f32, 41> = array<f32, 41>(
     63.3828,
 );
 
-// Ported op-for-op from `optics::raytracer::environment::d65_relative_spectral_power`:
-// same 560nm-normalization (dividing by the table's `100.000` entry), same
-// clamp-to-table-edge behaviour outside 380-780nm.
+// Ported op for op from `d65_relative_spectral_power` in
+// `optics::raytracer::environment::spectral`. Normalized by the 100.000 entry, which is at 560 nm,
+// and clamped to the table edges outside 380-780 nm.
 fn d65_relative_spectral_power(lambda_nm: f32) -> f32 {
     let start_nm: f32 = 380.0;
     let step_nm: f32 = 10.0;

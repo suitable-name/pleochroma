@@ -12,14 +12,13 @@ export struct ShortcutItem {
 }
 
 // The keyboard shortcuts the web app implements, and whether the overlay listing them is
-// open (Help > Keyboard shortcuts, or `?` while no text field has focus).
+// open (Help > Keyboard Shortcuts (?), or `?` while no text field has focus).
 //
-// The list is the desktop's set (`apps/pleochroma-cut/src/gui/editor/shortcuts.rs`) where a
-// browser allows it. The desktop's Ctrl+N (new window), Ctrl+1/2/3 (switch browser tab),
-// Ctrl+E and Ctrl+F (the browser's find) are not reusable, so the web app uses Alt+N and
-// Alt+1/2/3 instead. Every row names a binding some `.slint` file in this app actually
-// reads (`app.slint`'s `shortcuts` scope, `tier_table.slint`, `solid.slint`,
-// `diagram.slint`); keep the two in step when a key changes.
+// The list follows the desktop's set (`apps/pleochroma-cut/src/gui/editor/shortcuts.rs`)
+// where a browser allows it. The browser takes Ctrl+N, Ctrl+1..3 and Ctrl+F, so the web app
+// uses Alt+N and Alt+1..3. Every row names a binding that a `.slint` file in this app reads
+// (`app.slint`'s `shortcuts` scope, `tier_table.slint`, `solid.slint`, `diagram.slint`);
+// keep the two in step when a key changes.
 export global ShortcutsModel {
     in-out property <bool> open: false;
     // Whichever way the list opens (Help menu, `?`), a lesson step may be waiting for it.

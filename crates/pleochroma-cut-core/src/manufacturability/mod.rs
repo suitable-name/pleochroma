@@ -1,52 +1,40 @@
-//! manufacturability checks -- the point where the editor starts
-//! protecting the user from a design that solves geometrically but cannot
-//! actually be cut.
+//! Manufacturability checks flag a design that solves geometrically but cannot be cut.
 //!
-//! Five checks, every one reported as a warning **on** the design, never as
-//! an edit that silently "fixes" anything:
+//! Six checks, each reported as a warning **on** the design, never as an edit that
+//! silently "fixes" anything:
 //!
 //! 1. [`mesh_checks::check_vanishing_facets`]: a later cut erased an earlier facet entirely.
 //! 2. [`mesh_checks::check_undersized_facets`]: a facet survives but is too small to
 //!    reliably cut and polish.
 //! 3. [`authored_checks::check_gear_quantization`]: an authored index-wheel position does not
 //!    land on a real gear tooth.
-//! 4. [`authored_checks::check_cut_order`]: a tier's stated meet target comes later in the
-//!    schedule than the tier itself -- geometrically solvable (the solver can
-//!    resolve a forward reference numerically, without the referenced facet
-//!    physically existing yet -- but its OWN result is still file-order
-//!    dependent: phase 1 runs in strict file order, so this is "does not need a
-//!    cutting sequence", never "order doesn't matter", see
-//!    `pleochroma::geometry::meet_solver`'s module docs and
-//!    `crate::resolve`'s own doc comment) but physically uncuttable in that order.
-//! 5. [`authored_checks::check_meet_name_asc_safety`]: a tier's stated meet target
-//!    NAME would not survive a plain `.asc` export/re-import --
-//!    geometrically fine today, but silently loses or mis-targets the reference
-//!    the moment the design round-trips through `.asc` text.
-//! 6. [`mesh_checks::check_concave_tools`]: only for a design with concave tiers, the
-//!    tool warnings of plan §9.1 (a tool that misses the stone, sits wholly inside it,
-//!    breaks through it, removes a meet or hull vertex, overlaps another, or leaves a
-//!    sliver). Absent for a planar design, so its output is unchanged. It is the one
-//!    costly check (dozens of plane-arrangement meshes), so callers that run on a UI
-//!    thread take it from a worker instead of calling it inline.
+//! 4. [`authored_checks::check_cut_order`]: a tier's stated meet target comes at or after
+//!    the tier itself in the schedule. The solver resolves such a forward reference
+//!    numerically, but the result depends on file order (see
+//!    `pleochroma::geometry::meet_solver`), and the target facet does not exist yet when
+//!    the tier is cut.
+//! 5. [`authored_checks::check_meet_name_asc_safety`]: a tier's meet target name would not
+//!    survive a plain `.asc` export and re-import, which would lose or mis-target the
+//!    reference.
+//! 6. [`mesh_checks::check_concave_tools`]: only for a design with concave tiers. It
+//!    reports a tool that misses the stone, lies wholly inside it, breaks through it,
+//!    removes a meet or hull vertex, overlaps another tool, or leaves a sliver. It is the
+//!    costliest check (many plane-arrangement meshes), so a UI thread should run it on a
+//!    worker.
 //!
-//! [`check_manufacturability`] runs all five together over an
-//! **already-solved** [`crate::design::Design`] (see its own doc comment for why that
-//! matters) and returns every [`ManufacturabilityWarning`] found, in a fixed,
-//! deterministic order (checks 1-5, tier order within each) -- never a
-//! `HashMap`/`HashSet` in the decision path, matching this crate's
-//! determinism contract.
+//! [`check_manufacturability`] runs every check over an **already-solved**
+//! [`crate::design::Design`] (see its doc comment) and returns the warnings in a fixed,
+//! deterministic order: check order, then tier order within each. No `HashMap` or
+//! `HashSet` appears in the decision path.
 //!
 //! # Why these checks don't need a second solve
 //!
-//! `Design::planes`/`Design::status` each call `Design::solve` internally, and a
-//! design with real meet-derived structure costs 5-6 seconds to solve. An editor
-//! that just ran "Solve" already has a `Vec<SolvedTier>` in hand;
-//! [`check_manufacturability`] takes that directly and builds the plane arrangement
-//! via `Design::planes_from_solved` (no second solve), then meshes it via
-//! [`pleochroma::geometry::stone_metrics::build_solid_mesh`] -- measured at 0.616ms
-//! for a 103-tier design, negligible next to the solve that already happened.
-//! Checks 3, 4 and 5 need no mast at all (they read authored angle/index/name/
-//! constraint state directly), so they run even when the design has never been
+//! `Design::planes` and `Design::status` each call `Design::solve`, which is slow for a
+//! design with meet-derived structure. [`check_manufacturability`] instead takes the
+//! `SolvedTier`s the caller already has, builds the plane arrangement with
+//! `Design::planes_from_solved`, and meshes it with
+//! [`pleochroma::geometry::stone_metrics::build_solid_mesh`]. Checks 3, 4 and 5 read the
+//! authored angle, index and name state, so they run even when the design has never been
 //! solved.
 //!
 //! # Module layout
@@ -86,20 +74,12 @@ pub(crate) use mesh_checks::facet_plane_boundaries;
 ///
 /// The three mast-free checks
 /// ([`check_gear_quantization`]/[`check_cut_order`]/[`check_meet_name_asc_safety`])
-/// need no mast at all and always run; the two mesh-based checks (reached through
+/// always run. The mesh-based checks (1, 2 and 6, reached through
 /// [`check_manufacturability`]) run only when `solved` is `Some`.
 ///
-/// Exists for a caller like the editor's own manufacturability panel that must
-/// still report the mast-free checks (a fractional index, an out-of-order meet) on
-/// a design that has not solved yet -- e.g. one with a
-/// [`crate::design::MissingAnchor`], where calling
-/// [`Design::solve`](crate::design::Design::solve) itself fails. A caller that
-/// early-returns an empty list on that failure drops every check, mast-free ones
-/// included, rather than only the two that actually need a mast -- see the
-/// "mast-free manufacturability checks are dropped entirely on `MissingAnchor`"
-/// finding, whose fix this is the core-side half of (the editor's own
-/// `manufacturability_warning_lines` should call this instead of returning
-/// `Vec::new()` on a solve error).
+/// For a caller that must still report the mast-free checks on a design that has not
+/// solved, such as one with a [`crate::design::MissingAnchor`]. Returning an empty list
+/// on a solve error would drop those checks too.
 #[must_use]
 pub fn check_manufacturability_available(
     design: &Design,

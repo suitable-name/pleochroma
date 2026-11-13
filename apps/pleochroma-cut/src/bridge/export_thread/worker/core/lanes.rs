@@ -2,13 +2,19 @@
 //! (availability, then calibration), running the local and remote lanes concurrently
 //! over one shared claim point, and merging each engine's buffer exactly once.
 
-use super::super::types::{Accumulation, AccumulationCarry, AccumulationOutcome};
+use super::super::{
+    taps::{LinearImageKind, SnapshotSchedule, snapshot_claim_cap, summed},
+    types::{Accumulation, AccumulationCarry, AccumulationOutcome},
+};
+#[cfg(feature = "beam")]
+use crate::bridge::export_thread::remote::BeamClientPool;
 use crate::{
     bridge::{
         export_thread::{
             ExportProgress,
             batch::{
-                ExportCtx, HYBRID_MIN_SPP, calibrate_split, local_chunk_size, run_local_batches,
+                ExportCtx, HYBRID_MIN_SPP, calibrate_split_confirmed, local_chunk_size,
+                run_local_batches,
             },
             params::ComputeTarget,
             preview::PreviewThrottle,
@@ -32,21 +38,24 @@ use std::{
     time::Duration,
 };
 
-/// Placeholder initial rate (samples/sec) used when remote's ENTIRE sample budget is
-/// smaller than a calibration probe (`ComputeTarget::RemoteOnly` case, see "Remote
-/// calibration" below) so there's no measurement to start from. The value barely
-/// matters -- `SampleCursor::claim`'s clamp sizes the first (only) chunk to the whole
-/// tiny remainder regardless. Deliberately not `0.0`/negative, which
-/// `remote_chunk_samples` would treat as "use the floor".
+/// Starting rate (samples/sec) for a remote lane with no calibration probe: the `RemoteOnly`
+/// case where the whole budget is smaller than one probe. The value barely matters, since
+/// `SampleCursor::claim` clamps the only chunk to the remainder. Not `0.0` or negative, which
+/// `remote_chunk_samples` reads as "use the floor".
 const DEFAULT_REMOTE_RATE_GUESS: f64 = 1000.0;
 
-/// Resolves which remote worker (if any) this call's remote lane should use. Reuses
-/// `carry.remote_capability` once a prior call on the SAME carry has already probed
-/// (see [`AccumulationCarry::remote_probed`]'s own doc comment); otherwise probes fresh,
-/// exactly as [`super::render_accumulation`] always did before this helper existed. `Err` is
-/// only returned for `ComputeTarget::RemoteOnly`, which has no local fallback to fail
-/// gracefully into.
-fn resolve_remote_capability(
+/// The absolute index of the sample that is `done` samples into a render whose first sample
+/// is `offset`. With `offset` 0 it is `done`.
+#[must_use]
+const fn absolute_sample(offset: u32, done: u32) -> u32 {
+    offset.saturating_add(done)
+}
+
+/// Resolves which remote worker (if any) this call's remote lane uses. Reuses
+/// `carry.remote_capability` once a prior call on the same carry has probed (see
+/// [`AccumulationCarry::remote_probed`]); otherwise probes now. `Err` is only returned for
+/// `ComputeTarget::RemoteOnly`, which has no local fallback.
+pub(super) fn resolve_remote_capability(
     carry: &mut AccumulationCarry,
     compute_target: ComputeTarget,
     worker: Option<&WorkerSettings>,
@@ -55,11 +64,62 @@ fn resolve_remote_capability(
     height: u32,
     pending_note: &mut Option<String>,
 ) -> Result<Option<RemoteCapability>, String> {
+    resolve_probe(
+        (&mut carry.remote_probed, &mut carry.remote_capability),
+        compute_target,
+        worker,
+        (scene, width, height),
+        pending_note,
+    )
+}
+
+/// What a beam render takes from the carry: the cached probe and the kept beam-tile connections.
+///
+/// A struct of three field borrows, so the render can hold it beside `&carry.taps`.
+#[cfg(feature = "beam")]
+pub(super) struct BeamLaneCache<'c> {
+    /// [`AccumulationCarry::remote_probed`].
+    pub(super) probed: &'c mut bool,
+    /// [`AccumulationCarry::remote_capability`].
+    pub(super) capability: &'c mut Option<RemoteCapability>,
+    /// The beam-tile connections kept across frames.
+    pub(super) clients: &'c mut BeamClientPool,
+}
+
+#[cfg(feature = "beam")]
+impl BeamLaneCache<'_> {
+    /// [`resolve_remote_capability`] over the cached probe: probes once per carry, like the
+    /// ordinary lane.
+    pub(super) fn resolve(
+        &mut self,
+        compute_target: ComputeTarget,
+        worker: Option<&WorkerSettings>,
+        frame: (&SceneSnapshot, u32, u32),
+        pending_note: &mut Option<String>,
+    ) -> Result<Option<RemoteCapability>, String> {
+        resolve_probe(
+            (&mut *self.probed, &mut *self.capability),
+            compute_target,
+            worker,
+            frame,
+            pending_note,
+        )
+    }
+}
+
+/// [`resolve_remote_capability`] over the two probe fields of a carry.
+fn resolve_probe(
+    (probed, cached): (&mut bool, &mut Option<RemoteCapability>),
+    compute_target: ComputeTarget,
+    worker: Option<&WorkerSettings>,
+    (scene, width, height): (&SceneSnapshot, u32, u32),
+    pending_note: &mut Option<String>,
+) -> Result<Option<RemoteCapability>, String> {
     if matches!(compute_target, ComputeTarget::LocalOnly) {
         return Ok(None);
     }
-    if carry.remote_probed {
-        return Ok(carry.remote_capability.clone());
+    if *probed {
+        return Ok(cached.clone());
     }
     // Re-probed here, not trusted from whatever the export dialog observed when it
     // opened, so a worker that went away or came up in the meantime is judged by
@@ -85,8 +145,8 @@ fn resolve_remote_capability(
                     ));
                 }
                 *pending_note = Some(refusal.export_note().to_string());
-                carry.remote_probed = true;
-                carry.remote_capability = None;
+                *probed = true;
+                *cached = None;
                 return Ok(None);
             }
             // The same per-capability rule for colour zones. A remote
@@ -105,8 +165,8 @@ fn resolve_remote_capability(
                     ));
                 }
                 *pending_note = Some(refusal.export_note().to_string());
-                carry.remote_probed = true;
-                carry.remote_capability = None;
+                *probed = true;
+                *cached = None;
                 return Ok(None);
             }
             // And for oriented inclusions the wire record could not carry (a custom material's
@@ -122,8 +182,8 @@ fn resolve_remote_capability(
                     ));
                 }
                 *pending_note = Some(refusal.export_note().to_string());
-                carry.remote_probed = true;
-                carry.remote_capability = None;
+                *probed = true;
+                *cached = None;
                 return Ok(None);
             }
             if exceeds_pixel_cap(width, height, &cap) {
@@ -154,16 +214,15 @@ fn resolve_remote_capability(
             None
         }
     };
-    carry.remote_probed = true;
-    carry.remote_capability.clone_from(&resolved);
+    *probed = true;
+    cached.clone_from(&resolved);
     Ok(resolved)
 }
 
 /// Resolves the remote lane's starting throughput estimate for this call: reuses
-/// `carry.remote_rate` once a prior call on the SAME carry has already measured one
+/// `carry.remote_rate` once a prior call on the same carry has measured one
 /// (skipping the calibration probe entirely), or times a fresh
-/// [`REMOTE_CALIBRATION_SAMPLES`]-sample probe exactly as [`super::render_accumulation`]
-/// always did before this helper existed. `Ok(None)` means "no remote lane this call"
+/// [`REMOTE_CALIBRATION_SAMPLES`]-sample probe. `Ok(None)` means "no remote lane this call"
 /// (not worth it for the SPP remaining, cancelled, or the probe failed/ran short with
 /// nothing to seed a lane from); `Err` is fatal only for `ComputeTarget::RemoteOnly`.
 #[expect(
@@ -182,6 +241,7 @@ fn resolve_remote_rate(
     width: u32,
     height: u32,
     samples_per_pixel: u32,
+    sample_offset: u32,
     samples_done: &mut u32,
     accum: &mut [Vec3],
     cancel: &AtomicBool,
@@ -204,20 +264,22 @@ fn resolve_remote_rate(
         return Ok(Some(seeded));
     }
 
-    // `calibrate_remote_rate` returns a `RemoteCalibration`, not a bare `Option<f64>`,
-    // so a failed/short probe's reason reaches the user instead of silently collapsing
-    // to "no remote". `Cancelled` gets no note -- the caller's own `cancel` check bails
-    // out immediately after.
+    // A failed or short probe's reason reaches the user through `RemoteCalibration`.
+    // `Cancelled` gets no note: the caller's `cancel` check ends the render right after.
     let calibration = if remaining >= REMOTE_CALIBRATION_SAMPLES {
-        calibrate_remote_rate(
+        // `samples_done` counts samples; the probe wants the absolute index it starts at.
+        let mut absolute = absolute_sample(sample_offset, *samples_done);
+        let calibration = calibrate_remote_rate(
             capability,
             scene_state,
             width,
             height,
-            samples_done,
+            &mut absolute,
             accum,
             cancel,
-        )
+        );
+        *samples_done = absolute.saturating_sub(sample_offset);
+        calibration
     } else {
         // Only reachable via the `RemoteOnly` bypass above, when the ENTIRE sample
         // budget is smaller than one calibration probe. Spending any of that tiny
@@ -284,6 +346,9 @@ pub(super) struct RenderJob<'a> {
     pub(super) height: u32,
     /// Samples per pixel to accumulate.
     pub(super) samples_per_pixel: u32,
+    /// The absolute index of the first sample (0 for an ordinary render): the render traces
+    /// absolute samples `sample_offset..sample_offset + samples_per_pixel`.
+    pub(super) sample_offset: u32,
     /// Which engines may render.
     pub(super) compute_target: ComputeTarget,
     /// The configured remote worker, if any.
@@ -345,6 +410,9 @@ struct LaneSetup<'a, 'b> {
     cursor: SampleCursor,
     /// How many samples the local lane claims at a time.
     local_claim_size: u32,
+    /// `--progress-raw` without a remote lane: the samples per pixel done before the
+    /// local lane starts. Each claim is then capped to end on the next snapshot point.
+    snapshot_base: Option<u32>,
     /// Output width in pixels.
     width: u32,
     /// Output height in pixels.
@@ -358,6 +426,17 @@ struct LaneSetup<'a, 'b> {
     /// `false` only for `RemoteOnly` -- local claims nothing and the calling thread
     /// just polls for progress while remote's lane runs.
     run_local: bool,
+}
+
+impl LaneSetup<'_, '_> {
+    /// The local lane's next claim, `traced` samples per pixel into its own share: the
+    /// chunk size, capped at the next snapshot point when the render takes snapshots.
+    fn claim_size(&self, traced: u32) -> u32 {
+        self.snapshot_base.map_or(self.local_claim_size, |base| {
+            self.local_claim_size
+                .min(snapshot_claim_cap(base.saturating_add(traced)))
+        })
+    }
 }
 
 /// `Err(Cancelled)` once `cancel` is set.
@@ -414,6 +493,7 @@ fn prepare_remote_lane(
             job.width,
             job.height,
             job.samples_per_pixel,
+            job.sample_offset,
             samples_done,
             accum,
             job.cancel,
@@ -456,7 +536,7 @@ fn run_lanes(
         run_local_batches(
             setup.ctx,
             cursor,
-            setup.local_claim_size,
+            |traced| setup.claim_size(traced),
             &no_remote_lane,
             gpu_frac,
             accum,
@@ -495,7 +575,7 @@ fn run_lanes(
             run_local_batches(
                 setup.ctx,
                 cursor,
-                setup.local_claim_size,
+                |traced| setup.claim_size(traced),
                 &remote_lane_done,
                 gpu_frac,
                 accum,
@@ -545,7 +625,77 @@ fn merge_lane_buffers(accum: &mut [Vec3], remote: Option<RemoteProgress>, gpu_ac
     }
 }
 
-/// The body of [`super::render_accumulation`], run once [`super::with_export_ctx`] has built `ctx`.
+/// `pending` with the path cache's one progress note (its size line, or why the render has none)
+/// in front, when the context has one left.
+fn with_cache_note(ctx: &ExportCtx<'_>, pending: Option<String>) -> Option<String> {
+    match (ctx.take_cache_note(), pending) {
+        (Some(cache_note), Some(earlier)) => Some(format!("{cache_note} {earlier}")),
+        (cache_note, earlier) => cache_note.or(earlier),
+    }
+}
+
+/// The hybrid CPU+GPU split the concurrent phase starts from.
+///
+/// That is the split carried from a prior call (`carried`), or else a fresh timing probe with its
+/// confirmation batch. The probe's samples are real: `samples_done` moves past them, into
+/// `buffers` (`(accum, gpu_accum)`). A render that takes snapshots (`snapshots`) gets the probe
+/// alone: its first claims end on the snapshot points, and a confirmation batch would run past
+/// the first one. `None` is one engine per batch: the Ray-Traced engine, a render with a path
+/// cache (`CacheRun::accumulate` runs one engine per batch), any compute choice but `CpuGpu`, or
+/// too few samples left to split. `Some(1.0)` is the GPU alone, chosen because the GPU does
+/// nearly all of the work (`batch::calibrate_split`).
+fn starting_split(
+    ctx: &ExportCtx<'_>,
+    job: &RenderJob<'_>,
+    local_compute: LocalComputeTarget,
+    carried: Option<f64>,
+    snapshots: bool,
+    samples_done: &mut u32,
+    buffers: (&mut [Vec3], &mut [Vec3]),
+) -> Option<f64> {
+    if ctx.scene.engine.is_ray()
+        || ctx.path_cache.is_some()
+        || local_compute != LocalComputeTarget::CpuGpu
+        || job.samples_per_pixel - *samples_done < HYBRID_MIN_SPP
+    {
+        return None;
+    }
+    let (accum, gpu_accum) = buffers;
+    carried.or_else(|| {
+        // `samples_done` counts samples; the probe wants the absolute index it starts at.
+        let mut absolute = absolute_sample(job.sample_offset, *samples_done);
+        let available = if snapshots {
+            0
+        } else {
+            job.samples_per_pixel - *samples_done
+        };
+        let frac =
+            calibrate_split_confirmed(ctx, &mut absolute, available, accum, gpu_accum, job.cancel);
+        *samples_done = absolute.saturating_sub(job.sample_offset);
+        frac
+    })
+}
+
+/// The progress report of one tick of the ordinary render: `total_done` of `samples_per_pixel`
+/// samples, with the tick's thumbnail and note.
+const fn tick_report(
+    total_done: u32,
+    samples_per_pixel: u32,
+    preview: Option<slint::SharedPixelBuffer<slint::Rgba8Pixel>>,
+    note: Option<String>,
+) -> ExportProgress {
+    ExportProgress {
+        fraction: total_done as f32 / samples_per_pixel as f32,
+        samples_done: total_done,
+        samples_total: samples_per_pixel,
+        preview,
+        note,
+        #[cfg(feature = "beam")]
+        beam: None,
+    }
+}
+
+/// The body of [`super::render_accumulation`], run once [`super::with_export_ctx`] built `ctx`.
 /// `Err` is an early end of the render (cancelled or failed); `Ok` the finished buffer.
 pub(super) fn render_on_ctx(
     ctx: &ExportCtx<'_>,
@@ -554,8 +704,7 @@ pub(super) fn render_on_ctx(
     carry: &mut AccumulationCarry,
     mut report_progress: impl FnMut(ExportProgress),
 ) -> Result<Accumulation, AccumulationOutcome> {
-    let (width, height, samples_per_pixel, cancel) =
-        (job.width, job.height, job.samples_per_pixel, job.cancel);
+    let (width, height, samples_per_pixel) = (job.width, job.height, job.samples_per_pixel);
     let mut accum = vec![Vec3::ZERO; (width as usize) * (height as usize)];
     let mut samples_done = 0u32;
     let mut pending_note: Option<String> = None;
@@ -565,7 +714,9 @@ pub(super) fn render_on_ctx(
     // `gpu_accum` is declared here because the concurrent phase below needs it
     // regardless of whether remote ends up in play.
     let mut gpu_accum = vec![Vec3::ZERO; accum.len()];
-    check_not_cancelled(cancel)?;
+    check_not_cancelled(job.cancel)?;
+    // The path cache's note leads the first progress tick.
+    pending_note = with_cache_note(ctx, pending_note);
 
     // Hybrid CPU+GPU export: the GPU and all CPU cores trace DISJOINT sample ranges of
     // the same frame concurrently, and radiance sums merge -- the same
@@ -578,17 +729,16 @@ pub(super) fn render_on_ctx(
     // seed already carried from a prior call skips the timing probe entirely and
     // starts the concurrent phase from it directly -- `hybrid_batch`'s own per-batch
     // EMA keeps adapting it exactly as if it had just been measured.
-    let mut gpu_frac: Option<f64> = if !ctx.scene.engine.is_ray()
-        && local_compute == LocalComputeTarget::CpuGpu
-        && samples_per_pixel - samples_done >= HYBRID_MIN_SPP
-    {
-        carry
-            .hybrid_frac
-            .or_else(|| calibrate_split(ctx, &mut samples_done, &mut accum, &mut gpu_accum, cancel))
-    } else {
-        None
-    };
-    check_not_cancelled(cancel)?;
+    let mut gpu_frac = starting_split(
+        ctx,
+        job,
+        local_compute,
+        carry.hybrid_frac,
+        carry.taps.wants_snapshots(),
+        &mut samples_done,
+        (&mut accum, &mut gpu_accum),
+    );
+    check_not_cancelled(job.cancel)?;
 
     // ---- The concurrent phase: local and (if in play) remote share one cursor -----
     // Both calibration probes above are real, already-counted work -- `samples_done`
@@ -597,27 +747,42 @@ pub(super) fn render_on_ctx(
     // fixed slice that finishes early with nothing further to claim.
     let setup = LaneSetup {
         ctx,
-        cursor: SampleCursor::new(samples_done, samples_per_pixel),
+        cursor: SampleCursor::new(
+            absolute_sample(job.sample_offset, samples_done),
+            absolute_sample(job.sample_offset, samples_per_pixel),
+        ),
         local_claim_size: local_chunk_size(samples_per_pixel),
+        // Snapshots come from the local buffers only, so a remote lane takes none.
+        snapshot_base: (carry.taps.wants_snapshots() && remote_plan.rate.is_none())
+            .then_some(samples_done),
         width,
         height,
-        cancel,
+        cancel: job.cancel,
         fallback_to_local: matches!(job.compute_target, ComputeTarget::Both),
         run_local: !matches!(job.compute_target, ComputeTarget::RemoteOnly),
     };
     let mut preview_throttle = PreviewThrottle::new();
     let remote_progress = remote_plan.rate.map(|_| RemoteProgress::new(accum.len()));
+    // `--progress-raw`: snapshots of the linear image at chunk boundaries. Taken from the
+    // local buffers only, so a render with a remote lane in play takes none (the command
+    // line refuses the combination before it starts).
+    let taps = carry.taps.clone();
+    let mut snapshots = SnapshotSchedule::new();
+    // The samples traced before the lanes start (the hybrid probe and its confirmation batch, a
+    // remote calibration) are in the buffers already: they count toward the progress, the
+    // preview's sample count and the snapshot points.
+    let lanes_start = samples_done;
 
     // Reports one progress tick. `local_done` is the LOCAL lane's own running total
     // (not a cursor position, which can run ahead of completed work). Adding remote's
-    // independently-tracked total gives the render's true combined completion,
-    // correct by construction since the shared cursor can never double-count a
-    // sample. Reduces to the pre-remote formula when `remote_progress` is `None`.
+    // independently-tracked total and `lanes_start` gives the render's true combined
+    // completion, correct by construction since the shared cursor can never double-count a
+    // sample. Without a remote lane (`remote_progress` is `None`) it is the local count alone.
     let mut on_local_batch = |local_done: u32, local_accum: &[Vec3], local_gpu_accum: &[Vec3]| {
         let (remote_done_so_far, remote_preview) = remote_progress
             .as_ref()
             .map_or((0, None), |p| (p.samples_done(), Some(p.preview_buffer())));
-        let total_done = (local_done + remote_done_so_far).min(samples_per_pixel);
+        let total_done = (lanes_start + local_done + remote_done_so_far).min(samples_per_pixel);
         let preview = preview_throttle.maybe_generate(
             width,
             height,
@@ -632,13 +797,18 @@ pub(super) fn render_on_ctx(
         let note = pending_note
             .take()
             .or_else(|| remote_progress.as_ref().and_then(RemoteProgress::take_note));
-        report_progress(ExportProgress {
-            fraction: total_done as f32 / samples_per_pixel as f32,
-            samples_done: total_done,
-            samples_total: samples_per_pixel,
-            preview,
-            note,
-        });
+        report_progress(tick_report(total_done, samples_per_pixel, preview, note));
+        if local_done > 0 && remote_progress.is_none() && taps.wants_snapshots() {
+            let done = lanes_start.saturating_add(local_done);
+            if snapshots.due(done) {
+                taps.publish(
+                    LinearImageKind::Snapshot,
+                    (width, height),
+                    done,
+                    &summed(local_accum, local_gpu_accum),
+                );
+            }
+        }
     };
 
     // `outcome.fatal` is `Some` only when `run_remote_lane` ended in a state that must
@@ -670,7 +840,7 @@ pub(super) fn render_on_ctx(
     // included. `run_remote_batch` already sent `CANCEL` to the worker for whatever
     // chunk was in flight once it observed `cancel`, so this is just bookkeeping
     // catching up.
-    check_not_cancelled(cancel)?;
+    check_not_cancelled(job.cancel)?;
 
     // `RemoteOnly` only: fails the whole render outright rather than returning the
     // partial `accum`, since no local lane ever ran to pick up a failed chunk's
@@ -680,10 +850,42 @@ pub(super) fn render_on_ctx(
     }
 
     merge_lane_buffers(&mut accum, remote_progress, &gpu_accum);
-    check_not_cancelled(cancel)?;
+    check_not_cancelled(job.cancel)?;
 
     Ok(Accumulation {
         accum,
         samples_per_pixel,
+        #[cfg(feature = "adaptive-sampling")]
+        adaptive: None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// With no offset the absolute index is the count. An offset shifts every index that reaches
+    /// the accumulators (the cursor, the calibration probes) alike, and a sum past the largest
+    /// index saturates instead of wrapping.
+    #[test]
+    fn the_absolute_sample_index_is_the_count_without_an_offset() {
+        for done in [0, 1, 3, 4096, u32::MAX] {
+            assert_eq!(absolute_sample(0, done), done);
+        }
+        assert_eq!(absolute_sample(16_384, 0), 16_384);
+        assert_eq!(absolute_sample(16_384, 5), 16_389);
+        assert_eq!(absolute_sample(u32::MAX, 5), u32::MAX);
+    }
+
+    /// A calibration probe that advances the absolute index by `n` advances the sample count
+    /// by `n`, whatever the offset.
+    #[test]
+    fn a_probe_advances_the_count_by_the_samples_it_traced() {
+        for offset in [0, 7, 16_384] {
+            let before = 2;
+            let mut absolute = absolute_sample(offset, before);
+            absolute += 3;
+            assert_eq!(absolute.saturating_sub(offset), before + 3);
+        }
+    }
 }

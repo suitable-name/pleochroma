@@ -1,8 +1,7 @@
 //! Chunk ray buffers and chunk dispatch execution for the event wavefront renderer.
 //!
-//! Implements §4.4 option (b): one submission per bounce round with `write_buffer`
-//! before each round to update `EwParams`, followed by a final reduction pass and
-//! staging buffer readback.
+//! One submission per bounce round, with `write_buffer` before each round to update
+//! `EwParams`, then the finalize pass, a reduction and the staging readback.
 //!
 //! The scene buffers live in [`scene_buffers`], the per-kernel bind tables in [`bindings`].
 
@@ -11,9 +10,9 @@ mod scene_buffers;
 
 use wgpu::BufferUsages;
 
-pub(crate) use bindings::bind_kernel;
 #[cfg(test)]
 pub(crate) use bindings::kernel_slots;
+pub(crate) use bindings::{bind_generate_live, bind_kernel};
 pub(crate) use scene_buffers::SceneBuffers;
 
 use crate::renderer::{
@@ -261,10 +260,10 @@ pub(crate) async fn execute_chunk(
         });
     }
 
-    // 1. Compile every needed pipeline, then build one bind group per kernel. The kernel list is
-    //    in dispatch order: generate, extend, [scatter, scatter_oriented, nee_hg], surface,
-    //    [zoned_absorb], arms (the uniaxial entry's transmit half after its reflect half), split,
-    //    tail, finalize.
+    // Compile every needed pipeline, then build one bind group per kernel. The kernel list is
+    // in dispatch order: generate, extend, [scatter, scatter_oriented, nee_hg], surface,
+    // [zoned_absorb], arms (the uniaxial entry's transmit half after its reflect half), split,
+    // tail, finalize.
     let kernels = needed_kernels_with_surface(material_class, scene, ground_arm);
     for &kernel in &kernels {
         pipelines.ensure(device, kernel, material_class);
@@ -288,6 +287,7 @@ pub(crate) async fn execute_chunk(
         params,
         total_rays,
         binds: &binds,
+        live_generate: None,
     });
 
     // Diagnostics must inspect finalized per-ray values before reduce_xyz drops
@@ -307,7 +307,7 @@ pub(crate) async fn execute_chunk(
         .await?;
     }
 
-    // 5. Reduce out_xyz -> pixel_output, copy to staging, read back.
+    // Reduce out_xyz -> pixel_output, copy to staging, read back.
     reduce_to_staging(
         device,
         queue,
@@ -317,6 +317,72 @@ pub(crate) async fn execute_chunk(
         spp,
     );
     map_read(device, queue, &chunk_buffers.staging, pixels_this_chunk * 3).await
+}
+
+/// Dispatches one chunk of an adaptive (live-tile) pass: generation through `live_generate`
+/// (the `ew_generate` pipeline and bind group of the live variant, whose rays come from the
+/// live pixel list), every bounce round, and survivor finalization -- everything
+/// [`execute_chunk`] does except the reduction and the readback, which the live pass does with
+/// its own kernel (`reduce_xyz_live.wgsl`).
+///
+/// The caller reduces `chunk_buffers.out_xyz` afterwards; submissions execute in order, so no
+/// wait is needed in between.
+///
+/// # Errors
+///
+/// [`EwError::InvalidBufferSize`] if the chunk has more rays than one dispatch addresses or
+/// than `chunk_buffers` holds.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "execute_chunk's parameter list minus the readback inputs, plus the live generate kernel"
+)]
+pub(crate) fn dispatch_chunk_live(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    pipelines: &mut EwPipelines,
+    (scene_buffers, chunk_buffers): (&SceneBuffers, &ChunkRayBuffers),
+    scene: &FrameScene<'_>,
+    (material_class, ground_arm): (u32, bool),
+    params: &GpuTransportParams,
+    total_rays: usize,
+    live_generate: (&wgpu::ComputePipeline, &wgpu::BindGroup),
+) -> Result<(), EwError> {
+    if total_rays == 0 {
+        return Ok(());
+    }
+    let max_rays = MAX_WORKGROUPS_PER_DIMENSION * WORKGROUP_SIZE;
+    if total_rays > max_rays || total_rays > chunk_buffers.capacity_rays {
+        return Err(EwError::InvalidBufferSize {
+            expected: max_rays.min(chunk_buffers.capacity_rays),
+            actual: total_rays,
+        });
+    }
+    let kernels = needed_kernels_with_surface(material_class, scene, ground_arm);
+    for &kernel in &kernels {
+        pipelines.ensure(device, kernel, material_class);
+    }
+    let binds = build_binds(
+        device,
+        pipelines,
+        &kernels,
+        material_class,
+        scene_buffers,
+        chunk_buffers,
+    );
+    dispatch_chunk_rounds(&ChunkRoundContext {
+        device,
+        queue,
+        pipelines,
+        scene_buffers,
+        chunk_buffers,
+        scene,
+        material_class,
+        params,
+        total_rays,
+        binds: &binds,
+        live_generate: Some(live_generate),
+    });
+    Ok(())
 }
 
 /// State shared by generation, bounce rounds, and survivor finalization.
@@ -331,6 +397,9 @@ struct ChunkRoundContext<'a, 'scene> {
     params: &'a GpuTransportParams,
     total_rays: usize,
     binds: &'a [(EwKernel, wgpu::BindGroup)],
+    /// The pipeline and bind group generation dispatches instead of the table's `Generate`
+    /// entry: the live variant of an adaptive pass. `None` for an ordinary chunk.
+    live_generate: Option<(&'a wgpu::ComputePipeline, &'a wgpu::BindGroup)>,
 }
 
 /// Submits generate, each bounce round, and survivor finalization in that order.
@@ -346,6 +415,7 @@ fn dispatch_chunk_rounds(context: &ChunkRoundContext<'_, '_>) {
         params,
         total_rays,
         binds,
+        live_generate,
     } = *context;
     let ray_workgroups = count_u32(total_rays).div_ceil(64);
     let has_scatter = scene.material.scatters();
@@ -373,11 +443,17 @@ fn dispatch_chunk_rounds(context: &ChunkRoundContext<'_, '_>) {
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
         label: Some("ew_generate encoder"),
     });
+    let (generate_pipeline, generate_bind) = live_generate.unwrap_or_else(|| {
+        (
+            pipelines.get(EwKernel::Generate, material_class),
+            bind_of(EwKernel::Generate),
+        )
+    });
     dispatch_pass(
         &mut encoder,
         "ew_generate pass",
-        pipelines.get(EwKernel::Generate, material_class),
-        bind_of(EwKernel::Generate),
+        generate_pipeline,
+        generate_bind,
         ray_workgroups,
     );
     queue.submit(Some(encoder.finish()));
@@ -491,7 +567,7 @@ fn build_binds(
     scene_buffers: &SceneBuffers,
     chunk_buffers: &ChunkRayBuffers,
 ) -> Vec<(EwKernel, wgpu::BindGroup)> {
-    let (planes_bytes, finishes_bytes) = scene_binding_bytes(scene_buffers.planes_len);
+    let sizes = scene_binding_bytes(scene_buffers.planes_len);
     kernels
         .iter()
         .map(|&kernel| {
@@ -501,8 +577,8 @@ fn build_binds(
                 kernel,
                 scene_buffers,
                 chunk_buffers,
-                planes_bytes,
-                finishes_bytes,
+                sizes,
+                material_class,
             );
             (kernel, bind_group)
         })

@@ -29,8 +29,8 @@ pub const DEFAULT_SAME_MATERIAL_FRAC: f32 = 0.25;
 
 /// Default of [`RunConfig::validation_designs`]: a small fixed cohort for frequent validation.
 pub const DEFAULT_VALIDATION_DESIGNS: usize = 16;
-/// Default of [`RunConfig::validation_every`]: often enough to see a trend within a run of a few
-/// hundred iterations (every 15 left only 13 points in 200 iterations).
+/// Default of [`RunConfig::validation_every`]: often enough to show a trend within a run of a
+/// few hundred iterations.
 pub const DEFAULT_VALIDATION_EVERY: usize = 10;
 /// Fewest validated designs for which a generalization gap is reported.
 pub const MIN_GAP_DESIGNS: usize = 8;
@@ -135,9 +135,10 @@ impl RunConfig {
     }
 }
 
-/// The default worker count: three environments per core (at least 1, at most
-/// [`MAX_WORKERS`]). The threads that step them still follow the core count; the extra episodes
-/// in flight make the slowest slot of a pass a smaller share of it.
+/// The default worker count: three environments per core (at least 1, at most [`MAX_WORKERS`]).
+///
+/// The threads that step them still follow the core count; the extra episodes in flight make the
+/// slowest slot of a pass a smaller share of it.
 #[must_use]
 pub fn default_workers() -> usize {
     std::thread::available_parallelism()
@@ -317,9 +318,11 @@ pub(super) fn training_fidelity(cfg: &RunConfig, seed: u64) -> ObjectiveFidelity
     }
 }
 
-/// The linear learning-rate decay for a run of `iterations` PPO iterations: one optimizer step
+/// The linear learning-rate decay for a run of `iterations` PPO iterations.
+///
+/// It takes one optimizer step
 /// per mini-batch, `ceil(rollout_size / mini_batch)` mini-batches per epoch and `epochs` epochs
-/// per iteration (review TQ-20). When the KL stop ends epochs early fewer steps happen and the
+/// per iteration. When the KL stop ends epochs early fewer steps happen and the
 /// rate ends above zero, which is the intent.
 #[must_use]
 pub fn linear_schedule_for(
@@ -337,10 +340,11 @@ pub fn linear_schedule_for(
     }
 }
 
-/// The linear learning-rate decay of an imitation run in the bounded mode
-/// (`updates_per_round > 0`): every round takes exactly `updates_per_round` optimizer steps, so
-/// the run takes `iterations * updates_per_round` of them (fewer only when a round finds no
-/// labelled sample).
+/// The linear learning-rate decay of an imitation run in the bounded mode.
+///
+/// The mode is `updates_per_round > 0`: every round takes exactly `updates_per_round` optimizer
+/// steps, so the run takes `iterations * updates_per_round` of them (fewer only when a round finds
+/// no labelled sample).
 #[must_use]
 pub fn bounded_schedule_for(iterations: usize, updates_per_round: usize) -> LrSchedule {
     let total_updates = (iterations as u64).saturating_mul(updates_per_round as u64);
@@ -349,7 +353,9 @@ pub fn bounded_schedule_for(iterations: usize, updates_per_round: usize) -> LrSc
     }
 }
 
-/// `schedule` as it must read after `done` optimizer steps were already taken by the run a
+/// `schedule` as it must read after `done` optimizer steps were already taken.
+///
+/// Those steps were taken by the run a
 /// checkpoint resumes: a linear schedule describes the steps still to run, so its end moves out
 /// by the steps done (otherwise a resumed run would start at a rate of zero). Constant stays.
 #[must_use]
@@ -365,9 +371,8 @@ pub const fn resumed_schedule(schedule: LrSchedule, done: u64) -> LrSchedule {
 /// The hyperparameters that may change while a run is live.
 ///
 /// In imitation mode `learning_rate`, `mini_batch` and `ppo_epochs` are the imitation settings
-/// (`imitation.learning_rate`, `imitation.mini_batch_size`, `imitation.epochs_per_round`); in PPO
-/// mode they are the PPO ones. `clip_epsilon` and `gae_lambda` are PPO settings and are ignored
-/// by an imitation run.
+/// (learning rate, mini-batch size, epochs per round); in PPO mode they are the PPO ones.
+/// `clip_epsilon` and `gae_lambda` are PPO settings and are ignored by an imitation run.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Hyperparams {
     /// Parallel environments.

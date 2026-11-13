@@ -7,8 +7,7 @@
 //! position; a handle drag keeps only the newest value. A UI keeps one single-slot
 //! queue per call site, merges every posted intent into its pending one (replacing it
 //! when [`EditIntent::merge`] says the two are not mergeable), and drains it every
-//! [`DRAIN_INTERVAL`] (the desktop with a `slint::Timer`, the web app with
-//! `requestAnimationFrame`/`setTimeout`).
+//! [`DRAIN_INTERVAL`] from a UI timer.
 
 use crate::manipulate::DragValue;
 use std::{mem::discriminant, time::Duration};
@@ -19,47 +18,39 @@ pub const DRAIN_INTERVAL: Duration = Duration::from_millis(16);
 /// One coalescable UI edit intent -- see the module doc comment.
 #[derive(Debug, Clone, PartialEq)]
 pub enum EditIntent {
-    /// An angle nudge (Up/Down key or scroll wheel) on `targets` (a lone tier, or
-    /// every tier in a multi-selected group -- see `setup_nudge_angle_callback`'s
-    /// own doc comment for why a multi-select nudge is one `targets` set rather
-    /// than one intent per tier). Repeated nudges to the SAME `targets` set within
-    /// one drain window sum their `delta_deg` instead of each triggering their own
-    /// apply/refresh/replan.
+    /// An angle nudge (Up/Down key or scroll wheel) on `targets`.
+    ///
+    /// `targets` is a lone tier or every tier of a multi-selected group, so a multi-select
+    /// nudge is one set, not one intent per tier. Nudges to the same set within one drain
+    /// window sum their `delta_deg`, so the apply, refresh and replan run once.
     NudgeAngle { targets: Vec<usize>, delta_deg: f64 },
-    /// The Cut slider's tier-cutoff step (`SolidPreviewModel.tier_cutoff`). The
-    /// live value is read fresh off the Slint property when the drain fires (the
-    /// slider binding itself already writes it on every tick, `changed`-handler or
-    /// not), so `count` only needs to distinguish "something changed" for
-    /// [`EditIntent::merge`] -- carried anyway so a test can assert last-wins
-    /// without a live `MainWindow`. Last-wins: only the final value posted in a
-    /// drain window is ever the one a tick observes.
+    /// The Cut slider's tier-cutoff step.
+    ///
+    /// The live value is read from `SolidPreviewModel.tier_cutoff` when the drain fires, so
+    /// `count` only marks that a change happened. It is carried so tests can check last-wins
+    /// without a window.
     CutOff { count: i32 },
-    /// The Retarget dialog's crown-shift slider (`RetargetModel.crown_fraction`,
-    /// read alongside `RetargetModel.scale_crown_by_ratio` at drain time -- see
-    /// `setup_retarget_proposal_changed_callback`'s own doc comment). No payload:
-    /// every post coalesces into the same single pending marker: last-wins.
+    /// The Retarget dialog's crown-shift slider.
+    ///
+    /// The values are read from `RetargetModel` at drain time, so every post coalesces into
+    /// one pending marker.
     RetargetCrown,
-    /// A handle drag of tier `tier` (`manipulate`'s angle, depth or index handle): the
-    /// value the pointer currently asks for. Last-wins: pointer moves within one drain
-    /// window collapse to the newest `value`, but only for the same `tier` AND the same
-    /// [`DragValue`] kind -- a drag of another tier or another handle is a different
-    /// gesture and never merges.
+    /// A handle drag of tier `tier` (angle, depth or index handle) at the value the pointer
+    /// asks for.
+    ///
+    /// Only the same `tier` and [`DragValue`] kind merge: another tier or handle is a
+    /// different gesture.
     DragTier { tier: usize, value: DragValue },
 }
 
 impl EditIntent {
-    /// Merges `incoming` into `self` in place when they share the same
-    /// coalescing key, returning `true` on success (`NudgeAngle`: same `targets`,
-    /// deltas summed; `CutOff` and `DragTier` (same tier and value kind): newest
-    /// value wins). `false` means the two are NOT
-    /// mergeable (e.g. two `NudgeAngle`s naming different `targets`), and
-    /// a queue instead REPLACES the pending intent outright,
-    /// silently dropping whatever `self` described -- the "newer supersedes older,
-    /// unread" tradeoff. In practice this replacement branch is
-    /// reached only when two different targets are nudged within the same 16 ms
-    /// window (a human cannot do this; only relevant to a scripted/automated
-    /// input burst), so losing the superseded intent's own delta is an accepted,
-    /// documented edge case rather than a silent correctness bug in ordinary use.
+    /// Merges `incoming` into `self` when both share a coalescing key, returning `true`.
+    ///
+    /// `NudgeAngle` with the same `targets` sums the deltas. `CutOff` and `DragTier` (same
+    /// tier and value kind) keep the newest value. On `false` the queue replaces the
+    /// pending intent, dropping its unapplied delta. Only two different targets nudged
+    /// within one drain window reach that path, which a person cannot do, so the drop is
+    /// an accepted edge case for scripted input.
     pub fn merge(&mut self, incoming: &Self) -> bool {
         match (self, incoming) {
             (
@@ -132,10 +123,8 @@ mod tests {
 
     #[test]
     fn a_nudge_burst_on_a_different_tier_replaces_rather_than_merges() {
-        // Documented tradeoff (see `EditIntent::merge`'s own doc comment): a
-        // different `targets` set is NOT mergeable, so the queue drops the
-        // earlier, un-applied intent rather than losing track of the burst
-        // entirely.
+        // A different `targets` set is not mergeable, so the queue drops the earlier
+        // intent; see `EditIntent::merge`.
         let first = EditIntent::NudgeAngle {
             targets: vec![1],
             delta_deg: 1.0,

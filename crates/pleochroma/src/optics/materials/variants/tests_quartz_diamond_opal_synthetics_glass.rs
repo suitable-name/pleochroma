@@ -1,16 +1,16 @@
-//! Tests of the `data/color_variants/quartz_diamond_opal_synthetics_glass.toml` entries: each entry's
-//! face-up color and per-direction colors against the CIELAB its fit record
+//! Tests of the `data/color_variants/quartz_diamond_opal_synthetics_glass.toml` entries: each
+//! entry's face-up color and per-direction colors against the CIELAB its fit record
 //! (`docs/color_variants/fit_records/quartz_diamond_opal_synthetics_glass.md`) states.
 //!
 //! The colors are `color::body_color::body_colors` under D65 over `face_up_swatch_path` of a 7 mm
-//! stone: every entry is `per_mm`, so the path is `MODEL_UNIT_FACE_UP_PATH` x 7 / `REFERENCE_MODEL_WIDTH`
-//! = 9.905 mm (what `render_setup::absorption_path_scale_for` times the face-up constant gives in the
-//! renderer). The pinned face-up color is the ORIENTED one the renderer shows
-//! (`color::principal_axes::face_up_body_color` with the host's default principal frame: the o-ray alone
-//! for Amethyst, Citrine, Quartz, Rutile and Moissanite, whose c axis is the view); the o-ray and e-ray
-//! colors are the single rays. The pinned Lab values are the fit lane's own computation of the same
-//! pipeline (checked against the Sapphire, Ruby and Emerald swatches of
-//! `docs/chromophores/calibration-records.md`); no spectrum CSV is read here.
+//! stone: every entry is `per_mm`, so the path is `MODEL_UNIT_FACE_UP_PATH` x 7 /
+//! `REFERENCE_MODEL_WIDTH` = 9.905 mm (what `render_setup::absorption_path_scale_for` gives in
+//! the renderer). The pinned face-up color is the ORIENTED one the renderer shows
+//! (`color::principal_axes::face_up_body_color` with the host's default principal frame: the
+//! o-ray alone for Amethyst, Citrine, Quartz, Rutile and Moissanite, whose c axis is the view);
+//! the o-ray and e-ray colors are the single rays. The pinned Lab values come from the same
+//! pipeline, checked against the Sapphire, Ruby and Emerald swatches of
+//! `docs/chromophores/calibration-records.md`; no spectrum CSV is read here.
 
 use super::{
     TensorRank, VariantProvenance, built_in_variants, data, face_up_swatch_path, material_slug,
@@ -25,8 +25,8 @@ use crate::{
     optics::materials::{AbsorptionUnit, GemMaterial},
 };
 
-/// The built-in materials this group file carries entries for (GGG stays colorless; Diamond is the
-/// lead's own section below).
+/// The built-in materials this group file carries entries for (GGG stays colorless; Diamond has
+/// its own test file).
 const GROUP_MATERIALS: [&str; 11] = [
     "Amethyst",
     "Citrine",
@@ -464,7 +464,7 @@ fn the_rays_follow_the_documented_pleochroism() {
     // Crystalline pink quartz (measured): the o-ray absorbs about twice as much at 525 nm.
     let pink = colors("quartz.pink_crystalline");
     assert!(lch(pink.o_ray.lab)[1] > 1.5 * lch(pink.e_ray.lab)[1]);
-    // Rutile: the e-ray is the darker one (measured), the reduced blue one the lighter (Report 0.7).
+    // Rutile: the e-ray is the darker one (measured); the reduced blue one is the lighter.
     for key in ["rutile.brownish_red_orange", "rutile.orange"] {
         let c = colors(key);
         assert!(c.e_ray.lab[0] < c.o_ray.lab[0], "{key}");
@@ -509,5 +509,3 @@ fn both_glasses_carry_the_same_colorants() {
         assert_eq!(a.label, b.label, "{name}");
     }
 }
-
-// Diamond: lead

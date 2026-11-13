@@ -1,9 +1,8 @@
-// Layout self-test shader for the zone table. Standalone test
-// target: `renderer::gpu::layout_check::run_zone_table` concatenates this file with
-// `01_zone_table.wgsl` (which declares the structs), uploads a populated `GpuZoneTable`, has
-// this shader copy every NAMED field (never the `_pad` fields) into a second buffer, and
-// compares the raw bytes -- the same mechanism and the same reasoning as `layout_echo.wgsl`
-// for `GpuGemMaterial`.
+// Layout self-test for the zone table, a standalone test target.
+// `renderer::gpu::layout_check::run_zone_table` concatenates it with `01_zone_table.wgsl` (the
+// `GpuZone*` structs), uploads a populated `GpuZoneTable`, copies every named field (never the
+// `_pad` fields) into a second buffer, and compares the raw bytes. Same approach as
+// `layout_echo.wgsl` for `GpuGemMaterial`.
 
 struct AbsorptionBand {
     center_nm: f32,

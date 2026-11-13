@@ -3,17 +3,17 @@
 //! * `tutorial:<id>` -- a built-in tutorial is started through the browser's own callback
 //!   (`TutorialsModel.start`), every step is completed by its goal (see `drive`), and the
 //!   guide closes, is recorded as done in the browser and leaves no error toast, panic or file
-//!   dialog behind. Five are chosen per run by a seeded shuffle (the Welcome tour and the worked
-//!   example always among them); `PLEOCHROMA_HARNESS_TUTORIALS=all` runs every built-in one.
+//!   dialog behind. By default five are chosen per run by a seeded shuffle (the Welcome tour and
+//!   the worked example are always among them); `PLEOCHROMA_HARNESS_TUTORIALS=all` runs every one.
 //! * `build:<design>` -- up to five library designs are turned into a "Build this design"
 //!   lesson (`BuildDesignModel.start_selected`) and the lesson is finished the same way; the
 //!   built design must match the original (tier rows, closed solid). Designs come from the
 //!   fixture library, or from a copy of the database `PLEOCHROMA_HARNESS_LIBRARY` names.
 //!
-//! Environment: `PLEOCHROMA_HARNESS_SEED` (any text; default fixed), `PLEOCHROMA_HARNESS_TUTORIALS`
-//! (`all`), `PLEOCHROMA_HARNESS_TUTORIAL_COUNT` (default 5), `PLEOCHROMA_HARNESS_EXCLUDE`
-//! (comma-separated tutorial ids left out, also the two always-included ones),
-//! `PLEOCHROMA_HARNESS_LIBRARY` (path of a `facet_diagrams.sqlite`),
+//! Environment: `PLEOCHROMA_HARNESS_SEED` (any text; default fixed),
+//! `PLEOCHROMA_HARNESS_TUTORIALS` (`all`), `PLEOCHROMA_HARNESS_TUTORIAL_COUNT` (default 5),
+//! `PLEOCHROMA_HARNESS_EXCLUDE` (comma-separated tutorial ids left out, also the two
+//! always-included ones), `PLEOCHROMA_HARNESS_LIBRARY` (path of a `facet_diagrams.sqlite`),
 //! `PLEOCHROMA_HARNESS_BUILD_COUNT` (default 5, at most 8).
 //!
 //! One scenario per tutorial and per design (a fresh app each), so one failure hides no other.

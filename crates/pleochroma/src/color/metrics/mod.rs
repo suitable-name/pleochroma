@@ -1,5 +1,5 @@
 //! GIA/AGSL-style optical gemological metrics (brilliance, fire,
-//! scintillation, windowing, extinction).
+//! scintillation, windowing, extinction, doubling).
 //!
 //! Evaluated by firing an analytical ray fan through a stone's facet geometry from the
 //! observer's point of view, under the lighting the renderer itself uses.
@@ -27,14 +27,14 @@
 //! # Birefringent stones and Doubling
 //!
 //! For a material the renderer treats as anisotropic (not cubic and `|delta n| > 1e-4`, so
-//! sapphire and tourmaline as much as calcite) every ray of the grid is traced as BOTH eigenmodes
-//! of the crystal, each carrying half of it (private `birefringent` module): the ordinary
-//! mode exactly as an isotropic ray, the extraordinary one with its effective index and its
-//! Poynting walk-off (a biaxial crystal: its fast and slow modes), the mode kept at every
-//! interior hit. Brilliance, windowing, extinction, Fire, the tone and the scintillation
+//! sapphire and tourmaline as much as calcite) every ray of the grid is traced as BOTH
+//! eigenmodes of the crystal, each carrying half of it (private `birefringent` module): the
+//! ordinary mode exactly as an isotropic ray, the extraordinary one with its effective index
+//! and its Poynting walk-off (a biaxial crystal: its fast and slow modes), the mode kept at
+//! every interior hit. Brilliance, windowing, extinction, Fire, the tone and the scintillation
 //! cells then take those weights instead of the integer counts (private `doubling` module).
-//! An isotropic material keeps the integer path bit for bit. The cost is twice the traces on an
-//! anisotropic material, nothing on an isotropic one.
+//! An isotropic material keeps the integer path bit for bit. The cost is twice the traces on
+//! an anisotropic material, nothing on an isotropic one.
 //!
 //! [`GemOpticalMetrics::doubling_arcmin`] is the one new figure: the mean angular separation,
 //! in arc-minutes, of the two modes' exit directions over the ray pairs that leave through the
@@ -54,9 +54,8 @@
 //! colourless stone is neutral under every preset, and the sRGB swatch is adapted to the
 //! screen's D65 the way the Live Render white-balances that preset. UV lamps and HDR maps
 //! have no usable white point and fall back to D65. The stone's size enters only through
-//! `GemMaterial::absorption_path_scale` in the exponent. A head-shadow setting (a separate
-//! lighting plan may add one) enters only the Returned classification, never the tone's
-//! colorimetry.
+//! `GemMaterial::absorption_path_scale` in the exponent. The head-shadow cone enters only the
+//! Returned classification, never the tone's colorimetry.
 //!
 //! # Lighting model
 //!

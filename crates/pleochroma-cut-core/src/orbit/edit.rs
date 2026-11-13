@@ -32,9 +32,8 @@ fn same_index(a: f64, b: f64, gear_teeth_abs: u32) -> bool {
 }
 
 impl Design {
-    /// The orbit units the tier at `tier_index` currently decomposes into -- see
-    /// the module docs for what a unit is and how common each shape is across the
-    /// real catalogue.
+    /// The orbit units the tier at `tier_index` currently decomposes into (see the
+    /// module docs for what a unit is).
     ///
     /// # Errors
     ///
@@ -141,7 +140,7 @@ impl Design {
                         // A detached occurrence has already left orbit-wide
                         // propagation (that is the whole point of detaching it), so it
                         // must never be swept along with the rest of the unit -- and
-                        // its absence means the unit is no longer "clean" for the
+                        // its absence means the unit is not "clean" for the
                         // completeness check either: completeness is judged over the
                         // ATTACHED members alone, not `u.expected_len` against the raw
                         // (detached-included) member count `OrbitUnit::is_complete`
@@ -187,10 +186,9 @@ impl Design {
     }
 
     /// Builds the [`Edit`] that marks `position` (an occurrence in the tier at
-    /// `tier_index`) detached from orbit-wide propagation -- the visible,
-    /// deliberate act needed before a real design's intentional asymmetry (see the
-    /// module docs' `partial`/`mixed_fold` cases) can be edited one occurrence at a
-    /// time without [`Design::remove_orbit_member`] sweeping its former orbit-mates
+    /// `tier_index`) detached from orbit-wide propagation. Needed before an intentional
+    /// asymmetry (see the module docs on irregular tiers) can be edited one occurrence
+    /// at a time, without [`Design::remove_orbit_member`] sweeping its orbit-mates
     /// along. A no-op edit if `position` is already detached.
     ///
     /// # Errors
@@ -261,8 +259,8 @@ impl Design {
     }
 
     /// Builds the [`Edit`] that detaches every occurrence currently in the tier at
-    /// `tier_index` at once -- the tier-wide convenience `pleochroma-cut`'s single
-    /// "Detach" button per row applies. A no-op if every occurrence is already
+    /// `tier_index` at once, as the tier row's "Detach" button does. A no-op if every
+    /// occurrence is already
     /// detached.
     ///
     /// # Errors

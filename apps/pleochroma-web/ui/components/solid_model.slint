@@ -1,8 +1,6 @@
-// The Solid and Diagram tabs' shared state (`src/views/` pushes into it and wires
-// its callbacks). The web counterpart of the desktop's `SolidPreviewModel`
-// (`apps/pleochroma-cut/ui/models/solid_preview.slint`): the Solid tab is the
-// desktop's view mode 0 and the Diagram tab its view mode 3. Named in
-// `app.slint`'s export block, which is what makes it a Rust type.
+// State shared by the Solid and Diagram tabs; `src/views/` pushes into it and wires its
+// callbacks. The Solid tab is the desktop's view mode 0 and the Diagram tab its view mode 3.
+// Exported from `app.slint` so Rust can use it as a type.
 export global SolidModel {
     // -- Solid tab (view mode 0) -------------------------------------------------
     // The flat-shaded raster (`pleochroma_solid::raster::SolidRasterizer`).
@@ -11,7 +9,7 @@ export global SolidModel {
     // The desktop's `SolidPreviewModel.status`: why nothing (or a held-over solid)
     // shows -- "Unbounded: ...", "Preview cannot be solved: ...", or "".
     in property <string> status: "";
-    // `live_update::Freshness::Stale`: the shown solid is one edit behind.
+    // The shown solid is one edit behind the design (`frame.stale`, set in `views/present.rs`).
     in property <bool> stale: false;
     // The facet under the pointer ("Crown Main -- index 12 of 96 ..."), or the last
     // clicked facet's label once the pointer leaves it (the desktop's rule).
@@ -38,27 +36,26 @@ export global SolidModel {
     in property <image> diagram-frame;
     in property <bool> has-diagram: false;
     in property <string> diagram-hover-text: "";
-    // -1 is the three-panel layout; 0/1/2 enlarge Crown/Pavilion/Profile
-    // (`diagram2d::PanelKind`'s order, the desktop's `diagram_enlarged_panel`).
+    // -1 is the three-panel layout; 0/1/2 enlarge Crown/Pavilion/Profile (`diagram2d::PanelKind`
+    // order).
     in-out property <int> enlarged-panel: -1;
     // True once the Diagram tab has decided its first layout for this page load (a view
     // narrower than `diagram.slint`'s `small-view-width` opens on the Crown panel), so
     // coming back to the tab, or choosing all three panels, never re-applies it.
     in-out property <bool> panel-default-applied: false;
-    // The index-wheel tooth last clicked, or -1 (the desktop's
-    // `diagram_clicked_tooth`).
+    // The index-wheel tooth last clicked, or -1.
     in property <int> clicked-tooth: -1;
 
     // -- Callbacks (both tabs) -----------------------------------------------------
     // The view's logical size, on mount and on every resize.
     callback view-size-changed(length, length);
-    // An orbit drag step in logical pixels (desktop `ViewportModel.camera_orbit`).
+    // An orbit drag step in logical pixels.
     callback orbit(float, float);
-    // A wheel step in logical pixels (desktop `ViewportModel.camera_zoom`).
+    // A wheel step in logical pixels.
     callback zoom(float);
     // 0 Front, 1 Top, 2 Bottom, 3 Left, 4 Right, 5 Fit (desktop `set_view`).
     callback set-view(int);
-    // The desktop's Reset pill: yaw 0.60, pitch 0.45, distance 2.4.
+    // Reset pose: yaw 0.60, pitch 0.45, distance 2.4 (`DEFAULT_POSE`).
     callback reset-camera();
     // Pointer position over the view, logical pixels relative to the view (for the
     // Diagram tab: already un-zoomed/un-panned, the desktop's convention).

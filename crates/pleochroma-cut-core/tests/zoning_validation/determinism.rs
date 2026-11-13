@@ -1,5 +1,5 @@
-//! Determinism (plan section 10.1): the records and the fit are bitwise identical for 1, 4 and 16
-//! threads, and run to run.
+//! Determinism: the records and the fit are bitwise identical for 1, 4 and 16 threads, and run
+//! to run.
 //!
 //! The scene exercises the parts that could reorder floating point work: a frosted skin with
 //! polished windows (the microfacet random numbers), zones (the kernels), several views and
@@ -52,6 +52,7 @@ fn run(threads: usize) -> (ForwardRecords, Vec<Vec<[u32; 3]>>, ColourFit) {
 }
 
 #[test]
+#[ignore = "over 60 s in the workspace run (2026-11-08); run on request: scripts/run_tests_on_request.sh"]
 fn records_and_fit_are_bitwise_identical_for_1_4_and_16_threads_and_run_to_run() {
     let (records, predictions, fit) = run(1);
     for threads in [4, 16, 1] {

@@ -7,6 +7,7 @@ use super::{
 use crate::optics::{
     birefringence::{AbsorptionTensor3, BiaxialIndicatrix},
     raytracer::{NUM_CHANNELS, absorption::spectral_absorption, zoned::PreparedZoneKernels},
+    tables::OpticsTableSet,
 };
 use std::sync::Arc;
 
@@ -22,13 +23,23 @@ pub(in crate::optics::raytracer) fn build_ray_wavelength_cache(
 /// `ctx.material`'s zoning, see `zoned::PreparedZoneKernels`) is cloned into the cache instead of
 /// rebuilding the kernels, so only the wavelength-dependent tensors are built per sample. Ignored
 /// by a material without zones.
+pub(in crate::optics::raytracer) fn build_ray_wavelength_cache_prepared(
+    ctx: &RayMaterialContext,
+    prepared: Option<&Arc<PreparedZoneKernels>>,
+) -> RayWavelengthCache {
+    build_ray_wavelength_cache_tabled(ctx, prepared, None)
+}
+
+/// [`build_ray_wavelength_cache_prepared`] that also carries the render's optics lookup tables
+/// (`optics::tables`) in the cache. With `None` it is that function, bit for bit.
 #[expect(
     clippy::similar_names,
     reason = "alpha_o_ch/alpha_e_ch are the established ordinary/extraordinary absorption names"
 )]
-pub(in crate::optics::raytracer) fn build_ray_wavelength_cache_prepared(
+pub(in crate::optics::raytracer) fn build_ray_wavelength_cache_tabled(
     ctx: &RayMaterialContext,
     prepared: Option<&Arc<PreparedZoneKernels>>,
+    tables: Option<&Arc<OpticsTableSet>>,
 ) -> RayWavelengthCache {
     let material = ctx.material;
 
@@ -78,5 +89,6 @@ pub(in crate::optics::raytracer) fn build_ray_wavelength_cache_prepared(
         biaxial_ch,
         tensor_ch,
         zoned: crate::optics::raytracer::zoned::build_zoned_cache(ctx, is_biaxial, prepared),
+        tables: tables.cloned(),
     }
 }

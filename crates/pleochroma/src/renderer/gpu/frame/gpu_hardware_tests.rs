@@ -30,29 +30,42 @@ use crate::{
 
 use super::{GpuFrameError, GpuFrameScene, GpuPipelineKind};
 
-/// A tiny scene good enough to dispatch a real chunk with -- the same fixture
-/// [`super::equivalence::run_pipeline_equivalence`] above already uses, reused rather
-/// than reinvented.
+/// A tiny scene that dispatches a real chunk: the fixture of
+/// [`super::equivalence::run_pipeline_equivalence`].
 fn tiny_scene_material() -> GemMaterial {
     GemMaterial::by_name("Spinel").expect("Spinel is a built-in cubic material")
 }
 
-/// An environment map whose texel buffer would exceed the device's
-/// `max_storage_buffer_binding_size` (the WebGPU baseline this crate requests is 128
-/// MiB, see `GpuContext::acquire_async`; 4100x2050 vec4-padded texels is
-/// `4100*2050*16 = 134_480_000` bytes, just over `134_217_728`) must decline
-/// cleanly -- [`GpuFrameError::UnsupportedEnvironment`] -- not panic or hang.
+/// An environment map whose texels exceed `max_storage_buffer_binding_size` must decline
+/// cleanly, with [`GpuFrameError::UnsupportedEnvironment`], not panic or hang.
+///
+/// The limit comes from the adapter (`GpuContext::acquire_async` raises it above the 128 MiB
+/// WebGPU baseline), so the map is sized from the device: 4096 texels wide and one row more
+/// than fits (`4096*h*16` bytes just over the limit; on a 128 MiB device that is 4096x2049).
+/// A device whose limit would need a map over about 700 MiB of host memory skips the test.
 #[test]
 fn oversized_hdr_environment_is_declined_not_panicked() {
     let Some(mut renderer) = renderer_or_skip("oversized_hdr_environment_is_declined_not_panicked")
     else {
         return;
     };
+    let max_binding = renderer.ctx.device.limits().max_storage_buffer_binding_size;
+    let width = 4096_usize;
+    let row_bytes = u64::try_from(width).expect("4096 fits u64") * 16;
+    let height = usize::try_from(max_binding / row_bytes + 1).unwrap_or(usize::MAX);
+    // Host memory of the map: 12 bytes per texel (`[f32; 3]`).
+    if height.saturating_mul(width).saturating_mul(12) > 700 * 1024 * 1024 {
+        eprintln!(
+            "oversized_hdr_environment_is_declined_not_panicked: the device binding limit \
+             ({max_binding} bytes) is too large to build an oversized map; skipped"
+        );
+        return;
+    }
     let camera = Camera::new(0.35, 0.28, 5.0, 18.0);
     let planes = StandardGemCuts::standard_round_brilliant();
     let material = tiny_scene_material();
-    let map = EnvironmentMap::from_rgb(4100, 2050, vec![[0.0, 0.0, 0.0]; 4100 * 2050])
-        .expect("4100x2050 black texels is a self-consistent buffer");
+    let map = EnvironmentMap::from_rgb(width, height, vec![[0.0, 0.0, 0.0]; width * height])
+        .expect("black texels of the stated size are a self-consistent buffer");
     let scene = GpuFrameScene {
         camera: &camera,
         width: 8,
@@ -61,7 +74,7 @@ fn oversized_hdr_environment_is_declined_not_panicked() {
         facet_finishes: &[],
         material: &material,
         max_bounces: 4,
-        environment: EnvironmentSource::HdrMap(&map),
+        environment: EnvironmentSource::hdr(&map),
     };
     let mut accum = vec![Vec3::ZERO; 64];
     let result = renderer.accumulate(&scene, 0, 1, &mut accum);
@@ -73,7 +86,7 @@ fn oversized_hdr_environment_is_declined_not_panicked() {
     // later call with an in-bounds map on the SAME renderer must still work.
     let small_map = EnvironmentMap::uniform(1024, 512, [1.0, 1.0, 1.0]);
     let scene2 = GpuFrameScene {
-        environment: EnvironmentSource::HdrMap(&small_map),
+        environment: EnvironmentSource::hdr(&small_map),
         ..scene
     };
     renderer
@@ -101,7 +114,7 @@ fn in_bounds_hdr_environment_renders() {
         facet_finishes: &[],
         material: &material,
         max_bounces: 4,
-        environment: EnvironmentSource::HdrMap(&map),
+        environment: EnvironmentSource::hdr(&map),
     };
     let mut accum = vec![Vec3::ZERO; 64];
     renderer
@@ -113,13 +126,70 @@ fn in_bounds_hdr_environment_renders() {
     );
 }
 
-/// A full-size (1920x1080) wavefront-pipeline dispatch must not error --
-/// the chunking hazard this guards against (a chunk's `stokes` buffer request
-/// exceeding the device's storage-buffer-binding limit) only grows the EMA-driven
-/// chunk size AFTER the first chunk or two drains, so several `accumulate` calls (not
-/// just one) are needed to actually exercise it. See
-/// `GpuFrameRenderer::next_chunk_pixels`/`GpuFrameRenderer::cap_byte_budget_for_wavefront`'s
-/// own doc comments.
+/// The scene exposure reaches the megakernel (`GpuTransportParams::hdr_exposure`): the same
+/// samples of an HDR frame at exposure 2 are twice the frame at exposure 1, through the miss
+/// lookups of a polished stone and the frosted-exterior NEE draws of a frosted one. The GPU
+/// twin of the CPU's `hdr_exposure_tests`; the CPU-vs-GPU agreement at exposure 1 is the
+/// estimator checks' job.
+#[test]
+fn the_hdr_exposure_scales_the_gpu_frame() {
+    let Some(mut renderer) = renderer_or_skip("the_hdr_exposure_scales_the_gpu_frame") else {
+        return;
+    };
+    let camera = Camera::new(0.35, 0.28, 5.0, 18.0);
+    let planes = StandardGemCuts::standard_round_brilliant();
+    let material = tiny_scene_material();
+    let (map_w, map_h) = (32_usize, 16_usize);
+    let texels = (0..map_w * map_h)
+        .map(|i| {
+            let u = (i % map_w) as f32 / map_w as f32;
+            let v = (i / map_w) as f32 / map_h as f32;
+            [0.2 + u, 0.5f32.mul_add(v, 0.3), u.mul_add(v, 0.1)]
+        })
+        .collect();
+    let map = EnvironmentMap::from_rgb(map_w, map_h, texels).expect("self-consistent texels");
+    let frosted = vec![crate::optics::raytracer::FacetFinish::Frosted; planes.len()];
+    for finishes in [&[][..], &frosted[..]] {
+        let mut frame = |exposure: f32| {
+            let scene = GpuFrameScene {
+                camera: &camera,
+                width: 8,
+                height: 8,
+                planes: &planes,
+                facet_finishes: finishes,
+                material: &material,
+                max_bounces: 6,
+                environment: EnvironmentSource::hdr_at(&map, exposure),
+            };
+            let mut accum = vec![Vec3::ZERO; 64];
+            renderer
+                .accumulate(&scene, 0, 4, &mut accum)
+                .expect("a small HDR frame renders");
+            accum
+        };
+        let base = frame(1.0);
+        let doubled = frame(2.0);
+        assert!(
+            base.iter().any(|v| v.max_element() > 0.0),
+            "the map lights the frame"
+        );
+        for (pixel, (b, d)) in base.iter().zip(&doubled).enumerate() {
+            let expected = *b * 2.0;
+            assert!(
+                (*d - expected).abs().max_element() <= 1e-5 * expected.max_element().max(1e-9),
+                "pixel {pixel} ({} frosted facets): {d} at exposure 2, {expected} expected",
+                finishes.len()
+            );
+        }
+    }
+}
+
+/// A full-size (1920x1080) wavefront dispatch must not error.
+///
+/// The chunk's `stokes` request must stay within the storage binding limit as the EMA-driven
+/// chunk size grows, and that growth starts only after the first chunks drain, so several
+/// `accumulate` calls are needed. See `GpuFrameRenderer::next_chunk_pixels` and
+/// `GpuFrameRenderer::cap_byte_budget_for_wavefront`.
 #[test]
 fn wavefront_1080p_dispatch_does_not_error_as_the_ema_grows() {
     let Some(mut renderer) =
@@ -151,12 +221,9 @@ fn wavefront_1080p_dispatch_does_not_error_as_the_ema_grows() {
         environment: LightingPreset::Daylight.studio(1.0, 0.4, 0.35),
     };
     let mut accum = vec![Vec3::ZERO; (width * height) as usize];
-    // Several calls, not one: the chunk-timing EMA (`ns_per_tuple_ema`) only starts
-    // growing the per-chunk pixel budget toward the full frame after earlier chunks
-    // have drained and reported their throughput -- see `next_chunk_pixels`'s own
-    // doc comment. `FIRST_DISPATCH_MAX_TUPLES` bounds the very first chunk well
-    // under the old 2.1M-tuple hazard regardless, so this loop is what actually
-    // drives the cap toward its limit.
+    // Several calls: the timing EMA grows the chunk size only after earlier chunks have
+    // drained (see `next_chunk_pixels`). The first chunk is bounded by
+    // FIRST_DISPATCH_MAX_TUPLES, so this loop is what drives the chunk size to its limit.
     for sample in 0..4u32 {
         renderer
             .accumulate(&scene, sample, 1, &mut accum)
@@ -168,9 +235,9 @@ fn wavefront_1080p_dispatch_does_not_error_as_the_ema_grows() {
     );
 }
 
-/// The readback copies only the live prefix of the (grown-never-shrunk) staging buffer:
-/// after a large frame has grown the staging slots, a small frame's single chunk must leave
-/// `xyz_scratch` at exactly `pixels * 3` floats, not at the historic staging capacity.
+/// The readback copies only the live prefix of the staging buffer: after a large frame has
+/// grown the staging slots, a small frame's single chunk must leave `xyz_scratch` at exactly
+/// `pixels * 3` floats, not at the staging capacity.
 #[test]
 fn readback_copies_only_the_live_chunk_prefix_after_staging_has_grown() {
     let Some(mut renderer) =
@@ -402,18 +469,11 @@ fn reduce_drops_non_finite_samples_like_its_cpu_twin() {
     );
 }
 
-/// Guards against the live viewport freezing: showing an initial image but rendering
-/// nothing further, and ignoring camera drags from then on. Mimics
-/// `apps::pleochroma-cut`'s `ViewportGpu`/render-loop pattern directly against this
-/// renderer: several full-frame `accumulate` calls at a realistic viewport
-/// resolution, each with a DIFFERENT camera pose (as `on_camera_orbit` produces on
-/// every drag `moved` event) and an advancing `sample_offset` (as the render loop's
-/// `accum_samples` does) -- plus a resize partway through (preview-then-settle: the
-/// render loop drops to a reduced resolution while `camera_moving` is true, then
-/// returns to full size once the drag ends). Every call must succeed; a
-/// `DeviceLost` on any call after the first is exactly that freeze, so its captured
-/// `last_uncaptured_error` text is printed to help find the real validation error if
-/// this ever fails.
+/// Repeated turns with changing cameras and sizes never poison the renderer. Mirrors the
+/// viewport's render loop: full-frame `accumulate` calls at a realistic resolution, each with
+/// a new camera pose (as orbit drags produce), an advancing `sample_offset`, and a reduced
+/// preview size while the camera moves. Every call must succeed. The panic message on a
+/// `DeviceLost` carries the captured error text.
 #[test]
 fn repeated_turns_with_camera_changes_never_poison_the_renderer() {
     let Some(mut renderer) =
@@ -425,9 +485,8 @@ fn repeated_turns_with_camera_changes_never_poison_the_renderer() {
     let material = tiny_scene_material();
     let environment = LightingPreset::Daylight.studio(1.0, 0.4, 0.35);
 
-    // Full viewport size, then a reduced "camera_moving" preview size, then back to
-    // full -- see `apps::pleochroma-cut::bridge::render_thread::local_preview::
-    // effective_dimensions`.
+    // Full viewport size, then a reduced preview size, then back to full. See
+    // `effective_dimensions` in `apps/pleochroma-cut/src/bridge/render_thread/local_preview.rs`.
     let full = (480u32, 360u32);
     let preview = (160u32, 120u32);
     let sizes = [full, full, preview, preview, full, full, full];

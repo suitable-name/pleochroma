@@ -111,9 +111,8 @@ pub fn fan_out_config() -> JobConfig {
 
 /// Liveness fast enough for a test: ping after 100 ms idle, drop after 2 s silent.
 ///
-/// `dead_after` was 600 ms; raised so a test run under load (a slow CI box, several
-/// tests' threads contending for CPU) has real margin before a merely-slow-to-answer
-/// PONG reads as "dead".
+/// The 2 s window leaves margin for a loaded machine, so a slow PONG is not read as a
+/// dead peer.
 pub const FAST_LIVENESS: LivenessConfig = LivenessConfig {
     ping_interval: Duration::from_millis(100),
     dead_after: Duration::from_secs(2),
@@ -199,6 +198,10 @@ pub fn tiny_scene() -> SceneState {
         height: 4,
         yaw: 0.4,
         camera_roll: 0.0,
+        stone_shadow: false,
+        tray_reflection: 0.0,
+        hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
+        estimator: pleochroma::optics::raytracer::Estimator::Branching,
         pitch: 0.3,
         distance: 3.0,
         light_yaw: 0.85,

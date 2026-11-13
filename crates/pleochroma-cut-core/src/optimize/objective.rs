@@ -1,8 +1,8 @@
-//! The optical objective [`optimize_design`](super::optimize_design) minimizes:
-//! [`ObjectiveWeights`]/[`ObjectiveComponents`]/[`ObjectiveFidelity`], the
-//! plane-format conversion `pleochroma::color::metrics` needs, and
-//! [`evaluate_objective`] itself. See the parent module's doc comment for the
-//! measured per-evaluation cost this is built against.
+//! The optical objective that [`optimize_design`](super::optimize_design) minimizes.
+//!
+//! [`ObjectiveWeights`], [`ObjectiveComponents`] and [`ObjectiveFidelity`] are its types, and
+//! [`evaluate_objective`] measures it. The parent module's "Cost" section explains the
+//! fidelity split.
 
 use glam::DVec3;
 use pleochroma::{
@@ -61,19 +61,13 @@ pub struct ObjectiveWeights {
     /// Weight on `100.0 - tilt_brilliance_pct` (so a HIGHER `tilt_brilliance_pct`
     /// always reduces the score).
     pub tilt_brilliance: f32,
-    /// Weight on a candidate's yield loss (`100.0 -` the volumetric yield
-    /// percentage -- see [`Self::score_with_yield`]'s own doc comment).
-    /// Adds a yield term to what would otherwise be a purely optical objective.
-    /// Defaults to `0.0` (see [`Default`]) so
-    /// every existing `(Design, OptimizeConfig)` input reproduces
-    /// [`Self::score`]'s output bit for bit -- this field, and
-    /// [`Self::score_with_yield`], are strictly additive.
+    /// Weight on a candidate's yield loss (`100.0 -` the volumetric yield percentage; see
+    /// [`Self::score_with_yield`]). Defaults to `0.0`, which leaves the score exactly as
+    /// [`Self::score`] computes it.
     pub yield_weight: f32,
-    /// Weight on the face-up tone loss ([`ToneGoal::loss_pct`] of the stone's
-    /// [`FaceUpTone`] at the table-up pose, `0` to `100`, lower is better). `0.0` (the
-    /// default) switches the tone term off: nothing is measured for it in the search loop
-    /// and every score is bit for bit what it was before this field existed (see
-    /// [`Self::score_with_tone`]).
+    /// Weight on the face-up tone loss ([`ToneGoal::loss_pct`] of the stone's [`FaceUpTone`]
+    /// at the table-up pose, `0` to `100`, lower is better). `0.0` (the default) switches the
+    /// term off: the search loop measures no tone (see [`Self::score_with_tone`]).
     pub tone_weight: f32,
     /// Which way the tone term pulls: lighter or deeper. Only read when
     /// [`Self::tone_weight`] is positive.
@@ -148,12 +142,8 @@ impl ObjectiveWeights {
     /// to equal weighting when all three are non-positive, rather than dividing by
     /// zero.
     ///
-    /// Purely optical -- does not consider [`Self::yield_weight`] at all, even when
-    /// non-zero. Kept byte-for-byte unchanged from before yield weighting existed
-    /// (not merely reimplemented to equal its old output) so every caller that has
-    /// not opted into [`Self::score_with_yield`] is provably unaffected. New
-    /// callers that want yield considered should call [`Self::score_with_yield`]
-    /// instead.
+    /// Purely optical: ignores [`Self::yield_weight`] even when it is non-zero. Use
+    /// [`Self::score_with_yield`] or [`Self::score_with_tone`] to include the other terms.
     #[must_use]
     pub fn score(&self, components: &ObjectiveComponents) -> f32 {
         let sum = self.windowing + self.extinction + self.tilt_brilliance;
@@ -173,12 +163,8 @@ impl ObjectiveWeights {
     /// preform is being thrown away) is blended in at [`Self::yield_weight`],
     /// alongside the three optical weights, all normalized by their combined sum.
     ///
-    /// With `yield_weight == 0.0` (the default -- see [`Default`] for
-    /// [`ObjectiveWeights`]) this produces EXACTLY [`Self::score`]'s own output:
-    /// the normalizing sum is identical (adding a zero-weight term changes
-    /// neither the sum nor the weighted numerator), so a caller with the default
-    /// weights reproduces every previous optimizer result bit for bit whether it
-    /// calls this or `score` directly.
+    /// With `yield_weight == 0.0` (the default) this is exactly [`Self::score`]: a
+    /// zero-weight term changes neither the normalizing sum nor the weighted numerator.
     #[must_use]
     pub fn score_with_yield(&self, components: &ObjectiveComponents, yield_loss_pct: f32) -> f32 {
         let sum = self.windowing + self.extinction + self.tilt_brilliance + self.yield_weight;
@@ -251,9 +237,8 @@ pub const fn display_score(loss: f32) -> f32 {
 /// The individual optical measurements [`evaluate_objective`] reports, BEFORE they are
 /// weighted into a single score.
 ///
-/// If the optimizer improved windowing by wrecking extinction, the user must be able
-/// to see that -- always reported alongside the blended [`ObjectiveWeights::score`],
-/// never instead of it.
+/// Reported next to the blended [`ObjectiveWeights::score`], so a trade-off between them
+/// stays visible.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ObjectiveComponents {
     /// Percentage of the stone that windows.
@@ -266,25 +251,22 @@ pub struct ObjectiveComponents {
     pub tilt_brilliance_pct: f32,
 }
 
-/// How thoroughly [`evaluate_objective`] samples a design's tilt behavior -- see this
-/// module's own doc comment's "Cost first" section for the measured numbers behind this
-/// split.
+/// How thoroughly [`evaluate_objective`] samples a design's tilt behavior. The parent
+/// module's "Cost" section explains the split.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ObjectiveFidelity {
-    /// A single canonical pose (table-up, `cam_yaw = 0`) -- one call to
-    /// `evaluate_gem_optical_metrics`, ~1.9 ms (measured before the Fire-less path: this
-    /// objective skips the Fire and scintillation tracing it never reads, so a call is
-    /// cheaper than that). Carries NO tilt information at all
-    /// (a stone can look perfect table-up and window badly at 30 degrees) -- traded
-    /// away deliberately so a search can afford many more candidates per unit
-    /// wall-clock time. Intended for [`super::optimize_design`]'s inner search loop
-    /// only, never for the before/after report handed to the user.
+    /// A single canonical pose (table-up, `cam_yaw = 0`), one `_core` metrics call that skips
+    /// the Fire and scintillation tracing this objective never reads. It carries NO tilt
+    /// information (a stone can look perfect table-up and window badly at 30 degrees), which
+    /// is traded away so a search can afford more candidates. Intended for
+    /// [`super::optimize_design`]'s inner search loop only, never for the report shown to
+    /// the user.
     Fast,
-    /// The full 4-axis, 181-point `-90..=90` degree tilt sweep -- the exact same
-    /// curve the Tilt Performance dialog and the catalogue's own performance
-    /// filters are built from. `windowing_pct`/`extinction_pct`/`tilt_brilliance_pct`
-    /// are each the plain mean across all 4 x 181 = 724 sample points. Measured at
-    /// ~1.3-1.4 s per call -- see the module doc comment.
+    /// The full 4-axis, 181-point `-90..=90` degree tilt sweep, the same curve the Tilt
+    /// Performance dialog and the catalogue's performance filters use.
+    /// `windowing_pct`/`extinction_pct`/`tilt_brilliance_pct` are each the plain mean across
+    /// all 4 x 181 = 724 sample points. It costs far more than `Fast`; see the module's
+    /// "Cost" section.
     Full,
 }
 

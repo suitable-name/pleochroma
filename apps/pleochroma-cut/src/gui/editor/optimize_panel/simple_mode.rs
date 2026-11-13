@@ -1,11 +1,9 @@
-//! The Optimize tab in the Simple interface: which of the settings it hides are not at their
-//! defaults.
+//! The Optimize tab in the Simple interface: whether the settings it hides are at their defaults.
 //!
 //! The Simple interface hides "What may change", the angle ranges, the budget, the starts, the
-//! seed, the number of candidates and polish. They keep their values and the search still uses them, so
-//! the tab says "Some advanced settings are in use. Switch to Advanced to see them." whenever
-//! one of them is not what a fresh design starts with. The rule is here, Slint-free, so it is
-//! tested without a window.
+//! seed, the candidate count and polish. The search still uses their values, so the tab says
+//! "Some advanced settings are in use. Switch to Advanced to see them." when one of them is not
+//! what a fresh design starts with. The rule is Slint-free, so it is tested without a window.
 
 use pleochroma_editor::optimize_view::{
     DEFAULT_BUDGET, DEFAULT_CANDIDATES, DEFAULT_STARTS, RangeInput, parse_budget,

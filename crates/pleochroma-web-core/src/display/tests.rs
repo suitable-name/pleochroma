@@ -248,7 +248,8 @@ fn the_pill_rate_leaves_out_worker_start_up() {
 
 /// Timing probe for the settle-denoise decision (single thread, like the browser).
 /// Run natively with an optimised build:
-/// `cargo test -p pleochroma-web-core --profile pleochroma-web-compute denoise_timing -- --ignored --nocapture`.
+/// `cargo test -p pleochroma-web-core --profile pleochroma-web-compute denoise_timing
+/// -- --ignored --nocapture`.
 #[test]
 #[ignore = "timing probe, not a check"]
 fn denoise_timing_probe() {

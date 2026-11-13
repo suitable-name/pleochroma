@@ -4,43 +4,44 @@
 //! [`typical_patterns`] lists, for a material name, the patterns a stone of that species is
 //! typically zoned in (a sapphire in hexagonal growth bands, a tourmaline as a watermelon, an
 //! amethyst in sectors). Each entry builds a [`ColorPattern`] from the stone's own color, so a
-//! blue sapphire bands in its own blue; a second hue appears only where the species is known for
-//! one (the yellow rim of a parti-color sapphire, the pink and green of a tourmaline).
+//! blue sapphire bands in its own blue. A second hue appears only where the species is known
+//! for one (the yellow rim of a parti-color sapphire, the pink and green of a tourmaline).
 //!
 //! The patterns are the same kind of thing a template is ([`super::template`]): geometry in the
 //! pattern frame for a stone one unit wide (`+Y` is the crystal's c axis), `relative_to_stone`,
-//! colors as `[L*, C*, h]` only. The application solves the colors before it applies the pattern
-//! ([`ColorPattern::unsolved_colors`]). The pattern axis is "Follows Crystal Axis", so the zones
-//! stay on the crystal when the stone's axis moves; a cubic species (fluorite), which has no
-//! Crystal Axis, gets a fixed axis in the table plane instead, so its bands stand upright
+//! colors as `[L*, C*, h]` only. The application solves the colors before it applies the
+//! pattern ([`ColorPattern::unsolved_colors`]). The pattern axis is "Follows Crystal Axis", so
+//! the zones stay on the crystal when the stone's axis moves. A cubic species (fluorite) has no
+//! Crystal Axis, so it gets a fixed axis in the table plane and its bands stand upright
 //! ([`TypicalPattern::axis`]).
 //!
 //! # Variants
 //!
-//! A builder also gets the color variants of the stone's material (valid for the stone: the caller
-//! filters them with `ColorVariant::validate_for`). Where a zone's intended color is one the species
-//! has a variant for, that zone is a [`PatternColor::Variant`] instead of an `[L*, C*, h]` seed:
-//! the rubellite core and verdelite rim of a tourmaline, the blue core and yellow rim of a
-//! parti-color sapphire, the amethyst and citrine of an ametrine. A small table (`SHADE_VARIANTS`)
-//! says which variant key supplies which shade; a variant a research lane adds later plugs in as
-//! one row. A species without a matching variant keeps the `[L*, C*, h]` seed, so a stone with no
-//! variants builds the same patterns as before.
+//! A builder also gets the color variants of the stone's material. The caller filters them
+//! for the stone with `ColorVariant::validate_for`. Where a zone's intended color is one the
+//! species has a variant for, that zone is a [`PatternColor::Variant`] instead of an
+//! `[L*, C*, h]` seed: the rubellite core and verdelite rim of a tourmaline, the blue core and
+//! yellow rim of a parti-color sapphire, the amethyst and citrine of an ametrine. A small table
+//! (`SHADE_VARIANTS`) says which variant key supplies which shade. A further variant plugs in
+//! as one row. A species without a matching variant keeps the `[L*, C*, h]` seed, so a stone
+//! with no variants gets the seed colors.
 //!
-//! Species are matched by the exact name of the built-in material, ASCII case ignored. A custom
+//! Species are matched by the exact name of the built-in material, ignoring ASCII case and
+//! surrounding space. A custom
 //! material carries no species, so it has no typical zoning of its own; it can still be zoned by
 //! hand with the Color Pattern editor.
 //!
 //! # Pleochroic stones
 //!
 //! A pattern built on a uniaxial or biaxial stone never has a one-color ([`PatternColor::Single`])
-//! zone: that zone would render without pleochroism. The stone's own color is an [`OwnColor`]: the
-//! `[L*, C*, h]` of each of its directions, and, where the stone has one, the variant that is its
-//! color (the design's variant snapshot, else the Material Default). A zone in the stone's own
-//! color takes that variant as it is; a paler or stronger shade is built direction by direction
-//! ([`PatternColor::Dichroic`] or [`PatternColor::Trichroic`]), and a fixed color (the pink of a
-//! watermelon) repeats in every direction. The caller computes the per-direction `[L*, C*, h]`
-//! (this crate has no color-editor dependency). A stone without pleochroism keeps one color per
-//! zone, so [`OwnColor::single`] builds the patterns the first release built.
+//! zone: that zone would render without pleochroism. The stone's own color is an [`OwnColor`]:
+//! the `[L*, C*, h]` of each of its directions and, where the stone has one, the variant that is
+//! its color (the design's variant snapshot, else the Material Default). A zone in the stone's
+//! own color takes that variant as it is. A paler or stronger shade is built direction by
+//! direction ([`PatternColor::Dichroic`] or [`PatternColor::Trichroic`]), and a fixed color (the
+//! pink of a watermelon) repeats in every direction. The caller computes the per-direction
+//! `[L*, C*, h]`, since this crate has no color-editor dependency. A stone without pleochroism
+//! keeps one color per zone, so [`OwnColor::single`] builds one-color patterns.
 
 use super::{
     ColorPattern, PATTERN_BASE_FORMAT_VERSION, PatternAxis, PatternColor, PatternZone, TemplateId,
@@ -55,13 +56,10 @@ use std::f64::consts::{FRAC_PI_3, TAU};
 /// blue sapphire.
 pub(super) const DEFAULT_OWN_COLOR: [f64; 3] = [40.0, 45.0, 265.0];
 
-/// Amethyst purple, as the Color Pattern window's Ametrine preset has it. Deeper since 2026-11-03
-/// (it was L* 48 C* 42): dealer photos of ametrine show a lavender half more saturated than the
-/// yellow one, 40-45 % of the stone, where the Split rendered 21 % purple in a mostly yellow
-/// stone (L* 44 C* 48 with the citrine at L* 86 C* 45 overshot to 69 %).
+/// Amethyst purple of the Ametrine preset, matched to dealer photos of ametrine, where the
+/// purple covers 40-45 % of the stone.
 const AMETHYST: [f64; 3] = [46.0, 45.0, 305.0];
-/// Citrine yellow, as the Color Pattern window's Ametrine preset has it. Softer and more golden
-/// since 2026-11-03 (it was L* 82 C* 72 h 88), the yellow half of the dealer photos.
+/// Citrine yellow of the Ametrine preset, matched to the yellow half of the same photos.
 const CITRINE: [f64; 3] = [84.0, 58.0, 85.0];
 /// The yellow rim of a parti-color sapphire.
 const PARTI_YELLOW: [f64; 3] = [80.0, 60.0, 90.0];
@@ -102,18 +100,18 @@ enum Shade {
 }
 
 /// Which variant supplies which shade, by variant key; the first row of a shade that the stone's
-/// variants hold wins. The tourmaline and sapphire keys are entries of the data files
-/// (`data/color_variants/`); the parti-color's blue is the Sapphire's own color, its Material
-/// Default (`sapphire.default`). The Ametrine has no body-color variants (its color is its zones),
-/// so its two rows only match variants a caller supplies; a variant that is not there leaves its
-/// zone on the `[L*, C*, h]` seed.
+/// variants hold wins. The tourmaline and sapphire keys are entries of `pleochroma`'s
+/// `data/color_variants/`. The parti-color's blue is the Sapphire's own color, its Material
+/// Default (`sapphire.default`). The Ametrine has no body-color variants (its color is its
+/// zones), so its two rows only match variants a caller supplies. A variant that is not there
+/// leaves its zone on the `[L*, C*, h]` seed.
 const SHADE_VARIANTS: [(Shade, &str); 8] = [
     (Shade::Rubellite, "tourmaline.rubellite"),
     (Shade::Verdelite, "tourmaline.verdelite"),
     (Shade::Blue, "sapphire.default"),
     (Shade::Yellow, "sapphire.yellow"),
-    // The Yellow variant over a parti rim reads a faint cream (Light Tent C* 4), where real parti
-    // sapphires show clear yellow, and green where it overlaps the blue (2026-11-03).
+    // The Yellow variant over a parti rim reads a faint cream (Light Tent C* 4), where real
+    // parti sapphires show clear yellow, and green where it overlaps the blue.
     (Shade::PartiYellow, "sapphire.golden_yellow"),
     (Shade::PartiYellow, "sapphire.yellow"),
     (Shade::Amethyst, "ametrine.amethyst"),
@@ -132,8 +130,8 @@ fn shade_color(variants: &[ColorVariant], shade: Shade) -> Option<PatternColor> 
 /// The stone's own color, as a typical pattern is built on it (see the module notes).
 ///
 /// It holds one `[L*, C*, h]` per principal direction of the stone: one for a stone without
-/// pleochroism, Along and Across for a uniaxial one, Alpha, Beta and Gamma for a biaxial one. That
-/// count is the form of every zone the pattern builds.
+/// pleochroism, Along and Across for a uniaxial one, Alpha, Beta and Gamma for a biaxial one.
+/// That count is the form of every zone the pattern builds.
 #[derive(Debug, Clone, PartialEq)]
 pub struct OwnColor {
     /// One to three entries, in slot order.
@@ -253,10 +251,10 @@ impl TypicalPattern {
         }
     }
 
-    /// An entry of a cubic species (fluorite): the pattern axis lies in the table plane, so layers
-    /// stand upright and show as stripes face up. A cubic stone has no Crystal Axis (the render
-    /// ignores it), so a following pattern would keep its layers parallel to the table for good,
-    /// and face up the eye would look through all of them at once.
+    /// An entry of a cubic species (fluorite): the pattern axis lies in the table plane, so
+    /// layers stand upright and show as stripes face up. A cubic stone has no Crystal Axis, so
+    /// a following pattern would keep its layers parallel to the table, and face up the eye
+    /// would look through all of them at once.
     const fn upright(template: TemplateId, build: Build) -> Self {
         Self {
             axis: PatternAxis::ACROSS,
@@ -266,10 +264,10 @@ impl TypicalPattern {
 
     /// The pattern for a stone with the own color `own` and the color variants `variants`.
     ///
-    /// The variants are those of the stone's material (valid for the stone; zones whose color is one
-    /// of them become [`PatternColor::Variant`]). The zones turn with the stone's Crystal Axis
-    /// ([`PatternAxis::FollowsCrystalAxis`]), except for a cubic species, whose layers stand
-    /// upright ([`Self::axis`]). Its `[L*, C*, h]` colors are not solved yet.
+    /// The variants are those of the stone's material (valid for the stone). Zones whose color
+    /// is one of them become [`PatternColor::Variant`]. The zones turn with the stone's Crystal
+    /// Axis ([`PatternAxis::FollowsCrystalAxis`]), except for a cubic species, whose layers
+    /// stand upright ([`Self::axis`]). Its `[L*, C*, h]` colors are not solved yet.
     ///
     /// A stone with pleochroism has one color per direction in `own` (see [`OwnColor`]), so the
     /// pattern has no one-color zone.
@@ -405,8 +403,8 @@ fn has_hue(own: [f64; 3], from: f64, to: f64) -> bool {
     own[1] >= 10.0 && (from..=to).contains(&own[2])
 }
 
-/// The pink and the green of a tourmaline: the stone's own color replaces the one it already is,
-/// and each of the others is the rubellite or verdelite variant when the stone has it.
+/// The pink and the green of a tourmaline. The stone's own color replaces the one it already
+/// is, and each of the others is the rubellite or verdelite variant when the stone has it.
 fn tourmaline_pair(own: &OwnColor, variants: &[ColorVariant]) -> (PatternColor, PatternColor) {
     let pink = || shade_color(variants, Shade::Rubellite).unwrap_or_else(|| own.flat(PINK));
     let green = || shade_color(variants, Shade::Verdelite).unwrap_or_else(|| own.flat(GREEN));
@@ -548,7 +546,7 @@ fn three_sectors(
     )
 }
 
-// ---- the entries --------------------------------------------------------------------------------
+// ---- the entries ----------------------------------------------------------------------
 
 fn hexagonal_banding(
     own: &OwnColor,
@@ -562,9 +560,9 @@ fn hexagonal_banding(
     )
 }
 
-/// A 6-sided core in the stone's own color inside a rim of a contrasting hue; the rim, and the core
-/// of a stone that is blue or yellow itself, are the Yellow and Blue variants when the stone has
-/// them. A stone whose own color is a variant keeps it for the core.
+/// A 6-sided core in the stone's own color inside a rim of a contrasting hue. The rim, and the
+/// core of a stone that is blue or yellow itself, are the Yellow and Blue variants when the
+/// stone has them. A stone whose own color is a variant keeps it for the core.
 fn parti_color(own: &OwnColor, variants: &[ColorVariant], axis: PatternAxis) -> ColorPattern {
     let (mut rim, mut zones) = parti_color_parts(own);
     let lch = own.lch();
@@ -666,9 +664,9 @@ fn amethyst_split(own: &OwnColor, _variants: &[ColorVariant], axis: PatternAxis)
     )
 }
 
-/// Purple and yellow halves, as the Ametrine preset has them (the stone's own color only says how
-/// many directions a color has: citrine and ametrine are defined by the two colors); the amethyst
-/// and citrine variants when the stone has them.
+/// Purple and yellow halves, as the Ametrine preset has them. The stone's own color only says
+/// how many directions a color has, since citrine and ametrine are defined by the two colors.
+/// The amethyst and citrine variants are used when the stone has them.
 fn ametrine_split(own: &OwnColor, variants: &[ColorVariant], axis: PatternAxis) -> ColorPattern {
     // The pair is (amethyst, citrine): the purple half and the yellow half as they are.
     let colors = <[PatternColor; 2]>::from(ametrine_pair(own, variants));

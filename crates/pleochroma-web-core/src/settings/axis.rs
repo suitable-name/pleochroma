@@ -2,8 +2,8 @@
 //! render is linked to it) or the per-user setting of the Render panel.
 //!
 //! While linked, the design's own `[render_effects]` win, as its stone width and material do:
-//! the stone the page shows is the stone the design describes, so a design saved with an axis (or
-//! with none) renders the same on every surface. The per-user setting applies only to an
+//! the stone the page shows is the stone the design describes, so a design saved with an axis
+//! (or with none) renders the same on every surface. The per-user setting applies only to an
 //! unlinked render (a header material with no design behind it).
 
 use pleochroma::optics::materials::GemMaterial;
@@ -34,9 +34,8 @@ pub fn render_material_is_biaxial(
 /// The `(Crystal Axis, Second Axis)` override pair of a render: the axis when `on`, else none;
 /// the Second Axis (alpha) only with an axis and a turn.
 ///
-/// The axis is the vector the angle sliders have always produced
-/// ([`c_axis_from_angles`]), so a render without a Second Axis is byte-identical to what it was
-/// before the Second Axis existed. The Second Axis turns about the CANONICAL axis line
+/// The axis is the vector of the angle sliders ([`c_axis_from_angles`]), so a render without a
+/// Second Axis uses that axis alone. The Second Axis turns about the CANONICAL axis line
 /// (`CrystalOrientation::alpha`, the one the planner rows, the hand-off and the sheet use), so a
 /// turn means the same direction whichever end of the axis line the slider vector points to.
 #[must_use]

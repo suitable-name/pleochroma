@@ -1,6 +1,6 @@
 use super::*;
 use crate::solve::design_to_toml;
-use pleochroma_cut_core::{PreformSpec, ScheduleMeta};
+use pleochroma_cut_core::{ConstraintTier, PreformSpec, ScheduleMeta};
 
 const SAMPLE_ASC: &str = "GemCad 5.0\n\
 g 96 0.0\n\
@@ -53,13 +53,13 @@ fn a_design_file_attachment_reads_back_as_its_design() {
     ])
     .unwrap();
     assert_eq!(design.meta.gear_teeth, 96);
-    assert!(design.tiers.is_empty());
+    assert_eq!(design.tiers, [] as [ConstraintTier; 0]);
 }
 
 #[test]
 fn an_asc_attachment_reads_as_a_design() {
     let design = design_of_attachments(&[file("trichecker.asc", SAMPLE_ASC.as_bytes())]).unwrap();
-    assert!(!design.tiers.is_empty());
+    assert_ne!(design.tiers, [] as [ConstraintTier; 0]);
 }
 
 #[test]
@@ -93,7 +93,7 @@ fn an_unsolved_design_measures_nothing_and_has_no_girdle() {
     assert!(solid.measure(&detail).is_none());
     assert_eq!(solid.girdle_sides(), 0);
     assert!(solid.measure_ref().is_none());
-    assert!(solid.planes().is_empty());
+    assert_eq!(solid.planes(), [] as [GpuFacetPlane; 0]);
 }
 
 #[test]

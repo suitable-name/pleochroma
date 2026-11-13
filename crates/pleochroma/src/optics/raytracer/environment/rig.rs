@@ -5,6 +5,11 @@
 //! `Studio`/`IsoHemisphere`/`LightTent`/`DaylightDome` arms), the observer head-shadow
 //! and horizon blends they share, the lit backdrop tray every escape sees below the
 //! horizon (`tray > 0.0`; see `tray.rs`). Next-event-estimation lives in `nee.rs`.
+//!
+//! The origin-aware lookups ([`sample_environment_channels_at`],
+//! [`sample_environment_channel_at`]) add the stone's shadow on the paper: below the horizon
+//! and with a tray they scale the tray radiance per channel by the `tray_shadow` map's ratio
+//! where the ray lands, and are bit-identical to the directional lookups otherwise.
 
 use super::{
     DEFAULT_HEAD_SHADOW_COSINES, EnvironmentSource, LightingModel, LightingPreset,
@@ -14,20 +19,21 @@ use super::{
 use crate::optics::studio_rig::RING_LIGHT_COUNT;
 use glam::Vec3;
 
-/// Looks up channel `lambda_nm`'s spectral radiance, in direction `dir`, for a ray that
-/// missed the gemstone and is now sampling `environment`. Pulled out of
-/// `trace_spectral_ray`'s miss branch so the `HdrMap` arm doesn't grow that
-/// already-oversized function.
+/// Spectral radiance of channel `lambda_nm` for a missed ray in direction `dir`.
 ///
-/// Takes the `Studio` variant's [`StudioRig`](crate::optics::studio_rig::StudioRig)
-/// pre-built (`studio_rig`) rather than reconstructing it from `light_yaw`/
-/// `light_pitch` on every call -- the trace builds it once per ray and both
-/// `accumulate_miss_radiance` and the exit-split probe borrow it. `observer` is
-/// the unit direction from the stone towards the eye (see
-/// [`sample_studio_environment_observed`](super::sample_studio_environment_observed)).
-/// Both are unused for `HdrMap`.
+/// Keeps the `HdrMap` arm out of `trace_spectral_ray`'s miss branch.
+///
+/// The `HdrMap` arm is the map's bilinear RGB at `dir` (`EnvironmentMap::radiance_rgb_rotated`)
+/// at the source's exposure ([`hdr_rgb_at_exposure`](super::hdr_rgb_at_exposure)), then the
+/// spectral lift. This equals `EnvironmentMap::radiance_at` at exposure `1.0` with no
+/// rotation. WGSL twin: `hdr_env_radiance_at`.
+///
+/// `studio_rig` is built once per ray by the trace and borrowed here. `observer` is the unit
+/// direction from the stone towards the eye (see
+/// [`sample_studio_environment_observed`](super::sample_studio_environment_observed)). Both
+/// are unused for `HdrMap`.
 #[inline]
-pub(in super::super) fn sample_environment_channel(
+pub fn sample_environment_channel(
     environment: EnvironmentSource<'_>,
     dir: Vec3,
     lambda_nm: f32,
@@ -55,20 +61,25 @@ pub(in super::super) fn sample_environment_channel(
                 backdrop,
             )
         }
-        EnvironmentSource::HdrMap(map) => map.radiance_at(dir, lambda_nm),
+        EnvironmentSource::HdrMap {
+            map,
+            exposure,
+            rotation,
+        } => crate::renderer::env_map::rgb_to_spectral_radiance(
+            super::hdr_rgb_at_exposure(map.radiance_rgb_rotated(dir, rotation), exposure),
+            lambda_nm,
+        ),
     }
 }
 
-/// Cosines of the cone half-angles the lit models are built from. Literal values,
-/// never computed, so the CPU and the WGSL twins (`transport_physics.wgsl`,
-/// `transport_bounce.wgsl`, `environment.wgsl`) use identical bits.
+/// Cone-half-angle cosines of the lit models. Literal values, never computed, so the CPU and
+/// the WGSL twins use identical bits.
 ///
-/// The observer head shadow is not a constant: it is a scene parameter
-/// (`EnvironmentSource::Studio::head_shadow_deg`, default 16 degrees = fully dark within
-/// 14 degrees of the eye direction, gone by 18), evaluated to the `[outer, inner]`
-/// cosine pair once by [`head_shadow_cosines`](super::head_shadow_cosines) and passed in.
-/// (The sun disc of `DaylightSun` is a hard-edged 0.27 degree cone, see `SUN_DISC_COS`
-/// below; `DaylightDome` has no disc any more.)
+/// The observer head shadow is not one of these: it is the scene parameter
+/// `EnvironmentSource::Studio::head_shadow_deg` (default 16 degrees), evaluated once to an
+/// `[outer, inner]` pair by [`head_shadow_cosines`](super::head_shadow_cosines). The sun disc
+/// is `sun::SUN_DISC_COS`.
+///
 /// Light tent overhead softbox: full within 20 degrees of the key, gone by 40.
 const TENT_KEY_OUTER_COS: f32 = 0.766_044_4;
 const TENT_KEY_INNER_COS: f32 = 0.939_692_6;
@@ -97,7 +108,7 @@ fn observer_visibility(d: Vec3, observer: Vec3, shadow: [f32; 2]) -> f32 {
 
 /// `0.0` below the girdle plane, `1.0` above, blended over `-0.05..0.05` in `d.y` so
 /// the horizon never aliases.
-pub(super) fn horizon_blend(d: Vec3) -> f32 {
+pub fn horizon_blend(d: Vec3) -> f32 {
     smoothstep(-0.05, 0.05, d.y)
 }
 
@@ -148,10 +159,10 @@ const ASET_GREEN_NM: f32 = 540.0;
 const ASET_BLUE_NM: f32 = 460.0;
 /// Gaussian sigma of an ASET band: 20 nm FWHM, `20 / (2 * sqrt(2 ln 2))`.
 const ASET_SIGMA_NM: f32 = 8.493_218;
-/// Per-zone radiance gains. A 20 nm line carries a twentieth of the energy of the broad
-/// D65 curve and the eye is far less sensitive at 460 nm than at 540 nm, so the gains
-/// lift the bands to comparable perceived brightness (estimated from the V(lambda) values
-/// at the band centres, to be tuned by eye).
+/// Per-zone radiance gains. A 20 nm line carries far less energy than the broad D65 curve,
+/// and the eye is less sensitive at 460 nm than at 540 nm, so the gains bring the bands to
+/// comparable perceived brightness (estimated from V(lambda) at the band centres, then tuned
+/// by eye).
 const ASET_RED_GAIN: f32 = 8.0;
 const ASET_GREEN_GAIN: f32 = 5.0;
 const ASET_BLUE_GAIN: f32 = 16.0;
@@ -265,12 +276,11 @@ fn light_tent_lighting(
     // after the ACES curve, so a facet that sees nothing but the tent is grey, not
     // white. The black cards cut that to a tenth.
     //
-    // The per-preset parameters are exact identities at `TentParams::DEFAULT` (`x * 1.0`
-    // is `x` in f32, and the ground literal is the same `0.02`), so `LightTent` stays bit
-    // for bit what it was; the other tent presets only change the four floats.
+    // The parameters are exact identities at `TentParams::DEFAULT` (`x * 1.0` is `x` in
+    // f32), so the light tent keeps its bits; other tent presets change only the four floats.
     let mut walls = 0.08f32.mul_add(d.y.max(0.0), 0.14) * tent.walls;
-    // `flat` blends the gradient towards its value at 30 degrees elevation; the branch (not
-    // a `mix` by zero) keeps `flat == 0` bit-identical to the old arithmetic.
+    // `flat` blends the gradient towards its value at 30 degrees elevation; the branch keeps
+    // `flat == 0` bit-identical.
     if tent.flat > 0.0 {
         walls = (0.18 * tent.walls).mul_add(tent.flat, walls * (1.0 - tent.flat));
     }
@@ -310,9 +320,7 @@ fn daylight_dome_lighting(
     let glow2 = glow * glow;
     let glow4 = glow2 * glow2;
     let aureole = (glow4 * glow4) * 0.30;
-    // Sky only: the old 2-4 degree "sun" (1 % of the irradiance, with no NEE to make it
-    // anything but a glow) is gone; `DaylightSun` is the preset with a real sun. For every
-    // direction the old smoothstep disc left at zero this is bit-identical to before.
+    // Sky only: the sun disc belongs to `DaylightSun`, not to the dome.
     let vis = observer_visibility(d, observer, shadow);
     let above = (sky + aureole) * (horizon * vis);
     let ground = lit_ground(horizon, vis, tray, 0.04);
@@ -327,8 +335,7 @@ fn studio_rig_lighting(
     ambient_fill: bool,
     tray: f32,
 ) -> DirectionLighting {
-    // 1. Ambient luxury studio backdrop (pure neutral dark charcoal velvet); absent for
-    //    the UV lamps (dark room).
+    // 1. Ambient backdrop (neutral dark charcoal); absent for the UV lamps (dark room).
     let bg_val = if ambient_fill {
         0.012f32.mul_add(d.y.mul_add(0.5, 0.5), 0.015).max(0.005) * exposure
     } else {
@@ -343,7 +350,7 @@ fn studio_rig_lighting(
     let fill_dot = d.dot(rig.fill_dir).max(0.0);
     let fill = (fill_dot > 0.0).then(|| fill_dot.powi(18) * 4.5 * exposure);
 
-    // 4. Circular Ring Scintillation Lights (16 sparkling pinpoint sources rotating with lighting rig)
+    // 4. Ring lights: up to 16 pinpoint sources that rotate with the rig.
     let mut sparks = [0.0f32; RING_LIGHT_COUNT];
     let mut ring_len = 0;
     for ring_dir in rig.ring_dirs {
@@ -374,8 +381,8 @@ fn studio_rig_lighting(
 
 /// Evaluates `lighting_preset`'s wavelength-independent lighting of `dir` once.
 ///
-/// `tray` is the lit backdrop's radiance at exposure 1 (`0.0` = As Lit, the preset's own
-/// ground, which is today's arithmetic untouched; see `tray.rs`).
+/// `tray` is the lit backdrop's radiance at exposure 1. `0.0` means As Lit: the preset's own
+/// ground (see `tray.rs`).
 fn direction_lighting(
     dir: Vec3,
     lighting_preset: LightingPreset,
@@ -429,13 +436,11 @@ pub(super) fn unit_radiance(
 
 /// ASET-style contrast view (model id 4), after the Angular Spectrum Evaluation Tool.
 ///
-/// Zones by elevation above the horizon: green 0-45 degrees (low-angle light), red 45-75
-/// (the high, useful light) and blue 75-90, the region straight above the stone where the
-/// viewer's own head and lens sit (in a real ASET that is the obstruction zone; here it is
-/// a fixed elevation cap rather than a cone around the view ray, so the map does not move
-/// with the camera). Black below the horizon. Each zone emits one narrow band, so the
-/// stone's facets show which zone they return light from. The head shadow is not applied
-/// (`observer`/`shadow` are unused): the blue cap is the head region.
+/// Zones by elevation above the horizon: green 0-45 degrees, red 45-75 and blue 75-90. Blue
+/// is a fixed elevation cap, not a cone around the view ray, so the zones do not move with
+/// the camera. Black below the horizon. Each zone emits one narrow band, so the facets show
+/// which zone they return light from. The head shadow is not applied (`observer` and `shadow`
+/// are unused).
 fn aset_radiance(
     d: Vec3,
     _rig: &crate::optics::studio_rig::StudioRig,
@@ -458,11 +463,13 @@ fn aset_radiance(
     }
 }
 
-/// Daylight sky plus a physically bright direct sun (model id 5): `DaylightDome`'s sky,
-/// aureole, ground and head shadow, plus the hard-edged 0.27 degree sun disc of
-/// [`SUN_RADIANCE`](super::sun::SUN_RADIANCE) (see the derivation above [`SUN_DISC_COS`]). The sun is not scaled by the
-/// head shadow; it carries its own horizon fade ([`sun_radiance_factor`]). The disc is
-/// sampled analytically by next-event estimation ([`sample_environment_for_nee`]).
+/// Daylight sky plus a direct sun (model id 5).
+///
+/// It adds to `DaylightDome`'s sky, aureole, ground and head shadow the hard-edged 0.27 degree
+/// sun disc of
+/// [`SUN_RADIANCE`](super::sun::SUN_RADIANCE) (derivation in `sun.rs`). The sun is not scaled
+/// by the head shadow and carries its own horizon fade ([`sun_radiance_factor`]). Its disc is
+/// sampled by next-event estimation ([`sample_environment_for_nee`]).
 fn daylight_sun_radiance(
     d: Vec3,
     rig: &crate::optics::studio_rig::StudioRig,
@@ -490,15 +497,9 @@ fn daylight_sun_radiance(
 
 /// Radiance along `dir` for a pre-built [`StudioRig`](crate::optics::studio_rig::StudioRig).
 ///
-/// The rig-independent body of
-/// [`sample_studio_environment_observed`](super::sample_studio_environment_observed):
-/// identical arithmetic, in the identical order, just reading `key_dir`/`fill_dir`/
-/// `ring_dirs`/`sin_light_pitch` off an already-built `rig` instead of constructing one
-/// from `(light_yaw, light_pitch)` itself. Dispatches on the preset's [`LightingModel`];
-/// the `Studio` arm is the original rig body, untouched.
-///
-/// The entry point for callers that look up many directions under one light pose: build
-/// the [`StudioRig`](crate::optics::studio_rig::StudioRig) once and pass it to every call.
+/// Same arithmetic as [`super::sample_studio_environment_observed`], which builds its own
+/// rig. Dispatches on the preset's [`LightingModel`]. For many directions under one light
+/// pose, build the rig once and pass it to every call.
 #[must_use]
 pub fn sample_studio_environment_with_rig(
     dir: Vec3,
@@ -521,8 +522,9 @@ pub fn sample_studio_environment_with_rig(
 
 /// [`sample_studio_environment_with_rig`] with an explicit head-shadow cone.
 ///
-/// `shadow` is the `[outer, inner]` cosine pair from [`head_shadow_cosines`](super::head_shadow_cosines)
-/// (the default pair reproduces the unparameterised call bit for bit).
+/// `shadow` is the `[outer, inner]` pair from
+/// [`head_shadow_cosines`](super::head_shadow_cosines) (the default pair reproduces the
+/// unparameterised call bit for bit).
 #[must_use]
 pub fn sample_studio_environment_with_rig_shadow(
     dir: Vec3,
@@ -573,9 +575,9 @@ pub fn sample_studio_environment_with_rig_shadow_tray(
 /// at wavelength `lambda_nm`: the wavelength itself for the ASET view, the preset's
 /// spectral power otherwise.
 ///
-/// A pure function of `(lighting_preset, lambda_nm)` -- for a Planckian preset two `exp`
-/// and a `powi` -- so a caller probing many directions at one wavelength computes it once
-/// and passes it to [`sample_studio_environment_with_rig_spec_power`].
+/// A pure function of `(lighting_preset, lambda_nm)`, so a caller probing many directions at
+/// one wavelength computes it once and passes it to
+/// [`sample_studio_environment_with_rig_spec_power`].
 #[must_use]
 pub fn studio_spec_power(lighting_preset: LightingPreset, lambda_nm: f32) -> f32 {
     if lighting_preset == LightingPreset::Aset {
@@ -587,8 +589,8 @@ pub fn studio_spec_power(lighting_preset: LightingPreset, lambda_nm: f32) -> f32
 
 /// [`sample_studio_environment_with_rig`] with the wavelength's `spec_power` already evaluated.
 ///
-/// `spec_power` is [`studio_spec_power`]'s value; the result is bit-identical to the wrapper when
-/// `spec_power == studio_spec_power(lighting_preset, lambda_nm)`, since the radiance only
+/// `spec_power` is [`studio_spec_power`]'s value. The result is bit-identical to the wrapper
+/// when `spec_power == studio_spec_power(lighting_preset, lambda_nm)`, since the radiance only
 /// ever reads the wavelength through that one value.
 #[must_use]
 pub fn sample_studio_environment_with_rig_spec_power(
@@ -612,9 +614,9 @@ pub fn sample_studio_environment_with_rig_spec_power(
 
 /// [`sample_studio_environment_with_rig_spec_power`] with an explicit head-shadow cone.
 ///
-/// `shadow` is the `[outer, inner]` cosine pair from [`head_shadow_cosines`](super::head_shadow_cosines);
-/// the default pair gives the same bits as the unsuffixed spec-power entry. One arithmetic
-/// path serves every shadow setting (As Lit, no tray).
+/// `shadow` is the `[outer, inner]` pair from
+/// [`head_shadow_cosines`](super::head_shadow_cosines);
+/// the default pair gives the same bits as the unsuffixed spec-power entry.
 #[must_use]
 pub fn sample_studio_environment_with_rig_spec_power_shadow(
     dir: Vec3,
@@ -640,8 +642,7 @@ pub fn sample_studio_environment_with_rig_spec_power_shadow(
 /// [`sample_studio_environment_with_rig_spec_power_shadow`] over a lit backdrop tray.
 ///
 /// `tray` is [`EnvironmentSource::Studio`]'s `backdrop` (radiance at exposure 1, see
-/// `tray.rs`); `0.0` is As Lit and bit-identical to the unsuffixed entry point. The
-/// Ray-Traced leaf calls this one.
+/// `tray.rs`); `0.0` is As Lit and bit-identical to the unsuffixed entry point.
 #[must_use]
 #[allow(
     clippy::too_many_arguments,
@@ -690,13 +691,10 @@ pub fn sample_studio_environment_with_rig_spec_power_tray(
 
 /// Samples the studio rig at every wavelength in `lambdas` along the same `dir`.
 ///
-/// The direction's geometry and the preset's Planck constants are evaluated once,
-/// then each channel only applies its own spectral power. Element `k`
-/// evaluates the same radiance as the scalar
-/// [`sample_studio_environment_with_rig_shadow_tray`] with matching parameters;
-/// hoisting the Planck constants can change the last bits of optimised transcendental
-/// evaluations, so comparison with separately evaluated scalar channels needs a small
-/// floating-point tolerance.
+/// The direction's geometry and the preset's Planck constants are evaluated once, then each
+/// channel applies its own spectral power. Element `k` matches the scalar
+/// [`sample_studio_environment_with_rig_shadow_tray`] up to Planck rounding, so comparisons
+/// with separately evaluated channels need a small tolerance.
 #[must_use]
 #[allow(
     clippy::too_many_arguments,
@@ -728,10 +726,10 @@ fn sample_studio_environment_channels<const N: usize>(
 /// Samples the escaped ray's environment at every wavelength in `lambdas`.
 ///
 /// All channels share the exit direction `dir`. Element
-/// `k` evaluates the same radiance as `sample_environment_channel(environment, dir, lambdas[k], ..)`,
-/// subject to the Planck rounding noted on [`sample_studio_environment_channels`].
+/// `k` matches `sample_environment_channel` at `lambdas[k]`, up to the Planck rounding
+/// noted on [`sample_studio_environment_channels`].
 #[inline]
-pub(in super::super) fn sample_environment_channels<const N: usize>(
+pub fn sample_environment_channels<const N: usize>(
     environment: EnvironmentSource<'_>,
     dir: Vec3,
     lambdas: &[f32; N],
@@ -759,14 +757,80 @@ pub(in super::super) fn sample_environment_channels<const N: usize>(
                 backdrop,
             )
         }
-        EnvironmentSource::HdrMap(map) => {
-            // The direction -> (u, v) -> bilinear RGB part is channel-invariant: evaluate it once
-            // and convert per channel. Exactly `radiance_at`'s two steps, so each element stays
-            // bit-identical to `map.radiance_at(dir, lambdas[k])`.
-            let rgb = map.radiance_rgb(dir);
+        EnvironmentSource::HdrMap {
+            map,
+            exposure,
+            rotation,
+        } => {
+            // The direction -> (u, v) -> bilinear RGB part (and its exposure) is
+            // channel-invariant: evaluate it once and convert per channel. Exactly
+            // `sample_environment_channel`'s two steps, so each element stays bit-identical to
+            // it (and to `map.radiance_at(dir, lambdas[k])` at exposure 1, unrotated).
+            let rgb = super::hdr_rgb_at_exposure(map.radiance_rgb_rotated(dir, rotation), exposure);
             std::array::from_fn(|k| {
                 crate::renderer::env_map::rgb_to_spectral_radiance(rgb, lambdas[k])
             })
         }
     }
+}
+
+/// Spectral radiance seen by a ray from `origin`. Each channel reads the light on the paper
+/// where the ray lands.
+///
+/// Without a tray shadow map (none attached, an HDR source, no tray, or `backdrop == 0`), and
+/// for a ray that does not land inside the map (including every upward ray), the result is
+/// [`sample_environment_channels`] bit for bit. Inside the map the tray radiance is
+/// `backdrop * factor`, floored at `f32::MIN_POSITIVE`: a tray of exactly `0.0` would select
+/// As Lit's own ground, so a fully shadowed spot must stay positive. That branch evaluates the
+/// channels one by one and may differ from the hoisted function by Planck rounding.
+#[must_use]
+pub fn sample_environment_channels_at<const N: usize>(
+    environment: EnvironmentSource<'_>,
+    origin: Vec3,
+    dir: Vec3,
+    lambdas: &[f32; N],
+    studio_rig: Option<&crate::optics::studio_rig::StudioRig>,
+    observer: Vec3,
+) -> [f32; N] {
+    if let EnvironmentSource::Studio { backdrop, .. } = environment
+        && let Some(factors) = environment
+            .tray_shadow()
+            .and_then(|map| map.factors_for(origin, dir, lambdas))
+    {
+        return std::array::from_fn(|k| {
+            sample_environment_channel(
+                environment.with_backdrop((backdrop * factors[k]).max(f32::MIN_POSITIVE)),
+                dir,
+                lambdas[k],
+                studio_rig,
+                observer,
+            )
+        });
+    }
+    sample_environment_channels(environment, dir, lambdas, studio_rig, observer)
+}
+
+/// Radiance of one wavelength escaping from `origin`, including its landing on the paper.
+///
+/// Equals [`sample_environment_channel`] bit for bit without a map, and for a ray that lands
+/// outside it. Inside the map the tray radiance is floored at `f32::MIN_POSITIVE`, as in
+/// [`sample_environment_channels_at`].
+#[must_use]
+pub fn sample_environment_channel_at(
+    environment: EnvironmentSource<'_>,
+    origin: Vec3,
+    dir: Vec3,
+    lambda_nm: f32,
+    studio_rig: Option<&crate::optics::studio_rig::StudioRig>,
+    observer: Vec3,
+) -> f32 {
+    let environment = if let EnvironmentSource::Studio { backdrop, .. } = environment
+        && let Some(map) = environment.tray_shadow()
+        && let Some(uv) = map.plane_uv(origin, dir)
+    {
+        environment.with_backdrop((backdrop * map.factor_at(uv, lambda_nm)).max(f32::MIN_POSITIVE))
+    } else {
+        environment
+    };
+    sample_environment_channel(environment, dir, lambda_nm, studio_rig, observer)
 }

@@ -1,39 +1,48 @@
 //! Profile-guided-optimization training workload.
 //!
-//! Run by `scripts/pgo-build.ps1` / `scripts/pgo-bolt-build.sh` inside an instrumented
-//! build. Collects a representative execution profile of everything the CPU spends its
-//! time on, across every material optical character and every code path a production
-//! binary (`pleochroma-worker`, `pleochroma-cut`) actually exercises:
+//! Run by `scripts/pgo-build.ps1` and `scripts/pgo-bolt-build.sh` inside an instrumented
+//! build. It exercises the CPU code paths that a production binary (`pleochroma-worker`,
+//! `pleochroma-cut`) runs, across the optical material classes:
 //!
-//! | Stage             | Code exercised |
-//! |---|---|
-//! | `train_tracer`    | Spectral path tracer (`optics::raytracer::transport`): isotropic (Diamond, Cubic Zirconia), uniaxial +/- (Sapphire/Zircon), biaxial (Alexandrite, Topaz); dispersive and near-non-dispersive built-ins; plain and frosted-girdle finishes; inclusion scattering; edge rounding; the hero-wavelength comb; plane-SoA intersection (`simd::slab_scan`/`PlanesSoA32`); the A-Trous denoiser; both the linear-HDR float buffer and the tonemapped 8-bit sRGB output. |
-//! | `train_lighting`  | Every [`pleochroma::optics::raytracer::LightingPreset::ALL`] entry (all four `LightingModel`s: the analytic studio rig plus the `IsoHemisphere`/`LightTent`/`DaylightDome` lit models) through the SAME `TraceJob`/`trace_frame` path `train_tracer` uses, plus one synthetic HDR equirectangular map (`renderer::env_map::EnvironmentMap::from_rgb`) through `optics::raytracer::EnvironmentSource::HdrMap` -- the two branches `trace_spectral_ray_with_finish_soa`'s ray-miss lookup dispatches between. `train_tracer` above only visits two of the seven presets (chosen for material coverage); this is the stage that visits every lighting model and the HDR-map code path at all. |
-//! | `train_brep`      | `geometry::cuts::StandardGemCuts::from_asc_schedule` -> `geometry::GemPolyhedron::from_planes` (plane-arrangement B-Rep reconstruction via `simd::solve_triple_batch`) and `untouched_planes`/`volume`/`facet_areas`; `pleochroma_formats::asc::to_asc_string` (the `.asc` *writer*, round-tripped back through `parse_asc`). |
-//! | `train_solver`    | Meet-point solver, all three phases plus the verified repair search (`geometry::meet_solver::{solve_meet_points, solve_meet_points_verified}`), which in turn dispatch the SIMD candidate-vertex kernels (`simd::{classify_feasibility, solve_triple_batch, PlanesSoA64}`); external solid measurement and CAD-preview mesh extraction (`geometry::stone_metrics::{measure_solid, build_solid_mesh}`) on the solved geometry. Runs against three synthetic schedules AND five real, catalogue-sourced `.asc` designs (the crate's own CrackOtto-Step cost-probe fixture, 205 facet-plane instances, plus the four real designs `tests/optics_geometry_tests/asc_designs.rs` also exercises, via the same `include_str!`'d fixture files). |
-//! | `train_tilt`      | The tilt-performance sweep (`color::metrics::evaluate_full_axis_profile_at_azimuth`, all `PROFILE_AZIMUTHS_DEG` axes) that backs `pleochroma-worker`'s `TILT_CURVES` request and `pleochroma-cut`'s tilt-profile panel. |
-//! | `train_gpu`       | (only when built with `--features gpu`, and an adapter is present) the CPU-side chunked dispatch/readback orchestration in `renderer::gpu::hybrid` (`HybridSplit::calibrated` + `render_hybrid`) that `apps/pleochroma-cut`'s and `apps/pleochroma-worker`'s `gpu` features route progressive/export rendering through. Never trains the compute shader itself (WGSL is not covered by LLVM PGO) -- only the Rust-side dispatch/chunk-sizing/readback loop around it. |
-//! | `train_guide`     | (`stages_extra`) the guide prepass with the path signature on (`n_d = 1.76`) at 800x600 and 1080p. |
-//! | `train_denoise_signature` | (`stages_extra`) the A-Trous denoiser with `path_sig: Some(..)` at 800x600; `train_tracer` also denoises every second preset with a signature. |
-//! | `train_tilt_sweep` | (`stages_extra`) `evaluate_all_axes_profiles_geom` (parallel) and `_stepped_geom`, 724 evaluations each. |
+//! - `train_tracer`: the spectral path tracer (`optics::raytracer::transport`) over
+//!   isotropic, uniaxial and biaxial built-in materials, with plain and frosted finishes,
+//!   inclusion scattering and edge rounding. Also covers `PlanesSoA32` intersection, the
+//!   A-Trous denoiser, and both the linear HDR and the 8-bit sRGB outputs.
+//! - `train_lighting`: every `LightingPreset::ALL` entry, which covers all four
+//!   `LightingModel`s (the analytic studio rig and the `IsoHemisphere`, `LightTent` and
+//!   `DaylightDome` models), through the same `TraceJob` path. Also one synthetic HDR
+//!   equirectangular map through `EnvironmentSource::HdrMap`, the second branch of the
+//!   ray-miss lookup. `train_tracer` visits only two presets, chosen for material coverage.
+//! - `train_brep`: the `.asc` writer round trip (`to_asc_string`, reparsed) and B-Rep
+//!   reconstruction from real cutting instructions (`reconstruct_validated_brep_from_asc`).
+//! - `train_solver`: the meet-point solver, plain and verified (`geometry::meet_solver`), on
+//!   three synthetic schedules and five real `.asc` designs. Then the CAD-preview
+//!   measurement and mesh build (`stone_metrics::{measure_solid, build_solid_mesh}`).
+//! - `train_tilt`: the tilt sweep (`color::metrics::evaluate_full_axis_profile_at_azimuth`)
+//!   over every `PROFILE_AZIMUTHS_DEG` axis, as used by the worker's `TILT_CURVES` request
+//!   and the cut app's tilt panel.
+//! - `train_gpu`: only with `--features gpu` and an adapter present. The CPU-side chunked
+//!   dispatch and readback in `renderer::gpu::hybrid`. The WGSL compute shader itself is
+//!   not trained, since LLVM PGO cannot see it.
+//! - `train_guide`: the guide prepass with the path signature (`n_d = 1.76`) at 800x600 and
+//!   1080p (`stages_extra`).
+//! - `train_denoise_signature`: the A-Trous denoiser with a path signature at 800x600
+//!   (`stages_extra`). `train_tracer` also denoises every second preset with a signature.
+//! - `train_tilt_sweep`: `evaluate_all_axes_profiles_geom` and `_stepped_geom`, 724
+//!   evaluations each (`stages_extra`).
 //!
 //! `train_lighting`'s HDR map is a procedural 1024x512 panorama (sun, softboxes, sky), not
 //! a toy 8x4 gradient. `--print-simd-tier` prints the dispatcher's tier and exits.
 //!
-//! What is deliberately NOT trained here: the database (`pleochroma-vault` is never
-//! opened), any file I/O, and the GPU compute shader's own WGSL source. `pleochroma-net`'s
-//! wire protocol (`SceneState`/`StreamEvent` postcard encode/decode) cannot be trained
-//! from this crate without giving `pleochroma` a dev-dependency on `pleochroma-net` (which
-//! itself depends on `pleochroma`) -- see `scripts/pgo-bolt-build.sh`'s header comment for
-//! how that gap is covered instead, by running `pleochroma-net`'s own `scene_roundtrip`
-//! integration test under instrumentation as a second training binary.
+//! Not trained here: the database (`pleochroma-vault` is never opened), file I/O, and the
+//! WGSL compute shader. `pleochroma-net`'s wire protocol cannot be trained from this crate
+//! without a dependency cycle. `scripts/pgo-bolt-build.sh` covers it instead, by running
+//! `pleochroma-net`'s `scene_roundtrip` test under instrumentation as a second training
+//! binary.
 //!
-//! Deterministic and self-contained; measured around 25 s at the default scale
-//! (`PGO_SCALE=1`, `--profile probe`; the PGO scripts build `--release`,`--features gpu` with a real adapter present) on
-//! a 16-thread desktop, well under the ~5 minute budget this file targets -- the
-//! `[tracer]` and `[solver]` stages dominate, the latter mostly from real
-//! CrackOtto-Step's 205 facet-plane instances (well over a second per plain solve,
-//! even at this build's release-like optimisation level). Honours:
+//! Deterministic and self-contained. About 25 s at the default scale (`PGO_SCALE=1`,
+//! `--profile probe`). The `[tracer]` and `[solver]` stages dominate, the solver mostly
+//! from CrackOtto-Step's 205 facet-plane instances. Honours:
 //!
 //! - `PLEOCHROMA_SIMD=scalar|avx2|avx512` so a portable (scalar) build can be trained on
 //!   an AVX machine -- see `simd::simd_level`.
@@ -85,7 +94,7 @@ const fn tier_name(level: pleochroma::simd::SimdLevel) -> &'static str {
 
 fn main() {
     // `scripts/pgo-build.ps1` runs this with `PLEOCHROMA_SIMD` unset to learn the host's
-    // native tier, then trains the tier build a second time at that tier (BLD-1).
+    // native tier, then trains the tier build again at that tier.
     if std::env::args().any(|a| a == "--print-simd-tier") {
         println!("{}", tier_name(pleochroma::simd::simd_level()));
         return;

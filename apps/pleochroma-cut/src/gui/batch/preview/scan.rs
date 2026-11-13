@@ -1,5 +1,5 @@
-//! The once-per-session "designs with no previews yet" library scan -- see this
-//! group's own `mod.rs` doc comment.
+//! The once-per-session library scan for designs whose previews are missing or stale (see
+//! `gui::batch::preview`).
 
 use crate::MainWindow;
 use pleochroma_vault::db::sqlite::Database;
@@ -9,23 +9,17 @@ use std::{
     thread,
 };
 
-/// Every entry id whose cached preview is missing, has either view (front or top)
-/// missing, or was rendered with other parameters than the current ones, per `Database::entry_ids_missing_previews`'s
-/// fingerprint comparison (`preview_size`/`preview_spp` feed the current
-/// fingerprint) -- one blob-free `LEFT JOIN` query rather than a page walk plus a
-/// per-row point lookup. The walk this replaced (`search_diagrams_page` plus a `get_preview_images`
-/// call per row) loaded both cached 256x256 preview PNGs for every entry in the
-/// catalogue just to read `generated_at.is_none()` off each one -- measured at 4.4s and
-/// 447MB for one pass over the real ~3,299-entry catalogue. Intended to run off
-/// the UI thread (see [`spawn_missing_preview_scan`]); this function does not itself
-/// spawn a thread.
+/// Every entry id whose cached preview is missing. A design counts as missing when either
+/// view (front or top) is absent, or when its picture was rendered with other parameters
+/// than the current ones (`preview_size` and `preview_spp` feed the fingerprint). The check
+/// is one blob-free `LEFT JOIN` query (`Database::entry_ids_missing_previews`); reading the
+/// cached PNGs per row instead took seconds and hundreds of MB over the catalogue. Intended to
+/// run off the UI thread (see [`spawn_missing_preview_scan`]); this function spawns no thread.
 ///
-/// The fingerprint a row is compared with is built from the row's persisted material
-/// state (name, stone size and source: `FingerprintMaterial::from_state`), never from a
-/// design file -- the scan opens none. A design whose file names a material or a size is
-/// therefore first recognised once a batch has resolved it and persisted that state
-/// (`gui::batch::catalogue_material`); the vault migration clears the fingerprints of the
-/// previews rendered before, so such a design is listed as missing until then.
+/// The fingerprint is built from the row's persisted material state (name, stone size and
+/// source: `FingerprintMaterial::from_state`), never from a design file, which the scan does
+/// not open. A design whose file names a material or a size therefore counts as missing until
+/// a batch has resolved it and persisted that state (`gui::batch::catalogue_material`).
 #[cfg(test)]
 fn scan_missing_preview_ids(db: &Mutex<Database>, preview_size: u32, preview_spp: u32) -> Vec<i64> {
     scan_missing_preview_ids_for_engine(
@@ -146,8 +140,7 @@ mod tests {
 
     /// A design whose file names a material and a girdle diameter is resolved in them,
     /// its previews are stored under a fingerprint that names them, and the scan then finds
-    /// it current. The fingerprint such a design had before the size and the source were
-    /// tracked reads as stale, once.
+    /// it current. A fingerprint that names only the material's name reads as stale.
     #[test]
     #[expect(
         clippy::too_many_lines,
@@ -262,8 +255,7 @@ mod tests {
             vec![entry_id]
         );
 
-        // Stored the way the same design was stored before the size and the source were
-        // tracked: only the name in the fingerprint, so it is rendered again.
+        // Stored with the name alone in the fingerprint, so the scan lists it again.
         let legacy = cache_fingerprint(
             CacheKind::Preview {
                 size: SIZE,

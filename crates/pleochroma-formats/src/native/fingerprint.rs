@@ -6,9 +6,8 @@ use std::fmt;
 
 /// Lowercase hex SHA-256 of `bytes`.
 ///
-/// SHA-256 (not a faster non-cryptographic hash) only because `sha2` is already this
-/// workspace's pinned choice for content fingerprints elsewhere -- there is no
-/// adversarial input here, only accidental damage to detect.
+/// SHA-256 is the workspace's `sha2` choice. Adversarial collisions are not a concern
+/// here: the hash only detects accidental damage.
 #[must_use]
 pub fn sha256_hex(bytes: &[u8]) -> String {
     let digest = Sha256::digest(bytes);

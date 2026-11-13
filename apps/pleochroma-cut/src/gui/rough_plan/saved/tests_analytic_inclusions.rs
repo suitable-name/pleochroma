@@ -1,7 +1,9 @@
-//! Tests of the inclusions of a block, a cylinder or a pebble in the plan file (schema version
-//! 6): that they round trip, that a plan without them is written as it always was, that an
-//! older build and an older version number cannot silently lose them, and what the loader
-//! refuses. The inclusions of an imported mesh (version 3) are in `tests_mesh`.
+//! Tests of the inclusions of a block, a cylinder or a pebble in the plan file.
+//!
+//! The plan file has schema version 6. The tests check that they round trip, that a plan without
+//! them is written as version 1, that an older build and an older version number cannot silently
+//! lose them, and what the loader refuses. The inclusions of an imported mesh (version 3) are in
+//! `tests_mesh`.
 
 use super::{
     axis::orientation_to_dto,
@@ -41,7 +43,7 @@ fn shell_sphere(centre_mm: [f64; 3], radius_mm: f64) -> RoughMesh {
     .expect("a sphere")
 }
 
-/// A face cut of `depth_mm` at the `normal` side that stays clear of [`shells_of`].
+/// A 1 mm face cut on the `normal` side, clear of the shells of [`shells_of`].
 const fn clear_cut(normal: [f64; 3]) -> RoughCut {
     RoughCut::Face {
         normal,
@@ -152,7 +154,7 @@ fn inclusions_in_a_block_a_cylinder_and_a_pebble_round_trip_at_version_6() {
         assert_eq!(loaded.layouts, layouts, "{kind}");
         assert!(loaded.model.mesh().is_some(), "{kind}: the mesh builds");
 
-        // The weight of the plan is the gross volume, and the inclusions weigh the same.
+        // The gross and inclusion volumes survive the round trip.
         let (a, b) = (
             model.measure().expect("measures"),
             loaded.model.measure().expect("measures"),
@@ -265,7 +267,7 @@ fn the_version_ladder_puts_inclusions_in_a_block_on_top() {
     assert!(!doc.rough.analytic_inclusions());
     assert_eq!(doc.content_version(), 5);
 
-    // Inclusions that lie in a mesh keep the version they always had.
+    // Inclusions that lie in a mesh are version 3.
     doc.rough.orientation = None;
     doc.rough.mesh = Some(MeshDto {
         vertices: Vec::new(),
@@ -379,7 +381,7 @@ fn the_tables_of_an_imported_mesh_do_not_belong_beside_the_inclusions_of_a_block
 #[test]
 fn a_plan_whose_inclusion_no_longer_fits_the_rough_is_not_saved() {
     let (_, model) = kinds().remove(0);
-    // The size edit that took the material away from the inclusions.
+    // A size edit that leaves the inclusions outside the material.
     let mut edited = model;
     edited.base = RoughBase::Block {
         x_mm: 8.0,

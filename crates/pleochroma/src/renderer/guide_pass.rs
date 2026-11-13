@@ -6,51 +6,39 @@
 //!
 //! # Why this exists
 //!
-//! [`crate::renderer::denoise`] is edge-avoiding: it needs a first-hit depth/normal/
-//! facet-id per pixel to decide which neighbours may blend together. The GUI's local
-//! render loop gets those for free from `trace_spectral_ray`'s `primary_hit_out`
-//! parameter; a remote worker's `FRAME`/`PREVIEW` payload carries only summed XYZ
-//! radiance, so guide buffers never travel over the wire. Instead this module casts one
-//! un-jittered camera ray per pixel and records its first hit via the same
-//! intersection `trace_spectral_ray` makes at bounce 0 (through the bit-identical SIMD
-//! twin of `intersect_polyhedron`, with the plane arena built once per call), without paying
-//! for anything downstream (wavelengths, Stokes vectors, Fresnel splitting).
+//! [`crate::renderer::denoise`] is edge-avoiding: it needs a first-hit depth, normal and
+//! facet id per pixel. The local render loop gets these from `trace_spectral_ray`, but a
+//! remote worker's `FRAME`/`PREVIEW` payload carries only summed XYZ radiance, so guide
+//! buffers never travel over the wire. This module instead casts one un-jittered camera
+//! ray per pixel and records its first hit, using the same intersection as bounce 0 (the
+//! bit-identical SIMD twin of `intersect_polyhedron`). It skips the downstream work
+//! (wavelengths, Stokes vectors, Fresnel splitting).
 //!
-//! The guides depend only on camera pose and the active facet geometry -- never on which
-//! backend produced the radiance, and never on light direction, material or exposure --
-//! so a caller computes them once per pose/geometry and reuses them for every frame of
-//! that accumulation (the GUI's `bridge::frame_cache::guide_pass::GuideCache`, or a
-//! coordinator's per-request display denoiser).
+//! The guides depend only on camera pose and the active facet geometry, never on the
+//! backend, light, material or exposure. A caller therefore computes them once per
+//! pose and geometry and reuses them for the whole accumulation.
 //!
-//! # Measured cost
+//! # Cost and threading
 //!
-//! One [`generate_guide_buffers`] call, parallel across `thread::available_parallelism`
-//! (`StandardGemCuts::standard_round_brilliant`): ~19ms at 800x600, ~82ms at 1920x1080,
-//! ~288ms at 3840x2160 -- large enough at 4K that a UI or socket thread runs it on a
-//! background thread via [`generate_guide_buffers_cancellable`]. Cancellation is
-//! cooperative, via an `AtomicBool` checked between rows.
+//! [`generate_guide_buffers`] runs in parallel across `thread::available_parallelism`.
+//! Large images are run on a background thread via [`generate_guide_buffers_cancellable`],
+//! which checks an `AtomicBool` between rows.
 //!
-//! On `wasm32` the prepass runs on the calling thread: `std::thread::Scope::spawn`
-//! panics there, so the thread count is pinned to 1 exactly like
-//! `renderer::tonemap`/`renderer::denoise` do. Every pixel is a pure function of the
-//! camera and planes, so the single-thread output is bit-identical to the threaded one.
+//! On `wasm32` the prepass runs on the calling thread, because `std::thread::Scope::spawn`
+//! panics there. Every pixel is a pure function of the camera and planes, so the output is
+//! bit-identical either way.
 //!
 //! # Path signature
 //!
 //! With a refractive index `n_d > 1` the prepass also follows the un-jittered centre ray
-//! through the stone at that one index (ordinary ray, Snell refraction, total internal
-//! reflection, at most [`SIGNATURE_BOUNCES`] interior hits) and hashes the facets it meets
-//! into [`GuideBuffers::path_sig`]. The reflection pattern seen inside one crown facet is
-//! the map of those interior facet regions, so the denoiser uses the signature as a second
-//! hard edge-stop (`GBuffers::path_sig`). `n_d <= 1` (the old entry points pass `0.0`)
-//! means "no signature": the buffer is all zeros. The walk uses plain `f32` operations,
-//! never `mul_add`, so `wasm32` and x86 hash identical signatures.
+//! through the stone at that index (Snell refraction, total internal reflection, at most
+//! [`SIGNATURE_BOUNCES`] interior hits). It hashes the facets it meets into
+//! [`GuideBuffers::path_sig`]. The denoiser uses the signature as a second hard edge-stop,
+//! since the reflection pattern inside one facet maps those interior regions. The plane-only
+//! entry points pass `n_d = 0.0`, which leaves the signature all zeros. The walk uses plain
+//! `f32` operations and never `mul_add`, so `wasm32` and x86 produce identical signatures.
 //!
 //! CPU only: no GPU program is involved, so this never takes a `GpuBackend` turn.
-//!
-//! Moved here unchanged from `apps/pleochroma-cut`'s `bridge::frame_cache::guide_pass`
-//! (which re-exports it) so a server can reproduce the viewer's denoised picture;
-//! `renderer::frame_denoise`'s pin test covers this prepass together with the denoise.
 
 use crate::{
     geometry::{
@@ -125,8 +113,7 @@ pub fn generate_guide_buffers(
 /// [`generate_guide_buffers`] that also fills [`GuideBuffers::path_sig`].
 ///
 /// The signature is for the reference refractive index `n_d` (`DispersionModel::n_d`).
-/// `n_d <= 1.0` (or NaN) leaves
-/// the signature all zeros, which is exactly what [`generate_guide_buffers`] returns.
+/// `n_d <= 1.0` (or NaN) leaves the signature all zeros, as [`generate_guide_buffers`] does.
 ///
 /// # Panics
 ///
@@ -412,10 +399,8 @@ pub fn generate_guide_buffers_into_geom_with_index(
 }
 
 /// The thread count [`generate_guide_buffers_cancellable`] splits its rows across.
-// wasm32-unknown-unknown has no OS thread to spawn (`std::thread::Scope::spawn` panics
-// at runtime there), so this is pinned to 1, which makes `generate_with_threads` take its
-// inline single-chunk path and never reach `thread::scope`. Two cfg-gated definitions,
-// like `renderer::tonemap::effective_thread_count`, so the wasm32 arm can be `const fn`.
+// wasm32 cannot spawn threads (`std::thread::Scope::spawn` panics), so this is pinned to 1.
+// That makes `generate_with_threads` take its inline path and never reach `thread::scope`.
 #[cfg(target_arch = "wasm32")]
 const fn auto_thread_count() -> usize {
     1
@@ -511,13 +496,11 @@ fn fill_with_threads(job: GuideJob<'_>, num_threads: usize, out: &mut GuideBuffe
 /// One image row's four output slices, as handed to a worker by [`fill_rows_dynamic`].
 type GuideRowSlices<'a> = (&'a mut [f32], &'a mut [Vec3], &'a mut [i32], &'a mut [u32]);
 
-/// Fills every row of `out` on `threads` scoped threads that claim rows one at a time
-/// from an atomic counter (the scheme `scanline.rs` uses), instead of one static band
-/// each. Rows cost very different amounts -- a miss is one failed intersection, a gem row
-/// with the path signature is up to four -- so equal-height bands left the thread holding
-/// the stone's centre running long after the others finished. Every row is a pure
-/// function of the camera and planes and lands in its own fixed slice, so the output is
-/// bit-identical to the static split; only which thread fills which row varies.
+/// Fills every row of `out` on `threads` scoped threads. Each thread claims rows one at a
+/// time from an atomic counter. Rows cost very different amounts (a miss is one failed
+/// intersection, a gem row with the signature up to four), so fixed bands would leave the
+/// thread holding the stone's centre running long. Every row lands in its own slice, so
+/// the output does not depend on which thread fills which row.
 fn fill_rows_dynamic(job: GuideJob<'_>, soa: &PlanesSoA32, threads: usize, out: &mut GuideBuffers) {
     let width = job.width as usize;
     let rows: Vec<Option<GuideRowSlices<'_>>> = out
@@ -716,8 +699,7 @@ fn fill_rows(
 #[cfg(test)]
 mod tests;
 
-/// The cancellable single-thread generator (kept beside the code; `tests.rs` is not part
-/// of this change's owned files).
+/// Tests of the cancellable single-thread prepass.
 #[cfg(test)]
 mod single_thread_cancel_tests {
     use super::*;

@@ -1,18 +1,19 @@
 //! The guided tutorials (Help > Tutorials..., and the empty state's walkthrough link): the lesson
-//! runner. It pushes the running lesson's steps into `ui/models/guide_model.slint`'s
-//! `GuideModel`, judges the current step from state, takes the UI events a step may wait for,
-//! starts a lesson (arranging the design it begins with) and keeps the reader's place across a
-//! reload.
+//! runner.
 //!
-//! # Shared with the desktop
+//! It pushes the running lesson's steps into `ui/models/guide_model.slint`'s `GuideModel`, judges
+//! the current step from state, takes the UI events a step may wait for, starts a lesson (arranging
+//! the design it begins with) and keeps the reader's place across a reload.
 //!
-//! The lessons are `pleochroma_editor::guide`'s catalogue (`GuideCatalog`), the same data the
-//! desktop's `gui/editor/guide` pushes into its own `GuideModel`. The browser shows each lesson
-//! through the web overlay (`GuideCatalog::web_guide`): the browser's own wording, the steps it
-//! cannot do left out, its lock groups. Which lessons are offered is the shared offer table
-//! (`WebFeatures`, held by `pleochroma_web_core::guide_runner::Offers`), and the browser lists exactly those
-//! ([`offered_guides`], `editor::tutorials`). Every step is indexed in the web view of its
-//! lesson, never in the catalogue's (an omitted step shifts the later indices).
+//! # Shared catalogue
+//!
+//! The lessons are `pleochroma_editor::guide`'s catalogue (`GuideCatalog`). The browser shows
+//! each lesson through the web overlay (`GuideCatalog::web_guide`): the browser's own wording,
+//! the steps it cannot do left out, its lock groups. Which lessons are offered is the shared
+//! offer table (`WebFeatures`, held by `pleochroma_web_core::guide_runner::Offers`), and the
+//! browser lists exactly those ([`offered_guides`], `editor::tutorials`). Every step is
+//! indexed in the web view of its lesson, never in the catalogue's (an omitted step shifts
+//! the later indices).
 //!
 //! The ten-step worked example ("New Design Walkthrough") is one of those lessons and runs through
 //! the same code; `GuideModel.start()` starts it.
@@ -44,28 +45,25 @@
 //!   change without the design changing (`GuideModel.poll`).
 //!
 //! A goal that is an EVENT rather than a state ([`raise`]) is reported by the place the action
-//! succeeds. The only event raised across the app today is `NEW_DESIGN_CREATED`
-//! (`pleochroma_editor::guide::NEW_DESIGN_CREATED`), by the New Design dialog and the gallery;
-//! the browser raises `tutorials_opened` itself. Raising the rest, per lesson section, is the
-//! events lanes' job: they call [`raise`] with an `EVENTS` name from the place the action
-//! succeeds.
+//! succeeds, with a name from `pleochroma_editor::guide::EVENTS`. `NEW_DESIGN_CREATED`
+//! (`pleochroma_editor::guide::NEW_DESIGN_CREATED`) comes from the New Design dialog and the
+//! gallery; the browser raises `tutorials_opened` itself.
 //!
 //! # The web's stage
 //!
-//! The desktop's "Show Me Where" sets up the view, panels, inspector tab and camera a step
-//! needs. The web has three view tabs and five inspector tabs; `judge` maps the shared stage onto
-//! them, the panel offers the button when the window shows something else, and `apply_stage`
-//! goes there. The library panel, accordion sections, Parameters dock and camera pose are the
-//! desktop's and are ignored.
+//! A step's "Show Me Where" sets up the view tab and inspector tab the step needs. The web has
+//! three view tabs and five inspector tabs; `judge` maps the shared stage onto them, the panel
+//! offers the button when the window shows something else, and `apply_stage` goes there. The
+//! library panel, accordion sections, Parameters dock and camera pose are the desktop's and
+//! are ignored.
 //!
 //! # Starting a lesson
 //!
 //! [`start_guide`] asks `plan_start` what the lesson begins with. A lesson that needs a design says
 //! so in a toast; a lesson that starts from a new design creates it the way the New Design dialog
 //! does (the unsaved-changes guard first) and opens when the design has arrived; a lesson on the
-//! open design opens at once. A lesson that starts from a library design (`OpenLibrary`) says in
-//! a toast that this build cannot open one: no lesson the browser offers starts that way before
-//! the library lane lands, and that lane adds the opener.
+//! open design opens at once. A lesson that starts from a library design (`OpenLibrary`)
+//! shows a toast instead: this build cannot open a library design.
 //!
 //! # Next does it for me
 //!
@@ -77,10 +75,10 @@
 //! # Tab session
 //!
 //! Open / lesson / step / collapsed / the dragged panel position are stored as JSON under
-//! `localStorage["pleochroma.guide.v2"]` (`pleochroma_web_core::storage_keys::GuidePlace`; the ten
-//! step walkthrough's `pleochroma.guide.v1` is read once when v2 is absent, and with
-//! `localStorage` blocked the key stays in `sessionStorage`), written a moment after any of them
-//! changes and read back by [`restore`]. The finished lessons are `editor::tutorials`'.
+//! `localStorage["pleochroma.guide.v2"]` (`pleochroma_web_core::storage_keys::GuidePlace`; with
+//! `localStorage` blocked, in `sessionStorage`), written a moment after any of them changes and
+//! read back by [`restore`]. Without a v2 entry, the legacy `pleochroma.guide.v1` entry is
+//! read. The finished lessons are `editor::tutorials`'.
 
 mod perform;
 
@@ -124,9 +122,10 @@ const RECHECK_AFTER: Duration = Duration::from_millis(50);
 /// (a solve can take a few seconds).
 const PERFORM_PATIENCE_TICKS: u32 = 20;
 
-/// What Next does for the learner on a step with a recipe: runs it through the editor's own
-/// paths and returns whether it ran. Registered by the executor lane
-/// ([`register_performer`]); the step then completes the usual way once its goal holds.
+/// What Next does for the learner on a step with a recipe: runs it through the editor's own paths
+/// and returns whether it ran.
+///
+/// Registered by [`register_performer`]; the step then completes the usual way once its goal holds.
 pub type Performer = fn(&Ctx, &GuideStep) -> bool;
 
 /// What the runner remembers between a lesson's steps.
@@ -175,8 +174,7 @@ fn with<R>(f: impl FnOnce(&mut Runtime) -> R) -> R {
 }
 
 /// Tells the runner that the web library exists (or no longer does). The library lessons and
-/// the lessons built from a library design are offered from then on. (Deep Solve, concave
-/// editing and cutting mode exist in the browser; see `Offers::features`.)
+/// the lessons built from a library design are offered from then on.
 pub fn set_library_available(available: bool) {
     with(|rt| rt.offers.set_library(available));
 }
@@ -345,8 +343,7 @@ pub fn raise(ctx: &Ctx, name: &str) {
     check_now(ctx);
 }
 
-/// Reports `key` as an event: the walkthrough's New Design step (`NEW_DESIGN_CREATED`) is
-/// reported from the two places a design is made from a template. The same as [`raise`].
+/// Reports `key` as an event, the same as [`raise`].
 pub fn notify(ctx: &Ctx, key: &str) {
     raise(ctx, key);
 }
@@ -363,10 +360,11 @@ fn mark_arrived() -> bool {
 }
 
 /// Evaluates the current lesson step's goal against the design and reports it to
-/// `GuideModel.notify` when reached. A no-op while the guide is closed, on a manual step
-/// (its goal never reads as reached), or while the current step already shows "Done".
-/// Safe to call while something else holds the state (it then does nothing: every writer
-/// ends in a refresh that calls it again).
+/// `GuideModel.notify` when reached.
+///
+/// A no-op while the guide is closed, on a manual step (its goal never reads as reached), or while
+/// the current step already shows "Done". Safe to call while something else holds the state (it
+/// then does nothing: every writer ends in a refresh that calls it again).
 pub fn check_progress(ctx: &Ctx) {
     run_check(ctx);
 }
@@ -707,8 +705,8 @@ fn schedule_save(ctx: &Ctx) {
     });
 }
 
-/// The stored place: this build's, else the ten-step walkthrough's from an earlier one. An
-/// entry that does not parse is removed.
+/// The stored place: the v2 entry, else the legacy `GUIDE_KEY` progress. An entry that does
+/// not parse is removed.
 fn stored_place() -> Option<GuidePlace> {
     let key = guide_place_key();
     if let Some(text) = persist::read(&key) {
@@ -731,8 +729,10 @@ fn stored_place() -> Option<GuidePlace> {
 }
 
 /// Puts the stored place back (lesson, open, step, collapsed, panel position) and checks the
-/// restored step's goal against the restored design. Call once at start-up, after the design has
-/// been restored and pushed. A lesson the browser no longer offers stays closed.
+/// restored step's goal against the restored design.
+///
+/// Call once at start-up, after the design has been restored and pushed. A lesson the browser no
+/// longer offers stays closed.
 pub fn restore(ctx: &Ctx) {
     let Some(ui) = ctx.ui.upgrade() else {
         return;

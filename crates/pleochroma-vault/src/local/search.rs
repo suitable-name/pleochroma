@@ -23,7 +23,7 @@
 //!
 //! # Differences from the SQL search
 //!
-//! - There are no stored tilt curves here (guide decision D16). A non-empty
+//! - The engine holds no tilt curves. A non-empty
 //!   [`RangeFilter::performance`] therefore matches nothing, and
 //!   [`SearchOutcome::excluded_for_missing_curves`] counts the designs that passed every other
 //!   filter, exactly what the SQL search reports for a library without curves.
@@ -880,10 +880,10 @@ mod tests {
             &range,
             SearchOptions::default(),
         );
-        assert!(outcome.items.is_empty());
+        assert_eq!(outcome.items, [] as [&SearchRecord; 0]);
         assert_eq!(outcome.total, 0);
         assert_eq!(outcome.excluded_for_missing_curves, 2);
-        assert!(
+        assert_eq!(
             matching_ids(
                 &records,
                 "round",
@@ -891,8 +891,8 @@ mod tests {
                 "All",
                 &range,
                 SearchOptions::default()
-            )
-            .is_empty()
+            ),
+            [] as [i64; 0]
         );
     }
 

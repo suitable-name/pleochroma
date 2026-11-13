@@ -20,10 +20,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-/// The export's own bounce cap must reach the remote `RenderRequest`, not whatever
-/// the live viewport was set to. Uses a value distinct from any plausible viewport
-/// default (`RenderContext::default().max_bounces` is 12) to prove a combined
-/// local+remote export can't trace the two engines at different caps.
+/// The export's own bounce cap must reach the remote `RenderRequest`, so local and remote
+/// trace with the same cap. The value is deliberately not the viewport default.
 #[test]
 fn scene_state_from_snapshot_carries_the_snapshots_own_bounce_cap_not_a_viewport_default() {
     let snapshot = SceneSnapshot {
@@ -46,8 +44,12 @@ fn scene_state_from_snapshot_carries_the_snapshots_own_bounce_cap_not_a_viewport
         fluorescence: std::sync::Arc::default(),
         facet_finishes: Vec::new(),
         env_map: None,
+        hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
         surface_glare: 1.0,
         head_shadow_deg: 16.0,
+        stone_shadow: false,
+        tray_reflection: 0.0,
+        stone_closed: true,
     };
 
     let state = scene_state_from_snapshot(&snapshot, 1920, 1080, snapshot.yaw, snapshot.pitch);
@@ -58,8 +60,7 @@ fn scene_state_from_snapshot_carries_the_snapshots_own_bounce_cap_not_a_viewport
     );
 }
 
-/// The viewport's surface glare must reach the remote scene, so a combined
-/// local+remote export traces both engines at the same value.
+/// The surface glare must reach the remote scene, so local and remote trace the same value.
 #[test]
 fn scene_state_from_snapshot_carries_the_snapshots_surface_glare() {
     let snapshot = SceneSnapshot {
@@ -82,8 +83,12 @@ fn scene_state_from_snapshot_carries_the_snapshots_surface_glare() {
         fluorescence: std::sync::Arc::default(),
         facet_finishes: Vec::new(),
         env_map: None,
+        hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
         surface_glare: 0.25,
         head_shadow_deg: 16.0,
+        stone_shadow: false,
+        tray_reflection: 0.0,
+        stone_closed: true,
     };
 
     let state = scene_state_from_snapshot(&snapshot, 64, 64, snapshot.yaw, snapshot.pitch);
@@ -91,12 +96,9 @@ fn scene_state_from_snapshot_carries_the_snapshots_surface_glare() {
     assert_eq!(state.surface_glare.to_bits(), 0.25f32.to_bits());
 }
 
-/// A caller sweeping the camera across many renders of the SAME static snapshot
-/// (the tilt performance video, one frame per swept angle) must see ITS pose reach
-/// the remote `SceneState`, not the snapshot's own stored `yaw`/`pitch` -- otherwise
-/// a remote-rendered frame would show a different pose than the local CPU/GPU
-/// engines traced for the same frame. Uses a pose deliberately different from the
-/// snapshot's own to prove the override, not the snapshot, wins.
+/// A pose passed in by the caller (one frame of a tilt video over a shared snapshot) must
+/// reach the remote `SceneState` instead of the snapshot's own `yaw`/`pitch`, so the remote
+/// frame matches the local one. The test uses a different pose to prove the override wins.
 #[test]
 fn scene_state_from_snapshot_uses_the_explicit_pose_override_not_the_snapshots_own_yaw_pitch() {
     let snapshot = SceneSnapshot {
@@ -119,8 +121,12 @@ fn scene_state_from_snapshot_uses_the_explicit_pose_override_not_the_snapshots_o
         fluorescence: std::sync::Arc::default(),
         facet_finishes: Vec::new(),
         env_map: None,
+        hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
         surface_glare: 1.0,
         head_shadow_deg: 16.0,
+        stone_shadow: false,
+        tray_reflection: 0.0,
+        stone_closed: true,
     };
 
     let state = scene_state_from_snapshot(&snapshot, 1920, 1080, 1.23, -0.45);
@@ -139,8 +145,53 @@ fn scene_state_from_snapshot_uses_the_explicit_pose_override_not_the_snapshots_o
     );
 }
 
-// `liveness_deadline`: the pure decision behind the export-side liveness fix --
-// see `FIRST_EVENT_TIMEOUT`'s doc comment for the bug this closes.
+/// The Stone Shadow bit reaches the remote scene only when it can apply: on with a studio
+/// light and a backdrop, off for an As Lit backdrop even though the toggle is set.
+#[test]
+fn scene_state_from_snapshot_carries_the_effective_stone_shadow() {
+    let mut snapshot = SceneSnapshot {
+        camera_roll: 0.0,
+        effects: pleochroma_net::scene::effects::SceneEffects::default(),
+        engine: pleochroma::renderer::engine::EngineSpec::default(),
+        optical_diagnostics: None,
+        yaw: 0.6,
+        pitch: 0.45,
+        distance: 2.4,
+        light_yaw: 0.85,
+        light_pitch: 0.95,
+        material: GemMaterial::diamond(),
+        lighting_preset: pleochroma::optics::raytracer::LightingPreset::RingLights,
+        max_bounces: 12,
+        exposure: 1.0,
+        backdrop: 1.0,
+        active_planes: StandardGemCuts::standard_round_brilliant(),
+        tools: Vec::new(),
+        fluorescence: std::sync::Arc::default(),
+        facet_finishes: Vec::new(),
+        env_map: None,
+        hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
+        surface_glare: 1.0,
+        head_shadow_deg: 16.0,
+        stone_shadow: true,
+        tray_reflection: 0.04,
+        stone_closed: true,
+    };
+
+    let on = scene_state_from_snapshot(&snapshot, 64, 64, snapshot.yaw, snapshot.pitch);
+    assert!(on.stone_shadow);
+    assert_eq!(on.tray_reflection.to_bits(), 0.04f32.to_bits());
+
+    snapshot.backdrop = 0.0;
+    let declined = scene_state_from_snapshot(&snapshot, 64, 64, snapshot.yaw, snapshot.pitch);
+    assert!(!declined.stone_shadow, "As Lit cannot carry the shadow");
+    assert_eq!(
+        declined.tray_reflection.to_bits(),
+        0,
+        "As Lit cannot carry the tray reflection"
+    );
+}
+
+// `liveness_deadline`: the pure deadline choice; see `FIRST_EVENT_TIMEOUT`.
 
 #[test]
 fn liveness_deadline_grants_the_first_event_grace_before_any_update_has_arrived() {
@@ -167,10 +218,9 @@ fn first_event_timeout_is_strictly_longer_than_liveness_timeout() {
     assert!(FIRST_EVENT_TIMEOUT > LIVENESS_TIMEOUT);
 }
 
-/// The 4K regression: one FRAME is ~100 MB, which a ~150 Mbit/s wireless link
-/// drains in 5-8 s -- at or past the bare 8 s steady-state deadline. The allowance
-/// must lift the deadline well clear of that, and scale with the frame, not a
-/// resolution-blind constant.
+/// One 4K FRAME (~100 MB) can take 5-8 s on a wireless link, which reaches the bare
+/// steady-state deadline. The transfer allowance must lift the deadline clear of that and
+/// scale with the frame size.
 #[test]
 fn liveness_deadline_budgets_a_whole_frame_transfer_on_a_slow_link() {
     let bytes_4k = 3840 * 2160 * pleochroma_net::radiance::BYTES_PER_PIXEL as u64;
@@ -209,9 +259,8 @@ fn progress_span_measures_from_the_first_to_the_latest_advancing_report() {
     assert_eq!(span.advance(), Some((400, Duration::from_secs(4))));
 }
 
-/// A coordinator (or a worker) whose only progress report lands at 20 s of a 25 s
-/// request: no span to measure, so the rate is the whole request's, not the window from
-/// that report to `DONE` (which would read 1000 / 5 s = 200/s).
+/// A single progress report leaves no span, so the rate is the whole request's. The window
+/// from that report to `DONE` would read 200/s instead of 40/s.
 #[test]
 fn a_single_coarse_progress_jump_yields_the_whole_request_rate() {
     let t0 = Instant::now();

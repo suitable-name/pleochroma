@@ -1,6 +1,7 @@
-//! Builds a real [`AscSchedule`] from a [`Design`]'s current state --
-//! [`Design::to_asc_schedule`] and its already-solved/catalogue-aware/fallible
-//! siblings -- plus the `G`-field notes text ([`constraint_notes`]) and the
+//! Builds a real [`AscSchedule`] from a [`Design`]'s current state.
+//!
+//! That is [`Design::to_asc_schedule`] and its already-solved/catalogue-aware/fallible
+//! siblings, plus the `G`-field notes text ([`constraint_notes`]) and the
 //! round-trip safety check on a `MeetNamed` target's name
 //! ([`meet_name_is_asc_safe`]).
 
@@ -43,9 +44,8 @@ impl Design {
 
     /// Like [`Self::to_asc_schedule`], but also consults `custom` -- see
     /// [`Self::effective_refractive_index_with`] -- so the exported `I` line reflects
-    /// a CUSTOM catalogue material's own `n_D` instead of silently falling back to
-    /// the legacy schedule RI. Passing `&[]` behaves exactly like
-    /// [`Self::to_asc_schedule`] (that method's own implementation, in fact).
+    /// a CUSTOM catalogue material's own `n_D`. Passing `&[]` gives the same schedule as
+    /// [`Self::to_asc_schedule`].
     ///
     /// # Errors
     ///
@@ -63,11 +63,9 @@ impl Design {
     /// solving `self` again.
     ///
     /// Exists so [`crate::manufacturability::check_manufacturability`] can run
-    /// checks off an already-solved design rather than forcing a fresh solve -- a
-    /// design with real meet-derived structure costs 5-6 seconds to solve (see
-    /// `Design::solve`), and an editor with a `Vec<SolvedTier>` already in hand
-    /// should never pay that cost twice. [`Self::to_asc_schedule`] just solves and
-    /// delegates here, so the two can never drift apart.
+    /// checks off an already-solved design rather than forcing a fresh solve, since a
+    /// solve of a meet-derived design is expensive (see `Design::solve`).
+    /// [`Self::to_asc_schedule`] just solves and delegates here, so the two cannot drift.
     ///
     /// Built-ins-only for its `I` line, same caveat as [`Self::to_asc_schedule`] --
     /// see [`Self::to_asc_schedule_from_solved_with`] for the catalogue-aware sibling.
@@ -83,11 +81,9 @@ impl Design {
         self.to_asc_schedule_from_solved_with(solved, &[])
     }
 
-    /// Catalogue-aware sibling of [`Self::to_asc_schedule_from_solved`] -- see
-    /// [`Self::to_asc_schedule_with`] for why this exists. Passing `custom` as `&[]`
-    /// is exactly [`Self::to_asc_schedule_from_solved`] itself (that method's own
-    /// implementation, in fact), so built-in-material behaviour is byte-identical
-    /// between the two.
+    /// Catalogue-aware sibling of [`Self::to_asc_schedule_from_solved`] (see
+    /// [`Self::to_asc_schedule_with`]). Passing `custom` as `&[]` gives the same schedule
+    /// as [`Self::to_asc_schedule_from_solved`], byte for byte.
     ///
     /// # Panics
     ///
@@ -204,23 +200,22 @@ impl Design {
     }
 
     /// Appends two `F` footnotes per concave tier to `schedule`, in
-    /// [`Self::cutting_order`] (plan §6.2): the facet line
+    /// [`Self::cutting_order`]: the facet line
     /// `"{name}  {φ:.2}  {indices}  {instructions}"` and the tool line from
-    /// [`ConcaveTier::second_line_fields_ascii`](crate::design::ConcaveTier::second_line_fields_ascii),
+    /// [`ConcaveTier::second_line_fields_ascii`],
     /// both without the `F ` prefix the writer adds and both ending in
     /// [`CONCAVE_FOOTNOTE_MARKER`]. Concave tiers are never emitted as `.asc` tiers.
     ///
     /// The lines are ASCII (the angles read `deg`, not `°`): GemCad-family programs read an
     /// `.asc` as single-byte text, where a degree sign shows up as stray characters.
     ///
-    /// Idempotent across re-import: a previous export's footnotes come back as
-    /// ordinary [`ScheduleMeta::footnotes`](crate::design::ScheduleMeta::footnotes),
-    /// possibly describing tiers that have since been edited. Every footnote carrying the
-    /// marker ([`strip_generated_concave_footnotes`]) is therefore dropped from
-    /// `schedule` first (never from the design); the user's own footnotes are untouched,
-    /// however much they look like a tool line. Line breaks inside free text become spaces
-    /// because the writer refuses a footnote that spans lines. Does nothing for a design
-    /// without concave tiers.
+    /// Re-import reads an earlier export's footnotes back as ordinary
+    /// [`ScheduleMeta::footnotes`](crate::design::ScheduleMeta::footnotes), possibly
+    /// describing tiers since edited. So every footnote carrying the marker
+    /// ([`strip_generated_concave_footnotes`]) is dropped from `schedule` first (never from
+    /// the design), while the user's own footnotes are kept. Line breaks inside free text
+    /// become spaces because the writer refuses a footnote that spans lines. Does nothing
+    /// for a design without concave tiers.
     pub fn append_concave_footnotes(&self, schedule: &mut AscSchedule) {
         if self.concave_tiers.is_empty() {
             return;
@@ -270,31 +265,20 @@ impl Design {
 
     /// [`Self::to_asc_schedule_from_solved_with`], but also bakes every tier's
     /// authored [`Self::cheater_offsets_deg`] into that tier's own exported
-    /// `indices` -- see [`Self::cheater_offsets_deg`]'s own doc comment for why:
-    /// `.asc`/`GemCAD` have no field for a cheater/azimuth angle at all, so the
-    /// only way an authored offset survives opening this exact `.asc` file in
-    /// software that has never heard of this crate's own design file is to
-    /// fold it into the one thing `.asc` DOES carry per facet -- its index-wheel
-    /// position. The shift is `offset_deg / 360 * gear_teeth` (the fraction of a
-    /// full index-wheel rotation `offset_deg` covers, in the same tooth-position
-    /// units [`pleochroma_formats::asc::AscTier::indices`] already uses), added to
-    /// every index and rounded to 3 decimals. A positive offset therefore moves the
-    /// facet toward higher index numbers (azimuth `phi + offset`), the one sign
-    /// convention `design::export::planes::apply_cheater_offsets` documents and
-    /// applies to the rendered geometry. A tier without indices (a single facet
-    /// with no azimuth of its own) has nothing to shift, so its offset appears only
-    /// in the geometry and the design file, not in the exported `.asc`.
+    /// `indices` -- see [`Self::cheater_offsets_deg`] for why. `.asc` has no field for a
+    /// cheater angle, so the offset survives in an exported `.asc` only as a shift of the
+    /// index-wheel positions it does carry. The shift is `offset_deg / 360 * gear_teeth`
+    /// (in the tooth-position units of [`pleochroma_formats::asc::AscTier::indices`]),
+    /// added to every index and rounded to 3 decimals. A positive offset moves the facet
+    /// toward higher index numbers, the same sign as
+    /// `design::export::planes::apply_cheater_offsets`. A tier without indices has
+    /// nothing to shift, so its offset appears only in the geometry and the design file.
     ///
-    /// Only [`crate::native::catalogue_asc`] (the real file-writing path) should
-    /// call this. [`Self::planes_from_solved`]/[`Self::planes_through_tier`] --
-    /// and every OTHER `to_asc_schedule*`/`try_to_asc_schedule*` entry point in
-    /// this module -- build the same kind of schedule for rendering/measurement
-    /// via [`Self::to_asc_schedule_from_solved`] (deliberately NOT this method)
-    /// and apply the offset as a real plane rotation instead
-    /// (`design::export::planes::apply_cheater_offsets`, which rotates the plane
-    /// NORMAL directly rather than the index-wheel position that produced it);
-    /// baking the offset into indices there too would rotate every one of those
-    /// consumers TWICE.
+    /// Only the file-writing path (`catalogue_asc_extended_from_solved`) should call this.
+    /// The geometry entry points build their schedules with
+    /// [`Self::to_asc_schedule_from_solved`] instead and rotate the plane normals in
+    /// `apply_cheater_offsets`; baking the offset into indices there too would apply it
+    /// twice.
     ///
     /// # Panics
     ///
@@ -342,8 +326,8 @@ impl Design {
 /// below same as a tier whose constraint has actually changed.
 ///
 /// Synthesized text reclassifies to the same [`MeetConstraint`] variant via
-/// `AscTier::meet_instruction`/`meet_tier_inputs_from_asc`, so this still round-trips
-/// semantically (not byte-for-byte) once a tier has actually been edited:
+/// `AscTier::meet_instruction`/`meet_tier_inputs_from_asc`, so an edited tier still
+/// round-trips semantically (not byte-for-byte):
 ///
 /// - [`MeetConstraint::MeetExisting`] -> empty (no `G` field -- the common case).
 /// - [`MeetConstraint::MeetNamed`] -> `"Meet <names>"`, the exact instruction text
@@ -358,16 +342,11 @@ impl Design {
 ///   flags it instead), so a caller relying on byte-for-byte reclassification must
 ///   check that separately.
 /// - [`MeetConstraint::ScaleReference`] -> `"Set stone size."` on `sets_stone_size`, the
-///   tier [`Design::sizing_tier`] names (the first explicit-depth girdle tier in cutting order,
-///   as the cutting instructions print it; one of several real phrasings
-///   `pleochroma_formats::asc::MeetInstruction::ScaleReference` recognizes; this crate does
-///   not track which specific phrasing a freshly authored -- not imported -- scale
-///   reference should use, only that it is one), else empty. Only one cut sets the size
-///   of the stone: a design whose every tier is placed by an explicit depth printed the
-///   instruction on every line until 2026-11-04 (owner: clean up the published files),
-///   which a cutter reads as nonsense after the first tier. The depth itself stays in the
-///   line's mast, and [`Design::from_asc_schedule`] pins every tier to its mast whatever
-///   its text says, so the geometry round-trips unchanged.
+///   tier [`Design::sizing_tier`] names, else empty. One of several phrasings
+///   `pleochroma_formats::asc::MeetInstruction::ScaleReference` recognizes. Only one cut
+///   sets the size of the stone, so no other explicit-depth tier gets the instruction. The
+///   depth itself stays in the line's mast, and [`Design::from_asc_schedule`] pins every
+///   tier to its mast whatever its text says, so the geometry round-trips unchanged.
 fn constraint_notes(tier: &ConstraintTier, sets_stone_size: bool) -> String {
     if let (MeetConstraint::ScaleReference(_), Some(original_notes)) =
         (&tier.constraint, &tier.original_notes)
@@ -381,8 +360,9 @@ fn constraint_notes(tier: &ConstraintTier, sets_stone_size: bool) -> String {
     }
 }
 
-/// `true` iff `name` would survive a plain `.asc` export/re-import as this exact,
-/// single token -- i.e. [`constraint_notes`]'s `"Meet <names>"` text, re-parsed by
+/// `true` iff `name` would survive a plain `.asc` export/re-import as this exact token.
+///
+/// That is, [`constraint_notes`]'s `"Meet <names>"` text, re-parsed by
 /// `pleochroma_formats::asc`'s own `G`-field tokenizer (splits a `Meet` instruction's
 /// text on `,`/`;`/whitespace, then trims each token of leading/trailing
 /// non-alphanumeric characters -- see that crate's `extract_meet_names`), would
@@ -501,8 +481,8 @@ fn is_marked(line: &str) -> bool {
         .is_some_and(|rest| rest.ends_with("  "))
 }
 
-/// The two lines an EARLIER version wrote for `tier`: unmarked, with `°` in the tool line.
-/// Recognised only by exact content, and only for the tiers a design has now.
+/// The two unmarked lines older exports wrote for `tier`; the tool line used `°`. Matched
+/// by exact content, and only for the tiers the design has now.
 fn legacy_footnotes(tier: &ConcaveTier) -> [String; 2] {
     [
         facet_footnote(tier),
@@ -510,16 +490,17 @@ fn legacy_footnotes(tier: &ConcaveTier) -> [String; 2] {
     ]
 }
 
-/// Removes every generated concave footnote from `footnotes`: each line ending with
-/// [`CONCAVE_FOOTNOTE_MARKER`] (what [`Design::append_concave_footnotes`] writes, two per
-/// concave tier), and the unmarked lines an earlier version wrote for one of `tiers` (byte-
-/// equal to what it would have written for that tier). Anything else is a user's footnote
-/// and stays, in order -- including one shaped exactly like a tool line.
+/// Removes every generated concave footnote from `footnotes`.
 ///
-/// Every `.asc` export runs this on the footnotes an earlier export left in the schedule, so edited
-/// tiers cannot leave stale lines behind that contradict the new ones. A line an old
-/// version wrote for a tier that has since been edited can no longer be told from a note
-/// the user typed, so it is kept.
+/// That is each line ending with [`CONCAVE_FOOTNOTE_MARKER`] (what
+/// [`Design::append_concave_footnotes`] writes, two per concave tier), and the unmarked lines an
+/// earlier version wrote for one of `tiers` (byte-equal to what it would have written for that
+/// tier). Anything else is a user's footnote and stays, in order -- including one shaped exactly
+/// like a tool line.
+///
+/// Every `.asc` export runs this on the footnotes an earlier export left in the schedule,
+/// so an edited tier leaves no stale line behind. An unmarked legacy line for a tier that
+/// has since been edited no longer matches, so it is kept as a user note.
 pub fn strip_generated_concave_footnotes(footnotes: &mut Vec<String>, tiers: &[ConcaveTier]) {
     let legacy: Vec<String> = tiers.iter().flat_map(legacy_footnotes).collect();
     footnotes.retain(|line| !is_marked(line) && !legacy.contains(line));

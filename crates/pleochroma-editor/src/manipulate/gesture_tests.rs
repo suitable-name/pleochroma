@@ -1,5 +1,6 @@
-//! Tests for the pieces both apps share around a handle drag and the Slice tool: the
-//! gesture's decisions, the provisional slice's in-place edits, and the pointer <->
+//! Tests for the pieces both apps share around a handle drag and the Slice tool.
+//!
+//! They cover the gesture's decisions, the provisional slice's in-place edits, and the pointer <->
 //! pick-frame mapping the web's letterboxed Solid view relies on.
 
 use super::{

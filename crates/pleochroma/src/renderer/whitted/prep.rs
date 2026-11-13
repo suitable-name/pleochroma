@@ -38,7 +38,7 @@ pub struct WhittedPrep<'a> {
     pub frost: Vec<Vec3>,
     /// Inverse of the renderer's linear-sRGB conversion matrix.
     pub rgb_to_xyz: Mat3,
-    /// Bradford LMS scale for a Studio Planckian illuminant, otherwise absent.
+    /// Bradford LMS scale toward D65 for Planckian Studio presets, otherwise absent.
     pub white_balance: Option<Vec3>,
     /// Maximum chain depth.
     pub max_depth: u32,
@@ -81,37 +81,7 @@ impl<'a> WhittedPrep<'a> {
                 mask: Vec3::ONE,
             }; 3]
         };
-        let bands = &material.absorption;
-        let absorption = match &bands.beta_ray {
-            // The three principal waves, each isotropic: the biaxial direction dependence is
-            // left to the spectral renderer, as before.
-            Some(beta) => BinnedAbsorption::new(
-                &[&bands.o_ray, beta, &bands.e_ray],
-                None,
-                material.absorption_path_scale,
-                scene.environment,
-            ),
-            None if bands.is_pleochroic => {
-                let normalized = material.c_axis.normalize_or_zero();
-                let axis = if normalized == Vec3::ZERO {
-                    Vec3::Y
-                } else {
-                    normalized
-                };
-                BinnedAbsorption::new(
-                    &[&bands.o_ray, &bands.e_ray],
-                    Some(axis),
-                    material.absorption_path_scale,
-                    scene.environment,
-                )
-            }
-            None => BinnedAbsorption::new(
-                &[&bands.o_ray],
-                None,
-                material.absorption_path_scale,
-                scene.environment,
-            ),
-        };
+        let absorption = super::tint::binned_absorption_for(material, scene.environment);
         let env = WhittedEnv::new(scene.environment);
         let frost = frost::prepare(scene, &env);
         let white_balance = match scene.environment {

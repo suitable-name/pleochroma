@@ -5,7 +5,7 @@ struct WtBranch {
     fresnel: f32, length: f32, axial: f32,
     inside: bool, depth: u32, primary: bool,
 }
-// Scalar slots, not a function-local array: avoids AMD/FXC array lowering failures.
+// Scalar slots, not a function-local array: some AMD and FXC compilers fail to lower one.
 struct WtStack { a: WtBranch, b: WtBranch, c: WtBranch, d: WtBranch, count: u32 }
 fn wt_push(stack: ptr<function, WtStack>, branch: WtBranch) {
     if (!wt_keeps(branch.weight, branch.depth)) { return; }
@@ -33,10 +33,32 @@ fn wt_child(parent: WtBranch, point: vec3<f32>, dir: vec3<f32>, factor: f32, ins
     return WtBranch(wt_scale_add(dir, 1e-4, point), dir, parent.weight * factor,
         parent.fresnel * factor, parent.length, parent.axial, inside, depth, false);
 }
+// Tray reflection at a downward escape (the CPU chain's floor escape): the ray deposits (1 - F)
+// of the lit tray and continues mirrored with weight F. The reflected branch takes a slot only
+// below the depth cap and the reserved last slot (index 3); otherwise its leaf resolves directly.
+// Returns false, doing nothing, when the mirror is off or the ray misses the plane.
+fn wt_floor_escape(stack: ptr<function, WtStack>, sum: ptr<function, vec3<f32>>,
+    leaf: WtBranch, observer: vec3<f32>) -> bool {
+    if (wt.tray_mirror.x == 0.0) { return false; }
+    let floor_hit = wt_floor(leaf.origin, leaf.dir);
+    if (!floor_hit.valid) { return false; }
+    (*sum) = (*sum) + leaf.weight * (1.0 - floor_hit.fresnel)
+        * wt_leaf_at(leaf.origin, leaf.dir, observer);
+    let child = wt_child(leaf, floor_hit.point, floor_hit.reflected, floor_hit.fresnel, false,
+        leaf.depth + 1u);
+    if (child.depth <= wt.modes.z && (*stack).count < 3u) {
+        wt_push(stack, child);
+    } else {
+        (*sum) = (*sum) + child.weight * wt_leaf_at(child.origin, child.dir, observer);
+    }
+    return true;
+}
 fn wt_emit(stack: ptr<function, WtStack>, sum: ptr<function, vec3<f32>>, leaf: WtBranch,
     observer: vec3<f32>) {
     if (wt.counts.y == 0u || (*stack).count >= 3u) {
-        (*sum) = (*sum) + leaf.weight * wt_leaf(leaf.dir, observer);
+        if (!wt_floor_escape(stack, sum, leaf, observer)) {
+            (*sum) = (*sum) + leaf.weight * wt_leaf_at(leaf.origin, leaf.dir, observer);
+        }
     } else {
         wt_push(stack, leaf);
     }
@@ -52,8 +74,9 @@ fn wt_chain(origin: vec3<f32>, direction: vec3<f32>, n: f32, observer: vec3<f32>
         var branch = wt_pop(&stack);
         let hit = wt_intersect(branch.origin, branch.dir);
         if (!hit.valid) {
-            // One lookup for every escape: a primary miss sees the same lit tray a window does.
-            sum = sum + branch.weight * wt_leaf(branch.dir, observer);
+            // Misses share the lit-tray lookup of every escape, primary misses included.
+            if (wt_floor_escape(&stack, &sum, branch, observer)) { continue; }
+            sum = sum + branch.weight * wt_leaf_at(branch.origin, branch.dir, observer);
             continue;
         }
         if (hit.side != 0u) { branch.inside = hit.side == 2u; }

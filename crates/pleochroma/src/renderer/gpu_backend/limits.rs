@@ -1,4 +1,4 @@
-//! Optional bounded execution for mobile consumers. Default desktop behavior stays intact.
+//! Optional work budgets for bounded (mobile) GPU use. Unset limits leave behavior unchanged.
 use super::{GpuBackend, GpuSceneRef};
 
 /// Hard request and dispatch ceilings. These bound work allocation, never final quality.
@@ -11,14 +11,14 @@ pub struct GpuWorkLimits {
 }
 
 impl GpuWorkLimits {
-    /// Small deterministic kernel: four storage buffers, at most sixteen AA taps.
+    /// Budget for the Whitted kernel: at most 16 samples per dispatch.
     pub const WHITTED: Self = Self {
         max_frame_pixels: 1024 * 1024,
         max_samples_per_call: 16,
         chunk_budget_bytes: 4 * 1024 * 1024,
         chunks_per_turn: 1,
     };
-    /// Conservative first-device integration; larger final images take exact CPU fallback.
+    /// Budget for mobile devices: larger frames fall back to the exact CPU tracer.
     pub const MOBILE: Self = Self {
         max_frame_pixels: 512 * 512,
         max_samples_per_call: 1,
@@ -57,8 +57,8 @@ impl GpuBackend {
         backend
     }
 
-    /// Probe and shader validation are expensive; call on a preparation worker.
-    /// A declined probe retains the exact upstream error for the UI fallback explanation.
+    /// Probe and shader validation are slow: call off the frame path.
+    /// A declined probe keeps the upstream error text for the UI fallback explanation.
     #[must_use]
     pub fn acquire_with_diagnostics() -> (Self, Option<String>) {
         match crate::renderer::gpu::GpuFrameRenderer::new() {

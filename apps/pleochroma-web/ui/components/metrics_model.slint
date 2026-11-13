@@ -1,9 +1,7 @@
-// The optical metrics' globals (`src/metrics`): the Render tab's HUD and the Tilt
-// Performance dialog. Named in `app.slint`'s export block, which is what makes them Rust
-// types.
+// Optical metrics globals (`src/metrics`): the Render tab's HUD and the Tilt Performance
+// dialog. Exported from `app.slint` so Rust can use them as types.
 
-// The five metrics of the frame being rendered (the desktop's ViewportModel
-// `brilliance_pct` .. `extinction_pct`), computed in the analysis Worker.
+// The five metrics of the rendered frame, computed in the analysis Worker.
 export global MetricsModel {
     // Numbers below are valid.
     in property <bool> has-metrics: false;
@@ -26,14 +24,14 @@ export global MetricsModel {
     in property <float> doubling-arcmin: 0;
 }
 
-// The Tilt Performance dialog (the desktop's TiltModel): four camera azimuths
-// (0/45/90/135 degrees) of 181 points each, -90..+90 degrees of tilt from table-up.
+// The Tilt Performance dialog: four camera azimuths (0, 45, 90, 135 degrees) of 181 points
+// each, covering -90..+90 degrees of tilt from table-up.
 export global TiltModel {
     in-out property <bool> open: false;
     // The traced material, named in the subtitle.
     in property <string> material-name: "";
-    // What the sweep is scored under: the lighting preset's rig (never the HDR map, as on
-    // the desktop), with a reminder when a map lights the viewport. "" until known.
+    // What the sweep is scored under: the lighting preset's rig (never the HDR map), with a
+    // reminder when a map lights the viewport. "" until known.
     in property <string> lighting-note: "";
     // A sweep is running in the analysis Worker.
     in property <bool> running: false;

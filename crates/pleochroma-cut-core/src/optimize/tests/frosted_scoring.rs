@@ -61,7 +61,7 @@ fn an_unfrosted_design_has_no_finishes_and_scores_the_polished_stone_bit_for_bit
     );
 
     let stone = candidate::ScoredStone::of(&design, &solved, &planes);
-    assert!(stone.finished().finishes.is_empty());
+    assert_eq!(stone.finished().finishes, [] as [FacetFinish; 0]);
     let (via_stone, _, _) = candidate::measure_with_tone(
         stone.finished(),
         &material,
@@ -219,9 +219,9 @@ fn a_candidate_of_a_frosted_design_scores_the_frosted_stone() {
     assert_eq!(frosted_score.to_bits(), score_of(&frosted).to_bits());
 }
 
-/// A whole run on a frosted design: deterministic, never worse than its start, and the
-/// design it hands back keeps its frosting. Two `Full` sweeps of a frosted stone are slow
-/// unoptimised, so this is the same `--release --ignored` class as the polished acceptance gate.
+/// A whole run on a frosted design: deterministic and never worse than its start. Frosted
+/// `Full` sweeps are slow unoptimised, so this runs with `--release --ignored`, like the
+/// polished acceptance gate.
 #[test]
 #[ignore = "frosted Full sweeps, see doc comment -- run with --release --ignored"]
 fn an_optimizer_run_on_a_frosted_design_is_deterministic() {

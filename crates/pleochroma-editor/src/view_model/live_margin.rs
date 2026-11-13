@@ -1,8 +1,7 @@
 //! The live critical-angle guidance under the Tier form's Angle field.
 //!
-//! Extracted from the desktop's `tier_actions::misc::setup_angle_live_preview_callback`
-//! so the web inspector shows the same bar for a value typed but not yet saved as a saved
-//! row's MARGIN cell does.
+//! Shared by the desktop and the web inspector, so a value typed but not yet saved shows the same
+//! bar as a saved row's MARGIN cell.
 
 use super::row_format::representative_crown_and_pavilion_angles_deg;
 use crate::loading::eval_number;

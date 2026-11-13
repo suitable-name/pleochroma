@@ -13,12 +13,9 @@ use super::{
 };
 use crate::optics::raytracer::Ray;
 
-/// Per-evaluation context threaded through [`classify_aperture_sample`]: everything
-/// needed to fire and classify one grid-cell aperture-sample ray at the fixed camera
-/// pose, bundled to keep that function's argument count within clippy's
-/// `too_many_arguments` lint -- identical across all
-/// `grid_size * grid_size * aperture_samples.len()` calls per invocation. Mirrors
-/// [`super::scintillation::TemporalPoseContext`]'s reason for existing, one level up.
+/// Everything [`classify_aperture_sample`] needs for one camera pose, bundled to stay within
+/// clippy's `too_many_arguments` limit. Shared by every ray of the pose; see also
+/// [`super::scintillation::TemporalPoseContext`].
 pub(super) struct ApertureSampleContext<'a> {
     pub(super) stone: StoneArena<'a>,
     pub(super) nd: f32,
@@ -38,12 +35,9 @@ pub(super) struct ApertureSampleContext<'a> {
     pub(super) want_fire: bool,
 }
 
-/// How one grid-cell aperture-sample ray was classified. `Returned` carries the
-/// qualifying Fire sample's raw `(angle_deg, weight)` pair, if any -- deliberately not
-/// folded into the Fire accumulator here, so the caller applies the same `f32::mul_add`
-/// chain against its own running total in a fixed iteration order (folding it in here
-/// instead would change which intermediate values a fused multiply-add rounds against,
-/// perturbing the bit-exact result).
+/// How one aperture-sample ray was classified. `Returned` carries the qualifying Fire sample's
+/// raw `(angle_deg, weight)` pair. The caller folds it into the Fire accumulator, not here:
+/// its fixed `f32::mul_add` chain keeps the result bit-exact.
 pub(super) enum RayClassification {
     /// Non-finite diagnostic path; retained as unknown, never extinction.
     Invalid,
@@ -194,7 +188,7 @@ fn entry_ray(
     }
     let n_entry = hit_rec.normal;
 
-    // Refract from air (1.0) into gemstone (nd) using Snell's Law
+    // The incidence cosine for the Fresnel terms; the refraction itself happens in the trace.
     let cos_i = (-ray.dir).dot(n_entry).clamp(0.0, 1.0);
 
     Some(Ok(EntryRay {
@@ -235,15 +229,12 @@ fn classify_entry(
     match fate {
         RayFate::EntryBlocked => RayClassification::EntryBlocked,
         RayFate::Leaked => RayClassification::Windowed,
-        // The d-line's own exit cosine is deliberately not used as a Fire weight: it
-        // was tried and made no material difference to the emerald-cut ordering
-        // problem, since it isn't tied to the diagnosed mechanism (F/C exit-angle
-        // divergence, not the d-line ray's own exit angle).
+        // The d-line exit cosine is not a Fire weight: Fire diverges through the F/C exit
+        // angles, not through the d-line exit angle.
         RayFate::ExitedUpward(exit_d) => {
             let exit_dir = exit_d.dir;
             let transmittance = exit_d.transmittance;
-            // Directional Extinction Analysis: head-shadow cone vs. the environment's
-            // light sources (see `returned_or_reason`).
+            // Head-shadow cone against the environment's lights (see `returned_or_reason`).
             if let Err(reason) = returned_or_reason(exit_dir, observer, ctx.lighting) {
                 if let Some(d) = detail {
                     d.reason = reason;
@@ -291,41 +282,31 @@ fn trace_line(
 /// The Fire sample of one visibly returned ray: `(angle_deg, weight)`, or `None` when the
 /// F-line/C-line companion traces do not both exit upward through the same facet.
 ///
-/// A pure extraction of the tail of [`classify_aperture_sample`] (same operations, same
-/// order), so the Fire-less fast path can skip the two companion traces without touching
-/// any arithmetic the d-line counters depend on. `transmittance` is the d-line trace's.
+/// The Fire-less path skips it; the d-line counters do not depend on it. `transmittance` is
+/// the d-line trace's.
 fn fire_sample(
     ctx: &ApertureSampleContext,
     entry: EntryRay,
     transmittance: f32,
     mode: Option<Mode>,
 ) -> Option<(f32, f32)> {
-    // Fire: replay the same entry point/direction at the hydrogen F-line and
-    // C-line indices, for rays that pass the same illumination test as
-    // brilliance. An unweighted mean over surviving rays would let a
-    // badly-leaking cut win via a handful of near-critical-angle survivors, so
-    // each ray's angular contribution is weighted by transmittance (energy
-    // actually delivered) and normalized by TOTAL incident rays, not just the
-    // qualifying count (see fire_index below). Considered only if BOTH F-line
-    // and C-line companion traces also exit upward -- a ray whose F or C image
-    // is lost to TIR or pavilion leakage contributes no Fire sample.
-    // An anisotropic ray's companions are the same eigenmode at the F and C lines.
+    // Fire: replay the entry point and direction at the F-line and C-line indices, for
+    // rays that pass brilliance's illumination test. An unweighted mean would let a leaky
+    // cut win on a handful of near-critical survivors, so each ray is weighted by its
+    // transmittance (energy delivered) and the sum is normalized by TOTAL incident rays
+    // (see `fire_and_scintillation` in accumulate). A ray whose F or C image is lost to TIR
+    // or pavilion leakage contributes no sample. An anisotropic ray's companions are the
+    // same eigenmode at the F and C lines.
     let fate_f = trace_line(entry, ctx, ctx.n_f, Line::F, mode, None);
     let fate_c = trace_line(entry, ctx, ctx.n_c, Line::C, mode, None);
     let (RayFate::ExitedUpward(exit_f), RayFate::ExitedUpward(exit_c)) = (fate_f, fate_c) else {
         return None;
     };
-    // F/C bifurcation gate: when the F-line and C-line traces exit
-    // through a different facet or bounce count, their critical angles
-    // straddled a TIR threshold at different points -- physically
-    // disjoint paths, so acos(dir_f . dir_c) would measure unrelated
-    // exit directions, not dispersion. These bifurcated pairs carried
-    // 45-98% of the weighted Fire sum wherever a step cut wrongly
-    // out-scored a brilliant -- a sampling artifact, not a real optical
-    // effect. Rejected a capped-credit alternative (a small fixed
-    // separation instead of discarding): it put Quartz above Sapphire
-    // on the emerald cut, when strict-discard matches independently
-    // measured SRB reference readings.
+    // F/C bifurcation gate: when the F-line and C-line traces exit through a different facet
+    // or bounce count, their critical angles straddled a TIR threshold, so they are disjoint
+    // paths and acos(dir_f . dir_c) measures unrelated exit directions, not dispersion. The
+    // pair is discarded: a capped credit instead put Quartz above Sapphire on the emerald cut,
+    // against measured SRB reference readings.
     if exit_f.facet_idx != exit_c.facet_idx || exit_f.bounces != exit_c.bounces {
         return None;
     }

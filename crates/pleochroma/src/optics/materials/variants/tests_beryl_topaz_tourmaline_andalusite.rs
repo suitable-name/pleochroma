@@ -1,14 +1,16 @@
-//! Tests of the `data/color_variants/beryl_topaz_tourmaline_andalusite.toml` entries: each entry's face-up color and
-//! per-direction colors against the values recorded in its fit record
-//! (`docs/color_variants/fit_records/beryl_topaz_tourmaline_andalusite.md`).
+//! Tests of the `data/color_variants/beryl_topaz_tourmaline_andalusite.toml` entries.
 //!
-//! The colors are `body_colors` (the app's own colorimetry, D65) of the variant's tensor over the face-up path of a
-//! 7 mm stone, [`face_up_swatch_path`] (9.905 mm for a `PerMm` tensor): `MODEL_UNIT_FACE_UP_PATH` x 7 mm / 2.0.
-//! The face-up color is the ORIENTED one the renderer shows (`color::principal_axes::face_up_body_color` with the
-//! host's own default principal frame): `o` alone for Emerald and Morganite (c along the view), `(o + e) / 2` for
-//! Aquamarine and Tourmaline (c in the table plane), `(alpha + beta) / 2` for Topaz and Andalusite (gamma along the
-//! view); `o` is `o_ray` (E perpendicular to c / alpha), `e` is `e_ray` (E parallel to c / gamma). The per-direction
-//! colors are `body_colors` of the single rays.
+//! Each entry's face-up and per-direction colors are checked against the values in its fit
+//! record (`docs/color_variants/fit_records/beryl_topaz_tourmaline_andalusite.md`).
+//!
+//! The colors are `body_colors` (D65) of the variant's tensor over [`face_up_swatch_path`]
+//! for a 7 mm stone (9.905 mm for a `PerMm` tensor). The face-up color is the oriented one
+//! the renderer shows (`color::principal_axes::face_up_body_color` with the host's default
+//! principal frame): `o` alone for Emerald and Morganite (c along the view), `(o + e) / 2`
+//! for Aquamarine and Tourmaline (c in the table plane), `(alpha + beta) / 2` for Topaz and
+//! Andalusite (gamma along the view). `o` is `o_ray` (E perpendicular to c / alpha) and `e`
+//! is `e_ray` (E parallel to c / gamma). The per-direction colors are `body_colors` of the
+//! single rays.
 
 use std::collections::BTreeSet;
 
@@ -37,7 +39,8 @@ struct Pin {
     beta: Option<[f64; 3]>,
 }
 
-/// Every entry of the group file with the colors its fit record states (`face` is the oriented face-up color).
+/// Every entry of the group file with the colors its fit record states. `face` is the oriented
+/// face-up color.
 const PINS: &[Pin] = &[
     Pin {
         key: "emerald.zambian",
@@ -313,12 +316,12 @@ fn assert_close(what: &str, got: [f64; 3], want: [f64; 3]) {
     );
 }
 
-/// The face-up color the renderer shows for `variant` on its host (D-G of the 2026-10-27 fix round): the
-/// two eigenmodes of the host's own default principal frame at the wave normal `k = -Y`, so c along the
-/// view shows the o-ray alone, c in the table plane the mean of o and e, and a biaxial host with gamma
-/// along the view the mean of alpha and beta; an isotropic or non-pleochroic tensor shows its single
-/// color. The fit records state the unpolarised mean as the fit target and this color as the reached
-/// face-up color.
+/// The face-up color the renderer shows for `variant` on its host: the two eigenmodes of the
+/// host's default principal frame at the wave normal `k = -Y`. With c along the view this is
+/// the o-ray alone, with c in the table plane the mean of o and e, and a biaxial host with
+/// gamma along the view the mean of alpha and beta. An isotropic or non-pleochroic tensor
+/// shows its single color. The fit records give the unpolarised mean as the fit target and
+/// this color as the reached face-up color.
 fn face_up_oriented(v: &super::ColorVariant, illuminant: Illuminant) -> [f64; 3] {
     let host = GemMaterial::built_in()
         .iter()
@@ -357,7 +360,8 @@ fn every_entry_matches_its_fit_record() {
     }
 }
 
-/// The shared `variants::face_up_swatch` (what every swatch and chip shows) is the oriented color pinned here.
+/// The shared `variants::face_up_swatch` (what every swatch and chip shows) is the pinned
+/// oriented color.
 #[test]
 fn the_shared_face_up_swatch_is_the_pinned_color() {
     for pin in PINS {
@@ -371,8 +375,9 @@ fn the_shared_face_up_swatch_is_the_pinned_color() {
     }
 }
 
-/// `estimated = false` only where a published number fixes the strength of a measured spectrum (Topaz Pink: the
-/// Katlang `Cr2O3` range); every other entry is a chosen strength, an unmeasured shape, or both (owner rule O3).
+/// `estimated = false` only where a published number fixes the strength of a measured spectrum
+/// (Topaz Pink: the Katlang `Cr2O3` range). Every other entry is a chosen strength, an
+/// unmeasured shape, or both.
 #[test]
 fn only_a_published_anchor_leaves_an_entry_measured() {
     for pin in PINS {
@@ -384,9 +389,9 @@ fn only_a_published_anchor_leaves_an_entry_measured() {
     }
 }
 
-/// One factor over the whole measured spectrum (owner rule): the refitted Indicolite, London and Swiss keep the
-/// ratio between two fitted bands of their ray (the factor scales every band alike), so the ratio of two
-/// peaks is the fit record's.
+/// One factor over the whole measured spectrum: the Indicolite, London and Swiss entries keep
+/// the ratio between two fitted bands of their ray (the factor scales every band alike), so
+/// the ratio of two peaks is the fit record's.
 #[test]
 fn the_refitted_entries_keep_the_measured_band_ratios() {
     // (material, key, first band center, second band center, ratio of their fitted peaks)
@@ -418,7 +423,7 @@ fn the_refitted_entries_keep_the_measured_band_ratios() {
     }
 }
 
-/// The pins and the group file list exactly the same entries (a new entry needs a fit record and a pin).
+/// The pins and the group file list the same entries. A new entry needs a fit record and a pin.
 #[test]
 fn pins_cover_the_group_file() {
     let mut in_file = BTreeSet::new();

@@ -29,8 +29,8 @@ pub const DEFAULT_CANDIDATES: usize = 3;
 /// The most candidates a run keeps. Each one costs another full-quality scoring.
 pub const MAX_CANDIDATES: usize = 5;
 
-/// The least a candidate may keep of the starting girdle's thickness when "Keep the
-/// girdle" is on: half.
+/// The smallest share of the starting girdle's thickness a candidate may keep when
+/// "Keep the girdle" is on.
 pub const DEFAULT_GIRDLE_FRACTION: f64 = 0.5;
 
 /// The evaluation budget of a run unless the cutter changes it.
@@ -90,8 +90,7 @@ pub fn weights_for_preset(index: usize) -> Option<ObjectiveWeights> {
 /// Whether "Vary anchored tiers" starts ticked for `design`.
 ///
 /// It is ticked only when nothing else is free to move, which is every freshly imported
-/// design (import pins every tier). A design with free tiers keeps today's behaviour,
-/// moving only those.
+/// design (import pins every tier). A design with free tiers moves only those by default.
 #[must_use]
 pub fn default_vary_anchored(design: &Design) -> bool {
     free_tier_indices(design).is_empty()
@@ -191,7 +190,7 @@ pub struct RunForm<'a> {
     pub keep_girdle: bool,
     /// The budget box.
     pub budget_text: &'a str,
-    /// "Starts": how many starting arrangements to try, clamped to at least 1 and at most [`MAX_STARTS`].
+    /// "Starts": how many starting arrangements to try, clamped to 1..=[`MAX_STARTS`].
     pub starts: usize,
     /// The seed box.
     pub seed_text: &'a str,
@@ -283,9 +282,8 @@ pub fn build_run_plan(
 
 /// Puts the hinges a run varies anchored tiers about into `options`.
 ///
-/// `hinges` is `tier_hinge_points` of the solved design. A tier that follows a relation
-/// retains depth freedom while its angle follows the relation. With `only` (selected tiers),
-/// only those tiers keep one, so "Only selected tiers" also holds for anchored tiers.
+/// `hinges` is `tier_hinge_points` of the solved design. With `only` (the selected tiers),
+/// only those tiers keep a hinge, so "Only selected tiers" also applies to anchored tiers.
 pub fn fill_anchor_hinges(
     options: &mut OptimizeOptions,
     _design: &Design,
@@ -301,13 +299,12 @@ pub fn fill_anchor_hinges(
 
 /// Measures the hinges of the solved `design` and puts them into `options`.
 ///
-/// A hinge is the vertex of each tier's first facet that [`tier_hinge_points`] picks, filtered
-/// by [`fill_anchor_hinges`]'s selection rule (only `only`
-/// when it is given).
+/// A hinge is the vertex that [`tier_hinge_points`] picks for each tier, filtered by
+/// [`fill_anchor_hinges`]'s selection rule.
 ///
-/// This is the one place the desktop's Optimize tab and the command line's `optimize` get
-/// their hinges from. It does not look at [`OptimizeOptions::vary_anchored`]; see
-/// [`prepare_anchor_hinges`] for the version that does.
+/// Shared by the desktop Optimize tab and the command-line `optimize` command. It does not
+/// look at [`OptimizeOptions::vary_anchored`]; see [`prepare_anchor_hinges`] for the version
+/// that does.
 pub fn measure_anchor_hinges(
     options: &mut OptimizeOptions,
     design: &Design,
@@ -384,10 +381,10 @@ pub fn optimize_availability(
 ///
 /// `evaluations` is the whole search budget (both stages), `candidates` the number of
 /// candidates kept: the starting stone and every candidate are scored once at full
-/// quality (about 1.3 s each on any design). One evaluation costs 7 ms on a small design
-/// (12 tiers) and grows with the square of the tier count, which is what the solve
-/// costs; `measured_ms_per_evaluation`, the rate of an earlier run on this design,
-/// replaces that guess.
+/// quality (about 1.3 s each). Without a measurement, one evaluation is guessed at 7 ms on
+/// a small design (12 tiers), growing with the square of the tier count.
+/// `measured_ms_per_evaluation`, the rate of an earlier run on this design, replaces that
+/// guess.
 ///
 /// `starts` is the number of starting arrangements asked for. With more than one, the search
 /// also spends screening draws and a polish per kept start
@@ -395,9 +392,8 @@ pub fn optimize_availability(
 /// per-evaluation cost is divided by `min(starts, cores / 2)`. `free_tiers` is the number
 /// of free (movable) tiers the run searches, which the starts rule needs (a budget under
 /// eight sweeps per tier leaves one start); `tier_count` is the whole design and only
-/// scales the per-evaluation guess. A `measured_ms_per_evaluation` is already a wall-clock rate (see
-/// [`measured_ms_per_evaluation`]), so no thread divisor is applied to it. With one start
-/// the figure is the same as before multi-start existed.
+/// scales the per-evaluation guess. A measured rate is already wall-clock, so no thread
+/// divisor is applied to it (see [`measured_ms_per_evaluation`]).
 #[must_use]
 pub fn estimate_run_seconds(
     tier_count: usize,

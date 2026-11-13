@@ -7,11 +7,11 @@
 //! - tracer: `Vec3(17811.94, 20155.729, 17381.953)` -- checksum for a fixed ray set
 //!   through Tourmaline (uniaxial), sensitive to any physics change in
 //!   `optics::raytracer`/`simd`; re-baseline deliberately, never silently
-//! - solver mast checksum: `154.252885863` (unchanged by all of the above, as the
-//!   meet-solver domain rules require)
+//! - solver mast checksum: `154.252885863`; it changes only with a deliberate solver
+//!   numerics change
 //!
 //! Run before and after any change to `optics::raytracer`, `simd`, or
-//! `geometry::meet_solver` (machine otherwise idle, best of 3 for the timings).
+//! `geometry::meet_solver`. The timings are single runs, so use an otherwise idle machine.
 //!
 //! ```text
 //! cargo run --profile probe -p pleochroma --example simd_bench
@@ -34,17 +34,13 @@ fn main() {
 
     // ---- Tracer benchmark: fixed ray set, real material, deep bounces. ----
     let planes = StandardGemCuts::standard_round_brilliant();
-    // Bare built-in on purpose (scale 1.0, no `material_for_stone`): this compares CPU against GPU on the same material, so only parity matters, not the render's colour scale.
+    // Bare built-in on purpose (scale 1.0, no `material_for_stone`): it compares CPU with GPU
+    // on the same material, so only parity matters, not the render's color scale.
     let material = GemMaterial::by_name("Tourmaline").expect("built-in material");
     let lighting = LightingPreset::RingLights.studio(1.0, 0.85, 0.95);
-    // The `PlanesSoA32` arena built ONCE outside the sample loop -- this is exactly
-    // the batch/many-samples-against-the-same-`planes` case `build_plane_soa`'s own doc
-    // comment calls out -- and reused across every one of the 60,000 samples below via
-    // `trace_spectral_ray_with_finish_soa` (`facet_finishes: &[]`, equivalent to plain
-    // `trace_spectral_ray`), instead of rebuilding the arena fresh on every sample the
-    // way the old per-sample `trace_spectral_ray` call did. Bit-identical output either
-    // way -- see that function's own doc comment -- so the pinned checksum above is
-    // unaffected by this change.
+    // The `PlanesSoA32` arena is built once and reused for all 60,000 samples, the case
+    // `build_plane_soa` is meant for. The output is bit-identical to rebuilding per sample,
+    // so the pinned checksum above holds either way.
     let plane_soa = build_plane_soa(&planes);
     let samples = 60_000u32;
     let start = Instant::now();

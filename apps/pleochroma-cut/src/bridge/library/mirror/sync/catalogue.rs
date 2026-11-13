@@ -6,18 +6,13 @@ use pleochroma_net::library::{LibraryRequest, LibraryResponse, RangeFilterWire};
 /// Walks [`LibraryRequest::SearchPage`] to exhaustion, concatenating every page's
 /// [`DesignSummary`](pleochroma_net::library::DesignSummary) list into one `Vec` -- the
 /// WHOLE remote catalogue matching the (currently always empty/unfiltered) query, not
-/// just its first page. See the mirror module's own doc comment's "Pagination" section
-/// for the keyset-cursor scheme this implements (`cursor: None`, then `cursor:
-/// Some(next_cursor)` from each reply, until a reply's `next_cursor` is `None`) and
-/// why it never needs to skip or re-see a row even if designs are added to the remote
-/// catalogue while this runs.
+/// just its first page. It uses a keyset cursor: `cursor: None` first, then each reply's
+/// `next_cursor`, until it is `None`. Rows added on the remote during the walk are never skipped
+/// or repeated.
 ///
-/// Returns `Err(MirrorOutcome::Failed(..))` -- ready to propagate straight out of
-/// `super::pass::run_mirror_sync` -- on the first request that fails outright or
-/// replies with anything other than [`LibraryResponse::SearchResultsPage`]; nothing is
-/// written locally by this function (it only ever reads from `transport`), so a
-/// failure here leaves the local database exactly as it was, matching this module's
-/// existing "nothing written until enumeration succeeds" behavior.
+/// Returns `Err(MirrorOutcome::Failed(..))` on the first request that fails or replies with
+/// anything other than [`LibraryResponse::SearchResultsPage`]. Nothing is written locally here,
+/// so the database is left unchanged.
 pub(super) fn enumerate_remote_catalogue(
     transport: &impl LibraryTransport,
 ) -> Result<Vec<pleochroma_net::library::DesignSummary>, MirrorOutcome> {
@@ -35,10 +30,7 @@ pub(super) fn enumerate_remote_catalogue(
             Ok(LibraryResponse::SearchResultsPage {
                 results,
                 next_cursor,
-                // This exhaustive, unfiltered walk never sets `range.performance`, so
-                // there is nothing this count could ever report here -- see
-                // `apps/pleochroma-worker::serve::library::search_page`'s own doc comment
-                // on why `SearchResultsPage` always sends `0` for exactly that reason.
+                // The unfiltered walk sets no `range.performance`, so the worker sends `0` here.
                 excluded_for_missing_curves: _,
             }) => {
                 summaries.extend(results);

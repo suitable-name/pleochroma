@@ -3,16 +3,16 @@
 //! Simple mode hides the render settings most designs never touch: the catalogue preview size
 //! and samples, the motion-preview scale, the live and local compute choices, the switch that
 //! lets this machine share a final-picture render, and the ray-bounce cap. (The live transfer
-//! is per remote and lives in the Remote dialog, which has its own note.) A hidden control
-//! keeps its value and still applies, so while Simple mode is on the tab says so when any of them is off its default ("Switch to Advanced to see
-//! them"), instead of leaving a render slower, or a remote unused, for a reason nobody can
-//! see.
+//! is set per remote in the Remote coordinator dialog.) A hidden control keeps its value and
+//! still applies, so while Simple mode is on the tab says so when any of them is off its
+//! default ("Switch to Advanced to see them"), rather than leaving a render slower, or a
+//! remote unused, for a reason nobody can see.
 //!
-//! The decision is [`HiddenRenderSettings::in_use`], a pure comparison with the built-in default
-//! values (the ones "Reset this tab" puts back, `settings::model::reset_tab`). The tab asks for it through the
-//! pure callback `SettingsModel.advanced_in_use`, which [`setup_advanced_in_use_callback`]
-//! answers; the tests keep the default values equal to the persisted ones
-//! (`AppSettings::default()`), so a changed default cannot leave the note wrong.
+//! The decision is [`HiddenRenderSettings::in_use`], a pure comparison with the built-in
+//! defaults (the ones "Reset this tab" puts back, `settings::model::reset_tab`). The tab asks
+//! for it through the pure callback `SettingsModel.advanced_in_use`, which
+//! [`setup_advanced_in_use_callback`] answers. The tests keep the defaults equal to the
+//! persisted ones (`AppSettings::default()`), so a changed default cannot leave the note wrong.
 
 use crate::{MainWindow, SettingsModel};
 use slint::ComponentHandle;
@@ -137,8 +137,8 @@ mod tests {
         }
     }
 
-    /// The numbers above are the dialog's, copied: they must be what a fresh install holds,
-    /// or the note would show on every start (or never).
+    /// The defaults must be what a fresh install holds, or the note would show on every start
+    /// (or never).
     #[test]
     fn the_default_values_are_the_persisted_defaults() {
         let persisted = AppSettings::default();

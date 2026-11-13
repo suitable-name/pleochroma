@@ -58,9 +58,10 @@ pub(super) fn is_diagram_view(ui: &MainWindow) -> bool {
         == crate::gui::view_modes::EditViewMode::Diagram
 }
 
-/// `radius` (in the frame's pixels, as for the 3D views) for the view's zoom: the markers
-/// keep their size on screen, so a zoomed-in diagram grabs them within a smaller radius of
-/// its own pixels. Unchanged outside the Diagram view.
+/// `radius` (in the frame's pixels, as for the 3D views) for the view's zoom.
+///
+/// The markers keep their size on screen, so a zoomed-in diagram grabs them within a smaller
+/// radius of its own pixels. Unchanged outside the Diagram view.
 pub(super) fn hit_radius(ui: &MainWindow, radius: f32) -> f32 {
     if is_diagram_view(ui) {
         zoomed_hit_radius(radius, ui.global::<ManipulateModel>().get_view_zoom())
@@ -74,11 +75,12 @@ fn centroid_of(centroids: &[Option<Vec3>], facet_id: u32) -> Option<Vec3> {
     centroids.get(facet_id as usize).copied().flatten()
 }
 
-/// The handle target on `tier` of `design` for the Diagram frame `geometry` describes,
-/// whose facets `map` numbers: the first facet of [`candidate_facets`] that some panel
-/// carries handles for, on the `preferred` panel when that one offers them. `None` when the
-/// map and the frame hold different facet-id spaces, the frame has no diagram layout, or no
-/// facet of the tier offers a handle anywhere.
+/// The handle target on `tier` of `design` for the Diagram frame `geometry`.
+///
+/// `map` numbers the frame's facets. The target is the first facet of [`candidate_facets`] that
+/// some panel carries handles for, on the `preferred` panel when that one offers them. `None`
+/// when the map and the frame hold different facet-id spaces, the frame has no diagram layout,
+/// or no facet of the tier offers a handle.
 pub(super) fn target_for(
     geometry: &FrameGeometry,
     map: &FacetMap,
@@ -120,10 +122,11 @@ pub(super) fn target_for(
     })
 }
 
-/// The handles for the current selection on the Diagram frame `geometry`, or `None` when
-/// they should be hidden: nothing selected, an unsolved or misaligned design, a provisional
-/// Slice tier on screen (the Diagram view shows the committed design), or no panel offering
-/// a handle for any facet of the tier.
+/// The handles for the current selection on the Diagram frame `geometry`.
+///
+/// `None` when they should be hidden: nothing selected, an unsolved or misaligned design, a
+/// provisional Slice tier on screen (the Diagram view shows the committed design), or no panel
+/// offering a handle for any facet of the tier.
 pub(super) fn place(ui: &MainWindow, ctx: &Shared, geometry: &FrameGeometry) -> Option<Target> {
     if super::slice::is_active() {
         return None;
@@ -412,8 +415,8 @@ mod tests {
 
     /// The 3D handles follow the same azimuth rule as the Diagram view's: a design with a
     /// gear reference angle has its facets turned by it, and the handles' frame must point
-    /// where the facet's own plane does. (They were built from the plain index and sat a few
-    /// teeth off.) Lives here for the closed round brilliant `diagram_geometry` builds.
+    /// where the facet's own plane does. Lives here for the closed round brilliant
+    /// `diagram_geometry` builds.
     #[test]
     fn the_3d_handles_sit_on_the_facet_whatever_the_gear_reference_angle() {
         for reference in [0.0, 3.0, 1.5] {

@@ -370,8 +370,7 @@ component ChecksBody inherits PageScroll {
         text: "Metrics";
     }
 
-    // The five optical metrics of the stone, seen near face-up. Numbers from before the last change stay
-    // visible, dimmed, until they are computed again.
+    // The five metrics, seen near face-up. Stale numbers stay dimmed until computed again.
     for metric-name[index] in PropsModel.metric-labels: MetricLine {
         label: metric-name;
         value: PropsModel.metric-values[index];

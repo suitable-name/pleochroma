@@ -95,8 +95,7 @@ impl TierDelta {
 /// tier in `before`/`after` respectively -- the same alignment contract
 /// [`crate::design::Design::planes_from_solved`] documents; a mismatched length is treated
 /// as "no solved masts" (`mast_before`/`mast_after` stay `None`) rather than
-/// panicking, since a diff is a read-only report and should degrade
-/// gracefully rather than crash on stale solved state.
+/// panicking, so a stale solved list degrades the report instead of crashing it.
 #[must_use]
 pub fn diff_tiers(
     before: &[ConstraintTier],

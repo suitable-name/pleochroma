@@ -116,7 +116,9 @@ impl EditChange {
     }
 }
 
-/// What [`EditorSession::nudge_angles`] applied: the change itself, plus the labels
+/// What [`EditorSession::nudge_angles`] applied.
+///
+/// That is the change itself, plus the labels
 /// of every tier whose nudge stopped at 0 degrees instead of crossing into the other
 /// block (see [`clamp_nudge_to_side`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -175,7 +177,7 @@ pub struct EditorSession {
     /// Whether a command made of several edits (removing every selected tier) is running:
     /// its edits add to [`Self::relation_notice`] instead of dropping it.
     notice_command_open: bool,
-    /// Why the last edit of the old `apply` family was refused because of a tier
+    /// Why the last edit of the `apply` family was refused because of a tier
     /// relation -- see [`Self::take_refusal`].
     refusal: Option<SessionEditError>,
 }
@@ -533,10 +535,9 @@ impl EditorSession {
     }
 
     /// Pins tier `tier`'s mast at `mast` as a coalescing `Edit::SetConstraint`
-    /// (`ScaleReference(mast)`) keyed by
-    /// `drag_coalesce_key(tier, HandleKind::Depth)`: one depth-handle drag is one undo step, and undo restores
-    /// the tier's previous constraint exactly (a `MeetNamed` tier meets its named
-    /// facets again).
+    /// (`ScaleReference(mast)`) keyed by `drag_coalesce_key(tier, HandleKind::Depth)`, so one
+    /// depth-handle drag is one undo step. Undo restores the tier's previous constraint exactly
+    /// (a `MeetNamed` tier meets its named facets again).
     ///
     /// `Ok(None)` when the tier does not exist, `mast` is not finite, or the tier is
     /// already pinned at exactly `mast`. See [`PinOutcome::replaced_meet`] for what the

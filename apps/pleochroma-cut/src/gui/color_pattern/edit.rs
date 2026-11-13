@@ -1,10 +1,12 @@
-//! The edits of a Color Pattern, as pure functions: each takes the current pattern and returns the
-//! changed one (`None`: nothing to change or not possible). The window handlers in `actions.rs`
-//! put the result through the undo stack and the validation.
+//! The edits of a Color Pattern, as pure functions.
 //!
-//! Geometry is in the unit the pattern holds: for a stone one unit wide when it "Scales With Stone
-//! Size", millimeters when it is "Fixed in mm" (`stone_width_mm` converts a default that is
-//! written for one unit).
+//! Each takes the current pattern and returns the changed one (`None`: nothing to change or not
+//! possible). The window handlers in `actions.rs` put the result through the undo stack and the
+//! validation.
+//!
+//! Geometry is in the unit the pattern holds: a stone one unit wide when it is "Scales With
+//! Stone", millimeters when it is "Fixed in mm". `stone_width_mm` converts a default written
+//! for one unit.
 
 use super::{
     form::{form_of, host_form},
@@ -70,7 +72,7 @@ pub(super) fn with_template(
 /// `pattern` with every one-color zone turned into the form a material of `rank` asks.
 ///
 /// The colors are kept (see `ColorPattern::set_color_form`), as for a new zone. A zone that
-/// already has two or three colors, or holds a variant, stays as it is; an isotropic `rank`
+/// already has two or three colors, or holds a variant, stays as it is. An isotropic `rank`
 /// changes nothing.
 fn at_host_form(mut pattern: ColorPattern, rank: TensorRank) -> ColorPattern {
     let form = host_form(rank);
@@ -240,6 +242,27 @@ pub(super) fn move_zone(
     Some((next, to + 1))
 }
 
+/// Zone `from` moved to stored index `to` in the stacking order (both 1 and up: the base never
+/// moves).
+///
+/// Returns the pattern and the zone's new index. `None` for the base, a zone that does not exist
+/// or a move to the place the zone has. It is one pattern, so the window records one undo step
+/// however far the zone travels.
+pub(super) fn reorder_zone(
+    pattern: &ColorPattern,
+    from: usize,
+    to: usize,
+) -> Option<(ColorPattern, usize)> {
+    let (at, target) = (from.checked_sub(1)?, to.checked_sub(1)?);
+    if at >= pattern.zones.len() || target >= pattern.zones.len() || at == target {
+        return None;
+    }
+    let mut next = pattern.clone();
+    let zone = next.zones.remove(at);
+    next.zones.insert(target, zone);
+    Some((next, to))
+}
+
 /// Zone `index` called `name` (trimmed); `None` when the name is blank, unchanged or the zone does
 /// not exist.
 pub(super) fn rename_zone(
@@ -343,10 +366,11 @@ pub(super) fn with_variant(
     Some(next.with_required_version())
 }
 
-/// Zone `index` with the variant it holds turned into the picked color of the same rank, with the
-/// variant's band rows (`lch_of` seeds the sliders). A variant the rows cannot carry becomes a
-/// color of its per-direction `[L*, C*, h]` (`axes_of`) with no rows yet, which the window then
-/// solves (see `PatternColor::to_custom`).
+/// Zone `index` with its variant turned into a picked color of the same rank.
+///
+/// The color keeps the variant's band rows (`lch_of` seeds the sliders). A variant the rows
+/// cannot carry becomes a color of its per-direction `[L*, C*, h]` (`axes_of`) with no rows
+/// yet, which the window then solves (see `PatternColor::to_custom`).
 ///
 /// A one-color variant (a colorless one, say) on a pleochroic host `rank` becomes the host's own
 /// form with that color in every slot, never a legacy one-color zone: the zone keeps its look and
@@ -503,6 +527,36 @@ mod tests {
         assert!(delete_zone(&pattern, 0).is_none());
         assert!(move_zone(&pattern, 0, 1).is_none());
         assert_eq!(delete_zone(&pattern, 1).unwrap().zones.len(), 0);
+    }
+
+    #[test]
+    fn a_reorder_takes_a_zone_to_any_place_and_the_base_stays() {
+        let mut pattern = watermelon();
+        for _ in 0..2 {
+            pattern = add_zone(&pattern, ShapeKind::Slab, 7.0).unwrap().0;
+        }
+        let names = |pattern: &ColorPattern| -> Vec<String> {
+            pattern.zones.iter().map(|z| z.name.clone()).collect()
+        };
+        let before = names(&pattern);
+        assert_eq!(before.len(), 3);
+        // The lowest zone goes to the top.
+        let (moved, index) = reorder_zone(&pattern, 1, 3).unwrap();
+        assert_eq!(index, 3);
+        assert_eq!(
+            names(&moved),
+            [before[1].clone(), before[2].clone(), before[0].clone()]
+        );
+        // And back down.
+        let (back, index) = reorder_zone(&moved, 3, 1).unwrap();
+        assert_eq!(index, 1);
+        assert_eq!(names(&back), before);
+        assert_eq!(back.base, pattern.base);
+        // The base, a missing zone and a move to the same place do nothing.
+        assert!(reorder_zone(&pattern, 0, 2).is_none());
+        assert!(reorder_zone(&pattern, 2, 0).is_none());
+        assert!(reorder_zone(&pattern, 1, 4).is_none());
+        assert!(reorder_zone(&pattern, 2, 2).is_none());
     }
 
     #[test]
@@ -747,7 +801,7 @@ mod tests {
                 id.label(),
                 colors_per_zone(&next)
             );
-            // Two colors per zone are a first-release pattern.
+            // Two colors per zone keep the base format version.
             assert_eq!(
                 next.version,
                 pleochroma_cut_core::material::pattern::PATTERN_BASE_FORMAT_VERSION
@@ -797,7 +851,7 @@ mod tests {
         };
         let next = with_template(&current, TemplateId::Uniform, 7.0, TensorRank::Uniaxial);
         assert_eq!(next.base.color, current.base.color);
-        // A one-color base on a biaxial host becomes three colors; an isotropic host never changes.
+        // A one-color base on a biaxial host becomes three colors; an isotropic host keeps one.
         let single = watermelon();
         let raised = with_template(&single, TemplateId::Uniform, 7.0, TensorRank::Biaxial);
         assert_eq!(colors_per_zone(&raised), [3]);

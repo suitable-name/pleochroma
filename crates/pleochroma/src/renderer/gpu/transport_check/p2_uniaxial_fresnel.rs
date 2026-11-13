@@ -1,22 +1,14 @@
-//! P2 full uniaxial Fresnel (Lekner 1991) -- Tier 2 kernel-level equivalence checks.
+//! Full uniaxial Fresnel (Lekner 1991): Tier 2 kernel-level equivalence checks.
 //!
-//! Feeds IDENTICAL `(k_hat, normal, c_axis, n1/n_mode_inc, n_o, n_e)` inputs to the
-//! real CPU `optics::raytracer::uniaxial_fresnel::{entry_solve_pair, internal_solve}`
-//! and `shaders/transport_physics.wgsl`'s own `entry_solve_pair`/`internal_solve`
-//! mirror, and compares every output field (`r_s`/`r_p`/`t_o`/`t_e`/`flux_o`/`flux_e`/
-//! `o_hat`/`e_hat` for the entry solve; `r_o`/`r_e`/`t_s`/`t_p`/`flux_ro`/`flux_re`/
-//! `flux_ts`/`flux_tp`/`flux_inc`/`o_hat`/`e_hat` for the internal solve) within a ULP
-//! budget -- the same `environment_check.rs`/`eigenmodes_uniaxial.rs` convention every
-//! other Tier 2 case bank in this module tree follows: never a hand-written parallel
-//! reimplementation, always the real CPU function.
+//! Feeds identical `(k_hat, normal, c_axis, n1/n_mode_inc, n_o, n_e)` inputs to the real CPU
+//! `optics::raytracer::uniaxial_fresnel::{entry_solve_pair, internal_solve}` and to the WGSL
+//! mirrors in `renderer/shaders/`. Every output field is compared within a ULP budget. The CPU
+//! function is always the reference; there is no parallel reimplementation.
 //!
-//! Case coverage mirrors `uniaxial_fresnel::tests`' own sweeps (materials spanning
-//! Zircon/Sapphire/Rutile-scale birefringence, axis-aligned and oblique optic axes,
-//! angles from near-normal through past-critical/TIR), including the degenerate
-//! `k_hat` parallel to `c_axis` case `refraction::apply_partial_fresnel_bounce`
-//! special-cases on both sides (this bank still exercises the raw solve there, since
-//! `entry_solve_pair`/`internal_solve` themselves stay well-defined at that limit --
-//! only the BOUNCE-DISPATCH layer routes around them).
+//! The cases mirror the sweeps of `uniaxial_fresnel::tests`: Sapphire- to Rutile-scale
+//! birefringence, axis-aligned and oblique optic axes, and angles from near-normal past
+//! critical (TIR). They include `k_hat` parallel to `c_axis`, where the bounce dispatch routes
+//! around the solve. The solve itself is well-defined there, so this bank tests it raw.
 
 use glam::Vec3;
 
@@ -32,25 +24,13 @@ use super::{SHADER_SRC, UlpAccumulator, UlpCheckResult};
 // the same (k_hat, normal, c_axis, angle) sweep).
 // ---------------------------------------------------------------------------------
 
-/// `(k_hat, normal)` pairs across a spread of incidence angles, `normal` always `-Z`
-/// (matching `uniaxial_fresnel::tests::frame_for`'s own convention) so `cos_i =
-/// (-k_hat).dot(normal)` reproduces the angle exactly. Capped at 80 degrees, matching
-/// `uniaxial_fresnel::tests::internal_exit_energy_conservation_holds_including_tir`'s
-/// own sweep -- beyond that, at Rutile-scale birefringence (`n_o`/`n_e` both > 2.6)
-/// combined with a non-principal optic-axis orientation, the boundary-matching matrix
-/// becomes ill-conditioned enough that CPU (Rust `libm`) and GPU (hardware
-/// transcendentals) `sqrt`/`atan2` implementations -- never bit-identical across
-/// platforms, only both correctly-rounded to within a handful of ULP -- can each
-/// select a DIFFERENT pivot row in `solve4`'s partial pivoting, producing two
-/// genuinely different (both numerically valid) elimination paths through a
-/// near-singular system. Confirmed empirically: `entry_solve_pair`'s own equivalence
-/// check (same materials/axes, but `n1 == 1.0` fixed rather than `internal_solve`'s
-/// direction-dependent `n_mode_inc`, so its matrix stays well-conditioned even at 85
-/// degrees) passes with 0 genuine ULP divergence across this same sweep extended to 85
-/// degrees -- this is `internal_solve`-specific ill-conditioning at grazing incidence,
-/// not a coding error, and not a case any real bounce dispatch depends on (grazing
-/// internal incidence is vanishingly rare and vanishingly low-throughput even when it
-/// occurs).
+/// `(k_hat, normal)` pairs over a spread of incidence angles, with `normal` fixed to `-Z`
+/// (as in `uniaxial_fresnel::tests::frame_for`) so `cos_i = (-k_hat).dot(normal)` is the angle.
+/// Capped at 80 degrees, the limit of the TIR sweep in `uniaxial_fresnel::tests`. Beyond it,
+/// at Rutile-scale birefringence with a non-principal optic axis, the internal-solve matrix is
+/// ill-conditioned enough that CPU (`libm`) and GPU transcendentals can pick different pivot
+/// rows in `solve4`. Both results are then valid but differ. `entry_solve_pair` fixes `n1 = 1.0`
+/// and stays well-conditioned at 85 degrees, so the cap is specific to `internal_solve`.
 fn angle_dirs() -> Vec<(f32, Vec3, Vec3)> {
     [0.0f32, 10.0, 20.0, 35.0, 45.0, 55.0, 65.0, 80.0]
         .into_iter()
@@ -104,10 +84,7 @@ fn build_entry_solve_pair_cases() -> Vec<EntrySolvePairCase> {
     for &(_, k_hat, normal) in &angle_dirs() {
         for &c_axis in &AXES {
             let c_axis = c_axis.normalize();
-            // Degenerate k_hat-parallel-to-c_axis case is deliberately included --
-            // `entry_solve_pair` itself stays well-defined there (only the
-            // bounce-dispatch layer routes around it); see this file's own doc
-            // comment.
+            // Includes the k_hat-parallel-to-c_axis case; see the module doc.
             for &(n_o, n_e) in &MATERIAL_INDICES {
                 cases.push(EntrySolvePairCase {
                     k_hat: k_hat.to_array(),
@@ -305,11 +282,9 @@ fn build_internal_solve_cases() -> Vec<InternalSolveCase> {
             let c_axis = c_axis.normalize();
             for &(n_o, n_e) in &MATERIAL_INDICES {
                 for incident_is_ordinary in [true, false] {
-                    // `n_mode_inc`: the incident mode's own effective index -- `n_o`
-                    // for ordinary, the direction-dependent effective extraordinary
-                    // index otherwise (same formula
-                    // `uniaxial_fresnel::tests::internal_exit_energy_conservation_
-                    // holds_including_tir` uses to build its own cases).
+                    // `n_mode_inc`: `n_o` for an ordinary incident mode, else the
+                    // direction-dependent extraordinary index, as in
+                    // `uniaxial_fresnel::tests`' TIR energy test.
                     let cos_i = (-k_hat).dot(normal).clamp(0.0, 1.0);
                     let sin_i = cos_i.mul_add(-cos_i, 1.0).max(0.0).sqrt();
                     let frame = UniaxialFrame::build(k_hat, normal, c_axis, cos_i, sin_i);
@@ -453,21 +428,19 @@ pub fn run_internal_solve(
 // solve4 unrolled vs rolled: the same solution within rounding
 // ---------------------------------------------------------------------------------
 
-/// Equivalence check of the constant-index unrolled `solve4_single` / `solve4_two_rhs`
-/// (generated into `06_uniaxial_fullwave_complex.wgsl` by `tools/unroll_solve4.py`)
-/// against the original rolled, dynamically-pivoting forms.
+/// Equivalence check of the unrolled `solve4_single` / `solve4_two_rhs` (generated into
+/// `06_uniaxial_fullwave_complex.wgsl` by `tools/unroll_solve4.py`) against the original
+/// rolled, dynamically pivoting forms.
 ///
-/// The unrolled text performs the same IEEE operations in the same order (strict `>`
-/// pivot choice over ascending rows, whole-row conditional swap, `!= 0.0` factor skip),
-/// but the two are NOT bit-identical on every backend: WGSL has no way to forbid FMA
-/// contraction or reassociation, and the owner's GPU compiler contracts the two code
-/// shapes differently (1-3 ULP in a few components; 2026-10-14, still 1 ULP after making
-/// `cplx_mul` an explicit `fma`, which was reverted). So each solution is compared with a
-/// relative tolerance against its own magnitude (`SOLVE4_RELATIVE_TOLERANCE`): far above
-/// rounding through a pivoted 4x4 elimination, far below what a wrong pivot, a skipped row
-/// operation or a swapped right-hand side produces. The largest deviation and the number of
-/// bit-identical solutions are printed. Needs a real adapter: it skips cleanly without one
-/// unless `PLEOCHROMA_REQUIRE_GPU=1`. Run with
+/// The unrolled text performs the same IEEE operations in the same order (strict `>` pivot
+/// choice over ascending rows, whole-row conditional swap, `!= 0.0` factor skip). The two are
+/// not bit-identical on every backend: WGSL cannot forbid FMA contraction or reassociation, so
+/// a GPU compiler may contract the two shapes differently (1-3 ULP in a few components). Each
+/// solution is therefore compared with a relative tolerance against its own magnitude
+/// (`SOLVE4_RELATIVE_TOLERANCE`). That is far above rounding through a pivoted 4x4 elimination
+/// and far below what a wrong pivot, a skipped row operation or a swapped right-hand side
+/// produces. The largest deviation and the number of bit-identical solutions are printed.
+/// Without a GPU adapter the test skips, unless `PLEOCHROMA_REQUIRE_GPU=1`. Run with
 ///
 /// ```text
 /// cargo test -p pleochroma --features gpu unrolled_solve4 -- --nocapture

@@ -105,9 +105,8 @@ impl SettingsStore {
 
 impl SettingsStore {
     /// Writes anything pending and ends the writer thread; later saves are dropped (and
-    /// logged). Idempotent. Call when the app shuts down, while the writer still runs:
-    /// at process exit Windows ends the writer before thread-local destructors run, and
-    /// a store dropped there could neither flush nor join.
+    /// logged). Idempotent. Call it on shutdown while the writer still runs: a store
+    /// dropped during process exit may find the writer already gone and cannot flush.
     pub fn close(&mut self) {
         if self.sender.is_none() {
             return;

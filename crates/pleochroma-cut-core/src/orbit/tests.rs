@@ -30,8 +30,7 @@ fn tier_with(indices: &[f64], detached: &[f64]) -> ConstraintTier {
 }
 
 /// A tier holding exactly one full orbit (`sym=4`, no mirror, gear=96)
-/// must decompose into a single complete unit -- the 79.0%-of-corpus
-/// `exact` case.
+/// must decompose into a single complete unit.
 #[test]
 fn one_complete_orbit_is_a_single_complete_unit() {
     let m = meta(96, 4, false);
@@ -41,10 +40,9 @@ fn one_complete_orbit_is_a_single_complete_unit() {
     assert_eq!(units[0].expected_len, 4);
 }
 
-/// Mirroring an off-axis facet must produce TWO residue clusters (the
-/// facet and its mirror image), each needing `symmetry_order` members --
-/// the case a naive
-/// single-cluster read would misclassify as broken.
+/// Mirroring an off-axis facet produces two residue clusters (the facet and
+/// its mirror image), each needing `symmetry_order` members. A single-cluster
+/// read would misclassify it as broken.
 #[test]
 fn mirrored_offaxis_facet_folds_two_clusters_into_one_complete_orbit() {
     let m = meta(96, 4, true);
@@ -57,9 +55,8 @@ fn mirrored_offaxis_facet_folds_two_clusters_into_one_complete_orbit() {
     assert_eq!(units[0].expected_len, 8);
 }
 
-/// A tier folding two distinct, individually-complete orbits under the
-/// same stated symmetry (the 9.3%-of-corpus `clean_fold` case) must
-/// report two complete units, not "unrelated".
+/// A tier folding two distinct, individually complete orbits under the same
+/// stated symmetry must report two complete units.
 #[test]
 fn two_folded_complete_orbits_are_two_complete_units() {
     let m = meta(96, 4, false);
@@ -71,7 +68,7 @@ fn two_folded_complete_orbits_are_two_complete_units() {
     assert!(units.iter().all(OrbitUnit::is_complete));
 }
 
-/// A half-populated orbit (`partial`) must report exactly that:
+/// A half-populated orbit must report exactly that:
 /// present, incomplete -- never silently topped up.
 #[test]
 fn half_populated_orbit_is_incomplete_not_hidden() {
@@ -83,9 +80,9 @@ fn half_populated_orbit_is_incomplete_not_hidden() {
     assert_eq!(units[0].expected_len, 12);
 }
 
-/// Removing one occurrence of a complete orbit must remove the whole
-/// orbit, not just the clicked occurrence -- Acceptance gate 1
-/// (`symmetry_order` stays true, facet count stays coherent).
+/// Removing one occurrence of a complete orbit must remove the whole orbit, not
+/// just the clicked occurrence, so `symmetry_order` stays true and the facet count
+/// stays coherent.
 #[test]
 fn removing_one_member_of_a_complete_orbit_removes_the_whole_orbit() {
     let mut design = Design::new(
@@ -120,7 +117,7 @@ fn adding_one_member_expands_to_its_whole_orbit() {
 }
 
 /// A detached occurrence must survive undo/redo of *other* edits, and
-/// removing it must touch only itself -- Acceptance gate 2.
+/// removing it must touch only itself.
 #[test]
 fn detached_member_survives_undo_redo_and_is_removed_alone() {
     let mut design = Design::new(
@@ -174,7 +171,7 @@ fn detached_member_survives_undo_redo_and_is_removed_alone() {
 /// Removing a NON-detached sibling of an already-detached occurrence
 /// must sweep only the attached members, never the detached one. Tier
 /// `[0,24,48,72]`, detach 24, remove 48: 24 must survive (it never re-enters the
-/// sweep), and since the unit is no longer attached-complete (only 3 of its 4
+/// sweep), and since the unit is not attached-complete (only 3 of its 4
 /// members are attached), 0/72 are not swept either -- only 48 itself is removed.
 #[test]
 fn removing_a_sibling_of_a_detached_member_never_sweeps_the_detached_one() {
@@ -219,10 +216,9 @@ fn undoing_detach_restores_attachment() {
     assert_eq!(design.tiers[0].detached, [] as [f64; 0]);
 }
 
-/// Acceptance gate 3: import a real `.asc` schedule, complete a partial
-/// orbit through the normal `History`-mediated edit path, export back
-/// to `.asc` text, and re-import -- the completed orbit (and every
-/// solved mast) must come back exactly, not approximately.
+/// Imports a `.asc` schedule, completes a partial orbit through the `History`
+/// edit path, exports back to `.asc` text and re-imports. The completed orbit and
+/// every solved mast must come back exactly, not approximately.
 #[test]
 fn import_orbit_edit_export_reimport_round_trips() {
     let text = "GemCad 5.0\n\
@@ -272,12 +268,9 @@ fn import_orbit_edit_export_reimport_round_trips() {
     }
 }
 
-/// Acceptance gate 4: a design whose tier does NOT form a clean orbit
-/// (a `mixed_fold` shape -- two residue clusters, neither complete, the
-/// genuinely-incoherent case this module's docs measure at 1.8% of real
-/// tiers) must round-trip through import/export UNCHANGED when no
-/// orbit edit is ever applied -- nothing in this module runs
-/// automatically, so there is nothing to silently "correct" it.
+/// A tier that does not form a clean orbit (two residue clusters, neither complete)
+/// must round-trip through import/export UNCHANGED when no orbit edit is applied.
+/// Nothing in this module runs automatically, so nothing silently corrects it.
 #[test]
 fn non_orbit_design_exports_unchanged_without_an_explicit_edit() {
     let text = "GemCad 5.0\n\

@@ -6,8 +6,8 @@ This chapter gets a design open in the editor and explains every column of
 the tier list, so the numbers on screen make sense before you touch
 anything.
 
-The editor described in this chapter and Chapters 4–8 ships in every build
-of the app (see Chapter 1): the "Edit" sub-tab sits next to "Live Render."
+The editor described in this chapter and Chapters 4–8 is the "Edit" sub-tab,
+next to "Live Render."
 
 ## The Editor's Toolbar
 
@@ -267,10 +267,9 @@ If you were mid-edit on an unsaved tier draft when the selection moves, the
 inspector does not silently throw your draft away — see "Losing an
 Unsaved Draft" in Chapter 4.
 
-Orbiting the 3D view (dragging to rotate the stone) no longer selects
-whatever facet happens to be under the cursor when you release the mouse —
-only a genuine click, one that barely moved between press and release,
-counts as a pick.
+Orbiting the 3D view (dragging to rotate the stone) does not select the facet
+under the cursor on release; only a click that barely moved between press and
+release counts as a pick.
 
 ### The Inspector's Schedule Tab
 

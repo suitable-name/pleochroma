@@ -58,8 +58,7 @@ fn at(n: u64) -> Duration {
     Duration::from_secs(10) + Duration::from_millis(100 * n)
 }
 
-/// Polls an unchanged, converged render: after the start, no poll describes the scene
-/// (before the probe every poll called `prepare` through `needs_restart`).
+/// Polls an unchanged, converged render: after the start, no poll describes the scene.
 #[test]
 fn polls_of_an_unchanged_render_never_describe_the_scene() {
     let mut app = render_on_show();
@@ -95,10 +94,9 @@ fn a_changed_input_restarts_once_and_the_polls_after_it_are_free() {
     assert_eq!(prepare_calls(), after_restart);
 }
 
-/// The scene description carries the design's color variant through the resolved render
-/// material (`render_material`), not only through the design's generation: with the generation
-/// held, a variant on the design still makes another description, so no later key could treat the
-/// recolored stone as the one already traced.
+/// The scene key follows the design's color variant through the resolved render material,
+/// not only through the generation: with the generation held, a variant still changes the
+/// description, so the recolored stone is never taken for the one already traced.
 #[test]
 fn the_scene_key_follows_the_designs_color_variant() {
     use super::prepare;
@@ -170,8 +168,8 @@ fn a_failed_start_is_not_described_again_until_the_design_changes() {
     assert!(prepare_calls() > after_failure);
 }
 
-/// A new design generation after a converged render restarts through the probe, and the
-/// failed start it ends in (nothing solved yet) is not described again by later polls.
+/// A new design generation restarts a converged render; the failed start it ends in (nothing
+/// solved yet) is not described again by later polls.
 #[test]
 fn a_new_generation_restarts_and_a_failed_restart_is_recorded() {
     let mut app = render_on_show();

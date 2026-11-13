@@ -1,24 +1,20 @@
-//! The preview batch's REMOTE dispatchers and their failure policy -- split from
-//! `engine.rs` (which keeps the per-item local render and the shared bookkeeping) so
-//! each file stays readable.
+//! The preview batch's REMOTE dispatchers and their failure policy. Split from `engine.rs`,
+//! which keeps the per-item local render and the shared bookkeeping.
 //!
-//! Before this policy existed, a remote that failed an item cost the lane nothing: it
-//! returned the item to the local pile and claimed the next one at once, with no log
-//! line and no toast. A remote failing fast drained the entire shared pool into local
-//! retries within seconds and the lane exited for good; a remote failing slowly cycled
-//! through titles producing nothing. Now every failure is logged, consecutive failures
-//! back off (1, 2, 4, 8 s), and the fifth in a row parks the lane for two minutes with
-//! one toast -- see [`crate::gui::batch::remote_backoff`] for the schedule. The wait
-//! happens BEFORE an item is claimed, so a failing remote never holds work hostage.
+//! Every remote failure is logged and counted. Consecutive failures back off (1, 2, 4, 8 s),
+//! and the fifth in a row parks the lane for two minutes with one toast (see
+//! [`crate::gui::batch::remote_backoff`]). The wait happens BEFORE an item is claimed, so a
+//! failing remote never holds work hostage. Without the backoff, a remote that fails fast
+//! would drain the shared pool into local retries within seconds.
 //!
-//! `AppSettings::remote_batch_lanes` dispatchers run this loop at once over the one
-//! shared queue (`gui::batch::remote_dispatch`). Since protocol v24 each dispatcher runs
-//! BATCHED (`remote_batch`: one persistent connection, up to
-//! `AppSettings::remote_preview_batch_size` pictures per request, two requests in flight)
-//! and falls back to one picture per connection only for a server that takes no batches.
-//! A GPU worker defaults to 2 dispatchers (`effective_remote_batch_lanes`), a CPU worker
-//! or coordinator to 4. Each has its own [`LaneHealth`], so the schedule above counts one
-//! dispatcher's consecutive failures; the toast is shared and shows once per batch.
+//! `AppSettings::remote_batch_lanes` dispatchers run this loop at once over the one shared
+//! queue (`gui::batch::remote_dispatch`). Each dispatcher runs BATCHED (`remote_batch`: one
+//! persistent connection, up to `AppSettings::remote_preview_batch_size` pictures per
+//! request, two requests in flight) and falls back to one picture per connection only for a
+//! server that takes no batches. A GPU worker defaults to 2 dispatchers
+//! (`effective_remote_batch_lanes`), a CPU worker or coordinator to 4. Each has its own
+//! [`LaneHealth`], so the schedule above counts one dispatcher's consecutive failures; the
+//! toast is shared and shows once per batch.
 
 use super::engine::{
     BatchContext, LaneShared, PREVIEW_MAX_BOUNCES, PreviewItem, RecordRevision, ResolvedDesign,
@@ -73,9 +69,9 @@ struct LaneHealth {
     backoff: RemoteBackoff,
 }
 
-/// Runs `f` (one REMOTE view's render) under `catch_unwind`, so a panic tracing this one
-/// view can never take the rest of the batch down with it -- see this group's `mod.rs`
-/// doc comment's "Panic isolation" section. A panic becomes a [`RemoteShortfall::Failed`]
+/// Runs `f` (one remote view's render) under `catch_unwind`, so a panic cannot take the rest
+/// of the batch down (see `gui::batch::preview`'s module doc). A panic becomes a
+/// [`RemoteShortfall::Failed`]
 /// so it goes through the same failure policy as any other remote failure.
 fn catch_render_checked(
     f: impl FnOnce() -> Result<Vec<u8>, RemoteShortfall>,
@@ -333,7 +329,7 @@ pub(super) fn run_remote_lane(
     );
 
     let mut health = LaneHealth::default();
-    // Batched mode (protocol v24) first: a persistent connection and whole designs per
+    // Batched mode first: a persistent connection and whole designs per
     // request. It hands over to the single-picture loop below only for a server that does
     // not take batches (a coordinator). The solid stand-ins never reach a remote at all.
     let exit = match worker {

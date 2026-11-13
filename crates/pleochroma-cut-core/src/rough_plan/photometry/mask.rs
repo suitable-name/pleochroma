@@ -26,7 +26,7 @@ pub mod flag {
     pub const BELOW_NOISE: u8 = 1 << 1;
     /// The camera ray misses the stone (or cannot enter it).
     pub const OUTSIDE_OUTLINE: u8 = 1 << 2;
-    /// Within `k` pixels of the outline.
+    /// Inside pixels near the outline (see `MeshMaskOptions::edge_band_px`).
     pub const EDGE_BAND: u8 = 1 << 3;
     /// The ray passes through a located inclusion.
     pub const INCLUSION: u8 = 1 << 4;

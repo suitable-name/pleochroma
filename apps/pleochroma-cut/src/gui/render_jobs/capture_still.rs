@@ -24,7 +24,10 @@ use crate::{
     },
     settings::ExportTransfer,
 };
-use pleochroma::color::ColorSpace;
+use pleochroma::{
+    color::ColorSpace,
+    renderer::{accel::PathCacheSettings, accel_beam::BeamSettings, adaptive::AdaptiveSettings},
+};
 use pleochroma_editor::guide::viewing_events::RENDER_JOB_ADDED;
 use pleochroma_render_jobs::{codec, job::DesignInfo, paths::reserve_unique_file};
 use pleochroma_vault::model::render_job::NewRenderJob;
@@ -113,6 +116,13 @@ pub(super) fn add_still_jobs(ui: &MainWindow, deps: &Deps, args: StillArgs) {
     };
     params.engine = crate::gui::render::output_defaults::still_engine(ui);
     params.samples_per_pixel = params.engine.target_samples(params.samples_per_pixel);
+    let adaptive = crate::gui::render::output_defaults::still_adaptive(
+        ui,
+        params.engine,
+        params.samples_per_pixel,
+    );
+    let path_cache = crate::gui::render::output_defaults::still_path_cache(ui, params.engine);
+    let beam = crate::gui::render::output_defaults::still_beam(ui, params.engine);
     let color_space = crate::gui::color_space_from_index(args.color_space_index);
     let snapshot = deps.settings_store.snapshot();
     let remote = RemoteSelection {
@@ -145,6 +155,9 @@ pub(super) fn add_still_jobs(ui: &MainWindow, deps: &Deps, args: StillArgs) {
                 Ok(finished) => {
                     let request = AddRequest {
                         params,
+                        adaptive,
+                        path_cache,
+                        beam,
                         color_space,
                         remote,
                         export_dir,
@@ -168,6 +181,12 @@ pub(super) fn add_still_jobs(ui: &MainWindow, deps: &Deps, args: StillArgs) {
 /// What the second half of "Add to Queue" needs beyond the window and the dependencies.
 struct AddRequest {
     params: ExportParams,
+    /// The dialog's "Adaptive Sampling" choice, frozen into every job; `None` is off.
+    adaptive: Option<AdaptiveSettings>,
+    /// The dialog's "Path Cache" choice, frozen into every job; `None` is off.
+    path_cache: Option<PathCacheSettings>,
+    /// The dialog's "Beam Tracing (Faceted Stones)" choice, frozen into every job; `None` is off.
+    beam: Option<BeamSettings>,
     color_space: ColorSpace,
     remote: RemoteSelection,
     export_dir: PathBuf,
@@ -180,9 +199,6 @@ struct Prepared {
     summary: String,
     output: PathBuf,
     text: String,
-    /// The stone's colour zones: the frozen scene (the wire's `SceneState`) carries none, so they
-    /// are stored beside the job and put back when it runs (`rough_colour::store`).
-    material: pleochroma::optics::materials::GemMaterial,
 }
 
 /// The design fields and file name template every picture of one "Add to Queue" shares.
@@ -202,7 +218,13 @@ fn continue_add(
     request: &AddRequest,
     finished: Option<&pleochroma_solid::preview::StoneGeometryBuf>,
 ) {
-    let mut base_scene = match SceneSnapshot::capture_finished(&deps.render_ctx, finished) {
+    // Captured for the job's own engine, so the render physics follow it and not the engine the
+    // view shows.
+    let mut base_scene = match SceneSnapshot::capture_finished_for_engine(
+        &deps.render_ctx,
+        finished,
+        request.params.engine,
+    ) {
         Ok(scene) => apply_export_bounce_cap(scene, request.params.max_bounces),
         Err(reason) => {
             refuse(ui, &reason);
@@ -346,6 +368,9 @@ fn prepare_jobs(
                     material: job.scene.material.name.clone(),
                 },
                 preset_label: job.preset_label.clone(),
+                adaptive: request.adaptive,
+                path_cache: request.path_cache,
+                beam: request.beam,
             },
             now,
         )?;
@@ -358,10 +383,11 @@ fn prepare_jobs(
                 &job.scene.material.name,
                 colorspace,
                 job.scene.lighting_preset.label(),
-            ),
+            ) + &super::convert::adaptive_detail(request.adaptive.as_ref())
+                + &super::convert::path_cache_detail(request.path_cache.as_ref())
+                + &super::convert::beam_detail(request.beam.as_ref()),
             output,
             text,
-            material: job.scene.material.clone(),
         });
     }
     Ok(prepared)
@@ -376,31 +402,20 @@ fn store(deps: &Deps, prepared: &[Prepared], now: i64) -> Result<(), (usize, Str
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     for (stored, job) in prepared.iter().enumerate() {
         let output = job.output.to_string_lossy();
-        let job_id = db
-            .add_render_job(
-                &NewRenderJob {
-                    kind: "still",
-                    label: &job.label,
-                    summary: &job.summary,
-                    frames_total: 1,
-                    output_path: &output,
-                    snapshot_version: job.format,
-                    snapshot: &job.text,
-                },
-                now,
-            )
-            .map_err(|error| (stored, format!("The job could not be saved: {error}")))?;
-        // A zoned stone's zones travel beside the job. If they cannot be stored
-        // the job is removed again rather than queued to render without its colour.
-        if let Err(error) =
-            crate::gui::rough_colour::store::save_job_zoning(&db, job_id, &job.material)
-        {
-            let _ = db.delete_render_job(job_id);
-            return Err((
-                stored,
-                format!("The color zones of the job could not be saved: {error:#}"),
-            ));
-        }
+        // A zoned stone's zones are part of the job text (format 5), so one write queues it whole.
+        db.add_render_job(
+            &NewRenderJob {
+                kind: "still",
+                label: &job.label,
+                summary: &job.summary,
+                frames_total: 1,
+                output_path: &output,
+                snapshot_version: job.format,
+                snapshot: &job.text,
+            },
+            now,
+        )
+        .map_err(|error| (stored, format!("The job could not be saved: {error}")))?;
     }
     drop(db);
     Ok(())

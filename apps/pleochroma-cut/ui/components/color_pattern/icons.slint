@@ -1,0 +1,41 @@
+import { KitIcon } from "../kit/kit.slint";
+
+// The icons of the Color Pattern window, drawn as 24 x 24 `Path` strokes (never Unicode glyphs),
+// and the component that draws one. The shape icons follow the order of `shape_options`
+// (Rust's `ShapeKind::ALL`).
+export global PatternIcons {
+    out property <string> undo: "M9 14 L4 9 L9 4 M4 9 H15 A5 5 0 0 1 15 19 H11";
+    out property <string> redo: "M15 14 L20 9 L15 4 M20 9 H9 A5 5 0 0 0 9 19 H13";
+    out property <string> eye: "M2 12 C5 6 19 6 22 12 C19 18 5 18 2 12 Z M12 9.5 A2.5 2.5 0 1 0 12 14.5 A2.5 2.5 0 1 0 12 9.5 Z";
+    out property <string> eye-off: "M2 12 C5 6 19 6 22 12 C19 18 5 18 2 12 Z M4 4 L20 20";
+    out property <string> plus: "M12 5 V19 M5 12 H19";
+    out property <string> trash: "M5 7 H19 M10 7 V4 H14 V7 M7 7 L8 20 H16 L17 7";
+    out property <string> grid: "M4 4 H10 V10 H4 Z M14 4 H20 V10 H14 Z M4 14 H10 V20 H4 Z M14 14 H20 V20 H14 Z";
+    out property <string> chevron: "M6 9 L12 15 L18 9";
+    out property <string> expand: "M14 4 H20 V10 M10 20 H4 V14 M20 4 L13 11 M4 20 L11 13";
+    out property <string> lock: "M6 11 H18 V20 H6 Z M8.5 11 V8 A3.5 3.5 0 0 1 15.5 8 V11";
+    out property <string> copy: "M8 8 H20 V20 H8 Z M4 16 V4 H16";
+    out property <string> more: "M5 12 H5.5 M12 12 H12.5 M19 12 H19.5";
+    out property <string> close: "M6 6 L18 18 M18 6 L6 18";
+    out property <string> star: "M12 3 L14.6 9 L21 9.5 L16 13.6 L17.6 20 L12 16.6 L6.4 20 L8 13.6 L3 9.5 L9.4 9 Z";
+    out property <string> c-axis: "M12 3 V21 M8 7 L12 3 L16 7";
+    out property <string> pencil: "M4 20 L5 15 L16 4 L20 8 L9 19 Z M14 6 L18 10";
+    out property <string> arrow-up: "M12 19 V5 M6 11 L12 5 L18 11";
+    out property <string> arrow-down: "M12 5 V19 M6 13 L12 19 L18 13";
+    out property <string> check: "M5 12 L10 17 L19 7";
+    out property <string> arrow-right: "M5 12 H19 M13 6 L19 12 L13 18";
+    // The shape icons.
+    out property <string> s-half: "M3 5 H12 V19 H3 Z M12 3 V21 M16 7 H21 M16 12 H21 M16 17 H21";
+    out property <string> s-slab: "M3 9 H21 V15 H3 Z";
+    out property <string> s-cyl: "M12 4 A8 8 0 1 0 12 20 A8 8 0 1 0 12 4 Z";
+    out property <string> s-prism: "M12 4 L20.5 19 H3.5 Z";
+    out property <string> s-sector: "M12 12 L20 6.5 A10 10 0 0 1 20 17.5 Z";
+
+    /// The icon of the shape at an index of `shape_options`; -1 (the base) has none.
+    public pure function shape(index: int) -> string {
+        return index == 0 ? PatternIcons.s-half : (index == 1 ? PatternIcons.s-slab : (index == 2 ? PatternIcons.s-cyl : (index == 3 ? PatternIcons.s-prism : (index == 4 ? PatternIcons.s-sector : ""))));
+    }
+}
+
+// One icon: a stroked `Path` in a square; the kit's icon under the pattern window's name.
+export component PatternIcon inherits KitIcon { }

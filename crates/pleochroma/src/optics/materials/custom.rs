@@ -13,37 +13,17 @@ impl GemMaterial {
     ///
     /// # `dispersion_delta` convention: Fraunhofer F-C, not B-G
     ///
-    /// `dispersion_delta` is interpreted as the Fraunhofer **F-C** interval,
-    /// `n(486.1nm) - n(656.3nm)`, matching every built-in material in
-    /// [`Self::all_materials`] (whose Cauchy/Sellmeier fits were, per their own sourcing
-    /// comments, deliberately normalised to F-C -- gemological tables usually publish
-    /// the wider Fraunhofer **B-G** interval, `n(430.8nm) - n(686.7nm)`, instead, and
-    /// every one of those comments records converting B-G -> F-C before fitting).
-    /// `new_custom` picks the same convention so a caller mixing a custom material into
-    /// a scene with built-ins gets a consistent, comparable dispersion figure -- a
-    /// caller with a genuine B-G figure in hand should convert it first (multiply by
-    /// 0.579, the B-G -> F-C ratio every built-in's sourcing comments use, range
-    /// 0.569-0.587; equivalently B-G is roughly 1.73 times F-C for typical gemstone
-    /// Cauchy curves). The desktop
-    /// material editor's preset templates carry F-C values measured from the matching
-    /// built-in entries (Diamond 0.0256, Sapphire 0.0106, ...), so picking one
-    /// reproduces that built-in's dispersion.
+    /// `dispersion_delta` is the Fraunhofer **F-C** interval, `n(486.1nm) - n(656.3nm)`, like
+    /// every built-in material in [`Self::all_materials`]. Gemological tables usually publish
+    /// the wider **B-G** interval, `n(430.8nm) - n(686.7nm)`; convert it first by multiplying by
+    /// 0.579 (range 0.569-0.587). The desktop editor's preset templates carry F-C values taken
+    /// from the matching built-ins (Diamond 0.0256, Sapphire 0.0106, ...).
     ///
-    /// Solved in closed form from the single-term Cauchy fit this constructor always
-    /// builds (`n(lambda) = a + b / lambda_um^2`, `c = 0`): the F-C delta this produces
-    /// is `b` times a fixed geometric factor (the difference of `1 / lambda^2` at F and
-    /// C), so dividing the requested delta by that SAME factor for `b` reproduces the
-    /// requested F-C delta exactly (up to floating-point rounding) rather than only
-    /// approximately. Computed here from the wavelengths directly (not a hand-rounded
-    /// literal) so the reciprocal-square arithmetic is exact regardless of how many
-    /// digits get typed into a comment; evaluates to a factor of ~0.5235. A flat
-    /// `0.347` multiplier, by contrast, has no derivation behind it and measurably
-    /// under-delivers the requested F-C delta (only ~66% of it) while over-delivering
-    /// a B-G-interpreted delta (~113% of it) -- i.e. it matches neither convention.
-    ///
-    /// See this module's own test
-    /// `new_custom_dispersion_delta_measures_exactly_at_f_and_c` for the regression
-    /// pinning this.
+    /// The constructor fits the single-term Cauchy `n(lambda) = a + b / lambda_um^2`. The F-C
+    /// interval of that curve is `b` times `1 / F^2 - 1 / C^2` (about 1.9095 um^-2), so
+    /// `b = delta / 1.9095` reproduces the requested F-C delta exactly. The factor is computed
+    /// from the wavelengths, not typed in. Regression test:
+    /// `new_custom_dispersion_delta_measures_exactly_at_f_and_c`.
     #[must_use]
     pub fn new_custom(
         name: &str,
@@ -55,10 +35,7 @@ impl GemMaterial {
         // Cauchy dispersion model fit: n(lambda) = A + B / lambda^2
         // where lambda is in um, lambda_D = 0.5893 um (sodium D line).
         const LAMBDA_D_UM: f32 = 0.5893;
-        // Fraunhofer F (486.1nm) and C (656.3nm) lines, matching every other F-C
-        // measurement in this crate (see `color::metrics::evaluate_gem_optical_metrics`
-        // and `all_materials`' own verification comments, which evaluate at these exact
-        // two wavelengths).
+        // Fraunhofer F and C lines, as every F-C figure in this crate.
         const LAMBDA_F_UM: f32 = 0.4861;
         const LAMBDA_C_UM: f32 = 0.6563;
         let lambda_d_sq = LAMBDA_D_UM * LAMBDA_D_UM;
@@ -82,21 +59,12 @@ impl GemMaterial {
             },
             dispersion: DispersionModel::Cauchy { a, b, c: 0.0 },
             birefringence_delta,
-            // `new_custom`'s public signature keeps accepting a plain
-            // `[R, G, B]` triple (callers, including existing tests, pass one) --
-            // internally converted to the band-set representation via
-            // `legacy_rgb_bands` (see that function's doc comment for the three-lobe
-            // shape it produces).
+            // The `[R, G, B]` triple becomes the band set of `legacy_rgb_bands`.
             absorption: AbsorptionTensor::isotropic(legacy_rgb_bands(absorption_rgb)),
-            // No caller currently supplies a c-axis for a custom material, so
-            // default to Vec3::Y, keeping `new_custom` behaviour unchanged rather
-            // than adding a new parameter every call site would need to be updated
-            // for.
+            // `new_custom` takes no axis argument, so the c-axis is Vec3::Y.
             c_axis: Vec3::Y,
-            // No caller currently supplies biaxial principal-index data
-            // for a custom material -- `new_custom` remains a uniaxial/isotropic
-            // constructor (see `optical_character`/`crystal_system` above, which never
-            // produce Biaxial* for this constructor either).
+            // `new_custom` is a uniaxial or isotropic constructor, so it carries no biaxial
+            // data (`optical_character` and `crystal_system` never give a Biaxial* value here).
             biaxial_delta_beta_alpha: None,
             alpha_axis: None,
             scattering_sigma_s: 0.0,
@@ -141,15 +109,10 @@ impl GemMaterial {
         material
     }
 
-    /// Inclusion/subsurface scattering: opts an existing material into a
-    /// homogeneous Henyey-Greenstein scattering medium (silk/rutile/cloud inclusions),
-    /// leaving every other field -- crucially including `absorption` -- untouched. A
-    /// pure builder-style setter (`GemMaterial::ruby().with_scattering(0.4, 0.3)`),
-    /// added so scenes/tests can opt individual materials in without a breaking change
-    /// to `new_custom`'s or any built-in constructor's signature. See
-    /// `scattering_sigma_s`/`scattering_g`'s own doc comments for what each parameter
-    /// means; `sigma_s <= 0.0` (the default every built-in keeps) disables the feature
-    /// entirely, reproducing today's exact deterministic Beer-Lambert path.
+    /// Opts a material into a homogeneous Henyey-Greenstein scattering medium (silk, rutile,
+    /// cloud inclusions), leaving every other field, including `absorption`, untouched. See
+    /// `scattering_sigma_s` and `scattering_g` for the parameters. `sigma_s <= 0.0`, the default
+    /// of every built-in, disables the scattering and keeps the Beer-Lambert path.
     #[must_use]
     pub const fn with_scattering(mut self, sigma_s: f32, g: f32) -> Self {
         self.scattering_sigma_s = sigma_s;
@@ -188,14 +151,9 @@ impl GemMaterial {
     /// [`Self::all_materials`]), there is no published "typical `sigma_s`" for any gem
     /// species -- inclusion density varies enormously by individual specimen, locality,
     /// and treatment, and clarity is conventionally assessed by eye/loupe grading, not a
-    /// volumetric scattering coefficient. These numbers were chosen to LOOK plausible
-    /// (documented per species below in descriptive terms -- "typically included",
-    /// "usually eye-clean" -- deliberately NOT any standardized clarity-grade vocabulary
-    /// like GIA's VVS/VS/SI scale, which grades visible-inclusion appearance under 10x
-    /// magnification, a different thing this coefficient does not claim to reproduce),
-    /// not derived from any citable source. Every built-in material's OWN
-    /// `scattering_sigma_s` still stays exactly `0.0` (see that field's doc comment) --
-    /// this method has no effect until a caller explicitly opts in via
+    /// volumetric scattering coefficient. The numbers are chosen to look plausible and are not
+    /// derived from a citable source; they are not GIA clarity grades. Every built-in's own
+    /// `scattering_sigma_s` stays `0.0`, so this has no effect until a caller opts in via
     /// `material.with_recommended_scattering()`.
     #[must_use]
     pub fn recommended_scattering(&self) -> (f32, f32) {
@@ -206,18 +164,11 @@ impl GemMaterial {
     /// `None` for any name with no dedicated arm (that method then falls back to
     /// `(0.0, Self::DEFAULT_SCATTERING_G)`).
     ///
-    /// Pulled out as its own `Option`-returning function, rather than inlining this
-    /// `match` directly in [`Self::recommended_scattering`] with a `_ =>` catch-all, so
-    /// `tests::every_builtin_has_an_explicit_scattering_arm` can distinguish "this name
-    /// has a real entry" from "this name silently fell through to the default," which a
-    /// catch-all's return value alone cannot do (a species genuinely tuned to the same
-    /// numbers as the default would look identical to one that was simply forgotten).
-    /// A `_ =>` catch-all is also fragile to name drift: matching the literal
-    /// `"Moissanite"` instead of the built-in material's actual name,
-    /// `"Synthetic Moissanite"` (see `Self::all_materials`), would let the intended
-    /// `(0.0, 0.0)` arm silently never fire, so every Moissanite render would use the
-    /// generic default instead -- hence the explicit-arm-plus-test structure to catch
-    /// this class of bug.
+    /// Kept as an `Option`-returning function, not a `_ =>` catch-all in
+    /// [`Self::recommended_scattering`], so `every_builtin_has_an_explicit_scattering_arm` can
+    /// tell a real entry from a forgotten name: a species tuned to the default numbers would
+    /// otherwise look the same. A catch-all also fails silently on name drift, for example
+    /// `"Moissanite"` instead of `"Synthetic Moissanite"` (see `Self::all_materials`).
     pub(super) fn recommended_scattering_arm(name: &str) -> Option<(f32, f32)> {
         match name {
             // Typically visibly included (the proverbial "jardin", French for garden --
@@ -236,10 +187,9 @@ impl GemMaterial {
             // (chromite + stress-fracture) inclusions.
             "Quartz" | "Peridot" => Some((0.15, 0.3)),
             // Elbaite tourmaline commonly carries visible needle/fingerprint inclusions.
-            // Labradorite shares the tier: translucent with an olive-grey body, a light haze (a
-            // denser one scattered the light before it reached the lamellae and the schiller
-            // vanished). Choosing it switches the haze on (`MaterialLook`) with the default
-            // asymmetry 0.4, so `g` is that here too.
+            // Labradorite shares the tier: translucent with an olive-grey body, and a denser haze
+            // would scatter the light before it reached the lamellae. Choosing it switches the
+            // haze on (`MaterialLook`) with the default asymmetry 0.4, so `g` is that here too.
             "Tourmaline" | "Labradorite" => Some((0.25, 0.4)),
             // Faceted gem-quality diamond is typically eye-clean; a small isotropic
             // haze (cloud inclusions) rather than a strong directional character.
@@ -305,13 +255,11 @@ impl GemMaterial {
             // play-of-color -- see this entry's own comment in
             // `built_in_materials_andalusite_through_glass`.
             "Opal" => Some((0.1, 0.2)),
-            // Precious opal: white opal's body is milky and translucent, a dense haze beside its
-            // play-of-color (0.15 of earlier versions was barely visible; 1.2 matched the photos
-            // of white opals, 2026-11-04); black opal's dark body hides most of it. Moonstone is
-            // eye-clean apart from its adularescence. Choosing the white opal switches the haze on
-            // (`MaterialLook`), with the default asymmetry 0.4, so `g` is that here too. Aesthetic
-            // starting points like the rest of this table. (Precious Opal (Black) and Moonstone
-            // join the 0.05 tier above; Labradorite shares Tourmaline's.)
+            // Precious opal: white opal's milky, translucent body takes a dense haze (1.2 matches
+            // the photos of white opals); black opal's dark body hides most of it. Choosing the
+            // white opal switches the haze on (`MaterialLook`) with the default asymmetry 0.4,
+            // so `g` is that here too. Aesthetic starting points like the rest of this table.
+            // Precious Opal (Black) and Moonstone join the 0.05 tier above.
             "Precious Opal (White)" => Some((1.2, 0.4)),
             _ => None,
         }
@@ -375,9 +323,9 @@ impl GemMaterial {
     /// wavelength (sigma in nm). The encoding is ambiguous for an energy band whose sigma is at
     /// most 500 cm^-1 (it reads back as a 500 nm wavelength Gaussian) and for a wavelength band
     /// wider than 500 nm (it reads back as an energy band). A versioned band representation is
-    /// pending (owner decision D5); until then the encoder side (`rows_from_bands` in
-    /// `pleochroma-cut-core`) refuses to write a band that would change shape. The same rule is
-    /// written in `pleochroma-cut-core`'s `bands_from_rows`; a test keeps the two in lock-step.
+    /// pending; until then `rows_from_bands` in `pleochroma-cut-core` refuses to write a band
+    /// that would change shape. The same rule is in that crate's `bands_from_rows`, and a test
+    /// keeps the two in lock-step.
     ///
     /// This also drops any color zones, like [`Self::with_body_color`]: a
     /// color variant replaces the color, and a zoned material's color is its zones.
@@ -453,10 +401,9 @@ impl GemMaterial {
         self
     }
 
-    /// Legacy heuristic: true if the bands are energy-domain Gaussians rather than legacy
-    /// fantasy RGB bands. A pure-host recipe has no bands, so this is not a reliable color-mode
-    /// test; `render_setup` and the desktop take an explicit physics flag instead. Kept only
-    /// until the web scene path passes one.
+    /// True if the bands are energy-domain Gaussians rather than legacy RGB bands. A pure-host
+    /// recipe has no bands, so this is not a reliable color-mode test; `render_setup` and the
+    /// desktop pass an explicit physics flag instead. Kept for the web scene path until it does.
     #[must_use]
     pub fn is_physics_color(&self) -> bool {
         self.absorption

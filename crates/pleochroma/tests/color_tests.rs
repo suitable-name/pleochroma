@@ -1,8 +1,5 @@
-//! Tests for the wide-gamut color module (`pleochroma::color::space`, `pleochroma::color::gamut`).
-//!
-//! This module is deliberately self-contained and not wired into the renderer (see the
-//! module docs on `pleochroma::color::space`), so these tests exercise it directly rather
-//! than through any render path.
+//! Tests for the wide-gamut color module (`pleochroma::color::space`, `pleochroma::color::gamut`),
+//! exercised directly rather than through a render path.
 
 use glam::Vec3;
 use pleochroma::{
@@ -138,13 +135,9 @@ fn uv_chroma_distance_from_white(rgb: [u8; 4], space: ColorSpace) -> f32 {
 // 1. Neutral D65 grey must round-trip to equal RGB components in every space.
 // ---------------------------------------------------------------------------------
 
-/// The single most valuable test here: a neutral D65 grey (chromaticity exactly at the
-/// space's own white point, per `ColorSpace::white_point_xy`) must decode to R == G == B
-/// after the full `encode` pipeline, in *every* space -- including `ACEScg`, whose D60
-/// white point is different from the other three spaces' D65. A transcription error in
-/// any matrix (row swap, sign flip, wrong primary) breaks this immediately: it is the
-/// simplest possible signal that a space's matrix does not agree with its own declared
-/// white point.
+/// A neutral grey at each space's own white point (`ColorSpace::white_point_xy`) must encode
+/// to R == G == B. A wrong matrix (row swap, sign flip, wrong primary) breaks this at once,
+/// so it checks that every matrix agrees with its declared white point.
 #[test]
 fn neutral_d65_grey_round_trips_to_equal_rgb_components_in_every_space() {
     // A mid-grey neutral stimulus at D65 (Y=0.5, chromaticity at the D65 white point
@@ -218,19 +211,11 @@ fn neutral_white_point_projects_to_equal_linear_rgb_components() {
 //    visibly more saturation in Rec.2020 (and Display P3).
 // ---------------------------------------------------------------------------------
 
-/// A naive metric to compare across spaces would be `(max-min)/max` on each
-/// space's own encoded 8-bit values -- but equal RGB ratios mean different
-/// chromaticities in different primaries, so that comparison is not colorimetrically
-/// valid across spaces (it happens to be fine *within* one space, which is how
-/// [`u8_saturation`] is used elsewhere in this file). Measured for this exact
-/// 520nm stimulus: sRGB encodes to `[49, 248, 167]` (`u8_saturation` = 0.8024) and
-/// Display P3 to `[58, 251, 158]` (`u8_saturation` = 0.7689) -- P3 reads as *less*
-/// saturated by that metric even though P3's gamut strictly contains sRGB's for this
-/// hue, which is physically backwards. Decoding both back to CIE XYZ and comparing CIE
-/// 1976 `u'v'` chromaticity distance from each space's own white point (a metric
-/// that's valid across primaries) gives the physically expected ordering instead:
-/// sRGB ~0.0762, Display P3 ~0.1004, Rec.2020 ~0.1612 -- monotonically increasing with
-/// gamut width, as excitation purity retention should.
+/// Compares saturation with the CIE 1976 `u'v'` distance from white, not `u8_saturation`:
+/// equal RGB ratios mean different chromaticities in different primaries, so the 8-bit
+/// max-min metric is not comparable across spaces (it ranks Display P3 below sRGB for this
+/// hue, though P3's gamut contains sRGB's). The `u'v'` distance of the decoded XYZ orders
+/// the spaces by gamut width.
 #[test]
 fn monochromatic_520nm_clamps_harder_in_srgb_than_in_wider_gamuts() {
     let [x, y, z] = cie_1931_cmf(520.0);
@@ -250,13 +235,8 @@ fn monochromatic_520nm_clamps_harder_in_srgb_than_in_wider_gamuts() {
     let p3_chroma = uv_chroma_distance_from_white(p3_rgb, ColorSpace::DisplayP3);
     let rec2020_chroma = uv_chroma_distance_from_white(rec2020_rgb, ColorSpace::Rec2020);
 
-    // The core physical claim: sRGB's narrow triangle clamps this stimulus much harder
-    // than either wider gamut, so after gamut mapping sRGB's output should retain LESS
-    // chroma (be closer, in u'v', to its own white point) than either wider gamut's
-    // output is to its own white point. Display P3 and Rec.2020 land close enough to
-    // each other for this particular fit-derived chromaticity that a strict
-    // P3-vs-Rec2020 ordering isn't asserted (both clearly beat sRGB, which is the
-    // point).
+    // sRGB's narrow triangle clamps this stimulus harder than either wider gamut, so its
+    // output keeps less u'v' chroma. P3 and Rec.2020 are not ordered against each other here.
     assert!(
         srgb_chroma < p3_chroma,
         "sRGB should retain less u'v' chroma than Display P3 for a 520nm stimulus: srgb={srgb_chroma:.4} p3={p3_chroma:.4} (rgb {srgb_rgb:?} vs {p3_rgb:?})"
@@ -266,13 +246,8 @@ fn monochromatic_520nm_clamps_harder_in_srgb_than_in_wider_gamuts() {
         "sRGB should retain less u'v' chroma than Rec.2020 for a 520nm stimulus: srgb={srgb_chroma:.4} rec2020={rec2020_chroma:.4} (rgb {srgb_rgb:?} vs {rec2020_rgb:?})"
     );
 
-    // And in linear (pre-transfer-curve) terms, the actual gamut-mapping compression
-    // step should need to walk less far toward white as the gamut widens. The walk
-    // stops as soon as every channel is non-negative, so the channel that was driving
-    // the stimulus out of gamut in the first place (red, here -- `project_to_gamut`
-    // returns RGB as `Vec3 { x: R, y: G, z: B }`) should still land closer to zero
-    // (less diluted by the white point's own much larger red component) in the wider
-    // gamut, which needs a smaller step to become non-negative.
+    // In linear RGB the gamut mapping walks less far toward white as the gamut widens, so
+    // the red channel (the one driving the stimulus out of gamut) stays closer to zero.
     let srgb_linear = project_to_gamut(xyz, ColorSpace::Srgb);
     let rec2020_linear = project_to_gamut(xyz, ColorSpace::Rec2020);
     assert!(
@@ -350,9 +325,8 @@ fn aces_cg_transfer_function_is_identity() {
     }
 }
 
-/// sRGB and Rec.2020 are genuinely different curves, not the same power function under
-/// different names -- pins down the exact bug the task calls out ("the current code
-/// gets it wrong" by applying one flat gamma everywhere).
+/// sRGB and Rec.2020 are different curves, not one shared power function: a single flat
+/// gamma for both would fail this.
 #[test]
 fn srgb_and_rec2020_transfer_functions_differ_in_the_upper_range() {
     let x = 0.5f32;
@@ -369,20 +343,12 @@ fn srgb_and_rec2020_transfer_functions_differ_in_the_upper_range() {
 //    inputs, modulo the deliberate true-curve-vs-1/2.2-gamma difference.
 // ---------------------------------------------------------------------------------
 
-/// `xyz_to_srgb_gamma` (in `optics::raytracer`) is the existing reference behaviour
-/// this module's gamut-mapping and tone-mapping steps are ported from. For in-gamut
-/// inputs the two pipelines should agree closely: same gamut mapping (a no-op here,
-/// since the input is in-gamut), same ACES tonemap, and *almost* the same transfer
-/// curve -- sRGB's true piecewise curve here versus a flat 1/2.2 gamma there.
-///
-/// The two curves are not identical. Analytically, `encode_srgb(x) - x^(1/2.2)` is
-/// largest near x ~= 0.00216, where it reaches ~0.0335 on the 0-1 scale -- up to 9/255
-/// levels of difference deep in the
-/// shadows -- and shrinks to well under 2/255 across the 0.1-0.9 midtone/highlight
-/// range. A tolerance of 10 u8 levels per channel comfortably covers that known,
-/// deliberate difference everywhere in range while still catching an actually broken
-/// matrix or tonemap (which produces differences far larger than 10/255, typically a
-/// completely different hue or a saturated channel).
+/// `xyz_to_srgb_gamma` (in `optics::raytracer`) is the reference this module's pipeline
+/// matches for in-gamut inputs: same gamut mapping (a no-op here) and same ACES tonemap,
+/// differing only in the transfer curve -- sRGB's piecewise curve here, a flat 1/2.2 gamma
+/// there. That difference is `encode_srgb(x) - x^(1/2.2)`: largest near x ~= 0.00216 (about
+/// 9/255 levels) and under 2/255 across 0.1-0.9. A tolerance of 10 u8 levels covers it and
+/// still catches a broken matrix or tonemap, which differ by far more.
 #[test]
 fn srgb_encode_matches_xyz_to_srgb_gamma_reference_within_the_known_gamma_curve_difference() {
     // A handful of in-gamut XYZ samples spanning shadow/midtone/highlight luminance, all
@@ -411,12 +377,8 @@ fn srgb_encode_matches_xyz_to_srgb_gamma_reference_within_the_known_gamma_curve_
         let reference = xyz_to_srgb_gamma(xyz);
         let candidate = ColorSpace::Srgb.encode(xyz, ToneMap::AcesFilmic { exposure: 1.0 });
 
-        // The known gamma-curve difference is largest deep in the shadows (up to 9/255,
-        // see this function's own doc comment) and shrinks to well under 2/255 across
-        // the 0.1-0.9 midtone/highlight range -- measured here at exactly 0 for every
-        // sample in this table, including the shadow one, but the tighter bound is only
-        // applied at/above the luminance (`Y`, CIE XYZ) where the doc comment's analysis
-        // actually guarantees it.
+        // The curve difference is under 2/255 only from Y = 0.1 up, so the tighter bound
+        // applies there.
         let tolerance = if xyz.y >= 0.1 { 2 } else { 10 };
         for ch in 0..3 {
             let diff = i32::from(reference[ch]) - i32::from(candidate[ch]);
@@ -460,11 +422,7 @@ fn encode_handles_extreme_and_out_of_gamut_inputs_without_panicking() {
         for &xyz in &extreme_inputs {
             let rgb = space.encode(xyz, ToneMap::AcesFilmic { exposure: 1.0 });
             for &channel in &rgb[..3] {
-                // u8 is inherently in 0..=255; the meaningful assertion is that the
-                // computation completed at all (no panic from a NaN propagating into an
-                // out-of-range cast, no divide-by-zero trap) -- `channel` existing here
-                // at all is already proof of that for release-mode saturating casts,
-                // but we also sanity check debug-mode-safe behaviour explicitly.
+                // `u8` is in range by type; the loop checks that every input encodes.
                 let _: u8 = channel;
             }
             assert_eq!(rgb[3], 255);
@@ -563,25 +521,17 @@ fn project_to_srgb_actually_compresses_out_of_gamut_colors() {
 //    the others hold still.
 // ---------------------------------------------------------------------------------
 
-/// A saturated, over-bright stimulus exercises the per-channel clipping bug this test
-/// guards against.
-///
-/// The stimulus sits well beyond what tone mapping alone brings back under 1.0.
-/// Gamut-projecting at the original luminance, scaling by the luminance-only ACES
-/// ratio, then hard-clamping each channel to `[0, 1]` independently would reintroduce
-/// the per-channel clipping the luminance-only ACES design is meant to avoid. Instead,
-/// the tone-mapped color routes through
-/// [`pleochroma::color::gamut::project_to_gamut_bounded`], which desaturates toward
-/// white -- measurably LOWER max-min saturation than a hard-clamped result would give,
-/// for the identical input.
+/// A saturated, over-bright stimulus must desaturate toward white when it clips, not have one
+/// channel hard-capped at 1.0. Hard-clamping each channel after the luminance-only ACES scale
+/// would reintroduce the per-channel clipping that design avoids; the production path uses
+/// [`pleochroma::color::gamut::project_to_gamut_bounded`] instead, which gives lower max-min
+/// saturation for the same input.
 #[test]
 fn aces_highlight_clipping_desaturates_instead_of_clamping_one_channel() {
     let [x, y, z] = cie_1931_cmf(600.0); // saturated orange-red
     let xyz = Vec3::new(x, y, z) * 6.0; // bright enough to clip after tone mapping
 
-    // Reference: a naive hard-clamp scheme, reimplemented here only as a comparison
-    // point (production code takes the gamut-bounded path instead -- see
-    // `ColorSpace::encode`'s doc comment).
+    // Reference: the naive hard-clamp scheme, kept here only as a comparison point.
     let linear_rgb = project_to_gamut(xyz, ColorSpace::Srgb);
     let luminance = xyz.y.max(0.0);
     let y_tm = pleochroma::optics::raytracer::aces_tonemap(luminance);
@@ -682,8 +632,7 @@ fn keep_color_passes_colors_that_fit_through_unchanged() {
 #[test]
 fn keep_color_is_monotonic_and_keeps_the_luminance_of_light_above_white() {
     let mut previous = 0.0f32;
-    // Y from 0.25 to exactly 1.0 in hundredths; above 1.0 the result is a grey above 1.0 that
-    // `encode`'s final clamp takes, as the whiten rule's white fallback is.
+    // Y from 0.25 to 1.0 in hundredths.
     for hundredths in 25..=100u8 {
         let y = f32::from(hundredths) / 100.0;
         let rgb = fit_keeping_color(deep_red_at(y), ColorSpace::Srgb);

@@ -1,15 +1,15 @@
 //! Resolving a [`Design`](pleochroma_cut_core::Design) from a catalogue entry's full
 //! record (`super::callbacks::setup_load_selected_callback`), plus the form parsers.
-//! See this group's own `mod.rs` doc comment.
 //!
 //! # Module split
 //!
 //! [`design`] resolves a design from a catalogue record (vault types, desktop only);
 //! [`catalogue_planes`] resolves a record's facet planes for the detail view and
-//! the preview/tilt batches from the same design file. The tier/index-shorthand,
-//! preform, New Design and material-form parsers, the RI-preservation rule and the bare-`.asc` loader live in
-//! `pleochroma_editor::loading` (shared with the web app) and are re-exported here
-//! at their old paths.
+//! the preview/tilt batches from the same design file.
+//!
+//! The tier and index-shorthand, preform, New Design and material-form parsers, the
+//! RI-preservation rule and the bare-`.asc` loader live in `pleochroma_editor::loading`
+//! (shared with the web app) and are re-exported here.
 
 mod catalogue_planes;
 mod design;
@@ -30,7 +30,7 @@ pub(in crate::gui::editor) use pleochroma_editor::loading::{
 // here; the editor's own callers reach it through `ri_override_for_material_pick`.
 #[cfg(test)]
 pub(in crate::gui::editor) use pleochroma_editor::loading::ri_override_to_preserve;
-// Only the identity pins and the history tests call these two directly now: the inline
+// Only the identity pins and the history tests call these two directly: the inline
 // angle commit and the step generator reach them through `EditorSession`
 // (`set_tier_angle_from_text`, `generate_step_series`).
 #[cfg(test)]

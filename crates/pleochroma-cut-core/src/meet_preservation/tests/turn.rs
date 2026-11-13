@@ -1,15 +1,13 @@
 //! The gate grants a retarget the travel its REQUESTED facet turn implies
 //! (`PreservationPolicy::bounds_follow_turn`), and nothing more.
 //!
-//! Owner run 3 (2026-10-19) left the diamond-to-sapphire retarget of the standard brilliant
-//! red with `ShapeLimit`: its anchored seed kept every original meet, the girdle gauge and
-//! the corner band, and `RETARGET` bounded the pavilion depth and the culet's travel by a
-//! constant 0.08 while a ten-degree turn about the outline moves them by 0.17 of the stone.
-//! The owner's tightened rule (same day): the travel is the largest per-tier product of a
-//! turned tier's inward reach from the outline and its tangent change; the tangent change is
-//! read from the requested angles (the projection's seed), so a repair cannot enlarge its
-//! own allowance; only tiers the request turned count; and a tier steeper than 75 degrees
-//! has its tangent capped there.
+//! The gate grants a retarget the travel its REQUESTED facet turn implies, and nothing more.
+//!
+//! A turn about the girdle outline moves the pavilion depth and the culet by more than the
+//! constant `RETARGET` bounds allow, so the granted travel is the largest per-tier product of
+//! a turned tier's inward reach from the outline and its tangent change. The tangent change
+//! is read from the requested angles, so a repair cannot enlarge its own allowance; only tiers
+//! the request turned count; and a tier steeper than 75 degrees has its tangent capped there.
 
 use super::*;
 use crate::{
@@ -54,12 +52,8 @@ fn tangent(angle_deg: f64) -> f64 {
     angle_deg.to_radians().tan()
 }
 
-/// Regression for the diamond-to-sapphire retarget of the standard brilliant (owner run 3,
-/// 2026-10-19): its anchored seed kept every original meet, the girdle gauge and the
-/// corner band and was still refused as a shape limit, because `RETARGET` bounded the
-/// pavilion depth and the culet's travel by a constant 0.08 while a ten-degree turn about
-/// the outline moves them by 0.17 of the stone. A turn about the outline is granted the
-/// travel it implies; the constant alone refuses it, and nothing else is relaxed.
+/// A ten-degree turn of the crown about the girdle outline is granted the travel it implies:
+/// the constant bound alone refuses it as a shape limit. Nothing else is relaxed.
 #[test]
 fn a_turn_about_the_girdle_outline_is_granted_the_travel_it_implies() {
     let design = octahedron();
@@ -187,8 +181,8 @@ fn the_tangent_changes_read_the_turned_slopes_and_ignore_flats_walls_and_fixed_t
 #[test]
 fn a_relation_followers_derived_angle_counts_as_its_own_turn() {
     // C1 follows C0: when C0 turns ten degrees C1's facet turns with it and carries its own
-    // points, so it counts with its own tangent change (owner, 2026-10-19: "each tier's own
-    // reach x its own slope change"); the per-tier maximum never adds it to C0's.
+    // points, so it counts with its own reach and tangent change; the per-tier maximum never
+    // adds it to its driver's.
     let mut design = octahedron();
     design.ensure_tier_ids();
     let relation = design.parse_relation("C0 + 0").expect("the relation reads");
@@ -249,8 +243,7 @@ fn an_unturned_tier_contributes_nothing_and_each_tier_counts_with_its_own_reach(
         "{main}"
     );
     // The star reaches from the outline to the table's edge, under half as far. Only its own
-    // reach counts for its own turn: the untouched pavilion main contributes nothing, where
-    // "the longest reach times the largest tangent change" would have counted it.
+    // reach counts for its own turn: the untouched pavilion main contributes nothing.
     let star_shift = tangent(18.3) - tangent(15.0);
     let star_only = with_angle(&design, "Star", 18.3);
     let star = baseline.turn_travel(&tangent_changes(&design, &star_only));

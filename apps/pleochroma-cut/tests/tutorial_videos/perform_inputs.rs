@@ -275,7 +275,7 @@ impl Film<'_> {
         Ok(())
     }
 
-    /// Finds the visible editable input (`LineEdit`) labelled `label`.
+    /// Finds the visible text input (role `TextInput`) labelled `label`.
     /// When `inspector` is true, searches only the Inspector subtree.
     pub(crate) fn input_spot_in(&self, label: &str, inspector: bool) -> Option<Spot> {
         let view = self.view();
@@ -302,8 +302,8 @@ impl Film<'_> {
     /// of `spot`, then the recorder films the wheel ticks with a short hold after each so
     /// the content visibly scrolls.
     /// `delta_y` is in Slint's wheel convention (positive scrolls the content down towards its
-    /// top). Lane scripts call this instead of `ElementHandle::scroll`, which moves nothing the
-    /// viewer can see before the content jumps.
+    /// top). Routes use this instead of a direct accessible scroll, which jumps the content
+    /// without a visible turn.
     pub(crate) fn wheel_over(&mut self, spot: &Spot, delta_y: f32) -> Result<(), String> {
         let window = self.ui.window();
         let (cx, cy) = spot.center();
@@ -438,7 +438,7 @@ impl Film<'_> {
         } else if let Some(scrollbar) = scrollbar {
             scrollbar
         } else {
-            // FormRow's verified 88 px label column is a safe wheel target when the style
+            // FormRow's 88 px label column is a safe wheel target when the style
             // omits a visible scrollbar. Never wheel over a focused input or slider.
             let label_width = viewport.w.min(88.0);
             if label_width < 4.0 {

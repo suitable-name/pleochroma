@@ -1,6 +1,7 @@
-//! Loading a design record back out of `diagram_entries`/`diagram_details`: the full
-//! local record, the metadata-only (no attachment bytes) form a remote-serving caller
-//! uses, and fetching one attachment's content lazily by id.
+//! Loads design records back out of `diagram_entries`/`diagram_details`.
+//!
+//! The full local record, the metadata-only form (no attachment bytes) that a remote-serving
+//! caller uses, and one attachment's content fetched lazily by id.
 
 use super::Database;
 use anyhow::{Context, Result};
@@ -188,11 +189,9 @@ impl Database {
     ///
     /// # Errors
     ///
-    /// Returns an error if any underlying query fails. Unlike [`Self::get_diagram_full`],
-    /// a row that fails to decode in the angle-settings/attached-files loops here is
-    /// silently skipped rather than propagated -- this method's callers (a remote
-    /// library listing) have historically relied on that, and fixing it would change
-    /// that long-standing behaviour.
+    /// Returns an error if any underlying query fails. Unlike [`Self::get_diagram_full`], a row
+    /// that fails to decode in the angle-settings or attached-files loops is skipped rather than
+    /// propagated, and remote library listings rely on that.
     pub fn get_diagram_full_meta(
         &self,
         entry_id: i64,

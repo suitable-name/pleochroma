@@ -23,20 +23,18 @@
 //!   (see `rig.rs`). The sun is the only analytic light with an NEE technique.
 //! - `Aset` (id 4): the contrast view (zone-coloured spectral power by exit elevation).
 //! - `Studio` also carries `IlluminantA` (2856 K); `LightTent` also carries `ShopLights`,
-//!   `WindowDaylight` and `WhiteTray` (per-preset tent parameters come from lane TENTPARAMS).
+//!   `WindowDaylight` and `WhiteTray`, which differ only in their [`TentParams`].
 //!
-//! The three lit models also darken every exit direction inside the observer's
-//! head-shadow cone ([`head_shadow_cosines`], default 16 degrees), the term that gives a face-up stone its dark
-//! table reflections; `Studio` ignores the observer. Radiances are chosen so that at
-//! exposure 1 the ambient terms land near middle grey after the ACES curve and only a
-//! direct reflection of a light source clips to white.
+//! Every lit model except `Studio` and `Aset` darkens the exit directions inside the
+//! observer's head-shadow cone ([`head_shadow_cosines`], default 16 degrees), which gives a
+//! face-up stone its dark table reflections. `Studio` ignores the observer. Radiances are
+//! chosen so that at exposure 1 the ambient terms land near middle grey after the ACES
+//! curve, and only a direct reflection of a light source clips to white.
 //!
-//! Split from a single `environment.rs` into this module tree by seam: [`spectral`]
-//! holds the illuminant spectral-power curves (D65 table, Planckian fit), [`rig`] holds
-//! the actual per-direction radiance evaluation (studio rig falloffs, the lit backdrop
-//! tray, NEE sampling), [`tray`] resolves the tray's radiance, and this file keeps the preset/source types, the module docs, and the
-//! public entry points. Every path reachable as `environment::X` before the split stays
-//! reachable at exactly that path via the re-exports below.
+//! Submodules: [`spectral`] (illuminant power curves), [`rig`] (per-direction radiance and
+//! the origin-aware `_at` lookups), [`nee`] (light sampling), [`source`] (the
+//! [`EnvironmentSource`] type and white balance), [`tray`], [`tray_shadow`], [`tray_mirror`]
+//! and [`tray_plane`]. The public items are re-exported below.
 
 use glam::Vec3;
 
@@ -48,24 +46,55 @@ mod sun;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_hdr_exposure;
+#[cfg(test)]
+mod tests_hdr_rotation;
+#[cfg(test)]
+mod tests_mirror;
+#[cfg(test)]
 mod tests_pins;
+#[cfg(test)]
+mod tests_shadow;
 #[cfg(test)]
 mod tests_tray;
 mod tray;
+mod tray_mirror;
+mod tray_plane;
+pub mod tray_shadow;
+
+// tray_mirror.rs, tray_plane.rs: the glossy tray and the plane it shares with the shadow
+pub use tray_mirror::{FloorHit, TrayMirror};
+pub use tray_plane::tray_plane_y;
+
+// The HDR map's yaw, re-exported beside the source that carries it.
+pub use crate::renderer::env_map::{EnvRotation, HdrOrientation};
 
 // source.rs
 pub(crate) use source::environment_white_balance;
-pub use source::{BACKDROP_GREY, EnvironmentSource};
+pub use source::{BACKDROP_GREY, EnvironmentSource, hdr_rgb_at_exposure};
 
 // tray.rs
 pub use tray::{
     METERED_PAPER_RADIANCE, TRAY_ALBEDO_BLACK, TRAY_ALBEDO_GREY, TRAY_ALBEDO_WHITE,
     TRAY_MODEL_VERSION, metered_exposure, rig_irradiance_over_pi, tray_radiance,
 };
+pub use tray_shadow::{
+    TRAY_SHADOW_BAND_WIDTH_NM, TRAY_SHADOW_BANDS, TRAY_SHADOW_FIRST_CENTER_NM,
+    TRAY_SHADOW_MODEL_VERSION, TrayShadowKey, TrayShadowMap, TrayShadowOff, TrayShadowQuality,
+};
 
 // nee.rs, rig.rs
 pub(super) use nee::{environment_nee_pdf, environment_supports_nee, sample_environment_for_nee};
-pub(super) use rig::{sample_environment_channel, sample_environment_channels};
+#[cfg(feature = "beam")]
+pub(crate) use rig::horizon_blend;
+pub(crate) use rig::{
+    sample_environment_channel, sample_environment_channel_at, sample_environment_channels,
+    sample_environment_channels_at,
+};
+// The sun disc's constants, for the beam tracer's exact disc integration (beam guide §11.4);
+// the beam tracer is its only user, so the re-export exists only with the `beam` feature.
+#[cfg(feature = "beam")]
+pub(crate) use sun::{SUN_DISC_COS, SUN_RADIANCE};
 
 /// The analytic sun's cone sampler for key direction `key_dir`, for the GPU Tier-2 twin check
 /// (`renderer::gpu::environment_check::sun_nee`): the direction drawn from `(u0, u1)` and the
@@ -104,8 +133,7 @@ use spectral::{BlackbodyNorm, IlluminantSpectrum};
 pub use spectral::{blackbody_spectrum, d65_relative_spectral_power};
 
 /// Default observer head-shadow size, degrees: fully dark within 14 degrees of the eye
-/// direction, gone by 18 (the metrics' own 16 degree cone, softened so its edge never
-/// aliases).
+/// direction, gone by 18 (a 16 degree cone, softened so its edge does not alias).
 pub const DEFAULT_HEAD_SHADOW_DEG: f32 = 16.0;
 /// `[outer, inner]` cosines of [`DEFAULT_HEAD_SHADOW_DEG`] (14 and 18 degrees). Literal
 /// values, never computed, so the CPU rig and the WGSL twins use identical bits.
@@ -155,12 +183,10 @@ const fn clamp_head_shadow_deg(deg: f32) -> f32 {
     }
 }
 
-/// color temperature and rig-intensity parameters for one named studio lighting preset.
+/// Color temperature and rig intensity of one studio lighting preset.
 ///
-/// Returned by [`LightingPreset::params`] -- the single lookup both
-/// `sample_studio_environment` (which lights the traced image) and
-/// `illuminant_temperature_k` (which derives the von-Kries white balance for that same
-/// image) share, so the two cannot independently drift.
+/// Returned by [`LightingPreset::params`], the lookup shared by `sample_studio_environment`
+/// and `illuminant_temperature_k`, so the lighting and its white balance cannot drift apart.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LightingRigParams {
     /// Blackbody color temperature in Kelvin, fed to [`blackbody_spectrum`].
@@ -176,11 +202,8 @@ pub struct LightingRigParams {
 /// Per-preset parameters of the [`LightingModel::LightTent`] model: the tent walls' scale,
 /// the black cards' strength, the spark on/off flag and the ground radiance.
 ///
-/// Every field is chosen so that the default is an exact identity in f32: the walls scale
-/// multiplies by `1.0`, the cards strength multiplies the card mask by `1.0`, the spark flag
-/// multiplies the spark term by `1.0` (`0.0` removes it), and the ground radiance replaces
-/// the literal `0.02` it had before (the same `f32`). The CPU, the three WGSL twins and the
-/// `GpuTransportParams` uniform carry the same four floats.
+/// The default is an exact identity in f32 (scales of `1.0`, and a ground of `0.02`). The
+/// CPU path and the WGSL twins carry the same four floats in `GpuTransportParams`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TentParams {
     /// Scale on the wall radiance (`0.14` at the girdle to `0.22` at the zenith before the
@@ -195,8 +218,7 @@ pub struct TentParams {
     pub ground: f32,
     /// `0.0..=1.0`: blends the wall elevation gradient towards one uniform value,
     /// `walls = mix(gradient, 0.18 * walls_scale, flat)` (`0.18` = the gradient at 30 degrees
-    /// elevation). `0.0` is today's arithmetic exactly (the blend is skipped, not multiplied
-    /// by zero), so every preset with `flat == 0` keeps its bits.
+    /// elevation). `0.0` skips the blend, so presets with `flat == 0` keep their exact bits.
     pub flat: f32,
 }
 
@@ -217,17 +239,11 @@ impl TentParams {
     }
 }
 
-/// The gemological studio lighting rig presets, as a closed, exhaustively-matched set
-/// of variants.
+/// The gemological studio lighting presets as a closed set of variants.
 ///
-/// An unrecognised preset is not representable, unlike a `&str`-keyed lookup where a
-/// caller could pass a string that silently falls through to a default.
-///
-/// `LightTent` (UI index `0`) is the [`Default`], and is what any legacy or unrecognised
-/// persisted label -- including the old, mislabelled `"D65 Daylight (5500K)"` string --
-/// migrates to via [`Self::from_label`]. The declaration order below (the postcard
-/// variant index, every wire index) is unchanged; [`Self::index`] / [`Self::ALL`] are the
-/// UI order, lit models first.
+/// `LightTent` (UI index `0`) is the [`Default`]. Unrecognised persisted labels fall back to
+/// it via [`Self::from_label`]. The declaration order is the postcard variant index and must
+/// not change; [`Self::index`] and [`Self::ALL`] give the UI order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum LightingPreset {
@@ -241,14 +257,13 @@ pub enum LightingPreset {
     DaylightDome,
     /// A 365 nm UV lamp: the `Studio` rig geometry lit by a narrow Gaussian line, no
     /// ambient backdrop and no white balance (see [`LightingPreset::uses_white_balance`]).
-    /// Appended last, so every earlier discriminant and postcard index is unchanged.
+    /// Declared after the earlier variants, which keeps their postcard indices fixed.
     UvLamp365,
     /// A 395 nm UV LED lamp (same rig as [`Self::UvLamp365`]); its tail reaches into the
     /// violet, so a non-fluorescent stone looks faintly violet under it.
     UvLamp395,
     /// Clear-sky daylight with a physically bright, small direct sun
-    /// ([`LightingModel::DaylightSun`]). Appended after the UV lamps: the declaration order
-    /// is the postcard variant index, so earlier indices never move.
+    /// ([`LightingModel::DaylightSun`]). Declared last, keeping earlier postcard indices fixed.
     DaylightSun,
     /// ASET-style contrast view ([`LightingModel::Aset`]): the environment is coloured by
     /// the exit elevation, identity white balance, no adaptation.
@@ -291,11 +306,12 @@ impl LightingModel {
 }
 
 impl LightingPreset {
-    /// All fifteen presets, in the same order as their UI index / the `lighting_options`
-    /// combo box list (`apps/pleochroma-cut/ui/models/viewport.slint`): the light tent
-    /// (the default), the grading tray, the tent variants, the daylight models, the
-    /// product-photography rigs, the contrast view, then the UV lamps. This is the display
-    /// order only; the enum declaration order (the postcard variant index) is unchanged.
+    /// All fifteen presets in UI order.
+    ///
+    /// Matches the `lighting_options` combo box in `apps/pleochroma-cut/ui/models/viewport.slint`:
+    /// the light tent (the default), the grading tray, the tent variants, the daylight models,
+    /// the product-photography rigs, the contrast view, then the UV lamps. The enum declaration
+    /// order (the postcard variant index) is separate.
     pub const ALL: [Self; 15] = [
         Self::LightTent,
         Self::IsoHemisphere,
@@ -314,9 +330,8 @@ impl LightingPreset {
         Self::UvLamp395,
     ];
 
-    /// This preset's color temperature and rig-intensity multiplier -- the single
-    /// source of truth both `sample_studio_environment` and `illuminant_temperature_k`
-    /// read from. See the type's doc comment for why that matters.
+    /// This preset's color temperature and rig-intensity multiplier, read by both
+    /// `sample_studio_environment` and `illuminant_temperature_k`.
     #[must_use]
     pub const fn params(self) -> LightingRigParams {
         match self {
@@ -335,19 +350,18 @@ impl LightingPreset {
                 spot_mult: 2.4,
                 tent: TentParams::DEFAULT,
             },
-            // The light tent itself: FROZEN until the owner's photos settle the re-tune.
+            // The light tent: the default look, with the identity `TentParams`.
             Self::LightTent => LightingRigParams {
                 temp_k: 5000.0,
                 spot_mult: 1.0,
                 tent: TentParams::DEFAULT,
             },
-            // The three tent variants are D65 (identity white balance, so `temp_k` is
-            // unused by their spectrum) and differ only in `tent` (and `spot_mult`, which
-            // scales the key softbox and the spark).
+            // The three tent variants are D65, so `temp_k` does not affect their spectrum.
+            // They differ in `tent` and in `spot_mult`, which scales the key and the spark.
             //
-            // Jewellery shop: bright diffuse walls (0.42 at the girdle to 0.66 at the zenith,
-            // about 0.5 overall), the key as an overhead spot (1.4) and the spark as a
-            // pinpoint (5.0) on top, no cards, a lit floor (0.05).
+            // Jewellery shop: bright diffuse walls (0.42 at the girdle to 0.66 at the zenith),
+            // the key as an overhead spot (1.4) and the spark as a pinpoint (5.0) on top, no
+            // cards, a lit floor (0.05).
             Self::ShopLights => LightingRigParams {
                 temp_k: 5000.0,
                 spot_mult: 1.0,
@@ -393,8 +407,8 @@ impl LightingPreset {
                 spot_mult: 1.2,
                 tent: TentParams::DEFAULT,
             },
-            // The UV lamps are not Planckian: `temp_k` is unused by their spectrum, white
-            // balance and CPU path (they never reach the GPU); 6500 K is a placeholder.
+            // The UV lamps are not Planckian: `temp_k` is unused by their spectrum and white
+            // balance, so 6500 K is a placeholder.
             Self::Daylight
             | Self::IsoHemisphere
             | Self::DaylightDome
@@ -409,10 +423,7 @@ impl LightingPreset {
         }
     }
 
-    /// The user-facing display label.
-    ///
-    /// D65 daylight is 6500K, so this must read `"6500K"`, not `"5500K"`, to stay
-    /// consistent with the actually-rendered color.
+    /// The user-facing display label. The Daylight preset is D65 (6500 K), and its label says so.
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
@@ -434,12 +445,10 @@ impl LightingPreset {
         }
     }
 
-    /// Parses a persisted or UI-supplied label back into a preset. Falls back to
-    /// [`Self::LightTent`] (the default) for anything unrecognised. Both D65 labels -- `"D65 Daylight (6500K)"`
-    /// and the legacy, mislabelled `"D65 Daylight (5500K)"` -- resolve to [`Self::Daylight`]. The
-    /// lit models' earlier labels (`"ISO hemisphere"`, `"ISO hemisphere (GemRay-style)"`,
-    /// `"Soft dome + ring lights"`, `"Daylight dome + sun"`) resolve to their current
-    /// presets the same way.
+    /// Parses a persisted or UI label into a preset. Unrecognised labels fall back to
+    /// [`Self::LightTent`]. Older labels still resolve so saved settings load: both D65 labels
+    /// map to [`Self::Daylight`] (the `5500K` one was mislabelled), and the earlier names of
+    /// the lit models map to their current presets.
     #[must_use]
     pub fn from_label(label: &str) -> Self {
         match label {
@@ -452,7 +461,7 @@ impl LightingPreset {
             | "ISO hemisphere (GemRay-style)" => Self::IsoHemisphere,
             // "Light tent + black cards" and the legacy "Soft dome + ring lights" map to
             // `LightTent`, which is the fallback arm below.
-            // The old "Daylight sky + sun" label is what saved settings meant: the dome.
+            // A saved "Daylight sky + sun" label meant the dome.
             "Daylight sky (no sun)" | "Daylight sky + sun" | "Daylight dome + sun" => {
                 Self::DaylightDome
             }
@@ -548,9 +557,8 @@ impl LightingPreset {
                 | Self::ShopLights
                 | Self::WindowDaylight
                 | Self::WhiteTray
-                // The contrast view keeps the D65 flag only for the neutral backdrop card
-                // and the metrics' fallback; its zone bands are evaluated inside the model
-                // from the wavelength (`rig::aset_spec_input`), not from this curve.
+                // The contrast view keeps the D65 flag; its zone bands are evaluated from the
+                // wavelength (`rig::aset_spec_input`), not from this curve.
                 | Self::Aset
         )
     }
@@ -599,9 +607,8 @@ impl LightingPreset {
 
     /// This preset's illuminant curve with the temperature-only Planck constants resolved once.
     ///
-    /// Calling `.power(l)` on the result evaluates `Self::spectral_power` at `l` without
-    /// rebuilding the constants for every wavelength; hoisting Planck constants can
-    /// change the last bits of the optimised transcendental evaluations.
+    /// `.power(l)` equals `Self::spectral_power(l)` but reuses the per-temperature constants.
+    /// Hoisting them can change the last bits of the transcendental evaluations.
     fn illuminant_spectrum(self) -> IlluminantSpectrum {
         if self.uses_d65() {
             IlluminantSpectrum::D65
@@ -615,9 +622,8 @@ impl LightingPreset {
         }
     }
 
-    /// Convenience constructor for the common case of tracing against the analytic
-    /// studio rig: `LightingPreset::RingLights.studio(1.0, 0.85, 0.95)` reads at the
-    /// call site much like the old positional `&str` argument list did.
+    /// An [`EnvironmentSource::Studio`] for this preset with the default backdrop, glare and
+    /// head shadow, e.g. `LightingPreset::RingLights.studio(1.0, 0.85, 0.95)`.
     #[must_use]
     pub const fn studio(
         self,
@@ -633,24 +639,18 @@ impl LightingPreset {
             backdrop: 0.0,
             surface_glare: 1.0,
             head_shadow_deg: DEFAULT_HEAD_SHADOW_DEG,
+            tray_shadow: None,
+            tray_mirror: None,
         }
     }
 }
 
-/// Evaluates high-dynamic-range gemological studio lighting at a specific continuous
-/// wavelength `lambda_nm`, with no observer in the scene.
+/// Studio-rig radiance along `dir` at wavelength `lambda_nm`, with no observer. The lit
+/// models' head shadow is off here; see [`sample_studio_environment_observed`].
 ///
-/// The lit models' head shadow is off here; see
-/// [`sample_studio_environment_observed`].
-///
-/// Builds a fresh [`StudioRig`](crate::optics::studio_rig::StudioRig) every call, right
-/// for a single ad-hoc lookup. Callers that look up many directions under one light pose
-/// (`color::metrics`' illumination test) build the rig once and call
-/// [`sample_studio_environment_with_rig`]; `trace_spectral_ray`'s per-bounce
-/// environment lookups likewise borrow the rig that `trace_spectral_ray_inner` builds
-/// once per trace, so no per-sample
-/// `StudioRig::new` runs; `accumulate_miss_radiance` then evaluates all `NUM_CHANNELS`
-/// channels in one pass over the wavelength-independent geometry.
+/// Builds a [`StudioRig`](crate::optics::studio_rig::StudioRig) on every call. For many
+/// directions under one light pose, build the rig once and call
+/// [`sample_studio_environment_with_rig`].
 #[must_use]
 pub fn sample_studio_environment(
     dir: Vec3,
@@ -674,10 +674,10 @@ pub fn sample_studio_environment(
 /// [`sample_studio_environment`] with an observer in the scene.
 ///
 /// `observer` is the unit direction from the stone towards the eye (the reverse of the
-/// pixel's primary ray), and the lit models darken every exit direction inside the
-/// head-shadow cone around it -- the dark table reflections a real face-up stone
-/// shows. `Studio` presets ignore it, and `Vec3::ZERO` disables the shadow for every
-/// model (every dot product is then `0.0`, outside the cone).
+/// pixel's primary ray). The lit models darken exit directions inside the head-shadow cone
+/// around it, which gives the dark table reflections of a face-up stone. `Studio` and `Aset`
+/// ignore it, and `Vec3::ZERO` disables the shadow (every dot product is `0.0`, outside the
+/// cone).
 #[must_use]
 pub fn sample_studio_environment_observed(
     dir: Vec3,
@@ -688,9 +688,8 @@ pub fn sample_studio_environment_observed(
     light_pitch: f32,
     observer: Vec3,
 ) -> f32 {
-    // Key/fill/ring directions come from the shared `StudioRig` (see its module doc
-    // for why this is not recomputed inline here) -- the same construction the GPU
-    // environment check and every per-ray trace use, so they cannot silently drift apart.
+    // Light directions come from the shared `StudioRig`, the same construction the GPU
+    // check and the per-ray trace use.
     let rig = crate::optics::studio_rig::StudioRig::new(light_yaw, light_pitch);
     sample_studio_environment_with_rig(dir, lambda_nm, lighting_preset, exposure, &rig, observer)
 }

@@ -1,14 +1,13 @@
 //! Imported designs whose meets are opened by the file's own quantisation.
 //!
 //! `GemCad` 4.x writes masts with five decimals, so a meet of four facets with different masts
-//! misses by up to half a quantum (`5e-6`), a few millionths of the stone: inside the band the
-//! former near-incidence rule refused (54 of the first 100 library designs, census
-//! 2026-10-20). The meets are identified at `5e-5` of the stone instead; the design's own miss
-//! is recorded as the junction's slack, which a candidate need not close.
+//! misses by up to half a quantum (`5e-6`), a few millionths of the stone. The meets are
+//! identified at `5e-5` of the stone; the design's own miss is recorded as the junction's
+//! slack, which a candidate need not close.
 //!
 //! The standard brilliant template is no miniature of such a file (its masts are two-decimal
 //! constants and its meets are not concurrent to begin with), so the miniature is the
-//! octahedron with its four crown masts written the way a five-decimal file rounds them.
+//! octahedron with its crown masts written the way a five-decimal file rounds them.
 
 use super::*;
 use pleochroma::geometry::meet_solver::SolveControl;
@@ -16,9 +15,9 @@ use pleochroma::geometry::meet_solver::SolveControl;
 /// The reproduction bar, as a fraction of the stone.
 const BAR: f64 = 2e-6;
 
-/// The octahedron with its four crown facets' masts off by quantisation-sized amounts (at most
-/// half a five-decimal quantum): the top apex and the four equator apexes are four-plane meets
-/// that now miss by a few millionths of the stone.
+/// The octahedron with three of its four crown facets' masts off by quantisation-sized amounts
+/// (at most half a five-decimal quantum): the apexes they meet are four-plane meets that now
+/// miss by a few millionths of the stone.
 fn quantised_octahedron() -> Design {
     let mut design = octahedron();
     for (name, miss) in [("C1", 4e-6), ("C2", -3e-6), ("C3", 2e-6)] {

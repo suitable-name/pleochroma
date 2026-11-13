@@ -2,9 +2,9 @@
 //!
 //! A settings file must never prevent the app from starting: every failure mode here
 //! (missing file, unreadable file, corrupt/unparseable TOML) is caught and logged,
-//! falling back to `SettingsFile::default()` rather than propagating an error.
+//! falling back to defaults rather than propagating an error.
 
-use super::model::{SettingsFile, normalize_ui_scale_percent};
+use super::model::{DEFAULT_PATH_CACHE_DISK_LIMIT_GB, SettingsFile, normalize_ui_scale_percent};
 use std::{
     ffi::OsString,
     io,
@@ -12,23 +12,16 @@ use std::{
 };
 use tracing::{info, warn};
 
-// Named for THIS crate, not the public app this crate was copied from -- the two are
-// separate binaries that can be installed side by side, and sharing one settings
-// directory would mean whichever app last saved silently overwrites the other's file.
+// This crate's own app folder. Kept apart from the older app's folder so the two binaries
+// can be installed side by side without one silently overwriting the other's settings.
 const APP_DIR_NAME: &str = "pleochroma-cut";
-/// The public app's own app-dir name, kept for exactly one purpose:
-/// [`migrate_legacy_settings_if_needed`]'s one-time copy, so a machine that already
-/// has the public app configured doesn't have the editor start completely blank.
-///
-/// `"diagram-gui"` -- the old public viewer this editor (`pleochroma-cut`, née
-/// `private/apps/diagram-editor`) superseded, before the 2026-09-07 suite-wide rename
-/// to Pleochroma deleted it outright (see the rename map in project memory:
-/// `apps/diagram-gui (old viewer) -> deleted; superseded by the editor`). This used
-/// to be a no-op (both constants read `"pleochroma-cut"`), which made the migration
-/// below silently copy a path onto itself and orphan any real `diagram-gui`
-/// installation's settings on upgrade.
+/// The app-dir name of the legacy `diagram-gui` viewer, read only by
+/// [`migrate_legacy_settings_if_needed`]. Must differ from [`APP_DIR_NAME`]: equal names would
+/// copy the file onto itself.
 const LEGACY_APP_DIR_NAME: &str = "diagram-gui";
 const SETTINGS_FILE_NAME: &str = "settings.toml";
+/// The folder of persisted path caches, beside the settings file.
+const RENDER_CACHE_DIR_NAME: &str = "render_cache";
 /// The design library's file name.
 const LIBRARY_FILE_NAME: &str = "facet_diagrams.sqlite";
 /// Names a design library file to open instead of the default one.
@@ -66,9 +59,8 @@ fn settings_path_under(app_dir_name: &str) -> PathBuf {
 /// (the install folder or `System32`), and the library could not be created there.
 #[must_use]
 pub fn default_library_path() -> PathBuf {
-    // The UI harnesses give every launch its own working directory with its own library
-    // in it, and must never reach a real one through the environment. A `ui-harness` build
-    // started as the app finds its library like any other.
+    // With the UI-harness seams active, the working directory's library is used and the
+    // environment is ignored, so a harness run never reaches a real library.
     if crate::harness_seams_active() {
         return std::env::current_dir().map_or_else(
             |_| PathBuf::from(LIBRARY_FILE_NAME),
@@ -109,31 +101,43 @@ pub fn default_settings_path() -> PathBuf {
     settings_path_under(APP_DIR_NAME)
 }
 
-/// Where the public app's settings file lives, in the SAME platform config directory
-/// this crate's settings resolve under -- the one-time migration source. See
-/// [`migrate_legacy_settings_if_needed`].
+/// The folder of the persisted path caches: `render_cache/` beside the settings file.
+///
+/// The folder is not created here; the path cache creates it when it writes its first cache.
+#[must_use]
+pub fn default_render_cache_dir() -> PathBuf {
+    render_cache_dir_beside(&default_settings_path())
+}
+
+/// [`default_render_cache_dir`] for a given settings file (so tests can use a temp folder).
+fn render_cache_dir_beside(settings_path: &Path) -> PathBuf {
+    settings_path.parent().map_or_else(
+        || PathBuf::from(RENDER_CACHE_DIR_NAME),
+        |dir| dir.join(RENDER_CACHE_DIR_NAME),
+    )
+}
+
+/// The older app's settings file, in the same platform config directory as this crate's.
+/// It is the migration source for [`migrate_legacy_settings_if_needed`].
 fn legacy_settings_path() -> PathBuf {
     settings_path_under(LEGACY_APP_DIR_NAME)
 }
 
-/// One-time carry-over of the public app's settings file into this crate's own,
-/// now-separate one. Without this, the editor would start completely blank on a
-/// machine that already had the old app configured -- losing remote workers, cert
-/// directories, export paths, and presets.
+/// One-time carry-over of the older app's settings file into this crate's own file.
 ///
-/// Called once, right before [`load_or_default`], with `new_path` the editor's own
-/// resolved settings path, threaded through rather than recomputed so tests can point
-/// it at a temp directory.
+/// An existing install thus does not start blank (remote workers, cert directories, export
+/// paths and presets all come across).
 ///
-/// - **Copies, never moves.** The legacy app is a separate, still-actively-used binary
-///   reading the SAME file this copies FROM -- deleting or renaming it would break
-///   that app. `std::fs::copy` duplicates bytes; it never touches the source.
-/// - **Never overwrites an existing editor settings file.** Only fires into a
-///   genuinely absent destination (checked first) -- a one-time bootstrap, not an
-///   ongoing sync.
-/// - **A failed copy must not stop the app starting.** Every failure mode is caught
-///   and logged with `warn!`, falling through to whatever [`load_or_default`] does
-///   with the still-absent destination.
+/// Call it before [`load_with_outcome`], with `new_path` this crate's settings path. It
+/// is passed in so tests can use a temp directory.
+///
+/// - **Copies, never moves.** The older app may still be installed and read the same
+///   file, so deleting or renaming it would break that app. `std::fs::copy` never
+///   touches the source.
+/// - **Never overwrites an existing settings file.** It only fills an absent
+///   destination: a one-time bootstrap, not an ongoing sync.
+/// - **A failed copy does not stop startup.** Failures are logged with `warn!`, and
+///   [`load_with_outcome`] then falls back to defaults.
 pub fn migrate_legacy_settings_if_needed(new_path: &Path) {
     copy_legacy_settings_if_absent(&legacy_settings_path(), new_path);
 }
@@ -197,22 +201,18 @@ fn platform_config_dir() -> Option<PathBuf> {
     std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config"))
 }
 
-/// What happened while loading the settings file -- returned by [`load_with_outcome`]
-/// alongside the (possibly-defaulted) [`SettingsFile`] so `gui::main_window` can toast
-/// a corrupt-file recovery instead of the cutter's saved settings silently vanishing
-/// with only a `tracing::warn!` nobody watching a release build's console ever sees.
+/// What happened while loading the settings file, returned by [`load_with_outcome`] so
+/// `gui::main_window` can warn about a corrupt file. A log line alone goes unseen in a
+/// release build.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SettingsLoadOutcome {
-    /// Loaded normally, or the file was genuinely absent (first run) -- nothing to
-    /// report.
+    /// Loaded normally, or the file is absent (first run).
     Ok,
-    /// The file existed but its content was unreadable or failed to parse as valid
-    /// `SettingsFile` TOML. Renamed aside to `renamed_to`
-    /// (`settings.toml.corrupt-<unix-seconds>`, see [`rename_aside`]) before this load
-    /// fell back to defaults, so the broken file is never silently overwritten by the
-    /// very next save -- it stays on disk for the cutter (or a bug report) to inspect.
+    /// The file existed but did not parse as `SettingsFile` TOML. It was renamed to
+    /// `renamed_to` (see [`rename_aside`]) before falling back to defaults, so the next
+    /// save does not overwrite it.
     Corrupt {
-        /// Where the corrupt file was renamed to, for the toast to name.
+        /// Where the corrupt file was moved, for the warning to name.
         renamed_to: PathBuf,
     },
 }
@@ -255,11 +255,9 @@ fn defaults_for_existing_install() -> SettingsFile {
 /// The saved interface scale in percent (`0` = Automatic), read straight from the settings
 /// file before anything else starts.
 ///
-/// The scale has to reach `SLINT_SCALE_FACTOR` before the first window exists, which is
-/// earlier than the normal load (`load_with_outcome` runs while the main window is being
-/// built). This reads only that one field, so it needs no model and never fails: a
-/// missing, unreadable or unparseable file, a missing key or an unoffered value all
-/// give `0`.
+/// The scale must reach `SLINT_SCALE_FACTOR` before the first window is created, earlier
+/// than [`load_with_outcome`]. This reads only that field, so it needs no model and never
+/// fails: anything missing or unusable gives `0`.
 #[must_use]
 pub fn peek_ui_scale_percent() -> u16 {
     peek_ui_scale_percent_at(&default_settings_path())
@@ -285,14 +283,12 @@ fn ui_scale_percent_in(text: &str) -> u16 {
         .map_or(0, normalize_ui_scale_percent)
 }
 
-/// The stored answer about the RADV shader workaround (`[settings] radv_scheduler_workaround`),
-/// read straight from the settings file before anything else starts.
+/// The stored RADV shader-workaround answer (`[settings] radv_scheduler_workaround`), read
+/// before anything else starts.
 ///
-/// Mesa reads `ACO_DEBUG` when the Vulkan device is created, so the answer has to be known
-/// (and the environment set) in `main`, before any thread or GPU call -- earlier than the
-/// normal load. Like [`peek_ui_scale_percent`] this reads one field, needs no model and never
-/// fails: a missing, unreadable or unparseable file, a missing key or an unfamiliar value all
-/// give `None` ("not asked yet").
+/// Mesa reads `ACO_DEBUG` when the Vulkan device is created, so `main` must know the
+/// answer before any thread or GPU call. Like [`peek_ui_scale_percent`] this reads one
+/// field and never fails: anything missing or unfamiliar gives `None` ("not asked yet").
 #[must_use]
 pub fn peek_radv_choice() -> Option<super::model::RadvWorkaroundChoice> {
     peek_radv_choice_at(&default_settings_path())
@@ -305,9 +301,42 @@ fn peek_radv_choice_at(path: &Path) -> Option<super::model::RadvWorkaroundChoice
         .and_then(|text| super::model::RadvWorkaroundChoice::in_document(&text))
 }
 
-/// [`load_or_default`], plus what actually happened -- see [`SettingsLoadOutcome`].
-/// Never panics and never propagates an error: this is deliberately infallible so a
-/// broken settings file can never block startup.
+/// The saved disk limit of the path caches in gigabytes, read straight from the file
+/// (`[settings] path_cache_disk_limit_gb`).
+///
+/// For renders on the export thread, which has no handle on the `SettingsPersister`. Like
+/// [`peek_ui_scale_percent`] it reads one field and never fails: anything missing or not a
+/// whole number of gigabytes gives [`DEFAULT_PATH_CACHE_DISK_LIMIT_GB`]. A change reaches
+/// the file only after the persister's debounce, so a render started just after it still
+/// reads the old limit.
+#[must_use]
+pub fn peek_path_cache_disk_limit_gb() -> u32 {
+    peek_path_cache_disk_limit_gb_at(&default_settings_path())
+}
+
+/// [`peek_path_cache_disk_limit_gb`] for an explicit `path`, so the tests can point it anywhere.
+fn peek_path_cache_disk_limit_gb_at(path: &Path) -> u32 {
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|text| path_cache_disk_limit_gb_in(&text))
+        .unwrap_or(DEFAULT_PATH_CACHE_DISK_LIMIT_GB)
+}
+
+/// The `[settings] path_cache_disk_limit_gb` value in the settings document `text`, when it is
+/// there and fits a `u32`.
+fn path_cache_disk_limit_gb_in(text: &str) -> Option<u32> {
+    toml::from_str::<toml::Table>(text)
+        .ok()?
+        .get("settings")
+        .and_then(toml::Value::as_table)
+        .and_then(|settings| settings.get("path_cache_disk_limit_gb"))
+        .and_then(toml::Value::as_integer)
+        .and_then(|gb| u32::try_from(gb).ok())
+}
+
+/// Loads the settings file and reports what happened, see [`SettingsLoadOutcome`].
+/// Never panics and never propagates an error: a broken settings file must never block
+/// startup.
 #[must_use]
 pub fn load_with_outcome(path: &Path) -> (SettingsFile, SettingsLoadOutcome) {
     let (mut file, outcome) = match std::fs::read_to_string(path) {
@@ -318,11 +347,8 @@ pub fn load_with_outcome(path: &Path) -> (SettingsFile, SettingsLoadOutcome) {
                     "Settings file at {} is corrupt ({e}); falling back to defaults.",
                     path.display()
                 );
-                // Renamed BEFORE falling back to defaults: the very next save (which
-                // happens on almost any interaction) would otherwise overwrite the
-                // corrupt file with a fresh default one, losing the one piece of
-                // evidence explaining what went wrong -- see this constructor's own
-                // doc comment.
+                // Renamed before falling back, so the next save (which happens on almost
+                // any interaction) cannot overwrite the corrupt file.
                 let outcome = rename_aside(path).map_or(SettingsLoadOutcome::Ok, |renamed_to| {
                     SettingsLoadOutcome::Corrupt { renamed_to }
                 });
@@ -347,38 +373,30 @@ pub fn load_with_outcome(path: &Path) -> (SettingsFile, SettingsLoadOutcome) {
         }
     };
     file.ensure_built_in_presets();
-    // Files from before the single-remote-endpoint rule carry a `remote_workers`
-    // list; fold it into the single endpoint (logged inside). The next save writes only `remote`.
+    // Older files may hold a `remote_workers` list; fold it into the single `remote`
+    // endpoint (logged inside). The next save writes only `remote`.
     file.settings.migrate_legacy_remote_workers();
     (file, outcome)
 }
 
-/// Loads settings from `path`, falling back to defaults (with built-in presets) on
-/// any failure -- missing file, unreadable file, or corrupt/unparseable TOML. Never
-/// panics and never propagates an error: this is deliberately infallible so a broken
-/// settings file can never block startup.
+/// Loads settings from `path` like [`load_with_outcome`], for tests that only need the
+/// settings. Startup uses [`load_with_outcome`] to report a corrupt file.
 ///
-/// A thin wrapper over [`load_with_outcome`] for callers that only want the settings
-/// themselves. The application's only load, `gui::main_window`'s startup one, wants the
-/// full [`SettingsLoadOutcome`] to toast a corrupt-file recovery, so this is a
-/// convenience for tests.
-///
-/// Reading the file belongs to startup only: once the `SettingsPersister` is seeded
-/// from it, the persister's in-memory snapshot is the source of truth, and a caller
-/// that re-read the file mid-session would miss changes still inside the persister's
-/// debounce window.
+/// Reading the file belongs to startup only: once the `SettingsPersister` is seeded from
+/// it, the persister's in-memory snapshot is the source of truth, and a re-read mid-session
+/// would miss changes still inside the debounce window.
 #[cfg(test)]
 #[must_use]
 pub fn load_or_default(path: &Path) -> SettingsFile {
     load_with_outcome(path).0
 }
 
-/// Writes `settings` to `path` as pretty-printed TOML, creating the parent directory
-/// if needed. Writes to a temporary sibling file and renames it into place so a crash
-/// or power loss mid-write can never leave a half-written, corrupt settings file
-/// behind -- the rename is the only step that can make the new content visible, and
-/// `std::fs::rename` replaces an existing destination atomically on both Windows
-/// (`MoveFileExW` with `MOVEFILE_REPLACE_EXISTING`) and Unix.
+/// Writes `settings` to `path` as pretty-printed TOML, creating the parent directory if
+/// needed.
+///
+/// Writes a temporary sibling file and renames it into place, so a crash or power loss
+/// mid-write cannot leave a corrupt settings file. `std::fs::rename` replaces the
+/// destination atomically on Windows and Unix.
 pub fn save(path: &Path, settings: &SettingsFile) -> io::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;

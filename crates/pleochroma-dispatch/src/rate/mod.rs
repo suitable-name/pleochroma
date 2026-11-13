@@ -1,25 +1,20 @@
 //! [`RateModel`]: one lane's throughput estimate, and [`ChunkPolicy`]: how a chunk is
 //! sized from it.
 //!
-//! Generalised from the desktop export's remote lane (`remote_chunk_samples`,
-//! `remote_marginal_rate`, `calibrate_remote_rate`, the per-video rate carry) and the
-//! hybrid split's 0.7-old/0.3-new moving average:
-//!
 //! 1. **Initial guess.** A lane that has never been measured starts from a guess and
 //!    is handed a small calibration chunk ([`ChunkPolicy::calibration_samples`]) rather
 //!    than a chunk sized from the guess, so a wildly wrong guess costs one short chunk.
-//! 2. **First-chunk calibration.** The first valid measurement REPLACES the guess
+//! 2. **First-chunk calibration.** The first valid measurement replaces the guess
 //!    outright; a guess is not evidence worth averaging with.
 //! 3. **Blending.** Every later measurement is folded in with an exponential moving
-//!    average ([`DEFAULT_SMOOTHING`] weight on the new sample), so thermal drift and load
+//!    average ([`DEFAULT_SMOOTHING`] weight on the new sample), so drift and load
 //!    changes are followed without one noisy chunk swinging the next chunk's size.
 //!
 //! A measurement is the lane's own reported marginal rate when it has one (a remote
-//! worker's rendering rate: the samples between its first and its last progress report
-//! that advanced the count, over the time between those two reports, so connection
-//! setup, the final frame's encode and upload and the merge are all excluded; a chunk
-//! too short to have two such reports reports its whole first-progress-to-done rate
-//! instead), otherwise `done / wall time` of the whole chunk ([`marginal_rate`]).
+//! worker's rate between its first and last progress report that advanced the count,
+//! which excludes connection setup, the final frame's encode and upload, and the merge;
+//! a chunk with fewer than two such reports reports its first-progress-to-done rate),
+//! otherwise `done / wall time` of the whole chunk ([`marginal_rate`]).
 //!
 //! # Staggered lanes
 //!
@@ -43,12 +38,11 @@ pub const DEFAULT_SMOOTHING: f64 = 0.3;
 /// of one worker end up half a chunk apart.
 const STAGGER_SCALE: f64 = 0.5;
 
-/// The worker's hidden per-request cap: a chunk sent to a worker must never be larger,
-/// or the worker rejects the whole request.
+/// The worker's per-request cap: a chunk sent to a worker must never be larger, or the
+/// worker rejects the whole request.
 ///
-/// The one definition: `pleochroma-worker`'s request validation
-/// (`MAX_SAMPLES_PER_REQUEST`) and the desktop's live remote lane
-/// (`LIVE_CHUNK_MAX_SAMPLES`) re-export it under their own names.
+/// The single definition; the worker's request validation re-exports it as
+/// `MAX_SAMPLES_PER_REQUEST`.
 pub const DEFAULT_MAX_CHUNK_SAMPLES: u32 = 65_536;
 
 /// Throughput in samples per second: `delta_samples` traced over `elapsed`. `None`
@@ -84,9 +78,8 @@ pub struct ChunkPolicy {
 }
 
 impl ChunkPolicy {
-    /// The still export and tilt video: about 22 s per chunk, a 32-sample floor
-    /// (below that a remote round trip costs more than it saves), an 8-sample
-    /// calibration probe -- the desktop export's existing numbers.
+    /// Offline export and tilt video: about 22 s per chunk, a 32-sample floor (below that
+    /// a remote round trip costs more than it saves), an 8-sample calibration probe.
     pub const EXPORT: Self = Self {
         target: Duration::from_secs(22),
         min_samples: 32,
@@ -174,12 +167,11 @@ impl ChunkPolicy {
     ///
     /// clamped to `[min_samples, max_samples]` exactly like [`Self::samples_for_rate`].
     /// The first term is the plain target-duration chunk; the second is this lane's
-    /// proportional share of what is left. Taking the smaller keeps ordinary chunk
-    /// sizing unchanged while samples are plentiful (the share term is then far
-    /// larger than the target term) and only shrinks the LAST few chunks of a run, so a
-    /// slow lane can no longer claim a disproportionate slice of a small tail and force
-    /// a fast lane sitting idle in [`crate::pool::epoch::Epoch::claim`] to wait out that
-    /// whole oversized chunk.
+    /// proportional share of what is left. Taking the smaller keeps ordinary sizing
+    /// unchanged while samples are plentiful (the share term is then far larger) and
+    /// only shrinks the last few chunks of a run. Without it a slow lane could claim an
+    /// oversized slice of a small tail and leave a fast lane idle in
+    /// [`crate::pool::epoch::Epoch::claim`] while that chunk runs.
     ///
     /// Falls back to plain [`Self::samples_for_rate`] when `remaining` is `0` or
     /// `sum_rates` is non-finite/non-positive (a single lane's `sum_rates` is its own

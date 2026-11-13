@@ -1,7 +1,9 @@
 //! A custom material's per-axis curves, inclusion families and structure through the design
-//! file: written as `[material.custom.dispersion_model_e]` (or `_alpha` / `_gamma`) and the plain
-//! `inclusions` / `structure` string keys, read back, and a snapshot without them writes none of
-//! the keys (the bytes of every earlier file are unchanged).
+//! file.
+//!
+//! The curves are written as `[material.custom.dispersion_model_e]` (or `_alpha` and `_gamma`),
+//! and the families and structure as the `inclusions` and `structure` keys. A snapshot without
+//! them writes none of these keys.
 
 use super::fixtures::simple_design;
 use crate::material::{

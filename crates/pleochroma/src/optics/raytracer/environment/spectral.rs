@@ -3,11 +3,10 @@
 
 /// Tabulated CIE Standard Illuminant D65 relative spectral power distribution,
 /// 380-780nm at 10nm intervals (41 values), as published in CIE 15:2004 "Colorimetry,"
-/// 3rd ed., Table T.3. D65 is the standard's own measurement of "average daylight," NOT
-/// a 6500K Planckian blackbody curve -- it has real irregularities (most visibly a
-/// broad peak/dip through the blue-green region) no smooth Planckian curve reproduces.
-/// See [`d65_relative_spectral_power`], used by the `"D65 Daylight"` [`super::LightingPreset`]
-/// instead of [`blackbody_spectrum`] at 6500K.
+/// 3rd ed., Table T.3. D65 is a measured daylight spectrum, not a 6500K Planckian curve: it
+/// has irregularities (most visibly a broad peak/dip through the blue-green region) that no
+/// smooth Planckian reproduces. See [`d65_relative_spectral_power`], which the `Daylight`
+/// preset uses instead of a 6500K [`blackbody_spectrum`].
 const CIE_D65_SPD_380_780_10NM: [f32; 41] = [
     49.9755, 54.6482, 82.7549, 91.4860, 93.4318, 86.6823, 104.865, 117.008, 117.812, 114.861,
     115.923, 108.811, 109.354, 107.802, 104.790, 107.689, 104.405, 104.046, 100.000, 96.3342,
@@ -35,16 +34,15 @@ const fn table_index(position: f32) -> usize {
 
 /// Linearly-interpolated CIE D65 relative spectral power at `lambda_nm`.
 ///
-/// Normalized so that 560nm (the table's own `100.000` entry) reads exactly `1.0`,
-/// matching [`blackbody_spectrum`]'s own normalization point -- both curves agree at
-/// 560nm by construction, keeping the "D65 Daylight" preset's overall exposure/white
-/// point unchanged relative to the old blackbody approximation.
+/// Normalized so that 560nm (the table's own `100.000` entry) reads exactly `1.0`, the same
+/// normalization point as [`blackbody_spectrum`], so the Daylight preset's exposure matches
+/// the blackbody presets.
 ///
-/// The table is extended down to 300nm for fluorescence excitation paths
-/// ([`CIE_D65_SPD_300_380_10NM`]); the result at and above 380nm is bit-identical to the
-/// 380-780nm-only version. Wavelengths outside 300-780nm clamp to the nearest table edge.
-/// (The GPU port in `shaders/*.wgsl` keeps the 380nm clamp: UV and fluorescent scenes
-/// never reach the GPU.)
+/// The table extends down to 300nm for fluorescence excitation paths
+/// ([`CIE_D65_SPD_300_380_10NM`]). At and above 380nm the values equal the 380-780nm table
+/// alone, bit for bit. Wavelengths outside 300-780nm clamp to the nearest table edge. The GPU
+/// port in `shaders/*.wgsl` keeps the 380nm clamp, since UV and fluorescent scenes never
+/// reach the GPU.
 #[must_use]
 pub fn d65_relative_spectral_power(lambda_nm: f32) -> f32 {
     const START_NM: f32 = 380.0;

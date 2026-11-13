@@ -14,12 +14,11 @@ use crate::optics::{
     absorption::AbsorptionBand,
     birefringence::{BirefringenceParams, assigned_mode_alpha, assigned_mode_e_field_uniaxial},
     polarization::{MuellerMatrix, StokesVector},
+    tables::beer_lambert_factors,
 };
 use glam::Vec3;
 
-// Only the OLD Stokes-DOP-based `channel_absorption_alphas` (kept for this file's own
-// regression tests and `raytracer::scattering`'s tests -- see that function's own doc
-// comment) still needs these.
+// Used only by the test-only `channel_absorption_alphas`.
 #[cfg(test)]
 use crate::optics::{
     birefringence::effective_pleochroic_alpha, polarization::electric_field_direction,
@@ -34,15 +33,13 @@ pub fn spectral_absorption(bands: &[AbsorptionBand], lambda_nm: f32) -> f32 {
     bands.iter().map(|band| band.evaluate(lambda_nm)).sum()
 }
 
-/// The SIGNED azimuth needed to rotate the Stokes reference frame from `prev_normal`
-/// (previous bounce's plane-of-incidence normal) to `current_normal` (this bounce's),
-/// about propagation `axis`. Plain `acos` alone always returns a value in [0, pi] and
-/// discards which way the frame actually turned; recovering the sign via
-/// `atan2(sin_psi, cos_psi)`, with `sin_psi` read off the component of
-/// `prev_normal x current_normal` along `axis`, matches the true rotation instead of
-/// mixing Q and U with an arbitrary sign on roughly half of all bounces. The call site
-/// in `trace_spectral_ray` guards near-zero-length normals (an undefined plane of
-/// incidence, e.g. at normal incidence) before calling this.
+/// The signed azimuth that rotates the Stokes reference frame from `prev_normal` to
+/// `current_normal` (both plane-of-incidence normals) about propagation `axis`.
+///
+/// `acos` alone returns a value in [0, pi] and drops the turn direction. The sign comes from
+/// the component of `prev_normal x current_normal` along `axis`, so Q and U mix with the
+/// correct sign. Callers must reject near-zero normals (no defined plane of incidence)
+/// first.
 #[inline]
 pub(crate) fn signed_frame_rotation_psi(
     prev_normal: Vec3,
@@ -56,17 +53,15 @@ pub(crate) fn signed_frame_rotation_psi(
     sin_psi.atan2(cos_psi)
 }
 
-/// Rotates `stokes` into this bounce's plane-of-incidence frame via
-/// [`signed_frame_rotation_psi`] (see its doc comment for why the rotation angle must
-/// be signed). A no-op on `stokes` when there is no previous well-defined plane, or
-/// either plane's cross product degenerates (near-normal incidence). Returns this
-/// bounce's plane-of-incidence normal, for the caller to store as `prev_plane_normal`
-/// for the NEXT bounce.
+/// Rotates `stokes` into this bounce's plane-of-incidence frame.
 ///
-/// `k_hat` is the WAVE NORMAL `k`, not the Poynting direction `S` -- the plane of
-/// incidence (and the Fresnel/TIR physics that plane feeds) is a property of `k`, not
-/// `S`. See `refraction`'s own design note.
-pub(super) fn rotate_stokes_to_plane_of_incidence(
+/// Uses [`signed_frame_rotation_psi`]. Leaves `stokes` unchanged when there is no previous
+/// plane or a plane normal degenerates (normal incidence). Returns this bounce's plane
+/// normal, to be stored as `prev_plane_normal` for the next bounce.
+///
+/// `k_hat` is the wave normal `k`, not the Poynting vector `S`: the plane of incidence is a
+/// property of `k`.
+pub(crate) fn rotate_stokes_to_plane_of_incidence(
     k_hat: Vec3,
     normal: Vec3,
     prev_plane_normal: Option<Vec3>,
@@ -86,16 +81,13 @@ pub(super) fn rotate_stokes_to_plane_of_incidence(
     current_plane_normal
 }
 
-/// Directional Pleochroic Beer-Lambert absorption via the polarization quadratic form
-/// `alpha = e_mode_hat . A . e_mode_hat` -- applied to every channel's Stokes vector for
-/// one internal bounce's path length. `e_mode_hat` is the path's ASSIGNED eigenmode's own
-/// geometric E-field direction (see [`channel_absorption_alphas_assigned`]'s doc
-/// comment), shared across channels since it depends only on geometry, not wavelength.
-/// Called only when `inside_gem` -- see the call site.
+/// Applies pleochroic Beer-Lambert absorption over one interior path length.
 ///
-/// `is_extraordinary` names which eigenmode this path was assigned to at its most recent
-/// air->crystal entry (uniaxial: ordinary/extraordinary; biaxial: mode A/mode B) -- see
-/// `trace_spectral_ray_inner`'s own `is_extraordinary` doc comment.
+/// Each channel uses `alpha = e . A . e`, where `e` is the assigned eigenmode's geometric
+/// E-field direction (see [`channel_absorption_alphas_assigned`]). Called only inside the gem.
+///
+/// `is_extraordinary` selects the eigenmode the path was assigned at its last air-to-crystal
+/// entry (uniaxial: ordinary or extraordinary; biaxial: mode A or mode B).
 pub(super) fn apply_absorption(
     ctx: &RayMaterialContext,
     cache: &RayWavelengthCache,
@@ -109,29 +101,29 @@ pub(super) fn apply_absorption(
     // doc comment. `absorption_path_scale == 1.0` (every built-in) makes this multiply
     // an exact IEEE 754 no-op.
     let scaled_path_len = path_len * ctx.material.absorption_path_scale;
-    // Vectorized Beer-Lambert; exp_f32x8 is a few-ULP polynomial exponential, not
-    // bit-identical to f32::exp -- see src/simd.rs module docs.
+    // Vectorized Beer-Lambert: `exp_f32x8` is a few-ULP polynomial exponential, not
+    // bit-identical to `f32::exp` (see the `src/simd/` docs). With the optics tables off
+    // (`cache.tables == None`) `beer_lambert_factors` is exactly that call.
     let mut args = [0f32; NUM_CHANNELS];
     for (a, alpha) in args.iter_mut().zip(&alphas) {
         *a = -alpha * scaled_path_len;
     }
-    let trans = crate::simd::exp_f32x8(args);
+    let trans = beer_lambert_factors(cache.tables.as_deref(), args);
     for (k, s) in stokes.iter_mut().enumerate() {
         *s = s.scale(trans[k]);
     }
 }
 
-/// The bounce loop's single entry point for the plain (non-scattering) Beer-Lambert absorption
-/// of one interior segment: `segment` is the segment's ray (`origin`, unit `dir`, in model
-/// units) and its length `path_len`.
+/// Plain (non-scattering) Beer-Lambert absorption over one interior segment.
 ///
-/// For a material without zones, this is exactly
-/// [`apply_absorption`] (the ray is ignored). A zoned material instead takes the per-channel
-/// optical depth `sum_z alpha_z * len_z` from `zoned::segment_optical_depths`, which is the one
-/// function every zoned absorption site shares (the scattering estimator,
-/// `scattering::hg::maybe_scatter_or_extinguish_zoned`, uses the same tables).
+/// `segment` is the segment's ray (`origin`, unit `dir`, model units) and its length
+/// `path_len`. Without zones this is exactly [`apply_absorption`] (the ray is ignored).
+/// A zoned material
+/// takes the per-channel optical depth `sum_z alpha_z * len_z` from
+/// `zoned::segment_optical_depths`, which every zoned absorption site shares, including
+/// `scattering::hg::maybe_scatter_or_extinguish_zoned`.
 #[inline]
-pub(super) fn apply_segment_absorption(
+pub(crate) fn apply_segment_absorption(
     ctx: &RayMaterialContext,
     cache: &RayWavelengthCache,
     k_hat: Vec3,
@@ -147,7 +139,7 @@ pub(super) fn apply_segment_absorption(
         for (a, depth) in args.iter_mut().zip(&depths) {
             *a = -depth;
         }
-        let trans = crate::simd::exp_f32x8(args);
+        let trans = beer_lambert_factors(cache.tables.as_deref(), args);
         for (k, s) in stokes.iter_mut().enumerate() {
             *s = s.scale(trans[k]);
         }
@@ -156,44 +148,30 @@ pub(super) fn apply_segment_absorption(
     apply_absorption(ctx, cache, k_hat, is_extraordinary, path_len, stokes);
 }
 
-/// The per-channel ASSIGNED-MODE pleochroic absorption coefficient (`alpha_eff`) for
-/// every spectral channel, evaluated once and shared by two callers: [`apply_absorption`]
-/// itself (the deterministic Beer-Lambert path) and
-/// [`super::scattering::maybe_scatter_or_extinguish`], which needs the SAME per-channel
-/// `sigma_a` to build `sigma_t = sigma_a + sigma_s` (see that function's doc comment for
-/// hazard 1: "Beer-Lambert becomes extinction, not absorption").
+/// Per-channel absorption coefficient `alpha` of the ASSIGNED eigenmode.
 ///
-/// Replaces the degree-of-polarization heuristic [`channel_absorption_alphas`] used to
-/// apply here -- see [`crate::optics::birefringence::assigned_mode_alpha`]'s doc comment
-/// for why. This function takes NO Stokes vector at all: the assigned mode's
-/// polarization is exact geometry, not something read off the light's (possibly
-/// importance-carrying, possibly azimuth-drifted) Stokes state.
+/// Evaluated once per bounce and shared by [`apply_absorption`] and
+/// [`super::scattering::maybe_scatter_or_extinguish`], which needs the same `sigma_a` to form
+/// `sigma_t = sigma_a + sigma_s`.
+///
+/// Takes no Stokes vector: the assigned mode's polarization is exact geometry, not something
+/// read off the light's Stokes state, which can drift in azimuth after internal reflections.
+/// See [`crate::optics::birefringence::assigned_mode_alpha`].
 ///
 /// # Isotropic-by-symmetry materials
 ///
-/// `!ctx.is_anisotropic` (a cubic material, or any material whose `birefringence_delta`
-/// is negligible) has no meaningful eigenmode assignment -- `is_extraordinary` is unused
-/// while `!inside_gem`-adjacent code never sets it meaningfully for such a material. This
-/// branch instead reproduces the OLD unpolarized-average behaviour directly:
-/// `midpoint(quadratic_form(eigen_a), quadratic_form(eigen_b))`, i.e. exactly what
-/// [`crate::optics::birefringence::effective_pleochroic_alpha`] computes at
-/// `degree_of_polarization == 0.0` -- the two eigenmode directions `eigen_a`/`eigen_b`
-/// here are themselves geometry-only (never derived from Stokes), so this is not a
-/// Stokes-independence violation, just a reuse of the same unpolarized-limit formula. For
-/// every built-in isotropic material `alpha_o == alpha_e` (the tensor is genuinely
-/// isotropic), so this equals `alpha_o` regardless of which eigen directions are fed in --
-/// a hypothetical isotropic-but-DICHROIC material (not represented by any built-in) would
-/// need a genuine diattenuator Mueller matrix acting on the full Stokes vector to handle
-/// correctly, which this function does not implement.
+/// For `!ctx.is_anisotropic` there is no eigenmode assignment, so `is_extraordinary` is
+/// ignored and the result is `midpoint(quadratic_form(eigen_a), quadratic_form(eigen_b))`:
+/// the unpolarized limit of [`crate::optics::birefringence::effective_pleochroic_alpha`].
+/// Both eigen directions are geometry-only. Built-in isotropic materials have equal
+/// eigen-absorptions, so the result does not depend on the directions. An isotropic but
+/// dichroic material would need a full diattenuator Mueller matrix, which is not implemented.
 ///
-/// `pub(crate)`, not private: `renderer::gpu::transport_check`'s GPU self-test for
-/// [`super::scattering::maybe_scatter_or_extinguish`] needs to compute the SAME real
-/// per-channel alphas this function produces to feed the standalone WGSL kernel's
-/// explicit `alphas` input -- calling this REAL function, never a reimplementation.
+/// `pub(crate)`: `renderer::gpu::transport_check` feeds this real function's output to the
+/// standalone WGSL scattering kernel, so the two cannot diverge.
 ///
-/// `k_hat` is the WAVE NORMAL `k`, not the Poynting direction `S` -- the eigen-
-/// polarizations (transverse to the wave that's actually propagating) are properties of
-/// `k`. See `refraction`'s own design note, rule 6.
+/// `k_hat` is the wave normal `k`, not the Poynting vector `S`: the eigen-polarizations are
+/// transverse to `k`.
 pub(crate) fn channel_absorption_alphas_assigned(
     ctx: &RayMaterialContext,
     cache: &RayWavelengthCache,
@@ -248,19 +226,13 @@ pub(crate) fn channel_absorption_alphas_assigned(
     alphas
 }
 
-/// The OLD per-channel pleochroic absorption coefficient: a degree-of-polarization blend
-/// between the light's own Stokes-derived electric-field direction and the two
-/// eigenmodes' unpolarized average. No longer called by the interior transport path (see
-/// [`channel_absorption_alphas_assigned`], which replaced it there) -- kept ONLY for this
-/// file's own regression tests (pinning the new function's isotropic branch and Stokes-
-/// independence against this OLD Stokes-dependent one) and `raytracer::scattering`'s own
-/// tests (a convenient unpolarized-average probe for `maybe_scatter_or_extinguish`'s
-/// weight-formula tests). The Tier 2 GPU harness exercises `birefringence::
-/// pleochroic_channel_alpha` directly (built on `effective_pleochroic_alpha`, the same
-/// combination this function performs per channel) against its WGSL translation, never
-/// this function -- hence `#[cfg(test)]` here, unlike `henyey_greenstein_phase`'s
-/// `any(test, feature = "gpu")` gate in `raytracer::mod`: nothing in a non-test
-/// `gpu`-feature build calls this any more.
+/// Test-only reference: the per-channel alpha as a degree-of-polarization blend between the
+/// light's Stokes-derived electric-field direction and the eigenmodes' unpolarized average.
+///
+/// The transport path uses [`channel_absorption_alphas_assigned`]. This function remains as
+/// the reference that the tests pin the assigned-mode path against, and as an unpolarized
+/// probe for `raytracer::scattering`'s tests. The GPU harness checks
+/// `birefringence::pleochroic_channel_alpha` (the same per-channel combination) instead.
 #[cfg(test)]
 pub(crate) fn channel_absorption_alphas(
     ctx: &RayMaterialContext,
@@ -300,11 +272,9 @@ pub(crate) fn channel_absorption_alphas(
     alphas
 }
 
-/// A Ruby-like slab at `absorption_path_scale = 2.0` must attenuate EXACTLY like a slab
-/// of twice the model-unit thickness at `absorption_path_scale = 1.0` -- the whole
-/// physical point of the field. Proven algebraically: `(2.0 * d) * 1.0` and `d * 2.0`
-/// are the same IEEE 754 value (multiplication by exactly-representable `2.0` is
-/// exact), so the two results must come out bit-for-bit identical.
+/// A slab at `absorption_path_scale = 2.0` must attenuate exactly like a slab of twice the
+/// model-unit thickness at scale `1.0`. Both products are `2.0 * d`, which is exact in IEEE
+/// 754, so the results must be bit-for-bit identical.
 #[cfg(test)]
 mod absorption_path_scale_tests {
     use super::*;
@@ -382,8 +352,8 @@ mod absorption_path_scale_tests {
     }
 }
 
-/// [`channel_absorption_alphas_assigned`] (assigned-mode absorption) against the OLD
-/// DOP-blended [`channel_absorption_alphas`].
+/// [`channel_absorption_alphas_assigned`] checked against the test-only DOP-blended
+/// [`channel_absorption_alphas`].
 #[cfg(test)]
 mod assigned_mode_alpha_tests {
     use super::*;
@@ -392,14 +362,10 @@ mod assigned_mode_alpha_tests {
         raytracer::{refraction::build_ray_wavelength_cache, spectral_absorption},
     };
 
-    /// (i) For an isotropic material, the new function's alphas must equal the OLD
-    /// function's own output BIT-FOR-BIT, when the old function is fed a fully
-    /// unpolarized Stokes vector (`degree_of_polarization == 0.0`) -- at `p == 0.0`,
-    /// `effective_pleochroic_alpha`'s `p.mul_add(alpha_polarized - alpha_unpolarized,
-    /// alpha_unpolarized)` collapses to EXACTLY `alpha_unpolarized` (multiplying by
-    /// exactly-representable `0.0` is exact IEEE 754, and `0.0 * x + y == y` for any
-    /// finite `x`), the same `midpoint(quadratic_form(eigen_a), quadratic_form(eigen_b))`
-    /// expression the new function's isotropic branch computes directly.
+    /// (i) For an isotropic material the assigned-mode alphas equal the reference's output
+    /// bit for bit when the reference gets an unpolarized Stokes vector. At `p == 0.0` the
+    /// reference collapses exactly to its unpolarized term, which the isotropic branch
+    /// computes directly.
     #[test]
     fn isotropic_material_assigned_alphas_match_old_unpolarized_output_bit_for_bit() {
         let material = GemMaterial::new_custom("isotropic probe", 1.62, 0.01, 0.0, [0.3, 0.6, 0.9]);
@@ -439,13 +405,9 @@ mod assigned_mode_alpha_tests {
         }
     }
 
-    /// (ii) Real Tourmaline data (strongly dichroic at 430nm): an ordinary-mode path
-    /// propagating exactly perpendicular to `c_axis` must read exactly the o-ray band
-    /// sum, and an extraordinary-mode path along the SAME direction must read exactly
-    /// the e-ray band sum -- mirrors
-    /// `birefringence::polarized_probe_matches_band_sums_for_real_tourmaline_data`'s own
-    /// setup, but through the real assigned-mode driver rather than
-    /// `pleochroic_channel_alpha` directly.
+    /// (ii) With real Tourmaline data (strongly dichroic at 430 nm), a path perpendicular to
+    /// `c_axis` reads the o-ray band sum in ordinary mode and the e-ray band sum in
+    /// extraordinary mode.
     #[test]
     fn tourmaline_assigned_mode_alphas_read_o_and_e_ray_band_sums_perpendicular_to_c_axis() {
         const LAMBDA_NM: f32 = 430.0; // Fe2+-Ti4+ IVCT band, strongly dichroic at this wavelength
@@ -500,16 +462,11 @@ mod assigned_mode_alpha_tests {
         }
     }
 
-    /// (iii) The new driver has NO Stokes parameter in its signature at all, so its
-    /// result cannot depend on the light's polarization state by construction -- unlike
-    /// the OLD function, which this test pins as genuinely Stokes-sensitive: two Stokes
-    /// vectors sharing the exact same (Q, U) azimuth (hence the exact same
-    /// `electric_field_direction`) but different V (hence different
-    /// `degree_of_polarization`) must give the OLD function DIFFERENT alphas for a
-    /// strongly dichroic extraordinary-mode Tourmaline path -- the precise defect this
-    /// pins (a camera path's Stokes vector is importance, not the light's true state,
-    /// and drifts azimuth after internal reflections; blending against it is therefore
-    /// unsound), which the new Stokes-free driver cannot reproduce.
+    /// (iii) The assigned-mode driver takes no Stokes parameter, so it cannot depend on the
+    /// light's polarization. The reference does: two Stokes vectors with the same (Q, U)
+    /// azimuth but different V give different alphas for a strongly dichroic
+    /// extraordinary-mode path. A camera path's Stokes vector is importance, not the light's
+    /// true state, and drifts in azimuth after internal reflections, so the blend is unsound.
     #[test]
     fn assigned_mode_alphas_have_no_stokes_dependence_unlike_old_dop_blend() {
         const LAMBDA_NM: f32 = 430.0;
@@ -544,7 +501,7 @@ mod assigned_mode_alpha_tests {
             old_high[0]
         );
 
-        // The new driver's signature has no Stokes parameter -- nothing to vary.
+        // The assigned-mode driver takes no Stokes parameter, so there is nothing to vary.
         let new_alphas = channel_absorption_alphas_assigned(&ctx, &cache, k_hat, true);
         assert!(
             new_alphas.iter().all(|a| a.is_finite()),
@@ -557,9 +514,8 @@ mod assigned_mode_alpha_tests {
 mod frame_rotation_sign_tests {
     use super::*;
 
-    /// Two successive bounces that share the SAME plane of incidence (parallel
-    /// plane normals) must produce a rotation angle psi ~= 0 -- no Q/U mixing should be
-    /// introduced when the frame hasn't actually turned.
+    /// Two bounces with the same plane of incidence (parallel normals) must give psi ~= 0:
+    /// no Q/U mixing when the frame has not turned.
     #[test]
     fn same_plane_of_incidence_gives_zero_psi() {
         let prev_normal = Vec3::new(0.0, 0.0, 1.0);
@@ -572,10 +528,8 @@ mod frame_rotation_sign_tests {
         );
     }
 
-    /// Swapping which plane normal is "previous" and which is "current" must
-    /// flip the sign of psi -- this is exactly the defect the old unsigned `acos`-only
-    /// computation could not represent (it always returned the same non-negative angle
-    /// regardless of rotation direction).
+    /// Swapping the previous and current normals must flip the sign of psi, which an
+    /// unsigned angle cannot represent.
     #[test]
     fn reversing_plane_normal_order_flips_psi_sign() {
         // Two plane-of-incidence normals at a genuine angle to each other, and a

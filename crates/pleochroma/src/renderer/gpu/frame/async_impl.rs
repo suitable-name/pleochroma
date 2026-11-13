@@ -8,19 +8,19 @@
 //! `wgpu`'s own futures -- a different control-flow shape that would make non-wasm32
 //! callers pay `async`/`.await` for no reason if forced into the same signatures.
 //!
-//! Also drops the double-buffered chunk overlap: `accumulate`'s "Overlapped chunk
-//! pipeline" exists to keep the GPU busy while the CPU blocks mapping the PREVIOUS
-//! chunk's readback. On wasm32 nothing blocks in the first place -- awaiting
-//! [`map_read_async`] simply yields to the browser's microtask queue at zero CPU cost --
-//! so there is no idle window to hide by queuing chunk i+1 early.
-//! [`GpuFrameRenderer::accumulate_async`] dispatches, copies, and awaits each chunk in
-//! turn; still chunked, just not pipelined two deep.
+//! There is no double-buffered chunk overlap here, unlike native. Awaiting `map_read_async`
+//! yields to the browser at no CPU cost, so there is no idle window to hide by queuing the
+//! next chunk early. [`GpuFrameRenderer::accumulate_async`] dispatches, copies and awaits
+//! each chunk in turn.
 
 use glam::Vec3;
 use wgpu::BufferUsages;
 
 use crate::{
-    optics::raytracer::{EnvironmentSource, environment::environment_white_balance},
+    optics::{
+        raytracer::{EnvironmentSource, environment::environment_white_balance},
+        tables::OpticsTables,
+    },
     renderer::{
         buffers::{GpuCameraParams, GpuGemMaterial, GpuTransportParams},
         env_map_gpu::HdrEnvGpuData,
@@ -31,7 +31,7 @@ use crate::{
 use super::{
     CHUNK_BUDGET_BYTES, GpuFrameError, GpuFrameScene, GpuPipelineKind, REDUCE_SHADER_SRC,
     bind_groups::{TransportDispatchArgs, build_bind_group},
-    classify_material,
+    classify_material_with_tables,
     dispatch::{
         EnvironmentParams, chunk_pixels_for, count_u32, environment_params, workgroups_for,
     },
@@ -39,10 +39,8 @@ use super::{
     renderer::GpuFrameRenderer,
 };
 
-// clippy::future_not_send: every async fn below touches wgpu's web backend types, which
-// hold browser-side Rc handles and are therefore !Send -- see
-// GpuContext::acquire_async's identical allow. This impl block only exists on wasm32,
-// where nothing is ever sent across threads, so the lint is meaningless here regardless.
+// The async fns here hold wgpu web-backend types (browser-side Rc handles, so !Send). wasm32 is
+// single-threaded, so the lint does not apply; see GpuContext::acquire_async.
 #[allow(
     clippy::future_not_send,
     reason = "wasm32-unknown-unknown has no second thread to send a future to; see the \
@@ -53,10 +51,9 @@ impl GpuFrameRenderer {
     /// compiles `reduce_xyz_main` without blocking the browser's main thread; the
     /// `transport_main` kernels compile lazily per material class, as in [`Self::new`].
     ///
-    /// Awaits [`GpuContext::acquire_async`] directly rather than going through
-    /// [`GpuContext::acquire`]'s `pollster::block_on` wrapper -- see this `impl` block's
-    /// doc comment. Pipeline compilation itself is synchronous on every target, so
-    /// nothing else here needs `.await`.
+    /// Awaits [`GpuContext::acquire_async`] directly, not the `pollster::block_on` wrapper
+    /// behind [`GpuContext::acquire`]. Pipeline compilation is synchronous on every target,
+    /// so nothing else here needs `.await`.
     ///
     /// # Errors
     ///
@@ -106,14 +103,20 @@ impl GpuFrameRenderer {
             poisoned: false,
             turn_in_progress: false,
             surface: crate::renderer::buffers::GpuSurfaceScene::default(),
+            live: super::live::LiveState::default(),
+            optics_tables: super::tables_buffer::OpticsTablesGpu::default(),
+            tables_in_use: false,
+            tray_shadow: super::tray_shadow_buffer::TrayShadowGpu::default(),
+            estimator: None,
+            staged: super::staged::StagedState::default(),
+            sorted: super::sorted::SortedState::default(),
         })
     }
 
     /// Async, wasm32-only counterpart to [`Self::accumulate`] -- same inputs, same
     /// summed-XYZ-into-`accum` contract, same decline conditions
     /// ([`GpuFrameError::UnsupportedMaterial`]/[`GpuFrameError::UnsupportedEnvironment`]),
-    /// but chunk-at-a-time rather than two-deep pipelined -- see this `impl` block's own
-    /// doc comment for why.
+    /// but chunk-at-a-time rather than two-deep pipelined (see the module docs).
     ///
     /// # Errors
     ///
@@ -129,7 +132,12 @@ impl GpuFrameRenderer {
         spp: u32,
         accum: &mut [Vec3],
     ) -> Result<(), GpuFrameError> {
-        let pipeline_class = classify_material(scene.material);
+        if scene.environment.tray_shadow().is_some() || scene.environment.tray_mirror().is_some() {
+            return Err(GpuFrameError::TrayVariant);
+        }
+        // The browser's bind groups hold no optics-table buffer: this path never runs the table
+        // variant, whatever the process default says.
+        let pipeline_class = classify_material_with_tables(scene.material, OpticsTables::Off);
         let num_pixels = scene.width as usize * scene.height as usize;
         assert_eq!(
             accum.len(),
@@ -176,8 +184,7 @@ impl GpuFrameRenderer {
                 })?;
             self.check_uncaptured_error()?;
 
-            // xyz already holds reduce_xyz_main's GPU-summed per-pixel triples -- no
-            // CPU-side per-sample summation loop needed any more.
+            // xyz already holds reduce_xyz_main's GPU-summed per-pixel triples.
             for local_pixel in 0..pixels_this_chunk {
                 let base = local_pixel * 3;
                 accum[first_pixel + local_pixel] +=
@@ -197,12 +204,9 @@ impl GpuFrameRenderer {
     /// triples into a fresh staging buffer, which is returned for [`map_read_async`] to
     /// await. Nothing here blocks.
     ///
-    /// Native's pipelined path builds its bind group via `build_chunk_bind_group`
-    /// instead (see the parent module's doc comment's "Per-frame uploads, persistent
-    /// staging" section), but this wasm32 path re-uploads every buffer every chunk via
-    /// `build_bind_group`, and re-creates the tiny reduce-params buffer fresh every
-    /// chunk: it never had the overlapped double-buffering the native path uses, so
-    /// there is no per-frame state to hoist these uploads out of here.
+    /// Re-uploads every buffer, and the reduce params, on each chunk via `build_bind_group`.
+    /// Unlike the native pipelined path (`build_chunk_bind_group`), nothing persists between
+    /// chunks here.
     fn submit_chunk_async(
         &self,
         call: &AsyncCallInputs<'_, '_>,
@@ -228,6 +232,7 @@ impl GpuFrameRenderer {
             facet_finishes: &call.gpu_finishes,
             outputs,
             hdr_env: &call.hdr_env,
+            tray_shadow: None,
         };
 
         let bind_group = build_bind_group(&bind_args);
@@ -285,17 +290,18 @@ impl GpuFrameRenderer {
     }
 }
 
-/// Everything one [`GpuFrameRenderer::accumulate_async`] call encodes ONCE and every
-/// chunk of that call then reads: the environment/white-balance parameters, the encoded
-/// material and facet finishes, and the HDR environment upload. Built once per call
-/// rather than once per chunk -- this path never had `FrameSceneBuffers`'s cross-call
-/// persistence (see this module's own doc comment), so there is no identity cache to
-/// consult, only "per call, not per chunk".
+/// Per-call inputs of [`GpuFrameRenderer::accumulate_async`], encoded once and read by every
+/// chunk.
+///
+/// These are the environment and white-balance parameters, the encoded material and facet
+/// finishes, and the HDR environment upload. This path keeps no scene buffers across calls.
 struct AsyncCallInputs<'s, 'a> {
     scene: &'a GpuFrameScene<'s>,
     pipeline_class: u32,
     spp: u32,
     sample_offset: u32,
+    estimator: crate::optics::raytracer::Estimator,
+    ideal_surface: bool,
     env: EnvironmentParams,
     white_balance: Vec3,
     gpu_material: GpuGemMaterial,
@@ -304,10 +310,9 @@ struct AsyncCallInputs<'s, 'a> {
 }
 
 impl<'s, 'a> AsyncCallInputs<'s, 'a> {
-    /// Encodes the per-call inputs. Declines
-    /// [`GpuFrameError::UnsupportedEnvironment`] for an oversized HDR map -- mirrors
-    /// `build_hdr_env`'s identical check (this path has no `FrameSceneBuffers` to share
-    /// that helper through, so the check is repeated here directly).
+    /// Encodes the per-call inputs. Declines [`GpuFrameError::UnsupportedEnvironment`] for an
+    /// oversized HDR map, the same check as `build_hdr_env`, repeated because this path has
+    /// no `FrameSceneBuffers`.
     fn new(
         renderer: &GpuFrameRenderer,
         scene: &'a GpuFrameScene<'s>,
@@ -316,7 +321,7 @@ impl<'s, 'a> AsyncCallInputs<'s, 'a> {
         sample_offset: u32,
     ) -> Result<Self, GpuFrameError> {
         let hdr_env = match scene.environment {
-            EnvironmentSource::HdrMap(map) => {
+            EnvironmentSource::HdrMap { map, .. } => {
                 if !HdrEnvGpuData::fits_storage_binding(&renderer.ctx.device, map) {
                     return Err(GpuFrameError::UnsupportedEnvironment);
                 }
@@ -329,6 +334,11 @@ impl<'s, 'a> AsyncCallInputs<'s, 'a> {
             pipeline_class,
             spp,
             sample_offset,
+            // The renderer's own choice, else the process default (`set_estimator`). No
+            // Tray Reflection guard is needed here: `accumulate_async` refuses a tray scene
+            // (`TrayVariant`) before it gets this far.
+            estimator: renderer.frame_estimator(),
+            ideal_surface: renderer.surface.is_ideal_for_cpu(),
             env: environment_params(scene.environment),
             // See `GpuFrameRenderer::prepare_turn`.
             white_balance: environment_white_balance(scene.environment),
@@ -388,11 +398,13 @@ impl<'s, 'a> AsyncCallInputs<'s, 'a> {
         .with_studio_use_d65(use_d65)
         .with_studio_model(studio_model)
         .with_tent_of(scene.environment)
+        .with_hdr_of(scene.environment)
         .with_backdrop(backdrop)
         .with_surface_glare(scene.environment.surface_glare())
         .with_head_shadow(crate::optics::raytracer::head_shadow_cosines(
             scene.environment.head_shadow_deg(),
-        ));
+        ))
+        .with_estimator(self.estimator, self.ideal_surface);
         (camera_params, params)
     }
 }
@@ -400,20 +412,16 @@ impl<'s, 'a> AsyncCallInputs<'s, 'a> {
 /// Awaits `staging`'s `Buffer::map_async` callback and reads back `count` `T`s, wasm32
 /// only.
 ///
-/// Native's `compute::finish_map_read` drives the identical callback to completion via
-/// `Device::poll(Maintain::Wait)`, blocking the calling OS thread. `wgpu`'s WebGPU
-/// backend needs no such call: a browser resolves `GPUBuffer.mapAsync`'s promise on its
-/// own microtask queue as soon as ready -- the callback fires whenever this function
-/// `.await`s the channel below, which is why this can be a genuine `async fn` instead of
-/// needing a `Device::poll` equivalent.
+/// The browser resolves `GPUBuffer.mapAsync` on its own event loop, so awaiting the channel
+/// is enough. Native's `compute::finish_map_read` instead blocks on `Device::poll`, which a
+/// browser main thread cannot do.
 ///
 /// # Errors
 ///
 /// Returns [`GpuFrameError::DeviceLost`] on a dropped callback, a failed mapping, or an
 /// unreadable mapped range, for [`GpuFrameRenderer::accumulate_async`] to propagate with
-/// `?`. There is no bounded-wait timeout here the way `compute::GPU_WAIT_TIMEOUT` bounds
-/// the native path: nothing here blocks an OS thread, so there is no thread to free by
-/// timing out; a browser tab that never resolves `mapAsync` leaves this `Future` pending.
+/// `?`. No timeout bounds the wait, unlike `compute::GPU_WAIT_TIMEOUT` on native: a
+/// `mapAsync` that never resolves leaves this future pending.
 #[allow(
     clippy::future_not_send,
     reason = "wgpu's web backend's buffer-mapping state is inherently !Send (browser-side \
@@ -428,10 +436,8 @@ async fn map_read_async<T: bytemuck::Pod>(
     staging
         .slice(..)
         .map_async(wgpu::MapMode::Read, move |result| {
-            // The receiver can only be dropped by this function returning early, which it
-            // never does before this send -- a failed send would mean the callback
-            // outlived its own awaiting task, not a race this single-threaded target can
-            // produce.
+            // The receiver is only dropped with this future, so the send cannot fail while the
+            // future is awaiting it.
             let _ = tx.send(result);
         });
     rx.await

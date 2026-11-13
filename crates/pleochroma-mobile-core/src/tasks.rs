@@ -14,10 +14,9 @@ use std::{
 
 /// A shared counter that names the newest request.
 ///
-/// A background job copies the value
-/// [`Generation::advance`] returned when it was started and checks
-/// [`Generation::is_current`] before publishing, so a result that a newer request has
-/// since superseded is dropped. Clones share the same counter.
+/// A background job keeps the value [`Generation::advance`] returned when it started and
+/// checks [`Generation::is_current`] before publishing, so a superseded result is dropped.
+/// Clones share the same counter.
 #[derive(Debug, Clone, Default)]
 pub struct Generation {
     counter: Arc<AtomicU64>,
@@ -49,9 +48,8 @@ const JOIN_WAIT: Duration = Duration::from_secs(2);
 /// Joins `handle` if its thread finishes within two seconds, else leaves it running
 /// (logged).
 ///
-/// Never panics: at process exit Windows ends every other thread before
-/// thread-local destructors run, and `JoinHandle::join` on such a thread aborts the
-/// process; a thread that has really finished is always reported as finished.
+/// It joins only a finished thread: during process exit Windows ends the other threads
+/// before thread-local destructors run, and joining such a thread aborts the process.
 pub fn join_briefly(handle: JoinHandle<()>, name: &str) {
     let deadline = Instant::now() + JOIN_WAIT;
     while !handle.is_finished() {
@@ -71,9 +69,9 @@ type Job = Box<dyn FnOnce() + Send + 'static>;
 /// One named background thread that runs submitted jobs one after the other, in the
 /// order they were submitted.
 ///
-/// A job that panics is logged and skipped; the queue keeps
-/// running. Dropping the queue lets the jobs already submitted finish, then ends and
-/// joins the thread (waiting at most two seconds, see [`join_briefly`]).
+/// A job that panics is logged and skipped; the queue keeps running. Dropping the queue
+/// lets the submitted jobs finish, then ends and joins the thread (waiting at most two
+/// seconds, see [`join_briefly`]).
 pub struct BackgroundQueue {
     name: String,
     sender: Option<Sender<Job>>,

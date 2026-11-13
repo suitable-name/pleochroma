@@ -20,6 +20,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+/// Whether Optimize and Check Shift run in this build: debug builds, or builds with the
+/// `validated-design-search` feature.
 pub const RELEASE_READY: bool = cfg!(debug_assertions) || cfg!(feature = "validated-design-search");
 struct Runtime {
     active: Option<OperationIdentity>,

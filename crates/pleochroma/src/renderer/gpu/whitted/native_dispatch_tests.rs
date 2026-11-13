@@ -31,7 +31,7 @@ fn prepared_test_scenes(renderer: &WhittedGpuRenderer) -> Vec<super::WhittedGpuS
             facet_finishes: &[],
             material: &material,
             max_bounces: 16,
-            environment: EnvironmentSource::HdrMap(environment),
+            environment: EnvironmentSource::hdr(environment),
         };
         let prep = WhittedPrep::new(
             &scene,

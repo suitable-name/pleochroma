@@ -1,14 +1,14 @@
 //! The light model of the rig: backlight panels with a measured white frame, a uniform
 //! surround, and the holder that occludes.
 //!
-//! Plan section 3.2. The panel is treated as a Lambertian emitter whose radiance varies across it
-//! as the empty-rig photo (the corrected white frame) shows. An exit ray that reaches the panel
-//! at point `q` gets the white-frame level at the pixel `q` projects to in that view's camera,
-//! relative to the level at the pixel the camera ray started from (so the prediction is a
-//! transmittance relative to the empty rig, like the photos). Panel points the camera never saw
-//! (outside the image) get the mean level, and are flagged. The levels are kept per colour
-//! channel (ZC-13): an edge-lit panel is bluer at its edges, and the ratio of an exit ray is
-//! taken channel by channel, as the transmittance images divide.
+//! The panel is treated as a Lambertian emitter whose radiance varies across it as the empty-rig
+//! photo (the corrected white frame) shows. An exit ray that reaches the panel at point `q` gets
+//! the white-frame level at the pixel `q` projects to in that view's camera, relative to the level
+//! at the pixel the camera ray started from (so the prediction is a transmittance relative to the
+//! empty rig, like the photos). Panel points the camera never saw (outside the image) get the mean
+//! level, and are flagged. The levels are kept per colour channel: an edge-lit panel is bluer at
+//! its edges, and the ratio of an exit ray is taken channel by channel, as the transmittance
+//! images divide.
 
 use glam::{DVec2, DVec3};
 
@@ -88,7 +88,7 @@ impl PanelGeom {
 ///
 /// Built from the empty-rig photo (white minus dark) divided, channel by channel, by the
 /// backlight's camera RGB, so that the level of an unobstructed pixel is about 1 in every channel
-/// and only ratios matter. The channels are kept apart (ZC-13): an edge-lit panel changes colour
+/// and only ratios matter. The channels are kept apart: an edge-lit panel changes colour
 /// across the frame, and the transmittance images divide per channel. Stored at a reduced
 /// resolution (a box average of `scale x scale` photo pixels) to keep memory small.
 #[derive(Debug, Clone, PartialEq)]
@@ -154,7 +154,7 @@ impl WhiteFrame {
     /// cells.
     ///
     /// The level of channel `c` of a pixel is `max(p_c, 0) / reference_c`, so the colour of the
-    /// panel across the frame is kept (ZC-13).
+    /// panel across the frame is kept.
     ///
     /// # Errors
     ///

@@ -78,9 +78,6 @@ fn a_design_round_trips_bit_identically_through_the_file() {
     }
 }
 
-/// Builds from 2026-09-28 wrote the per-design body colour as `body_colour_override`. Such
-/// a design file must still give the design its colour, and saving it again must write the
-/// current key once, not both.
 /// A design with every per-design stone effect on, and one value that is not a round number.
 fn hazy_design() -> Design {
     let mut design = simple_design();
@@ -188,6 +185,8 @@ a_future_key = 1
     assert!(effects.inclusion_sigma_s.abs() < f64::EPSILON);
 }
 
+/// A file that spells the body color key the old way still applies the color, and saving it
+/// again writes the current key once.
 #[test]
 fn a_design_file_with_the_old_body_colour_spelling_still_applies_it() {
     let design = rich_design();

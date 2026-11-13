@@ -142,11 +142,10 @@ fn the_optimize_tab_says_what_the_lesson_says_it_says() {
     assert!(default_vary_anchored(&sim.session.design));
 }
 
-/// The lesson's own run, for real: Quartz, Low Windowing, Budget 100, Candidates 2, the tab's
-/// other defaults (Starts, Seed 0, Polish, Keep the Girdle, anchored tiers varied). The step that
-/// follows it ("Read and pick a candidate") needs a candidate row; the Standard Round Brilliant
-/// gave none here (every state the search reached either broke a meet of its break-facet network
-/// or scored no better), which is why the lesson starts from the Rich Teaching Design.
+/// The lesson's own run: Quartz, Low Windowing, Budget 100, Candidates 2 and the tab's other
+/// defaults. The step "Read and pick a candidate" needs a candidate row. The Standard Round
+/// Brilliant gives none here (its break-facet network breaks a meet or scores no better), which
+/// is why the lesson starts from the Rich Teaching Design.
 #[test]
 fn the_lesson_design_gives_the_short_search_a_candidate() {
     let mut sim = Sim::start(&StartingState::Template(RICH));

@@ -295,10 +295,10 @@ mod tests {
         assert_eq!(generations(rows.findings_arrived(findings_for(7))), None);
     }
 
-    /// F3-16: a tier click, a Cut slider move or an idle replan plans the same design again.
-    /// Its frame lands without the findings, and the findings of the plan before it (the
-    /// generation did not change) must come back for it: a frame of a generation whose rows
-    /// already showed findings is no reason to leave them off.
+    /// A tier click, a Cut slider move or an idle replan plans the same design again. Its frame
+    /// lands without the findings, and the findings of the plan before it (the generation did not
+    /// change) must come back for it: a frame of a generation whose rows already showed findings
+    /// is no reason to leave them off.
     #[test]
     fn a_same_generation_frame_without_findings_gets_the_ones_already_seen() {
         let mut rows = LateRows::default();
@@ -314,9 +314,9 @@ mod tests {
         assert_eq!(generations(rows.findings_arrived(findings_for(7))), None);
     }
 
-    /// F3-16, the order that used to lose them: the second plan's findings reach the UI thread
-    /// BEFORE its frame. They find rows that show the first plan's findings and so change
-    /// nothing, then the frame lands with rows built without them.
+    /// The second plan's findings reach the UI thread BEFORE its frame. They find rows that show
+    /// the first plan's findings and so change nothing; the frame then lands with rows built
+    /// without them, so the newest copy must be kept until it does.
     #[test]
     fn the_second_plans_findings_before_its_frame_do_not_lose_the_findings() {
         let mut rows = LateRows::default();
@@ -332,9 +332,9 @@ mod tests {
         assert_eq!(copies(rows.frame_pushed(7, false)), Some((7, 2)));
     }
 
-    /// F3-16, the order that already worked: the second plan's frame lands first and the first
-    /// plan's findings are pushed for it; the second plan's own findings then arrive and show
-    /// nothing new for that frame.
+    /// The other order: the second plan's frame lands first and the first plan's findings are
+    /// pushed for it; the second plan's own findings then arrive and show nothing new for that
+    /// frame.
     #[test]
     fn the_second_plans_frame_before_its_findings_is_given_the_first_plans() {
         let mut rows = LateRows::default();
@@ -374,8 +374,8 @@ mod tests {
         );
     }
 
-    /// F4-11: findings that met a held editor state are not marked as applied. They are owed
-    /// again, once, to a retry.
+    /// Findings that met a held editor state are not marked as applied. They are owed again,
+    /// once, to a retry.
     #[test]
     fn findings_that_met_a_held_editor_are_retried_not_marked_applied() {
         let mut rows = LateRows::default();
@@ -389,8 +389,8 @@ mod tests {
         assert_eq!(generations(rows.owed()), None, "and only once");
     }
 
-    /// F4-11: put back, the findings are applied again when the same findings arrive again
-    /// or when another frame of the generation lands, whichever comes first.
+    /// Put back, the findings are applied again when the same findings arrive again or when
+    /// another frame of the generation lands, whichever comes first.
     #[test]
     fn put_back_findings_are_applied_by_the_next_frame_of_their_generation() {
         let mut rows = LateRows::default();
@@ -414,7 +414,7 @@ mod tests {
         );
     }
 
-    /// F4-11: findings put back for a generation a newer frame has since replaced are dropped.
+    /// Findings put back for a generation that a newer frame has since replaced are dropped.
     #[test]
     fn put_back_findings_of_a_replaced_frame_are_forgotten() {
         let mut rows = LateRows::default();
@@ -437,7 +437,7 @@ mod tests {
         assert_eq!(generations(rows.owed()), None);
     }
 
-    /// F3-19: `kept` is the copy a frame of the generation would be handed, read-only.
+    /// `kept` is the copy a frame of the generation would be handed, read-only.
     #[test]
     fn kept_names_the_copy_of_the_generation_and_changes_nothing() {
         let mut rows = LateRows::default();
@@ -487,9 +487,9 @@ mod tests {
         }
     }
 
-    /// F3-19, the loss: a frame that carried findings but pushed no rows (its design was taken
-    /// by the frame before it) must not mark the rows on screen as showing them, or the
-    /// findings that follow find nothing to refresh.
+    /// A frame that carried findings but pushed no rows (its design was taken by the frame before
+    /// it) must not mark the rows on screen as showing them, or the findings that follow find
+    /// nothing to refresh.
     #[test]
     fn a_frame_that_pushed_no_rows_does_not_hide_the_findings_from_the_rows() {
         let rows = RefCell::new(LateRows::default());
@@ -508,8 +508,7 @@ mod tests {
         );
     }
 
-    /// F3-19, the needless work: a frame that pushed no rows is not given the kept copy to push
-    /// a second time.
+    /// A frame that pushed no rows is not given the kept copy to push a second time.
     #[test]
     fn a_frame_that_pushed_no_rows_leaves_the_record_alone() {
         let rows = RefCell::new(LateRows::default());
@@ -524,8 +523,8 @@ mod tests {
         assert_eq!(copies(rows.borrow_mut().owed()), None, "nothing is owed");
     }
 
-    /// F3-19, the double build: a frame of a generation whose findings are known gets them
-    /// into its FIRST push of the rows, and nothing is pushed a second time.
+    /// A frame of a generation whose findings are known gets them into its FIRST push of the
+    /// rows, and nothing is pushed a second time.
     #[test]
     fn a_frame_of_a_known_generation_builds_its_rows_once_with_the_findings() {
         let rows = RefCell::new(LateRows::default());

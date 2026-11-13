@@ -191,7 +191,7 @@ impl EnvCore {
         actions
     }
 
-    /// A single-coordinate candidate already measured by the independent probes.
+    /// Whether `raw` is a single-coordinate action at a probe's own `±h_deg` step.
     fn is_original_probe(&self, raw: &[f32], h_deg: f64) -> bool {
         let mut nonzero = raw.iter().enumerate().filter(|(_, value)| **value != 0.0);
         let Some((tier, &value)) = nonzero.next() else {
@@ -217,12 +217,12 @@ impl EnvCore {
         (winner, usize::from(outcome.evaluated))
     }
 
-    /// Evaluate every distinct canonical gradient scale.
+    /// Evaluate the actions in list order and keep the best winner.
     ///
-    /// Every listed action is evaluated whatever the others return, so a pool worker always
-    /// shares the list ([`on_pool_worker`]); off a pool the remaining suffix is shared once
-    /// `parallel` reports spare capacity. Reduction stays in list order; unlike rollout
-    /// acceptance the teacher keeps the best.
+    /// Every listed action is evaluated whatever the others return, so a pool worker shares
+    /// the whole list ([`on_pool_worker`]). Off a pool, the remaining suffix is shared once
+    /// `parallel` reports spare capacity. Reduction stays in list order; unlike a rollout step,
+    /// which takes the first accepted scale, the teacher keeps the largest gain.
     fn search_raw_actions(
         &self,
         actions: &[Winner],
@@ -255,9 +255,9 @@ impl EnvCore {
 
     /// Bounded escape search, not an exhaustive coordinate or joint optimizer.
     ///
-    /// Prefer the largest measured slopes with stable tier ties. Up to six coordinate probes
-    /// retain smaller/larger radii; two paired directions cover some coupled escapes.
-    /// The total cap includes invalid projections and is not an exhaustive pair search.
+    /// The two tiers with the largest measured slopes (ties by index) get up to six coordinate
+    /// probes at two radii. Two paired directions cover some coupled escapes. Actions already
+    /// measured are dropped after the cap, without refilling it.
     fn rescue_actions(
         &self,
         h_deg: f64,
@@ -354,10 +354,9 @@ impl EnvCore {
                 }
             }
         }
-        // Every gradient action was evaluated in this unchanged environment. Exact raw
-        // equality means evaluate_raw would execute the same action at unit scale again.
-        // Filter after the original cap, without refilling: search coverage and tie order
-        // stay the same, and only repeated failed projections/scorings disappear.
+        // Gradient actions were already evaluated in this unchanged environment, and an equal
+        // raw action would be executed again at unit scale. Filter after the cap, without
+        // refilling, so search coverage and tie order stay the same.
         candidates.retain(|candidate| !measured.iter().any(|old| old.raw == candidate.raw));
         candidates
     }

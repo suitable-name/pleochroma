@@ -16,7 +16,7 @@ use super::{SHADER_SRC, UlpAccumulator, UlpCheckResult};
 
 // ---------------------------------------------------------------------------------
 // GPU port: optics::raytracer::henyey_greenstein_phase.
-// Compared against calling the REAL CPU function directly.
+// Compared against the real CPU function.
 // ---------------------------------------------------------------------------------
 
 /// One input case for the hg phase check.
@@ -29,72 +29,33 @@ pub struct HgPhaseCase {
     _pad1: f32,
 }
 
-/// `henyey_greenstein_phase` chains a `powf(1.5)`/`pow(x, 1.5)` call -- cross-platform
-/// `pow` implementations diverge more sharply than the elementary `sqrt`/`exp`/`sin_cos`
-/// calls this file's other budgets cover, so this is set wider than
-/// `COSINE_HEMISPHERE_ULP_BUDGET` (48) despite being a simpler function, mirroring the
-/// same "pow needs headroom" lesson `blackbody_spectrum`'s own ULP budget already
-/// establishes (29 raw ULP observed on real hardware for a single `powi` chain plus two
-/// divisions).
+/// ULP budget for every case outside the near-degenerate corner.
 ///
-/// This is the budget for EVERY case except the near-degenerate corner
-/// [`HG_PHASE_NEAR_DEGENERATE_ULP_BUDGET`] covers instead -- see
-/// [`is_hg_phase_near_degenerate`] for the split and that constant's own doc comment for
-/// why the corner needs so much more headroom. A single 16384-ULP budget across the
-/// WHOLE case bank would rely on a claim this module's
-/// own megakernel contradicts (see [`HG_PHASE_NEAR_DEGENERATE_ULP_BUDGET`]'s doc
-/// comment) -- 64 is this file's ordinary "pow needs headroom" margin, matching
-/// [`HG_SAMPLE_ULP_BUDGET`]'s own order of magnitude for a comparably composite
-/// function.
+/// See [`is_hg_phase_near_degenerate`]. `pow(x, 1.5)` diverges across platforms more than the
+/// `sqrt`/`exp` calls of the other budgets, so this leaves headroom above them. The NEE path
+/// evaluates the phase directly as a MIS density, so the budget stays tight.
 const HG_PHASE_ULP_BUDGET: u32 = 64;
 
-/// The widened budget for [`is_hg_phase_near_degenerate`]'s corner ONLY --
-/// both `g` and `cos_theta` within 0.05 of the SAME sign's extreme (`+1` or `-1`), where
-/// the denominator `1 + g^2 - 2*g*cos_theta` sits within ~1e3x of its `1e-6` clamp
-/// floor. Measured directly on real hardware: even after softening the case bank's most
-/// razor's-edge near-singular point (see [`build_hg_phase_cases`]'s own comment), the
-/// remaining strongly forward-peaked cases in this corner still measured up to ~5800 raw
-/// ULP -- `pow(x, 1.5)` at a small `x` amplifies even a tiny difference in how CPU
-/// `f32::mul_add` and GPU `fma` round the numerator before the clamp. The absolute
-/// difference at that same point was ~0.19 out of a ~394 value (~0.05% relative).
+/// ULP budget for the near-degenerate corner of [`is_hg_phase_near_degenerate`].
 ///
-/// This budget does NOT get to hide a porting bug on the path that matters. The raw
-/// phase value goes unevaluated by the shipped estimator only along the
-/// BSDF-sampling path, where
-/// `maybe_scatter_or_extinguish` samples exactly this distribution so `phase / pdf`
-/// cancels to `1.0` -- but the NEE (next-event-estimation) shadow-ray path evaluates it
-/// directly, as its own competing-technique density for the balance heuristic: CPU
-/// `optics::raytracer::scattering` calls `henyey_greenstein_phase` around its NEE
-/// shadow-ray weighting function, and `transport_bounce.wgsl`'s NEE path does the same.
-/// A real porting error of this budget's size would therefore bias every HDR scattering
-/// scene's MIS weight and still pass Tier 2 -- confining the wide budget to this one
-/// corner (rather than the whole case bank) is what keeps that NEE path
-/// covered by [`HG_PHASE_ULP_BUDGET`]'s much tighter 64-ULP floor instead.
+/// There `g` and `cos_theta` are both within 0.1 of an extreme (+1 or -1), the denominator
+/// `1 + g^2 - 2*g*cos_theta` sits near its `1e-6` clamp, and `pow(x, 1.5)` amplifies the
+/// rounding difference between CPU `mul_add` and GPU `fma`. The wide budget is confined to this
+/// corner: the NEE path evaluates the phase directly for its MIS weight, so a real porting error
+/// must not hide behind this headroom.
 const HG_PHASE_NEAR_DEGENERATE_ULP_BUDGET: u32 = 16384;
 
-/// Near `cos_theta -> 1, g -> 1` the denominator `(1 + g^2 - 2*g*cos_theta)` approaches
-/// its `1e-6` floor and the phase value spikes sharply -- both engines clamp identically,
-/// but the exact spike VALUE is numerically sensitive there, so a small absolute floor
-/// keeps that regime from dominating the ULP budget the way `environment_check`'s own
-/// `CMF_ABS_FLOOR` documents for a similar "correct but numerically touchy" case. Shared
-/// by both [`HG_PHASE_ULP_BUDGET`] and [`HG_PHASE_NEAR_DEGENERATE_ULP_BUDGET`]'s
-/// accumulators -- the floor is about how close to zero the COMPARED VALUE is, not about
-/// which ULP budget applies to it.
+/// Absolute floor for the phase comparison.
+///
+/// Near `cos_theta -> 1, g -> 1` the phase spikes as the denominator approaches its clamp, and
+/// the spike value is numerically sensitive; the floor keeps that regime from dominating the ULP
+/// budget. Both accumulators share it because it concerns the compared value, not the budget.
 const HG_PHASE_ABS_FLOOR: f32 = 1e-3;
 
-/// `true` for the corner [`HG_PHASE_NEAR_DEGENERATE_ULP_BUDGET`] covers --
-/// both `g` and `cos_theta` at least 0.9 in absolute value. See that constant's own doc
-/// comment for why this corner alone needs the wide budget.
+/// True when `g` and `cos_theta` are both at least 0.9 in absolute value.
 ///
-/// The comparison uses `>= 0.9` rather than the tighter, seemingly equivalent
-/// `(v - 1.0).abs() <= 0.05 || (v + 1.0).abs() <= 0.05` (`|v| >= 0.95`,
-/// modulo rounding): a case bank entry at EXACTLY `g = -0.95` could land on the wrong
-/// side of that boundary: `-0.95f32 + 1.0` does not round to exactly `0.05` (f32 addition
-/// is not exact here), so the comparison against `0.05` could evaluate `false` for the
-/// one case name it exists to catch. `>= 0.9` gives the boundary a comfortable margin --
-/// wide enough that no case bank entry this crate generates can straddle it by rounding
-/// error -- while staying well short of `0.0` (never misclassifies an ordinary-regime
-/// case as degenerate).
+/// This is the corner [`HG_PHASE_NEAR_DEGENERATE_ULP_BUDGET`] covers. The 0.9 threshold, rather
+/// than 0.95, keeps bank entries such as `g = -0.95` inside it despite f32 rounding in `v + 1.0`.
 fn is_hg_phase_near_degenerate(case: &HgPhaseCase) -> bool {
     fn near_an_extreme(v: f32) -> bool {
         v.abs() >= 0.9
@@ -102,25 +63,34 @@ fn is_hg_phase_near_degenerate(case: &HgPhaseCase) -> bool {
     near_an_extreme(case.g) && near_an_extreme(case.cos_theta)
 }
 
-/// Merges the near-degenerate-corner accumulator's [`UlpCheckResult`] into
-/// the ordinary-budget one, so [`run_hg_phase`] can still report a single result to its
-/// caller despite comparing the two case groups against two different budgets. `primary`
-/// (the ordinary [`HG_PHASE_ULP_BUDGET`] run) supplies the reported `label`/`budget`/
-/// `abs_floor`; counts are summed, and the worse (higher-ULP) `argmax` wins -- whichever
-/// group's worst offender is further from ITS OWN budget is the more useful diagnostic
-/// to surface first.
+/// Merges the near-degenerate accumulator's [`UlpCheckResult`] into the ordinary one, so
+/// [`run_hg_phase`] still reports one result. `primary` supplies the label, budget and floor.
+/// Counts are summed. The worst case comes from the group that failed its own budget if only
+/// one did, else from the group with the larger `max_ulp`.
 fn merge_hg_phase_results(
     mut primary: UlpCheckResult<HgPhaseCase>,
     secondary: UlpCheckResult<HgPhaseCase>,
 ) -> UlpCheckResult<HgPhaseCase> {
+    // A failing group's `max_ulp` and `argmax` must win over a passing group's. Otherwise the
+    // corner's within-budget maximum (budget 16384) could be reported as the argmax of a failure
+    // in the ordinary group (budget 64). Decided before the counts are summed below.
+    let secondary_wins = if primary.passed() == secondary.passed() {
+        secondary.max_ulp > primary.max_ulp
+    } else {
+        !secondary.passed()
+    };
     primary.total_comparisons += secondary.total_comparisons;
     primary.over_budget_count += secondary.over_budget_count;
     primary.exempted_count += secondary.exempted_count;
     primary.max_raw_ulp = primary.max_raw_ulp.max(secondary.max_raw_ulp);
-    if secondary.max_ulp > primary.max_ulp {
+    if secondary_wins {
         primary.max_ulp = secondary.max_ulp;
         primary.argmax = secondary.argmax;
     }
+    primary
+        .over_budget_samples
+        .extend(secondary.over_budget_samples);
+    primary.over_budget_samples.truncate(8);
     primary
 }
 
@@ -138,22 +108,12 @@ fn build_hg_phase_cases() -> Vec<HgPhaseCase> {
             });
         }
     }
-    // Adversarial: exact forward/backward directions, near-isotropic g, near-extreme g
-    // (the denominator's 1e-6 clamp floor), and the g==0 exact isotropic case.
-    // NOTE: `(cos_theta, g)` pairs where `cos_theta` and `g` both approach the SAME
-    // extreme (e.g. cos_theta=1.0, g=0.999) push the denominator
-    // `1 + g^2 - 2*g*cos_theta` -- algebraically `(1 - g)^2` at cos_theta=1 exactly --
-    // right down to the `1e-6` clamp floor. That is a genuine mathematical
-    // near-singularity (the phase function's own derivative blows up there), not a
-    // porting artifact: a few ULP of difference in how CPU `f32::mul_add` and GPU
-    // `fma` round the numerator before the clamp can land the two engines on either
-    // side of the floor, and `pow(tiny, 1.5)` amplifies that into a large relative
-    // (and ULP) divergence even though both engines are individually correct for
-    // their own rounding. `g = 0.98` (denominator `~4e-4`, comfortably above the
-    // clamp floor) keeps this a genuinely strong near-forward/near-backward stress
-    // case without landing exactly astride the singularity -- measured directly: the
-    // razor's-edge `g = 0.999` pairing was the ONLY case (2 of several hundred) that
-    // exceeded even a multi-thousand-ULP budget in this file's own harness run.
+    // Adversarial: exact forward/backward directions, near-isotropic g, near-extreme g and
+    // the exact g == 0 case. Pairs with `cos_theta` and `g` both at an extreme (e.g. 1.0 and
+    // 0.999) drive the denominator `1 + g^2 - 2*g*cos_theta` down to its `1e-6` clamp. That is
+    // a genuine near-singularity, and CPU and GPU rounding can land on either side of the floor.
+    // `pow` then amplifies the difference. `g = 0.98` keeps the case strongly peaked without
+    // sitting on the singularity.
     let adversarial = [
         (1.0f32, 0.98),
         (1.0, -0.98),
@@ -249,7 +209,7 @@ pub fn run_hg_phase(ctx: &crate::renderer::gpu::GpuContext) -> UlpCheckResult<Hg
 
 // ---------------------------------------------------------------------------------
 // GPU port: optics::raytracer::sample_henyey_greenstein_direction.
-// Compared against calling the REAL CPU function directly.
+// Compared against the real CPU function.
 // ---------------------------------------------------------------------------------
 
 /// One input case for the hg sample check.
@@ -264,17 +224,14 @@ pub struct HgSampleCase {
     _pad1: f32,
 }
 
-/// Chains a CDF-inversion division, a `sqrt`, a `sin_cos` pair, and an orthonormal-basis
-/// construction (the same shape `COSINE_HEMISPHERE_ULP_BUDGET` covers, plus the extra
-/// division), so set to more than double that budget.
+/// Covers a CDF-inversion division, a `sqrt`, a `sin_cos` pair and an orthonormal-basis
+/// construction: the cosine-hemisphere shape plus one more division.
 const HG_SAMPLE_ULP_BUDGET: u32 = 128;
-/// Wider than `COSINE_HEMISPHERE_ABS_FLOOR` (1e-5): measured directly on real hardware,
-/// a handful of cases with `u1`/`u2` near the `[0, 1)` boundary produced a genuinely
-/// near-zero output COMPONENT (an off-axis residual after the CDF inversion's own extra
-/// division, not present in the simpler `cosine_weighted_hemisphere`) whose absolute
-/// difference (~7e-5) sat just above the tighter floor -- see
-/// `crate::renderer::gpu::ulp::within_tolerance`'s doc comment for why ULP is the wrong
-/// metric exactly at this kind of legitimate near-zero crossing.
+/// Absolute floor, wider than the cosine-hemisphere floor (1e-5).
+///
+/// With `u1`/`u2` near the `[0, 1)` edges, an output component can be a near-zero off-axis
+/// residual of the CDF inversion, and its absolute difference then reaches about 7e-5. ULP is
+/// the wrong metric at such a zero crossing; see `crate::renderer::gpu::ulp::within_tolerance`.
 const HG_SAMPLE_ABS_FLOOR: f32 = 2e-4;
 
 fn build_hg_sample_cases() -> Vec<HgSampleCase> {
@@ -398,11 +355,9 @@ pub fn run_hg_sample(ctx: &crate::renderer::gpu::GpuContext) -> UlpCheckResult<H
 }
 
 // ---------------------------------------------------------------------------------
-// GPU port: optics::raytracer::maybe_scatter_or_extinguish -- the
-// full homogeneous-medium free-path distance sampler and per-channel extinction/scatter
-// weighting. Compared against calling the REAL CPU function directly, never a
-// reimplementation -- see that function's own doc comment for the estimator (hazards
-// 1-5) this pins.
+// GPU port: optics::raytracer::maybe_scatter_or_extinguish, the homogeneous-medium free-path
+// sampler and per-channel extinction/scatter weighting. Compared against the real CPU function.
+// See its doc comment for the estimator (hazards 1-5).
 // ---------------------------------------------------------------------------------
 
 /// One input case for the scatter or extinguish check.
@@ -414,8 +369,7 @@ pub struct ScatterOrExtinguishCase {
     hit_t: f32,
     rng_seed: u32,
     bounce: u32,
-    /// Reuses what was `_pad0` -- one more distinct, non-zero test value, same
-    /// rationale as every other field in this case bank.
+    /// Path-length scale passed to the estimator; 1.0 is the default.
     path_scale: f32,
     _pad1: u32,
     _pad2: u32,
@@ -428,19 +382,16 @@ pub struct ScatterOrExtinguishCase {
 
 const _: () = assert!(size_of::<ScatterOrExtinguishCase>() == 240);
 
-/// Chains the distance-sampling `log`/`exp`/division chain (hazard 2's derivation) with
-/// up to 8 more `exp` calls (one per channel) and [`sample_henyey_greenstein_direction`]'s
-/// own budget ([`HG_SAMPLE_ULP_BUDGET`] = 128) when the scatter branch fires -- set to
-/// comfortably exceed the sum of those constituent pieces, matching this file's
-/// established convention of leaving headroom above a composite function's parts rather
-/// than pinning to their exact sum ([`FROSTED_BOUNCE_ULP_BUDGET`]'s own doc comment
-/// states the same rationale for an analogous composite bounce dispatch).
+/// Covers the distance-sampling chain, up to 8 channel `exp` calls and the HG direction sample.
+///
+/// The chain is the `log`/`exp`/division of hazard 2 in `maybe_scatter_or_extinguish`, the
+/// sample is [`HG_SAMPLE_ULP_BUDGET`] on the scatter branch. The budget sits above that sum
+/// rather than at it, since rounding does not compose exactly across a composite's parts.
 const SCATTER_ULP_BUDGET: u32 = 512;
 const SCATTER_ABS_FLOOR: f32 = 1e-5;
 
-/// Distinct-per-channel `alphas`/`stokes`/`path_pdf` test data -- a cross-channel
-/// indexing bug cannot hide behind every channel carrying the same input, mirroring
-/// [`frosted_bounce_varied_inputs`]'s identical rationale for the frosted-bounce check.
+/// Distinct per-channel `alphas`, Stokes and `path_pdf` values, so a cross-channel indexing bug
+/// cannot hide behind identical inputs. The frosted-bounce check uses the same approach.
 fn scatter_varied_inputs() -> ([f32; 8], [[f32; 4]; 8], [f32; 8]) {
     let varied_alphas: [f32; 8] = std::array::from_fn(|k| 0.05f32.mul_add(k as f32, 0.02));
     let varied_stokes: [[f32; 4]; 8] = std::array::from_fn(|k| {
@@ -466,16 +417,12 @@ fn build_scatter_cases() -> Vec<ScatterOrExtinguishCase> {
         Vec3::new(-0.6, 0.2, 0.77).normalize(),
     ];
     let sigma_gs = [(0.3f32, 0.0f32), (0.8, 0.4), (1.5, -0.6), (0.05, 0.9)];
-    // hit_t spans values that put the free-path sample on either side of the boundary
-    // for the sigma_t magnitudes above (small hit_t favors the no-scatter/survive
-    // branch; large hit_t favors the scatter branch) -- both branches must be
-    // dispatched to many times across the full case bank.
+    // hit_t spans both sides of the free-path sample for the sigma_t values above. Small hit_t
+    // favors survival and large hit_t favors scatter, so both branches are covered.
     let hit_ts = [0.05f32, 0.3, 1.0, 3.0];
     let seeds = [0u32, 1, 7, 42, 1000, 0xDEAD_BEEF, 0xC0FF_EE00];
     let bounces = [0u32, 3, 5, 9];
-    // 1.0 (the default, still exercised) plus two genuinely-scaled values straddling
-    // 1.0 (a larger and a smaller physical stone), covering both the scatter and
-    // no-scatter/survive branches at each.
+    // 1.0 (the default) plus a larger and a smaller value, so both branches are covered at each.
     let path_scales = [1.0f32, 3.0, 0.4];
 
     for &alphas in &[uniform_zero_alphas, varied_alphas] {

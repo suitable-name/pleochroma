@@ -34,10 +34,10 @@ pub fn wire(window: &AppWindow, state: &Shared) {
 /// Pushes the viewport from the state and, when the picture it shows is out of date,
 /// queues a new one. Cheap when nothing changed.
 ///
-/// The window's scale factor is read here on every push, not only when the viewport is
-/// resized: a window can learn its real scale after the first layout without changing its
-/// logical size, and a raster drawn at the wrong scale is blurry. A changed scale changes
-/// the raster size, which `runtime::request` turns into a new picture.
+/// The scale factor is read on every push, not only on resize: a window can learn its real
+/// scale after layout without its logical size changing, and a raster at the wrong scale is
+/// blurry. A new scale changes the raster size, which `runtime::request` turns into a new
+/// picture.
 ///
 /// In the Render mode the raster queue is idle (the picture is the render's) and the
 /// render view is told that the camera may have moved.

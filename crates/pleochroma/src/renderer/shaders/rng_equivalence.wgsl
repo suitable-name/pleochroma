@@ -1,32 +1,22 @@
-// RNG/integer bit-exactness self-test kernel, driven by `renderer::gpu::rng_check` --
-// not a physics kernel. Ports five pieces of `pleochroma`'s deterministic-sampling
-// machinery to WGSL, bit-for-bit against their Rust source (WGSL `u32` arithmetic wraps
-// modulo 2^32 the same as Rust's `wrapping_*`, so "bit-exact" is the actual bar):
-//   1. `optics::raytracer::hash_u32` -- the integer hash everything else is built from.
-//   2. `render_core.rs::trace_samples`'s per-sample seed formula.
-//   3. Stratified pixel-jitter/hero-wavelength draw (`optics::raytracer::
-//      {low_discrepancy_base2, cranley_patterson_rotate}` and the
-//      `PIXEL_JITTER_X/Y_ROTATION_STREAM`/`HERO_WAVELENGTH_ROTATION_STREAM` salts).
-//   4. `optics::raytracer::trace_spectral_ray`'s four salted per-bounce draws
-//      (`FRESNEL_BRANCH_STREAM`/`RUSSIAN_ROULETTE_STREAM`/`BIREFRINGENT_SPLIT_STREAM`/
-//      `MODE_COUPLING_STREAM`).
-//   5. `optics::raytracer::wrapped_hero_wavelengths`'s hero-wavelength comb.
+// RNG and integer bit-exactness self-test kernel, driven by `renderer::gpu::rng_check`. Not a
+// physics kernel. It ports the deterministic sampling draws to WGSL, bit for bit against the Rust
+// source (WGSL `u32` arithmetic wraps modulo 2^32, as Rust's `wrapping_*` does):
+//   1. `optics::raytracer::hash_u32`, the integer hash everything else is built from.
+//   2. The per-sample seed formula of `render_core.rs::trace_samples`.
+//   3. The stratified pixel-jitter and hero-wavelength draw (`low_discrepancy_base2`,
+//      `cranley_patterson_rotate` and their rotation salts).
+//   4. The four salted per-bounce draws of `optics::raytracer::trace_spectral_ray`.
+//   5. The hero-wavelength comb of `optics::raytracer::wrapped_hero_wavelengths`.
 //
-// `%` vs `rem_euclid`: WGSL's `%` is a truncating remainder, not `rem_euclid` (they
-// differ for a negative dividend). `wrapped_hero_wavelengths` uses `rem_euclid` because
-// its CPU call site can't prove `offset` stays non-negative. Here `offset` is provably
-// >= 0.0 by construction (`lambda_hero >= 380.0`, `k * channel_width >= 0.0`), and for a
-// non-negative dividend with a positive divisor `%` and `rem_euclid` agree -- so plain
-// `%` is safe here ONLY because of that invariant.
+// `%` vs `rem_euclid`: WGSL's `%` truncates, so it differs from `rem_euclid` for a negative
+// dividend. Here `offset` is always >= 0.0 (`lambda_hero >= 380.0`, `k * channel_width >= 0.0`),
+// so plain `%` agrees with the CPU. This holds only because of that invariant.
 //
-// `fma`, not `a * b + c`: the CPU formula uses `f32::mul_add` (single-rounding fused
-// multiply-add); WGSL's `fma()` carries the same guarantee, so both call sites here use
-// it instead of `*`/`+`. Measured on this workspace's dev hardware (AMD RDNA2 iGPU,
-// Vulkan): integer fields come back byte-exact against the CPU; the `fma`-built floats
-// (`lambdas`, `jx`, `jy`, `hero_rand`) differ by up to 1 ULP in ~0.02% of records,
-// consistent with the driver lowering `fma()` to a non-fused multiply-add rather than a
-// real algebra bug. `renderer::gpu::rng_check` tiers tolerance accordingly: integer
-// fields (Tier 1) at zero tolerance, `fma`-built floats (Tier 2) at 1 ULP.
+// `fma`, not `a * b + c`: the CPU uses `f32::mul_add`, a single-rounding fused multiply-add, and
+// WGSL's `fma()` gives the same guarantee. Some drivers lower `fma()` to a non-fused multiply-add,
+// so the `fma`-built floats (`lambdas`, `jx`, `jy`, `hero_rand`) can differ from the CPU by 1 ULP,
+// while integer fields stay exact. `renderer::gpu::rng_check` uses zero tolerance for integer
+// fields and 1 ULP for the `fma`-built floats.
 
 struct RngRecord {
     seed: u32,
@@ -42,16 +32,15 @@ struct RngRecord {
     rr_draws: array<u32, 4>,
     biref_draws: array<u32, 4>,
     mode_coupling_draws: array<u32, 4>,
-    // Tier 1 integer draws for apply_frosted_bounce's 2D cosine-weighted-hemisphere
-    // direction sample -- see optics::raytracer::{FROSTED_DIR_U_STREAM, FROSTED_DIR_V_STREAM}.
+    // Integer draws of the frosted bounce's cosine-weighted hemisphere direction sample.
     frosted_dir_u_draws: array<u32, 4>,
     frosted_dir_v_draws: array<u32, 4>,
 }
 
 struct Params {
     num_samples: u32,
-    // Must be <= 4 -- RngRecord's per-bounce arrays are fixed at capacity 4. Enforced by
-    // the host (`renderer::gpu::rng_check`) before dispatch, not re-checked here.
+    // Must be <= 4, the capacity of `RngRecord`'s per-bounce arrays. The host checks this before
+    // dispatch.
     num_bounces: u32,
     _pad0: u32,
     _pad1: u32,
@@ -64,18 +53,17 @@ const SPECTRUM_MIN: f32 = 380.0;
 const SPECTRUM_SPAN: f32 = 400.0; // 780.0 - 380.0
 const NUM_CHANNELS: u32 = 8u;
 
-// Same four stream salts as `optics::raytracer::{FRESNEL_BRANCH_STREAM,
-// RUSSIAN_ROULETTE_STREAM, BIREFRINGENT_SPLIT_STREAM, MODE_COUPLING_STREAM}`.
+// Per-bounce stream salts of `optics::raytracer`: `FRESNEL_BRANCH_STREAM`,
+// `RUSSIAN_ROULETTE_STREAM`, `BIREFRINGENT_SPLIT_STREAM`, `MODE_COUPLING_STREAM`.
 const FRESNEL_BRANCH_STREAM: u32 = 0x9E3779B1u;
 const RUSSIAN_ROULETTE_STREAM: u32 = 0x517CC1B7u;
 const BIREFRINGENT_SPLIT_STREAM: u32 = 0x2545F491u;
 const MODE_COUPLING_STREAM: u32 = 0xCC9E2D51u;
-// optics::raytracer::{FROSTED_DIR_U_STREAM, FROSTED_DIR_V_STREAM}.
+// Stream salts `FROSTED_DIR_U_STREAM` and `FROSTED_DIR_V_STREAM` of `optics::raytracer`.
 const FROSTED_DIR_U_STREAM: u32 = 0x27D4EB2Fu;
 const FROSTED_DIR_V_STREAM: u32 = 0x165667B1u;
 
-// Same three stream salts as `optics::raytracer::{PIXEL_JITTER_X_ROTATION_STREAM,
-// PIXEL_JITTER_Y_ROTATION_STREAM, HERO_WAVELENGTH_ROTATION_STREAM}`.
+// Rotation salts of the pixel jitter and hero wavelength, as in `optics::raytracer`.
 const PIXEL_JITTER_X_ROTATION_STREAM: u32 = 0xA511E9B3u;
 const PIXEL_JITTER_Y_ROTATION_STREAM: u32 = 0x63D81B23u;
 const HERO_WAVELENGTH_ROTATION_STREAM: u32 = 0x1B873593u;
@@ -89,9 +77,9 @@ fn hash_u32(x_in: u32) -> u32 {
     return x;
 }
 
-// optics::raytracer::{low_discrepancy_base2, radical_inverse_base,
-// cranley_patterson_rotate}. jx/jy/hero_rand use bases 2/3/5 -- using the same base for
-// all three measured WORSE variance for the highest-variance pixels.
+// `low_discrepancy_base2`, `radical_inverse_base` and `cranley_patterson_rotate` of
+// `optics::raytracer`. jx, jy and hero_rand use bases 2, 3 and 5: one shared base gave higher
+// variance on the noisiest pixels.
 fn low_discrepancy_base2(n: u32) -> f32 {
     return f32(reverseBits(n)) / 4294967296.0;
 }
@@ -126,7 +114,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let pixel = idx / params.num_samples;
     let sample = idx % params.num_samples;
 
-    // render_core.rs::trace_samples's seed formula -- seeds every per-bounce draw below.
+    // Per-sample seed (`render_core.rs::trace_samples`); it seeds every draw below.
     let seed = hash_u32((pixel * 0x9e3779b9u) ^ (sample * 0x85ebca6bu));
 
     // Stratified pixel jitter and hero wavelength.
@@ -135,7 +123,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let rot_hero_hash = hash_u32(pixel ^ HERO_WAVELENGTH_ROTATION_STREAM);
     let sample_reversed = reverseBits(sample);
 
-    var rec: RngRecord;
+    var rec: RngRecord = RngRecord();
     rec.seed = seed;
     rec.rot_jx_hash = rot_jx_hash;
     rec.rot_jy_hash = rot_jy_hash;
@@ -156,8 +144,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let lambda_hero = fma(hero_rand, SPECTRUM_SPAN, SPECTRUM_MIN);
     for (var k: u32 = 0u; k < NUM_CHANNELS; k = k + 1u) {
         let offset = fma(f32(k), channel_width, lambda_hero - SPECTRUM_MIN);
-        // Invariant documented above: `offset` is always >= 0.0 here, so plain `%`
-        // agrees with the CPU's `rem_euclid`.
+        // `offset` is always >= 0.0 here, so plain `%` agrees with the CPU's `rem_euclid`.
         let wrapped = offset % SPECTRUM_SPAN;
         rec.lambdas[k] = SPECTRUM_MIN + wrapped;
     }

@@ -35,18 +35,17 @@
 //!
 //! # Why 181 points at a 1-degree step, not something coarser
 //!
-//! Measured: interpolating from coarser samples gives max errors of 4.6-7.3 points at a
-//! 5-degree step, still 3.2-4.6 at 2-degree -- enough to flip a design in/out of a
-//! `crate::model::performance` hard-threshold filter, a wrong answer, not an
-//! approximation. Hence 8,688 bytes/design (~27 MB across the ~3,187-design catalogue).
+//! Measured: interpolating from coarser samples errs by up to 4.6-7.3 points at a 5-degree
+//! step and 3.2-4.6 at 2-degree. That is enough to flip a design across a
+//! `crate::model::performance` hard threshold, so it is a wrong answer, not an approximation.
+//! Hence 8,688 bytes per design.
 //!
 //! # Why a packed BLOB, not a row-per-sample side table
 //!
-//! Both readers -- the Tilt Performance dialog (whole 2,172-value record at once) and
-//! `crate::model::performance`'s filters (decoded per candidate design, in Rust, not SQL
-//! -- see [`Self::matches_performance_filter`]) -- never need per-row access to
-//! individual samples. A row-per-sample table would cost ~6.9M rows catalogue-wide for
-//! no query capability either reader needs; one `BLOB` is simpler and cheaper.
+//! Both readers -- the Tilt Performance dialog (the whole 2,172-value record at once) and
+//! `crate::model::performance`'s filters (decoded per candidate design in Rust, see
+//! [`Self::matches_performance_filter`]) -- never need individual samples. A row-per-sample
+//! table would add 2,172 rows per design with no query either reader needs.
 
 use crate::model::performance::{
     GlobalExtremes, PerformanceAggregate, PerformanceBound, PerformanceFilter,
@@ -60,9 +59,9 @@ pub const TILT_CURVE_POINTS_PER_AXIS: usize = 181;
 
 /// The tilt-away-from-table-up angle, in degrees, that sample `index` (0..=180) holds.
 ///
-/// `index - 90`, so `index 90` (table-up/face-up) is always exactly `0.0`. The hot loop
-/// in `matches_performance_filter` inlines this subtraction instead of calling this
-/// function; this one exists for other callers, e.g. a future axis-label renderer.
+/// `index - 90`, so `index 90` (table-up/face-up) is always exactly `0.0`.
+/// `matches_performance_filter` inlines this subtraction in its hot loop; this function is the
+/// named form of the same mapping for other code.
 ///
 /// # Panics
 ///
@@ -109,11 +108,11 @@ pub struct TiltPerformanceCurves {
 }
 
 impl TiltPerformanceCurves {
-    /// Packs this record into exactly [`TILT_CURVE_BLOB_BYTES`] bytes: for each axis
-    /// (0..4, outermost), for each metric in the fixed order brilliance, extinction,
-    /// windowing, for each of the 181 sample points (ascending index, i.e. ascending
-    /// tilt-away-from-table-up, innermost), one little-endian `f32`.
-    /// [`Self::from_bytes`] is the exact inverse.
+    /// Packs this record into exactly [`TILT_CURVE_BLOB_BYTES`] bytes, the inverse of
+    /// [`Self::from_bytes`].
+    ///
+    /// The order is axis (outermost), then metric (brilliance, extinction, windowing), then
+    /// sample index ascending (innermost), each sample a little-endian `f32`.
     #[must_use]
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut out = Vec::with_capacity(TILT_CURVE_BLOB_BYTES);
@@ -132,10 +131,11 @@ impl TiltPerformanceCurves {
         out
     }
 
-    /// Whether every sample of every curve is a finite number. [`Self::from_bytes`]
-    /// only ever returns such a record, and the database refuses to store any other, so
-    /// a NaN or infinity produced by a broken sweep is caught where it is made instead
-    /// of poisoning the decoded record's mean and extremes later.
+    /// Whether every sample of every curve is finite.
+    ///
+    /// [`Self::from_bytes`] only returns such a record and the database refuses to store any
+    /// other, so a NaN or infinity from a broken sweep is caught where it is made, not later
+    /// when it would poison the mean and extremes.
     #[must_use]
     pub fn is_finite(&self) -> bool {
         self.axes.iter().all(|axis| {
@@ -208,12 +208,12 @@ impl TiltPerformanceCurves {
         Ok(Self { axes })
     }
 
-    /// Computes every derived scalar `crate::db::sqlite::Database::save_tilt_curves`
-    /// writes into `diagram_tilt_curves`'s 6 precomputed columns: the global min/max of
-    /// each metric across the full -90..+90 sweep, all 4 axes. See
-    /// `crate::model::performance`'s module doc for why only these two statistics per
-    /// metric (not a windowed min/max/mean) survive as SQL columns, now that a
-    /// [`PerformanceFilter`]'s tilt radius is arbitrary rather than one of a fixed few.
+    /// The global extremes that `crate::db::sqlite::Database::save_tilt_curves` stores in the
+    /// 6 precomputed `diagram_tilt_curves` columns.
+    ///
+    /// Each is the min or max of one metric across all 4 axes and the full -90..+90 sweep. Only
+    /// these two statistics per metric are SQL columns, since a [`PerformanceFilter`]'s tilt
+    /// radius is arbitrary; see `crate::model::performance`'s module doc.
     #[must_use]
     pub fn global_extremes(&self) -> PerformanceGlobalExtremes {
         PerformanceGlobalExtremes {
@@ -245,16 +245,16 @@ impl TiltPerformanceCurves {
         GlobalExtremes { min, max }
     }
 
-    /// Evaluates `filter` exactly against this design's full decoded curve record --
-    /// the arbitrary-radius counterpart of the coarse global-min/max SQL narrowing
-    /// `crate::db::sqlite::search::build_search_predicate` applies first (see
-    /// `crate::model::performance`'s module doc for the two-stage design). Scans every
-    /// point within `filter.tilt_radius_deg` degrees of TABLE-UP (index 90 -- see "Table-up
-    /// at the centre" above) across all 4 axes: at most 4*181 = 724 comparisons.
+    /// Evaluates `filter` exactly against this design's full decoded curve record.
     ///
-    /// Each point's own tilt-away-from-table-up (`i - 90`) is compared directly against
-    /// `filter.tilt_radius_deg`, so any radius (integer or fractional) works without a
-    /// lookup table of window boundaries.
+    /// This is the arbitrary-radius counterpart of the coarse global-min/max SQL narrowing that
+    /// `crate::db::sqlite::search::build_search_predicate` applies first (see
+    /// `crate::model::performance`'s module doc). It scans every point within
+    /// `filter.tilt_radius_deg` degrees of TABLE-UP (index 90, see "Table-up at the centre"
+    /// above) across all 4 axes: at most 4*181 = 724 comparisons.
+    ///
+    /// Each point's tilt-away-from-table-up (`i - 90`) is compared directly with the radius, so
+    /// any integer or fractional radius works without a table of window boundaries.
     ///
     /// A `tilt_radius_deg` outside `0.0..=90.0` (only reachable by bypassing
     /// [`PerformanceFilter::new`]'s validation) degrades gracefully: negative matches
@@ -563,7 +563,7 @@ mod tests {
         assert!((extremes.brilliance.max - 3179.0).abs() < 1e-6);
     }
 
-    /// A NaN used to reach the mean's sum and poison it while `min`/`max` skipped it.
+    /// A NaN must not reach the mean's sum; the extremes already skip it.
     #[test]
     fn matches_performance_filter_leaves_a_non_finite_sample_out_of_the_mean() {
         let flat_axis = AxisTiltCurves {

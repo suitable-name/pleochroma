@@ -1,8 +1,8 @@
 //! A generation-stamp registry for analysis results with no other natural home to track
 //! their own "computed against generation N" bookkeeping in.
 //!
-//! Today the Retarget proposal, whose generation is produced from two different call
-//! sites (the Shift-mode rebuild and the async Optimize-mode completion).
+//! The Retarget proposal is stamped from three call sites: the window-open rebuild, the
+//! Shift-mode rebuild and the pick of an Optimize-mode option.
 //!
 //! A UI keeps one [`StaleStamps`] (the desktop in a UI-thread `thread_local!`),
 //! [`StaleStamps::stamp`]s a result the moment it lands, [`StaleStamps::clear`]s it

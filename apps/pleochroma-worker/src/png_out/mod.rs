@@ -9,15 +9,10 @@ use std::path::Path;
 
 /// Divides `sums` by `total_samples` and tone-maps the result to RGBA bytes.
 ///
-/// A thin wrapper around `pleochroma::renderer::tonemap::tonemap_accumulation` at
-/// `ColorSpace::Srgb` -- the GUI export's own final conversion, which itself calls the
-/// same `xyz_to_srgb_gamma` the live viewport uses every frame -- so a `render` output
-/// matches both, byte for byte, rather than keeping a second copy of this conversion
-/// that could quietly drift from either. `sums` is expected to be what
-/// [`crate::render_core::trace_samples`] returns.
-///
-/// The one place in this crate that turns a sum into an average -- see
-/// `render_core::trace_samples`'s doc comment for why radiance stays summed elsewhere.
+/// A thin wrapper around `pleochroma::renderer::tonemap::tonemap_accumulation` in sRGB, the
+/// same conversion as the GUI export, so `render` output matches it byte for byte. `sums`
+/// is what [`crate::render_core::trace_samples`] returns: radiance stays summed until this
+/// point.
 #[must_use]
 pub fn tonemap_to_rgba(width: u32, height: u32, total_samples: u32, sums: &[Vec3]) -> Vec<u8> {
     pleochroma::renderer::tonemap::tonemap_accumulation(

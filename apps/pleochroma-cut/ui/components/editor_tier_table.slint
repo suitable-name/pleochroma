@@ -10,40 +10,23 @@ import { TierTableRow } from "editor_tier_table/tier_table_row.slint";
 // The Edit sub-tab's tier table -- a working faceting-design editor over
 // `pleochroma_cut_core::Design`/`History`, wired from Rust in `gui::editor`.
 //
-// This component is deliberately "dumb" about the design itself: every genuine
-// piece of design state (the tier list, undo/redo availability, validation status)
-// is an `in` property `EditorModel` owns and `gui::editor` pushes into after every
-// edit, the same convention `GemViewportView`/`CuttingTableView` use for
-// `current_angles`/`render_image`. This component never constructs an `Edit`
-// itself -- it only collects row actions and hands them to Rust via `EditorModel`'s
-// callbacks, keeping `History` the sole mutator of `Design`. The solved mast shown
-// per row and the `SolveStrategy` badge next to it are pure display -- there is no
-// callback that lets this component write a mast anywhere.
+// The component holds no design state. `EditorModel` owns the tier list, undo and redo
+// availability and validation status, and `gui::editor` pushes them in after every edit.
+// Row actions are collected here and handed to Rust through `EditorModel` callbacks, so
+// `History` stays the only mutator of `Design`. The solved mast and the strategy badge are
+// display only.
 //
-// Selecting a row (click or Enter) does not seed a form directly; this
-// component only reports WHICH tier was selected via `tier_selected`, and `EditorView` wires
-// that straight to `EditorModel.selected_tier_index` (see `app.slint`'s Edit-mode
-// layout doc comment for the overall split, and `EditorView`'s own doc comment for
-// why THAT global property, rather than a direct call into `EditorInspector`, is
-// the hand-off point: the Solid/Diagram viewport's click and "Duplicate" also need
-// to reach the inspector's form, but they can only ever set a global property, not
-// call a sibling component's function).
+// A click or Enter on a row reports the tier through `tier_selected`. `EditorView` sets
+// `EditorModel.selected_tier_index` from it. The viewport and the Duplicate action can only
+// set that global, not call into this component, so the global is the hand-off point.
 //
-// Column widths are every one a named `col_*_width` property on `root` rather
-// than a literal repeated in both the header row and the per-row
-// `HorizontalLayout`, so the header and body columns can never drift out of
-// sync, and NAME/INDICES carry a real `min-width` so they never get squeezed
-// to unreadable slivers before MAST/SOLVE/MARGIN/ORBIT/etc. give up any
-// space. This means the row's natural width can genuinely exceed a narrow
-// dock -- `tier_scroll` (a `ScrollView`, scrollable on both axes already)
-// picks that up as a horizontal-scroll fallback. The column HEADER follows
-// that sideways scroll: it lives outside `tier_scroll` (so it stays visible
-// while the body scrolls vertically) in a clipping wrapper, offset by
-// `tier_scroll.content-x` and as wide as the scrolled content. The row's action
-// buttons (`TierRowActions`) do NOT scroll sideways: each row draws them at the
-// right edge of the visible area (`pane_width`/`pane_x`), over its own background,
-// so Move, Duplicate, Remove, Pin and the rest are always within reach; a Shift+wheel
-// over a row (or a sideways wheel or swipe) turns the data columns beneath them.
+// Column widths are named `col_*_width` properties on `root`, shared by the header and the
+// rows so they cannot drift apart. NAME and INDICES have a minimum width. The table scrolls
+// on both axes (`tier_scroll`), and the row can be wider than a narrow dock. The header sits
+// outside `tier_scroll` in a clipping wrapper and follows its sideways scroll. The row actions
+// (`TierRowActions`) do not scroll: each row draws them at the right edge of the visible area
+// (`pane_width`/`pane_x`), so Move, Duplicate, Remove and Pin stay reachable. Shift+wheel over
+// a row turns the data columns beneath them.
 export component EditorTierTable inherits Rectangle {
     // Collapsed: only the 40px header row; expanded: preserve the natural minimum
     // of the toolbar, column header and visible row area below. `clip` hides the body.
@@ -68,27 +51,20 @@ export component EditorTierTable inherits Rectangle {
 
     property <bool> table_focused: false;
 
-    // A visible "Select" mode toggle for the Ctrl/Shift-click multi-select
-    // gesture, which otherwise has no on-screen affordance. Shows a checkbox
-    // column header below and allows toggling selection without holding Ctrl.
+    // The "Select" mode: a checkbox column that toggles multi-select without holding Ctrl.
     property <bool> select_mode: false;
 
-    // Shared column-width constants -- see this component's own top doc comment. Sized for a dock
-    // about 600 px wide (the table's inner width is then ~592 px): the pinned action group
-    // (`col_actions_width`) starts about 425 px in, and the columns up to and including SOLVE end
-    // at 424 px (4 + 20 + 14 + 36 + 58 + 78 + 70 + 48 + 42 + 54), so NAME, INDICES, MEETS, MAST and
-    // SOLVE are all on view without scrolling. MARGIN and ORBIT lie under the action group until the
-    // table is scrolled sideways; a heading or value that would run under the group is hidden whole
-    // rather than cut in half. NAME and INDICES stretch with a wider dock. ANGLE is as wide as its
-    // value (and the Optimize ghost, which elides if it does not fit): the room goes to NAME, which
-    // lessons read ("Pavilion Main").
+    // Column widths are sized for a dock about 600 px wide. The pinned action group starts
+    // about 425 px in, so NAME, INDICES, MEETS, MAST and SOLVE show without scrolling. MARGIN
+    // and ORBIT lie under the group until the table scrolls sideways. A heading or value under
+    // the group is hidden whole, not cut in half. NAME and INDICES stretch with a wider dock.
     property <length> col_hash_width: 20px;
     // A narrow badge column for this tier's `ManufacturabilityWarning`(s), so
     // warnings appear on the offending row instead of only in the Log popup.
     property <length> col_warn_width: 14px;
     // Wide enough for the longest code (`Culet`, `PF12`) and the 11 px heading CODE.
     property <length> col_block_width: 36px;
-    // The value ("40.10") with its 4 px indent, plus the pencil/link icon or the start of a proposal.
+    // The value ("40.10") with its 4 px indent, plus the pencil or link icon, or a proposal.
     property <length> col_angle_width: 58px;
     property <length> col_name_min_width: 78px;
     property <length> col_indices_min_width: 70px;
@@ -97,31 +73,27 @@ export component EditorTierTable inherits Rectangle {
     property <length> col_solve_width: 54px;
     property <length> col_margin_width: 46px;
     property <length> col_orbit_width: 56px;
-    // The pinned group of row actions (`TierRowActions`), packed: a 44 px slot for Adopt, Pin or
-    // Add Anchor, then Detach/Reattach (20), move up/down (40), Duplicate (20) and Remove (20), with
-    // 3 px padding and 1 px gaps -- or, in the Simple interface, the slot and the last three (no
-    // Detach). A row that offers two slot buttons widens its own group to the left. Keep in step
-    // with `TierRowActions.needed_width`.
+    // The pinned group of row actions (`TierRowActions`): a 44 px slot for Adopt, Pin or Add
+    // Anchor, then Detach/Reattach (20), move up/down (40), Duplicate (20) and Remove (20), with
+    // 3 px padding and 1 px gaps. The Simple interface has the slot and the last three (no
+    // Detach). A row with two slot buttons widens its group to the left. Keep in step with
+    // `TierRowActions.needed_width`.
     property <bool> advanced: GuideModel.shows_advanced();
     property <length> col_slot_width: 44px;
     property <length> col_actions_width: root.advanced ? 151px : 130px;
     // The cross size of the `ScrollView`'s overlaid scroll bars, kept clear of rows and header.
     property <length> scroll_gutter: 14px;
-    // Where the pinned group starts, in the coordinates of the header and the rows, less a 4 px gap
-    // (the group itself sits 2 px inside the row's right end).
+    // Where the pinned group starts, in header and row coordinates, less a 4 px gap. The group
+    // sits 2 px inside the row's right end.
     property <length> data_limit: tier_scroll.visible-width - root.scroll_gutter - root.col_actions_width - 6px - tier_scroll.content-x;
 
     property <int> keyboard_focus_index: -1;
     property <int> inline_edit_target: -1;
     property <int> inline_edit_pulse: 0;
 
-    // Mirrors `EditorModel.tiers.length` purely so the `changed` below can clamp
-    // `keyboard_focus_index` whenever a Remove/Undo/Redo shrinks the tier list out
-    // from under it -- watching the count rather than `EditorModel.tiers` itself
-    // (which Slint has no `changed` support for at all: only a plain property, never
-    // a model, can be the target of a `changed` handler) also skips the clamp check
-    // on a same-length rebuild (an ordinary edit's `ModifyTier`), where the current
-    // cursor position is never invalid.
+    // Mirrors `EditorModel.tiers.length` so the `changed` below can clamp
+    // `keyboard_focus_index` when a removal or undo shrinks the list. Slint cannot watch a
+    // model directly. A same-length rebuild (an ordinary edit) keeps the cursor valid.
     property <int> tier_count: EditorModel.tiers.length;
     changed tier_count => {
         if root.keyboard_focus_index >= root.tier_count {
@@ -145,38 +117,27 @@ export component EditorTierTable inherits Rectangle {
         return viewport_y;
     }
 
-    /// Moves the keyboard cursor to `idx` -- called from `EditorView`'s own
-    /// selection-mirror handler (see that file's own doc comment) so a selection made
-    /// from OUTSIDE this table (the Solid/Diagram viewport's click, or "Duplicate")
-    /// still moves the keyboard cursor, the same as an in-list click already does via
-    /// `row_touch`'s own `clicked` handler below. Scrolling the row into view is a
-    /// side effect of `keyboard_focus_index` changing (see the `FocusScope` below's
-    /// own `scroll_target` watcher), not done here directly: `tier_scroll` lives
-    /// inside that `FocusScope`, whose `scroll_target` handler is the one place
-    /// that drives the scroll.
+    /// Moves the keyboard cursor to `idx`. `EditorView` calls it when the selection changes
+    /// from outside this table (a viewport click, or Duplicate), so the cursor follows it.
+    ///
+    /// The row is scrolled into view by the list's `FocusScope`, which watches the cursor.
     public function focus_row(idx: int) {
         root.keyboard_focus_index = idx;
     }
 
-    // Lets Ctrl+F focus this table's filter box instead of the catalogue search.
-    // `filter_edit` itself lives on `TierTableToolbar` (`tier_toolbar` below),
-    // not directly on this component, so this just forwards to that
-    // component's own `focus_filter()`. Wired via `EditorModel.
-    // filter_focus_pulse` since a global's `FocusScope` cannot directly reach
-    // a conditionally-mounted child.
+    // Ctrl+F focuses the tier filter box, which lives on `TierTableToolbar` (`tier_toolbar`).
+    // Driven by `EditorModel.filter_focus_pulse`.
     public function focus_filter() {
         tier_toolbar.focus_filter();
     }
 
-    // Mirrored into a local property so `changed` handlers work reliably across
-    // this component's conditional mounting. Same idiom as `form_reset_pulse`.
+    // Mirrors the global so a `changed` handler can watch it.
     property <int> tracked_filter_focus_pulse: EditorModel.filter_focus_pulse;
     changed tracked_filter_focus_pulse => { self.focus_filter(); }
 
-    // A global's `changed` handler can only be written in the file that declares
-    // it. So `SolidPreviewModel.diagram_clicked_tooth` is mirrored here as a plain
-    // property, letting this file's `changed` handler react to it. Same technique
-    // as `tracked_selected_tier_index` in `editor_view.slint`.
+    // A global's `changed` handler must live in the file that declares it, so the clicked
+    // tooth is mirrored here as a plain property (as `tracked_selected_tier_index` is in
+    // `editor_view.slint`).
     property <int> tracked_clicked_tooth: SolidPreviewModel.diagram_clicked_tooth;
     changed tracked_clicked_tooth => {
         EditorModel.highlight_tooth(root.tracked_clicked_tooth);
@@ -201,9 +162,7 @@ export component EditorTierTable inherits Rectangle {
         vertical-stretch: 1;
         spacing: 4px;
 
-        // Toolbar: filter box, +Add Tier/Adopt all/Select, quick-add anchors,
-        // the Steps/Mirror panel, and the multi-select batch-action bar -- see
-        // `TierTableToolbar`'s own doc comment.
+        // Toolbar: filter, add, select mode, quick-add and batch actions. See `TierTableToolbar`.
         tier_toolbar := TierTableToolbar {
             select_mode <=> root.select_mode;
             keyboard_focus_index: root.keyboard_focus_index;
@@ -260,26 +219,19 @@ export component EditorTierTable inherits Rectangle {
             }
         }
 
-        // The list area is always mounted (so `tier_scroll` can be referenced by
-        // the header above). With no rows it stays a stretchy box, which keeps
-        // this table's MAXIMUM height unbounded -- otherwise every other child of
-        // this layout (toolbar, header) is fixed-height and would cap, through
-        // `EditorView`'s column and `app.slint`'s `edit_row` (a `HorizontalLayout`
-        // takes its smallest child's maximum), the whole Edit row for a fresh
-        // zero-tier design. The "No tiers yet" text is a sibling shown when empty.
+        // Always mounted, so the header can reference `tier_scroll`. Stretchy when empty too: a
+        // fixed-height child would cap this table's maximum height, and through the Edit row the
+        // whole row for a design with no tiers. The "No tiers yet" text is a sibling.
         Rectangle {
             vertical-stretch: 1;
             // Room for up to four rows (30 px each) and the scroll gutter, however full the
             // toolbar above is: the dock scrolls rather than squashing the list to a sliver.
             min-height: Math.max(60px, Math.min(EditorModel.tiers.length, 4) * 30px + root.scroll_gutter);
 
-        // Wrapped in a `FocusScope` for keyboard navigation (Up/Down/Home/End/
-        // PageUp/PageDown/Enter/Delete/Ctrl+D/F2/Alt+Up/Alt+Down -- see the
-        // manual's "Editing Tiers" chapter). Every branch below either
-        // `return accept`s or falls through to the trailing `reject`, so the
-        // global shortcuts in `app.slint` (Ctrl+Z/Y/S, F5, 1/2/3) still work while
-        // this list has focus -- none of those keys are handled here, so they
-        // always fall to `reject` and bubble up.
+        // Keyboard navigation for the tier list: Up, Down, Home, End, PageUp, PageDown, Enter,
+        // Space, Escape, Delete, Ctrl+D, F2, Alt+Up and Alt+Down (see the manual's "Editing
+        // Tiers" chapter). Every branch returns accept or falls through to reject, so the
+        // window's global shortcuts still work while the list has focus.
         table_focus := FocusScope {
             // A whole number of 30 px rows (28 px and the 2 px between them) plus the scroll
             // gutter, so no half row shows at the foot of the list; the leftover is empty space
@@ -292,30 +244,15 @@ export component EditorTierTable inherits Rectangle {
             accessible-role: AccessibleRole.list;
             accessible-label: "Tiers";
             accessible-description: "Up and Down move through the tiers, Home and End jump to the first and last, Space adds the tier to the selection, F2 edits its angle and Delete removes it. Tab then walks the buttons of the tier you are on.";
-            // Mirrors `root.keyboard_focus_index` so scrolling the cursor into view
-            // is driven from ONE place regardless of what moved it (arrow keys/F2
-            // below, an in-list click, or `focus_row` called from outside this
-            // table): `tier_scroll` is a child of this SAME `FocusScope`, so this
-            // handler (unlike `root`'s own `focus_row`, see that function's own doc
-            // comment) can reference it directly.
+            // Scrolls the cursor row into view, whatever moved the cursor (keys, a click or
+            // `focus_row`). The property lives on this FocusScope, so the handler uses `self`.
             property <int> scroll_target: root.keyboard_focus_index;
             changed scroll_target => {
-                // `self`, not `root`: the property is declared on this `FocusScope`
-                // (see above), so `root` -- the component's own root element -- does
-                // not carry it.
-                // Slint deprecated `ScrollView.viewport-y`/`viewport-height` in
-                // favor of `content-y`/`content-height` (same semantics: the
-                // scrolled content's own y-offset/total height).
                 tier_scroll.content-y = root.scrolled_to_show(self.scroll_target, tier_scroll.content-y, tier_scroll.visible-height, tier_scroll.content-height);
             }
 
-            // Drives `root`'s focus-ring border and seeds the keyboard cursor from
-            // the CURRENT selection every time this list gains focus (a Tab into it,
-            // or focus returning here from an inline editor's `closed()`) -- without
-            // this, tabbing in for the first time (or after clicking a button
-            // elsewhere) left `keyboard_focus_index` at whatever it last was, which
-            // could disagree with `EditorModel.selected_tier_index` and make the
-            // very first arrow press jump from the wrong row.
+            // Sets the focus ring, and seeds the keyboard cursor from the current selection
+            // whenever the list gains focus, so the first arrow key starts from the selected row.
             changed has-focus => {
                 root.table_focused = self.has-focus;
                 if self.has-focus {
@@ -374,20 +311,9 @@ export component EditorTierTable inherits Rectangle {
                     return accept;
                 } else if event.text == Key.Delete {
                     if root.keyboard_focus_index >= 0 && root.keyboard_focus_index < EditorModel.tiers.length && GuideModel.allows_tier_table() {
-                        // `remove_tier` itself shifts/clears
-                        // `EditorModel.selected_tier_index` correctly on the Rust
-                        // side (`tier_actions::adjust_selection_after_remove`) --
-                        // do not also clear it here: doing so a second time,
-                        // AFTER that shift already ran, would compare the wrong
-                        // (pre-removal) index and could wrongly clear a selection
-                        // that had just been shifted down onto this same row.
-                        //
-                        // Backspace does not share this binding: it is the
-                        // universal "delete the previous character" key in every
-                        // text field ELSEWHERE in this app, so binding it here
-                        // risks a stray Backspace (e.g. one that failed to land
-                        // in a `LineEdit` that had just lost focus) deleting a
-                        // whole tier with no confirmation.
+                        // `remove_tier` moves or clears the selection itself (Rust side), so it
+                        // is not cleared here. Backspace is not bound: it deletes text in every
+                        // other field, and one stray press would remove a tier without a prompt.
                         EditorModel.remove_tier(root.keyboard_focus_index);
                     }
                     return accept;

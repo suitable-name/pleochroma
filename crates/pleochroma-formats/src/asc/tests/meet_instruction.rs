@@ -73,8 +73,7 @@ fn parses_meet_instruction_with_four_named_facets() {
 
 #[test]
 fn classifies_real_corpus_notes_text() {
-    // Every one of these is verbatim (or near-verbatim) text seen in the real
-    // `.asc` corpus fixtures above.
+    // Verbatim or near-verbatim notes from the corpus.
     assert_eq!(
         parse_meet_instruction("Cut to mast depth X."),
         Some(MeetInstruction::Other("Cut to mast depth X.".to_string()))
@@ -89,6 +88,15 @@ fn classifies_real_corpus_notes_text() {
     );
     assert_eq!(
         parse_meet_instruction("Establish girdle thickness"),
+        Some(MeetInstruction::ScaleReference)
+    );
+    // Anchor texts written by the cutting sheet classify as scale references.
+    assert_eq!(
+        parse_meet_instruction("Set girdle line."),
+        Some(MeetInstruction::ScaleReference)
+    );
+    assert_eq!(
+        parse_meet_instruction("Set table size."),
         Some(MeetInstruction::ScaleReference)
     );
     assert_eq!(

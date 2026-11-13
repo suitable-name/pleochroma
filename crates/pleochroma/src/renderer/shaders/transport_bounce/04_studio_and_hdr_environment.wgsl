@@ -19,9 +19,8 @@ fn studio_rig_ring_dir(i: u32, light_yaw: f32, sin_lp: f32) -> vec3<f32> {
     return normalize(vec3<f32>(sin(angle) * 0.75, sin_lp * 0.8, cos(angle) * 0.75));
 }
 
-// optics::raytracer::environment::sample_light_tent -- needs `studio_rig_ring_dir` for
-// the three black cards on ring slots 4/8/12, so it lives here rather than in the shared
-// prelude with the other lit models.
+// `optics::raytracer::environment::sample_light_tent`. It needs `studio_rig_ring_dir` for the
+// black cards on ring slots 4, 8 and 12, so it lives here, not with the other lit models.
 fn sample_light_tent(
     d: vec3<f32>,
     spec_power: f32,
@@ -37,9 +36,9 @@ fn sample_light_tent(
     tent_flat: f32,
     tray: f32,
 ) -> f32 {
-    // `tent` = (walls, cards, spark, ground) = `TentParams`: exact identities at the light
-    // tent's own values (x * 1.0, and the ground literal 0.02), see the CPU twin.
-    // `tent_flat` blends the wall gradient towards its 30-degree value (0 = skipped).
+    // `tent` = (walls, cards, spark, ground) from `TentParams`; at the light tent's own values
+    // the products are exact identities (x * 1.0, ground literal 0.02), see the CPU twin.
+    // `tent_flat` blends the wall gradient towards its 30-degree value; 0 skips the blend.
     let horizon = horizon_blend(d);
     var walls = fma(0.08, max(d.y, 0.0), 0.14) * tent.x;
     if (tent_flat > 0.0) {
@@ -160,11 +159,8 @@ fn studio_spectral_power(lambda_nm: f32) -> f32 {
     return blackbody_spectrum(lambda_nm, params.studio_temp_k);
 }
 
-// `key_dir`/`fill_dir`/`sin_lp` (the `StudioRig`-equivalent quantities) are constant
-// across an entire ray, so the caller (`transport_main`'s miss branch) computes them
-// once before its `NUM_CHANNELS` loop and passes them in, rather than this function
-// recomputing them on every per-channel call -- mirrors
-// `optics::raytracer::accumulate_miss_radiance` building them once per ray.
+// `key_dir`, `fill_dir` and `sin_lp` are constant for a whole ray. The caller computes them once
+// per ray and passes them in, rather than once per channel.
 fn sample_studio_environment_with_rig(
     dir_in: vec3<f32>,
     lambda_nm: f32,
@@ -198,21 +194,18 @@ fn sample_studio_environment_with_rig(
     );
 }
 
-// renderer::env_map::EnvironmentMap::{direction_to_uv, sample_bilinear,
-// radiance_at} -- ported op-for-op, including the exact `mul_add`/`fma` chains, so this
-// stays within `environment_check`'s ULP budget for `hdr_env_radiance_at` (see that
-// module's standalone `env_map_radiance_main` self-test kernel, a duplicate of this same
-// logic exercised independently of the megakernel, matching this file's existing
-// convention of not sharing code across WGSL modules -- see e.g. `blackbody_spectrum`).
+// `renderer::env_map::EnvironmentMap::{direction_to_uv, sample_bilinear, radiance_at}`, ported op
+// for op, including the `fma` chains, to stay within the ULP budget of `environment_check`.
 
-// hdr_wrap_x, hdr_clamp_y, and hdr_direction_to_uv are defined in transport_physics.wgsl.
+// `hdr_wrap_x`, `hdr_clamp_y` and `hdr_direction_to_uv` are in
+// `transport_physics/05_nee_env_sampling.wgsl`.
 
 fn hdr_texel(x: u32, y: u32, width: u32) -> vec3<f32> {
     return hdr_texels[y * width + x].xyz;
 }
 
-// EnvironmentMap::sample_bilinear -- same `fx`/`fy` half-texel offset, same wrap/clamp
-// neighbour selection, same per-component `mul_add` interpolation order.
+// `EnvironmentMap::sample_bilinear`: same half-texel offset, wrap/clamp neighbour selection and
+// interpolation order.
 fn hdr_env_sample_bilinear(u_in: f32, v_in: f32) -> vec3<f32> {
     let width = hdr_env_dims.width;
     let height = hdr_env_dims.height;
@@ -244,11 +237,30 @@ fn hdr_env_sample_bilinear(u_in: f32, v_in: f32) -> vec3<f32> {
     return fma(bottom, vec3<f32>(ty), top * (1.0 - ty));
 }
 
-// EnvironmentMap::radiance_at -- bilinear RGB lookup, then the same `rgb_to_spectral_radiance`
-// spectral lift the uniform-furnace branch above already uses.
+// An HDR texel's RGB at the map's exposure (`params.hdr_exposure`). An exposure of exactly 1.0
+// returns the texel untouched. Callers lift the result with `rgb_to_spectral_radiance`. It applies
+// to every HDR radiance read: the miss lookup below and the three NEE draws in
+// `06_nee_sampling.wgsl`. The pdfs are unchanged.
+fn hdr_rgb_at_exposure(rgb: vec3<f32>) -> vec3<f32> {
+    let exposure = params.hdr_exposure;
+    if (exposure == 1.0) {
+        return rgb;
+    }
+    return rgb * exposure;
+}
+
+// The HDR map's yaw as (cos, sin), from `params.hdr_rot_cos` and `hdr_rot_sin`. World-direction
+// lookups go through `hdr_world_to_map(.., hdr_rot())`, and directions drawn from the map through
+// `hdr_map_to_world(.., hdr_rot())`. The identity (1.0, 0.0) is skipped.
+fn hdr_rot() -> vec2<f32> {
+    return vec2<f32>(params.hdr_rot_cos, params.hdr_rot_sin);
+}
+
+// The HDR map arm of the environment lookup: world direction into the map frame, bilinear RGB,
+// the exposure, then the spectral lift with `rgb_to_spectral_radiance`.
 fn hdr_env_radiance_at(dir: vec3<f32>, lambda_nm: f32) -> f32 {
-    let uv = hdr_direction_to_uv(dir);
-    let rgb = hdr_env_sample_bilinear(uv.x, uv.y);
+    let uv = hdr_direction_to_uv(hdr_world_to_map(dir, hdr_rot()));
+    let rgb = hdr_rgb_at_exposure(hdr_env_sample_bilinear(uv.x, uv.y));
     return rgb_to_spectral_radiance(rgb.x, rgb.y, rgb.z, lambda_nm);
 }
 
@@ -268,11 +280,7 @@ fn sample_environment_with_rig(
     return sample_studio_environment_with_rig(dir, lambda_nm, key_dir, fill_dir, sin_lp, observer);
 }
 
-// `dispersion_evaluate`, `spectral_absorption`, the four `mueller_*` Mueller-matrix
-// constructors, `tir_phase_delta`, `normalize_or_zero`, `signed_frame_rotation_psi`,
-// `degree_of_polarization`, `polarization_azimuth`, `arbitrary_perpendicular`,
-// `electric_field_direction`, `stable_orthonormal_basis_t`,
-// `ordinary_eigen_polarization`, `extraordinary_eigen_polarization`, `quadratic_form`,
-// and `pleochroic_channel_alpha` all live in `shaders/transport_physics.wgsl`, the
-// shared source `build.rs` concatenates ahead of this file. Look there, not here.
+// The dispersion, absorption and polarization helpers (`spectral_absorption`,
+// `electric_field_direction`, `pleochroic_channel_alpha`, ...) are in `transport_physics/`, which
+// `build.rs` concatenates ahead of this file.
 

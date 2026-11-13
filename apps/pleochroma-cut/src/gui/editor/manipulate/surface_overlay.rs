@@ -1,12 +1,11 @@
-//! The Show Surface Finish overlay (`SurfaceModel`): a dot on every facet that has a surface
-//! finish, tinted by its grade, and for a polished facet a short tick along the direction of its
-//! scratches, taken from the user's Faceting Machine preference.
+//! The Show Surface Finish overlay (`SurfaceModel`): a dot on every facet with a surface
+//! finish, tinted by its grade, and a short scratch tick on polished facets.
 //!
-//! The marks are placed from the last solve (the facet words and planes of the design on the
-//! bench) and the centroids of the frame on screen, so they follow the camera. They are drawn in
-//! the Solid, Path-Traced, Ray-Traced and Both views, on the facets that face the camera; the
-//! Diagram view and a stone partly cut back by the Cut slider show none (their facet numbering
-//! differs from the finished stone's).
+//! The scratch direction comes from the Faceting Machine preference. Marks are placed from
+//! the last solve (facet finishes and planes) and the centroids of the frame on screen, so
+//! they follow the camera. They are drawn only on facets facing the camera, in the Solid,
+//! Path-Traced, Ray-Traced and Both views. The Diagram view and a stone partly cut back by
+//! the Cut slider show none, because their facet numbering differs from the finished stone's.
 
 use super::{
     Shared,
@@ -38,8 +37,8 @@ struct Mark {
     tint: [u8; 3],
 }
 
-/// The tint of a finish: the polishes run from teal (a mirror) through green and yellow to amber
-/// (a pre-polish), the ground finishes from orange to ruby as they get rougher.
+/// The tint of a finish: polishes run from teal (mirror) through green and yellow to amber
+/// (pre-polish); ground finishes run from orange to ruby as they get rougher.
 fn tint_of(word: FacetSurface) -> [u8; 3] {
     match word.kind() {
         SurfaceKind::Ideal => [130, 130, 130],
@@ -59,8 +58,8 @@ fn tint_of(word: FacetSurface) -> [u8; 3] {
     }
 }
 
-/// The marks of the facets in `facets` (`(centroid, outward normal, finish word)` of each facet
-/// that has a centroid) that face a camera at `eye`. A facet with the ideal finish has none.
+/// The marks of the `(centroid, outward normal, finish)` facets that face a camera at `eye`.
+/// An ideal finish gets no mark.
 fn marks(
     facets: &[(Vec3, Vec3, FacetSurface)],
     machine: &FacetingMachine,
@@ -111,8 +110,8 @@ pub(super) fn refresh(ui: &MainWindow, ctx: &Shared) {
     model.set_overlay_visible(true);
 }
 
-/// The marks in logical viewport coordinates, or `None` while there is nothing to draw (no frame, a
-/// view without marks, a stone without a surface finish).
+/// The marks in logical viewport coordinates, or `None` when there is nothing to draw (no
+/// frame, a view without marks, a stone without a surface finish).
 fn compute(ui: &MainWindow, ctx: &Shared) -> Option<Vec<SurfaceTick>> {
     let geometry = ctx
         .geometry

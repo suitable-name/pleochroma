@@ -157,9 +157,8 @@ impl<'a> Check<'a> {
 
 /// A design's convex outline for exact single-stone fitting.
 ///
-/// Contains outline vertices in the caliper frame, bounding-box centred,
-/// in model units, plus the design's volume and caliper width in the same units.
-/// Built by the app from the cached hull.
+/// Outline vertices in the caliper frame, centred on the bounding box, with the design's volume
+/// and caliper width, all in model units.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DesignHull {
     /// The design's library entry ID.
@@ -432,9 +431,8 @@ pub fn shortlist(scores: &[(i64, f64)], keep: usize) -> Vec<i64> {
 /// `None` when cancelled.
 ///
 /// Besides one [`PlanProgress::Fit`] event per finished design, the exact stage reports
-/// one with `done == 0` every 256 orientations of a design (8,256 LPs, tens of
-/// milliseconds each in a debug build), so a cancel is seen within a fraction of a design.
-/// Such an event does not advance the stage.
+/// one with `done == 0` every `POLL_EVERY` orientations of a design, so a cancel is seen
+/// within a fraction of a design. Such an event does not advance the stage.
 pub fn fit_shortlisted(
     region: &[(DVec3, f64)],
     hulls: &[DesignHull],
@@ -448,11 +446,10 @@ pub fn fit_shortlisted(
 ///
 /// The LP of an orientation is solved against the convex region as before. A result that
 /// would enter the held basins (exact stage) or improve the polish is then verified
-/// against the mesh by a cutting-plane loop (each round adds the blocking walls the
-/// centre satisfies, up to 64 rows, at most twelve rounds) and replaced by the verified,
-/// smaller pose, or dropped. Every fit
-/// returned therefore lies in the material, `mesh.inset_mm` clear of the surface; near a
-/// notch it may be smaller than the best possible. With `None` it is
+/// against the mesh by a cutting-plane loop (each round adds one blocking wall at the centre,
+/// at most `MESH_ROUNDS` rounds) and replaced by the verified, smaller pose, or dropped.
+/// Every fit returned therefore lies in the material, `mesh.inset_mm` clear of the surface;
+/// near a notch it may be smaller than the best possible. With `None` it is
 /// [`fit_shortlisted`], bit for bit.
 pub fn fit_shortlisted_with(
     region: &[(DVec3, f64)],

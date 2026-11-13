@@ -1,7 +1,5 @@
 //! Tests of the rough model's vertices, cut consistency between resolutions, canonical plane
 //! order, input validation and closed-form volumes.
-//!
-//! Every expectation is derived by hand in the test that uses it.
 
 use std::f64::consts::PI;
 
@@ -393,12 +391,11 @@ fn cylinders_along_every_axis_have_the_prism_volume_and_extents() {
     }
 }
 
-/// `measure()` is defined as `measure_with_halfspaces(&halfspaces())`, so the two agree bit
-/// for bit. The expectation needs no derived number: both sides are compared through
-/// `to_bits`. The models are a cylinder with a face cut (edge cuts exist only on blocks),
-/// a block with an edge cut, and a pebble with a face cut, each cut well inside its rough
-/// (a 1 mm face cut on a pebble about 10 mm thick along y). The cut-order list is passed, not the canonical one, and a
-/// reversed copy is passed as well, so the sort inside the call is exercised.
+/// `measure()` is `measure_with_halfspaces(&halfspaces())`, so the two agree bit for bit.
+/// Both sides are compared through `to_bits`, so no expected number is needed. The models
+/// are a cylinder with a face cut, a block with an edge cut (edge cuts exist only on
+/// blocks) and a pebble with a face cut. The cut-order list is passed, and a reversed copy
+/// too, so the sort inside the call is exercised.
 #[test]
 fn measure_with_halfspaces_is_bit_identical_to_measure() {
     let models = [

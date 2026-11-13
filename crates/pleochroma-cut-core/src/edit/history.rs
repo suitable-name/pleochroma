@@ -104,23 +104,15 @@ pub struct History {
     /// The revision the next new step (or the next merge into the newest step) gets -- see
     /// [`HistoryEntry::revision`].
     next_revision: u64,
-    /// The `(key, timestamp)` [`Self::apply_coalescing`] last succeeded with, or
-    /// `None` right after construction or any ordinary [`Self::apply`]/[`Self::undo`]/
-    /// [`Self::redo`] -- see that method's own doc comment for how this decides
-    /// whether the NEXT `apply_coalescing` call merges into the same undo entry or
-    /// starts a new one. Never compared for equality/`Debug` purposes beyond the
-    /// derived impls above (a coalescing run in progress is not itself part of two
-    /// `History`s being "the same edit sequence" in any test that matters -- every
-    /// existing `assert_eq!(design, ...)` in this crate compares `Design`, never
-    /// `History`, and the handful of direct `History` comparisons are `can_undo`/
-    /// `can_redo` checks that don't care about this field either).
+    /// The `(key, timestamp)` of the last successful [`Self::apply_coalescing`].
+    ///
+    /// `None` after construction or any ordinary [`Self::apply`], [`Self::undo`] or
+    /// [`Self::redo`]. The next `apply_coalescing` merges into the newest undo entry only
+    /// when its key matches and it falls within the window.
     last_coalesce: Option<(u64, Duration)>,
-    /// This instance's own coalescing window -- [`Self::COALESCE_WINDOW`] unless
-    /// built via [`Self::with_coalesce_window`]. A fixed,
-    /// crate-wide 500ms suits one caller (a keyboard/wheel angle nudge) but not
-    /// every possible coalescing caller equally -- e.g. a slower, more deliberate
-    /// interaction might want a longer window -- so this is a per-`History`
-    /// value rather than a single shared `const`.
+    /// This instance's coalescing window: [`Self::COALESCE_WINDOW`] unless built via
+    /// [`Self::with_coalesce_window`]. Per instance, because callers pace their
+    /// interactions differently.
     coalesce_window: Duration,
     /// A bounded, append-only journal of [`Edit::describe`] strings for every edit
     /// actually applied via [`Self::apply`]/[`Self::apply_coalescing`], oldest
@@ -129,9 +121,8 @@ pub struct History {
     /// what was done, not a stack of what could still be replayed, so undoing an
     /// edit does not erase it from the record. Bounded to [`Self::MAX_LOG_ENTRIES`]
     /// so an old design's `[history]` table cannot grow forever.
-    /// A coalesced run ([`Self::apply_coalescing`]) updates its own single entry in
-    /// place on every merge rather than appending one per nudge, matching how it
-    /// already collapses to a single undo step.
+    /// A coalesced run ([`Self::apply_coalescing`]) updates one entry in place on each
+    /// merge rather than appending one per nudge.
     log: Vec<String>,
 }
 
@@ -161,12 +152,9 @@ impl History {
     }
 
     /// Like [`Self::new`], but [`Self::apply_coalescing`] uses `window` instead of
-    /// the default [`Self::COALESCE_WINDOW`] -- lets a caller
-    /// with a different natural pace for its own coalesced interaction (or one
-    /// that always ends a run explicitly via [`Self::end_coalesce_run`] and so
-    /// wants a short or even zero window as a pure safety net) pick its own value
-    /// rather than being stuck with the one every other caller in this crate
-    /// shares.
+    /// [`Self::COALESCE_WINDOW`]. Useful for a caller whose interaction has a different
+    /// natural pace, or one that ends each run via [`Self::end_coalesce_run`] and wants
+    /// only a short window as a safety net.
     #[must_use]
     pub const fn with_coalesce_window(window: Duration) -> Self {
         Self {
@@ -261,10 +249,10 @@ impl History {
     /// fresh burst (a different tier/selection, or the same one after a pause) still
     /// gets its own undo entry.
     ///
-    /// `key` is caller-defined and opaque to this crate -- the editor hashes the
-    /// sorted set of tier indices a nudge targets (see
-    /// `gui::editor::state::angle_nudge_coalesce_key`) so nudging tier 3 alone never
-    /// merges with nudging tiers {3, 4} together, even though both involve tier 3.
+    /// `key` is caller-defined and opaque to this crate. The editor hashes the sorted set
+    /// of tier indices a nudge targets (see
+    /// `pleochroma_editor::session::angle_nudge_coalesce_key`), so nudging tier 3 alone
+    /// never merges with nudging tiers {3, 4}.
     ///
     /// Merging keeps the OLDER inverse already on the undo stack (the one that
     /// reverts all the way back to before this whole coalesced run) and discards the
@@ -601,36 +589,16 @@ impl History {
             .map(|step| step.label.as_str())
     }
 
-    /// Explicitly ends any [`Self::apply_coalescing`] run in progress, without
-    /// making a new edit -- lets a caller with a real
-    /// interaction boundary of its own (pointer release or focus loss on the
-    /// control driving the coalesced edits) name that boundary directly instead
-    /// of only ever discovering a run ended once [`Self::COALESCE_WINDOW`]
-    /// (or a custom [`Self::with_coalesce_window`] value) had silently elapsed.
-    /// A no-op, not an error, when no run is in progress.
+    /// Ends any [`Self::apply_coalescing`] run in progress, without making an edit. A no-op
+    /// when no run is open.
+    ///
+    /// Lets a caller end a run at its own interaction boundary (a selection change, say)
+    /// instead of waiting for [`Self::COALESCE_WINDOW`] (or the custom window) to elapse.
     ///
     /// # Call sites
     ///
-    /// `gui::editor::callbacks::tier_actions` (via `gui::editor::state::
-    /// EditorState`'s own wrapper) calls this from two real, reachable
-    /// interaction boundaries: `setup_inline_set_angle_callback`'s
-    /// committed-but-unchanged branch (the cutter opened the angle cell, looked,
-    /// and closed it without changing anything), and
-    /// `apply_selected_tier_change` (the tier list's selection actually changed
-    /// -- a different row or a viewport click elsewhere -- so a nudge run on the
-    /// tier just navigated away from must not sit open for a later, unrelated
-    /// nudge on that same tier to merge into).
-    ///
-    /// The one boundary this does NOT cover -- ending a run on the nudge
-    /// control's OWN pointer-release/focus-loss, the way a slider drag would --
-    /// needs a real pointer/focus event from `TierAngleCell`
-    /// (`editor_tier_table.slint`), which has no such event to forward today;
-    /// adding one is a `.slint` change outside every wave this doc comment has
-    /// been written under. A genuine slow, evenly-paced scroll-wheel session
-    /// (each tick further apart than the coalescing window) will keep producing
-    /// one undo step per tick until that lands -- the STATUS this fix responds
-    /// to calls this the part "not achievable exactly as specified" and asks for
-    /// the boundary above instead.
+    /// The `apps/pleochroma-cut` editor calls this when drag, slice and solid-picking
+    /// interactions end.
     pub const fn end_coalesce_run(&mut self) {
         self.last_coalesce = None;
     }

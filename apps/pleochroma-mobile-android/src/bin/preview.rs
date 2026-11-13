@@ -5,16 +5,18 @@
 //! pleochroma-mobile-preview [--size WxH|phone|phone-land|tablet|tablet-land] [--data DIR]
 //! ```
 //!
-//! `--size` defaults to `390x800` (`phone`); `phone-land` is `800x390`, `tablet`
-//! `800x1280`, `tablet-land` `1280x800`. `--data` is the app's data directory
-//! (default `<temp>/pleochroma-mobile-preview`); settings live in `DIR/files`, shared
-//! and printed files in `DIR/cache/share`. `--page library|design|cut|more` opens that
-//! destination; `--template N` starts on that template card; `--tab
-//! tiers|stone|light|checks` and `--sheet peek|half|full` choose the Design page's tab
-//! and sheet height; `--view solid|diagram|render` the viewport mode (a render
-//! screenshot waits longer so the picture can converge); `--engine path|ray` chooses its renderer; `--screenshot FILE.png` saves
-//! the window shortly after start and quits, `--wait SECONDS` after that many seconds
-//! instead. Press Escape for Back.
+//! `--size` defaults to `390x800` (`phone`). `phone-land` is `800x390`, `tablet` is
+//! `800x1280` and `tablet-land` is `1280x800`. `--data` is the app's data directory
+//! (default `<temp>/pleochroma-mobile-preview`): settings live in `DIR/files`, shared and
+//! printed files in `DIR/cache/share`.
+//!
+//! `--page library|design|cut|more` opens that destination, `--template N` starts on that
+//! template card, `--tab tiers|stone|light|checks` and `--sheet peek|half|full` pick the
+//! Design page's tab and sheet height, and `--view solid|diagram|render` sets the viewport
+//! mode (a render screenshot waits longer so the picture can converge). `--engine path|ray`
+//! chooses the renderer. `--screenshot FILE.png` saves the window shortly after start and
+//! quits; `--wait SECONDS` waits that many seconds before saving instead. Press Escape for
+//! Back.
 
 use std::{path::PathBuf, process::ExitCode, sync::Arc, time::Duration};
 

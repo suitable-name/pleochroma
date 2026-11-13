@@ -1,13 +1,11 @@
 //! The "Some advanced settings are in use" note of the export dialog.
 //!
-//! Simple mode leaves four things out of the export dialog: the compute choice, the ray-bounce
-//! cap, the colour space and the lighting-preset fan-out. The first two always start from their
-//! defaults (every open re-derives them), and the fan-out list starts unticked at every open, so
-//! none of those can be "in use" while Simple mode hides them. Two hidden values can be: a
-//! wide-gamut colour space chosen earlier in the session, and a remote that returns only the
-//! finished picture (a hand-set endpoint default), which stops this machine from helping.
-//! While Simple mode is on the dialog says so, with the same sentence every panel uses, instead of
-//! leaving a file in an unexpected colour space for a reason nobody can see.
+//! Simple mode hides the compute choice, the ray-bounce cap, the colour space, the transfer and
+//! the lighting-preset fan-out. The compute choice, the bounce cap and the fan-out start from
+//! their defaults at every open, so they cannot be "in use". The colour space and the transfer
+//! can: a wide-gamut colour space, or a final-picture-only transfer while a remote is reachable.
+//! The note tells the user, rather than leaving a file in an unexpected colour space for a
+//! reason nobody can see.
 //!
 //! The decision is [`HiddenExportSettings::in_use`], a pure comparison with the dialog's defaults.
 //! The dialog (`export_dialog.slint`) asks for it through the pure callback

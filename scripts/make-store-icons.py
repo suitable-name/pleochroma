@@ -13,6 +13,8 @@ Writes:
     msix/assets/Square71x71Logo.png  (71x71 px   -- Start menu small tile)
     msix/assets/Square150x150Logo.png(150x150 px -- Start menu medium tile)
     msix/assets/StoreListing300.png  (300x300 px -- Partner Center Store listing upload)
+    msix/assets/StoreListing500.png  (500x500 px -- Store listing upload)
+    msix/assets/StoreListing512.png  (512x512 px -- Store listing upload)
     play/assets/play-icon-512.png    (512x512 px -- Google Play "App icon": full-bleed square,
                                       opaque PNG; Play applies its own rounded mask)
     play/assets/play-feature-graphic-1024x500.png
@@ -32,7 +34,7 @@ FACET_DETAIL_MIN_PX = 32
 GROUND = (15, 21, 35, 255)  # #0f1523 -- the app's own darkest surface
 ACCENT_CUT = "#38bdf8"      # pleochroma-cut (viewer, cyan)
 
-# Required MSIX manifest logos + 300x300 Store listing icon
+# MSIX manifest logos and the Store listing icons (300, 500 and 512 px)
 MSIX_ASSETS = {
     "StoreLogo.png": 50,
     "Square44x44Logo.png": 44,
@@ -49,7 +51,7 @@ PLAY_FEATURE = ("play-feature-graphic-1024x500.png", (1024, 500))
 PLAY_NAME = "Pleochroma"
 PLAY_TAGLINE = ["Design, render and cut", "faceted gemstones"]
 
-# Bold and regular sans fonts tried in order (Windows, Linux, macOS); the first that exists is used.
+# Bold and regular sans fonts, tried in order (Windows, Linux, macOS); the first found is used.
 FONT_BOLD = [
     "C:/Windows/Fonts/segoeuib.ttf",
     "C:/Windows/Fonts/arialbd.ttf",

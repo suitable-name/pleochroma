@@ -2,13 +2,13 @@
 //! contrast"):
 //!
 //! - every colour token in `theme.slint` has a normal and a high-contrast value, except the
-//!   few data colours that are deliberately the same in both palettes;
-//! - the normal value of each token added for the high-contrast pass is the literal the
-//!   code used before, so the normal look did not move;
+//!   few data colours that are the same in both palettes;
+//! - the normal value of each token is the literal the UI used before tokens existed, so the
+//!   normal look does not move;
 //! - the high-contrast pairs those tokens form (text on its fill, ink on an accent, a series
 //!   colour on its pill) meet their WCAG contrast ratios;
-//! - the files converted in that pass hold no hex literal, `white`, `black`, `rgb()` or
-//!   `hsv()`, so a new one cannot slip back in unseen.
+//! - the files in `CONVERTED_FILES` hold no hex literal, `white`, `black`, `rgb()` or `hsv()`,
+//!   so a new one cannot slip back in unseen.
 //!
 //! It only reads the `.slint` sources as text.
 
@@ -23,8 +23,8 @@ const CONSTANT_TOKENS: &[&str] = &[
     "compare-added",
 ];
 
-/// Files (relative to `ui/`) that were moved onto tokens and must stay free of colour
-/// literals. Files still waiting for their own conversion are not listed.
+/// Files (relative to `ui/`) that use tokens only and must stay free of colour literals.
+/// Files not yet converted are not listed.
 const CONVERTED_FILES: &[&str] = &[
     "components/export_dialog/compute_and_bounces.slint",
     "components/export_dialog/output_location.slint",
@@ -55,7 +55,7 @@ const CONVERTED_FILES: &[&str] = &[
     "components/solid_viewport/hint_bar.slint",
     "components/solid_viewport/manipulate_overlay.slint",
     "components/solid_viewport/toolbar.slint",
-    // The Parameters dock that replaced the settings card: panel, dock, tabs.
+    // The Parameters dock: panel, dock and tabs.
     "components/parameters_panel/parameters_dock.slint",
     "components/parameters_panel/parameters_panel.slint",
     "components/parameters_panel/parts.slint",
@@ -161,15 +161,24 @@ const CONVERTED_FILES: &[&str] = &[
     "components/cutting_mode/index_chips.slint",
     "components/cutting_mode/index_wheel.slint",
     "rough_planner_window.slint",
+    "components/kit/parts.slint",
+    "components/rough_planner/axis_panel.slint",
     "components/rough_planner/cut_list.slint",
-    "components/rough_planner/design_group_row.slint",
     "components/rough_planner/fields.slint",
-    "components/rough_planner/fit_view.slint",
+    "components/rough_planner/menus.slint",
+    "components/rough_planner/parts.slint",
+    "components/rough_planner/plan_block.slint",
     "components/rough_planner/plan_form.slint",
     "components/rough_planner/result_card.slint",
+    "components/rough_planner/results_panel.slint",
+    "components/rough_planner/scan_card.slint",
     "components/rough_planner/rough_form.slint",
+    "components/rough_planner/rule_editor.slint",
     "components/rough_planner/save_name_row.slint",
     "components/rough_planner/saved_list.slint",
+    "components/rough_planner/state.slint",
+    "components/rough_planner/step_card.slint",
+    "components/rough_planner/stone_rows.slint",
 ];
 
 /// Converted files that still hold colours which are DATA, not chrome: the body colours a
@@ -177,6 +186,13 @@ const CONVERTED_FILES: &[&str] = &[
 /// look the same in every palette on purpose. Each entry lists the only literals the file may
 /// hold; any other one is an offender like in [`CONVERTED_FILES`].
 const CONVERTED_WITH_DATA: &[(&str, &[&str])] = &[
+    // The key of the scan's layers under the Rough Planner's 3D view: the amber and the red the
+    // view paints the repaired places and the crossings in. They are what the picture shows, so
+    // they stay the same in every palette.
+    (
+        "components/rough_planner/fit_view.slint",
+        &["#f59e0b", "#ef4444"],
+    ),
     (
         "components/material_editor/color_presets.slint",
         &[
@@ -203,8 +219,7 @@ const CONVERTED_WITH_DATA: &[(&str, &[&str])] = &[
     ),
 ];
 
-/// The normal-palette value each token added for the high-contrast pass must keep: the
-/// literal that stood in the code before.
+/// The normal-palette value of each token: the literal the UI used before the token existed.
 const NORMAL_PINS: &[(&str, &str)] = &[
     ("surface-chip", "#131b2e"),
     ("surface-chip-off", "#334155"),
@@ -229,8 +244,14 @@ const NORMAL_PINS: &[(&str, &str)] = &[
     ("badge-amber-bg", "#78350f"),
     ("badge-emerald-bg", "#065f46"),
     ("badge-purple-bg", "#4c1d95"),
+    ("badge-amber-text", "#fde68a"),
+    ("badge-purple-text", "#e9d5ff"),
     ("badge-orange-bg", "#7c2d12"),
     ("badge-orange-text", "#fed7aa"),
+    ("glass-bg", "#0b0e15d0"),
+    ("glass-edge", "#ffffff14"),
+    ("chip-edge", "#ffffff22"),
+    ("swatch-empty", "#888888"),
     ("viewport-bg", "#080a0f"),
     ("hud-surface", "#0f172aee"),
     ("hint-surface", "#1e293bdd"),
@@ -458,6 +479,8 @@ fn high_contrast_pairs_meet_their_ratios() {
         ("text-on-accent", "notice-accent-hover", Black, 7.0),
         ("notice-accent", "notice-surface", Black, 3.0),
         ("badge-orange-text", "badge-orange-bg", Black, 7.0),
+        ("badge-amber-text", "badge-amber-bg", Black, 7.0),
+        ("badge-purple-text", "badge-purple-bg", Black, 7.0),
         ("accent-amber", "badge-amber-bg", Black, 4.5),
         ("accent-emerald", "badge-emerald-bg", Black, 4.5),
         ("accent-purple", "badge-purple-bg", Black, 4.5),

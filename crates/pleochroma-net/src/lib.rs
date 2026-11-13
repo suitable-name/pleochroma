@@ -32,7 +32,7 @@
 //! load-balance badly). Relies on RNG seeds deriving from `hash_u32(pixel_index,
 //! sample_number)` with decorrelated per-bounce streams. Additivity against
 //! `trace_spectral_ray` itself is verified in `apps/pleochroma-worker`'s
-//! `render_core::mod` (around its partition test) and `live_split` (around its own).
+//! `render_core` (its tests).
 //!
 //! # Modules
 //!
@@ -40,10 +40,10 @@
 //! - [`scene`] (`render` feature): [`scene::SceneState`], everything a worker needs to
 //!   trace a frame's samples, fully resolved.
 //! - [`radiance`]: per-pixel `Vec<Vec3>` radiance-buffer codec, raw POD bytes via
-//!   `bytemuck` (hot path, no serialization framework), plus the v14 lossless payload
+//!   `bytemuck` (hot path, no serialization framework), plus the lossless payload
 //!   encodings (byte shuffle + zstd/LZ4) with bounded decoding.
-//! - [`display`]: the v14 8-bit picture payloads (`DISPLAY_FRAME`, `FINAL_IMAGE`), raw
-//!   RGBA8 or PNG.
+//! - [`display`]: the 8-bit picture payloads (`DISPLAY_FRAME`, `FINAL_IMAGE`), raw RGBA8
+//!   or PNG.
 //! - [`messages`]: `HELLO`/`WELCOME` and the tagged `ClientMessage`/`StreamEvent`
 //!   families, with `postcard` encode/decode.
 //! - [`framing`]: length-prefixed message framing over any `Read`/`Write`.
@@ -61,34 +61,25 @@
 //!   for a certificate bundle. Shared by `pleochroma-worker`'s `cert claim` and
 //!   `pleochroma-cut`'s token-redeem UI.
 
-/// Viewer-side protocol driver -- see this doc comment's "Modules" section.
+/// Viewer-side protocol driver.
 pub mod client;
-/// The v14 8-bit picture payloads (`DISPLAY_FRAME`, `FINAL_IMAGE`) -- see this doc
-/// comment's "Modules" section.
+/// The 8-bit picture payloads (`DISPLAY_FRAME`, `FINAL_IMAGE`).
 pub mod display;
-/// Enrollment wire messages and claiming client -- see this doc comment's "Modules"
-/// section.
+/// Enrollment wire messages and the claiming client.
 pub mod enroll;
-/// Length-prefixed message framing over any `Read`/`Write` -- see this doc comment's
-/// "Modules" section.
+/// Length-prefixed message framing over `Read`/`Write`.
 pub mod framing;
-/// Build-compatibility check -- see this doc comment's "Modules" section.
+/// Build-compatibility check between viewer and worker.
 pub mod handshake;
-/// Read-only design-library sync protocol, always available -- see this doc comment's
-/// "Modules" section.
+/// Read-only design-library sync protocol, always available.
 pub mod library;
 pub mod messages;
-/// Per-pixel radiance-buffer codec and the v14 lossless payload encodings -- see this
-/// doc comment's "Modules" section.
+/// Per-pixel radiance-buffer codec and lossless payload encodings.
 pub mod radiance;
-/// [`scene::SceneState`] (`render` feature only).
-///
-/// Everything a worker needs to trace a frame's samples, fully resolved -- see this doc
-/// comment's "Modules" section.
+/// Scene types a worker needs to trace a frame (`render` feature only).
 #[cfg(feature = "render")]
 pub mod scene;
-/// Mutual-TLS config and the client-certificate fingerprint allowlist -- see this doc
-/// comment's "Modules" section.
+/// Mutual-TLS config and the client-certificate fingerprint allowlist.
 pub mod tls;
 pub mod token;
 

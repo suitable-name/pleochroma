@@ -1,8 +1,8 @@
 //! Previewing and applying one Optimize candidate: its angle changes and the mast changes
 //! that go with them, with the tiers that follow a relation moved along.
 //!
-//! All result forms retain the complete accepted state. The session derives relation
-//! followers in the same undo step while retaining their accepted pinned depths.
+//! Every result form keeps the complete accepted state, masts included. The session derives
+//! relation followers within the same undo step.
 
 use crate::EditorSession;
 use pleochroma_cut_core::{Design, Edit, OptimizeCandidate, optimize::MaterializeError};

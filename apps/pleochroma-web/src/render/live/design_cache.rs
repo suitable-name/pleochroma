@@ -1,4 +1,6 @@
-//! The solved design's resolved tools and frosted planes for the live view, each cached for
+//! The solved design's resolved tools and frosted planes for the live view.
+//!
+//! Each is cached for
 //! one generation (resolving them measures the finished stone, which `sync` would otherwise
 //! redo on every settings change).
 
@@ -7,10 +9,10 @@ use pleochroma::geometry::tool::ToolPrimitive;
 use std::cell::RefCell;
 
 thread_local! {
-    /// The resolved tools of the solved design at one generation (resolving them measures the
-    /// finished flat stone, which `sync` would otherwise redo on every settings change).
+    /// The resolved tools at one generation. Resolving them measures the flat stone, so the
+    /// result is kept across settings changes.
     static TOOLS: RefCell<Option<(u64, Vec<ToolPrimitive>)>> = const { RefCell::new(None) };
-    /// The frosted planes of the solved design at one generation, for the same reason.
+    /// The frosted planes at one generation, cached for the same reason.
     static FROSTED: RefCell<Option<(u64, Vec<u32>)>> = const { RefCell::new(None) };
 }
 

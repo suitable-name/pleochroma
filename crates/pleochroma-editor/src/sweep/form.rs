@@ -32,8 +32,8 @@ const PARALLEL_EFFICIENCY: f64 = 0.8;
 /// The range the dialog starts with for a tier at `current_deg`, as `(from, to)`.
 ///
 /// Five degrees either side of the angle, kept between 0.5 and 89.5 degrees from flat,
-/// flattest first. Magnitudes: a pavilion tier at `-41` gives `(36, 46)`, because the side
-/// of the girdle comes from the tier, not from the number.
+/// flattest first. Magnitudes are used, so a pavilion tier at `-41` gives `(36, 46)`: the
+/// side of the girdle comes from the tier, not from the sign.
 #[must_use]
 pub fn default_range(current_deg: f64) -> (f64, f64) {
     let magnitude = current_deg.abs();

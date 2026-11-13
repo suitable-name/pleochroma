@@ -1,8 +1,8 @@
-//! The cutter's saved color variants in `IndexedDB`: the browser's twin of the desktop vault's
+//! The saved color variants in `IndexedDB`, the browser counterpart of the desktop vault's
 //! `material_color_variants` table.
 //!
 //! One object store (`color_variants`, created by the version 3 upgrade in [`super::idb`]),
-//! keyed by the variant key (`user.<uuid>`), one record per saved variant:
+//! keyed by the variant key (`user.<uuid>`), with one record per saved variant:
 //!
 //! | field | value |
 //! |---|---|
@@ -14,10 +14,10 @@
 //! | `created_ms`, `updated_ms` | `Date.now()` of the first and the latest write |
 //!
 //! The record shape, the JSON and the checks are `pleochroma_web_core::design_color`
-//! (native-tested); this module only moves them in and out of the store. Every function opens the
-//! database for the call and closes it again, resolves when its transaction has completed, and
-//! reports a failure as `Err(String)` for the caller to log -- nothing here shows the user
-//! anything, and nothing touches the autosave or the library stores.
+//! (native-tested). This module only moves them in and out of the store. Each function
+//! opens the database for the call, resolves when its transaction has completed, and
+//! reports a failure as `Err(String)` for the caller to log. Nothing here touches the
+//! autosave or the library stores.
 
 use super::idb::{
     STORE_COLOR_VARIANTS, js_text, request_result, store, transaction, transaction_done, with_db,
@@ -35,13 +35,13 @@ use web_sys::IdbTransactionMode;
 pub struct SavedColors {
     /// Every readable saved variant, in key order.
     pub variants: Vec<ColorVariant>,
-    /// The sentences for records this build cannot read (a newer version, damaged JSON): they are
-    /// skipped, not deleted.
+    /// One message per record this build cannot read (a newer version, damaged JSON). Such
+    /// records are skipped, not deleted.
     pub skipped: Vec<String>,
 }
 
-/// 16 random bytes: `crypto.getRandomValues` where the page has it, `Math.random` otherwise (a
-/// key needs to be unlikely to collide, not secret).
+/// 16 random bytes from `crypto.getRandomValues`, or `Math.random` when the page lacks it.
+/// The bytes only need to make collisions unlikely, not to be secret.
 fn random_bytes() -> [u8; 16] {
     let mut bytes = [0u8; 16];
     let filled = web_sys::window()
@@ -81,7 +81,7 @@ fn field_number(record: &JsValue, name: &str) -> Option<f64> {
         .as_f64()
 }
 
-/// The stored record as a JS object (`created_ms` kept from an earlier write by the caller).
+/// The record as a JS object. `created_ms` is the first write's time, passed in by the caller.
 fn record_value(
     record: &ColorVariantRecord,
     created_ms: f64,
@@ -127,7 +127,7 @@ fn record_from_value(value: &JsValue) -> Result<ColorVariantRecord, String> {
     })
 }
 
-/// Every saved variant of the browser, readable ones first-class, unreadable ones as sentences.
+/// Every saved variant that can be read, plus a message for each record that cannot.
 ///
 /// # Errors
 ///
@@ -152,12 +152,12 @@ pub async fn list() -> Result<SavedColors, String> {
     Ok(saved)
 }
 
-/// Writes `variant` (replacing the record under its key; the first write's `created_ms` is kept).
+/// Writes `variant`, replacing the record under its key. The first write's `created_ms` is kept.
 ///
 /// # Errors
 ///
-/// The variant cannot be stored (`design_color::record_for`: a blank name, a key without the
-/// `user.` prefix, a number that is not finite), `IndexedDB` is unavailable, or the write failed
+/// The variant is invalid (`design_color::record_for`: a blank name, a key without the
+/// `user.` prefix, a non-finite number), `IndexedDB` is unavailable, or the write failed
 /// (quota included).
 #[expect(clippy::future_not_send, reason = "wasm is single-threaded")]
 pub async fn save(variant: &ColorVariant) -> Result<(), String> {

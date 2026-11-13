@@ -11,11 +11,14 @@
 //! * The window: `model.rs` (pure rules and numbers), `edit.rs` (pure edits), `undo.rs`,
 //!   `presets.rs`, `colors.rs` (swatches and the solve worker), `form.rs` (the color forms by the
 //!   material's rank), `variants.rs` (the color variants a zone can take), `own.rs` (the stone's
-//!   own color per direction, which typical patterns are built on), `cross_section.rs`
-//!   (rasters and handles), `session.rs` (the state and the thread-local host), `view.rs` (session to window),
-//!   `preview.rs` (the preview area), `actions.rs` (what the callbacks do), `wiring.rs` (the window
-//!   and its callbacks), `entry.rs` and `present.rs` (the material dialog's section), and
-//!   `context.rs` (the render context after a store).
+//!   own color per direction, which typical patterns are built on), `cross_section.rs` (rasters
+//!   and handles), `thumbs.rs` (the gallery's pictures), `lch.rs` (the picker's plane and hue
+//!   strip), `session.rs` (the state and the thread-local host), `view.rs` (session to window),
+//!   `order.rs` (the layer list's order and the zones hidden for the session), `gallery.rs` (the
+//!   "Start From..." tiles), `picker.rs` (the color picker), `preview.rs` (the stage: pictures,
+//!   inset, handles), `actions.rs` (what the callbacks do), `wiring.rs` (the window and its
+//!   callbacks), `entry.rs` and `present.rs` (the material dialog's section), and `context.rs`
+//!   (the render context after a store).
 //! * [`follow`] is "Follows Crystal Axis": the zones of a pattern with that axis mode are turned
 //!   to the stone's axis wherever the application resolves them.
 
@@ -27,7 +30,10 @@ mod edit;
 mod entry;
 pub mod follow;
 mod form;
+mod gallery;
+mod lch;
 mod model;
+mod order;
 mod own;
 mod picker;
 mod present;
@@ -39,6 +45,7 @@ mod stone;
 mod store;
 #[cfg(test)]
 mod store_tests;
+mod thumbs;
 mod typical;
 mod undo;
 mod variants;

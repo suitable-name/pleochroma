@@ -343,7 +343,7 @@ fn connecting_by_ip_against_a_dns_only_san_certificate_fails() {
 /// `--insecure-no-tls` is for loopback debugging only -- combined with a
 /// non-loopback `--bind`, `build_transport` must refuse it outright, even if
 /// `--allow-remote` is also set (that flag governs the loopback/non-loopback
-/// bind check, a separate, independent gate -- see `run`'s doc comment).
+/// bind check, a separate, independent gate -- see `start`'s doc comment).
 #[test]
 fn insecure_no_tls_with_a_non_loopback_bind_is_refused() {
     let args = crate::cli::ServeArgs {

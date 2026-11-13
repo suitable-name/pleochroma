@@ -90,7 +90,7 @@ fn temp_cache(name: &str) -> (std::path::PathBuf, AssetCache) {
     (dir, cache)
 }
 
-/// Runs one scripted viewer connection (CPU only, own lane, plain worker) and returns
+/// Runs one scripted viewer connection (CPU only, own lane) and returns
 /// everything the server wrote after its `WELCOME`, plus the `WELCOME`.
 fn run(input: Vec<u8>, assets: Option<&AssetCache>) -> (Welcome, Cursor<Vec<u8>>) {
     let mut duplex = DuplexHalf::new(input);

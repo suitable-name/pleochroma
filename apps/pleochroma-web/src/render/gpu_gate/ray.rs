@@ -1,4 +1,4 @@
-//! Independent Ray-Traced admission; existing spectral records keep their keys and meaning.
+//! Ray-Traced qualification: its own adapter key and record, apart from the spectral kernels.
 
 use std::{cell::RefCell, time::Duration};
 
@@ -90,8 +90,8 @@ fn failed(ctx: &Ctx, reason: &str) {
     status::refresh(ctx);
 }
 
-/// Queued after the event-wavefront test on a normal startup; independent when Ray-Traced
-/// is selected, including an adapter that exposes fewer than eight storage buffers.
+/// Starts the Ray-Traced test. On a normal start it waits for the spectral run; with
+/// Ray-Traced selected it runs at once, even on an adapter with under eight storage buffers.
 pub(super) fn begin(ctx: &Ctx, pool: &WorkerPool, explicit: bool) {
     if !ctx.state.borrow().settings.gpu_enabled || !pool.render().is_gpu_ready() {
         return;
@@ -195,7 +195,7 @@ pub(super) fn begin(ctx: &Ctx, pool: &WorkerPool, explicit: bool) {
     }
 }
 
-/// Consume only this kernel's answers; spectral events continue through the original gate.
+/// Consumes only this kernel's answers; other events are left to the spectral handler.
 pub(super) fn event(ctx: &Ctx, event: &GpuEvent) -> bool {
     match event {
         GpuEvent::Compiled { kernel, ms, .. } if kernel == gpu_admission::WHITTED_KERNEL => {

@@ -1,7 +1,4 @@
-//! Next-event-estimation sampling and pdf lookups against the analytic sun and an `HdrMap`.
-//!
-//! Moved verbatim out of `rig.rs` (backdrop campaign, lane B1) to keep that file under its
-//! size limit; no arithmetic changed.
+//! Next-event-estimation sampling and pdf lookups for the analytic sun and an `HdrMap`.
 
 use super::{
     EnvironmentSource, LightingModel, LightingPreset,
@@ -11,10 +8,11 @@ use glam::Vec3;
 
 /// One next-event-estimation draw toward the environment: the sampled
 /// direction, its solid-angle-measure pdf under [`EnvironmentMap::sample`]'s own
-/// importance distribution, and the raw RGB radiance in that direction (from which a
+/// importance distribution, and the RGB radiance in that direction at the map's exposure
+/// ([`super::hdr_rgb_at_exposure`], the scale the miss lookups apply too), from which a
 /// caller lifts each channel's own spectral radiance via
 /// [`crate::renderer::env_map::rgb_to_spectral_radiance`] -- the same lift
-/// [`EnvironmentMap::radiance_at`] itself uses).
+/// [`EnvironmentMap::radiance_at`] itself uses.
 ///
 /// [`EnvironmentMap::sample`]: crate::renderer::env_map::EnvironmentMap::sample
 /// [`EnvironmentMap::radiance_at`]: crate::renderer::env_map::EnvironmentMap::radiance_at
@@ -57,21 +55,23 @@ impl EnvNeeSample {
 /// Whether `environment` offers a light-sampling (NEE) technique at all: an HDR map
 /// (importance-sampled texels) or the analytic sun of [`LightingPreset::DaylightSun`]
 /// (uniform cone sampling). Every other analytic rig is smooth enough for BSDF sampling
-/// alone. Replaces the old `matches!(environment, HdrMap(_))` switch at the entry points.
+/// alone.
 #[must_use]
 pub(in super::super) fn environment_supports_nee(environment: EnvironmentSource<'_>) -> bool {
     match environment {
         EnvironmentSource::Studio { preset, .. } => preset.model() == LightingModel::DaylightSun,
-        EnvironmentSource::HdrMap(_) => true,
+        EnvironmentSource::HdrMap { .. } => true,
     }
 }
 
 /// Draws one NEE direction from `environment`'s own importance distribution, from two
 /// independent uniform `[0, 1)` randoms.
 ///
-/// - [`EnvironmentSource::HdrMap`]: the map's importance distribution; `None` for a
-///   degenerate draw (`pdf <= 0.0`, e.g. a direction whose row/column solid angle collapsed
-///   to nothing at a pole).
+/// - [`EnvironmentSource::HdrMap`]: the map's importance distribution (the texel's RGB at
+///   the map's exposure; the pdf is the distribution's alone); `None` for a degenerate
+///   draw (`pdf <= 0.0`, e.g. a direction whose row/column solid angle collapsed to
+///   nothing at a pole). WGSL twin: `dist2d_sample` plus `hdr_rgb_at_exposure` at the two
+///   NEE call sites of `transport_bounce/06_nee_sampling.wgsl`.
 /// - [`EnvironmentSource::Studio`] with [`LightingPreset::DaylightSun`]: a direction
 ///   uniform over the sun disc ([`sun_cone_direction`]), `pdf = 1 / SUN_SOLID_ANGLE`.
 /// - every other analytic rig: `None` (no light-sampling technique, see
@@ -106,12 +106,18 @@ pub(in super::super) fn sample_environment_for_nee(
             })
         }
         EnvironmentSource::Studio { .. } => None,
-        EnvironmentSource::HdrMap(map) => {
-            let (dir, rgb, pdf) = map.sample(u0, u1);
+        EnvironmentSource::HdrMap {
+            map,
+            exposure,
+            rotation,
+        } => {
+            // The direction comes back in the world (`rotation.to_world` of the map-frame
+            // draw); the RGB and the pdf are the unrotated draw's.
+            let (dir, rgb, pdf) = map.sample_rotated(u0, u1, rotation);
             (pdf > 0.0).then_some(EnvNeeSample {
                 dir,
                 pdf,
-                rgb,
+                rgb: super::hdr_rgb_at_exposure(rgb, exposure),
                 sun: None,
             })
         }
@@ -119,8 +125,8 @@ pub(in super::super) fn sample_environment_for_nee(
 }
 
 /// The key light's direction for a light pose, with exactly the arithmetic of
-/// `StudioRig::new`'s `key_dir` (bit-identical, pinned by a test) but without building the
-/// whole rig (~40 sin/cos and 16 normalizes), which the per-event NEE entry points do not need.
+/// `StudioRig::new`'s `key_dir` (bit-identical, pinned by a test) without building the
+/// whole rig, which the per-event NEE entry points do not need.
 fn key_dir_only(light_yaw: f32, light_pitch: f32) -> Vec3 {
     let cos_pitch = light_pitch.cos();
     let sin_pitch = light_pitch.sin();
@@ -154,6 +160,6 @@ pub(in super::super) fn environment_nee_pdf(environment: EnvironmentSource<'_>, 
             sun_nee_pdf(key_dir_only(light_yaw, light_pitch), dir)
         }
         EnvironmentSource::Studio { .. } => 0.0,
-        EnvironmentSource::HdrMap(map) => map.pdf(dir),
+        EnvironmentSource::HdrMap { map, rotation, .. } => map.pdf_rotated(dir, rotation),
     }
 }

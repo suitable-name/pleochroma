@@ -32,8 +32,8 @@ use std::{
 /// lane that draws the cheap designs take more of them.
 const CHUNKS_PER_LANE: usize = 4;
 
-/// The core's smallest shortlist (designs that get an exact search), for the progress estimate of
-/// a rule-aware fit.
+/// The core's `SHORTLIST_MIN` (the fewest designs that get an exact search), mirrored for
+/// the progress estimate of a rule-aware fit.
 const SHORTLIST_ESTIMATE_MIN: usize = 48;
 
 /// Lowers the calling thread below normal priority, so a plan that uses every spare core
@@ -321,10 +321,10 @@ pub(super) fn fit_single_stones_parallel(
     Some(merge_fits(fits, job.keep))
 }
 
-/// One pass of the fit over `hulls` inside the cone `cone` (`None`: unrestricted): screening per
-/// chunk, one shortlist, the exact search and polish per chunk, one merge. The same stages as
-/// [`fit_single_stones_parallel`], over the rule-restricted orientation tables. `None` when
-/// cancelled.
+/// One pass of the fit over `hulls` inside the cone `cone` (`None`: unrestricted): screening
+/// per chunk, one shortlist, the exact search and polish per chunk, one merge. The same
+/// stages as [`fit_single_stones_parallel`], over the rule-restricted orientation tables.
+/// `None` when cancelled.
 fn fit_pass_parallel(
     job: &FitJob<'_>,
     hulls: &[DesignHull],
@@ -367,8 +367,8 @@ fn fit_pass_parallel(
     Some(merge_fits(parts.into_iter().flatten().collect(), job.keep))
 }
 
-/// The designs `hulls` fitted under the one `rule`: every pass of `rule_passes` in parallel, joined
-/// as the core's `fit_single_stones_ruled` joins them. `None` when cancelled.
+/// The designs `hulls` fitted under the one `rule`: every pass of `rule_passes` in turn,
+/// joined as the core's `fit_single_stones_ruled` joins them. `None` when cancelled.
 fn fit_group_parallel(
     job: &FitJob<'_>,
     hulls: &[DesignHull],
@@ -389,13 +389,14 @@ fn fit_group_parallel(
     Some(merge_rule_passes(rule, passes, job.keep))
 }
 
-/// [`fit_single_stones_parallel`] for designs that carry orientation rules (`rules`, by entry id):
-/// the designs are grouped by rule, in the order of their first appearance, and each group is
-/// fitted under its rule (a Required rule inside its cone, a Preferred one by weight times its
-/// factor) on every lane, exactly the grouping and merging of the core's `fit_single_stones_by_rule`.
+/// [`fit_single_stones_parallel`] for designs that carry orientation rules (`rules`, by
+/// entry id): the designs are grouped by rule, in the order of their first appearance, and
+/// each group is fitted under its rule (a Required rule inside its cone, a Preferred one by
+/// weight times its factor) on every lane. The grouping and merging match the core's
+/// `fit_single_stones_by_rule`.
 ///
-/// Without any rule this IS [`fit_single_stones_parallel`]. The result does not depend on the lane
-/// count: chunks are merged in order, as in the unruled fit. `None` when cancelled.
+/// Without any rule this is [`fit_single_stones_parallel`]. The result does not depend on
+/// the lane count: chunks are merged in order, as in the unruled fit. `None` when cancelled.
 pub(super) fn fit_single_stones_by_rules(
     job: &FitJob<'_>,
     rules: &BTreeMap<i64, ResolvedRule>,
@@ -416,7 +417,7 @@ pub(super) fn fit_single_stones_by_rules(
             None => groups.push((rule, vec![hull.clone()])),
         }
     }
-    // What the stages will report in all: every pass screens its group and polishes a shortlist.
+    // The stages report these totals: every pass screens its group and polishes a shortlist.
     let shortlist_cap = job.keep.saturating_mul(4).max(SHORTLIST_ESTIMATE_MIN);
     let (mut screens, mut shortlisted) = (0, 0);
     for (rule, members) in &groups {

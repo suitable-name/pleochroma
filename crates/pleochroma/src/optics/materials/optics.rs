@@ -5,23 +5,20 @@ use super::GemMaterial;
 use crate::optics::birefringence::BiaxialIndicatrix;
 
 impl GemMaterial {
-    /// Builds this material's full [`BiaxialIndicatrix`] (three principal
-    /// indices `n_alpha` <= `n_beta` <= `n_gamma` plus their orthonormal axis frame) at
-    /// `lambda_nm`, for the three biaxial (orthorhombic) built-ins. `None` for every
-    /// other material -- see `biaxial_delta_beta_alpha`'s doc comment for the field
-    /// this reads and the convention it documents (base `dispersion` curve == `n_beta`,
-    /// `birefringence_delta` == `n_gamma` - `n_alpha`, `c_axis` doubles as the `n_gamma`
-    /// principal axis, and `alpha_axis`, when set, is the `n_alpha` principal axis).
+    /// Builds this material's full [`BiaxialIndicatrix`] (three principal indices
+    /// `n_alpha` <= `n_beta` <= `n_gamma` plus their orthonormal axis frame) at
+    /// `lambda_nm`. `None` unless the material is biaxial (`biaxial_delta_beta_alpha` is
+    /// set); that field's doc comment gives the convention: base `dispersion` curve ==
+    /// `n_beta`, `birefringence_delta` == `n_gamma` - `n_alpha`, `c_axis` is the `n_gamma`
+    /// axis, and `alpha_axis`, when set, is the `n_alpha` axis.
     ///
     /// With [`GemMaterial::biaxial_principal_dispersion`] set, `n_alpha` and `n_gamma`
-    /// come from their own curves at `lambda_nm` and `n_beta` stays the base
-    /// `dispersion` curve, so the spreads (and the optic-axis angle) vary with
-    /// wavelength. Custom curves that cross inside the band are refused at the material
-    /// boundary (`pleochroma_cut_core::material::custom_physics`); the sort here is a
-    /// last-resort guard that must never be reached for a valid material, so the magnitude
-    /// order `n_alpha <= n_beta <= n_gamma` always holds
-    /// (the built-ins' curves never cross between 380 and 780 nm; a test pins that).
-    /// Without the field the achromatic offsets apply, bit for bit.
+    /// come from their own curves and `n_beta` stays the base curve, so the spreads and
+    /// the optic-axis angle vary with wavelength. The sort below is a last-resort guard
+    /// that keeps `n_alpha <= n_beta <= n_gamma`; valid materials never reach it
+    /// (custom curves that cross are refused earlier, and the built-ins never cross
+    /// between 380 and 780 nm, which a test pins). Without the field, the achromatic
+    /// offsets apply.
     #[must_use]
     pub fn biaxial_indicatrix(&self, lambda_nm: f32) -> Option<BiaxialIndicatrix> {
         let delta_beta_alpha = self.biaxial_delta_beta_alpha?;
@@ -57,12 +54,10 @@ impl GemMaterial {
     /// takes it rather than recomputing it).
     ///
     /// Uses [`Self::uniaxial_extraordinary_dispersion`] (a genuine independent e-ray
-    /// curve) when present, falling back to the constant-offset `n_o +
-    /// birefringence_delta` approximation every material used before that field
-    /// existed -- see that field's own doc comment for which built-ins (Quartz,
-    /// Amethyst, Citrine, Rutile) carry a real curve, and for the GPU port
-    /// (`extraordinary_dispersion_evaluate` called from
-    /// `shaders/transport_bounce/08_bounce_step.wgsl`) mirroring this exactly.
+    /// curve) when present, else the constant-offset `n_o + birefringence_delta`. See that
+    /// field's doc comment for which built-ins carry a curve, and for the GPU port
+    /// (`extraordinary_dispersion_evaluate`, called from
+    /// `shaders/transport_bounce/08a_index_setup.wgsl`), which mirrors this exactly.
     #[must_use]
     pub fn extraordinary_index_at(&self, lambda_nm: f32, n_o: f32) -> f32 {
         self.uniaxial_extraordinary_dispersion
@@ -74,40 +69,32 @@ impl GemMaterial {
     /// GPU routing predicate: whether this material's optics are supported by the GPU
     /// backend (`renderer::shaders::spectral_transport.wgsl`'s `transport_main`).
     ///
-    /// A pure function of the material alone. Isotropic and uniaxial birefringent
-    /// materials (the `theta_c` fixed-point iteration, the 50/50 ordinary/extraordinary
-    /// eigenmode split, `extraordinary_poynting_dir` walk-off) have always been ported
-    /// and GPU-capable. Genuinely biaxial materials (`biaxial_delta_beta_alpha.is_some()`
-    /// -- Alexandrite, Topaz, Tanzanite among the built-ins) are supported too, now that
-    /// `BiaxialIndicatrix::eigenvector_world` (the symmetric "transverse impermeability"
-    /// matrix `Gamma = P.B.P`, its null vector extracted via a smooth, sign-aligned sum
-    /// of row-pair cross products rather than a hard largest-of-three selection) and
-    /// `wave_indices`'s discriminant (`BiaxialIndicatrix::precise_root_near`: an
-    /// algebraically-exact reformulation replacing the `B^2-4C` cancellation with
-    /// Sterbenz-exact differences of the principal `1/n^2` values) are both
-    /// well-conditioned near mode degeneracy -- see both functions' doc comments in
-    /// `optics::birefringence` for the full derivations.
+    /// A pure function of the material alone. Isotropic and uniaxial materials (the
+    /// `theta_c` fixed-point iteration, the 50/50 ordinary/extraordinary eigenmode split,
+    /// `extraordinary_poynting_dir` walk-off) are GPU-capable, and so are biaxial ones
+    /// (`biaxial_delta_beta_alpha.is_some()`). That relies on two well-conditioned helpers
+    /// near mode degeneracy: `BiaxialIndicatrix::eigenvector_world` (the null vector of
+    /// `Gamma = P.B.P`, a sign-aligned sum of row-pair cross products) and the discriminant
+    /// in `wave_indices` (`BiaxialIndicatrix::precise_root_near`, which avoids the `B^2-4C`
+    /// cancellation). See both doc comments in `optics::birefringence`.
     ///
-    /// Deliberately checks only material data, never anything about the machine running
-    /// the render (GPU availability, VRAM, load): the whole point of a routing predicate
-    /// living in this crate's hashed source (`lib::BUILD_ID` covers `src/**/*.rs`) is
-    /// that a viewer and a remote render worker -- each independently deciding whether to
-    /// hand a given scene to the GPU backend -- can never disagree about what runs where,
-    /// which requires the decision to depend on nothing but the scene (here: the
-    /// material) itself. A caller that assembles a full scene (material + geometry +
-    /// environment) should call this once per distinct material the scene uses and
-    /// require all of them to return `true` before routing that scene's render to the
-    /// GPU backend.
+    /// Checks only material data, never the machine (GPU availability, VRAM, load). The
+    /// viewer and a remote render worker each decide independently whether to send a scene
+    /// to the GPU, so they must reach the same answer from the scene alone. `lib::BUILD_ID`
+    /// (a hash of the crate version) pairs only builds of one release, so the rule is
+    /// identical on both. A caller assembling a scene
+    /// (material, geometry, environment) calls this for each distinct material and routes
+    /// the render to the GPU only if all return `true`.
     ///
-    /// Every optics is supported, except that a ZONED material is supported only when the GPU zone kernels
-    /// can render it. A mesh-shell zone, a scattering zoned stone, invalid zoning or a zone
-    /// with more than `MAX_ABSORPTION_BANDS` bands are CPU only (see
-    /// `renderer::buffers::gpu_zoning_decline`, which names the reason). Without this a
-    /// zoned material sent to the GPU would render its base zone only. A material whose own
-    /// band sets exceed `MAX_ABSORPTION_BANDS` is CPU only (the GPU encoding would truncate
-    /// it); `renderer::buffers::gpu_material_decline` names that reason too.
+    /// A ZONED material is supported only when the GPU zone kernels can render it. A
+    /// mesh-shell zone, a scattering zoned stone, invalid zoning, or a zone with more than
+    /// `MAX_ABSORPTION_BANDS` bands is CPU only (`renderer::buffers::gpu_zoning_decline`
+    /// names the reason). Without this check a zoned material would render only its base
+    /// zone on the GPU. A material whose own band sets exceed `MAX_ABSORPTION_BANDS` is CPU
+    /// only too (`renderer::buffers::gpu_material_decline` names that reason).
     ///
-    /// Not `const` (it inspects the zone list); `scene_routes_to_gpu` follows.
+    /// Not `const`, because it inspects the zone list. `scene_routes_to_gpu` is the
+    /// scene-level check built on this.
     #[must_use]
     pub fn gpu_supported(&self) -> bool {
         crate::renderer::buffers::gpu_material_decline(self).is_none()

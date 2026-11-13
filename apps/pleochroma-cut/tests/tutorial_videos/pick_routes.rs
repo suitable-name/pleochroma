@@ -154,8 +154,8 @@ impl Film<'_> {
             let covered =
                 |candidate: &Spot| obstructions.iter().any(|spot| intersects(spot, candidate));
             if diagram {
-                // The Diagram image is drawn on the solid worker: without a recorder no real
-                // time passes between steps, so wait for it in real time.
+                // The Diagram image is drawn on the solid worker thread, which needs real time;
+                // holds advance only mock time, so wait for it in real time.
                 let ready = crate::pacing::wait_real(std::time::Duration::from_secs(10), || {
                     preview.get_has_diagram()
                 });

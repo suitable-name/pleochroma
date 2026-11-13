@@ -1,6 +1,8 @@
-//! The Stone tab's design-side wiring: "Back to design" after a material preview, the one
+//! The Stone tab's design-side wiring.
+//!
+//! It covers "Back to design" after a material preview, the one
 //! stone width (the design's girdle diameter, one undoable edit), the per-design render effects
-//! (debounced commit, reset, one-shot migration of the old app-level values), and the
+//! (debounced commit, reset, one-shot migration of the legacy app-level values), and the
 //! printed-proportions panel.
 
 use std::{
@@ -364,8 +366,8 @@ fn setup_effects_reset_callback(ui: &MainWindow, commit: &Rc<EffectsCommit>) {
         });
 }
 
-/// One-shot migration: the old app-level stone size and effects become the starting values
-/// of the first design that is opened (an undoable edit), then are never read again.
+/// One-shot migration: carries the legacy app-level stone size and effects onto the first
+/// design opened, as one undoable edit. The settings flag then stops it from running again.
 fn setup_stone_migration_callback(ui: &MainWindow, migrate: Rc<EffectsCommit>) {
     ui.global::<EditorModel>().on_stone_design_opened(move || {
         let Some(persister) = SettingsPersister::installed_for_this_thread() else {
@@ -448,9 +450,8 @@ pub(in crate::gui::editor) fn setup_printed_proportions_callback(
     );
 }
 
-// The printed-proportions parsers moved to `pleochroma_editor::printed_proportions`
-// (shared with the web design settings); re-exported at their old path, which
-// `super::tests` exercises.
+// The printed-proportions parsers live in `pleochroma_editor::printed_proportions`
+// (shared with the web design settings); the field parser is re-exported for `super::tests`.
 #[cfg(test)]
 pub(super) use pleochroma_editor::printed_proportions::parse_printed_proportions_field;
 pub(super) use pleochroma_editor::printed_proportions::parse_printed_proportions_form;

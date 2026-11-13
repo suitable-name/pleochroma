@@ -10,8 +10,12 @@
 //!   coordinator's `WELCOME` advertisement);
 //! - [`requests`] (`worker` builds): the post-`WELCOME` request loop -- independent of
 //!   who dialled, so `serve`'s accept path and `join`'s dial path share it;
-//! - [`batch`] (`worker` builds): protocol v24's batched preview requests, answered with
-//!   finished PNGs on a persistent connection.
+//! - [`batch`] (`worker` builds): batched preview requests, answered with finished PNGs on a
+//!   persistent connection;
+//! - `live_pass` (`adaptive-sampling` builds): adaptive live passes, one chunk of an adaptive
+//!   pass per request; without the feature [`requests`] refuses them;
+//! - `beam_tiles` (`beam` builds): whole beam tiles on the own lane; without the feature
+//!   [`requests`] refuses them.
 
 use super::library::LibraryHandle;
 use pleochroma_net::messages::{ClientMessage, ErrorMsg, NetError, error_codes};
@@ -25,8 +29,12 @@ use std::net::SocketAddr;
 
 #[cfg(feature = "worker")]
 mod batch;
+#[cfg(feature = "beam")]
+mod beam_tiles;
 #[cfg(feature = "worker")]
 mod link;
+#[cfg(feature = "adaptive-sampling")]
+mod live_pass;
 #[cfg(feature = "worker")]
 mod requests;
 #[cfg(feature = "worker")]
@@ -45,10 +53,9 @@ pub fn report_connection_result(
 }
 
 /// `<- ERROR` code for a `HELLO` this worker refuses to pair with -- a protocol-version
-/// mismatch (either build) or (also) a `pleochroma` build-hash mismatch (`worker`
-/// builds). The shared vocabulary lives in [`error_codes`]; these aliases keep this
-/// crate's historical names. (The version half of the gate lives in `super::handshake`,
-/// shared by both builds.)
+/// mismatch (either build) or a `pleochroma` build-hash mismatch (`worker` builds). The
+/// shared vocabulary lives in [`error_codes`]. (The version half of the gate lives in
+/// `super::handshake`, shared by both builds.)
 #[cfg(feature = "worker")]
 pub(super) const BUILD_MISMATCH_CODE: u32 = error_codes::BUILD_MISMATCH;
 
@@ -60,8 +67,7 @@ pub(super) const NO_RENDER_CAPACITY_CODE: u32 = error_codes::NO_RENDER_CAPACITY;
 
 /// `<- ERROR` code for [`refuse_for_capacity`]: this worker is already handling
 /// `--max-connections` connections and refuses to accept another. Sent in place of
-/// `WELCOME`, exactly like `BUILD_MISMATCH_CODE` -- see that function's doc comment for
-/// why no new wire message type was needed for this.
+/// `WELCOME`, like `BUILD_MISMATCH_CODE`.
 pub(super) const CONNECTION_LIMIT_REACHED_CODE: u32 = error_codes::CONNECTION_LIMIT_REACHED;
 
 #[cfg(feature = "worker")]
@@ -76,22 +82,20 @@ pub use worker::{
     local_render_capability, refuse_incompatible_handshake,
 };
 
-/// Sends a single `<- ERROR` reply in place of `WELCOME`, telling a peer this server is
-/// already at `--max-connections` capacity, then lets the caller drop the connection --
-/// the accept loops call this instead of ever handing the connection to a handler when
+/// Sends a single `<- ERROR` reply in place of `WELCOME`, telling a peer this server is already at
+/// `--max-connections` capacity; the caller then drops the connection.
+///
+/// The accept loops call this instead of handing the connection to a handler when
 /// [`super::ConnectionLimiter::try_acquire`] reports the cap is reached.
 ///
-/// Deliberately reuses [`ErrorMsg`], the same `HELLO`-phase refusal shape
-/// `BUILD_MISMATCH_CODE` already sends in place of `WELCOME`, rather than adding a new
-/// wire message: `pleochroma_net::client::handshake` already reads exactly one reply after
-/// writing `HELLO` and tries to decode it as `Welcome` first, falling back to `ErrorMsg`.
+/// It reuses [`ErrorMsg`], the `HELLO`-phase refusal shape `BUILD_MISMATCH_CODE` also uses,
+/// rather than a new wire message: `pleochroma_net::client::handshake` reads one reply after
+/// `HELLO` and tries to decode it as `Welcome` first, falling back to `ErrorMsg`.
 ///
-/// Never reads the peer's own `HELLO` off the wire first -- unnecessary, since the reply
-/// above is decoded the same way regardless of whether the server ever read what the
-/// client sent. For a TLS listener, call this only after [`super::tls::accept_tls`] has
-/// already completed (handshake AND allowlist check): an unauthenticated peer must not
-/// learn this server's capacity state before authenticating. For the loopback plaintext
-/// listener, there is no authentication step to wait for, so this runs immediately.
+/// The peer's `HELLO` is not read first, since the reply decodes the same either way. On TLS,
+/// call this only after [`super::tls::accept_tls`] has completed, so an unauthenticated peer
+/// learns nothing about capacity. The loopback plaintext listener has no authentication step,
+/// so it calls this at once.
 pub fn refuse_for_capacity<S: Write>(
     stream: &mut S,
     peer: Option<SocketAddr>,
@@ -178,12 +182,10 @@ pub fn handle_non_render_message<S: Write>(
             );
             pleochroma_net::messages::write_message(stream, &response)
         }
-        // Wildcard is the only correct choice here (see the `#[allow]` reason above).
-        // Always replies `StreamEvent::Error`, even for a `TiltCurvesRequest` -- a
-        // mismatch for that family's reader, but acceptable since this arm is only
-        // reachable on a build without `worker`, where the peer already has enough
-        // signal (a decode failure, or an absent advertised capability) to know
-        // something is wrong.
+        // The wildcard is the only correct choice here (see the `#[allow]` reason above).
+        // It always replies `StreamEvent::Error`, even to a `TiltCurvesRequest`: a mismatch
+        // for that reader, but this arm is reached only without `worker`, where the peer has
+        // already seen the absent capability.
         _ => {
             tracing::warn!(
                 "received a RenderRequest or TiltCurvesRequest, but this worker advertises no \
@@ -260,15 +262,15 @@ fn serve_until_render_request_or_eof<S: Read + Write>(
     }
 }
 
-/// Ends the pre-`HELLO` deadline once `HELLO` has arrived: releases the deadline the
-/// accept loop applied to the raw socket (see `serve::HANDSHAKE_TIMEOUT`), re-arming
-/// reads with [`pleochroma_net::framing::IDLE_READ_TIMEOUT`] so a peer that goes silent
-/// cannot hold a connection slot forever, and making writes blocking again. The
-/// library-only build's counterpart to `stream_emit::TimeoutRead`/`TimeoutWrite`, which
-/// the worker handler uses for the same purpose but which don't exist here: `stream_emit`
-/// is gated on the `worker` feature this build doesn't have. Implemented only for the two
-/// concrete transports the accept loop ever hands to [`handle_connection`] -- a plain
-/// `TcpStream`, or one wrapped in mutual TLS.
+/// Ends the pre-`HELLO` deadline once `HELLO` has arrived.
+///
+/// It swaps the accept loop's deadline
+/// on the raw socket for [`pleochroma_net::framing::IDLE_READ_TIMEOUT`], so a silent peer
+/// cannot hold a connection slot forever, and makes writes blocking again. This is the
+/// library-only build's counterpart of `stream_emit::TimeoutRead`/`TimeoutWrite`, which
+/// `stream_emit` provides only under the `worker` feature. Implemented for the two transports
+/// the accept loop hands to [`handle_connection`]: a plain `TcpStream`, or one wrapped in
+/// mutual TLS.
 #[cfg(not(feature = "worker"))]
 pub trait ClearHandshakeTimeout {
     /// Best-effort, like `serve::tune_accepted_socket`: a failed `set_*_timeout` call is

@@ -1,12 +1,12 @@
 //! Optimize and Retarget through the solve handler, against the direct desktop calls.
 //!
 //! Every built-in template pins all of its tiers, so the quick tests here cover what a
-//! template does through the handlers (Optimize has nothing free; Retarget's Shift mode
-//! runs the desktop's check and carries the masts it moved, or refuses in the check's own
-//! words). The two tests that run a real search cost a
-//! `Full`-fidelity tilt sweep each (over a minute unoptimized), so they are `#[ignore]`d
-//! like the equivalent tests in `pleochroma-cut-core`: run them with
-//! `cargo test -p pleochroma-web-core -- --ignored`.
+//! template does through the handlers: Optimize has nothing free, and Retarget's Shift mode
+//! runs the desktop's check and carries the masts it moved, or refuses in the check's words.
+//!
+//! The two tests that run a real search are `#[ignore]`d, because each runs Full-fidelity
+//! tilt sweeps and is slow unoptimized (as the equivalent tests in `pleochroma-cut-core` are).
+//! Run them with `cargo test -p pleochroma-web-core -- --ignored`.
 
 use std::cell::RefCell;
 
@@ -153,7 +153,7 @@ fn retargeted(response: SolveResponse) -> RetargetResultData {
 
 #[test]
 fn the_default_params_are_the_desktops_default_config() {
-    // The web pins one lane (sequential wasm); that is the only intended difference from the desktop default.
+    // The web runs one lane (sequential wasm), the only difference from the desktop default.
     assert_eq!(
         OptimizeParams::default().config(),
         OptimizeConfig {
@@ -241,10 +241,9 @@ fn every_template_pins_all_its_tiers_so_optimize_says_nothing_is_free() {
 
 #[test]
 fn shift_retarget_through_the_handler_applies_or_refuses_in_the_checks_words_on_every_template() {
-    // Every template pins all of its tiers, so none of them can take an angle-only change: the
-    // handler runs the desktop's check and either answers with rows, the masts the projection
-    // moved and a verdict that Apply can commit as one validated edit, or refuses in the
-    // check's words and offers no rows at all.
+    // Every template pins all of its tiers, so none can take an angle-only change. The handler
+    // answers with rows, the masts the projection moved and a verdict that Apply commits as one
+    // validated edit, or refuses in the check's words with no rows.
     let mut applied = 0_usize;
     for (i, template) in TEMPLATES.iter().enumerate() {
         let design = template_design(i32::try_from(i).expect("a template index fits i32") + 1);
@@ -322,7 +321,7 @@ fn pinned_brilliant_at_172() -> Design {
     design
 }
 
-/// 1.72 to 1.7681 with a third of the shift on the crown: valid by Shift alone on the desktop.
+/// 1.72 to 1.7681 with a third of the shift on the crown: valid by Shift alone.
 fn sapphire_shift() -> RetargetParams {
     RetargetParams {
         target: MaterialSelectionData {

@@ -1,4 +1,4 @@
-//! Geometry-aware extension without changing the existing browser wire scene.
+//! Cutting-tool geometry carried beside the browser wire scene, which stays unchanged.
 
 use std::sync::Arc;
 
@@ -18,8 +18,8 @@ pub struct GeometrySceneSpec {
 }
 
 /// Checks a whole tool list: at most `MAX_TOOL_PRIMITIVES`, every tool valid. No partial
-/// list is accepted. The scene build and the analysis Worker's metrics and tilt jobs use
-/// this one check.
+/// list is accepted. The scene build and the optical analysis (`solve::optical`) share this
+/// check.
 ///
 /// # Errors
 ///

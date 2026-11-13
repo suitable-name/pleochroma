@@ -6,13 +6,11 @@
 //! biaxial section for the WGSL port these exercise.
 //!
 //! Split into one file per case bank: [`wave_indices`], [`eigen_polarization`],
-//! [`mode_poynting`], [`resolve_entry_mode`], [`pleochroic`],
-//! [`assigned_mode_alpha`] (the P1 assigned-mode-absorption biaxial branch), and
-//! [`curves`] (the per-wavelength principal indices of a material with per-axis curves). This file
-//! keeps only the fixtures every bank shares: [`biaxial_test_indicatrices`] (the three
-//! real biaxial built-ins plus one synthetic case) and the
-//! [`biaxial_test_directions`]/[`biaxial_test_directions_index_stable`] direction
-//! sweeps.
+//! [`mode_poynting`], [`resolve_entry_mode`], [`pleochroic`], [`assigned_mode_alpha`]
+//! (the assigned-mode absorption branch), and [`curves`] (the per-wavelength principal
+//! indices of a material with per-axis curves). This file keeps only the fixtures every
+//! bank shares: [`biaxial_test_indicatrices`] and the
+//! [`biaxial_test_directions`]/[`biaxial_test_directions_index_stable`] direction sweeps.
 
 use glam::Vec3;
 
@@ -34,11 +32,8 @@ pub use pleochroic::{BiaxialPleochroicCase, run_biaxial_pleochroic};
 pub use resolve_entry_mode::{BiaxialResolveEntryModeCase, run_biaxial_resolve_entry_mode};
 pub use wave_indices::{BiaxialWaveIndicesCase, run_biaxial_wave_indices};
 
-/// The three principal indices and gamma axis for every real biaxial built-in
-/// (Alexandrite, Topaz, Tanzanite) at the D line, plus one synthetic well-separated,
-/// deliberately off-axis case for extra coverage away from any built-in's specific
-/// numbers -- mirrors `birefringence::biaxial_reduction_tests`' own synthetic-plus-real
-/// coverage split.
+/// The three principal indices and gamma axis of every real biaxial built-in (Alexandrite,
+/// Topaz, Tanzanite) at the D line, plus one synthetic, deliberately off-axis case.
 ///
 /// # Panics
 ///
@@ -89,44 +84,32 @@ fn biaxial_test_directions_unfiltered(gamma_axis: Vec3) -> Vec<Vec3> {
     ]
 }
 
-/// Like [`biaxial_test_directions_unfiltered`], but excludes directions that land
-/// essentially EXACTLY on one of this material's own two OPTIC AXES -- the physically
-/// real directions (every genuinely biaxial crystal has exactly two) where the slow
-/// and fast wave-normal indices coincide exactly. This is a narrow exclusion (relative
-/// mode separation below `MIN_RELATIVE_MODE_SEPARATION`, deliberately tiny): a real
-/// gem's overall birefringence is itself only a few thousandths of its mean index (see
-/// `optics::materials::GemMaterial::birefringence_delta`'s cited built-in values), so
-/// EVERY direction's `n_slow - n_fast` is already "small" relative to `n_slow` for
-/// these materials -- a threshold anywhere near the double-digit-percent range this
-/// function used in an earlier revision filters out nearly all realistic test
-/// directions (confirmed: it produced an EMPTY case bank for real materials, which is
-/// itself informative about how small the whole regime's `n_slow - n_fast` scale is).
-/// A threshold this small targets only a direction landing essentially AT a true optic
-/// axis (where `wave_indices`' own discriminant genuinely passes through zero), not
-/// merely "somewhere in a naturally-small-birefringence material's normal range". Used
-/// for `eigen_polarizations`/`mode_poynting_dir`/`pleochroic_channel_alpha`'s case
-/// banks below (see [`biaxial_test_directions_index_stable`] for the wave_indices-only,
-/// much stricter threshold, and this module's biaxial section header comment for why
-/// `eigen_polarizations`/`mode_poynting_dir` still fail their own ULP budget at even a
-/// much looser filter than this one -- their ill-conditioning is not confined to a
-/// narrow neighborhood of the two true optic axes the way `wave_indices`' own is).
+/// Like [`biaxial_test_directions_unfiltered`], but drops directions that land essentially
+/// on one of the material's two optic axes, where the slow and fast indices coincide.
+///
+/// The threshold is tiny (relative mode separation 1e-4). A real gem's birefringence is only
+/// a few thousandths of its mean index, so a larger threshold would leave almost no
+/// directions. This drops only directions sitting on a true optic axis.
 fn biaxial_test_directions(n_alpha: f32, n_beta: f32, n_gamma: f32, gamma_axis: Vec3) -> Vec<Vec3> {
-    biaxial_test_directions_filtered(n_alpha, n_beta, n_gamma, gamma_axis, 1e-4)
+    biaxial_test_directions_filtered(n_alpha, n_beta, n_gamma, gamma_axis, None, 1e-4)
 }
 
-/// `wave_indices` (the index MAGNITUDES alone, not the eigenVECTOR) is well-conditioned
-/// everywhere except a narrow neighborhood of this material's two true optic axes --
-/// see [`biaxial_test_directions`]'s doc comment for the general "no directions survive
-/// a tight filter for a real gem" trap, and this module's biaxial section header for the
-/// measured evidence that `wave_indices` DOES achieve max genuine ULP = 0 once that
-/// narrow neighborhood specifically is excluded.
+/// Stricter filter for `wave_indices`, which loses precision near the two optic axes.
+///
+/// The discriminant cancels there. See [`biaxial_test_directions`] for the looser filter the
+/// other banks use.
+///
+/// `alpha_axis` is the frame the cases are evaluated in (`None`: the gamma-only
+/// completion). Turning alpha about gamma moves the optic axes, so the filter has to see
+/// the same frame as the comparison.
 fn biaxial_test_directions_index_stable(
     n_alpha: f32,
     n_beta: f32,
     n_gamma: f32,
     gamma_axis: Vec3,
+    alpha_axis: Option<Vec3>,
 ) -> Vec<Vec3> {
-    biaxial_test_directions_filtered(n_alpha, n_beta, n_gamma, gamma_axis, 0.02)
+    biaxial_test_directions_filtered(n_alpha, n_beta, n_gamma, gamma_axis, alpha_axis, 0.02)
 }
 
 fn biaxial_test_directions_filtered(
@@ -134,9 +117,11 @@ fn biaxial_test_directions_filtered(
     n_beta: f32,
     n_gamma: f32,
     gamma_axis: Vec3,
+    alpha_axis: Option<Vec3>,
     min_relative_mode_separation: f32,
 ) -> Vec<Vec3> {
-    let ind = BiaxialIndicatrix::from_gamma_axis(n_alpha, n_beta, n_gamma, gamma_axis);
+    let ind =
+        BiaxialIndicatrix::from_oriented_frame(n_alpha, n_beta, n_gamma, gamma_axis, alpha_axis);
     biaxial_test_directions_unfiltered(gamma_axis)
         .into_iter()
         .filter(|&d| {

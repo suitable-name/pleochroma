@@ -79,7 +79,8 @@ impl TransportOutputs {
     /// Like [`Self::new`], but for `renderer::gpu::frame`'s production dispatch only --
     /// `xyz` is sized for `capacity` tuples, while the three debug buffers are fixed at
     /// [`DEBUG_BUFFER_FLOATS`] regardless of `capacity`, since a production dispatch's
-    /// `write_debug_buffers` is always off and the shader never writes them.
+    /// debug-write bit (bit 0 of `write_debug_buffers`) is always clear and the shader never
+    /// writes them.
     pub(crate) fn new_production(device: &wgpu::Device, capacity: usize) -> Self {
         let usage = BufferUsages::STORAGE | BufferUsages::COPY_SRC;
         Self {
@@ -91,25 +92,25 @@ impl TransportOutputs {
             ),
             radiance: compute::zeroed_buffer::<f32>(
                 device,
-                "transport out radiance (production, write_debug_buffers=0, unused)",
+                "transport out radiance (production, debug writes off, unused)",
                 DEBUG_BUFFER_FLOATS,
                 usage,
             ),
             lambdas: compute::zeroed_buffer::<f32>(
                 device,
-                "transport out lambdas (production, write_debug_buffers=0, unused)",
+                "transport out lambdas (production, debug writes off, unused)",
                 DEBUG_BUFFER_FLOATS,
                 usage,
             ),
             path_pdf: compute::zeroed_buffer::<f32>(
                 device,
-                "transport out path_pdf (production, write_debug_buffers=0, unused)",
+                "transport out path_pdf (production, debug writes off, unused)",
                 DEBUG_BUFFER_FLOATS,
                 usage,
             ),
             compat: compute::zeroed_buffer::<u32>(
                 device,
-                "transport out compat (production, write_debug_buffers=0, unused)",
+                "transport out compat (production, debug writes off, unused)",
                 DEBUG_BUFFER_FLOATS,
                 usage,
             ),
@@ -143,20 +144,19 @@ impl TransportOutputs {
     }
 }
 
-/// The four scene-input buffers (camera, material, facet geometry, facet finishes),
-/// PERSISTENT across every [`super::GpuFrameRenderer::accumulate`]/[`super::GpuFrameRenderer::accumulate_cancellable`]
-/// call, not merely within one -- see [`Self::ensure`]. Held as
-/// [`super::GpuFrameRenderer::scene_buffers`] and updated in place via `queue.write_buffer`
-/// (camera/material every call; `planes`/`facet_finishes` too, UNLESS the new scene needs
-/// more capacity than the buffer already has, in which case it is recreated -- grown,
-/// never shrunk, mirroring [`super::GpuFrameRenderer::ensure_capacity`]'s policy for `outputs`).
-/// Avoids the four-fresh-buffers-per-call cost a naive implementation would pay: a
-/// desktop viewport calling `accumulate` every ~16ms would otherwise recreate all four
-/// wgpu buffers that often. None of these four differ between CHUNKS of one frame either
-/// -- only `GpuTransportParams` does, itself also a persistent per-slot buffer (see
-/// [`super::GpuFrameRenderer::params_buffers`]) rather than a fresh upload in
-/// [`super::bind_groups::build_chunk_bind_group`]. See the parent module's doc comment's
-/// "Per-frame uploads, persistent staging" section.
+/// The four scene-input buffers (camera, material, facet geometry, facet finishes), persistent
+/// across every `accumulate` call, not merely within one -- see [`Self::ensure`].
+///
+/// Held as [`super::GpuFrameRenderer::scene_buffers`] and updated in place via `queue.write_buffer`
+/// (camera/material every call; `planes`/`facet_finishes` too, UNLESS the new scene needs more
+/// capacity than the buffer already has, in which case it is recreated -- grown, never shrunk,
+/// mirroring [`super::GpuFrameRenderer::ensure_capacity`]'s policy for `outputs`). Avoids the
+/// four-fresh-buffers-per-call cost a naive implementation would pay: a desktop viewport calling
+/// `accumulate` every ~16ms would otherwise recreate all four wgpu buffers that often. None of
+/// these four differ between CHUNKS of one frame either -- only `GpuTransportParams` does, itself
+/// also a persistent per-slot buffer (see [`super::GpuFrameRenderer::params_buffers`]) rather than
+/// a fresh upload in [`super::bind_groups::build_chunk_bind_group`]. See the parent module's doc
+/// comment's "Per-frame uploads, persistent staging" section.
 pub struct FrameSceneBuffers {
     pub(super) camera: wgpu::Buffer,
     pub(super) material: wgpu::Buffer,
@@ -185,37 +185,29 @@ pub struct FrameSceneBuffers {
     hdr_env_identity: Option<usize>,
 }
 
-/// Builds a fresh [`HdrEnvGpuData`] for `environment`: the real upload for `HdrMap`, or
-/// [`HdrEnvGpuData::dummy`] for `Studio` -- see that type's own doc comment for why a
-/// non-HDR scene still needs something bound at bindings 10-14. Returns the identity
-/// [`FrameSceneBuffers::hdr_env_identity`] should record alongside it.
+/// Builds a fresh [`HdrEnvGpuData`] for `environment`.
 ///
-/// The native production call site that enforces
-/// [`HdrEnvGpuData::fits_storage_binding`], declining BEFORE calling the (infallible)
-/// [`HdrEnvGpuData::upload`] rather than having `upload` itself return a `Result` --
-/// `upload` has several other callers across this crate's self-tests, outside
-/// `renderer::gpu::frame`, that always pass small fixture maps and were left untouched
-/// rather than every one of them needing a new `.expect(..)`/`?`. This function (reached
-/// only from [`FrameSceneBuffers::new`]/[`FrameSceneBuffers::update`], both driven by
-/// [`super::GpuFrameRenderer::prepare_turn`]) and wasm32's `accumulate_async` (which
-/// repeats the same `fits_storage_binding` check inline -- it never had
-/// `FrameSceneBuffers`'s cross-call persistence to share this helper through) are the
-/// only two places a caller-controlled resolution reaches [`HdrEnvGpuData::upload`], so
-/// they are the only two places that need to decline gracefully instead of assuming a
-/// test fixture's size.
+/// It is the real upload for `HdrMap`, or
+/// [`HdrEnvGpuData::dummy`] for `Studio` (bindings 10-14 must hold something either way).
+/// Returns the identity [`FrameSceneBuffers::hdr_env_identity`] should record alongside it.
+///
+/// Declines an HDR map too large for one storage binding (see
+/// [`HdrEnvGpuData::fits_storage_binding`]) before calling [`HdrEnvGpuData::upload`], which
+/// is infallible and also takes small test maps. Only this function and wasm32's
+/// `accumulate_async`, which repeats the check inline, pass a caller-chosen resolution to
+/// `upload`.
 ///
 /// # Errors
 ///
 /// [`GpuFrameError::UnsupportedEnvironment`] if `map`'s texel buffer would exceed the
-/// device's storage-binding limit -- see [`HdrEnvGpuData::fits_storage_binding`]'s own
-/// doc comment. [`HdrEnvGpuData::dummy`]'s `1x1` map is always well within any real
-/// device's limit, so the `Studio` arm never fails.
+/// device's storage-binding limit. [`HdrEnvGpuData::dummy`]'s `1x1` map always fits, so the
+/// `Studio` arm never fails.
 pub fn build_hdr_env(
     device: &wgpu::Device,
     environment: EnvironmentSource<'_>,
 ) -> Result<(HdrEnvGpuData, Option<usize>), GpuFrameError> {
     match environment {
-        EnvironmentSource::HdrMap(map) => {
+        EnvironmentSource::HdrMap { map, .. } => {
             if !HdrEnvGpuData::fits_storage_binding(device, map) {
                 return Err(GpuFrameError::UnsupportedEnvironment);
             }
@@ -346,7 +338,7 @@ impl FrameSceneBuffers {
         }
 
         let new_identity = match environment {
-            EnvironmentSource::HdrMap(map) => Some(std::ptr::from_ref(map) as usize),
+            EnvironmentSource::HdrMap { map, .. } => Some(std::ptr::from_ref(map) as usize),
             EnvironmentSource::Studio { .. } => None,
         };
         if new_identity != self.hdr_env_identity {
@@ -389,8 +381,10 @@ impl FrameSceneBuffers {
     }
 }
 
-/// One chunk's wavefront ray-state struct-of-arrays buffers -- mirrors
-/// `wavefront_transport.wgsl`'s bindings 16-33 exactly (binding 15,
+/// One chunk's wavefront ray-state struct-of-arrays buffers.
+///
+/// They mirror
+/// `wavefront_transport.wgsl`'s bindings 16-35 exactly (binding 15,
 /// `GpuWavefrontParams`, is uploaded separately since it's rewritten every bounce
 /// round, unlike these, which are allocated once per chunk -- see
 /// [`super::GpuFrameRenderer::dispatch_chunk_wavefront`]). Every per-ray array is flat,
@@ -482,13 +476,9 @@ impl WavefrontRayBuffers {
             lambdas: zeroed::<f32>(device, "wf ray_lambdas", tuples * 8, storage_rw),
             seed: zeroed::<u32>(device, "wf ray_seed", tuples, storage_rw),
             active_in: zeroed::<u32>(device, "wf active_ray_indices", tuples, storage_rw),
-            // Needs `COPY_SRC` -- after
-            // `wavefront_compact_scatter` fills it, `dispatch_chunk_wavefront`'s
-            // "wavefront active-list copy encoder" copies its content BACK into
-            // `active_in` for the next bounce round (see that copy's own comment); a
-            // buffer can only be a `copy_buffer_to_buffer` source with `COPY_SRC` set,
-            // which plain `storage_rw` (used by every other read/write ray-state buffer
-            // here, none of which is ever a copy source) does not include.
+            // Needs `COPY_SRC`: `dispatch_chunk_wavefront` copies it back into `active_in`
+            // after `wavefront_compact_scatter` fills it, and only `COPY_SRC` buffers can be
+            // copy sources.
             active_out: zeroed::<u32>(device, "wf active_ray_indices_next", tuples, storage_rw_src),
             local_offset: zeroed::<u32>(device, "wf compact_local_offset", tuples, storage_rw),
             block_alive_count: zeroed::<u32>(

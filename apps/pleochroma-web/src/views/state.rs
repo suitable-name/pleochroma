@@ -40,7 +40,7 @@ pub struct Seen {
     pub show_preform: bool,
     /// The Cut slider (`-1` for all).
     pub tier_cutoff: i32,
-    /// The cutting-order limit Cutting Mode shows (`None` outside it, and on its last step).
+    /// The cutting-order limit Cutting Mode shows (`None` outside it and for the finished stone).
     pub cut_steps: Option<usize>,
     /// The enlarged diagram panel (`-1` for three).
     pub enlarged_panel: i32,
@@ -125,7 +125,7 @@ pub struct ViewsState {
     pub facet_tier: Vec<Option<usize>>,
     /// The last clicked facet's label, shown once the pointer leaves it (Solid).
     pub selected_label: String,
-    /// The same for the Diagram (a per-view concept on the desktop too).
+    /// The same for the Diagram.
     pub diagram_selected_label: String,
     /// The shown solid's bounding radius (zoom clamp, "Fit"); `0.0` before the
     /// first frame -- read it through [`Self::radius`].

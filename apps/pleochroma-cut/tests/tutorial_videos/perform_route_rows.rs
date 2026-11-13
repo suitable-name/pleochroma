@@ -1,4 +1,4 @@
-//! Small row readback helper kept outside `perform_routes.rs` to keep that harness file compact.
+//! Tier row readback and reveal helpers, split out of `perform_routes.rs` to keep it short.
 
 use crate::{
     debug_log::debug_check,

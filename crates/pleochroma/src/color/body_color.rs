@@ -31,7 +31,7 @@ use crate::optics::{
 pub enum Illuminant {
     /// CIE Standard Illuminant D65 (daylight reference).
     D65,
-    /// Planckian blackbody radiator at color temperature `T` in Kelvin (e.g. 3200.0 K for Incandescent).
+    /// Planckian blackbody at color temperature `T` in kelvin (e.g. 3200.0 K for incandescent).
     Planckian(f32),
     /// Long-wave ultraviolet lamp (peak at 365.0 nm, LW UV / blacklight).
     UvLongWave365,
@@ -151,7 +151,7 @@ pub fn body_colors(tensor: &AbsorptionTensor, path_mm: f64, ill: Illuminant) -> 
         };
         let b_col = body_color(eval_beta, path_mm, ill);
 
-        // Biaxial unpolarised: mean of 3 eigenmode transmittances: T_unpol = (T_alpha + T_beta + T_gamma) / 3
+        // Biaxial unpolarised: mean of the three eigenmode transmittances.
         let unpol = body_color_transmittance(
             |lambda| {
                 let to = (-eval_o(lambda).max(0.0) * path_mm).exp();
@@ -189,8 +189,8 @@ pub fn body_colors(tensor: &AbsorptionTensor, path_mm: f64, ill: Illuminant) -> 
 /// Evaluates body color from an explicit transmittance spectrum `t_fn(lambda)` (clamped to
 /// `[0, 1]`).
 ///
-/// `xyz` and `lab` are colorimetric under the illuminant itself (Lab is taken relative to the
-/// illuminant's own white, which is what the color-change readout `delta_E_cc` compares).
+/// `xyz` and `lab` are colorimetric under the illuminant itself (Lab is relative to the
+/// illuminant's own white, as `color_change_delta_e` requires).
 /// Only the display `srgb` is chromatically adapted: a Planckian illuminant is mapped to D65
 /// exactly like the renderer's Incandescent preset white-balances (Bradford von Kries,
 /// `compute_illuminant_white_balance`), so a colorless stone shows as white, not orange.
@@ -370,9 +370,9 @@ fn xyz_to_srgb(xyz: [f64; 3]) -> ([u8; 3], bool) {
     ([r, g, b], out_of_gamut)
 }
 
-/// CIEDE2000 total color difference formula between two L*a*b* colors.
+/// CIEDE2000 color difference between two L*a*b* colors (Sharma, Wu, Dalal 2005).
 ///
-/// Implements standard CIEDE2000 (Sharma, Wu, Dalal 2005) with parametric weights `k_L = k_C = k_H = 1.0`.
+/// Uses the parametric weights `k_L = k_C = k_H = 1`.
 #[must_use]
 pub fn delta_e_2000(lab1: [f64; 3], lab2: [f64; 3]) -> f64 {
     let [l, c, h, r_t] = delta_e_2000_terms(lab1, lab2);
@@ -506,11 +506,10 @@ pub fn lab_to_lch(lab: [f64; 3]) -> [f64; 3] {
     [lab[0], c, h]
 }
 
-/// The sRGB swatches of the seven-band body colour at each path length.
+/// The D65 sRGB swatch of the seven-band body color at each path length.
 ///
-/// Each channel is in `[0, 1]` (D65); `amplitudes` are per millimetre (see
-/// `optics::absorption::body_color_bands`) and `paths_mm` are the path lengths: the
-/// editor's "at 3 / 5 / 10 mm" swatches.
+/// Each channel is in `[0, 1]`. `amplitudes` are per millimetre (see
+/// `optics::absorption::body_color_bands`); `paths_mm` are the path lengths in millimetres.
 #[must_use]
 pub fn body_color_swatches(amplitudes: &[f32; 7], paths_mm: &[f64]) -> Vec<[f32; 3]> {
     let bands = crate::optics::absorption::body_color_bands(*amplitudes);
@@ -530,7 +529,7 @@ pub fn body_color_swatches(amplitudes: &[f32; 7], paths_mm: &[f64]) -> Vec<[f32;
         .collect()
 }
 
-/// color change metric between D65 daylight and Incandescent 3200K.
+/// Color change between D65 and 3200 K incandescent: CIEDE2000 of the unpolarised colors.
 #[must_use]
 pub fn color_change_delta_e(d65: &BodyColors, incandescent_3200k: &BodyColors) -> f64 {
     delta_e_2000(d65.unpolarised.lab, incandescent_3200k.unpolarised.lab)
@@ -619,7 +618,7 @@ mod tests {
     #[test]
     fn planckian_swatch_is_adapted_to_d65_for_display_but_lab_is_under_own_white() {
         // A colorless stone under 3200 K: Lab relative to its own white is neutral and the
-        // displayed sRGB is white (previously the un-adapted XYZ rendered orange).
+        // displayed sRGB is white (an un-adapted XYZ would render orange).
         let col = body_color(|_| 0.0, 5.0, Illuminant::Planckian(3200.0));
         assert!(
             col.lab[1].abs() < 0.5 && col.lab[2].abs() < 0.5,

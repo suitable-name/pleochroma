@@ -22,7 +22,7 @@ use std::{
 };
 use tracing::{info, warn};
 
-/// The name the request announces itself with (`pleochroma-cut/0.7.2` in the `User-Agent`).
+/// The name the request announces itself with (`pleochroma-cut/<version>` in the `User-Agent`).
 const APP_NAME: &str = "pleochroma-cut";
 /// This app's own version.
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");

@@ -4,6 +4,10 @@
 //! invert at the application layer -- the worker is the TLS/TCP client but the PROTOCOL
 //! server: it reads `ClientMessage`s and answers `StreamEvent`s, exactly as here.
 
+#[cfg(feature = "beam")]
+use super::beam_tiles;
+#[cfg(feature = "adaptive-sampling")]
+use super::live_pass;
 use super::{NO_RENDER_CAPACITY_CODE, batch, handle_non_render_message};
 use crate::{
     assets::{self, AssetCache, Fetched, HdrRoute, HeldAsset},
@@ -17,9 +21,9 @@ use pleochroma::renderer::gpu_backend::GpuBackend;
 use pleochroma_net::{
     framing::{FramingError, IDLE_READ_TIMEOUT},
     messages::{
-        BatchRenderRequest, ClientMessage, ErrorMsg, FinalImageRequest, JobRequest, NetError,
-        PayloadEncoding, RenderRequest, StreamEvent, TiltCurvesRequest, TransferMode,
-        adaptive::PeerLink, error_codes,
+        BatchRenderRequest, BeamTileRequest, ClientMessage, ErrorMsg, FinalImageRequest,
+        JobRequest, LivePassRequest, NetError, PayloadEncoding, RenderRequest, StreamEvent,
+        TiltCurvesRequest, TransferMode, adaptive::PeerLink, error_codes,
     },
 };
 use std::{
@@ -33,8 +37,7 @@ use std::{
 /// differs.
 pub const VALIDATION_FAILED_CODE: u32 = error_codes::VALIDATION_FAILED;
 /// `<- ERROR`/`TiltCurvesResponse::Error` code for a `pleochroma` panic caught by
-/// `catch_unwind` on a validation-passing but pathological scene; shared with
-/// [`VALIDATION_FAILED_CODE`]'s reasoning.
+/// `catch_unwind` on a validation-passing but pathological scene.
 pub const TRACE_PANIC_CODE: u32 = error_codes::TRACE_PANIC;
 
 /// Everything [`serve_requests`] needs for one connection.
@@ -64,11 +67,11 @@ pub struct RequestContext<'a> {
     /// capacity changes are announced between requests. `None` on a `join`ed worker's
     /// connection and a plain single worker.
     pub session: Option<&'a ViewerSession>,
-    /// The HDR asset cache (v14): with it, requests whose scene names an HDR map
-    /// are resolved first (`crate::assets::ensure_environment`); without it they are
-    /// refused (see `crate::assets::hdr_route`).
+    /// The HDR asset cache: with it, requests whose scene names an HDR map are resolved
+    /// first (`crate::assets::ensure_environment`); without it they are refused (see
+    /// `crate::assets::hdr_route`).
     pub assets: Option<&'a AssetCache>,
-    /// The durable job service (v25): `None` on a server without an own render lane and on a
+    /// The durable job service: `None` on a server without an own render lane and on a
     /// `join`ed worker's connection, where job requests are refused.
     pub jobs: Option<&'a Arc<crate::jobs::JobService>>,
 }
@@ -109,6 +112,86 @@ fn refuse_without_own_lane<S: Write>(stream: &mut S, request_id: u32) -> Result<
     pleochroma_net::messages::write_stream_event(stream, &StreamEvent::Error(error), None)
 }
 
+/// The reply to a `LivePassRequest` in a build without the `adaptive-sampling` feature:
+/// `UNSUPPORTED_REQUEST`, naming the missing feature, and the connection keeps serving. A zoning
+/// payload sent ahead for the request is dropped (a coordinator already consumed it in
+/// `attach_zoning_on_coordinator`).
+#[cfg(not(feature = "adaptive-sampling"))]
+fn refuse_live_pass_unbuilt<S: Write>(stream: &mut S, request_id: u32) -> Result<(), NetError> {
+    let _ = crate::serve::zoning::take(request_id);
+    let error = ErrorMsg {
+        code: error_codes::UNSUPPORTED_REQUEST,
+        message: format!(
+            "LivePassRequest (request_id={request_id}): this server was built without adaptive \
+             sampling (the `adaptive-sampling` feature)"
+        ),
+        request_id: Some(request_id),
+    };
+    tracing::info!("{}", error.message);
+    pleochroma_net::messages::write_stream_event(stream, &StreamEvent::Error(error), None)
+}
+
+/// A `LivePassRequest` in a build with the `adaptive-sampling` feature: one chunk of an
+/// adaptive pass. A coordinator with a lane of its own traces it there; without one it
+/// forwards the request whole to one idle joined worker. A connection with a lane traces it
+/// there, and any other connection refuses it with `NO_RENDER_CAPACITY`.
+#[cfg(feature = "adaptive-sampling")]
+fn serve_live_pass_request<S: Read + Write + TimeoutRead + TimeoutWrite>(
+    stream: &mut S,
+    request: LivePassRequest,
+    ctx: &RequestContext<'_>,
+) -> Result<(), NetError> {
+    match ctx.session {
+        Some(session) if session.coordinator.own().is_none() => {
+            coordinator::serve_live_pass(stream, &request, session)
+        }
+        _ if ctx.own_lane || ctx.session.is_some() => {
+            live_pass::serve_live_pass(stream, request, ctx)
+        }
+        _ => refuse_without_own_lane(stream, request.request_id),
+    }
+}
+
+/// The reply to a `BeamTileRequest` in a build without the `beam` feature:
+/// `UNSUPPORTED_REQUEST`, naming the missing feature, and the connection keeps serving. A
+/// zoning payload sent ahead for the request is dropped (a coordinator already consumed it in
+/// `attach_zoning_on_coordinator`).
+#[cfg(not(feature = "beam"))]
+fn refuse_beam_tiles_unbuilt<S: Write>(stream: &mut S, request_id: u32) -> Result<(), NetError> {
+    let _ = crate::serve::zoning::take(request_id);
+    let error = ErrorMsg {
+        code: error_codes::UNSUPPORTED_REQUEST,
+        message: format!(
+            "BeamTileRequest (request_id={request_id}): this server was built without beam tracing \
+             (the `beam` feature)"
+        ),
+        request_id: Some(request_id),
+    };
+    tracing::info!("{}", error.message);
+    pleochroma_net::messages::write_stream_event(stream, &StreamEvent::Error(error), None)
+}
+
+/// A `BeamTileRequest` in a build with the `beam` feature, served like a live pass: a
+/// coordinator without a lane of its own forwards it whole to one idle joined worker, a
+/// connection with a lane traces it there, and any other connection refuses it with
+/// `NO_RENDER_CAPACITY`.
+#[cfg(feature = "beam")]
+fn serve_beam_tile_request<S: Read + Write + TimeoutRead + TimeoutWrite>(
+    stream: &mut S,
+    request: BeamTileRequest,
+    ctx: &RequestContext<'_>,
+) -> Result<(), NetError> {
+    match ctx.session {
+        Some(session) if session.coordinator.own().is_none() => {
+            coordinator::serve_beam_tiles(stream, &request, session)
+        }
+        _ if ctx.own_lane || ctx.session.is_some() => {
+            beam_tiles::serve_beam_tiles(stream, request, ctx)
+        }
+        _ => refuse_without_own_lane(stream, request.request_id),
+    }
+}
+
 /// The post-`WELCOME` request loop: dispatches `Cancel`/`Library`/`Ping` inline and
 /// runs each `RenderRequest` (validate, then stream) and `TiltCurvesRequest` until the
 /// peer closes the connection.
@@ -143,8 +226,8 @@ pub fn serve_requests<S: Read + Write + TimeoutRead + TimeoutWrite>(
                 None => return Ok(()),
             },
         };
-        // A coordinator re-attaches the zones the viewer sent ahead of a picture request
-        // (v36): its own lane traces the scene as held, and its joined workers get them again
+        // A coordinator re-attaches the zones the viewer sent ahead of a picture request: its
+        // own lane traces the scene as held, and its joined workers get them again
         // ahead of every chunk (`coordinator::lanes::chunk`).
         #[cfg(feature = "worker")]
         if ctx.session.is_some() && !attach_zoning_on_coordinator(stream, &mut next)? {
@@ -193,16 +276,42 @@ pub fn serve_requests<S: Read + Write + TimeoutRead + TimeoutWrite>(
                 crate::serve::tilt::handle_tilt_curves_request(stream, &tilt_request)?;
                 None
             }
-            // v24: a batch of finished pictures, served on the own lane (a coordinator
-            // without one refuses it, and the viewer falls back to single requests). It
-            // keeps serving later batches that arrive while it runs, so it returns only
-            // once none is unfinished.
+            // A batch of finished pictures, served on the own lane (a coordinator without one
+            // refuses it, and the viewer falls back to single requests). It keeps serving
+            // later batches that arrive while it runs, so it returns only once none is
+            // unfinished.
             (NextRequest::Batch(batch_request), _) => {
                 batch::serve_batches(stream, batch_request, ctx)?;
                 None
             }
-            // v25: a durable job request, answered at once (the render itself runs on the
-            // job executor, never on this connection). Its owner is the viewer identity.
+            // One chunk of an adaptive pass ([`serve_live_pass_request`]). Without the
+            // `adaptive-sampling` feature every one is refused and the connection keeps serving.
+            (NextRequest::LivePass(request), _) => {
+                #[cfg(feature = "adaptive-sampling")]
+                {
+                    serve_live_pass_request(stream, *request, ctx)?;
+                }
+                #[cfg(not(feature = "adaptive-sampling"))]
+                {
+                    refuse_live_pass_unbuilt(stream, request.request_id)?;
+                }
+                None
+            }
+            // Whole beam tiles ([`serve_beam_tile_request`]). Without the `beam` feature every
+            // one is refused and the connection keeps serving.
+            (NextRequest::BeamTiles(request), _) => {
+                #[cfg(feature = "beam")]
+                {
+                    serve_beam_tile_request(stream, *request, ctx)?;
+                }
+                #[cfg(not(feature = "beam"))]
+                {
+                    refuse_beam_tiles_unbuilt(stream, request.request_id)?;
+                }
+                None
+            }
+            // A durable job request, answered at once (the render itself runs on the job
+            // executor, never on this connection). Its owner is the viewer identity.
             (NextRequest::Job(job_request), session) => {
                 crate::jobs::serve_job(
                     stream,
@@ -213,7 +322,7 @@ pub fn serve_requests<S: Read + Write + TimeoutRead + TimeoutWrite>(
                 None
             }
         };
-        // Served: the request no longer needs its HDR map pinned.
+        // The request is served, so its HDR map is unpinned.
         drop(hdr_pin);
     }
 }
@@ -233,6 +342,11 @@ fn attach_zoning_on_coordinator<S: Write>(
     let (request_id, scene) = match next {
         NextRequest::Render(r) => (r.request_id, &mut r.scene),
         NextRequest::FinalImage(r) => (r.request_id, &mut r.scene),
+        // The zones are installed on the scene here; the own lane then finds no payload left
+        // (an unzoned request as far as it can tell) and a joined worker is sent them again.
+        NextRequest::LivePass(r) => (r.request_id, &mut r.scene),
+        // The same for beam tiles.
+        NextRequest::BeamTiles(r) => (r.request_id, &mut r.scene),
         NextRequest::TiltCurves(_) | NextRequest::Batch(_) | NextRequest::Job(_) => {
             return Ok(true);
         }
@@ -259,8 +373,8 @@ fn serve_one_render<S: Read + Write + TimeoutRead + TimeoutWrite>(
     mut request: RenderRequest,
     ctx: &RequestContext<'_>,
 ) -> Result<Option<RenderRequest>, NetError> {
-    // v14 "final picture only" live transfer: display frames need the coordinator's
-    // tone-map + denoise path, which a plain worker lacks.
+    // Display frames need the coordinator's tone-map and denoise path, which a plain worker
+    // lacks.
     if request.stream.transfer_mode == TransferMode::DisplayOnly {
         refuse_unsupported(
             stream,
@@ -407,7 +521,7 @@ enum Prepared {
     Closed,
 }
 
-/// Resolves the HDR map a render or final-image request names (v14): the
+/// Resolves the HDR map a render or final-image request names: the
 /// policy first ([`assets::hdr_route`]), then [`assets::ensure_environment`] -- or, on a
 /// coordinator's viewer connection, [`assets::ensure_held`] through the coordinator's
 /// own cache (decoding only for its own lane). A request that fails validation is
@@ -429,7 +543,12 @@ fn prepare_hdr<S: Read + Write + TimeoutRead + TimeoutWrite>(
         }
         // A batch item naming an HDR map fails by itself (`batch::check_item`); no asset is
         // fetched for a batch (nor for a tilt-curves request).
-        NextRequest::Batch(_) | NextRequest::TiltCurves(_) | NextRequest::Job(_) => {
+        // A live pass is studio-lit: one naming an HDR map is refused by its own validation.
+        NextRequest::Batch(_)
+        | NextRequest::TiltCurves(_)
+        | NextRequest::Job(_)
+        | NextRequest::LivePass(_)
+        | NextRequest::BeamTiles(_) => {
             return Ok(Prepared::Serve(HdrPin::NONE));
         }
         NextRequest::Render(r) => (
@@ -497,7 +616,7 @@ fn finish_prepare<S: Write, T>(
     })
 }
 
-/// Answers a `PING` (v14) with the matching `PONG`, immediately.
+/// Answers a `PING` with the matching `PONG`, immediately.
 pub fn write_pong<S: Write>(stream: &mut S, nonce: u64) -> Result<(), NetError> {
     pleochroma_net::messages::write_stream_event(stream, &StreamEvent::Pong { nonce }, None)
 }
@@ -511,6 +630,8 @@ enum NextRequest {
     FinalImage(FinalImageRequest),
     Batch(BatchRenderRequest),
     Job(Box<JobRequest>),
+    LivePass(Box<LivePassRequest>),
+    BeamTiles(Box<BeamTileRequest>),
 }
 
 /// Reads the next message off `stream`: blocking, or -- on a coordinator viewer
@@ -569,13 +690,19 @@ fn read_next_message<S: Read + Write + TimeoutRead>(
             }
             ClientMessage::BatchRenderRequest(r) => return Ok(Some(NextRequest::Batch(*r))),
             ClientMessage::Job(request) => return Ok(Some(NextRequest::Job(request))),
+            ClientMessage::LivePassRequest(request) => {
+                return Ok(Some(NextRequest::LivePass(request)));
+            }
+            ClientMessage::BeamTileRequest(request) => {
+                return Ok(Some(NextRequest::BeamTiles(request)));
+            }
             ClientMessage::Ping { nonce } => write_pong(stream, nonce)?,
             // The zones of the request that follows: kept for it.
             #[cfg(feature = "worker")]
             ClientMessage::ZoningPayload(payload) => crate::serve::zoning::stash(*payload),
             // An asset nobody asked for: consume its payload frame.
             ClientMessage::Asset(header) => assets::discard_asset(stream, &header)?,
-            // A stray v16 contribution (e.g. arriving after this request's own DONE):
+            // A stray contribution (e.g. arriving after this request's own DONE):
             // consume its payload frame to stay in sync.
             ClientMessage::Contribution(header) => {
                 pleochroma_net::messages::discard_contribution_payload(stream, &header)?;
@@ -665,7 +792,7 @@ mod zoning_tests {
         }
         let mut out = Vec::new();
         assert!(attach_zoning_on_coordinator(&mut out, &mut next).unwrap());
-        assert!(out.is_empty());
+        assert_eq!(out, Vec::<u8>::new());
         let NextRequest::Render(request) = next else {
             unreachable!("built as a render request");
         };
@@ -685,5 +812,89 @@ mod zoning_tests {
         });
         assert!(attach_zoning_on_coordinator(&mut out, &mut batch(4)).unwrap());
         assert_eq!(out.len(), 0);
+    }
+}
+
+#[cfg(all(test, not(feature = "adaptive-sampling")))]
+mod live_pass_refusal_tests {
+    use super::*;
+    use crate::serve::zoning::{ConnectionGuard, stash, take};
+    use pleochroma_net::messages::ZoningPayload;
+
+    /// A build without the `adaptive-sampling` feature refuses live passes.
+    ///
+    /// The reply to a `LivePassRequest` is `UNSUPPORTED_REQUEST` (code 5 on the wire) carrying the
+    /// request id and naming the missing feature, exactly one frame is written, and the zoning
+    /// payload sent ahead for the request is dropped.
+    #[test]
+    fn a_build_without_adaptive_sampling_refuses_a_live_pass_request_as_unsupported() {
+        let _guard = ConnectionGuard::new();
+        stash(ZoningPayload {
+            request_id: 51,
+            materials: Vec::new(),
+        });
+        let mut out = Vec::new();
+        refuse_live_pass_unbuilt(&mut out, 51).unwrap();
+        let mut frames = std::io::Cursor::new(out);
+        let (event, payload) = pleochroma_net::messages::read_stream_event(&mut frames).unwrap();
+        let StreamEvent::Error(error) = event else {
+            panic!("expected an error, got {event:?}");
+        };
+        assert_eq!(error.code, error_codes::UNSUPPORTED_REQUEST);
+        assert_eq!(error.code, 5, "UNSUPPORTED_REQUEST keeps its wire value");
+        assert_eq!(error.request_id, Some(51));
+        assert!(
+            error.message.contains("adaptive-sampling"),
+            "{}",
+            error.message
+        );
+        assert!(error.message.contains("51"), "{}", error.message);
+        assert!(payload.is_none());
+        assert_eq!(
+            usize::try_from(frames.position()).unwrap(),
+            frames.get_ref().len(),
+            "exactly one frame was written"
+        );
+        assert!(take(51).is_none(), "the zoning payload is dropped");
+    }
+}
+
+#[cfg(all(test, not(feature = "beam")))]
+mod beam_refusal_tests {
+    use super::*;
+    use crate::serve::zoning::{ConnectionGuard, stash, take};
+    use pleochroma_net::messages::ZoningPayload;
+
+    /// A build without `beam` refuses beam tiles.
+    ///
+    /// The reply to a `BeamTileRequest` is `UNSUPPORTED_REQUEST` (code 5 on the wire) carrying
+    /// the request id and naming the missing feature, exactly one frame is written, and the
+    /// zoning payload sent ahead for the request is dropped.
+    #[test]
+    fn a_build_without_beam_refuses_a_beam_tile_request_as_unsupported() {
+        let _guard = ConnectionGuard::new();
+        stash(ZoningPayload {
+            request_id: 41,
+            materials: Vec::new(),
+        });
+        let mut out = Vec::new();
+        refuse_beam_tiles_unbuilt(&mut out, 41).unwrap();
+        let mut frames = std::io::Cursor::new(out);
+        let (event, payload) = pleochroma_net::messages::read_stream_event(&mut frames).unwrap();
+        let StreamEvent::Error(error) = event else {
+            panic!("expected an error, got {event:?}");
+        };
+        assert_eq!(error.code, error_codes::UNSUPPORTED_REQUEST);
+        assert_eq!(error.code, 5, "UNSUPPORTED_REQUEST keeps its wire value");
+        assert_eq!(error.request_id, Some(41));
+        assert!(error.message.contains("beam"), "{}", error.message);
+        assert!(error.message.contains("41"), "{}", error.message);
+        assert!(payload.is_none());
+        assert_eq!(
+            usize::try_from(frames.position()).unwrap(),
+            frames.get_ref().len(),
+            "exactly one frame was written"
+        );
+        assert!(take(41).is_none(), "the zoning payload is dropped");
     }
 }

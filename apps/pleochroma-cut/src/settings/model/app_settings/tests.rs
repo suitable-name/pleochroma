@@ -101,9 +101,8 @@ fn suppressed_confirmations_round_trips_through_toml() {
     );
 }
 
-/// A settings file saved BEFORE this field existed (no `suppressed_confirmations`
-/// key at all) must still load, with nothing suppressed -- the idempotent
-/// migration this field's own `#[serde(default)]` provides.
+/// A settings file with no `suppressed_confirmations` key must load with nothing
+/// suppressed, through the field's `#[serde(default)]`.
 #[test]
 fn a_settings_file_predating_this_field_loads_with_nothing_suppressed() {
     let settings = AppSettings::default();
@@ -239,7 +238,7 @@ fn the_render_colour_band_rows_default_to_none_and_round_trip_bit_for_bit() {
 
 #[test]
 fn a_settings_file_predating_the_band_rows_still_loads_with_the_triple() {
-    // The band key is absent, as in every file written before the rows were saved.
+    // The band key is absent, as when only the triple is saved.
     let old = AppSettings {
         render_body_color_override: Some(YELLOW),
         ..AppSettings::default()
@@ -332,8 +331,7 @@ fn the_render_color_variant_defaults_to_none_and_a_file_without_it_loads() {
     assert_eq!(restored.render_body_color_variant, None);
 }
 
-/// A file that has only the legacy keys (every file written before variants) loads them as
-/// saved, with no variant.
+/// A file with only the legacy color keys loads them unchanged, with no variant.
 #[test]
 fn a_settings_file_with_only_the_old_color_fields_loads_them_unchanged() {
     let rows = vec![[460.0f32, 45.0, 0.2], [580.0, 60.0, 0.4]];

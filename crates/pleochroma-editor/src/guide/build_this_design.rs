@@ -258,9 +258,9 @@ pub fn original_label(guide: &Guide) -> String {
 ///
 /// `solved` is the target's solved depths when the caller has them (parallel to
 /// `target.tiers`); without them the generator solves the target itself unless every tier
-/// is already pinned to an exact depth. `source_title` names the design in the lesson, and
-/// `design_key` is the library's key for it (its UUID), which makes the lesson's id
-/// `build:<design_key>` and is where its completion is recorded.
+/// is already pinned to an exact depth. `source_title` names the design in the lesson.
+/// `design_key` is the library's key for the design: the lesson's id is
+/// `build:<design_key>`, and its completion is recorded under that id.
 ///
 /// Solving takes seconds for a large design, so call this off the UI thread.
 ///
@@ -583,8 +583,8 @@ fn intended_meets(
     }
 }
 
-/// The lesson names of the tiers `list` names, when every one exists, is another tier and
-/// is added before tier `this`.
+/// The lesson names of the tiers that `list` names. Each must exist, be another tier and be
+/// added before tier `this`; otherwise the tier falls back to an exact depth.
 fn resolve_named(
     list: &[String],
     this: usize,

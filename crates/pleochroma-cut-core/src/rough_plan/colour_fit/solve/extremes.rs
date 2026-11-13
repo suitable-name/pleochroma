@@ -1,5 +1,4 @@
-//! Constrained extremisation of the reported colours: the verified metamer spread (round 5,
-//! ZC-4).
+//! Constrained extremisation of the reported colours: the verified metamer spread.
 //!
 //! # What the spread is
 //!
@@ -24,11 +23,11 @@
 //! feasible set `F` is then a superset of the `Delta` level set about the true minimum of `C`:
 //! the spread errs on the wide side, never on the narrow one.
 //!
-//! The first version walked an ellipsoid around the fit. That is wrong for three reasons: the
-//! fit is not a stationary point of the data term (its gradient is balanced by the prior), so
-//! `{chi2 <= chi2(fit) + 1}` does not contain the data optimum where the truth sits; a cap of 2
-//! in a log-amplitude cannot reach "no absorption" from the fitted floor; and six eigen
-//! directions do not span the direction from the fit to the truth.
+//! The search does not walk an ellipsoid around the fit. The fit is not a stationary point of the
+//! data term (its gradient is balanced by the prior), so `{chi2 <= chi2(fit) + 1}` does not
+//! contain the data optimum where the truth sits; a cap of 2 in a log-amplitude cannot reach "no
+//! absorption" from the fitted floor; and six eigen directions do not span the direction from the
+//! fit to the truth.
 //!
 //! # Algorithm
 //!
@@ -52,7 +51,7 @@
 //!   delta` over the box is found by projected Newton steps (`box_qp`), and `lambda` is
 //!   bisected (on a logarithmic scale) until `T` just meets `Delta`.
 //! * **Starts.** The data optimum, the fit, the structured starts of the fit and the semi-axes
-//!   of the data-metric ellipsoid about the fit (`ExtremeInput::extra_starts`, round 6, R3: they
+//!   of the data-metric ellipsoid about the fit (`ExtremeInput::extra_starts`: they
 //!   lie along the weakest data directions, where the metamers are; the other starts all sit in
 //!   one basin), each pulled along the line to the data optimum until it meets the surrogate
 //!   set; the best by `f` wins.
@@ -92,9 +91,9 @@ const PULL_BACK_STEPS: usize = 6;
 /// Further bisection steps between the last feasible and infeasible fractions of the pull-back
 /// (total resolution 1/1024 of the step).
 const PULL_BACK_REFINE_STEPS: usize = 4;
-/// Verification rounds: the surrogate is rebuilt after every round except the last (round 6,
-/// R3: three, one more relinearisation at the verified point, because the surrogate of a
-/// saturated stone is built far outside its validity).
+/// Verification rounds: the surrogate is rebuilt after every round but the last. The third round
+/// relinearises once more at the verified point, because the surrogate of a saturated stone is
+/// built far outside its validity.
 const ROUNDS: usize = 3;
 /// Iterations of the projected Newton method of `box_qp`.
 const BOX_QP_ITERATIONS: usize = 50;

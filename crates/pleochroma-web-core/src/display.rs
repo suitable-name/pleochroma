@@ -371,7 +371,7 @@ pub fn export_png(
 /// The desktop's default export file name for these values.
 ///
 /// The template is `gem_export_{material}_{width}x{height}_{spp}spp_{timestamp}`
-/// (`bridge::export_thread::filename_template::DEFAULT_TEMPLATE`), with its
+/// (`bridge::export_thread::DEFAULT_TEMPLATE`), with its
 /// sanitising (forbidden characters to `_`, trailing dots and spaces trimmed) and
 /// `.png` appended. `unix_seconds` is the desktop's `{timestamp}`.
 #[must_use]

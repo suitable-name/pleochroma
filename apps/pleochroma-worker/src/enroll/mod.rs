@@ -1,31 +1,26 @@
 //! Token-based enrollment.
 //!
-//! Replaces "copy the certificate bundle to the client machine by hand" with a one-time,
-//! time-limited token the operator reads out (or pastes) to the person enrolling a new
-//! viewer -- or, on the coordinator's WORKER enrollment listener, a new joining worker.
+//! A one-time, time-limited token the operator reads out (or pastes) to the person enrolling
+//! a new viewer, or on the coordinator's WORKER enrollment listener a new joining worker.
 //!
 //! # Two listeners, one per role
 //!
-//! `serve` runs one enrollment listener per client role: the VIEWER one next to the
-//! viewer port (default 7879) and the WORKER one next to the worker port (default
-//! 7881). Each has its own [`EnrollRegistry`] (so a token only ever claims on the
-//! listener that issued it), mints certificates of its own role only (a worker's
-//! Common Name is `worker:<name>`, see `crate::pki::role`) and appends a claimed
-//! fingerprint to its own role's allowlist. No wire change: `cert issue-token --role
-//! worker` sends its `Issue` name as `worker:<name>`, and each listener refuses an
-//! `Issue` for the other role (a viewer listener refuses a `worker:` name, a worker
-//! listener refuses a name without it) rather than silently minting the wrong kind.
+//! `serve` runs one enrollment listener per client role: the VIEWER one next to the viewer
+//! port (default 7879) and the WORKER one next to the worker port (default 7881). Each has
+//! its own [`EnrollRegistry`], so a token only claims on the listener that issued it. Each
+//! mints certificates of its own role only (a worker's Common Name is `worker:<name>`, see
+//! `crate::pki::role`) and appends a claimed fingerprint to its own role's allowlist.
+//! `cert issue-token --role worker` sends its `Issue` name as `worker:<name>`; each listener
+//! refuses an `Issue` for the other role rather than minting the wrong kind.
 //!
 //! # Why this needs its own listener, not the render port
 //!
-//! The render listener (`crate::serve`) requires mutual TLS: every connection must
-//! already present a certificate signed by this worker's CA. An enrolling client has no
-//! such certificate yet, so it structurally cannot use that listener. Enrollment gets
-//! its own listener and TLS config that never requires a client certificate, whose
-//! connection handler ([`handle_enroll_connection`]) never calls into
-//! [`crate::stream_emit`] or [`crate::serve::handle_connection_with_gpu`] -- a claim
-//! connection cannot reach `RenderRequest` handling because the code path doesn't exist
-//! on this listener, not merely because it's rejected at runtime.
+//! The render listener (`crate::serve`) requires mutual TLS: every connection must already
+//! present a certificate signed by this worker's CA. An enrolling client has no such
+//! certificate yet. Enrollment therefore has its own listener and TLS config that never
+//! requires a client certificate. Its connection handler ([`handle_enroll_connection`])
+//! decodes only `EnrollRequest` messages and has no `RenderRequest` handling, so a claim
+//! connection cannot reach rendering even if the certificate check were skipped.
 //!
 //! # The token
 //!
@@ -61,8 +56,8 @@
 //!   [`zeroize::Zeroizing`], so `Drop` overwrites the bytes before the allocator frees
 //!   them. Does not protect against the process being killed abruptly (`Drop` never
 //!   runs).
-//! - A `serve` restart starts a brand new, empty [`EnrollRegistry`] -- fail-closed and
-//!   intentional; an operator re-issues a token.
+//! - A `serve` restart starts with an empty [`EnrollRegistry`]: pending tokens are lost
+//!   (fail-closed), and the operator issues a new one.
 //!
 //! # Where issuing happens
 //!
@@ -102,37 +97,29 @@ mod registry;
 mod tests;
 
 /// The per-listener pending-enrollment table ([`EnrollRegistry`]) and why issuing one
-/// failed ([`EnrollIssueError`]) -- see [`registry`]'s own module doc comment.
+/// failed ([`EnrollIssueError`]).
 pub use registry::{EnrollIssueError, EnrollRegistry};
 
 /// How long an issued token remains claimable. Fixed, not operator-configurable -- the
 /// TTL is enforced server-side, never a courtesy either side can override.
 pub const TOKEN_TTL_SECS: u64 = 180;
 
-/// Caps how many enrollments can be pending at once, purely to bound memory against a
-/// runaway or misbehaving admin caller -- the `Issue` path needs loopback and the operator
-/// secret, so this is a sanity bound, not a defense against a remote attacker.
+/// Caps how many enrollments can be pending at once. This is a sanity bound on memory against
+/// a misbehaving local caller: `Issue` already needs loopback and the operator secret.
 const MAX_PENDING: usize = 64;
 
-/// This listener's own cap on concurrent AUTHENTICATED-phase (post-TLS-handshake)
-/// connections (F-06b).
+/// This listener's own cap on concurrent authenticated-phase (post-TLS-handshake) connections.
 ///
-/// Deliberately small, and NEVER a clone of the matching viewer/worker listener's real
-/// `--max-connections` limiter. Before this fix, `EnrollConfig` was built with that
-/// shared limiter (see `crate::serve::start_inner`'s old call sites): 64 anonymous
-/// connections to the enrollment port (no client certificate required at all -- see the
-/// module doc comment) could exhaust every real viewer/worker slot on the OTHER port,
-/// since both listeners drew from the same counter. A claim/issue exchange is brief and
-/// one-shot, so this cap is unrelated to how many real viewers/workers
-/// `--max-connections` allows.
+/// Kept separate from the viewer/worker `--max-connections` limiter. Enrollment connections
+/// need no client certificate, so sharing that limiter would let anonymous enrollment
+/// traffic exhaust the real viewer and worker slots on the other port. A claim or issue
+/// exchange is brief and one-shot, so a small cap is enough.
 pub const ENROLL_MAX_CONNECTIONS: usize = 8;
 
-/// How many bare, not-yet-TLS-handshaked enrollment connections are allowed in flight at
-/// once, as a multiple of [`ENROLL_MAX_CONNECTIONS`] -- this listener's own counterpart
-/// to `crate::serve::limiter::PRE_AUTH_HANDSHAKE_MULTIPLIER` (not reused directly: that
-/// constant lives behind `#[cfg(feature = "worker")]` re-exports, but this module runs
-/// in every build). Checked in the accept loop BEFORE a thread is even spawned,
-/// mirroring `serve::accept::run_accept_loop`'s own order (F-06b).
+/// Bare, not-yet-TLS-handshaked enrollment connections allowed in flight, as a multiple of
+/// [`ENROLL_MAX_CONNECTIONS`]. Checked in the accept loop before a thread is spawned. Kept
+/// local rather than reusing the `serve` constant, because this module builds in every
+/// configuration.
 const ENROLL_HANDSHAKE_MULTIPLIER: usize = 4;
 
 /// Builds the enrollment listener's TLS server config: TLS 1.3 only, presenting
@@ -183,12 +170,10 @@ pub struct EnrollConfig {
     pub allowlist_path: Option<PathBuf>,
     /// TLS with the server certificate and CA chain, no client auth.
     pub tls_config: Arc<rustls::ServerConfig>,
-    /// This listener's OWN authenticated-connection cap (F-06b) -- see
-    /// [`ENROLL_MAX_CONNECTIONS`]'s doc comment for why it is never shared with the
-    /// matching viewer/worker listener's real limiter.
+    /// This listener's own authenticated-connection cap; see [`ENROLL_MAX_CONNECTIONS`].
     pub limiter: crate::serve::ConnectionLimiter,
-    /// The pre-TLS cap on bare, not-yet-handshaked connections, checked in the accept
-    /// loop before a thread is even spawned (F-06b).
+    /// The pre-TLS cap on bare, not-yet-handshaked connections, checked in the accept loop
+    /// before a thread is spawned.
     pub handshake_limiter: crate::serve::ConnectionLimiter,
     /// Which client role this listener enrolls (see the module doc comment).
     pub role: PeerRole,
@@ -199,8 +184,8 @@ pub struct EnrollConfig {
 
 impl EnrollConfig {
     /// Builds an [`EnrollConfig`] for `role` from the same `serve --ca/--cert/--key`
-    /// paths and the role's resolved allowlist path. Builds its OWN pair of limiters
-    /// (F-06b) rather than taking one from the caller -- see [`ENROLL_MAX_CONNECTIONS`].
+    /// paths and the role's resolved allowlist path. Builds its own pair of limiters rather
+    /// than taking them from the caller; see [`ENROLL_MAX_CONNECTIONS`].
     ///
     /// # Errors
     ///
@@ -303,9 +288,8 @@ pub fn spawn_enroll_listener(config: EnrollConfig) -> Result<SocketAddr, String>
             match incoming {
                 Ok(stream) => {
                     let peer = stream.peer_addr().ok();
-                    // Bounds bare, not-yet-TLS-handshaked connections regardless of what
-                    // follows -- checked before spawning a thread at all, mirroring
-                    // `serve::accept::run_accept_loop`'s own order (F-06b).
+                    // Bounds bare, not-yet-handshaked connections; checked before a thread
+                    // is spawned.
                     let Ok(handshake_slot) = handshake_limiter.try_acquire() else {
                         tracing::warn!(
                             "enrollment connection {peer:?}: refusing -- too many not-yet-handshaked enrollment \
@@ -325,13 +309,9 @@ pub fn spawn_enroll_listener(config: EnrollConfig) -> Result<SocketAddr, String>
                         else {
                             return;
                         };
-                        // The slot is acquired only AFTER the TLS handshake succeeds
-                        // (mirroring the render listener's own connection-acquisition
-                        // order), so a bare connect that never completes TLS never holds
-                        // a slot; this listener's own `HANDSHAKE_TIMEOUT` (applied inside
-                        // `accept_enroll_tls`) already bounds how long that can take.
-                        // This is this listener's OWN limiter (F-06b), never shared with
-                        // the matching viewer/worker listener's real one.
+                        // Taken only after the TLS handshake succeeds, so a connection that
+                        // never completes TLS holds no slot. `accept_enroll_tls` bounds that
+                        // handshake with `HANDSHAKE_TIMEOUT`.
                         let Ok(_slot) = limiter.try_acquire() else {
                             tracing::warn!(
                                 "enrollment connection {peer:?}: refusing -- already at this listener's own \

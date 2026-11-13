@@ -13,6 +13,10 @@ pub mod pipelines;
 pub mod readback;
 
 #[cfg(test)]
+mod hdr_rotation_tests;
+#[cfg(test)]
+mod live_tests;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod tool_tests;
@@ -40,6 +44,9 @@ pub enum EwError {
     UnsupportedMaterial(String),
     /// The scene's environment cannot be dispatched on the GPU.
     UnsupportedEnvironment,
+    /// This GPU route cannot preserve the position-dependent stone shadow or trace the tray
+    /// reflection.
+    TrayVariant,
     /// A buffer mapping or readback operation failed.
     BufferMapping(String),
     /// The GPU device was lost or unresponsive.
@@ -73,11 +80,19 @@ pub enum EwError {
         /// The most the kernels trace.
         limit: usize,
     },
+    /// An adaptive (live-tile) pass cannot run: the live pixel list does not fit one storage
+    /// binding of the device, or a shader unit lost the line the live variant patches.
+    LivePassUnavailable(String),
 }
 
 impl std::fmt::Display for EwError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::TrayVariant => write!(
+                f,
+                "the Stone Shadow and the Tray Reflection need the megakernel's tray variant; \
+                 rendering on the CPU"
+            ),
             Self::UnsupportedMaterial(name) => {
                 write!(f, "{name} is not GPU-supported for event wavefront")
             }
@@ -108,6 +123,12 @@ impl std::fmt::Display for EwError {
                 "the stone has {tools} concave tools; the event wavefront kernels trace at most \
                  {limit}"
             ),
+            Self::LivePassUnavailable(why) => {
+                write!(
+                    f,
+                    "an adaptive pass cannot run on the event wavefront: {why}"
+                )
+            }
         }
     }
 }

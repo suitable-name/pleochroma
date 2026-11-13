@@ -1,7 +1,8 @@
-//! TLS transport setup for the viewer and worker listeners: [`Transport`]/[`Auth`]
-//! (decided once at [`crate::serve::run`] startup), [`build_transport`], and the
-//! per-connection [`accept_tls`]/[`check_auth`] pair -- see `crate::serve`'s module docs
-//! (the "TLS" section) for the full picture.
+//! TLS transport setup for the viewer and worker listeners.
+//!
+//! [`Transport`] and [`Auth`] are decided once at [`crate::serve::run`] startup by
+//! [`build_transport`]. Each connection then goes through [`accept_tls`] and [`check_auth`].
+//! See the "TLS" section of `crate::serve`'s module docs for the full picture.
 //!
 //! # Roles
 //!
@@ -24,9 +25,10 @@ use std::{
     time::Instant,
 };
 
-/// How [`accept_tls`] decides whether a client whose certificate chains to the
-/// configured CA is actually trusted on one listener -- the authorization decision that
-/// stands in for a password in this design. See the module doc comment.
+/// How [`accept_tls`] decides whether a client is trusted on one listener.
+///
+/// A certificate that chains to the CA is necessary but not sufficient. This is the
+/// authorization decision that stands in for a password in this design.
 #[derive(Debug, Clone)]
 pub struct Auth {
     /// The client-certificate role this listener serves.
@@ -126,9 +128,8 @@ pub fn build_transport(args: &ServeArgs, bind_addr: SocketAddr) -> Result<Transp
     })
 }
 
-/// The worker port's [`Auth`]: role [`PeerRole::Worker`], the `--worker-allowlist`
-/// (default `allowlist-workers.txt` next to `--ca`), or none under
-/// `--trust-any-client-cert`.
+/// The worker port's [`Auth`]: role [`PeerRole::Worker`] and the `--worker-allowlist`
+/// (default `allowlist-workers.txt` next to `--ca`), or none under `--trust-any-client-cert`.
 ///
 /// Unlike the viewer allowlist, a MISSING worker allowlist is not a startup error --
 /// most coordinators start before any worker is enrolled -- it only means every worker
@@ -195,16 +196,11 @@ pub fn accept_tls(
     // failure is diagnosed here with the peer address in hand, rustls's own error text
     // naming the actual reason (expired, clock skew, wrong CA, no matching SAN).
     //
-    // `stream` carries `serve::HANDSHAKE_TIMEOUT` (applied by the accept loop before
-    // calling this function) as a per-read idle timeout, but `complete_io` runs its own
-    // internal read/write loop this function doesn't otherwise get to intervene in --
-    // F-06a's fix wraps the socket in `DeadlineSocket` with a fresh
-    // `Instant::now() + HANDSHAKE_TIMEOUT` deadline so a client that keeps the handshake
-    // alive by trickling bytes (never idle long enough to trip the per-read timeout) is
-    // still cut off once this budget elapses, not just one that goes fully silent.
-    // Surfaces here as an `io::Error` of kind `WouldBlock`/`TimedOut` either way. Logged
-    // at `debug`, not `warn`: a timeout is an expected, routine outcome of exposing a
-    // socket to the network at all.
+    // The accept loop's per-read idle timeout alone does not bound the handshake, because
+    // `complete_io` loops over reads and writes internally. `DeadlineSocket` enforces an
+    // absolute `HANDSHAKE_TIMEOUT` deadline, so a peer trickling bytes is cut off too. A
+    // timeout surfaces as `WouldBlock`/`TimedOut` and is logged at `debug`: it is a
+    // routine outcome of exposing a socket to the network.
     let deadline = Instant::now() + super::HANDSHAKE_TIMEOUT;
     let handshake_result = {
         let mut io = super::DeadlineSocket::new(&tls_stream.sock, deadline);
@@ -263,21 +259,13 @@ fn check_auth(stream: &TlsStream, auth: &Auth) -> Result<PeerRole, String> {
         .map_err(|e| format!("rejecting client certificate {fingerprint_hex}: {e}"))?;
 
     if role != auth.role {
-        // Refused at HELLO with ROLE_REFUSED (see the module doc comment). NOT checked
-        // against the OTHER role's allowlist here: `Auth` only carries this listener's
-        // own role and allowlist path, and threading the sibling port's allowlist
-        // through would widen `Auth`'s public shape (breaking every existing
-        // `Auth { role, allowlist }` construction, including in this crate's own
-        // integration tests) for a residual risk that F-06a/F-06c's OTHER two fixes
-        // already bound: this connection still spends at most `HANDSHAKE_TIMEOUT`
-        // (a real deadline, not an idle one -- see `socket::HANDSHAKE_TIMEOUT`) reaching
-        // `HELLO`, which now reads at most 64 KiB (`read_and_check_hello` uses
-        // `read_frame_bounded`, not the 512 MiB default), so an arbitrary CA-signed
-        // certificate of the wrong role can occupy one real connection slot for a bounded
-        // ~20s and a bounded allocation, never an unbounded hold.
-        // A future change willing to widen `Auth` (and update its
-        // construction sites) could check the other role's allowlist here instead and
-        // refuse a certificate that's on NEITHER list before ever taking a slot.
+        // Refused at HELLO with ROLE_REFUSED (see the module doc comment). The other
+        // role's allowlist is not consulted: `Auth` carries only this listener's own, and
+        // widening it would change every construction site. The residual cost is bounded:
+        // the connection has at most `HANDSHAKE_TIMEOUT` (a total deadline) to reach
+        // `HELLO`, and the HELLO frame is read with a 64 KiB cap (`MAX_HELLO_LEN`), so a
+        // wrong-role certificate holds one connection slot for a bounded time. A change
+        // that widens `Auth` could refuse certificates on neither list before taking a slot.
         return Ok(role);
     }
     let Some(path) = &auth.allowlist else {

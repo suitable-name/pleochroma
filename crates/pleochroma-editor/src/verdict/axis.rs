@@ -1,6 +1,5 @@
-//! The Crystal Axis note of the verdict (plan decision D9): when a material has an orientation
-//! rule (`pleochroma_cut_core::default_rule`), the verdict says how far the stone's Crystal
-//! Axis is from it.
+//! The Crystal Axis note: how far the stone's crystal axis is from its material's orientation
+//! rule (`pleochroma_cut_core::default_rule`).
 //!
 //! The note is informational only. It is a reason at [`Level::Good`], so it never changes the
 //! verdict's level or headline and never costs anything in a score; it is listed after every
@@ -52,8 +51,8 @@ fn orientation_of(
 
 /// The fact for `design` in `material`, or `None` when the material has no rule.
 ///
-/// `None` also when the rule says nothing about this stone. `material_default` is the material's own default
-/// orientation (a custom material's stored one), `None` for a built-in.
+/// `None` also when the rule says nothing about this stone. `material_default` is the
+/// material's own default orientation (a custom material's stored one), `None` for a built-in.
 #[must_use]
 pub fn axis_fact(
     design: &Design,

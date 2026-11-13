@@ -1,13 +1,7 @@
-//! The request/job/result payload types that travel between the UI thread and
-//! the PLAN/RENDER worker threads: `RedrawRequest` (the RENDER worker's own
-//! queue), [`ReplanRequest`]/`PlanJob` (what the PLAN worker needs to run
-//! `live_update::plan_preview`), and `PlannedFrame` (the PLAN worker's handoff
-//! to the RENDER worker).
+//! The payloads passed between the UI thread and the plan and render workers.
 //!
-//! `RedrawRequest`, `PlanJob` and `PlannedFrame` moved to
-//! `pleochroma_solid::preview` (shared with the web app) and are re-exported here
-//! at their old paths; [`ReplanRequest`], this controller's own thread-facing
-//! entry point, stays.
+//! `RedrawRequest`, `PlanJob` and `PlannedFrame` come from `pleochroma_solid::preview`;
+//! [`ReplanRequest`] is the UI-thread entry point for a replan.
 
 use super::types::CameraPose;
 use pleochroma::geometry::meet_solver::SolvedTier;
@@ -55,13 +49,9 @@ pub struct ReplanRequest {
     /// (`facet_map::FacetMap::preform_plane_count`) should render at all
     /// rather than being hidden so only the schedule's own cut facets show.
     pub show_preform: bool,
-    /// `SolidPreviewModel.diagram_enlarged_panel`'s raw value at request time
-    /// (the "enlarge this panel" mode): `0`/`1`/`2` for Crown/Pavilion/
-    /// Profile, anything else (in particular the property's own `-1` default)
-    /// for "no panel enlarged." A plain `i32` (rather than `Option<diagram2d::
-    /// PanelKind>`) purely so this module's caller does not need a
-    /// `diagram2d::PanelKind` import of its own just to build this request --
-    /// see `pleochroma_solid::preview::panel_kind_from_index` for the conversion
-    /// applied on the WORKER-thread side.
+    /// `SolidPreviewModel.diagram_enlarged_panel` at request time: `0`/`1`/`2` for
+    /// Crown/Pavilion/Profile, anything else (such as the default `-1`) for no enlarged
+    /// panel. Kept as a plain `i32`; the worker converts it with
+    /// `pleochroma_solid::preview::panel_kind_from_index`.
     pub enlarged_panel: i32,
 }

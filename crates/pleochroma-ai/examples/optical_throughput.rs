@@ -44,8 +44,8 @@ fn run(config: &Config, sink: &mut Sink) -> Result<(), String> {
     let (scorer, fixtures) = initialize(config, sink)?;
     let mut reference: [Option<Score>; 2] = [None, None];
     let mut case_id = 0;
-    // Only this case is service-cold. Later first-wave cases can grow native arenas,
-    // but share the already initialized service; they are not mislabeled as cold.
+    // Only this case runs on a cold service. Later cases share the initialized service
+    // and are not labeled cold.
     let cold = CaseSpec::new(case_id, "cold", 0, 1, config.requests, &[0]);
     run_case(&scorer, &fixtures, &mut reference, config, sink, &cold)?;
     sink.event(

@@ -18,7 +18,10 @@ use crate::{
         rough_plan::{
             axis,
             exclusions::sync_row_flags,
-            format::{DesignData, ResultRow, RowContext, effective_id, result_row, to_i32},
+            format::{
+                DesignData, ResultRow, RowContext, badge_of, effective_id, relative_yields,
+                result_row, to_i32,
+            },
             metrics::{ModelGeometry, decode_preview_pixels, palette_swatch},
             view,
         },
@@ -220,10 +223,12 @@ fn default_summary(source: &ResultsSource, count: usize) -> String {
 }
 
 /// The Slint result rows. The keep ticks and the Exclude flags start clear (the flags are
-/// set once the rows are shown); the thumbnails are the view's.
+/// set once the rows are shown); the thumbnails are the view's. `yields` is each row's yield
+/// bar as a share of the heaviest layout (see [`relative_yields`]), row for row.
 fn to_slint_results(
     rows: Vec<ResultRow>,
     labels: &[String],
+    yields: &[f32],
     previews: &Previews,
 ) -> ModelRc<RoughPlanResult> {
     let results: Vec<RoughPlanResult> = rows
@@ -246,6 +251,7 @@ fn to_slint_results(
                     RoughPlanStoneGroup {
                         entry_id: group.entry_id,
                         name: group.name.into(),
+                        short_name: group.short_name.into(),
                         count: group.count,
                         detail: group.detail.into(),
                         swatch: palette_swatch(group.swatch_index),
@@ -270,7 +276,9 @@ fn to_slint_results(
                 cut_plan: row.cut_plan.into(),
                 yield_weight_text: row.yield_weight_text.into(),
                 saw_text: row.saw_text.into(),
+                badge: badge_of(labels.get(index).map_or("", String::as_str)).into(),
                 label: labels.get(index).cloned().unwrap_or_default().into(),
+                yield_fraction: yields.get(index).copied().unwrap_or_default(),
                 ..Default::default()
             }
         })
@@ -323,6 +331,7 @@ fn push(
                 model.set_results(ModelRc::new(VecModel::<RoughPlanResult>::default()));
                 model.set_keep_count(0);
                 model.set_results_unsaved(false);
+                model.set_stopped_at_limit(false);
                 view::results_changed(host);
             }
             host.window
@@ -356,8 +365,15 @@ fn publish(host: &Rc<Host>, state: ShownLayouts, rendered: Rendered) {
     model.set_results(to_slint_results(
         rendered.rows,
         &state.labels,
+        &relative_yields(&state.layouts),
         &rendered.previews,
     ));
+    // Only a plan the scan time limit stopped offers Plan Again with More Time, never a saved
+    // plan that was opened. The same layouts shown again after an edit of one stay as they were.
+    let stopped = std::mem::take(&mut host.session.borrow_mut().run.stopped_pending);
+    if !state.refreshed {
+        model.set_stopped_at_limit(stopped && state.source == ResultsSource::Planned);
+    }
     // Fresh and loaded plans alike show the designs that are excluded from the planner now.
     sync_row_flags(host);
     model.set_selected_result(if count == 0 { -1 } else { 0 });
@@ -390,8 +406,7 @@ fn publish(host: &Rc<Host>, state: ShownLayouts, rendered: Rendered) {
         }
         let run = &mut session.run;
         run.results_unsaved = unsaved;
-        // The new results are in: the ones a run set aside and a question about them
-        // are history.
+        // A new result list drops the results a run set aside and any question about them.
         run.replaced = None;
         run.pending = None;
         run.layouts = state.layouts;
@@ -445,7 +460,10 @@ mod tests {
         assert_eq!(row.total_ct, "1.23 ct");
         assert_eq!(row.yield_pct, "45.7 %");
         assert_eq!(row.stone_count, 0);
-        assert!(row.groups.is_empty());
+        assert!(
+            row.groups.is_empty(),
+            "a row that cannot be formatted has no groups"
+        );
         assert_eq!(row.cut_plan, "This layout could not be formatted.");
     }
 

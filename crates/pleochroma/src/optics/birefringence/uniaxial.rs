@@ -1,6 +1,5 @@
-//! Uniaxial birefringence parameters: the closed-form effective extraordinary
-//! index, walk-off angle, and the ordinary/extraordinary eigen-polarization
-//! directions.
+//! Uniaxial birefringence: the effective extraordinary index, walk-off angle, and the
+//! ordinary/extraordinary eigen-polarization directions.
 
 use super::helpers::stable_orthonormal_basis;
 use glam::Vec3;
@@ -36,11 +35,18 @@ impl BirefringenceParams {
     /// Evaluates direction-dependent extraordinary refractive index `n_e(theta)`.
     #[must_use]
     pub fn effective_extraordinary_index(n_o: f32, n_e: f32, theta: f32) -> f32 {
+        Self::effective_extraordinary_index_sc(n_o, n_e, theta.sin(), theta.cos())
+    }
+
+    /// [`Self::effective_extraordinary_index`] from the sine and cosine of `theta` directly.
+    ///
+    /// Lets a caller that evaluates all channels at one shared `theta` compute `sin`/`cos`
+    /// once instead of once per channel. Returns the same values as the `theta` form.
+    #[must_use]
+    pub fn effective_extraordinary_index_sc(n_o: f32, n_e: f32, sin_t: f32, cos_t: f32) -> f32 {
         if (n_o - n_e).abs() < 1e-5 {
             return n_o;
         }
-        let sin_t = theta.sin();
-        let cos_t = theta.cos();
         let denom_sq = (n_e * cos_t).mul_add(n_e * cos_t, (n_o * sin_t).powi(2));
         if denom_sq <= 1e-8 {
             return n_o;
@@ -48,7 +54,7 @@ impl BirefringenceParams {
         (n_o * n_e) / denom_sq.sqrt()
     }
 
-    /// Walk-off angle estimation for extraordinary ray Poynting vector.
+    /// Walk-off angle in radians of the extraordinary ray, at angle `theta` to the optic axis.
     #[must_use]
     pub fn walk_off_angle(n_o: f32, n_e: f32, theta: f32) -> f32 {
         Self::walk_off_from_sin_cos(n_o, n_e, theta.sin(), theta.cos())
@@ -56,11 +62,9 @@ impl BirefringenceParams {
 
     /// [`Self::walk_off_angle`] from the sine and cosine of `theta` directly.
     ///
-    /// [`Self::extraordinary_poynting_dir`] already has `cos(theta) = |k . c|` in hand;
-    /// going through `theta = acos(..)` and back via `sin`/`cos` costs real accuracy on
-    /// GPUs (their `acos`/`cos` are only loosely specified, and `cos` near pi/2 can be
-    /// off by ~1e-5, which turned a no-walk-off direction into a visibly deflected one).
-    /// The WGSL twin `walk_off_from_sin_cos` mirrors this expression exactly.
+    /// [`Self::extraordinary_poynting_dir`] already has `cos(theta) = |k . c|`. Going through
+    /// `acos` and back loses accuracy on GPUs (their `cos` near pi/2 can be off by ~1e-5,
+    /// enough to deflect a no-walk-off direction). The WGSL twin mirrors this expression.
     #[must_use]
     #[expect(
         clippy::similar_names,
@@ -85,9 +89,8 @@ impl BirefringenceParams {
     /// `-c_axis` describe the same physical axis, so this must satisfy `S(c) == S(-c)`
     /// for every `wave_normal`. `c_axis` is folded onto the wave normal's own
     /// hemisphere first (via `sign`), with the tilt negated on that branch to
-    /// compensate, so both branches agree -- matching the always-correct general
-    /// `poynting_direction`/biaxial `mode_poynting_dir` construction this uniaxial fast
-    /// path approximates.
+    /// compensate, so both branches agree. This is the uniaxial fast path of the general
+    /// construction in `BiaxialIndicatrix::mode_poynting_dir`.
     #[must_use]
     pub fn extraordinary_poynting_dir(wave_normal: Vec3, c_axis: Vec3, n_o: f32, n_e: f32) -> Vec3 {
         let cos_theta = wave_normal.dot(c_axis).clamp(-1.0, 1.0);

@@ -1,6 +1,7 @@
-//! The census measurements (follow-ups plan 2026-10-19, sections 4.3 and 8.1): raw shape
-//! deltas under `PreservationPolicy::CENSUS`, the baseline's structure counts and the stable
-//! violation kinds. They measure; no verdict of `OPTIMIZE` or `RETARGET` depends on them.
+//! The census measurements.
+//!
+//! Raw shape deltas under `PreservationPolicy::CENSUS`, the baseline's structure counts and the
+//! stable violation kinds. They measure; no verdict of `OPTIMIZE` or `RETARGET` depends on them.
 
 use super::*;
 use crate::{

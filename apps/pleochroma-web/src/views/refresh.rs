@@ -51,17 +51,15 @@ const DIAGRAM_LIMITS: RasterLimits = RasterLimits {
     ..LIMITS
 };
 
-/// The narrowest Diagram raster with all three panels, in pixels: about the width of the
-/// desktop's diagram at its usual window size. A narrower view (this page's dock takes
-/// 400px of it) draws the same raster and shows it scaled down, instead of a small raster
-/// on which the labels of neighbouring facets pile up.
+/// The narrowest Diagram raster with all three panels, in pixels. A narrower view draws
+/// the same raster and shows it scaled down, instead of a small raster on which the labels
+/// of neighbouring facets pile up.
 const DIAGRAM_MIN_WIDTH: u32 = 1200;
 
-/// The narrowest Diagram raster with ONE enlarged panel: that panel has the whole raster
-/// to itself, so a raster near the width the label placement is tuned for (about 700
-/// pixels, `pleochroma_solid::diagram2d`'s `MIN_LABEL_SPAN`) already keeps the labels apart
-/// and, shown nearly 1:1 in a small window, readable. The Diagram tab opens on the Crown
-/// panel in a view narrower than 800 logical pixels (`small-view` in `ui/views/diagram.slint`).
+/// The narrowest Diagram raster with ONE enlarged panel. That panel has the whole raster to
+/// itself, so this width keeps its labels apart and readable when shown nearly 1:1 in a
+/// small window. The Diagram tab opens on the Crown panel in a view narrower than 800
+/// logical pixels (`small-view-width` in `ui/views/diagram.slint`).
 const DIAGRAM_MIN_WIDTH_ENLARGED: u32 = 720;
 
 /// The narrowest aspect (width over height) the Solid raster is drawn at: 16:10, about the
@@ -377,13 +375,12 @@ fn replan_now(
 /// solve, which would freeze the page for a design this large.
 const SLICE_TOO_LARGE_HINT: &str = "This design is too large to preview a slice on this page. Add the tier from the tier table instead.";
 
-/// The replan while the Slice tool holds a provisional tier: plans the session's design
+/// The replan while the Slice tool holds a provisional tier. It plans the session's design
 /// (the committed design plus the new tier) under `PROVISIONAL_GENERATION`, so the frame
-/// stays out of the solve cache, and hands the solved masts back to the session (the
-/// handles and the green outline are placed from them). Chains from the session's own
-/// masts once it has any; the first frame chains from the committed masts plus the new
-/// tier's pinned mast, and only a design with neither is solved in full -- and only when
-/// that is cheap enough to do on this page.
+/// stays out of the solve cache, and hands the solved masts back to the session. It chains
+/// from the session's masts when it has any, else from the committed masts plus the new
+/// tier's pinned mast. Only a design with neither is solved in full, and only when that is
+/// cheap enough for this page.
 fn replan_provisional(ui: &AppWindow, app: &WebApp, views: &mut ViewsState, now: &Seen) -> After {
     let committed = views.cache.as_ref().map(|(_, masts)| masts.as_slice());
     let Some(ProvisionalPlan {
@@ -446,11 +443,10 @@ fn replan_provisional(ui: &AppWindow, app: &WebApp, views: &mut ViewsState, now:
     After::Nothing
 }
 
-/// A planned frame starts with no hover/click/multi-select highlight (the
-/// desktop's `Planned` style); put the current one back. Facet ids from before an
-/// edit may name other facets now, so hover and the clicked facet are dropped when
-/// the generation moved; the multi-selection is re-resolved from the new frame's
-/// own facet -> tier table.
+/// A planned frame starts with no hover, click or multi-select highlight. This puts the
+/// current one back. Facet ids from an earlier generation may name other facets, so hover
+/// and the clicked facet are dropped when the generation moved. The multi-selection is
+/// re-resolved through the new frame's facet-to-tier table.
 fn reapply_overlay(
     views: &mut ViewsState,
     frame: RenderedFrame,

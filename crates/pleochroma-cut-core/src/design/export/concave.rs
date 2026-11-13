@@ -1,4 +1,4 @@
-//! Resolving concave tiers to [`ToolPrimitive`]s (plan §4.4).
+//! Resolving concave tiers to [`ToolPrimitive`]s.
 //!
 //! The kernel never sees a tier or a notation, only convex tool volumes, so this
 //! is the one place that turns the authored two-line tier into geometry. Every
@@ -139,8 +139,8 @@ impl Design {
     /// placements, a flat stone that does not close) is scored on its flat stone, as
     /// every display path does (`pleochroma_solid::live_update::display_tools` drops
     /// unresolved tools the same way): the flat stone is truthful, a half-resolved set
-    /// of tools is not. Empty, without solving or measuring anything, for a design with no concave
-    /// tiers, so a flat design's numbers are exactly what they were.
+    /// of tools is not. Empty, without solving or measuring anything, for a design with
+    /// no concave tiers, so a flat design's numbers are unchanged.
     #[must_use]
     pub fn tools_for_scoring(&self, planes: &[(DVec3, f64)]) -> Vec<ToolPrimitive> {
         self.concave_tools_from_planes(planes)
@@ -149,7 +149,7 @@ impl Design {
     }
 
     /// Tools of the concave tiers that precede `through` in
-    /// [`Self::cutting_order`] (plan §4.4): the concave half of "the stone after
+    /// [`Self::cutting_order`]: the concave half of "the stone after
     /// step k" for the tier-cutoff slider. `through` itself is not included, and a
     /// `through` that is not in the order (a stale index) means "every tier",
     /// like [`Self::planes_through_tier`] past the end.

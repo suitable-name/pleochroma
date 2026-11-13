@@ -9,7 +9,7 @@ use pleochroma::geometry::stone_metrics::build_solid_mesh_and_measure;
 /// Solves `design` and measures the stone -- [`analyze_solved`] after [`Design::solve`].
 ///
 /// `with_hinges` also reads the girdle corners (the hinge) of every flat crown or pavilion tier
-/// (needed for the ORIGINAL stone only).
+/// and the meet points of the stone cut so far (needed for the ORIGINAL stone only).
 ///
 /// # Errors
 ///
@@ -127,6 +127,13 @@ fn analyze_solved_controlled(
     } else {
         BTreeMap::new()
     };
+    // The original's meet points, which a retarget's candidate is re-anchored to (see
+    // `keep_meets`). One solid per tier, so only for the original.
+    let meet_targets = if with_hinges {
+        design.meet_targets(&solved).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
     let crown_to_pavilion = match (proportions.crown_height, proportions.pavilion_depth) {
         (Some(crown), Some(pavilion)) if pavilion > MIN_WIDTH => Some(crown / pavilion),
         _ => None,
@@ -148,6 +155,7 @@ fn analyze_solved_controlled(
         girdle_band: band,
         undersized,
         hinges,
+        meet_targets,
         ranges,
         solved,
         planes,

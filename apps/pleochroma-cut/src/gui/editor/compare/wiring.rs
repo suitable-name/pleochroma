@@ -30,7 +30,7 @@ use std::{
 };
 use tracing::warn;
 
-/// The editor handles Keep/Discard need, captured once.
+/// What Keep and Discard need from the editor, captured once.
 #[derive(Clone)]
 pub(super) struct CompareDeps {
     /// The main window.
@@ -62,9 +62,9 @@ pub(in crate::gui) fn close_compare_window() {
     host::close_window(true);
 }
 
-/// Forgets what a previous main window left behind: the entry handles, the live session and the
-/// pop-out window itself. A kept window would otherwise be reused by the next main window with the
-/// previous one's callbacks (their `MainWindow` handle is gone). See `gui::window_release`.
+/// Forgets the entry handles, the live session and the pop-out window, so the next main window
+/// does not reuse their callbacks (they hold the old `MainWindow` handle).
+/// See `gui::window_release`.
 pub(in crate::gui::editor) fn release_window_state() {
     let deps = ENTRY_DEPS.with(|cell| cell.borrow_mut().take());
     drop(deps);
@@ -301,7 +301,7 @@ fn ensure_window(deps: &CompareDeps) -> Option<CompareWindow> {
             return None;
         }
     };
-    // Starts in the current palette (high contrast) and follows later changes.
+    // Starts in the current theme and follows later changes.
     crate::gui::preferences::bind_compare_window_theme(&window);
     register_window_callbacks(&window, deps);
     host::store_window(&window);

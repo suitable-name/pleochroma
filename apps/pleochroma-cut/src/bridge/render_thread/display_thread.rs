@@ -162,10 +162,9 @@ impl DisplayWork {
         }
     }
 
-    /// Overwrites every field from this frame's live render-loop state, reusing (not
-    /// reallocating) the `accum`/`depth`/`normal`/`facet_id` heap buffers. The three
-    /// guide buffers (20 of the 32 bytes per pixel) are copied only when the denoiser
-    /// will read them; otherwise they are just emptied.
+    /// Overwrites every field from this frame's live render-loop state, reusing the heap
+    /// buffers. The guide buffers are copied only when the denoiser will read them;
+    /// otherwise they are emptied.
     pub(super) fn fill(
         &mut self,
         generation: u64,
@@ -197,10 +196,9 @@ impl DisplayWork {
         self.metrics_snapshot = metrics_snapshot;
     }
 
-    /// Adds a remote contribution straight into this cycle's accumulator copy and counts
-    /// its samples, returning the remote sample count `add` reported. Doing it here
-    /// rather than in a separate scratch buffer drops one full-frame copy (12 B/px) per
-    /// combined display cycle; the summed bytes are identical.
+    /// Adds a remote contribution into this cycle's accumulator copy and counts its samples,
+    /// returning the remote sample count `add` reported. Adding in place avoids a full-frame
+    /// scratch copy, and the sums are the same.
     pub(super) fn add_remote(&mut self, add: impl FnOnce(&mut [Vec3]) -> u32) -> u32 {
         let done = add(&mut self.accum);
         self.current_sample_count += done;
@@ -266,21 +264,12 @@ impl DisplayHandle {
             .unwrap_or_else(|_| DisplayWork::empty())
     }
 
-    /// Hands `work` off to the display thread and marks a cycle in flight. Callers
-    /// must have already confirmed [`Self::busy`] is `false`.
+    /// Hands `work` off to the display thread and marks a cycle in flight. Callers must
+    /// have already confirmed [`Self::busy`] is `false`.
     ///
-    /// A failed send means the display thread's receiver is gone -- either an
-    /// ordinary shutdown (`spawn_render_thread`'s loop is exiting too, so nobody
-    /// reads `in_flight` again) or an uncaught panic outside the per-cycle
-    /// `catch_unwind` in `spawn_display_thread` that ended the thread
-    /// PERMANENTLY. Either way this method must not leave `in_flight` stuck `true`:
-    /// with nothing left alive to ever clear it, every later [`Self::busy`] call
-    /// would report `true` forever, and the render loop's own `can_send` check would
-    /// silently drop every future frame -- indistinguishable from (and the actual
-    /// mechanism behind) "shows one frame and never updates again". `catch_unwind`
-    /// lets the thread survive a bad cycle, but
-    /// clearing `in_flight` on a failed send here is what keeps a genuinely-dead
-    /// display thread from also wedging the render loop's convergence wait forever.
+    /// A failed send means the display thread has exited. `in_flight` is cleared in that
+    /// case, because nothing would clear it later and [`Self::busy`] would stay `true`,
+    /// blocking the render loop's convergence wait.
     pub(super) fn send(&self, work: DisplayWork) {
         self.in_flight.store(true, Ordering::Release);
         if self.work_tx.send(work).is_err() {
@@ -301,9 +290,9 @@ impl Drop for InFlightGuard<'_> {
     }
 }
 
-/// A-Trous passes run while the camera is orbiting. The two widest passes (strides 8 and
-/// 16) are 40 % of the denoiser's cost and only refine a frame that the next orbit step
-/// replaces within a fraction of a second; they run again once the camera settles.
+/// Number of A-Trous passes while the camera is moving. The two widest passes (strides 8
+/// and 16) cost 40 % of the denoiser and only refine a frame the next orbit step replaces,
+/// so they run once the camera settles.
 const MOVING_DENOISE_PASSES: u32 = 3;
 
 /// Reports a panicking display cycle without terminating the display thread.
@@ -484,10 +473,9 @@ where
     }
 }
 
-/// Convenience for [`spawn_render_thread`]'s convergence wait: the frame reaching
-/// `target_samples` must always display exactly once, so its send site spins on
-/// [`DisplayHandle::busy`] with this short sleep rather than skipping. À-Trous cycles
-/// run in the 100ms-1s range, so a 1ms poll adds negligible latency.
+/// Poll interval of [`spawn_render_thread`]'s convergence wait. The frame reaching
+/// `target_samples` must display exactly once, so its send site waits on
+/// [`DisplayHandle::busy`] with this short sleep instead of skipping the frame.
 pub(super) const CONVERGENCE_WAIT_POLL: Duration = Duration::from_millis(1);
 
 #[cfg(test)]

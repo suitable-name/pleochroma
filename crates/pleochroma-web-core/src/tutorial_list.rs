@@ -143,7 +143,7 @@ mod tests {
         let guides = offered();
         let (rows, _) = listing(&guides, &BTreeSet::new(), true, "");
         let ids: BTreeSet<&str> = rows.iter().map(|row| row.id.as_str()).collect();
-        // A class C lesson: blocked by something no lane builds.
+        // Lessons that need a feature the web build lacks are not listed.
         assert!(!ids.contains("tiers-relations"));
         assert!(!ids.contains("app-command-palette"));
         // The offer table decides, not the browser: every row is an offered lesson.
@@ -171,7 +171,7 @@ mod tests {
         let (rows, _) = listing(&guides, &BTreeSet::new(), false, "");
         assert_eq!(rows[0].blocked_reason.as_str(), NEEDS_A_DESIGN);
         let (rows, _) = listing(&guides, &BTreeSet::new(), true, "");
-        assert!(rows[0].blocked_reason.is_empty());
+        assert_eq!(rows[0].blocked_reason, "");
     }
 
     #[test]
@@ -197,7 +197,7 @@ mod tests {
         assert_eq!(row.title.as_str(), "New Design Walkthrough");
         assert_eq!(row.category.as_str(), GuideCategory::GettingStarted.label());
         assert!(row.step_text.ends_with("steps"), "{}", row.step_text);
-        assert!(!row.summary.is_empty());
+        assert_ne!(row.summary, "");
         assert_eq!(row.start_label.as_str(), "Start");
     }
 }

@@ -11,20 +11,12 @@ impl GemMaterial {
     /// Rutile (`TiO2`): a strongly uniaxial species, at a birefringence magnitude
     /// (`+0.2957`) higher than any other built-in material.
     ///
-    /// Previously deliberately excluded (see
-    /// `built_in_materials_aquamarine_through_citrine`'s own "Deliberately NOT added:
-    /// Sphene, Rutile" doc comment) because it needed the full anisotropic Fresnel
-    /// treatment `optics::raytracer::uniaxial_fresnel` provides; added once that
-    /// existed.
+    /// The uniaxial Fresnel solve is exact and closed-form: `optics::raytracer::uniaxial_fresnel`
+    /// on the CPU, and its WGSL port in `renderer/shaders/` on the GPU.
     ///
-    /// Runs the EXACT closed-form uniaxial Fresnel solve on both CPU
-    /// (`optics::raytracer::uniaxial_fresnel`) and GPU (`shaders/transport_physics.wgsl`'s
-    /// own port of it, wired into `shaders/spectral_transport.wgsl`'s megakernel
-    /// dispatch). Used as the Tier 3 image-comparison material for GPU-parity
-    /// verification (`renderer::gpu::estimator_check::rutile_material`): its extreme
-    /// birefringence makes it the built-in most likely to expose CPU/GPU divergence in
-    /// the closed-form solve -- it did, catching the cross-platform branch-cut bug
-    /// documented in `uniaxial_fresnel::Cplx::sqrt_forward_branch`'s own doc comment.
+    /// It is the GPU-parity material of `renderer::gpu::estimator_check::rutile_material`.
+    /// Its large birefringence makes it the most sensitive built-in to CPU/GPU divergence in
+    /// that solve (see `uniaxial_fresnel::Cplx::sqrt_forward_branch` for the branch cut).
     ///
     /// Indices and dispersion: `DeVore`, J. Opt. Soc. Am. 41, 416 (1951), as tabulated
     /// on refractiveindex.info ("`TiO2` (Titanium dioxide): Rutile phase"), with
@@ -41,22 +33,15 @@ impl GemMaterial {
     /// (o) and 0.2072 (e). The resonances sit in the ultraviolet (283nm, 290nm), well
     /// clear of the 380-780nm sampled band.
     ///
-    /// Near-UV absorption edge (~430nm): rutile's real absorption edge is a steep
-    /// semiconductor band edge, not a
-    /// molecular-transition Gaussian -- modelled here (this file's existing convention
-    /// for every non-measured band, see e.g. Amethyst's color-centre band above) as a
-    /// single strong band centred at 350nm wide enough to tail audibly into the violet
-    /// by ~430nm, giving rutile's characteristic yellow-to-brown body color. TUNED
-    /// (aesthetic, not a cited absorption coefficient), like every other inclusion/
-    /// pleochroism band in this file that isn't a directly measured spectrum.
+    /// Near-UV absorption edge (~430nm). Rutile's real edge is a steep semiconductor band
+    /// edge, not a molecular-transition Gaussian. It is modelled as one strong band centred
+    /// at 350nm, wide enough to tail into the violet by ~430nm, which gives rutile's
+    /// yellow-to-brown body color. The band is tuned, not a cited coefficient, like the
+    /// other non-measured bands (see Amethyst's color-centre band).
     ///
-    /// 2026-11-04 (owner: "The rutile looks way less yellow in the photos than the
-    /// rendering"): peak 0.64, 0.08 x the former 8.0. Cut rutile is lab-grown titania,
-    /// near-colorless to a pale straw yellow: five photos (four of one lab-rutile dealer,
-    /// one Commons synthetic round) have a whole-stone mean chroma C* of 3-10 and a
-    /// saturation `s_uv` of 0.08-0.21 (median 0.14); the 8.0 band rendered C* 33, `s_uv` 0.53,
-    /// a lemon yellow (Light Tent, the deck's library cushion). Strength sweep on that job:
-    /// x 0.1 gives C* 10 / `s_uv` 0.17, x 0.05 C* 6 / 0.10, the lightness unchanged (L* 86).
+    /// The peak of 0.64 keeps cut rutile near-colorless to a pale straw yellow. Dealer and
+    /// Commons photos of cut rutile have a mean chroma C* of 3-10 and a saturation `s_uv` of
+    /// 0.08-0.21.
     /// Calibration record: docs/chromophores/calibration-records.md#saturation-round-2026-11-04
     pub(super) fn built_in_material_rutile() -> Self {
         Self {

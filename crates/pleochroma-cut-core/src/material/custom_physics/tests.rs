@@ -167,7 +167,7 @@ fn unusable_per_axis_text_reads_as_none() {
         r#"{"e":{"kind":"cauchy","a":1.7,"b":0.005,"c":0.0},"gamma":{"kind":"cauchy","a":1.7,"b":0.005,"c":0.0}}"#,
         // A curve the renderer refuses (an index below 1).
         r#"{"e":{"kind":"cauchy","a":0.5,"b":0.0,"c":0.0}}"#,
-        // The placeholder the column's earlier tests stored.
+        // A flat curve, without the `e`/`alpha`/`gamma` tables.
         r#"{"kind":"uniaxial_extraordinary","a":1.7,"b":0.01}"#,
     ] {
         assert_eq!(per_axis_dispersion_from_json(text), None, "{text:?}");

@@ -27,7 +27,7 @@ pub const FANTASY_PATH_UNITS: f64 = 1.0;
 /// Active color mode in custom materials.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum ActiveColor {
-    /// Historical fantasy mode: 3 Gaussian bands parameterized by an [R, G, B] triple.
+    /// Fantasy mode: three Gaussian bands parameterized by an `[R, G, B]` triple.
     #[default]
     Fantasy,
     /// Physically based mode: absorption derived from host crystal and chromophore concentrations.
@@ -57,20 +57,17 @@ impl Default for ColorMode {
 
 /// The swatch path (model units) for a stone of `stone_width_mm` (`0.0` = no size set).
 ///
-/// It is the face-up path the render integrates a per-model-unit colour over
-/// (`pleochroma::render_setup::MODEL_UNIT_FACE_UP_PATH`) times the scale the render gives that
-/// colour at that size (`absorption_path_scale_for` = `width / 7 mm / MODEL_UNIT_FACE_UP_PATH`).
-/// The constant cancels: the result is `FANTASY_PATH_UNITS * width / 7` (exactly
-/// [`FANTASY_PATH_UNITS`] at 7 mm or unset), so swatch and render agree by construction and a
-/// swatch darkens with the stone the way the render does.
+/// It is the render's face-up path times its absorption scale at that size, so a swatch
+/// darkens with the stone the way the render does. The constant cancels: the result is
+/// `FANTASY_PATH_UNITS * width / 7`, exactly [`FANTASY_PATH_UNITS`] at 7 mm or unset.
 ///
-/// [`fantasy_lab`] and [`nearest_legacy_rgb`] stay at [`FANTASY_PATH_UNITS`] (the 7 mm look), so
-/// their outputs remain comparable with stored triples.
+/// [`fantasy_lab`] and [`nearest_legacy_rgb`] stay at [`FANTASY_PATH_UNITS`] so their
+/// outputs remain comparable with stored triples.
 #[must_use]
 pub fn swatch_path_units(stone_width_mm: f32) -> f64 {
-    // Evaluated with the constant already cancelled (in f64, so 7 mm and unset give exactly
-    // FANTASY_PATH_UNITS); the test `swatch_path_equals_face_up_path_times_render_scale` checks it
-    // against `MODEL_UNIT_FACE_UP_PATH * absorption_path_scale_for(..)`.
+    // The constant is cancelled here, in f64, so 7 mm and unset give exactly
+    // FANTASY_PATH_UNITS. The test `swatch_path_equals_face_up_path_times_render_scale` pins
+    // this to the render's scale.
     let width_mm = pleochroma::render_setup::effective_stone_width_mm(if stone_width_mm.is_nan() {
         0.0
     } else {
@@ -92,10 +89,10 @@ pub fn fantasy_lab(rgb: [f32; 3]) -> [f64; 3] {
 
 /// The legacy `absorption_rgb` triple closest to `target_lab`.
 ///
-/// "Closest" is measured in D65 at [`FANTASY_PATH_UNITS`]: the fantasy solver of spec 4.6 (the
-/// same grid + Levenberg-Marquardt machinery as the physics solver, in `pleochroma`) and the
-/// fallback an older build shows for a physics material. Three Gaussians reach a thin set of colors, so the
-/// result is the closest reachable one, not necessarily exact.
+/// Closeness is measured in D65 at [`FANTASY_PATH_UNITS`], using the fantasy solver of spec 4.6
+/// (the grid and Levenberg-Marquardt search shared with the physics solver). Three Gaussians
+/// reach only a thin set of colors, so the result is the closest reachable one, not
+/// necessarily exact.
 #[must_use]
 pub fn nearest_legacy_rgb(target_lab: [f64; 3]) -> [f32; 3] {
     let never = AtomicBool::new(false);
@@ -105,8 +102,7 @@ pub fn nearest_legacy_rgb(target_lab: [f64; 3]) -> [f32; 3] {
 
 /// Solves `host_id` for `target_lab` (D65) on the calling thread.
 ///
-/// Stops early (`None`, never a truncated result) when `cancel` is set. The single call site of
-/// the cancellable solver in this crate, so a change of its signature lands here.
+/// Returns `None` (never a truncated result) when `cancel` is set.
 #[must_use]
 pub fn solve_cancellable(
     catalogue: &ChromophoreCatalogue,
@@ -205,9 +201,9 @@ impl ColorMode {
 
     /// Switches mode to Fantasy without discarding the physics recipe.
     ///
-    /// A fantasy payload still at its default (no color) is seeded from the physics color
-    /// through the legacy solver (spec 5); a fantasy color that was ever set is never
-    /// overwritten, and the recipe is always kept.
+    /// A fantasy payload still at its all-zero default is seeded from the physics color
+    /// through the legacy solver (spec 5). Any other fantasy color is kept. The recipe is
+    /// always kept.
     #[expect(
         clippy::float_cmp,
         reason = "exact comparison with the all-zero default marks a never-set fantasy color"
@@ -228,9 +224,9 @@ impl ColorMode {
     }
 
     /// Switches mode to Physics without discarding the fantasy RGB triple. With no
-    /// `last_recipe` the *current fantasy color* is solved into `host_id` (closest reachable),
-    /// on the calling thread -- the desktop dialog instead calls
-    /// [`Self::needs_initial_solve`] and solves on its worker.
+    /// `last_recipe`, the current fantasy color is solved into `host_id` (closest reachable)
+    /// on the calling thread. A caller that must not block checks
+    /// [`Self::needs_initial_solve`] and solves on a worker instead.
     pub fn switch_to_physics(&mut self, host_id: &str, catalogue: &ChromophoreCatalogue) {
         self.active = ActiveColor::Physics;
         if self.last_recipe.is_none() {
@@ -255,9 +251,8 @@ impl ColorMode {
         }
     }
 
-    /// The legacy `absorption_rgb` an older build shows for this material: the fantasy triple
-    /// itself, or -- while physics is active -- the nearest legacy color of the recipe's
-    /// rendered color.
+    /// The legacy `absorption_rgb` stored alongside the recipe: the fantasy triple itself, or,
+    /// while physics is active, the nearest legacy color of the recipe's rendered color.
     #[must_use]
     pub fn fallback_rgb(&self) -> [f32; 3] {
         if self.is_physics() {
@@ -268,8 +263,8 @@ impl ColorMode {
         }
     }
 
-    /// Whether the stored recipe was built with older catalogue data than `catalogue`'s (the
-    /// "color data updated" badge). Rendering still uses the stored `resolved_bands`.
+    /// Whether the stored recipe was built with older catalogue data than `catalogue`'s
+    /// (drives the "color data updated" badge). Rendering still uses the stored `resolved_bands`.
     #[must_use]
     pub fn data_outdated(&self, catalogue: &ChromophoreCatalogue) -> bool {
         self.last_recipe
@@ -277,14 +272,14 @@ impl ColorMode {
             .is_some_and(|r| r.data_version < catalogue.data_version)
     }
 
-    /// The JSON both stores keep.
+    /// The JSON kept by the vault row and the native file.
     #[must_use]
     pub fn to_json(&self) -> String {
         serde_json::to_string(self).unwrap_or_default()
     }
 
-    /// Parses stored JSON: a [`ColorMode`], or -- for the bare recipe an interim build wrote --
-    /// a [`ColorRecipe`] (read as active physics). `None` for blank or unreadable text.
+    /// Parses stored JSON: a [`ColorMode`], or a bare [`ColorRecipe`] (read as active physics).
+    /// `None` for blank or unreadable text.
     #[must_use]
     pub fn from_json(json: &str) -> Option<Self> {
         let json = json.trim();
@@ -373,8 +368,8 @@ mod tests {
         recipe
     }
 
-    /// The swatch path is the face-up path times the render's scale for the same size: exactly the
-    /// 1-unit reference at 7 mm or unset, `width / 7` otherwise.
+    /// The swatch path is the face-up path times the render's scale for the same size: exactly
+    /// the 1-unit reference at 7 mm or unset, `width / 7` otherwise.
     #[test]
     fn swatch_path_equals_face_up_path_times_render_scale() {
         use pleochroma::{
@@ -441,7 +436,7 @@ mod tests {
         assert_eq!(ColorMode::from_json("{not json"), None);
     }
 
-    /// An interim build wrote a bare recipe; it still reads (as active physics).
+    /// A bare recipe JSON, without the mode wrapper, reads as active physics.
     #[test]
     fn a_bare_recipe_json_reads_as_physics() {
         let recipe = ruby();
@@ -463,8 +458,8 @@ mod tests {
         assert!(!ColorMode::fantasy([0.0; 3]).data_outdated(cat));
     }
 
-    /// An older build reads only the top-level `absorption_rgb` (the fallback): the color it
-    /// shows must be near the physics color (spec 11.9, `DeltaE00` <= 15).
+    /// A reader that only knows the top-level `absorption_rgb` (the fallback) must show a
+    /// color near the physics color (spec 11.9, `DeltaE00` <= 15).
     #[test]
     fn the_fallback_rgb_is_close_to_the_physics_color() {
         let cat = ChromophoreCatalogue::global();
@@ -492,8 +487,8 @@ mod tests {
         }
     }
 
-    /// A fantasy color that was ever set is never overwritten by a switch; a default one is
-    /// seeded from the physics color.
+    /// A non-default fantasy color is never overwritten by a switch; a default one is seeded
+    /// from the physics color.
     #[test]
     fn switching_to_fantasy_seeds_only_a_default_payload() {
         let mut fresh = ColorMode::physics(ruby(), [0.0; 3]);

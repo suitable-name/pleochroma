@@ -31,9 +31,9 @@ thread_local! {
     static LATEST: Generation = Generation::default();
 }
 
-/// Makes the page's diagram match `state` with `tier` highlighted: nothing when the design
-/// has no current solve, otherwise a picture drawn in the background (unless that exact
-/// picture is already shown or on its way).
+/// Makes the page's diagram match `state` with `tier` highlighted. The diagram is hidden when
+/// the design has no current solve; otherwise the picture is drawn in the background, unless
+/// that exact picture is already shown or on its way.
 pub(super) fn push(window: &AppWindow, state: &AppState, tier: Option<usize>) {
     let key = cutting::plan(state).ok().map(|_| Key {
         generation: state.session.current_generation(),

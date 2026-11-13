@@ -191,8 +191,8 @@ fn concave_frame_version_matches_the_formats_constant() {
     assert_eq!(CONCAVE_FRAME_VERSION, CONCAVE_FRAME_V0);
 }
 
-/// Guard against a silent frame bump: the width rule is settled (§11a Q3), so the frame
-/// string stays `v0` until a deliberate decision, a reader shim and a migration say otherwise.
+/// Guards against a silent frame bump: the frame string stays `v0` until a deliberate change
+/// comes with a reader shim and a migration.
 #[test]
 fn concave_frame_version_is_still_v0() {
     assert_eq!(CONCAVE_FRAME_VERSION, "v0");
@@ -208,8 +208,8 @@ const fn narrow(x: f64) -> f32 {
     x as f32
 }
 
-/// The width rule (§11a Q3): every ratio is taken of the finished flat stone's
-/// `width_axis`, computed in the resolver's own order so the comparison is exact.
+/// Every ratio is taken of the finished flat stone's `width_axis`, computed in the
+/// resolver's own order so the comparison is exact.
 #[test]
 fn tools_are_scaled_by_the_finished_stones_axis_width() {
     let design = Design::concave_fixture();
@@ -271,14 +271,14 @@ fn a_partial_stones_tools_are_the_finished_stones_tools() {
     );
 }
 
-/// The test that tells the finished-stone rule (`v0`) from a per-step width (`v1`): with no
-/// girdle facet before the pavilion groove, the half-cut stone is the preform's width, wider
-/// than the finished stone, and the tools still follow the finished one.
+/// Tells the finished-stone width rule from a per-step width: with no girdle facet before
+/// the pavilion groove, the half-cut stone is the preform's width, wider than the finished
+/// stone, and the tools still follow the finished one.
 #[test]
 fn the_width_is_the_finished_stones_even_with_no_girdle_facet_before_the_tier() {
     let mut design = Design::concave_fixture();
     design.ensure_tier_ids();
-    // Drop the phi = 90 girdle tier: crown and pavilion now meet in a knife edge.
+    // Without the phi = 90 girdle tier, crown and pavilion meet in a knife edge.
     design.tiers.remove(0);
     design.tier_ids.remove(0);
     let solved = design.solve().expect("the remaining tiers are pinned");
@@ -369,8 +369,8 @@ fn the_tools_do_not_follow_the_stored_order_of_the_flat_tiers() {
 #[test]
 fn concave_tools_from_solved_emits_one_primitive_per_index_in_cutting_order() {
     let mut design = Design::concave_fixture();
-    // Store the crown dimple first: cutting order still puts the pavilion
-    // groove (now concave tier 1) ahead of it.
+    // Store the crown dimple first: cutting order puts the pavilion groove (concave
+    // tier 1) ahead of it.
     design.concave_tiers.reverse();
     design.concave_tier_ids.reverse();
     assert_eq!(

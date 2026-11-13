@@ -19,11 +19,10 @@
 //! - Every other model (the light tent, the daylight dome, the ISO hemisphere) is a lit
 //!   environment: its walls, sky or dome are the light. A direction is lit when its
 //!   radiance exceeds [`UNIFORM_FRACTION_OF_AMBIENT`] times the ambient level, so the
-//!   brilliance metric means "light return" under all of them, as it does for the ISO
-//!   figure cutters know from `GemRay`. Under the tent the walls count as lit while the
-//!   black cards (x0.1), the ground and the head shadow do not, so a facet reflecting a
-//!   card still costs extinction. The old 4x rule counted only the tent's key cone and
-//!   the dome's sun disc, which made brilliance a measure of aiming exits at one patch.
+//!   brilliance metric means "light return" under all of them, the ISO hemisphere included.
+//!   Under the tent the walls count as lit while the black cards (x0.1), the ground and the
+//!   head shadow do not, so a facet reflecting a card still costs extinction. Counting only
+//!   the key cone or the sun disc would make brilliance measure aim at one patch.
 //!
 //! The observer's head shadow is not part of this radiance (the observer is passed as the
 //! zero vector): [`super::visibility::ray_is_visibly_returned`] applies its own cone.
@@ -39,7 +38,7 @@ use crate::{
         },
         studio_rig::StudioRig,
     },
-    renderer::env_map::EnvironmentMap,
+    renderer::env_map::{EnvRotation, EnvironmentMap},
 };
 
 /// Wavelength the analytic rigs are probed at, the photopic luminosity peak.
@@ -78,11 +77,11 @@ enum RadianceSource<'a> {
         preset: LightingPreset,
         rig: Box<StudioRig>,
         /// [`studio_spec_power`] of `preset` at [`PROBE_WAVELENGTH_NM`], evaluated once: it
-        /// is a pure function of the preset, and every exited ray used to recompute it.
+        /// is a pure function of the preset, so exited rays reuse it.
         spec_power: f32,
     },
-    /// A loaded HDR panorama.
-    Hdr(&'a EnvironmentMap),
+    /// A loaded HDR panorama, turned by the rotation (looked up along `rotation.to_map(dir)`).
+    Hdr(&'a EnvironmentMap, EnvRotation),
 }
 
 impl RadianceSource<'_> {
@@ -101,8 +100,8 @@ impl RadianceSource<'_> {
                 Vec3::ZERO,
                 *spec_power,
             ),
-            Self::Hdr(map) => {
-                let [r, g, b] = map.radiance_rgb(dir);
+            Self::Hdr(map, rotation) => {
+                let [r, g, b] = map.radiance_rgb_rotated(dir, *rotation);
                 LUMINANCE_WEIGHTS[0]
                     .mul_add(r, LUMINANCE_WEIGHTS[1].mul_add(g, LUMINANCE_WEIGHTS[2] * b))
             }
@@ -160,7 +159,7 @@ impl<'a> ExitLighting<'a> {
         let head_shadow_cos = head_shadow_cone_cos(
             match environment {
                 EnvironmentSource::Studio { preset, .. } => preset.model() == LightingModel::Studio,
-                EnvironmentSource::HdrMap(_) => true,
+                EnvironmentSource::HdrMap { .. } => true,
             },
             environment.head_shadow_deg(),
         );
@@ -183,7 +182,9 @@ impl<'a> ExitLighting<'a> {
                     preset.model() != LightingModel::Studio,
                 )
             }
-            EnvironmentSource::HdrMap(map) => (RadianceSource::Hdr(map), false),
+            EnvironmentSource::HdrMap { map, rotation, .. } => {
+                (RadianceSource::Hdr(map, rotation), false)
+            }
         };
         let factor = if uniform {
             UNIFORM_FRACTION_OF_AMBIENT
@@ -268,6 +269,33 @@ mod tests {
         assert!(iso.is_illuminated(Vec3::Y));
         assert!(iso.is_illuminated(direction_from_key(Vec3::X, 0.0, 20.0)));
         assert!(!iso.is_illuminated(-Vec3::Y));
+    }
+
+    /// A map turned by half a turn is lit where its unturned form is dark, and the other way
+    /// round: the metrics look the map up along the turned directions.
+    #[test]
+    fn a_turned_hdr_map_is_lit_where_the_turn_puts_its_light() {
+        let (width, height) = (16, 8);
+        let pixels = (0..height)
+            .flat_map(|y| {
+                (0..width).map(move |x| {
+                    if (7..=8).contains(&x) && (3..=4).contains(&y) {
+                        [50.0; 3]
+                    } else {
+                        [0.1; 3]
+                    }
+                })
+            })
+            .collect();
+        let map = EnvironmentMap::from_rgb(width, height, pixels).expect("a consistent map");
+        let half_turn = EnvRotation::from_yaw(std::f32::consts::PI);
+        let unturned = ExitLighting::new(EnvironmentSource::hdr(&map));
+        let turned = ExitLighting::new(EnvironmentSource::hdr(&map).with_hdr_rotation(half_turn));
+        // The light sits at u = 0.5, the azimuth of -Z, on the equator.
+        assert!(unturned.is_illuminated(-Vec3::Z));
+        assert!(!unturned.is_illuminated(Vec3::Z));
+        assert!(turned.is_illuminated(Vec3::Z));
+        assert!(!turned.is_illuminated(-Vec3::Z));
     }
 
     #[test]

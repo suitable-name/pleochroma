@@ -27,24 +27,19 @@ use crate::{
     },
 };
 
-/// Bulk-adopts every tier that still has an unadopted
-/// `imported_meet`, as one undoable step -- built as a single [`Edit::Batch`] of
-/// per-tier [`Edit::SetConstraint`]s (mirroring `solve_actions::
-/// setup_adopt_meet_callback`'s own one-tier "Adopt") rather than looping single
-/// edits, so Undo reverses the whole thing in one step and only ONE `refresh_all`
-/// (one real re-solve) runs afterward instead of one per tier. A silent no-op
-/// when nothing has an `imported_meet` left to adopt.
+/// Adopts every tier that still has an unadopted `imported_meet`, as one undo step. It is a
+/// single [`Edit::Batch`] of per-tier [`Edit::SetConstraint`]s, like the one-tier "Adopt" in
+/// `solve_actions`. Undo reverses it all, and only one re-solve runs. A no-op when nothing is
+/// left to adopt.
 ///
-/// Calls [`refresh_all`], not `refresh_editor_panel_stale`, for the exact reason
-/// `setup_adopt_meet_callback`'s own doc comment gives: every value this adopts
-/// is already what the design's last real solve produced, so re-solving here
-/// pays the same whole-schedule cost that solve already paid, not a new one.
+/// It calls [`refresh_all_now`], not `refresh_editor_panel_stale`: every adopted value is what
+/// the last real solve already produced, so re-solving costs no more than that solve did.
 ///
-/// Wired to `EditorModel.adopt_all()` (declared in `ui/models/editor.slint`) --
-/// `editor_tier_table.slint`'s own "Adopt all" button calls it.
+/// Wired to `EditorModel.adopt_all()` (declared in `ui/models/editor.slint`). The "Adopt all"
+/// button in `editor_tier_table.slint` calls it.
 ///
-/// `pub(super)` since [`super::tier_crud::setup_toggle_detach_callback`] is the
-/// one call site that registers it.
+/// `pub(super)` since [`super::tier_crud::setup_toggle_detach_callback`] is the one call site
+/// that registers it.
 pub(super) fn setup_adopt_all_callback(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -90,18 +85,14 @@ pub(super) fn setup_adopt_all_callback(
     });
 }
 
-/// Like [`setup_adopt_all_callback`] above, but
-/// restricted to [`EditorState::multi_selected`] instead of every tier in the
-/// design -- freeing one Ctrl-clicked group for Optimize without also disturbing
-/// every other still-pinned tier. Applied as a single [`Edit::Batch`] for the
-/// identical "one undo step, one re-solve" reason the all-tiers version is. A
-/// silent no-op when the selection is empty or none of it has an
-/// `imported_meet` left to adopt.
+/// Like [`setup_adopt_all_callback`], but only for [`EditorState::multi_selected`]. Other pinned
+/// tiers are left alone. It is one [`Edit::Batch`], so the same single undo step and re-solve
+/// apply. A no-op when the selection is empty or has nothing to adopt.
 ///
-/// Wired to `EditorModel.adopt_selected()` (declared in `ui/models/editor.slint`)
-/// -- `editor_tier_table.slint`'s own "Adopt sel." button calls it.
+/// Wired to `EditorModel.adopt_selected()` (declared in `ui/models/editor.slint`). The
+/// "Adopt sel." button in `editor_tier_table.slint` calls it.
 ///
-/// `pub(super)` for the same reason as [`setup_adopt_all_callback`] above.
+/// `pub(super)` for the same reason as [`setup_adopt_all_callback`].
 pub(super) fn setup_adopt_selected_callback(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -147,28 +138,22 @@ pub(super) fn setup_adopt_selected_callback(
     });
 }
 
-/// The inverse of "Adopt" -- freezes a tier's CURRENT solved
-/// mast (read back here from the shared `solid_last_solved` cache the tier
-/// table's own MAST column is built from) as an exact
-/// [`MeetConstraint::ScaleReference`] anchor, through [`Edit::SetConstraint`]
-/// exactly like `solve_actions::setup_adopt_meet_callback`'s own "Adopt" --
-/// letting a cutter pin a value the solver just derived before optimizing the
-/// rest of the design. When there is no current solve for this tier it pins
-/// nothing and raises a warning toast ("Wait for the current design to finish
-/// solving before pinning."). That covers an out-of-range index, an unpopulated
-/// `solid_last_solved`, a cache from an older design generation or a different tier
-/// count (the table still shows Pin buttons from the cached rows right after an
-/// edit), and a tier whose mast is only an estimate (see [`pinnable_mast`]).
+/// The inverse of "Adopt": freezes a tier at its CURRENT solved mast, read from the shared
+/// `solid_last_solved` cache, as an exact [`MeetConstraint::ScaleReference`] anchor through
+/// [`Edit::SetConstraint`]. This lets a cutter lock a value the solver derived before
+/// optimizing the rest. If there is no usable solve for this tier, nothing is pinned and a
+/// warning toast is shown. That covers an out-of-range index, an empty cache, a cache from an
+/// older generation or another tier count (the table shows Pin buttons right after an edit),
+/// and an estimated mast (see [`pinnable_mast`]).
 ///
-/// Does not call `refresh_all`: the value pinned is already what the design's last
-/// real solve produced, so it pushes the immediate UI update from the cached solve
-/// (`refresh_editor_panel_stale`) and lets the background dirty-set replan
-/// (`submit_preview_replan`) confirm it.
+/// It does not call `refresh_all`: the pinned value is what the last real solve produced, so
+/// the UI updates from the cached solve, and the background dirty-set replan
+/// (`submit_preview_replan`) confirms it.
 ///
-/// Wired to `EditorModel.pin_to_mast(int)` (declared in `ui/models/editor.slint`)
-/// -- the tier table's own per-row "Pin" button calls it.
+/// Wired to `EditorModel.pin_to_mast(int)` (declared in `ui/models/editor.slint`). The per-row
+/// "Pin" button in the tier table calls it.
 ///
-/// `pub(super)` for the same reason as [`setup_adopt_all_callback`] above.
+/// `pub(super)` for the same reason as [`setup_adopt_all_callback`].
 pub(super) fn setup_pin_to_mast_callback(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -215,18 +200,10 @@ pub(super) fn setup_pin_to_mast_callback(
                     constraint: MeetConstraint::ScaleReference(mast),
                 }) {
                     Ok(()) => {
-                        // Pin freezes a tier at exactly the mast the last real solve
-                        // already
-                        // produced for it (this function's own doc comment), so a full
-                        // `refresh_all` re-solve is redundant work for the SAME reason
-                        // `setup_adopt_meet_callback`'s own doc comment gives -- and,
-                        // unlike a wholesale replace, this touches only one tier.
-                        // Pushes the immediate UI update from the CACHED solve
-                        // (`refresh_editor_panel_stale` with `dirty = {index}`, which
-                        // reads every OTHER row from the last-solved cache -- see
-                        // `push_stale_content`'s own doc comment) and lets the
-                        // background dirty-set replan confirm it via `resolve_dirty`
-                        // instead of re-solving the whole design synchronously here.
+                        // The pinned mast is what the last real solve produced, so no
+                        // full re-solve is needed. Only this tier changes: the UI updates
+                        // from the cached solve (`refresh_editor_panel_stale` with
+                        // `dirty = {index}`), and `resolve_dirty` confirms it in the background.
                         let dirty: BTreeSet<usize> = std::iter::once(index).collect();
                         refresh_editor_panel_stale(&ui, &render_ctx, &st, &dirty);
                         submit_preview_replan(

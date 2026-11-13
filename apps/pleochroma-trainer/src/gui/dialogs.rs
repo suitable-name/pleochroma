@@ -1,6 +1,7 @@
 //! Native file dialogs (`rfd`), awaited on the Slint event loop so they stay on the main thread
-//! (macOS requires it) without blocking the loop. One dialog at a time; no Slint object and no
-//! `RefCell` borrow is held across the await.
+//! (macOS requires it) without blocking the loop.
+//!
+//! One dialog at a time; no Slint object and no `RefCell` borrow is held across the await.
 
 use std::{
     path::{Path, PathBuf},

@@ -444,10 +444,9 @@ fn a_smaller_gear_that_leaves_a_concave_index_off_the_wheel_is_refused_at_the_ge
 fn any_other_gear_is_refused_too_while_the_design_has_concave_tiers() {
     let design = design_with_a_groove_at_95();
     let base = text_of(&design);
-    // Smaller gears (95 is off for the flat culet as well as the groove: the concave refusal
-    // comes first, so the sentence names the groove), bigger gears and a double one. The
-    // concave tiers are not in the text, so none of these can move them, and a bigger gear
-    // must not pass in silence either (index 24 is 90 degrees on 96 teeth and 45 on 192).
+    // Smaller gears, bigger gears and a double one. None may pass: the concave tiers are not
+    // in the text, and a bigger gear would turn them silently (index 24 is 90 degrees on 96
+    // teeth and 45 on 192). The concave refusal comes first, so it names the groove even for 95.
     for gear in ["g 95 0", "g 90 0", "g 97 0", "g 120 0", "g 192 0"] {
         let edited = base.replace("g 96 0", gear);
         let Err(problem) = plan_apply(&design, &base, &edited, &[]) else {
@@ -513,8 +512,8 @@ fn a_gear_that_stays_is_not_refused_whatever_the_concave_tiers_say() {
             .expect("the session takes it")
             .is_some()
     );
-    // A design that is already off its wheel (the settings dialog refuses to make one, a
-    // catalogue file may be one) is not made to fail by an unrelated edit.
+    // A design already off its wheel (a catalogue file may hold one) is not refused by an
+    // unrelated edit.
     design.concave_tiers[0].indices = vec![0.0, 120.0];
     let base = text_of(&design);
     let edited = base.replace("H Test stone", "H Test stone, second cut");
@@ -566,8 +565,8 @@ fn the_gear_line_is_found_like_the_reader_finds_it() {
 
 #[test]
 fn a_line_that_only_starts_like_a_gear_line_is_not_the_gear_line() {
-    // The reader ignores `g2a 24 48` (free text after a tier, because `g2a` is no number); a
-    // scan that took any `g` plus a digit would have cited line 8 instead of line 2.
+    // The reader ignores `g2a 24 48` (`g2a` is not a number). A scan that accepted any `g`
+    // followed by a digit would cite line 8 instead of line 2.
     let text = "GemCad 5.0\ng 96 0.0\ny 4 y\nI 1.54\nH Test\na 0 0.32 n Table\n\
                 a 34.5 0.59 0 24 48 72 n C1\n\
                 g2a 24 48\n";

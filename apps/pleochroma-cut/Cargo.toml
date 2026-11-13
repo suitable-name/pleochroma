@@ -35,7 +35,7 @@ pleochroma-update = { workspace = true }
 # a direct dependency below with `features = ["png"]`, and cargo unifies the two feature
 # lists into one build, so this adds a format decoder rather than a dependency tree.
 # Contrast `gpu` below, which stays opt-in because `wgpu`/`pollster` really is one.
-pleochroma = { workspace = true, features = ["hdr"] }
+pleochroma = { workspace = true, features = ["hdr", "path-cache-disk", "stone-shadow"] }
 # Remote rendering -- the client protocol driver
 # (`pleochroma_net::client`), settings model types (`TransferMode`/`StreamConfig`/
 # `PreviewConfig`), and mutual-TLS config building (`pleochroma_net::tls`).
@@ -160,6 +160,27 @@ render-bench = []
 # needs no `wgpu`/`pollster` dependency tree, so an ordinary build stays exactly as lean
 # as it was. See `bridge::render_thread::GpuBackend`.
 gpu = ["pleochroma/gpu"]
+# Beam tracing of faceted stones: the export dialog's and the tilt video's "Beam Tracing (Faceted
+# Stones)" boxes, the two beam switches in Preferences, the export's beam lane (local and remote beam
+# tiles) and the viewport's beam jobs (`bridge::render_thread::{still_beams, ray_beams}`,
+# `bridge::export_thread::worker::core::beam`, `bridge::export_thread::remote::beam_tiles`).
+# Off by default and in every shipped build; the code compiles with this feature. Without it
+# the controls are hidden (`SettingsModel.beam_build`), the settings keys are
+# still read and written back unchanged, and a job that asks for beams renders without them with the
+# note "Beam tracing off: this build has no beam tracer.". Its tests compile only with
+# `RUSTFLAGS="--cfg beam_tests"` (scripts/run_beam_tests.sh). Beam tracing runs its residual as an
+# adaptive loop and talks to the worker through the live-pass client, so it implies
+# `adaptive-sampling`.
+beam = ["adaptive-sampling", "pleochroma/beam"]
+# Adaptive sampling of the export: the export dialog's and the tilt video's "Adaptive Sampling"
+# boxes, the export worker's adaptive loop (`bridge::export_thread::worker::core::adaptive`: CPU,
+# GPU, GPU-resident and remote live passes) and its client of protocol v37's live passes
+# (`bridge::export_thread::remote::live_pass`). Off by default and in every shipped build; the
+# code compiles with this feature. Without it the
+# controls are hidden (`SettingsModel.adaptive_sampling_build`), the settings keys are still read
+# and written back unchanged, and a job that asks for adaptive sampling renders at its own samples
+# per pixel with the note "Adaptive sampling off: this build has no adaptive sampling.".
+adaptive-sampling = []
 # Shows the physics-based color editor in the Gem Material Editor: the "Color Mode:
 # Fantasy | Physics" toggle and the whole host-crystal / element-recipe section
 # (`ChromophorePicker`), plus the "color changed by an older version" question and the

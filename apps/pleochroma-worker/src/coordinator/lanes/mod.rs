@@ -19,14 +19,12 @@
 //! with no traffic at all, and the worker drops it out from under the job. Each
 //! `JoinedWorkerLane` therefore runs its own small heartbeat thread
 //! ([`held_ping_loop`]) for as long as it holds a connection idle between chunks,
-//! `PING`ing it well before that deadline; `render_chunk` holds the same lock for the
-//! whole duration of an actual request, so the heartbeat only ever touches a connection
-//! that is genuinely between chunks, never one mid-request. The heartbeat itself only
-//! holds that lock long enough to lift the connection out and (on a successful ping) put
-//! it back, never across the `PING`/`PONG` round trip -- see
-//! [`try_heartbeat_once`](self::try_heartbeat_once)'s doc comment for why that is still
-//! never racing `render_chunk` over the same connection, at the cost of `render_chunk`
-//! occasionally checking out a different idle worker instead of waiting the ping out.
+//! `PING`ing it well before that deadline. `render_chunk` holds the same lock for the
+//! whole of an actual request, so the heartbeat only touches a connection that is between
+//! chunks. The heartbeat holds that lock only to lift the connection out and put it back,
+//! never across the `PING`/`PONG` round trip. While the connection is out, `render_chunk`
+//! may check out a different idle worker instead of waiting (see
+//! [`try_heartbeat_once`](self::try_heartbeat_once)).
 //!
 //! On any failed chunk the lane lets go before the pool's backoff pause: a broken stream
 //! is [`WorkerHandle::discard`]ed (unregistered; `join` reconnects by itself), a worker
@@ -53,19 +51,15 @@
 //! (`pleochroma_dispatch::pool::epoch::Epoch::want` ->
 //! `pleochroma_dispatch::ChunkPolicy::tail_aware_samples`): the smaller of the plain
 //! target-duration chunk and this lane's proportional share (by rate) of the run's
-//! outstanding samples. A fast joined worker (an A100 dialed in over `join`) can
-//! therefore no longer be left idling in `Epoch::claim` while a much slower lane (the
-//! coordinator's own GPU, say) works through an oversized last chunk it grabbed simply
-//! because its own target-duration size happened to exceed what was left. The rates
-//! that sizing (and the coordinator's own fastest-worker ranking for `Interactive`
-//! requests) reads come from `super::job::Coordinator::rates`, a book shared
-//! coordinator-wide across every viewer connection -- not rebuilt per connection -- so
-//! a joined worker's calibration
-//! survives a GUI export's successive one-shot connections and, keyed by its
-//! certificate label, its own reconnects too. A live-view (`Interactive`) request
-//! takes every idle joined worker besides the own lane by default
-//! (`serve --interactive-workers all`); `--interactive-workers 0` serves it from the
-//! own lane alone and `--interactive-workers <n>` caps it at the `n` fastest.
+//! outstanding samples. A fast joined worker is thus never left idle in `Epoch::claim`
+//! behind a much slower lane (the coordinator's own GPU, for example) that grabbed an
+//! oversized last chunk. The rates that sizing and the `Interactive` worker ranking read
+//! come from `super::job::Coordinator::rates`, a book shared coordinator-wide. A joined
+//! worker's calibration therefore carries across a GUI export's one-shot connections and,
+//! keyed by its certificate label, across its reconnects. A live-view (`Interactive`)
+//! request takes every idle joined worker besides the own lane by default
+//! (`serve --interactive-workers all`); `--interactive-workers 0` serves it from the own
+//! lane alone and `--interactive-workers <n>` caps it at the `n` fastest.
 //!
 //! A joined lane reports the rate of its tracing alone: the samples between the worker's
 //! first and its last `PROGRESS` that advanced the count, over the time between those
@@ -92,13 +86,17 @@ pub use chunk::LaneTimeouts;
 pub(in crate::coordinator) use chunk::{POLL, PatientReader, WRITE_TIMEOUT};
 
 use super::registry::{Registry, WorkerHandle, WorkerInfo};
-use crate::{assets::HeldAsset, cli::ComputeMode, validate::MAX_SAMPLES_PER_REQUEST};
+use crate::{
+    assets::{HeldAsset, TrayPin},
+    cli::ComputeMode,
+    validate::MAX_SAMPLES_PER_REQUEST,
+};
 use glam::Vec3;
 use pleochroma::renderer::gpu_backend::GpuBackend;
 use pleochroma_dispatch::{CancelToken, ChunkResult, SampleRange, WorkerLane};
 use pleochroma_net::{
     SceneState,
-    messages::{ClientMessage, StreamEvent, error_codes},
+    messages::{ClientMessage, RequestIntent, StreamEvent, error_codes},
     radiance::PayloadDecoder,
 };
 use std::{
@@ -140,10 +138,15 @@ pub struct JobLanes {
     timeouts: LaneTimeouts,
     /// Workers that refused this job's HDR map: never checked out again for it.
     excluded: Mutex<Vec<u32>>,
+    /// The intent every chunk request to a joined worker carries. It picks the worker's
+    /// Stone Shadow quality, which must match the coordinator's own lane and the viewer's
+    /// local half, whose samples are summed with these.
+    intent: RequestIntent,
 }
 
 impl JobLanes {
-    /// The shared state of a job needing `need`, holding `asset` (an HDR scene's map).
+    /// The shared state of a job needing `need`, holding `asset` (an HDR scene's map). Chunks
+    /// go out with the `Batch` intent until [`Self::with_intent`] says otherwise.
     #[must_use]
     pub const fn new(
         need: LaneNeed,
@@ -155,13 +158,27 @@ impl JobLanes {
             asset,
             timeouts,
             excluded: Mutex::new(Vec::new()),
+            intent: RequestIntent::Batch,
         }
+    }
+
+    /// This job's chunk requests carry `intent` (the viewer request's own).
+    #[must_use]
+    pub const fn with_intent(mut self, intent: RequestIntent) -> Self {
+        self.intent = intent;
+        self
     }
 
     /// What a worker must accept to take part in this job.
     #[must_use]
     pub(in crate::coordinator) const fn need(&self) -> LaneNeed {
         self.need
+    }
+
+    /// The intent of the viewer request this job serves (see [`Self::with_intent`]).
+    #[must_use]
+    pub(in crate::coordinator) const fn intent(&self) -> RequestIntent {
+        self.intent
     }
 
     /// Whether `info`'s worker can take a chunk of this job now.
@@ -202,11 +219,9 @@ struct Held {
     gone: AtomicBool,
 }
 
-/// How long a checked-out connection may go without traffic before a lane pings it
-/// itself: comfortably under the 45 s a joined worker hangs up at
-/// (`join::session::JOIN_IDLE_TIMEOUT`) and under the registry's own idle-ping cadence
-/// (`liveness`'s 10 s), so a lane sitting in `Epoch::claim` waiting for other lanes to
-/// finish never looks silent to the worker it is holding.
+/// How long a checked-out connection may go without traffic before a lane pings it itself,
+/// well under the 45 s a joined worker hangs up at (`join::session::JOIN_IDLE_TIMEOUT`).
+/// The registry's liveness pings skip checked-out connections, so the lane must do it.
 const HELD_PING_INTERVAL: Duration = Duration::from_secs(15);
 
 /// How often [`held_ping_loop`] wakes to check -- short so [`JoinedWorkerLane`]'s `Drop`
@@ -283,8 +298,12 @@ impl JoinedWorkerLane {
         let mut parts = 0;
         while !rest.is_empty() {
             let take = rest.samples.min(MAX_SAMPLES_PER_REQUEST);
-            let request =
-                chunk::worker_request(next_worker_request_id(), scene, rest.first_sample, take);
+            let request = chunk::worker_request(
+                next_worker_request_id(),
+                scene,
+                (rest.first_sample, take),
+                self.job.intent,
+            );
             let exchange = chunk::Exchange {
                 worker_id,
                 cancel,
@@ -519,17 +538,31 @@ pub struct OwnLane {
     gpu: Arc<GpuBackend>,
     threads: usize,
     compute_mode: ComputeMode,
+    /// The job's Stone Shadow and Tray Reflection, resolved by the first chunk and read by
+    /// every later one, so both are built once per job (a lane lives for one job).
+    pin: Arc<TrayPin>,
 }
 
 impl OwnLane {
-    /// The own lane over `gpu` (disabled for `--only-cpu`) and `threads` CPU threads.
+    /// The own lane over `gpu` (disabled for `--only-cpu`) and `threads` CPU threads. Its chunks
+    /// take the Final Stone Shadow map until [`Self::with_intent`] says otherwise.
     #[must_use]
-    pub const fn new(gpu: Arc<GpuBackend>, threads: usize, compute_mode: ComputeMode) -> Self {
+    pub fn new(gpu: Arc<GpuBackend>, threads: usize, compute_mode: ComputeMode) -> Self {
         Self {
             gpu,
             threads,
             compute_mode,
+            pin: Arc::new(TrayPin::new(None)),
         }
+    }
+
+    /// This lane traces the chunks of a job whose viewer request carries `intent`, so its
+    /// Stone Shadow has the quality that intent picks (the same as the job's joined workers
+    /// and the viewer's local half).
+    #[must_use]
+    pub fn with_intent(mut self, intent: RequestIntent) -> Self {
+        self.pin = Arc::new(TrayPin::new(Some(intent)));
+        self
     }
 }
 
@@ -551,6 +584,7 @@ impl WorkerLane for OwnLane {
             self.compute_mode,
             &self.gpu,
             cancel.as_flag(),
+            &self.pin,
         );
         if traced.panicked {
             return ChunkResult::partial(

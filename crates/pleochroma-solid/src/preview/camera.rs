@@ -1,13 +1,10 @@
 //! The orbit camera's pose math, shared by the desktop's
 //! `gui::render::camera_lighting` and the web app's Solid view.
 //!
-//! [`orbit_distance_bounds`], [`fit_distance_for_radius`] and [`wrap_pitch`] moved
-//! here verbatim from the desktop (which re-exports them and keeps their tests as
-//! the pins); [`orbit_step`], [`zoom_step`], [`standard_view`] and [`RESET_POSE`]
-//! are the desktop callbacks' inline arithmetic as named functions, with their own
-//! tests below. [`fit_distance_for_view`] (every app's Fit pose) and
-//! [`planar_bounding_radius`] (the desktop's) are tested against projected stone meshes
-//! in `camera/tests.rs`.
+//! Pure functions over [`CameraPose`]: the distance clamp and the fit distances, the
+//! drag, zoom and standard-view steps, and [`RESET_POSE`]. The fit distances and
+//! [`planar_bounding_radius`] are checked against projected stone meshes in
+//! `camera/tests.rs`.
 
 use super::types::{CameraPose, StoneGeometryBuf};
 use pleochroma::{
@@ -20,8 +17,7 @@ use std::f32::consts::FRAC_PI_2;
 /// of the half-extent of the image's shorter side.
 const FIT_MARGIN: f32 = 1.15;
 
-/// The desktop's Reset pose (`camera_lighting`'s `on_reset_camera`): the shared
-/// [`DEFAULT_POSE`].
+/// The Reset pose: the shared [`DEFAULT_POSE`].
 pub const RESET_POSE: CameraPose = CameraPose {
     roll: 0.0,
     yaw: DEFAULT_POSE.yaw,
@@ -31,13 +27,10 @@ pub const RESET_POSE: CameraPose = CameraPose {
 
 /// The orbit camera's zoom clamp for a solid with the given bounding radius.
 ///
-/// A fixed `[1.2, 8.0]` range clips a large preform's facets out of the frame at
-/// minimum distance and leaves a small one lost in mostly empty space at maximum,
-/// so the clamp scales with the mesh instead.
-///
-/// The two factors are chosen so a mesh at exactly
-/// [`super::DEFAULT_MESH_BOUNDING_RADIUS`] (`1.5`, a standard round brilliant's
-/// own half-width) reproduces that same `[1.2, 8.0]` range exactly.
+/// A fixed range would clip a large stone's facets at minimum distance and leave a
+/// small one lost at maximum, so the clamp scales with the mesh. The factors make a mesh
+/// of [`super::DEFAULT_MESH_BOUNDING_RADIUS`] (`1.5`, a round brilliant's half-width)
+/// give the range `[1.2, 8.0]`.
 #[must_use]
 pub fn orbit_distance_bounds(bounding_radius: f64) -> (f32, f32) {
     const MIN_FACTOR: f32 = 0.8;
@@ -50,12 +43,10 @@ pub fn orbit_distance_bounds(bounding_radius: f64) -> (f32, f32) {
     (radius * MIN_FACTOR, radius * MAX_FACTOR)
 }
 
-/// The orbit distance that frames a sphere of `bounding_radius` exactly at the
-/// vertical edges of the camera's own field of view, times a small margin so the
-/// "Fit" pose leaves a little breathing room.
+/// The orbit distance at which a sphere of `bounding_radius` fills the view's height.
 ///
-/// Mirrors `Camera::generate_ray`'s own
-/// `v = ... * fov_tan` convention.
+/// The sphere touches the vertical edges of the field of view, times a small margin so the "Fit"
+/// pose leaves a little room. Mirrors the `v = ... * fov_tan` term of `Camera::generate_ray`.
 #[must_use]
 #[expect(
     clippy::cast_possible_truncation,
@@ -69,14 +60,11 @@ pub fn fit_distance_for_radius(bounding_radius: f64) -> f32 {
 /// The orbit distance at which a sphere of `bounding_radius` is seen whole in an image
 /// of `aspect` (width over height), whatever the orbit angle.
 ///
-/// The sphere is centred on the orbit centre, and its outline sits at `1 / FIT_MARGIN`
-/// of the shorter side's half-extent.
-///
-/// Unlike [`fit_distance_for_radius`] it fits the sphere's true outline (a sphere
-/// at distance `d` spans `r / sqrt(d^2 - r^2)` in tangent units, not `r / d`), and it
-/// fits the narrower of the two fields of view: the camera's field of view is the
-/// vertical one (`Camera::generate_ray`), so an image taller than wide sees only
-/// `aspect` times as far sideways.
+/// The sphere is centred on the orbit centre; its outline sits at `1 / FIT_MARGIN` of
+/// the shorter side's half-extent. The true outline is fitted (a sphere at distance `d`
+/// spans `r / sqrt(d^2 - r^2)`, not `r / d`), using the narrower field of view. The
+/// vertical field is fixed (`Camera::generate_ray`), so an image taller than wide sees
+/// only `aspect` times as far sideways.
 #[must_use]
 #[expect(
     clippy::cast_possible_truncation,
@@ -96,9 +84,9 @@ pub fn fit_distance_for_view(bounding_radius: f64, aspect: f32) -> f32 {
 /// The farthest corner of `stone`'s plane arrangement from the orbit centre, in the
 /// model units the renderers draw in; `None` when the planes do not close a solid.
 ///
-/// Measured from the planes themselves, so it describes the stone the caller holds
-/// now rather than the last frame the solid worker happened to draw. Concave tools are
-/// ignored: they only remove material, so the planar solid encloses the carved one.
+/// Measured from the planes, so it describes the stone the caller holds now, not the
+/// last frame drawn. Concave tools are ignored: they only remove material, so the
+/// planar solid encloses the carved one.
 #[must_use]
 pub fn planar_bounding_radius(stone: &StoneGeometryBuf) -> Option<f64> {
     let planes: Vec<_> = stone
@@ -126,14 +114,13 @@ pub fn wrap_pitch(pitch: f32) -> f32 {
     (pitch + PI).rem_euclid(2.0 * PI) - PI
 }
 
-/// One orbit drag step of `(dx, dy)` logical pixels: the desktop's
-/// `ViewportModel.camera_orbit` rule.
+/// One orbit drag step of `(dx, dy)` logical pixels, at 0.008 rad per pixel. The
+/// desktop's `ViewportModel.camera_orbit` uses the same rule.
 ///
-/// Horizontal drag is inverted (the hand is on
-/// the gem, not on the camera), vertical keeps its sign, 0.008 rad per pixel, and
-/// the pitch wraps ([`wrap_pitch`]). Screen deltas are first mapped through the
-/// image-plane roll, so Turn 90 does not swap or reverse the drag axes.
-/// Distance and roll are unchanged.
+/// Horizontal drag is inverted because the hand is on the gem, not on the camera;
+/// vertical keeps its sign. The pitch wraps ([`wrap_pitch`]). Deltas are first mapped
+/// through the image-plane roll, so a rolled view drags along the picture. Distance and
+/// roll are unchanged.
 #[must_use]
 pub fn orbit_step(pose: CameraPose, dx: f32, dy: f32) -> CameraPose {
     let (dx, dy) = unroll_drag_delta(pose.roll, dx, dy);
@@ -159,33 +146,29 @@ pub fn unroll_drag_delta(roll: f32, dx: f32, dy: f32) -> (f32, f32) {
     (cos.mul_add(dx, sin * dy), cos.mul_add(dy, -sin * dx))
 }
 
-/// One wheel step of `delta` logical pixels.
+/// One wheel step of `delta` logical pixels: 0.002 per pixel, scrolling up moves closer.
 ///
-/// The desktop's `ViewportModel.camera_zoom` rule (0.002 per pixel, scrolling up moves closer),
-/// clamped to [`orbit_distance_bounds`] of the shown solid's `bounding_radius`.
+/// Clamped to [`orbit_distance_bounds`] of the shown solid's `bounding_radius`.
 #[must_use]
 pub fn zoom_step(distance: f32, delta: f32, bounding_radius: f64) -> f32 {
     let (min, max) = orbit_distance_bounds(bounding_radius);
     delta.mul_add(-0.002, distance).clamp(min, max)
 }
 
-/// The desktop's pose pills (`ViewportModel.set_view`).
+/// The desktop's pose pills (`ViewportModel.set_view`) as a camera pose.
 ///
-/// `0` Front (girdle
-/// edge-on, index 0 towards the viewer), `1` Top, `2` Bottom, `3` Left, `4` Right
-/// -- each a canonical yaw/pitch with the distance kept -- and `5` Fit, which
-/// keeps the angle and recomputes the distance from the shown solid's
-/// `bounding_radius` ([`fit_distance_for_view`] clamped to
-/// [`orbit_distance_bounds`]).
+/// `0` Front (girdle edge-on,
+/// index 0 towards the viewer), `1` Top, `2` Bottom, `3` Left and `4` Right, each a
+/// canonical yaw and pitch with the distance kept. `5` Fit keeps the angle and sets the
+/// distance from the shown solid's `bounding_radius`, clamped to
+/// [`orbit_distance_bounds`]. `6` Turn 90 turns the stone a quarter turn about its
+/// vertical axis ([`turn_quarter_yaw`]), keeping tilt and zoom. Every view but Fit also
+/// clears any roll. Unknown kinds are Front.
 ///
-/// `6` Turn 90 turns the stone a quarter turn about its vertical axis ([`turn_quarter_yaw`]),
-/// keeping the tilt and zoom. Every view but Fit also clears any image-plane roll. Any other
-/// kind is Front, as on the desktop.
-///
-/// Fit frames the stone the way the desktop's does, for a picture at least as wide as
-/// tall: the web and mobile callers draw the Solid picture at least 1.6:1 wide
-/// ([`super::view::with_min_aspect`]), so the shorter side is always the height. The
-/// desktop draws at its viewports' own aspect and passes that aspect itself.
+/// Fit assumes a picture at least as wide as tall (aspect 1, see
+/// [`fit_distance_for_view`]). The web and mobile callers draw the Solid picture at
+/// least 1.6:1 wide ([`super::view::with_min_aspect`]), so the height is the shorter side
+/// there. A caller with another aspect calls [`fit_distance_for_view`] itself.
 #[must_use]
 pub fn standard_view(kind: i32, pose: CameraPose, bounding_radius: f64) -> CameraPose {
     if kind == 6 {

@@ -1,8 +1,7 @@
-//! Re-export: the exponent<->sample-count mapping for the Parameters panel's "Target
-//! Samples" slider now lives in `pleochroma::render_setup::sample_scale` (moved there
-//! unchanged, tests included, so the browser app's own samples slider maps exactly the
-//! same way -- see that module's own doc comment) and is re-exported at this path so
-//! every call site in this crate (`gui::mod`, `gui::startup_settings`, the remote
-//! render sample budget) needs no changes.
+//! Re-export of `pleochroma::render_setup::sample_scale`, the exponent-to-sample-count mapping of
+//! the Parameters panel's Target Samples slider.
+//!
+//! The mapping lives in the library so the browser app's slider maps samples the same way. This
+//! path keeps the crate's imports unchanged.
 
 pub use pleochroma::render_setup::sample_scale::*;

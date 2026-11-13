@@ -6,9 +6,9 @@
 //! check's anchored seed with `anchored_candidate_for`, projects it with the report function
 //! and measures the projection's result, or its last refused probe, which it also gives to the
 //! branch diagnosis. That seed is the plain anchored one: a refit attempt the check may have
-//! preferred is not reproduced (the diagnosis is of the refusal of the seed, which is the
-//! failure the plan asks about). An optimize row runs the dialog's search and measures its best
-//! option. Nothing here writes to the design or to the library.
+//! preferred is not reproduced, so the diagnosis is of the refusal of the seed. An optimize row
+//! runs the dialog's search and measures its best option. Nothing here writes to the design or
+//! to the library.
 
 use super::{
     load::{Subject, design_text},

@@ -12,8 +12,8 @@ impl EditorState {
     /// [`pleochroma_editor::material::design_material_options`], rebuilt only when
     /// `custom`'s own name list has changed since the last call -- see
     /// [`pleochroma_editor::material::MaterialComboCache`].
-    /// `view::refresh_design_settings` calls this every refresh; only a save/delete/
-    /// rename in the material editor dialog (which changes `custom`'s names) actually
+    /// `view::inspector::refresh_design_settings` calls this on every refresh; only a
+    /// save, delete or rename in the material editor (which changes `custom`'s names)
     /// pays for a rebuild.
     pub(in crate::gui::editor) fn material_combo_options(
         &self,

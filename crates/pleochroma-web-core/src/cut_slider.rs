@@ -9,11 +9,10 @@
 //!
 //! `SolidModel.tier-cutoff` stays the one stored value, in the desktop's terms
 //! (`pleochroma_solid::cut_position`): `-1` finished, `-2` rough, `n >= 0` the stone through
-//! steps `0..=n`. [`CutSlider`] decodes it for a step count, and everything the toolbar shows (the
-//! handle, the label, the amber border) and everything the planner is given
-//! ([`CutSlider::cut_steps`]) derives from that one decoding, so they cannot disagree. The Finished
-//! stone is `cut_steps: None`, which is the planner's untruncated path and so the very picture the
-//! slider has always drawn at its right end.
+//! steps `0..=n`. [`CutSlider`] decodes it for a step count, and everything the toolbar shows
+//! (the handle, the label, the amber border) and everything the planner is given
+//! ([`CutSlider::cut_steps`]) derives from that one decoding, so they cannot disagree. The
+//! Finished stone is `cut_steps: None`, the planner's untruncated path.
 //!
 //! The tier index is never handed to the planner: `ThroughTier(n)` truncates by stored table
 //! position, which is not the cutting order for a design stored top-down or one with concave
@@ -202,9 +201,9 @@ mod tests {
         assert!(is_shown(8));
     }
 
-    /// The case that was wrong: a design whose cutting order is not its table order. Handle `k`
-    /// must show the stone after the first `k` steps in cutting order, which for this stone is
-    /// the pavilion side first -- not the first `k` rows of the table (table, star, crown...).
+    /// A design whose cutting order differs from its table order. Handle `k` shows the stone
+    /// after the first `k` steps in cutting order (here the pavilion side first), not the first
+    /// `k` rows of the table (table, star, crown...).
     #[test]
     fn handle_k_shows_the_first_k_steps_in_cutting_order_not_in_table_order() {
         let design = stored_top_down();
@@ -237,8 +236,7 @@ mod tests {
                 .expect("aligned masts");
             assert_eq!(shown, expected, "after {steps} steps");
 
-            // What the slider used to draw: the first `steps` rows of the table. Not the same
-            // stone for any partial position of this design.
+            // Truncating by table row draws a different stone at every partial position.
             let by_table = display_geometry(&design, &solved, CutLimit::ThroughTier(steps - 1));
             assert_ne!(
                 shown, by_table.planes,

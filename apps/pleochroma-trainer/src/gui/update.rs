@@ -1,6 +1,6 @@
 //! The new-version check of the GUI.
 //!
-//! The user is asked once ("Check Daily" / "Don't Check", shown while the window is idle); the
+//! The user is asked once ("Check Daily" / "Don't Check", shown when no other dialog is open); the
 //! answer lives in the settings. With the check enabled the GUI asks GitHub for the latest release
 //! at startup when a day has passed, and "Check Now" asks at once. The request runs on its own
 //! thread and reports through the background-message channel the timer drains, so the UI never
@@ -49,9 +49,10 @@ pub fn notice_text(release: &Release, current: &str) -> String {
     )
 }
 
-/// Turns the outcome of a check into screen changes. An automatic check announces a release only
-/// when it was not skipped and says nothing else on screen; "Check Now" reports every outcome,
-/// the skipped version included (the user asked).
+/// Turns the outcome of a check into screen changes.
+///
+/// An automatic check announces a release only when it was not skipped and says nothing else on
+/// screen; "Check Now" reports every outcome, the skipped version included (the user asked).
 pub fn evaluate(
     prefs: &UpdatePreferences,
     manual: bool,

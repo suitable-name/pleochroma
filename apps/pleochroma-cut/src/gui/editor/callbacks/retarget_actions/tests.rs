@@ -1,7 +1,7 @@
-//! Tests for the retarget dialog's Slint-free decision logic, spanning
-//! [`super::material`], [`super::proposal_view`], [`super::apply`], and
-//! [`super::snapshot`] -- see this group's own `mod.rs` doc comment ("Slint-free
-//! view-model split").
+//! Tests for the retarget dialog's Slint-free decision logic.
+//!
+//! They span [`super::material`], [`super::proposal_view`], [`super::apply`] and
+//! [`super::snapshot`]. See "Slint-free view-model split" in `mod.rs`.
 
 use super::{
     material::{
@@ -28,12 +28,10 @@ use pleochroma_editor::retarget::{
     validity::{InvalidReason, RetargetValidity, ValidityStatus},
 };
 
-/// Test-only convenience composing [`target_material_selection`] (the lenient,
-/// production wrapper) with [`resolved_material_from_selection`] -- these tests
-/// exercise the RESOLVED material, not the [`MaterialSelection`] on its own, and
-/// production code no longer has a use for that exact composition (both real call
-/// sites need the `Result`-returning [`resolve_target_selection`] instead, for
-/// error surfacing).
+/// Test-only composition of [`target_material_selection`] and
+/// [`resolved_material_from_selection`]. The tests check the resolved material.
+/// Production uses the `Result`-returning [`resolve_target_selection`] to surface
+/// errors.
 fn resolve_target_material(
     design: &Design,
     custom: &[GemMaterial],
@@ -144,11 +142,11 @@ fn shift_plan_view_populates_rows_before_the_geometry_check() {
     let plan =
         pleochroma_editor::retarget::build_plan(&design, &target, CrownShift::default(), &[]);
     let view = plan_view(&plan);
-    assert!(!view.rows.is_empty());
+    assert!(!view.rows.is_empty(), "the shift plan fills its rows");
     assert_eq!(view.anchored_errors, Vec::<String>::new());
     assert_eq!(view.solve_error, "");
-    // Showing the preferred angles is independent of permission to apply them.
-    // Apply tests exercise the real, completed preservation check.
+    // Showing the preferred angles does not depend on permission to apply them;
+    // the Apply tests cover the real preservation check.
 }
 
 #[test]
@@ -171,7 +169,10 @@ fn retarget_view_optimize_mode_populates_anchored_errors_not_rows_when_anchored(
         RetargetMode::Optimize(config),
         &[],
     );
-    assert!(view.rows.is_empty());
+    assert!(
+        view.rows.is_empty(),
+        "an anchored optimize view shows errors, not rows"
+    );
     assert_ne!(view.anchored_errors, Vec::<String>::new());
     assert!(view.anchored_errors[0].contains("P1"));
     assert!(proposal.is_none());

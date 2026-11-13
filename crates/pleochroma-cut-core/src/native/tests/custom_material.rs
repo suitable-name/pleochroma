@@ -1,7 +1,8 @@
-//! A custom material's optics (and its own refractive index) surviving a
-//! save/open round trip through [`crate::native::DesignExtras::custom_material`] and
-//! [`crate::native::SaveExtras::custom_catalogue`], instead of silently
-//! resolving to Diamond or the legacy schedule RI.
+//! A custom material's optics and refractive index through a save and open.
+//!
+//! Covers [`crate::native::DesignExtras::custom_material`] and
+//! [`crate::native::SaveExtras::custom_catalogue`]. The material must not silently resolve to
+//! Diamond or the legacy schedule RI.
 
 use super::fixtures::{FULLY_CANONICAL_ASC, fully_anchored_design, reopen, simple_design};
 use pleochroma::optics::materials::GemMaterial;
@@ -64,11 +65,9 @@ fn an_unresolved_material_with_no_snapshot_has_nothing_restorable() {
     assert_eq!(loaded.restorable_custom_material, None);
 }
 
-/// The actual fix: a custom material's snapshot, once attached on save, comes back
-/// out of `design_from_str` as `restorable_custom_material` -- a caller (the editor)
-/// can then reconstruct the real material via `gem_material_from_custom_snapshot` and
-/// register it, instead of `MaterialSelection::resolve` silently falling back to
-/// Diamond.
+/// A custom material's snapshot, attached on save, comes back from `design_from_str` as
+/// `restorable_custom_material`. A caller can rebuild the real material with
+/// `gem_material_from_custom_snapshot` and register it, rather than falling back to Diamond.
 #[test]
 fn an_unresolved_material_with_a_snapshot_is_restorable_after_a_round_trip() {
     let mut design = simple_design();
@@ -130,8 +129,7 @@ fn a_custom_materials_body_color_survives_a_save_and_open() {
     assert_ne!(rebuilt.absorption, colorless.absorption);
 }
 
-/// A snapshot without a color (a file written before the field existed, or a
-/// colorless material) writes no `absorption_rgb` key and restores colorless.
+/// A snapshot without a color writes no `absorption_rgb` key and restores colorless.
 #[test]
 fn a_snapshot_without_a_color_writes_no_key_and_restores_colorless() {
     let mut design = simple_design();
@@ -195,10 +193,8 @@ fn catalogue_asc_extended_and_from_solved_agree_for_a_solved_design() {
     assert!(via_solved.draft_reason.is_none());
 }
 
-/// A [`pleochroma::optics::materials::GemMaterial`] named `"My Garnet"` with a
-/// chosen `n_D`, mirroring
-/// `crates/pleochroma-cut-core/src/design/export.rs`'s own test fixture of the same
-/// name.
+/// A custom [`pleochroma::optics::materials::GemMaterial`] named `"My Garnet"` with the given
+/// `n_D`.
 fn custom_garnet(n_d: f32) -> pleochroma::optics::materials::GemMaterial {
     let mut gem = pleochroma::optics::materials::GemMaterial::diamond();
     gem.name = "My Garnet".to_string();
@@ -226,12 +222,10 @@ fn anchored_design_on(name: &str) -> Design {
     design
 }
 
-/// `catalogue_asc_extended` must write an `I` line matching a CUSTOM catalogue
-/// material's own `n_D` (here 1.9) once `extras.custom_catalogue` names it, while
-/// the same call with an empty catalogue -- given the exact same design -- falls
-/// back to the legacy schedule RI. No `original_asc_text` is supplied, so both
-/// writes freshly regenerate `asc_text` rather than preserving stale text (which
-/// would mask the very `I`-line difference this test checks).
+/// `catalogue_asc_extended` writes an `I` line matching a custom catalogue material's `n_D`
+/// (here 1.9) once `extras.custom_catalogue` names it. With an empty catalogue, the same design
+/// falls back to the legacy schedule RI. No `original_asc_text` is given, so both writes
+/// regenerate `asc_text` rather than keeping text that would hide the `I`-line difference.
 #[test]
 fn catalogue_asc_extended_resolves_a_custom_materials_own_refractive_index() {
     let design = anchored_design_on("My Garnet");
@@ -296,9 +290,8 @@ fn catalogue_asc_extended_from_solved_resolves_a_custom_materials_own_refractive
     );
 }
 
-/// A design on a recognized built-in ("Diamond") must export byte-identical
-/// `asc_text` whether or not an UNRELATED custom catalogue is supplied -- built-ins
-/// take precedence over nothing here, since `custom` has no "Diamond" entry of its own.
+/// A built-in material ("Diamond") exports byte-identical `asc_text` with or without an
+/// unrelated custom catalogue, since the catalogue has no "Diamond" entry.
 #[test]
 fn catalogue_asc_extended_matches_byte_for_byte_on_a_built_in_regardless_of_catalogue() {
     let design = anchored_design_on("Diamond");
@@ -324,7 +317,7 @@ fn catalogue_asc_extended_matches_byte_for_byte_on_a_built_in_regardless_of_cata
     assert!((schedule.refractive_index - 2.417).abs() < 1e-3);
 }
 
-// --- physics color recipe (spec 6 / 11.9) ---
+// --- physics color recipe ---
 
 mod physics_color {
     use super::*;
@@ -448,7 +441,7 @@ mod physics_color {
     }
 }
 
-/// The N-band design colour (bands + path scale next to the triple) survives save/open, and a
+/// The N-band design color (bands and path scale beside the triple) survives save and open. A
 /// design saved without bands opens with none.
 #[test]
 fn a_design_body_color_bands_override_round_trips_next_to_the_triple() {
@@ -471,8 +464,8 @@ fn a_design_body_color_bands_override_round_trips_next_to_the_triple() {
     assert_eq!(loaded.design.material.absorption_path_scale_override, None);
 }
 
-/// A snapshot's `absorption_bands_per_mm` wins over the triple next to it; an old snapshot
-/// (triple only) rebuilds exactly as before.
+/// A snapshot's `absorption_bands_per_mm` wins over the triple beside it. A snapshot with the
+/// triple only rebuilds from the triple.
 #[test]
 fn a_custom_snapshot_with_bands_rebuilds_from_the_bands() {
     let rows = [[460.0_f32, 45.0, 0.2], [620.0, 45.0, 0.6]];
@@ -515,8 +508,8 @@ fn per_ray_row(character: &'static str, rays_json: &'static str) -> LibraryMater
 
 const TWO_RAYS_JSON: &str = r#"{"o":[[460.0,45.0,0.2]],"e":[[620.0,45.0,0.6],[540.0,1500.5,0.1]]}"#;
 
-/// A pleochroic custom material keeps its per-ray rows in the design file's snapshot, so the stone
-/// is as dichroic on a machine without the library row as it is with it.
+/// A pleochroic custom material keeps its per-ray rows in the snapshot, so the stone is as
+/// dichroic on a machine without the library row as with it.
 #[test]
 fn a_per_ray_custom_material_stays_pleochroic_from_its_snapshot_alone() {
     let row = per_ray_row("UniaxialNegative", TWO_RAYS_JSON);
@@ -553,8 +546,8 @@ fn a_per_ray_custom_material_stays_pleochroic_from_its_snapshot_alone() {
     assert!((rebuilt.absorption_path_scale - with_row.absorption_path_scale).abs() < f32::EPSILON);
 }
 
-/// A per-ray table the material's optical character no longer fits is ignored: the stone is
-/// colored from its triple, never from the wrong number of rays.
+/// A per-ray table that the optical character does not fit is ignored. The stone is colored
+/// from its triple, never from the wrong number of rays.
 #[test]
 fn per_ray_rows_that_do_not_fit_the_optical_character_are_ignored() {
     let mut snapshot = per_ray_row("UniaxialNegative", TWO_RAYS_JSON).snapshot();
@@ -577,9 +570,9 @@ mod crystal_optics {
         materials::{AbsorptionUnit, CrystalSystem, OpticalCharacter},
     };
 
-    /// A physics recipe for the biaxial host tanzanite survives save -> open with the crystal
-    /// system, optical character and biaxial delta the snapshot carries, instead of coming back
-    /// uniaxial with no delta (which left the recipe's `beta_ray` unused by the renderer).
+    /// A physics recipe for the biaxial host tanzanite keeps the crystal system, optical
+    /// character and biaxial delta across save and open. Without the delta the renderer
+    /// ignores the recipe's `beta_ray`.
     #[test]
     fn a_biaxial_physics_materials_crystal_optics_survive_a_save_and_open() {
         let catalogue = ChromophoreCatalogue::global();
@@ -659,8 +652,8 @@ mod crystal_optics {
         assert_eq!(material.biaxial_delta_beta_alpha, None);
     }
 
-    /// A biaxial snapshot with no delta (a file written before the key existed) keeps its
-    /// biaxial character and restores no delta: the documented limitation.
+    /// A biaxial snapshot with no delta keeps its biaxial character and restores no delta (the
+    /// limitation in `gem_material_from_custom_snapshot`).
     #[test]
     fn a_biaxial_snapshot_without_the_delta_keeps_its_character() {
         let snapshot =
@@ -674,11 +667,9 @@ mod crystal_optics {
         assert_eq!(material.biaxial_delta_beta_alpha, None);
     }
 
-    /// A snapshot that carries a biaxial delta but no readable optical-character name (a library
-    /// row written before the names were stored, a hand-edited file, the web protocol's
-    /// custom-material spec) still restores a biaxial material: the delta is only ever written
-    /// for a biaxial one, and the optic-sign rule picks the sign (positive when
-    /// `2 (beta - alpha) < gamma - alpha`). The crystal system is not guessed.
+    /// A biaxial delta with no readable character name still restores a biaxial material,
+    /// since the delta is only written for biaxial ones. The optic-sign rule picks the sign
+    /// (positive when `2 (beta - alpha) < gamma - alpha`). The crystal system is not guessed.
     #[test]
     fn a_delta_without_names_restores_a_biaxial_material_by_the_optic_sign_rule() {
         // Topaz: alpha 1.606, beta 1.609, gamma 1.617, so beta sits nearer alpha: positive.
@@ -726,9 +717,8 @@ mod crystal_optics {
         }
     }
 
-    /// A name that parses always wins over a delta: a uniaxial or isotropic name keeps the
-    /// material uniaxial or isotropic and the stray delta is dropped (today's behaviour,
-    /// pinned), whatever the delta would have implied.
+    /// A parsed non-biaxial name wins over a delta, and the delta is dropped, whatever the
+    /// delta would imply.
     #[test]
     fn a_parsed_non_biaxial_name_wins_over_a_delta_and_drops_it() {
         let cases = [

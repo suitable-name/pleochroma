@@ -96,14 +96,14 @@ impl ModelGeometry {
 /// What a saved plan recorded about a design's size when it was saved.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SavedShape {
-    /// The design's width (the smaller caliper extent) in model units then.
+    /// The design's width (the smaller caliper extent) in model units, as saved.
     pub width_caliper: f64,
-    /// Its `[L/W, H/W, V/W^3]` fingerprint then; all zero means unknown.
+    /// Its `[L/W, H/W, V/W^3]` fingerprint, as saved; all zero means unknown.
     pub fingerprint: [f64; 3],
 }
 
-/// The size a saved plan's design record stores. `Err` when the record has no width (a
-/// file from before widths were stored): the library's extents are the only size then.
+/// The size a saved plan's design record stores. `Err` when the record has no width (an older
+/// file): the library's extents are then the only size.
 impl TryFrom<&SavedDesignDto> for SavedShape {
     type Error = ();
 
@@ -128,7 +128,7 @@ pub struct DesignFacts<'a> {
     /// The material the preview and the curves were made with, if recorded.
     pub preview_material: Option<&'a str>,
     /// The size the design had when the layout was planned (a loaded plan: what its file
-    /// recorded; `None` when unknown, for example a file from before widths were stored).
+    /// recorded; `None` when unknown, for example an older file that stored no width).
     /// The stones' scale belongs to that size, so the Size line is computed from it, not
     /// from today's extents.
     pub saved: Option<SavedShape>,
@@ -169,8 +169,8 @@ pub fn group_metrics(
 }
 
 /// `values` at `decimals` places, and whether every value prints alike: the one figure when
-/// they do, else "lowest-highest". What a reader sees decides "alike", so two weights of
-/// 0.6201 and 0.6215 ct are "0.62", not the range "0.62-0.62".
+/// they do, else "lowest-highest". "Alike" is judged on the printed text, so 0.6201 and
+/// 0.6215 ct give one figure, not the range "0.62-0.62".
 fn spread_alike(values: impl Iterator<Item = f64>, decimals: usize) -> (String, bool) {
     let (low, high) = values.fold((f64::INFINITY, f64::NEG_INFINITY), |(low, high), v| {
         (low.min(v), high.max(v))

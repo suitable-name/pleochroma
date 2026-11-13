@@ -1,8 +1,8 @@
 //! Orientation rules: how a material is best oriented, and how far a stone is from that.
 //!
 //! A rule is a default the app PROPOSES (the Verdict quotes it, the Rough Planner offers it);
-//! nothing applies it silently. The per-material table is the plan's decision D3 and lives here
-//! so every consumer reads one copy.
+//! nothing applies it silently. The per-material table lives here, so every consumer reads
+//! one copy.
 //!
 //! Orientation words, with the table facing up and the Crystal Axis measured from the table
 //! normal (tilt):
@@ -23,7 +23,7 @@ use super::{
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum RuleStrength {
     /// A preference: the planner charges `weight_per_deg` percent of the score for every degree
-    /// beyond the tolerance (plan D4: 0.5 percent per degree).
+    /// beyond the tolerance.
     Preferred {
         /// Percent of the score per degree beyond the tolerance.
         weight_per_deg: f64,
@@ -63,10 +63,10 @@ pub struct OrientationRule {
     pub strength: RuleStrength,
 }
 
-/// The percent of the score per degree beyond the tolerance for a preferred rule (plan D4).
+/// The percent of the score per degree beyond the tolerance for a preferred rule.
 pub const DEFAULT_WEIGHT_PER_DEG: f64 = 0.5;
 
-/// The tolerance most rules use (plan D8).
+/// The tolerance most rules use.
 pub const DEFAULT_TOLERANCE_DEG: f64 = 15.0;
 
 const fn preferred(kind: OrientationRuleKind, tolerance_deg: f64) -> OrientationRule {
@@ -79,7 +79,7 @@ const fn preferred(kind: OrientationRuleKind, tolerance_deg: f64) -> Orientation
     }
 }
 
-/// The default rule of `material`, or `None` when it has none (the plan's D3 table).
+/// The default rule of `material`, or `None` when it has none.
 ///
 /// | Material | Rule |
 /// |---|---|
@@ -91,7 +91,7 @@ const fn preferred(kind: OrientationRuleKind, tolerance_deg: f64) -> Orientation
 /// | Rutile | Table Across, 10 degrees |
 /// | Tanzanite | Best Blue Face-Up, 15 degrees |
 /// | Alexandrite | Strongest Color Change, 15 degrees |
-/// | Andalusite, the Quartz family, Topaz, Chrysoberyl (Yellow) | none |
+/// | Andalusite, the Quartz family, Topaz, Chrysoberyl (Yellow), Morganite | none |
 /// | an isotropic material | none |
 /// | a custom pleochroic uniaxial material | Table Across, 15 degrees |
 /// | a custom pleochroic biaxial material | none |

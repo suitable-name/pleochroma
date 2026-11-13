@@ -29,9 +29,9 @@ use crate::{
 const GONE: &str = "That design is no longer in the library.";
 
 impl LibraryHandle {
-    /// The file entry `id` opens from: its `.psdd` design
-    /// file, else its `.asc` (a `.gem` or `.gcs` import stores the `.asc` it converts to), else the `.gem` or
-    /// `.gcs` itself. The bytes are exactly the stored ones.
+    /// The file entry `id` opens from: its `.psdd` design file, else its `.asc` (a `.gem` or
+    /// `.gcs` import stores the `.asc` it converts to), else the `.gem` or `.gcs` itself. The
+    /// bytes are exactly the stored ones.
     ///
     /// One exception: a frosted design stored as `.asc` (a `.gcs` import that frosts a tier
     /// or a facet records that beside the `.asc`, which cannot state it) opens as the native
@@ -326,8 +326,7 @@ impl AppState {
     /// - their lines of the recent items are removed;
     /// - an autosave of one of them is deleted, so a restart does not bring the design back;
     /// - the open design, when it is the working copy of one of them, stays open but belongs
-    ///   to no entry and reads as unsaved (see
-    ///   [`DocumentState::forget_library_entries`](crate::document::DocumentState::forget_library_entries)),
+    ///   to no entry and reads as unsaved (see `DocumentState::forget_library_entries`),
     ///   and its cutting progress in memory is cleared with the files that were deleted.
     ///
     /// Returns whether the open design was the working copy of a deleted entry; the front

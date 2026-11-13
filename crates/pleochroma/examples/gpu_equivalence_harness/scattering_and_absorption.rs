@@ -67,8 +67,8 @@ fn report_oriented_image_comparisons(ctx: &GpuContext) -> bool {
             "zoned dichroic rim, Star Silk (uniaxial, zoned oriented estimator)",
             &estimator_check::run_image_comparison_star_zoned_rim(ctx),
         ),
-        // Under the non-uniform HDR map: the oriented scattering-point NEE and the phase-MIS
-        // partner carried to the escape (an ideal cone once dropped its energy there).
+        // Under the non-uniform HDR map: the oriented scattering-point NEE, and the phase-MIS
+        // partner carried to the escape.
         report_image_comparison_material(
             "Ruby, Star Silk (oriented NEE + MIS, HDR map)",
             &estimator_check::run_image_comparison_star_ruby_hdr(ctx),
@@ -150,8 +150,8 @@ pub fn run_task1_scattering_checks(ctx: &GpuContext) -> bool {
         "Ruby, sigma_s=1.5 g=0.3",
         &estimator_check::run_image_comparison_scattering(ctx),
     );
-    // Pins the GPU/CPU parity fix for the scattering block's `is_biaxial` branching --
-    // see `estimator_check::run_image_comparison_biaxial_scattering`'s doc comment.
+    // Covers the scattering block's `is_biaxial` branching; see
+    // `estimator_check::run_image_comparison_biaxial_scattering`.
     let image_comparison_biaxial_scattering_passed = report_image_comparison_material(
         "Alexandrite, biaxial, sigma_s=1.5 g=0.3",
         &estimator_check::run_image_comparison_biaxial_scattering(ctx),
@@ -170,17 +170,12 @@ pub fn run_task1_scattering_checks(ctx: &GpuContext) -> bool {
         && image_comparison_oriented_passed
 }
 
-/// Every check exercising `GemMaterial::absorption_path_scale`.
-/// `maybe_scatter_or_extinguish`'s own Tier 2 ULP
-/// budget (already reported by [`run_task1_scattering_checks`] above) now exercises a
-/// mix of `path_scale` values via its own case bank (see
-/// `renderer::gpu::transport_check::scattering::build_scatter_cases`'s doc comment), and
-/// the Tier 1 struct-layout echo (`renderer::gpu::layout_check::run`, reported by
-/// [`run_phase0_and_phase1_checks`]) now covers the new `absorption_path_scale` field via
-/// `layout_check::sample_material`'s own non-1.0 value -- neither needs a separate call
-/// here. This function adds the Tier 3 statistical image comparison the physics change
-/// itself specifically calls for: a colored (chromatically absorbing) stone at a
-/// genuinely non-1.0 scale.
+/// Checks `GemMaterial::absorption_path_scale`.
+///
+/// The Tier 2 case bank of `maybe_scatter_or_extinguish` (reported by
+/// [`run_task1_scattering_checks`]) and the Tier 1 layout echo (`layout_check::sample_material`)
+/// already cover non-1.0 values, so this adds only the Tier 3 image comparison of a chromatically
+/// absorbing stone at a non-1.0 scale.
 pub fn run_p1_absorption_path_scale_checks(ctx: &GpuContext) -> bool {
     println!();
     println!("== P1 GPU port: absorption path scale ==");
@@ -193,8 +188,7 @@ pub fn run_p1_absorption_path_scale_checks(ctx: &GpuContext) -> bool {
 /// Zoned-absorption GPU checks: the zone-table layout echo, then one
 /// Tier 3 CPU-vs-GPU image comparison per `ZonedImageCase`.
 ///
-/// OWNER: the first run records these as the zoned goldens. Each
-/// comparison passes or fails on `ImageComparisonResult::passed` (the same z-score and
+/// Each comparison passes or fails on `ImageComparisonResult::passed` (the same z-score and
 /// cluster criteria as every other Tier 3 check); the soft cases are the ones to read before
 /// lowering `renderer::buffers::GPU_SOFT_SUBDIV`.
 pub fn run_zoning_checks(ctx: &GpuContext) -> bool {

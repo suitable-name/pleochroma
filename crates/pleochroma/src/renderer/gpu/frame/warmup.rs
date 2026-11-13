@@ -24,6 +24,10 @@ impl GpuFrameRenderer {
             .device
             .push_error_scope(wgpu::ErrorFilter::Validation);
         let result = self.prepare_turn(request).map(|setup| {
+            // The chunk engine's pipelines as well (the sorted wavefront's or the staged
+            // megakernel's while their switches are on), so the first chunk of the render does
+            // not build them.
+            self.ensure_chunk_engine(&setup.state, 1);
             self.scene_buffers = Some(setup.frame_buffers);
         });
         let validation = pollster::block_on(scope.pop());

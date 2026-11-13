@@ -66,9 +66,8 @@ fn different_plane_counts_never_match() {
     ));
 }
 
-/// Pins the behaviour behind the flicker: re-normalising an already published
-/// plane through `GpuFacetPlane::new` moves a normal by an ULP at most, which the
-/// republish tolerance must absorb (twice, since the wobble has period 2).
+/// Re-normalising a published plane through `GpuFacetPlane::new` moves a normal by one ULP
+/// at most, which the republish tolerance must absorb (twice, since the wobble has period 2).
 #[test]
 fn gpu_facet_plane_new_round_trip_stays_within_epsilon() {
     let planes = sample_planes();
@@ -104,10 +103,9 @@ fn a_planned_frame_at_or_past_the_watermark_is_not_superseded() {
     assert!(!frame_is_superseded(true, 10, 9));
 }
 
-/// F4-8: masts are filed from planned frames that are not behind the watermark. A
-/// camera-follow frame repeats the worker's last masts under its last planned
-/// generation, which after an unsolvable plan is a generation those masts do not
-/// describe.
+/// Masts are filed only from planned frames that are not behind the watermark. A
+/// camera-follow frame repeats the worker's last masts under a generation they may not
+/// describe (after an unsolvable plan).
 #[test]
 fn only_a_current_planned_frame_files_its_masts() {
     assert!(frame_files_masts(true, false));

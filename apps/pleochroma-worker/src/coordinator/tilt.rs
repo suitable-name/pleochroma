@@ -1,6 +1,8 @@
-//! `TILT_CURVES` on a coordinator: computed on the own lane when there is one
-//! (the plain worker's handler, inline), otherwise forwarded whole to ONE idle joined
-//! worker and its reply relayed under the viewer's `request_id`.
+//! `TILT_CURVES` handling on a coordinator.
+//!
+//! It is computed on the own lane when there is one
+//! (the plain worker's handler, inline), otherwise forwarded whole to one idle joined worker
+//! and its reply relayed under the viewer's `request_id`.
 
 use super::{
     Registry, ViewerSession,
@@ -32,7 +34,7 @@ const TILT_TIMEOUTS: LaneTimeouts = LaneTimeouts {
     cancel_wait: Duration::from_secs(10),
 };
 
-/// Serves one `TiltCurvesRequest` (see the module doc comment).
+/// Serves one `TiltCurvesRequest`, on the own lane or a joined worker (see the module doc).
 ///
 /// # Errors
 ///

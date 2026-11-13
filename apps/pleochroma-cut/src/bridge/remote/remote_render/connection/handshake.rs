@@ -10,37 +10,17 @@ use std::{
     sync::{Arc, Mutex, OnceLock, PoisonError},
 };
 
-/// # Known cost, measured, and what was done about it
+/// Connects to `address` (`host:port`) within [`super::CONNECT_TIMEOUT`] and tunes the
+/// socket for a long-lived, latency-sensitive connection.
 ///
-/// This function's full cost (three file reads, building a `rustls::ClientConfig`, TCP
-/// connect, TLS 1.3 handshake, `HELLO`/`WELCOME`) measured end-to-end on loopback
-/// against a real worker: ~2.5ms median, ~2.6ms mean, dominated by the TCP connect (1
-/// RTT) and TLS handshake (1 more RTT) -- so on a link with `R` ms of RTT, expect
-/// roughly this total plus `~2R` ms. The config is now built once per certificate
-/// directory ([`cached_client_config`]), so the file reads and the config build are no
-/// longer part of what each connection pays.
+/// A new connection costs about two round trips (TCP connect, then TLS handshake), which is
+/// why [`super::persistent::spawn_remote_connection`] keeps one open across a live session.
 ///
-/// On loopback/LAN this is noise next to the render itself and the 600ms
-/// `SETTLE_DEBOUNCE` gating every dispatch. But higher-latency links (a remote worker
-/// over a slower connection) are a real deployment target, and on one of those `~2R` ms
-/// per settle is a user-visible stall before the first `FRAME`, repeated on every
-/// drag-then-pause. That is why `super::persistent::spawn_remote_connection` exists: it
-/// lets `gui::remote::orchestrator` hold one connection open across a whole live session
-/// and pay this cost once. `super::one_shot::spawn_remote_render` (this function's other
-/// caller, along with [`test_connection`]) stays one connection per call, for callers
-/// where that repetition doesn't apply.
-///
-/// Resolves `address` (a `host:port` string) and connects with a bounded deadline
-/// ([`super::CONNECT_TIMEOUT`]), then configures the socket for a long-lived,
-/// latency-sensitive, bidirectional protocol connection:
-///
-/// - `TCP_NODELAY` -- a `RenderRequest`/`CANCEL`/stream-event frame must never sit in
-///   Nagle's buffer waiting for more data that isn't coming; this protocol's messages are
-///   sent one at a time; not batched.
-/// - OS-level TCP keepalive ([`super::KEEPALIVE_TIME`]/[`super::KEEPALIVE_INTERVAL`], via
-///   the `socket2` crate -- `std::net::TcpStream` has no keepalive-tuning API of its own)
-///   so a network-level dead peer is noticed by the kernel even while nothing above this
-///   layer is trying to read or write.
+/// - `TCP_NODELAY`: protocol messages are sent one at a time and must not wait in Nagle's
+///   buffer for more data.
+/// - OS-level TCP keepalive ([`super::KEEPALIVE_TIME`]/[`super::KEEPALIVE_INTERVAL`], set
+///   through `socket2`, since `std` has no keepalive tuning) lets the kernel notice a dead
+///   peer while nothing here is reading or writing.
 ///
 /// # Errors
 ///
@@ -63,30 +43,20 @@ fn open_tcp(address: &str) -> std::io::Result<TcpStream> {
     Ok(tcp)
 }
 
-/// Connects to `worker.address` over mutual TLS (certificates from `worker.cert_dir`)
-/// and performs the `HELLO`/`WELCOME` handshake, including
-/// [`pleochroma_net::handshake::verify_compatible`]'s client-side defense-in-depth
-/// check. Shared by `super::one_shot::run` (a full render), [`test_connection`]
-/// (handshake only), and, `pub(crate)`, by `bridge::library::client` (the read-only
-/// design-library protocol rides the same authenticated connection) -- so every caller
-/// connects identically.
+/// Connects to `worker.address` over mutual TLS and performs the `HELLO`/`WELCOME` handshake.
 ///
-/// The returned stream carries [`super::WRITE_TIMEOUT`] for the rest of its life and,
-/// past this function's [`super::HANDSHAKE_TIMEOUT`]-bounded read, no read timeout at
-/// all -- callers set their own afterward (`super::one_shot::run`'s/
-/// `super::persistent::run_connection`'s poll-timeout reads via
-/// `super::stream_io::try_read_one_frame`, or `bridge::library::client`'s longer,
-/// static one).
+/// Certificates come from `worker.cert_dir`, and the client-side check of
+/// [`pleochroma_net::handshake::verify_compatible`] runs. The one-shot and persistent
+/// lifecycles, [`test_connection`] and the design-library client all connect through here.
 ///
-/// # `ErrorKind::WriteZero` is a real I/O failure here, not a partial-write retry signal
+/// The stream keeps [`super::WRITE_TIMEOUT`] for its whole life. After the handshake it has
+/// no read timeout; each reader sets its own poll timeout (see `super::stream_io`).
 ///
-/// `rustls::Stream::write`'s `complete_io` can fail (a write timing out against
-/// [`super::WRITE_TIMEOUT`]), but its public signature surfaces that as plain
-/// `WriteZero` rather than the underlying `TimedOut`. Every write-error site in this
-/// module (and `bridge::library::client`) already treats any error as fatal without
-/// matching a specific `ErrorKind`, so this is handled correctly -- noted here so a
-/// future reader chasing a `WriteZero` in a log doesn't go looking for an actual
-/// zero-length write bug.
+/// # Write timeouts show as `WriteZero`
+///
+/// A write that hits [`super::WRITE_TIMEOUT`] reaches the caller as `ErrorKind::WriteZero`,
+/// because rustls maps it so. Every write site treats any error as fatal, so the kind does
+/// not matter here.
 ///
 /// # Errors
 ///
@@ -108,8 +78,8 @@ struct CachedConfig {
     config: Arc<rustls::ClientConfig>,
 }
 
-/// The file stamps of `worker`'s three TLS files: three `stat` calls, against three file
-/// reads, three PEM parses and a config build for the uncached path.
+/// The modification times of `worker`'s three TLS files, from three `stat` calls. Cheaper
+/// than reloading and parsing the files.
 fn cert_stamps(worker: &WorkerSettings) -> CertStamps {
     let stamp = |path: std::path::PathBuf| {
         std::fs::metadata(path)
@@ -123,14 +93,14 @@ fn cert_stamps(worker: &WorkerSettings) -> CertStamps {
     ]
 }
 
-/// The mutual-TLS `ClientConfig` for `worker`'s certificate directory, built once and
-/// shared by every connection afterwards (an export dispatches one connection per chunk,
-/// the batch and library clients several more): the three PEM files are read and the
-/// config built only when the directory has not been seen yet or one of the files'
-/// modification times changed (enrollment rewrites them). Keeping one config also keeps
-/// rustls'
-/// in-memory session cache, so a later connection to the same worker resumes the TLS
-/// session instead of running a full handshake.
+/// The mutual-TLS `ClientConfig` for `worker`'s certificate directory, shared by every connection
+/// to that worker.
+///
+/// The PEM files are read again only when the directory is new or one of their modification times
+/// changed (enrollment rewrites them).
+///
+/// Sharing one config also keeps rustls' in-memory session cache, so a later connection to
+/// the same worker resumes its TLS session instead of running a full handshake.
 ///
 /// # Errors
 ///
@@ -182,33 +152,27 @@ pub fn connect_and_handshake_with(
     let conn = rustls::ClientConnection::new(Arc::clone(config), server_name)
         .map_err(pleochroma_net::tls::TlsError::Rustls)?;
     let mut stream = rustls::StreamOwned::new(conn, tcp);
-    // Bounds the TLS handshake below AND the HELLO/WELCOME read inside `handshake` --
-    // both run before this function returns, and neither had any deadline before.
+    // Bounds the TLS handshake and the HELLO/WELCOME read below.
     stream
         .sock
         .set_read_timeout(Some(super::HANDSHAKE_TIMEOUT))
         .map_err(RemoteError::Io)?;
-    // Persists on the socket for the connection's whole remaining life -- see this
-    // function's own doc comment's `WriteZero` section for what a timed-out write looks
-    // like to a caller.
+    // Stays set for the connection's whole life; see the `WriteZero` note above.
     stream
         .sock
         .set_write_timeout(Some(super::WRITE_TIMEOUT))
         .map_err(RemoteError::Io)?;
-    // Force the handshake to complete now, mirroring
-    // `apps/pleochroma-worker/src/serve.rs::accept_tls` on the server side, so a TLS
-    // failure (wrong CA, expired cert, clock skew, SAN mismatch) is diagnosed here
-    // rather than surfacing later as an opaque I/O error out of the handshake below.
+    // Completes the TLS handshake now, as the worker does in
+    // `apps/pleochroma-worker/src/serve/tls.rs`, so a TLS failure (wrong CA, expired
+    // certificate, clock skew, SAN mismatch) is reported as such and not as an opaque I/O
+    // error from the HELLO exchange.
     stream
         .conn
         .complete_io(&mut stream.sock)
         .map_err(RemoteError::Io)?;
 
     let welcome = pleochroma_net::client::handshake::handshake(&mut stream)?;
-    // Clear the handshake-scoped read timeout now that it's served its purpose --
-    // every read after this point sets its own (see this function's own doc comment),
-    // so leaving `HANDSHAKE_TIMEOUT` in place would just be a stale, misleading value
-    // sitting on the socket between here and the first such call.
+    // Clears the handshake read timeout; every later read sets its own.
     stream
         .sock
         .set_read_timeout(None)

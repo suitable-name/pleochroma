@@ -1,10 +1,9 @@
-// Zone-kernel twin self-test shader. Standalone test target:
-// `renderer::gpu::layout_check::run_zone_kernel_echo` concatenates this file with
-// `01_zone_table.wgsl` (the table structs) and `02_zone_kernel.wgsl` (the kernel under test,
-// the very file the transport shaders are built from), uploads a populated `GpuZoneTable` and
-// a buffer of segments, and has every invocation evaluate `zone_lengths(a, b)` for one
-// segment. The host compares the five per-zone lengths with `ZoneKernelF32::lengths` (the
-// `k32` kernel this one is a function-by-function port of).
+// Self-test shader for the zone kernel, a standalone test target. The
+// `renderer::gpu::layout_check::run_zone_kernel_echo` host concatenates it with
+// `01_zone_table.wgsl` and `02_zone_kernel.wgsl` (the kernel under test, the file the transport
+// shaders are built from), uploads a `GpuZoneTable` and segments, and has each invocation
+// evaluate `zone_lengths(a, b)` for one segment. The host compares the five per-zone lengths
+// with `ZoneKernelF32::lengths`.
 //
 // Bindings: 0 = the table, wrapped so that `material.zones` resolves exactly as it does in
 // the transport shaders (where `material: GpuGemMaterial` carries `zones`); 1 = the segments;

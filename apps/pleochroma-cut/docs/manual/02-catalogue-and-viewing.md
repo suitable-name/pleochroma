@@ -165,11 +165,7 @@ at all. Its previews are drawn and its tilt curves scored in the file's own mate
 the refractive index and body color the file sets for it) and at the file's own size, as in
 the editor and in exports, and the detail view's 3D picture shows the same stone. A design
 without a material or a size in its file, including every design built from the angle
-table, keeps the choice above at the default 7 mm. The first **Missing or Outdated Only**
-run after an update draws again the previews and tilt curves of the designs whose file
-is a native design file (`.psdd`), because those are the ones that can name a material
-or a size; the others are left as they are.
-
+table, keeps the choice above at the default 7 mm.
 Once selected, the detail header above the tabs shows the title, designer,
 and a row of spec chips (Shape, Gear, Facets, L/W, H/W, C/W, P/W, Vol/W³,
 R.I.) — each chip only appears when that value is known, and pointing at one
@@ -223,7 +219,7 @@ Open the **3D Spectral Preview** tab's **Live Render** sub-tab.
 | Left-drag | Orbit the camera around the stone, freely: over the table, under the culet, all the way round |
 | **Front** / **Top** buttons | Snap to the canonical poses: girdle edge-on with index 0 towards you, or straight down onto the table. Distance and lighting stay as they were |
 | **Turn 90°** button | Turns the stone a quarter turn about its vertical axis and keeps the viewing angle, distance and lighting: an oval that runs top to bottom then lies across the picture, ready for a landscape export |
-| Right-drag, or Shift + left-drag | Move the light |
+| Right-drag, or Shift + left-drag | Move the light; with an HDR map loaded, turn the map instead |
 | Scroll | Zoom |
 | Click the metrics readout | Copy the current metrics to the clipboard |
 
@@ -248,7 +244,7 @@ genuine right-drag gesture.)
   preview by itself.
 - **Parameters sidebar** — the sidebar's gem, light and gear buttons open **Stone**,
   **Lighting & Environment** and **Render & Output**. The sidebar is available in
-  both Edit and Live Render; duplicate toolbar buttons have been removed.
+  both Edit and Live Render.
 - **Lighting** — thirteen **lighting rigs** in the list (also in the Lighting &
   Environment tab). They are listed here in the order the drop-down shows them,
   in two families:
@@ -261,7 +257,7 @@ genuine right-drag gesture.)
       one broad overhead softbox, three black cards for facet contrast and a small hard
       spark light for scintillation. The softbox follows the light azimuth/elevation
       controls; the cards sit 90°, 180° and 270° around from it.
-    - **Grading tray (D65 hemisphere + head shadow)** (formerly "ISO hemisphere") — the
+    - **Grading tray (D65 hemisphere + head shadow)** — the
       whole sky above the girdle evenly lit, black below. The classic light-return
       model for comparing patterns, and the light the Optimize and Retarget searches
       score under. It is flat by design, so a tilt video under it shows no sparkle.
@@ -317,12 +313,14 @@ genuine right-drag gesture.)
   360° (default 48°). **Light Elevation** is the height above the stone, about 8.6° (low and
   raking) to about 88.8° (nearly straight overhead) (default 72°). Besides the two sliders,
   you can move the light in the viewport itself: right-drag, or Shift + left-drag,
-  changes both angles at once (the table above). The direction moves the light tent's
+  changes both angles at once (the table above). With an HDR map loaded the same drag
+  turns the map instead. The direction moves the light tent's
   overhead softbox (the black cards turn with it), the sun of **Daylight sky + direct
   sun**, the glow of **Daylight sky (no sun)**, the window of **Window daylight** and
   the key softbox of the Studio rigs. The **Grading tray** does not depend on it: the
   whole hemisphere is lit evenly, so the light direction changes nothing there. An HDR
-  map ignores it too.
+  map ignores it too: while a map is loaded this group becomes **Map Orientation**
+  (below).
 - **Views** (Lighting & Environment tab, the **Saved Lighting** list) — one-click saved looks.
   A view is a complete look: it stores the lighting rig *and* the light
   direction (azimuth and elevation), the exposure, the surface glare, the backdrop,
@@ -331,9 +329,7 @@ genuine right-drag gesture.)
   sets every one of those values, so a view saved without an HDR map also takes a
   loaded map away and returns to its lighting rig; applying one that stores
   no camera pose leaves the camera alone, its turn around the stone and its zoom
-  alike. The built-in **Grading tray** sets its pose and fits the stone in the picture. (Views saved by an
-  older version did not store glare, backdrop or head shadow; they open with 100 %
-  glare, the white backdrop and a 16° head shadow.) Eight views come
+  alike. The built-in **Grading tray** sets its pose and fits the stone in the picture. Eight views come
   with the app and cannot be renamed or deleted:
 
   | View | Lighting rig | Light azimuth / elevation | Exposure | Backdrop | Camera |
@@ -355,7 +351,7 @@ genuine right-drag gesture.)
   Every view uses the 16° head shadow. Under the Grading tray's evenly lit dome that
   shadow is the only thing that draws a face-up pattern; a larger one (Head Shadow, about
   24° for head and shoulders at close inspection) shows more of it, but then the
-  brilliance figures no longer match the ones Optimize scores with.
+  brilliance figures do not match the ones Optimize scores with.
 
   The **Save Lighting** button on the viewport toolbar (hidden in Simple mode)
   captures your current lighting, light direction, exposure and camera pose; the
@@ -385,9 +381,30 @@ genuine right-drag gesture.)
   map ignores the backdrop (the map is the whole world), and the choice greys out while
   one is loaded. The backdrop does not change the numbers: brilliance, extinction,
   windowing and the tilt curves are the same on every choice. Windowing is light that
-  leaves through the pavilion; the render shows what that light looks at. Because the
-  default changed, catalogue thumbnails render on the white tray and are regenerated
-  once (Missing or Outdated Only); saved settings and saved lightings keep their choice.
+  leaves through the pavilion; the render shows what that light looks at. Saved settings
+  and saved lightings keep their own backdrop choice.
+- **Stone Shadow** (Lighting & Environment tab, Environment section) — off by default.
+  The stone casts its shadow and colored light onto the backdrop, as a stone on paper
+  does. A ruby tints its shadow red; a dispersive stone can show rainbow fringes.
+  It needs a studio light and a backdrop. The switch dims with an HDR map, As Lit,
+  or "Contrast view (ASET-style)", and a note explains why. The tray touches the culet.
+  Live viewing computes a Preview map in the background. A camera orbit reuses it;
+  a change to the light rebuilds it. Exports, jobs, final images and batches compute a
+  Final map before tracing. The setting belongs to saved lighting and this design's
+  lighting. Tilt views and videos do not show the stone shadow yet. Metrics and
+  catalogue previews omit it.
+- **Tray Reflection** (Lighting & Environment tab, Environment section, under Stone Shadow) — a
+  0–100 % slider in steps of 1, "Off" at 0 (the default). It turns the tray under the stone into a
+  glossy surface; the value is how much light the surface reflects when seen straight on. About
+  4 % looks like black acrylic or glass (with the Black backdrop, the classic jewelry-photo look),
+  100 % is a mirror, and glancing views reflect more. The stone appears mirrored in it and light
+  reaches the pavilion from below; what the surface does not reflect is the ordinary tray,
+  including the Stone Shadow when that is on. It needs a studio light with a backdrop, so the
+  row dims with an HDR map, As Lit or "Contrast view (ASET-style)", with the same notes as the
+  Stone Shadow row. The setting belongs to saved lighting and this design's lighting. Tilt views and videos do not show it ("Tilt views don't show the tray
+  reflection."). Metrics and catalogue previews omit it. The path cache declines it, and so does
+  beam tracing (in a build with the `beam` feature), with a note each; with the Spectral GPU
+  renderer, a graphics card that cannot run it leaves the render to the processor.
 - **Surface Glare** (Lighting & Environment tab, Observer section) — a 0–100 % slider in steps of 5
   (default 100 %). It scales the white mirror image of the light that a polished
   surface reflects, which is what a cross-polarised photograph removes: at 0 % the
@@ -401,8 +418,8 @@ genuine right-drag gesture.)
 - **Head Shadow** (Lighting & Environment tab, Observer section) — a 0–30° slider (default 16°,
   0 = Off). On the lit models it is how much of the sky your own head hides: the
   dark table reflections a face-up stone shows. 16° is a head at arm's length. The
-  slider now also changes the brilliance, windowing and extinction figures under those
-  presets, not only the picture, so a wider head shadow lowers the face-up brilliance.
+  slider also changes the brilliance, windowing and extinction figures under those
+  presets, so a wider head shadow lowers the face-up brilliance.
   The Studio rigs (D65 Daylight, Incandescent, Incandescent A, Ring Lights, Dark
   Spotlight) ignore it, and so does an HDR map (the slider greys out
   while one is loaded; with a studio rig it greys out too and says "(not used by studio rigs)"). It follows into the live view, remote and hybrid rendering
@@ -425,7 +442,7 @@ whole. Exports, the tilt video and the tilt curves never use the part-cut stone;
 always draw the finished gem (Chapter 9).
 
 The material lists (the Stone tab's Material and Preview as combos, the New Design
-dialog and the others) all show the same 38 built-in
+dialog and the others) all show the same built-in
 materials (including the zoned Ametrine) in alphabetical order (Diamond, Sapphire, Tourmaline, the
 various garnets, Aquamarine, Morganite, and the rest — see Appendix C's
 materials table for the full list and their optical values), followed by
@@ -460,7 +477,7 @@ Open it from any of these places; they all lead to the same panel:
   Away** while the panel is open).
 - The keyboard: **Ctrl+Alt+1**, **Ctrl+Alt+2**, **Ctrl+Alt+3** (Appendix B).
 - The command palette (Chapter 19): "Stone Properties...", "Lighting & Environment..." and
-  "Render & Output...". The older "Render Settings..." entry still works and opens the
+  "Render & Output...". The "Render Settings..." entry is an alias that opens the
   Render & Output tab.
 
 The dock is available in the Live Render view *and* in the Edit view, so the same
@@ -551,12 +568,6 @@ so switching designs never carries one stone's effects over to the next. Draggin
 shows the result at once and is written to the design as a single undo step when you
 pause. **Reset This Tab** turns all four off (one undoable edit).
 
-*Older settings.* Earlier versions kept these effects and the stone size once for the
-whole app. The first time the new version opens a design, any non-default effects or
-size from your old settings are applied to that design once (one undo step) and are
-ignored from then on. Because that is an edit, the design shows as changed the moment it
-opens (closing it asks about unsaved changes); **Undo** removes it.
-
 ## The Lighting & Environment Tab
 
 ![The Lighting & Environment tab of the Parameters dock.](../../../../assets/parameters_lighting.png)
@@ -570,13 +581,21 @@ sections:
   the others.
 - **Light Direction** — Light Azimuth and Light Elevation; you can also move the light by
   right-dragging, or Shift + left-dragging, in the viewport.
+- **Map Orientation** — replaces Light Direction while an HDR map is loaded.
+  **Map Rotation** turns the map around the stone, 0° to 360°; right-dragging, or
+  Shift + left-dragging, in the viewport turns it too. **Turns with the Camera** keeps
+  the map fixed relative to the view, so orbiting turns the stone under the same
+  surroundings; off keeps the map fixed in the world. Switching it keeps the picture
+  as it is. The turn belongs to the map: it is saved with a saved lighting, and
+  used by exports, render jobs and tilt videos. **Reset** in the Camera group returns
+  a loaded map to its unturned position.
 - **Exposure** — "Overall Brightness".
-- **Environment** — the **HDR environment map** loader and the **Backdrop**.
+- **Environment** — the **HDR Environment Map** loader, **Backdrop**, **Stone Shadow** and **Tray Reflection**.
 - **Observer** — **Surface Glare** and **Head Shadow**. Both grey out while an HDR map is loaded.
 - **Saved Lighting** — your named looks plus the eight built-in ones: apply, save, rename,
   delete, and the "usable for" switch that offers a look in the export dialog (Chapter 9).
   A saved lighting holds the whole look: rig, light direction, exposure, glare, backdrop,
-  head shadow, the HDR map if any, and optionally the camera pose.
+  head shadow, the "Stone Shadow" and "Tray Reflection" settings, the HDR map if any, and optionally the camera pose.
 - **This Design** — **Use This Lighting for This Design** and **Forget for This Design**
   (the group called "Lighting This Design Opens With"; Chapter 9).
 - **Camera** — **Front**, **Top**, **Turn 90°**, **Reset**, and **Save view as saved lighting...**.

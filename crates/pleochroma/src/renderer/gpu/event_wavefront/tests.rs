@@ -213,22 +213,43 @@ fn ew_uncaptured_validation_error_becomes_device_lost() {
     ));
 }
 
+/// The event wavefront and the megakernel agree on every scene of every material class under the
+/// twin rule (`compare::FrameDiff::twin_passed`). All three classes are compared before anything
+/// is asserted, each scene's tier is printed, and a failing class prints its per-scene diagnostic.
 #[test]
+#[ignore = "over 60 s in the workspace run (2026-11-11); run on request: scripts/run_tests_on_request.sh"]
 fn ew_matches_megakernel_per_material_class() {
     let Some(renderer) = ew_renderer_or_skip("ew_matches_megakernel_per_material_class") else {
         return;
     };
+    let mut failures = Vec::new();
     for class in [1u32, 2, 3] {
         let result = run_event_wavefront_equivalence(renderer.context(), class);
-        assert!(
-            result.passed(),
-            "class {class}: {} / {} pixels differ, {} beyond tolerance, max |delta| {:e}",
-            result.differing_pixels,
-            result.total_pixels,
-            result.tol_failing_pixels,
-            result.max_abs_diff
-        );
+        for scene in &result.scenes {
+            println!(
+                "class {class}, {}: {:?}, {:?}",
+                scene.name, scene.tier, scene.diff
+            );
+        }
+        println!("class {class}: weakest tier {:?}", result.tier);
+        if !result.passed() {
+            failures.push(format!(
+                "class {class}: {} / {} pixels differ, {} beyond the golden tolerance, {} beyond the rounding bound, max |delta| {:e}",
+                result.differing_pixels,
+                result.total_pixels,
+                result.tol_failing_pixels,
+                result.rounding_failing_pixels,
+                result.max_abs_diff
+            ));
+            for line in diagnose_event_wavefront(renderer.context(), class) {
+                println!("{line}");
+            }
+        }
     }
+    assert!(
+        failures.is_empty(),
+        "the event wavefront differs from the megakernel: {failures:#?}"
+    );
 }
 
 /// Diagnostic for a failing [`ew_matches_megakernel_per_material_class`]: prints the
@@ -252,7 +273,7 @@ fn ew_per_scene_diagnostic() {
 #[test]
 fn chunk_pixels_for_respects_budget_binding_and_workgroup_limits() {
     let big_binding = u64::MAX / 2;
-    // Budget-bound: 64 MiB / 668 B rays, divided by spp.
+    // Budget-bound: the budget's rays, divided by spp.
     let rays = CHUNK_BUDGET_BYTES / BYTES_PER_RAY;
     assert_eq!(
         chunk_pixels_for(CHUNK_BUDGET_BYTES, 4, usize::MAX, big_binding),
@@ -363,5 +384,67 @@ fn rust_tag_constants_match_the_wgsl_common_unit() {
         if WGSL.contains(&format!("const {name}: u32 = ")) {
             assert_eq!(wgsl_value(name), rust, "{name} drifted from the WGSL unit");
         }
+    }
+}
+
+/// The event wavefront collects exit rays as the megakernel does.
+///
+/// A uniaxial stone (Zircon) covers the uniaxial arms, the split resolution that adds the leaves
+/// and the tail's collect roulette; an isotropic one (Diamond) covers the generic arm. Both
+/// engines run the same functions, so the frames must agree within compiler rounding
+/// (`rounding_passed`), and the estimator switch must change the picture.
+#[test]
+#[ignore = "over 60 s in retest step 02d (2026-11-11); run on request: scripts/run_tests_on_request.sh"]
+fn ew_exit_collection_follows_the_megakernel() {
+    use crate::optics::raytracer::Estimator;
+
+    let Some(mut ew) = ew_renderer_or_skip("ew_exit_collection_follows_the_megakernel") else {
+        return;
+    };
+    let Some(mut megakernel) = crate::renderer::gpu::merge_tests::renderer_or_skip(
+        "ew_exit_collection_follows_the_megakernel",
+    ) else {
+        return;
+    };
+    let camera = Camera::new(0.35, 0.28, 5.0, 18.0);
+    let planes = StandardGemCuts::standard_round_brilliant();
+    let (width, height, spp) = (24u32, 24u32, 8u32);
+    let num_pixels = (width * height) as usize;
+    for name in ["Zircon", "Diamond"] {
+        let material = GemMaterial::by_name(name)
+            .unwrap_or_else(|| panic!("{name} must be a built-in material"));
+        let scene = FrameScene {
+            camera: &camera,
+            width,
+            height,
+            planes: &planes,
+            facet_finishes: &[],
+            material: &material,
+            max_bounces: 10,
+            environment: LightingPreset::RingLights.studio(1.0, 0.85, 0.95),
+        };
+        let mut frames = Vec::new();
+        for estimator in [Estimator::ExitCollection, Estimator::Branching] {
+            megakernel.set_estimator(Some(estimator));
+            let mut megakernel_frame = vec![Vec3::ZERO; num_pixels];
+            megakernel
+                .accumulate(&scene, 0, spp, &mut megakernel_frame)
+                .expect("the megakernel frame renders");
+            ew.set_estimator(Some(estimator));
+            let mut ew_frame = vec![Vec3::ZERO; num_pixels];
+            pollster::block_on(ew.accumulate(&scene, 0, spp, &mut ew_frame))
+                .expect("the event wavefront frame renders");
+            frames.push((megakernel_frame, ew_frame));
+        }
+        let collected = compare_frames(&frames[0].0, &frames[0].1, spp);
+        assert!(
+            collected.rounding_passed(num_pixels),
+            "{name}: the event wavefront does not collect as the megakernel does: {collected:?}"
+        );
+        assert!(
+            compare_frames(&frames[0].1, &frames[1].1, spp).differing_pixels > 0,
+            "{name}: exit collection changed no pixel of the event wavefront frame: the switch \
+             is ignored"
+        );
     }
 }

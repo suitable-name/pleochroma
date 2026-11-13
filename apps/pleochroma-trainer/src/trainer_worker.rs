@@ -59,7 +59,7 @@ use crate::{
 use commands::{DatasetLoader, defer_without_dataset, load_dataset};
 use runner::{Algorithm, IterationReport, RunConfig, RunnerError, TrainingRunner};
 
-/// Status line every this many iterations.
+/// Iterations between two status log lines.
 const STATUS_EVERY: usize = 20;
 /// Window over which the throughput is measured.
 const RATE_WINDOW: Duration = Duration::from_millis(500);
@@ -216,11 +216,12 @@ fn status_line(
     )
 }
 
-/// The tail of the status line that says which update the loss figures belong to and how long it
-/// took: the update installed during the iteration is the one of the previous iteration in an
-/// imitation run (it trained while this rollout ran), so the line names it. `waited` is how long
-/// the worker stood still for it: near 0 the rollout is the bottleneck, large the update is.
-/// Empty when no update was installed (the first iteration of a run).
+/// The tail of the status line: which update the loss figures belong to, and its timing.
+///
+/// In an imitation run the update installed in an iteration was trained on the previous
+/// iteration's rollout, so that iteration number is named. `waited` is how long the worker stood
+/// still for it: near 0 the rollout is the bottleneck, large the update is. Empty when no update
+/// was installed yet.
 fn update_note(report: &IterationReport) -> String {
     report.update_of_iteration.map_or_else(String::new, |of| {
         format!(
@@ -462,8 +463,8 @@ impl Worker<'_> {
                 self.flush_warnings();
 
                 let iteration = self.runner.stats().iteration;
-                // The record that matters is the largest score drop: the lowest final score
-                // mostly says which design happened to start lowest (review TQ-19).
+                // Report the largest score drop: the lowest final score mostly reflects which
+                // design started lowest.
                 if let Some(best) = &report.new_best_improvement {
                     let title = self.runner.split().entries[best.entry].title.clone();
                     self.log(

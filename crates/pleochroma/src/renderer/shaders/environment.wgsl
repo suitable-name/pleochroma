@@ -1,9 +1,9 @@
-// Phase 1: environment-sampling / CMF-integration / white-balance kernels -- driven by
+// Environment-sampling, CMF-integration and white-balance kernels -- driven by
 // `renderer::gpu::environment_check`.
 //
-// Fresh translations of, in order: `color::cie1931::cie_1931_cmf` (the single source of
+// Translations of, in order: `color::cie1931::cie_1931_cmf` (the single source of
 // truth for the CIE 1931 CMF, tabulated at 5nm and linearly interpolated -- see that
-// module's own doc comment for why a table replaced the old Gaussian-lobe fit),
+// module's doc comment for why it is a table, not a fit),
 // `optics::raytracer::blackbody_spectrum`, `optics::raytracer::sample_studio_environment`
 // (plus the `optics::studio_rig::StudioRig` key/fill/ring directions it depends on),
 // and `optics::raytracer::compute_illuminant_white_balance` (the 401-point 380..=780nm
@@ -192,12 +192,10 @@ fn blackbody_spectrum(lambda_nm: f32, temp_k: f32) -> f32 {
     return clamp(powi_u(560.0 / lambda_nm, 5u) * ratio, 0.01, 20.0);
 }
 
-// P4 (tabulated D65 GPU port): optics::raytracer::environment::{CIE_D65_SPD_380_780_10NM,
-// d65_relative_spectral_power} -- ported identically to `shaders/spectral_transport.wgsl`
-// (see that file's own copy of these same two items for the full citation/rationale;
-// duplicated here rather than shared because this Phase 1 self-test shader and the
-// production megakernel are two independent WGSL modules with no shared-include
-// mechanism -- see this file's own header comment).
+// Tabulated D65 relative spectral power, `optics::raytracer::environment`'s
+// `CIE_D65_SPD_380_780_10NM` and `d65_relative_spectral_power`, ported identically to
+// `shaders/spectral_transport.wgsl`. Duplicated rather than shared: this module and the
+// production megakernel are independent WGSL modules with no shared-include mechanism.
 const CIE_D65_SPD_380_780_10NM: array<f32, 41> = array<f32, 41>(
     49.9755, 54.6482, 82.7549, 91.4860, 93.4318, 86.6823, 104.865, 117.008, 117.812, 114.861,
     115.923, 108.811, 109.354, 107.802, 104.790, 107.689, 104.405, 104.046, 100.000, 96.3342,
@@ -255,11 +253,10 @@ struct StudioEnvCase {
     light_yaw: f32,
     light_pitch: f32,
     model: f32,
-    // The backdrop tray radiance at exposure 1 (`EnvironmentSource::Studio::backdrop`); 0 = As Lit.
+    // Backdrop tray radiance at exposure 1 (`EnvironmentSource::Studio::backdrop`); 0 = As Lit.
     tray: f32,
-    // P4 (tabulated D65 GPU port): was `_pad2` -- mirrors
-    // `optics::raytracer::LightingPreset::Daylight`'s own D65-vs-Planckian selection;
-    // see `renderer::gpu::environment_check::build_studio_env_cases`.
+    // Non-zero: tabulated D65 spectrum, zero: Planckian law (the `LightingPreset::Daylight`
+    // choice); see `renderer::gpu::environment_check::build_studio_env_cases`.
     use_d65: f32,
     // Unit direction towards the eye for the lit models' head shadow; zero disables it.
     observer_x: f32,
@@ -304,7 +301,7 @@ fn studio_rig_ring_dir(i: u32, light_yaw: f32, sin_lp: f32) -> vec3<f32> {
 // optics::raytracer::environment -- the lit lighting models (`LightingModel::
 // IsoHemisphere` / `LightTent` / `DaylightDome`), transcribed operation for operation
 // (`fma` for `mul_add`, explicit squarings where the CPU squares, the literal
-// `smoothstep`) so Tier 2's `run_studio_env` holds at its ULP budget. The cone cosines
+// `smoothstep`) so `run_studio_env` holds its ULP budget. The cone cosines
 // are the same decimal literals as the Rust constants. The head-shadow cone is a scene
 // parameter threaded in as `shadow` = (outer, inner).
 const TENT_KEY_OUTER_COS: f32 = 0.7660444;
@@ -463,7 +460,7 @@ fn daylight_sun_radiance(
 
 // `rig::sun_cone_direction`: a direction uniform over the sun disc about `key_dir`
 // (equal-area cone sampling) from two uniform [0, 1) randoms. Self-contained (no other
-// piece's basis helper) so the Tier-2 copy in `environment.wgsl` is textually identical.
+// piece's basis helper), so the copy in the megakernel is textually identical.
 fn daylight_sun_cone_direction(key_dir: vec3<f32>, u0: f32, u1: f32) -> vec3<f32> {
     let one_minus_cos = u0 * SUN_ONE_MINUS_COS;
     let cos_t = 1.0 - one_minus_cos;
@@ -517,9 +514,9 @@ fn sample_light_tent(
     tent_flat: f32,
     tray: f32,
 ) -> f32 {
-    // `tent` = (walls, cards, spark, ground) = `TentParams`: exact identities at the light
-    // tent's own values (x * 1.0, and the ground literal 0.02), see the CPU twin.
-    // `tent_flat` blends the wall gradient towards its 30-degree value (0 = skipped).
+    // `tent` = (walls, cards, spark, ground) from `TentParams`; at the light tent's own values
+    // the products are exact identities (x * 1.0, ground literal 0.02), see the CPU twin.
+    // `tent_flat` blends the wall gradient towards its 30-degree value; 0 skips the blend.
     let horizon = horizon_blend(d);
     var walls = fma(0.08, max(d.y, 0.0), 0.14) * tent.x;
     if (tent_flat > 0.0) {
@@ -755,11 +752,11 @@ fn sun_nee_main(@builtin(global_invocation_id) gid: vec3<u32>) {
 // ---------------------------------------------------------------------------------
 // compute_illuminant_white_balance: 401-point (380..=780nm, 1nm step) quadrature.
 //
-// Fix 3: diagonalised in Bradford LMS space, not raw XYZ -- see
-// `optics::raytracer::compute_illuminant_white_balance`'s doc comment for the full
-// rationale. `BRADFORD_XYZ_TO_LMS`/`BRADFORD_LMS_TO_XYZ` and `D65_WHITE_X`/
-// `D65_WHITE_Y` below are the exact same constants as that Rust function's, so this
-// kernel's output stays within `environment_check::WHITE_BALANCE_ULP_BUDGET` of it.
+// Diagonalised in Bradford LMS space, not raw XYZ: see
+// `optics::raytracer::compute_illuminant_white_balance`'s doc comment for the rationale.
+// `BRADFORD_XYZ_TO_LMS`/`BRADFORD_LMS_TO_XYZ` and `D65_WHITE_X`/`D65_WHITE_Y` below are the
+// same constants as that Rust function's, so this kernel's output stays within
+// `environment_check::WHITE_BALANCE_ULP_BUDGET` of it.
 // ---------------------------------------------------------------------------------
 
 const D65_WHITE_X: f32 = 0.3127;
@@ -837,19 +834,15 @@ fn white_balance_main(@builtin(global_invocation_id) gid: vec3<u32>) {
 // renderer::env_map::EnvironmentMap::{direction_to_uv, sample_bilinear,
 // radiance_at}, plus renderer::env_map_spectrum::rgb_to_spectral_radiance.
 //
-// A SEPARATE port from `shaders/spectral_transport.wgsl`'s own `hdr_direction_to_uv`/
-// `hdr_env_sample_bilinear`/`hdr_env_radiance_at`/`asymmetric_gaussian`/
-// `rgb_to_spectral_radiance` -- this file and the production megakernel are two
-// independent WGSL modules with no shared-include mechanism (see this file's own header
-// comment), so the two copies are kept in sync by hand like every other duplicated
-// function here (`blackbody_spectrum`, the CMF table, `d65_relative_spectral_power`).
-// Every copy keeps the megakernel piece's EXACT function name on purpose:
-// `renderer::gpu::shader_validation_tests::same_named_functions_agree_everywhere_they_
-// are_defined` compares same-named bodies across the modules, so a formula change to
-// either side fails that test until it is mirrored (an `hdr_`-prefixed private name
-// would silently opt the copy out of that check).
-// `renderer::gpu::environment_check::run_hdr_env_radiance` exercises THIS copy directly
-// against the CPU, independent of the megakernel's own Tier 3 image comparisons.
+// A separate copy of `shaders/spectral_transport.wgsl`'s `hdr_direction_to_uv`,
+// `hdr_env_sample_bilinear`, `hdr_env_radiance_at`, `asymmetric_gaussian` and
+// `rgb_to_spectral_radiance`. This module and the megakernel share no include mechanism, so
+// the copies are kept in sync by hand, like the other duplicated functions here
+// (`blackbody_spectrum`, the CMF table, `d65_relative_spectral_power`). Each copy keeps the
+// megakernel's function name: `renderer::gpu::shader_validation_tests::
+// same_named_functions_agree_everywhere_they_are_defined` compares same-named bodies, and an
+// `hdr_`-prefixed private name would opt the copy out of that check.
+// `renderer::gpu::environment_check::run_hdr_env_radiance` tests this copy against the CPU.
 // ---------------------------------------------------------------------------------
 
 fn asymmetric_gaussian(x: f32, mu: f32, sigma_lo: f32, sigma_hi: f32) -> f32 {
@@ -939,6 +932,16 @@ fn hdr_direction_to_uv(dir: vec3<f32>) -> vec2<f32> {
     return vec2<f32>(u, v);
 }
 
+// renderer::env_map::EnvRotation::to_map: a world direction into the HDR map's frame (a turn by
+// -yaw about +Y). `rot` = (cos, sin) of the map's yaw, computed on the CPU; exactly (1, 0) returns
+// `dir` untouched, so an unrotated map keeps its bits.
+fn hdr_world_to_map(dir: vec3<f32>, rot: vec2<f32>) -> vec3<f32> {
+    if (rot.x == 1.0 && rot.y == 0.0) {
+        return dir;
+    }
+    return vec3<f32>(fma(rot.x, dir.x, -(rot.y * dir.z)), dir.y, fma(rot.x, dir.z, rot.y * dir.x));
+}
+
 fn hdr_env_sample_bilinear(u_in: f32, v_in: f32) -> vec3<f32> {
     let width = hdr_env_dims.width;
     let height = hdr_env_dims.height;
@@ -970,9 +973,36 @@ fn hdr_env_sample_bilinear(u_in: f32, v_in: f32) -> vec3<f32> {
     return fma(bottom, vec3<f32>(ty), top * (1.0 - ty));
 }
 
+// The megakernel reads the map's exposure and yaw from its transport uniform
+// (`params.hdr_exposure`, `params.hdr_rot_cos`, `params.hdr_rot_sin` in
+// `transport_bounce/02_scene_bindings.wgsl`). This module carries just those three fields in
+// its own uniform (binding 14), so `hdr_rgb_at_exposure`, `hdr_rot` and `hdr_env_radiance_at`
+// keep the megakernel's text. At exposure 1.0 and rotation (1, 0) the texel and the direction
+// pass through untouched, as `EnvironmentMap::radiance_at` on the CPU.
+struct HdrEnvCheckParams {
+    hdr_exposure: f32,
+    hdr_rot_cos: f32,
+    hdr_rot_sin: f32,
+    _pad0: f32,
+}
+
+@group(0) @binding(14) var<uniform> params: HdrEnvCheckParams;
+
+fn hdr_rgb_at_exposure(rgb: vec3<f32>) -> vec3<f32> {
+    let exposure = params.hdr_exposure;
+    if (exposure == 1.0) {
+        return rgb;
+    }
+    return rgb * exposure;
+}
+
+fn hdr_rot() -> vec2<f32> {
+    return vec2<f32>(params.hdr_rot_cos, params.hdr_rot_sin);
+}
+
 fn hdr_env_radiance_at(dir: vec3<f32>, lambda_nm: f32) -> f32 {
-    let uv = hdr_direction_to_uv(dir);
-    let rgb = hdr_env_sample_bilinear(uv.x, uv.y);
+    let uv = hdr_direction_to_uv(hdr_world_to_map(dir, hdr_rot()));
+    let rgb = hdr_rgb_at_exposure(hdr_env_sample_bilinear(uv.x, uv.y));
     return rgb_to_spectral_radiance(rgb.x, rgb.y, rgb.z, lambda_nm);
 }
 

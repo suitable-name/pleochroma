@@ -4,18 +4,18 @@
 //! reaches the kernels in two pieces, neither of which needs a binding of its own:
 //!
 //! - the per-facet words go into the finish buffer (binding 8) through
-//!   [`encode_facet_surfaces`](super::encode_facet_surfaces), the packed `u32` the CPU decodes with
-//!   [`FacetSurface::from_packed`];
+//!   [`encode_facet_surfaces`](super::encode_facet_surfaces), the packed `u32` that the CPU
+//!   decodes with [`FacetSurface::from_packed`];
 //! - the edge band and the machine go into the spare slots of the material's inclusion block:
-//!   `edge = [width, alpha, halo_rq_nm, arm_offset_deg]` and `haze.zw = [a, b]`, where the sweep of
+//!   `edge = [width, alpha, halo_rq_nm, arm_offset_deg]` and `haze.zw = [a, b]`. The sweep of
 //!   the stone over the lap is carried as the contact radius over the mast distance,
 //!   `x = a + u b` for the draw `u` in `[0, 1]` (`a = inner / mast`, `b = (outer - inner) / mast`,
 //!   both zero for an arm through the lap centre). The scratch angle is then
 //!   `arm_offset + asin(1 / x)`, clamped, which is [`FacetingMachine::angle_at_radius_deg`] with
 //!   the contact point held outside the arm's line.
 //!
-//! An ideal scene touches nothing: the material block stays all zero there and the words are the
-//! finish words of old, so such a frame is byte-identical to one without this module.
+//! An ideal scene touches nothing: the material block stays zero and the words are the plain
+//! finish words, so such a frame is byte-identical to one without this module.
 
 use crate::optics::raytracer::{
     FacetFinish,
@@ -47,6 +47,18 @@ impl GpuSurfaceScene {
     #[must_use]
     pub fn is_ideal(&self) -> bool {
         !self.edge.active() && self.facet_surfaces.iter().all(|surface| surface.is_ideal())
+    }
+
+    /// `true` when the CPU tracer's `SurfaceScene::is_ideal` holds for the scene this was copied
+    /// from: no facet surface is listed at all and no edge is abraded.
+    ///
+    /// Stricter than [`Self::is_ideal`], which also accepts a list of ideal surfaces. The CPU
+    /// tracer runs exit collection exactly when this holds, so the GPU engines ask the same
+    /// question (`GpuTransportParams::with_estimator`) and a hybrid frame never mixes estimators
+    /// over a listed but ideal surface.
+    #[must_use]
+    pub fn is_ideal_for_cpu(&self) -> bool {
+        self.facet_surfaces.is_empty() && !self.edge.active()
     }
 
     /// `true` when a ray can take the ground arm even though no facet finish is frosted: a Ground
@@ -89,8 +101,8 @@ impl GpuSurfaceScene {
     }
 }
 
-/// The `(a, b)` of the module documentation: `(0, 0)` for an arm through the lap centre (or a
-/// sweep with no extent), which the shader reads as "the scratch angle is the arm offset".
+/// The `(a, b)` of the module documentation. `(0, 0)` for a zero mast distance (an arm through
+/// the lap centre), which the shader reads as "the scratch angle is the arm offset".
 pub fn machine_sweep(machine: &FacetingMachine) -> (f32, f32) {
     let mast = machine.mast_distance_mm;
     if mast == 0.0 {
@@ -156,6 +168,20 @@ mod tests {
             ..SurfaceScene::IDEAL
         });
         assert!(listed.is_ideal());
+    }
+
+    /// A listed but ideal surface is ideal for the kernels, not for the CPU's collection rule.
+    #[test]
+    fn a_listed_ideal_surface_is_not_ideal_for_the_cpu_rule() {
+        let none = GpuSurfaceScene::default();
+        assert!(none.is_ideal());
+        assert!(none.is_ideal_for_cpu());
+        let listed = GpuSurfaceScene::from_scene(&SurfaceScene {
+            facet_surfaces: &[FacetSurface::IDEAL],
+            ..SurfaceScene::IDEAL
+        });
+        assert!(listed.is_ideal());
+        assert!(!listed.is_ideal_for_cpu());
     }
 
     #[test]

@@ -1,10 +1,9 @@
 import { SurfaceModel } from "../../models/surface.slint";
 
-// The tier row's right-click menu: Surface Finish for the tier, in one submenu. A grade is one
-// undoable edit (`SurfaceModel.grade_chosen`); "Custom..." selects the tier too, so the inspector's
-// Surface Finish section shows the Custom values (roughness, anisotropy, Custom Angle). The
-// scratch direction items change only the tier's own finish; a facet is overridden from the
-// inspector. Mounted by `TierTableRow` over the whole row, below its buttons.
+// The tier row's right-click menu, with one Surface Finish submenu. Each grade is one undoable
+// edit (`SurfaceModel.grade_chosen`). "Custom..." also selects the tier, so the inspector shows
+// the Custom values. The sweep items change only the tier's own finish; a facet is overridden
+// from the inspector. Mounted by `TierTableRow` over the whole row, below its buttons.
 export component TierSurfaceMenu inherits Rectangle {
     // The table row.
     in property <int> tier_index;

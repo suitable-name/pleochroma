@@ -1,17 +1,16 @@
-//! The 8-bit picture events (protocol v14, "final picture only"): `DISPLAY_FRAME` for a
-//! `TransferMode::DisplayOnly` request and `FINAL_IMAGE` for a `FinalImageRequest`.
+//! The 8-bit picture events: `DISPLAY_FRAME` for a `TransferMode::DisplayOnly` request
+//! and `FINAL_IMAGE` for a `FinalImageRequest`.
 //!
-//! A `FINAL_IMAGE` tone-maps the float sum with the GUI export's own code in `pleochroma`
-//! ([`tonemap_accumulation`], the export's one final 8-bit conversion), so the PNG is
-//! exactly what the viewer would have written from the same sum.
+//! A `FINAL_IMAGE` tone-maps the float sum with [`tonemap_accumulation`], the same final
+//! 8-bit conversion the GUI export uses, so the PNG matches what the viewer writes from
+//! the same sum.
 //!
-//! A `DISPLAY_FRAME` is the viewer's live-view picture of the merged sum: averaged,
-//! À-Trous DENOISED with guides from the coordinator's own primary-ray prepass, and
-//! tone-mapped (`pleochroma::renderer::frame_denoise`, the GUI's own function) -- made
-//! off the emitter thread by `super::display` and written here by
-//! [`write_display_rgba`]. [`write_display_frame`] (the plain tone-mapped running
-//! average, the GUI's `denoise_enabled == false` picture) is only the fallback for a
-//! denoise thread that could not run.
+//! A `DISPLAY_FRAME` is the live-view picture of the merged sum: averaged, À-Trous
+//! denoised with guides from a primary-ray prepass, and tone-mapped
+//! (`pleochroma::renderer::frame_denoise`). `super::display` makes it off the emitter
+//! thread, and [`write_display_rgba`] writes it. [`write_display_frame`] is the plain
+//! tone-mapped running average (the picture with denoising off). It is used only when the
+//! denoise thread could not run.
 
 use glam::Vec3;
 use pleochroma::{color::ColorSpace, renderer::tonemap::tonemap_accumulation};
@@ -75,8 +74,8 @@ pub(super) fn write_display_rgba<S: Write>(
 }
 
 /// Writes the one `FINAL_IMAGE` of a `FinalImageRequest`: `sum` (`samples` samples)
-/// through [`tonemap_accumulation`] for `color_space`, as a PNG whatever the link (the
-/// export's product); its write is timed like any other frame's.
+/// through [`tonemap_accumulation`] for `color_space`, as a PNG whatever the link. Its
+/// write is timed like any other frame's.
 ///
 /// # Errors
 ///

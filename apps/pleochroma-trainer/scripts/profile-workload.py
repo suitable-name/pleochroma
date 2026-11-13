@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Compatibility entry point for the trainer's native --pgo workload.
 
-New callers should invoke their trainer executable with --pgo directly. This
-wrapper preserves the former --binary interface; all workload arguments and
-environment variables are forwarded unchanged to the native implementation.
+Callers should run the trainer executable with --pgo directly. This wrapper
+keeps the --binary interface and forwards all workload arguments and
+environment variables unchanged to the native implementation.
 """
 
 import argparse

@@ -63,12 +63,9 @@ export global RemoteWorkerModel {
     // Suggested render address after a successful claim: the enrollment host on the
     // server's default serve port (the dialog fills an empty Address field with it).
     in property <string> claimed_address: "";
-    // The folder `pick_cert_dir` below picked, once its (off-UI-thread) dialog
-    // completes. `pick_cert_dir` is a void callback rather than a
-    // blocking-shaped, value-returning one, so `RemoteWorkerDialog`'s own
-    // `changed picked_cert_dir` handler copies a non-empty value into
-    // `form_cert_dir`, the same "one-shot property, not a running value" pattern
-    // `claimed_cert_dir` above already uses.
+    // The folder `pick_cert_dir` picked, set when its off-UI-thread dialog completes. A
+    // `RemoteWorkerDialog` handler copies a non-empty value into `form_cert_dir` on change
+    // (a one-shot value, as with `claimed_cert_dir`).
     in property <string> picked_cert_dir: "";
 
     // Whether a setting that Simple mode hides is off its default: live-stream mode index,

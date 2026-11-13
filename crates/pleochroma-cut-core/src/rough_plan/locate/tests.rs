@@ -316,8 +316,8 @@ fn a_mark_replaced_by_a_ghost_image_is_flagged_by_leave_one_out() {
     assert_eq!(marks[ghost.view].view, ghost.view);
     marks[ghost.view].pixel = ghost.pixel;
     let located = locate_point(&scene, &marks, &LocateOptions::default()).expect("8 marks");
-    // The ghost's own ray, before the reflection, passes 2 * 2 mm * sin(67.6 degrees) = 3.7 mm from
-    // the point; the seven other rays agree to a few hundredths of a millimetre.
+    // The ghost's own ray, before the reflection, passes 2 * 2 mm * sin(67.6 degrees) = 3.7 mm
+    // from the point; the seven other rays agree to a few hundredths of a millimetre.
     assert_eq!(located.outlier_views(), [ghost.view]);
     let flagged = &located.views[ghost.view];
     assert!(flagged.leave_one_out_mm.expect("tested") > 1.0);

@@ -185,5 +185,5 @@ fn a_rival_stopped_by_a_cancellation_is_dropped_while_the_end_point_is_still_sco
     );
     assert_eq!(reports.get(), 2, "the rival's scoring did start");
     assert!(result.outcome.cancelled);
-    assert!(result.candidates.is_empty());
+    assert_eq!(result.candidates, [] as [OptimizeCandidate; 0]);
 }

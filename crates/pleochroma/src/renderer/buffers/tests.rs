@@ -10,10 +10,8 @@ use super::{
 };
 use crate::optics::{absorption::AbsorptionBand, raytracer::FacetFinish};
 
-/// `bytemuck::Pod` guards against uninitialized padding bytes but says nothing about
-/// WGSL offset rules -- that's what the `offset_of!` assertions in each sibling module
-/// are for. This pins the documented sizes as an ordinary `#[test]` too, so a failure
-/// prints a named result instead of a compile error buried in this module tree.
+/// `bytemuck::Pod` rules out uninitialized padding, not WGSL offset rules; the `offset_of!`
+/// assertions in each sibling module check those. This pins the documented sizes as a `#[test]`.
 #[test]
 fn struct_sizes_match_documented_wgsl_layout() {
     assert_eq!(size_of::<CameraUniform>(), 112);
@@ -22,7 +20,7 @@ fn struct_sizes_match_documented_wgsl_layout() {
     // The zone table, the biaxial curves (80) and the inclusion block (224) are appended
     // (see `renderer::buffers::zoning`, `material` and `inclusions`).
     assert_eq!(size_of::<GpuGemMaterial>(), 592 + 2128 + 80 + 224);
-    assert_eq!(size_of::<GpuTransportParams>(), 112);
+    assert_eq!(size_of::<GpuTransportParams>(), 128);
     assert_eq!(size_of::<GpuWavefrontParams>(), 16);
 }
 
@@ -101,11 +99,62 @@ fn transport_params_tent_slots_default_to_the_light_tent() {
     );
 }
 
-/// [`offset_of!`] pinned as ordinary `#[test]`s too (see the comment above), for
-/// `GpuAbsorptionBand` and `GpuGemMaterial`: a wrong offset here is exactly the
-/// "looks right, isn't" bug class `renderer::gpu::layout_check` exists to catch
-/// on the GPU side, but a
-/// plain assertion catches the CPU-side half of it for free on every `cargo test`.
+/// The HDR exposure slot sits at offset 92. It defaults to the `1.0` the shader skips, carries
+/// an HDR source's exposure, and stays `1.0` for the analytic rig (whose exposure is
+/// `studio_exposure`).
+#[test]
+fn transport_params_hdr_exposure_slot_defaults_to_one_and_follows_the_map() {
+    use crate::{
+        optics::raytracer::{EnvironmentSource, LightingPreset},
+        renderer::env_map::EnvironmentMap,
+    };
+
+    assert_eq!(offset_of!(GpuTransportParams, hdr_exposure), 92);
+    let base = GpuTransportParams::new(1, 1, 0, 2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, [1.0; 3]);
+    assert_eq!(base.hdr_exposure.to_bits(), 1.0f32.to_bits());
+    let map = EnvironmentMap::uniform(4, 2, [1.0, 1.0, 1.0]);
+    let hdr = base.with_hdr_of(EnvironmentSource::hdr_at(&map, 2.5));
+    assert_eq!(hdr.hdr_exposure.to_bits(), 2.5f32.to_bits());
+    let unit = hdr.with_hdr_of(EnvironmentSource::hdr(&map));
+    assert_eq!(unit.hdr_exposure.to_bits(), 1.0f32.to_bits());
+    let studio = hdr.with_hdr_of(LightingPreset::Daylight.studio(3.0, 0.0, 0.0));
+    assert_eq!(studio.hdr_exposure.to_bits(), 1.0f32.to_bits());
+}
+
+/// The HDR rotation row sits at 112..128, defaults to the identity `(1, 0)` with zero pads,
+/// and `with_hdr_of` carries an HDR source's rotation (and resets it for the analytic rig).
+#[test]
+fn transport_params_hdr_rotation_row_defaults_to_identity_and_follows_the_map() {
+    use crate::{
+        optics::raytracer::{EnvironmentSource, LightingPreset},
+        renderer::env_map::{EnvRotation, EnvironmentMap},
+    };
+
+    assert_eq!(offset_of!(GpuTransportParams, hdr_rot_cos), 112);
+    assert_eq!(offset_of!(GpuTransportParams, hdr_rot_sin), 116);
+    let base = GpuTransportParams::new(1, 1, 0, 2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, [1.0; 3]);
+    assert_eq!(base.hdr_rot_cos.to_bits(), 1.0f32.to_bits());
+    assert_eq!(base.hdr_rot_sin.to_bits(), 0.0f32.to_bits());
+    let bytes = bytemuck::bytes_of(&base);
+    assert!(bytes[120..128].iter().all(|&b| b == 0));
+    let map = EnvironmentMap::uniform(4, 2, [1.0, 1.0, 1.0]);
+    let turn = EnvRotation::from_yaw(0.7);
+    let turned = base.with_hdr_of(EnvironmentSource::hdr_at(&map, 2.0).with_hdr_rotation(turn));
+    assert_eq!(turned.hdr_rot_cos.to_bits(), turn.cos_sin()[0].to_bits());
+    assert_eq!(turned.hdr_rot_sin.to_bits(), turn.cos_sin()[1].to_bits());
+    assert_eq!(turned.hdr_exposure.to_bits(), 2.0f32.to_bits());
+    let manual = base.with_hdr_rotation(turn);
+    assert_eq!(manual.hdr_rot_cos.to_bits(), turned.hdr_rot_cos.to_bits());
+    let unit = turned.with_hdr_of(EnvironmentSource::hdr(&map));
+    assert_eq!(unit.hdr_rot_cos.to_bits(), 1.0f32.to_bits());
+    assert_eq!(unit.hdr_rot_sin.to_bits(), 0.0f32.to_bits());
+    let studio = turned.with_hdr_of(LightingPreset::Daylight.studio(3.0, 0.0, 0.0));
+    assert_eq!(studio.hdr_rot_cos.to_bits(), 1.0f32.to_bits());
+    assert_eq!(studio.hdr_rot_sin.to_bits(), 0.0f32.to_bits());
+}
+
+/// `offset_of!` pins for `GpuAbsorptionBand` and the band arrays of `GpuGemMaterial`. The GPU
+/// side is `renderer::gpu::layout_check`; this is the CPU half, run by every `cargo test`.
 #[test]
 fn gpu_absorption_band_offsets_match_documented_wgsl_layout() {
     assert_eq!(offset_of!(GpuAbsorptionBand, center_nm), 0);
@@ -124,12 +173,9 @@ fn gpu_gem_material_band_array_offsets_match_documented_wgsl_layout() {
     assert_eq!(offset_of!(GpuGemMaterial, absorption_path_scale), 536);
 }
 
-/// `material::encode_bands` must map each [`crate::optics::absorption::BandShape`]
-/// variant to the matching [`band_shape`] discriminant, and leave every other field
-/// untouched -- the bug this guards against is the shape ending up defaulted (always
-/// `GAUSSIAN_WAVELENGTH`) regardless of what the CPU-side band actually specified,
-/// which would silently make `GaussianEnergy` materials render correctly on the CPU
-/// but not on the GPU -- the exact bug this field exists to fix.
+/// `material::encode_bands` maps each [`crate::optics::absorption::BandShape`] variant to the
+/// matching [`band_shape`] discriminant and leaves the other band fields alone. A shape that fell
+/// back to the wavelength default would make energy-domain bands render differently on the GPU.
 #[test]
 fn encode_bands_maps_shape_correctly() {
     let bands = vec![
@@ -168,5 +214,52 @@ fn encode_facet_finishes_defaults_to_polished() {
             facet_finish::POLISHED,
             facet_finish::POLISHED,
         ]
+    );
+}
+
+/// Exit collection is honoured only where the kernels and the CPU tracer run it, and its bit is
+/// independent of the debug-write bit.
+#[test]
+fn the_collect_bit_is_set_only_where_exit_collection_runs() {
+    use super::{studio_model, transport_env_mode};
+    use crate::optics::raytracer::Estimator;
+    let params = |env_mode: u32| {
+        GpuTransportParams::new(1, 8, 0, env_mode, 0.0, 6500.0, 1.0, 1.0, 0.0, 0.0, [1.0; 3])
+    };
+    let rig = params(transport_env_mode::STUDIO_RIG);
+    assert_eq!(rig.estimator(), Estimator::Branching);
+    let collect = rig.with_estimator(Estimator::ExitCollection, true);
+    assert_eq!(collect.estimator(), Estimator::ExitCollection);
+    assert_eq!(GpuTransportParams::COLLECT_BIT, 4);
+    assert_eq!(
+        collect.write_debug_buffers,
+        GpuTransportParams::DEBUG_WRITES_BIT | GpuTransportParams::COLLECT_BIT
+    );
+    // The furnace has no light sampling either.
+    assert_eq!(
+        params(transport_env_mode::UNIFORM_FURNACE)
+            .with_estimator(Estimator::ExitCollection, true)
+            .estimator(),
+        Estimator::ExitCollection
+    );
+    // A rough surface, a stone with tools, the sun, an HDR map, and the estimator taken back.
+    for refused in [
+        rig.with_estimator(Estimator::ExitCollection, false),
+        rig.with_tool_count(1)
+            .with_estimator(Estimator::ExitCollection, true),
+        rig.with_studio_model(studio_model::DAYLIGHT_SUN)
+            .with_estimator(Estimator::ExitCollection, true),
+        params(transport_env_mode::HDR_MAP).with_estimator(Estimator::ExitCollection, true),
+        collect.with_estimator(Estimator::Branching, true),
+    ] {
+        assert_eq!(refused.estimator(), Estimator::Branching);
+        assert_eq!(
+            refused.write_debug_buffers & GpuTransportParams::COLLECT_BIT,
+            0
+        );
+    }
+    assert_eq!(
+        collect.with_debug_buffers_disabled().write_debug_buffers,
+        GpuTransportParams::COLLECT_BIT
     );
 }

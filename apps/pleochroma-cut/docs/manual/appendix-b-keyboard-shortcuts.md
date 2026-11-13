@@ -10,17 +10,15 @@ command palette, type a few letters of what you want, and press Enter: every
 action in the app is reachable that way, by name, without the mouse. Chapter 19
 describes it.
 
-The five tables in this appendix — the global shortcuts here, then "The tier
-list", "The Solid viewport", "Angle fields" and "Cutting mode" further down — are generated
-from one Rust table (`gui::editor::shortcuts::SHORTCUTS`) that also feeds the
-in-app overlay (Help → Keyboard Shortcuts, or press `?` with no text field
-focused) and the shortcuts the command palette shows beside its commands — a
-test in that module (`appendix_b_generated_blocks_match_the_shortcut_table`)
-compares this file's generated blocks against that table's own output, so the
-manual and the overlay cannot silently drift apart. Do not hand-edit the text
-between the `<!-- SHORTCUTS_GLOBAL -->`, `<!-- SHORTCUTS_TIER_LIST -->`,
+The five tables in this appendix are generated from the `SHORTCUTS` table in
+`gui::editor::shortcuts`, which also feeds the in-app overlay (Help → Keyboard
+Shortcuts, or `?` with no text field focused) and the shortcuts the command palette
+shows. The test `appendix_b_generated_blocks_match_the_shortcut_table` keeps the
+blocks equal to that table's output. Do not hand-edit the text between the
+`<!-- SHORTCUTS_GLOBAL -->`, `<!-- SHORTCUTS_TIER_LIST -->`,
 `<!-- SHORTCUTS_VIEWPORT -->`, `<!-- SHORTCUTS_ANGLE_FIELD -->` and
-`<!-- SHORTCUTS_CUTTING_MODE -->` marker pairs — edit `SHORTCUTS` instead and paste the regenerated output back in.
+`<!-- SHORTCUTS_CUTTING_MODE -->` marker pairs; change `SHORTCUTS` and paste the
+regenerated output back in.
 
 <!-- SHORTCUTS_GLOBAL:BEGIN -->
 | Shortcut | Action |
@@ -147,8 +145,7 @@ inspector's own Angle field has focus:
 <!-- SHORTCUTS_ANGLE_FIELD:END -->
 
 The tier-list shortcuts above act on the open design, so like Undo, Redo and F5
-they do nothing until a design is open in the Edit tab. The editor is part of
-every build.
+they do nothing until a design is open in the Edit tab.
 
 ## Cutting mode
 
@@ -176,7 +173,7 @@ the exception; the palette lists actions, not the buttons inside a dialog.
 
 The 3D viewport's camera and light controls (Chapter 2) are mouse
 gestures — left-drag to orbit, right-drag or Shift+left-drag to move the
-light, scroll to zoom — not keyboard shortcuts. The Edit tab's Solid
+light (or to turn the HDR map, when one is loaded), scroll to zoom — not keyboard shortcuts. The Edit tab's Solid
 viewport (Chapter 13) shares that same orbit/zoom camera with the Live
 Render tab in its Solid/Path-Traced/Solid + Path-Traced/Ray-Traced modes; its Diagram mode instead
 drags to pan and scrolls to zoom its own image, with a Reset View button

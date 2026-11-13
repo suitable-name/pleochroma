@@ -1,0 +1,72 @@
+{
+  "format": 1,
+  "about": "The six scenes of the render-acceleration benchmark (guide section 7.3). Paths are relative to this folder. reference_spp is the job's own samples_per_pixel; adaptive_max_spp is the cap of the adaptive runs. render_args are extra flags the scripts give render / tilt-video for that scene.",
+  "scenes": [
+    {
+      "id": "s1_glints",
+      "title": "High-dispersion stone under spot lights",
+      "description": "Pentalume Sapphire geometry rendered in Synthetic Moissanite (the strongest built-in dispersion) under the Dark Spotlight rig: sharp glints and fire.",
+      "job": "jobs/s1_glints.job.json",
+      "kind": "still",
+      "frames": 1,
+      "reference_spp": 32768,
+      "adaptive_max_spp": 8192,
+      "render_args": ["--material", "Synthetic Moissanite"]
+    },
+    {
+      "id": "s2_sapphire",
+      "title": "Dark royal-blue sapphire",
+      "description": "Pentalume Sapphire face-up in daylight: deep extinction, the case where dark areas must not stop too early.",
+      "job": "jobs/s2_sapphire.job.json",
+      "kind": "still",
+      "frames": 1,
+      "reference_spp": 16384,
+      "adaptive_max_spp": 8192,
+      "render_args": []
+    },
+    {
+      "id": "s3_small",
+      "title": "Stone small in the frame",
+      "description": "The same sapphire at three times the camera distance: the stone covers well under 15 percent of the pixels and the rest is background.",
+      "job": "jobs/s3_small.job.json",
+      "kind": "still",
+      "frames": 1,
+      "reference_spp": 16384,
+      "adaptive_max_spp": 8192,
+      "render_args": []
+    },
+    {
+      "id": "s4_tilt",
+      "title": "Three consecutive tilt-video frames",
+      "description": "Frames 1 to 3 of a tilt video of the Pentalume Sapphire (0, 1 and 2 degrees on axis 0). Each frame is compared on its own; the scene's result is the worst frame.",
+      "job": "jobs/s4_tilt.job.json",
+      "kind": "tilt_video",
+      "frames": 3,
+      "reference_spp": 16384,
+      "adaptive_max_spp": 8192,
+      "render_args": []
+    },
+    {
+      "id": "s5_opal",
+      "title": "Scattering material (white opal)",
+      "description": "Pentalume Sapphire geometry rendered in the built-in Opal: a scattering body, so the path cache must fall back to the path tracer and the image must match.",
+      "job": "jobs/s5_opal.job.json",
+      "kind": "still",
+      "frames": 1,
+      "reference_spp": 16384,
+      "adaptive_max_spp": 8192,
+      "render_args": ["--material", "Opal"]
+    },
+    {
+      "id": "s6_8k",
+      "title": "8K still at 32k samples",
+      "description": "The Pentalume Sapphire at 7680 x 4320 and 32768 samples per pixel (the largest count a job allows): the high-end case.",
+      "job": "jobs/s6_8k.job.json",
+      "kind": "still",
+      "frames": 1,
+      "reference_spp": 32768,
+      "adaptive_max_spp": 32768,
+      "render_args": []
+    }
+  ]
+}

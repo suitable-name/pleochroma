@@ -5,7 +5,7 @@ use std::fmt;
 
 use crate::geometry::brep::BrepError;
 
-/// Everything that can go wrong in [`super::StandardGemCuts::reconstruct_validated_brep_from_asc`].
+/// Errors from [`super::StandardGemCuts::reconstruct_validated_brep_from_asc`].
 #[derive(Debug, Clone, PartialEq)]
 pub enum CutError {
     /// [`crate::geometry::GemPolyhedron::from_planes`] itself failed to reconstruct a valid, closed,
@@ -26,9 +26,7 @@ pub enum CutError {
 impl fmt::Display for CutError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            // Verbatim pass-through: this matches the original `?`-propagated text
-            // exactly, since `BrepError::Display` reproduces `from_planes`'s own
-            // former `String` error message.
+            // Passes the `BrepError` text through unchanged.
             Self::Brep(e) => write!(f, "{e}"),
             Self::OverConstrained {
                 untouched_count,

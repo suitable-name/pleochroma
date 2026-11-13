@@ -22,10 +22,9 @@ pub(super) struct WorkerHandle {
 }
 
 impl WorkerHandle {
-    /// Starts a Worker. `on_message` gets every decoded reply; `on_error` gets a
-    /// description of an undecodable reply or of the Worker's own `error` event (a
-    /// script load failure or an uncaught panic).
-    /// Starts a Worker from `url`.
+    /// Starts a Worker from `url`. `on_message` gets every decoded reply; `on_error` gets a
+    /// description of an undecodable reply or of the Worker's own `error` event (a script
+    /// load failure or an uncaught panic).
     pub(super) fn spawn_url(
         url: &str,
         mut on_message: impl FnMut(FromWorker) + 'static,

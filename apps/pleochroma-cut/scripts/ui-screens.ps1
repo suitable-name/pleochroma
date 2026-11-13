@@ -7,10 +7,10 @@
   Finds every `export component X inherits Window` under ui/ and ui/components/, reads its
   declared min-width/min-height, runs `slint-viewer --check`, then renders each window at its
   declared minimum plus 1366x768, 1920x1080 and 2560x1440 (MainWindow also 900x900 and
-  1024x640). A PNG larger than the requested size means the
-  content tree enforces a minimum above the declared one (a finding). Rough Planner scenarios
-  (results, loaded, cuts_mesh, running, save_rows, inclusions_ellipsoid, inclusions_sphere) are rendered from patched ui/ copies at the
-  declared minimum, 1366x768 and 1920x1080.
+  1024x640). A PNG larger than the requested size means the content tree enforces a minimum
+  above the declared one (a finding). Rough Planner scenarios (results, loaded, cuts_mesh,
+  running, save_rows, inclusions_ellipsoid, inclusions_sphere) are rendered from patched ui/
+  copies at the declared minimum, 1366x768 and 1920x1080.
 
   Writes summary.md into the output folder. Exit code 1 when any check failed or any size
   finding exists, otherwise 0. Copies of ui/ go to <repo>/target/ui-screens/work/ and are

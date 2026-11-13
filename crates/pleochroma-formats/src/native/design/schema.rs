@@ -1,57 +1,61 @@
 //! The self-contained design file: one text file, extension `.psdd`.
 //!
-//! `.psdd` stands for Pleochroma Suite Design Document. The file carries a WHOLE faceting design with no
-//! paired `.asc` and no machine-local reference.
+//! `.psdd` stands for Pleochroma Suite Design Document. The file carries a whole faceting
+//! design with no paired `.asc` and no machine-local reference.
 //!
 //! # Format
 //!
 //! UTF-8 text, TOML syntax, LF line endings. The first two keys are always
-//! `format = "pleochroma-design"` and `version = 1`, so a reader can judge a file
-//! from its first two lines (see [`super::codec`]): a file of another kind, or one
-//! written by a newer major version, is refused with its own typed error before any
-//! other key is looked at. Unknown keys -- at the top level, in `[preform]`,
-//! `[meta]`, `[material]`, `[schedule]`, in every `[[tiers]]` entry and in every
-//! `[[attachments]]` entry -- are kept in the
-//! matching `unknown` table and written back unchanged, so a build never degrades a
-//! file a newer minor revision wrote. Output is deterministic: the same document
-//! always serialises to the same bytes (struct fields in declaration order, maps in
-//! key order, no clock or host data in the body).
+//! `format = "pleochroma-design"` and `version = 1`, so a reader can judge a file from its
+//! first two lines (see [`super::codec`]). A file of another kind, or one written by a newer
+//! major version, is refused with its own typed error before any other key is looked at.
+//! Unknown keys (top level, `[preform]`, `[meta]`, `[material]`, `[schedule]`, every
+//! `[[tiers]]` and every `[[attachments]]` entry) are kept in the matching `unknown` table
+//! and written back unchanged, so a build never degrades a file a newer minor revision
+//! wrote. Output is deterministic: the same document always serialises to the same bytes
+//! (struct fields in declaration order, maps in key order, no clock or host data).
 //!
 //! # Tables
 //!
-//! | Key | Content |
-//! | --- | --- |
-//! | `format`, `version` | Header, always first. |
-//! | `girdle_diameter_mm` | Real-world girdle diameter, when anchored. |
-//! | `draft` | `true` when the design did not solve at save time; informational. |
-//! | `[meta]` | Descriptive facts that cannot be recomputed: id, title, designer, source, notes, tags, rights, dates ([`DesignMetadata`]). |
-//! | `[preform]` | Rough shape and size ([`PreformTable`]); a plane-set rough (`kind = "planes"`, the Rough Planner's piece) makes the file `version = 4`. |
-//! | `[material]` | Material name, SG/RI overrides, custom snapshot, body color ([`MaterialTable`]). |
-//! | `[schedule]` | Gear, symmetry, mirror, version banner, authored RI, headers, footnotes ([`ScheduleTable`]). |
-//! | `[source]` | Printed Vol/W^3, L/W, C/W, P/W, H/W of a catalogue row ([`SourceTable`]). |
-//! | `[history]` | Bounded trail of edit descriptions ([`HistoryTable`]). |
-//! | `[render_effects]` | Per-design stone render effects, only when one is on ([`RenderEffectsTable`]); its optional subtables `[render_effects.inclusions]` and `[render_effects.structure]` and the `edge_abrasion_*` keys are written only when set. |
-//! | `[crystal_axis_plan]` | The orientation rule a Rough Planner hand-off planned the stone under, only when handed over ([`CrystalAxisPlanTable`]). |
-//! | `[[tiers]]` | Every tier in full, in cutting order ([`TierTable`]). |
-//! | `[[concave_tiers]]` | Concave (fantasy-cut) tiers with their tool lines, only when present; the file is then `version = 2` and carries `concave_frame = "v0"`; each record may carry a stable `concave_tier_id` ([`ConcaveTierTable`]). |
-//! | `[[attachments]]` | Files that cannot be recomputed, as base64 with size and SHA-256 ([`AttachmentTable`]). |
+//! - `format`, `version`: header, always first.
+//! - `girdle_diameter_mm`: real-world girdle diameter, when anchored.
+//! - `draft`: `true` when the design did not solve at save time (informational).
+//! - `[meta]`: descriptive facts that cannot be recomputed ([`DesignMetadata`]).
+//! - `[preform]`: rough shape and size ([`PreformTable`]). A plane-set rough makes the
+//!   file `version = 4`.
+//! - `[material]`: material name, SG/RI overrides, custom snapshot, body color
+//!   ([`MaterialTable`]).
+//! - `[schedule]`: gear, symmetry, mirror, banner, authored RI, headers and footnotes
+//!   ([`ScheduleTable`]).
+//! - `[source]`: printed Vol/W^3, L/W, C/W, P/W and H/W of a catalogue row
+//!   ([`SourceTable`]).
+//! - `[history]`: bounded trail of edit descriptions ([`HistoryTable`]).
+//! - `[render_effects]`: stone render effects, only when one is on
+//!   ([`RenderEffectsTable`]). Its subtables are written only when set.
+//! - `[crystal_axis_plan]`: orientation rule of a planner hand-off, only when handed over
+//!   ([`CrystalAxisPlanTable`]).
+//! - `[[tiers]]`: every tier in full, in cutting order ([`TierTable`]).
+//! - `[[concave_tiers]]`: concave (fantasy-cut) tiers with their tool lines, only when
+//!   present ([`ConcaveTierTable`]). The file is then `version = 2` with
+//!   `concave_frame = "v0"`.
+//! - `[[attachments]]`: files that cannot be recomputed, as base64 with size and SHA-256
+//!   ([`AttachmentTable`]).
 //!
 //! # Tiers
 //!
-//! Every `[[tiers]]` entry is self-describing: its name, meet constraint, detached
-//! values, angle, index-wheel positions, imported meet, original notes, free-text
-//! note, cheater offset, authoring target, optional angle relation, optional frosting
-//! (`frosted = true` for the whole tier, or `frosted_facets = [..]` with the index-wheel
-//! positions of single frosted facets; neither is written for a polished tier, and neither
-//! changes the file version -- a build that predates them keeps them in the tier's `unknown`
-//! table and writes them back), optional surface finish (`surface = "Commercial"` with
-//! `surface_rq_nm`, `surface_lap_deg`, `surface_aniso`, `surface_no_sweep`, `ground_alpha` and
-//! per-facet `surface_facets`; none is written for an ideal tier, and none changes the file
-//! version) and its stable `tier_id`. Nothing about a
-//! tier lives anywhere else in the file, so no value is ever matched to a tier by its
-//! array position: reordering the entries moves each tier's note, offset and target
-//! with it. `angle_deg` and `indices` are required; `tier_id` is expected and unique
-//! (a missing id is assigned on load, a repeated one is refused).
+//! Every `[[tiers]]` entry is self-describing: name, meet constraint, detached values,
+//! angle, index-wheel positions, imported meet, original notes, free-text note, cheater
+//! offset, authoring target, optional angle relation, optional frosting and surface
+//! finish, and a stable `tier_id`. Frosting is `frosted = true` for the whole tier or
+//! `frosted_facets = [..]` (index-wheel positions of single facets). Surface finish is
+//! `surface = "Commercial"` with `surface_rq_nm`, `surface_lap_deg`, `surface_aniso`,
+//! `surface_no_sweep`, `ground_alpha` and per-facet `surface_facets`. Both are written
+//! only when set, and neither changes the file version.
+//!
+//! Nothing about a tier lives anywhere else in the file, so no value is matched to a tier
+//! by its array position: reordering the entries moves each tier's note, offset and target
+//! with it. `angle_deg` and `indices` are required; `tier_id` is expected and unique (a
+//! missing id is assigned on load, a repeated one is refused).
 //!
 //! `angle_relation` is canonical relation text such as `"@3 - 2"`: the tier's angle is
 //! that expression over other tiers' angle magnitudes, named by `tier_id`. The text
@@ -74,7 +78,7 @@
 //! | name / title | STORED `meta.title` | |
 //! | stable design id | STORED `meta.id` | |
 //! | designer | STORED `meta.designer` | |
-//! | `designer_info` (display line) | STORED `meta.designer_info` | (doubt: a hand-edited line need not equal the join of designer and citation) |
+//! | `designer_info` (display line) | STORED `meta.designer_info` | May differ from the join. |
 //! | `source_citation` | STORED `meta.source_citation` | |
 //! | `page_url` | STORED `meta.source_url` | |
 //! | `design_id` (catalogue's own id text) | STORED `meta.source_design_id` | |
@@ -83,21 +87,21 @@
 //! | `competition_diagram` | STORED `meta.competition` | |
 //! | `pdf_file` / `gem_file` names | STORED `meta.pdf_file`, `meta.gem_file` | |
 //! | notes, tags | STORED `meta.notes`, `meta.tags` | |
-//! | license, rights | STORED `meta.license`, `meta.copyright` (new) | |
+//! | license, rights | STORED `meta.license`, `meta.copyright` | |
 //! | created / modified time | STORED `meta.created_at`, `meta.modified_at` | |
-//! | ignored mark | STORED `meta.ignored` (doubt: library curation) | |
+//! | ignored mark | STORED `meta.ignored` | Library curation, not derivable. |
 //! | Rough Planner exclusion | STORED `meta.planner_excluded` | |
 //! | attached PDF, original `.gem`, original `.asc`, other files | STORED `[[attachments]]` | |
-//! | diagram image (name + bytes) | STORED `[[attachments]]`, role `diagram_image` (doubt: the page may be gone; drawing it needs a render) | |
+//! | diagram image | STORED `[[attachments]]`, role `diagram_image` | The page may be gone. |
 //! | printed Vol/W^3, L/W, C/W, P/W, H/W | STORED `[source]` | |
-//! | lw / hw / tw / uw / pw / cw ratios, volume | DERIVED | solved geometry of the tiers (`[source]` keeps only the printed figures) |
+//! | lw / hw / tw / uw / pw / cw, volume | DERIVED | solved tier geometry |
 //! | `facets_count` (`"55+6"`) | DERIVED | counted from the solved tiers |
 //! | `index_gear`, `symmetry_order`, mirror | DERIVED | `[schedule]` gear, symmetry and mirror |
 //! | `refractive_index` | DERIVED | `[schedule]`/`[material]` |
 //! | angle-settings table | DERIVED | rebuilt from the tiers and the gear |
-//! | `diagram_entries.url` (`local://...`), row ids | DERIVED | machine-local; the importer assigns its own |
+//! | `diagram_entries.url`, row ids | DERIVED | machine-local; the importer assigns its own |
 //! | solid hull, solid extents | DERIVED | recomputed from the solved geometry |
-//! | preview images, tilt curves, chosen preview material | DERIVED | rendered/derived again from the design |
+//! | previews, tilt curves, preview material | DERIVED | rendered again from the design |
 //! | saved Rough Planner results | DERIVED | the planner is run again |
 //!
 //! `[[attachments]]` entries are `name` (unique, at most 255 bytes, no path
@@ -196,8 +200,8 @@ use crate::native::{
 /// The value of the `format` header key.
 pub const DESIGN_FORMAT: &str = "pleochroma-design";
 
-/// The `format` value of design files written before the rename to Pleochroma. Read
-/// exactly like [`DESIGN_FORMAT`], never written: a parsed file carries [`DESIGN_FORMAT`].
+/// Legacy `format` value. Read like [`DESIGN_FORMAT`], never written: a parsed file
+/// carries [`DESIGN_FORMAT`].
 pub const LEGACY_DESIGN_FORMAT: &str = "indicatrix-design";
 
 /// `true` iff `format` names a design file: [`DESIGN_FORMAT`] or [`LEGACY_DESIGN_FORMAT`].
@@ -214,36 +218,29 @@ pub const DESIGN_VERSION: u32 = 1;
 
 /// The schema version of a file that carries concave tiers.
 ///
-/// Written only when [`DesignFile::concave_tiers`] is non-empty, so every planar
-/// file stays version 1 and byte-identical, and a build that predates concave
-/// tiers refuses the file with `UnsupportedVersion` instead of silently showing
-/// the stone without its concave cuts (plan §6.1, decision Q5).
+/// Written only when [`DesignFile::concave_tiers`] is non-empty, so a planar file stays
+/// version 1. An older build refuses a version 2 file with `UnsupportedVersion` rather
+/// than showing the stone without its concave cuts.
 pub const DESIGN_VERSION_CONCAVE: u32 = 2;
 
 /// The schema version of a file in which at least one tier carries an
 /// `angle_relation` (its angle is driven by an expression over other tiers' angles).
 ///
-/// Written only when a relation exists, exactly like [`DESIGN_VERSION_CONCAVE`]: a
-/// design without relations stays version 1 (or 2 with concave tiers) and
-/// byte-identical, and a build that predates relations refuses a version 3 file with
-/// `UnsupportedVersion` instead of opening it and losing the relations on the next
-/// save. A version 3 file may also hold concave tiers (and then carries
-/// `concave_frame` as usual).
+/// Written only when a relation exists, like [`DESIGN_VERSION_CONCAVE`]. An older build
+/// refuses a version 3 file with `UnsupportedVersion` rather than dropping the relations on
+/// save. A version 3 file may also hold concave tiers.
 pub const DESIGN_VERSION_RELATIONS: u32 = 3;
 
 /// The schema version of a file whose `[preform]` is a plane set
 /// (`shape = { kind = "planes", planes = [...], source = "..." }`), the piece of rough
 /// the Rough Planner hands the editor.
 ///
-/// Written only when the preform is a plane set, exactly like [`DESIGN_VERSION_CONCAVE`]
-/// and [`DESIGN_VERSION_RELATIONS`]: every block or cylinder file keeps its version and
-/// stays byte-identical, and a build that predates plane-set preforms refuses a version 4
-/// file with `UnsupportedVersion` instead of failing on an unknown shape kind (or opening
-/// the stone without its rough). A version 4 file may also hold concave tiers and
-/// relations.
+/// Written only when the preform is a plane set. An older build refuses a version 4 file
+/// with `UnsupportedVersion` rather than failing on an unknown shape kind. A version 4
+/// file may also hold concave tiers and relations.
 pub const DESIGN_VERSION_PLANES: u32 = 4;
 
-/// The concave-tier frame convention this build writes and reads (plan §11a).
+/// The concave-tier frame convention this build writes and reads.
 ///
 /// It fixes where X, Y, Z are measured from and what θ is relative to. Stored next to the
 /// tiers because the numbers mean nothing without it; a reader that meets any
@@ -270,7 +267,7 @@ const fn default_version() -> u32 {
 /// instead of relying on a paired `.asc`.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ScheduleTable {
-    /// The `GemCad` version banner of the originating schedule (empty when none).
+    /// The `GemCAD` version banner of the originating schedule (empty when none).
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub gemcad_version: String,
     /// Tooth count of the index gear; negative for a gear counted the other way.
@@ -299,9 +296,8 @@ pub struct ScheduleTable {
 /// (inclusion haze, crystal-axis orientation, frosted girdle, edge rounding).
 ///
 /// Written only when at least one effect is on (`DesignFile::render_effects` is `None`
-/// otherwise), so every file without effects stays byte-identical to what earlier builds
-/// wrote, and a file without the table reads as "all effects off". Every key has a serde
-/// default, so a table written by an older or newer revision still loads.
+/// otherwise). A file without the table reads as "all effects off". Every key has a serde
+/// default, so a table from an older or newer revision still loads.
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RenderEffectsTable {
     /// Inclusion / subsurface scattering `sigma_s` per model unit; `0.0` is off.
@@ -383,13 +379,12 @@ impl RenderEffectsTable {
 }
 
 /// The optional `[crystal_axis_plan]` table: the orientation rule a stone was planned under
-/// (the Rough Planner's hand-off writes it) and the Reason of an override, for the cutting sheet.
+/// (written by the Rough Planner hand-off) and the reason for an override, for the cutting
+/// sheet.
 ///
-/// Written only when the hand-off had something to record, so every other file stays
-/// byte-identical to what earlier builds wrote. The words (`rule`, `strength`, `source`,
-/// `preset`) are stable lower-case keys that `pleochroma-cut-core` reads and writes; this crate
-/// stores them. Every key has a serde default, so a table from an older or newer revision still
-/// loads.
+/// Written only when the hand-off had something to record. The words (`rule`, `strength`,
+/// `source`, `preset`) are stable lower-case keys that `pleochroma-cut-core` reads and
+/// writes; this crate stores them. Every key has a serde default.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CrystalAxisPlanTable {
     /// `none`, `table_across`, `in_table_plane`, `custom_angle` or `face_up`.
@@ -468,8 +463,8 @@ pub struct DesignFile {
     /// Per-design stone render effects; absent (and not written) when all are off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub render_effects: Option<RenderEffectsTable>,
-    /// The orientation rule the stone was planned under; absent (and not written) for a design
-    /// that was not handed over by the Rough Planner.
+    /// The orientation rule the stone was planned under; absent (and not written) for a
+    /// design that was not handed over by the Rough Planner.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub crystal_axis_plan: Option<CrystalAxisPlanTable>,
     /// Every tier in full, in cutting order.

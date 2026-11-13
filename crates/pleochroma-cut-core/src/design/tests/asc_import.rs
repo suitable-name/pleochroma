@@ -81,11 +81,10 @@ fn importing_an_unanchored_asc_schedule_pins_every_tier_to_its_real_mast() {
     assert!(design.solve().is_ok());
 }
 
-/// A design authored with every tier at an explicit depth (as every template and the round
-/// brilliant are) exports "Set stone size." on one tier only, its girdle
-/// ([`Design::sizing_tier`]): one cut sets the size of the stone, and the instruction on every
-/// line read as nonsense to a cutter (2026-11-04). The depths still come back exactly, as an
-/// import pins every tier to its mast whatever its text says.
+/// A design authored with every tier at an explicit depth exports "Set stone size." on one
+/// tier only, its sizing tier ([`Design::sizing_tier`]). One cut sets the size of the stone,
+/// so the instruction on every line would read as nonsense to a cutter. The depths still
+/// come back exactly, as an import pins every tier to its mast whatever its text says.
 #[test]
 fn only_the_sizing_girdle_says_set_stone_size() {
     let mut design = Design::new(

@@ -50,26 +50,15 @@ pub(in crate::gui::editor) fn clear_selected_facet(
     ui.global::<SolidPreviewModel>().set_hover_text("".into());
 }
 
-/// Maps an incoming Solid-viewport pointer
-/// position (`SolidPreviewModel.on_facet_hover`/`on_facet_click`'s own `x`/`y`,
-/// LOGICAL pixels) onto the pick buffer's PHYSICAL-pixel coordinate space.
+/// Maps a Solid-viewport pointer position (`SolidPreviewModel.on_facet_hover`/`on_facet_click`,
+/// LOGICAL pixels) onto the pick buffer's PHYSICAL-pixel space.
 ///
-/// In Path-traced/Both mode (`SolidPreviewModel.view_mode` `1`/`2`) the solid/
-/// edges rasters are now requested at the LETTERBOXED rectangle
-/// `render::camera_lighting::contained_request_size` computes -- mirroring
-/// `solid_viewport.slint`'s own `image-fit: contain` -- which can be smaller
-/// than, and is centred within, the viewport's own raw rectangle (see that
-/// function's own doc comment for when and why). Multiplying by
-/// `scale_factor` alone (the pre-existing, still-necessary logical-to-physical
-/// conversion) is not enough on its own in that case: it would still index the
-/// pick buffer as though it covered the FULL, un-letterboxed viewport, landing a
-/// click off the traced gem by exactly the letterbox bars' width/height.
+/// In Path-traced/Both mode the rasters are requested at the letterboxed rectangle from
+/// `render::camera_lighting::contained_request_size`, which mirrors `image-fit: contain`. That
+/// rectangle is centred in the viewport, so the margin is subtracted as well as the scaling.
 ///
-/// Falls back to the plain scaled position (today's behavior) when
-/// `auto_solve::render_ctx` has not been stashed yet, or `RenderContext.width`/
-/// `height` is `0` (nothing requested) -- `contained_request_size` itself
-/// already returns `viewport_size` unchanged for Solid/Diagram modes, so this
-/// is a genuine no-op there, not just an approximation.
+/// Falls back to the plain scaled position when `auto_solve::render_ctx` is not stashed yet or
+/// nothing is requested. In Solid and Diagram modes the margin is zero.
 pub(in crate::gui::editor) fn map_to_pick_coordinates(
     ui: &MainWindow,
     x: f32,
@@ -146,15 +135,12 @@ pub(in crate::gui::editor) fn pick_margin(ui: &MainWindow) -> (f32, f32) {
     letterbox_margin(viewport_physical, contained)
 }
 
-/// The physical-pixel margin [`map_to_pick_coordinates`] subtracts before
-/// indexing the pick buffer -- pure arithmetic, unit tested directly. `image-fit:
-/// contain` centres the smaller `contained_physical` rectangle inside
-/// `viewport_physical`, so the margin on each axis is exactly half of
-/// whatever's left over; `saturating_sub` guards the (never expected, but never
-/// unsafe either) case where `contained_physical` is somehow larger.
+/// The physical-pixel margin [`map_to_pick_coordinates`] subtracts. `image-fit: contain` centres
+/// the smaller `contained_physical` rectangle, so the margin on each axis is half the leftover.
+/// `saturating_sub` keeps the margin at zero if the rectangle is larger.
 ///
-/// `pub(in crate::gui::editor)` since [`super::tests`] and the manipulation module's
-/// tests exercise this directly.
+/// `pub(in crate::gui::editor)`: used by the tests in `super::tests` and in the manipulation
+/// module.
 #[must_use]
 pub(in crate::gui::editor) fn letterbox_margin(
     viewport_physical: (u32, u32),
@@ -166,29 +152,18 @@ pub(in crate::gui::editor) fn letterbox_margin(
     )
 }
 
-/// The Solid viewport's hover callback -- looks up the facet under the cursor against
-/// the pick buffer of the LAST rendered frame and sets `editor_solid_hover_text` from
-/// `solid_hover_text`, the same frame's own `PreviewFrame::hover_text` table
-/// (`SlintSolidSink::apply`, `gui::mod`). A silent no-op off the silhouette or before
-/// anything has ever rendered.
+/// The Solid viewport's hover callback. It looks up the facet under the cursor in the pick buffer
+/// of the last rendered frame and shows that frame's hover text. Off the silhouette it shows the
+/// selected facet's label instead, or nothing.
 ///
 /// # Indexes the frame's own table instead of rebuilding a `FacetMap`
 ///
-/// Rebuilding `FacetMap::from_design(&st.design, &solved)` -- a full
-/// `Design::planes_from_solved`-equivalent rebuild plus a fresh `dedup_planes` pass --
-/// on every single mouse-move event would be wasteful. `solid_hover_text` already
-/// holds exactly the string that map would produce for each facet id, computed ONCE
-/// per rendered frame by the worker thread
-/// (`preview_state::update_diagram_memory_from_design`'s Solid-mode counterpart), so
-/// this degrades to one `Vec::get`. Neither `Design` nor the last-solved mast cache
-/// is needed here at all (an editor edit that hasn't re-rendered yet still shows the
-/// PREVIOUS frame's hover text, exactly as it shows the previous frame's picked
-/// geometry -- no new staleness).
+/// Rebuilding the facet map on every mouse move would be wasteful. The worker builds the hover
+/// text once per rendered frame, so a hover is one `Vec::get`. An edit that has not re-rendered
+/// yet shows the previous frame's text, as it shows the previous frame's picks.
 ///
-/// `solid_hover_text` reaches this callback through `solid_pick_state` (see
-/// [`SolidPickState`]'s own doc comment): `gui::mod::build_main_window` owns the
-/// `Arc<Mutex<Vec<String>>>` `SlintSolidSink` writes every frame, and bundles it into
-/// the `SolidPickState` this function's caller passes through.
+/// `solid_hover_text` reaches this callback through [`SolidPickState`]. `gui::main_window` builds
+/// it and shares it with `gui::solid_sink`'s `SlintSolidSink`, which writes it every frame.
 pub(in crate::gui::editor) fn setup_solid_facet_hover_callback(
     ui: &MainWindow,
     solid_pick_state: &SolidPickState,
@@ -201,21 +176,12 @@ pub(in crate::gui::editor) fn setup_solid_facet_hover_callback(
             let Some(ui) = ui_weak.upgrade() else {
                 return;
             };
-            // The pick buffer is rasterized at the viewport's PHYSICAL size
-            // (`view::scaled_viewport_size`) but `x`/`y` are the pointer's LOGICAL
-            // position, so they are MULTIPLIED by the same `scale_factor` to reach
-            // the physical pixel they name: at 2x, logical x=400 in an 800-wide
-            // viewport is physical x=800 in a 1600-wide pick buffer. Dividing would
-            // collapse every pick into the top-left quarter of the image.
-            // `solid_preview::diagram_wiring` does the same for the diagram's own
-            // pick buffer. In Path-traced/Both mode the pick
-            // buffer is smaller than the raw viewport (letterboxed), so
-            // `map_to_pick_coordinates` also subtracts the centred margin --
-            // see that function's own doc comment. `.max(0.0) as u32` saturates a
-            // negative position (past the image's edge, or inside a letterbox bar)
-            // to `0`; `PickBuffer::facet_at` already bounds-checks against the
-            // frame's width/height, so this simply misses (`None`) rather than
-            // reading garbage.
+            // The pick buffer is at the viewport's physical size, but `x`/`y` are LOGICAL, so
+            // they are multiplied by `scale_factor` (at 2x, logical 400 is physical 800). Dividing
+            // would collapse every pick into the top-left quarter. In Path-traced/Both mode
+            // `map_to_pick_coordinates` also removes the letterbox margin. A negative position
+            // saturates to `0`, and `PickBuffer::facet_at` bounds-checks, so an off-image
+            // position misses (`None`) rather than reading garbage.
             let scale = ui.window().scale_factor();
             let (px, py) = map_to_pick_coordinates(&ui, x, y);
             let (pick_dimensions, facet_id) = {
@@ -288,19 +254,14 @@ pub(in crate::gui::editor) fn setup_solid_facet_hover_callback(
         });
 }
 
-/// The Solid viewport's click callback -- the forward half of the "click selects the
-/// tier in the list" link (see [`setup_solid_selected_tier_changed_callback`] for the
-/// reverse half).
+/// The Solid viewport's click callback, the forward half of the "click selects the tier in the
+/// list" link (see [`setup_solid_selected_tier_changed_callback`] for the reverse half).
 ///
 /// # Indexes the frame's own table instead of rebuilding a `FacetMap`
 ///
-/// See [`setup_solid_facet_hover_callback`]'s matching doc section: `solid_facet_tier`
-/// is the last rendered frame's own `PreviewFrame::facet_owners` tables, so resolving a
-/// clicked facet to its owning tier is one `Vec::get` instead of a fresh
-/// `FacetMap::from_design` rebuild. Neither `Design` nor the last-solved mast cache is
-/// needed here at all. `solid_facet_owners` reaches this callback the same way
-/// `solid_hover_text` reaches the hover callback: through `solid_pick_state`, bundled
-/// there by `gui::mod::build_main_window`.
+/// See [`setup_solid_facet_hover_callback`]. `solid_facet_owners` is the last rendered frame's
+/// `PreviewFrame::facet_owners`, so a clicked facet resolves to its owning tier with one lookup.
+/// It reaches this callback through [`SolidPickState`], as `solid_hover_text` does.
 pub(in crate::gui::editor) fn setup_solid_facet_click_callback(
     ui: &MainWindow,
     solid_pick_state: &SolidPickState,
@@ -330,19 +291,11 @@ pub(in crate::gui::editor) fn setup_solid_facet_click_callback(
                 .as_ref()
                 .and_then(|pick| pick.facet_at(pixel_coordinate(px), pixel_coordinate(py)))
             else {
-                // A click that misses the silhouette clears
-                // the tier selection instead of leaving it alone -- matching what
-                // `solid_preview::diagram_wiring`'s own Diagram-mode click miss
-                // branch already does.
-                // Setting `selected_tier_index` alone is enough: `changed
-                // selected_tier_index` in `models/editor.slint` fires
-                // `selected_tier_changed`, which re-seeds/clears the inspector
-                // form on the Rust side (`setup_solid_selected_tier_changed_
-                // callback`).
+                // A miss clears the tier selection, as the Diagram view's miss does. Setting
+                // `selected_tier_index` is enough: its `changed` handler in `models/editor.slint`
+                // fires `selected_tier_changed`.
                 ui.global::<EditorModel>().set_selected_tier_index(-1);
-                // A miss also clears whatever facet was
-                // previously identified -- nothing is selected any more, so
-                // nothing should keep reading in the tooltip.
+                // A miss also clears the picked facet, so the tooltip stops reading it.
                 if let Some(preview_state) = auto_solve::preview_state() {
                     facet_selection::clear_clicked_facet(&preview_state);
                 } else {
@@ -367,13 +320,8 @@ pub(in crate::gui::editor) fn setup_solid_facet_click_callback(
                 // A tutorial step may wait for a facet of a tier to be picked.
                 raise(&ui, events::FACET_PICKED);
             }
-            // Identifies the clicked facet itself, not just its
-            // owning tier -- GemCad/GCS-style "which index is this facet, and
-            // which member of the orbit did I click" -- reusing the SAME per-facet
-            // label `setup_solid_facet_hover_callback` shows transiently on hover
-            // (`solid_hover_text`); the hover callback's miss branch re-reads it for the
-            // selected facet from the frame on screen, so it survives the pointer leaving
-            // the facet and follows an angle edited since.
+            // The label names the clicked facet itself, the same per-facet label the hover shows.
+            // The hover re-reads it for the selected facet, so it follows an angle edited since.
             let label = solid_hover_text
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -392,38 +340,19 @@ pub(in crate::gui::editor) fn setup_solid_facet_click_callback(
         });
 }
 
-/// The reverse link: whenever the tier list's selection changes (a row click, or
-/// [`setup_solid_facet_click_callback`] setting `editor_selected_tier_index` from a
-/// viewport click), re-submits a redraw with the new `selected_tier` so the overlay
-/// tint follows it. Cheap: the mesh is unchanged (`dirty` empty), so the worker's
-/// `MeshCache` hits and only the style/render redo.
+/// The reverse link: when the tier list's selection changes (a row click, or a viewport click
+/// setting `selected_tier_index`), this re-submits the overlay so the tint follows the new
+/// `selected_tier`. The mesh is unchanged, so the worker's `MeshCache` hits and only the style
+/// and render are redone.
 ///
-/// Also narrows [`EditorState::multi_selected`] back down to nothing here: EVERY
-/// path that fires `selected_tier_changed` is, by construction, a plain (non-Ctrl)
-/// selection -- `setup_toggle_multi_select_callback`'s own Ctrl+click path never
-/// touches `editor_selected_tier_index` at all, so it never reaches this callback --
-/// so this is the one place that needs to clear a forgotten multi-select group
-/// before it silently widens the next angle nudge (see `setup_nudge_angle_callback`'s
-/// own doc comment for that batch behaviour). Patches the already-pushed
-/// `editor_tiers` model in place, the same as `setup_toggle_multi_select_callback`
-/// does, rather than a full [`refresh_editor_panel_stale`] -- narrowing the
-/// multi-select highlight is not itself a `Design` edit and must not re-label the
-/// validation banner "Not solved".
+/// It also clears [`EditorState::multi_selected`]. Every path that fires `selected_tier_changed`
+/// is a plain selection, since Ctrl+click never changes the selected row. So this is where a
+/// forgotten multi-select group is dropped, before it widens the next angle nudge. The tier rows
+/// are patched in place, not refreshed: clearing the group is not a `Design` edit, so it must not
+/// re-label the validation banner "Not solved".
 ///
-/// Runs [`apply_selected_tier_change`] directly and unconditionally -- unlike an
-/// earlier version of this callback, which assumed Slint invoked it SYNCHRONOUSLY
-/// from inside `set_selected_tier_index` and deferred to a zero-duration `Timer`
-/// whenever `state.try_borrow_mut()` found the `RefCell` already held (by
-/// `apply_loaded_design`/`adjust_selection_after_remove`, both of which write the
-/// property while still holding their own guard). That assumption was wrong:
-/// `EditorModel.selected_tier_changed` is invoked from `ui/models/editor.slint`'s
-/// own `changed selected_tier_index => { ... }`, and `changed` handlers are QUEUED
-/// -- they run on the next
-/// event-loop turn or tree flush, strictly after the Rust call that set the
-/// property has already returned and dropped every borrow it held. The busy
-/// check could therefore never actually observe a held borrow from EITHER of
-/// those two callers; it was dead weight kept alive by a false assumption, not a
-/// real race it was guarding against.
+/// Runs [`apply_selected_tier_change`] directly. Slint runs a `changed` handler only after the
+/// Rust setter that caused it has returned, so no `RefCell` borrow is held at that point.
 pub(in crate::gui::editor) fn setup_solid_selected_tier_changed_callback(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -458,9 +387,7 @@ pub(in crate::gui::editor) fn setup_solid_selected_tier_changed_callback(
         });
 }
 
-/// The body of [`setup_solid_selected_tier_changed_callback`]'s handler, factored out
-/// purely to keep that function short: [`setup_solid_selected_tier_changed_callback`]
-/// calls this directly and unconditionally.
+/// The body of [`setup_solid_selected_tier_changed_callback`]'s handler.
 fn apply_selected_tier_change(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -472,19 +399,10 @@ fn apply_selected_tier_change(
     // committed design, so the slice ends first (before `state` is borrowed).
     drop_provisional_for_selection(ui);
     let mut st = state.borrow_mut();
-    // Ending a coalesce run needs a real
-    // interaction boundary, and the ideal one (pointer release/focus loss on the
-    // `TierAngleCell` doing the nudging) lives in `editor_tier_table.slint`, not
-    // here (see `History::end_coalesce_run`'s own doc comment). This runs on a
-    // genuine `changed selected_tier_index` (a different row/facet clicked, or
-    // the selection cleared) AND on a plain re-click of the row already selected
-    // (`editor_view.slint`'s `tier_table.tier_selected` handler invokes
-    // `EditorModel.selected_tier_changed` directly for that one case, since a
-    // same-value property write raises no `changed` at all) -- never on the
-    // nudge control's own repeated ticks, so a wheel-nudge run in progress on the
-    // tier the cutter just navigated away from must not sit open for an
-    // unrelated later nudge on that same tier (after selecting elsewhere and
-    // back within the coalescing window) to merge into.
+    // Ends the current coalescing run of nudges, so a run on the tier being left cannot merge a
+    // later nudge of that tier. Runs on a real selection change and on a re-click of the selected
+    // row (`editor_view.slint` calls `selected_tier_changed` itself, as a same-value write raises
+    // no `changed`). It does not run on the nudge control's own ticks.
     st.history.end_coalesce_run();
     if !st.multi_selected.is_empty() {
         st.multi_selected.clear();

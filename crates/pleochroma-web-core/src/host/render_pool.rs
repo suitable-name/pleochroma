@@ -198,7 +198,7 @@ impl RenderPool {
     /// traces or denoises the scene -- the render Workers, the GPU Worker (when
     /// [`Self::gpu_ineligibility_reason`] allows it) and the picture Worker -- gets the same
     /// tools, so no engine traces a flatter stone than another. With no tools this is exactly
-    /// [`Self::set_scene`], and the Workers are sent the same `SetScene` message as before.
+    /// [`Self::set_scene`].
     pub fn set_scene_with_tools(&self, spec: SceneSpec, tools: Vec<ToolPrimitive>) {
         self.set_scene_with_engine(
             spec,
@@ -254,7 +254,7 @@ impl RenderPool {
     /// analysis Worker will hold a copy too, which counts as one of the copies (see
     /// [`admit_hdr`]). Returns the admission, whose `workers` is the new render-Worker
     /// count and whose `analysis_copy` says whether the analysis Worker's copy fits. A
-    /// scene still naming an older map cannot be built any more; tracing it waits for the
+    /// scene that still names an older map cannot be built; tracing it waits for the
     /// caller's [`Self::set_scene`].
     ///
     /// # Errors

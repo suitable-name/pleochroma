@@ -287,7 +287,8 @@ fn a_design_record_gives_its_size_only_when_it_stored_a_width() {
 fn the_size_follows_the_design_as_it_was_saved_and_says_when_it_was_redrawn() {
     let one = layout(vec![stone(5.0, UP, 10.0, [0.0; 3], [5.0; 3])]);
     // The library's design is now twice as large (width 2, length 3, height 1.4). The stone
-    // was fitted at scale 5 to the width-1 design: 5 x 1.5 x 0.7 is what it measures.
+    // is at scale 5 of the width-1 design (1.5 x 1 x 0.7 units), so it measures 7.50 x 5.00
+    // x 3.50 mm.
     let redrawn = SolidExtents {
         width_caliper: 2.0,
         length_caliper: 3.0,
@@ -603,8 +604,8 @@ fn weight_shows_one_value_a_common_value_or_the_range() {
 
 #[test]
 fn weights_that_print_alike_are_one_weight_each_and_not_a_range_of_one_figure() {
-    // 0.6201 and 0.6215 ct are 0.62 ct at two decimals; the old 1e-4 test called them a range
-    // and printed "0.62-0.62 ct".
+    // 0.6201 and 0.6215 ct both print as 0.62 ct, so they are one weight, not the range
+    // "0.62-0.62 ct".
     let alike = layout(vec![
         stone(1.0, UP, 6.201, [0.0; 3], [4.0; 3]),
         stone(1.0, UP, 6.215, [0.0; 3], [4.0; 3]),

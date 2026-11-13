@@ -24,9 +24,8 @@ fn schedule_row(
     }
 }
 
-/// The reconstructed `.asc` keeps a concave row as the two footnote lines the editor's
-/// export writes (the same lines `Design::append_concave_footnotes` pins in cut-core's own
-/// tests), and leaves the flat rows as tiers.
+/// The `.asc` export keeps each concave row as a footnote line, as the editor export
+/// writes it, and leaves the flat rows as tiers.
 #[test]
 fn concave_rows_become_the_footnote_pair_the_editor_export_writes() {
     let mut full = record_with(Vec::new());

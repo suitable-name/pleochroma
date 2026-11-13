@@ -62,7 +62,7 @@ fn only_marked_or_legacy_lines_of_current_tiers_are_stripped() {
         "Groove  -62.00  3 11.50 19  cut to depth  [concave tier]",
         "CYL  +90.00 deg  X = 0.000, Y = 0.500, Z = 0.050  D/W = 0.250, reciprocating  \
          [concave tier]",
-        // Unmarked, written by an earlier version for the Groove tier as it is now.
+        // Unmarked, as an earlier export wrote them for the Groove tier.
         "Groove  -62.00  3 11.50 19  cut to depth",
         "CYL  +90.00°  X = 0.000, Y = 0.120, Z = 0.050  D/W = 0.250, reciprocating",
         // The user's: shaped like a tool line, but for a tool no tier has.
@@ -129,13 +129,13 @@ fn a_users_own_tool_shaped_footnotes_survive_the_export_round_trip() {
     );
 }
 
-/// The two footnotes per tier that `concave_pair`'s tiers got in an `.asc` written before the
-/// export marked its lines, as a load reads them back (the `.asc` parser trims every
-/// footnote line, so the empty instructions of the second tier leave no trailing spaces).
+/// The two unmarked footnotes an earlier export wrote for `concave_pair`'s tiers, as a load
+/// reads them back (the `.asc` parser trims every footnote line, so the empty instructions
+/// of the second tier leave no trailing spaces).
 ///
-/// Written out by hand from what that build produced (the facet line, then the tool line
-/// with `°`), NOT from the current formulas: a change to a formula must not quietly change
-/// what counts as an earlier file's line.
+/// Written out by hand (the facet line, then the tool line with `°`), NOT from the current
+/// formulas: a change to a formula must not quietly change what counts as an earlier
+/// file's line.
 const EARLIER_VERSION_FOOTNOTES: [&str; 4] = [
     "Groove  -62.00  3 11.50 19  cut to depth",
     "CYL  +90.00°  X = 0.000, Y = 0.120, Z = 0.050  D/W = 0.250, reciprocating",
@@ -143,7 +143,7 @@ const EARLIER_VERSION_FOOTNOTES: [&str; 4] = [
     "CON  0.00°  X = 0.000, Y = 0.000, Z = 0.000  D/W = 0.500, angle = 60.00°, plunge",
 ];
 
-/// A file an earlier version exported carries unmarked lines with `°`; the paired load
+/// A file from an earlier export carries unmarked lines with `°`; the paired load
 /// still recognises those of the tiers it restores, so the next export does not write each
 /// line twice.
 #[test]

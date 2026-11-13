@@ -1,6 +1,7 @@
-//! A library design with a frosted tier is swept frosted: the batch resolves its frosted planes
-//! (as the preview batch does), the local sweep sees the finishes they make, and the curves it
-//! stores differ from the same stone swept polished.
+//! A library design with a frosted tier is swept frosted.
+//!
+//! The batch resolves its frosted planes (as the preview batch does), the local sweep sees the
+//! finishes they make, and the curves differ from the same stone swept polished.
 
 use super::{BatchContext, ResolvedDesign, resolve_design, sweep::compute_tilt_curves_locally};
 use crate::gui::{

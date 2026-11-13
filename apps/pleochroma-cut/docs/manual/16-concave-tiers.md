@@ -102,7 +102,7 @@ you keep or discard it.
 
 The text, HTML and PDF cutting sheets, the Edit tab's **Schedule** tab and the
 catalogue's cutting table all print a concave tier as its two lines in one band,
-with the zebra striping alternating per tier. Flat tiers print exactly as before.
+with the zebra striping alternating per tier. Flat tiers print in the usual way.
 The catalogue's **Copy Instructions** puts each tool line under its facet line.
 
 ## The Solid View, the Render and the Numbers
@@ -154,10 +154,9 @@ footnotes) and needs no question: nothing is lost.
   stone's. It is smaller only where a tool removes a vertex that sets the outline
   (the "tool removes a hull vertex" warning in the manufacturability check); a
   groove or dimple inside the outline changes nothing, and a design without concave
-  tiers is measured as before. The measuring rule changed when the planner moved
-  from the flat to the carved outline, so the library is measured once more the
-  next time you plan, and a plan saved earlier shows a note that its designs were
-  measured under an earlier rule. Concave tiers do not enter the catalogue's vault
+  tiers is measured from its flat stone. A design measured under another rule is
+  measured again on the next plan, and a plan that used such a measurement shows a
+  note saying so. Concave tiers do not enter the catalogue's vault
   search as geometry, only as a count.
 - **The Compare window** (Chapter 14) draws, traces and measures a concave stone
   with its tools. Tracing is on the CPU, so a slow concave side may be traced at a

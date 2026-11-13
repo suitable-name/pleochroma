@@ -135,7 +135,7 @@ fn row_of(host: &GemMaterial, variant: &ColorVariant) -> Row {
 
 /// The rows of the material `host`: its built-in variants (the Material Default first, then the
 /// data file's in file order), then the cutter's saved ones. A saved variant is listed even when
-/// the material would no longer accept it, so it can always be renamed or deleted.
+/// the material rejects it, so it can always be renamed or deleted.
 fn rows_for(host: &GemMaterial, saved: &[ColorVariant]) -> Vec<Row> {
     built_in_variants(&host.name)
         .iter()
@@ -590,8 +590,8 @@ mod tests {
         assert_eq!(copy.label, "Material Default Copy");
         assert_eq!(copy.provenance, VariantProvenance::User);
         assert_eq!(copy.material, builtin.material);
-        // Review finding 11: Sapphire's own color is per model unit; its saved copy is per
-        // millimeter at the 7 mm width, in the same pleochroic form.
+        // Sapphire's own color is per model unit; its saved copy is per millimeter at the 7 mm
+        // width, in the same pleochroic form.
         assert_eq!(builtin.unit, AbsorptionUnit::ModelUnit);
         assert_eq!(copy.unit, AbsorptionUnit::PerMm);
         assert!((copy.reference_path_mm - 7.0).abs() < 1e-6);
@@ -673,10 +673,9 @@ mod tests {
             "Renamed"
         );
         assert!(delete_user_color_variant(&db, &key).expect("deleted"));
-        assert!(
-            user_color_variants(&db, "Sapphire")
-                .expect("read")
-                .is_empty()
+        assert_eq!(
+            user_color_variants(&db, "Sapphire").expect("read"),
+            [] as [ColorVariant; 0]
         );
     }
 

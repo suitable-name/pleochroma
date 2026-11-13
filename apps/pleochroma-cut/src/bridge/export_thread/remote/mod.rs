@@ -22,19 +22,39 @@
 //! (`ComputeTarget::Both`). Only `ComputeTarget::RemoteOnly`, with no local lane to
 //! fall back to, turns a short chunk into a fatal [`dispatch::RemoteLaneOutcome`].
 //!
+//! # Beam tiles
+//!
+//! `beam_tiles` (the `beam` feature) is the client of the whole-tile requests: a beam-traced
+//! render gives a joined worker a share of its tiles and gets their finished pixels back.
+//!
+//! # Live passes
+//!
+//! `live_pass` (the `adaptive-sampling` feature) is the client of the live passes: an adaptive
+//! render gives a joined worker a share of one pass's live tiles. Without the feature there is
+//! no such client, and no live pass is sent.
+//!
 //! # Final picture only
 //!
 //! [`final_image`] is the other transfer: one `FinalImageRequest` per image, the remote
 //! renders AND tone-maps, the viewer receives one PNG. No sample cursor, no local lane.
+#[cfg(feature = "beam")]
+mod beam_tiles;
 mod capability;
 mod dispatch;
 mod final_image;
+#[cfg(feature = "adaptive-sampling")]
+mod live_pass;
 mod rate;
 
+#[cfg(feature = "beam")]
+pub(in crate::bridge::export_thread) use beam_tiles::{
+    BeamClientPool, BeamTileClient, BeamTileFailure, BeamTileOrder, BeamTiles,
+};
 pub(in crate::bridge::export_thread) use capability::{REMOTE_MIN_SPP, exceeds_pixel_cap};
 pub use capability::{RemoteCapability, probe_remote};
 pub(in crate::bridge::export_thread) use dispatch::{
     RemoteLaneOutcome, RemoteProgress, run_remote_lane, scene_state_from_snapshot,
+    scene_state_from_snapshot_with,
 };
 pub use final_image::forget_final_picture_refusals;
 pub(in crate::bridge::export_thread) use final_image::{
@@ -42,6 +62,8 @@ pub(in crate::bridge::export_thread) use final_image::{
     final_picture_refused, plan_export_transfer, record_split_rates,
     remember_final_picture_refused, run_final_image_request, split_rates, viewer_share,
 };
+#[cfg(feature = "adaptive-sampling")]
+pub(in crate::bridge::export_thread) use live_pass::{LivePassClient, LivePassFailure, LiveStream};
 pub(in crate::bridge::export_thread) use rate::{
     REMOTE_CALIBRATION_SAMPLES, RemoteCalibration, calibrate_remote_rate,
 };

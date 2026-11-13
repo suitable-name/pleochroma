@@ -3,7 +3,8 @@ use crate::{EditorModel, MainWindow, ViewportModel};
 use pleochroma::optics::materials::GemMaterial;
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 
-/// Maps the previously selected display name into a refreshed option list.
+/// Index in `new_options` of the name selected at `old_index` in `old_options`; 0 when that
+/// name is gone.
 fn preserved_material_index(old_options: &[String], old_index: i32, new_options: &[String]) -> i32 {
     usize::try_from(old_index)
         .ok()
@@ -18,8 +19,8 @@ fn preserved_material_index(old_options: &[String], old_index: i32, new_options:
 }
 
 /// Where the material selected at `old_index` of `old_options` sits in `new_options`, by name
-/// (case-insensitive); `None` when nothing was selected or the material is gone (the index is
-/// then left alone, as it was before the list was sorted).
+/// (case-insensitive); `None` when nothing was selected or the material is gone, and the
+/// caller then leaves the index alone.
 fn followed_material_index(
     old_options: &[String],
     old_index: i32,
@@ -35,11 +36,10 @@ fn followed_material_index(
 }
 
 pub(in crate::gui) fn refresh_material_options(ui: &MainWindow, custom_mats: &[GemMaterial]) {
-    // One alphabetical list, built-ins and custom materials together (the browser app's
-    // header combo comes from the same builder).
+    // One alphabetical list of built-in and custom materials.
     let names = pleochroma_editor::material::render_material_options(custom_mats);
     let viewport = ui.global::<ViewportModel>();
-    // A custom material saved or deleted now moves entries of this alphabetical list, so the
+    // Saving or deleting a custom material moves entries of this alphabetical list, so the
     // selected material is kept by NAME: the index follows it to its new place.
     let old_names: Vec<String> = viewport
         .get_material_options()

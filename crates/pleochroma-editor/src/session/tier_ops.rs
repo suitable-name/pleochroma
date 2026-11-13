@@ -188,10 +188,10 @@ pub const fn selection_after_remove(selected: Option<usize>, removed: usize) -> 
 }
 
 impl EditorSession {
-    /// The tier list's Duplicate (and Ctrl+D): inserts a copy of tier `index` (named by
-    /// [`unique_duplicate_name`], same indices/angle/constraint/detached set, its
-    /// `imported_meet` cleared -- a new, user-authored row) immediately AFTER the source
-    /// as one `Edit::AddTier`, since cut order is meaningful.
+    /// The tier list's Duplicate (Ctrl+D): inserts a copy of tier `index` right after it,
+    /// named by [`unique_duplicate_name`], with the same indices, angle, constraint and
+    /// detached set. The copy's `imported_meet` is cleared, as it is a user-authored row.
+    /// One `Edit::AddTier`, since cut order matters.
     ///
     /// `Ok(None)` when the tier does not exist.
     ///

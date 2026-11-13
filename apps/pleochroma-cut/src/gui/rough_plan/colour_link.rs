@@ -1,7 +1,7 @@
 //! The link between the Rough Planner and the Rough colour wizard.
 //!
-//! The planner's host and the locate window's state are private to this module, so everything the
-//! wizard needs from them is handed over as plain data and closures
+//! The planner's host and the locate window's state are private to this module, so everything
+//! the wizard needs from them is handed over as plain data and closures
 //! ([`PlannerLink`](crate::gui::rough_colour::wizard::context::PlannerLink)). The wizard and its
 //! tests are in `gui::rough_colour::wizard`; the only planner-side logic here is remembering
 //! which saved plan the shown results were saved as ([`plan_saved`]) and telling an open wizard.
@@ -24,7 +24,7 @@ use pleochroma_cut_core::rough_plan::{RoughBase, shape::hull};
 use slint::ComponentHandle;
 use std::rc::Rc;
 
-/// Registers the planner's "Rough colour..." button.
+/// Registers the planner's "Rough Color..." button.
 pub(super) fn setup(host: &Rc<Host>) {
     super::zoning_hooks::setup(host);
     host.window.global::<Zoning>().on_open_rough_colour(|| {

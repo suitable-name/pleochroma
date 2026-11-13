@@ -1,6 +1,6 @@
-// A Material-3-style switch. Unlike the std-widgets `Switch` it never writes its own
-// state: `checked` stays bound to the setting and the owner flips it in `toggled`, so
-// a setting that Rust refuses cannot leave the switch showing the wrong state.
+// A Material-3-style switch that never changes its own state: `checked` stays bound to
+// the setting and the owner updates it in `toggled`, so a setting that Rust rejects
+// cannot leave the switch showing the wrong state.
 import { Theme } from "../theme.slint";
 
 export component Toggle inherits Rectangle {

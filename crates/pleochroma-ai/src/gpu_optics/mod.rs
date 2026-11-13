@@ -3,10 +3,12 @@
 //! Physics comes from `pleochroma/src/color/metrics` and `optics/birefringence`, not the
 //! beauty renderer. Native kernels batch d-line rays over poses/cells/apertures/modes.
 //! Lighting classification, counters, ordered tone compaction, band evaluation and
-//! spectral sums stay on CUDA. Compact summaries/spectra return for the CIE transform
-//! and ordered objective mean. CUDA floating
-//! arithmetic is not yet certified bit-identical to the CPU parity oracle: callers must
-//! retain this provenance when persisting scores and certify discrete decisions on CPU.
+//! spectral sums stay on CUDA. Compact summaries and spectra return for the CIE transform
+//! and ordered objective mean.
+//!
+//! CUDA floating-point arithmetic is not yet certified bit-identical to the CPU parity
+//! oracle: callers must retain this provenance when persisting scores and certify discrete
+//! decisions on CPU.
 use pleochroma::{
     color::metrics::{FaceUpTone, FinishedStone},
     optics::{materials::GemMaterial, raytracer::LightingPreset},
@@ -87,8 +89,10 @@ pub struct ScoredOptics {
     pub poses: usize,
 }
 
-/// Per-run service. A bounded worker queue batches concurrent Fast candidates; Full pose
-/// tiles bound device/host memory. Geometry and material upload once per candidate batch.
+/// Per-run service that batches concurrent Fast candidates through a bounded worker queue.
+///
+/// Full pose tiles bound device and host memory. Geometry and material upload once per
+/// candidate batch.
 pub struct CudaOpticalScorer {
     #[cfg(feature = "cuda")]
     inner: worker::Worker,
@@ -194,6 +198,7 @@ impl CudaOpticalScorer {
     }
 
     /// Try once to enqueue a prepared request. `false` retains ownership on backpressure.
+    ///
     /// The caller must bound its retained requests and retry from its coordinator.
     ///
     /// # Errors

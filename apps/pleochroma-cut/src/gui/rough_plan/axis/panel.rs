@@ -1,9 +1,9 @@
 //! The Crystal Axis panel of the rough: Unknown or Set, the angles, and the ways to find the
 //! axis (Align to Face, Align to Edge, Fit to Crystal Length, From Color Zones).
 //!
-//! The axis is part of the rough model (`RoughModel::orientation`), so every change is one step of
-//! the shape undo stack like any other edit of the rough. A drag on the axis in the 3D view changes
-//! it live and counts as one step when the pointer goes up (`view::axis_gizmo`).
+//! The axis is part of the rough model (`RoughModel::orientation`), so every change is one step
+//! of the shape undo stack like any other edit of the rough. A drag on the axis in the 3D view
+//! changes it live and counts as one step when the pointer goes up (`view::axis_gizmo`).
 //!
 //! The pure half (how a typed field changes the orientation, the notes, the warning that the axis
 //! or the rules changed since planning) is tested here; the window half reads and writes the

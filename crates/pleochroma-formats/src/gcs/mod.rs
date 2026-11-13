@@ -2,7 +2,7 @@
 //!
 //! Gem Cut Studio ("GCS") is a Windows faceting-design application distinct from
 //! `GemCAD`; this module is not produced, endorsed, or affiliated with Gem Cut
-//! Studio or its author (see the crate-level docs for the full affiliation note).
+//! Studio or its author (see the crate README for the affiliation note).
 //! Some real-world designs are only ever published as a `.gcs` file, and reading one
 //! shouldn't require Gem Cut Studio itself.
 //!
@@ -44,35 +44,33 @@
 //! Encoding: undeclared; GCS 1.1 writes Windows-1252 (corpus file id 2213 holds a
 //! raw `0xBA`). Read files with [`parse_gcs_bytes`].
 //!
-//! # Conventions, measured on a 59-file corpus (56 with an `.asc` sibling)
+//! # Conventions
 //!
 //! - **Angle** ([`GcsTier::angle_deg`]): a polar angle, `0` table, `90` girdle
 //!   ("always included in pav", p.58), above 90 pavilion, `180` flat culet.
 //!   [`GcsTier::to_signed_asc_angle`] maps it to `.asc`'s signed angle (girdle
 //!   `-90`, culet `-0`). Values carry `f32` residue (`126.38999938964842`).
 //! - **Frame**: GCS rescales every design so `max(|x|,|y|) = 1` and centres its
-//!   z-range on 0 (59/59 files, exactly), "re-scaled after each operation to fill
-//!   the workspace" (p.10). The manual's frame comment ("negative X is front (index
-//!   0)", p.59) is contradicted by its own example, which puts index 0 at `-y`.
+//!   z-range on 0, "re-scaled after each operation to fill the workspace" (p.10). The
+//!   manual's frame comment ("negative X is front (index 0)", p.59) does not match its
+//!   own example, which puts index 0 at `-y`.
 //! - **Depth** ([`GcsTier::depth`]): the `.asc` mast in that normalised frame,
-//!   `depth = n·v` for the tier's vertices (≤ 3e-5 over 17,828 vertices). Against a
-//!   `GemCAD` `.asc` sibling, `depth = s·|mast| - s·z0·nz` with `s` ≈ 0.90 and `z0`
-//!   the `.asc` frame's z-centre: residual ≤ 2e-3 in 34 of 56 pairs, ≤ 9e-3 in 53. The
-//!   one `.gem`/`.gcs` pair (Orb) gives `depth = 0.9·d_gem` exactly. The manual's own
-//!   example is inconsistent here: its depths do not match its vertices.
+//!   `depth = n·v` for the tier's vertices (within 3e-5). Against a `GemCAD` `.asc`
+//!   sibling, `depth = s·|mast| - s·z0·nz` with `s` ≈ 0.90 and `z0` the `.asc` frame's
+//!   z-centre; the residual is up to about 9e-3 across the sampled pairs. The manual's
+//!   example depths do not match its own vertices.
 //! - **Index** ([`GcsFacet::index_angle_deg`]): the tooth in absolute degrees,
 //!   `tooth / gear · 360`. The winding is side-dependent ("pav vs crown has opposite
 //!   index ordering", p.59): with `phi = atan2(ny, nx)`, crown facets have
-//!   `index_angle = 90° + phi` and pavilion and girdle facets `270° - phi` (4,836 of
-//!   4,836 non-flat facets). [`side_rule_index_angle`] and [`GcsFacet::index`]
-//!   implement it. A flat facet (table, culet) carries an arbitrary value. The
-//!   corpus has no chiral design, so the rule is verified on labels and normals only.
+//!   `index_angle = 90° + phi` and pavilion and girdle facets `270° - phi`.
+//!   [`side_rule_index_angle`] and [`GcsFacet::index`] implement it. A flat facet
+//!   (table, culet) carries an arbitrary value. The rule is untested on chiral designs.
 //! - **`<index base/symmetry/mirror>`** are UI state (p.58: "NOT the values for
 //!   symmetry/mirror as would be printed in a faceting diagram"): base index,
 //!   the symmetry of the tier being cut, and the ± mirror offset in index steps
 //!   (pp.36-44). They do not describe the design.
 //! - **`frosting`** (tier, p.9 and the p.58 example): `0` clear, `0.5` frosted as GCS
-//!   1.1 writes it; kept in [`GcsTier::frosting`] and, per third-party writers, per
+//!   1.1 writes it; kept in [`GcsTier::frosting`] and, in some third-party files, per
 //!   facet in [`GcsFacet::frosting`]. `.asc` has no notation for it, so
 //!   [`gcs_to_asc_schedule`] drops it: [`gcs_frosting`] reads it beside the schedule (by
 //!   tier position and facet slot) and [`to_gcs_string_with_frosting`] writes it back.

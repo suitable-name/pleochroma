@@ -1,6 +1,6 @@
-//! The desktop glue's pure parts: the rows the popover lists, the guards in front of a Fix
-//! and the worker's job. (The verdict itself and every fix are tested in
-//! `pleochroma_editor::verdict`.)
+//! Tests of the verdict glue: the popover rows, the guards in front of a Fix and the worker.
+//!
+//! The verdict and its fixes are tested in `pleochroma_editor::verdict`.
 
 use super::{
     FIX_RUNNING, OUT_OF_DATE, SLOT, Slot, failure_text, pending_fix,

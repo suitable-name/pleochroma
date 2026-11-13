@@ -6,15 +6,11 @@ import { HelpButton } from "help_button.slint";
 import { IconButton } from "icon_button.slint";
 import { CompactButton } from "compact_controls.slint";
 
-// The in-app "Keyboard
-// Shortcuts" overlay -- opened from Help > Keyboard Shortcuts and from `?`
-// (`ui/app.slint`'s `global_shortcuts`, guarded there the same way every other
-// letter shortcut is: only while no text field has focus). Renders
-// `ShortcutsModel.shortcuts`, the exact same `gui::editor::shortcuts::SHORTCUTS`
-// table `docs/manual/appendix-b-keyboard-shortcuts.md`'s generated blocks come
-// from -- see that module's own doc comment. Rows of one group are adjacent in the
-// model, and a heading is drawn wherever the group changes, so a new group in the
-// table needs no change here.
+// The in-app keyboard shortcut overlay, opened from Help > Keyboard Shortcuts and from `?`
+// (`global_shortcuts` in `ui/app.slint`, which skips it while a text field has focus).
+// It renders `ShortcutsModel.shortcuts`, the `gui::editor::shortcuts::SHORTCUTS` table that
+// also generates the blocks of `docs/manual/appendix-b-keyboard-shortcuts.md`. Rows of one
+// group are adjacent, and a heading is drawn wherever the group changes.
 export component ShortcutOverlay inherits Rectangle {
     background: Theme.overlay-backdrop;
 
@@ -100,9 +96,8 @@ export component ShortcutOverlay inherits Rectangle {
 
                         HorizontalLayout {
                             spacing: 8px;
-                            // Key chip: the Text is width-bound to the chip (minus 8 px
-                            // padding each side) so long chords wrap instead of
-                            // overflowing the chip symmetrically ("trl+Alt+1").
+                            // Key chip: the Text is the chip's width less 8 px a side, so long
+                            // chords wrap inside it.
                             Rectangle {
                                 width: 150px;
                                 min-height: 22px;

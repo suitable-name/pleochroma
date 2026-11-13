@@ -1,13 +1,12 @@
 //! A small process-wide pool of idle, already-handshaken connections for the one-shot
 //! lifecycle ([`super::one_shot`]).
 //!
-//! The GUI export dispatches one `RenderRequest` per chunk, and each used to open its own
-//! connection (DNS, TCP, TLS, `HELLO`/`WELCOME`: ~2.5 ms on loopback plus about two round
-//! trips on a real link, per chunk). A request that ends in a clean `DONE` leaves the
-//! socket in exactly the state the persistent live connection already relies on to send
-//! its next request, so [`give_back`] parks it here and the next chunk's [`take`] picks it
-//! up instead of reconnecting. Anything that goes wrong on a pooled connection is the
-//! caller's cue to drop it and connect fresh; nothing here ever repairs a stream.
+//! The export dispatches one `RenderRequest` per chunk. Opening a connection for each chunk
+//! would repeat DNS, TCP, TLS and `HELLO`/`WELCOME` every time. A request that ends in a clean
+//! `DONE` leaves the socket ready for another request, as the persistent live connection
+//! relies on, so [`give_back`] parks it and the next chunk's [`take`] reuses it. A pooled
+//! connection that fails is dropped by the caller, which connects fresh. Nothing here
+//! repairs a stream.
 
 use super::super::types::RemoteStream;
 use crate::settings::WorkerSettings;

@@ -1,8 +1,7 @@
 //! The GPU Worker's `Init` handling: the version and role checks, acquiring the adapter,
 //! watching for device loss, and reporting the adapter's limits to the page.
 //!
-//! Split out of `lib.rs` (the message handler grew past the lint's line limit); the shared
-//! state, `post` and the device flags live in the parent module.
+//! The shared state, `post` and the device flags live in the parent module.
 
 use std::{
     cell::{Cell, RefCell},

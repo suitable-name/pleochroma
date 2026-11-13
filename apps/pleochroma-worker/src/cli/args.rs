@@ -46,9 +46,7 @@ pub struct RenderArgs {
     /// `0` means "let the OS decide" -- see `render_core::effective_thread_count`.
     /// Governs only the CPU tracer -- see `USAGE_RENDER`'s `--threads` entry.
     pub threads: usize,
-    /// `--only-gpu`/`--only-cpu` (default `Hybrid`) -- see [`ComputeMode`]'s own doc
-    /// comment. See `USAGE_RENDER`'s entries and
-    /// `pleochroma::renderer::gpu_backend::GpuBackend::disabled`/`::acquire`.
+    /// `--only-gpu`/`--only-cpu` (default `Hybrid`), see [`ComputeMode`].
     pub compute_mode: ComputeMode,
 }
 
@@ -86,9 +84,8 @@ pub struct ServeArgs {
     /// meaningful with [`Self::render`]; either flag implies it.
     pub compute_mode: ComputeMode,
     /// `--render` (implied by `--only-gpu`/`--only-cpu`): this coordinator renders with
-    /// its own CPU/GPU lane. Off by default since coordinator mode: without it `serve`
-    /// serves the library and accepts joining workers, but never traces a sample itself
-    /// and never acquires the GPU.
+    /// its own CPU/GPU lane. Without it `serve` serves the library and accepts joining
+    /// workers, but never traces a sample itself and never acquires the GPU.
     pub render: bool,
     /// `--enroll-bind`: address for the VIEWER token-based enrollment listener. Defaults
     /// to the same host as `bind`, one port up (7879 for the default 7878). Unused when
@@ -108,8 +105,8 @@ pub struct ServeArgs {
     /// `allowlist-workers.txt` next to `--ca`.
     pub worker_allowlist: Option<PathBuf>,
     /// `--db <path>`: the design-library database this `serve` instance serves (see
-    /// `crate::serve::library`). `None` keeps the existing default -- a
-    /// `facet_diagrams.sqlite` resolved relative to the process's working directory.
+    /// `crate::serve::library`). `None` uses `facet_diagrams.sqlite` relative to the
+    /// working directory.
     pub db: Option<PathBuf>,
     /// `--max-connections <n>`: the most connections `serve::run` handles at once
     /// (default 64, see `serve::ConnectionLimiter`), counted separately for the viewer

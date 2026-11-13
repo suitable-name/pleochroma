@@ -36,7 +36,7 @@ use std::{
 };
 
 /// A fresh, empty folder for one test.
-fn test_dir(name: &str) -> PathBuf {
+pub(super) fn test_dir(name: &str) -> PathBuf {
     static NEXT: AtomicUsize = AtomicUsize::new(0);
     let dir = std::env::temp_dir().join(format!(
         "pleochroma_render_jobs_{name}_{}_{}",
@@ -86,6 +86,9 @@ fn still_inputs<'a>(
         label: "Test job".to_string(),
         design: DesignInfo::default(),
         preset_label: String::new(),
+        adaptive: None,
+        path_cache: None,
+        beam: None,
     }
 }
 
@@ -123,7 +126,7 @@ fn assert_snapshots_equal(a: &SceneSnapshot, b: &SceneSnapshot) {
     assert_eq!(a.env_map.is_some(), b.env_map.is_some());
 }
 
-fn render_png(scene: &SceneSnapshot, path: &Path) -> Vec<u8> {
+pub(super) fn render_png(scene: &SceneSnapshot, path: &Path) -> Vec<u8> {
     let outcome = run_export(
         scene,
         tiny_params(),
@@ -141,8 +144,8 @@ fn render_png(scene: &SceneSnapshot, path: &Path) -> Vec<u8> {
     std::fs::read(path).unwrap()
 }
 
-/// J3-T1: a scene frozen into a job file and rebuilt renders the same picture, byte for
-/// byte, for the default material and for a custom one with a frosted girdle.
+/// A scene frozen into a job file and rebuilt renders the same picture, byte for byte, for
+/// the default material and for a custom one with a frosted girdle.
 #[test]
 fn j3_t1_the_snapshot_round_trip_renders_identically() {
     let dir = test_dir("t1");
@@ -252,6 +255,520 @@ fn the_render_physics_survive_the_job_round_trip() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// The stone's color zones are frozen into the job file (format 5), come back from its text, and
+/// the runner's snapshot carries them again, so it renders the picture the zoned capture does.
+#[test]
+fn the_color_zones_survive_the_capture_job_file_and_runner_path() {
+    let dir = test_dir("zoning");
+    let zoning = pleochroma::optics::materials::ametrine_zoning();
+    let mut original = capture(RenderContext::default());
+    original.material = original.material.with_zoning(zoning.clone());
+    let remote = RemoteSelection::local_only();
+    let output = dir.join("zoned-job.png");
+    let job = convert::build_still_job(
+        &still_inputs(&original, tiny_params(), &remote, &output),
+        1_791_302_580,
+    )
+    .expect("the job builds");
+    assert_eq!(job.format, 5, "zones make the job format 5");
+    assert_eq!(job.zoning.as_ref(), Some(&zoning));
+    assert!(job.scene.material.zoning.is_none(), "the scene holds none");
+    let back =
+        codec::from_text(&codec::to_text(&job).expect("the job encodes")).expect("the job decodes");
+    assert_eq!(back, job, "the zones survive the file text");
+
+    let rebuilt = convert::snapshot_from_job(&back, None);
+    assert_eq!(rebuilt.material.zoning.as_ref(), Some(&zoning));
+    assert_snapshots_equal(&original, &rebuilt);
+    assert!(
+        convert::snapshot_from_scene(&back.scene, None)
+            .material
+            .zoning
+            .is_none(),
+        "the bare scene is the base color alone"
+    );
+    let a = render_png(&original, &dir.join("zoned-a.png"));
+    let b = render_png(&rebuilt, &dir.join("zoned-b.png"));
+    assert_eq!(a, b, "the runner renders the zoned picture");
+
+    // A stone without zones stays the job it was.
+    let plain = convert::build_still_job(
+        &still_inputs(
+            &capture(RenderContext::default()),
+            tiny_params(),
+            &remote,
+            &output,
+        ),
+        1_791_302_580,
+    )
+    .expect("the job builds");
+    assert_eq!(plain.format, 1);
+    assert!(plain.zoning.is_none());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A queue row written before format 5 holds its zones only in the side table: the job queue
+/// (when it starts the row) and the script export complete the job from it with
+/// `complete_job_zoning`, and a job that already holds zones is left alone.
+#[test]
+fn a_row_queued_before_format_five_gets_its_zones_from_the_side_table() {
+    use crate::gui::rough_colour::store::{complete_job_zoning, save_job_zoning};
+    let db = pleochroma_vault::db::sqlite::Database::new(Some(":memory:")).expect("vault");
+    let zoning = pleochroma::optics::materials::ametrine_zoning();
+    let mut zoned = capture(RenderContext::default());
+    zoned.material = zoned.material.with_zoning(zoning.clone());
+    let remote = RemoteSelection::local_only();
+    let dir = test_dir("legacy-zoning");
+    let output = dir.join("legacy-job.png");
+    let current = convert::build_still_job(
+        &still_inputs(&zoned, tiny_params(), &remote, &output),
+        1_791_302_580,
+    )
+    .expect("the job builds");
+
+    // The row as an older version wrote it: no zones in the file, format 1, zones beside it.
+    let mut legacy = current.clone();
+    legacy.zoning = None;
+    legacy.format = pleochroma_render_jobs::format_for(&legacy);
+    assert_eq!(legacy.format, 1);
+    assert!(save_job_zoning(&db, 5, &zoned.material).expect("saves"));
+
+    let mut completed = legacy.clone();
+    assert!(complete_job_zoning(&db, 5, &mut completed).expect("completes"));
+    assert_eq!(completed.zoning.as_ref(), Some(&zoning));
+    assert_eq!(completed.format, 5);
+    assert_eq!(completed.validate(), Ok(()));
+    let snapshot = convert::snapshot_from_job(&completed, None);
+    assert_eq!(snapshot.material.zoning.as_ref(), Some(&zoning));
+    assert_eq!(
+        codec::from_text(&codec::to_text(&completed).expect("encodes")).expect("decodes"),
+        completed,
+        "an exported script's job file carries the zones"
+    );
+
+    // A row with no side-table entry renders as it is, and a current job is not touched.
+    let mut bare = legacy.clone();
+    assert!(!complete_job_zoning(&db, 6, &mut bare).expect("completes"));
+    assert_eq!(bare, legacy);
+    let mut whole = current.clone();
+    assert!(!complete_job_zoning(&db, 5, &mut whole).expect("completes"));
+    assert_eq!(whole, current);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The dialog's adaptive-sampling choice is frozen into a still job and a video job, comes back
+/// from the file, and a job without it is the job it was.
+#[test]
+fn adaptive_sampling_is_frozen_into_still_and_video_jobs_and_off_adds_nothing() {
+    use pleochroma::renderer::adaptive::{AdaptiveSettings, TARGET_NOISE_PRESETS};
+    let dir = test_dir("adaptive-freeze");
+    let scene = capture(RenderContext::default());
+    let remote = RemoteSelection::local_only();
+    let output = dir.join("adaptive-job.png");
+    let plain = convert::build_still_job(
+        &still_inputs(&scene, tiny_params(), &remote, &output),
+        1_791_302_580,
+    )
+    .expect("the job builds");
+    let plain_text = codec::to_text(&plain).expect("the job encodes");
+    assert!(
+        !plain_text.contains("accel"),
+        "off writes no acceleration key"
+    );
+
+    let draft = AdaptiveSettings {
+        target_noise: TARGET_NOISE_PRESETS[2].1,
+        ..AdaptiveSettings::provisional(2)
+    };
+    let mut inputs = still_inputs(&scene, tiny_params(), &remote, &output);
+    inputs.adaptive = Some(draft);
+    let job = convert::build_still_job(&inputs, 1_791_302_580).expect("the job builds");
+    let back = codec::from_text(&codec::to_text(&job).expect("the job encodes")).expect("decodes");
+    let pleochroma_render_jobs::JobKind::Still(still) = &back.kind else {
+        unreachable!("a still stays a still")
+    };
+    assert_eq!(still.accel.adaptive, Some(draft));
+
+    // The executor's own reading of the file caps the stored settings at the job's samples.
+    assert_eq!(
+        super::execute::job_adaptive_settings(&back).map(|settings| settings.max_spp),
+        Some(2)
+    );
+    assert_eq!(super::execute::job_adaptive_settings(&plain), None);
+
+    // A video, through its request and back into the request the executor builds.
+    let video = video_job(&dir.join("clip-off"), false);
+    assert_eq!(super::execute::job_adaptive_settings(&video), None);
+    let mut request = VideoExportRequest {
+        scene: capture(RenderContext::default()),
+        axes: vec![0],
+        start_deg: -2.0,
+        end_deg: 2.0,
+        step_deg: 2.0,
+        total_frames: 3,
+        fps: 30,
+        width: 16,
+        height: 16,
+        samples_per_pixel: 2,
+        color_space: ColorSpace::Srgb,
+        out_dir: dir.join("clip-on"),
+        out_name: "clip".to_string(),
+        selection: metrics::MetricSelection::default(),
+        curves: Vec::new(),
+        keep_frames: false,
+        remote: RemoteSelection::local_only(),
+        local_compute: LocalComputeTarget::Cpu,
+        adaptive: Some(draft),
+        path_cache: None,
+        beam: None,
+    };
+    let video = convert::build_video_job(
+        &request,
+        "Test video".to_string(),
+        DesignInfo::default(),
+        "clip".to_string(),
+        0,
+    )
+    .expect("the video job builds");
+    let video = codec::from_text(&codec::to_text(&video).expect("encodes")).expect("decodes");
+    let pleochroma_render_jobs::JobKind::TiltVideo(frozen) = &video.kind else {
+        unreachable!("a video stays a video")
+    };
+    assert_eq!(frozen.accel.adaptive, Some(draft));
+    assert!(!frozen.keep_path_cache);
+    let rebuilt = convert::video_request_from_job(
+        &video,
+        frozen,
+        capture(RenderContext::default()),
+        dir.join("clip-on"),
+        RemoteSelection::local_only(),
+        LocalComputeTarget::Cpu,
+    );
+    assert_eq!(
+        rebuilt.adaptive,
+        Some(AdaptiveSettings {
+            max_spp: 2,
+            ..draft
+        })
+    );
+    request.adaptive = None;
+    let off = convert::build_video_job(
+        &request,
+        "Test video".to_string(),
+        DesignInfo::default(),
+        "clip".to_string(),
+        0,
+    )
+    .expect("the video job builds");
+    assert!(!codec::to_text(&off).expect("encodes").contains("accel"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The job list's detail line says "adaptive" with the Target Noise entry, and says nothing for
+/// an ordinary job.
+#[cfg(feature = "adaptive-sampling")]
+#[test]
+fn the_detail_line_names_adaptive_sampling_and_its_target_noise() {
+    use pleochroma::renderer::adaptive::{AdaptiveSettings, NoiseMetric, TARGET_NOISE_PRESETS};
+    assert_eq!(convert::adaptive_detail(None), "");
+    for (label, target) in TARGET_NOISE_PRESETS {
+        let settings = AdaptiveSettings {
+            target_noise: target,
+            ..AdaptiveSettings::provisional(1024)
+        };
+        assert_eq!(
+            convert::adaptive_detail(Some(&settings)),
+            format!(" \u{b7} adaptive ({label})")
+        );
+    }
+    let odd = AdaptiveSettings {
+        target_noise: 0.0123,
+        ..AdaptiveSettings::provisional(1024)
+    };
+    assert_eq!(
+        convert::adaptive_detail(Some(&odd)),
+        " \u{b7} adaptive (Custom)"
+    );
+    let absolute = AdaptiveSettings {
+        metric: NoiseMetric::AbsoluteDeltaE,
+        target_noise: 1.0,
+        ..AdaptiveSettings::provisional(1024)
+    };
+    assert_eq!(
+        convert::adaptive_detail(Some(&absolute)),
+        " \u{b7} adaptive (Custom)"
+    );
+}
+
+/// Without the `adaptive-sampling` feature no adaptive pass renders, so the job list never
+/// says "adaptive", even for a job file that asks for it.
+#[cfg(not(feature = "adaptive-sampling"))]
+#[test]
+fn the_detail_line_says_nothing_about_adaptive_sampling_in_a_build_without_it() {
+    use pleochroma::renderer::adaptive::AdaptiveSettings;
+    assert_eq!(convert::adaptive_detail(None), "");
+    let settings = AdaptiveSettings::provisional(1024);
+    assert_eq!(convert::adaptive_detail(Some(&settings)), "");
+}
+
+/// The dialog's path-cache choice is frozen into a still job and a video job, comes back from
+/// the file as the taps the executor builds, and a job without it adds nothing.
+#[test]
+fn the_path_cache_is_frozen_into_still_and_video_jobs_and_off_adds_nothing() {
+    use pleochroma::renderer::accel::PathCacheSettings;
+    let dir = test_dir("cache-freeze");
+    let scene = capture(RenderContext::default());
+    let remote = RemoteSelection::local_only();
+    let output = dir.join("cache-job.png");
+    let plain = convert::build_still_job(
+        &still_inputs(&scene, tiny_params(), &remote, &output),
+        1_791_302_580,
+    )
+    .expect("the job builds");
+    assert_eq!(super::execute::job_path_cache_settings(&plain), None);
+    assert!(
+        !codec::to_text(&plain)
+            .expect("the job encodes")
+            .contains("path_cache")
+    );
+
+    let kept = PathCacheSettings {
+        persist: true,
+        ..PathCacheSettings::default()
+    };
+    let mut inputs = still_inputs(&scene, tiny_params(), &remote, &output);
+    inputs.path_cache = Some(kept);
+    let job = convert::build_still_job(&inputs, 1_791_302_580).expect("the job builds");
+    let back = codec::from_text(&codec::to_text(&job).expect("the job encodes")).expect("decodes");
+    assert_eq!(super::execute::job_path_cache_settings(&back), Some(kept));
+
+    // A video: the frame caches reach the disk only with "Keep Path Cache for This Video".
+    let mut request = VideoExportRequest {
+        scene: capture(RenderContext::default()),
+        axes: vec![0],
+        start_deg: -2.0,
+        end_deg: 2.0,
+        step_deg: 2.0,
+        total_frames: 3,
+        fps: 30,
+        width: 16,
+        height: 16,
+        samples_per_pixel: 2,
+        color_space: ColorSpace::Srgb,
+        out_dir: dir.join("clip"),
+        out_name: "clip".to_string(),
+        selection: metrics::MetricSelection::default(),
+        curves: Vec::new(),
+        keep_frames: false,
+        remote: RemoteSelection::local_only(),
+        local_compute: LocalComputeTarget::Cpu,
+        adaptive: None,
+        path_cache: Some(PathCacheSettings::default()),
+        beam: None,
+    };
+    for keep in [false, true] {
+        request.path_cache = Some(PathCacheSettings {
+            persist: keep,
+            ..PathCacheSettings::default()
+        });
+        let video = convert::build_video_job(
+            &request,
+            "Test video".to_string(),
+            DesignInfo::default(),
+            "clip".to_string(),
+            0,
+        )
+        .expect("the video job builds");
+        let video = codec::from_text(&codec::to_text(&video).expect("encodes")).expect("decodes");
+        let pleochroma_render_jobs::JobKind::TiltVideo(frozen) = &video.kind else {
+            unreachable!("a video stays a video")
+        };
+        assert_eq!(frozen.keep_path_cache, keep);
+        assert!(frozen.accel.path_cache.is_some());
+        assert_eq!(
+            super::execute::job_path_cache_settings(&video).map(|cache| cache.persist),
+            Some(keep)
+        );
+        let rebuilt = convert::video_request_from_job(
+            &video,
+            frozen,
+            capture(RenderContext::default()),
+            dir.join("clip"),
+            RemoteSelection::local_only(),
+            LocalComputeTarget::Cpu,
+        );
+        assert_eq!(rebuilt.path_cache.map(|cache| cache.persist), Some(keep));
+    }
+    request.path_cache = None;
+    let off = convert::build_video_job(
+        &request,
+        "Test video".to_string(),
+        DesignInfo::default(),
+        "clip".to_string(),
+        0,
+    )
+    .expect("the video job builds");
+    assert!(!codec::to_text(&off).expect("encodes").contains("accel"));
+    assert_eq!(super::execute::job_path_cache_settings(&off), None);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The job list's detail line says "path cache" when it is on and nothing when it is off.
+#[test]
+fn the_detail_line_names_the_path_cache() {
+    use pleochroma::renderer::accel::PathCacheSettings;
+    assert_eq!(convert::path_cache_detail(None), "");
+    assert_eq!(
+        convert::path_cache_detail(Some(&PathCacheSettings::default())),
+        " \u{b7} path cache"
+    );
+}
+
+/// The dialog's beam-tracing choice is frozen into a still job and a video job (`accel.beam`),
+/// comes back from the file as the taps the executor builds, and a job without it adds nothing.
+#[cfg(all(feature = "beam", beam_tests))]
+#[test]
+fn the_beam_choice_is_frozen_into_still_and_video_jobs_and_off_adds_nothing() {
+    use pleochroma::renderer::accel_beam::BeamSettings;
+    // The job text is checked through its structure (`kind.accel`), not by searching it: the
+    // output path is part of the text, and its folder name must not decide the check.
+    let dir = test_dir("freeze-choice");
+    let has_accel = |job: &RenderJobFile| {
+        let text = codec::to_text(job).expect("the job encodes");
+        let value: serde_json::Value = serde_json::from_str(&text).expect("the text is JSON");
+        value
+            .get("kind")
+            .and_then(|kind| kind.get("accel"))
+            .is_some()
+    };
+    let scene = capture(RenderContext::default());
+    let remote = RemoteSelection::local_only();
+    let output = dir.join("freeze-job.png");
+    let plain = convert::build_still_job(
+        &still_inputs(&scene, tiny_params(), &remote, &output),
+        1_791_302_580,
+    )
+    .expect("the job builds");
+    assert_eq!(super::execute::job_beam_settings(&plain), None);
+    assert!(
+        !has_accel(&plain),
+        "a job without beams writes no accel record"
+    );
+
+    let mut inputs = still_inputs(&scene, tiny_params(), &remote, &output);
+    inputs.beam = Some(BeamSettings::default());
+    let job = convert::build_still_job(&inputs, 1_791_302_580).expect("the job builds");
+    let back = codec::from_text(&codec::to_text(&job).expect("the job encodes")).expect("decodes");
+    assert_eq!(
+        super::execute::job_beam_settings(&back),
+        Some(BeamSettings::default())
+    );
+
+    // A video: the same setting, and back into the request the frame loop runs.
+    let mut request = VideoExportRequest {
+        scene: capture(RenderContext::default()),
+        axes: vec![0],
+        start_deg: -2.0,
+        end_deg: 2.0,
+        step_deg: 2.0,
+        total_frames: 3,
+        fps: 30,
+        width: 16,
+        height: 16,
+        samples_per_pixel: 2,
+        color_space: ColorSpace::Srgb,
+        out_dir: dir.join("clip"),
+        out_name: "clip".to_string(),
+        selection: metrics::MetricSelection::default(),
+        curves: Vec::new(),
+        keep_frames: false,
+        remote: RemoteSelection::local_only(),
+        local_compute: LocalComputeTarget::Cpu,
+        adaptive: None,
+        path_cache: None,
+        beam: Some(BeamSettings::default()),
+    };
+    let video = convert::build_video_job(
+        &request,
+        "Test video".to_string(),
+        DesignInfo::default(),
+        "clip".to_string(),
+        0,
+    )
+    .expect("the video job builds");
+    let video = codec::from_text(&codec::to_text(&video).expect("encodes")).expect("decodes");
+    let pleochroma_render_jobs::JobKind::TiltVideo(frozen) = &video.kind else {
+        unreachable!("a video stays a video")
+    };
+    assert_eq!(frozen.accel.beam, Some(BeamSettings::default()));
+    assert_eq!(
+        super::execute::job_beam_settings(&video),
+        Some(BeamSettings::default())
+    );
+    let rebuilt = convert::video_request_from_job(
+        &video,
+        frozen,
+        capture(RenderContext::default()),
+        dir.join("clip"),
+        RemoteSelection::local_only(),
+        LocalComputeTarget::Cpu,
+    );
+    assert_eq!(rebuilt.beam, Some(BeamSettings::default()));
+
+    request.beam = None;
+    let off = convert::build_video_job(
+        &request,
+        "Test video".to_string(),
+        DesignInfo::default(),
+        "clip".to_string(),
+        0,
+    )
+    .expect("the video job builds");
+    assert!(
+        !has_accel(&off),
+        "a video job without beams writes no accel record"
+    );
+    assert_eq!(super::execute::job_beam_settings(&off), None);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// "Keep Beams for Re-Renders" is frozen into the job as `accel.beam.keep_leaves` and comes back
+/// from the file; without it the flag stays off.
+#[cfg(all(feature = "beam", beam_tests))]
+#[test]
+fn keep_beams_is_frozen_into_the_job_as_keep_leaves() {
+    use pleochroma::renderer::accel_beam::BeamSettings;
+    let dir = test_dir("beam-keep-freeze");
+    let scene = capture(RenderContext::default());
+    let remote = RemoteSelection::local_only();
+    let output = dir.join("beam-keep-job.png");
+    for keep in [false, true] {
+        let mut inputs = still_inputs(&scene, tiny_params(), &remote, &output);
+        inputs.beam = Some(BeamSettings {
+            keep_leaves: keep,
+            ..BeamSettings::default()
+        });
+        let job = convert::build_still_job(&inputs, 1_791_302_580).expect("the job builds");
+        let back =
+            codec::from_text(&codec::to_text(&job).expect("the job encodes")).expect("decodes");
+        let beam = super::execute::job_beam_settings(&back).expect("the job keeps its beams");
+        assert_eq!(beam.keep_leaves, keep);
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The job list's detail line says "beams" when beam tracing is on and nothing when it is off.
+#[cfg(all(feature = "beam", beam_tests))]
+#[test]
+fn the_detail_line_names_the_beams() {
+    use pleochroma::renderer::accel_beam::BeamSettings;
+    assert_eq!(convert::beam_detail(None), "");
+    assert_eq!(
+        convert::beam_detail(Some(&BeamSettings::default())),
+        " \u{b7} beams"
+    );
+}
+
 #[test]
 fn compute_choices_and_engines_map_both_ways() {
     for target in [
@@ -332,6 +849,9 @@ fn video_job_with(dir: &Path, keep_frames: bool, remote: RemoteSelection) -> Ren
         keep_frames,
         remote,
         local_compute: LocalComputeTarget::Cpu,
+        adaptive: None,
+        path_cache: None,
+        beam: None,
     };
     convert::build_video_job(
         &request,
@@ -341,6 +861,122 @@ fn video_job_with(dir: &Path, keep_frames: bool, remote: RemoteSelection) -> Ren
         0,
     )
     .expect("the video job builds")
+}
+
+/// A tilt video job with the Stone Shadow on is frozen without it, as a format 1 or 2 file
+/// that the job rules accept.
+#[test]
+fn a_tilt_video_job_drops_the_stone_shadow_instead_of_being_refused() {
+    let request = VideoExportRequest {
+        scene: capture(RenderContext {
+            stone_shadow: true,
+            ..RenderContext::default()
+        }),
+        axes: vec![0],
+        start_deg: -2.0,
+        end_deg: 2.0,
+        step_deg: 2.0,
+        total_frames: 3,
+        fps: 30,
+        width: 16,
+        height: 16,
+        samples_per_pixel: 1,
+        color_space: ColorSpace::Srgb,
+        out_dir: std::env::temp_dir(),
+        out_name: "clip".to_string(),
+        selection: metrics::MetricSelection::default(),
+        curves: Vec::new(),
+        keep_frames: false,
+        remote: RemoteSelection::local_only(),
+        local_compute: LocalComputeTarget::Cpu,
+        adaptive: None,
+        path_cache: None,
+        beam: None,
+    };
+    assert!(
+        request.scene.stone_shadow,
+        "the request asks for the shadow"
+    );
+    let job = convert::build_video_job(
+        &request,
+        "Shadow video".to_string(),
+        DesignInfo::default(),
+        "clip".to_string(),
+        0,
+    )
+    .expect("the tilt video job builds");
+    assert!(!job.scene.stone_shadow);
+    assert!(job.format <= 2, "no stone-shadow job format");
+}
+
+/// A tilt video job with the Tray Reflection on is frozen without it, as a file the job rules
+/// accept (below the format that carries the reflection).
+#[test]
+fn a_tilt_video_job_drops_the_tray_reflection_instead_of_being_refused() {
+    let request = VideoExportRequest {
+        scene: capture(RenderContext {
+            tray_reflection: 0.04,
+            ..RenderContext::default()
+        }),
+        axes: vec![0],
+        start_deg: -2.0,
+        end_deg: 2.0,
+        step_deg: 2.0,
+        total_frames: 3,
+        fps: 30,
+        width: 16,
+        height: 16,
+        samples_per_pixel: 1,
+        color_space: ColorSpace::Srgb,
+        out_dir: std::env::temp_dir(),
+        out_name: "clip".to_string(),
+        selection: metrics::MetricSelection::default(),
+        curves: Vec::new(),
+        keep_frames: false,
+        remote: RemoteSelection::local_only(),
+        local_compute: LocalComputeTarget::Cpu,
+        adaptive: None,
+        path_cache: None,
+        beam: None,
+    };
+    assert!(
+        request.scene.tray_reflection > 0.0,
+        "the request asks for the reflection"
+    );
+    let job = convert::build_video_job(
+        &request,
+        "Reflection video".to_string(),
+        DesignInfo::default(),
+        "clip".to_string(),
+        0,
+    )
+    .expect("the tilt video job builds");
+    assert_eq!(job.scene.tray_reflection.to_bits(), 0);
+    assert!(job.format <= 3, "no tray-reflection job format");
+}
+
+/// A still job keeps the Tray Reflection through the frozen scene and back into a snapshot.
+#[test]
+fn a_still_jobs_scene_carries_the_tray_reflection_both_ways() {
+    let snapshot = capture(RenderContext {
+        tray_reflection: 0.04,
+        ..RenderContext::default()
+    });
+    let scene = convert::scene_from_snapshot(&snapshot, 16, 16);
+    assert_eq!(scene.tray_reflection.to_bits(), 0.04f32.to_bits());
+    let restored = convert::snapshot_from_scene(&scene, None);
+    assert_eq!(restored.tray_reflection.to_bits(), 0.04f32.to_bits());
+
+    // The built job file is the format that carries the reflection, and it keeps the value.
+    let remote = RemoteSelection::local_only();
+    let output = std::env::temp_dir().join("tray-reflection-job.png");
+    let job = convert::build_still_job(
+        &still_inputs(&snapshot, tiny_params(), &remote, &output),
+        1_791_302_580,
+    )
+    .expect("the job builds");
+    assert_eq!(job.format, 4, "the tray reflection is job format 4");
+    assert_eq!(job.scene.tray_reflection.to_bits(), 0.04f32.to_bits());
 }
 
 /// Records what the executor reports, and can raise `cancel` after a given frame.
@@ -383,8 +1019,8 @@ impl JobSink for Recorder<'_> {
     }
 }
 
-/// J3-T2: a video stopped after one frame keeps it, and the next run renders only the
-/// missing frames, leaving the first frame's file untouched.
+/// A video stopped after one frame keeps it, and the next run renders only the missing
+/// frames, leaving the first frame's file untouched.
 #[test]
 fn j3_t2_a_resumed_video_skips_the_frames_already_on_disk() {
     let dir = test_dir("t2");
@@ -428,7 +1064,7 @@ fn j3_t2_a_resumed_video_skips_the_frames_already_on_disk() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// J3-T3: the frame folder guards and the restart.
+/// The frame folder guards and the restart.
 #[test]
 fn j3_t3_the_frame_folder_guards_protect_other_exports() {
     // Another job's marker.
@@ -499,7 +1135,7 @@ fn j3_t3_the_frame_folder_guards_protect_other_exports() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-fn write_test_hdr(dir: &Path) -> PathBuf {
+pub(super) fn write_test_hdr(dir: &Path) -> PathBuf {
     let pixels: Vec<image::Rgb<f32>> = (0..64)
         .map(|i| image::Rgb([(i as f32).mul_add(0.01, 0.2), 0.5, 0.25]))
         .collect();
@@ -513,7 +1149,7 @@ fn write_test_hdr(dir: &Path) -> PathBuf {
 }
 
 /// A still job whose scene names the HDR map `hash`, stored at `path`.
-fn hdr_job(path: &Path, hash: &[u8; 32]) -> RenderJobFile {
+pub(super) fn hdr_job(path: &Path, hash: &[u8; 32]) -> RenderJobFile {
     let remote = RemoteSelection::local_only();
     let output = path.with_extension("png");
     let mut job = convert::build_still_job(
@@ -539,7 +1175,7 @@ fn hdr_job(path: &Path, hash: &[u8; 32]) -> RenderJobFile {
     job
 }
 
-/// J3-T4: a missing HDR map and a changed one fail the job with a plain sentence.
+/// A missing HDR map and a changed one fail the job with a plain sentence.
 #[test]
 fn j3_t4_a_missing_or_changed_hdr_map_fails_the_job() {
     let dir = test_dir("t4");

@@ -1,0 +1,317 @@
+import { Theme } from "../../theme.slint";
+import { ScrollView } from "std-widgets.slint";
+import { RoughPlanModel, RoughPlanStoneGroup } from "../../models/rough_plan.slint";
+import { Zoning } from "../../models/zoning.slint";
+import { RoughUi } from "state.slint";
+
+// The menus of the Rough Planner: Find the Axis, the scan card's menu, a saved plan's menu, a
+// design card's menu and the edge or corner choice of a cut row. Only one is open at a time
+// (`RoughUi.menu_kind`). They are window-level elements the window places at `RoughUi`'s
+// coordinates, clamped into the window (a popup cannot be placed reliably from inside a layout,
+// and the scrolling lists would clip it).
+
+// One entry of a menu. Tab reaches it; Space and Enter press it.
+component MenuItem inherits Rectangle {
+    in property <string> text;
+    in property <string> hint;
+    in property <bool> enabled: true;
+    in property <bool> danger: false;
+    in property <bool> current: false;
+    // Take the keyboard focus when the menu opens (the first entry).
+    in property <bool> autofocus: false;
+    callback clicked();
+
+    height: 32px;
+    border-radius: 6px;
+    background: touch.has-hover && root.enabled ? Theme.bg-card-hover : transparent;
+    border-width: fs.has-focus ? 2px : 0px;
+    border-color: Theme.accent-cyan-hover;
+    accessible-role: AccessibleRole.button;
+    accessible-label: root.text;
+    accessible-description: root.hint;
+    accessible-enabled: root.enabled;
+    accessible-action-default => {
+        if root.enabled {
+            root.clicked();
+        }
+    }
+
+    if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
+    fs := FocusScope {
+        enabled: root.enabled;
+        init => {
+            if root.autofocus {
+                self.focus();
+            }
+        }
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.clicked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    Text {
+        x: 10px;
+        width: parent.width - 20px;
+        height: parent.height;
+        text: root.text;
+        font-size: 13px;
+        font-weight: root.current ? 700 : 400;
+        color: !root.enabled ? Theme.text-disabled
+            : (root.danger ? Theme.danger : (root.current ? Theme.accent-cyan-hover : Theme.text-primary));
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+// The whole-window layer that holds the open menu: a click anywhere outside the card closes it.
+export component RoughMenus inherits Rectangle {
+    // The window's size, to keep the card inside it.
+    in property <length> win_w;
+    in property <length> win_h;
+
+    property <int> kind: RoughUi.menu_kind;
+    property <int> target: RoughUi.menu_row;
+    property <int> group_index: RoughUi.menu_group;
+    // The design the design menu acts on.
+    property <RoughPlanStoneGroup> group: RoughPlanModel.results[root.target].groups[root.group_index];
+    property <bool> link_ok: root.group.linkable && RoughPlanModel.links_enabled;
+    // The edge or corner names of the cut the choice menu acts on.
+    property <[string]> cut_options: RoughPlanModel.cuts[root.target].kind == 0 ? RoughPlanModel.edge_options : RoughPlanModel.corner_options;
+
+    property <length> menu_w: root.kind == 5 ? 220px : 210px;
+    property <length> menu_h: root.kind == 1 ? 4 * 32px + 8px
+        : (root.kind == 2 ? 2 * 32px + 8px
+        : (root.kind == 3 ? 4 * 32px + 8px
+        : (root.kind == 4 ? (Zoning.colour_available ? 5 : 4) * 32px + 8px
+        : Math.min(root.cut_options.length * 32px + 8px, 300px))));
+    property <length> menu_x: Math.max(8px, Math.min(RoughUi.menu_right ? RoughUi.menu_x - root.menu_w : RoughUi.menu_x, root.win_w - root.menu_w - 8px));
+    property <length> menu_y: Math.max(8px, Math.min(RoughUi.menu_y, root.win_h - root.menu_h - 8px));
+
+    x: 0px;
+    y: 0px;
+    width: root.win_w;
+    height: root.win_h;
+
+    TouchArea {
+        clicked => { RoughUi.menu_kind = 0; }
+    }
+
+    Rectangle {
+        x: root.menu_x;
+        y: root.menu_y;
+        width: root.menu_w;
+        height: root.menu_h;
+        background: Theme.surface-dialog;
+        border-radius: 10px;
+        border-width: 1px;
+        border-color: Theme.border-dialog;
+        drop-shadow-blur: 20px;
+        drop-shadow-color: Theme.modal-shadow;
+        drop-shadow-offset-y: 6px;
+        accessible-role: AccessibleRole.list;
+        accessible-label: root.kind == 1 ? "Find the Axis" : (root.kind == 2 ? "Scan menu" : (root.kind == 3 ? "Saved plan menu" : (root.kind == 4 ? "Design menu" : "Edge or corner of the cut")));
+
+        // Find the Axis
+        if root.kind == 1: VerticalLayout {
+            padding: 4px;
+            MenuItem {
+                text: "Align to Face";
+                autofocus: true;
+                hint: "Click a face of the rough in the 3D view to set the crystal axis along that face's normal.";
+                clicked => {
+                    RoughUi.menu_kind = 0;
+                    RoughPlanModel.axis_pick_start(1);
+                }
+            }
+            MenuItem {
+                text: "Align to Edge";
+                hint: "Click two points on the rough in the 3D view to set the crystal axis along the line between them.";
+                clicked => {
+                    RoughUi.menu_kind = 0;
+                    RoughPlanModel.axis_pick_start(2);
+                }
+            }
+            MenuItem {
+                text: "Fit to Crystal Length";
+                hint: "Set the crystal axis along the longest direction of the rough. A crystal is usually longest along its axis; the note says how clear that direction is.";
+                clicked => {
+                    RoughUi.menu_kind = 0;
+                    RoughPlanModel.axis_fit_length();
+                }
+            }
+            MenuItem {
+                text: "From Color Zones";
+                enabled: RoughPlanModel.axis_zones_possible;
+                hint: RoughPlanModel.axis_zones_possible
+                    ? "Set the crystal axis along the axis of the color zone you accepted in Rough Color."
+                    : "Needs an accepted color zone that runs along the crystal (a cylinder or prism around its axis) in Rough Color.";
+                clicked => {
+                    RoughUi.menu_kind = 0;
+                    RoughPlanModel.axis_from_zones();
+                }
+            }
+        }
+
+        // The scan card's menu
+        if root.kind == 2: VerticalLayout {
+            padding: 4px;
+            MenuItem {
+                text: "Replace Scan...";
+                autofocus: true;
+                hint: "Pick another OBJ, STL or PLY file to replace this scan.";
+                clicked => {
+                    RoughUi.menu_kind = 0;
+                    RoughPlanModel.import_obj();
+                }
+            }
+            MenuItem {
+                text: "Re-read";
+                hint: "Read the same file again, in the unit chosen in the card.";
+                clicked => {
+                    RoughUi.menu_kind = 0;
+                    RoughPlanModel.rescan_units(RoughPlanModel.mesh_unit_index);
+                }
+            }
+        }
+
+        // A saved plan's menu
+        if root.kind == 3: VerticalLayout {
+            padding: 4px;
+            MenuItem {
+                text: "Open";
+                autofocus: true;
+                enabled: !RoughPlanModel.running;
+                hint: RoughPlanModel.running ? "Not while a plan is running. Wait for it to finish, or cancel it."
+                    : "Open this plan: its rough, cuts, settings and layouts replace the ones in the window.";
+                clicked => {
+                    RoughUi.menu_kind = 0;
+                    RoughPlanModel.saved_menu(root.target, 0);
+                }
+            }
+            MenuItem {
+                text: "Rename";
+                hint: "Give this plan another name.";
+                clicked => {
+                    RoughUi.menu_kind = 0;
+                    RoughUi.delete_row = -1;
+                    RoughUi.rename_row = root.target;
+                }
+            }
+            MenuItem {
+                text: "Export";
+                hint: "Save this plan as a file you can keep, send or import again later.";
+                clicked => {
+                    RoughUi.menu_kind = 0;
+                    RoughPlanModel.saved_menu(root.target, 2);
+                }
+            }
+            MenuItem {
+                text: "Delete";
+                danger: true;
+                hint: "Delete this saved plan. You are asked to confirm first.";
+                clicked => {
+                    RoughUi.menu_kind = 0;
+                    RoughUi.rename_row = -1;
+                    RoughUi.delete_row = root.target;
+                }
+            }
+        }
+
+        // A design card's menu
+        if root.kind == 4: VerticalLayout {
+            padding: 4px;
+            MenuItem {
+                text: "Open in Editor";
+                autofocus: true;
+                enabled: root.link_ok && !RoughPlanModel.running;
+                accessible-label: "Open " + root.group.name + " in the editor";
+                hint: !root.link_ok ? "Switch to the local library first: this needs the design in the library."
+                    : (RoughPlanModel.running ? "Not while a plan is running."
+                    : "Open this design in the editor with the piece of rough this stone comes from as its preform, at the stone's real size.");
+                clicked => {
+                    RoughUi.menu_kind = 0;
+                    RoughPlanModel.open_in_editor(root.target, root.group_index);
+                }
+            }
+            MenuItem {
+                text: "Show in Library";
+                enabled: root.link_ok;
+                accessible-label: "Show " + root.group.name + " in the Library";
+                hint: root.link_ok ? "Select this design in the library list."
+                    : "Switch to the local library first: this needs the design in the library.";
+                clicked => {
+                    RoughUi.menu_kind = 0;
+                    RoughPlanModel.select_design(root.group.entry_id);
+                }
+            }
+            MenuItem {
+                text: root.group.excluded ? "Include in Planner" : "Exclude from Planner";
+                enabled: root.link_ok && !RoughPlanModel.running;
+                accessible-label: root.group.excluded
+                    ? "Include " + root.group.name + " in planning"
+                    : "Exclude " + root.group.name + " from planning";
+                hint: !root.link_ok ? "Switch to the local library first: this needs the design in the library."
+                    : (RoughPlanModel.running ? "Not while a plan is running."
+                    : (root.group.excluded
+                        ? "The planner leaves this design out. Take it back into the planning."
+                        : "Leave this design out of every future plan. You can take it back from the excluded designs in Plan Settings."));
+                clicked => {
+                    RoughUi.menu_kind = 0;
+                    RoughPlanModel.toggle_exclude(root.group.entry_id);
+                }
+            }
+            if Zoning.colour_available: MenuItem {
+                text: "Use Color";
+                enabled: root.link_ok && !RoughPlanModel.running;
+                accessible-label: "Use the Color of " + root.group.name;
+                hint: !root.link_ok ? "Switch to the local library first: this needs the design in the library."
+                    : (RoughPlanModel.running ? "Not while a plan is running."
+                    : "Make a material from the color this stone has in the rough, select it in the editor and set the stone size to the real size of this stone.");
+                clicked => {
+                    RoughUi.menu_kind = 0;
+                    Zoning.adopt_colour(root.target, root.group_index);
+                }
+            }
+            MenuItem {
+                text: "Orientation Rule...";
+                enabled: RoughPlanModel.design_rule_entry >= 0;
+                hint: "Choose how stones of this design sit to the crystal axis, instead of following the plan's rule.";
+                clicked => {
+                    RoughUi.menu_kind = 0;
+                    RoughUi.design_rule_open = true;
+                }
+            }
+        }
+
+        // The edge or corner choice of a cut row
+        if root.kind == 5: ScrollView {
+            x: 0px;
+            y: 0px;
+            width: parent.width;
+            height: parent.height;
+            content-width: self.visible-width;
+            VerticalLayout {
+                padding: 4px;
+                for name[i] in root.cut_options: MenuItem {
+                    text: name;
+                    autofocus: i == RoughPlanModel.cuts[root.target].face_index;
+                    current: i == RoughPlanModel.cuts[root.target].face_index;
+                    hint: "Move this cut to this " + (RoughPlanModel.cuts[root.target].kind == 0 ? "edge." : "corner.");
+                    clicked => {
+                        RoughUi.menu_kind = 0;
+                        RoughPlanModel.selected_cut = root.target;
+                        RoughPlanModel.cut_faces_changed(root.target, i);
+                    }
+                }
+            }
+        }
+    }
+}

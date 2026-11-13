@@ -2,8 +2,8 @@
 //! externally-verified greedy repair search, and the report type describing
 //! what it did.
 //!
-//! See the crate module docs for why external (printed-proportion) scoring
-//! can discriminate a correct solve when nothing internal can.
+//! See the meet solver module docs (External verification) for why printed-proportion
+//! scoring can discriminate a correct solve.
 //! [`VerifiedSearch`] repeatedly re-runs
 //! [`super::solve::SolveContext::run_pipeline`] with different phase-1
 //! vertex-level overrides (and, when the caller allows it, adjusted anchor
@@ -21,27 +21,19 @@ use std::collections::BTreeMap;
 /// Combined-deviation score at or below which a solve counts as externally
 /// verified.
 ///
-/// Measured on the full 2,881-design corpus (temporary calibration probe,
-/// deterministic run): applied to the *plain* solver's output, the accept test
-/// at 0.01 had **100% precision** (every accepted design's worst meet-derived
-/// tier was within 10% of truth, n=185) and 59.5% recall of the
-/// correctly-solved designs; the printed figures themselves reproduce the true
-/// solid's measurements to a ~0.1% median, so this threshold sits an order of
-/// magnitude above the data's noise floor and an order of magnitude below a
-/// wrong solve's typical deviation (median 0.32). Applied end-to-end *after*
-/// [`solve_meet_points_verified`]'s repair search -- which can occasionally
-/// construct a compensating-error configuration that matches the printed
-/// figures, a multiple-comparisons effect the plain measurement doesn't have --
-/// precision is 90.4% by the strict every-tier-within-10% test, with the
-/// accepted designs' pooled per-tier median error at 0.0001
-/// (`examples/meet_solver_validation/main.rs`, full corpus).
+/// The printed figures reproduce the true solid to about 0.1 % (median), while a wrong
+/// solve is typically off by about 30 %. The threshold sits between those. On plain
+/// solves, every accepted design had its worst meet-derived tier within 10 % of truth.
+/// After [`solve_meet_points_verified`]'s repair search, about 90 % of accepted designs
+/// still pass that strict per-tier test. The search can find a compensating-error
+/// configuration that matches the figures, so acceptance is slightly weaker there
+/// (`examples/meet_solver_validation/main.rs` measures it).
 pub const VERIFY_ACCEPT_TOL: f64 = 0.01;
 
-/// Repair-search budget: greedy rounds (each committing at most one decision
-/// override) and the alternative vertex levels tried per decision. Level 1 is
-/// the default pick, so the alternatives cover levels 0, 2 and 3 -- the
-/// oracle-measured true level is within the first three levels for 94.4% of
-/// tiers, and within these four for slightly more.
+/// Repair-search budget: greedy rounds (each committing at most one decision override)
+/// and the alternative vertex levels tried per decision. Level 1 is the default pick, so
+/// the alternatives are levels 0, 2 and 3. The true level is almost always among the
+/// first three levels.
 const VERIFY_MAX_ROUNDS: usize = 4;
 const VERIFY_ALT_LEVELS: [usize; 3] = [0, 2, 3];
 
@@ -49,16 +41,13 @@ const VERIFY_ALT_LEVELS: [usize; 3] = [0, 2, 3];
 /// be committed. Guards against chasing sub-noise fluctuations.
 const VERIFY_MIN_GAIN: f64 = 0.002;
 
-/// Pipeline-run budget scale for one design's repair search. A single pipeline
-/// run costs roughly `tiers * planes^3` (the constructive pass re-enumerates
-/// candidate vertices per settled tier, and tier count grows with plane count),
-/// i.e. ~`planes^4` -- so a flat run cap would let the corpus's heavy tail
-/// (~190 designs above 100 planes) each burn many core-minutes. Instead a
-/// design's budget is `VERIFY_RUN_BUDGET / total_planes^4`, clamped to
-/// `[1, VERIFY_MAX_RUNS]` (`VERIFY_MAX_RUNS_CALIBRATED` when anchors are
-/// adjustable -- the anchor moves need extra room): a typical 60-plane design
-/// gets the full budget, a 150-plane one ~20 runs, a 300-plane one essentially
-/// the plain solve only.
+/// Pipeline-run budget scale for one design's repair search. A run costs roughly
+/// `tiers * planes^3`, and the tier count grows with the plane count, so about
+/// `planes^4`. A flat run cap would let large designs burn minutes. A design's budget is
+/// `VERIFY_RUN_BUDGET / total_planes^4`, clamped to `[1, VERIFY_MAX_RUNS]`
+/// (`VERIFY_MAX_RUNS_CALIBRATED` when anchors are adjustable, since anchor moves need
+/// more room). A 60-plane design gets the full budget, a 150-plane one about 20 runs,
+/// and a 300-plane one essentially the plain solve only.
 const VERIFY_RUN_BUDGET: f64 = 1.0e10;
 const VERIFY_MAX_RUNS: usize = 120;
 const VERIFY_MAX_RUNS_CALIBRATED: usize = 170;
@@ -81,15 +70,10 @@ const VERIFY_MAX_ROUNDS_CALIBRATED: usize = 8;
 
 /// One candidate move of the verified repair search's greedy scan.
 ///
-/// NOTE -- rejected: a joint multiplier over all adjustable anchors (vs. independent
-/// per-anchor moves), on the hypothesis that the Report-D acceptance-precision collapse
-/// (90.4% fixed anchors -> 24.2% adjustable) came from wandering along the
-/// observability-blind crown-vs-pavilion translation direction, which a joint multiplier
-/// cannot enter. Measured, it recovered nothing (24.0% vs. 24.2% precision, 199 vs. 214
-/// accepted) -- with *any* continuous anchor freedom, wrong configurations reproducing
-/// all five printed figures stay reachable; external certification requires trusted
-/// (real-mast) anchors, and in calibrated mode the accept flag is a quality signal, not
-/// a correctness certificate. Independent per-anchor moves, marginally better, ship.
+/// NOTE: a joint multiplier over all adjustable anchors was rejected. With any continuous
+/// anchor freedom, wrong configurations that reproduce every printed figure stay
+/// reachable, so certification needs trusted (real-mast) anchors. Calibrated acceptance
+/// is only a quality signal.
 enum RepairMove {
     /// Force this tier's phase-1 pick to this vertex-level index.
     Level(usize, usize),
@@ -121,66 +105,37 @@ pub struct VerifiedSolveReport {
     pub pipeline_runs: usize,
 }
 
-/// [`solve_meet_points`](super::solve_meet_points) plus an externally-verified
-/// repair search.
+/// [`solve_meet_points`](super::solve_meet_points) plus an externally verified repair
+/// search.
 ///
-/// The corpus problem this addresses (measured; see the module docs): wrong
-/// solves are *self-consistent* -- every tier still lands on a real meet
-/// vertex -- so no internal score can tell them from the truth. The
-/// proportions printed on a design (`targets`: `Vol/W^3`, `L/W`, `C/W`,
-/// `P/W`, `H/W`) are external, and the true configuration reproduces them to
-/// ~0.1% (median) while a wrong solve is off by ~30%: a discrimination
-/// measured at 100% precision at the [`VERIFY_ACCEPT_TOL`] threshold (see its
-/// doc comment, including the post-search precision caveat).
+/// Wrong solves are self-consistent, so no internal score can separate them from the
+/// truth. The proportions printed on a design (`targets`: `Vol/W^3`, `L/W`, `C/W`, `P/W`,
+/// `H/W`) can: the true configuration reproduces them, a wrong one does not. See the meet
+/// solver module docs (External verification) and [`VERIFY_ACCEPT_TOL`].
 ///
-/// The search is greedy in decision space: run the plain pipeline; while the
-/// combined deviation stays above [`VERIFY_ACCEPT_TOL`], try overriding each
-/// meet-derived tier's phase-1 vertex-level pick with the nearby alternatives
-/// ([`VERIFY_ALT_LEVELS`]), re-running the pipeline (so the change cascades
-/// through everything built on that tier), and commit the single best-scoring
-/// move per round. Deterministic: fixed iteration order, `BTreeMap` state, and
-/// a deterministic scorer ([`measure_solid`](crate::geometry::stone_metrics::measure_solid)).
+/// The search is greedy over decisions. It runs the plain pipeline. While the combined
+/// deviation stays above [`VERIFY_ACCEPT_TOL`], it overrides each meet-derived tier's
+/// phase-1 vertex-level pick with the alternatives in [`VERIFY_ALT_LEVELS`], re-running
+/// the pipeline so the change cascades. The best move is committed per round. The search
+/// is deterministic: fixed iteration order, `BTreeMap` state, and a deterministic scorer
+/// ([`measure_solid`](crate::geometry::stone_metrics::measure_solid)).
 ///
-/// `adjustable_anchors` lists tiers whose [`MeetConstraint::ScaleReference`]
-/// values are *estimates* the search may adjust (printed-ratio
-/// anchors, which carry 10-25% isolated error -- never pass anchors holding
-/// real recorded masts). For those, a coarse per-anchor calibration grid
-/// ([`ANCHOR_GRID`]) runs first, and fine anchor moves
-/// ([`ANCHOR_FINE_STEPS`]) then compete with the level overrides inside the
-/// greedy loop, all scored by the same printed figures. Pass `&[]` for the
-/// plain repair search.
+/// `adjustable_anchors` lists tiers whose [`MeetConstraint::ScaleReference`] values are
+/// estimates the search may adjust, such as printed-ratio anchors with 10-25 % error. Never
+/// pass anchors that hold real recorded masts. For those tiers a coarse calibration grid
+/// ([`ANCHOR_GRID`]) runs first. Fine anchor moves ([`ANCHOR_FINE_STEPS`]) then compete with
+/// the level overrides in the greedy loop. Pass `&[]` for the plain repair search.
 ///
-/// Measured end-to-end on the full 2,881-design corpus
-/// (`examples/meet_solver_validation/main.rs`, printed-ratio anchoring,
-/// `adjustable_anchors` empty, deterministic run): overall median relative
-/// error 0.2110 -> **0.1278**, designs with every meet-derived tier within 10%
-/// of truth 10.8% -> **23.7%**, 409 designs (14.2%) verified-accepted with a
-/// pooled per-tier median error of 0.0001, at a mean cost of 68.4 pipeline
-/// runs per design (~29 minutes for the corpus at 16 threads). Unaccepted
-/// designs still improve on average (pooled per-tier median 0.1485 vs. the
-/// plain solve's 0.2110 blended), since the search keeps any committed move
-/// that brought the measured solid closer to the printed figures.
+/// With fixed anchors, acceptance is strong evidence of a correct solve: about 90 % of
+/// accepted designs pass the strict every-tier-within-10 % test. With adjustable anchors,
+/// acceptance is only a quality signal, because continuous anchor freedom lets wrong
+/// configurations reproduce all the printed figures (see [`RepairMove`]).
 ///
-/// With adjustable anchors (Report D in the same probe: the production path,
-/// printed-ratio anchors, full corpus, deterministic run): overall median
-/// relative error 0.2858 -> **0.2420**, within-10% designs 5.1% -> 5.7%, at a
-/// mean cost of 97.3 pipeline runs per design. **The accept flag is weaker in
-/// this mode**: 214 designs accepted, but only 24.2% of them pass the strict
-/// every-tier-within-10% test (vs. 90.4% with fixed anchors) -- with
-/// continuous anchor freedom, wrong configurations that reproduce all five
-/// printed figures are reachable (see the NOTE on [`RepairMove`] for the
-/// second variant that was measured trying to close this). Treat calibrated
-/// acceptance as a quality *signal* (accepted designs' pooled tier median
-/// 0.1142 vs. unaccepted 0.2497), never as the correctness certificate the
-/// fixed-anchor mode provides.
-///
-/// Latency: each repair run costs one full pipeline solve, `O(P^3)` per
-/// refinement sweep in the plane count `P`; see the module docs' "Cost
-/// envelope" section and `VERIFY_RUN_BUDGET` for the measured figures. Never
-/// cancels and reports no progress -- a thin wrapper over
-/// [`solve_meet_points_verified_with`] passing a no-op [`SolveControl`], and
-/// above [`MAX_PLANES`] it keeps the legacy behavior of returning an all-
-/// [`super::SolveStrategy::Failed`] result instead of an error.
+/// Latency: each repair run costs one full pipeline solve (see the module docs' "Cost
+/// envelope" section and `VERIFY_RUN_BUDGET`). Never cancels and reports no progress. This
+/// is a thin wrapper over [`solve_meet_points_verified_with`] with a no-op [`SolveControl`].
+/// Above [`MAX_PLANES`] it returns an all-[`super::SolveStrategy::Failed`] result instead of
+/// an error.
 #[must_use]
 pub fn solve_meet_points_verified(
     gear_teeth_abs: u32,
@@ -217,15 +172,11 @@ pub fn solve_meet_points_verified(
 
 /// Cancellable, progress-reporting sibling of [`solve_meet_points_verified`].
 ///
-/// Same search and same determinism guarantee: an unused `control` reproduces
-/// [`solve_meet_points_verified`] exactly. Every pipeline run the repair
-/// search performs -- the coarse anchor grid, and every greedy-round trial --
-/// is itself a natural cancel point and progress source: each goes through
-/// [`super::solve::SolveContext::run_pipeline`] with `control` threaded
-/// through it, so a cancel or [`super::SolveProgress`] report from deep inside
-/// one repair-search run surfaces exactly the way a plain
-/// [`super::solve_meet_points_with`] solve's does. No separate
-/// verified-search-level progress unit.
+/// Same search and determinism guarantee: an unused `control` reproduces
+/// [`solve_meet_points_verified`] exactly. Every pipeline run of the repair search (the
+/// coarse anchor grid and each greedy-round trial) receives `control`. Cancel and progress
+/// therefore surface as they do in [`super::solve_meet_points_with`]. The search has no
+/// progress unit of its own.
 ///
 /// # Errors
 ///

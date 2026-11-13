@@ -1,7 +1,5 @@
 //! Tests of the rough model's input validation: sampling counts, cut faces on a repeated
 //! axis, base sizes and face-cut normals.
-//!
-//! Every expectation is derived by hand in the test that uses it.
 
 use super::{
     BoxFace, RoughBase, RoughCut, RoughModel, ShapeError,

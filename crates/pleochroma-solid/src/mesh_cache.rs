@@ -1,28 +1,23 @@
 //! Caches one [`SolidMesh`] build against the plane arrangement it was built from.
 //!
-//! It also keeps a one-time [`raster::simplify_ring`] pass over every facet, so a burst of
-//! redraws carrying the SAME planes (e.g. an orbit drag) never re-solves the mesh or
-//! re-simplifies its rings more than once. Re-simplifying every frame was expensive
-//! enough to matter -- see [`super::raster`]'s doc comment.
+//! It also keeps a one-time [`raster::simplify_ring`] pass over every facet, so redraws
+//! with the same planes (an orbit drag, say) never re-solve or re-simplify the mesh.
 //!
-//! Deliberately independent of every editor type: [`MeshCache::get_or_build`] takes a
-//! plain `&[(Vec3, f32)]` plane slice -- normal plus signed offset, `n . x <= m` -- the
-//! same half-space convention [`build_solid_mesh`] itself takes, just narrowed to
-//! `f32`. `preview_state::SolidPreviewState` is the only caller and is the boundary
-//! that converts from editor types.
+//! Independent of every editor type: [`MeshCache::get_or_build`] takes a plain
+//! `&[(Vec3, f32)]` plane slice (normal plus offset, `n . x <= m`, the convention of
+//! `build_solid_mesh_geom` narrowed to `f32`). The desktop's `SolidPreviewState` converts
+//! from editor types before calling it.
 //!
 //! # Cache key
 //!
-//! Exactly one cached entry (a redraw always wants the current design, never a
-//! historical one). The key is a plain FNV-1a hash of every plane's `f32` bit
-//! pattern, in slice order: [`Vec3`]/`f32` do not implement `Hash`, so [`hash_planes`]
-//! hashes `to_bits()` of each component directly. Deterministic, which only matters
-//! for reproducible tests, not correctness.
+//! One entry only: a redraw always wants the current design. The key is FNV-1a over every
+//! plane's `f32` bit pattern in slice order. `Vec3`/`f32` do not implement `Hash`, so
+//! [`hash_planes`] hashes `to_bits()` directly. FNV-1a is fixed, so keys reproduce across
+//! runs.
 //!
 //! A concave stone ([`StoneGeometryBuf`] with tools) keys on
 //! [`StoneGeometryBuf::cache_key`], which continues the same FNV stream over the tool
-//! bytes and is *equal* to the planar key when there are none, so a tool-free stone
-//! behaves exactly as before.
+//! bytes. With no tools it equals the planar key, so a tool-free stone shares the slot.
 
 use super::{preview::StoneGeometryBuf, raster};
 use glam::{DVec3, Vec3};
@@ -204,13 +199,10 @@ impl CachedMesh {
     /// The largest distance from the origin to any of this mesh's own vertices,
     /// in the same model units [`SolidMesh::positions`] uses.
     ///
-    /// The solver's own coordinate origin is already the centre every facet
-    /// plane's offset is expressed against, so this needs no separate centroid
-    /// pass -- used to size the orbit camera's distance clamp
-    /// (`render::camera_lighting::orbit_distance_bounds`) to the design
-    /// ACTUALLY loaded instead of a fixed `[1.2, 8.0]` range that clips a large
-    /// preform's facets at minimum distance and leaves a tiny one lost in empty
-    /// space at maximum. `0.0` for an empty mesh (no vertices at all).
+    /// The solver's origin is the centre every facet plane's offset is expressed
+    /// against, so no separate centroid pass is needed. Sizes the orbit camera's
+    /// distance clamp (`camera_lighting::orbit_distance_bounds`) to the loaded design.
+    /// `0.0` for an empty mesh.
     #[must_use]
     pub fn bounding_radius(&self) -> f64 {
         self.mesh
@@ -278,10 +270,8 @@ impl MeshCache {
     /// [`Self::get_or_build_geometry`] with the caller's own `key`, which MUST be
     /// `geometry.cache_key()` of this very `geometry`.
     ///
-    /// A redraw looks the same stone up twice (once to name an unbounded tier in
-    /// `resolve_request_state`, once to render it); the second lookup passes the first
-    /// one's key so the plane list is hashed once per request instead of twice (perf
-    /// review UI-7). The result is identical to the unkeyed call.
+    /// Lets a caller that already hashed the stone skip hashing the plane list again.
+    /// A redraw looks the same stone up twice, to name an unbounded tier and to render it.
     pub fn get_or_build_geometry_keyed(
         &mut self,
         key: u64,
@@ -354,11 +344,9 @@ impl MeshCache {
     }
 
     /// A short human-readable reason the last [`Self::get_or_build`] call returned
-    /// `None`, empty when the last build was `Closed` (or nothing built yet). Wording
-    /// mirrors `gui::editor::state::status_text_and_is_problem`'s, reimplemented here
-    /// so `solid_preview` stays independent of `gui::editor` types. A generic
-    /// fallback for a caller with no `Design` context to name the escaping planes'
-    /// owning tiers with (see [`Self::status`] for that better-informed path).
+    /// `None`, empty when the last build was `Closed` (or nothing built yet). The
+    /// wording is kept here so this module stays independent of editor types. A caller
+    /// with a `Design` should prefer [`Self::status`], which can name the owning tiers.
     #[must_use]
     pub fn status_message(&self) -> String {
         let Some(CacheEntry::Other(status)) = self.entry.as_ref() else {
@@ -646,7 +634,7 @@ mod tests {
     }
 
     /// `pleochroma-cut-core`'s `optimize_cost_probe_crackotto_step.asc` fixture; mirrors
-    /// `raster.rs`'s `crackotto_step_planes` helper (one `ScaleReference` bootstrap per
+    /// `raster/tests.rs`'s `crackotto_step_planes` helper (one `ScaleReference` bootstrap per
     /// block, since every tier in this design is meet-derived).
     ///
     /// `#[cfg(not(target_arch = "wasm32"))]`: its only caller
@@ -684,10 +672,9 @@ mod tests {
             .collect()
     }
 
-    /// `std::time::Instant`-based perf measurement, not a correctness check --
-    /// `#[cfg(not(target_arch = "wasm32"))]` (on top of `#[ignore]`) since this
-    /// crate must contain no `Instant::now` at all, even in a test that never runs
-    /// on `wasm32-unknown-unknown` -- see the crate README.
+    /// Timing measurement, not a correctness check. Gated off `wasm32` (on top of
+    /// `#[ignore]`) because `Instant::now` panics on `wasm32-unknown-unknown` (see the
+    /// crate README).
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     #[ignore = "timing measurement, not a correctness check -- run with \

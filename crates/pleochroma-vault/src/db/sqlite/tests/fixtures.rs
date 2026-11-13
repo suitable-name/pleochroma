@@ -5,14 +5,11 @@
 use super::super::{Connection, params};
 use std::sync::atomic::{AtomicU32, Ordering};
 
-/// Returns a fresh, guaranteed-nonexistent temp-database path -- tests need a real
-/// file (not `:memory:`) to reopen and check idempotency/persistence across two
-/// `Database::new` calls.
+/// Returns a fresh temp-database path. Tests need a real file (not `:memory:`) to reopen
+/// across two `Database::new` calls.
 ///
-/// Counter + `process::id()` dedupe within a run but not across runs (a leaked file
-/// from a killed run can collide with a later pid/counter and get opened
-/// pre-populated -- observed for real). Deleting any pre-existing file removes that
-/// failure mode outright rather than just shrinking its odds.
+/// The counter and process id keep names unique within a run. A file left by an earlier
+/// run can reuse a name, so any existing file is removed first.
 pub(super) fn temp_db_path(label: &str) -> std::path::PathBuf {
     static COUNTER: AtomicU32 = AtomicU32::new(0);
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -36,11 +33,10 @@ pub(super) type SeedRow<'a> = (
     Option<&'a str>,
 );
 
-/// Creates the *pre-migration* schema directly (bypassing `Database::new`, which
-/// always migrates on open) and inserts one `diagram_entries`/`diagram_details`
-/// pair per `SeedRow`, exactly as the old TEXT-column schema would have held them.
-/// Used to test the migration against data shaped like what's actually in
-/// `facet_diagrams.sqlite` today.
+/// Creates the *pre-migration* schema directly (bypassing `Database::new`, which always
+/// migrates on open) and inserts one `diagram_entries`/`diagram_details` pair per
+/// `SeedRow`, in the old TEXT-column shape. Migration tests use it to match the data of
+/// a real `facet_diagrams.sqlite` catalogue.
 pub(super) fn seed_pre_migration_db(path: &std::path::Path, rows: &[SeedRow<'_>]) {
     let conn = Connection::open(path).expect("open raw connection for seeding");
     conn.execute_batch(

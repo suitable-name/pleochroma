@@ -10,26 +10,19 @@ use pleochroma::geometry::meet_solver::{
     MeetConstraint, SolveControl, SolveError, meet_tier_inputs_from_asc,
 };
 
-/// Speed, on a real, large design: PC 05.115 "CrackOtto-Step", 103 tiers, pulled
-/// read-only from the user's own `facet_diagrams.sqlite` catalogue's attached `.asc`
-/// file (see [`super::fixtures::large_fixture`] for provenance) -- a full
-/// [`crate::design::Design::solve`] against this design measures **5.9 seconds**,
-/// which is why the editor has an explicit "Solve" button rather than solving on
-/// every keystroke.
+/// Timing of a full `Design::solve` against `Design::resolve_dirty` on PC 05.115
+/// "CrackOtto-Step", 103 tiers (see [`super::fixtures::large_fixture`]).
 ///
-/// Every one of this design's 103 tiers is implicit `MeetExisting` (no `G`-field
-/// text at all) -- the corpus's dominant, hardest case -- so after bootstrapping one
-/// [`MeetConstraint::ScaleReference`] anchor per crown/pavilion/girdle block (same
-/// technique as [`super::fixtures::design_with_real_meet_structure`]), all but 2-3 of
-/// the 103 tiers are non-anchor. Per [`crate::resolve::affected_tiers`]'s doc
-/// comment, editing ANY tier here therefore affects essentially the whole non-anchor
-/// remainder -- this benchmark puts a real number on exactly how much (or little)
-/// [`crate::design::Design::resolve_dirty`] still saves in that regime, not a best
-/// case.
+/// A full solve takes about 5.9 seconds, which is why the editor has an explicit
+/// "Solve" button rather than solving on every keystroke.
 ///
-/// `#[ignore]`d (like the two large fixtures in `resolve_dirty_equivalence`) so the
-/// default suite stays fast; run with `cargo test -p pleochroma-cut-core --release --
-/// --ignored --nocapture resolve_dirty_speed_on_a_large_real_design` for the numbers.
+/// All 103 tiers are implicit `MeetExisting`. After anchoring each block as
+/// [`super::fixtures::design_with_real_meet_structure`] does, editing any tier affects
+/// nearly the whole non-anchor remainder (see [`crate::resolve::affected_tiers`]). This
+/// measures that realistic case, not a best case.
+///
+/// `#[ignore]`d so the default suite stays fast. Run `cargo test -p pleochroma-cut-core
+/// --release -- --ignored --nocapture resolve_dirty_speed_on_a_large_real_design`.
 #[test]
 #[ignore = "timing measurement, not a correctness check -- run with \
             --release --ignored --nocapture, see doc comment"]
@@ -82,12 +75,9 @@ fn resolve_dirty_speed_on_a_large_real_design() {
     }
     println!("CrackOtto-Step (103 tiers): baseline full solve (unedited): {full_time:?}");
 
-    // The other half of the honest picture (see `crate::resolve`'s module
-    // docs, "What this still buys"): the SAME 103 planes, but imported
-    // the normal way a user would actually open this file in the editor --
-    // `Design::from_asc_schedule` pins every tier's constraint to
-    // `ScaleReference` at its own real recorded mast, so immediately after
-    // loading, every tier except the one being edited is structurally immune.
+    // The same planes imported the normal way (`Design::from_asc_schedule`), which pins
+    // every tier to its recorded mast. Only the edited tier then needs re-solving (see
+    // "What this still buys" in `crate::resolve`'s module docs).
     let schedule = pleochroma_formats::asc::parse_asc(large_fixture::PC_05_115_CRACKOTTO_STEP)
         .expect("fixture must parse");
     let imported = Design::from_asc_schedule(PreformSpec::block(2.0, 1.0, 2.0), &schedule);
@@ -120,16 +110,10 @@ fn resolve_dirty_speed_on_a_large_real_design() {
         import_full_time.as_secs_f64() / import_subgraph_time.as_secs_f64().max(1e-12)
     );
 
-    // The scenario in between -- and the one this speedup is actually FOR: a
-    // partially-adopted design. Half the tiers (the pavilion block, tiers
-    // 51-102) get "adopted" back to their real, meet-derived constraint via
-    // `design_with_real_meet_structure`'s technique (simulating a user who used
-    // `Edit::SetConstraint`'s one-click adoption on that half), while the other
-    // half (crown/girdle, tiers 0-50) stays exactly as import pinned it. Editing
-    // a STILL-PINNED crown/girdle tier should be cheap via subgraph resolve (the
-    // expensive pavilion remainder is never touched) but expensive via a full
-    // solve (which re-derives the pavilion's ~50 meet-derived tiers regardless
-    // of what was edited).
+    // A partially adopted design: the pavilion tiers (52-102) are back on their
+    // meet-derived constraints, as after one-click adoption, while the crown and girdle
+    // (0-50) stay pinned. A subgraph resolve of a pinned crown tier skips the pavilion;
+    // a full solve re-derives it.
     let mut half_adopted = imported;
     let real_pavilion_inputs = meet_tier_inputs_from_asc(&schedule);
     // Tier 51 (the pavilion's first tier) stays exactly as import pinned it, so
@@ -165,22 +149,19 @@ fn resolve_dirty_speed_on_a_large_real_design() {
     );
 }
 
-/// Cancellation proof, on the same real, expensive (5.9-second-class) fixture
-/// [`resolve_dirty_speed_on_a_large_real_design`] benchmarks:
-/// [`crate::design::Design::solve_with`] started on a background thread must notice
-/// a cancellation flag set 50 ms in and return
-/// [`pleochroma::geometry::meet_solver::SolveError::Cancelled`] within 500 ms of
-/// that -- `pleochroma::geometry::meet_solver`'s cancel points (once per
-/// constructive-pass sweep, once per candidate-enumeration chunk, once per
-/// refinement sweep -- see that crate's module docs, "Cancellation and progress")
-/// are far finer-grained than the whole solve, so this holds regardless of build
-/// profile or how long the *uncancelled* solve would have taken.
+/// Cancellation latency on the large fixture of
+/// [`resolve_dirty_speed_on_a_large_real_design`].
 ///
-/// Deliberately NOT `#[ignore]`d, unlike the timing benchmark above: this is
-/// a correctness check on cancel latency, not a performance measurement, and
-/// it must stay fast in the default suite -- `rx.recv_timeout` below returns
-/// as soon as the cancellation is observed, it does not wait for the
-/// (possibly much slower, in a debug build) solve to have run to completion.
+/// [`crate::design::Design::solve_with`] on a background thread must return
+/// [`pleochroma::geometry::meet_solver::SolveError::Cancelled`] within 500 ms of a flag
+/// set 50 ms in.
+///
+/// The solver checks for cancellation at fine-grained points (see the "Cancellation and
+/// progress" section of `pleochroma`'s meet solver docs), so this holds in any build
+/// profile, however long the uncancelled solve would take.
+///
+/// Not `#[ignore]`d: it is a correctness check, and `recv_timeout` returns as soon as the
+/// cancellation is observed rather than waiting for the solve to finish.
 #[test]
 fn cancel_stops_a_large_real_solve_quickly() {
     let design =
@@ -189,13 +170,9 @@ fn cancel_stops_a_large_real_solve_quickly() {
     let (tx, rx) = std::sync::mpsc::channel();
 
     std::thread::scope(|scope| {
-        // Bind local references first and `move` those (cheap, `Copy`) into
-        // the spawned closure, rather than `&design`/`&cancel` themselves --
-        // `tx` has to be moved in (`mpsc::Sender` is `Send` but not `Sync`,
-        // so a non-`move` closure capturing `&tx` would not compile), and a
-        // `move` closure moves every capture, which would otherwise try to
-        // move `design`/`cancel` themselves out from under the assertions
-        // below that still need them.
+        // Borrow into locals, then `move` those references into the closure: `tx` must
+        // move in (`Sender` is `Send` but not `Sync`), and a `move` closure over
+        // `design`/`cancel` themselves would take them from the assertions below.
         let design_ref = &design;
         let cancel_ref = &cancel;
         let (ready_tx, ready_rx) = std::sync::mpsc::channel();

@@ -3,11 +3,11 @@
 //! `pleochroma::geometry::stone_metrics::SolidMetrics::girdle_thickness` is the height of the
 //! highest girdle-wall vertex above the lowest one: the band's overall extent, read off two
 //! extreme vertices. It says nothing about the band at the corners between two walls, which is
-//! where a girdle runs out first. A retarget turns every wall-edge facet about its girdle OUTLINE
-//! corners ([`super::hinge`]: the girdle outline is the contract, owner decision 2026-10-19), so
-//! the extent read off two extreme vertices may move a little, and a facet that is not turned about
-//! its corners (a plain angle edit, a projection repair) can still thin the corners to a knife edge
-//! or make the crown-side and pavilion-side planes cross there.
+//! where a girdle runs out first. A retarget turns every wall-edge facet about its girdle
+//! OUTLINE corners ([`super::hinge`]: the outline is the contract), so the extent read off two
+//! extreme vertices may move a little. A facet that is not turned about its corners (a plain
+//! angle edit, a projection repair) can still thin the corners to a knife edge or make the
+//! crown-side and pavilion-side planes cross there.
 //!
 //! [`girdle_band_in`] measures what the extent cannot see: for every live girdle wall, the
 //! smallest vertical gap between its crown-side edge and its pavilion-side edge, which is the
@@ -29,16 +29,12 @@
 //! exactly. Each triple of them solves to a point a few times 1e-7 of the stone's size away from
 //! the others, and the mesh keeps whichever came first. The corner's top vertex and its bottom
 //! vertex therefore stand a little apart ALONG the wall even though the edge between them is
-//! vertical. Measured on a level girdle (crown and pavilion facets at the walls' own positions, so
-//! every wall is a rectangle): up to 3e-7 of the largest plane offset, on every wheel and scale
-//! tried. The first version of this measure took only the vertices within 1e-6 of the wall's width
-//! of its extreme end, which is 4e-7 on a 0.4 wide wall: one vertex of the corner fell outside,
-//! the corner read as a point, and half the walls of a level girdle came out as a knife edge.
-//!
-//! The measure now takes every vertex within [`corner_resolution`] (1e-5 of the stone's size,
-//! some 30 times the noise and 10 times the mesh's own vertex merge) of an end, and a gap that is
-//! no larger than that resolution counts as exactly zero: a band that has truly run out leaves
-//! its two corner vertices that close, and they must still read as a knife edge.
+//! vertical. Measured on a level girdle (every wall a rectangle): up to 3e-7 of the largest plane
+//! offset. A tolerance narrower than that noise drops one vertex of a corner and reads the corner
+//! as a point, so every vertex within [`corner_resolution`] (1e-5 of the stone's size, some 30
+//! times the noise and 10 times the mesh's own vertex merge) of an end is taken. A gap no larger
+//! than that resolution counts as exactly zero: a band that has truly run out leaves its two
+//! corner vertices that close, and they must still read as a knife edge.
 //!
 //! # What the knife-edge floor is
 //!
@@ -493,9 +489,9 @@ mod tests {
 
     #[test]
     fn a_corner_whose_vertices_are_noise_apart_along_the_wall_still_has_its_height() {
-        // The left end's top vertex lies 5e-7 inside its bottom vertex. The first version of the
-        // measure took only vertices within 1e-6 of the wall's width (4e-7) of the extreme end,
-        // left the top vertex out, and read this wall of a level girdle as a knife edge.
+        // The left end's top vertex lies 5e-7 inside its bottom vertex. A tolerance of 1e-6 of
+        // the wall's width (4e-7) would leave the top vertex out and read this wall of a level
+        // girdle as a knife edge.
         let ring = level_wall_as_meshed();
         let width = 0.397_825_1;
         assert_eq!(
@@ -607,8 +603,8 @@ mod tests {
 
     #[test]
     fn the_scaled_fixture_is_the_same_stone_in_every_direction() {
-        // The preform's length over width is a ratio and must not scale: the fixture once
-        // squared it, so the block at 0.25 was 0.125 long under a girdle 0.25 from the axis.
+        // The preform's length over width is a ratio and must not scale: scaled too, the block
+        // at 0.25 would be 0.125 long under a girdle 0.25 from the axis.
         let unit = level_girdle_brilliant_at(1.0).preform.planes();
         for scale in [0.25, 4.0] {
             let scaled = level_girdle_brilliant_at(scale).preform.planes();
@@ -626,10 +622,9 @@ mod tests {
 
     #[test]
     fn every_wall_of_a_level_girdle_reads_the_same_at_any_authoring_scale() {
-        // Half the walls of this girdle read as a knife edge before the corner resolution; the
-        // noise and the mesh's resolution both grow with the stone, so every scale is checked.
-        // The stone is the same at every scale, so what it reads relative to its size must be
-        // the same too.
+        // The noise and the mesh's resolution both grow with the stone, so every scale is
+        // checked. The stone is the same at every scale, so what it reads relative to its size
+        // must be the same too.
         let mut relative: Vec<(f64, f64)> = Vec::new();
         for scale in [0.25, 1.0, 4.0] {
             let design = level_girdle_brilliant_at(scale);

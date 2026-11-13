@@ -1,12 +1,9 @@
-//! [`Turnstile`] is plain `std::sync` -- no GPU, no adapter, no `--features gpu` device
-//! needed -- so its fairness property is unit-testable directly, unlike everything else
-//! in this module tree that actually dispatches. Gated on `feature = "gpu"` only because
-//! `Turnstile` itself is (see that type's own `#[cfg]`), not because these tests need
-//! hardware.
+//! The [`Turnstile`] tests need no adapter, so they check its fairness directly. The module
+//! is gated on `feature = "gpu"` only because `Turnstile` is.
 //!
-//! The tests that do need an adapter skip with a printed note when none is present, unless
-//! the environment variable `PLEOCHROMA_REQUIRE_GPU` is `1` -- then a missing adapter fails
-//! them, so a CI machine that is supposed to have a GPU cannot silently stop testing it.
+//! Tests that need an adapter skip with a printed note when none is present. With
+//! `PLEOCHROMA_REQUIRE_GPU=1` a missing adapter fails them instead, so a CI machine that
+//! should have a GPU cannot silently skip them.
 
 use std::{
     sync::{
@@ -56,27 +53,21 @@ pub(super) fn acquire_or_skip(test: &str) -> Option<GpuBackend> {
     None
 }
 
-/// The fairness property [`Turnstile`] exists for: three threads holding tickets
-/// `t0 < t1 < t2`, asked to wait for their turn in REVERSE ticket order (`t2` and
-/// `t1` call `wait_for_turn` before `t0` does), must still be SERVED in ascending
-/// ticket order -- exactly what lets `GpuBackend::try_accumulate_cancellable`'s
-/// "take a turn, rejoin the back of the queue" loop alternate fairly among several
-/// concurrent requests instead of a plain `Mutex`'s unspecified wakeup order
-/// letting one thread cut back in ahead of others already waiting.
+/// Threads that wait in reverse ticket order must still be served in ascending order.
 ///
-/// Deterministic without any `sleep`: `take_ticket` (called by the TEST, not the
-/// worker threads) fixes the serving order up front, and a waiter for ticket `k`
-/// can only proceed once `k` prior turns have each been explicitly dropped -- so the
-/// recorded order reflects ticket order regardless of thread-scheduling timing,
-/// including however early or late each thread actually calls `wait_for_turn`.
+/// Three threads hold tickets `t0 < t1 < t2` but call `wait_for_turn` in REVERSE order
+/// (`t2`, then `t1`, then `t0`). Ascending service keeps concurrent GPU requests fair.
+///
+/// Deterministic without `sleep`: the test takes the tickets up front, and a waiter for
+/// ticket `k` proceeds only after the `k` prior turns are dropped. The recorded order
+/// therefore does not depend on thread timing.
 #[test]
 fn turnstile_serves_tickets_in_order_even_when_threads_queue_out_of_order() {
     let turnstile = Turnstile::new();
     let served_order: Mutex<Vec<u64>> = Mutex::new(Vec::new());
 
-    // Tickets are claimed here, on the main thread, in the exact order this test
-    // wants served -- take_ticket's own doc comment: ordering is decided at the
-    // moment a ticket is taken, not when wait_for_turn later blocks.
+    // Tickets are claimed here, in the order the test wants served. Ordering is fixed when a
+    // ticket is taken, not when `wait_for_turn` blocks.
     let t0 = turnstile.take_ticket();
     let t1 = turnstile.take_ticket();
     let t2 = turnstile.take_ticket();
@@ -146,21 +137,12 @@ fn turnstile_releases_on_an_early_return_out_of_the_turn_scope() {
     let _turn1 = turnstile.wait_for_turn(t1);
 }
 
-/// A poisoned `renderer` mutex (a previous turn's `wgpu` call panicked
-/// while holding the guard, despite this module tree's own `on_uncaptured_error`/
-/// `abandon_in_flight` defenses -- e.g. a bug in `wgpu` itself) must make
-/// [`GpuBackend::try_accumulate_cancellable`] return [`GpuAccumulate::Declined`] and
-/// set [`GpuBackend::lost`](super::backend::GpuBackend), not silently recover the
-/// possibly-mid-panic renderer state via `PoisonError::into_inner` -- see that
-/// function's own comment on the `mutex.lock()` match arm this test exercises.
+/// A poisoned `renderer` mutex must make [`GpuBackend::try_accumulate_cancellable`] return
+/// [`GpuAccumulate::Declined`] and set the lost flag. It must not recover the renderer
+/// through `PoisonError::into_inner`, because its state may be mid-panic.
 ///
-/// Needs a real adapter (unlike every other test in this module): a poisoned
-/// `std::sync::Mutex<GpuFrameRenderer>` can only exist around a REAL
-/// `GpuFrameRenderer`, [`GpuBackend::disabled`] never builds one at all.
-///
-/// Reaches `GpuBackend::renderer`/`GpuBackend::lost` (private fields) directly, which
-/// is why this test lives here rather than in `renderer::gpu::frame`'s own hardware
-/// test module.
+/// Needs a real adapter: a poisoned `Mutex<GpuFrameRenderer>` exists only around a real
+/// renderer. It reaches the private `renderer` and `lost` fields, so it lives here.
 #[test]
 fn poisoned_renderer_mutex_declines_and_sets_lost() {
     let Some(backend) = acquire_or_skip("poisoned_renderer_mutex_declines_and_sets_lost") else {
@@ -203,6 +185,7 @@ fn poisoned_renderer_mutex_declines_and_sets_lost() {
         material: &material,
         max_bounces: 2,
         environment: LightingPreset::Daylight.studio(1.0, 0.4, 0.35),
+        estimator: None,
     };
     let mut accum = vec![Vec3::ZERO; 16];
     let never_cancel = AtomicBool::new(false);
@@ -223,21 +206,11 @@ fn poisoned_renderer_mutex_declines_and_sets_lost() {
     assert_eq!(outcome2, GpuAccumulate::Declined);
 }
 
-/// Guards against the live viewport freezing after its first frame: it shows an
-/// initial image but renders nothing further, ignoring camera drags from then on.
-///
-/// `renderer::gpu::frame`'s own hardware tests exercise `GpuFrameRenderer::accumulate`
-/// directly, which drives one UNLIMITED-chunk-budget turn per call -- not what the
-/// live viewport actually does. `apps::pleochroma-cut::bridge::render_thread::
-/// gpu_backend::ViewportGpu::try_accumulate` calls `GpuBackend::try_accumulate`
-/// (this module tree), which drives `try_accumulate_cancellable`'s loop: EVERY single
-/// viewport frame is broken into many `CHUNKS_PER_TURN`-chunk turns, each one
-/// re-taking a `Turnstile` ticket and re-running `prepare_turn`'s full scene
-/// re-upload -- far more turn-boundary churn per frame than the unlimited-chunk
-/// path exercises. This test drives that EXACT production entry point across
-/// several simulated viewport frames, each with a different camera pose (as
-/// `on_camera_orbit` produces on every drag `moved` event), to see whether that
-/// extra churn is what trips the poisoning this bug report describes.
+/// Drives the live viewport's entry point across several frames with different camera
+/// poses, as a camera drag produces. Each frame splits into many `CHUNKS_PER_TURN` turns,
+/// so every turn boundary is exercised, unlike the unlimited-chunk path of
+/// `GpuFrameRenderer::accumulate`. The viewport reaches this through
+/// `ViewportGpu::try_accumulate` in `apps/pleochroma-cut`.
 #[test]
 fn viewport_frames_with_camera_changes_never_poison_the_backend() {
     let Some(backend) =
@@ -250,10 +223,8 @@ fn viewport_frames_with_camera_changes_never_poison_the_backend() {
     let environment = LightingPreset::Daylight.studio(1.0, 0.4, 0.35);
     let never_cancel = AtomicBool::new(false);
 
-    // A realistic viewport resolution at a realistic per-frame `spp` -- large
-    // enough (480*360*2 = 345_600 (pixel, sample) tuples) that CHUNKS_PER_TURN's
-    // small per-turn budget forces MANY turns per single `try_accumulate` call,
-    // exactly like the real render loop's own frames.
+    // A viewport-sized frame: 480*360*2 = 345_600 (pixel, sample) tuples. That needs many
+    // turns per `try_accumulate` call.
     let (width, height) = (480u32, 360u32);
     let spp = 2u32;
     let mut accum = vec![Vec3::ZERO; (width * height) as usize];
@@ -271,6 +242,7 @@ fn viewport_frames_with_camera_changes_never_poison_the_backend() {
             material: &material,
             max_bounces: 4,
             environment,
+            estimator: None,
         };
         let outcome =
             backend.try_accumulate_cancellable(&scene, frame * spp, spp, &mut accum, &never_cancel);
@@ -306,6 +278,7 @@ const fn spinel_scene<'a>(
         material,
         max_bounces: 2,
         environment: LightingPreset::Daylight.studio(1.0, 0.4, 0.35),
+        estimator: None,
     }
 }
 

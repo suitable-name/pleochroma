@@ -14,8 +14,8 @@
 //! - anything else: untouched.
 //!
 //! [`finish_facet_surface`] runs after the dispatch. For a polish with roughness it corrects the
-//! throughput for the branch that happened (halo or specular, reflected or transmitted), channel by
-//! channel, and kills a halo direction that ends on the wrong side of the macroscopic surface.
+//! throughput of the branch taken (halo or specular, reflected or transmitted) per channel, and
+//! kills a halo direction that ends on the wrong side of the macroscopic surface.
 
 use glam::Vec3;
 

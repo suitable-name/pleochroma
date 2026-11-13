@@ -1,4 +1,4 @@
-//! The byte shuffle in front of every compressed payload encoding (v14).
+//! The byte shuffle in front of every compressed payload encoding.
 //!
 //! It reorders a sequence of little-endian `f32` values into 4 byte planes (all byte
 //! 0s, then all byte 1s, then all byte 2s, then all byte 3s). Exponent and high-mantissa bytes of

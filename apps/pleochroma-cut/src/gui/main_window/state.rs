@@ -59,25 +59,19 @@ pub(super) struct SolidView {
 
 /// Opens the on-disk design library, or -- when that fails -- a throwaway in-memory one.
 ///
-/// Stays on the UI thread before `show()` (perf review UI-6, partly not done): the
-/// `Arc<Mutex<Database>>` it returns is a constructor argument of every callback group
-/// wired in `build_main_window`, so the handle has to exist before any of them. The open
-/// itself (pragmas plus the create-if-missing/migration pass) is the only database work
-/// left on that path; the library list, filter options, tags and counts load on a worker.
+/// Runs on the UI thread before `show()`: the `Arc<Mutex<Database>>` it returns is a
+/// constructor argument of every callback group wired in `build_main_window`. Only the open
+/// itself (pragmas and the create-if-missing/migration pass) runs here; the library list,
+/// filter options, tags and counts load on a worker.
 ///
 /// # Errors
 ///
 /// Returns an error only when the in-memory fallback fails to open too.
 pub(super) fn open_design_library(ui: &MainWindow) -> anyhow::Result<Arc<Mutex<Database>>> {
-    // Connect to SQLite DB. If the on-disk database can't be opened (locked, corrupt,
-    // unwritable directory, ...), fall back to a throwaway in-memory database rather
-    // than panicking at startup -- `Database::new` runs the exact same
-    // create-tables-if-not-exist + migration chain against `:memory:` as it does
-    // against a real file (see `Database::new`'s own doc comment), so the fallback
-    // yields a fully-functional, just non-persistent, library. The user is told via a
-    // persistent error toast (never auto-dismisses -- see `show_toast`'s doc comment)
-    // rather than a status-bar message, since a status bar can be set and then never
-    // seen if a later step panics before the next redraw.
+    // If the on-disk database cannot be opened (locked, corrupt, unwritable folder), fall back
+    // to an in-memory one rather than panicking: `Database::new` runs the same schema and
+    // migration chain on `:memory:`, so the library works, just unsaved. The error toast stays
+    // until dismissed, because a status-bar message could be missed.
     let db_path = resolve_db_path();
     // A first start creates the library, and its per-user folder may not exist yet.
     if let Some(dir) = std::path::Path::new(&db_path)
@@ -126,59 +120,39 @@ pub(super) fn create_solid_view(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
 ) -> SolidView {
-    // The Edit tab's solid-inspection preview controller (see
-    // `gui::solid_preview::preview_state`'s own module doc comment). Built right
-    // after `render_ctx` -- `setup_camera_and_lighting_callbacks` (wired later)
-    // needs it unconditionally (the Live Render viewport's own orbit/zoom drag also
-    // re-issues the last solid planes at the new pose). Its worker thread is spawned
-    // lazily on the first `request_redraw`, so a session that never opens the Edit
-    // tab's Solid view never pays for one.
+    // The Edit tab's solid-inspection preview controller (`gui::solid_preview::preview_state`).
+    // Its worker thread starts on the first `request_redraw`, so a session that never opens the
+    // Solid view never pays for one.
     //
-    // The last rendered frame's per-pixel facet-picking buffer, and the
-    // most-recent-resolved-mast cache -- both written by `SlintSolidSink::apply` (the
-    // worker thread's callback) and read by `gui::editor`'s hover/click callbacks and
-    // edit callbacks respectively. See `solid_preview::preview_state`'s own module doc
-    // comment ("Where `last_solved` lives") for why these live here, as plain
-    // `Arc<Mutex<..>>`s, rather than on `EditorState` itself.
+    // The last frame's facet-picking buffer and the most-recently-resolved mast. Written by
+    // `SlintSolidSink::apply` and read by the editor's hover, click and edit callbacks; plain
+    // shared handles, so the sink can write them from the worker's callback.
     let solid_pick: Arc<Mutex<Option<PickBuffer>>> = Arc::new(Mutex::new(None));
     let solid_last_solved: SolidLastSolved = Arc::new(Mutex::new(None));
-    // Diagram mode's (view_mode 3) own pick buffer/hover-text/tier tables -- see
-    // `SlintSolidSink`'s own doc comment for why these are separate from
-    // `solid_pick`/`solid_last_solved` above.
+    // Diagram mode's own pick buffer and hover and tier tables, kept apart from the Solid
+    // view's (see `SlintSolidSink`).
     let diagram_pick: DiagramPick = Arc::new(Mutex::new(None));
-    // The index wheel's own tooth pick buffer -- same shape/lifetime as
-    // `diagram_pick` above, see `SlintSolidSink::diagram_tooth_pick`'s own doc
-    // comment.
+    // The index wheel's tooth pick buffer (see `SlintSolidSink::diagram_tooth_pick`).
     let diagram_tooth_pick: DiagramPick = Arc::new(Mutex::new(None));
-    // Which panel painted each diagram pixel -- read by the double-click that
-    // enlarges a panel (`diagram_wiring::setup_diagram_double_click_callback`).
+    // Which panel painted each diagram pixel, read by the double-click that enlarges a panel.
     let diagram_panel_pick: DiagramPick = Arc::new(Mutex::new(None));
     let diagram_hover_text: DiagramHoverText = Arc::new(Mutex::new(None));
     let diagram_facet_owners: DiagramFacetOwners = Arc::new(Mutex::new(None));
-    // The Solid view's own facet id -> hover-text/owning-tier tables, from
-    // every frame's `PreviewFrame::hover_text`/`facet_owners` -- the Solid-mode
-    // counterpart to `diagram_hover_text`/`diagram_facet_owners` above. Not yet
-    // threaded into `editor::setup_editor_callbacks` below (that call site would
-    // need two more parameters, and the hover/click handlers that would index
-    // these live in `gui::editor::callbacks::tier_actions`) -- see
-    // `SlintSolidSink::hover_text`'s doc comment for the full handoff.
+    // The Solid view's facet id -> hover-text and owning-tier tables, from every frame. Read by
+    // the hover and click callbacks in `gui::editor::callbacks::tier_actions::solid_picking`
+    // through `SolidPickState`.
     let solid_hover_text: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
     let solid_facet_owners: Arc<Mutex<FacetOwners>> = Arc::new(Mutex::new(FacetOwners::default()));
-    // The path tracer's and the solid worker's own last-published plane
-    // arrangements (by `Arc` pointer identity) -- see `planes_generations_match`'s
-    // doc comment. `trace_active_planes` is also written from the render thread's
-    // own frame-push closure (see `spawn_viewport_render_thread`).
+    // The path tracer's and the solid worker's last-published plane arrangements, compared by
+    // `Arc` identity (see `planes_generations_match`). The render thread's frame-push closure
+    // also writes `trace_active_planes`.
     let solid_active_planes: ActivePlanes = Arc::new(Mutex::new(None));
     let trace_active_planes: ActivePlanes = Arc::new(Mutex::new(None));
-    // The current solid's own bounding radius, written by every frame
-    // (`SlintSolidSink::apply`) and read by `render::camera_lighting`'s orbit-zoom
-    // clamp and "Fit" pose -- see `SlintSolidSink::mesh_bounding_radius`'s own doc
-    // comment. Defaults to the same fallback a frame carries before anything has
-    // ever closed.
+    // The current solid's bounding radius, written by each frame (`SlintSolidSink::apply`) and
+    // read by the camera's orbit-zoom clamp and "Fit" pose. Starts at the frame fallback.
     let mesh_bounding_radius: Arc<Mutex<f64>> = Arc::new(Mutex::new(DEFAULT_MESH_BOUNDING_RADIUS));
-    // The frame on screen's mesh geometry, camera pose and raster size -- written by
-    // `SlintSolidSink::apply` in the same UI-thread closure as `solid_pick`, read by
-    // the manipulation handles through `SolidPickState::geometry`.
+    // The frame on screen's mesh geometry, camera pose and raster size, written with
+    // `solid_pick` and read by the manipulation handles through `SolidPickState::geometry`.
     let solid_geometry: Arc<Mutex<Option<FrameGeometry>>> = Arc::new(Mutex::new(None));
     // The sink is built first and the controller takes it, so the sink learns its controller
     // afterwards (`SlintSolidSink::preview_state`).
@@ -205,14 +179,9 @@ pub(super) fn create_solid_view(
     *sink_preview_state
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner) = Arc::downgrade(&solid_preview_state);
-    // Diagram mode's own hover/click callbacks -- see
-    // `solid_preview::diagram_wiring`'s own module doc comment for why this needs
-    // no `gui::editor`/`Design` access, unlike the ordinary Solid view's hover/
-    // click callbacks (`gui::editor::callbacks::tier_actions::
-    // setup_solid_facet_hover_callback`/`setup_solid_facet_click_callback`).
-    // `&solid_preview_state` lets the diagram's own hover/click
-    // drive `SolidPreviewState::request_facet_overlay` -- see that function's own
-    // doc comment for what each callback now does with it.
+    // Diagram mode's hover and click callbacks. Unlike the Solid view's, they need no
+    // `gui::editor` access (see `solid_preview::diagram_wiring`); they drive
+    // `SolidPreviewState::request_facet_overlay`.
     diagram_wiring::setup_diagram_hover_and_click_callbacks(
         ui,
         &diagram_pick,
@@ -243,14 +212,12 @@ pub(super) fn apply_custom_materials(
     db: &Arc<Mutex<Database>>,
     render_ctx: &Arc<Mutex<RenderContext>>,
 ) {
-    // Load custom gemstone materials from SQLite. `pleochroma-vault` returns plain
-    // `CustomMaterialRow`s (it must not depend on `pleochroma`), so convert them into
-    // `pleochroma::optics::materials::GemMaterial` here at the boundary.
+    // `pleochroma-vault` returns plain `CustomMaterialRow`s (it does not depend on
+    // `pleochroma`), so they are converted to `GemMaterial` here.
     //
-    // Synchronous on purpose (UI-6): `load_settings` runs right after this and validates
-    // the persisted material choice against `RenderContext::custom_materials`, so the
-    // rows must be in before it. One small table; the library list and filter options,
-    // the larger startup reads, load on a worker (`load_filter_options_and_initial_list`).
+    // Synchronous: `load_settings` checks the persisted material choice against
+    // `RenderContext::custom_materials`, so the rows must be in first. The library list and
+    // filter options load on a worker instead (`load_filter_options_and_initial_list`).
     let custom_material_rows = db
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -258,12 +225,11 @@ pub(super) fn apply_custom_materials(
         .unwrap_or_default();
     let (initial_custom_mats, initial_custom_sg) =
         initial_custom_materials_and_specific_gravity(&custom_material_rows);
-    // Drop the zoning rows of owners that are gone, then put the stored
-    // zones back on the materials that have them (an adopted "<plan> - <design> color" material), so every
-    // later `resolve_material` returns a zoned material. A relative-to-stone library material is
-    // scaled to the mirror of the design's width (`SettingsModel.stone_width_mm`, `0` = the default
-    // width at startup); the design sync and a library row re-scale it through
-    // `material_zones::stone_width_applied` whenever the width they show changes.
+    // Drop the zoning rows of owners that are gone, then put the stored zones back on the
+    // materials that have them, so every later `resolve_material` returns a zoned material. A
+    // relative-to-stone material is scaled to the stone width (`SettingsModel.stone_width_mm`,
+    // `0` = the default at start-up); `material_zones::stone_width_applied` re-scales it when
+    // the width changes.
     let initial_custom_mats = {
         crate::gui::rough_colour::material_zones::register_vault(db);
         let mut materials = initial_custom_mats;
@@ -316,28 +282,18 @@ pub(super) fn load_settings(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
 ) -> Arc<SettingsPersister> {
-    // Settings persistence + lighting presets. `load_or_default` never fails/panics --
-    // a missing, unreadable, or corrupt file just logs and yields defaults. Applied
-    // into `render_ctx` and the UI's mirrored properties before the render thread
-    // starts, then handed to a debounced background writer that every
-    // settings-changing callback below feeds.
+    // Settings and lighting presets. A missing, unreadable or corrupt file yields the defaults.
+    // The values are applied to `render_ctx` and the UI before the render thread starts, then
+    // handed to the debounced background writer that every settings-changing callback feeds.
     let settings_path = settings::store::default_settings_path();
-    // One-time carry-over from the old public viewer's ("diagram-gui", deleted in the
-    // 2026-09-07 rename) settings file -- must run before `load_with_outcome` reads
-    // `settings_path`, and only ever copies into a genuinely absent file. See
-    // `migrate_legacy_settings_if_needed`'s own doc comment for the
-    // copy-never-move/never-overwrite/never-blocks-startup guarantees.
+    // Copies a legacy settings file into place when none exists yet. Must run before
+    // `load_with_outcome` reads `settings_path` (see `migrate_legacy_settings_if_needed`).
     settings::store::migrate_legacy_settings_if_needed(&settings_path);
     let (loaded_settings, settings_load_outcome) =
         settings::store::load_with_outcome(&settings_path);
-    // A corrupt settings file used to be silently replaced with defaults (a
-    // `tracing::warn!` nobody watching a release build's console ever sees) and then
-    // permanently overwritten by the very next save -- the cutter lost their remote
-    // worker, cert directory, export directory and presets with no idea why. Now the
-    // corrupt file is renamed aside before the fallback (`load_with_outcome`'s own doc
-    // comment), and this toast is what tells the cutter it happened at all. `"warning"`
-    // (persistent, not auto-dismissing) rather than `"error"`: the app itself started
-    // up fine, but something the cutter should know about and act on did happen.
+    // A corrupt settings file is renamed aside before the defaults load (see
+    // `load_with_outcome`), and this toast reports it. A warning rather than an error: the app
+    // itself started fine.
     if let settings::store::SettingsLoadOutcome::Corrupt { renamed_to } = &settings_load_outcome {
         show_toast(
             ui,
@@ -350,9 +306,8 @@ pub(super) fn load_settings(
         );
     }
     apply_loaded_settings(ui, render_ctx, &loaded_settings);
-    // The Edit sub-tab's resizable dock width / inspector height / collapsed
-    // sections -- see `editor_layout::apply_editor_layout_from_settings`'s own doc
-    // comment for why this runs before `setup_editor_layout_callbacks` below.
+    // The Edit sub-tab's dock width, inspector height and collapsed sections. Runs before
+    // `setup_editor_layout_callbacks` (see `editor_layout::apply_editor_layout_from_settings`).
     editor_layout::apply_editor_layout_from_settings(ui, &loaded_settings.settings);
     refresh_lighting_preset_options(ui, &loaded_settings.presets);
     // Remote rendering: the "Remote coordinator" form and every transfer default,
@@ -362,11 +317,10 @@ pub(super) fn load_settings(
     ui.global::<RemoteWorkerModel>()
         .set_denoise_enabled(loaded_settings.settings.denoise_enabled);
     let settings_store = Arc::new(SettingsPersister::spawn(settings_path, loaded_settings));
-    // Registered before any editor callback is wired: the editor's recent-file list and
-    // "don't ask again" choices are written from many call sites that hold no handle of
-    // their own, and every write of the settings file must go through the persister --
-    // `flush()` on close writes its snapshot over the file, erasing anything written
-    // around it. See `SettingsPersister::install_for_this_thread`.
+    // Installed before any editor callback is wired: the recent-file list and the "don't ask
+    // again" choices are written from call sites without a settings handle. Every write must go
+    // through the persister, because `flush()` on close overwrites the file with its snapshot.
+    // See `SettingsPersister::install_for_this_thread`.
     SettingsPersister::install_for_this_thread(&settings_store);
     settings_store
 }
@@ -407,12 +361,9 @@ pub(super) fn spawn_viewport_render_thread(
         move |ui: &MainWindow,
               img: slint::SharedPixelBuffer<slint::Rgba8Pixel>,
               scene_generation: u64| {
-            // Every frame is shown, even one whose scene generation has moved on while it
-            // was in flight: during an orbit, light or slider drag the generation changes
-            // faster than a frame is traced, and dropping the stale ones froze the
-            // viewport until the pointer paused. The overlay keeps its own staleness
-            // gate -- `displayed` records this frame's stamp and the overlay stays hidden
-            // until a frame of the current generation arrives.
+            // Every frame is shown, even one whose scene generation has since moved on: during a
+            // drag the generation changes faster than frames are traced, so dropping stale
+            // frames would freeze the picture. The overlay keeps its own staleness gate.
             crate::bridge::optical_overlay::displayed(
                 ui,
                 scene_generation,
@@ -422,16 +373,9 @@ pub(super) fn spawn_viewport_render_thread(
             ui.global::<ViewportModel>()
                 .set_render_image(crate::bridge::pixel_buffer::rgba_image(img));
             ui.global::<ViewportModel>().set_has_render(true);
-            // This path-traced frame reflects whatever `RenderContext::
-            // active_planes` currently is -- remember it (by `Arc` pointer
-            // identity) and recompute `SolidPreviewModel.trace_matches_solid`
-            // against the solid worker's own last-published arrangement. Already
-            // running on the UI thread (this closure is `spawn_render_thread`'s
-            // `update_image` callback, itself only ever invoked via
-            // `Weak::upgrade_in_event_loop` -- see `bridge::render_thread::
-            // frame_helpers::push_frame_to_ui`), so locking `render_ctx` here is
-            // exactly as safe as every other UI-thread callback in this file
-            // already locking it.
+            // Remember the planes this frame was traced with (by `Arc` identity) and update
+            // `SolidPreviewModel.trace_matches_solid` against the solid worker's planes. Runs on
+            // the UI thread, like the other callbacks here that lock `render_ctx`.
             let planes_now = render_ctx_frame_push
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -513,10 +457,14 @@ pub(super) fn spawn_viewport_render_thread(
             ui.global::<ViewportModel>().set_gpu_status_text(text);
         },
         // Pushes `RenderContext::material_unresolved`'s cutter-facing reason (empty
-        // once resolved) to `ViewportModel.trace_refusal` -- see `spawn_render_thread`'s
-        // own `update_trace_refusal` doc comment.
+        // once resolved) to `ViewportModel.trace_refusal`.
         |ui: &MainWindow, text: slint::SharedString| {
             ui.global::<ViewportModel>().set_trace_refusal(text);
+        },
+        // Pushes the non-blocking trace note (the Stone Shadow's and Tray Reflection's soft
+        // notes) to `ViewportModel.trace_note` -- see `spawn_render_thread`'s `update_trace_note`.
+        |ui: &MainWindow, text: slint::SharedString| {
+            ui.global::<ViewportModel>().set_trace_note(text);
         },
     );
 }

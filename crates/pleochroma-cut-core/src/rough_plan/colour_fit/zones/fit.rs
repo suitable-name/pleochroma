@@ -55,7 +55,7 @@ pub enum ZoneFitError {
     },
     /// A point is not finite.
     NotFinite,
-    /// The points do not determine the primitive (collinear, coincident planes, no radius, ...).
+    /// The points do not determine the primitive (collinear points, coincident planes, no radius).
     Degenerate(&'static str),
     /// The fixed axis is zero or not finite.
     BadAxis,

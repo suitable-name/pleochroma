@@ -163,7 +163,7 @@ fn pack_imitation_uploads_states_masks_and_labels_in_index_order() {
         host_vec(packed.labels.gain_target).unwrap(),
         rows.gain_target
     );
-    // Only sample 0, now the second row, has a gain.
+    // Only sample 0, the second row, has a gain.
     assert_eq!(rows.gain_mask, vec![0.0, 1.0]);
 }
 

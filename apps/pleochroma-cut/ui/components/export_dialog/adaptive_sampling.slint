@@ -1,0 +1,66 @@
+import { ComboBox, CheckBox } from "std-widgets.slint";
+import { Theme } from "../../theme.slint";
+import { WrappedNote } from "wrapped_note.slint";
+
+// The "Adaptive Sampling" check box and its "Target Noise" combo, shared by the still export
+// dialog and the tilt video section; each host binds its own persisted model properties.
+//
+// The combo's three entries are the rows of `pleochroma::renderer::adaptive::TARGET_NOISE_PRESETS`,
+// in the same order (Fine, Standard, Draft): the index is what Rust stores and reads, and the
+// numbers behind the names live only in that table.
+//
+// With the Ray-Traced renderer the box is greyed out, with the reason shown: that renderer has no
+// noise to converge. The ticked state is kept, and Rust ignores it for a Ray-Traced run.
+export component AdaptiveSamplingControls inherits VerticalLayout {
+    in-out property <bool> adaptive: false;
+    in-out property <int> target_index: 1;
+    in property <bool> ray_traced: false;
+    in property <bool> enabled: true;
+
+    spacing: 6px;
+
+    property <string> box_hint: root.ray_traced
+        ? "Adaptive sampling is for the path tracer."
+        : "Stop each part of the picture once it is clean enough, instead of tracing every pixel to the full sample count. The samples setting becomes the most any part gets.";
+
+    Rectangle {
+        height: adaptive_box.preferred-height;
+        Tooltip { text: @markdown("\{root.box_hint}"); }
+        adaptive_box := CheckBox {
+            text: "Adaptive Sampling";
+            checked <=> root.adaptive;
+            enabled: root.enabled && !root.ray_traced;
+            accessible-description: "Stops each part of the picture once it is clean enough. The samples setting becomes the maximum.";
+        }
+    }
+
+    if root.adaptive && !root.ray_traced: VerticalLayout {
+        spacing: 4px;
+        Rectangle {
+            height: noise_caption.preferred-height;
+            Tooltip { text: @markdown("How clean each part of the picture must be before it stops. Fine takes the most samples, Draft the fewest."); }
+            noise_caption := Text {
+                text: "Target Noise";
+                font-size: 10px;
+                color: Theme.text-muted;
+                accessible-role: AccessibleRole.text;
+            }
+        }
+        ComboBox {
+            accessible-label: "Target Noise";
+            model: ["Fine", "Standard", "Draft"];
+            current-index <=> root.target_index;
+            enabled: root.enabled;
+        }
+    }
+
+    WrappedNote {
+        text: root.ray_traced
+            ? "Adaptive sampling is for the path tracer."
+            : "The samples setting becomes the maximum.";
+        font-size: 11px;
+        color: Theme.text-muted;
+        wrap: word-wrap;
+        accessible-role: AccessibleRole.text;
+    }
+}

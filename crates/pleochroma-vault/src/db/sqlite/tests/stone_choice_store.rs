@@ -53,7 +53,7 @@ fn an_older_table_gains_the_columns_and_keeps_its_rows() {
     let path_text = path.to_str().unwrap();
     {
         let db = Database::new(Some(path_text)).expect("create");
-        // The table as an older build made it: four columns.
+        // The table before the choice columns existed: four columns.
         db.conn
             .execute_batch(
                 "DROP TABLE stone_pose_choice;
@@ -130,10 +130,10 @@ fn resetting_the_pose_keeps_a_lock_and_a_reason_and_drops_an_empty_row() {
         db.stone_choices(5).unwrap(),
         [StoneChoiceRow { pose: 0, ..locked }]
     );
-    // A row with a pose-0 and extra data is not a pose choice.
+    // A row with pose 0 but other data is not a pose choice.
     assert_eq!(db.stone_pose_choices(5).unwrap(), Vec::new());
 
-    // A pose-only row goes away, as it always did.
+    // A pose-only row is removed when its pose returns to canonical.
     db.set_stone_pose_choice(5, 0, 2, 2).unwrap();
     db.set_stone_pose_choice(5, 0, 2, 0).unwrap();
     assert_eq!(db.stone_choices(5).unwrap().len(), 1);

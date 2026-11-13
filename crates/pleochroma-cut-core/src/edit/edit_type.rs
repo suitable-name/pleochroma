@@ -1,7 +1,8 @@
 //! [`Edit`] itself (every reversible change a caller can describe against a
-//! [`crate::design::Design`]) and [`EditError`], the one way applying one can
-//! fail. See the parent module's doc comment for the command/inverse model
-//! this whole crate's undo/redo rests on.
+//! [`crate::design::Design`]) and [`EditError`], the one way applying one can fail.
+//!
+//! See the parent module's doc comment for the command/inverse model this whole crate's undo/redo
+//! rests on.
 
 use super::schedule_state::ScheduleState;
 use crate::{
@@ -35,18 +36,14 @@ pub enum Edit {
     AddTier { index: usize, tier: ConstraintTier },
     /// Removes the tier currently at position `index`.
     RemoveTier { index: usize },
-    /// Moves the tier currently at position `from` to position `to`, renumbering
-    /// every tier strictly between the two positions by one slot -- exactly
-    /// `Vec::remove(from)` followed by `Vec::insert(to)`, so `to` is a position in
-    /// the ORIGINAL (pre-move) tier list, not a "gap" index in a shortened one.
-    /// One undo step, rather than multiple steps as a reorder-by-two-content-swaps
-    /// approach would require.
+    /// Moves the tier at position `from` to position `to`.
     ///
-    /// A tier is renumbered, never renamed, by this: [`MeetConstraint::MeetNamed`]
-    /// targets a tier by NAME (untouched), and [`ConstraintTier::detached`] is a
-    /// field of the tier struct itself, so it travels with the tier automatically.
-    /// Nothing in [`crate::design::Design`] outside `tiers` itself stores a tier's
-    /// positional index, so a plain remove-then-insert is already fully consistent.
+    /// Tiers between the two positions shift by one slot. This is `Vec::remove(from)` then
+    /// `Vec::insert(to)`, so `to` is the moved tier's position after the move.
+    ///
+    /// Only positions change, never names: [`MeetConstraint::MeetNamed`] refers to tiers
+    /// by name, and [`ConstraintTier::detached`] travels with its tier. The position-keyed
+    /// maps (cheater offsets, tier notes) are renumbered to match.
     MoveTier { from: usize, to: usize },
     /// Replaces the tier at position `index` wholesale with `tier` -- a caller
     /// wanting to change just one field reads the current tier first (e.g.
@@ -71,12 +68,10 @@ pub enum Edit {
     },
     /// Replaces the design's preform wholesale.
     SetPreform { preform: PreformSpec },
-    /// Replaces the design's [`crate::design::Design::preform_y_offset`] -- how far
-    /// the preform's own vertical span is shifted from centred. Its own variant
-    /// rather than folded into `SetPreform`: the offset is a `Design`-level anchor
-    /// `PreformSpec` itself does not carry (see that field's own doc comment for
-    /// why), so it needs a mast-preserving edit of its own, the same reasoning
-    /// `SetGirdleDiameterMm` already follows for the sibling real-world anchor.
+    /// Replaces [`crate::design::Design::preform_y_offset`], the preform's vertical shift.
+    ///
+    /// Its own variant because `PreformSpec` does not carry the offset, the same reason
+    /// `SetGirdleDiameterMm` has one.
     SetPreformYOffset { y_offset: f64 },
     /// Replaces the design's real-world girdle diameter (millimetres) -- see
     /// [`crate::design::Design::girdle_diameter_mm`]. `None` clears the scale
@@ -95,55 +90,39 @@ pub enum Edit {
     /// hand-off) -- see [`crate::crystal_axis::CrystalAxisPlan`]. `None` (or a blank record)
     /// clears it. Mast-inert, like [`Edit::SetRenderEffects`].
     SetCrystalAxisPlan { plan: Option<CrystalAxisPlan> },
-    /// Replaces the design's authorable header fields wholesale --
-    /// [`crate::design::ScheduleMeta::headers`] (the `.asc` `H` lines, the first of
-    /// which the app treats as the design's title -- see the catalogue round-trip
-    /// convention), [`crate::design::ScheduleMeta::footnotes`] and
-    /// [`crate::design::ScheduleMeta::gear_reference_angle`] (the index wheel's
-    /// zero-tooth offset). Deliberately its own variant rather than folded into
-    /// `SetSchedule`: `SetSchedule`'s fields feed `solve_meet_points` and always
-    /// force a full re-solve (see `crate::resolve`), while none of these three
-    /// changes any tier's solved MAST -- same "no mast could possibly have
-    /// changed" reasoning as `SetPreform`/`SetGirdleDiameterMm`/`SetMaterial`, so
-    /// [`crate::resolve::resolve_after_edit`] never re-solves for this variant
-    /// either.
+    /// Replaces the design's header fields and gear reference angle.
     ///
-    /// **Not geometry-inert, though**: `gear_reference_angle` rotates every
-    /// solved plane's azimuth downstream of the solve itself
-    /// (`pleochroma::geometry::cuts`), so for a preform that is not
-    /// rotationally symmetric (a block, unlike a cylinder) the resulting mesh,
-    /// yield and manufacturability warnings DO change even though no mast
-    /// moved -- see [`crate::design::Design::planes_from_solved`].
+    /// The fields are [`crate::design::ScheduleMeta::headers`] (the `.asc` `H` lines; the
+    /// first is the title the app shows), [`crate::design::ScheduleMeta::footnotes`] and
+    /// [`crate::design::ScheduleMeta::gear_reference_angle`] (the index wheel's zero-tooth
+    /// offset). Its own variant, not part of `SetSchedule`, which always forces a full
+    /// re-solve. None of these changes a solved mast, so
+    /// [`crate::resolve::resolve_after_edit`] never re-solves for it.
+    ///
+    /// **Not geometry-inert**: `gear_reference_angle` rotates every solved plane's azimuth
+    /// after the solve (`pleochroma::geometry::cuts`). For a non-symmetric preform such as a
+    /// block, the mesh, yield and manufacturability warnings change even though no mast moved
+    /// (see [`crate::design::Design::planes_from_solved`]).
     SetMeta {
         headers: Vec<String>,
         footnotes: Vec<String>,
         gear_reference_angle: f64,
     },
-    /// Sets (or, when `offset_deg` is `None`, clears) the tier currently at
-    /// `index`'s cheater/azimuth offset -- see
-    /// [`crate::design::Design::cheater_offsets_deg`]'s own doc comment for
-    /// why this lives on `Design`, keyed by position, rather than on
-    /// [`ConstraintTier`] itself. Like `ModifyTier`/`SetConstraint`, replaces
-    /// exactly one entry in place; `AddTier`/`RemoveTier`/`MoveTier` renumber
-    /// every OTHER entry so this one never needs to (see
-    /// `crate::design::Design::apply_edit`'s own handling of those three).
+    /// Sets (or, when `offset_deg` is `None`, clears) the cheater/azimuth offset of the tier
+    /// at `index`.
+    ///
+    /// The offset is keyed by position on `Design` (see
+    /// [`crate::design::Design::cheater_offsets_deg`]), so it replaces one entry in place.
     SetCheaterOffset {
         index: usize,
         offset_deg: Option<f64>,
     },
-    /// Sets (or, when `note` is `None`, clears) the tier currently at `index`'s
-    /// cutter-authored free-text note -- see
-    /// [`crate::design::Design::tier_notes`]'s own doc comment for why this lives
-    /// on `Design`, keyed by position, rather than on [`ConstraintTier`] itself.
-    /// Like `SetCheaterOffset`, replaces exactly one entry in place;
-    /// `AddTier`/`RemoveTier`/`MoveTier` renumber every OTHER entry so this one
-    /// never needs to.
+    /// Sets (or, when `note` is `None`, clears) the free-text note of the tier at `index`.
+    ///
+    /// Keyed by position (see [`crate::design::Design::tier_notes`]), like `SetCheaterOffset`.
     SetTierNote { index: usize, note: Option<String> },
-    /// Sets (or, when `target` is `None`, clears) the tier currently at
-    /// `index`'s [`TierTarget`] -- see [`crate::design::Design::tier_targets`]'s
-    /// own doc comment for why this lives on `Design`, keyed by [`crate::design::TierId`],
-    /// rather than on [`ConstraintTier`] itself. Like `SetCheaterOffset`/
-    /// `SetTierNote`, replaces exactly one entry in place.
+    /// Sets (or, when `target` is `None`, clears) the [`TierTarget`] of the tier at `index`.
+    /// Keyed by [`crate::design::TierId`] (see [`crate::design::Design::tier_targets`]).
     SetTierTarget {
         index: usize,
         target: Option<TierTarget>,
@@ -183,33 +162,24 @@ pub enum Edit {
         index: usize,
         surface: Option<TierSurface>,
     },
-    /// Never constructed by a caller directly -- an internal bookkeeping step
-    /// [`Design::apply_edit`]'s own [`Edit::RemoveTier`] inverse uses to restore
-    /// the exact [`crate::design::TierId`] the removed tier held, since a plain
-    /// [`Edit::AddTier`] always allocates a genuinely fresh one (see
-    /// [`crate::design::TierId`]'s own "never reused" doc comment -- undoing a
-    /// removal is the one case where reproducing the SAME id, not merely a
-    /// distinct one, is the correct behaviour). Sets [`Design::tier_ids`] at
-    /// `index` to `id` and returns the same variant carrying whatever id was
-    /// there before, so applying this twice in a row (once to restore, once as
-    /// its own recorded inverse) round-trips exactly like every other
-    /// single-entry `Set*` variant.
-    RestoreTierId { index: usize, id: TierId },
-    /// Replaces the design's index-gear tooth count, symmetry order and mirror
-    /// flag wholesale, the schedule-wide counterpart to `SetMaterial`. Every
-    /// tier's own `indices`/`detached` stay numerically unchanged -- see
-    /// [`Edit::RemapIndices`] for the edit that re-derives them for a NEW gear;
-    /// the editor applies both as two separate `History` steps on a gear-combo
-    /// change.
+    /// Restores the removed tier's [`crate::design::TierId`] on undo.
     ///
-    /// [`Design::apply_edit`] rejects `gear_teeth == 0` or `symmetry_order == 0`
-    /// with an [`EditError`] (without modifying `self`) rather than accepting
-    /// them: either makes every tier's index-wheel position meaningless and
-    /// produces a `.asc` `g`/`y` line [`pleochroma_formats::asc::parse_asc`]
-    /// refuses to read back at all. It also rejects a SMALLER gear when a concave
-    /// tier holds an index past the new wheel (the error names that concave tier):
-    /// run the [`Edit::RemapIndices`] first, or put both in one [`Edit::Batch`]
-    /// (only the batch's end state is checked), as the editor's gear change does.
+    /// Never constructed by a caller directly. A plain [`Edit::AddTier`] allocates a fresh
+    /// id, so the undo of [`Edit::RemoveTier`] needs this step. It sets [`Design::tier_ids`]
+    /// at `index` to `id`; its inverse is the same variant holding the previous id.
+    RestoreTierId { index: usize, id: TierId },
+    /// Replaces the index-gear tooth count, symmetry order and mirror flag.
+    ///
+    /// A tier's own `indices`/`detached` stay numerically unchanged; [`Edit::RemapIndices`]
+    /// re-derives them for a new gear.
+    ///
+    /// [`Design::apply_edit`] rejects `gear_teeth == 0` or `symmetry_order == 0` with an
+    /// [`EditError`] (without modifying `self`), since either makes index positions
+    /// meaningless and writes a `g`/`y` line that [`pleochroma_formats::asc::parse_asc`]
+    /// cannot read back. It also rejects a smaller gear while a concave tier holds an index
+    /// past the new wheel (the error names that tier). Run [`Edit::RemapIndices`] first, or
+    /// put both in one [`Edit::Batch`] (only the batch's end state is checked), as the
+    /// editor's gear change does.
     SetSchedule {
         gear_teeth: i32,
         symmetry_order: u32,
@@ -266,15 +236,12 @@ pub enum Edit {
     /// [`Edit::RemapIndices`] produces. Restores each named concave tier's
     /// `indices` verbatim, as `(index, indices)`.
     RestoreConcaveIndices { tiers: Vec<(usize, Vec<f64>)> },
-    /// Several sub-edits applied as ONE undo step: [`Design::apply_edit`] validates
-    /// every sub-edit against a scratch clone of the design before writing anything
-    /// back, so a sub-edit that fails partway through never leaves the design
-    /// half-applied -- then commits the clone and returns the sub-edits' own inverses,
-    /// reversed, as the exact undo (replayed in reverse order, matching the standard
-    /// "undo a batch by unwinding it back to front" rule). What the editor uses
-    /// wherever two edits are conceptually one user action -- e.g. "Retarget for
-    /// material" (an angle retarget plus the material change it implies) -- so
-    /// undoing it takes one press, not two.
+    /// Several sub-edits as ONE undo step.
+    ///
+    /// [`Design::apply_edit`] validates them all on a scratch clone before writing back, so a
+    /// sub-edit that fails partway leaves the design unchanged. The undo is the sub-edits' own
+    /// inverses in reverse order. Used wherever several edits are one user action, e.g.
+    /// "Retarget for material" (angles plus the material change).
     Batch(Vec<Self>),
     /// Swaps the design's whole flat tier list and schedule metadata for the held
     /// [`ScheduleState`] in one step -- what applying edited `.asc` text uses, where
@@ -585,9 +552,8 @@ fn describe_batch(edits: &[Edit], design: &Design) -> String {
 /// How [`Edit::RemapIndices`] rounds a non-integral index-wheel position after
 /// converting it from `from_gear` teeth to `to_gear` teeth.
 ///
-/// See that variant's own doc comment. This crate never silently picks a rounding
-/// mode itself; it is always caller-authored (the editor's own remap dialog shows
-/// non-integral remaps in red, letting the user choose before applying).
+/// See that variant's own doc comment. This crate never picks a rounding mode itself;
+/// the caller always supplies one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RemapRounding {
     /// Rounds to the nearest whole tooth (`f64::round`, ties away from zero).

@@ -38,48 +38,35 @@
 //! `Arc<GpuBackend>` to every connection's own thread (see
 //! `apps/pleochroma-worker/src/serve/mod.rs::run`).
 //!
-//! [`GpuBackend::try_accumulate_cancellable`] does NOT hold the renderer lock for a
-//! whole request's worth of chunks. It instead takes a FAIR, FIFO
-//! ticket ([`turnstile::Turnstile`]) before every [`turnstile::CHUNKS_PER_TURN`]-chunk
-//! "turn" through [`super::gpu::GpuFrameRenderer::accumulate_turn`], releases both the
-//! ticket and the renderer lock at the end of that turn, and -- if pixels remain --
-//! rejoins the BACK of the ticket queue for another turn. N concurrent requests
-//! therefore interleave chunk-batch by chunk-batch in the order they first asked for GPU
-//! time, rather than one request's whole frame running to completion while every other
-//! connection's thread blocks behind it. A plain `Mutex` gives no such guarantee -- the
-//! OS is free to let one thread relock it repeatedly ahead of others already waiting --
-//! which is the starvation this design avoids.
+//! [`GpuBackend::try_accumulate_cancellable`] does not hold the renderer lock for a whole
+//! request. It takes a FIFO ticket ([`turnstile::Turnstile`]) before each
+//! [`turnstile::CHUNKS_PER_TURN`]-chunk turn through
+//! [`super::gpu::GpuFrameRenderer::accumulate_turn`], releases the ticket and the renderer
+//! lock when the turn ends, and rejoins the back of the queue if pixels remain. Concurrent
+//! requests therefore interleave turn by turn. A plain `Mutex` does not guarantee this: the
+//! OS may let one thread relock it repeatedly while others wait (starvation).
 //!
 //! ## Why draining before yielding a turn is required
 //!
 //! `GpuFrameRenderer`'s chunk pipeline is double-buffered and at most ONE chunk deep in
-//! flight (see `renderer::gpu::frame`'s own "Overlapped chunk pipeline" doc section).
-//! `accumulate_turn` ALWAYS drains that one pending chunk before returning -- whether it
-//! reports done, cancelled, or "more work" -- so by the time a turn ends, the renderer's
-//! output/staging slots hold no outstanding GPU work. That is what makes handing the SAME
-//! renderer to a COMPLETELY DIFFERENT request's next turn safe: there is nothing left in
-//! flight for that other request's dispatch to race or corrupt.
+//! flight (see `renderer::gpu::frame`'s "Overlapped chunk pipeline" section).
+//! `accumulate_turn` always drains that pending chunk before returning, so a finished turn
+//! leaves the output and staging slots idle. That is what lets the SAME renderer serve a
+//! different request's next turn: nothing is in flight for it to race with.
 //!
-//! This invariant is for TURN BOUNDARIES. A batch ([`GpuBackend::try_accumulate_batch_cancellable`],
-//! "Batches" below) keeps one chunk in flight ACROSS picture boundaries while it holds its
-//! turn, and drains exactly when it gives the turn up -- so the invariant every other
-//! request relies on (an idle renderer at the start of its turn) still holds.
+//! This invariant is for turn boundaries. A batch
+//! ([`GpuBackend::try_accumulate_batch_cancellable`]) keeps one chunk in flight across
+//! picture boundaries while it holds its turn, and drains when it gives the turn up, so the
+//! idle-renderer invariant still holds for other requests.
 //!
 //! ## Scene re-upload: the fairness cost
 //!
-//! `GpuFrameRenderer::scene_buffers` (camera/material/planes/facet-finishes) is ONE
-//! persistent set, not one per request -- so when a different request's turn runs
-//! between two of THIS request's turns, that request's `accumulate_turn` overwrites
-//! those same four buffers with ITS scene. `accumulate_turn` re-verifies/re-uploads them
-//! unconditionally at the START of every turn (see that function's own doc comment),
-//! which is what makes a resumed request correct regardless of what ran in between. The
-//! cost: whenever requests are actually alternating turns, each resumed turn re-uploads a
-//! few hundred bytes across four small buffers before dispatching its next chunk --
-//! `outputs`/`staging`/`params_buffers` (the large, expensive-to-reallocate per-chunk
-//! buffers) are NEVER re-uploaded on a resume, only written into per-chunk exactly as
-//! before. A single request with no contention pays this small fixed cost once per
-//! [`turnstile::CHUNKS_PER_TURN`]-chunk turn too (there is no "am I still the only user"
-//! fast path) -- the tradeoff this module makes for fairness.
+//! `GpuFrameRenderer::scene_buffers` (camera, material, planes, facet finishes) is one
+//! persistent set shared by all requests. A turn of another request overwrites it, so
+//! `accumulate_turn` re-uploads those four buffers at the start of every turn. That keeps a
+//! resumed request correct. The cost is a few hundred bytes per resumed turn. The large
+//! per-chunk buffers (`outputs`, `staging`, `params_buffers`) are not re-uploaded on resume.
+//! A single uncontended request pays the same small cost once per turn.
 //!
 //! ## Batches: a queue that stays fed between pictures
 //!
@@ -92,32 +79,26 @@
 //! material classes simply use their own already-compiled pipelines -- there is no
 //! "current pipeline" to switch.
 //!
-//! Fairness choice: a batch holds its turn for as long as nobody else is queued, with no
-//! drain between chunks or pictures. After every [`turnstile::CHUNKS_PER_TURN`] chunks it
-//! asks the turnstile whether a ticket was taken behind it; if so it drains its one
-//! in-flight chunk, gives the turn up and rejoins the back of the queue (a single request
-//! with no contention therefore pays no per-turn drain at all, a contended one waits at
-//! most as long as today). `on_done` runs while the turn is held, with the next chunk
-//! already queued behind it, so it should hand the picture off cheaply (a channel send),
-//! not do slow work inline.
+//! Fairness: a batch keeps its turn while no other ticket is queued, with no drain between
+//! chunks or pictures. After every [`turnstile::CHUNKS_PER_TURN`] chunks it checks the
+//! turnstile for a waiting ticket. If one is queued, it drains its in-flight chunk, gives
+//! the turn up and rejoins the back of the queue. An uncontended batch never drains.
+//! `on_done` runs while the turn is held, with the next chunk already queued, so it should
+//! only hand the picture off (for example a channel send).
 //!
-//! Memory: the output ring (two slots of output, reduced-pixel, staging and params
-//! buffers) is sized once for the largest picture of the batch and reused for every
-//! picture -- at most about `2 * (50 MiB + 2 * 12 B * pixels)` on the device (roughly 100 MiB
-//! plus 48 MiB at 1024 x 1024, whatever the batch length). On the host each picture has
-//! its own 12 B x pixels scratch while it is in flight (at most two at a time, pooled).
+//! Memory: the output ring (two slots of output, reduced-pixel, staging and params buffers)
+//! is sized once for the largest picture and reused for every picture. Per slot the output
+//! buffer is bounded by the chunk byte budget; the reduced-pixel and staging buffers take
+//! `12 B * pixels` each. On the host each picture in flight has its own `12 B * pixels`
+//! scratch (at most two, pooled).
 //!
 //! ## Chunk sample offsets stay deterministic regardless of interleaving
 //!
-//! Every sample a chunk dispatches derives its RNG seed and stratified jitter from the
-//! ABSOLUTE `(pixel, sample_offset + local_sample)` index alone (see the module doc
-//! comment's "Sample-range additivity" section above) -- never from which turn, which
-//! chunk index, or which other request ran before or after it. Interleaving two
-//! requests' turns on one renderer changes only the WALL-CLOCK ORDER their chunks
-//! dispatch in, never `sample_offset`, `pixel_offset`, or any other value a chunk's
-//! output depends on -- so a request's accumulated result is bit-identical to running it
-//! alone, uncontended, exactly as `run_chunk_equivalence` already proves for the
-//! non-interleaved chunk-vs-chunk-count case.
+//! A chunk derives each sample's RNG seed and stratified jitter from the absolute
+//! `(pixel, sample_offset + local_sample)` index alone (see "Sample-range additivity" above).
+//! Interleaving turns changes only the wall-clock order of dispatches, so a request's result
+//! is bit-identical to running it alone. `run_chunk_equivalence` checks the
+//! non-interleaved case.
 //!
 //! ## `accum` is written only on `Done`
 //!
@@ -131,22 +112,15 @@
 //!
 //! ## Desktop viewport and export: no contention to be fair about
 //!
-//! `apps/pleochroma-cut`'s live viewport (`ViewportGpu`, in
-//! `bridge::render_thread::gpu_backend`) and its export worker
-//! (`bridge::export_thread::worker::run_export`) each acquire their OWN [`GpuBackend`] --
-//! independent adapters, devices, and renderers, never one shared `Arc`. Suspending the
-//! viewport's local tracing for the duration of an export (`RenderContext::export_active`)
-//! is real, but it is unrelated to this module's fairness model: the two never contend
-//! for the same [`turnstile::Turnstile`] or the same `Mutex<GpuFrameRenderer>` at all,
-//! since they are two entirely separate `GpuBackend` instances.
+//! The live viewport (`ViewportGpu` in `bridge::render_thread::gpu_backend`) and the export
+//! worker (`bridge::export_thread::worker::run_export`) in `apps/pleochroma-cut` each own a
+//! separate [`GpuBackend`]. They never share a [`turnstile::Turnstile`] or renderer, so they
+//! do not contend. Pausing the viewport during an export (`RenderContext::export_active`) is
+//! a separate mechanism.
 //!
-//! The turnstile below is not specific to `pleochroma-worker`: `apps/pleochroma-cut`'s
-//! BATCH preview (`gui::batch::preview::wiring`) acquires
-//! ONE [`GpuBackend`] for the whole batch job and spawns `local_lane_count()` worker
-//! lanes over that SAME `Arc<GpuBackend>`, exactly the multi-admission shape this
-//! module's fairness turnstile exists for. `pleochroma-worker`'s `serve` module (handing
-//! one `Arc<GpuBackend>` to every connection's own thread) is simply the OTHER caller
-//! that shares one backend across threads, not the only one.
+//! The batch preview (`gui::batch::preview::wiring`) shares one [`GpuBackend`] across
+//! `local_lane_count()` worker lanes, and `pleochroma-worker`'s `serve` module shares one
+//! across connection threads. Both are the multi-caller case this turnstile exists for.
 //!
 //! # Device loss and recovery
 //!
@@ -172,11 +146,21 @@
 //! configurations so a caller needs no `#[cfg]` of its own.
 
 use glam::Vec3;
+mod cache;
+#[cfg(test)]
+mod cache_tests;
 mod limits;
 mod tool_routing;
 pub mod whitted;
+pub use cache::{
+    CacheTier, GpuPathCache, HostSlab, MemoryHints, RAM_SLAB_BYTES, SlabSpan, VRAM_SLAB_BYTES,
+    memory_budget, plan_span,
+};
 pub use limits::GpuWorkLimits;
-pub use tool_routing::{GpuRouteDecline, scene_decline_with_tools, scene_routes_to_gpu_with_tools};
+pub use tool_routing::{
+    GpuRouteDecline, scene_decline_with_tools, scene_decline_with_tray_mirror,
+    scene_decline_with_tray_shadow, scene_routes_to_gpu_with_tools,
+};
 
 use crate::{
     geometry::{
@@ -194,8 +178,16 @@ use crate::{
 
 #[cfg(feature = "gpu")]
 mod backend;
+#[cfg(all(test, feature = "gpu"))]
+mod cached_tests;
+#[cfg(all(test, feature = "gpu"))]
+mod estimator_tests;
+#[cfg(all(test, feature = "gpu"))]
+mod live_tests;
 #[cfg(feature = "gpu")]
 mod recovery;
+#[cfg(all(test, feature = "gpu"))]
+mod resident_tests;
 #[cfg(not(feature = "gpu"))]
 mod stub;
 #[cfg(feature = "gpu")]
@@ -210,9 +202,9 @@ mod turnstile;
 mod zoned_tests;
 
 #[cfg(feature = "gpu")]
-pub use backend::GpuBackend;
+pub use backend::{GpuBackend, GpuResidentRun};
 #[cfg(not(feature = "gpu"))]
-pub use stub::GpuBackend;
+pub use stub::{GpuBackend, GpuResidentRun};
 
 /// The scene inputs one GPU accumulation call needs.
 ///
@@ -238,6 +230,13 @@ pub struct GpuSceneRef<'a> {
     pub max_bounces: u32,
     /// Lighting environment.
     pub environment: EnvironmentSource<'a>,
+    /// The estimator this frame asks for at the partial Fresnel events. `None` follows the
+    /// renderer's own choice, else the process default
+    /// ([`crate::optics::raytracer::default_estimator`]); `Some(estimator)` wins over both, so a
+    /// worker renders the scene's estimator whatever its own process default is. Where exit
+    /// collection does not apply the frame runs
+    /// [`crate::optics::raytracer::Estimator::Branching`] whatever is asked.
+    pub estimator: Option<crate::optics::raytracer::Estimator>,
 }
 
 /// One picture of a batch: its scene, sample range and its own output buffer.
@@ -276,21 +275,16 @@ pub struct GpuBatchItem<'a> {
 /// lamps' spectra and the excitation paths below 380 nm exist only on the CPU, so such
 /// a scene is traced entirely by the CPU.
 ///
-/// A concave stone is declined here because [`GpuSceneRef`] carries planes only: a caller
-/// built on it (the mobile backend) that rendered a concave stone on the GPU would drop its
-/// tools. The GPU kernels do trace tools (`GpuBackend::try_accumulate_geom`,
-/// `GpuBatchItem::tools`); a caller that passes them asks
-/// [`scene_routes_to_gpu_with_tools`] instead, which accepts up to
-/// `GPU_MAX_TOOL_PRIMITIVES` tools and otherwise renders the whole frame with
-/// [`crate::renderer::cpu_frame::trace_pixels_interleaved_geom`], i.e. a
-/// `HybridSplit::cpu_only` split. `lighting` is the analytic lighting preset of the scene
-/// (`EnvironmentSource::lighting_preset`; for an HDR panorama pass the preset's default, as
-/// no lamp is in play). A pure function of the scene so it is unit-tested without an
-/// adapter.
+/// A concave stone is declined here because [`GpuSceneRef`] carries planes only. A caller
+/// that passes tools must use [`scene_routes_to_gpu_with_tools`] instead. The GPU kernels
+/// do trace tools (`GpuBackend::try_accumulate_geom`, `GpuBatchItem::tools`). `lighting` is
+/// the scene's analytic preset (`EnvironmentSource::lighting_preset`); for an HDR panorama
+/// pass the preset's default, since no lamp is in play. A pure function, so it is unit-tested
+/// without an adapter.
 ///
-/// Not `const`: `GemMaterial::gpu_supported` inspects a zoned material's zone list (mesh shells,
-/// scattering and oversized band sets are CPU only; this is also how a zoned material the
-/// GPU cannot render stays off it instead of silently rendering its base zone).
+/// Not `const`: `GemMaterial::gpu_supported` inspects the zone list of a zoned material.
+/// Mesh-shell, scattering and oversized band zones are CPU only. Declining them keeps a zoned
+/// material from silently rendering its base zone on the GPU.
 #[must_use]
 pub fn scene_routes_to_gpu(
     material: &GemMaterial,
@@ -332,24 +326,48 @@ pub enum GpuAccumulate {
     Cancelled,
 }
 
+/// The fragment-stage parameters of [`GpuBackend::try_beam_fragments`] (beam guide §11.4).
+#[cfg(feature = "beam")]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BeamFragmentParams {
+    /// The deepest fragment subdivision (`BeamSettings::max_fragment_levels`).
+    pub max_levels: u32,
+    /// The spectral node count `N_λ` the leaves' node indices refer to.
+    pub n_lambda: u32,
+    /// The smoothness tolerance `τ_L` (`BeamSettings::lighting_tolerance`).
+    pub tolerance: f32,
+}
+
+/// Outcome of [`GpuBackend::try_beam_fragments`].
+///
+/// Defined in both build configurations (like [`GpuAccumulate`]), so callers stay free of `#[cfg]`
+/// beyond the `beam` feature.
+#[cfg(feature = "beam")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GpuBeamFragments {
+    /// Every fragment of the batch was shaded and its pixel sums were added into `out`.
+    Done,
+    /// The GPU did not produce the batch (no device, a lost device, a tile larger than the
+    /// storage binding, a kernel that declined). `out` is untouched; the caller shades the
+    /// batch on the CPU. The text gives the reason for the log.
+    Declined(&'static str),
+    /// `cancel` was observed set: `out` is untouched.
+    Cancelled,
+}
+
 /// Which transport kernel a render dispatches every chunk through.
 ///
-/// The megakernel (`spectral_transport.wgsl`'s `transport_main`) or the wavefront
-/// pipeline (`wavefront_transport.wgsl`) -- see `renderer::gpu::frame`'s module doc
-/// comment ("Wavefront pipeline") for the trade-off and when to prefer which. Both
-/// produce bit-identical `out_xyz` for the same scene/samples
-/// (`renderer::gpu::transport_check::run_pipeline_equivalence`).
+/// The megakernel (`spectral_transport.wgsl`) or the wavefront pipeline
+/// (`wavefront_transport.wgsl`); see `renderer::gpu::frame`'s module doc for the trade-off.
+/// Both produce the same output for the same scene up to compiler rounding
+/// (`renderer::gpu::frame::run_pipeline_equivalence`).
 ///
-/// Defined here (in both build configurations, like [`GpuSceneRef`]/[`GpuAccumulate`]
-/// above) rather than in the `gpu`-feature-gated `renderer::gpu::frame`, and re-exported
-/// from there as `renderer::gpu::frame::GpuPipelineKind` -- `GpuBackend::set_pipeline_kind`
-/// below must accept this type in EITHER build configuration, so the type itself can't
-/// live only behind the feature.
+/// Defined here, not in the `gpu`-gated `renderer::gpu::frame`, so that
+/// [`GpuBackend::set_pipeline_kind`] accepts it in both build configurations. It is
+/// re-exported as `renderer::gpu::frame::GpuPipelineKind`.
 ///
-/// `Default`/`#[default] Megakernel`: [`GpuBackend::set_pipeline_kind`]/
-/// [`super::gpu::GpuFrameRenderer::set_pipeline_kind`] are the only way to change it, so
-/// no existing caller's behaviour changes until the owner explicitly opts in after
-/// measuring.
+/// The default is `Megakernel`. Change it only with [`GpuBackend::set_pipeline_kind`] or
+/// [`super::gpu::GpuFrameRenderer::set_pipeline_kind`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum GpuPipelineKind {
     /// One monolithic kernel traces each path to completion.
@@ -357,6 +375,43 @@ pub enum GpuPipelineKind {
     Megakernel,
     /// Separate kernels advance all paths one bounce at a time.
     Wavefront,
+}
+
+#[cfg(all(test, feature = "gpu"))]
+impl GpuBackend {
+    /// Raises the real lost flag, as a device loss would (test hook).
+    ///
+    /// [`Self::is_lost`] turns `true`, every request declines until [`Self::try_recover`]
+    /// succeeds, and the recovery cool-down starts now. The remembered reason stays unset.
+    /// Lets a test drive the backend's own lost flag.
+    pub fn mark_lost_for_test(&self) {
+        self.recovery
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .record_loss(std::time::Instant::now());
+        self.lost.store(true, std::sync::atomic::Ordering::Release);
+    }
+}
+
+#[cfg(all(test, feature = "gpu"))]
+mod lost_hook_tests {
+    use super::GpuBackend;
+
+    #[test]
+    fn the_test_hook_raises_the_real_lost_flag() {
+        let backend = GpuBackend::disabled();
+        assert!(!backend.is_lost());
+        backend.mark_lost_for_test();
+        assert!(backend.is_lost());
+        assert_eq!(
+            backend.adapter_label(),
+            None,
+            "a lost backend claims no adapter"
+        );
+        // The cool-down has only just started, so no recovery is attempted yet.
+        assert!(!backend.try_recover());
+        assert!(backend.is_lost());
+    }
 }
 
 #[cfg(test)]
@@ -381,7 +436,7 @@ mod routing_tests {
             quantum_yield: 0.9,
         };
         let fluorescent = Fluorescence::new(vec![emitter]);
-        // Unchanged for every existing preset with no fluorescence.
+        // Without fluorescence, only the UV lamp presets route to the CPU.
         for preset in LightingPreset::ALL {
             assert_eq!(
                 scene_routes_to_gpu(&material, stone, Fluorescence::none(), preset),

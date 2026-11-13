@@ -76,11 +76,9 @@ pub fn render_diagram(
 /// The "enlarge this panel" mode: renders `mesh` as a SINGLE panel filling the
 /// whole frame.
 ///
-/// Everything else matches [`render_diagram`]'s fixed three-column layout: the same
-/// style, the same meet-marker and index-radial passes, and the same pick, panel and
-/// tooth buffer contract. `gui::solid_preview::diagram_wiring`'s hover and click
-/// callbacks therefore work against a frame from either function identically, since
-/// both go through the same [`render_panel`] into the same [`DiagramFrame`].
+/// Everything else matches [`render_diagram`]'s three-column layout: the same style, passes
+/// and pick, panel and tooth buffers. Both functions draw through [`render_panel`], so the
+/// hover and click wiring in `gui::solid_preview::diagram_wiring` works on either frame.
 #[must_use]
 pub fn render_diagram_single_panel(
     mesh: &SolidMesh,
@@ -100,7 +98,7 @@ pub fn render_diagram_single_panel(
 /// frame carries the caption `END`. Facet ids are unchanged, so picking and labels agree
 /// with the other panels.
 ///
-/// Additive: [`PanelKind`] gains no variant, so nothing that matches on it changes.
+/// This is not a [`PanelKind`] variant, so matches on `PanelKind` are unchanged.
 #[must_use]
 pub fn render_diagram_end_view(
     mesh: &SolidMesh,
@@ -186,10 +184,9 @@ fn render_single(
     frame
 }
 
-/// The mesh's own bounding-box diagonal, in world units -- the scale
-/// [`meet_marker_points`]'s vertex-matching tolerance is fractioned from
-/// (mirrors [`simplify_ring`]'s own scale-relative merge tolerance). `1e-6` for
-/// an empty mesh so a zero tolerance never turns into "everything matches".
+/// The mesh's bounding-box diagonal in world units. [`meet_marker_points`]'s vertex
+/// tolerance is a fraction of it, as [`simplify_ring`]'s merge tolerance is. `1e-6` for
+/// an empty mesh, so a zero tolerance never matches everything.
 fn mesh_diagonal(mesh: &SolidMesh) -> f64 {
     let Some(&first) = mesh.positions.first() else {
         return 1e-6;
@@ -202,10 +199,8 @@ fn mesh_diagonal(mesh: &SolidMesh) -> f64 {
     (hi - lo).length().max(1e-6)
 }
 
-/// The index-wheel/symmetry parameters every panel draw needs, bundled purely
-/// so [`render_panel`]'s own parameter list doesn't keep growing every time a
-/// new wheel-relative overlay (the symmetry/mirror lines, on top of the index
-/// wheel itself) needs another `DiagramConfig` field mirrored down.
+/// Index-wheel and symmetry parameters for one panel draw, bundled to keep
+/// [`render_panel`]'s parameter list short.
 #[derive(Debug, Clone, Copy)]
 pub struct WheelConfig {
     /// Number of teeth on the index gear.
@@ -468,7 +463,7 @@ enum EdgePass {
 /// [`fill_panel_facets`]'s doc comment. Split out of `render_panel` purely to keep
 /// that function under clippy's function-length lint.
 ///
-/// Draws in [`EdgePass`]'s six ordered sub-passes rather than once per facet, and
+/// Draws in [`EdgePass`]'s seven ordered sub-passes rather than once per facet, and
 /// every highlighted sub-pass uses a wider stroke, so a highlighted facet's
 /// boundary reads as a clean, intentional outline instead of being
 /// half-overpainted by a neighbouring ordinary facet's dark edge.

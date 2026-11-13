@@ -7,14 +7,14 @@
 //! 2. the current design, unchanged, in the target material,
 //! 3. the retargeted design in the target material.
 //!
-//! Each column is windowing, brilliance and extinction in percent, from the same fast
-//! table-up measurement the Optimize tab scores with
-//! (`pleochroma_cut_core::evaluate_objective_under`, about 2 ms) under the lighting preset
-//! the viewport uses. They are comparable with each other, not with a full tilt sweep.
+//! Each column is windowing, brilliance and extinction in percent, from the fast table-up
+//! measurement of `pleochroma_cut_core::evaluate_objective_finished_under`, under the
+//! lighting the caller passes. They are comparable with each other, not with a full tilt
+//! sweep.
 //!
 //! A column measures the stone as the render shows it: concave tools cut out, and frosted
 //! facets and a frosted girdle scattering the light. A design without either gives the
-//! polished flat figures it always did, bit for bit.
+//! polished flat figures, bit for bit.
 
 use super::validity::StoneAnalysis;
 use glam::DVec3;
@@ -239,7 +239,7 @@ mod tests {
     }
 
     /// Retarget's columns measure the stone with its concave tools; a flat design's column
-    /// is exactly the planes-only one it always was.
+    /// is exactly the planes-only one.
     #[test]
     fn the_analysis_column_measures_the_stone_with_its_tools() {
         use crate::retarget::validity::analyze;
@@ -270,7 +270,7 @@ mod tests {
     }
 
     /// Retarget's columns measure the frosted stone: a polished design's column is the flat
-    /// polished one it always was, a frosted design's differs from its polished twin, and the
+    /// polished one, a frosted design's differs from its polished twin, and the
     /// column is the explicit-finishes call on the analysis' own planes, tools and finishes.
     #[test]
     fn the_analysis_column_measures_the_frosted_stone() {
@@ -296,7 +296,7 @@ mod tests {
             .expect("the pavilion main exists");
 
         let polished = analyze(&polished_design, false).expect("the brilliant closes");
-        assert!(polished.finishes().is_empty());
+        assert_eq!(polished.finishes(), [] as [FacetFinish; 0]);
         assert_eq!(
             measure_analysis_column(&polished, &gem, lighting),
             measure_column(&polished.planes, &gem, lighting)

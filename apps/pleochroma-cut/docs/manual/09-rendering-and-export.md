@@ -17,7 +17,7 @@ Off, 4×, 8× or 16×. The first tap is visible before the remaining taps finish
 is used for Ray-Traced.
 
 The export dialog has its own **Renderer** choice. Ray-Traced exports use AA taps and
-Fire in place of the Path-Traced sample count. Local CPU, supported GPU and protocol-29
+Fire in place of the Path-Traced sample count. Local CPU, supported GPU and protocol-42
 remote computation honor that choice; the engine and options are frozen in queued jobs.
 Changing engines starts a new accumulation, so spectral samples never mix with AA taps.
 
@@ -53,6 +53,48 @@ will use. It is the design's material, unless you are previewing another one (Ch
 "Preview As..."), in which case the amber **Previewing** badge appears there too and the
 export uses the preview material. Press **Back to Design** in the badge to export the
 design's own.
+
+### Stone Shadow
+
+"Stone Shadow" follows the scene's lighting into still exports and saved-lighting
+fan-outs. Before tracing, "Computing the stone shadow…" reports the Final quality
+precompute, which can be canceled. The remote worker builds the same map locally;
+no map bytes cross the connection. The path cache reports in every build that it
+cannot serve the stone shadow and uses ordinary tracing; beam tracing does the same,
+but only in a build with the `beam` feature. Spectral GPU rendering uses
+the megakernel when supported and otherwise falls back to CPU. Tilt videos do not
+show the stone shadow yet.
+
+### Tray Reflection
+
+"Tray Reflection" turns the tray under the stone into a glossy surface. Its slider runs from
+0 % (off, the default) to 100 %, and the value is the surface's reflectance looking straight
+at it. About 4 % looks like black acrylic or glass: with the Black backdrop it gives the
+classic jewelry-photo look. 100 % is a mirror. The more glancing the view, the more the
+surface reflects, as a real glossy surface does. What it does not reflect is the ordinary
+tray, the matte paper, including the Stone Shadow when that is on.
+
+The reflection is traced for real. The stone appears mirrored in the surface, and light
+reaches the pavilion from below. The surface is perfectly smooth, unpolarized and endless,
+like the tray itself, and it lies where the Stone Shadow's tray lies, at the culet. The
+shadow map does not include the mirror's own reflected light, and Ray-Traced facets with a
+frosted finish do not see it.
+
+It has the Stone Shadow's scope: a studio light with a backdrop. With an HDR map, As Lit or
+"Contrast view (ASET-style)" the row is dimmed and shows the Stone Shadow row's notes
+("(not used with an HDR map)", "(needs a backdrop)", "(not used with this light)"); a stone
+that is not closed gives "Tray reflection needs a closed, nondegenerate stone." It works together with the Stone Shadow, and both can be on.
+It follows the scene's lighting into still exports and saved-lighting fan-outs, and the
+remote worker builds the mirror itself from one number. Because the reflected paths
+cannot be kept, the path cache reports "Path cache off: the tray reflection needs paths
+the cache does not keep." and beam tracing (in a build with the `beam` feature) reports
+"Beam tracing off: the tray reflection is traced without beams."; both use ordinary tracing.
+Spectral GPU rendering uses the graphics card when it can run the reflection and otherwise
+says "Tray reflection is traced on the CPU on this graphics card."; Ray-Traced GPU rendering
+always shows it. Tilt views and tilt videos
+do not show the reflection ("Tilt views don't show the tray reflection."). A still with the
+reflection on is saved as a format 4 render job (format 5 when the stone has color zones, format 6 with a
+turned HDR map; Chapter 23).
 
 ### Output Location
 
@@ -138,6 +180,230 @@ per pixel; each step doubles the count (and the time). Higher counts mean a
 smoother, less noisy image at the cost of render time. At the very top of
 the range (16384/32768), the app warns this "can take hours, especially at
 large output sizes."
+
+### Adaptive Sampling
+
+Adaptive sampling is an optional build feature (`adaptive-sampling`) and is not in the
+standard build. To get it, build the app with `cargo build -p pleochroma-cut --features
+adaptive-sampling`; the command line and the worker have the same feature (`-p pleochroma-cli
+--features adaptive-sampling`, `-p pleochroma-worker --features adaptive-sampling`), and the
+`beam` feature includes it. In the standard build the Adaptive Sampling box is not shown, in
+the export dialog and in the tilt video section, and neither is the **Adaptive Sampling in the
+Viewport** switch in Preferences (Chapter 17). Saved choices are kept and written back
+unchanged. A render job that asks for adaptive sampling still loads and renders in the
+standard build, at its own samples per pixel. Its progress note says "Adaptive sampling off:
+this build has no adaptive sampling." On the command line, `--adaptive`, `--target-noise`,
+`--min-spp`, `--noise-metric` and `--gpu-convergence` are unknown flags without the feature.
+A worker or coordinator of the standard build refuses an adaptive pass as an unsupported
+request (Chapter 10). The rest of this section describes a build with the `adaptive-sampling`
+feature.
+
+Under the slider, the **Adaptive Sampling** check box saves time on a picture where some
+parts are clean long before others. Adaptive sampling stops each part of the picture once
+it is clean enough; the samples setting becomes the most any part gets. A flat background
+or a calm facet stops early, while a sparkling facet keeps going up to the full count. The
+dialog's hint says it in one line: "The samples setting becomes the maximum."
+
+With the box ticked, a **Target Noise** list appears with three choices:
+
+- **Fine** stops a part only when it is very clean. It saves the least time.
+- **Standard** is the choice for most pictures, and the one the dialog starts with.
+- **Draft** stops sooner. It is quick, and a little grainier.
+
+Some parts always get a minimum number of samples before they may stop, so a small sample
+count leaves little to save. The box and the list are remembered like the other export
+settings: the dialog opens with your last choice, and **Add to Queue** saves the choice in
+the job.
+
+Adaptive sampling is for the Path-Traced renderer. With Ray-Traced selected the box is
+greyed out and says "Adaptive sampling is for the path tracer." A picture drawn with it
+renders on this computer only for now, so choose **Local Only** under Compute.
+When it finishes, a short message tells how many samples it saved.
+
+### Exit Collection
+
+The app renders a stone with exit collection. Instead of following each sample down one
+randomly chosen branch at every surface, it gathers the light of the paths that leave the
+stone, so the same number of samples gives a cleaner picture. With a fixed number of samples
+a render takes somewhat longer per sample, and the picture is much cleaner. There is nothing
+to switch on or off, and the remote workers use it too (Chapter 10).
+
+Some frames fall back to the classic estimator, which picks one branch at random at each
+surface. The app does this by itself, for that frame only, where exit collection does not
+apply: with an HDR map as the light, with Daylight + Sun, for a stone with tools, for a
+rough or ground surface, and with Tray Reflection. These frames look as they did before and
+are noisier at the same samples.
+
+### Path Cache
+
+The path cache and beam tracing are off while the app renders with exit collection, because
+exit collection does not use them. The **Path Cache** check boxes are greyed out with a note,
+and a job that asks for the cache is drawn without it and says "Path cache off: exit
+collection, the default estimator, does not use it." (in a build with the `beam` feature,
+beams say the same). The rest of this section describes the cache with the classic (branching)
+estimator.
+
+Below Adaptive Sampling, the **Path Cache** check box is a quick preview for trying lights
+on a view you keep. Every ray that enters the stone follows the same path of reflections and
+refractions however the room is lit, so the app can work that path out once, keep it, and
+shade the stone from it. The dialog's hint says it in one line: "A preview for re-lighting a
+kept view: facet edges are approximate. Used only when the cache is kept; uses memory and
+disk space." Working the paths out takes longer than drawing the picture once without them,
+so the cache pays only when the same view is drawn again. It stores the paths at a few fixed
+points in each pixel, so facet edges and small glints come out a little too sharp. Use it to
+compare lightings, and draw the picture you keep without it.
+
+The cache is used only together with **Keep for Re-Renders**. With **Path Cache** ticked and
+**Keep for Re-Renders** off, the picture is drawn as without the cache, and a line under the
+progress bar says "Path cache: not used, it only pays when the cache is kept and the view is
+rendered again (tick the keep box under Path Cache, or pass --persist-cache)".
+
+Before it starts, the app estimates how large the cache will be and tells you under the
+progress bar, for example "Path cache: about 11 GB, in system RAM". When part of
+the stone's light takes paths the cache does not keep, the line also says how often a sample
+traces such a path again, for example "Path cache: about 1.2 GB, 31.0 % of samples traced
+again, in video memory". It keeps the cache in
+video memory when it fits, else in system memory, and if it fits in neither, the picture
+is drawn without it and the same line says why. The cache is used only where it can be
+right: it is left off, with a message that names the reason, for a stone that scatters
+light (opal, moonstone, a hazy body, oriented inclusions), for frosted facets and for a
+stone with a concave tier.
+
+With the box ticked, **Keep for Re-Renders** writes the cache to disk when the picture
+is done. Rendering the same stone again, at the same size and from the same side, then
+starts from the kept cache, and you can change the lighting and the exposure freely, as
+they are not part of it. Changing the design, the material, the crystal axis, the
+view or the size makes a new cache. Kept caches live in the cache folder that
+**Preferences** shows (Chapter 17), which is also where you clear them. The box and
+**Keep for Re-Renders** are remembered like the other export settings, and **Add to
+Queue** saves them in the job.
+
+The path cache is for the Path-Traced renderer. With Ray-Traced selected the box is
+greyed out and says "The path cache is for the path tracer." It combines with Adaptive
+Sampling.
+
+### Beam Tracing (Faceted Stones)
+
+Beam tracing is retired. It stays in the code as an optional build feature and is not in
+the standard build. To get it, build the app with `cargo build -p pleochroma-cut --features
+beam`; the command line and the worker have the same feature (`-p pleochroma-cli
+--features beam`, `-p pleochroma-worker --features beam`). Every beam setting is off by
+default. In the standard build the Beam Tracing boxes are not shown, in the export dialog
+and in the tilt video section, and neither are the two beam switches in Preferences
+(Chapter 17). A render job that asks for beams still loads and renders in
+the standard build, without beams. Its progress note says "Beam tracing off: this build has
+no beam tracer." A job that also asks for the path cache and keeps it uses the cache. The rest
+of this section describes a build with the `beam` feature.
+
+Next to the Path Cache, the **Beam Tracing (Faceted Stones)** check box draws the stone
+in a different way. Instead of firing many single rays, the app follows the light
+through the stone as whole beams: a beam enters a facet, splits where it meets the
+next facets, and carries on until it leaves the stone. Everything a beam covers is
+worked out in one go, so a faceted stone settles much faster than ray by ray. The dialog's
+hint says it in one line: "Follows the light through a faceted stone as beams, so the
+stone settles much faster. The picture matches the path-traced one." It does match: the
+result equals the path-traced picture within its noise, only with far less noise on the
+stone for the same time. The rest of the picture, the background and anything the beams
+leave out, is finished with the usual samples, so the **Samples per Pixel** setting still
+applies.
+
+Beams apply where the stone is a plain faceted solid: a convex stone with flat, polished
+facets and sharp edges. The app leaves them off, and draws the stone as it would without
+the box, when the material rounds its edges, when the stone has tools or concave tiers,
+when it scatters light (opal, moonstone, a hazy body) or has oriented inclusions, when its
+facets are frosted or its polish is rough, or when the camera has depth of field. When
+that happens a line under the progress bar names the reason, for example "Beam tracing
+off: the material rounds its edges". When beams are used, the same line reports them, for
+example "Beams: 142318 leaves, 0.8 % residual", which says how many pieces of the stone were
+drawn from beams and how small a share was left to ordinary samples. Every built-in
+material has sharp edges, so beams are available with all of them.
+
+The reasons the line can give, word for word: "Beam tracing off: the material scatters
+light", "...the stone has oriented inclusions", "...the material has a play-of-color look",
+"...the stone has frosted facets", "...the polish has roughness", "...the stone has abraded
+edges", "...the stone has concave tiers", "...the stone is concave", "...the camera has
+depth of field", "...the material rounds its edges", "...the facets do not close the stone"
+and, for a build without the beam tracer, "...this build has no beam tracer". Some lightings
+and effects make the stone fall back with no note at all. With Ray-Traced selected the line
+reads "Beam tracing needs the Path-Traced engine". In every case the picture is the one you
+would get with the box unticked.
+
+With both **Beam Tracing** and **Path Cache** ticked, the beams draw the stone where they
+apply, a line tells you "Beam tracing renders this stone; the path cache is not used for it", and a kept path cache still serves
+any stone the beams cannot. If you also asked for the GPU-resident convergence check, the
+line says "Beam tracing checks convergence on the host; GPU-resident convergence is not
+used". Beam tracing combines with Adaptive Sampling.
+
+With a remote worker chosen (Chapter 10), the beam tiles of the stone are drawn on the
+workers as well: this computer and each worker render whole tiles, beams and the samples that
+finish them, and the finished tiles are put together in tile order. If a worker is lost, its
+tiles are drawn by the others and a note says so ("The remote worker stopped"). **Final
+Picture Only** transfer is not used for a beam picture: the tiles come back as finished data,
+as they do for Adaptive Sampling. With no worker set up the stone is drawn on this computer
+and the line says "Beam tracing renders on this computer". Every worker must run the same
+version as the app (Chapter 10).
+
+Beam tracing is for the Path-Traced renderer. With Ray-Traced selected the box is greyed
+out and says "Beam tracing needs the Path-Traced renderer." The box is remembered like the
+other export settings, and **Add to Queue** saves it in the job.
+
+#### Keep Beams for Re-Renders
+
+This box exists only in a build with the `beam` feature (see the start of this section),
+and it is not shown in the standard build. The standard build never reads kept beams. Kept
+beams share the path cache folder (`render_cache`, Chapter 11) and its disk limit with the
+kept path caches, so the standard build's limit and **Clear Path Cache** can delete them.
+
+Once **Beam Tracing** is ticked, a second box appears under it, **Keep Beams for
+Re-Renders**. The beams of a stone do not depend on the lighting, only on the stone, its
+material and its pose. With the box ticked, the app saves them to the path cache folder
+(Chapter 11) when the picture is done. Drawing the same view again, even with other
+lighting, another exposure or another saved lighting from **Also Render With Saved
+Lighting**, then starts from the saved beams instead of working them out again, and the
+picture is the same as a fresh one. Moving the stone, changing the design or the material,
+or changing the beam settings makes a new set of beams. Saved beams share the folder and the
+**Path Cache Disk Limit** of Preferences (Chapter 17) with the kept path caches, and the
+oldest are deleted first when the limit is reached; a damaged file is simply drawn again.
+When a picture starts from saved beams, the line under the progress bar ends with "Loaded from
+the kept beams." Saved beams are kept and used on this computer: with a remote worker chosen,
+the line says "Keeping the beams renders on this computer." A stone that cannot use beams saves nothing. If a build of the app cannot store beams, the
+box is greyed out with a note, and the beams stay in memory for the one picture. The box is
+remembered, and **Add to Queue** saves it in the job.
+
+For a tilt video (Chapter 14) there is no extra box: **Keep Path Cache for This Video**
+also keeps the beams of every frame. Every frame is a new pose, so the frames share no beams.
+
+The live Ray-Traced view can use the same stored light paths in one other way. With
+**Instant Lighting Changes in the Ray-Traced View** ticked in Preferences (Chapter 17), a
+Ray-Traced view that has stood still and finished keeps the stone's light paths in memory,
+and changing the lighting preset, the light direction or the exposure then re-lights the
+stone at once instead of tracing it again. This is also what makes flicking through the
+lighting presets of one stone instant. The re-lit stone follows the path tracer's
+physics, so it can differ slightly from the Ray-Traced look, and the background is still
+drawn by the Ray-Traced renderer. Exports are not affected: a Ray-Traced export is drawn
+as always, and a path-traced export keeps its own cache as described above.
+
+The live Ray-Traced view can also draw the stone from beams, but only in a build with the
+`beam` feature; the two Preferences it needs are not shown in the standard build. With
+**Beam Tracing in Still Views** and **Instant Lighting Changes With Beams** both ticked in
+Preferences (Chapter 17), a
+Ray-Traced view that has stood still and
+finished builds the beams of the stone in the background and then shows the stone from
+them. Changing the lighting preset, the light direction, the exposure, the glare or the head
+shadow keeps the beams and draws the stone again from them under the new lighting as soon as
+the Ray-Traced picture of that lighting is finished. This view mode is a defined image of
+its own: the stone comes from the beams and has no noise, and the background and the stone's
+outline come from the Ray-Traced renderer. The very small share of light the beams leave out
+is left out here too, as the Ray-Traced renderer leaves out what is too faint to count. It is
+not a path-traced picture, so it can differ slightly from the Ray-Traced look and from the
+Path-Traced view. Moving the stone, changing the design, the material or the window size, or
+switching the renderer drops the beams. A stone that cannot use beams (Chapter 9, above) is
+drawn as always, and with the Preference off nothing changes. The beams are kept in memory
+only (up to 4 GB) and never saved. Exports are not affected.
+
+The Path-Traced view has its own pair of Preferences for the same purpose: **Beam Tracing in
+Still Views** and **Instant Lighting Changes With Beams** (Chapter 17). They too exist only
+in a build with the `beam` feature.
 
 ### Also Render With Saved Lighting
 

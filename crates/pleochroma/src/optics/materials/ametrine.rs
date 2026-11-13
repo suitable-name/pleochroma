@@ -1,6 +1,7 @@
-//! The built-in Ametrine: bicolour quartz with an amethyst half and a
-//! citrine half, both colours taken from the chromophore catalogue's quartz iron recipes (the
-//! citrine half at about half the iron, see [`AMETRINE_CITRINE_FE_PPMA`]).
+//! The built-in Ametrine: bicolour quartz with an amethyst half and a citrine half.
+//!
+//! Both halves are colored from the chromophore catalogue's quartz iron recipes (the citrine
+//! half at about 0.4 times the amethyst half's iron, see [`AMETRINE_CITRINE_FE_PPMA`]).
 //!
 //! The two zone tensors are resolved once per process (`zone_tensors`), so
 //! [`GemMaterial::all_materials`] stays cheap and every call returns the same bytes.
@@ -17,40 +18,24 @@ use std::sync::OnceLock;
 /// Iron of the amethyst half, in ppma of all atoms (the unit of the quartz host's iron).
 ///
 /// This is 80 ppmw Fe in quartz converted through the host's number density:
-/// `80e-6 * 2.65 g/cm3 / 55.845 g/mol * N_A / 7.968712e22 cm^-3 * 1e6 = 28.7`. 80 ppmw is the Anahi
-/// (Bolivia) amethyst whose spectrum and stated color the catalogue test
-/// `measured_color_tests::recipe_vs_measured_amethyst_e_perp_c` compares the recipe against. The
+/// `80e-6 * 2.65 g/cm3 / 55.845 g/mol * N_A / 7.968712e22 cm^-3 * 1e6 = 28.7`. 80 ppmw is the
+/// Anahi (Bolivia) amethyst that the catalogue test
+/// `measured_color_tests::recipe_vs_measured_amethyst_e_perp_c` checks the recipe against. The
 /// recipe's treatment is `gamma_irradiation`, which turns 10 % of the iron into the `[FeO4]0`
 /// amethyst centre.
 pub const AMETRINE_AMETHYST_FE_PPMA: f64 = 28.7;
 
-/// Iron of the citrine half, in ppma of all atoms: about half the amethyst half's, chosen so the
-/// citrine half shows the Citrine built-in's own color.
+/// Iron of the citrine half, in ppma of all atoms: about 0.4 times the amethyst half's.
 ///
 /// The recipe's treatments are `gamma_irradiation` and then `thermal_anneal_450`: the catalogue's
-/// own "heated amethyst is citrine" chain, in which the anneal removes the `[FeO4]0` centre and
-/// creates the nano-inclusion `Fe3+` chromophore from 50 % of the iron.
+/// heated-amethyst-to-citrine chain, in which the anneal removes the `[FeO4]0` centre and creates
+/// the nano-inclusion `Fe3+` chromophore from 50 % of the iron.
 ///
-/// The strength of this half is not anchored by any measurement: the catalogue holds no iron
-/// measurement of a real ametrine's citrine sector, the 10 % / 50 % conversion fractions are the
-/// catalogue's treatment yields, and Vasconcelos, Wenk & Rossman (G&G 30(1) 1994, p. 22) found the
-/// citrine sectors richer in iron and water than the amethyst sectors, which says nothing about
-/// how much of it ends up colored. Until 2026-11-03 the half took the amethyst half's iron
-/// (28.7 ppma): over the face-up path that was a deep golden orange, CIELAB L* 84, C* 88, hue
-/// 88 deg at the old 8.82 mm path, far stronger than the Citrine built-in (L* 92, C* 51, hue 94),
-/// and because most light crosses BOTH halves, the rendered stone came out orange and red-brown
-/// everywhere but the table (Pentalume Sapphire, Light Tent: L* 70 C* 31 h 54). At 14 ppma the
-/// half reads about L* 91 at hue 94 over today's 9.91 mm path, the Citrine built-in's color, so an
-/// Ametrine shows the same citrine as the Citrine material and the same amethyst as the Amethyst
-/// material (the amethyst half, L* 54 C* 41 h 332, matches that built-in already). For reference
-/// at the old path: 16 ppma is L* 90, hue 94 deg, and 4 ppma a near-clear L* 97.
-///
-/// 11 ppma since 2026-11-03 (the zoning check against sixteen dealer photos of ametrine): at 14
-/// ppma the rendered stone was still about three quarters peach and yellow (Light Tent zone
-/// clusters: h 56 C* 31 for 72 %, purple h 348 C* 26 for 28 %), where the photos that show both
-/// halves are 40-45 % lavender (h 326-334), their purple the more saturated half; at 8 ppma it
-/// tipped to 71 % pink-purple. Less iron in the citrine half lets the amethyst half, which stays
-/// at the measured Anahi iron, carry about half the stone.
+/// No measurement anchors this strength: the catalogue has no iron measurement of an ametrine's
+/// citrine sector, and the conversion fractions are treatment yields. At this iron the half
+/// matches the Citrine built-in's color, and the amethyst half stays at the measured Anahi iron.
+/// More iron makes most of the stone orange, since most light crosses both halves; less iron
+/// tips the stone toward pink.
 pub const AMETRINE_CITRINE_FE_PPMA: f64 = 11.0;
 
 /// Treatments of the amethyst half's recipe.

@@ -8,7 +8,7 @@
 //! The judging is [`crate::metric_deltas::judge`], so the strip, the compare window and
 //! the trials table agree on what "about the same" means:
 //!
-//! - the five table-up figures use their own noise thresholds, fire its relative one;
+//! - the five table-up figures use their own noise thresholds; fire uses a relative one;
 //! - the yield uses [`YIELD_NOISE_POINTS`] (higher is better);
 //! - the manufacturability count has no threshold: a facet that appears or vanishes is
 //!   always reported (fewer is better);

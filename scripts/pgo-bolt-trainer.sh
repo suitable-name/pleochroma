@@ -105,6 +105,10 @@ if [[ -n "$DESIGN_DIR" ]]; then
     DESIGN_DIR="$(realpath -- "$DESIGN_DIR")"
 fi
 cd "$ROOT"
+# Sources that differ from the last run's get the current time, so cargo rebuilds what changed
+# even when the copied files keep older times (scripts/fresh_sources.sh).
+. "$ROOT/scripts/fresh_sources.sh"
+fresh_sources
 HOST="$(rustc -vV | sed -n 's/^host: //p')"
 case "$HOST" in
     x86_64-unknown-linux-gnu|aarch64-unknown-linux-gnu) ;;

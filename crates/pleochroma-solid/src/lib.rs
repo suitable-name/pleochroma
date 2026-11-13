@@ -20,8 +20,9 @@
 //! No GUI toolkit types, no threads, no filesystem access anywhere in this crate --
 //! every caller (the desktop editor, the wasm web app) converts the RGBA8 output to
 //! its own pixel-buffer type at its own boundary. The desktop's
-//! `apps/pleochroma-cut/src/gui/solid_preview` re-exports every module here at its
-//! old paths, plus keeps its own `preview_state` (worker thread), `diagram_wiring`
+//! `apps/pleochroma-cut/src/gui/solid_preview` re-exports the modules `diagram2d`,
+//! `edges_layer`, `facet_map`, `live_update`, `mesh_cache` and `raster` under the same
+//! paths, plus keeps its own `preview_state` (worker thread), `diagram_wiring`
 //! (Slint callback wiring), and `to_pixel_buffer`/`to_diagram_pixel_buffer`
 //! conversions -- see this crate's README.
 

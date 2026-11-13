@@ -66,10 +66,10 @@ fn hg_phase_is_more_forward_peaked_for_larger_positive_g() {
     );
 }
 
-/// The decisive check for hazard 3: [`sample_henyey_greenstein_direction`]'s mean
-/// `cos_theta` must converge to `g` exactly -- the closed-form mean of the HG
-/// distribution. A sign error, swapped `u1`/`u2`, or wrong CDF inversion would
-/// converge to the wrong mean and be caught here.
+/// The mean `cos_theta` of [`sample_henyey_greenstein_direction`] must converge to `g`.
+///
+/// `g` is the closed-form mean of the HG distribution. A sign error, swapped `u1`/`u2`, or wrong
+/// CDF inversion would converge elsewhere.
 #[test]
 fn hg_sampling_mean_cos_theta_converges_to_g() {
     let forward = Vec3::new(0.2, 0.6, 0.77).normalize();
@@ -124,12 +124,11 @@ fn round_brilliant_colorless_scattering_material(sigma_s: f32, g: f32) -> GemMat
         .with_scattering(sigma_s, g)
 }
 
-/// Non-negotiable regression guard: a material with `scattering_sigma_s == 0.0`
-/// reached via `GemMaterial`'s plain default must trace bit-identically to the
-/// same material with scattering explicitly set to `(0.0, g)` for several `g` --
-/// proving the `scattering_sigma_s > 0.0` gate disables the new code path, since
-/// the estimator is not guaranteed to reduce to the old one algebraically at
-/// `sigma_s=0` (see [`maybe_scatter_or_extinguish`] hazard 2).
+/// A material with `scattering_sigma_s == 0.0` traces bit for bit as an explicit `(0.0, g)` does.
+///
+/// The `scattering_sigma_s > 0.0` gate keeps the scattering path off, since the estimator does not
+/// reduce algebraically to the no-scatter path at `sigma_s = 0` (see
+/// [`maybe_scatter_or_extinguish`]).
 #[test]
 fn default_off_scattering_is_bit_identical_regardless_of_g() {
     let planes = StandardGemCuts::standard_round_brilliant();
@@ -182,20 +181,18 @@ fn default_off_scattering_is_bit_identical_regardless_of_g() {
     }
 }
 
-/// The decisive check: a lossless scattering medium (`sigma_a == 0`, `sigma_s > 0`)
-/// immersed in a spatially uniform environment must still render at exactly that
-/// environment's own radiance -- scattering redirects energy, it must not create
-/// or destroy it. Mirrors `tests/raytracer_tests.rs`'s
-/// `frosted_girdle_white_furnace_energy_conservation_still_holds`.
+/// A lossless scattering medium (`sigma_a == 0`, `sigma_s > 0`) must render a uniform environment
+/// at its own radiance.
+///
+/// Scattering redirects energy, it must not create or destroy it. Compare the test
+/// `frosted_girdle_white_furnace_energy_conservation_still_holds` in `tests/raytracer_tests/`.
 #[test]
 fn lossless_scattering_white_furnace_energy_conservation_holds() {
     const L0: f32 = 2.5;
     const SAMPLES_PER_PIXEL: u32 = 96;
     const GRID: usize = 12;
-    // Measured on 2026-10-01 by the integration test `furnace_noise_floor` at this
-    // sample budget: 1.65 percent truncation loss at cap 16 (the medium lengthens the
-    // paths; nothing is lost at cap 256) plus about 0.2 percent noise; five standard
-    // deviations of headroom.
+    // Bounce cap 16 truncates 1.65 percent of the energy (the medium lengthens paths); noise is
+    // about 0.2 percent. The tolerance leaves five standard deviations of headroom.
     const TOLERANCE: f32 = 0.03;
 
     let planes = StandardGemCuts::standard_round_brilliant();
@@ -216,7 +213,7 @@ fn lossless_scattering_white_furnace_energy_conservation_holds() {
                     &planes,
                     &material,
                     16,
-                    EnvironmentSource::HdrMap(&env_map),
+                    EnvironmentSource::hdr(&env_map),
                     seed,
                     (hash_u32(seed) as f32) / 4_294_967_295.0,
                     None,
@@ -252,17 +249,15 @@ fn lossless_scattering_white_furnace_energy_conservation_holds() {
     );
 }
 
-/// Regression: the furnace test above uses a colorless, NON-dispersive probe
-/// (every channel shares one index), which cannot see the exit-split MIS weight or
-/// the NEE-deposit `path_pdf`/`compat` timing bugs fixed alongside this test -- both
-/// are chromatic multi-technique (MIS-family) effects a single-family material can't
-/// exercise. `GemMaterial::diamond()` is genuinely dispersive (`Sellmeier3`) and still
-/// colorless (`sigma_a == 0`), isolating the fix from chromatic absorption. Traced via
-/// the public [`trace_spectral_ray`] entry point (NEE auto-enabled for `HdrMap`,
-/// matching production) at 64 bounces, measured against the pre-fix code: before
-/// the fix this read ~1.06 (NEE double-counting the exit-split radiance and
-/// mis-weighting the NEE deposit both push the mean above the analytic target); after,
-/// ~0.99-1.00.
+/// A dispersive, colorless probe for the chromatic MIS weights that the furnace test above misses.
+///
+/// That probe is non-dispersive (every channel shares one index), so it cannot see the exit-split
+/// MIS weight or the NEE deposit's `path_pdf`/`compat` timing. Both are chromatic multi-technique
+/// (MIS-family) effects. `GemMaterial::diamond()` is dispersive (`Sellmeier3`) yet colorless
+/// (`sigma_a == 0`), which isolates them from chromatic absorption. Traced via the public
+/// [`trace_spectral_ray`] entry point (NEE on for `HdrMap`, as in production) at 64 bounces.
+/// Double-counting the exit-split radiance or mis-weighting the NEE deposit pushes the mean
+/// above the target.
 #[test]
 fn dispersive_lossless_scattering_white_furnace_energy_conservation_holds() {
     const L0: f32 = 2.5;
@@ -289,7 +284,7 @@ fn dispersive_lossless_scattering_white_furnace_energy_conservation_holds() {
                     &planes,
                     &material,
                     MAX_BOUNCES,
-                    EnvironmentSource::HdrMap(&env_map),
+                    EnvironmentSource::hdr(&env_map),
                     seed,
                     (hash_u32(seed) as f32) / 4_294_967_295.0,
                     None,
@@ -381,9 +376,9 @@ fn scattering_measurably_changes_face_up_appearance() {
     );
 }
 
-/// [`maybe_scatter_or_extinguish`]'s hero channel must reproduce the textbook
-/// single-scattering-albedo/unity-survival identities (hazard 2) exactly, checked
-/// directly rather than only inferred from the furnace test above.
+/// The hero channel must reproduce the single-scattering-albedo and unity-survival identities of
+/// [`maybe_scatter_or_extinguish`] exactly, checked directly rather than inferred from the
+/// furnace test.
 #[test]
 fn hero_channel_weight_matches_albedo_and_unity_survival_identities() {
     let material = round_brilliant_colorless_scattering_material(0.8, 0.0);
@@ -456,7 +451,7 @@ fn companion_channel_weight_matches_independently_derived_closed_form() {
         .expect("\"Tourmaline\" must be a built-in material")
         .with_scattering(0.8, 0.0);
     let lambda_hero = 550.0f32;
-    let lambda_companion = 430.0f32; // strongly dichroic vs. 550nm, see module doc comment
+    let lambda_companion = 430.0f32; // strongly dichroic against 550 nm
     let mat_ctx = RayMaterialContext {
         material: &material,
         lambdas: [
@@ -699,7 +694,7 @@ fn sun_nee_draws_are_uniform_over_the_disc_with_the_matching_pdf() {
                 sample.pdf.to_bits(),
                 "the independent pdf must equal the draw's pdf"
             );
-            // Half of the area is inside radius theta_max / sqrt(2): 1 - cos <= (1 - disc_cos) / 2.
+            // Half the area: radius theta_max / sqrt(2), i.e. 1 - cos <= (1 - disc_cos) / 2.
             if sample.dir.dot(key_dir) >= (1.0 - disc_cos).mul_add(-0.5, 1.0) {
                 inner_half += 1;
             }
@@ -853,11 +848,9 @@ fn frosted_exterior_nee_deposits_the_analytic_sun_value() {
     assert_eq!(dark, [0.0; NUM_CHANNELS]);
 }
 
-// The decisive NEE-on-vs-off unbiasedness measurement lives in `transport.rs`'s own
-// `#[cfg(test)] mod nee_tests` instead of here: it needs `trace_spectral_ray_inner`,
-// which is private to that module (this file has no access to it, unlike
-// `trace_spectral_ray` -- the public wrapper -- which cannot express an explicit
-// NEE-on/off A/B override).
+// The NEE-on/off unbiasedness check lives in `transport::tests::nee_tests`: it needs the private
+// `trace_spectral_ray_inner`, which the public `trace_spectral_ray` wrapper cannot replace with
+// an explicit NEE-on/off override.
 
 /// The inclusion coefficient is per model unit and independent of the stone's size: with a
 /// colourless medium, the scatter decision and the model-space free path of every seed are the

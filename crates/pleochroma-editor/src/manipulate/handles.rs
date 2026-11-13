@@ -11,8 +11,8 @@ use pleochroma::optics::raytracer::Camera;
 /// How close (pixels) the pointer must be to a handle's tip to grab it.
 pub const HANDLE_HIT_RADIUS_PX: f32 = 12.0;
 
-/// The world-space step (mast units) `pixels_per_mast_unit` is measured over; the
-/// measured distance is scaled by `1 / MAST_PROBE` = 10.
+/// The world-space step `pixels_per_mast_unit` is measured over. The measured pixels are
+/// scaled by `1 / MAST_PROBE` (10) to give pixels per mast unit.
 const MAST_PROBE: f32 = 0.1;
 
 /// A tip closer than this (pixels) to the anchor has no usable screen direction.
@@ -99,9 +99,8 @@ fn unit_dir(anchor: ScreenPoint, tip: ScreenPoint, fallback: (f32, f32)) -> (f32
 /// normal * L)`, `index_tip = project(centroid + tangent_phi * L)`.
 ///
 /// - `pixels_per_degree` is `|angle_tip - anchor| / L * pi / 180`: the tip moves `L`
-///   world units per radian of facet angle. (The shared contract wrote the formula
-///   without the `/ L`; the two agree for `L = 1`, and dividing keeps a dragged tip
-///   under the pointer for any handle length.)
+///   world units per radian of facet angle. Dividing by `L` keeps a dragged tip under the
+///   pointer for any handle length.
 /// - `pixels_per_mast_unit` is `10 * |project(centroid + normal * 0.1) - anchor|`.
 /// - `pixels_per_tooth` is `|project(centroid + tangent_phi * r * 2 pi / gear) -
 ///   anchor|`, `r = hypot(centroid.x, centroid.z)` (at least `1e-3`).

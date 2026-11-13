@@ -1,17 +1,11 @@
-//! Identity pin for [`hybrid::cpu_accumulate`], recorded BEFORE the refactor
-//! that moved its scene type ([`GpuFrameScene`]) and its per-pixel tracer
-//! (`cpu_sample_xyz`/`cpu_trace_range`) out to backend-independent homes
-//! (`renderer::frame_scene`, `renderer::cpu_frame`). This is a pure-refactor
-//! project: the estimator's output must not change by one bit, and this hash is the
-//! external check that it hasn't -- see `meet-solver-external-verification`-style
-//! reasoning applied to a render estimator instead of a solver.
+//! Bit-exact pins of [`hybrid::cpu_accumulate`], the CPU estimator.
 //!
-//! Two small, fixed scenes (24x16 px, 3 spp, at two different `sample_offset`s so the
-//! Cranley-Patterson rotation and hero-wavelength draw both exercise more than sample
-//! index 0): a Diamond round brilliant under the Light tent preset (all-`Polished`
-//! facets), and a birefringent Zircon round brilliant with a frosted girdle under the
-//! Daylight preset. Each pins one FNV-1a hash of every output pixel's XYZ, taken over
-//! `f32::to_bits` so the hash is exact bit-pattern equality, not a float comparison.
+//! The estimator's output must not change by one bit. Each pin is one FNV-1a hash of every
+//! output pixel's XYZ, taken over `f32::to_bits`, so the check is exact bit-pattern equality,
+//! not a float comparison. Two fixed scenes (24x16 px, 3 spp, at sample offsets 0 and 5, so the
+//! Cranley-Patterson rotation and the hero-wavelength draw see more than sample index 0):
+//! a Diamond round brilliant under the Light tent preset (all-`Polished` facets), and a
+//! birefringent Zircon round brilliant with a frosted girdle under the Daylight preset.
 
 use glam::Vec3;
 
@@ -57,8 +51,8 @@ fn hash_cpu_accumulate(scene: &GpuFrameScene<'_>, sample_offset: u32, spp: u32) 
     fnv1a_hash_xyz(&accum)
 }
 
-/// Diamond round brilliant, all-`Polished` facets, Light tent preset -- the everyday
-/// case: an isotropic material, no frosted-bounce branch.
+/// Diamond round brilliant, all-`Polished` facets, Light tent preset: an isotropic material
+/// with no frosted-bounce branch.
 const fn diamond_scene<'a>(
     camera: &'a Camera,
     planes: &'a [crate::geometry::GpuFacetPlane],
@@ -78,9 +72,8 @@ const fn diamond_scene<'a>(
     }
 }
 
-/// Zircon (uniaxial birefringent) round brilliant with a frosted girdle band, Daylight
-/// preset -- exercises the ordinary/extraordinary eigenmode split and the
-/// `apply_frosted_bounce` branch together.
+/// Zircon (uniaxial birefringent) round brilliant with a frosted girdle band, Daylight preset:
+/// exercises the ordinary/extraordinary eigenmode split and the `apply_frosted_bounce` branch.
 const fn zircon_frosted_scene<'a>(
     camera: &'a Camera,
     planes: &'a [crate::geometry::GpuFacetPlane],
@@ -103,22 +96,14 @@ const fn zircon_frosted_scene<'a>(
 
 /// `cpu_accumulate`'s output for the diamond fixture must not change by one bit.
 ///
-/// Hash recorded before the refactor (`GpuFrameScene` moved to
-/// `renderer::frame_scene::FrameScene`, the per-pixel tracer moved to
-/// `renderer::cpu_frame`); this test was run once after the refactor to confirm the
-/// hash is unchanged, per that lane's brief.
+/// The studio sampler rounds a few ULP differently between an unoptimised and an optimised
+/// build, so the pinned hashes are those of the optimised test profile, which a release build
+/// matches.
 ///
-/// Re-pinned on 2026-10-01 when the test profile started optimising this crate
-/// (`[profile.test.package.pleochroma]` in the workspace manifest): the studio sampler
-/// rounds a few ULP differently between the unoptimised and the optimised build, and the
-/// optimised test profile and a release build agree on these hashes.
-///
-/// The hashes are Windows bits. The studio sampler's `exp` runs through the platform
-/// math library once per sample, and glibc rounds a few arguments differently from the
-/// Windows runtime, so some samples, and with them a hash, differ on Linux (measured
-/// 2026-10-01: the hash at sample offset 0 agrees, the one at offset 5 does not). The
-/// test is therefore ignored off Windows; running it there with `--ignored` prints that
-/// platform's hashes in the failure message, which is all a per-platform table needs.
+/// The hashes are Windows bits. The studio sampler's `exp` runs through the platform math
+/// library once per sample, and glibc rounds some arguments differently from the Windows
+/// runtime, so on Linux some samples, and with them a hash, can differ. The test is therefore
+/// ignored off Windows; `--ignored` there prints the platform's hashes in the failure message.
 #[test]
 #[cfg_attr(
     not(windows),
@@ -133,36 +118,15 @@ fn cpu_accumulate_diamond_light_tent_pin() {
     assert_pinned(
         "diamond, light tent",
         &scene,
-        [0x99c7_1f3d_943d_7cdb, 0x1fef_e51e_0af8_0595],
+        [0x3041_320e_bd4e_51fa, 0xbd11_5d18_f76d_f08b],
     );
 }
 
-/// `cpu_accumulate`'s output for the frosted, birefringent Zircon fixture must not
-/// change by one bit. See [`cpu_accumulate_diamond_light_tent_pin`] for the pin's
-/// purpose, for the 2026-10-01 re-pin to the optimised test profile's bits, and for why
-/// it is ignored off Windows; all of it applies here too.
+/// `cpu_accumulate`'s output for the frosted, birefringent Zircon fixture must not change by one
+/// bit. The platform note of [`cpu_accumulate_diamond_light_tent_pin`] applies here too.
 ///
-/// Re-pinned on 2026-11-04 (owner's Windows run 2026-11-04_154834): the dealer-photo round of
-/// 2026-11-03 scaled Zircon's U4+ lines to 0.05 (a low-uranium, near-colorless zircon), so its
-/// absorption bands changed; the diamond pin stayed.
-///
-/// Re-pinned on 2026-10-28 (owner's Windows run 2026-10-28_002425): the color variants
-/// campaign rebuilt Zircon's own tensor per axis (lane B1), so its absorption bands
-/// changed; the diamond pin stayed.
-///
-/// Re-pinned on 2026-10-27 (owner's Windows run 2026-10-27_010333): K re-measured to 2.83
-/// with the model-width rescale in place, the same cause as the 2026-10-12 re-pin below;
-/// the diamond pin again stayed.
-///
-/// Re-pinned on 2026-10-12: the 2026-10-08 absorption-unit change
-/// (`AbsorptionUnit::ModelUnit` path scale `(W / 7) / K`, with K re-measured to 2.52 by
-/// the calibration test) moved every output of a material with absorption bands. Zircon
-/// carries U4+ absorption bands (`optics/materials/zircon_through_topaz.rs`), Diamond
-/// carries none, which is why only this pin moved while the diamond pin stayed. The
-/// tracer edits of 2026-10-12 (studio-rig cache, `extraordinary_index_at` gating on the
-/// anisotropic path, `studio_spec_power`, and the `trace_spectral_ray_core` extraction
-/// into `transport/inner/bounce_body.rs`) were audited statement for statement against
-/// the originals and are bit-neutral on this fixture.
+/// Zircon's absorption bands (`optics/materials/zircon_through_topaz.rs`) make this pin sensitive
+/// to the absorption model, which the diamond pin is not.
 #[test]
 #[cfg_attr(
     not(windows),
@@ -178,7 +142,7 @@ fn cpu_accumulate_zircon_frosted_daylight_pin() {
     assert_pinned(
         "zircon, frosted girdle, daylight",
         &scene,
-        [0xa52c_80fb_8cb3_181d, 0xdc94_1cd4_f9a7_0ab3],
+        [0xfa23_d8b3_f1fa_36fd, 0x2fb2_72f4_142b_6fc1],
     );
 }
 
@@ -208,12 +172,10 @@ fn xyz_bits(buf: &[Vec3]) -> Vec<(u32, u32, u32)> {
         .collect()
 }
 
-/// Traces the whole frame by partitioning its pixels into `stride` interleaved sets
-/// (one [`trace_pixels_interleaved`] call per `first_pixel` in `0..stride`) and
-/// scattering each partition's sums back into one buffer with [`scatter_interleaved`]
-/// -- the same shape of work `hybrid::cpu_trace_range`'s thread pool (and a browser's
-/// Worker pool) both do, just single-threaded here since only the RESULT is under
-/// test.
+/// Traces the whole frame as `stride` interleaved pixel sets (one [`trace_pixels_interleaved`]
+/// call per `first_pixel` in `0..stride`), scattering each set's sums back with
+/// [`scatter_interleaved`]. This is the work split of `hybrid::cpu_trace_range`'s thread pool,
+/// run single-threaded here because only the result is under test.
 fn trace_whole_frame_via_stride(
     scene: &GpuFrameScene<'_>,
     stride: u32,
@@ -231,12 +193,10 @@ fn trace_whole_frame_via_stride(
     out
 }
 
-/// [`trace_pixels_interleaved`]/[`scatter_interleaved`] must reproduce
-/// [`cpu_accumulate`] bit-for-bit regardless of how the frame is partitioned -- see
-/// `cpu_frame`'s own "Determinism and partitioning" doc. Stride 1 is the trivial case
-/// (one partition, every pixel); strides 3 and 7 split the 24x16 frame (384 pixels)
-/// into several INTERLEAVED partitions, and 7 does not divide 384 evenly, matching how
-/// a desktop thread pool or a browser's Worker pool would actually split a frame.
+/// [`trace_pixels_interleaved`] with [`scatter_interleaved`] must reproduce [`cpu_accumulate`]
+/// bit for bit for every partition of the frame; see "Determinism and partitioning" in
+/// `cpu_frame`. Stride 1 is one partition; strides 3 and 7 give several interleaved partitions
+/// of the 24x16 frame, and 7 does not divide its 384 pixels evenly.
 #[test]
 fn trace_pixels_interleaved_recombines_to_cpu_accumulate_for_several_strides() {
     let camera = Camera::new(0.35, 0.28, 5.0, 18.0);

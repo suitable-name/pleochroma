@@ -34,6 +34,30 @@ pub struct OpticalCapacity {
     /// Capacity of the bounded request channel, excluding work already held by the worker.
     pub queue_capacity: usize,
 }
+/// Optional operator override of the optical scratch budget in MiB, from
+/// `PLEOCHROMA_AI_OPTICS_SCRATCH_MIB` (default 512). Sizing only: a larger budget lets the
+/// service keep larger candidate batches resident, it does not reserve VRAM up front. Values
+/// are clamped to `16..=8192` so a typo cannot exhaust the device or starve Burn's allocator.
+#[cfg(feature = "cuda")]
+fn scratch_budget_mib() -> usize {
+    std::env::var("PLEOCHROMA_AI_OPTICS_SCRATCH_MIB")
+        .ok()
+        .and_then(|value| value.trim().parse::<usize>().ok())
+        .map_or(512, |mib| mib.clamp(16, 8192))
+}
+
+/// Optional operator override of the Fast-candidate batch ceiling, from
+/// `PLEOCHROMA_AI_OPTICS_MAX_CANDIDATES` (default 128, clamped to `16..=256`). The batch is
+/// still bounded by the ray capacity and the scratch budget; the ceiling is a tuning knob,
+/// not an occupancy estimate.
+#[cfg(feature = "cuda")]
+fn candidate_ceiling() -> usize {
+    std::env::var("PLEOCHROMA_AI_OPTICS_MAX_CANDIDATES")
+        .ok()
+        .and_then(|value| value.trim().parse::<usize>().ok())
+        .map_or(128, |value| value.clamp(16, 256))
+}
+
 #[cfg(feature = "cuda")]
 pub(super) fn size(
     context: &CudaContext,
@@ -48,9 +72,9 @@ pub(super) fn size(
     let major = attribute(Attribute::CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR)?;
     let minor = attribute(Attribute::CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR)?;
     let (free, total) = context.mem_get_info().map_err(error)?;
-    // Leave at least 7/8 of free VRAM for Burn and other CUDA services. Capacity growth
-    // is bounded by this budget and a 512 MiB cap; this is sizing, not an occupancy claim.
-    let budget = (free / 8).min(512 * 1024 * 1024);
+    // Leave at least 7/8 of free VRAM for Burn and other CUDA services. The scratch budget
+    // (see `scratch_budget_mib`) caps the buffers; this is sizing, not an occupancy claim.
+    let budget = (free / 8).min(scratch_budget_mib().saturating_mul(1024 * 1024));
     let fixed = 64 * 1024 * 1024;
     if budget < fixed + 4 * 1024 * 1024 {
         return Err(OpticalError::Unavailable(
@@ -78,7 +102,7 @@ pub(super) fn size(
             + 3 * 4096 * 4 * 4);
     let max_fast_candidates = rays
         .div_ceil(cells * 5)
-        .clamp(16, 128)
+        .clamp(16, candidate_ceiling().max(16))
         .min((budget - fixed) / candidate_bytes)
         .max(1);
     Ok(OpticalCapacity {

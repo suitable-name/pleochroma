@@ -10,12 +10,12 @@
 //!
 //! # Chunking
 //!
-//! Remote no longer reserves a fixed `[0, N)` up front. It claims chunks from the
-//! epoch's shared cursor, each sized to about [`LIVE_CHUNK_TARGET_SECS`] of the
-//! worker's MEASURED rate ([`live_chunk_samples`]) -- far smaller than the export's
-//! ~22 s chunks, so cancelling on a drag wastes at most a second or two of worker time.
-//! The next chunk is requested when the previous one's `Done` arrives; a slow worker
-//! simply claims less, a fast one more, and nothing is claimed past the epoch's target.
+//! Remote claims chunks from the epoch's shared cursor rather than reserving a fixed
+//! `[0, N)` up front. Each chunk is sized to about [`LIVE_CHUNK_TARGET_SECS`] of the
+//! worker's measured rate ([`live_chunk_samples`]), so cancelling on a drag wastes at most a
+//! second or two of worker time. The next chunk is requested when the previous one's `Done`
+//! arrives; a slow worker simply claims less, a fast one more, and nothing is claimed past
+//! the epoch's target.
 //!
 //! # Failure
 //!
@@ -45,9 +45,8 @@ pub const LIVE_CHUNK_TARGET_SECS: f64 = 1.5;
 pub const LIVE_FIRST_CHUNK_SAMPLES: u32 = 8;
 /// Floor for a rate-sized chunk -- per-request overhead dominates below this.
 pub const LIVE_CHUNK_MIN_SAMPLES: u32 = 2;
-/// Ceiling for one chunk: the worker's own per-request limit
-/// (`pleochroma-worker`'s `MAX_SAMPLES_PER_REQUEST`, not advertised in `Welcome`), the
-/// one definition `pleochroma_dispatch` owns.
+/// Ceiling for one chunk: the worker's per-request limit, which `Welcome` does not advertise.
+/// Its one definition is `pleochroma_dispatch`'s.
 pub use pleochroma_dispatch::DEFAULT_MAX_CHUNK_SAMPLES as LIVE_CHUNK_MAX_SAMPLES;
 /// Consecutive chunk failures after which the lane stops claiming for this epoch.
 pub const MAX_CONSECUTIVE_CHUNK_FAILURES: u32 = 2;
@@ -411,9 +410,7 @@ fn measured_rate(flight: &InFlight, done: u32, now: Instant) -> Option<f64> {
     Some(f64::from(done) / span.as_secs_f64())
 }
 
-/// [`LiveLane::chunk_paused`] tests -- kept inline (rather than in [`tests`], this
-/// module's own separate file) purely so the live-remote-suspension fix that added
-/// `chunk_paused` touches exactly one file under `bridge::remote::live_lane`.
+/// Tests of [`LiveLane::chunk_paused`].
 #[cfg(test)]
 mod chunk_paused_tests {
     use super::*;

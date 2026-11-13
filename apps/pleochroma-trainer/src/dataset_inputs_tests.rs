@@ -332,8 +332,7 @@ fn native_color_variants_keep_supported_tensors_and_older_editor_color_edits() {
         Some([0.2, 0.5, 0.8])
     );
 
-    // Removing the recorded fallback means the older editor chose Material Default.
-    // The core intentionally discards the stale variant and keeps that source reset.
+    // The dropped fallback variant leaves the source on Material Default.
     let loaded = load_design_data(&raw_native_with_context("", &variant), 128).unwrap();
     assert!(loaded.authored_material.is_some());
     assert_eq!(loaded.design.material, MaterialSelection::none());

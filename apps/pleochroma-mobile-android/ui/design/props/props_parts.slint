@@ -253,11 +253,8 @@ export component PickerRow inherits Rectangle {
     }
 }
 
-// A selectable row with a title and a wrapped description, and a trailing slot (put a
-// `RadioMark` in it). At least the shared list row height (56 px) and always tall enough
-// for its text, so the title and description of one row never touch the next row: the
-// shell `ListRow` keeps its minimum height even when its description wraps, which is why
-// this row measures its own content.
+// A selectable row: a title, a wrapped description and a trailing slot for a `RadioMark`.
+// It grows with its text from `Theme.row-height`, because the shell `ListRow` does not.
 export component PresetRow inherits Rectangle {
     in property <string> title;
     in property <string> detail: "";

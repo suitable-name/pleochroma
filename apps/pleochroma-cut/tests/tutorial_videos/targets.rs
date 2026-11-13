@@ -1,6 +1,8 @@
-//! Where the cursor goes for a step: every `highlight_target` a guide step can name
-//! (`crates/pleochroma-editor/src/guide/catalog.rs`, `HIGHLIGHT_TARGETS`), mapped to a query for
-//! the element the app outlines for it.
+//! Where the cursor goes for a step.
+//!
+//! Each `highlight_target` a guide step can name
+//! (`HIGHLIGHT_TARGETS` in `crates/pleochroma-editor/src/guide/catalog.rs`) mapped to a query
+//! for the element the app outlines.
 //!
 //! The table is data only. A query prefers the element id of the outlined control
 //! (`Component::id`), then its accessible label; the first query that finds something visible
@@ -48,7 +50,8 @@ pub struct Entry {
     pub source: &'static str,
 }
 
-/// Every target name the guides use. The `source` column is the `highlight_target ==` line.
+/// Every target name the guides use. The `source` column names the `.slint` file and line
+/// that draw the outline.
 pub const TABLE: &[Entry] = &[
     Entry {
         name: "new_design_dialog",
@@ -752,7 +755,8 @@ pub fn show_library_button(view: &WindowView) -> Option<Spot> {
         .or_else(|| run(view, &Query::Id("LibraryRail::panel_expand_btn")))
 }
 
-/// The inspector tab pill for tab index `tab` (0 Tier, 1 Preform, 2 Optimize, 3 Schedule, 4 History).
+/// The inspector tab pill for tab index `tab`: 0 Tier, 1 Preform, 2 Optimize, 3 Schedule,
+/// 4 History.
 #[must_use]
 pub fn inspector_tab_pill(view: &WindowView, tab: i32) -> Option<Spot> {
     let name = match tab {

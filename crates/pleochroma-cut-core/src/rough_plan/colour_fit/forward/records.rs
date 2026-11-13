@@ -19,11 +19,11 @@ pub const CHROMA_LIMIT: f64 = 1.5;
 /// `ln(CHROMA_LIMIT)`.
 const CHROMA_LOG_SPAN: f64 = 0.405_465_108_108_164_4;
 
-/// The largest relative error of a stored chroma factor inside `1 / 1.5 ..= 1.5`: half a code step.
+/// The largest relative error of a stored chroma factor in `1 / 1.5 ..= 1.5`: half a code step.
 ///
 /// The 255 codes are log-spaced, `factor = 1.5^((code - 127) / 127)`, so neighbouring factors
 /// differ by `1.5^(1/127) - 1 = 0.3197 %` and rounding to the nearest code errs by at most half of
-/// that: 0.160 % (ZC-13). Code 127 is exactly 1.
+/// that: 0.160 %. Code 127 is exactly 1.
 pub const CHROMA_MAX_REL_ERROR: f64 = 0.001_6;
 
 /// The factor a chroma code stands for (`code` must be at most [`CHROMA_MAX_CODE`]).
@@ -68,7 +68,7 @@ pub fn chroma_in_range(chroma: f64) -> bool {
 /// mean over the pixel's samples of the path throughput (Fresnel, microfacet and roulette
 /// weights) times the relative light level at the exit, averaged over the three colour channels.
 /// `chroma[c]` is the factor by which channel `c` differs from that average (the exit light of an
-/// edge-lit panel is not grey, ZC-13): the weight of the record in channel `c` is
+/// edge-lit panel is not grey): the weight of the record in channel `c` is
 /// `weight * chroma[c]`. Records carry no absorption: for any candidate absorption the
 /// transmitted share of the record in channel `c` is
 /// `weight * chroma[c] * exp(-sum_z alpha_z * lengths[z])`.
@@ -76,7 +76,7 @@ pub fn chroma_in_range(chroma: f64) -> bool {
 /// This is the working form (compression, tests, [`RecordSlice::get`]). A [`ViewRecords`] stores
 /// the records flat, `n_zones` lengths and the weight per record, plus three one-byte chroma codes
 /// per record when the light is not grey (see [`ViewRecords::chroma`]), so a uniform stone costs
-/// 8 bytes per record on a grey panel and 11 on a coloured one, a four-zone stone 24 and 27 (ZC-8);
+/// 8 bytes per record on a grey panel and 11 on a coloured one, a four-zone stone 24 and 27;
 /// entries of `lengths` from `n_zones` on are zero.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PathRecord {
@@ -282,13 +282,13 @@ pub struct ViewRecords {
     /// All records, pixel-major, then bin, flat: `stride` floats per record (the lengths of the
     /// zones in use, then the weight).
     pub records: Vec<f32>,
-    /// The per-channel colour of the records' light (ZC-13): three codes (red, green, blue) per
-    /// record, in record order, each standing for the factor [`chroma_decode`] by which the
-    /// record's weight is multiplied in that channel. **Empty when every code is
-    /// [`CHROMA_NEUTRAL`]** (a grey panel, a uniform surround, a frame whose colour varies by less
-    /// than the quantisation): such a view costs nothing and evaluates exactly as before. The
-    /// codes are log-spaced over `1 / 1.5 ..= 1.5`, so a stored factor is within
-    /// [`CHROMA_MAX_REL_ERROR`] (0.16 %) of the traced one.
+    /// The per-channel colour of the records' light: three codes (red, green, blue) per record,
+    /// in record order, each standing for the factor [`chroma_decode`] by which the record's
+    /// weight is multiplied in that channel. **Empty when every code is [`CHROMA_NEUTRAL`]** (a
+    /// grey panel, a uniform surround, a frame whose colour varies by less than the quantisation):
+    /// such a view costs nothing and evaluates with the grey arithmetic. The codes are log-spaced
+    /// over `1 / 1.5 ..= 1.5`, so a stored factor is within [`CHROMA_MAX_REL_ERROR`] (0.16 %) of
+    /// the traced one.
     pub chroma: Vec<u8>,
 }
 
@@ -419,7 +419,7 @@ impl ForwardRecords {
     /// data plus `4 * (n_zones + 1) * records` bytes, with
     /// `records <= pixels * traced_bins * max_records` (8 bytes per record for a uniform stone,
     /// 24 for four shaped zones), plus 3 bytes per record of chroma codes in a view whose light is
-    /// not grey (ZC-13).
+    /// not grey.
     #[must_use]
     pub fn memory_bytes(&self) -> usize {
         self.views.iter().map(ViewRecords::memory_bytes).sum()

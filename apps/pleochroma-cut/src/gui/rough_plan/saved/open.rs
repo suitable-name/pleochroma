@@ -10,7 +10,7 @@
 //! through `guard_unsaved_results`.
 
 use super::{
-    LoadedFingerprints, PendingBanner,
+    LoadedFingerprints, PendingBanner, RESULTS_TAB_LAYOUTS,
     dto::{DesignShape, SavedDesignDto},
     format::{LoadedPlan, parse_and_validate_plan},
     naming::format_unix_date,
@@ -156,7 +156,7 @@ fn fmt_exact(value: f64) -> String {
     }
 }
 
-/// The note for a plan made with another specific gravity than the list now gives its
+/// The note for a plan made with another specific gravity than the material list gives its
 /// material: a re-plan weighs the stones with the list's.
 fn gravity_note(material: &str, saved: f64, listed: f64) -> Option<String> {
     let differs = (saved - listed).abs() > 1e-6 * saved.abs().max(listed.abs());
@@ -168,8 +168,8 @@ fn gravity_note(material: &str, saved: f64, listed: f64) -> Option<String> {
 }
 
 /// Writes the plan's settings (both caps and the losses), weighed carat and candidate source
-/// into the form and picks its material. Returns the notes: the material is not in the list, or its specific
-/// gravity is not the plan's.
+/// into the form, and picks its material. Returns the notes: the material is not in the list, or
+/// its specific gravity is not the plan's.
 fn push_settings(host: &Host, plan: &LoadedPlan) -> Vec<String> {
     let model = host.window.global::<RoughPlanModel>();
     let settings = &plan.settings;
@@ -322,8 +322,9 @@ fn apply_opened(host: &Rc<Host>, opened: OpenedPlan) {
     );
 }
 
-/// Runs once the rows of an opened plan are on screen: closes the saved list and shows
-/// the banner. Does nothing when other results took the place of the plan's meanwhile.
+/// Runs once the rows of an opened plan are on screen: switches the right column back to
+/// the Layouts tab and shows the banner. Does nothing when other results took the place of
+/// the plan's meanwhile.
 fn show_loaded_banner(host: &Rc<Host>) {
     let text = {
         let mut session = host.session.borrow_mut();
@@ -340,7 +341,7 @@ fn show_loaded_banner(host: &Rc<Host>) {
         pending.text
     };
     let model = host.window.global::<RoughPlanModel>();
-    model.set_saved_open(false);
+    model.set_results_tab(RESULTS_TAB_LAYOUTS);
     model.set_loaded_banner(text.into());
 }
 

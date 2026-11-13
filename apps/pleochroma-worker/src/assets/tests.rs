@@ -118,6 +118,10 @@ fn scene(environment: SceneEnvironment) -> SceneState {
         height: 4,
         yaw: 0.4,
         camera_roll: 0.0,
+        stone_shadow: false,
+        tray_reflection: 0.0,
+        hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
+        estimator: pleochroma::optics::raytracer::Estimator::Branching,
         pitch: 0.3,
         distance: 3.0,
         light_yaw: 0.85,
@@ -313,9 +317,9 @@ fn a_registered_map_equals_a_local_decode_bit_for_bit() {
     assert!(decoded::decode_and_register(&env, b"not an hdr file").is_err());
 }
 
-/// A v25 float asset (what the phone ships for its effective map) registers to a map that is
-/// bit-identical to `EnvironmentMap::from_rgb` over the same texels, is told apart from a
-/// Radiance file by its magic, and is refused when its declared size lies.
+/// An `IXENVMAP` float asset registers to a map bit-identical to `EnvironmentMap::from_rgb`
+/// over the same texels, is told apart from a Radiance file by its magic, and is refused
+/// when its declared size lies.
 #[test]
 fn a_float_asset_registers_the_bit_identical_map() {
     use pleochroma_net::messages::envmap_asset::{encode_envmap_asset, envmap_asset_hash};
@@ -417,6 +421,66 @@ fn environment_source_carries_the_scenes_surface_glare() {
     studio.surface_glare = 0.0;
     let hdr = environment_source(&studio, Some(&map));
     assert_eq!(hdr.surface_glare().to_bits(), 1.0f32.to_bits());
+}
+
+/// An HDR map is lit at the scene's exposure, so a worker's raw sums and final pictures carry
+/// it exactly as the viewer's own render does, like the studio rig.
+#[test]
+fn environment_source_lights_an_hdr_map_at_the_scenes_exposure() {
+    let mut state = scene(SceneEnvironment::Studio);
+    state.exposure = 2.75;
+    assert_eq!(
+        environment_source(&state, None).exposure().to_bits(),
+        2.75f32.to_bits()
+    );
+    let bytes = unique_hdr(16, 8);
+    let map = environment_from_hdr_bytes(&bytes, HdrLimits::DEFAULT).unwrap();
+    let exposed = environment_source(&state, Some(&map));
+    assert!(
+        exposed
+            .hdr_map()
+            .is_some_and(|m| std::ptr::eq(m, &raw const map))
+    );
+    assert_eq!(exposed.exposure().to_bits(), 2.75f32.to_bits());
+}
+
+/// An HDR map is turned by the scene's orientation for the scene's own camera yaw; an
+/// unturned scene and the studio rig keep the identity rotation.
+#[test]
+fn environment_source_turns_an_hdr_map_by_the_scenes_orientation() {
+    use pleochroma::renderer::env_map::{EnvRotation, HdrOrientation};
+
+    let bytes = unique_hdr(16, 8);
+    let map = environment_from_hdr_bytes(&bytes, HdrLimits::DEFAULT).unwrap();
+    let mut state = scene(SceneEnvironment::Studio);
+    state.yaw = 0.4;
+    assert!(
+        environment_source(&state, Some(&map))
+            .hdr_rotation()
+            .is_identity()
+    );
+
+    state.hdr_orientation = HdrOrientation {
+        yaw: 0.5,
+        follows_camera: false,
+    };
+    let fixed = environment_source(&state, Some(&map)).hdr_rotation();
+    assert_eq!(fixed, EnvRotation::from_yaw(0.5));
+
+    state.hdr_orientation = HdrOrientation {
+        yaw: 0.5,
+        follows_camera: true,
+    };
+    let following = environment_source(&state, Some(&map)).hdr_rotation();
+    assert_eq!(following, state.hdr_orientation.rotation_for(state.yaw));
+    assert_ne!(following, fixed, "the camera yaw is added");
+
+    assert!(
+        environment_source(&state, None)
+            .hdr_rotation()
+            .is_identity(),
+        "the studio rig has no map to turn"
+    );
 }
 
 /// The studio environment a worker builds carries the scene's head-shadow radius.

@@ -1,4 +1,5 @@
-// Separate diagnostic state; changing presentation never resets beauty accumulation.
+// Diagnostic overlay state, separate from the beauty render: changing a layer, opacity or map
+// mode never restarts that render.
 export global OpticalModel {
     in-out property <bool> enabled: false;
     in-out property <bool> panel_open: false;

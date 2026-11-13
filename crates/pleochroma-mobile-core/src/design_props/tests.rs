@@ -16,6 +16,7 @@ use pleochroma::{
     render_setup::inclusion_scale,
 };
 use pleochroma_cut_core::{
+    History,
     material::{
         CUSTOM_VARIANT_KEY, CUSTOM_VARIANT_LABEL, VariantChoice,
         pattern::{ColorPattern, PatternAxis, TemplateId, template},
@@ -23,11 +24,11 @@ use pleochroma_cut_core::{
     native::{DesignExtras, design_from_str, design_to_string},
     templates::TEMPLATES,
 };
-use pleochroma_editor::EditorSession;
+use pleochroma_editor::{EditorSession, loading::design_from_asc_text, verdict::FixAction};
 use pleochroma_web_core::settings::{EXPOSURE_RANGE, HEAD_SHADOW_RANGE};
 
 use super::{
-    checks::test_support::{compute_view, first_fix_request},
+    checks::test_support::{compute_view, first_fix_request, fix_request_for},
     *,
 };
 use crate::{
@@ -1043,7 +1044,7 @@ fn state_with_a_fix() -> Option<(AppState, FixRequest)> {
 #[test]
 fn a_fix_plans_and_applies_as_one_undoable_step() {
     let Some((mut state, request)) = state_with_a_fix() else {
-        // No template needs a fix; the planning path is covered by the editor's own tests.
+        // No template needs a fix, so there is no plan to check.
         return;
     };
     let before = state.session.design.tiers.clone();
@@ -1076,4 +1077,56 @@ fn a_fix_needs_a_current_solve() {
     let state = state();
     let error = fix_request(&state, 0).expect_err("nothing is solved");
     assert!(error.contains("Solve"), "{error}");
+}
+
+/// Pentalume, the cut-core girdle-level fixture: its P2, G2 and C2 snap to meet points, and the
+/// new depths cut P3 and C3 away.
+const PENTALUME: &str =
+    include_str!("../../../pleochroma-cut-core/src/design/girdle_level/pentalume.asc");
+
+#[test]
+fn the_snap_is_planned_first_and_asks_what_it_cuts_away_before_it_is_applied() {
+    let mut design = design_from_asc_text("pentalume.asc", PENTALUME, None)
+        .expect("the fixture parses")
+        .design;
+    design.girdle_diameter_mm = Some(10.0);
+    let mut state = state();
+    state.session = EditorSession::with_history(design, History::new());
+    let solved = state.session.design.solve().expect("every tier is pinned");
+    let (request, row) = fix_request_for(&state.session.design, &solved, &FixAction::SnapToMeets)
+        .expect("Pentalume has tiers within the snap's reach");
+    // The row asks nothing: the question comes with the plan.
+    assert_eq!(row.fix_label.as_deref(), Some("Snap to Meets"));
+    assert_eq!(row.confirm, None);
+
+    let before = state.session.design.tiers.clone();
+    let planned = request.plan().expect("the snap plans");
+    let question = planned
+        .question()
+        .expect("the snap asks before it is applied");
+    assert_eq!(question.title, "Move Depths to Meet Points?");
+    assert_eq!(question.confirm, "Move");
+    assert!(
+        question.body.starts_with("Move the depth of "),
+        "{}",
+        question.body
+    );
+    assert!(
+        question
+            .body
+            .ends_with("It cuts away P3 (all 10 facets) and C3 (all 10 facets)."),
+        "{}",
+        question.body
+    );
+    // Planning changed nothing; applying it, once the user agreed, is one undo step.
+    assert_eq!(state.session.design.tiers, before);
+    let applied = apply_planned_fix(&mut state, planned).expect("the plan fits its design");
+    assert!(
+        applied.message.starts_with("Moved the depth of P2"),
+        "{}",
+        applied.message
+    );
+    assert_ne!(state.session.design.tiers, before);
+    assert!(state.session.undo().expect("undo replays").is_some());
+    assert_eq!(state.session.design.tiers, before);
 }

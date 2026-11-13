@@ -230,16 +230,11 @@ impl PreformSpec {
     /// plane's offset becomes `m + y_offset * n.y`. For the two prism shapes that
     /// is exactly what the index-from-the-end code below does, and they keep it.
     ///
-    /// [`PreformSpec`] itself carries no offset field -- adding one would be a
-    /// breaking change to every existing struct-literal construction site
-    /// (`crates/pleochroma-cut-core/src/native/convert.rs`'s
-    /// `preform_spec_from_table`, in particular, builds a full literal with
-    /// no `..Default::default()`). A caller that wants a *persistent*
-    /// per-design offset should store it alongside `girdle_diameter_mm` on
-    /// [`crate::design::Design`] instead
-    /// and pass it through here at every [`Self::planes`] call site
-    /// (`crate::design::export`'s `planes`/`planes_from_solved`) rather than
-    /// widening this struct.
+    /// [`PreformSpec`] carries no offset field: adding one would break every
+    /// struct-literal construction site (such as `preform_spec_from_table` in
+    /// `native/convert.rs`, which has no `..Default::default()`). A persistent
+    /// per-design offset belongs on [`crate::design::Design`] and is passed here
+    /// at each [`Self::planes`] call site in `crate::design::export`.
     #[must_use]
     pub fn planes_offset(&self, y_offset: f64) -> Vec<(DVec3, f64)> {
         let half_depth = self.depth * 0.5;

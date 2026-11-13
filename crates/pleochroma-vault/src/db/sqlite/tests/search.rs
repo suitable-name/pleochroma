@@ -1,4 +1,6 @@
-//! The library search/filter surface: free-text matching (including the notes
+//! The library search/filter surface.
+//!
+//! It covers free-text matching (including the notes
 //! `EXISTS` subquery and `LIKE`-wildcard escaping), range/tag/ignored-flag filtering,
 //! keyset pagination, attribute-range percentile bounds, and the combined
 //! display-plus-count query.
@@ -35,11 +37,9 @@ fn seeded_db(rows: &[(&str, &str, &str, &str, &str, &str)]) -> Database {
     db
 }
 
-/// The search tooltip/placeholder promises "title,
-/// designer or notes"; this asserts the predicate honors the "notes"
-/// third of that claim -- a term that appears ONLY in a tier's `angle_settings.notes`
-/// (not in the title or `designer_info`) must still surface the design, and a design
-/// with no such note must not be a false positive.
+/// The search scope is "title, designer or notes". This pins down the notes part: a term
+/// found only in a tier's `angle_settings.notes` (not in the title or `designer_info`) must
+/// surface the design, and a design without such a note must not match.
 #[test]
 fn search_diagrams_matches_a_term_found_only_in_tier_notes() {
     let path = temp_db_path("search_notes");
@@ -96,10 +96,9 @@ fn search_diagrams_matches_a_term_found_only_in_tier_notes() {
     let _ = std::fs::remove_file(&path);
 }
 
-/// An unescaped `_`/`%` in the search box is a SQL `LIKE` wildcard,
-/// not the literal character it looks like -- on the real catalogue that made a bare
-/// `"_"` query match all 3,299 rows. `Database::search_diagrams` must treat `_` (and
-/// `%`) as literal text, matching only a title that actually contains one.
+/// `_` and `%` in the search box are SQL `LIKE` wildcards unless escaped. An unescaped
+/// `"_"` would match every row, so `Database::search_diagrams` must treat both as literal
+/// text.
 #[test]
 fn search_diagrams_treats_underscore_and_percent_as_literal_characters() {
     let db = Database::new(Some(":memory:")).expect("create in-memory db");
@@ -207,9 +206,9 @@ fn range_query_returns_only_rows_within_known_bounds() {
     assert_eq!(results.len(), 3);
 }
 
-/// The library's "regenerate previews/tilt curves for the whole filtered set" batch
-/// action (`apps/pleochroma-cut`'s `gui::library::diagram_list`) needs the exact same
-/// match set `search_diagrams` itself would show, just uncapped and id-only.
+/// The library's batch actions on the whole filtered set (`apps/pleochroma-cut`'s
+/// `gui::library::search::filters::resolve_filtered_entry_ids`) need the same match set
+/// `search_diagrams` shows, uncapped and id-only.
 #[test]
 fn matching_entry_ids_agrees_with_search_diagrams_on_which_rows_match() {
     let db = seeded_db(&[
@@ -369,7 +368,7 @@ fn get_attribute_ranges_uses_real_min_but_a_percentile_based_max() {
     // p99 (linear interpolation) of 3 sorted points sits at index 1.98: 98% from b to c.
     assert!((ranges.ri.1 - 0.98_f64.mul_add(2.40 - 1.76, 1.76)).abs() < 1e-6);
     assert!((ranges.lw_ratio.1 - 0.98_f64.mul_add(1.20 - 1.10, 1.10)).abs() < 1e-6);
-    // Upper bound must not equal the raw max for a right-skewed sample -- the fix's whole point.
+    // For a right-skewed sample the upper bound sits below the raw max.
     assert!(
         ranges.ri.1 < 2.40,
         "p99 bound must sit below the raw max, got {}",
@@ -579,12 +578,10 @@ fn ri_tolerance_composes_with_ri_min_max_by_intersection() {
     );
 }
 
-/// The single-pass fix:
 /// [`Database::search_diagrams_display_with_count`] must agree, item-for-item and
 /// count-for-count, with calling [`Database::search_diagrams_display`] and
-/// [`Database::count_matching_diagrams`] separately for the same arguments -- with an
-/// active performance filter, which is exactly the case the combined method exists to
-/// walk only once instead of twice.
+/// [`Database::count_matching_diagrams`] separately. The check uses an active performance
+/// filter, the case the combined method exists to serve in a single pass.
 #[test]
 fn search_diagrams_display_with_count_agrees_with_the_two_separate_calls() {
     let db = Database::new(Some(":memory:")).expect("create in-memory db");
@@ -665,12 +662,10 @@ fn search_diagrams_display_with_count_agrees_with_the_two_separate_calls() {
     );
 }
 
-/// The library search predicate's supporting indexes must exist on a fresh database,
-/// and the query planner must actually pick the `angle_settings` one -- see
-/// `migrations::SEARCH_INDEXES_SQL`'s own doc comment for the measurements. Without it
-/// the notes-matching `EXISTS` subquery degrades to a full scan of a table holding one
-/// row per TIER, which froze the library's search box for tens of seconds per keystroke
-/// on a 3,299-design catalogue.
+/// The search predicate's supporting indexes must exist on a fresh database, and the query
+/// planner must use the `angle_settings` one. Without it the notes `EXISTS` subquery scans
+/// a table with one row per tier. See `migrations::SEARCH_INDEXES_SQL`'s doc comment for the
+/// measurements.
 #[test]
 fn search_indexes_exist_and_the_planner_uses_them() {
     let path = temp_db_path("search_indexes");
@@ -691,8 +686,8 @@ fn search_indexes_exist_and_the_planner_uses_them() {
         assert_eq!(found, 1, "{index} must exist on a fresh database");
     }
 
-    // The decisive half: an index nothing plans against would not have fixed anything.
-    // `SEARCH ... USING INDEX` is the plan line that replaced `SCAN a`.
+    // An index the planner never uses does nothing. `SEARCH ... USING INDEX` is the plan
+    // line an index lookup produces, where a full scan shows `SCAN a`.
     let plan: Vec<String> = db
         .conn
         .prepare(

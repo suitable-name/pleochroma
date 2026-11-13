@@ -10,7 +10,8 @@ use std::path::{Path, PathBuf};
 /// The infix that marks a recovery snapshot: `<name>.autosave.psdd`.
 pub(super) const AUTOSAVE_INFIX: &str = ".autosave";
 
-/// `name` without its extension: `foo.asc` and `foo.psdd` both give `foo`. A name with no extension is returned as it is.
+/// `name` without its extension: `foo.asc` and `foo.psdd` both give `foo`. A name without
+/// an extension is returned unchanged.
 fn stem_of(name: &str) -> &str {
     Path::new(name)
         .file_stem()

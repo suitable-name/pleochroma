@@ -38,6 +38,13 @@ pollster = { workspace = true, optional = true }
 serde = { workspace = true }
 toml = { workspace = true }
 tracing = { workspace = true }
+# Only pulled in behind the `path-cache-disk` feature (compressed, checksummed path-cache
+# tiles on disk, `renderer::path_cache::{compress, persist}`). The desktop app and the CLI
+# enable it; the base crate, the web build and the mobile build never see these. Versions
+# match `pleochroma-net`'s (`zstd` builds its C library with the MSVC toolchain).
+zstd = { version = "0.14.3", optional = true }
+lz4_flex = { version = "0.14.0", optional = true }
+crc32fast = { version = "1.5.4", optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # `wgpu`'s own default features (`dx12`, `metal`, `gles`, `vulkan`, `webgpu`, ...) --
@@ -119,6 +126,23 @@ hdr = ["dep:image"]
 # This feature only toggles `glam/serde` (needed for `GemMaterial::c_axis: Vec3`); the
 # `serde` crate itself is always a dependency -- see the `serde` dependency comment above.
 serde = ["glam/serde"]
+# Persists path-cache tiles to disk with delta + byte-shuffle + zstd/lz4 compression and a
+# CRC32 per tile. Off by default so the base dependency count stays publishable and the
+# wasm builds never compile `zstd-sys`. Enabled by `pleochroma-cut` and `pleochroma-cli`.
+path-cache-disk = ["dep:zstd", "dep:lz4_flex", "dep:crc32fast"]
+# Beam tracing of faceted stones (`renderer::beam`, and `renderer::gpu::beam` together with `gpu`).
+# RETIRED (2026-11-11): the code stays and compiles with this feature, which no crate of the
+# workspace turns on by default; `pleochroma-cli`, `pleochroma-cut` and `pleochroma-worker` have their
+# own off-by-default `beam` features that enable it. Its settings types (`renderer::accel_beam`)
+# compile in every build, so job files, settings and protocol messages that carry beam settings read
+# and write everywhere. The beam tests compile only with `RUSTFLAGS="--cfg beam_tests"`
+# (scripts/run_beam_tests.sh), never under `--all-features`. Never enabled by the web, mobile or
+# trainer crates (no bundle growth, no `std::thread::scope` on wasm32).
+beam = []
+# Builds the stone shadow on the tray (`optics::raytracer::environment::tray_shadow`): the precompute
+# uses std::thread::scope, so it is enabled by `pleochroma-cli`, `pleochroma-cut` and `pleochroma-worker`,
+# never by the web, mobile or trainer crates. The map type and its lookups compile in every build.
+stone-shadow = []
 
 [[example]]
 name = "gpu_equivalence_harness"

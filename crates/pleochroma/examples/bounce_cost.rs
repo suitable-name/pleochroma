@@ -1,10 +1,9 @@
-//! Measures what raising the GUI's max-bounces cap actually costs and buys.
+//! Measures what a high max-bounces cap costs and what it buys.
 //!
-//! The GUI offers a bounce-cap ladder (today: 4 / 8 / 12 / 16 / 24, default 12). This
-//! harness answers, with numbers rather than intuition, whether a much higher cap (the
-//! question on the table was 1024) is cheap or expensive, and where the image actually
-//! stops changing. Three measurements, each done separately per material (a colorless
-//! high-RI stone and a lower-RI absorbing one behave very differently here):
+//! The GUI's bounce ladder (`BOUNCE_LADDER`, 4 to 128, default 12) stops at 128. This harness
+//! measures whether a much higher cap (1024) is cheap or expensive, and where the image stops
+//! changing. Three measurements, each per material (a colorless high-RI stone and a lower-RI
+//! absorbing one behave very differently):
 //!
 //! 1. **Termination histogram.** Every traced path is instrumented (via
 //!    [`trace_spectral_ray_with_finish_instrumented`]) with how many bounces it took and
@@ -57,23 +56,20 @@ use std::{
     time::{Duration, Instant},
 };
 
-/// Frame size -- deliberately tiny (this measures a *ratio*, not a picture) so the whole
-/// sweep, including the 512/1024-bounce CPU points, finishes in a couple of minutes.
+/// Frame size: deliberately small, since this measures a ratio rather than a picture, so the
+/// sweep including the 512 and 1024 bounce CPU points stays short.
 const WIDTH: u32 = 240;
 const HEIGHT: u32 = 135;
 const SPP: u32 = 64;
 
-/// CPU wall-time-curve caps. Includes the GUI's current ladder (4/8/12/16/24 -- 4 folded
-/// in as the low anchor) plus the 1024 the question on the table actually asked about,
-/// so that number is measured, not extrapolated.
+/// CPU wall-time-curve caps: every rung of the GUI's bounce ladder, plus 1024 so that the
+/// highest cap is measured rather than extrapolated.
 const CPU_CAP_LIST: [u32; 13] = [4, 8, 12, 16, 24, 32, 48, 64, 96, 128, 256, 512, 1024];
 
-/// GPU wall-time-curve caps. Stops at 256, well short of the CPU list's 512/1024: a
-/// workgroup's 64 lanes run in lockstep, so a handful of long paths in one dispatch
-/// stall every lane in that group until the slowest one finishes (see this file's
-/// closing report section) -- there is a real risk of a single dispatch at 512+ bounces
-/// taking drastically longer than its CPU counterpart, and the CPU curve already
-/// establishes the underlying per-bounce cost trend without needing to court that.
+/// GPU wall-time-curve caps. Stops at 256, short of the CPU list's 512 and 1024: the 64 lanes
+/// of a workgroup run in lockstep, so a few long paths stall the whole group. A single
+/// dispatch at 512+ bounces could take far longer than its CPU counterpart. The CPU curve
+/// already shows the per-bounce cost trend.
 #[cfg(feature = "gpu")]
 const GPU_CAP_LIST: [u32; 11] = [4, 8, 12, 16, 24, 32, 48, 64, 96, 128, 256];
 
@@ -212,16 +208,10 @@ impl TerminationStats {
         u32::try_from(self.bounce_counts.len() - 1).expect("bounce count fits u32")
     }
 
-    /// A view of these stats excluding paths that never even reached the gem: a camera
-    /// ray whose very first `intersect_polyhedron_soa` call misses (background/sky
-    /// pixels in a framed scene, or the margin around the stone). Bucket 0 can ONLY ever
-    /// be [`PathTermination::Escaped`] -- at that point in `trace_spectral_ray_inner`'s
-    /// loop no bounce dispatch has run yet, so nothing else can have happened -- which is
-    /// what makes zeroing it out both in `bounce_counts` and in `reason_counts` exact,
-    /// not an approximation. Background misses are cap-invariant (a `max_bounces` change
-    /// can never affect whether the FIRST ray hits the polyhedron), so leaving them in
-    /// would dilute every fraction/percentile below with samples the cap question has
-    /// nothing to say about.
+    /// These stats without the paths that miss the gem on their first test (background or
+    /// margin pixels). Bucket 0 holds only [`PathTermination::Escaped`] paths, since no bounce
+    /// has run yet, so removing it is exact. A `max_bounces` change cannot affect those
+    /// misses, so keeping them would dilute every fraction below.
     fn interior_only(&self) -> Self {
         let mut out = self.clone();
         let misses = out.bounce_counts[0];
@@ -247,9 +237,8 @@ const REASON_LABELS: [&str; 4] = [
     "hit the bounce cap",
 ];
 
-/// Every seed/jitter draw a pixel needs, computed once per pixel and reused across its
-/// `spp` samples -- the same stratified construction `pgo_train`'s `trace_row` and the
-/// real viewer/exporter use.
+/// Every seed and jitter draw a pixel needs, computed once per pixel and reused across its
+/// `spp` samples, as in the real viewer and exporter.
 #[expect(
     clippy::struct_field_names,
     reason = "the three fields share a _rotation suffix on purpose: jitter-x, jitter-y \
@@ -553,7 +542,7 @@ fn run_material(name: &str, material: &GemMaterial, scene: &Scene) {
 fn run_gpu_curve(name: &str, material: &GemMaterial, scene: &Scene) {
     use pleochroma::renderer::gpu::{GpuFrameError, GpuFrameRenderer, GpuFrameScene};
 
-    println!("\n[GPU] production megakernel wall-time curve");
+    println!("\n[GPU] production engine wall-time curve");
     let mut renderer = match GpuFrameRenderer::new() {
         Ok(r) => r,
         Err(e) => {
@@ -606,8 +595,8 @@ fn main() {
     );
     let scene = Scene::standard();
 
-    // The render's size rule (no stone size set = the 7 mm look) so a coloured built-in would
-    // cost what the app traces; these three are near-colourless, so timings barely move.
+    // The app's size rule (`material_for_stone` with no stone size set), so that a coloured
+    // built-in costs what the app traces.
     let sized = |m: GemMaterial| pleochroma::render_setup::material_for_stone(m, 0.0, &[]);
 
     let diamond = sized(GemMaterial::diamond());
@@ -624,12 +613,9 @@ fn main() {
         &scene,
     );
 
-    // Zircon is this crate's most strongly birefringent built-in
-    // (`birefringence_delta = +0.0590`, more than 4x Quartz's +0.0130) and has a much
-    // higher RI (~1.93 vs Quartz's ~1.54), so it drives far more internal TIR/reflect
-    // bounces through the uniaxial closed-form path per sample -- reported alongside
-    // Diamond/Quartz to show the batched/cached uniaxial solve's cost at the
-    // high-birefringence end, not just Quartz's comparatively mild case.
+    // Zircon is a strongly birefringent uniaxial built-in (`birefringence_delta = +0.0590`).
+    // Its high index drives more internal reflections through the uniaxial closed-form solve
+    // per sample, so it shows that solve's cost at the high-birefringence end.
     let zircon = sized(GemMaterial::by_name("Zircon").expect("Zircon must be a built-in material"));
     run_material(
         "Zircon (RI~1.93, colorless, strongly birefringent uniaxial)",

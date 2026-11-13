@@ -12,11 +12,9 @@ use pleochroma::{
     },
 };
 
-/// `spectral_absorption` sums real chromophore `AbsorptionBand`s (see
-/// `GemMaterial::all_materials`' doc comments for the cited band positions) instead of
-/// blending a `[f32; 3]` RGB triple against three fixed sRGB-primary lobes -- this
-/// test reads the actual built-in materials' band sets rather than a synthetic
-/// standalone triple, so it stays honest about what the shipped data actually does.
+/// `spectral_absorption` sums the material's chromophore `AbsorptionBand`s (band positions
+/// are cited on `GemMaterial::all_materials`). This reads the shipped built-in band sets, not
+/// a synthetic one.
 #[test]
 fn test_spectral_absorption_orientation() {
     let ruby = GemMaterial::ruby();
@@ -36,10 +34,9 @@ fn test_spectral_absorption_orientation() {
     );
 }
 
-/// Direct unit-level check of `AbsorptionBand::evaluate` and the band-summing shape of
-/// `spectral_absorption` itself, independent of any specific material's data: a single
-/// band peaks exactly at its own centre and falls off symmetrically, and summing two
-/// non-overlapping bands is additive (not the old model's locally-normalized blend).
+/// Unit-level check of `AbsorptionBand::evaluate` and of `spectral_absorption`'s summing,
+/// independent of any material: a band peaks at its centre and falls off symmetrically, and
+/// separated bands add.
 #[test]
 fn test_absorption_band_peaks_at_its_own_centre_and_bands_sum() {
     let band = AbsorptionBand::new(500.0, 20.0, 4.0);
@@ -58,10 +55,8 @@ fn test_absorption_band_peaks_at_its_own_centre_and_bands_sum() {
         band.evaluate(520.0)
     );
 
-    // Two well-separated bands should sum (not locally-normalize-blend): far from
-    // both centres, the total should be small; at each band's own centre, the total
-    // should be close to (but slightly above, from the other band's tail) that band's
-    // own peak.
+    // Two well-separated bands add: far from both centres the total is small, and at each
+    // centre it is just above that band's peak (the other band's tail adds a little).
     let bands = vec![
         AbsorptionBand::new(410.0, 20.0, 3.0),
         AbsorptionBand::new(700.0, 20.0, 1.0),
@@ -78,12 +73,8 @@ fn test_absorption_band_peaks_at_its_own_centre_and_bands_sum() {
     );
 }
 
-/// Diamond, Moissanite and Cubic Zirconia are colorless -- their
-/// `AbsorptionTensor`s must be empty band sets, giving EXACTLY zero absorption at every
-/// wavelength (not merely "small"), which is what makes their rendering unchanged from
-/// the earlier RGB-triple model (the old `[0.0, 0.0, 0.0]` triple also always evaluated
-/// to exactly 0.0 in the old `spectral_absorption`, so this is a genuine equivalence,
-/// not just a superficially-similar new behaviour).
+/// Diamond, Moissanite and Cubic Zirconia are colorless: their `AbsorptionTensor`s are empty
+/// band sets, so absorption is exactly zero at every wavelength, not merely small.
 #[test]
 fn test_colorless_materials_have_zero_absorption_everywhere() {
     for name in ["Diamond", "Synthetic Moissanite", "Cubic Zirconia"] {
@@ -111,12 +102,9 @@ fn test_colorless_materials_have_zero_absorption_everywhere() {
         }
     }
 
-    // And the end-to-end consequence: Beer-Lambert transmittance is exp(-0*path_len) =
-    // 1.0 for every colorless material regardless of path length, so a full render
-    // must be bit-identical to a build with absorption forcibly zeroed out -- exercised
-    // here via Diamond through an actual gem cut, matching the "assert a
-    // colorless material's output is unchanged" requirement end-to-end rather than
-    // only at the `spectral_absorption` unit level above.
+    // End to end: Beer-Lambert transmittance is 1 for these materials at any path length, so
+    // a render of Diamond through a real cut must be bit-identical to one with absorption
+    // explicitly zeroed.
     let planes = StandardGemCuts::standard_round_brilliant();
     let diamond = GemMaterial::diamond();
     let mut diamond_forced_zero = diamond.clone();

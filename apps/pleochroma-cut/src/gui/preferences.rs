@@ -18,18 +18,27 @@
 use crate::{
     CompareWindow, CrystalAxisModel, LocateWindow, MainWindow, ManipulateModel, PreferencesModel,
     RigWindow, RoughPlannerWindow, Theme,
-    gui::tutorial_events::{raise, raise_weak},
+    bridge::render_thread::RenderContext,
+    gui::{
+        external_links::open_local_path,
+        tutorial_events::{raise, raise_weak},
+    },
     settings::{
         SettingsPersister,
-        model::{AppSettings, UI_SCALE_CHOICES, UiMode, ui_scale_factor_text},
-        store::peek_ui_scale_percent,
+        model::{
+            AppSettings, UI_SCALE_CHOICES, UiMode, clamp_path_cache_disk_limit_gb,
+            ui_scale_factor_text,
+        },
+        store::{default_render_cache_dir, peek_ui_scale_percent},
     },
 };
+use pleochroma::renderer::path_cache::lru;
 use pleochroma_editor::guide::viewing_events as events;
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 use std::{
     cell::{Cell, RefCell},
-    sync::Arc,
+    path::Path,
+    sync::{Arc, Mutex},
 };
 
 /// How much larger the Solid viewport's handles are drawn (and grabbed) with the "Larger
@@ -246,6 +255,8 @@ pub(super) fn apply_loaded(ui: &MainWindow, settings: &AppSettings) {
     prefs.set_ui_scale_index(ui_scale_index_for_percent(settings.ui_scale_percent));
     prefs.set_high_contrast(settings.high_contrast);
     prefs.set_large_handles(settings.large_handles);
+    prefs.set_adaptive_viewport(settings.adaptive_viewport);
+    seed_path_cache(ui, settings);
     // The welcome tour itself reads this flag; here it only says whether one is due.
     prefs.set_first_run_tour_pending(!settings.first_run_tour_done);
 
@@ -320,6 +331,257 @@ pub(super) fn setup_preferences_callbacks(
         if let Some(ui) = ui_weak.upgrade() {
             ui.global::<PreferencesModel>()
                 .set_first_run_tour_pending(true);
+        }
+    });
+}
+
+// --- Adaptive sampling in the viewport -------------------------------------------------
+
+/// Saves the "Adaptive Sampling in the Viewport" switch and hands it to the render thread. A
+/// real change marks the context dirty, so the picture restarts under the new rule (a switch
+/// set to what it already was restarts nothing).
+fn apply_adaptive_viewport(render_ctx: &Mutex<RenderContext>, store: &SettingsPersister, on: bool) {
+    store.update(|s| s.settings.adaptive_viewport = on);
+    let mut ctx = RenderContext::lock(render_ctx);
+    if ctx.adaptive_viewport != on {
+        ctx.adaptive_viewport = on;
+        ctx.dirty = true;
+    }
+}
+
+/// Wires `PreferencesModel.adaptive_viewport_changed`: it needs the render context, which
+/// [`setup_preferences_callbacks`] does not take. Called next to it, once.
+pub(super) fn setup_adaptive_viewport_callback(
+    ui: &MainWindow,
+    render_ctx: &Arc<Mutex<RenderContext>>,
+    settings_store: &Arc<SettingsPersister>,
+) {
+    let render_ctx = Arc::clone(render_ctx);
+    let store = Arc::clone(settings_store);
+    ui.global::<PreferencesModel>()
+        .on_adaptive_viewport_changed(move |on: bool| {
+            apply_adaptive_viewport(&render_ctx, &store, on);
+        });
+}
+
+// --- The path cache ------------------------------------------------------------------
+
+/// Bytes in a decimal gigabyte, the unit of the disk limit (the cache's own `format_bytes` and
+/// `DEFAULT_DISK_LIMIT_BYTES` use decimal gigabytes too).
+const BYTES_PER_GB: u64 = 1_000_000_000;
+
+/// The disk limit in bytes for a limit of `gb` gigabytes, limited to what the field offers.
+#[must_use]
+fn disk_limit_bytes(gb: u32) -> u64 {
+    u64::from(clamp_path_cache_disk_limit_gb(gb)) * BYTES_PER_GB
+}
+
+/// Deletes every kept path cache under `root` (a folder named by its key) and returns how many
+/// there were. Anything else in the folder stays, and a missing folder has nothing to clear.
+fn clear_path_caches(root: &Path) -> std::io::Result<usize> {
+    let mut cleared = 0;
+    for entry in lru::scan(root)? {
+        std::fs::remove_dir_all(root.join(&entry.key))?;
+        cleared += 1;
+    }
+    Ok(cleared)
+}
+
+/// What "Clear Path Cache" tells the user after clearing `root`.
+fn clear_path_cache_status(root: &Path) -> String {
+    match clear_path_caches(root) {
+        Ok(0) => "There was no path cache to clear.".to_owned(),
+        Ok(1) => "Cleared 1 path cache.".to_owned(),
+        Ok(count) => format!("Cleared {count} path caches."),
+        Err(error) => format!("The path cache could not be cleared: {error}"),
+    }
+}
+
+/// Saves the disk limit (limited to what the field offers) and returns the value saved.
+fn save_path_cache_limit(store: &SettingsPersister, gb: u32) -> u32 {
+    let gb = clamp_path_cache_disk_limit_gb(gb);
+    store.update(|s| s.settings.path_cache_disk_limit_gb = gb);
+    gb
+}
+
+/// Deletes the least recently used caches under `root` until the folder fits `gb` gigabytes;
+/// returns how many were deleted. A failure is logged, never shown: the limit applies again on
+/// the next change.
+fn enforce_path_cache_limit(gb: u32, root: &Path) -> usize {
+    match lru::enforce_limit(root, disk_limit_bytes(gb), None) {
+        Ok(evicted) => evicted.len(),
+        Err(error) => {
+            tracing::warn!("The path cache limit could not be applied: {error}");
+            0
+        }
+    }
+}
+
+/// Saves the "Speed Up Still Views With a Path Cache" switch and hands it to the render thread.
+/// A real change marks the context dirty, so the picture restarts under the new rule.
+fn apply_path_cache_viewport(
+    render_ctx: &Mutex<RenderContext>,
+    store: &SettingsPersister,
+    on: bool,
+) {
+    store.update(|s| s.settings.path_cache_viewport = on);
+    let mut ctx = RenderContext::lock(render_ctx);
+    if ctx.path_cache_viewport != on {
+        ctx.path_cache_viewport = on;
+        ctx.dirty = true;
+    }
+}
+
+/// Saves the "Instant Lighting Changes in the Ray-Traced View" switch and hands it to the render
+/// thread. A real change marks the context dirty, so the picture restarts under the new rule.
+fn apply_instant_lighting(render_ctx: &Mutex<RenderContext>, store: &SettingsPersister, on: bool) {
+    store.update(|s| s.settings.instant_lighting = on);
+    let mut ctx = RenderContext::lock(render_ctx);
+    if ctx.instant_lighting != on {
+        ctx.instant_lighting = on;
+        ctx.dirty = true;
+    }
+}
+
+/// What the render thread is told for "Instant Lighting Changes With Beams": the saved choice, but
+/// only while "Beam Tracing in Still Views" is on, because the beams it re-lights exist only then.
+#[must_use]
+#[cfg(feature = "beam")]
+pub const fn effective_beam_instant_lighting(beam_viewport: bool, beam_instant: bool) -> bool {
+    beam_viewport && beam_instant
+}
+
+/// Saves the "Beam Tracing in Still Views" switch and hands it to the render thread, together with
+/// the beam lighting switch it gates. A real change marks the context dirty, so the picture
+/// restarts under the new rule.
+#[cfg(feature = "beam")]
+fn apply_beam_viewport(render_ctx: &Mutex<RenderContext>, store: &SettingsPersister, on: bool) {
+    store.update(|s| s.settings.beam_viewport = on);
+    let instant = store.snapshot().settings.beam_instant_lighting;
+    set_beam_context(render_ctx, on, instant);
+}
+
+/// Saves the "Instant Lighting Changes With Beams" switch and hands it to the render thread; it
+/// takes effect only while "Beam Tracing in Still Views" is on.
+#[cfg(feature = "beam")]
+fn apply_beam_instant_lighting(
+    render_ctx: &Mutex<RenderContext>,
+    store: &SettingsPersister,
+    on: bool,
+) {
+    store.update(|s| s.settings.beam_instant_lighting = on);
+    let viewport = store.snapshot().settings.beam_viewport;
+    set_beam_context(render_ctx, viewport, on);
+}
+
+/// Writes the two beam switches into the render context (the second gated by the first) and marks
+/// it dirty when either really changed.
+#[cfg(feature = "beam")]
+fn set_beam_context(render_ctx: &Mutex<RenderContext>, viewport: bool, instant: bool) {
+    let instant = effective_beam_instant_lighting(viewport, instant);
+    let mut ctx = RenderContext::lock(render_ctx);
+    if ctx.beam_viewport != viewport || ctx.beam_instant_lighting != instant {
+        ctx.beam_viewport = viewport;
+        ctx.beam_instant_lighting = instant;
+        ctx.dirty = true;
+    }
+}
+
+/// Shows the cache folder, the saved disk limit and the instant lighting switch in the Preferences
+/// model. Called at start-up.
+fn seed_path_cache(ui: &MainWindow, settings: &AppSettings) {
+    let prefs = ui.global::<PreferencesModel>();
+    prefs.set_path_cache_viewport(settings.path_cache_viewport);
+    // The app renders with exit collection, which uses neither the path cache nor beam tracing,
+    // so both switches are greyed out while it is the process default.
+    let branching = pleochroma::optics::raytracer::default_estimator()
+        == pleochroma::optics::raytracer::Estimator::Branching;
+    prefs.set_path_cache_available(branching);
+    prefs.set_beam_available(branching);
+    prefs.set_instant_lighting(settings.instant_lighting);
+    #[cfg(feature = "beam")]
+    prefs.set_beam_viewport(settings.beam_viewport);
+    #[cfg(feature = "beam")]
+    prefs.set_beam_instant_lighting(settings.beam_instant_lighting);
+    prefs.set_path_cache_dir(
+        default_render_cache_dir()
+            .to_string_lossy()
+            .into_owned()
+            .into(),
+    );
+    prefs.set_path_cache_disk_limit_gb(
+        i32::try_from(clamp_path_cache_disk_limit_gb(
+            settings.path_cache_disk_limit_gb,
+        ))
+        .unwrap_or(i32::MAX),
+    );
+}
+
+/// Wires the path cache entries of the Preferences dialog: the viewport switch (it needs the
+/// render context), the disk limit, "Open Folder" and "Clear Path Cache". Called next to
+/// [`setup_preferences_callbacks`], once.
+pub(super) fn setup_path_cache_callbacks(
+    ui: &MainWindow,
+    render_ctx: &Arc<Mutex<RenderContext>>,
+    settings_store: &Arc<SettingsPersister>,
+) {
+    let prefs = ui.global::<PreferencesModel>();
+
+    let lighting_ctx = Arc::clone(render_ctx);
+    let lighting_store = Arc::clone(settings_store);
+    prefs.on_instant_lighting_changed(move |on: bool| {
+        apply_instant_lighting(&lighting_ctx, &lighting_store, on);
+    });
+
+    // Beam tracing is off in shipped builds: its switches are wired only with the `beam` feature.
+    #[cfg(feature = "beam")]
+    {
+        let beam_ctx = Arc::clone(render_ctx);
+        let beam_store = Arc::clone(settings_store);
+        prefs.on_beam_viewport_changed(move |on: bool| {
+            apply_beam_viewport(&beam_ctx, &beam_store, on);
+        });
+
+        let beam_light_ctx = Arc::clone(render_ctx);
+        let beam_light_store = Arc::clone(settings_store);
+        prefs.on_beam_instant_lighting_changed(move |on: bool| {
+            apply_beam_instant_lighting(&beam_light_ctx, &beam_light_store, on);
+        });
+    }
+
+    let render_ctx = Arc::clone(render_ctx);
+    let store = Arc::clone(settings_store);
+    prefs.on_path_cache_viewport_changed(move |on: bool| {
+        apply_path_cache_viewport(&render_ctx, &store, on);
+    });
+
+    let store = Arc::clone(settings_store);
+    prefs.on_path_cache_limit_changed(move |gb: i32| {
+        let gb = save_path_cache_limit(&store, u32::try_from(gb).unwrap_or(0));
+        // Deleting old caches can take a moment: not on the UI thread.
+        std::thread::spawn(move || {
+            enforce_path_cache_limit(gb, &default_render_cache_dir());
+        });
+    });
+
+    let ui_weak = ui.as_weak();
+    prefs.on_open_path_cache_folder(move || {
+        let root = default_render_cache_dir();
+        let opened = std::fs::create_dir_all(&root)
+            .map_err(|error| format!("Could not create {}: {error}", root.display()))
+            .and_then(|()| open_local_path(&root));
+        if let (Err(message), Some(ui)) = (opened, ui_weak.upgrade()) {
+            ui.global::<PreferencesModel>()
+                .set_path_cache_status(message.into());
+        }
+    });
+
+    let ui_weak = ui.as_weak();
+    prefs.on_clear_path_cache(move || {
+        let status = clear_path_cache_status(&default_render_cache_dir());
+        if let Some(ui) = ui_weak.upgrade() {
+            ui.global::<PreferencesModel>()
+                .set_path_cache_status(status.into());
         }
     });
 }
@@ -539,6 +801,285 @@ mod tests {
             .expect("an older settings file parses");
         assert!(!file.settings.show_crystal_axis);
         assert!(file.settings.large_handles);
+    }
+
+    #[test]
+    fn the_adaptive_viewport_switch_is_off_by_default_saved_and_applied() {
+        let (persister, path) = install_scratch_persister("adaptive-viewport");
+        let ctx = Mutex::new(RenderContext::default());
+        assert!(!persister.snapshot().settings.adaptive_viewport);
+        assert!(!RenderContext::lock(&ctx).adaptive_viewport);
+
+        RenderContext::lock(&ctx).dirty = false;
+        apply_adaptive_viewport(&ctx, &persister, true);
+        assert!(persister.snapshot().settings.adaptive_viewport);
+        let guard = RenderContext::lock(&ctx);
+        let (applied, dirty) = (guard.adaptive_viewport, guard.dirty);
+        drop(guard);
+        assert!(applied);
+        assert!(dirty, "a real change restarts the picture");
+
+        // Setting it to what it already is restarts nothing.
+        RenderContext::lock(&ctx).dirty = false;
+        apply_adaptive_viewport(&ctx, &persister, true);
+        assert!(!RenderContext::lock(&ctx).dirty);
+
+        persister.flush();
+        let text = std::fs::read_to_string(&path).expect("flush wrote the file");
+        assert!(text.contains("adaptive_viewport = true"), "{text}");
+
+        apply_adaptive_viewport(&ctx, &persister, false);
+        assert!(!persister.snapshot().settings.adaptive_viewport);
+        assert!(!RenderContext::lock(&ctx).adaptive_viewport);
+        let _ = std::fs::remove_dir_all(path.parent().expect("a parent directory"));
+    }
+
+    #[test]
+    fn a_settings_file_without_the_adaptive_viewport_key_loads_it_off() {
+        let file: SettingsFile = toml::from_str("[settings]\nlarge_handles = true\n")
+            .expect("an older settings file parses");
+        assert!(!file.settings.adaptive_viewport);
+        let on: SettingsFile = toml::from_str("[settings]\nadaptive_viewport = true\n")
+            .expect("a file with the key parses");
+        assert!(on.settings.adaptive_viewport);
+    }
+
+    #[test]
+    fn the_path_cache_viewport_switch_is_off_by_default_saved_and_applied() {
+        let (persister, path) = install_scratch_persister("path-cache-viewport");
+        let ctx = Mutex::new(RenderContext::default());
+        assert!(!persister.snapshot().settings.path_cache_viewport);
+        assert!(!RenderContext::lock(&ctx).path_cache_viewport);
+
+        RenderContext::lock(&ctx).dirty = false;
+        apply_path_cache_viewport(&ctx, &persister, true);
+        assert!(persister.snapshot().settings.path_cache_viewport);
+        let guard = RenderContext::lock(&ctx);
+        let (applied, dirty) = (guard.path_cache_viewport, guard.dirty);
+        drop(guard);
+        assert!(applied);
+        assert!(dirty, "a real change restarts the picture");
+
+        // Setting it to what it already is restarts nothing.
+        RenderContext::lock(&ctx).dirty = false;
+        apply_path_cache_viewport(&ctx, &persister, true);
+        assert!(!RenderContext::lock(&ctx).dirty);
+
+        persister.flush();
+        let text = std::fs::read_to_string(&path).expect("flush wrote the file");
+        assert!(text.contains("path_cache_viewport = true"), "{text}");
+        let _ = std::fs::remove_dir_all(path.parent().expect("a parent directory"));
+    }
+
+    #[test]
+    fn the_instant_lighting_switch_is_off_by_default_saved_and_applied() {
+        let (persister, path) = install_scratch_persister("instant-lighting");
+        let ctx = Mutex::new(RenderContext::default());
+        assert!(!persister.snapshot().settings.instant_lighting);
+        assert!(!RenderContext::lock(&ctx).instant_lighting);
+
+        RenderContext::lock(&ctx).dirty = false;
+        apply_instant_lighting(&ctx, &persister, true);
+        assert!(persister.snapshot().settings.instant_lighting);
+        let guard = RenderContext::lock(&ctx);
+        let (applied, dirty) = (guard.instant_lighting, guard.dirty);
+        drop(guard);
+        assert!(applied);
+        assert!(dirty, "a real change restarts the picture");
+
+        // Setting it to what it already is restarts nothing.
+        RenderContext::lock(&ctx).dirty = false;
+        apply_instant_lighting(&ctx, &persister, true);
+        assert!(!RenderContext::lock(&ctx).dirty);
+
+        persister.flush();
+        let text = std::fs::read_to_string(&path).expect("flush wrote the file");
+        assert!(text.contains("instant_lighting = true"), "{text}");
+        let _ = std::fs::remove_dir_all(path.parent().expect("a parent directory"));
+    }
+
+    #[cfg(all(feature = "beam", beam_tests))]
+    #[test]
+    fn the_beam_switches_are_off_by_default_saved_and_applied() {
+        let (persister, path) = install_scratch_persister("beam-switches");
+        let ctx = Mutex::new(RenderContext::default());
+        let saved = persister.snapshot().settings;
+        assert!(!saved.beam_viewport && !saved.beam_instant_lighting);
+        assert!(!RenderContext::lock(&ctx).beam_viewport);
+        assert!(!RenderContext::lock(&ctx).beam_instant_lighting);
+
+        RenderContext::lock(&ctx).dirty = false;
+        apply_beam_viewport(&ctx, &persister, true);
+        assert!(persister.snapshot().settings.beam_viewport);
+        let guard = RenderContext::lock(&ctx);
+        let (viewport, instant, dirty) = (
+            guard.beam_viewport,
+            guard.beam_instant_lighting,
+            guard.dirty,
+        );
+        drop(guard);
+        assert!(viewport);
+        assert!(!instant, "the second switch is still off");
+        assert!(dirty, "a real change restarts the picture");
+
+        // The second switch works once the first is on, and is saved.
+        apply_beam_instant_lighting(&ctx, &persister, true);
+        assert!(persister.snapshot().settings.beam_instant_lighting);
+        assert!(RenderContext::lock(&ctx).beam_instant_lighting);
+
+        // Setting it to what it already is restarts nothing.
+        RenderContext::lock(&ctx).dirty = false;
+        apply_beam_instant_lighting(&ctx, &persister, true);
+        assert!(!RenderContext::lock(&ctx).dirty);
+
+        // Turning the first off disables the second in the context, and keeps the saved choice.
+        apply_beam_viewport(&ctx, &persister, false);
+        assert!(!RenderContext::lock(&ctx).beam_instant_lighting);
+        assert!(persister.snapshot().settings.beam_instant_lighting);
+
+        persister.flush();
+        let text = std::fs::read_to_string(&path).expect("flush wrote the file");
+        assert!(text.contains("beam_instant_lighting = true"), "{text}");
+        assert!(text.contains("beam_viewport = false"), "{text}");
+        let _ = std::fs::remove_dir_all(path.parent().expect("a parent directory"));
+    }
+
+    #[cfg(all(feature = "beam", beam_tests))]
+    #[test]
+    fn the_second_beam_switch_needs_the_first() {
+        assert!(!effective_beam_instant_lighting(false, true));
+        assert!(!effective_beam_instant_lighting(true, false));
+        assert!(effective_beam_instant_lighting(true, true));
+    }
+
+    #[cfg(all(feature = "beam", beam_tests))]
+    #[test]
+    fn a_settings_file_without_the_beam_keys_loads_them_off() {
+        let old: SettingsFile = toml::from_str("[settings]\nlarge_handles = true\n")
+            .expect("an older settings file parses");
+        assert!(!old.settings.beam_viewport && !old.settings.beam_instant_lighting);
+        let on: SettingsFile =
+            toml::from_str("[settings]\nbeam_viewport = true\nbeam_instant_lighting = true\n")
+                .expect("a file with the keys parses");
+        assert!(on.settings.beam_viewport && on.settings.beam_instant_lighting);
+    }
+
+    #[test]
+    fn a_settings_file_without_the_instant_lighting_key_loads_it_off() {
+        let old: SettingsFile = toml::from_str("[settings]\nlarge_handles = true\n")
+            .expect("an older settings file parses");
+        assert!(!old.settings.instant_lighting);
+        assert!(!AppSettings::default().instant_lighting);
+        let on: SettingsFile = toml::from_str("[settings]\ninstant_lighting = true\n")
+            .expect("a file with the key parses");
+        assert!(on.settings.instant_lighting);
+    }
+
+    #[test]
+    fn the_path_cache_disk_limit_defaults_to_fifty_and_is_saved_within_its_range() {
+        // An older settings file has no key: 50 GB. A file with the key keeps it.
+        let old: SettingsFile = toml::from_str("[settings]\nlarge_handles = true\n")
+            .expect("an older settings file parses");
+        assert_eq!(old.settings.path_cache_disk_limit_gb, 50);
+        assert_eq!(AppSettings::default().path_cache_disk_limit_gb, 50);
+        assert!(!old.settings.path_cache_viewport);
+        let kept: SettingsFile = toml::from_str(
+            "[settings]\npath_cache_disk_limit_gb = 120\npath_cache_viewport = true\n",
+        )
+        .expect("a file with the keys parses");
+        assert_eq!(kept.settings.path_cache_disk_limit_gb, 120);
+        assert!(kept.settings.path_cache_viewport);
+
+        let (persister, path) = install_scratch_persister("path-cache-limit");
+        assert_eq!(save_path_cache_limit(&persister, 200), 200);
+        assert_eq!(persister.snapshot().settings.path_cache_disk_limit_gb, 200);
+        assert_eq!(save_path_cache_limit(&persister, 0), 1, "never below 1 GB");
+        assert_eq!(
+            save_path_cache_limit(&persister, u32::MAX),
+            100_000,
+            "never above the field's range"
+        );
+        persister.flush();
+        let text = std::fs::read_to_string(&path).expect("flush wrote the file");
+        assert!(text.contains("path_cache_disk_limit_gb = 100000"), "{text}");
+        let _ = std::fs::remove_dir_all(path.parent().expect("a parent directory"));
+        assert_eq!(disk_limit_bytes(50), 50_000_000_000);
+    }
+
+    /// A scratch folder under the system temp folder, removed when dropped.
+    struct ScratchRoot(std::path::PathBuf);
+
+    impl ScratchRoot {
+        fn new(tag: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!(
+                "pleochroma-cut-path-cache-{tag}-{}",
+                std::process::id()
+            ));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).expect("scratch directory");
+            Self(dir)
+        }
+
+        /// A folder named like a cache key (32 lowercase hex digits) holding `bytes` bytes.
+        fn add_cache(&self, digit: char, bytes: usize) -> String {
+            let name = digit.to_string().repeat(32);
+            let dir = self.0.join(&name);
+            std::fs::create_dir_all(&dir).expect("cache folder");
+            std::fs::write(dir.join("chunk.bin"), vec![0_u8; bytes]).expect("cache file");
+            name
+        }
+    }
+
+    impl Drop for ScratchRoot {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn clearing_deletes_only_the_key_named_folders() {
+        let root = ScratchRoot::new("clear");
+        let first = root.add_cache('a', 10);
+        let second = root.add_cache('b', 10);
+        std::fs::create_dir_all(root.0.join("notes")).expect("foreign folder");
+        std::fs::write(root.0.join("loose.txt"), "keep me").expect("foreign file");
+
+        assert_eq!(clear_path_cache_status(&root.0), "Cleared 2 path caches.");
+        assert!(!root.0.join(first).exists());
+        assert!(!root.0.join(second).exists());
+        assert!(
+            root.0.join("notes").is_dir(),
+            "a folder that is no cache stays"
+        );
+        assert!(
+            root.0.join("loose.txt").is_file(),
+            "a file that is no cache stays"
+        );
+        assert!(root.0.is_dir(), "the cache folder itself stays");
+
+        assert_eq!(
+            clear_path_cache_status(&root.0),
+            "There was no path cache to clear."
+        );
+        let one = root.add_cache('c', 1);
+        assert_eq!(clear_path_cache_status(&root.0), "Cleared 1 path cache.");
+        assert!(!root.0.join(one).exists());
+        // A folder that was never created has nothing to clear.
+        assert_eq!(
+            clear_path_cache_status(&root.0.join("not-there")),
+            "There was no path cache to clear."
+        );
+    }
+
+    #[test]
+    fn the_disk_limit_leaves_caches_under_it_alone_and_a_missing_folder_is_fine() {
+        let root = ScratchRoot::new("limit");
+        let kept = root.add_cache('d', 10);
+        // 1 GB is the lowest limit; a cache of ten bytes stays.
+        assert_eq!(enforce_path_cache_limit(1, &root.0), 0);
+        assert!(root.0.join(kept).is_dir());
+        // A folder that does not exist has nothing to delete either.
+        assert_eq!(enforce_path_cache_limit(1, &root.0.join("not-there")), 0);
     }
 
     #[test]

@@ -21,7 +21,7 @@ clear.
 ### Export Edited .asc, from the Editor
 
 While a design is open in the cutting-design editor (Chapter 3), choose
-**File**, then **Export .asc** (called **Export Edited .asc** in the File menu at the top of the window). This re-solves every tier's mast fresh from the
+**File**, then **Export Edited .asc**. This re-solves every tier's mast fresh from the
 design's current, edited geometry and writes a plain `.asc` file wherever
 you choose to save it. If some tier can't currently be solved, you'll see
 "Cannot export: &lt;reason&gt;." — fix that first (Chapter 5). On success,
@@ -554,12 +554,17 @@ value with nothing to print reads "-" rather than a guess.
   "down +X", the side (the profile); bottom left "down -Y", the end, the side
   view turned a quarter turn; bottom right "down -Z", the pavilion seen from
   below. The labels use the stone's own axes, with Z along the axis of the
-  stone. A facet too small to hold its code is drawn without it.
+  stone. A facet too small to hold its code gets the code outside the
+  stone, where there is room, with a thin leader line to the facet. In a
+  crowded view some of those outside labels are left out, but never a
+  tier's last one: every tier keeps at least one label in each view it can
+  be seen in, so even the smallest tier can be found on the drawing.
 - **Comments.** Your comment lines, centred across the page: the design's
   notes and its `.asc` footnotes. The block is left out when there are none.
 - **Pavilion and Crown.** One line per tier in cutting order, on alternating
   grey bands: the tier's code, its angle ("40.00°"), its index list and its
-  instruction ("Meet P1, P2, G1"). The girdle lines are in the Pavilion
+  instruction ("Meet P1, P2, G1"; see "Meet Points on the Sheet" below for
+  what it promises). The girdle lines are in the Pavilion
   section, and the Crown section ends with the table ("T", "Table"). A
   concave tier keeps its tool line ("CYL", "+10.00°", the displacement, the
   tool's size) under its facet line on the same band. When the lines do not
@@ -608,20 +613,139 @@ follow it. The plain-text version of the sheet follows the same rules.
   printed exactly as the designer wrote it.
 - **A tier placed at a depth.** A tier with no meets of its own (set to a
   depth, as every tier of an imported `.asc` file is) gets its instruction
-  from the finished stone, in the official template's words:
+  from the stone as it is when the tier is cut, in the official template's
+  words:
   - the first girdle tier says "Set stone size.";
-  - pavilion mains that end in one point say "Cut to centerpoint.";
+  - pavilion mains that end in one point say "Cut to centerpoint.", unless
+    they already reach corners of the stone cut so far (then they say
+    "Meet ..." like any other tier);
   - the first crown tier, where it reaches the girdle, says
     "Set girdle width.";
-  - every other tier lists the tiers cut before it that it touches
-    ("Meet P1, P2, G1");
-  - a tier nothing earlier touches prints its depth
-    ("Cut to depth 2.18 mm.").
+  - in a design whose only crown tier is the table (pavilion mains, girdle,
+    table), the table, where it reaches the girdle, says "Set girdle width.";
+  - the table says "Set table size." when the stone cut so far has no corner
+    a table could reach: the crown's facets meet only in one point on the
+    axis and at the girdle;
+  - a pavilion tier cut after the girdle but before the stone has any
+    corner, whose facets reach that girdle, says "Set girdle line." (a
+    design cut girdle first);
+  - every other tier names the earlier tiers whose corner it is cut to
+    ("Meet P1, G1");
+  - a tier whose facets reach no corner of the stone cut so far prints
+    only its depth too ("Cut to depth 2.81 mm."); the verdict's Checks,
+    not the sheet, name such tiers;
+  - a tier cut while the stone has no corner yet (the first tier, for
+    example) prints its depth ("Cut to depth 2.18 mm.").
 
-  A `.asc` export writes "Set stone size." on the same girdle tier.
+  Without a girdle diameter the depths are mast readings: "Set to mast
+  depth 0.6700". A `.asc` export
+  writes "Set stone size." on the same girdle tier. The next section says
+  what each of these asks of the cutter.
 - **Index lists.** Positions are written with dashes and two digits each:
   96-08-16-24. A position between two teeth keeps two decimals (03.50), and a
   tier with no index list shows a single dash.
+
+### Meet Points on the Sheet
+
+The meet column tells the cutter where to stop. "Meet P1, G1" means: when
+you cut this tier, its facets reach a corner that is already on the stone,
+a point where facets of P1 and G1 meet. Cut until the new facet just
+touches that corner, then stop. The sheet names only a point that is there
+at that moment, on the stone cut so far, with every row above already cut.
+It never names a corner that appears only once later tiers are cut, because
+a cutter cannot cut to a point that is not there yet. A facet counts as
+reaching a corner when it passes within 0.005 % of the stone's size of it
+(0.0005 mm on a 10 mm stone), which is loose enough for the five-decimal
+masts of older GemCad files.
+
+Some rows have no corner to cut to:
+
+- **The anchors** fix a dimension of the stone instead of reaching a point.
+  "Set stone size." is the girdle that sets how large the stone is; "Cut to
+  centerpoint." is the tier whose facets meet in one point on the axis, at
+  the culet or at the top of a crown that closes to a point; "Set girdle
+  width." is the first crown tier (or the table, when there is no other),
+  cut until the girdle is as wide as you want; "Set table size." is a table
+  cut until it is as wide as you want, on a crown with no corner for it to
+  meet; "Set girdle line." is the first pavilion tier of a design cut girdle
+  first, cut until it reaches the girdle and leaves the girdle line where
+  you want it. You cut each one to the dimension you want; the tiers after
+  it meet the corners it makes. A real meet point wins over the centerpoint:
+  when the tier whose facets end in the centerpoint already reaches corners
+  of the stone cut so far, its row names those corners instead of "Cut to
+  centerpoint.", as the pavilion mains of Cam's Portuguese do ("Meet P2,
+  P3"), and the centerpoint forms by itself.
+- **The first tier**, or any tier cut while the stone has no corner yet, has
+  nothing to meet. Its row prints its depth: "Cut to depth 2.18 mm.".
+- **A tier with no meet point** prints only its depth, as the first tier
+  does: "Cut to depth 2.81 mm.". When you cut it, none of its facets reaches a corner of the stone cut so
+  far, so nothing on the stone tells you when to stop. Set its depth by
+  measurement: with your machine's depth stop or mast reading, or by
+  measuring the stone, cut to the depth printed. A small error here moves
+  the corners it makes, so expect the meets of the tiers after it to need a
+  little adjusting by eye. Without a girdle diameter the row gives the mast
+  reading instead: "Set to mast depth 0.6700". The row stays short on
+  purpose: a floating design would otherwise repeat "No meet point" on
+  nearly every row. The verdict (Chapter 5) lists these tiers.
+
+A row whose Meets box names facets ("Meet P1, P2", set in the tier form)
+prints those names, and a note recorded in an imported `.asc` file prints
+as the designer wrote it; the sheet does not reword either.
+
+**An example.** In the first Pentalume design, P2 and P1 share a corner on the
+finished stone, but that corner appears only after P2 is cut. When P2 is cut,
+its facets pass 0.12 mm from the nearest corner of the stone cut so far (on a
+10 mm stone), so a cutter following a "Meet P1" row could stop anywhere along
+the P1 edge. The sheet therefore prints only P2's depth ("Cut to depth ..."),
+and the verdict lists P2 among the tiers with no meet point.
+
+**Snapping the depths to meet points.** A tier with no meet point is a
+Check in the verdict (Chapter 5), and its **Snap to Meets** fix moves the
+depth of each such tier onto the nearest corner of the stone cut so far,
+when that corner is within 2 % of the stone's size (0.2 mm on a 10 mm
+stone). It walks the tiers in cutting order, so a tier it has moved is
+already in place when the next one is judged. Only a tier set by an
+explicit depth (an **Exact Scale Value** tier, as every tier of an imported
+`.asc` file is) moves; the anchors never do, and no angle or index changes.
+A tier whose nearest corner is farther away keeps its depth, and the
+verdict keeps listing it.
+
+The nearest corner is not always the one the designer meant, and the new
+depths can cut small tiers away. In the Pentalume design the only corner near P2
+when it is cut is the culet, so the snap takes P2 down to the culet and cuts all the
+facets of P3 and C3 away. The fix names such tiers before it runs
+and refuses only a result that breaks the stone (it no longer solves or
+closes, the girdle is lost or much thinner, or the table or culet ends up on the wrong
+side of the girdle). Look at the stone and the optics afterwards, and undo
+if it is not what you want (Chapter 5).
+
+The command-line tool does the same with a limit you choose, and writes the
+result as a new design file:
+
+```
+pleochroma-cli snap-meets design.psdd --dry-run
+pleochroma-cli snap-meets design.psdd --max-move 0.15 --out snapped.psdd
+```
+
+It prints one line for each tier it moved, with the old and the new mast,
+the facets the new depths cut away, then the tiers that still have no meet
+point:
+
+```
+P2  0.7662 -> 0.7598  (moved 0.03 mm, now meets P1, G1)
+Cut away by the snap: P3 (all 10 facets) and C3 (3 of 10 facets)
+Still no meet point: T (0.83 mm off)
+```
+
+`--max-move` is in mm and needs the design's girdle diameter;
+`--max-move-fraction 0.05` gives the limit as a share of the stone's size
+instead (the default is 0.02, that is 2 %). `--dry-run` only reports and
+writes nothing. The tool refuses a result that breaks the stone, as the fix
+does (exit code 2, nothing written). It ends with exit code 0 when every
+tier but the anchors meets a point and nothing was cut away, and with 4
+when some tier still has none or facets were cut away (the new file is
+written all the same). `pleochroma-cli snap-meets --help` lists every
+option.
 
 ## Unsaved changes
 
@@ -667,6 +791,22 @@ relative to wherever you started the program (Chapter 1) — this only comes
 up the first time you export something and only as a starting point for the
 dialog, never as a silent write destination.
 
+### The Path Cache Folder
+
+One folder is written without a Save As dialog: the **path cache folder**, `render_cache`,
+which sits next to the settings file. It holds the path caches that **Keep for Re-Renders**
+(Chapter 9) and **Keep Path Cache for This Video** (Chapter 14) write, and the beams that
+**Keep Beams for Re-Renders** (Chapter 9) saves, which share the folder and its size limit.
+Beam tracing is retired and is an optional build feature (`beam`). The standard build never
+reads kept beams, but its size limit and **Clear Path Cache** can delete them. Each cache is a
+folder of its own, named by a long code that stands for the stone, its material, its crystal
+axis, the view and the picture size, so a render finds its cache again whenever those are
+the same. The files inside are an internal format that only this app reads, and they are not
+part of a design: a `.psdd` file never contains one, and deleting the folder loses no
+design, picture or setting. **Preferences** (Chapter 17) shows the folder's location, opens
+it, limits its size (50 GB to start with, the caches used longest ago go first) and has
+**Clear Path Cache**, which empties it after asking.
+
 ## Design File Schema Additions (Tier Ids, Targets, Authored RI)
 
 The `.psdd` file's `[[tiers]]` array holds a stable per-tier id
@@ -675,13 +815,9 @@ the document as a whole holds the authored refractive index kept
 apart from the effective one (see Chapter 6). A design file without any of
 them still opens, reading each as absent.
 
-All three survive a real Save / reopen round trip: `Design::tier_id_at`/
-`Design::tier_target` populate `tier_id`/`target` on save, and `Design::tiers`/
-`Design::tier_ids`/`Design::tier_targets` are rebuilt from them on load — so a
-tier's stable identity (what a manufacturability warning badges directly, per
-the row identity note in Chapter 4) and any target you authored on it persist
-the next time you open the file, rather than being reconstructed fresh from
-an `.asc`.
+All three survive a Save and reopen round trip, so a tier's stable identity (what a
+manufacturability warning badges directly, Chapter 4) and any target you authored on
+it persist the next time you open the file, rather than being rebuilt from an `.asc`.
 
 ### Relations and the File Version
 
@@ -704,8 +840,7 @@ export an `.asc`, which carries plain angles.
 
 A planned piece of rough from the Rough Planner (**Open in Editor**, Chapter
 15) moves the version to **4** in the same way. The `[preform]` table then says
-`kind = "planes"` and lists the piece's planes, which a build from before
-October 2026 does not know, so it refuses the file as saved by a newer version.
+`kind = "planes"` and lists the piece's planes, which an older build does not know, so it refuses the file as saved by a newer version.
 The version falls back to what the relations and tiers need as soon as the
 design has a block or cylinder again (**Apply Preform** on the Preform tab,
 Chapter 4), and an older build can open it again.

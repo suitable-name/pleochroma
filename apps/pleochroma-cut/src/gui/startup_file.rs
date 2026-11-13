@@ -1,15 +1,14 @@
-//! A design named on the command line: `pleochroma-cut <path>` opens that file once the
-//! window is up.
+//! A design named on the command line: `pleochroma-cut <path>` opens that file once the window is
+//! up.
 //!
-//! That is what an operating-system "open with" or double-click association does (the
-//! shell starts the program with the file as its argument).
+//! This is what an operating-system "open with" or double-click association does, since the shell
+//! starts the program with the file as its argument.
 //!
 //! `main` hands the arguments to [`path_from_args`] and the result to
-//! [`request_open_at_startup`]; the editor's startup sequence collects it with
-//! [`take_requested_open`] and opens it through the same path File > Open Recent uses,
-//! so a `.psdd` design file, a `.asc` and a
-//! `.gem`/`.gcs` all work. A second launch does not forward its file to a running
-//! instance; each launch opens its own window.
+//! [`request_open_at_startup`]. The editor's startup sequence collects it with
+//! [`take_requested_open`] and opens it through the File > Open Recent path, so `.psdd`,
+//! `.asc` and `.gem`/`.gcs` files all work. A second launch does not forward its file to a
+//! running instance; each launch opens its own window.
 
 use std::{ffi::OsString, path::PathBuf, sync::Mutex};
 

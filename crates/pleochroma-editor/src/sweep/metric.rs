@@ -2,8 +2,8 @@
 
 use super::{RowMetrics, SweepRow};
 
-/// Two figures closer than this read the same at the table's two decimals, so both are
-/// the best when they tie for it.
+/// Two figures closer than this read the same at the table's two decimals, so both count
+/// as the best when they tie.
 const TIE_TOLERANCE: f64 = 0.005;
 
 /// One figure of a sweep row.
@@ -30,7 +30,7 @@ pub enum SweepMetric {
 }
 
 impl SweepMetric {
-    /// Every figure, in table order: the fast ones, then the tilt averages.
+    /// Every figure, in table order: the single-pose figures, then the tilt averages.
     pub const ALL: [Self; 9] = [
         Self::Brilliance,
         Self::Windowing,
@@ -234,8 +234,8 @@ impl BestFlags {
 
 /// For every row, in which figures it is the best of the sweep.
 ///
-/// Only valid rows compete. A row is best when it is within 0.005 of the best figure
-/// (so rows that read the same at the table's two decimals are all marked), and a figure
+/// Only valid rows compete. A row is best when it is within `TIE_TOLERANCE` of the best
+/// figure (so rows that read the same at the table's two decimals are all marked), and a figure
 /// that is the same in every row marks none: nothing stands out in it.
 #[must_use]
 pub fn best_flags(rows: &[SweepRow]) -> Vec<BestFlags> {

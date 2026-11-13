@@ -14,11 +14,9 @@ import { TouchButton } from "touch_button.slint";
 // what it does. Each chip is one text item ("Gear: 60-index") rather than two. The Simple
 // interface leaves out the Gem Cut Studio export; Advanced shows it.
 
-// A single "label: value" metric chip -- 20px tall, 11px font, compact enough
-// to fit the header's single-row layout. Shared by both `DesignChipsRow`
-// instances below (inline and wrapped) so the
-// eight simple chips (everything except Shape, which carries its own edit-pencil/combo
-// flow) are defined once. `hint` says in plain words what the figure is.
+// A single "label: value" metric chip, 20px tall, for the one-row header. `DesignChipsRow` uses
+// it for every chip except Shape, which has its own edit pencil and combo. `hint` says in plain
+// words what the figure is.
 component MetricChip inherits Rectangle {
     in property <string> label;
     in property <string> value;
@@ -212,10 +210,9 @@ component DetailActions inherits HorizontalLayout {
     }
 
     // Metadata editor: title, designer, shape, refractive index, index gear, facet count,
-    // symmetry order, mirror symmetry, and the proportion ratios -- everything the inline
-    // title/shape pencils don't already cover. Local designs only (see
-    // `gui::detail::setup_save_metadata_callback`'s doc comment for why editing is
-    // local-only).
+    // symmetry order, mirror symmetry and the proportion ratios, everything the inline pencils
+    // do not cover. Local designs only (see `setup_save_metadata_callback` in
+    // `gui::library::detail::metadata`).
     if root.with_metadata && root.detail.is_local: HeaderAction {
         icon: @image-url("../icons/info.svg");
         label: "Edit Metadata";
@@ -254,10 +251,9 @@ component DetailActions inherits HorizontalLayout {
     }
 }
 
-// All nine metric chips (Shape, Gear, Facets, L/W, H/W, C/W, P/W, Vol/W3, R.I.) as one
-// row. Instantiated TWICE by `DetailHeaderView` below -- inline in the main row on a
-// wide window, and alone on a wrapped second line on a narrow one (`root.narrow`) --
-// rather than duplicating each chip's markup by hand in both places.
+// All metric chips (Shape, Gear, Facets, L/W, H/W, C/W, P/W, Vol/W3, R.I., Material) in one
+// row. `DetailHeaderView` instantiates it twice: inline in the main row on a wide window, and on
+// a wrapped line when `narrow` is set. `part` picks which chips a row shows.
 component DesignChipsRow inherits HorizontalLayout {
     in property <DiagramDetailData> detail;
     in property <bool> is_local;
@@ -302,9 +298,8 @@ component DesignChipsRow inherits HorizontalLayout {
                     }
                 }
             }
-            // Local designs only -- `import_asc` never classifies a shape it isn't
-            // sure of (see `library::classify_shape`'s doc comment), so this is how
-            // the user corrects or fills that in.
+            // Local designs only. An import leaves a shape it is not sure of unset (see
+            // `classify_shape`), so the user fills it in or corrects it here.
             if root.is_local: HeaderAction {
                 flat: true;
                 size: 20px;
@@ -365,12 +360,9 @@ component DesignChipsRow inherits HorizontalLayout {
         value: root.detail.lw_ratio;
         hint: "Length divided by width. 1.0 is round or square.";
     }
-    // H/W, C/W, P/W: derived alongside L/W and Volume (see
-    // `gui::library::apply_measured_metadata`). Same "hide the chip when unknown"
-    // convention as every other optional
-    // field here, and same 3-decimal display formatting as L/W/Volume
-    // (`gui::detail::format_proportion`) -- the stored value itself is never rounded,
-    // only what's shown here.
+    // H/W, C/W, P/W: derived with L/W and Volume (`apply_measured_metadata`). Hidden when
+    // unknown, like every optional chip. Shown to 3 decimals (`format_proportion`); the stored
+    // value is never rounded.
     if root.part != 2 && root.detail.hw_ratio != "": MetricChip {
         label: "H/W:";
         value: root.detail.hw_ratio;
@@ -419,32 +411,17 @@ export component DetailHeaderView inherits Rectangle {
     // resize keeps the default in sync), but see that property's own doc comment for
     // why an explicit toggle click permanently overrides it.
     in property <length> window_height: 1080px;
-    // The DEFAULT (`!effective_compact`) layout below is already a single compact
-    // row on its own, so this toggle is kept as an EXTRA for users who want the
-    // absolute minimum (Edit mode's own one-line form, reused here) rather than
-    // as the thing that makes the default fit. One click away via the chevron in
-    // either branch below, independent of `compact` (which stays entirely
-    // Edit-mode-driven). No persisted settings-store property fits this
-    // component's own model surface (`ui/models/library.slint`/
-    // `ui/models/tilt.slint` only), so this defaults to collapsed on a short window (<900 logical px,
-    // the fallback for short screens) and stays a session-only,
-    // non-persisted toggle otherwise -- the `root.window_height < 900px` initializer
-    // is a plain Slint property binding, live until the FIRST imperative assignment
-    // (the chevron's `clicked` handlers below), at which point it becomes a sticky
-    // user choice.
+    // Collapsed by default on a window shorter than 900 px. It is session-only and not
+    // persisted, since no settings property fits this component's model surface. The chevron
+    // (below) replaces the default for the rest of the session. The default layout already fits
+    // one row; the collapsed form is the extra minimum-height option.
     in-out property <bool> user_collapsed: root.window_height < 900px;
     // What the two top-level `if` branches below actually gate on: either the
     // Edit-mode-forced `compact`, or the user's own collapse choice.
     property <bool> effective_compact: root.compact || root.user_collapsed;
-    // The window's own current width (`MainWindow.width`, bound by `app.slint`,
-    // mirroring `window_height` above) -- NOT `root.width`: this component's own width
-    // is derived FROM its content's layout constraints, and that content (the chips,
-    // via `narrow` below) would need to know `root.width` to decide whether to
-    // include itself in that same content, which the Slint compiler correctly rejects
-    // as a binding loop (`layoutinfo-h -> layout-cache -> width -> ... -> narrow ->
-    // layoutinfo-h`). `MainWindow.width` has no such cycle (see `app.slint`'s own
-    // "Sizing notes" doc comment on why the window's size is exempted from its
-    // content's constraints).
+    // The window's width (`MainWindow.width`, bound by `app.slint`), used instead of
+    // `root.width`: this component's width comes from its content, so reading it back into
+    // `narrow` would be a binding loop. See "Sizing notes" in `app.slint`.
     in property <length> window_width: 1600px;
     // Below this window width, the metadata chips no longer fit on the same row as
     // the title/designer/action buttons and wrap to their own second line instead
@@ -456,8 +433,8 @@ export component DetailHeaderView inherits Rectangle {
     property <bool> narrow: root.window_width < 1300px;
     // Below this the chips split over two rows (`DesignChipsRow.part`).
     property <bool> very_narrow: root.window_width < 1100px;
-    // Below 800px the one-line header also leaves out L/W (the outline chip says nearly as much):
-    // with Linux fonts (DejaVu/Noto) R.I. still ran past the window edge at the 720px minimum.
+    // Below 800px the one-line header also leaves out L/W (the Shape chip says nearly as much),
+    // so R.I. still fits at the 720 px minimum window width.
     property <bool> tiny: root.window_width < 800px;
     // Shape picker's option list and which entry matches `detail.shape` (-1 for
     // unclassified) -- see `library::build_shape_picker_options`'s doc comment.
@@ -484,11 +461,9 @@ export component DetailHeaderView inherits Rectangle {
     export_asc => { LibraryModel.export_asc(); }
     callback export_gcs();
     export_gcs => { LibraryModel.export_gcs(); }
-    // Opens the metadata editor modal (`metadata_editor_dialog.slint`, hosted at
-    // `app.slint`'s root -- see that file for why it isn't hosted here: this
-    // component's own `Rectangle` is only as tall as its content, not the full
-    // window, and a modal backdrop needs the latter). Local designs only -- see the
-    // "Edit Metadata" button in `DetailActions`.
+    // Opens the metadata editor modal (`metadata_editor_dialog.slint`). It is hosted at
+    // `app.slint`'s root because a modal backdrop needs the full window, not this content-sized
+    // component. Local designs only; see "Edit Metadata" in `DetailActions`.
     callback edit_metadata();
     edit_metadata => { LibraryModel.metadata_editor_open = true; }
 
@@ -512,12 +487,9 @@ export component DetailHeaderView inherits Rectangle {
     accessible-role: AccessibleRole.groupbox;
     accessible-label: "Design Details";
 
-    // A layout parent for the two conditional branches: `if` children of a plain
-    // `Rectangle` contribute nothing to its layout constraints (the compiler
-    // skips repeated/conditional elements there), so without this the header's
-    // preferred height was 0 and, with `vertical-stretch: 0`, it was given no
-    // room at all. A `VerticalLayout` computes its constraints at runtime from
-    // whichever branch is instantiated.
+    // Layout parent for the two conditional branches. `if` children of a plain `Rectangle`
+    // add no layout constraints, so the header would get no height. A `VerticalLayout` takes
+    // them from whichever branch is shown.
     VerticalLayout {
         // Edit-mode-forced (or user-collapsed) one-line form: title + up to five
         // chips + the icon action cluster, 40px tall. The catalogue tab pills live
@@ -575,9 +547,8 @@ export component DetailHeaderView inherits Rectangle {
                 overflow: elide;
             }
 
-            // Condensed metric chips -- same data as `DesignChipsRow` below, smaller
-            // padding/font so the whole row fits in 40px, and fewer of them (5, not
-            // all 9) since this branch has no wrap escape hatch for narrow windows.
+            // Condensed metric chips: the same data as `DesignChipsRow` below, in a smaller font
+            // so the row fits 40px. Only a subset, since this branch cannot wrap.
             if root.detail.shape != "": CompactChip {
                 label: "Shape:";
                 value: root.detail.shape;
@@ -607,11 +578,9 @@ export component DetailHeaderView inherits Rectangle {
                 hint: "Refractive index: how strongly the material bends light. See the glossary.";
                 value_color: Theme.accent-emerald;
             }
-            // A guess, not a fact -- see `DiagramDetailData.material_guess`'s own
-            // doc comment.
-            // Left out below ~1100 px: the one-line header has no second row to wrap onto, and
-            // this last, longest chip is the one that ran past the window's edge at 720 px
-            // (the full header shows it in its own row there).
+            // A guess, not a fact (see `DiagramDetailData.material_guess`). Left out below
+            // ~1100 px (`very_narrow`): this one-line header cannot wrap, and the full header
+            // shows the chip in its own row there.
             if root.detail.material_guess != "" && !root.very_narrow: CompactChip {
                 label: "Material:";
                 value: root.detail.material_guess;
@@ -635,10 +604,9 @@ export component DetailHeaderView inherits Rectangle {
             }
         }
 
-        // DEFAULT layout: one row (title + designer + chips + action buttons)
-        // meets the size target WITHOUT relying on `user_collapsed`. Chips wrap
-        // to their own second line only below `root.narrow` (760px) -- see
-        // `DesignChipsRow` above.
+        // DEFAULT layout: one row (title, designer, chips, action buttons), independent of
+        // `user_collapsed`. Chips wrap to their own line only below `root.narrow` (1300 px
+        // window width); see `DesignChipsRow` above.
         if !root.effective_compact: VerticalLayout {
             // Never shorter than the 40px one-line form above, so the tab row below does not
             // jump when Edit (compact) and Live Render (this branch) swap.
@@ -749,8 +717,7 @@ export component DetailHeaderView inherits Rectangle {
                         }
                     }
 
-                    // Designer, small and muted, right after the title -- was its own
-                    // line below the title; now inline so the row stays one line.
+                    // Designer, small and muted, after the title so the row stays one line.
                     Text {
                         text: root.detail.designer != "" ? "by " + root.detail.designer : "";
                         font-size: 11px;
@@ -791,11 +758,8 @@ export component DetailHeaderView inherits Rectangle {
                     }
                 }
 
-                // Right cluster: icon-first compact action buttons, 28px -- was a row
-                // of text `Button`s (each 32px+ with its own label); same actions,
-                // same reachability, just icon-only now that they share a row with
-                // everything else. The "?" at the end opens the manual page on the
-                // design details.
+                // Right cluster: icon-only action buttons, 28px, sharing the row with the title
+                // and chips. The "?" at the end opens the manual page on the design details.
                 HorizontalLayout {
                     spacing: 8px;
                     alignment: end;

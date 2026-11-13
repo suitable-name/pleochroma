@@ -99,8 +99,8 @@ fn an_id_handed_out_by_the_replacement_is_never_handed_out_again_after_undo() {
     );
 }
 
-/// What opening a saved variant records: the step reads as the cutter's action, not as the
-/// edit it is made of ("Edit instructions as text"), and keeps those words for good.
+/// A labelled replacement keeps its label through undo, redo and the description log, so the
+/// step reads as the cutter's action rather than as the edit it is made of.
 #[test]
 fn a_labelled_replacement_keeps_its_words_through_undo_redo_and_the_log() {
     let mut design = three_tier_design();

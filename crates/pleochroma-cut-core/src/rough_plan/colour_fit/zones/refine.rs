@@ -1,5 +1,5 @@
-//! Joint refinement of the zone boundaries (plan section 7.3, step 4): with the colours fitted by
-//! the solver, the boundary offsets and radii are moved to lower the photo residual.
+//! Joint refinement of the zone boundaries: with the colours fitted by the solver, the boundary
+//! offsets and radii are moved to lower the photo residual.
 //!
 //! # Method
 //!
@@ -7,25 +7,25 @@
 //! two offsets of a slab, the outer (and a non-zero inner) radius of a cylinder or prism. Angles,
 //! axes, phases and mesh shells are not refined.
 //!
-//! For a candidate geometry the forward tracer is run again (F1's disk cache makes a repeat of
+//! For a candidate geometry the forward tracer is run again (its disk cache makes a repeat of
 //! the same geometry free) and the colours of all zones are refitted ([`fit_records`]); the
 //! residual vector is the whitened residual of the fit, pixel by pixel and channel by channel
 //! ("variable projection": the colours are always at their optimum for the geometry).
 //!
 //! Each iteration then does one Gauss-Newton step on that vector: the Jacobian by forward
 //! differences with [`RefineOptions::step_mm`] (a backward difference when the forward step would
-//! make the zoning invalid), normal equations with a Levenberg damping of 1e-3 of the diagonal,
+//! make the zoning invalid), normal equations with a Levenberg damping relative to the diagonal,
 //! each component of the step limited to [`RefineOptions::max_move_mm`]. The step is accepted only
 //! when the sum of squared residuals over the pixels valid in both evaluations falls by at least
-//! `min_gain` (relative); otherwise the damping is raised tenfold, twice, and the iteration then
-//! stops. [`RefineOptions::max_iterations`] iterations run at most (default
-//! [`DEFAULT_REFINE_ITERATIONS`] = 3, configurable up to [`MAX_REFINE_ITERATIONS`]); the loop also
-//! stops early when a step brings less than `min_gain`. A full iteration costs
-//! `parameters + 1` traces and fits, so the whole refinement costs up to
-//! `max_iterations * (parameters + 1)` plus the base evaluation.
+//! `min_gain` (relative). Otherwise the damping is raised tenfold and the step retried, at most
+//! three tries; when none is accepted the iteration stops. [`RefineOptions::max_iterations`]
+//! iterations run at most (default [`DEFAULT_REFINE_ITERATIONS`] = 3, configurable up to
+//! [`MAX_REFINE_ITERATIONS`]); the loop also stops early when a step brings less than `min_gain`.
+//! Each iteration costs at most `parameters` Jacobian evaluations plus three trial evaluations.
 //!
 //! The generic [`refine_with`] takes the evaluation as a closure (the unit tests drive it with an
-//! analytic residual); [`refine_zone_geometry`] is the production wrapper around F1 and S1.
+//! analytic residual); [`refine_zone_geometry`] is the production wrapper around the forward
+//! tracer and the solver.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -293,8 +293,8 @@ const fn check_layout(base: &Evaluation, other: &Evaluation) -> Result<(), Refin
 /// The refinement loop around an evaluation of a geometry (module docs).
 ///
 /// `evaluate` returns the residual vector for a candidate zoning; it is called once for the
-/// start, `parameters` times per iteration for the Jacobian and once or twice per iteration for
-/// the step. `on_progress` is called after every evaluation.
+/// start, once per parameter per iteration for the Jacobian and up to three times per iteration
+/// for the trial steps. `on_progress` is called after every evaluation.
 ///
 /// # Errors
 ///

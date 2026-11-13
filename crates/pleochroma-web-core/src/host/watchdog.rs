@@ -11,7 +11,7 @@ const CHECK_INTERVAL_MS: i32 = 5_000;
 /// chunk: 30 s.
 pub(super) const SILENCE_LIMIT_MS: f64 = 30_000.0;
 
-/// The longest a pixel-sample may plausibly take, in milliseconds.
+/// The silence budget per pixel-sample of a chunk, in milliseconds.
 ///
 /// A big chunk (one sample of a 4096 px export frame over a few Workers) legitimately runs
 /// for minutes on a slow machine, so the silence limit grows with the chunk.

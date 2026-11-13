@@ -1,6 +1,5 @@
-// Optimize's state (modelled on the desktop's `EditorModel.optimize_*`), pushed by
-// `src/editor/optimize`. A global is only a Rust type if `app.slint`'s export block
-// names it.
+// Optimize's state, pushed by `src/editor/optimize`. A global is only a Rust type if
+// `app.slint`'s export block names it.
 
 // One row of the result table: a metric's before figure, its after figure with delta
 // and verdict, and the direction it is colored by (1 better, -1 worse, 0 unchanged).
@@ -44,8 +43,8 @@ export global OptimizeModel {
     in property <[OptimizeChangeRow]> change-rows: [];
     // A current (not stale) result with changes is waiting for Apply.
     in property <bool> can-apply: false;
-    // The result on screen was computed for an older design: the tab badges it "Stale:
-    // design changed" with a Recompute (the desktop's `optimize_stale`).
+    // The result on screen was computed for an older design: the tab badges it "Stale: Design
+    // Changed" with a Recompute.
     in property <bool> result-stale: false;
     // Cancel was asked and the Worker is stopping with its best result so far.
     in property <bool> cancelling: false;

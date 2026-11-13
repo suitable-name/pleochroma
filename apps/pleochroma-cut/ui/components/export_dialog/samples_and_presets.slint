@@ -5,6 +5,9 @@ import { SettingsModel } from "../../models/settings.slint";
 import { GuideModel } from "../../models/guide.slint";
 import { TipBox } from "../tip_box.slint";
 import { WrappedNote } from "wrapped_note.slint";
+import { AdaptiveSamplingControls } from "adaptive_sampling.slint";
+import { BeamTracingControls } from "beam_tracing.slint";
+import { PathCacheControls } from "path_cache.slint";
 
 // One row of the preset list: a check box drawn by hand, built as a real check box for the
 // keyboard (Tab, then Space or Enter) and for a screen reader.
@@ -101,12 +104,9 @@ component PresetRow inherits Rectangle {
     }
 }
 
-// Sample Count (a power-of-two slider) and preset fan-out -- split out of
-// `export_dialog.slint` to keep that file under its line budget.
-// `effective_samples`/`sample_exponent` are read-only mirrors of
-// `ExportDialog`'s own identically-named computed properties (kept there,
-// not duplicated here, since the dialog's footer/key handler need them too)
-// -- see that file's own doc comments for the exponent-vs-linear rationale.
+// Sample Count (a power-of-two slider) and preset fan-out, split out of `export_dialog.slint`.
+// `effective_samples` and `sample_exponent` are read-only inputs computed by `ExportDialog`,
+// which needs them too. See that file for why the slider works on the exponent.
 //
 // Sample Count is shown in both modes. The preset fan-out is an Advanced choice: it multiplies
 // the export time, so Simple mode leaves it out (the dialog's note says when presets are
@@ -117,10 +117,9 @@ export component ExportSamplesAndPresets inherits VerticalLayout {
     in property <int> effective_samples: 0;
     in property <int> sample_exponent: 0;
 
-    // 3. Sample Count -- a power-of-two slider rather than pills, since the
-    // useful range (8..32768) is now far too wide for a handful of presets.
-    // "higher = slower" is honest at 4096 but understates it badly at 32768,
-    // hence the plain-language cost hint that appears near the top of the range.
+    // 3. Sample Count: a power-of-two slider, since the range (8..32768) is too wide for pills.
+    // The note near the top of the range warns that the highest counts are very slow, which the
+    // "higher = slower" caption alone understates.
     if ExportModel.engine_index == 0: VerticalLayout {
         spacing: 6px;
         Rectangle {
@@ -162,11 +161,42 @@ export component ExportSamplesAndPresets inherits VerticalLayout {
         }
     }
 
-    // 3b. Preset fan-out -- only shown when at least one preset is
-    // export-usable; an empty list here means nobody has marked a saved lighting "usable for
-    // export" yet (the Lighting & Environment tab's Saved lighting list), so
-    // there is nothing to fan out and showing an empty section would just be
-    // clutter. Advanced mode only.
+    // 3a. Adaptive Sampling -- shown with either renderer; with Ray-Traced the box is greyed out
+    // and says why (that renderer has no noise to converge). Shown only in a build with the
+    // optional adaptive-sampling feature (`SettingsModel.adaptive_sampling_build`).
+    if SettingsModel.adaptive_sampling_build : AdaptiveSamplingControls {
+        adaptive <=> ExportModel.adaptive_sampling;
+        target_index <=> ExportModel.target_noise_index;
+        ray_traced: ExportModel.engine_index == 1;
+        enabled: !ExportModel.is_exporting;
+    }
+
+    // 3a'. Path Cache -- reuses the stone's light paths; greyed out with Ray-Traced, with the
+    // reason. The size estimate and any "not used" reason arrive as progress notes, shown under
+    // the progress bar (`ExportModel.progress_note`).
+    PathCacheControls {
+        path_cache <=> ExportModel.path_cache;
+        keep_cache <=> ExportModel.keep_path_cache;
+        available: ExportModel.path_cache_available;
+        ray_traced: ExportModel.engine_index == 1;
+        enabled: !ExportModel.is_exporting;
+    }
+
+    // 3a''. Beam Tracing (Faceted Stones): greyed out with Ray-Traced, with the reason. Notes
+    // about a stone that cannot use beams arrive as progress notes (`ExportModel.progress_note`).
+    // Shown only in a build with the beam feature (`SettingsModel.beam_build`).
+    if SettingsModel.beam_build : BeamTracingControls {
+        beam <=> ExportModel.beam;
+        keep_beams <=> ExportModel.keep_beams;
+        available: ExportModel.beam_available;
+        show_keep: true;
+        keep_available: ExportModel.beam_keep_available;
+        ray_traced: ExportModel.engine_index == 1;
+        enabled: !ExportModel.is_exporting;
+    }
+
+    // 3b. Preset fan-out. Shown only when a saved lighting is marked usable for export (in the
+    // Lighting & Environment tab). Advanced mode only.
     if GuideModel.shows_advanced() && ExportModel.fanout_presets.length > 0: VerticalLayout {
         spacing: 6px;
         Rectangle {

@@ -1,15 +1,14 @@
 //! What the Rough Planner needs to colour its previews and to turn stones.
 //!
 //! The plan's stored colour and the cutter's pose choice as plain data, the colour of a
-//! planned stone, and the "Stone orientation" option on the results.
+//! planned stone, and the "Stone Orientation" option on the results.
 //!
-//! Window-free and outside `gui::rough_plan` (the planner's code is never run by the tests): the
-//! planner's view calls [`load_inputs`] when its results change, hands the [`PreviewInputs`] to its
-//! worker threads, and they call [`posed_layout`] and [`stone_colours`]. The draw is the
-//! rasteriser's, which paints flat facet colours, so the colour of a stone is the colour it shows
-//! face-up: the stone's preview material (`store::planner_stone_material`, the host with the
-//! rough's zones moved into the stone's frame) is read for its zones, and each zone's share of the
-//! face-up path comes from the same cheap predictor the pose choice uses.
+//! Window-free. The planner's view calls [`load_inputs`] when its results change, hands the
+//! [`PreviewInputs`] to its worker threads, and they call [`posed_layout`] and [`stone_colours`].
+//! The draw is the rasteriser's, which paints flat facet colours, so the colour of a stone is the
+//! colour it shows face-up: the stone's preview material (the host with the rough's zones moved
+//! into the stone's frame, `zoned_plan::stone_preview_material`) is read for its zones, and each
+//! zone's share of the face-up path comes from the same cheap predictor the pose choice uses.
 
 use super::store::{
     AdoptOutcome, AdoptRequest, HostMaterial, PoseChoices, adopt_stone, choose_and_save_poses,
@@ -70,8 +69,7 @@ impl OwnedHost {
 /// The host material called `name` (compared ASCII case-insensitively): a custom material first
 /// (the planner's list shows those under their own names), else a built-in preset.
 ///
-/// `None` for a
-/// name that is neither, or when the vault cannot be read.
+/// `None` for a name that is neither, or when the vault cannot be read.
 #[must_use]
 pub fn resolve_host(db: &Database, name: &str) -> Option<OwnedHost> {
     let custom = db
@@ -174,8 +172,8 @@ pub fn stone_colour(
 
 /// The colour of every stone of `layout` (already posed), in stone order.
 ///
-/// `None` for a stone whose design placement `placement_of` does not know or whose placement is unusable (it keeps
-/// the palette colour).
+/// `None` for a stone whose design placement `placement_of` does not know, or whose placement
+/// is unusable (it keeps the palette colour).
 #[must_use]
 pub fn stone_colours(
     inputs: &PreviewInputs,
@@ -253,7 +251,7 @@ pub fn adopt(
     )
 }
 
-// ---- the "Stone orientation" option ------------------------------------------------------------
+// ---- the "Stone Orientation" option ------------------------------------------------------------
 
 /// The choice on the results: "Keep planner pose" or "Best colour".
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -444,8 +442,8 @@ mod tests {
         // the table down through the rod) against one in the pale rind far above it.
         let in_core = stone_colour(&inputs, &stone(-3.0), DesignPlacement::IDENTITY).unwrap();
         let in_rind = stone_colour(&inputs, &stone(30.0), DesignPlacement::IDENTITY).unwrap();
-        // Red absorbs green and blue less than... a strong 600 nm absorber lowers the red/green
-        // channels: the core is darker and differs from the rind.
+        // The 600 nm absorber of the core darkens the red and green channels, so the core is
+        // darker than the rind and differs from it.
         let sum = |c: [u8; 3]| u32::from(c[0]) + u32::from(c[1]) + u32::from(c[2]);
         assert!(sum(in_core) < sum(in_rind), "{in_core:?} vs {in_rind:?}");
         assert_ne!(in_core, in_rind);
@@ -558,7 +556,7 @@ mod tests {
         assert_eq!(kept.material_name, "Melon - Round color");
         assert!((kept.stone_width_mm - 6.0).abs() < 1e-9, "3 units x 2 mm");
 
-        // With the stone turned over by the stored choice, the zones land in the stone differently.
+        // With the stone turned over by the stored choice, the zones land differently.
         let mut turned_choices = PoseChoices::new();
         turned_choices.insert((4, 0), 1);
         let mut turned = inputs(turned_choices);

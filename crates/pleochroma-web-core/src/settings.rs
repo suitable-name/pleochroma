@@ -16,15 +16,15 @@
 //! # Desktop defaults and conversions
 //!
 //! Defaults are the desktop's (`apps/pleochroma-cut/src/settings/model/app_settings.rs`):
-//! Diamond, "Light tent + black cards", exposure 1.0, light 48 deg / 72 deg, white
-//! backdrop (a lit tray; saved settings keep their stored index), 12 bounces, 256 live samples, camera 0.35 / 1.15 / 2.4 (near face-up), denoise on,
-//! material linked to the design, every material override off. [`scene_spec`] applies
-//! the desktop's own conversions (`gui::startup_settings::apply_loaded_settings`, the
-//! light and material callbacks, `gui::editor::view::inspector::
-//! sync_viewport_material_link`): light yaw in radians, light pitch in radians clamped to
-//! `0.15..=1.55`, the c-axis from tilt/azimuth, and -- while linked -- the design's
-//! traced material, its RI/body-color overrides and its girdle diameter as the stone
-//! width.
+//! Diamond, "Light tent + black cards", exposure 1.0, light 48 deg / 72 deg, white backdrop
+//! (a lit tray; saved settings keep their stored index), 12 bounces, 256 live samples,
+//! camera 0.35 / 1.15 / 2.4 (near face-up), denoise on, material linked to the design, and
+//! every material override off. [`scene_spec`] applies the desktop's own conversions
+//! (`gui::startup_settings::apply_loaded_settings`, the light and material callbacks,
+//! `gui::editor::view::inspector::sync_viewport_material_link`): light yaw in radians, light
+//! pitch in radians clamped to `0.15..=1.55`, the c-axis from tilt/azimuth, and -- while
+//! linked -- the design's traced material, its RI/body-color overrides and its girdle
+//! diameter as the stone width.
 
 use glam::Vec3;
 mod axis;
@@ -55,6 +55,8 @@ use crate::{
 mod tests;
 #[cfg(test)]
 mod tests_axis;
+#[cfg(test)]
+mod tests_hdr;
 
 /// The live sample target range on the web.
 pub const LIVE_SPP_RANGE: (u32, u32) = (LIVE_MIN_SPP, LIVE_MAX_SPP);
@@ -185,6 +187,13 @@ pub struct RenderSettings {
     pub stone_width_mm: f32,
     /// Light the stone with the uploaded HDR map, when one is loaded.
     pub use_hdr: bool,
+    /// The HDR map's turn about the vertical axis, degrees (`0.0..360.0`; `0.0`, the default,
+    /// is the map as loaded). The panel shows it as "Map Rotation" while the map lights the
+    /// scene. A payload without it loads `0.0`.
+    pub hdr_yaw_deg: f32,
+    /// Whether the HDR map also turns with the camera ("Turns with the Camera"; default off:
+    /// the map stays fixed in the room). A payload without it loads off.
+    pub hdr_follows_camera: bool,
     /// Whether GPU rendering is enabled (on by default). When it is, the page tests the GPU
     /// while it loads (`gpu_startup`). A record stored before settings version 1 is switched
     /// on once by [`SessionPayload::migrated`].
@@ -225,8 +234,10 @@ impl Default for RenderSettings {
             edge_rounding_radius: 0.0,
             stone_width_mm: 0.0,
             use_hdr: true,
-            // On by the owner's decision: the page tests the GPU while it loads and falls
-            // back to the CPU workers, saying why (`gpu_startup`).
+            hdr_yaw_deg: 0.0,
+            hdr_follows_camera: false,
+            // The page tests the GPU while it loads and falls back to the CPU workers,
+            // saying why (`gpu_startup`).
             gpu_enabled: true,
             export: ExportSettings::default(),
         }
@@ -308,6 +319,7 @@ impl RenderSettings {
             .color_space
             .clamp(0, MAX_EXPORT_COLOR_SPACE_INDEX);
         self.surface_glare = clamp_surface_glare(self.surface_glare);
+        self.hdr_yaw_deg = finite_or(self.hdr_yaw_deg, 0.0).rem_euclid(360.0);
         self
     }
 
@@ -358,12 +370,29 @@ impl RenderSettings {
             self.head_shadow_deg,
         )
         .with_surface_glare(self.surface_glare)
+        .with_hdr_turn(self.hdr_yaw_deg, self.hdr_follows_camera)
     }
 
     /// The surface-glare slider's percent (`0.0..=100.0`) for these settings.
     #[must_use]
     pub fn surface_glare_percent(&self) -> f32 {
         percent_from_surface_glare(self.surface_glare)
+    }
+
+    /// These settings after "Turns with the Camera" is switched to `on`, keeping the picture:
+    /// switching it on takes the camera's yaw off the map's own turn (the map adds it back as
+    /// the camera orbits), switching it off adds the camera's yaw to it. A call that does not
+    /// change the switch changes nothing.
+    #[must_use]
+    pub fn with_hdr_follow(mut self, on: bool) -> Self {
+        if self.hdr_follows_camera != on {
+            let camera = finite_or(self.camera_yaw, 0.0).to_degrees();
+            let turn = finite_or(self.hdr_yaw_deg, 0.0);
+            let turned = if on { turn - camera } else { turn + camera };
+            self.hdr_yaw_deg = turned.rem_euclid(360.0);
+            self.hdr_follows_camera = on;
+        }
+        self
     }
 
     /// The camera these settings hold.
@@ -422,8 +451,10 @@ impl RenderSettings {
 
 /// The desktop's `gui::optics::c_axis::angles_to_c_axis`.
 ///
-/// Tilt from +Y (the table
-/// normal) towards the azimuth direction in the XZ plane. The same formula as the desktop's,
+/// The Crystal Axis direction for a tilt and azimuth in degrees.
+///
+/// Tilt from +Y (the table normal) towards the azimuth direction in the XZ plane. This is the
+/// desktop's `gui::optics::c_axis::angles_to_c_axis` formula, via
 /// `pleochroma_cut_core::CrystalAxis::slider_direction`.
 #[must_use]
 pub fn c_axis_from_angles(tilt_deg: f32, azimuth_deg: f32) -> Vec3 {
@@ -437,8 +468,8 @@ pub struct RenderMaterial {
     pub name: String,
     /// The design's overrides when linked.
     pub linked_design: Option<DesignMaterialOverrides>,
-    /// The linked design's stone effects when linked: its Crystal Axis and Second Axis win over
-    /// the per-user setting ([`RenderSettings::material_overrides_for`]). `None` when not linked.
+    /// The linked design's stone effects: its Crystal Axis and Second Axis win over the
+    /// per-user setting ([`RenderSettings::material_overrides_for`]). `None` when not linked.
     pub linked_effects: Option<StoneRenderEffects>,
     /// The stone width for the absorption scale (the design's girdle diameter when
     /// linked).
@@ -529,11 +560,11 @@ pub fn scene_spec(settings: &RenderSettings, inputs: &SceneInputs<'_>) -> SceneS
 
 /// [`scene_spec`] for a design that authors frosting.
 ///
-/// `frosted` lists the planes (indices into `inputs.planes`, `Design::frosted_planes_from_solved`)
-/// the design frosts, marked frosted on top of the girdle band when the settings' frosted-girdle
-/// toggle is on. The finishes then travel as [`FinishSpec::PerFacet`], which the Worker protocol
-/// already carries, so no protocol change is needed. An empty `frosted` is exactly
-/// [`scene_spec`].
+/// `frosted` lists the planes the design frosts (indices into `inputs.planes`, as
+/// `Design::frosted_planes_from_solved` gives them). They are marked frosted on top of the
+/// girdle band when the settings' frosted-girdle toggle is on. The finishes travel as
+/// [`FinishSpec::PerFacet`], which the Worker protocol already carries. An empty `frosted` is
+/// exactly [`scene_spec`].
 #[must_use]
 pub fn scene_spec_with_frosting(
     settings: &RenderSettings,
@@ -595,14 +626,13 @@ pub struct SessionPayload {
     /// [`DEFAULT_AUTO_SOLVE_BUDGET_MS`].
     pub auto_solve_budget_ms: u32,
     /// The settings migrations this record has been through ([`CURRENT_SETTINGS_VERSION`]
-    /// once [`Self::migrated`] ran). A record from before the field existed reads `0`, and
-    /// so does [`Self::default`]: both are "not migrated yet".
+    /// once [`Self::migrated`] ran). A record without the field reads `0`, and so does
+    /// [`Self::default`]: both mean not migrated yet.
     pub settings_version: u32,
 }
 
 /// The settings version a current build writes. `1`: GPU rendering is switched on once for
-/// every stored record (owner decision, 2026-10-19), after which the stored value is the
-/// user's.
+/// every stored record, after which the stored value is the user's.
 pub const CURRENT_SETTINGS_VERSION: u32 = 1;
 
 impl Default for SessionPayload {

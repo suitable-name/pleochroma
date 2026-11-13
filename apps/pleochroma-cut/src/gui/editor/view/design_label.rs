@@ -1,6 +1,7 @@
-//! The design's name as the status strip and the editor's title row show it: the design
-//! FILE the design was opened from or saved to (`tutorial-design.psdd`), not the
-//! cutting-schedule name (`tutorial-design.asc`) the editor records for it internally.
+//! The design's name as the status strip and the title row show it.
+//!
+//! This is the design file the design was opened from or saved to (`tutorial-design.psdd`),
+//! not the cutting-schedule name (`tutorial-design.asc`) the editor keeps internally.
 
 use super::state::{EditorState, design_label_text};
 use crate::gui::editor::native_io;

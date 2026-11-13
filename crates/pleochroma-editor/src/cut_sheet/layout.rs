@@ -143,9 +143,9 @@ fn with_table(count: usize, table: usize) -> String {
 
 /// The "Size Data" block: the six ratios a cutter compares against a printed diagram.
 ///
-/// All are over the stone width `W` (the smaller horizontal extent), measured on the same
-/// solid the editor's status bar reads. `None` prints as `-`: the design does not measure,
-/// or has no live girdle to take crown and pavilion from.
+/// All are over the stone width `W` (the smaller horizontal extent), measured on the closed
+/// solid. `None` prints as `-`: the design does not measure, or has no live girdle to take
+/// crown and pavilion from.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct SizeData {
     /// Length over width.
@@ -310,7 +310,7 @@ pub struct SectionLine {
 ///
 /// It is the meet instruction, with the frosting note [`CutSheetRow::instruction`] adds, but
 /// without the tier's name in front (the template has no name column; the name is printed in
-/// the mast table of the HTML sheet's extras).
+/// the HTML sheet's mast table).
 #[must_use]
 pub fn template_instruction(row: &CutSheetRow) -> String {
     let full = row.instruction();
@@ -420,8 +420,7 @@ impl SheetLayout {
         if let Some(mm) = design.girdle_diameter_mm {
             extras.push(("Girdle diameter".to_string(), format!("{mm:.3} mm")));
         }
-        // The same understated-weight caveat the text header carries, shown next to the
-        // number rather than left to a doc comment nobody printing a sheet reads.
+        // The caveat is printed beside the estimate, not only in the docs.
         if let Some(carat) = yield_report.carat_weight {
             extras.push((
                 "Carat weight (estimate)".to_string(),

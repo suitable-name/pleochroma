@@ -19,7 +19,7 @@ component Field inherits VerticalLayout {
     spacing: 3px;
     Lbl { text: root.label; }
     LineEdit {
-        // The style's LineEdit is at least 160px wide, which would push a row of three fields
+        // The std LineEdit is at least 160px wide, which would push a row of three fields
         // past the pane.
         min-width: 0px;
         text <=> root.value;

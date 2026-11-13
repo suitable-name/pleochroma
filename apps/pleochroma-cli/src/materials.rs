@@ -10,9 +10,8 @@
 //! [`gem_from_row`] builds a library row's `GemMaterial` with `LibraryMaterial::gem_material`
 //! of `pleochroma-cut-core`, the same code the desktop editor runs. That restores the
 //! refractive index, dispersion (or its Sellmeier/Cauchy curve), birefringence, body colour,
-//! the stored crystal system, optical character and biaxial delta, and the physics colour
-//! recipe. The one thing neither front end restores is per-axis dispersion: no editor writes
-//! it, so no row holds it.
+//! the stored crystal system, optical character, biaxial delta, per-axis dispersion and the
+//! physics colour recipe.
 //!
 //! # Library materials are saved as the desktop saves them
 //!
@@ -229,12 +228,11 @@ impl Scoring {
         self.resolved.n_d
     }
 
-    /// The material sized for `design`'s stone: the very material the Live Render and `optimize`
-    /// score, with the design's girdle diameter as the stone width
-    /// ([`sized_material_for_optimize`]). Every command that scores optics (`metrics`, `validate`,
-    /// `sweep`, `optimize`) takes this instead of the bare `resolved.gem`, so the figures equal the
-    /// render for a sized stone; a design with no girdle diameter is scored as the render shows it
-    /// at Stone Size "not set".
+    /// The material sized for `design`'s stone, with the girdle diameter as the stone width
+    /// ([`sized_material_for_optimize`]), the same material the Live Render and `optimize` score.
+    /// Every command that scores optics (`metrics`, `validate`, `sweep`, `optimize`) takes this
+    /// instead of the bare `resolved.gem`, so its figures match the render. A design with no
+    /// girdle diameter is scored as the render shows it at Stone Size "not set".
     #[must_use]
     pub fn sized_gem(&self, design: &Design, planes: &[GpuFacetPlane]) -> GemMaterial {
         sized_material_for_optimize(self.resolved.gem.clone(), design, planes)
@@ -523,7 +521,7 @@ mod tests {
         assert_eq!(gem.crystal_system, CrystalSystem::Orthorhombic);
         assert_eq!(gem.optical_character, OpticalCharacter::BiaxialPositive);
         assert_eq!(gem.biaxial_delta_beta_alpha, Some(0.004));
-        // A row that stores none of them is inferred, exactly as before.
+        // A row that stores no biaxial delta has none.
         assert_eq!(gem_from_row(&row("Plain")).biaxial_delta_beta_alpha, None);
     }
 
@@ -595,9 +593,9 @@ mod tests {
         );
     }
 
-    /// Review fix (absorption units): `metrics`, `validate`, `sweep` and `optimize` all take
-    /// `Scoring::sized_gem`, which is the render's size rule (`material_for_stone`) with the
-    /// design's girdle diameter; a design without one keeps the bare material.
+    /// `metrics`, `validate`, `sweep` and `optimize` all take `Scoring::sized_gem`, which is the
+    /// render's size rule (`material_for_stone`) with the design's girdle diameter; a design
+    /// without one keeps the bare material.
     #[test]
     fn the_scoring_material_is_sized_by_the_girdle_diameter_like_the_render() {
         use crate::stone::analyze;

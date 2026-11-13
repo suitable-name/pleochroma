@@ -132,9 +132,9 @@ switch A → B → A. With `--scenarios warm`, the initial A is recorded as a wa
 do not include that primer in warm comparisons. Separate first-use and warm
 records when comparing target counts, resolutions or revisions.
 
-GPU acquisition and preparation are now lazy. In GPU-only mode their waiting time
-belongs to first-use tracing; the session-creation measurement no longer includes
-device acquisition. CPU+GPU mode may return useful CPU images while the background
+GPU acquisition and preparation are lazy. In GPU-only mode their waiting time
+belongs to first-use tracing; the session-creation measurement excludes device
+acquisition. CPU+GPU mode may return useful CPU images while the background
 GPU preparation continues. Compare the reported route on each pass, not just the
 requested backend. Ray's `visibility_diagnostic_ms` reports its separate diagnostic
 pass; it is excluded from `total_case_ms` and all rendered-pass measurements.

@@ -22,7 +22,7 @@ use crate::guide::{
 /// The Stone tab's material controls and Undo, for the Ametrine lesson.
 const MATERIALS: &[Group] = &[Group::DesignSettings, Group::History];
 
-/// The lessons of this file: two in the library section, one in the viewing section.
+/// The lessons of this file, in browser order.
 pub fn guides() -> Vec<Guide> {
     vec![wizard(), in_planner(), ametrine()]
 }

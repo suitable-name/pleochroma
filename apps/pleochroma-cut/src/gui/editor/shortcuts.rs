@@ -6,11 +6,9 @@
 //! and this module's own test comparing that output against the file's generated
 //! block -- so the two cannot drift.
 //!
-//! [`SHORTCUTS`] was built by grepping `Key.`/`key-pressed` across `ui/`
-//! (`ui/app.slint`'s `global_shortcuts` `FocusScope`, `editor_tier_table.slint`'s
-//! `table_focus` `FocusScope`, and `TierAngleCell`'s own inline `LineEdit`) --
-//! every row names a key binding this app's Slint actually reads, not an
-//! aspirational one.
+//! Every [`SHORTCUTS`] row names a key binding that the Slint code reads: the
+//! `global_shortcuts` `FocusScope` in `ui/app.slint`, the `table_focus` `FocusScope` in
+//! `editor_tier_table.slint`, and the inline `LineEdit` of `TierAngleCell`.
 
 /// One keyboard shortcut: the literal key combination, what it does, and which
 /// context it applies in (groups the in-app overlay into sections and picks
@@ -19,9 +17,8 @@
 pub struct Shortcut {
     /// The key combination as shown to the user, e.g. `"Ctrl+Shift+S"`.
     pub keys: &'static str,
-    /// What the shortcut does, in the same wording the manual already used
-    /// (`docs/manual/appendix-b-keyboard-shortcuts.md`) before this table
-    /// replaced its two hand-authored tables.
+    /// What the shortcut does. Also the wording of the manual's generated table
+    /// (`docs/manual/appendix-b-keyboard-shortcuts.md`). Bold markers are allowed here.
     pub action: &'static str,
     /// Which context this shortcut is active in -- also the grouping key for
     /// both the overlay's sections and [`render_markdown_section`]'s per-
@@ -84,9 +81,8 @@ impl Context {
     }
 }
 
-/// Every shortcut this app's editor implements, in display order within each
-/// [`Context`] -- see this module's own top doc comment for how this list was
-/// built and what it feeds.
+/// Every shortcut the editor implements, in display order within each [`Context`]. Feeds the
+/// overlay and the manual (see the module docs).
 pub const SHORTCUTS: &[Shortcut] = &[
     Shortcut {
         keys: "Ctrl+N",
@@ -325,11 +321,8 @@ pub const SHORTCUTS: &[Shortcut] = &[
     },
 ];
 
-/// Renders every [`SHORTCUTS`] row whose [`Shortcut::context`] is `context` as
-/// a Markdown `| Shortcut | Action |` table, byte-for-byte the same shape
-/// `docs/manual/appendix-b-keyboard-shortcuts.md`'s own two tables already
-/// used before this table replaced their hand-authored rows -- no trailing
-/// newline, so a caller composing multiple sections controls its own spacing.
+/// Renders the [`SHORTCUTS`] rows of `context` as a Markdown `| Shortcut | Action |` table.
+/// There is no trailing newline, so a caller composing several sections sets the spacing.
 #[must_use]
 pub fn render_markdown_section(context: Context) -> String {
     let mut out = String::from("| Shortcut | Action |\n| --- | --- |");
@@ -344,12 +337,9 @@ pub fn render_markdown_section(context: Context) -> String {
     out
 }
 
-/// Pushes [`SHORTCUTS`] into `ShortcutsModel.shortcuts` once, at startup --
-/// called from `gui::editor::setup_editor_callbacks`. The overlay's own
-/// open/close state (`ShortcutsModel.open`/`toggle`/`close`) needs no Rust
-/// callback registration (implemented entirely in
-/// `ui/models/shortcuts.slint`, the same "small enough to live entirely in
-/// Slint" idiom `ui/models/guide.slint`'s `GuideModel` uses).
+/// Pushes [`SHORTCUTS`] into `ShortcutsModel.shortcuts` once, at startup, from
+/// `gui::editor::setup_editor_callbacks`. The overlay's open and close state lives in
+/// `ui/models/shortcuts.slint`, so it needs no Rust callback.
 pub(in crate::gui::editor) fn setup_shortcuts_overlay(ui: &crate::MainWindow) {
     use slint::{ComponentHandle as _, ModelRc, VecModel};
     // Grouped by context, in `Context::ALL` order: the overlay starts a new heading
@@ -371,12 +361,9 @@ pub(in crate::gui::editor) fn setup_shortcuts_overlay(ui: &crate::MainWindow) {
     setup_shortcuts_copy_markdown(ui);
 }
 
-/// "Copy as Markdown" (`shortcut_overlay.slint`'s header button): the ONE real,
-/// non-test caller of [`render_markdown_section`] -- the manual's own generated
-/// blocks are checked against that same function's output by this module's
-/// `appendix_b_generated_blocks_match_the_shortcut_table` test, so between the
-/// two, [`render_markdown_section`] backs both the shipped manual text and a
-/// live, in-app production path, not only a test assertion.
+/// "Copy as Markdown" (`shortcut_overlay.slint`'s header button). The only non-test caller
+/// of [`render_markdown_section`]. The manual's generated blocks are checked against the same
+/// function by the `appendix_b_generated_blocks_match_the_shortcut_table` test.
 fn setup_shortcuts_copy_markdown(ui: &crate::MainWindow) {
     use slint::ComponentHandle as _;
     use std::fmt::Write as _;
@@ -406,12 +393,8 @@ fn setup_shortcuts_copy_markdown(ui: &crate::MainWindow) {
 mod tests {
     use super::*;
 
-    /// The manual chapter with `\r\n` folded to `\n`, once.
-    ///
-    /// 2026-10-27: the Windows checkout stores the markdown with CRLF line endings, so the
-    /// `"<!-- NAME:BEGIN -->\n"` search missed every marker there ("appendix B is missing the
-    /// `SHORTCUTS_GLOBAL:BEGIN` marker", the lead's Windows run); the Linux checkout is LF. The
-    /// blocks are compared without `\r` on both.
+    /// The manual chapter with `\r\n` folded to `\n`, once. A CRLF checkout would otherwise
+    /// miss every `<!-- NAME:BEGIN -->\n` marker, so the blocks are compared without `\r`.
     static MANUAL: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
         include_str!("../../../docs/manual/appendix-b-keyboard-shortcuts.md").replace("\r\n", "\n")
     });
@@ -541,10 +524,8 @@ mod tests {
     /// and the manual would both show two conflicting rows for the same key).
     #[test]
     fn every_shortcut_is_well_formed_and_unique_within_its_context() {
-        // `SHORTCUTS` is a non-empty `const` array literal a few lines above --
-        // `.is_empty()` on it is compile-time-decidable (clippy::const_is_empty),
-        // so the real check below (every row's own fields) is what actually
-        // earns its keep.
+        // `SHORTCUTS` is a non-empty const, so an emptiness check would be trivially true
+        // (clippy::const_is_empty). The per-row checks below do the work.
         for row in SHORTCUTS {
             assert_ne!(row.keys, "");
             assert_ne!(row.action, "");

@@ -6,11 +6,10 @@
 //! viewer must not depend on the server binary, and a security policy must not exist in
 //! two copies that can drift apart. The server-side registry (minting, hashing,
 //! constant-time compare, TTL sweep) has no viewer-side counterpart and stays in
-//! `apps/pleochroma-worker/src/enroll.rs`, which imports [`EnrollRequest`]/[`EnrollResponse`]
-//! from here. [`crate::token`] moved here for the same sharing reason. See
-//! `apps/pleochroma-worker/src/enroll.rs`'s module doc comment for the full enrollment
-//! design: the token's security properties, its lifecycle, and why issuing is
-//! loopback-only.
+//! `apps/pleochroma-worker/src/enroll/registry.rs`, which imports [`EnrollRequest`] and
+//! [`EnrollResponse`] from here. [`crate::token`] is shared for the same reason. See
+//! `apps/pleochroma-worker/src/enroll/mod.rs` for the full enrollment design: the token's
+//! security properties, its lifecycle, and why issuing is loopback-only.
 
 use crate::token;
 use rustls::{
@@ -53,9 +52,9 @@ pub fn operator_secret_path(pki_dir: &Path) -> PathBuf {
 
 /// Reads the operator secret (hex, one line) from `<pki_dir>/issue.secret`.
 ///
-/// `serve` creates the file on first start with owner-only permissions; `cert
-/// issue-token` reads it and presents it in [`EnrollRequest::IssueAuthorized`]. The returned secret
-/// is zeroized on drop.
+/// `serve` creates the file on first start with owner-only permissions. `cert issue-token`
+/// reads it and presents it in [`EnrollRequest::IssueAuthorized`]. The returned secret is
+/// zeroized on drop.
 ///
 /// # Errors
 ///
@@ -101,10 +100,10 @@ pub fn write_operator_secret(
 /// the wrong protocol if a wire got crossed.
 #[derive(Debug, Serialize, Deserialize)]
 pub enum EnrollRequest {
-    /// The original unauthenticated issue request. A listener refuses it with a reply
-    /// telling the operator to update `cert issue-token`, because issuing is no longer
-    /// authorised by "the peer is loopback" alone (see [`Self::IssueAuthorized`]); the
-    /// variant stays so an older client gets that message instead of a decode error.
+    /// Unauthenticated issue request, kept only to answer older clients. A listener refuses
+    /// it with a reply that points at `cert issue-token`: loopback alone does not authorise
+    /// issuing (see [`Self::IssueAuthorized`]). The variant stays so an older client gets
+    /// that reply instead of a decode error.
     Issue { name: String },
     /// Attempt to claim a pending enrollment with this secret.
     Claim { secret: [u8; token::SECRET_LEN] },
@@ -113,9 +112,9 @@ pub enum EnrollRequest {
     /// secret (`<pki_dir>/issue.secret`, see [`read_operator_secret`]), so a local user or
     /// a port forward without read access to the PKI directory cannot mint certificates.
     ///
-    /// Protocol note: appended after `Claim`, so the existing variants keep their wire
-    /// indices. The enrollment protocol has no version field; an `IssueAuthorized` sent to
-    /// a listener that predates it fails to decode there.
+    /// Protocol note: appended after `Claim` so the existing variants keep their postcard
+    /// indices. The protocol has no version field, so a listener that predates this variant
+    /// fails to decode it.
     IssueAuthorized {
         name: String,
         operator_secret: [u8; OPERATOR_SECRET_LEN],

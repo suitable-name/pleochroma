@@ -27,13 +27,10 @@ use tracing::warn;
 
 const DEBOUNCE: Duration = Duration::from_millis(600);
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
-/// How long [`SettingsPersister::flush`] waits for the worker to confirm the write. A
-/// settings file is a few kilobytes, so this only matters when the disk is wedged, and
-/// it bounds how long closing the window can be held up then. In normal operation the
-/// worker acknowledges right after the write (milliseconds), so the 3 s is never reached;
-/// it stays a blocking wait on purpose, because closing without it would let the process
-/// exit with the final snapshot still queued and lose the last change (perf review UI-8:
-/// reviewed, deliberately not made non-blocking).
+/// Upper bound on how long [`SettingsPersister::flush`] waits for the worker to confirm
+/// a write, so a wedged disk cannot hold up closing the window. Normally the write takes
+/// milliseconds. The wait is blocking on purpose: returning early could let the process
+/// exit with the final snapshot still queued.
 const FLUSH_WAIT: Duration = Duration::from_secs(3);
 
 enum Msg {
@@ -57,10 +54,11 @@ thread_local! {
 /// [`SettingsPersister::set_disk_override`].
 pub type DiskOverride = Arc<dyn Fn(&mut SettingsFile) + Send + Sync>;
 
-/// Handle to the background settings writer. Held in an `Arc` so it can be captured
-/// into every UI callback that changes a persisted setting. Dropping a handle asks the
-/// worker to shut down after it has written any pending change, so a clone must not
-/// outlive the `Arc` that is meant to keep the worker running.
+/// Handle to the background settings writer.
+///
+/// Share it through an `Arc`, captured into every UI callback that changes a persisted setting.
+/// Every dropped copy of this struct sends the worker a shutdown, after it has written any pending
+/// change.
 #[derive(Clone)]
 pub struct SettingsPersister {
     sender: mpsc::Sender<Msg>,
@@ -98,19 +96,17 @@ impl SettingsPersister {
         let _ = self.sender.send(Msg::Changed(self.on_disk(snapshot)));
     }
 
-    /// Makes every write to the disk, from now until `rewrite` is replaced or cleared with
-    /// `None`, hold `rewrite`'s values instead of the in-memory ones for the fields it sets.
-    /// The in-memory settings ([`Self::snapshot`]) are not touched.
+    /// Makes every disk write, until `rewrite` is replaced or cleared with `None`, use
+    /// `rewrite`'s values for the fields it sets. The in-memory settings
+    /// ([`Self::snapshot`]) are not touched.
     ///
-    /// This is how a value that is only on loan stays out of the settings file: a design's
-    /// own lighting is shown while the light controls (which write the settings as they are
-    /// moved) stay wired to the settings, and a change made then, followed by closing the
-    /// app, must not leave the design's values in the file as the cutter's normal lighting.
-    /// With the rewrite installed the file keeps the normal values whatever the controls do,
-    /// also when the app is killed instead of closed.
+    /// For values that are only on loan: a design's own lighting is shown while the light
+    /// controls still write the settings, and those must not reach the file as the
+    /// cutter's normal lighting. The debounced write is covered too, so a killed app is
+    /// handled like a closed one.
     ///
-    /// The file is rewritten at once (after the usual debounce) with the new rule, so
-    /// clearing the override lets the in-memory values reach the disk.
+    /// The file is rewritten at once (after the usual debounce), so clearing the override
+    /// lets the in-memory values reach the disk.
     pub fn set_disk_override(&self, rewrite: Option<DiskOverride>) {
         *self
             .disk_override
@@ -144,11 +140,9 @@ impl SettingsPersister {
             .clone()
     }
 
-    /// Forces an immediate write of the current in-memory state, bypassing the
-    /// debounce wait, and returns once the worker has written it (or after
-    /// [`FLUSH_WAIT`] if it has not). Called on window close so a change made in the
-    /// last `DEBOUNCE` window before quitting isn't lost -- returning only after the
-    /// write is what keeps the process from exiting with the write still queued.
+    /// Writes the current in-memory state now, without the debounce, and returns once the
+    /// worker has confirmed it or [`FLUSH_WAIT`] has passed. Called on every close path,
+    /// so a change from the last `DEBOUNCE` window is not lost.
     pub fn flush(&self) {
         let snapshot = self.on_disk(self.snapshot());
         let (ack_sender, ack_receiver) = mpsc::channel();
@@ -182,8 +176,8 @@ impl SettingsPersister {
 
 impl Drop for SettingsPersister {
     fn drop(&mut self) {
-        // Sent by every handle that drops; with the single `Arc` the application
-        // keeps, that is exactly once, when the last owner goes away.
+        // Every dropped copy sends the shutdown. The application's single `Arc` makes
+        // that happen once, at exit.
         let _ = self.sender.send(Msg::Shutdown);
     }
 }

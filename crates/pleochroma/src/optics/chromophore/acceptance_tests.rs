@@ -1,5 +1,5 @@
-//! Acceptance tests of chromophore-color-plan.md §11, criteria 1-6 and 10-14, each asserted at
-//! the stated threshold.
+//! Acceptance tests of the chromophore model: criteria 1-6 and 10-14, each asserted at its
+//! stated threshold.
 
 #![expect(
     clippy::doc_markdown,
@@ -30,7 +30,7 @@ use crate::{
 use super::primary_data_tests::{PPMA_CM3, hue_deg as gia_hue_deg, sigma_lab, table};
 
 const COLORLESS: [f64; 3] = [100.0, 0.0, 0.0];
-/// The 5 mm reference path of the plan's "blue recipe".
+/// The 5 mm reference path of the blue recipe.
 const REF_MM: f64 = 5.0;
 /// [`REF_MM`] as the `f32` path length the solver API takes.
 #[expect(
@@ -149,11 +149,10 @@ fn cr_steps() -> [f64; 5] {
 
 /// Criterion 1: the Cr hue lies in [0, 30] U [330, 360) at every step (5 mm reference path).
 ///
-/// `data_version` 4: the band is derived from the GIA 2020 cross-section. GIA's calculated
-/// unpolarised colors (Appendix 2, D65, 100-3000 ppma*cm) have hues 339, 340, 343, 352, 8 and
-/// 26 degrees, i.e. inside the plan's band, and the five steps (67-670 ppma*cm) sit at
-/// 336-354 degrees (checked against the cross-section in
-/// `criterion_1_chroma_and_hue_follow_the_gia_cross_section`).
+/// The band comes from the GIA 2020 cross-section. GIA's calculated unpolarised colors
+/// (Appendix 2, D65, 100-3000 ppma*cm) have hues 339, 340, 343, 352, 8 and 26 degrees, inside
+/// the band. The five steps (67-670 ppma*cm) sit at 336-354 degrees (checked against the
+/// cross-section in `criterion_1_chroma_and_hue_follow_the_gia_cross_section`).
 #[test]
 fn criterion_1_cr_hue() {
     for cr in cr_steps() {
@@ -172,14 +171,13 @@ fn criterion_1_cr_hue() {
     }
 }
 
-/// Criterion 1: chroma C* increases monotonically over the 5 Cr steps at the 5 mm reference path.
+/// Criterion 1: chroma C* rises monotonically over the 5 Cr steps (5 mm reference path).
 ///
-/// Un-ignored for `data_version` 4. The old ignore rested on the research's stated CIELAB (C*
-/// 32.5 / 73.8 / 40.2 at 0.05 / 0.25 / 0.72 wt%), which disagrees with its own spectra by dE00
-/// 16-26 and is no target (`reference_validation`). From the GIA cross-section the C* of the
-/// unpolarised color rises monotonically over 67-670 ppma*cm (the five steps) and saturates
-/// near 700-3000 ppma*cm (GIA Appendix 2 "both", D65: 27.8, 47.6, 65.0, 70.8, 69.5, 70.0 at 100,
-/// 200, 375, 750, 1500, 3000 ppma*cm); the recipe gives 22.5, 47.1, 57.1, 61.6, 63.7 (the cross-section itself 22.7, 48.3, 58.2, 62.5, 64.3).
+/// The tables' stated CIELAB is not used as a target (see `reference_validation`). The C* of
+/// the GIA cross-section's unpolarised color rises monotonically over 67-670 ppma*cm (the five
+/// steps) and saturates near 700-3000 ppma*cm (GIA Appendix 2 "both", D65: 27.8, 47.6, 65.0,
+/// 70.8, 69.5, 70.0 at 100, 200, 375, 750, 1500, 3000 ppma*cm). The recipe gives 22.5, 47.1,
+/// 57.1, 61.6, 63.7; the cross-section itself gives 22.7, 48.3, 58.2, 62.5, 64.3.
 #[test]
 fn criterion_1_cr_chroma_is_monotonic() {
     let mut last = 0.0;
@@ -235,12 +233,11 @@ fn criterion_1_blue_recipe_ti_alone_and_pleochroism() {
 
 /// Criterion 1: the blue recipe's hue h_ab.
 ///
-/// `data_version` 4: the plan's [220, 270] was set by the research's S-Met color (b* -41, hue
-/// 261). The GIA Fe2+-Ti4+ cross-section gives a violet-blue instead: the unpolarised color
-/// (2 E_perp + E_par) / 3 of the recipe's 100 pairs over 5 mm (20 ppma*cm) has hue 291 degrees
-/// (E_perp_c 289-313, E_par_c 245-270 over 50-200 pairs and 2-5 mm). The recipe's own Fe3+ and
-/// Fe2+-Fe3+ bands (Fe 1000 ppm) shift the hue by about -25 degrees to 266. The band is the
-/// GIA hue -50 / +20 degrees, i.e. [241, 311], inside the blue range [220, 310].
+/// The unpolarised color (2 E_perp + E_par) / 3 of the recipe's 100 pairs over 5 mm
+/// (20 ppma*cm) has hue 291 degrees from the GIA Fe2+-Ti4+ cross-section (E_perp_c 289-313,
+/// E_par_c 245-270 over 50-200 pairs and 2-5 mm). The recipe's own Fe3+ and Fe2+-Fe3+ bands
+/// (Fe 1000 ppm) shift the hue by about -25 degrees to 266. The band is the GIA hue -50 / +20
+/// degrees (about [241, 311]), intersected with the blue range [220, 310].
 #[test]
 fn criterion_1_blue_recipe_hue() {
     let lab = colors_of(
@@ -266,7 +263,7 @@ fn criterion_1_blue_recipe_hue() {
 }
 
 /// Criterion 1 (primary data): chroma and hue of the Cr recipe at the five criterion-1 steps
-/// follow the color of the GIA cross-section (2 E_perp + E_par) / 3 within C* 2.5 and 5 degrees (measured <= 1.2 and <= 1),
+/// follow the color of the GIA cross-section (2 E_perp + E_par) / 3 within C* 2.5 and 5 degrees,
 /// and the GIA chroma itself rises monotonically over the steps.
 #[test]
 fn criterion_1_chroma_and_hue_follow_the_gia_cross_section() {
@@ -328,10 +325,9 @@ fn blue_pair_peak_cm1(cat: &ChromophoreCatalogue) -> f64 {
 /// Criterion 2: random pairing would give < 0.1 cm^-1, the clustered law >= 2 and within 5 % of
 /// the GIA value; the pure host transmits Y >= 0.98 at 10 mm.
 ///
-/// `data_version` 4: the "empirical 5 cm^-1" of the research (0.05 per ppm of Al sites, fitted to
-/// its sapphire tables) is replaced by the GIA 2020 cross-section per pair, sigma = 1.98e-18 cm^2
-/// at 580 nm: 100 pairs (ppm of Al sites) = 4.70e18 cm^-3 give 9.31 cm^-1 (E_perp_c), 0.093 per
-/// pair-ppm; the data_version 3 value was 5.0.
+/// The Fe2+-Ti4+ pair band uses the GIA 2020 cross-section per pair, sigma = 1.98e-18 cm^2 at
+/// 580 nm: 100 pairs (ppm of Al sites) = 4.70e18 cm^-3 give 9.31 cm^-1 (E_perp_c), 0.093 per
+/// pair-ppm.
 #[test]
 fn criterion_2_pairing_regression_and_pure_host() {
     let clustered = blue_pair_peak_cm1(cat());
@@ -431,11 +427,11 @@ fn criterion_3_round_trip_of_200_seeded_recipes() {
 /// Criterion 3: a ruby pick (L* 40, a* 55, b* 30 +- 5) yields a Cr-dominated recipe
 /// (Cr share of alpha >= 70 %), and so do the GIA ruby colors.
 ///
-/// `data_version` 4: a ruby with b* +30 (orange-red) is not reachable by the GIA Cr3+ cross-section
-/// (b* turns positive only at 1500+ ppma*cm; the solver leaves dE00 12-16 and the closest recipe
-/// is still Cr 96-99 %); the GIA Appendix 2 unpolarised D65 colors at 100-375 ppma*cm (purplish
-/// red, b* -10 to -19) are reached with Cr alone to dE00 0.7, 1.1 and 2.7 (the GIA "both" column is
-/// itself 2.5 off its cross-section at 375 ppma*cm), so the limit is 3.
+/// A ruby with b* +30 (orange-red) is not reachable from the GIA Cr3+ cross-section: b* turns
+/// positive only at 1500+ ppma*cm, and the solver leaves dE00 12-16 with Cr 96-99 %. The GIA
+/// Appendix 2 unpolarised D65 colors at 100-375 ppma*cm (purplish red, b* -10 to -19)
+/// are reached with Cr alone to dE00 0.7, 1.1 and 2.7. The GIA "both" column is itself 2.5 off its
+/// cross-section at 375 ppma*cm, so the limit is 3.
 #[test]
 fn criterion_3_ruby_pick_is_cr_dominated() {
     for (da, db) in [
@@ -702,15 +698,13 @@ fn criterion_5_wysiwyg_for_50_random_recipes_per_host() {
     }
 }
 
-/// Hosts allowed to drop or merge bands at `conc_typical` (explicit allow-list, §3.3) with the
+/// Hosts allowed to drop or merge bands at `conc_typical` (an explicit allow-list), with the
 /// dE00 their pinned `BandsDropped`/`BandsMerged` must stay below. The last four host ids
 /// overlap 8-20 chromophores at `conc_typical`; their merges (cheapest color error first, see
-/// `resolve::budget_bands`) measure dE00 0.09-0.46 after the research §5 pruning. Beryl's
-/// all-elements recipe gained the two Mn chromophores when they got a `conc_typical` on
-/// 2026-10-12 (red beryl 0.1-0.35 wt% MnO is a strong absorber at 560 nm): its rays then carry
-/// 14 (ordinary) and 13 (extraordinary) bands, and the merges (six and five) measure up to
-/// dE00 1.74 for that kitchen-sink stone (Cr + V + Fe + Mn at once, nearly opaque at 5 mm), so
-/// its bound is 2.
+/// `resolve::budget_bands`) measure dE00 0.09-0.46. Beryl's all-elements recipe includes two Mn
+/// chromophores (red beryl 0.1-0.35 wt% MnO is a strong absorber at 560 nm), so its rays carry
+/// 14 (ordinary) and 13 (extraordinary) bands. Its merges measure up to dE00 1.74 for that
+/// near-opaque stone at 5 mm (Cr + V + Fe + Mn at once), so its bound is 2.
 const BAND_DROP_ALLOW_LIST: &[(&str, f64)] = &[
     ("beryl", 2.0),
     ("corundum", 1.0),
@@ -944,30 +938,13 @@ fn builtin_vs_recipe() -> Vec<(&'static str, [f64; 3], SolveResult)> {
         .collect()
 }
 
-/// Criterion 6 / §2.4 item 4 against the PRIMARY-data recipes: the built-in colors (unchanged,
-/// bit for bit) against the best physics recipe of `data_version` 4, pinned per built-in.
+/// Criterion 6 against the primary-data recipes: the built-in colors against the
+/// best physics recipe, pinned per built-in (dE00, see `calibration-records.md`).
 ///
-/// Re-pinned on 2026-10-19 after the measured color refits (owner decision; values from the
-/// owner's Windows run). Agreement (dE00 <= 3.5): Peridot 0.15, Sapphire 0.22, Aquamarine
-/// 0.75, Ruby 1.00 (a Cr + Fe recipe), Emerald 1.01, Citrine 2.41 (2.69 until `data_version`
-/// 5 removed the fixed 10 % Fe2+ share that tinted every iron quartz). Tanzanite 7.27 really
-/// differs from the primary-data recipes (the heated built-in is still more saturated than the
-/// V3+ recipe at conc_max).
-///
-/// Re-pinned on 2026-10-28 (owner's Linux run 2026-10-27_232423): the color variants campaign
-/// rebuilt the Amethyst and Citrine built-ins per axis from the measured spectra (lanes B1 and
-/// X6), so the built-in colors moved. Amethyst went from 11.25 (built-in C* 82, h 321 against the
-/// Caltech-shaped [FeO4]0 recipe C* 44) to 2.16 and now agrees; Citrine went from 2.41 to 0.68.
-///
-/// Re-pinned on 2026-11-04 (owner's run of that day): the dealer-photo rounds moved Ruby to 0.13
-/// (a Cr + Fe + V recipe), Sapphire to 0.47 and Aquamarine to 0.57. Amethyst moved its main band
-/// from the Anahi slab's 537 nm to 549 nm, the bluer purple of commercial amethyst in the dealer
-/// photos, so it now differs from the Anahi-shaped recipe on purpose (8.22): six agree to 3.5.
-///
-/// Re-pinned on 2026-11-04 (lead's quick-release run of that day): the saturation round
-/// (`calibration-records.md#saturation-round-2026-11-04`) scaled Tanzanite x 0.7, Peridot x 0.6,
-/// Aquamarine x 0.3 and Citrine x 2. Tanzanite, no longer more saturated than the V3+ recipe
-/// reaches, now agrees (2.78); Peridot 0.10, Aquamarine 0.67, Citrine 1.28: seven agree to 3.5.
+/// Ruby 0.13 (a Cr + Fe + V recipe), Sapphire 0.47, Emerald 1.01, Tanzanite 2.78, Peridot 0.10,
+/// Aquamarine 0.67 and Citrine 1.28 agree to dE00 3.5. Amethyst (8.22) differs on purpose: its
+/// main band sits at 549 nm, the bluer purple of commercial amethyst, not the 537 nm of the
+/// Anahi slab that the recipe is fitted to.
 #[test]
 fn criterion_6_built_in_colors_vs_primary_data_recipes_are_pinned() {
     let pinned = [
@@ -998,13 +975,9 @@ fn criterion_6_built_in_colors_vs_primary_data_recipes_are_pinned() {
     assert!(ruby.delta_e <= 1.25 && ruby.recipe.entries.iter().any(|e| e.id == "Cr"));
 }
 
-/// Criterion 6 / §2.4 item 4: a plausible recipe reproduces the built-in color (bands scaled
+/// Criterion 6: a plausible recipe reproduces the built-in color (bands scaled
 /// from model units to mm with W = 7 mm and the measured model width) within dE00 <= 3 for at
-/// least 6 of the 8 built-ins. Ignored until the measured color refits of 2026-10-19; since
-/// the per-axis refits of 2026-10-27 seven reproduce within 3 (Ruby, Sapphire, Emerald,
-/// Peridot, Amethyst, Aquamarine, Citrine), and Tanzanite is the one that differs. Since
-/// 2026-11-04 Amethyst (moved to the commercial purple) is the one that differs and the lighter
-/// Tanzanite reproduces (2.78).
+/// least 6 of the 8 built-ins. Seven reproduce within 3 (all but Amethyst, see the pins above).
 #[test]
 fn criterion_6_built_in_sanity_at_least_6_of_8() {
     let results = builtin_vs_recipe();
@@ -1023,8 +996,7 @@ fn criterion_6_built_in_sanity_at_least_6_of_8() {
 // Criterion 10
 // ---------------------------------------------------------------------------------------------
 
-/// Pinned band fixture of corundum + 0.20 wt% Cr2O3 at 5 mm, `data_version` 5 (the corundum
-/// bands are those of version 4; version 5 changed the glass and quartz valence states only):
+/// Pinned band fixture of corundum + 0.20 wt% Cr2O3 at 5 mm, for `data_version` 5:
 /// `(centre nm, fwhm cm^-1, peak mm^-1)` per mode, sorted by centre.
 const PINNED_DATA_VERSION: u32 = 5;
 const PINNED_O: [(f32, f32, f32); 5] = [
@@ -1116,7 +1088,8 @@ fn criterion_11_offer_rule_and_band_limits() {
 // Criterion 12
 // ---------------------------------------------------------------------------------------------
 
-/// A corundum-like host whose Cr3+ rows carry the Report's 25.9 and the correct 51 cm^-1/wt%.
+/// A corundum-like host whose Cr3+ rows carry a 25.9 cm^-1/wt% row (which the loader flags) and
+/// the correct 51 cm^-1/wt% row.
 const CR_FIXTURE: &str = r#"
 data_version = 1
 
@@ -1161,7 +1134,7 @@ total_atom_density_cm3 = 1.175369e+23
 
 #[test]
 fn criterion_12_consistency_checks() {
-    // The Report's 25.9 is flagged by the loader, 51 passes (loaded through from_toml).
+    // The 25.9 row is flagged by the loader; 51 passes (loaded through from_toml).
     let fixture = ChromophoreCatalogue::from_toml(CR_FIXTURE).expect("fixture loads");
     let host = fixture.host("ruby_fixture").expect("fixture host");
     let band_of = |id: &str| {
@@ -1200,9 +1173,9 @@ fn criterion_12_consistency_checks() {
         .find(|c| c.id == "Cr3+")
         .expect("Cr3+");
     assert!(cr3.suspect.is_none() && cr3.bands.iter().all(|b| b.suspect.is_none()));
-    // data_version 4: the Cr3+ bands are the GIA cross-section (each carries its sigma, which the
-    // loader checks against peak_coeff within 2x). The U band region (E-perp-c, 560 nm) carries
-    // the Dodd/Dubinsky anchor sigma 1.62e-19 cm^2 = 51.1 cm^-1/wt% within 8 %.
+    // The Cr3+ bands are the GIA cross-section; each carries its sigma, which the loader checks
+    // against peak_coeff within 2x. The U band region (E-perp-c, 560 nm) carries the
+    // Dodd/Dubinsky anchor sigma 1.62e-19 cm^2 = 51.1 cm^-1/wt% within 8 %.
     let n_wt = corundum.n_site_for_unit("wt_pct_oxide:Cr2O3");
     let u_560: f64 = cr3
         .usable_bands()
@@ -1293,11 +1266,11 @@ fn color_change(recipe: &ColorRecipe) -> f64 {
 
 /// Criterion 14: an alexandrite-like V + Cr corundum recipe has dE_cc (D65 vs 3200 K) > 8.
 ///
-/// `data_version` 4: the V3+ cross-section is GIA's, which gives a D65 vs A color change of
-/// 8-25 dE00 (peak in E_par_c at a few hundred ppma*cm; the report-1 table's 2.9-5.8 is wrong).
-/// V 2000 ppm of Al sites (800 ppma, conc_max) over 5 mm is 400 ppma*cm: dE_cc 17.1 alone; the
-/// color-change stone is V-dominated, so Cr 0.02 wt% (54 ppma) leaves 13.0. (The data_version
-/// 3 recipe Cr 0.1 wt% + V 2000 ppm is now a ruby-like 5.65: Cr dominates.)
+/// The V3+ cross-section is GIA's, which gives a D65 vs A color change of 8-25 dE00 (peak in
+/// E_par_c at a few hundred ppma*cm). The research table's 2.9-5.8 is not used. V 2000 ppm of
+/// Al sites (800 ppma, conc_max) over 5 mm is 400 ppma*cm: dE_cc 17.1 alone. The color-change
+/// stone is V-dominated, so Cr 0.02 wt% (54 ppma) leaves 13.0. Adding Cr 0.1 wt% to V 2000 ppm
+/// gives a ruby-like 5.65, since Cr dominates.
 #[test]
 fn criterion_14_alexandrite_like_color_change() {
     let alexandrite_like = recipe_of("corundum", &[("Cr", 0.02), ("V", 2000.0)]);
@@ -1314,11 +1287,10 @@ fn criterion_14_alexandrite_like_color_change() {
 
 /// Criterion 14: a Cr-only ruby recipe has dE_cc < 7 (D65 vs 3200 K).
 ///
-/// `data_version` 4: the plan's "< 5" is replaced by the GIA-derived value. The color of the
-/// GIA Cr3+ cross-section (2 E_perp + E_par) / 3 changes by 2.4 / 2.8 / 5.0 / 5.9 dE00 at
-/// 0.05 / 0.1 / 0.3 / 0.5 wt% over 5 mm (ruby is darker and redder under incandescent light), not
-/// "no change": the recipe is within 0.4 of it and the limit 7 keeps a Cr-only ruby apart from
-/// the color-change recipes above (> 8).
+/// The color of the GIA Cr3+ cross-section (2 E_perp + E_par) / 3 changes by 2.4 / 2.8 / 5.0 /
+/// 5.9 dE00 at 0.05 / 0.1 / 0.3 / 0.5 wt% over 5 mm (ruby is darker and redder under
+/// incandescent light). The recipe is within 0.4 of that value. The limit 7 keeps a Cr-only
+/// ruby apart from the color-change recipes above (> 8).
 #[test]
 fn criterion_14_ruby_has_no_color_change() {
     let g = table("gia_cr3plus_sample1110_sigma");

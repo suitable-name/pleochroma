@@ -1,5 +1,6 @@
-//! Benchmark of the rough-colour fit against the performance budget of plan 2026-10-09,
-//! section 10.3 (lane V1).
+//! Benchmark of the rough-colour fit against its performance budget.
+//!
+//! The budget figures are printed at the end of a run.
 //!
 //! ```text
 //! cargo run --release -p pleochroma-cut-core --example zoning_bench
@@ -8,11 +9,11 @@
 //! ```
 //!
 //! For each configuration it builds a 30 mm irregular scanned-like rough (a noise-displaced
-//! icosphere), photographs it with 8 orthographic cameras at 24 px/mm, traces the rig at the
-//! working resolution (384 px across, about 60 000 stone pixels a view), makes noisy photos of a
-//! four-zone stone from the records, and runs the whole solver (multi-start, model comparison,
-//! leave-one-view-out). It prints the trace time, the solve time, the size of the stored records
-//! and the colour error, next to the budget of section 10.3.
+//! icosphere), photographs it with orthographic cameras at 24 px/mm, traces the rig at the
+//! working resolution (384 px across by default), makes noisy photos of a four-zone stone from
+//! the records, and runs the whole solver (multi-start, model comparison, leave-one-view-out).
+//! It prints the trace time, the solve time, the size of the stored records and the colour
+//! error, next to the budget.
 //!
 //! Options (all optional): `--views N` (8), `--samples N` (256), `--px N` (384), `--threads N`
 //! (0 = all cores), `--stone-mm D` (30), `--configs a,b,c` (frosted, polished, immersion),
@@ -26,9 +27,9 @@
 //! "records MB" and "peak estimate MB". Watch the process in Task Manager (peak working set) to
 //! confirm it.
 //!
-//! Dispersion is traced at the d-line index in one bin (the `ForwardOptions::trace_dispersion`
-//! default): the "frosted, dispersion" configuration therefore measures one traced bin, which is
-//! what the fit uses (ZC-8).
+//! Dispersion is traced in one bin, at the d-line index (`ForwardOptions::trace_dispersion`).
+//! The "frosted, dispersion" configuration therefore measures that one bin, which is what the
+//! fit uses.
 
 #![allow(
     clippy::too_many_lines,
@@ -56,7 +57,7 @@ struct Config {
     name: &'static str,
     rough: RoughKind,
     dispersion: bool,
-    /// The budget of section 10.3 for the trace, seconds (low, high).
+    /// The time budget for the trace, seconds (low, high).
     trace_budget_s: (f64, f64),
 }
 

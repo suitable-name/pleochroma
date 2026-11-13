@@ -12,11 +12,10 @@
 //!   tier, a failed solve); its [`Unavailable::reason`] is the text for a disabled entry
 //!   point.
 //! - [`open`] asks for the solve ([`with_solved`](crate::app::solve::with_solved): at once
-//!   when it is cached, else when the solve it starts finishes), builds the plan the way
-//!   the cutting-sheet download does (`io::save::download_cutting_sheet`: the design's
+//!   when it is cached, else when the solve it starts finishes), builds the plan from the
 //!   solved masts, the page's custom materials and the stored default axis of the design's
-//!   custom material), reads the marks, and starts at the step the caller names, else at
-//!   the first step not done.
+//!   custom material (as `io::save::download_cutting_sheet` does), reads the marks, and
+//!   starts at the step the caller names, else at the first step not done.
 //! - [`check`] compares the open model with the design: [`Freshness::Stale`] when the design
 //!   changed (its generation moved), after which [`restart`] builds the plan again and puts
 //!   the model on the first step not done (the page says [`DESIGN_CHANGED_MESSAGE`]);
@@ -29,12 +28,13 @@
 //!
 //! # Marks
 //!
-//! Stored through [`crate::storage::marks`] as [`StoredMarks`](pleochroma_web_core::storage_keys::StoredMarks)
-//! under the stone key of `pleochroma_web_core::storage_keys::mark_keys`: the design's id
-//! when it has one, else a hash of its native text. The marks live in this browser only (a
-//! different browser, a private window or cleared site data starts without them); say so on
-//! the screen. A storage that refuses the write does not stop the screen: the mark stays in
-//! memory and [`MarkOutcome::saved`] is `false`.
+//! Stored through [`crate::storage::marks`] as
+//! [`StoredMarks`](pleochroma_web_core::storage_keys::StoredMarks) under the stone key of
+//! `pleochroma_web_core::storage_keys::mark_keys`: the design's id when it has one, else a
+//! hash of its native text. The marks live in this browser only (a different browser, a
+//! private window or cleared site data starts without them); the screen says so. A storage
+//! that refuses the write does not stop the screen: the mark stays in memory and
+//! [`MarkOutcome::saved`] is `false`.
 //!
 //! # The stone picture
 //!
@@ -276,10 +276,9 @@ pub fn with_mode<R>(f: impl FnOnce(&mut CuttingMode) -> R) -> Option<R> {
     MODE.with(|slot| slot.borrow_mut().as_mut().map(f))
 }
 
-/// The marks stored for `keys`: the current slot, else the legacy one.
+/// The marks stored for `keys`: the primary slot, else the text-hash slot (`keys.legacy`).
 ///
-/// The legacy slot is the one the design had before it got an id. `None` when neither holds
-/// any.
+/// `None` when neither holds any.
 fn stored_marks(keys: &MarkKeys) -> Option<BTreeMap<String, String>> {
     marks::load_marks(&keys.primary).or_else(|| keys.legacy.as_deref().and_then(marks::load_marks))
 }
@@ -334,7 +333,7 @@ impl CuttingMode {
             self.progress = Progress::from_marks(stored.clone());
             self.marks = stored;
         } else if !self.marks.is_empty() {
-            // Held in memory only (storage refused them before): file them now.
+            // Held in memory only because storage refused them: file them now.
             marks::save_marks(&self.keys.primary, &self.marks);
         }
     }

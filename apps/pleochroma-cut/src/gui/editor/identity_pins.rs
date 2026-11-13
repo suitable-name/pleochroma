@@ -1,22 +1,22 @@
-//! Identity pins for the editor logic shared with the browser app through
-//! `crates/pleochroma-editor`: the tier-row/format view models, the yield and
-//! proportion texts, the validation banner, the tier/preform/material form parsers,
+//! Identity pins for the editor logic shared with the browser app (`crates/pleochroma-editor`).
+//!
+//! They cover the tier-row/format view models, the yield and proportion texts, the validation
+//! banner, the tier/preform/material form parsers,
 //! a scripted edit sequence (its native TOML and history depth), the cutting-sheet
 //! HTML and diagram PNG bytes, the Retarget proposals, and the Optimize result views.
 //!
-//! Every value below was recorded BEFORE that logic moved out of this crate, through
-//! the desktop's own paths (re-exports or thin adapters afterwards), so a passing run
-//! proves the move changed nothing the desktop shows or writes. Hashes are 64-bit
-//! FNV-1a over a stable byte form (the raw bytes, or a `Debug` dump), so they do not
-//! depend on `std`'s hasher.
+//! The pins check the shared editor logic through the desktop's own paths (re-exports or
+//! thin adapters), so a passing run shows that what the desktop shows or writes is
+//! unchanged. Hashes are 64-bit FNV-1a over a stable byte form (the raw bytes, or a
+//! `Debug` dump), so they do not depend on `std`'s hasher.
 //!
 //! Two of the pins hold Windows bits: `solid_status_is_pinned` dumps the facet planes,
 //! whose normals come from the facet angles through `sin` and `cos`, and
 //! `retarget_output_is_pinned` dumps proposals whose angles, masts and Optimize scores
-//! run through the same calls. Those go through the platform math library, and glibc
-//! rounds a few arguments differently from the Windows runtime, so the dumps differ on
-//! Linux in their last digits (seen 2026-10-01). Both tests are ignored off Windows;
-//! running them there with `--ignored` prints that platform's hashes.
+//! run through the same calls. Those go through the platform math library, which rounds
+//! a few arguments differently from the Windows runtime, so the dumps differ on Linux in
+//! their last digits. Both tests are ignored off Windows; `--ignored` run there prints
+//! that platform's hashes.
 
 use super::{
     cut_sheet::{write_cutting_sheet_html, write_diagram_png},
@@ -101,9 +101,9 @@ fn tier(name: &str, angle_deg: f64, indices: &[f64], constraint: MeetConstraint)
     }
 }
 
-/// Five fixed designs: three templates (one with a girdle diameter and a custom
-/// material, one with an RI override), a design with no anchor, and the empty
-/// startup design.
+/// Five fixed designs: three templates, a design with no anchor, and the empty startup design.
+///
+/// The second template has a girdle diameter and a custom material, the third an RI override.
 fn fixtures() -> Vec<Design> {
     let d0 = template_design(0);
     let mut d1 = template_design(1);
@@ -138,18 +138,18 @@ fn solved(design: &Design) -> Option<Vec<SolvedTier>> {
     design.solve().ok()
 }
 
-/// Drops the concave-tier fields (`EditorTierItem::kind`/`tool_line`,
-/// `AngleItem::second_line`), the relation field (`EditorTierItem::relation_text`) and the
-/// frosting field (`EditorTierItem::frosting_text`)
-/// from a `Debug` dump while they hold their flat default, so the dump of a planar design
-/// is byte-identical to the one recorded before the concave and relation work. A flat row
-/// that ever carried a concave value or a relation keeps the field in the dump and fails
-/// the pin. (The leading space keeps `constraint_kind` out of it.)
+/// Drops the concave-tier, relation and frosting fields from a `Debug` dump while they hold
+/// their flat default.
+///
+/// The fields are `EditorTierItem::kind`/`tool_line`, `AngleItem::second_line`,
+/// `EditorTierItem::relation_text` and `EditorTierItem::frosting_text`. A flat row that
+/// carries a concave value, a relation or frosting keeps the field in the dump and fails the pin.
+/// (The leading space keeps `constraint_kind` out of it.)
 fn without_flat_defaults(dump: &str) -> String {
     dump.replace(" kind: 0, ", " ")
         .replace("tool_line: \"\", ", "")
         .replace("relation_text: \"\", ", "")
-        // The frosting text of a polished tier (new with frosting), wherever the dump puts it.
+        // The frosting text of a polished tier, wherever the dump puts it.
         .replace("frosting_text: \"\", ", "")
         .replace(", frosting_text: \"\"", "")
         .replace("second_line: \"\", ", "")
@@ -213,51 +213,23 @@ fn tier_rows_and_formats_are_pinned() {
         .iter()
         .map(|d| fnv1a(row_dump(d, &customs).as_bytes()))
         .collect();
-    // `IndexChipItem::frosted` is new with frosting: a polished chip's dump is left as it was
-    // recorded, wherever the dump puts the field.
+    // A polished chip's `frosted: false` is taken out of the dump, wherever the dump puts it.
     let chips = format!(
         "{:?}",
         index_chip_items(&[0.0, 12.0, 24.5, 95.999_999_999_9], &[12.0])
     )
     .replace("frosted: false, ", "")
     .replace(", frosted: false", "");
-    // Re-recorded 2026-10-05: the first four hashes moved, the empty design (no tier rows) and the
-    // chips did not. The tier table shows a tier's angle as the unsigned magnitude and keeps the
-    // side in `block` (`TierRow::angle_deg`/`angle_full` are `tier.angle_deg.abs()`; Save Tier
-    // restores the sign, `tier_form::preserve_saved_tier_side_and_detached`), so a pavilion row now
-    // dumps `angle_deg: "40.00", angle_full: "40"` where the recorded dump had `"-40.00"`/`"-40"`
-    // (and a culet `"0.00"`/`"0"` for `"-0.00"`/`"-0"`). Checked for the third fixture by
-    // reproducing its whole dump by hand: the current code's text hashes to the new value, and the
-    // same text with only those two angle strings signed hashes to the old one.
-    //
-    // Re-recorded 2026-10-06 (lane L1, cutting order and codes): the hashes of the first four
-    // fixtures moved again; the empty design and the chips did not. Every tier row now carries its
-    // code (`EditorTierItem::code`, `P1`, `G1`, `C1`, `T`, `Culet`), which the `Debug` dump
-    // shows; the three template fixtures store their tiers in the order they are cut, so their
-    // rows (and the Schedule rows after them) list the pavilion first and the table last; and
-    // the table's code is `T`, no longer `Table`.
-    // Re-pinned 2026-10-08 for the Schedule-tab codes/index format (first three hashes).
-    // Re-pinned 2026-11-02 (first three hashes): a table or culet (flatter than
-    // `row_format::FLAT_TIER_DEG`, 0.5 degrees) shows no light-leak badge, so the three template
-    // fixtures' flat tiers now dump `margin_text: ""` and `risk_level: -1`.
-    // Re-pinned 2026-11-05 from the owner's Linux run (first three hashes): computed meets
-    // (`cutting_sheet::build::meet_instruction`, 2026-11-04). A depth-set tier's row no longer
-    // reads "Set to mast depth ..."; the first one in cutting order says "Set stone size.", the
-    // others "Meet P1, P2" (earlier tiers sharing a corner in the finished stone) or "Cut to
-    // centerpoint.". `cutting_instructions_rows` is in the dump; the empty design, the fourth
-    // fixture and the chips did not move.
-    // Re-pinned 2026-11-05 again from the owner's Linux run (first three hashes): the
-    // template convention (`Design::sizing_tier`, `DepthPlacement::SetGirdleWidth`). The
-    // first explicit-depth GIRDLE tier in cutting order says "Set stone size." (was the first
-    // explicit-depth tier), pavilion mains ending in one point say "Cut to centerpoint." even
-    // when cut first, and the first crown tier reaching the girdle says "Set girdle width.".
+    // Each fixture's hash covers its tier rows, cutting instructions, warnings and gear remap.
+    // The three template fixtures store their tiers in cutting order (pavilion first, table
+    // last). The chips hash covers `index_chip_items`.
     assert_eq!(
         (got, fnv1a(chips.as_bytes())),
         (
             vec![
-                14_550_319_446_140_432_994,
-                6_694_807_482_979_420_800,
-                2_699_393_262_213_572_022,
+                7_916_919_930_096_416_889,
+                342_975_176_282_995_537,
+                155_074_689_381_684_089,
                 5_527_885_909_529_035_141,
                 17_206_618_785_430_422_565,
             ],
@@ -280,7 +252,7 @@ fn yield_dump(design: &Design, customs: &[GemMaterial]) -> String {
         let _ = writeln!(out, "{:?}", girdle_and_ratio_texts_from_solved(design, &s));
         let _ = writeln!(out, "{:?}", preform_mm_texts_from_solved(design, &s));
         if let Some(props) = design.stone_proportions(&s) {
-            let v = proportion_verdicts(design, &props, n_d);
+            let v = proportion_verdicts(design, &s, &props, n_d);
             for verdict in [
                 &v.table_pct,
                 &v.crown_angle,
@@ -313,10 +285,12 @@ fn yield_and_proportion_texts_are_pinned() {
     assert_eq!(
         (got, misc.as_str()),
         (
+            // The templates' meet-point masts, and the girdle figures read at the girdle line
+            // (`GirdleReading`).
             vec![
-                4_014_893_606_236_560_153,
-                14_597_099_822_765_318_231,
-                15_920_986_950_943_351_804,
+                16_526_355_916_744_590_532,
+                13_603_431_834_376_684_309,
+                4_253_141_147_723_768_253,
                 6_638_080_532_459_035_504,
                 4_860_840_979_635_099_632,
             ],
@@ -364,11 +338,8 @@ fn solid_status_is_pinned() {
         result_is_stale(Some(2), 3),
     ])
     .collect();
-    // Re-recorded 2026-10-06 (Windows, lane L1, cutting order): the first three hashes moved. The
-    // three template fixtures now store their tiers in the order they are cut, so the plane dump
-    // (`design_to_gpu_planes`, one plane per tier in stored order) lists the pavilion first and
-    // the table last; the planes themselves are the same. The fourth and fifth fixtures and the
-    // filters are unchanged.
+    // The plane dump (`design_to_gpu_planes`) has one plane per tier in stored order; the
+    // template fixtures store their tiers in cutting order, pavilion first and table last.
     assert_eq!(
         (got, filters),
         (

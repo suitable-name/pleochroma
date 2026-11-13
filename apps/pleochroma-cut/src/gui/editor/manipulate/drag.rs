@@ -1,6 +1,7 @@
-//! One handle drag, from pointer-down to release or Escape: what the gesture captured,
-//! how each throttled value reaches the design, and the live feedback (the hint line
-//! and the outline on the tiers that follow).
+//! One handle drag, from pointer-down to release or Escape.
+//!
+//! It covers what the gesture captures, how each throttled value reaches the design, and the
+//! live feedback (the hint line and the outline on the tiers that follow).
 
 use super::{
     SESSION, Shared, Target, handles, kind_from_int, kind_to_int, set_hint, slice, snap_mode,
@@ -73,10 +74,10 @@ pub(super) struct DragProgress {
 }
 
 impl DragProgress {
-    /// The edit `value` asks for, or `None` when it equals the last value handed out
-    /// (no redundant undo churn) or, for the index handle, asks for no further turn.
-    /// Index values are running totals from the press, so the step is the difference to
-    /// what is already applied.
+    /// The edit `value` asks for, or `None` when it equals the last value handed out.
+    ///
+    /// For the index handle it is also `None` when no further turn is asked for. Index values
+    /// are running totals from the press, so the step is the difference to what is applied.
     pub(super) fn plan(&mut self, value: DragValue) -> Option<Step> {
         if self.last_value == Some(value) {
             return None;
@@ -105,9 +106,11 @@ impl DragProgress {
     }
 }
 
-/// The whole per-value decision of a drain tick: plan the edit `value` asks for, hand it
-/// to `apply` once, and record what came back. Returns whether an edit reached the
-/// design. `apply` returns `None` for "nothing changed" and after reporting an error.
+/// The whole per-value decision of a drain tick: plan the edit `value` asks for, hand it to
+/// `apply` once, and record what came back.
+///
+/// Returns whether an edit reached the design. `apply` returns `None` for "nothing changed"
+/// and after reporting an error.
 pub(super) fn drain_value(
     progress: &mut DragProgress,
     value: DragValue,
@@ -194,10 +197,11 @@ fn final_value(drag: &ActiveDrag) -> DragValue {
     }
 }
 
-/// What the gesture on `target` starts from. A committed tier also starts a fresh
-/// coalescing run: an earlier edit of this tier inside the window must not absorb the
-/// gesture, and the gesture must not leak into the next edit either. A provisional tier
-/// has no history at all.
+/// What the gesture on `target` starts from.
+///
+/// A committed tier also starts a fresh coalescing run: an earlier edit of this tier inside the
+/// window must not absorb the gesture, and the gesture must not leak into the next edit either.
+/// A provisional tier has no history at all.
 fn gesture_inputs(ctx: &Shared, target: &Target) -> Option<GestureInputs> {
     if target.provisional {
         return slice::gesture_inputs();
@@ -516,9 +520,9 @@ pub(super) fn cancel(ui: &MainWindow, ctx: &Shared) {
     finish_ui(ui, ctx, &drag);
 }
 
-/// Undoes the gesture's coalesced step, provided it is still the newest thing that
-/// happened to the design, and redraws everything from a full solve (the same refresh
-/// the Undo button runs).
+/// Undoes the gesture's coalesced step, provided it is still the newest change to the design.
+///
+/// It then redraws everything from a full solve, the same refresh the Undo button runs.
 fn undo_gesture(ui: &MainWindow, ctx: &Shared, drag: &ActiveDrag) {
     let Ok(mut st) = ctx.state.try_borrow_mut() else {
         return;

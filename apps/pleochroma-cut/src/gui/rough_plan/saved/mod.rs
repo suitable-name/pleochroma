@@ -3,8 +3,8 @@
 //!
 //! - [`dto`], [`convert`], [`checks`] and [`format`] are the file format: documents,
 //!   validation, cross-checks and the header-first loader; `sections` is the part of it
-//!   that travels with a plan but lives in the library's side tables (its rough color and
-//!   stone orientations, schema version 4);
+//!   that travels with a plan but lives in the library's side tables (its rough colour and
+//!   stone choices, schema versions 4 and 5);
 //! - [`store`] is the database table;
 //! - [`staleness`] compares the stored designs with the library;
 //! - [`list`], [`save`], [`open`] and [`transfer`] are the window's flows: the saved
@@ -55,7 +55,7 @@ use self::dto::DesignShape;
 use super::host::{Host, on_host};
 use crate::RoughPlanModel;
 use pleochroma_vault::db::sqlite::Database;
-use slint::ComponentHandle;
+use slint::{ComponentHandle, Model};
 use std::{
     any::Any,
     collections::BTreeMap,
@@ -76,6 +76,60 @@ struct LoadedFingerprints {
     library_id: Option<u32>,
     /// The stored shape of each design, by the entry id the layouts now use.
     shapes: BTreeMap<i64, DesignShape>,
+}
+
+/// The value of `RoughPlanModel.results_tab` that shows the ranked layouts.
+pub(super) const RESULTS_TAB_LAYOUTS: i32 = 0;
+
+/// What a saved-plan card's menu can ask for (`RoughPlanModel.saved_menu`'s action number).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SavedAction {
+    /// Open the plan: its layouts replace the shown ones.
+    Open,
+    /// Rename the plan. The window opens its own inline name field and commits it through
+    /// `rename_saved`, so there is nothing to do here.
+    Rename,
+    /// Export the plan to a file.
+    Export,
+    /// Delete the plan (the window asked for confirmation already).
+    Delete,
+}
+
+impl SavedAction {
+    /// The action of menu number `number` (0 open, 1 rename, 2 export, 3 delete); `None` for
+    /// any other number.
+    const fn from_number(number: i32) -> Option<Self> {
+        match number {
+            0 => Some(Self::Open),
+            1 => Some(Self::Rename),
+            2 => Some(Self::Export),
+            3 => Some(Self::Delete),
+            _ => None,
+        }
+    }
+}
+
+/// `RoughPlanModel.saved_menu`: the menu of the saved plan in list row `row` asked for
+/// `action`. It maps onto the same open, export and delete code the card buttons used; a row
+/// that is not in the list (the list was refreshed meanwhile) does nothing.
+fn saved_menu(host: &Rc<Host>, row: i32, action: i32) {
+    let Some(action) = SavedAction::from_number(action) else {
+        return;
+    };
+    let rows = host.window.global::<RoughPlanModel>().get_saved_plans();
+    let Some(id) = usize::try_from(row)
+        .ok()
+        .and_then(|index| rows.row_data(index))
+        .map(|plan| i64::from(plan.id))
+    else {
+        return;
+    };
+    match action {
+        SavedAction::Open => open::open_saved(host, id),
+        SavedAction::Rename => {}
+        SavedAction::Export => transfer::export_saved(host, id),
+        SavedAction::Delete => list::delete_saved(host, id),
+    }
 }
 
 /// The banner of a plan that was just opened, kept until its rows are on screen.
@@ -117,6 +171,7 @@ pub(super) fn setup_saved_callbacks(host: &Rc<Host>) {
     model.on_delete_saved(|id| on_host(|host| list::delete_saved(host, i64::from(id))));
     model.on_export_saved(|id| on_host(|host| transfer::export_saved(host, i64::from(id))));
     model.on_import_saved(|| on_host(transfer::import_saved));
+    model.on_saved_menu(|row, action| on_host(|host| saved_menu(host, row, action)));
     list::refresh_list(host);
 }
 
@@ -189,4 +244,19 @@ pub(in crate::gui::rough_plan) fn announce(host: &Host, message: &str) {
         crate::gui::show_toast(&main, message, "success");
     }
     show_status(host, message);
+}
+
+#[cfg(test)]
+mod menu_tests {
+    use super::*;
+
+    #[test]
+    fn the_menu_numbers_name_open_rename_export_and_delete() {
+        assert_eq!(SavedAction::from_number(0), Some(SavedAction::Open));
+        assert_eq!(SavedAction::from_number(1), Some(SavedAction::Rename));
+        assert_eq!(SavedAction::from_number(2), Some(SavedAction::Export));
+        assert_eq!(SavedAction::from_number(3), Some(SavedAction::Delete));
+        assert_eq!(SavedAction::from_number(4), None);
+        assert_eq!(SavedAction::from_number(-1), None);
+    }
 }

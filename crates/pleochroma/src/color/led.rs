@@ -3,7 +3,7 @@
 //! Nine relative spectral power distributions representing typical LED lamps: five
 //! phosphor-converted blue-pumped whites (`B1` to `B5`), one blue-hybrid (`BH1`), one RGB mix
 //! (`RGB1`) and two violet-pumped whites (`V1`, `V2`). They are the stand-in for the backlight
-//! of the rig photos when the owner has no measured spectrum (plan section 4.4).
+//! of the rig photos when no measured spectrum is available.
 //!
 //! Reached through [`Illuminant::Led`](super::body_color::Illuminant::Led), which carries a
 //! [`LedKind`]. The variant is appended last, so the earlier `Illuminant` variants keep
@@ -12,10 +12,9 @@
 //! # Data
 //!
 //! `data/cie_illum_leds_5nm.csv`: 81 rows, 380 to 780 nm in 5 nm steps, columns in the order
-//! of [`LedKind::ALL`]. It is every fifth row of the CIE's 1 nm dataset (source, DOI, licence
-//! note and the verification against the CIE file are in the file header). Values are relative; they are not
-//! normalised to a common level by the CIE, so [`LedKind::spectral_power`] normalises each
-//! curve to a peak of 1.
+//! of [`LedKind::ALL`]. It is every fifth row of the CIE's 1 nm dataset (source, DOI and
+//! licence note are in the file header). Values are relative and not normalised to a common
+//! level, so [`LedKind::spectral_power`] normalises each curve to a peak of 1.
 //!
 //! The dataset is embedded with `include_str!` and parsed once on first use.
 
@@ -269,7 +268,7 @@ mod tests {
     }
 
     /// Pins every column against the CIE's own 1 nm file (`CIE_illum_LEDs_1nm.csv`, MD5
-    /// `99d1bc3974902d5e02e4c3fe539bea3d`, checked 2026-10-12): the sum of the 81 rows at 5 nm and
+    /// `99d1bc3974902d5e02e4c3fe539bea3d`): the sum of the 81 rows at 5 nm and
     /// the values at 450, 555 and 650 nm, as published. A changed digit anywhere in a column moves
     /// its sum.
     #[test]
@@ -374,8 +373,7 @@ mod tests {
     /// Tolerance: the published CCT is rounded to whole kelvin and `McCamy`'s formula is
     /// accurate to about 2 K on the locus, but the LEDs sit slightly off the locus and the
     /// CMF here is the crate's own 5 nm sum, so allow 2 % of the CCT. Source of the CCTs:
-    /// CIE 15:2018 table 12.2 (`LedKind::published_cct_k`). The same check was run during
-    /// authoring with an independent analytic CMF and agreed within 1.3 %.
+    /// CIE 15:2018 table 12.2 (`LedKind::published_cct_k`).
     #[test]
     fn chromaticity_matches_the_published_cct() {
         for kind in LedKind::ALL {

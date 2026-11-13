@@ -13,8 +13,7 @@ use dispatch::{chunk_pixels_for, environment_params};
 use readback::staging_needs_growth;
 
 /// [`staging_needs_growth`] must say "grow" exactly when the current capacity is too
-/// small, and "keep" both when it matches and when strictly larger (never shrink),
-/// mirroring [`GpuFrameRenderer::ensure_capacity`]'s identical check for `outputs`.
+/// small, and "keep" both when it matches and when strictly larger (never shrink).
 #[test]
 fn staging_needs_growth_only_when_undersized() {
     // Too small: must grow.
@@ -126,15 +125,16 @@ fn studio_environments_map_onto_the_studio_rig_mode() {
     assert_eq!(backdrop, 0.0);
 }
 
-/// An HDR map is a SUPPORTED environment (`env_mode ==
-/// transport_env_mode::HDR_MAP`), not a decline -- the studio-rig fields are simply
-/// unused by that branch (see [`environment_params`]'s own doc comment), not left at
-/// some other environment's stale values.
+/// An HDR map is a supported environment (`transport_env_mode::HDR_MAP`), not a decline.
+/// The studio-rig fields are unused by that branch, and the map's exposure rides in
+/// `GpuTransportParams::hdr_exposure` rather than in a studio field.
 #[test]
 fn hdr_environments_map_onto_the_hdr_map_mode() {
     let map = crate::renderer::env_map::EnvironmentMap::uniform(4, 2, [1.0, 1.0, 1.0]);
     let (mode, temp_k, spot_mult, exposure, yaw, pitch, use_d65, studio_model, backdrop) =
-        environment_params(crate::optics::raytracer::EnvironmentSource::HdrMap(&map));
+        environment_params(crate::optics::raytracer::EnvironmentSource::hdr_at(
+            &map, 2.5,
+        ));
     assert_eq!(mode, transport_env_mode::HDR_MAP);
     assert_eq!(
         (temp_k, spot_mult, exposure, yaw, pitch),
@@ -145,26 +145,15 @@ fn hdr_environments_map_onto_the_hdr_map_mode() {
     assert_eq!(backdrop, 0.0);
 }
 
-// `every_builtin_routes_the_way_gpu_supported_says` does not belong here:
-// `GemMaterial::gpu_supported` is unconditionally `true` (see its own doc
-// comment), so a test that only calls `material.gpu_supported()` directly asserts a
-// predicate that cannot fail, regardless of whether `accumulate_turn_body`'s own
-// enforcement of it (a few functions up, `if !scene.material.gpu_supported()`) is
-// wired correctly. Making it meaningful would mean actually dispatching
-// `accumulate_turn_body` for a material `gpu_supported` declines, which needs a real
-// adapter (this module's other adapter-free tests, above, deliberately stay under
-// plain `cargo test`) -- no such material exists today to dispatch with anyway,
-// since the predicate is unconditionally `true`. If a future material type the
-// megakernel cannot handle is ever added, an adapter-gated check belongs in
-// `examples/gpu_equivalence_harness.rs` alongside this module's other real-hardware
-// self-tests, not here.
+// No test of `GemMaterial::gpu_supported` here: a test that only calls the predicate does not
+// check that `accumulate` enforces it. A check that a declining material is refused needs a
+// real adapter and belongs in the `examples/gpu_equivalence_harness/` harness.
 
-/// [`wavefront_pixel_cap`] with a FAKE `max_storage_buffer_binding_size`
-/// -- no real adapter needed (unlike [`GpuFrameRenderer::cap_byte_budget_for_wavefront`]
-/// itself, which reads a live device's limits). A generous fake limit (128 MiB, the
-/// WebGPU baseline) must not cap a small chunk at all; a tiny one (one tuple's worth
-/// of `stokes` exactly) must cap to exactly 1 pixel at `spp == 1` and stay >= 1 even
-/// at large `spp` (never 0, which would make a later chunk-sizing division panic).
+/// [`wavefront_pixel_cap`] with a fake `max_storage_buffer_binding_size`, so no adapter is
+/// needed (unlike [`GpuFrameRenderer::cap_byte_budget_for_wavefront`], which reads a live
+/// device's limits). A generous limit (128 MiB, the WebGPU baseline) must not cap a small
+/// chunk. One tuple's worth of `stokes` must cap to exactly 1 pixel at `spp == 1`, and stay
+/// at least 1 at large `spp`, since 0 would break a later chunk-sizing division.
 #[test]
 fn wavefront_pixel_cap_respects_the_binding_limit() {
     let generous = 128 * 1024 * 1024;

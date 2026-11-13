@@ -35,30 +35,21 @@ use std::{
     sync::{Arc, Mutex, atomic::Ordering as AtomicOrdering},
 };
 
-/// The completion handler [`super::optimize_run::setup_optimize_callback`] hands to
-/// [`crate::gui::editor::optimize_solve::spawn_optimize_run`], pulled out to keep that callback under
-/// clippy's function-length lint. `pending_optimize` is stashed here (by
-/// `optimize_panel::show_run`) with the best candidate -- `None` whenever nothing an Apply
-/// click could safely commit (failed, no candidates found, or already stale).
+/// The completion handler for [`super::optimize_run::setup_optimize_callback`]'s run.
 ///
-/// `OptimizeOutcome::before_score`/`after_score` are both measured at
-/// [`pleochroma_cut_core::optimize::ObjectiveFidelity::Full`] (the search itself
-/// only ever compares candidates at `Fast`, see that module's doc comment), so
-/// `after_score >= before_score` (both internal losses, lower is better; the screen shows
-/// `100 - loss`) here is a real, full-fidelity regression, not a
-/// Fast-vs-Full discrepancy -- reported as a problem (ruby, not the usual emerald
-/// "success" styling `editor_inspector.slint` already keys off
-/// `optimize_status_is_problem` for) rather than the plain "changed N tier(s)"
-/// summary, which alone would read as unconditional success even when the changes
-/// the rows *did* show made the full-fidelity result worse. Apply stays available: a
-/// worse full-fidelity score is a warning, not a proof the user cannot possibly
-/// want it.
+/// It is split out to keep that callback under clippy's function-length lint. `pending_optimize`
+/// is set here (by `optimize_panel::show_run`) to the best candidate, or `None` when nothing can
+/// safely be applied (failed, no candidates, or stale).
 ///
-/// A non-stale `Completed`/`Cancelled`/`Failed` outcome also toasts, so completion
-/// is visible even when the Optimize tab is not the one currently open, and, when
-/// a real result is waiting for Apply, switches the inspector to the Optimize tab
-/// and uncollapses it -- a stale result gets its own dedicated toast instead (see
-/// the `stale` branch below), never both.
+/// `before_score` and `after_score` are both at `ObjectiveFidelity::Full`, while the search
+/// compares candidates at `Fast`. So `after_score >= before_score` (both internal losses, lower
+/// is better; the screen shows `100 - loss`) is a real regression. It is reported as a problem,
+/// not as the success summary, since the per-tier table alone would read as success. Apply stays
+/// available: a worse full-fidelity score is a warning, not a ban.
+///
+/// A non-stale outcome also toasts, so completion is visible when the Optimize tab is closed. If
+/// a result is waiting for Apply, the inspector switches to the Optimize tab. A stale result gets
+/// its own toast instead (see the `stale` branch below).
 pub(super) fn handle_optimize_outcome(
     ui: &MainWindow,
     outcome: OptimizeRunOutcome,
@@ -70,32 +61,22 @@ pub(super) fn handle_optimize_outcome(
     // Wall time of the run, for the next run's time estimate.
     elapsed_secs: f32,
 ) {
-    // Always cleared first, on every path below, including the replaced-design
-    // early return: `optimize_status` doubles as the live progress readout and
-    // `optimize_running` gates the Optimize button, so a handler that returns
-    // without touching either leaves the panel stuck mid-run.
+    // Cleared first on every path, including the early return for a replaced design. Otherwise
+    // the progress readout and the Optimize button gate would stay stuck mid-run.
     ui.global::<EditorModel>().set_optimize_running(false);
     ui.global::<OptimizeModel>().set_progress(0.0);
-    // New / Load Selected / Open swapped the design out from under this run:
-    // the result describes a different stone, `clear_analysis_results` has already
-    // blanked the panel on purpose, and `EditorState::pending_optimize` is a fresh
-    // `Arc` the replacement installed -- so there is nothing here worth showing, and
-    // nothing a cutter could act on. Silent, not even a toast: they asked for a new
-    // design, not for a postmortem on the old one.
+    // New / Load Selected / Open replaced the design during the run: the result describes another
+    // stone and the panel is already blank, so there is nothing to show. No toast either.
     if provenance.design_replaced() {
         clear_analysis_results(ui);
         return;
     }
     match outcome {
         OptimizeRunOutcome::Failed { error } => {
-            // `MissingAnchor`'s own `Display` names the block(s) but not the
-            // remedy itself -- the same text the plain Solve banner already shows
-            // for the identical failure  -- so this appends
-            // the "add a tier" instruction only for that variant. Every other
-            // `DesignSolveError` variant (a `TierTarget` that could not be
-            // resolved, most commonly) already renders as a complete, actionable
-            // sentence on its own -- see that type's own `Display` impl -- so
-            // appending the anchor-specific remedy to it would be wrong.
+            // `MissingAnchor`'s `Display` names the block(s) but not the remedy. The plain Solve
+            // banner shows the same text for that failure, so the "add a tier" instruction is
+            // appended for that variant only. Other `DesignSolveError`s already read as complete
+            // sentences (see that type's `Display`).
             let status = if matches!(error, DesignSolveError::MissingAnchor(_)) {
                 format!(
                     "Optimize failed: {error} -- add an Exact Scale Value tier there \
@@ -112,12 +93,11 @@ pub(super) fn handle_optimize_outcome(
             show_toast(ui, &status, "error");
         }
         OptimizeRunOutcome::Completed { result } | OptimizeRunOutcome::Cancelled { result } => {
-            // An EDIT only -- a replacement returned above. The result still
-            // describes this design a few edits ago, so it is shown for reference
-            // with its own toast, but Apply stays disabled.
+            // Reached for an edit only (a replacement returned above). The result describes the
+            // design a few edits ago: shown for reference, with Apply disabled.
             let stale = provenance.is_stale();
-            // Candidates only qualify when their full-fidelity score is no worse than the
-            // start's, so this is the edge case of a tie.
+            // Candidates qualify only if their full-fidelity score is no worse than the start,
+            // so `>=` also catches a tie.
             let no_net_improvement = result
                 .candidates
                 .first()
@@ -135,11 +115,8 @@ pub(super) fn handle_optimize_outcome(
                 .set_optimize_status(status.clone().into());
             ui.global::<EditorModel>()
                 .set_optimize_status_is_problem(no_net_improvement);
-            // An immediate push of the
-            // SAME comparison `view::push_stale_content` keeps live on every later
-            // edit (`state::result_is_stale` against `pending_optimize`'s own
-            // stored generation) -- see `apply_deep_solve_outcome`'s matching
-            // comment for why this cannot simply wait for the next edit.
+            // Pushed now, as `view::push_stale_content` keeps doing on later edits. Otherwise the
+            // flag would wait for the next edit.
             ui.global::<EditorModel>().set_optimize_stale(stale);
             // The candidate rows, the best candidate picked, its result and change tables
             // (which tiers Optimize wants to move, so a cutter can read the proposal
@@ -165,11 +142,8 @@ pub(super) fn handle_optimize_outcome(
                     "info",
                 );
             } else {
-                // A toast plus bringing the Optimize tab into view (only when there
-                // is something to act on) is what gets a cutter's attention if they
-                // switched to the Tier tab or collapsed the inspector while the run
-                // was going -- otherwise completion would go unnoticed unless the
-                // Optimize tab already happened to be open.
+                // A toast, and the Optimize tab opened when there is something to apply, so
+                // completion is noticed even if the cutter switched tabs during the run.
                 show_toast(
                     ui,
                     &format!("Optimize finished: {status}"),
@@ -189,29 +163,18 @@ pub(super) fn handle_optimize_outcome(
     }
 }
 
-/// "Cancel" (shown only while an Optimize run is in progress): see
-/// [`crate::gui::editor::optimize_solve::OptimizeSolveHandle::cancel`] for what this does and doesn't
-/// stop. `editor_optimize_running` is deliberately left alone here: the worker's
-/// own `on_done`, arriving within about a search evaluation's latency (Optimize's
-/// own real mid-search checkpoint, see `optimize_solve`'s module doc comment),
-/// still carries the real, honest partial result and is what actually clears it.
+/// "Cancel", shown only while an Optimize run is in progress. See
+/// [`crate::gui::editor::optimize_solve::OptimizeSolveHandle::cancel`] for what it stops.
+/// `editor_optimize_running` is left alone: the worker's own `on_done` still carries the honest
+/// partial result and is what clears the flag, within one search evaluation's latency.
 ///
-/// Still gives immediate feedback on the same click -- matching Deep Solve's own
-/// cancel button (see [`super::deep_solve_pin::setup_deep_solve_cancel_callback`]) for "cannot tell that
-/// Cancel did anything" -- without the risk flipping `optimize_running` off early
-/// would create: the abandoned worker is still finishing, and a click on "Optimize"
-/// in that window would start a second search racing the first one.
+/// The status text changes at once, as Deep Solve's cancel does (see
+/// [`super::deep_solve_pin::setup_deep_solve_cancel_callback`]). Clearing the running flag early
+/// would let a click on "Optimize" start a second search while the first is still finishing.
 ///
-/// A second click while a cancel is already in flight
-/// is harmless but pointless -- `handle.cancel()` just stores `true` again, and
-/// this only re-sets the same status text -- so rather than adding a new
-/// `EditorModel` property (this callback has no way to know the click even
-/// happened without one), the button itself latches locally in
-/// `ui/components/editor_command_bar.slint`'s `AnalysisGroup` --
-/// `optimize_cancel_requested`, reset the moment `EditorModel.optimize_running`
-/// goes false again -- and disables/relabels itself entirely in Slint, so a
-/// second click never reaches this callback at all. No Rust
-/// change was needed here beyond the status text this callback already sets.
+/// The button latches locally in Slint (`cancel_requested` in
+/// `ui/components/editor_inspector/optimize_tab.slint`), so a second click never reaches this
+/// callback.
 pub(in crate::gui::editor) fn setup_optimize_cancel_callback(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -223,10 +186,7 @@ pub(in crate::gui::editor) fn setup_optimize_cancel_callback(
             handle.cancel();
         }
         if let Some(ui) = ui_weak.upgrade() {
-            // The search polls `cancel` once per tier decision (see the module doc
-            // comment's "Cancellation is a REAL mid-search checkpoint" section), so
-            // "finishing the current evaluation" is literally true, not just a
-            // reassuring guess.
+            // The search polls `cancel` mid-run, so "finishing the evaluation" is accurate.
             ui.global::<EditorModel>()
                 .set_optimize_status("Cancelling -- finishing the current evaluation...".into());
             ui.global::<EditorModel>()
@@ -235,27 +195,17 @@ pub(in crate::gui::editor) fn setup_optimize_cancel_callback(
     });
 }
 
-/// "Apply" (shown only while `EditorState::pending_optimize` holds a real,
-/// not-yet-stale result): commits the held [`OptimizeOutcome`] through
-/// `optimize_panel::apply_pending` (the picked candidate's angles and masts, plus the tiers
-/// that follow a relation, as one undo step), the only place this crate turns an Optimize
-/// result into a real edit.
+/// "Apply", shown only while `EditorState::pending_optimize` holds a result that is not stale.
+/// It commits the held [`OptimizeOutcome`] through `optimize_panel::apply_pending` as one undo
+/// step (the candidate's angles and masts, plus the tiers that follow a relation). It is the
+/// only place an Optimize result becomes an edit.
 ///
-/// Re-checks the design generation against what the search ran on even though
-/// `editor_optimize_can_apply` should already be `false` by the time a stale result
-/// could reach here -- a second, authoritative guard against reinterpreting a stale
-/// tier index against a design it no longer describes.
+/// The generation is checked again here as a second guard, so a stale tier index is never read
+/// against a design it does not describe.
 ///
-/// Peeks (clones) `pending_optimize` rather than `take`ing it up front, and only
-/// actually consumes it once the apply has gone through: `take`ing the result
-/// unconditionally before checking staleness would mean a cutter who clicked Apply
-/// one edit too late loses the held Optimize result permanently -- with
-/// `optimize_result_rows`/`optimize_status` still on screen (nothing here ever
-/// clears those two) while the one thing that could still commit them,
-/// `pending_optimize`, is already gone, leaving a full re-run as the only
-/// recovery. Left in place on a failed apply
-/// for the same reason -- the apply sets each tier to an absolute angle, so a retry after
-/// whatever the error named gets fixed is harmless to attempt again, never a double-delta.
+/// `pending_optimize` is peeked, not taken, and consumed only after the apply succeeds. Taking
+/// it first would lose the result for good after a late Apply click, while the rows stay on
+/// screen. A failed apply keeps it too: each apply sets absolute angles, so a retry is harmless.
 pub(in crate::gui::editor) fn setup_optimize_apply_callback(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -283,12 +233,8 @@ pub(in crate::gui::editor) fn setup_optimize_apply_callback(
         };
         if st.generation.load(AtomicOrdering::Relaxed) != started_generation {
             ui.global::<EditorModel>().set_optimize_can_apply(false);
-            // The one consistent
-            // wording every generation-guard discard uses --
-            // see `too_many_planes_message`'s sibling fix (item 5) for the same
-            // "tell the cutter what happened" rule applied to a different silent
-            // discard. Amber ("warning"), not "error": nothing failed -- the
-            // design simply moved on before this result could be trusted.
+            // Amber ("warning"), not "error": nothing failed. The design moved on
+            // before this result could be trusted.
             show_toast(
                 &ui,
                 "Result discarded: the design changed while Optimize was running. Re-run \
@@ -318,21 +264,12 @@ pub(in crate::gui::editor) fn setup_optimize_apply_callback(
                 ui.global::<EditorModel>().set_optimize_can_apply(false);
                 // The candidate list described the design before this apply.
                 optimize_panel::clear_results(&ui);
-                // The applied design is the new Baseline, so hand-tuning starts from the
-                // result; its masts arrive with the solve `refresh_all_now` starts below.
+                // The applied design is the new Baseline, so hand-tuning starts from the result.
                 baseline::install(Origin::Optimize, &st);
-                // A plain `refresh_editor_panel_stale` +
-                // `submit_preview_replan` would leave the panel reading "Not solved" with
-                // "-" masts right after a successful Apply, as if the commit were
-                // still pending -- `refresh_all` is the same call `New`/`Load
-                // Selected`/`Solve` use, a REAL solve (inline only for a cheap
-                // design per `view::refresh_all`'s policy, backgrounded otherwise),
-                // so the table and viewport read solved immediately instead of
-                // waiting on the next unrelated edit's auto-solve to catch up.
-                // routed through
-                // `refresh_all_now` (`Rc<RefCell<EditorState>>`-based, paints
-                // "Solving" before a synchronous solve runs) -- see that
-                // function's own doc comment.
+                // `refresh_all_now` runs a real solve (inline for a cheap design, otherwise in the
+                // background), so the table and viewport read solved right after Apply. A plain
+                // panel refresh would show "Not solved" with "-" masts, as if the commit were
+                // still pending.
                 drop(st);
                 refresh_all_now(
                     &ui,
@@ -342,9 +279,8 @@ pub(in crate::gui::editor) fn setup_optimize_apply_callback(
                     &state,
                     false,
                 );
-                // The result table/status above still describe the PROPOSAL that
-                // was just committed -- prefixing makes clear it is no longer
-                // pending, rather than lingering as if Apply were still waiting.
+                // The result text still describes the committed proposal, so it is prefixed to
+                // show that it is no longer pending.
                 let applied_status = format!(
                     "Applied: {}",
                     ui.global::<EditorModel>().get_optimize_status()
@@ -365,31 +301,21 @@ pub(in crate::gui::editor) fn setup_optimize_apply_callback(
     });
 }
 
-/// A "Preview" toggle that shows the pending
-/// Optimize result's candidate geometry in the shared solid viewport BEFORE the
-/// cutter commits to Apply, and puts the real design straight back the moment it is
-/// switched off (or the pending result stops being appliable at all). Wired to
-/// `EditorModel.optimize_preview_toggled(bool)`, invoked from the checkbox in
-/// `editor_inspector.slint`.
+/// The "Preview" toggle: shows the pending Optimize result's candidate geometry in the solid
+/// viewport before Apply, and restores the real design as soon as it is switched off or the
+/// result can no longer be applied. Wired to `EditorModel.optimize_preview_toggled(bool)`.
 ///
-/// `true`: builds the candidate via [`build_optimize_preview_design`] from
-/// whichever design `EditorState::pending_optimize` actually ran against (NOT
-/// necessarily `state`'s current design -- a toggle click after further edits
-/// would otherwise silently preview against the wrong baseline) and shows it via
-/// [`submit_design_ghost_preview`], which never touches `solid_last_solved`/the
-/// generation stash (see that function's own doc comment) -- so leaving this
-/// toggle on can never corrupt the next real edit's incremental resolve. The
-/// candidate is solved on a background worker, so the toggle never blocks; the
-/// ghost appears when that solve lands.
+/// On: the candidate is built by [`try_build_optimize_preview_design`] from the design the
+/// pending result ran against, which may differ from the current design after further edits.
+/// It is shown via [`submit_design_ghost_preview`], which never touches `solid_last_solved` or
+/// the generation stash, so the next real edit's resolve is unaffected. The candidate solves on
+/// a background worker, so the toggle does not block.
 ///
-/// `false` (or nothing pending any more): resubmits the REAL, live design through
-/// the ordinary [`submit_preview_replan`] path, exactly undoing the ghost.
+/// Off, or nothing pending: the real design is resubmitted through [`submit_preview_replan`].
 ///
-/// The checkbox raises this from a Slint `changed` handler, which runs on a later pass of
-/// the event loop and so can meet a writer that still holds the editor state. The state is
-/// therefore only `try_borrow`ed: a toggle that finds it held is retried a few ticks later
-/// ([`cut_slider::retries_after_busy`]), the way the Cut slider's replan is, instead of
-/// panicking on a plain `borrow()`.
+/// The checkbox raises this from a Slint `changed` handler, which can run while a writer holds
+/// the editor state. The state is therefore only `try_borrow`ed. A busy state is retried a few
+/// ticks later ([`cut_slider::retries_after_busy`]), as the Cut slider's replan is.
 pub(in crate::gui::editor) fn setup_optimize_preview_callback(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -486,14 +412,10 @@ fn run_optimize_preview(preview: &Rc<OptimizePreview>, retries_left: u8) {
                 .clone()
         })
         .flatten();
-    // `started_generation` is compared and not ignored -- built straight from
-    // `st.design` regardless of whether the search that produced `outcome` ran against
-    // an OLDER generation. Optimize completes, the user removes a tier (bumping
-    // `st.generation`), then toggles Preview on: the stale `AngleChange` indices from
-    // the search were applied to the shifted tier list and the wrong tiers moved, while
-    // Apply was (correctly) already greyed out by the same staleness. Mirrors
-    // `view::apply_pending_optimize_ghost`'s own generation check (private to that
-    // file, so re-checked here rather than shared).
+    // `started_generation` is checked: a result from an older generation holds tier indices for
+    // a tier list that has since changed, so it must not preview. Apply is greyed out for the
+    // same reason. `view::apply_pending_optimize_ghost` makes the same check, but it is private
+    // there, so it is repeated here.
     let current_generation = st.generation.load(AtomicOrdering::Relaxed);
     if let Some(outcome) = preview_candidate(enabled, pending, current_generation) {
         let candidate = match try_build_optimize_preview_design(&st.design, &outcome) {

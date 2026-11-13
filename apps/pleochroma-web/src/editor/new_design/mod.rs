@@ -1,21 +1,16 @@
-//! The New Design dialog (the desktop's `new_design_dialog.slint` and
-//! `tier_actions::new_design`): the grouped template gallery (Shapes, Round Variants and
-//! Teaching Designs, Blank) over `pleochroma_editor::templates::gallery_cards`, and two ways
-//! to create.
+//! The New Design dialog: a grouped template gallery (Shapes, Round Variants and Teaching
+//! Designs, Blank) and the two ways to create a design.
 //!
-//! - **A template card** (`GalleryModel.selected-index >= 1`): the dialog offers the gears the
-//!   template's facets still land on, the material (the template's own by default, with the
-//!   "Designed for Sapphire (n 1.768)" line and what the choice means for the angles) and an
-//!   optional stone width. Create builds the design with `create_from_template`, which remaps
-//!   the gear and, when the material's index differs from the one the template was designed
-//!   for, adapts the pavilion angles through the retarget engine (kept only when the result is
-//!   valid; the toast says which).
-//! - **Empty** (index 0): every `FreshDesignSpec` field -- preform shape and size, index gear,
-//!   symmetry, mirror, starting material -- parsed from the form.
+//! - **A template card** (`GalleryModel.selected-index >= 1`): the gear, the material (the
+//!   template's own by default) and an optional stone width. Create builds the design with
+//!   `create_from_template`, which remaps the gear and, when the material differs from the one
+//!   the template was designed for, adapts the pavilion angles through the retarget engine
+//!   (kept only when the result is valid; the toast says which).
+//! - **Empty** (index 0): every `FreshDesignSpec` field, parsed from the form.
 //!
 //! The dialog is open while `GalleryModel.open` is true. Creating over unsaved changes goes
-//! through the Save / Discard / Cancel guard (`editor::unsaved`); the dialog closes once the
-//! new design is installed. The template logic that needs no window is in [`choice`].
+//! through the Save / Discard / Cancel guard (`editor::unsaved`). The template logic that needs
+//! no window is in [`choice`].
 
 mod choice;
 
@@ -46,8 +41,7 @@ use pleochroma_editor::{
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 use std::rc::Rc;
 
-/// A cylinder preform's side count from the dialog: fixed, independent of the gear (the
-/// desktop's `FIXED_CYLINDER_PREFORM_SIDES`).
+/// The side count of a cylinder preform from the dialog, fixed whatever the gear.
 const FIXED_CYLINDER_PREFORM_SIDES: usize = 96;
 
 /// A Slint string list.
@@ -202,8 +196,8 @@ fn create(ctx: &Ctx) {
     }
 }
 
-/// Swaps `session` in as the open design, closes the dialog and runs what a new design owes
-/// the rest of the page. Returns nothing; the caller toasts last so its message stays.
+/// Swaps `session` in as the open design, closes the dialog and runs what a new design needs
+/// from the rest of the page. A caller's later toast replaces the "New design" one.
 fn install_session(ctx: &Ctx, session: EditorSession, name: &str) {
     {
         let mut app = ctx.state.borrow_mut();
@@ -251,7 +245,7 @@ fn install_template(ctx: &Ctx, choice: &NewDesignChoice) {
     let name = template_spec(choice.template_index).map_or("Template", |spec| spec.name);
     let mut session = created.session;
     // The template's name becomes the design's title line, so the title survives a save and
-    // a reload (a restored design has no template source to name it), as in the mobile app.
+    // a reload (a restored design has no template source to name it).
     if session.design.meta.headers.is_empty() {
         session.design.meta.headers = vec![name.to_owned()];
     }

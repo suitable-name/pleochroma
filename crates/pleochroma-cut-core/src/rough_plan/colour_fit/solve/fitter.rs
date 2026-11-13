@@ -4,7 +4,7 @@
 //! covariance, and [`fit_records`], which fits every available model, compares them and
 //! validates the chosen one.
 //!
-//! # Multi-start and stages (round 3, D1)
+//! # Multi-start and stages
 //!
 //! `config.seeds` (8) deterministic starts run Levenberg-Marquardt for `stage1_iterations` (12)
 //! each with ALL gains held at 1, in parallel when `config.threads` allows (every start is
@@ -48,7 +48,7 @@ pub(super) struct Fitted {
     pub normal: Normal,
     pub iterations: usize,
     /// The iterations of each stage on its own: the multi-start's first stage (absent when a
-    /// structured start won), the three staged runs of the winner and one entry per reweighted L1
+    /// structured start won), the staged runs of the winner and one entry per reweighted L1
     /// round (one entry for a warm start).
     pub iterations_per_stage: Vec<usize>,
     pub converged: bool,
@@ -68,7 +68,7 @@ fn collect_ok<T>(results: Vec<Option<Result<T, FitError>>>) -> Result<Vec<T>, Fi
     Ok(out)
 }
 
-/// Runs the three stages of round 3, D1 from `x0` (its gains are reset to 1):
+/// Runs three stages from `x0` (its gains are reset to 1):
 ///
 /// 1. the absorption with ALL gains held at 1 (`stage_one_budget` iterations);
 /// 2. the per-view deviations freed, the common mode pinned;
@@ -154,7 +154,7 @@ fn run_staged(
     Ok(Staged { out, stages })
 }
 
-/// The deterministic multi-start of a cold fit (round 3, D1):
+/// The deterministic multi-start of a cold fit:
 ///
 /// * `config.seeds` starts run the first stage (gains held at 1, `stage1_iterations`), in
 ///   parallel; the best `finalists` by objective (ties by seed order) go through the three
@@ -450,12 +450,12 @@ fn export_misfit(
 /// The report of one fitted model (the information criterion is filled in by the comparison),
 /// and the warnings that belong to it.
 ///
-/// * The Birge ratio `R = chi2_robust / (erf(k / sqrt 2) (n_data - effective_params))` (round 5,
-///   ZC-18: the Huber-weighted chi-square, so that a few outliers the loss already down-weights
-///   do not widen the covariance) inflates the covariance by `R` when it exceeds
-///   [`BIRGE_THRESHOLD`] (the noise model was too small; protects real photos too).
-/// * The metamer spread comes from the constrained extremisation of `extremes` with
-///   `Delta = max(1, R)`.
+/// * The Birge ratio `R = chi2_robust / (erf(k / sqrt 2) (n_data - effective_params))` (the
+///   Huber-weighted chi-square, so that a few outliers the loss already down-weights do not
+///   widen the covariance) inflates the covariance by `R` when it exceeds [`BIRGE_THRESHOLD`]
+///   (the noise model was too small; protects real photos too).
+/// * The metamer spread comes from the constrained extremisation of `extremes` with `Delta`
+///   the Birge ratio when it exceeds [`BIRGE_THRESHOLD`], else 1.
 /// * The exported tensors may differ from the fitted spectrum (the smooth basis is refitted onto
 ///   seven bands); a face-up colour change of [`EXPORT_DELTA_E_NOTICE`] or more is a
 ///   [`WarningKind::ExportRefit`] warning.
@@ -520,7 +520,7 @@ pub(super) fn build_model_fit(
             fit: &fitted.x,
             delta: threshold,
             // The semi-axes of the data ellipsoid point along the weakest data directions,
-            // which is where the metamers are (round 6, R3).
+            // which is where the metamers are.
             extra_starts: &unverified,
             config,
             cancel,

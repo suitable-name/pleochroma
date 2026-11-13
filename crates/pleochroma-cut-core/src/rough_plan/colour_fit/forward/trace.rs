@@ -3,7 +3,7 @@
 //! A path starts at the camera, in the surroundings. At every surface it meets (first hit on the
 //! mesh BVH) it reflects or refracts: polished triangles follow Fresnel with Russian roulette,
 //! frosted ones sample GGX microfacets (see `surface`). Inside the stone the legs are measured
-//! per zone with the K1 kernels and added up. A path ends when it escapes: the light model gives
+//! per zone with the zone kernel and added up. A path ends when it escapes: the light model gives
 //! the radiance at its exit, relative to the level at the pixel it started from. Radiance scaling
 //! by `n^2` at the interfaces is omitted because every path starts and ends in the same medium,
 //! where it cancels exactly.
@@ -183,7 +183,7 @@ fn escape(
     );
     // The scalar weight carries the channel mean of the light ratio (the quantity the adaptive
     // sampling and the Monte-Carlo statistics are about); the colour is the factor of each channel
-    // against that mean (ZC-13). A grey ratio gives the mean itself and the factors exactly 1.
+    // against that mean. A grey ratio gives the mean itself and the factors exactly 1.
     let ratio = light.ratio;
     #[expect(
         clippy::float_cmp,
@@ -338,7 +338,7 @@ fn reference_alpha(paths: &[(f64, f64)]) -> Option<f64> {
 /// error is judged on the clear-stone transmittance (the sum of the path weights, absorption 0),
 /// which stays well above any floor on a large stone; the variance is kept at two absorptions,
 /// 0 and the pixel's own reference absorption (optical depth 1 at its mean path), so the solver
-/// can weight a pale and a saturated prediction alike (ZC-7).
+/// can weight a pale and a saturated prediction alike.
 #[allow(
     clippy::too_many_arguments,
     reason = "the pixel loop needs the context, the pixel, its target, the scratch and both outputs"

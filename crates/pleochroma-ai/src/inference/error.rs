@@ -26,8 +26,8 @@ pub enum InferenceError {
     Preservation(String),
     /// A legacy angle-only adapter could not reconstruct the certified angles+masts exactly.
     Roundtrip(String),
-    /// Reserved compatibility variant. Current environments and models support all seven
-    /// objective components, including both tone goals.
+    /// Not produced: environments and models support all seven objective components,
+    /// including both tone goals.
     UnsupportedObjective(String),
 }
 

@@ -17,6 +17,8 @@ pub struct JobProgress {
     pub eta_secs: Option<f64>,
     /// A note for the person, such as a fallback from the remote worker.
     pub note: Option<String>,
+    /// The beam phase the export reported with this tick; `None` when it reports none.
+    pub beam_phase: Option<pleochroma::renderer::accel_beam::BeamPhase>,
 }
 
 /// What kind of problem failed a job. The command-line renderer maps it to an exit code.
@@ -166,6 +168,7 @@ mod tests {
             fraction,
             eta_secs: eta,
             note: None,
+            beam_phase: None,
         }
     }
 

@@ -1,5 +1,5 @@
-//! The capture checklist of the first step (plan 4.1) and the words of the consistency warnings
-//! the photometry module raises when the frames of a view do not match its stone photo.
+//! The capture checklist of the first step, and the sentences for the consistency warnings the
+//! photometry module raises when a view's frames do not match its stone photo.
 
 use pleochroma_cut_core::rough_plan::photometry::{
     ConsistencyReport, ConsistencyWarning, FrameRole,

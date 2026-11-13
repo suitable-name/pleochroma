@@ -37,8 +37,8 @@ fn angles_differ_from_template(ctx: &GoalContext<'_>) -> bool {
             .any(|(was, now)| (was.angle_deg - now.angle_deg).abs() > 0.01)
 }
 
-/// Whether the Rich Teaching Design is back as the lessons that retarget it found it: Quartz, and
-/// the pavilion mains where the template put them.
+/// Whether the Rich Teaching Design is back as the retarget lessons found it: Quartz, and the
+/// pavilion mains where the template put them.
 fn retarget_is_undone(ctx: &GoalContext<'_>) -> bool {
     ctx.design
         .material
@@ -127,11 +127,10 @@ fn optimize() -> Guide {
         "Search for better angles: choose an objective, look at the ranges, run a short search, pick a candidate and apply it.",
         GuideCategory::Optimizing,
     )
-    // The Rich Teaching Design, not the Standard Round Brilliant: Optimize keeps every meet of the
-    // starting stone, and the Standard's break-facet network leaves a search this small (budget
-    // 100) no state that is both meet-exact and better, so the lesson would end on an empty list.
-    // The Rich design's three-facet corners leave a wide family of states the search can reach;
-    // `the_lesson_design_gives_the_short_search_a_candidate` pins that with a real run.
+    // Rich, not Standard: Optimize keeps every meet of the starting stone, and the Standard's
+    // break-facet network leaves a search this small (budget 100) no state that is both
+    // meet-exact and better. The Rich design's three-facet corners leave a wide family of
+    // reachable states; `the_lesson_design_gives_the_short_search_a_candidate` checks this.
     .starting(StartingState::Template(RICH))
     .step(
         GuideStep::new(

@@ -24,8 +24,7 @@ pub fn current_date_text() -> String {
 mod tests {
     use super::*;
 
-    /// The instants the filename template's own tests pin: the epoch, a leap day and a day in
-    /// March 2024.
+    /// The epoch, a leap day and a day in March 2024.
     #[test]
     fn the_date_is_the_english_month_and_year() {
         assert_eq!(date_text_at(0), "January 1970");

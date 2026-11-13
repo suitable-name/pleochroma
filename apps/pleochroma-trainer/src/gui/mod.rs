@@ -2,8 +2,8 @@
 //!
 //! The UI thread owns all Slint state and the [`Gui`] object. The worker runs on its own thread
 //! and talks through channels; a 33 ms timer drains its events (see `events.rs`). The status
-//! pill, the buttons and the setup controls are driven by the worker's snapshots, never set
-//! optimistically, so a worker that pauses itself after an error is shown as paused.
+//! pill, the buttons and the setup controls follow the worker's snapshots, so a worker that
+//! pauses itself after an error is shown as paused.
 //!
 //! Closing never blocks: the window stays up in the "Stopping" state while the worker finishes
 //! its update (`close.rs`). File dialogs are `rfd` async dialogs awaited on the Slint event loop

@@ -53,8 +53,8 @@ pub(super) fn push_page(
     model.set_meet_text(page.meet.into());
     model.set_depth_text(page.depth.into());
     model.set_cheater_text(page.cheater.into());
-    // The first step starts with how the rough must sit for the crystal axis (the cutting sheet's
-    // Orientation block, in the same words as the phone), ahead of the tier's own note.
+    // The first step opens with how the rough must sit for the crystal axis (the cutting
+    // sheet's Orientation block, same wording), ahead of the tier's own note.
     let notes = match plan.orientation_note().filter(|_| position == 0) {
         Some(orientation) if page.notes.is_empty() => orientation,
         Some(orientation) => format!("{orientation}\n{}", page.notes),
@@ -122,8 +122,7 @@ pub(super) fn push_page(
     )));
 }
 
-/// The crystal axis picture of the first step: drawn for a stone whose axis is set (`block`), cleared
-/// on every other page.
+/// The crystal axis picture for `block`, the first step's orientation; cleared when there is none.
 fn push_axis_picture(model: &CuttingModeModel<'_>, block: Option<&SheetOrientation>) {
     let picture = block.map(AxisPicture::new);
     model.set_axis_shown(picture.is_some());

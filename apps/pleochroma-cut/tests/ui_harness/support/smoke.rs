@@ -15,8 +15,8 @@ pub use uiprobe::{
 };
 
 /// Controls the engine never activates: they destroy data, leave the app, run a long job or
-/// reach the network. Edit this list, not the engine. (The crate's `DEFAULT_DENY` has 11 generic
-/// rules; this is the full 29 Pleochroma always had, in the same order.)
+/// reach the network. Edit this list, not the engine. It replaces the crate's generic
+/// `DEFAULT_DENY`.
 pub const PLEOCHROMA_DENY: &[DenyRule] = &[
     DenyRule::label(DenyMatch::Contains, "delete", "destroys data"),
     DenyRule::label(DenyMatch::Contains, "remove", "destroys data"),
@@ -63,9 +63,11 @@ pub const PLEOCHROMA_DENY: &[DenyRule] = &[
     ),
 ];
 
-/// The one place every Pleochroma [`Smoke`] is built: [`PLEOCHROMA_DENY`], 60 ms settle, blocked
-/// controls NOT skipped (a covered control is still pressed, as before the migration), no
-/// scope-may-close (the overlay and window passes switch it on).
+/// The one place every Pleochroma [`Smoke`] is built.
+///
+/// It uses [`PLEOCHROMA_DENY`], a 60 ms settle,
+/// blocked controls pressed too (not skipped), and no scope-may-close (the overlay and window
+/// passes switch it on).
 #[must_use]
 pub fn pleochroma_smoke(state: impl Into<String>) -> Smoke {
     let mut smoke = Smoke::new(state).settle_ms(60).skip_blocked(false);

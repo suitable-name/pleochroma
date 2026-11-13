@@ -5,15 +5,18 @@
 //!
 //! The split mirrors the desktop and the web app, so a design behaves the same everywhere:
 //!
-//! | Value | Lives in | Undoable | Saved with |
-//! |---|---|---|---|
-//! | Material, RI override, specific-gravity override, body color (variant) | the design (`Edit::SetMaterial`) | yes | the design file |
-//! | Stone width (girdle diameter, mm), preform size | the design (`Edit::SetGirdleDiameterMm`, `Edit::SetPreform`) | yes | the design file |
-//! | Inclusion haze, frosted girdle, edge rounding, crystal axis | the design (`Edit::SetRenderEffects`) | yes | the design file |
-//! | Lighting rig, exposure, light azimuth/elevation, backdrop, head shadow, surface glare | `MobileSettings::lighting` | no | `settings.toml` |
-//! | Render material name | `MobileSettings::material_name` | no | `settings.toml` |
-//! | Custom materials, the link flag | [`PropsState`] | no | not saved (custom materials travel in a design file's snapshot) |
-//! | The imported HDR map and "HDR Map" as the chosen lighting | [`crate::hdr`] | no | `<files>/hdr/` (picking a rig turns the choice off) |
+//! - The design (undoable, saved in the design file): the material, RI override,
+//!   specific-gravity override and body color (`Edit::SetMaterial`); the stone width and the
+//!   preform size (`Edit::SetGirdleDiameterMm`, `Edit::SetPreform`); the inclusion haze,
+//!   frosted girdle, edge rounding and crystal axis (`Edit::SetRenderEffects`).
+//! - `MobileSettings::lighting` (not undoable, saved in `settings.toml`): the lighting rig,
+//!   exposure, light azimuth and elevation, backdrop, head shadow and surface glare.
+//! - `MobileSettings::material_name` (not undoable, saved in `settings.toml`): the render
+//!   material name.
+//! - [`PropsState`] (not saved): the custom materials and the link flag. Custom materials
+//!   travel in a design file's snapshot.
+//! - [`crate::hdr`] (not undoable, saved in `<files>/hdr/`): the imported HDR map and "HDR
+//!   Map" as the chosen lighting. Picking a rig turns that choice off.
 //!
 //! The render material is *linked* to the design by default, as on the web: while
 //! [`PropsState::link_material`] is on, the render traces the design's own material and
@@ -48,6 +51,8 @@ mod stone;
 mod tests;
 #[cfg(test)]
 mod tests_axis;
+#[cfg(test)]
+mod tests_hdr_turn;
 
 use std::sync::Mutex;
 
@@ -61,13 +66,13 @@ pub use axis::{
     material_default_orientation, orientation_line, set_second_axis, use_material_axis,
 };
 pub use checks::{
-    ChecksView, FixApplied, FixRequest, PlannedFix, PreformField, PreformForm, ProportionRow,
-    WarningRow, apply_planned_fix, checks, fix_request, set_preform_field,
+    ChecksView, FixApplied, FixQuestion, FixRequest, PlannedFix, PreformField, PreformForm,
+    ProportionRow, WarningRow, apply_planned_fix, checks, fix_request, set_preform_field,
 };
 pub use lighting::{
     ELEVATION_RANGE_DEG, LightValues, LightingRow, LightingView, backdrop_from_index,
-    backdrop_index, lighting_rows, lighting_view, render_settings, set_backdrop, set_light_values,
-    set_lighting,
+    backdrop_index, lighting_rows, lighting_view, render_settings, set_backdrop,
+    set_hdr_follows_camera, set_light_values, set_lighting,
 };
 pub use materials::{
     ColorRow, CustomMaterialInput, MaterialRow, MaterialSummary, add_custom_material,

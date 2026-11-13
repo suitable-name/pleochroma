@@ -103,9 +103,9 @@ export component RenderOutputTab inherits VerticalLayout {
     // (`SettingsModel.bounce_ladder`); `bounces_picker.slint` has the measurements behind it.
     if GuideModel.shows_advanced(): BouncesPicker { }
 
-    // Denoise live view: the same app-wide switch as the remote dialog's "Denoise merged image"
-    // row (`AppSettings::denoise_enabled`), bound to the one `RemoteWorkerModel.denoise_enabled`
-    // property and the one `denoise_toggled` callback, so the two rows always agree.
+    // Denoise live view: the same app-wide switch as the remote denoise row
+    // (`AppSettings::denoise_enabled`), bound to `RemoteWorkerModel.denoise_enabled` and the
+    // `denoise_toggled` callback, so the two rows always agree.
     ToggleRow {
         text: "Denoise Live View";
         hint: "Denoise live view: smooth the grain out of the live picture\nwhile it builds up. Turn off to see the raw samples.";
@@ -257,10 +257,9 @@ export component RenderOutputTab inherits VerticalLayout {
         edited(val) => { SettingsModel.preview_spp_changed(Math.round(val)); }
     }
 
-    // Performance Curve over Tilt Angles (Extinction & Brilliance Graph). Advanced. Goes through
-    // `TiltModel.toggle_dialog()` -- the SAME shared open/close + stale-cached-curve check the
-    // viewports' own Tilt Curve buttons use (see that function's own doc comment). Do not set
-    // `TiltModel.dialog_open = true` directly: that skips the stale-curve check.
+    // Performance curve over tilt angles (extinction and brilliance graph). Advanced. Opens through
+    // `TiltModel.toggle_dialog()`, the same open/close path and stale-curve check as the viewports'
+    // Tilt Curve buttons. Do not set `TiltModel.dialog_open` directly: that skips the check.
     if GuideModel.shows_advanced(): GroupHeader { text: "Tilt Performance"; }
     if GuideModel.shows_advanced(): PerformanceCurvePanel {
         open_performance_graph => { TiltModel.toggle_dialog(); }

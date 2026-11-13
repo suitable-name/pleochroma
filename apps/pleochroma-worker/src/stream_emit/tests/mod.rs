@@ -1,11 +1,11 @@
-//! Tests for `stream_emit`, split by the piece of pure logic each topic file exercises:
-//! [`pending_delta`] (delta coalescing), [`batch_sizing`] (adaptive sub-batch sizing),
-//! [`downsample`] (the reduced-resolution `PREVIEW` snapshot), [`cadence`] (effective
-//! cadence averaging), [`emit_tick`] (one cadence-tick emission), and [`liveness`]
-//! (stream-timeout classification and the heartbeat backstop), and [`stall`] (the
-//! producer-stall watchdog, end to end), and [`adaptive_link`] (per-connection adaptive
-//! compression against a throttled or fast wire). [`fixtures`] holds the
-//! scene/state/request builders and `StreamEvent`-decoding helpers shared across them.
+//! Tests for `stream_emit`, one topic per file.
+//!
+//! [`pending_delta`] covers delta coalescing, [`batch_sizing`] the adaptive sub-batch size,
+//! [`downsample`] the reduced-resolution `PREVIEW`, [`cadence`] the effective cadence,
+//! [`emit_tick`] one cadence-tick emission, [`liveness`] stream-timeout classification and
+//! the heartbeat, [`stall`] the producer-stall watchdog end to end, [`ray_failures`] declined
+//! ray ranges and [`adaptive_link`] adaptive compression on a throttled or fast wire.
+//! [`fixtures`] holds the scene, state and request builders shared by them.
 
 mod adaptive_link;
 mod batch_sizing;

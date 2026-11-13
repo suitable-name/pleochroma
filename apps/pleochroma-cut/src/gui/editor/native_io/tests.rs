@@ -14,15 +14,9 @@ use pleochroma_cut_core::{
     native::{DesignExtras, design_from_str, design_to_string},
 };
 
-/// Material name/RI override, gear, symmetry and mirror all round-trip through
-/// the exact pair of functions
-/// [`setup_save_native_callback`]/[`setup_open_native_callback`] call
-/// (`pleochroma_cut_core::native::design_to_string`/`design_from_str`) -- verified here
-/// directly rather than trusted, since this crate's own wiring exercises
-/// gear/symmetry/mirror persistence only through the editor's own "New Design"/
-/// design-settings forms, not through a dedicated round-trip test. This test's own
-/// value is confirming the ONE combination this app actually writes (a
-/// design with all four set together) survives intact.
+/// The material name and RI override, gear, symmetry and mirror survive a save and reopen,
+/// through the same `design_to_string` and `design_from_str` pair the save and open paths use.
+/// The app writes all four together, so this checks that combination.
 #[test]
 fn gear_symmetry_mirror_and_material_all_round_trip_through_save_and_open() {
     let spec = FreshDesignSpec {
@@ -63,9 +57,7 @@ fn gear_symmetry_mirror_and_material_all_round_trip_through_save_and_open() {
     assert_eq!(loaded.design.material.name.as_deref(), Some("Quartz"));
     assert_eq!(loaded.design.material.specific_gravity_override, Some(2.65));
     assert_eq!(loaded.design.material.refractive_index_override, Some(1.55));
-    // The effective RI actually written to `.asc`'s `I` line -- confirms
-    // the override, not just the raw field, made the round trip in a way
-    // that would show up in the exported schedule too.
+    // The effective RI, as written to the `.asc` `I` line: the override reaches the export too.
     assert!((loaded.design.effective_refractive_index() - 1.55).abs() < 1e-9);
 }
 
@@ -86,7 +78,7 @@ fn degenerate_marker_header_never_stamps_twice() {
     assert!(degenerate_marker_header(&headers, "a different message").is_none());
 }
 
-// --- Group 1, cached-solve reuse ---
+// --- Cached-solve reuse ---
 
 use super::{
     atomic_write::{WriteGate, temp_sibling, write_synced},
@@ -98,8 +90,7 @@ use super::{
 use crate::gui::editor::{solve_service::SolveOutcome, state::EditorState};
 use std::time::{Duration, Instant};
 
-/// The same round-brilliant fixture `cut_sheet.rs`'s own tests use: 8 tiers,
-/// all `ScaleReference`, always solves and closes.
+/// A standard round brilliant: 8 tiers, all `ScaleReference`, always solves and closes.
 fn round_brilliant_design() -> Design {
     Design::new(
         PreformSpec::block(2.0, 1.0, 2.0),
@@ -131,7 +122,7 @@ fn solve_matches_design_rejects_no_cache_at_all() {
     assert!(solve_matches_design(None, &design).is_none());
 }
 
-// --- Group 2, the write-confirm decision ---
+// --- The write-confirm decision ---
 
 #[test]
 fn decide_write_status_is_fine_for_a_closed_solid() {
@@ -154,11 +145,9 @@ fn decide_write_status_needs_confirm_when_the_design_does_not_solve() {
     }
 }
 
-// The picker test hook's own take/set mechanics live in `gui::pickers`
-// along with the picker itself -- see that module's own test suite
-// (`pick_test_hook_is_consumed_exactly_once`) for the equivalent coverage.
+// The picker's test hook is covered in `gui::pickers` (`pick_test_hook_is_consumed_exactly_once`).
 
-// --- Group 4, autosave write round trip ---
+// --- Autosave write round trip ---
 
 #[test]
 fn write_autosave_round_trips_its_own_toml_text() {
@@ -375,24 +364,14 @@ fn the_replace_guard_asks_only_when_edits_landed_after_the_decision() {
     );
 }
 
-// --- Catalogue write-back's panic guard (see `catalogue::write_back_to_catalogue`'s
-// own doc comment: `local::import_asc` + `apply_measured_metadata` now runs inside
-// `catch_file_panic`, exactly like a `.asc` import's per-file loop, instead of
-// panicking straight through Save's background thread with no toast and no
-// completion callback ever firing) ---
+// --- Catalogue write-back: the panic guard around the parse-and-measure step ---
 
-/// The ordinary (non-panicking) path through the now-panic-guarded parse-and-measure
-/// step: a real solved design, its catalogue `.asc` built via `catalogue_asc` the same
-/// way Save itself does, must still land as a brand-new catalogue row with its angle
-/// settings and both attachments (the `.asc` plus its design file) intact -- proving the
-/// `catch_file_panic` wrapper added around this step changed nothing about the
-/// ordinary success path. The panic arm itself is not forced here, for the same
-/// reason `catch_file_panic`'s own unit test in `gui::library::local::import::tests`
-/// doesn't try to make `pleochroma`'s geometry code panic on demand: that mechanism
-/// (`std::panic::catch_unwind` around a deliberately panicking closure) is already
-/// covered directly there, and reused verbatim by `write_back_to_catalogue`.
-/// The self-contained design file Save writes next to the `.asc` and hands to the
-/// catalogue write-back (`save.rs` passes `design_file_text`'s output).
+/// The ordinary path through the panic-guarded parse-and-measure step. A solved design's
+/// catalogue `.asc` (built with `catalogue_asc`, as Save builds it) lands as a new catalogue row
+/// with its angle settings and both attachments, the `.asc` and its design file. The panic arm
+/// is not forced here: `catch_file_panic` has its own unit test in
+/// `gui::library::local::import::tests`.
+/// The design file is the text `design_file_text` produces, as Save writes it.
 fn saved_design_text(design: &pleochroma_cut_core::Design) -> String {
     super::save_helpers::design_file_text(
         design,
@@ -534,12 +513,10 @@ fn write_back_to_catalogue_declines_to_overwrite_a_design_that_owns_the_url() {
     let _ = std::fs::remove_file(&db_path);
 }
 
-/// The library's preview, tilt and ray-thumbnail fingerprints never hold a design's body color
-/// (`bridge::preview_render::fingerprint`), so a saved color reaches a thumbnail only because
-/// the catalogue write-back clears the row's cached pictures. A design whose ONLY change is its
-/// color variant (an `Edit::SetMaterial` swaps the whole selection, so Stone tab Apply, Undo and
-/// Redo all land here as an ordinary dirty save) must take that same path: the write-back is not
-/// conditional on what changed, it replaces the row and deletes its previews.
+/// A design whose only change is its color variant still clears the row's cached previews. The
+/// preview fingerprints do not include the body color (`bridge::preview_render::fingerprint`),
+/// so a saved color reaches a thumbnail only through that clearing. The write-back always
+/// replaces the row and deletes its previews, whatever changed.
 #[test]
 fn write_back_to_catalogue_clears_the_cached_previews_when_only_the_color_variant_changed() {
     use pleochroma::optics::{

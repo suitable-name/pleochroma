@@ -1,5 +1,5 @@
-//! The CPU scanline tracer: renders one full frame in parallel across
-//! `thread::available_parallelism` CPU threads.
+//! The CPU scanline tracer: renders one full frame in parallel on the threads of the live
+//! CPU budget (`live_cpu_budget::partition`).
 
 use super::gpu_backend::{BackendFrame, FrameOutputs};
 use glam::Vec3;
@@ -28,30 +28,24 @@ struct RowSlices<'a> {
     facet: &'a mut [i32],
 }
 
-/// Renders one full frame's scanlines in parallel across `thread::available_parallelism`
-/// CPU threads, accumulating each pixel's radiance into `accum_buffer` and each pixel's
-/// PRIMARY-ray first-hit depth/normal/facet-index into the three `first_hit_*` guide
-/// buffers (these feed the À-Trous denoiser). Per-pixel tone-mapping is not done here --
-/// that's `denoise_and_tonemap_frame`'s job, run once over the whole frame afterward
-/// since the denoiser needs every pixel's guide data at once.
+/// Renders one full frame's scanlines in parallel, accumulating each pixel's radiance into
+/// `outputs.accum` and its PRIMARY-ray first hit (depth, normal, facet index) into the
+/// guide buffers, which feed the À-Trous denoiser. Tone-mapping is not done here:
+/// `denoise_and_tonemap_frame` runs once over the whole frame afterwards, since the
+/// denoiser needs every pixel's guide data at once.
 ///
 /// # Work distribution: a shared atomic row counter, not contiguous row bands
 ///
-/// Rows through the stone cost far more than background rows, so splitting the image
-/// into `num_threads` contiguous row bands starves threads that land entirely on cheap
-/// background rows while stone-covering threads are still working -- measured on a
-/// 480x360/2spp/16-thread render: 256ms wall time at 49% thread utilization for
-/// contiguous bands, 145ms at 99% for the dynamic counter below. Each thread instead
-/// repeatedly claims "the next unclaimed row" via `next_row.fetch_add(1, ..)`, so a
-/// thread finishing a cheap row picks up the next one immediately rather than idling.
+/// Rows through the stone cost far more than background rows. Contiguous bands leave the
+/// threads that get background rows idle while the stone rows are still traced (49 %
+/// thread utilization in a 480x360, 2 spp, 16-thread render, against 99 % with the counter
+/// below). Each thread claims the next unclaimed row via `next_row.fetch_add`, so a thread
+/// that finishes a cheap row takes new work at once.
 ///
-/// Each row's four output slices are handed out exactly once: `rows` pre-splits every
-/// buffer into per-row slices via `chunks_mut(width)`, wrapped in a [`Mutex`]. A thread
-/// claiming row `y` locks `rows` just long enough to `Option::take` that row's slices
-/// (held per ROW, not per pixel), then processes the whole row without the lock held.
-/// `next_row.fetch_add` hands out each index exactly once, so results stay
-/// bit-identical to a contiguous-band split -- only which thread renders which
-/// row changes run to run.
+/// Each row's output slices are handed out exactly once: `rows` pre-splits every buffer with
+/// `chunks_mut(width)`, wrapped in a [`Mutex`]. A thread claiming row `y` takes that row's
+/// slices under the lock (per row, not per pixel), then traces the row without it. Results
+/// stay bit-identical to a contiguous split; only which thread renders which row varies.
 #[cfg(test)]
 pub(super) fn render_frame_scanlines(
     frame: &BackendFrame<'_>,
@@ -89,11 +83,11 @@ pub(super) fn render_frame_scanlines_cancellable(
 
 /// [`render_frame_scanlines_cancellable`] on exactly `num_threads` scoped threads (at least one).
 ///
-/// The hybrid CPU+GPU frame passes `cores - 2`: the GPU driver thread and the display
-/// thread are both runnable at the same time, and a tracer thread on every core made the
-/// worker's identical split lose to GPU-only (0.58x, `render_core/hybrid.rs`). Rows are
-/// claimed from one atomic counter and each pixel depends only on its index, so the
-/// output is bit-identical for any thread count.
+/// The hybrid CPU+GPU frame passes a share of the budget smaller than all cores: the GPU
+/// driver and display threads are runnable at the same time, and a tracer thread on every
+/// core lost to GPU-only in the worker's identical split (0.58x). Rows are claimed from one
+/// atomic counter and each pixel depends only on its index, so the output is bit-identical
+/// for any thread count.
 pub(super) fn render_frame_scanlines_with_threads_cancellable(
     frame: &BackendFrame<'_>,
     spp: u32,
@@ -142,13 +136,9 @@ pub(super) fn render_frame_scanlines_with_threads_cancellable(
     let rows = Mutex::new(rows);
     let next_row = AtomicUsize::new(0);
 
-    // Built ONCE per call rather than once per traced sample: the non-SoA
-    // `trace_spectral_ray_with_finish` rebuilds this SIMD arena from `frame.planes` on
-    // every invocation -- a heap allocation per (pixel, sample) tuple. `build_plane_soa`/
-    // `trace_spectral_ray_with_finish_soa` are the caller-builds-the-arena-once pair
-    // documented on `trace_spectral_ray_with_finish_soa` for exactly this case; results
-    // stay bit-identical since the arena's contents depend only on `frame.planes`, which
-    // is fixed for the whole frame.
+    // Built once per call, not per traced sample: `trace_spectral_ray_with_finish` would
+    // rebuild this SIMD arena from `frame.planes` on every sample. The arena depends only on
+    // `frame.planes`, which is fixed for the frame, so results stay bit-identical.
     let plane_soa = build_plane_soa(frame.planes);
     // A ground facet surface is also a frosted facet to the readers of the finish list; merged
     // once per frame (borrowed untouched for every stone without one).
@@ -224,11 +214,10 @@ fn trace_row(job: &ScanlineJob<'_, '_>, y: usize, row: RowSlices<'_>) -> bool {
         let mut sample_sum = Vec3::ZERO;
         let mut primary_hit: Option<HitRecord> = None;
 
-        // Per-pixel Cranley-Patterson rotations for the stratified
-        // pixel-jitter/hero-wavelength draws below -- pure functions of
-        // `global_pixel_idx` alone. Must stay in sync with
-        // `pleochroma-worker/src/render_core.rs::trace_into`, which
-        // computes through the same shared functions.
+        // Per-pixel Cranley-Patterson rotations for the stratified pixel-jitter and
+        // hero-wavelength draws below, pure functions of `global_pixel_idx`. Must stay in
+        // sync with `pleochroma-worker/src/render_core/mod.rs::trace_into`, which computes
+        // through the same shared functions.
         let rot = pixel_rotations(global_pixel_idx);
 
         for s_idx in 0..spp {
@@ -269,24 +258,18 @@ fn trace_row(job: &ScanlineJob<'_, '_>, y: usize, row: RowSlices<'_>) -> bool {
                 frame.surface,
             );
 
-            // Defensive: no reachable NaN/Inf producer is
-            // known in the CPU path today, but this accumulator adds
-            // unconditionally into a buffer that never resets except on
-            // a full scene change -- one non-finite sample would poison
-            // every pixel's running average for the rest of the session
-            // rather than just corrupting the one frame it came from.
+            // Non-finite samples are dropped: the accumulator never resets except on a scene
+            // change, so one NaN or Inf would poison the pixel's running average from then on.
             if sample_xyz.is_finite() {
                 sample_sum += sample_xyz;
             }
         }
 
         acc_row[x] += sample_sum;
-        // `primary_hit` is captured from the LAST sample traced this
-        // call (the hero channel's own first hit). AA jitter means
-        // consecutive samples can land on different facets at a
-        // silhouette edge; the denoiser's facet-identity guide term is
-        // a hard Kronecker delta, so a stale-by-one-sample id there
-        // costs at most a conservative edge-stop, never a wrong blend.
+        // `primary_hit` is the first hit of the LAST sample traced in this call (the hero
+        // channel). AA jitter can put consecutive samples on different facets at a silhouette
+        // edge. The denoiser's facet-identity term is a hard Kronecker delta, so a facet id
+        // one sample stale costs at most a conservative edge stop, never a wrong blend.
         depth_row[x] = primary_hit.map_or(1.0e6, |h| h.t);
         normal_row[x] = primary_hit.map_or(Vec3::ZERO, |h| h.normal);
         facet_row[x] = primary_hit.map_or(-1, |h| {
@@ -299,9 +282,9 @@ fn trace_row(job: &ScanlineJob<'_, '_>, y: usize, row: RowSlices<'_>) -> bool {
 /// Estimates CPU sample throughput from at most 64 spatially distributed rays.
 ///
 /// The probe has no image contribution: its deterministic samples are measured, then
-/// discarded. Unlike the former full-image calibration, it does not hold up a camera
-/// update for a complete CPU pass. Two milliseconds is a soft limit checked after each
-/// ray; a ray already inside the optical kernel must finish before cancellation.
+/// discarded. It does not hold up a camera update for a full CPU pass. Two milliseconds is
+/// a soft limit checked after each ray; a ray already inside the optical kernel must finish
+/// before cancellation.
 pub(super) fn measure_cpu_rate(frame: &BackendFrame<'_>, cancel: &AtomicBool) -> Option<f64> {
     if cancel.load(Ordering::Relaxed) || frame.width == 0 || frame.height == 0 {
         return None;
@@ -355,8 +338,8 @@ pub(super) fn measure_cpu_rate(frame: &BackendFrame<'_>, cancel: &AtomicBool) ->
     }
     let workers = pleochroma::renderer::tonemap::live_cpu_budget::partition().0;
     let workers = f64::from(u32::try_from(workers).unwrap_or(u32::MAX));
-    // Conservative scaling: memory traffic and thread coordination make a pool less
-    // than perfectly linear. Actual hybrid frames subsequently replace this estimate.
+    // Conservative scaling: memory traffic and thread coordination make a pool less than
+    // perfectly linear. Actual hybrid frames replace this estimate.
     let pixels = f64::from(frame.width) * f64::from(frame.height);
     Some(
         f64::from(completed) * workers * 0.5 / (started.elapsed().as_secs_f64().max(1e-9) * pixels),

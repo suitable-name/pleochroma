@@ -1,20 +1,24 @@
 //! The Crystal Axis part of a plan file (schema version 5).
 //!
-//! A plan that never used the crystal axis has none of this and is written exactly as before
-//! (every field below is skipped when it is empty, and `SavedPlanDto::content_version` keeps the
-//! older version). What a version 5 plan adds:
+//! A plan without a crystal axis rule writes none of this: every field below is skipped when
+//! it is empty, and `SavedPlanDto::content_version` keeps the older version for it. What a
+//! version 5 plan adds:
 //!
-//! - `rough.orientation`: the rough's crystal orientation ([`OrientationDto`]), in the rough frame;
+//! - `rough.orientation`: the rough's crystal orientation ([`OrientationDto`]), in the rough
+//!   frame;
 //! - `[axis.rule]`: the plan's rule setting, when the cutter changed it from the material's
-//!   default (a Reason alone counts), and one `[[axis.designs]]` table per design with a rule of
-//!   its own ([`RuleSettingDto`]; the same table with an `entry_id`);
-//! - `[axis.planned]`: the rules the layouts were planned with (the same `rule` and `designs`),
-//!   written only when they differ from the rules above, so reopening a plan whose rules were
-//!   edited after planning still warns "Rules changed since planning" ([`PlannedRulesDto`]);
-//! - `[[axis.stones]]`: the stones the cutter locked, gave a free pose or a Reason ([`StoneChoiceDto`]).
-//!   A stone with only a box pose is the version 4 `[[pose_choices]]` table, as it always was.
-//!   Like the colour and the pose choices, the stone choices live in the library's side table, not
-//!   in the stored payload (see `sections`).
+//!   default (a Reason alone counts), and one `[[axis.designs]]` table per design with a rule
+//!   of its own ([`RuleSettingDto`]; the same table with an `entry_id`);
+//! - `[axis.planned]`: the rules the layouts were planned with (the same `rule` and
+//!   `designs`), written only when they differ from the rules above, so reopening a plan
+//!   whose rules were edited after planning still warns "Rules changed since planning"
+//!   ([`PlannedRulesDto`]);
+//! - `[[axis.stones]]`: the stones the cutter locked, gave a free pose or a Reason
+//!   ([`StoneChoiceDto`]). A stone with only a box pose is a version 4 `[[pose_choices]]`
+//!   table instead.
+//!
+//! The stone choices live in the library's side table, not in the stored payload (see
+//! `sections`), like the colour and the pose choices.
 //!
 //! This module is the file form and the checks; the core types are
 //! `pleochroma_cut_core::rough_plan::orientation`.
@@ -154,7 +158,7 @@ pub struct FreePoseDto {
     pub mm_per_unit: f64,
 }
 
-/// What the cutter chose for one stone (the library's `stone_pose_choice` row, without the plan).
+/// The cutter's choice for one stone (a `stone_pose_choice` row, without the plan).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StoneChoiceDto {
     /// The result's index in the plan's layouts. 0-based.
@@ -175,9 +179,11 @@ pub struct StoneChoiceDto {
     pub free_pose: Option<FreePoseDto>,
 }
 
-/// The rules the layouts of a plan were planned with, when they are not the rules the plan holds
-/// now (`[axis.planned]`): the plan's rule and the rules of single designs, as in the `[axis]`
-/// table. An empty table is a plan that was planned with the material's defaults.
+/// The rules the layouts of a plan were planned with (`[axis.planned]`).
+///
+/// Stored only when they differ from the rules the plan holds now: the plan's rule and the
+/// rules of single designs, as in the `[axis]` table. An empty table is a plan planned with
+/// the material's defaults.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct PlannedRulesDto {
     /// The plan's rule setting at planning time, when it was not the untouched default.
@@ -197,7 +203,7 @@ pub struct AxisDto {
     /// The rule settings of single designs.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub designs: Vec<RuleSettingDto>,
-    /// The stones the cutter locked or gave a free pose or a Reason (side table, see the module).
+    /// The stones the cutter locked, gave a free pose or a Reason (side table, see the module).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub stones: Vec<StoneChoiceDto>,
     /// The rules the layouts were planned with, written only when they differ from the rules
@@ -447,8 +453,8 @@ pub fn free_pose_from_dto(dto: &FreePoseDto, path: &str) -> Result<StonePose, St
     })
 }
 
-/// Whether a choice needs the version 5 table: it has a free pose, a lock or a Reason (a choice of
-/// a box pose alone is a version 4 `pose_choices` entry).
+/// Whether a choice needs the version 5 table: it has a free pose, a lock or a Reason. A box
+/// pose alone is a version 4 `pose_choices` entry.
 #[must_use]
 pub const fn is_rich(choice: &StoneChoice) -> bool {
     choice.free_pose.is_some() || choice.locked || !choice.reason.is_empty()
@@ -483,8 +489,8 @@ pub fn split_stone_choices(
 }
 
 /// Fails when a stone choice names a layout or stone `layouts` do not have, a pose of
-/// `POSE_COUNT` or more, a free pose that is not usable, a Reason that is too long, or a stone a
-/// second time (also across `poses`).
+/// `POSE_COUNT` or more, a free pose that is not usable, a Reason that is too long, or a
+/// stone a second time (also across `poses`).
 ///
 /// # Errors
 ///
@@ -535,17 +541,18 @@ pub fn check_stone_choices(
 
 // ---- the whole table ---------------------------------------------------------------------------
 
-/// The `[axis]` table the payload of a plan with `overrides` carries (the rules and Reasons; the
-/// stones are in the side table), `None` when there is nothing to write.
+/// The `[axis]` table of a plan with `overrides` (the rules and Reasons; the stones are in
+/// the side table), `None` when there is nothing to write.
 #[cfg(test)]
 #[must_use]
 pub fn axis_to_dto(overrides: &PlanSettingsOverrides) -> Option<AxisDto> {
     axis_to_dto_planned(overrides, None)
 }
 
-/// The `[axis]` table of `overrides`, with the rules the layouts were planned with (`planned`) written as
-/// `[axis.planned]` only when they differ from `overrides` in the plan's rule or the rules of its
-/// designs, so a plan whose rules were not edited after planning is written as it always was.
+/// The `[axis]` table of `overrides`.
+///
+/// The rules the layouts were planned with (`planned`) are written as `[axis.planned]` only when
+/// they differ from `overrides` in the plan's rule or the rules of its designs.
 #[must_use]
 pub fn axis_to_dto_planned(
     overrides: &PlanSettingsOverrides,
@@ -578,9 +585,10 @@ fn rule_dtos(overrides: &PlanSettingsOverrides) -> (Option<RuleSettingDto>, Vec<
     (rule, designs)
 }
 
-/// The rules a plan was planned with, when its `[axis.planned]` table says (the plan's rule and
-/// the rules of its designs; no stone choices), checked like the rules above. `None` when the
-/// file has no such table: the layouts were planned with the rules the plan holds.
+/// The rules a plan was planned with, from its `[axis.planned]` table (the plan's rule and the
+/// rules of its designs; no stone choices), checked like the rules above.
+///
+/// `None` when the file has no such table: the layouts were planned with the rules the plan holds.
 ///
 /// # Errors
 ///
@@ -598,8 +606,8 @@ pub fn planned_from_dto(axis: Option<&AxisDto>) -> Result<Option<PlanSettingsOve
     overrides_from_dtos_at(Some(&as_axis), &[], "axis.planned").map(Some)
 }
 
-/// The settings a document holds: the rules and Reasons of `axis` and the stone choices of the
-/// version 4 `pose_choices` and the version 5 `axis.stones`, converted and checked.
+/// The settings a document holds: the rules and Reasons of `axis`, and the stone choices of
+/// the version 4 `pose_choices` and the version 5 `axis.stones`, converted and checked.
 ///
 /// # Errors
 ///

@@ -573,7 +573,8 @@ fn performance_filter_sql_narrowing_matches_a_brute_force_scan_exactly() {
             if index == case_index {
                 assert!(
                     ids_at(&all_entry_ids, indices).is_subset(&excluded_by_sql),
-                    "case {case_index}: the SQL narrowing must exclude the designs whose                      band lies wholly outside the bound, got {excluded_by_sql:?}"
+                    "case {case_index}: the SQL narrowing must exclude the designs whose \
+                     band lies wholly outside the bound, got {excluded_by_sql:?}"
                 );
             }
         }
@@ -593,7 +594,8 @@ fn performance_filter_sql_narrowing_matches_a_brute_force_scan_exactly() {
 
     assert!(
         total_excluded_by_sql >= 9,
-        "the fixture must make the SQL narrowing exclude rows (at least 3 + 3 + 3 by          hand), got {total_excluded_by_sql}"
+        "the fixture must make the SQL narrowing exclude rows (at least 3 + 3 + 3 by \
+         hand), got {total_excluded_by_sql}"
     );
 
     let _ = std::fs::remove_file(&path);

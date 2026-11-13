@@ -1,5 +1,5 @@
-//! The storage key builders. They are pure and native-tested, so they live in
-//! `pleochroma_web_core::storage_keys`; this module re-exports them under the path the
-//! storage layers use.
+//! Storage key builders, re-exported from `pleochroma_web_core::storage_keys`.
+//!
+//! The builders are pure and native-tested there.
 
 pub use pleochroma_web_core::storage_keys::*;

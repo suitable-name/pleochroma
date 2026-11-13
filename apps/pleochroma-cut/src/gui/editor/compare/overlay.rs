@@ -1,6 +1,5 @@
-//! The overlay comparison's difference layer: a transparent RGBA image, the same
-//! size as both solid frames, that shows where the geometry changed no matter which
-//! renderer draws the base image underneath.
+//! The overlay comparison's difference layer: a transparent RGBA image, the same size as
+//! both solid frames, showing where the geometry changed whichever renderer draws the base.
 //!
 //! It is computed from the two sides' solid-raster coverage (the rasterizer's pick
 //! buffers, `0` = uncovered) rendered at the SAME pose and size, so it needs neither

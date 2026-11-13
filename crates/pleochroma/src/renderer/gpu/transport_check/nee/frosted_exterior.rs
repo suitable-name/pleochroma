@@ -85,7 +85,7 @@ fn build_nee_frosted_cases() -> Vec<NeeFrostedExteriorCase> {
     cases
 }
 
-/// Runs the Tier 2 check for [`nee_contribution_frosted_exterior`](crate::optics::raytracer::scattering::nee_contribution_frosted_exterior).
+/// Runs the Tier 2 check for [`nee_contribution_frosted_exterior`].
 ///
 /// # Panics
 ///
@@ -146,7 +146,7 @@ pub fn run_nee_frosted_exterior(
     let empty_planes: [GpuFacetPlane; 0] = [];
     let empty_soa = build_plane_soa(&empty_planes);
     let nee_ctx = NeeContext {
-        environment: EnvironmentSource::HdrMap(&map),
+        environment: EnvironmentSource::hdr(&map),
         plane_soa: &empty_soa,
         tools: &[],
         enabled: true,

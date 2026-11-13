@@ -2,24 +2,22 @@ import { ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 import { GuideModel } from "../models/guide_model.slint";
 
-// The step panel of whichever lesson is running (modelled on the desktop's
-// `guide_panel.slint`). Mounted two ways, never both at once: as a column beside the main
-// view when the window is wide enough (`app.slint`), and floating over the window everywhere
-// else -- the narrow layout, or a window too small to spare the column -- through
-// `GuideOverlayLayer` below, so the guide never disappears mid-lesson.
+// The step panel of the running lesson. Mounted two ways, never both at once: as a column
+// beside the main view when the window is wide enough (`app.slint`), and floating over the
+// window otherwise (`GuideOverlayLayer` below), so the guide never disappears mid-lesson.
 //
 // The panel sets NO height of its own. Docked, it fills the row it sits in; floating,
 // `GuideOverlayLayer` sizes it against the window. Either way the step text scrolls
 // internally.
 //
 // The header row drags the floating panel (`draggable`, reported through `dragged`), and
-// its collapse button shrinks either mount to a small "Guide - Step N of M" pill that
+// its collapse button shrinks either mount to a small "Guide · Step N of M" pill that
 // expands again on click (`GuideModel.collapsed`).
 //
-// Layout of one step: title, a muted one-sentence intro, the numbered actions, an emerald
-// "Look for" line, an optional italic "why" note, then the status chip ("Waiting for: ..."
-// until Rust reports the goal reached, then "Done") and the Back / Next-or-Skip row. Action
-// steps advance by themselves; only manual (reading) steps show a primary Next.
+// Layout of one step: title, a muted intro, the numbered actions, an emerald "Look for"
+// line, an optional italic "why" note, then the status chip ("Waiting for: ..." until Rust
+// reports the goal reached, then "Done") and the Back / Next-or-Skip row. Action steps
+// advance by themselves once their goal is met; manual (reading) steps wait for Next.
 export component GuidePanel inherits Rectangle {
     // Whether the header row (and the collapsed pill) drag the panel -- only the floating
     // mount, whose owner applies the moves.
@@ -131,8 +129,7 @@ export component GuidePanel inherits Rectangle {
                 border-radius: 3px;
                 background: close-touch.has-hover ? Theme.bg-card-hover : transparent;
                 Text {
-                    // (The web build's font has no U+2715 cross or U+25BE / U+25B8 small
-                    // triangles: those drew as blanks, and the close button looked missing.)
+                    // The web font has no U+2715 cross (it draws blank), so U+00D7 is used.
                     text: "\u{00D7}";
                     font-size: 15px;
                     color: Theme.text-muted;
@@ -174,11 +171,9 @@ export component GuidePanel inherits Rectangle {
 
                 VerticalLayout {
                     spacing: 5px;
-                    // One row per action. A word-wrapped Text inside a HorizontalLayout inside
-                    // this scrolling column reports the height of ONE line to the layout above,
-                    // so a wrapped action overlapped the lines below it. The row is therefore a
-                    // Rectangle sized from the text's own preferred height at its set width
-                    // (the same recipe as the status chip below).
+                    // One row per action, sized from the wrapped text's own preferred height. A
+                    // word-wrapped Text inside a HorizontalLayout reports one line's height, so
+                    // wrapped actions would overlap the rows below.
                     for action[i] in GuideModel.current.actions: Rectangle {
                         height: action-text.preferred-height;
                         Text {
@@ -340,12 +335,11 @@ export component GuidePanel inherits Rectangle {
     }
 }
 
-// Mounted once by `app.slint` as an explicitly positioned full-window layer (so none of its
-// constraints reach the window). Holds the timer behind the guide's short "Done" moment --
-// here rather than inside `GuidePanel`, so it runs whichever way the panel is mounted --
-// and the floating `GuidePanel` for every place the wide layout's own column does not
-// exist. The layer itself has no `TouchArea`, so clicks outside the floating panel reach
-// whatever is underneath.
+// Mounted once by `app.slint` as an explicitly positioned full-window layer, so none of its
+// constraints reach the window. Holds the timers that drive the guide and the floating
+// `GuidePanel` wherever the wide layout has no docked column. The timers live here, not in
+// `GuidePanel`, so they run whichever way the panel is mounted. No `TouchArea`: clicks
+// outside the floating panel reach whatever is underneath.
 export component GuideOverlayLayer inherits Rectangle {
     // `true` while the wide layout mounts its own `GuidePanel` column, which then replaces
     // the floating one.

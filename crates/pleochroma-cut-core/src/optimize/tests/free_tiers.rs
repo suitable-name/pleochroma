@@ -15,14 +15,10 @@ use pleochroma::geometry::meet_solver::MeetConstraint;
 fn free_tier_indices_excludes_scale_reference_horizontal_and_vertical_tiers() {
     let design = rbc_445();
     let free = free_tier_indices(&design);
-    // RBC-445 has real prose G-instructions on two tiers ("G TCP"/"G PCP"), but
-    // `meet_tier_inputs_from_asc` classifies those as MeetNamed/MeetExisting (see
-    // that function's own doc comment: it is not a stated scale dimension) -- the
-    // ONLY ScaleReference tiers are the ones this fixture's own bootstrap loop
-    // synthesizes, one per populated block. It also carries two real girdle facets
-    // at -90.0, which `free_tier_indices` excludes because no candidate angle for
-    // them could ever pass `candidate_angle_is_safe` (see that function's own doc
-    // comment), and a table at +0.0 ("E"), which has no angle to optimize.
+    // The G-instructions on two tiers ("G TCP"/"G PCP") classify as MeetNamed/MeetExisting,
+    // so the only ScaleReference tiers are the ones the fixture's bootstrap loop adds, one
+    // per populated block. The two girdle facets at -90.0 are never free (no candidate angle
+    // passes `candidate_angle_is_safe`), and the table at +0.0 ("E") has no angle to optimize.
     for (i, tier) in design.tiers.iter().enumerate() {
         let pinned = matches!(tier.constraint, MeetConstraint::ScaleReference(_));
         let vertical = tier.angle_deg.abs() >= candidate::MAX_SAFE_CANDIDATE_ANGLE_DEG;
@@ -140,8 +136,7 @@ fn staying_on_the_same_side_of_zero_is_safe() {
     assert!(candidate::candidate_angle_is_safe(30.0, 32.0));
 }
 
-/// A `+0.0` origin (a table) used to be free to step to either side. It is not any
-/// more: like every other tier it keeps its side, here the crown side.
+/// A tier authored at `+0.0` (a table) keeps the crown side, like every other tier.
 #[test]
 fn a_tier_authored_at_positive_zero_stays_on_the_crown_side() {
     assert!(candidate::candidate_angle_is_safe(0.0, 5.0));
@@ -159,9 +154,8 @@ fn a_tier_authored_at_negative_zero_stays_pinned_to_the_negative_side() {
     assert!(!candidate::candidate_angle_is_safe(-0.0, 2.0));
 }
 
-/// A candidate must never land exactly on the girdle plane, from either side.
-/// The current check uses `signum` to distinguish between `0.0` and `-0.0`,
-/// ensuring that a step landing at zero is always rejected as required.
+/// A candidate must never land exactly on the girdle plane, from either side: a step to
+/// zero (either sign) is always rejected.
 #[test]
 fn a_candidate_landing_exactly_on_zero_is_never_safe() {
     assert!(!candidate::candidate_angle_is_safe(5.0, 0.0));

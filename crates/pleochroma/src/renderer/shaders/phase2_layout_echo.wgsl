@@ -1,10 +1,9 @@
-// Phase 2 GPU struct-layout self-test kernel, driven by
-// `renderer::gpu::layout_check::run_transport_params` -- not a physics kernel.
+// GPU struct-layout self-test kernel, driven by
+// `renderer::gpu::layout_check::run_transport_params`. Not a physics kernel.
 //
-// Echoes every field of `GpuTransportParams` to an independent output buffer so
-// `layout_check` can compare raw bytes (padding included) and confirm the
-// hand-written `#[repr(C)]` offsets in `renderer::buffers` match WGSL's layout.
-// Same mechanism as `layout_echo.wgsl`/`phase1_layout_echo.wgsl`.
+// Echoes every field of `GpuTransportParams` to an output buffer, so `layout_check` can compare
+// raw bytes (padding included) against the `#[repr(C)]` offsets in `renderer::buffers`.
+// Same mechanism as `layout_echo.wgsl` and `phase1_layout_echo.wgsl`.
 
 struct GpuTransportParams {
     num_pixels: u32,
@@ -17,8 +16,7 @@ struct GpuTransportParams {
     studio_exposure: f32,
     studio_light_yaw: f32,
     studio_light_pitch: f32,
-    // Echoed explicitly: vec3<f32> alignment padding would hide an offset bug here,
-    // and `write_debug_buffers` is not an always-zero pad value.
+    // Echoed explicitly: vec3 alignment padding would hide an offset bug here.
     pixel_offset: u32,
     write_debug_buffers: u32,
     white_balance: vec3<f32>,
@@ -31,11 +29,17 @@ struct GpuTransportParams {
     head_shadow_inner_cos: f32,
     tent_flat: f32,
     _pad_head_shadow1: u32,
-    _pad_head_shadow2: u32,
+    // `hdr_exposure` at offset 92.
+    hdr_exposure: f32,
     tent_walls: f32,
     tent_cards: f32,
     tent_spark: f32,
     tent_ground: f32,
+    // The HDR map's yaw row at offsets 112..128.
+    hdr_rot_cos: f32,
+    hdr_rot_sin: f32,
+    _pad_hdr_rot0: u32,
+    _pad_hdr_rot1: u32,
 }
 
 @group(0) @binding(0) var<storage, read> in_params: GpuTransportParams;
@@ -64,19 +68,20 @@ fn echo_transport_params() {
     out_params.head_shadow_inner_cos = in_params.head_shadow_inner_cos;
     out_params.tent_flat = in_params.tent_flat;
     out_params._pad_head_shadow1 = in_params._pad_head_shadow1;
-    out_params._pad_head_shadow2 = in_params._pad_head_shadow2;
+    out_params.hdr_exposure = in_params.hdr_exposure;
     out_params.tent_walls = in_params.tent_walls;
     out_params.tent_cards = in_params.tent_cards;
     out_params.tent_spark = in_params.tent_spark;
     out_params.tent_ground = in_params.tent_ground;
+    out_params.hdr_rot_cos = in_params.hdr_rot_cos;
+    out_params.hdr_rot_sin = in_params.hdr_rot_sin;
+    out_params._pad_hdr_rot0 = in_params._pad_hdr_rot0;
+    out_params._pad_hdr_rot1 = in_params._pad_hdr_rot1;
 }
 
-// `renderer::gpu::layout_check` echoes these four small uniform structs
-// (`reduce_xyz.wgsl`'s `GpuReduceParams`, `wavefront_transport.wgsl`'s
-// `WavefrontParams`, `spectral_transport.wgsl`'s `HdrEnvDims`/`GpuDistDims`) in addition
-// to `GpuTransportParams`, so their layout is verified by raw byte comparison rather
-// than by eye. Mirrors this file's own `GpuTransportParams` echo, one dedicated
-// binding pair and entry point per struct, same mechanism as `phase1_layout_echo.wgsl`.
+// `renderer::gpu::layout_check` also echoes four small uniform structs: `GpuReduceParams`,
+// `GpuWavefrontParams`, `GpuHdrEnvDims` and `GpuDistDims`. Each has its own binding pair and entry
+// point, as for `GpuTransportParams`.
 
 struct GpuReduceParams {
     num_pixels: u32,

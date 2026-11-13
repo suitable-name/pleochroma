@@ -1,4 +1,4 @@
-//! The positional count DP of one cut order under a cap on the number of pieces (stones).
+//! The positional count DP of one cut order under a cap on the number of pieces.
 //!
 //! The twin of [`solve_order`](super::dp::solve_order) for the best layout of AT MOST `K`
 //! pieces, as the block planner's `dp_capped` is of its free DP: the same recurrences over

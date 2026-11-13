@@ -6,11 +6,11 @@ use serde::{Deserialize, Serialize};
 /// Wire counterpart of `pleochroma_vault::db::sqlite::search::SortOrder` (the vault is
 /// not a dependency of this crate).
 ///
-/// `#[default]` is [`Self::CatalogueOrder`], matching the vault type's own default, so a
-/// client that never sets a sort preference gets the long-standing `de.id ASC` behaviour.
+/// `#[default]` is [`Self::CatalogueOrder`], the vault type's own default (`de.id ASC`), so a
+/// client that sets no sort preference gets that order.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SortOrderWire {
-    /// Insertion order -- the long-standing default.
+    /// Insertion order, the default.
     #[default]
     CatalogueOrder,
     /// Case-insensitive title, A-Z.

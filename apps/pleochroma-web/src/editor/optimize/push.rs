@@ -1,6 +1,5 @@
-//! Pushing the Optimize tab's availability (the desktop's
-//! `panel_stale::refresh_optimize_availability`): whether any tier is free to move, the
-//! hint that says why not, and whether a held result has gone stale.
+//! Pushes the Optimize tab's availability: whether any tier is free to move, the hint that
+//! says why not, and whether a held result has gone stale.
 
 use super::{RUNTIME, configured_budget};
 use crate::{AppWindow, OptimizeModel, editor::inspector::PushCtx};

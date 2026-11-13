@@ -5,7 +5,7 @@
 //! the number of candidates into the search settings, `optimize_design_with` runs the
 //! deterministic coordinate search and the polish stage, and the ranked candidates are the
 //! ones the tab lists. Like the tab, anchored (scale-reference) tiers are varied when nothing
-//! else is free, so a freshly imported `.asc` can be optimized without `--vary-anchored`; the
+//! else is free, so an imported `.asc` can be optimized without `--vary-anchored`; the
 //! flag turns it on for any design. "Keep the girdle" and "Polish" are on, as in the tab, and
 //! the yield is not part of the score.
 //!
@@ -16,9 +16,9 @@
 //!
 //! A design with concave tiers is searched and reported as the stone with its tools (the
 //! engine places them on every candidate, `Design::tools_for_scoring`), and its yield loss
-//! reads the carved volume; a design without them is scored on its planes alone, as before.
+//! reads the carved volume; a design without them is scored on its planes alone.
 //!
-//! `--out FILE` saves the BEST candidate as a `.psdd` file, applied through the same
+//! `--out FILE` saves the best candidate as a `.psdd` file, applied through the same
 //! editor session path as the tab's Apply (tiers that follow a relation follow). When the search
 //! finds nothing better, nothing is written and the exit code is still 0: the report says so.
 
@@ -286,9 +286,8 @@ fn text_report(run: &Run<'_>) -> String {
 
 /// A set of objective figures as a JSON object.
 ///
-/// `score` stays the internal loss (lower is better), as every earlier release wrote it;
-/// `display_score` is the figure the text table and the apps show, `100 - score` clamped to
-/// 0 to 100, higher is better.
+/// `score` is the internal loss (lower is better). `display_score` is the figure the text table
+/// and the apps show: `100 - score` clamped to 0 to 100, higher is better.
 fn components_json(
     components: &ObjectiveComponents,
     score: f32,

@@ -1,35 +1,34 @@
-//! Yield/weight and proportion (table %, crown/pavilion depth, girdle thickness,
-//! length-to-width) view-model text, the proportion-guidance verdict chips.
+//! View-model text for the Preform and Yield tabs, read once a design solves.
 //!
-//! And the Edit tab's own cut-order schedule rows -- everything the Preform/Yield tabs
-//! read once a design solves.
+//! Covers yield and weight, proportions (table %, crown/pavilion depth, girdle thickness,
+//! length-to-width), the proportion-guidance verdict chips, and the Edit tab's cut-order
+//! schedule rows.
 
 use super::{
     CuttingRow,
+    girdle_reading::GirdleReading,
     row_format::{format_angle_cell, representative_crown_and_pavilion_angles_deg},
 };
 use crate::material_lookup::EditorMaterialLookup;
 use pleochroma::geometry::meet_solver::{Block, SolvedTier, classify_blocks};
 use pleochroma_cut_core::{Design, DesignSolveError, design::TierRef, format_sheet_indices};
 
-/// `design`'s current yield/weight figures, formatted for `EditorView`'s read-only
+/// `design`'s current yield and weight figures, formatted for `EditorView`'s read-only
 /// display fields.
 ///
-/// Pushed by the explicit "Solve" action, a debounced background solve, and a completed
-/// solid-preview replan alike (`view::panel::refresh_editor_panel_from_solve`,
-/// `auto_solve::apply:: push_solve_dependent_background_fields`, `view::viewport::
-/// push_solved_preview`), not just the synchronous path -- an ordinary edit with no solve
-/// at all instead clears these to `""` via `view::panel_stale::
-/// push_stale_preform_and_yield`, since `Design::yield_report` needs an already-solved
-/// mast list this function does not have without one.
+/// Called after the explicit "Solve" action, a debounced background solve and a completed
+/// solid-preview replan (`view::panel::refresh_editor_panel_from_solve`,
+/// `auto_solve::apply::push_solve_dependent_background_fields`,
+/// `view::viewport::push_solved_preview`). An edit with no solve clears these fields to `""`
+/// instead, via `view::panel_stale::push_stale_preform_and_yield`, because that path has no
+/// solved mast list for `Design::yield_report`.
 ///
 /// Returns `(volumetric_yield_text, carat_weight_text, specific_gravity_used_text,
-/// preform_fit_warning_text)` -- all four empty when the design does not currently
-/// solve ([`pleochroma_cut_core::MissingAnchor`], already surfaced by the banner).
+/// preform_fit_warning_text)`. All four are empty when the design does not solve
+/// ([`pleochroma_cut_core::MissingAnchor`], already shown by the banner).
 ///
-/// `custom_sg` is the catalogue's custom-material specific-gravity table --
-/// see [`yield_report_texts_from_solved`]'s own doc comment for where a
-/// caller sources it from.
+/// `custom_sg` maps custom catalogue material names to their specific gravity; see
+/// [`yield_report_texts_from_solved`].
 #[must_use]
 pub fn yield_report_texts(
     design: &Design,
@@ -55,26 +54,15 @@ pub fn yield_report_texts_from_result(
     )
 }
 
-/// [`yield_report_texts`]'s counterpart for a caller that already has an
-/// up-to-date `solved` mast list on hand -- see `super::rows::tier_items_from_solved`'s
-/// own doc comment for why this exists.
+/// [`yield_report_texts`] for a caller that already holds an up-to-date `solved` mast list.
 ///
-/// Never re-solves, and
-/// never returns the all-empty tuple [`yield_report_texts`] falls back to on a
-/// `MissingAnchor`: a caller holding a real `solved` slice already knows the
-/// design solves.
+/// Never re-solves. Unlike [`yield_report_texts`], it never returns the all-empty tuple,
+/// since a caller holding a `solved` slice already knows the design solves.
 ///
-/// Resolves `design.material`'s specific gravity through
-/// [`EditorMaterialLookup`] instead of only [`Design::yield_report`]'s built-in
-/// table, so a CUSTOM catalogue material's own recorded SG reaches the
-/// carat-weight estimate too -- not just a built-in preset or a per-design
-/// override. This module has no live `RenderContext` of its own (a pure
-/// `Design`-only view-model helper), so `custom_sg` is threaded in by the caller
-/// instead -- `view.rs`/`auto_solve.rs` each read it straight off their own
-/// `RenderContext::custom_material_specific_gravity` (cloned before crossing onto
-/// a background thread, same as `RenderContext::custom_materials` already is), so
-/// this stays a single source of truth with no thread-local mirror to drift out
-/// of sync.
+/// Resolves `design.material`'s specific gravity through [`EditorMaterialLookup`], so a
+/// custom catalogue material's recorded SG reaches the carat-weight estimate, not only a
+/// built-in preset or a per-design override. `custom_sg` is passed in because this module has
+/// no `RenderContext`; the caller clones it before any background thread, so no copy can drift.
 pub fn yield_report_texts_from_solved(
     design: &Design,
     solved: &[SolvedTier],
@@ -113,45 +101,24 @@ pub fn yield_report_texts_from_solved(
     )
 }
 
-/// `design`'s proportion readouts for the Preform tab's "Proportions" section
-/// -- table %, crown height, pavilion depth, total depth, and length-to-width,
-/// the figures a cutter actually quotes.
+/// `design`'s proportion readouts for the Preform tab's "Proportions" section: table %,
+/// crown height, pavilion depth, total depth and length-to-width.
 ///
-/// Built from
-/// [`Design::stone_proportions`] and converted to millimetres via
-/// [`Design::yield_report`]'s own scale factor whenever a trusted one exists
-/// (a girdle diameter is set and the design measures); otherwise shown in the
-/// design's own mast units with no unit suffix, rather than guessing a scale.
+/// Lengths are converted to millimetres with [`Design::yield_report`]'s scale factor when one
+/// exists (a girdle diameter is set and the design measures). Otherwise they stay in mast units
+/// with no suffix, rather than guessing a scale.
 ///
-/// Returns `(table_percent_text, crown_height_text, pavilion_depth_text,
-/// total_depth_text, length_to_width_text)`, every one of them `"-"` when the
-/// design has no tiers at all, does not solve, isn't currently a closed solid,
-/// or (the two depth fields, and `total_depth` too, since it is
-/// only meaningful once a live girdle band exists to separate crown from
-/// pavilion) has no vertical girdle plane with a live facet to measure from --
-/// see [`pleochroma::geometry::stone_metrics::StoneProportions`]'s own doc
-/// comment for why the two depth fields are `Option`. Pushed by the explicit
-/// "Solve" action, a debounced background solve, and a completed solid-preview
-/// replan alike -- see [`yield_report_texts`]'s own doc comment for the three
-/// call sites, none of which are "every edit."
+/// Returns `(table_percent_text, crown_height_text, pavilion_depth_text, total_depth_text,
+/// length_to_width_text)`. Each is `"-"` when the design has no tiers, does not solve, is not a
+/// closed solid, or (for the two depths and `total_depth`) has no vertical girdle plane with a
+/// live facet to measure from. See [`pleochroma::geometry::stone_metrics::StoneProportions`] for
+/// why the depths are `Option`. Pushed by the Solve action, a debounced background solve and a
+/// completed preview replan, not on every edit (see [`yield_report_texts`]).
 ///
-/// A tierless design still solves (an empty
-/// mast list is a valid, closed, zero-plane solve -- `Design::solve` never
-/// rejects it), and `stone_proportions` then measures the bare preform block:
-/// table 100%, crown/pavilion 0%, `total_depth` the preform's own depth. Those
-/// are honest numbers about the preform and fabricated ones about a stone that
-/// does not exist yet, so the `tiers.is_empty()` guard below runs BEFORE the
-/// solve -- including for `total_depth`, which is not an `Option` on
-/// [`pleochroma::geometry::stone_metrics::StoneProportions`] and so has no
-/// OTHER way to read as "-" once this guard is past (its `girdle_thickness.
-/// is_some()` gate just below only ever hides it for a design that DOES have
-/// tiers but no live girdle band -- this tierless guard is what stops the
-/// bare preform's own numbers from reaching that gate at all).
-/// [`girdle_and_ratio_texts`] carries the identical guard for the same reason;
-/// the `view` module's own `proportions_texts_from_solved`/
-/// `girdle_and_ratio_texts_from_solved` mirror it too, since a caller with an
-/// already-`solved` list came from a design that solved -- which, per the
-/// above, a tierless one does.
+/// The tierless guard runs before the solve. A tierless design still solves (an empty mast list
+/// is a valid, closed, zero-plane solve), and `stone_proportions` would then measure the bare
+/// preform block as if it were the stone. `total_depth` is a plain `f64`, so this guard is what
+/// keeps it from showing a preform value. [`girdle_and_ratio_texts`] has the same guard.
 #[must_use]
 pub fn proportions_texts(design: &Design) -> (String, String, String, String, String) {
     let dash = || "-".to_string();
@@ -164,84 +131,43 @@ pub fn proportions_texts(design: &Design) -> (String, String, String, String, St
     proportions_texts_from_solved(design, &solved)
 }
 
-/// The three proportion readouts [`proportions_texts`] does not expose.
+/// The readouts [`proportions_texts`] does not return: girdle thickness (no other text home)
+/// and the printed `C/W%`, `P/W%` and `G/W%` ratios, as opposed to the absolute depths.
 ///
-/// Girdle thickness (a figure with no existing text home at all) and the printed
-/// `C/W%`/`P/W%` ratios every faceting diagram actually prints, as opposed to the
-/// absolute crown/pavilion depths [`proportions_texts`] already returns.
+/// The girdle figures are read at the girdle LINE ([`GirdleReading`]: the corners where girdle
+/// faces meet and the ends of level edges), not across the band, which includes a brilliant's
+/// V-scallops. A level line gives one figure; an unlevel one gives a range such as
+/// `0.254–0.399 mm (not level)`. A design without a girdle line reads the band.
 ///
-/// `Design::stone_proportions` has
-/// already computed all four (`StoneProportions::girdle_thickness`/`crown_to_width_percent`/
-/// `pavilion_to_width_percent`/`girdle_to_width_percent`, see
-/// [`pleochroma::geometry::stone_metrics::StoneProportions`]); `view::panel::
-/// push_yield_and_proportions` reads all four and pushes them to
-/// `EditorModel.girdle_thickness_text`/`crown_to_width_text`/
-/// `pavilion_to_width_text`/`girdle_to_width_text` (the editor panel
-/// reads them).
+/// Mirrors [`proportions_texts`]: solve, measure, `"-"` fallback, and millimetre or model-unit
+/// handling. Only the girdle thickness takes the unit suffix, since the `_to_width_percent`
+/// values are scale-invariant. Both families use the same conversion, so they agree on units.
 ///
-/// Mirrors [`proportions_texts`]'s own solve-then-measure shape, `"-"` fallback and
-/// millimetre-vs-model-unit handling exactly (girdle thickness only -- the three
-/// `_to_width_percent` fields are already scale-invariant percentages, exactly like
-/// `table_percent`, so they never take the `unit` suffix), so the two families can
-/// never disagree about which unit a given figure is shown in.
-///
-/// Returns `(girdle_thickness_text, crown_to_width_percent_text,
-/// pavilion_to_width_percent_text, girdle_to_width_percent_text)`, every one of
-/// them `"-"` under the exact same conditions [`proportions_texts`] already
-/// documents (does not solve, isn't currently a closed solid, or -- all four here
-/// specifically -- no vertical girdle plane with a live facet to measure the
-/// girdle band from at all).
+/// Returns `(girdle_thickness_text, crown_to_width_percent_text, pavilion_to_width_percent_text,
+/// girdle_to_width_percent_text)`, each `"-"` under the conditions [`proportions_texts`] lists,
+/// and also when there is no vertical girdle plane with a live facet to measure the girdle from.
 #[must_use]
 pub fn girdle_and_ratio_texts(design: &Design) -> (String, String, String, String) {
     let dash = || "-".to_string();
-    // A tierless design still solves, and `stone_proportions` then measures the bare
-    // preform block: girdle 50% of a cube, crown and pavilion 0%. Those are honest
-    // numbers about the preform and fabricated ones about the stone, so they must
-    // never reach a proportions readout. The same
-    // `tiers.is_empty()` guard protects `proportions_texts` (including its
-    // `total_depth`) and both
-    // `_from_solved` mirrors in `view.rs`, so every reader of these figures agrees.
+    // A tierless design still solves, and `stone_proportions` would then measure the bare
+    // preform block (girdle 50% of a cube, crown and pavilion 0%). Those numbers must never
+    // reach a readout. The same guard is in `proportions_texts` and the `_from_solved` mirrors.
     if design.tiers.is_empty() {
         return (dash(), dash(), dash(), dash());
     }
     let Ok(solved) = design.solve() else {
         return (dash(), dash(), dash(), dash());
     };
-    let Some(proportions) = design.stone_proportions(&solved) else {
-        return (dash(), dash(), dash(), dash());
-    };
-    let mm_per_unit = design.yield_report(&solved).mm_per_unit;
-    let proportions = mm_per_unit.map_or(proportions, |mm| proportions.to_mm(mm));
-    let unit = if mm_per_unit.is_some() { " mm" } else { "" };
-    let girdle_thickness_text = proportions
-        .girdle_thickness
-        .map_or_else(dash, |v| format!("{v:.3}{unit}"));
-    let crown_to_width_percent_text = proportions
-        .crown_to_width_percent
-        .map_or_else(dash, |v| format!("{v:.1}%"));
-    let pavilion_to_width_percent_text = proportions
-        .pavilion_to_width_percent
-        .map_or_else(dash, |v| format!("{v:.1}%"));
-    let girdle_to_width_percent_text = proportions
-        .girdle_to_width_percent
-        .map_or_else(dash, |v| format!("{v:.1}%"));
-    (
-        girdle_thickness_text,
-        crown_to_width_percent_text,
-        pavilion_to_width_percent_text,
-        girdle_to_width_percent_text,
-    )
+    girdle_and_ratio_texts_from_solved(design, &solved)
 }
 
 /// One proportion metric's verdict against [`pleochroma_cut_core::proportions_windows`]'s
 /// reference table.
 ///
-/// `level` is `0` (`Verdict::Within`), `1` (`Verdict::Near`), `2` (`Verdict::Outside`),
-/// or `-1` ("nothing to judge yet": the design does not currently solve/close, or this
-/// particular metric has no value to judge -- e.g. no crown tier at all).
-///
-/// `reason` is the matched window's own
-/// one-line explanation, `""` at level `-1`.
+/// `level` is `0` (`Verdict::Within`), `1` (`Verdict::Near`), `2` (`Verdict::Outside`), or
+/// `-1` when there is nothing to judge: the design does not solve or close, or this metric has
+/// no value (e.g. no crown tier). `reason` is the matched window's one-line explanation, empty
+/// at level `-1`.
 pub struct ProportionVerdict {
     /// Verdict level; `-1` means nothing to judge yet.
     pub level: i32,
@@ -249,9 +175,8 @@ pub struct ProportionVerdict {
     pub reason: String,
 }
 
-/// The five [`ProportionVerdict`]s the Preform tab's "Proportion guidance"
-/// section shows, one per metric
-/// [`pleochroma_cut_core::proportions_windows::Metric`] lists.
+/// The five [`ProportionVerdict`]s of the Preform tab's proportion guidance, one per metric in
+/// [`pleochroma_cut_core::proportions_windows::Metric`].
 pub struct ProportionVerdicts {
     /// Verdict for the table width percentage.
     pub table_pct: ProportionVerdict,
@@ -265,8 +190,7 @@ pub struct ProportionVerdicts {
     pub girdle_pct: ProportionVerdict,
 }
 
-/// The "nothing to judge yet" verdict -- see [`ProportionVerdict`]'s own doc
-/// comment for what level `-1` means.
+/// The "nothing to judge yet" verdict, level `-1` (see [`ProportionVerdict`]).
 const fn verdict_none() -> ProportionVerdict {
     ProportionVerdict {
         level: -1,
@@ -274,12 +198,9 @@ const fn verdict_none() -> ProportionVerdict {
     }
 }
 
-/// Looks `value` up against `shape`/`material`/`metric`'s reference window
-/// (via [`pleochroma_cut_core::proportions_windows::verdict_for`]) and turns
-/// the result into a [`ProportionVerdict`] -- [`verdict_none`] when `value` is
-/// `None` (there was nothing to measure) or the lookup itself found no window
-/// at all (never happens for a real metric today -- see that function's own
-/// doc comment on its Round/Mid fallback).
+/// Looks `value` up in the reference window for `shape`, `material` and `metric`
+/// (via [`pleochroma_cut_core::proportions_windows::verdict_for`]). Gives [`verdict_none`]
+/// when `value` is `None` or no window matches, which does not happen for a real metric.
 fn verdict_from(
     value: Option<f64>,
     shape: pleochroma_cut_core::ShapeClass,
@@ -305,15 +226,12 @@ fn verdict_from(
     }
 }
 
-/// This design's own [`pleochroma_cut_core::ShapeClass`], for the proportion
-/// verdicts above. Only [`pleochroma_cut_core::ShapeClass::Round`] is ever
-/// returned (a symmetry order of 6 or more with mirroring on -- the round
-/// brilliant family, the one shape this app ships verified, closing templates
-/// for, see [`pleochroma_cut_core::templates`]'s own doc comment); every other
-/// schedule reads as [`pleochroma_cut_core::ShapeClass::Other`], the honest
-/// default this crate has no real cushion/oval/step/trillion classifier for
-/// (see `proportions_windows`'s own top doc comment -- `Other` still judges
-/// against the same generic lapidary window `Round`'s own Mid/Low band uses).
+/// The [`pleochroma_cut_core::ShapeClass`] of `meta`'s schedule, for the proportion verdicts.
+/// [`pleochroma_cut_core::ShapeClass::Round`] needs a symmetry order of 6 or more with mirroring
+/// (the round brilliant family, the only shape with verified templates, see
+/// [`pleochroma_cut_core::templates`]). Every other schedule is
+/// [`pleochroma_cut_core::ShapeClass::Other`], which has no cushion, oval, step or trillion
+/// classifier and uses the generic lapidary window.
 const fn shape_class_for(
     meta: &pleochroma_cut_core::ScheduleMeta,
 ) -> pleochroma_cut_core::ShapeClass {
@@ -324,27 +242,39 @@ const fn shape_class_for(
     }
 }
 
-/// The Preform tab's five proportion-verdict chips, judged against `design`'s
-/// already-solved `proportions`.
+/// The Preform tab's five proportion-verdict chips, judged from `proportions`.
 ///
-/// The SAME [`pleochroma::geometry::stone_metrics:: StoneProportions`] the plain-number
-/// readouts above already read, so the chip and the number next to it can never disagree
-/// about the underlying measurement.
+/// `proportions` is the same [`pleochroma::geometry::stone_metrics::StoneProportions`] the
+/// number readouts show, so a chip and its number cannot disagree. `n_d` is the design's
+/// effective refractive index.
 ///
-/// `n_d` is the design's effective refractive index (the same
-/// value `view::refresh_design_settings` pushes as `effective_ri_text`).
+/// Total depth is judged as the sum of the crown, pavilion and girdle percentages. That is the
+/// honest percentage-of-width equivalent: `StoneProportions` has only the absolute
+/// `total_depth`, and total depth is crown plus pavilion plus girdle by construction. The sum
+/// uses the whole girdle band.
 ///
-/// Total depth is judged as the SUM of `crown_to_width_percent` +
-/// `pavilion_to_width_percent` + `girdle_to_width_percent` -- `StoneProportions`
-/// has no standalone "total depth as a percentage of width" field of its own
-/// (only the absolute `total_depth`, in model units/mm), and total depth is,
-/// by construction, crown height plus pavilion depth plus girdle thickness, so
-/// this sum is the honest percentage-of-width equivalent, not an approximation
-/// invented for this function.
+/// The girdle chip judges the girdle at its LINE ([`GirdleReading::judged_percent`], the
+/// thinnest line thickness) where `solved` gives one, and the band otherwise. A correctly cut
+/// brilliant's band includes the V-scallops between the girdle corners and never fits a
+/// girdle window.
 #[must_use]
 pub fn proportion_verdicts(
     design: &Design,
+    solved: &[SolvedTier],
     proportions: &pleochroma::geometry::stone_metrics::StoneProportions,
+    n_d: f64,
+) -> ProportionVerdicts {
+    let girdle = GirdleReading::of(design, solved, proportions);
+    proportion_verdicts_with_girdle(design, proportions, girdle, n_d)
+}
+
+/// [`proportion_verdicts`] with the girdle reading already worked out (`None`: no girdle to
+/// judge), for a caller that has it, so the girdle is not measured twice.
+#[must_use]
+pub fn proportion_verdicts_with_girdle(
+    design: &Design,
+    proportions: &pleochroma::geometry::stone_metrics::StoneProportions,
+    girdle: Option<GirdleReading>,
     n_d: f64,
 ) -> ProportionVerdicts {
     let shape = shape_class_for(&design.meta);
@@ -385,7 +315,7 @@ pub fn proportion_verdicts(
             pleochroma_cut_core::ProportionMetric::TotalDepthPercent,
         ),
         girdle_pct: verdict_from(
-            proportions.girdle_to_width_percent,
+            girdle.map(GirdleReading::judged_percent),
             shape,
             material,
             pleochroma_cut_core::ProportionMetric::GirdleThicknessPercent,
@@ -393,17 +323,12 @@ pub fn proportion_verdicts(
     }
 }
 
-/// The Preform tab's Half-Width/Depth fields, converted to millimetres via the same
-/// [`Design::yield_report`] scale factor [`proportions_texts`] uses.
+/// Millimetre text for the Preform tab's Half-Width and Depth fields, using the same
+/// [`Design::yield_report`] scale factor as [`proportions_texts`].
 ///
-/// Those two fields are typed and stored in the design's own mast-unit scale (girdle
-/// half-width = 1), which reads as ambiguous next to the Yield section's "Girdle Diameter
-/// (mm)" a few fields down.
-///
-/// Returned ALONGSIDE the model-unit value, never in place of it (the
-/// fields stay editable in model units -- `PreformSpec` itself has no mm
-/// concept); each `""` when the design does not currently solve, or no girdle
-/// diameter is set to anchor `mm_per_unit` at all.
+/// Those fields are stored in mast units (girdle half-width = 1), and `PreformSpec` has no mm
+/// concept. The mm text is shown ALONGSIDE the editable model-unit value, never in place of it.
+/// Each is `""` when the design does not solve or no girdle diameter anchors `mm_per_unit`.
 #[must_use]
 pub fn preform_mm_texts(design: &Design) -> (String, String) {
     let Ok(solved) = design.solve() else {
@@ -419,20 +344,13 @@ pub fn preform_mm_texts(design: &Design) -> (String, String) {
     )
 }
 
-/// `EditorModel.preform_y_offset_mm`'s seed value.
+/// The seed text for `EditorModel.preform_y_offset_mm`: `design.preform_y_offset` (mast units)
+/// in millimetres, via the same `mm_per_unit` anchor as [`preform_mm_texts`].
 ///
-/// `design.preform_y_offset` (model/mast units) converted to real millimetres via
-/// `mm_per_unit`, the SAME anchor [`preform_mm_texts`] converts Half-Width/Depth with.
-///
-/// Unlike that function, this is pure (no internal
-/// `Design::solve`): the caller already has `mm_per_unit` on hand from a
-/// SOLVED mast list, or passes `None` when it deliberately never solves (`view::
-/// push_stale_content`) -- `""` in that case, the same "cleared, not left
-/// showing a superseded value" treatment `preform_mm_texts`' own two fields get
-/// there. Formatted as a bare decimal (not `preform_mm_texts`' "\u{2248} ... mm"
-/// style) because, unlike those two read-only displays, this field is the
-/// editable value `apply_preform_y_offset`'s `Edit::SetPreformYOffset` round-
-/// trips through -- an approximation glyph or unit suffix would not re-parse.
+/// Pure, with no internal solve. The caller passes `mm_per_unit` from a solved mast list, or
+/// `None` on the stale path, which gives `""`. The text is a bare decimal with no unit or
+/// approximation glyph, because the field is editable and round-trips through
+/// `Edit::SetPreformYOffset`; a suffix would not parse back.
 #[must_use]
 pub fn preform_y_offset_mm_text(preform_y_offset: f64, mm_per_unit: Option<f64>) -> String {
     mm_per_unit.map_or_else(String::new, |mm_per_unit| {
@@ -440,44 +358,26 @@ pub fn preform_y_offset_mm_text(preform_y_offset: f64, mm_per_unit: Option<f64>)
     })
 }
 
-/// A short label naming the design currently under edit -- the paired `.asc`'s
-/// bare file name when this design was loaded from (or saved to) one, else
-/// `"Untitled design"`.
+/// The label for the design under edit: the paired `.asc`'s bare file name when it was loaded
+/// from or saved to one, else `"Untitled design"`.
 ///
-/// This is the editor-side half,
-/// shown in the status strip; the viewport/render-side half would need a
-/// separate `RenderContext` change outside this file.
+/// Shown in the editor status strip.
 pub fn design_label_text(asc_filename: Option<&str>) -> String {
     asc_filename.map_or_else(|| "Untitled design".to_string(), str::to_string)
 }
 
-/// `design`'s current cut order as the Edit tab's own schedule rows.
+/// `design`'s cut order as the Edit tab's schedule rows: angle, facet name, index positions and
+/// notes, in cut order ([`Design::cutting_order`], planar and concave alike).
 ///
-/// Angle, facet name, index positions and notes, in cut order ([`Design::cutting_order`], for
-/// planar designs as well as concave ones) -- so the cutter can see the design actually being
-/// edited rather than only ever the catalogue's original schedule.
-///
-/// Built from
-/// [`Design::try_to_asc_schedule_from_solved`], the same conversion "Export Edited
-/// .asc" already uses, so this can never disagree with what an export writes.
-///
-/// Uses `try_to_asc_schedule_from_solved`
-/// (not the panicking `to_asc_schedule_from_solved`) -- every real caller already
-/// passes a `solved` it just derived from THIS SAME `design`, so a
-/// `SolveMismatch` should not be reachable in practice, but this is a
-/// `pub(in crate::gui::editor)` helper with several callers across this crate,
-/// none of which should be able to crash the editor over a design/solve pairing
-/// that slipped out of sync. Logs and returns an empty schedule rather than
-/// panicking; every caller already treats an empty `cutting_rows`/schedule as
-/// the ordinary "nothing to show yet" state.
+/// Built with [`Design::try_to_asc_schedule_from_solved`], the conversion behind "Export Edited
+/// .asc", so the rows match the export. The fallible form is used so that a `solved` which does
+/// not match `design` logs and gives an empty schedule instead of panicking the editor.
 pub fn cutting_instructions_rows(design: &Design, solved: &[SolvedTier]) -> Vec<CuttingRow> {
-    // `CuttingRow::side` comes from the solver's own block classification, not from
-    // the sign of the angle: that is the same source the tier table's own block
-    // column uses, and it distinguishes a girdle facet (neither side) from a crown
-    // one, which a sign test cannot.
+    // `CuttingRow::side` comes from the solver's block classification, not the sign of the
+    // angle, because only the classification tells a girdle facet (neither side) from a crown one.
     let tier_blocks = classify_blocks(&design.meet_tier_inputs());
-    // The row's label is the tier's code (`P1`, `G1`, `C1`, `T`), numbered in cutting order, as the
-    // printed cutting sheet writes it; the index list is the sheet's dashed, zero-padded form.
+    // The label is the tier code (`P1`, `G1`, `C1`, `T`), numbered in cutting order as the
+    // printed sheet writes it. The index list uses the sheet's dashed, zero-padded form.
     let tier_codes = design.tier_codes();
     let schedule = match design.try_to_asc_schedule_from_solved(solved) {
         Ok(schedule) => schedule,
@@ -486,10 +386,9 @@ pub fn cutting_instructions_rows(design: &Design, solved: &[SolvedTier]) -> Vec<
             return Vec::new();
         }
     };
-    // `tier_index` is the tier's stored position (what `tier_blocks` is indexed by),
-    // `order_idx` its position in the cutting sequence (what the row and an unnamed
-    // tier's placeholder label show). The two differ whenever the stored order is not the
-    // cutting order, which is the usual case.
+    // `tier_index` is the stored position (it indexes `tier_blocks`); `order_idx` is the
+    // position in cutting order, shown in the row and in an unnamed tier's placeholder label.
+    // They differ whenever the stored order is not the cutting order.
     let flat_row =
         |tier_index: usize, order_idx: usize, tier: pleochroma_formats::asc::AscTier| CuttingRow {
             order_idx: i32::try_from(order_idx).unwrap_or(i32::MAX),
@@ -508,12 +407,10 @@ pub fn cutting_instructions_rows(design: &Design, solved: &[SolvedTier]) -> Vec<
             notes: tier.notes,
             second_line: None,
         };
-    // Every design is read in `cutting_order()`, the order the printed sheet, cutting mode
-    // and the Cut slider use: the pavilion and girdle tiers, each concave tool line at the end
-    // of its section, the crown tiers, and the table last. A flat row's `side` still comes from
-    // its own stored position, so the lookup keeps `flat_row`'s index (the tier's position in
-    // `design.tiers`) apart from the row's `order_idx` (its position in the cutting sequence,
-    // which also numbers an unnamed tier's placeholder label).
+    // Rows follow `cutting_order()`, the order the printed sheet and cutting mode use: pavilion
+    // and girdle tiers, each concave tool at the end of its section, then the crown tiers, then
+    // the table. A flat row's `side` uses its stored index (its position in `design.tiers`),
+    // which is kept apart from `order_idx`.
     let mut flat_tiers: Vec<Option<pleochroma_formats::asc::AscTier>> =
         schedule.tiers.into_iter().map(Some).collect();
     design
@@ -545,15 +442,11 @@ pub fn cutting_instructions_rows(design: &Design, solved: &[SolvedTier]) -> Vec<
         .collect()
 }
 
-/// [`proportions_texts`]'s counterpart for a caller that already has an up-to-date
-/// `solved` mast list on hand (a completed background solve or preview replan).
+/// [`proportions_texts`] for a caller that already holds an up-to-date `solved` mast list,
+/// so the design is not solved again.
 ///
-/// Mirrors that function's body exactly, minus the internal `design.solve()` it
-/// exists to avoid repeating -- INCLUDING its `tiers.is_empty()` guard: a tierless
-/// design still solves (an empty mast list is a valid, closed, zero-plane solve), so
-/// a caller here can perfectly well be holding exactly that solved-empty list, and
-/// without this guard `stone_proportions` would measure the bare preform block as
-/// if it were the stone.
+/// Keeps the `tiers.is_empty()` guard: a tierless design solves to an empty mast list, and
+/// without the guard `stone_proportions` would measure the bare preform block as the stone.
 #[must_use]
 pub fn proportions_texts_from_solved(
     design: &Design,
@@ -578,9 +471,8 @@ pub fn proportions_texts_from_solved(
     let pavilion_depth_text = proportions
         .pavilion_depth
         .map_or_else(dash, |v| format!("{v:.3}{unit}"));
-    // See `state::yield_report::proportions_texts`'s identical gate --
-    // `total_depth` has no `Option`-driven "-" fallback of its own, so this
-    // mirrors that function's own `girdle_thickness.is_some()` guard.
+    // `total_depth` is a plain `f64`, so it is gated on `girdle_thickness` as in
+    // `proportions_texts`, with a "-" fallback.
     let total_depth_text = if proportions.girdle_thickness.is_some() {
         format!("{:.3}{unit}", proportions.total_depth)
     } else {
@@ -598,11 +490,11 @@ pub fn proportions_texts_from_solved(
     )
 }
 
-/// [`proportions_texts`]'s counterpart for a caller that already ran [`Design::solve`]
-/// and holds its `Result` -- a failed solve included.
+/// [`proportions_texts`] for a caller that holds the `Result` of [`Design::solve`], including a
+/// failed one.
 ///
-/// The tierless guard comes first (as in both siblings), then `Err` is five dashes (the
-/// design does not solve) and `Ok` is [`proportions_texts_from_solved`]. Never solves.
+/// The tierless guard runs first, then `Err` gives five dashes and `Ok` goes to
+/// [`proportions_texts_from_solved`]. Never solves.
 #[must_use]
 pub fn proportions_texts_from_result(
     design: &Design,
@@ -618,20 +510,11 @@ pub fn proportions_texts_from_result(
     )
 }
 
-/// [`girdle_and_ratio_texts`]'s counterpart for a caller that already has an
-/// up-to-date `solved` mast list on hand -- see [`proportions_texts_from_solved`].
+/// [`girdle_and_ratio_texts`] for a caller that already holds an up-to-date `solved` mast list.
 ///
-/// Mirrors that function's body exactly, minus the internal `design.solve()` it
-/// exists to avoid repeating.
-///
-/// A tierless design does NOT skip `Design::solve` -- an empty mast list is a
-/// valid, closed, zero-plane solve -- so a caller here can perfectly well be
-/// holding exactly that solved-empty list. This mirror carries the SAME
-/// `tiers.is_empty()` guard [`girdle_and_ratio_texts`] documents, not a weaker
-/// one, since without it `stone_proportions` would measure the bare preform
-/// block (girdle 50% of a cube, crown/pavilion 0%) as if it were the stone --
-/// and a UI prefers this `_from_solved` mirror over the guarded plain function
-/// on its hot path once a design solves.
+/// Same body and `tiers.is_empty()` guard, minus the internal solve. The guard is needed here
+/// too, since an empty mast list is a valid solve and would otherwise measure the bare preform.
+/// Preferred on the UI's hot path once a design has solved.
 #[must_use]
 pub fn girdle_and_ratio_texts_from_solved(
     design: &Design,
@@ -644,21 +527,19 @@ pub fn girdle_and_ratio_texts_from_solved(
     let Some(proportions) = design.stone_proportions(solved) else {
         return (dash(), dash(), dash(), dash());
     };
+    // Read in the design's own units; only the length is scaled to millimetres (the
+    // percentages are the same in either).
+    let girdle = GirdleReading::of(design, solved, &proportions);
     let mm_per_unit = design.yield_report(solved).mm_per_unit;
-    let proportions = mm_per_unit.map_or(proportions, |mm| proportions.to_mm(mm));
-    let unit = if mm_per_unit.is_some() { " mm" } else { "" };
-    let girdle_thickness_text = proportions
-        .girdle_thickness
-        .map_or_else(dash, |v| format!("{v:.3}{unit}"));
+    let girdle_thickness_text =
+        girdle.map_or_else(dash, |reading| reading.thickness_text(mm_per_unit));
     let crown_to_width_percent_text = proportions
         .crown_to_width_percent
         .map_or_else(dash, |v| format!("{v:.1}%"));
     let pavilion_to_width_percent_text = proportions
         .pavilion_to_width_percent
         .map_or_else(dash, |v| format!("{v:.1}%"));
-    let girdle_to_width_percent_text = proportions
-        .girdle_to_width_percent
-        .map_or_else(dash, |v| format!("{v:.1}%"));
+    let girdle_to_width_percent_text = girdle.map_or_else(dash, GirdleReading::percent_text);
     (
         girdle_thickness_text,
         crown_to_width_percent_text,
@@ -667,8 +548,7 @@ pub fn girdle_and_ratio_texts_from_solved(
     )
 }
 
-/// [`preform_mm_texts`]'s counterpart for a caller that already has an
-/// up-to-date `solved` mast list on hand -- see [`proportions_texts_from_solved`].
+/// [`preform_mm_texts`] for a caller that already holds an up-to-date `solved` mast list.
 #[must_use]
 pub fn preform_mm_texts_from_solved(design: &Design, solved: &[SolvedTier]) -> (String, String) {
     let Some(mm_per_unit) = design.yield_report(solved).mm_per_unit else {

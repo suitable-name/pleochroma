@@ -21,13 +21,12 @@ pub(super) enum LineSearch {
 /// (`f64::INFINITY` when its rows were unusable).
 pub(super) type DeferredTrial = (Design, f64);
 
-/// At most this many deferred trials are certified per request, smallest residual
-/// first. A failed request used to certify every retained trial in encounter order:
-/// up to 24 backtracking steps per correction iteration and 12 iterations, about 52 ms
-/// of CPU gate each and 95 % refused (throughput capture 2026-11-01: 47,850 deferred
-/// trials, 54,704 line-trial gates, 2,837 CPU seconds). Returned designs are still
-/// certified by the original gate; the cap only bounds how hard a failing request
-/// searches before it reports its miss.
+/// At most this many deferred trials are certified per request, smallest residual first.
+///
+/// Each CPU gate costs tens of milliseconds and nearly all deferred trials are refused, so
+/// the cap bounds the gate work of a failing request. Returned designs are still certified
+/// by the original gate; the cap only limits how hard a failing request searches before it
+/// reports its miss.
 pub(super) const MAX_DEFERRED_CERTIFICATIONS: usize = 4;
 
 /// Safety factor of the residual screen (`may_pass_gate`) over its derived limit.
@@ -171,7 +170,7 @@ impl Projection {
         self.backend
             .check()
             .map_err(|_| ProjectionMissReason::ExecutionFailure)?;
-        // A previously feasible trial must never mask cancellation or an unknown
+        // A deferred feasible trial must never mask cancellation or an unknown
         // infrastructure/gate failure from this request.
         if matches!(
             reason,

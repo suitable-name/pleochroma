@@ -23,29 +23,15 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-/// Wires every "Edit" sub-tab callback (declared on `EditorModel`, `ui/models/editor.slint`'s
-/// global -- see `ui/README.md` for how a `.slint` component reaches it directly, with
-/// no forwarding through `MainWindow`) to a shared [`EditorState`], and populates the
-/// tab's own display once up front (see [`view::refresh_editor_panel`]) so it isn't
-/// blank when first opened.
+/// Wires the Solve cancel button (`EditorModel.solve_cancel`).
 ///
-/// Split into one `setup_*` function per callback (in [`super::callbacks`]/[`native_io`]),
-/// the same shape every other `gui::*` module in this crate uses.
+/// `auto_solve::cancel_in_flight_solve` drops the in-flight result and any queued dispatch,
+/// and sets the worker's cancel flag. The editor is returned on the same click. The design is
+/// unchanged, so it reads as "stale" and still needs a solve.
 ///
-/// `auto_solve::cancel_in_flight_solve` invalidates the in-flight result, drops any
-/// queued dispatch, AND flips the worker's own cancel flag; this function is what
-/// gives the cutter their editor back on the same click, rather than leaving the
-/// Solve button disabled until the abandoned worker lands. The design itself is
-/// untouched, so the honest state afterwards is "stale" -- it still needs a solve,
-/// just not that one.
-///
-/// The worker stops for real, typically within a sweep or pipeline run
-/// (single-digit milliseconds). `dispatch_background_solve` threads
-/// `SolveControl::with_cancel` through `Design::solve_with` via
-/// `auto_solve::solve_cancellably`, the same cancellation `deep_solve`/
-/// `optimize_solve` already use for their long-running searches. This means the
-/// design genuinely stops solving, not merely discards a result still running in
-/// the background.
+/// The worker stops within a sweep or pipeline run, because `dispatch_background_solve`
+/// passes a `SolveControl::with_cancel` into the solve. The design really stops solving, and
+/// does not just discard a result still running in the background.
 pub(super) fn setup_solve_cancel_callback(ui: &MainWindow) {
     let ui_weak = ui.as_weak();
     ui.global::<crate::EditorModel>().on_solve_cancel(move || {
@@ -61,29 +47,20 @@ pub(super) fn setup_solve_cancel_callback(ui: &MainWindow) {
     });
 }
 
-/// Offers to reopen at startup instead of always
-/// opening on a blank design.
+/// Offers the leftover autosave, or else the most recent recent file, at startup. Nothing
+/// opens by itself.
 ///
-/// Deliberately an OFFER, matching the item's own wording. Silently reopening
-/// yesterday's design would be a surprise on a tool people also use to start new
-/// work -- and worse, it would hide a crash-recovery file inside an ordinary-looking
-/// session, so a cutter could overwrite unsaved work without ever being told it
-/// existed.
+/// An offer, not a silent reopen: silently reopening would hide a crash-recovery file inside
+/// an ordinary-looking session, and a cutter could overwrite unsaved work unaware.
 ///
-/// A leftover autosave outranks the recent-files list: that file is on disk only
-/// because a previous run did not shut down cleanly, and it holds work that was
-/// never saved at all. An ordinary recent file can always be reopened later from
-/// File > Open Recent; the autosave is deleted by the next successful save.
+/// A leftover autosave outranks the recent-files list. It is on disk only because the last run
+/// did not shut down cleanly, and it holds work never saved. The next successful save deletes it.
 ///
-/// The recent file offered is the most recent one still on disk: a file that has gone (a
-/// design opened from an archive's temporary folder, a drive that is not plugged in) could
-/// only fail to reopen. It stays under File > Open Recent. The offer's Discard removes the
-/// offered file from that list, so it is not offered again; the file itself is never deleted.
+/// The recent file offered is the most recent one still on disk, since a missing file could
+/// only fail to reopen. Discard removes it from the recent list only, and never deletes the file.
 ///
-/// A design named on the command line (`pleochroma-cut <file>`, what an OS double-click
-/// association runs) outranks both: the cutter asked for that file, so it opens at
-/// once and no offer is made. A leftover autosave stays on disk and is offered at the
-/// next start.
+/// A design named on the command line (`pleochroma-cut <file>`) outranks both and opens at
+/// once. A leftover autosave stays on disk and is offered at the next start.
 pub(super) fn setup_startup_restore(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -155,12 +132,10 @@ pub(super) fn setup_startup_restore(
                 .set_startup_restore_path(String::new().into());
         });
 
-    // "Delete" (owner decision 4.5): only ever shown for a leftover autosave
-    // (`EditorModel.startup_restore_is_autosave`, wired in
-    // `global_dialogs.slint`'s `tertiary_label`), never an ordinary recent
-    // file -- removes exactly the one file that was offered, never any OTHER
-    // leftover `find_leftover_autosave` did not pick (see
-    // `native_io::delete_leftover_autosave`'s own doc comment).
+    // "Delete": only shown for a leftover autosave (`EditorModel.startup_restore_is_autosave`,
+    // wired in `global_dialogs.slint`'s `tertiary_label`). It removes exactly the offered file,
+    // never another leftover that `find_leftover_autosave` did not pick (see
+    // `native_io::delete_leftover_autosave`).
     let ui_weak_delete = ui.as_weak();
     ui.global::<crate::EditorModel>()
         .on_startup_restore_delete(move || {
@@ -257,34 +232,22 @@ fn run_cut_replan(replan: &Rc<CutReplan>, retries_left: u8) {
     );
 }
 
-/// Redraws the preview when the tier-cutoff slider moves, and when the Diagram's
-/// enlarged panel changes (`on_diagram_enlarged_panel_changed`, same queue).
+/// Redraws the preview when the tier-cutoff slider moves, and when the Diagram's enlarged
+/// panel changes (`on_diagram_enlarged_panel_changed`, same queue).
 ///
-/// `submit_preview_replan` already reads `SolidPreviewModel.tier_cutoff` and hands it
-/// to `SolidPreviewState::set_tier_cutoff`, but nothing asked for a replan when the
-/// slider itself moved -- so the whole path from slider to `Design::planes_through_tier`
-/// was correct and simply never ran until an unrelated edit triggered one.
+/// Only the slider's own `changed(value)` callback is wired here. It fires on a drag, a
+/// keyboard nudge or a click, not when a tier push moves the bound value. Changing how much of
+/// the schedule is drawn leaves the design as it is, so the solve is reused and only the plane
+/// arrangement is rebuilt. That is an empty `dirty` set with `force_full_solve: false`.
 ///
-/// An empty `dirty` set with `force_full_solve: false`: changing how much of the
-/// schedule is DRAWN does not change the design, so the solve is reusable and only
-/// the plane arrangement needs rebuilding.
+/// This handler uses `try_borrow`. A tick that finds the editor state borrowed is retried a few
+/// ticks later ([`cut_slider::retries_after_busy`]). A writer that holds the state for longer
+/// (a blocking file dialog) submits its own replan on the way out, reading the slider fresh.
 ///
-/// `solid_viewport.slint`'s slider uses its own `changed(value)` INTERACTION
-/// callback (fires only on an actual drag/keyboard nudge/click, not on a tier
-/// push moving the bound expression). This is the only handler left on this path,
-/// using `try_borrow` rather than plain `borrow()`. A tick that finds the editor
-/// state borrowed is retried a few ticks later ([`cut_slider::retries_after_busy`])
-/// instead of being dropped, which used to leave the slider moved and the view not; a
-/// writer that holds the guard for longer (a blocking file dialog) submits its own
-/// replan on its way out, which reads the slider fresh.
-///
-/// A `changed(value)` tick fires on every pixel of drag, far more often than once
-/// per 16ms frame. Each one posts an [`edit_intent::EditIntent::CutOff`] into a
-/// queue this function builds once (see [`edit_intent::EditIntentQueue`]'s own doc
-/// comment for the coalescing/timer mechanics). This avoids calling
-/// [`view::submit_preview_replan`] directly (which clones the whole `Design`
-/// twice), so a whole drag burst pays for at most one replan per 16ms tick rather
-/// than one per pixel.
+/// A `changed(value)` tick fires on every pixel of a drag. Each one posts an
+/// [`edit_intent::EditIntent::CutOff`] into a queue built once here, which coalesces them
+/// (see [`edit_intent::EditIntentQueue`]). This avoids calling [`view::submit_preview_replan`]
+/// per tick, which clones the whole `Design`, so a drag pays for at most one replan per tick.
 pub(super) fn setup_tier_cutoff_callback(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,

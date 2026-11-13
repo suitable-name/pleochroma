@@ -10,10 +10,9 @@ use std::{
 
 use pleochroma::geometry::meet_solver::MeetConstraint;
 use pleochroma_cut_core::TierTarget;
-// The error-field classification and the non-integral-index warning moved to
-// `pleochroma_editor::loading` (shared with the web inspector) -- see
-// `report_tier_form_error`'s doc comment for what the field strings mean. Re-exported at
-// their old path (`super::tests` exercises the classification directly).
+// The error-field classification and the non-integral-index warning live in
+// `pleochroma_editor::loading`, shared with the web inspector. `report_tier_form_error`
+// documents the field strings. Re-exported here for `super::tests`.
 pub(super) use pleochroma_editor::loading::tier_form_error_field;
 use pleochroma_editor::{
     loading::{non_integral_index_warning, parse_tier_form_with_relation},
@@ -43,20 +42,15 @@ use crate::{
     },
 };
 
-/// "Add Tier" / "Save Tier": parses the form and applies it through
-/// `EditorState::apply` as `AddTier` (index `< 0`, "new tier" mode -- appended at the
-/// end) or `ModifyTier` (an existing row's index).
-/// Every OTHER tier's own name token (`ConstraintTier::names()`, split on `/`),
-/// with the tier at `excluded_index` left out. Feeds `loading::TierFormFields::
-/// other_tier_names` so `parse_tier_form` can reject name collisions. `excluded_index
-/// < 0` (a brand-new tier) excludes nothing, since there is no existing row to exempt.
+/// The name tokens (`ConstraintTier::names()`, split on `/`) of every tier except the one
+/// at `excluded_index`, so `parse_tier_form` can reject name collisions. A negative
+/// `excluded_index` (a new tier) excludes nothing.
 fn other_tier_names_excluding(st: &EditorState, excluded_index: i32) -> Vec<String> {
     pleochroma_editor::tier_save::other_tier_names_excluding(&st.design, excluded_index)
 }
 
-/// [`setup_save_tier_callback`]'s successful-`AddTier` label, looked up while
-/// `st` is still borrowed (before the `drop(st)` [`select_and_announce_added_
-/// tier`] needs so it can re-borrow `EditorModel` freely).
+/// The label of the tier at `dirty_index`, read while `st` is still borrowed, before the
+/// caller drops it.
 fn added_tier_label(st: &EditorState, dirty_index: usize) -> Option<String> {
     st.design
         .tiers
@@ -64,11 +58,10 @@ fn added_tier_label(st: &EditorState, dirty_index: usize) -> Option<String> {
         .map(|tier| tier_nudge_label(tier, dirty_index))
 }
 
-/// Selects and reveals the tier `setup_save_tier_callback`'s `AddTier` branch
-/// just added, then names it in a toast. Setting `EditorModel.selected_tier_index`
-/// is enough to reveal: `editor_view.slint`'s `changed tracked_selected_tier_index`
-/// re-seeds the inspector form AND calls `tier_table.focus_row`, which scrolls the
-/// new row into view.
+/// Selects the tier at `dirty_index` and names it in a toast. Setting
+/// `EditorModel.selected_tier_index` is enough to reveal it: `editor_view.slint`'s
+/// `changed tracked_selected_tier_index` re-seeds the inspector and calls
+/// `tier_table.focus_row`, which scrolls the row into view.
 fn select_and_announce_added_tier(ui: &MainWindow, dirty_index: usize, label: Option<String>) {
     ui.global::<EditorModel>()
         .set_selected_tier_index(i32::try_from(dirty_index).expect("tier index fits in i32"));
@@ -77,23 +70,15 @@ fn select_and_announce_added_tier(ui: &MainWindow, dirty_index: usize, label: Op
     }
 }
 
-/// [`setup_save_tier_callback`]'s target-parsing step: parses
-/// `constraint_kind`/`constraint_text` (the SAME two fields
-/// [`loading::parse_tier_form`] already validated for its own 0/1/2 kinds)
-/// via [`loading::parse_tier_target`] into the [`TierTarget`] the form's
-/// Meets combo authored, if any -- kinds `3`/`4`/`5` ("cut to depth"/"girdle
-/// thickness"/"table width"); `Ok(None)` for every other kind, since
-/// `parse_tier_form` already turned those into a plain `ConstraintTier` with
-/// no target at all.
+/// Parses the Meets combo's target from `constraint_kind`/`constraint_text` via
+/// [`loading::parse_tier_target`].
 ///
-/// Reports any parse error exactly the way a `parse_tier_form` failure would
-/// (`report_tier_form_error`, classified via `tier_form_error_field`) and
-/// returns `Err(())` -- the caller reads that as "already reported, apply
-/// nothing" and bails out. `Result<Option<TierTarget>, ()>` rather than the
-/// more obvious `Option<Option<TierTarget>>` purely to dodge clippy's
-/// `option_option` lint; the `()` carries no information beyond "stop."
-/// Split out of `setup_save_tier_callback` purely to keep that function
-/// under clippy's `too_many_lines` lint.
+/// Kinds `3`/`4`/`5` (cut to depth, girdle thickness, table width) carry a target; every
+/// other kind gives `Ok(None)`.
+///
+/// A parse error is reported like a `parse_tier_form` failure and returns `Err(())`,
+/// meaning "already reported, apply nothing". The unit error avoids clippy's
+/// `option_option` lint for `Option<Option<TierTarget>>`.
 fn parse_tier_target_reporting(
     ui: &MainWindow,
     constraint_kind: i32,
@@ -104,19 +89,14 @@ fn parse_tier_target_reporting(
     })
 }
 
-/// The table row currently selected -- a new tier is inserted right after it. The edit
-/// itself (including the depth/girdle-thickness/table-width target and, when the Angle
-/// field holds a relation, the relation) is built by `relation_ui::plan_tier_save` from
-/// `pleochroma_editor::tier_save::tier_save_edit_with_target`.
+/// The table row selected in the inspector; a new tier is inserted right after it.
 fn selected_row(ui: &MainWindow) -> Option<usize> {
     usize::try_from(ui.global::<EditorModel>().get_selected_tier_index()).ok()
 }
 
-/// [`setup_save_tier_callback`]'s preamble: the current row's carried-through
-/// `imported_meet`/`original_notes` (for an existing tier), the gear tooth
-/// count, and every OTHER tier's own name tokens -- everything [`loading::
-/// parse_tier_form`] needs beyond the form's own five text/enum fields. Split
-/// out purely to keep that function under clippy's function-length lint.
+/// What [`save_tier_now`] reads from the design besides the form's own five fields: the
+/// existing row's `imported_meet` and `original_notes`, the gear tooth count, and the
+/// other tiers' name tokens.
 struct SaveTierFormContext {
     imported_meet: Option<MeetConstraint>,
     original_notes: Option<String>,
@@ -149,8 +129,8 @@ fn save_tier_form_context(state: &Rc<RefCell<EditorState>>, index: i32) -> SaveT
     }
 }
 
-/// [`apply_tier_save_success`]'s outcome fields, bundled purely to keep that
-/// function under clippy's too-many-arguments lint.
+/// The outcome of a successful save, bundled to keep `apply_tier_save_success`'s argument
+/// count within clippy's limit.
 struct TierSaveOutcome {
     /// The form's own `index` argument: negative for a fresh `AddTier`, the
     /// tier's own index for a `ModifyTier`.
@@ -164,15 +144,11 @@ struct TierSaveOutcome {
     non_integral_warning: Option<String>,
 }
 
-/// [`setup_save_tier_callback`]'s success arm: clears the form's stale error state,
-/// replans the preview for `outcome.dirty_index`, reveals a freshly added row, and
-/// surfaces the non-integral-index warning (if any). Split out purely to keep that
-/// function under clippy's function-length lint.
+/// The success arm of [`save_tier_now`]: refreshes the panel and preview, and reveals a new row.
 ///
-/// Takes `st` by value (not `&mut EditorState`) so the `AddTier` branch can `drop`
-/// it before calling back into Slint through `select_and_announce_added_tier` --
-/// exactly the same borrow-scope this body had inlined, just made explicit at the
-/// call boundary.
+/// Clears the form's error and shows the non-integral-index warning (if any). Takes `st` by
+/// value so the `AddTier` branch can drop it before [`select_and_announce_added_tier`] calls
+/// back into Slint.
 fn apply_tier_save_success(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
@@ -190,10 +166,9 @@ fn apply_tier_save_success(
     // A successful save means the form is valid again, so this clears whatever the
     // last save's parse/validation error left behind.
     clear_tier_form_error(ui);
-    // `AddTier` changes the tier count, so the alignment
-    // check falls back to a full solve regardless of
-    // `dirty`; for `ModifyTier` the saved tier and the tiers following it through a
-    // relation are exactly what changed.
+    // `AddTier` changes the tier count, so the alignment check falls back to a full solve
+    // whatever `dirty` holds; for `ModifyTier` the saved tier and the tiers following it
+    // through a relation are exactly what changed.
     refresh_editor_panel_stale(ui, render_ctx, &st, &dirty);
     // The guide's tier steps complete on the saved tier itself (name, angle,
     // indices) -- checked here explicitly as well as inside the stale refresh.
@@ -216,11 +191,8 @@ fn apply_tier_save_success(
         drop(st);
         select_and_announce_added_tier(ui, dirty_index, label);
     }
-    // The non-integral-index warning is shown last (after the "Added <label>" toast
-    // above, when this was a new tier) so it is the one left on screen -- the single
-    // toast slot keeps only the most recent call, and a possibly-unintentional
-    // fractional index is more worth a cutter's attention than a bare confirmation
-    // that the save succeeded.
+    // Shown last so it stays on screen: the toast slot keeps only the latest call, and a
+    // possibly unintended fractional index matters more to the cutter than the "Added" toast.
     if let Some(warning) = non_integral_warning {
         show_toast(ui, &warning, "info");
     }
@@ -248,19 +220,12 @@ fn preserve_saved_tier_side_and_detached(
     }
 }
 
-/// Settles the side of the tier a Tier form save describes
-/// ([`preserve_saved_tier_side_and_detached`]) and THEN names a new tier that was left
-/// unnamed.
-///
-/// A brand-new tier saved with a blank Name field would otherwise stay unnamed and
-/// un-meetable (`ConstraintTier::names()` returns nothing for an empty name), so it is
-/// named here: `G<n>` at 90 degrees, else `P<n>` or `C<n>` by the sign of its angle,
-/// matching what Duplicate does for its copies. The name is read off the side the tier
-/// ends up on, never off the angle the form carried in: a tier saved with a relation to a
-/// pavilion tier (`=P1-2`) is a pavilion tier and is named `P<n>`, and a tier typed as a
-/// crown angle is `C<n>`, whichever way the form arrived at the number. Only for a fresh
-/// `AddTier` (`index < 0`): an existing tier's name was either already set or the cutter
-/// just deliberately blanked it, neither of which this should override.
+/// Settles the side of a saved tier ([`preserve_saved_tier_side_and_detached`]), then
+/// names a new tier saved with a blank Name field. An unnamed tier cannot be met by name,
+/// so it gets `G<n>` at 90 degrees, else `P<n>` or `C<n>` by the side it ends up on, as
+/// Duplicate names its copies. The side comes from the final angle, not the typed text,
+/// so a relation to a pavilion tier (`=P1-2`) is named `P<n>`. Only for `index < 0`: an
+/// existing tier's blank name was cleared on purpose and stays blank.
 fn settle_saved_tier(
     tier: &mut pleochroma_cut_core::ConstraintTier,
     design: &pleochroma_cut_core::Design,
@@ -294,8 +259,8 @@ struct TierFormInput<'a> {
 }
 
 /// Parses the form into its tier and, when the Angle field holds a relation (`=...`), the
-/// relation text after the `=`. Any other Angle text goes through
-/// [`loading::parse_tier_form`] exactly as before. `Err` is the message to show.
+/// relation text after the `=`. Any other Angle text goes through [`loading::parse_tier_form`].
+/// `Err` is the message to show.
 fn parse_save_form(
     st: &Rc<RefCell<EditorState>>,
     form: &TierFormInput<'_>,
@@ -366,10 +331,8 @@ fn save_tier_now(ui: &MainWindow, services: &SaveServices<'_>, form: &TierFormIn
     // The tier's side first, then (for a new tier left unnamed) its name -- see
     // `settle_saved_tier`.
     settle_saved_tier(&mut tier, &st.design, index, &other_tier_names);
-    // A `MeetNamed` token that resolves to nothing today would
-    // otherwise degrade silently inside the solver (`meet_solver`'s
-    // own doc comment: "an unresolved token is dropped") -- caught
-    // here, before it is ever applied, with the offending name named.
+    // The solver silently drops an unresolved `MeetNamed` token (see `MeetNameResolver` in
+    // the meet solver), so it is refused here, naming the facet.
     if let MeetConstraint::MeetNamed(names) = &tier.constraint
         && let Some(bad_name) = first_unresolved_meet_name(&st.design, names)
     {
@@ -468,10 +431,10 @@ fn preset_rows(presets: Vec<AnglePreset>) -> ModelRc<SliderPreset> {
     ModelRc::new(VecModel::from(rows))
 }
 
-/// Answers the Tier form's slider (`SliderModel`'s angle callbacks). All four are pure
-/// functions of their arguments -- the design's refractive index arrives as text, so the
-/// answers follow a change of material without this code touching the editor state -- and
-/// the work is done in `pleochroma_editor::slider_ranges`:
+/// Answers the Tier form's slider (`SliderModel`'s angle callbacks). All five are pure
+/// functions of their arguments; the design's refractive index arrives as text, so the
+/// answers follow a material change without touching the editor state. The work is done
+/// in `pleochroma_editor::slider_ranges`:
 ///
 /// - `angle_spec`: whether the form has a slider, its range, steps, marked band and value;
 /// - `angle_presets`: the "Typical" menu;
@@ -510,8 +473,7 @@ pub(in crate::gui::editor) fn setup_save_tier_callback(
     preview_state: &Arc<SolidPreviewState>,
     solid_last_solved: &SolidLastSolved,
 ) {
-    // The concave form's three callbacks are wired from here: this is the one existing
-    // call site that already receives every argument they need.
+    // The concave form's callbacks are wired here, where every argument they need is available.
     super::concave_tier::setup_concave_tier_callbacks(
         ui,
         state,
@@ -565,18 +527,13 @@ pub(super) fn clear_tier_form_error(ui: &MainWindow) {
     model.set_tier_form_error_field("".into());
 }
 
-/// Shows one tier-form failure in both places a cutter looks: inline under the
-/// field that caused it (`EditorModel.tier_form_error`, which the inspector renders
-/// in red) and as a toast. Factored out because all three failure branches of
-/// [`setup_save_tier_callback`] must agree on the wording -- an inline message that
-/// disagrees with the toast is worse than either alone.
+/// Shows one tier-form failure inline under its field and as a toast.
 ///
-/// `field` is one of `"angle"`/`"name"`/
-/// `"indices"`/`"constraint"`, or `""` for a general/unclassified error -- see
-/// `EditorModel.tier_form_error_field`'s own doc comment (`ui/models/editor.slint`)
-/// for the exact contract `editor_inspector.slint`
-/// reads this against to put a red border on the SPECIFIC offending control,
-/// not only the shared message under the whole form.
+/// Every failure branch of [`save_tier_now`] goes through here, so the inline message and
+/// the toast always agree. `field` is `"angle"`, `"name"`, `"indices"`, `"constraint"`, or
+/// `""` for an unclassified error. `editor_inspector.slint` reads it to mark the offending
+/// control;
+/// see `EditorModel.tier_form_error_field` in `ui/models/editor.slint` for the contract.
 pub(super) fn report_tier_form_error(ui: &MainWindow, message: &str, field: &str) {
     let model = ui.global::<EditorModel>();
     model.set_tier_form_error(message.into());

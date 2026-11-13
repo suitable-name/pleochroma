@@ -1,12 +1,9 @@
 //! [`HeldAsset`]: the HDR map a coordinator holds for one job, so it can
 //! answer a joined worker's `NEED_ASSET` without asking the viewer again.
 //!
-//! The bytes are pinned in memory for the job's whole lifetime from the moment the job
-//! resolves them (`crate::assets::fetch::hold`), regardless of what the coordinator's
-//! on-disk [`AssetCache`] does meanwhile -- an LRU eviction (another job's larger map,
-//! a write failure) must never turn "the coordinator holds this job's map" into "the
-//! coordinator lost it" partway through: that would fail a joined worker's
-//! `NEED_ASSET` and discard an otherwise healthy connection for no reason of its own.
+//! The bytes are pinned in memory for the job's lifetime, so an LRU eviction in the
+//! on-disk [`AssetCache`] (another job's larger map, a write failure) cannot make the
+//! coordinator lose the map mid-job and fail a joined worker's `NEED_ASSET`.
 
 use super::AssetCache;
 use pleochroma::renderer::env_map::EnvironmentMap;

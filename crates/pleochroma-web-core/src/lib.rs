@@ -119,6 +119,6 @@ pub mod worker;
 /// page and keeps working when the app is served from a sub-path.
 pub const WORKER_LOADER_URL: &str = "./pleochroma-web-compute_loader.js";
 
-/// Where the host finds the GPU Worker script: the loader shim Trunk writes next to the
-/// app for `apps/pleochroma-web/index.html`'s `data-type="worker"` link for `pleochroma-web-gpu`.
+/// Where the host finds the GPU Worker script: the loader shim Trunk writes for the
+/// `pleochroma-web-gpu` worker link in `apps/pleochroma-web/index.html`.
 pub const GPU_WORKER_LOADER_URL: &str = "./pleochroma-web-gpu_loader.js";

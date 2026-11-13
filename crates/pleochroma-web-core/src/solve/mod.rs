@@ -3,25 +3,21 @@
 //!
 //! # Same solve as the desktop
 //!
-//! [`solve_design`] is the desktop's background-solve body
-//! (`apps/pleochroma-cut/src/gui/editor/auto_solve/dispatch.rs`,
-//! `solve_and_build_result` + `panel_inputs`) minus the parts that need the page's own
-//! state: ONE `solve_policy::solve_cancellably`, then the status line, the
-//! tier-tagged manufacturability warnings and the viewport planes built from that same
-//! solved list, and the plane-cap diagnosis behind its cheap pre-filter. When the design
-//! does not solve, each readout falls back to its solving form, exactly like
-//! `panel_inputs`.
+//! [`solve_design`] mirrors the desktop's background solve
+//! (`apps/pleochroma-cut/src/gui/editor/auto_solve/dispatch.rs`) without the parts that need
+//! the desktop's own state. It solves once with `solve_policy::solve_cancellably` and derives
+//! the status line, the tier-tagged warnings and the viewport planes from that same solved
+//! list. When the design does not solve, each readout falls back to its solving form.
 //!
-//! The tier rows and yield texts are NOT built here: they depend on the page's custom
+//! The tier rows and yield texts are not built here: they depend on the page's custom
 //! materials (RI, specific gravity) and are cheap `*_from_solved` calls once the page
 //! has [`SolveOutcome::solved`].
 //!
 //! # Transport
 //!
-//! The design travels as a self-contained design file
-//! (`native::design_to_string` / `native::design_from_str`, the desktop's autosave
-//! pair), which carries every tier's angle, indices, constraint, target and id
-//! plus the schedule metadata. See [`design_to_toml`].
+//! The design travels as a self-contained design file (the desktop's autosave format),
+//! which carries every tier's angle, indices, constraint, target and id plus the schedule
+//! metadata. See [`design_to_toml`].
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -122,15 +118,15 @@ pub enum SolveRequest {
         params: BodyColorParams,
     },
     /// [`Self::Metrics`] for a concave stone: the stone is scored with its tools, like the
-    /// desktop (`StoneGeometry`). Build with [`Self::metrics`], which sends the planar
-    /// variant when there are no tools. Wire version 20.
+    /// desktop (`StoneGeometry`). Build with [`Self::metrics`], which picks the planar
+    /// variant when there are no tools.
     MetricsWithTools {
         /// The stone, material, pose and HDR map.
         params: MetricsParams,
         /// The resolved cutting tools in cutting order (never empty on the wire).
         tools: Vec<ToolPrimitive>,
     },
-    /// [`Self::Tilt`] for a concave stone (build with [`Self::tilt`]). Wire version 20.
+    /// [`Self::Tilt`] for a concave stone (build with [`Self::tilt`]).
     TiltWithTools {
         /// The stone, material and light.
         params: TiltParams,
@@ -140,7 +136,7 @@ pub enum SolveRequest {
     /// The desktop's Deep Solve on the design: the verified repair search against the
     /// design's printed proportions (progress reports stream back; the answer is
     /// [`SolveResponse::DeepSolved`], or [`SolveResponse::AnalysisFailed`] when the design
-    /// does not qualify). Wire version 30.
+    /// does not qualify).
     DeepSolve {
         /// The printed proportions to verify against.
         params: DeepSolveParams,
@@ -149,8 +145,7 @@ pub enum SolveRequest {
 
 impl SolveRequest {
     /// The metrics request for `params` and the stone's `tools`: [`Self::Metrics`] when there
-    /// are none (byte-identical to before concave stones reached the metrics), else
-    /// [`Self::MetricsWithTools`].
+    /// are none, else [`Self::MetricsWithTools`].
     #[must_use]
     pub fn metrics(params: MetricsParams, tools: &[ToolPrimitive]) -> Self {
         if tools.is_empty() {
@@ -353,7 +348,7 @@ pub enum SolveResponse {
     /// A finished [`SolveRequest::BodyColor`] solve (a superseded one is [`Self::Cancelled`]).
     BodyColor(BodyColorResultData),
     /// A finished [`SolveRequest::DeepSolve`] (a cancelled one is [`Self::Cancelled`], one
-    /// the design does not qualify for is [`Self::AnalysisFailed`]). Wire version 30.
+    /// the design does not qualify for is [`Self::AnalysisFailed`]).
     DeepSolved(DeepSolveResultData),
 }
 
@@ -427,8 +422,8 @@ pub fn handle_solve_with(
             params,
             custom_materials,
         } => with_design(&|design| run_retarget(design, params, custom_materials, hooks)),
-        // The Worker answers this one itself, with a progress hook that shows the phase
-        // (`worker::run_deep_job`); this arm is the same run with no progress.
+        // The Worker answers this one itself with a progress hook (`worker::run_deep_job`);
+        // this arm runs the same solve without progress.
         SolveRequest::DeepSolve { params } => {
             with_design(&|design| run_deep_solve(design, params, hooks.cancel, &|_| {}))
         }

@@ -1,8 +1,7 @@
 //! Diagram-list loading, range-filter bounds, search/filter callbacks, and
 //! diagram-selection/URL-open/file-export callbacks.
 //!
-//! Split out of `gui::mod` purely to keep that module (already sizeable) from growing
-//! further -- same reasoning as `gui::detail`/`gui::search`/`gui::remote`.
+//! Kept apart from the rest of the `gui` module to keep that module smaller.
 
 use crate::{
     LibraryModel, MainWindow, PerformanceFilterRow, ViewportModel,
@@ -37,17 +36,9 @@ mod filtered_set;
 
 pub(in crate::gui) use filtered_set::setup_regenerate_filtered_set_callbacks;
 
-/// Clears the search box, shape/gear dropdown selections, tag chip filter and
-/// just-imported restriction back to their defaults -- shared by every
-/// "start browsing a library from scratch" entry point
-/// ([`load_filter_options_and_initial_list`], and
-/// `gui::library::remote::load_filter_options_and_initial_list_remote`) so the box/
-/// dropdowns/chip the cutter sees on screen always match the literal `""`/
-/// `"All Shapes"`/`"All Gears"` filter values those callers then query with, instead
-/// of the query silently running against different values than what's displayed
-/// (stale text in the box, a stale `selected_shape_index` into a since-changed
-/// options model, `current_filtered_entry_ids` reading a batch action against a
-/// different set than what's on screen).
+/// Resets the search box, shape and gear dropdowns, tag chip and just-imported restriction
+/// to their defaults. Every entry point that starts browsing a library calls this, so the
+/// controls on screen match the `""`/`"All Shapes"`/`"All Gears"` values the query uses.
 pub(in crate::gui) fn reset_search_and_filter_ui_inputs(ui: &MainWindow) {
     let model = ui.global::<LibraryModel>();
     model.set_search_text(SharedString::new());
@@ -95,22 +86,17 @@ fn read_initial_library_data(db: &Database) -> InitialLibraryData {
     }
 }
 
-/// Loads the shape/gear filter dropdown options and the initial diagram list from
-/// the database. Split out of `run_gui` purely to keep that function under clippy's
-/// function-length lint.
+/// Loads the shape and gear dropdown options and the initial diagram list.
 ///
-/// The queries run on a worker over a read-only connection and the result is applied
-/// from the event loop, so the window can paint (with "Loading library..." in the status
-/// line and an empty list) instead of waiting for them (perf review UI-6). A newer
-/// search or library switch that lands first makes the late result stale, and it is
-/// dropped.
+/// The queries run on a worker over a read-only connection, and the result is applied on the
+/// event loop, so the window can paint first with "Loading library..." in the status line. A
+/// newer search or library switch that lands first makes the result stale, and it is dropped.
 pub(in crate::gui) fn load_filter_options_and_initial_list(
     ui: &MainWindow,
     db: &Arc<Mutex<Database>>,
 ) {
-    // This is also called on switching back to the local library
-    // (`remote::setup_library_source_callbacks`'s `idx < 0` branch), where the box/
-    // dropdowns/chip may still show whatever the just-left remote session had.
+    // Also runs when switching back to the local library, whose controls may still hold
+    // the remote session's values.
     reset_search_and_filter_ui_inputs(ui);
     // A debounced search still pending from before would bump the sequence after this load
     // captured it and drop the start-up list as stale.
@@ -186,20 +172,12 @@ fn apply_initial_library_data(
     }
 }
 
-/// Pushes the full catalogue tag vocabulary (names only, alphabetical) into
-/// `LibraryModel.all_tags` -- the chip filter row and the "Add
-/// tag..." picker both read this rather than each running their own
-/// `Database::list_tags` query. Called at startup and after any write that could
-/// have created or emptied a tag (see
-/// `gui::library::local::organize::setup_add_tag_callback`/
-/// `setup_remove_tag_callback`).
+/// Pushes the tag names, alphabetical, into `LibraryModel.all_tags`. The chip filter and
+/// the "Add tag..." picker both read it. Call this at startup and after any write that may
+/// have created or emptied a tag.
 ///
-/// Plain tag names, not `{id, name}` pairs: every Rust entry point that acts on a
-/// tag (`add_tag_to_entry`/`remove_tag_from_entry`/the chip filter) takes the name
-/// and resolves it server-side (`Database::tag_id_by_name`/`add_tag_to_entry`'s own
-/// create-or-reuse lookup) -- see `read_tag_filter`'s own doc comment for why. That
-/// keeps the Slint side needing no new struct type at all, just one more `[string]`
-/// property alongside `shape_options`/`gear_options`.
+/// Plain names, not `{id, name}` pairs: every tag operation takes the name and resolves it
+/// in the database, so the Slint side needs only one more `[string]` property.
 pub(in crate::gui) fn sync_tag_vocabulary_to_ui(ui: &MainWindow, db: &Arc<Mutex<Database>>) {
     // Own read-only connection: no wait behind a worker that holds the shared lock.
     let tags = with_read_db(db, |db| db.list_tags().unwrap_or_default());
@@ -208,32 +186,19 @@ pub(in crate::gui) fn sync_tag_vocabulary_to_ui(ui: &MainWindow, db: &Arc<Mutex<
         .set_all_tags(ModelRc::new(VecModel::from(names)));
 }
 
-/// Pushes the catalogue's actual min/max (RI, L/W, volume, facet count) into the
-/// range-filter sliders.
+/// Pushes the catalogue's min and max (RI, L/W, volume, facet count) into the range-filter sliders.
 ///
-/// Sets both the `*_bounds_*` properties (the sliders' scale) and the `*_filter_*`
-/// properties (their starting position, the full range, i.e. unfiltered). Called once
-/// at startup, after the diagram list's filter dropdowns are populated and before the
-/// first `refresh_diagram_list` call, so the very first query already has
-/// correctly-scaled (inert) range filters rather than the sliders' `0.0..1.0`-ish
-/// `.slint` placeholder defaults. Also re-called after anything that could have
-/// widened the real min/max -- an import in this crate's own `gui::library`, or a
-/// bulk library change made by a downstream binary -- see the `pub`-ness note below.
+/// Both the scale (`*_bounds_*`) and the position (`*_filter_*`) are set to the full range, so
+/// nothing is filtered yet.
 ///
-/// A query failure leaves the sliders at their placeholder bounds rather than
-/// panicking -- matching `load_filter_options_and_initial_list`'s existing
-/// `unwrap_or_default`/silent-failure tolerance for a database that can't be read.
-/// **`pub`, not `pub(crate)`, deliberately.** A binary that reuses this crate as a
-/// library (see `crate`'s own doc comment) must call this after any bulk change that
-/// widens the catalogue's real min/max for a range-filterable attribute, exactly as
-/// `gui::library`'s import handler in this crate does. Narrowing this to `pub(crate)`
-/// would compile here and silently leave those sliders stale there.
+/// Called at startup before the first list query, so that query already has correctly
+/// scaled, inert range filters. Call it again after anything that may widen the real min
+/// and max. A query failure leaves the sliders at their placeholder bounds.
 ///
-/// Recovers rather than panics on a poisoned `db` mutex (`unwrap_or_else(
-/// std::sync::PoisonError::into_inner)`, not a bare `.unwrap()`) -- a panic anywhere
-/// else while holding the lock (e.g. mid-import) would otherwise poison it and take
-/// this call down too, on the very next library-change refresh. Matches the
-/// poison-recovery convention `gui::library` already uses throughout.
+/// **`pub`, not `pub(crate)`, on purpose.** A binary that reuses this crate as a library
+/// must call this after a bulk change that widens a range. Otherwise its sliders go stale.
+///
+/// A poisoned `db` lock is recovered, not turned into a panic.
 pub fn sync_range_bounds_to_ui(ui: &MainWindow, db: &Arc<Mutex<Database>>) {
     let Some(ranges) = fetch_attribute_ranges(db) else {
         return;
@@ -241,12 +206,10 @@ pub fn sync_range_bounds_to_ui(ui: &MainWindow, db: &Arc<Mutex<Database>>) {
     apply_attribute_ranges_to_ui(ui, &ranges);
 }
 
-/// The `Database` read half of [`sync_range_bounds_to_ui`], with no `ui` dependency --
-/// split out so `gui::library`'s post-import/rename/delete refresh can run this on a
-/// background thread (see that module's own doc comment on `refresh_after_library_change`
-/// for why: re-querying the catalogue synchronously on the UI thread is itself a
-/// perceptible freeze against a several-thousand-design library) and only marshal the
-/// cheap [`apply_attribute_ranges_to_ui`] step back onto the UI thread.
+/// The database read half of [`sync_range_bounds_to_ui`], with no `ui` dependency.
+///
+/// A caller can run it on a background thread and send only [`apply_attribute_ranges_to_ui`] back
+/// to the UI thread, since the query is slow on a large library.
 pub fn fetch_attribute_ranges(db: &Arc<Mutex<Database>>) -> Option<AttributeRanges> {
     // Own read-only connection: no wait behind a worker that holds the shared lock.
     with_read_db(db, |db| db.get_attribute_ranges().ok())
@@ -261,16 +224,12 @@ const fn to_f32(value: f64) -> f32 {
     value as f32
 }
 
-/// The `ui.set_*` half of [`sync_range_bounds_to_ui`] -- see [`fetch_attribute_ranges`]'s
-/// doc comment for why these are split. Sets both the `*_bounds_*` properties (the
-/// sliders' scale) and the `*_filter_*` properties (reset to the full range, i.e.
-/// unfiltered) from an already-fetched [`AttributeRanges`].
+/// The `ui.set_*` half of [`sync_range_bounds_to_ui`]. Sets both the bounds and the filter
+/// positions (reset to the full range) from an already-fetched [`AttributeRanges`].
 ///
-/// Only ever called where a full reset is actually wanted: the initial load (nothing
-/// to preserve yet) and the range panel's own explicit Reset button -- see
-/// [`apply_attribute_range_bounds_preserving_filters`] for the version every other
-/// refresh uses, which updates the sliders' scale WITHOUT silently discarding whatever
-/// a cutter had already narrowed them to.
+/// Used only where a full reset is wanted: the initial load and the range panel's Reset
+/// button. Other refreshes use [`apply_attribute_range_bounds_preserving_filters`], which
+/// keeps the cutter's narrowed filters.
 pub fn apply_attribute_ranges_to_ui(ui: &MainWindow, ranges: &AttributeRanges) {
     ui.global::<LibraryModel>()
         .set_ri_bounds_min(to_f32(ranges.ri.0));
@@ -309,32 +268,23 @@ pub fn apply_attribute_ranges_to_ui(ui: &MainWindow, ranges: &AttributeRanges) {
         .set_facets_filter_max(ranges.facets.1 as f32);
 }
 
-/// Clamps `current` (a filter's current `(min, max)`) into `bounds` (that attribute's
-/// new `(min, max)`) -- shared by every attribute
-/// [`apply_attribute_range_bounds_preserving_filters`] updates. A bounds widening (the
-/// common case: an import added a design outside the previous min/max) leaves an
-/// already-inside filter value untouched; only a bounds NARROWING (a delete, or a
-/// metadata edit that moved the catalogue's own extreme value) ever moves a filter
-/// value at all, and then only just enough to stay valid.
+/// Clamps a filter's `current` `(min, max)` into the attribute's new `bounds`. When the
+/// bounds widen, an in-range filter value is unchanged. Only a narrowing moves a value, and
+/// then only as far as needed to stay valid.
 fn clamp_filter_range(current: (f32, f32), bounds: (f32, f32)) -> (f32, f32) {
     let (bounds_min, bounds_max) = bounds;
     let min = current.0.clamp(bounds_min, bounds_max);
     let max = current.1.clamp(bounds_min, bounds_max);
-    // `min` must never exceed `max` after independently clamping each -- only
-    // reachable when `bounds` narrowed past a filter that had already been widened to
-    // (or past) the old bounds on one side only, an edge case worth handling exactly
-    // rather than leaving an inverted slider.
+    // Clamping each side independently can invert the pair when the bounds moved past one
+    // side of the filter, so collapse it to a single point.
     if min > max { (max, max) } else { (min, max) }
 }
 
-/// [`apply_attribute_ranges_to_ui`]'s counterpart: updates the `*_bounds_*`
-/// properties (the sliders' scale) from a freshly re-queried [`AttributeRanges`] the
-/// same way, but CLAMPS the existing `*_filter_*` values into the new bounds instead
-/// of resetting them to the full range. Used by every refresh that follows a write a
-/// cutter did not ask to have their filters cleared for (an import, a rename/delete/
-/// shape-change, a metadata save) -- [`apply_attribute_ranges_to_ui`] itself stays the
-/// right call for the one-time initial load, where there is no prior filter to
-/// preserve, and for the range panel's own explicit Reset button.
+/// The counterpart of [`apply_attribute_ranges_to_ui`] for refreshes after a library write.
+///
+/// It updates the bounds, then clamps each existing `*_filter_*` value into them instead of
+/// resetting it, so the cutter's narrowed filters survive an import, rename, delete or metadata
+/// save.
 pub fn apply_attribute_range_bounds_preserving_filters(ui: &MainWindow, ranges: &AttributeRanges) {
     let model = ui.global::<LibraryModel>();
 
@@ -379,21 +329,8 @@ pub fn apply_attribute_range_bounds_preserving_filters(ui: &MainWindow, ranges: 
     model.set_facets_filter_max(facets_max);
 }
 
-/// Wires up the search-text, shape-filter, and gear-filter callbacks that re-run the
-/// diagram list query. Split out of `run_gui` purely to keep that function under
-/// clippy's function-length lint.
-///
-/// Every handler here calls [`refresh_diagram_list_via_source`], not
-/// [`refresh_diagram_list`] directly -- with `source` at its default (`LibrarySource::Local`,
-/// see that type's own doc comment), the dispatcher calls the exact same
-/// `refresh_diagram_list` these handlers called before this dispatch existed, so nothing
-/// changes here until a user actually switches sources.
-/// Clears the "show these N just-imported designs" restriction a batch import can
-/// leave on `LibraryModel.recent_import_filter` --
-/// called from the top of every real search/filter-change handler below so that
-/// view never outlives the one refresh it was created for. A no-op (cheap: setting
-/// an already-empty model) when no batch view is active, so every handler can call
-/// it unconditionally rather than checking first.
+/// Clears the batch-import restriction (the "just-imported designs" list) in
+/// `LibraryModel.recent_import_filter`. Cheap when no restriction is set.
 fn clear_recent_import_filter(ui: &MainWindow) {
     let model = ui.global::<LibraryModel>();
     model.set_recent_import_filter(ModelRc::new(VecModel::from(Vec::<i32>::new())));
@@ -418,6 +355,13 @@ fn selected_gear(ui: &MainWindow) -> SharedString {
         .unwrap_or_default()
 }
 
+/// Wires the search-text, shape-filter and gear-filter callbacks that re-run the list query.
+///
+/// The handlers call [`refresh_diagram_list_via_source`], which dispatches on the active
+/// library source.
+///
+/// Each handler first clears the batch-import restriction (see
+/// `clear_recent_import_filter`), so that view ends with the refresh that follows it.
 pub(in crate::gui) fn setup_search_and_filter_callbacks(
     ui: &MainWindow,
     db: &Arc<Mutex<Database>>,
@@ -501,10 +445,8 @@ pub(in crate::gui) fn setup_search_and_filter_callbacks(
             }
         });
 
-    // Fired on every range-filter slider drag tick and by the panel's Reset button
-    // (`header.slint`). `refresh_diagram_list` itself reads the current filter values
-    // straight off `ui` (via `read_range_filter`), so this handler only needs to
-    // re-supply the other three existing filters.
+    // Fired on every range-slider drag tick and by the panel's Reset button. The list
+    // query reads the range values from `ui` itself, so only the other filters are passed.
     let db_range = Arc::clone(db);
     let source_range = Arc::clone(source);
     let ui_weak_range = ui.as_weak();
@@ -523,9 +465,8 @@ pub(in crate::gui) fn setup_search_and_filter_callbacks(
     });
 }
 
-/// Reports `LIBRARY_FILTERS_RESET` to a running tutorial when this change took the last search
-/// or filter off the library. Changing a filter, picking another shape or sorting the list is
-/// not a reset, and neither is a change while nothing narrowed the list.
+/// Reports `LIBRARY_FILTERS_RESET` to a running tutorial when this change removed the last
+/// narrowing. Changing a filter or sorting the list is not a reset.
 fn report_if_filters_went_off(
     ui: &MainWindow,
     memory: &NarrowingMemory,
@@ -538,24 +479,14 @@ fn report_if_filters_went_off(
     }
 }
 
-/// Wires the tilt-performance filter panel's add/remove/clear-all callbacks.
+/// Wires the tilt-performance filter panel's add, remove and clear-all callbacks.
 ///
-/// `performance_filters` is Rust-mediated but UI-owned (see `app.slint`'s own doc
-/// comment on that property, and `filter_panel.slint`'s add-filter form, which commits
-/// a whole new row in one `performance_filter_add` call rather than editing the list
-/// in place): every callback here reads the CURRENT list straight off `ui`, mutates a
-/// plain `Vec` copy, and writes the whole thing back. There is no separate Rust-side
-/// source of truth to keep in sync with it -- the same "the property IS the state"
-/// shape `WorkerItem`'s list already uses (`gui::remote::worker_callbacks`), just
-/// without that one's settings-file persistence, since a search filter is session-only
-/// state.
+/// The UI owns `performance_filters`, so the property itself is the state. Each callback reads
+/// the current list, edits a copy and writes the whole list back. Search filters are
+/// session-only and are not persisted.
 ///
-/// Each handler only replaces `performance_filters` itself; it does NOT also invoke
-/// `filters_changed` -- `filter_panel.slint`'s own `+ Add Filter`/'×' handlers already
-/// call `root.changed()` right after `performance_filter_add`/`_remove` (Slint invokes
-/// a Rust callback synchronously, so by the time that second call runs, the `Vec` this
-/// module wrote back is already the property's current value), so the resulting
-/// re-query already happens exactly once per user action.
+/// The handlers do not run the query. `filter_panel.slint` calls `changed()` after each add
+/// or remove, so the re-query runs once per user action.
 pub(in crate::gui) fn setup_performance_filter_callbacks(ui: &MainWindow) {
     let ui_weak_add = ui.as_weak();
     ui.global::<LibraryModel>()
@@ -604,17 +535,12 @@ pub(in crate::gui) fn setup_performance_filter_callbacks(ui: &MainWindow) {
         });
 }
 
-/// Wires up diagram-selection, "open URL externally", and file-export callbacks.
-/// Split out of `run_gui` purely to keep that function under clippy's
-/// function-length lint.
+/// Wires the diagram-selection, open-URL and file-export callbacks.
 ///
-/// `on_select_diagram`/`on_export_file` dispatch via `source` so a design
-/// selected while browsing a remote library is looked up (and its attachments
-/// exported) against THAT library, never the local database -- see
-/// `gui::detail::load_diagram_detail_via_source`'s own doc comment on why that
-/// dispatch matters (a remote entry id and a local row id are independent id spaces).
-/// `on_open_diagram_url` needs no such dispatch: it only ever acts on the URL string
-/// already loaded into `current_detail`, regardless of which source populated it.
+/// Selection and export dispatch on `source`, so a design picked from a remote library is
+/// looked up in that library, never the local database. A remote entry id and a local row id
+/// are independent. Opening the URL needs no dispatch, since it acts only on the URL already
+/// in `current_detail`.
 pub(in crate::gui) fn setup_diagram_selection_and_export_callbacks(
     ui: &MainWindow,
     db: &Arc<Mutex<Database>>,
@@ -640,14 +566,9 @@ pub(in crate::gui) fn setup_diagram_selection_and_export_callbacks(
                 );
                 // A tutorial step may wait for a design to be selected.
                 raise(&ui, events::LIBRARY_DESIGN_SELECTED);
-                // Live Render tab, Solid mode: redraw the solid right away rather than
-                // leaving the previous design on screen. Both branches resolve their
-                // planes asynchronously (the LOCAL one on a worker thread, guarded by a
-                // load generation so a superseded click is dropped) and redraw again
-                // once their own planes land; this call draws whatever planes were
-                // already active (typically the previously selected design) and is
-                // simply superseded a moment later -- harmless, since
-                // `SolidPreviewState` coalesces to the LAST submitted request.
+                // Live Render tab in Solid mode: redraw now, so the previous design does not
+                // stay on screen. The planes resolve asynchronously and redraw again when they
+                // land. Harmless if superseded: the solid preview keeps only the last request.
                 if ui.get_render_view_tab() == 0
                     && ui.global::<ViewportModel>().get_live_view_mode() == 0
                 {

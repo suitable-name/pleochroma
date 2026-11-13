@@ -1,30 +1,29 @@
-//! The pose choice for a zoned rough: which of a stone's box-symmetric poses shows the colour the
-//! cutter wants face-up.
+//! The pose choice for a zoned rough: which of a stone's box-symmetric poses shows the colour
+//! the cutter wants face-up.
 //!
 //! A box-model [`PlacedStone`]'s pose is only defined up to the half turns of its bounding box
 //! (`PlacedStone::pose`). For a uniform rough that does not matter; for a zoned one it decides
 //! which zone ends up under the table. This module scores the (up to four) poses with a cheap
 //! face-up predictor and picks one by the cutter's goal. The choice is stored in the vault's
-//! `stone_pose_choice` table; `PlacedStone` and the saved plan are unchanged.
+//! `stone_pose_choice` table, not in `PlacedStone` or the saved plan.
 //!
 //! # The predictor
 //!
-//! Light that makes a stone sparkle enters the table, goes down to the pavilion, and comes back
-//! out along about the same way, so the colour face-up is dominated by the path along the table
-//! normal. The predictor takes nine such lines (one through the stone's centre and eight in a
-//! ring at half the half-extent), each starting at the table and running down to where a
-//! brilliant's pavilion would turn it round, measures how long each is inside each zone with
-//! the exact kernel (`pleochroma::optics::zoning::zone_lengths`), and averages the per-line
-//! fractions weighted by the line lengths. The stone's real face-up optical path is
-//! `MODEL_UNIT_FACE_UP_PATH * mm_per_unit` (the render's own rule, also used for the zone
-//! swatches), split between the zones by those fractions.
+//! Light that makes a stone sparkle enters the table, goes down to the pavilion, and comes
+//! back out along about the same way, so the colour face-up is dominated by the path along the
+//! table normal. The predictor traces nine such lines (one through the stone's centre and eight
+//! in a ring at half the half-extent), each from the table down to where a brilliant's pavilion
+//! would turn it round. It measures how long each line is inside each zone with the exact kernel
+//! (`pleochroma::optics::zoning::zone_lengths`) and averages the per-line fractions weighted by
+//! the line lengths. The face-up optical path is `MODEL_UNIT_FACE_UP_PATH * mm_per_unit` (the
+//! render's own rule, also used for the zone swatches), split between the zones by those
+//! fractions.
 //!
 //! The lines start at the table and stop short of the culet away from the axis, so the
 //! predictor is NOT symmetric under turning the stone upside down: which end of a layered or
-//! slanted zoning lies at the table matters, as it does in the finished stone. Pavilion depth
-//! at a given distance from the axis follows a straight cone (`CROWN_FRACTION` of the height
-//! above the girdle, the rest below); the real pavilion of the design is not consulted, which
-//! is the "cheap" in the cheap predictor.
+//! slanted zoning lies at the table matters, as it does in the finished stone. The pavilion is
+//! a straight cone (`CROWN_FRACTION` of the height above the girdle, the rest below), not the
+//! design's real pavilion; that is what keeps the predictor cheap.
 
 use super::frame::{POSE_COUNT, candidate_poses};
 use crate::rough_plan::{PlacedStone, RoughLayout, fit::StonePose};
@@ -42,8 +41,7 @@ const RING_RADIUS_FRACTION: f64 = 0.25;
 /// The share of the stone's height above the girdle (crown and table) in the predictor's
 /// brilliant-proportions model; the rest is pavilion.
 ///
-/// A standard round brilliant has a crown of
-/// about a quarter of its total height.
+/// A standard round brilliant's crown is about a quarter of its total height.
 pub const CROWN_FRACTION: f64 = 0.25;
 
 /// How far down the stone a line at `rho` (its distance from the axis as a fraction of the

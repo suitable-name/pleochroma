@@ -18,7 +18,7 @@ impl RenderEngine {
         }
     }
 
-    /// Unknown persisted values retain the established path tracer.
+    /// Unknown persisted values map to the path tracer.
     #[must_use]
     pub const fn from_index(index: u8) -> Self {
         match index {

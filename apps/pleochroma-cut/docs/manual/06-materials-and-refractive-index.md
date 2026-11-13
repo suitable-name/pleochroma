@@ -35,7 +35,7 @@ about 1.54) at the same angle, because quartz's critical angle is larger.
 
 ## The Built-In Material List
 
-The renderer ships 38 built-in materials (including the zoned Ametrine), used both by the Live Render
+The renderer ships built-in materials (including the zoned Ametrine), used both by the Live Render
 viewport and as starting templates in the Material Editor. Full dispersion
 and color detail for every one is in Appendix C; the figures that matter
 for cutting -- refractive index, birefringence, and whether the material
@@ -84,20 +84,17 @@ cutting) -- are:
 | Moonstone | 1.523 | −0.0080 | Biaxial (−) | No |
 | Titanite (Sphene) | 1.894 | +0.1226 | Biaxial (+) | Yes |
 
-The last four are the stones whose look comes from the inside: Precious Opal (White), Precious Opal (Black), Labradorite and Moonstone. Their play-of-color, schiller and adularescence are not part of the material but a choice of the design (Chapters 27 and 28); choosing one of these materials switches its effect on. The older **Opal** is the plain body-color opal and stays as it was. **Titanite (Sphene)**, last in the list, has more fire than diamond (B–G dispersion 0.057 against 0.044) and a birefringence of 0.12, so the back facets show doubled through the table; it is yellow-green, with its strongly colored ray lying in the table. Its indices are measured values from 1887 at three wavelengths; its color follows a measured spectrum of a Madagascar crystal. Typing "Sphene" or "Titanite" finds it. Chrysoberyl (Yellow) shows +0.0076 where older versions showed +0.0090: it now takes the published wavelength-dependent curves of the mineral, whose total birefringence is that smaller figure (see "Curves for the Extraordinary Ray" below).
+The last four are the stones whose look comes from the inside: Precious Opal (White), Precious Opal (Black), Labradorite and Moonstone. Their play-of-color, schiller and adularescence are not part of the material but a choice of the design (Chapters 27 and 28); choosing one of these materials switches its effect on. **Opal** is the plain body-color opal. **Titanite (Sphene)**, last in the list, has more fire than diamond (B–G dispersion 0.057 against 0.044) and a birefringence of 0.12, so the back facets show doubled through the table; it is yellow-green, with its strongly colored ray lying in the table. Its indices are measured values from 1887 at three wavelengths; its color follows a measured spectrum of a Madagascar crystal. Typing "Sphene" or "Titanite" finds it. Chrysoberyl (Yellow) uses the published wavelength-dependent curves of the mineral, which give the birefringence of +0.0076 (see "Curves for the Extraordinary Ray" below).
 
 Several of these colors are not invented: Tanzanite, Aquamarine, Spessartine,
 Tsavorite, Demantoid and Peridot are fitted to measured absorption spectra, and
 Appendix C names the source of each.
 
-(Sphene/titanite is deliberately not included -- see the Troubleshooting
-chapter's Known Limitations.)
-
 ## The Single Material Catalogue
 
 Every material picker in the app -- the Stone tab's Material and Preview as
 combos, the New Design dialog's Starting Material combo, the Retarget target,
-the Rough Planner's material and the material editor -- shares one list: all 34
+the Rough Planner's material and the material editor -- shares one list: all
 built-in materials (Ametrine included)
 above, in that order, followed by every custom material
 you have saved, sorted alphabetically. Whichever picker you open, you see
@@ -115,7 +112,7 @@ material as a compact read-only chip -- material, color swatch and refractive in
 with an **Edit in Stone Tab** link.
 
 To see the stone in another material without changing it, use **Preview As...** in the
-Stone tab (next section). The old "Linked to design" toggle is gone: nothing can leave
+Stone tab (next section). Nothing can leave
 the picture on a different material from the design's without a visible amber badge.
 
 ## The Crystal Axis of a Material
@@ -182,7 +179,7 @@ the same material as a read-only chip with an **Edit in Stone Tab** link) holds:
   reachable** with the seven-band color model and how far the closest reachable
   color is. Very
   rich or very light-and-rich colors are not all reachable; lower the
-  saturation or change the tone. The presets above are unchanged and still apply
+  saturation or change the tone. The presets above still apply
   at the size of the design.
   The same entry shows when the design holds a color that is not one of the
   presets (one read from a file or made in the color editor). A Custom color
@@ -190,8 +187,7 @@ the same material as a read-only chip with an **Edit in Stone Tab** link) holds:
   material; choosing another material gives the stone that material's own
   color, because a color made for the directions of one crystal does not fit
   another. Choosing a preset, a variant or *Material Default* replaces it.
-  Older versions of the program show a close single-color version of a color
-  made here, without its directions. The web app has the same editor, solves in its background worker
+  The web app has the same editor, solves in its background worker
   and renders the full color in its 3D view.
   The same editor opens from two more places: **Pick...** in the Gem Material
   Editor (Fantasy color; Save keeps the color in the material) and **Custom
@@ -294,7 +290,7 @@ color) that is closest to the old color face-up. Nothing changes until you press
 (one undo step), so old work is never altered silently.
 
 **Zones.** A zone of a Color Pattern (Chapter 29) takes a variant of the stone's
-material as its color too, and a stone with zones takes no body color: its
+material as its color too (**From variant** on the zone's card), and a stone with zones takes no body color: its
 color is its zones.
 
 **The Live Render toolbar.** The Color control next to Render Material offers
@@ -388,8 +384,7 @@ are about to save shows red, with its margin and a one-line reason,
 
 The picture always shows the design's own material. When you want to see the same
 stone in another material (a sapphire as a ruby, say) without changing the design, use
-**Preview As...** in the Stone tab. It replaces the older "Linked to design" toggle and
-works differently in three ways:
+**Preview As...** in the Stone tab. It works in three ways:
 
 - **It is explicit.** A preview starts only when you pick a material in **Preview As...**.
   Choosing a material in the Stone tab's Material combo, the Design Settings panel or
@@ -573,7 +568,7 @@ until an option is picked**, and then commits that option as one undo step.
 
 - **The table and the culet never change.** A flat facet has no slope, so
   there is nothing for a critical angle to say about it; tilting one is
-  what used to push the table through zero and onto the pavilion side.
+  what would push the table through zero and onto the pavilion side.
   Both are still listed, greyed out and marked **Not changed**, so you can
   see that they stay put. Their height may still be adjusted (see below),
   but never their angle.
@@ -666,8 +661,7 @@ header for a reminder):
   light entering through that crown facet, read against the main pavilion
   angle of the *retargeted* design (the same estimate the tier list shows,
   see "The Tier List's MARGIN Column" above). A crown facet is never judged
-  with the pavilion formula, which is what used to flag every crown row as
-  Windows. The estimate follows a single ray through that crown facet and onto
+  with the pavilion formula. The estimate follows a single ray through that crown facet and onto
   the main pavilion facet on the same side of the stone, and nothing else:
   light that wanders to other facets is not counted. Read it as a guide, not
   a measurement. The dialog repeats this in a note whenever crown estimates

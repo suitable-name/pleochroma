@@ -28,8 +28,8 @@ fn block() -> RoughModel {
     )
 }
 
-/// The block with a corner cut of setbacks 3, 4, 6 mm, which removes a tetrahedron of
-/// 3 * 4 * 6 / 6 = 12 mm^3.
+/// The block with a corner cut of setbacks 4, 6 and 3 mm, which removes a tetrahedron of
+/// 4 * 6 * 3 / 6 = 12 mm^3.
 fn cornered_block() -> RoughModel {
     let mut model = block();
     model.cuts.push(RoughCut::Corner {

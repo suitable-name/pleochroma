@@ -40,7 +40,11 @@ fn a_scene_with_a_surface_finish_routes_to_the_gpu_like_a_polished_one() {
     rough.effects.facet_surfaces =
         vec![FacetSurface::from_preset(PolishPreset::Prepolish, 0.3).packed(); 3];
     assert!(rough.effects.has_surface());
-    assert_eq!(scene_uses_gpu(&rough), scene_uses_gpu(&tiny_scene()));
+    let gpu = GpuBackend::disabled();
+    assert_eq!(
+        scene_uses_gpu(&rough, &gpu),
+        scene_uses_gpu(&tiny_scene(), &gpu)
+    );
 }
 
 #[test]

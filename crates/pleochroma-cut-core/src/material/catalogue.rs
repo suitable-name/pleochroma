@@ -35,9 +35,8 @@ pub struct MaterialEntry {
     /// This material's specific gravity, when one is on file: the built-in table
     /// ([`super::built_in_specific_gravity`]) for a [`MaterialKind::BuiltIn`] entry, or the
     /// vault's saved figure (threaded through by [`MaterialCatalogue::build_with_sg`])
-    /// for a [`MaterialKind::Custom`] one. `None` for a built-in this crate has no SG
-    /// row for (a species added to `GemMaterial::all_materials()` after this table was
-    /// last extended) or a custom material saved with no SG recorded.
+    /// for a [`MaterialKind::Custom`] one. `None` for a built-in with no row in the SG table,
+    /// or a custom material saved with no SG recorded.
     pub sg: Option<f64>,
     /// Whether this material has any birefringence at all -- `false` only for an
     /// isotropic material (cubic crystal system, or a custom material saved with zero
@@ -58,14 +57,11 @@ pub struct MaterialEntry {
 /// order, followed by every custom catalogue material, sorted by name
 /// (case-insensitive).
 ///
-/// Only the CAD editor's design-settings combo and the New Design dialog read from
-/// this catalogue (through `pleochroma-editor`'s `builtin_preset_names`), and that
-/// function sorts the names alphabetically (case-insensitive) before any combo shows
-/// them: this catalogue's own order is the table order, not a display order. The
-/// live-render viewport's Render Material combo builds its list with
-/// `pleochroma-editor`'s `render_material_options` (also alphabetical).
-///
-/// [bpn]: ../../../pleochroma_cut/gui/editor/state/fn.builtin_preset_names.html
+/// The CAD editor's design-settings combo and the New Design dialog read this catalogue
+/// through `pleochroma-editor`'s `builtin_preset_names`, which sorts the names
+/// alphabetically (case-insensitive). This catalogue's own order is the table order, not a
+/// display order. The live-render viewport's Render Material combo uses
+/// `pleochroma-editor`'s `render_material_options` instead, also alphabetical.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct MaterialCatalogue {
     entries: Vec<MaterialEntry>,

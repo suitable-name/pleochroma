@@ -1,8 +1,8 @@
 //! A bounded correction for a nonlinear meet system, not a feasibility certificate.
 //!
-//! Redundant contacts and production-plane rounding make a finite-difference
-//! Jacobian inconsistent away from the solution. Solve its least-squares problem
-//! instead of rejecting such a linearization as an impossible authored design.
+//! Redundant contacts and the f32 rounding of production plane normals make a
+//! finite-difference Jacobian inconsistent away from the solution. Its least-squares
+//! problem is solved instead of rejecting the linearization as an impossible design.
 
 /// Damped QR in physical trust-region units, without forming J^T J. Derivatives
 /// are never normalized by their own magnitude: doing so amplifies rounding-only

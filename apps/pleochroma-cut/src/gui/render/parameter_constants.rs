@@ -1,7 +1,9 @@
-//! Publishes the Rust-owned constants of the Render & Output tab to Slint: the one bounce
-//! ladder and the sample / thumbnail ranges (`SettingsModel.bounce_ladder`,
-//! `*_samples_*_exponent`, `preview_*_min/max`) and the Lighting tab's exposure and light
-//! elevation ranges. Slint keeps no literal copies once its pickers read these.
+//! Publishes the Rust-owned constants of the Render & Output tab to Slint.
+//!
+//! These are the one bounce ladder, the sample and thumbnail ranges
+//! (`SettingsModel.bounce_ladder`, `*_samples_*_exponent`, `preview_*_min/max`) and the Lighting
+//! tab's exposure and light elevation ranges. Slint keeps no literal copies once its pickers read
+//! these.
 
 use crate::{
     MainWindow, SettingsModel,

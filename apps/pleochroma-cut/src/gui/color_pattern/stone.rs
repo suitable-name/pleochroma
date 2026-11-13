@@ -139,7 +139,7 @@ pub fn seed_stone_pattern(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pleochroma_cut_core::material::pattern::{PatternAxis, apply_color_pattern};
+    use pleochroma_cut_core::material::pattern::{ColorRef, PatternAxis, apply_color_pattern};
 
     #[test]
     fn an_ametrine_seed_keeps_its_original_colors_and_boundaries() {
@@ -219,7 +219,7 @@ mod tests {
     #[test]
     fn a_colorless_stone_is_a_solved_uniform_pattern() {
         let pattern = seed_stone_pattern(&GemMaterial::diamond(), 7.0, Some(2.0)).unwrap();
-        assert!(pattern.unsolved_colors().is_empty());
+        assert_eq!(pattern.unsolved_colors(), [] as [ColorRef; 0]);
         assert!(pattern.to_zoned().unwrap().is_none());
     }
 

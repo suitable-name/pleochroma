@@ -2,21 +2,17 @@
 //! concave design's carved mesh, for the Rough planner.
 //!
 //! A concave design is its facet stone minus the curved tools. When a tool removes a vertex
-//! that sets the stone's outline (the manufacturability check's `ToolRemovesHullVertex`), the
-//! real outline is smaller than the flat one, and the planner can place the stone tighter.
-//! The app measures a design WITH tools from the vertices of its carved mesh, reduced here to
-//! their convex hull with a variant of the planner's own incremental hull (so the fit stage
-//! walks the few hull corners, never the raw mesh vertices). A design WITHOUT tools never
-//! comes through here.
+//! that sets the stone's outline (`ToolRemovesHullVertex`), the real outline is smaller than
+//! the flat one, and the planner can place the stone tighter. The app measures a design WITH
+//! tools from the vertices of its carved mesh, reduced here to their convex hull, so the fit
+//! stage walks the few hull corners and never the raw mesh vertices. A design WITHOUT tools
+//! never comes through here.
 //!
-//! The carved mesh's vertices are not exact: the clipping snaps every polygon it touched to
-//! a grid of about `1e-9` of the stone's width, while the polygons it did not touch keep
-//! their exact corners. A box with a dimple on its top face therefore has its top corners
-//! twice (exact and snapped), and a few dozen points on its top edges (where the tool's
-//! tessellation planes cut the top polygon) that are a grid step below the exact corners.
-//! That noise is below [`HULL_EPS`], but the hull's triangles through two such points a
-//! short distance apart are tilted by noise over that distance, far more than the noise
-//! itself. [`carved_hull_faces`] and [`is_corner`] are written for that input.
+//! The carved mesh's vertices are not exact: the clipping snaps every polygon it touched to a
+//! grid of about `1e-9` of the stone's width, while untouched polygons keep their exact
+//! corners. The noise is below [`HULL_EPS`], but the hull's triangles through two points a
+//! short distance apart are tilted by far more than the noise. [`carved_hull_faces`] and
+//! [`is_corner`] are written for that input.
 //!
 //! The reduction is deterministic: a total-order sort, [`carved_hull_faces`] adds points in
 //! index order, and the corners come out in the order of the sorted, de-duplicated input.
@@ -33,13 +29,11 @@ const HULL_EPS: f64 = 1e-9;
 /// Hull triangles whose unit normals are within this angle (radians) bound the same plane,
 /// and three planes are independent when `|(a x b) . c|` of their normals exceeds it.
 ///
-/// A triangle through two vertices `delta` apart that the clipping's rounding (about
-/// [`HULL_EPS`] of the stone's width, `w`) put at different heights is tilted by about
-/// `HULL_EPS * w / delta`: `1e-6` for vertices a thousandth of the stone apart, which is
-/// common where a tool's tessellation plane cuts a facet near its corner. `1e-4` absorbs
-/// vertices down to `1e-5 w` apart (a sliver beyond that costs at most one extra corner
-/// on a hull edge), while no two facets of a design or a tool's tessellation meet at
-/// `0.006` degrees.
+/// A triangle through two vertices `delta` apart, which the clipping's rounding (about
+/// [`HULL_EPS`] of the stone's width, `w`) puts at different heights, is tilted by about
+/// `HULL_EPS * w / delta`: `1e-6` for vertices a thousandth of the stone apart. This angle
+/// absorbs vertices down to `1e-5 w` apart, while no two facets of a design or a tool's
+/// tessellation meet at less than `0.006` degrees.
 const COPLANAR_ANGLE: f64 = 1e-4;
 /// `cos(COPLANAR_ANGLE)`, to second order.
 const COPLANAR_COS: f64 = 1.0 - COPLANAR_ANGLE * COPLANAR_ANGLE / 2.0;

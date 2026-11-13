@@ -13,44 +13,38 @@
 //!
 //! `c_axis = (sin(theta)*cos(phi), cos(theta), sin(theta)*sin(phi))`.
 //!
-//! No dependency on Slint or any other crate -- pure trigonometry, exercised directly
-//! by the unit tests without spinning up a UI.
+//! No Slint dependency: pure trigonometry, exercised directly by the unit tests without
+//! a UI.
 
 use glam::Vec3;
 
-/// `(sin(theta)*cos(phi), cos(theta), sin(theta)*sin(phi))` -- see the module doc
-/// comment for the two angles' meaning. `tilt_deg`/`azimuth_deg` are not clamped here:
-/// the settings-dialog sliders already constrain them (0-90, 0-360), and the trig
-/// below is well-defined for any real input, so an out-of-range value (e.g. a
-/// hand-edited settings file) just resolves to whatever direction the formula gives.
+/// The direction for a tilt from `+Y` and an azimuth around it:
+/// `(sin(theta)*cos(phi), cos(theta), sin(theta)*sin(phi))` (see the module doc).
 ///
-/// `tilt_deg = 0.0` collapses to `Vec3::Y` for any `azimuth_deg` (`sin(0) == 0` zeroes
-/// both X and Z terms exactly in `f32`) -- the default of every built-in except
-/// Tourmaline and Aquamarine.
-/// `tilt_deg = 90.0, azimuth_deg = 0.0` gives `Vec3::X` (the Tourmaline and Aquamarine
-/// cut-orientation override) to within `f32` trig precision.
+/// The angles are not clamped: the Parameters panel sliders already limit them (0-90, 0-360),
+/// and any real input gives a direction, so an out-of-range value from a hand-edited settings
+/// file resolves to the direction the formula gives.
+///
+/// `tilt_deg = 0.0` gives `Vec3::Y` for any `azimuth_deg`, because `sin(0)` is exactly zero
+/// and both X and Z terms vanish in `f32`. This is the default of most built-ins; those with the
+/// axis in the table plane (e.g. Tourmaline, Aquamarine) default to `Vec3::X` (`tilt_deg = 90.0`,
+/// `azimuth_deg = 0.0`, to within `f32` trig precision).
 #[must_use]
 ///
-/// A thin wrapper over `pleochroma_cut_core::CrystalAxis::slider_direction`, the one
-/// formula the desktop, web and mobile UIs share. It is deliberately not canonicalised
-/// (the canonical form is for storage and comparison), so every slider position keeps its
-/// exact vector.
+/// A thin wrapper over `pleochroma_cut_core::CrystalAxis::slider_direction`, the formula the
+/// desktop, web and mobile UIs share. It is not canonicalised: storage and comparison use the
+/// canonical form, so every slider position keeps its exact vector.
 pub fn angles_to_c_axis(tilt_deg: f32, azimuth_deg: f32) -> Vec3 {
     pleochroma_cut_core::CrystalAxis::slider_direction(tilt_deg, azimuth_deg)
 }
 
-/// Inverse of [`angles_to_c_axis`]: recovers `(tilt_deg, azimuth_deg)` from a `c_axis`
-/// direction. Used when the settings-dialog override switch flips from off to on,
-/// seeding the two sliders from the currently selected material's own `c_axis` so
-/// enabling the override never makes the stone visibly jump.
+/// Inverse of [`angles_to_c_axis`]: recovers `(tilt_deg, azimuth_deg)` from a direction, so
+/// slider positions can be read from an existing axis without the stone visibly jumping.
 ///
-/// `axis` need not already be unit-length (defensively normalized below); a
-/// degenerate (zero-length) input falls back to `Vec3::Y` (`tilt_deg = 0.0`) rather
-/// than dividing by zero.
+/// `axis` need not be unit-length (it is normalized here); a zero-length input falls back to
+/// `Vec3::Y` (`tilt_deg = 0.0`) rather than dividing by zero.
 ///
-/// The azimuth is mathematically undefined exactly at the poles (`tilt_deg == 0.0` or
-/// `180.0`) -- resolved to `0.0` there via `atan2`'s own `atan2(0, 0) == 0`
-/// convention, matching `angles_to_c_axis(0.0, _)`'s azimuth-independence at that pole.
+/// The azimuth is undefined at the poles (`tilt_deg` 0 or 180); `atan2(0, 0)` gives `0.0` there.
 #[must_use]
 pub fn c_axis_to_angles(axis: Vec3) -> (f32, f32) {
     let axis = if axis.length_squared() > 1e-12 {
@@ -72,7 +66,8 @@ pub fn c_axis_to_angles(axis: Vec3) -> (f32, f32) {
 /// axis is a line, so `axis` and `-axis` give the same angle; a zero-length input reads as the
 /// table normal itself (0 degrees), like [`c_axis_to_angles`].
 ///
-/// What the Checks strip and the axis overlay quote as "the axis angle to the table normal".
+/// The number the crystal-axis UI shows as the angle to the table normal
+/// (`gui::render::crystal_axis_ui`).
 #[must_use]
 pub fn angle_to_table_normal_deg(axis: Vec3) -> f32 {
     let axis = axis.try_normalize().unwrap_or(Vec3::Y);
@@ -94,8 +89,8 @@ mod tests {
         assert!(angle_to_table_normal_deg(Vec3::ZERO).abs() < 1e-4);
     }
 
-    /// `tilt_deg = 0.0` must reproduce the default `c_axis` of every built-in except
-    /// Tourmaline and Aquamarine exactly, for any azimuth -- `sin(0.0.to_radians()) == 0.0`
+    /// `tilt_deg = 0.0` must reproduce the default `c_axis` of the built-ins whose axis is the
+    /// table normal exactly, for any azimuth -- `sin(0.0.to_radians()) == 0.0`
     /// exactly in `f32`, so both X and Z terms are an exact `0.0 * anything == 0.0`, not merely
     /// close.
     #[test]
@@ -109,10 +104,10 @@ mod tests {
         }
     }
 
-    /// `tilt_deg = 90.0, azimuth_deg = 0.0` must reproduce the Tourmaline and Aquamarine
-    /// `c_axis: Vec3::X`. Not bit-exact -- `90.0f32.to_radians()` approximates pi/2, so
-    /// `cos(theta)` lands at roughly `-4.4e-7` -- but well within a tolerance many
-    /// orders of magnitude tighter than anything visually or physically meaningful.
+    /// `tilt_deg = 90.0, azimuth_deg = 0.0` must reproduce the built-ins' in-plane
+    /// `c_axis: Vec3::X` (Tourmaline, Aquamarine). Not bit-exact -- `90.0f32.to_radians()`
+    /// approximates pi/2, so `cos(theta)` lands at roughly `-4.4e-7` -- but well within a tolerance
+    /// many orders of magnitude tighter than anything visually or physically meaningful.
     #[test]
     fn tilt_ninety_azimuth_zero_matches_tourmaline_x_axis() {
         let axis = angles_to_c_axis(90.0, 0.0);

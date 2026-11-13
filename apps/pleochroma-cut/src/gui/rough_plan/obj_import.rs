@@ -3,13 +3,13 @@
 //! with a note. The file's numbers are read in the unit chosen in the window and scaled to
 //! millimetres.
 //!
-//! The parsers live in [`crate::mesh_io`] (no window, so their tests run in the workspace);
-//! this module reads the file, picks the unit, runs the size check and installs the result.
+//! The parsers live in [`crate::mesh_io`], which needs no window; this module reads the file,
+//! picks the unit, runs the size check and installs the result.
 //!
 //! The file is read, parsed and turned into a rough (the convex hull, the mesh checks and
-//! the search tree) on a worker thread ([`mesh_task::spawn`]): a scan of 50,000 triangles
-//! takes seconds, and the window must stay alive meanwhile. A file larger than
-//! [`MAX_MESH_FILE_BYTES`] is refused from its size alone, before any of it is read.
+//! the search tree) on a worker thread ([`mesh_task::spawn`]): a large scan takes seconds,
+//! and the window must stay alive meanwhile. A file larger than [`MAX_MESH_FILE_BYTES`] is
+//! refused from its size alone, before any of it is read.
 
 use super::{
     cut_rows::fmt_num,
@@ -17,6 +17,7 @@ use super::{
     host::{Host, on_idle_host},
     mesh_task,
     saved::show_error,
+    view,
 };
 #[cfg(test)]
 pub(super) use crate::mesh_io::{
@@ -26,23 +27,26 @@ pub(super) use crate::mesh_io::{
 use crate::{
     RoughPlanModel,
     gui::pickers::{PickerFilter, PickerKind, PickerRequest, pick},
-    mesh_io::{MeshUnit, parse_mesh},
+    mesh_io::{MeshUnit, ReadProgress, ScanImport, import_scan, parse_mesh_progress},
 };
-use pleochroma_cut_core::rough_plan::{RoughBase, ShapeError, import_mesh};
+#[cfg(test)]
+use pleochroma_cut_core::rough_plan::import_mesh;
+use pleochroma_cut_core::rough_plan::{RoughBase, ShapeError};
 use slint::ComponentHandle;
 use std::{
     io::Read,
     path::{Path, PathBuf},
     rc::Rc,
+    sync::Arc,
 };
 
 /// The largest mesh file the planner reads, in bytes (64 MB).
 ///
-/// A mesh at the planner's limit of 50,000 triangles is about 5 MB as OBJ text, even with
-/// texture and normal indices on every corner (2.5 MB as binary STL), so this leaves more
-/// than ten times that. A larger file is a scan with far more triangles than the planner
-/// takes (it would fall back to its hull after being read and parsed in full), or a file
-/// with much more than geometry in it, and reading it whole would only fill the memory.
+/// A mesh at the triangle limit (`MAX_MESH_TRIANGLES`) is roughly 20 MB as OBJ text (about
+/// 100 bytes per triangle with texture and normal indices on every corner), so the cap leaves
+/// room for about three times that.
+/// A larger file has far more triangles than the planner keeps, or much more than geometry,
+/// and reading it whole would only fill the memory.
 pub(super) const MAX_MESH_FILE_BYTES: u64 = 64 * 1024 * 1024;
 
 /// The smallest the largest side of an imported rough may be, in mm. Below this the file is
@@ -161,18 +165,24 @@ fn size_refusal(base: &RoughBase, unit: MeshUnit) -> Option<String> {
     }
 }
 
-/// The rough base of the mesh file at `path` (OBJ, STL or PLY, its numbers in `unit`), and
-/// the note to show when the closed mesh could not be used and the base is the convex hull
-/// of its vertices instead. Everything slow happens in here, so it runs on a worker thread.
+/// The scan in the mesh file at `path` (OBJ, STL or PLY, its numbers in `unit`): the rough
+/// base, the note to show when the closed mesh could not be used and the base is the convex
+/// hull of its vertices instead, the structured import report and the geometry the view draws
+/// for it. The triangles read are counted into `progress`. Everything slow happens in here, so
+/// it runs on a worker thread.
 ///
 /// # Errors
 ///
 /// Returns the message for a file that is too large, cannot be read or parsed, has no volume
 /// or whose size is not believable in `unit`.
-fn base_from_file(path: &Path, unit: MeshUnit) -> Result<(RoughBase, Option<String>), String> {
+fn scan_from_file(
+    path: &Path,
+    unit: MeshUnit,
+    progress: &ReadProgress,
+) -> Result<ScanImport, String> {
     let bytes = read_bytes_with(path, MAX_MESH_FILE_BYTES, read_bounded)?;
     let extension = path.extension().and_then(|e| e.to_str());
-    let (mut points, triangles, split_note) = parse_mesh(&bytes, extension)?;
+    let (mut points, triangles, split_note) = parse_mesh_progress(&bytes, extension, progress)?;
     drop(bytes);
     if unit != MeshUnit::Millimetre {
         let factor = unit.factor_to_mm();
@@ -180,46 +190,73 @@ fn base_from_file(path: &Path, unit: MeshUnit) -> Result<(RoughBase, Option<Stri
             *point *= factor;
         }
     }
-    let (base, note) = import_mesh(&points, &triangles).map_err(|e| e.to_string())?;
-    if let Some(refusal) = size_refusal(&base, unit) {
-        return Err(refusal);
-    }
-    // A smooth scan's simplified outline is told here, not by `import_mesh`: a saved plan
-    // re-imports the same mesh and must come back without a note.
-    // The same holds for what the mesh repair did (closed gaps, turned faces, filled holes):
-    // only the mesh built by this import carries it, a saved plan stores the repaired mesh.
-    let outline_note = match base {
-        RoughBase::Hull { id, .. } => {
-            use pleochroma_cut_core::rough_plan::shape::hull::{mesh, outline_note};
-            let repaired = mesh(id).and_then(|m| m.repair_note().map(str::to_owned));
-            match (repaired, outline_note(id)) {
-                (Some(repair), Some(outline)) => Some(format!("{repair} {outline}")),
-                (repair, outline) => repair.or(outline),
-            }
-        }
-        _ => None,
-    };
-    let note = split_note.or(note).or(outline_note).or_else(|| {
-        triangles
-            .is_empty()
-            .then(|| "The file has no faces, so its convex hull is the rough.".to_string())
-    });
-    Ok((base, note))
+    import_scan(&points, &triangles, split_note, |base| {
+        size_refusal(base, unit)
+    })
+}
+
+/// The rough base of the mesh file at `path` and the note to show for it (see
+/// [`scan_from_file`]).
+///
+/// # Errors
+///
+/// As [`scan_from_file`].
+#[cfg(test)]
+fn base_from_file(path: &Path, unit: MeshUnit) -> Result<(RoughBase, Option<String>), String> {
+    scan_from_file(path, unit, &ReadProgress::default()).map(|scan| (scan.base, scan.note))
 }
 
 /// Reads the mesh file at `path` (its numbers in `unit`) on a worker thread and, when it is
-/// ready, makes its mesh (or, failing that, its convex hull) the rough.
+/// ready, makes its mesh (or, failing that, its convex hull) the rough, as one undo step. The
+/// path and the unit are remembered, so the file can be read again in another unit
+/// ([`rescan`]); a refused file is remembered the same way, which is what lets the unit be
+/// corrected.
 fn import_file(host: &Rc<Host>, path: PathBuf, unit: MeshUnit) {
     show_error(host, "");
+    let progress = Arc::new(ReadProgress::default());
+    let worker_progress = Arc::clone(&progress);
+    let remembered = path.clone();
     mesh_task::spawn(
         host,
         "Reading the mesh file...",
-        move || base_from_file(&path, unit),
-        |host, result| match result {
-            Ok((base, note)) => install_imported_base(host, base, note.as_deref()),
-            Err(message) => show_error(host, &format!("Mesh import failed: {message}")),
+        move || scan_from_file(&path, unit, &worker_progress),
+        move |host, result| match result {
+            Ok(scan) => {
+                let ScanImport {
+                    base,
+                    note,
+                    report,
+                    layers,
+                } = scan;
+                view::scan_installed(host, remembered, unit, report, layers);
+                install_imported_base(host, base, note.as_deref());
+                view::scan_push(host);
+            }
+            Err(message) => {
+                view::scan_refused(host, remembered, unit, &message);
+                show_error(host, &format!("Mesh import failed: {message}"));
+            }
         },
     );
+    view::scan_read_started(host, progress);
+}
+
+/// Reads the remembered scan file again, its numbers in the unit at position `unit_index` of
+/// the window's unit box (`mesh_io::MeshUnit::ALL`), as one undo step like an import.
+pub(super) fn rescan(host: &Rc<Host>, unit_index: i32) {
+    let unit = MeshUnit::from_index(unit_index);
+    let path = host.session.borrow().view.scan_path();
+    let Some(path) = path else {
+        show_error(
+            host,
+            "There is no scan file to read again. Choose Replace Scan to pick one.",
+        );
+        return;
+    };
+    host.window
+        .global::<RoughPlanModel>()
+        .set_mesh_unit_index(view::unit_position(unit));
+    import_file(host, path, unit);
 }
 
 /// Asks for an OBJ, STL or PLY file and, on a pick, makes its mesh (or, failing that, its

@@ -1,7 +1,8 @@
-//! Unit tests of [`crate::pure_tables`]. They live in their own file, included only by
-//! `tests/tutorial_videos_targets.rs`: the video harness (`main.rs`) has `harness = false`, so a
-//! `#[test]` there never runs, and a test module inside the tables file would only be compiled
-//! (with its imports and `SCRIPT_COMMANDS` unused) into the harness.
+//! Unit tests of [`crate::pure_tables`].
+//!
+//! They live in their own file, included only by `tests/tutorial_videos_targets.rs`: the video
+//! harness (`main.rs`) has `harness = false`, so its `#[test]`s never run, and in the tables file
+//! they would only be compiled into the harness.
 
 use crate::pure_tables::{
     PALETTE_COMMANDS, ROUTED_EVENTS, SCRIPTED, check_guide, check_guide_with, command_is_routed,

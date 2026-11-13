@@ -7,7 +7,7 @@ fn bounce_arm_frosted(
     seed0: u32,
     observer: vec3<f32>,
 ) -> u32 {
-    let idx = bounce_index_setup(s, h, rc);
+    let idx = bounce_arm_index(s, h, rc);
     let hit_point = (*h).hit_point;
     let normal = (*h).shading_normal;
     let pre_bounce_inside_gem = (*h).pre_bounce_inside_gem;
@@ -25,9 +25,9 @@ fn bounce_arm_frosted(
     var local_radiance = (*s).radiance;
     let radiance = &local_radiance;
 
-    // optics::raytracer::surface::apply_ground_bounce (via dispatch_bounce): the GGX rough
-    // dielectric that replaced the Lambertian frosted bounce (D11), the REPLACEMENT for the
-    // TIR/partial-reflect/refract dispatch, not an addition to it. One micro-normal is drawn
+    // optics::raytracer::surface::apply_ground_bounce (via dispatch_bounce): a GGX rough
+    // dielectric. It replaces the TIR, partial-reflect and refract dispatch for frosted facets.
+    // One micro-normal is drawn
     // from the visible-normal distribution of the facet's lobe; the exact mirror/Snell law at
     // it gives the direction, and the throughput is the Fresnel and masking ratio divided by
     // the tabulated directional albedo (`ground_albedo`), so a lossless rough interface keeps
@@ -85,28 +85,22 @@ fn bounce_arm_frosted(
     (*s).radiance = local_radiance;
     (*s).origin = hit_point + fb.new_dir * RAY_EPS;
     (*s).dir = fb.new_dir;
-    // a frosted (diffuse) bounce already depolarizes -- k collapses to S,
-    // mirroring optics::raytracer::transport::dispatch_bounce's identical
-    // treatment of FacetFinish::Frosted.
+    // A frosted bounce depolarizes, so k collapses to S, as in `dispatch_bounce` for
+    // `FacetFinish::Frosted`.
     (*s).k = fb.new_dir;
     (*s).inside_gem = fb.new_inside_gem != 0u;
     if (fb.has_extraordinary_update != 0u) {
         (*s).is_extraordinary = fb.extraordinary_update != 0u;
     }
-    // Same was_internal_reflection formula optics::raytracer::dispatch_bounce
-    // uses for every bounce kind -- true for the frosted TIR-forced and reflect
-    // arms ((*inside_gem) unchanged, no extraordinary update reported), false for
-    // the transmit arm ((*inside_gem) always flips there).
+    // Same `was_internal_reflection` as `dispatch_bounce`: true for the reflect branch,
+    // including TIR (`inside_gem` unchanged, no extraordinary update), false for transmit
+    // (`inside_gem` flips).
     let was_internal_reflection = pre_bounce_inside_gem
         && (fb.has_extraordinary_update == 0u)
         && ((*s).inside_gem == pre_bounce_inside_gem);
     if (is_anisotropic && was_internal_reflection) {
-        // No stokes/path_pdf scaling here -- see internal_mode_coupling_draw's
-        // doc comment: this is a RELABELING of which eigenmode governs the
-        // NEXT bounce, not a SPLIT into two rays, so the matching unbiased
-        // scale factor is 1.0 (no-op) -- the same 1.0 conclusion the entry
-        // split itself reaches, for a different reason (see this file's header
-        // comment / `apply_refract_bounce`'s doc comment on the CPU side).
+        // No stokes or path_pdf scaling. This relabels the eigenmode for the next bounce and
+        // does not split the ray (see `internal_mode_coupling_draw`).
         (*s).is_extraordinary = internal_mode_coupling_draw(
             c_axis, is_biaxial, current_plane_normal, fb.new_dir,
             (*s).stokes[0].x, (*s).stokes[0].y, (*s).stokes[0].z, false, 0.0, seed0, bounce,
@@ -124,7 +118,7 @@ fn bounce_arm_tir_core(
     seed0: u32,
     observer: vec3<f32>,
 ) -> u32 {
-    let idx = bounce_index_setup(s, h, rc);
+    let idx = bounce_arm_index(s, h, rc);
     let hit_point = (*h).hit_point;
     let normal = (*h).shading_normal;
     let wave_dir_at_bounce = (*h).wave_dir_at_bounce;
@@ -148,34 +142,37 @@ fn bounce_arm_tir_core(
     let n_e_raw_ch = idx.n_e_raw_ch;
     let uniaxial_nondegenerate = idx.uniaxial_nondegenerate;
 
-    // Hero forced TIR (probability 1, no pdf division needed).
-    // full uniaxial Fresnel (Lekner 1991): the closed-form o<->e-coupled
-    // TIR reflectance -- mirrors
-    // `optics::raytracer::refraction::apply_tir_bounce`'s own uniaxial branch
-    // bit-for-bit, INCLUDING that function's own degenerate
-    // wave-normal-parallel-to-optic-axis guard: `uniaxial_nondegenerate`
-    // (not the plain `uniaxial_active`, which every OTHER dispatch arm in this
-    // function deliberately avoids for exactly this reason -- see that flag's
-    // own doc comment) falls through to the scalar branch below at that limit,
-    // exactly as the CPU's now-guarded `apply_tir_bounce` does. `tir_exact_p_o`
-    // is the hero channel's own `R_o/(R_o+R_e)`, fed to
-    // `internal_mode_coupling_draw` below exactly as `apply_tir_bounce`'s own
-    // `exact_p_o` return value is on the CPU side.
+    // Hero forced TIR has probability 1, so no pdf division. The uniaxial branch is the
+    // Lekner 1991 closed-form o/e-coupled TIR reflectance, matching `apply_tir_bounce` on the
+    // CPU. At a wave normal parallel to the optic axis `uniaxial_nondegenerate` is false, and
+    // the scalar branch below runs, as in `apply_tir_bounce`. `tir_exact_p_o` is the hero's
+    // `R_o/(R_o+R_e)`, passed to `internal_mode_coupling_draw` as the CPU's `exact_p_o`.
     var tir_exact_p_o: f32 = 0.5;
     if (uniaxial_nondegenerate) {
         for (var k: u32 = 0u; k < NUM_CHANNELS; k = k + 1u) {
             let n_inc_k = select(1.0, n_medium_ch[k], (*s).inside_gem);
+            let n2k_dbg = select(n_medium_ch[k], 1.0, (*s).inside_gem);
+            let etak_dbg = n_inc_k / n2k_dbg;
+            let sin2_t_k = etak_dbg * etak_dbg * fma(-cos_i, cos_i, 1.0);
+            // Past its own critical angle a channel reflects all of its energy: the transmitted
+            // wave is evanescent, so the solve's total reflectance is exactly 1 and is not
+            // computed (Stokes and path_pdf are left as they are). The hero still solves, for
+            // the mode-coupling probability `tir_exact_p_o`. Mirrors `apply_tir_bounce`.
+            if (sin2_t_k > 1.0 && k != 0u) {
+                continue;
+            }
             let sol = internal_solve(n_inc_k, n_o_hoisted[k], n_e_raw_ch[k], c_axis, uframe, !(*s).is_extraordinary);
             let flux_inc = max(sol.flux_inc, 1e-12);
             let ro_pow = cplx_norm_sqr(sol.r_o) * sol.flux_ro;
             let re_pow = cplx_norm_sqr(sol.r_e) * sol.flux_re;
-            let r_total_k = min((ro_pow + re_pow) / flux_inc, 1.0);
-            (*s).stokes[k] = (*s).stokes[k] * r_total_k;
-            let n2k_dbg = select(n_medium_ch[k], 1.0, (*s).inside_gem);
-            let etak_dbg = n_inc_k / n2k_dbg;
-            let sin2_t_k = etak_dbg * etak_dbg * fma(-cos_i, cos_i, 1.0);
             if (sin2_t_k <= 1.0) {
-                (*s).path_pdf[k] = (*s).path_pdf[k] * clamp(r_total_k, 1e-4, 1.0 - 1e-4);
+                let r_total_k = min((ro_pow + re_pow) / flux_inc, 1.0);
+                (*s).stokes[k] = (*s).stokes[k] * r_total_k;
+                // Exit collection follows its chain with probability one: no branch factor
+                // (`dispatch_bounce` puts the densities back after `apply_tir_bounce`).
+                if (!collect_on) {
+                    (*s).path_pdf[k] = (*s).path_pdf[k] * clamp(r_total_k, 1e-4, 1.0 - 1e-4);
+                }
             }
             if (k == 0u) {
                 tir_exact_p_o = ro_pow / max(ro_pow + re_pow, 1e-12);
@@ -196,13 +193,15 @@ fn bounce_arm_tir_core(
                 let r_p_k = fma(n1k, -cos_t_k, n2k * cos_i) / fma(n1k, cos_t_k, n2k * cos_i);
                 (*s).stokes[k] = mueller_fresnel_reflection(r_s_k, r_p_k) * (*s).stokes[k];
                 let r_unpol_k = clamp(0.5 * fma(r_p_k, r_p_k, r_s_k * r_s_k), R_UNPOL_MIN, R_UNPOL_MAX);
-                (*s).path_pdf[k] = (*s).path_pdf[k] * r_unpol_k;
+                // No branch factor under exit collection, as in the uniaxial loop above.
+                if (!collect_on) {
+                    (*s).path_pdf[k] = (*s).path_pdf[k] * r_unpol_k;
+                }
             }
         }
     }
-    // reflects the WAVE NORMAL `k` (not `S`), then re-derives `S'` for the
-    // reflected `k'` via `poynting_dir_for_mode` -- see this file's own design
-    // note above `wave_dir_at_bounce`.
+    // Reflects the wave normal `k`, then re-derives the Poynting direction `S'` for `k'` via
+    // `poynting_dir_for_mode`.
     let k_prime = wave_dir_at_bounce - 2.0 * dot(wave_dir_at_bounce, normal) * normal;
     let s_prime = poynting_dir_for_mode(
         is_anisotropic, is_biaxial, (*s).inside_gem, (*s).is_extraordinary, k_prime, c_axis,
@@ -215,18 +214,10 @@ fn bounce_arm_tir_core(
     // TIR is always an internal reflection (`n1 > n2` for the hero
     // channel implies `(*inside_gem)`, exactly as on the CPU side).
     if (is_anisotropic) {
-        // `has_exact_p_o` must be `uniaxial_nondegenerate`, NOT the plain
-        // `uniaxial_active` -- `tir_exact_p_o` only holds a genuinely solved
-        // value when the `uniaxial_nondegenerate` branch above ran; at the
-        // degenerate wave-normal-parallel-to-optic-axis limit it is still its
-        // unset default (`0.5`), and claiming that as an "exact" p_o here would
-        // skip `internal_mode_coupling_draw`'s own polarization-weighted
-        // `entry_eigenmode_selection` heuristic -- exactly mirroring
-        // `optics::raytracer::refraction::apply_tir_bounce`'s `exact_p_o: None`
-        // return at this same limit (`transport::bounce`'s
-        // `apply_internal_mode_coupling` call site consumes that `None` via
-        // the identical heuristic). No stokes/path_pdf scaling either way --
-        // relabeling, not a split; see internal_mode_coupling_draw's doc comment.
+        // `has_exact_p_o` is `uniaxial_nondegenerate`. `tir_exact_p_o` is solved only when that
+        // branch ran. At the degenerate limit it keeps its default 0.5, which must not count as
+        // exact. The CPU returns `exact_p_o: None` there, so the polarization heuristic runs.
+        // No stokes or path_pdf scaling: this is a relabeling, not a split.
         (*s).is_extraordinary = internal_mode_coupling_draw(
             c_axis, is_biaxial, current_plane_normal, k_prime,
             (*s).stokes[0].x, (*s).stokes[0].y, (*s).stokes[0].z, uniaxial_nondegenerate, tir_exact_p_o, seed0, bounce,
@@ -244,7 +235,7 @@ fn bounce_arm_uni_entry_core(
     seed0: u32,
     observer: vec3<f32>,
 ) -> u32 {
-    let idx = bounce_index_setup(s, h, rc);
+    let idx = bounce_arm_index(s, h, rc);
     let hit_point = (*h).hit_point;
     let normal = (*h).shading_normal;
     let wave_dir_at_bounce = (*h).wave_dir_at_bounce;
@@ -272,7 +263,7 @@ fn bounce_arm_uni_entry_core(
     let p_o_raw = mode_power(sol_s_hero.t_o, sol_p_hero.t_o, sol_s_hero.flux_o, entry_inc_flux, (*s).stokes[0]);
     let p_e_raw = mode_power(sol_s_hero.t_e, sol_p_hero.t_e, sol_s_hero.flux_e, entry_inc_flux, (*s).stokes[0]);
     let p_o_hero = clamp(p_o_raw / max(p_o_raw + p_e_raw, 1e-12), R_UNPOL_SELECT_MIN, R_UNPOL_SELECT_MAX);
-    let entry_mode_split_rand = f32(hash_u32(seed0 ^ hash_u32(bounce ^ BIREFRINGENT_SPLIT_STREAM))) / 4294967295.0;
+    let entry_mode_split_rand = f32(discrete_draw(seed0, bounce, BIREFRINGENT_SPLIT_STREAM)) / 4294967295.0;
     let use_extraordinary_entry = entry_mode_split_rand < (1.0 - p_o_hero);
     var p_mode_hero_frac = p_o_hero;
     if (use_extraordinary_entry) {
@@ -290,13 +281,25 @@ fn bounce_arm_uni_entry_core(
     }
     let p_axis_transmitted = cross(refr_wave_dir_e, uframe.s_axis);
 
-    let entry_rng_bounce = f32(hash_u32(seed0 ^ hash_u32(bounce ^ FRESNEL_BRANCH_STREAM))) / 4294967295.0;
+    let entry_rng_bounce = f32(discrete_draw(seed0, bounce, FRESNEL_BRANCH_STREAM)) / 4294967295.0;
+    // Exit collection (`apply_uniaxial_entry_collect`): no reflect-vs-transmit draw. The mirror
+    // reflection of every channel is staged as a leaf (its own `R_k`-weighted state, nothing
+    // divided out, times the surface glare at bounce 0) and the path takes the transmit branch
+    // undivided: `entry_t_div` is the `r_branch` of the transmit loop, zero under collection, and
+    // the loop leaves the densities as they are. A leaf of the last iteration earns nothing, as
+    // on the CPU (`ExitCollect::credit`).
+    let entry_t_div = select(entry_r_branch, 0.0, collect_on);
+    let entry_leaf_on = collect_on && bounce + 1u < params.max_bounces;
+    var entry_leaf_scale: f32 = 1.0;
+    if (bounce == 0u && params.surface_glare < 1.0) {
+        entry_leaf_scale = params.surface_glare;
+    }
+    let entry_mirror_dir = wave_dir_at_bounce - 2.0 * dot(wave_dir_at_bounce, normal) * normal;
 
-    if (entry_rng_bounce < entry_r_branch) {
+    if (!collect_on && entry_rng_bounce < entry_r_branch) {
         for (var k: u32 = 0u; k < NUM_CHANNELS; k = k + 1u) {
-            // Channel 0 is the hero: `pair_hero` was solved with the identical
-            // arguments (`n_o_hero == n_o_hoisted[0]`, `n_e_hero_solve ==
-            // n_e_raw_ch[0]`), so it is reused (PERF-11).
+            // Channel 0 is the hero. `pair_hero` was solved with the same arguments, so it is
+            // reused.
             var pair_k = pair_hero;
             if (k != 0u) {
                 pair_k = entry_solve_pair_with_incidence(uinc_frame, 1.0, n_o_hoisted[k], n_e_raw_ch[k], c_axis, uframe);
@@ -311,11 +314,9 @@ fn bounce_arm_uni_entry_core(
         (*s).dir = new_k_e;
         (*s).k = new_k_e;
     } else {
-        // this is an INTERIOR dispersive event (air->crystal entry) --
-        // mismatch keeps `path_pdf` accumulating (via this event's own
-        // `t_unpol_k`) and narrows `compat` below, no split -- see this
-        // file's own header comment and
-        // `apply_uniaxial_entry_transmit_channels`'s CPU-side doc comment.
+        // Interior dispersive event (air to crystal). A channel whose direction disagrees with
+        // the hero keeps `path_pdf` accumulating through its own `t_unpol_k`, and `compat` is
+        // narrowed below. No split. See `apply_uniaxial_entry_transmit_channels` on the CPU.
         var entry_dirs: array<vec3<f32>, 8>;
         var entry_dirs_valid: array<bool, 8>;
         var entry_hero_match: array<bool, 8>;
@@ -326,6 +327,8 @@ fn bounce_arm_uni_entry_core(
         }
         for (var k: u32 = 0u; k < NUM_CHANNELS; k = k + 1u) {
             let n_o_k = n_o_hoisted[k];
+            // The incident state, for the mirror leaf of exit collection.
+            let entry_stokes_k = (*s).stokes[k];
             var n2k_dir = n_o_k;
             if (use_extraordinary_entry) {
                 n2k_dir = n_eff_ch[k];
@@ -346,7 +349,7 @@ fn bounce_arm_uni_entry_core(
             }
             entry_dirs[k] = final_dir_k;
             entry_dirs_valid[k] = true;
-            let direction_matches_entry = dot(final_dir_k, final_refr_dir_e) >= DIRECTION_MATCH_COS_TOL;
+            let direction_matches_entry = directions_match(final_dir_k, final_refr_dir_e);
             entry_hero_match[k] = direction_matches_entry;
             if (!direction_matches_entry) {
                 (*s).stokes[k] = (*s).stokes[k] * 0.0;
@@ -360,7 +363,15 @@ fn bounce_arm_uni_entry_core(
                 }
                 let mueller_k_mm = jones_to_mueller(pair_k_mm.s_sol.r_s, pair_k_mm.p_sol.r_s, pair_k_mm.s_sol.r_p, pair_k_mm.p_sol.r_p);
                 let t_unpol_k_mm = clamp(1.0 - mueller_k_mm[0][0], 1e-4, 1.0 - 1e-4);
-                (*s).path_pdf[k] = (*s).path_pdf[k] * t_unpol_k_mm;
+                if (!collect_on) {
+                    (*s).path_pdf[k] = (*s).path_pdf[k] * t_unpol_k_mm;
+                }
+                if (entry_leaf_on) {
+                    collect_stage_leaf(
+                        h, k, entry_mirror_dir, (mueller_k_mm * entry_stokes_k).x,
+                        collect_leaf_weight((*s).compat[k], (*s).path_pdf, 0xFFu) * entry_leaf_scale,
+                    );
+                }
                 continue;
             }
             var pair_k = pair_hero;
@@ -380,11 +391,19 @@ fn bounce_arm_uni_entry_core(
             let p_mode_k = mode_power(t_s_row, t_p_row, flux_k, entry_inc_flux, (*s).stokes[k]);
             let deposit_i = p_mode_k / p_mode_hero_frac;
             let azimuth = azimuth2_in_frame(mode_dir, uframe.s_axis, p_axis_transmitted);
-            (*s).stokes[k] = vec4<f32>(deposit_i, deposit_i * azimuth.x, deposit_i * azimuth.y, 0.0) * (1.0 / (1.0 - entry_r_branch));
+            (*s).stokes[k] = vec4<f32>(deposit_i, deposit_i * azimuth.x, deposit_i * azimuth.y, 0.0) * (1.0 / (1.0 - entry_t_div));
 
             let mueller_k = jones_to_mueller(pair_k.s_sol.r_s, pair_k.p_sol.r_s, pair_k.s_sol.r_p, pair_k.p_sol.r_p);
             let t_unpol_k = clamp(1.0 - mueller_k[0][0], 1e-4, 1.0 - 1e-4);
-            (*s).path_pdf[k] = (*s).path_pdf[k] * t_unpol_k;
+            if (!collect_on) {
+                (*s).path_pdf[k] = (*s).path_pdf[k] * t_unpol_k;
+            }
+            if (entry_leaf_on) {
+                collect_stage_leaf(
+                    h, k, entry_mirror_dir, (mueller_k * entry_stokes_k).x,
+                    collect_leaf_weight((*s).compat[k], (*s).path_pdf, 0xFFu) * entry_leaf_scale,
+                );
+            }
         }
         var local_compat = (*s).compat;
         narrow_compat(&local_compat, entry_dirs, entry_dirs_valid, entry_hero_match);

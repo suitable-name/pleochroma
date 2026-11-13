@@ -6,15 +6,13 @@
 //! "nearest built-in to this refractive index" search the catalogue-load suggestion and
 //! the linked-viewport-material fallback both need.
 //!
-//! # Per-axis dispersion is not wired up here
+//! # Per-axis dispersion is not authored yet
 //!
-//! `pleochroma_vault::model::material::CustomMaterialRow::per_axis_dispersion_json`
-//! exists in the schema, but nothing in this crate has ever written a real value into
-//! it -- `gui::optics::crystal_optics::save_gem_material` always saves `None` for it
-//! today, and `gem_material_from_row` (the one place a `CustomMaterialRow` becomes a
-//! `GemMaterial`) does not parse it either. A custom material's extraordinary ray
-//! therefore follows the constant-`birefringence_delta` approximation -- deliberately
-//! left as a documented limitation rather than a per-axis authoring surface.
+//! `pleochroma_vault::model::material::CustomMaterialRow::per_axis_dispersion_json` is
+//! carried through the library rows, but the Material Editor does not author it yet, and a
+//! save keeps the stored value. The core applies a stored curve to the material's extraordinary
+//! ray (`pleochroma_cut_core::material`); without one the ray follows the constant
+//! `birefringence_delta` approximation.
 //!
 //! # A custom material's ordinary-ray curve
 //!
@@ -37,19 +35,15 @@ use pleochroma_cut_core::{
 
 /// Built-ins plus whatever custom catalogue materials the caller hands in.
 ///
-/// Exactly `bridge::render_thread::context::resolve_material`'s own "custom materials
-/// take priority over the built-in presets" precedence, reused here so a design's
-/// material resolves the SAME way in the editor as it already does in the live-render
-/// viewport.
+/// Custom materials take precedence over built-ins, as in
+/// `pleochroma::render_setup::resolve_material`, so a design resolves the same way in the
+/// editor as in the live render.
 pub struct EditorMaterialLookup<'a> {
     custom: &'a [GemMaterial],
-    /// Opt-in source for a CUSTOM material's specific gravity. `None` unless
-    /// a caller opts in via [`Self::with_specific_gravity`]. Built-in names
-    /// resolve via `BuiltinMaterials` regardless of this field; custom materials
-    /// need opt-in since no caller requested SG lookup before this field existed.
-    /// Shaped to match `bridge::render_thread::RenderContext::
-    /// custom_material_specific_gravity` so a live context can pass it directly,
-    /// or a plain parameter when a context is unavailable.
+    /// Opt-in source for a CUSTOM material's specific gravity. `None` unless a caller opts in
+    /// via [`Self::with_specific_gravity`]. Built-in names resolve via `BuiltinMaterials`
+    /// regardless. Shaped like `RenderContext::custom_material_specific_gravity`, so a live
+    /// context can pass it directly.
     specific_gravity_source: Option<&'a [(String, f64)]>,
 }
 
@@ -64,10 +58,8 @@ impl<'a> EditorMaterialLookup<'a> {
         }
     }
 
-    /// Opts this lookup into resolving a CUSTOM material's specific gravity from
-    /// `entries` -- a `(name, sg)` list matching `RenderContext::
-    /// custom_material_specific_gravity`'s shape. Purely additive: no caller
-    /// ever requested SG lookup before, so this changes no existing behavior.
+    /// Opts this lookup into resolving a CUSTOM material's specific gravity from `entries`, a
+    /// `(name, sg)` list shaped like `RenderContext::custom_material_specific_gravity`.
     #[must_use]
     pub const fn with_specific_gravity(mut self, entries: &'a [(String, f64)]) -> Self {
         self.specific_gravity_source = Some(entries);
@@ -206,11 +198,9 @@ fn with_design_pattern(material: GemMaterial, design: &Design) -> GemMaterial {
 /// rescale, a per-mm one for millimetres per model unit), see
 /// [`render_setup::needs_model_width`].
 ///
-/// Still decided on the material after the stone's color pattern is applied, never on the base
-/// before it, so the answer stays right should a unit ever stop needing the width: a pattern
-/// turns a per-model-unit base per-mm, and a run that skipped the solve on the base would size it
-/// with no model width. The function stays for its callers; their skip-solve shortcut is now
-/// never taken.
+/// Decided on the material after the stone's color pattern is applied, not on the base: a
+/// pattern can turn a per-model-unit base into a per-mm one, and deciding on the base would
+/// size it with no model width.
 #[must_use]
 pub fn optimize_needs_model_width(material: &GemMaterial, design: &Design) -> bool {
     render_setup::needs_model_width(&with_design_pattern(material.clone(), design))
@@ -220,23 +210,17 @@ pub fn optimize_needs_model_width(material: &GemMaterial, design: &Design) -> bo
 /// preset to stand in for an unnamed material.
 ///
 /// 0.02 is roughly the gap between neighbouring species in the built-in table, so a match
-/// this close is the same stone by any practical reading, while a design sitting between
-/// two presets falls through to a refusal rather than being rounded to whichever happened
-/// to be nearer. Shared by `super::view::traced_material_for` (the editor's own design)
-/// and [`material_for_refractive_index`] (a catalogue row), so the two can never disagree
-/// about what counts as a match.
+/// this close is the same stone by any practical reading. A design between two presets is
+/// refused rather than rounded to the nearer one. Shared by [`traced_material_for`] and
+/// [`material_for_refractive_index`] (a catalogue row), so the two agree on what matches.
 pub const MATERIAL_MATCH_TOLERANCE: f64 = 0.02;
 
-/// The built-in material a design carrying `n_d` and NO species name should be rendered
-/// as.
+/// The built-in material a design carrying `n_d` and no species name should be rendered as.
 ///
-/// The nearest preset within [`MATERIAL_MATCH_TOLERANCE`], resolved to a real
-/// [`GemMaterial`], or `None` when nothing built in is that close.
-///
-/// The catalogue's own case. A library row records a refractive index but never
-/// a species, so this is the only honest way to name a stone for it. Refuses rather
-/// than substituting, since rendering a design as a different species gives wrong
-/// optics with no indication on screen.
+/// The nearest preset within [`MATERIAL_MATCH_TOLERANCE`], resolved to a real [`GemMaterial`],
+/// or `None` when nothing built in is that close. A library row records a refractive index but
+/// never a species, so this is how it is named. It refuses rather than substituting, since a
+/// design rendered as another species gives wrong optics with no sign on screen.
 #[must_use]
 pub fn material_for_refractive_index(n_d: f64) -> Option<(String, GemMaterial)> {
     let (name, _) = nearest_built_in_material(n_d, MATERIAL_MATCH_TOLERANCE)?;
@@ -244,24 +228,18 @@ pub fn material_for_refractive_index(n_d: f64) -> Option<(String, GemMaterial)> 
     Some((name, gem))
 }
 
-/// The [`GemMaterial`] a design is actually RENDERED as, given the material name
-/// `super::view::traced_material_for` already resolved -- `None` when nothing in
-/// this catalogue answers to that name.
+/// The [`GemMaterial`] a design is rendered as, given the traced material name (see
+/// [`traced_material_for`]). `None` when nothing in this catalogue answers to that name.
 ///
-/// Differs from [`resolved_gem_material`]: keys off the TRACED name rather than
-/// `MaterialSelection::name`, and refuses instead of substituting. The render path
-/// needs this because `MaterialSelection::resolve` falls back to diamond for a
-/// selection with no name (every untouched import and new design). Diamond's empty
-/// absorption bands rendered every such design colorless, so direct refusal prevents
-/// silently mis-rendering by species. `RenderContext::material_override` beats the
-/// by-name lookup and must honor the same rule.
+/// Unlike [`resolved_gem_material`], this keys off the traced name rather than
+/// `MaterialSelection::name`, and refuses instead of substituting. `MaterialSelection::resolve`
+/// falls back to diamond for an unnamed selection, whose empty absorption would render the stone
+/// colorless. `RenderContext::material_override` takes precedence over the by-name lookup and
+/// must follow the same rule.
 ///
-/// `selection` is consulted only for its `refractive_index_override` and
-/// `body_color_override`, applied exactly as [`resolved_gem_material`] applies them
-/// (through the same [`MaterialSelection::apply_overrides`]) -- see that function's own
-/// doc comment. This is what carries a design's color variant into the linked
-/// viewport's `RenderContext::material_override`, and from there into the live render,
-/// the solid view's traced mode, the tilt sweep, the hover preview and the export.
+/// `selection` supplies its overrides, applied as in [`resolved_gem_material`] (through
+/// [`MaterialSelection::apply_overrides`]), so a design's color reaches the render, the tilt
+/// sweep, the hover preview and the export.
 #[must_use]
 pub fn traced_gem_material(
     traced_name: &str,
@@ -287,16 +265,12 @@ pub fn traced_gem_material_at_width(
         .map(|gem| selection.apply_overrides_at_width(gem, stone_width_mm))
 }
 
-/// The built-in species [`nearest_built_in_material`] guesses for a nameless
-/// design, purely from its refractive index.
+/// The built-in species [`nearest_built_in_material`] guesses for a nameless design, from its
+/// refractive index alone.
 ///
-/// Deliberately only thirteen common species (not the full thirty-four built-ins, including the
-/// zoned Ametrine), because an exhaustive search regressed `material_for_refractive_index_names_the_catalogues_common_stones`:
-/// at `n_d` 1.76, Benitoite sits closer than Sapphire (see its Sellmeier entry),
-/// so all-thirty-two search silently misnamed the owner's Sapphire designs. Picking
-/// a name by an explicit choice (right) differs from guessing one from a bare number
-/// (wrong). This curated list restricts guessing to common, well-separated species a
-/// cutter is likely to hold, never synthetic/lab species whose RIs happen nearby.
+/// Guessing is limited to these common species. An exhaustive search names some stones
+/// wrongly: at `n_d` 1.76, Benitoite lies closer than Sapphire. Only species a cutter is likely
+/// to hold are listed.
 const RI_INFERENCE_CANDIDATES: [&str; 13] = [
     "Diamond",
     "Sapphire",
@@ -313,20 +287,10 @@ const RI_INFERENCE_CANDIDATES: [&str; 13] = [
     "Cubic Zirconia",
 ];
 
-/// The built-in preset (from [`RI_INFERENCE_CANDIDATES`]) whose own `n_D` sits
-/// closest to `n_d`, when that distance is within `tolerance` -- `None` when
-/// nothing built in is close enough.
+/// The built-in preset (from [`RI_INFERENCE_CANDIDATES`]) whose `n_D` is closest to `n_d`, when
+/// that distance is within `tolerance`, else `None`.
 ///
-/// Ties keep the first (list-order) match, so
-/// this is deterministic regardless of floating-point noise between two
-/// equally-close presets, consistent with this crate's "no `HashMap`/`HashSet` in
-/// a decision path" rule (a plain `Vec`/array scan here, not that this feeds the
-/// solver at all).
-///
-/// Shared by the catalogue-load "suggest a material for this schedule's RI" toast
-/// (`super::loading::suggest_material_for_schedule_ri`) and, in principle, any future
-/// "best built-in name for a display string" need -- there is only one such search in
-/// this crate today.
+/// Ties keep the first match in list order, so the result is deterministic.
 #[must_use]
 pub fn nearest_built_in_material(n_d: f64, tolerance: f64) -> Option<(String, f64)> {
     RI_INFERENCE_CANDIDATES
@@ -343,14 +307,9 @@ pub fn nearest_built_in_material(n_d: f64, tolerance: f64) -> Option<(String, f6
         .map(|(name, ri, _)| (name.to_string(), ri))
 }
 
-/// Every [`RI_INFERENCE_CANDIDATES`] preset within `tolerance` of `n_d`,
-/// nearest first -- same search as [`nearest_built_in_material`], but returns
-/// every close match instead of only the winner.
-///
-/// The guess badge's tooltip lists
-/// these so a cutter can see what else was close before trusting the single
-/// nearest name. Uses the same candidate list and tolerance, just reports every
-/// match instead of one.
+/// Every [`RI_INFERENCE_CANDIDATES`] preset within `tolerance` of `n_d`, nearest first. The guess
+/// badge's tooltip lists these, so a cutter can see what else was close before trusting the
+/// nearest name.
 #[must_use]
 pub fn material_guess_candidates(n_d: f64, tolerance: f64) -> Vec<(String, f64)> {
     let mut matches: Vec<(&'static str, f64, f64)> = RI_INFERENCE_CANDIDATES
@@ -368,20 +327,16 @@ pub fn material_guess_candidates(n_d: f64, tolerance: f64) -> Vec<(String, f64)>
         .collect()
 }
 
-/// The material name the tracer should use for `design`, and -- when there is no
-/// honest answer -- the sentence saying why it will not trace at all.
+/// The material name the tracer should use for `design`, or the reason it must not trace.
 ///
-/// A design built from an `.asc`, or a brand-new one, carries
-/// `MaterialSelection::none()`: the schedule records a refractive index but never a
-/// species. Substituting `"Diamond"` in that case would trace a quartz design at
-/// n=2.417 while MARGIN and the critical angle beside it use its real n=1.5442.
+/// A design from an `.asc`, or a new one, may carry no material name, since the schedule
+/// records only a refractive index. Substituting `"Diamond"` would trace a quartz design at
+/// n=2.417 while the critical angle and MARGIN beside it use its real n=1.5442.
 ///
-/// The rule: use the design's own named material when the catalogue (`custom` plus
-/// the built-ins, the same lookup [`EditorMaterialLookup`] resolves through) has
-/// it; otherwise the nearest built-in within [`MATERIAL_MATCH_TOLERANCE`] of its
-/// actual refractive index; and when nothing is that close, refuse. A
-/// `Some(reason)` means "do not trace or score this design", and the reason is
-/// shown in place of a simulation nobody should trust.
+/// The design's own material is used when the catalogue (`custom` plus the built-ins, the lookup
+/// [`EditorMaterialLookup`] resolves through) has it. Otherwise the nearest built-in within
+/// [`MATERIAL_MATCH_TOLERANCE`] of the design's refractive index is used. When nothing is that
+/// close, a `Some(reason)` is returned instead, and the reason is shown in place of a trace.
 #[must_use]
 pub fn traced_material_for(design: &Design, custom: &[GemMaterial]) -> (String, Option<String>) {
     if let Some(name) = &design.material.name {
@@ -422,12 +377,9 @@ pub fn traced_material_for(design: &Design, custom: &[GemMaterial]) -> (String, 
 
 /// The inferred-material badge for a design that names no material.
 ///
-/// The guess label (`"Sapphire? (from RI 1.76)"`), the guessed name, and the tooltip
-/// listing the OTHER close candidates (`""` when there are none).
-///
-/// `None` -- show nothing --
-/// once a material name IS set (nothing left to guess) or when nothing built in is
-/// close enough to `n_d`.
+/// Returns the guess label (`"Sapphire? (from RI 1.76)"`), the guessed name, and a tooltip
+/// listing the other close candidates (`""` when there are none). `None` when a material name
+/// is set, or when nothing built in is close enough to `n_d`.
 #[must_use]
 pub fn material_guess(design: &Design, n_d: f64) -> Option<(String, String, String)> {
     if design.material.name.is_some() {
@@ -448,15 +400,12 @@ pub fn material_guess(design: &Design, n_d: f64) -> Option<(String, String, Stri
     Some((text, name, others_text))
 }
 
-/// The inferred-material badge for a material the editor applied itself when a library
-/// design opened (`crate::loading::apply_library_material`).
+/// The inferred-material badge for a material the editor applied when a library design opened
+/// (`crate::loading::apply_library_material`).
 ///
-/// It returns the same three strings as [`material_guess`], so the badge still says the
-/// material was inferred, not chosen.
-///
-/// `applied` is the name the load applied. The badge shows only while the design's
-/// material still IS that name; any other pick (or a cleared material) retires it, so a
-/// choice made in the Stone tab is never labelled a guess. `None` when nothing was applied.
+/// Returns the same three strings as [`material_guess`]. `applied` is the name the load applied.
+/// The badge shows only while the design still has that material, so a later pick in the Stone
+/// tab is never labelled a guess. `None` when nothing was applied.
 #[must_use]
 pub fn applied_material_guess(
     design: &Design,

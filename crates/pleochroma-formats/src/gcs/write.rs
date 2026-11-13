@@ -209,9 +209,9 @@ fn info_line(schedule: &AscSchedule) -> String {
 
 /// Appends the `<tier>` blocks.
 ///
-/// A tier `frosting` names as a whole gets the tier-level `frosting` attribute (Gem Cut
-/// Studio 1.1's "Frosted" toggle), one it names facet by facet gets the facet-level one on
-/// those facets. A tier `frosting` does not name is written exactly as before.
+/// A tier named as a whole in `frosting` gets the tier-level `frosting` attribute (GCS 1.1's
+/// "Frosted" toggle). Facet slots named there get the facet-level attribute. Other tiers get
+/// no `frosting` attribute.
 fn write_tiers(
     out: &mut String,
     schedule: &AscSchedule,
@@ -271,19 +271,15 @@ fn write_tiers(
 
 /// Experimental: writes `schedule` as a Gem Cut Studio `.gcs` file.
 ///
-/// Not yet loaded into Gem Cut Studio itself. The index winding rule was measured
-/// on a corpus with no chiral design, so a chiral design (crown and pavilion
-/// twisted against each other) may come out mirrored on one side: check such an
-/// export visually in Gem Cut Studio before relying on it.
+/// The index winding is unverified for chiral designs (crown and pavilion twisted
+/// against each other): the corpus has none, so such an export may come out mirrored
+/// on one side. Check it visually in Gem Cut Studio before relying on it.
 ///
-/// The open question, exactly: the `.asc` tooth is written as the `index_angle` on both
-/// sides, and the side rule then puts a crown facet and a pavilion facet of the same tooth
-/// at mirrored azimuths (`phi = ia - 90°` on the crown, `270° - ia` below). `GemCAD`'s own
-/// `.gem` planes put them at the same azimuth (`phi = 90° - 360°·t/gear` on both sides, see
-/// the `gem` module). The two readings give the same stone whenever the teeth of every tier
-/// are mirrored about tooth 0, as in every corpus file, and a different one (the crown
-/// mirrored against the pavilion) for a tier whose teeth are not. Only a chiral design
-/// opened in Gem Cut Studio can say which reading it expects.
+/// The `.asc` tooth is written as `index_angle` on both sides, so a crown facet and a
+/// pavilion facet of one tooth sit at mirrored azimuths. `GemCAD`'s `.gem` planes put
+/// them at the same azimuth (see the `gem` module). The readings agree when every
+/// tier's teeth are mirrored about tooth 0, as in every corpus file, and differ
+/// otherwise.
 ///
 /// Format per the Gem Cut Studio User's Manual v1.1.0 pp. 58-61; conventions per
 /// the files Gem Cut Studio 1.1 writes.

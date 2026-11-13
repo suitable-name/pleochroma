@@ -1,8 +1,5 @@
-//! Tests of the forward tracer (written, not run, by lane F1): analytic slab, immersion,
-//! holder, zone lengths and determinism.
-//!
-//! The cache, compression, furnace, Jacobian and light
-//! tests are in `tests_more`.
+//! Tests of the forward tracer: analytic slab, immersion, holder, zone lengths and determinism.
+//! The cache, compression, furnace, Jacobian and light tests are in `tests_more`.
 
 use std::sync::atomic::AtomicBool;
 

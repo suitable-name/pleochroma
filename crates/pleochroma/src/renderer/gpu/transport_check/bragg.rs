@@ -8,9 +8,8 @@
 //! The structure is encoded by [`structure_rows`], the very function the scene upload uses, so
 //! the check covers the encoding too.
 //!
-//! The decisions inside the tracker (which domain is nearest, whether the hero accepts) are
-//! discrete, so a one-ULP difference of an input could in principle flip one; with the case table
-//! below that has not been seen to matter, and a failure of the `reflect` slot alone points there.
+//! The tracker's decisions (nearest domain, hero acceptance) are discrete, so a one-ULP input
+//! difference can flip one. A failure in the `reflect` slot alone points there.
 
 use crate::{
     optics::{
@@ -76,10 +75,10 @@ pub struct BraggCase {
 
 const _: () = assert!(size_of::<BraggCase>() == 384);
 
-/// The budget for every compared value. The chains are long (a hash-driven domain, a Box-Muller
-/// draw, `exp` of a squared offset, a product of up to dozens of ratios); the same provisional
-/// 2048 ULP (about 1.2e-4 relative) as the oriented check, until the owner's first harness run
-/// reports the measured maximum.
+/// The budget for every compared value.
+///
+/// The chains are long (a hash-driven domain, a Box-Muller draw, `exp` of a squared offset, a
+/// product of up to dozens of ratios), so it is the same 2048 ULP as the oriented check.
 const BRAGG_ULP_BUDGET: u32 = 2048;
 const BRAGG_ABS_FLOOR: f32 = 1e-4;
 

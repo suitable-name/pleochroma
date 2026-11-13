@@ -1,5 +1,5 @@
-//! The sweep scores a frosted design on the frosted stone, and a polished one exactly as it
-//! always did.
+//! The sweep scores a frosted design with its facet finishes and a polished one with the
+//! plain call.
 
 use super::*;
 use pleochroma::{
@@ -174,10 +174,11 @@ fn tilt_bits(design: &Design, material: &GemMaterial) -> [u32; 3] {
     ]
 }
 
-/// A frosted girdle is a thin rim band. The single table-up pose lights the pavilion mains and
-/// leaves through the crown, so no table-up ray reaches the band and those five figures may
-/// legitimately match the polished stone's. The tilt average does light the band from the side,
-/// so that is where the flag has to show; and the finishes the sweep scores on must carry it.
+/// A frosted girdle is a thin rim band.
+///
+/// The table-up pose sends no ray to the band, so the table-up figures may match the polished
+/// stone's. The tilt average lights the band from the side, so the flag must show there, and
+/// the sweep's finishes must carry it.
 #[test]
 fn the_frosted_girdle_flag_moves_the_score_too() {
     let material = GemMaterial::diamond();

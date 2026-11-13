@@ -111,6 +111,30 @@ fn dragging_the_light_stores_clamped_values_in_the_settings() {
     assert!(app.settings.lighting.elevation_deg <= 88.0 + f32::EPSILON);
 }
 
+/// With an HDR map as the lighting a drag is available and turns the map; its `dy` leaves the
+/// light's elevation alone.
+#[test]
+fn dragging_with_an_hdr_map_turns_the_map_and_keeps_the_elevation() {
+    let mut app = state();
+    app.update_settings(|settings| settings.lighting.elevation_deg = 50.0);
+    let mut bytes = b"#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 32 +X 64\n".to_vec();
+    for _ in 0..64 * 32 {
+        bytes.extend_from_slice(&[120, 130, 140, 129]);
+    }
+    let file = crate::platform::PickedFile {
+        display_name: "sky.hdr".to_owned(),
+        bytes,
+    };
+    crate::hdr::import(&mut app, &file).expect("imports");
+    assert!(light_drag_available(&app), "a map is turned by the drag");
+
+    let rig_azimuth = app.settings.lighting.azimuth_deg;
+    drag_light(&mut app, 100.0, 40.0);
+    assert!((app.settings.lighting.hdr_yaw_deg - 40.0).abs() < 1e-3);
+    assert!((app.settings.lighting.elevation_deg - 50.0).abs() < 1e-6);
+    assert!((app.settings.lighting.azimuth_deg - rig_azimuth).abs() < 1e-6);
+}
+
 #[test]
 fn export_options_respect_the_caps() {
     assert_eq!(size_options(1024), vec![512, 1024]);

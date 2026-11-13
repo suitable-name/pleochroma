@@ -226,12 +226,11 @@ pub fn triangle_map(scene: &Scene<'_>, view: usize, grid: &WorkingGrid) -> Vec<u
 /// The stone's exclusion mask at the stone photo's full resolution, for the compression-noise
 /// estimate of the transmittance.
 ///
-/// The mesh flags (outline, edge band, inclusion, ghost) exist only on the working grid, so they
-/// are upsampled by nearest neighbour: every full-resolution pixel takes the flags of the working
-/// pixel that contains its centre, and a pixel outside the grid (the margin around the stone's
-/// region) is flagged as outside the outline. Nearest neighbour is exact enough here, the
-/// estimator only needs to keep the flat backlight and the stone's edge out; it also skips the
-/// four neighbours of every flagged pixel.
+/// The mesh flags exist only on the working grid, so they are upsampled by nearest neighbour: each
+/// full-resolution pixel takes the flags of the working pixel that contains its centre. Pixels
+/// outside the grid (the margin around the stone's region) count as outside the outline. Nearest
+/// neighbour is enough, because the estimator only needs the flat backlight and the stone's edge
+/// kept out.
 #[must_use]
 pub fn full_resolution_exclusion(
     grid: &WorkingGrid,
@@ -547,7 +546,7 @@ mod tests {
         assert!(full.has(35, 20, flag::OUTSIDE_OUTLINE));
     }
 
-    /// F1: a frame that is mostly flat backlight with a textured stone gives the stone region's
+    /// A frame that is mostly flat backlight with a textured stone gives the stone region's
     /// compression estimate once the silhouette is masked; unmasked, the flat pixels drag the
     /// robust spread to zero.
     #[test]

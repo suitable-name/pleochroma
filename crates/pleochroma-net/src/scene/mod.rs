@@ -21,13 +21,16 @@ mod serialize;
 use pleochroma::{
     geometry::{GpuFacetPlane, ToolPrimitive},
     optics::{fluorescence::Fluorescence, materials::GemMaterial, raytracer::LightingPreset},
+    renderer::env_map::HdrOrientation,
 };
 
 /// Everything a remote render worker needs to trace samples for one frame, fully
 /// resolved -- see the module docs for why every field is a value, never a name or id.
 ///
 /// `Serialize` is hand-written (`serialize.rs`): the same fields in the same order, except that
-/// human-readable output (JSON job files) leaves out a default `effects` record.
+/// human-readable output (JSON job files) leaves out a default `effects` record, a
+/// `stone_shadow` that is `false`, a `tray_reflection` of `0.0`, an unturned
+/// `hdr_orientation` and a `Branching` `estimator`.
 #[derive(Debug, Clone, PartialEq, serde::Deserialize)]
 pub struct SceneState {
     /// Output image width, in pixels.
@@ -69,25 +72,24 @@ pub struct SceneState {
     /// escape (a primary miss and an exit at any bounce), resolved by the sender with
     /// `pleochroma::render_setup::Backdrop::resolve` from this scene's own preset and
     /// light pose; `0.0` = the preset's own ground (As Lit) --
-    /// `EnvironmentSource::Studio::backdrop`. Before protocol v29 this was a card only
-    /// the camera ray saw. `#[serde(default)]` for the same on-disk `scene.json` reason
-    /// as `girdle_frosted`.
+    /// `EnvironmentSource::Studio::backdrop`. `#[serde(default)]` for the same on-disk
+    /// `scene.json` reason as `girdle_frosted`.
     #[serde(default)]
     pub backdrop: f32,
-    /// What lights the stone where a ray misses it (v14): the analytic studio rig
+    /// What lights the stone where a ray misses it: the analytic studio rig
     /// described by the fields above, or a loaded HDR panorama named by content hash.
     /// `#[serde(default)]` (the studio rig) for the same on-disk `scene.json` reason as
     /// `girdle_frosted`.
     #[serde(default)]
     pub environment: SceneEnvironment,
-    /// Scale of the first-surface specular reflection of the analytic presets (v18),
+    /// Scale of the first-surface specular reflection of the analytic presets,
     /// `0.0..=1.0`; `1.0` is the unscaled render --
     /// `EnvironmentSource::Studio::surface_glare`. Ignored for an HDR environment.
     /// `#[serde(default = "default_surface_glare")]` for the same on-disk `scene.json`
     /// reason as `girdle_frosted`.
     #[serde(default = "default_surface_glare")]
     pub surface_glare: f32,
-    /// Concave-facet tool primitives (v19) the stone is cut by, in cutting order; empty
+    /// Concave-facet tool primitives the stone is cut by, in cutting order; empty
     /// for an ordinary convex stone, which then costs one zero length byte on the wire.
     ///
     /// Appended last: postcard is not self-describing, so a field earlier in the struct
@@ -98,7 +100,7 @@ pub struct SceneState {
     /// Bounded by `pleochroma::geometry::MAX_TOOL_PRIMITIVES` and validated by the worker.
     #[serde(default)]
     pub tools: Vec<ToolPrimitive>,
-    /// The material's fluorescent emitters (v20), beside [`Self::material`] rather than
+    /// The material's fluorescent emitters, beside [`Self::material`] rather than
     /// inside it; empty for a non-fluorescent material, which then costs one zero length
     /// byte on the wire and renders bit-identically to a build without the field. A
     /// scene with any emitter (or a UV lamp preset) is traced on the CPU only.
@@ -108,7 +110,7 @@ pub struct SceneState {
     /// the worker (`Fluorescence::validate`).
     #[serde(default)]
     pub fluorescence: Fluorescence,
-    /// Angular radius in degrees of the viewer's head shadow on the lit presets (v21),
+    /// Angular radius in degrees of the viewer's head shadow on the lit presets,
     /// `0.0..=30.0`; `0.0` is off, `16.0` the default --
     /// `EnvironmentSource::Studio::head_shadow_deg`. Ignored by the product-photography
     /// presets and for an HDR environment. Appended last for the postcard reason of
@@ -116,7 +118,7 @@ pub struct SceneState {
     /// `scene.json` reason.
     #[serde(default = "default_head_shadow_deg")]
     pub head_shadow_deg: f32,
-    /// The planes a design authors as frosted (v26): ascending indices into
+    /// The planes a design authors as frosted: ascending indices into
     /// [`Self::planes`], a whole frosted tier's planes and single frosted facets alike. The
     /// worker marks exactly these `FacetFinish::Frosted`
     /// (`pleochroma::geometry::facet_finishes_with_frosted`), on top of the girdle band when
@@ -128,23 +130,50 @@ pub struct SceneState {
     /// the `scene.json` reason (an old job file reads as unfrosted).
     #[serde(default)]
     pub frosted_planes: Vec<u32>,
-    /// Image renderer (v28), appended for postcard compatibility. JSON scenes
+    /// Image renderer, appended for postcard compatibility. JSON scenes
     /// predating it retain Path-Traced. Every wire scene always writes all three bytes.
     #[serde(default)]
     pub engine: pleochroma::renderer::engine::EngineSpec,
-    /// The render physics of the design (v32): oriented inclusions, play-of-color, per-facet
+    /// The render physics of the design: oriented inclusions, play-of-color, per-facet
     /// surface finish, the sender's faceting machine and the abraded edge, see
     /// [`effects::SceneEffects`]. The default record is "no effects" and renders bit-identically
     /// to a build without the field; the worker applies it to [`Self::material`] and to the
-    /// trace's surface input ([`Self::traced_material`], [`effects::SceneEffects::surface_scene`]).
+    /// trace's surface input ([`Self::traced_material`],
+    /// [`effects::SceneEffects::surface_scene`]).
     /// Appended last for the postcard reason of [`Self::tools`], and `#[serde(default)]` for the
     /// `scene.json` reason (an old job file reads as "no effects").
     #[serde(default)]
     pub effects: effects::SceneEffects,
-    /// Camera image-plane roll in radians (v33), around its unchanged forward
+    /// Camera image-plane roll in radians, around its unchanged forward
     /// direction. Appended for postcard; old JSON scene files default to zero.
     #[serde(default)]
     pub camera_roll: f32,
+    /// The stone's shadow on the tray, appended for positional postcard decoding.
+    /// Old JSON scenes retain the unshadowed tray.
+    #[serde(default)]
+    pub stone_shadow: bool,
+    /// The tray's head-on reflectance `R0`, `0.0..=1.0`: the surface under the stone
+    /// becomes glossy with a Schlick reflectance rising to 1 at grazing angles; `0.0` is the
+    /// matte tray. Appended last for positional postcard decoding (four bytes, always written
+    /// on the wire); old JSON scenes retain the matte tray.
+    #[serde(default)]
+    pub tray_reflection: f32,
+    /// The turn of the HDR panorama: the map's own yaw in radians and whether it also turns
+    /// with the camera, see `HdrOrientation::rotation_for` (the worker gives the lookups the
+    /// rotation for this scene's own [`Self::yaw`]). Ignored unless [`Self::environment`] is an
+    /// HDR map. Appended last for positional postcard decoding (five bytes, always written on the
+    /// wire); old JSON scenes and unturned ones, which leave the key out, keep the map as decoded.
+    /// It is deliberately not part of [`HdrEnvironment`], which names the map asset alone.
+    #[serde(default)]
+    pub hdr_orientation: HdrOrientation,
+    /// The stone estimator every engine of this frame runs, the viewer's choice: a worker
+    /// traces with it, never with its own process default, so a frame split between the viewer
+    /// and workers runs one estimator. Appended last for positional postcard decoding (one
+    /// varint byte: 0 `Branching`, 1 `ExitCollection`; variant order is wire-load-bearing, append
+    /// only). `#[serde(default)]`: a JSON scene or job written before the field reads as
+    /// Branching, which is what it was rendered with.
+    #[serde(default)]
+    pub estimator: pleochroma::optics::raytracer::Estimator,
 }
 
 /// The default head-shadow radius (`16.0` degrees), the serde default of
@@ -178,9 +207,24 @@ impl SceneState {
             SceneEnvironment::Hdr(hdr) => Some(hdr),
         }
     }
+
+    /// Whether this scene is lit by a studio light with a backdrop: not an HDR panorama, the
+    /// backdrop above zero, and a lighting preset that is neither the Aset lamp nor a UV lamp.
+    ///
+    /// This is the scope of the Stone Shadow (`stone_shadow`) and of the Tray Reflection
+    /// (`tray_reflection`): both need paper under the stone to cast onto or to reflect, lit by
+    /// the analytic rig, so every other lighting is refused for a scene that asks for either.
+    #[must_use]
+    pub fn lit_by_studio_backdrop(&self) -> bool {
+        let unlit = self.hdr().is_some()
+            || self.backdrop <= 0.0
+            || self.lighting_preset == LightingPreset::Aset
+            || self.lighting_preset.is_uv_lamp();
+        !unlit
+    }
 }
 
-/// A scene's environment (v14). Variant order is wire-load-bearing; append only.
+/// A scene's environment. Variant order is wire-load-bearing; append only.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum SceneEnvironment {
     /// The analytic studio rig: [`SceneState::lighting_preset`] at
@@ -189,19 +233,23 @@ pub enum SceneEnvironment {
     #[default]
     Studio,
     /// An equirectangular HDR panorama, lit exactly as the viewer lights it
-    /// (`pleochroma::optics::raytracer::EnvironmentSource::HdrMap`): the lighting preset,
-    /// light angles and backdrop do not apply.
+    /// (`pleochroma::optics::raytracer::EnvironmentSource::HdrMap` at
+    /// [`SceneState::exposure`]): the lighting preset, light angles and backdrop do not apply.
     Hdr(HdrEnvironment),
 }
 
 /// An HDR panorama named by content, never by path: a worker that lacks the bytes asks
 /// for them (`StreamEvent::NeedAsset`, see `crate::messages::asset`).
 ///
-/// Carries no rotation or intensity: the renderer's `EnvironmentSource::HdrMap` applies
-/// neither (the map is used as decoded, in its own orientation, and the scene's
-/// [`SceneState::exposure`] is the only exposure). What the worker must reproduce bit for
-/// bit is the decoded map itself, which `pleochroma::renderer::env_map::
-/// environment_from_hdr_bytes` builds identically on every node from the same bytes.
+/// Carries no rotation or intensity of its own: the map is the asset as decoded, in its own
+/// orientation (the scene turns it with [`SceneState::hdr_orientation`]), and the scene's
+/// [`SceneState::exposure`] (unmetered) is the only exposure.
+/// The renderer applies it where the map's radiance is looked up
+/// (`EnvironmentSource::HdrMap::exposure`), so the raw sums and the final
+/// pictures a worker sends carry it alike and the viewer never applies it again. What the
+/// worker must reproduce bit for bit is the decoded map itself, which
+/// `pleochroma::renderer::env_map::environment_from_hdr_bytes` builds identically on every
+/// node from the same bytes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct HdrEnvironment {
     /// SHA-256 of the exact `.hdr` file bytes (`crate::messages::content_hash`).

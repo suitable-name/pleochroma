@@ -1,4 +1,4 @@
-//! Zone geometry for the colour fit (plan 2026-10-09, section 7.3; lane G1). No user interface: the window code calls these functions.
+//! Zone geometry for the colour fit; the window code calls these functions.
 //!
 //! The pieces, all pure and deterministic (fixed iteration caps, no randomness, no hashed
 //! collections in results):
@@ -16,7 +16,7 @@
 //!   residual or of the transmittance images (k-means in Lab, smoothing, back-projection through
 //!   the `locate` trace, primitive fits). Never applied automatically.
 //! * [`refine`]: [`refine_zone_geometry`], a Gauss-Newton refinement of the boundary offsets and
-//!   radii against the photos through the forward tracer and the solver, at most 3 iterations.
+//!   radii against the photos through the forward tracer and the solver, 3 iterations by default.
 //!
 //! # Frames
 //!

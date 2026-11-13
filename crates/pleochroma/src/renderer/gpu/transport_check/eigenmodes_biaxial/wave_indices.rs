@@ -29,37 +29,37 @@ pub struct BiaxialWaveIndicesCase {
     a_axis_and_flag: [f32; 4],
 }
 
-/// Measured: max genuine ULP = 0 (raw ULP <= 29) once `biaxial_test_directions`'s
-/// near-optic-axis filter excludes directions where this material's own two modes are
-/// within 10% of each other -- see that function's doc comment for why comparing an
-/// ill-posed eigenmode assignment near a true optic axis is not a meaningful ULP
-/// check. The budget stays modest (not 0) purely as headroom, matching this file's
-/// convention elsewhere.
+/// Budget and absolute floor of the check.
+///
+/// The indices come from Fresnel's quadratic, whose discriminant `B^2 - 4C` cancels next to
+/// an optic axis. There the CPU and WGSL twins drift apart even when their algebra matches,
+/// because of the normalisation (`v / sqrt(l2)` against a reciprocal multiply), fused `dot`,
+/// and GPU `sqrt` and division rounding. The direction filter
+/// ([`biaxial_test_directions_index_stable`]) keeps the worst directions out. The 2e-5 floor
+/// (168 ULP at `n = 1.65`) covers the rest and stays far below the index error of a wrong
+/// axis or coefficient (the synthetic indicatrix's principal indices differ by 0.05 and 0.1).
 const BIAXIAL_WAVE_INDICES_ULP_BUDGET: u32 = 64;
-const BIAXIAL_WAVE_INDICES_ABS_FLOOR: f32 = 1e-5;
+const BIAXIAL_WAVE_INDICES_ABS_FLOOR: f32 = 2e-5;
 
 fn build_biaxial_wave_indices_cases() -> Vec<BiaxialWaveIndicesCase> {
     let mut cases = Vec::new();
     for (_, n_alpha, n_beta, n_gamma, gamma_axis) in biaxial_test_indicatrices() {
-        for wave_normal in
-            biaxial_test_directions_index_stable(n_alpha, n_beta, n_gamma, gamma_axis)
-        {
-            cases.push(BiaxialWaveIndicesCase {
-                n_alpha,
-                n_beta,
-                n_gamma,
-                _pad0: 0.0,
-                gamma_axis: gamma_axis.to_array(),
-                _pad1: 0.0,
-                wave_normal: wave_normal.to_array(),
-                _pad2: 0.0,
-                a_axis_and_flag: [0.0; 4],
-            });
-            // The same indicatrix with its alpha direction turned about gamma (the full
-            // crystal frame, `GemMaterial::alpha_axis`): the GPU `biaxial_axes` with the
-            // flag set against `BiaxialIndicatrix::from_frame`.
-            for turn_deg in [90.0_f32, 37.0] {
-                let alpha = alpha_axis_from_turn(gamma_axis, turn_deg);
+        // The gamma-only completion (flag 0), then the same indicatrix with its alpha
+        // direction turned about gamma (the full crystal frame, `GemMaterial::alpha_axis`):
+        // the GPU `biaxial_axes` with the flag set, against
+        // `BiaxialIndicatrix::from_oriented_frame`. Each frame filters the directions on its
+        // own indicatrix, because turning alpha moves the optic axes. A direction clear of
+        // them in the completion can sit next to one in a turned frame.
+        let frames = [
+            None,
+            Some(alpha_axis_from_turn(gamma_axis, 90.0)),
+            Some(alpha_axis_from_turn(gamma_axis, 37.0)),
+        ];
+        for alpha_axis in frames {
+            let a_axis_and_flag = alpha_axis.map_or([0.0; 4], |a| [a.x, a.y, a.z, 1.0]);
+            for wave_normal in biaxial_test_directions_index_stable(
+                n_alpha, n_beta, n_gamma, gamma_axis, alpha_axis,
+            ) {
                 cases.push(BiaxialWaveIndicesCase {
                     n_alpha,
                     n_beta,
@@ -69,7 +69,7 @@ fn build_biaxial_wave_indices_cases() -> Vec<BiaxialWaveIndicesCase> {
                     _pad1: 0.0,
                     wave_normal: wave_normal.to_array(),
                     _pad2: 0.0,
-                    a_axis_and_flag: [alpha.x, alpha.y, alpha.z, 1.0],
+                    a_axis_and_flag,
                 });
             }
         }
@@ -130,8 +130,8 @@ pub fn run_biaxial_wave_indices(
         BIAXIAL_WAVE_INDICES_ABS_FLOOR,
     );
     for (idx, case) in cases.iter().enumerate() {
-        // Expected values come from the CPU twin, never hard-coded: the framed
-        // constructor when the case carries a second direction, else the completion.
+        // Expected values come from the CPU twin, never hard-coded: the framed constructor
+        // when the flag is set, else the gamma-only completion.
         let framed = case.a_axis_and_flag[3] > 0.5;
         let alpha_axis = framed.then(|| {
             Vec3::new(

@@ -37,9 +37,10 @@
 //!   [`ExportedZone`](crate::optics::zoning::ExportedZone).
 //! * [`GpuZoneAbsorption`] (400 bytes) x [`MAX_ZONES`]: the band sets of zone `i + 1`.
 //!
-//! The BASE zone's bands are not in the table: [`GpuGemMaterial::encode`](super::GpuGemMaterial::encode)
-//! writes the zoning's base tensor into the material's ordinary `o_ray_bands`/`e_ray_bands`/
-//! `beta_ray_bands`, so the shader's per-ray hoisted absorption arrays are the base zone's.
+//! The BASE zone's bands are not in the table: the zoning's base tensor is written into the
+//! material's ordinary `o_ray_bands`/`e_ray_bands`/`beta_ray_bands` by
+//! [`GpuGemMaterial::encode`](super::GpuGemMaterial::encode), so the shader's per-ray hoisted
+//! absorption arrays are the base zone's.
 
 use bytemuck::{Pod, Zeroable};
 use core::mem::offset_of;
@@ -51,18 +52,13 @@ use crate::optics::{
     zoning::{MAX_ZONES, SOFT_SUBDIV, ZoneKernelF32, ZoneShape, ZonedAbsorption},
 };
 
-/// Gauss-Legendre pieces per boundary band on the GPU (the `SOFT_SUBDIV` of the CPU
-/// kernel, `k32`).
+/// Gauss-Legendre pieces per boundary band on the GPU (the `SOFT_SUBDIV` of the CPU kernel).
 ///
-/// It rides in the table (`GpuZoneHeader::soft_subdiv`), so lowering it is a
-/// one-constant change on the host with no shader edit.
-///
-/// Kept at the CPU value: the soft kernel costs up to roughly `38 * 16 * 8 * 4` depth
-/// evaluations per segment in the worst case, which is heavy, but a lower value changes the
-/// integration error and nothing here could measure that against the CPU. To trade accuracy
-/// for speed, lower it (8, then 4) and re-run the soft-boundary GPU-vs-CPU comparisons
-/// (`estimator_check::run_image_comparison_zoned` with `ZonedImageCase::SoftBicolour` and
-/// `SoftWatermelon`, reported by the GPU harness group `zoned_absorption`) after each step.
+/// It rides in the table (`GpuZoneHeader::soft_subdiv`), so the host can change it without a
+/// shader edit. It stays at the CPU value so both kernels integrate the boundary alike. To
+/// trade accuracy for speed, lower it (8, then 4) and re-run the soft-boundary GPU-vs-CPU
+/// comparisons (`estimator_check::run_image_comparison_zoned` with
+/// `ZonedImageCase::SoftBicolour` and `SoftWatermelon`) after each step.
 #[expect(
     clippy::cast_possible_truncation,
     reason = "const context cannot use try_from; SOFT_SUBDIV is a small subdivision count (16)"
@@ -319,10 +315,9 @@ pub fn gpu_zoning_decline(material: &GemMaterial) -> Option<GpuZoneDecline> {
 
 /// Why `material` cannot be rendered on the GPU, or `None` when it can.
 ///
-/// Its own band sets
-/// must fit [`MAX_ABSORPTION_BANDS`] (the material encoder truncates a longer set, so the GPU
-/// would render fewer bands than the CPU), then [`gpu_zoning_decline`] for the zones.
-/// `GemMaterial::gpu_supported` is `true` exactly when this is `None`.
+/// Its own band sets must fit [`MAX_ABSORPTION_BANDS`] (the material encoder truncates a longer
+/// set, so the GPU would render fewer bands than the CPU), then [`gpu_zoning_decline`] runs for
+/// the zones. `GemMaterial::gpu_supported` is `true` exactly when this is `None`.
 #[must_use]
 pub fn gpu_material_decline(material: &GemMaterial) -> Option<GpuZoneDecline> {
     if !tensor_fits(&material.absorption) {

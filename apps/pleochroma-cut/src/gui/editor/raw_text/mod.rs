@@ -11,18 +11,18 @@
 //! # How the pieces fit
 //!
 //! - **Opening** clones the design, notes the edit generation and design epoch it was
-//!   cloned at and the custom materials, gets its masts from the cached or a background
-//!   solve (`native_io::resolve_solved_then`, never on the UI thread's own stack), and
-//!   writes the text exactly as Export .asc does. A design that does not solve is told so
-//!   in the dialog instead of showing text with made-up depths.
+//!   cloned at and the custom materials, gets its masts from the cache or a background
+//!   solve (`native_io::resolve_solved_then`, never the UI thread), and writes the text as
+//!   Export .asc does. A design that does not solve is reported in the dialog instead of
+//!   showing text with made-up depths.
 //! - **Checking** runs a moment after the last keystroke (a single-shot timer, restarted by
 //!   every edit): `plan_apply` of the text against the design, shown as one sentence with
 //!   the line of a problem, and the lists of what Apply would change and lose.
 //! - **Applying** checks again with the latest text (the debounce may not have fired), and
 //!   refuses when the design moved since the text was written. The change goes through the
-//!   session as one `Edit::ReplaceSchedule`, so one Undo takes it back; the refresh is the
-//!   one Undo and Redo end in, and the selection is cleared because a whole replacement
-//!   leaves the old tier numbers meaningless.
+//!   session as one `Edit::ReplaceSchedule`, so one Undo takes it back. Views refresh as
+//!   Undo does, and the selection is cleared, because a whole replacement leaves the old
+//!   tier numbers meaningless.
 //! - **Comparing** reads the other text off the UI thread where it needs a file, solves it
 //!   like the design's own, and diffs it against the text in the box. Answers that arrive
 //!   after the dialog closed, the text was written again or another comparison was asked
@@ -510,8 +510,8 @@ fn read_design_file(path: &Path) -> Result<Design, String> {
         .map_err(|error| format!("The file cannot be opened as a design. {error}"))
 }
 
-/// The saved `.psdd` file, or for a design that came from a bare `.asc` the text of
-/// that file.
+/// The saved design file the design was opened from, or for a bare `.asc` design its
+/// original text.
 fn compare_with_saved_file(ui: &MainWindow, deps: &Deps, token: u64) {
     let model = ui.global::<RawTextModel>();
     if let Some(path) = native_io::current_design_file() {

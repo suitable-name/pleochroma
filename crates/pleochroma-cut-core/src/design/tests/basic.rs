@@ -8,11 +8,8 @@ use crate::{
 };
 use pleochroma::geometry::meet_solver::{Block, MeetConstraint};
 
-/// A fresh design (preform, no tiers) must already be a closed, positive-
-/// volume solid -- the whole point of modeling the preform as a real plane
-/// set instead of leaving the viewport empty until the first facet exists.
-/// With no tiers at all, no block is even present, so there is nothing for
-/// `solve` to complain about missing an anchor for.
+/// A fresh design (preform, no tiers) is already a closed, positive-volume solid.
+/// With no tiers there is no block, so `solve` has no anchor to miss.
 #[test]
 fn fresh_design_alone_is_closed() {
     let design = Design::fresh(PreformSpec::cylinder(96, 1.0, 1.0, 0.8), 96, 8, 1.54);
@@ -34,10 +31,8 @@ fn fresh_design_alone_is_closed() {
     assert_eq!(design.planes().unwrap(), design.preform.planes());
 }
 
-/// Adding a single tier with an explicit scale-reference constraint (a
-/// real authored dimension, not a meet reference) extends -- never
-/// replaces -- the preform's own planes, and the resulting arrangement
-/// still closes.
+/// A scale-referenced tier (an authored dimension, not a meet) extends the
+/// preform's planes and never replaces them.
 #[test]
 fn schedule_planes_extend_the_preform() {
     let mut design = Design::fresh(PreformSpec::block(1.0, 1.0, 2.0), 96, 4, 1.62);
@@ -63,18 +58,15 @@ fn schedule_planes_extend_the_preform() {
     assert!(design.is_closed());
 }
 
-/// `PreformShape` is re-exported for callers building a `PreformSpec`
-/// directly (exercised here just to confirm the re-export compiles and
-/// matches).
+/// The `PreformShape` set on a `PreformSpec` is kept on the design.
 #[test]
 fn preform_shape_round_trips_through_design() {
     let design = Design::fresh(PreformSpec::block(0.5, 1.0, 0.4), 48, 2, 1.5);
     assert_eq!(design.preform.shape, PreformShape::Block);
 }
 
-/// A schedule with a meet-derived tier and no stated scale reference at
-/// all must fail closed (a named `MissingAnchor`), not silently fall back
-/// to the solver's own internal default scale.
+/// A meet-derived tier with no scale reference fails closed with a named
+/// `MissingAnchor`, instead of falling back to a default scale.
 #[test]
 fn solve_reports_the_missing_anchor_block_rather_than_a_silent_default() {
     let mut design = Design::fresh(PreformSpec::block(1.0, 1.0, 2.0), 96, 4, 1.62);

@@ -114,10 +114,11 @@ const ON_SOLID_TOLERANCE: f32 = 1e-4;
 /// the edge to be offered.
 const MIN_EDGE_LEFT: f32 = 1e-3;
 
-/// The part of `target` that still exists after the cuts `cuts` (`n . p <= m` in world
-/// units): a corner only when it is inside every cut's half-space, an edge as the stretch
-/// that is. `None` when nothing of the target is left, for example a corner that a corner
-/// cut removed. With no cuts this is [`BoxTarget::points`].
+/// The part of `target` that still exists after the cuts `cuts` (`n . p <= m`, world units).
+///
+/// A corner survives only inside every cut's half-space, an edge as the stretch that does.
+/// `None` when nothing of the target is left, for example a corner that a corner cut removed.
+/// With no cuts this is [`BoxTarget::points`].
 #[must_use]
 pub(super) fn surviving_points(
     target: BoxTarget,
@@ -163,10 +164,11 @@ fn clip_segment(a: Vec3, b: Vec3, cuts: &[(Vec3, f32)]) -> Option<(Vec3, Vec3)> 
         .then(|| (a + direction * enter, a + direction * leave))
 }
 
-/// The edge or corner of the box of half size `half` nearest to `cursor`, within
-/// `radius` pixels, seen by `camera` in a `view` sized image. A corner beats an edge
-/// when both are in reach. Targets the cuts `cuts` have removed are not offered, and an
-/// edge that is cut short is measured along what is left of it.
+/// The edge or corner of the box of half size `half` nearest to `cursor`, within `radius`
+/// pixels, seen by `camera` in a `view` sized image.
+///
+/// A corner beats an edge when both are in reach. Targets the cuts `cuts` have removed are
+/// not offered, and an edge that is cut short is measured along what is left of it.
 #[must_use]
 pub(super) fn pick_box(
     camera: &Camera,
@@ -314,8 +316,8 @@ mod tests {
         );
     }
 
-    /// The cut plane that removes the corner `faces` names, 0.2 world units deep along the
-    /// corner's diagonal: `n` is the unit diagonal, `m = n . corner - 0.2`.
+    /// The cut plane that removes corner `index`, 0.2 world units deep along the corner's
+    /// diagonal: `n` is the unit diagonal, `m = n . corner - 0.2`.
     fn corner_cut(index: usize) -> (Vec3, f32) {
         let corner = corner_point(HALF, &CORNERS[index]);
         let normal = corner.signum().normalize();
@@ -345,15 +347,14 @@ mod tests {
 
     #[test]
     fn an_edge_is_cut_short_or_removed_by_the_cuts() {
-        // Top-Front runs from (-0.6, 0.5, 0.4) to (0.6, 0.5, 0.4). The plane through the
-        // Top-Front-Right corner's diagonal at n . p = 1.5 / sqrt(3) - 0.2 crosses it where
-        // -0.6 + 1.2 t = 0.2536 (t = 0.7113: n . a = 0.1732, n . b = 0.8660, and
-        // 0.1732 + 0.6928 t = 0.6660).
+        // Top-Front runs from (-0.6, 0.5, 0.4) to (0.6, 0.5, 0.4). The cut is corner 1's
+        // diagonal plane (n . p = 0.666); along the edge n . p runs from 0.173 to 0.866, so
+        // the cut stops the edge at x = 0.2536.
         let cut = corner_cut(1);
         let points = surviving_points(BoxTarget::Edge(0), HALF, &[cut]).expect("most is left");
         assert!((points[0].x + 0.6).abs() < 1e-5, "{points:?}");
         assert!((points[1].x - 0.2536).abs() < 1e-3, "{points:?}");
-        // A plane y <= 0.3 takes the whole top face's edges away.
+        // A plane y <= 0.3 takes the Top-Front edge (at y = 0.5) away.
         let flat = (Vec3::Y, 0.3);
         assert!(surviving_points(BoxTarget::Edge(0), HALF, &[flat]).is_none());
         // And a plane that touches neither end leaves the edge whole.

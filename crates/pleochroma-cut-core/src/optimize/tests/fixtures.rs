@@ -10,15 +10,10 @@ use pleochroma::geometry::meet_solver::{
     Block, MeetConstraint, classify_blocks, meet_tier_inputs_from_asc,
 };
 
-/// "RBC-445" (PC 13.156), 12 tiers, real prose `G` instructions ("G TCP"/"G PCP")
-/// and named references that partially resolve -- byte-identical to the fixture
-/// embedded in `design.rs`'s own `real_fixtures` test module, duplicated here
-/// (rather than imported) because that module is a private `#[cfg(test)]` fixture
-/// of a different module, not a reusable export. A real, small, genuinely
-/// meet-derived design -- see this module's own doc comment's "Cost first" section
-/// for why a SMALL meet-derived fixture (not the 103-tier CrackOtto-Step, which is
-/// reserved for the cost probe) is the right size for exercising the search itself
-/// quickly and repeatedly.
+/// "RBC-445" (PC 13.156), 12 tiers, with real prose `G` instructions ("G TCP"/"G PCP")
+/// and named references that partially resolve. Copied from the `real_fixtures` module in
+/// `design/tests/fixtures.rs`, which is private to that module. Small enough for repeated
+/// search tests; the 103-tier CrackOtto-Step file is reserved for the cost probe.
 pub(super) const RBC_445: &str = "GemCad 5.0\ng 96 0.0\ny 3 y\nI 1.54\n\
      H PC 13.156  RBC-445\n\
      H Richard B Conley, Facets, Oct 2013 p10\n\
@@ -35,15 +30,12 @@ pub(super) const RBC_445: &str = "GemCad 5.0\ng 96 0.0\ny 3 y\nI 1.54\n\
      a 20.940747 0.56272062 14 n D 18 46 50 78 82\n\
      a 0.000000 0.40674031 96 n E\n";
 
-/// Builds a real [`Design`] with GENUINE meet-derived structure from a raw `.asc`
-/// text: every tier keeps its file's own real [`MeetConstraint`] (`MeetExisting`/
-/// `MeetNamed`), except that each crown/pavilion/girdle [`Block`] present gets
-/// EXACTLY ONE bootstrapped [`MeetConstraint::ScaleReference`] (that block's own
-/// first tier's real recorded mast, when the file stated no explicit anchor of its
-/// own) -- otherwise [`Design::solve`] could never produce a mast for that block at
-/// all (see `design.rs`'s own module doc comment on scale anchoring). Same
-/// technique as `design.rs`'s own private `design_with_real_meet_structure` test
-/// helper, reimplemented here since that one is private to a different module.
+/// Builds a real [`Design`] with meet-derived structure from a raw `.asc` text. Every tier
+/// keeps its file's own [`MeetConstraint`] (`MeetExisting`/`MeetNamed`), except that each
+/// crown, pavilion and girdle [`Block`] present gets exactly one bootstrapped
+/// [`MeetConstraint::ScaleReference`], using that block's first tier's recorded mast when
+/// the file gives no anchor. Without one, [`Design::solve`] could not produce a mast for
+/// the block.
 pub(super) fn design_with_real_meet_structure(text: &str) -> Design {
     let schedule = pleochroma_formats::asc::parse_asc(text).expect("fixture must parse");
     let mut inputs = meet_tier_inputs_from_asc(&schedule);

@@ -1,6 +1,5 @@
-//! Small building blocks the migrations in [`super`] share: a SQL-identifier
-//! safety check, the generic TEXT-to-numeric column retype sequence, and the
-//! one-off `facets_count` splitter, and the `PRAGMA table_info` column probes.
+//! Building blocks the migrations in [`super`] share: the SQL-identifier check, the
+//! TEXT-to-numeric retype, the `facets_count` splitter and the `PRAGMA table_info` probes.
 
 use super::super::Database;
 use crate::model::facets::parse_facets_count;
@@ -9,21 +8,14 @@ use rusqlite::{Connection, Transaction, params};
 
 /// Validates `name` as safe to interpolate directly into DDL/`PRAGMA` text.
 ///
-/// SQLite's prepared-statement placeholders (`?1`, `params![...]`) can only
-/// bind *values*, never identifiers, so every table/column name this module
-/// formats into `ALTER TABLE`/`CREATE INDEX`/`PRAGMA table_info` text has to
-/// be interpolated as a string -- the same mechanism a real SQL-injection
-/// bug would use. Every identifier this module currently formats is a
-/// hard-coded literal (or built from one, like
-/// [`retype_text_column_to_numeric`]'s `{column}__migrated`), so nothing can
-/// actually be injected today; this guard exists so a future refactor that
-/// makes any of them dynamic (a caller-supplied column name, say) cannot
-/// silently reopen that door.
+/// Placeholders (`?1`, `params![...]`) bind values only, never identifiers, so every table or
+/// column name this module formats into DDL must be interpolated as a string. That is the
+/// mechanism a SQL-injection bug would use. Every identifier formatted today is a hard-coded
+/// literal (or built from one, like [`retype_text_column_to_numeric`]'s `{column}__migrated`).
+/// This check keeps a future dynamic name from reopening that door.
 ///
-/// Accepts only `^[A-Za-z_][A-Za-z0-9_]*$`: an ASCII letter or underscore,
-/// then any run of ASCII letters/digits/underscores. Checked with a plain
-/// char loop rather than a `regex` crate dependency -- the pattern is simple
-/// enough not to need one.
+/// Accepts only `^[A-Za-z_][A-Za-z0-9_]*$`, checked with a char loop rather than a regex
+/// dependency.
 ///
 /// # Errors
 ///

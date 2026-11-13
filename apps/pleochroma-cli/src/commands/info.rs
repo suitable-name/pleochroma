@@ -105,7 +105,7 @@ const PREFORM_DECIMALS: usize = 4;
 
 /// The preform line: its shape, size and the offset of its vertical span. The half width, depth
 /// and offset are in the mast units every plane offset of a design uses, not millimetres; the
-/// length/width ratio is a plain ratio and is named after them, outside the unit note.
+/// length/width ratio is unitless and printed outside that note.
 fn preform_text(design: &Design) -> String {
     let preform = &design.preform;
     let shape = match &preform.shape {

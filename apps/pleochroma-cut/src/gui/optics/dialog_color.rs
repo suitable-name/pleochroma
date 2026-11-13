@@ -1,6 +1,6 @@
 //! The body colour the material editor dialog is holding, beside [`super::physics_state`].
 //!
-//! The dialog's preset row is a legacy three-band triple; the path-aware L*C*h editor
+//! The dialog's preset row is a three-value RGB triple; the path-aware L*C*h editor
 //! (`pleochroma_editor::lch_color`) solves a seven-band colour next to the nearest triple. This
 //! module remembers the band rows of that solve until "Save" writes them to the vault row
 //! (`CustomMaterialRow::absorption_bands_json`): there is one dialog, so one slot. It is filled
@@ -17,9 +17,8 @@ use pleochroma_cut_core::{MaterialSelection, material::RayBandRows};
 pub struct DialogColor {
     /// The seven-band rows `[centre_nm, width_nm, amplitude_per_mm]`, `None` for none.
     pub bands: Option<Vec<[f32; 3]>>,
-    /// The legacy triple the preset row or the solve produced, `None` for a new material. With
-    /// [`Self::rays`] it is the nearest legacy color of the face-up color, what an older build
-    /// shows.
+    /// The three-value triple of the preset row or the solve, `None` for a new material. With
+    /// [`Self::rays`] it is the nearest triple to the face-up color, which an older build shows.
     pub triple: Option<[f32; 3]>,
     /// The per-direction rows of a material whose color depends on the direction (one row set per
     /// ray, see [`RayBandRows`]), `None` for the single color of [`Self::bands`]. Only one of the

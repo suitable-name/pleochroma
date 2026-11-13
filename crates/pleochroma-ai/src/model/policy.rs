@@ -11,9 +11,9 @@
 //!   of the step limit.
 //! - `log_std` is **state-independent**: one learnable value per block (crown, pavilion, girdle or
 //!   other, chosen by the tier token's `block_type`), squashed smoothly into
-//!   `[LOG_STD_MIN, LOG_STD_MAX]` by [`bounded_log_std`]. The old per-tier head with a hard `clamp`
-//!   had a dead gradient outside its window and froze both runs of 2026-10-12. The sampler and the
-//!   trainer use `std = exp(log_std)`; the clamp in [`GaussianPolicy`] is a harmless safety net.
+//!   `[LOG_STD_MIN, LOG_STD_MAX]` by [`bounded_log_std`]. A hard `clamp` would give a zero
+//!   gradient outside its window. The sampler and the trainer use `std = exp(log_std)`;
+//!   [`GaussianPolicy`] still clamps as a safety net.
 
 use super::rng::Prng;
 use crate::env::{ContinuousTierAction, MEAN_BOUND, N_COMPONENTS, SLOPE_NORM_FLOOR};
@@ -31,22 +31,23 @@ pub const HALF_LN_2PI: f32 = 0.918_938_5;
 pub const HALF_LN_2PI_E: f32 = 1.418_938_5;
 
 /// Index of the block feature (`block_type`: +1 crown, -1 pavilion, 0 otherwise) in a tier token;
-/// the first ten entries keep their order across observation layouts.
+/// must match the order of `TierFeature::to_feature_vector`.
 pub const BLOCK_TYPE_INDEX: usize = 3;
 /// Number of learnable log-std values: crown, pavilion, girdle or other.
 pub const LOG_STD_SLOTS: usize = 3;
 
-/// `LOG_STD_MIN + (LOG_STD_MAX - LOG_STD_MIN) * sigmoid(raw)`: smooth, bounded, never a dead gradient.
+/// `LOG_STD_MIN + (LOG_STD_MAX - LOG_STD_MIN) * sigmoid(raw)`: smooth and bounded.
 ///
-/// At `raw = 0` the result is the midpoint of the range (-1.25); the gradient peaks there (0.875 per
-/// unit of `raw`) and decays only exponentially, where the old `clamp` cut it to exactly zero.
+/// At `raw = 0` the result is the midpoint of the range (-1.25). The gradient is largest there
+/// (0.875 per unit of `raw`) and decays exponentially, never reaching exactly zero as a
+/// `clamp` would.
 #[must_use]
 pub fn bounded_log_std(raw: f32) -> f32 {
     (LOG_STD_MAX - LOG_STD_MIN).mul_add(1.0 / (1.0 + (-raw).exp()), LOG_STD_MIN)
 }
 
-/// The raw value whose [`bounded_log_std`] is [`LOG_STD_INIT`] (the inverse sigmoid, computed, not
-/// hard-coded: `ln(p / (1 - p))` with `p = (LOG_STD_INIT - LOG_STD_MIN) / (LOG_STD_MAX - LOG_STD_MIN)`).
+/// Raw value whose [`bounded_log_std`] equals [`LOG_STD_INIT`]: the inverse sigmoid, computed from
+/// the range rather than hard-coded.
 #[must_use]
 pub fn log_std_raw_init() -> f32 {
     let p = (LOG_STD_INIT - LOG_STD_MIN) / (LOG_STD_MAX - LOG_STD_MIN);
@@ -71,12 +72,11 @@ pub const fn block_slot(block_type: f32) -> usize {
 /// Per tier `k`, the objective's slope is `g_k = sum_c fractions[c] * sensitivities[k][c]`
 /// (accumulated for `c = 0..N_COMPONENTS` in order with `mul_add`, starting at `0.0`); with
 /// `g_max = max_k |g_k|` over mobile tiers, the mean is
-/// `mean_k = -MEAN_BOUND * (g_k / max(g_max, SLOPE_NORM_FLOOR))`. This preserves exact scale-free
-/// direction above the documented score-points-per-degree floor and smoothly reduces the action
-/// magnitude below it, bounding the composition Jacobian near flat scores. All-zero slopes yield zero.
+/// `mean_k = -MEAN_BOUND * (g_k / max(g_max, SLOPE_NORM_FLOOR))`. Above the floor the direction is
+/// scale-free. Below it the magnitude shrinks smoothly, which bounds the Jacobian near flat scores.
+/// All-zero slopes yield zero.
 ///
-/// The Burn twin and the finite-difference oracle (`direction_from_slopes`) use the same operation
-/// order; a test compares them.
+/// The Burn twin uses the same operation order as this function.
 #[must_use]
 pub fn compose_mean(
     sensitivities: &[[f32; N_COMPONENTS]],
@@ -85,9 +85,10 @@ pub fn compose_mean(
     compose_mean_masked(sensitivities, fractions, &vec![true; sensitivities.len()])
 }
 
-/// Compose sensitivity rows while excluding coordinates the environment cannot move.
-/// Immobile tiers remain part of attention, but cannot set the normalization scale or receive an
-/// action. A short mask treats missing entries as immobile.
+/// Compose sensitivity rows, excluding tiers the environment cannot move.
+///
+/// Immobile tiers still take part in attention, but cannot set the normalization scale or receive
+/// an action. A short mask treats missing entries as immobile.
 #[must_use]
 pub fn compose_mean_masked(
     sensitivities: &[[f32; N_COMPONENTS]],
@@ -135,8 +136,9 @@ pub struct GaussianPolicy {
     /// Action mean vector in pre-squash units: sensitivity direction plus learned residual.
     /// [`Self::squash`] applies the `tanh` that bounds the actual step.
     pub mean: Vec<f32>,
-    /// Action log standard deviation vector (within `[LOG_STD_MIN, LOG_STD_MAX]` when produced by the
-    /// network: one [`bounded_log_std`] value per tier, shared by all tiers of a block).
+    /// Action log standard deviation vector. From the network it lies in
+    /// `[LOG_STD_MIN, LOG_STD_MAX]`
+    /// (one [`bounded_log_std`] value per tier, shared by all tiers of a block).
     pub log_std: Vec<f32>,
 }
 
@@ -147,8 +149,9 @@ impl GaussianPolicy {
         self.log_std[i].clamp(LOG_STD_MIN, LOG_STD_MAX).exp()
     }
 
-    /// Draw one raw (pre-`tanh`) action per tier from `N(mean, std^2)` and return it together with its
-    /// summed log-probability under this policy.
+    /// Draw one raw (pre-`tanh`) action per tier from `N(mean, std^2)`.
+    ///
+    /// Returns the draw with its summed log-probability under this policy.
     #[allow(
         clippy::suboptimal_flops,
         reason = "operation order mirrors the Burn model; the equivalence test depends on it"
@@ -159,10 +162,9 @@ impl GaussianPolicy {
 
     /// As [`Self::sample_raw`], but only the tiers with `free[i] == true` are sampled.
     ///
-    /// A tier the environment will not move (pinned or flat) takes its mean as the raw value, draws no
-    /// random number and contributes nothing to the returned log-probability, matching the masked
-    /// objective of the trainer. `free` must have one entry per tier (a shorter slice marks the missing
-    /// tiers as not free).
+    /// A tier the environment will not move (pinned or flat) takes its mean as the raw value, draws
+    /// no random number and adds nothing to the log-probability, matching the trainer's masked
+    /// objective. `free` should have one entry per tier; missing entries count as not free.
     pub fn sample_raw_masked(&self, rng: &mut Prng, free: &[bool]) -> (Vec<f32>, f32) {
         self.sample_raw_inner(rng, Some(free))
     }
@@ -215,10 +217,11 @@ impl GaussianPolicy {
     }
 
     /// Differential entropy of the Gaussian, **averaged** over the tiers with `free[i] == true`
-    /// (`0.0` when none is free); the twin of the masked per-tier entropy the Burn trainer maximises.
+    /// (`0.0` when none is free). The twin of the masked per-tier entropy the Burn trainer
+    /// maximises.
     ///
-    /// A mean rather than a sum, so a 25-tier design does not get 25 times the bonus of a one-tier
-    /// design and `entropy_coeff` means the same on every stone.
+    /// Averaged rather than summed, so `entropy_coeff` means the same on every stone regardless of
+    /// its tier count.
     #[must_use]
     pub fn entropy_masked(&self, free: &[bool]) -> f32 {
         let (sum, count) = self
@@ -405,7 +408,7 @@ mod tests {
 
     #[test]
     fn compose_mean_puts_the_steepest_tier_at_the_bound_and_scales_the_rest() {
-        // Windowing only: g = [1, 2, -4], g_max = 4.
+        // Only component 0 is weighted: g = [1, 2, -4], g_max = 4.
         let sens = [
             row4(1.0, 0.0, 0.0, 0.0),
             row4(2.0, 0.0, 0.0, 0.0),
@@ -422,11 +425,11 @@ mod tests {
     #[test]
     fn compose_mean_follows_the_objective_weights_without_new_weights() {
         let sens = [row4(1.0, 0.0, 0.0, -1.0), row4(-0.5, 0.0, 0.0, 1.0)];
-        // Windowing only: g = [1, -0.5].
+        // Only component 0 is weighted: g = [1, -0.5].
         let windowing = compose_mean(&sens, &weights4(1.0, 0.0, 0.0, 0.0));
         assert!((windowing[0] + MEAN_BOUND).abs() < 1e-5);
         assert!((windowing[1] - MEAN_BOUND / 2.0).abs() < 1e-5);
-        // Yield only: g = [-1, 1], the direction flips with the weights alone.
+        // Only component 3 is weighted: g = [-1, 1], so the direction flips with the weights alone.
         let yield_only = compose_mean(&sens, &weights4(0.0, 0.0, 0.0, 1.0));
         assert!((yield_only[0] - MEAN_BOUND).abs() < 1e-5);
         assert!((yield_only[1] + MEAN_BOUND).abs() < 1e-5);

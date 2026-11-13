@@ -1,10 +1,9 @@
 //! [`StoneRenderEffects`]: the per-design stone effects of the live and exported render.
 //!
 //! Inclusion haze (`sigma_s`), crystal-axis orientation, frosted girdle and facet-edge
-//! rounding used to be app-level settings, so opening another design rendered it with the
-//! previous design's values. They belong to the stone, so they live on the [`Design`]
-//! (`Design::render_effects`), travel in the native file's optional `[render_effects]`
-//! table, and change only through the undoable `Edit::SetRenderEffects`.
+//! rounding belong to the stone, so they live on the [`Design`] (`Design::render_effects`).
+//! They travel in the native file's optional `[render_effects]` table and change only
+//! through the undoable `Edit::SetRenderEffects`.
 //!
 //! # Compatibility
 //!
@@ -16,18 +15,17 @@
 
 use super::effects_spec::{EdgeAbrasionEffects, InclusionEffects, StructureEffects};
 
-/// Largest inclusion `sigma_s` the file may hold (the app slider reaches 2.0).
+/// Largest inclusion `sigma_s` the file may hold.
 pub const MAX_INCLUSION_SIGMA_S: f64 = 3.0;
 
-/// Largest facet-edge rounding radius, in model units (the furnace-verified ceiling).
+/// Largest facet-edge rounding radius, in model units, the file may hold.
 pub const MAX_EDGE_ROUNDING_RADIUS: f64 = 0.03;
 
 /// The per-design stone render effects. `Default` is "everything off".
 ///
-/// The last three fields (oriented inclusions, play-of-color and abraded edges) are the
-/// render-physics additions: each is off by default and written to the file only when set.
-/// The renderer's own specs come from [`Self::inclusion_spec`], [`Self::structure_spec`] and
-/// [`Self::edge_abrasion`].
+/// The last three fields (oriented inclusions, play-of-color and abraded edges) are each
+/// off by default and written to the file only when set. The renderer takes their specs
+/// from [`Self::inclusion_spec`], [`Self::structure_spec`] and [`Self::edge_abrasion`].
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct StoneRenderEffects {
     /// Inclusion / subsurface scattering `sigma_s`, per model unit. `0.0` is off.

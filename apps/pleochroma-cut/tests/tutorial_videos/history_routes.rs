@@ -547,7 +547,7 @@ pub(in crate::scripts) fn history_jump(
             }
             return Ok(());
         }
-        // Newer positions are at the top. Wheel over the list's safe left gutter, away from its bar.
+        // Newer positions are at the top; wheel over the list's left gutter, away from its bar.
         let delta = if target_position > history.get_current_position() {
             100.0
         } else {

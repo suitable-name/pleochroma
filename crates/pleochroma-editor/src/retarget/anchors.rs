@@ -5,20 +5,19 @@
 //! line, not about the edge where it meets the girdle: a steeper crown drops its girdle
 //! edge, a steeper pavilion lifts its own, and the girdle band can shrink to nothing.
 //!
-//! A cutter re-cutting a facet at a new angle does the opposite -- the facet turns about
-//! its girdle corners, and those corners stay where they are. [`anchored_candidate`] does the
-//! same in the model: it reads the pivot of every moving facet from the ORIGINAL solved
-//! stone (`pleochroma_cut_core::design::hinge`) and gives each `ScaleReference` tier the
-//! mast that keeps that pivot on its new plane. Tiers that meet other tiers
-//! (`MeetExisting`, `MeetNamed`) re-solve from those meets as usual, and the girdle's own
-//! masts never change.
+//! A cutter re-cutting a facet at a new angle does the opposite: the facet turns about its
+//! girdle corners, which stay where they are. [`anchored_candidate`] does the same in the
+//! model. It reads the pivot of every moving facet from the original solved stone
+//! (`pleochroma_cut_core::design::hinge`) and gives each `ScaleReference` tier the mast that
+//! keeps that pivot on its new plane. Tiers that meet other tiers (`MeetExisting`,
+//! `MeetNamed`) re-solve from those meets as usual, and the girdle's own masts never change.
 //!
 //! # Following the neighbour
 //!
 //! A main facet does not meet the girdle itself but the girdle-breaking facets between it
 //! and the girdle, and those turn too. So tiers are anchored nearest-the-girdle first, and a
 //! pivot that lies on the plane of an already re-anchored neighbour slides straight up or
-//! down onto that neighbour's NEW plane before the mast is computed. The two facets keep
+//! down onto that neighbour's new plane before the mast is computed. The two facets keep
 //! meeting along an edge at the same place on the stone's outline, instead of the main
 //! facet swinging through the girdle.
 //!
@@ -180,10 +179,10 @@ pub fn anchored_candidate_for(
 
 /// [`anchored_candidate_for`] against a stone whose girdle band was thickened.
 ///
-/// The band is thickened by [`StoneAnalysis::split_at_girdle`]: every hinge moved, so EVERY tier that has a hinge is
-/// re-anchored to it, not only the ones that change angle, and the table and culet masts move
-/// by the half-thickness their side was translated by (`flat_shift` is that magnitude, taken
-/// from the unsplit stone's flats).
+/// The band is thickened by [`StoneAnalysis::split_at_girdle`], which moves every hinge. So
+/// every tier with a hinge is re-anchored, not only the ones that change angle. The table
+/// and culet masts move by the half-thickness their side was translated by (`flat_shift`,
+/// taken from the unsplit stone's flats).
 ///
 /// # Errors
 ///
@@ -667,12 +666,9 @@ mod tests {
 
     #[test]
     fn a_retarget_batch_reads_as_a_retarget_in_the_undo_list() {
-        // This assertion used to sit in `apply_with_anchors_is_one_undo_step_and_undoes_exactly`.
-        // `Edit::describe` only recognises a batch of `RetargetAngles` and `SetConstraint`; the
-        // atomic batch of `ModifyTier`s that `apply_with_anchors` now builds reads as "N combined
-        // edits", so it stays red until `describe_anchored_retarget` (pleochroma-cut-core,
-        // edit/edit_type.rs) learns the new shape. Kept as its own test so the undo-step test
-        // above says only what it is named for.
+        // The label of an anchored retarget batch comes from `describe_anchored_retarget`
+        // (pleochroma-cut-core, edit/edit_type/retarget_labels.rs). This test is separate so
+        // the undo-step test says only what its name states.
         let (design, plan, check) = checked_sapphire_case();
         let edit = transported_edit(&design, &plan, &check).expect("preserved retarget");
         assert_eq!(edit.describe(&design), "Retarget angles");

@@ -32,9 +32,8 @@ pub struct RoughFrame {
 
 /// Whether `a` and `b` agree within [`RELATIVE_TOLERANCE`] of the larger.
 ///
-/// The bound is a loader cross-check with a tolerance of a millionth, so the fused
-/// multiply-add (one rounding less than the two-step form) cannot change which files pass
-/// in any way that matters; nothing pinned bit-for-bit depends on it.
+/// This is a loader cross-check at a millionth, so the fused multiply-add (one rounding
+/// less than the two-step form) does not change which files pass.
 fn close(a: f64, b: f64) -> bool {
     (a - b).abs() <= RELATIVE_TOLERANCE.mul_add(a.abs().max(b.abs()), ABSOLUTE_FLOOR)
 }

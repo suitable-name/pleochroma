@@ -2,7 +2,7 @@
 //! [`RasterWorker`] turns it into a [`RasterFrame`] with the same `pleochroma_solid`
 //! pipeline the web app and the desktop run.
 //!
-//! The worker is stateful, exactly like the desktop's render thread: it keeps the
+//! The worker is stateful, like the desktop's render thread: it keeps the
 //! planner/rasterizer pipeline, the mesh cache and the masts of the last committed
 //! design, and decides per job whether the picture needs a **replan** (the design, its
 //! solve, the selection or the diagram layout changed), a **reproject** (only the camera,
@@ -71,8 +71,8 @@ pub const fn max_edge_for(compact: bool, battery_saver: bool) -> u32 {
 pub const MIN_EDGE: u32 = 64;
 /// The narrowest aspect (width over height) the Solid raster is drawn at.
 ///
-/// The camera's field of view is vertical, so a narrower raster would crop the stone's sides; a
-/// narrower view letterboxes a raster of this aspect instead.
+/// The camera's field of view is vertical, so a narrower raster would crop the stone's
+/// sides; a narrower view letterboxes a raster of this aspect instead.
 pub const SOLID_MIN_ASPECT: f32 = 1.6;
 /// The narrowest Diagram raster with all three panels (keeps neighbouring labels apart).
 pub const DIAGRAM_MIN_WIDTH: u32 = 1200;

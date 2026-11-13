@@ -24,7 +24,8 @@
 //!
 //! - The pavilion band is the margin over the critical angle `asin(1 / n)` of the design's
 //!   effective refractive index. Two degrees is the app's own "Safe" margin
-//!   (`pleochroma_cut_core::windowing_risk`), so a "Critical + 2" preset is always Safe.
+//!   (`pleochroma_cut_core::windowing_risk`), so the "Critical Angle + 2°" preset is always
+//!   Safe.
 //! - "Standard for this material" is the middle of the reference window the proportion
 //!   chips already use (`pleochroma_cut_core::proportions_windows`: the published
 //!   AGS/GIA round-brilliant ranges for diamond, the lapidary rule of thumb for colored
@@ -135,7 +136,7 @@ pub struct AngleSlider {
 /// One entry of the "Typical" menu.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AnglePreset {
-    /// What the menu shows ("Critical angle + 2 degrees (bright, safe)").
+    /// What the menu shows, e.g. "Critical Angle + 2° (Bright, Safe)".
     pub label: String,
     /// The angle, in degrees from the girdle plane (a magnitude).
     pub value_deg: f64,
@@ -374,9 +375,9 @@ pub struct AngleSliderState {
 /// (`"Pavilion"`, `"Crown"`, `"Girdle"`), `"Horizontal"` for a flat tier (the table, the
 /// culet) and `"Driven"` for a tier whose angle follows a relation. Girdle, flat and driven
 /// tiers have no slider, nor does a field holding a relation or exactly 90 degrees. A new
-/// tier is a pavilion when its angle is typed with a minus sign or its `name` starts with
-/// the pavilion letter P (the rule Save Tier applies), otherwise a crown. `n_d` is the
-/// design's effective refractive index.
+/// tier is a pavilion when its angle is typed with a minus sign or its `name` is a
+/// pavilion name (see `name_indicates_pavilion`), otherwise a crown. `n_d` is the design's
+/// effective refractive index.
 #[must_use]
 pub fn angle_slider_state(
     kind: &str,
@@ -516,12 +517,11 @@ fn crown_presets(n_d: f64, material_name: &str) -> Vec<AnglePreset> {
 /// The "Typical" menu for `side` at refractive index `n_d` and for the material called
 /// `material_name` (empty for none), each entry a value with a one-line reason.
 ///
-/// Pavilion: "Standard for the material", "Critical angle + 2 degrees (bright, safe)" and
-/// "Critical angle + 4 degrees (extra margin)". Every pavilion preset is a multiple of the
-/// 0.05 degree step and keeps at least the margin its label says (the step is rounded up,
-/// never down). A pavilion menu needs a usable `n_d` and is empty without one. Crown:
-/// "Standard for the material", Low (25), Medium (32) and High (40). An entry that repeats
-/// an earlier one's angle is dropped.
+/// Pavilion: "Standard for <material>", "Critical Angle + 2°" and "Critical Angle + 4°".
+/// Every pavilion preset is a multiple of the 0.05 degree step and keeps at least the
+/// margin its label says (the step is rounded up, never down). A pavilion menu needs a
+/// usable `n_d` and is empty without one. Crown: "Standard for <material>", Low (25),
+/// Medium (32) and High (40). An entry that repeats an earlier one's angle is dropped.
 #[must_use]
 pub fn angle_presets(side: AngleSide, n_d: f64, material_name: &str) -> Vec<AnglePreset> {
     let mut presets = match side {

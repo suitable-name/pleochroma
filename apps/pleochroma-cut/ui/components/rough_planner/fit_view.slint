@@ -1,129 +1,140 @@
 import { Theme } from "../../theme.slint";
 import { RoughPlanModel } from "../../models/rough_plan.slint";
-import { RoughPill } from "fields.slint";
+import { KitIcon, KitIcons, KitIconButton, KitGlass, KitSegment } from "../kit/kit.slint";
+import { RoughIcons } from "state.slint";
 
-// Toggle button with a small checkbox indicator
-component ViewToggle inherits Rectangle {
-    in property <string> label;
-    // One plain sentence: what the toggle shows or hides. The tooltip and the screen-reader text.
-    in property <string> hint;
-    in-out property <bool> checked;
-    callback toggled();
+// One entry of the design legend in the view's bottom bar: a dot in the design's color and the
+// count with the short name. A click picks the design (Rust highlights its stones in the view).
+component LegendEntry inherits Rectangle {
+    in property <color> swatch;
+    in property <string> text;
+    in property <string> full_name;
+    in property <bool> picked: false;
+    callback clicked();
 
-    function toggle() {
-        root.checked = !root.checked;
-        root.toggled();
-    }
+    height: 28px;
+    width: entry_lay.preferred-width;
+    border-radius: 7px;
+    background: touch.has-hover ? Theme.bg-card-hover : transparent;
+    border-width: fs.has-focus || root.picked ? 2px : 0px;
+    border-color: fs.has-focus ? Theme.accent-cyan-hover : Theme.accent-cyan;
+    accessible-role: AccessibleRole.button;
+    accessible-label: "Highlight " + root.full_name;
+    accessible-description: "Highlight the stones of this design in the 3D view. Click again to clear the highlight.";
+    accessible-action-default => { root.clicked(); }
 
-    height: 20px;
-    // As wide as its content: a Rectangle stretches by default and took a share of the
-    // toolbar's spare width (a 240 px "Cut Faces" box on a wide window).
-    horizontal-stretch: 0;
-    border-radius: Theme.radius-sm;
-    background: ta.has-hover ? Theme.surface-control-hover : Theme.surface-control;
-    border-width: toggle_focus.has-focus ? 2px : 1px;
-    border-color: toggle_focus.has-focus ? Theme.accent-cyan-hover
-        : (root.checked ? Theme.accent-cyan : Theme.border-control);
-
-    accessible-role: AccessibleRole.checkbox;
-    accessible-label: root.label;
-    accessible-description: root.hint;
-    accessible-checkable: true;
-    accessible-checked: root.checked;
-    accessible-action-default => { root.toggle(); }
-
-    if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
-
-    // Space and Enter toggle it while it has the keyboard focus.
-    toggle_focus := FocusScope {
+    Tooltip { text: @markdown("Highlight the stones of \{root.full_name} in the 3D view. Click again to clear the highlight."); }
+    fs := FocusScope {
         key-pressed(event) => {
             if event.text == Key.Space || event.text == Key.Return {
-                root.toggle();
+                root.clicked();
                 return accept;
             }
             return reject;
         }
     }
-
-    HorizontalLayout {
-        padding-left: 6px;
-        padding-right: 6px;
-        spacing: 4px;
-        alignment: center;
-
+    entry_lay := HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 8px;
+        spacing: 6px;
         VerticalLayout {
             alignment: center;
             Rectangle {
                 width: 10px;
                 height: 10px;
-                border-radius: 2px;
-                border-width: 1px;
-                border-color: root.checked ? Theme.accent-cyan : Theme.border-control;
-                background: root.checked ? Theme.accent-cyan : Theme.surface-sunken;
-
-                if root.checked: Rectangle {
-                    width: 4px;
-                    height: 4px;
-                    border-radius: 1px;
-                    background: Theme.text-on-accent;
-                    x: (parent.width - self.width) / 2;
-                    y: (parent.height - self.height) / 2;
-                }
+                border-radius: 5px;
+                background: root.swatch;
             }
         }
-
         Text {
-            text: root.label;
-            font-size: 11px;
-            color: root.checked ? Theme.text-primary : Theme.text-secondary;
+            text: root.text;
+            font-size: 12px;
+            color: Theme.text-primary;
             vertical-alignment: center;
+            horizontal-stretch: 0;
         }
     }
-
-    ta := TouchArea {
+    touch := TouchArea {
         mouse-cursor: pointer;
-        clicked => { root.toggle(); }
+        clicked => { root.clicked(); }
     }
 }
 
-// The display toggles of the view toolbar ("Cut faces" only in model mode).
-component ViewToggles inherits HorizontalLayout {
-    spacing: 6px;
+// One entry of the scan legend: a dot (or a line) in the layer's color and its name.
+component KeyEntry inherits HorizontalLayout {
+    in property <color> swatch;
+    in property <string> text;
+    in property <bool> line: false;
 
-    if RoughPlanModel.view_mode == 0: ViewToggle {
-        label: "Cut Faces";
-        hint: "Show the flat faces your cuts make on the rough, in the 3D view.";
-        checked <=> RoughPlanModel.show_cut_faces;
-        toggled => { RoughPlanModel.view_toggles_changed(); }
+    spacing: 5px;
+    VerticalLayout {
+        alignment: center;
+        if !root.line: Rectangle {
+            width: 10px;
+            height: 10px;
+            border-radius: 5px;
+            background: root.swatch;
+        }
+        if root.line: Rectangle {
+            width: 14px;
+            height: 2px;
+            background: root.swatch;
+        }
     }
-    // The layers of a result only exist in the result view.
-    if RoughPlanModel.view_mode == 1: ViewToggle {
-        label: "Rough";
-        hint: "Show the outline of the whole rough around the stones.";
-        checked <=> RoughPlanModel.show_rough;
-        toggled => { RoughPlanModel.view_toggles_changed(); }
-    }
-    if RoughPlanModel.view_mode == 1: ViewToggle {
-        label: "Saw";
-        hint: "Show where the saw would cut the rough apart between stones.";
-        checked <=> RoughPlanModel.show_saw;
-        toggled => { RoughPlanModel.view_toggles_changed(); }
-    }
-    if RoughPlanModel.view_mode == 1: ViewToggle {
-        label: "Stones";
-        hint: "Show the stones placed in the rough.";
-        checked <=> RoughPlanModel.show_stones;
-        toggled => { RoughPlanModel.view_toggles_changed(); }
+    Text {
+        text: root.text;
+        font-size: 12px;
+        color: Theme.text-primary;
+        vertical-alignment: center;
+        horizontal-stretch: 0;
     }
 }
 
-// 3D View for rough model and fit preview
-export component FitView inherits VerticalLayout {
-    // True when the column is too narrow for the presets and the toggles on one
-    // row. The window decides (from its own width), because a size read from this
-    // layout itself would feed back into the layout.
-    in property <bool> narrow: false;
+// A layer toggle of the view's bottom bar: a text segment, or an icon button when the window is
+// narrow. It reads and writes nothing itself: `toggled` flips the owner's flag.
+component LayerToggle inherits Rectangle {
+    in property <string> text;
+    in property <string> icon;
+    in property <string> hint;
+    in property <bool> on;
+    in property <bool> narrow;
+    callback toggled();
 
+    height: 28px;
+    width: root.narrow ? 28px : holder.preferred-width;
+
+    // Only one of the two exists, so the hidden twin is not in the accessibility tree.
+    holder := HorizontalLayout {
+        alignment: start;
+        if !root.narrow: KitSegment {
+            text: root.text;
+            hint: root.hint;
+            on: root.on;
+            accessible-role: AccessibleRole.checkbox;
+            accessible-label: root.text;
+            picked => { root.toggled(); }
+        }
+        if root.narrow: KitIconButton {
+            d: root.icon;
+            size: 28px;
+            icon_size: 16px;
+            active: root.on;
+            ink: root.on ? Theme.accent-cyan : Theme.text-secondary;
+            label: root.text;
+            hint: root.hint;
+            accessible-role: AccessibleRole.checkbox;
+            accessible-label: root.text;
+            accessible-checkable: true;
+            accessible-checked: root.on;
+            clicked => { root.toggled(); }
+        }
+    }
+}
+
+// The 3D view with glass overlays: the Rough | Layout switch at the top left, the camera presets
+// at the top right, a banner while a pick is armed, the hover tooltip, and the bottom bar with the
+// design legend and the layer toggles.
+export component FitView inherits Rectangle {
     // The size of the image area, for the window to hand to Rust.
     out property <length> area_width: view_area.width;
     out property <length> area_height: view_area.height;
@@ -141,6 +152,11 @@ export component FitView inherits VerticalLayout {
     property <bool> moved_far: false;
     // The result the "Result" switch goes back to after "Rough" deselected it.
     property <int> remembered_result: 0;
+    // The selected result is a real row (the legend reads its designs).
+    property <bool> has_result: RoughPlanModel.selected_result >= 0 && RoughPlanModel.selected_result < RoughPlanModel.results.length;
+    property <bool> scan_shown: RoughPlanModel.base_kind == 3 && RoughPlanModel.scan_verdict >= 0 && !RoughPlanModel.mesh_busy;
+    // Armed picks: a face for a cut or for the axis, or the two ends of an edge.
+    property <bool> picking: RoughPlanModel.face_from_view_armed || RoughPlanModel.axis_pick != 0;
 
     function end_drag() {
         if root.dragging {
@@ -149,97 +165,7 @@ export component FitView inherits VerticalLayout {
         }
     }
 
-    spacing: 0px;
-
-    // View toolbar row above the image (never over it)
-    // The toggles move to a second row when the column is too narrow for both.
-    Rectangle {
-        height: root.narrow ? 60px : 30px;
-        background: Theme.bg-card;
-
-        VerticalLayout {
-            padding-left: 8px;
-            padding-right: 8px;
-            padding-top: 5px;
-            padding-bottom: 5px;
-            spacing: 5px;
-
-            HorizontalLayout {
-                height: 20px;
-                spacing: 6px;
-
-                // What the view shows: the rough being modelled (this deselects the
-                // result card) or the selected result (the one shown last, or the first).
-                RoughPill {
-                    text: "Rough";
-                    hint: "Show the rough you are modelling, with its cuts. This puts the result cards aside.";
-                    active: RoughPlanModel.view_mode == 0;
-                    clicked => {
-                        if RoughPlanModel.selected_result >= 0 {
-                            root.remembered_result = RoughPlanModel.selected_result;
-                        }
-                        RoughPlanModel.select_result(-1);
-                    }
-                }
-                RoughPill {
-                    text: "Result";
-                    hint: RoughPlanModel.results.length > 0
-                        ? "Show the selected result: the stones placed in the rough."
-                        : "There is no result yet. Press Plan first.";
-                    active: RoughPlanModel.view_mode == 1;
-                    enabled: RoughPlanModel.results.length > 0;
-                    clicked => {
-                        RoughPlanModel.select_result(
-                            RoughPlanModel.selected_result >= 0 ? RoughPlanModel.selected_result
-                            : (root.remembered_result < RoughPlanModel.results.length ? root.remembered_result : 0));
-                    }
-                }
-
-                Rectangle { width: 6px; }
-
-                // Camera presets
-                RoughPill {
-                    text: "Front";
-                    hint: "Look at the rough from the front.";
-                    clicked => { RoughPlanModel.view_preset(0); }
-                }
-                RoughPill {
-                    text: "Top";
-                    hint: "Look at the rough from above.";
-                    clicked => { RoughPlanModel.view_preset(1); }
-                }
-                RoughPill {
-                    text: "Side";
-                    hint: "Look at the rough from the side.";
-                    clicked => { RoughPlanModel.view_preset(2); }
-                }
-                RoughPill {
-                    text: "Reset";
-                    hint: "Go back to the starting view. Home does the same while the view has the keyboard.";
-                    clicked => { RoughPlanModel.view_preset(3); }
-                }
-
-                Rectangle { horizontal-stretch: 1; }
-
-                if !root.narrow: ViewToggles {}
-            }
-
-            if root.narrow: HorizontalLayout {
-                height: 20px;
-                alignment: end;
-                ViewToggles {}
-            }
-        }
-    }
-
-    Rectangle {
-        height: 1px;
-        background: Theme.border-subtle;
-    }
-
-    // Viewport image area with TouchArea interaction
     view_area := Rectangle {
-        vertical-stretch: 1;
         background: Theme.bg-input;
         clip: true;
 
@@ -309,7 +235,7 @@ export component FitView inherits VerticalLayout {
         }
 
         TouchArea {
-            mouse-cursor: RoughPlanModel.face_from_view_armed ? crosshair : (self.pressed ? grabbing : default);
+            mouse-cursor: root.picking ? crosshair : (self.pressed ? grabbing : default);
 
             pointer-event(event) => {
                 if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
@@ -384,53 +310,337 @@ export component FitView inherits VerticalLayout {
             border-width: 2px;
             border-color: Theme.accent-cyan-hover;
         }
-    }
 
-    Rectangle {
-        height: 1px;
-        background: Theme.border-subtle;
-    }
-
-    // Bottom hint/tooltip strip below the image
-    Rectangle {
-        height: 24px;
-        background: Theme.bg-card;
-
-        HorizontalLayout {
-            padding-left: 8px;
-            padding-right: 8px;
-            spacing: 8px;
-            alignment: center;
-
-            Text {
-                horizontal-stretch: 1;
-                text: RoughPlanModel.view_busy ? "Building result " + (RoughPlanModel.selected_result + 1) + "..."
-                    : (RoughPlanModel.view_hint != "" ? RoughPlanModel.view_hint
-                        : (RoughPlanModel.view_mode == 0
-                            ? "Drag to orbit, scroll to zoom. Click edges or corners to cut."
-                            : "Drag to orbit, scroll to zoom. Hover stones for details."));
-                font-size: 11px;
-                color: Theme.text-muted;
-                vertical-alignment: center;
-                overflow: elide;
+        // Top left: what the view shows. "Rough" deselects the layout (this puts the layout rows
+        // aside); the second segment shows the selected layout (the one shown last, or the first).
+        KitGlass {
+            x: 12px;
+            y: 12px;
+            width: switch_lay.preferred-width;
+            height: 36px;
+            TouchArea {}
+            switch_lay := HorizontalLayout {
+                padding: 4px;
+                spacing: 2px;
+                KitSegment {
+                    text: "Rough";
+                    hint: "Show the rough you are modelling, with its cuts. This puts the layouts aside.";
+                    on: RoughPlanModel.view_mode == 0;
+                    picked => {
+                        if RoughPlanModel.selected_result >= 0 {
+                            root.remembered_result = RoughPlanModel.selected_result;
+                        }
+                        RoughPlanModel.select_result(-1);
+                    }
+                }
+                KitSegment {
+                    text: RoughPlanModel.results.length > 0
+                        ? "Layout #" + ((RoughPlanModel.selected_result >= 0 ? RoughPlanModel.selected_result : root.remembered_result) + 1)
+                        : "Layout";
+                    accessible-label: "Result";
+                    hint: RoughPlanModel.results.length > 0
+                        ? "Show the selected layout: the stones placed in the rough."
+                        : "There is no layout yet. Press Plan first.";
+                    on: RoughPlanModel.view_mode == 1;
+                    enabled: RoughPlanModel.results.length > 0;
+                    picked => {
+                        RoughPlanModel.select_result(
+                            RoughPlanModel.selected_result >= 0 ? RoughPlanModel.selected_result
+                            : (root.remembered_result < RoughPlanModel.results.length ? root.remembered_result : 0));
+                    }
+                }
             }
+        }
 
-            if RoughPlanModel.face_from_view_armed: Rectangle {
-                height: 18px;
-                border-radius: Theme.radius-sm;
-                background: Theme.surface-warning;
-                border-width: 1px;
-                border-color: Theme.accent-amber;
+        // Top right: the camera presets.
+        presets := KitGlass {
+            x: parent.width - self.width - 12px;
+            y: 12px;
+            width: presets_lay.preferred-width;
+            height: 36px;
+            TouchArea {}
+            presets_lay := HorizontalLayout {
+                padding: 2px;
+                spacing: 0px;
+                KitIconButton {
+                    d: KitIcons.front;
+                    label: "Front";
+                    hint: "Look at the rough from the front.";
+                    clicked => { RoughPlanModel.view_preset(0); }
+                }
+                KitIconButton {
+                    d: KitIcons.top;
+                    label: "Top";
+                    hint: "Look at the rough from above.";
+                    clicked => { RoughPlanModel.view_preset(1); }
+                }
+                KitIconButton {
+                    d: KitIcons.side;
+                    label: "Side";
+                    hint: "Look at the rough from the side.";
+                    clicked => { RoughPlanModel.view_preset(2); }
+                }
+                KitIconButton {
+                    d: KitIcons.reset;
+                    label: "Reset";
+                    hint: "Go back to the starting view. Home does the same while the view has the keyboard.";
+                    clicked => { RoughPlanModel.view_preset(3); }
+                }
+            }
+        }
 
+        // The view is being redrawn.
+        if RoughPlanModel.view_busy: KitGlass {
+            x: presets.x - self.width - 8px;
+            y: 12px;
+            width: busy_text.preferred-width + 24px;
+            height: 36px;
+            busy_text := Text {
+                x: 12px;
+                height: parent.height;
+                text: "Drawing the view\u{2026}";
+                font-size: 11px;
+                color: Theme.text-secondary;
+                vertical-alignment: center;
+            }
+        }
+
+        // A pick is armed: the face of a cut, the face or the two ends of an edge for the axis.
+        if root.picking: KitGlass {
+            x: (parent.width - self.width) / 2;
+            y: 56px;
+            width: banner_lay.preferred-width;
+            height: 32px;
+            border-color: Theme.accent-cyan;
+            accessible-role: AccessibleRole.text;
+            accessible-label: RoughPlanModel.axis_pick == 2 ? "Click the first end of an edge. Escape cancels."
+                : (RoughPlanModel.axis_pick == 3 ? "Click the second end of the edge. Escape cancels." : "Click a face. Escape cancels.");
+            banner_lay := HorizontalLayout {
+                padding-left: 12px;
+                padding-right: 12px;
+                spacing: 8px;
+                VerticalLayout {
+                    alignment: center;
+                    KitIcon {
+                        d: KitIcons.face;
+                        size: 16px;
+                        ink: Theme.accent-cyan;
+                    }
+                }
+                Text {
+                    text: RoughPlanModel.axis_pick == 2 ? "Click the first end of an edge \u{2014} Esc cancels"
+                        : (RoughPlanModel.axis_pick == 3 ? "Click the second end \u{2014} Esc cancels" : "Click a face \u{2014} Esc cancels");
+                    font-size: 12px;
+                    font-weight: 600;
+                    color: Theme.text-primary;
+                    vertical-alignment: center;
+                    horizontal-stretch: 0;
+                }
+            }
+        }
+
+        // The scan is being read: the view has nothing to show yet.
+        if RoughPlanModel.base_kind == 3 && RoughPlanModel.mesh_busy: KitGlass {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: 260px;
+            height: 64px;
+            VerticalLayout {
+                padding: 12px;
+                spacing: 4px;
+                Text {
+                    text: "Reading the scan\u{2026}";
+                    font-size: 13px;
+                    font-weight: 600;
+                    color: Theme.text-primary;
+                    horizontal-alignment: center;
+                }
+                Text {
+                    text: "The window stays usable meanwhile.";
+                    font-size: 11px;
+                    color: Theme.text-secondary;
+                    horizontal-alignment: center;
+                }
+            }
+        }
+
+        // The hover tooltip: a stone of a layout, or an edge or corner of the rough.
+        if RoughPlanModel.hover_tip_visible: KitGlass {
+            x: Math.max(8px, Math.min(RoughPlanModel.hover_tip_x + 14px, parent.width - self.width - 8px));
+            y: Math.max(8px, Math.min(RoughPlanModel.hover_tip_y + 14px, parent.height - self.height - 8px));
+            width: tip_lay.preferred-width;
+            height: tip_lay.preferred-height;
+            tip_lay := VerticalLayout {
+                padding: 10px;
+                spacing: 3px;
                 HorizontalLayout {
-                    padding-left: 6px;
-                    padding-right: 6px;
+                    spacing: 6px;
+                    VerticalLayout {
+                        alignment: center;
+                        Rectangle {
+                            width: 10px;
+                            height: 10px;
+                            border-radius: 5px;
+                            background: RoughPlanModel.hover_tip_color;
+                        }
+                    }
                     Text {
-                        text: "Face from view: click rough face (Esc to cancel)";
-                        font-size: 10px;
+                        text: RoughPlanModel.hover_tip_title;
+                        font-size: 12px;
                         font-weight: 600;
-                        color: Theme.accent-amber;
+                        color: Theme.text-primary;
                         vertical-alignment: center;
+                        horizontal-stretch: 0;
+                    }
+                }
+                for tip_line in RoughPlanModel.hover_tip_lines: Text {
+                    text: tip_line;
+                    font-size: 11px;
+                    color: Theme.text-secondary;
+                }
+            }
+        }
+
+        // Bottom: the legend and the layer toggles, or the hint.
+        KitGlass {
+            x: 12px;
+            y: parent.height - self.height - 12px;
+            width: parent.width - 24px;
+            height: 40px;
+            TouchArea {}
+            HorizontalLayout {
+                padding-left: 12px;
+                padding-right: 6px;
+                spacing: 8px;
+
+                // The designs of the shown layout (the selected layout's detail names them when
+                // the window is narrow).
+                if RoughPlanModel.view_mode == 1 && root.has_result && !RoughPlanModel.narrow: HorizontalLayout {
+                    spacing: 2px;
+                    for group[g] in RoughPlanModel.results[RoughPlanModel.selected_result].groups: VerticalLayout {
+                        alignment: center;
+                        LegendEntry {
+                            swatch: group.swatch;
+                            text: group.count + " " + (group.short_name != "" ? group.short_name : group.name);
+                            full_name: group.count + " \u{00D7} " + group.name;
+                            picked: RoughPlanModel.legend_selected == g;
+                            clicked => { RoughPlanModel.legend_picked(g); }
+                        }
+                    }
+                }
+
+                // The three colors of a scan's layers.
+                if RoughPlanModel.view_mode == 0 && root.scan_shown && !RoughPlanModel.narrow: VerticalLayout {
+                    alignment: center;
+                    HorizontalLayout {
+                        spacing: 12px;
+                        KeyEntry { swatch: #f59e0b; text: "Repaired"; }
+                        KeyEntry { swatch: #ef4444; text: "Crossing"; }
+                        KeyEntry { swatch: Theme.accent-cyan; text: "Outline used"; line: true; }
+                    }
+                }
+
+                // The hint, when no legend is shown.
+                if !(RoughPlanModel.view_mode == 1 && root.has_result && !RoughPlanModel.narrow) && !(RoughPlanModel.view_mode == 0 && root.scan_shown && !RoughPlanModel.narrow): Rectangle {
+                    horizontal-stretch: 1;
+                    min-width: 0px;
+                    Text {
+                        x: 0px;
+                        width: parent.width;
+                        height: parent.height;
+                        text: RoughPlanModel.view_hint != "" ? RoughPlanModel.view_hint
+                            : (RoughPlanModel.view_mode == 0
+                                ? (RoughPlanModel.base_kind == 3 ? "Drag to orbit \u{00B7} scroll to zoom" : "Drag to orbit \u{00B7} scroll to zoom \u{00B7} click an edge to cut it")
+                                : "Drag to orbit \u{00B7} scroll to zoom \u{00B7} hover stones for details");
+                        font-size: 11px;
+                        color: Theme.text-secondary;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                }
+                if (RoughPlanModel.view_mode == 1 && root.has_result && !RoughPlanModel.narrow) || (RoughPlanModel.view_mode == 0 && root.scan_shown && !RoughPlanModel.narrow): Rectangle {
+                    horizontal-stretch: 1;
+                }
+
+                // The layers of a layout only exist in the layout view.
+                if RoughPlanModel.view_mode == 1: VerticalLayout {
+                    alignment: center;
+                    HorizontalLayout {
+                        spacing: 2px;
+                        LayerToggle {
+                            text: "Rough";
+                            icon: RoughIcons.gem;
+                            narrow: RoughPlanModel.narrow;
+                            hint: "Show the outline of the whole rough around the stones.";
+                            on: RoughPlanModel.show_rough;
+                            toggled => {
+                                RoughPlanModel.show_rough = !RoughPlanModel.show_rough;
+                                RoughPlanModel.view_toggles_changed();
+                            }
+                        }
+                        LayerToggle {
+                            text: "Saw";
+                            icon: RoughIcons.saw;
+                            narrow: RoughPlanModel.narrow;
+                            hint: "Show where the saw would cut the rough apart between stones.";
+                            on: RoughPlanModel.show_saw;
+                            toggled => {
+                                RoughPlanModel.show_saw = !RoughPlanModel.show_saw;
+                                RoughPlanModel.view_toggles_changed();
+                            }
+                        }
+                        LayerToggle {
+                            text: "Stones";
+                            icon: RoughIcons.stone;
+                            narrow: RoughPlanModel.narrow;
+                            hint: "Show the stones placed in the rough.";
+                            on: RoughPlanModel.show_stones;
+                            toggled => {
+                                RoughPlanModel.show_stones = !RoughPlanModel.show_stones;
+                                RoughPlanModel.view_toggles_changed();
+                            }
+                        }
+                    }
+                }
+
+                // The rough's own layers: the scan's problems and outline, and the cut faces.
+                if RoughPlanModel.view_mode == 0: VerticalLayout {
+                    alignment: center;
+                    HorizontalLayout {
+                        spacing: 2px;
+                        if root.scan_shown: LayerToggle {
+                            text: "Problems";
+                            icon: KitIcons.info;
+                            narrow: RoughPlanModel.narrow;
+                            hint: "Color the places the import repaired in amber and the places where the scan crosses itself in red, with a marker at each.";
+                            on: RoughPlanModel.show_problems;
+                            toggled => {
+                                RoughPlanModel.show_problems = !RoughPlanModel.show_problems;
+                                RoughPlanModel.view_toggles_changed();
+                            }
+                        }
+                        if root.scan_shown: LayerToggle {
+                            text: "Outline";
+                            icon: KitIcons.block;
+                            narrow: RoughPlanModel.narrow;
+                            hint: "Draw the outline the planner works on as a cyan ghost over the scan, so a fallback to the convex outline can be seen.";
+                            on: RoughPlanModel.show_outline;
+                            toggled => {
+                                RoughPlanModel.show_outline = !RoughPlanModel.show_outline;
+                                RoughPlanModel.view_toggles_changed();
+                            }
+                        }
+                        LayerToggle {
+                            text: "Cut Faces";
+                            icon: KitIcons.face;
+                            narrow: RoughPlanModel.narrow;
+                            hint: "Show the flat faces your cuts make on the rough, in the 3D view.";
+                            on: RoughPlanModel.show_cut_faces;
+                            toggled => {
+                                RoughPlanModel.show_cut_faces = !RoughPlanModel.show_cut_faces;
+                                RoughPlanModel.view_toggles_changed();
+                            }
+                        }
                     }
                 }
             }

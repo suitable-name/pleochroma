@@ -1,6 +1,8 @@
-//! F4 tests: birefringence that varies with wavelength -- the e-ray curves of Sapphire,
-//! Ruby, Synthetic Moissanite and Benitoite, the principal-index curves of Alexandrite
-//! and Chrysoberyl (Yellow), and the guarantee that every other material is untouched.
+//! Tests of wavelength-dependent birefringence.
+//!
+//! They cover the e-ray curves of Sapphire, Ruby, Synthetic
+//! Moissanite and Benitoite, the principal-index curves of Alexandrite, Chrysoberyl (Yellow)
+//! and Titanite, and the guarantee that every other material is untouched.
 
 use crate::optics::{dispersion::DispersionModel, materials::GemMaterial};
 
@@ -201,8 +203,7 @@ fn alexandrite_spreads_match_walling_and_vary_with_color() {
     );
 }
 
-/// Chrysoberyl (Yellow) takes the Walling spreads (owner decision 2026-10-22): the
-/// total birefringence is 0.0076, not the earlier gem figure 0.0090.
+/// Chrysoberyl (Yellow) takes the Walling spreads: its total birefringence is 0.0076.
 #[test]
 fn chrysoberyl_yellow_takes_the_walling_spreads() {
     let chrysoberyl = GemMaterial::by_name("Chrysoberyl (Yellow)").expect("Chrysoberyl");
@@ -237,8 +238,8 @@ fn crossed_curves_are_sorted_into_magnitude_order() {
     }
 }
 
-/// Exactly these materials gained curves; every other material keeps the achromatic
-/// offsets bit for bit, so its renders and figures cannot move.
+/// Only these materials carry curves; every other material keeps the achromatic offsets bit
+/// for bit.
 #[test]
 fn materials_without_curve_data_keep_the_constant_offsets_bit_for_bit() {
     let with_e_curve = [
@@ -252,7 +253,7 @@ fn materials_without_curve_data_keep_the_constant_offsets_bit_for_bit() {
         "Synthetic Moissanite",
         "Benitoite",
     ];
-    // Titanite (2026-11-03) carries its measured n_alpha / n_gamma curves (Busz, after Dana).
+    // Titanite carries its measured n_alpha / n_gamma curves (Busz, after Dana).
     let with_principal_curves = ["Alexandrite", "Chrysoberyl (Yellow)", "Titanite (Sphene)"];
     for material in GemMaterial::all_materials() {
         let name = material.name.as_str();
@@ -297,7 +298,8 @@ fn materials_without_curve_data_keep_the_constant_offsets_bit_for_bit() {
     }
 }
 
-/// The validator accepts every new curve (finite, no resonance in 300-800 nm, `n > 1`).
+/// Every principal and e-ray curve passes the validator (finite, no resonance in 300-800 nm,
+/// `n > 1`).
 #[test]
 fn every_new_curve_validates() {
     for material in GemMaterial::all_materials() {

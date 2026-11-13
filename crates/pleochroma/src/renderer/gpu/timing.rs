@@ -1,9 +1,9 @@
 //! Opt-in wall-clock timing of the GPU frame path: where the fixed cost of a pass goes.
 //!
-//! Off unless the environment variable [`ENV_VAR`] (`PLEOCHROMA_GPU_TIMING`) is set to
-//! anything but empty or `0`; read once per process. Disabled, every probe in the frame path is one
-//! predictable branch on a cached `bool` (no clock read, no lock, no allocation) and nothing
-//! it measures feeds back into scheduling, chunk sizes or numerics.
+//! Off unless the environment variable [`ENV_VAR`] (`PLEOCHROMA_GPU_TIMING`) is set to anything
+//! but empty or `0`; read once per process. Disabled, every probe in the frame path is one
+//! predictable branch on a cached `bool` (no clock read, no lock, no allocation). Nothing it
+//! measures feeds back into scheduling, chunk sizes or numerics.
 //!
 //! # What is measured
 //!
@@ -20,9 +20,8 @@
 //! drain of the turn (`run_turn_chunks`' tail).
 //!
 //! Per PASS (`gpu_timing pass`, one `GpuBackend` request): the totals, the scratch zero-fill
-//! and the scratch add, and the derived percentages the decision rules of the perf review's
-//! `MEASURE_GPU.md` read. [`take_last_pass_summary`] hands the same numbers to a caller that
-//! wants them in a JSON report (`live_render_bench` does).
+//! and the scratch add, and the derived percentages. [`take_last_pass_summary`] hands the same
+//! numbers to a caller that wants them in a JSON report.
 //!
 //! All state is process-global: read it with ONE GPU request in flight at a time (the
 //! benchmark does). Several concurrent requests interleave their chunks and the per-pass
@@ -107,6 +106,10 @@ pub(crate) enum TurnSlot {
     /// `FrameSceneBuffers::ensure`: the four-buffer scene re-upload (inside `Prepare`).
     SceneUpload,
     /// The final drain of the turn: the one pending chunk drained after the last dispatch.
+    ///
+    /// This is GPU working time, not idle time: the wait covers the chunk that was queued behind
+    /// the turn's first one. With two chunks per turn it is about half of the turn by
+    /// construction. GPU idle time is `gpu_idle_between_ms` and `startup_gap_ms`.
     TailDrain,
 }
 
@@ -489,8 +492,7 @@ pub(crate) fn finish_chunk(
 /// The totals of one `GpuBackend` request, in milliseconds unless named otherwise.
 ///
 /// Times of different chunks overlap (the pipeline keeps one chunk queued behind the one being
-/// read), so the `gpu_wall_ms`/`cycle_ms` sums can exceed `wall_ms`; the `p24_*` and
-/// `h04_*` percentages are the ones the perf review's decision rules read.
+/// read), so the `gpu_wall_ms`/`cycle_ms` sums can exceed `wall_ms`.
 #[derive(Clone, Debug, Default, serde::Serialize)]
 pub struct PassSummary {
     /// The request completed (not cancelled or declined).
@@ -529,15 +531,19 @@ pub struct PassSummary {
     pub map_recv_ms: f64,
     pub map_copy_ms: f64,
     pub accumulate_ms: f64,
-    /// P24: bind groups + encoders + submits as a percentage of the summed chunk wall time.
+    /// Bind groups, encoders and submits as a percentage of the summed chunk wall time.
     pub p24_bind_encode_submit_pct_of_chunk_wall: f64,
-    /// P24: the same as a percentage of the request's wall time.
+    /// The same as a percentage of the request's wall time.
     pub p24_bind_encode_submit_pct_of_wall: f64,
-    /// P24: the whole `dispatch_chunk` CPU time as a percentage of the request's wall time.
+    /// The whole `dispatch_chunk` CPU time as a percentage of the request's wall time.
     pub p24_dispatch_cpu_pct_of_wall: f64,
-    /// H04: scene re-upload + final drain as a percentage of the turns' wall time.
+    /// Scene re-upload and final drain as a percentage of the turns' wall time.
+    ///
+    /// The final drain waits for the turn's last chunk (see `TurnSlot::TailDrain`), so this share
+    /// is high by construction and says nothing about idle time; `h04_idle_between_pct_of_wall`
+    /// does.
     pub h04_upload_plus_tail_pct_of_turn_wall: f64,
-    /// H04: GPU idle between chunks as a percentage of the request's wall time.
+    /// GPU idle between chunks as a percentage of the request's wall time.
     pub h04_idle_between_pct_of_wall: f64,
     /// Idle startup gap as a percentage of the request's wall time.
     pub startup_pct_of_wall: f64,

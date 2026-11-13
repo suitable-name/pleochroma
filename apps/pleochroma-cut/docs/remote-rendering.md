@@ -5,10 +5,60 @@ configured remote, and how denoising and the TLS connection are handled across t
 handoff. For everything else see [the README](../README.md); for the
 `RemoteEndpoint` configuration itself see [settings.md](settings.md).
 
+## Protocol 42: Update the Whole Fleet Together
+
+The current protocol is **42**. It appends the HDR map turn and the stone estimator to
+the scene (see below); earlier versions appended Tray Reflection (41) and Stone Shadow (40).
+Each worker computes its own map; map bytes never cross the wire. A live viewport request gets a Preview
+map, and everything else (exports, jobs, final images, batches and the passes of an adaptive
+export) gets a Final map. The beam-tile request (protocol 38) lets a worker
+render whole tiles of a beam-traced stone (the beams and the samples that finish them) and
+sends the finished tiles back. Every remote render, with beam tracing off as well, refuses a peer on
+another protocol version during the handshake. Update the app, every coordinator and
+every worker together, and restart the workers; a worker is never mixed with an app of
+another version. Beam tiles render on the workers with their own CPU and GPU engines, and the
+tile order and a failed worker's tiles are reassigned deterministically. A beam picture from
+a worker equals the local one on the same platform; across platforms (a Windows app and a
+Linux worker) it can differ by rounding, within the renderer's usual tolerance.
+
+The estimator travels in the scene. The viewer's choice, exit collection in the app, is
+written into every scene, and a worker traces with it, never with its own process default. A
+frame that is split between the viewer and workers therefore runs one estimator. A scene
+written before the field reads as the classic estimator (branching), which is what it was
+rendered with. Where exit collection does not apply (an HDR map, Daylight + Sun, a stone with
+tools, a rough or ground surface, Tray Reflection) a frame falls back to the classic estimator
+on every engine alike.
+
+Beam tracing is retired and is an optional build feature (`beam`, for example `cargo build -p
+pleochroma-worker --features beam`). Only builds with the feature send or render beam tiles.
+The wire definition (`BeamTileRequest`, `StreamEvent::BeamTiles`) is in every build, so beam
+and standard builds of protocol 42 pair at the handshake. A worker or coordinator built
+without the feature answers every `BeamTileRequest` with `StreamEvent::Error` (code
+`UNSUPPORTED_REQUEST`, 5) and keeps the connection; a standard coordinator does not forward
+beam tiles. A beam build of the app treats that error like a lost worker: the tiles move to
+another engine (this computer or the next worker) with the note "The remote worker stopped
+(...)", and under Remote Only, with no engine left, the export fails with "The remote worker
+failed".
+Adaptive sampling is an optional build feature (`adaptive-sampling`, included by `beam`). The
+wire definition of its live pass (`LivePassRequest`, `StreamEvent::LivePass`) is in every build.
+A worker or coordinator built without the feature answers every `LivePassRequest` with
+`StreamEvent::Error` (code `UNSUPPORTED_REQUEST`, 5) and keeps the connection; a standard
+coordinator does not forward live passes. A viewer with the feature maps that error to a refusal:
+under Local + Remote the tiles are traced on this computer, and under Remote Only the export
+fails with "The remote worker failed". A standard build of the app never sends a live pass.
+
+Beam renders use the Full Data transfer (as Adaptive Sampling does), never Final Picture Only.
+Each request is one `BeamTileRequest` of at most `MAX_BEAM_TILE_PIXELS` (4 Mi) pixels; the app
+splits larger tile sets. With no worker configured, or for kept beams ("Keep Beams for
+Re-Renders") and tilt frames whose beams are kept, the render runs on this computer and says so
+("Beam tracing renders on this computer", "Keeping the beams renders on this computer."). A worker
+that fails mid-render has its tiles redrawn by the others, and the closing note says so; under
+Remote Only with no worker left the render fails with "The remote worker failed".
+
 ## One Remote Endpoint
 
-Protocol 28 appended `SceneState::engine` (`EngineSpec`); protocol 29, the current version,
-changed the backdrop to a lit tray. The live viewport, exports,
+The scene carries `SceneState::engine` (`EngineSpec`), and the backdrop is a lit tray.
+The live viewport, exports,
 tilt videos, persistent previews and frozen jobs send their selected renderer. In a
 Ray-Traced request, sample indices are fixed AA tap indices and a range must fit the
 selected tap count. The worker uses the shared CPU chain or the small GPU kernel,
@@ -41,7 +91,7 @@ other remote failure below.
   lossless PNG; the viewer decodes it to RGBA8 and writes it through its own PNG writer,
   so ICC embedding is identical to a local export of that RGBA. Local lanes do not
   normally take part; progress comes from the remote's `PROGRESS` heartbeats; cancel
-  sends `CANCEL`. **v16 exception:** when `AppSettings::contribute_to_final_picture` is
+  sends `CANCEL`. **Exception:** when `AppSettings::contribute_to_final_picture` is
   on (the default) and the export's `ComputeTarget` is `Both`, `worker::final_picture::contribution_allowed`
   lets `final_picture` fork instead: `FinalImageRequest.viewer_samples` reserves a tail
   of the sample budget for the viewer, whose local lanes trace that tail on a scoped
@@ -187,8 +237,8 @@ via `Weak::upgrade_in_event_loop` rather than run inline). The liveness deadline
 is therefore only ever checked immediately after a real, just-attempted, empty
 read — see `bridge::remote::remote_render`'s module doc and the "Timeouts and
 liveness" and "Why a busy consumer can never make either deadline fire early"
-sections of `bridge::remote::remote_render::connection`'s `POLL_INTERVAL` doc
-comment for the full reasoning, constants, and the `liveness_deadline` decision
+sections in the timeout constants' docs of `bridge::remote::remote_render::connection`
+for the full reasoning, constants, and the `liveness_deadline` decision
 that picks between the two tiers.
 
 When the deadline does fire, the failure is never silent: the chunk is

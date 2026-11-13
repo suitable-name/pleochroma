@@ -14,7 +14,7 @@
 //!   display page, the exact match count, the uncapped id walk) built on the shared
 //!   candidate walk.
 //!
-//! Every item is re-exported here at its original flat `search::` path.
+//! The public types are re-exported here, so callers use the flat `search::` path.
 
 mod display;
 mod predicate;

@@ -29,11 +29,11 @@ pub fn pavilion_visible(normal: Vec3) -> bool {
     normal.y < -NORMAL_EPS
 }
 
-/// A facet contributes to the profile (side elevation) panel when it has ANY
-/// horizontal component to its normal -- i.e. it is not purely crown/pavilion
-/// facing. See the parent module's doc comment for why this (rather than a single
-/// backface-culled view direction) is what makes a profile view show the whole
-/// stone's silhouette instead of just whichever single facet faces the camera.
+/// A facet is in the profile (side elevation) panel when its normal has any horizontal component,
+/// i.e. it is not purely crown or pavilion facing.
+///
+/// A single backface-culled view direction would show only the one facet facing the camera; see the
+/// parent module.
 #[must_use]
 pub fn profile_visible(normal: Vec3) -> bool {
     normal.x.hypot(normal.z) > NORMAL_EPS
@@ -55,7 +55,7 @@ pub struct PanelLayout {
     pub center_y: f32,
     /// World-units -> pixels scale factor for this panel.
     pub scale: f32,
-    /// Radius (px) of the index-wheel tick ring (crown/pavilion only).
+    /// Radius (px) of the index-wheel tick ring. The profile panel draws no ring.
     pub wheel_radius_px: f32,
     /// Clip rectangle (inclusive) this panel is allowed to paint into, so a
     /// panel's fill/edges/labels never bleed into a neighboring column.
@@ -94,10 +94,8 @@ pub const fn pavilion_project(p: DVec3, layout: &PanelLayout) -> (f32, f32, f32)
     (screen_x, screen_y, world_y)
 }
 
-/// The profile (side elevation) panel: `world_x` horizontal, `world_y` (height)
-/// vertical, `world_z` as depth (near wins) -- see the parent module's doc comment
-/// for why [`profile_visible`] rather than a single dot-product cull decides what
-/// reaches this projection.
+/// The profile (side elevation) panel: `world_x` horizontal, `world_y` vertical, `world_z` as
+/// depth (near wins). Facets reach it through [`profile_visible`].
 pub const fn profile_project(p: DVec3, layout: &PanelLayout) -> (f32, f32, f32) {
     let (world_x, world_y, world_z) = (narrow(p.x), narrow(p.y), narrow(p.z));
     let screen_x = layout.center_x + world_x * layout.scale;
@@ -116,8 +114,7 @@ pub const fn project_point(p: DVec3, layout: &PanelLayout) -> (f32, f32, f32) {
     }
 }
 
-/// One flat normal per facet, indexed by `facet_id` -- identical in spirit to
-/// `raster::SolidRasterizer::render`'s own local table.
+/// One flat normal per facet, indexed by `facet_id`. Facets absent from the mesh stay `None`.
 pub fn facet_normals(mesh: &SolidMesh) -> Vec<Option<DVec3>> {
     let facet_count = mesh.rings.iter().map(|(id, _)| id + 1).max().unwrap_or(0);
     let mut facet_normal: Vec<Option<DVec3>> = vec![None; facet_count];
@@ -131,17 +128,14 @@ pub fn facet_normals(mesh: &SolidMesh) -> Vec<Option<DVec3>> {
     facet_normal
 }
 
-/// A mesh's own `(xz_radius, profile_radius, profile_reach)` -- the world-space radii
-/// [`build_panel_layout`] scales the crown/pavilion and profile panels against,
-/// shared between [`compute_layout`] (three columns) and
-/// [`compute_single_panel_layout`] (one column spanning the whole frame).
+/// A mesh's `(xz_radius, profile_radius, profile_reach)`: the world radii the panels are
+/// scaled against (see [`build_panel_layout`]).
 ///
-/// `profile_radius` is the half of the larger bounding-box side (the original scale, which
-/// small frames keep); `profile_reach` is the farthest the stone reaches from the profile's
-/// own centre point (world `x = 0`, `y = 0`, the girdle plane), which is where
-/// [`profile_project`] places it: a stone whose pavilion or crown is deeper than its half
-/// height reaches past `profile_radius`, so a large frame scales the profile by the reach
-/// instead and the picture stays above its caption.
+/// Shared by [`compute_layout`] and [`compute_single_panel_layout`]. `profile_radius` is half
+/// the larger bounding-box side. `profile_reach` is the farthest the stone reaches from the
+/// profile's centre (world `x = 0`, `y = 0`, the girdle plane), where [`profile_project`] puts
+/// that centre. A deep pavilion or crown can reach past `profile_radius`, so large frames scale
+/// the profile by the reach, which keeps the picture above its caption.
 fn mesh_radii(mesh: &SolidMesh) -> (f32, f32, f32) {
     let (mut min_x, mut max_x, mut min_y, mut max_y) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
     let mut xz_radius = 1e-6f64;
@@ -163,8 +157,8 @@ fn mesh_radii(mesh: &SolidMesh) -> (f32, f32, f32) {
     )
 }
 
-/// The world radius the profile panel is scaled against in a frame `height` pixels tall:
-/// the original half-extent in a small frame (pinned output), the farthest reach from the
+/// The world radius the profile panel is scaled against in a frame `height` pixels tall: the
+/// half-extent in a small frame, so small frames render as before, and the reach from the
 /// panel's centre in a [`LARGE_FRAME_MIN_HEIGHT`] frame.
 const fn profile_world_radius(radii: (f32, f32, f32), height: u32) -> f32 {
     if height >= LARGE_FRAME_MIN_HEIGHT {
@@ -186,10 +180,11 @@ struct GridMetrics {
     wheel_frac: f32,
 }
 
-/// A frame at least this tall is a viewport or sheet picture, not a thumbnail: its
-/// captions and tooth numbers are scaled up ([`text_scale`]), the captions sit under their
-/// panel ([`caption_y`]) and the tick ring is smaller so the numbers stay inside the box.
-/// Shorter frames keep the original layout exactly (the pinned thumbnails and tests).
+/// A frame at least this tall is a viewport or sheet picture, not a thumbnail.
+///
+/// Its captions and tooth numbers are scaled up ([`text_scale`]), the captions sit under their
+/// panel ([`caption_y`]) and the tick ring is smaller so the numbers stay inside the box. Shorter
+/// frames keep the existing layout, so thumbnails keep their output.
 pub const LARGE_FRAME_MIN_HEIGHT: u32 = 300;
 
 /// The tick ring's radius fraction in a [`LARGE_FRAME_MIN_HEIGHT`] frame: the tooth numbers
@@ -197,16 +192,15 @@ pub const LARGE_FRAME_MIN_HEIGHT: u32 = 300;
 /// do not run together ("24" + "24") and none is clipped by the frame edge.
 const LARGE_WHEEL_FRAC: f32 = 0.74;
 
-/// The tick ring's radius fraction in a smaller frame (the original layout).
+/// The tick ring's radius fraction in a frame shorter than [`LARGE_FRAME_MIN_HEIGHT`].
 const SMALL_WHEEL_FRAC: f32 = 0.86;
 
 /// Gap, in pixels, around a [`LARGE_FRAME_MIN_HEIGHT`] frame's captions: between the frame
 /// edge and the top of the panels, and between a panel and its caption.
 const CAPTION_GAP: f32 = 8.0;
 
-/// The pixel multiple the panel captions and tooth numbers are drawn at in a frame
-/// `height` pixels tall: `1` (the original 5x7 glyphs) below [`LARGE_FRAME_MIN_HEIGHT`] and
-/// up to 799, `2` from 800.
+/// The pixel multiple the panel captions and tooth numbers are drawn at in a frame `height`
+/// pixels tall: `1` below 800 (the glyphs are 5x7 pixels), `2` from 800.
 #[must_use]
 pub fn text_scale(height: u32) -> u32 {
     if height < LARGE_FRAME_MIN_HEIGHT {
@@ -216,13 +210,13 @@ pub fn text_scale(height: u32) -> u32 {
     }
 }
 
-/// The caption's top edge in a frame `frame_height` pixels tall: the original top row
-/// ([`SMALL_CAPTION_Y`]) in a small frame; in a large one directly under the panel's own
-/// picture (the tooth numbers end `1.2 * wheel_radius_px` from the centre), never closer
-/// than [`CAPTION_GAP`] to the frame's bottom edge.
+/// The caption's top edge in a frame `frame_height` pixels tall.
 ///
-/// A caption on the top edge was half hidden by the viewport's border and the toolbar laid
-/// over the picture there; the bottom of the frame is free of both.
+/// In a small frame it is [`SMALL_CAPTION_Y`]; in a large one it sits under the panel's picture,
+/// but never closer than [`CAPTION_GAP`] to the bottom edge.
+///
+/// The tooth numbers end `1.2 * wheel_radius_px` from the centre. The bottom edge is clear of
+/// the viewport border and toolbar, which overlay the top edge.
 pub fn caption_y(layout: &PanelLayout, frame_height: u32) -> f32 {
     if frame_height < LARGE_FRAME_MIN_HEIGHT {
         return SMALL_CAPTION_Y;
@@ -292,9 +286,8 @@ fn build_panel_layout(
     }
 }
 
-/// Computes the three panels' fixed pixel layout from the mesh's own extent.
-/// Falls back to a unit-scale layout for an empty mesh so a caller never has to
-/// special-case "nothing to draw yet".
+/// Computes the three panels' pixel layout from the mesh's own extent. An empty mesh gets the
+/// minimum radius, so a caller needs no special case for "nothing to draw yet".
 pub fn compute_layout(mesh: &SolidMesh, width: u32, height: u32) -> [PanelLayout; 3] {
     let radii = mesh_radii(mesh);
     let xz_radius = radii.0;
@@ -313,13 +306,11 @@ pub fn compute_layout(mesh: &SolidMesh, width: u32, height: u32) -> [PanelLayout
     ]
 }
 
-/// The single-panel counterpart to [`compute_layout`]: one column spanning
-/// the WHOLE frame width instead of a third of it, for [`super::render_diagram_single_panel`]'s
-/// "enlarge this panel" mode. Deliberately a fresh layout computation rather than
-/// a crop of [`compute_layout`]'s output -- cropping would enlarge the panel's
-/// PIXELS without changing its `scale`, leaving the facet body just as small
-/// relative to the (now much bigger) available column as it was in the
-/// three-column layout, defeating the point of "enlarge".
+/// The single-panel counterpart to [`compute_layout`]: one column spanning the whole frame width,
+/// for [`super::render_diagram_single_panel`].
+///
+/// It is computed afresh rather than cropped from [`compute_layout`]: a crop would enlarge the
+/// pixels but not the `scale`, so the facet body would stay as small as in the three-column layout.
 pub fn compute_single_panel_layout(
     mesh: &SolidMesh,
     width: u32,

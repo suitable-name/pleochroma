@@ -1,6 +1,7 @@
-//! The inclusion and play-of-color choice a design file states, in the form the library stores
-//! (`diagram_inclusion_effects`): the text of the two `[render_effects]` tables, which the
-//! cached-render fingerprints hash. A file that states neither reads as `None`.
+//! The inclusion and play-of-color choice a design file states, as the library stores it.
+//!
+//! It is the text of the two `[render_effects]` tables (`diagram_inclusion_effects`), which
+//! the cached-render fingerprints hash. A file that states neither reads as `None`.
 
 use pleochroma_formats::native::design::{self, DesignFile};
 
@@ -17,9 +18,9 @@ pub fn inclusion_effects_of(file: &DesignFile) -> Option<String> {
 
 /// [`inclusion_effects_of`] for a stored design file's bytes.
 ///
-/// The bytes are a `.psdd` file; `None` for bytes that are not a readable
-/// design file. Used to backfill the table for a library that predates it and to follow a
-/// mirrored design's attached file.
+/// The bytes are a `.psdd` file; `None` for bytes that are not a readable design file.
+/// Used to backfill the table for existing rows and to follow a mirrored design's attached
+/// file.
 #[must_use]
 pub fn inclusion_effects_of_bytes(bytes: &[u8]) -> Option<String> {
     let text = std::str::from_utf8(bytes).ok()?;

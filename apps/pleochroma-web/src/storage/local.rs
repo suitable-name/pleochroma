@@ -1,10 +1,11 @@
 //! `localStorage` for small string keys: settings, guide state, cutting marks, GPU
-//! admission records. Survives tab and browser restarts, shared by every tab of the
-//! origin.
+//! admission records.
 //!
-//! Every failure (storage blocked, private mode, quota, a security error from the
-//! accessor itself) is swallowed: a read returns `None`, a write returns `false`. Callers
-//! decide whether to fall back (see [`super::small_get`]) or to log.
+//! The store is shared by every tab of the origin and kept across restarts.
+//!
+//! Failures (blocked storage, private mode, quota) are swallowed: a read returns `None`,
+//! a write returns `false`. Callers decide whether to fall back (see [`super::small_get`])
+//! or to log.
 
 fn storage() -> Option<web_sys::Storage> {
     web_sys::window()?.local_storage().ok().flatten()

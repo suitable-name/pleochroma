@@ -27,25 +27,21 @@ use std::{num::ParseFloatError, str::SplitWhitespace};
 ///   feed the meet solver and stone measurement directly, where a non-finite value
 ///   would otherwise poison a result silently instead of failing loudly;
 /// - the symmetry order is exactly zero, or the refractive index is not greater than
-///   `1.0` (see [`AscParseError::SymmetryOrderZero`]/[`AscParseError::RefractiveIndexOutOfRange`]);
+///   `1.0` (see [`AscParseError::SymmetryOrderZero`] and
+///   [`AscParseError::RefractiveIndexOutOfRange`]);
 /// - the gear tooth count is zero or larger than [`AscParseError::MAX_GEAR_TEETH`] in
 ///   magnitude (see [`AscParseError::GearTeethZero`]/[`AscParseError::GearTeethTooLarge`]);
 /// - the file contains no valid `a` records at all.
 ///
-/// Everything else is handled leniently, but not always silently: a duplicate `g`
-/// line (last value wins), free text following the last facet tier that is not a
-/// real wrapped continuation, and a stray token inside an `a` record that is
-/// neither a number nor a name/notes marker are all collected into
-/// [`AscSchedule::warnings`] rather than rejected outright or silently folded into
-/// tier data. A facet name with no indices is kept as a single azimuth-0 tier
-/// (matching how table/culet rows are commonly written); unrecognized lines outside
-/// any tier are skipped with a warning (decades of hand-edited files carry stray
-/// header-area annotations, and undocumented preform records would land here); the
-/// well-documented but rare `g` line missing its leading keyword (seen once in the
-/// real corpus, as a bare `"96 0.0"`) is tolerated as an implicit gear line; and a
-/// `g`/`y`/`I` keyword glued to its value (`g96 0.0`, `y8y`, `I1.54`, written by
-/// some third-party exporters and printed in the German manual) is split apart with
-/// a warning.
+/// Everything else is handled leniently, and each such case is recorded in
+/// [`AscSchedule::warnings`] rather than rejected or silently folded into tier data:
+/// a duplicate `g` line (last value wins), free text after the last facet tier, a stray
+/// token inside an `a` record that is neither a number nor a name/notes marker, and an
+/// unrecognized line outside any tier (skipped). A facet name with no indices becomes a
+/// single azimuth-0 tier, as table and culet rows are commonly written. A `g` line
+/// missing its leading keyword (a bare `"96 0.0"`) is read as the gear line (before the
+/// first tier, if none is known yet), and a
+/// `g`/`y`/`I` keyword glued to its value (`g96 0.0`, `y8y`, `I1.54`) is split apart.
 ///
 /// A leading UTF-8 byte-order mark is ignored, and the line terminator (`\n` or
 /// `\r\n`) is recorded in [`AscSchedule::line_ending`]. This takes text; for raw
@@ -56,10 +52,9 @@ pub fn parse_asc(content: &str) -> Result<AscSchedule, AscParseError> {
 
 /// [`parse_asc`], and the 1-based line of the gear record the reader kept.
 ///
-/// The line is the last `g` record (a repeated one overrides the earlier), a glued
-/// `g96 0.0` and the bare `96 0.0` quirk included, because the line comes from the reader
-/// itself and not from a second scan that could read the text differently. It is `None`
-/// only for text that has no gear line, which is an error anyway.
+/// The line is the last `g` record, including a glued `g96 0.0` and a bare `96 0.0`. It is
+/// taken from the reader itself, so it cannot disagree with what was parsed. It is `None`
+/// only for text with no gear line, which is an error anyway.
 ///
 /// # Errors
 ///
@@ -298,13 +293,10 @@ impl ParseState {
     /// `a` record, a bare gear line, or stray text.
     fn read_other_line(&mut self, line_no: usize, line: &str) {
         if let Some((_, buf)) = self.pending.as_mut() {
-            // Real wrapped continuations verified in the corpus all start with a
-            // bare index number, an "n" name marker, or a "G" notes marker (see
-            // the module doc comment) -- a line that starts with anything else
-            // (e.g. a trailing "Designed 1999 by X" annotation left after the
-            // last tier) is not a continuation at all, just stray free text that
-            // happens to follow an still-open tier record. Folding it in used to
-            // fabricate bogus indices/names; now it is a warning instead.
+            // A continuation starts with a bare index number, an "n" name marker or a
+            // "G" notes marker. Any other line (such as a trailing "Designed 1999 by X"
+            // annotation) is free text and is only warned about, so it cannot add
+            // bogus indices or names.
             let first_tok = line.split_whitespace().next();
             let looks_like_continuation =
                 first_tok.is_some_and(|t| t.parse::<f64>().is_ok() || t == "n" || t == "G");
@@ -316,10 +308,9 @@ impl ParseState {
                 ));
             }
         } else if self.gear_teeth.is_none() && !self.seen_any_tier {
-            // Tolerate the one real-world quirk seen in the corpus: a 'g' line
-            // that lost its leading keyword, e.g. "96 0.0" instead of
-            // "g 96 0.0". Only attempted before the first tier, and only for a
-            // line that looks exactly like a bare gear record.
+            // A 'g' line that lost its leading keyword ("96 0.0" for "g 96 0.0") is
+            // accepted. Only tried before the first tier, and only for a line that
+            // looks exactly like a bare gear record.
             let bare: Vec<&str> = line.split_whitespace().collect();
             if bare.len() == 2
                 && let (Ok(teeth), Ok(refang)) = (bare[0].parse::<f64>(), bare[1].parse::<f64>())
@@ -330,14 +321,11 @@ impl ParseState {
                 self.gear_line = Some(line_no);
                 self.schedule.gear_reference_angle = refang;
             } else {
-                // An unrecognized header-area line: skipped leniently (decades
-                // of hand-edited files carry stray annotations), but visible.
+                // An unrecognized header-area line: skipped, with a warning.
                 push_unrecognized_line_warning(&mut self.schedule.warnings, line_no, line);
             }
         } else {
-            // Unrecognized line with no open tier and the gear already known
-            // (or after the H/F block): skipped leniently, but visible --
-            // an undocumented preform record would land here.
+            // Unrecognized line with no open tier: skipped, with a warning.
             push_unrecognized_line_warning(&mut self.schedule.warnings, line_no, line);
         }
     }
@@ -432,7 +420,7 @@ const INTEGRAL_TOLERANCE: f64 = 1e-9;
 /// small enough to fit an `i32` -- used for the `g` (gear teeth) header field, which
 /// can legitimately be negative (an internal handedness convention), so this checks
 /// magnitude, not sign. A plain `as i32` would silently truncate or saturate; this
-/// instead reports the exact line and offending token.
+/// reports the exact line and token instead.
 #[expect(
     clippy::cast_possible_truncation,
     reason = "the value is checked to be finite, whole and within i32 range before the cast"
@@ -468,8 +456,7 @@ fn require_integral_i32(
 /// zero-tooth gear is nonsensical. A count beyond [`AscParseError::MAX_GEAR_TEETH`] in
 /// magnitude is rejected too: the index wheel draws and hit-tests once per tooth, so an
 /// `i32`-sized count would stall every consumer. Shared by both places a gear tooth
-/// count is parsed -- the `g` line itself, and the bare-gear-line fallback that
-/// tolerates one real corpus file's missing `g` keyword.
+/// count is parsed: the `g` line itself, and the bare-gear-line fallback.
 fn require_nonzero_gear_teeth(
     value: f64,
     line_no: usize,
@@ -555,11 +542,9 @@ fn parse_tier(
     let mut index_names: Vec<(usize, String)> = Vec::new();
     let mut note_tokens: Vec<&str> = Vec::new();
     let mut in_notes = false;
-    // Set right after consuming an "n" marker: GemCAD facet names can themselves be
-    // plain numbers (e.g. "n 1", "n 4" -- see sample_4208.asc), so a token cannot be
-    // classified as an index vs. a name by whether it parses as a number alone. The
-    // token immediately following "n" is unconditionally the name; everything else
-    // that parses as a number is an index.
+    // Set right after consuming an "n" marker. Facet names can be plain numbers
+    // ("n 1"), so the token right after "n" is always the name, and any other
+    // number is an index.
     let mut expect_name = false;
 
     for tok in &tokens[2..] {
@@ -567,11 +552,9 @@ fn parse_tier(
             note_tokens.push(tok);
             continue;
         }
-        // Must run before the "n"/"G" marker checks below: GemCAD facet names can
-        // themselves be exactly "G" (e.g. a girdle tier literally named "G" -- see
-        // sample corpus files where "n G" is followed by indices or by another "n G"
-        // group), so the token right after "n" is unconditionally consumed as the
-        // name even when it reads like the notes marker.
+        // Runs before the "n"/"G" marker checks below: a facet name can be exactly
+        // "G" (a girdle tier), so the token right after "n" is always the name, even
+        // when it reads like the notes marker.
         if expect_name {
             expect_name = false;
             // GemCAD binds a name to the index written just before it; a name
@@ -604,12 +587,9 @@ fn parse_tier(
             }
             indices.push(v);
         } else {
-            // A token that is neither a number nor an "n"/"G" marker, and not
-            // immediately after an "n" marker either: not seen in the sampled corpus
-            // as a genuine facet name, and indistinguishable from stray free text
-            // (e.g. a garbled index token, or a trailing annotation folded in as a
-            // continuation) -- collected as a warning and dropped rather than
-            // silently becoming part of the tier's name.
+            // Neither a number nor a marker, and not right after "n": indistinguishable
+            // from a garbled index or stray text, so it is warned about and dropped
+            // rather than becoming part of the tier's name.
             warnings.push(format!(
                 "line {line_no}: ignored token that is neither a number nor a name/notes marker: {tok:?}"
             ));
@@ -666,9 +646,7 @@ fn parse_angle_and_mast(
             // The culet: "positive unless the facet is a culet (0° pavilion) facet".
             return Ok((-0.0, -mast));
         }
-        // Undocumented: the manual only ever makes a culet's distance negative (no
-        // real catalogue file does this either). Kept as written; geometry uses the
-        // magnitude on the angle's own side.
+        // Outside the documented conventions: the magnitude is used on the angle's side.
         warnings.push(format!(
             "line {line_no}: negative mast {mast} on a nonzero-angle tier ({angle_deg} deg); \
              its magnitude is used"

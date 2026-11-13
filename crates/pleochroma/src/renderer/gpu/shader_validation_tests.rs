@@ -3,7 +3,7 @@
 //!
 //! The build script only concatenates the transport units; nothing validates WGSL
 //! before a pipeline is created on a real device. These tests make a shader syntax
-//! or type error a `cargo test` failure on any machine, GPU or not. The three
+//! or type error a `cargo test` failure on any machine, GPU or not. The
 //! generated units are read from `OUT_DIR` exactly as `frame.rs` and
 //! `transport_check` include them, so what is validated here is what ships.
 
@@ -40,6 +40,17 @@ const SHADERS: &[(&str, &str)] = &[
         )),
     ),
     (
+        "spectral_transport_staged.generated.wgsl",
+        include_str!(concat!(
+            env!("OUT_DIR"),
+            "/spectral_transport_staged.generated.wgsl"
+        )),
+    ),
+    (
+        "stage_prepare.wgsl",
+        include_str!("../shaders/stage_prepare.wgsl"),
+    ),
+    (
         "camera_ray.wgsl",
         include_str!("../shaders/camera_ray.wgsl"),
     ),
@@ -67,6 +78,10 @@ const SHADERS: &[(&str, &str)] = &[
     (
         "reduce_xyz.wgsl",
         include_str!("../shaders/reduce_xyz.wgsl"),
+    ),
+    (
+        "reduce_xyz_live.wgsl",
+        include_str!("../shaders/reduce_xyz_live.wgsl"),
     ),
     (
         "rng_equivalence.wgsl",
@@ -170,15 +185,69 @@ fn every_shader_parses_and_validates() {
         .iter()
         .filter_map(|(name, source)| validate(name, source).err())
         .collect();
+    #[cfg(feature = "gpu")]
+    let failures = {
+        use crate::renderer::gpu::frame::material_class;
+        let mut failures = failures;
+        // The shadow, the mirror and both select the one tray variant; each combination with and
+        // without the tables, ordinary and live, is validated.
+        for tray in [
+            material_class::TRAY_SHADOW,
+            material_class::TRAY_MIRROR,
+            material_class::TRAY_SHADOW | material_class::TRAY_MIRROR,
+        ] {
+            for tables in [false, true] {
+                let class = tray
+                    | if tables {
+                        material_class::OPTICS_TABLES
+                    } else {
+                        0
+                    };
+                let source =
+                    crate::renderer::gpu::frame::tray_shadow_source::megakernel_source_for(class)
+                        .expect("tray source anchors match");
+                let live =
+                    crate::renderer::gpu::frame::tray_shadow_source::megakernel_live_source_for(
+                        class,
+                    )
+                    .expect("live tray source anchors match");
+                for (label, text) in [
+                    ("tray megakernel", source.as_ref()),
+                    ("tray live megakernel", live),
+                ] {
+                    if let Err(error) = validate(label, text) {
+                        failures.push(error);
+                    }
+                }
+            }
+        }
+        // The lookup twin kernel compiled on device: the lookup prefix (everything before
+        // `ts_environment`, which needs the production parameters) plus the check kernel.
+        let lookup = crate::renderer::gpu::frame::tray_shadow_source::TRAY_SHADOW_WGSL
+            .split("fn ts_environment(")
+            .next()
+            .expect("lookup prefix");
+        let check = format!(
+            "{lookup}\n{}",
+            include_str!("../shaders/transport_functions/tray_shadow_check.wgsl")
+        );
+        if let Err(error) = validate("tray_shadow_check.wgsl", &check) {
+            failures.push(error);
+        }
+        // The same prefix holds `tm_floor`, the Tray Reflection's floor twin kernel.
+        let mirror_check = format!(
+            "{lookup}\n{}",
+            include_str!("../shaders/transport_functions/tray_mirror_check.wgsl")
+        );
+        if let Err(error) = validate("tray_mirror_check.wgsl", &mirror_check) {
+            failures.push(error);
+        }
+        failures
+    };
     assert!(
         failures.is_empty(),
-        "shader validation failed:
-{}",
-        failures.join(
-            "
-
-"
-        )
+        "shader validation failed:\n{}",
+        failures.join("\n\n")
     );
 }
 
@@ -491,6 +560,41 @@ const TRANSPORT_FUNCTIONS_PIECE_SOURCES: &[(&str, &str)] = &[
 const ENVIRONMENT_WGSL_SOURCE: &str = include_str!("../shaders/environment.wgsl");
 const ENVIRONMENT_WGSL_ENTRY: (&str, &str) = ("environment.wgsl", ENVIRONMENT_WGSL_SOURCE);
 
+/// The hand-written pieces of the Ray-Traced (Whitted) kernel, by file name (not `probe.wgsl`, a
+/// test-only addition). Its own copies of `exp_poly` and `hdr_world_to_map` must match the
+/// megakernel's; the concave-tool functions it uses are taken from
+/// `transport_physics/10_concave_tools.wgsl` by `build.rs`, so they are not copies.
+const WHITTED_PIECE_SOURCES: &[(&str, &str)] = &[
+    (
+        "whitted/00_bindings.wgsl",
+        include_str!("../shaders/whitted/00_bindings.wgsl"),
+    ),
+    (
+        "whitted/10_exp.wgsl",
+        include_str!("../shaders/whitted/10_exp.wgsl"),
+    ),
+    (
+        "whitted/20_studio.wgsl",
+        include_str!("../shaders/whitted/20_studio.wgsl"),
+    ),
+    (
+        "whitted/30_environment.wgsl",
+        include_str!("../shaders/whitted/30_environment.wgsl"),
+    ),
+    (
+        "whitted/40_intersect.wgsl",
+        include_str!("../shaders/whitted/40_intersect.wgsl"),
+    ),
+    (
+        "whitted/50_chain.wgsl",
+        include_str!("../shaders/whitted/50_chain.wgsl"),
+    ),
+    (
+        "whitted/60_frame.wgsl",
+        include_str!("../shaders/whitted/60_frame.wgsl"),
+    ),
+];
+
 /// Deletes `// ...` line comments (this codebase's WGSL has no `/* */` block comments
 /// and no string literals containing `//`, checked), so a comment-only edit to one copy
 /// of a duplicated function never fails the identity check below.
@@ -529,26 +633,24 @@ fn lowercase_hex_literals(text: &str) -> String {
 }
 
 /// Comment-stripped, hex-lower-cased, trailing-whitespace-trimmed form of a `{ ... }`
-/// function body, so two copies that differ only in a comment, a literal's hex case,
-/// or trailing whitespace still compare equal -- see [`strip_line_comments`] and
-/// [`lowercase_hex_literals`] for what is (and, by omission, is not) normalised away.
+/// function body without blank lines, so two copies that differ only in a comment (of any
+/// length), a literal's hex case or trailing whitespace still compare equal. See
+/// [`strip_line_comments`] and [`lowercase_hex_literals`] for what is (and, by omission, is
+/// not) normalised away.
 ///
-/// There is deliberately NO alias table here: `environment.wgsl` is compiled standalone
-/// (Phase 1's self-contained test target) and cannot reuse the megakernel pieces'
-/// symbols, so it carries its own copies of e.g. `asymmetric_gaussian` and
-/// `rgb_to_spectral_radiance` -- under the SAME names as
-/// `transport_physics/05_nee_env_sampling.wgsl`, precisely so that
-/// [`same_named_functions_agree_everywhere_they_are_defined`] compares the two bodies
-/// and a formula change to either copy fails the test until it is mirrored. (Until
-/// 2026-09-28 the `environment.wgsl` copies were `hdr_`-prefixed and an alias table
-/// papered over the different callee name in `hdr_env_radiance_at`, which meant the
-/// helpers themselves were never compared.)
+/// There is no alias table: `environment.wgsl` is compiled standalone and cannot reuse the
+/// megakernel pieces' symbols, so it carries its own copies of e.g. `asymmetric_gaussian` and
+/// `rgb_to_spectral_radiance`, under the same names as
+/// `transport_physics/05_nee_env_sampling.wgsl`. The test
+/// [`same_named_functions_agree_everywhere_they_are_defined`] compares the bodies, so a formula
+/// change to one copy fails until the other is mirrored.
 fn normalize_wgsl_body(body: &str) -> String {
     let stripped = strip_line_comments(body);
     let lowered = lowercase_hex_literals(&stripped);
     lowered
         .lines()
         .map(str::trim_end)
+        .filter(|line| !line.is_empty())
         .collect::<Vec<_>>()
         .join("\n")
         .trim()
@@ -623,9 +725,9 @@ fn extract_top_level_fns(src: &str) -> Vec<(String, String)> {
 }
 
 /// Every top-level function defined across `transport_physics/*`, `transport_bounce/*`,
-/// `transport_functions/*`, and `environment.wgsl`, as `(function name, source label,
-/// normalized body)` -- the input population [`same_named_functions_agree_everywhere_
-/// they_are_defined`] groups by name.
+/// `transport_functions/*`, `environment.wgsl` and the Whitted pieces (`whitted/*`), as
+/// `(function name, source label, normalized body)` -- the input population
+/// [`same_named_functions_agree_everywhere_they_are_defined`] groups by name.
 fn all_known_fn_definitions() -> Vec<(String, &'static str, String)> {
     let mut all = Vec::new();
     for &(label, src) in TRANSPORT_PHYSICS_PIECE_SOURCES
@@ -633,6 +735,7 @@ fn all_known_fn_definitions() -> Vec<(String, &'static str, String)> {
         .chain(TRANSPORT_BOUNCE_PIECE_SOURCES)
         .chain(TRANSPORT_FUNCTIONS_PIECE_SOURCES)
         .chain(std::iter::once(&ENVIRONMENT_WGSL_ENTRY))
+        .chain(WHITTED_PIECE_SOURCES)
     {
         for (name, body) in extract_top_level_fns(src) {
             all.push((name, label, body));
@@ -641,18 +744,13 @@ fn all_known_fn_definitions() -> Vec<(String, &'static str, String)> {
     all
 }
 
-/// Pins every function NAME that is defined more than once across
-/// `transport_physics/*`, `transport_bounce/*`, `transport_functions/*`, and
-/// `environment.wgsl` to have the IDENTICAL body (modulo comments/hex-case/trailing
-/// whitespace) everywhere it appears -- e.g. `environment.wgsl`'s own
-/// `sample_studio_rig`/`studio_dispatch`/`cie_1931_cmf`/... against the megakernel
-/// pieces' copies of the same functions. See this file's header comment for why
-/// `environment.wgsl` is in this set at all (it duplicates rather than shares).
+/// Pins every function name that is defined more than once across the WGSL pieces (see
+/// [`all_known_fn_definitions`]) to one body, modulo comments, hex-literal case and trailing
+/// whitespace. For example, `environment.wgsl`'s `sample_studio_rig` must match the megakernel
+/// pieces' copy (see the duplicate-function note above).
 ///
-/// A name defined exactly once (most of them -- these pieces are split by
-/// responsibility precisely so most functions have ONE home) is not compared against
-/// anything and cannot fail this test; the canary assertion at the end guards against
-/// the extraction itself silently matching nothing.
+/// A name defined once is not compared and cannot fail this test. The canary assertion at the
+/// end guards against the extraction matching nothing.
 #[test]
 fn same_named_functions_agree_everywhere_they_are_defined() {
     let mut by_name: std::collections::BTreeMap<String, Vec<(&'static str, String)>> =
@@ -683,8 +781,8 @@ fn same_named_functions_agree_everywhere_they_are_defined() {
     assert!(
         duplicated_names >= 15,
         "expected at least 15 function names to be defined in more than one of \
-         transport_physics/*, transport_bounce/*, transport_functions/*, and \
-         environment.wgsl (got {duplicated_names}) -- if this legitimately dropped, \
+         transport_physics/*, transport_bounce/*, transport_functions/*, \
+         environment.wgsl and whitted/* (got {duplicated_names}) -- if this legitimately dropped, \
          update the number; if it is 0, `extract_top_level_fns` most likely stopped \
          matching anything and this test is now vacuous"
     );
@@ -696,14 +794,87 @@ fn same_named_functions_agree_everywhere_they_are_defined() {
     );
 }
 
+/// Tray variants intentionally change the two escapes, the two exit-split arms (Rule M) and entry
+/// reachability; a live variant also changes ray generation. Every other function stays identical
+/// to the corresponding shipped/table base. This separate comparison keeps the shipped-unit
+/// cross-copy check above strict instead of globally excluding the routed functions.
+#[cfg(feature = "gpu")]
+#[test]
+fn shadow_variants_change_only_the_routed_functions() {
+    use crate::renderer::gpu::frame::{material_class, tray_shadow_source};
+    use std::collections::BTreeMap;
+    let mut shadow_functions = BTreeMap::new();
+    for tables in [false, true] {
+        let base_class = if tables {
+            material_class::OPTICS_TABLES
+        } else {
+            0
+        };
+        let base = tray_shadow_source::megakernel_source_for(base_class).expect("base source");
+        let base_functions: BTreeMap<_, _> = extract_top_level_fns(&base).into_iter().collect();
+        let class = base_class | material_class::TRAY_SHADOW;
+        let ordinary = tray_shadow_source::megakernel_source_for(class).expect("shadow source");
+        let live =
+            tray_shadow_source::megakernel_live_source_for(class).expect("live shadow source");
+        for (is_live, source) in [(false, ordinary.as_ref()), (true, live)] {
+            let definitions = extract_top_level_fns(source);
+            let functions: BTreeMap<_, _> = definitions.iter().cloned().collect();
+            assert_eq!(
+                definitions.len(),
+                functions.len(),
+                "duplicate function in variant"
+            );
+            for (name, body) in &base_functions {
+                let variant_body = functions.get(name).expect("base function preserved");
+                if matches!(
+                    name.as_str(),
+                    "bounce_extend"
+                        | "bounce_arm_generic_core"
+                        | "bounce_arm_uni_internal_core"
+                        | "try_split_exit_channel"
+                        | "transport_main"
+                ) || (is_live && name == "transport_generate_ray")
+                {
+                    assert_ne!(variant_body, body, "route did not alter {name}");
+                } else {
+                    assert_eq!(variant_body, body, "unexpected variant change to {name}");
+                }
+            }
+            for (name, body) in functions
+                .iter()
+                .filter(|(name, _)| name.starts_with("ts_") || name.starts_with("tm_"))
+            {
+                if let Some(previous) = shadow_functions.insert(name.clone(), body.clone()) {
+                    assert_eq!(
+                        &previous, body,
+                        "shadow helper {name} differs between variants"
+                    );
+                }
+            }
+            assert_eq!(
+                functions.len(),
+                base_functions.len() + shadow_functions.len()
+            );
+        }
+    }
+    assert!(shadow_functions.contains_key("ts_factor"));
+    assert!(shadow_functions.contains_key("ts_studio_environment_tray"));
+    // The Tray Reflection's helpers are defined once each in the tray variant (the
+    // `functions.len()` equality above also fails on a duplicate or a stray `tm_` helper).
+    for name in ["tm_floor", "tm_on", "tm_split_blocked", "tm_floor_bounce"] {
+        assert!(shadow_functions.contains_key(name), "{name}");
+    }
+}
+
 // ---------------------------------------------------------------------------------
 // Stream-salt coverage: `rng_check`'s GPU/CPU equivalence self-test (`renderer::gpu::rng_check`)
-// needs a live GPU adapter, so it never runs under plain `cargo test`, and it only
-// hashes against 9 of the 13 real per-bounce stream salts -- DISTANCE_SAMPLE_STREAM,
-// PHASE_DIR_U/V_STREAM, NEE_ENV_DIR_U/V_STREAM, and FROSTED_NEE_ENV_DIR_U/V_STREAM are
-// not among them. This is a text-level stand-in that needs no adapter: parse each of
-// those 7 constants' WGSL literal out of the shared shader source and compare it to the
-// real CPU constant in `optics::raytracer::sampling`.
+// needs a live GPU adapter, so plain `cargo test` skips it. It hashes 6 of the 13 per-bounce
+// stream salts; DISTANCE_SAMPLE_STREAM, PHASE_DIR_U/V_STREAM, NEE_ENV_DIR_U/V_STREAM and
+// FROSTED_NEE_ENV_DIR_U/V_STREAM are not among them. This text-level stand-in needs no adapter:
+// it parses each of those constants' WGSL literal out of the shared shader source and compares
+// it with the CPU constant in `optics::raytracer::sampling`. It also pins the exit-collection
+// flag bit as the megakernel prelude declares it, which the `rng_check` kernel's copies do not
+// prove.
 // ---------------------------------------------------------------------------------
 
 /// Parses `const NAME: u32 = 0xHEXu;` (or a decimal literal) for `name` out of `src`.
@@ -723,13 +894,18 @@ fn wgsl_u32_const(src: &str, name: &str) -> Option<u32> {
 }
 
 #[test]
-fn distance_and_nee_stream_salts_match_between_cpu_and_wgsl() {
-    use crate::optics::raytracer::sampling::{
-        DISTANCE_SAMPLE_STREAM, FROSTED_NEE_ENV_DIR_U_STREAM, FROSTED_NEE_ENV_DIR_V_STREAM,
-        NEE_ENV_DIR_U_STREAM, NEE_ENV_DIR_V_STREAM, PHASE_DIR_U_STREAM, PHASE_DIR_V_STREAM,
+fn stream_salts_and_flag_bits_match_between_cpu_and_wgsl() {
+    use crate::{
+        optics::raytracer::sampling::{
+            BIREFRINGENT_SPLIT_STREAM, DISTANCE_SAMPLE_STREAM, FRESNEL_BRANCH_STREAM,
+            FROSTED_NEE_ENV_DIR_U_STREAM, FROSTED_NEE_ENV_DIR_V_STREAM, MODE_COUPLING_STREAM,
+            NEE_ENV_DIR_U_STREAM, NEE_ENV_DIR_V_STREAM, PHASE_DIR_U_STREAM, PHASE_DIR_V_STREAM,
+            RUSSIAN_ROULETTE_STREAM,
+        },
+        renderer::buffers::GpuTransportParams,
     };
 
-    // All 9 `transport_physics` pieces concatenated: these 7 constants are declared in
+    // All 9 `transport_physics` pieces concatenated: these constants are declared in
     // `01_prelude_polarization.wgsl` and `04_scattering.wgsl`, but concatenating every
     // piece means this test does not need updating if a future edit moves one.
     let physics_concat: String = TRANSPORT_PHYSICS_PIECE_SOURCES
@@ -745,6 +921,11 @@ fn distance_and_nee_stream_salts_match_between_cpu_and_wgsl() {
         ("NEE_ENV_DIR_V_STREAM", NEE_ENV_DIR_V_STREAM),
         ("FROSTED_NEE_ENV_DIR_U_STREAM", FROSTED_NEE_ENV_DIR_U_STREAM),
         ("FROSTED_NEE_ENV_DIR_V_STREAM", FROSTED_NEE_ENV_DIR_V_STREAM),
+        ("FRESNEL_BRANCH_STREAM", FRESNEL_BRANCH_STREAM),
+        ("BIREFRINGENT_SPLIT_STREAM", BIREFRINGENT_SPLIT_STREAM),
+        ("MODE_COUPLING_STREAM", MODE_COUPLING_STREAM),
+        ("RUSSIAN_ROULETTE_STREAM", RUSSIAN_ROULETTE_STREAM),
+        ("PARAMS_COLLECT_BIT", GpuTransportParams::COLLECT_BIT),
     ];
     for &(name, cpu_value) in cases {
         let wgsl_value = wgsl_u32_const(&physics_concat, name).unwrap_or_else(|| {
@@ -752,10 +933,14 @@ fn distance_and_nee_stream_salts_match_between_cpu_and_wgsl() {
         });
         assert_eq!(
             wgsl_value, cpu_value,
-            "{name}: WGSL literal 0x{wgsl_value:08x} disagrees with CPU \
-             optics::raytracer::sampling::{name} (0x{cpu_value:08x})"
+            "{name}: WGSL literal 0x{wgsl_value:08x} disagrees with the CPU value \
+             0x{cpu_value:08x}"
         );
     }
+    // The polished-path draw is the plain salted hash, once, as
+    // `optics::raytracer::sampling::discrete_draw` states it.
+    assert_eq!(physics_concat.matches("fn discrete_draw(").count(), 1);
+    assert!(physics_concat.contains("return hash_u32(rng_seed ^ hash_u32(bounce ^ stream));"));
 }
 
 // The event wavefront checks (kernel binding tables, struct layouts, text invariants) live in

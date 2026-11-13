@@ -1,11 +1,10 @@
 //! Tests of what a save writes: from the results on screen, through the snapshot and the
 //! write, to the stored plan read back, against an in-memory library.
 //!
-//! The fixture layout uses designs 1 and 2. Each test gives the library those two designs
-//! at sizes (3.0 and 4.0 model units wide, ratios 1.5, 0.7, 0.9) other than the ones the
-//! plan is taken to have been planned with (2.0 and 2.5 wide, ratios 1.2, 0.5, 0.6), so a
-//! save that measured the library again could not pass for one that kept the planned
-//! shapes.
+//! The fixture layout uses designs 1 and 2. The library holds them at sizes (3.0 and 4.0 model
+//! units wide, ratios 1.5, 0.7, 0.9) that differ from the planned ones (2.0 and 2.5 wide, ratios
+//! 1.2, 0.5, 0.6), so a save that measured the library again could not pass for one that kept
+//! the planned shapes.
 
 use super::{
     LoadedFingerprints,

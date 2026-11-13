@@ -51,6 +51,19 @@ pub(super) fn drive(
     }
 }
 
+/// Tells `progress` what the six cut orders found: how many layouts and the weight of the
+/// heaviest, which the window shows under the progress bar while the rest of the plan runs.
+fn note_found(progress: &dyn Progress, layouts: &[RoughLayout]) {
+    let best_ct = layouts
+        .iter()
+        .map(|layout| layout.total_carat)
+        .fold(0.0_f64, f64::max);
+    progress.note(Note::Found {
+        layouts: layouts.len(),
+        best_ct,
+    });
+}
+
 /// The DP ticks of all six orders on `cells`.
 fn dp_ticks(cells: [usize; 3], ticks_per_cell: usize) -> usize {
     CutOrder::ALL
@@ -68,22 +81,18 @@ fn dp_passes(settings: &PlanSettings) -> usize {
     1 + usize::from(settings.stone_cap().is_some())
 }
 
-/// The `Grid` events of a shaped rough's two piece tables: the size table reports one per
-/// plane of the first axis; the clipped table is built one a-range at a time (see
-/// `build_clipped_table_parallel`) and each such job reports one event per
-/// `GRID_POLL_PIECES` entries, rounded up.
+/// The `Grid` events of a shaped rough's two piece tables: one per plane of the first axis
+/// for the size table, and for the clipped table one per `GRID_POLL_PIECES` entries of each
+/// a-range, rounded up (see `build_clipped_table_parallel`).
 ///
-/// The unit is one `PlanProgress::Grid` event, and only the first two tables count: the
-/// leave-one-out rounds build their own tables and report their own `Grid` events, which
+/// Only these two tables count. The leave-one-out rounds report their own `Grid` events, which
 /// the tracker routes to the alternatives stage once an `Alternatives` event was seen.
-/// Every a-range holds `range_count(1) * range_count(2)` entries, and there are
-/// `range_count(0)` of them.
 const fn shaped_grid_events(grid: &ShapedGrid) -> usize {
     let per_plane = grid.range_count(1) * grid.range_count(2);
     grid.cells[0] + grid.range_count(0) * grid_poll_events(per_plane)
 }
 
-/// The plain block: the legacy stages, plus the exact single-stone fits merged into the
+/// The plain block: the block stages, plus the exact single-stone fits merged into the
 /// final list.
 fn plan_plain_block(
     input: &PlanInput<'_>,
@@ -160,6 +169,7 @@ fn plan_block_layouts(
     let mixed = run_orders(lanes, progress, |order, on| {
         plan_rough_for_order(&grid, &table, &front, order, on)
     })?;
+    note_found(progress, &mixed);
     let (capped, alternatives) = match best_layout(&mixed) {
         Some(best) => (
             plan_design_cap(
@@ -197,8 +207,8 @@ fn plan_block_layouts(
 }
 
 /// A shaped rough: the positional DPs over the clipped table, the design-cap chain, the
-/// leave-one-out alternatives, the exact single-stone fits, the shaped uniform pass, the refinement of
-/// the best layouts and the final ranking.
+/// leave-one-out alternatives, the exact single-stone fits, the shaped uniform pass, the
+/// refinement of the best layouts and the final ranking.
 fn plan_shaped(
     input: &PlanInput<'_>,
     lanes: usize,
@@ -332,6 +342,7 @@ fn shaped_dp_groups(
     let mixed = run_orders(lanes, progress, |order, on| {
         plan_shaped_for_order(&grid, &clipped, ctx, front, order, settings, on)
     })?;
+    note_found(progress, &mixed);
     let mut extra = Vec::new();
     if let Some(best) = best_layout(&mixed) {
         let params = ShapedAltParams {

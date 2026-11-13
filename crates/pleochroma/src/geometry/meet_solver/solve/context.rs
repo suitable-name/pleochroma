@@ -27,31 +27,19 @@ pub(in crate::geometry::meet_solver) struct SolveContext<'a> {
     pub(in crate::geometry::meet_solver) is_anchor: Vec<bool>,
     pub(super) scale_prior: f64,
     /// The design's absolute scale, rounded to the nearest power of two
-    /// (`2^round(log2(scale_prior))`). Every internal geometric threshold in
-    /// this module ([`super::super::EPS_FEAS`], [`super::super::EPS_INCIDENT`],
-    /// [`super::super::LEVEL_TOL`], [`super::super::BLANK_HALF_EXTENT`],
-    /// [`super::super::MIN_TRIPLE_DET`]) is an *absolute* constant tuned for
-    /// masts of order 1, so [`super::pipeline::SolveContext::run_pipeline`]
-    /// divides every anchor mast by this before solving and
-    /// [`super::reporting::SolveContext::to_solved`] multiplies every solved
-    /// mast back by it -- keeping the solve itself always in the same
-    /// unit-scale neighbourhood those thresholds assume, regardless of a
-    /// design's real `ScaleReference`. Designs whose natural scale already
-    /// rounds to `2^0 = 1.0` get this field exactly `1.0`, so every division
-    /// and multiplication by it is a bit-exact no-op: the solve stays
-    /// byte-identical to before this field existed.
+    /// (`2^round(log2(scale_prior))`). The geometric thresholds of this module
+    /// ([`super::super::EPS_FEAS`], [`super::super::LEVEL_TOL`] and others) are absolute
+    /// and tuned for masts of order 1. `run_pipeline` therefore divides every anchor mast
+    /// by this value, and `to_solved` multiplies the results back. A scale that rounds
+    /// to `1.0` makes both steps exact no-ops.
     pub(super) scale_norm: f64,
     pub(super) domination_limit: f64,
     pub(in crate::geometry::meet_solver) total_planes: usize,
 }
 
-/// Rounds a strictly positive, finite scale to the nearest power of two.
-/// Non-finite or non-positive input (should not reach here -- `scale_prior`
-/// is already clamped to `DEFAULT_PLAUSIBLE_SCALE` when it would otherwise be
-/// non-positive, and non-finite tiers are rejected before
-/// [`SolveContext::new`] ever runs) falls back to `1.0`, i.e. no
-/// normalisation, rather than dividing by zero or producing a non-finite
-/// scale factor.
+/// Rounds a strictly positive, finite scale to the nearest power of two. Other input
+/// falls back to `1.0` (no normalisation). Callers already pass a clamped, finite scale,
+/// so this only guards the division.
 #[expect(
     clippy::cast_possible_truncation,
     reason = "scale is finite and positive, so log2 rounds to an exponent within about +-1075"
@@ -102,14 +90,9 @@ impl<'a> SolveContext<'a> {
             .iter()
             .map(|t| matches!(t.constraint, MeetConstraint::ScaleReference(_)))
             .collect();
-        // A plain `.fold(0.0, f64::max)` silently drops a NaN anchor -- IEEE 754
-        // `max` returns the *other* (non-NaN) argument when one side is NaN, so a
-        // single non-finite `ScaleReference` among several finite ones would
-        // otherwise vanish here without a trace. Callers are expected to have
-        // already rejected non-finite input via [`super::super::first_non_finite_tier`]
-        // (see `entry.rs`/`verify.rs`), but this fold does not depend on that:
-        // propagating the NaN keeps it visible in `scale_prior` (and so in
-        // `domination_limit`) rather than quietly substituting a finite value.
+        // A plain `.fold(0.0, f64::max)` would drop a NaN anchor, since `max` returns
+        // the other argument. Propagate the NaN so it stays visible in `scale_prior`.
+        // Callers already reject non-finite input (`first_non_finite_tier`).
         let scale_prior = tiers
             .iter()
             .filter_map(|t| match &t.constraint {

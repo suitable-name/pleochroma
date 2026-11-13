@@ -3,9 +3,8 @@
 //! The three frames (rough, caliper, stone), the pose axes `A`, the caliper turn `Rc` and the
 //! exact map `stone = Rc^T * (A^T * (rough - center) + s * c)` are explained in
 //! [`crate::rough_plan::placement`], together with [`DesignPlacement`] and the box-symmetric
-//! poses ([`pose_variant`], [`candidate_poses`], [`POSE_COUNT`]). Those live there so the
-//! editor's preform can use them without the zoned planner; they are re-exported here, so
-//! the `zoned_plan` paths keep working.
+//! poses ([`pose_variant`], [`candidate_poses`], [`POSE_COUNT`]). They live there so the
+//! editor's preform can use them without the zoned planner; this module re-exports them.
 //!
 //! This module only turns that map into the renderer's [`ZoneFrame`] and applies it to a
 //! [`ZonedAbsorption`].
@@ -35,9 +34,8 @@ pub fn rough_to_stone_frame(pose: &StonePose, design: &DesignPlacement) -> Optio
 /// The zones of the rough, expressed in the frame of a stone placed with `pose`: the geometry
 /// of `rough_zoned` (mm, rough frame) composed with [`rough_to_stone_frame`].
 ///
-/// The absorptions, the number of zones and the softness are untouched, so the per-segment
-/// lengths of a segment moved with the stone are exactly those of the same segment in the
-/// rough.
+/// Only the geometry moves: the absorptions, the zone count and the softness are kept, and the
+/// rigid map keeps every length.
 #[must_use]
 pub fn zones_in_stone_frame(
     rough_zoned: &ZonedAbsorption,

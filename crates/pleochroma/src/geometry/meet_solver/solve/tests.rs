@@ -159,9 +159,7 @@ fn a_stated_named_meet_overrides_the_rank1_prior() {
     );
 }
 
-/// Two identical calls must produce byte-identical results (the old solver's
-/// convex-hull library was seeded per-process and made the whole pipeline
-/// nondeterministic; this pins the fix).
+/// Two identical calls produce byte-identical results.
 #[test]
 fn solving_is_deterministic() {
     let schedule = pleochroma_formats::asc::parse_asc(
@@ -178,9 +176,7 @@ fn solving_is_deterministic() {
     )
     .expect("must parse");
     let mut tiers = super::super::meet_tier_inputs_from_asc(&schedule);
-    // No stated scale references in this design: anchor one tier per block the
-    // same way the corpus harness does (pavilion tier 0, crown tier 2, and the
-    // girdle tier 1).
+    // No stated scale references: anchor one tier per block (pavilion 0, girdle 1, crown 2).
     tiers[0].constraint = MeetConstraint::ScaleReference(schedule.tiers[0].mast);
     tiers[1].constraint = MeetConstraint::ScaleReference(schedule.tiers[1].mast);
     tiers[2].constraint = MeetConstraint::ScaleReference(schedule.tiers[2].mast);
@@ -242,13 +238,9 @@ fn solve_meet_points_with_a_default_control_matches_solve_meet_points_bitwise() 
     }
 }
 
-/// A control whose cancel flag is already set before the solve starts
-/// must return `Err(SolveCancelled)` (i.e. [`SolveError::Cancelled`])
-/// immediately, without needing a slow fixture or a background thread --
-/// the deterministic half of the cancellation contract. The
-/// wall-clock-latency half (cancelling mid-solve, on the real 103-tier
-/// fixture) is proven at the `pleochroma-cut-core` level, where that
-/// fixture lives -- see `design::tests::cancel_stops_a_large_real_solve_quickly`.
+/// A control whose cancel flag is already set must return [`SolveError::Cancelled`]
+/// immediately, without a slow fixture or a background thread. Mid-solve latency is
+/// tested in `pleochroma-cut-core` (`design::tests::cancel_stops_a_large_real_solve_quickly`).
 #[test]
 fn solve_meet_points_with_a_precancelled_control_returns_cancelled() {
     let gear = 4;
@@ -274,7 +266,7 @@ fn solve_meet_points_with_a_precancelled_control_returns_cancelled() {
 
 /// Above [`MAX_PLANES`], `solve_meet_points_with` must return a distinct
 /// [`SolveError::TooManyPlanes`] naming the actual plane count and the
-/// cap, while the legacy `solve_meet_points` keeps its old silent
+/// cap, while `solve_meet_points` silently keeps its
 /// behavior (every tier `SolveStrategy::Failed`, except the anchor,
 /// which keeps its given mast) -- the two must never diverge on what
 /// counts as "too many planes".
@@ -473,16 +465,9 @@ fn solve_meet_points_with_reports_monotonic_progress_reaching_every_phases_total
     );
 }
 
-/// Solved masts must scale exactly proportionally with a design's
-/// absolute `ScaleReference` anchors, and every tier must settle on the same
-/// [`SolveStrategy`] regardless of the design's absolute scale. Before
-/// `SolveContext::scale_norm`'s normalisation, this RBC-shaped design (masts
-/// of order `k`) diverged at k=70 (a crown tier's `mast/k` differed from the
-/// k=1 baseline) and every meet-derived tier fell to
-/// [`SolveStrategy::LeastSquaresFallback`] at k=100 -- because
-/// [`super::super::EPS_FEAS`]/[`super::super::EPS_INCIDENT`]/[`super::super::LEVEL_TOL`]/
-/// [`super::super::BLANK_HALF_EXTENT`] are absolute constants tuned for masts
-/// of order 1. Regression coverage for that measured divergence.
+/// Solved masts scale exactly with the absolute `ScaleReference` anchors, and every tier
+/// keeps its [`SolveStrategy`] at any absolute scale. The geometric thresholds are tuned
+/// for masts of order 1, so this guards `SolveContext::scale_norm`'s normalisation.
 #[test]
 fn solve_meet_points_scales_masts_proportionally_with_scale_reference() {
     const GIRDLE: [f64; 16] = [

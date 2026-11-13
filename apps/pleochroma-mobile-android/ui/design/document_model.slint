@@ -2,8 +2,8 @@
 // file actions, and the data and form state of the New Design page.
 //
 // Direction rule: Rust -> Slint is `in` properties (`in-out` where the UI also writes
-// them, such as the form), Slint -> Rust is callbacks. The lead adds `DocumentModel` to
-// `app.slint`'s `export { ... }` block so Rust can reach it.
+// them, such as the form), Slint -> Rust is callbacks. `app.slint` exports `DocumentModel`
+// so Rust can reach it.
 //
 // This file must not import `theme.slint` or `models.slint` (they may import it).
 

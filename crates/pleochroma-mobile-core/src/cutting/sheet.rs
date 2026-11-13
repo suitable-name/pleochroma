@@ -21,8 +21,8 @@ pub struct SheetJob {
     design: Design,
     solved: Vec<SolvedTier>,
     custom: Vec<GemMaterial>,
-    /// The stored default Crystal Axis of the design's custom material, so its Orientation block
-    /// prints even for a default of tilt 0.
+    /// The custom material's stored default Crystal Axis. The Orientation block prints for it
+    /// even at a tilt of 0.
     stored_default: Option<CrystalOrientation>,
     details: SheetDetails,
 }

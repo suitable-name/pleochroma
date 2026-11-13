@@ -1,6 +1,5 @@
-//! Tests of the invariants between the shaped stages: the shared plane predicate, the
-//! threaded builds against the serial ones, the progress and cancel points, and the
-//! positional DP against a brute-force enumeration and against the layouts built from it.
+//! Invariants of the shaped stages: the plane predicate, threaded builds against serial
+//! ones, progress and cancel points, and the positional DP against brute force.
 
 use std::ops::Range;
 
@@ -227,6 +226,7 @@ fn the_clipped_build_reports_one_event_per_1024_pieces_and_cancels_on_any_of_the
 }
 
 #[test]
+#[ignore = "over 60 s in the workspace run (2026-11-08); run on request: scripts/run_tests_on_request.sh"]
 fn the_lane_build_reports_the_events_of_its_slices_and_cancels_across_lanes() {
     let fx = cylinder_fixture();
     let ga = fx.grid.cells[0];
@@ -424,8 +424,8 @@ fn alternatives_are_the_same_on_any_lane_count_and_report_their_own_progress() {
         assert_eq!(threaded, serial, "lanes {lanes}");
     }
 
-    // A round reports its own size table, clipped table and DP between the
-    // Alternatives events, so it moves and can be cancelled from inside.
+    // A round reports its size table, clipped table and DP progress between the
+    // Alternatives events, so a cancel can land inside a round.
     let mut events = Vec::new();
     let _ = plan_shaped_alternatives(&params(1), &mut |event| {
         events.push(event);

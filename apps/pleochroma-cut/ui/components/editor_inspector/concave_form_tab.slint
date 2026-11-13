@@ -7,24 +7,20 @@ import { FormRow, FormRowMetrics } from "form_row.slint";
 import { TipButton } from "../compact_controls.slint";
 import { WrapNote, WrapWarning } from "wrap_note.slint";
 
-// The Inspector's "Tier" tab for a CONCAVE tier -- the tool-cut counterpart of
-// `TierFormTab`. A concave tier is authored as two lines (a facet line and a tool
-// line), so the form has both: name, angle, indices and instructions for the facet,
-// then tool, theta, X/Y/Z, D/W, tool angle and motion for the tool.
+// The Inspector's "Tier" tab for a CONCAVE tier, the tool-cut counterpart of `TierFormTab`.
+// A concave tier is two lines: the facet line (name, angle, indices, instructions) and the
+// tool line (tool, theta, X/Y/Z, D/W, tool angle, motion).
 //
-// Like `TierFormTab` this component only renders the scratch state `EditorInspector`
-// owns (its `c_*` properties, dirty snapshot and dirty-draft banner all reuse the flat
-// form's) and reports edits back through two-way properties and callbacks. Every
-// field is a string: Rust parses them (`parse_concave_tier_form`) and prefixes each
-// error with its field, which `EditorModel.tier_form_error_field` carries back here
-// to put a red border on the offending control, exactly as the flat form does. The
-// error buckets are "name", "angle", "indices", "tool", "theta", "x", "y", "z",
-// "diameter" and "tool_angle".
+// Like `TierFormTab`, this component only renders the scratch state `EditorInspector` owns
+// (the `c_*` properties, dirty snapshot and banners) and reports edits back through two-way
+// properties and callbacks. Every field is a string: Rust parses them
+// (`parse_concave_tier_form`) and names the failing field, which
+// `EditorModel.tier_form_error_field` carries back to put a red border on that control. The
+// buckets are "name", "angle", "indices", "tool", "theta", "x", "y", "z", "diameter" and
+// "tool_angle".
 //
-// Every field is a `FormRow` like the flat form's, so the labels and inputs line up with
-// it and each input carries a tooltip and a screen-reader label. The form has no Simple
-// and Advanced split: a concave tier is already the expert way to cut a facet, and every
-// field of it is needed.
+// Every field is a `FormRow`, so each input has a tooltip and a screen-reader label. There
+// is no Simple and Advanced split: every field of a concave tier is needed.
 //
 // `unlocked` is `GuideModel.allows_concave_tier()` (see `GuideAllow`): every input and
 // button ANDs it into its own `enabled:`.

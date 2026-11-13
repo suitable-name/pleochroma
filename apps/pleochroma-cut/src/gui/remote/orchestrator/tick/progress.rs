@@ -53,8 +53,8 @@ pub(super) fn preparing(
     }
 }
 
-/// Report only full-size committed frames or full-size tracing progress. PREVIEW
-/// snapshots never call this helper and never advance the final sample budget.
+/// Reports only full-size committed frames or full-size tracing progress. Preview snapshots
+/// never call this helper, so they never advance the final sample budget.
 pub(super) fn samples(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,

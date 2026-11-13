@@ -53,9 +53,11 @@ const fn decide(live: Option<u64>, generation: u64) -> Decision {
     }
 }
 
-/// Pushes the manufacturability `findings` of the plan for `generation` (its `design` and
-/// `solved` masts) into the tier table and the warning list, when that plan is still the
-/// editor's design; otherwise does nothing.
+/// Pushes the manufacturability `findings` of the plan for `generation` into the tier table and
+/// the warning list.
+///
+/// That happens only while the plan is still the editor's design (`design` and `solved` are its
+/// masts); otherwise it does nothing.
 ///
 /// `pub(in crate::gui)` because its caller, `gui::solid_sink::SlintSolidSink`, lives in
 /// `gui`, outside this module. Runs on the UI thread. The editor state is only

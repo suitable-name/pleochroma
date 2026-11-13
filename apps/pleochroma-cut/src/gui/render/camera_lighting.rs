@@ -1,8 +1,5 @@
 //! Camera orbit/zoom, light move/position/reset, and HDR environment-map load/clear
 //! callback wiring.
-//!
-//! Split out of `gui::mod` purely to keep that module (already sizeable) from growing
-//! further -- same reasoning as `gui::detail`/`gui::search`/`gui::remote`.
 
 use crate::{
     MainWindow, SettingsModel, SolidPreviewModel, ViewportModel,
@@ -20,7 +17,7 @@ use pleochroma_solid::preview::{
 };
 use slint::{ComponentHandle, SharedString};
 use std::{
-    f32::consts::FRAC_PI_2,
+    f32::consts::{FRAC_PI_2, TAU},
     sync::{Arc, Mutex},
 };
 
@@ -43,49 +40,34 @@ pub const fn device_pixels(extent: f32) -> u32 {
     pixels
 }
 
-/// Re-issues `ctx`'s current `active_planes` at its (just-updated) camera pose to
-/// `preview_state`, sized to the Solid viewport's own logical size --
-/// camera-follow only (same
-/// planes, new pose), never a re-solve. A no-op while nothing has been solved
-/// into the shared viewport yet (`active_planes` empty), matching
-/// `gui::editor::view::refresh_viewport`'s own "no design, no planes" contract.
+/// Re-issues the planes of `ctx` at its just-updated camera pose to `preview_state`.
 ///
-/// Picks which viewport's own view-mode to redraw at, and whether to bother at all:
-/// - Live Render tab (`ui.get_render_view_tab() == 0`): always Solid (`view_mode` 0,
-///   forced -- see [`resubmit_live_solid`]'s own doc comment for why this must never
-///   leak the Edit tab's `SolidPreviewModel.view_mode`), and ONLY when that tab's own
-///   `ViewportModel.live_view_mode` is actually `0` (Solid) -- a camera drag while the
-///   Live tab is showing the path-traced image has no solid on screen to redraw, so
-///   this is a no-op rather than wasted background work.
-/// - Edit tab (`render_view_tab != 0`): the Edit tab's own `SolidPreviewModel.
-///   view_mode`, unconditionally -- unchanged from before `live_view_mode` existed
-///   (the Solid viewport's camera-follow always ran regardless of which of its four
-///   modes was showing, so it was already up to date the moment the user switched to
-///   it).
+/// Sized to the Solid viewport's logical size. Camera-follow only: same planes, new pose,
+/// never a re-solve. Does nothing while no planes are solved yet (`active_planes` empty), as
+/// `gui::editor::view::viewport::refresh_viewport` does.
 ///
-/// Also forwards `ctx.design_gear` (the currently loaded design's gear tooth
-/// count/reference angle) so a Diagram-mode (`view_mode` 3) camera drag shows THIS
-/// design's gear wheel -- via [`SolidPreviewState::request_redraw_with_gear`],
-/// not the plain `request_redraw` -- rather than whatever gear info a previous
-/// editor replan happened to leave in the worker's own `DiagramMemory`, which is
-/// unrelated once the currently viewed design was loaded some other way (e.g. from
-/// the library, never replanned through the editor). See
-/// `bridge::render_thread::RenderContext::design_gear`'s doc comment for the full
-/// list of writers that keep it in sync with `active_planes`.
+/// Picks the viewport and its view mode:
+/// - Live Render tab (`ui.get_render_view_tab() == 0`): always Solid (`view_mode` 0). See
+///   [`resubmit_live_solid`] for why the Edit tab's mode must not leak in. Only when the
+///   tab's `ViewportModel.live_view_mode` is Solid (`0`): a traced image has no solid on
+///   screen to redraw.
+/// - Edit tab (`render_view_tab != 0`): the Edit tab's `SolidPreviewModel.view_mode`,
+///   unconditionally.
 ///
-/// Sizes to the Live Render tab's OWN `SolidPreviewModel.
-/// live_viewport_width`/`live_viewport_height` while `on_live_tab`, never the Edit
-/// tab's `viewport_width`/`viewport_height`: `gem_viewport.slint` and
-/// `solid_viewport.slint` each drive their own pair of properties, keeping one
-/// viewport's resize from silently overwriting the other's pending redraw size.
+/// Also forwards `ctx.design_gear` (the loaded design's gear tooth count and reference
+/// angle), so a Diagram-mode (`view_mode` 3) drag shows this design's gear wheel, via
+/// [`SolidPreviewState::request_redraw_with_gear`]. See `RenderContext::design_gear` for
+/// the writers that keep it in sync with `active_planes`.
 ///
-/// Both dimensions are scaled by `ui.window().scale_factor()` so the solid
-/// rasterizer/diagram renderer produce a HiDPI-correct (physical-pixel) raster
-/// instead of a logical-pixel one Slint then has to upscale blurrily. The matching
-/// conversion on the input side multiplies the pointer's LOGICAL hover/click
-/// position by the same factor to reach the physical pixel it names in the pick
-/// buffer; it lives in `solid_preview::diagram_wiring` for the diagram and in
-/// `gui::editor::callbacks::tier_actions` for the solid view.
+/// Sizes to the Live tab's `SolidPreviewModel.live_viewport_width`/`live_viewport_height`
+/// while on that tab, never the Edit tab's size: `gem_viewport.slint` and
+/// `solid_viewport.slint` each drive their own pair of properties, so one viewport's resize
+/// must not overwrite the other's pending redraw size.
+///
+/// Both dimensions are scaled by `ui.window().scale_factor()`, so the rasterizer produces a
+/// physical-pixel image instead of one that Slint would upscale blurrily. Pointer picking
+/// applies the same factor to the logical position (see `solid_preview::diagram_wiring` and
+/// `gui::editor::callbacks::tier_actions`).
 pub fn resubmit_at_current_pose(
     ui: &MainWindow,
     ctx: &RenderContext,
@@ -123,10 +105,8 @@ pub fn resubmit_at_current_pose(
             device_pixels(ui.global::<SolidPreviewModel>().get_viewport_width() * scale),
             device_pixels(ui.global::<SolidPreviewModel>().get_viewport_height() * scale),
         );
-        // Path-traced/Both letterbox the traced image to `ctx.width`/
-        // `ctx.height`'s own aspect ratio (`solid_viewport.slint`'s
-        // `image-fit: contain`) whenever it differs from the viewport's --
-        // `contained_request_size`'s own doc comment.
+        // Traced modes letterbox the image to the render size's aspect ratio; see
+        // `contained_request_size`.
         contained_request_size(view_mode, viewport_size, (ctx.width, ctx.height))
     };
     let pose = CameraPose {
@@ -165,39 +145,22 @@ pub(super) fn active_stone(ctx: &RenderContext) -> StoneGeometryBuf {
     }
 }
 
-/// Shrinks `viewport_size` to the rectangle Slint's `image-fit: contain` draws
+/// Shrinks `viewport_size` to the rectangle that Slint's `image-fit: contain` draws
 /// `render_size` into.
 ///
-/// `solid_viewport.slint`'s Path-traced/Both `Image` elements (`ViewportModel.
-/// render_image`, `SolidPreviewModel.edges_image`) are both `image-fit: contain`
-/// against a `render_size` (the configured render resolution, `RenderContext::
-/// width`/`height`) that is independent of the viewport's own logical size --
-/// with a render resolution wider than the viewport (a common pairing: 1920x1080
-/// against a docked ~1.2-1.5 aspect Edit viewport), `contain` fits the image's
-/// WIDTH and letterboxes it top/bottom, drawn SMALLER than a solid/edges raster
-/// still requested at the viewport's raw, un-letterboxed size. The edges overlay
-/// then reads as larger than the render it is supposed to trace, and a click
-/// lands on the visible (letterboxed) gem while indexing a pick buffer sized to
-/// the viewport's own full rectangle. Requesting the solid/edges raster at THIS
-/// function's output size instead keeps every pixel of the request inside the
-/// same rectangle the traced image actually occupies on screen.
+/// The traced `Image` elements of `solid_viewport.slint` fit the render resolution
+/// (`RenderContext::width`/`height`) into the viewport with `contain`. When the aspect ratios
+/// differ, the traced image is letterboxed, so a raster requested at the raw viewport size
+/// would overhang it. The edges overlay and the pick buffer must match the traced image's
+/// on-screen rectangle, so they are requested at this function's output.
 ///
-/// Used for traced modes: Path-Traced (`1`), Both (`2`) and Ray-Traced (`4`) -- Solid (`0`) and
-/// Diagram (`3`) never show `render_image` at all, so the viewport's own raw
-/// size is already correct for them, returned unchanged (also returned unchanged
-/// if either dimension is `0`, i.e. nothing to divide by, or nothing requested
-/// yet).
+/// Only the traced modes (Path-Traced `1`, Both `2`, Ray-Traced `4`) are letterboxed. Solid
+/// `0` and Diagram `3` never show the traced image, so the raw size is returned unchanged,
+/// as is any zero dimension.
 ///
-/// `gui::editor::view::planned_frame_size`'s own callers
-/// (`refresh_viewport`, `submit_preview_replan`) compute
-/// the SAME viewport-sized request independently, for the post-edit/post-solve
-/// path this function's own caller (`resubmit_at_current_pose`) does not cover.
-/// They need the identical treatment: read `SolidPreviewModel.view_mode` and
-/// `render_ctx.width`/`height` at the call site and pass the result through this
-/// function (or an equivalent copy) before calling `request_replan`/
-/// `request_redraw_with_gear`, or the misregistration this fixes for a camera
-/// drag/zoom/view-mode switch will still reappear immediately after the next
-/// edit or Solve.
+/// Other callers that request a solid raster for a traced mode (`submit_preview_replan` and
+/// `refresh_viewport` in `gui::editor::view::viewport`) must apply the same sizing, or the
+/// overlay misaligns after an edit.
 #[must_use]
 pub(in crate::gui) fn contained_request_size(
     view_mode: u8,
@@ -229,37 +192,26 @@ pub(in crate::gui) fn contained_request_size(
     }
 }
 
-// The orbit clamp (`orbit_distance_bounds`), the "Fit" distance
-// (`fit_distance_for_radius`) and the pitch wrap (`wrap_pitch`) moved to
-// `pleochroma_solid::preview::camera` (shared with the web app's Solid view);
-// re-exported here at their old paths. This module's tests below stay as their
-// pins.
+// The camera math (orbit bounds, Fit distance, pitch wrap) is shared with the web app's
+// Solid view and lives in `pleochroma_solid::preview::camera`.
 pub use pleochroma_solid::preview::camera::{
     fit_distance_for_radius, orbit_distance_bounds, wrap_pitch,
 };
 
-/// The Live Render tab's own solid-raster redraw: identical to
-/// [`resubmit_at_current_pose`]'s Live-tab branch, except it never checks
-/// `ViewportModel.live_view_mode` first -- every call site here already knows the
-/// solid image is (about to become) visible before calling this (a library
-/// selection while already in Solid mode, or `live_view_mode` itself just flipping to
-/// `0`), so re-checking would be redundant. ALWAYS forces `view_mode` `0` (Solid
-/// raster): the Live Render tab shows only the flat-shaded raster, never the Edit
-/// tab's own Path-traced/Both/Diagram choice (`SolidPreviewModel.view_mode`), which
-/// must not leak across tabs -- two independent viewports sharing one worker/one
-/// `SolidPreviewState`, each entitled to its own mode.
+/// The Live Render tab's own solid-raster redraw.
 ///
-/// Called from: `gui::library::diagram_list::setup_diagram_selection_and_export_callbacks`/
-/// `gui::library::detail::apply_design_record_to_ui` (a library selection lands while
-/// the Live tab is already in Solid mode -- the planes `apply_reconstructed_planes`
-/// just wrote need an immediate redraw, not a wait for the next camera drag), and
-/// `gui::mod`'s `on_live_view_mode_changed` handler (switching INTO Solid mode itself
-/// must show something immediately, not wait for a drag).
+/// It is [`resubmit_at_current_pose`]'s Live-tab branch without the `ViewportModel.live_view_mode`
+/// check, because every caller already knows the solid image is (or is about to be) visible.
+/// Always forces `view_mode` `0`: the Live tab shows only the flat-shaded raster, never the Edit
+/// tab's own mode (`SolidPreviewModel.view_mode`), since the two viewports each keep their own.
 ///
-/// Always sizes to the Live Render tab's OWN `SolidPreviewModel.
-/// live_viewport_width`/`live_viewport_height` (never the Edit tab's
-/// `viewport_width`/`viewport_height` -- see [`resubmit_at_current_pose`]'s doc
-/// comment), scaled by `ui.window().scale_factor()` for a HiDPI-correct raster.
+/// Called when a library selection lands while the Live tab is already in Solid mode
+/// (`apply_reconstructed_planes` and `apply_design_record_to_ui` need an immediate redraw),
+/// and when `on_live_view_mode_changed` in `gui::main_window::callbacks` switches into Solid.
+///
+/// Sizes to the Live tab's own `SolidPreviewModel.live_viewport_width`/
+/// `live_viewport_height`, scaled by `ui.window().scale_factor()` as in
+/// [`resubmit_at_current_pose`].
 pub(in crate::gui) fn resubmit_live_solid(
     ui: &MainWindow,
     ctx: &RenderContext,
@@ -289,13 +241,17 @@ pub(in crate::gui) fn resubmit_live_solid(
     );
 }
 
-/// Wires `ViewportModel.on_light_move`/`on_light_pos_changed`, persisting the
-/// result through the debounced `settings_store` exactly like every other pose
-/// callback in this module. Split out of [`setup_camera_and_lighting_callbacks`]
-/// purely to keep that function under clippy's function-length lint (the
-/// `mesh_bounding_radius` clamp added there pushed it over the limit) -- these two
-/// callbacks are otherwise unrelated to the camera pose/distance ones that stayed
-/// behind.
+/// What a right-drag in the viewport turned: the key light (studio lighting) or the HDR map.
+enum LightMoved {
+    /// The light's new yaw and pitch, in radians.
+    Light(f32, f32),
+    /// The map's new yaw, in radians.
+    Map(f32),
+}
+
+/// Wires `ViewportModel.on_light_move` and `on_light_pos_changed`, persisting through the
+/// debounced `settings_store` like the other pose callbacks. They share no state with the
+/// camera callbacks in [`setup_camera_and_lighting_callbacks`].
 fn setup_light_callbacks(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
@@ -303,20 +259,45 @@ fn setup_light_callbacks(
 ) {
     let render_ctx_light = render_ctx.clone();
     let settings_store_light = settings_store.clone();
+    let ui_weak_light = ui.as_weak();
     ui.global::<ViewportModel>()
         .on_light_move(move |dx: f32, dy: f32| {
-            let (light_yaw, light_pitch) = {
+            let moved = {
                 let mut ctx = RenderContext::lock(&render_ctx_light);
                 let (dx, dy) = unroll_drag_delta(ctx.camera_roll, dx, dy);
-                ctx.light_yaw = dx.mul_add(0.01, ctx.light_yaw);
-                ctx.light_pitch = dy.mul_add(0.01, ctx.light_pitch).clamp(0.15, 1.55);
                 ctx.dirty = true;
-                (ctx.light_yaw, ctx.light_pitch)
+                if ctx.env_map.is_some() {
+                    // With a map loaded the light controls turn the map; the light angles stay.
+                    ctx.hdr_yaw = dx.mul_add(0.01, ctx.hdr_yaw).rem_euclid(TAU);
+                    LightMoved::Map(ctx.hdr_yaw)
+                } else {
+                    ctx.light_yaw = dx.mul_add(0.01, ctx.light_yaw);
+                    ctx.light_pitch = dy.mul_add(0.01, ctx.light_pitch).clamp(0.15, 1.55);
+                    LightMoved::Light(ctx.light_yaw, ctx.light_pitch)
+                }
             };
-            settings_store_light.update(|s| {
-                s.settings.light_yaw_deg = light_yaw.to_degrees();
-                s.settings.light_pitch_deg = light_pitch.to_degrees();
-            });
+            let ui = ui_weak_light.upgrade();
+            match moved {
+                LightMoved::Map(hdr_yaw) => {
+                    let degrees = hdr_yaw.to_degrees().rem_euclid(360.0);
+                    settings_store_light.update(|s| s.settings.env_map_yaw_deg = degrees);
+                    if let Some(ui) = &ui {
+                        ui.global::<SettingsModel>().set_env_map_yaw_deg(degrees);
+                    }
+                }
+                LightMoved::Light(light_yaw, light_pitch) => {
+                    settings_store_light.update(|s| {
+                        s.settings.light_yaw_deg = light_yaw.to_degrees();
+                        s.settings.light_pitch_deg = light_pitch.to_degrees();
+                    });
+                    // The Lighting tab's direction sliders follow the drag.
+                    if let Some(ui) = &ui {
+                        let settings = ui.global::<SettingsModel>();
+                        settings.set_light_yaw_deg(light_yaw.to_degrees().rem_euclid(360.0));
+                        settings.set_light_pitch_deg(light_pitch.to_degrees());
+                    }
+                }
+            }
         });
 
     let render_ctx_light_pos = render_ctx.clone();
@@ -336,19 +317,97 @@ fn setup_light_callbacks(
         });
 }
 
-/// `ViewportModel.set_view`: `0` = Front (girdle edge-on, index 0 towards the
-/// viewer), `1` = Top (straight down onto the table, the batch previews' own top
-/// pose), `2` = Bottom, `3` = Left, `4` = Right (the commonest inspection for
-/// windowing), and `5` = Fit, which uniquely leaves the CURRENT
-/// orbit angle alone and only recomputes `distance` so the whole stone is in the
-/// picture (`fit_view::fit_distance`), so a
-/// cutter who has orbited to an awkward angle can recover a usable framing
-/// without also losing the angle they were inspecting. `6` = Turn 90° adds a quarter
-/// turn to the yaw (the stone turns about its vertical axis, so a face-up oval turns across
-/// the picture, the Top view included), keeping the tilt and zoom. Every kind but Fit also
-/// clears an image-plane roll left by an older version, so the drag directions are the
-/// usual ones again. The others reset yaw to a canonical angle; distance and lighting stay
-/// untouched for those.
+/// Wires `ViewportModel.on_env_map_turn_changed` (the Map Rotation slider) and
+/// `on_env_map_follow_changed` (the Turns with the Camera switch). The slider turns the map's own
+/// yaw. The switch keeps the picture: turning it on takes the camera's yaw out of the map's yaw
+/// (the map then adds it back), turning it off puts it in, so the map does not jump either way.
+/// Both write the render context, the settings file and (for the switch) the controls from here;
+/// Slint has no `changed` handler in this path.
+fn setup_env_map_turn_callbacks(
+    ui: &MainWindow,
+    render_ctx: &Arc<Mutex<RenderContext>>,
+    settings_store: &Arc<SettingsPersister>,
+) {
+    let render_ctx_turn = render_ctx.clone();
+    let settings_store_turn = settings_store.clone();
+    ui.global::<ViewportModel>()
+        .on_env_map_turn_changed(move |degrees: f32| {
+            if !degrees.is_finite() {
+                return;
+            }
+            let degrees = degrees.rem_euclid(360.0);
+            {
+                let mut ctx = RenderContext::lock(&render_ctx_turn);
+                ctx.hdr_yaw = degrees.to_radians();
+                ctx.dirty = true;
+            }
+            settings_store_turn.update(|s| s.settings.env_map_yaw_deg = degrees);
+        });
+
+    let render_ctx_follow = render_ctx.clone();
+    let settings_store_follow = settings_store.clone();
+    let ui_weak_follow = ui.as_weak();
+    ui.global::<ViewportModel>()
+        .on_env_map_follow_changed(move |on: bool| {
+            let turned = {
+                let mut ctx = RenderContext::lock(&render_ctx_follow);
+                if ctx.hdr_follows_camera == on {
+                    None
+                } else {
+                    let camera_yaw = ctx.yaw;
+                    let own = if on {
+                        ctx.hdr_yaw - camera_yaw
+                    } else {
+                        ctx.hdr_yaw + camera_yaw
+                    };
+                    ctx.hdr_yaw = own.rem_euclid(TAU);
+                    ctx.hdr_follows_camera = on;
+                    ctx.dirty = true;
+                    Some(ctx.hdr_yaw.to_degrees().rem_euclid(360.0))
+                }
+            };
+            let Some(degrees) = turned else {
+                return;
+            };
+            settings_store_follow.update(|s| {
+                s.settings.env_map_yaw_deg = degrees;
+                s.settings.env_map_follows_camera = on;
+            });
+            if let Some(ui) = ui_weak_follow.upgrade() {
+                let settings = ui.global::<SettingsModel>();
+                settings.set_env_map_yaw_deg(degrees);
+                settings.set_env_map_follows_camera(on);
+            }
+        });
+}
+
+/// Stores the path of a newly loaded HDR map in the settings. A different map starts unturned:
+/// its saved yaw goes back to `0`. Returns whether it was a different map, so the caller resets
+/// the live yaw and the slider the same way (the camera switch stays as the cutter set it).
+fn remember_loaded_map(settings_store: &SettingsPersister, path: &str) -> bool {
+    let mut different = false;
+    settings_store.update(|s| {
+        different = s.settings.env_map_path != path;
+        path.clone_into(&mut s.settings.env_map_path);
+        if different {
+            s.settings.env_map_yaw_deg = 0.0;
+        }
+    });
+    different
+}
+
+/// `ViewportModel.set_view`, selecting the pose by `kind`.
+///
+/// `0` = Front (girdle edge-on, index 0 towards the viewer), `1` = Top (straight down onto the
+/// table), `2` = Bottom, `3` = Left, `4` = Right (the commonest inspection for windowing),
+/// `5` = Fit, `6` = Turn 90°.
+///
+/// Fit keeps the current orbit angle and only recomputes `distance` (`fit_view::fit_distance`),
+/// so a cutter who has orbited to an awkward angle keeps that angle. Turn 90° adds a quarter
+/// turn to the yaw about the vertical axis (a face-up oval turns across the picture, Top
+/// included), keeping tilt and zoom. Every kind but Fit also clears the image-plane roll, so
+/// the drag directions are the usual ones. The others reset yaw to a canonical angle; distance
+/// and lighting stay untouched.
 /// Both viewports' pose pills call this same callback.
 fn setup_set_view_callback(
     ui: &MainWindow,
@@ -440,10 +499,8 @@ fn setup_orbit_callback(
         });
 }
 
-/// Wires up camera orbit/zoom, light move/position, and reset-camera callbacks. Each
-/// also feeds the debounced `settings_store` so camera pose and light position survive
-/// a restart. Split out of `run_gui` purely to keep that function under
-/// clippy's function-length lint.
+/// Wires up camera orbit/zoom, light move/position, and reset-camera callbacks. Each also
+/// feeds the debounced `settings_store` so camera pose and light position survive a restart.
 ///
 /// `preview_state` is the solid-inspection preview controller -- dragging or
 /// zooming the Live Render viewport also moves the Solid viewport's shared
@@ -471,9 +528,7 @@ pub(in crate::gui) fn setup_camera_and_lighting_callbacks(
             };
             let distance = {
                 let mut ctx = RenderContext::lock(&render_ctx_zoom);
-                // The clamp is sized to the CURRENT solid's own bounding radius
-                // rather than a fixed `[1.2, 8.0]` range --
-                // `orbit_distance_bounds`'s own doc comment.
+                // Clamp by the current mesh's bounding radius (see `orbit_distance_bounds`).
                 let radius = *mesh_bounding_radius_zoom.lock().unwrap();
                 let (min, max) = orbit_distance_bounds(radius);
                 ctx.distance = delta.mul_add(-0.002, ctx.distance).clamp(min, max);
@@ -485,6 +540,7 @@ pub(in crate::gui) fn setup_camera_and_lighting_callbacks(
         });
 
     setup_light_callbacks(ui, render_ctx, settings_store);
+    setup_env_map_turn_callbacks(ui, render_ctx, settings_store);
 
     setup_set_view_callback(
         ui,
@@ -510,16 +566,12 @@ pub(in crate::gui) fn setup_camera_and_lighting_callbacks(
             ctx.distance = 2.4;
             ctx.light_yaw = crate::settings::model::DEFAULT_LIGHT_YAW_DEG.to_radians();
             ctx.light_pitch = crate::settings::model::DEFAULT_LIGHT_PITCH_DEG.to_radians();
+            // The light controls turn a loaded map, so the reset puts the map back too.
+            ctx.hdr_yaw = 0.0;
+            ctx.hdr_follows_camera = false;
             ctx.dirty = true;
-            // Immediately resubmits at the new pose so both viewports (the Edit
-            // tab's Solid preview and, when it is showing the solid raster, the
-            // Live Render tab) show the reset pose right away, rather than
-            // continuing to display the old pose until some unrelated trigger (a
-            // camera drag, a view-mode switch) happens to redraw next.
+            // Resubmit now, so both viewports show the reset pose at once.
             resubmit_at_current_pose(&ui, &ctx, &preview_state_reset);
-            // Explicit: releases the `RenderContext` mutex before
-            // `settings_store_reset.update` below, rather than leaving it held
-            // until this block's closing brace.
             drop(ctx);
         }
         settings_store_reset.update(|s| {
@@ -529,17 +581,21 @@ pub(in crate::gui) fn setup_camera_and_lighting_callbacks(
             s.settings.camera_distance = 2.4;
             s.settings.light_yaw_deg = crate::settings::model::DEFAULT_LIGHT_YAW_DEG;
             s.settings.light_pitch_deg = crate::settings::model::DEFAULT_LIGHT_PITCH_DEG;
+            s.settings.env_map_yaw_deg = 0.0;
+            s.settings.env_map_follows_camera = false;
         });
         // The Lighting tab's direction sliders show the light the reset just moved.
         let settings = ui.global::<SettingsModel>();
         settings.set_light_yaw_deg(crate::settings::model::DEFAULT_LIGHT_YAW_DEG);
         settings.set_light_pitch_deg(crate::settings::model::DEFAULT_LIGHT_PITCH_DEG);
+        settings.set_env_map_yaw_deg(0.0);
+        settings.set_env_map_follows_camera(false);
     });
 
     setup_reset_lighting_tab_callback(ui, render_ctx, settings_store);
 
-    // The settings are loaded by now: before any design is opened the built-in stand-in
-    // stone is framed like Fit, not at the default pose distance (which cut it on all sides).
+    // Settings are loaded by now. The built-in stand-in is framed like Fit: at the default pose
+    // distance the frame would cut it.
     super::fit_view::frame_stand_in_stone(ui, render_ctx);
 
     super::camera_handles::register_camera(
@@ -553,10 +609,11 @@ pub(in crate::gui) fn setup_camera_and_lighting_callbacks(
 
 /// `ViewportModel.reset_lighting_tab`: the Lighting & Environment tab's "Reset this tab". Puts
 /// every lighting field back to [`LightingValues::default`] -- the rig, light direction,
-/// exposure, surface glare, backdrop, head shadow and the HDR map (cleared: the lighting rig
-/// comes back) -- in the render context, the settings file and the controls. The camera pose is
-/// not lighting and stays. Like applying a saved lighting, it is a choice of the cutter's normal
-/// lighting, so a design's own remembered lighting that was showing is let go (it stays saved).
+/// exposure, surface glare, backdrop, head shadow, Stone Shadow, Tray Reflection and the HDR
+/// map (cleared: the lighting rig comes back) -- in the render context, the settings file and
+/// the controls. The camera pose is not lighting and stays. Like applying a saved lighting, it is
+/// a choice of the cutter's normal lighting, so a design's own remembered lighting that was
+/// showing is let go (it stays saved).
 fn setup_reset_lighting_tab_callback(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
@@ -591,10 +648,9 @@ fn setup_reset_lighting_tab_callback(
     });
 }
 
-/// Mirrors `ViewportModel.camera_drag_begin`/`camera_drag_end` (both viewports' orbit
-/// and light drags) into `RenderContext::camera_drag_held` -- see that field's doc
-/// comment. Nothing else changes here: the per-move
-/// restart in `on_camera_orbit`/`on_light_move` IS the interactive preview and stays.
+/// Mirrors `ViewportModel.camera_drag_begin`/`camera_drag_end` (both viewports' orbit and light
+/// drags) into `RenderContext::camera_drag_held`. Only the flag changes here: each move in
+/// `on_camera_orbit`/`on_light_move` still restarts the interactive preview.
 pub(in crate::gui) fn setup_camera_drag_callbacks(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
@@ -618,11 +674,9 @@ pub(in crate::gui) fn setup_camera_drag_callbacks(
     });
 }
 
-/// Wires up the HDR environment-map load/clear callbacks. Path is a plain typed text
-/// field (the Parameters panel's "Environment Map (HDR)" section) with no native
-/// picker of its own -- unlike `gui::library::setup_import_callback`'s `.asc`
-/// pickers, which go through `gui::pickers`. Split out of
-/// `run_gui` purely to keep that function under clippy's function-length lint.
+/// Wires up the HDR environment-map load and clear callbacks. The path is a typed text field
+/// in the Parameters panel's "Environment Map (HDR)" section; its Browse button only fills
+/// that field (`on_pick_hdr_file`).
 pub(in crate::gui) fn setup_environment_map_callbacks(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
@@ -643,23 +697,27 @@ pub(in crate::gui) fn setup_environment_map_callbacks(
             match load_env_map(&path) {
                 Ok(map) => {
                     let status = env_map_status_text(&map, &path);
+                    // A different map starts unturned (the same one again keeps its turn).
+                    let different = remember_loaded_map(&settings_store_load, &path);
                     {
                         let mut ctx = RenderContext::lock(&render_ctx_load);
                         ctx.env_map = Some(map);
+                        if different {
+                            ctx.hdr_yaw = 0.0;
+                        }
                         ctx.dirty = true;
                     }
-                    settings_store_load.update(|s| s.settings.env_map_path.clone_from(&path));
                     ui.global::<SettingsModel>()
                         .set_env_map_status(status.clone().into());
                     ui.global::<SettingsModel>().set_env_map_loaded(true);
+                    if different {
+                        ui.global::<SettingsModel>().set_env_map_yaw_deg(0.0);
+                    }
                     // The cutter's own choice is the newest word on the map: a decode of the
                     // design's saved map still on its way must not land over it, and "Use
                     // this lighting for this design" stores this map.
                     super::design_lighting::env_map_chosen();
-                    // The GPU megakernel has its own `env_mode` for `HdrMap` and
-                    // renders it directly (see `render_thread::mod`'s module doc
-                    // comment), so there is no CPU-only restriction to warn about
-                    // here.
+                    // The GPU path renders an HDR map directly, so no CPU-only warning is needed.
                     show_toast(&ui, &status, "info");
                 }
                 Err(err) => {

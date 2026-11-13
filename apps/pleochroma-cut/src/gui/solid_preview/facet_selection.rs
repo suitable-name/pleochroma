@@ -1,19 +1,16 @@
 //! The facet highlight and the selected facet, shared by the Solid and the Diagram views.
 //!
-//! Both views draw the same [`FacetOverlay`] (hovered facet, the clicked facet, the
-//! multi-selected tiers' facets, the slice tier's and the drag followers' outlines) and
-//! both hand the manipulation handles the same "last clicked facet" as their anchor. The
-//! state lives here, below `gui::editor`, so the Diagram view's pointer callbacks
-//! (`super::diagram_wiring`, which has no editor dependency) update exactly what the Solid
-//! view's do.
+//! Both views draw the same [`FacetOverlay`] (hovered facet, clicked facet, multi-selected
+//! tiers, slice tier and drag followers) and use the same "last clicked facet" as the
+//! manipulation handles' anchor. The state lives here, below `gui::editor`, so the Diagram
+//! view's callbacks update the same state as the Solid view's.
 //!
 //! # Merge, never replace
 //!
-//! [`SolidPreviewState::request_facet_overlay`] replaces the WHOLE overlay. Every writer
-//! therefore mutates its own field of the cached copy and resubmits the merged whole
-//! ([`resubmit_facet_overlay`]): a hover never wipes the clicked facet's outline or the
-//! multi-select, and a click never wipes the drag followers. The pure merge steps
-//! ([`apply_hover`], [`apply_click`], [`apply_cleared_pick`]) are what the tests pin.
+//! [`SolidPreviewState::request_facet_overlay`] replaces the whole overlay. Each writer
+//! therefore changes its own field of the cached copy and resubmits the merged whole
+//! ([`resubmit_facet_overlay`]), so no writer wipes another's fields. The pure merge steps
+//! ([`apply_hover`], [`apply_click`], [`apply_cleared_pick`]) are what the tests check.
 
 use super::preview_state::{FacetOverlay, FacetOwners, SolidPreviewState};
 use crate::{EditorModel, MainWindow};

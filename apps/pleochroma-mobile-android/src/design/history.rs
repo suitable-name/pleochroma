@@ -122,7 +122,8 @@ fn fingerprint(position: usize) -> InputFingerprint {
     ])
 }
 
-/// Save the state the user actually previewed; edits cannot repurpose a row number.
+/// The design of history row `position`. Fails unless that row's preview is still current,
+/// so the saved state is the one the user previewed.
 pub fn selected_design(
     app: &pleochroma_mobile_core::app_state::AppState,
     position: usize,

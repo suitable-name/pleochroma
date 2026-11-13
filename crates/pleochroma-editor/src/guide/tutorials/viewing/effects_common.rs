@@ -1,5 +1,6 @@
-//! Shared pieces of the render-effects lessons (`surface_finish.rs` and `render_effects.rs`): the
-//! groups they unlock, the two steps every one of them opens with, and the goals that read the
+//! Shared parts of the render-effects lessons (`surface_finish.rs` and `render_effects.rs`).
+//!
+//! They hold the groups these lessons unlock, the steps they share, and the goals that read the
 //! design's surface finish, inclusions and play-of-color.
 //!
 //! What these lessons wait for is in the design, so the goals are [`check`]s on it: every route
@@ -158,7 +159,7 @@ pub(super) fn pattern_pinfire(ctx: &GoalContext<'_>) -> bool {
         .is_some_and(|structure| structure.pattern == StructurePattern::Pinfire)
 }
 
-/// The Color Range is not the material's own any more.
+/// The Color Range differs from the material's own default.
 pub(super) fn range_moved(ctx: &GoalContext<'_>) -> bool {
     structure_against_default(ctx, |own, default| {
         (own.color_low_nm - default.color_low_nm).abs() > 0.5
@@ -166,14 +167,14 @@ pub(super) fn range_moved(ctx: &GoalContext<'_>) -> bool {
     })
 }
 
-/// The Coverage is not the material's own any more.
+/// The Coverage differs from the material's own default.
 pub(super) fn coverage_moved(ctx: &GoalContext<'_>) -> bool {
     structure_against_default(ctx, |own, default| {
         (own.coverage - default.coverage).abs() > 0.005
     })
 }
 
-/// The patches were drawn again with a new seed.
+/// The patches use a seed other than the default.
 pub(super) fn reseeded(ctx: &GoalContext<'_>) -> bool {
     ctx.design
         .render_effects

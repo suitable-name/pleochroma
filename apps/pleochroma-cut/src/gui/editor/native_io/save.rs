@@ -1,7 +1,7 @@
-//! "Save"/"Save As": writes the design's self-contained `.psdd` file. The file
-//! carries the whole design, so nothing is written beside it; the catalogue row the
-//! design belongs to still gets its cutting instructions (`.asc`) and the design file
-//! attached ([`write_back_to_catalogue`]). See this group's own `mod.rs` doc comment.
+//! "Save" and "Save As": writes the design's self-contained `.psdd` file, and nothing beside it.
+//!
+//! The design's catalogue row also gets its cutting instructions (`.asc`) and the design file
+//! attached ([`write_back_to_catalogue`]).
 
 use super::{
     CURRENT_NATIVE_PATH,
@@ -50,28 +50,20 @@ use std::{
     time::Instant,
 };
 
-/// This design's own already-known save location: the remembered `.psdd` file
-/// ([`CURRENT_NATIVE_PATH`]), provided it belongs to this design -- its stem is the
-/// design's recorded name (`asc_filename`). Without a known location Ctrl+S would
-/// always reopen the Save-As dialog, even seconds after the cutter had just chosen
-/// one; without the name check a design loaded over another one (a catalogue "Load
-/// Selected") would overwrite the previous design's file.
+/// The remembered `.psdd` file of this design ([`CURRENT_NATIVE_PATH`]), when it belongs to
+/// the design: its stem must match the recorded name `asc_filename`. Otherwise a design loaded
+/// over another one (a catalogue Load Selected) would overwrite that other file.
 ///
-/// `None` falls through to [`save_native_via_dialog`]'s ordinary Save-As behaviour:
-/// a brand-new design, a catalogue design, a bare `.asc`, or a recovered autosave.
+/// `None` falls back to the Save As dialog, for a new, catalogue or bare `.asc` design, or a
+/// recovered autosave.
 fn known_save_target(st: &EditorState) -> Option<PathBuf> {
     let path = CURRENT_NATIVE_PATH.with(|cell| cell.borrow().clone())?;
     let name = st.asc_filename.as_deref()?;
     path_belongs_to_schedule_name(&path, name).then_some(path)
 }
 
-/// Every write/export/autosave path in this module that ends up calling
-/// [`catalogue_asc_reusing_solve`] needs this same bundle of `state` snapshot data
-/// plus the destination paths and shared handles -- grouped into one `Clone`
-/// struct (rather than nine-plus parameters threaded through several async
-/// continuations) so [`finish_native_save`]/[`write_native_save`] can move a single
-/// owned copy into whichever branch (confirmed or not) ends up running, and again
-/// into the background thread that does the actual write.
+/// What one Save needs: the state snapshot, the destination and the shared handles. It is one
+/// `Clone` struct so each continuation, and the background write, can take an owned copy.
 #[derive(Clone)]
 struct NativeSaveContext {
     state: Rc<RefCell<EditorState>>,
@@ -90,31 +82,21 @@ struct NativeSaveContext {
     /// The `[meta]` table and attachments the design came with -- the base a Save
     /// overlays the library row onto, see `design_meta`.
     file_extras: DesignFileExtras,
-    /// `EditorState::generation`'s value at the moment `design` was cloned out of
-    /// `state` (`quick_save_native`/`save_native_via_dialog`, both well before
-    /// `resolve_solved_then`'s background solve and the write itself, which can
-    /// together take several seconds on a large design) -- carried through
-    /// [`WriteNativeOutcome`] so [`finish_save_native_success`] can mark the design
-    /// clean at the generation it ACTUALLY saved, not whatever `generation` reads
-    /// once the write finally lands. Using the live generation there instead
-    /// let edits made while the save was still resolving/writing read as clean
-    /// the moment the (already stale) save completed, so the close guard never
-    /// prompted for them and they were lost with no warning.
+    /// `EditorState::generation` when `design` was cloned out of `state`, before the solve
+    /// and the write. [`finish_save_native_success`] marks the design clean at this value.
+    /// The live generation would mark edits made during the save as clean.
     snapshot_generation: u64,
 }
 
 thread_local! {
-    /// [`write_native_save`]'s own UI-thread-only rendezvous for the
-    /// `Rc<RefCell<EditorState>>` its background write thread must hand back to
-    /// [`finish_save_native_success`] -- see [`pick_file`]'s own `PENDING_PICKS`
-    /// doc comment for why a plain `Rc` can never itself cross into a spawned
-    /// thread or an `upgrade_in_event_loop` closure.
+    /// The `Rc<RefCell<EditorState>>` that the background write hands back to
+    /// [`finish_save_native_success`]. An `Rc` cannot cross into a spawned thread, so it is
+    /// kept here on the UI thread and only its key crosses.
     static PENDING_NATIVE_SAVE_STATE: RefCell<std::collections::HashMap<u64, Rc<RefCell<EditorState>>>> =
         RefCell::new(std::collections::HashMap::new());
     static NEXT_NATIVE_SAVE_KEY: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
-    /// Saves whose worker-side preparation ([`prepare_native_save`]) is still running, by
-    /// sequence number: the `Rc`-holding context stays here on the UI thread and only the
-    /// number crosses the thread boundary, the same trick as [`PENDING_NATIVE_SAVE_STATE`].
+    /// Saves whose preparation ([`prepare_native_save`]) is still running, by sequence
+    /// number. The context stays on the UI thread, and only the number crosses.
     static PENDING_NATIVE_PREPARE: RefCell<std::collections::HashMap<u64, NativeSaveContext>> =
         RefCell::new(std::collections::HashMap::new());
     /// The sequence number of the newest Save started; numbers begin at 1.
@@ -157,20 +139,15 @@ pub(super) fn note_holders(out: &mut Vec<&'static str>) {
     }
 }
 
-/// Group 1+2's shared tail for both [`quick_save_native`] and
-/// [`save_native_via_dialog`] once `ctx.native_path` is known and
-/// any overwrite confirmation has already been granted: resolves `design`'s write
-/// status off the UI thread ([`resolve_solve_at`]/[`decide_write_status`]), asks
-/// [`ask_write_confirm`] only when it names a problem, then hands off to
-/// [`write_native_save`].
+/// The shared tail of [`quick_save_native`] and [`save_native_via_dialog`], once the target
+/// path is known and any overwrite is confirmed. It resolves the design's write status off the
+/// UI thread ([`resolve_solve_at`] and `decide_write_status`), asks [`ask_write_confirm`] only
+/// when there is a problem, then calls [`write_native_save`].
 ///
-/// A solve that was displaced by a newer request ([`SolveFailure::Superseded`]) says
-/// nothing about the geometry: it neither offers the "not a closed solid" prompt nor
-/// reaches the file header. The save is abandoned with a toast and nothing is written.
+/// A solve displaced by a newer request ([`SolveFailure::Superseded`]) says nothing about the
+/// geometry, so the save is abandoned with a toast and nothing is written.
 fn finish_native_save(ui: &MainWindow, design: Design, ctx: NativeSaveContext) {
-    // Tagged with `ctx.snapshot_generation` -- see `native_io::solve::resolve_solve_at`'s
-    // own doc comment: a Save must never write a cached solve for an OLDER generation
-    // than the one it just cloned `design` out of.
+    // Tagged with the snapshot generation, so an older cached solve is never used.
     let snapshot_generation = ctx.snapshot_generation;
     resolve_solve_at(
         ui,
@@ -182,10 +159,8 @@ fn finish_native_save(ui: &MainWindow, design: Design, ctx: NativeSaveContext) {
                     Ok(solved) => Ok(solved),
                     Err(SolveFailure::Failed(message)) => Err(message),
                     Err(SolveFailure::Superseded) => {
-                        // This save is not landing -- an `after_save` continuation
-                        // stashed right before it must not be left dangling for some
-                        // LATER, unrelated save to stumble onto; see `AfterSave`'s
-                        // own doc comment.
+                        // Clears any `after_save` continuation, so a later unrelated save
+                        // cannot run it.
                         ctx.state.borrow_mut().after_save = None;
                         show_toast(
                             ui,
@@ -230,12 +205,8 @@ fn finish_native_save(ui: &MainWindow, design: Design, ctx: NativeSaveContext) {
     );
 }
 
-/// Parks `state` in [`PENDING_NATIVE_SAVE_STATE`] under a fresh key and returns
-/// that key. `Rc<RefCell<EditorState>>` is not `Send` -- it must never cross into
-/// [`write_native_save`]'s spawned thread or its `upgrade_in_event_loop` hop back.
-/// Stashed in a UI-thread-only rendezvous instead, the same trick `pick_file`'s own
-/// `PENDING_PICKS` uses (see that function's own doc comment) -- only the plain
-/// `u64` key crosses the thread boundary.
+/// Parks `state` in [`PENDING_NATIVE_SAVE_STATE`] under a fresh key and returns that key.
+/// `Rc<RefCell<EditorState>>` is not `Send`, so only the `u64` key crosses into the write thread.
 fn stash_native_save_state(state: &Rc<RefCell<EditorState>>) -> u64 {
     let state_key = NEXT_NATIVE_SAVE_KEY.with(|c| {
         let key = c.get();
@@ -248,10 +219,9 @@ fn stash_native_save_state(state: &Rc<RefCell<EditorState>>) -> u64 {
     state_key
 }
 
-/// Everything [`prepare_native_save`] needs, as plain `Send` data: the UI-thread part of a
-/// Save is only this snapshot, because the library-row read (every attachment BLOB), the
-/// custom-material row read and the text serialisation together are tens of milliseconds to
-/// seconds on a design with multi-MB attachments, under the DB mutex other workers wait on.
+/// The input of [`prepare_native_save`], as plain `Send` data. The UI thread only takes this
+/// snapshot: reading the library row with its attachments and serialising can take seconds,
+/// under a DB mutex that other workers wait on.
 struct SavePrepInput {
     design: Design,
     solved: Option<Vec<SolvedTier>>,
@@ -276,9 +246,8 @@ struct PreparedNativeSave {
 }
 
 /// The worker half of a Save: reads the custom-material row and the library row (locking the
-/// DB mutex here, never on the UI thread), builds the `.asc` and the design file's text. No
-/// disk write happens here. The same calls on the same inputs in the same order as the
-/// UI-thread version this replaced.
+/// DB mutex here, never on the UI thread), then builds the `.asc` and the design file's text.
+/// It does not write to disk.
 ///
 /// # Errors
 ///
@@ -333,19 +302,17 @@ fn prepare_native_save(input: SavePrepInput) -> Result<PreparedNativeSave, Strin
     })
 }
 
-/// [`finish_native_save`]'s write half: snapshots the state the save needs on the UI thread,
-/// builds the catalogue's `.asc` and the design file's text on a worker
-/// ([`prepare_native_save`]), and then -- back on the UI thread -- hands the actual disk
-/// write ([`write_file_atomically`]) and catalogue write-back ([`write_back_to_catalogue`]) to
-/// a second background thread (Group 4: "files first then catalogue, results back via the
-/// event loop"). `header_message` is `Some` only when the cutter just confirmed a "not a
-/// closed solid" write; stamped into `design.meta.headers` before anything is serialized, so
-/// the file always describes the bytes actually written, never mutated after the fact. The
-/// file's `draft` flag is set when the design did not solve.
+/// The write half of a Save. The UI thread snapshots the state, a worker builds the `.asc` and
+/// the design file's text ([`prepare_native_save`]), and then a second background thread
+/// writes the file ([`write_file_atomically`]) and the catalogue row
+/// ([`write_back_to_catalogue`]), with the files written first.
 ///
-/// Preparation results can land out of order when two Saves are issued back to back; a
-/// result older than one that already landed is dropped (see [`land_prepared_native_save`]),
-/// the same "newest wins" rule the writer gate applies to parked writes.
+/// `header_message` is set only when the cutter confirmed a "not a closed solid" write. It is
+/// stamped into `design.meta.headers` before serialising, so the file matches the bytes
+/// written. The file's `draft` flag is set when the design did not solve.
+///
+/// If two Saves are issued back to back, a preparation that finishes after a newer one has
+/// landed is dropped (see [`land_prepared_native_save`]).
 fn write_native_save(
     ui: &MainWindow,
     design: &Design,
@@ -375,7 +342,7 @@ fn write_native_save(
         original_asc_text: ctx.original_asc_text.clone(),
         printed_proportions: ctx.printed_proportions,
         history_entries: ctx.history_entries.clone(),
-        // Custom-catalogue-aware -- see `snapshot_custom_materials`'s own doc comment.
+        // So a custom material writes its own refractive index (see `snapshot_custom_materials`).
         custom_materials: snapshot_custom_materials(&ctx.render_ctx),
     };
     let seq = PREPARE_SEQ.with(|c| {
@@ -415,22 +382,17 @@ fn land_prepared_native_save(
             spawn_native_save_write(ui, &ctx, prepared.asc, prepared.design_text);
         }
         Err(e) => {
-            // This save is not landing -- an `after_save` continuation stashed
-            // right before it must not be left dangling for some LATER,
-            // unrelated save to stumble onto; see `AfterSave`'s own doc
-            // comment.
+            // Clears any `after_save` continuation, so a later unrelated save cannot run it.
             ctx.state.borrow_mut().after_save = None;
             show_toast(ui, &format!("Cannot save: {e}"), "error");
         }
     }
 }
 
-/// [`write_native_save`]'s background-thread tail, split out purely to keep that
-/// function itself under clippy's `too_many_lines` lint: hands the save to the
-/// single-writer gate ([`NATIVE_WRITE_GATE`]). When no other save is writing it starts
-/// now ([`start_native_write_thread`]); otherwise it is parked -- the newest parked
-/// save wins -- and starts when the running one reports in, so two quick saves never
-/// race on the same file.
+/// The background-thread tail of [`write_native_save`], split out to keep that function under
+/// clippy's `too_many_lines` limit. It hands the save to the single-writer gate
+/// ([`NATIVE_WRITE_GATE`]): the write starts now, or waits, and the newest waiting save wins.
+/// Two quick saves therefore never race on the same file.
 fn spawn_native_save_write(
     ui: &MainWindow,
     ctx: &NativeSaveContext,
@@ -484,10 +446,8 @@ fn start_native_write_thread(
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_default();
-            // Files-first-then-catalogue: a catalogue write-back failure below is
-            // reported alongside the outcome, but never rolls back or re-reports
-            // the file write that already succeeded -- see
-            // `write_back_to_catalogue`'s own doc comment.
+            // The file is written first. A catalogue failure is reported with the outcome
+            // and never undoes the file write.
             let catalogue = write_back_to_catalogue(
                 &db,
                 source_entry_id,
@@ -501,9 +461,7 @@ fn start_native_write_thread(
                 asc_filename: asc_filename.clone(),
                 asc,
                 catalogue,
-                // See `NativeSaveContext::snapshot_generation`'s own doc
-                // comment -- carried straight through, unread by anything on
-                // this background thread.
+                // Carried through to the UI thread unchanged.
                 snapshot_generation,
             }
         });
@@ -534,20 +492,15 @@ fn report_native_save_outcome(
             });
         }
         Err(message) => {
-            // This save did not land -- an `after_save` continuation stashed right
-            // before it must not be left dangling for some LATER, unrelated save to
-            // stumble onto; see `AfterSave`'s own doc comment.
+            // Clears any `after_save` continuation, so a later unrelated save cannot run it.
             state.borrow_mut().after_save = None;
             show_toast(ui, &message, "error");
         }
     }
 }
 
-/// Quick save: writes straight to `native_path` (already known -- see
-/// [`known_save_target`]) with no file dialog. Otherwise identical to
-/// [`save_native_via_dialog`]'s own tail: the same degenerate-status confirmation, the
-/// same atomic write, the same success/failure reporting -- both funnel through
-/// [`finish_native_save`].
+/// Quick save: writes straight to the known `native_path` ([`known_save_target`]) with no
+/// dialog. Quick and dialog saves both go through [`finish_native_save`].
 fn quick_save_native(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -560,7 +513,7 @@ fn quick_save_native(
         let st = state.borrow();
         (st.design.clone(), SavedState::capture(&st))
     };
-    // See `stamp_source_entry_footnote`'s own doc comment.
+    // The source row id, so a re-import links back to it (see `stamp_source_entry_footnote`).
     stamp_source_entry_footnote(&mut design.meta.footnotes, saved.source_entry_id);
     finish_native_save(
         ui,
@@ -586,8 +539,7 @@ struct SavedState {
     used_placeholder: bool,
     history_entries: Vec<String>,
     file_extras: DesignFileExtras,
-    /// `generation` at the moment the design was cloned -- see
-    /// [`NativeSaveContext::snapshot_generation`]'s own doc comment.
+    /// `generation` when the design was cloned (see [`NativeSaveContext::snapshot_generation`]).
     snapshot_generation: u64,
 }
 
@@ -601,8 +553,7 @@ impl SavedState {
             printed_proportions: st.printed_proportions,
             source_entry_id: st.source_entry_id,
             used_placeholder: st.used_placeholder,
-            // Carried on every native save -- see `SaveExtras::history_entries`'s
-            // own doc comment.
+            // Written into every native save (see `SaveExtras::history_entries`).
             history_entries: st.history.description_log().to_vec(),
             file_extras: st.file_extras.clone(),
             snapshot_generation: st.generation.load(Ordering::Relaxed),
@@ -639,16 +590,12 @@ impl SavedState {
     }
 }
 
-/// Save-As: always shows the native save dialog. Reached two ways: as
-/// [`setup_save_native_callback`]'s own fallback, for a design
-/// [`known_save_target`] has no answer for yet, and as `EditorModel.save_native_as`'s
-/// entire body (a dedicated callback backed by its own
-/// `ui/models/editor.slint`/`ui/app.slint` wiring) for a cutter who explicitly
-/// wants to save the current design to a DIFFERENT file.
+/// Save As: always shows the save dialog. It is the fallback of [`setup_save_native_callback`]
+/// when [`known_save_target`] has no answer, and the body of `EditorModel.save_native_as`,
+/// which saves to a different file.
 ///
-/// The dialog is the OS's own save dialog, which already asks before replacing an
-/// existing file; the replaced copy is also kept as a `.bak`. The design is recorded
-/// under the chosen file's name from then on.
+/// The OS dialog asks before replacing a file, and the replaced copy is kept as a `.bak`. The
+/// design is recorded under the chosen file's name from then on.
 fn save_native_via_dialog(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -663,8 +610,7 @@ fn save_native_via_dialog(
     // See `stamp_source_entry_footnote`'s own doc comment.
     stamp_source_entry_footnote(&mut design.meta.footnotes, saved.source_entry_id);
 
-    // Group 3: the save-as picker runs on a background thread -- see
-    // `pick_file`'s own doc comment. `state` is not borrowed across this call.
+    // The picker runs on a background thread; `state` is not borrowed across it.
     let state_for_pick = Rc::clone(state);
     let db_for_pick = Arc::clone(db);
     let source_for_pick = Arc::clone(source);
@@ -674,13 +620,10 @@ fn save_native_via_dialog(
         ui,
         PickKind::SaveDesign { default_name },
         move |ui, picked| {
-            // See the matching comment on `setup_export_asc_callback`'s own
-            // save-picker cancel -- a dismissed dialog needs no toast.
+            // A dismissed dialog needs no toast.
             let Some(picked) = picked else {
-                // No save is landing after all -- an `after_save` continuation
-                // stashed by a close/replace guard right before this Save-As
-                // must not be left dangling for some LATER, unrelated save to
-                // stumble onto; see `AfterSave`'s own doc comment.
+                // No save lands after all: clear any `after_save` continuation, so a later
+                // unrelated save cannot run it.
                 state_for_pick.borrow_mut().after_save = None;
                 return;
             };
@@ -712,15 +655,11 @@ pub(in crate::gui::editor) fn setup_save_native_callback(
     source: &Arc<Mutex<LibrarySource>>,
     render_ctx: &Arc<Mutex<RenderContext>>,
 ) {
-    // Stashes `state` for `request_save_then_close` (`gui::window_close`'s
-    // close-confirm guard) to reach later -- see that function's own doc
-    // comment. There is only ever one `EditorState` for the app's lifetime, so
-    // one call here covers every later close.
+    // Stashes `state` for `request_save_then_close` (the window-close guard). There is one
+    // `EditorState` for the app's lifetime, so this runs once.
     super::remember_editor_state(state);
     setup_dirty_tracking(ui, state);
     setup_autosave_timer(ui, state, db);
-    // Group 2: the write-confirm dialog's own two callbacks -- bundled in here for
-    // the same reason `setup_dirty_tracking`/`setup_autosave_timer` are.
     setup_write_confirm_dialog_callbacks(ui, state);
     let state_save = Rc::clone(state);
     let db_save = Arc::clone(db);
@@ -732,10 +671,7 @@ pub(in crate::gui::editor) fn setup_save_native_callback(
             return;
         };
         crate::gui::editor::stall_guard::stall_guard("save_native", || {
-            // Quick-save straight to the design's own known location when
-            // one exists, so Ctrl+S/"Save" stop being a Save-As round trip
-            // on every press -- only a design with no known location yet (see
-            // `known_save_target`'s own doc comment) still shows the dialog.
+            // Quick save to the known location when there is one, else the dialog.
             let known = {
                 let st = state_save.borrow();
                 known_save_target(&st)
@@ -764,10 +700,7 @@ pub(in crate::gui::editor) fn setup_save_native_callback(
         });
     });
 
-    // "Save As...": always shows the dialog, even when a known location
-    // exists, for a cutter who explicitly wants this design written to a
-    // DIFFERENT file. The plain `save_native` above deliberately does not offer
-    // that choice, which is exactly why this exists.
+    // Save As always shows the dialog, even with a known location.
     let state_save_as = Rc::clone(state);
     let db_save_as = Arc::clone(db);
     let source_save_as = Arc::clone(source);
@@ -789,14 +722,10 @@ pub(in crate::gui::editor) fn setup_save_native_callback(
     });
 }
 
-/// Wires `EditorModel.recompute_dirty` -- called by `changed tiers` in
-/// `ui/models/editor.slint` every time ANY edit path (this app's own tier-editing
-/// callbacks, but also Deep Solve/Optimize Apply, Adopt, and Retarget Apply, none of
-/// which this module owns) rebuilds the tier list -- so [`EditorState::is_dirty`]
-/// stays live without a `set_is_dirty` call at every one of those sites. Bundled into
-/// [`setup_save_native_callback`] (called exactly once, like every other `setup_*`
-/// entry point here) rather than given its own -- `callbacks::mod` only re-exports
-/// entry points by name, and this one has no Slint button of its own to answer to.
+/// Wires `EditorModel.recompute_dirty`, which the `changed tiers` handler in
+/// `ui/models/editor.slint` calls after any edit that rebuilds the tier list (including Deep
+/// Solve, Optimize, Adopt and Retarget). This keeps [`EditorState::is_dirty`] current without
+/// a `set_is_dirty` call at each site. Called by [`setup_save_native_callback`].
 fn setup_dirty_tracking(ui: &MainWindow, state: &Rc<RefCell<EditorState>>) {
     let state = Rc::clone(state);
     let ui_weak = ui.as_weak();
@@ -804,17 +733,11 @@ fn setup_dirty_tracking(ui: &MainWindow, state: &Rc<RefCell<EditorState>>) {
         let Some(ui) = ui_weak.upgrade() else {
             return;
         };
-        // `try_borrow`, never `borrow`: Slint queues `changed tiers` handlers to the
-        // next event-loop pass rather than running them inside `set_tiers`, but a
-        // caller that pushed the tier list while holding `state.borrow_mut()` and then
-        // pumps the event loop still lets one run under that borrow. A plain
-        // `borrow()` would panic there with "already mutably borrowed".
-        //
-        // Skipping is safe rather than merely non-fatal: `view::
-        // push_tier_list_and_undo_redo` -- the only thing that calls `set_tiers` --
-        // pushes `is_dirty` itself from the `&EditorState` it already holds, on
-        // every one of those paths. This handler exists for the pushes that do NOT
-        // come through there, where nothing is borrowed and the read succeeds.
+        // `try_borrow`, never `borrow`: this handler can run while a caller still holds
+        // `state.borrow_mut()` (Slint queues it to the next pass, but a caller that pumps the
+        // event loop can still hit it), and `borrow()` would panic. Skipping is safe:
+        // `view::push_tier_list_and_undo_redo` already pushes `is_dirty` on every path that
+        // calls `set_tiers`.
         if let Ok(st) = state.try_borrow() {
             ui.global::<EditorModel>().set_is_dirty(st.is_dirty());
         }

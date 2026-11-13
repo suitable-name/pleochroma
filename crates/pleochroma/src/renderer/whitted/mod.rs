@@ -1,8 +1,24 @@
-//! Deterministic Fresnel-weighted image tracer, independent of analytical metrics.
+//! Deterministic Fresnel-weighted image tracer (the Ray-Traced engine).
 //!
 //! Rays form a linear internal chain. Only concave geometry needs a bounded stack
 //! for outside leaves that can enter another part of the stone. Output is summed
 //! CIE XYZ, so existing accumulation and display code can consume it unchanged.
+//!
+//! # Tray reflection
+//!
+//! With a `TrayMirror` in the environment (the glossy tray under the stone, see
+//! `optics::raytracer::environment`), every escape that meets the tray plane splits
+//! deterministically: `(1 - F)` of its radiance is the matte-paper lookup and a reflected
+//! branch with Schlick factor `F` is traced on, so the stone can appear mirrored.
+//! The split lives in one function, `chain::resolve_escape`, used by both escape sites (the
+//! branch miss and the direct resolve of an outside leaf); its WGSL twin is `wt_floor_escape`,
+//! which calls `wt_floor`, the twin of `TrayMirror::hit`.
+//!
+//! Not mirrored: frosted facets keep their per-facet mean (`frost.rs` has no position to hit
+//! the tray from), the ASET table is a direction-only lookup, and the stone-shadow lookup
+//! (`WhittedEnv::leaf_at`) serves only the matte `(1 - F)` part. A reflected leaf reads the
+//! environment along the mirrored direction without searching for the stone when the worklist
+//! has no room or the depth cap is reached.
 
 mod aa;
 pub(crate) mod chain;
@@ -11,7 +27,7 @@ mod frame;
 pub(crate) mod fresnel;
 mod frost;
 mod prep;
-mod tint;
+pub(crate) mod tint;
 
 pub use aa::aa_offset;
 pub use env::WhittedEnv;
@@ -20,12 +36,6 @@ pub use prep::{Chain, WhittedPrep};
 pub use tint::{ABSORPTION_BINS, ABSORPTION_MODES, BinnedAbsorption};
 
 /// Increment when an intentional image change should invalidate cached drafts.
-///
-/// 2: the backdrop is a lit tray seen by every escape (primary misses included), not a
-/// camera-only card.
-/// 3: absorption follows the material's spectrum over the whole path inside the stone
-/// (forty 10 nm bins, out-of-gamut colors kept) instead of three clamped RGB coefficients
-/// fitted at one path length.
 pub const WHITTED_VERSION: u32 = 3;
 pub const CUTOFF: f32 = 1.0e-3;
 pub const WORKLIST_CAPACITY: usize = 4;
@@ -59,4 +69,8 @@ mod tests_chain;
 #[cfg(test)]
 mod tests_frame;
 #[cfg(test)]
+mod tests_mirror;
+#[cfg(test)]
 mod tests_prep;
+#[cfg(test)]
+mod tests_shadow;

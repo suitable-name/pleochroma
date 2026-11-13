@@ -2,14 +2,13 @@
 //!
 //! # Where a solve runs
 //!
-//! - **Tiny designs on the page**, like the desktop: `solve_policy::
-//!   should_solve_synchronously_for` (few planes, few meet-derived tiers, no tier
-//!   targets, and a last solve under 500 ms if there is one) solves right here, one
-//!   event-loop turn after "Solving..." is shown.
+//! - **Tiny designs on the page**: `solve_policy::should_solve_synchronously_for` (few
+//!   planes, few meet-derived tiers, no tier targets, and a last solve under 500 ms if
+//!   there is one) solves right here, one event-loop turn after "Solving..." is shown.
 //! - **Everything else in the solve Worker** (`crate::workers::pool`'s `SolveClient`),
 //!   so the page stays responsive. A newer request supersedes an older one (the client
 //!   resolves the old future with an error, which is ignored here); the status strip
-//!   ticks the desktop's `solving_banner` meanwhile.
+//!   ticks the `solving_banner` meanwhile.
 //!
 //! Both paths run the same `pleochroma_web_core::solve::solve_design` (the Worker
 //! through `handle_solve`), and [`install`] turns its `SolveOutcome` into
@@ -173,8 +172,7 @@ fn count_failure(generation: u64, message: &str) -> Option<Duration> {
     })
 }
 
-/// The last measured solve time, whatever generation it was for (the desktop's
-/// "last real measurement").
+/// The last measured solve time, whatever generation it was for.
 fn last_solve_time(ctx: &Ctx) -> Option<Duration> {
     match &ctx.state.borrow().solve {
         SolveState::Solved { took, .. } => Some(*took),
@@ -488,8 +486,7 @@ fn finish(ctx: &Ctx, generation: u64, result: Result<SolveResponse, SolveError>,
                 });
         });
     }
-    // The "Solve and check" step's goal reads this result (the desktop's auto-solve
-    // completion does the same).
+    // The "Solve and check" step's goal reads this result.
     crate::editor::guide::check_progress(ctx);
 }
 
@@ -546,11 +543,13 @@ fn install(
     answer
 }
 
-/// After a load, New, edit or undo/redo: schedules a solve after the desktop's
-/// `AUTO_SOLVE_DEBOUNCE`, when the desktop would (`should_schedule_auto_solve` with the
-/// dock's budget, [`crate::app::state::WebApp::auto_solve_budget_ms`]; a design that must
-/// solve on the page is always small enough). Otherwise the status strip says auto-solve
-/// is off for this design.
+/// Schedules a solve after a load, New, edit or undo/redo.
+///
+/// It waits `AUTO_SOLVE_DEBOUNCE`
+/// when `should_schedule_auto_solve` allows it for the dock's budget
+/// ([`crate::app::state::WebApp::auto_solve_budget_ms`]); a design that must solve on the
+/// page is always small enough. Otherwise the status strip says auto-solve is off for this
+/// design.
 ///
 /// A budget of zero (the dock's "Auto-solve: Off") turns all of it off: an edited design
 /// then stays "stale" until Solve is pressed.

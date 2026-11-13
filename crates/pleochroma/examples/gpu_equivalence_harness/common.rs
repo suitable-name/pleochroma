@@ -54,13 +54,23 @@ pub fn report_transport_ulp_check<Case: Clone + std::fmt::Debug>(
             a.ulp
         );
     }
+    for s in &result.over_budget_samples {
+        println!(
+            "  over: case={:?} component={}: cpu={:e} (0x{:08x}) gpu={:e} (0x{:08x}) ULP={}",
+            s.case,
+            s.component,
+            s.cpu,
+            s.cpu.to_bits(),
+            s.gpu,
+            s.gpu.to_bits(),
+            s.ulp
+        );
+    }
     false
 }
 
-/// Tier 3: statistical image equivalence for a real uniaxial-birefringent material --
-/// see [`estimator_check::run_image_comparison`]'s doc comment for the method
-/// (identical here, just a different material); reused by both the Zircon and
-/// Tourmaline instances below.
+/// Tier 3: statistical image equivalence for one material. The method is described in
+/// [`estimator_check::run_image_comparison`]'s doc comment.
 pub fn report_image_comparison_material(
     label: &str,
     result: &estimator_check::ImageComparisonResult,

@@ -39,14 +39,10 @@ export component HeaderToolbar inherits Rectangle {
         || Math.abs(LibraryModel.facets_filter_min - LibraryModel.facets_bounds_min) > 0.0001
         || Math.abs(LibraryModel.facets_filter_max - LibraryModel.facets_bounds_max) > 0.0001;
 
-    // 64px -> 48px -> 40px, every control/font below shrunk to
-    // match. See the flattened `VerticalLayout`/`HorizontalLayout` below for how the
-    // logo/title/status-badge stack fits one line at this height.
-    //
-    // Wide (the default): one 40px row -- the logo cluster on the left, the controls
-    // right-aligned. `compact` (set by `app.slint` below 1160px) stacks two 38px rows --
-    // logo, title, status and badge on top, the controls (their combos sharing the width)
-    // underneath. The two clusters are positioned explicitly from `root.width` (a single
+    // Wide (the default): one 40px row, the logo cluster on the left and the controls
+    // right-aligned. `compact` (set by `app.slint` below 1160px) stacks two 38px rows: logo,
+    // title, status and badge on top, the controls (their combos sharing the width) underneath.
+    // The two clusters are positioned explicitly from `root.width` (a single
     // set of controls serves both modes, so `search_input`/`focus_search()` and the popup
     // ids stay unique); this Rectangle's own width comes from its parent, so reading
     // `root.width` here cannot loop.
@@ -64,8 +60,9 @@ export component HeaderToolbar inherits Rectangle {
     property <length> controls_spacing: root.compact ? 6px : 10px;
     property <length> combo_min_w: root.compact ? 72px : 96px;
     property <length> search_min_w: root.compact ? 100px : 140px;
-    // Smallest / preferred width of the control cluster (Filters is a fixed 84px; Import
-    // and Remote are their buttons' own widths; six gaps between seven controls).
+    // Smallest / preferred width of the control cluster: Filters is a fixed 84px, Import and
+    // Remote are their buttons' own widths. Nine cells and eight gaps: a hidden cell keeps its
+    // place at zero width.
     // The Remote button is advanced: the Simple interface leaves it out unless a remote is already
     // set up or the library shown is a remote one (then it is how the cutter reaches it). Its cell
     // keeps its place in the row at zero width, so the id-based sums below stay right.
@@ -73,8 +70,7 @@ export component HeaderToolbar inherits Rectangle {
         || RemoteWorkerModel.library_is_remote || root.remote_open;
     property <length> remote_w: root.show_remote ? remote_btn.preferred-width : 0px;
     // The Jobs chip (the render queue) shows only while a job is waiting or running. Its cell
-    // keeps its place at zero width, like the Remote button's, so the layout still puts a gap
-    // beside it: eight cells, seven gaps, always.
+    // keeps its place at zero width, like the Remote button's, so the gap count stays fixed.
     property <length> jobs_w: RenderJobsModel.chip_visible ? jobs_chip.preferred-width : 0px;
     // The export chip (a running export started from a dialog, popup open or not) is the same
     // kind of cell: zero width when idle, so nine cells and eight gaps, always.
@@ -106,7 +102,6 @@ export component HeaderToolbar inherits Rectangle {
             VerticalLayout {
                 alignment: center;
                 Rectangle {
-                    // 36px -> 26px -> 22px, matching the bar's own shrink.
                     width: 22px;
                     height: 22px;
                     background: Theme.brand-mark-bg;
@@ -125,9 +120,8 @@ export component HeaderToolbar inherits Rectangle {
                 }
             }
 
-            // Title, status dot/message, and the remote-library badge share ONE row
-            // so every label fits without stacking across two lines in the
-            // bar's 40px height.
+            // Title, status and the remote-library badge share one row, so they fit the bar's
+            // height.
             HorizontalLayout {
                 alignment: center;
                 spacing: 8px;
@@ -165,14 +159,11 @@ export component HeaderToolbar inherits Rectangle {
                     }
                 }
 
-                // Always-visible "which library am I looking at" badge --
-                // deliberately shown here, next to the status line, not only inside the
-                // Remote Coordinator dialog (`remote_popup`), so switching away from local is
-                // obvious even with that panel closed. See this component's own
-                // `library_source_label`/`library_is_remote` doc comment.
-                // The two pills below are each centred by a layout of their own: a
-                // fixed-height Rectangle in the row sits at the top of its cell, which
-                // left them ~10px above the title's baseline.
+                // Always-visible badge for the library the list shows. It sits here, not only in
+                // the Remote Coordinator dialog (`remote_popup`), so a switch to a remote library
+                // is obvious with that dialog closed. The pills below are each centred by a layout
+                // of their own, since a fixed-height Rectangle in a row sits at the top of its
+                // cell.
                 VerticalLayout {
                 alignment: center;
                 Rectangle {
@@ -345,9 +336,8 @@ export component HeaderToolbar inherits Rectangle {
             }
         }
 
-        // Search & Filter Controls. Every control below is 28px tall (38px -> 32px ->
-        // 28px across both passes), matching the bar's own shrink to 40px. Right-aligned
-        // in the wide row; the full-width second row when `compact`.
+        // Search and filter controls, 28px tall. Right-aligned in the wide row; the full-width
+        // second row when `compact`.
         controls := HorizontalLayout {
             x: root.width - 10px - root.controls_w;
             y: root.compact ? 38px : 0px;
@@ -479,16 +469,13 @@ export component HeaderToolbar inherits Rectangle {
                 }
             }
 
-            // Sort Selector -- tag/collection sorting is out of scope here.
-            // Index<->order mapping happens once, in
-            // Rust, at `gui::library::search::read_sort_order`, the same convention
-            // the Shape/Gear selectors above and the tilt-performance combo boxes in
-            // `filter_panel.slint` already use for their own index-coded fields.
+            // Sort order. The index-to-order mapping is done once, in Rust, by `read_sort_order`
+            // (`gui::library::search::filters`), the same index convention as the Shape and Gear
+            // selectors and the tilt-performance combos in `filter_panel.slint`.
             //
-            // `gui::library::search::refresh_diagram_list_remote` sends this
-            // selector's order on the wire (`LibraryRequest::Search::order`)
-            // and `apps/pleochroma-worker::serve::library` applies it, so a remote
-            // library sorts exactly like a local one.
+            // `refresh_diagram_list_remote` (`gui::library::search::remote_search`) sends the order
+            // on the wire (`LibraryRequest::Search::order`) and `apps/pleochroma-worker` applies
+            // it, so a remote library sorts like a local one.
             Rectangle {
                 min-width: root.combo_min_w;
                 preferred-width: 140px;
@@ -593,9 +580,8 @@ export component HeaderToolbar inherits Rectangle {
                 }
             }
 
-            // The render queue's Jobs chip, while a job is waiting or running. Like the Remote
-            // cell below, a zero-width cell keeps its place in the row, so the id-based sums
-            // above stay right (the extra gap is the seventh in those sums).
+            // The render queue's Jobs chip, shown while a job waits or runs. Like the Remote cell,
+            // it keeps a zero-width place in the row so the gap count above stays fixed.
             Rectangle {
                 width: root.jobs_w;
                 height: 28px;

@@ -1,28 +1,27 @@
 //! A minimal `IndexedDB` wrapper: the autosaved current design and the schema of the
 //! design library.
 //!
+//! The autosaved current design and the schema of the design library.
+//!
 //! One database (`pleochroma`, version 3). Store `designs` holds one record under the key
 //! `"current"`: a JS object `{ bytes: Uint8Array, meta: string }` where `bytes` is the
-//! `.psdd` design file text (attachments included) and `meta` a JSON [`DesignMeta`].
-//! `IndexedDB` has no `sessionStorage`-style size ceiling, so the whole file goes in. The
-//! library stores (`entries`, `files`, `thumbs`, `side`, `meta`; see
-//! [`super::library`]) are created beside it by the version 2 upgrade and never touch it. The
-//! version 3 upgrade adds `color_variants` (the cutter's saved color variants, see
-//! [`super::color_variants`]) the same way.
+//! `.psdd` design file text (attachments included) and `meta` a JSON [`DesignMeta`]. The
+//! whole file is stored in one record. The library stores (`entries`, `files`, `thumbs`,
+//! `side`, `meta`; see [`super::library`]) and `color_variants` (see
+//! [`super::color_variants`]) sit beside it and the autosave never touches them.
 //!
-//! Everything is async (`wasm-bindgen-futures`) and every failure -- no `IndexedDB`
-//! (private mode in some browsers), a blocked open, quota, an aborted transaction --
-//! comes back as `Err(String)` for the caller to log, worded `"<Name>: <message>"` when
-//! the browser gave a `DOMException` (the library classifies on that name); nothing here
-//! shows the user anything. A write resolves when its transaction has completed, not merely
-//! when the request was queued.
+//! Every failure (no `IndexedDB` in private mode, a blocked open, quota, an aborted
+//! transaction) is returned as `Err(String)` for the caller to log. The text is
+//! `"<Name>: <message>"` for a `DOMException`, which the library classifies by name.
+//! Nothing here shows the user anything. A write resolves when its transaction has
+//! completed, not when the request was queued.
 //!
 //! # The autosave is never the library's casualty
 //!
-//! The autosave functions open the same database but only ever use their own store in their
+//! The autosave functions open the same database but only use their own store, in their
 //! own transactions. A library write that runs out of quota aborts its own transaction and
-//! leaves `designs/current` as it was; the upgrade creates each library store behind its own
-//! guard, so a failure there cannot stop the `designs` store from existing.
+//! leaves `designs/current` as it was. Each library store is created behind its own guard,
+//! so a failure there cannot stop the `designs` store from existing.
 
 use js_sys::{Array, Object, Promise, Reflect, Uint8Array};
 use serde::{Deserialize, Serialize};
@@ -169,17 +168,13 @@ pub(super) async fn transaction_done(tx: &IdbTransaction) -> Result<(), String> 
         .map_err(|e| js_text(&e))
 }
 
-/// Creates every store and index of the current schema that does not exist yet.
+/// Creates every store and index of the schema that does not exist yet.
 ///
-/// Runs inside the version-change transaction. Version 1 had only `designs`; a database
-/// upgraded from it keeps that store (and its `current` record) because the repeated create
-/// fails and is ignored. Each library store is created behind its own guard so one failure
-/// cannot stop the others, and `designs` is created first. A later version adds a step here
-/// keyed on the old version (`IdbVersionChangeEvent::old_version`).
-///
-/// Version 3 added `color_variants` as one more `for` entry: every store is created whatever the
-/// old version was, so a database upgraded from 2 (or 1) keeps all of its stores and records and
-/// only gains the new one.
+/// Runs inside the version-change transaction. A create for a store that already exists
+/// fails and is ignored, so an upgraded database keeps its records. Each library store is
+/// created behind its own guard so one failure cannot stop the others, and `designs` is
+/// created first. A step that must change existing data is keyed on the old version
+/// (`IdbVersionChangeEvent::old_version`) and goes here.
 fn create_schema(db: &IdbDatabase) {
     let _ = db.create_object_store(STORE_DESIGNS);
     for name in [STORE_FILES, STORE_THUMBS, STORE_META, STORE_COLOR_VARIANTS] {
@@ -194,15 +189,14 @@ fn create_schema(db: &IdbDatabase) {
     }
 }
 
-/// The failure text of an open that another tab's older connection holds up. The word
-/// "blocked" is what `library_record::classify_error_text` maps to `Unavailable`.
+/// The failure text of an open that another tab's older connection holds up. It contains
+/// "blocked", which `library_record::classify_error_text` maps to `Unavailable`.
 const OPEN_BLOCKED_TEXT: &str = "blocked: another tab holds an older version of the library";
 
-/// [`request_result`] for the open request, which can also be *blocked*: an upgrade waits for
-/// every other connection to close and fires `blocked` (and nothing else) while one does not.
-/// That rejects the open, so the library screen and the autosave report an unavailable store
-/// instead of waiting forever. If the other tab lets go later and the open then succeeds, the
-/// connection is closed again at once (nobody is waiting for it).
+/// [`request_result`] for the open request, which can also be *blocked*: an upgrade waits
+/// for every other connection to close and fires `blocked` while one stays open. The
+/// rejection stops the library screen and the autosave from waiting forever. A connection
+/// that arrives later is closed at once, since nobody is waiting for it.
 #[expect(clippy::future_not_send, reason = "wasm is single-threaded")]
 async fn open_request_result(open: &IdbOpenDbRequest) -> Result<JsValue, String> {
     let promise = Promise::new(&mut |resolve: js_sys::Function, reject: js_sys::Function| {
@@ -241,13 +235,11 @@ async fn open_request_result(open: &IdbOpenDbRequest) -> Result<JsValue, String>
     JsFuture::from(promise).await.map_err(|e| js_text(&e))
 }
 
-/// Opens (creating or upgrading on first use) the `pleochroma` database.
+/// Opens the `pleochroma` database, creating or upgrading it as needed.
 ///
-/// A tab that still holds an older connection blocks the upgrade; the open then fails with
-/// [`OPEN_BLOCKED_TEXT`] rather than never settling.
-///
-/// The connection closes itself when another tab asks for a newer version, so a tab
-/// holding an old connection never blocks an upgrade.
+/// A tab holding an older connection blocks the upgrade. The open then fails with
+/// [`OPEN_BLOCKED_TEXT`] instead of never settling. The connection closes itself when
+/// another tab requests a newer version, so it never blocks an upgrade.
 #[expect(clippy::future_not_send, reason = "wasm is single-threaded")]
 pub(super) async fn open_db() -> Result<IdbDatabase, String> {
     let factory = web_sys::window()
@@ -315,7 +307,7 @@ pub(super) fn store(tx: &IdbTransaction, name: &str) -> Result<IdbObjectStore, S
     tx.object_store(name).map_err(|e| js_text(&e))
 }
 
-/// Writes the autosaved design (replacing the previous one).
+/// Writes the autosaved design, replacing the previous one.
 ///
 /// # Errors
 ///

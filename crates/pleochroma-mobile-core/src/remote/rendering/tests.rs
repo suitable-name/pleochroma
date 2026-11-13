@@ -284,6 +284,33 @@ fn an_hdr_scene_names_the_effective_map_by_the_hash_of_its_asset_bytes() {
 }
 
 #[test]
+fn an_hdr_scene_carries_the_map_turn_and_a_studio_scene_the_default() {
+    let map = map(8, 4);
+    let mut turned = spec(Some(1));
+    turned.scene.lighting = turned.scene.lighting.with_hdr_turn(90.0, true);
+    let asset = HdrAsset::prepare(&turned, Some(&map)).unwrap().unwrap();
+    let wire = scene_state(
+        &turned,
+        &turned.build(Some(Arc::clone(&map))).unwrap(),
+        Some(asset.environment()),
+    );
+    assert_eq!(
+        wire.hdr_orientation.yaw.to_bits(),
+        90.0_f32.to_radians().to_bits()
+    );
+    assert!(wire.hdr_orientation.follows_camera);
+
+    // A studio rig has no map to turn: the default, whatever the lighting spec holds.
+    let mut studio = spec(None);
+    studio.scene.lighting = studio.scene.lighting.with_hdr_turn(90.0, true);
+    let wire = scene_state(&studio, &studio.build(None).unwrap(), None);
+    assert_eq!(
+        wire.hdr_orientation,
+        pleochroma::renderer::env_map::HdrOrientation::default()
+    );
+}
+
+#[test]
 fn an_hdr_scene_without_its_map_is_refused_and_nothing_is_substituted() {
     let error = HdrAsset::prepare(&spec(Some(1)), None).err().unwrap();
     assert!(error.contains("not loaded"), "{error}");

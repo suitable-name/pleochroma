@@ -3,8 +3,8 @@
 //!
 //! The backdrop is a physical tray: a matte grey surface of albedo `rho` under the stone,
 //! extending to the horizon and lit by the lighting rig, seen by every ray that leaves the
-//! stone and by the camera alike (see `optics::raytracer::environment::tray`). [`Backdrop::resolve`]
-//! turns a choice into the radiance the scene carries.
+//! stone and by the camera alike (see `optics::raytracer::environment::tray`).
+//! [`Backdrop::resolve`] turns a choice into the radiance the scene carries.
 //!
 //! This is the PURE half only -- the desktop's `settings::model::Backdrop`
 //! (`apps/pleochroma-cut/src/settings/model/app_settings.rs`) carries `serde`
@@ -20,10 +20,9 @@ use crate::optics::raytracer::{
     environment::{TRAY_ALBEDO_BLACK, TRAY_ALBEDO_GREY, TRAY_ALBEDO_WHITE, tray_radiance},
 };
 
-/// Default light yaw of the desktop and the browser, degrees (the pose [`Backdrop::level`]'s
-/// temporary shim resolves at).
+/// Default light yaw in degrees, the pose [`Backdrop::level`] resolves at.
 const SHIM_LIGHT_YAW_DEG: f32 = 48.0;
-/// Default light pitch of the desktop and the browser, degrees.
+/// Default light pitch in degrees.
 const SHIM_LIGHT_PITCH_DEG: f32 = 72.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -59,10 +58,9 @@ impl Backdrop {
         tray_radiance(self.albedo(), preset, light_yaw, light_pitch)
     }
 
-    /// TEMPORARY shim for the wave-2 lanes (desktop, web-core, mobile-core), which still call
-    /// `level()`: [`Self::resolve`] at the default preset and the default light pose. Each
-    /// caller must switch to `resolve` with its own scene's preset and pose; this is deleted
-    /// by lanes B3/B4.
+    /// Tray radiance at the default preset and light pose ([`Self::resolve`] with
+    /// those fixed). Code that renders a scene should call `resolve` with that
+    /// scene's own preset and pose.
     #[must_use]
     pub fn level(self) -> f32 {
         self.resolve(

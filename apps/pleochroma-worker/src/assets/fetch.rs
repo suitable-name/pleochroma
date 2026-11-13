@@ -149,12 +149,9 @@ pub fn ensure_held<S: Read + Write + TimeoutRead + TimeoutWrite>(
 
 /// [`ensure_held`] with the stream's timeouts armed.
 ///
-/// Always resolves and pins the bytes in memory for the job's lifetime (see
-/// [`HeldAsset`]), rather than trusting the on-disk cache to still have them whenever a
-/// joined worker later asks for them: an LRU eviction (another job's larger map, a
-/// write failure) between now and then must never turn "the coordinator holds this
-/// job's map" into "the coordinator lost it," discarding an otherwise healthy worker
-/// connection.
+/// The bytes are pinned in memory for the job (see [`HeldAsset`]) rather than re-read from
+/// the on-disk cache later: an LRU eviction must not make a joined worker's `NEED_ASSET`
+/// fail and drop an otherwise healthy connection.
 fn hold<S: Read + Write + TimeoutRead>(
     stream: &mut S,
     cache: &Arc<AssetCache>,
@@ -297,13 +294,12 @@ fn request_from_client<S: Read + Write + TimeoutRead>(
                 write_cancelled_done(stream, pending)?;
                 return Ok(Fetched::Superseded(Some(next)));
             }
-            // A stray v16 contribution while this request waits for its HDR map:
-            // consume its payload frame to keep the stream in sync (the `other` arm
-            // below never reads payloads, so it must never see this variant).
+            // A contribution while this request waits for its HDR map: consume its payload
+            // frame to keep the stream in sync (the `other` arm below never reads payloads).
             ClientMessage::Contribution(header) => {
                 pleochroma_net::messages::discard_contribution_payload(stream, &header)?;
             }
-            // v25: a durable job request is not served mid-request; a `PutAsset`'s payload
+            // A durable job request is not served mid-request, but a `PutAsset`'s payload
             // frame must still be consumed.
             ClientMessage::Job(job) => crate::jobs::ignore_in_flight(stream, &job)?,
             other => tracing::debug!(
@@ -406,8 +402,8 @@ fn write_cancelled_done<S: Write>(stream: &mut S, pending: Pending<'_>) -> Resul
     )
 }
 
-/// An `ASSET_FAILED` error carrying `message` (logged), naming the request it concerns
-/// (v15) so a late failure can't fail whatever request the client has since moved on to.
+/// An `ASSET_FAILED` error carrying `message` (logged), naming the request it concerns so
+/// a late failure cannot fail whatever request the client has since moved on to.
 fn asset_failed(message: String, request_id: u32) -> ErrorMsg {
     tracing::info!("{message}");
     ErrorMsg {

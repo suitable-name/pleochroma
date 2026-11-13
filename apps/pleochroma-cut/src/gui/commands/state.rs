@@ -18,7 +18,7 @@ use std::collections::HashSet;
 /// `GuideModel.allows_*()` helper each group is read through.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum GuideGroup {
-    /// New Design... (command bar's File menu, File menu, Ctrl+N).
+    /// New Design... (the command bar's File menu and Ctrl+N).
     NewDesign,
     /// Add Tier and the inspector's Tier tab.
     TierForm,
@@ -132,9 +132,8 @@ impl CommandState {
         }
     }
 
-    /// The same state with every guide lock lifted: what a command sees when the guide runs it
-    /// for the learner (Next on an unfinished step), which is the app acting, not the learner
-    /// clicking a control the step has locked.
+    /// The same state with every guide lock lifted, for a command the guide runs itself (Next
+    /// on an unfinished step): the app acts for the learner, so the locks do not apply.
     #[must_use]
     pub fn without_guide_locks(mut self) -> Self {
         for group in GuideGroup::ALL {

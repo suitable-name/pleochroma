@@ -1,6 +1,5 @@
 //! The migration that rebuilds the blob-heavy tables so every BLOB column sits last,
-//! and the `PRAGMA table_info` position probe it relies on. Split from the parent module
-//! so the file stays readable; the functions are unchanged.
+//! and the `PRAGMA table_info` position probe it relies on.
 
 use super::{
     super::Database,
@@ -16,16 +15,11 @@ use tracing::{debug, info};
 use super::schema::{DIAGRAM_PREVIEWS_TABLE_SQL, diagram_tilt_curves_table_sql};
 
 impl Database {
-    /// Rebuilds `diagram_details`, `diagram_previews`, and `diagram_tilt_curves` so
-    /// every BLOB column sits after every other column (see [`DIAGRAM_PREVIEWS_TABLE_SQL`]/
-    /// [`diagram_tilt_curves_table_sql`]'s own doc comments and `db::sqlite::SEARCH_INDEXES_SQL`'s
-    /// sibling doc comment for the measurements that motivated this). SQLite reads a
-    /// row's columns in physical storage order and must skip every earlier column's
-    /// bytes -- including a multi-KB image BLOB -- to reach a later one, so a query that
-    /// only touches the searched/text columns still pays for the blob it never
-    /// actually reads. Measured on the real catalogue: a text search over
-    /// `diagram_details` costs 40.9/39.2 ms with `diagram_image_data` at column 5, 16.5
-    /// ms with it moved last; `preview_material` lookups drop from 0.9 ms to 0.4 ms.
+    /// Rebuilds `diagram_details`, `diagram_previews`, and `diagram_tilt_curves` so every BLOB
+    /// column sits after every other column (see [`DIAGRAM_PREVIEWS_TABLE_SQL`] and
+    /// [`diagram_tilt_curves_table_sql`]). SQLite reads a row's columns in storage order and must
+    /// skip every earlier column's bytes, including a multi-KB image BLOB, to reach a later one.
+    /// A text search over `diagram_details` was about 2.5x slower with the image blob early.
     ///
     /// SQLite has no `ALTER TABLE ... MODIFY COLUMN`/column-reorder statement, so this
     /// uses the standard rebuild procedure from SQLite's own documentation ("Making
@@ -39,19 +33,14 @@ impl Database {
     /// before committing, and `PRAGMA foreign_keys = ON` restored afterward regardless
     /// of outcome.
     ///
-    /// `foreign_keys = OFF` is not optional here: `diagram_details` is the `FOREIGN
-    /// KEY` parent of `angle_settings`/`attached_files` (`ON DELETE CASCADE`), and a
-    /// plain `DROP TABLE diagram_details` with `foreign_keys = ON` cascades that drop
-    /// into deleting every `angle_settings`/`attached_files` row before this function
-    /// ever gets to reinsert `diagram_details`' own rows -- exactly the wipe this
-    /// finding (and the house rule it came from) warns about.
+    /// `foreign_keys = OFF` is not optional here: `diagram_details` is the `FOREIGN KEY` parent
+    /// of `angle_settings` and `attached_files` (`ON DELETE CASCADE`). With `foreign_keys = ON`,
+    /// the plain `DROP TABLE diagram_details` would delete every child row before the rebuilt
+    /// table is filled.
     ///
-    /// Idempotent per table, detected via [`Self::column_position`] rather than a
-    /// version flag: a fresh database already gets every one of these three tables in
-    /// the final shape directly from `create_tables_if_not_exist` (see
-    /// [`DIAGRAM_PREVIEWS_TABLE_SQL`]/[`diagram_tilt_curves_table_sql`]'s own doc
-    /// comments), so this only ever has real work to do against a database created
-    /// before those files adopted the convention.
+    /// Idempotent per table, detected via [`Self::column_position`] rather than a version flag.
+    /// A fresh database already gets all three tables in the final shape from
+    /// `create_tables_if_not_exist`, so this only has work to do on an older database.
     ///
     /// # Errors
     ///

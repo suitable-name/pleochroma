@@ -1,9 +1,9 @@
-// Tier 2 probe for the megakernel's concave-tool path. NOT a standalone shader: the host
+// Tier 2 probe of the megakernel's concave-tool path. Not a standalone shader: the host
 // (`renderer::gpu::tool_check`) appends it to the generated megakernel source
-// (`spectral_transport.generated.wgsl`), so it calls the REAL `intersect_ray`,
-// `scene_any_tool_contains` and `shading_normal_for_hit` against the real bindings
-// (`params` = 1, `planes` = 3, which hold the planes followed by the packed tool records)
-// instead of a hand-copied twin. It adds two bindings of its own (90, 91).
+// (`spectral_transport.generated.wgsl`). It calls the real `intersect_ray`,
+// `scene_any_tool_contains` and `shading_normal_for_hit` on the real bindings (`params` = 1,
+// `planes` = 3, which hold the planes followed by the packed tool records). It adds two
+// bindings of its own (90, 91).
 //
 // One case per thread; `mode.x` selects the query:
 //   0  intersect_ray(origin, dir)            -> a = (hit, t, facet_idx, side), b = (normal, 0)
@@ -31,8 +31,8 @@ fn tool_probe_main(
     @builtin(global_invocation_id) gid: vec3<u32>,
     @builtin(local_invocation_index) local_index: u32,
 ) {
-    // The same cooperative plane-cache fill `transport_main` runs, before the early return,
-    // so `intersect_ray`'s `plane_at` reads what it reads in production.
+    // The same plane-cache fill as `transport_main`, before the early return, so that
+    // `intersect_ray`'s `plane_at` reads what it reads in production.
     let plane_count = scene_plane_count();
     if (plane_count <= PLANES_SHARED_CAPACITY) {
         var fill_i = local_index;

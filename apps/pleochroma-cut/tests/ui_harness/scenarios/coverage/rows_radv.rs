@@ -1,6 +1,8 @@
-//! The direct-invoke rows of the RADV shader workaround's callbacks (`RadvWorkaroundModel`),
-//! in a file of their own. Rows are skipped for callbacks another piece already drove (the
-//! `radv-workaround` states and the `radv_workaround_question` scenario in `states_radv.rs`).
+//! The direct-invoke rows of the RADV shader workaround's callbacks (`RadvWorkaroundModel`).
+//!
+//! They are kept in a file of their own. Rows are skipped for callbacks another piece already
+//! drove (the `radv-workaround` states and the `radv_workaround_question` scenario in
+//! `states_radv.rs`).
 //!
 //! In the harness build the two restart callbacks only RECORD the request
 //! (`harness_support::take_radv_restart_request`): nothing closes and nothing is started.

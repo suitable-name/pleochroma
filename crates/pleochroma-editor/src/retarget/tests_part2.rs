@@ -322,7 +322,8 @@ fn a_moving_row_view_carries_a_risk_label_and_a_signed_margin() {
 
 #[test]
 fn retarget_rows_show_positive_angles_and_standard_tier_codes() {
-    // RBC-445 names its tiers the old way ("1".."7" on the pavilion, "A".."E" above), and
+    // RBC-445 names its tiers in the old-style scheme ("1".."7" on the pavilion, "A".."E"
+    // above), and
     // stores the pavilion angles as negative numbers.
     let design = rbc_445();
     let plan = build_plan(&design, &quartz(), CrownShift::default(), &[]);

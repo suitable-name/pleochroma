@@ -55,9 +55,8 @@ pub struct DispersionParams {
     pub has_biaxial_delta: u32,
     _pad_tail: f32,
     /// `.xyz` is `GemMaterial::alpha_axis` (the `n_alpha` principal direction of a biaxial
-    /// material) and `.w` is `1.0` when it is set; all zero otherwise. Appended after the
-    /// original 96 bytes, so the kernels read it only through `biaxial_axes`, whose flag
-    /// `0` is the arbitrary completion every earlier material used.
+    /// material) and `.w` is `1.0` when it is set; all zero otherwise. The kernels read it only
+    /// through `biaxial_axes`, where flag `0` selects the arbitrary completion.
     pub a_axis_and_flag: [f32; 4],
 }
 
@@ -75,9 +74,8 @@ const _: () = {
     assert!(size_of::<DispersionParams>() == 112);
 };
 
-/// `model_type` discriminants for [`DispersionParams`] -- must match
-/// `renderer/shaders/layout_echo.wgsl` and (eventually) any real dispersion-evaluating
-/// kernel.
+/// `model_type` discriminants for [`DispersionParams`]. They must match
+/// `renderer/shaders/layout_echo.wgsl` and the shaders that evaluate dispersion.
 pub mod dispersion_model_type {
     /// Identifier for sellmeier1.
     pub const SELLMEIER1: u32 = 0;
@@ -91,13 +89,11 @@ pub mod dispersion_model_type {
 /// can carry.
 ///
 /// `GemMaterial::absorption`'s `Vec<AbsorptionBand>` is unbounded on the CPU side, but a
-/// GPU encoding needs a fixed-capacity array. Enforced on scene ingest by
-/// `apps/pleochroma-worker/src/validate.rs`'s `validate_scene`, so a scene that would
-/// silently truncate on the GPU is rejected before it ever gets there.
+/// GPU encoding needs a fixed-capacity array. `validate_scene` in
+/// `apps/pleochroma-worker/src/validate/mod.rs` rejects a scene that would be truncated on
+/// the GPU, so it never reaches the encoder.
 ///
-/// 8 is comfortably above every built-in material's real band count (the widest is 3,
-/// `legacy_rgb_bands`), while staying small enough that the fixed array costs nothing
-/// worth measuring for materials that use far fewer.
+/// 8 is above the band count of every built-in material (the widest, labradorite, has 5).
 pub const MAX_ABSORPTION_BANDS: usize = 8;
 
 /// One Gaussian absorption band (`optics::absorption::AbsorptionBand`), GPU-encoded.
@@ -134,9 +130,10 @@ const _: () = {
     assert!(size_of::<GpuAbsorptionBand>() == 16);
 };
 
-/// `optics::absorption::BandShape` discriminants for [`GpuAbsorptionBand::shape`]. Must
-/// match `renderer/shaders/transport_physics.wgsl`'s `spectral_absorption`'s own
-/// `band.shape == 1u` branch.
+/// `optics::absorption::BandShape` discriminants for [`GpuAbsorptionBand::shape`].
+///
+/// Must match the `band.shape == 1u` branch of `spectral_absorption` in
+/// `renderer/shaders/transport_physics/03_dispersion_absorption_frosted.wgsl`.
 pub mod band_shape {
     /// Identifier for gaussian wavelength.
     pub const GAUSSIAN_WAVELENGTH: u32 = 0;
@@ -146,9 +143,8 @@ pub mod band_shape {
 
 /// `crystal_system` discriminants for [`GpuGemMaterial`].
 ///
-/// Must match `renderer/shaders/layout_echo.wgsl`'s and (eventually) any real
-/// material-evaluating kernel's own numbering. Order matches
-/// `optics::materials::CrystalSystem`'s own declaration order.
+/// Must match `renderer/shaders/layout_echo.wgsl`. The order is that of
+/// `optics::materials::CrystalSystem`.
 pub mod crystal_system {
     /// Identifier for cubic.
     pub const CUBIC: u32 = 0;
@@ -167,9 +163,8 @@ pub mod crystal_system {
 }
 /// `optical_character` discriminants for [`GpuGemMaterial`].
 ///
-/// Must match `renderer/shaders/layout_echo.wgsl`'s and (eventually) any real
-/// material-evaluating kernel's own numbering. Order matches
-/// `optics::materials::OpticalCharacter`'s own declaration order.
+/// Must match `renderer/shaders/layout_echo.wgsl`. The order is that of
+/// `optics::materials::OpticalCharacter`.
 pub mod optical_character {
     /// Identifier for isotropic.
     pub const ISOTROPIC: u32 = 0;
@@ -187,32 +182,18 @@ pub mod optical_character {
 ///
 /// [`DispersionParams`] plus crystal/optical-character discriminants and both
 /// eigenmodes' absorption band sets (flattened to [`MAX_ABSORPTION_BANDS`]-capacity
-/// arrays with an explicit count, per this crate's Phase-0 plan).
+/// arrays with an explicit count).
 ///
 /// # Layout
 ///
-/// `dispersion` is 112 bytes (a multiple of its own 16-byte WGSL alignment), occupying
-/// 0..112 with no leading padding (it grew from 96 when `a_axis_and_flag` was appended to
-/// it, which moved every later field by 16). `crystal_system` through `e_ray_band_count`
-/// are five 4-byte-aligned `u32`s packing at 112..132. `o_ray_bands`/`e_ray_bands`
-/// (alignment 4) need only a 4-byte offset, so 132 already qualifies; each is now
-/// `MAX_ABSORPTION_BANDS` (8) * 16 bytes = 128 bytes (see [`GpuAbsorptionBand`]'s own
-/// Layout doc comment for why its size grew from 12 to 16), so `o_ray_bands` occupies
-/// 132..260 and `e_ray_bands` 260..388. `scattering_sigma_s` through
-/// `edge_rounding_radius` pack at 388..400.
-///
-/// Every field from `has_beta_ray` onward is APPENDED at the end rather than inserted
-/// alongside its logical sibling, so every earlier field keeps its offset:
-/// `has_beta_ray`/`beta_ray_band_count` (400..408), `beta_ray_bands` (408..536, the same
-/// 128-byte band-array size as `o_ray_bands`/`e_ray_bands`), `absorption_path_scale`
-/// (536..540), `has_extraordinary_dispersion`/`extraordinary_model_type` (540..548,
-/// mirroring `GemMaterial::uniaxial_extraordinary_dispersion: Option<DispersionModel>`).
-/// `extraordinary_param_a`/`extraordinary_param_b` encode that model like
-/// [`DispersionParams::encode`]'s own `param_a`/`param_b`, and being `vec4<f32>` need
-/// 16-byte alignment: `_pad_before_extraordinary_params` (548..560) reproduces WGSL's
-/// implicit padding to get there; they then occupy 560..592, already 16-byte aligned,
-/// with no trailing pad. The zone table follows at 592..2720, then [`GpuBiaxialCurves`]
-/// (2720..2800) and the inclusion block (2800..3024), so the struct is 3024 bytes.
+/// The offsets are pinned by the `offset_of!` assertions below and must match the WGSL
+/// struct. `dispersion` occupies 0..112. `crystal_system` through `e_ray_band_count` are five
+/// `u32`s at 112..132. Each band array holds [`MAX_ABSORPTION_BANDS`] [`GpuAbsorptionBand`]s of
+/// 16 bytes: `o_ray_bands` at 132..260 and `e_ray_bands` at 260..388. The scattering and
+/// rounding scalars sit at 388..400. Then come the third band set (400..536),
+/// `absorption_path_scale` (536), the extraordinary-ray curve (540..592, padded to 16-byte
+/// alignment), the zone table (592..2720, see `renderer::buffers::zoning`),
+/// [`GpuBiaxialCurves`] (2720..2800) and the inclusion block (2800..3024).
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct GpuGemMaterial {
@@ -274,15 +255,13 @@ pub struct GpuGemMaterial {
     /// The extraordinary-ray curve's `param_b`, encoded like [`DispersionParams::param_b`].
     /// Meaningless when `has_extraordinary_dispersion == 0`.
     pub extraordinary_param_b: [f32; 4],
-    /// The zone table, appended at offset 592 so every earlier
-    /// field keeps its offset. See `renderer::buffers::zoning`. All zero means unzoned.
+    /// The zone table at offset 592. See `renderer::buffers::zoning`. All zero means unzoned.
     pub zones: super::zoning::GpuZoneTable,
-    /// The per-axis refractive-index curves of a biaxial material, appended at offset 2720
-    /// (right after the zone table). All zero means the achromatic spreads.
+    /// The per-axis refractive-index curves of a biaxial material, at offset 2720. All zero
+    /// means the achromatic spreads.
     pub biaxial_curves: GpuBiaxialCurves,
-    /// The oriented-inclusion block (plus the room reserved for domain structure and abraded
-    /// edges), appended last at offset 2800: the block that can still grow goes last, so
-    /// nothing after it ever moves. All zero means no inclusions.
+    /// The oriented-inclusion block at offset 2800, last so that it can grow without moving
+    /// the other fields. All zero means no inclusions.
     pub inclusions: super::inclusions::GpuInclusionBlock,
 }
 
@@ -351,7 +330,7 @@ const _: () = {
     assert!(offset_of!(GpuGemMaterial, extraordinary_model_type) == 544);
     assert!(offset_of!(GpuGemMaterial, extraordinary_param_a) == 560);
     assert!(offset_of!(GpuGemMaterial, extraordinary_param_b) == 576);
-    // The zone table is appended: 592 + 2128 (see `renderer::buffers::zoning`).
+    // The zone table is 2128 bytes (see `renderer::buffers::zoning`).
     assert!(offset_of!(GpuGemMaterial, zones) == 592);
     assert!(size_of::<GpuGemMaterial>() == 592 + 2128 + 80 + 224);
     // The biaxial curves follow the zone table; the inclusion block closes the struct.
@@ -381,7 +360,7 @@ impl GpuGemMaterial {
     /// A band set longer than [`MAX_ABSORPTION_BANDS`] in any of the three eigenmode
     /// sets is truncated to its first [`MAX_ABSORPTION_BANDS`] bands and a
     /// `tracing::warn!` is emitted; the network validator already rejects such a material
-    /// before it reaches the GPU, and every built-in material has at most 3 bands.
+    /// before it reaches the GPU, and every built-in material has at most 5 bands.
     #[must_use]
     pub fn encode(material: &GemMaterial) -> Self {
         let crystal_system_val = match material.crystal_system {
@@ -402,7 +381,7 @@ impl GpuGemMaterial {
         };
 
         // A renderable zoned material uploads its BASE zone here (the zones follow in the
-        // appended table); every other material uploads its own tensor.
+        // zone table); every other material uploads its own tensor.
         let (absorption, zones) = super::zoning::material_parts(material);
 
         let (o_ray_bands, o_ray_band_count) = encode_bands(&absorption.o_ray);
@@ -412,8 +391,8 @@ impl GpuGemMaterial {
             .as_deref()
             .map_or_else(empty_bands, encode_bands);
 
-        // None (every built-in except Quartz/Amethyst/Citrine/Ametrine/Rutile) encodes to
-        // has_extraordinary_dispersion == 0 and an all-zero curve the shader never reads.
+        // None (most built-in materials) encodes to has_extraordinary_dispersion == 0 and an
+        // all-zero curve the shader never reads.
         let (
             has_extraordinary_dispersion,
             extraordinary_model_type,
@@ -508,10 +487,8 @@ impl DispersionParams {
     }
 }
 
-/// The all-zero-bands, zero-count encoding used for `beta_ray_bands` when
-/// `material.absorption.beta_ray` is `None` -- mirrors [`encode_bands`]'s default slot
-/// values (`width_nm: 1.0`, else `0.0`) so an unused slot is never a degenerate
-/// zero-width Gaussian, even though `peak` is always `0.0` regardless.
+/// The encoding of an absent band set (`material.absorption.beta_ray` is `None`): a zero count
+/// and unused slots with `width_nm` 1.0, so none is a zero-width Gaussian (see [`encode_bands`]).
 pub(super) const fn empty_bands() -> ([GpuAbsorptionBand; MAX_ABSORPTION_BANDS], u32) {
     (
         [GpuAbsorptionBand {

@@ -14,10 +14,9 @@ use super::{
 
 /// The largest `|m|` among `planes`, NaN-propagating.
 ///
-/// Absolute magnitude fold used to pick `pow2_scale_norm`'s representative
-/// scale: the largest `|m|` among `planes`, NaN-propagating so a non-finite
-/// offset cannot silently vanish into a plausible-looking scale (mirrors
-/// `meet_solver::SolveContext::new`'s anchor fold).
+/// Picks the representative scale for `pow2_scale_norm`. NaN propagates so a
+/// non-finite offset cannot vanish into a plausible scale (the same fold as
+/// `meet_solver::SolveContext::new`).
 pub(in crate::geometry) fn max_abs_offset(planes: &[(DVec3, f64)]) -> f64 {
     planes
         .iter()
@@ -41,26 +40,18 @@ pub(in crate::geometry) fn max_abs_offset(planes: &[(DVec3, f64)]) -> f64 {
 /// order, total-order sorts, no hashing, no convex-hull library. Two calls with
 /// identical inputs produce byte-identical results.
 ///
-/// Internally normalises every plane offset by `pow2_scale_norm` of
-/// the arrangement's own representative scale before running any of the
-/// arrangement geometry below (all of it uses absolute, order-1-tuned
-/// epsilons), then scales every length/volume figure in the returned
-/// [`SolidMetrics`] back up by the same factor -- so the reported figures stay
-/// in `planes`' own real mast units (as the type doc promises) regardless of
-/// the design's absolute scale. A design whose own scale already rounds to
-/// `2^0` measures bit-identically to before this normalisation existed.
+/// Every plane offset is divided by `pow2_scale_norm` of the arrangement's
+/// representative scale before the geometry runs, because its epsilons are
+/// absolute and tuned for order-1 masts. Lengths and volume are multiplied back
+/// by the same factor, so the figures stay in `planes`' own units.
 ///
-/// Cached measurements: the Rough Planner stores the figures this function
-/// (and the caliper pass it calls) produces in the catalogue database. Changing
-/// the measuring rule -- the caliper algorithm, plane handling, epsilons or the
-/// normalisation above -- means bumping
-/// `pleochroma_vault::model::solid_extents::SOLID_EXTENTS_VERSION`, so every
-/// stored row counts as missing and is re-measured on the next run.
-/// Delegating to a shared helper does not alter the measuring rule; the rule in force
-/// is the one the current `SOLID_EXTENTS_VERSION` names. Likewise the shared plane
-/// arrangement behind
-/// [`build_solid_mesh_and_measure`](super::build_solid_mesh_and_measure) runs the same
-/// steps in the same order, so it does not alter the rule either (no version bump).
+/// Cached measurements: the Rough Planner stores these figures in the catalogue
+/// database. A change to the measuring rule (caliper algorithm, plane handling,
+/// epsilons or this normalisation) must bump
+/// `pleochroma_vault::model::solid_extents::SOLID_EXTENTS_VERSION`, so stored rows
+/// count as missing and are re-measured. Restructuring that keeps the rule, such
+/// as the shared arrangement behind
+/// [`build_solid_mesh_and_measure`](super::build_solid_mesh_and_measure), does not.
 #[must_use]
 pub fn measure_solid(planes: &[(DVec3, f64)]) -> Option<SolidMetrics> {
     measure_solid_inner(planes).map(|(metrics, _)| metrics)
@@ -71,8 +62,6 @@ pub fn measure_solid(planes: &[(DVec3, f64)]) -> Option<SolidMetrics> {
 /// Evaluates the plane arrangement identically to [`measure_solid`], returning
 /// both the physical metrics and the deduplicated vertex positions in `planes`'
 /// original coordinate frame.
-///
-/// Does not alter the measuring rule, so it needs no `SOLID_EXTENTS_VERSION` bump of its own.
 #[must_use]
 pub fn measure_solid_with_vertices(planes: &[(DVec3, f64)]) -> Option<(SolidMetrics, Vec<DVec3>)> {
     measure_solid_inner(planes)
@@ -90,8 +79,7 @@ fn measure_solid_inner(planes: &[(DVec3, f64)]) -> Option<(SolidMetrics, Vec<DVe
 /// `rings`, when supplied, must be [`face_rings`](super::arrangement::face_rings)
 /// of the same arrangement: the volume then reads each stored ring instead of
 /// rebuilding it. Either way the volume is the same `m * area / 3` sum in plane
-/// order, bit for bit. Does not alter the measuring rule (no
-/// `SOLID_EXTENTS_VERSION` bump).
+/// order, bit for bit.
 pub(super) fn measure_from_arrangement(
     arr: &Arrangement,
     rings: Option<&[FaceRing]>,

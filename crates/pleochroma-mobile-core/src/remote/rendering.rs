@@ -36,7 +36,7 @@ pub(crate) struct RemoteConfig {
 }
 
 pub const MAX_REMOTE_PIXELS: u64 = 1024 * 1024;
-/// One request per owned TLS connection; the epoch is owned by the caller.
+/// The request id of a connection; each connection carries exactly one request.
 pub(super) const REQUEST_ID: u32 = 1;
 
 pub struct FrameUpdate {
@@ -132,8 +132,9 @@ pub(super) fn client_error(error: &ClientError) -> RunError {
 
 /// The phone's effective lighting map, with the scene reference that names it.
 ///
-/// The map is the exact `EnvironmentMap` the device renders with (rotation, exposure
-/// and size reduction already applied), carried as a versioned float asset
+/// The map is the exact `EnvironmentMap` the device renders with (size reduction already
+/// applied; its exposure and its rotation are not baked in, they travel in the scene state as
+/// `exposure` and `hdr_orientation`), carried as a versioned float asset
 /// (`IXENVMAP` v1, see `pleochroma_net::messages::envmap_asset`) so a server traces the
 /// very same texels, not a re-encoded `.hdr`.
 pub(super) struct HdrAsset {
@@ -184,8 +185,8 @@ impl HdrAsset {
     }
 
     /// The asset's bytes, when `requested` names this map and it was not sent on this
-    /// connection yet; any other request is a protocol violation and nothing substitute
-    /// is sent. Marks the asset as sent.
+    /// connection yet. Any other request is a protocol violation; no substitute is sent.
+    /// Marks the asset as sent.
     pub(super) fn bytes_for(
         &self,
         requested: [u8; 32],
@@ -341,8 +342,10 @@ pub(super) fn open_session<'a>(
     })
 }
 
-/// The caller owns connection/scene identity. No connection is opened until explicit
-/// Remote selection. Disconnect/cancel discards the session; retry starts at sample zero.
+/// Runs one interactive remote render; the caller owns the connection and scene identity.
+///
+/// No connection is opened until Remote is selected explicitly. Disconnect or cancel
+/// discards the session; a retry starts at sample zero.
 ///
 /// `hdr` is the device's effective lighting map, required exactly when the scene uses
 /// one: it is sent to the endpoint as a content-addressed asset when the endpoint asks
@@ -664,11 +667,21 @@ pub(super) fn scene_state(
     } else {
         lighting.metered_exposure()
     };
+    // The map's turn only means something to an HDR map; a studio rig sends the default.
+    let hdr_orientation = if hdr.is_some() {
+        lighting.hdr_orientation()
+    } else {
+        pleochroma::renderer::env_map::HdrOrientation::default()
+    };
     SceneState {
         width: scene.width(),
         height: scene.height(),
         yaw: spec.scene.camera.yaw,
         camera_roll: 0.0,
+        stone_shadow: false,
+        tray_reflection: 0.0,
+        hdr_orientation,
+        estimator: pleochroma::optics::raytracer::default_estimator(),
         pitch: spec.scene.camera.pitch,
         distance: spec.scene.camera.distance,
         light_yaw: lighting.light_yaw,
@@ -698,8 +711,10 @@ pub(super) fn scene_state(
     }
 }
 
-/// A deterministic request must stop at its AA count; repeated taps are not a
-/// higher-quality remote result. This also applies to final and durable jobs.
+/// A deterministic request must stop at its AA count, because repeated taps are not a
+/// higher-quality remote result.
+///
+/// Final pictures and durable jobs follow the same rule.
 pub(super) fn check_sample_target(engine: EngineSpec, samples: u32) -> Result<(), RunError> {
     if samples == 0 {
         return Err("Remote samples must be positive.".into());

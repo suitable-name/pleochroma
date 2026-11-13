@@ -1,9 +1,9 @@
 //! The Faceting Machine preference: the Preferences dialog's section (`FacetingMachineModel`).
 //!
 //! The machine decides the direction of the scratches a polished or ground facet shows
-//! (`pleochroma::optics::raytracer::surface::sweep`). Cutters' machines differ, so it is a per-user
-//! preference (`AppSettings::faceting_machine`) and never part of a design. Every change is saved
-//! through the settings persister, becomes the machine in force
+//! (`pleochroma::optics::raytracer::surface::sweep`). Cutters' machines differ, so it is a
+//! per-user preference (`AppSettings::faceting_machine`), never part of a design. Every change
+//! is saved through the settings persister, becomes the machine in force
 //! ([`set_current_faceting_machine`]: the library scans and the exports read it) and is handed to
 //! the render context, which restarts the render when the stone on screen has a surface finish.
 //!

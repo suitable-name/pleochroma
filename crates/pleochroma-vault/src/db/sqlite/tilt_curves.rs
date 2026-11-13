@@ -1,8 +1,8 @@
-//! Storage for `diagram_tilt_curves` -- see `Database::migrate_diagram_tilt_curves_table`'s
-//! doc comment (in `super::migrations`) for why this is a side table keyed by
-//! `entry_id` rather than columns on `diagram_details`, and
-//! `crate::model::tilt_curves`/`crate::model::performance` for the types this module
-//! encodes into it.
+//! Storage for `diagram_tilt_curves`, a side table keyed by `entry_id`.
+//!
+//! The schema reasoning is in `Database::migrate_diagram_tilt_curves_table` (in
+//! `super::migrations`); the types encoded here are in `crate::model::tilt_curves` and
+//! `crate::model::performance`.
 
 use super::Database;
 use crate::model::{
@@ -14,31 +14,24 @@ use anyhow::{Context, Result, ensure};
 use rusqlite::{OptionalExtension, ToSql, params};
 
 impl Database {
-    /// Persists `entry_id`'s full tilt-performance record in one statement: the packed
-    /// curve BLOB ([`TiltPerformanceCurves::to_bytes`]), the unix-seconds generation
-    /// timestamp, `params_fingerprint` (what the sweep was computed with; see
-    /// [`Self::entry_ids_missing_tilt_curves`]), and all 6 derived global-min/max
-    /// columns ([`TiltPerformanceCurves::global_extremes`]) `crate::model::performance`'s
-    /// search filters read back as a SOUND but incomplete SQL-level narrowing step --
-    /// see that module's doc comment for why only these 6 survive as precomputed
-    /// columns and why the exact per-filter test still has to run in Rust, over the
-    /// decoded curve, once a candidate row is loaded.
+    /// Stores `entry_id`'s full tilt-performance record in one statement.
     ///
-    /// Every one of those 9 non-`entry_id` columns is written together, in the same
-    /// `INSERT ... ON CONFLICT DO UPDATE`, specifically so `generated_at IS NOT NULL`
-    /// can be trusted (by `crate::db::sqlite::search::build_search_predicate`'s
-    /// exclusion-count query, and by [`Self::has_tilt_curves`](Database::has_tilt_curves))
-    /// as meaning every derived column is populated too -- there is no code path in
-    /// this crate that writes the curve BLOB without also writing its global extremes,
-    /// or vice versa. The table's `curve_image` column is never written: nothing renders
-    /// a stored graph, so it stays `NULL` (the column is kept only so existing databases
-    /// need no rebuild).
+    /// Writes the packed curve BLOB ([`TiltPerformanceCurves::to_bytes`]), the generation
+    /// time, `params_fingerprint` (what the sweep was computed with; see
+    /// [`Self::entry_ids_missing_tilt_curves`]) and the six derived global min/max columns
+    /// ([`TiltPerformanceCurves::global_extremes`]). The search filters read those columns as
+    /// a sound but incomplete SQL-level narrowing step; the exact per-filter test runs in Rust
+    /// over the decoded curve.
     ///
-    /// The 6 derived columns are located and bound via
-    /// [`crate::model::performance::all_global_extreme_columns`]/
-    /// [`crate::model::performance::global_extreme_column_name`] rather than hand-listed
-    /// here -- the same single-source-of-truth reasoning as
-    /// `Database::migrate_diagram_tilt_curves_table`'s own doc comment.
+    /// All of these columns are written together, so `generated_at IS NOT NULL` means every
+    /// derived column is populated too. The search exclusion count and
+    /// [`Self::has_tilt_curves`](Database::has_tilt_curves) rely on that. The `curve_image`
+    /// column is never written, since nothing renders a stored graph. It is kept so existing
+    /// databases need no rebuild.
+    ///
+    /// The derived columns are located through
+    /// [`crate::model::performance::all_global_extreme_columns`] rather than listed here, so
+    /// their names have a single source.
     ///
     /// # Compare-and-swap on the design's revision
     ///
@@ -213,21 +206,18 @@ impl Database {
         Ok(())
     }
 
-    /// Every non-ignored `diagram_entries.id` whose cached tilt-performance curves are
-    /// missing or were computed with other parameters than the current ones -- same
-    /// blob-free `LEFT JOIN` shape as
-    /// [`Self::entry_ids_missing_previews`](Database::entry_ids_missing_previews), for
-    /// a batch pass's (`gui::batch::tilt::scan`) equivalent "what needs
-    /// (re)generating" check, without loading and decoding every design's packed curve
-    /// BLOB just to test one timestamp.
+    /// Every non-ignored `diagram_entries.id` whose tilt curves are missing or outdated.
     ///
-    /// A design needs a sweep when `diagram_tilt_curves` has no row for it, the row's
-    /// `generated_at` is `NULL`, or the row's `params_fingerprint` differs from
-    /// `current_fingerprint(material)` -- the fingerprint a sweep made NOW would store.
-    /// `material` is the design's persisted material state (name, stone size and source;
-    /// `PreviewMaterialState::default()` when it has none yet): the sweep is done in that
-    /// material at that size, and it lives in `diagram_previews`, not in this table. A row
-    /// written before fingerprints existed carries `NULL` there and counts as outdated.
+    /// Uses the same blob-free `LEFT JOIN` shape as
+    /// [`Self::entry_ids_missing_previews`](Database::entry_ids_missing_previews), so the
+    /// batch tilt pass can test "needs (re)generating" without decoding every packed curve.
+    ///
+    /// A design needs a sweep when it has no row, the row's `generated_at` is `NULL`, or the
+    /// row's `params_fingerprint` differs from `current_fingerprint(material)`, the fingerprint
+    /// a sweep made now would store. `material` is the design's persisted material state (name,
+    /// stone size and source; `PreviewMaterialState::default()` when there is none). The sweep
+    /// runs in that material at that size and is cached in `diagram_previews`, not in this
+    /// table. A `NULL` fingerprint counts as outdated.
     ///
     /// # Errors
     ///
@@ -697,9 +687,8 @@ mod tests {
         std::fs::remove_file(&path).ok();
     }
 
-    /// Same cascade-vs-re-sync property as `previews.rs`' own test -- see
-    /// `Database::migrate_diagram_tilt_curves_table`'s doc comment for why this table
-    /// is keyed by `entry_id` rather than living on `diagram_details`.
+    /// The row survives a `diagram_details` re-sync and is removed with its entry. See
+    /// `Database::migrate_diagram_tilt_curves_table` for why it is keyed by `entry_id`.
     #[test]
     fn tilt_curve_row_survives_a_diagram_details_re_sync_but_not_entry_deletion() {
         let (db, entry_id, path) = temp_db_with_one_entry();
@@ -711,9 +700,8 @@ mod tests {
         .unwrap();
         save_current(&db, entry_id, &flat_curves(50.0), 1);
 
-        // A genuine re-sync: a second save_diagram_detail deletes and reinserts
-        // diagram_details (a new row id) for this entry_id -- diagram_tilt_curves, keyed
-        // by entry_id rather than diagram_details' own row id, must be unaffected.
+        // A re-sync deletes and reinserts `diagram_details` for this entry; the curves are
+        // keyed by `entry_id`, so they stay.
         db.save_diagram_detail(
             &crate::model::detail::FacetingDiagramDetail::default(),
             entry_id,

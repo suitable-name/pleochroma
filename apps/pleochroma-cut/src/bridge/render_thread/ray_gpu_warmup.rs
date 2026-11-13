@@ -1,5 +1,5 @@
 //! At most one retained background Ray compiler/upload worker.
-use super::{PreparedRay, frame_scene};
+use super::{PreparedRay, RayPrepKey, frame_scene};
 use crate::bridge::render_thread::gpu_backend::{BackendFrame, owned_frame::OwnedFrame};
 use pleochroma::renderer::{
     env_map::EnvironmentMap,
@@ -17,9 +17,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-/// How long a lost device is left alone before preparation is tried again. The backend
-/// refuses recovery for its own 30 s cool-down (`gpu_backend::recovery::COOL_DOWN`,
-/// private to the library), so an earlier attempt could only decline again.
+/// How long a lost device is left alone before preparation is retried. The backend's recovery
+/// cool-down is also 30 s (`gpu_backend::recovery::COOL_DOWN`, private to the library), so an
+/// earlier attempt would only be declined again.
 const LOST_RETRY: Duration = Duration::from_secs(30);
 
 /// Keeps a lost or poisoned device from being re-prepared on every frame, which would
@@ -58,7 +58,7 @@ fn settle_decline(gate: &mut RetryGate, key_declined: &mut bool, lost: bool, now
     }
 }
 
-type Key = (u64, u32, u32);
+type Key = RayPrepKey;
 struct Prepared {
     key: Key,
     backend: WhittedGpuBackend,
@@ -281,7 +281,7 @@ mod tests {
         .expect("a plain scene")
         .into_owned_with_hdr(None);
         PreparedRay {
-            key: (1, frame.width, frame.height),
+            key: (1, frame.width, frame.height, None),
             prep: Arc::new(prep),
             planes: build_plane_soa(frame.planes),
             gpu: None,
@@ -290,7 +290,7 @@ mod tests {
     }
 
     /// A lost device must hand the frame to the CPU route at once: `poll` returns true
-    /// without a worker, so Local Compute = GPU never spins waiting for one.
+    /// without a worker, so Local Compute set to GPU never spins waiting for one.
     #[test]
     fn a_lost_device_waiting_out_its_deadline_is_ready_without_a_worker() {
         let (camera, planes, material) = frame_parts();

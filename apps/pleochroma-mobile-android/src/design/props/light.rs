@@ -8,7 +8,7 @@ use pleochroma_mobile_core::{
     app_state::AppState,
     design_props::{
         LightValues, LightingView, backdrop_from_index, lighting_rows, lighting_view, set_backdrop,
-        set_light_values, set_lighting,
+        set_hdr_follows_camera, set_light_values, set_lighting,
     },
 };
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
@@ -26,6 +26,7 @@ pub(super) fn wire(window: &AppWindow, state: &Shared) {
     props.on_preset_picked(bind1(window, state, preset_picked));
     props.on_light_released(bind0(window, state, light_released));
     props.on_backdrop_picked(bind1(window, state, backdrop_picked));
+    props.on_hdr_follow_changed(bind1(window, state, hdr_follow_changed));
 }
 
 /// A lighting rig was picked.
@@ -53,6 +54,14 @@ fn light_released(window: &AppWindow, state: &Shared) {
     };
     set_light_values(&mut state.borrow_mut(), values);
     // The core clamps and snaps; show what it kept.
+    with_pushed(|pushed| pushed.lighting = None);
+    refresh(window, state);
+}
+
+/// "Turns with the Camera" was switched. The core re-bases the map's rotation to keep the
+/// picture, so the slider is rewritten.
+fn hdr_follow_changed(window: &AppWindow, state: &Shared, on: bool) {
+    set_hdr_follows_camera(&mut state.borrow_mut(), on);
     with_pushed(|pushed| pushed.lighting = None);
     refresh(window, state);
 }
@@ -106,6 +115,9 @@ pub(super) fn push(props: &PropsModel, state: &AppState, pushed: &mut Pushed) {
         props.set_hdr_available(view.hdr.available);
         props.set_hdr_selected(view.hdr.selected);
         props.set_hdr_description(view.hdr.description.as_str().into());
+    }
+    if was.is_none_or(|old| old.hdr_follows_camera != view.hdr_follows_camera) {
+        props.set_hdr_follows_camera(view.hdr_follows_camera);
     }
     if was.is_none_or(|old| moved(old.values.exposure, view.values.exposure)) {
         props.set_exposure(view.values.exposure);

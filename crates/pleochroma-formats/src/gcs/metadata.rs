@@ -38,8 +38,7 @@ pub struct GcsColor {
 /// The `<render>...</render>` element: material and display settings used by Gem
 /// Cut Studio's own preview, not by anything this crate does.
 ///
-/// Kept because [`GcsIndex::gear`] and [`Self::refractive_index`] are this
-/// module's two strongest cross-checks against a sibling `.asc`.
+/// [`Self::refractive_index`] becomes the `.asc` `I` line in `gcs_to_asc_schedule`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct GcsRender {
     /// Material name as Gem Cut Studio's own material library names it (e.g.
@@ -62,10 +61,8 @@ pub struct GcsRender {
 
 /// The `<info .../>` element: free-text design metadata.
 ///
-/// Every field is `Option` because the real corpus has at least four distinct
-/// attribute sets -- e.g. some files carry `shape`/`header2`/`header3` and no
-/// `size_min`/`size_max`, others the reverse -- so no attribute here is reliably
-/// present.
+/// Every field is `Option`: real files vary in which attributes they carry (for
+/// example `shape`/`header2`/`header3` or `size_min`/`size_max`).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct GcsInfo {
     /// Design title.

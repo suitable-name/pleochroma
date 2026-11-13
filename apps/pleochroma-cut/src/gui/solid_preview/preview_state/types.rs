@@ -1,8 +1,7 @@
-//! The small, shared value types the rest of this module's request/response
-//! plumbing is built from: the orbit camera pose, the facet-overlay update
-//! payload, and the per-frame pick buffer (all three moved to
-//! `pleochroma_solid::preview` and re-exported here at their old paths), plus the
-//! desktop's own shared-state handles.
+//! The small shared value types the request/response plumbing of this module is built from.
+//!
+//! They are the orbit camera pose, the facet-overlay update payload and the per-frame pick buffer
+//! (re-exported from `pleochroma_solid::preview`), plus the desktop's own shared-state handles.
 
 use pleochroma::geometry::meet_solver::SolvedTier;
 use std::sync::{Arc, Mutex};
@@ -11,23 +10,11 @@ pub use pleochroma_solid::preview::{CameraPose, FacetOverlay, FrameGeometry, Pic
 
 /// The shared cache backing [`super::request::ReplanRequest::last_solved`] across edits.
 ///
-/// See the parent module's doc comment ("Where `last_solved` lives") for why a plain
-/// `Arc<Mutex<..>>` rather than a field on `gui::editor::state::EditorState`.
-/// Constructed once in `gui::mod::build_main_window`, shared between the sink
-/// (writer) and `gui::editor`'s edit callbacks (reader).
-///
-/// stamped with the `gui::editor::state::EditorState::generation` value
-/// the cached masts describe, alongside the masts themselves -- every writer
-/// (`gui::SlintSolidSink::apply`, `gui::editor::auto_solve::apply::
-/// apply_background_solve_result`, `gui::editor::view::viewport::
-/// refresh_viewport`) previously overwrote this cache unconditionally, so a
-/// slow in-flight solve for an OLDER design could finish and clobber a NEWER
-/// design's already-cached masts. A reader that used to match the bare
-/// `Option<Vec<SolvedTier>>` payload directly now needs the tuple's second
-/// element instead, filtering on the first (the generation) itself when an
-/// exact match matters to it -- see `gui::editor::native_io::solve::
-/// cached_solve_matching` for the one caller outside `gui::editor::auto_solve`
-/// that does exactly this.
+/// Kept outside `EditorState` (see the parent module's doc comment, "Where `last_solved` lives"),
+/// shared between the sink (writer) and the editor's edit callbacks (reader). Each entry is
+/// stamped with the editor generation its masts describe, so a solve for an older design cannot
+/// overwrite the masts of a newer one, and a reader that needs one design's masts matches that
+/// generation.
 pub type SolidLastSolved = Arc<Mutex<Option<(u64, Vec<SolvedTier>)>>>;
 
 /// Which tier owns each facet id of one frame, flat and concave.
@@ -88,16 +75,9 @@ pub const fn table_position_of(
 
 /// The Solid viewport's shared pick-buffer/hover-text/facet-tier/geometry state.
 ///
-/// The last rendered frame's own [`PickBuffer`], its per-facet hover strings, its
-/// facet-id-to-tier table (all indexed by facet id) and its [`FrameGeometry`] --
-/// written together by
-/// `gui::SlintSolidSink::apply` as each frame lands. Bundled into one struct,
-/// rather than three parameters threaded separately through
-/// `gui::editor::setup_editor_callbacks`/`setup_editor_secondary_callbacks`, since
-/// all three always travel together and are read together by the Solid
-/// viewport's own hover/click callbacks
-/// (`gui::editor::callbacks::tier_actions::setup_solid_facet_hover_callback`/
-/// `setup_solid_facet_click_callback`).
+/// The last rendered frame's [`PickBuffer`], its per-facet hover strings, its facet-id-to-tier
+/// table and its [`FrameGeometry`]. They are written together as each frame lands and read
+/// together by the Solid viewport's hover and click callbacks, so they travel as one struct.
 pub struct SolidPickState {
     /// The last rendered frame's per-pixel facet-picking buffer.
     pub pick: Arc<Mutex<Option<PickBuffer>>>,

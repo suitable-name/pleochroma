@@ -233,7 +233,8 @@ pub enum Perform {
         /// The girdle diameter in millimetres.
         girdle_diameter_mm: f64,
     },
-    /// The Solid viewport's view mode pill (0 Solid, 1 Path, 2 Solid+Path, 3 Diagram, 4 Ray, 5 Solid+Ray).
+    /// The Solid viewport's view mode pill (0 Solid, 1 Path, 2 Solid+Path, 3 Diagram, 4 Ray,
+    /// 5 Solid+Ray).
     ViewMode(i32),
     /// The inspector's tab (0 Tier, 1 Preform, 2 Optimize, 3 Schedule, 4 History).
     InspectorTab(i32),

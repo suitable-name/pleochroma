@@ -1,9 +1,11 @@
-//! CUDA tool-piece packing, copied from `pleochroma/src/geometry/tool.rs::pieces`.
+//! CUDA tool-piece packing, mirroring `pleochroma/src/geometry/tool.rs::pieces`.
+//!
 //! Shape and sweep decomposition preserve source order (normal ties use first piece).
 use glam::Vec3;
 use pleochroma::geometry::tool::ToolPrimitive;
 
-/// Six fixed records per tool: kind,c[3],axis[3],half_length,r0,r1,stroke,sweep[3].
+/// Packs each tool as a piece count followed by six fixed 14-float piece records:
+/// kind, c[3], axis[3], profile[4] (half_length, r0, r1, stroke), sweep[3].
 pub(super) fn pack(tools: &[ToolPrimitive]) -> Vec<f32> {
     let mut out = Vec::with_capacity(tools.len() * 85);
     for tool in tools {

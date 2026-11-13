@@ -3,9 +3,9 @@ use super::{
     should_recompute_axes, tilt_sweep_material,
 };
 
-/// Review fix (absorption units): the tilt sweep traces the very material the render builds
-/// for a sized stone (`apply_material_overrides` with only the stone size dialled in), and
-/// an unsized stone gets the face-up calibration scale only.
+/// The tilt sweep traces the material the render builds for a sized stone
+/// (`apply_material_overrides` with only the stone size dialled in); an unsized stone gets the
+/// face-up calibration scale only.
 #[test]
 fn the_tilt_sweep_material_is_the_sized_render_material() {
     use pleochroma::{
@@ -47,7 +47,7 @@ use crate::gui::editor::Withheld;
 use pleochroma::optics::{materials::GemMaterial, raytracer::LightingPreset};
 use pleochroma_solid::preview::StoneGeometryBuf;
 
-/// F4-6: a finished stone that was solved for a design the editor has since left must not
+/// A finished stone that was solved for a design the editor has since left must not
 /// launch a sweep -- that would bump the sweep generation and supersede the newer edit's
 /// own sweep. A design that does not solve marks the curves stale instead of sweeping the
 /// half-cut stone; a good outcome sweeps as before.
@@ -98,6 +98,7 @@ fn sample_key(material: GemMaterial) -> AxesCacheKey {
         planes_hash: 42,
         head_shadow_bits: 16.0f32.to_bits(),
         hdr_identity: HdrIdentity(None),
+        hdr_orientation_bits: [0, 0],
     }
 }
 
@@ -167,6 +168,56 @@ fn head_shadow_and_hdr_identity_force_a_resweep() {
     assert!(
         should_recompute_axes(Some(&with_map), &equal_content),
         "another Arc is another map"
+    );
+}
+
+/// The curves are scored under the HDR map's orientation, with each axis at its own camera yaw.
+/// So a turned map, or flipping its camera switch, must re-launch the sweep, and the same
+/// orientation must not. An orbit (a scene yaw change) is not part of the key at all: it never
+/// forces a resweep, whether or not the map follows the camera.
+#[test]
+fn a_turned_hdr_map_forces_a_resweep_and_an_orbit_does_not() {
+    use pleochroma::renderer::env_map::HdrOrientation;
+    let current = sample_key(GemMaterial::all_materials()[0].clone());
+    let bits = |orientation: HdrOrientation| {
+        [
+            orientation.yaw.to_bits(),
+            u32::from(orientation.follows_camera),
+        ]
+    };
+    let with = |orientation: HdrOrientation| {
+        let mut key = current.clone();
+        key.hdr_orientation_bits = bits(orientation);
+        key
+    };
+    let follows = HdrOrientation {
+        yaw: 0.5,
+        follows_camera: true,
+    };
+    assert_eq!(
+        current.hdr_orientation_bits,
+        [0, 0],
+        "an unturned studio scene keys zero"
+    );
+    assert!(should_recompute_axes(Some(&current), &with(follows)));
+    // The key is built from the orientation alone, so the viewport's yaw (an orbit) leaves it
+    // untouched, and the sweep that is already on screen stays valid.
+    assert!(!should_recompute_axes(Some(&with(follows)), &with(follows)));
+    let turned_further = HdrOrientation {
+        yaw: 0.9,
+        ..follows
+    };
+    assert!(
+        should_recompute_axes(Some(&with(follows)), &with(turned_further)),
+        "turning the map re-scores the curves"
+    );
+    let fixed = HdrOrientation {
+        follows_camera: false,
+        ..follows
+    };
+    assert!(
+        should_recompute_axes(Some(&with(follows)), &with(fixed)),
+        "the camera switch re-scores the curves"
     );
 }
 

@@ -1,14 +1,13 @@
 //! Reader for `GemCAD`'s native `.gem` binary save format.
 //!
-//! `GemCAD` is Robert Strickland's faceting-design software (see [`crate::asc`]'s
-//! module docs for the affiliation note, which applies equally here). `.gem` is its
+//! `GemCAD` is Robert Strickland's faceting-design software (see the crate README for
+//! the affiliation note, which applies equally here). `.gem` is its
 //! own binary save format, distinct from the `.asc` cutting instructions `GemCAD`
 //! also exports. `GemCAD`'s documentation calls it proprietary and publishes no
-//! layout. The layout below was decoded from a real corpus of 254 `.gem` files
-//! (`attached_files`) and agrees
-//! with the record order two third-party readers use (mbparker's
-//! `gemcad-file-reader`, `OpenGemCutting`). All 254 files frame byte-exactly from
-//! offset 0 to end of file.
+//! layout. The layout below was decoded from a corpus of 254 `.gem` files
+//! (`attached_files`) and matches the record order of two third-party readers
+//! (mbparker's `gemcad-file-reader`, `OpenGemCutting`). All 254 files frame
+//! byte-exactly from offset 0 to end of file.
 //!
 //! # Layout (all little-endian, no header or magic number)
 //!
@@ -53,13 +52,11 @@
 //!   apart from a .NET 7-bit varint. [`parse_gem`] reads a single byte and falls
 //!   back to the varint reading only when that fails and a length byte had bit 7
 //!   set, accepting the varint reading only if it frames the file to end of file.
-//! - **0.81 files (hypothesis).** In 30 files (29 from gemologyproject.com) every
-//!   vertex lies at `p·v = 0.81` instead of `1`: vertices and planes are scaled by
-//!   different factors. Orb.gem is one of them and its `.gcs` sibling has depth
-//!   exactly `0.9 · (1/|p|)`, which suggests these files were exported by Gem Cut
-//!   Studio. That is a hypothesis; no GCS export was available to confirm it. The
-//!   planes are authoritative. [`GemDesign::vertex_scale`] records the median
-//!   `p·v`, and [`GemFacet::vertices_on_plane`] rescales the stored vertices.
+//! - **0.81 files (hypothesis).** In 30 files every vertex lies at `p·v = 0.81`
+//!   instead of `1`, so vertices and planes are scaled by different factors. The
+//!   origin (possibly a Gem Cut Studio export) is unconfirmed. The planes are authoritative.
+//!   [`GemDesign::vertex_scale`] records the median `p·v`, and
+//!   [`GemFacet::vertices_on_plane`] rescales the stored vertices.
 //! - Positive-gear chirality is inferred from the signed formula; no chiral
 //!   positive-gear `.asc` pair exists in the corpus.
 

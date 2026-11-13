@@ -1,16 +1,15 @@
 // Interior scatter decision of a stone with oriented inclusions or a domain structure (opal,
-// labradorite), `material_oriented_active()`. This is `ew_scatter` as it was before the plain haze
-// was split off it: the same shared pieces in the same order (alphas -> sample -> park for the HG
-// NEE or commit), so the rendered result is unchanged; only the dispatch partition differs.
-// `ew_extend` routes such a stone here by `TAG_SCATTER_ORIENTED`; the kernel is in the dispatch
-// list only when the pipeline keeps the oriented estimators (`kernels_for`: class bit
-// `NO_ORIENTED` clear), so the browser, which never renders oriented inclusions, does not compile
-// it.
+// labradorite), `material_oriented_active()`. It runs the same shared pieces in the same order
+// as the plain haze's kernel (alphas -> sample -> park for the HG NEE or commit), mirroring the
+// megakernel's scatter step. `ew_extend` routes such a stone here by `TAG_SCATTER_ORIENTED`. The
+// kernel is in the dispatch list only when the pipeline keeps the oriented estimators
+// (`kernels_for`: class bit `NO_ORIENTED` clear), so the browser build, which never renders
+// oriented inclusions, does not compile it.
 //
 // With an HDR environment the scatter-point NEE needs five more storage buffers than this kernel
-// may bind (plan 4.3: at most 8), so the event is parked on the ray and `ew_nee_hg` finishes it
-// exactly as for the plain haze. Parked state: `prev_plane_normal` holds the scatter point and
-// `pending_mis_dir.xyz` the sampled outgoing direction.
+// may bind (WebGPU's default limit is 8 per stage), so the event is parked on the ray and
+// `ew_nee_hg` finishes it exactly as for the plain haze. Parked state: `prev_plane_normal` holds
+// the scatter point and `pending_mis_dir.xyz` the sampled outgoing direction.
 @compute @workgroup_size(64)
 fn ew_scatter_oriented(
     @builtin(global_invocation_id) gid: vec3<u32>,

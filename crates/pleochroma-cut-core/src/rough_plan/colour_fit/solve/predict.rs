@@ -1,10 +1,10 @@
-//! Predicted face-up colours and their uncertainty (plan section 6.5).
+//! Predicted face-up colours and their uncertainty.
 //!
 //! The colour of a stone of width `W` mm made of one zone is the body colour
 //! (`pleochroma::color::body_color::body_color`) of that zone's absorption over the face-up
 //! path `MODEL_UNIT_FACE_UP_PATH * W / model_width_units` mm, the representative light path of a
-//! face-up round brilliant (`render_setup::MODEL_UNIT_FACE_UP_PATH`, 2.52 model units, measured
-//! by the tone metric). `model_width_units` is the girdle width of the design in model units
+//! face-up round brilliant (`render_setup::MODEL_UNIT_FACE_UP_PATH`). `model_width_units` is
+//! the girdle width of the design in model units
 //! (1 for the standard designs, which are normalised to a unit girdle width).
 //!
 //! The uncertainty is the posterior covariance of the model parameters propagated through the
@@ -18,9 +18,9 @@
 //! space of the data and so make it overconfident. The **metamer spread**
 //! ([`ZonePrediction::metamer_spread`]) is the honest counterpart: the largest face-up CIEDE2000
 //! from the fitted colour among the verified end points of the constrained extremisation of the
-//! reported colours over `Delta chi2 <= 1` of the data-only optimum (see `extremes`). The older
-//! ellipsoid figure (`metamer_steps`, unverified) is kept as
-//! [`ZonePrediction::metamer_spread_unverified`].
+//! reported colours over `Delta chi2 <= 1` of the data-only optimum (see `extremes`). The
+//! ellipsoid estimate (`metamer_steps`, unverified) is kept as
+//! [`ZonePrediction::metamer_spread_unverified`] for comparison.
 
 use pleochroma::{
     color::body_color::{Illuminant, body_color, delta_e_2000, delta_e_2000_residual},
@@ -73,7 +73,7 @@ fn delta_e_map(lab: [f64; 3]) -> [[f64; 3]; 3] {
     map
 }
 
-/// How many of the weakest eigen directions of the metamer search are combined (round 2, C3).
+/// How many of the weakest eigen directions of the metamer search are combined.
 pub const METAMER_DIRECTIONS: usize = 6;
 /// The largest change of one model parameter (a log-amount or log-amplitude, so a factor of
 /// `e^2`) a metamer candidate may make.
@@ -96,10 +96,10 @@ pub const METAMER_STEP_CAP: f64 = 2.0;
 /// the figure is an estimate, not a bound; it is meant to show whether the data can tell
 /// colours apart at all.
 ///
-/// Round 3, D3: this returns the full-length STEPS (parameters then gains) at the full ellipsoid,
-/// already capped; [`candidate_point`] applies a fraction of a step. Since round 5 (ZC-4) the
-/// figure built from these candidates is only the `unverified` comparison value: the reported
-/// spread comes from `extremes`, which is centred on the data optimum and has no step cap.
+/// This returns the full-length steps (parameters then gains) at the full ellipsoid, already
+/// capped; [`candidate_point`] applies a fraction of a step. These candidates only feed the
+/// `unverified` comparison value: the reported spread comes from `extremes`, which is centred
+/// on the data optimum and has no step cap.
 /// `threshold` is the `Delta chi2` of the ellipsoid (1, or the Birge ratio above 1.2).
 pub(super) fn metamer_steps(metric: &[f64], n: usize, np: usize, threshold: f64) -> Vec<Vec<f64>> {
     if metric.len() != n * n || n == 0 || np == 0 {
@@ -167,7 +167,7 @@ pub(super) fn candidate_point(
 /// uncertainty from `cov` (row stride `stride`; its leading `np x np` block is the covariance of
 /// the model parameters) and the metamer spread from the verified end points `verified` of the
 /// constrained extremisation (each at least `np` long; the model parameters lead), see
-/// `extremes`. `unverified` are the old ellipsoid candidates of [`metamer_steps`] at the full
+/// `extremes`. `unverified` are the ellipsoid candidates of [`metamer_steps`] at the full
 /// step, kept for the comparison.
 pub(super) fn predictions(
     model: &dyn FitModel,

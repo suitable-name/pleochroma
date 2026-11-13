@@ -23,8 +23,7 @@
 
 pub mod accumulate;
 pub mod handshake;
-/// Wires a request write and its reply stream together -- see this module's "Modules"
-/// doc section.
+/// Request writes and the reply stream of one render session.
 pub mod session;
 
 pub use accumulate::{Accumulator, ApplyOutcome, PictureSnapshot, PreviewSnapshot};
@@ -55,8 +54,8 @@ pub enum ClientError {
     /// The reply to `HELLO` decoded as neither `WELCOME` nor `ERROR`.
     MalformedHandshakeReply,
     /// A `FRAME`/`PREVIEW` payload failed to decode -- wrong length (a worker/viewer
-    /// dimension mismatch), misaligned bytes, or (v14) a compressed payload that failed
-    /// the bounded-decode checks of `crate::radiance::payload`.
+    /// dimension mismatch), misaligned bytes, or a compressed payload that failed the
+    /// bounded-decode checks of `crate::radiance::payload`.
     Radiance(crate::radiance::RadianceError),
 }
 

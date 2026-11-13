@@ -1,4 +1,6 @@
-//! Tests of the overlap of rollout and update (`runner_update.rs`): which weights a rollout acts
+//! Tests of the overlap of rollout and update (`runner_update.rs`).
+//!
+//! They check which weights a rollout acts
 //! with, that the timing of an install changes nothing, cancellation, the sync points and the
 //! equality of the thread's PPO update with a direct call. They run on the built-in fixture with
 //! the CPU trainer.

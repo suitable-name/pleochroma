@@ -1,7 +1,7 @@
 import { TrainingController } from "models.slint";
 
-// UI-only state derived from the controller: enablement shared by buttons and shortcuts,
-// the selected tab, and the small bits of text formatting.
+// UI-only state derived from TrainingController: shared enablement for buttons and
+// shortcuts, the selected tab, and text formatting helpers.
 export global UiState {
     in-out property <int> tab: 0;
     out property <bool> busy: TrainingController.busy_text != "";
@@ -14,7 +14,7 @@ export global UiState {
         return value.to-fixed(digits);
     }
 
-    // "—" while the figure is not measured yet.
+    // "—" when `has` is false (the value is not measured yet).
     pure public function figure(has: bool, value: float, digits: int) -> string {
         return has ? value.to-fixed(digits) : "—";
     }

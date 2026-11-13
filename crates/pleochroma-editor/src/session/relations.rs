@@ -27,7 +27,7 @@
 //!   [`EditorSession::take_relation_notice`] says which ones. A notice nobody took lasts
 //!   until the next edit, undo, redo or jump; it never reaches a later, unrelated message.
 //!
-//! # Errors of the old `apply` family
+//! # Errors of the `apply` family
 //!
 //! [`EditorSession::apply`] and the actions built on it return a bare `EditError`, which
 //! has no room for a message. A refusal there carries the driven tier's index and keeps
@@ -307,7 +307,7 @@ impl EditorSession {
         Ok(self.record_change(before, Some(&renumbering)))
     }
 
-    /// The bare `EditError` the old `apply` family returns for `error`. A refusal keeps
+    /// The bare `EditError` the `apply` family returns for `error`. A refusal keeps
     /// its typed reason for [`Self::take_refusal`].
     pub(super) fn legacy_edit_error(&mut self, error: SessionEditError) -> EditError {
         let tier_count = self.design.tiers.len();
@@ -324,7 +324,7 @@ impl EditorSession {
         }
     }
 
-    /// The typed reason the last edit of the old `apply` family was refused because of
+    /// The typed reason the last edit of the `apply` family was refused because of
     /// a tier relation, if any; taking it clears it. Call it right after an `Err` from
     /// [`Self::apply`] (or an action built on it) to show the cutter the real message.
     pub const fn take_refusal(&mut self) -> Option<SessionEditError> {

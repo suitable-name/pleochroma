@@ -8,13 +8,9 @@ use crate::design::Design;
 /// The factor an index-wheel position is scaled by when moving from `from_gear`
 /// teeth to `to_gear` teeth.
 ///
-/// Both tooth counts are taken by MAGNITUDE. An `.asc` header may carry a negative
-/// `g` (a convention for a reversed wheel), and the orbit math, the solver and
-/// [`crate::design::Design`]'s own `gear_teeth_abs` all read it that way; scaling by
-/// a signed ratio instead would flip every index to a negative position no wheel
-/// has. `from_gear == 0` (never a valid real gear, but not rejected by this crate's
-/// own types either) is treated as a no-op ratio (`1.0`) rather than dividing by
-/// zero, so this is always finite.
+/// Both tooth counts are taken by magnitude: a negative `g` in an `.asc` header marks a
+/// reversed wheel, and a signed ratio would turn every index negative. A `from_gear` of
+/// zero gives the ratio `1.0`, rather than dividing by zero.
 #[must_use]
 pub fn remap_ratio(from_gear: i32, to_gear: i32) -> f64 {
     let from_abs = f64::from(from_gear.unsigned_abs());
@@ -223,16 +219,13 @@ impl Design {
         }
     }
 
-    /// Gives every tier that has no [`crate::design::TierId`] yet a freshly
-    /// allocated one, so [`Design::tier_ids`] ends up exactly as long as
-    /// [`Design::tiers`].
+    /// Gives every tier that has no [`crate::design::TierId`] yet a fresh one, so
+    /// [`Design::tier_ids`] is exactly as long as [`Design::tiers`].
     ///
-    /// A caller that seeds `tiers` directly (a template, a hand-built fixture)
-    /// instead of through [`Edit::AddTier`] leaves the parallel `tier_ids` short,
-    /// and [`Edit::SetTierTarget`] -- which finds its tier by id -- then fails with
-    /// "tier index N out of range" until some other edit happens to heal the
-    /// list. Existing ids are never changed or reordered and `tier_ids` is never
-    /// shortened, so calling this on a consistent design changes nothing.
+    /// A caller that seeds `tiers` directly leaves `tier_ids` short, and then
+    /// [`Edit::SetTierTarget`] (which finds its tier by id) fails. Existing ids are
+    /// never changed or reordered, and `tier_ids` is never shortened, so this changes
+    /// nothing on a consistent design.
     pub fn ensure_tier_ids(&mut self) {
         while self.tier_ids.len() < self.tiers.len() {
             let id = self.allocate_tier_id();
@@ -240,23 +233,14 @@ impl Design {
         }
     }
 
-    /// Grows [`Design::tier_ids`] with freshly allocated ids until it matches
-    /// [`Design::tiers`]' current length (see [`Self::ensure_tier_ids`]), or
-    /// truncates it if `tiers` somehow
-    /// got SHORTER than `tier_ids` (defensive only -- nothing in this crate
-    /// removes a tier without also removing its id via [`Self::apply_edit`]
-    /// itself; only a direct `tiers.truncate()`/`tiers.pop()` outside `Edit`
-    /// could cause this side). A caller that pushes onto `self.tiers` directly
-    /// (this crate's own test fixtures do, throughout) leaves `tier_ids` behind,
-    /// and the three `Edit` arms that index or pop `tier_ids` by position
-    /// (`AddTier`, [`Self::apply_remove_tier`], [`Self::apply_move_tier`]) each
-    /// call this themselves, AFTER their own bounds check has already passed --
-    /// never before, and never once unconditionally for every `Edit` variant the
-    /// way this used to run at the very top of [`Self::apply_edit`]: healing
-    /// `tier_ids` is itself a mutation, and running it before validation would
-    /// leave `self` partly modified even when the edit is about to be rejected,
-    /// breaking [`Self::apply_edit`]'s own "without modifying `self`" error
-    /// contract for every OTHER variant in between.
+    /// Brings [`Design::tier_ids`] to the length of [`Design::tiers`].
+    ///
+    /// Ids are added (see [`Self::ensure_tier_ids`]), or the list is truncated if `tiers` is
+    /// shorter (defensive only). Callers that push onto `tiers` directly leave `tier_ids`
+    /// behind. The edits that index `tier_ids` by position (`AddTier`,
+    /// [`Self::apply_remove_tier`], [`Self::apply_move_tier`]) call this after their bounds
+    /// check, never before: healing is a mutation, and a rejected edit must leave `self`
+    /// unchanged.
     pub(super) fn sync_tier_ids(&mut self) {
         match self.tier_ids.len().cmp(&self.tiers.len()) {
             std::cmp::Ordering::Less => self.ensure_tier_ids(),
@@ -324,13 +308,11 @@ impl Design {
         })
     }
 
-    /// [`Edit::RemoveTier`]'s own apply/inverse half, split out of
-    /// [`Self::apply_edit`] purely to stay under clippy's `too_many_lines` (same
-    /// reasoning as [`Self::apply_set_schedule`]). Restoring the removed tier's own
-    /// [`crate::design::TierId`], cheater offset and/or note (if either was set)
-    /// each needs a further step beyond a plain `AddTier` inverse -- see the inline
-    /// comment below -- so the inverse is always a multi-step [`Edit::Batch`], not
-    /// the plain `AddTier` a naive inverse would be.
+    /// [`Edit::RemoveTier`]'s apply/inverse half.
+    ///
+    /// Split out of [`Self::apply_edit`] to stay under clippy's `too_many_lines`. The inverse
+    /// is always an [`Edit::Batch`]: a plain `AddTier` would allocate a fresh
+    /// [`crate::design::TierId`] and would not restore the tier's per-tier state.
     fn apply_remove_tier(&mut self, index: usize, tier_count: usize) -> Result<Edit, EditError> {
         if index >= tier_count {
             return Err(EditError { index, tier_count });
@@ -356,16 +338,10 @@ impl Design {
                 index,
                 tier: removed,
             },
-            // `AddTier`'s own apply allocates a FRESH `TierId` (the only way one
-            // is ever created outside a reload -- see `Design::allocate_tier_id`),
-            // never the removed one, so this step overwrites it back to
-            // `removed_id` -- restoring the SAME identity, not a merely distinct
-            // one, is the whole point of undoing a removal (see `TierId`'s own
-            // "never reused" doc comment: this is the one case a plain `AddTier`
-            // inverse would otherwise silently violate). Ordered BEFORE
-            // `SetTierTarget` below: that step resolves its own id via
-            // `Design::tier_id_at(index)`, which must already read back
-            // `removed_id` for the restored target to attach to the right tier.
+            // `AddTier` allocates a fresh `TierId`. This step puts back the removed one,
+            // since undo must restore the same identity (`TierId`s are never reused).
+            // It runs before `SetTierTarget` below, which finds its tier through
+            // `Design::tier_id_at`.
             Edit::RestoreTierId {
                 index,
                 id: removed_id,
@@ -408,9 +384,7 @@ impl Design {
             });
         }
         steps.extend(removed_surface);
-        // Always at least `[AddTier, RestoreTierId]` now, so this is always a
-        // real `Batch` -- unlike before `RestoreTierId` existed, there is no
-        // remaining single-step case to collapse to.
+        // Always a `Batch` of at least `AddTier` and `RestoreTierId`.
         Ok(Edit::Batch(steps))
     }
 
@@ -707,10 +681,9 @@ impl Design {
         // Facet-by-facet frosting names its facets by index-wheel position, so it
         // moves with the tiers' own indices. Empty for every design without it.
         let frosting_inverse = self.remap_frosted_facets(from_gear, to_gear, rounding);
-        // A gear change must carry concave placements along too, or they would
-        // silently keep their old tooth numbers. Only a design that has concave
-        // tiers (or facet frosting) gets the `Batch`, so every existing design's
-        // inverse stays exactly the plain `RestoreIndices` it has always been.
+        // A gear change must carry concave placements along too, or they keep their old
+        // tooth numbers. A design with neither concave tiers nor frosted facets gets the
+        // plain `RestoreIndices` inverse.
         if self.concave_tiers.is_empty() {
             if frosting_inverse.is_empty() {
                 return Ok(flat_inverse);
@@ -758,11 +731,8 @@ impl Design {
             let previous_detached = std::mem::replace(&mut slot.detached, detached);
             previous.push((index, previous_indices, previous_detached));
         }
-        // When an entry list names the same tier twice (latent today -- every real
-        // caller dedupes by construction, but `Edit` is public), the undo must
-        // reverse the exact order of application, same as `Edit::Batch`'s own
-        // sub-inverses -- otherwise replaying `previous` forward re-derives the wrong
-        // intermediate value for a repeated index.
+        // A tier named twice must undo in reverse order, as with `Edit::Batch`; replaying
+        // `previous` forward would otherwise re-derive a wrong intermediate value.
         previous.reverse();
         Ok(Edit::RestoreIndices { tiers: previous })
     }
@@ -786,10 +756,7 @@ impl Design {
             let actual_previous = std::mem::replace(&mut slot.angle_deg, new_deg);
             inverse.push((index, new_deg, actual_previous));
         }
-        // Same as `apply_restore_indices` -- when `changes` names the same tier
-        // index twice, undo in reverse order, or replaying `inverse` forward
-        // re-applies an intermediate value instead of the tier's true original
-        // angle.
+        // Undo in reverse for a tier named twice, as in `apply_restore_indices`.
         inverse.reverse();
         Ok(Edit::RetargetAngles { changes: inverse })
     }

@@ -1,13 +1,9 @@
-//! A-Trous denoiser per frame size (BLD-2; finding PERF-4 in
-//! `review_perf_2026-10-12_fable.md`, section 5, table row 7).
+//! Cost of one A-Trous denoise per frame size, with and without the path signature.
 //!
-//! Expected before any fix, 16-core host, release: 267 ms per call at 800x600 and
-//! 1 072 ms at 1080p (the logged denoiser line); after PERF-4 about 70-130 ms and
-//! 270-500 ms. The guides come from the real guide pass on a round brilliant, the colour
-//! is deterministic synthetic noise at 16 spp (taper well above the identity cut-off), so
-//! the edge-stopping terms do real work. The "sig" variants add the path signature
-//! (`n_d = 1.76`); a persistent [`AtrousDenoiser`] is reused across iterations like the
-//! live loop does.
+//! The guides come from the real guide pass on a round brilliant. The colour is
+//! deterministic synthetic noise at 16 spp, so the edge-stopping terms do real work. The
+//! "sig" variants add the path signature (`n_d = 1.76`). One persistent [`AtrousDenoiser`]
+//! is reused across iterations, as in the live loop.
 //!
 //! Run: `cargo bench -p pleochroma --bench denoise`.
 

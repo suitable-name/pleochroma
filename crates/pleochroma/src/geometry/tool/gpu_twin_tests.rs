@@ -10,7 +10,8 @@
 //! ([`ToolPrimitive::ray_interval`]), so what it pins is the scan algorithm and the
 //! bounding-sphere reject, on any host. The piece geometry itself (intervals, signed
 //! distances, normals) is a direct WGSL transliteration of the same CPU code and is checked
-//! against the CPU on a real adapter by `renderer::gpu::tool_check` (`PLEOCHROMA_REQUIRE_GPU`).
+//! against the CPU on a real adapter by `renderer::gpu::tool_check`
+//! (`PLEOCHROMA_REQUIRE_GPU`).
 //!
 //! The carve also reports whether its hit is an entry into the material or an exit
 //! (`CtCarve::entering` in WGSL, `HitInfo::side` out of `intersect_ray`), the twin of the
@@ -496,7 +497,7 @@ fn a_ray_parallel_to_a_plane_and_outside_it_misses_exactly_as_on_the_cpu() {
 /// wedge, `5e-5` outside the ball and `1e-4` below the face, heading into it, is in the
 /// cavity for its whole next stretch. The ball boundary it crossed is within `T_FLOOR`, so
 /// the carve skips it; the hit that follows (the ball's far side, back into the material)
-/// is an entry. The old toggle would still say "inside the material" there; the scan's
+/// is an entry. A blind toggle would still say "inside the material" there; the scan's
 /// `entering` (which `bounce_extend` adopts as `inside_gem = side == HIT_SIDE_EXIT`) names
 /// the right medium, exactly as the CPU does.
 #[test]

@@ -32,6 +32,22 @@ impl RenderPhase {
     }
 }
 
+/// What a new scene does when the previous phase was `Final`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum AfterFinal {
+    /// Begin with the quarter-resolution bootstrap as usual.
+    Restart,
+    /// Go straight to the final phase (the final picture is computed from at once).
+    Keep,
+}
+
+impl AfterFinal {
+    /// `Keep` when `keep` is set.
+    pub(super) const fn from_keep(keep: bool) -> Self {
+        if keep { Self::Keep } else { Self::Restart }
+    }
+}
+
 /// One cheap image per scene, followed by an independent final accumulation.
 /// A target-only edit has the same generation and cannot restart this bootstrap.
 #[derive(Default)]
@@ -42,6 +58,9 @@ pub(super) struct PreviewState {
 }
 
 impl PreviewState {
+    /// The selection without a keep-final request; the tests compare [`Self::select_keeping`]
+    /// against it.
+    #[cfg(test)]
     pub(super) fn select(
         &mut self,
         generation: u64,
@@ -50,10 +69,34 @@ impl PreviewState {
         target: LiveComputeTarget,
         display_ready: bool,
     ) -> (RenderPhase, bool) {
+        self.select_keeping(
+            generation,
+            moving,
+            remote_active,
+            target,
+            display_ready,
+            AfterFinal::Restart,
+        )
+    }
+
+    /// [`Self::select`], except that `keep_final` lets a scene that follows a FINAL phase go
+    /// straight to the final phase: no quarter-resolution bootstrap. For a change the final
+    /// picture is computed from at once (an instant re-light of a stored pose, `reshade_view`).
+    /// `false`, or a previous phase that was not final, is exactly [`Self::select`].
+    pub(super) fn select_keeping(
+        &mut self,
+        generation: u64,
+        moving: bool,
+        remote_active: bool,
+        target: LiveComputeTarget,
+        display_ready: bool,
+        after_final: AfterFinal,
+    ) -> (RenderPhase, bool) {
         let generation_changed = self.generation != Some(generation);
         if generation_changed {
             self.generation = Some(generation);
-            self.published = false;
+            self.published =
+                after_final == AfterFinal::Keep && self.previous_phase == Some(RenderPhase::Final);
         }
         let phase = if remote_active || matches!(target, LiveComputeTarget::RemoteOnly) {
             RenderPhase::Final
@@ -66,7 +109,7 @@ impl PreviewState {
         } else {
             RenderPhase::Bootstrap
         };
-        // Explicitly reset even if floor-dividing a tiny frame kept its dimensions.
+        // A new scene or a phase change is reported as `changed`.
         let changed = generation_changed
             || self
                 .previous_phase
